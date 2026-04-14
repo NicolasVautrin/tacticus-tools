@@ -1,0 +1,12 @@
+node_modules/
+dist/
+data/
+sources/
+logs/
+il2cpp/
+*.apk
+*.so
+__pycache__/
+.env
+.idea/
+.claude/settings.local.json
