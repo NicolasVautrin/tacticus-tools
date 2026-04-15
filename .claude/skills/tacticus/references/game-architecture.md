@@ -100,3 +100,29 @@ Accessibles via les backing fields du runner :
 - `<DamagePrediction>k__BackingField` — prediction de degats
 - `<TargetingQuery>k__BackingField` — ciblage (GetValidTargets, HasValidTargets)
 - `_state` — MatchState courant
+
+## Combats headless
+
+Le moteur de combat (`IdunRunner`, `BattleLogicAssembly`) est 100% decouple de Unity — pas de MonoBehaviour, pas de rendering. Combats simulables en ~100ms.
+
+### Pipeline capture → simulation
+
+1. **Capturer** via `hooks/_oneshot/capture-battle-config.js`
+   - Hook `IdunGameViews.Update` → `_runner` → `<Configuration>k__BackingField`
+   - Serialise via `JsonConvert.SerializeObject` (Newtonsoft natif)
+   - `readIl2cppString` limitee a 500 chars — le script utilise `_readIl2cppStringLarge` (2M)
+   - Sortie : `data/arena-battle-config-newtonsoft.json` (525 KB)
+
+2. **Deserialiser** via `hooks/_oneshot/run-headless-battle.js`
+   - `JsonConvert.DeserializeObject(String, Type, JsonSerializerSettings)` — 3 args
+   - Type obtenu via `il2cpp_type_get_object(il2cpp_class_get_type(bcClass))`
+
+3. **Executer** via `AutomaticBattleRunner`
+   - Voler `_logger` (0x50) et `_timeSource` (0x58) du runner actif
+   - `.ctor(logger, config, maxTurns, false, false, timeSource)` puis `.Run()`
+   - Retourne `AutomaticBattleResult` en ~100ms
+
+### Notes
+
+- `stop_previous` dans `/api/scripts/run` arrete auto les sessions precedentes
+- Les configs PvP n'ont que les `PredefinedUnits` adverses — ajouter ceux du joueur avant simulation

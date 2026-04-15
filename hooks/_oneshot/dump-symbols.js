@@ -1,5 +1,5 @@
-// oneshot: Dump IL2CPP symbols (methods + enums) for backend resolution
-// Run once per APK version. Sends {t: "symbols", methods: {...}, enums: {...}}
+// oneshot: Dump IL2CPP symbols (methods + enums + fields) for backend resolution
+// Run once per APK version. Sends {t: "symbols", methods: {...}, enums: {...}, fields: {...}}
 // The backend saves this as symbols.json in the workdir.
 //
 // Usage: inject via POST /api/scripts/run, wait for the "symbols" message, then stop.
@@ -23,6 +23,9 @@ var field_get_name = new NativeFunction(il2cpp.findExportByName("il2cpp_field_ge
 var class_is_enum = new NativeFunction(il2cpp.findExportByName("il2cpp_class_is_enum"), "int32", ["pointer"]);
 var field_is_literal = new NativeFunction(il2cpp.findExportByName("il2cpp_field_is_literal"), "int32", ["pointer"]);
 var field_static_get_value = new NativeFunction(il2cpp.findExportByName("il2cpp_field_static_get_value"), "void", ["pointer", "pointer"]);
+var field_get_offset = new NativeFunction(il2cpp.findExportByName("il2cpp_field_get_offset"), "int32", ["pointer"]);
+var field_get_type = new NativeFunction(il2cpp.findExportByName("il2cpp_field_get_type"), "pointer", ["pointer"]);
+var type_get_name = new NativeFunction(il2cpp.findExportByName("il2cpp_type_get_name"), "pointer", ["pointer"]);
 
 function s(p) { try { return p.readUtf8String() || ""; } catch(e) { return ""; } }
 
@@ -30,8 +33,10 @@ send({t: "progress", msg: "Starting symbol dump..."});
 
 var methods = {};   // hex offset string → "Namespace.Class.Method"
 var enums = {};     // "Namespace.ClassName" → {value_int_string: "FieldName", ...}
+var fields = {};    // "Namespace.ClassName" → [{n: "fieldName", t: "TypeName", o: offset}, ...]
 var methodCount = 0;
 var enumCount = 0;
+var fieldClassCount = 0;
 
 var domain = domain_get();
 var sizePtr = Memory.alloc(4);
@@ -96,12 +101,35 @@ for (var i = 0; i < asmCount; i++) {
                 enumCount++;
             }
         }
+
+        // --- Fields (non-enum classes) ---
+        if (!class_is_enum(klass)) {
+            var classFields = [];
+            var fit2 = Memory.alloc(Process.pointerSize);
+            fit2.writePointer(ptr(0));
+            var f2;
+            while (!(f2 = class_get_fields(klass, fit2)).isNull()) {
+                if (field_is_literal(f2)) continue; // skip constants
+                var fname2 = s(field_get_name(f2));
+                var foffset = field_get_offset(f2);
+                var ftypeName = "";
+                try {
+                    var ftype = field_get_type(f2);
+                    if (!ftype.isNull()) ftypeName = s(type_get_name(ftype));
+                } catch(e) {}
+                classFields.push({n: fname2, t: ftypeName, o: foffset});
+            }
+            if (classFields.length > 0) {
+                fields[fullName] = classFields;
+                fieldClassCount++;
+            }
+        }
     }
 }
 
-send({t: "progress", msg: "Done: " + methodCount + " methods, " + enumCount + " enums"});
+send({t: "progress", msg: "Done: " + methodCount + " methods, " + enumCount + " enums, " + fieldClassCount + " classes with fields"});
 
 // Send in chunks if too large — Frida message size limit is ~128MB so should be fine
-send({t: "symbols", methods: methods, enums: enums});
+send({t: "symbols", methods: methods, enums: enums, fields: fields});
 
 send({t: "progress", msg: "Symbol dump complete. You can stop this script now."});

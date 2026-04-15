@@ -23,15 +23,13 @@ tacticus-tools/
   server/src/         # Serveur Node.js (Express + frida-node + ws)
   hooks/              # Bibliotheque de hooks Frida (composition par concat)
   data/               # Fichiers de donnees (gitignore)
-    symbols.json      # 168k methodes + 2015 enums
-    i2_en.json        # 17810 termes I2
-    gameconfig-abilities.json  # 599 configs (active + triggered + traits)
-    gameconfig-units.json      # 117 unites
-    gameconfig-summons.json    # 55 summons
   lib/                # Helpers Python (state.py, hex.py, rpc.py)
-  sources/            # Stubs C# depuis IL2CPP runtime dump (gitignore)
+  sources/            # Stubs C# enrichis avec offsets (gitignore, 9600+ fichiers)
   logs/               # JSONL des sessions (gitignore)
-  scripts/            # Scripts standalone et outils de dump
+  scripts/
+    ghidra/           # Scripts Ghidra headless (Java)
+    python/           # Generateurs de cibles, enrichissement sources
+    frida/            # Scripts Frida standalone (probes, dumps, tests)
 ```
 
 ## Demarrage du serveur
@@ -50,7 +48,9 @@ Ne JAMAIS utiliser de hot-reload (casse les sessions Frida).
 - [hooks.md](references/hooks.md) — modules Frida, composition, Interceptor.replace, conventions
 - [rpc-api.md](references/rpc-api.md) — RPCs, format state, events, Python helpers
 - [knowledge.md](references/knowledge.md) — pieges resolus (unboxed, same-thread, findMethod, etc.)
-- [game-architecture.md](references/game-architecture.md) — ECS, entites, composants, grille hex
+- [game-architecture.md](references/game-architecture.md) — ECS, entites, composants, grille hex, combats headless
+- [decompilation.md](references/decompilation.md) — Ghidra headless, scripts, methode, adresses
+- [ai-engine-audit.md](references/ai-engine-audit.md) — Audit du moteur IA depuis decompilation
 
 ## API du serveur
 

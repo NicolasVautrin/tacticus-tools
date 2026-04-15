@@ -2,6 +2,12 @@
 
 Serveur Node.js minimal pour le hooking Frida de WH40K Tacticus.
 
+## Structure
+
+- Racine du projet : `C:\Users\nicolasv\tacticus-tools`
+- Le module `frida` est installe dans `server/node_modules` — tout script Node qui `require('frida')` doit etre execute depuis `server/`
+- Les sources decompilees enrichies (offsets) sont dans `sources/` (gitignored)
+
 ## Demarrage
 
 ```bash
@@ -12,7 +18,7 @@ Le serveur ecoute sur `http://127.0.0.1:8765`.
 
 ## Device
 
-- Xiaomi 2201117TY, serial `f32224e7`
+- Xiaomi 2201117TY, serial `f32224e7`, roote
 - Package : `com.snowprintstudios.tacticus`
 
 ## Injection rapide
@@ -55,3 +61,12 @@ Pour tuer le serveur : Ctrl+C ou `kill $(lsof -ti:8765)`.
 - Utiliser `--reload` ou equivalent hot-reload (casse les sessions Frida)
 - Appeler stop manuellement sur une session avec Interceptor.replace actif (crash le jeu)
 - Commit les fichiers data/ (12M+ symbols.json, etc.)
+
+## Documentation detaillee
+
+!include .claude/skills/tacticus/references/hooks.md
+!include .claude/skills/tacticus/references/rpc-api.md
+!include .claude/skills/tacticus/references/knowledge.md
+!include .claude/skills/tacticus/references/game-architecture.md
+!include .claude/skills/tacticus/references/decompilation.md
+!include .claude/skills/tacticus/references/ai-engine-audit.md

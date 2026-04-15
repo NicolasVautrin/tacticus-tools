@@ -59,10 +59,24 @@ app.get("/api/devices/:serial/processes", async (req, res) => {
 
 app.post("/api/scripts/run", async (req, res) => {
   try {
-    const { serial, mode, pid, target, source, log_dir } = req.body;
+    const { serial, mode, pid, target, source, log_dir, stop_previous } = req.body;
     if (!serial || !mode || !source) {
       return res.status(400).json({ error: "serial, mode, source required" });
     }
+
+    // Stop previous running sessions for the same PID (default: true)
+    if (stop_previous !== false && pid) {
+      const running = listSessions().filter(
+        (s) => s.pid === Number(pid) && s.status === "running",
+      );
+      for (const s of running) {
+        try { await stopSession(s.id); } catch { /* ignore */ }
+      }
+      if (running.length > 0) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    }
+
     const session = await runScript({
       serial,
       mode,
