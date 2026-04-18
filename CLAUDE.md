@@ -1,69 +1,71 @@
 # tacticus-tools
 
-Serveur Node.js minimal pour le hooking Frida de WH40K Tacticus.
+Hooking Frida de WH40K Tacticus — monorepo TypeScript.
 
 ## Structure
 
-- Racine du projet : `C:\Users\nicolasv\tacticus-tools`
-- Le module `frida` est installe dans `server/node_modules` — tout script Node qui `require('frida')` doit etre execute depuis `server/`
-- Les sources decompilees enrichies (offsets) sont dans `sources/` (gitignored)
+- Racine : `C:\Users\nicolasv\tacticus-tools`
+- `frida/` — codebase active (hooks TS + host TS, bundlé par `frida-compile`)
+  - `frida/src/hooks/` — script injecté
+  - `frida/src/host/` — serveur Node qui pilote les sessions Frida
+  - `frida/dist/` — outputs build (gitignored)
+- `hooks-legacy/` — ancien répertoire de hooks, conservé pour one-shots (dumps,
+  probes historiques). Voir `hooks-legacy/README.md` pour classification.
+- `server/` — ancien serveur Node (obsolete, à renommer en `server-legacy/`
+  quand le process node aura relâché les fichiers)
+- `data/` — dumps IL2CPP (`symbols.json`, abilities, enums) — gitignored
+- `sources/` — sources décompilées enrichies offsets — gitignored
 
-## Demarrage
+## Démarrage
 
 ```bash
-cd server && npm run dev
+cd frida && npm run dev
 ```
 
-Le serveur ecoute sur `http://127.0.0.1:8765`.
+Serveur sur `http://127.0.0.1:8765`.
 
 ## Device
 
-- Xiaomi 2201117TY, serial `f32224e7`, roote
+- Xiaomi 2201117TY, serial `f32224e7`, rooté
 - Package : `com.snowprintstudios.tacticus`
 
-## Injection rapide
+## Build + Injection
 
 ```bash
-PID=$(adb -s f32224e7 shell "ps -A | grep -i tacticus" | awk '{print $2}')
-HOOKS="hooks"
-cat "$HOOKS/_utils/il2cpp-helpers.js" \
-    "$HOOKS/_utils/il2cpp-invoke.js" \
-    "$HOOKS/_utils/il2cpp-serializer.js" \
-    "$HOOKS/_utils/matchstate-reader.js" \
-    "$HOOKS/autoplay/message-factory.js" \
-    "$HOOKS/autoplay/action-queue.js" \
-    "$HOOKS/autoplay/turn-observer.js" \
-    "$HOOKS/autoplay/input-capture.js" \
-    "$HOOKS/autoplay/recv-handler.js" \
-    > /tmp/composed.js
+cd frida && npm run build:hooks        # → frida/dist/hooks.js
 
-# Payload trop gros pour curl inline
+PID=$(adb -s f32224e7 shell "ps -A | grep -i tacticus" | awk '{print $2}')
 node -e "
 const fs = require('fs');
-const source = fs.readFileSync('/tmp/composed.js', 'utf-8');
+const source = fs.readFileSync('C:/Users/nicolasv/tacticus-tools/frida/dist/hooks.js', 'utf-8');
 const payload = JSON.stringify({serial: 'f32224e7', mode: 'attach', pid: $PID, source, log_dir: 'logs'});
-fs.writeFileSync('/tmp/inject.json', payload);
+fs.writeFileSync('C:/Users/nicolasv/AppData/Local/Temp/inject.json', payload);
 "
 curl -s -X POST http://127.0.0.1:8765/api/scripts/run \
-  -H "Content-Type: application/json" -d @/tmp/inject.json
+    -H "Content-Type: application/json" \
+    -d @C:/Users/nicolasv/AppData/Local/Temp/inject.json
 ```
 
-## Arret
+## Arrêt
 
 ```bash
 curl -s -X POST http://127.0.0.1:8765/api/scripts/{id}/stop
 ```
 
-Pour tuer le serveur : Ctrl+C ou `kill $(lsof -ti:8765)`.
+Pour tuer le serveur : Ctrl+C dans le terminal `npm run dev`, ou
+`curl -s -X POST http://127.0.0.1:8765/api/_dev/shutdown`.
 
 ## Ne jamais
 
-- Utiliser `--reload` ou equivalent hot-reload (casse les sessions Frida)
-- Appeler stop manuellement sur une session avec Interceptor.replace actif (crash le jeu)
-- Commit les fichiers data/ (12M+ symbols.json, etc.)
+- Utiliser `--reload`/hot-reload côté host (casse les sessions Frida actives)
+- Appeler stop manuellement sur une session avec `Interceptor.replace` actif
+  sans le protocole cleanup (crash le jeu)
+- Commit `data/` (symbols.json 12M+, etc.) ou `frida/dist/`, `hooks-legacy/`,
+  `server/`, `logs/`
 
-## Documentation detaillee
+## Documentation détaillée
 
+!include .claude/skills/tacticus/references/frida-host.md
 !include .claude/skills/tacticus/references/hooks.md
 !include .claude/skills/tacticus/references/rpc-api.md
 !include .claude/skills/tacticus/references/knowledge.md

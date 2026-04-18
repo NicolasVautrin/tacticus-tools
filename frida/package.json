@@ -1,0 +1,27 @@
+{
+  "name": "tacticus-frida",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:hooks": "frida-compile src/hooks/main.ts -o dist/hooks.js",
+    "build:host": "tsc -p tsconfig.host.json",
+    "build": "npm run build:hooks && npm run build:host",
+    "dev": "tsx src/host/index.ts",
+    "watch:hooks": "frida-compile src/hooks/main.ts -o dist/hooks.js -w"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "frida": "^17.9.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/frida-gum": "^19.0.0",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.12",
+    "frida-compile": "^19.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

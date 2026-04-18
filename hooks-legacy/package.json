@@ -1,0 +1,13 @@
+{
+  "name": "tacticus-hooks",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "frida-compile autoplay/full-recorder.js -o dist/full-recorder.js",
+    "build:watch": "frida-compile autoplay/full-recorder.js -o dist/full-recorder.js -w"
+  },
+  "devDependencies": {
+    "frida-compile": "^18.2.0"
+  }
+}
