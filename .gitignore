@@ -10,3 +10,10 @@ __pycache__/
 .env
 .idea/
 .claude/settings.local.json
+.claude/plans/
+.claude/worktrees/
+frida/assets/
+tools/
+app/
+build-errors.log
+inject.json

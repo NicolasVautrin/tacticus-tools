@@ -1,0 +1,200 @@
+{
+  "_comment": "C# -> Java mapping for the transpiler. Used by transpile_ast.py to rewrite IL2CPP decompiled .c into idiomatic Java. Keys/values are kept deliberately flat for easy diffing.",
+
+  "primitives": {
+    "System.Void": "void",
+    "System.Boolean": "boolean",
+    "System.Byte": "byte",
+    "System.SByte": "byte",
+    "System.Char": "char",
+    "System.Int16": "short",
+    "System.UInt16": "short",
+    "System.Int32": "int",
+    "System.UInt32": "int",
+    "System.Int64": "long",
+    "System.UInt64": "long",
+    "System.IntPtr": "long",
+    "System.UIntPtr": "long",
+    "System.Single": "float",
+    "System.Double": "double",
+    "System.String": "String",
+    "System.Object": "Object",
+    "System.Type": "Class<?>",
+    "System.Exception": "RuntimeException"
+  },
+
+  "_comment_collections": "Generic collections: the <T> form is handled separately; these entries are for the raw/outer type name lookup.",
+
+  "collections": {
+    "System.Collections.Generic.List":                 "java.util.ArrayList",
+    "System.Collections.Generic.IList":                "java.util.List",
+    "System.Collections.Generic.IReadOnlyList":        "java.util.List",
+    "System.Collections.Generic.IEnumerable":          "java.lang.Iterable",
+    "System.Collections.Generic.IEnumerator":          "java.util.Iterator",
+    "System.Collections.Generic.Dictionary":           "java.util.HashMap",
+    "System.Collections.Generic.IDictionary":          "java.util.Map",
+    "System.Collections.Generic.IReadOnlyDictionary":  "java.util.Map",
+    "System.Collections.Generic.SortedDictionary":     "java.util.TreeMap",
+    "System.Collections.Generic.HashSet":              "java.util.HashSet",
+    "System.Collections.Generic.ISet":                 "java.util.Set",
+    "System.Collections.Generic.Queue":                "java.util.ArrayDeque",
+    "System.Collections.Generic.Stack":                "java.util.ArrayDeque",
+    "System.Collections.Generic.KeyValuePair":         "java.util.Map.Entry",
+    "System.Collections.ArrayList":                    "java.util.ArrayList"
+  },
+
+  "_comment_collection_methods": "Method-level mapping. Key = C# member name on a List/Dict/etc., value = Java equivalent. For get_X/set_X properties, we strip the prefix and use the property name.",
+
+  "collection_methods": {
+    "List.Add":             "add",
+    "List.AddRange":        "addAll",
+    "List.Clear":           "clear",
+    "List.Contains":        "contains",
+    "List.IndexOf":         "indexOf",
+    "List.Insert":          "add",
+    "List.Remove":          "remove",
+    "List.RemoveAt":        "remove",
+    "List.Sort":            "sort",
+    "List.ToArray":         "toArray",
+    "List.get_Count":       "size",
+    "List.get_Item":        "get",
+    "List.set_Item":        "set",
+
+    "IList.get_Item":       "get",
+    "IList.set_Item":       "set",
+    "IList.get_Count":      "size",
+
+    "IReadOnlyList.get_Count": "size",
+    "IReadOnlyList.get_Item": "get",
+
+    "IEnumerable.GetEnumerator": "iterator",
+    "IEnumerator.MoveNext":      "hasNext",
+    "IEnumerator.get_Current":   "next",
+    "IEnumerator.Reset":         "/* IEnumerator.Reset has no Java equivalent */",
+    "IEnumerator.Dispose":       "/* IEnumerator.Dispose has no Java equivalent */",
+
+    "Dictionary.Add":             "put",
+    "Dictionary.Remove":          "remove",
+    "Dictionary.Clear":           "clear",
+    "Dictionary.ContainsKey":     "containsKey",
+    "Dictionary.ContainsValue":   "containsValue",
+    "Dictionary.TryGetValue":     "get",
+    "Dictionary.get_Count":       "size",
+    "Dictionary.get_Item":        "get",
+    "Dictionary.set_Item":        "put",
+    "Dictionary.get_Keys":        "keySet",
+    "Dictionary.get_Values":      "values",
+
+    "HashSet.Add":         "add",
+    "HashSet.Remove":      "remove",
+    "HashSet.Contains":    "contains",
+    "HashSet.Clear":       "clear",
+    "HashSet.get_Count":   "size",
+
+    "Queue.Enqueue":       "offer",
+    "Queue.Dequeue":       "poll",
+    "Queue.Peek":          "peek",
+    "Queue.get_Count":     "size",
+
+    "Stack.Push":          "push",
+    "Stack.Pop":           "pop",
+    "Stack.Peek":          "peek",
+    "Stack.get_Count":     "size"
+  },
+
+  "_comment_system_methods": "Direct method-name translations for System.* APIs used heavily in the game.",
+
+  "system_methods": {
+    "System.Math.Min":       "Math.min",
+    "System.Math.Max":       "Math.max",
+    "System.Math.Abs":       "Math.abs",
+    "System.Math.Floor":     "Math.floor",
+    "System.Math.Ceiling":   "Math.ceil",
+    "System.Math.Round":     "Math.round",
+    "System.Math.Sqrt":      "Math.sqrt",
+    "System.Math.Pow":       "Math.pow",
+    "System.String.IsNullOrEmpty": "java.util.Objects.toString(x, \"\").isEmpty()",
+    "System.String.Concat":  "String.join",
+    "System.String.Format":  "String.format",
+    "System.Object.ReferenceEquals": "==",
+    "System.Array.Empty":    "new Object[0]"
+  },
+
+  "_comment_il2cpp_runtime": "IL2CPP runtime helpers that appear in Ghidra output. These are either elided or translated to Java idioms.",
+
+  "il2cpp_runtime": {
+    "il2cpp_runtime_class_init":        "/* elided: runtime type init */",
+    "il2cpp_codegen_object_new":        "new",
+    "il2cpp_object_new_checked":        "new",
+    "il2cpp_codegen_raise_execution_engine_exception": "throw new RuntimeException",
+    "il2cpp_codegen_raise_null_reference": "throw new NullPointerException",
+    "il2cpp_codegen_raise_divide_by_zero_exception": "throw new ArithmeticException(\"div by zero\")",
+    "il2cpp_codegen_array_bounds_check": "/* elided: JVM does bounds check */",
+    "il2cpp_codegen_no_return":         "throw new AssertionError(\"unreachable\")",
+    "il2cpp_resolve_interface_method":  "/* elided: direct interface dispatch in JVM */",
+    "il2cpp_raise_null_reference":      "throw new NullPointerException",
+    "il2cpp_value_box":                 "/* elided: autoboxing */",
+    "il2cpp_value_unbox":               "/* elided: autounboxing */",
+    "memmove":                          "/* elided: struct copy */",
+    "memcpy":                           "/* elided: struct copy */"
+  },
+
+  "_comment_fix64": "FixMath.NET.Fix64 API -> our tacticus.idunbattle.utils.Fix64 class",
+
+  "fix64": {
+    "FixMath.NET.Fix64":               "Fix64",
+    "FixMath.NET.Fix64.op_Addition":   "Fix64.add",
+    "FixMath.NET.Fix64.op_Subtraction":"Fix64.sub",
+    "FixMath.NET.Fix64.op_Multiply":   "Fix64.mul",
+    "FixMath.NET.Fix64.op_Division":   "Fix64.div",
+    "FixMath.NET.Fix64.op_UnaryNegation": "Fix64.neg",
+    "FixMath.NET.Fix64.op_GreaterThan":   "Fix64.gt",
+    "FixMath.NET.Fix64.op_LessThan":      "Fix64.lt",
+    "FixMath.NET.Fix64.op_GreaterThanOrEqual": "Fix64.gte",
+    "FixMath.NET.Fix64.op_LessThanOrEqual":    "Fix64.lte",
+    "FixMath.NET.Fix64.op_Equality":  "Fix64.eq",
+    "FixMath.NET.Fix64.op_Inequality":"Fix64.ne",
+    "FixMath.NET.Fix64.op_Implicit":  "Fix64.from",
+    "FixMath.NET.Fix64.FromRaw":      "Fix64.fromRaw",
+    "FixMath.NET.Fix64.Floor":        "Fix64.floor",
+    "FixMath.NET.Fix64.Ceiling":      "Fix64.ceil",
+    "FixMath.NET.Fix64.Abs":          "Fix64.abs"
+  },
+
+  "_comment_namespaces": "Prefix-based namespace mapping: C# dotted path -> Java dotted package (lowercased). Any subsequent identifier after the matched prefix is kept as-is (class names), except PascalCase methods -> camelCase when we detect a method context.",
+
+  "namespaces": {
+    "IdunBattle.":               "tacticus.idunbattle.",
+    "IdunBattleLogic.":          "tacticus.idunbattlelogic.",
+    "IdunShared.":               "tacticus.idunshared.",
+    "idun.Idun.Source.Shared.":  "tacticus.idunshared.",
+    "Core.Services.":            "tacticus.idunbattle.core.services."
+  },
+
+  "_comment_identifiers": "Reserved Java keywords that must be renamed when they appear as C# identifiers.",
+
+  "reserved_rename": {
+    "default":   "default_",
+    "new":       "new_",
+    "class":     "class_",
+    "interface": "interface_",
+    "enum":      "enum_",
+    "public":    "public_",
+    "private":   "private_",
+    "abstract":  "abstract_",
+    "final":     "final_",
+    "static":    "static_",
+    "switch":    "switch_",
+    "case":      "case_",
+    "null":      "null_",
+    "true":      "true_",
+    "false":     "false_",
+    "native":    "native_",
+    "volatile":  "volatile_",
+    "synchronized": "synchronized_"
+  },
+
+  "_comment_prop_accessors": "Property accessors follow get_X/set_X pattern in decompiled C. We strip the prefix to get the field access. e.g. caster.get_Position() -> caster.position",
+
+  "property_accessor_prefixes": ["get_", "set_"]
+}

@@ -6,8 +6,8 @@ Hooking Frida de WH40K Tacticus — monorepo TypeScript.
 
 - Racine : `C:\Users\nicolasv\tacticus-tools`
 - `frida/` — codebase active (hooks TS + host TS, bundlé par `frida-compile`)
-  - `frida/src/hooks/` — script injecté
-  - `frida/src/host/` — serveur Node qui pilote les sessions Frida
+  - `frida/hooks/` — script injecté
+  - `frida/host/` — serveur Node qui pilote les sessions Frida
   - `frida/dist/` — outputs build (gitignored)
 - `hooks-legacy/` — ancien répertoire de hooks, conservé pour one-shots (dumps,
   probes historiques). Voir `hooks-legacy/README.md` pour classification.

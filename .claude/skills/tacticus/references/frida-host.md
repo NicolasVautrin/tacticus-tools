@@ -2,7 +2,7 @@
 
 Host HTTP Node.js local (Express + WebSocket) qui pilote Frida : injection
 scripts, RPC sur les sessions, persistance des messages `send()` en jsonl.
-Code source : (file:///C:/Users/nicolasv/tacticus-tools/frida/src/host/)
+Code source : (file:///C:/Users/nicolasv/tacticus-tools/frida/host/)
 
 **Ne pas confondre avec** :
 - **`frida-server`** : daemon Frida qui tourne *sur le device Android*
@@ -15,7 +15,7 @@ Claude / scripts locaux
      |
      | HTTP :8765
      v
-Frida host Node (frida/src/host/index.ts)   <- ce document
+Frida host Node (frida/host/index.ts)   <- ce document
      |
      | npm 'frida' binding (USB)
      v
@@ -37,11 +37,11 @@ qui `require('frida')` doit être exécuté depuis `frida/`.
 
 ## Modules
 
-- `src/host/index.ts` — Express + WS, entrypoint
-- `src/host/router.ts` — routes HTTP `/api/*` (factorisées)
-- `src/host/sessions.ts` — attach / load / rpc / graceful cleanup
-- `src/host/logger.ts` — jsonl writer per session (`logs/run-N_HHMMSS_target.jsonl`)
-- `src/host/ws.ts` — WebSocket streaming avec ring buffer + reconnect `?last_event_id=N`
+- `host/index.ts` — Express + WS, entrypoint
+- `host/router.ts` — routes HTTP `/api/*` (factorisées)
+- `host/sessions.ts` — attach / load / rpc / graceful cleanup
+- `host/logger.ts` — jsonl writer per session (`logs/run-N_HHMMSS_target.jsonl`)
+- `host/ws.ts` — WebSocket streaming avec ring buffer + reconnect `?last_event_id=N`
 
 ## Endpoints exposes
 

@@ -1,176 +1,177 @@
-# Decompilation Ghidra
+# Decompilation Ghidra + transpilation Java
+
+## Pipeline actuel (5 etapes)
+
+```
+1. Frida dump IL2CPP runtime
+   → data/il2cpp_full.json (169k methodes, 30k classes avec kp/mp pointeurs runtime)
+
+2. Frida scan memoire .data de libil2cpp.so
+   → data/ptr_dat_map.json (5924 cellules PTR_DAT resolues en class/method)
+
+3. Ghidra Apply Symbols (void* signatures)
+   → data/ghidra_tacticus/ : 30k fonctions renommees, signatures {void* params, undefined8 return}
+
+4. Ghidra Decompile batch (16 threads, 120s timeout, 0% fail attendu)
+   → data/decompiled_tacticus/ (3982 fichiers .c groupes par top-level class)
+
+5. Transpileur Python (package modulaire scripts/python/transpile/)
+   → data/transpiled_tacticus/ (hiearchy Java complete)
+```
+
+## Principes cles
+
+### Image base Ghidra = 0
+
+Les RVA du dump Frida, du binaire ELF et des adresses Ghidra sont **alignes** (pas d'offset `0x100000` comme dans l'ancien pipeline). `FUN_01c21420` dans le C decompile = RVA 0x01c21420 = offset 0x01c21420 dans `libil2cpp.so`.
+
+### void* signatures partout (decouverte cle)
+
+Ghidra diverge sur les signatures typees quand :
+- La fonction a > 8 params (premier stack-spill sur ARM64)
+- Le `this` pointe sur une struct "vide-mais-grosse" (classe heritant tout du parent, size > 0 fields=[])
+- Presence de generiques imbriques dans les params
+
+**Solution** : appliquer `void*` a TOUS les params et `undefined8` au return. Le calling convention ARM64 reste correct, les noms de params restent, mais la propagation inter-procedurale de types est desactivee → 100% de convergence.
+
+Validation : 6/6 methodes "irrecuperables" en typed passent en void* a 120s.
+
+### PTR_DAT / DAT_ = pointeurs runtime
+
+Les `PTR_DAT_xxxxxxxx` et `DAT_xxxxxxxx` dans les .c sont des cellules de la `.data` section de libil2cpp.so que le runtime IL2CPP remplit a l'init avec des `Il2CppClass*` ou `MethodInfo*` heap-allocated. `scan-ptr-dat.js` lit ces cellules au runtime et produit un mapping offset → nom C#.
+
+Couverture : ~5924 classes/methods, ~40% des PTR_DAT observees. Le reste (type descriptors internes, metadata tagges) ne se resout pas directement via heap pointer matching.
 
 ## Installation
 
 - Ghidra 12.0.4 : `C:/Users/nicolasv/ghidra_12.0.4_PUBLIC/`
 - JDK 21 : `C:/Program Files/Eclipse Adoptium/jdk-21.0.9.10-hotspot`
-- Projet : `data/ghidra_tacticus/` (1.8 GB, 49625 fonctions renommees)
-- Image base Ghidra : `0x100000`
-
-## Referentiels d'adresses
-
-| Contexte | Base | Exemple (IdunRunner.Initialize) |
-|----------|------|------|
-| Sources enrichies (RVA) | `0x0` | `0x29384F4` |
-| Ghidra | `0x100000` | `0x29484F4` |
-| Runtime Frida | `il2cppBase` (ASLR) | `il2cppBase + 0x29384F4` |
-
-Conversions :
-- Source RVA → Ghidra : `+ 0x100000`
-- Ghidra → Source RVA : `- 0x100000`
-- Source RVA → Runtime : `il2cppBase + RVA`
-- Ghidra → Runtime : `il2cppBase + (ghidraAddr - 0x100000)`
+- **MAXMEM = 16G** dans `analyzeHeadless.bat` (etait 2G par defaut → OOM sur decompile volume)
 
 ## Donnees d'entree
 
-| Fichier | Description |
-|---------|-------------|
-| `data/libil2cpp.so` | Binaire ARM64 (73 MB), extrait du device |
-| `data/symbols.json` | 168K methodes + 2015 enums + fields (dump IL2CPP runtime) |
-| `sources/**/*.cs` | 9600+ fichiers C# enrichis (voir ci-dessous) |
-
-## sources/ — stubs C# enrichis
-
-Repertoire gitignored contenant les stubs de toutes les classes C# du jeu, enrichis avec les offsets de champs et les RVA des methodes.
-
-### Contenu
-
-- 9600+ fichiers `.cs` organises par assembly et namespace
-- Chaque fichier = une classe avec ses champs, methodes (signatures uniquement, pas de corps)
-- Annotations ajoutees : `// 0xNN` sur les champs (offset memoire), `// RVA: 0xNNNN` sur les methodes
-
-### Exemple
-
-```csharp
-namespace IdunBattle.Configuration
-{
-    public class UnitConfiguration
-    {
-        public System.String Id; // 0x10
-        public System.Int32 Health; // 0x30
-        public System.Int32 Damage; // 0x48
-        public System.Void .ctor() { }
-        public System.Int32 GetMaxAmountOfUnitsToBring(...) { } // RVA: 0x2BEE2E8
-    }
-}
-```
-
-### Generation
-
-1. **Dump initial** : il2cppdumper ou outil similaire → stubs `.cs` bruts (signatures sans offsets)
-2. **Dump des symboles** : `hooks/_oneshot/dump-symbols.js` via Frida → `data/symbols.json` (fields avec offsets, methods avec RVA)
-3. **Enrichissement** : `scripts/python/enrich-sources.py` lit `symbols.json` et annote les `.cs` avec les offsets et RVA
-
-### Arborescence
-
-```
-sources/
-├── Assembly-CSharp/          # Code du jeu (Snowprint)
-│   ├── Thor/                 # Namespace thor (menus, settings, UI)
-│   ├── Idun/                 # Namespace idun (meta, combat view, UI)
-│   ├── Runner/               # AutomaticBattleRunner, ValidationResult
-│   └── ...
-├── BattleLogicAssembly/      # Moteur de combat pur (pas de Unity)
-│   ├── IdunBattle/           # Core ECS, config, messages, AI, operations
-│   └── IdunBattleLogic/      # Replay, validation, AI utilities
-├── MetaLogicAssembly/        # Logique meta (progression, DTOs, configs)
-└── ClientSdk/                # SDK client Snowprint
-```
-
-### Usage
-
-- **Lecture** : comprendre la structure des classes, les types des champs, les signatures de methodes
-- **Offsets** : pour lire/ecrire des champs en memoire via Frida (`ptr.add(0x30).readS32()`)
-- **RVA** : pour hooker des methodes (`Interceptor.attach(il2cppBase.add(0x29384F4), ...)`)
-- **Renommage Ghidra** : `GhidraRename.java` lit les RVA des sources pour renommer les fonctions
-
-## Contenu de data/
-
-### Sources binaires
-
 | Fichier | Description | Origine |
 |---------|-------------|---------|
-| `libil2cpp.so` | ARM64 (73 MB) | `adb pull` du device (APK) |
-| `symbols.json` | 168K methodes + 2015 enums + fields | `hooks/_oneshot/dump-symbols.js` via Frida runtime |
+| `data/libil2cpp.so` | Binaire ARM64 (~76 MB) | `adb pull` depuis l'APK |
+| `data/il2cpp_full.json` | Dump complet : 169k methodes + 30k classes + enums + `kp`/`mp` runtime ptrs | `hooks/_oneshot/dump-il2cpp-full.js` via Frida |
+| `data/ptr_dat_map.json` | 5924 cellules PTR_DAT resolues | `hooks/_oneshot/scan-ptr-dat.js` |
+| `data/all_battlelogic_targets.tsv` | Liste `top_class_fs_path \t method_fqn \t rva_hex` pour le batch | `scripts/python/gen_battlelogic_targets.py` |
 
-### Donnees de jeu
+## Scripts Ghidra (`scripts/ghidra/`)
 
-| Fichier | Description | Origine |
-|---------|-------------|---------|
-| `gameconfig-abilities.json` | 599 configs abilities | Capture Frida (autoplay hooks) |
-| `gameconfig-units.json` | 117 unites | Capture Frida |
-| `gameconfig-summons.json` | 55 summons | Capture Frida |
-| `i2_en.json` | 17810 termes localisation I2 | Capture Frida |
+| Script | Role | Quand lancer |
+|--------|------|--------------|
+| `GhidraApplyIl2CppSymbols.java` | Cree structs + applique noms + signatures **void*** | 1x apres dump Frida frais (~30 s) |
+| `GhidraDecompileBattleLogicParallel.java` | Decompile batch 16 threads, 120s timeout, sortie groupee par top-level class | Apres apply (~1-2 h) |
+| `GhidraTestUntypedDecompile.java` | Test diagnostique : strip signature + decompile (preuve que types causent les hangs) | Sur besoin |
+| `GhidraTestVoidStarSigs.java` | Test : retype params en void* + decompile | Sur besoin |
+| `GhidraTestTimeout120.java` | Test : relance methodes failed avec timeout 120s | Sur besoin |
 
-### Decompilation
-
-| Fichier/Dossier | Description | Genere par |
-|-----------------|-------------|------------|
-| `ghidra_tacticus/` | Projet Ghidra (1.8 GB), 49625 fonctions renommees | `GhidraRename.java` |
-| `decompiled_tacticus/` | 1065 fichiers C decompiles (5.9 MB) | `GhidraDecompileAI.java` + `GhidraDecompileAICore.java` |
-| `ai_targets.json` | RVAs des 1878 methodes IA | `scripts/gen_ai_targets.py` |
-| `ai_coroutine_targets.json` | RVAs coroutines + playbook core (97) | Manuel + merge dans gen script |
-| `resolved_symbols.json` | Mapping FUN_xxx → noms (76 C# + runtime connus) | `scripts/gen_ai_targets.py` (offline) + constantes runtime |
-
-### Combats headless
-
-| Fichier | Description | Genere par |
-|---------|-------------|------------|
-| `arena-battle-config-newtonsoft.json` | Config PvP capturee (525 KB, Newtonsoft natif) | `hooks/_oneshot/capture-battle-config.js` |
-| `headless-battle-result.json` | Resultat simulation (1.4 MB) | `hooks/_oneshot/run-headless-battle.js` |
-
-## Scripts Ghidra (Java, dans scripts/ghidra/)
+## Scripts Python (`scripts/python/`)
 
 | Script | Role |
 |--------|------|
-| `GhidraRename.java` | Renomme les fonctions depuis les sources enrichies (49625 methodes) |
-| `GhidraDecompile.java` | Decompile des methodes ciblees par RVA + analyse call sites (XREF) |
-| `GhidraDecompileAI.java` | Batch — lit `data/ai_targets.json`, ecrit dans `data/decompiled_tacticus/` |
-| `GhidraDecompileAICore.java` | Idem pour coroutines — lit `data/ai_coroutine_targets.json`, append |
+| `gen_battlelogic_targets.py` | Lit `il2cpp_full.json` → `all_battlelogic_targets.tsv` (groupage top-level class via declaring chain) |
+| `preprocess_il2cpp_dump.py` | `il2cpp_full.json` → TSV (methods/classes/enums) pour lookup rapide |
+| `extract_failed_targets.py` | Parse decompiled_tacticus/ → `data/failed_targets.tsv` (pour 2e passe ciblee si besoin) |
+| `transpile_v2.py` | Shim CLI → `transpile/cli.py` |
 
-## Generateurs de cibles (Python, dans scripts/python/)
+## Transpileur `scripts/python/transpile/` (package modulaire)
 
-| Script | Role |
-|--------|------|
-| `gen_ai_targets.py` | Genere `data/ai_targets.json` depuis `symbols.json` |
-| `enrich-sources.py` | Enrichit les `.cs` avec offsets de champs et RVA |
-| `rebuild-i2-lookup.py` | Reconstruit le lookup I2 localisation |
+| Module | LOC | Role |
+|--------|----:|------|
+| `paths.py` | 9 | Constantes chemins |
+| `naming.py` | 128 | camelCase, mots-cles Java, generiques, backing fields |
+| `mapping.py` | 200 | Classe Mapping (csharp↔java tables + il2cpp index + ptr_dat) |
+| `parser.py` | 151 | tree-sitter, Method, parse_file, declarators |
+| `walker.py` | 712 | AST → corps Java (plus gros module) |
+| `emitter.py` | 213 | emit_class / emit_method / emit_stub |
+| `cli.py` | 124 | main, run_batch, worker pool |
 
-## Commande type
+### Features transpileur
+
+- **Signature Java** depuis `il2cpp_methods.tsv` (vrais types C#, pas `Object` void*)
+- **Register alias ARM64** : `unaff_x19` → `this`, `unaff_x20` → premier param explicite, etc.
+- **Field resolver** : `*(T*)(this + 0x28)` → `this.dsl` via `il2cpp_classes[fqn].fields[offset]`
+  - Couvre aussi : `(base + off).method()` → `base.fieldName.method()`, `base[N]` → `base.fieldAtN*8`
+- **PTR_DAT safety** : `PTR_DAT_xxx` / `DAT_xxx` → `null /* class|method ref: Full.Name */` (Java compile toujours)
+- **`this =` safety** : assignment a `this` commented-out (Java interdit)
+
+## Commandes types
+
+### Re-apply + re-decompile complet
 
 ```bash
+# 1. Re-apply symbols (void*)
 JAVA_HOME="C:/Program Files/Eclipse Adoptium/jdk-21.0.9.10-hotspot" \
 "C:/Users/nicolasv/ghidra_12.0.4_PUBLIC/support/analyzeHeadless.bat" \
-  "C:/Users/nicolasv/tacticus-tools/data/ghidra_tacticus" tacticus \
+  data/ghidra_tacticus tacticus \
   -process libil2cpp.so -noanalysis \
-  -scriptPath "C:/Users/nicolasv/tacticus-tools/scripts/ghidra" \
-  -postScript GhidraRename.java \
-  -postScript GhidraDecompileAI.java
+  -scriptPath scripts/ghidra \
+  -postScript GhidraApplyIl2CppSymbols.java
+
+# 2. Re-decompile
+rm -rf data/decompiled_tacticus && mkdir data/decompiled_tacticus
+JAVA_HOME="C:/Program Files/Eclipse Adoptium/jdk-21.0.9.10-hotspot" \
+"C:/Users/nicolasv/ghidra_12.0.4_PUBLIC/support/analyzeHeadless.bat" \
+  data/ghidra_tacticus tacticus \
+  -process libil2cpp.so -noanalysis \
+  -scriptPath scripts/ghidra \
+  -postScript GhidraDecompileBattleLogicParallel.java
 ```
 
-- `-process` : reutilise le projet existant
-- `-noanalysis` : skip l'analyse (deja faite, 30 min)
-- `-postScript` : enchaine plusieurs scripts
+### Transpile
 
-## Decompiler de nouvelles methodes
+```bash
+# Un seul fichier pour debug
+python scripts/python/transpile_v2.py one data/decompiled_tacticus/IdunBattle/Entities/Components/ActiveAbility.c
 
-1. Trouver les RVAs dans les sources (`// RVA: 0x...`) ou `symbols.json`
-2. Ecrire un JSON de cibles : `{"NomMethode": rva_int, ...}`
-3. Pointer un script Ghidra vers ce JSON
-4. Lancer headless avec `-noanalysis -postScript`
-5. Post-traitement : appliquer `data/resolved_symbols.json` (search/replace FUN_ → noms)
+# Batch complet (16 workers)
+python scripts/python/transpile_v2.py batch
+```
 
-## Symboles non resolus dans le code decompile
+### Frida dumps
 
-| Pattern | Signification |
-|---------|---------------|
-| `FUN_xxxxxxxx` | Fonction runtime IL2CPP ou generique (List, Dict) |
-| `PTR_DAT_xxxxxxxx` | Pointeur vers metadonnees de type (Il2CppClass*) |
-| `DAT_xxxxxxxx` | Flag d'initialisation statique |
-| `thunk_FUN_xxx` | Trampoline vers une autre fonction |
+```bash
+cd server
+# Dump metadata il2cpp complet
+PID=12345
+node -e "
+const fs=require('fs');
+const source=fs.readFileSync('../hooks/_oneshot/dump-il2cpp-full.js','utf-8');
+fs.writeFileSync('C:/tmp/inject.json', JSON.stringify({serial:'f32224e7',mode:'attach',pid:$PID,source,log_dir:'logs'}));
+"
+curl -s -X POST http://127.0.0.1:8765/api/scripts/run -H "Content-Type: application/json" -d @C:/tmp/inject.json
+```
 
-Runtime connus (deja remplaces dans `decompiled_tacticus/`) :
-- `il2cpp_runtime_class_init`, `il2cpp_raise_null_reference`, `il2cpp_object_new_checked`
-- `il2cpp_resolve_interface_method`, `il2cpp_codegen_no_return`
+## Symboles non resolus restants
 
-Les `PTR_DAT_` ne sont resolvables qu'au runtime (Frida) — crash le jeu (segfault). Les generiques (`List<T>.Add`, etc.) ne sont pas dans `symbols.json`.
+| Pattern | Signification | Sort |
+|---------|---------------|------|
+| `FUN_xxxxxxxx` | Fonction runtime IL2CPP ou generique non dumpee | Laisse en commentaire TODO |
+| `thunk_FUN_xxx` | Trampoline vers fonction IL2CPP | Laisse en commentaire TODO |
+| `PTR_DAT_xxxxxxxx` | Cellule data section (hors scope Frida scan) | `null /* unresolved ... */` |
+| `DAT_xxxxxxxx` | Idem variant | `null /* unresolved ... */` |
+| `unaff_xN` (N > 19+params) | Registre callee-saved sans alias | `// synthetic` comment |
+
+## Metriques cibles
+
+- **Decompile** : < 1 % TIMEOUT/NULL sur 30443 cibles (void*, timeout 120s). 99 %+ de recuperation vs 91 % avec typed.
+- **Transpile** : 0 erreur syntaxe Java, 3982 fichiers .java (parite avec .c)
+- **FUN_ unique restants** : ~1500 apres pipeline (runtime IL2CPP + generic instantiations non-dumpees — acceptable)
+
+## Historique des approches
+
+Les approches suivantes ont ete testees puis abandonnees :
+- **Signatures typees (typed class*/interface\* params)** : ~2648 timeouts sur 30443 (8,7 %)
+- **Fallback `normalize` simplification style** : 0 recuperation en 20s (pas efficace)
+- **Fallback `paramid`** : pas teste, mais meme pathologie attendue (garde les types)
+- **Flatten parent fields dans child struct** : n'aide pas (pas le probleme de Ghidra)
+- **Composition (parent embedded at offset 0)** : idem
+
+La **void\*** approche est le premier fix qui fait converger 100 % des cas.
+
+## Backups
+
+- `data/ghidra_tacticus_typed_backup/` — etat du projet avec signatures typees (4GB, gardons en cas de regression)
+- `data/ghidra_tacticus_untyped/` — projet duplique utilise pour tests (dirty, peut etre supprime)

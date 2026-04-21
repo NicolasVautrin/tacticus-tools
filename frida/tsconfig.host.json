@@ -6,9 +6,9 @@
     "moduleResolution": "NodeNext",
     "lib": ["ES2022"],
     "outDir": "dist/host",
-    "rootDir": "src/host",
+    "rootDir": "host",
     "declaration": false,
     "sourceMap": true
   },
-  "include": ["src/host/**/*.ts"]
+  "include": ["host/**/*.ts"]
 }

@@ -24,9 +24,9 @@ Scripts injectés ponctuellement via shell, toujours fonctionnels :
 
 ## Ce qui est obsolete (gardé en git pour historique, non référencé)
 
-Remplacé par `frida/src/hooks/` :
+Remplacé par `frida/hooks/` :
 
-- `autoplay/full-recorder.js` — porté dans `frida/src/hooks/` (distribué en
+- `autoplay/full-recorder.js` — porté dans `frida/hooks/` (distribué en
   `il2cpp/`, `game/`, `features/`, `runtime/`)
 - `_utils/il2cpp-helpers.js`, `il2cpp-invoke.js`, `il2cpp-serializer.js`,
   `il2cpp-gc-root.js`, `matchstate-reader.js` — portés en TS

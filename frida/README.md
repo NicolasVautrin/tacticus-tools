@@ -76,7 +76,7 @@ curl -s -X POST http://127.0.0.1:8765/api/scripts/run \
 
 ## Ajouter une feature
 
-1. Créer `src/hooks/features/foo.ts` :
+1. Créer `hooks/features/foo.ts` :
 ```ts
 import { Ctx } from "../controller.js";
 import { queueOnMainThread } from "../runtime/queue.js";

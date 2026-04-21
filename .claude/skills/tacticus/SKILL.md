@@ -21,16 +21,23 @@ allowed-tools: Read, Bash, Glob, Grep, Edit, Write, Agent
 ```
 tacticus-tools/
   frida/              # Monorepo TypeScript actif (hooks + host)
-    src/hooks/        # Script injecté (bundlé par frida-compile)
+    hooks/            # Script injecté (bundlé par frida-compile)
       il2cpp/         # Primitives IL2CPP (helpers, invoke, serializer, gc-root, mt)
       game/           # Tacticus-specific (runner, match-state, ai-control, recorder, state)
-      features/       # RPCs par feature (status, sim, compare, cheat)
+      features/       # RPCs par feature (status, sim, compare, cheat, config-io, mode-source-capture, ad-bypass)
       runtime/        # queue, main-pump
       controller.ts   # Aggregate features → rpc.exports
       main.ts         # Entrypoint
-    src/host/         # Serveur Node (Express + WS + Frida bridge)
-      index.ts, router.ts, sessions.ts, logger.ts, ws.ts
+    host/             # Serveur Node (Express + WS + Frida bridge)
+      index.ts, router.ts, sessions.ts, logger.ts, ws.ts, config-store.ts
+    public/           # Frontend browser view (HTML + JS + CSS, served at /view/)
+    assets/           # Extracted game assets (gitignored)
+      raw/Bundles/    # adb pulled Unity AssetBundles (avatars, atlases, boards, themes, stages)
+      public/         # PNG + manifest.json, served at /assets/
+        units/*.png, boards/*.png, manifest.json, configs/
     dist/             # Outputs build (gitignored)
+  scripts/python/
+    build_asset_manifest.py   # UnityPy extraction → assets/public + manifest
   hooks-legacy/       # Anciens hooks — one-shots (dumps, probes) + obsolete. README classifie.
   server/             # Ancien serveur Node (à renommer server-legacy/)
   data/               # Dumps IL2CPP (symbols.json, abilities, enums) — gitignored
@@ -72,6 +79,11 @@ Ne JAMAIS utiliser de hot-reload (casse les sessions Frida).
 | POST | `/api/scripts/:id/rpc` | RPC synchrone — body: `{method, args, timeout?}` |
 | POST | `/api/scripts/:id/message` | Envoyer un message au script |
 | GET | `/api/scripts/:id` | Status session |
+| GET | `/api/configs` | Liste metadata des `BattleConfiguration` capturées passivement |
+| GET | `/api/configs/:id` | JSON complet d'une capture |
+| POST | `/api/configs/clear` | Wipe du config store |
+| GET | `/view/` | Frontend browser (HTML statique depuis `frida/public/`) |
+| GET | `/assets/*` | PNGs, manifest, configs statiques depuis `frida/assets/public/` |
 | POST | `/api/_dev/shutdown` | Arret du serveur |
 
 ### WebSocket
@@ -121,7 +133,7 @@ Le payload est trop gros pour curl inline, passer par un fichier temp. `log_dir:
 
 ## Ajouter une feature
 
-Créer `frida/src/hooks/features/foo.ts` :
+Créer `frida/hooks/features/foo.ts` :
 ```ts
 import { Ctx } from "../controller.js";
 import { queueOnMainThread } from "../runtime/queue.js";
@@ -213,12 +225,100 @@ simAndCommit = sim() then commit()
 
 Détails complets : memory `project_matchstate_copy.md`, `project_replay_sim.md`, `project_ai_plays_player.md`, `project_sim_and_commit_turn1.md`. Plan d'arbre de décision : `~/.claude/plans/twinkling-floating-pond.md`.
 
+## Capture passive des configs + vue browser
+
+### Hook passif
+
+`frida/hooks/features/mode-source-capture.ts` — `Interceptor.attach(onLeave)` sur
+`LoadBattle` de 18 `*GameModeSource` concrètes (CampaignGameModeSource,
+PvpGameModeSource, GuildBossGameModeSource, etc.). Chaque battle que l'utilisateur
+lance produit un `send({t:"captured_config", id, mode, ts, bytes, json})`.
+
+### Store côté host
+
+`frida/host/config-store.ts` — file-backed. `recordCapture()` (appelé par
+`sessions.ts.onMessage` sur `t==="captured_config"`) écrit un fichier
+`frida/assets/public/configs/<id>.json` + maintient `index.json` dans le même
+dir. `initConfigStore()` au boot relit l'index. Survive au restart du host,
+pas de log-scraping. Servi via :
+- `GET /api/configs` (metadata de l'index)
+- `GET /api/configs/:id` (lit le fichier)
+- Le dir est aussi servi statiquement à `/assets/configs/`.
+
+### Pipeline d'assets
+
+`scripts/python/build_asset_manifest.py` — UnityPy 1.25, Unity 6000.3.8f1 fallback.
+- `adb pull` des bundles `units`, `boards`, `themes`, `stages`, `atlases`, `avatars`
+- Extrait les portraits `ui_avatar_<assetNaming>` (heroes, 256×256) + atlas-packed
+  `ui_image_RoundPortrait_<assetNaming>` (NPCs, 128×128)
+- Extrait les backgrounds `<BoardId>_Visual` + le MonoBehaviour Config_Visual
+  (`PlayableMinCol/MaxCol/MinRow/MaxRow` pour positionner le hex grid sur le PNG)
+- Produit `frida/assets/public/manifest.json` : `{ units, boards, boardVisuals }`
+
+Volumétrie : 331 portraits (13 MB), 756 backgrounds 1024×1024 (930 MB).
+
+### Frontend
+
+`frida/public/` (statique, pas de build) :
+- `index.html` — layout 3 colonnes (configs | board | roster+placements)
+- `app.js` — state mgmt, hex pointy-top odd-r offset overlay, placement interactif
+- `style.css` — dark theme
+
+Ouverture : `http://127.0.0.1:8765/view/`.
+
+### RPCs nouveaux
+
+| RPC | Rôle |
+|---|---|
+| `getGameConfig` | Dump JSON de la `BattleConfiguration` du runner live |
+
+### Ad-bypass — refactor
+
+Auto-install au load du hook, plus d'RPC. Log console par méthode patchée.
+
+## Phase 3 (à faire) — Launch depuis browser
+
+Workflow attendu :
+1. User sélectionne une capture dans browser → board rendu + spawn points
+2. User place des unités sur spawn points (liste de placements côté front)
+3. Bouton Launch → `POST /api/launch {configId, placements}`
+4. Host enchaîne : `initStandaloneRunner(configJson)` + `applyAddUnit(runnerId, ...)` pour chaque placement
+5. Browser visualise la battle turn par turn (stream)
+
+Implémentation :
+- Refactor `buildStandaloneRunner(configPtr?: NativePointer)` — accepter une config
+  pointer arbitraire (désérialisée depuis JSON via `JsonConvert.DeserializeObject`)
+- Nouveau RPC `initStandaloneRunner(configJson) → { runnerId }`
+- Nouveau RPC `applyAddUnit(runnerId, unitId, playerId, col, row)` via
+  `new AddUnitMessage(unitId, playerId, column, row)` + `runner.Apply(msg)`
+- Registry `Map<number, NativePointer>` pour tracker les standalone runners
+- Route HTTP `POST /api/launch` qui enchaîne
+
 ## TODO autres
+
+### Vue browser — données manquantes dans `BattleConfiguration`
+
+Les deux infos suivantes sont calculées par le code game-mode-specific au runtime
+et n'apparaissent **pas** dans la config capturée passivement. Il faudra un hook
+dédié qui émet un `send()` typé en parallèle de `captured_config` :
+
+- **Deployment zone initiale** : filtre 22 → N spawn points que l'UI highlight au
+  déploiement. Fonction côté game : probablement `GetInitialDeploymentTiles` /
+  `GetDeploymentTiles` dans `IGameModeSource` ou `IdunGameViews` / HUD.
+  Symptôme : le browser affiche tous les 22 spawn points de team 1 alors que le
+  jeu n'en montre que 5.
+- **Liste des unités déployables par mode** : pour Treasure Beach, filtré par
+  `TreasureBeachProgression.GetUnitIdsOfHeroesAllowedToPlayTier(trackIndex)` selon
+  `allowedGrandAlliance` du track. Pour les autres modes : `GetUnlockedUnits()` de
+  l'`IGameModeSource` courant. Nécessite de connaître `trackIndex` / game mode
+  actif au moment de `LoadBattle`.
 
 ### Court terme
 - Enrichir les hooks AI observer : entity IDs + stacks
 - Reproduire les appels AttackQuery/TargetingQuery en RPC
 - Construction de `UnitPosition` (necessaire pour appeler GetValidTargets)
+- RPC `getUnitAssetMapping()` — dump `IdunVisuals._unitConfigMap` pour résoudre
+  les 42 unitId sans match heuristique (`eldar→aelda`, `tau→tauta`, `orks→orkss`)
 
 ### Moyen terme
 - Damage prediction via `DamagePredictionQuery`

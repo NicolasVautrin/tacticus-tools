@@ -4,15 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:hooks": "frida-compile src/hooks/main.ts -o dist/hooks.js",
+    "build:hooks": "frida-compile hooks/main.ts -o dist/hooks.js",
     "build:host": "tsc -p tsconfig.host.json",
     "build": "npm run build:hooks && npm run build:host",
-    "dev": "tsx src/host/index.ts",
-    "watch:hooks": "frida-compile src/hooks/main.ts -o dist/hooks.js -w"
+    "dev": "tsx host/index.ts",
+    "watch:hooks": "frida-compile hooks/main.ts -o dist/hooks.js -w"
   },
   "dependencies": {
     "express": "^4.21.0",
     "frida": "^17.9.1",
+    "frida-il2cpp-bridge": "^0.13.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

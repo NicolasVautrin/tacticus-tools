@@ -1,0 +1,1745 @@
+#!/usr/bin/env python3
+"""
+AST-based transpiler: Ghidra pseudo-C -> Java DSL calls.
+
+Replaces the legacy regex-based ``transpile_virtual_methods.py`` with a
+tree-sitter-powered pipeline:
+
+  1. **Preprocess** the raw Ghidra output into valid ISO C
+     (rename ``undefined8`` -> ``long``, valid identifiers for labels,
+     strip il2cpp class init / thunk wrappers, strip unsupported calls).
+  2. **Parse** with ``tree-sitter`` + ``tree-sitter-c``.
+  3. **Walk the AST** per function, building a symbol table for locals
+     (assignments that resolve to known field offsets on ``this`` / ``dsl``
+     get recorded symbolically) and emit Java statements.
+  4. **Sanitize** every emitted statement: anything still carrying raw
+     Ghidra syntax (`lVar1`, `undefined8 *`, unresolved offsets, ...) is
+     replaced by ``// TODO: manual transpile: <line>`` and every *later*
+     statement that depended on it is turned into a TODO too, so the
+     generated Java always compiles.
+  5. **Splice** the Java bodies back into the existing ability classes in
+     ``app/src/main/java/tacticus/idunbattlelogic/entities/abilities`` using
+     brace-matched replacement.
+
+Architecture overview
+---------------------
+
+``preprocess_ghidra``:
+    Normalises the Ghidra pseudo-C into something tree-sitter-c can parse.
+    Does NOT try to understand semantics. Only textual rewrites.
+
+``Transpiler``:
+    Visits a ``function_definition`` subtree. Maintains ``SymbolTable``
+    per-function. Emits Java statements. Tracks dependencies so we can
+    neutralise variables whose definition was un-transpilable.
+
+``JavaSplicer``:
+    Replaces method bodies inside an existing ``.java`` file using
+    brace-matching (tree-sitter is overkill for the splice itself since
+    we only need to find ``{ ... }`` blocks).
+
+Field offset tables
+-------------------
+
+Offsets from the decompiled code for ``BaseTriggeredAbility`` and
+``AActiveAbility`` are encoded in ``TRIGGERED_FIELD_MAP`` /
+``ACTIVE_FIELD_MAP``. DSL factory pre-built selectors at fixed offsets are
+in ``DSL_FIELD_MAP``.
+
+DSL method name mapping
+-----------------------
+
+``DSL_METHODS`` maps C# PascalCase method names to Java camelCase on the
+``dsl`` accessor. The table is intentionally kept in sync with the legacy
+transpiler.
+
+Sanitizer rules
+---------------
+
+``BAD_PATTERNS`` describes the textual shape of an un-transpiled leftover.
+The sanitiser runs in two passes over the emitted statement list:
+first it flags statements whose RHS still mentions something bad, then it
+propagates: any variable introduced by a TODO-ed assignment is marked
+"poisoned" so every later reference to it becomes a TODO too (no
+"cannot find symbol" errors in the Java output).
+"""
+
+from __future__ import annotations
+
+import re
+import sys
+import traceback
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import tree_sitter_c
+from tree_sitter import Language, Parser, Node
+
+# --- Paths ---
+REPO_ROOT = Path(r"C:\Users\nicolasv\tacticus-tools")
+DECOMPILED_DIR = REPO_ROOT / "data" / "decompiled_tacticus" / "IdunBattleLogic" / "Entities" / "Abilities"
+JAVA_DIR = REPO_ROOT / "app" / "src" / "main" / "java" / "tacticus" / "idunbattlelogic" / "entities" / "abilities"
+
+# --- Tree-sitter init ---
+C_LANG = Language(tree_sitter_c.language())
+PARSER = Parser(C_LANG)
+
+
+# =============================================================================
+# Offset maps
+# =============================================================================
+
+TRIGGERED_FIELD_MAP = {
+    0x10: "abilityConfigId",
+    0x20: "config",
+    0x28: "dsl",
+    0x30: "state",
+    0x38: "query",
+    0x40: "operationProcessor",
+    0x48: "effectsDatabase",
+    0x50: "logger",
+    0x58: "cachedTrigger",
+}
+
+ACTIVE_FIELD_MAP = {
+    0x10: "abilityType",
+    0x18: "state",
+    0x20: "battleQuery",
+    0x28: "attackQuery",
+    0x30: "dsl",
+    0x38: "movementQuery",
+    0x40: "operationProcessor",
+    0x48: "effectsQuery",
+    0x50: "logger",
+    0x58: "targetingQuery",
+    0x60: "config",
+}
+
+DSL_FIELD_MAP = {
+    0x10: "matchState",
+    0x18: "prng",
+    0x20: "param4",
+    0x28: "param5",
+    0x70: "param7",
+    0xa0: "ownerIsCasterTile",
+    0xa8: "preBuiltTrigger_a8",
+    0xb0: "preBuiltField_b0",
+    0xb8: "ZERO",
+    0xc0: "ONE",
+    0xc8: "TWO",
+    0xd0: "HUNDRED",
+    0xd8: "MINUS_ONE",
+    0xe0: "resultDamage",
+    0xe8: "resultHeal",
+    0xf0: "currentDamageFormula",
+    0xf8: "yesTrigger",
+    0x100: "neverTrigger",
+    0x108: "isOwnerEmptyTrigger",
+    0x110: "hasActiveAbilityUsedTrigger",
+    0x118: "noTrigger1",
+    0x120: "noTrigger2",
+    0x128: "yesTrigger2",
+    0x130: "currentAbilitySelector",
+    0x138: "triggeringAbilitySelector",
+    0x140: "parentAbilitySelector",
+    0x148: "owner",
+    0x150: "effectEntity",
+    0x158: "sourceUnit",
+    0x160: "casterUnit",
+    0x168: "casterTile",
+    0x170: "targetTile",
+    0x178: "targetUnit",
+    0x180: "actorUnit",
+}
+
+
+# =============================================================================
+# DSL method name mapping (C# PascalCase -> Java camelCase on `dsl`)
+# =============================================================================
+
+DSL_METHODS = {
+    "Nothing": "nothing",
+    "AddEffect": "addEffect",
+    "AddBondEffect": "addBondEffect",
+    "AddDynamicStatModifierEffect": "addDynamicStatModifierEffect",
+    "AddStaticStatModifierEffect": "addStaticStatModifierEffect",
+    "AddStaticStatModifierEffectToOwner": "addStaticStatModifierEffectToOwner",
+    "AddTriggeredAbility": "addTriggeredAbility",
+    "ActivateEffect": "activateEffect",
+    "RemoveEffect": "removeEffect",
+    "IncreaseEffectLevel": "increaseEffectLevel",
+    "SetEffectLevel": "setEffectLevel",
+    "AdjacentTiles": "adjacentTiles",
+    "AdjacentUnits": "adjacentUnits",
+    "AdjacentEnemies": "adjacentEnemies",
+    "AdjacentFriends": "adjacentFriends",
+    "Enemies": "enemies",
+    "Friends": "friends",
+    "Units": "units",
+    "Tiles": "tiles",
+    "Cache": "cache",
+    "SetCache": "setCache",
+    "If": "dslIf",
+    "First": "first",
+    "Last": "last",
+    "Group": "group",
+    "AtomicGroup": "atomicGroup",
+    "Foreach": "foreach",
+    "Maybe": "maybe",
+    "Spawn": "spawn",
+    "PickRandomly": "pickRandomly",
+    "Randomize": "randomize",
+    "Count": "count",
+    "Sum": "sum",
+    "Multiply": "multiply",
+    "PercentageOf": "percentageOf",
+    "StatAmount": "statAmount",
+    "ChangeStat": "changeStat",
+    "HasEffect": "hasEffect",
+    "HasTrait": "hasTrait",
+    "HasDeathReason": "hasDeathReason",
+    "IsAlive": "isAlive",
+    "IsAdjacent": "isAdjacent",
+    "AreEnemies": "areEnemies",
+    "AreFriends": "areFriends",
+    "AreEqual": "areEqual",
+    "Contains": "contains",
+    "AmountIsEqual": "amountIsEqual",
+    "AmountIsEqualOrGreater": "amountIsEqualOrGreater",
+    "AmountIsGreater": "amountIsGreater",
+    "AmountIsGreaterThanZero": "amountIsGreaterThanZero",
+    "AmountIsZero": "amountIsZero",
+    "Heal": "heal",
+    "Kill": "kill",
+    "MoveUnit": "moveUnit",
+    "RemoveUnit": "removeUnit",
+    "ReplaceUnit": "replaceUnit",
+    "Inform": "inform",
+    "InformWeapon": "informWeapon",
+    "AttackWithAttackDamage": "attackWithAttackDamage",
+    "AttackWithAbilityDamage": "attackWithAbilityDamage",
+    "AbilityAreaDamage": "abilityAreaDamage",
+    "Attack": "attack",
+    "DamageProfileFromConfig": "damageProfileFromConfig",
+    "KillDeadUnits": "killDeadUnits",
+    "TurnsFromRounds": "turnsFromRounds",
+    "RandomAmount": "randomAmount",
+    "ConditionalAmount": "conditionalAmount",
+    "UseActiveAbility": "useActiveAbility",
+    "UseNormalAttack": "useNormalAttack",
+    "UseNormalAttackIfAble": "useNormalAttackIfAble",
+    "PerformAIAbility": "performAIAbility",
+    "ChangeCooldown": "changeCooldown",
+    "OnPreDeath": "onPreDeath",
+    "OnDeath": "onDeath",
+    "On": "on",
+    "Direct": "direct",
+    "Get": "get",
+    "ConfigVar": "configVar",
+    "ConfigConst": "configConst",
+    "OnOwnerSpecificAbilityInit": "onOwnerSpecificAbilityInit",
+    "Children": "children",
+    "IsCharging": "isCharging",
+    "IsPersistentData": "isPersistentData",
+    "GetPersistentData": "getPersistentData",
+    "SetPersistentData": "setPersistentData",
+    "AddPersistentData": "addPersistentData",
+    "RoundsStarted": "roundsStarted",
+    "Walkable": "walkable",
+    "FreeTilesOrAdjacentFreeTiles": "freeTilesOrAdjacentFreeTiles",
+    "SortTilesByUtility": "sortTilesByUtility",
+    "VectorFromAdjacentTo": "vectorFromAdjacentTo",
+    "WithEntityId": "withEntityId",
+    "CanAddUnit": "canAddUnit",
+    "UnitsFromTeam": "unitsFromTeam",
+    "UnitsFromTargetingOptions": "unitsFromTargetingOptions",
+    "UnitsTeamId": "unitsTeamId",
+    "UnitsWithTrait": "unitsWithTrait",
+    "UnitsWithTraits": "unitsWithTraits",
+    "UnitsWithoutTrait": "unitsWithoutTrait",
+    "UnitsWithoutTraits": "unitsWithoutTraits",
+    "UnitsWithId": "unitsWithId",
+    "UnitsWithIds": "unitsWithIds",
+    "UnitsWithVisualId": "unitsWithVisualId",
+    "UnitsWithSameVisualId": "unitsWithSameVisualId",
+    "UnitsWithShield": "unitsWithShield",
+    "UnitsWithRangedWeapons": "unitsWithRangedWeapons",
+    "UnitsWhoCanAttack": "unitsWhoCanAttack",
+    "UnitsWithTriggeredAbility": "unitsWithTriggeredAbility",
+    "UnitsWithUsedAbility": "unitsWithUsedAbility",
+    "UnitsWithStatBiggerThan": "unitsWithStatBiggerThan",
+    "UnitsThatCanHaveActiveAbilityReset": "unitsThatCanHaveActiveAbilityReset",
+    "UnitsOnTilesWithEffect": "unitsOnTilesWithEffect",
+    "Unobscured": "unobscured",
+    "UnobscuredTiles": "unobscuredTiles",
+    "ValidNormalAttackTargets": "validNormalAttackTargets",
+    "EntitiesWithAnyEffect": "entitiesWithAnyEffect",
+    "OwnerHasFinishedMinTurns": "ownerHasFinishedMinTurns",
+    "WeaponHighestHits": "weaponHighestHits",
+    "WasCrit": "wasCrit",
+    "WasBlock": "wasBlock",
+    "IsUnitWithVisualId": "isUnitWithVisualId",
+    "HasNegativeModifier": "hasNegativeModifier",
+    "VisualUnitIdFromUnit": "visualUnitIdFromUnit",
+    "VisualUnitIdFromUnitId": "visualUnitIdFromUnitId",
+    "TriggeringAbilityHasAttackType": "triggeringAbilityHasAttackType",
+    "TilesInConeShapeForBossPlatform": "tilesInConeShapeForBossPlatform",
+    "Negative": "negative",
+    "MinMaxDamage": "minMaxDamage",
+    "SortByDistance": "sortByDistance",
+    "MinDistance": "minDistance",
+    "SurroundingEnemies": "surroundingEnemies",
+    "ConditionalSelector": "conditionalSelector",
+    "None": "none",
+    "TriggerAbility": "triggerAbility",
+    "TryGetNumberConstant": "tryGetNumberConstant",
+    "CreateShield": "createShield",
+}
+
+PROPERTY_GETTERS = {
+    "get_OwnerIsTarget": "dsl.ownerIsTarget()",
+    "get_OwnerIsCaster": "dsl.ownerIsCaster()",
+    "get_OwnerIsActor": "dsl.ownerIsActor()",
+    "get_OwnerIsCasterTile": "dsl.ownerIsCasterTile()",
+    "get_OwnerIsTargetTile": "dsl.ownerIsTargetTile()",
+    "get_OwnerOrOwnerTileIsTarget": "dsl.ownerOrOwnerTileIsTarget()",
+    "get_CasterIsTarget": "dsl.casterIsTarget()",
+    "get_IsNormalAttack": "dsl.isNormalAttack()",
+    "get_IsRangedAttack": "dsl.isRangedAttack()",
+    "get_IsMeleeAttack": "dsl.isMeleeAttack()",
+    "IsMeleeAttack": "dsl.isMeleeAttack()",
+    "IsRangedAttack": "dsl.isRangedAttack()",
+    "IsNormalAttack": "dsl.isNormalAttack()",
+}
+
+BASE_METHODS = {
+    "get_AbilityType": "getAbilityType()",
+    "get_AbilityStateReference": "getAbilityStateReference()",
+    "get_AbilityConfigId": "getAbilityConfigId()",
+    "MinMaxDamage": "minMaxDamage(abilityState)",
+    "MinMaxDamage2": "minMaxDamage2(abilityState)",
+    "GetHits": "getHits()",
+    "GetHits2": "getHits2()",
+    "GetDamageProfileOrDefault": "getDamageProfile()",
+    "DmgDamage": "dmgDamage(abilityState)",
+}
+
+ACTIVE_METHODS = {
+    "get_AbilityStateReference": "getAbilityStateReference()",
+    "Execute": "execute(abilityState, entities)",
+    "ExecuteAtomic": "executeAtomic(abilityState, entities)",
+    "MinMaxDamage": "minMaxDamage(abilityState)",
+    "MinMaxDamageAverage": "minMaxDamageAverage(abilityState)",
+    "GetHits": "getHits()",
+    "GetDamageProfile": "getDamageProfile()",
+}
+
+
+# =============================================================================
+# Preprocessor: rewrite Ghidra pseudo-C into something tree-sitter-c can parse
+# =============================================================================
+
+
+_UNDEFINED_TYPE_RE = re.compile(
+    r"\bundefined(\d+)?\b"
+)
+_LABEL_DEF_RE = re.compile(r"^\s*(LAB_[0-9a-fA-F]+):", re.MULTILINE)
+_GOTO_LABEL_RE = re.compile(r"\bgoto\s+(LAB_[0-9a-fA-F]+)")
+# Ghidra uses dotted names for C# namespace methods. Convert to underscores so
+# tree-sitter sees valid identifiers.
+_DOTTED_CALL_RE = re.compile(
+    r"\b([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*){1,})\b"
+)
+# strip thunk_ prefix only on function names
+_THUNK_CALL_RE = re.compile(r"\bthunk_([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+
+
+def preprocess_ghidra(source: str) -> str:
+    """Rewrite Ghidra pseudo-C into ISO C that tree-sitter-c will accept.
+
+    The goal is *syntactic* cleanup only; semantics are preserved verbatim.
+    """
+    # Drop warning / decorator comments that span lines inside function bodies
+    # e.g. "/* WARNING: Subroutine does not return */" — tree-sitter handles
+    # these fine, so we keep them.
+
+    # Normalise undefined<N> types → same-width concrete type.
+    def _sub_undef(m: re.Match) -> str:
+        n = m.group(1)
+        if n is None:
+            return "long"        # bare "undefined" → treat as long word
+        n = int(n)
+        return {
+            1: "char",
+            2: "short",
+            4: "int",
+            8: "long",
+        }.get(n, "long")
+
+    source = _UNDEFINED_TYPE_RE.sub(_sub_undef, source)
+
+    # Rewrite labels: Ghidra's `LAB_xxxx:` parses fine as a C label, leave alone.
+    # But Ghidra labels containing hex digits are already valid C identifiers, so
+    # nothing to do.
+
+    # Rewrite dotted method names (e.g. IdunBattle.Entities.Abilities.Base...ctor)
+    # into underscore-separated identifiers so tree-sitter treats them as
+    # identifiers (not member accesses).
+    def _dotted(m: re.Match) -> str:
+        name = m.group(1)
+        # Preserve common C idioms like ".ctor" etc. by converting every '.' to '_'
+        return name.replace(".", "_")
+    source = _DOTTED_CALL_RE.sub(_dotted, source)
+
+    # Strip `thunk_` wrappers: keep the target symbol name
+    source = _THUNK_CALL_RE.sub(r"\1(", source)
+
+    # Elide `il2cpp_runtime_class_init(...);` / `il2cpp_codegen_no_return();`
+    # entire statement. Keep position so line numbers stay in-sync; replace with
+    # a no-op comment-equivalent (empty statement).
+    source = re.sub(
+        r"\b(?:il2cpp_runtime_class_init|il2cpp_codegen_no_return|il2cpp_raise_null_reference|il2cpp_codegen_raise_index_out_of_range_exception)\s*\([^)]*\)\s*;",
+        ";",
+        source,
+    )
+
+    # The double-dot `..ctor` remains — replace with `__ctor`
+    source = source.replace("..ctor", "__ctor")
+    source = source.replace("..cctor", "__cctor")
+
+    return source
+
+
+# =============================================================================
+# Section extraction (we only transpile virtual overrides + ability helpers)
+# =============================================================================
+
+SECTION_MARKERS = (
+    "// ========== VIRTUAL METHOD OVERRIDES ==========",
+    "// ========== ABILITY HELPERS (ADDITIONAL METHODS) ==========",
+)
+
+
+def extract_sections(c_content: str) -> str:
+    """Return the substring that contains virtual overrides + helpers sections."""
+    first_idx = -1
+    for marker in SECTION_MARKERS:
+        idx = c_content.find(marker)
+        if idx >= 0:
+            if first_idx < 0 or idx < first_idx:
+                first_idx = idx
+    if first_idx < 0:
+        return ""
+    return c_content[first_idx:]
+
+
+# =============================================================================
+# AST -> Java transpiler
+# =============================================================================
+
+
+@dataclass
+class Symbol:
+    """Resolved symbolic value for a Ghidra local identifier."""
+    java_expr: str            # e.g. "dsl" or "state.casterUnit"
+    poisoned: bool = False    # if True, any use becomes a TODO
+
+
+@dataclass
+class FnContext:
+    is_active: bool
+    method_name: str
+    # Map from Ghidra local identifier to its resolved Java expr (after assignment).
+    locals: dict[str, Symbol] = field(default_factory=dict)
+    # var index counter for fresh Java "v1, v2, …" identifiers.
+    next_index: int = 1
+
+    def fresh(self) -> str:
+        name = f"v{self.next_index}"
+        self.next_index += 1
+        return name
+
+
+def text(node: Node, src: bytes) -> str:
+    return src[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
+
+
+def _one_line(s: str) -> str:
+    """Collapse whitespace and newlines so a multi-line snippet fits in a TODO comment."""
+    return " ".join(s.split()).strip()
+
+
+def unparen(s: str) -> str:
+    s = s.strip()
+    while s.startswith("(") and s.endswith(")"):
+        # Check that outer parens are matched
+        depth = 0
+        matched = True
+        for i, ch in enumerate(s):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0 and i < len(s) - 1:
+                    matched = False
+                    break
+        if matched:
+            s = s[1:-1].strip()
+        else:
+            break
+    return s
+
+
+def hex_offset_value(s: str) -> int | None:
+    """Parse a C integer literal (hex / decimal)."""
+    s = s.strip()
+    try:
+        if s.lower().startswith("0x"):
+            return int(s, 16)
+        return int(s, 10)
+    except ValueError:
+        return None
+
+
+# --- Expression resolver: turns AST expression nodes into Java strings. ---
+
+
+class ExprResolver:
+    """Resolve a C expression (AST node) to a Java expression string.
+
+    May return strings that still carry "poison" (undefined8, lVar..., etc.).
+    The sanitiser catches those at statement granularity.
+    """
+
+    def __init__(self, src: bytes, ctx: FnContext):
+        self.src = src
+        self.ctx = ctx
+
+    # ---- entry point ----
+
+    def resolve(self, node: Node) -> str:
+        t = node.type
+        method = getattr(self, f"on_{t}", None)
+        if method is None:
+            return text(node, self.src)
+        return method(node)
+
+    # ---- leaf identifiers / literals ----
+
+    def on_identifier(self, node: Node) -> str:
+        name = text(node, self.src)
+
+        # Parameter substitutions: param_1 = this, param_2 = abilityState, ...
+        if name == "param_1":
+            return "this"
+        if name == "param_2":
+            return "abilityState"
+        if name == "param_3":
+            return "triggerType"
+        if name == "param_4":
+            return "entities"
+
+        sym = self.ctx.locals.get(name)
+        if sym is not None:
+            return sym.java_expr
+        return name
+
+    def on_number_literal(self, node: Node) -> str:
+        return text(node, self.src).rstrip("uUlL")
+
+    def on_string_literal(self, node: Node) -> str:
+        return text(node, self.src)
+
+    def on_char_literal(self, node: Node) -> str:
+        return text(node, self.src)
+
+    def on_true(self, node: Node) -> str: return "true"
+    def on_false(self, node: Node) -> str: return "false"
+    def on_null(self, node: Node) -> str: return "null"
+
+    # ---- unary / parens / pointer derefs ----
+
+    def on_parenthesized_expression(self, node: Node) -> str:
+        inner = node.named_children[0] if node.named_children else None
+        if inner is None:
+            return "null"
+        return self.resolve(inner)
+
+    def on_unary_expression(self, node: Node) -> str:
+        op = None
+        operand = None
+        for ch in node.children:
+            if ch.type in (">", "<", "-", "!", "~", "+", "*", "&"):
+                op = ch.type
+            elif ch.is_named:
+                operand = ch
+        if operand is None:
+            return "null"
+        val = self.resolve(operand)
+        if op == "-":
+            return f"-{val}"
+        if op == "!":
+            return f"!{val}"
+        if op == "&":
+            return "null"   # address-of: treated as opaque buffer output
+        return val
+
+    def on_cast_expression(self, node: Node) -> str:
+        # Skip the cast; use the value node. The cast type may still matter
+        # for pointer dereference — handled by the `*` wrapper in
+        # pointer_expression.
+        value = node.child_by_field_name("value")
+        if value is not None:
+            return self.resolve(value)
+        for ch in node.named_children:
+            if ch.type not in ("type_descriptor",):
+                return self.resolve(ch)
+        return "null"
+
+    def on_pointer_expression(self, node: Node) -> str:
+        """Pointer deref `*x` OR address-of `&x` — both are pointer_expression in tree-sitter-c."""
+        # Detect the operator child (unnamed '*' or '&').
+        op = None
+        for ch in node.children:
+            if not ch.is_named and ch.type in ("*", "&"):
+                op = ch.type
+                break
+        arg = None
+        for ch in node.named_children:
+            arg = ch
+            break
+        if arg is None:
+            return "null"
+        if op == "&":
+            # Address-of a local — Java has no analogue; treat as null sentinel
+            # (this is typically an out-parameter buffer like &local_48).
+            return "null"
+        # Try to resolve `*(T *)(base + offset)` → field access.
+        resolved = self._try_field_deref(node)
+        if resolved is not None:
+            return resolved
+        # Fallback: resolve the inner expression (preserve `*` so sanitiser flags it).
+        return f"*{self.resolve(arg)}"
+
+    # ---- binary / assignment / call / subscript ----
+
+    def on_binary_expression(self, node: Node) -> str:
+        left = node.child_by_field_name("left")
+        right = node.child_by_field_name("right")
+        op_node = None
+        for ch in node.children:
+            if not ch.is_named and ch.type not in ("(", ")"):
+                op_node = ch
+        if left is None or right is None or op_node is None:
+            return text(node, self.src)
+        l = self.resolve(left)
+        r = self.resolve(right)
+        op = op_node.type
+        # Map C operators onto Java; most are identical.
+        return f"{l} {op} {r}"
+
+    def on_subscript_expression(self, node: Node) -> str:
+        # param_1[4] → field at offset (idx * 8)
+        arg = node.child_by_field_name("argument")
+        idx = node.child_by_field_name("index")
+        if arg is not None and idx is not None:
+            arg_text = text(arg, self.src)
+            idx_val = hex_offset_value(text(idx, self.src))
+            if idx_val is not None and arg_text == "param_1":
+                off = idx_val * 8
+                return resolve_this_field(off, self.ctx.is_active)
+            # Generic: base[N] → base field
+            base = self.resolve(arg)
+            if idx_val is not None:
+                sym_off = f"field_at_{idx_val}"
+                return f"{base}.{sym_off}"
+        return text(node, self.src)
+
+    def on_assignment_expression(self, node: Node) -> str:
+        # Rare — embedded assignments like `lVar6 = fn(...)` inside an expr.
+        left = node.child_by_field_name("left")
+        right = node.child_by_field_name("right")
+        if right is not None:
+            return self.resolve(right)
+        return text(node, self.src)
+
+    def on_call_expression(self, node: Node) -> str:
+        # Resolve the call using the helper.
+        return resolve_call(node, self.src, self.ctx)
+
+    # ---- compound pattern: `*(T *)(base + offset)` → field access ----
+
+    def _try_field_deref(self, ptr_node: Node) -> str | None:
+        """Detect `*(T *)(base + offset)` or `*(T *)(param_1 + 0x28)` etc."""
+        # ptr_node is pointer_expression. Its argument should be a
+        # parenthesized_expression → cast_expression → parenthesized_expression
+        # Or simpler in some grammars. Walk down to find the addition
+        # (base + offset).
+        arg = ptr_node.child_by_field_name("argument")
+        if arg is None:
+            return None
+
+        add_node = _find_binary_add(arg)
+        if add_node is None:
+            return None
+        return self._resolve_deref(add_node)
+
+    def _resolve_deref(self, add_node: Node) -> str | None:
+        left = add_node.child_by_field_name("left")
+        right = add_node.child_by_field_name("right")
+        if left is None or right is None:
+            return None
+        # Canonicalise: the offset is a number_literal
+        off_txt = text(right, self.src) if right.type == "number_literal" else None
+        base_node = left
+        if off_txt is None and left.type == "number_literal":
+            off_txt = text(left, self.src)
+            base_node = right
+        if off_txt is None:
+            return None
+        offset = hex_offset_value(off_txt)
+        if offset is None:
+            return None
+
+        # Resolve the base to a symbolic Java expression.
+        base_java = self.resolve(base_node)
+
+        # Case 1: base is `this` → direct field on ability
+        if base_java == "this":
+            return resolve_this_field(offset, self.ctx.is_active)
+
+        # Case 2: base is a local that represents a class (e.g. dsl)
+        # base_java might be "dsl" → resolve from DSL_FIELD_MAP
+        if base_java == "dsl":
+            name = DSL_FIELD_MAP.get(offset)
+            if name is None:
+                return f"dsl.field_0x{offset:x}"
+            return f"dsl.{name}"
+
+        # Case 3: base is `this.<field>` — resolve offset against DSL map if it's dsl
+        if base_java == "this.dsl" or base_java.endswith(".dsl"):
+            name = DSL_FIELD_MAP.get(offset)
+            if name is None:
+                return f"dsl.field_0x{offset:x}"
+            return f"dsl.{name}"
+
+        # Case 4: base is e.g. "state" with offset → generic field_0xNN
+        # We don't know the layout, so emit a poisoned access.
+        return f"{base_java}.field_0x{offset:x}"
+
+
+def _find_binary_add(node: Node) -> Node | None:
+    """Drill through parens / casts to find a `+` binary_expression."""
+    if node is None:
+        return None
+    if node.type == "binary_expression":
+        for ch in node.children:
+            if ch.type == "+":
+                return node
+    for ch in node.named_children:
+        res = _find_binary_add(ch)
+        if res is not None:
+            return res
+    return None
+
+
+# --- helpers invoked by resolver & by main walker ---
+
+
+def resolve_this_field(offset: int, is_active: bool) -> str:
+    fmap = ACTIVE_FIELD_MAP if is_active else TRIGGERED_FIELD_MAP
+    name = fmap.get(offset)
+    if name is None:
+        return f"this.field_0x{offset:x}"
+    return name    # emitted as a bare field reference on `this`
+
+
+# =============================================================================
+# Call mapping (Ghidra func name + arg nodes → Java expression string)
+# =============================================================================
+
+
+def normalize_func(name: str) -> tuple[str, str]:
+    """Return (category, shortname) for a Ghidra-mangled function name.
+
+    category: "dsl" / "trigger_op" / "behaviour_op" / "targets_op" / "base"
+              / "active" / "config" / "ability_helper" / "unknown"
+    """
+    # Strip leading namespaces — after preprocessing, dots became underscores.
+    for prefix, cat in [
+        ("IdunBattleLogic_Entities_DSLFactory_", "dsl"),
+        ("DSLFactory__", "dsl"),
+        ("IdunBattle_DSL_AbilityTrigger_op_", "trigger_op"),
+        ("IdunBattle_DSL_AbilityBehaviour_op_", "behaviour_op"),
+        ("IdunBattle_DSL_TargetsSelector_op_", "targets_op"),
+        ("IdunBattle_Entities_Abilities_BaseTriggeredAbility_", "base"),
+        ("IdunBattle_Entities_Abilities_AActiveAbility_", "active"),
+        ("IdunBattle_Entities_Abilities_AOwnerEffectTriggeredAbility_", "ownerEffect"),
+        ("IdunBattle_Configuration_AbilityConfiguration_", "config"),
+        ("IdunBattleLogic_Entities_Abilities_", "ability_helper"),
+    ]:
+        if name.startswith(prefix):
+            return cat, name[len(prefix):]
+    return "unknown", name
+
+
+def resolve_call(call_node: Node, src: bytes, ctx: FnContext) -> str:
+    """Transpile a call_expression node to a Java expression string.
+
+    Returns a Java expression — possibly still containing poison tokens
+    that the sanitiser will catch at statement level.
+    """
+    fn = call_node.child_by_field_name("function")
+    args_node = call_node.child_by_field_name("arguments")
+
+    fn_text = text(fn, src) if fn is not None else ""
+    args = []
+    if args_node is not None:
+        for ch in args_node.named_children:
+            args.append(ch)
+
+    # Resolve argument expressions eagerly
+    resolver = ExprResolver(src, ctx)
+    arg_strs = [resolver.resolve(a) for a in args]
+
+    # --- function-pointer call: (**(code **)(*param_1 + 0xNN))(...) ---
+    # Un-mappable; return something obviously TODO-able.
+    if fn is not None and fn.type in ("pointer_expression", "parenthesized_expression"):
+        return f"/*vcall*/ null"
+
+    cat, short = normalize_func(fn_text)
+
+    # Property getters (zero-arg on dsl, take the dsl pointer + 0 as only args)
+    if short in PROPERTY_GETTERS:
+        return PROPERTY_GETTERS[short]
+
+    # Trigger / behaviour / targets operators
+    def binop(fmt: str) -> str:
+        a = arg_strs[0] if len(arg_strs) > 0 else "null"
+        b = arg_strs[1] if len(arg_strs) > 1 else "null"
+        return fmt.format(a=a, b=b)
+
+    if cat == "trigger_op":
+        if short == "BitwiseAnd": return binop("dsl.triggerAnd({a}, {b})")
+        if short == "BitwiseOr":  return binop("dsl.triggerOr({a}, {b})")
+        if short == "LogicalNot":
+            a = arg_strs[0] if arg_strs else "null"
+            return f"dsl.triggerNot({a})"
+
+    if cat == "behaviour_op":
+        if short == "BitwiseAnd": return binop("dsl.behaviourAnd({a}, {b})")
+        if short == "Addition":   return binop("dsl.behaviourAdd({a}, {b})")
+
+    if cat == "targets_op":
+        if short == "Addition":    return binop("dsl.targetsAdd({a}, {b})")
+        if short == "Subtraction": return binop("dsl.targetsSub({a}, {b})")
+        if short == "BitwiseAnd":  return binop("dsl.targetsAnd({a}, {b})")
+        return f"dsl.targets{short}({', '.join(arg_strs)})"
+
+    if cat == "base" and short in BASE_METHODS:
+        return BASE_METHODS[short]
+    if cat == "active" and short in ACTIVE_METHODS:
+        return ACTIVE_METHODS[short]
+
+    if cat == "config":
+        # config.method(...): first arg is the config pointer; drop it.
+        payload = arg_strs[1:] if arg_strs else []
+        if short == "GetVariableForLevel":
+            # (config, constId, abilityState, triggerType, 0, 0)
+            useful = payload[:3]
+            return f"config.getVariableForLevel({', '.join(useful)})"
+        if short == "GetNumberConstant":
+            a = payload[0] if payload else "0"
+            return f"config.getNumberConstant({a})"
+        if short == "GetStringConstant":
+            a = payload[0] if payload else "0"
+            return f"config.getStringConstant({a})"
+        if short == "GetDamageProfile":
+            return "config.getDamageProfile()"
+        if short == "TryGetNumberConstant":
+            # (config, constId, &local_34, 0) → Java can't take &local. Poison it.
+            return f"/*unsupported TryGetNumberConstant*/ null"
+        # Unknown config call
+        return f"config.{camelcase(short)}({', '.join(payload)})"
+
+    if cat == "dsl":
+        # dsl.method(...): first arg is the dsl pointer; drop it. Last arg is
+        # the il2cpp method descriptor (typically `0`) — drop if literal 0.
+        payload = arg_strs[1:] if arg_strs else []
+        if payload and payload[-1] == "0":
+            payload = payload[:-1]
+        if short in DSL_METHODS:
+            return f"dsl.{DSL_METHODS[short]}({', '.join(payload)})"
+        # Unknown DSL method: poison so sanitiser TODOs it. Unknown methods
+        # are not guaranteed to exist on the DSLFactory stub.
+        return f"/*unknownDsl:{short}*/ null"
+
+    if cat == "ability_helper":
+        # IdunBattleLogic_Entities_Abilities_<Path>_<Class>_<Method>
+        # → method name = the last segment (camelCased).
+        parts = short.split("_")
+        method = parts[-1] if parts else short
+        method = method[0].lower() + method[1:] if method else method
+        payload = arg_strs[1:] if arg_strs else []
+        return f"{method}({', '.join(payload)})"
+
+    if cat == "ownerEffect":
+        return f"super.{camelcase(short)}({', '.join(arg_strs[1:])})"
+
+    # Unknown call — emit a poisoned token so the sanitiser TODO-wraps this
+    # statement. Preserve the original call text for the TODO comment.
+    return f"/*unknownCall:{fn_text}*/ null"
+
+
+_JAVA_RESERVED = {
+    "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char",
+    "class", "const", "continue", "default", "do", "double", "else", "enum",
+    "extends", "final", "finally", "float", "for", "goto", "if", "implements",
+    "import", "instanceof", "int", "interface", "long", "native", "new",
+    "package", "private", "protected", "public", "return", "short", "static",
+    "strictfp", "super", "switch", "synchronized", "this", "throw", "throws",
+    "transient", "try", "void", "volatile", "while", "true", "false", "null",
+    "record", "yield", "var", "sealed", "non-sealed", "permits",
+}
+
+
+def camelcase(name: str) -> str:
+    if not name:
+        return name
+    # Already camel/lower?
+    if name[0].islower():
+        candidate = name
+    elif name.startswith("get_"):
+        candidate = "get" + name[4:]
+    else:
+        candidate = name[0].lower() + name[1:]
+    # Escape Java reserved words
+    if candidate in _JAVA_RESERVED:
+        return candidate + "_"
+    return candidate
+
+
+# =============================================================================
+# Statement transpilation (walks the AST of a function body)
+# =============================================================================
+
+
+def transpile_function(fn_node: Node, src: bytes, ctx: FnContext) -> list[str]:
+    """Walk a function_definition node and emit a list of Java statements."""
+    stmts: list[str] = []
+    body = fn_node.child_by_field_name("body")
+    if body is None:
+        return stmts
+
+    _walk_stmt_list(body, src, ctx, stmts)
+
+    # Sanitise & finalise
+    stmts = _sanitise(stmts, ctx)
+    return stmts
+
+
+def _walk_stmt_list(block_node: Node, src: bytes, ctx: FnContext, out: list[str]) -> None:
+    """Walk a block, appending emitted statements to ``out``."""
+    for child in block_node.named_children:
+        _walk_stmt(child, src, ctx, out)
+
+
+def _walk_stmt(node: Node, src: bytes, ctx: FnContext, out: list[str]) -> None:
+    t = node.type
+    if t == "compound_statement":
+        _walk_stmt_list(node, src, ctx, out)
+        return
+
+    if t == "declaration":
+        _walk_declaration(node, src, ctx, out)
+        return
+
+    if t == "expression_statement":
+        _walk_expression_stmt(node, src, ctx, out)
+        return
+
+    if t == "if_statement":
+        _walk_if(node, src, ctx, out)
+        return
+
+    if t == "return_statement":
+        _walk_return(node, src, ctx, out)
+        return
+
+    if t == "goto_statement":
+        # Can't represent; just note it.
+        out.append(f"// TODO: manual transpile: {_one_line(text(node, src))}")
+        return
+
+    if t == "labeled_statement":
+        # label: stmt  — drop label, walk body
+        for ch in node.named_children:
+            _walk_stmt(ch, src, ctx, out)
+        return
+
+    if t in ("while_statement", "for_statement", "do_statement"):
+        # Ghidra DSL flows rarely produce meaningful loops — keep as TODO
+        snippet = _one_line(text(node, src))
+        if len(snippet) > 200:
+            snippet = snippet[:197] + "..."
+        out.append(f"// TODO: manual transpile: {snippet}")
+        return
+
+    if t == "comment":
+        return
+
+    # Unknown: safest to TODO the raw line
+    raw = _one_line(text(node, src))
+    if raw and raw != ";":
+        out.append(f"// TODO: manual transpile: {raw}")
+
+
+def _walk_declaration(node: Node, src: bytes, ctx: FnContext, out: list[str]) -> None:
+    """Handle ``T name;`` and ``T name = <expr>;``.
+
+    Bare type declarations are dropped. Declarations with an initialiser may
+    bind a symbol in the FnContext.
+    """
+    # Collect init_declarators; if none, it's a bare declaration → drop.
+    inits = [c for c in node.named_children if c.type == "init_declarator"]
+    if not inits:
+        # No initialiser — drop.
+        return
+
+    for init in inits:
+        decl = init.child_by_field_name("declarator")
+        val = init.child_by_field_name("value")
+        if decl is None or val is None:
+            continue
+        name = _identifier_name(decl, src)
+        if name is None:
+            continue
+        _emit_assignment(name, val, src, ctx, out)
+
+
+def _identifier_name(decl_node: Node, src: bytes) -> str | None:
+    """Extract the identifier from a declarator (may be pointer / array)."""
+    if decl_node.type == "identifier":
+        return text(decl_node, src)
+    for ch in decl_node.named_children:
+        found = _identifier_name(ch, src)
+        if found is not None:
+            return found
+    return None
+
+
+def _walk_expression_stmt(node: Node, src: bytes, ctx: FnContext, out: list[str]) -> None:
+    if not node.named_children:
+        return
+    expr = node.named_children[0]
+
+    if expr.type == "assignment_expression":
+        left = expr.child_by_field_name("left")
+        right = expr.child_by_field_name("right")
+        if left is None or right is None:
+            return
+        if left.type == "identifier":
+            name = text(left, src)
+            _emit_assignment(name, right, src, ctx, out)
+            return
+        # Assignment to a dereference (`*ptr = ...`) or field — unsupported.
+        out.append(f"// TODO: manual transpile: {_one_line(text(node, src))}")
+        return
+
+    if expr.type == "call_expression":
+        java_call = resolve_call(expr, src, ctx)
+        out.append(f"{java_call};")
+        return
+
+    # Anything else — emit as TODO.
+    raw = _one_line(text(node, src))
+    if raw:
+        out.append(f"// TODO: manual transpile: {raw}")
+
+
+def _emit_assignment(name: str, value_node: Node, src: bytes, ctx: FnContext, out: list[str]) -> None:
+    """Emit a Java variable declaration/assignment for `name = value`.
+
+    If the RHS is a pure field-deref that resolves cleanly, we *don't* emit a
+    Java statement; we just record the symbol. This keeps the Java method
+    body focused on DSL calls.
+    """
+    resolver = ExprResolver(src, ctx)
+
+    # Case A: RHS is a field deref pattern (or identifier/field that resolves)
+    # → just bind the symbol; no Java emission.
+    if _is_pure_field_deref(value_node):
+        resolved = resolver.resolve(value_node)
+        # If resolved carries poison, bind poisoned symbol; but the statement
+        # itself is elided (no Java emitted for this).
+        poisoned = _is_poisoned(resolved)
+        ctx.locals[name] = Symbol(java_expr=resolved, poisoned=poisoned)
+        return
+
+    # Case B: RHS is a call — generate `Object vN = resolve_call(...);`
+    if value_node.type == "call_expression":
+        java_call = resolve_call(value_node, src, ctx)
+        java_var = ctx.fresh()
+        ctx.locals[name] = Symbol(java_expr=java_var, poisoned=_is_poisoned(java_call))
+        out.append(f"Object {java_var} = {java_call};")
+        return
+
+    # Case C: RHS is a simple number / identifier — bind and don't emit.
+    rhs = resolver.resolve(value_node)
+    ctx.locals[name] = Symbol(java_expr=rhs, poisoned=_is_poisoned(rhs))
+
+
+def _is_pure_field_deref(node: Node) -> bool:
+    """Heuristic: True if the RHS is *(T *)(base + offset) or equivalent."""
+    if node.type == "pointer_expression":
+        return True
+    if node.type == "cast_expression":
+        # common pattern: `(undefined8)*(undefined8 *)(param_1 + 0x28)`
+        value = node.child_by_field_name("value")
+        if value is not None:
+            return _is_pure_field_deref(value)
+    return False
+
+
+def _walk_if(node: Node, src: bytes, ctx: FnContext, out: list[str]) -> None:
+    """Flatten nested `if (*(long *)(param_1 + 0x28) != 0) { ... }` guards.
+
+    These are the il2cpp null-checks wrapping every DSL call. They add no
+    information, so we simply walk the guarded body.
+    """
+    cond = node.child_by_field_name("condition")
+    consequence = node.child_by_field_name("consequence")
+    alternative = node.child_by_field_name("alternative")
+
+    if consequence is None:
+        return
+
+    cond_text = text(cond, src) if cond is not None else ""
+    if _is_null_check(cond_text):
+        # Transparent guard: walk body.
+        _walk_stmt(consequence, src, ctx, out)
+        if alternative is not None:
+            # Usually alternative is the "object was null" death path: drop.
+            pass
+        return
+
+    # Non-trivial if — we can't guarantee correct Java, so TODO the whole
+    # block. We emit a single comment so no dangling braces sneak through.
+    snippet = _one_line(text(node, src))
+    if len(snippet) > 200:
+        snippet = snippet[:197] + "..."
+    out.append(f"// TODO: manual transpile: {snippet}")
+
+
+def _is_null_check(cond_text: str) -> bool:
+    if "DAT_" in cond_text:
+        return True       # class-init guards
+    s = cond_text.strip().strip("()").strip()
+    # Precise match: "<expr> != 0" or "<expr> == 0" where 0 is a bare literal
+    # (not 0xNN nor part of 0x29 etc.). This prevents us from treating
+    # `param_4 != 0x29` as a null-check.
+    if re.fullmatch(r".+(?:!=|==)\s*0", s):
+        return True
+    return False
+
+
+class _Indented:
+    """Tiny wrapper that indents appended lines by 4 spaces."""
+    def __init__(self, base: list[str]) -> None:
+        self.base = base
+    def append(self, line: str) -> None:
+        self.base.append("    " + line)
+    def extend(self, it) -> None:
+        for l in it:
+            self.append(l)
+
+
+def _walk_return(node: Node, src: bytes, ctx: FnContext, out: list[str]) -> None:
+    # tree-sitter-c does not expose `value` as a named field on return_statement;
+    # the expression is the first named child (if any).
+    val = None
+    for ch in node.named_children:
+        val = ch
+        break
+    if val is None:
+        # Bare `return;` — in a C void fn, this is the end of the flow. In
+        # Java we may want to return the last composed DSL result. That
+        # decision is handled in `_finalise_body`, so drop this node here.
+        return
+    resolver = ExprResolver(src, ctx)
+    java_expr = resolver.resolve(val)
+    out.append(f"return {java_expr};")
+
+
+# =============================================================================
+# Sanitiser
+# =============================================================================
+
+
+_BAD_PATTERNS = [
+    r"\*+\s*\(long\s*\*+\s*\)",
+    r"\*+\s*\(int\s*\*+\s*\)",
+    r"\bundefined\d*\s*\*",
+    r"\bfield_0x[0-9a-fA-F]+",
+    r"\bextraout_",
+    r"\blocal_[0-9a-fA-F]+\b",
+    r"\bauStack_",
+    r"\buStack_",
+    r"\bparam_[1-9]\b",
+    r"\b[a-z]{1,3}Var\d+\b",         # lVar1, uVar2, iVar3, pVar4, puVar, piVar, ppVar, ...
+    r"\bDAT_[0-9a-fA-F]+\b",
+    r"\bPTR_[A-Z_]+_[0-9a-fA-F]+",
+    r"\bFUN_[0-9a-fA-F]+",
+    r"\bthunk_",
+    r"/\*vcall\*/",
+    r"/\*unsupported ",
+    r"/\*unknownCall:",
+    r"/\*unknownDsl:",
+    r"\bLAB_[0-9a-fA-F]+",
+    r"\bin_stack_[0-9a-fA-F]+",       # Ghidra stack-restored register
+    r"\bregister_0x[0-9a-fA-F]+",     # Ghidra register placeholder
+    r"\*\s*dsl\b",                    # literal `*dsl` leaked through
+    r"0x[0-9a-fA-F]{9,}",             # huge hex literal — won't fit in Java int
+]
+_BAD_RE = re.compile("|".join(_BAD_PATTERNS))
+
+
+def _is_poisoned(s: str) -> bool:
+    return _BAD_RE.search(s) is not None
+
+
+_VAR_ASSIGN_RE = re.compile(r"^\s*Object\s+(v\d+)\s*=\s*(.+?);\s*$")
+_VAR_REF_RE = re.compile(r"\bv\d+\b")
+
+
+def _sanitise(stmts: list[str], ctx: FnContext) -> list[str]:
+    """Turn any poisoned statement into a TODO comment, and propagate poison
+    to subsequent usages of the affected variable names.
+    """
+    poisoned_vars: set[str] = set()
+    out: list[str] = []
+
+    for raw in stmts:
+        s = raw
+        stripped = s.lstrip()
+        # Already a TODO? Pass through verbatim.
+        if stripped.startswith("//"):
+            out.append(s)
+            continue
+
+        m = _VAR_ASSIGN_RE.match(s)
+        if m:
+            var, rhs = m.group(1), m.group(2)
+            # If the RHS references any already-poisoned var → poison this one.
+            refs = set(_VAR_REF_RE.findall(rhs)) - {var}
+            if refs & poisoned_vars or _is_poisoned(rhs):
+                poisoned_vars.add(var)
+                out.append(f"// TODO: manual transpile: {s.strip()}")
+                continue
+            out.append(s)
+            continue
+
+        # Non-assignment statement (expression, return, if, ...)
+        if _is_poisoned(s):
+            out.append(f"// TODO: manual transpile: {s.strip()}")
+            continue
+        # Check for references to poisoned vars
+        refs = set(_VAR_REF_RE.findall(s))
+        if refs & poisoned_vars:
+            out.append(f"// TODO: manual transpile: {s.strip()}")
+            continue
+        out.append(s)
+
+    # Deduplicate consecutive duplicates
+    dedup: list[str] = []
+    for s in out:
+        if not dedup or dedup[-1] != s:
+            dedup.append(s)
+    return dedup
+
+
+# =============================================================================
+# Method-level driver: classify C function + produce Java signature + body
+# =============================================================================
+
+
+@dataclass
+class TranspiledMethod:
+    kind: str                    # "CreateTrigger" / "CreateBehaviour" / "ExecuteBehaviour" / "Helper" / "Getter"
+    raw_name: str
+    java_signature: str          # without the opening "{"
+    body: list[str]              # Java statements (indented by caller)
+    return_type: str             # for fallback bodies
+
+
+def classify_method(raw_name: str, is_active: bool) -> tuple[str, str, str]:
+    """Return (kind, java_name, return_type). `java_name` is camelCase."""
+    if "CreateBehaviour" in raw_name and "Simulation" not in raw_name:
+        return "CreateBehaviour", "createBehaviour", "Object"
+    if "CreateTrigger" in raw_name:
+        return "CreateTrigger", "createTrigger", "Object"
+    if "ExecuteBehaviour" in raw_name:
+        return "ExecuteBehaviour", "executeBehaviour", "void"
+    if raw_name.startswith("get_"):
+        rest = raw_name[4:]
+        java = "get" + rest[0].upper() + rest[1:] if rest else "get"
+        return "Getter", java, "Object"
+    if raw_name in ("ctor", "cctor") or raw_name.endswith("__ctor") or raw_name.endswith("__cctor"):
+        return "Skip", raw_name, "void"
+    # Generic helper
+    java = raw_name[0].lower() + raw_name[1:] if raw_name else raw_name
+    return "Helper", java, "Object"
+
+
+# Method-name regex to parse section headers: captures the method name and
+# whether the following function body should be considered virtual vs helper.
+_HEADER_RE = re.compile(r"// === [^\n]*?\.(\w+)\s+\(RVA:[^\n]*?\)\s*===", re.MULTILINE)
+
+
+def parse_methods(section_src: str) -> list[tuple[str, int, int]]:
+    """Return list of (method_name, body_start_byte, body_end_byte_exclusive)."""
+    hdrs = list(_HEADER_RE.finditer(section_src))
+    result = []
+    for i, h in enumerate(hdrs):
+        start = h.end()
+        end = hdrs[i + 1].start() if i + 1 < len(hdrs) else len(section_src)
+        result.append((h.group(1), start, end))
+    return result
+
+
+def find_function_definition(ast_root: Node, method_raw_name: str, src: bytes) -> Node | None:
+    """Find the ``function_definition`` whose declarator's identifier matches."""
+    candidates: list[tuple[int, Node]] = []
+
+    def visit(n: Node):
+        if n.type == "function_definition":
+            decl = n.child_by_field_name("declarator")
+            if decl is not None:
+                name = _find_func_name(decl, src)
+                if name is not None and name.endswith(method_raw_name):
+                    # Prefer the most specific (longest match) candidate.
+                    candidates.append((len(name), n))
+        for c in n.named_children:
+            visit(c)
+
+    visit(ast_root)
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: -p[0])
+    return candidates[0][1]
+
+
+def _find_func_name(decl: Node, src: bytes) -> str | None:
+    if decl.type == "function_declarator":
+        inner = decl.child_by_field_name("declarator")
+        if inner is not None:
+            return _find_func_name(inner, src)
+    if decl.type == "identifier":
+        return text(decl, src)
+    for ch in decl.named_children:
+        res = _find_func_name(ch, src)
+        if res is not None:
+            return res
+    return None
+
+
+def _params_of(fn_node: Node, src: bytes) -> list[str]:
+    """Return parameter Ghidra names (e.g. ['param_1', 'param_2'])."""
+    decl = fn_node.child_by_field_name("declarator")
+    if decl is None:
+        return []
+    # Find parameter_list
+    plist = _find_param_list(decl)
+    if plist is None:
+        return []
+    out = []
+    for ch in plist.named_children:
+        if ch.type == "parameter_declaration":
+            pd = ch.child_by_field_name("declarator")
+            if pd is not None:
+                name = _identifier_name(pd, src)
+                if name:
+                    out.append(name)
+    return out
+
+
+def _find_param_list(n: Node) -> Node | None:
+    if n.type == "parameter_list":
+        return n
+    for c in n.named_children:
+        r = _find_param_list(c)
+        if r is not None:
+            return r
+    return None
+
+
+def _helper_param_hint(java_name: str, params: list[str], body_lines: list[str], is_active: bool) -> str:
+    """Guess the Java parameter list for a helper method."""
+    # param_1 → this (receiver), skip. param_2 = abilityState, param_3 = triggerType,
+    # param_4 = entities.
+    java_params: list[str] = []
+    param_map = {
+        "param_2": ("Object abilityState", "abilityState"),
+        "param_3": ("Object triggerType", "triggerType"),
+        "param_4": ("AbilityEntities entities", "entities"),
+    }
+    text_blob = "\n".join(body_lines)
+    for raw, (decl, ident) in param_map.items():
+        if raw in params and ident in text_blob:
+            java_params.append(decl)
+    return f"public Object {java_name}({', '.join(java_params)})"
+
+
+# =============================================================================
+# Java splice: replace or add a method body in an existing Java file
+# =============================================================================
+
+
+def _find_class_close_brace(java: str) -> int:
+    """Find the byte index of the class-body closing `}` using brace matching.
+
+    Returns -1 if the file doesn't open a class body cleanly. This is more
+    robust than `str.rfind('}')` on potentially corrupt inputs.
+    """
+    # Find "class <Name> ... {" — first `{` after "class" keyword at top level.
+    m = re.search(r"\b(?:class|interface|enum)\s+\w+[^{]*\{", java)
+    if not m:
+        return -1
+    open_pos = m.end() - 1
+    depth = 1
+    pos = open_pos + 1
+    while pos < len(java):
+        ch = java[pos]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return pos
+        pos += 1
+    return -1
+
+
+def replace_or_add_method(java: str, method_sig: str, body: str, allow_add: bool = True) -> str:
+    m = re.search(r"(\w+)\s*\(", method_sig)
+    if not m:
+        return java
+    method_name = m.group(1)
+
+    # Match existing method (with or without @Override).
+    pat = re.compile(
+        r"([ \t]*@Override[ \t]*\r?\n)?"
+        r"([ \t]*(?:protected|public|private)\s+[\w<>\[\]]+\s+"
+        + re.escape(method_name)
+        + r"\s*\([^)]*\)\s*\{)",
+    )
+
+    # Iterate possible matches; find one that has balanced braces.
+    mm = None
+    body_end = -1
+    for candidate in pat.finditer(java):
+        open_brace_pos = candidate.end() - 1
+        depth = 1
+        pos = open_brace_pos + 1
+        while pos < len(java) and depth > 0:
+            if java[pos] == "{":
+                depth += 1
+            elif java[pos] == "}":
+                depth -= 1
+            pos += 1
+        if depth == 0:
+            mm = candidate
+            body_end = pos
+            break
+
+    # Locate the class's closing brace for validation / append fallback.
+    class_close = _find_class_close_brace(java)
+
+    if mm is not None and body_end >= 0:
+        # Preserve the existing @Override decision and declaration verbatim
+        # (so we don't change the method's return type or visibility).
+        override = mm.group(1) or ""
+        decl = mm.group(2)
+        new_method = f"{override}{decl}\n{body}\n    }}"
+        result = java[: mm.start()] + new_method + java[body_end:]
+        # Sanity: if braces now balance, accept; else fallthrough to append.
+        if _braces_balanced(result):
+            return result
+
+    # No existing method found.
+    if not allow_add or class_close < 0:
+        return java
+    # Append before the class's closing brace. For the core virtual methods
+    # (createTrigger / createBehaviour / executeBehaviour) we know the parent
+    # signature, so we can safely emit @Override.
+    add_override = method_name in ("createTrigger", "createBehaviour", "executeBehaviour")
+    override_tag = "    @Override\n" if add_override else ""
+    new_method = f"\n{override_tag}    {method_sig} {{\n{body}\n    }}\n"
+    result = java[:class_close] + new_method + java[class_close:]
+    if _braces_balanced(result):
+        return result
+    return java  # Refuse to write something corrupt.
+
+
+def _braces_balanced(s: str) -> bool:
+    """Simple brace balance check (ignores strings/comments — sufficient here)."""
+    depth = 0
+    i = 0
+    in_line_comment = False
+    in_block_comment = False
+    in_string = False
+    in_char = False
+    while i < len(s):
+        ch = s[i]
+        nxt = s[i + 1] if i + 1 < len(s) else ""
+        if in_line_comment:
+            if ch == "\n":
+                in_line_comment = False
+        elif in_block_comment:
+            if ch == "*" and nxt == "/":
+                in_block_comment = False
+                i += 1
+        elif in_string:
+            if ch == "\\":
+                i += 1
+            elif ch == '"':
+                in_string = False
+        elif in_char:
+            if ch == "\\":
+                i += 1
+            elif ch == "'":
+                in_char = False
+        else:
+            if ch == "/" and nxt == "/":
+                in_line_comment = True
+                i += 1
+            elif ch == "/" and nxt == "*":
+                in_block_comment = True
+                i += 1
+            elif ch == '"':
+                in_string = True
+            elif ch == "'":
+                in_char = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth < 0:
+                    return False
+        i += 1
+    return depth == 0
+
+
+# =============================================================================
+# High-level file processing
+# =============================================================================
+
+
+_CLASS_HEADER_RE = re.compile(
+    r"(?P<pkg>package\s+[\w.]+\s*;\s*(?:\r?\n)+)"
+    r"(?P<imports>(?:import\s+[^;]+;\s*(?:\r?\n)+)*)"
+    r"(?P<docs>(?:/\*\*.*?\*/\s*(?:\r?\n)+)?)"
+    r"(?P<mods>(?:public\s+|abstract\s+|final\s+|\s+)*)"
+    r"class\s+(?P<name>\w+)(?P<generics>\s*<[^>]*>)?"
+    r"(?P<extends>\s+extends\s+[^\s{]+)?"
+    r"(?P<implements>\s+implements\s+[^{]+)?",
+    re.DOTALL,
+)
+
+
+def _reset_if_corrupt(content: str) -> str:
+    """If ``content`` has unbalanced braces, rebuild a minimal skeleton that
+    preserves package/imports/extends but drops the (corrupt) method bodies.
+    """
+    if _braces_balanced(content):
+        return content
+
+    m = _CLASS_HEADER_RE.search(content)
+    if not m:
+        return content   # Give up: return as-is.
+    header = content[: m.end()]
+    name = m.group("name")
+    # Build a clean new class body
+    return header + " {\n\n    public " + name + "() {\n    }\n}\n"
+
+
+def get_java_context(java_path: Path) -> dict:
+    content = java_path.read_text(encoding="utf-8")
+    content = _reset_if_corrupt(content)
+    is_active = "extends AActiveAbility" in content or "extends ANormalAttackAbility" in content
+    return {
+        "content": content,
+        "is_active": is_active,
+    }
+
+
+def process_file(c_path: Path, java_path: Path) -> str:
+    """Process a single (c, java) pair. Returns status: 'updated', 'skipped', 'error'."""
+    c_content = c_path.read_text(encoding="utf-8")
+    section_src = extract_sections(c_content)
+    if not section_src:
+        return "skipped"
+
+    java_ctx = get_java_context(java_path)
+    is_active = java_ctx["is_active"]
+
+    # Preprocess → tree-sitter
+    pp = preprocess_ghidra(section_src)
+    src_bytes = pp.encode("utf-8")
+    tree = PARSER.parse(src_bytes)
+    root = tree.root_node
+
+    transpiled: list[TranspiledMethod] = []
+
+    for raw_name, _start, _end in parse_methods(section_src):
+        kind, java_name, return_type = classify_method(raw_name, is_active)
+        if kind == "Skip":
+            continue
+
+        fn_node = find_function_definition(root, raw_name, src_bytes)
+        if fn_node is None:
+            continue
+
+        ctx = FnContext(is_active=is_active, method_name=raw_name)
+        body_stmts = transpile_function(fn_node, src_bytes, ctx)
+        params = _params_of(fn_node, src_bytes)
+
+        # Ensure a final return statement for non-void methods.
+        body_stmts = _finalise_body(body_stmts, kind, return_type)
+
+        if kind == "CreateTrigger":
+            sig = "protected Object createTrigger()"
+        elif kind == "CreateBehaviour":
+            if is_active:
+                sig = "public Object createBehaviour(Object abilityState, Object triggerType)"
+            else:
+                sig = "protected Object createBehaviour(Object abilityState, Object triggerType)"
+        elif kind == "ExecuteBehaviour":
+            sig = "public void executeBehaviour(Object abilityState, AbilityEntities entities)"
+        elif kind == "Getter":
+            sig = f"public Object {java_name}()"
+        elif kind == "Helper":
+            sig = _helper_param_hint(java_name, params, body_stmts, is_active)
+        else:
+            continue
+
+        transpiled.append(TranspiledMethod(
+            kind=kind,
+            raw_name=raw_name,
+            java_signature=sig,
+            body=body_stmts,
+            return_type=return_type,
+        ))
+
+    if not transpiled:
+        return "skipped"
+
+    new_java = java_ctx["content"]
+    for m in transpiled:
+        body_text = "\n".join(f"        {s}" for s in m.body)
+        allow_add = m.kind in ("CreateTrigger", "CreateBehaviour", "ExecuteBehaviour")
+        new_java = replace_or_add_method(
+            new_java, m.java_signature, body_text, allow_add=allow_add
+        )
+
+    if new_java != java_ctx["content"]:
+        java_path.write_text(new_java, encoding="utf-8")
+        return "updated"
+    return "skipped"
+
+
+def _finalise_body(stmts: list[str], kind: str, return_type: str) -> list[str]:
+    """Ensure the body ends with a legal return and is never empty."""
+    # Drop trailing TODO-only tail so we can add a valid return.
+    while stmts and stmts[-1].startswith("// TODO:"):
+        stmts.pop()
+
+    # Already has a return?
+    has_return = any(s.strip().startswith("return") for s in stmts)
+
+    # For non-void methods: convert the trailing uncaptured call into `return`.
+    # C pattern: the composed result of the last DSL call isn't stored in a
+    # local (void return in C), but in Java we want to return it.
+    if not has_return and return_type != "void" and stmts:
+        last = stmts[-1].strip()
+        # If last statement is an uncaptured expression like "dsl.x(...);"
+        # (not "Object v = ...;", not "// TODO:", not a brace),
+        # convert it to `return ...;`.
+        if (last.endswith(";")
+                and not last.startswith("Object ")
+                and not last.startswith("return")
+                and not last.startswith("//")
+                and not last.startswith("if ")
+                and not last.startswith("}")
+                and not last.startswith("{")):
+            expr = last[:-1].rstrip()
+            stmts[-1] = f"return {expr};"
+            has_return = True
+
+    if not has_return and return_type != "void":
+        # Pick a default return per method kind.
+        if kind == "CreateTrigger":
+            stmts.append("return dsl.noTrigger2;")
+        elif kind == "CreateBehaviour":
+            stmts.append("return dsl.nothing();")
+        else:
+            stmts.append("return null;")
+
+    if not stmts:
+        if kind == "CreateTrigger":
+            return ["return dsl.noTrigger2;"]
+        if kind == "CreateBehaviour":
+            return ["return dsl.nothing();"]
+        if return_type == "void":
+            return ["// No-op: body was empty after transpilation"]
+        return ["return null;"]
+
+    return stmts
+
+
+def iter_c_files() -> list[Path]:
+    out = []
+    for p in DECOMPILED_DIR.rglob("*.c"):
+        content = p.read_text(encoding="utf-8", errors="replace")
+        if "VIRTUAL METHOD OVERRIDES" in content or "ABILITY HELPERS" in content:
+            out.append(p)
+    return out
+
+
+def process_all() -> None:
+    c_files = iter_c_files()
+    print(f"Found {len(c_files)} C files with target sections")
+
+    updated = skipped = no_java = errors = 0
+    for c_path in c_files:
+        class_name = c_path.stem
+        matches = list(JAVA_DIR.rglob(f"{class_name}.java"))
+        if not matches:
+            no_java += 1
+            continue
+        java_path = matches[0]
+        try:
+            st = process_file(c_path, java_path)
+            if st == "updated":
+                updated += 1
+                if updated % 50 == 0:
+                    print(f"  ... updated {updated} files")
+            elif st == "skipped":
+                skipped += 1
+            else:
+                errors += 1
+        except Exception as exc:
+            errors += 1
+            print(f"  ERROR {class_name}: {exc}", file=sys.stderr)
+            traceback.print_exc()
+
+    print(f"\nResults:")
+    print(f"  Updated: {updated}")
+    print(f"  Skipped: {skipped}")
+    print(f"  No Java file: {no_java}")
+    print(f"  Errors: {errors}")
+
+
+if __name__ == "__main__":
+    process_all()

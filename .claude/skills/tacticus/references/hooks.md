@@ -2,12 +2,12 @@
 
 ## Codebase active
 
-`frida/src/hooks/` — bundlée par `frida-compile` vers `frida/dist/hooks.js`.
+`frida/hooks/` — bundlée par `frida-compile` vers `frida/dist/hooks.js`.
 
 ### Arborescence
 
 ```
-src/hooks/
+hooks/
 ├── main.ts              # entrypoint : boot → install → wire controller
 ├── controller.ts        # dispatcher : features → rpc.exports
 │
