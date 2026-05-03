@@ -58,6 +58,30 @@ Pour info : (file:///C:/Users/nicolasv/tacticus-tools/frida/host/admin.ts) +
 - Ctrl+C dans le terminal `npm run dev`, ou
 - `curl -s -X POST http://127.0.0.1:8765/api/_dev/shutdown` (graceful).
 
+## Restart du host (pour Claude)
+
+Quand tu modifies du code dans `frida/host/` (router, config-store, sessions,
+admin, …) le host doit être redémarré — `npm run dev` lance `tsx host/index.ts`
+**sans watch**. Procédure :
+
+1. Shutdown graceful : `curl -s -X POST http://127.0.0.1:8765/api/_dev/shutdown`
+2. Relance en background : `cd frida && npm run dev > /tmp/host.log 2>&1 &`
+3. Vérification : `curl -s http://127.0.0.1:8765/api/health` doit retourner
+   `{"status":"ok"}` après ~3 s.
+
+**Important** : le restart du host **réinjecte** l'agent Frida via auto-restore
+(load fresh `dist/hooks.js` dans le PID Tacticus). L'état mémoire du précédent
+agent est perdu — donc :
+- `lastSource` (CampaignGameModeSource), `lastUnitProgression`, `lastUniverse`
+  redeviennent `null`
+- Les RPCs `buildCampaignConfig` / `dumpCampaignCatalog` / etc. répondent
+  "no live CampaignGameModeSource captured" jusqu'à re-warmup
+- **L'utilisateur doit cliquer une battle de campagne in-game** pour
+  ré-armer (le hook `CampaignGameModeSource..ctor` recapture sur navigation)
+
+Re-build de `dist/hooks.js` requis uniquement quand `frida/hooks/*` a changé
+(`npm run build:hooks` avant le restart).
+
 ## Ne jamais
 
 - **Utiliser `--reload`/hot-reload côté host** : casse les sessions Frida

@@ -134,6 +134,37 @@ export function listConfigs(): CapturedConfigMeta[] {
     return [...index];
 }
 
+/** Persist a config explicitly (vs the implicit `captured_config` agent
+ *  flow). Used by /api/launch when the engaged config came from the
+ *  campaign builder's inline build — promoting it to the archive only
+ *  after the user committed to engage. Returns the stored metadata. */
+export async function saveConfig(
+    meta: Omit<CapturedConfigMeta, "path" | "bytes" | "ts"> & {
+        path?: string; bytes?: number; ts?: number;
+    },
+    jsonStr: string,
+): Promise<CapturedConfigMeta> {
+    const fname = `${safeId(meta.id)}.json`;
+    const full: CapturedConfigMeta = {
+        id: meta.id,
+        mode: meta.mode,
+        sessionId: meta.sessionId,
+        ts: meta.ts ?? Date.now(),
+        bytes: meta.bytes ?? jsonStr.length,
+        path: meta.path ?? `configs/${fname}`,
+        board: meta.board ?? extractBoardId(jsonStr),
+        campaignId: meta.campaignId ?? null,
+        locationIndex: meta.locationIndex ?? null,
+    };
+    await fs.mkdir(CONFIGS_DIR, { recursive: true });
+    await fs.writeFile(path.join(CONFIGS_DIR, fname), jsonStr);
+    const i = index.findIndex((e) => e.id === full.id);
+    if (i >= 0) index[i] = full;
+    else index.push(full);
+    await writeIndex();
+    return full;
+}
+
 export async function getConfig(id: string): Promise<string | undefined> {
     const meta = index.find((e) => e.id === id);
     if (!meta) return undefined;

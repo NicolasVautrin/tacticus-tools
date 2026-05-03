@@ -10,6 +10,7 @@ import { loadBoard } from "./board.js";
 import { renderPlacements } from "./placements.js";
 import { renderUnitRoster } from "./roster.js";
 import { renderRunnerList } from "./runners.js";
+import { getCampaignFactionLabel, getCampaignConstraints } from "./campaign-builder.js";
 
 // Map game-internal campaign ids to readable labels for the archive panel.
 // Standard campaigns get their proper name (Indomitus, Octarius, ...) when
@@ -34,10 +35,17 @@ function prettyCampaignLabel(campaignId, locationIndex) {
     if (!campaignId) return null;
     let name = CAMPAIGN_PRETTY[campaignId];
     if (!name) {
-        // Event ids: eventStandardN / eventExtremisN
-        const m = /^event(Standard|Extremis)(\d+)$/i.exec(campaignId);
-        if (m) name = `Event ${m[2]} (${m[1]})`;
-        else name = campaignId;
+        // Event ids: eventStandardN / eventExtremisN — replace the noisy
+        // event index with the actual faction (looked up live via the
+        // campaign catalog). Falls back to "(Standard|Extremis)" alone if
+        // the catalog isn't ready.
+        const m = /^event(Standard|Extremis)\d+$/i.exec(campaignId);
+        if (m) {
+            const faction = getCampaignFactionLabel(campaignId);
+            name = faction ? `${faction} (${m[1]})` : `(${m[1]})`;
+        } else {
+            name = campaignId;
+        }
     }
     if (typeof locationIndex === "number" && locationIndex >= 0) {
         return name + " · Battle " + (locationIndex + 1);
@@ -98,6 +106,13 @@ export async function restoreLastConfig() {
     await selectConfig(meta);
 }
 
+// On boot, the archive list renders before campaign-builder finishes
+// fetching the campaign catalog — so faction labels fall back to bare
+// "(Standard)" until the catalog lands. Re-render once it does.
+window.addEventListener("tacticus:catalog-loaded", () => {
+    renderConfigList();
+});
+
 export function renderConfigList() {
     const ul = $("config-list");
     if (!ul) return;
@@ -150,7 +165,6 @@ export function renderConfigList() {
         const delBtn = li.querySelector(".archive-row__delete");
         delBtn?.addEventListener("click", async (e) => {
             e.stopPropagation();
-            if (!confirm("Delete capture " + cfg.id + " ?")) return;
             try {
                 await api.deleteConfig(cfg.id);
                 if (state.selected?.id === cfg.id) {
@@ -175,6 +189,10 @@ export async function selectConfig(meta) {
     state.runnerId = null;
     state.tileIdToCoord.clear();
     state.eventUnits.clear();
+    // Selecting an archive capture clears any campaign builder selection
+    // so the highlight in that panel reflects "nothing active here".
+    document.querySelectorAll(".cb-node.node--selected")
+        .forEach((el) => el.classList.remove("node--selected"));
     updateViewMode();
     renderConfigList();
     renderRunnerList();
@@ -194,11 +212,26 @@ export async function selectConfig(meta) {
 // differs between flows (e.g. the builder may want a different status text).
 export function hydrateConfig(meta, config) {
     state.config = config;
-    const seen = new Set();
+    // Catalog-sourced deployment constraints (allowedFactions /
+    // requiredUnits). Re-resolved on each hydrate — refreshing the
+    // catalog updates roster filtering on the next config load.
+    state.constraints = getCampaignConstraints(
+        meta.campaignId, meta.locationIndex);
+    const seenVisual = new Set();
     state.configUnits = [];
     for (const u of config.Units ?? []) {
-        if (!u?.Id || seen.has(u.Id)) continue;
-        seen.add(u.Id);
+        if (!u?.Id) continue;
+        // Only player heroes are deployable. NPC units lack the "Hero"
+        // trait; same for "Summon" / "MachineOfWar" entries the config
+        // ships for ability spawn templates. Filtering here keeps them
+        // out of the roster cleanly without needing brittle ID regex.
+        const traits = Array.isArray(u.Traits) ? u.Traits : [];
+        if (!traits.includes("Hero")) continue;
+        // Dedup by VisualId so different :N rarity variants of the same
+        // hero collapse to one roster cell.
+        const vis = u.VisualId ?? u.Id;
+        if (seenVisual.has(vis)) continue;
+        seenVisual.add(vis);
         const portraitKey = configIdToPortrait(u.Id);
         if (!portraitKey) continue;
         state.configUnits.push({

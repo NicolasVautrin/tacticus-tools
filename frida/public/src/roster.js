@@ -1,6 +1,7 @@
-// Unit roster (left of the three columns? — actually right panel, "ROSTER"
-// section). Filters state.configUnits via the text input and renders as a
-// grid of draggable portraits.
+// Unit roster panel — filters the captured config's deployable unit pool
+// against (a) the search input, (b) the campaign's allowedFactions, and
+// renders a draggable portrait grid. requiredUnits get a "mandatory"
+// badge so the user knows which heroes must be in the deployment.
 
 import { state } from "./state.js";
 import { $, status } from "./dom.js";
@@ -19,19 +20,39 @@ export function renderUnitRoster() {
           + '</div>';
         return;
     }
-    const items = state.configUnits.filter((u) =>
-        u.id.toLowerCase().includes(filter)
-        || (u.faction ?? "").toLowerCase().includes(filter));
+
+    const allowed = state.constraints?.allowedFactions ?? [];
+    const allowedSet = allowed.length ? new Set(allowed) : null;
+    const required = new Set(state.constraints?.requiredUnits ?? []);
+
+    const items = state.configUnits.filter((u) => {
+        if (allowedSet && !allowedSet.has(u.faction)) return false;
+        if (!filter) return true;
+        return u.id.toLowerCase().includes(filter)
+            || (u.faction ?? "").toLowerCase().includes(filter);
+    });
+
+    if (allowedSet) {
+        const head = document.createElement("div");
+        head.className = "roster__constraints";
+        head.textContent = "allowed: " + allowed.join(" · ");
+        div.appendChild(head);
+    }
+
     for (const u of items) {
+        const isRequired = required.has(u.id);
         const el = document.createElement("div");
         el.classList.add("unit");
+        if (isRequired) el.classList.add("unit--mandatory");
         el.title = u.id
             + (u.faction ? " (" + u.faction + ")" : "")
-            + (u.level ? " L" + u.level : "");
+            + (u.level ? " L" + u.level : "")
+            + (isRequired ? " — MANDATORY" : "");
         el.draggable = true;
         el.innerHTML = '<img src="/assets/'
             + state.manifest.units[u.portraitKey]
-            + '" loading="lazy" draggable="false">';
+            + '" loading="lazy" draggable="false">'
+            + (isRequired ? '<span class="unit__badge">!</span>' : "");
         el.addEventListener("dragstart", (ev) => {
             ev.dataTransfer.setData("text/plain", JSON.stringify({
                 kind: "deploy", unitId: u.id,

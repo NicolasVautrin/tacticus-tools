@@ -8,6 +8,7 @@ import { hexLayout, tileCenter, hexPolygon } from "./hex.js";
 import { configIdToPortrait } from "./images.js";
 import { attachTileDnd } from "./dnd.js";
 import { placeUnitImage } from "./placements.js";
+import { getCalibration, syncPanelToCurrentBoard } from "./hex-calibration.js";
 
 export function loadBoard() {
     const boardId = state.config?.Board?.Id?.toLowerCase();
@@ -18,7 +19,12 @@ export function loadBoard() {
     if (!pngPath) { status("no PNG for board " + boardId); return; }
 
     const img = $("board-bg");
-    img.onload = renderOverlay;
+    img.onload = () => {
+        renderOverlay();
+        // Refresh the calibration panel with this board's saved overrides
+        // (or recomputed defaults) once the PNG is sized.
+        syncPanelToCurrentBoard();
+    };
     img.src = "/assets/" + pngPath;
 
     const meta = ["BOARD " + boardId.toUpperCase()];
@@ -91,33 +97,57 @@ export function renderOverlay() {
     const visual = state.boardVisual;
     if (!visual) return;
 
-    const layout = hexLayout(visual, W, H);
+    const boardId = state.config?.Board?.Id?.toLowerCase();
+    const override = boardId ? getCalibration(boardId) : null;
+    const layout = hexLayout(visual, W, H, override);
     const { PlayableMinCol: minC, PlayableMinRow: minR } = visual;
     const logicalW = state.config.Board.Width;
     const logicalH = state.config.Board.Height;
 
-    // Tiles layer.
-    for (let lr = 0; lr < logicalH; lr++) {
+    // Tile elevation lookup: Board.Tiles[col].Tile[row].Elevation. Falls
+    // back to 0 when the tile slot is missing or the structure differs
+    // (older captures).
+    const tilesCols = state.config.Board.Tiles ?? [];
+    const elevAt = (lc, lr) => {
+        const col = tilesCols[lc];
+        const inner = Array.isArray(col?.Tile) ? col.Tile : null;
+        const t = inner ? inner[lr] : null;
+        return Number.isFinite(t?.Elevation) ? t.Elevation : 0;
+    };
+
+    // Tiles layer — each hex drawn at its own (col, row, elevation) so
+    // raised platforms align with the perspective baked into the PNG.
+    // Iterate rows BACK-TO-FRONT (top of image → bottom) so the painter's
+    // algorithm lets closer tiles occlude the parts of higher-elevation
+    // tiles that bleed into their row.
+    for (let lr = logicalH - 1; lr >= 0; lr--) {
         for (let lc = 0; lc < logicalW; lc++) {
-            const [cx, cy] = tileCenter(layout, lc + minC, lr + minR);
+            const elev = elevAt(lc, lr);
+            const [cx, cy] = tileCenter(layout, lc + minC, lr + minR, elev);
             const poly = document.createElementNS(
                 "http://www.w3.org/2000/svg", "polygon");
             poly.setAttribute("points",
-                hexPolygon(cx, cy, layout.size * 0.92));
+                hexPolygon(cx, cy, {
+                    Rx: layout.Rx * 0.92,
+                    Ry: layout.Ry * 0.92,
+                }));
             poly.classList.add("hex");
+            if (elev > 0) poly.classList.add("hex--elev-" + elev);
             const sp = state.spawnPointsByTile.get(lc + "," + lr);
             if (sp) poly.classList.add("spawn", "team-" + sp.team);
             poly.dataset.col = lc;
             poly.dataset.row = lr;
+            poly.dataset.elev = String(elev);
             const title = document.createElementNS(
                 "http://www.w3.org/2000/svg", "title");
-            title.textContent = "(" + lc + ", " + lr + ")";
+            title.textContent = "(" + lc + ", " + lr + ") elev " + elev;
             poly.appendChild(title);
             poly.addEventListener("mouseenter", () => {
                 const lbl = $("hex-coord");
                 if (lbl) lbl.textContent =
                     "COL " + String(lc).padStart(2, "0")
-                  + "  ROW " + String(lr).padStart(2, "0");
+                  + "  ROW " + String(lr).padStart(2, "0")
+                  + "  E " + elev;
             });
             attachTileDnd(poly, lc, lr);
             svg.appendChild(poly);
@@ -127,7 +157,7 @@ export function renderOverlay() {
     // Pre-launch placements — only in DEPLOY mode (no runner active).
     if (!state.runnerId) {
         for (const p of state.placements) {
-            placeUnitImage(svg, layout, p, minC, minR);
+            placeUnitImage(svg, layout, p, minC, minR, elevAt(p.col, p.row));
         }
     }
 
@@ -137,7 +167,8 @@ export function renderOverlay() {
         playerTeams.set(Number(pid), p.TeamId ?? 0);
     }
     for (const [entity, u] of state.eventUnits) {
-        const [cx, cy] = tileCenter(layout, u.col + minC, u.row + minR);
+        const [cx, cy] = tileCenter(layout, u.col + minC, u.row + minR,
+            elevAt(u.col, u.row));
         const team = playerTeams.get(u.playerId);
         const ringCls = team === 1 ? "ring-team-1"
                      : team === 2 ? "ring-team-2" : "ring-team-n";

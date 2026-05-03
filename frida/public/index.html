@@ -44,6 +44,20 @@
 
 <main>
   <aside id="archive-panel">
+    <section class="panel-block" id="tacticus-panel">
+      <div class="panel-block__head">
+        <span class="panel-block__bars" aria-hidden="true"></span>
+        <h2>Tacticus · Status</h2>
+      </div>
+      <div id="tacticus-banner" class="tacticus-banner tacticus-banner--unknown">
+        <span class="tacticus-banner__dot" aria-hidden="true"></span>
+        <span class="tacticus-banner__msg" id="tacticus-banner-msg">probing…</span>
+      </div>
+      <div class="admin-actions admin-actions--single">
+        <button id="admin-inject-btn" class="btn-major" disabled>INJECT HOOKS</button>
+      </div>
+    </section>
+
     <section class="panel-block">
       <div class="panel-block__head">
         <span class="panel-block__bars" aria-hidden="true"></span>
@@ -72,31 +86,58 @@
       <ul id="config-list"></ul>
     </section>
 
-    <section class="panel-block" id="tacticus-panel">
+    <section class="panel-block hidden" id="hex-calibration-panel">
       <div class="panel-block__head">
         <span class="panel-block__bars" aria-hidden="true"></span>
-        <h2>Tacticus · Status</h2>
+        <h2>Hex · Calibration</h2>
       </div>
-      <div id="tacticus-banner" class="tacticus-banner tacticus-banner--unknown">
-        <span class="tacticus-banner__dot" aria-hidden="true"></span>
-        <span class="tacticus-banner__msg" id="tacticus-banner-msg">probing…</span>
+      <div class="hexcal-row" data-target="hexcal-size" data-step-coarse="1" data-step-fine="0.1">
+        <label for="hexcal-size">cellSize&nbsp;X</label>
+        <button type="button" class="hexcal-step" data-delta="-1">−1</button>
+        <button type="button" class="hexcal-step hexcal-step--fine" data-delta="-0.1">−</button>
+        <input type="number" id="hexcal-size" class="hexcal-input" step="0.1">
+        <button type="button" class="hexcal-step hexcal-step--fine" data-delta="0.1">+</button>
+        <button type="button" class="hexcal-step" data-delta="1">+1</button>
       </div>
-      <div class="admin-actions admin-actions--single">
-        <button id="admin-inject-btn" class="btn-major" disabled>INJECT HOOKS</button>
+      <div class="hexcal-row" data-target="hexcal-sizey" data-step-coarse="1" data-step-fine="0.1">
+        <label for="hexcal-sizey">cellSize&nbsp;Y</label>
+        <button type="button" class="hexcal-step" data-delta="-1">−1</button>
+        <button type="button" class="hexcal-step hexcal-step--fine" data-delta="-0.1">−</button>
+        <input type="number" id="hexcal-sizey" class="hexcal-input" step="0.1">
+        <button type="button" class="hexcal-step hexcal-step--fine" data-delta="0.1">+</button>
+        <button type="button" class="hexcal-step" data-delta="1">+1</button>
       </div>
-      <details id="admin-override" class="admin-override">
-        <summary>PID override</summary>
-        <div class="admin-override__row">
-          <input id="admin-pid-input" type="number" min="1" inputmode="numeric"
-                 placeholder="leave blank for auto-discovery">
-          <button id="admin-pid-clear" class="btn-link" type="button">clear</button>
-        </div>
-        <div class="admin-override__hint">
-          Leave blank to let the host find Tacticus.exe automatically.
-          Use this only if auto-discovery picks the wrong process.
-        </div>
-      </details>
-      <div id="admin-status" class="admin-status">—</div>
+      <div class="hexcal-row" data-target="hexcal-x" data-step-coarse="10" data-step-fine="1">
+        <label for="hexcal-x">originX</label>
+        <button type="button" class="hexcal-step" data-delta="-10">−10</button>
+        <button type="button" class="hexcal-step hexcal-step--fine" data-delta="-1">−</button>
+        <input type="number" id="hexcal-x" class="hexcal-input" step="1">
+        <button type="button" class="hexcal-step hexcal-step--fine" data-delta="1">+</button>
+        <button type="button" class="hexcal-step" data-delta="10">+10</button>
+      </div>
+      <div class="hexcal-row" data-target="hexcal-y" data-step-coarse="10" data-step-fine="1">
+        <label for="hexcal-y">originY</label>
+        <button type="button" class="hexcal-step" data-delta="-10">−10</button>
+        <button type="button" class="hexcal-step hexcal-step--fine" data-delta="-1">−</button>
+        <input type="number" id="hexcal-y" class="hexcal-input" step="1">
+        <button type="button" class="hexcal-step hexcal-step--fine" data-delta="1">+</button>
+        <button type="button" class="hexcal-step" data-delta="10">+10</button>
+      </div>
+      <div class="hexcal-row">
+        <label for="hexcal-odd">odd-col offset</label>
+        <select id="hexcal-odd" class="hexcal-input">
+          <option value="-1">−hexH/2 (up)</option>
+          <option value="0">0 (none)</option>
+          <option value="1">+hexH/2 (down)</option>
+        </select>
+      </div>
+      <div id="hexcal-derived" class="hexcal-derived">—</div>
+      <div class="hexcal-actions">
+        <button id="hexcal-log" class="btn-major" type="button">LOG</button>
+        <button id="hexcal-reset" class="btn-secondary" type="button" title="Reset this board's calibration">RESET</button>
+        <button id="hexcal-reset-all" class="btn-secondary btn-secondary--danger" type="button" title="Wipe ALL boards calibrations">RESET ALL</button>
+      </div>
+      <textarea id="hexcal-output" class="hexcal-output hidden" readonly rows="10"></textarea>
     </section>
   </aside>
 

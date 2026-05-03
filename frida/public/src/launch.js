@@ -23,6 +23,19 @@ export async function launchBattle() {
         // value stored on the placement may be stale (from a pre-fix save)
         // or the tile's ownership may have been recomputed — take the spawn
         // map as source of truth, fall back to the placement's playerId.
+        // For builder-generated configs the JSON is held in memory only —
+        // ship it back to the host so it can persist the setup as a
+        // capture at engage time.
+        const opts = state.selected.kind === "generated" && state.selected.inlineJson
+            ? {
+                inlineConfig: state.selected.inlineJson,
+                inlineMeta: {
+                    mode: state.selected.mode,
+                    campaignId: state.selected.campaignId ?? null,
+                    locationIndex: state.selected.locationIndex ?? null,
+                },
+            }
+            : undefined;
         const data = await api.launch(
             state.selected.id,
             state.placements.map((p) => {
@@ -33,7 +46,8 @@ export async function launchBattle() {
                     col: p.col,
                     row: p.row,
                 };
-            }));
+            }),
+            opts);
         state.sessionId = data.sessionId;
         status("runner " + data.runnerId
              + " started on session " + data.sessionId);

@@ -22,7 +22,7 @@ import {
     getSession, listProcesses, listSessions, postMessage,
     rpcCall, runScript, stopAllPreservingState, stopSession,
 } from "./sessions.js";
-import { listConfigs, getConfig, clearConfigs, deleteConfig } from "./config-store.js";
+import { listConfigs, getConfig, clearConfigs, deleteConfig, saveConfig } from "./config-store.js";
 import {
     listRunners, latestDumpPath, registerRunner, removeRunner, pruneRunners,
 } from "./battle-store.js";
@@ -263,14 +263,24 @@ export function buildRouter(defaultLogDir: string): Router {
     });
 
     // Phase 3: orchestrate initRunner + applyAddUnit×N + startBattle
-    // body: { configId, placements: [{unitId, playerId, col, row}], sessionId? }
+    // body: { configId, placements, sessionId?, inlineConfig?, inlineMeta? }
+    //   - inlineConfig: when set (campaign-builder generated config that
+    //     was held in memory only), the JSON is persisted to the
+    //     archive at engage time so the setup can be reloaded later.
     router.post("/api/launch", async (req: Request, res: Response) => {
         try {
-            const { configId, placements, sessionId } = req.body as {
-                configId: string;
-                placements: Array<{ unitId: string; playerId: number; col: number; row: number }>;
-                sessionId?: number;
-            };
+            const { configId, placements, sessionId, inlineConfig, inlineMeta } =
+                req.body as {
+                    configId: string;
+                    placements: Array<{ unitId: string; playerId: number; col: number; row: number }>;
+                    sessionId?: number;
+                    inlineConfig?: string;
+                    inlineMeta?: {
+                        mode?: string;
+                        campaignId?: string | null;
+                        locationIndex?: number | null;
+                    };
+                };
             if (!configId || !Array.isArray(placements)) {
                 res.status(400).json({ error: "configId + placements[] required" });
                 return;
@@ -280,7 +290,22 @@ export function buildRouter(defaultLogDir: string): Router {
                 res.status(409).json({ error: "no running Frida session" });
                 return;
             }
-            const json = await getConfig(configId);
+            // Resolve the BattleConfiguration JSON. Two paths:
+            //   1. inlineConfig provided → save to archive then use it.
+            //   2. otherwise → look it up in the existing archive.
+            let json: string | undefined;
+            if (typeof inlineConfig === "string" && inlineConfig.length > 0) {
+                await saveConfig({
+                    id: configId,
+                    mode: inlineMeta?.mode ?? "engaged",
+                    sessionId: sid,
+                    campaignId: inlineMeta?.campaignId ?? null,
+                    locationIndex: inlineMeta?.locationIndex ?? null,
+                }, inlineConfig);
+                json = inlineConfig;
+            } else {
+                json = await getConfig(configId);
+            }
             if (!json) { res.status(404).json({ error: "config not found" }); return; }
 
             const init = await rpcCall(sid, "initRunner",
@@ -458,10 +483,10 @@ export function buildRouter(defaultLogDir: string): Router {
     /** Build a BattleConfiguration for one campaign node on demand.
      *
      * Body: `{ campaignType: number, campaignId: string, locationIndex: number }`.
-     * On success, writes the BattleConfiguration JSON to
-     * `assets/public/configs/Campaign<N>/<safe-id>.json` (mirrors the
-     * archive layout for captures, queryable via /assets/...).
-     * Returns `{ id, mode, path, bytes }` matching the captured-config meta. */
+     * Returns the JSON inline (no disk save). Promotion to the capture
+     * archive happens later via /api/launch when the user actually
+     * engages the setup — keeps "I clicked around to explore" out of
+     * the archive list. */
     router.post("/api/campaigns/build", async (req: Request, res: Response) => {
         try {
             const sid = pickRunningSession();
@@ -480,22 +505,11 @@ export function buildRouter(defaultLogDir: string): Router {
                     bytes: number; json: string;
                 };
 
-            // Store as `Campaign<campaignType>/<campaignId>_<locationIndex>.json`.
-            // Layout matches the captured-archive convention (`configs/<dir>/...`)
-            // so the static mount serves it cleanly under `/assets/configs/...`.
-            const folder = `Campaign${campaignType}`;
-            const safeBase = `${campaignId}_${locationIndex}`
-                .replace(/[^A-Za-z0-9._-]/g, "_");
-            const dirAbs = path.join(
-                process.cwd(), "assets", "public", "configs", folder);
-            await fs.mkdir(dirAbs, { recursive: true });
-            const outPath = path.join(dirAbs, safeBase + ".json");
-            await fs.writeFile(outPath, r.json);
             res.json({
                 id: `Campaign${campaignType}_${campaignId}_${locationIndex}`,
                 campaignType, campaignId, locationIndex,
                 bytes: r.bytes,
-                path: `configs/${folder}/${safeBase}.json`,
+                json: r.json,           // inline — front parses directly
                 source: "generated",
                 generatedAt: new Date().toISOString(),
             });

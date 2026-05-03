@@ -30,6 +30,8 @@ import { playTurn } from "./src/actions.js";
 import { wireAdmin } from "./src/admin.js";
 import { initCampaignBuilder } from "./src/campaign-builder.js";
 import { initCollapsiblePanels } from "./src/collapsible.js";
+import { initCalibration } from "./src/hex-calibration.js";
+import { renderOverlay } from "./src/board.js";
 
 (async function boot() {
     try {
@@ -77,6 +79,10 @@ import { initCollapsiblePanels } from "./src/collapsible.js";
     // Wire collapsible behaviour on every .panel-block. Persists per-panel
     // state to localStorage so the user's layout survives reloads.
     initCollapsiblePanels();
+
+    // Hex calibration panel — sliders mutate per-board overrides in
+    // `state.calibrations`; renderOverlay() picks them up on the next paint.
+    initCalibration(renderOverlay);
 
     // When admin.js detects a new session (host restored after reboot, or a
     // fresh INJECT just landed), wipe runner-tied UI and re-run the subscribe

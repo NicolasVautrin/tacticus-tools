@@ -46,8 +46,8 @@ export function removePlacement(p) {
 
 // Render a placement portrait as an SVG <foreignObject> so native HTML drag
 // works on the inner <img>.
-export function placeUnitImage(svg, layout, p, minC, minR) {
-    const [cx, cy] = tileCenter(layout, p.col + minC, p.row + minR);
+export function placeUnitImage(svg, layout, p, minC, minR, elevation = 0) {
+    const [cx, cy] = tileCenter(layout, p.col + minC, p.row + minR, elevation);
     const portraitKey = configIdToPortrait(p.unitId);
     const pngPath = portraitKey ? state.manifest.units[portraitKey] : null;
     if (!pngPath) return;

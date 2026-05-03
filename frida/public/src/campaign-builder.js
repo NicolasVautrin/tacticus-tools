@@ -22,7 +22,6 @@ import { registerWsHandler } from "./ws.js";
 let lastVersion = null;
 let catalog = null;
 let campaignTypeNames = null;  // { 0: "Standard", 1: "Mirror", ... }
-let builtCache = new Map();    // "<type>/<id>/<idx>" → { path, generatedAt }
 
 // I18N lookup: "Indomitus" / "Fall of Cadia" / etc. Populated lazily via
 // the active version's i18n bundle (already synced in meta-sync).
@@ -82,15 +81,21 @@ const FACTION_PREFIXES = {
     sister:"Adepta Sororitas",
     sisters:"Adepta Sororitas",
     custodes:"Adeptus Custodes",
-    mech:  "Mechanicus",
-    ad:    "Mechanicus",
+    mech:  "Adeptus Mechanicus",
+    ad:    "Adeptus Mechanicus",
+    admec: "Adeptus Mechanicus",
+    adept: "Adepta Sororitas",
     eldar: "Aeldari",
     krieg: "Death Korps",
     nephilim:"Aeldari",
     drukhari:"Drukhari",
+    genes: "Genestealers",
     genestealer:"Genestealers",
     nurgle:"Death Guard",
     slaanesh:"Slaanesh",
+    ultra: "Ultramarines",
+    world: "World Eaters",
+    templ: "Black Templars",
 };
 
 function inferEnemyFaction(units) {
@@ -105,35 +110,94 @@ function inferEnemyFaction(units) {
     return m ? m[1] : null;
 }
 
+/** Resolve a campaignId (e.g. "eventStandard2") to its display faction
+ *  via the loaded catalog. Returns the localized faction name (e.g.
+ *  "Tyranids") or null when the catalog isn't loaded yet / unknown id.
+ *  Used by the archive list to surface the faction instead of the raw
+ *  event index. */
+export function getCampaignFactionLabel(campaignId) {
+    if (!catalog || !campaignId) return null;
+    for (const tier of Object.values(catalog)) {
+        if (!Array.isArray(tier)) continue;
+        const c = tier.find((x) => x?.id === campaignId);
+        if (c) return eventDominantFaction(c);
+    }
+    return null;
+}
+
+/** Deployment constraints for a (campaignId, locationIndex) pair, sourced
+ *  from the campaign catalog:
+ *    - allowedFactions : factions the player may deploy from (campaign-
+ *      level — set in `unlockConditions.requiredUnits.allowedFactions`)
+ *    - requiredUnits   : unit ids the player MUST include in this battle
+ *      (battle-level — `battles[].requiredUnits`)
+ *  Returns null when the catalog is not loaded or the campaign is unknown.
+ *  An empty `allowedFactions` array means "no faction restriction" — the
+ *  caller should treat that as "any faction allowed". */
+export function getCampaignConstraints(campaignId, locationIndex) {
+    if (!catalog || !campaignId) return null;
+    for (const tier of Object.values(catalog)) {
+        if (!Array.isArray(tier)) continue;
+        const c = tier.find((x) => x?.id === campaignId);
+        if (!c) continue;
+        const allowedFactions = c.unlockConditions?.requiredUnits
+            ?.allowedFactions ?? [];
+        const battles = Array.isArray(c.battles) ? c.battles : [];
+        const battle = (typeof locationIndex === "number")
+            ? (battles[locationIndex] ?? null)
+            : null;
+        const requiredUnits = Array.isArray(battle?.requiredUnits)
+            ? battle.requiredUnits : [];
+        return { allowedFactions, requiredUnits };
+    }
+    return null;
+}
+
 function factionDisplay(prefix) {
     if (!prefix) return null;
     return FACTION_PREFIXES[prefix.toLowerCase()] ?? prefix;
 }
 
-// Derive a readable display name for an Event campaign (catalog id like
-// "eventStandard1" / "eventExtremis3"). Result e.g.:
-//   "Event 1 — Astra Militarum (Standard)"
-function eventDisplayName(campaignId, faction) {
-    const m = /^event(Standard|Extremis)(\d+)$/i.exec(campaignId);
-    if (!m) return null;
-    const variant = m[1];   // Standard | Extremis
-    const idx = m[2];
-    const fac = factionDisplay(faction);
-    return `Event ${idx} — ${fac ?? "?"} (${variant})`;
+/** Dominant enemy faction across an event's battles. Each battle
+ *  contributes its first unit's faction prefix; we tally and pick the
+ *  most-frequent. Tacticus events typically have 1 main enemy (~25-33/33
+ *  battles) plus a few "guest" battles with other factions — the user
+ *  thinks of the event by the dominant faction, not the minority guests. */
+function eventDominantFaction(campaign) {
+    const battles = Array.isArray(campaign?.battles) ? campaign.battles : [];
+    const counts = new Map();
+    for (const b of battles) {
+        const units = Array.isArray(b?.units) ? b.units : [];
+        const first = Array.isArray(units[0]) ? units[0][0] : null;
+        if (!first) continue;
+        const m = first.match(/^([a-z]+?)(?:Npc|[A-Z0-9])/);
+        if (!m) continue;
+        counts.set(m[1], (counts.get(m[1]) ?? 0) + 1);
+    }
+    let bestPrefix = null, bestN = 0;
+    for (const [pfx, n] of counts) {
+        if (n > bestN) { bestPrefix = pfx; bestN = n; }
+    }
+    return bestPrefix ? factionDisplay(bestPrefix) : null;
 }
 
-function nodeStateClass(key) {
-    if (builtCache.has(key)) return "node--built";
-    return "node--pending";
+// Derive a readable display name for an Event campaign (catalog id like
+// "eventStandard1" / "eventExtremis3"). Result e.g.:
+//   "Tyranids (Standard)" / "T'au (Extremis)"
+function eventDisplayName(campaign) {
+    const id = campaign?.id ?? "";
+    const m = /^event(Standard|Extremis)\d+$/i.exec(id);
+    if (!m) return null;
+    const faction = eventDominantFaction(campaign);
+    return `${faction ?? "?"} (${m[1]})`;
 }
 
 // The data-key on each node-button serializes the (campaignType, campaignId,
 // locationIndex) triple. Pipe-delimited (campaignId is a regex-safe slug).
 function renderNodeBadge(campaignTypeInt, campaignId, locationIndex) {
     const key = campaignTypeInt + "|" + campaignId + "|" + locationIndex;
-    const cls = nodeStateClass(key);
     const label = String(locationIndex + 1);  // 1-based for humans
-    return `<button class="cb-node ${cls}" data-key="${key}">${label}</button>`;
+    return `<button class="cb-node node--pending" data-key="${key}">${label}</button>`;
 }
 
 function renderCampaign(campaignTypeInt, typeName, campaignId, campaign) {
@@ -144,7 +208,7 @@ function renderCampaign(campaignTypeInt, typeName, campaignId, campaign) {
     // Events lack proper i18n names — derive a readable one from the id +
     // first-battle faction. Other campaign types get their normal name.
     const dispName = (typeName === "Event"
-        ? eventDisplayName(campaignId, enemyFactionRaw)
+        ? eventDisplayName(campaign)
         : null)
         ?? campaignDisplayName(typeName, campaignId);
     const factionLabel = factionDisplay(enemyFactionRaw);
@@ -280,29 +344,31 @@ async function onNodeClick(key) {
     if (!Number.isFinite(campaignType) || !Number.isFinite(locationIndex)) return;
 
     const root = $("campaign-builder-list");
+    // Single-selection: clear the highlight on whichever node was last
+    // active so only the just-clicked one stays lit.
+    root?.querySelectorAll(".cb-node.node--selected")
+        .forEach((el) => el.classList.remove("node--selected"));
     const btn = root?.querySelector('.cb-node[data-key="' + key + '"]');
     if (btn) {
         btn.disabled = true;
-        btn.classList.remove("node--pending", "node--built", "node--error");
-        btn.classList.add("node--building");
+        btn.classList.remove("node--pending", "node--error");
+        btn.classList.add("node--building", "node--selected");
     }
     status("building " + campaignId + " · node " + (locationIndex + 1) + "…");
     try {
-        let built = builtCache.get(key);
-        if (!built) {
-            const r = await api.campaigns.build(campaignType, campaignId, locationIndex);
-            built = { path: r.path, generatedAt: r.generatedAt, id: r.id };
-            builtCache.set(key, built);
-        }
-        const config = await api.campaigns.fetchBuilt(built.path);
+        const r = await api.campaigns.build(campaignType, campaignId, locationIndex);
+        // Inline JSON — host doesn't persist on build anymore. We hold
+        // it in state so the engage flow can ship it back at launch
+        // time (which is when the archive entry actually gets created).
+        const config = JSON.parse(r.json);
 
         // Reset runner-tied state (same prelude as selectConfig in configs.js).
         const meta = {
-            id: built.id,
+            id: r.id,
             mode: "Campaign" + campaignType,
             kind: "generated",
             campaignType, campaignId, locationIndex,
-            path: built.path,
+            inlineJson: r.json,
         };
         state.selected = meta;
         saveLastConfigId(meta.id);
@@ -313,7 +379,6 @@ async function onNodeClick(key) {
         updateViewMode();
         renderRunnerList();
         hydrateConfig(meta, config);
-        if (btn) btn.classList.add("node--built");
     } catch (e) {
         status("build failed: " + e.message);
         if (btn) btn.classList.add("node--error");
@@ -349,6 +414,12 @@ async function refresh(forceAgentRefresh = false) {
         if (!campaignTypeNames) campaignTypeNames = await loadEnums();
         if (!i18n && lastVersion) i18n = await loadI18n(lastVersion);
         renderCatalog();
+        // Other panels (archive list) derive their labels from this
+        // catalog. Fire a custom event so they re-render once it lands —
+        // avoids a circular import on configs.js.
+        if (catalog) {
+            window.dispatchEvent(new CustomEvent("tacticus:catalog-loaded"));
+        }
     } finally {
         if (refreshBtn) refreshBtn.disabled = false;
     }

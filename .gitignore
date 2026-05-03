@@ -22,3 +22,5 @@ inject.json
 frida/probe-*.js
 frida/probe-*.json
 frida/rpc-body.json
+# Debug dumps (one-shot)
+board_probe.json

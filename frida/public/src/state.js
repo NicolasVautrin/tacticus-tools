@@ -31,6 +31,10 @@ export const state = {
     runnerId: null,
     sessionId: null,
     ws: null,
+    // Deployment constraints (when the loaded config is a campaign battle):
+    //   { allowedFactions: ["Sisterhood",...], requiredUnits: [...] }
+    // Null when the source isn't a campaign or the catalog isn't loaded.
+    constraints: null,
     // { runnerId, winner, stageName, finishedAt } once a battle ends
     // (FinishMatch event observed or stage flipped non-Running). Cleared on
     // resetRunnerSession so re-engage starts fresh.
