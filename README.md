@@ -1,147 +1,187 @@
 ---
 title: "tacticus-tools"
-subtitle: "Serveur Frida minimal pour WH40K Tacticus"
-date: "2026-04-14"
+subtitle: "Frida hooking + browser builder pour WH40K Tacticus (Windows PC)"
+date: "2026-05-03"
 ---
 
 # tacticus-tools
 
-Serveur Node.js minimal pour le hooking Frida de **WH40K Tacticus** sur Android.
+Outils Frida + serveur Node.js pour **WH40K Tacticus** (build Windows PC,
+Unity 6 IL2CPP). Capture passive de `BattleConfiguration` via les hooks
+GameModeSource, génération à la demande de configs de campagne (events
+inactifs inclus) via une mute-and-swap path sur la `CampaignProgression`
+live, et frontend browser pour piloter le tout.
 
-Remplace le backend Python de frida-ide avec ~500 lignes de TypeScript :
-injection de scripts, RPC, logs JSONL, enrichissement des symboles IL2CPP
-et descriptions I2.
+## Fonctionnalités
 
-## Fonctionnalites
+- **Injection Frida** locale (frida.getLocalDevice, pas de device distant)
+  via auto-discovery du PID Tacticus
+- **Capture passive** : chaque battle lancée naturellement par l'utilisateur
+  est capturée et persistée comme `BattleConfiguration` JSON
+- **Campaign builder** : génère la config de n'importe quelle node de
+  campagne (Standard / Mirror / Elite / Event actif ou inactif) sans avoir
+  à lancer la battle en jeu, via le pattern progression-swap
+- **Frontend browser** : board interactif, gestion des captures (suppression,
+  filtrage), builder hiérarchique CampaignType → Campaign → Node
+- **WebSocket push** : notifications en temps réel (`builder_ready`,
+  `captured_config`, `battle_event`) — pas de polling
 
-- **Injection Frida** : attach/spawn sur device USB via frida-node
-- **RPC synchrone** : appels get_state, move, attack, end_turn avec timeout
-- **Enrichissement automatique** : stacks IL2CPP, enums, descriptions I2
-  (abilities, triggered, effets — 100% resolus)
-- **JSONL logging** : un fichier par session, append-only
-- **WebSocket streaming** : messages enrichis en temps reel avec reconnection
-- **Shutdown propre** : cleanup des hooks Frida avant decharge
+## Prérequis
 
-## Prerequis
+- **Tacticus PC installé** (`C:\Users\nicolasv\AppData\Local\tacticus\games\nb3o9lmt6c\`)
+- **Node.js >= 18**, npm
+- **Windows** (host Frida-node natif)
 
-- Node.js >= 18
-- frida-server 17.9.1 sur le device Android (root requis)
-- adb dans le PATH
+Pas d'`adb`, pas de device, pas de `frida-server` — `frida-node` parle
+directement à `frida-core` embarqué dans le process Node.
 
 ## Installation
 
 ```bash
-cd server
+cd frida
 npm install
 ```
 
-## Demarrage
+## Workflow utilisateur
+
+### 1. Lancer Tacticus
+
+Lance Tacticus normalement (launcher → PLAY, ou directement
+`Tacticus.exe`). **Attendre que le menu principal soit pleinement loaded**
+(animations en boucle visibles).
+
+### 2. Démarrer le host Node
 
 ```bash
-cd server
-npx tsx src/index.ts
+cd frida
+npm run dev
 ```
 
-Le serveur ecoute sur `http://127.0.0.1:8765`.
+Host sur `http://127.0.0.1:8765`. Le front est exposé à `/view/`.
 
-## Utilisation rapide
+> ⚠️ Ne **jamais** activer hot-reload sur le host : casse les sessions Frida
+> actives, peut crash Tacticus.
 
-### Lister les devices
+### 3. INJECT depuis le front
 
-```bash
-curl -s http://127.0.0.1:8765/api/devices
-```
+Ouvrir `http://127.0.0.1:8765/view/`. Le bandeau status en haut affiche
+l'état de Tacticus :
+- **Vert** : Tacticus tourne, hooks actifs
+- **Orange** : Tacticus tourne mais pas de session — clic INJECT
+- **Rouge** : Tacticus pas lancé
 
-### Injecter l'autoplay
+Cliquer INJECT → l'agent (~110 KB) est injecté, les hooks essentiels sont
+posés. **Aucun heap scan, aucun freeze**.
 
-```bash
-PID=$(adb -s f32224e7 shell "ps -A | grep -i tacticus" | awk '{print $2}')
+### 4. Warmup en jeu
 
-cat hooks/_utils/il2cpp-helpers.js \
-    hooks/_utils/il2cpp-invoke.js \
-    hooks/_utils/il2cpp-serializer.js \
-    hooks/_utils/matchstate-reader.js \
-    hooks/autoplay/message-factory.js \
-    hooks/autoplay/action-queue.js \
-    hooks/autoplay/turn-observer.js \
-    hooks/autoplay/input-capture.js \
-    hooks/autoplay/recv-handler.js \
-    > scripts/autoplay-composed.js
+Ouvrir une campagne quelconque + cliquer un battle (n'importe lequel). Ce
+clic naturel déclenche :
+- `CampaignGameModeSource..ctor` (onLeave) → capture `lastSource`
+- Push `{ t: "builder_ready" }` → le front auto-rafraîchit le catalog
+- `UnitProgression.GetUnit` → capture `lastUnitProgression`
+- `IdunUniverse.*` → capture l'univers (portraits, boards)
 
-node -e "
-const fs = require('fs');
-const source = fs.readFileSync('scripts/autoplay-composed.js', 'utf-8');
-const payload = JSON.stringify({
-  serial: 'f32224e7', mode: 'attach', pid: $PID,
-  source, log_dir: 'logs'
-});
-fs.writeFileSync('scripts/inject-payload.json', payload);
-"
+### 5. Builder
 
-curl -s -X POST http://127.0.0.1:8765/api/scripts/run \
-  -H "Content-Type: application/json" \
-  -d @scripts/inject-payload.json
-```
+Le panel **Campaign Builder** (front) liste toutes les campagnes /
+events disponibles. Cliquer une node :
+- L'agent fait un **progression-swap** (mute mode) sur la live
+  `CampaignProgression` — swap temporaire de `_campaignType`,
+  `_campaignId`, `_battlesConfigCampaigns`
+- Per-faction warmup (`UnitProgression.GetUnit` sur les enemy units du
+  match) pour pré-résoudre les classes IL2CPP non-touchées
+- Appel `LoadBattle(true)` → BattleConfiguration générée
+- Restore tout dans le `finally`
+- Round-trip ~60 ms pour un build typique
 
-### Recuperer l'etat de jeu
+La config est persistée sur disque sous `frida/assets/public/configs/...`,
+mirrorable côté browser pour rendu board + placements.
 
-```bash
-curl -s -X POST http://127.0.0.1:8765/api/scripts/1/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"method":"get_state","args":{"depth":6}}'
-```
+## Stop / cleanup
 
-### Arreter
+Front : bouton STOP de la session, ou côté host :
 
 ```bash
 curl -s -X POST http://127.0.0.1:8765/api/_dev/shutdown
 ```
 
-## API
+(ou Ctrl+C dans le terminal `npm run dev`)
+
+## API HTTP
 
 | Methode | Route | Description |
 |:--------|:------|:------------|
-| GET | `/api/health` | Health check + stats symboles |
-| GET | `/api/devices` | Devices Frida (USB, local) |
-| GET | `/api/devices/:serial/processes` | Processus du device |
-| POST | `/api/scripts/run` | Injection de script |
-| POST | `/api/scripts/:id/stop` | Stop session |
-| POST | `/api/scripts/:id/rpc` | Appel RPC synchrone |
-| POST | `/api/scripts/:id/message` | Message async au script |
-| GET | `/api/scripts/:id` | Status session |
-| POST | `/api/_dev/shutdown` | Arret du serveur |
+| GET | `/api/admin/status` | Tacticus running? launcher? game PID + path? session info |
+| POST | `/api/admin/inject` | Injection (body vide = auto-discovery du PID) |
+| GET | `/api/sessions` | Sessions Frida actives |
+| POST | `/api/scripts/:id/stop` | Stop session (cleanup graceful) |
+| POST | `/api/scripts/:id/rpc` | RPC synchrone — body: `{method, args, timeout?}` |
+| GET | `/api/configs` | Liste des `BattleConfiguration` capturées |
+| GET | `/api/configs/:id` | JSON d'une capture |
+| DELETE | `/api/configs/:id` | Supprimer une capture |
+| GET | `/api/campaigns/builder-status` | État du builder (lastSource captured?) |
+| POST | `/api/campaigns/catalog/refresh` | Force re-dump du catalog (heap scan autorisé) |
+| POST | `/api/campaigns/build` | `{campaignType, campaignId, locationIndex}` → JSON BattleConfiguration |
+| POST | `/api/_dev/shutdown` | Arrêt graceful du host |
 
-WebSocket : `ws://127.0.0.1:8765/ws/run/:id` (reconnection via `?last_event_id=N`)
+WebSocket : `ws://127.0.0.1:8765/ws/run/:id` (reconnect via `?last_event_id=N`).
+Messages push : `captured_config`, `battle_event`, `builder_ready`, `diag`, `trace`.
 
 ## Structure
 
 ```
-server/src/
-  index.ts              # Routes Express + startup
-  frida-manager.ts      # Sessions Frida (attach, RPC, cleanup)
-  symbol-resolver.ts    # Enrichissement (enums, stacks, I2, effets)
-  jsonl-logger.ts       # Logging JSONL
-  ws-stream.ts          # WebSocket + ring buffer
+frida/                    # Monorepo TypeScript actif
+  hooks/                  # Script injecté (bundlé par frida-compile)
+    il2cpp/               # Primitives IL2CPP (helpers, invoke, serializer, gc-root, mt)
+    game/                 # Tacticus-specific (runner, match-state, ai-control, recorder, apply-stack)
+    features/             # RPCs par feature
+      campaign-builder.ts # Build à la demande via progression-swap
+      mode-source-capture.ts  # Capture passive des battles naturelles
+      launch.ts           # Standalone runner (sim-and-commit)
+      sim/compare/cheat/  # Phase 2 — simulation
+      configIo/status/...
+    runtime/              # queue, main-pump, menu-pump, diag (log + traceEnter)
+    controller.ts         # Aggregate features → rpc.exports
+    main.ts               # Entrypoint
+  host/                   # Serveur Node (Express + WS + Frida bridge)
+    index.ts router.ts sessions.ts admin.ts ws.ts
+    config-store.ts battle-store.ts meta-sync.ts
+  public/                 # Front browser — servi sur /view/
+    index.html app.js style.css
+    src/                  # Modules JS (api, ws, board, configs, campaign-builder, ...)
+  assets/
+    raw/                  # AssetBundles extraits (gitignored)
+    public/               # PNG + manifest.json — servi sur /assets/
+      configs/            # BattleConfiguration captures + générées
+  data/                   # Symbols.json, gameconfig dumps (gitignored)
+  dist/                   # Bundles build (gitignored)
 
-hooks/                  # Modules Frida (composition par concat)
-  _utils/               # il2cpp-helpers, invoke, serializer, matchstate-reader
-  autoplay/             # Boucle autoplay complete
-  _oneshot/             # Dumps one-shot (symbols, abilities, gameconfig)
-  ai/                   # Observers IA du jeu
-  battle/               # Hooks de combat
+scripts/
+  python/build_asset_manifest.py  # UnityPy → assets/public + manifest
+  ghidra/GhidraDecompileGameAssembly.java  # Décompilation headless
 
-data/                   # Donnees de reference (gitignore)
-lib/                    # Helpers Python (state, hex, rpc)
-logs/                   # Sessions JSONL (gitignore)
-scripts/                # Scripts composes et outils
+hooks-legacy/             # One-shots historiques (cf. README local)
+sources_win/              # Décompilation Ghidra (gitignored, lourd)
+STATUS.md                 # État vivant du projet
 ```
 
-## Donnees
+## Caveats / pièges connus
 
-Les fichiers `data/` sont generes par les hooks oneshot et ne sont pas
-versionnes. Pour les regenerer :
+- **Heap scans automatiques** : Frida suspend les threads cible pendant
+  `Process.enumerateRanges` / `Memory.scan` (~10 s sur Tacticus PC). Au-delà
+  de 5–10 s de freeze, **Tacticus's UnityFreezeDetector tue le process**.
+  Heap scans gated par `allowHeapScan: true` (= bouton ↻ du front uniquement).
+- **Broad-hooks sur méthodes UI hot** (`Get*`, `Has*`, `Is*`...) : la
+  surcharge cumulée des trampolines déstabilise les cctor cascades IL2CPP
+  pendant les transitions de scène. **Ne pas hooker des méthodes appelées
+  par les rendus UI**.
+- **Hook permanent sur property getters** appelés par les sérialisations
+  Newtonsoft internes du jeu (ex. `GameConfigData.get_gameConfigDto` →
+  ~27 000 appels/s) : amplifie une cctor cascade naturelle en hard crash.
+  Préférer un appel à la demande (`unwrapGameConfig`).
+- **Re-injection après stop** : peut wedge dans le même PID Tacticus.
+  Relancer Tacticus avant de réinjecter.
 
-- **symbols.json** : `_oneshot/dump-symbols.js` (hors combat)
-- **gameconfig-abilities.json** : `_oneshot/dump-gameconfig.js` +
-  `scripts/dump-all-configs.js` (en combat)
-- **i2_en.json** : extraction depuis le bundle UnityFS de l'APK
+Voir (file:///C:/Users/nicolasv/tacticus-tools/STATUS.md) pour l'état
+courant + validations passées.

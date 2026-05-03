@@ -2,6 +2,7 @@ node_modules/
 dist/
 data/
 sources/
+sources_win/
 logs/
 il2cpp/
 *.apk
@@ -17,3 +18,7 @@ tools/
 app/
 build-errors.log
 inject.json
+# Ad-hoc Frida probe scripts (one-shots, not part of the build)
+frida/probe-*.js
+frida/probe-*.json
+frida/rpc-body.json

@@ -12,6 +12,7 @@
 import {
     class_get_name, findClassAnywhere, findMethod, s,
 } from "../il2cpp/helpers.js";
+import { log } from "../runtime/diag.js";
 import { Ctx } from "../controller.js";
 
 const NS_IDUNBATTLE = "IdunBattle.AI.Utilities";
@@ -139,7 +140,7 @@ function installOnce(): void {
     Interceptor.flush();
     const okCount = Object.values(installStatus)
         .filter((v) => v === "ok").length;
-    console.log("[movement-trace] installed on "
+    log("[movement-trace] installed on "
         + okCount + "/" + MOVEMENT_UTILITIES.length
         + " EvaluateMovementInSteps factories");
 }

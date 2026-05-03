@@ -74,6 +74,20 @@ export async function pruneRunners(keep: Set<number>): Promise<number[]> {
     return removed;
 }
 
+/** Drop every runner tied to a specific session. Called when a Frida session
+ * stops — its runners live inside the script's heap, so they are dead as soon
+ * as the script unloads. */
+export async function pruneRunnersBySession(sessionId: number): Promise<number[]> {
+    const removed: number[] = [];
+    for (const [id, meta] of [...runners.entries()]) {
+        if (meta.sessionId === sessionId) {
+            await removeRunner(id);
+            removed.push(id);
+        }
+    }
+    return removed;
+}
+
 function seqByRunnerDelete(_id: number): void { /* no-op — seq lives on meta */ }
 
 export function latestDumpPath(runnerId: number): string | null {

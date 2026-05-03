@@ -31,6 +31,10 @@ export const state = {
     runnerId: null,
     sessionId: null,
     ws: null,
+    // { runnerId, winner, stageName, finishedAt } once a battle ends
+    // (FinishMatch event observed or stage flipped non-Running). Cleared on
+    // resetRunnerSession so re-engage starts fresh.
+    battleEnded: null,
 };
 
 export function savePlacements() {

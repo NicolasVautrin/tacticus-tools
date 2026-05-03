@@ -1,20 +1,26 @@
 # tacticus-tools
 
-Hooking Frida de WH40K Tacticus — monorepo TypeScript.
+Hooking Frida de **WH40K Tacticus** (Windows PC build, Unity 6 IL2CPP) — monorepo TypeScript.
 
 ## Structure
 
 - Racine : `C:\Users\nicolasv\tacticus-tools`
 - `frida/` — codebase active (hooks TS + host TS, bundlé par `frida-compile`)
-  - `frida/hooks/` — script injecté
-  - `frida/host/` — serveur Node qui pilote les sessions Frida
+  - `frida/hooks/` — script injecté dans Tacticus
+  - `frida/host/` — serveur Node qui pilote les sessions Frida (Express + WS)
+  - `frida/public/` — frontend browser (statique, servi sur `/view/`)
   - `frida/dist/` — outputs build (gitignored)
 - `hooks-legacy/` — ancien répertoire de hooks, conservé pour one-shots (dumps,
   probes historiques). Voir `hooks-legacy/README.md` pour classification.
-- `server/` — ancien serveur Node (obsolete, à renommer en `server-legacy/`
-  quand le process node aura relâché les fichiers)
 - `data/` — dumps IL2CPP (`symbols.json`, abilities, enums) — gitignored
-- `sources/` — sources décompilées enrichies offsets — gitignored
+- `sources_win/` — décompilation Ghidra de `GameAssembly.dll` — gitignored
+- `STATUS.md` — état d'avancement vivant du projet
+
+## Cible Windows
+
+- **Exe** : `C:\Users\nicolasv\AppData\Local\tacticus\games\nb3o9lmt6c\Tacticus.exe`
+- **GameAssembly.dll** : ~60 MB, IL2CPP AOT (Unity 6000.3.8f1)
+- **Pas d'`adb`, pas de device, pas de `frida-server`** : injection locale via `frida.getLocalDevice()`
 
 ## Démarrage
 
@@ -22,46 +28,54 @@ Hooking Frida de WH40K Tacticus — monorepo TypeScript.
 cd frida && npm run dev
 ```
 
-Serveur sur `http://127.0.0.1:8765`.
+Host sur `http://127.0.0.1:8765`. Front sur `http://127.0.0.1:8765/view/`.
 
-## Device
+## Workflow utilisateur (validé)
 
-- Xiaomi 2201117TY, serial `f32224e7`, rooté
-- Package : `com.snowprintstudios.tacticus`
+1. Lancer Tacticus, attendre que le menu principal soit pleinement loaded.
+2. Ouvrir le front (`/view/`).
+3. Cliquer **INJECT** dans l'UI (auto-discovery du PID via `_Data/` adjacent à l'exe).
+4. Cliquer un battle de campagne in-game (= warmup) → l'agent capture
+   `lastSource` + `lastUnitProgression` + `IdunUniverse` automatiquement, push
+   `builder_ready` au front, qui déclenche un refresh catalog.
+5. Builder front : tout est armé. On peut générer la `BattleConfiguration` de
+   n'importe quelle node (events inactifs inclus) sans relancer une battle.
 
 ## Build + Injection
 
 ```bash
-cd frida && npm run build:hooks        # → frida/dist/hooks.js
-
-PID=$(adb -s f32224e7 shell "ps -A | grep -i tacticus" | awk '{print $2}')
-node -e "
-const fs = require('fs');
-const source = fs.readFileSync('C:/Users/nicolasv/tacticus-tools/frida/dist/hooks.js', 'utf-8');
-const payload = JSON.stringify({serial: 'f32224e7', mode: 'attach', pid: $PID, source, log_dir: 'logs'});
-fs.writeFileSync('C:/Users/nicolasv/AppData/Local/Temp/inject.json', payload);
-"
-curl -s -X POST http://127.0.0.1:8765/api/scripts/run \
-    -H "Content-Type: application/json" \
-    -d @C:/Users/nicolasv/AppData/Local/Temp/inject.json
+cd frida && npm run build:hooks   # → frida/dist/hooks.js (~110 KB)
 ```
+
+L'**injection se fait via l'UI** (`POST /api/admin/inject`) — pas en ligne de
+commande. Le host gère device discovery, attach, load script, session lifecycle.
+
+Pour info : (file:///C:/Users/nicolasv/tacticus-tools/frida/host/admin.ts) +
+(file:///C:/Users/nicolasv/tacticus-tools/frida/public/src/admin.js).
 
 ## Arrêt
 
-```bash
-curl -s -X POST http://127.0.0.1:8765/api/scripts/{id}/stop
-```
-
-Pour tuer le serveur : Ctrl+C dans le terminal `npm run dev`, ou
-`curl -s -X POST http://127.0.0.1:8765/api/_dev/shutdown`.
+- Ctrl+C dans le terminal `npm run dev`, ou
+- `curl -s -X POST http://127.0.0.1:8765/api/_dev/shutdown` (graceful).
 
 ## Ne jamais
 
-- Utiliser `--reload`/hot-reload côté host (casse les sessions Frida actives)
-- Appeler stop manuellement sur une session avec `Interceptor.replace` actif
-  sans le protocole cleanup (crash le jeu)
-- Commit `data/` (symbols.json 12M+, etc.) ou `frida/dist/`, `hooks-legacy/`,
-  `server/`, `logs/`
+- **Utiliser `--reload`/hot-reload côté host** : casse les sessions Frida
+  actives, peut crash Tacticus si `Interceptor.replace` est en cours.
+- **Stop manuel d'une session avec `Interceptor.replace` actif** sans le
+  protocole cleanup graceful (crash le jeu).
+- **Heap scans automatiques** (`Process.enumerateRanges`, `Memory.scan`) :
+  Frida suspend les threads de la cible pendant le scan IL2CPP heap (~10 s sur
+  Tacticus PC). UnityFreezeDetector (qui est lui-même hooké pour le pump)
+  conclut que le main thread est figé → tue le process. Heap scans uniquement
+  sur action utilisateur explicite, gated par `allowHeapScan: true`.
+- **Broad-hooks sur méthodes UI hot** (`UnitProgression.Get*/Has*/...`) : la
+  surcharge des trampolines × hot path = destabilisation IL2CPP cctor cascade.
+- **Hook permanent sur des property getters** appelés par les sérialisations
+  Newtonsoft du jeu (ex. `GameConfigData.get_gameConfigDto`) : 27 000 appels/s
+  → frame >960 ms → crash.
+- **Commit** : `data/`, `frida/dist/`, `hooks-legacy/`, `server/`, `logs/`,
+  `frida/assets/raw/`, `sources_win/`.
 
 ## Documentation détaillée
 

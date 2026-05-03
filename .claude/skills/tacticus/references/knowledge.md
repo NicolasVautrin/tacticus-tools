@@ -1,5 +1,83 @@
 # Knowledge — Pieges resolus & lessons learned
 
+## Pièges Tacticus PC (Windows IL2CPP) — découverts mai 2026
+
+### Heap scans → UnityFreezeDetector kill
+
+Frida `Process.enumerateRanges` / `Memory.scan` **suspendent les threads
+cible** pendant le scan IL2CPP heap (~10 s sur Tacticus PC, GameAssembly.dll
+~60 MB). Au-delà de 5–10 s de freeze, Tacticus's UnityFreezeDetector tue
+le process.
+
+**Fix** : pas de heap scan automatique. Heap scans gated par
+`allowHeapScan: true` dans les opts RPC. Triggered uniquement par action
+utilisateur explicite (bouton ↻).
+
+### Broad-hooks UI → cctor cascade crash
+
+Hooker des méthodes UI hot (`UnitProgression.Get*/Has*/Is*/Compute*/Try/
+Find/Update`, `BattleConfigBuilder.*`, `RandomGenerator.*`) déstabilise
+les cctor cascades IL2CPP pendant les transitions de scène (live event
+popup notamment).
+
+**Symptôme** : crash avec stack `il2cpp_runtime_class_init` × N +
+`il2cpp_gc_collect` au top.
+
+**Fix** : ne hooker que les méthodes spécifiques nécessaires. Pour les
+captures d'instances Zenject, hooker un seul getter / méthode connue
+plutôt qu'un broad-hook.
+
+### Hook permanent sur property getters → hot loop crash
+
+`Interceptor.attach` sur `GameConfigData.get_gameConfigDto` → 27 000 appels/s
+pendant les sérialisations Newtonsoft internes du jeu → frame >960 ms →
+UnityFreezeDetector kill.
+
+**Fix** : pas de hook permanent. Appel à la demande via une fonction
+helper (cf. `unwrapGameConfig`).
+
+### ctor.onEnter vs onLeave
+
+À `..ctor.onEnter`, l'objet vient d'être alloué par `il2cpp_object_new`
+mais le ctor body n'a pas encore exécuté → fields à zéro / garbage.
+Lecture de `lastSource._gameConfig` etc. = pointeur null/invalide.
+
+**Fix** : capturer en `onLeave`. Tous les fields Zenject-injected sont
+populés à ce moment.
+
+### `_gameConfig` field = wrapper, pas DTO direct
+
+`CampaignGameModeSource._gameConfig` (offset 0x90) est typé
+`IGameConfigData` (interface). Le concrete runtime sur Tacticus PC est
+`GameConfigData` — un service wrapper qui expose le vrai `GameConfigDto`
+via `get_gameConfigDto()` getter.
+
+**Fix** : `unwrapGameConfig(p)` — vérifie le klass name, invoke le getter
+sur les wrapper, cache dans `lastGameConfig`.
+
+### Defer les sérialisations lourdes
+
+`serializeToJson` Newtonsoft sur 540 KB = 200–500 ms. Synchronously dans
+un onLeave Frida → bloque le retour de la méthode hookée → freeze visible
+de l'UI.
+
+**Fix** : pin via `gcRoot.add(retval)`, défère via `queueOnMainThread(...)`.
+Le retour de la méthode est instantané ; le serialize fait son travail au
+prochain tick du main pump.
+
+### Push WebSocket plutôt que polling
+
+Le frontend pollait `campaignBuilderStatus` toutes les 5 s pour détecter
+le warmup. Côté agent, le RPC déclenchait un heap scan
+(`findAutoTestFactoryViaHeap`) à chaque appel = freeze cyclique.
+
+**Fix** : agent émit `send({ t: "builder_ready", via: "ctor" })` quand
+`lastSource` passe de null à assigné. Front filtre via
+`registerWsHandler("builder_ready", fn)` et déclenche un refresh une
+seule fois (idempotent).
+
+---
+
 ## Position boxed vs unboxed (MoveUnitMessage)
 
 **Probleme** : `List<Position>.Add` via `invokeMethod` passait le pointeur boxe au lieu des donnees brutes. Le jeu ignorait silencieusement le MoveUnitMessage.

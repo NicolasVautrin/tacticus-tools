@@ -10,6 +10,11 @@ import { state } from "./state.js";
 import { renderBattleEvent } from "./battle-log.js";
 import { refreshRunners } from "./runners.js";
 
+// Pluggable handlers per agent message kind. Lets feature modules subscribe
+// to push events without ws.js needing to know about each one.
+const wsHandlers = new Map();
+export function registerWsHandler(t, fn) { wsHandlers.set(t, fn); }
+
 const wsCtx = {
     sessionId: null,
     lastEventId: -1,
@@ -54,7 +59,13 @@ function openSocket() {
                 wsCtx.lastEventId = msg.id;
             }
             const inner = msg?.payload?.payload;
-            if (inner?.t !== "battle_event") return;
+            if (!inner?.t) return;
+            // Dispatch to feature-specific handlers first (push notifications
+            // like builder_ready). They get the full payload and decide what
+            // to do.
+            const h = wsHandlers.get(inner.t);
+            if (h) { try { h(inner); } catch (err) { console.warn("ws handler", err); } }
+            if (inner.t !== "battle_event") return;
             if (inner.runnerId !== state.runnerId) {
                 refreshRunners();
                 return;
@@ -66,20 +77,33 @@ function openSocket() {
 }
 
 export function subscribeBattleEvents(sessionId) {
-    // Replace any previous subscription. Reset lastEventId since we're
-    // switching sessions — replay starts from the beginning of the new one.
+    // Always reopen the socket — even if we're already subscribed to this
+    // session. Reason: launchBattle calls us right after /api/launch returns,
+    // and the events from initRunner/applyAddUnit/startBattle were emitted
+    // while state.runnerId was still null. The live socket received them but
+    // the front-side filter (`inner.runnerId !== state.runnerId`) discarded
+    // them. Reopening with `?last_event_id=-1` makes the host replay the
+    // ring buffer from the start, after state.runnerId has been set —
+    // events render correctly.
+    //
+    // Zombie sockets are prevented by detaching handlers BEFORE close() so
+    // the close handshake fires no reconnect (cf. the comment below).
     if (wsCtx.reconnectTimer) {
         clearTimeout(wsCtx.reconnectTimer);
         wsCtx.reconnectTimer = null;
     }
     if (state.ws) {
+        // Detach handlers BEFORE close(). close() is async — without nulling
+        // these, the OLD socket's onclose would fire later, see a non-null
+        // wsCtx.sessionId, and schedule a reconnect → zombie second WS.
         try {
-            // Suppress reconnect by clearing the session first, then close.
-            const oldSession = wsCtx.sessionId;
-            wsCtx.sessionId = null;
+            state.ws.onopen = null;
+            state.ws.onerror = null;
+            state.ws.onmessage = null;
+            state.ws.onclose = null;
             state.ws.close();
-            wsCtx.sessionId = oldSession;
         } catch { /* */ }
+        state.ws = null;
     }
     wsCtx.sessionId = sessionId;
     wsCtx.lastEventId = -1;

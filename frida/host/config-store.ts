@@ -26,6 +26,22 @@ export interface CapturedConfigMeta {
     bytes: number;
     sessionId: number;
     path: string; // relative to /assets — "configs/<safe>.json"
+    // Light-weight identity: extracted from the BattleConfiguration JSON at
+    // capture time. Cheaper than re-reading the file every list-render and
+    // displayed in the archive panel for at-a-glance identification.
+    board?: string | null;     // Board.Id, e.g. "C1_75", "C5_01", "C1_t_01"
+    campaignId?: string | null;     // e.g. "campaign1", "eventStandard1"
+    locationIndex?: number | null;  // 0-based battle index in the campaign
+}
+
+/** Cheap Board.Id extraction from the JSON string. The serializer puts
+ * the `Board` object near the top with `"Id": "..."` as one of its first
+ * fields. Avoids parsing 500+ KB of JSON just to read one string. */
+function extractBoardId(json: string): string | null {
+    // Look for the Board object opening, then its Id.
+    const m = /"Board"\s*:\s*\{[^}]{0,200}?"Id"\s*:\s*"([^"]+)"/i.exec(
+        json.slice(0, 4096));
+    return m ? m[1] : null;
 }
 
 let index: CapturedConfigMeta[] = [];
@@ -50,6 +66,29 @@ export async function initConfigStore(): Promise<void> {
     } catch {
         index = [];
     }
+    // Backfill `board` for legacy captures missing it. Read each file once,
+    // extract Board.Id, persist back. One-shot on boot so subsequent renders
+    // are cheap.
+    let backfilled = 0;
+    for (const m of index) {
+        if (m.board !== undefined) continue;
+        try {
+            // Read just the head — Board comes near the top of the JSON.
+            const fh = await fs.open(
+                path.join(CONFIGS_DIR, path.basename(m.path)), "r");
+            const buf = Buffer.alloc(4096);
+            await fh.read(buf, 0, 4096, 0);
+            await fh.close();
+            m.board = extractBoardId(buf.toString("utf-8"));
+            backfilled += 1;
+        } catch {
+            m.board = null;
+        }
+    }
+    if (backfilled) {
+        await writeIndex();
+        console.log(`[config-store] backfilled board ids on ${backfilled} captures`);
+    }
     ready = true;
     console.log(`[config-store] ${index.length} captures indexed from ${CONFIGS_DIR}`);
 
@@ -58,14 +97,20 @@ export async function initConfigStore(): Promise<void> {
 
         const id = payload.id;
         const fname = `${safeId(id)}.json`;
+        const jsonStr = payload.json as string;
         const meta: CapturedConfigMeta = {
             id,
             mode: typeof payload.mode === "string" ? payload.mode : "?",
             ts: typeof payload.ts === "number" ? payload.ts : Date.now(),
             bytes: typeof payload.bytes === "number"
-                ? payload.bytes : (payload.json as string).length,
+                ? payload.bytes : jsonStr.length,
             sessionId,
             path: `configs/${fname}`,
+            board: extractBoardId(jsonStr),
+            campaignId: typeof payload.campaignId === "string"
+                ? payload.campaignId : null,
+            locationIndex: typeof payload.locationIndex === "number"
+                ? payload.locationIndex : null,
         };
 
         fs.writeFile(path.join(CONFIGS_DIR, fname), payload.json as string)
@@ -110,4 +155,16 @@ export async function clearConfigs(): Promise<number> {
     index = [];
     await writeIndex();
     return n;
+}
+
+/** Remove one capture by id. Returns true if found+removed. */
+export async function deleteConfig(id: string): Promise<boolean> {
+    const i = index.findIndex((e) => e.id === id);
+    if (i < 0) return false;
+    const [meta] = index.splice(i, 1);
+    try {
+        await fs.unlink(path.join(CONFIGS_DIR, path.basename(meta.path)));
+    } catch { /* file may already be gone */ }
+    await writeIndex();
+    return true;
 }

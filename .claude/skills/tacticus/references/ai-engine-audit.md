@@ -1,7 +1,13 @@
 # Audit du moteur IA — WH40K Tacticus
 
-Audit realise par decompilation de `libil2cpp.so` via Ghidra headless.
-1877 methodes IA decompilees, disponibles dans `data/decompiled_tacticus/`.
+Audit réalisé par décompilation Ghidra du build IL2CPP. Sur Tacticus
+**Android** (initial) : `libil2cpp.so` ARM64 → `data/decompiled_tacticus/`
+(1877 méthodes IA). Sur Tacticus **PC** (cible actuelle) :
+`GameAssembly.dll` x86_64 → `sources_win/` (cf. `decompilation.md`).
+
+La logique IA est identique sur les 2 plateformes (même C# managed code) ;
+seules les RVA et la calling convention diffèrent. Les findings de cet
+audit restent valables pour le port PC.
 
 ## Architecture
 

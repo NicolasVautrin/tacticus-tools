@@ -17,6 +17,27 @@ export async function refreshRunners() {
     } catch { /* ignore */ }
 }
 
+/** Clear every runner-tied piece of UI state. Called when the active Frida
+ * session changes (re-inject, host restart) — the previous session's runner
+ * lived in the now-dead script's heap, so anything we still display is stale.
+ *
+ * Persistent UI bits like the deployment queue (state.placements) and saved
+ * configs are deliberately preserved so the user just hits ENGAGE again. */
+export function resetRunnerSession() {
+    state.runnerId = null;
+    state.runners = [];
+    state.eventUnits.clear();
+    state.tileIdToCoord.clear();
+    state.sessionId = null;
+    state.battleEnded = null;
+    updateViewMode();
+    renderOverlay();
+    renderRunnerList();
+    // Hide the active battle UI bits.
+    const log = $("battle-log");
+    if (log) log.innerHTML = "";
+}
+
 export function renderRunnerList() {
     const ul = $("runner-list");
     if (!ul) return;
@@ -101,6 +122,10 @@ export async function switchToRunner(runnerId) {
 // Subscribe to the currently-running Frida session + resume the most recent
 // runner (if any). Auto-selects its config + rebuilds eventUnits from the
 // latest matchState dump so a page reload mid-battle doesn't lose the map.
+//
+// Idempotent: on repeated calls (e.g. after re-inject), it first wipes any
+// stale runner-tied UI before re-subscribing. So the caller doesn't need to
+// reset manually.
 export async function autoSubscribeSession() {
     // Reconcile first: if Frida was relaunched, its runner registry is empty
     // and host-side entries for those ids are stale. Without this, PLAY TURN
@@ -119,6 +144,10 @@ export async function autoSubscribeSession() {
         await refreshRunners();
         if (state.runners?.length) {
             await switchToRunner(state.runners[0].runnerId);
+        } else if (state.runnerId !== null || state.eventUnits.size) {
+            // No runner alive on the host side — sweep any UI from a previous
+            // (now-dead) session.
+            resetRunnerSession();
         }
     } catch (e) { console.warn("runner resume failed", e); }
 
@@ -129,6 +158,8 @@ export async function autoSubscribeSession() {
             console.log("auto-subscribing to session " + running.id);
             state.sessionId = running.id;
             subscribeBattleEvents(running.id);
+        } else {
+            state.sessionId = null;
         }
     } catch (e) { console.warn("session probe failed", e); }
 }

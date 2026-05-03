@@ -55,10 +55,48 @@
     <section class="panel-block">
       <div class="panel-block__head">
         <span class="panel-block__bars" aria-hidden="true"></span>
+        <h2>Campaign · Builder</h2>
+        <button id="campaign-builder-refresh" class="refresh-btn" title="refresh catalog">↻</button>
+      </div>
+      <div id="campaign-builder-list" class="cb-root">
+        <div class="cb-empty">— probing…</div>
+      </div>
+    </section>
+
+    <section class="panel-block">
+      <div class="panel-block__head">
+        <span class="panel-block__bars" aria-hidden="true"></span>
         <h2>Archive · Captures</h2>
         <button id="refresh-configs" class="refresh-btn" title="refresh">↻</button>
       </div>
       <ul id="config-list"></ul>
+    </section>
+
+    <section class="panel-block" id="tacticus-panel">
+      <div class="panel-block__head">
+        <span class="panel-block__bars" aria-hidden="true"></span>
+        <h2>Tacticus · Status</h2>
+      </div>
+      <div id="tacticus-banner" class="tacticus-banner tacticus-banner--unknown">
+        <span class="tacticus-banner__dot" aria-hidden="true"></span>
+        <span class="tacticus-banner__msg" id="tacticus-banner-msg">probing…</span>
+      </div>
+      <div class="admin-actions admin-actions--single">
+        <button id="admin-inject-btn" class="btn-major" disabled>INJECT HOOKS</button>
+      </div>
+      <details id="admin-override" class="admin-override">
+        <summary>PID override</summary>
+        <div class="admin-override__row">
+          <input id="admin-pid-input" type="number" min="1" inputmode="numeric"
+                 placeholder="leave blank for auto-discovery">
+          <button id="admin-pid-clear" class="btn-link" type="button">clear</button>
+        </div>
+        <div class="admin-override__hint">
+          Leave blank to let the host find Tacticus.exe automatically.
+          Use this only if auto-discovery picks the wrong process.
+        </div>
+      </details>
+      <div id="admin-status" class="admin-status">—</div>
     </section>
   </aside>
 

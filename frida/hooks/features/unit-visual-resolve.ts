@@ -16,11 +16,12 @@
 
 import {
     class_get_name, class_get_methods, findClassAnywhere, findMethod,
-    getFieldOffset, method_get_name, readIl2cppString, s,
+    getFieldOffset, IL2CPP_MODULE_NAME, method_get_name, readIl2cppString, s,
 } from "../il2cpp/helpers.js";
 import { createManagedString, invokeMethod } from "../il2cpp/invoke.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
 import { queueOnMainThread } from "../runtime/queue.js";
+import { log, traceEnter } from "../runtime/diag.js";
 import { Ctx } from "../controller.js";
 
 const universeClass = findClassAnywhere("idun", "IdunUniverse");
@@ -34,9 +35,9 @@ const getUnitConfigMapMi = universeClass
 // Extra il2cpp exports for static field traversal — IdunVisuals has a
 // static field pointing to IdunUniverse we can discover without relying on
 // the game calling a hooked method first.
-const _lib = Process.findModuleByName("libil2cpp.so");
+const _lib = Process.findModuleByName(IL2CPP_MODULE_NAME);
 function _exp(n: string): NativePointer {
-    if (!_lib) throw new Error("libil2cpp.so not loaded");
+    if (!_lib) throw new Error(`${IL2CPP_MODULE_NAME} not loaded`);
     const p = _lib.findExportByName(n);
     if (!p) throw new Error("missing export: " + n);
     return p;
@@ -86,7 +87,7 @@ const captureOnEnter = (args: InvocationArguments): void => {
     if (args[0].isNull()) return;
     capturedUniverse = args[0];
     try { gcRoot.add(args[0]); } catch { /* ok if gc not ready */ }
-    console.log("[unit-visual-resolve] captured IdunUniverse @ " + args[0]);
+    log("[unit-visual-resolve] captured IdunUniverse @ " + args[0]);
 };
 
 if (universeClass) {
@@ -104,7 +105,13 @@ if (universeClass) {
         const m = findMethod(universeClass, name);
         if (!m || m.ptr.isNull()) continue;
         try {
-            Interceptor.attach(m.ptr, { onEnter: captureOnEnter });
+            const traceName = "IdunUniverse." + name;
+            Interceptor.attach(m.ptr, {
+                onEnter(args) {
+                    traceEnter(traceName, 50);
+                    captureOnEnter(args);
+                },
+            });
         } catch { /* best effort */ }
     }
     Interceptor.flush();
@@ -159,7 +166,7 @@ function tryStaticCapture(): string | null {
         if (found) {
             capturedUniverse = found.ptr;
             try { gcRoot.add(found.ptr); } catch { /* */ }
-            console.log("[unit-visual-resolve] captured IdunUniverse via "
+            log("[unit-visual-resolve] captured IdunUniverse via "
                 + c.cls + "." + found.name + " @ " + found.ptr);
             return c.cls + "." + found.name;
         }
@@ -195,7 +202,7 @@ function tryGlobalsCapture(): string | null {
 
     capturedUniverse = u;
     try { gcRoot.add(u); } catch { /* */ }
-    console.log("[unit-visual-resolve] captured IdunUniverse via "
+    log("[unit-visual-resolve] captured IdunUniverse via "
         + "Globals.currentIdunUniverse @ " + u);
     return "Globals.currentIdunUniverse";
 }
@@ -206,7 +213,7 @@ function tryGlobalsCapture(): string | null {
 // assemblies — the singleton won't live there.
 function fullAssemblyScan(): string | null {
     if (!universeClass) return null;
-    const lib = Process.findModuleByName("libil2cpp.so");
+    const lib = Process.findModuleByName(IL2CPP_MODULE_NAME);
     if (!lib) return null;
     const domainGet = new NativeFunction(
         _exp("il2cpp_domain_get"), "pointer", []);
@@ -250,7 +257,7 @@ function fullAssemblyScan(): string | null {
                 const holder = s(
                     class_get_name(k) as NativePointer);
                 const tag = imgName + "/" + holder + "." + found.name;
-                console.log("[unit-visual-resolve] captured IdunUniverse "
+                log("[unit-visual-resolve] captured IdunUniverse "
                     + "via full-scan: " + tag + " @ " + found.ptr);
                 return tag;
             }
@@ -270,7 +277,7 @@ function scanUniverseReferences(): Array<{
     populatedIfStatic: string | null;
 }> {
     if (!universeClass) return [];
-    const lib = Process.findModuleByName("libil2cpp.so");
+    const lib = Process.findModuleByName(IL2CPP_MODULE_NAME);
     if (!lib) return [];
     const domainGet = new NativeFunction(
         _exp("il2cpp_domain_get"), "pointer", []);

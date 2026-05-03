@@ -1,16 +1,23 @@
 // Frida session management: attach, load scripts, RPC, message handling,
-// graceful cleanup.
+// graceful cleanup, on-disk persistence so sessions survive a host reboot.
 //
-// Trimmed from the legacy server: no stack/enum/i2 enrichment (the hook
-// bundle now emits structured data directly).
+// Persistence pattern (intent-only): we record { pid, exePath, bundlePath }
+// per active session in `data/sessions.json`. On boot, restoreSessions()
+// re-attaches by PID (or, if the PID is dead, rediscovers by exePath via
+// admin.findTacticusCandidates) and re-injects the bundle. The agent itself
+// does NOT survive — it is re-installed at every host start.
 import frida from "frida";
+import {
+    promises as fsp, existsSync, mkdirSync, readFileSync, writeFileSync,
+} from "fs";
+import path from "path";
 import { openLog, appendLog, closeLog } from "./logger.js";
 import { publish } from "./ws.js";
 import { routeMessage } from "./router-messages.js";
+import { pruneRunnersBySession } from "./battle-store.js";
 
 export interface RunSession {
     id: number;
-    serial: string;
     pid: number;
     mode: "attach" | "spawn";
     status: "running" | "stopped" | "error";
@@ -18,12 +25,17 @@ export interface RunSession {
     endedAt?: string;
     errorMessage?: string;
     logDir?: string;
+    exePath?: string;
+    bundlePath?: string;
     fridaSession?: frida.Session;
     fridaScript?: frida.Script;
 }
 
 let nextSessionId = 1;
 const sessions = new Map<number, RunSession>();
+
+const STATE_PATH = path.resolve(process.cwd(), "data", "sessions.json");
+let suspendPersist = false;
 
 export function listSessions(): RunSession[] {
     return [...sessions.values()].map(sanitize);
@@ -34,36 +46,29 @@ export function getSession(id: number): RunSession | undefined {
     return s ? sanitize(s) : undefined;
 }
 
-export async function listDevices(): Promise<Array<{
-    id: string; name: string; type: string;
-}>> {
-    const mgr = frida.getDeviceManager();
-    const devices = await mgr.enumerateDevices();
-    return devices.map((d) => ({ id: d.id, name: d.name, type: d.type }));
-}
-
-export async function listProcesses(serial: string): Promise<Array<{
+export async function listProcesses(): Promise<Array<{
     pid: number; name: string;
 }>> {
-    const device = await getDevice(serial);
+    const device = await getDevice();
     const processes = await device.enumerateProcesses();
     return processes.map((p) => ({ pid: p.pid, name: p.name }));
 }
 
 export interface RunScriptOpts {
-    serial: string;
     mode: "attach" | "spawn";
     pid?: number;
     target?: string;
     source: string;
     logDir?: string;
+    exePath?: string;
+    bundlePath?: string;
 }
 
 export async function runScript(opts: RunScriptOpts): Promise<RunSession> {
     // Stop all existing sessions to avoid orphan hooks on the same process.
     await stopAll();
 
-    const device = await getDevice(opts.serial);
+    const device = await getDevice();
 
     let pid: number;
     if (opts.mode === "spawn") {
@@ -80,12 +85,13 @@ export async function runScript(opts: RunScriptOpts): Promise<RunSession> {
     const sessionId = nextSessionId++;
     const session: RunSession = {
         id: sessionId,
-        serial: opts.serial,
         pid,
         mode: opts.mode,
         status: "running",
         startedAt: new Date().toISOString(),
         logDir: opts.logDir,
+        exePath: opts.exePath,
+        bundlePath: opts.bundlePath,
         fridaSession,
         fridaScript,
     };
@@ -103,6 +109,12 @@ export async function runScript(opts: RunScriptOpts): Promise<RunSession> {
         session.status = "stopped";
         session.endedAt = new Date().toISOString();
         closeLog(sessionId);
+        // Same rationale as stopSession — runners are dead once the script is
+        // gone, so their host metadata must disappear too.
+        pruneRunnersBySession(sessionId).catch((e) => {
+            console.log(`[sessions] prune (detached) failed for ${sessionId}: ${e.message}`);
+        });
+        persist();
     });
 
     await fridaScript.load();
@@ -111,6 +123,7 @@ export async function runScript(opts: RunScriptOpts): Promise<RunSession> {
         await device.resume(pid);
     }
 
+    persist();
     return sanitize(session);
 }
 
@@ -153,6 +166,20 @@ export async function stopSession(id: number): Promise<void> {
     session.status = "stopped";
     session.endedAt = new Date().toISOString();
     closeLog(id);
+
+    // Runners live inside the Frida script's heap — stopping the session
+    // kills them. Prune host-side metadata so stale runnerIds don't leak
+    // to the UI as "existing" runners.
+    try {
+        const removed = await pruneRunnersBySession(id);
+        if (removed.length > 0) {
+            console.log(`[sessions] pruned runners for session ${id}: ${removed.join(", ")}`);
+        }
+    } catch (e) {
+        console.log(`[sessions] prune failed for session ${id}: ${(e as Error).message}`);
+    }
+
+    persist();
 }
 
 export async function stopAll(): Promise<void> {
@@ -161,6 +188,14 @@ export async function stopAll(): Promise<void> {
             await stopSession(id);
         }
     }
+}
+
+/** Used by graceful shutdown: detach without rewriting state, so the next
+ * boot's restore can replay what was live. */
+export async function stopAllPreservingState(): Promise<void> {
+    suspendPersist = true;
+    try { await stopAll(); }
+    finally { suspendPersist = false; }
 }
 
 /**
@@ -206,14 +241,135 @@ export function postMessage(id: number, message: unknown): void {
     session.fridaScript.post(message as frida.Message);
 }
 
+// ---------- Persistence ----------
+
+interface PersistedSession {
+    pid: number;
+    exePath?: string;
+    bundlePath: string;
+}
+
+interface StateFile {
+    version: number;
+    savedAt: string;
+    sessions: PersistedSession[];
+}
+
+function persist(): void {
+    if (suspendPersist) return;
+    try {
+        const persistable: PersistedSession[] = [...sessions.values()]
+            .filter((s) => s.status === "running" && s.bundlePath)
+            .map((s) => ({
+                pid: s.pid,
+                exePath: s.exePath,
+                bundlePath: s.bundlePath as string,
+            }));
+        const state: StateFile = {
+            version: 1,
+            savedAt: new Date().toISOString(),
+            sessions: persistable,
+        };
+        const dir = path.dirname(STATE_PATH);
+        if (!existsSync(dir)) {
+            // frida/data exists in a normal checkout but not in a fresh
+            // clone — mkdir on the rare miss instead of crashing persist().
+            mkdirSync(dir, { recursive: true });
+        }
+        writeFileSync(STATE_PATH, JSON.stringify(state, null, 2));
+    } catch (e) {
+        console.log(`[sessions] persist failed: ${(e as Error).message}`);
+    }
+}
+
+/** Read the saved state and re-attach + re-inject for each saved session.
+ * Falls back to rediscovery-by-exePath when the saved PID is dead.
+ *
+ * Returns a summary suitable for logging from the host entrypoint. */
+export async function restoreSessions(opts: {
+    findPidByPath?: (exePath: string) => Promise<number | null>;
+    defaultLogDir?: string;
+} = {}): Promise<{ found: number; restored: number; failed: Array<{ pid: number; error: string }> }> {
+    if (!existsSync(STATE_PATH)) return { found: 0, restored: 0, failed: [] };
+    let state: StateFile;
+    try {
+        state = JSON.parse(readFileSync(STATE_PATH, "utf-8")) as StateFile;
+    } catch (e) {
+        console.log(`[restore] cannot parse state file: ${(e as Error).message}`);
+        return { found: 0, restored: 0, failed: [] };
+    }
+    const list = state.sessions ?? [];
+    if (list.length === 0) return { found: 0, restored: 0, failed: [] };
+
+    suspendPersist = true;
+    let restored = 0;
+    const failed: Array<{ pid: number; error: string }> = [];
+    try {
+        for (const saved of list) {
+            const result = await tryRestoreOne(saved, opts);
+            if (result.ok) restored++;
+            else failed.push({ pid: saved.pid, error: result.error });
+        }
+    } finally {
+        suspendPersist = false;
+    }
+    persist();    // rewrite to reflect what's actually live now
+    return { found: list.length, restored, failed };
+}
+
+async function tryRestoreOne(
+    saved: PersistedSession,
+    opts: { findPidByPath?: (exePath: string) => Promise<number | null>; defaultLogDir?: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+    let bundle: string;
+    try {
+        bundle = await fsp.readFile(saved.bundlePath, "utf-8");
+    } catch (e) {
+        return { ok: false, error: `bundle read failed: ${(e as Error).message}` };
+    }
+
+    // Try the saved PID first.
+    try {
+        await runScript({
+            mode: "attach",
+            pid: saved.pid,
+            source: bundle,
+            logDir: opts.defaultLogDir,
+            exePath: saved.exePath,
+            bundlePath: saved.bundlePath,
+        });
+        console.log(`[restore]   ✓ pid ${saved.pid}`);
+        return { ok: true };
+    } catch (e) {
+        const err = (e as Error).message;
+        // PID dead / recycled — try rediscovery by exePath if available.
+        if (saved.exePath && opts.findPidByPath) {
+            try {
+                const newPid = await opts.findPidByPath(saved.exePath);
+                if (newPid && newPid !== saved.pid) {
+                    await runScript({
+                        mode: "attach",
+                        pid: newPid,
+                        source: bundle,
+                        logDir: opts.defaultLogDir,
+                        exePath: saved.exePath,
+                        bundlePath: saved.bundlePath,
+                    });
+                    console.log(`[restore]   ✓ pid ${saved.pid} → ${newPid} (rediscovered by exePath)`);
+                    return { ok: true };
+                }
+            } catch (e2) {
+                return { ok: false, error: `rediscovery failed: ${(e2 as Error).message}` };
+            }
+        }
+        return { ok: false, error: err };
+    }
+}
+
 // ---------- Internal ----------
 
-async function getDevice(serial: string): Promise<frida.Device> {
-    const mgr = frida.getDeviceManager();
-    const devices = await mgr.enumerateDevices();
-    const device = devices.find((d) => d.id === serial);
-    if (!device) throw new Error(`Device ${serial} not found`);
-    return device;
+async function getDevice(): Promise<frida.Device> {
+    return frida.getLocalDevice();
 }
 
 function onMessage(sessionId: number, message: frida.Message, data: Buffer | null): void {

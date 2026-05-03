@@ -5,130 +5,165 @@
 `POST /api/scripts/{run_session_id}/rpc`
 
 ```json
-{"method": "string", "args": {}, "timeout": 10.0}
+{"method": "string", "args": [...], "timeout": 10000}
 ```
 
-## Methodes
+`args` est un tableau positionnel passé tel quel à la fonction RPC côté
+agent. `timeout` en millisecondes.
 
-### get_state
+Récupérer le `run_session_id` via `GET /api/sessions`.
 
-Retourne le MatchState serialise brut. Taille ~185KB a depth 6.
+## Routes RESTful (préférées au RPC raw)
+
+Le host expose des routes typées qui wrap les RPC + persistance.
+
+### Campaign builder
+
+- `GET /api/campaigns/builder-status` — état des captures (cheap, polled
+  toutes les 5 s par le front)
+- `POST /api/campaigns/catalog/refresh` — force un dump du catalog
+  (autorise le heap scan fallback côté agent)
+- `POST /api/campaigns/build` — body `{ campaignType, campaignId, locationIndex }`
+  → BattleConfiguration JSON, persisté sous
+  `frida/assets/public/configs/Campaign<N>/<id>_<idx>.json`
+
+### Configs (captures passives)
+
+- `GET /api/configs` — liste metadata
+- `GET /api/configs/:id` — JSON complet d'une capture
+- `DELETE /api/configs/:id` — supprimer
+
+### Admin
+
+- `GET /api/admin/status` — `{ tacticus: { running, gamePid, gamePath, … }, session, version }`
+- `POST /api/admin/inject` — body `{}` (auto-discovery PID) ou `{ pid: N }`
+- `GET /api/admin/candidates` — debug, tous les processes Tacticus détectés
+
+### Sessions
+
+- `GET /api/sessions`
+- `POST /api/scripts/:id/stop` — cleanup graceful (handshake `cleanup` avec l'agent)
+- `POST /api/scripts/:id/rpc` — RPC raw
+
+### Métadonnées
+
+- `POST /api/meta/sync` — sync enums + catalog (mode "full", autorise heap scan)
+
+## RPC côté agent
+
+### Campaign builder
+
+| RPC | Args | Rôle |
+|-----|------|------|
+| `dumpCampaignCatalog` | `{ allowHeapScan?: boolean }` | Dump catalog complet (Standard/Mirror/Elite/Event types). Sans `allowHeapScan`, throw si pas de capture. Avec `allowHeapScan: true`, fallback heap scan GameConfigDto (~10 s freeze). |
+| `buildCampaignConfig` | `{ campaignType: number, campaignId: string, locationIndex: number }` | BattleConfiguration JSON via path 2 progression-swap + per-faction warmup. ~60 ms round-trip. |
+| `campaignBuilderStatus` | — | Cheap, jamais de scan. Retourne `{ hasGameConfig, hasUnitProgression, hasInstance, instance, gameConfig }`. |
+
+### Standalone runner (simulation)
+
+| RPC | Args | Rôle |
+|-----|------|------|
+| `initRunner` | `{ configJson: string }` | Désérialise une `BattleConfiguration` JSON, construit IdunRunner isolé via 2-arg ctor + Initialize(seed). Retourne `{ runnerId, seed }`. |
+| `applyAddUnit` | `{ runnerId, unitId, playerId, col, row }` | Place une unit. |
+| `startBattle` | `{ runnerId }` | `runner.StartMatch`. |
+| `listRunners` | — | Liste runners actifs. |
+| `disposeRunner` | `{ runnerId }` | Drop. |
+| `cheatRunAiOnRunner` | `{ runnerId }` | CheatRunAIMessage sur un runner standalone. |
+
+### Phase 2 — sim sur le live runner
+
+| RPC | Args | Rôle |
+|-----|------|------|
+| `sim` | — | `buildStandaloneRunner` + catch-up via `state.log` + `CheatRunAI(standalone)` + capture. Retourne `{ simId, captured }`. |
+| `commit` | `{ simId }` | Rejoue les messages capturés sur live. |
+| `simAndCommit` | — | Wrapper. |
+| `compareStandalone` | — | State digest + census + dumps state JSON + event traces via `send()`. |
+| `compareNative` | — | Sanity-check : nos `top` = ReplayRecorder natif. |
+
+### Cheat / debug
+
+| RPC | Args | Rôle |
+|-----|------|------|
+| `cheatRunAi` | — | `CheatRunAIMessage` direct sur live (joue un tour). |
+| `forceInstall` | — | Re-attache les hooks live (recorder). |
+| `info` | — | Runner / listeners / gcRoot state. |
+| `summary` | — | Counts + head/tail du log. |
+| `dump` | — | Full log capturé. |
+| `clear` | — | Reset log. |
+| `battleStatus` | — | `{ stage, currentTurnPlayer, unitsAlive }`. |
+
+### Métadonnées / introspection
+
+| RPC | Args | Rôle |
+|-----|------|------|
+| `getGameVersion` | — | `{ version, identifier, productName, unityVersion }`. |
+| `dumpEnums` | — | `{ "Namespace.EnumName": { "0": "Value0", ... } }` pour la liste curated. |
+| `dumpEnum` | `{ asm, ns, cls }` | Un seul enum. |
+| `getUnitAssetMap` | — | `{ count, map }` — unitId → assetNaming. |
+| `dumpAllUnitVisuals` | — | Depuis IdunUniverse capturé. |
+| `resolveUnitVisual` | `unitId` | Un seul visual. |
+| `unitVisualResolveStatus` | — | État captures IdunUniverse. |
+
+## Format des messages push (WebSocket)
+
+Le host re-broadcast tous les `send()` de l'agent via WS. Format :
+```json
+{
+  "id": <ring buffer id>,
+  "ts": "ISO date",
+  "payload": {
+    "type": "send",
+    "payload": {
+      "t": "<event type>",
+      ...
+    }
+  }
+}
+```
+
+Types observés :
+- `diag` — `log()` du script, `{ msg }`
+- `trace` — `traceEnter()`, `{ n, name }` (throttled per hook)
+- `captured_config` — capture passive d'une battle :
+  `{ id, mode, ts, bytes, campaignId, locationIndex, json }`
+- `battle_event` — pendant simulation : `{ runnerId, msg, events, matchState }`
+- `builder_ready` — push warmup signal : `{ via: "ctor" | "LoadBattle" }`
+- `hook_ready` — boot agent (`{ name, version }`)
+- `cleanup_done` — handshake stop
+
+Le front filtre via `registerWsHandler(t, fn)` (pluggable, `frida/public/src/ws.js`).
+
+## Exemples
+
+### Build d'une node event tyranid
 
 ```bash
-curl -s -X POST http://127.0.0.1:8765/api/scripts/{N}/rpc \
+curl -s -X POST http://127.0.0.1:8765/api/campaigns/build \
   -H "Content-Type: application/json" \
-  -d '{"method":"get_state","args":{"depth":6}}'
+  -d '{"campaignType": 4, "campaignId": "eventStandard5", "locationIndex": 0}'
+# → { id, campaignType, campaignId, locationIndex, bytes, path, source, generatedAt }
 ```
 
-### play (bloquant)
-
-Execute une action, attend `isPlayerTurn()`, retourne le nouveau state + `_events`.
-
-Actions disponibles :
-- `end_turn` — fin de tour (attend la fin du tour IA)
-- `ability` — `casterId`, `targetId`, `abilityType`
-- `move` — `unitId`, `positions: [{col, row}]`
+### Force le dump du catalog
 
 ```bash
-# Move
-curl -s -X POST http://127.0.0.1:8765/api/scripts/{N}/rpc \
-  -d '{"method":"play","args":{"action":"move","unitId":63,"positions":[{"col":3,"row":4}]}}'
-
-# Ability
-curl -s -X POST http://127.0.0.1:8765/api/scripts/{N}/rpc \
-  -d '{"method":"play","args":{"action":"ability","casterId":63,"targetId":79,"abilityType":0}}'
-
-# End turn (timeout long pour attendre l'IA)
-curl -s -X POST http://127.0.0.1:8765/api/scripts/{N}/rpc \
-  -d '{"method":"play","args":{"action":"end_turn"},"timeout":60}'
+curl -s -X POST http://127.0.0.1:8765/api/campaigns/catalog/refresh
+# → { version, bytes, path }   (version = Tacticus app version, ex "1.38.94")
 ```
 
-### get_reachable_tiles
-
-Appelle `Pathfinders.FindReachableTiles()` du jeu. Retourne les IDs des tiles atteignables.
+### Status général
 
 ```bash
-curl -s -X POST http://127.0.0.1:8765/api/scripts/{N}/rpc \
-  -d '{"method":"get_reachable_tiles","args":{"unitId":63}}'
+curl -s http://127.0.0.1:8765/api/admin/status
+# → { tacticus: { running, gamePid, gamePath, … }, session, version }
 ```
 
-Reponse : `{"unitId": 63, "depth": 4, "tileIds": [25, 33, 42, ...], "count": 11}`
+### RPC raw
 
-### get_damage_prediction
+```bash
+SID=$(curl -s http://127.0.0.1:8765/api/sessions | npx -y node-jq '.[0].id')
 
-Non implemente (necessite construction de `UnitPosition`).
-
-## Pipeline RPC
-
-```
-Client -> POST /rpc -> backend -> script.post({type:"rpc",...})
-  -> recv("rpc") -> pendingRpc queue -> Update hook (main thread) -> execute
-  -> send({t:"rpc_response",...}) -> backend resolve Future -> HTTP response
-```
-
-Pour `play`, le flow est different :
-```
-recv("rpc") -> pendingPlay = {id, args} -> Update hook execute l'action
-  -> attend isPlayerTurn() sur les frames suivants
-  -> send({t:"rpc_response", result: state + _events})
-```
-
-## Format des events (_events)
-
-Le champ `_events` dans la reponse `play` contient les events captures pendant l'execution :
-
-### Stream events (enums resolus par le backend)
-```json
-{"step": {"_enum": "IdunBattle.Streams.StepType", "_value": 3, "_name": "ChangePosition"}, "entity": 90, "tags": {"Unit_Foot_Tile_Id_1": 30, "Is_Last_Tile": 1}}
-{"step": {"_enum": "IdunBattle.Streams.StepType", "_value": 4, "_name": "UnitDamaged"}, "entity": 90, "tags": {...}}
-```
-
-### Stream group events
-```json
-{"group": {"_enum": "IdunBattle.Streams.GroupType", "_value": 11, "_name": "User_MoveUnit"}, "entity": 90, "source": null}
-{"group": {"_enum": "IdunBattle.Streams.GroupType", "_value": 21}, "entity": 81, "source": "HatefulAssault"}
-```
-
-Note : les events ne contiennent que les stream events du jeu (StreamDispatcher). Les Apply messages (nos propres actions) ne sont pas inclus dans `_events`.
-
-### Validation failures
-```json
-{"_validation": "TilesAreWalkable", "passed": false}
-```
-
-## Python helpers (lib/)
-
-`C:/Users/nicolasv/frida-ide-workdir/tacticus/lib/`
-
-```python
-from lib.rpc import RpcClient
-from lib.state import GameState
-from lib.hex import hex_distance
-
-client = RpcClient(session_id=90)
-state = client.get_state()
-
-# Units
-for u in state.player_units:
-    print(u.name, u.hp, u.pos)
-
-# Reachable tiles
-tiles = client.get_reachable_tiles(u.id)
-
-# Units (enrichis)
-for u in state.player_units:
-    print(u.name, u.hp, u.pos, u.normal_attack_type, u.has_attacked)
-
-# Actions
-state = client.move(unit_id=63, col=3, row=4)
-state = client.attack(caster_id=63, target_id=79, ability_type=u.normal_attack_type)  # ability_type obligatoire
-state = client.end_turn()
-
-# Events de la derniere action
-for ev in state.events:
-    print(ev)
-
-# Hex math
-dist = hex_distance((0, 1), (3, 5))
-neighbors = hex_neighbors(3, 5)
+curl -s -X POST "http://127.0.0.1:8765/api/scripts/$SID/rpc" \
+  -H "Content-Type: application/json" \
+  -d '{"method":"campaignBuilderStatus","args":[]}'
 ```

@@ -7,14 +7,16 @@
 // This replaces the fragile camelCase→snake_case heuristic in the front-end
 // with the game's own authoritative mapping.
 
-import { findClassAnywhere, il2cppBase, readIl2cppString } from "../il2cpp/helpers.js";
+import {
+    findClassAnywhere, il2cppBase, IL2CPP_MODULE_NAME, readIl2cppString,
+} from "../il2cpp/helpers.js";
 import { Ctx } from "../controller.js";
 
 const libBase = il2cppBase;
 // il2cppBase is re-exported; we use its module for export lookups.
-const lib = Process.findModuleByName("libil2cpp.so");
+const lib = Process.findModuleByName(IL2CPP_MODULE_NAME);
 function exp(name: string): NativePointer {
-    if (!lib) throw new Error("libil2cpp.so not loaded");
+    if (!lib) throw new Error(`${IL2CPP_MODULE_NAME} not loaded`);
     const p = lib.findExportByName(name);
     if (!p) throw new Error(`missing export: ${name}`);
     return p;

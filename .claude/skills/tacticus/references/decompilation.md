@@ -1,6 +1,35 @@
 # Decompilation Ghidra + transpilation Java
 
-## Pipeline actuel (5 etapes)
+## Tacticus Windows PC (pipeline actif)
+
+Cible : `GameAssembly.dll` (x86_64, ~60 MB) à
+`C:\Users\nicolasv\AppData\Local\tacticus\games\nb3o9lmt6c\GameAssembly.dll`.
+
+Scripts dédiés Windows :
+- `scripts/ghidra/GhidraApplyIl2CppNamesWin.java` — apply symbols + void* sigs
+- `scripts/ghidra/GhidraDecompileGameAssembly.java` — full batch decompile
+- `scripts/ghidra/GhidraDecompileCampaignBuilder.java` — ciblé sur le code campaign builder
+- `scripts/ghidra/GhidraDecompileCrashSite.java` — décompile autour d'un RVA donné (diagnostic)
+- `scripts/python/gen_full_game_targets.py` / `gen_win_targets.py` — listes de targets par RVA
+- `scripts/python/gen_campaign_builder_targets.py` — focus campaign code
+- `scripts/python/rebuild_sources_win.py` — réassemble les .c sous `sources_win/`
+
+Outputs sous `sources_win/` (gitignored, plusieurs GB).
+
+Notes spécifiques x86_64 vs ARM64 :
+- Calling convention différente (RCX/RDX/R8/R9 + stack vs X0..X7)
+- HFA (homogeneous float aggregate) sur ARM64 ne s'applique pas à x86_64
+  (vector types passent dans XMM)
+- Les RVA de cellules PTR_DAT diffèrent entre les builds Android et PC
+- Image base Ghidra = 0 reste valide
+
+---
+
+## Historique : Tacticus Android (libil2cpp.so, ARM64)
+
+Pipeline original sur le build mobile. Conservé pour référence
+historique — concepts (void* sigs, PTR_DAT, transpilateur) restent
+valables pour le port PC ci-dessus.
 
 ```
 1. Frida dump IL2CPP runtime

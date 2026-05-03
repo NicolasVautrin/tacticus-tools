@@ -7,8 +7,8 @@
 
 import {
     class_get_methods, findClass, findClassAnywhere,
-    findCtorByParamCount, findMethod, getFieldOffset, MethodRef,
-    method_get_name, method_get_param_count, methodEntry, s,
+    findCtorByParamCount, findMethod, getFieldOffset, IL2CPP_MODULE_NAME,
+    MethodRef, method_get_name, method_get_param_count, methodEntry, s,
 } from "../il2cpp/helpers.js";
 import { il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
@@ -95,11 +95,13 @@ export const getReplayMi = replayRecorderClass
 //                       IdunRunnerOptions, IIdunLogger, IBattleDataReporter)
 
 function findInitializeSeedOverload(): MethodRef | null {
-    const lib = Process.findModuleByName("libil2cpp.so");
+    const lib = Process.findModuleByName(IL2CPP_MODULE_NAME);
     if (!lib) return null;
     const expFn = (n: string): NativePointer => {
         const p = lib.findExportByName(n);
-        if (p === null) throw new Error("libil2cpp export not found: " + n);
+        if (p === null) {
+            throw new Error(`${IL2CPP_MODULE_NAME} export not found: ${n}`);
+        }
         return p;
     };
     const paramFn = new NativeFunction(

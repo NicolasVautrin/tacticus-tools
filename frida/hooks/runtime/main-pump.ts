@@ -21,6 +21,7 @@
 import { findClass, findMethod, getFieldOffset } from "../il2cpp/helpers.js";
 import { state } from "../game/state.js";
 import { install } from "../game/recorder.js";
+import { log, traceEnter } from "./diag.js";
 
 function drainPending(): void {
     while (state.pending.length > 0) {
@@ -46,7 +47,7 @@ const updateMi = gameViewsClass ? findMethod(gameViewsClass, "Update") : null;
 
 export function installMainPump(): void {
     if (!updateMi || updateMi.ptr.isNull()) {
-        console.log("[main-pump] IdunGameViews.Update not found");
+        log("[main-pump] IdunGameViews.Update not found");
         return;
     }
 
@@ -54,6 +55,7 @@ export function installMainPump(): void {
         updateMi.ptr, "void", ["pointer", "pointer"]);
 
     Interceptor.replace(updateMi.ptr, new NativeCallback(function (self, methodInfo) {
+        traceEnter("IdunGameViews.Update", 60);
         const selfPtr = self as NativePointer;
 
         // Runner switch detection
@@ -81,10 +83,10 @@ export function installMainPump(): void {
 export function installMenuPump(): void {
     const cls = findClass(
         "Assembly-CSharp.dll", "idun.unity.utils", "UnityFreezeDetector");
-    if (!cls) { console.log("[menu-pump] UnityFreezeDetector not found"); return; }
+    if (!cls) { log("[menu-pump] UnityFreezeDetector not found"); return; }
     const mi = findMethod(cls, "Update");
     if (!mi || mi.ptr.isNull()) {
-        console.log("[menu-pump] UnityFreezeDetector.Update not found");
+        log("[menu-pump] UnityFreezeDetector.Update not found");
         return;
     }
 
@@ -92,8 +94,9 @@ export function installMenuPump(): void {
         mi.ptr, "void", ["pointer", "pointer"]);
 
     Interceptor.replace(mi.ptr, new NativeCallback(function (self, methodInfo) {
+        traceEnter("UnityFreezeDetector.Update", 60);
         drainPending();
         origUpdate(self as NativePointer, methodInfo as NativePointer);
     }, "void", ["pointer", "pointer"]));
-    console.log("[menu-pump] attached (via replace) to UnityFreezeDetector.Update");
+    log("[menu-pump] attached (via replace) to UnityFreezeDetector.Update");
 }
