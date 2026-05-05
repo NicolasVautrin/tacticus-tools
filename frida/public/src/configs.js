@@ -80,6 +80,7 @@ function renderConfigPredefinedUnits() {
         state.eventUnits.set("pre" + i, {
             col: p.Column, row: p.Row, playerId: null,
             kind: "unit", visualId,
+            rank: Number.isFinite(entry?.Rank) ? entry.Rank : null,
         });
     });
 }
@@ -239,6 +240,7 @@ export function hydrateConfig(meta, config) {
             faction: u.Faction ?? null,
             level: u.Level ?? null,
             rarity: u.Rarity ?? null,
+            rank: Number.isFinite(u.Rank) ? u.Rank : null,
             portraitKey,
         });
     }

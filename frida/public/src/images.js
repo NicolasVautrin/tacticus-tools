@@ -67,6 +67,17 @@ function buildCandidates(asset) {
     return out;
 }
 
+// Resolve a unit Rank int (0-based, matches engine RankSprites[rank]) to
+// the manifest rank icon URL (e.g. "ranks/gold_03.png"). The manifest's
+// `ranks` array is ordered Stone1 → Mythic3 by IdunVisualConfiguration.
+export function rankImageUrl(rank) {
+    if (!state.manifest || rank == null) return null;
+    const ranks = state.manifest.ranks;
+    if (!Array.isArray(ranks)) return null;
+    const path = ranks[rank];
+    return path ? "/assets/" + path : null;
+}
+
 export function configIdToPortrait(configId) {
     if (!state.manifest || !configId) return null;
     const known = state.manifest.units;

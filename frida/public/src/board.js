@@ -5,7 +5,7 @@
 import { state } from "./state.js";
 import { $, status } from "./dom.js";
 import { hexLayout, tileCenter, hexPolygon } from "./hex.js";
-import { configIdToPortrait } from "./images.js";
+import { configIdToPortrait, rankImageUrl } from "./images.js";
 import { attachTileDnd } from "./dnd.js";
 import { placeUnitImage } from "./placements.js";
 import { getCalibration, syncPanelToCurrentBoard } from "./hex-calibration.js";
@@ -199,6 +199,23 @@ export function renderOverlay() {
             imgEl.style.pointerEvents = "none";
             fo.appendChild(imgEl);
             g.appendChild(fo);
+
+            const rankUrl = rankImageUrl(u.rank);
+            if (rankUrl) {
+                const minR = Math.min(layout.Rx, layout.Ry);
+                const badgeSize = minR * 0.825;
+                const badge = document.createElementNS(
+                    "http://www.w3.org/2000/svg", "image");
+                badge.setAttributeNS(
+                    "http://www.w3.org/1999/xlink", "href", rankUrl);
+                badge.setAttribute("href", rankUrl);
+                badge.setAttribute("x", cx - layout.Rx * 0.75);
+                badge.setAttribute("y", cy + layout.Ry * 0.20);
+                badge.setAttribute("width", badgeSize);
+                badge.setAttribute("height", badgeSize);
+                badge.classList.add("unit-rank-badge");
+                g.appendChild(badge);
+            }
         } else {
             const circle = document.createElementNS(
                 "http://www.w3.org/2000/svg", "circle");

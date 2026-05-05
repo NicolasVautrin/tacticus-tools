@@ -664,6 +664,11 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
     letter-spacing: 0.05em;
 }
 
+#board-overlay .unit-rank-badge {
+    pointer-events: none;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8));
+}
+
 #board-meta {
     margin-top: 14px;
     color: var(--text-dim);
@@ -744,6 +749,16 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
     text-align: center;
     border: 1px solid #1a1208;
     pointer-events: none;
+}
+#unit-list .unit img.unit__rank {
+    position: absolute;
+    bottom: 2px;
+    left: 2px;
+    width: 26px;
+    height: 26px;
+    object-fit: contain;
+    pointer-events: none;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.85));
 }
 #unit-list .roster__constraints {
     grid-column: 1 / -1;
@@ -848,6 +863,14 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
     border-color: var(--line-strong);
     box-shadow: none;
     clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+}
+.btn-major--ended:disabled {
+    background: linear-gradient(180deg,
+        rgba(180, 60, 50, 0.85) 0%, rgba(120, 35, 28, 0.95) 100%);
+    color: #fff5e8;
+    border-color: rgba(220, 120, 100, 0.85);
+    opacity: 1;
+    box-shadow: 0 0 14px rgba(180, 60, 50, 0.45);
 }
 
 /* ---------- Tacticus · Status ---------- */

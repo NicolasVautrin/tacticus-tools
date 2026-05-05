@@ -9,6 +9,7 @@ import { api } from "./api.js";
 import { renderOverlay } from "./board.js";
 import { selectConfig, renderConfigList } from "./configs.js";
 import { subscribeBattleEvents } from "./ws.js";
+import { onBattleEndedRender } from "./actions.js";
 
 export async function refreshRunners() {
     try {
@@ -111,10 +112,16 @@ export async function switchToRunner(runnerId) {
         if (cfg) await selectConfig(cfg);
     }
     state.runnerId = runnerId;
+    // Wipe stale battleEnded from a previous runner so the new battle's
+    // PLAY TURN button isn't stuck on "BATTLE ENDED" until the next event.
+    if (state.battleEnded && state.battleEnded.runnerId !== runnerId) {
+        state.battleEnded = null;
+    }
     updateViewMode();
     await resumeRunnerState(runnerId);
     renderConfigList();
     renderRunnerList();
+    onBattleEndedRender();
     status("runner " + runnerId + " · "
          + (r.configId?.replace(/GameModeSource.*/, "") ?? ""));
 }

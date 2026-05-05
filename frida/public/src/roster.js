@@ -5,6 +5,7 @@
 
 import { state } from "./state.js";
 import { $, status } from "./dom.js";
+import { rankImageUrl } from "./images.js";
 
 export function renderUnitRoster() {
     const filterEl = $("unit-filter");
@@ -49,9 +50,14 @@ export function renderUnitRoster() {
             + (u.level ? " L" + u.level : "")
             + (isRequired ? " — MANDATORY" : "");
         el.draggable = true;
+        const rankUrl = rankImageUrl(u.rank);
         el.innerHTML = '<img src="/assets/'
             + state.manifest.units[u.portraitKey]
             + '" loading="lazy" draggable="false">'
+            + (rankUrl
+                ? '<img class="unit__rank" src="' + rankUrl
+                  + '" loading="lazy" draggable="false">'
+                : "")
             + (isRequired ? '<span class="unit__badge">!</span>' : "");
         el.addEventListener("dragstart", (ev) => {
             ev.dataTransfer.setData("text/plain", JSON.stringify({

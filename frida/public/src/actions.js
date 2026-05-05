@@ -14,12 +14,14 @@ export function onBattleEndedRender() {
     if (state.battleEnded && state.battleEnded.runnerId === state.runnerId) {
         btn.disabled = true;
         btn.textContent = "BATTLE ENDED";
+        btn.classList.add("btn-major--ended");
         const w = state.battleEnded.winner;
         const winLabel = (w === null || w === undefined) ? "" : ` · winner P${w}`;
         status(`Battle finished${winLabel} (runner ${state.battleEnded.runnerId})`);
     } else {
         btn.disabled = false;
         btn.textContent = "PLAY TURN";
+        btn.classList.remove("btn-major--ended");
     }
 }
 

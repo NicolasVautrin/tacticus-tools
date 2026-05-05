@@ -373,12 +373,94 @@ def extract_abilities() -> dict[str, str]:
     return mapping
 
 
+RANK_ATLAS_GLOB = "hero_ranks_*.resource"
+IDUN_VISUAL_CONFIG_GLOB = "idunvisualconfiguration_*.resource"
+
+
+def extract_ranks() -> list[str]:
+    """Extract the 21 unit-rank icons (Stone 1-3 → Mythic 1-3) from
+    `hero_ranks_<hash>.resource`, ordered by their position in
+    IdunVisualConfiguration.RankSprites[]. The ordered list maps
+    `unit.Rank` (0-based) → asset filename — that's the same indexing
+    used by the engine (`RankSprites[rank]`).
+
+    Returns the ordered filename list (e.g.
+    ["stone_01.png", "stone_02.png", ..., "mythic_03.png"]).
+    """
+    out_dir = PUBLIC / "ranks"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    install_atlases = INSTALL_BUNDLES / "atlases"
+    if not install_atlases.exists():
+        print(f"[warn] missing {install_atlases} — skipping ranks", file=sys.stderr)
+        return []
+    rank_atlases = list(install_atlases.glob(RANK_ATLAS_GLOB))
+    ivc_bundles = list(INSTALL_BUNDLES.glob(IDUN_VISUAL_CONFIG_GLOB))
+    if not rank_atlases or not ivc_bundles:
+        print(f"[warn] no rank atlas or IVC bundle found", file=sys.stderr)
+        return []
+
+    # Step 1: read RankSprites[] from IdunVisualConfiguration → ordered PathIDs.
+    try:
+        env = UnityPy.load(str(ivc_bundles[0]))
+    except Exception as exc:
+        print(f"[skip] {ivc_bundles[0].name}: {exc}", file=sys.stderr)
+        return []
+    ordered_path_ids: list[int] = []
+    for o in env.objects:
+        if o.type.name != "MonoBehaviour":
+            continue
+        try:
+            tree = o.read_typetree()
+        except Exception:
+            continue
+        rs = tree.get("RankSprites")
+        if isinstance(rs, list) and rs:
+            ordered_path_ids = [int(r["m_PathID"]) for r in rs]
+            break
+    if not ordered_path_ids:
+        print(f"[warn] RankSprites not found in IVC", file=sys.stderr)
+        return []
+
+    # Step 2: load atlas → map PathID → sprite name + image.
+    try:
+        env = UnityPy.load(str(rank_atlases[0]))
+    except Exception as exc:
+        print(f"[skip] {rank_atlases[0].name}: {exc}", file=sys.stderr)
+        return []
+    pathid_to_data: dict[int, object] = {}
+    for o in env.objects:
+        if o.type.name != "Sprite":
+            continue
+        pathid_to_data[o.path_id] = o.read()
+
+    # Step 3: in array order, derive a clean name (strip ui_icon[s]_rank_)
+    # and save each PNG.
+    NAME_RE = re.compile(r"^ui_icons?_rank_")
+    ordered_files: list[str] = []
+    for path_id in ordered_path_ids:
+        data = pathid_to_data.get(path_id)
+        if data is None:
+            print(f"[warn] rank pathID {path_id} missing in atlas",
+                  file=sys.stderr)
+            ordered_files.append("")
+            continue
+        clean = NAME_RE.sub("", data.m_Name)  # e.g. "stone_01"
+        out = out_dir / f"{clean}.png"
+        data.image.save(out)
+        ordered_files.append(f"ranks/{clean}.png")
+
+    print(f"[ranks] extracted {len([f for f in ordered_files if f])} rank icons")
+    return ordered_files
+
+
 def main() -> int:
     units = extract_avatars()
     extract_atlases(units)
     abilities = extract_abilities()
     languages, lang_stats = extract_languages()
     boards, visuals = extract_boards()
+    ranks = extract_ranks()
 
     manifest = {
         "unityVersion": UnityPy.config.FALLBACK_UNITY_VERSION,
@@ -387,6 +469,7 @@ def main() -> int:
         "languages": dict(sorted(languages.items())),
         "boards": dict(sorted(boards.items())),
         "boardVisuals": dict(sorted(visuals.items())),
+        "ranks": ranks,
     }
     out = PUBLIC / "manifest.json"
     out.write_text(json.dumps(manifest, indent=2))

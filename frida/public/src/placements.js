@@ -5,7 +5,7 @@
 import { state, savePlacements } from "./state.js";
 import { $, status } from "./dom.js";
 import { tileCenter } from "./hex.js";
-import { configIdToPortrait } from "./images.js";
+import { configIdToPortrait, rankImageUrl } from "./images.js";
 import { renderOverlay } from "./board.js";
 
 export function deployUnitAt(unitId, col, row) {
@@ -73,6 +73,26 @@ export function placeUnitImage(svg, layout, p, minC, minR, elevation = 0) {
     });
     fo.appendChild(img);
     svg.appendChild(fo);
+
+    // Rank badge — same bottom-left corner placement as event units.
+    const cfgUnit = state.config?.Units?.find((x) => x.Id === p.unitId);
+    const rank = Number.isFinite(cfgUnit?.Rank) ? cfgUnit.Rank : null;
+    const rankUrl = rankImageUrl(rank);
+    if (rankUrl) {
+        const minHexR = Math.min(layout.Rx, layout.Ry);
+        const badgeSize = minHexR * 0.825;
+        const badge = document.createElementNS(
+            "http://www.w3.org/2000/svg", "image");
+        badge.setAttributeNS(
+            "http://www.w3.org/1999/xlink", "href", rankUrl);
+        badge.setAttribute("href", rankUrl);
+        badge.setAttribute("x", cx - layout.Rx * 0.75);
+        badge.setAttribute("y", cy + layout.Ry * 0.20);
+        badge.setAttribute("width", badgeSize);
+        badge.setAttribute("height", badgeSize);
+        badge.classList.add("unit-rank-badge");
+        svg.appendChild(badge);
+    }
 }
 
 export function renderPlacements() {
