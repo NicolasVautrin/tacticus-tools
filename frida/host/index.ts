@@ -8,6 +8,7 @@ import { buildRouter } from "./router.js";
 import { attachWss } from "./ws.js";
 import { initConfigStore } from "./config-store.js";
 import { initBattleStore } from "./battle-store.js";
+import { initAiTraceStore, closeAiTraceStore } from "./ai-trace-store.js";
 import { postMessage, restoreSessions, stopAllPreservingState } from "./sessions.js";
 import { findPidByExePath } from "./admin.js";
 import { registerHandler } from "./router-messages.js";
@@ -28,6 +29,7 @@ attachWss(server);
 
 await initConfigStore();
 await initBattleStore();
+await initAiTraceStore();
 
 // Mirror agent-side `log()` calls to the host stdout so `npm run dev` stays
 // readable. The full payload is also persisted to logs/run-*_<target>.jsonl
@@ -126,6 +128,7 @@ async function shutdown(signal: string): Promise<void> {
     shuttingDown = true;
     console.log(`[host] ${signal} received — detaching sessions (state preserved)`);
     try { await stopAllPreservingState(); } catch { /* ignore */ }
+    try { await closeAiTraceStore(); } catch { /* ignore */ }
     process.exit(0);
 }
 process.on("SIGINT", () => { void shutdown("SIGINT"); });

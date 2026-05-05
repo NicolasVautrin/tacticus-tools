@@ -1,6 +1,9 @@
 node_modules/
 dist/
 data/
+# Exception: the hooks/data/ subtree holds source-code lookup tables
+# (ability name mappers), NOT runtime dumps.
+!frida/hooks/data/
 sources/
 sources_win/
 logs/

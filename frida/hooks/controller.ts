@@ -17,6 +17,7 @@ import * as unitVisualResolve from "./features/unit-visual-resolve.js";
 import * as introspect from "./features/introspect.js";
 import * as campaignBuilder from "./features/campaign-builder.js";
 import * as mowBuilder from "./features/mow-builder.js";
+import * as aiTrace from "./features/ai-trace.js";
 
 export interface Ctx {
     rpc: Record<string, (...args: any[]) => unknown>;
@@ -26,10 +27,12 @@ export function wireRpc(ctx: Ctx): void {
     // movement-trace stays opt-in — its 39 Interceptor.attach hooks on
     // EvaluateMovementInSteps utilities each call 3× class_get_name and
     // produced visible navigation lag. Re-enable explicitly when AI movement
-    // debugging is the active task.
+    // debugging is the active task. ai-trace L3 covers the same surface but
+    // streams to disk instead of an in-memory ring; default L3=off so this
+    // path stays cheap unless the user explicitly enables it.
     void movementTrace;
     [status, sim, compare, cheat, configIo, modeSourceCapture, launch,
      unitAssetMap, /* movementTrace, */ unitVisualResolve, introspect,
-     campaignBuilder, mowBuilder]
+     campaignBuilder, mowBuilder, aiTrace]
         .forEach((f) => f.register(ctx));
 }
