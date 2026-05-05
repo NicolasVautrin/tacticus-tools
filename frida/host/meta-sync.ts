@@ -130,6 +130,31 @@ export async function syncCampaignCatalog(sessionId: number, allowHeapScan = fal
     };
 }
 
+/** Sync mow-catalog.json (MachinesOfWar event battles per tier).
+ *
+ * Requires the user to have navigated to the MoW event in-game once
+ * (so the agent has captured a live MachinesOfWarEventGameModeSource).
+ * Throws with a clear message otherwise — the router translates to 409. */
+export async function syncMoWCatalog(sessionId: number): Promise<{
+    version: string; bytes: number; tierCount: number; path: string;
+}> {
+    const ver = await fetchGameVersion(sessionId);
+    const slug = safeVersion(ver.version);
+    const metaDir = path.join(META_ROOT, slug);
+    await fs.mkdir(metaDir, { recursive: true });
+
+    const r = await rpcCall(sessionId, "dumpMachinesOfWarCatalog",
+        [], 15000) as { bytes: number; json: string; tierCount: number };
+    const out = path.join(metaDir, "mow-catalog.json");
+    await fs.writeFile(out, r.json);
+    return {
+        version: ver.version,
+        bytes: r.bytes,
+        tierCount: r.tierCount,
+        path: path.relative(process.cwd(), out).replace(/\\/g, "/"),
+    };
+}
+
 async function syncCampaignCatalogAsItem(
     sessionId: number, metaDir: string,
 ): Promise<SyncedItem> {

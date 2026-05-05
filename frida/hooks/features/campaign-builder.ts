@@ -46,6 +46,14 @@ const NS_BATTLE_SOURCE = "IdunBattle.ViewLogic.BattleSource";
 
 const _libIl2cpp = Process.findModuleByName(IL2CPP_MODULE_NAME);
 
+/** Cross-feature accessor: other features (e.g. mow-builder) need the
+ * captured GameConfigDto without re-implementing heap-scans (which freeze
+ * the game's main thread). Returns the most-recently captured pointer or
+ * null if natural capture hasn't fired yet. */
+export function getLastGameConfig(): NativePointer | null {
+    return lastGameConfig;
+}
+
 // Most-recent CampaignGameModeSource instance — captured by the .ctor hook.
 // Pinned via raw pointer; valid as long as the game's DI container holds it.
 // If the user destroys the campaign view, the pointer may go stale — every

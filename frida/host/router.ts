@@ -29,7 +29,7 @@ import {
 import {
     findTacticusCandidates, injectBundle, TacticusCandidate,
 } from "./admin.js";
-import { syncMetadata, syncCampaignCatalog, activeMetaVersion } from "./meta-sync.js";
+import { syncMetadata, syncCampaignCatalog, syncMoWCatalog, activeMetaVersion } from "./meta-sync.js";
 
 export function buildRouter(defaultLogDir: string): Router {
     const router = express.Router();
@@ -510,6 +510,115 @@ export function buildRouter(defaultLogDir: string): Router {
                 campaignType, campaignId, locationIndex,
                 bytes: r.bytes,
                 json: r.json,           // inline — front parses directly
+                source: "generated",
+                generatedAt: new Date().toISOString(),
+            });
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    router.get("/api/mow/diag/runtime", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            const r = await rpcCall(sid, "dumpLiveEventsRuntimeData",
+                [], 60000) as { bytes: number; json: string };
+            res.type("application/json").send(r.json);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    router.get("/api/mow/diag/live-event/:name", async (req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            const r = await rpcCall(sid, "dumpLiveEventConfigByName",
+                [{ eventName: req.params.name }], 30000) as
+                { index: number; klassPtr: string; ptr: string;
+                  bytes: number; json: string };
+            res.type("application/json").send(JSON.stringify(r, null, 2));
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    router.get("/api/mow/diag/live-events-config", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            const r = await rpcCall(sid, "dumpLiveEventsConfig",
+                [], 60000) as { bytes: number; json: string; instance: string };
+            res.type("application/json").send(r.json);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** Diagnostic: dump the internal state of the live
+     * IMachinesOfWarEventProgression as JSON. Used to investigate
+     * whether future-event configs are already in memory. */
+    router.get("/api/mow/diag/progression", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            const r = await rpcCall(sid, "dumpMoWProgressionState",
+                [], 30000) as { bytes: number; json: string };
+            res.type("application/json").send(r.json);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** MachinesOfWar event builder — diagnostic. */
+    router.get("/api/mow/builder-status", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.json({ session: false, hasInstance: false }); return; }
+            const r = await rpcCall(sid, "machinesOfWarBuilderStatus", [], 5000) as {
+                hasInstance: boolean; instance: string | null;
+            };
+            res.json({ session: true, ...r });
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** Refresh the MoW catalog from the live agent → data/meta/<v>/mow-catalog.json. */
+    router.post("/api/mow/catalog/refresh", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            const result = await syncMoWCatalog(sid);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** Build a BattleConfiguration for one MoW (tier, battle) combo.
+     * Body: `{ tier: number, battle: number }`. Returns inline JSON. */
+    router.post("/api/mow/build", async (req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            const { tier, battle } = req.body ?? {};
+            if (typeof tier !== "number" || typeof battle !== "number") {
+                res.status(400).json({
+                    error: "body must be { tier:int, battle:int }",
+                });
+                return;
+            }
+            const r = await rpcCall(sid, "buildMachinesOfWarConfig",
+                [{ tier, battle }], 120000) as {
+                    tier: number; battle: number; bytes: number; json: string;
+                };
+            res.json({
+                id: `MoW_T${tier}_B${battle}`,
+                tier, battle,
+                bytes: r.bytes,
+                json: r.json,
                 source: "generated",
                 generatedAt: new Date().toISOString(),
             });

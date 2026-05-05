@@ -141,6 +141,38 @@ export const api = {
         },
     },
 
+    // MachinesOfWar event builder API. Mirrors the campaign API shape.
+    mow: {
+        async builderStatus() {
+            const r = await fetch("/api/mow/builder-status");
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error ?? r.statusText);
+            return data;
+        },
+        async refreshCatalog() {
+            const r = await fetch("/api/mow/catalog/refresh", { method: "POST" });
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error ?? r.statusText);
+            return data;
+        },
+        async fetchCatalog(version) {
+            const r = await fetch("/meta/" + encodeURIComponent(version)
+                                  + "/mow-catalog.json");
+            if (!r.ok) return null;
+            return r.json();
+        },
+        async build(tier, battle) {
+            const r = await fetch("/api/mow/build", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ tier, battle }),
+            });
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error ?? r.statusText);
+            return data;
+        },
+    },
+
     // Generic Frida RPC forwarder. sessionId is the host's run_session_id,
     // not the runnerId — the host routes via /api/scripts/:id/rpc.
     async rpc(sessionId, method, args = [], timeoutMs = 30000) {

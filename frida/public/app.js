@@ -29,6 +29,7 @@ import { launchBattle } from "./src/launch.js";
 import { playTurn } from "./src/actions.js";
 import { wireAdmin } from "./src/admin.js";
 import { initCampaignBuilder } from "./src/campaign-builder.js";
+import { initMoWBuilder } from "./src/mow-builder.js";
 import { initCollapsiblePanels } from "./src/collapsible.js";
 import { initCalibration } from "./src/hex-calibration.js";
 import { renderOverlay } from "./src/board.js";
@@ -72,8 +73,9 @@ import { renderOverlay } from "./src/board.js";
     try {
         const adm = await api.adminStatus();
         await initCampaignBuilder(adm?.version ?? null);
+        await initMoWBuilder(adm?.version ?? null);
     } catch (e) {
-        console.warn("[app] campaign-builder init failed", e);
+        console.warn("[app] builder init failed", e);
     }
 
     // Wire collapsible behaviour on every .panel-block. Persists per-panel
