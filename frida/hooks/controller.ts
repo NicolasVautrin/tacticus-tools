@@ -18,6 +18,7 @@ import * as introspect from "./features/introspect.js";
 import * as campaignBuilder from "./features/campaign-builder.js";
 import * as mowBuilder from "./features/mow-builder.js";
 import * as aiTrace from "./features/ai-trace.js";
+import * as simEngine from "./features/sim-engine.js";
 
 export interface Ctx {
     rpc: Record<string, (...args: any[]) => unknown>;
@@ -33,6 +34,6 @@ export function wireRpc(ctx: Ctx): void {
     void movementTrace;
     [status, sim, compare, cheat, configIo, modeSourceCapture, launch,
      unitAssetMap, /* movementTrace, */ unitVisualResolve, introspect,
-     campaignBuilder, mowBuilder, aiTrace]
+     campaignBuilder, mowBuilder, aiTrace, simEngine]
         .forEach((f) => f.register(ctx));
 }

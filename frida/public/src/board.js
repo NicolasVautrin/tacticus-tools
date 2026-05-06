@@ -154,6 +154,86 @@ export function renderOverlay() {
         }
     }
 
+    // Mirror mode wins over both pre-launch placements and live event
+    // units: the front renders ONLY the mirror state when one exists.
+    const playerTeams = new Map();
+    for (const [pid, p] of Object.entries(state.config?.Player?.Players ?? {})) {
+        playerTeams.set(Number(pid), p.TeamId ?? 0);
+    }
+    if (state.simState?.units?.length) {
+        for (const u of state.simState.units) {
+            if (!u.pos || u.isDead) continue;
+            // Mirror coords are 0-based-relative to the Tiles array (same
+            // convention as state.eventUnits) — convert to absolute by
+            // adding minC/minR before passing to tileCenter.
+            const [cx, cy] = tileCenter(layout,
+                u.pos.col + minC, u.pos.row + minR,
+                elevAt(u.pos.col, u.pos.row));
+            const ringCls = u.teamId === 1 ? "ring-team-1"
+                         : u.teamId === 2 ? "ring-team-2"
+                         : "ring-team-n";
+            // visualId comes from the projection (squad's UnitComponent),
+            // no live state dependency.
+            const portraitKey = u.visualId ? configIdToPortrait(u.visualId)
+                : null;
+            const pngPath = portraitKey ? state.manifest?.units?.[portraitKey]
+                : null;
+            const g = document.createElementNS(
+                "http://www.w3.org/2000/svg", "g");
+            g.classList.add("event-unit");
+            if (pngPath) {
+                const r = layout.size * 0.6;
+                const ring = document.createElementNS(
+                    "http://www.w3.org/2000/svg", "circle");
+                ring.setAttribute("cx", cx);
+                ring.setAttribute("cy", cy);
+                ring.setAttribute("r", r);
+                ring.classList.add("unit-ring", ringCls);
+                g.appendChild(ring);
+                const fo = document.createElementNS(
+                    "http://www.w3.org/2000/svg", "foreignObject");
+                const w = r * 1.8;
+                fo.setAttribute("x", cx - w / 2);
+                fo.setAttribute("y", cy - w / 2);
+                fo.setAttribute("width", w);
+                fo.setAttribute("height", w);
+                fo.classList.add("unit-fo");
+                const imgEl = document.createElement("img");
+                imgEl.src = "/assets/" + pngPath;
+                imgEl.style.pointerEvents = "none";
+                fo.appendChild(imgEl);
+                g.appendChild(fo);
+                const rankUrl = u.rank ? rankImageUrl(u.rank) : null;
+                if (rankUrl) {
+                    const minR = Math.min(layout.Rx, layout.Ry);
+                    const badgeSize = minR * 0.825;
+                    const badge = document.createElementNS(
+                        "http://www.w3.org/2000/svg", "image");
+                    badge.setAttributeNS(
+                        "http://www.w3.org/1999/xlink", "href", rankUrl);
+                    badge.setAttribute("href", rankUrl);
+                    badge.setAttribute("x", cx - layout.Rx * 0.75);
+                    badge.setAttribute("y", cy + layout.Ry * 0.20);
+                    badge.setAttribute("width", badgeSize);
+                    badge.setAttribute("height", badgeSize);
+                    badge.classList.add("unit-rank-badge");
+                    g.appendChild(badge);
+                }
+            } else {
+                const r = layout.size * 0.55;
+                const ring = document.createElementNS(
+                    "http://www.w3.org/2000/svg", "circle");
+                ring.setAttribute("cx", cx);
+                ring.setAttribute("cy", cy);
+                ring.setAttribute("r", r);
+                ring.classList.add("unit-fallback", ringCls);
+                g.appendChild(ring);
+            }
+            svg.appendChild(g);
+        }
+        return;
+    }
+
     // Pre-launch placements — only in DEPLOY mode (no runner active).
     if (!state.runnerId) {
         for (const p of state.placements) {
@@ -162,10 +242,6 @@ export function renderOverlay() {
     }
 
     // Live units from battle_event StreamEvents.
-    const playerTeams = new Map();
-    for (const [pid, p] of Object.entries(state.config?.Player?.Players ?? {})) {
-        playerTeams.set(Number(pid), p.TeamId ?? 0);
-    }
     for (const [entity, u] of state.eventUnits) {
         const [cx, cy] = tileCenter(layout, u.col + minC, u.row + minR,
             elevAt(u.col, u.row));

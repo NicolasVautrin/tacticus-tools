@@ -17,17 +17,36 @@ import { gcRoot } from "../il2cpp/gc-root.js";
 import { invokeMethod } from "../il2cpp/invoke.js";
 import { resolveMt, snapshotMt } from "../il2cpp/mt.js";
 import {
-    applyAiMsgMi, applyHumanAiMsgMi,
+    applyAiMsgMi, applyHumanAiMsgMi, dumpAiRngProbe,
 } from "./ai-control.js";
 import { pushApply, popApply } from "./apply-stack.js";
 import {
     getReplayMi, replayOff, runnerApplyMi, runnerOff,
 } from "./runner.js";
 import { state, LogEntry } from "./state.js";
+import { applyToMirror } from "../features/sim-engine.js";
 
 // Per-onEnter marker stored on `this` inside the interceptor callback
 // so onLeave knows whether it pushed a frame and should pop.
 type MarkerThis = InvocationContext & { _ours?: boolean };
+
+// Throttle filter-mismatch logs — first 5 only, then summary every 100.
+// Without this, a runner switch could spam thousands of messages/s.
+const filterMismatchCounts: Record<string, number> = {};
+function logFilterMismatch(
+    where: string, gotPtr: string, expectedPtr: string,
+): void {
+    const key = where + ":" + gotPtr;
+    const n = (filterMismatchCounts[key] ?? 0) + 1;
+    filterMismatchCounts[key] = n;
+    if (n <= 5 || n % 100 === 0) {
+        send({
+            t: "diag", msg: "[recorder] filter mismatch " + where
+                + " · got=" + gotPtr + " expected=" + expectedPtr
+                + " · n=" + n,
+        });
+    }
+}
 
 function detachAll(): void {
     for (const l of state.installedListeners) {
@@ -53,7 +72,15 @@ export function install(): boolean {
 
     state.installedListeners.push(Interceptor.attach(runnerApplyMi.ptr, {
         onEnter(this: MarkerThis, args) {
-            if (!args[0].equals(runnerSnapshot)) { this._ours = false; return; }
+            // Skip if this Apply was triggered by our own mirror replay loop
+            // (sim-engine.ts sets the flag while invoking on the mirror runner).
+            if (state.replayingOnMirror) { this._ours = false; return; }
+            if (!args[0].equals(runnerSnapshot)) {
+                this._ours = false;
+                logFilterMismatch("runner.Apply",
+                    args[0].toString(), runnerSnapshot.toString());
+                return;
+            }
             this._ours = true;
             try {
                 const msg = args[1];
@@ -67,13 +94,17 @@ export function install(): boolean {
                     prng: mt ? snapshotMt(mt) : null,
                     ts: Date.now(),
                     events: [],
+                    runner: "live",
                 };
                 state.log.push(entry);
                 pushApply("live", entry.events);
             } catch { /* best effort */ }
         },
         onLeave(this: MarkerThis) {
-            if (this._ours) { try { popApply(); } catch { /* ignore */ } }
+            if (!this._ours) return;
+            try { popApply(); } catch { /* ignore */ }
+            // Auto-mirror: replay any new live entries on the mirror.
+            try { applyToMirror(); } catch { /* best effort */ }
         },
     }));
 
@@ -81,7 +112,13 @@ export function install(): boolean {
         if (!mi || mi.ptr.isNull()) return;
         state.installedListeners.push(Interceptor.attach(mi.ptr, {
             onEnter(this: MarkerThis, args) {
-                if (!args[0].equals(aiSnapshot)) { this._ours = false; return; }
+                if (state.replayingOnMirror) { this._ours = false; return; }
+                if (!args[0].equals(aiSnapshot)) {
+                    this._ours = false;
+                    logFilterMismatch("aiControl." + tag,
+                        args[0].toString(), aiSnapshot.toString());
+                    return;
+                }
                 this._ours = true;
                 try {
                     const msg = args[1];
@@ -98,13 +135,16 @@ export function install(): boolean {
                         prng: mt ? snapshotMt(mt) : null,
                         ts: Date.now(),
                         events: [],
+                        runner: "live",
                     };
                     state.log.push(entry);
                     pushApply("live", entry.events);
                 } catch { /* best effort */ }
             },
             onLeave(this: MarkerThis) {
-                if (this._ours) { try { popApply(); } catch { /* ignore */ } }
+                if (!this._ours) return;
+                try { popApply(); } catch { /* ignore */ }
+                try { applyToMirror(); } catch { /* best effort */ }
             },
         }));
     }
@@ -169,6 +209,10 @@ export function install(): boolean {
         bootstrapped: bootCount,
         bootSkipped,
     });
+    // One-shot RNG-field probe — runs the first time the recorder arms.
+    try { dumpAiRngProbe(aiSnapshot); } catch (e) {
+        send({ t: "diag", msg: "[probe] dumpAiRngProbe threw: " + (e as Error).message });
+    }
     return true;
 }
 

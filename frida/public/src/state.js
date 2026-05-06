@@ -39,6 +39,10 @@ export const state = {
     // (FinishMatch event observed or stage flipped non-Running). Cleared on
     // resetRunnerSession so re-engage starts fresh.
     battleEnded: null,
+    // Mirror state — projected matchState from the isolated mirror runner.
+    // When non-null, the central board renders these units (priority over
+    // placements / eventUnits). Shape: { turn, playerOnTurn, units: [...] }.
+    simState: null,
 };
 
 export function savePlacements() {

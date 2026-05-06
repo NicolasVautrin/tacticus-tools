@@ -17,6 +17,11 @@ export interface LogEntry {
     ts: number;
     events: StreamEvent[];
     turn?: number;   // set for top_boot entries from native Replay
+    /** Origin runner. "live" by default; set to "mirror" if the entry was
+     * observed on the mirror runner (recorder filters those out — they
+     * are kept as a sentinel for re-entrancy guards only, not pushed
+     * into state.log). Reserved for diagnostics, not used yet. */
+    runner?: "live" | "mirror";
 }
 
 export interface SimCacheEntry {
@@ -57,4 +62,10 @@ export const state = {
     /** install() is deferred from the Update callback via setTimeout(0) to
      * avoid "cannot Interceptor.attach from within Interceptor.replace". */
     installNeeded: false,
+
+    /** Set to true while sim-engine is replaying messages on the mirror
+     * runner (initial catchup OR per-message auto-mirror). The recorder
+     * skips its push when this is true so we don't double-record nor
+     * trigger re-entrant applyToMirror calls. */
+    replayingOnMirror: false,
 };

@@ -8,6 +8,9 @@ sources/
 sources_win/
 logs/
 il2cpp/
+# Exception: the hooks/il2cpp/ subtree holds the IL2CPP wrapper source
+# code (helpers, invoke, mt, gc-root, etc.), NOT runtime dumps.
+!frida/hooks/il2cpp/
 *.apk
 *.so
 __pycache__/

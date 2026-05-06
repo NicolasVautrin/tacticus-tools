@@ -27,13 +27,15 @@ export interface StreamEvent {
 }
 
 export interface ApplyFrame {
-    role: "live" | "built";
+    role: "live" | "built" | "mirror";
     target: StreamEvent[];
 }
 
 export const applyStack: ApplyFrame[] = [];
 
-export function pushApply(role: "live" | "built", target: StreamEvent[]): void {
+export function pushApply(
+    role: "live" | "built" | "mirror", target: StreamEvent[],
+): void {
     applyStack.push({ role, target });
 }
 

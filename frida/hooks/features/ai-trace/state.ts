@@ -31,8 +31,12 @@ export interface MutableTraceState {
     installed: boolean;
 }
 
+// Levels default OFF. Hooks are still installed (cheap one-time work that
+// resolves IL2CPP class+method handles), but their fast-path checks
+// `traceState.enabled[level]` and short-circuits when off. The user enables
+// per-level on demand via the front toggle (calls `aiTraceEnable("L1")` etc.).
 export const traceState: MutableTraceState = {
-    enabled: { L1: true, L2: true, L3: true },
+    enabled: { L1: false, L2: false, L3: false },
     seq: 0,
     currentEval: null,
     installed: false,

@@ -33,6 +33,8 @@ import { initMoWBuilder } from "./src/mow-builder.js";
 import { initCollapsiblePanels } from "./src/collapsible.js";
 import { initCalibration } from "./src/hex-calibration.js";
 import { renderOverlay } from "./src/board.js";
+import { initSim } from "./src/sim.js";
+import { initAiTraceToggle } from "./src/ai-trace-toggle.js";
 
 (async function boot() {
     try {
@@ -81,6 +83,9 @@ import { renderOverlay } from "./src/board.js";
     // Wire collapsible behaviour on every .panel-block. Persists per-panel
     // state to localStorage so the user's layout survives reloads.
     initCollapsiblePanels();
+
+    initSim();
+    initAiTraceToggle();
 
     // Hex calibration panel — sliders mutate per-board overrides in
     // `state.calibrations`; renderOverlay() picks them up on the next paint.

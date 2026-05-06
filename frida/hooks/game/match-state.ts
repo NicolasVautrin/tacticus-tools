@@ -15,7 +15,9 @@
 //   CheatFinished @ 32 (u8)
 //   Stage @ 36 (Int32: 0=Setup, 1=Running, 2=Finished)
 
-import { findClass, getFieldOffset } from "../il2cpp/helpers.js";
+import {
+    findClass, findClassAnywhere, getFieldOffset, readIl2cppString,
+} from "../il2cpp/helpers.js";
 import { serializeToJson } from "../il2cpp/serializer.js";
 
 export const matchStateClass = findClass(
@@ -23,6 +25,37 @@ export const matchStateClass = findClass(
 if (!matchStateClass) throw new Error("MatchState class not found");
 
 export const msEntitiesOff = getFieldOffset(matchStateClass, "_entities");
+
+// ---- Component classes for projection. Resolved once at module load. ----
+
+const positionComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "PositionComponent");
+const healthComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "HealthComponent");
+const movementComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "MovementComponent");
+const ownerComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "OwnerComponent");
+const unitComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "UnitComponent");
+
+/** Component field offsets, all relative to the component object base.
+ * `PositionComponent.Coordinate` is an inline `AxialCoordinate` struct at
+ * +0x10 → Column at +0x10, Row at +0x14. `HealthComponent` extends
+ * `FillUpStatComponent` whose mutable values start at +0x10 (InitialValue),
+ * +0x14 (MaximumValue), +0x18 (RemainingValue). `OwnerComponent.PlayerEntityId`
+ * is at +0x10 (a 4B BEntityId).
+ * `UnitComponent.VisualId` is a managed string at +0x20, `UnitComponent.Rank`
+ * an Int32 at +0x1a4 (validated via runtime field-offset diag). */
+const COMP_FIELD = {
+    posCol: 0x10,
+    posRow: 0x14,
+    hpMax: 0x14,
+    hpRemaining: 0x18,
+    ownerPlayerId: 0x10,
+    visualId: 0x20,
+    rank: 0x1a4,
+} as const;
 
 /** IL2CPP EntityType enum. */
 export const EntityType = {
@@ -143,3 +176,222 @@ export function digestState(statePtr: NativePointer): StateDigest | null {
     }
     return { bytes: str.length, digest: "0x" + h.toString(16) };
 }
+
+// ---- State projection (for the front-end mirror panel) ----
+
+export interface UnitProjection {
+    id: number;
+    /** Parent squad entity ID (Type=1). Carried for traceability — the
+     * actual visual identity (visualId/rank) is denormalized onto each
+     * UnitFoot below so the front renders without extra lookups. */
+    squadId: number;
+    entityType: number;
+    pos: { col: number; row: number } | null;
+    hp: number | null;
+    maxHp: number | null;
+    ownerId: number | null;
+    /** TeamId enum value (1, 2, 3) read from the player's PlayerComponent.
+     * Lets the front color units by team without a config-side mapping. */
+    teamId: number | null;
+    /** Squad's `UnitComponent.VisualId` — drives portrait lookup on the
+     * front via `configIdToPortrait` + `manifest.units`. */
+    visualId: string | null;
+    /** Squad's `UnitComponent.Rank` — drives the rank-badge overlay. */
+    rank: number | null;
+    isDead: boolean;
+}
+
+export interface MatchStateProjection {
+    turn: number | null;
+    playerOnTurn: number | null;
+    stage: number | null;
+    stageName: string | null;
+    units: UnitProjection[];
+}
+
+const unitFootComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "UnitFootComponent");
+const tileContentComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "TileContentComponent");
+const playerComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "PlayerComponent");
+
+/** UnitFootComponent layout — UnitId @ +0x10, TileId @ +0x14 (both 4B). */
+const UNITFOOT_UNIT_ID_OFF = 0x10;
+const UNITFOOT_TILE_ID_OFF = 0x14;
+/** PlayerComponent.TeamId @ +0x24 (Int32 TeamId enum: 0=None, 1, 2, 3). */
+const PLAYER_TEAM_ID_OFF = 0x24;
+
+/** Walk an entity's `Components` IComponent[] (offset 0x18) and yield each
+ * `(componentPtr, klassPtr)` pair. Defensive against malformed arrays. */
+function forEachComponent(
+    entityPtr: NativePointer,
+    cb: (componentPtr: NativePointer, klassPtr: NativePointer) => void,
+): void {
+    let arr: NativePointer;
+    try { arr = entityPtr.add(0x18).readPointer(); }
+    catch { return; }
+    if (arr.isNull()) return;
+    let length: number;
+    try { length = arr.add(0x18).readS32(); }
+    catch { return; }
+    if (length <= 0 || length > 200) return;
+    for (let i = 0; i < length; i++) {
+        let comp: NativePointer;
+        try { comp = arr.add(0x20 + i * Process.pointerSize).readPointer(); }
+        catch { continue; }
+        if (comp.isNull()) continue;
+        let klass: NativePointer;
+        try { klass = comp.readPointer(); }
+        catch { continue; }
+        if (klass.isNull()) continue;
+        cb(comp, klass);
+    }
+}
+
+interface SquadStats {
+    hp: number | null;
+    maxHp: number | null;
+    ownerId: number | null;
+    visualId: string | null;
+    rank: number | null;
+    isDead: boolean;
+}
+
+/** Read squad-level HP + Owner + Visual identity. Squads (EntityType.Unit)
+ * carry HP/Owner/VisualId/Rank but no position — the visible position comes
+ * from each squad member (UnitFoot/Machine), each with its own
+ * PositionComponent. */
+function projectSquadStats(entityPtr: NativePointer): SquadStats {
+    const out: SquadStats = {
+        hp: null, maxHp: null, ownerId: null,
+        visualId: null, rank: null, isDead: false,
+    };
+    try {
+        forEachComponent(entityPtr, (comp, klass) => {
+            if (healthComponentClass && klass.equals(healthComponentClass)) {
+                out.hp = comp.add(COMP_FIELD.hpRemaining).readS32();
+                out.maxHp = comp.add(COMP_FIELD.hpMax).readS32();
+            } else if (ownerComponentClass && klass.equals(ownerComponentClass)) {
+                out.ownerId = comp.add(COMP_FIELD.ownerPlayerId).readS32();
+            } else if (unitComponentClass && klass.equals(unitComponentClass)) {
+                try {
+                    const strPtr = comp.add(COMP_FIELD.visualId).readPointer();
+                    out.visualId = readIl2cppString(strPtr);
+                } catch { /* visualId stays null */ }
+                try {
+                    out.rank = comp.add(COMP_FIELD.rank).readS32();
+                } catch { /* rank stays null */ }
+            }
+            void movementComponentClass;
+        });
+        if (out.hp !== null && out.hp <= 0) out.isDead = true;
+    } catch { /* return defaults */ }
+    return out;
+}
+
+/** Read UnitFootComponent on a UnitFoot entity → (unitId, tileId). */
+function readUnitFootLink(entityPtr: NativePointer): {
+    unitId: number; tileId: number;
+} | null {
+    let unitId: number | null = null;
+    let tileId: number | null = null;
+    try {
+        forEachComponent(entityPtr, (comp, klass) => {
+            if (unitFootComponentClass
+                && klass.equals(unitFootComponentClass)) {
+                unitId = comp.add(UNITFOOT_UNIT_ID_OFF).readS32();
+                tileId = comp.add(UNITFOOT_TILE_ID_OFF).readS32();
+            }
+        });
+    } catch { return null; }
+    if (unitId === null || tileId === null) return null;
+    return { unitId, tileId };
+}
+
+/** Read PositionComponent on a Tile entity → (col, row). */
+function readTilePosition(
+    entityPtr: NativePointer,
+): { col: number; row: number } | null {
+    let pos: { col: number; row: number } | null = null;
+    try {
+        forEachComponent(entityPtr, (comp, klass) => {
+            if (positionComponentClass && klass.equals(positionComponentClass)) {
+                pos = {
+                    col: comp.add(COMP_FIELD.posCol).readS32(),
+                    row: comp.add(COMP_FIELD.posRow).readS32(),
+                };
+            }
+        });
+    } catch { return null; }
+    return pos;
+}
+
+/** Project a MatchState into a JSON-friendly snapshot for rendering.
+ * Tacticus model:
+ *   - EntityType.Unit (squad) carries HP/Owner but no position
+ *   - EntityType.UnitFoot is each visible piece on the board. Its
+ *     UnitFootComponent holds (unitId, tileId). Position lives on the Tile.
+ *   - EntityType.Tile carries PositionComponent (col/row).
+ * We project one entry per visible piece, walking UnitFoot → Tile for
+ * pos and UnitFoot → Unit for HP/Owner. */
+export function projectMatchState(statePtr: NativePointer): MatchStateProjection {
+    const status = readBattleStatus(statePtr);
+
+    // Single pass — build entityById index, squad stats, player→team map.
+    const entityById = new Map<number, NativePointer>();
+    const squads = new Map<number, SquadStats>();
+    const playerTeams = new Map<number, number>();
+    forEachEntity(statePtr, (e, id, ty) => {
+        entityById.set(id, e);
+        if (ty === EntityType.Unit) {
+            squads.set(id, projectSquadStats(e));
+        } else if (ty === EntityType.Player) {
+            try {
+                forEachComponent(e, (comp, klass) => {
+                    if (playerComponentClass
+                        && klass.equals(playerComponentClass)) {
+                        playerTeams.set(id,
+                            comp.add(PLAYER_TEAM_ID_OFF).readS32());
+                    }
+                });
+            } catch { /* skip */ }
+        }
+    });
+
+    // For each UnitFoot — read (unitId, tileId), look up tile for pos,
+    // squad for HP/Owner.
+    const units: UnitProjection[] = [];
+    forEachEntity(statePtr, (e, id, ty) => {
+        if (ty !== EntityType.UnitFoot) return;
+        const link = readUnitFootLink(e);
+        if (!link) return;
+        const tilePtr = entityById.get(link.tileId);
+        const pos = tilePtr ? readTilePosition(tilePtr) : null;
+        if (!pos) return;
+        const parent = squads.get(link.unitId);
+        const teamId = parent?.ownerId !== null && parent?.ownerId !== undefined
+            ? (playerTeams.get(parent.ownerId) ?? null) : null;
+        units.push({
+            id, squadId: link.unitId, entityType: ty,
+            pos,
+            hp: parent?.hp ?? null,
+            maxHp: parent?.maxHp ?? null,
+            ownerId: parent?.ownerId ?? null,
+            teamId,
+            visualId: parent?.visualId ?? null,
+            rank: parent?.rank ?? null,
+            isDead: parent?.isDead ?? false,
+        });
+    });
+    units.sort((a, b) => a.id - b.id);
+
+    return {
+        turn: status.currentTurnPlayer,
+        playerOnTurn: status.currentTurnPlayer,
+        stage: status.stage,
+        stageName: status.stageName,
+        units,
+    };
+}
+

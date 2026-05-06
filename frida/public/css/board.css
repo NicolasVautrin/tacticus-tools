@@ -1,0 +1,146 @@
+/* ---------- Board panel ---------- */
+#board-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+}
+#board-wrap {
+    position: relative;
+    max-width: 100%;
+    max-height: calc(100vh - 180px);
+    border: 1px solid var(--line-strong);
+    box-shadow:
+        0 0 0 1px var(--bg-void) inset,
+        0 0 40px rgba(200, 105, 58, 0.08),
+        0 8px 32px rgba(0, 0, 0, 0.5);
+    background: var(--bg-plate);
+}
+
+#board-bg {
+    display: block;
+    max-width: 100%;
+    max-height: calc(100vh - 180px);
+    height: auto;
+    filter: saturate(0.95) contrast(1.05);
+}
+#board-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+#hex-coord {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    padding: 5px 10px;
+    background: rgba(9, 8, 10, 0.82);
+    border: 1px solid var(--line-strong);
+    border-left: 2px solid var(--rust);
+    color: var(--bone);
+    font: 11px/1 var(--font-mono);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    pointer-events: none;
+    user-select: none;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Corner bracket crosshair — thematic framing. */
+.board-crosshair {
+    position: absolute; inset: 0; pointer-events: none;
+}
+.board-crosshair span {
+    position: absolute;
+    width: 18px; height: 18px;
+    border-color: var(--rust);
+    opacity: 0.85;
+}
+.board-crosshair .tl { top: 0; left: 0; border-top: 1px solid; border-left: 1px solid; }
+.board-crosshair .tr { top: 0; right: 0; border-top: 1px solid; border-right: 1px solid; }
+.board-crosshair .bl { bottom: 0; left: 0; border-bottom: 1px solid; border-left: 1px solid; }
+.board-crosshair .br { bottom: 0; right: 0; border-bottom: 1px solid; border-right: 1px solid; }
+
+#board-overlay .hex {
+    fill: transparent;
+    stroke: rgba(217, 205, 176, 0.28);
+    stroke-width: 1.4;
+    pointer-events: all;
+    cursor: pointer;
+    vector-effect: non-scaling-stroke;
+    transition: fill 0.12s var(--ease), stroke 0.12s var(--ease);
+}
+#board-overlay .hex:hover {
+    fill: rgba(217, 205, 176, 0.12);
+    stroke: var(--bone);
+    stroke-width: 2;
+}
+#board-overlay .hex.spawn {
+    fill: rgba(110, 143, 90, 0.18);
+    stroke: var(--moss);
+    stroke-width: 1.6;
+}
+#board-overlay .hex.spawn.team-0 { fill: rgba(212, 171, 78, 0.22); stroke: var(--team-0); }
+#board-overlay .hex.spawn.team-1 { fill: rgba(111, 168, 196, 0.22); stroke: var(--team-1); }
+#board-overlay .hex.spawn.team-2 { fill: rgba(194, 90, 74, 0.25); stroke: var(--team-2); }
+#board-overlay .hex.spawn:hover { fill-opacity: 0.4; }
+#board-overlay .hex.drop-hover {
+    fill: rgba(200, 105, 58, 0.4);
+    stroke: var(--rust);
+    stroke-width: 3;
+}
+#board-overlay .hex.drop-hover-maybe {
+    fill: rgba(212, 171, 78, 0.18);
+    stroke: var(--gold-imp);
+    stroke-width: 1.6;
+}
+
+#board-overlay .unit-fo { overflow: visible; pointer-events: all; }
+#board-overlay .unit-fo img {
+    width: 100%; height: 100%;
+    display: block;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-drag: element;
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+}
+#board-overlay .unit-fo img:active { cursor: grabbing; }
+
+#board-overlay .unit-ring { stroke: var(--bone); stroke-width: 2; vector-effect: non-scaling-stroke; }
+#board-overlay .unit-ring.ring-team-1 { fill: var(--team-1); }
+#board-overlay .unit-ring.ring-team-2 { fill: var(--team-2); }
+#board-overlay .unit-ring.ring-team-n { fill: var(--bone-dim); }
+#board-overlay .unit-fallback {
+    fill-opacity: 0.7;
+    stroke: var(--bone);
+    stroke-width: 2;
+}
+#board-overlay .unit-fallback.ring-team-1 { fill: var(--team-1); }
+#board-overlay .unit-fallback.ring-team-2 { fill: var(--team-2); }
+#board-overlay .unit-fallback.ring-team-n { fill: var(--bone-dim); }
+#board-overlay .unit-fallback-label {
+    fill: var(--bg-void);
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+}
+
+#board-overlay .unit-rank-badge {
+    pointer-events: none;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8));
+}
+
+#board-meta {
+    margin-top: 14px;
+    color: var(--text-dim);
+    font-size: 10.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 6px 12px;
+    border: 1px solid var(--line);
+    background: var(--bg-plate);
+    font-variant-numeric: tabular-nums;
+}

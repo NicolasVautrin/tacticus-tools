@@ -1,0 +1,228 @@
+/* ---------- Battle log ---------- */
+#battle-log {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    max-height: 340px;
+    overflow-y: auto;
+    font-size: 10.5px;
+}
+.log-row {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--line);
+    border-left: 2px solid var(--rust-dim);
+    background: var(--bg-plate);
+    margin-bottom: 4px;
+    animation: logSlide 0.22s var(--ease);
+}
+@keyframes logSlide {
+    from { opacity: 0; transform: translateX(-4px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+.log-row__fold {
+    /* native <details> — strip default disclosure marker, we render our own */
+}
+.log-row__fold > summary { list-style: none; cursor: pointer; }
+.log-row__fold > summary::-webkit-details-marker { display: none; }
+.log-row__fold[open] > summary .log-row__caret { transform: rotate(90deg); }
+.log-row__fold[open] > .log-row__events { display: block; }
+.log-row__fold:not([open]) > .log-row__events { display: none; }
+.log-row__caret {
+    color: var(--rust);
+    font-size: 10px;
+    width: 10px;
+    display: inline-block;
+    transition: transform 120ms var(--ease);
+}
+.log-row__more {
+    color: var(--text-faint);
+    font-style: italic;
+    padding-top: 4px;
+}
+.log-row__header {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-family: var(--font-display);
+    letter-spacing: 0.05em;
+}
+.log-row__fold > summary:hover .log-row__msg { color: var(--rust); }
+.log-row__tag {
+    color: var(--rust);
+    font-weight: 600;
+    font-size: 10px;
+}
+.log-row__msg {
+    flex: 1;
+    color: var(--bone);
+    font-weight: 500;
+    text-transform: uppercase;
+}
+.log-row__stats {
+    color: var(--text-dim);
+    font-size: 9.5px;
+    letter-spacing: 0.08em;
+    font-variant-numeric: tabular-nums;
+}
+.log-row__events {
+    list-style: none;
+    padding: 4px 0 0 0;
+    margin: 4px 0 0;
+    border-top: 1px dashed var(--line);
+}
+.log-row__events > li,
+.evt-subgroup > li {
+    display: block;
+    padding: 0;
+    color: var(--text-mid);
+    font-size: 10px;
+    letter-spacing: 0.02em;
+}
+.evt-subgroup {
+    list-style: none;
+    padding: 0 0 0 18px;
+    margin: 0 0 4px 0;
+    border-left: 1px dashed var(--line);
+}
+
+.evt-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 6px;
+    border-left: 2px solid transparent;
+}
+.evt-row:hover {
+    background: var(--bg-plate-up);
+}
+
+.evt-row--group {
+    background: linear-gradient(90deg, rgba(110, 143, 90, 0.08), transparent 80%);
+    border-left-color: var(--moss);
+    padding-top: 5px;
+    padding-bottom: 5px;
+    margin-top: 4px;
+    font-family: var(--font-display);
+    letter-spacing: 0.06em;
+}
+.evt-row--group .evt-step {
+    color: var(--moss);
+    font-weight: 600;
+}
+
+/* Action category accents — left border tints by what kind of step. */
+.evt--combat   { border-left-color: var(--blood); }
+.evt--combat   .evt-step { color: var(--blood); }
+.evt--movement { border-left-color: var(--cyan-data); }
+.evt--movement .evt-step { color: var(--cyan-data); }
+.evt--lifecycle{ border-left-color: var(--rust); }
+.evt--lifecycle .evt-step { color: var(--rust); }
+.evt--effect   { border-left-color: #b486c0; }
+.evt--effect   .evt-step { color: #b486c0; }
+.evt--heal     { border-left-color: var(--moss); }
+.evt--heal     .evt-step { color: var(--moss); }
+.evt--stats    { border-left-color: var(--gold-imp); }
+.evt--stats    .evt-step { color: var(--gold-imp); }
+.evt--system   { border-left-color: var(--text-dim); }
+.evt--system   .evt-step { color: var(--bone); }
+.evt--score    { border-left-color: var(--gold-imp); }
+.evt--score    .evt-step { color: var(--gold-imp); }
+.evt--draft    { border-left-color: var(--text-dim); }
+.evt--draft    .evt-step { color: var(--text-mid); }
+.evt--player   { border-left-color: var(--text-dim); }
+.evt--terrain  { border-left-color: var(--text-dim); }
+.evt--other    { border-left-color: var(--line-strong); }
+.evt--other    .evt-step { color: var(--text-dim); }
+
+/* Compact action row: portrait — STEP — #ent — tag chip */
+.evt-portrait {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    border-radius: 2px;
+    background: var(--bg-plate-up);
+    border: 1px solid var(--line-strong);
+    object-fit: cover;
+    image-rendering: -webkit-optimize-contrast;
+}
+.evt-portrait--placeholder {
+    display: inline-block;
+    background: var(--bg-plate);
+    position: relative;
+}
+.evt-portrait--placeholder::after {
+    content: "";
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 4px; height: 4px;
+    margin: -2px 0 0 -2px;
+    border-radius: 50%;
+    background: var(--line-strong);
+}
+.evt-portrait[data-player="1"] { box-shadow: 0 0 0 1px var(--team-0); }
+.evt-portrait[data-player="2"] { box-shadow: 0 0 0 1px var(--team-1); }
+.evt-portrait[data-player="3"] { box-shadow: 0 0 0 1px var(--team-2); }
+
+.evt-step {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    min-width: 110px;
+    font-size: 10px;
+    text-transform: uppercase;
+}
+.evt-ent {
+    color: var(--cyan-data);
+    font-variant-numeric: tabular-nums;
+    min-width: 36px;
+    font-size: 10px;
+}
+.evt-tag {
+    color: var(--text-mid);
+    font-size: 9.5px;
+    font-variant-numeric: tabular-nums;
+    background: var(--bg-plate-up);
+    padding: 1px 6px;
+    border-radius: 2px;
+    border: 1px solid var(--line);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 220px;
+}
+
+.evt-src {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--gold-imp);
+    font-size: 9.5px;
+    background: rgba(212, 171, 78, 0.08);
+    padding: 1px 6px;
+    border-radius: 2px;
+    border: 1px solid rgba(212, 171, 78, 0.25);
+    margin-left: auto;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.evt-src__glyph {
+    color: var(--gold-imp);
+    font-size: 10px;
+    line-height: 1;
+}
+.evt-src__icon {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    border-radius: 2px;
+    object-fit: cover;
+    image-rendering: -webkit-optimize-contrast;
+    background: rgba(0, 0, 0, 0.3);
+}
+.evt-src__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

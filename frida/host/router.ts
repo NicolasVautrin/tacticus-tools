@@ -627,6 +627,150 @@ export function buildRouter(defaultLogDir: string): Router {
         }
     });
 
+    // ---------- AI trace toggle endpoints ----------
+    // ai-trace is OFF by default to keep idle Tacticus runs cheap. The
+    // front exposes three toggles (L1/L2/L3) that flip per-level capture
+    // on demand. Status is cheap (just reads in-memory flags).
+
+    router.get("/api/ai-trace/status", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.json({ session: false }); return; }
+            const result = await rpcCall(sid, "aiTraceStatus", [], 5000);
+            res.json({ session: true, ...result as Record<string, unknown> });
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    router.post("/api/ai-trace/enable", async (req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const { level } = req.body ?? {};
+            if (typeof level !== "string") {
+                res.status(400).json({ error: "body must be { level: string }" });
+                return;
+            }
+            const result = await rpcCall(sid, "aiTraceEnable", [level], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    router.post("/api/ai-trace/disable", async (req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const { level } = req.body ?? {};
+            if (typeof level !== "string") {
+                res.status(400).json({ error: "body must be { level: string }" });
+                return;
+            }
+            const result = await rpcCall(sid, "aiTraceDisable", [level], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    // ---------- Sim mirror endpoints ----------
+    // The mirror is an isolated IdunRunner that follows live message-by-
+    // message via log replay + per-message PRNG sync. It exposes the
+    // matchState to the front for rendering, and is foundational for future
+    // AI variant exploration. See docs/plans for design rationale.
+
+    /** Build-or-catchup the mirror to live's latest log entry. */
+    router.post("/api/sim/mirror", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            const result = await rpcCall(sid, "simMirror", [], 60000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** Read the mirror's current matchState + a live↔mirror compare. */
+    router.get("/api/sim/state", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            const result = await rpcCall(sid, "simGetState", [], 10000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** Live runner's BattleConfiguration as JSON — front uses it to load
+     * the right board PNG + hex layout for the active battle. */
+    router.get("/api/sim/battle-config", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            const r = await rpcCall(sid, "simGetBattleConfig", [], 30000) as
+                { ok: boolean; bytes?: number; json?: string; error?: string };
+            if (!r.ok || !r.json) {
+                res.status(404).json({ error: r.error ?? "unavailable" });
+                return;
+            }
+            res.type("application/json").send(r.json);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** Lightweight status — used by the front to enable/disable buttons. */
+    router.get("/api/sim/status", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) {
+                res.json({
+                    built: false, canMirror: false,
+                    blockReason: "no running Frida session",
+                });
+                return;
+            }
+            const result = await rpcCall(sid, "simStatus", [], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** Drop the mirror — next mirror call rebuilds from scratch. */
+    router.post("/api/sim/reset", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            const result = await rpcCall(sid, "simReset", [], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** Rebuild + replay log[0..logIdx) — primitive de rollback. */
+    router.post("/api/sim/rebuild-to", async (req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            const { logIdx } = req.body ?? {};
+            if (typeof logIdx !== "number") {
+                res.status(400).json({ error: "body must be { logIdx: number }" });
+                return;
+            }
+            const result = await rpcCall(sid, "simRebuildAndCatchUpTo",
+                [{ logIdx }], 60000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
     /** Diagnostic — does the agent have a live CampaignGameModeSource?
      * The build/catalog endpoints fail with a clear message when this is
      * false (user needs to open the campaign view in-game first). */

@@ -1,0 +1,147 @@
+/* ---------- Unit roster ---------- */
+#unit-list {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 5px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+.roster__empty {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-dim);
+    font-style: italic;
+    font-size: 11px;
+    padding: 10px 2px;
+}
+.roster__empty-bar {
+    display: inline-block;
+    width: 4px; height: 12px;
+    background: var(--rust-dim);
+}
+
+#unit-list .unit {
+    cursor: grab;
+    border: 1px solid var(--line-strong);
+    background: var(--bg-plate);
+    padding: 2px;
+    position: relative;
+    transition: all 0.12s var(--ease);
+}
+#unit-list .unit:hover {
+    border-color: var(--rust);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 0 var(--rust-dim), 0 0 12px var(--rust-glow);
+}
+#unit-list .unit:active { cursor: grabbing; transform: translateY(0); }
+#unit-list .unit img {
+    display: block;
+    width: 100%;
+    filter: contrast(1.02);
+}
+#unit-list .unit--mandatory {
+    border-color: rgba(212, 171, 78, 0.7);
+    box-shadow: 0 0 6px rgba(212, 171, 78, 0.35) inset;
+}
+#unit-list .unit--mandatory:hover {
+    border-color: rgba(212, 171, 78, 1);
+    box-shadow: 0 2px 0 rgba(212, 171, 78, 0.5),
+                0 0 14px rgba(212, 171, 78, 0.5);
+}
+#unit-list .unit__badge {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: rgba(212, 171, 78, 0.95);
+    color: #1a1208;
+    font-family: "Azeret Mono", monospace;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 14px;
+    text-align: center;
+    border: 1px solid #1a1208;
+    pointer-events: none;
+}
+#unit-list .unit img.unit__rank {
+    position: absolute;
+    bottom: 2px;
+    left: 2px;
+    width: 26px;
+    height: 26px;
+    object-fit: contain;
+    pointer-events: none;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.85));
+}
+#unit-list .roster__constraints {
+    grid-column: 1 / -1;
+    font-family: "Azeret Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    color: rgba(212, 171, 78, 0.75);
+    padding: 4px 6px;
+    margin-bottom: 4px;
+    background: rgba(212, 171, 78, 0.06);
+    border-left: 2px solid rgba(212, 171, 78, 0.5);
+}
+
+/* ---------- Placements (Deployment Queue) ---------- */
+#placements-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    max-height: 180px;
+    overflow-y: auto;
+    border: 1px solid var(--line);
+    background: var(--bg-plate);
+}
+.placements__empty {
+    padding: 12px 10px;
+    color: var(--text-dim);
+    font-size: 11px;
+    font-style: italic;
+    letter-spacing: 0.02em;
+}
+.placement-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 9px;
+    border-bottom: 1px solid var(--line);
+    font-size: 11px;
+}
+.placement-row:last-child { border-bottom: none; }
+.placement-row:hover { background: var(--bg-plate-up); }
+.placement-row__idx {
+    color: var(--rust);
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 10px;
+    letter-spacing: 0.05em;
+}
+.placement-row__name {
+    flex: 1;
+    color: var(--bone);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.placement-row__coord {
+    color: var(--cyan-data);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.05em;
+}
+.placement-row__remove {
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-size: 13px;
+    padding: 0 4px;
+    line-height: 1;
+}
+.placement-row__remove:hover { color: var(--blood); background: transparent; border: none; }

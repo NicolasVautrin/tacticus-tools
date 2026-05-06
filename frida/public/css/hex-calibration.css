@@ -1,0 +1,102 @@
+/* ---------- Hex calibration panel ---------- */
+#hex-calibration-panel .hexcal-row {
+    display: grid;
+    grid-template-columns: 70px 30px 22px 1fr 22px 30px;
+    gap: 4px;
+    align-items: center;
+    margin: 4px 0;
+}
+#hex-calibration-panel .hexcal-row label {
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    color: var(--text-dim, #a8a8a8);
+}
+#hex-calibration-panel .hexcal-step {
+    background: rgba(200, 105, 58, 0.15);
+    border: 1px solid rgba(200, 105, 58, 0.4);
+    color: rgba(255, 220, 200, 0.9);
+    font-family: "Azeret Mono", monospace;
+    font-size: 11px;
+    padding: 2px 0;
+    cursor: pointer;
+    text-align: center;
+    user-select: none;
+}
+#hex-calibration-panel .hexcal-step:hover {
+    background: rgba(200, 105, 58, 0.3);
+}
+#hex-calibration-panel .hexcal-step:active {
+    background: rgba(200, 105, 58, 0.5);
+}
+#hex-calibration-panel .hexcal-step--fine {
+    font-size: 13px;
+    line-height: 1;
+}
+#hex-calibration-panel .hexcal-input {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.9);
+    font-family: "Azeret Mono", monospace;
+    font-size: 11px;
+    padding: 3px 6px;
+    width: 100%;
+    text-align: center;
+}
+#hex-calibration-panel select.hexcal-input {
+    grid-column: 2 / -1;
+}
+#hex-calibration-panel .hexcal-derived {
+    margin: 6px 0 4px;
+    padding: 4px 8px;
+    font-family: "Azeret Mono", monospace;
+    font-size: 10px;
+    color: rgba(180, 220, 255, 0.65);
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px dashed rgba(180, 220, 255, 0.2);
+    text-align: center;
+    letter-spacing: 0.05em;
+}
+#hex-calibration-panel .hexcal-actions {
+    display: flex;
+    gap: 8px;
+    margin: 8px 0 4px;
+}
+#hex-calibration-panel .hexcal-actions .btn-major,
+#hex-calibration-panel .hexcal-actions .btn-secondary {
+    flex: 1;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-family: "Azeret Mono", monospace;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(220, 220, 220, 0.85);
+}
+#hex-calibration-panel .hexcal-actions .btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.10);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+#hex-calibration-panel .hexcal-actions .btn-secondary--danger {
+    color: rgba(255, 150, 120, 0.85);
+    border-color: rgba(220, 90, 70, 0.4);
+}
+#hex-calibration-panel .hexcal-actions .btn-secondary--danger:hover {
+    background: rgba(220, 90, 70, 0.15);
+    border-color: rgba(220, 90, 70, 0.7);
+}
+#hex-calibration-panel .hexcal-output {
+    display: block;
+    width: 100%;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(200, 105, 58, 0.3);
+    color: rgba(200, 230, 255, 0.85);
+    font-family: "Azeret Mono", monospace;
+    font-size: 10px;
+    padding: 6px 8px;
+    margin-top: 6px;
+    resize: vertical;
+    box-sizing: border-box;
+}
+#hex-calibration-panel .hexcal-output.hidden { display: none; }
