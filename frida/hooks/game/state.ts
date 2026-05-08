@@ -29,6 +29,22 @@ export interface SimCacheEntry {
     ts: number;
 }
 
+/** A single sub-message captured during the "AI plays on mirror" flow.
+ * Snapshotted with the MIRROR's PRNG state pre-apply so we can restore the
+ * live PRNG to that exact value before re-applying the same msg on live. */
+export interface MirrorTurnMsg {
+    src: "top" | "ai" | "humanAi";
+    cls: string;
+    ptr: string;
+    unitId: number | null;
+    /** Mirror PRNG snapshot taken right before this message was applied on
+     * mirror — drives the live RNG restore in Phase 2. */
+    prng: MtSnapshot | null;
+    /** StreamEvents emitted by the mirror's apply, attached via the
+     * apply-stack "mirror" frame the recorder pushes on capture. */
+    events: StreamEvent[];
+}
+
 export interface PendingRpc {
     fn: () => unknown;
     resolve: (value: unknown) => void;
@@ -68,4 +84,29 @@ export const state = {
      * skips its push when this is true so we don't double-record nor
      * trigger re-entrant applyToMirror calls. */
     replayingOnMirror: false,
+
+    /** Mirror runner pointer — set by sim-engine when the mirror is built,
+     * cleared on dispose. Read by the recorder to filter captures during
+     * the "AI plays on mirror" flow. */
+    mirrorRunner: null as NativePointer | null,
+
+    /** Mirror's inner AiControl pointer — companion to mirrorRunner. */
+    mirrorAiControl: null as NativePointer | null,
+
+    /** When true, the recorder enters a special mode for the "AI plays on
+     * mirror" flow: it captures sub-messages dispatched on the mirror runner
+     * (args[0] === mirrorRunner) into mirrorTurnQueue with a mirror-PRNG
+     * snapshot, and skips ALL other recording (live messages during this
+     * flow are applied manually in Phase 2 — see sim-engine.simRunAiTurn). */
+    captureMirrorMessages: false,
+
+    /** Sub-messages captured during Phase 1 of simRunAiTurn. Cleared at
+     * Phase 1 start, drained at Phase 2 start. */
+    mirrorTurnQueue: [] as MirrorTurnMsg[],
+
+    /** Set by sim-engine.buildMirrorFromLive while it's calling buildRunner.
+     * Used by ai-utility-trace's DefaultGroupOperator..ctor hook to identify
+     * which UtilitiesDatabase belongs to the mirror (vs the live runner)
+     * — we only want to inspect/tweak the mirror's. */
+    buildingMirror: false,
 };

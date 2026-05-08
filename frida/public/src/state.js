@@ -7,6 +7,14 @@
 
 const LS_KEY = "tacticus.placementsByConfig.v1";
 const LS_LAST_CONFIG = "tacticus.lastConfigId.v1";
+const LS_VIEW_MODE = "tacticus.viewMode.v1";
+
+function loadViewMode() {
+    try {
+        const v = localStorage.getItem(LS_VIEW_MODE);
+        return v === "mirror" ? "mirror" : "build";
+    } catch { return "build"; }
+}
 
 function loadPlacementsByConfig() {
     try { return JSON.parse(localStorage.getItem(LS_KEY) ?? "{}"); }
@@ -43,7 +51,18 @@ export const state = {
     // When non-null, the central board renders these units (priority over
     // placements / eventUnits). Shape: { turn, playerOnTurn, units: [...] }.
     simState: null,
+    // UI mode toggle — explicit user choice, persisted to localStorage.
+    // "build" : layout for config-archive exploration + ENGAGE flow.
+    // "mirror": layout for live mirroring + AI-on-mirror auto-play.
+    // The hook live runs in both modes; mode only changes which panels are
+    // visible / where the Mirror panel docks.
+    viewMode: loadViewMode(),
 };
+
+export function saveViewMode(mode) {
+    try { localStorage.setItem(LS_VIEW_MODE, mode); }
+    catch (e) { console.warn("saveViewMode", e); }
+}
 
 export function savePlacements() {
     if (!state.selected?.id) return;

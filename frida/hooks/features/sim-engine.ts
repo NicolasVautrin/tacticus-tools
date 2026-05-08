@@ -22,13 +22,13 @@
 // Keeps the WS channel small even during AI-message bursts.
 
 import { Ctx } from "../controller.js";
-import { invokeMethod } from "../il2cpp/invoke.js";
+import { invokeMethod, il2cpp_object_new } from "../il2cpp/invoke.js";
 import { resolveMt, restoreMt } from "../il2cpp/mt.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
-import { class_get_name, s } from "../il2cpp/helpers.js";
+import { class_get_name, findCtorByParamCount, s } from "../il2cpp/helpers.js";
 import { serializeToJson } from "../il2cpp/serializer.js";
 import {
-    applyAiMsgMi, applyHumanAiMsgMi,
+    applyAiMsgMi, applyHumanAiMsgMi, cheatRunAiClass,
 } from "../game/ai-control.js";
 import {
     pushApply, popApply, applyStack, StreamEvent,
@@ -546,6 +546,8 @@ function disposeMirror(): void {
     simState.lastSyncedLogIdx = 0;
     simState.diverged = false;
     simState.divergedReason = null;
+    state.mirrorRunner = null;
+    state.mirrorAiControl = null;
 }
 
 function buildMirrorFromLive(): MirrorHandle {
@@ -553,7 +555,20 @@ function buildMirrorFromLive(): MirrorHandle {
     if (!live) throw new Error("no live runner");
     const cfg = live.add(runnerOff.config).readPointer();
     if (cfg.isNull()) throw new Error("live runner config null");
-    const handle = buildRunner(cfg);
+    // Set the flag so ai-utility-trace can identify which DefaultGroupOperator
+    // ctor (and thus UtilitiesDatabase) belongs to the mirror — we only want
+    // to instrument the mirror's, not the live runner's.
+    state.buildingMirror = true;
+    let handle;
+    try {
+        handle = buildRunner(cfg);
+    } finally {
+        state.buildingMirror = false;
+    }
+    // Expose pointers to the recorder so it can route mirror-runner applies
+    // into mirrorTurnQueue during simRunAiTurn Phase 1.
+    state.mirrorRunner = handle.runner;
+    state.mirrorAiControl = handle.innerAiControl;
     return {
         runner: handle.runner,
         aiControl: handle.innerAiControl,
@@ -738,6 +753,224 @@ export function register(ctx: Ctx): void {
             syncedToLogIdx: simState.lastSyncedLogIdx,
             replayStats: stats,
             revision: simState.revision,
+        };
+    });
+
+    /** "AI plays on mirror, then commits to live" flow.
+     *
+     * Phase 0 — gates: mirror built, live in Running stage, no AI running on
+     * live, mirror sync (lag === 0), live current player == human (we don't
+     * preempt an ongoing AI turn).
+     *
+     * Phase 1 — capture: instantiate a CheatRunAIMessage, set
+     * captureMirrorMessages=true so the recorder routes any apply on the
+     * mirror runner into mirrorTurnQueue with a mirror-PRNG snapshot per msg.
+     * Apply CheatRunAIMessage on the mirror — if its inner AI succeeds, it
+     * dispatches a sequence of MoveUnitMessage / ActiveAbilityMessage etc.
+     * which we capture.
+     *
+     * Phase 2 — commit: for each captured msg, restore live PRNG to the
+     * mirror snapshot taken pre-apply, push a "live" apply frame manually,
+     * invoke runner.Apply on live, pop the frame, diff events live↔mirror.
+     *
+     * Returns counts + per-msg event divergences. The live runner is now
+     * advanced as if the AI played the human turn; the recorder's auto-mirror
+     * will re-sync any subsequent live activity. */
+    ctx.rpc.simRunAiTurn = (): Promise<unknown> => queueOnMainThread(() => {
+        // Gates
+        if (!simState.mirror) {
+            return { ok: false, error: "no mirror — click MIRROR NOW first" };
+        }
+        if (simState.diverged) {
+            return { ok: false, error: "mirror diverged — reset first" };
+        }
+        const live = state.runnerInstance;
+        if (!live) return { ok: false, error: "no live runner" };
+        const liveStatePtr = live.add(runnerOff.state).readPointer();
+        if (liveStatePtr.isNull()) {
+            return { ok: false, error: "live state null" };
+        }
+        const liveStatus = readBattleStatus(liveStatePtr);
+        if (liveStatus.stage !== 1) {
+            return { ok: false, error: "live not Running (stage="
+                + (liveStatus.stageName ?? liveStatus.stage) + ")" };
+        }
+        let isAiRunning = false;
+        try { isAiRunning = liveStatePtr.add(0x58).readU8() !== 0; }
+        catch { /* keep false */ }
+        if (isAiRunning) {
+            return { ok: false, error: "AI is running on live — wait" };
+        }
+        if (state.log.length !== simState.lastSyncedLogIdx) {
+            return { ok: false, error: "mirror lagging behind live — sync first" };
+        }
+
+        // Pre-build CheatRunAIMessage instance (parameterless).
+        if (!cheatRunAiClass) {
+            return { ok: false, error: "CheatRunAIMessage class not resolved" };
+        }
+        let cheatMsg: NativePointer;
+        try {
+            cheatMsg = il2cpp_object_new(cheatRunAiClass) as NativePointer;
+            if (cheatMsg.isNull()) throw new Error("il2cpp_object_new returned null");
+            const ctor = findCtorByParamCount(cheatRunAiClass, 0);
+            if (ctor) invokeMethod(ctor.info, cheatMsg, null);
+            // Pin until end of flow; gcRoot.add is idempotent.
+            gcRoot.add(cheatMsg);
+        } catch (e) {
+            return { ok: false,
+                error: "build CheatRunAIMessage failed: " + (e as Error).message };
+        }
+
+        const mirror = simState.mirror;
+        const liveMtStart = live.add(runnerOff.rng).readPointer();
+        const liveMt = resolveMt(liveMtStart);
+
+        // Phase 1: capture
+        send({ t: "diag", msg: "[sim] simRunAiTurn · Phase 1 enter" });
+        state.mirrorTurnQueue = [];
+        state.captureMirrorMessages = true;
+        const t0 = Date.now();
+        let phase1Err: string | null = null;
+        while (applyStack.length > 0
+            && applyStack[applyStack.length - 1].role === "mirror") {
+            popApply();
+        }
+        try {
+            invokeMethod(runnerApplyMi!.info, mirror.runner, [cheatMsg]);
+        } catch (e) {
+            phase1Err = (e as Error).message;
+            send({
+                t: "diag",
+                msg: "[sim] simRunAiTurn · Phase 1 failed: " + phase1Err,
+            });
+        } finally {
+            state.captureMirrorMessages = false;
+            while (applyStack.length > 0
+                && applyStack[applyStack.length - 1].role === "mirror") {
+                popApply();
+            }
+        }
+        const phase1Ms = Date.now() - t0;
+        const captured = state.mirrorTurnQueue;
+        state.mirrorTurnQueue = [];
+        send({
+            t: "diag",
+            msg: "[sim] simRunAiTurn · Phase 1 exit · captured="
+                + captured.length + " · ms=" + phase1Ms
+                + (phase1Err ? " · err=" + phase1Err : ""),
+        });
+
+        if (phase1Err && captured.length === 0) {
+            return {
+                ok: false,
+                error: "AI on mirror failed: " + phase1Err,
+                phase1Ms,
+            };
+        }
+
+        // Phase 2: commit each captured msg on live, diff events.
+        // The recorder's live hooks fire on these manual applies (args[0] ===
+        // liveRunner). Set replayingOnMirror=true so they skip — we don't
+        // want a duplicate state.log entry, and we don't want auto-mirror
+        // to recurse (the mirror already advanced during Phase 1).
+        send({
+            t: "diag",
+            msg: "[sim] simRunAiTurn · Phase 2 enter · "
+                + captured.length + " msgs to commit on live",
+        });
+        const t1 = Date.now();
+        const liveCommits: Array<{
+            idx: number; src: string; cls: string;
+            unitId: number | null;
+            liveEventsCount: number; mirrorEventsCount: number;
+            divergent: boolean; firstDiff: string | null;
+            err: string | null;
+            /** Raw events for both sides — kept compact (kind, step/group,
+             * entity, tags). Front can render side-by-side for inspection. */
+            liveEvents: StreamEvent[];
+            mirrorEvents: StreamEvent[];
+        }> = [];
+        let phase2Err: string | null = null;
+        state.replayingOnMirror = true;
+        try {
+            for (let i = 0; i < captured.length; i++) {
+                const m = captured[i];
+                const liveEvents: StreamEvent[] = [];
+                let err: string | null = null;
+                try {
+                    if (m.prng && liveMt) restoreMt(liveMt, m.prng);
+                    pushApply("live", liveEvents);
+                    try {
+                        invokeMethod(runnerApplyMi!.info, live, [ptr(m.ptr)]);
+                    } finally {
+                        popApply();
+                    }
+                } catch (e) {
+                    err = (e as Error).message;
+                    phase2Err = phase2Err ?? err;
+                    while (applyStack.length > 0
+                        && applyStack[applyStack.length - 1].role === "live") {
+                        popApply();
+                    }
+                }
+                const diff = err
+                    ? { divergent: true, firstDiff: "live AV: " + err }
+                    : diffEvents(liveEvents, m.events);
+                liveCommits.push({
+                    idx: i, src: m.src, cls: m.cls, unitId: m.unitId,
+                    liveEventsCount: liveEvents.length,
+                    mirrorEventsCount: m.events.length,
+                    divergent: diff.divergent,
+                    firstDiff: diff.firstDiff,
+                    err,
+                    liveEvents,
+                    mirrorEvents: m.events,
+                });
+            }
+        } finally {
+            state.replayingOnMirror = false;
+        }
+        const phase2Ms = Date.now() - t1;
+        const phase2Divergent = liveCommits.filter((c) => c.divergent).length;
+        send({
+            t: "diag",
+            msg: "[sim] simRunAiTurn · Phase 2 exit · committed="
+                + liveCommits.length + " · divergent=" + phase2Divergent
+                + " · ms=" + phase2Ms
+                + (phase2Err ? " · err=" + phase2Err : ""),
+        });
+
+        // Realign mirror to live's new logSize. Each Phase-2 live apply was
+        // applied OUTSIDE the recorder (captureMirrorMessages was false but
+        // we routed via our own pushApply, not via the live recorder hook),
+        // so state.log was NOT extended by these messages. The mirror's
+        // matchstate already advanced through Phase 1. So:
+        //   - lastSyncedLogIdx stays === log.length (still in sync)
+        //   - mirror state == live state (modulo divergences in liveCommits)
+        // No catchUp needed.
+        simState.revision++;
+        send({
+            t: "sim_auto_play_complete",
+            revision: simState.revision,
+            messages: captured.length,
+            divergences: liveCommits.filter((c) => c.divergent).length,
+            phase1Ms, phase2Ms,
+            phase1Err, phase2Err,
+        });
+        send({
+            t: "sim_state_changed",
+            revision: simState.revision,
+            syncedToLogIdx: simState.lastSyncedLogIdx,
+            liveLogIdx: state.log.length,
+        });
+
+        return {
+            ok: true,
+            phase1Ms, phase2Ms,
+            messages: captured.length,
+            phase1Err, phase2Err,
+            commits: liveCommits,
         };
     });
 }

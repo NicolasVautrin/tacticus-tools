@@ -1,11 +1,20 @@
 // DOM helpers + status bar + view-mode toggle.
 //
 // `status()` writes to the header chrono line — thematic "last signal"
-// display. `updateViewMode()` swaps between DEPLOY (config) and OBSERVE
-// (runner) — the deployment section is hidden in OBSERVE since placements
-// are overridden by authoritative matchState from the runner.
+// display.
+//
+// View mode is a user-explicit toggle (BUILD ↔ MIRROR), persisted in
+// localStorage:
+//   - BUILD   : config-archive exploration + roster + ENGAGE.
+//   - MIRROR  : live mirroring + AI-on-mirror auto-play. The Mirror panel
+//               docks into the right aside; deployment section is hidden;
+//               builders/archive panels are hidden from left aside (they're
+//               not useful while observing a live battle).
+// The hook live runs in BOTH modes (the hook is heavy and conditions
+// catalog warmup, recorder, etc. — see project memory). Toggle just
+// re-arranges visibility, never re-attaches Frida.
 
-import { state } from "./state.js";
+import { state, saveViewMode } from "./state.js";
 
 export const $ = (id) => document.getElementById(id);
 
@@ -28,7 +37,38 @@ export function status(msg) {
     }
 }
 
+/** Apply the current `state.viewMode` to the DOM: header chip text + mode,
+ * `body[data-mode]`, panel reparenting (Mirror panel docks into the right
+ * aside in MIRROR mode), and runner-derived show/hide for log + controls.
+ * Idempotent — safe to call from boot, on toggle, and on runner change. */
 export function updateViewMode() {
+    const mode = state.viewMode === "mirror" ? "mirror" : "build";
+    document.body.dataset.mode = mode;
+
+    // Header chip.
+    const modeEl = $("view-mode");
+    if (modeEl) {
+        modeEl.textContent = mode === "mirror" ? "MIRROR" : "BUILD";
+        modeEl.dataset.mode = mode;
+    }
+
+    // Reparent the Mirror panel: docks into #roster-panel in MIRROR mode,
+    // sits at the bottom of #archive-panel in BUILD mode.
+    const sim = $("sim-panel");
+    const archive = $("archive-panel");
+    const roster = $("roster-panel");
+    if (sim && archive && roster) {
+        const wantParent = mode === "mirror" ? roster : archive;
+        if (sim.parentElement !== wantParent) {
+            // Mirror mode: dock at the top of the right aside (above the
+            // existing roster sub-sections, even though those are hidden).
+            // Build mode: append to the bottom of the left aside.
+            if (mode === "mirror") wantParent.prepend(sim);
+            else wantParent.appendChild(sim);
+        }
+    }
+
+    // Runner-derived inner state of the right aside (independent of mode).
     const inRunner = state.runnerId !== null && state.runnerId !== undefined;
     const deploy = $("deployment-section");
     if (deploy) deploy.classList.toggle("hidden", inRunner);
@@ -36,14 +76,26 @@ export function updateViewMode() {
     if (log) log.classList.toggle("hidden", !inRunner);
     const controls = $("controls-section");
     if (controls) controls.classList.toggle("hidden", !inRunner);
-    const modeEl = $("view-mode");
-    if (modeEl) {
-        modeEl.textContent = inRunner ? "OBSERVE" : "DEPLOY";
-        modeEl.dataset.mode = inRunner ? "observe" : "deploy";
-    }
+
     const btn = $("launch-btn");
     if (btn) {
         btn.disabled = false;
         btn.textContent = "ENGAGE";
     }
+}
+
+/** Toggle BUILD ↔ MIRROR. Persists + re-applies layout. */
+export function toggleViewMode() {
+    state.viewMode = state.viewMode === "mirror" ? "build" : "mirror";
+    saveViewMode(state.viewMode);
+    updateViewMode();
+}
+
+/** Wire the `#view-mode` chip click → toggle. Called once at boot. */
+export function initViewModeToggle() {
+    const el = $("view-mode");
+    if (!el) return;
+    el.style.cursor = "pointer";
+    el.title = "click to toggle BUILD ↔ MIRROR";
+    el.addEventListener("click", toggleViewMode);
 }

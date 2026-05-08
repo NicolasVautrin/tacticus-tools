@@ -19,16 +19,22 @@ import { resolveMt, snapshotMt } from "../il2cpp/mt.js";
 import {
     applyAiMsgMi, applyHumanAiMsgMi, dumpAiRngProbe,
 } from "./ai-control.js";
-import { pushApply, popApply } from "./apply-stack.js";
+import { pushApply, popApply, StreamEvent } from "./apply-stack.js";
 import {
     getReplayMi, replayOff, runnerApplyMi, runnerOff,
 } from "./runner.js";
-import { state, LogEntry } from "./state.js";
+import { state, LogEntry, MirrorTurnMsg } from "./state.js";
 import { applyToMirror } from "../features/sim-engine.js";
 
 // Per-onEnter marker stored on `this` inside the interceptor callback
 // so onLeave knows whether it pushed a frame and should pop.
-type MarkerThis = InvocationContext & { _ours?: boolean };
+// `_ours` = normal live recording path. `_mirrorCapture` = "AI plays on
+// mirror" Phase 1 path: we pushed a frame, the message is in mirrorTurnQueue,
+// onLeave should pop. The two are mutually exclusive.
+type MarkerThis = InvocationContext & {
+    _ours?: boolean;
+    _mirrorCapture?: boolean;
+};
 
 // Throttle filter-mismatch logs — first 5 only, then summary every 100.
 // Without this, a runner switch could spam thousands of messages/s.
@@ -70,8 +76,57 @@ export function install(): boolean {
     const mtStart = runnerSnapshot.add(runnerOff.rng).readPointer();
     const mt = resolveMt(mtStart);
 
+    /** Resolve the mirror runner's PRNG for snapshotting during Phase 1 of
+     * simRunAiTurn. Resolved per-call because the mirror runner can be
+     * rebuilt mid-session (its MT pointer changes). */
+    function resolveMirrorMt(): ReturnType<typeof resolveMt> | null {
+        if (!state.mirrorRunner) return null;
+        try {
+            const start = state.mirrorRunner.add(runnerOff.rng).readPointer();
+            return resolveMt(start);
+        } catch { return null; }
+    }
+
+    /** Capture an apply on the mirror runner during simRunAiTurn Phase 1.
+     * Pushes a "mirror" apply frame so StreamDispatcher events get attached
+     * to the captured msg, snapshots the mirror PRNG so we can drive live
+     * RNG to the same value in Phase 2. Returns true on success. */
+    function captureMirrorMsg(
+        msg: NativePointer, src: "top" | "ai" | "humanAi",
+    ): boolean {
+        try {
+            gcRoot.add(msg);
+            let uid: number | null = null;
+            try { uid = msg.add(16).readS32(); } catch { /* ignore */ }
+            const mirrorMt = resolveMirrorMt();
+            const events: StreamEvent[] = [];
+            const captured: MirrorTurnMsg = {
+                src,
+                cls: readMsgClass(msg),
+                ptr: msg.toString(),
+                unitId: uid,
+                prng: mirrorMt ? snapshotMt(mirrorMt) : null,
+                events,
+            };
+            state.mirrorTurnQueue.push(captured);
+            pushApply("mirror", events);
+            return true;
+        } catch { return false; }
+    }
+
     state.installedListeners.push(Interceptor.attach(runnerApplyMi.ptr, {
         onEnter(this: MarkerThis, args) {
+            // "AI plays on mirror" Phase 1: capture sub-messages dispatched
+            // on the mirror runner; ignore any live applies we triggered
+            // manually in Phase 2.
+            if (state.captureMirrorMessages) {
+                if (state.mirrorRunner
+                    && args[0].equals(state.mirrorRunner)) {
+                    this._mirrorCapture = captureMirrorMsg(args[1], "top");
+                }
+                this._ours = false;
+                return;
+            }
             // Skip if this Apply was triggered by our own mirror replay loop
             // (sim-engine.ts sets the flag while invoking on the mirror runner).
             if (state.replayingOnMirror) { this._ours = false; return; }
@@ -101,6 +156,10 @@ export function install(): boolean {
             } catch { /* best effort */ }
         },
         onLeave(this: MarkerThis) {
+            if (this._mirrorCapture) {
+                try { popApply(); } catch { /* ignore */ }
+                return;
+            }
             if (!this._ours) return;
             try { popApply(); } catch { /* ignore */ }
             // Auto-mirror: replay any new live entries on the mirror.
@@ -112,6 +171,17 @@ export function install(): boolean {
         if (!mi || mi.ptr.isNull()) return;
         state.installedListeners.push(Interceptor.attach(mi.ptr, {
             onEnter(this: MarkerThis, args) {
+                // Phase 1 of simRunAiTurn: AI sub-messages dispatched on
+                // the mirror's aiControl get captured into mirrorTurnQueue.
+                if (state.captureMirrorMessages) {
+                    if (state.mirrorAiControl
+                        && args[0].equals(state.mirrorAiControl)) {
+                        this._mirrorCapture =
+                            captureMirrorMsg(args[1], tag);
+                    }
+                    this._ours = false;
+                    return;
+                }
                 if (state.replayingOnMirror) { this._ours = false; return; }
                 if (!args[0].equals(aiSnapshot)) {
                     this._ours = false;
@@ -142,6 +212,10 @@ export function install(): boolean {
                 } catch { /* best effort */ }
             },
             onLeave(this: MarkerThis) {
+                if (this._mirrorCapture) {
+                    try { popApply(); } catch { /* ignore */ }
+                    return;
+                }
                 if (!this._ours) return;
                 try { popApply(); } catch { /* ignore */ }
                 try { applyToMirror(); } catch { /* best effort */ }

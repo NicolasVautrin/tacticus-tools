@@ -164,3 +164,72 @@
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 #sim-panel .hidden { display: none; }
+
+/* ---------- Auto-play (RUN AI TURN) results table ---------- */
+#sim-panel .sim-autoplay { padding: 6px 0; }
+#sim-panel .sim-autoplay__head {
+    font-family: "Chakra Petch", sans-serif;
+    font-size: 13px;
+    letter-spacing: 0.2em;
+    margin-bottom: 4px;
+}
+#sim-panel .sim-autoplay__head.ok { color: rgba(150, 220, 180, 0.95); }
+#sim-panel .sim-autoplay__head.bad { color: rgba(255, 150, 120, 0.95); }
+#sim-panel .sim-autoplay__line {
+    font-family: "Azeret Mono", monospace;
+    font-size: 10px;
+    color: rgba(200, 220, 240, 0.8);
+    padding: 1px 0;
+}
+#sim-panel .sim-autoplay__tbl {
+    width: 100%;
+    margin-top: 4px;
+    border-collapse: collapse;
+    font-family: "Azeret Mono", monospace;
+    font-size: 10px;
+}
+#sim-panel .sim-autoplay__tbl th,
+#sim-panel .sim-autoplay__tbl td {
+    text-align: left;
+    padding: 2px 4px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+#sim-panel .sim-autoplay__tbl th {
+    color: rgba(180, 220, 240, 0.75);
+    background: rgba(0, 0, 0, 0.2);
+}
+#sim-panel .sim-autoplay__row.ok td { color: rgba(180, 220, 200, 0.85); }
+#sim-panel .sim-autoplay__row.bad td { color: rgba(255, 200, 180, 0.95); }
+#sim-panel .sim-autoplay__diff {
+    color: rgba(255, 180, 140, 0.95);
+    font-weight: 600;
+}
+#sim-panel .sim-autoplay__more {
+    font-size: 9px;
+    color: rgba(180, 200, 220, 0.55);
+    padding: 2px 0;
+}
+
+/* ---------- View-mode chip (clickable BUILD ↔ MIRROR toggle) ---------- */
+#view-mode { user-select: none; }
+#view-mode:hover { opacity: 0.85; }
+
+/* ---------- Layout switching: build vs mirror ---------- */
+/* MIRROR mode: hide build-only panels from the left aside. The sim-panel
+ * is reparented into #roster-panel by JS (dom.js updateViewMode), so we
+ * also need to hide the deployment/log/controls flows that normally live
+ * there. */
+body[data-mode="mirror"] .panel-block--build-only {
+    display: none !important;
+}
+body[data-mode="mirror"] #roster-panel #sim-panel {
+    /* When docked into the right aside, give the panel some breathing room. */
+    margin-bottom: 12px;
+}
+body[data-mode="mirror"] #roster-panel #deployment-section,
+body[data-mode="mirror"] #roster-panel #log-section,
+body[data-mode="mirror"] #roster-panel #controls-section {
+    display: none !important;
+}
+
+/* BUILD mode: default layout. The sim-panel stays in #archive-panel. */

@@ -675,6 +675,73 @@ export function buildRouter(defaultLogDir: string): Router {
         }
     });
 
+    // ---------- AI utility trace endpoints ----------
+    // Phase 1 of the "tune AI movement scoring" workflow: capture every read
+    // of UtilityConfig keys during AI decisions. Off by default — keep the
+    // hook installation cheap when not investigating.
+
+    router.post("/api/ai-utility-trace/enable", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "aiUtilityTraceEnable", [], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    router.post("/api/ai-utility-trace/disable", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "aiUtilityTraceDisable", [], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    router.post("/api/ai-utility-trace/clear", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "aiUtilityTraceClear", [], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** Dump the buffer. Query: ?since=<seq>&max=<n> */
+    router.get("/api/ai-utility-trace/dump", async (req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const since = req.query.since !== undefined
+                ? Number(req.query.since) : 0;
+            const max = req.query.max !== undefined
+                ? Number(req.query.max) : 1000;
+            const result = await rpcCall(sid, "aiUtilityTraceDump",
+                [{ since, max }], 10000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** Aggregated counters — sorted by hottest key. */
+    router.get("/api/ai-utility-trace/counters", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "aiUtilityTraceCounters", [], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
     // ---------- Sim mirror endpoints ----------
     // The mirror is an isolated IdunRunner that follows live message-by-
     // message via log replay + per-message PRNG sync. It exposes the
@@ -747,6 +814,22 @@ export function buildRouter(defaultLogDir: string): Router {
             const sid = pickRunningSession();
             if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
             const result = await rpcCall(sid, "simReset", [], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** "AI plays on mirror, then commits to live" — single-shot turn driver.
+     * No body. Returns Phase1/Phase2 timings + per-msg event divergences. */
+    router.post("/api/sim/run-ai-turn", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            // Generous timeout: a full AI turn can be 10-30 messages; each
+            // commit invokes runner.Apply on live (~10-30ms) and we may also
+            // hit slow heap allocations during Phase 1 dispatch.
+            const result = await rpcCall(sid, "simRunAiTurn", [], 60000);
             res.json(result);
         } catch (e) {
             res.status(500).json({ error: (e as Error).message });

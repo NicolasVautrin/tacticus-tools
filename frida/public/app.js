@@ -18,7 +18,7 @@
 //    └───→ used everywhere (singleton state object)
 
 import { state } from "./src/state.js";
-import { $, status } from "./src/dom.js";
+import { $, status, updateViewMode, initViewModeToggle } from "./src/dom.js";
 import { api } from "./src/api.js";
 import { refreshConfigs, restoreLastConfig } from "./src/configs.js";
 import {
@@ -86,6 +86,9 @@ import { initAiTraceToggle } from "./src/ai-trace-toggle.js";
 
     initSim();
     initAiTraceToggle();
+    initViewModeToggle();
+    // Apply persisted mode so panel layout is correct on first paint.
+    updateViewMode();
 
     // Hex calibration panel — sliders mutate per-board overrides in
     // `state.calibrations`; renderOverlay() picks them up on the next paint.

@@ -27,6 +27,12 @@ const sim = {
     pendingRefresh: null,
     inFlightRefresh: false,
     pollTimer: null,
+    /** Last `sim_auto_play_complete` payload — rendered below the
+     * comparator until the next AI turn. */
+    lastAutoPlay: null,
+    /** True while a /api/sim/run-ai-turn round-trip is in flight, so the
+     * button stays disabled and the UI can show a "running" hint. */
+    aiTurnInFlight: false,
 };
 
 async function fetchJson(url, opts = {}) {
@@ -58,6 +64,39 @@ async function clickMirror() {
     } catch (e) {
         status("mirror error: " + e.message);
     } finally {
+        await pollStatus();
+    }
+}
+
+async function clickRunAiTurn() {
+    const btn = $("sim-run-ai-btn");
+    if (!btn || btn.disabled) return;
+    sim.aiTurnInFlight = true;
+    btn.disabled = true;
+    btn.textContent = "RUNNING…";
+    status("AI turn via mirror — running");
+    try {
+        const res = await fetchJson("/api/sim/run-ai-turn", { method: "POST" });
+        if (!res.ok) {
+            status("AI turn failed: " + (res.error ?? "?"));
+            sim.lastAutoPlay = { ok: false, error: res.error ?? "?" };
+        } else {
+            sim.lastAutoPlay = res;
+            const div = (res.commits ?? []).filter((c) => c.divergent).length;
+            status("AI turn done · " + (res.messages ?? 0) + " msgs · "
+                + div + " event divergence(s)"
+                + (res.phase1Err ? " · ph1=" + res.phase1Err : "")
+                + (res.phase2Err ? " · ph2=" + res.phase2Err : ""));
+        }
+        renderAutoPlay();
+        await refreshSimState();
+    } catch (e) {
+        status("AI turn error: " + e.message);
+        sim.lastAutoPlay = { ok: false, error: e.message };
+        renderAutoPlay();
+    } finally {
+        sim.aiTurnInFlight = false;
+        btn.textContent = "RUN AI TURN";
         await pollStatus();
     }
 }
@@ -95,10 +134,12 @@ async function pollStatus() {
 
 function applyStatusToButtons() {
     const btn = $("sim-mirror-btn");
+    const aiBtn = $("sim-run-ai-btn");
     const blockEl = $("sim-block-reason");
     const s = sim.status;
     if (!s) {
         if (btn) { btn.disabled = true; btn.title = "probing…"; }
+        if (aiBtn) { aiBtn.disabled = true; aiBtn.title = "probing…"; }
         if (blockEl) blockEl.textContent = "— probing…";
         return;
     }
@@ -107,6 +148,25 @@ function applyStatusToButtons() {
         btn.title = s.canMirror
             ? "rebuild the mirror from live and replay the full log"
             : (s.blockReason ?? "not ready");
+    }
+    if (aiBtn) {
+        // RUN AI TURN needs: mirror built, sync, can mirror (= live human turn),
+        // not diverged, not currently in-flight.
+        const lag = s.logSize - s.lastSyncedLogIdx;
+        const ready = s.built && s.canMirror && !s.diverged
+            && lag === 0 && !sim.aiTurnInFlight;
+        aiBtn.disabled = !ready;
+        aiBtn.title = sim.aiTurnInFlight
+            ? "running…"
+            : !s.built
+                ? "click MIRROR NOW first"
+                : s.diverged
+                    ? "mirror diverged — click MIRROR NOW to rebuild"
+                    : !s.canMirror
+                        ? (s.blockReason ?? "not ready")
+                        : lag !== 0
+                            ? "mirror lagging — click MIRROR NOW to sync"
+                            : "AI plays human turn on mirror, commits to live, diffs events";
     }
     if (blockEl) {
         if (s.diverged) {
@@ -168,6 +228,57 @@ async function refreshSimState() {
 
 function renderPanel() {
     renderStatusArea();
+    renderAutoPlay();
+}
+
+function renderAutoPlay() {
+    const el = $("sim-autoplay-area");
+    if (!el) return;
+    const a = sim.lastAutoPlay;
+    if (!a) {
+        el.classList.add("hidden");
+        el.innerHTML = "";
+        return;
+    }
+    el.classList.remove("hidden");
+    if (a.ok === false) {
+        el.innerHTML = `<div class="sim-autoplay__head bad">AI TURN FAILED</div>`
+            + `<div class="sim-autoplay__line">${escapeHtml(a.error ?? "?")}</div>`;
+        return;
+    }
+    const commits = a.commits ?? [];
+    const div = commits.filter((c) => c.divergent).length;
+    const head = `<div class="sim-autoplay__head ${div === 0 ? "ok" : "bad"}">`
+        + `AI TURN · ${a.messages ?? 0} msgs · ${div} divergence${div === 1 ? "" : "s"}`
+        + `</div>`;
+    const meta = `<div class="sim-autoplay__line">`
+        + `phase1: ${a.phase1Ms ?? "?"} ms · phase2: ${a.phase2Ms ?? "?"} ms`
+        + (a.phase1Err ? ` · ph1Err: ${escapeHtml(a.phase1Err)}` : "")
+        + (a.phase2Err ? ` · ph2Err: ${escapeHtml(a.phase2Err)}` : "")
+        + `</div>`;
+    const rows = commits.slice(0, 30).map((c) => {
+        const cls = c.divergent ? "sim-autoplay__row bad" : "sim-autoplay__row ok";
+        const tag = c.src + " · " + c.cls + (c.unitId != null ? " #" + c.unitId : "");
+        const counts = `live=${c.liveEventsCount} mirror=${c.mirrorEventsCount}`;
+        const diff = c.divergent
+            ? ` <span class="sim-autoplay__diff">${escapeHtml(c.firstDiff ?? "?")}</span>`
+            : "";
+        return `<tr class="${cls}"><td>${c.idx}</td><td>${escapeHtml(tag)}</td>`
+            + `<td>${counts}</td><td>${diff}</td></tr>`;
+    }).join("");
+    const tbl = `<table class="sim-autoplay__tbl"><thead><tr>`
+        + `<th>#</th><th>msg</th><th>events</th><th>diff</th>`
+        + `</tr></thead><tbody>${rows}</tbody></table>`;
+    const more = commits.length > 30
+        ? `<div class="sim-autoplay__more">… +${commits.length - 30} more</div>`
+        : "";
+    el.innerHTML = head + meta + tbl + more;
+}
+
+function escapeHtml(s) {
+    return String(s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 function renderStatusArea() {
@@ -231,6 +342,8 @@ function formatVal(v) {
 export function initSim() {
     const btn = $("sim-mirror-btn");
     if (btn) btn.addEventListener("click", clickMirror);
+    const aiBtn = $("sim-run-ai-btn");
+    if (aiBtn) aiBtn.addEventListener("click", clickRunAiTurn);
 
     // Listen for the agent's lightweight notifications.
     registerWsHandler("sim_state_changed", () => {
@@ -244,6 +357,12 @@ export function initSim() {
         // Also refresh state so the front sees the divergence flag in the
         // payload and re-renders the panel banner.
         scheduleRefresh();
+    });
+    registerWsHandler("sim_auto_play_complete", (msg) => {
+        // Lightweight notification — the round-trip POST already returned
+        // the full payload as `sim.lastAutoPlay`. Just nudge the status.
+        status("AI turn complete · " + (msg.messages ?? "?")
+            + " msgs · " + (msg.divergences ?? 0) + " divergence(s)");
     });
 
     pollStatus();

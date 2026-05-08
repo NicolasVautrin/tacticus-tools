@@ -66,7 +66,7 @@
       <ul id="runner-list"></ul>
     </section>
 
-    <section class="panel-block">
+    <section class="panel-block panel-block--build-only">
       <div class="panel-block__head">
         <span class="panel-block__bars" aria-hidden="true"></span>
         <h2>Campaign · Builder</h2>
@@ -77,7 +77,7 @@
       </div>
     </section>
 
-    <section class="panel-block">
+    <section class="panel-block panel-block--build-only">
       <div class="panel-block__head">
         <span class="panel-block__bars" aria-hidden="true"></span>
         <h2>Machines of War · Builder</h2>
@@ -88,7 +88,7 @@
       </div>
     </section>
 
-    <section class="panel-block">
+    <section class="panel-block panel-block--build-only">
       <div class="panel-block__head">
         <span class="panel-block__bars" aria-hidden="true"></span>
         <h2>Archive · Captures</h2>
@@ -115,9 +115,12 @@
       </div>
       <div class="sim-actions">
         <button id="sim-mirror-btn" class="btn-major" disabled>MIRROR NOW</button>
+        <button id="sim-run-ai-btn" class="btn-major" disabled
+          title="AI plays human turn on mirror, commits to live, diffs events">RUN AI TURN</button>
       </div>
       <div id="sim-block-reason" class="sim-block-reason">— probing…</div>
       <div id="sim-status-area" class="sim-status hidden"></div>
+      <div id="sim-autoplay-area" class="sim-autoplay hidden"></div>
     </section>
 
     <section class="panel-block hidden" id="hex-calibration-panel">
