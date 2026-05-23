@@ -58,6 +58,10 @@ export async function launchBattle() {
         await refreshRunners();
         await switchToRunner(data.runnerId);
         subscribeBattleEvents(data.sessionId);
+        // Build-launched runner is auto-watched by the recorder via
+        // launch.initRunner (state.watchedRunners). To mirror it, click 🪞
+        // on its row in the runners panel — fires `simMirror({source:"build",
+        // runnerId: data.runnerId})`.
     } catch (e) {
         status("launch failed: " + e.message);
         btn.disabled = false;

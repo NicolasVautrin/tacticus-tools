@@ -35,6 +35,137 @@ const sim = {
     aiTurnInFlight: false,
 };
 
+/** Auto-play loop control for build-source mirrors. Lives in the board
+ * (Sim panel) — not on the runner row. The board owns the rendering of
+ * the mirror, so the play/pause control is conceptually colocated there.
+ * `target` = the build runnerId currently being auto-played; null when
+ * no loop is running. `stopRequested` = soft-cancel signal the loop
+ * checks each iteration. */
+const autoPlay = { target: null, stopRequested: false };
+
+/** Cancels any running auto-play loop. Called by runners.js when the
+ * user picks a different mirror via 🪞. */
+export function stopAutoPlay() {
+    autoPlay.stopRequested = true;
+    autoPlay.target = null;
+    refreshAutoPlayButton();
+}
+
+/** Run ONE auto-play step on the mirror's source — dispatches a single
+ * CheatRunAIMessage so the active team plays by AI, then stops. Same
+ * behavior for live and build mirrors: AUTO-PLAY = one turn, period.
+ * If the user wants the next turn played, they click again. */
+async function startAutoPlayLoop(runnerId) {
+    refreshAutoPlayButton();
+    if (autoPlay.target !== runnerId || autoPlay.stopRequested) {
+        refreshAutoPlayButton();
+        return;
+    }
+    let r;
+    try {
+        r = await fetch("/api/sim/auto-play-step", { method: "POST" });
+    } catch (e) {
+        status("auto-play error: " + e.message);
+        autoPlay.target = null;
+        refreshAutoPlayButton();
+        return;
+    }
+    const data = await r.json().catch(() => ({}));
+    if (!data.ok) {
+        status("auto-play failed: " + (data.reason ?? data.error ?? "?"));
+    } else if (!data.advanced) {
+        status("auto-play no-op · " + (data.reason ?? "stopped"));
+    } else {
+        status("auto-play · turn played on " + (data.target ?? "?"));
+    }
+    autoPlay.target = null;
+    refreshAutoPlayButton();
+}
+
+async function clickEndTurn() {
+    const ms = sim.status?.mirrorSource;
+    if (!ms) { status("mirror something first"); return; }
+    const btn = $("sim-end-turn-btn");
+    if (btn) btn.disabled = true;
+    try {
+        const r = await fetch("/api/sim/end-turn", { method: "POST" });
+        const data = await r.json();
+        if (!data.ok) status("end-turn failed: " + (data.error ?? "?"));
+        else status("turn ended on " + (data.target ?? "?")
+            + " · player " + data.playerBefore + " → " + data.playerAfter);
+    } catch (e) { status("end-turn error: " + e.message); }
+    finally { refreshAutoPlayButton(); }
+}
+
+function clickAutoPlay() {
+    const ms = sim.status?.mirrorSource;
+    if (!ms) { status("mirror something first"); return; }
+    if (autoPlay.target !== null && !autoPlay.stopRequested) {
+        // Already running — UI is supposed to be disabled in that case;
+        // ignore re-click defensively.
+        return;
+    }
+    const targetKey = ms.kind === "build" ? ms.runnerId : "live";
+    autoPlay.target = targetKey;
+    autoPlay.stopRequested = false;
+    status("auto-play started · " + (ms.kind === "build"
+        ? "build#" + ms.runnerId : "live"));
+    startAutoPlayLoop(targetKey);
+}
+
+/** AUTO-PLAY and END-TURN share the same enable rule:
+ *
+ *   - Build mirror → enabled when not currently auto-playing.
+ *   - Live mirror → enabled when not auto-playing AND not in an AI turn.
+ *   - No mirror → disabled.
+ *
+ * No manual STOP button — the auto-play loop ends naturally when the stage
+ * leaves Running, when the source runner is gone, or when the user picks a
+ * different mirror (which calls stopAutoPlay).
+ */
+function refreshAutoPlayButton() {
+    const s = sim.status;
+    const ms = s?.mirrorSource;
+    const isBuildMirror = ms?.kind === "build";
+    const isLiveMirror = ms?.kind === "live";
+    const isAi = !!s?.isAiRunning;
+    const hasMirror = ms != null;
+    const running = autoPlay.target !== null && !autoPlay.stopRequested;
+    // Source runner must be in Running stage (1). Anything else means
+    // battle finished / pre-start / source disposed → buttons disabled.
+    const sourceRunning = s?.mirrorSourceStage === 1;
+    // Same rule for both buttons.
+    const allowed = hasMirror && !running && sourceRunning
+        && (isBuildMirror || (isLiveMirror && !isAi));
+
+    const tipDisabled = !hasMirror
+        ? "mirror something first (🪞 on a row)"
+        : !sourceRunning
+            ? "battle finished or source unloaded"
+            : running
+                ? "auto-play running"
+                : (isLiveMirror && isAi)
+                    ? "wait — AI turn in progress on live"
+                    : "not ready";
+
+    const btn = $("sim-auto-play-btn");
+    if (btn) {
+        btn.disabled = !allowed;
+        btn.textContent = "▶ AUTO-PLAY";
+        btn.classList.toggle("running", running);
+        btn.title = allowed
+            ? "auto-play (active team plays each step)"
+            : tipDisabled;
+    }
+    const endBtn = $("sim-end-turn-btn");
+    if (endBtn) {
+        endBtn.disabled = !allowed;
+        endBtn.title = allowed
+            ? "end the active team's turn (source advances, mirror auto-syncs)"
+            : tipDisabled;
+    }
+}
+
 async function fetchJson(url, opts = {}) {
     const r = await fetch(url, opts);
     if (!r.ok) {
@@ -61,6 +192,17 @@ async function clickMirror() {
         }
         status("mirror rebuilt · synced to log idx " + res.syncedToLogIdx);
         await refreshSimState();
+        // Trigger a replay-bundle download in the background — config + seed
+        // + every captured message Newtonsoft-serialized with PRNG snapshots.
+        // Lets the user reconstruct the same state offline via buildRunner.
+        try {
+            const a = document.createElement("a");
+            a.href = "/api/sim/dump-replay";
+            a.download = "";  // server sets Content-Disposition filename
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        } catch (e) { /* download is best-effort */ }
     } catch (e) {
         status("mirror error: " + e.message);
     } finally {
@@ -96,12 +238,16 @@ async function clickRunAiTurn() {
         renderAutoPlay();
     } finally {
         sim.aiTurnInFlight = false;
-        btn.textContent = "RUN AI TURN";
+        btn.textContent = "AUTO-PLAY";
         await pollStatus();
     }
 }
 
-async function loadLiveBattleConfig() {
+/** Pull the live runner's BattleConfiguration JSON from the agent and feed
+ * it to the board renderer. Exported so runners.js can call it after a
+ * 🪞 click on the Live row — without the config, the mini-board has no
+ * tile/spawn data to render. */
+export async function loadLiveBattleConfig() {
     // Always (re)load — MIRROR NOW must take precedence over any user-
     // selected archive capture, so we re-hydrate the live config on every
     // click. We also purge the persisted archive id so a future page reload
@@ -125,7 +271,16 @@ async function loadLiveBattleConfig() {
 async function pollStatus() {
     try {
         sim.status = await fetchJson("/api/sim/status");
+        // Mirror into shared state so the runners panel can render the
+        // 🪞 highlights and the synthetic Live row.
+        state.simStatus = sim.status;
         applyStatusToButtons();
+        // Re-render the runners panel — cheap, just a list rebuild — so
+        // the mirror highlight and the Live row reflect new sim status.
+        try {
+            const { renderRunnerList } = await import("./runners.js");
+            renderRunnerList();
+        } catch { /* runners module not loaded yet */ }
     } catch {
         // WS-down or transient — render with what we have
         applyStatusToButtons();
@@ -133,40 +288,30 @@ async function pollStatus() {
 }
 
 function applyStatusToButtons() {
-    const btn = $("sim-mirror-btn");
-    const aiBtn = $("sim-run-ai-btn");
+    refreshAutoPlayButton();
+    // Show the Sim panel based on viewerSelection (set by runners.js).
+    // Hidden when nothing is selected. Live → must have a live mirror;
+    // build → must have a build runner; mirror → must have a mirror.
+    const panel = $("sim-panel");
+    if (panel) {
+        const sel = state.viewerSelection;
+        const s = sim.status;
+        // Visible only when the selected runner is engaged (Running stage).
+        const liveMirrorEngaged = s?.mirrorSource?.kind === "live"
+            && s?.mirrorSourceStage === 1;
+        const buildEngaged = s?.buildStage === 1;
+        const mirrorEngaged = !!s?.built && s?.mirrorSourceStage === 1;
+        const visible =
+            (sel === "live" && liveMirrorEngaged)
+            || (sel === "build" && buildEngaged)
+            || (sel === "mirror" && mirrorEngaged);
+        panel.classList.toggle("hidden", !visible);
+    }
     const blockEl = $("sim-block-reason");
     const s = sim.status;
     if (!s) {
-        if (btn) { btn.disabled = true; btn.title = "probing…"; }
-        if (aiBtn) { aiBtn.disabled = true; aiBtn.title = "probing…"; }
         if (blockEl) blockEl.textContent = "— probing…";
         return;
-    }
-    if (btn) {
-        btn.disabled = !s.canMirror;
-        btn.title = s.canMirror
-            ? "rebuild the mirror from live and replay the full log"
-            : (s.blockReason ?? "not ready");
-    }
-    if (aiBtn) {
-        // RUN AI TURN needs: mirror built, sync, can mirror (= live human turn),
-        // not diverged, not currently in-flight.
-        const lag = s.logSize - s.lastSyncedLogIdx;
-        const ready = s.built && s.canMirror && !s.diverged
-            && lag === 0 && !sim.aiTurnInFlight;
-        aiBtn.disabled = !ready;
-        aiBtn.title = sim.aiTurnInFlight
-            ? "running…"
-            : !s.built
-                ? "click MIRROR NOW first"
-                : s.diverged
-                    ? "mirror diverged — click MIRROR NOW to rebuild"
-                    : !s.canMirror
-                        ? (s.blockReason ?? "not ready")
-                        : lag !== 0
-                            ? "mirror lagging — click MIRROR NOW to sync"
-                            : "AI plays human turn on mirror, commits to live, diffs events";
     }
     if (blockEl) {
         if (s.diverged) {
@@ -340,10 +485,17 @@ function formatVal(v) {
 }
 
 export function initSim() {
-    const btn = $("sim-mirror-btn");
-    if (btn) btn.addEventListener("click", clickMirror);
-    const aiBtn = $("sim-run-ai-btn");
-    if (aiBtn) aiBtn.addEventListener("click", clickRunAiTurn);
+    const autoBtn = $("sim-auto-play-btn");
+    if (autoBtn) autoBtn.addEventListener("click", clickAutoPlay);
+    const endBtn = $("sim-end-turn-btn");
+    if (endBtn) endBtn.addEventListener("click", clickEndTurn);
+
+    // React to viewer selection changes (runners.js click handlers fire
+    // a custom event after updating state.viewerSelection).
+    document.addEventListener("viewer-changed", () => {
+        applyStatusToButtons();
+        scheduleRefresh();
+    });
 
     // Listen for the agent's lightweight notifications.
     registerWsHandler("sim_state_changed", () => {

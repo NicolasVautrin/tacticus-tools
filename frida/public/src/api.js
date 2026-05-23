@@ -34,6 +34,20 @@ export const api = {
         return r.json();
     },
 
+    /** Set/update the user-facing description on a saved capture. */
+    async updateConfigDescription(id, description) {
+        const r = await fetch("/api/configs/" + encodeURIComponent(id), {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ description }),
+        });
+        if (!r.ok) {
+            const data = await r.json().catch(() => ({}));
+            throw new Error(data.error ?? r.statusText);
+        }
+        return r.json();
+    },
+
     async runners() {
         const r = await fetch("/api/runners");
         return r.json();
@@ -55,6 +69,49 @@ export const api = {
         const r = await fetch("/api/runners/" + runnerId + "/latest-state");
         if (!r.ok) return null;
         return r.json();
+    },
+
+    /** Build a transient PREVIEW runner (NOT a build, NOT in runners panel)
+     * from a saved bundle. Used to render the saved matchstate on the
+     * central board for inspection. Returns { ok, stage, matchState }. */
+    async simPreviewBuild(configId) {
+        const r = await fetch("/api/sim/preview-build", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ configId }),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error ?? r.statusText);
+        return data;
+    },
+
+    /** Re-project the current preview matchstate. */
+    async simGetPreviewState() {
+        const r = await fetch("/api/sim/preview-state");
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error ?? r.statusText);
+        return data;
+    },
+
+    /** Drop the preview slot. */
+    async simDisposePreview() {
+        const r = await fetch("/api/sim/preview-dispose", { method: "POST" });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error ?? r.statusText);
+        return data;
+    },
+
+    /** LOAD a saved bundle into a fresh BUILD runner. Disposes any prior
+     * build + preview. The new BUILD shows up in the runners panel. */
+    async simLoadFromSaved(configId) {
+        const r = await fetch("/api/sim/load-from-saved", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ configId }),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error ?? r.statusText);
+        return data;
     },
 
     async sessions() {

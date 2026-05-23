@@ -52,20 +52,13 @@ export function updateViewMode() {
         modeEl.dataset.mode = mode;
     }
 
-    // Reparent the Mirror panel: docks into #roster-panel in MIRROR mode,
-    // sits at the bottom of #archive-panel in BUILD mode.
+    // Sim panel placement: anchored statically into #roster-panel (right
+    // aside). Visibility is gated by viewerSelection + engagement state in
+    // sim.js (applyStatusToButtons), independent of the BUILD/MIRROR mode.
     const sim = $("sim-panel");
-    const archive = $("archive-panel");
     const roster = $("roster-panel");
-    if (sim && archive && roster) {
-        const wantParent = mode === "mirror" ? roster : archive;
-        if (sim.parentElement !== wantParent) {
-            // Mirror mode: dock at the top of the right aside (above the
-            // existing roster sub-sections, even though those are hidden).
-            // Build mode: append to the bottom of the left aside.
-            if (mode === "mirror") wantParent.prepend(sim);
-            else wantParent.appendChild(sim);
-        }
+    if (sim && roster && sim.parentElement !== roster) {
+        roster.prepend(sim);
     }
 
     // Runner-derived inner state of the right aside (independent of mode).

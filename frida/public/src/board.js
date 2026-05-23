@@ -156,12 +156,16 @@ export function renderOverlay() {
 
     // Mirror mode wins over both pre-launch placements and live event
     // units: the front renders ONLY the mirror state when one exists.
+    // Gate on simState presence (not on units.length) so an empty mirror
+    // still preempts the stale eventUnits render — switching from a
+    // populated build (eventUnits = N units from disk dump) to a fresh
+    // live mirror would otherwise show the build's units leaking through.
     const playerTeams = new Map();
     for (const [pid, p] of Object.entries(state.config?.Player?.Players ?? {})) {
         playerTeams.set(Number(pid), p.TeamId ?? 0);
     }
-    if (state.simState?.units?.length) {
-        for (const u of state.simState.units) {
+    if (state.simState) {
+        for (const u of state.simState.units ?? []) {
             if (!u.pos || u.isDead) continue;
             // Mirror coords are 0-based-relative to the Tiles array (same
             // convention as state.eventUnits) — convert to absolute by

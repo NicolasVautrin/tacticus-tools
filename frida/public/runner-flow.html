@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Tacticus tools — Runner & mirror flow</title>
+<style>
+    body {
+        font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI",
+            system-ui, sans-serif;
+        max-width: 980px;
+        margin: 24px auto;
+        padding: 0 18px;
+        color: #1f2530;
+        background: #f6f7f9;
+    }
+    h1 { font-size: 22px; margin-top: 0; }
+    h2 { font-size: 17px; margin-top: 28px; border-bottom: 1px solid #d4d8df; padding-bottom: 4px; }
+    h3 { font-size: 14px; margin-top: 18px; color: #444c5a; }
+    p, li { color: #2a313d; }
+    code, kbd {
+        font-family: "JetBrains Mono", Consolas, monospace;
+        font-size: 12.5px;
+        background: #eceef3;
+        padding: 1px 5px;
+        border-radius: 3px;
+        border: 1px solid #d4d8df;
+    }
+    table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 8px 0 16px;
+    }
+    th, td {
+        border: 1px solid #cfd4dc;
+        padding: 6px 9px;
+        text-align: left;
+        vertical-align: top;
+        font-size: 13px;
+    }
+    th { background: #e8ebf0; font-weight: 600; }
+    tr:nth-child(even) td { background: #f0f2f5; }
+    .role { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11.5px; font-weight: 600; }
+    .role-live { background: #ffd56b; color: #5a3d00; }
+    .role-build { background: #b3d8ff; color: #0c3c70; }
+    .role-mirror { background: #d3c7ff; color: #2c1466; }
+    .guard { background: #fff8d6; border-left: 3px solid #d4a700; padding: 6px 10px; margin: 8px 0; }
+    .deny { background: #fde8e8; border-left: 3px solid #d92d2d; padding: 6px 10px; margin: 8px 0; }
+    .ok { background: #e6f6e7; border-left: 3px solid #2c9c33; padding: 6px 10px; margin: 8px 0; }
+    .mermaid { background: #fff; padding: 12px; border: 1px solid #d4d8df; border-radius: 4px; margin: 10px 0; }
+    .legend {
+        display: flex; gap: 14px; flex-wrap: wrap;
+        font-size: 12.5px; margin: 10px 0;
+    }
+    .legend span { display: flex; align-items: center; gap: 5px; }
+    .legend i {
+        width: 14px; height: 14px; border-radius: 3px; display: inline-block;
+    }
+</style>
+<script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({ startOnLoad: true, theme: "neutral", flowchart: { curve: "basis" } });
+</script>
+</head>
+<body>
+
+<h1>Tacticus-tools — flux runners &amp; mirror</h1>
+
+<p>Cartographie des runners qui co-existent côté agent Frida, leur cycle de
+vie, et les actions utilisateur qui les manipulent. Ce document reflète
+l&apos;état après l&apos;étape 1+2+3 du refactor (rename
+<code>liveRunner</code>, <code>watchedRunners</code>,
+<code>mirror.source</code>, AUTO-PLAY déplacé sur le board).</p>
+
+<div class="legend">
+    <span><i style="background:#ffd56b"></i>Live runner (in-game battle)</span>
+    <span><i style="background:#b3d8ff"></i>Build runner (launch standalone)</span>
+    <span><i style="background:#d3c7ff"></i>Mirror runner (sandbox)</span>
+</div>
+
+<h2>1. Les 3 rôles</h2>
+
+<table>
+<tr>
+    <th>Rôle</th>
+    <th>Slot</th>
+    <th>Cardinality</th>
+    <th>Source / créé par</th>
+    <th>Tag origin dans state.log</th>
+</tr>
+<tr>
+    <td><span class="role role-live">Live</span></td>
+    <td><code>state.liveRunner</code></td>
+    <td>0 ou 1</td>
+    <td><code>main-pump</code> détecte le runner créé par Tacticus quand
+        l&apos;utilisateur lance une bataille in-game</td>
+    <td><code>"live"</code></td>
+</tr>
+<tr>
+    <td><span class="role role-build">Build</span></td>
+    <td><code>runnerRegistry.byId</code> (Map keyed by <code>runnerId</code>)</td>
+    <td>0..N</td>
+    <td><code>launch.initRunner</code> — désérialise une <code>BattleConfiguration</code>
+        archivée et build un <code>IdunRunner</code> standalone</td>
+    <td><code>&lt;runnerId&gt;</code> (number)</td>
+</tr>
+<tr>
+    <td><span class="role role-mirror">Mirror</span></td>
+    <td><code>simState.mirror</code> avec <code>source: { kind, runnerId? }</code></td>
+    <td>0 ou 1</td>
+    <td><code>simMirror({ source })</code> — build un nouveau standalone
+        depuis la <code>BattleConfiguration</code> de la source, replaye
+        les messages capturés correspondants</td>
+    <td>n/a (le mirror n&apos;émet pas vers <code>state.log</code>)</td>
+</tr>
+</table>
+
+<div class="guard"><strong>Garde « Live always required »</strong> —
+toute opération mirror exige que <code>state.liveRunner !== null</code>,
+même mirror sur build : les services live (StreamDispatcher, AiControl
+binding, Zenject) sont nécessaires aux hooks que les runners build
+réutilisent. Sans live in-game, on refuse côté serveur avec
+<code>blockReason: &quot;no live runner&quot;</code>.</div>
+
+<h2>2. Cycle de vie</h2>
+
+<div class="mermaid">
+stateDiagram-v2
+    [*] --> NoLive
+    NoLive --> LiveOnly: launch in-game battle
+    LiveOnly --> NoLive: battle end
+    LiveOnly --> LiveAndBuilds: launch initRunner
+    LiveAndBuilds --> LiveOnly: dispose all builds
+    LiveAndBuilds --> LiveAndBuilds: more builds
+    LiveOnly --> MirrorLive: simMirror source=live
+    LiveAndBuilds --> MirrorLive: simMirror source=live
+    LiveAndBuilds --> MirrorBuild: simMirror source=build
+    MirrorLive --> LiveAndBuilds: simReset
+    MirrorBuild --> LiveAndBuilds: simReset
+    MirrorLive --> MirrorBuild: switch source
+    MirrorBuild --> MirrorLive: switch source
+    MirrorBuild --> AutoPlaying: AUTO-PLAY
+    AutoPlaying --> MirrorBuild: STOP or stage finished
+</div>
+
+<h3>Transitions clés</h3>
+<ul>
+    <li><strong>Détection live</strong> — le hook <code>IdunGameViews.Update</code>
+        (<code>main-pump.ts</code>) lit le runner dans le View ;
+        si différent de <code>state.liveRunner</code> ⇒ swap, clear
+        <code>state.log</code>, réinstall recorder.</li>
+    <li><strong>Création build</strong> — <code>launch.initRunner({configJson})</code>
+        désérialise la config, build un runner via le 2-arg ctor,
+        l&apos;ajoute au <code>runnerRegistry</code> ET dans
+        <code>state.watchedRunners.set(runner, runnerId)</code> pour que
+        le recorder le couvre.</li>
+    <li><strong>Mirror swap</strong> — <code>simMirror({ source })</code> drop
+        l&apos;ancien (gcRoot.remove + simState.mirror=null), build un
+        nouveau via <code>buildMirrorFromSource(src)</code>, replaye
+        <code>state.log[]</code> filtré par <code>originRunnerId === target</code>.</li>
+</ul>
+
+<h2>3. Recorder (multi-watch)</h2>
+
+<div class="mermaid">
+flowchart TD
+    A["runner.Apply hook (gshared)"] --> B{"args[0] in watchedRunners ?"}
+    B -- no --> X[skip]
+    B -- yes --> C["lookup origin: live or runnerId"]
+    C --> D["snapshotMt per-runner (MtCache)"]
+    D --> E["push LogEntry: src=top, originRunnerId=origin"]
+    E --> F["pushApply live"]
+    F --> G[invoke runner.Apply native]
+    G --> H["onLeave: popApply + applyToMirror"]
+    H --> I{"mirror.source === entry.originRunnerId ?"}
+    I -- no --> J[skip this entry on mirror]
+    I -- yes --> K["restoreMt mirror + runner.Apply mirror"]
+</div>
+
+<p>Le recorder est unique mais multi-cible : le filter <code>watchedRunners</code>
+remplace l&apos;ancien <code>args[0].equals(runnerSnapshot)</code>. Le
+<code>LogEntry</code> est tagué avec <code>originRunnerId</code> pour que
+<code>applyToMirror</code> ne replaye que les entries de la source
+courante du mirror.</p>
+
+<h2>4. Actions UI &mdash; mapping</h2>
+
+<table>
+<tr>
+    <th>Geste</th>
+    <th>Élément</th>
+    <th>Endpoint / fonction</th>
+    <th>Effet</th>
+</tr>
+<tr>
+    <td>Lancer la bataille in-game</td>
+    <td>Tacticus (out of UI)</td>
+    <td>—</td>
+    <td>main-pump détecte ⇒ <code>liveRunner</code> set</td>
+</tr>
+<tr>
+    <td>ENGAGE sur une config</td>
+    <td>Bouton <kbd>ENGAGE</kbd> du builder</td>
+    <td><code>POST /api/launch</code> ⇒ <code>initRunner + applyAddUnit + startBattle</code></td>
+    <td>Crée un build runner, l&apos;ajoute à <code>watchedRunners</code></td>
+</tr>
+<tr>
+    <td>Mirror une source</td>
+    <td>🪞 sur la tuile (Live ou Build)</td>
+    <td><code>POST /api/sim/mirror &#123;source, runnerId?&#125;</code></td>
+    <td>Drop ancien mirror, build nouveau, replaye log filtré</td>
+</tr>
+<tr>
+    <td>Sauvegarder la config</td>
+    <td>💾 sur la tuile <strong>Live uniquement</strong></td>
+    <td><code>POST /api/sim/save-live-config</code></td>
+    <td>Sérialise live config + meta (mode, campaignId, locationIndex)
+        vers <code>config-store</code></td>
+</tr>
+<tr>
+    <td>Disposer un build</td>
+    <td>× sur la tuile build</td>
+    <td><code>disposeRunner({runnerId})</code></td>
+    <td>Retire du registry + de <code>watchedRunners</code></td>
+</tr>
+<tr>
+    <td>Auto-play un build</td>
+    <td>▶ AUTO-PLAY <em>(panel Sim — board)</em></td>
+    <td><code>POST /api/sim/auto-play-step</code> en boucle</td>
+    <td>Dispatch <code>CheatRunAIMessage</code> par step ; team active joue</td>
+</tr>
+<tr>
+    <td>Stop auto-play</td>
+    <td>⏸ STOP (même bouton)</td>
+    <td><code>autoPlay.stopRequested = true</code> côté front</td>
+    <td>Loop bail-out à l&apos;itération suivante</td>
+</tr>
+<tr>
+    <td>Run AI turn (live mirror)</td>
+    <td>RUN AI TURN (panel Sim)</td>
+    <td><code>POST /api/sim/run-ai-turn</code></td>
+    <td>Phase 1 : AI joue sur mirror live, capture sub-msgs.<br>
+        Phase 2 : restore live PRNG par msg, commit sur live, diff events.</td>
+</tr>
+</table>
+
+<h2>5. Gardes serveur</h2>
+
+<div class="ok"><strong>simMirror</strong> applique deux gardes cumulatives :
+    <ol>
+        <li><code>state.liveRunner !== null</code> (« Live always required »)</li>
+        <li><code>sourceRunner._state.stage === 1</code> (Running) — le runner
+            cible doit être en bataille engagée</li>
+    </ol>
+</div>
+
+<div class="deny"><strong>simRunAiTurn</strong> n&apos;accepte que les
+mirrors de source <code>live</code>. Pour un mirror build, le bon outil
+est AUTO-PLAY (boucle <code>simAutoPlayStep</code>).</div>
+
+<div class="deny"><strong>simSaveLiveConfig</strong> ne peut sauvegarder que
+le live runner — un build a forcément été créé à partir d&apos;une config
+déjà archivée, donc le re-archiver n&apos;a pas de valeur.</div>
+
+<h2>6. Données du log</h2>
+
+<table>
+<tr><th><code>LogEntry</code> field</th><th>Description</th></tr>
+<tr><td><code>idx</code></td><td>numéro séquentiel global (sur tous les runners watchés)</td></tr>
+<tr><td><code>src</code></td><td><code>top</code> | <code>ai</code> | <code>humanAi</code> | <code>top_boot</code></td></tr>
+<tr><td><code>cls</code></td><td>nom de la classe message (e.g. <code>MoveUnitMessage</code>)</td></tr>
+<tr><td><code>ptr</code></td><td>pointer du message IL2CPP (gc-root pinné)</td></tr>
+<tr><td><code>prng</code></td><td>snapshot Mersenne Twister du runner émetteur, pris pré-Apply</td></tr>
+<tr><td><code>events[]</code></td><td>StreamDispatcher events captures via apply-stack</td></tr>
+<tr><td><code>originRunnerId</code></td><td><code>"live"</code> ou un buildId — discrimine les sources lors du replay mirror</td></tr>
+</table>
+
+<h2>7. Replay-bundle (download au clic 🪞)</h2>
+
+<p>Le clic <kbd>MIRROR NOW</kbd> sur le panel Sim télécharge en plus un fichier
+<code>replay-&lt;ts&gt;-msgsN.json</code> contenant <code>config + seed +
+messages[]</code> Newtonsoft-serialisés avec PRNG snapshots. Suffit pour
+reconstruire offline via <code>buildRunner(cfg, seed)</code> + <code>DeserializeObject + restoreMt + Apply</code>
+en boucle.</p>
+
+</body>
+</html>

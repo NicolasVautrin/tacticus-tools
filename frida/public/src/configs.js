@@ -6,10 +6,12 @@ import { state, saveLastConfigId, loadLastConfigId } from "./state.js";
 import { $, status, updateViewMode } from "./dom.js";
 import { api } from "./api.js";
 import { configIdToPortrait } from "./images.js";
-import { loadBoard } from "./board.js";
+import { loadBoard, renderOverlay } from "./board.js";
 import { renderPlacements } from "./placements.js";
 import { renderUnitRoster } from "./roster.js";
-import { renderRunnerList } from "./runners.js";
+import {
+    renderRunnerList, refreshRunners, switchToRunner, clickMirror,
+} from "./runners.js";
 import { getCampaignFactionLabel, getCampaignConstraints } from "./campaign-builder.js";
 
 // Map game-internal campaign ids to readable labels for the archive panel.
@@ -30,6 +32,15 @@ const CAMPAIGN_PRETTY = {
     elite3:     "Saim-Hann · Elite",
     elite4:     "Fall of Cadia · Elite",
 };
+
+/** Minimal HTML escape — protects against angle brackets / quotes in
+ * user-provided descriptions when injecting via innerHTML. */
+function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;",
+        '"': "&quot;", "'": "&#39;",
+    }[c]));
+}
 
 function prettyCampaignLabel(campaignId, locationIndex) {
     if (!campaignId) return null;
@@ -145,23 +156,61 @@ export function renderConfigList() {
             : (cfg.board
                 ? mode + ' · <span class="archive-row__board">' + cfg.board + '</span>'
                 : mode);
+        const desc = typeof cfg.description === "string" && cfg.description
+            ? cfg.description
+            : "";
+        const descHtml = desc
+            ? '<div class="archive-row__desc" title="click to edit description">'
+                + escapeHtml(desc) + '</div>'
+            : '<div class="archive-row__desc archive-row__desc--empty"'
+                + ' title="click to add a description">+ description</div>';
         li.innerHTML =
             '<span class="archive-row__marker"></span>'
           + '<div class="archive-row__body">'
           + '<div class="archive-row__mode">' + headLeft + '</div>'
+          + descHtml
           + '<div class="archive-row__meta">'
           +   '<span>' + t + '</span>'
           +   '<span>·</span>'
           +   '<span>' + kb + ' KB</span>'
+          +   (cfg.messageCount
+              ? '<span>·</span><span>' + cfg.messageCount + ' msgs</span>'
+              : "")
           + '</div>'
           + '</div>'
+          + '<button class="archive-row__load" title="load: build runner + auto-mirror"'
+          +   ' data-id="' + cfg.id + '">LOAD</button>'
           + '<button class="archive-row__delete" title="delete capture"'
           +   ' data-id="' + cfg.id + '">✕</button>';
-        // Click on the row body → select. Click on ✕ → delete.
+        // Click on the row body → preview (transient runner, rendered on board).
+        // Click on description → edit it via prompt.
+        // Click on LOAD → BUILD runner + auto-mirror.
+        // Click on ✕ → delete.
         li.addEventListener("click", (e) => {
             if (e.target instanceof Element
-                && e.target.closest(".archive-row__delete")) return;
-            selectConfig(cfg);
+                && (e.target.closest(".archive-row__delete")
+                    || e.target.closest(".archive-row__load")
+                    || e.target.closest(".archive-row__desc"))) return;
+            previewSavedConfig(cfg);
+        });
+        const descEl = li.querySelector(".archive-row__desc");
+        descEl?.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            const next = window.prompt("Description for this save:",
+                cfg.description ?? "");
+            if (next === null) return;  // user cancelled
+            try {
+                await api.updateConfigDescription(cfg.id, next);
+                await refreshConfigs();
+                status("description updated");
+            } catch (err) {
+                status("description update failed: " + err.message);
+            }
+        });
+        const loadBtn = li.querySelector(".archive-row__load");
+        loadBtn?.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            await loadSavedConfig(cfg);
         });
         const delBtn = li.querySelector(".archive-row__delete");
         delBtn?.addEventListener("click", async (e) => {
@@ -203,6 +252,87 @@ export async function selectConfig(meta) {
         hydrateConfig(meta, config);
     } catch (e) {
         status("config fetch failed: " + e.message);
+    }
+}
+
+/** Click on a saved-config row: load metadata + ask the agent to build a
+ * transient PREVIEW runner from the saved bundle (config + messages),
+ * then render its projected matchstate on the central board. The preview
+ * runner is NOT a build — it doesn't appear in the runners panel and the
+ * recorder doesn't watch it; only one preview lives at a time, replaced
+ * on each rebuild. */
+export async function previewSavedConfig(meta) {
+    await selectConfig(meta);
+    // Clear any stale mirror projection from a prior flow. Without this,
+    // board.js's early-return-on-simState would shadow the eventUnits we
+    // populate below with leftover (or empty) mirror units.
+    state.simState = null;
+    try {
+        status("building preview · " + meta.id + "…");
+        const data = await api.simPreviewBuild(meta.id);
+        if (!data?.ok) {
+            status("preview failed: " + (data?.error ?? "?"));
+            return false;
+        }
+        // Project the matchstate onto eventUnits so the central board
+        // renders the saved state (replaces the static PredefinedUnits-only
+        // render produced by selectConfig).
+        if (data.matchState?.units) {
+            state.eventUnits.clear();
+            for (const u of data.matchState.units) {
+                if (u.isDead || !u.pos) continue;
+                state.eventUnits.set(u.id, {
+                    col: u.pos.col, row: u.pos.row,
+                    playerId: u.ownerId, kind: "unit",
+                    visualId: u.visualId ?? null,
+                    rank: Number.isFinite(u.rank) ? u.rank : null,
+                });
+            }
+            renderOverlay();
+        }
+        const s = data.stats ?? {};
+        const summary = `replayed=${s.replayed ?? 0}`
+            + (s.skipped ? ` · skipped=${s.skipped}` : "")
+            + (s.applyFailed ? ` · failed=${s.applyFailed}` : "");
+        status("preview ready · " + summary);
+        return true;
+    } catch (e) {
+        status("preview error: " + e.message);
+        return false;
+    }
+}
+
+/** LOAD button on a saved-config row: builds a fresh BUILD runner from
+ * the saved bundle (replaces any prior build via single-build policy +
+ * disposes the preview slot), then auto-creates a mirror on it. The
+ * BUILD tile then appears in the runners panel and the user lands in
+ * MIRROR layout. */
+export async function loadSavedConfig(meta) {
+    await selectConfig(meta);
+    // Clear stale mirror projection — same reason as in previewSavedConfig.
+    // The new BUILD's mirror (auto-created at the end) will repopulate
+    // simState via the standard sim_state_changed → refreshSimState path.
+    state.simState = null;
+    try {
+        status("loading · " + meta.id + "…");
+        const data = await api.simLoadFromSaved(meta.id);
+        if (!data?.ok) {
+            status("load failed: " + (data?.error ?? "?"));
+            return null;
+        }
+        await refreshRunners();
+        await switchToRunner(data.runnerId);
+        state.viewerSelection = "build";
+        renderRunnerList();
+        try {
+            document.dispatchEvent(new CustomEvent("viewer-changed"));
+        } catch { /* no-op */ }
+        status("loaded · runner " + data.runnerId);
+        await clickMirror("build", data.runnerId);
+        return data.runnerId;
+    } catch (e) {
+        status("load error: " + e.message);
+        return null;
     }
 }
 

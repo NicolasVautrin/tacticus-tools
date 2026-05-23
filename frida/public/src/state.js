@@ -37,6 +37,19 @@ export const state = {
     eventUnits: new Map(),      // entityId|preN → { col, row, playerId, visualId }
     runners: [],
     runnerId: null,
+    /** Last /api/sim/status payload — drives the runners panel's row
+     * highlights (mirrored row), the "Live" synthetic row, and the Sim
+     * panel buttons. Polled every ~2s by sim.js. */
+    simStatus: null,
+
+    /** Currently selected viewer — what the Sim panel should render.
+     *   "live"   → render the live mirror state (mirror with source=live)
+     *   "build"  → render the (single) build runner state directly
+     *   "mirror" → render the mirror runner state (when source=build)
+     *   null     → Sim panel hidden
+     * Click on a runner row sets this. 🪞 (create mirror) ALSO sets it
+     * automatically and switches to MIRROR layout. */
+    viewerSelection: null,
     sessionId: null,
     ws: null,
     // Deployment constraints (when the loaded config is a campaign battle):

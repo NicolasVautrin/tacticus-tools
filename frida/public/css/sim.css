@@ -165,7 +165,7 @@
 }
 #sim-panel .hidden { display: none; }
 
-/* ---------- Auto-play (RUN AI TURN) results table ---------- */
+/* ---------- Auto-play results table ---------- */
 #sim-panel .sim-autoplay { padding: 6px 0; }
 #sim-panel .sim-autoplay__head {
     font-family: "Chakra Petch", sans-serif;
@@ -233,3 +233,10 @@ body[data-mode="mirror"] #roster-panel #controls-section {
 }
 
 /* BUILD mode: default layout. The sim-panel stays in #archive-panel. */
+
+/* AUTO-PLAY button — pulse-red while running. */
+#sim-auto-play-btn.running {
+    background: #5a1a1a;
+    color: #ffeded;
+    border-color: #ff6b6b;
+}

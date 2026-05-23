@@ -3,7 +3,7 @@
 // loads the runner's config (if different), and overwrites eventUnits
 // with the authoritative matchState snapshot.
 
-import { state } from "./state.js";
+import { state, saveViewMode } from "./state.js";
 import { $, status, updateViewMode } from "./dom.js";
 import { api } from "./api.js";
 import { renderOverlay } from "./board.js";
@@ -39,50 +39,195 @@ export function resetRunnerSession() {
     if (log) log.innerHTML = "";
 }
 
+import { stopAutoPlay as simStopAutoPlay, loadLiveBattleConfig } from "./sim.js";
+
+/** Click handler for the 🪞 button. Just builds the mirror — does NOT
+ * auto-start a play loop (the user controls that from the Sim panel's
+ * board controls). Exported so configs.js can chain it after building a
+ * preview build runner (LOAD button on archive rows). */
+export async function clickMirror(source, runnerId) {
+    // A new mirror invalidates any running auto-play loop on the previous
+    // build target — auto-play lives in sim.js but we cancel from here so
+    // the prior loop doesn't keep dispatching on a now-unmirrored build.
+    try { simStopAutoPlay(); } catch { /* sim module not loaded */ }
+    try {
+        // Hydrate the board's hex layout + spawn data BEFORE building the
+        // mirror so the panel can render the result as soon as state arrives.
+        if (source === "live") {
+            try { await loadLiveBattleConfig(); }
+            catch (e) { console.warn("[runners] live config load failed", e); }
+        }
+        const body = source === "live" ? { source: "live" }
+            : { source: "build", runnerId };
+        const r = await fetch("/api/sim/mirror", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        });
+        const data = await r.json();
+        if (!data.ok) {
+            status("mirror failed: " + (data.error ?? "?"));
+            return;
+        }
+        status("mirror built · " + (source === "live"
+            ? "live" : "build#" + runnerId));
+        // Auto-select the new mirror in the viewer + switch to MIRROR layout.
+        // For source=live → select "live" (mirror live is rendered via Live tile).
+        // For source=build → select "mirror" (the new MIRROR tile is what renders it).
+        state.viewerSelection = source === "live" ? "live" : "mirror";
+        if (state.viewMode !== "mirror") {
+            state.viewMode = "mirror";
+            saveViewMode("mirror");
+            updateViewMode();
+        }
+        renderRunnerList();  // re-render so the MIRROR tile appears
+    } catch (e) { status("mirror error: " + e.message); }
+}
+
+/** Set the viewer to a specific runner kind. The Sim panel observes this
+ * to render the appropriate state (or hides itself if null). */
+function setViewer(kind) {
+    state.viewerSelection = kind;
+    renderRunnerList();
+    // Sim panel visibility/content is driven by sim.js's pollStatus +
+    // applyStatusToButtons; trigger a refresh so it updates immediately.
+    try {
+        document.dispatchEvent(new CustomEvent("viewer-changed"));
+    } catch { /* no-op */ }
+}
+
+
+function isCurrentMirrorSource(simStatus, kind) {
+    return simStatus?.mirrorSource?.kind === kind;
+}
+
 export function renderRunnerList() {
     const ul = $("runner-list");
     if (!ul) return;
     ul.innerHTML = "";
-    if (!state.runners?.length) {
+    const sim = state.simStatus ?? null;
+    const hasLive = !!sim?.hasLive;
+    const builds = state.runners ?? [];
+    const build = builds[0] ?? null;
+    const hasMirror = !!sim?.mirrorSource;
+    const sel = state.viewerSelection;
+
+    if (!hasLive && !build) {
         ul.innerHTML =
             '<li class="runners__empty">'
           + '<span>—</span> no active engagement'
           + '</li>';
         return;
     }
-    for (const r of state.runners) {
+
+    // ----- LIVE row -----
+    if (hasLive) {
+        const li = document.createElement("li");
+        li.className = "runner-row runner-row--live";
+        if (sel === "live") li.classList.add("selected");
+        if (isCurrentMirrorSource(sim, "live")) li.classList.add("mirrored");
+        const stage = sim.liveStageName ?? "Running";
+        li.innerHTML =
+            '<span class="runner-row__pulse runner-row__pulse--live"></span>'
+          + '<div class="runner-row__body">'
+          + '<div class="runner-row__line1">'
+          +   '<span class="runner-row__id">LIVE</span>'
+          +   '<span class="runner-row__mode">in-game</span>'
+          +   '<button class="runner-row__save" title="save config">💾</button>'
+          +   '<button class="runner-row__mirror" title="mirror this">🪞</button>'
+          + '</div>'
+          + '<div class="runner-row__line2">'
+          +   '<span>' + stage + '</span>'
+          +   '<span>·</span>'
+          +   '<span>' + (sim.isAiRunning ? "AI playing" : "human turn") + '</span>'
+          + '</div>'
+          + '</div>';
+        li.addEventListener("click", () => setViewer("live"));
+        li.querySelector(".runner-row__mirror")
+          .addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            clickMirror("live");
+        });
+        li.querySelector(".runner-row__save")
+          .addEventListener("click", async (ev) => {
+            ev.stopPropagation();
+            try {
+                const r = await fetch("/api/sim/save-live-config",
+                    { method: "POST" });
+                const data = await r.json();
+                if (!data.ok) status("save failed: " + (data.error ?? "?"));
+                else status("config saved · " + data.id);
+            } catch (e) { status("save error: " + e.message); }
+        });
+        ul.appendChild(li);
+    }
+
+    // ----- BUILD row (single-build policy) -----
+    if (build) {
         const li = document.createElement("li");
         li.className = "runner-row";
-        if (r.runnerId === state.runnerId) li.classList.add("selected");
-        const age = r.lastUpdatedAt
-            ? Math.max(0, Math.round((Date.now() - r.lastUpdatedAt) / 1000))
+        if (sel === "build") li.classList.add("selected");
+        const age = build.lastUpdatedAt
+            ? Math.max(0, Math.round((Date.now() - build.lastUpdatedAt) / 1000))
               + "s"
             : "idle";
-        const mode = (r.configId ?? "unknown")
+        const mode = (build.configId ?? "unknown")
             .replace(/GameModeSource.*/, "");
-        const id = "R" + String(r.runnerId).padStart(2, "0");
+        const id = "BUILD";
         li.innerHTML =
             '<span class="runner-row__pulse"></span>'
           + '<div class="runner-row__body">'
           + '<div class="runner-row__line1">'
           +   '<span class="runner-row__id">' + id + '</span>'
           +   '<span class="runner-row__mode">' + mode + '</span>'
+          +   '<button class="runner-row__mirror" title="mirror this">🪞</button>'
           +   '<button class="runner-row__del" title="dispose">×</button>'
           + '</div>'
           + '<div class="runner-row__line2">'
-          +   '<span>seq ' + r.seq + '</span>'
+          +   '<span>seq ' + build.seq + '</span>'
           +   '<span>·</span>'
-          +   '<span>' + (r.lastLabel ?? "-") + '</span>'
+          +   '<span>' + (build.lastLabel ?? "-") + '</span>'
           +   '<span>·</span>'
           +   '<span>' + age + '</span>'
           + '</div>'
           + '</div>';
-        li.addEventListener("click", () => switchToRunner(r.runnerId));
+        li.addEventListener("click", () => {
+            switchToRunner(build.runnerId);
+            setViewer("build");
+        });
+        li.querySelector(".runner-row__mirror")
+          .addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            clickMirror("build", build.runnerId);
+        });
         li.querySelector(".runner-row__del")
           .addEventListener("click", async (ev) => {
             ev.stopPropagation();
-            await deleteRunner(r.runnerId);
+            await deleteRunner(build.runnerId);
         });
+        ul.appendChild(li);
+    }
+
+    // ----- MIRROR row (visible whenever a mirror exists, regardless of source) -----
+    if (hasMirror) {
+        const li = document.createElement("li");
+        li.className = "runner-row runner-row--mirror";
+        if (sel === "mirror") li.classList.add("selected");
+        const sourceLabel = sim.mirrorSource.kind === "live"
+            ? "sandbox of LIVE"
+            : "sandbox of BUILD";
+        li.innerHTML =
+            '<span class="runner-row__pulse runner-row__pulse--mirror"></span>'
+          + '<div class="runner-row__body">'
+          + '<div class="runner-row__line1">'
+          +   '<span class="runner-row__id">MIRROR</span>'
+          +   '<span class="runner-row__mode">' + sourceLabel + '</span>'
+          + '</div>'
+          + '<div class="runner-row__line2">'
+          +   '<span>' + (sim.mirrorSourceStage === 1 ? "Running" : "—") + '</span>'
+          + '</div>'
+          + '</div>';
+        li.addEventListener("click", () => setViewer("mirror"));
         ul.appendChild(li);
     }
 }
