@@ -18,9 +18,59 @@ Hooking Frida de **WH40K Tacticus** (Windows PC build, Unity 6 IL2CPP) — monor
 
 ## Cible Windows
 
-- **Exe** : `C:\Users\nicolasv\AppData\Local\tacticus\games\nb3o9lmt6c\Tacticus.exe`
+- **Exe** : `C:\Users\nicolasv\AppData\Local\tacticus\games\<HASH>\Tacticus.exe`
 - **GameAssembly.dll** : ~60 MB, IL2CPP AOT (Unity 6000.3.8f1)
 - **Pas d'`adb`, pas de device, pas de `frida-server`** : injection locale via `frida.getLocalDevice()`
+
+### Hash du build = identité du dump
+
+Tacticus stocke chaque build dans `C:\Users\nicolasv\AppData\Local\tacticus\games\<HASH>\`
+où `<HASH>` (ex. `nb3o9lmt6c`, `uu2fr8mv6c`, …) **change à chaque mise à jour**
+du jeu. Toutes les RVAs IL2CPP, dumps Il2CppDumper (`data/win_dump/`,
+`data/dumps/<HASH>/`), décompilations Ghidra (`sources_win/`) et caches
+analytiques (`data/all_game_targets_win.tsv`, `call_graph_win.json`, …) sont
+**spécifiques à ce hash**. Une RVA résolue contre le mauvais dump donne un
+nom de méthode incohérent — symptôme classique : la stack pointe vers une
+méthode qui n'existe pas dans le binaire actif (typique : `findMethod` retourne
+RVA différente de celle dumpée), et tous les hooks installés via RVA hardcodée
+(ex. `RVA_BUCKET_ADD_ACTION = 0x1478820`) tombent sur du code aléatoire.
+
+**Avant de consulter `sources_win/` ou `data/dumps/<HASH>/` ou de croiser
+une stack frame contre `all_game_targets_win.tsv` :**
+
+1. Lire le hash du build courant :
+   ```bash
+   ls -d /c/Users/nicolasv/AppData/Local/tacticus/games/*/
+   ```
+2. Lire le hash du dump :
+   ```bash
+   cat data/dumps/<HASH>/HASH    # ancien data/win_dump/HASH
+   ```
+3. **Si les deux ne matchent pas, refuser l'analyse offline** : signaler à
+   l'utilisateur, demander un re-dump avant tout. Forcer la désynchronisation
+   silencieuse a déjà coûté plusieurs heures de debug.
+
+### Règle de code : résolution runtime, pas de RVA hardcodées
+
+**Tout hook doit résoudre son entry point en runtime** via la table IL2CPP :
+
+```ts
+const klass = findClassAnywhere(ns, cls);              // helpers.ts
+const mptr = findMethod(klass, methodName);            // helpers.ts
+Interceptor.attach(mptr.ptr, { ... });
+```
+
+**Aucune RVA hardcodée**, ni en constante, ni en fallback `?? il2cppBase.add(0x...)`.
+Une RVA copiée d'un dump devient invalide au prochain changement de hash, et
+`Interceptor.attach` réussit silencieusement sur du code aléatoire — symptôme
+que le hook ne fire jamais (ou fire et crashe). Si `findClassAnywhere` ou
+`findMethod` ne trouve pas la méthode (rare — typiquement des gshared bodies
+ou des classes non indexées par `image_get_class`), c'est une vraie limitation
+à investiguer, **pas** un cas pour ressortir un RVA offline.
+
+Cette règle s'applique aux dumps offline pareil : tout `data/dumps/<hash>/*.tsv`
+ou `*.json` n'a de valeur que pour la **lecture humaine** (consulter du code
+décompilé, comprendre l'archi). Aucun hook live ne doit en dépendre.
 
 ## Démarrage
 
@@ -40,6 +90,56 @@ Host sur `http://127.0.0.1:8765`. Front sur `http://127.0.0.1:8765/view/`.
    `builder_ready` au front, qui déclenche un refresh catalog.
 5. Builder front : tout est armé. On peut générer la `BattleConfiguration` de
    n'importe quelle node (events inactifs inclus) sans relancer une battle.
+
+## Workflow RL — runner isolé avec config patchée
+
+Pour entraîner un agent RL sans toucher au battle in-game, on utilise un
+**runner isolé** construit depuis la `BattleConfiguration` capturée. Le runner
+isole complètement le state — on peut le créer/détruire à volonté sans casser
+le jeu actif.
+
+**Procédure obligatoire dans cet ordre** :
+
+1. **Warmup une fois** par session Frida (après chaque inject/reinject) :
+   ```
+   warmupCampaignGameModeSource({ force: true })
+   ```
+   Sans ça : `lastSource._currentBattle` est null ou stale → tous les
+   `buildPatchedRunner` / `inspectBattleConfig` échouent. Le warmup
+   déclenche `CampaignGameModeSource.LoadBattle` qui peuple `_currentBattle`.
+
+2. **Build runner isolé** (avec patch optionnel) :
+   ```
+   buildPatchedRunner({
+     aiUnits: ["necroNpc1Warrior:6", ...], // 10 strings exactes
+     randomizeAi: true,                     // optionnel
+     templateOverrides: { ... },            // optionnel (HP/dmg sur player roster)
+   })
+   ```
+   Retourne `{ runnerId, runner, seed, bcPtr, patch }`. Le patch s'applique
+   in-place sur `lastSource._currentBattle`. **`Initialize()` du runner consume
+   les `PredefinedUnits` patchées et auto-spawn les enemies** — pas besoin
+   d'appeler `spawnPredefinedUnits` séparément.
+
+3. **Observer l'état** :
+   ```
+   observeBattle({ runnerId })
+   ```
+   Renvoie `{ stage, byType, units: [{ entityId, visualId, hp, ... }] }`.
+   À ce stade : `stage=Setup` (0), 10 units présentes côté AI.
+
+4. **Itérer sans repasser par la game UI** : le `lastSource._currentBattle`
+   reste valide tant que la session Frida n'est pas réinjectée. On peut
+   re-patch + re-buildPatchedRunner autant qu'on veut. Chaque appel crée
+   un nouveau `runnerId`.
+
+**À NE PAS oublier** :
+- Re-warmup après chaque `reinject` (la mémoire managée du wrapper survit
+  mais les caches Frida-side perdent les MethodInfo*).
+- `buildPatchedRunner` mute la BC source — clone si on veut comparer
+  multiple variants.
+- Les unit IDs AI sont au format `"unitId:level"` (ex. `"necroNpc1Warrior:6"`),
+  pas juste `"necroNpc1Warrior"`.
 
 ## Build + Injection
 
