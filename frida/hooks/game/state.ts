@@ -22,6 +22,11 @@ export interface LogEntry {
      * are kept as a sentinel for re-entrancy guards only, not pushed
      * into state.log). Reserved for diagnostics, not used yet. */
     runner?: "live" | "mirror";
+    /** Tag identifying which watched runner emitted this entry — "live" for
+     * the in-game live runner, numeric for build (launch-registered) runners.
+     * Lets analysis filter the log by origin (mirror a single build's stream
+     * even when multiple builds are running concurrently). Defaults to "live". */
+    originRunnerId?: "live" | number;
 }
 
 export interface SimCacheEntry {
@@ -52,8 +57,36 @@ export interface PendingRpc {
 }
 
 export const state = {
-    /** Live runner pointer — captured by main-pump from IdunGameViews.Update. */
+    /** The in-game live runner captured by main-pump from IdunGameViews.
+     * Update — single source of truth for "the live battle". Set ONLY by
+     * main-pump (on runner switch detection), never by feature RPCs.
+     * Gating sentinel for "Live always required": every mirror operation
+     * (including on BUILD launch runners) requires this to be non-null. */
+    liveRunner: null as NativePointer | null,
+
+    /** Legacy alias for `liveRunner` — kept while we migrate callers. New
+     * code should read `state.liveRunner` directly. The recorder no longer
+     * uses this for filtering (see watchedRunners). */
     runnerInstance: null as NativePointer | null,
+
+    /** Set of runners the recorder watches. Each entry maps the runner's
+     * pointer (stringified) to its origin tag — "live" for the in-game
+     * live runner, or a numeric build runnerId for launch-built runners.
+     * Populated by main-pump (live) and launch.initRunner (build); cleared
+     * on runner switch / disposeRunner. The recorder filters in onEnter via
+     * `watchedRunners.get(args[0].toString())` — capture if present, ignore
+     * otherwise — and stamps the resulting LogEntry with `originRunnerId`. */
+    watchedRunners: new Map<string, "live" | number>(),
+
+    /** Parallel set for AiControl pointers — same shape, used by the
+     * recorder's AI hooks (`ApplyAiMessage` / `ApplyHumanAiMessage`).
+     * Without this, AI sub-messages dispatched on a build runner's inner
+     * AiControl during e.g. CheatRunAIMessage execution would be invisible
+     * to the recorder, so the build's mirror catchUp would find nothing
+     * to replay and stay frozen at the build's pre-AI state. Populated
+     * alongside watchedRunners (main-pump for live, launch for build),
+     * cleared on the same lifecycle events. */
+    watchedAiControls: new Map<string, "live" | number>(),
 
     /** Live AiControl pointer — cached by install(), re-read on each use
      * (runner may switch across battles). */
@@ -93,6 +126,15 @@ export const state = {
     /** Mirror's inner AiControl pointer — companion to mirrorRunner. */
     mirrorAiControl: null as NativePointer | null,
 
+    /** Preview runner — built when the user clicks a saved-config tile in
+     * the archive panel. Distinct from build runners: NOT registered in
+     * runner-registry, NOT in watchedRunners (so the recorder ignores any
+     * Apply on it, and state.log isn't polluted), NOT shown in the runners
+     * panel. Used purely to project the saved matchstate so the front can
+     * render it on the central board. Replaced/disposed on every preview
+     * rebuild — only one preview lives at a time. */
+    previewRunner: null as NativePointer | null,
+
     /** When true, the recorder enters a special mode for the "AI plays on
      * mirror" flow: it captures sub-messages dispatched on the mirror runner
      * (args[0] === mirrorRunner) into mirrorTurnQueue with a mirror-PRNG
@@ -109,4 +151,39 @@ export const state = {
      * which UtilitiesDatabase belongs to the mirror (vs the live runner)
      * — we only want to inspect/tweak the mirror's. */
     buildingMirror: false,
+
+    /** True while the recorder is inside an `ApplyAiMessage` call on the LIVE
+     * AiControl. Lets ai-utility-trace observe AI scoring during normal live
+     * play (not just during simRunAiTurn replay on mirror). Set/cleared in
+     * recorder.ts around the "_ours" branch of the AI hook so it stays scoped
+     * to genuine live AI activity. */
+    liveAiRunning: false,
+
+    /** Player whose turn it is right now, sampled from the live MatchState's
+     * TurnComponent. Updated by the recorder on each AI message hook (not on
+     * every trace fire — too hot). null until first read. */
+    currentTurnPlayer: null as number | null,
+
+    /** Round number — count of turns started by the current player, read via
+     * TurnComponent.GetAmountOfTurnsStartedByCurrentPlayer. Stable within a
+     * single contiguous turn (matches the in-game "Turn N" UI). */
+    currentTurnRound: null as number | null,
+
+    /** Monotonic segment counter — increments every time currentTurnPlayer
+     * flips. Lets the trace tag entries with a turn-segment id so analysis
+     * can group all the AI scoring done within a single contiguous turn
+     * (player A's first turn = 1, player B's first turn = 2, player A's
+     * second turn = 3, ...). */
+    turnSegment: 0,
+
+    /** Last GameModeSource.LoadBattle observation — set by mode-source-capture
+     * when a battle loads. Captured passively (no auto-save anymore) so the
+     * user-driven `simSaveLiveConfig` can enrich the saved config with mode +
+     * campaignId + locationIndex without requerying the source instance. */
+    lastModeSourceMeta: null as null | {
+        mode: string;
+        campaignId: string | null;
+        locationIndex: number | null;
+        ts: number;
+    },
 };

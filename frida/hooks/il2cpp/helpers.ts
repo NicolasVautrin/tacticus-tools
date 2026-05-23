@@ -23,14 +23,15 @@ function exp(name: string): NativePointer {
 }
 
 // --- IL2CPP C API wrappers ---
-const domain_get = new NativeFunction(exp("il2cpp_domain_get"), "pointer", []);
-const domain_get_assemblies = new NativeFunction(
+export const domain_get = new NativeFunction(
+    exp("il2cpp_domain_get"), "pointer", []);
+export const domain_get_assemblies = new NativeFunction(
     exp("il2cpp_domain_get_assemblies"), "pointer", ["pointer", "pointer"]);
-const assembly_get_image = new NativeFunction(
+export const assembly_get_image = new NativeFunction(
     exp("il2cpp_assembly_get_image"), "pointer", ["pointer"]);
-const image_get_class_count = new NativeFunction(
+export const image_get_class_count = new NativeFunction(
     exp("il2cpp_image_get_class_count"), "uint32", ["pointer"]);
-const image_get_class = new NativeFunction(
+export const image_get_class = new NativeFunction(
     exp("il2cpp_image_get_class"), "pointer", ["pointer", "uint32"]);
 export const class_get_name = new NativeFunction(
     exp("il2cpp_class_get_name"), "pointer", ["pointer"]);
@@ -44,7 +45,7 @@ export const method_get_name = new NativeFunction(
     exp("il2cpp_method_get_name"), "pointer", ["pointer"]);
 export const class_get_fields = new NativeFunction(
     exp("il2cpp_class_get_fields"), "pointer", ["pointer", "pointer"]);
-const class_get_parent = new NativeFunction(
+export const class_get_parent = new NativeFunction(
     exp("il2cpp_class_get_parent"), "pointer", ["pointer"]);
 export const field_get_name = new NativeFunction(
     exp("il2cpp_field_get_name"), "pointer", ["pointer"]);
@@ -106,10 +107,12 @@ export function getSystemType(klass: NativePointer): NativePointer {
 // --- String helpers ---
 
 /** Read a native UTF-8 C string from an IL2CPP export pointer, empty on failure. */
-export function s(p: NativePointer): string {
+export function cstr(p: NativePointer): string {
     try { return p.readUtf8String() || ""; }
     catch { return ""; }
 }
+/** Legacy alias. New code should import `cstr`. */
+export const s = cstr;
 
 /** Read a managed System.String from an IL2CPP object. Null on failure. */
 export function readIl2cppString(objPtr: NativePointer): string | null {
@@ -223,6 +226,30 @@ export function findCtorByParamCount(
     return null;
 }
 
+/** Find a method overload by exact name + parameter count. Walks the
+ * inheritance chain. Useful when multiple overloads of the same method
+ * exist (e.g., GetStats has 5 overloads on UnitProgression). */
+export function findMethodByParamCount(
+    klass: NativePointer, name: string, paramCount: number,
+): MethodRef | null {
+    let k = klass;
+    while (!k.isNull()) {
+        const it = Memory.alloc(Process.pointerSize);
+        it.writePointer(ptr(0));
+        let m: NativePointer;
+        while (!(m = class_get_methods(k, it) as NativePointer).isNull()) {
+            if (s(method_get_name(m) as NativePointer) !== name) continue;
+            try {
+                if ((method_get_param_count(m) as number) === paramCount) {
+                    return { info: m, ptr: methodEntry(m) };
+                }
+            } catch { /* skip */ }
+        }
+        k = class_get_parent(k) as NativePointer;
+    }
+    return null;
+}
+
 // --- Field offset resolution (cached, walks inheritance chain) ---
 
 const fieldOffsetCache: Record<string, number> = {};
@@ -306,4 +333,20 @@ export function hook(
 export function readMsgClass(msgPtr: NativePointer): string {
     try { return s(class_get_name(msgPtr.readPointer()) as NativePointer); }
     catch { return "?"; }
+}
+
+/** Read both namespace + class name — enough to round-trip a class through
+ * findClassAnywhere(ns, cls) at load time. Returns empty strings on failure. */
+export function readMsgIdentity(msgPtr: NativePointer): {
+    ns: string; cls: string;
+} {
+    try {
+        const klass = msgPtr.readPointer();
+        return {
+            ns: s(class_get_namespace(klass) as NativePointer),
+            cls: s(class_get_name(klass) as NativePointer),
+        };
+    } catch {
+        return { ns: "", cls: "?" };
+    }
 }

@@ -19,12 +19,14 @@ import { Ctx } from "../controller.js";
 import {
     class_get_methods, class_get_name,
     findClass, findClassAnywhere, findMethod,
+    il2cppBase, il2cppSize,
     method_get_name, method_get_param_count, methodEntry, readIl2cppString,
     s,
 } from "../il2cpp/helpers.js";
-import { invokeMethod } from "../il2cpp/invoke.js";
+import { createManagedString, invokeMethod } from "../il2cpp/invoke.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { state } from "../game/state.js";
+import { aiControlClass } from "../game/ai-control.js";
 
 // Cache the System.String Il2CppClass* once at module load. The hook on
 // Dictionary<string,int>.TryGetValue actually fires for ALL reference-typed
@@ -129,6 +131,10 @@ const groupOperatorClass = findClass(
     "IdunBattle.AI.OperationalDeciders", "DefaultGroupOperator");
 
 let mirrorUtilitiesDb: NativePointer | null = null;
+/** Live runner ptr captured at the most recent mirror build. Used as match
+ * identity: re-mirroring the same battle leaves this unchanged → keep the
+ * trace; mirroring a different battle changes it → wipe. */
+let lastMirroredLiveRunner: string | null = null;
 let utilitiesDbCtorHookInstalled = false;
 function ensureUtilitiesDbCapture(): void {
     if (utilitiesDbCtorHookInstalled || !groupOperatorClass) return;
@@ -144,18 +150,38 @@ function ensureUtilitiesDbCapture(): void {
             const db = args[4];
             if (!db.isNull()) {
                 mirrorUtilitiesDb = db;
-                // Each MIRROR NOW rebuilds the mirror with a fresh
-                // UtilitiesDatabase, so pre-populated configs from a prior
-                // mirror are stale — drop them.
+                // Identify the match by the live runner ptr: same runner →
+                // same battle, different runner → new battle. Re-mirroring
+                // the same battle should preserve accumulated trace data so
+                // the user can keep stacking observations (e.g., multiple AI
+                // turns within one game). A new battle wipes everything.
+                const liveRunnerPtr = state.liveRunner?.toString() ?? null;
+                const sameMatch = liveRunnerPtr !== null
+                    && liveRunnerPtr === lastMirroredLiveRunner;
+                lastMirroredLiveRunner = liveRunnerPtr;
+                // knownConfigs always re-populated — even within the same
+                // match, the new mirror has fresh UtilityConfig instances
+                // at different ptrs so the prior bindings are stale.
                 knownConfigs.clear();
-                // Auto-populate the new mirror's configs so the trace is
-                // ready to use without a manual enable step.
+                if (!sameMatch) {
+                    trace.buffer = [];
+                    trace.counters.clear();
+                    trace.seq = 0;
+                    trace.diag.tryGetValueFires = 0;
+                    trace.diag.tryGetValueMatchedKnown = 0;
+                    trace.diag.getItemFires = 0;
+                    trace.diag.getItemMatchedKnown = 0;
+                    trace.diag.liveAiFires = 0;
+                    trace.diag.mirrorFires = 0;
+                }
                 const stats = prePopulateKnownConfigs();
                 send({
                     t: "diag",
                     msg: "[ai-util-trace] captured mirror UtilitiesDatabase="
-                        + db + " · auto-populated="
-                        + stats.populated + " configs",
+                        + db + " · liveRunner=" + liveRunnerPtr
+                        + " · sameMatch=" + sameMatch
+                        + " · auto-populated=" + stats.populated + " configs"
+                        + (sameMatch ? " · trace kept" : " · trace reset"),
                 });
             }
         },
@@ -184,7 +210,7 @@ const class_get_parent = new NativeFunction(
 
 function findInheritedMethod(
     cls: NativePointer, name: string, paramCount: number,
-): { ptr: NativePointer; klass: NativePointer } | null {
+): { ptr: NativePointer; info: NativePointer; klass: NativePointer } | null {
     let k = cls;
     while (!k.isNull()) {
         const it = Memory.alloc(Process.pointerSize);
@@ -194,7 +220,7 @@ function findInheritedMethod(
             if (s(method_get_name(m) as NativePointer) !== name) continue;
             try {
                 if ((method_get_param_count(m) as number) === paramCount) {
-                    return { ptr: methodEntry(m), klass: k };
+                    return { ptr: methodEntry(m), info: m, klass: k };
                 }
             } catch { /* skip */ }
         }
@@ -211,6 +237,11 @@ const tryGetValueRef = utilityConfigClass
 // get_Item(string key) → 1 param, returns int
 const getItemRef = utilityConfigClass
     ? findInheritedMethod(utilityConfigClass, "get_Item", 1) : null;
+
+// set_Item(string key, int value) → 2 params, void return — used by the
+// patcher RPC to mutate runtime UtilityConfig values.
+const setItemRef = utilityConfigClass
+    ? findInheritedMethod(utilityConfigClass, "set_Item", 2) : null;
 
 // --- Trace state ---
 
@@ -261,6 +292,30 @@ function getOwnerType(dictPtr: NativePointer): string | null {
     return trackedClasses.get(klass.toString()) ?? null;
 }
 
+/** Diagnostic sampler — when enabled, captures the qualified type names of
+ * dicts the AI consults during a live turn but that fall outside our tracked
+ * classes. Used to spot when our allowlist drifts (e.g., agent class ptr ≠
+ * runtime class ptr after a Tacticus restart) or when the AI uses a Dict
+ * type we haven't catalogued yet. Capped at sampleCap to avoid log spam. */
+const diagSampler = {
+    enabled: false,
+    sampleCap: 30,
+    samples: new Map<string, { friendlyName: string; count: number }>(),
+};
+function sampleUntrackedDict(klass: NativePointer): void {
+    if (!diagSampler.enabled) return;
+    const k = klass.toString();
+    const existing = diagSampler.samples.get(k);
+    if (existing) {
+        existing.count++;
+        return;
+    }
+    if (diagSampler.samples.size >= diagSampler.sampleCap) return;
+    let name = "<resolution-failed>";
+    try { name = getClassQualifiedName(klass); } catch { /* keep default */ }
+    diagSampler.samples.set(k, { friendlyName: name, count: 1 });
+}
+
 interface AccessEntry {
     /** monotonic seq number — easier to correlate with ai-trace L3 events */
     seq: number;
@@ -280,6 +335,19 @@ interface AccessEntry {
     value: number | null;
     /** TryGetValue: bool returned (was key found). get_Item: always true. */
     found: boolean | null;
+    /** Which AI context fired the hook. "live" = a live AiControl.ApplyAiMessage
+     * was on the stack (real game AI playing its turn); "mirror" = mirror replay
+     * during simRunAiTurn Phase 1. */
+    source: "live" | "mirror";
+    /** Player id whose turn was active at fire time (sampled by the recorder
+     * when the AI message hook entered). null until first AI msg. */
+    turnPlayer: number | null;
+    /** In-game "Turn N" — count of turns started by the current player
+     * (matches the in-game UI's turn counter). null until first AI msg. */
+    turnRound: number | null;
+    /** Monotonic counter — bumps each time turnPlayer flips. Lets analysis
+     * group all entries from a single contiguous turn window. */
+    turnSegment: number;
 }
 
 interface TraceState {
@@ -292,8 +360,22 @@ interface TraceState {
     /** Listeners installed by enable() — kept so disable() can detach. */
     listeners: InvocationListener[];
     /** Per-key read counters — useful summary view without dumping the
-     * full buffer. Keyed as `${typeName}:${key}`. */
+     * full buffer. Keyed as `${source}|${ownerType}:${key}`, so live + mirror
+     * counts are separate (analysis usually wants one or the other, not the
+     * sum — mirror replays of past turns shouldn't pollute the live AI signal). */
     counters: Map<string, number>;
+    /** Multi-capture: collect up to N **distinct** callstacks (deduped by
+     * top-frame RVA) at every tryGetValueRef fire and at every
+     * AiControl.ExecuteMovementFor entry. Lets us see the actual AI scoring
+     * path *and* the move-execution path side by side. */
+    callstacksMax: number;
+    callstacks: Array<{
+        origin: "tryGetValue" | "executeMove" | "executeAbility";
+        source: "live" | "mirror";
+        topRva: number;
+        frames: string[];
+        ts: number;
+    }>;
     /** Lightweight diagnostic counters — fast-path tracks total hook fires
      * (incremented before the allowlist filter) so we can see how many calls
      * we're skipping. Slow-path counters increment only after the filter. */
@@ -302,6 +384,10 @@ interface TraceState {
         tryGetValueMatchedKnown: number;
         getItemFires: number;
         getItemMatchedKnown: number;
+        /** Fires attributed to a live AI turn (state.liveAiRunning=true). */
+        liveAiFires: number;
+        /** Fires attributed to mirror replay (state.captureMirrorMessages=true). */
+        mirrorFires: number;
     };
 }
 
@@ -321,8 +407,62 @@ const trace: TraceState = {
         tryGetValueMatchedKnown: 0,
         getItemFires: 0,
         getItemMatchedKnown: 0,
+        liveAiFires: 0,
+        mirrorFires: 0,
     },
+    callstacksMax: 20,
+    callstacks: [],
 };
+
+/** Read MatchState.IsAiRunning (offset 0x58) on the live runner. Defensive —
+ * returns false if pointers are stale or the read fails. Used as a broad
+ * gating signal: the live AI's scoring runs in a coroutine that's NOT inside
+ * an ApplyAiMessage call, so `state.liveAiRunning` (set per-message) misses
+ * the entire scoring window. IsAiRunning stays true across the whole turn. */
+function liveIsAiRunning(): boolean {
+    const live = state.liveRunner;
+    if (!live) return false;
+    try {
+        // runnerOff.state is the IdunRunner._state field offset.
+        // Hardcoded here to avoid an extra import — cheap u8 read.
+        const liveState = live.add(0x40).readPointer();
+        if (liveState.isNull()) return false;
+        return liveState.add(0x58).readU8() !== 0;
+    } catch { return false; }
+}
+
+/** Capture a backtrace as RVAs and store it deduped by top-frame. Caps at
+ * `trace.callstacksMax` distinct stacks. Cheap: hot-path reads ≈ 32 frames,
+ * dedup by `topRva` is O(1) Set lookup. */
+function captureStack(
+    ctx: CpuContext,
+    origin: "tryGetValue" | "executeMove" | "executeAbility",
+    source: "live" | "mirror",
+): void {
+    if (trace.callstacks.length >= trace.callstacksMax) return;
+    let topRva = -1;
+    const frames: string[] = [];
+    try {
+        const bt = Thread.backtrace(ctx, Backtracer.ACCURATE);
+        for (let i = 0; i < Math.min(bt.length, 32); i++) {
+            const off = bt[i].sub(il2cppBase);
+            const inIl2cpp = off.compare(0) >= 0
+                && off.compare(il2cppSize) < 0;
+            if (i === 0 && inIl2cpp) topRva = off.toInt32();
+            frames.push(inIl2cpp
+                ? "rva:0x" + off.toString(16)
+                : "abs:" + bt[i].toString());
+        }
+    } catch (e) {
+        frames.push("<failed: " + (e as Error).message + ">");
+    }
+    // Dedup by (origin, topRva): same hot loop fires thousands of times,
+    // we only want one specimen per unique entry point.
+    for (const c of trace.callstacks) {
+        if (c.origin === origin && c.topRva === topRva) return;
+    }
+    trace.callstacks.push({ origin, source, topRva, frames, ts: Date.now() });
+}
 
 // --- Enum name lookup (from sources_win UtilityType.cs / UtilityConfigCollectionType.cs) ---
 
@@ -385,6 +525,11 @@ type CaptureMarker = InvocationContext & {
     _ucOwnerType?: string;
     _ucBinding?: UtilityConfigBinding;
     _ucOutPtr?: NativePointer;
+    /** Snapshot of which AI context fired this hook (live vs mirror) — taken
+     * at onEnter so the onLeave dispatch sees the same source even if the
+     * flags flipped between the two callbacks (extremely rare but possible
+     * if the AI window closed mid-call). */
+    _ucSource?: "live" | "mirror";
     _gciCall?: { type: number; collection: number };
 };
 
@@ -407,7 +552,8 @@ function pushAccess(entry: AccessEntry): void {
         trace.buffer.shift();
     }
     trace.buffer.push(entry);
-    const ck = entry.ownerType + ":" + (entry.key ?? "<no-key>");
+    const ck = entry.source + "|" + entry.ownerType
+        + ":" + (entry.key ?? "<no-key>");
     trace.counters.set(ck, (trace.counters.get(ck) ?? 0) + 1);
 }
 
@@ -429,18 +575,41 @@ function installHooks(): boolean {
         trace.listeners.push(Interceptor.attach(tryGetValueRef.ptr, {
             onEnter(this: CaptureMarker, args) {
                 if (!trace.enabled) return;
-                if (!state.captureMirrorMessages) return;
+                // Fire during mirror replay (Phase 1 simRunAiTurn), during
+                // a live ApplyAiMessage window, OR anywhere in the broader
+                // live-AI coroutine (IsAiRunning=true). The third case is
+                // critical for the *scoring* phase, which runs OUTSIDE
+                // ApplyAiMessage and was previously invisible to us.
+                const inLiveAi = state.liveAiRunning || liveIsAiRunning();
+                if (!state.captureMirrorMessages && !inLiveAi) return;
                 trace.diag.tryGetValueFires++;
+                const source: "live" | "mirror" =
+                    inLiveAi ? "live" : "mirror";
+                if (source === "live") trace.diag.liveAiFires++;
+                else trace.diag.mirrorFires++;
+                // Multi-capture: dedup by top-frame RVA so we collect every
+                // distinct call-site that hits TryGetValue, up to the cap.
+                captureStack(this.context, "tryGetValue", source);
                 // Fast-path early exit: if args[0]'s class isn't in our
                 // allowlist (UtilityConfig + 2 wrappers), bail out before
                 // doing ANY string work. Saves the bulk of the cost on the
                 // ~20k fires that aren't ours.
                 const thisPtr = args[0];
                 const ownerType = getOwnerType(thisPtr);
-                if (ownerType === null) return;
+                if (ownerType === null) {
+                    // Diagnostic: sample the dict's class for offline inspection
+                    // (only when sampler is enabled and we're in a live AI
+                    // window — avoids overhead during regular play).
+                    if (diagSampler.enabled && source === "live") {
+                        try { sampleUntrackedDict(thisPtr.readPointer()); }
+                        catch { /* ignore */ }
+                    }
+                    return;
+                }
                 const cfgKey = thisPtr.toString();
                 this._ucConfigPtr = cfgKey;
                 this._ucOwnerType = ownerType;
+                this._ucSource = source;
                 this._ucBinding = knownConfigs.get(cfgKey) ?? {
                     type: -1, typeName: "<unknown>",
                     collection: -1, collectionName: "<unknown>",
@@ -475,7 +644,8 @@ function installHooks(): boolean {
             },
             onLeave(this: CaptureMarker, retval) {
                 if (!this._ucBinding) return;
-                if (!state.captureMirrorMessages) return;
+                if (!state.captureMirrorMessages
+                    && !state.liveAiRunning) return;
                 // Keep noise entries in the buffer/counters so we can dig
                 // into the struct-by-ref layouts further (separate "samples"
                 // captures details per noise category — see capture logic
@@ -494,6 +664,10 @@ function installHooks(): boolean {
                     key: this._ucKey ?? null,
                     value,
                     found: retval.toInt32() !== 0,
+                    source: this._ucSource ?? "live",
+                    turnPlayer: state.currentTurnPlayer,
+                    turnRound: state.currentTurnRound,
+                    turnSegment: state.turnSegment,
                 });
             },
         }));
@@ -504,7 +678,8 @@ function installHooks(): boolean {
         trace.listeners.push(Interceptor.attach(getItemRef.ptr, {
             onEnter(this: CaptureMarker, args) {
                 if (!trace.enabled) return;
-                if (!state.captureMirrorMessages) return;
+                if (!state.captureMirrorMessages
+                    && !state.liveAiRunning) return;
                 trace.diag.getItemFires++;
                 const thisPtr = args[0];
                 const cfgKey = thisPtr.toString();
@@ -514,6 +689,7 @@ function installHooks(): boolean {
                 this._ucConfigPtr = cfgKey;
                 this._ucOwnerType = getOwnerType(thisPtr) ?? undefined;
                 this._ucBinding = binding;
+                this._ucSource = state.liveAiRunning ? "live" : "mirror";
                 try {
                     this._ucKey = readIl2cppString(args[1]) ?? "<unreadable>";
                 } catch { this._ucKey = "<exception>"; }
@@ -531,9 +707,38 @@ function installHooks(): boolean {
                     key: this._ucKey ?? null,
                     value: retval.toInt32(),
                     found: true,
+                    source: this._ucSource ?? "live",
+                    turnPlayer: state.currentTurnPlayer,
+                    turnRound: state.currentTurnRound,
+                    turnSegment: state.turnSegment,
                 });
             },
         }));
+    }
+
+    // Hook 4: AiControl.ExecuteMovementFor — captures the call-stack at the
+    // *moment of move execution*. The frame above us is the AI tactic that
+    // chose this destination, so the backtrace exposes the decision pipeline.
+    if (aiControlClass) {
+        const execMoveMi = findMethod(aiControlClass, "ExecuteMovementFor");
+        if (execMoveMi && !execMoveMi.ptr.isNull()) {
+            trace.listeners.push(Interceptor.attach(execMoveMi.ptr, {
+                onEnter() {
+                    captureStack(this.context, "executeMove",
+                        liveIsAiRunning() ? "live" : "mirror");
+                },
+            }));
+        }
+        const execAbilityMi = findMethod(aiControlClass, "ExecuteAbilityFor")
+            ?? findMethod(aiControlClass, "ExecuteAbilityActionFor");
+        if (execAbilityMi && !execAbilityMi.ptr.isNull()) {
+            trace.listeners.push(Interceptor.attach(execAbilityMi.ptr, {
+                onEnter() {
+                    captureStack(this.context, "executeAbility",
+                        liveIsAiRunning() ? "live" : "mirror");
+                },
+            }));
+        }
     }
 
     Interceptor.flush();
@@ -542,7 +747,10 @@ function installHooks(): boolean {
         msg: "[ai-util-trace] hooks installed: GetUtilityConfig="
             + (!getUtilityConfigMi.ptr.isNull() ? "ok" : "FAIL")
             + " · TryGetValue=" + (tryGetValueRef ? "ok" : "missing")
-            + " · get_Item=" + (getItemRef ? "ok" : "missing"),
+            + " · get_Item=" + (getItemRef ? "ok" : "missing")
+            + " · ExecuteMove="
+            + (aiControlClass ? "scanning" : "<no AiControl class>")
+            + " · listeners=" + trace.listeners.length,
     });
     return true;
 }
@@ -655,6 +863,8 @@ export function register(ctx: Ctx): void {
         trace.diag.tryGetValueMatchedKnown = 0;
         trace.diag.getItemFires = 0;
         trace.diag.getItemMatchedKnown = 0;
+        trace.diag.liveAiFires = 0;
+        trace.diag.mirrorFires = 0;
         return { ok: true };
     };
 
@@ -680,19 +890,26 @@ export function register(ctx: Ctx): void {
         };
     };
 
-    /** Aggregated counters: how many times each (ownerType, key) was read.
-     * Lets us identify hot keys without scanning the full buffer.
+    /** Aggregated counters: how many times each (source, ownerType, key) was
+     * read. Lets us identify hot keys without scanning the full buffer.
      * `ownerType` is the qualified Dict<TKey,TValue> generic instantiation,
-     * eg `Dictionary'2[BEntityId,Int32]` or
-     * `IdunBattle.Configuration.UtilityConfig`. */
+     * eg `IdunBattle.Configuration.UtilityConfig`. `source` is "live" (live
+     * AI turn) or "mirror" (simRunAiTurn replay) — separated so analysis
+     * can focus on one without the other contaminating the signal. */
     ctx.rpc.aiUtilityTraceCounters = (): unknown => {
-        const out: Array<{ ownerType: string; key: string; count: number }> =
-            [];
+        const out: Array<{
+            source: "live" | "mirror";
+            ownerType: string; key: string; count: number;
+        }> = [];
         for (const [k, v] of trace.counters) {
-            const idx = k.indexOf(":");
+            const pipe = k.indexOf("|");
+            const source = pipe >= 0 ? k.slice(0, pipe) : "live";
+            const rest = pipe >= 0 ? k.slice(pipe + 1) : k;
+            const colon = rest.indexOf(":");
             out.push({
-                ownerType: idx >= 0 ? k.slice(0, idx) : k,
-                key: idx >= 0 ? k.slice(idx + 1) : "",
+                source: source as "live" | "mirror",
+                ownerType: colon >= 0 ? rest.slice(0, colon) : rest,
+                key: colon >= 0 ? rest.slice(colon + 1) : "",
                 count: v,
             });
         }
@@ -708,5 +925,116 @@ export function register(ctx: Ctx): void {
         };
     };
 
+    /** Read the multi-capture buffer of distinct call-stacks. Captured at
+     * EVERY tryGetValueRef fire (during live-AI coroutine OR mirror replay)
+     * and at every AiControl.ExecuteMovementFor entry, deduped by top-frame
+     * RVA, capped at trace.callstacksMax. */
+    ctx.rpc.aiUtilityTraceCallstacks = (): unknown => ({
+        max: trace.callstacksMax,
+        count: trace.callstacks.length,
+        callstacks: trace.callstacks,
+    });
+    /** Wipe the callstack buffer so the next AI turn re-collects fresh. */
+    ctx.rpc.aiUtilityTraceCallstacksReset = (): unknown => {
+        trace.callstacks = [];
+        return { ok: true };
+    };
+
     void detachHooks; // exposed in case we add a "fully uninstall" RPC later
+
+    /** Enable the untracked-dict diag sampler. While enabled, every TryGetValue
+     * fire that misses the trackedClasses allowlist samples its class qualified
+     * name (capped at sampleCap to bound log spam). Call …DiagDump to read. */
+    ctx.rpc.aiUtilityTraceDiagSamplerEnable = (
+        body?: { sampleCap?: number },
+    ): unknown => {
+        diagSampler.enabled = true;
+        if (body?.sampleCap) diagSampler.sampleCap = body.sampleCap;
+        diagSampler.samples.clear();
+        return { ok: true, sampleCap: diagSampler.sampleCap };
+    };
+
+    ctx.rpc.aiUtilityTraceDiagSamplerDisable = (): unknown => {
+        diagSampler.enabled = false;
+        return { ok: true };
+    };
+
+    /** Dump the diag sampler's collected (classPtr → friendlyName, count). */
+    ctx.rpc.aiUtilityTraceDiagSamplerDump = (): unknown => {
+        const out = [...diagSampler.samples.entries()].map(([k, v]) => ({
+            classPtr: k, friendlyName: v.friendlyName, count: v.count,
+        }));
+        out.sort((a, b) => b.count - a.count);
+        return {
+            enabled: diagSampler.enabled,
+            sampleCap: diagSampler.sampleCap,
+            distinctClasses: out.length,
+            trackedClasses: [...trackedClasses.entries()].map(([ptr, name]) => ({
+                classPtr: ptr, friendlyName: name,
+            })),
+            samples: out,
+        };
+    };
+
+    /** Patch a UtilityConfig key on a specific runtime config instance.
+     *
+     * Body: { configPtr: string, key: string, value: number }
+     *   - configPtr: pointer string ("0x...") visible in trace entries
+     *     (`entry.configPtr`). Must be a live UtilityConfig instance.
+     *   - key: string key (e.g. "PerUnitWithAbilityInRange")
+     *   - value: new int value to set
+     *
+     * Invokes Dictionary<string,int>.set_Item via il2cpp on the main thread.
+     * Returns the previous value (read via TryGetValue) for verification —
+     * if the key didn't exist, prevFound=false and prevValue=0. */
+    ctx.rpc.aiUtilityTracePatch = (
+        body: { configPtr: string; key: string; value: number },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        if (!setItemRef || setItemRef.ptr.isNull()) {
+            return { ok: false, error: "set_Item not resolved" };
+        }
+        if (!tryGetValueRef || tryGetValueRef.ptr.isNull()) {
+            return { ok: false, error: "TryGetValue not resolved" };
+        }
+        const cfg = ptr(body.configPtr);
+        if (cfg.isNull()) {
+            return { ok: false, error: "configPtr is null" };
+        }
+        // Read the previous value before patching (best-effort).
+        let prevValue = 0; let prevFound = false;
+        try {
+            const outBuf = Memory.alloc(4);
+            outBuf.writeS32(0);
+            const keyStr = createManagedString(body.key);
+            const r = invokeMethod(
+                tryGetValueRef.info, cfg, [keyStr, outBuf]);
+            // Boxed bool → byte at 0x10 of the boxed object.
+            prevFound = !r.isNull() && r.add(0x10).readU8() !== 0;
+            prevValue = outBuf.readS32();
+        } catch (e) {
+            // Read failed — proceed with patch anyway, prev info is just
+            // diagnostic.
+            send({
+                t: "diag", msg: "[ai-util-trace] patch prev-read failed: "
+                    + (e as Error).message,
+            });
+        }
+        // Patch via set_Item(string, int). The int is passed as a pointer to
+        // a stack-allocated 4-byte buffer (IL2CPP value-type by-ref ABI).
+        try {
+            const keyStr = createManagedString(body.key);
+            const valBuf = Memory.alloc(4);
+            valBuf.writeS32(body.value);
+            invokeMethod(setItemRef.info, cfg, [keyStr, valBuf]);
+        } catch (e) {
+            return {
+                ok: false, error: "set_Item threw: " + (e as Error).message,
+                prevFound, prevValue,
+            };
+        }
+        return {
+            ok: true, configPtr: body.configPtr, key: body.key,
+            newValue: body.value, prevFound, prevValue,
+        };
+    });
 }

@@ -16,8 +16,10 @@
 //   Stage @ 36 (Int32: 0=Setup, 1=Running, 2=Finished)
 
 import {
-    findClass, findClassAnywhere, getFieldOffset, readIl2cppString,
+    findClass, findClassAnywhere, findMethod, getFieldOffset,
+    readIl2cppString,
 } from "../il2cpp/helpers.js";
+import { invokeMethod } from "../il2cpp/invoke.js";
 import { serializeToJson } from "../il2cpp/serializer.js";
 
 export const matchStateClass = findClass(
@@ -28,7 +30,7 @@ export const msEntitiesOff = getFieldOffset(matchStateClass, "_entities");
 
 // ---- Component classes for projection. Resolved once at module load. ----
 
-const positionComponentClass = findClassAnywhere(
+export const positionComponentClass = findClassAnywhere(
     "IdunBattle.Entities.Components", "PositionComponent");
 const healthComponentClass = findClassAnywhere(
     "IdunBattle.Entities.Components", "HealthComponent");
@@ -103,6 +105,43 @@ export function readTurnPlayer(statePtr: NativePointer): number | null {
         }
     });
     return result;
+}
+
+const turnComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "TurnComponent");
+const getTurnsStartedByCurrentPlayerMi = turnComponentClass
+    ? findMethod(turnComponentClass, "GetAmountOfTurnsStartedByCurrentPlayer")
+    : null;
+
+/** Combined `{ player, round }` read in a single MatchState scan. `round` =
+ * the count returned by `TurnComponent.GetAmountOfTurnsStartedByCurrentPlayer`,
+ * i.e. the Nth turn for the player currently on turn. In a 1v1 match where
+ * both players have started 3 turns, `round = 3` regardless of who's
+ * currently active. */
+export function readTurnInfo(
+    statePtr: NativePointer,
+): { player: number | null; round: number | null } {
+    const out: { player: number | null; round: number | null } =
+        { player: null, round: null };
+    forEachEntity(statePtr, (e, _id, ty) => {
+        if (out.player !== null) return;
+        if (ty !== EntityType.Match) return;
+        const tc = e.add(56).readPointer();
+        if (tc.isNull()) return;
+        out.player = tc.add(36).readS32();
+        if (getTurnsStartedByCurrentPlayerMi
+            && !getTurnsStartedByCurrentPlayerMi.ptr.isNull()) {
+            try {
+                // il2cpp_runtime_invoke boxes value-type returns. The actual
+                // int sits at offset 0x10 of the boxed System.Int32 object
+                // (header @ 0x0/0x8, then the unboxed value).
+                const r = invokeMethod(
+                    getTurnsStartedByCurrentPlayerMi.info, tc, null);
+                if (!r.isNull()) out.round = r.add(0x10).readS32();
+            } catch { /* leave round null */ }
+        }
+    });
+    return out;
 }
 
 export interface BattleStatus {
@@ -209,7 +248,7 @@ export interface MatchStateProjection {
     units: UnitProjection[];
 }
 
-const unitFootComponentClass = findClassAnywhere(
+export const unitFootComponentClass = findClassAnywhere(
     "IdunBattle.Entities.Components", "UnitFootComponent");
 const tileContentComponentClass = findClassAnywhere(
     "IdunBattle.Entities.Components", "TileContentComponent");
@@ -224,7 +263,7 @@ const PLAYER_TEAM_ID_OFF = 0x24;
 
 /** Walk an entity's `Components` IComponent[] (offset 0x18) and yield each
  * `(componentPtr, klassPtr)` pair. Defensive against malformed arrays. */
-function forEachComponent(
+export function forEachComponent(
     entityPtr: NativePointer,
     cb: (componentPtr: NativePointer, klassPtr: NativePointer) => void,
 ): void {
@@ -310,7 +349,7 @@ function readUnitFootLink(entityPtr: NativePointer): {
 }
 
 /** Read PositionComponent on a Tile entity → (col, row). */
-function readTilePosition(
+export function readTilePosition(
     entityPtr: NativePointer,
 ): { col: number; row: number } | null {
     let pos: { col: number; row: number } | null = null;

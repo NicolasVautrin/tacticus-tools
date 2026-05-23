@@ -58,10 +58,29 @@ export function installMainPump(): void {
         traceEnter("IdunGameViews.Update", 60);
         const selfPtr = self as NativePointer;
 
-        // Runner switch detection
+        // Runner switch detection — handle three transitions:
+        //   null → r       (battle started)
+        //   r1   → r2      (battle switched)
+        //   r    → null    (battle ended / quit to menu)
         const r = selfPtr.add(gvRunnerOff).readPointer();
-        if (!r.isNull() && !r.equals(state.runnerInstance ?? ptr(0))) {
-            state.runnerInstance = r;
+        if (r.isNull()) {
+            // Battle ended on the device → drop the live entry. Build runners
+            // (if any) stay intact: they're our standalones, independent of
+            // the device's battle lifecycle.
+            if (state.liveRunner) {
+                state.watchedRunners.delete(state.liveRunner.toString());
+                state.liveRunner = null;
+                state.runnerInstance = null;
+                send({ t: "diag", msg: "[main-pump] live battle ended — liveRunner cleared" });
+            }
+        } else if (!r.equals(state.liveRunner ?? ptr(0))) {
+            // Drop the previous live's watch entry (its build siblings stay).
+            if (state.liveRunner) {
+                state.watchedRunners.delete(state.liveRunner.toString());
+            }
+            state.liveRunner = r;
+            state.runnerInstance = r;  // legacy alias
+            state.watchedRunners.set(r.toString(), "live");
             state.counter = 0;
             state.log = [];
             state.installNeeded = true;

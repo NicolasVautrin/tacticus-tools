@@ -240,7 +240,7 @@ interface WarmupResult {
 // --- Orchestration ---
 
 async function warmupCampaignGameModeSource(
-    opts?: { force?: boolean },
+    opts?: { force?: boolean; retreat?: boolean },
 ): Promise<WarmupResult> {
     // 0. Idempotence: if a previous session already captured it, no-op.
     //    Pass { force: true } to skip this short-circuit (useful for
@@ -393,6 +393,18 @@ async function warmupCampaignGameModeSource(
     // the major animations are done.
     await sleep(500);
 
+    // If retreat is disabled (default: true), stop here. The battle stays
+    // in deployment phase — useful for RL training loops where the next
+    // step is to inspect spawned entities / apply units / play.
+    if (opts?.retreat === false) {
+        log("[warmup-cgms] cycle complete — builder ready, holding at deployment (retreat=false)");
+        return {
+            ok: true,
+            capturedAt: captured.toString(),
+            steps: [...steps, { step: "hold-at-deployment", ok: true }],
+        };
+    }
+
     // 7. Pause → retreat → confirm. Each step polls until the next button
     //    appears, then clicks it in the same main-thread tick.
     const pauseClick = await waitForAndClick(r, PAUSE_BUTTON_KEY, 3000);
@@ -420,7 +432,7 @@ async function warmupCampaignGameModeSource(
 }
 
 export function register(ctx: Ctx): void {
-    ctx.rpc.warmupCampaignGameModeSource = (opts?: { force?: boolean }) => {
-        return warmupCampaignGameModeSource(opts);
-    };
+    ctx.rpc.warmupCampaignGameModeSource = (
+        opts?: { force?: boolean; retreat?: boolean },
+    ) => warmupCampaignGameModeSource(opts);
 }

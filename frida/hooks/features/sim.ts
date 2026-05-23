@@ -59,8 +59,8 @@ function readStage(liveRunner: NativePointer): number | null {
 
 function runSim(): unknown {
     ensureInstalled();
-    if (!state.runnerInstance) throw new Error("no runner");
-    const liveRunner = state.runnerInstance;
+    if (!state.liveRunner) throw new Error("no runner");
+    const liveRunner = state.liveRunner;
     const timings: Timing[] = [];
     const T0 = Date.now();
 
@@ -161,11 +161,11 @@ function runSim(): unknown {
 }
 
 function runCommit(simId: number): unknown {
-    if (!state.runnerInstance) throw new Error("no runner");
+    if (!state.liveRunner) throw new Error("no runner");
     const entry = state.simCache[simId];
     if (!entry) return { error: "simId not found", simId };
     const captured = entry.captured;
-    const realAiControl = state.runnerInstance.add(runnerOff.aiControl).readPointer();
+    const realAiControl = state.liveRunner.add(runnerOff.aiControl).readPointer();
     const t = Date.now();
     let applied = 0;
     const errors: unknown[] = [];

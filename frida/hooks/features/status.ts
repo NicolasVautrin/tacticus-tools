@@ -39,7 +39,7 @@ export function register(ctx: Ctx): void {
         il2cppBase: il2cppBase.toString(),
         il2cppSize,
         serializerReady: isSerializerReady(),
-        runner: state.runnerInstance?.toString() ?? null,
+        runner: state.liveRunner?.toString() ?? null,
         realAiControl: state.realAiControl?.toString() ?? null,
         logSize: state.log.length,
         listeners: state.installedListeners.length,
@@ -76,8 +76,8 @@ export function register(ctx: Ctx): void {
 
     ctx.rpc.battleStatus = () => queueOnMainThread(() => {
         ensureInstalled();
-        if (!state.runnerInstance) return { err: "no runner" };
-        const statePtr = state.runnerInstance.add(runnerOff.state).readPointer();
+        if (!state.liveRunner) return { err: "no runner" };
+        const statePtr = state.liveRunner.add(runnerOff.state).readPointer();
         if (statePtr.isNull()) return { err: "state null" };
         return readBattleStatus(statePtr);
     });
@@ -89,7 +89,7 @@ export function register(ctx: Ctx): void {
             ok,
             before,
             after: state.installedListeners.length,
-            runner: state.runnerInstance?.toString() ?? null,
+            runner: state.liveRunner?.toString() ?? null,
             aiControl: state.realAiControl?.toString() ?? null,
             logSize: state.log.length,
         };

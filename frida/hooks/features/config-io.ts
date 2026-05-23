@@ -12,9 +12,9 @@ import { Ctx } from "../controller.js";
 
 export function register(ctx: Ctx): void {
     ctx.rpc.getGameConfig = () => queueOnMainThread(() => {
-        if (!state.runnerInstance) throw new Error("no runner");
+        if (!state.liveRunner) throw new Error("no runner");
         if (!isSerializerReady()) throw new Error("Newtonsoft serializer not available");
-        const configPtr = state.runnerInstance.add(runnerOff.config).readPointer();
+        const configPtr = state.liveRunner.add(runnerOff.config).readPointer();
         if (configPtr.isNull()) throw new Error("config pointer null on live runner");
         const json = serializeToJson(configPtr);
         if (json === null) throw new Error("serializeToJson returned null");
@@ -22,9 +22,9 @@ export function register(ctx: Ctx): void {
     });
 
     ctx.rpc.getMatchState = () => queueOnMainThread(() => {
-        if (!state.runnerInstance) throw new Error("no runner");
+        if (!state.liveRunner) throw new Error("no runner");
         if (!isSerializerReady()) throw new Error("Newtonsoft serializer not available");
-        const statePtr = state.runnerInstance.add(runnerOff.state).readPointer();
+        const statePtr = state.liveRunner.add(runnerOff.state).readPointer();
         if (statePtr.isNull()) return null;
         const json = serializeToJson(statePtr);
         return json;

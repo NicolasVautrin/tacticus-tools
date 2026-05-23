@@ -24,7 +24,14 @@ import {
     getReplayMi, replayOff, runnerApplyMi, runnerOff,
 } from "./runner.js";
 import { state, LogEntry, MirrorTurnMsg } from "./state.js";
-import { applyToMirror } from "../features/sim-engine.js";
+import {
+    applyToMirror, disposeMirrorIfFromBuild, purgeLogForOrigin,
+} from "../features/sim-engine.js";
+import {
+    getRunner as getRegistryRunner, disposeRunner as disposeRegistryRunner,
+} from "./runner-registry.js";
+import { readBattleStatus, readTurnInfo } from "./match-state.js";
+import { queueOnMainThread } from "../runtime/queue.js";
 
 // Per-onEnter marker stored on `this` inside the interceptor callback
 // so onLeave knows whether it pushed a frame and should pop.
@@ -34,6 +41,14 @@ import { applyToMirror } from "../features/sim-engine.js";
 type MarkerThis = InvocationContext & {
     _ours?: boolean;
     _mirrorCapture?: boolean;
+    /** Set in onEnter for AI hooks — "live" or build runnerId; lets
+     * onLeave know if live-only side-effects should fire. */
+    _origin?: "live" | number;
+    /** Stage of the watched runner BEFORE the apply — captured in onEnter
+     * for the top-level (runner.Apply) hook so onLeave can detect a
+     * Running → not-Running transition (= match-end) without firing on
+     * pre-start applies. */
+    _stagePre?: number | null;
 };
 
 // Throttle filter-mismatch logs — first 5 only, then summary every 100.
@@ -63,18 +78,43 @@ function detachAll(): void {
 
 export function install(): boolean {
     detachAll();
-    if (!state.runnerInstance || !runnerApplyMi) return false;
-    const liveRunner = state.runnerInstance;
+    if (!state.liveRunner || !runnerApplyMi) return false;
+    const liveRunner = state.liveRunner;
     state.realAiControl = liveRunner.add(runnerOff.aiControl).readPointer();
     if (state.realAiControl.isNull()) return false;
     gcRoot.init();
 
-    const runnerSnapshot = liveRunner;
     const aiSnapshot = state.realAiControl;
+    // Mark the live AiControl as watched. Build runners' inner AiControls
+    // are added by launch.ts; the recorder filter for AI hooks consults
+    // watchedAiControls so build-source mirrors can also catch up on AI
+    // sub-messages dispatched during CheatRunAIMessage / similar. Clear
+    // any prior "live" entry first — handles a live runner switch where
+    // the previous live's AiControl would otherwise linger.
+    for (const [k, v] of [...state.watchedAiControls.entries()]) {
+        if (v === "live") state.watchedAiControls.delete(k);
+    }
+    state.watchedAiControls.set(aiSnapshot.toString(), "live");
 
-    // Resolve MT once from the live runner to seed our snapshot per entry
-    const mtStart = runnerSnapshot.add(runnerOff.rng).readPointer();
-    const mt = resolveMt(mtStart);
+    // Resolve MT lazily, cached per watched runner ptr. With multi-watch
+    // (live + N builds), each runner has its own internal `_randomNumberGenerator`
+    // — we must snapshot/restore the right one or PRNG sync breaks per-source.
+    const mtCache = new Map<string, ReturnType<typeof resolveMt> | null>();
+    function getMt(runnerPtr: NativePointer): ReturnType<typeof resolveMt> | null {
+        const key = runnerPtr.toString();
+        const hit = mtCache.get(key);
+        if (hit !== undefined) return hit;
+        let mt: ReturnType<typeof resolveMt> | null = null;
+        try {
+            const start = runnerPtr.add(runnerOff.rng).readPointer();
+            mt = resolveMt(start);
+        } catch { /* leave null */ }
+        mtCache.set(key, mt);
+        return mt;
+    }
+    // Pre-resolved live MT — used by the AI hooks (which filter on the live
+    // AiControl, so they always run with the live PRNG).
+    const liveMt = getMt(liveRunner);
 
     /** Resolve the mirror runner's PRNG for snapshotting during Phase 1 of
      * simRunAiTurn. Resolved per-call because the mirror runner can be
@@ -130,13 +170,27 @@ export function install(): boolean {
             // Skip if this Apply was triggered by our own mirror replay loop
             // (sim-engine.ts sets the flag while invoking on the mirror runner).
             if (state.replayingOnMirror) { this._ours = false; return; }
-            if (!args[0].equals(runnerSnapshot)) {
+            // Multi-watch: capture if args[0] is a known watched runner
+            // (live OR a build registered via launch.initRunner).
+            const callee = args[0];
+            const origin = state.watchedRunners.get(callee.toString());
+            if (origin === undefined) {
                 this._ours = false;
-                logFilterMismatch("runner.Apply",
-                    args[0].toString(), runnerSnapshot.toString());
                 return;
             }
             this._ours = true;
+            this._origin = origin;
+            // Snapshot stage BEFORE the apply so onLeave can detect a
+            // Running → not-Running transition (= match just ended).
+            // Without this we'd fire on every apply whose stage isn't
+            // Running — including AddUnits during the LOAD bundle replay
+            // where stage stays at PreStart (0) until StartBattle.
+            try {
+                const sp = callee.add(runnerOff.state).readPointer();
+                this._stagePre = !sp.isNull()
+                    ? (readBattleStatus(sp).stage ?? null) : null;
+            } catch { this._stagePre = null; }
+            const callerMt = getMt(callee);
             try {
                 const msg = args[1];
                 gcRoot.add(msg);
@@ -146,10 +200,11 @@ export function install(): boolean {
                     cls: readMsgClass(msg),
                     ptr: msg.toString(),
                     unitId: null,
-                    prng: mt ? snapshotMt(mt) : null,
+                    prng: callerMt ? snapshotMt(callerMt) : null,
                     ts: Date.now(),
                     events: [],
                     runner: "live",
+                    originRunnerId: origin,
                 };
                 state.log.push(entry);
                 pushApply("live", entry.events);
@@ -164,6 +219,53 @@ export function install(): boolean {
             try { popApply(); } catch { /* ignore */ }
             // Auto-mirror: replay any new live entries on the mirror.
             try { applyToMirror(); } catch { /* best effort */ }
+            // Match-end auto-cleanup for build runners. Only fires on the
+            // exact Running → not-Running transition (caught via the
+            // stagePre snapshot in onEnter), so the LOAD-bundle replay's
+            // PreStart applies don't trigger a premature dispose.
+            if (this._origin !== undefined && this._origin !== "live"
+                && this._stagePre === 1) {
+                const buildId = this._origin;
+                try {
+                    const entry = getRegistryRunner(buildId);
+                    const sp = entry.runner.add(runnerOff.state).readPointer();
+                    const stagePost = !sp.isNull()
+                        ? (readBattleStatus(sp).stage ?? 1) : 1;
+                    if (stagePost !== 1) {
+                        send({ t: "diag",
+                            msg: "[recorder] build#" + buildId
+                                + " match ended (1→" + stagePost
+                                + ") → schedule cleanup" });
+                        queueOnMainThread(() => {
+                            try { disposeMirrorIfFromBuild(buildId); }
+                            catch { /* ignore */ }
+                            try {
+                                state.watchedRunners.delete(
+                                    entry.runner.toString());
+                                state.watchedAiControls.delete(
+                                    entry.innerAiControl.toString());
+                            } catch { /* ignore */ }
+                            try { disposeRegistryRunner(buildId); }
+                            catch { /* ignore */ }
+                            // Drop log entries originating from this build
+                            // so the buffers don't accumulate across
+                            // consecutive build/load cycles. Adjusts the
+                            // mirror's lastSyncedLogIdx to the new array
+                            // length so positional bookkeeping stays sane.
+                            let purged = 0;
+                            try { purged = purgeLogForOrigin(buildId); }
+                            catch { /* ignore */ }
+                            send({ t: "runner_disposed", runnerId: buildId,
+                                reason: "match_ended" });
+                            send({ t: "diag",
+                                msg: "[recorder] build#" + buildId
+                                    + " disposed · log entries purged="
+                                    + purged });
+                            return null;
+                        });
+                    }
+                } catch { /* registry entry already gone */ }
+            }
         },
     }));
 
@@ -183,29 +285,77 @@ export function install(): boolean {
                     return;
                 }
                 if (state.replayingOnMirror) { this._ours = false; return; }
-                if (!args[0].equals(aiSnapshot)) {
+                // Multi-AI-control watch: capture if args[0] matches any
+                // registered AiControl (live's or a build's inner one).
+                // Without this, AI sub-messages dispatched on a build during
+                // CheatRunAIMessage execution would be invisible — its mirror
+                // would have no AI activity to replay.
+                const callee = args[0];
+                const origin = state.watchedAiControls.get(callee.toString());
+                if (origin === undefined) {
                     this._ours = false;
                     logFilterMismatch("aiControl." + tag,
-                        args[0].toString(), aiSnapshot.toString());
+                        callee.toString(), aiSnapshot.toString());
                     return;
                 }
                 this._ours = true;
+                this._origin = origin;
+                // Flag the live-AI window for ai-utility-trace. Only the
+                // pure "ai" tag — humanAi is player-assisted and doesn't
+                // run the AI scoring pipeline. Live-only — build AI runs
+                // shouldn't toggle the live-AI flag.
+                if (tag === "ai" && origin === "live") {
+                    state.liveAiRunning = true;
+                    // Sample turn info from the live MatchState so the trace
+                    // can tag entries with (player, round, segment). Cheap
+                    // (one MatchState scan + one il2cpp invoke per AI message
+                    // ≈ 10/turn). If the current player flipped vs. last
+                    // sample, bump the segment counter — analysis can group
+                    // all entries within a single contiguous turn window.
+                    try {
+                        const liveState = liveRunner
+                            .add(runnerOff.state).readPointer();
+                        const ti = readTurnInfo(liveState);
+                        if (ti.player !== null
+                            && ti.player !== state.currentTurnPlayer) {
+                            state.currentTurnPlayer = ti.player;
+                            state.turnSegment += 1;
+                        }
+                        if (ti.round !== null) state.currentTurnRound = ti.round;
+                    } catch { /* best effort */ }
+                }
                 try {
                     const msg = args[1];
                     gcRoot.add(msg);
                     let uid: number | null = null;
                     // MoveUnitMessage.UnitId @16 and ActiveAbilityMessage.CasterId @16 match
                     try { uid = msg.add(16).readS32(); } catch { /* ignore */ }
+                    // Snapshot PRNG from the runner that owns this AiControl
+                    // so per-message determinism replays correctly: live
+                    // origin → liveMt; build origin → its own MT (resolved
+                    // via getMt on the build runner's pointer).
+                    let prngMt = liveMt;
+                    if (this._origin !== undefined && this._origin !== "live") {
+                        // Find the build runner whose ptr matches this AiControl's owner.
+                        for (const [rPtr, rOrigin]
+                            of state.watchedRunners.entries()) {
+                            if (rOrigin === this._origin) {
+                                prngMt = getMt(ptr(rPtr));
+                                break;
+                            }
+                        }
+                    }
                     const entry: LogEntry = {
                         idx: state.counter++,
                         src: tag,
                         cls: readMsgClass(msg),
                         ptr: msg.toString(),
                         unitId: uid,
-                        prng: mt ? snapshotMt(mt) : null,
+                        prng: prngMt ? snapshotMt(prngMt) : null,
                         ts: Date.now(),
                         events: [],
                         runner: "live",
+                        originRunnerId: this._origin ?? "live",
                     };
                     state.log.push(entry);
                     pushApply("live", entry.events);
@@ -217,6 +367,9 @@ export function install(): boolean {
                     return;
                 }
                 if (!this._ours) return;
+                if (tag === "ai" && this._origin === "live") {
+                    state.liveAiRunning = false;
+                }
                 try { popApply(); } catch { /* ignore */ }
                 try { applyToMirror(); } catch { /* best effort */ }
             },
@@ -229,7 +382,7 @@ export function install(): boolean {
     // Bootstrap preamble from native ReplayRecorder._replay.Messages
     let bootCount = 0, bootSkipped = 0;
     try {
-        const recorder = runnerSnapshot.add(runnerOff.replayRecorder).readPointer();
+        const recorder = liveRunner.add(runnerOff.replayRecorder).readPointer();
         if (!recorder.isNull() && getReplayMi && !getReplayMi.ptr.isNull()) {
             const replay = invokeMethod(getReplayMi.info, recorder, null);
             if (!replay.isNull()) {
@@ -277,7 +430,7 @@ export function install(): boolean {
 
     send({
         t: "recorder_armed",
-        runner: runnerSnapshot.toString(),
+        runner: liveRunner.toString(),
         aiControl: aiSnapshot.toString(),
         listeners: state.installedListeners.length,
         bootstrapped: bootCount,
@@ -292,7 +445,7 @@ export function install(): boolean {
 
 /** Safety net for RPCs that need a ready recorder. */
 export function ensureInstalled(): boolean {
-    if (state.runnerInstance && state.installedListeners.length === 0) {
+    if (state.liveRunner && state.installedListeners.length === 0) {
         try { install(); } catch { /* best effort */ }
     }
     return state.installedListeners.length > 0;

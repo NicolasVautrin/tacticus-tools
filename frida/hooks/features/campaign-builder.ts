@@ -50,8 +50,70 @@ const _libIl2cpp = Process.findModuleByName(IL2CPP_MODULE_NAME);
  * captured GameConfigDto without re-implementing heap-scans (which freeze
  * the game's main thread). Returns the most-recently captured pointer or
  * null if natural capture hasn't fired yet. */
+export function getLastUnitProgression(): NativePointer | null {
+    return lastUnitProgression;
+}
+
 export function getLastGameConfig(): NativePointer | null {
     return lastGameConfig;
+}
+
+export function getLastSource(): NativePointer | null {
+    return lastSource;
+}
+
+export function setLastGameConfig(p: NativePointer): void {
+    if (p.isNull()) return;
+    const dto = unwrapGameConfig(p);
+    if (dto && !dto.isNull()) {
+        const wasNull = lastGameConfig === null;
+        lastGameConfig = dto;
+        log(`[campaign-builder] setLastGameConfig: unwrapped GameConfigDto captured @ ${dto}`);
+        if (wasNull) {
+            try { send({ t: "builder_ready", via: "auto-boot-unwrapped" }); }
+            catch { /* */ }
+        }
+    } else {
+        const wasNull = lastGameConfig === null;
+        lastGameConfig = p;
+        log(`[campaign-builder] setLastGameConfig: set lastGameConfig to raw pointer @ ${p}`);
+        if (wasNull) {
+            try { send({ t: "builder_ready", via: "auto-boot-raw" }); }
+            catch { /* */ }
+        }
+    }
+}
+
+export function setLastUnitProgression(p: NativePointer): void {
+    if (p.isNull()) return;
+    lastUnitProgression = p;
+    log(`[campaign-builder] setLastUnitProgression: captured UnitProgression @ ${p}`);
+}
+
+export function tryActiveDiscoveryOfSources(): boolean {
+    if (lastGameConfig === null) {
+        try {
+            const scannedGc = findGameConfigDtoViaHeap();
+            if (scannedGc !== null) {
+                lastGameConfig = scannedGc;
+                log("[campaign-builder] tryActiveDiscoveryOfSources: GameConfigDto captured via active Heap Scan.");
+            }
+        } catch (e) {
+            log("[campaign-builder] tryActiveDiscoveryOfSources: error scanning for GameConfigDto: " + (e as Error).message);
+        }
+    }
+    if (lastSource === null) {
+        try {
+            const scannedSource = findCampaignGameModeSourceViaHeap();
+            if (scannedSource !== null) {
+                lastSource = scannedSource;
+                log("[campaign-builder] tryActiveDiscoveryOfSources: CampaignGameModeSource captured via active Heap Scan.");
+            }
+        } catch (e) {
+            log("[campaign-builder] tryActiveDiscoveryOfSources: error scanning for CampaignGameModeSource: " + (e as Error).message);
+        }
+    }
+    return lastSource !== null && lastGameConfig !== null;
 }
 
 // Most-recent CampaignGameModeSource instance — captured by the .ctor hook.
@@ -362,12 +424,15 @@ function findCampaignGameModeSourceViaHeap(): NativePointer | null {
             const gc = cand.add(offGameConfig).readPointer();
             if (gc.compare(min) < 0) return false;
             // Match our singleton — the killer check.
-            if (lastGameConfig !== null && !gc.equals(lastGameConfig)) {
-                return false;
+            if (lastGameConfig !== null) {
+                const gcDto = unwrapGameConfig(gc);
+                if (gcDto === null || !gcDto.equals(lastGameConfig)) {
+                    return false;
+                }
             }
             // Sanity on locIdx (placeholder had 848628048).
             const loc = cand.add(offCurrentLocationIndex).readS32();
-            if (loc < 0 || loc > 100) return false;
+            if (loc < -1 || loc > 100) return false;
             return true;
         } catch { return false; }
     });

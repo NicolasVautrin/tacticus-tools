@@ -60,6 +60,10 @@ const FIELD_ATTRIBUTE_STATIC = 0x0010;
 let capturedUniverse: NativePointer | null = null;
 let assetNamingOffset: number = -1;
 
+export function getCapturedUniverse(): NativePointer | null {
+    return capturedUniverse;
+}
+
 // Resolve UnitVisualConfig.assetNaming field offset lazily on first seen
 // instance — the class isn't directly named in IL2CPP dump filters but we
 // can inspect at runtime from the first returned object.

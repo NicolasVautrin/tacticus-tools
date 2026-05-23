@@ -79,8 +79,8 @@ interface TraceEntry {
 
 export function register(ctx: Ctx): void {
     ctx.rpc.compareBuilt = () => queueOnMainThread(() => {
-        if (!state.runnerInstance) throw new Error("no runner");
-        const liveRunner = state.runnerInstance;
+        if (!state.liveRunner) throw new Error("no runner");
+        const liveRunner = state.liveRunner;
         const result: Record<string, unknown> & { phases: unknown[]; diff?: unknown } = {
             phases: [],
         };

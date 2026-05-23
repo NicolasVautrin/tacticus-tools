@@ -14,7 +14,7 @@
 // forwards these to subscribed WebSocket clients.
 
 import {
-    findClass, findCtorByParamCount,
+    findClass, findClassAnywhere, findCtorByParamCount,
 } from "../il2cpp/helpers.js";
 import {
     createManagedString, createObject, il2cpp_object_new, invokeMethod,
@@ -23,11 +23,14 @@ import { gcRoot } from "../il2cpp/gc-root.js";
 import {
     deserializeFromJson, isDeserializerReady,
 } from "../il2cpp/serializer.js";
+import { resolveMt, restoreMt, MtSnapshot } from "../il2cpp/mt.js";
 import {
     buildRunner, runnerApplyMi, runnerStartMatchMi, runnerOff,
 } from "../game/runner.js";
 import { readBattleStatus } from "../game/match-state.js";
+import { state } from "../game/state.js";
 import { cheatRunAiClass } from "../game/ai-control.js";
+import { purgeLogForOrigin } from "./sim-engine.js";
 import {
     registerRunner, getRunner, listRunners, disposeRunner,
 } from "../game/runner-registry.js";
@@ -77,6 +80,170 @@ function buildAddUnitMessage(
     return msg;
 }
 
+// --- Saved-bundle replay primitive (shared between LOAD = launch a fresh
+//     BUILD runner, and PREVIEW = render the saved state without exposing
+//     the runner as a build). Both paths build the same kind of runner and
+//     replay the same kind of messages — they only differ in registration:
+//     LOAD adds to runner-registry + watchedRunners; PREVIEW pins the
+//     runner privately in sim-engine. ---
+
+export interface ReplayMessage {
+    idx: number; src: string; cls: string; ns: string;
+    unitId: number | null;
+    prng: MtSnapshot | null;
+    json: string | null;
+}
+
+export interface ReplayStats {
+    replayed: number; skipped: number;
+    deserializeFailed: number; applyFailed: number; classNotFound: number;
+    errors: Array<{ idx: number; cls: string; err: string }>;
+}
+
+function newReplayStats(): ReplayStats {
+    return {
+        replayed: 0, skipped: 0,
+        deserializeFailed: 0, applyFailed: 0, classNotFound: 0,
+        errors: [],
+    };
+}
+
+/** Build a fresh IdunRunner from a JSON BattleConfiguration. Pinned by
+ * gcRoot. No replay yet — caller can hook into the runner (register +
+ * watch for the LOAD path; private slot for the PREVIEW path) before
+ * calling `replayOnRunner` so the recorder either captures or ignores
+ * subsequent applies as appropriate. */
+export function buildEmptyRunner(configJson: string): {
+    runner: NativePointer; innerAiControl: NativePointer; seed: number;
+} {
+    if (!isDeserializerReady()) {
+        throw new Error("Newtonsoft DeserializeObject not resolved");
+    }
+    if (!battleConfigClass) {
+        throw new Error("BattleConfiguration class not found");
+    }
+    gcRoot.init();
+    const configPtr = deserializeFromJson(configJson, battleConfigClass);
+    gcRoot.add(configPtr);
+    return buildRunner(configPtr);
+}
+
+/** Replay persisted messages on an existing runner. Whether the recorder
+ * captures these applies depends on what the caller wired up before
+ * calling this — adding to watchedRunners before replay → recorder
+ * captures (LOAD); leaving the runner unwatched → recorder skips
+ * (PREVIEW). */
+export function replayOnRunner(
+    runner: NativePointer, messages: ReplayMessage[],
+): { stats: ReplayStats; stage: number | null } {
+    if (!runnerApplyMi) {
+        throw new Error("IdunRunner.Apply not resolved");
+    }
+    send({ t: "diag", msg: "[replay] runner=" + runner
+        + " · messages=" + messages.length });
+
+    // Cache MT once — restoreMt is per-message before each Apply.
+    let mt: ReturnType<typeof resolveMt> | null = null;
+    try {
+        const mtStart = runner.add(runnerOff.rng).readPointer();
+        mt = resolveMt(mtStart);
+    } catch { /* leave null — replay still works, just non-deterministic */ }
+
+    const stats = newReplayStats();
+    for (const m of messages) {
+        if (!m.json) { stats.skipped++; continue; }
+        if (!m.cls) {
+            stats.classNotFound++;
+            stats.errors.push({ idx: m.idx, cls: m.cls,
+                err: "missing cls" });
+            continue;
+        }
+        if (m.cls === "CheatRunAIMessage") {
+            // Wrapper unrolled into ai/humanAi sub-messages — those are
+            // already in the saved log, so applying the wrapper again
+            // would double-execute the turn.
+            stats.skipped++;
+            continue;
+        }
+        // ns may legitimately be "" for root-namespace classes.
+        const klass = findClassAnywhere(m.ns ?? "", m.cls);
+        if (!klass) {
+            stats.classNotFound++;
+            stats.errors.push({ idx: m.idx, cls: m.cls,
+                err: "class not found: " + m.ns + "." + m.cls });
+            send({ t: "diag", msg: "[replay#" + m.idx + "] class NOT FOUND "
+                + m.ns + "." + m.cls });
+            continue;
+        }
+        let msgPtr: NativePointer;
+        try { msgPtr = deserializeFromJson(m.json, klass); }
+        catch (e) {
+            stats.deserializeFailed++;
+            stats.errors.push({ idx: m.idx, cls: m.cls,
+                err: "deserialize: " + (e as Error).message });
+            send({ t: "diag", msg: "[replay#" + m.idx + "] deserialize FAILED "
+                + m.cls + ": " + (e as Error).message });
+            continue;
+        }
+        gcRoot.add(msgPtr);
+        if (m.prng && mt) {
+            try { restoreMt(mt, m.prng); } catch { /* best effort */ }
+        }
+        // Pre-apply stage probe — lets us see if a particular Apply
+        // transitioned from PreStart→Running (StartBattle) etc.
+        let stagePre = -1;
+        try {
+            const sp = runner.add(runnerOff.state).readPointer();
+            if (!sp.isNull()) stagePre = readBattleStatus(sp).stage ?? -1;
+        } catch { /* leave -1 */ }
+        try {
+            invokeMethod(runnerApplyMi.info, runner, [msgPtr]);
+            stats.replayed++;
+        } catch (e) {
+            stats.applyFailed++;
+            stats.errors.push({ idx: m.idx, cls: m.cls,
+                err: "apply: " + (e as Error).message });
+            send({ t: "diag", msg: "[replay#" + m.idx + "] APPLY FAILED "
+                + m.cls + ": " + (e as Error).message });
+            // Continue — partial replay is more useful than abort.
+            continue;
+        }
+        let stagePost = -1;
+        try {
+            const sp = runner.add(runnerOff.state).readPointer();
+            if (!sp.isNull()) stagePost = readBattleStatus(sp).stage ?? -1;
+        } catch { /* leave -1 */ }
+        send({ t: "diag", msg: "[replay#" + m.idx + "] " + m.cls
+            + " applied · stage " + stagePre + "→" + stagePost });
+    }
+    let stage: number | null = null;
+    try {
+        const sp = runner.add(runnerOff.state).readPointer();
+        if (!sp.isNull()) stage = readBattleStatus(sp).stage ?? null;
+    } catch { /* leave null */ }
+    send({ t: "diag", msg: "[replay] DONE · replayed=" + stats.replayed
+        + " · skipped=" + stats.skipped
+        + " · applyFailed=" + stats.applyFailed
+        + " · deserializeFailed=" + stats.deserializeFailed
+        + " · classNotFound=" + stats.classNotFound
+        + " · finalStage=" + stage });
+    return { stats, stage };
+}
+
+/** Convenience wrapper — build + immediately replay (no register/watch
+ * hook). Used by PREVIEW (sim-engine.simBuildPreview); LOAD calls the
+ * underlying primitives separately so it can register+watch the runner
+ * BEFORE replay (recorder must capture replay applies into state.log
+ * for the future mirror catchUp to find them). */
+export function buildRunnerAndReplay(
+    configJson: string, messages: ReplayMessage[],
+): { runner: NativePointer; innerAiControl: NativePointer; seed: number;
+     stats: ReplayStats; stage: number | null } {
+    const handle = buildEmptyRunner(configJson);
+    const r = replayOnRunner(handle.runner, messages);
+    return { ...handle, ...r };
+}
+
 function captureEvents(
     runnerId: number, runnerPtr: NativePointer, label: string,
     body: () => void,
@@ -112,10 +279,34 @@ export function register(ctx: Ctx): void {
         }
         return queueOnMainThread(() => {
             gcRoot.init();
+            // Single-build policy: dispose any prior build before creating
+            // a new one. Rebuild = replace, never accumulate.
+            for (const old of listRunners()) {
+                try {
+                    const oldEntry = getRunner(old.runnerId);
+                    state.watchedRunners.delete(oldEntry.runner.toString());
+                    state.watchedAiControls.delete(
+                        oldEntry.innerAiControl.toString());
+                } catch { /* runner already gone */ }
+                disposeRunner(old.runnerId);
+                // Purge any state.log entries from the disposed build so
+                // they don't leak across consecutive build/load cycles.
+                try { purgeLogForOrigin(old.runnerId); } catch { /* ignore */ }
+            }
             const configPtr = deserializeFromJson(args.configJson, battleConfigClass);
             gcRoot.add(configPtr);
             const r = buildRunner(configPtr);
             const entry = registerRunner(r);
+            // Register this build runner so the recorder captures its
+            // runner.Apply calls into state.log with originRunnerId=<id>.
+            // Lets the auto-mirror follow a build runner the same way it
+            // follows the live one. Also watch the build's inner AiControl
+            // — without it, AI sub-messages dispatched by CheatRunAIMessage
+            // on this runner would be invisible to the recorder, and the
+            // build's mirror catchUp would have nothing to replay.
+            state.watchedRunners.set(r.runner.toString(), entry.runnerId);
+            state.watchedAiControls.set(
+                r.innerAiControl.toString(), entry.runnerId);
             return { runnerId: entry.runnerId, seed: entry.seed };
         });
     };
@@ -154,9 +345,93 @@ export function register(ctx: Ctx): void {
     ctx.rpc.listRunners = () => listRunners();
 
     ctx.rpc.disposeRunner = (args: { runnerId: number }) => {
+        // Drop watch entries first so the recorder stops tagging messages
+        // with this runnerId (and stops capturing once the runner is freed).
+        try {
+            const entry = getRunner(args.runnerId);
+            state.watchedRunners.delete(entry.runner.toString());
+            state.watchedAiControls.delete(entry.innerAiControl.toString());
+        } catch { /* runner already gone */ }
         const removed = disposeRunner(args.runnerId);
+        // Purge state.log entries originating from this runner so the
+        // buffers stay bounded.
+        try { purgeLogForOrigin(args.runnerId); } catch { /* ignore */ }
         return { removed };
     };
+
+    /** LOAD from a saved bundle — builds a fresh BUILD runner from the
+     * saved BattleConfiguration and replays every captured message so the
+     * runner ends up in the saved state. The recorder naturally captures
+     * each replayed Apply into state.log with originRunnerId = the new
+     * build's id — which is exactly what the mirror needs later (clicking
+     * 🪞 on this BUILD tile builds a mirror + catchUp replays those entries
+     * → mirror reaches the saved state too).
+     *
+     * Each saved msg carries (ns, cls) → resolve via findClassAnywhere,
+     * (json) → deserialize via Newtonsoft, (prng) → restoreMt on the new
+     * runner's MT before Apply so determinism matches the original run.
+     *
+     * Top-of-the-log boot messages (`top_boot`) lack a PRNG snapshot — we
+     * apply them without restore. Same fidelity as the live recorder
+     * provides; gameplay is bootstrapped from these so they're idempotent
+     * w.r.t. random draws in practice. */
+    ctx.rpc.loadFromSavedBundle = (args: {
+        configJson: string;
+        messages: ReplayMessage[];
+    }) => queueOnMainThread(() => {
+        // Single-build policy — drop any prior build before this one.
+        for (const old of listRunners()) {
+            try {
+                const oldEntry = getRunner(old.runnerId);
+                state.watchedRunners.delete(oldEntry.runner.toString());
+            } catch { /* runner already gone */ }
+            disposeRunner(old.runnerId);
+        }
+        // LOAD takes over — drop any preview held by sim-engine.
+        if (state.previewRunner) {
+            try { gcRoot.remove(state.previewRunner); } catch { /* ignore */ }
+            state.previewRunner = null;
+        }
+        // Build first, then register+watch, then replay. The watch must
+        // be in place BEFORE replay so the recorder captures each replayed
+        // Apply into state.log with originRunnerId = entry.runnerId — the
+        // future mirror catchUp filters state.log by originRunnerId, so
+        // missing entries → mirror reaches initial config state, not the
+        // replayed state, and renders nothing.
+        const handle = buildEmptyRunner(args.configJson);
+        const entry = registerRunner(handle);
+        state.watchedRunners.set(handle.runner.toString(), entry.runnerId);
+        state.watchedAiControls.set(
+            handle.innerAiControl.toString(), entry.runnerId);
+        const replay = replayOnRunner(handle.runner, args.messages);
+        // Emit a battle_event with the final matchstate so the host's
+        // battle-store writes a disk dump for this runner — switchToRunner
+        // on the front reads from /api/runners/:id/latest-state to populate
+        // its tile/board.
+        try {
+            const sp = handle.runner.add(runnerOff.state).readPointer();
+            if (!sp.isNull()) {
+                const ms = serializeToJson(sp);
+                if (ms) {
+                    send({
+                        t: "battle_event",
+                        runnerId: entry.runnerId,
+                        msg: "LoadedFromBundle",
+                        events: [],
+                        matchState: ms,
+                    });
+                }
+            }
+        } catch { /* best effort */ }
+        return {
+            ok: true,
+            runnerId: entry.runnerId,
+            seed: handle.seed,
+            stage: replay.stage,
+            stats: replay.stats,
+            firstErrors: replay.stats.errors.slice(0, 10),
+        };
+    });
 
     // Fire CheatRunAIMessage on a registry runner. Delegates turn-play to
     // the game's own AI. Whoever's turn is currently active on that runner
