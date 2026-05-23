@@ -12,7 +12,10 @@
 // Sends:
 //   {t: "ptr_dat_map", entries: {rva_hex: {k: "class"|"method", n: "..."}}}
 
-var il2cpp = Process.findModuleByName("libil2cpp.so");
+var il2cpp = Process.findModuleByName("GameAssembly.dll") || Process.findModuleByName("libil2cpp.so");
+if (!il2cpp) {
+    throw new Error("Could not find GameAssembly.dll or libil2cpp.so");
+}
 var il2cppBase = il2cpp.base;
 var il2cppEnd  = il2cppBase.add(il2cpp.size);
 

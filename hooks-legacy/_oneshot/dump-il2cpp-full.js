@@ -34,7 +34,10 @@
 //
 // Takes ~30-60s for a large game.
 
-var il2cpp = Process.findModuleByName("libil2cpp.so");
+var il2cpp = Process.findModuleByName("GameAssembly.dll") || Process.findModuleByName("libil2cpp.so");
+if (!il2cpp) {
+    throw new Error("Could not find GameAssembly.dll or libil2cpp.so");
+}
 var il2cppBase = il2cpp.base;
 
 function sym(n, ret, args) {
