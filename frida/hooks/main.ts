@@ -6,6 +6,7 @@ import "./game/match-state.js";
 import "./game/ai-control.js";
 import { installMainPump, installMenuPump } from "./runtime/main-pump.js";
 import { installCrashLogger } from "./runtime/crash-logger.js";
+import { installExceptionTracer } from "./runtime/exception-tracer.js";
 import { log } from "./runtime/diag.js";
 import { wireRpc } from "./controller.js";
 
@@ -17,6 +18,7 @@ log("[*] il2cpp base=" + il2cppBase + " size=" + il2cppSize);
 //                       // GC write barriers, freezing the main thread.
 installMainPump();
 installMenuPump();
+installExceptionTracer();
 
 const rpcHandlers: Record<string, (...args: any[]) => unknown> = {};
 wireRpc({ rpc: rpcHandlers });
