@@ -30,3 +30,15 @@ frida/probe-*.json
 frida/rpc-body.json
 # Debug dumps (one-shot)
 board_probe.json
+frida/trace-dump.json
+frida/dump-analyze.cjs
+# Per-machine player config dumps (1+ MB exports from the live game)
+Tacticus_*.json
+# One-shot debug / capture artifacts
+frida/captures/
+# Throwaway probe scripts the hooks codebase parks per investigation
+frida/hooks/scratch/
+# Root-level helper scripts for local sessions (not project deliverables)
+scratch/
+# Claude harness state
+.claude/scheduled_tasks.lock
