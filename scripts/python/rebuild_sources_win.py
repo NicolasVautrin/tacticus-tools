@@ -30,7 +30,12 @@ import re
 import sys
 from pathlib import Path
 
-DUMP_CS = Path('data/win_dump/dump.cs')
+from _dump_path import current_dump_dir, current_game_hash
+
+DUMP_CS = current_dump_dir() / 'dump.cs'
+# sources_win is shared at the repo root (read by editors / Ghidra workflow)
+# but its content is hash-specific. We tag it with HASH on each rebuild so
+# downstream consumers can detect staleness — see CLAUDE.md.
 OUT_DIR = Path('sources_win')
 
 NS_RE = re.compile(r'^// Namespace:\s*(.*)$')

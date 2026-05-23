@@ -5,18 +5,23 @@ Filters game-prefix namespaces (Idun.*, IdunBattle.*, IdunMetaLogic.*, ...),
 excludes framework/vendor (UnityEngine, System, Newtonsoft, ...), strips
 fully-shared generic stubs (`__Il2CppFullySharedGenericType`), and produces:
 
-    data/all_game_targets_win.tsv
+    data/dumps/<hash>/all_game_targets_win.tsv
 
 with one line per method: `top_path \t method_full_name \t rva_hex`,
-suitable for GhidraDecompileBattleLogicParallel.java.
+suitable for GhidraDecompileBattleLogicParallel.java. Output lives inside
+the per-hash dump dir so it stays paired with the script.json it was
+derived from.
 """
 
 import json
 import os
 import sys
 
-SRC = 'data/win_dump/script.json'
-OUT_TSV = 'data/all_game_targets_win.tsv'
+from _dump_path import current_dump_dir
+
+DUMP = current_dump_dir()
+SRC = str(DUMP / 'script.json')
+OUT_TSV = str(DUMP / 'all_game_targets_win.tsv')
 
 # Match if the method's full name STARTS WITH any of these prefixes.
 ACCEPT_PREFIXES = (

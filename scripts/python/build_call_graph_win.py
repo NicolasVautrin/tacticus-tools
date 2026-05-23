@@ -30,11 +30,14 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+from _dump_path import current_dump_dir
+
 ROOT = Path('.')
+DUMP = current_dump_dir()
 DECOMP_DIR = ROOT / 'data' / 'decompiled_gameassembly'
-SCRIPT_JSON = ROOT / 'data' / 'win_dump' / 'script.json'
-OUT_GRAPH = ROOT / 'data' / 'call_graph_win.json'
-OUT_REVERSE = ROOT / 'data' / 'call_graph_win.reverse.json'
+SCRIPT_JSON = DUMP / 'script.json'
+OUT_GRAPH = DUMP / 'call_graph_win.json'
+OUT_REVERSE = DUMP / 'call_graph_win.reverse.json'
 
 # Each .c file has blocks separated by:
 #   // === <method-name> (RVA: 0xXXXX) ===
