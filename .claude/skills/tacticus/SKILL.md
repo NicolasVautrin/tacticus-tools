@@ -201,6 +201,89 @@ Le standalone runner partage le PRNG seed avec live (depuis
 `ReplayRecorder._replay.RngSeed`) → même `mt[]` → décisions IA
 déterministes.
 
+## Workflow RL — runner isolé sur BattleConfiguration capturée + patchée
+
+Pour entraîner un agent RL **sans toucher au battle in-game**, on récupère
+la `BattleConfiguration` capturée via warmup, on la patche, on construit
+un runner isolé qui consume les `PredefinedUnits` patchées dans
+`Initialize()` — les enemies spawnent automatiquement avec la nouvelle compo.
+
+**Procédure obligatoire** (ordre crucial, après chaque inject/reinject) :
+
+```
+1. warmupCampaignGameModeSource({ force: true })
+   → capture lastSource + popule _currentBattle via LoadBattle
+
+2. buildPatchedRunner({
+     aiUnits: [
+       "necroNpc1Warrior:6", "necroNpc2FlayedOne:6",
+       "necroNpc3Deathmark:6", "necroNpc5Swarm:5",
+       ...  // 10 strings au format "unitId:level"
+     ],
+     randomizeAi: true,                  // optionnel
+     templateOverrides: {                // optionnel (heroes player roster)
+       "ultraTigurius": { health: 9999 }
+     }
+   })
+   → { runnerId, runner, seed, bcPtr, patch: {...} }
+   Le patch s'applique in-place sur lastSource._currentBattle.
+   Initialize() consume les PredefinedUnits patchées et auto-spawn
+   les enemies — PAS BESOIN d'appeler spawnPredefinedUnits.
+
+3. observeBattle({ runnerId })
+   → { stage, byType, units: [{ entityId, visualId, hp, ... }] }
+   À ce stade : stage=Setup (0), N units AI présentes.
+```
+
+**Pièges à éviter** :
+- Pas de warmup après reinject = `buildPatchedRunner` échoue silencieusement
+  (les units ne spawnent pas, observe = 0 units type 1).
+- `buildPatchedRunner` MUTE la BC source. Re-appel = patch cumulatif.
+  Pour comparer plusieurs variants, refaire un warmup propre entre.
+- UnitId format = `"unitId:level"` (ex. `"necroNpc1Warrior:6"`). Sans
+  le suffix `:N` le spawn rejette silencieusement.
+- `spawnPredefinedUnits(runnerId)` est redondant — Initialize l'a déjà
+  fait. Le garder ne casse rien mais ajoute des doublons si la BC a
+  changé entre buildPatchedRunner et spawnPredefinedUnits.
+
+**Offsets validés (Tacticus 1.39.40)** :
+```
+BattleConfiguration :
+  +0x10 Id (string)
+  +0x28 SpawnPointSetIndex (int)
+  +0x40 PredefinedUnits (List<PredefinedUnits>)
+  +0x68 Board (BattleConfigBoardConfiguration)
+  +0x80 Units (List<UnitConfiguration> — PLAYER roster, pas AI enemies)
+  +0x88 Tiles (List<BattleConfigTileConfiguration> — palette filtrée par node)
+  +0xC0 StartingActions (List<IInputMessage>, JsonIgnore — built at Initialize)
+  +0xE7 RandomizeAiInput (bool)
+
+PredefinedUnits (per-player squad) :
+  +0x10 Id (PlayerId enum int — 12 = AI standard)
+  +0x18 Units (List<PredefinedUnit>)
+
+PredefinedUnit :
+  +0x10 UnitId (string, "id:level" format)
+  +0x18 RemainingHealth (Nullable<int>)
+  +0x20 MaxHealth (Nullable<int>)
+
+SpawnPointGroupConfiguration :
+  +0x10 TeamWithPlayerIndex (int)
+  +0x18 SpawnPoints (List<SpawnPointConfiguration>)
+
+SpawnPointConfiguration : BattleConfigPosition
+  +0x10 Column (int)
+  +0x14 Row (int)
+```
+
+**Modules concernés** :
+- (file:///C:/Users/nicolasv/tacticus-tools/frida/hooks/features/battle-config.ts)
+  inspect / patch / buildPatchedRunner / spawnPredefinedUnits
+- (file:///C:/Users/nicolasv/tacticus-tools/frida/hooks/features/observe.ts)
+  observeBattle (live runner ou registry par runnerId)
+- (file:///C:/Users/nicolasv/tacticus-tools/frida/hooks/features/warmup-cgms.ts)
+  warmupCampaignGameModeSource (avec retreat optionnel)
+
 ## Pipeline d'assets
 
 `scripts/python/build_asset_manifest.py` (UnityPy 1.25, Unity 6000.3.8f1) :
