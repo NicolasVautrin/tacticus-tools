@@ -16,13 +16,16 @@
 //   POST /api/_dev/shutdown
 
 import express, { Router, Request, Response } from "express";
-import { promises as fs } from "fs";
+import { promises as fs, readFileSync, existsSync } from "fs";
 import path from "path";
 import {
     getSession, listProcesses, listSessions, postMessage,
     rpcCall, runScript, stopAllPreservingState, stopSession,
 } from "./sessions.js";
-import { listConfigs, getConfig, clearConfigs, deleteConfig, saveConfig } from "./config-store.js";
+import {
+    listConfigs, getConfig, getReplayBundle, clearConfigs,
+    deleteConfig, saveConfig, updateConfigDescription,
+} from "./config-store.js";
 import {
     listRunners, latestDumpPath, registerRunner, removeRunner, pruneRunners,
 } from "./battle-store.js";
@@ -30,6 +33,53 @@ import {
     findTacticusCandidates, injectBundle, TacticusCandidate,
 } from "./admin.js";
 import { syncMetadata, syncCampaignCatalog, syncMoWCatalog, activeMetaVersion } from "./meta-sync.js";
+
+/** RVA → "Class.method" map, lazy-loaded from data/all_game_targets_win.tsv.
+ * Used to symbolicate IL2CPP backtraces (DebugSymbol on Windows IL2CPP only
+ * resolves native exports, so every IL2CPP method lands on "mono_type_size"). */
+let il2cppRvaMap: Map<number, string> | null = null;
+function loadIl2cppRvaMap(): Map<number, string> {
+    if (il2cppRvaMap !== null) return il2cppRvaMap;
+    const tsv = path.resolve(
+        process.cwd(), "..", "data", "all_game_targets_win.tsv");
+    const m = new Map<number, string>();
+    if (!existsSync(tsv)) {
+        console.warn("[router] symbol map missing: " + tsv);
+        il2cppRvaMap = m; return m;
+    }
+    const data = readFileSync(tsv, "utf8");
+    let lines = 0, parsed = 0;
+    for (const line of data.split("\n")) {
+        lines++;
+        if (!line) continue;
+        const parts = line.split("\t");
+        if (parts.length < 3) continue;
+        const rva = parseInt(parts[2].trim(), 16);
+        if (isNaN(rva)) continue;
+        // For collisions (different overloads at the same RVA — shouldn't
+        // happen but defensive), keep the FIRST entry (most specific name).
+        if (!m.has(rva)) m.set(rva, parts[1]);  // method FQN
+        parsed++;
+    }
+    console.log("[router] symbol map loaded · lines=" + lines
+        + " · entries=" + parsed);
+    il2cppRvaMap = m;
+    return m;
+}
+
+/** Resolve a single RVA → "Class.method @ rva". Falls back to "?".  */
+function symbolicate(rva: number): string {
+    const map = loadIl2cppRvaMap();
+    const exact = map.get(rva);
+    if (exact) return exact + " @ 0x" + rva.toString(16);
+    // Walk-back search: methods aren't 1-byte. Try up to 64KiB back.
+    for (let off = 1; off < 0x10000; off++) {
+        const hit = map.get(rva - off);
+        if (hit) return hit + "+0x" + off.toString(16)
+            + " @ 0x" + rva.toString(16);
+    }
+    return "<unknown> @ 0x" + rva.toString(16);
+}
 
 export function buildRouter(defaultLogDir: string): Router {
     const router = express.Router();
@@ -260,6 +310,20 @@ export function buildRouter(defaultLogDir: string): Router {
         const ok = await deleteConfig(req.params.id);
         if (!ok) { res.status(404).json({ error: "not found" }); return; }
         res.json({ ok: true });
+    });
+
+    /** Set/update the user-facing description on a saved capture. Body:
+     *   { description: string }  — empty/whitespace clears it.
+     * Returns the updated meta. */
+    router.patch("/api/configs/:id", async (req: Request, res: Response) => {
+        const { description } = req.body ?? {};
+        if (typeof description !== "string" && description !== null) {
+            res.status(400).json({ error: "description (string|null) required" });
+            return;
+        }
+        const meta = await updateConfigDescription(req.params.id, description);
+        if (!meta) { res.status(404).json({ error: "not found" }); return; }
+        res.json({ ok: true, meta });
     });
 
     // Phase 3: orchestrate initRunner + applyAddUnit×N + startBattle
@@ -742,18 +806,518 @@ export function buildRouter(defaultLogDir: string): Router {
         }
     });
 
+    /** Multi-capture call-stacks: every tryGetValueRef fire (during live AI
+     * coroutine OR mirror replay) and every AiControl.ExecuteMovementFor
+     * entry, deduped by top-frame RVA. Resolves RVAs via the IL2CPP method
+     * table dump (DebugSymbol on Windows IL2CPP only resolves native exports). */
+    router.get("/api/ai-utility-trace/callstacks", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "aiUtilityTraceCallstacks", [], 5000) as {
+                max: number; count: number;
+                callstacks: Array<{
+                    origin: string; source: string; topRva: number;
+                    frames: string[]; ts: number;
+                }>;
+            };
+            const enriched = result.callstacks.map((c) => ({
+                ...c,
+                top: symbolicate(c.topRva),
+                symbolicated: c.frames.map((f) => f.startsWith("rva:0x")
+                    ? symbolicate(parseInt(f.slice(6), 16)) : f),
+            }));
+            res.json({ ...result, callstacks: enriched });
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+    router.post("/api/ai-utility-trace/callstacks/reset", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "aiUtilityTraceCallstacksReset", [], 5000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+
+    /** Enable the diag sampler (records untracked-dict classes seen during live AI). */
+    router.post("/api/ai-utility-trace/diag-sampler/enable", async (req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const sampleCap = typeof req.body?.sampleCap === "number"
+                ? req.body.sampleCap : undefined;
+            const result = await rpcCall(
+                sid, "aiUtilityTraceDiagSamplerEnable",
+                sampleCap !== undefined ? [{ sampleCap }] : [], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+    router.post("/api/ai-utility-trace/diag-sampler/disable", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "aiUtilityTraceDiagSamplerDisable", [], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+    router.get("/api/ai-utility-trace/diag-sampler/dump", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "aiUtilityTraceDiagSamplerDump", [], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** Patch a UtilityConfig key on a runtime instance.
+     * Body: { configPtr: "0x...", key: "PerUnitWithAbilityInRange", value: -50 } */
+    router.post("/api/ai-utility-trace/patch", async (req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const { configPtr, key, value } = req.body ?? {};
+            if (typeof configPtr !== "string" || typeof key !== "string"
+                || typeof value !== "number") {
+                res.status(400).json({
+                    error: "expected { configPtr: string, key: string, value: number }",
+                });
+                return;
+            }
+            const result = await rpcCall(
+                sid, "aiUtilityTracePatch", [{ configPtr, key, value }], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    // ---------- Mode-source diag ----------
+    // Dump the auto-discovered list of GameModeSource classes (whose
+    // LoadBattle is hooked). Lets us verify that newly added modes —
+    // e.g. an Arena class not previously enumerated — are picked up
+    // after a hooks rebuild.
+    router.get("/api/mode-sources", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "dumpModeSources", [], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+    router.get("/api/find-class/:needle", async (req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "findClassesNamed",
+                [req.params.needle], 30000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    // ---------- Overwatch fix endpoints ----------
+    // AI-aware injection of overwatch threat into movement scoring. See
+    // hooks/features/overwatch-fix.ts for the rationale.
+
+    router.get("/api/overwatch-fix/status", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "overwatchFixStatus", [], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    router.post("/api/overwatch-fix/enable", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "overwatchFixEnable", [], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    router.post("/api/overwatch-fix/disable", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "overwatchFixDisable", [], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    router.post("/api/overwatch-fix/set-veto-enabled",
+        async (req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) {
+                res.status(409).json({ error: "no running session" }); return;
+            }
+            const enabled = req.body?.enabled === true
+                || req.body?.enabled === "true";
+            const result = await rpcCall(sid, "overwatchFixSetVetoEnabled",
+                [{ enabled }], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    router.post("/api/overwatch-fix/reset-diag", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "overwatchFixResetDiag", [], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    // ---------- Bucket audit endpoints ----------
+    router.get("/api/bucket-audit/status", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "bucketAuditStatus", [], 5000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+    router.post("/api/bucket-audit/enable", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "bucketAuditEnable", [], 5000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+    router.post("/api/bucket-audit/disable", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "bucketAuditDisable", [], 5000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+    router.post("/api/bucket-audit/reset", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "bucketAuditReset", [], 5000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+    router.get("/api/bucket-audit/added", async (req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const max = req.query.max ? parseInt(String(req.query.max), 10) : undefined;
+            const targetPtr = req.query.targetPtr as string | undefined;
+            const result = await rpcCall(sid, "bucketAuditDumpAdded",
+                [{ max, targetPtr }], 5000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+    router.get("/api/bucket-audit/chosen", async (req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const max = req.query.max ? parseInt(String(req.query.max), 10) : undefined;
+            const result = await rpcCall(sid, "bucketAuditDumpChosen",
+                [{ max }], 5000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+    router.get("/api/bucket-audit/backtraces", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "bucketAuditBacktraces", [], 5000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+    router.get("/api/bucket-audit/by-bucket", async (req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const bucketPtr = req.query.bucketPtr as string;
+            if (!bucketPtr) { res.status(400).json({ error: "bucketPtr required" }); return; }
+            const result = await rpcCall(sid, "bucketAuditByBucket",
+                [{ bucketPtr }], 5000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+
+    router.post("/api/overwatch-fix/scan-state", async (req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "overwatchScanState",
+                [req.body ?? {}], 30000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+    router.post("/api/overwatch-fix/auto-arm", async (req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "overwatchAutoArm",
+                [req.body ?? {}], 30000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+    router.post("/api/overwatch-fix/clear-tracking", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "overwatchFixClearTracking", [], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    // ---------- Dispatch observe endpoints ----------
+    // Hook BaseTriggeredAbility.ShouldTrigger to map upstream callers + retval
+    // distribution by class. Default OFF — opt-in via /enable.
+    router.get("/api/dispatch-observe/status", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "dispatchObserveStatus", [], 5000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+    router.post("/api/dispatch-observe/enable", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "dispatchObserveEnable", [], 5000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+    router.post("/api/dispatch-observe/disable", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "dispatchObserveDisable", [], 5000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+    router.post("/api/dispatch-observe/reset", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "dispatchObserveReset", [], 5000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+
+    // ---------- What-if trigger endpoints ----------
+    // Capture AbilityEntities templates from BaseTriggeredAbility.ShouldTrigger
+    // fires; clone + mutate + invoke EvaluateTriggerOperation.ExecuteSimulation
+    // on the mirror runner for what-if scenarios.
+    router.get("/api/whatif-trigger/status", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "whatifTriggerStatus", [], 5000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+    router.post("/api/whatif-trigger/enable", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "whatifTriggerEnable", [], 5000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+    router.post("/api/whatif-trigger/disable", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "whatifTriggerDisable", [], 5000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+    router.post("/api/whatif-trigger/clear", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "whatifTriggerClearTemplates", [], 5000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+    router.get("/api/whatif-trigger/template", async (req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const cls = req.query.cls as string;
+            if (!cls) { res.status(400).json({ error: "cls required" }); return; }
+            const result = await rpcCall(sid, "whatifTriggerGetTemplate",
+                [{ cls }], 5000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+    router.post("/api/whatif-trigger/invoke", async (req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "whatifTriggerInvoke",
+                [req.body ?? {}], 10000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+    router.post("/api/whatif-trigger/set-trace", async (req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const result = await rpcCall(sid, "whatifTriggerSetTraceFilter",
+                [req.body ?? {}], 5000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+    router.get("/api/whatif-trigger/trace", async (req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running session" }); return; }
+            const clear = req.query.clear === "1";
+            const max = req.query.max ? parseInt(String(req.query.max), 10) : undefined;
+            const result = await rpcCall(sid, "whatifTriggerGetTrace",
+                [{ clear, max }], 5000);
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    });
+
     // ---------- Sim mirror endpoints ----------
     // The mirror is an isolated IdunRunner that follows live message-by-
     // message via log replay + per-message PRNG sync. It exposes the
     // matchState to the front for rendering, and is foundational for future
     // AI variant exploration. See docs/plans for design rationale.
 
-    /** Build-or-catchup the mirror to live's latest log entry. */
-    router.post("/api/sim/mirror", async (_req: Request, res: Response) => {
+    /** Build a transient PREVIEW runner from a saved bundle (config +
+     * messages). The runner is NOT registered as a build — it doesn't
+     * appear in the runners panel and the recorder doesn't tag its applies.
+     * Used solely so the front can render the saved matchstate on the
+     * central board before the user commits via LOAD. */
+    router.post("/api/sim/preview-build", async (req: Request, res: Response) => {
+        try {
+            const { configId } = req.body ?? {};
+            if (typeof configId !== "string" || !configId) {
+                res.status(400).json({ error: "configId required" });
+                return;
+            }
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            const bundle = await getReplayBundle(configId);
+            if (!bundle) { res.status(404).json({ error: "config not found" }); return; }
+            const result = await rpcCall(sid, "simBuildPreview", [{
+                configJson: bundle.configJson,
+                messages: bundle.messages,
+            }], 60000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** Re-project the current preview's matchstate. */
+    router.get("/api/sim/preview-state", async (_req: Request, res: Response) => {
         try {
             const sid = pickRunningSession();
             if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
-            const result = await rpcCall(sid, "simMirror", [], 60000);
+            const result = await rpcCall(sid, "simGetPreviewState", [], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** Drop the preview slot. */
+    router.post("/api/sim/preview-dispose", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            const result = await rpcCall(sid, "simDisposePreview", [], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** LOAD a saved bundle into a fresh BUILD runner (single-build policy
+     * disposes any prior build + preview). Recorder watches the new build
+     * so subsequent applies (manual end-turn, auto-play, mirror catchUp)
+     * are captured normally. Falls back to legacy initRunner+startBattle
+     * for old config-only saves with no message bundle. */
+    router.post("/api/sim/load-from-saved", async (req: Request, res: Response) => {
+        try {
+            const { configId } = req.body ?? {};
+            if (typeof configId !== "string" || !configId) {
+                res.status(400).json({ error: "configId required" });
+                return;
+            }
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            const bundle = await getReplayBundle(configId);
+            if (!bundle) { res.status(404).json({ error: "config not found" }); return; }
+            if (bundle.messages.length > 0) {
+                // Bundle path — replay every saved message.
+                const r = await rpcCall(sid, "loadFromSavedBundle", [{
+                    configJson: bundle.configJson,
+                    messages: bundle.messages,
+                }], 120000) as { ok: boolean; runnerId: number; seed: number };
+                registerRunner(r.runnerId, sid, configId);
+                res.json(r);
+            } else {
+                // Legacy path — config-only save (pre-bundle): build runner
+                // + start match. The matchstate will reflect the
+                // PredefinedUnits but won't include any post-deployment
+                // gameplay messages.
+                const init = await rpcCall(sid, "initRunner",
+                    [{ configJson: bundle.configJson }], 30000) as
+                    { runnerId: number; seed: number };
+                registerRunner(init.runnerId, sid, configId);
+                await rpcCall(sid, "startBattle",
+                    [{ runnerId: init.runnerId }], 30000);
+                res.json({ ok: true, runnerId: init.runnerId, seed: init.seed,
+                    legacy: true });
+            }
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** Build-or-catchup the mirror. Body: { source?: "live"|"build", runnerId? }.
+     * Defaults to source="live" for back-compat with the existing button. */
+    router.post("/api/sim/mirror", async (req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            const body = (req.body && typeof req.body === "object")
+                ? { source: req.body.source, runnerId: req.body.runnerId }
+                : {};
+            const result = await rpcCall(sid, "simMirror", [body], 60000);
             res.json(result);
         } catch (e) {
             res.status(500).json({ error: (e as Error).message });
@@ -766,6 +1330,52 @@ export function buildRouter(defaultLogDir: string): Router {
             const sid = pickRunningSession();
             if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
             const result = await rpcCall(sid, "simGetState", [], 10000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** Full replay-able battle dump: config + seed + every captured message
+     * (boot preamble + live + AI sub-messages) Newtonsoft-serialized with
+     * per-message PRNG snapshots. The bundle is sufficient to reconstruct
+     * the current state offline via buildRunner(cfg, seed) + per-message
+     * deserialize+restoreMt+Apply. Returned as a downloadable JSON file. */
+    router.get("/api/sim/dump-replay", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            const r = await rpcCall(sid, "simDumpReplay", [], 60000) as {
+                ok: boolean; error?: string;
+                capturedAt?: number; runnerPtr?: string;
+                seed?: number | null;
+                config?: { bytes: number; json: string };
+                messages?: unknown[];
+                stats?: Record<string, number>;
+            };
+            if (!r.ok) {
+                res.status(404).json({ error: r.error ?? "unavailable" });
+                return;
+            }
+            const filename = "replay-"
+                + new Date().toISOString().replace(/[:.]/g, "-")
+                + "-msgs" + (r.messages?.length ?? 0) + ".json";
+            res.setHeader("Content-Disposition",
+                `attachment; filename="${filename}"`);
+            res.type("application/json").send(JSON.stringify(r));
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** User-driven save of the live runner's BattleConfiguration to the
+     * configs store. Live-only; build runners can't be saved (they came
+     * from a stored config). Returns { ok, id } on success. */
+    router.post("/api/sim/save-live-config", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            const result = await rpcCall(sid, "simSaveLiveConfig", [], 30000);
             res.json(result);
         } catch (e) {
             res.status(500).json({ error: (e as Error).message });
@@ -790,6 +1400,18 @@ export function buildRouter(defaultLogDir: string): Router {
         }
     });
 
+    /** Per-entry log dump — diagnostic for live↔mirror divergence. */
+    router.get("/api/sim/dump-log", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            const result = await rpcCall(sid, "simDumpLog", [], 10000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
     /** Lightweight status — used by the front to enable/disable buttons. */
     router.get("/api/sim/status", async (_req: Request, res: Response) => {
         try {
@@ -802,6 +1424,34 @@ export function buildRouter(defaultLogDir: string): Router {
                 return;
             }
             const result = await rpcCall(sid, "simStatus", [], 5000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** Dispatch one EndTurnMessage on the current mirror's build source —
+     * passes the turn to the next team without auto-playing. Refused on a
+     * live mirror. */
+    router.post("/api/sim/end-turn", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            const result = await rpcCall(sid, "simEndTurn", [], 10000);
+            res.json(result);
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
+    /** One auto-play step for a build-source mirror — dispatches a single
+     * CheatRunAIMessage on the build runner (active team plays). Front calls
+     * this in a loop until {advanced:false}. */
+    router.post("/api/sim/auto-play-step", async (_req: Request, res: Response) => {
+        try {
+            const sid = pickRunningSession();
+            if (sid == null) { res.status(409).json({ error: "no running Frida session" }); return; }
+            const result = await rpcCall(sid, "simAutoPlayStep", [], 30000);
             res.json(result);
         } catch (e) {
             res.status(500).json({ error: (e as Error).message });

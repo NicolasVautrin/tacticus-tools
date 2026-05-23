@@ -32,6 +32,32 @@ export interface CapturedConfigMeta {
     board?: string | null;     // Board.Id, e.g. "C1_75", "C5_01", "C1_t_01"
     campaignId?: string | null;     // e.g. "campaign1", "eventStandard1"
     locationIndex?: number | null;  // 0-based battle index in the campaign
+    /** When the live runner had a captured message log at save time, we
+     * persist it as a separate <id>.bundle.json file. Lets preview-from-
+     * saved replay messages on a fresh build runner so it reaches the
+     * exact saved state. Null on legacy (config-only) saves. */
+    messageCount?: number | null;
+    bundlePath?: string | null;  // relative path "configs/<safe>.bundle.json"
+    /** Free-form user description — set/edited via PATCH /api/configs/:id.
+     * Displayed under the save tile heading so the user can label saves
+     * ("interesting overwatch case", "round 5 turn point", ...). */
+    description?: string | null;
+}
+
+export interface ReplayBundleMessage {
+    idx: number;
+    src: string;
+    cls: string;
+    ns: string;
+    unitId: number | null;
+    prng: unknown;  // MtSnapshot — opaque to host, the agent owns the schema
+    json: string | null;
+}
+
+export interface ReplayBundle {
+    configJson: string;
+    messages: ReplayBundleMessage[];
+    capturedAt: number;
 }
 
 /** Cheap Board.Id extraction from the JSON string. The serializer puts
@@ -97,7 +123,9 @@ export async function initConfigStore(): Promise<void> {
 
         const id = payload.id;
         const fname = `${safeId(id)}.json`;
+        const bundleFname = `${safeId(id)}.bundle.json`;
         const jsonStr = payload.json as string;
+        const messages = Array.isArray(payload.messages) ? payload.messages : null;
         const meta: CapturedConfigMeta = {
             id,
             mode: typeof payload.mode === "string" ? payload.mode : "?",
@@ -111,21 +139,38 @@ export async function initConfigStore(): Promise<void> {
                 ? payload.campaignId : null,
             locationIndex: typeof payload.locationIndex === "number"
                 ? payload.locationIndex : null,
+            messageCount: messages ? messages.length : null,
+            bundlePath: messages ? `configs/${bundleFname}` : null,
         };
 
-        fs.writeFile(path.join(CONFIGS_DIR, fname), payload.json as string)
-            .then(() => {
-                const i = index.findIndex((e) => e.id === id);
-                if (i >= 0) index[i] = meta;
-                else index.push(meta);
-                return writeIndex();
-            })
-            .catch((e) =>
-                console.log(`[config-store] write failed for ${id}: ${e.message}`));
+        const writeAll = async (): Promise<void> => {
+            await fs.writeFile(path.join(CONFIGS_DIR, fname), jsonStr);
+            if (messages) {
+                // Persist messages as a separate file alongside the config.
+                // Keeps the existing config file format byte-for-byte
+                // (consumers like /api/configs/:id are unchanged) and only
+                // load-from-bundle paths know about the extra file.
+                const bundle = JSON.stringify({
+                    version: 1,
+                    capturedAt: meta.ts,
+                    messageCount: messages.length,
+                    messages,
+                });
+                await fs.writeFile(
+                    path.join(CONFIGS_DIR, bundleFname), bundle);
+            }
+            const i = index.findIndex((e) => e.id === id);
+            if (i >= 0) index[i] = meta;
+            else index.push(meta);
+            await writeIndex();
+        };
+        writeAll().catch((e) =>
+            console.log(`[config-store] write failed for ${id}: ${e.message}`));
 
-        // Strip the heavy `json` field from the broadcast envelope — the
-        // browser fetches via /api/configs/:id on demand.
-        const { json: _j, ...rest } = payload;
+        // Strip the heavy `json` AND `messages` fields from the broadcast
+        // envelope — the browser fetches via /api/configs/:id on demand and
+        // the bundle is only relevant at preview-from-saved time.
+        const { json: _j, messages: _m, ...rest } = payload;
         envelope.payload = { type: "send", payload: { ...rest, t: "captured_config" } };
     });
 }
@@ -178,14 +223,73 @@ export async function getConfig(id: string): Promise<string | undefined> {
     }
 }
 
+/** Read both the config JSON and the messages bundle (if any) for a saved
+ * capture. Used by preview-from-saved to fully reconstruct a runner via
+ * initRunner + replay each message. Returns undefined when the config is
+ * missing; returns `{configJson, messages: []}` when only the legacy
+ * config file exists (no bundle was persisted at save time). */
+export async function getReplayBundle(
+    id: string,
+): Promise<ReplayBundle | undefined> {
+    const meta = index.find((e) => e.id === id);
+    if (!meta) return undefined;
+    let configJson: string;
+    try {
+        configJson = await fs.readFile(
+            path.join(CONFIGS_DIR, path.basename(meta.path)),
+            "utf-8",
+        );
+    } catch {
+        return undefined;
+    }
+    let messages: ReplayBundleMessage[] = [];
+    let capturedAt = meta.ts;
+    if (meta.bundlePath) {
+        try {
+            const raw = await fs.readFile(
+                path.join(CONFIGS_DIR, path.basename(meta.bundlePath)),
+                "utf-8",
+            );
+            const parsed = JSON.parse(raw) as {
+                capturedAt?: number;
+                messages?: ReplayBundleMessage[];
+            };
+            if (Array.isArray(parsed.messages)) messages = parsed.messages;
+            if (typeof parsed.capturedAt === "number") capturedAt = parsed.capturedAt;
+        } catch (e) {
+            console.log(`[config-store] bundle read failed for ${id}: ${(e as Error).message}`);
+        }
+    }
+    return { configJson, messages, capturedAt };
+}
+
 export async function clearConfigs(): Promise<number> {
     const n = index.length;
-    await Promise.all(index.map((m) =>
-        fs.unlink(path.join(CONFIGS_DIR, path.basename(m.path))).catch(() => {})
-    ));
+    await Promise.all(index.flatMap((m) => {
+        const tasks = [fs.unlink(path.join(CONFIGS_DIR, path.basename(m.path))).catch(() => {})];
+        if (m.bundlePath) {
+            tasks.push(fs.unlink(path.join(CONFIGS_DIR, path.basename(m.bundlePath))).catch(() => {}));
+        }
+        return tasks;
+    }));
     index = [];
     await writeIndex();
     return n;
+}
+
+/** Set/update the user-facing description on a saved capture. Trims
+ * whitespace; an empty string clears the description (stored as null).
+ * Returns the updated meta or undefined if the id doesn't exist. */
+export async function updateConfigDescription(
+    id: string, description: string | null,
+): Promise<CapturedConfigMeta | undefined> {
+    const i = index.findIndex((e) => e.id === id);
+    if (i < 0) return undefined;
+    const trimmed = typeof description === "string"
+        ? description.trim() : null;
+    index[i] = { ...index[i], description: trimmed && trimmed.length > 0 ? trimmed : null };
+    await writeIndex();
+    return index[i];
 }
 
 /** Remove one capture by id. Returns true if found+removed. */
@@ -196,6 +300,11 @@ export async function deleteConfig(id: string): Promise<boolean> {
     try {
         await fs.unlink(path.join(CONFIGS_DIR, path.basename(meta.path)));
     } catch { /* file may already be gone */ }
+    if (meta.bundlePath) {
+        try {
+            await fs.unlink(path.join(CONFIGS_DIR, path.basename(meta.bundlePath)));
+        } catch { /* file may already be gone */ }
+    }
     await writeIndex();
     return true;
 }

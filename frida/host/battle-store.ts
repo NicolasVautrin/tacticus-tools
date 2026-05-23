@@ -105,6 +105,27 @@ export async function initBattleStore(): Promise<void> {
     await fs.mkdir(RUNS_DIR, { recursive: true });
     console.log(`[battle-store] dumping battle events to ${RUNS_DIR}`);
 
+    // Agent-side auto-dispose notification — emitted by recorder.ts when a
+    // build runner's match ends so its registry entry shouldn't linger on
+    // the front. Without this handler the host registry would still list
+    // the dead runnerId until a manual /api/runners/sync.
+    registerHandler("runner_disposed", ({ payload, envelope }) => {
+        const id = typeof payload.runnerId === "number" ? payload.runnerId : null;
+        if (id !== null) {
+            removeRunner(id).then((removed) =>
+                console.log(`[battle-store] runner ${id} auto-disposed (${payload.reason ?? "?"}) · removed=${removed}`),
+            ).catch((e) =>
+                console.log(`[battle-store] runner ${id} auto-dispose failed: ${e.message}`));
+        }
+        // Forward as a lightweight WS notification — the front uses it to
+        // refresh its runners panel immediately rather than waiting for
+        // the next 3s poll.
+        envelope.payload = {
+            type: "send",
+            payload: { t: "runner_disposed", runnerId: id, reason: payload.reason ?? null },
+        };
+    });
+
     registerHandler("battle_event", ({ sessionId, payload, envelope }) => {
         const runnerId = typeof payload.runnerId === "number" ? payload.runnerId : 0;
         const msg = typeof payload.msg === "string" ? payload.msg : "unknown";
