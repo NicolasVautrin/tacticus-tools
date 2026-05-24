@@ -414,9 +414,28 @@ function computeCompare(
 export function purgeLogForOrigin(buildId: number): number {
     const before = state.log.length;
     if (before === 0) return 0;
-    state.log = state.log.filter(
-        (e) => (e.originRunnerId ?? "live") !== buildId);
-    const removed = before - state.log.length;
+    // Separate kept vs removed so we can unpin the removed entries'
+    // message ptrs from gcRoot — the recorder pins every Apply'd
+    // message so its `ptr` field can be used as a stable lookup key;
+    // once purged, the message can no longer be looked up and pinning
+    // it is pure leak. Empirically this was the dominant gcRoot
+    // accumulation source (~100 entries/battle), eventually making
+    // IdunRunner.Initialize fail past ~900 pinned handles.
+    const kept: typeof state.log = [];
+    const removedEntries: typeof state.log = [];
+    for (const e of state.log) {
+        if ((e.originRunnerId ?? "live") === buildId) {
+            removedEntries.push(e);
+        } else {
+            kept.push(e);
+        }
+    }
+    state.log = kept;
+    for (const e of removedEntries) {
+        if (!e.ptr) continue;
+        try { gcRoot.remove(ptr(e.ptr)); } catch { /* best effort */ }
+    }
+    const removed = removedEntries.length;
     if (removed > 0) {
         simState.lastSyncedLogIdx = Math.min(
             simState.lastSyncedLogIdx, state.log.length);

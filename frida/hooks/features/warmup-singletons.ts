@@ -2,7 +2,7 @@
 // human in-game click. Drives the existing ui-nav primitives through the
 // full chain (campaign node → battle preview → play → ctor capture →
 // pause → retreat → confirm) and leaves the game back at the campaign
-// screen. Idempotent: if campaign-builder already holds lastSource, no-op.
+// screen. Idempotent: if campaign-builder already holds campaignGameModeSourcePtr, no-op.
 //
 // Intended usage at session start, after auto-inject, to guarantee that
 // builder_ready is pushed without needing the user to navigate first.
@@ -12,7 +12,9 @@ import { log } from "../runtime/diag.js";
 import { Ctx } from "../controller.js";
 import { ensureRefs, enumerateButtons, clickByPath, ButtonRow, UiRefs }
     from "./ui-nav.js";
-import { getLastSource } from "./campaign-builder.js";
+import {
+    getCampaignGameModeSourcePtr, getUnitProgressionPtr, tryActiveDiscoveryOfSources,
+} from "./campaign-builder.js";
 import {
     findClassAnywhere, findMethod, class_get_methods, method_get_name,
     method_get_param_count, methodEntry, s as cstr, getSystemType,
@@ -231,7 +233,7 @@ interface StepLog {
 
 interface WarmupResult {
     ok: boolean;
-    skipped?: "already-ready";
+    skipped?: "already-ready" | "heap-scan";
     capturedAt?: string;
     steps?: StepLog[];
     err?: string;
@@ -239,16 +241,16 @@ interface WarmupResult {
 
 // --- Orchestration ---
 
-async function warmupCampaignGameModeSource(
-    opts?: { force?: boolean; retreat?: boolean },
+async function warmupGameSingletons(
+    opts?: { force?: boolean },
 ): Promise<WarmupResult> {
     // 0. Idempotence: if a previous session already captured it, no-op.
     //    Pass { force: true } to skip this short-circuit (useful for
     //    benchmarking or when the cached ptr is suspected stale).
     if (!opts?.force) {
-        const existing = await queueOnMainThread(() => getLastSource());
+        const existing = await queueOnMainThread(() => getCampaignGameModeSourcePtr());
         if (existing !== null) {
-            log(`[warmup-cgms] already ready @ ${existing} — skipping cycle`);
+            log(`[warmup-singletons] already ready @ ${existing} — skipping cycle`);
             return {
                 ok: true,
                 skipped: "already-ready",
@@ -257,10 +259,18 @@ async function warmupCampaignGameModeSource(
         }
     }
 
+    // NOTE: tempting to drop a heap-scan fast path here, but a full heap scan
+    // for GameConfigDto can take ~15s on Tacticus PC — UnityFreezeDetector
+    // kills the process before we recover. The 8ms "cache hit" measured
+    // earlier was already-resolved ptrs (auto-boot or earlier session), not
+    // a cold scan. UI nav is slower (~30s) but safe.
+    // `tryActiveDiscoveryOfSources()` remains available as an *explicit*
+    // user-triggered fallback (e.g. from dumpCampaignCatalog allowHeapScan).
+
     const steps: StepLog[] = [];
     const fail = (step: string, err: string): WarmupResult => {
         steps.push({ step, ok: false, info: err });
-        log(`[warmup-cgms] FAIL at ${step}: ${err}`);
+        log(`[warmup-singletons] FAIL at ${step}: ${err}`);
         return { ok: false, err: `${step}: ${err}`, steps };
     };
 
@@ -357,7 +367,7 @@ async function warmupCampaignGameModeSource(
 
     // 5. Wait for the ctor hook to capture CampaignGameModeSource.
     //    Battle loading can be slow on cold boot — up to 20s.
-    const captured = await waitFor(() => getLastSource(), 20000, 300);
+    const captured = await waitFor(() => getCampaignGameModeSourcePtr(), 20000, 300);
     if (captured === null) {
         return fail("wait-ctor",
             "CampaignGameModeSource..ctor did not fire within 20s");
@@ -365,7 +375,7 @@ async function warmupCampaignGameModeSource(
     steps.push({
         step: "wait-ctor", ok: true, info: captured.toString(),
     });
-    log(`[warmup-cgms] CGMS captured @ ${captured}`);
+    log(`[warmup-singletons] CGMS captured @ ${captured}`);
 
     // 6. Wait for the deployment phase to be FULLY stable before pausing.
     //    PauseButton alone mounts way too early (with the HUD canvas, while
@@ -393,18 +403,6 @@ async function warmupCampaignGameModeSource(
     // the major animations are done.
     await sleep(500);
 
-    // If retreat is disabled (default: true), stop here. The battle stays
-    // in deployment phase — useful for RL training loops where the next
-    // step is to inspect spawned entities / apply units / play.
-    if (opts?.retreat === false) {
-        log("[warmup-cgms] cycle complete — builder ready, holding at deployment (retreat=false)");
-        return {
-            ok: true,
-            capturedAt: captured.toString(),
-            steps: [...steps, { step: "hold-at-deployment", ok: true }],
-        };
-    }
-
     // 7. Pause → retreat → confirm. Each step polls until the next button
     //    appears, then clicks it in the same main-thread tick.
     const pauseClick = await waitForAndClick(r, PAUSE_BUTTON_KEY, 3000);
@@ -427,12 +425,12 @@ async function warmupCampaignGameModeSource(
     }
     steps.push({ step: "click-confirm", ok: true });
 
-    log("[warmup-cgms] cycle complete — builder ready, game retreated");
+    log("[warmup-singletons] cycle complete — builder ready, game retreated");
     return { ok: true, capturedAt: captured.toString(), steps };
 }
 
 export function register(ctx: Ctx): void {
-    ctx.rpc.warmupCampaignGameModeSource = (
-        opts?: { force?: boolean; retreat?: boolean },
-    ) => warmupCampaignGameModeSource(opts);
+    ctx.rpc.warmupGameSingletons = (
+        opts?: { force?: boolean },
+    ) => warmupGameSingletons(opts);
 }

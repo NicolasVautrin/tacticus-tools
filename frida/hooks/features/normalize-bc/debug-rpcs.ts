@@ -23,11 +23,12 @@ import {
     findClass, findMethodByParamCount,
 } from "../../il2cpp/helpers.js";
 import { createManagedString, invokeMethod } from "../../il2cpp/invoke.js";
-import { getLastUnitProgression } from "../campaign-builder.js";
+import { getUnitProgressionPtr } from "../campaign-builder.js";
 import { queueOnMainThread } from "../../runtime/queue.js";
 import { Ctx } from "../../controller.js";
 import {
-    resolveFormulaState, ensureEmptyLists, readUnitDynamicStats,
+    resolveFormulaState, ensureEmptyListClasses, createFreshEmptyLists,
+    readUnitDynamicStats,
 } from "./formula.js";
 import { getLiveBC, BC_OFF_PLAYER } from "./live-bc.js";
 
@@ -36,14 +37,16 @@ function probeStatsViaFormula(args: {
     unitRank: number;
     progressionIndex: number;
 }): unknown {
-    const unitProg = getLastUnitProgression();
-    if (!unitProg) return { err: "lastUnitProgression not captured" };
+    const unitProg = getUnitProgressionPtr();
+    if (!unitProg) return { err: "unitProgressionPtr not captured" };
 
     const state = resolveFormulaState(unitProg);
     if (typeof state === "string") return { err: state };
 
-    const listsErr = ensureEmptyLists(state, unitProg, args.unitId);
-    if (listsErr) return { err: listsErr };
+    const classesErr = ensureEmptyListClasses(state);
+    if (classesErr) return { err: classesErr };
+    const { listInt: probeListInt, listItems: probeListItems } =
+        createFreshEmptyLists(state);
 
     const idStr = createManagedString(args.unitId);
 
@@ -84,8 +87,8 @@ function probeStatsViaFormula(args: {
         f_gameConfigClassName: fGameConfig.isNull() ? "<null>" : _clsName(fGameConfig.readPointer()),
         f_itemStatsFormulaPtr: fItemStatsFormula.toString(),
         f_itemStatsFormulaClassName: fItemStatsFormula.isNull() ? "<null>" : _clsName(fItemStatsFormula.readPointer()),
-        emptyListIntClassName: _clsName(state.emptyListInt!.readPointer()),
-        emptyListItemsClassName: _clsName(state.emptyListItems!.readPointer()),
+        emptyListIntClassName: _clsName(probeListInt.readPointer()),
+        emptyListItemsClassName: _clsName(probeListItems.readPointer()),
     };
 
     // Enumerate ALL methods named StatsUsingProgressionIndexFor on the class
@@ -137,7 +140,7 @@ function probeStatsViaFormula(args: {
     try {
         const boxed = invokeMethod(state.statsForMi.info, state.statsFormula,
             [idStr, isMowBuf, rankBuf, progIdxBuf,
-             state.emptyListInt!, state.emptyListItems!]) as NativePointer;
+             probeListInt, probeListItems]) as NativePointer;
         if (!boxed || boxed.isNull()) {
             return { ...dbg, err: "StatsUsingProgressionIndexFor returned null" };
         }
@@ -205,8 +208,8 @@ export function registerDebugRpcs(ctx: Ctx): void {
     const _statsTrapCaptures: Array<Record<string, unknown>> = [];
     ctx.rpc.installStatsFormulaTrap = () => queueOnMainThread(() => {
         if (_statsTrapInstalled) return { ok: true, alreadyInstalled: true };
-        const unitProg = getLastUnitProgression();
-        if (!unitProg) return { err: "no lastUnitProgression" };
+        const unitProg = getUnitProgressionPtr();
+        if (!unitProg) return { err: "no unitProgressionPtr" };
         const state = resolveFormulaState(unitProg);
         if (typeof state === "string") return { err: state };
         const _H = require("../../il2cpp/helpers.js");

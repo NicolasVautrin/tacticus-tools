@@ -17,11 +17,11 @@ import { queueOnMainThread } from "../runtime/queue.js";
 import { log } from "../runtime/diag.js";
 import { Ctx } from "../controller.js";
 import {
-    getLastSource,
+    getCampaignGameModeSourcePtr,
     getLastGameConfig,
     tryActiveDiscoveryOfSources,
     setLastGameConfig,
-    setLastUnitProgression
+    setUnitProgressionPtr
 } from "./campaign-builder.js";
 
 let lastNavigationInstance: NativePointer | null = null;
@@ -48,14 +48,14 @@ export function extractDependenciesAndNavigate(navInstance: NativePointer): void
         }
 
         if (!unitProgressionPtr.isNull()) {
-            setLastUnitProgression(unitProgressionPtr);
+            setUnitProgressionPtr(unitProgressionPtr);
         } else {
             log("[auto-boot] Warning: extracted _unitProgression pointer is null!");
         }
 
         // Try early active discovery. If captured both, exit early.
         const discovered = tryActiveDiscoveryOfSources();
-        if (discovered && getLastSource() !== null) {
+        if (discovered && getCampaignGameModeSourcePtr() !== null) {
             log("[auto-boot] SUCCESS! CampaignGameModeSource and GameConfigDto already captured naturally, skipping auto-navigation.");
             autoBootExecuted = true;
             return;
@@ -223,7 +223,7 @@ export function extractDependenciesAndNavigate(navInstance: NativePointer): void
                             // Trigger active discovery to capture the newly instantiated CampaignGameModeSource
                             setTimeout(() => {
                                 const updatedDiscovered = tryActiveDiscoveryOfSources();
-                                const updatedSource = getLastSource();
+                                const updatedSource = getCampaignGameModeSourcePtr();
                                 if (updatedSource) {
                                     log(`[auto-boot] CampaignGameModeSource successfully captured @ ${updatedSource}!`);
                                 } else {
@@ -561,6 +561,6 @@ export function register(ctx: Ctx): void {
         containerCaptured: lastLevelMapWidgetContainerInstance !== null,
         containerInstance: lastLevelMapWidgetContainerInstance ? lastLevelMapWidgetContainerInstance.toString() : null,
         executed: autoBootExecuted,
-        hasSource: getLastSource() !== null,
+        hasSource: getCampaignGameModeSourcePtr() !== null,
     });
 }

@@ -50,16 +50,16 @@ const _libIl2cpp = Process.findModuleByName(IL2CPP_MODULE_NAME);
  * captured GameConfigDto without re-implementing heap-scans (which freeze
  * the game's main thread). Returns the most-recently captured pointer or
  * null if natural capture hasn't fired yet. */
-export function getLastUnitProgression(): NativePointer | null {
-    return lastUnitProgression;
+export function getUnitProgressionPtr(): NativePointer | null {
+    return unitProgressionPtr;
 }
 
 export function getLastGameConfig(): NativePointer | null {
     return lastGameConfig;
 }
 
-export function getLastSource(): NativePointer | null {
-    return lastSource;
+export function getCampaignGameModeSourcePtr(): NativePointer | null {
+    return campaignGameModeSourcePtr;
 }
 
 export function setLastGameConfig(p: NativePointer): void {
@@ -84,10 +84,10 @@ export function setLastGameConfig(p: NativePointer): void {
     }
 }
 
-export function setLastUnitProgression(p: NativePointer): void {
+export function setUnitProgressionPtr(p: NativePointer): void {
     if (p.isNull()) return;
-    lastUnitProgression = p;
-    log(`[campaign-builder] setLastUnitProgression: captured UnitProgression @ ${p}`);
+    unitProgressionPtr = p;
+    log(`[campaign-builder] setUnitProgressionPtr: captured UnitProgression @ ${p}`);
 }
 
 export function tryActiveDiscoveryOfSources(): boolean {
@@ -102,37 +102,49 @@ export function tryActiveDiscoveryOfSources(): boolean {
             log("[campaign-builder] tryActiveDiscoveryOfSources: error scanning for GameConfigDto: " + (e as Error).message);
         }
     }
-    if (lastSource === null) {
+    if (campaignGameModeSourcePtr === null) {
         try {
             const scannedSource = findCampaignGameModeSourceViaHeap();
             if (scannedSource !== null) {
-                lastSource = scannedSource;
+                campaignGameModeSourcePtr = scannedSource;
                 log("[campaign-builder] tryActiveDiscoveryOfSources: CampaignGameModeSource captured via active Heap Scan.");
             }
         } catch (e) {
             log("[campaign-builder] tryActiveDiscoveryOfSources: error scanning for CampaignGameModeSource: " + (e as Error).message);
         }
     }
-    return lastSource !== null && lastGameConfig !== null;
+    if (unitProgressionPtr === null) {
+        try {
+            const scannedUp = findUnitProgressionViaHeap();
+            if (scannedUp !== null) {
+                unitProgressionPtr = scannedUp;
+                log("[campaign-builder] tryActiveDiscoveryOfSources: UnitProgression captured via active Heap Scan.");
+            }
+        } catch (e) {
+            log("[campaign-builder] tryActiveDiscoveryOfSources: error scanning for UnitProgression: " + (e as Error).message);
+        }
+    }
+    return campaignGameModeSourcePtr !== null && lastGameConfig !== null
+        && unitProgressionPtr !== null;
 }
 
 // Most-recent CampaignGameModeSource instance — captured by the .ctor hook.
 // Pinned via raw pointer; valid as long as the game's DI container holds it.
 // If the user destroys the campaign view, the pointer may go stale — every
 // usage re-validates the type via `klass at offset 0` before touching fields.
-let lastSource: NativePointer | null = null;
+let campaignGameModeSourcePtr: NativePointer | null = null;
 
 // GameConfigDto* — captured independently from any DI consumer that takes it
 // as a ctor parameter. Available very early (game boot, before any battle),
 // which lets the catalog endpoint work without forcing the user to enter a
-// campaign first. Build still needs `lastSource`.
+// campaign first. Build still needs `campaignGameModeSourcePtr`.
 let lastGameConfig: NativePointer | null = null;
 
 // UnitProgression instance — captured at the first natural
 // UnitProgression.GetUnit(string) call. Used by the per-faction warmup
 // step to pre-resolve metadata for enemy units of a faction the user
 // hasn't touched.
-let lastUnitProgression: NativePointer | null = null;
+let unitProgressionPtr: NativePointer | null = null;
 let getUnitMi: MethodRef | null = null;
 
 // Resolved lazily on first use (depends on CampaignGameModeSource being
@@ -531,7 +543,7 @@ function readString(strPtr: NativePointer): string | null {
  * Cheap idempotent: GetUnit on already-warm classes is a fast hashmap
  * lookup. */
 function warmupTargetUnits(targetMatch: NativePointer): number {
-    if (lastUnitProgression === null || getUnitMi === null) return 0;
+    if (unitProgressionPtr === null || getUnitMi === null) return 0;
     let warmed = 0;
     try {
         // targetMatch.units (List<List<string>>) at offset 0x70
@@ -556,7 +568,7 @@ function warmupTargetUnits(targetMatch: NativePointer): number {
             seen.add(idOnly);
             try {
                 const idManaged = createManagedString(idOnly);
-                invokeMethod(getUnitMi.info, lastUnitProgression!, [idManaged]);
+                invokeMethod(getUnitMi.info, unitProgressionPtr!, [idManaged]);
                 warmed += 1;
             } catch { /* unknown id — skip */ }
         }
@@ -573,7 +585,7 @@ export function register(ctx: Ctx): void {
     //   2. LoadBattle.onEnter — fires every time the instance prepares a
     //      battle. Crucially this catches instances that already existed
     //      BEFORE inject (e.g. user was mid-campaign when we attached).
-    // Both write to the same `lastSource` slot — most-recent wins.
+    // Both write to the same `campaignGameModeSourcePtr` slot — most-recent wins.
     const ctorClass = findClass(ASM_BATTLE, NS_BATTLE_SOURCE, "CampaignGameModeSource");
     if (ctorClass) {
         const ctor = findMethod(ctorClass, ".ctor");
@@ -594,8 +606,8 @@ export function register(ctx: Ctx): void {
                         // injection) are now valid. Safe to publish.
                         const self = this.selfPtr as NativePointer;
                         if (!self || self.isNull()) return;
-                        const wasNull = lastSource === null;
-                        lastSource = self;
+                        const wasNull = campaignGameModeSourcePtr === null;
+                        campaignGameModeSourcePtr = self;
                         log("[campaign-builder] captured (ctor) @ " + self);
                         if (wasNull) {
                             try { send({ t: "builder_ready", via: "ctor" }); }
@@ -616,9 +628,9 @@ export function register(ctx: Ctx): void {
                         traceEnter("CampaignGameModeSource.LoadBattle");
                         const self = ptr(args[0].toString());
                         if (self.isNull()) return;
-                        if (!lastSource || !lastSource.equals(self)) {
-                            const wasNull = lastSource === null;
-                            lastSource = self;
+                        if (!campaignGameModeSourcePtr || !campaignGameModeSourcePtr.equals(self)) {
+                            const wasNull = campaignGameModeSourcePtr === null;
+                            campaignGameModeSourcePtr = self;
                             log("[campaign-builder] captured (LoadBattle) @ " + self);
                             if (wasNull) {
                                 try { send({ t: "builder_ready", via: "LoadBattle" }); }
@@ -695,10 +707,15 @@ export function register(ctx: Ctx): void {
                     Interceptor.attach(entry, {
                         onEnter(args) {
                             traceEnter("UnitProgression.GetUnit", 100);
-                            if (lastUnitProgression === null) {
+                            if (unitProgressionPtr === null) {
                                 const self = ptr(args[0].toString());
                                 if (!self.isNull()) {
-                                    lastUnitProgression = self;
+                                    // No gcRoot pin needed: UnitProgression
+                                    // is a player-side singleton, rooted by
+                                    // the game's own references. Boehm GC
+                                    // (IL2CPP) is non-moving, so the ptr is
+                                    // stable for the process lifetime.
+                                    unitProgressionPtr = self;
                                     log("[campaign-builder] captured UnitProgression @ "
                                         + self + " (via GetUnit)");
                                 }
@@ -736,8 +753,8 @@ export function register(ctx: Ctx): void {
         // GameConfigData service if needed. Heap scan only when caller opts
         // in (↻ button); it freezes Tacticus's main thread ~10 s.
         let gameConfig: NativePointer | null = lastGameConfig;
-        if (gameConfig === null && lastSource !== null && ensureCgmsResolved()) {
-            const p = lastSource.add(offGameConfig).readPointer();
+        if (gameConfig === null && campaignGameModeSourcePtr !== null && ensureCgmsResolved()) {
+            const p = campaignGameModeSourcePtr.add(offGameConfig).readPointer();
             const dto = unwrapGameConfig(p);
             if (dto !== null) {
                 gameConfig = dto;
@@ -771,7 +788,7 @@ export function register(ctx: Ctx): void {
      *      Func<string,IUnitModel> from a natural game call, invoke
      *      GetCampaignLevelConfig directly. No CampaignGameModeSource
      *      mutation, no LoadBattle side-effects, no funnel events.
-     *   2. Mute path — fallback: mutate lastSource (CampaignGameModeSource)
+     *   2. Mute path — fallback: mutate campaignGameModeSourcePtr (CampaignGameModeSource)
      *      and call LoadBattle(true). Required when we haven't yet captured
      *      a delegate (game is on home screen, never opened a campaign).
      */
@@ -782,8 +799,8 @@ export function register(ctx: Ctx): void {
     }) => queueOnMainThread(() => {
         // Resolve target CampaignConfigDto via gameConfig.battles.campaigns.
         let gameConfig: NativePointer | null = lastGameConfig;
-        if (gameConfig === null && lastSource !== null && ensureCgmsResolved()) {
-            const p = lastSource.add(offGameConfig).readPointer();
+        if (gameConfig === null && campaignGameModeSourcePtr !== null && ensureCgmsResolved()) {
+            const p = campaignGameModeSourcePtr.add(offGameConfig).readPointer();
             const dto = unwrapGameConfig(p);
             if (dto !== null) {
                 gameConfig = dto;
@@ -829,10 +846,10 @@ export function register(ctx: Ctx): void {
         // Resolve the live CampaignGameModeSource. Captured at warmup via the
         // ctor.onLeave hook. Heap-scan fallback covers re-injection after the
         // user already navigated into a campaign (rare).
-        let sourcePtr = lastSource;
+        let sourcePtr = campaignGameModeSourcePtr;
         if (sourcePtr === null) {
             sourcePtr = findCampaignGameModeSourceViaHeap();
-            if (sourcePtr !== null) lastSource = sourcePtr;
+            if (sourcePtr !== null) campaignGameModeSourcePtr = sourcePtr;
         }
         // Path 2 (mute + progression-swap). The source has
         // source._campaignProgression (offset 0x20) pointing to a
@@ -941,14 +958,14 @@ export function register(ctx: Ctx): void {
      *   hasGameConfig       → catalog dump works (lastGameConfig captured)
      *   hasUnitProgression  → per-faction warmup is possible
      *   hasInstance         → path 2 mute progression-swap is ready
-     * Build needs `hasInstance` (lastSource captured = user clicked a battle
+     * Build needs `hasInstance` (campaignGameModeSourcePtr captured = user clicked a battle
      * once in-game). The frontend polls this every 5 s. Cheap by design —
      * never triggers heap scans. */
     ctx.rpc.campaignBuilderStatus = () => ({
         hasGameConfig: lastGameConfig !== null,
-        hasUnitProgression: lastUnitProgression !== null,
-        hasInstance: lastSource !== null,
-        instance: lastSource ? lastSource.toString() : null,
+        hasUnitProgression: unitProgressionPtr !== null,
+        hasInstance: campaignGameModeSourcePtr !== null,
+        instance: campaignGameModeSourcePtr ? campaignGameModeSourcePtr.toString() : null,
         gameConfig: lastGameConfig ? lastGameConfig.toString() : null,
     });
 }

@@ -104,6 +104,14 @@ export const state = {
     /** Queued main-thread work — drained by main-pump on each Update. */
     pending: [] as PendingRpc[],
 
+    /** Monotonic frame counter incremented by IdunGameViews.Update hook
+     *  (game-mode pump) and UnityFreezeDetector.Update (menu pump).
+     *  Used to confirm empirically that frames elapse between successive
+     *  queueOnMainThread calls — if the counter goes up between two
+     *  consecutive turns of `autoPlayRunner`, Unity ticked at least one
+     *  frame in between. Stays constant inside a single pump cycle. */
+    frameNo: 0,
+
     /** sim results stashed for later commit. */
     simCache: {} as Record<number, SimCacheEntry>,
     simIdSeq: 1,

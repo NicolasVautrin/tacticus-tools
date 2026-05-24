@@ -40,17 +40,16 @@ export function register(ctx: Ctx): void {
         };
     });
 
-    ctx.rpc.autoPlayRunner = (args: {
+    ctx.rpc.autoPlayRunner = async (args: {
         runnerId: number;
         maxTurns?: number;
-    }) => queueOnMainThread(() => {
+    }) => {
         if (!cheatRunAiClass) {
             throw new Error("CheatRunAIMessage class not found");
         }
         if (!runnerApplyMi) {
             throw new Error("IdunRunner.Apply not resolved");
         }
-        const entry = getRunner(args.runnerId);
         const maxTurns = args.maxTurns ?? 200;
         const ctor = findCtorByParamCount(cheatRunAiClass, 0);
 
@@ -58,64 +57,104 @@ export function register(ctx: Ctx): void {
             turn: number; player: number | null; round: number | null;
             stageBefore: number; stageAfter: number;
         }> = [];
-        let stage = -1;
-        try {
-            const sp0 = entry.runner.add(runnerOff.state).readPointer();
-            if (!sp0.isNull()) stage = readBattleStatus(sp0).stage ?? -1;
-        } catch { /* keep stage */ }
 
-        if (stage !== STAGE_RUNNING) {
-            return {
-                ok: false, reason: `stage=${stage}, expected Running(1)`,
-                stage, turns: 0,
-            };
-        }
-
-        let turnIdx = 0;
-        let finalStage = stage;
-        while (turnIdx < maxTurns) {
-            const sp = entry.runner.add(runnerOff.state).readPointer();
-            const sBefore = sp.isNull() ? -1 : (readBattleStatus(sp).stage ?? -1);
-            if (sBefore !== STAGE_RUNNING) {
-                finalStage = sBefore;
-                break;
-            }
-            const turn = readTurnInfo(sp);
-
-            const msg = il2cpp_object_new(cheatRunAiClass) as NativePointer;
-            if (msg.isNull()) {
-                return {
-                    ok: false, reason: "il2cpp_object_new returned null",
-                    turns: turnIdx, stage: sBefore,
-                };
-            }
-            gcRoot.add(msg);
-            if (ctor) invokeMethod(ctor.info, msg, null);
-
+        // Stage check (initial). One short queueOnMainThread for the
+        // peek so we resolve `entry` + read battle status atomically.
+        type PeekRes = { stage: number; abort?: { ok: false;
+            reason: string; stage: number; turns: number } };
+        const peek = await queueOnMainThread<PeekRes>(() => {
+            const entry = getRunner(args.runnerId);
+            let stage = -1;
             try {
-                invokeMethod(runnerApplyMi.info, entry.runner, [msg]);
-            } catch (e) {
+                const sp0 = entry.runner.add(runnerOff.state).readPointer();
+                if (!sp0.isNull()) stage = readBattleStatus(sp0).stage ?? -1;
+            } catch { /* keep stage */ }
+            if (stage !== STAGE_RUNNING) {
                 return {
-                    ok: false,
-                    reason: "Apply failed: " + (e as Error).message,
-                    turns: turnIdx, stage: sBefore,
+                    stage, abort: {
+                        ok: false as const,
+                        reason: `stage=${stage}, expected Running(1)`,
+                        stage, turns: 0,
+                    },
                 };
             }
+            return { stage };
+        });
+        if (peek.abort) return peek.abort;
 
-            const spAfter = entry.runner.add(runnerOff.state).readPointer();
-            const sAfter = spAfter.isNull()
-                ? -1 : (readBattleStatus(spAfter).stage ?? -1);
+        // One queueOnMainThread per turn — between turns the pump
+        // returns from Update(), Unity ticks a frame, deferred native
+        // destruction queues get drained. Empirically this fixes the
+        // ~10th-Initialize failure (Microsoft C++ exception 0xE06D7363)
+        // caused by Unity main-thread starvation when the whole battle
+        // runs in one pump cycle.
+        let turnIdx = 0;
+        let finalStage = peek.stage;
+        while (turnIdx < maxTurns) {
+            type TurnRes = {
+                done?: true;
+                fail?: { ok: false; reason: string;
+                    turns: number; stage: number };
+                stageBefore?: number; stageAfter?: number;
+                player?: number | null; round?: number | null;
+                frameNo?: number;
+            };
+            const r = await queueOnMainThread<TurnRes>(() => {
+                const entry = getRunner(args.runnerId);
+                const frameNo = state.frameNo;
+                const sp = entry.runner.add(runnerOff.state).readPointer();
+                const sBefore = sp.isNull() ? -1
+                    : (readBattleStatus(sp).stage ?? -1);
+                if (sBefore !== STAGE_RUNNING) {
+                    return { done: true, stageAfter: sBefore, frameNo };
+                }
+                const turn = readTurnInfo(sp);
+                const msg = il2cpp_object_new(cheatRunAiClass!) as NativePointer;
+                if (msg.isNull()) {
+                    return {
+                        fail: {
+                            ok: false as const,
+                            reason: "il2cpp_object_new returned null",
+                            turns: turnIdx, stage: sBefore,
+                        },
+                    };
+                }
+                if (ctor) invokeMethod(ctor.info, msg, null);
+                try {
+                    invokeMethod(runnerApplyMi!.info, entry.runner, [msg]);
+                } catch (e) {
+                    return {
+                        fail: {
+                            ok: false as const,
+                            reason: "Apply failed: " + (e as Error).message,
+                            turns: turnIdx, stage: sBefore,
+                        },
+                    };
+                }
+                const spAfter = entry.runner.add(runnerOff.state)
+                    .readPointer();
+                const sAfter = spAfter.isNull() ? -1
+                    : (readBattleStatus(spAfter).stage ?? -1);
+                return {
+                    stageBefore: sBefore, stageAfter: sAfter,
+                    player: turn.player, round: turn.round,
+                    frameNo,
+                };
+            });
+            if (r.fail) return r.fail;
+            if (r.done) { finalStage = r.stageAfter ?? finalStage; break; }
             turns.push({
                 turn: turnIdx + 1,
-                player: turn.player,
-                round: turn.round,
-                stageBefore: sBefore,
-                stageAfter: sAfter,
-            });
+                player: r.player ?? null,
+                round: r.round ?? null,
+                stageBefore: r.stageBefore!,
+                stageAfter: r.stageAfter!,
+                frameNo: r.frameNo,
+            } as never);
             turnIdx++;
-            finalStage = sAfter;
-            if (sAfter === STAGE_FINISHED) break;
-            if (sAfter !== STAGE_RUNNING) break;
+            finalStage = r.stageAfter!;
+            if (finalStage === STAGE_FINISHED) break;
+            if (finalStage !== STAGE_RUNNING) break;
         }
 
         return {
@@ -126,5 +165,5 @@ export function register(ctx: Ctx): void {
             hitMaxTurns: turnIdx >= maxTurns && finalStage !== STAGE_FINISHED,
             history: turns,
         };
-    });
+    };
 }

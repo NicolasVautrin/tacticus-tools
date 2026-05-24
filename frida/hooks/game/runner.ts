@@ -6,12 +6,13 @@
 // sandbox to explore decisions without mutating the live state.
 
 import {
-    class_get_methods, findClass, findClassAnywhere,
+    class_get_methods, class_get_name, findClass, findClassAnywhere,
     findCtorByParamCount, findMethod, getFieldOffset, IL2CPP_MODULE_NAME,
     MethodRef, method_get_name, method_get_param_count, methodEntry, s,
 } from "../il2cpp/helpers.js";
 import { il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
+import { emit } from "../features/ai-trace/state.js";
 
 // --- IdunRunner class + offsets ---
 
@@ -142,7 +143,9 @@ export interface RunnerHandle {
  * Stream events are captured out-of-band via Interceptor hooks on
  * StreamDispatcher.Action / StartGroup (see game/apply-stack.ts).
  */
-export function buildRunner(config: NativePointer): RunnerHandle {
+export function buildRunner(
+    config: NativePointer, opts?: { seed?: number },
+): RunnerHandle {
     if (!runnerApplyMi) throw new Error("IdunRunner.Apply not found");
     if (!initializeSeedMi) throw new Error("Initialize(seed) overload not resolved");
     if (!idunRunnerOptionsCtor) throw new Error("IdunRunnerOptions ctor not resolved");
@@ -151,29 +154,92 @@ export function buildRunner(config: NativePointer): RunnerHandle {
     const logger = instantiate(nullLoggerClass!, nullLoggerCtor!);
     const timeSource = instantiate(timeSourceClass!, timeSourceCtor!);
     const reporter = instantiate(nullReporterClass!, nullReporterCtor!);
-    const seed = (Math.random() * 0x7fffffff) | 0;
+    // Use caller-provided seed for reproducible runs; otherwise a fresh
+    // random one. Engine RNG drives in-battle randomness (damage rolls,
+    // AI tie-breaks, crits) so pinning the seed makes the same roster
+    // play out identically across runs.
+    const seed = (typeof opts?.seed === "number")
+        ? (opts.seed | 0)
+        : ((Math.random() * 0x7fffffff) | 0);
 
     // Fresh IdunRunner via 2-arg ctor: (BattleConfiguration, bool recordQuerySimRequests)
     const ctor = findCtorByParamCount(runnerClass!, 2);
     if (!ctor) throw new Error("IdunRunner 2-arg ctor not found");
     const runner = il2cpp_object_new(runnerClass!) as NativePointer;
     gcRoot.add(runner);
-    const boolFalseArg = Memory.alloc(1); boolFalseArg.writeU8(0);
-    invokeMethod(ctor.info, runner, [config, boolFalseArg]);
 
-    // Options: RecordReplay=false — lightweight. Not pinned: either stored
-    // in a runner field, or its settings are copied during Initialize().
-    const options = il2cpp_object_new(idunRunnerOptionsClass!) as NativePointer;
-    invokeMethod(idunRunnerOptionsCtor.info, options, null);
-    options.add(16).writeU8(0);
+    // Track which step is in flight so the diagnostic event tells us
+    // whether the crash is ctor / Initialize / post-init read.
+    let step = "alloc";
+    try {
+        const boolFalseArg = Memory.alloc(1); boolFalseArg.writeU8(0);
+        step = "ctor";
+        invokeMethod(ctor.info, runner, [config, boolFalseArg]);
 
-    // Initialize(config, seed, timeSource, options, logger, reporter)
-    const seedArg = Memory.alloc(4); seedArg.writeS32(seed);
-    invokeMethod(initializeSeedMi.info, runner,
-        [config, seedArg, timeSource, options, logger, reporter]);
+        // Options: RecordReplay=false — lightweight. Not pinned: either stored
+        // in a runner field, or its settings are copied during Initialize().
+        step = "options";
+        const options = il2cpp_object_new(idunRunnerOptionsClass!) as NativePointer;
+        invokeMethod(idunRunnerOptionsCtor.info, options, null);
+        options.add(16).writeU8(0);
 
-    const innerAiControl = runner.add(runnerOff.aiControl).readPointer();
-    if (innerAiControl.isNull()) throw new Error("inner AiControl null after Initialize");
+        // Initialize(config, seed, timeSource, options, logger, reporter)
+        const seedArg = Memory.alloc(4); seedArg.writeS32(seed);
+        step = "initialize";
+        invokeMethod(initializeSeedMi.info, runner,
+            [config, seedArg, timeSource, options, logger, reporter]);
 
-    return { runner, innerAiControl, seed };
+        step = "post-init";
+        const innerAiControl = runner.add(runnerOff.aiControl).readPointer();
+        if (innerAiControl.isNull()) {
+            throw new Error("inner AiControl null after Initialize");
+        }
+
+        return { runner, innerAiControl, seed };
+    } catch (e) {
+        // Emit a rich diagnostic before cleanup so we always know which
+        // build step blew up and what state the runner was in. The
+        // upstream catch in invokeMethod already emits invoke_native_error
+        // but lacks the buildRunner-level context (step, runner ptr,
+        // config klass) that lets us correlate across battles.
+        try {
+            const msg = (e as Error).message ?? String(e);
+            const runnerKlass = (() => {
+                try { return runner.readPointer(); } catch { return null; }
+            })();
+            const configKlass = (() => {
+                try { return config.readPointer(); } catch { return null; }
+            })();
+            function kname(k: NativePointer | null): string | null {
+                if (!k || k.isNull()) return null;
+                try { return s(class_get_name(k) as NativePointer); }
+                catch { return null; }
+            }
+            // Sample first few field slots so we can spot half-built
+            // state (e.g. _state at offset state still null, etc.).
+            const slot = (off: number) => {
+                try { return runner.add(off).readPointer().toString(); }
+                catch { return null; }
+            };
+            emit({
+                evt: "runner_init_threw",
+                step,
+                message: msg,
+                seed,
+                runnerPtr: runner.toString(),
+                runnerKlass: kname(runnerKlass),
+                configPtr: config.toString(),
+                configKlass: kname(configKlass),
+                runnerSlots: {
+                    state: slot(runnerOff.state),
+                    aiControl: slot(runnerOff.aiControl),
+                },
+            });
+        } catch { /* diagnostic must never throw */ }
+        // Release the runner pin so it can be collected — otherwise
+        // every failed build leaks 1 gcRoot entry (we observed
+        // gcRootCount climbing +2 per fail in 50-battle batches).
+        try { gcRoot.remove(runner); } catch { /* best effort */ }
+        throw e;
+    }
 }

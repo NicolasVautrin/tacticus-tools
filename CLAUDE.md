@@ -102,7 +102,7 @@ le jeu actif.
 
 1. **Warmup une fois** par session Frida (après chaque inject/reinject) :
    ```
-   warmupCampaignGameModeSource({ force: true })
+   warmupGameSingletons({ force: true })
    ```
    Sans ça : `lastSource._currentBattle` est null ou stale → tous les
    `buildPatchedRunner` / `inspectBattleConfig` échouent. Le warmup

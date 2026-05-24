@@ -33,8 +33,16 @@ export interface FormulaState {
     isMowMi: { info: NativePointer; ptr: NativePointer };
     statsFormula: NativePointer;
     unitsConfig: NativePointer;
-    emptyListInt: NativePointer | null;
-    emptyListItems: NativePointer | null;
+    // Classes for the empty lists. Class ptrs are IL2CPP metadata and
+    // are NEVER collected by Boehm GC, so caching them is safe. The
+    // List instances themselves must NOT be cached — they're managed
+    // objects allocated via il2cpp_object_new without gcRoot, so
+    // Boehm collects them between calls and recycles the slot for
+    // unrelated allocations. Diagnostic confirmed: cached lists died
+    // between batches and the recycled object's klass no longer
+    // matched, producing 159 "v2 patch: system error" skips.
+    emptyListIntKlass: NativePointer | null;
+    emptyListItemsKlass: NativePointer | null;
 }
 
 let _formulaState: FormulaState | null = null;
@@ -77,7 +85,7 @@ export function resolveFormulaState(
     _formulaState = {
         statsForMi, getIndicesMi, getItemsMi, isMowMi,
         statsFormula, unitsConfig,
-        emptyListInt: null, emptyListItems: null,
+        emptyListIntKlass: null, emptyListItemsKlass: null,
     };
     return _formulaState;
 }
@@ -115,11 +123,13 @@ let _classInitFn: NativeFunction<void, [NativePointer]> | null = null;
 }
 
 // Resolve List<int> and List<IItemModel> exact classes from the target
-// method's param types, then construct empty instances via proper ctor.
-export function ensureEmptyLists(
-    state: FormulaState, _unitProg: NativePointer, _probeUnitId: string,
+// method's param types. Classes are IL2CPP metadata (never collected),
+// so we cache them in state. The list INSTANCES are built fresh per
+// call by `createFreshEmptyLists` — see comment on FormulaState fields.
+export function ensureEmptyListClasses(
+    state: FormulaState,
 ): string | null {
-    if (state.emptyListInt && state.emptyListItems) return null;
+    if (state.emptyListIntKlass && state.emptyListItemsKlass) return null;
 
     const lib = Process.findModuleByName("GameAssembly.dll");
     if (!lib) return "GameAssembly.dll not found";
@@ -129,27 +139,36 @@ export function ensureEmptyLists(
     const mgp = new NativeFunction(mgpPtr, "pointer", ["pointer", "uint32"]);
     const cft = new NativeFunction(cftPtr, "pointer", ["pointer"]);
 
-    if (!state.emptyListInt) {
-        try {
-            const t = mgp(state.statsForMi.info, 4) as NativePointer;
-            const klass = cft(t) as NativePointer;
-            if (klass.isNull()) return "List<int> class resolution null";
-            state.emptyListInt = createEmptyList(klass);
-        } catch (e) {
-            return "List<int> construct failed: " + (e as Error).message;
-        }
+    if (!state.emptyListIntKlass) {
+        const t = mgp(state.statsForMi.info, 4) as NativePointer;
+        const klass = cft(t) as NativePointer;
+        if (klass.isNull()) return "List<int> class resolution null";
+        state.emptyListIntKlass = klass;
     }
-    if (!state.emptyListItems) {
-        try {
-            const t = mgp(state.statsForMi.info, 5) as NativePointer;
-            const klass = cft(t) as NativePointer;
-            if (klass.isNull()) return "List<IItemModel> class resolution null";
-            state.emptyListItems = createEmptyList(klass);
-        } catch (e) {
-            return "List<IItemModel> construct failed: " + (e as Error).message;
-        }
+    if (!state.emptyListItemsKlass) {
+        const t = mgp(state.statsForMi.info, 5) as NativePointer;
+        const klass = cft(t) as NativePointer;
+        if (klass.isNull()) return "List<IItemModel> class resolution null";
+        state.emptyListItemsKlass = klass;
     }
     return null;
+}
+
+/** Construct two fresh empty Lists (int + IItemModel) for use inside
+ *  a single `buildNormalizedBC` invocation. The pointers stay valid
+ *  for the synchronous lifetime of the JS call frame because Boehm GC
+ *  is conservative and any references in the JS-driven native call
+ *  stack should pin them — but we still recreate per RPC to keep the
+ *  exposure window minimal. */
+export function createFreshEmptyLists(
+    state: FormulaState,
+): { listInt: NativePointer; listItems: NativePointer } {
+    if (!state.emptyListIntKlass || !state.emptyListItemsKlass) {
+        throw new Error("ensureEmptyListClasses must be called first");
+    }
+    const listInt = createEmptyList(state.emptyListIntKlass);
+    const listItems = createEmptyList(state.emptyListItemsKlass);
+    return { listInt, listItems };
 }
 
 export interface FormulaStatsResult {
@@ -213,9 +232,11 @@ export function resolveItemModelState(
     const itemProg = unitProg.add(0xD8).readPointer();
     if (itemProg.isNull()) return "_itemProgression service is null";
 
-    if (!state.emptyListItems) return "emptyListItems not initialized";
-    const listClass = state.emptyListItems.readPointer();
-    const addMi = findMethodByParamCount(listClass, "Add", 1);
+    if (!state.emptyListItemsKlass) {
+        return "emptyListItemsKlass not initialized "
+            + "(call ensureEmptyListClasses first)";
+    }
+    const addMi = findMethodByParamCount(state.emptyListItemsKlass, "Add", 1);
     if (!addMi) return "List.Add(1) not found";
 
     _itemModelState = {

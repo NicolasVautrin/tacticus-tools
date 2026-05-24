@@ -211,7 +211,7 @@ un runner isolé qui consume les `PredefinedUnits` patchées dans
 **Procédure obligatoire** (ordre crucial, après chaque inject/reinject) :
 
 ```
-1. warmupCampaignGameModeSource({ force: true })
+1. warmupGameSingletons({ force: true })
    → capture lastSource + popule _currentBattle via LoadBattle
 
 2. buildPatchedRunner({
@@ -281,8 +281,8 @@ SpawnPointConfiguration : BattleConfigPosition
   inspect / patch / buildPatchedRunner / spawnPredefinedUnits
 - (file:///C:/Users/nicolasv/tacticus-tools/frida/hooks/features/observe.ts)
   observeBattle (live runner ou registry par runnerId)
-- (file:///C:/Users/nicolasv/tacticus-tools/frida/hooks/features/warmup-cgms.ts)
-  warmupCampaignGameModeSource (avec retreat optionnel)
+- (file:///C:/Users/nicolasv/tacticus-tools/frida/hooks/features/warmup-singletons.ts)
+  warmupGameSingletons (avec retreat optionnel)
 
 ## Pipeline d'assets
 

@@ -2,7 +2,7 @@
 //
 // BattleConfiguration is the per-battle config stitched by
 // CampaignGameModeSource.LoadBattle() and stored at _currentBattle (+0x80).
-// We read from the warmup-captured lastSource — so any inspection RPC requires
+// We read from the warmup-captured campaignGameModeSourcePtr — so any inspection RPC requires
 // a successful warmup first.
 //
 // Layout reference (from decompilation):
@@ -46,7 +46,7 @@ import {
 } from "../il2cpp/helpers.js";
 import { createManagedString } from "../il2cpp/invoke.js";
 import { queueOnMainThread } from "../runtime/queue.js";
-import { getLastSource } from "./campaign-builder.js";
+import { getCampaignGameModeSourcePtr } from "./campaign-builder.js";
 import { buildRunner, runnerApplyMi } from "../game/runner.js";
 import { registerRunner, getRunner as getRegistryRunner }
     from "../game/runner-registry.js";
@@ -93,11 +93,11 @@ const BCBC_OFF_HEIGHT = 0x1C;
 
 // --- Helpers ---
 
-/** Resolve the live BattleConfiguration from the warmup-captured lastSource.
+/** Resolve the live BattleConfiguration from the warmup-captured campaignGameModeSourcePtr.
  * Null if no source captured, or if source captured but LoadBattle hasn't fired
  * yet (very brief window — _currentBattle is set by LoadBattle return). */
 function getLiveBattleConfig(): NativePointer | null {
-    const src = getLastSource();
+    const src = getCampaignGameModeSourcePtr();
     if (src === null) return null;
     try {
         const bc = src.add(CGMS_OFF_CURRENT_BATTLE).readPointer();
@@ -868,7 +868,7 @@ export function register(ctx: Ctx): void {
                 return {
                     ok: false,
                     err: "no live BattleConfiguration captured — " +
-                         "warmupCampaignGameModeSource first",
+                         "warmupGameSingletons first",
                 };
             }
             let patchResult: PatchApplyResult | null = null;

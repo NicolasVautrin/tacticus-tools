@@ -32,7 +32,7 @@ import { state } from "../game/state.js";
 import { cheatRunAiClass } from "../game/ai-control.js";
 import { purgeLogForOrigin } from "./sim-engine.js";
 import {
-    registerRunner, getRunner, listRunners, disposeRunner,
+    registerRunner, getRunner, listRunners, disposeRunner, pinForRunner,
 } from "../game/runner-registry.js";
 import {
     pushApply, popApply, ensureStreamHooks, StreamEvent,
@@ -40,6 +40,7 @@ import {
 import { serializeToJson } from "../il2cpp/serializer.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { log } from "../runtime/diag.js";
+import { emit } from "./ai-trace/state.js";
 import { Ctx } from "../controller.js";
 
 const battleConfigClass = findClass(
@@ -63,7 +64,11 @@ function buildAddUnitMessage(
     if (!addUnitMsgCtor4) throw new Error("AddUnitMessage 4-arg ctor not found");
     const msg = il2cpp_object_new(addUnitMsgClass) as NativePointer;
     if (msg.isNull()) throw new Error("il2cpp_object_new(AddUnitMessage) returned null");
-    gcRoot.add(msg);
+    // No gcRoot.add — the message is transient: lives only until the
+    // immediate `runner.Apply(msg)` call returns. If the runner stores
+    // the message (recorder, replay list), it stays alive transitively
+    // via the runner pin. Pinning here used to accumulate at ~5
+    // entries/battle (one per AddUnit), pressuring IL2CPP's GC.
 
     const unitIdStr = createManagedString(unitId);
     // PlayerId is a struct wrapping an int32 — passed as pointer to 4 raw bytes.
@@ -270,7 +275,7 @@ function captureEvents(
 
 export function register(ctx: Ctx): void {
 
-    ctx.rpc.initRunner = (args: { configJson: string }) => {
+    ctx.rpc.initRunner = (args: { configJson: string; seed?: number }) => {
         if (!isDeserializerReady()) {
             throw new Error("Newtonsoft DeserializeObject not resolved");
         }
@@ -294,20 +299,56 @@ export function register(ctx: Ctx): void {
                 try { purgeLogForOrigin(old.runnerId); } catch { /* ignore */ }
             }
             const configPtr = deserializeFromJson(args.configJson, battleConfigClass);
+            // Pin the BC defensively until buildRunner has stored it
+            // in the runner's `<Configuration>k__BackingField`. We
+            // unpin it via pinForRunner -> disposeRunner so it doesn't
+            // accumulate in gcRoot across battles (previous global
+            // gcRoot.add was a real leak — see runner-registry doc).
+            // The pin needs to exist *before* buildRunner because the
+            // race "BC unreachable between deserialize and Initialize"
+            // can cause the runner to spawn with a half-built BC ->
+            // AI-doesn't-spawn / stage=Finished symptom.
             gcRoot.add(configPtr);
-            const r = buildRunner(configPtr);
-            const entry = registerRunner(r);
-            // Register this build runner so the recorder captures its
-            // runner.Apply calls into state.log with originRunnerId=<id>.
-            // Lets the auto-mirror follow a build runner the same way it
-            // follows the live one. Also watch the build's inner AiControl
-            // — without it, AI sub-messages dispatched by CheatRunAIMessage
-            // on this runner would be invisible to the recorder, and the
-            // build's mirror catchUp would have nothing to replay.
-            state.watchedRunners.set(r.runner.toString(), entry.runnerId);
-            state.watchedAiControls.set(
-                r.innerAiControl.toString(), entry.runnerId);
-            return { runnerId: entry.runnerId, seed: entry.seed };
+            try {
+                // Forward optional `seed` so the engine RNG is reproducible
+                // across runs with identical roster + same seed.
+                const r = buildRunner(configPtr,
+                    typeof args.seed === "number" ? { seed: args.seed } : undefined);
+                const entry = registerRunner(r);
+                // Transfer the pin to the runner's owned-refs set so it
+                // gets released by disposeRunner.
+                pinForRunner(entry.runnerId, configPtr);
+                // Register this build runner so the recorder captures its
+                // runner.Apply calls into state.log with originRunnerId=<id>.
+                // Lets the auto-mirror follow a build runner the same way it
+                // follows the live one. Also watch the build's inner AiControl
+                // — without it, AI sub-messages dispatched by CheatRunAIMessage
+                // on this runner would be invisible to the recorder, and the
+                // build's mirror catchUp would have nothing to replay.
+                state.watchedRunners.set(r.runner.toString(), entry.runnerId);
+                state.watchedAiControls.set(
+                    r.innerAiControl.toString(), entry.runnerId);
+                return { runnerId: entry.runnerId, seed: entry.seed };
+            } catch (e) {
+                // buildRunner threw mid-initialization — release the
+                // defensive configPtr pin so it doesn't leak forever
+                // (we observed +2 gcRoot per failed init in 50-battle
+                // batches: 1 from this pin, 1 from the runner pin in
+                // buildRunner). buildRunner already unpinned the
+                // runner and emitted `runner_init_threw`. We emit
+                // `init_runner_threw` so the caller (RL batch script)
+                // can correlate the catch site.
+                try { gcRoot.remove(configPtr); } catch { /* best effort */ }
+                try {
+                    emit({
+                        evt: "init_runner_threw",
+                        message: (e as Error).message ?? String(e),
+                        configPtr: configPtr.toString(),
+                        seed: typeof args.seed === "number" ? args.seed : null,
+                    });
+                } catch { /* diagnostic must never throw */ }
+                throw e;
+            }
         });
     };
 
@@ -339,6 +380,121 @@ export function register(ctx: Ctx): void {
                 });
             entry.started = true;
             return { ok: true, eventCount: events.length };
+        });
+    };
+
+    /** Consolidated battle setup — replaces the 7-RPC sequence
+     *  (initRunner + applyAddUnit×N + startBattle) used by the RL
+     *  batch script. One queueOnMainThread, atomic w.r.t. cleanup:
+     *  any step that throws disposes the freshly-built runner
+     *  (which unpins both configPtr and runner via disposeRunner). */
+    ctx.rpc.initAndStart = (args: {
+        configJson: string;
+        seed?: number;
+        playerUnits: Array<{
+            unitId: string; playerId: number; col: number; row: number;
+        }>;
+    }) => {
+        if (!isDeserializerReady()) {
+            throw new Error("Newtonsoft DeserializeObject not resolved");
+        }
+        if (!battleConfigClass) {
+            throw new Error("BattleConfiguration class not found");
+        }
+        if (!runnerApplyMi) throw new Error("IdunRunner.Apply not resolved");
+        if (!runnerStartMatchMi) {
+            throw new Error("IdunRunner.StartMatch not resolved");
+        }
+        return queueOnMainThread(() => {
+            gcRoot.init();
+            // Single-build policy: dispose any prior build first.
+            for (const old of listRunners()) {
+                try {
+                    const oldEntry = getRunner(old.runnerId);
+                    state.watchedRunners.delete(oldEntry.runner.toString());
+                    state.watchedAiControls.delete(
+                        oldEntry.innerAiControl.toString());
+                } catch { /* runner already gone */ }
+                disposeRunner(old.runnerId);
+                try { purgeLogForOrigin(old.runnerId); }
+                catch { /* ignore */ }
+            }
+            const configPtr = deserializeFromJson(
+                args.configJson, battleConfigClass);
+            // Defensive pin BEFORE buildRunner (race: BC unreachable
+            // between deserialize and Initialize). Transferred to the
+            // runner's owned-refs on successful pinForRunner.
+            gcRoot.add(configPtr);
+            let entry: { runnerId: number; seed: number;
+                runner: NativePointer; innerAiControl: NativePointer } | null = null;
+            const addUnits: Array<{ unitId: string; eventCount: number }> = [];
+            try {
+                const r = buildRunner(configPtr,
+                    typeof args.seed === "number" ? { seed: args.seed }
+                                                  : undefined);
+                entry = registerRunner(r);
+                pinForRunner(entry.runnerId, configPtr);
+                state.watchedRunners.set(
+                    r.runner.toString(), entry.runnerId);
+                state.watchedAiControls.set(
+                    r.innerAiControl.toString(), entry.runnerId);
+
+                // 2. Apply each player AddUnitMessage at its spawn point.
+                for (const u of args.playerUnits) {
+                    const msg = buildAddUnitMessage(
+                        u.unitId, u.playerId, u.col, u.row);
+                    const evs = captureEvents(
+                        entry.runnerId, r.runner, "AddUnitMessage",
+                        () => { invokeMethod(
+                            runnerApplyMi!.info, r.runner, [msg]); });
+                    addUnits.push({
+                        unitId: u.unitId, eventCount: evs.length,
+                    });
+                }
+
+                // 3. StartMatch -> deployment validated, stage=Running.
+                const startEvs = captureEvents(
+                    entry.runnerId, r.runner, "StartMatch",
+                    () => { invokeMethod(
+                        runnerStartMatchMi!.info, r.runner, null); });
+                const entryAny = entry as unknown as { started: boolean };
+                entryAny.started = true;
+
+                return {
+                    runnerId: entry.runnerId, seed: entry.seed,
+                    addUnits, startEventCount: startEvs.length,
+                };
+            } catch (e) {
+                // Cleanup: if we managed to register the runner before
+                // the throw, disposeRunner will unpin both configPtr
+                // (we transferred it) and the runner itself. If we
+                // never reached registerRunner, buildRunner already
+                // unpinned the runner — we just need configPtr.
+                if (entry) {
+                    try {
+                        const en = entry as { runner: NativePointer;
+                            innerAiControl: NativePointer; runnerId: number };
+                        state.watchedRunners.delete(en.runner.toString());
+                        state.watchedAiControls.delete(
+                            en.innerAiControl.toString());
+                        disposeRunner(en.runnerId);
+                        purgeLogForOrigin(en.runnerId);
+                    } catch { /* best effort */ }
+                } else {
+                    try { gcRoot.remove(configPtr); }
+                    catch { /* best effort */ }
+                }
+                try {
+                    emit({
+                        evt: "init_and_start_threw",
+                        message: (e as Error).message ?? String(e),
+                        seed: typeof args.seed === "number" ? args.seed : null,
+                        addUnitsApplied: addUnits.length,
+                        haveRegisteredRunner: entry !== null,
+                    });
+                } catch { /* never throw */ }
+                throw e;
+            }
         });
     };
 

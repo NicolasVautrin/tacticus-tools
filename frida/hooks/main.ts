@@ -33,3 +33,9 @@ recv("cleanup", () => {
     try { send({ t: "cleanup_done" }); }
     catch { /* host already gone — unload will follow */ }
 });
+
+// Boot completion signal — host's runScript awaits this before resolving
+// so the first RPC after inject doesn't sit pending while the agent's
+// top-level (lots of findClass + Interceptor.attach) is still running.
+// Must be the very last statement in this module.
+send({ t: "agent_ready", name: "frida" });

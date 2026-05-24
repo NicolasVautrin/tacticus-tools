@@ -10,11 +10,14 @@
 // on player state.)
 
 import { createManagedString, invokeMethod } from "../../il2cpp/invoke.js";
-import { getLastUnitProgression } from "../campaign-builder.js";
+import { getUnitProgressionPtr } from "../campaign-builder.js";
 import {
-    resolveFormulaState, ensureEmptyLists, resolveItemModelState,
-    createEmptyList, createItemModel, addItemToList,
+    resolveFormulaState, ensureEmptyListClasses, resolveItemModelState,
+    createEmptyList, createFreshEmptyLists, createItemModel, addItemToList,
 } from "./formula.js";
+import { emit } from "../ai-trace/state.js";
+
+let _normalizeCallCount = 0;
 
 export interface NormalizeBcArgs {
     baseBcJson: string;
@@ -35,6 +38,11 @@ export interface NormalizeBcResult {
     ok: boolean;
     configJson?: string;
     normalized: string[];
+    /** Subset of `normalized` whose IsMachineOfWar(UnitsConfigDto, id)
+     *  returned true. These units have a separate spawn mechanic
+     *  (BC.PredefinedMachines instead of PredefinedUnits) and obey
+     *  GameModeSource.SupportsMachinesOfWar. Some modes reject MoW. */
+    mow: string[];
     skipped: Array<{ unitId: string; reason: string }>;
     swappedBoard: string | null;
     err?: string;
@@ -42,20 +50,45 @@ export interface NormalizeBcResult {
 
 export function buildNormalizedBC(args: NormalizeBcArgs): NormalizeBcResult {
     const result: NormalizeBcResult = {
-        ok: false, normalized: [], skipped: [], swappedBoard: null,
+        ok: false, normalized: [], mow: [], skipped: [], swappedBoard: null,
     };
 
-    const unitProg = getLastUnitProgression();
+    const unitProg = getUnitProgressionPtr();
     if (!unitProg) {
-        result.err = "lastUnitProgression not captured — warmup required";
+        result.err = "unitProgressionPtr not captured — warmup required";
         return result;
     }
     const state = resolveFormulaState(unitProg);
     if (typeof state === "string") { result.err = state; return result; }
-    const listsErr = ensureEmptyLists(state, unitProg, "ultraTigurius");
-    if (listsErr) { result.err = listsErr; return result; }
+    const classesErr = ensureEmptyListClasses(state);
+    if (classesErr) { result.err = classesErr; return result; }
     const ismErr = resolveItemModelState(state, unitProg);
     if (ismErr) { result.err = ismErr; return result; }
+
+    // Allocate fresh empty Lists for THIS RPC call. We deliberately
+    // do NOT cache list instances across calls — Boehm GC collects
+    // them silently (no gcRoot) and the recycled heap slot gets used
+    // for unrelated allocations, which makes the formula throw a
+    // generic "system error" for most units (pool 106→8).
+    let freshInt: NativePointer;
+    let freshItems: NativePointer;
+    try {
+        const fresh = createFreshEmptyLists(state);
+        freshInt = fresh.listInt;
+        freshItems = fresh.listItems;
+    } catch (e) {
+        result.err = "createFreshEmptyLists: " + (e as Error).message;
+        return result;
+    }
+    _normalizeCallCount++;
+    try {
+        emit({
+            evt: "normalize_bc_call",
+            callNo: _normalizeCallCount,
+            emptyListInt: freshInt.toString(),
+            emptyListItems: freshItems.toString(),
+        });
+    } catch { /* diagnostic must never throw */ }
 
     let bc: Record<string, unknown>;
     try {
@@ -87,11 +120,19 @@ export function buildNormalizedBC(args: NormalizeBcArgs): NormalizeBcResult {
     }
 
     const filter = args.unitsFilter ? new Set(args.unitsFilter) : null;
-    const listClass = state.emptyListItems!.readPointer();
+    const listItemsKlass = state.emptyListItemsKlass!;
     const fn = new NativeFunction(state.statsForMi.ptr, "void", [
         "pointer", "pointer", "pointer", "uchar", "int", "int",
         "pointer", "pointer",
     ]);
+
+    // Diagnostic counters: IsMOW=true detection rate, irrespective of
+    // formula success. If `mowAttempted` stays 0 we know IsMOW itself
+    // is the issue (wrong _unitsConfig, wrong method, etc.). If it's
+    // non-zero but `result.mow` is empty, the formula is rejecting MoW.
+    let mowAttempted = 0;
+    const mowAttemptedSample: string[] = [];
+    const mowSkipped: Array<{ unitId: string; reason: string }> = [];
 
     for (const u of units) {
         const unitId = u.Id as string | undefined;
@@ -101,23 +142,27 @@ export function buildNormalizedBC(args: NormalizeBcArgs): NormalizeBcResult {
         }
         if (filter && !filter.has(unitId)) continue;
 
+        // MoW detection: trust the unit's Traits[] (already deserialised
+        // by Newtonsoft into JS). The native UnitConfigUtil.IsMachineOfWar
+        // method requires the unitId to be a key in _unitsConfig.lineup
+        // or .npc — :pvp variants aren't there, so it returns false even
+        // for actual MoW. The JSON Traits is the authoritative signal
+        // (we verified 9 MoW in the seed BC vs 0 from native IsMOW).
+        const traits = (u.Traits as unknown[] | undefined) ?? [];
+        const isMow = traits.some((t) => t === "MachineOfWar") ? 1 : 0;
+        if (isMow) {
+            mowAttempted++;
+            if (mowAttemptedSample.length < 10) {
+                mowAttemptedSample.push(unitId);
+            }
+        }
+
         try {
             const idStr = createManagedString(unitId);
 
-            // isMOW
-            let isMow = 0;
-            try {
-                const idTmp = createManagedString(unitId);
-                const r = invokeMethod(state.isMowMi.info, ptr(0),
-                    [state.unitsConfig, idTmp]) as NativePointer;
-                isMow = r.toInt32() & 1;
-            } catch (e) {
-                result.skipped.push({ unitId, reason: "IsMOW: " + (e as Error).message });
-                continue;
-            }
-
-            // Build items list (fresh per unit to isolate)
-            const itemsList = createEmptyList(listClass);
+            // Build items list (fresh per unit to isolate; not pinned
+            // — survives within this synchronous call frame).
+            const itemsList = createEmptyList(listItemsKlass);
             const spec = args.itemSpecs?.[unitId] ?? [];
             for (const it of spec) {
                 const item = createItemModel(it.configId, it.level ?? null);
@@ -129,7 +174,7 @@ export function buildNormalizedBC(args: NormalizeBcArgs): NormalizeBcResult {
             for (let i = 0; i < 48; i += 4) outBuf.add(i).writeS32(0);
             fn(outBuf, state.statsFormula, idStr, isMow,
                args.targetRank, args.targetProgressionIndex,
-               state.emptyListInt!, itemsList);
+               freshInt, itemsList);
 
             // Overwrite numeric stats
             const b = outBuf;
@@ -162,12 +207,52 @@ export function buildNormalizedBC(args: NormalizeBcArgs): NormalizeBcResult {
             }
 
             result.normalized.push(unitId);
+            if (isMow) result.mow.push(unitId);
         } catch (e) {
-            result.skipped.push({
-                unitId, reason: "v2 patch: " + (e as Error).message,
-            });
+            const reason = "v2 patch: " + (e as Error).message;
+            result.skipped.push({ unitId, reason });
+            // Track MoW that the formula refused so we can tell apart
+            // "no MoW in BC" from "MoW present but unsupported by the
+            // formula" (likely the case for `:pvp` MoW variants whose
+            // stats aren't computed via StatsUsingProgressionIndexFor).
+            if (isMow) mowSkipped.push({ unitId, reason });
         }
     }
+    try {
+        emit({
+            evt: "normalize_bc_mow_diag",
+            callNo: _normalizeCallCount,
+            mowAttempted,
+            mowAttemptedSample,
+            mowNormalized: result.mow.length,
+            mowSkipped: mowSkipped.length,
+            mowSkippedSample: mowSkipped.slice(0, 5),
+        });
+    } catch { /* diagnostic must never throw */ }
+
+    // Diagnostic summary at the end: aggregate skip reasons so we
+    // can correlate pool degradation with specific failure modes
+    // (e.g. "IsMOW: ..." vs "v2 patch: ..." vs catch internal).
+    try {
+        const reasonCounts: Record<string, number> = {};
+        const reasonSamples: Record<string, string[]> = {};
+        for (const s of result.skipped) {
+            const r = s.reason || "<unknown>";
+            // Truncate to first 60 chars so error variants collapse.
+            const key = r.length > 60 ? r.slice(0, 60) + "…" : r;
+            reasonCounts[key] = (reasonCounts[key] ?? 0) + 1;
+            if (!reasonSamples[key]) reasonSamples[key] = [];
+            if (reasonSamples[key].length < 3) reasonSamples[key].push(s.unitId);
+        }
+        emit({
+            evt: "normalize_bc_summary",
+            callNo: _normalizeCallCount,
+            normalizedCount: result.normalized.length,
+            skippedCount: result.skipped.length,
+            reasonCounts,
+            reasonSamples,
+        });
+    } catch { /* diagnostic must never throw */ }
 
     result.configJson = JSON.stringify(bc);
     result.ok = true;

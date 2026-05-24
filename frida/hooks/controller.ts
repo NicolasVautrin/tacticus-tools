@@ -26,13 +26,15 @@ import * as dispatchObserve from "./features/dispatch-observe.js";
 import * as whatifTrigger from "./features/whatif-trigger.js";
 import * as autoBoot from "./features/auto-boot.js";
 import * as uiNav from "./features/ui-nav.js";
-import * as warmupCgms from "./features/warmup-cgms.js";
+import * as warmupSingletons from "./features/warmup-singletons.js";
 import * as battleConfig from "./features/battle-config.js";
 import * as observe from "./features/observe.js";
 import * as dumpBoards from "./features/dump-boards.js";
 import * as boardTrace from "./features/board-trace.js";
 import * as dumpPvpBoards from "./features/dump-pvp-boards.js";
 import * as normalizeBc from "./features/normalize-bc.js";
+import * as crashTrap from "./features/crash-trap.js";
+import * as initTrace from "./features/init-trace.js";
 
 export interface Ctx {
     rpc: Record<string, (...args: any[]) => unknown>;
@@ -92,7 +94,6 @@ import { testStatic } from "./scratch/test-static.js";
 import { dumpStatComponentFieldTypes } from "./scratch/dump-stat-comp-types.js";
 import { dumpUnitEntityFields as dumpUnitEntityFieldsV2 } from "./scratch/dump-unit-entity-fields.js";
 import { dumpUniverseFields } from "./scratch/dump-universe.js";
-import { normalizeUnits } from "./features/rl/normalizer.js";
 import * as rlBridge from "./features/rl/bridge.js";
 import { testSafeInvoke } from "./scratch/test-safe-invoke.js";
 import { findSingletonsViaGlobals } from "./scratch/find-globals.js";
@@ -325,9 +326,6 @@ export function wireRpc(ctx: Ctx): void {
         dumpWeaponProfileTypes();
         return { ok: true };
     };
-    ctx.rpc.normalizeUnits = () => {
-        return normalizeUnits();
-    };
     ctx.rpc.testSafeInvoke = () => { testSafeInvoke(); return { ok: true }; };
     ctx.rpc.checkMethodParams = () => { checkMethodParams(); return { ok: true }; };
     ctx.rpc.checkStatsFields = () => { checkStatsFields(); return { ok: true }; };
@@ -357,7 +355,7 @@ export function wireRpc(ctx: Ctx): void {
      unitAssetMap, /* movementTrace, */ unitVisualResolve, introspect,
      campaignBuilder, mowBuilder, aiTrace, aiUtilityTrace, simEngine,
      overwatchFix, bucketAudit, dispatchObserve, whatifTrigger, autoBoot,
-     uiNav, warmupCgms, battleConfig, observe, dumpBoards, boardTrace,
-     dumpPvpBoards, normalizeBc]
+     uiNav, warmupSingletons, battleConfig, observe, dumpBoards, boardTrace,
+     dumpPvpBoards, normalizeBc, crashTrap, initTrace]
         .forEach((f) => f.register(ctx));
 }

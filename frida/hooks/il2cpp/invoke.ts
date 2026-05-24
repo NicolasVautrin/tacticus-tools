@@ -4,9 +4,14 @@
 
 import {
     class_get_name, class_get_fields, field_get_name, field_get_offset,
-    findClass, findClassAnywhere, findMethod,
+    findClass, findClassAnywhere, findMethod, method_get_name,
     IL2CPP_MODULE_NAME, MethodRef, s,
 } from "./helpers.js";
+import { emit as _emitAiTrace } from "../features/ai-trace/state.js";
+
+function _emitException(rec: Record<string, unknown>): void {
+    try { _emitAiTrace(rec); } catch { /* never throw */ }
+}
 
 function exp(name: string): NativePointer {
     const lib = Process.findModuleByName(IL2CPP_MODULE_NAME);
@@ -75,6 +80,36 @@ function _readManagedString(strPtr: NativePointer): string | null {
     } catch { return null; }
 }
 
+/** Decode a managed System.Exception object pointer into a structured
+ *  payload (class name + message + stack). Best-effort: a malformed or
+ *  freed exception ptr returns `{ className: "?" }` instead of throwing.
+ *  Shared by `invokeMethod` and `crash-trap` so we have a single
+ *  exception-decoder. */
+export function decodeManagedException(excPtr: NativePointer): {
+    className: string; message: string | null; stack: string | null;
+} {
+    let className = "?";
+    try {
+        if (!excPtr.isNull()) {
+            className = s(class_get_name(excPtr.readPointer()) as NativePointer);
+        }
+    } catch { /* keep "?" */ }
+    let message: string | null = null;
+    let stack: string | null = null;
+    try {
+        _ensureExceptionFields();
+        if (_excMessageOff >= 0) {
+            const msgPtr = excPtr.add(_excMessageOff).readPointer();
+            message = _readManagedString(msgPtr);
+        }
+        if (_excStackOff >= 0) {
+            const stPtr = excPtr.add(_excStackOff).readPointer();
+            stack = _readManagedString(stPtr);
+        }
+    } catch { /* best effort */ }
+    return { className, message, stack };
+}
+
 /** Invoke a managed method. Throws with managed exception details on failure. */
 export function invokeMethod(
     methodInfo: NativePointer,
@@ -90,26 +125,77 @@ export function invokeMethod(
             params.add(i * Process.pointerSize).writePointer(args[i]);
         }
     }
-    const result = il2cpp_runtime_invoke(
-        methodInfo, obj ?? ptr(0), params, exc) as NativePointer;
+    let result: NativePointer;
+    try {
+        result = il2cpp_runtime_invoke(
+            methodInfo, obj ?? ptr(0), params, exc) as NativePointer;
+    } catch (e) {
+        // NativeFunction-level error (Frida wraps native SEH / bad
+        // signature / abi mismatch as a plain Error, often with
+        // "system error" as message). Capture the method we were
+        // trying to invoke + a native backtrace so we know where in
+        // the call chain the failure happened.
+        let methodName: string | null = null;
+        try {
+            methodName = s(method_get_name(methodInfo) as NativePointer);
+        } catch { /* ignore */ }
+        let bt: Array<{ addr: string; mod: string | null; name: string | null }> = [];
+        try {
+            bt = Thread.backtrace(undefined, Backtracer.FUZZY)
+                .slice(0, 24)
+                .map((addr) => {
+                    const ds = DebugSymbol.fromAddress(addr);
+                    return {
+                        addr: addr.toString(),
+                        mod: ds.moduleName ?? null,
+                        name: ds.name ?? null,
+                    };
+                });
+        } catch { /* keep [] */ }
+        // Frida wraps the failure as a JS throw BEFORE we get a chance
+        // to look at the *exc out-param. But often IL2CPP still wrote
+        // the managed exception ptr into our `exc` buffer before
+        // unwinding (e.g., when the throw is a managed C# exception
+        // that propagated past IL2CPP's catch). Try to decode — if
+        // we find a non-null exception, that's our real cause.
+        let managed: ReturnType<typeof decodeManagedException> | null = null;
+        try {
+            const excValOnError = exc.readPointer();
+            if (!excValOnError.isNull()) {
+                managed = decodeManagedException(excValOnError);
+            }
+        } catch { /* best effort */ }
+        _emitException({
+            evt: "invoke_native_error",
+            method: methodName,
+            message: (e as Error).message,
+            backtrace: bt,
+            managedException: managed,
+        });
+        throw e;
+    }
     const excVal = exc.readPointer();
     if (!excVal.isNull()) {
-        let klassName = "?";
-        try { klassName = s(class_get_name(excVal.readPointer()) as NativePointer); } catch { /* ignore */ }
-        let excMsg = `IL2CPP exception (${klassName})`;
+        const decoded = decodeManagedException(excVal);
+        let methodName: string | null = null;
         try {
-            _ensureExceptionFields();
-            if (_excMessageOff >= 0) {
-                const msgPtr = excVal.add(_excMessageOff).readPointer();
-                const m = _readManagedString(msgPtr);
-                if (m) excMsg += ": " + m;
-            }
-            if (_excStackOff >= 0) {
-                const stPtr = excVal.add(_excStackOff).readPointer();
-                const st = _readManagedString(stPtr);
-                if (st) excMsg += "\n" + st;
-            }
-        } catch { /* best effort, never let diagnostics crash */ }
+            methodName = s(method_get_name(methodInfo) as NativePointer);
+        } catch { /* ignore */ }
+        // Emit a structured ai-trace event so the JSONL captures the
+        // managed exception details (class + message + first lines of
+        // stack) — `invokeMethod` is the choke point for every
+        // IL2CPP_RUNTIME_INVOKE wrapped call (deserialize, ctor, Apply,
+        // etc.), so this catches the moment any of them throws.
+        _emitException({
+            evt: "invoke_exception",
+            method: methodName,
+            className: decoded.className,
+            message: decoded.message,
+            stack: decoded.stack ? decoded.stack.slice(0, 2000) : null,
+        });
+        let excMsg = `IL2CPP exception (${decoded.className})`;
+        if (decoded.message) excMsg += ": " + decoded.message;
+        if (decoded.stack) excMsg += "\n" + decoded.stack;
         throw new Error(excMsg);
     }
     return result;

@@ -93,6 +93,7 @@ export function installMainPump(): void {
             }, 0);
         }
 
+        state.frameNo++;
         drainPending();
 
         origUpdate(selfPtr, methodInfo as NativePointer);
@@ -114,6 +115,7 @@ export function installMenuPump(): void {
 
     Interceptor.replace(mi.ptr, new NativeCallback(function (self, methodInfo) {
         traceEnter("UnityFreezeDetector.Update", 60);
+        state.frameNo++;
         drainPending();
         origUpdate(self as NativePointer, methodInfo as NativePointer);
     }, "void", ["pointer", "pointer"]));

@@ -117,7 +117,27 @@ export async function runScript(opts: RunScriptOpts): Promise<RunSession> {
         persist();
     });
 
+    // Wait for the agent to finish its top-level init (lots of
+    // findClass + Interceptor.attach) before returning, so the first
+    // RPC after inject doesn't sit pending during boot. The agent
+    // signals completion via send({t:"agent_ready"}) at the very end
+    // of main.ts. Falls back to a 15s safety timeout in case an
+    // unrelated send precedes ours and the listener races.
+    const readyPromise = new Promise<void>((resolve) => {
+        const onReady = (msg: frida.Message): void => {
+            if (msg.type === "send" &&
+                (msg as frida.SendMessage).payload?.t === "agent_ready") {
+                fridaScript.message.disconnect(onReady);
+                resolve();
+            }
+        };
+        fridaScript.message.connect(onReady);
+    });
     await fridaScript.load();
+    await Promise.race([
+        readyPromise,
+        new Promise<void>((resolve) => setTimeout(resolve, 15000)),
+    ]);
 
     if (opts.mode === "spawn") {
         await device.resume(pid);
