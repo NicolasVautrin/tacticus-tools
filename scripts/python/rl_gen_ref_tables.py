@@ -19,8 +19,28 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 ABILITY_NAMES_TS = ROOT / "frida" / "hooks" / "data" / "ability-names.ts"
 TRIGGERED_NAMES_TS = ROOT / "frida" / "hooks" / "data" / "triggered-ability-names.ts"
-DUMP_CS = ROOT / "data" / "dumps" / "rmvdp0v56c" / "dump.cs"
 SQL_OUT = ROOT / "scripts" / "sql" / "006_ref_tables.sql"
+GAMES_DIR = Path(r"C:/Users/nicolasv/AppData/Local/tacticus/games")
+
+
+def resolve_dump_cs() -> Path:
+    """dump.cs du build COURANT. Les ids enum (EffectType...) sont
+    spécifiques au build → ne jamais hardcoder un hash. Override possible
+    via $TACTICUS_BUILD_HASH."""
+    builds = (sorted(p.name for p in GAMES_DIR.iterdir()
+                     if p.is_dir() and not p.name.startswith("."))
+              if GAMES_DIR.exists() else [])
+    h = os.environ.get("TACTICUS_BUILD_HASH") or (
+        builds[0] if len(builds) == 1 else None)
+    if not h:
+        raise SystemExit(
+            f"Hash de build indéterminable (games={builds}); "
+            "poser $TACTICUS_BUILD_HASH.")
+    cs = ROOT / "data" / "dumps" / h / "dump.cs"
+    if not cs.exists():
+        raise SystemExit(f"dump.cs absent pour build {h}: {cs} — re-dump requis.")
+    print(f"[ref] build hash = {h}  ({cs})")
+    return cs
 
 
 def _parse_id_name_ts(ts_path: Path) -> dict[int, str]:
@@ -76,9 +96,7 @@ def _gen_sql(actives: dict[int, str], triggered: dict[int, str],
         "  first_seen  TIMESTAMPTZ DEFAULT now()",
         ");",
         "",
-        "TRUNCATE tacticus.ref_active_ability;",
-        "TRUNCATE tacticus.ref_triggered_ability;",
-        "TRUNCATE tacticus.ref_effect;",
+        "-- Upsert (PAS de TRUNCATE) : FK-safe une fois les liaisons posées.",
         "",
     ]
 
@@ -86,21 +104,24 @@ def _gen_sql(actives: dict[int, str], triggered: dict[int, str],
     if actives:
         lines.append("INSERT INTO tacticus.ref_active_ability (ability_id, name) VALUES")
         rows = [f"  ({i}, '{_sql_escape(n)}')" for i, n in sorted(actives.items())]
-        lines.append(",\n".join(rows) + ";")
+        lines.append(",\n".join(rows)
+                     + " ON CONFLICT (ability_id) DO UPDATE SET name = EXCLUDED.name;")
         lines.append("")
 
     # Triggered
     if triggered:
         lines.append("INSERT INTO tacticus.ref_triggered_ability (ability_id, name) VALUES")
         rows = [f"  ({i}, '{_sql_escape(n)}')" for i, n in sorted(triggered.items())]
-        lines.append(",\n".join(rows) + ";")
+        lines.append(",\n".join(rows)
+                     + " ON CONFLICT (ability_id) DO UPDATE SET name = EXCLUDED.name;")
         lines.append("")
 
     # Effects
     if effects:
         lines.append("INSERT INTO tacticus.ref_effect (effect_id, name) VALUES")
         rows = [f"  ({i}, '{_sql_escape(n)}')" for i, n in sorted(effects.items())]
-        lines.append(",\n".join(rows) + ";")
+        lines.append(",\n".join(rows)
+                     + " ON CONFLICT (effect_id) DO UPDATE SET name = EXCLUDED.name;")
         lines.append("")
 
     # Populate ref_unit from battles already in DB (best-effort upsert).
@@ -121,6 +142,14 @@ def _gen_sql(actives: dict[int, str], triggered: dict[int, str],
         "  FROM tacticus.unit_state",
         " WHERE visual_id IS NOT NULL",
         "ON CONFLICT (unit_id) DO NOTHING;",
+        "",
+        "-- Et les visual_id des MoW (mow_state) — sinon FK visual_id->ref_unit casse.",
+        "INSERT INTO tacticus.ref_unit (unit_id, faction)",
+        "SELECT DISTINCT visual_id,",
+        "       substring(visual_id FROM '^([a-z]+)')",
+        "  FROM tacticus.mow_state",
+        " WHERE visual_id IS NOT NULL",
+        "ON CONFLICT (unit_id) DO NOTHING;",
     ])
     return "\n".join(lines)
 
@@ -133,7 +162,7 @@ def main(argv: list[str]) -> int:
 
     actives = _parse_id_name_ts(ABILITY_NAMES_TS)
     triggered = _parse_id_name_ts(TRIGGERED_NAMES_TS)
-    effects = _parse_effect_enum_cs(DUMP_CS)
+    effects = _parse_effect_enum_cs(resolve_dump_cs())
     print(f"Parsed: actives={len(actives)} triggered={len(triggered)} effects={len(effects)}")
 
     sql = _gen_sql(actives, triggered, effects)

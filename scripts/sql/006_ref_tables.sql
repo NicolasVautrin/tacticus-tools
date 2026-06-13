@@ -19,9 +19,7 @@ CREATE TABLE IF NOT EXISTS tacticus.ref_unit (
   first_seen  TIMESTAMPTZ DEFAULT now()
 );
 
-TRUNCATE tacticus.ref_active_ability;
-TRUNCATE tacticus.ref_triggered_ability;
-TRUNCATE tacticus.ref_effect;
+-- Upsert (PAS de TRUNCATE) : FK-safe une fois les liaisons posées.
 
 INSERT INTO tacticus.ref_active_ability (ability_id, name) VALUES
   (0, 'None'),
@@ -346,7 +344,7 @@ INSERT INTO tacticus.ref_active_ability (ability_id, name) VALUES
   (9016, 'TestDecoy'),
   (9017, 'TestSummonOnBestUtilityTile'),
   (9018, 'TestAttackTiles'),
-  (9999, 'STRIPPED');
+  (9999, 'STRIPPED') ON CONFLICT (ability_id) DO UPDATE SET name = EXCLUDED.name;
 
 INSERT INTO tacticus.ref_triggered_ability (ability_id, name) VALUES
   (0, 'None'),
@@ -905,7 +903,7 @@ INSERT INTO tacticus.ref_triggered_ability (ability_id, name) VALUES
   (9002, 'TestMachineOfWar'),
   (9004, 'TestRetaliateOnRandomAdjacentUnit'),
   (9005, 'testRelicAbility'),
-  (9999, 'STRIPPED');
+  (9999, 'STRIPPED') ON CONFLICT (ability_id) DO UPDATE SET name = EXCLUDED.name;
 
 INSERT INTO tacticus.ref_effect (effect_id, name) VALUES
   (0, 'BlockEnteringUnits'),
@@ -1589,7 +1587,7 @@ INSERT INTO tacticus.ref_effect (effect_id, name) VALUES
   (1567, 'KustomForceFieldReworked_Orks'),
   (1568, 'HeadwoppasKillchoppa_ExtraDmg'),
   (1569, 'ChaliceOfBaal_ExtraDmg'),
-  (9999, 'STRIPPED');
+  (9999, 'STRIPPED') ON CONFLICT (effect_id) DO UPDATE SET name = EXCLUDED.name;
 
 -- Populate ref_unit depuis les rosters deja ingestes.
 -- Le prefixe (4 premiers chars en general) sert de faction.
@@ -1605,5 +1603,13 @@ INSERT INTO tacticus.ref_unit (unit_id, faction)
 SELECT DISTINCT visual_id,
        substring(visual_id FROM '^([a-z]+)')
   FROM tacticus.unit_state
+ WHERE visual_id IS NOT NULL
+ON CONFLICT (unit_id) DO NOTHING;
+
+-- Et les visual_id des MoW (mow_state) — sinon FK visual_id->ref_unit casse.
+INSERT INTO tacticus.ref_unit (unit_id, faction)
+SELECT DISTINCT visual_id,
+       substring(visual_id FROM '^([a-z]+)')
+  FROM tacticus.mow_state
  WHERE visual_id IS NOT NULL
 ON CONFLICT (unit_id) DO NOTHING;

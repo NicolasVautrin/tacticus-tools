@@ -159,6 +159,7 @@ def _ingest_summary(conn: psycopg.Connection, summary_path: Path,
         n_messages = 0
         n_stream_events = 0
         n_unit_states = 0
+        n_mow_states = 0
         for b in battles:
             runner_id = b.get("runnerId")
             cur.execute("""
@@ -317,6 +318,42 @@ def _ingest_summary(conn: psycopg.Connection, summary_path: Path,
                         """, us_rows)
                         n_unit_states += len(us_rows)
 
+                    # Insert mow_state rows (1 per Machine of War in the
+                    # snapshot — analogous to unit_state for UnitFoot).
+                    # matchState.mows is populated by projectMatchState since
+                    # the MoW work; prior batches had none, hence mow_state=0.
+                    mows_in_state = ms.get("mows") or []
+                    if mows_in_state:
+                        mow_rows = []
+                        for w in mows_in_state:
+                            pos = w.get("pos") or {}
+                            mow_rows.append((
+                                message_id,
+                                _safe_int(w.get("id")),
+                                _safe_int(w.get("machineId")),
+                                _safe_int(pos.get("col")),
+                                _safe_int(pos.get("row")),
+                                _safe_int(w.get("hp")),
+                                _safe_int(w.get("maxHp")),
+                                _safe_int(w.get("ownerId")),
+                                _safe_int(w.get("teamId")),
+                                w.get("visualId"),
+                                _safe_int(w.get("rank")),
+                                _safe_int(w.get("initialSlot")) or 0,
+                                bool(w.get("isDead")),
+                            ))
+                        cur.executemany("""
+                            INSERT INTO tacticus.mow_state (
+                                message_id, platform_id, machine_id,
+                                col, row, hp, hp_max, owner_id,
+                                team_id, visual_id, rank, initial_slot, is_dead
+                            ) VALUES (
+                                %s, %s, %s, %s, %s, %s, %s, %s,
+                                %s, %s, %s, %s, %s
+                            )
+                        """, mow_rows)
+                        n_mow_states += len(mow_rows)
+
                     events = msg.get("_events") or []
                     if not events:
                         continue
@@ -358,6 +395,7 @@ def _ingest_summary(conn: psycopg.Connection, summary_path: Path,
         print(f"  move_options  : {n_move_events}")
         print(f"  messages      : {n_messages}")
         print(f"  unit_states   : {n_unit_states}")
+        print(f"  mow_states    : {n_mow_states}")
         print(f"  stream_events : {n_stream_events}")
         return batch_id
 

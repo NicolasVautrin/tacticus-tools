@@ -49,6 +49,30 @@ import urllib.request
 from pathlib import Path
 from typing import Any, TypedDict
 
+# enum_maps : dicts id->nom générés depuis le dump du build courant
+# (rl_gen_enum_columns.py). Remplit les colonnes *_name à l'ingest (013).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    from enum_maps import BY_COLUMN as _ENUM_MAPS, GROUP_TYPE as _GROUP_TYPE
+except ImportError:
+    _ENUM_MAPS = {}
+    _GROUP_TYPE = {}
+
+
+def _enum_name(v: int | None, col: str) -> str | None:
+    """Libellé dénormalisé d'une valeur enum (None si inconnue/absente)."""
+    if v is None:
+        return None
+    return _ENUM_MAPS.get(col, {}).get(v)
+
+
+def _group_name(code: int | None) -> str | None:
+    """Libellé GroupType (stream_group.group_name)."""
+    if code is None:
+        return None
+    return _GROUP_TYPE.get(code)
+
+
 HOST = "http://127.0.0.1:8765"
 ROOT = Path(__file__).resolve().parents[2]
 TRACES_DIR = ROOT / "frida" / "data" / "ai-traces"
@@ -136,6 +160,7 @@ class _IngestCtx(TypedDict, total=False):
     trace_path: Path
     trace_offset: int      # byte position to start next read
     pending_events: dict[int, dict[str, list]]  # runnerId → buckets
+    next_gid: int          # compteur global group_id (stream_group, 014)
 
 
 def _open_progressive_ingest(
@@ -182,6 +207,9 @@ def _open_progressive_ingest(
         cur.execute("SELECT ability_id, name FROM tacticus.ref_triggered_ability")
         for aid, n in cur.fetchall():
             TRIGGERED_ABILITY_NAMES[aid] = n
+        # Seed du compteur group_id (stream_group, 014) — continue après l'existant.
+        cur.execute("SELECT coalesce(max(group_id), 0) + 1 FROM tacticus.stream_group")
+        next_gid = cur.fetchone()[0]
     conn.commit()
     print(f"[ingest] connected PG, batch_id={batch_id}, "
           f"game_hash={game_hash}, trace={trace_path}")
@@ -191,6 +219,7 @@ def _open_progressive_ingest(
         "trace_path": trace_path or TRACES_DIR / "_unknown.jsonl",
         "trace_offset": 0,
         "pending_events": {},
+        "next_gid": next_gid,
     }
 
 
@@ -436,13 +465,38 @@ def _ingest_one_battle(ctx: _IngestCtx, battle_rec: dict) -> None:
                         _safe_int(w.get("initialSlot")) or 0,
                         bool(w.get("isDead")),
                     ))
-                # Stream events — hybride : 20 colonnes typees + JSONB pour
-                # le reste. Mapping tag → colonne ci-dessous.
+                # Stream events (action-only) + arbre des groupes (stream_group,
+                # 014). On empile/dépile : group → noeud (push), finish → ferme
+                # (pop + ordinal_close), action → reliée au groupe englobant
+                # (group_id) ; caster_entity = ancêtre attaque/ability ;
+                # weapon_is_melee = Info(arme) du scope d'attaque.
+                _ATTACK = (12, 32, 59)         # User_UseAbility, Ability_Attack, NormalAttack
+                _ACTOR = (11, 12, 13, 32, 59)  # + User_MoveUnit/PlaceUnit
                 se_rows = []
+                sg_rows: list[list[Any]] = []
+                gstack: list[dict[str, Any]] = []
                 for ord_idx, ev in enumerate(msg.get("_events") or []):
                     kind = ev.get("kind")
-                    step = ev.get("step") if kind == "action" else None
-                    group = ev.get("group") if kind == "group" else None
+                    if kind == "group":
+                        gcode = _safe_int(ev.get("group"))
+                        gent = _safe_int(ev.get("entity"))
+                        gid = ctx["next_gid"]
+                        ctx["next_gid"] += 1
+                        sg_rows.append([
+                            gid, message_id, ord_idx, None, len(gstack),
+                            gcode, _group_name(gcode), gent,
+                            gstack[-1]["gid"] if gstack else None,
+                        ])
+                        gstack.append({"gid": gid, "code": gcode,
+                                       "entity": gent, "melee": None,
+                                       "ridx": len(sg_rows) - 1})
+                        continue
+                    if kind == "finish":
+                        if gstack:
+                            sg_rows[gstack.pop()["ridx"]][3] = ord_idx
+                        continue
+                    # kind == "action"
+                    step = ev.get("step")
                     step_name = STEP_NAMES.get(step) if step is not None else None
                     tags_raw = ev.get("tags")
                     tags_dict: dict[str, Any] = {}
@@ -459,6 +513,25 @@ def _ingest_one_battle(ctx: _IngestCtx, battle_rec: dict) -> None:
                         try: return int(v)
                         except (TypeError, ValueError): return None
 
+                    # 014 — scope englobant depuis la pile de groupes.
+                    group_id = gstack[-1]["gid"] if gstack else None
+                    caster_entity = None
+                    for fr in reversed(gstack):
+                        if fr["code"] in _ACTOR and fr["entity"]:
+                            caster_entity = fr["entity"]
+                            break
+                    if step == 30 and "Attack_Weapon_IsMelee" in tags_dict:
+                        _mv = _t("Attack_Weapon_IsMelee")
+                        for fr in reversed(gstack):
+                            if fr["code"] in _ATTACK:
+                                fr["melee"] = _mv
+                                break
+                    melee_val = None
+                    for fr in reversed(gstack):
+                        if fr["melee"] is not None:
+                            melee_val = fr["melee"]
+                            break
+
                     entity_id = _safe_int(ev.get("entity"))
                     target_kind = None
                     if entity_id is not None:
@@ -469,7 +542,7 @@ def _ingest_one_battle(ctx: _IngestCtx, battle_rec: dict) -> None:
                         else:
                             target_kind = "tile"
                     se_rows.append((
-                        message_id, ord_idx, kind, step, step_name, group,
+                        message_id, ord_idx, kind, step, step_name, None,
                         entity_id, target_kind,
                         Jsonb(tags_dict) if tags_dict else None,
                         # Hot columns extraites
@@ -493,7 +566,49 @@ def _ingest_one_battle(ctx: _IngestCtx, battle_rec: dict) -> None:
                         _t("Effect_SourceActiveAbility"),
                         _t("Effect_SourceTriggeredAbility"),
                         _t("Unit_Owner_Id"),
+                        # 012 — attribution
+                        _t("Attacker_Id"),
+                        _t("Amount"),
+                        _t("Attack_WasMemberKilled"),
+                        _t("Target_Id"),
+                        _t("Caster_Id"),
+                        _t("Active_Ability_Type"),
+                        _t("Killed_Unit_Id"),
+                        # 012 — combat quality
+                        _t("Attack_DidCrit"),
+                        _t("Attack_DidBlock"),
+                        _t("Attack_DidEvade"),
+                        _t("Attack_WasOverkill"),
+                        _t("Attack_Is_First_Hit"),
+                        _t("DamageProfileType"),
+                        melee_val,  # 014 : Info(arme) du scope d'attaque (au lieu du tag absent)
+                        # 012 — ability / state
+                        _t("Passive_Ability_Type"),
+                        _t("UnitStats_Transformed"),
+                        # 012 — lifecycle
+                        _t("Unit_WasOverkilled"),
+                        _t("Unit_IsDying"),
+                        _t("Unit_IsSummoned"),
+                        _t("Unit_SpawnSource"),
+                        _t("Unit_Parent_Id"),
+                        # 013 — libellés enum dénormalisés (depuis enum_maps)
+                        _enum_name(_t("Effect_Type"), "effect_type"),
+                        _enum_name(_t("Active_Ability_Type"), "active_ability_type"),
+                        _enum_name(_t("Passive_Ability_Type"), "passive_ability_type"),
+                        _enum_name(_t("DamageProfileType"), "damage_profile_type"),
+                        _enum_name(_t("Unit_SpawnSource"), "unit_spawn_source"),
+                        # 014 — arbre des groupes
+                        group_id, caster_entity,
                     ))
+                # stream_group AVANT stream_event (FK group_id → stream_group ;
+                # parents insérés avant enfants car gid monotone en ordre d'ouverture).
+                if sg_rows:
+                    cur.executemany("""
+                        INSERT INTO tacticus.stream_group (
+                            group_id, message_id, ordinal_open, ordinal_close,
+                            depth, group_code, group_name, entity, parent_group_id
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, sg_rows)
                 if se_rows:
                     cur.executemany("""
                         INSERT INTO tacticus.stream_event (
@@ -506,12 +621,29 @@ def _ingest_one_battle(ctx: _IngestCtx, battle_rec: dict) -> None:
                             triggered_ability_id, effect_id, effect_type,
                             effect_source_id, effect_level, effect_turns_remaining,
                             effect_source_active_ability,
-                            effect_source_triggered_ability, unit_owner_id
+                            effect_source_triggered_ability, unit_owner_id,
+                            attacker_id, amount, member_killed, target_id,
+                            caster_id, active_ability_type, killed_unit_id,
+                            did_crit, did_block, did_evade, was_overkill,
+                            is_first_hit, damage_profile_type, weapon_is_melee,
+                            passive_ability_type, transformed,
+                            unit_was_overkilled, unit_is_dying, unit_is_summoned,
+                            unit_spawn_source, unit_parent_id,
+                            effect_type_name, active_ability_type_name,
+                            passive_ability_type_name, damage_profile_type_name,
+                            unit_spawn_source_name,
+                            group_id, caster_entity
                         ) VALUES (
                             %s, %s, %s, %s, %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s, %s, %s
+                            %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, %s
                         )
                     """, se_rows)
                     n_streams += len(se_rows)
