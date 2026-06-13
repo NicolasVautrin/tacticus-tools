@@ -16,10 +16,10 @@ import { findClassAnywhere, findMethod } from "../il2cpp/helpers.js";
 import { serializeToJson } from "../il2cpp/serializer.js";
 
 export interface StreamEvent {
-    kind: "action" | "group";
+    kind: "action" | "group" | "finish";
     step?: number;    // action: StepType
-    group?: number;   // group: GroupType
-    entity: number;
+    group?: number;   // group: GroupType (StartGroup ouvre ce scope)
+    entity: number;   // finish: non significatif (FinishGroup ferme le dernier groupe ouvert)
     // JSON-serialized Dict<TagKey,int>. Host parses + gets enum names for free
     // via the game's Newtonsoft settings (StringEnumConverter registered globally).
     tags?: string | null;
@@ -80,6 +80,7 @@ export function ensureStreamHooks(): void {
 
     const actionMi = findMethod(cls, "Action");
     const groupMi = findMethod(cls, "StartGroup");
+    const finishMi = findMethod(cls, "FinishGroup");
 
     if (actionMi && !actionMi.ptr.isNull()) {
         // Action(StepType stepType, BEntityId entityId, Dictionary<TagKey,int> tags)
@@ -120,14 +121,35 @@ export function ensureStreamHooks(): void {
         });
     }
 
+    if (finishMi && !finishMi.ptr.isNull()) {
+        // FinishGroup(this) — paramétrless : ferme le DERNIER groupe ouvert
+        // (discipline de pile). On pousse un marqueur de fermeture pour que
+        // l'ingest puisse reconstruire le nesting des scopes (chaque action
+        // connaît son groupe englobant = ex. User_UseAbility/NormalAttack →
+        // entité acteur, qui encadre le Info arme + ses UnitDamaged).
+        Interceptor.attach(finishMi.ptr, {
+            onEnter() {
+                if (applyStack.length === 0) return;
+                try {
+                    applyStack[applyStack.length - 1].target.push({
+                        kind: "finish",
+                        entity: 0,
+                    });
+                } catch { /* */ }
+            },
+        });
+    }
+
     Interceptor.flush();
     send({ t: "stream_hooks_installed",
         actionPtr: actionMi?.ptr.toString() ?? null,
         groupPtr: groupMi?.ptr.toString() ?? null,
+        finishPtr: finishMi?.ptr.toString() ?? null,
     });
     try {
         send({ t: "diag", msg: "[apply-stack] stream hooks installed: "
             + "Action=" + (actionMi?.ptr.toString() ?? "missing")
-            + " StartGroup=" + (groupMi?.ptr.toString() ?? "missing") });
+            + " StartGroup=" + (groupMi?.ptr.toString() ?? "missing")
+            + " FinishGroup=" + (finishMi?.ptr.toString() ?? "missing") });
     } catch { /* */ }
 }
