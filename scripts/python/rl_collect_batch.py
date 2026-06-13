@@ -60,6 +60,14 @@ BOARDS_DIR = ROOT / "data" / "boards"
 PLAYER_ID_HUMAN = 11   # PlayerType=0, TeamId=1
 PLAYER_ID_AI = 12      # PlayerType=1, TeamId=2
 
+# Units/MoW that pass buildNormalizedBC's stats filter but throw a managed
+# exception when spawned (Initialize / AddUnit) — confirmed via exhaustive
+# spawn-probe. The probe caches a per-rank list in
+# data/unspawnable_rank{N}.json (see `_load_unspawnable`); this set is the
+# fallback when no cache exists. As of rank 17, only necroPlasmancer fails
+# (97/98 units + 8/8 MoW spawn fine — no class/faction pattern).
+UNSPAWNABLE_FALLBACK = {"necroPlasmancer"}
+
 
 # ---- Postgres progressive ingest --------------------------------------- #
 # Une connection PG ouverte au demarrage du batch ; apres chaque battle on
@@ -653,6 +661,22 @@ def _load_seed_bc() -> dict:
     return json.loads(ARENA_SEED_BC.read_text(encoding="utf-8"))
 
 
+def _load_unspawnable(rank: int) -> tuple[set[str], set[str]]:
+    """Return (unspawnable_units, unspawnable_mow) for `rank` — units/MoW that
+    pass buildNormalizedBC's stats filter but throw a managed exception at spawn.
+    Loaded from the probed cache data/unspawnable_rank{rank}.json (produced by
+    the exhaustive spawn-probe); falls back to UNSPAWNABLE_FALLBACK when absent."""
+    p = ROOT / "data" / f"unspawnable_rank{rank}.json"
+    if p.exists():
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+            return (set(d.get("unspawnableUnits") or []),
+                    set(d.get("unspawnableMow") or []))
+        except Exception:
+            pass
+    return set(UNSPAWNABLE_FALLBACK), set()
+
+
 def _load_board_dump(board_id: str) -> dict:
     """Load a board JSON dump (from dumpPvpAndSyncBoards). Searches across
     `pvp/`, `syncPvp/`, `global/` subfolders. Returns the full dump record
@@ -676,15 +700,44 @@ def _load_board_dump(board_id: str) -> dict:
         f"(searched pvp/, syncPvp/, global/)")
 
 
-def _load_board_pool(kind: str, roster_size: int) -> list[dict]:
+def _board_supports_mow(dump: dict) -> bool:
+    """True if the board's paired SPS carries a Machine-of-War slot for BOTH
+    sides — i.e. the TWPI=0 and TWPI=1 groups both have
+    MachineOfWarPosition != 0/None.
+
+    Why it matters: a MoW only deploys if SpawnPointSetConfiguration.
+    GroupForPlayer finds a group for the owner's TWPI AND a platform exists
+    at the MoW slot (AddMachineOfWarPlatformOperation reads MachineOfWarPosition).
+    Without a MoW slot, AddMachineOperation.GetPlatform fails and the MoW is
+    silently dropped. Verified empirically: 100% of pvp/syncPvp boards qualify,
+    only ~29% of `global` boards do."""
+    inner = dump.get("board") or {}
+    sps_idx = dump.get("spawnPointsSet")
+    sets = inner.get("SpawnPointSets") or []
+    if not isinstance(sps_idx, int) or not (0 <= sps_idx < len(sets)):
+        return False
+    mow_pos = {g.get("TeamWithPlayerIndex"): g.get("MachineOfWarPosition")
+               for g in (sets[sps_idx].get("SpawnPointGroups") or [])}
+    return (mow_pos.get(0) not in (0, None)
+            and mow_pos.get(1) not in (0, None))
+
+
+def _load_board_pool(kind: str, roster_size: int,
+                     require_mow: bool = False) -> list[dict]:
     """Load every dumped board of the given kind. Filters out boards
     whose paired SPS doesn't provide enough TWPI=0 + TWPI=1 spawn points
     (we need `roster_size` per side). PvP boards have the right paired
-    SPS for 5v5 by definition, so this is mostly defensive."""
+    SPS for 5v5 by definition, so this is mostly defensive.
+
+    If `require_mow`, additionally drop boards that don't accept a MoW on
+    both sides (see `_board_supports_mow`) — otherwise a MoW battle on such
+    a board would silently lose its MoW at deployment. Drops are logged."""
     pool_dir = BOARDS_DIR / kind
     if not pool_dir.exists():
         raise FileNotFoundError(f"No board dump dir {pool_dir}")
     out: list[dict] = []
+    dropped_pts = 0
+    dropped_mow = 0
     for p in sorted(pool_dir.glob("*.json")):
         try:
             with p.open(encoding="utf-8") as f:
@@ -701,9 +754,18 @@ def _load_board_pool(kind: str, roster_size: int) -> list[dict]:
         groups = sps_list[sps_idx].get("SpawnPointGroups") or []
         twpi_counts = {g.get("TeamWithPlayerIndex"):
                        len(g.get("SpawnPoints") or []) for g in groups}
-        if (twpi_counts.get(0, 0) >= roster_size
+        if not (twpi_counts.get(0, 0) >= roster_size
                 and twpi_counts.get(1, 0) >= roster_size):
-            out.append(dump)
+            dropped_pts += 1
+            continue
+        if require_mow and not _board_supports_mow(dump):
+            dropped_mow += 1
+            continue
+        out.append(dump)
+    if require_mow:
+        print(f"[board-pool] {kind}: {len(out)} MoW-capable boards kept "
+              f"(dropped {dropped_mow} without MoW slot, "
+              f"{dropped_pts} without enough spawn points)")
     return out
 
 
@@ -1067,25 +1129,15 @@ def main(argv: list[str]) -> int:
                   f"kind={board_dump.get('kind')} "
                   f"{inner.get('Width')}x{inner.get('Height')} "
                   f"sps={board_dump.get('spawnPointsSet')}")
+            if not args_ns.no_mow and not _board_supports_mow(board_dump):
+                print(f"[warn] fixed board {board_dump.get('id')!r} has no "
+                      f"MoW slot (both sides) — any MoW will silently drop. "
+                      f"Use --no-mow or a MoW-capable board.", file=sys.stderr)
         except (FileNotFoundError, RuntimeError) as e:
             print(f"[error] {e}", file=sys.stderr)
-            return 2
-    elif args_ns.board_pool:
-        try:
-            board_pool = _load_board_pool(
-                args_ns.board_pool, args_ns.roster_size)
-            print(f"[ok] board pool ({args_ns.board_pool}): "
-                  f"{len(board_pool)} boards eligible "
-                  f"(>={args_ns.roster_size} pts per side)")
-        except (FileNotFoundError, RuntimeError) as e:
-            print(f"[error] {e}", file=sys.stderr)
-            return 2
-        if not board_pool:
-            print(f"[error] empty board pool for kind="
-                  f"{args_ns.board_pool!r}", file=sys.stderr)
             return 2
 
-    # Setup : normalize + extract pool (with optional board swap)
+    # Setup : normalize + extract pool (with optional fixed board swap)
     try:
         t0 = time.monotonic()
         template_bc, pool, pool_mow = _normalize_and_extract_pool(
@@ -1096,6 +1148,43 @@ def main(argv: list[str]) -> int:
     except RuntimeError as e:
         print(f"[error] {e}", file=sys.stderr)
         return 2
+
+    # Drop units/MoW that pass stats-normalization but throw at spawn (probed
+    # denylist). Without this a battle that samples one dies on a deterministic
+    # managed exception (Initialize for AI / AddUnit for player).
+    bad_u, bad_m = _load_unspawnable(args_ns.target_rank)
+    if bad_u or bad_m:
+        dropped_u = [u for u in pool if u in bad_u]
+        dropped_m = [u for u in pool_mow if u in bad_m]
+        pool = [u for u in pool if u not in bad_u]
+        pool_mow = [u for u in pool_mow if u not in bad_m]
+        if dropped_u or dropped_m:
+            print(f"[ok] dropped {len(dropped_u)} unspawnable unit(s) + "
+                  f"{len(dropped_m)} MoW (probed denylist, rank "
+                  f"{args_ns.target_rank}): {dropped_u + dropped_m}")
+
+    # Board pool loaded AFTER normalization: we need pool_mow to know whether
+    # MoW is actually in play, so we can restrict the pool to MoW-capable
+    # boards (avoids silent MoW drops on boards without a MoW slot).
+    if args_ns.board_pool:
+        require_mow = (not args_ns.no_mow) and bool(
+            pool_mow or args_ns.mow_player or args_ns.mow_ai)
+        try:
+            board_pool = _load_board_pool(
+                args_ns.board_pool, args_ns.roster_size, require_mow)
+            print(f"[ok] board pool ({args_ns.board_pool}): "
+                  f"{len(board_pool)} boards eligible "
+                  f"(>={args_ns.roster_size} pts/side"
+                  f"{', MoW-capable' if require_mow else ''})")
+        except (FileNotFoundError, RuntimeError) as e:
+            print(f"[error] {e}", file=sys.stderr)
+            return 2
+        if not board_pool:
+            print(f"[error] empty board pool for kind="
+                  f"{args_ns.board_pool!r}"
+                  f"{' with MoW requirement' if require_mow else ''}",
+                  file=sys.stderr)
+            return 2
 
     if args_ns.list_mow:
         print(f"[ok] MoW pool ({len(pool_mow)} units):")
