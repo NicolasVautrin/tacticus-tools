@@ -207,7 +207,15 @@ export function install(): boolean {
                     originRunnerId: origin,
                 };
                 state.log.push(entry);
-                pushApply("live", entry.events);
+                // pushApply UNIQUEMENT pour live — pour les build runners,
+                // message-trace gère le push/pop avec sa propre logique
+                // (au top-level seulement, évite le leak dû au recursion
+                // guard Frida sur les sub-messages).
+                if (origin === "live") {
+                    pushApply("live", entry.events);
+                    (this as MarkerThis & { _recorderPushed?: true })
+                        ._recorderPushed = true;
+                }
             } catch { /* best effort */ }
         },
         onLeave(this: MarkerThis) {
@@ -216,7 +224,17 @@ export function install(): boolean {
                 return;
             }
             if (!this._ours) return;
-            try { popApply(); } catch { /* ignore */ }
+            // Clear the scoring tag (companion to the set in onEnter).
+            // NOTE: we don't push/pop a stack here — re-entrant Apply on
+            // a *different* runner during scoring is unexpected; if it
+            // happens we'd lose the outer tag, but that's a flag to
+            // investigate, not silently mask.
+            // Note : on ne touche plus scoringRunnerId ici — c'est
+            // message-trace qui gère ce tag.
+            // popApply seulement si on avait pushé (live origin).
+            if ((this as MarkerThis & { _recorderPushed?: true })._recorderPushed) {
+                try { popApply(); } catch { /* ignore */ }
+            }
             // Auto-mirror: replay any new live entries on the mirror.
             try { applyToMirror(); } catch { /* best effort */ }
             // Match-end auto-cleanup for build runners. Only fires on the
@@ -358,7 +376,14 @@ export function install(): boolean {
                         originRunnerId: this._origin ?? "live",
                     };
                     state.log.push(entry);
-                    pushApply("live", entry.events);
+                    // Live only — voir commentaire identique sur l'autre
+                    // hook plus haut. Pour builds, message-trace fait le
+                    // push au top-level seulement (évite leak sub-msgs).
+                    if (this._origin === "live") {
+                        pushApply("live", entry.events);
+                        (this as MarkerThis & { _recorderPushed?: true })
+                            ._recorderPushed = true;
+                    }
                 } catch { /* best effort */ }
             },
             onLeave(this: MarkerThis) {
@@ -370,7 +395,9 @@ export function install(): boolean {
                 if (tag === "ai" && this._origin === "live") {
                     state.liveAiRunning = false;
                 }
-                try { popApply(); } catch { /* ignore */ }
+                if ((this as MarkerThis & { _recorderPushed?: true })._recorderPushed) {
+                    try { popApply(); } catch { /* ignore */ }
+                }
                 try { applyToMirror(); } catch { /* best effort */ }
             },
         }));

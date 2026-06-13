@@ -62,6 +62,14 @@ export function getCampaignGameModeSourcePtr(): NativePointer | null {
     return campaignGameModeSourcePtr;
 }
 
+export function getMowEventGameModeSourcePtr(): NativePointer | null {
+    return mowEventGameModeSourcePtr;
+}
+
+export function getPvpGameModeSourcePtr(): NativePointer | null {
+    return pvpGameModeSourcePtr;
+}
+
 export function setLastGameConfig(p: NativePointer): void {
     if (p.isNull()) return;
     const dto = unwrapGameConfig(p);
@@ -90,10 +98,13 @@ export function setUnitProgressionPtr(p: NativePointer): void {
     log(`[campaign-builder] setUnitProgressionPtr: captured UnitProgression @ ${p}`);
 }
 
-export function tryActiveDiscoveryOfSources(): boolean {
+export async function tryActiveDiscoveryOfSources(): Promise<boolean> {
+    // Tous les heap scans sont chunked async (chunks 4MB + yield 30ms entre).
+    // Total typique : 30-60s mais main thread Tacticus respire → pas de
+    // UnityFreezeDetector kill, socket PvP préservée, GPU TDR évité.
     if (lastGameConfig === null) {
         try {
-            const scannedGc = findGameConfigDtoViaHeap();
+            const scannedGc = await findGameConfigDtoViaHeap();
             if (scannedGc !== null) {
                 lastGameConfig = scannedGc;
                 log("[campaign-builder] tryActiveDiscoveryOfSources: GameConfigDto captured via active Heap Scan.");
@@ -104,7 +115,7 @@ export function tryActiveDiscoveryOfSources(): boolean {
     }
     if (campaignGameModeSourcePtr === null) {
         try {
-            const scannedSource = findCampaignGameModeSourceViaHeap();
+            const scannedSource = await findCampaignGameModeSourceViaHeap();
             if (scannedSource !== null) {
                 campaignGameModeSourcePtr = scannedSource;
                 log("[campaign-builder] tryActiveDiscoveryOfSources: CampaignGameModeSource captured via active Heap Scan.");
@@ -113,9 +124,12 @@ export function tryActiveDiscoveryOfSources(): boolean {
             log("[campaign-builder] tryActiveDiscoveryOfSources: error scanning for CampaignGameModeSource: " + (e as Error).message);
         }
     }
+    // Pvp/MoW Event : capture passive via Interceptor hooks (get_BattleGameMode,
+    // HandleTurnStarted, etc. — cf. register section). Scan manuel possible
+    // via le RPC `discoverSources` qui invoque findPvpGameModeSourceViaHeap.
     if (unitProgressionPtr === null) {
         try {
-            const scannedUp = findUnitProgressionViaHeap();
+            const scannedUp = await findUnitProgressionViaHeap();
             if (scannedUp !== null) {
                 unitProgressionPtr = scannedUp;
                 log("[campaign-builder] tryActiveDiscoveryOfSources: UnitProgression captured via active Heap Scan.");
@@ -133,6 +147,16 @@ export function tryActiveDiscoveryOfSources(): boolean {
 // If the user destroys the campaign view, the pointer may go stale — every
 // usage re-validates the type via `klass at offset 0` before touching fields.
 let campaignGameModeSourcePtr: NativePointer | null = null;
+// Same idea pour MachinesOfWarEventGameModeSource — capturé via ctor/LoadBattle
+// quand l'user navigue vers MoW Event in-game. Permet de récupérer une BC
+// live qui contient des MoW dans PredefinedMachines (vs Campaign mode qui
+// laisse cette liste vide).
+let mowEventGameModeSourcePtr: NativePointer | null = null;
+// PvpGameModeSource — capture quand user navigue vers Arena PvP in-game.
+// _currentBattle @+0xD8 (vs Campaign 0x80, MoW Event 0xF0). Cette BC live
+// PvP devrait avoir RuleSet set, MachineOfWarAmmo>0, et templates :pvp
+// init correctement.
+let pvpGameModeSourcePtr: NativePointer | null = null;
 
 // GameConfigDto* — captured independently from any DI consumer that takes it
 // as a ctor parameter. Available very early (game boot, before any battle),
@@ -356,6 +380,70 @@ function findInstanceByHeapScan(
     return match;
 }
 
+/** Version chunked + async — scan en morceaux de chunkSize avec une pause
+ * de pauseMs entre chunks. Laisse le main thread Tacticus respirer →
+ * UnityFreezeDetector ne kick pas. Plus lent (~2-5x) que scanSync mais
+ * SAFE pour scan mid-battle avec PvP socket active.
+ *
+ * Returns Promise<NativePointer | null>. À appeler depuis un context async
+ * (RPC handler avec await). */
+export async function findInstanceByHeapScanChunked(
+    klass: NativePointer,
+    validate?: (candidate: NativePointer) => boolean,
+    opts: { chunkMb?: number; pauseMs?: number } = {},
+): Promise<NativePointer | null> {
+    const chunkSize = (opts.chunkMb ?? 4) * 1024 * 1024;
+    const pauseMs = opts.pauseMs ?? 30;
+    const patternHex = (() => {
+        const v = klass.toString(16).padStart(16, "0");
+        const bytes: string[] = [];
+        for (let i = 7; i >= 0; i--) bytes.push(v.substr(i * 2, 2));
+        return bytes.join(" ");
+    })();
+    const sleep = (ms: number) => new Promise<void>(
+        (r) => { setTimeout(r, ms); });
+    let match: NativePointer | null = null;
+    const ranges = Process.enumerateRanges("rw-");
+    let chunksScanned = 0;
+    for (const r of ranges) {
+        if (match) break;
+        if (r.size < 1024 * 1024) continue;
+        if (r.size > 2 * 1024 * 1024 * 1024) continue;
+        let offset = 0;
+        while (offset < r.size && !match) {
+            const size = Math.min(chunkSize, r.size - offset);
+            const base = r.base.add(offset);
+            try {
+                await new Promise<void>((resolve) => {
+                    const out: NativePointer[] = [];
+                    Memory.scan(base, size, patternHex, {
+                        onMatch(addr) {
+                            try {
+                                if (addr.readPointer().equals(klass)) {
+                                    out.push(addr);
+                                }
+                            } catch { /* unmapped */ }
+                        },
+                        onError() { /* skip chunk */ },
+                        onComplete() {
+                            for (const c of out) {
+                                if (match) return;
+                                if (!validate || validate(c)) { match = c; return; }
+                            }
+                            resolve();
+                        },
+                    });
+                });
+            } catch { /* range gone */ break; }
+            offset += size;
+            chunksScanned++;
+            // Yield to give Tacticus main thread a frame (UnityFreezeDetector).
+            await sleep(pauseMs);
+        }
+    }
+    return match;
+}
+
 /** Find a live UnitProgression instance via heap scan. Required for
  * synthesizing the Func<string,IUnitModel> delegate when the natural
  * broad-hook hasn't fired yet (post-reinject, idle game state).
@@ -364,12 +452,12 @@ function findInstanceByHeapScan(
  * have its core injected DI fields populated (_unitsConfig, _logger).
  * UnitProgression has 30+ injected services — checking 2-3 is plenty
  * to filter Zenject placeholders. */
-function findUnitProgressionViaHeap(): NativePointer | null {
+async function findUnitProgressionViaHeap(): Promise<NativePointer | null> {
     const upCls = findClassAnywhere(
         "IdunMetaLogic.UserProgress", "UnitProgression");
     if (!upCls) return null;
     const start = Date.now();
-    const found = findInstanceByHeapScan(upCls, (cand) => {
+    const found = await findInstanceByHeapScanChunked(upCls, (cand) => {
         try {
             if (!_objectGetClass || !_classIsAssignableFrom) return false;
             const candKlass = _objectGetClass(cand) as NativePointer;
@@ -409,7 +497,7 @@ function findUnitProgressionViaHeap(): NativePointer | null {
  * Validator: heap-scanned instance must have a non-null klass and that
  * klass must be assignable to CampaignGameModeSource (filters DI
  * placeholders that have garbage fields). */
-function findCampaignGameModeSourceViaHeap(): NativePointer | null {
+async function findCampaignGameModeSourceViaHeap(): Promise<NativePointer | null> {
     const cgmsCls = findClass(ASM_BATTLE, NS_BATTLE_SOURCE,
         "CampaignGameModeSource");
     if (!cgmsCls) return null;
@@ -425,7 +513,7 @@ function findCampaignGameModeSourceViaHeap(): NativePointer | null {
     //      guaranteed to point at the same one)
     //   3. currentLocationIndex within sane bounds (0-100; campaigns rarely
     //      have more)
-    const found = findInstanceByHeapScan(cgmsCls, (cand) => {
+    const found = await findInstanceByHeapScanChunked(cgmsCls, (cand) => {
         try {
             if (!_objectGetClass || !_classIsAssignableFrom) return false;
             const candKlass = _objectGetClass(cand) as NativePointer;
@@ -460,6 +548,48 @@ function findCampaignGameModeSourceViaHeap(): NativePointer | null {
 }
 
 
+/** Heap-scan fallback pour PvpGameModeSource — utile au reinject si l'user
+ * est déjà dans une battle PvP. Validator : type assignable + _gameConfig
+ * matches lastGameConfig + _currentBattle non-null (=battle chargée). */
+export async function findPvpGameModeSourceViaHeap(
+    opts: { chunkMb?: number; pauseMs?: number } = {},
+): Promise<NativePointer | null> {
+    const cls = findClass(ASM_BATTLE, NS_BATTLE_SOURCE, "PvpGameModeSource");
+    if (!cls) return null;
+    const start = Date.now();
+    // PvpGameModeSource layout : _gameConfig @+0xA8, _currentBattle @+0xD8
+    const PVP_OFF_GAMECONFIG = 0xA8;
+    const PVP_OFF_CURRENT_BATTLE = 0xD8;
+    const found = await findInstanceByHeapScanChunked(cls, (cand) => {
+        try {
+            if (!_objectGetClass || !_classIsAssignableFrom) return false;
+            const candKlass = _objectGetClass(cand) as NativePointer;
+            if (candKlass.isNull()) return false;
+            if (!_classIsAssignableFrom(cls, candKlass)) return false;
+            const min = ptr(0x10000);
+            const gc = cand.add(PVP_OFF_GAMECONFIG).readPointer();
+            if (gc.compare(min) < 0) return false;
+            // _currentBattle non-null = battle chargée → la BC qu'on veut
+            const bc = cand.add(PVP_OFF_CURRENT_BATTLE).readPointer();
+            if (bc.isNull() || bc.compare(min) < 0) return false;
+            return true;
+        } catch { return false; }
+    }, opts);
+    const elapsed = Date.now() - start;
+    if (found) {
+        log("[campaign-builder] found PvpGameModeSource @ " + found
+            + " via chunked heap scan (" + elapsed + " ms, validated)");
+        pvpGameModeSourcePtr = found;
+        try { send({ t: "pvp_builder_ready", via: "heap-scan" }); }
+        catch { /* */ }
+    } else {
+        log("[campaign-builder] chunked heap scan for PvpGameModeSource yielded nothing ("
+            + elapsed + " ms) — navigate to PvP/Arena to instantiate");
+    }
+    return found;
+}
+
+
 /** Heap-scan fallback for the live GameConfigDto when get_gameConfigDto
  * hasn't fired naturally (re-injection mid-game, idle home screen, etc.).
  *
@@ -468,7 +598,7 @@ function findCampaignGameModeSourceViaHeap(): NativePointer | null {
  * hit by checking that the `battles` field is non-null AND that the
  * pointed-to BattlesConfigDto in turn has a non-null `campaigns` field.
  * Only the fully-populated singleton survives this check. */
-function findGameConfigDtoViaHeap(): NativePointer | null {
+async function findGameConfigDtoViaHeap(): Promise<NativePointer | null> {
     const klass = findClassAnywhere(
         "IdunMetaLogic.Client.DTO.Config", "GameConfigDto");
     if (!klass) return null;
@@ -478,7 +608,7 @@ function findGameConfigDtoViaHeap(): NativePointer | null {
         return null;
     }
     const start = Date.now();
-    const found = findInstanceByHeapScan(klass, (cand) => {
+    const found = await findInstanceByHeapScanChunked(klass, (cand) => {
         try {
             const battlesPtr = cand.add(battlesOff).readPointer();
             if (battlesPtr.isNull()) return false;
@@ -620,6 +750,133 @@ export function register(ctx: Ctx): void {
                 log("[campaign-builder] ctor hook failed: " + (e as Error).message);
             }
         }
+        // Same instance-capture pattern pour MachinesOfWarEventGameModeSource
+        // — pour récupérer une BC contenant des MoW. User doit naviguer
+        // manuellement vers le MoW Event in-game.
+        const mowClass = findClass(ASM_BATTLE, NS_BATTLE_SOURCE,
+            "MachinesOfWarEventGameModeSource");
+        if (mowClass) {
+            const mowCtor = findMethod(mowClass, ".ctor");
+            if (mowCtor && !mowCtor.ptr.isNull()) {
+                try {
+                    Interceptor.attach(mowCtor.ptr, {
+                        onEnter(args) {
+                            this.selfPtr = ptr(args[0].toString());
+                        },
+                        onLeave() {
+                            const self = this.selfPtr as NativePointer;
+                            if (!self || self.isNull()) return;
+                            const wasNull = mowEventGameModeSourcePtr === null;
+                            mowEventGameModeSourcePtr = self;
+                            log("[campaign-builder] MoWEvent captured (ctor) @ " + self);
+                            if (wasNull) {
+                                try { send({ t: "mow_builder_ready", via: "ctor" }); }
+                                catch { /* */ }
+                            }
+                        },
+                    });
+                    log("[+] MachinesOfWarEventGameModeSource..ctor (instance capture)");
+                } catch (e) {
+                    log("[campaign-builder] MoW ctor hook failed: " + (e as Error).message);
+                }
+            }
+            const mowLoadBattle = findMethod(mowClass, "LoadBattle");
+            if (mowLoadBattle && !mowLoadBattle.ptr.isNull()) {
+                try {
+                    Interceptor.attach(mowLoadBattle.ptr, {
+                        onEnter(args) {
+                            const self = ptr(args[0].toString());
+                            if (self.isNull()) return;
+                            if (!mowEventGameModeSourcePtr
+                                || !mowEventGameModeSourcePtr.equals(self)) {
+                                const wasNull = mowEventGameModeSourcePtr === null;
+                                mowEventGameModeSourcePtr = self;
+                                log("[campaign-builder] MoWEvent captured (LoadBattle) @ " + self);
+                                if (wasNull) {
+                                    try { send({ t: "mow_builder_ready", via: "LoadBattle" }); }
+                                    catch { /* */ }
+                                }
+                            }
+                        },
+                    });
+                    log("[+] MachinesOfWarEventGameModeSource.LoadBattle (instance capture)");
+                } catch (e) {
+                    log("[campaign-builder] MoW LoadBattle hook failed: " + (e as Error).message);
+                }
+            }
+        } else {
+            log("[campaign-builder] MachinesOfWarEventGameModeSource class not found");
+        }
+
+        // Same pour PvpGameModeSource — pour Arena PvP. PvpGameModeSource n'a
+        // pas de LoadBattle visible — on s'appuie sur ctor + StartBattle.
+        const pvpClass = findClass(ASM_BATTLE, NS_BATTLE_SOURCE,
+            "PvpGameModeSource");
+        if (pvpClass) {
+            const pvpCtor = findMethod(pvpClass, ".ctor");
+            if (pvpCtor && !pvpCtor.ptr.isNull()) {
+                try {
+                    Interceptor.attach(pvpCtor.ptr, {
+                        onEnter(args) {
+                            this.selfPtr = ptr(args[0].toString());
+                        },
+                        onLeave() {
+                            const self = this.selfPtr as NativePointer;
+                            if (!self || self.isNull()) return;
+                            const wasNull = pvpGameModeSourcePtr === null;
+                            pvpGameModeSourcePtr = self;
+                            log("[campaign-builder] Pvp captured (ctor) @ " + self);
+                            if (wasNull) {
+                                try { send({ t: "pvp_builder_ready", via: "ctor" }); }
+                                catch { /* */ }
+                            }
+                        },
+                    });
+                    log("[+] PvpGameModeSource..ctor (instance capture)");
+                } catch (e) {
+                    log("[campaign-builder] Pvp ctor hook failed: " + (e as Error).message);
+                }
+            }
+            // Hooks passifs sur plusieurs methods appelees pendant la battle.
+            // Capture `this` au passage → zero cost, pas de heap scan.
+            // Au moins un parmi ces hooks doit fire pendant une PvP battle :
+            //   - get_BattleGameMode/get_Name : property getters, appeles
+            //     par UI, runtime, save system
+            //   - HandleTurnStarted : chaque turn
+            //   - PreventAIControl/PreventHumanControl : chaque turn par player
+            const pvpPassiveMethods = [
+                "get_BattleGameMode", "get_Name", "HandleTurnStarted",
+                "PreventAIControl", "PreventHumanControl", "StartBattle",
+                "get_ControlsRunner",
+            ];
+            for (const methodName of pvpPassiveMethods) {
+                const mi = findMethod(pvpClass, methodName);
+                if (!mi || mi.ptr.isNull()) continue;
+                try {
+                    Interceptor.attach(mi.ptr, {
+                        onEnter(args) {
+                            const self = ptr(args[0].toString());
+                            if (self.isNull()) return;
+                            if (pvpGameModeSourcePtr !== null
+                                && pvpGameModeSourcePtr.equals(self)) return;
+                            const wasNull = pvpGameModeSourcePtr === null;
+                            pvpGameModeSourcePtr = self;
+                            if (wasNull) {
+                                log(`[campaign-builder] Pvp captured (${methodName}) @ ` + self);
+                                try { send({ t: "pvp_builder_ready", via: methodName }); }
+                                catch { /* */ }
+                            }
+                        },
+                    });
+                    log(`[+] PvpGameModeSource.${methodName} (passive capture)`);
+                } catch (e) {
+                    log(`[campaign-builder] Pvp ${methodName} hook failed: ` + (e as Error).message);
+                }
+            }
+        } else {
+            log("[campaign-builder] PvpGameModeSource class not found");
+        }
+
         const loadBattle = findMethod(ctorClass, "LoadBattle");
         if (loadBattle && !loadBattle.ptr.isNull()) {
             try {
@@ -747,11 +1004,11 @@ export function register(ctx: Ctx): void {
     /** Dump the entire campaign catalog as Newtonsoft JSON. Doesn't require
      * a CampaignGameModeSource — uses the GameConfigDto captured from
      * UserProgression..ctor (available from game boot). */
-    ctx.rpc.dumpCampaignCatalog = (opts?: { allowHeapScan?: boolean }) => queueOnMainThread(() => {
+    ctx.rpc.dumpCampaignCatalog = async (opts?: { allowHeapScan?: boolean }) => {
         // Prefer the directly-captured GameConfigDto. Fall back to the one
         // referenced by a live CampaignGameModeSource — unwrap the
         // GameConfigData service if needed. Heap scan only when caller opts
-        // in (↻ button); it freezes Tacticus's main thread ~10 s.
+        // in (↻ button); chunked async donc safe (~30s avec yield).
         let gameConfig: NativePointer | null = lastGameConfig;
         if (gameConfig === null && campaignGameModeSourcePtr !== null && ensureCgmsResolved()) {
             const p = campaignGameModeSourcePtr.add(offGameConfig).readPointer();
@@ -762,12 +1019,13 @@ export function register(ctx: Ctx): void {
             }
         }
         if (gameConfig === null && opts?.allowHeapScan) {
-            const scanned = findGameConfigDtoViaHeap();
+            const scanned = await findGameConfigDtoViaHeap();
             if (scanned !== null) {
                 lastGameConfig = scanned;
                 gameConfig = scanned;
             }
         }
+        return queueOnMainThread(() => {
         if (gameConfig === null) {
             throw new Error("GameConfigDto not captured. Click any campaign battle in-game to trigger natural capture. If the issue persists, click the ↻ button which forces a heap scan (10 s game freeze).");
         }
@@ -779,7 +1037,8 @@ export function register(ctx: Ctx): void {
         const json = serializeToJson(campaignsPtr);
         if (!json) throw new Error("JsonConvert.SerializeObject(campaigns) returned null");
         return { bytes: json.length, json };
-    });
+        });
+    };
 
     /** Build a BattleConfiguration for an arbitrary campaign node.
      *
@@ -808,14 +1067,10 @@ export function register(ctx: Ctx): void {
             }
         }
         if (gameConfig === null) {
-            const scanned = findGameConfigDtoViaHeap();
-            if (scanned !== null) {
-                lastGameConfig = scanned;
-                gameConfig = scanned;
-            }
-        }
-        if (gameConfig === null) {
-            throw new Error("no GameConfigDto captured yet — wait for game to load");
+            // Heap scan async sera disponible via le RPC discoverSources
+            // (chunked, safe pour Tacticus). Pas de fallback inline ici car
+            // queueOnMainThread est sync et bloquerait le main thread.
+            throw new Error("no GameConfigDto captured yet — call `discoverSources` RPC first to trigger smooth heap scan, then retry");
         }
         if (!ensureGameConfigChainResolved(gameConfig)) {
             throw new Error("gameConfig chain resolution failed");
@@ -847,10 +1102,8 @@ export function register(ctx: Ctx): void {
         // ctor.onLeave hook. Heap-scan fallback covers re-injection after the
         // user already navigated into a campaign (rare).
         let sourcePtr = campaignGameModeSourcePtr;
-        if (sourcePtr === null) {
-            sourcePtr = findCampaignGameModeSourceViaHeap();
-            if (sourcePtr !== null) campaignGameModeSourcePtr = sourcePtr;
-        }
+        // Pas de fallback heap scan ici (sync queueOnMainThread bloquerait
+        // le main thread). Si null, l'user doit call `discoverSources` RPC.
         // Path 2 (mute + progression-swap). The source has
         // source._campaignProgression (offset 0x20) pointing to a
         // CampaignProgression for the user's current chapter. LoadBattle

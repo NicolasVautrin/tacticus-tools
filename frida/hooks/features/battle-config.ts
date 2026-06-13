@@ -46,23 +46,89 @@ import {
 } from "../il2cpp/helpers.js";
 import { createManagedString } from "../il2cpp/invoke.js";
 import { queueOnMainThread } from "../runtime/queue.js";
-import { getCampaignGameModeSourcePtr } from "./campaign-builder.js";
+import {
+    getCampaignGameModeSourcePtr, getMowEventGameModeSourcePtr,
+    getPvpGameModeSourcePtr, tryActiveDiscoveryOfSources,
+    findPvpGameModeSourceViaHeap,
+} from "./campaign-builder.js";
 import { buildRunner, runnerApplyMi } from "../game/runner.js";
 import { registerRunner, getRunner as getRegistryRunner }
     from "../game/runner-registry.js";
-import { findClass, findCtorByParamCount } from "../il2cpp/helpers.js";
+import {
+    findClass, findCtorByParamCount, findMethodByParamCount,
+} from "../il2cpp/helpers.js";
 import { il2cpp_object_new, invokeMethod } from "../il2cpp/invoke.js";
+import { serializeToJson as _serializeBcToJson } from "../il2cpp/serializer.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
 import { log } from "../runtime/diag.js";
 import { Ctx } from "../controller.js";
 
+// --- Diag : hook AddPredefinedMachines pour savoir si elle fire pendant
+//     Initialize. Si oui → la condition mode-skip n'est pas la cause, c'est
+//     ailleurs (IsMachineOfWar(unitId)=false, slot manquant, etc.).
+//     Si non → SetupGameOperation.Execute() la skip → faut hooker plus haut. ---
+let _addPredefMachinesFires = 0;
+const setupGameOpClass = findClassAnywhere(
+    "IdunBattle.Operations", "SetupGameOperation");
+const addPredefMachinesMi = setupGameOpClass
+    ? findMethod(setupGameOpClass, "AddPredefinedMachines") : null;
+if (addPredefMachinesMi) {
+    try {
+        Interceptor.attach(addPredefMachinesMi.ptr, {
+            onEnter() { _addPredefMachinesFires++; },
+        });
+        log("[battle-config] AddPredefinedMachines hooked for diag");
+    } catch (e) {
+        log("[battle-config] AddPredefinedMachines hook failed: " + (e as Error).message);
+    }
+} else {
+    log("[battle-config] AddPredefinedMachines method not resolved");
+}
+
+// --- PredefinedMachine class resolution (for BC.PredefinedMachines patch) ---
+
+const predefinedMachinesOfWarClass = findClassAnywhere(
+    "IdunBattle.Configuration", "PredefinedMachinesOfWar");
+const predefinedMachineOfWarClass = findClassAnywhere(
+    "IdunBattle.Configuration", "PredefinedMachineOfWar");
+const predefinedMachinesOfWarCtor = predefinedMachinesOfWarClass
+    ? findCtorByParamCount(predefinedMachinesOfWarClass, 0) : null;
+// PredefinedMachineOfWar a un ctor(string unitId) + un ctor() — on prend
+// celui à 1 arg pour init avec UnitId.
+const predefinedMachineOfWarCtor1 = predefinedMachineOfWarClass
+    ? findCtorByParamCount(predefinedMachineOfWarClass, 1) : null;
+const predefinedMachineOfWarCtor0 = predefinedMachineOfWarClass
+    ? findCtorByParamCount(predefinedMachineOfWarClass, 0) : null;
+
 // --- Offsets ---
 
 const CGMS_OFF_CURRENT_BATTLE = 0x80;
+// MachinesOfWarEventGameModeSource a son _currentBattle a un offset different
+// (+0xF0 vs +0x80 pour Campaign). On essaie d'abord Campaign puis MoW Event.
+const MOWE_OFF_CURRENT_BATTLE = 0xF0;
+// PvpGameModeSource._currentBattle @+0xD8
+const PVP_OFF_CURRENT_BATTLE = 0xD8;
 
 const BC_OFF_ID = 0x10;
+// BC.GameMode est `Nullable<GameMode>` @0x18. Mono Nullable<int> layout :
+// hasValue @+0 (1B + 3B padding), value @+4 (4B). Donc hasValue @0x18,
+// value @0x1C. GameMode enum : Campaign=0, PvP=1, MachinesOfWarEvent=15.
+const BC_OFF_GAMEMODE_HASVALUE = 0x18;
+const BC_OFF_GAMEMODE_VALUE = 0x1C;
+// BC.RuleSet est `Nullable<SyncPvpRuleSet>` @0x20. SyncPvpRuleSet enum :
+// Deathmatch=0, Heist=1, KingOfTheHill=2, Territories=3, Boosts=4,
+// EscortTheSummons=5, Draft=6, Boosts_Infested=7.
+const BC_OFF_RULESET_HASVALUE = 0x20;
+const BC_OFF_RULESET_VALUE = 0x24;
 const BC_OFF_SPAWN_POINT_SET_INDEX = 0x28;
 const BC_OFF_PREDEFINED_UNITS = 0x40;
+const BC_OFF_PREDEFINED_MACHINES = 0x48;  // List<PredefinedMachinesOfWar>
+// PredefinedMachinesOfWar : Id (PlayerId enum int) @+0x10, MachineOfWar
+// (PredefinedMachineOfWar wrapper) @+0x18.
+const PMOW_OFF_PLAYER_ID = 0x10;
+const PMOW_OFF_MACHINE = 0x18;
+// PredefinedMachineOfWar : UnitId (string) @+0x10.
+const PMOW_OFF_UNIT_ID = 0x10;
 const BC_OFF_BOARD = 0x68;
 const BC_OFF_UNITS = 0x80;       // List<UnitConfiguration>
 const BC_OFF_TILES = 0x88;       // List<BattleConfigTileConfiguration>
@@ -94,15 +160,35 @@ const BCBC_OFF_HEIGHT = 0x1C;
 // --- Helpers ---
 
 /** Resolve the live BattleConfiguration from the warmup-captured campaignGameModeSourcePtr.
- * Null if no source captured, or if source captured but LoadBattle hasn't fired
- * yet (very brief window — _currentBattle is set by LoadBattle return). */
+ * Si Campaign source absent ou BC null, fallback sur MoW Event source
+ * (offset _currentBattle different : 0xF0 vs 0x80). User doit avoir navigué
+ * manuellement vers le MoW Event in-game pour que ce dernier soit capturé. */
 function getLiveBattleConfig(): NativePointer | null {
-    const src = getCampaignGameModeSourcePtr();
-    if (src === null) return null;
-    try {
-        const bc = src.add(CGMS_OFF_CURRENT_BATTLE).readPointer();
-        return bc.isNull() ? null : bc;
-    } catch { return null; }
+    // Priorité : Pvp > MoW Event > Campaign. Quand l'user navigue vers
+    // un mode plus avancé (PvP, MoW), on veut sa BC en priorité (plus
+    // riche : RuleSet, MoW ammo, templates :pvp init).
+    const pSrc = getPvpGameModeSourcePtr();
+    if (pSrc !== null) {
+        try {
+            const bc = pSrc.add(PVP_OFF_CURRENT_BATTLE).readPointer();
+            if (!bc.isNull()) return bc;
+        } catch { /* fall through */ }
+    }
+    const mSrc = getMowEventGameModeSourcePtr();
+    if (mSrc !== null) {
+        try {
+            const bc = mSrc.add(MOWE_OFF_CURRENT_BATTLE).readPointer();
+            if (!bc.isNull()) return bc;
+        } catch { /* fall through */ }
+    }
+    const cSrc = getCampaignGameModeSourcePtr();
+    if (cSrc !== null) {
+        try {
+            const bc = cSrc.add(CGMS_OFF_CURRENT_BATTLE).readPointer();
+            if (!bc.isNull()) return bc;
+        } catch { /* fall through */ }
+    }
+    return null;
 }
 
 /** Read a managed `List<T>` of reference-type elements. Returns the raw
@@ -133,6 +219,10 @@ interface BattleConfigSnapshot {
     ok: boolean;
     bcPtr?: string;
     id?: string | null;
+    /** GameMode enum value (Campaign=0, PvP=1, ..., MoWEvent=15). null si Nullable.hasValue=false. */
+    gameMode?: number | null;
+    /** SyncPvpRuleSet enum value (Deathmatch=0, Heist=1, ...). null si Nullable.hasValue=false. */
+    ruleSet?: number | null;
     spawnPointSetIndex?: number;
     randomizeAiInput?: boolean;
     board?: {
@@ -152,6 +242,13 @@ interface BattleConfigSnapshot {
         unitCount: number;
         units: Array<{ unitId: string | null }>;
     }>;
+    /** List<PredefinedMachinesOfWar> — MoW à deployer auto par
+     * runner.Initialize(). Souvent vide en mode Campaign (qui hardcode
+     * SupportsMachinesOfWar=false → le GameModeSource ne peuple pas). */
+    predefinedMachines?: Array<{
+        playerId: number;
+        unitId: string | null;
+    }>;
     err?: string;
 }
 
@@ -169,6 +266,11 @@ function inspectBattleConfig(): BattleConfigSnapshot {
 
     try {
         snap.id = readIl2cppString(bc.add(BC_OFF_ID).readPointer());
+        // Nullable<GameMode>/Nullable<SyncPvpRuleSet> : hasValue @+0, value @+4
+        snap.gameMode = bc.add(BC_OFF_GAMEMODE_HASVALUE).readU8() !== 0
+            ? bc.add(BC_OFF_GAMEMODE_VALUE).readS32() : null;
+        snap.ruleSet = bc.add(BC_OFF_RULESET_HASVALUE).readU8() !== 0
+            ? bc.add(BC_OFF_RULESET_VALUE).readS32() : null;
         snap.spawnPointSetIndex = bc.add(BC_OFF_SPAWN_POINT_SET_INDEX).readS32();
         snap.randomizeAiInput = bc.add(BC_OFF_RANDOMIZE_AI).readU8() !== 0;
     } catch (e) {
@@ -203,7 +305,8 @@ function inspectBattleConfig(): BattleConfigSnapshot {
         const units = readManagedList(bc.add(BC_OFF_UNITS).readPointer());
         if (units) {
             const sample = [];
-            const N = Math.min(units.size, 5);
+            // Bumped to 30 to find MoW/PvP-suffixed templates.
+            const N = Math.min(units.size, 200);
             for (let i = 0; i < N; i++) {
                 const uc = readListItem(units, i);
                 if (uc.isNull()) continue;
@@ -223,6 +326,34 @@ function inspectBattleConfig(): BattleConfigSnapshot {
         }
     } catch (e) {
         snap.err = (snap.err ?? "") + ` | templates: ${(e as Error).message}`;
+    }
+
+    // PredefinedMachines (MoW deployment list)
+    try {
+        const pm = readManagedList(
+            bc.add(BC_OFF_PREDEFINED_MACHINES).readPointer());
+        if (pm) {
+            const mows: Array<{ playerId: number; unitId: string | null }> = [];
+            for (let i = 0; i < pm.size; i++) {
+                const entry = readListItem(pm, i);
+                if (entry.isNull()) continue;
+                const playerId = entry.add(PMOW_OFF_PLAYER_ID).readS32();
+                let unitId: string | null = null;
+                try {
+                    const machinePtr = entry.add(PMOW_OFF_MACHINE).readPointer();
+                    if (!machinePtr.isNull()) {
+                        unitId = readIl2cppString(
+                            machinePtr.add(PMOW_OFF_UNIT_ID).readPointer());
+                    }
+                } catch { /* leave null */ }
+                mows.push({ playerId, unitId });
+            }
+            snap.predefinedMachines = mows;
+        } else {
+            snap.predefinedMachines = [];
+        }
+    } catch (e) {
+        snap.err = (snap.err ?? "") + ` | predefMachines: ${(e as Error).message}`;
     }
 
     // PredefinedUnits (composition per player)
@@ -845,6 +976,159 @@ export function register(ctx: Ctx): void {
      *
      * The original captured BC is mutated in-place. Callers wanting to
      * preserve the original should clone it first (not yet implemented). */
+    ctx.rpc.diagPredefMachinesFires = () => ({ fires: _addPredefMachinesFires });
+
+    /** Sérialise la BC live (Pvp prioritaire, fallback Campaign) en JSON
+     * Newtonsoft. Le JSON peut ensuite être passé à `initRunner` pour
+     * construire un runner isolé reproductible. */
+    ctx.rpc.dumpBattleConfig = () => {
+        return queueOnMainThread(() => {
+            const bc = getLiveBattleConfig();
+            if (bc === null) return { ok: false, err: "no live BC" };
+            try {
+                // serializeToJson est dans il2cpp/serializer.ts. Faut l'importer.
+                const json = _serializeBcToJson(bc);
+                if (json === null) return { ok: false, err: "serializeToJson returned null" };
+                return { ok: true, bcPtr: bc.toString(), jsonLength: json.length, configJson: json };
+            } catch (e) {
+                return { ok: false, err: (e as Error).message };
+            }
+        });
+    };
+
+    /** Force discovery heap-scan : trouve les GameModeSource instances déjà
+     * vivantes en mémoire (après reinject ou inject mid-game). Utile pour
+     * retrouver une battle PvP/MoW Event déjà lancée. */
+    ctx.rpc.discoverSources = async (opts?: {
+        chunkMb?: number; pauseMs?: number;
+    }) => {
+        // tryActiveDiscoveryOfSources is sync — Campaign scan is short.
+        const ok = await queueOnMainThread(() => tryActiveDiscoveryOfSources());
+        // Pvp via heap scan chunked + async (yield au main thread Tacticus
+        // entre chunks, pour ne pas trigger UnityFreezeDetector).
+        if (getPvpGameModeSourcePtr() === null) {
+            try {
+                await findPvpGameModeSourceViaHeap({
+                    chunkMb: opts?.chunkMb ?? 4,
+                    pauseMs: opts?.pauseMs ?? 30,
+                });
+            } catch { /* leave null */ }
+        }
+        return {
+            ok,
+            campaign: getCampaignGameModeSourcePtr()?.toString() || null,
+            pvp: getPvpGameModeSourcePtr()?.toString() || null,
+            mowEvent: getMowEventGameModeSourcePtr()?.toString() || null,
+        };
+    };
+
+    /** Override BC.RuleSet (Nullable<SyncPvpRuleSet>). Test hypothesis :
+     * SetupGameOperation peut gate AddPredefinedMachines sur RuleSet != null. */
+    ctx.rpc.setBattleConfigRuleSet = (opts: { rule: number | null }) => {
+        return queueOnMainThread(() => {
+            const bc = getLiveBattleConfig();
+            if (bc === null) return { ok: false, err: "no live BC" };
+            const prevHas = bc.add(BC_OFF_RULESET_HASVALUE).readU8();
+            const prevVal = bc.add(BC_OFF_RULESET_VALUE).readS32();
+            if (opts.rule === null) {
+                bc.add(BC_OFF_RULESET_HASVALUE).writeU8(0);
+                bc.add(BC_OFF_RULESET_VALUE).writeS32(0);
+            } else {
+                bc.add(BC_OFF_RULESET_HASVALUE).writeU8(1);
+                bc.add(BC_OFF_RULESET_VALUE).writeS32(opts.rule | 0);
+            }
+            return {
+                ok: true,
+                prev: { hasValue: prevHas !== 0, value: prevVal },
+                cur: { hasValue: opts.rule !== null, value: opts.rule ?? 0 },
+            };
+        });
+    };
+
+    /** Override BC.GameMode (Nullable<GameMode>). Set to 1 (PvP) to unlock
+     * MoW handling — Campaign (0) skips MoW deployment in
+     * SetupGameOperation. Pass null to clear (hasValue=false). */
+    ctx.rpc.setBattleConfigGameMode = (opts: { mode: number | null }) => {
+        return queueOnMainThread(() => {
+            const bc = getLiveBattleConfig();
+            if (bc === null) return { ok: false, err: "no live BC" };
+            const prevHas = bc.add(BC_OFF_GAMEMODE_HASVALUE).readU8();
+            const prevVal = bc.add(BC_OFF_GAMEMODE_VALUE).readS32();
+            if (opts.mode === null) {
+                bc.add(BC_OFF_GAMEMODE_HASVALUE).writeU8(0);
+                bc.add(BC_OFF_GAMEMODE_VALUE).writeS32(0);
+            } else {
+                bc.add(BC_OFF_GAMEMODE_HASVALUE).writeU8(1);
+                bc.add(BC_OFF_GAMEMODE_VALUE).writeS32(opts.mode | 0);
+            }
+            return {
+                ok: true,
+                prev: { hasValue: prevHas !== 0, value: prevVal },
+                cur: { hasValue: opts.mode !== null, value: opts.mode ?? 0 },
+            };
+        });
+    };
+
+    /** Add a MoW to the live BC.PredefinedMachines list. The MoW will be
+     * auto-deployed by runner.Initialize() when the next runner is built
+     * from this BC. Campaign mode normally leaves this list empty
+     * (SupportsMachinesOfWar=false) — calling this is how we inject MoW
+     * into our RL battles. To deploy a *player* MoW use `applyAddMachine`
+     * (runtime AddMachineMessage) instead — players add their MoW after
+     * Initialize(), like for units (applyAddUnit). */
+    ctx.rpc.addPredefinedMachine = (opts: {
+        playerId: number; unitId: string;
+    }) => {
+        return queueOnMainThread(() => {
+            const bc = getLiveBattleConfig();
+            if (bc === null) return {
+                ok: false, err: "no live BC — warmup first" };
+            if (!predefinedMachinesOfWarClass
+                || !predefinedMachinesOfWarCtor
+                || !predefinedMachineOfWarClass
+                || !(predefinedMachineOfWarCtor1 || predefinedMachineOfWarCtor0)) {
+                return { ok: false, err: "PredefinedMachine class/ctor not resolved" };
+            }
+            try {
+                // 1. PredefinedMachineOfWar { UnitId }
+                const inner = il2cpp_object_new(
+                    predefinedMachineOfWarClass) as NativePointer;
+                if (inner.isNull()) throw new Error("alloc PredefinedMachineOfWar");
+                gcRoot.add(inner);
+                const unitIdStr = createManagedString(opts.unitId);
+                if (predefinedMachineOfWarCtor1) {
+                    invokeMethod(predefinedMachineOfWarCtor1.info, inner,
+                        [unitIdStr]);
+                } else {
+                    invokeMethod(predefinedMachineOfWarCtor0!.info, inner, null);
+                    inner.add(PMOW_OFF_UNIT_ID).writePointer(unitIdStr);
+                }
+                // 2. PredefinedMachinesOfWar wrapper { Id=playerId, MachineOfWar=inner }
+                const wrapper = il2cpp_object_new(
+                    predefinedMachinesOfWarClass) as NativePointer;
+                if (wrapper.isNull()) throw new Error("alloc PredefinedMachinesOfWar");
+                gcRoot.add(wrapper);
+                invokeMethod(predefinedMachinesOfWarCtor.info, wrapper, null);
+                wrapper.add(PMOW_OFF_PLAYER_ID).writeS32(opts.playerId);
+                wrapper.add(PMOW_OFF_MACHINE).writePointer(inner);
+                // 3. List<PredefinedMachinesOfWar>.Add(wrapper)
+                const listPtr = bc.add(BC_OFF_PREDEFINED_MACHINES).readPointer();
+                if (listPtr.isNull()) {
+                    return { ok: false, err: "BC.PredefinedMachines list is null" };
+                }
+                const listKlass = listPtr.readPointer();
+                const addMi = findMethodByParamCount(listKlass, "Add", 1);
+                if (!addMi) return { ok: false, err: "List.Add(1) not found" };
+                invokeMethod(addMi.info, listPtr, [wrapper]);
+                return { ok: true, playerId: opts.playerId,
+                         unitId: opts.unitId,
+                         listSize: listPtr.add(LIST_OFF_SIZE).readS32() };
+            } catch (e) {
+                return { ok: false, err: (e as Error).message };
+            }
+        });
+    };
+
     /** Auto-spawn all PredefinedUnits into the given runner. Maps each
      * PredefinedUnits group to the SpawnPointGroup at the same index, and
      * each unit to its corresponding SpawnPoint. */

@@ -40,23 +40,551 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import os
 import random
 import sys
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict
 
 HOST = "http://127.0.0.1:8765"
 ROOT = Path(__file__).resolve().parents[2]
 TRACES_DIR = ROOT / "frida" / "data" / "ai-traces"
+SUMMARIES_DIR = ROOT / "frida" / "data" / "rl-batches"
 ARENA_SEED_BC = ROOT / "data" / "arena-battle-config-newtonsoft.json"
 BOARDS_DIR = ROOT / "data" / "boards"
 
 # PlayerIds lus de Player.Players du seed
 PLAYER_ID_HUMAN = 11   # PlayerType=0, TeamId=1
 PLAYER_ID_AI = 12      # PlayerType=1, TeamId=2
+
+
+# ---- Postgres progressive ingest --------------------------------------- #
+# Une connection PG ouverte au demarrage du batch ; apres chaque battle on
+# lit les nouveaux events du JSONL et on insert immediatement dans la DB.
+# Permet de voir les data en temps reel pendant un long run.
+
+try:
+    import psycopg  # type: ignore
+    from psycopg.types.json import Jsonb  # type: ignore
+    _PSYCOPG_OK = True
+except ImportError:
+    _PSYCOPG_OK = False
+
+
+STEP_NAMES = {
+    0: "None", 1: "StartMatch", 2: "StartTurn", 3: "ChangePosition",
+    4: "UnitDamaged", 5: "HealInfo", 6: "RepairInfo", 7: "RestoreArmorInfo",
+    8: "AddPlayer", 9: "AddTile", 10: "AddUnit", 11: "AddMachine",
+    12: "RemoveUnit", 13: "ChangeStats", 14: "ChangeAbility",
+    15: "FinishMatch", 16: "ReceiveEffect", 17: "LoseEffect",
+    18: "ActivateEffect", 19: "DeactivateEffect", 20: "UpdateEffect",
+    21: "UpdateEffectTurns", 22: "AttackTile", 23: "UnitDraft",
+    24: "SpawnPointDraft", 25: "ExtraAttackDamage", 26: "DirectlyKillUnit",
+    27: "LootInfo", 28: "RemoveUnitFromTiles", 29: "Revive", 30: "Info",
+    31: "TerritoryCapture", 32: "TerritoryScoreModifierChange",
+    33: "AddVictoryPoints", 34: "RemoveVictoryPoints",
+    35: "UpdateAbilityModification", 36: "TransferDamage", 37: "Resurrect",
+    38: "OverrideMovementTarget", 39: "PrepareTurn", 40: "ChangeUnitOwner",
+    41: "UpdateEffectLevel", 42: "UnitFled", 43: "RotateUnit",
+    44: "AddMachinePlatform", 45: "MachineHit", 46: "RemoveMachine",
+    47: "SpendAmmo", 48: "ChangePlayerReinforcement",
+    49: "ChangeUnitConfig", 50: "AddScore", 51: "SetTempPlayer",
+    52: "ResetTempPlayer", 53: "AddReinforcementShield", 54: "PickUnit",
+    55: "ChangeResurrectDraftingPoints", 56: "AddOrUpdateShield",
+    57: "RemoveShield", 58: "RevealFogOfWar", 59: "HideDoorActivationTile",
+    60: "OpenDoor", 61: "ReaddMachine", 62: "PlayerInitialRarity",
+}
+
+
+def _load_env(path: Path) -> dict[str, str]:
+    env: dict[str, str] = {}
+    if not path.exists():
+        return env
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        env[k.strip()] = v.strip()
+    return env
+
+
+def _safe_int(v: Any) -> int | None:
+    if v is None:
+        return None
+    try: return int(v)
+    except (TypeError, ValueError): return None
+
+
+class _IngestCtx(TypedDict, total=False):
+    """État partagé pour l'ingestion progressive."""
+    conn: Any              # psycopg.Connection
+    batch_id: int
+    trace_path: Path
+    trace_offset: int      # byte position to start next read
+    pending_events: dict[int, dict[str, list]]  # runnerId → buckets
+
+
+def _open_progressive_ingest(
+    args_ns: argparse.Namespace, seed: int, sid: int,
+    trace_path: Path | None,
+) -> _IngestCtx | None:
+    if not _PSYCOPG_OK:
+        print("[ingest] psycopg pas installe — ingestion progressive desactivee",
+              file=sys.stderr)
+        return None
+    env = _load_env(ROOT / ".env")
+    pwd = env.get("PG_PASSWORD")
+    if not pwd:
+        print("[ingest] PG_PASSWORD vide — ingestion desactivee", file=sys.stderr)
+        return None
+    conn = psycopg.connect(
+        host=env.get("PG_HOST", "localhost"),
+        port=int(env.get("PG_PORT", "5433")),
+        dbname=env.get("PG_DATABASE", "TACTICUS"),
+        user=env.get("PG_USER", "postgres"),
+        password=pwd,
+    )
+    # Detect game_hash
+    game_hash = None
+    games_dir = Path(os.path.expandvars(r"%LOCALAPPDATA%\tacticus\games"))
+    if games_dir.exists():
+        ents = list(games_dir.iterdir())
+        if ents:
+            game_hash = ents[0].name
+    # Insert batch row
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO tacticus.batch (seed, n_battles, game_hash, config, hooks_sha)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING batch_id
+        """, (seed, args_ns.num_battles, game_hash,
+              Jsonb(vars(args_ns)), None))
+        batch_id = cur.fetchone()[0]
+    # Load ability name dicts pour denormalisation a l'ingest.
+    with conn.cursor() as cur:
+        cur.execute("SELECT ability_id, name FROM tacticus.ref_active_ability")
+        for aid, n in cur.fetchall():
+            ACTIVE_ABILITY_NAMES[aid] = n
+        cur.execute("SELECT ability_id, name FROM tacticus.ref_triggered_ability")
+        for aid, n in cur.fetchall():
+            TRIGGERED_ABILITY_NAMES[aid] = n
+    conn.commit()
+    print(f"[ingest] connected PG, batch_id={batch_id}, "
+          f"game_hash={game_hash}, trace={trace_path}")
+    return {
+        "conn": conn,
+        "batch_id": batch_id,
+        "trace_path": trace_path or TRACES_DIR / "_unknown.jsonl",
+        "trace_offset": 0,
+        "pending_events": {},
+    }
+
+
+# Ability name dicts (chargees au 1er ingest connection).
+ACTIVE_ABILITY_NAMES: dict[int, str] = {}
+TRIGGERED_ABILITY_NAMES: dict[int, str] = {}
+
+
+def _slurp_new_events(ctx: _IngestCtx) -> None:
+    """Lit le JSONL depuis trace_offset → end et accumule events_by_runner.
+    Met a jour trace_offset. Tolerant aux lignes incomplètes (file en cours
+    d'ecriture)."""
+    path = ctx["trace_path"]
+    if not path.exists():
+        return
+    size = path.stat().st_size
+    offset = ctx["trace_offset"]
+    if size <= offset:
+        return
+    msg_events_by_idx: dict[int, list] = {}
+    # Garde l'index existant (nécessaire si message_events arrive APRES
+    # message dans le stream — rare mais possible).
+    pending = ctx["pending_events"]
+    with open(path, "rb") as f:
+        f.seek(offset)
+        buf = f.read(size - offset)
+    # Si la dernière ligne est incomplète, on la garde pour la prochaine fois.
+    last_nl = buf.rfind(b"\n")
+    if last_nl < 0:
+        return  # rien de complet à parser
+    chunk = buf[:last_nl + 1].decode("utf-8", errors="replace")
+    new_offset = offset + last_nl + 1
+    for line in chunk.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        evt = rec.get("evt")
+        if evt == "message_events":
+            mi = rec.get("msgIdx")
+            if isinstance(mi, int):
+                msg_events_by_idx[mi] = rec.get("events") or []
+            continue
+        if evt not in ("move_options", "battle_winner", "message"):
+            continue
+        rid = rec.get("runnerId")
+        if not isinstance(rid, int):
+            continue
+        bucket = pending.setdefault(
+            rid, {"move_options": [], "battle_winner": [], "message": []})
+        bucket[evt].append(rec)
+    # Attach message_events to messages in pending (by msgIdx).
+    for rid, bucket in pending.items():
+        for m in bucket.get("message", []):
+            mi = m.get("msgIdx")
+            if isinstance(mi, int) and mi in msg_events_by_idx:
+                m.setdefault("_events", [])
+                m["_events"].extend(msg_events_by_idx[mi])
+                # On consomme — évite la double-affectation au prochain
+                # slurp si le même msgIdx réapparaît (it ne peut pas, mais
+                # safer).
+                msg_events_by_idx[mi] = []
+    ctx["trace_offset"] = new_offset
+
+
+def _ingest_one_battle(ctx: _IngestCtx, battle_rec: dict) -> None:
+    """Insere battle + winner + move_options + messages + unit_states +
+    stream_events pour ce battle. Drain les events accumules pour son
+    runner_id."""
+    _slurp_new_events(ctx)
+    conn = ctx["conn"]
+    runner_id = battle_rec.get("runnerId")
+    bucket = ctx["pending_events"].get(runner_id) if runner_id else None
+
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO tacticus.battle (
+                batch_id, idx, runner_id, roster_p, roster_a,
+                mow_p, mow_a, board_id, engine_seed, ok,
+                final_stage, reached_finished, hit_max_turns,
+                turns_count, elapsed_ms, err
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s
+            ) RETURNING battle_id
+        """, (
+            ctx["batch_id"], battle_rec.get("i"), runner_id,
+            battle_rec.get("rosterP"), battle_rec.get("rosterA"),
+            battle_rec.get("mowPlayer"), battle_rec.get("mowAi"),
+            battle_rec.get("boardId"), battle_rec.get("engineSeed"),
+            bool(battle_rec.get("ok")), battle_rec.get("finalStage"),
+            bool(battle_rec.get("reachedFinished")),
+            bool(battle_rec.get("hitMaxTurns")),
+            _safe_int(battle_rec.get("turns")),
+            int(float(battle_rec.get("elapsed", 0)) * 1000)
+            if battle_rec.get("elapsed") is not None else None,
+            battle_rec.get("err"),
+        ))
+        battle_id = cur.fetchone()[0]
+        n_moves = n_msgs = n_units = n_streams = 0
+
+        if bucket:
+            # Winner
+            wins = bucket["battle_winner"]
+            if wins:
+                w = wins[-1]
+                cur.execute("""
+                    UPDATE tacticus.battle
+                       SET winner_player_id=%s, winner_team_id=%s,
+                           winner_entity_id=%s, outcome=%s,
+                           reason_code=%s, reason_name=%s
+                     WHERE battle_id=%s
+                """, (w.get("winnerPlayerId"), w.get("winnerTeamId"),
+                      w.get("winnerEntityId"), w.get("outcome"),
+                      w.get("reasonCode"), w.get("reasonName"), battle_id))
+            # Move options
+            mo_rows = []
+            for ev in bucket["move_options"]:
+                opts = ev.get("options") or {}
+                mo_rows.append((
+                    battle_id, ev.get("applySeq"),
+                    ev.get("unitEntityId"), ev.get("turn"),
+                    ev.get("turnPlayer"), bool(ev.get("ignoreFlags")),
+                    bool(opts.get("ignSpecial")), bool(opts.get("ignUnits")),
+                    bool(opts.get("isDanger")), opts.get("overrideRange"),
+                    bool(opts.get("hasRangeBonus")), ev.get("fireNo"),
+                    Jsonb(ev.get("candidates") or []),
+                ))
+            if mo_rows:
+                cur.executemany("""
+                    INSERT INTO tacticus.move_options_event (
+                        battle_id, apply_seq, unit_entity_id,
+                        turn, turn_player, ignore_flags,
+                        opt_ign_special, opt_ign_units, opt_is_danger,
+                        opt_override_range, opt_has_range_bonus,
+                        fire_no, candidates
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+                              %s, %s, %s, %s)
+                """, mo_rows)
+                n_moves = len(mo_rows)
+            # Pre-pass : collecter squad_ids + machine_ids vus dans le battle
+            # pour classer target_kind sur stream_events. 'unit' si squad,
+            # 'machine' si machine, 'tile' sinon.
+            battle_squads: set[int] = set()
+            battle_machines: set[int] = set()
+            for _msg in bucket["message"]:
+                _ms = _msg.get("matchState") or {}
+                for _u in (_ms.get("units") or []):
+                    _sq = _safe_int(_u.get("squadId"))
+                    if _sq is not None:
+                        battle_squads.add(_sq)
+                for _m in (_ms.get("mows") or []):
+                    _mid = _safe_int(_m.get("machineId"))
+                    if _mid is not None:
+                        battle_machines.add(_mid)
+            # Messages + unit_states + stream_events
+            for msg in bucket["message"]:
+                ms = msg.get("matchState") or {}
+                cur.execute("""
+                    INSERT INTO tacticus.message (
+                        battle_id, msg_idx, apply_seq, src,
+                        msg_class, unit_id_raw, runner_id,
+                        turn, stage, stage_name, player_on_turn
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s,
+                              %s, %s, %s, %s)
+                    RETURNING message_id
+                """, (
+                    battle_id, msg.get("msgIdx"), msg.get("applySeq"),
+                    msg.get("src"), msg.get("msgClass"),
+                    _safe_int(msg.get("unitId")), runner_id,
+                    _safe_int(ms.get("turn")), _safe_int(ms.get("stage")),
+                    ms.get("stageName"), _safe_int(ms.get("playerOnTurn")),
+                ))
+                message_id = cur.fetchone()[0]
+                n_msgs += 1
+                # Tiles : present uniquement au 1er message de chaque battle
+                # (snapshot statique). Insert idempotent via PK (battle_id, tile_id).
+                for t in (ms.get("tiles") or []):
+                    cur.execute("""
+                        INSERT INTO tacticus.tile_ref (
+                            battle_id, tile_id, col, row, tile_def_id,
+                            elevation, is_wall, is_temporary,
+                            is_boss_platform, is_territory, is_in_fog,
+                            room_tile_type
+                        ) VALUES (%s, %s, %s, %s, %s,
+                                  %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (battle_id, tile_id) DO NOTHING
+                    """, (
+                        battle_id, _safe_int(t.get("id")),
+                        _safe_int(t.get("col")), _safe_int(t.get("row")),
+                        t.get("tileDefId"),
+                        _safe_int(t.get("elevation")) or 0,
+                        bool(t.get("isWall")),
+                        bool(t.get("isTemporary")),
+                        bool(t.get("isBossPlatform")),
+                        bool(t.get("isTerritory")),
+                        bool(t.get("isInFog")),
+                        _safe_int(t.get("roomTileType")) or 0,
+                    ))
+                # Unit states from snapshot
+                for u in (ms.get("units") or []):
+                    pos = u.get("pos") or {}
+                    cur.execute("""
+                        INSERT INTO tacticus.unit_state (
+                            message_id, unit_id, squad_id, col, row,
+                            hp, hp_max, owner_id, team_id, visual_id,
+                            rank, is_dead
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                  %s, %s, %s)
+                    """, (
+                        message_id, _safe_int(u.get("id")),
+                        _safe_int(u.get("squadId")),
+                        _safe_int(pos.get("col")), _safe_int(pos.get("row")),
+                        _safe_int(u.get("hp")), _safe_int(u.get("maxHp")),
+                        _safe_int(u.get("ownerId")),
+                        _safe_int(u.get("teamId")),
+                        u.get("visualId"), _safe_int(u.get("rank")),
+                        bool(u.get("isDead")),
+                    ))
+                    n_units += 1
+                # MoW state — 1 row par MachinePlatform (analog unit_state).
+                # ms.mows est present si la battle contient des MoW.
+                for w in (ms.get("mows") or []):
+                    wpos = w.get("pos") or {}
+                    cur.execute("""
+                        INSERT INTO tacticus.mow_state (
+                            message_id, platform_id, machine_id, col, row,
+                            hp, hp_max, owner_id, team_id, visual_id,
+                            rank, initial_slot, is_dead
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                  %s, %s, %s, %s)
+                    """, (
+                        message_id, _safe_int(w.get("id")),
+                        _safe_int(w.get("machineId")),
+                        _safe_int(wpos.get("col")), _safe_int(wpos.get("row")),
+                        _safe_int(w.get("hp")), _safe_int(w.get("maxHp")),
+                        _safe_int(w.get("ownerId")),
+                        _safe_int(w.get("teamId")),
+                        w.get("visualId"), _safe_int(w.get("rank")),
+                        _safe_int(w.get("initialSlot")) or 0,
+                        bool(w.get("isDead")),
+                    ))
+                # Stream events — hybride : 20 colonnes typees + JSONB pour
+                # le reste. Mapping tag → colonne ci-dessous.
+                se_rows = []
+                for ord_idx, ev in enumerate(msg.get("_events") or []):
+                    kind = ev.get("kind")
+                    step = ev.get("step") if kind == "action" else None
+                    group = ev.get("group") if kind == "group" else None
+                    step_name = STEP_NAMES.get(step) if step is not None else None
+                    tags_raw = ev.get("tags")
+                    tags_dict: dict[str, Any] = {}
+                    if isinstance(tags_raw, str):
+                        try: tags_dict = json.loads(tags_raw) or {}
+                        except json.JSONDecodeError: tags_dict = {}
+                    elif isinstance(tags_raw, dict):
+                        tags_dict = tags_raw
+
+                    def _t(k: str) -> int | None:
+                        v = tags_dict.get(k)
+                        if v is None:
+                            return None
+                        try: return int(v)
+                        except (TypeError, ValueError): return None
+
+                    entity_id = _safe_int(ev.get("entity"))
+                    target_kind = None
+                    if entity_id is not None:
+                        if entity_id in battle_squads:
+                            target_kind = "unit"
+                        elif entity_id in battle_machines:
+                            target_kind = "machine"
+                        else:
+                            target_kind = "tile"
+                    se_rows.append((
+                        message_id, ord_idx, kind, step, step_name, group,
+                        entity_id, target_kind,
+                        Jsonb(tags_dict) if tags_dict else None,
+                        # Hot columns extraites
+                        _t("UnitStats_RemainingHealth"),
+                        _t("UnitStats_MaxHealth"),
+                        _t("UnitStats_RemainingArmor"),
+                        _t("UnitStats_MaxArmor"),
+                        _t("UnitStats_NumberOfMembers"),
+                        _t("UnitStats_MaxMembers"),
+                        _t("UnitStats_Attack"),
+                        _t("UnitStats_Range"),
+                        _t("UnitStats_Movement"),
+                        _t("UnitStats_ActiveAbility_Id"),
+                        _t("UnitStats_ActiveAbility_RemainingCooldownTurns"),
+                        _t("UnitStats_TriggeredAbility_Id"),
+                        _t("Effect_Id"),
+                        _t("Effect_Type"),
+                        _t("Effect_SourceId"),
+                        _t("Effect_CurrentLevel"),
+                        _t("Effect_RemainingTurns"),
+                        _t("Effect_SourceActiveAbility"),
+                        _t("Effect_SourceTriggeredAbility"),
+                        _t("Unit_Owner_Id"),
+                    ))
+                if se_rows:
+                    cur.executemany("""
+                        INSERT INTO tacticus.stream_event (
+                            message_id, ordinal, kind,
+                            step_code, step_name, group_code,
+                            entity_id, target_kind, tags,
+                            hp_remaining, hp_max, armor_remaining, armor_max,
+                            members_current, members_max, attack, attack_range,
+                            movement, active_ability_id, active_ability_cooldown,
+                            triggered_ability_id, effect_id, effect_type,
+                            effect_source_id, effect_level, effect_turns_remaining,
+                            effect_source_active_ability,
+                            effect_source_triggered_ability, unit_owner_id
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s
+                        )
+                    """, se_rows)
+                    n_streams += len(se_rows)
+                # Ability state changes — log par event qui mentionne une
+                # active OR triggered ability (signal RL : "puis-je
+                # utiliser cette ability ?" via CanStillBeUsed +
+                # cooldown_remaining + is_disabled + blocked).
+                as_rows = []
+                for ord_idx, ev in enumerate(msg.get("_events") or []):
+                    entity_id = _safe_int(ev.get("entity"))
+                    if entity_id is None or (
+                        entity_id not in battle_squads
+                        and entity_id not in battle_machines
+                    ):
+                        continue  # only track for units (squads) or machines
+                    tags_raw = ev.get("tags")
+                    if isinstance(tags_raw, str):
+                        try: t = json.loads(tags_raw) or {}
+                        except json.JSONDecodeError: t = {}
+                    elif isinstance(tags_raw, dict):
+                        t = tags_raw
+                    else:
+                        continue
+                    def _ti(k: str) -> int | None:
+                        v = t.get(k)
+                        if v is None: return None
+                        try: return int(v)
+                        except (TypeError, ValueError): return None
+                    def _tb(k: str) -> bool | None:
+                        v = t.get(k)
+                        if v is None: return None
+                        return bool(int(v)) if str(v).isdigit() else bool(v)
+                    # Active ability change
+                    aaid = _ti("UnitStats_ActiveAbility_Id")
+                    if aaid is not None:
+                        as_rows.append((
+                            message_id, battle_id,
+                            _safe_int(msg.get("applySeq")), ord_idx,
+                            entity_id, "active", aaid,
+                            ACTIVE_ABILITY_NAMES.get(aaid),
+                            _ti("UnitStats_ActiveAbility_RemainingCooldownTurns"),
+                            _tb("UnitStats_ActiveAbility_CanStillBeUsed"),
+                            _tb("UnitStats_ActiveAbility_IsDisabled"),
+                            _tb("UnitStats_ActiveAbility_Blocked"),
+                            _ti("UnitStats_ActiveAbility_Blocked_ReasonEffectType"),
+                            _ti("UnitStats_ActiveAbility_Level"),
+                            _ti("UnitStats_ActiveAbility_VariableMultiplierPercentage"),
+                            None,  # has_enough_ammo (triggered-only)
+                        ))
+                    # Triggered ability change
+                    taid = _ti("UnitStats_TriggeredAbility_Id")
+                    if taid is not None:
+                        as_rows.append((
+                            message_id, battle_id,
+                            _safe_int(msg.get("applySeq")), ord_idx,
+                            entity_id, "triggered", taid,
+                            TRIGGERED_ABILITY_NAMES.get(taid),
+                            None, None, None, None, None,  # active-only fields
+                            _ti("UnitStats_TriggeredAbility_Level"),
+                            _ti("UnitStats_TriggeredAbility_VariableMultiplierPercentage"),
+                            _tb("UnitStats_TriggeredAbility_EnoughAmmo"),
+                        ))
+                if as_rows:
+                    cur.executemany("""
+                        INSERT INTO tacticus.ability_state_change (
+                            message_id, battle_id, apply_seq, ordinal,
+                            squad_id, kind, ability_id, ability_name,
+                            cooldown_remaining, can_still_be_used,
+                            is_disabled, is_blocked, blocked_reason_effect_type,
+                            level, variable_mult_pct, has_enough_ammo
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s, %s, %s
+                        )
+                    """, as_rows)
+            # Drop processed bucket (free memory)
+            ctx["pending_events"].pop(runner_id, None)
+
+    conn.commit()
+    print(f"  [ingest] battle_id={battle_id} mo={n_moves} msg={n_msgs} "
+          f"us={n_units} se={n_streams}")
 
 
 # ---- HTTP helpers ------------------------------------------------------- #
@@ -611,11 +1139,26 @@ def main(argv: list[str]) -> int:
     print(f"[ok] seed = {seed}")
 
     bytes_before = _dir_size_bytes(TRACES_DIR)
+    # Snapshot le fichier JSONL trace actif AVANT le run pour pouvoir
+    # l'écrire dans le summary (= pointer vers les events Frida de ce batch).
+    trace_files_before = set(
+        p.name for p in TRACES_DIR.glob("*.jsonl"))
+    # Localiser le JSONL actif (le plus recent) pour l'ingest progressif.
+    _all_traces = sorted(TRACES_DIR.glob("*.jsonl"),
+                         key=lambda p: p.stat().st_mtime, reverse=True)
+    active_trace = _all_traces[0] if _all_traces else None
     print(f"[ok] ai-traces dir : {TRACES_DIR}")
     print(f"[ok] bytes before  : {bytes_before:,}")
+    print(f"[ok] active trace  : {active_trace}")
     print(f"[ok] launching {args_ns.num_battles} battles "
           f"(maxTurns={args_ns.max_turns}, roster={args_ns.roster_size}/team)")
     print("-" * 60)
+
+    # Initialize progressive PG ingest if available.
+    ingest_ctx = _open_progressive_ingest(args_ns, seed, sid, active_trace)
+    # Position offset to start of current trace (we won't re-ingest old events).
+    if ingest_ctx and active_trace and active_trace.exists():
+        ingest_ctx["trace_offset"] = active_trace.stat().st_size
 
     results = []
     t_global = time.monotonic()
@@ -687,6 +1230,16 @@ def main(argv: list[str]) -> int:
                             break
                     r["probes"] = probes
         results.append(r)
+
+        # Progressive ingest : écrit ce battle en DB tout de suite.
+        if ingest_ctx is not None:
+            try:
+                _ingest_one_battle(ingest_ctx, r)
+            except Exception as e:
+                print(f"  [ingest] ERROR for battle {i+1}: {e}",
+                      file=sys.stderr)
+                try: ingest_ctx["conn"].rollback()
+                except Exception: pass
         # Petit sleep entre battles : pas indispensable (autoPlayRunner
         # lui-meme yield la frame entre turns maintenant), mais laisse
         # un peu de breath pour l'ai-trace flush et le dispose async.
@@ -753,6 +1306,63 @@ def main(argv: list[str]) -> int:
     if ok_count and total_turns:
         print(f"  avg time / turn     : "
               f"{(total_elapsed/total_turns)*1000:.0f} ms")
+
+    # Écrit un summary JSON pour l'ingestion Postgres.
+    # Inclut : args du run, session id, JSONL trace file actif pendant le
+    # run, et tous les battles avec rosters/board/runnerId/turns.
+    # Le runnerId du Frida permet de joindre avec les events `move_options`
+    # et `battle_winner` du JSONL.
+    trace_files_after = set(p.name for p in TRACES_DIR.glob("*.jsonl"))
+    new_traces = sorted(trace_files_after - trace_files_before)
+    # Si plusieurs JSONLs créés pendant le run (rare — typiquement 0 ou 1
+    # nouveau), on garde tous. Si aucun, on pointe vers le plus récent
+    # existant (l'écriture est append-only au même fichier que le run).
+    if new_traces:
+        active_traces = new_traces
+    else:
+        latest = sorted(
+            [p for p in TRACES_DIR.glob("*.jsonl")],
+            key=lambda p: p.stat().st_mtime, reverse=True)
+        active_traces = [latest[0].name] if latest else []
+
+    SUMMARIES_DIR.mkdir(parents=True, exist_ok=True)
+    summary_name = (f"batch-{int(t_global)}-sid{sid}.json")
+    summary_path = SUMMARIES_DIR / summary_name
+    summary = {
+        "schema_version": 1,
+        "started_at": int(t_global),       # monotonic — pour ordering
+        "wall_started_at": int(time.time() - total_elapsed),
+        "wall_ended_at": int(time.time()),
+        "session_id": sid,
+        "seed": seed,
+        "n_battles": args_ns.num_battles,
+        "args": {
+            "num_battles": args_ns.num_battles,
+            "max_turns": args_ns.max_turns,
+            "roster_size": args_ns.roster_size,
+            "seed": args_ns.seed,
+            "board": getattr(args_ns, "board", None),
+            "board_pool": getattr(args_ns, "board_pool", None),
+            "mow_player": getattr(args_ns, "mow_player", None),
+            "mow_ai": getattr(args_ns, "mow_ai", None),
+            "no_mow": getattr(args_ns, "no_mow", False),
+            "retry_on_fail": args_ns.retry_on_fail,
+        },
+        "trace_files": active_traces,      # JSONL relatifs à TRACES_DIR
+        "ok_count": ok_count,
+        "n_results": len(results),
+        "total_turns": total_turns,
+        "total_elapsed_sec": total_elapsed,
+        "battles": results,                # tous les retours de _one_battle
+    }
+    with open(summary_path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+    print(f"  summary             : {summary_path}")
+
+    # Close progressive ingest connection
+    if ingest_ctx is not None:
+        try: ingest_ctx["conn"].close()
+        except Exception: pass
 
     return 0 if ok_count == len(results) else 1
 

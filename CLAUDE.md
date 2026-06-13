@@ -182,6 +182,64 @@ agent est perdu — donc :
 Re-build de `dist/hooks.js` requis uniquement quand `frida/hooks/*` a changé
 (`npm run build:hooks` avant le restart).
 
+## Serveur ghidra-mcp (analyse offline)
+
+Le serveur MCP `ghidra` expose `GameAssembly.dll` analysé + symbolisé (decompile,
+xrefs, callgraph, recherche sémantique) en **lecture seule** — aucun lien avec les
+hooks Frida live. Il tourne en **headless via `pyghidra-mcp`** (serveur HTTP
+persistant), et **ne démarre pas tout seul** : c'est un lancement **manuel**.
+Le `.mcp.json` du projet ne fait que **se connecter** à l'URL
+((file:///C:/Users/nicolasv/tacticus-tools/.mcp.json)) :
+
+```json
+{ "mcpServers": { "ghidra": { "type": "http", "url": "http://127.0.0.1:13337/mcp" } } }
+```
+
+### Démarrer le serveur
+
+```bash
+pwsh -File C:\Users\nicolasv\ghidra-mcp\start-ghidra-mcp.ps1   # build courant (kqkbjqfb6c)
+# autre build : ... start-ghidra-mcp.ps1 -Project <chemin\gameassembly.gpr>
+```
+
+- **Le tool Bash de Claude n'a pas `pwsh`** → lancer via le tool PowerShell (5.1).
+  `Start-Process` en 5.1 n'a pas `-Environment` : poser `$env:JAVA_HOME` +
+  `$env:GHIDRA_INSTALL_DIR` dans la session **puis** `Start-Process` (l'enfant hérite
+  l'env). Le script `start-ghidra-mcp.ps1` fait déjà tout ça.
+- **Boot ~2 min** (`--wait-for-analysis`). Tant que le port n'écoute pas, l'analyse
+  tourne ; **quand le port 13337 écoute, l'analyse est terminée** (le serveur n'ouvre
+  le port qu'à la fin). Sur projet déjà analysé, pas de ré-analyse (détecte « already
+  complete »).
+
+### Vérifier / connecter
+
+```bash
+# le port écoute ?
+netstat -ano | grep "127.0.0.1:13337.*LISTENING"
+```
+
+`.mcp.json` se charge **au démarrage de session** : si le serveur a été lancé
+après l'ouverture de Claude Code, faire `/mcp` (reconnect) ou recharger la session
+pour exposer les outils `mcp__ghidra__*`. Si `/mcp` affiche `ghidra · failed`,
+c'est quasi toujours que **le serveur n'est pas lancé** → le démarrer puis `/mcp`.
+
+### Ne pas faire
+
+- **Ne pas repasser `.mcp.json` en transport `stdio`** (`command`/`args` lançant
+  `pyghidra-mcp.exe`). Avec `--wait-for-analysis`, l'exe bloque ~2 min sur le boot
+  Ghidra **avant** de répondre au handshake MCP → Claude Code timeout → `failed`.
+  Sans `--wait-for-analysis` c'est pire (analyse skippée, tools « Analysis
+  incomplete »). Une 2ᵉ session entrerait aussi en collision sur le lock du `.gpr`.
+- **Lock bloqué** : si un lancement précédent est mort, il peut rester un
+  `gameassembly.lock` / `.lock~` dans `data/ghidra_<HASH>/`. Si **aucun** process
+  java/pyghidra ne tourne, ces locks sont périmés → les supprimer avant de relancer.
+
+### Au changement de build du jeu
+
+Le `<HASH>` change → refaire le pipeline (dump Il2CppDumper v39 → import/analyse
+Ghidra → apply IL2CPP names) puis pointer `-Project` sur le nouveau `.gpr`. Détail
+dans (file:///C:/Users/nicolasv/tacticus-tools/.claude/skills/tacticus/references/decompilation.md).
+
 ## Ne jamais
 
 - **Utiliser `--reload`/hot-reload côté host** : casse les sessions Frida

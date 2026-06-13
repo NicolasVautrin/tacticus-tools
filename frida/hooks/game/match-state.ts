@@ -40,6 +40,12 @@ const ownerComponentClass = findClassAnywhere(
     "IdunBattle.Entities.Components", "OwnerComponent");
 const unitComponentClass = findClassAnywhere(
     "IdunBattle.Entities.Components", "UnitComponent");
+const tileComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "TileComponent");
+const machineComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "MachineComponent");
+const machinePlatformComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "MachinePlatformComponent");
 
 /** Component field offsets, all relative to the component object base.
  * `PositionComponent.Coordinate` is an inline `AxialCoordinate` struct at
@@ -57,6 +63,27 @@ const COMP_FIELD = {
     ownerPlayerId: 0x10,
     visualId: 0x20,
     rank: 0x1a4,
+    // TileComponent layout (TypeDefIndex 11694) :
+    //   Id (string) @0x10, Elevation @0x18, IsTemporary @0x2C,
+    //   IsBossPlatform @0x2D, IsTerritoryTile @0x2E, IsInFogOfWar @0x40,
+    //   IsWall @0x41, RoomTileType (int enum) @0x44
+    tileId: 0x10,
+    tileElevation: 0x18,
+    tileIsTemporary: 0x2c,
+    tileIsBossPlatform: 0x2d,
+    tileIsTerritory: 0x2e,
+    tileIsInFog: 0x40,
+    tileIsWall: 0x41,
+    tileRoomType: 0x44,
+    // MachineComponent : Position (enum None/Top/Bottom) @0x78
+    machinePosition: 0x78,
+    // MachinePlatformComponent : Position (enum int) @0x10, Nullable<BEntityId>
+    // MachineId @0x14. Mono Nullable<T> layout : hasValue @+0 (1B + padding),
+    // value @+4. Confirme via Nullable<Level> dans normalize-bc/formula.ts.
+    // Donc hasValue @0x14, value @0x18.
+    platformPosition: 0x10,
+    platformMachineIdHasValue: 0x14,
+    platformMachineIdValue: 0x18,
 } as const;
 
 /** IL2CPP EntityType enum. */
@@ -240,12 +267,55 @@ export interface UnitProjection {
     isDead: boolean;
 }
 
+export interface MowProjection {
+    /** MachinePlatform entityId — analog of UnitFoot.id. */
+    id: number;
+    /** Parent Machine entityId — analog of UnitFoot.squadId. Carries HP/Owner. */
+    machineId: number;
+    entityType: number;
+    /** Position of THIS platform on the grid. A MoW spans multiple
+     * platforms (each on its own tile). */
+    pos: { col: number; row: number } | null;
+    hp: number | null;
+    maxHp: number | null;
+    ownerId: number | null;
+    teamId: number | null;
+    visualId: string | null;
+    rank: number | null;
+    isDead: boolean;
+    /** Initial deployment slot from MachineComponent.Position enum
+     * (0=None, 1=Top, 2=Bottom). NB: dynamic spawns can have None. */
+    initialSlot: number | null;
+}
+
+export interface TileProjection {
+    id: number;
+    col: number;
+    row: number;
+    /** TileComponent.Id (string) — terrain prototype identifier
+     * (e.g., "RoomTile_Normal_01", "RoomTile_Wall_02"). */
+    tileDefId: string | null;
+    elevation: number;
+    isWall: boolean;
+    isTemporary: boolean;
+    isBossPlatform: boolean;
+    isTerritory: boolean;
+    isInFog: boolean;
+    /** RoomTileType enum: 0=Floor, 1=Wall, 2=Door. */
+    roomTileType: number;
+}
+
 export interface MatchStateProjection {
     turn: number | null;
     playerOnTurn: number | null;
     stage: number | null;
     stageName: string | null;
     units: UnitProjection[];
+    /** MoW projection — 1 row per MachinePlatform (analog of UnitFoot).
+     * Always projected (cheap, important for RL state). */
+    mows?: MowProjection[];
+    /** Tile snapshot — only populated when `includeTiles` is passed. */
+    tiles?: TileProjection[];
 }
 
 export const unitFootComponentClass = findClassAnywhere(
@@ -321,12 +391,61 @@ function projectSquadStats(entityPtr: NativePointer): SquadStats {
                 try {
                     out.rank = comp.add(COMP_FIELD.rank).readS32();
                 } catch { /* rank stays null */ }
+            } else if (machineComponentClass
+                && klass.equals(machineComponentClass)) {
+                // MoW entities (Type=6) carry MachineComponent, NOT
+                // UnitComponent — but both extend BaseUnitComponent, so
+                // VisualId@0x20 is valid. Rank (0x1A4) is UnitComponent-only,
+                // so we don't read it here (would be OOB on MachineComponent).
+                // NB: a MoW machine has no HealthComponent / PositionComponent
+                // (verified via dumpEntityComponents) — hp/pos stay null by
+                // design; its board position is config-derived from the slot
+                // (MachineComponent.Position, exposed as `initialSlot`).
+                try {
+                    const strPtr = comp.add(COMP_FIELD.visualId).readPointer();
+                    out.visualId = readIl2cppString(strPtr);
+                } catch { /* visualId stays null */ }
             }
             void movementComponentClass;
         });
         if (out.hp !== null && out.hp <= 0) out.isDead = true;
     } catch { /* return defaults */ }
     return out;
+}
+
+/** Read MachineComponent on a Machine entity → initial slot (Top/Bottom/None). */
+function readMachineSlot(entityPtr: NativePointer): number | null {
+    let slot: number | null = null;
+    try {
+        forEachComponent(entityPtr, (comp, klass) => {
+            if (machineComponentClass && klass.equals(machineComponentClass)) {
+                slot = comp.add(COMP_FIELD.machinePosition).readS32();
+            }
+        });
+    } catch { return null; }
+    return slot;
+}
+
+/** Read MachinePlatformComponent → linked Machine entityId (Nullable). */
+function readMachinePlatformLink(entityPtr: NativePointer): {
+    machineId: number;
+} | null {
+    let machineId: number | null = null;
+    try {
+        forEachComponent(entityPtr, (comp, klass) => {
+            if (machinePlatformComponentClass
+                && klass.equals(machinePlatformComponentClass)) {
+                const hasValue = comp.add(COMP_FIELD.platformMachineIdHasValue)
+                    .readU8() !== 0;
+                if (hasValue) {
+                    machineId = comp.add(COMP_FIELD.platformMachineIdValue)
+                        .readS32();
+                }
+            }
+        });
+    } catch { return null; }
+    if (machineId === null) return null;
+    return { machineId };
 }
 
 /** Read UnitFootComponent on a UnitFoot entity → (unitId, tileId). */
@@ -346,6 +465,48 @@ function readUnitFootLink(entityPtr: NativePointer): {
     } catch { return null; }
     if (unitId === null || tileId === null) return null;
     return { unitId, tileId };
+}
+
+/** Project a Tile entity → static terrain attributes for tile_ref table.
+ * Combines TileComponent (terrain props) + PositionComponent (col/row). */
+function projectTile(
+    entityPtr: NativePointer, id: number,
+): TileProjection | null {
+    let col: number | null = null;
+    let row: number | null = null;
+    let tileDefId: string | null = null;
+    let elevation = 0;
+    let isWall = false;
+    let isTemporary = false;
+    let isBossPlatform = false;
+    let isTerritory = false;
+    let isInFog = false;
+    let roomTileType = 0;
+    try {
+        forEachComponent(entityPtr, (comp, klass) => {
+            if (positionComponentClass && klass.equals(positionComponentClass)) {
+                col = comp.add(COMP_FIELD.posCol).readS32();
+                row = comp.add(COMP_FIELD.posRow).readS32();
+            } else if (tileComponentClass && klass.equals(tileComponentClass)) {
+                try {
+                    const strPtr = comp.add(COMP_FIELD.tileId).readPointer();
+                    tileDefId = readIl2cppString(strPtr);
+                } catch { /* leave null */ }
+                elevation = comp.add(COMP_FIELD.tileElevation).readS32();
+                isTemporary = comp.add(COMP_FIELD.tileIsTemporary).readU8() !== 0;
+                isBossPlatform = comp.add(COMP_FIELD.tileIsBossPlatform).readU8() !== 0;
+                isTerritory = comp.add(COMP_FIELD.tileIsTerritory).readU8() !== 0;
+                isInFog = comp.add(COMP_FIELD.tileIsInFog).readU8() !== 0;
+                isWall = comp.add(COMP_FIELD.tileIsWall).readU8() !== 0;
+                roomTileType = comp.add(COMP_FIELD.tileRoomType).readS32();
+            }
+        });
+    } catch { return null; }
+    if (col === null || row === null) return null;
+    return {
+        id, col, row, tileDefId, elevation, isWall, isTemporary,
+        isBossPlatform, isTerritory, isInFog, roomTileType,
+    };
 }
 
 /** Read PositionComponent on a Tile entity → (col, row). */
@@ -374,17 +535,31 @@ export function readTilePosition(
  *   - EntityType.Tile carries PositionComponent (col/row).
  * We project one entry per visible piece, walking UnitFoot → Tile for
  * pos and UnitFoot → Unit for HP/Owner. */
-export function projectMatchState(statePtr: NativePointer): MatchStateProjection {
+export function projectMatchState(
+    statePtr: NativePointer,
+    opts: { includeTiles?: boolean } = {},
+): MatchStateProjection {
     const status = readBattleStatus(statePtr);
 
     // Single pass — build entityById index, squad stats, player→team map.
+    // If includeTiles is set, also project all Tile entities up-front.
     const entityById = new Map<number, NativePointer>();
     const squads = new Map<number, SquadStats>();
+    // Machine entities use the same BaseUnitComponent layout as Squad —
+    // we reuse projectSquadStats() and key by machine entityId.
+    const machines = new Map<number,
+        SquadStats & { initialSlot: number | null }>();
     const playerTeams = new Map<number, number>();
+    const tiles: TileProjection[] = [];
     forEachEntity(statePtr, (e, id, ty) => {
         entityById.set(id, e);
         if (ty === EntityType.Unit) {
             squads.set(id, projectSquadStats(e));
+        } else if (ty === EntityType.Machine) {
+            machines.set(id, {
+                ...projectSquadStats(e),
+                initialSlot: readMachineSlot(e),
+            });
         } else if (ty === EntityType.Player) {
             try {
                 forEachComponent(e, (comp, klass) => {
@@ -395,6 +570,9 @@ export function projectMatchState(statePtr: NativePointer): MatchStateProjection
                     }
                 });
             } catch { /* skip */ }
+        } else if (ty === EntityType.Tile && opts.includeTiles) {
+            const t = projectTile(e, id);
+            if (t) tiles.push(t);
         }
     });
 
@@ -425,12 +603,68 @@ export function projectMatchState(statePtr: NativePointer): MatchStateProjection
     });
     units.sort((a, b) => a.id - b.id);
 
-    return {
+    // MoW projection. Source of truth = Machine entities (Type=6), which
+    // carry HP/Owner/Visual via the same BaseUnitComponent layout as squads.
+    // A Machine's board position lives on its linked MachinePlatform (Type=7),
+    // bound by AddMachineOperation.Execute through
+    // MachinePlatformComponent.MachineId (Nullable<BEntityId> @+0x14 hasValue,
+    // +0x18 value — confirmed in Ghidra). We build the reverse map
+    // platform→machine, then emit ONE row PER MACHINE so a deployed MoW is
+    // always visible — even if its platform's PositionComponent can't be read.
+    // (Deployment correctness is `machines.size`, not platform linkage: the
+    // old code dropped the whole row on a null platform position, hiding MoWs
+    // that were in fact deployed. See AddMachineOperation$$Execute RE.)
+    const platformByMachine = new Map<number,
+        { platformId: number; pos: { col: number; row: number } | null }>();
+    forEachEntity(statePtr, (e, id, ty) => {
+        if (ty !== EntityType.MachinePlatform) return;
+        const link = readMachinePlatformLink(e);
+        if (!link) return;
+        // A MoW spans several platforms — keep the first as anchor position.
+        if (!platformByMachine.has(link.machineId)) {
+            platformByMachine.set(link.machineId, {
+                platformId: id, pos: readTilePosition(e),
+            });
+        }
+    });
+    const mows: MowProjection[] = [];
+    for (const [machineId, m] of machines) {
+        const plat = platformByMachine.get(machineId);
+        const teamId = m.ownerId !== null && m.ownerId !== undefined
+            ? (playerTeams.get(m.ownerId) ?? null) : null;
+        mows.push({
+            // `id` = anchor platform entityId when linked, else the machine
+            // entityId (keeps rows distinct + traceable either way).
+            id: plat?.platformId ?? machineId,
+            machineId,
+            entityType: EntityType.Machine,
+            pos: plat?.pos ?? null,
+            hp: m.hp,
+            maxHp: m.maxHp,
+            ownerId: m.ownerId,
+            teamId,
+            visualId: m.visualId,
+            rank: m.rank,
+            isDead: m.isDead,
+            initialSlot: m.initialSlot,
+        });
+    }
+    mows.sort((a, b) => a.id - b.id);
+
+    const out: MatchStateProjection = {
         turn: status.currentTurnPlayer,
         playerOnTurn: status.currentTurnPlayer,
         stage: status.stage,
         stageName: status.stageName,
         units,
     };
+    if (mows.length > 0) {
+        out.mows = mows;
+    }
+    if (opts.includeTiles) {
+        tiles.sort((a, b) => a.id - b.id);
+        out.tiles = tiles;
+    }
+    return out;
 }
 

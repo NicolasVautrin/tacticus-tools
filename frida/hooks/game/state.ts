@@ -184,6 +184,33 @@ export const state = {
      * second turn = 3, ...). */
     turnSegment: 0,
 
+    /** Origin tag of the runner currently inside a watched `runner.Apply`
+     * call. "live" for the in-game live runner, numeric for a build runner
+     * registered via launch.initRunner. null when no watched Apply is on
+     * the stack. Set in `recorder.runnerApplyMi.onEnter` after filtering,
+     * cleared in `onLeave`. Used by feature hooks (move-options, …) that
+     * fire DURING the Apply window (e.g. AI scoring inside
+     * CheatRunAIMessage) to attribute each fire to the right runner —
+     * critical because `liveAiRunning` covers only live, not build
+     * autoPlay scoring. */
+    scoringRunnerId: null as "live" | number | null,
+
+    /** Monotonic counter — incremented in `recorder.runnerApplyMi.onEnter`
+     * for every watched Apply. Lets hooks that fire DURING the Apply
+     * window stamp their events with the same `applySeq` so analysis
+     * can group all fires belonging to a single Apply.
+     *
+     * Crucial for the future Mode A → Mode B transition:
+     *  - **Mode A (current)** : one `Apply(CheatRunAIMessage)` per turn
+     *    runs the AI for ALL units. Many move-options fires share the
+     *    same applySeq → grouping by (applySeq, unitEntityId) recovers
+     *    per-unit scoring batches.
+     *  - **Mode B (RL engine drives)** : we'll dispatch one
+     *    per-unit move/ability message at a time. Each Apply gets its
+     *    own applySeq, so (applySeq, unitEntityId) naturally pairs to
+     *    a single decision. Same join key works in both modes. */
+    applySeq: 0,
+
     /** Last GameModeSource.LoadBattle observation — set by mode-source-capture
      * when a battle loads. Captured passively (no auto-save anymore) so the
      * user-driven `simSaveLiveConfig` can enrich the saved config with mode +

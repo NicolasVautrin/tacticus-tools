@@ -44,6 +44,17 @@ export function popApply(): void {
 }
 
 let streamHooksInstalled = false;
+let _actionFiresTotal = 0;
+let _actionFiresStackEmpty = 0;
+
+export function streamHookStats(): Record<string, number> {
+    return {
+        actionFiresTotal: _actionFiresTotal,
+        actionFiresStackEmpty: _actionFiresStackEmpty,
+        applyStackDepth: applyStack.length,
+        installed: streamHooksInstalled ? 1 : 0,
+    };
+}
 
 function readManagedString(sp: NativePointer): string | null {
     if (sp.isNull()) return null;
@@ -57,10 +68,15 @@ function readManagedString(sp: NativePointer): string | null {
 
 export function ensureStreamHooks(): void {
     if (streamHooksInstalled) return;
-    streamHooksInstalled = true;
 
     const cls = findClassAnywhere("IdunBattle.Streams", "StreamDispatcher");
-    if (!cls) { send({ t: "stream_hooks_err", reason: "class-missing" }); return; }
+    if (!cls) {
+        send({ t: "stream_hooks_err", reason: "class-missing" });
+        try { send({ t: "diag", msg: "[apply-stack] StreamDispatcher class not found — retry later" }); } catch { /* */ }
+        // Pas de set installed=true → retry au prochain appel.
+        return;
+    }
+    streamHooksInstalled = true;
 
     const actionMi = findMethod(cls, "Action");
     const groupMi = findMethod(cls, "StartGroup");
@@ -70,7 +86,11 @@ export function ensureStreamHooks(): void {
         // ARM64 method entry: (this, stepType, entityId, tags, methodInfo)
         Interceptor.attach(actionMi.ptr, {
             onEnter(args) {
-                if (applyStack.length === 0) return;
+                _actionFiresTotal++;
+                if (applyStack.length === 0) {
+                    _actionFiresStackEmpty++;
+                    return;
+                }
                 try {
                     applyStack[applyStack.length - 1].target.push({
                         kind: "action",
@@ -101,5 +121,13 @@ export function ensureStreamHooks(): void {
     }
 
     Interceptor.flush();
-    send({ t: "stream_hooks_installed" });
+    send({ t: "stream_hooks_installed",
+        actionPtr: actionMi?.ptr.toString() ?? null,
+        groupPtr: groupMi?.ptr.toString() ?? null,
+    });
+    try {
+        send({ t: "diag", msg: "[apply-stack] stream hooks installed: "
+            + "Action=" + (actionMi?.ptr.toString() ?? "missing")
+            + " StartGroup=" + (groupMi?.ptr.toString() ?? "missing") });
+    } catch { /* */ }
 }

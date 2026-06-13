@@ -28,7 +28,7 @@ let lastNavigationInstance: NativePointer | null = null;
 let lastLevelMapWidgetContainerInstance: NativePointer | null = null;
 let autoBootExecuted = false;
 
-export function extractDependenciesAndNavigate(navInstance: NativePointer): void {
+export async function extractDependenciesAndNavigate(navInstance: NativePointer): Promise<void> {
     if (autoBootExecuted) return;
 
     log(`[auto-boot] Starting direct dependency extraction from IdunNavigation @ ${navInstance}...`);
@@ -54,7 +54,7 @@ export function extractDependenciesAndNavigate(navInstance: NativePointer): void
         }
 
         // Try early active discovery. If captured both, exit early.
-        const discovered = tryActiveDiscoveryOfSources();
+        const discovered = await tryActiveDiscoveryOfSources();
         if (discovered && getCampaignGameModeSourcePtr() !== null) {
             log("[auto-boot] SUCCESS! CampaignGameModeSource and GameConfigDto already captured naturally, skipping auto-navigation.");
             autoBootExecuted = true;
@@ -221,14 +221,14 @@ export function extractDependenciesAndNavigate(navInstance: NativePointer): void
                             log("[auto-boot] SUCCESS! HandleLevelTapped invoked programmatically. Pre-battle dialog should be open.");
 
                             // Trigger active discovery to capture the newly instantiated CampaignGameModeSource
-                            setTimeout(() => {
-                                const updatedDiscovered = tryActiveDiscoveryOfSources();
+                            setTimeout(async () => {
+                                await tryActiveDiscoveryOfSources();
                                 const updatedSource = getCampaignGameModeSourcePtr();
                                 if (updatedSource) {
                                     log(`[auto-boot] CampaignGameModeSource successfully captured @ ${updatedSource}!`);
                                 } else {
                                     log("[auto-boot] Warning: CampaignGameModeSource was not captured. Running active discovery fallback...");
-                                    tryActiveDiscoveryOfSources();
+                                    await tryActiveDiscoveryOfSources();
                                 }
                             }, 1500);
                         } catch (errInner) {

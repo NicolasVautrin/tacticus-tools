@@ -57,6 +57,28 @@ const addUnitMsgClass = findClass(
 const addUnitMsgCtor4 = addUnitMsgClass
     ? findCtorByParamCount(addUnitMsgClass, 4) : null;
 
+const addMachineMsgClass = findClass(
+    "BattleLogicAssembly.dll",
+    "IdunBattle.Messages",
+    "AddMachineMessage",
+);
+// AddMachineMessage 2-arg ctor : .ctor(string unitId, PlayerId playerId)
+const addMachineMsgCtor2 = addMachineMsgClass
+    ? findCtorByParamCount(addMachineMsgClass, 2) : null;
+
+function buildAddMachineMessage(
+    unitId: string, playerId: number,
+): NativePointer {
+    if (!addMachineMsgClass) throw new Error("AddMachineMessage class not found");
+    if (!addMachineMsgCtor2) throw new Error("AddMachineMessage 2-arg ctor not found");
+    const msg = il2cpp_object_new(addMachineMsgClass) as NativePointer;
+    if (msg.isNull()) throw new Error("il2cpp_object_new(AddMachineMessage) returned null");
+    const unitIdStr = createManagedString(unitId);
+    const pidBuf = Memory.alloc(4); pidBuf.writeS32(playerId);
+    invokeMethod(addMachineMsgCtor2.info, msg, [unitIdStr, pidBuf]);
+    return msg;
+}
+
 function buildAddUnitMessage(
     unitId: string, playerId: number, col: number, row: number,
 ): NativePointer {
@@ -362,6 +384,22 @@ export function register(ctx: Ctx): void {
             const msg = buildAddUnitMessage(args.unitId, args.playerId, args.col, args.row);
             const events = captureEvents(args.runnerId, entry.runner,
                 "AddUnitMessage", () => {
+                    invokeMethod(applyMi.info, entry.runner, [msg]);
+                });
+            return { ok: true, eventCount: events.length };
+        });
+    };
+
+    ctx.rpc.applyAddMachine = (args: {
+        runnerId: number; unitId: string; playerId: number;
+    }) => {
+        const applyMi = runnerApplyMi;
+        if (!applyMi) throw new Error("IdunRunner.Apply not resolved");
+        return queueOnMainThread(() => {
+            const entry = getRunner(args.runnerId);
+            const msg = buildAddMachineMessage(args.unitId, args.playerId);
+            const events = captureEvents(args.runnerId, entry.runner,
+                "AddMachineMessage", () => {
                     invokeMethod(applyMi.info, entry.runner, [msg]);
                 });
             return { ok: true, eventCount: events.length };
