@@ -237,8 +237,7 @@ c'est quasi toujours que **le serveur n'est pas lancé** → le démarrer puis `
 ### Au changement de build du jeu
 
 Le `<HASH>` change → refaire le pipeline (dump Il2CppDumper v39 → import/analyse
-Ghidra → apply IL2CPP names) puis pointer `-Project` sur le nouveau `.gpr`. Détail
-dans (file:///C:/Users/nicolasv/tacticus-tools/.claude/skills/tacticus/references/decompilation.md).
+Ghidra → apply IL2CPP names) puis pointer `-Project` sur le nouveau `.gpr`.
 
 ## Ne jamais
 
@@ -261,10 +260,11 @@ dans (file:///C:/Users/nicolasv/tacticus-tools/.claude/skills/tacticus/reference
 
 ## Documentation détaillée
 
-!include .claude/skills/tacticus/references/frida-host.md
 !include .claude/skills/tacticus/references/hooks.md
 !include .claude/skills/tacticus/references/rpc-api.md
-!include .claude/skills/tacticus/references/knowledge.md
-!include .claude/skills/tacticus/references/game-architecture.md
-!include .claude/skills/tacticus/references/decompilation.md
-!include .claude/skills/tacticus/references/ai-engine-audit.md
+
+<!-- TODO références à (ré)écrire contre le code actuel (les drafts d'avril
+     dans .claude/worktrees/agent-a0e45617/ sont périmés) : frida-host.md,
+     game-architecture.md, decompilation.md, ai-engine-audit.md, knowledge.md.
+     Ne pas !include tant qu'ils n'existent pas dans ce tree (résolution à vide). -->
+

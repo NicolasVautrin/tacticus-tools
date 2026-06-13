@@ -70,11 +70,11 @@ Ctrl+C). Stop session : front bouton STOP, ou
 
 - [hooks.md](references/hooks.md) — modules Frida, composition, conventions
 - [rpc-api.md](references/rpc-api.md) — RPCs, format state, events
-- [knowledge.md](references/knowledge.md) — pièges résolus
-- [game-architecture.md](references/game-architecture.md) — ECS, entités, hex grid, combats headless
-- [decompilation.md](references/decompilation.md) — Ghidra headless, méthode, adresses
-- [ai-engine-audit.md](references/ai-engine-audit.md) — audit moteur IA depuis décompilation
-- [frida-host.md](references/frida-host.md) — host Node, sessions, RPC
+
+<!-- À (ré)écrire contre le code actuel (drafts d'avril périmés dans
+     .claude/worktrees/agent-a0e45617/) : knowledge.md, game-architecture.md,
+     decompilation.md, ai-engine-audit.md, frida-host.md. -->
+
 
 ## API HTTP du host
 
