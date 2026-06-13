@@ -73,6 +73,10 @@ function buildAddMachineMessage(
     if (!addMachineMsgCtor2) throw new Error("AddMachineMessage 2-arg ctor not found");
     const msg = il2cpp_object_new(addMachineMsgClass) as NativePointer;
     if (msg.isNull()) throw new Error("il2cpp_object_new(AddMachineMessage) returned null");
+    // Pin before the managed-string alloc below (which can trigger a GC that
+    // collects this freshly-created, JS-only-referenced message → AV in Apply).
+    // Returned PINNED — the caller MUST gcRoot.remove(msg) after the Apply.
+    gcRoot.add(msg);
     const unitIdStr = createManagedString(unitId);
     const pidBuf = Memory.alloc(4); pidBuf.writeS32(playerId);
     invokeMethod(addMachineMsgCtor2.info, msg, [unitIdStr, pidBuf]);
@@ -86,11 +90,13 @@ function buildAddUnitMessage(
     if (!addUnitMsgCtor4) throw new Error("AddUnitMessage 4-arg ctor not found");
     const msg = il2cpp_object_new(addUnitMsgClass) as NativePointer;
     if (msg.isNull()) throw new Error("il2cpp_object_new(AddUnitMessage) returned null");
-    // No gcRoot.add — the message is transient: lives only until the
-    // immediate `runner.Apply(msg)` call returns. If the runner stores
-    // the message (recorder, replay list), it stays alive transitively
-    // via the runner pin. Pinning here used to accumulate at ~5
-    // entries/battle (one per AddUnit), pressuring IL2CPP's GC.
+    // Pin before the managed-string alloc + ctor below: the message is
+    // referenced only by this JS pointer, and those allocations can trigger a
+    // GC that collects it → AV in Apply. We previously DROPPED the pin to avoid
+    // accumulation, but that reintroduced the collection race. The correct fix
+    // is pin AND unpin (balanced): returned PINNED, caller MUST gcRoot.remove
+    // (msg) right after the Apply.
+    gcRoot.add(msg);
 
     const unitIdStr = createManagedString(unitId);
     // PlayerId is a struct wrapping an int32 — passed as pointer to 4 raw bytes.
@@ -382,11 +388,15 @@ export function register(ctx: Ctx): void {
         return queueOnMainThread(() => {
             const entry = getRunner(args.runnerId);
             const msg = buildAddUnitMessage(args.unitId, args.playerId, args.col, args.row);
-            const events = captureEvents(args.runnerId, entry.runner,
-                "AddUnitMessage", () => {
-                    invokeMethod(applyMi.info, entry.runner, [msg]);
-                });
-            return { ok: true, eventCount: events.length };
+            try {
+                const events = captureEvents(args.runnerId, entry.runner,
+                    "AddUnitMessage", () => {
+                        invokeMethod(applyMi.info, entry.runner, [msg]);
+                    });
+                return { ok: true, eventCount: events.length };
+            } finally {
+                try { gcRoot.remove(msg); } catch { /* best effort */ }
+            }
         });
     };
 
@@ -398,11 +408,15 @@ export function register(ctx: Ctx): void {
         return queueOnMainThread(() => {
             const entry = getRunner(args.runnerId);
             const msg = buildAddMachineMessage(args.unitId, args.playerId);
-            const events = captureEvents(args.runnerId, entry.runner,
-                "AddMachineMessage", () => {
-                    invokeMethod(applyMi.info, entry.runner, [msg]);
-                });
-            return { ok: true, eventCount: events.length };
+            try {
+                const events = captureEvents(args.runnerId, entry.runner,
+                    "AddMachineMessage", () => {
+                        invokeMethod(applyMi.info, entry.runner, [msg]);
+                    });
+                return { ok: true, eventCount: events.length };
+            } finally {
+                try { gcRoot.remove(msg); } catch { /* best effort */ }
+            }
         });
     };
 
@@ -481,13 +495,19 @@ export function register(ctx: Ctx): void {
                 for (const u of args.playerUnits) {
                     const msg = buildAddUnitMessage(
                         u.unitId, u.playerId, u.col, u.row);
-                    const evs = captureEvents(
-                        entry.runnerId, r.runner, "AddUnitMessage",
-                        () => { invokeMethod(
-                            runnerApplyMi!.info, r.runner, [msg]); });
-                    addUnits.push({
-                        unitId: u.unitId, eventCount: evs.length,
-                    });
+                    try {
+                        const evs = captureEvents(
+                            entry.runnerId, r.runner, "AddUnitMessage",
+                            () => { invokeMethod(
+                                runnerApplyMi!.info, r.runner, [msg]); });
+                        addUnits.push({
+                            unitId: u.unitId, eventCount: evs.length,
+                        });
+                    } finally {
+                        // Balanced unpin — Apply consumed the message (and
+                        // rooted it via the runner if it was stored).
+                        try { gcRoot.remove(msg); } catch { /* best effort */ }
+                    }
                 }
 
                 // 3. StartMatch -> deployment validated, stage=Running.
@@ -707,8 +727,9 @@ export function register(ctx: Ctx): void {
                     // queueOnMainThread parks a fresh task that the pump
                     // drains on its next Update tick.
                     return queueOnMainThread(() => {
-                        // Rebuild the message — the previous one may have
-                        // been left in an inconsistent state by the fault.
+                        // Release the faulted message, then rebuild — the
+                        // previous one may have been left inconsistent.
+                        try { gcRoot.remove(msg); } catch { /* best effort */ }
                         msg = createObject(klass);
                         gcRoot.add(msg);
                         log("[playTurn #" + seq + "] retry: new msg=" + msg);
@@ -722,6 +743,10 @@ export function register(ctx: Ctx): void {
             // Note: from here on we operate on a Promise so the postStatus
             // snapshot must also chain. drainPending unwraps the outer Promise.
             return result.then((events: StreamEvent[]) => {
+                // Balanced unpin — Apply consumed the message (and rooted it
+                // via the runner if stored). Previously this pin leaked every
+                // playTurn call, pressuring the GC handle table over time.
+                try { gcRoot.remove(msg); } catch { /* best effort */ }
                 let postStatus: any = null;
                 try {
                     const statePtr = entry.runner.add(runnerOff.state).readPointer();
@@ -731,6 +756,9 @@ export function register(ctx: Ctx): void {
                     + " post=" + JSON.stringify(postStatus)
                     + " events=" + events.length);
                 return { ok: true, eventCount: events.length, seq, preStatus, postStatus };
+            }, (e: unknown) => {
+                try { gcRoot.remove(msg); } catch { /* best effort */ }
+                throw e;
             });
         });
     };

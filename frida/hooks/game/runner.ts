@@ -62,9 +62,9 @@ function instantiate(klass: NativePointer, ctor: MethodRef): NativePointer {
     if (obj.isNull()) throw new Error("il2cpp_object_new returned null");
     invokeMethod(ctor.info, obj, null);
     return obj;
-    // NOTE: no gcRoot.add here. Callers that hand these to the runner via
-    // Initialize() rely on the runner's own managed fields (`_logger`,
-    // `_timeSource`, etc.) to keep them alive. Only the runner itself is pinned.
+    // NOTE: no gcRoot.add here — buildRunner pins each sidecar at the call
+    // site (right after creation) and unpins once Initialize() has stored
+    // them in the runner's managed fields. See buildRunner.
 }
 
 // --- IdunRunnerOptions ---
@@ -151,9 +151,19 @@ export function buildRunner(
     if (!idunRunnerOptionsCtor) throw new Error("IdunRunnerOptions ctor not resolved");
     gcRoot.init();
 
+    // Pin each sidecar immediately. They're referenced only by these JS-held
+    // pointers until Initialize() stores them in the runner's managed fields;
+    // the conservative IL2CPP GC doesn't scan our JS stack, so an
+    // il2cpp_object_new below (reporter / options / runner) can trigger a GC
+    // that collects them → access violation deep in Initialize. Released once
+    // Initialize() has rooted them via the (pinned) runner.
+    const pinnedTransients: NativePointer[] = [];
     const logger = instantiate(nullLoggerClass!, nullLoggerCtor!);
+    gcRoot.add(logger); pinnedTransients.push(logger);
     const timeSource = instantiate(timeSourceClass!, timeSourceCtor!);
+    gcRoot.add(timeSource); pinnedTransients.push(timeSource);
     const reporter = instantiate(nullReporterClass!, nullReporterCtor!);
+    gcRoot.add(reporter); pinnedTransients.push(reporter);
     // Use caller-provided seed for reproducible runs; otherwise a fresh
     // random one. Engine RNG drives in-battle randomness (damage rolls,
     // AI tie-breaks, crits) so pinning the seed makes the same roster
@@ -176,10 +186,11 @@ export function buildRunner(
         step = "ctor";
         invokeMethod(ctor.info, runner, [config, boolFalseArg]);
 
-        // Options: RecordReplay=false — lightweight. Not pinned: either stored
-        // in a runner field, or its settings are copied during Initialize().
+        // Options: RecordReplay=false — lightweight. Pinned like the sidecars
+        // (same GC-collection race) until Initialize() has consumed it.
         step = "options";
         const options = il2cpp_object_new(idunRunnerOptionsClass!) as NativePointer;
+        gcRoot.add(options); pinnedTransients.push(options);
         invokeMethod(idunRunnerOptionsCtor.info, options, null);
         options.add(16).writeU8(0);
 
@@ -195,6 +206,12 @@ export function buildRunner(
             throw new Error("inner AiControl null after Initialize");
         }
 
+        // Sidecars + options are now reachable from the runner's managed
+        // fields (the runner is a pinned GC root) → release the transient
+        // pins so they don't accumulate across builds.
+        for (const p of pinnedTransients) {
+            try { gcRoot.remove(p); } catch { /* best effort */ }
+        }
         return { runner, innerAiControl, seed };
     } catch (e) {
         // Emit a rich diagnostic before cleanup so we always know which
@@ -236,9 +253,12 @@ export function buildRunner(
                 },
             });
         } catch { /* diagnostic must never throw */ }
-        // Release the runner pin so it can be collected — otherwise
-        // every failed build leaks 1 gcRoot entry (we observed
-        // gcRootCount climbing +2 per fail in 50-battle batches).
+        // Release the runner pin + any transient pins so they can be
+        // collected — otherwise every failed build leaks gcRoot entries
+        // (we observed gcRootCount climbing +2 per fail in 50-battle batches).
+        for (const p of pinnedTransients) {
+            try { gcRoot.remove(p); } catch { /* best effort */ }
+        }
         try { gcRoot.remove(runner); } catch { /* best effort */ }
         throw e;
     }

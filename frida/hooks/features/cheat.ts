@@ -31,7 +31,12 @@ export function register(ctx: Ctx): void {
         const msg = createObject(cheatRunAiClass);
         gcRoot.add(msg);
         const before = state.log.length;
-        invokeMethod(runnerApplyMi!.info, state.liveRunner, [msg]);
+        try {
+            invokeMethod(runnerApplyMi!.info, state.liveRunner, [msg]);
+        } finally {
+            // Balanced unpin (msg consumed by Apply) — previously leaked.
+            try { gcRoot.remove(msg); } catch { /* best effort */ }
+        }
         return {
             ok: true,
             before,
@@ -119,27 +124,36 @@ export function register(ctx: Ctx): void {
                         },
                     };
                 }
-                if (ctor) invokeMethod(ctor.info, msg, null);
+                // Pin the per-turn message: with no pin, an allocation during
+                // the AI dispatch (Apply plays the whole turn) can trigger a GC
+                // that collects this JS-only-referenced message → AV. Balanced
+                // unpin in finally so pins don't accumulate across turns.
+                gcRoot.add(msg);
                 try {
-                    invokeMethod(runnerApplyMi!.info, entry.runner, [msg]);
-                } catch (e) {
+                    if (ctor) invokeMethod(ctor.info, msg, null);
+                    try {
+                        invokeMethod(runnerApplyMi!.info, entry.runner, [msg]);
+                    } catch (e) {
+                        return {
+                            fail: {
+                                ok: false as const,
+                                reason: "Apply failed: " + (e as Error).message,
+                                turns: turnIdx, stage: sBefore,
+                            },
+                        };
+                    }
+                    const spAfter = entry.runner.add(runnerOff.state)
+                        .readPointer();
+                    const sAfter = spAfter.isNull() ? -1
+                        : (readBattleStatus(spAfter).stage ?? -1);
                     return {
-                        fail: {
-                            ok: false as const,
-                            reason: "Apply failed: " + (e as Error).message,
-                            turns: turnIdx, stage: sBefore,
-                        },
+                        stageBefore: sBefore, stageAfter: sAfter,
+                        player: turn.player, round: turn.round,
+                        frameNo,
                     };
+                } finally {
+                    try { gcRoot.remove(msg); } catch { /* best effort */ }
                 }
-                const spAfter = entry.runner.add(runnerOff.state)
-                    .readPointer();
-                const sAfter = spAfter.isNull() ? -1
-                    : (readBattleStatus(spAfter).stage ?? -1);
-                return {
-                    stageBefore: sBefore, stageAfter: sAfter,
-                    player: turn.player, round: turn.round,
-                    frameNo,
-                };
             });
             if (r.fail) return r.fail;
             if (r.done) { finalStage = r.stageAfter ?? finalStage; break; }
