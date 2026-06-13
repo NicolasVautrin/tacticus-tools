@@ -1,5 +1,118 @@
 # RL pipeline — status (session compact-pre 2026-05-25)
 
+## ⏩ ÉTAT COURANT — reprise 2026-06-13 (dataset MoW + analytics)
+
+**Où on en est :** MoW arena-PvP **résolu et exploité**. 85 battles MoW en
+Postgres, attribution des dégâts par caster en colonnes, analyse en cours.
+
+**Infra live :** host `npm run dev` sur `:8765` (background). Tacticus build
+**kqkbjqfb6c**. ghidra-mcp `:13337`. Postgres : db **TACTICUS**, `:5433`, schema
+`tacticus`, creds dans `.env`. Session Frida ~20 (a changé au fil des reinjects).
+
+**Dataset DB (85 battles MoW, 0 token) :** `battle` 85 (44 joueur/41 IA, 100%
+WonMatch, avg 10 tours), `mow_state` 13 678, `stream_event` 170 885, `unit_state`
+106 218, `message` 6 839. **Toutes les battles non-MoW + 797 MB de traces JSONL
+ont été supprimées** (DB + ai-traces ne contiennent plus que du MoW).
+
+**Commits poussés (master) :** `0cf03d5` (arena MoW + projecteur `mows` +
+`dumpEntityComponents`), `c00ba84` (skill refs rpc-api/hooks), `cae83b6` (filtre
+board MoW-capable + denylist necroPlasmancer), `b2e35e3` (GC pin fix).
+
+**NON COMMITÉ (à committer) — analytics :**
+- `scripts/sql/012_stream_event_attribution.sql` (NOUVEAU, **déjà appliqué à la
+  DB** : 21 colonnes attribution/combat-quality/lifecycle + backfill 170k +
+  index + vue `v_damage_by_caster`).
+- `scripts/python/rl_collect_batch.py` (wiring des 21 colonnes dans l'ingest —
+  50/50 vérifié) + (déjà commité avant : filtre board + denylist).
+- `scripts/python/rl_ingest_postgres.py` (ajout ingest `mow_state` — chemin post-hoc).
+- Commit proposé : `feat(rl): promote attribution/combat-quality tags to
+  stream_event columns + mow_state ingest`.
+
+**Diagnostics clés (acquis cette session) :**
+- Le « blocage MoW » était **necroPlasmancer** : seule unité inspawnable (97/98
+  OK), throw exception managée au spawn. **PAS** le GC ni un static-gate (ces 2
+  théories étaient fausses — vérifier le **déterminisme** avant toute théorie
+  stochastique). Denylist : `_load_unspawnable()` + `data/unspawnable_rank17.json`
+  (cache probe) + fallback `UNSPAWNABLE_FALLBACK={"necroPlasmancer"}`.
+- **Freeze** : PAS inhérent aux batches (50 battles d'affilée 1 session = OK).
+  Venait du benchmark non-pacé + du probe (storm d'exceptions). **warmup
+  nécessaire seulement au reinject** (cold-start), PAS par chunk — le
+  reinject-par-chunk re-entrait une battle campagne à chaque fois (= « déconne »).
+  → batch normal : 1 reinject + 1 warmup, puis `rl_collect_batch -n N` d'affilée.
+- Attribution : le caster est **dans les tags de l'event** (`Attacker_Id`,
+  `Caster_Id`, `Effect_SourceId`), pas besoin de corréler par fenêtre. Promu en
+  colonnes (012). `v_damage_by_caster` (source_id = coalesce attacker/effect/caster).
+- MoW entity (type-6) : 15 composants, **ni HealthComponent ni PositionComponent
+  ni UnitComponent** → `hp/pos` null by-design ; `visualId` lu via MachineComponent
+  (BaseUnitComponent.VisualId@0x20). RPC diag `dumpEntityComponents`.
+- `UnitStats_*_Override` : **gardés en JSONB** (0,05% des lignes, sentinelle INT_MIN).
+
+**Analyse (dernier run, 85 battles) :**
+- MoW ≈ **9,3% des dégâts, 9,4% des member-kills** (651 activations ability,
+  85/85 battles, avg 7,7/battle). MoW = artillerie : que des `ActiveAbilityMessage`,
+  zéro `MoveUnitMessage`.
+- Top dealers : deathTyphus (unit, 263k), astraOrdnanceBattery (MoW 208k),
+  adeptExorcist (MoW 184k)… crit **très rare (0,3% global)**, overkill 7,5%.
+**🔑 `Effect_Type` = LE marqueur d'attribution des dégâts (acquis 2026-06-13, session Q&A) :**
+Le « 2 trous d'attribution » noté précédemment était **FAUX**. Les dégâts
+d'effet/ability/overwatch/DoT **SONT** dans `UnitDamaged` — ils portent un tag
+`Effect_Type = <id effet>` (absent sur les attaques d'arme classiques). C'est CE
+champ qui les distingue, pas les tags `*TriggeredAbility*` (j'avais vérifié les
+mauvais). Dégâts effet-sourcés observés sur les 85 battles :
+
+| `Effect_Type` | tirs | dégâts | battles | nature |
+|---|---|---|---|---|
+| **1009** | 304 | 289 704 | 43/85 | **overwatch** (`0x3f1`, confirmé binaire) |
+| 5 | 199 | 77 329 | 53 | DoT (poison/bleed/burn — piste tyranBiovore) |
+| 1077 | 18 | 18 180 | 3 | ability spécifique |
+| 1476 | 15 | 11 406 | 10 | ability spécifique |
+
+- **Overwatch mesurable** : 304 tirs / 289 704 dmg / 26 member-kills / 31 tireurs.
+  Top : **tauCrisis** (110 tirs, 123k dmg, 14 kills, 8 battles), ultraSmnDreadnought,
+  darkaCompanion, necroDestroyer, admecDestroyer, **eldarMauganRa** (18/3 battles).
+  → le blind-spot « l'IA fonce dans l'overwatch » (cf. [[project_overwatch_blindspot]])
+  est **quantifiable** dès maintenant, sans hook supplémentaire.
+- **Gap biovore/DoT résolu** : ses dégâts ne sont PAS « seulement dans ReceiveEffect » ;
+  ils sont dans `UnitDamaged` taggés `Effect_Type=5`.
+- **Piège de join** : `Attacker_Id`/`attacker_id` ↔ `unit_state.squad_id` (PAS `unit_id`).
+  Join sur `unit_id` renvoie tout en `None`. (cf. commentaire migration 012.)
+
+**Turn-order = dynamique, pas figé (acquis 2026-06-13) :** l'ordre d'activation
+est l'**Initiative recalculée à chaque round** (file unique 2 camps mélangés, pas
+d'alternance d'équipe). Il change round-à-round (réordonnancement init + morts +
+invocations) — démontré sur battle 239 (R1 `89 94 96 98…` vs R2 `98 90 92 94…`).
+**Reproductible** pour un triplet (seed, rosters, board) identique, mais jamais
+constant. `unit_state` **ne capture pas l'initiative** (colonnes : col,row,hp,
+hp_max,owner_id,team_id,visual_id,rank,is_dead) → à ajouter si on veut feature-iser
+l'ordre. Ordre reconstructible a posteriori via séquence `MoveUnit`/`ActiveAbility`
+par `msg_idx` (le `unit_id_raw` du `CheatRunAIMessage` parent n'est PAS l'acteur :
+= attacker seulement 12/9578 fois → inutile pour le contexte de tour).
+
+**Playbooks = policy IA, lisible via ghidra-mcp (acquis 2026-06-13) :** toute l'IA
+de combat est dans le namespace `IdunBattle.AI.Playbook` (~150-200 classes,
+décompilables). Hiérarchie `BasePlaybook → Playbook<T> → Comparable/NonComparable`,
++ `TriggeredAbilityPlaybook<T>` / `TriggeredAbilityNonOwnerPlaybook<T>`. Méthodes
+clés : `GenerateAction`, `GetUtilityValue`, `CalculateUtilityFromDamageEvent`,
+`Generate{Attack,Heal,…}Predictions`, `ShouldExecute`/`ShouldEvaluate`. Ex lisible :
+`BringerOfDespairPlaybook$$ShouldExecute = !WillNormalAttackKill(...)`. C'est la
+couche par-ability au-dessus des poids `BattleConfiguration.Utilities`. (cf.
+[[reference_playbook_ai_policy]])
+
+**NB `effect_type` déjà colonne** : la colonne `stream_event.effect_type` existe
+déjà (migration 007, bloc effects) et est peuplée (536/536), `rl_collect_batch`
+l'insère déjà. Pas de migration à écrire pour ça — `Effect_Type` est déjà sorti
+des tags.
+
+**Prochaines étapes :** committer l'analytics ; **tables de référence des enums +
+FK** (effect_type, active/passive_ability_type, damage_profile_type,
+unit_spawn_source, step_code… → id↔nom depuis les enums IL2CPP ; cf.
+`scripts/python/rl_gen_ref_tables.py` non tracké) ; stats overwatch par unité (taux
+suicide IA) ; plus de stats (win-rate vs dmg MoW, dégâts par `active_ability_type`).
+Le flag mêlée/distance (`Attack_Weapon_IsMelee` NULL sur UnitDamaged) reste le seul
+vrai trou ouvert.
+
+---
+
 ## ✅ MoW arena-PvP dans le runner isolé — RÉSOLU (2026-06-13)
 
 **Objectif atteint :** une battle **arena PvP avec MoW** tourne start-to-end dans

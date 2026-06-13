@@ -70,6 +70,7 @@ Ctrl+C). Stop session : front bouton STOP, ou
 
 - [hooks.md](references/hooks.md) — modules Frida, composition, conventions
 - [rpc-api.md](references/rpc-api.md) — RPCs, format state, events
+- [rl-database.md](references/rl-database.md) — schéma Postgres `TACTICUS` (dataset RL : tables, enums, ref tables, espaces d'ids, vues, recettes SQL)
 
 <!-- À (ré)écrire contre le code actuel (drafts d'avril périmés dans
      .claude/worktrees/agent-a0e45617/) : knowledge.md, game-architecture.md,
