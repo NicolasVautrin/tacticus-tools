@@ -472,14 +472,19 @@ def _ingest_one_battle(ctx: _IngestCtx, battle_rec: dict) -> None:
                 # weapon_is_melee = Info(arme) du scope d'attaque.
                 _ATTACK = (12, 32, 59)         # User_UseAbility, Ability_Attack, NormalAttack
                 _ACTOR = (11, 12, 13, 32, 59)  # + User_MoveUnit/PlaceUnit
+                _USER = (11, 12, 13)           # actions user (bornent le fallback Info, 015)
                 se_rows = []
                 sg_rows: list[list[Any]] = []
                 gstack: list[dict[str, Any]] = []
+                last_info_melee = None         # 015: dernier Info(arme) de l'action user courante
                 for ord_idx, ev in enumerate(msg.get("_events") or []):
                     kind = ev.get("kind")
                     if kind == "group":
                         gcode = _safe_int(ev.get("group"))
                         gent = _safe_int(ev.get("entity"))
+                        if gcode in _USER:
+                            last_info_melee = None  # nouvelle action user → reset
+                        # NB: groupe poussé ci-dessous
                         gid = ctx["next_gid"]
                         ctx["next_gid"] += 1
                         sg_rows.append([
@@ -522,6 +527,7 @@ def _ingest_one_battle(ctx: _IngestCtx, battle_rec: dict) -> None:
                             break
                     if step == 30 and "Attack_Weapon_IsMelee" in tags_dict:
                         _mv = _t("Attack_Weapon_IsMelee")
+                        last_info_melee = _mv  # 015: fallback message-level (borné action user)
                         for fr in reversed(gstack):
                             if fr["code"] in _ATTACK:
                                 fr["melee"] = _mv
@@ -531,6 +537,29 @@ def _ingest_one_battle(ctx: _IngestCtx, battle_rec: dict) -> None:
                         if fr["melee"] is not None:
                             melee_val = fr["melee"]
                             break
+                    # 015: fallback pour les ~3% (NormalAttack dont le Info est dans
+                    # un scope frère/fermé, non-ancêtre) — gardé aux hits sous un
+                    # scope NormalAttack(59) pour ne pas toucher ability/MoW.
+                    if melee_val is None and any(fr["code"] == 59 for fr in gstack):
+                        melee_val = last_info_melee
+
+                    # 015: classification du degat (UnitDamaged). MoW avant ability
+                    # (les MoW ont aussi un active_ability mais c'est de l'artillerie).
+                    dmg_kind = None
+                    if step == 4:
+                        _atk = _t("Attacker_Id")
+                        if _t("Effect_Type") is not None:
+                            dmg_kind = "effect"
+                        elif melee_val == 1:
+                            dmg_kind = "normal_melee"
+                        elif melee_val == 0:
+                            dmg_kind = "normal_ranged"
+                        elif _atk is not None and _atk in battle_machines:
+                            dmg_kind = "mow_artillery"
+                        elif _t("Active_Ability_Type") is not None:
+                            dmg_kind = "ability"
+                        else:
+                            dmg_kind = "unknown"
 
                     entity_id = _safe_int(ev.get("entity"))
                     target_kind = None
@@ -599,6 +628,8 @@ def _ingest_one_battle(ctx: _IngestCtx, battle_rec: dict) -> None:
                         _enum_name(_t("Unit_SpawnSource"), "unit_spawn_source"),
                         # 014 — arbre des groupes
                         group_id, caster_entity,
+                        # 015 — classification du dégât
+                        dmg_kind,
                     ))
                 # stream_group AVANT stream_event (FK group_id → stream_group ;
                 # parents insérés avant enfants car gid monotone en ordre d'ouverture).
@@ -632,7 +663,7 @@ def _ingest_one_battle(ctx: _IngestCtx, battle_rec: dict) -> None:
                             effect_type_name, active_ability_type_name,
                             passive_ability_type_name, damage_profile_type_name,
                             unit_spawn_source_name,
-                            group_id, caster_entity
+                            group_id, caster_entity, damage_kind
                         ) VALUES (
                             %s, %s, %s, %s, %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, %s, %s, %s, %s,
@@ -643,7 +674,7 @@ def _ingest_one_battle(ctx: _IngestCtx, battle_rec: dict) -> None:
                             %s, %s,
                             %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, %s,
-                            %s, %s
+                            %s, %s, %s
                         )
                     """, se_rows)
                     n_streams += len(se_rows)
