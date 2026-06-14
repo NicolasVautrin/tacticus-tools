@@ -100,8 +100,37 @@ step_name, entity_id, target_kind ('unit'|'machine'|'tile'), tags jsonb`
   englobant immédiat), `caster_entity` (entité de l'ancêtre `User_UseAbility`/
   `NormalAttack`/`Ability_Attack` = unité agissante), et **`weapon_is_melee`
   désormais REMPLI** (réutilise la colonne 012) depuis le `Info`(arme) du scope
-  d'attaque. NULL = dégât d'effet/DoT/overwatch (pas une arme) ou orphelin. ~66%
-  des UnitDamaged classés mêlée/distance (le reste = effet, à juste titre).
+  d'attaque. Cf. [[project_stream_group_tree]].
+
+**Catégories de dégâts (UnitDamaged) — comment lire `weapon_is_melee`=NULL :**
+`weapon_is_melee` ne s'applique qu'aux **attaques d'arme normales**. Décomposition
+des UnitDamaged (≈49 battles) :
+- `weapon_is_melee=1` → **mêlée** (attaque d'arme corps-à-corps) ;
+- `weapon_is_melee=0` → **distance** (attaque d'arme à distance) ;
+- `effect_type IS NOT NULL` → **dégât d'effet/DoT/overwatch** (`effect_type_name`) ;
+- `weapon_is_melee NULL` + `effect_type NULL` (le « reste », ~32%) **n'est PAS un
+  trou** — il se ventile (analysé via l'arbre) :
+  - **~70% dégâts d'ability** (`active_ability_type` rempli, scope `User_UseAbility`/
+    `Ability_Attack`) : l'ability frappe sans émettre de `Info` arme → ni mêlée ni
+    distance *par nature* (catégorie légitime distincte) ;
+  - **~24% artillerie MoW** (attaquant = MoW, scope `Ability_Power` hors cast) :
+    pas d'arme mêlée/distance pour de l'artillerie ;
+  - **~6% (~98 hits) seul vrai manque** : `NormalAttack_AtomicDamage` sans `Info`
+    capturé dans le scope.
+- → **colonne `damage_kind` (migration 015)** remplie à l'ingest, qui encode
+  directement cette classification : `normal_melee` / `normal_ranged` / `effect` /
+  `mow_artillery` (attaquant MoW) / `ability` / `unknown`. (Ordre : effect → melee/
+  ranged → MoW → ability → unknown.) Le fallback positionnel borné (015) récupère
+  les ~98 ex-ratés → mêlée/distance ~99,5% sur les attaques d'arme.
+
+**Soins & réparations :**
+- **HealInfo (step 5)** : `amount` = PV soignés, `caster_id` (= `Caster_Id`, le soigneur),
+  `entity_id` = la cible. Tags : `UnitStats_WasWoundedBeforeHeal`,
+  `UnitStats_RemovedNegativeUnitEffects` (cleanse). Mix abilities de soin **et vol de
+  vie** (un soin sous `Loki_NormalAttack` = lifesteal, pas une ability de soin). Vue `v_heal`.
+- **RepairInfo (step 6)** : restaure l'**armure** (`UnitStats_RemainingArmor`,
+  `Shields_RemainingAmount`). ⚠️ **Pas de tag `Amount`** → le montant réparé se dérive
+  du **delta d'armure** (vue `v_repair`, via `lag(armor_remaining)`).
 
 ### `stream_group` (PK `group_id`, FK `message_id`, self-FK `parent_group_id`) — **arbre des scopes (014)**
 Un nœud par groupe `StreamDispatcher` (1 `StartGroup` .. 1 `FinishGroup`).
@@ -199,6 +228,8 @@ pas besoin de ref table. Map (enum `StepType`) :
 | `v_damage_tree` (014) | dégâts via l'arbre : `caster_entity` + `weapon_is_melee` + `effect_type_name`, recoupe `attacker_id` |
 | `v_kill` | step 12/26 (RemoveUnit/DirectlyKillUnit) |
 | `v_heal_or_repair` | step 5/6/7 (heal/repair/restore_armor) |
+| `v_heal` (015) | soins attribués : `healer_id` (Caster_Id), `healed_id`, `heal_amount`, `was_wounded`, `cleansed` |
+| `v_repair` (015) | réparations : `repair_amount` = delta `armor_remaining` (pas de tag Amount) |
 | `v_position_change` | step 3 |
 | `v_effect_received` / `_unit` / `_tile` / `_tile_resolved` | step 16 (ReceiveEffect), résolu unité/tile |
 | `v_effect_lost` | step 17 (LoseEffect) |
@@ -238,11 +269,11 @@ py scripts/python/rl_gen_enum_columns.py --apply   # FK + colonnes *_name + enum
   l'insert). Ne pas s'y fier pour les hot/attribution/`*_name`.
 - **Générateurs** : `rl_gen_ref_tables.py` (ref tables, upsert), `rl_gen_enum_columns.py`
   (migration 013 + `enum_maps.py`). Tous deux build-aware.
-- **Migrations** : `scripts/sql/001_…` → `014_…` (init, winner, messages/events,
+- **Migrations** : `scripts/sql/001_…` → `015_…` (init, winner, messages/events,
   matchstate, unit_state, **006 ref_tables**, **007 hot_cols**, target_kind, tile_ref,
   ability_state, mow_state, **012 attribution**, **013 enum FK + `*_name`**,
-  **014 stream_group + group_id/caster_entity**). Appliquer via `psql -f`, `--apply`
-  des générateurs, ou psycopg2 (`cur.execute(open(sql).read())`).
+  **014 stream_group + group_id/caster_entity**, **015 damage_kind + v_heal/v_repair**).
+  Appliquer via `psql -f`, `--apply` des générateurs, ou psycopg2.
 - **GroupType** (102 membres) est dans `enum_maps.py` (`GROUP_TYPE`) pour `group_name`.
 
 ## Recettes
