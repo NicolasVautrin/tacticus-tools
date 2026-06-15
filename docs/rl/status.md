@@ -1,6 +1,61 @@
 # RL pipeline — status (session compact-pre 2026-05-25)
 
-## ⏩ ÉTAT COURANT — reprise 2026-06-13 (dataset MoW + analytics)
+## ⏩ ÉTAT COURANT — reprise 2026-06-14 (arbre de groupes + attribution complète)
+
+**Objectif (rappelé) :** **imitation learning d'abord** (imiter l'IA in-game depuis
+les démonstrations collectées), **RL ensuite**. Dataset = démonstrations expertes.
+Cf. mémoire `[[project_rl_objective_il_first]]`. Les besoins RL précis (state features,
+action space, reward) restent **à re-clarifier** — c'est le prochain gros sujet.
+
+**Infra live :** host `:8765` (background, session warm). Build **kqkbjqfb6c**.
+Postgres **TACTICUS** `:5433` schema `tacticus` (creds `.env`). ghidra-mcp `:13337`.
+⚠️ **`rl_collect_batch` se lance avec `python` (psycopg3), PAS `py`** (psycopg2 → ingest
+silencieusement off). Requêtes/migrations manuelles : `py` (psycopg2). Cf. mémoire
+`[[feedback_rl_batch_python_psycopg3]]`.
+
+**Dataset courant :** re-collecte propre **48 battles** (50 lancées, ~2 perdues à
+l'ingest) **avec l'arbre matérialisé**. `stream_event` ~61k, `stream_group` ~38k.
+
+**Acquis majeur cette session — l'arbre de groupes :** le « trou » mêlée/distance
+était une **capture incomplète** : on ne hookait pas `StreamDispatcher.FinishGroup`
+(fermetures de groupe). Corrigé → arbre complet `stream_group` (parent_group_id,
+`WITH RECURSIVE`). Du coup attribution **complète** :
+- **mêlée/distance = 100% des vraies attaques d'arme** (colonne `weapon_is_melee`,
+  remplie depuis le `Info`(arme) du scope + fallback positionnel borné pour les ~3%).
+- **`damage_kind`** (015) : normal_melee / normal_ranged / effect / mow_artillery /
+  ability / unknown. Le « 32% non-classé » = **70% ability + 24% artillerie MoW +
+  ~6% (fixé)** — pas un trou. `caster_entity` (acteur via l'arbre).
+- **overwatch** quantifiable (`effect_type=1009`=Overwatch_AutoAttack ; `5`=Fire/DoT).
+- **soins** (`v_heal` : healer Caster_Id + amount + cleanse), **réparations**
+  (`v_repair` : montant = delta `hp_remaining`, RepairInfo restaure les PV pas l'armure).
+- enums dénormalisés (`*_name`) + FK vers ref tables (`enum_maps.py`, build-aware).
+
+**Commits poussés (master) cette session :** `e55933c` (hook FinishGroup), `df04e4c`
+(arbre + enum FK/names + attribution 012/013/014), `dac7aee` (doc schéma DB),
+`3a8a6e6` (damage_kind + fallback mêlée + v_heal/v_repair 015), `1dae793` (doc
+catégories/soins). Migrations `001`→`015`. Générateurs : `rl_gen_ref_tables.py`,
+`rl_gen_enum_columns.py`. Doc schéma complète :
+`.claude/skills/tacticus/references/rl-database.md`.
+
+**Pièges/règles à NE PAS reperdre :** `effect_id` ≠ `effect_type` (instance vs enum,
+pas de FK sur effect_id) ; `attacker_id`/`caster_id` ↔ `unit_state.squad_id` (PAS
+`unit_id`), MoW ↔ `mow_state.machine_id` ; arbre = re-collecte obligatoire (battles
+pré-FinishGroup n'ont pas le nesting).
+
+**Exploré mais ABANDONNÉ (pas codé) — summons :** la donnée est là (`unit_is_summoned`,
+`unit_spawn_source` [Ability/Deployment], `unit_parent_id`, `Unit_Foot_Tile_Id`=placement).
+Constats : 409 summons/48 battles (~8,5/b), **9,7% des dégâts**, **87% meurent**
+(consommables), Genestealers + Biovore (Spore Mines) en tête. Passe summon proposée
+(vue `v_summon` + mapping summoner→spawn + stats) **non faite** — l'utilisateur a
+laissé tomber.
+
+**Prochain gros sujet :** re-clarifier l'IL — définir **features d'état** (unit_state/
+mow_state/tree → tenseur) et **espace d'action** de l'expert (move / attack / ability /
+summon) pour bâtir l'extracteur de paires (état, action).
+
+---
+
+## ⏩ reprise 2026-06-13 (dataset MoW + analytics)
 
 **Où on en est :** MoW arena-PvP **résolu et exploité**. 85 battles MoW en
 Postgres, attribution des dégâts par caster en colonnes, analyse en cours.

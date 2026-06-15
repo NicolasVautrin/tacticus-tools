@@ -85,9 +85,12 @@ Host sur `http://127.0.0.1:8765`. Front sur `http://127.0.0.1:8765/view/`.
 1. Lancer Tacticus, attendre que le menu principal soit pleinement loaded.
 2. Ouvrir le front (`/view/`).
 3. Cliquer **INJECT** dans l'UI (auto-discovery du PID via `_Data/` adjacent à l'exe).
-4. Cliquer un battle de campagne in-game (= warmup) → l'agent capture
-   `lastSource` + `lastUnitProgression` + `IdunUniverse` automatiquement, push
-   `builder_ready` au front, qui déclenche un refresh catalog.
+4. **Warmup** = appeler le RPC `warmupGameSingletons({ force: true })`.
+   **Autonome** : il pilote toute la nav UI lui-même (campagne → node → play →
+   capture ctor → pause → retreat) et capture `lastSource` +
+   `lastUnitProgression` + `IdunUniverse`, push `builder_ready` au front (refresh
+   catalog). **Aucun clic humain ; Claude ne demande JAMAIS à l'utilisateur de
+   cliquer une battle in-game.** (Détails : section « Workflow RL ».)
 5. Builder front : tout est armé. On peut générer la `BattleConfiguration` de
    n'importe quelle node (events inactifs inclus) sans relancer une battle.
 
@@ -104,9 +107,27 @@ le jeu actif.
    ```
    warmupGameSingletons({ force: true })
    ```
-   Sans ça : `lastSource._currentBattle` est null ou stale → tous les
-   `buildPatchedRunner` / `inspectBattleConfig` échouent. Le warmup
-   déclenche `CampaignGameModeSource.LoadBattle` qui peuple `_currentBattle`.
+   **C'est AUTONOME — pas de clic humain.** Ce RPC pilote toute la nav UI
+   lui-même : campagne (`IdunNavigation.ToCampaign`) → clic node → clic play →
+   capture du ctor `CampaignGameModeSource` → attente déploiement stable →
+   pause → retreat → confirm, et laisse le jeu revenu à l'écran campagne.
+   **Claude doit l'appeler directement après chaque (re)inject et NE JAMAIS
+   demander à l'utilisateur de cliquer une battle in-game.**
+
+   > **RÈGLE INCONDITIONNELLE — warmup après CHAQUE (re)inject, AVANT tout
+   > RPC/probe, SANS EXCEPTION.** Y compris les probes « self-contained » qui
+   > montent un runner depuis une **seed BC sur disque** (ex.
+   > `rl_probe_step.py --mode card|view|rank|predict`, `rl_collect_batch`) et
+   > ne touchent pas `lastSource`. Raison : un (re)inject ne perd pas seulement
+   > `lastSource._currentBattle` (→ `buildPatchedRunner`/`inspectBattleConfig`
+   > échouent), il **repart aussi avec des caches `MethodInfo*` Frida-side vides
+   > et la couche d'init IL2CPP non ré-amorcée** dont dépendent `initAndStart`/
+   > `buildPatchedRunner`. Un probe qui « marche » sans warmup ne prouve rien :
+   > c'est que le jeu était déjà warm d'une nav précédente (chance), pas de la
+   > correction — au prochain build froid c'est le crash `0x2c` (metadata non
+   > initialisée). **Ne jamais raisonner « ce mode-là n'a pas besoin de
+   > warmup ».** Le warmup déclenche `CampaignGameModeSource.LoadBattle` (peuple
+   > `_currentBattle`) ET force l'init des singletons/classes.
 
 2. **Build runner isolé** (avec patch optionnel) :
    ```
@@ -176,11 +197,24 @@ agent est perdu — donc :
   redeviennent `null`
 - Les RPCs `buildCampaignConfig` / `dumpCampaignCatalog` / etc. répondent
   "no live CampaignGameModeSource captured" jusqu'à re-warmup
-- **L'utilisateur doit cliquer une battle de campagne in-game** pour
-  ré-armer (le hook `CampaignGameModeSource..ctor` recapture sur navigation)
+- **Ré-armer = appeler `warmupGameSingletons({ force: true })`** (RPC autonome,
+  pilote la nav UI seul — aucun clic humain). **C'est la procédure par défaut
+  pour Claude : ne jamais demander à l'utilisateur de cliquer une battle.**
+  (Le hook `CampaignGameModeSource..ctor` recapture aussi si l'utilisateur
+  navigue manuellement, mais ce n'est pas requis.)
 
 Re-build de `dist/hooks.js` requis uniquement quand `frida/hooks/*` a changé
 (`npm run build:hooks` avant le restart).
+
+**Changement `frida/hooks/*` SEULEMENT (pas `frida/host/*`) → PAS besoin de
+restart host.** Plus léger et propre : rebuild puis réinjecter via
+`POST /api/admin/inject` (body `{}`), qui stoppe proprement la session courante
+(protocole cleanup) et ré-attache en chargeant le `dist/hooks.js` frais (nouveau
+`sessionId` en retour). Le restart complet du host n'est nécessaire que si du
+code `frida/host/*` a changé. Dans les deux cas, **re-warmup ensuite via
+`warmupGameSingletons({ force: true })`** (autonome — cf. Workflow RL) **AVANT
+tout RPC/probe, sans exception** (même les probes seed-BC sur disque type
+`rl_probe_step --mode card` : cf. la RÈGLE INCONDITIONNELLE du Workflow RL).
 
 ## Serveur ghidra-mcp (analyse offline)
 

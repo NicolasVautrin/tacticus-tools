@@ -400,6 +400,34 @@ export function register(ctx: Ctx): void {
         });
     };
 
+    /** AddUnit avec un SpawnSource explicite (ex. Drafting=4 / Deployment=5 /
+     *  AfterTurn=3) pour tester le deep-strike (unité en réserve). Override le
+     *  champ SpawnSource @0x28 de l'AddUnitMessage après construction. */
+    ctx.rpc.applyAddUnitSrc = (args: {
+        runnerId: number; unitId: string; playerId: number;
+        col: number; row: number; spawnSource: number;
+    }) => {
+        const applyMi = runnerApplyMi;
+        if (!applyMi) throw new Error("IdunRunner.Apply not resolved");
+        return queueOnMainThread(() => {
+            const entry = getRunner(args.runnerId);
+            const msg = buildAddUnitMessage(
+                args.unitId, args.playerId, args.col, args.row);
+            try {
+                msg.add(0x28).writeS32(args.spawnSource | 0);  // override SpawnSource
+                const events = captureEvents(args.runnerId, entry.runner,
+                    "AddUnitMessage(src=" + args.spawnSource + ")", () => {
+                        invokeMethod(applyMi.info, entry.runner, [msg]);
+                    });
+                return { ok: true, eventCount: events.length };
+            } catch (e) {
+                return { ok: false, error: (e as Error).message };
+            } finally {
+                try { gcRoot.remove(msg); } catch { /* best effort */ }
+            }
+        });
+    };
+
     ctx.rpc.applyAddMachine = (args: {
         runnerId: number; unitId: string; playerId: number;
     }) => {
