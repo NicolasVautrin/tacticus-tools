@@ -9,6 +9,7 @@ import {
     EntityType, forEachComponent, forEachEntity, projectMatchState,
     readBattleStatus,
 } from "../../game/match-state.js";
+import { readEffectsByUnit } from "../../game/effects.js";
 import { state } from "../../game/state.js";
 import { queueOnMainThread } from "../../runtime/queue.js";
 import { abilityName } from "../../data/ability-names.js";
@@ -456,14 +457,25 @@ export function registerView(ctx: Ctx): void {
             statePtr, movementQuery, attackQuery, getBestMi, resolveDpq(runner),
             { allAbilities, maxRank });
         const danger = computeDangerZone(statePtr, movementQuery, attackQuery);
+        // Effets actifs par unité — lus depuis la liste native du jeu
+        // (EffectsOwnedComponent.ActiveEffectIds), = ce que l'UI render en
+        // icônes de statut. Attaché par unit/mow (railgun-mark, OW armé, Ice,
+        // heal-block, Stun… surfacés sans scan ad-hoc — cf. game/effects.ts).
+        const effectsByUnit = readEffectsByUnit(statePtr);
         const after = summarize(statePtr);
         return {
             ok: true, runner: label,
             stage: status.stage, stageName: status.stageName,
             turn: proj.turn, currentPlayer: playerId,
             mutated: before.sig !== after.sig, ms: Date.now() - t0,
-            unitCount: units.length, units,
-            mowCount: mows.length, mows,
+            unitCount: units.length,
+            units: units.map((u) => ({
+                ...u, effects: effectsByUnit.get(u.id) ?? [],
+            })),
+            mowCount: mows.length,
+            mows: mows.map((m) => ({
+                ...m, effects: effectsByUnit.get(m.casterId) ?? [],
+            })),
             toActivateCount: toActivate.length, toActivate,
             attackPlans: plans.units, removeWorks: plans.removeWorks,
             dangerZone: danger,

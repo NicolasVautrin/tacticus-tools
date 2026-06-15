@@ -85,6 +85,62 @@ def _killmark(t: dict) -> str:
     return ""
 
 
+def _ability_state(a: dict) -> str:
+    """État LIVE d'un actif (absent de gameconfig) : prêt / cdN / disabled /
+    munitions — pour savoir ce qui est CASTABLE ce tour. Vide pour l'attaque
+    normale (toujours dispo). cooldown=None signifie prêt (Nullable sans valeur)."""
+    if a.get("kind") != "active":
+        return ""
+    if a.get("disabled"):
+        return " [disabled]"
+    parts: list[str] = []
+    cd = a.get("cooldown")
+    if cd:  # not None and > 0
+        parts.append(f"cd{cd}")
+    elif a.get("usable") is False:
+        parts.append("indispo")
+    else:
+        parts.append("prêt")
+    ammo = a.get("ammoCost")
+    if ammo:  # coût en munitions (MoW surtout)
+        parts.append(f"munitions{ammo}" + ("" if a.get("hasAmmo", True) else "!MANQUE"))
+    return " [" + " ".join(parts) + "]"
+
+
+# Effets tactiquement CRITIQUES : sous-chaîne du nom EffectType -> (label,
+# hint actionnable). Surfacés en tête de carte pour ne JAMAIS les rater (la
+# défaite = mark railgun ignoré). Recon d'un effet : gameconfig.py --effect <nom>.
+_CRIT_EFFECTS: list[tuple[str, str, str]] = [
+    ("HeavyRailRifle_Pending", "RAILGUN",
+     "tir différé sur cette unité → la faire BOUGER ≥3 hex (−30% dmg/hex)"),
+    ("ReactivateOverwatch", "OVERWATCH", "réarmé → sa portée = tir gratuit en y entrant"),
+    ("Overwatch_AutoAttack", "OVERWATCH", "armé → entrer dans sa portée = tir gratuit"),
+    ("FuryOfTheAncients", "HEAL-BLOCK", "ne peut être soigné/revive/repair (2 rounds)"),
+    ("Stunned", "STUN", "ne joue pas ce tour (triggers de MORT restent)"),
+    ("Taunted", "TAUNT", "forcé de cibler le taunter / mouvement contraint"),
+    ("Markerlight", "MARKERLIGHT", "cible l'AoE TwinSmartMissile (Broadside)"),
+    ("Incapacitated", "INCAP", "ne joue pas ce tour"),
+    ("Infiltrate", "INFILTRATE", "ignore l'overwatch ce tour"),
+    ("TeleportStrike_TeleportingIn", "DEEP-STRIKE", "non-ciblable jusqu'à ce qu'elle agisse"),
+]
+
+
+def _effect_crit(name: str | None) -> tuple[str, str] | None:
+    if not name:
+        return None
+    for sub, label, hint in _CRIT_EFFECTS:
+        if sub in name:
+            return (label, hint)
+    return None
+
+
+def _effect_label(e: dict) -> str:
+    """Nom d'effet + tours restants (r0 = permanent/aura, omis)."""
+    nm = e.get("name") or f"#{e.get('effectType')}"
+    rem = e.get("remaining")
+    return nm + (f"(r{rem})" if isinstance(rem, int) and rem > 0 else "")
+
+
 def build_card(view: dict, bd: Board) -> str:
     units = view.get("units") or []
     cur_player = view.get("currentPlayer")
@@ -163,7 +219,7 @@ def build_card(view: dict, bd: Board) -> str:
         mow_lines.append("  MoW (ability-only — jouer : "
                          "act ability --caster <id> --target T --ability <A>) :")
         for m in mows:
-            ab = ", ".join(f"{x.get('id')}({x.get('name')})"
+            ab = ", ".join(f"{x.get('id')}({x.get('name')}){_ability_state(x)}"
                            for x in (m.get("abilities") or [])) or "—"
             side = "MOI" if m.get("team") == my_team else "ENNEMI"
             pos = m.get("pos") or {}
@@ -171,6 +227,48 @@ def build_card(view: dict, bd: Board) -> str:
                 f"    u{m.get('casterId')} [{m.get('visualId')}] {side} "
                 f"@({pos.get('col')},{pos.get('row')}) HP{m.get('hp')} "
                 f"hasAction={m.get('hasAction')} abilities: [{ab}]")
+
+    # Section MES ACTIFS (état live) : par unité contrôlée, ses actifs +
+    # castabilité CE tour (prêt/cdN/disabled/munitions). C'est l'info LIVE que
+    # gameconfig ne donne PAS (lui n'a que noms+stats statiques) → évite de
+    # planifier un actif en cooldown.
+    act_lines: list[str] = []
+    actives_rows = []
+    for u in mine:
+        acts = [a for a in (u.get("abilities") or []) if a.get("kind") == "active"]
+        if not acts:
+            continue
+        s = ", ".join(f"{a.get('name')}({a.get('id')}){_ability_state(a)}" for a in acts)
+        actives_rows.append(f"    u{u.get('id')} [{u.get('visualId')}]: {s}")
+    if actives_rows:
+        act_lines.append("  MES ACTIFS (état live — prêt/cdN/disabled/munitions) :")
+        act_lines.extend(actives_rows)
+
+    # Effets actifs par unité (decisionView.effects = liste native du jeu, =
+    # icônes de statut in-game). (a) bloc ⚠ CRITIQUES en évidence (railgun / OW /
+    # stun / taunt / heal-block / markerlight + hint actionnable — l'anti-défaite) ;
+    # (b) liste complète par unité pour la recon (gameconfig.py --effect <nom> ;
+    # *_Visual cosmétiques filtrés). mine_all/enemies_all incluent les MoW.
+    _crit: list[str] = []
+    _eff: list[str] = []
+    for u in mine_all + enemies_all:
+        uid = u.get("casterId", u.get("id"))
+        side = "MOI" if u.get("ctrl") else "ENN"
+        shown = []
+        for e in (u.get("effects") or []):
+            nm = e.get("name") or ""
+            c = _effect_crit(nm)
+            if c:
+                _crit.append(f"    ⚠ [{c[0]}] u{uid} [{u.get('visualId')}] "
+                             f"({side}) — {c[1]}")
+            if "Visual" not in nm:
+                shown.append(_effect_label(e))
+        if shown:
+            _eff.append(f"    u{uid} [{u.get('visualId')}] <{side}>: "
+                        + ", ".join(shown))
+    crit_block = (["  ⚠ EFFETS CRITIQUES (ne pas rater) :", *_crit] if _crit else [])
+    eff_block = (["  EFFETS ACTIFS (par unité — recon : gameconfig.py --effect <nom>) :",
+                  *_eff] if _eff else [])
 
     out = [
         f"=== CARTE DÉCISION — tour {view.get('turn')} · joueur {cur_player} "
@@ -182,6 +280,9 @@ def build_card(view: dict, bd: Board) -> str:
         f"MAJUSCULE=moi minuscule=ennemi",
         "\n".join(leg),
         *(["\n".join(mow_lines)] if mow_lines else []),
+        *(["\n".join(act_lines)] if act_lines else []),
+        *(["\n".join(crit_block)] if crit_block else []),
+        *(["\n".join(eff_block)] if eff_block else []),
         f"  À ACTIVER (mes units/MoW avec action) : {view.get('toActivate')}",
         "  PLANS D'ATTAQUE (où aller -> dégâts [min-max, K!=kill sûr "
         "K?=kill possible]) :",
@@ -192,6 +293,9 @@ def build_card(view: dict, bd: Board) -> str:
         head = (f"    u{p.get('unitId')} [{p.get('visualId')}] "
                 f"@({pos.get('col')},{pos.get('row')}):")
         out.append(head if has_any else head + " (aucune attaque à portée)")
+        # abilityId -> info (pour labelliser chaque ligne par ability + son état :
+        # avec allAbilities il y a plusieurs evals/cible, normal ET actifs).
+        ab_by_id = {a.get("id"): a for a in (p.get("abilities") or [])}
         for ev in (p.get("evals") or []):
             ranked = ev.get("ranked") or []
             if not ranked:
@@ -201,5 +305,8 @@ def build_card(view: dict, bd: Board) -> str:
                     f"[{t.get('dmgMin')}-{t.get('dmgMax')}{_killmark(t)}]"
                     if t.get('dmgMax') is not None else "")
                 for t in ranked)
-            out.append(f"      vs u{ev.get('targetId')} [{ev.get('targetVis')}]: {tl}")
+            label = ev.get("ability") or "?"
+            tag = _ability_state(ab_by_id.get(ev.get("abilityId"), {}))
+            out.append(f"      [{label}{tag}] vs u{ev.get('targetId')} "
+                       f"[{ev.get('targetVis')}]: {tl}")
     return "\n".join(out)

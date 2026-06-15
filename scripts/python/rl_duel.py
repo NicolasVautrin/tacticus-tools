@@ -58,7 +58,13 @@ def _load_state() -> dict:
 
 
 def _decision(sid: int, rid: int, maxrank: int = 8) -> dict:
-    return (_rpc(sid, "decisionView", [{"runnerId": rid, "maxRank": maxrank}],
+    # allAbilities=True : expose AUSSI les actifs de chaque unité (id + dégâts
+    # rankés), pas seulement l'attaque normale. Sans ça, decisionView ne liste
+    # que NormalAttackType → mes actifs (SanctorumMissile, VexillaMagnifica, …)
+    # restent invisibles dans les plans (cf. asymétrie apparente moi/adversaire :
+    # il n'y en a pas, c'est juste ce flag qui défaut à false côté hook).
+    return (_rpc(sid, "decisionView",
+                 [{"runnerId": rid, "maxRank": maxrank, "allAbilities": True}],
                  timeout=300).get("result") or {})
 
 
@@ -244,10 +250,23 @@ def cmd_act(sid: int, a) -> int:
                             ability = ev.get("abilityId")
         if ability is None:
             print(f"[act] pas de plan {a.caster}->{a.target} (hors portée ?), "
-                  f"passe --ability"); return 2
-        action = {"kind": "ability", "casterId": a.caster,
-                  "targetId": a.target, "abilityType": ability}
-        label = f"ABILITY {ability} u{a.caster}->u{a.target}"
+                  f"passe --ability (obligatoire pour --to / les actifs)"); return 2
+        # Cible : entité (--target) OU hex LIBRE (--to col,row → entité-tuile côté
+        # hook). --to sert aux abilities sur-hex : summons (AlphaWarrior,
+        # ForwardSpotter), mur (DutyEternal), marquage sur case vide. --ability
+        # est alors OBLIGATOIRE (pas de plan auto-résolu sans cible ennemie).
+        if a.target is not None:
+            action = {"kind": "ability", "casterId": a.caster,
+                      "targetId": a.target, "abilityType": ability}
+            label = f"ABILITY {ability} u{a.caster}->u{a.target}"
+        elif a.to is not None:
+            col, row = (int(x) for x in a.to.split(","))
+            action = {"kind": "ability", "casterId": a.caster,
+                      "to": {"col": col, "row": row}, "abilityType": ability}
+            label = f"ABILITY {ability} u{a.caster}->hex({col},{row})"
+        else:
+            print("[act] ability: passe --target <id> (entité) ou --to col,row (hex)")
+            return 2
     elif a.kind == "finish":
         action = {"kind": "finish", "unitId": a.unit}
         label = f"FINISH u{a.unit}"

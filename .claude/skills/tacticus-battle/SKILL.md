@@ -93,8 +93,23 @@ PYTHONIOENCODING=utf-8 python scripts/python/rl_duel.py build --rank 17 --list-p
 ## 2bis. RECON des units — LA PREMIÈRE CHOSE, AVANT le tour 1 (obligatoire)
 
 > **Avant de jouer le moindre coup, scouter le KIT COMPLET de CHAQUE unité des
-> deux équipes.** Sauter cette étape = se faire surprendre (ex. le snowball de
-> Kharn ci-dessous). C'est non négociable.
+> deux équipes.** « Kit complet » = pour CHAQUE unité, ses **3 dimensions** :
+> **(1) STATS** (PV, move, portée d'arme, profils/PiercingRatio de dégâts),
+> **(2) ABILITIES** (actif(s) : effet, nrOfHits, range, cooldown/munitions, cibles),
+> **(3) TRAITS** (passifs + traits transverses : Resilient, FinalJustice, Flying,
+> Psyker, Healer, Mechanical, Overwatch…). Les trois ensemble — pas seulement
+> l'actif. Sauter cette étape = se faire surprendre (ex. le snowball de Kharn
+> ci-dessous). C'est non négociable.
+
+> **ORDRE IMPÉRATIF — gameconfig D'ABORD, wiki ENSUITE (complément).**
+> 1. **`gameconfig.py` + `i2_en.json` = la SOURCE DE VÉRITÉ** : lire le kit complet
+>    de **CHAQUE** unité des deux rosters EN PREMIER (chiffres + texte de règles).
+>    C'est la base ; ne JAMAIS commencer par autre chose.
+> 2. **PUIS `docs/rl/wiki.md` en COMPLÉMENT** : il n'ajoute QUE le non-dérivable
+>    (interactions de traits, vérités de combat observées). Il ne remplace pas la
+>    recon gameconfig — il la complète, pour les unités/traits déjà documentés.
+> Inverser l'ordre (wiki avant gameconfig) est une ERREUR : le wiki est partiel
+> (ne couvre pas tout roster) et second par nature.
 
 ```bash
 # pour CHAQUE unitId des deux rosters (affichés par build) :
@@ -108,6 +123,53 @@ PYTHONIOENCODING=utf-8 python scripts/python/gameconfig.py worldKharn custoTraja
   — c'est là que vivent les **conditionnels** qu'aucun chiffre ne révèle : snowball,
   triggers, auto-attaques, ripostes. `card_unit` les affiche en `« … »`.
 - **stream** (en jeu) = pour OBSERVER les triggers se déclencher (cf. §5).
+
+> **RECON CONTINUE — pas que le tour 1.** Dès qu'une **unité INVOQUÉE / ressuscitée
+> apparaît** en combat (ids `*Smn*` / `*Npc*` : decoy, drone, Aberrant, Hormagaunt,
+> Guardsman, Poxwalker…), faire **IMMÉDIATEMENT** `gameconfig.py <visualId>` — ses
+> **traits/abilities dictent comment la gérer**, ne JAMAIS supposer. Vécu : decoy
+> `genesSmnDecoy` laissé non-recon → j'ignorais son trait `Steppable` (« détruit en
+> marchant dessus, non-ciblable ») → je n'ai pas coupé l'`Ambush` → Biophagus a
+> ressuscité. (Ex. à connaître : decoy `Steppable` → marcher dessus ; unité qui explose
+> en mourant → tuer à distance ; counter/aura → kit des voisins.) Cf. wiki §3ter Summons/NPC.
+
+> **RECON DES EFFETS — à l'apparition, comme un summon.** `decisionView` expose par
+> unité ses **effets actifs** (champ `effects` — lus depuis la liste native du jeu
+> `EffectsOwnedComponent`, = ce que l'UI render en icônes ; nom + `remaining` tours +
+> `source`). Noms typiques : `Ice`, `Stunned`, `Overwatch_AutoAttack`, `Markerlight`,
+> `FuryOfTheAncients`, `Taunted_*`, `ContagionsOfNurgle_ArmorReduction*`,
+> `TeleportStrike_TeleportingIn`, `HeavyRailRifle_PendingTarget`… **Dès qu'un effet
+> INCONNU apparaît, le RECON** avec **`python scripts/python/gameconfig.py --effect <nom>`** :
+> ça strippe le suffixe `<Ability/Trait>_<…>` → résout l'ability/trait SOURCE et imprime
+> ses chiffres gameconfig + texte de règles i2 (ne JAMAIS supposer). Effet **moteur pur**
+> sans source (`Ice`, `Stunned`, `Taunted_*`) → la commande le signale → **wiki §1 Traits**. **Ne jamais ignorer un
+> effet « pending » sur MES unités** : `HeavyRailRifle_PendingTarget` = railgun armé
+> sur cette unité → la faire **BOUGER ≥3 hex** ce tour (−30 % dmg/hex traversé), sinon
+> tir plein. Vécu (défaite) : Ahriman gardé statique malgré le mark → **7240** → carry
+> mort. `remaining` : `r>0` = effet temporisé, `r0` = permanent/aura.
+
+- **`docs/rl/wiki.md` — LECTURE OBLIGATOIRE au recon, mais EN COMPLÉMENT (étape 2,
+  APRÈS gameconfig/i2 de l'étape 1, jamais avant)** : une fois le kit chiffré lu,
+  lire l'entrée wiki des unités **déjà documentées** (kits, quirks, traits — §2
+  Chaos / §3 Imperium / §4 MoW) + la référence des **mécaniques de traits
+  transverses** (§1 : Resilient×multi-hit, FinalJustice, Explodes, Blast vs
+  armure…). C'est le savoir-jeu NON dérivable de gameconfig/i2 (qui n'ont que
+  noms+chiffres+texte, jamais les interactions) — donc un **ajout**, pas un
+  substitut : une unité absente du wiki se joue quand même (gameconfig suffit). **L'ENRICHIR après chaque combat**
+  (nouvelle unité rencontrée, interaction observée). La doctrine ACTIONNABLE (quoi
+  FAIRE de ces mécaniques) est dans le skill §6/§7 — le filet de sécurité que je lis
+  toujours, même si j'oublie le wiki.
+
+**Grab AUSSI les ids + l'état LIVE des actifs au recon** : `view` (decisionView
+`allAbilities:true`, défaut depuis le fix) affiche la section **« MES ACTIFS (état
+live) »** = par unité ses actifs `Nom(id) [prêt/cdN/disabled/munitionsN]`. Les
+**ids** servent à `act ability --ability <id>` (les noms seuls sont déjà dans
+gameconfig → inutiles) ; l'**état** dit ce qui est **castable CE tour** (cooldown/
+munitions) — info que gameconfig NE PEUT PAS donner. Les MoW affichent idem.
+> ⚠️ La **prédiction de dégâts** d'un actif dans les plans n'est PAS fiable
+> (decisionView rend ~les chiffres de l'attaque NORMALE pour tout actif) : se fier
+> aux **tuiles + l'état**, et juger le **résultat réel à la cascade** (cf. wiki §1
+> Blast vs armure). Les chiffres bruts gameconfig sur-estiment (armure ignorée).
 
 **Décoder le PROFIL DE MENACE de chaque ennemi (et les synergies des miennes)** :
 - **Actifs multi-hit / burst** : ex. Kharn `KillMaimBurn` = 8 coups (1 Pierce + 6
@@ -140,8 +202,26 @@ PYTHONIOENCODING=utf-8 python scripts/python/gameconfig.py worldKharn custoTraja
 4. **Une action à la fois, ré-éval entre chaque** (`act` ré-affiche les plans
    après l'action — base de la décision suivante) :
    - **Jouer une unité « en 2 temps »** : `act move --unit U --to C,R`, observer
-     le résultat, **puis** `act ability --caster U --target T` (l'`abilityId`
-     est auto-résolu depuis le plan, sinon `--ability A`).
+     le résultat, **puis** `act ability --caster U --target T --ability <id>`.
+   - **Abilities ciblant un HEX LIBRE** (summons type AlphaWarrior/ForwardSpotter,
+     mur DutyEternal, marquage sur case vide) : `act ability --caster U --to C,R
+     --ability <id>` (PAS `--target`). Le hook résout le hex → entité-tuile
+     (`ActiveAbilityMessage` n'a pas de champ position). `--ability` obligatoire
+     (pas de plan auto-résolu sans cible ennemie). Validé : AlphaWarrior → Warrior
+     7976 PV. (Cibler une ENTITÉ : `--target <id>` ; sa tile sert pour MacroPlasma.)
+   - **TOUJOURS passer `--ability <id>` explicite** (id depuis la section « MES
+     ACTIFS » / le label du plan). L'**auto-résolve n'est PLUS fiable** depuis
+     `allAbilities` : il peut piocher le mauvais id (un actif au lieu de l'attaque
+     normale) → l'unité **consomme son action pour un no-op** (vécu : Trajann tape
+     « 0 » et est grillé). Attaque normale = **id 69** (générique « Loki_NormalAttack »,
+     partagé par bcp d'unités) ou l'id `kind:"normal"` propre (ex. Morvenn 1182).
+   - **VÉRIFIER que le move a réussi AVANT d'attaquer** : `act move` vers une tile
+     illégale (block `#`, hors portée) est **rejeté SILENCIEUSEMENT** (l'unité reste
+     sur place) → l'attaque part alors hors portée = no-op qui grille l'action.
+     Lire la position effective (`view`) si doute. (Vécu : repli sur (1,0)=block
+     ignoré ; Mephiston resté exposé.) Rappel : un **move ne consomme PAS**
+     l'activation (on peut move puis attaquer) ; seule une **attaque/ability** la
+     consomme (`TurnFinished=1`).
    - Souvent : `act ability` **direct depuis la tile courante** (zéro move, zéro
      exposition) si la cible est déjà à portée.
    - **MoW** (ability-only, ne bougent pas) : `act ability --caster <machineId>
@@ -259,6 +339,33 @@ ability / `effect` (label). `aiturn` capture **toute la cascade** du tour advers
   d'approcher/frapper (cf. §5).
 - **Summons** : les units `genes*` auto-spawn Decoy (HP0) + Neophyte (ranged) —
   meat shields ; ne pas se laisser distraire dans les comptes.
+- **`Resilient` ne sauve PAS d'un multi-hit** : 1ᵉʳ coup → 1 PV, coups suivants du
+  MÊME actif tuent. Vs burster multi-hit (Kharn, Macer) la défense = **STUN ou mur**,
+  PAS le HP. **Overkill** les Resilient (sinon retour à 1 PV gratuit). Détail : wiki §1.
+- **`FinalJustice` (Kharn) → riposte mortelle à la mort sauf OVERKILL** — même
+  stunné, même tué à l'AoE/killzone. Ne jamais le tuer « pile » : **overkill**, ou
+  ne pas laisser d'unité adjacente quand il meurt.
+- **Ne pas chiper `Drachnyen`/Abaddon** (SET PV à 4729 = re-heal) : alpha+overkill
+  en UN tour, ou ignorer. Mephiston (Psychic) bypasse son TerminatorArmour.
+- **`Explodes` = friendly fire** : tuer les ennemis `Explodes` (Pestillian) **à
+  distance** ; ne pas coller MES unités à mon unité `Explodes` (Morvenn) si elle peut mourir.
+- **Ouvrir un focus par un ACTIF adjacent** (LegendaryCommander+StandVigil → +800
+  + hits bonus + ouvre des tuiles). Le stun (VexillaMagnifica) neutralise un burster 1 tour.
+- **MoW killzone** (MacroPlasma) : cibler **une de MES unités avancées** marque la
+  zone devant elle → la meute qui avance la traverse → AoE (tue Poxwalkers, finit les low).
+- **L'artillerie du MoW ennemi frappe partout** (ranged ~2600-2900/tour) : le repli
+  ne protège pas les fragiles → l'inclure dans la menace.
+- **Tuer le MOTEUR en priorité** : l'unité qui heal / summon / buff l'équipe
+  (ex. Biophagus, Re'vas-drones, un buffer) vaut bien plus que sa barre de PV — la
+  retirer coupe le sustain adverse. (Attention aux résurrections `Ambush` : decoy →
+  retour 1×, le 2ᵉ kill est permanent ; détruire les decoys si on peut.)
+- **Summon-snowball** (roster summon : WingedPrime, MoW ForwardSpotter…) : invoquer
+  TÔT (via `--to`, cf. §3) → présence de board croissante ; les summons **tradent en
+  réaction** (overwatch/contre) même sans jouer leur tour. A renversé un matchup
+  équilibré (fini 8 units vs 1).
+- **AoE retardée / Taunt** = pattern fort : Taunter un cluster sur un tank + AoE qui
+  fire au tour suivant (Eightbound OverwhelmingWrath) ; barrage MoW marqué au tour T,
+  fire à T+1. Setup défensif + dégâts groupés.
 
 > **Sans présupposer le niveau adverse** : ces tactiques visent un jeu optimal.
 > Ne PAS tendre des pièges qui ne marchent que contre une IA gloutonne.
@@ -273,6 +380,17 @@ ability / `effect` (label). `aiturn` capture **toute la cascade** du tour advers
 - **Move rejeté silencieusement** : `ok=true` mais `mutated=false` + cascade vide
   = tile illégale/inatteignable → traiter comme **illégal**, ne pas réessayer à
   l'identique.
+- **Attaquer HORS PORTÉE = no-op REJETÉ** (cible inchangée) : si je lance `act ability`
+  sans avoir **déplacé l'unité sur la tuile du plan** d'abord, l'attaque ne s'applique
+  pas. ⚠️ l'action n'est **PAS forcément consommée** — vécu : le Terminator est resté
+  dans `à activer` après (donc ré-utilisable), contrairement à ce que je croyais.
+  Règle sûre : `act move --to <tuile du plan>` PUIS `act ability` ; et après un coup à
+  0/cible inchangée, **RE-VÉRIFIER `à activer`** (l'unité est souvent encore dispo —
+  ne pas la croire grillée). (Cas Guardsman retiré de la liste = inexpliqué, summons ?)
+- **Overwatch ennemi armé non visible** : je n'ai pas d'overlay des zones d'overwatch
+  (la danger zone ≠ trigger-en-bougeant). En attendant le fix, lire les kits (qui peut
+  overwatch : Re'vas EarlyWarningOverride, Azrael, Maugan Ra…) + estimer position+range,
+  et router à distance / depuis le côté opposé. Cf. wiki §3bis (GAP) + [[project_overwatch_blindspot]].
 - **Console Windows cp1252** : préfixer `PYTHONIOENCODING=utf-8` sinon crash sur
   `→` / `⚠` / `«»`.
 - **Pump bloque le main thread** : `aiturn`/`--advance` est chunké (≤ 2-4 tours)

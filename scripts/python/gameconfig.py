@@ -211,9 +211,39 @@ def card_unit(uid: str) -> str:
 
 def card_trait(tid: str) -> str:
     t = trait(tid)
-    if not t["variables"]:
-        return f"{tid}: (pas de variable traitVariables — sémantique à enrichir au wiki)"
-    return f"{tid}: " + json.dumps(t["variables"], separators=(",", ":"))
+    desc = trait_description(tid)
+    head = (f"{tid}: " + json.dumps(t["variables"], separators=(",", ":"))
+            if t["variables"]
+            else f"{tid}: (pas de variable traitVariables)")
+    return head + (f"\n  « {desc} »" if desc else "")
+
+
+def recon_effect(name: str) -> str:
+    """Recon d'un EFFET par son nom `EffectType` (ce que `decisionView` expose
+    dans le champ `effects`, ex. 'ContagionsOfNurgle_ArmorReduction1',
+    'HeavyRailRifle_PendingTarget', 'TeleportStrike_TeleportingIn', 'Ice').
+
+    Un effet est nommé `<Ability/Trait>_<suffixe>` : on retrouve sa SOURCE en
+    rognant le suffixe (préfixes décroissants) et on imprime la carte de
+    l'ability ou du trait source (chiffres gameconfig + texte de règles i2).
+    Les effets « moteur » purs (Ice, Stunned, Taunted_*) sans ability/trait
+    source → fallback i2 direct, sinon à enrichir au wiki."""
+    parts = name.split("_")
+    for i in range(len(parts), 0, -1):
+        cand = "_".join(parts[:i])
+        if ability(cand):
+            return f"[effet] {name}  ←  ability «{cand}»\n  " + card_ability(cand)
+        if trait_description(cand) or trait(cand)["variables"]:
+            return f"[effet] {name}  ←  trait «{cand}»\n  " + card_trait(cand)
+    # Effet moteur sans ability/trait source : tenter une description i2 directe.
+    direct = (_i2_text(f"Traits/{name}_Description")
+              or _i2_text(f"Abilities/{name}_Description"))
+    if direct:
+        clean = " ".join(_STYLE_RE.sub("", _TOKEN_RE.sub(
+            lambda m: "{[" + m.group(1) + "]}", direct)).split())
+        return f"[effet] {name}  (effet moteur)\n  « {clean} »"
+    return (f"[effet] {name}  (effet moteur — pas d'ability/trait source ni "
+            f"description i2 ; sémantique à enrichir au wiki)")
 
 
 def _demo(argv: list[str]) -> int:
@@ -241,5 +271,30 @@ def _demo(argv: list[str]) -> int:
     return 0
 
 
+def main(argv: list[str]) -> int:
+    """CLI. Modes :
+      gameconfig.py <unitId>...        → carte(s) d'unité (recon kit complet)
+      gameconfig.py --effect <name>... → recon d'un effet (decisionView.effects)
+      gameconfig.py --ability <name>...→ carte d'une ability par nom
+      gameconfig.py --trait <name>...  → carte d'un trait par nom
+    Sans argument : démo."""
+    if argv and argv[0] in ("--effect", "-e"):
+        if len(argv) < 2:
+            print("usage: gameconfig.py --effect <EffectName>...", file=sys.stderr)
+            return 2
+        for name in argv[1:]:
+            print(recon_effect(name)); print()
+        return 0
+    if argv and argv[0] in ("--ability", "-a"):
+        for name in argv[1:]:
+            print(card_ability(name)); print()
+        return 0
+    if argv and argv[0] in ("--trait", "-t"):
+        for name in argv[1:]:
+            print(card_trait(name)); print()
+        return 0
+    return _demo(argv)
+
+
 if __name__ == "__main__":
-    sys.exit(_demo(sys.argv[1:]))
+    sys.exit(main(sys.argv[1:]))

@@ -96,6 +96,48 @@ export const componentsActiveAbilityClass = findClassAnywhere(
     "IdunBattle.Entities.Components", "ActiveAbility");
 export const abilityNameOff = componentsActiveAbilityClass
     ? getFieldOffset(componentsActiveAbilityClass, "AbilityName") : -1;
+// ÉTAT RUNTIME par actif (components.ActiveAbility) — l'info LIVE absente de
+// gameconfig (qui n'a que noms+stats statiques) : savoir ce qui est castable CE
+// tour (cooldown/munitions/disabled). Offsets résolus PAR NOM (robuste au build).
+// Nullable<int> en IL2CPP = { int value; bool hasValue } → value @off, hasValue
+// @off+4 (cf. dump kqkbjqfb6c : CanStillBeUsed@0x28, RemainingCooldownTurns@0x2C,
+// IsDisabled@0x35, AmmoCost@0x38, HasEnoughAmmo@0x40).
+export const abCanUseOff = componentsActiveAbilityClass
+    ? getFieldOffset(componentsActiveAbilityClass, "CanStillBeUsed") : -1;
+export const abCooldownOff = componentsActiveAbilityClass
+    ? getFieldOffset(componentsActiveAbilityClass, "RemainingCooldownTurns") : -1;
+export const abDisabledOff = componentsActiveAbilityClass
+    ? getFieldOffset(componentsActiveAbilityClass, "IsDisabled") : -1;
+export const abAmmoCostOff = componentsActiveAbilityClass
+    ? getFieldOffset(componentsActiveAbilityClass, "AmmoCost") : -1;
+export const abHasAmmoOff = componentsActiveAbilityClass
+    ? getFieldOffset(componentsActiveAbilityClass, "HasEnoughAmmo") : -1;
+
+/** Lit l'état castable d'un objet components.ActiveAbility (élément de GetActives).
+ *  `cooldown`=null si Nullable sans valeur (= prêt). Tous champs best-effort. */
+export function readAbilityState(ab: NativePointer): {
+    usable?: boolean; cooldown?: number | null; disabled?: boolean;
+    ammoCost?: number | null; hasAmmo?: boolean;
+} {
+    const st: {
+        usable?: boolean; cooldown?: number | null; disabled?: boolean;
+        ammoCost?: number | null; hasAmmo?: boolean;
+    } = {};
+    try {
+        if (abCanUseOff >= 0) st.usable = ab.add(abCanUseOff).readU8() !== 0;
+        if (abCooldownOff >= 0) {
+            const has = ab.add(abCooldownOff + 4).readU8() !== 0;
+            st.cooldown = has ? ab.add(abCooldownOff).readS32() : null;
+        }
+        if (abDisabledOff >= 0) st.disabled = ab.add(abDisabledOff).readU8() !== 0;
+        if (abAmmoCostOff >= 0) {
+            const has = ab.add(abAmmoCostOff + 4).readU8() !== 0;
+            st.ammoCost = has ? ab.add(abAmmoCostOff).readS32() : null;
+        }
+        if (abHasAmmoOff >= 0) st.hasAmmo = ab.add(abHasAmmoOff).readU8() !== 0;
+    } catch { /* */ }
+    return st;
+}
 // EntityExtensions.GetMainTile(entity, state) → la tile courante de l'unité
 // (GetMovableTilesFor exclut la tile d'origine ; on l'ajoute au set candidat
 // pour que « rester sur place et attaquer » soit rankée).
@@ -321,12 +363,21 @@ export function applyOneAction(
                 buildErr = "move: need unitId + to/feet";
             } else { msg = buildMoveMsg(action.unitId, feet); }
         } else if (action.kind === "ability") {
-            if (action.casterId === undefined || action.targetId === undefined
+            // Cible = entité (targetId) OU hex libre (to → entité-tuile).
+            let tgt = action.targetId;
+            if (tgt === undefined && action.to) {
+                const sp = runner.add(runnerOff.state).readPointer();
+                const tid = findTileEntityId(sp, action.to.col, action.to.row);
+                if (tid < 0) {
+                    buildErr = "ability: no tile entity at "
+                        + action.to.col + "," + action.to.row;
+                } else { tgt = tid; }
+            }
+            if (action.casterId === undefined || tgt === undefined
                 || action.abilityType === undefined) {
-                buildErr = "ability: need casterId + targetId + abilityType";
+                buildErr = "ability: need casterId + (targetId|to) + abilityType";
             } else {
-                msg = buildAbilityMsg(
-                    action.casterId, action.targetId, action.abilityType);
+                msg = buildAbilityMsg(action.casterId, tgt, action.abilityType);
             }
         } else if (action.kind === "finish") {
             if (action.unitId === undefined) buildErr = "finish: need unitId";
@@ -749,6 +800,23 @@ export function readTileCoord(tile: NativePointer): { col: number; row: number }
     return { col, row };
 }
 
+/** Résout (col,row) → entityId de la TILE à ce hex (EntityType.Tile=0, coord via
+ *  PositionComponent). Nécessaire pour les abilities ciblant un HEX LIBRE (summons
+ *  type AlphaWarrior/ForwardSpotter, mur DutyEternal, marquage sur case vide) :
+ *  `ActiveAbilityMessage` n'a PAS de champ position → on cible l'entité-tuile (le
+ *  moteur prend son hex). -1 si aucune tile à ce hex. */
+export function findTileEntityId(
+    statePtr: NativePointer, col: number, row: number,
+): number {
+    let found = -1;
+    forEachEntity(statePtr, (e, id, ty) => {
+        if (found >= 0 || ty !== EntityType.Tile) return;
+        const c = readTileCoord(e);
+        if (c.col === col && c.row === row) found = id;
+    });
+    return found;
+}
+
 /** Extrait les tiles d'un IOrderedSet<IEntity> (List<T> : items@0x10, size@0x18,
  *  données dès +0x20). */
 export function extractTiles(
@@ -813,10 +881,18 @@ export function getAbilityComponent(unit: NativePointer): NativePointer {
  *  (NormalAttackType @0x28) + (si includeActives) ses actives (GetActives →
  *  .AbilityName @0x44). Filtre 0/None. C'est ce qu'il faut passer à
  *  GetBestTileToAttackFrom (pas l'abstrait 17). */
+export interface AbilityInfo {
+    id: number; name: string; kind: string;
+    // état runtime (actives uniquement ; absent pour l'attaque normale = toujours
+    // dispo). usable=castable ce tour ; cooldown=tours restants (null=prêt) ;
+    // disabled ; ammoCost (null=pas de coût) ; hasAmmo.
+    usable?: boolean; cooldown?: number | null; disabled?: boolean;
+    ammoCost?: number | null; hasAmmo?: boolean;
+}
 export function unitAbilityTypes(
     unit: NativePointer, includeActives: boolean,
-): Array<{ id: number; name: string; kind: string }> {
-    const out: Array<{ id: number; name: string; kind: string }> = [];
+): AbilityInfo[] {
+    const out: AbilityInfo[] = [];
     const comp = getAbilityComponent(unit);
     if (comp.isNull()) return out;
     if (normalAttackTypeOff >= 0) {
@@ -840,7 +916,12 @@ export function unitAbilityTypes(
                         if (ab.isNull()) continue;
                         const t = ab.add(abilityNameOff).readS32();
                         if (t !== 0 && !out.some((e) => e.id === t)) {
-                            out.push({ id: t, name: abilityName(t) ?? "id:" + t, kind: "active" });
+                            // état LIVE (cooldown/munitions/disabled) lu sur l'objet
+                            // ActiveAbility — l'info que gameconfig ne peut pas donner.
+                            out.push({
+                                id: t, name: abilityName(t) ?? "id:" + t, kind: "active",
+                                ...readAbilityState(ab),
+                            });
                         }
                     }
                 }

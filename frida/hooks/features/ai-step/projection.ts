@@ -15,6 +15,7 @@ import {
     isAliveMi, isCtrlByCurMi, hasActionLeftMi, isRangedMi,
     mowAbilityTypes, readTileCoord, unitAbilityTypes,
 } from "./internals.js";
+import type { AbilityInfo } from "./internals.js";
 
 export interface RankedTile {
     col: number; row: number;
@@ -32,7 +33,7 @@ export interface UnitAttackPlan {
     unitId: number; visualId: string | null;
     pos: { col: number; row: number } | null;
     currentTile: { col: number; row: number } | null;
-    abilities: Array<{ id: number; name: string; kind: string }>;
+    abilities: AbilityInfo[];
     evals: AttackEval[];
 }
 
@@ -194,7 +195,7 @@ export interface FullUnit {
     pos: { col: number; row: number } | null;
     hp: number | null; owner: number | null; team: number | null;
     alive: boolean; ctrl: boolean; hasAction: boolean; ranged: boolean;
-    abilities: Array<{ id: number; name: string; kind: string }>;
+    abilities: AbilityInfo[];
 }
 
 /** Projection de TOUTES les units (2 camps) : flags vivants + abilities concrètes. */
@@ -233,7 +234,7 @@ export interface FullMow {
     /** Slot de déploiement (MachineOfWarPosition : 1=Top, 2=Bottom) — les MoW
      *  n'ont pas de (col,row) propre, juste un slot mappé aux tiles du board. */
     slot: number | null;
-    abilities: Array<{ id: number; name: string; kind: string }>;
+    abilities: AbilityInfo[];
 }
 
 /** Projection des MoW (MachinePlatform/Machine) prête pour l'oracle. Les MoW ne
