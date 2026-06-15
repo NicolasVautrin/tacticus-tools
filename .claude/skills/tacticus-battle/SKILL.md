@@ -90,6 +90,46 @@ PYTHONIOENCODING=utf-8 python scripts/python/rl_duel.py build --rank 17 --list-p
 
 ---
 
+## 2bis. RECON des units — LA PREMIÈRE CHOSE, AVANT le tour 1 (obligatoire)
+
+> **Avant de jouer le moindre coup, scouter le KIT COMPLET de CHAQUE unité des
+> deux équipes.** Sauter cette étape = se faire surprendre (ex. le snowball de
+> Kharn ci-dessous). C'est non négociable.
+
+```bash
+# pour CHAQUE unitId des deux rosters (affichés par build) :
+PYTHONIOENCODING=utf-8 python scripts/python/gameconfig.py worldKharn custoTrajann ...
+```
+
+`gameconfig.py <id>` croise **3 sources** (indispensable — aucune seule ne suffit) :
+- **gameconfig** = les CHIFFRES (move, portée d'arme, nrOfHits, range des actifs,
+  damageProfiles, variables de traits).
+- **`data/i2_en.json`** = le TEXTE DE RÈGLES (`ability_description`/`trait_description`)
+  — c'est là que vivent les **conditionnels** qu'aucun chiffre ne révèle : snowball,
+  triggers, auto-attaques, ripostes. `card_unit` les affiche en `« … »`.
+- **stream** (en jeu) = pour OBSERVER les triggers se déclencher (cf. §5).
+
+**Décoder le PROFIL DE MENACE de chaque ennemi (et les synergies des miennes)** :
+- **Actifs multi-hit / burst** : ex. Kharn `KillMaimBurn` = 8 coups (1 Pierce + 6
+  Eviscerate + 1 Plasma) **range 2** → ~10k. Sur **cooldown** (suivre dans la cascade).
+- **Range des actifs ≠ portée d'arme** : un actif range 2 + `RapidAssault` (+move) =
+  menace bien plus loin que la portée d'arme. Mes tiles « safe » ne le sont pas.
+- **Passifs / traits qui SNOWBALLENT ou se DÉCLENCHENT** (le piège n°1) :
+  - `TheBetrayer` (Kharn) : si un kill ce combat → **auto move+attaque au DÉBUT de
+    chaque tour** (en plus du manuel) → **ne jamais le laisser tuer quoi que ce soit**
+    (même un summon).
+  - `BlessingsOfKhorne` : +dmg cumulatif par kill mêlée → snowball.
+  - `FinalJustice` : **attaque en mourant** (sauf si **overkill**) → overkill les units
+    qui l'ont, ou anticiper la riposte.
+  - `RapidAssault` : +move avant d'attaquer, +dmg sur attaques multiples.
+  - **counter/thorns** (riposte mêlée), **aura** (`ContagionsOfNurgle` = dégâts en
+    ENTRANT dans la portée), **overwatch** (dégât en bougeant dans la zone).
+- En sortir une **liste de menaces** (qui burst, qui snowball, qui contre, portées
+  réelles) et **planifier le tour 1 autour** : ne pas entrer dans la zone d'un burster ;
+  refuser tout kill aux snowballers ; overkill les `FinalJustice` ; respecter aura/counter.
+
+---
+
 ## 3. La boucle de tour (1 round = mon tour + tour adverse)
 
 ### MON TOUR (oracle, équipe 1)

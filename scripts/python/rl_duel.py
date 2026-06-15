@@ -278,9 +278,11 @@ def _my_team(sid: int, rid: int, st: dict):
 
 def _fmt_dmg(d: dict) -> str:
     eff = f" [{d['effect']}]" if d.get("effect") else ""
+    auto = f" [AUTO:{d.get('group')}]" if d.get("auto") else ""
     crit = "*" if d.get("crit") else ""
     kill = " KILL" if d.get("killed") else ""
-    return f"u{d.get('attacker')}->u{d.get('target')} {d.get('amount')}{crit}{eff}{kill}"
+    return (f"u{d.get('attacker')}->u{d.get('target')} "
+            f"{d.get('amount')}{crit}{eff}{auto}{kill}")
 
 
 def _summarize_cascade(an: dict, cap: int = 16) -> None:
@@ -291,8 +293,11 @@ def _summarize_cascade(an: dict, cap: int = 16) -> None:
     if rec:
         tot = sum(d.get("amount") or 0 for d in rec)
         nk = sum(1 for d in rec if d.get("killed"))
+        na = sum(1 for d in rec if d.get("auto"))
         print(f"  SUBI : {len(rec)} coups, {tot} dmg"
-              + (f", {nk} de MES units tuées" if nk else ""))
+              + (f", {nk} de MES units tuées" if nk else "")
+              + (f", dont {na} AUTO/passif (TheBetrayer/triggered/riposte)"
+                 if na else ""))
         for d in rec[:cap]:
             print("    - " + _fmt_dmg(d))
         if len(rec) > cap:

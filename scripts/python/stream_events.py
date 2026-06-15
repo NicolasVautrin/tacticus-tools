@@ -126,13 +126,28 @@ def analyze(events: list, my_ids) -> dict:
     my = set(my_ids or [])
     out = {"damage": [], "received": [], "dealt": [],
            "deaths": [], "effects": []}
+    # Pile de GROUPES (suivie en marchant la cascade) : c'est le signal qui
+    # distingue une attaque MANUELLE (sous un groupe `User_*` = activation
+    # commandée) d'une attaque AUTO/PASSIVE (StartTurn, triggered, riposte…).
+    # Ex. Kharn = 4 hits sous `StartTurn` (auto TheBetrayer) + 4 sous
+    # `User_UseAbility` (manuel) — sans ça on ne voyait pas le « auto + manuel ».
+    stack: list[str] = []
     for ev in events or []:
-        if ev.get("kind") != "action":
+        k = ev.get("kind")
+        if k == "group":
+            stack.append(group_name(ev.get("group")))
+            continue
+        if k == "finish":
+            if stack:
+                stack.pop()
+            continue
+        if k != "action":
             continue
         step = ev.get("step")
         tags = _tags(ev)
         if step == 4:  # UnitDamaged — événement uniforme
             atk, tgt = tags.get("Attacker_Id"), tags.get("Target_Id")
+            manual = any(g.startswith("User_") for g in stack)
             d = {
                 "attacker": atk, "target": tgt,
                 "amount": tags.get("Amount"),
@@ -141,6 +156,11 @@ def analyze(events: list, my_ids) -> dict:
                 "ability": tags.get("Active_Ability_Type"),
                 "effect_type": tags.get("Effect_Type"),
                 "effect": effect_label(tags.get("Effect_Type")),
+                # auto/passif = hors activation commandée (StartTurn auto de
+                # TheBetrayer, triggered, riposte…). group = groupe englobant
+                # le plus externe (StartTurn / User_UseAbility / …).
+                "auto": not manual,
+                "group": stack[0] if stack else None,
             }
             out["damage"].append(d)
             if atk in my:

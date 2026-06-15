@@ -38,7 +38,7 @@ import * as initTrace from "./features/init-trace.js";
 import * as moveOptions from "./features/move-options.js";
 import * as winnerCapture from "./features/winner-capture.js";
 import * as messageTrace from "./features/message-trace.js";
-import * as aiStep from "./features/ai-step.js";
+import * as aiStep from "./features/ai-step/index.js";
 
 export interface Ctx {
     rpc: Record<string, (...args: any[]) => unknown>;

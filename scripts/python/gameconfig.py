@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import functools
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -86,6 +87,64 @@ def all_unit_ids() -> dict:
     return {k: sorted(idx[k].keys()) for k in ("lineup", "npc", "summons")}
 
 
+# --- descriptions i2 (texte de RÈGLES, pas juste les chiffres) ---
+# Le gameconfig ne porte QUE les mécaniques (nrOfHits/range/profiles). Le texte
+# lisible (« Si Kharn a tué un ennemi… auto move+attaque ») vit dans la
+# localisation i2 du jeu, dumpée dans data/i2_en.json. La recon DOIT croiser les
+# deux : sans le texte i2, on rate les conditionnels (snowball TheBetrayer,
+# triggers, auto-attaques de fin de tour, etc.).
+
+@functools.lru_cache(maxsize=1)
+def _i2() -> dict:
+    p = Path(__file__).resolve().parents[2] / "data" / "i2_en.json"
+    if not p.exists():
+        return {}
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+_STYLE_RE = re.compile(r"</?style[^>]*>")
+_TOKEN_RE = re.compile(r"\{\[([A-Za-z0-9_]+)\]\}")
+
+
+def _i2_text(key: str) -> str | None:
+    return _i2().get(key)
+
+
+def ability_description(aid: str, level: int | None = None) -> str | None:
+    """Texte de règles d'une ability (i2 `Abilities/<id>_CurrentLevelDescription`),
+    placeholders `{[nrOfHits]}`/`{[minDmg]}`/`{[range]}`… remplis depuis le
+    gameconfig (constants + variables au niveau `level`, défaut = max), styles i2
+    retirés, espaces normalisés. None si pas de description i2."""
+    tmpl = (_i2_text(f"Abilities/{aid}_CurrentLevelDescription")
+            or _i2_text(f"Abilities/{aid}_Description"))
+    if not tmpl:
+        return None
+    a = ability(aid) or {}
+    consts = a.get("constants") or {}
+    variables = a.get("variables") or {}
+
+    def val(key: str):
+        if key in consts:
+            return consts[key]
+        v = variables.get(key)
+        if isinstance(v, list) and v:
+            i = (len(v) - 1) if level is None else max(0, min(level, len(v) - 1))
+            return v[i]
+        return v if v is not None else "{[" + key + "]}"
+
+    txt = _TOKEN_RE.sub(lambda m: str(val(m.group(1))), tmpl)
+    return " ".join(_STYLE_RE.sub("", txt).split())
+
+
+def trait_description(tid: str) -> str | None:
+    """Texte de règles d'un trait (i2 `Traits/<id>_Description`)."""
+    tmpl = _i2_text(f"Traits/{tid}_Description")
+    if not tmpl:
+        return None
+    return " ".join(_STYLE_RE.sub("", _TOKEN_RE.sub(
+        lambda m: "{[" + m.group(1) + "]}", tmpl)).split())
+
+
 # --- cartes compactes (lisibles par l'oracle) ---
 
 def _dmg_curve(adef: dict) -> str | None:
@@ -115,7 +174,11 @@ def card_ability(aid: str) -> str:
     cur = _dmg_curve(a)
     if cur:
         parts.append(cur)
-    return "  ".join(parts)
+    line = "  ".join(parts)
+    desc = ability_description(aid)
+    if desc:
+        line += f"\n      « {desc} »"
+    return line
 
 
 def card_unit(uid: str) -> str:
@@ -136,8 +199,9 @@ def card_unit(uid: str) -> str:
             ws.append(f"{w.get('hits')}x {w.get('DamageProfile')}"
                       f"{dp if dp else ''} ({rng})")
         lines.append("  weapons: " + ", ".join(ws))
-    if u.get("traits"):
-        lines.append("  traits: " + ", ".join(u["traits"]))
+    for tid in (u.get("traits") or []):
+        td = trait_description(tid)
+        lines.append(f"  [trait] {tid}" + (f" — « {td} »" if td else ""))
     for aid in (u.get("activeAbilities") or []):
         lines.append("  [active]  " + card_ability(aid))
     for aid in (u.get("passiveAbilities") or []):
