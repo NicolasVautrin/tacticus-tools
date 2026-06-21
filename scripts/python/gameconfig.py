@@ -16,7 +16,8 @@ API :
     trait(id)          -> {variables: {params traitVariables matchés}}
     card_unit/ability/trait(...) -> texte compact lisible (kit résolu)
 
-Usage : python scripts/python/gameconfig.py [unitId]
+Usage : python scripts/python/gameconfig.py [unitId|nom]   (ex. `admecManipulus` OU `Actus`)
+        python scripts/python/gameconfig.py --unit <id|nom>   (kit complet ; suggère si ambigu)
 """
 from __future__ import annotations
 
@@ -85,6 +86,51 @@ def trait(tid: str) -> dict:
 def all_unit_ids() -> dict:
     idx = _index()
     return {k: sorted(idx[k].keys()) for k in ("lineup", "npc", "summons")}
+
+
+# --- résolution unitId par clé OU nom d'affichage (ex. 'Actus' -> 'admecManipulus') ---
+
+@functools.lru_cache(maxsize=1)
+def _name_to_id() -> dict:
+    """nom d'affichage (lower) -> unitId. lineup prioritaire sur npc/summons."""
+    idx = _index()
+    out: dict = {}
+    for kind in ("lineup", "npc", "summons"):
+        for uid, u in idx[kind].items():
+            nm = str(u.get("name") or "").strip().lower()
+            if nm:
+                out.setdefault(nm, uid)
+    return out
+
+
+def _match_units(query: str) -> list[tuple[str, str]]:
+    """(uid, name) dont l'id OU le nom d'affichage contient `query` (sous-chaîne,
+    insensible à la casse). Sert aux suggestions quand la requête est ambiguë."""
+    idx = _index()
+    q = query.lower()
+    seen: set = set()
+    out: list = []
+    for kind in ("lineup", "npc", "summons"):
+        for uid, u in idx[kind].items():
+            nm = str(u.get("name") or "")
+            if (q in uid.lower() or q in nm.lower()) and uid not in seen:
+                seen.add(uid)
+                out.append((uid, nm))
+    return out
+
+
+def resolve_unit_id(query: str) -> str | None:
+    """unitId depuis une clé EXACTE (`admecManipulus`), sinon un NOM d'affichage
+    exact (`Actus` -> `admecManipulus`), sinon une sous-chaîne UNIQUE (id ou nom).
+    Ambigu ou absent -> None (le CLI proposera alors la liste des candidats)."""
+    idx = _index()
+    if any(query in idx[k] for k in ("lineup", "npc", "summons")):
+        return query
+    ni = _name_to_id()
+    if query.lower() in ni:
+        return ni[query.lower()]
+    cands = _match_units(query)
+    return cands[0][0] if len(cands) == 1 else None
 
 
 # --- descriptions i2 (texte de RÈGLES, pas juste les chiffres) ---
@@ -158,7 +204,10 @@ def _dmg_curve(adef: dict) -> str | None:
 def card_ability(aid: str) -> str:
     a = ability(aid)
     if not a:
-        return f"{aid}: (inconnue dans gameconfig)"
+        alt = _auto_resolve(aid)
+        if alt:
+            return f"{aid}: pas une ability. {alt}"
+        return f"{aid}: (introuvable — ni ability/trait/effet/unité)"
     parts = [aid]
     if a.get("attackRangeType"):
         parts.append(a["attackRangeType"])
@@ -181,7 +230,18 @@ def card_ability(aid: str) -> str:
     return line
 
 
-def card_unit(uid: str) -> str:
+def card_unit(query: str) -> str:
+    uid = resolve_unit_id(query)
+    if uid is None:
+        alt = _auto_resolve(query)              # peut-être une ability/trait/effet, pas une unité
+        if alt:
+            return f"{query}: pas une unité. {alt}"
+        m = _match_units(query)
+        if m:
+            opts = ", ".join(f"{u} «{n}»" for u, n in m[:12])
+            more = f" … (+{len(m) - 12})" if len(m) > 12 else ""
+            return f"{query}: ambigu/inconnu — candidats : {opts}{more}"
+        return f"{query}: (introuvable — ni unité/ability/trait/effet)"
     u = unit(uid)
     if not u:
         return f"{uid}: (unit inconnue)"
@@ -212,6 +272,10 @@ def card_unit(uid: str) -> str:
 def card_trait(tid: str) -> str:
     t = trait(tid)
     desc = trait_description(tid)
+    if not desc and not t["variables"]:        # ni description i2 ni variable -> pas un trait connu
+        alt = _auto_resolve(tid)
+        if alt:
+            return f"{tid}: pas un trait. {alt}"
     head = (f"{tid}: " + json.dumps(t["variables"], separators=(",", ":"))
             if t["variables"]
             else f"{tid}: (pas de variable traitVariables)")
@@ -246,6 +310,25 @@ def recon_effect(name: str) -> str:
             f"description i2 ; sémantique à enrichir au wiki)")
 
 
+def _auto_resolve(name: str) -> str | None:
+    """Filet ANTI-FUMBLE : `name` introuvable dans le mode demandé ? on le cherche
+    dans les AUTRES catégories (ability / trait / effet / unité) et on renvoie sa
+    carte, avec une note disant ce que c'est. Évite à l'agent de DEVINER des noms
+    au hasard quand il a juste tapé le mauvais flag (ex. `--ability TeleportStrike`
+    alors que c'est un TRAIT). None si vraiment introuvable partout."""
+    if ability(name):
+        return "→ c'est une ABILITY :\n  " + card_ability(name)
+    if trait_description(name) or trait(name)["variables"]:
+        return "→ c'est un TRAIT :\n  " + card_trait(name)
+    eff = recon_effect(name)
+    if "pas d'ability/trait source" not in eff:
+        return "→ résolu comme EFFET :\n  " + eff
+    uid = resolve_unit_id(name)
+    if uid:
+        return "→ c'est une UNITÉ :\n  " + card_unit(name)
+    return None
+
+
 def _demo(argv: list[str]) -> int:
     if argv:
         for uid in argv:
@@ -273,11 +356,21 @@ def _demo(argv: list[str]) -> int:
 
 def main(argv: list[str]) -> int:
     """CLI. Modes :
-      gameconfig.py <unitId>...        → carte(s) d'unité (recon kit complet)
+      gameconfig.py <unitId|nom>...    → carte(s) d'unité (kit complet : traits+actifs+passifs décodés).
+                                          Accepte la CLÉ (admecManipulus) OU le NOM (Actus).
+      gameconfig.py --unit <id|nom>... → idem, explicite (suggère des candidats si ambigu/inconnu)
       gameconfig.py --effect <name>... → recon d'un effet (decisionView.effects)
       gameconfig.py --ability <name>...→ carte d'une ability par nom
       gameconfig.py --trait <name>...  → carte d'un trait par nom
     Sans argument : démo."""
+    if argv and argv[0] in ("--unit", "-u"):
+        if len(argv) < 2:
+            print("usage: gameconfig.py --unit <unitId|nom>...", file=sys.stderr)
+            return 2
+        for name in argv[1:]:
+            print(card_unit(name))
+            print()
+        return 0
     if argv and argv[0] in ("--effect", "-e"):
         if len(argv) < 2:
             print("usage: gameconfig.py --effect <EffectName>...", file=sys.stderr)

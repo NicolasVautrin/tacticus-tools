@@ -16,6 +16,7 @@ import {
     mowAbilityTypes, readTileCoord, unitAbilityTypes,
 } from "./internals.js";
 import type { AbilityInfo } from "./internals.js";
+import { readEffectsByUnit } from "../../game/effects.js";
 
 export interface RankedTile {
     col: number; row: number;
@@ -339,4 +340,185 @@ export function classFieldsDump(
         depth++;
     }
     return out;
+}
+
+export interface ExposureThreat {
+    enemyId: number; enemyVis: string | null;
+    abilityId: number; ability: string;
+    attackTile: { col: number; row: number } | null;
+    dmgMin: number; dmgMax: number;
+    overwatch: boolean;
+}
+export interface UnitExposure {
+    unitId: number; visualId: string | null;
+    pos: { col: number; row: number } | null;
+    hp: number | null;
+    threats: ExposureThreat[];
+    reachDmgMin: number; reachDmgMax: number;
+    lethalSure: boolean; lethalPossible: boolean;
+    err: string | null;
+}
+
+/** EXPOSITION (move-guard) — l'INVERSE de computeAttackPlans : ennemi=attaquant,
+ *  MES units=cibles. C'est la SEULE partie que Python ne peut PAS faire : le dégât
+ *  FIDÈLE ennemi→moi. Pour chaque MON unité U (contrôlée+vivante), somme le dégât
+ *  que les ENNEMIS peuvent lui infliger au prochain tour : chaque ennemi E à sa
+ *  MEILLEURE tuile d'attaque vs U (GetBestTileToAttackFrom) × sa meilleure ability,
+ *  dégât fidèle via GetAllPredictions(E, tile, ability)→get_Item(U). reach_dmg =
+ *  Σ_E best(E→U). lethalPossible = reach_dmg.max ≥ hp ; lethalSure = min ≥ hp.
+ *  Le volet GÉOMÉTRIE (`hasSafeTile` / `exposed = lethal ∧ hasSafeTile`) est calculé
+ *  côté PYTHON via oracle.geometric_danger_zone (le RPC dangerZone natif renvoie 0
+ *  sur ce build — cf. oracle.py). NE MUTE PAS le MatchState (seuls des IOrderedSet
+ *  transients sont touchés). Sur-approx assumée (faux positifs = à déclarer). */
+export function computeExposure(
+    statePtr: NativePointer, movementQuery: NativePointer,
+    attackQuery: NativePointer, getBestMi: { info: NativePointer },
+    dpq: NativePointer,
+    opts: { unitId?: number; allAbilities?: boolean; victimsOffTurn?: boolean },
+): { units: UnitExposure[]; enemyCount: number } {
+    // défaut TRUE : inclure les actives ennemies (over-approx de la menace).
+    const allAbilities = opts.allAbilities !== false;
+    // victimsOffTurn : sur un clone POST-endturn, le joueur courant = l'IA →
+    // les VICTIMES (mes units) sont HORS-tour, les ATTAQUANTS (IA) sont courants
+    // (donc movable sets débloqués = menace next-turn faithful). cf. move-guard
+    // Phase 2.5 (hill-climb guidé par la menace).
+    const victimsOffTurn = opts.victimsOffTurn === true;
+    const proj = projectMatchState(statePtr);
+    const visById = new Map<number, string | null>();
+    const posById = new Map<number, { col: number; row: number } | null>();
+    const hpById = new Map<number, number | null>();
+    for (const u of proj.units) {
+        visById.set(u.squadId, u.visualId);
+        posById.set(u.squadId, u.pos);
+        hpById.set(u.squadId, u.hp);
+    }
+    const effectsByUnit = readEffectsByUnit(statePtr);
+    const overwatchArmed = (enemyId: number): boolean => {
+        const effs = effectsByUnit.get(enemyId);
+        return effs
+            ? effs.some((e) => (e.name ?? "").toLowerCase().includes("overwatch"))
+            : false;
+    };
+
+    const myUnits: Array<{ id: number; ptr: NativePointer }> = [];
+    const enemies: Array<{ id: number; ptr: NativePointer }> = [];
+    forEachEntity(statePtr, (e, id, ty) => {
+        if (ty !== EntityType.Unit) return;
+        if (!invokeBool(isAliveMi, [e, statePtr])) return;
+        const ctrl = invokeBool(isCtrlByCurMi, [e, statePtr]);
+        // VICTIMES = courant (live, mon tour) OU hors-tour (clone post-endturn) ;
+        // ATTAQUANTS = l'autre camp. Les attaquants doivent être le joueur COURANT
+        // pour avoir des movable sets non-vides (turn-gating).
+        const isVictim = victimsOffTurn ? !ctrl : ctrl;
+        if (isVictim) {
+            if (opts.unitId === undefined || opts.unitId === id) myUnits.push({ id, ptr: e });
+        } else {
+            enemies.push({ id, ptr: e });
+        }
+    });
+
+    const abilBuf = Memory.alloc(4);
+    const boolFalse = Memory.alloc(1); boolFalse.writeU8(0);
+    const optsZero = Memory.alloc(0x30);
+    for (let k = 0; k < 0x30; k += 4) optsZero.add(k).writeU32(0);
+
+    const predMi = dpq.isNull() ? null
+        : findMethodByParamCount(dpq.readPointer(), "GetAllPredictions", 3);
+    let predItemMi: { info: NativePointer; ptr: NativePointer } | null = null;
+    let addMi: { info: NativePointer; ptr: NativePointer } | null = null;
+    let addResolved = false;
+
+    // Movable set de chaque ennemi : calculé UNE fois (GetBestTileToAttackFrom ne
+    // mute pas le set → réutilisable pour tous mes U et toutes les abilities). On
+    // y ajoute la tuile COURANTE de E (GetMovableTilesFor l'exclut → sinon
+    // « attaquer sans bouger » manquerait).
+    const enemyData = enemies.map((E) => {
+        let set: NativePointer = ptr(0);
+        try {
+            set = invokeMethod(getMovableTilesMi!.info, movementQuery,
+                [E.ptr, boolFalse, optsZero]);
+        } catch { set = ptr(0); }
+        if (!set.isNull()) {
+            gcRoot.add(set);
+            if (!addResolved) {
+                addMi = findMethodByParamCount(set.readPointer(), "Add", 1);
+                addResolved = true;
+            }
+            const mt = getUnitMainTile(E.ptr, statePtr);
+            if (!mt.isNull() && addMi) {
+                try { invokeMethod(addMi.info, set, [mt]); } catch { /* */ }
+            }
+        }
+        return { ...E, set, abilities: unitAbilityTypes(E.ptr, allAbilities) };
+    });
+
+    const out: UnitExposure[] = [];
+    try {
+        for (const U of myUnits) {
+            const threats: ExposureThreat[] = [];
+            let reachMin = 0; let reachMax = 0;
+            let err: string | null = null;
+            for (const E of enemyData) {
+                if (E.set.isNull()) continue;
+                // Meilleure menace de E sur U = max dmgMax sur ses abilities.
+                let best: ExposureThreat | null = null;
+                for (const ab of E.abilities) {
+                    abilBuf.writeS32(ab.id);
+                    let tile: NativePointer = ptr(0);
+                    try {
+                        tile = invokeMethod(getBestMi.info, attackQuery,
+                            [E.ptr, E.set, U.ptr, abilBuf]);
+                    } catch (e) { err = (e as Error).message; continue; }
+                    if (tile.isNull()) continue; // E ne peut pas atteindre/frapper U
+                    let dmgMin = 0; let dmgMax = 0;
+                    if (predMi && !dpq.isNull()) {
+                        try {
+                            const dict = invokeMethod(predMi.info, dpq,
+                                [E.ptr, tile, abilBuf]);
+                            if (!dict.isNull()) {
+                                if (!predItemMi) {
+                                    predItemMi = findMethodByParamCount(
+                                        dict.readPointer(), "get_Item", 1);
+                                }
+                                if (predItemMi) {
+                                    const boxed = invokeMethod(predItemMi.info, dict, [U.ptr]);
+                                    if (!boxed.isNull()) {
+                                        const bb = boxed.add(0x10);
+                                        dmgMin = bb.add(0x60).readS32();
+                                        dmgMax = bb.add(0x64).readS32();
+                                    }
+                                }
+                            }
+                        } catch { /* prédiction best-effort */ }
+                    }
+                    if (!best || dmgMax > best.dmgMax) {
+                        best = {
+                            enemyId: E.id, enemyVis: visById.get(E.id) ?? null,
+                            abilityId: ab.id, ability: ab.name,
+                            attackTile: readTileCoord(tile),
+                            dmgMin, dmgMax, overwatch: overwatchArmed(E.id),
+                        };
+                    }
+                }
+                if (best) {
+                    threats.push(best);
+                    reachMin += best.dmgMin; reachMax += best.dmgMax;
+                }
+            }
+            const hp = hpById.get(U.id) ?? null;
+            const lethalSure = hp !== null && reachMin >= hp;
+            const lethalPossible = hp !== null && reachMax >= hp;
+            out.push({
+                unitId: U.id, visualId: visById.get(U.id) ?? null,
+                pos: posById.get(U.id) ?? null, hp,
+                threats, reachDmgMin: reachMin, reachDmgMax: reachMax,
+                lethalSure, lethalPossible, err,
+            });
+        }
+    } finally {
+        for (const E of enemyData) {
+            if (!E.set.isNull()) { try { gcRoot.remove(E.set); } catch { /* */ } }
+        }
+    }
+    return { units: out, enemyCount: enemies.length };
 }

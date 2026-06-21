@@ -20,6 +20,12 @@ import { gcRoot } from "../il2cpp/gc-root.js";
 interface Entry extends RunnerHandle {
     runnerId: number;
     started: boolean;
+    /** When false, recorder.ts must NOT auto-evict this runner on its
+     *  match-end heuristic — it is lifecycle-managed by its driver (explicit
+     *  `disposeRunner`). Set for RL/isolated runners (initRunner / initAndStart
+     *  / buildPatchedRunner) so a CONCURRENT build can't evict a sibling runner
+     *  mid-use (TF06). UI / mirror-replay runners keep the default (true). */
+    autoDispose: boolean;
     /** Pointers added via `pinForRunner` — all unpinned by `disposeRunner`. */
     pinnedRefs: NativePointer[];
 }
@@ -27,9 +33,11 @@ interface Entry extends RunnerHandle {
 const byId = new Map<number, Entry>();
 let counter = 0;
 
-export function registerRunner(h: RunnerHandle): Entry {
+export function registerRunner(
+    h: RunnerHandle, opts?: { autoDispose?: boolean },
+): Entry {
     const e: Entry = { ...h, runnerId: ++counter, started: false,
-                       pinnedRefs: [] };
+                       autoDispose: opts?.autoDispose !== false, pinnedRefs: [] };
     byId.set(e.runnerId, e);
     return e;
 }

@@ -15,6 +15,9 @@ import { openLog, appendLog, closeLog } from "./logger.js";
 import { publish } from "./ws.js";
 import { routeMessage } from "./router-messages.js";
 import { pruneRunnersBySession } from "./battle-store.js";
+import {
+    acquireSlot, releaseSlot, noteDispatch, noteSettle, concurrencyFactor,
+} from "./rpc-queue.js";
 
 export interface RunSession {
     id: number;
@@ -244,13 +247,38 @@ export async function rpcCall(
     }
 
     const callArgs = Array.isArray(args) ? args : [args];
-    const call = fn.apply(null, callArgs);
 
-    const timeoutP = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error(`RPC timeout after ${timeout}ms`)), timeout);
-    });
-
-    return Promise.race([call, timeoutP]);
+    // Concurrency gate (cap=∞ by default → pure pass-through + telemetry). The
+    // slot is acquired BEFORE the timeout clock starts, so a caller queued
+    // behind a finite cap never times out while merely waiting for a slot
+    // (timeout-at-dispatch). See host/rpc-queue.ts.
+    const queuedMs = await acquireSlot(id);
+    noteDispatch(id, queuedMs);
+    // Timeout scales with parallelism: the single Frida pump runs RPCs one at a
+    // time, so under C concurrent callers a call may serialize behind ~C others
+    // → effective = base × concurrencyFactor (cap when set, else in-flight).
+    // Keeps a per-call base (single-agent worst case) correct as N grows, and
+    // avoids false timeouts on MUTATING RPCs (zombie/corruption) under load.
+    const factor = concurrencyFactor(id);
+    const effTimeout = timeout * factor;
+    const dispatchedAt = Date.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
+    try {
+        const call = fn.apply(null, callArgs);
+        const timeoutP = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+                timedOut = true;
+                reject(new Error(
+                    `RPC timeout after ${effTimeout}ms (base ${timeout}×${factor})`));
+            }, effTimeout);
+        });
+        return await Promise.race([call, timeoutP]);
+    } finally {
+        if (timer) clearTimeout(timer);
+        noteSettle(id, Date.now() - dispatchedAt, timedOut);
+        releaseSlot(id);
+    }
 }
 
 export function postMessage(id: number, message: unknown): void {

@@ -1162,7 +1162,7 @@ export function register(ctx: Ctx): void {
             }
             try {
                 const handle = buildRunner(bc);
-                const entry = registerRunner(handle);
+                const entry = registerRunner(handle, { autoDispose: false });
                 log(`[battle-config] buildPatchedRunner: runnerId=` +
                     `${entry.runnerId} runner=${handle.runner} seed=${handle.seed}`);
                 return {

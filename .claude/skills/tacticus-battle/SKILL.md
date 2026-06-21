@@ -160,6 +160,27 @@ PYTHONIOENCODING=utf-8 python scripts/python/gameconfig.py worldKharn custoTraja
   FAIRE de ces mécaniques) est dans le skill §6/§7 — le filet de sécurité que je lis
   toujours, même si j'oublie le wiki.
 
+> **RÈGLE D'INSCRIPTION (classer AVANT d'écrire) — n'inscrire qu'un fait
+> GÉNÉRAL + VÉRIFIÉ + NON-DÉRIVABLE. Le reste est jetable.** Un constat tiré
+> d'un combat passe ce filtre AVANT d'aller en doctrine, sinon il m'induit en
+> erreur ailleurs :
+> - **Rejeter l'overfit contextuel** : ce qui dépend de CE match (positions,
+>   « row 2 = safe », un roll, un placement) ne se généralise pas. Garder le
+>   **noyau général** s'il existe (souvent déjà couvert par un principe du skill →
+>   alors rien à ajouter), jeter le contexte.
+> - **Ne pas dupliquer le dérivable** : si gameconfig/i2 le dit déjà (ex.
+>   « Terrifying = −dmg **Melee** » → un ranged n'est pas réduit), c'est de la
+>   recon, pas de la doctrine → rien à écrire.
+> - **Ne pas inscrire une devinette** : un mécanisme supposé / n=1 non vérifié
+>   (ex. « la ligne du MoW suit les axes hex ») se **vérifie** (gameconfig/i2/probe)
+>   AVANT d'être écrit ; sinon ne rien écrire.
+>
+> Destination une fois le filtre passé : **savoir-jeu non-dérivable → wiki**
+> (interactions de traits §1, kits §2-4) ; **doctrine actionnable + caveats
+> OUTIL/process** (label `K!` optimiste, fiabilité d'un RPC/d'un actif, géométrie
+> hex…) **→ skill** — jamais dans le wiki, qui ne décrit QUE le jeu, jamais mes
+> outils. Cf. [[feedback_oracle_kb_architecture]].
+
 **Grab AUSSI les ids + l'état LIVE des actifs au recon** : `view` (decisionView
 `allAbilities:true`, défaut depuis le fix) affiche la section **« MES ACTIFS (état
 live) »** = par unité ses actifs `Nom(id) [prêt/cdN/disabled/munitionsN]`. Les
@@ -195,6 +216,29 @@ munitions) — info que gameconfig NE PEUT PAS donner. Les MoW affichent idem.
 ## 3. La boucle de tour (1 round = mon tour + tour adverse)
 
 ### MON TOUR (oracle, équipe 1)
+
+> 🛡️ **AVANT CHAQUE TOUR — MOVE-GUARD (anti-over-extension, OBLIGATOIRE).**
+> L'over-extension (pousser une unité où l'IA la focus pour rien) est le failure-mode
+> DOMINANT, et elle se **construit tour par tour** (le danger d'un move n'est souvent
+> visible qu'au tour où l'IA peut l'atteindre). Donc : **avant CHAQUE `play`** (T1, T2,
+> T3, …), simule ton tour proposé :
+> ```
+> python scripts/python/rl_duel.py guard --climb --spec '<mon tour COMPLET>'
+> ```
+> Le guard **clone** le combat (ne touche PAS le live), **reconstruit le tour courant**
+> en rejouant l'historique de tes vrais moves (`action_log`, enregistré automatiquement
+> par `play`), applique ton spec, **fait jouer 1 tour à l'IA ADVERSE** (CheatRunAIMessage
+> = ground truth ; **l'IA ne joue JAMAIS ta team**), et reporte le **NET** du tour +
+> un **spec recommandé** (il recule les units qui mourraient pour rien).
+> - **NET = leurs_pertes − mes_pertes sur CE tour.** **NET < 0 = l'IA te focus AVANT toi
+>   = OVER-EXTENDED.** **NET ≥ 0 = focus-first (tu tiens / gagnes l'échange).**
+> - **VERDICT `OVER-EXTENDED`** → joue le **spec recommandé** affiché (`play --spec
+>   '<recommandé>'`), PAS le tien.
+> - **`FOCUS-FIRST` / `SERRÉ-neutre`** → joue ton tour tel quel.
+> Coût ~5 sims, **déterministe** (RNG combat reproductible → 1 sim/plan ; le replay
+> reconstruit l'état live à l'identique, vérifié). À appeler **à chaque tour tant qu'il
+> reste un risque de contact** ; inutile une fois le combat clairement gagné/perdu.
+> Détails : `docs/rl/move-guard.md`.
 
 1. `view` (ou la carte déjà affichée).
 2. **Lire la carte** (§4).
@@ -285,6 +329,25 @@ r 6   . . a . B . .             <- une ligne par row
 - **Chiffre `1..N` sur une tile = danger zone** : NB d'ennemis pouvant frapper
   cette tile au prochain tour (move ∪ portée, **LoS incluse** pour ranged).
   `1` = effleuré, `N` = focus → ne pas y laisser un fragile.
+  > ⚠️ **POINT DE VIGILANCE — la danger-zone est une BORNE BASSE : elle SOUS-AVERTIT.**
+  > Calcul géométrique sur le `move` de **base** × portée d'**ARME** seulement. Un chiffre
+  > bas ou **0 n'est PAS « safe »**, surtout pour le carry. Elle IGNORE :
+  > - **buffs de move** (`RapidAssault` +1 jusqu'à l'attaque, conditionnels type
+  >   `DestroyTheWitch`, auras, `Unstoppable`) → reach réel > affiché ;
+  > - **actifs RANGED** (`PlasmaCannon` r3, `Stormcaller` r3, `RadBombardment`…) : une
+  >   unité **sans arme ranged** (affichée « mêlée », ex. Baraqiel) peut frapper **à
+  >   distance** — `unit_kit` ne lit que `weapons`, pas les actifs ;
+  > - **deep-strike / `TeleportStrike`** (reach = **TOUT le plateau**), **MoW artillerie**
+  >   (frappe **partout**, souvent absente du calcul), **summoners** (posent un corps qui
+  >   attaque **adjacent à MON unité**, indépendant de leur reach) ;
+  > - les **dégâts** : c'est un COMPTE de menaces, pas une létalité — « menacée par 1 »
+  >   peut tuer (burst ~8k, Psychic qui **ignore l'armure**).
+  > De plus le numéro **sous le glyphe de MA propre unité est caché** → juger la sécurité
+  > du carry via les **kits ennemis** (recon §2bis : qui a move-buff / actif-ranged /
+  > deep-strike / summon), **pas** via le seul overlay. **Compenser à la main** : traiter
+  > deep-strikers / MoW / summoners en **omni-menaces**, et juger « tuable ? » aux dégâts,
+  > pas au compte. (Vécu seed 33182 : Calandis jugée « safe » en (3,1) contre la mêlée →
+  > tuée par du **ranged** ; `PlasmaCannon` r3 de Baraqiel modélisé « mêlée ».)
 - **Légende** : `u<id> [visualId] «nom» <MOI|ENNEMI> HP<hp> move<M> <mêlée|ranged rN>`.
 - **PLANS D'ATTAQUE** : par unité, `vs u<cible> : (col,row)[min-max{K!|K?}] > ...`
   rankés par utilité IA.
@@ -334,7 +397,25 @@ ability / `effect` (label). `aiturn` capture **toute la cascade** du tour advers
 - **Éviter l'overwatch** : ne pas entrer dans la zone d'un overwatcher armé. Si
   l'ennemi s'y jette (faute), l'**observer** dans le stream et le punir.
 - **Protéger les fragiles** : un fragile en row 0 n'est PAS safe si l'ennemi est à
-  move+range (on a perdu une unité ainsi).
+  move+range (on a perdu une unité ainsi) — **y compris via un actif RANGED** (ex.
+  `PlasmaCannon` r3 de Baraqiel touche cible + 2 derrière → a chunké Calandis « safe »
+  en (2,0)). La danger-zone **sous-estime** ces portées (cf. §4) : juger à la main.
+- **Vs une compo FOCUS-FIRE (concentre ~20k+/tour) : ne JAMAIS présenter de cible
+  ISOLÉE.** Une unité seule au contact / à portée — même un tank 12k, même un Wrask
+  shieldé — meurt en **UN tour** (vécu seed 33182 : Jaeger puis Wrask focus-down). Garder
+  les units **groupées et en soutien mutuel** ; n'engager qu'avec une **masse** que
+  l'ennemi ne peut pas focus-kill entièrement ; **réduire leur output** (tuer les dealers
+  + le moteur de sustain) plutôt que chercher à out-trade un adversaire qui focus mieux.
+  Compo focus + sustain (heal/revive) + summons (Apothecary + MoW `ForwardSpotter`) =
+  **hard-counter** de mon roster de briques mêlée → pour démontrer « oracle > IA », prendre
+  un **matchup équilibré** (cf. [[project_battle_doctrine]]).
+- **Deep-strike (`TeleportStrike`, mes units type Wrask) = redéploiement TURN-1 ONLY, à
+  utiliser TOUT DE SUITE** (il expire au 1ᵉʳ `endturn` ; le « garder en réserve » le
+  gaspille et l'unité doit ensuite traverser à pied). **NE JAMAIS le projeter SEUL en
+  avant** : il atterrit non-adjacent (pas d'attaque = **« tour de gap »**) → focus-down
+  isolé avant d'agir (= mort de Wrask). Le téléport sert à **sauter la traversée (unité
+  lente) / infiltrer un flanc-backline**, et **uniquement s'il arrive en GROUPE supporté**
+  (ou sur un atterrissage hors de portée). Mécanique complète : wiki §1 `TeleportStrike`.
 - **Anticiper aura/contre** : lire le kit de la cible et des voisins avant
   d'approcher/frapper (cf. §5).
 - **Summons** : les units `genes*` auto-spawn Decoy (HP0) + Neophyte (ranged) —
@@ -413,6 +494,7 @@ ability / `effect` (label). `aiturn` capture **toute la cascade** du tour advers
 | `act endturn` | Fin de mon tour → main à l'adverse |
 | `aiturn [--maxpump N]` | 1 tour de l'IA native, décode **toute la cascade** (SUBI/MA RÉACTION/kills) |
 | `play --spec '[JSON actions]'` | 1 round complet auto (vs `ia` uniquement) |
+| `guard --climb --spec '[…]'` (ou `--auto hold\|gentle\|aggressive`) `[--cap 5]` | **MOVE-GUARD per-turn** (avant CHAQUE `play`) : clone-sim de ton tour (mes moves → endturn → 1 tour IA adverse, ground truth ; l'IA ne joue jamais ma team) → **NET du tour** (NET<0 = over-extended) + pull-back → **spec recommandé**. Reconstruit le tour courant via `action_log`. Ne touche pas le live. |
 | `status` | Stage + survivants par équipe + winner |
 | `dispose` | Libère le runner |
 

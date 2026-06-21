@@ -342,7 +342,8 @@ export function register(ctx: Ctx): void {
                 // across runs with identical roster + same seed.
                 const r = buildRunner(configPtr,
                     typeof args.seed === "number" ? { seed: args.seed } : undefined);
-                const entry = registerRunner(r);
+                // RL/isolated runner → never auto-evicted by recorder (TF06).
+                const entry = registerRunner(r, { autoDispose: false });
                 // Transfer the pin to the runner's owned-refs set so it
                 // gets released by disposeRunner.
                 pinForRunner(entry.runnerId, configPtr);
@@ -474,6 +475,11 @@ export function register(ctx: Ctx): void {
         playerUnits: Array<{
             unitId: string; playerId: number; col: number; row: number;
         }>;
+        // Multi-runner (parallel RL): when true, do NOT dispose existing
+        // runners — let this one COEXIST with prior ones (TF06). Default false
+        // = single-build policy (safe: bounds pinned gcRoot handles — Initialize
+        // fails past ~900). Keep the parallel fleet small.
+        keepExisting?: boolean;
     }) => {
         if (!isDeserializerReady()) {
             throw new Error("Newtonsoft DeserializeObject not resolved");
@@ -487,17 +493,23 @@ export function register(ctx: Ctx): void {
         }
         return queueOnMainThread(() => {
             gcRoot.init();
-            // Single-build policy: dispose any prior build first.
-            for (const old of listRunners()) {
-                try {
-                    const oldEntry = getRunner(old.runnerId);
-                    state.watchedRunners.delete(oldEntry.runner.toString());
-                    state.watchedAiControls.delete(
-                        oldEntry.innerAiControl.toString());
-                } catch { /* runner already gone */ }
-                disposeRunner(old.runnerId);
-                try { purgeLogForOrigin(old.runnerId); }
-                catch { /* ignore */ }
+            // Single-build policy (default): dispose any prior build first.
+            // Skipped when keepExisting=true so multiple RL runners can coexist
+            // for parallel play (TF06). Without this skip, building a 2nd runner
+            // deterministically evicts the 1st — the real cause of the POC's
+            // "runner N not found", not a recorder concurrency race.
+            if (!args.keepExisting) {
+                for (const old of listRunners()) {
+                    try {
+                        const oldEntry = getRunner(old.runnerId);
+                        state.watchedRunners.delete(oldEntry.runner.toString());
+                        state.watchedAiControls.delete(
+                            oldEntry.innerAiControl.toString());
+                    } catch { /* runner already gone */ }
+                    disposeRunner(old.runnerId);
+                    try { purgeLogForOrigin(old.runnerId); }
+                    catch { /* ignore */ }
+                }
             }
             const configPtr = deserializeFromJson(
                 args.configJson, battleConfigClass);
@@ -512,7 +524,8 @@ export function register(ctx: Ctx): void {
                 const r = buildRunner(configPtr,
                     typeof args.seed === "number" ? { seed: args.seed }
                                                   : undefined);
-                entry = registerRunner(r);
+                // RL/isolated runner → never auto-evicted by recorder (TF06).
+                entry = registerRunner(r, { autoDispose: false });
                 pinForRunner(entry.runnerId, configPtr);
                 state.watchedRunners.set(
                     r.runner.toString(), entry.runnerId);

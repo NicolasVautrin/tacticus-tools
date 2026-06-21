@@ -23,8 +23,8 @@ import {
 } from "./internals.js";
 import { applyAiMsgMi } from "../../game/ai-control.js";
 import {
-    classFieldsDump, computeAttackPlans, computeDangerZone, projectMowsFull,
-    projectUnitsFull,
+    classFieldsDump, computeAttackPlans, computeDangerZone, computeExposure,
+    projectMowsFull, projectUnitsFull,
 } from "./projection.js";
 
 export function registerView(ctx: Ctx): void {
@@ -479,6 +479,72 @@ export function registerView(ctx: Ctx): void {
             toActivateCount: toActivate.length, toActivate,
             attackPlans: plans.units, removeWorks: plans.removeWorks,
             dangerZone: danger,
+        };
+    });
+
+    /** exposureView — MOVE-GUARD (l'INVERSE de decisionView.attackPlans). Pour
+     *  chaque MON unité contrôlée+vivante U, somme le dégât que les ENNEMIS peuvent
+     *  lui infliger AU PROCHAIN TOUR (reach_dmg = Σ_E best(E→U), dégât fidèle via le
+     *  prédicteur natif) → flag `exposed` = exposition LÉTALE possible AVEC une tuile
+     *  sûre dispo (movable ∖ danger zone). Read-only. À appeler PRÉ-endturn (U déjà
+     *  posé à sa tuile de fin de tour) pour le rapport/garde anti-over-extension.
+     *  body: { runnerId, unitId?, allAbilities?=true } */
+    ctx.rpc.exposureView = (
+        body?: {
+            runnerId?: number; unitId?: number; allAbilities?: boolean;
+            victimsOffTurn?: boolean;
+        },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        let runner: NativePointer; let label: string;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+            label = "build#" + body.runnerId;
+        } else if (state.liveRunner) {
+            runner = state.liveRunner; label = "live";
+        } else {
+            return { ok: false, error: "no runner — pass runnerId" };
+        }
+        if (runner.isNull()) return { ok: false, error: label + " runner null" };
+        if (!getMovableTilesMi) {
+            return { ok: false, error: "GetMovableTilesFor(3) not resolved" };
+        }
+        const statePtr = runner.add(runnerOff.state).readPointer();
+        if (statePtr.isNull()) return { ok: false, error: "state null" };
+        const status = readBattleStatus(statePtr);
+        if (status.stage !== 1) {
+            return { ok: false, runner: label,
+                error: "stage " + (status.stageName ?? status.stage) + " (need Running)" };
+        }
+        const playerId = status.currentTurnPlayer;
+        const movementQuery = runner.add(movementQueryOff).readPointer();
+        if (movementQuery.isNull()) return { ok: false, error: "MovementQuery null" };
+        const attackQuery = runner.add(attackQueryOff).readPointer();
+        if (attackQuery.isNull()) return { ok: false, error: "AttackQuery null" };
+        const getBestMi = findMethodByParamCount(
+            attackQuery.readPointer(), "GetBestTileToAttackFrom", 4);
+        if (!getBestMi) {
+            return { ok: false, error: "GetBestTileToAttackFrom(4) not resolved" };
+        }
+
+        const before = summarize(statePtr);
+        const t0 = Date.now();
+        // NATIF = dégât fidèle ennemi→moi seulement. La géométrie (hasSafeTile /
+        // exposed) est calculée côté Python via oracle.geometric_danger_zone (le
+        // RPC dangerZone natif renvoie 0 sur ce build — cf. oracle.py).
+        const exp = computeExposure(
+            statePtr, movementQuery, attackQuery, getBestMi, resolveDpq(runner),
+            { unitId: body?.unitId, allAbilities: body?.allAbilities,
+              victimsOffTurn: body?.victimsOffTurn });
+        const after = summarize(statePtr);
+        return {
+            ok: true, runner: label,
+            stage: status.stage, stageName: status.stageName,
+            turn: projectMatchState(statePtr).turn, currentPlayer: playerId,
+            mutated: before.sig !== after.sig, ms: Date.now() - t0,
+            unitCount: exp.units.length, enemyCount: exp.enemyCount,
+            lethalCount: exp.units.filter((u) => u.lethalPossible).length,
+            units: exp.units,
         };
     });
 

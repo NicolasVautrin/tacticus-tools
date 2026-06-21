@@ -249,7 +249,16 @@ export function install(): boolean {
                     const sp = entry.runner.add(runnerOff.state).readPointer();
                     const stagePost = !sp.isNull()
                         ? (readBattleStatus(sp).stage ?? 1) : 1;
-                    if (stagePost !== 1) {
+                    if (stagePost !== 1 && entry.autoDispose === false) {
+                        // TF06 — persistent (RL/isolated) runner: NEVER auto-evict
+                        // on the match-end heuristic. Lifecycle is driver-managed
+                        // (explicit disposeRunner). Under CONCURRENT builds this
+                        // fragile stagePre→stagePost transition evicted a sibling
+                        // runner mid-use — exactly the failure this flag prevents.
+                        send({ t: "diag",
+                            msg: "[recorder] build#" + buildId + " match ended (1→"
+                                + stagePost + ") — auto-dispose SKIPPED (persistent)" });
+                    } else if (stagePost !== 1) {
                         send({ t: "diag",
                             msg: "[recorder] build#" + buildId
                                 + " match ended (1→" + stagePost

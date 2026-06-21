@@ -29,6 +29,7 @@ import {
 import {
     listRunners, latestDumpPath, registerRunner, removeRunner, pruneRunners,
 } from "./battle-store.js";
+import { listGateStats, setCap, setTimeoutScale, resetStats } from "./rpc-queue.js";
 import {
     findTacticusCandidates, injectBundle, TacticusCandidate,
 } from "./admin.js";
@@ -402,6 +403,25 @@ export function buildRouter(defaultLogDir: string): Router {
 
     // Reconcile host-side runner registry against the hook's in-memory runner
     // registry. Frida script reloads clear the hook registry; without this,
+    // RPC concurrency gate — capacity instrument for parallel runners.
+    //   GET  /api/rpc-queue                      → per-session telemetry
+    //   POST /api/rpc-queue { cap?, id?, reset? } → set cap (≤0/null=uncapped)
+    //                                               and/or reset counters
+    // Measures how many concurrent callers (≈ sub-agents) the single Frida pump
+    // absorbs before avgInFlight→N / avgRpcMs climbs (i.e. it stops "breathing").
+    router.get("/api/rpc-queue", (_req: Request, res: Response) => {
+        res.json({ ok: true, ...listGateStats() });
+    });
+    router.post("/api/rpc-queue", (req: Request, res: Response) => {
+        const body = (req.body ?? {}) as
+            { cap?: number; timeoutScale?: number; id?: number; reset?: boolean };
+        const id = typeof body.id === "number" ? body.id : undefined;
+        if (body.reset) resetStats(id);
+        if (typeof body.cap === "number") setCap(body.cap, id);
+        if (typeof body.timeoutScale === "number") setTimeoutScale(body.timeoutScale, id);
+        res.json({ ok: true, ...listGateStats() });
+    });
+
     // the front keeps showing dead runnerIds whose RPCs fail with
     // `runner N not found`. Called on front hard-reload.
     router.post("/api/runners/sync", async (_req: Request, res: Response) => {
