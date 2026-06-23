@@ -87,8 +87,45 @@ def _show_card(sid: int, rid: int, bc: dict) -> dict:
     abil = (_rpc(sid, "abilityTargets",
                  [{"runnerId": rid, "allAbilities": True}], timeout=120)
             .get("result") or {})
-    print(oracle.build_card(res, Board(bc), abil=abil if abil.get("ok") else None))
+    print(oracle.build_card(res, Board(bc), abil=abil if abil.get("ok") else None,
+                            round_cap=_env_bombardment_cap(bc)))
     return res
+
+
+def _env_bombardment_cap(bc: dict):
+    """nrOfRounds de l'EnvEndBombardment SI ce combat a l'env ability active, sinon
+    None. RE (ghidra) : le Warning/Incoming s'arme quand le compteur de round atteint
+    `nrOfRounds` (=8 sur nos configs) ; le nuke board-wide (healthPct% des PV max,
+    =20%) fire ~1 round après. Lecture depuis le `bc` du state-file : EnvironmentAbilities
+    (l'env l'a-t-il ?) + Constants.nrOfRounds (la config de l'ability)."""
+    if not isinstance(bc, dict):
+        return None
+    has_env = [False]
+    cap = [None]
+
+    def walk(o):
+        if isinstance(o, dict):
+            ea = o.get("EnvironmentAbilities")
+            if isinstance(ea, list):
+                for it in ea:
+                    if isinstance(it, dict) and it.get("ConfigId") == "EnvEndBombardment":
+                        has_env[0] = True
+            eb = o.get("EnvEndBombardment")
+            if isinstance(eb, dict):
+                c = (eb.get("Constants") or {}).get("nrOfRounds")
+                if c is not None:
+                    try:
+                        cap[0] = int(c)
+                    except (TypeError, ValueError):
+                        pass
+            for v in o.values():
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+
+    walk(bc)
+    return cap[0] if has_env[0] else None
 
 
 def _advance(sid: int, rid: int, n: int, maxpump: int) -> None:
@@ -821,36 +858,54 @@ def cmd_play(sid: int, a) -> int:
         print("  -> corrige l'action puis relance `play` ; les actions déjà "
               "appliquées AVANT l'échec sont conservées, rien n'a été donné à l'IA.")
         return 2
-    # Fin de mon tour → main à l'IA. GARDE-FOU CRITIQUE (quirk H19) : le 1er endturn
-    # ne flippe PAS toujours sur l'ennemi (il traite l'Ambush/preview en gardant
-    # currentPlayer=moi). Si on lance _ai_turn (aiPlayByUnit joue l'équipe COURANTE)
-    # tant que cp==moi, l'IA joue MA team (AI-as-me sur-étend mes units !) ET laisse
-    # cp=ennemi à la fin -> l'agent croit que l'IA doit jouer et lance un aiturn
-    # manuel = 2e tour gratuit à l'IA = root cause de la carnage 70050. Donc :
-    # RE-endturn jusqu'à cp==ennemi, et NE lancer le tour IA QUE là.
     my_team = _my_team(sid, rid, st)
     # NB: player ids != team ids. team 1 <-> player 3 ; team 2 <-> player 4.
     amine = 3 if my_team == 1 else 4
     aenemy = 4 if my_team == 1 else 3
-    st["action_log"].append({"kind": "endturn"})  # 1 marqueur = mon tour fini (le replay rejoue 1 tour IA)
-    _save_state(st)
-    flipped, stage = False, 1
-    for _ in range(3):
-        et = (_rpc(sid, "applyAction",
-                   [{"runnerId": rid, "action": {"kind": "endturn"}}],
-                   timeout=30).get("result") or {})
-        stage = et.get("stage", 1)
-        if stage != 1:
-            print("  *** battle finie après mon tour ***")
-            return cmd_status(sid, a)
-        if _decision(sid, rid).get("currentPlayer") == aenemy:
-            flipped = True
-            break
-    if not flipped:
-        print("  [play] /!\\ endturn n'a pas flippé sur l'ennemi (quirk H19) -> "
-              "tour IA NON joué. NE lance PAS `aiturn` manuel ; relance `play` ou "
-              "investigue.")
+
+    # FIN DE TOUR — le JEU auto-endturn quand TOUTES mes units ont agi (VÉRIFIÉ
+    # empiriquement : finir la dernière unité flip currentPlayer 3->4 tout seul). On
+    # NE FORCE PLUS l'endturn après chaque spec : c'était LE bug (un spec PARTIEL
+    # forçait la fin -> units restantes jamais jouées, split défait). On lit l'état :
+    post = _decision(sid, rid)
+    cp = post.get("currentPlayer")
+    remaining = post.get("toActivate") or []
+
+    # (1) TOUR PARTIEL non terminé, SANS --end -> le jeu n'a pas flip (units restantes).
+    # On NE force PAS : le tour CONTINUE (l'agent rejoue le reste, OU finit exprès).
+    if cp == amine and remaining and not a.end:
+        print(f"  [play] tour PAS terminé : il reste {len(remaining)} unité(s) à "
+              f"activer: {remaining}.")
+        print("  -> relance `play` avec leurs actions, OU `play --end` / `act endturn` "
+              "si tu as FINI ton tour (réserve délibérée, même partielle).")
         return cmd_status(sid, a)
+
+    # (2) Sinon le tour DOIT se terminer. Marqueur de fin pour la trajectoire (replay).
+    st["action_log"].append({"kind": "endturn"})
+    _save_state(st)
+    # (2a) cp==aenemy déjà : le JEU a auto-endturn (toutes units ont agi) -> rien à forcer.
+    # (2b) cp==amine : soit --end (fin délibérée), soit toActivate vide non-flippé (quirk
+    #      Ambush/preview de DÉBUT) -> on force l'endturn jusqu'au flip (anti-quirk H19).
+    #      Forcer quand cp==amine finit MON tour (ne skippe PAS le tour adverse). NE jamais
+    #      lancer _ai_turn tant que cp==amine (sinon l'IA jouerait MA team = carnage 70050).
+    if cp != aenemy:
+        flipped, stage = False, 1
+        for _ in range(3):
+            et = (_rpc(sid, "applyAction",
+                       [{"runnerId": rid, "action": {"kind": "endturn"}}],
+                       timeout=30).get("result") or {})
+            stage = et.get("stage", 1)
+            if stage != 1:
+                print("  *** battle finie après mon tour ***")
+                return cmd_status(sid, a)
+            if _decision(sid, rid).get("currentPlayer") == aenemy:
+                flipped = True
+                break
+        if not flipped:
+            print("  [play] /!\\ endturn n'a pas flippé sur l'ennemi (quirk H19) -> "
+                  "tour IA NON joué. NE lance PAS `aiturn` manuel ; relance `play` ou "
+                  "investigue.")
+            return cmd_status(sid, a)
     # SELF-PLAY (--no-ai) : mon tour est fini, la main est passée à l'adversaire
     # (currentPlayer=aenemy garanti par le flip ci-dessus). On NE joue PAS le tour
     # IA natif : c'est à l'AUTRE agent oracle de jouer l'autre camp (il attend son
@@ -876,7 +931,7 @@ def cmd_play(sid: int, a) -> int:
     res2 = _decision(sid, rid)
     if res2.get("ok"):
         print()
-        print(oracle.build_card(res2, Board(bc)))
+        print(oracle.build_card(res2, Board(bc), round_cap=_env_bombardment_cap(bc)))
     return 0
 
 
@@ -886,18 +941,29 @@ def cmd_status(sid: int, a) -> int:
     res = _decision(sid, rid)
     units = res.get("units") or []
     alive = _alive_by_team(units)
-    stage = res.get("stageName")
+    # H59 — battleStatus expose le champ winner NATIF (lisible AUSSI post-Finished tant
+    # que l'entité Match n'est pas purgée). decisionView REFUSE hors-Running -> ses units
+    # sont vides -> alive={} ne distingue PAS une élimination d'un no-winner round-cap.
+    # Le winner natif tranche : playerId 3=team1 / 4=team2, 0=aucun (no-winner / en cours).
+    bs = (_rpc(sid, "battleStatus", [{"runnerId": rid}], timeout=10).get("result") or {})
+    stage = bs.get("stageName") or res.get("stageName")
     print(f"[status] stage={stage} turn={res.get('turn')} "
-          f"currentPlayer={res.get('currentPlayer')} alive_by_team={alive}")
+          f"currentPlayer={res.get('currentPlayer') or bs.get('currentPlayer')} "
+          f"alive_by_team={alive}")
     for u in units:
         if u.get("alive"):
             pos = u.get("pos") or {}
             print(f"    t{u.get('team')} u{u.get('id')} [{u.get('visualId')}] "
                   f"@({pos.get('col')},{pos.get('row')}) hp={u.get('hp')} "
                   f"{'CTRL' if u.get('ctrl') else 'AI'}")
-    if len(alive) <= 1:
+    if bs.get("stage") == 2:  # Finished -> vainqueur AUTORITATIF (champ natif)
+        w = bs.get("winner")
+        wteam = {0: "no-winner", 3: "team1", 4: "team2"}.get(w, f"player{w}")
+        print(f"  *** BATTLE FINIE — winner AUTORITATIF = {wteam} "
+              f"(battleStatus.winner={w}, unitsAlive={bs.get('unitsAlive')}) ***")
+    elif len(alive) <= 1 and units:
         win = next(iter(alive), None)
-        print(f"  *** BATTLE FINIE — team gagnante : {win} ***")
+        print(f"  *** BATTLE FINIE (inférée alive) — team={win} ***")
     return 0
 
 
@@ -1431,6 +1497,10 @@ def main(argv: list[str]) -> int:
                     help="pour act: move|ability|finish|endturn")
     ap.add_argument("--spec", default=None,
                     help="play: JSON liste d'actions du tour")
+    ap.add_argument("--end", action="store_true",
+                    help="play: FIN DE TOUR explicite — applique le spec PUIS termine ton "
+                         "tour même si des units pouvaient encore agir (réserve délibérée). "
+                         "Sans --end, le tour se finit SEUL quand toutes tes units ont agi.")
     ap.add_argument("--seed", type=int, default=777)
     ap.add_argument("--rank", type=int, default=17)
     ap.add_argument("--roster", type=int, default=5,

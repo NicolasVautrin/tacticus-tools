@@ -161,3 +161,53 @@ export function readEffectsByUnit(
     });
     return out;
 }
+
+/** EffectType ids of the board-wide end-of-battle round-cap bombardment.
+ * 1359 = EnvEndBombardment_Incoming (countdown telegraph) · 1360 =
+ * EnvEndBombardment (the AoE nuke itself). These are NOT attached to any unit's
+ * ActiveEffectIds (board/environment-owned), so readEffectsByUnit misses them —
+ * the live cascade shows them, decisionView did not. cf. hypotheses.md H58. */
+const ROUND_CAP_EFFECT_TYPES: ReadonlySet<number> = new Set([1359, 1360]);
+
+export interface RoundCapClock {
+    /** Effect name driving the soonest countdown (e.g. "EnvEndBombardment_Incoming"). */
+    name: string | null;
+    effectType: number;
+    /** Soonest RemainingTurns across active round-cap effects (0 = firing this
+     *  turn · null = present but turn count unreadable). */
+    remaining: number | null;
+    /** Active round-cap effect entities on the board (telegraph spread). */
+    count: number;
+}
+
+/** Scan every Effect entity (Type=3) for the round-cap bombardment telegraph and
+ * report the SOONEST RemainingTurns. Owner-agnostic (the board effect is not in
+ * any unit's owned list) — the only reliable in-view round-cap clock. Returns
+ * null when no round-cap effect is active. */
+export function readRoundCapClock(statePtr: NativePointer): RoundCapClock | null {
+    let name: string | null = null;
+    let effectType = -1;
+    let remaining: number | null = null;
+    let found = false;
+    let count = 0;
+    forEachEntity(statePtr, (e, _id, ty) => {
+        if (ty !== EntityType.Effect) return;
+        const info = readEffect(e);
+        if (!info || info.effectType === null) return;
+        if (!ROUND_CAP_EFFECT_TYPES.has(info.effectType)) return;
+        if (!info.active || info.removed) return;
+        count++;
+        // Keep the soonest concrete countdown (min remaining). A null remaining
+        // never overrides a concrete one but seeds the result if it's the only signal.
+        const isSooner = info.remaining !== null
+            && (remaining === null || info.remaining < remaining);
+        if (!found || isSooner) {
+            found = true;
+            name = info.name;
+            effectType = info.effectType;
+            if (info.remaining !== null) remaining = info.remaining;
+        }
+    });
+    if (!found) return null;
+    return { name, effectType, remaining, count };
+}

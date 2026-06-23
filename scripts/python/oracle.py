@@ -182,7 +182,8 @@ def _effect_label(e: dict) -> str:
     return nm + (f"(r{rem})" if isinstance(rem, int) and rem > 0 else "")
 
 
-def build_card(view: dict, bd: Board, abil: dict | None = None) -> str:
+def build_card(view: dict, bd: Board, abil: dict | None = None,
+               round_cap: int | None = None) -> str:
     units = view.get("units") or []
     cur_player = view.get("currentPlayer")
     # abilityTargets (optionnel) : index (unitId, abilityId) -> entrée cibles, pour
@@ -330,13 +331,44 @@ def build_card(view: dict, bd: Board, abil: dict | None = None) -> str:
         if shown:
             _eff.append(f"    u{uid} [{u.get('visualId')}] <{side}>: "
                         + ", ".join(shown))
+    # Horloge round-cap (board-level, decisionView.roundCap) — bombardement AoE
+    # board-wide qui WIPE LES DEUX camps (no-winner = double-défaite). En TÊTE des
+    # critiques : être en avance ne sauve PAS du cap, il faut FERMER avant. cf. H58.
+    rc = view.get("roundCap")
+    if rc:
+        rem = rc.get("remaining")
+        nm = rc.get("name") or "EnvEndBombardment"
+        if isinstance(rem, int):
+            when = "CE TOUR (fire imminent !)" if rem <= 0 else f"dans {rem} tour(s)"
+        else:
+            when = "imminent"
+        _crit.insert(0,
+                     f"    ⏱ [ROUND-CAP] {nm} → bombardement AoE board-wide {when} : "
+                     f"WIPE LES DEUX camps (no-winner = double-défaite). FERME le combat AVANT.")
     crit_block = (["  ⚠ EFFETS CRITIQUES (ne pas rater) :", *_crit] if _crit else [])
     eff_block = (["  EFFETS ACTIFS (par unité — recon : gameconfig.py --effect <nom>) :",
                   *_eff] if _eff else [])
 
+    # ⏱ Horloge round-cap STATIQUE (cap = nrOfRounds de l'EnvEndBombardment lu dans le
+    # BC, =8). On N'AFFICHE PAS de "round courant" live : view.turn
+    # (GetAmountOfTurnsStartedByCurrentPlayer) n'est PAS un compteur monotone fiable (il
+    # oscille sur les tours passifs ; pas de GetTotalTurnsFinished simple). Le budget
+    # actionnable se compte côté player : le Warning/Incoming arme à TotalTurnsFinished ==
+    # TurnsFromRounds(nrOfRounds) = ~`cap` tours PAR CAMP, puis le nuke board-wide (wipe
+    # les 2 camps, healthPct=20% PV max) ~1 round après. cf. RE EnvEndBombardment.
+    _clock_line = ""
+    if isinstance(round_cap, int):
+        close_by = max(1, round_cap - 2)
+        _clock_line = (
+            f"  ⏱ HORLOGE round-cap : EnvEndBombardment ACTIF → bombardement final board-wide "
+            f"vers le round {round_cap} (≈ tes {round_cap} premiers tours), qui WIPE les 2 "
+            f"camps = no-winner = double-défaite. Sois en CLÔTURE cohésive pour ton ~{close_by}ᵉ "
+            f"tour ; le ⏱[ROUND-CAP] (effet Incoming) n'arme qu'à 2 tours de la fin = TROP TARD.")
+
     out = [
         f"=== CARTE DÉCISION — tour {view.get('turn')} · joueur {cur_player} "
         f"(team {my_team}) ===",
+        *([_clock_line] if _clock_line else []),
         "\n".join(lines),
         f"  chiffre 1-{max(max_int, 1)} = NB d'ennemis menaçant la tile "
         f"(danger, LoS incluse ; {len(intensity)} tiles, max {max_int}) · "

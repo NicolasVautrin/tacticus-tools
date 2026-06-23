@@ -10,7 +10,7 @@ import {
     EntityType, forEachComponent, forEachEntity, projectMatchState,
     readBattleStatus,
 } from "../../game/match-state.js";
-import { readEffectsByUnit } from "../../game/effects.js";
+import { readEffectsByUnit, readRoundCapClock } from "../../game/effects.js";
 import { state } from "../../game/state.js";
 import { queueOnMainThread } from "../../runtime/queue.js";
 import { abilityName } from "../../data/ability-names.js";
@@ -57,6 +57,12 @@ export function registerView(ctx: Ctx): void {
             ok: true, runner: label,
             stage: status.stage, stageName: status.stageName,
             currentPlayer: status.currentTurnPlayer,
+            // winner = champ natif (MatchComponent) lisible AUSSI post-Finished tant que
+            // l'entité Match n'est pas purgée -> adjudication autoritative (H59 : distingue
+            // élimination d'un no-winner round-cap, que `decisionView` ne peut pas car il
+            // refuse hors-Running). unitsAlive = nb d'entités Unit vivantes.
+            winner: status.winner, unitsAlive: status.unitsAlive,
+            cheatFinished: status.cheatFinished,
         };
     });
 
@@ -823,6 +829,9 @@ export function registerView(ctx: Ctx): void {
         // icônes de statut. Attaché par unit/mow (railgun-mark, OW armé, Ice,
         // heal-block, Stun… surfacés sans scan ad-hoc — cf. game/effects.ts).
         const effectsByUnit = readEffectsByUnit(statePtr);
+        // Round-cap clock — board-wide bombardment telegraph (EnvEndBombardment_Incoming).
+        // NOT in any unit's owned effects, so surfaced separately (cf. hypotheses.md H58).
+        const roundCap = readRoundCapClock(statePtr);
         const after = summarize(statePtr);
         return {
             ok: true, runner: label,
@@ -839,7 +848,7 @@ export function registerView(ctx: Ctx): void {
             })),
             toActivateCount: toActivate.length, toActivate,
             attackPlans: plans.units, removeWorks: plans.removeWorks,
-            dangerZone: danger,
+            dangerZone: danger, roundCap,
         };
     });
 

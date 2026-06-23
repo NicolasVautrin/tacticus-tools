@@ -265,7 +265,19 @@ munitions) — info que gameconfig NE PEUT PAS donner. Les MoW affichent idem.
      Lire la position effective (`view`) si doute. (Vécu : repli sur (1,0)=block
      ignoré ; Mephiston resté exposé.) Rappel : un **move ne consomme PAS**
      l'activation (on peut move puis attaquer) ; seule une **attaque/ability** la
-     consomme (`TurnFinished=1`).
+     consomme (`TurnFinished=1`). Pour le **set de repositionnement résolu** (par
+     blockers/terrain), `moves [--unit U]` = grille ASCII des tuiles légales.
+   - **LÉGALITÉ d'une ability — NE PLUS deviner la portée.** « MES ACTIFS » de
+     `view` donne, par actif, `now[..]` (castable **SANS bouger**) / `+move[..]`
+     (seulement **après déplacement**) / `∅` (**no-op certain**) — Y COMPRIS les
+     abilities **NON-attaque** (buff/heal/summon/hex, **absentes des PLANS
+     D'ATTAQUE**) et les MoW. Détail par `abilities [--unit U] [--ability A]`.
+     → cible ∈now = caste maintenant ; ∈+move seul = **bouge d'abord** ; ∉ des deux
+     = **n'essaie pas** (no-op certain). En `play --no-ai`, un cast **ciblé** illégal
+     est **rejeté avant l'endturn** avec la raison exacte ; sinon
+     `reason --caster U --ability A [--target T]` diagnostique le no-op (flag
+     `TargetingRule` : `TargetIsInRange` / `TargetIsTargetable` / `AlreadyUseThisTurn`
+     / `NoBroken`=valide…).
    - Souvent : `act ability` **direct depuis la tile courante** (zéro move, zéro
      exposition) si la cible est déjà à portée.
    - **MoW** (ability-only, ne bougent pas) : `act ability --caster <machineId>
@@ -354,6 +366,11 @@ r 6   . . a . B . .             <- une ligne par row
   - **`K!`** = kill **garanti** (dmgMin ≥ hp, indépendant du roll).
   - **`K?`** = kill **possible** (dmgMax ≥ hp mais dmgMin < hp → dépend du roll).
 - **`À ACTIVER`** = mes units avec action restante (suit les kills dynamiquement).
+- **`MES ACTIFS`** = par unité contrôlée, ses actifs + état live (`prêt`/`cdN`/
+  `disabled`/munitions) **+ cibles légales** `now[..]` (sans bouger) / `+move[..]`
+  (après déplacement) / `∅` (no-op certain) — couvre les abilities **non-attaque**
+  invisibles dans PLANS D'ATTAQUE. La section **MoW** affiche idem ses cibles. (cf. §3
+  « LÉGALITÉ d'une ability », commandes `abilities`/`reason`.)
 
 ---
 
@@ -487,7 +504,10 @@ ability / `effect` (label). `aiturn` capture **toute la cascade** du tour advers
 | Commande | Effet |
 |----------|-------|
 | `build [--seed S] [--rank R] [--roster N] [--p-units …] [--a-units …] [--p-mow id] [--a-mow id] [--mow] [--list-pool] [--advance K]` | Monte le runner (rosters choisis ou aléatoires + MoW), sauve l'état, affiche la carte |
-| `view` | Ré-affiche la carte décision |
+| `view` | Ré-affiche la carte décision (MES ACTIFS + MoW incluent les cibles now/+move) |
+| `moves [--unit U]` | Grille ASCII des tuiles de MOVE **légales** par unité (set résolu par blockers/terrain) |
+| `abilities [--unit U] [--ability A]` | Cibles **légales** par (unité × ability) : `now` (sans bouger) / `+move` (après déplacement) / `∅` — incl. abilities NON-attaque + MoW |
+| `reason --caster U --ability A [--target T]` | **Raison structurée** d'un cast invalide (flag `TargetingRule` : range/targetable/already-used/…) |
 | `act move --unit U --to C,R` | Déplace une unité (footprint destination) |
 | `act ability --caster U --target T [--ability A]` | Ability (auto-résout l'id depuis le plan ; **`--ability` obligatoire pour les MoW**) |
 | `act finish --unit U` | Termine l'activation d'une unité |

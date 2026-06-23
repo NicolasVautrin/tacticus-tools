@@ -183,9 +183,11 @@ function playerPrompt(side, runnerId, m, setup) {
   return `Tu es le PLAYER ${side} (équipe ${s.team}, player id ${s.pid}) d'un match SELF-PLAY Tacticus (seed ${m.seed}, oracle vs oracle). Tu joues UNIQUEMENT l'équipe ${s.team}. L'adversaire (équipe ${s.other}) est joué par un AUTRE agent en parallèle — tu ne le vois jamais, tu n'as que TA perspective via decisionView. cwd = racine du repo.
    PRECONDITION (NE PAS y toucher) : session Frida id=${sessionId} DEJA warmee, runner runnerId=${runnerId} DEJA construit. NE lance JAMAIS warmupGameSingletons, NE build PAS, NE navigue PAS l'UI, NE dispose PAS le runner. Toutes tes commandes rl_duel utilisent --state-file ${sf}.
    RESSOURCES :
-   - Carte/état : \`python scripts/python/rl_duel.py view --state-file ${sf}\`
+   - Carte/état : \`python scripts/python/rl_duel.py view --state-file ${sf}\` — la section "MES ACTIFS" affiche pour CHAQUE actif sa légalité now/+move (now[..] = castable SANS bouger ; +move[..] = seulement après déplacement ; ∅ = no-op certain), Y COMPRIS les abilities NON-attaque (buff/heal/summon/hex) absentes des PLANS D'ATTAQUE. Les MoW affichent aussi leurs cibles.
    - Jouer ton tour : \`python scripts/python/rl_duel.py play --no-ai --spec '<JSON>' --state-file ${sf}\`
    - Tuiles de MOVE légales (par unité) : \`python scripts/python/rl_duel.py moves [--unit <id>] --state-file ${sf}\` — grille ASCII des tuiles atteignables (la carte \`view\` ne donne que les plans d'ATTAQUE, PAS le set de repositionnement résolu).
+   - Cibles LÉGALES par ability (détail) : \`python scripts/python/rl_duel.py abilities [--unit <id>] [--ability <N>] --state-file ${sf}\` — l'analogue de \`moves\` pour les abilities : par (unité × ability) les cibles now/+move. À utiliser pour une ability NON-attaque (buff/heal/summon/hex) ou pour vérifier qu'un cast passe SANS bouger.
+   - Pourquoi un cast échoue (raison structurée) : \`python scripts/python/rl_duel.py reason --caster <id> --ability <N> [--target <id>] --state-file ${sf}\` — flag TargetingRule exact (TargetIsInRange / TargetIsTargetable / AlreadyUseThisTurn / NoBroken=valide…).
    - Hand-off (attendre ton tour) : \`curl -s -m 100 "${url}"\`
 
    RECON (UNE SEULE FOIS, au début — NE re-lis PAS à chaque tour) :
@@ -193,17 +195,19 @@ function playerPrompt(side, runnerId, m, setup) {
    2. Recon gameconfig→wiki de CHAQUE unité des DEUX camps. ${GC_HELP}
    3. Dérive MA wincon (meilleure synergie/engine + enabler à protéger) et LEUR wincon (engine adverse → la couper à la source).
 
+   ⏱ TEMPO / HORLOGE DURE (ANTI-STANDOFF — lis docs/rl/wiki.md §EnvEndBombardment) : le combat a un ROUND-CAP CONNU. \`rl_duel view\` affiche en tête une ligne **⏱ HORLOGE round-cap** (cap lu du BC = round 8 ≈ tes 8 premiers tours) si ce combat a l'EnvEndBombardment : au cap, un bombardement AoE board-wide WIPE LES DEUX camps → no-winner. À ~2 tours de la fin une 2ᵉ ligne **⏱ [ROUND-CAP] fire dans N tour(s)** (effet \`EnvEndBombardment_Incoming\`) s'arme = ALARME FINALE, déjà trop tard pour planifier une clôture. ⚠ Le cap = round 8 (≈ tes 8 tours), PAS « round 10 » : sois en CLÔTURE pour ton ~6ᵉ tour. ⚠ L'adversaire est un oracle AUSSI prudent que toi : si tu attends qu'IL s'engage, il attend pareil → double-turtle → vous êtes wipe tous les deux. UN NO-WINNER ROUND-CAP N'EST PAS UN NUL ACCEPTABLE : c'est une DOUBLE-DÉFAITE (échec de conversion) — un oracle DOIT clore. DONC, par défaut, joue pour FORCER une décision AVANT le cap : ouvre l'engagement TÔT, concentre le feu pour TUER (clôture cohésive, ne grignote pas en attrition basse-PV), commence à grind les anvils/Resilient lents dès ton ~5ᵉ tour. Ne JAMAIS over-hold en espérant que l'autre commit le premier. Dès que la ligne ⏱ [ROUND-CAP] apparaît en EFFETS CRITIQUES (N tour(s) restant(s)) : tu es à court de temps → engage tes MEILLEURS trades MAINTENANT, l'avance numérique ne sauve PAS du cap. (La seule raison de temporiser = un avantage de tempo CONCRET et NOMMÉ — buff qui arme un burst le tour suivant, ennemi qui doit s'exposer — pas « j'attends de voir ».)
+
    BOUCLE DE JEU (au plus 15 de TES tours) :
     a. UN await (curl ci-dessus). Lis le JSON :
        - "gameOver":true -> battle FINIE -> SORS de la boucle (RAPPORT).
        - "timedOut":true -> pas encore ton tour (l'adversaire réfléchit) -> RE-ÉMETS l'await (n'arrête PAS, ce n'est PAS une fin de partie).
        - "yourTurn":true -> joue (b-d).
     b. \`rl_duel view --state-file ${sf}\` : tes units = CTRL/MAJUSCULE ; ennemis = minuscule ; plans d'attaque [min-max, K!/K?] ; ⚠ effets critiques ; effets actifs par unité.
-    c. Planifie le tour COMPLET de TOUTES tes units (moves + abilities + finishs) selon la doctrine : tuer la wincon adverse ATTEIGNABLE, ne pas sur-étendre une fragile, séquencer buff→frappe. PAS de move-guard (self-play v1). Pour un MOVE de REPOSITIONNEMENT (sans attaque), lance d'abord \`moves\` et choisis une tuile LÉGALE (un move hors movable set est rejeté avant l'endturn — ne devine pas la reachability à la main, elle est creusée par les blockers/terrain).
-    d. ⚠ BATCHING OBLIGATOIRE : \`play --no-ai\` TERMINE ton tour APRÈS le spec (il joue toutes les actions du spec PUIS endturn-flip). Donc UN SEUL \`play --no-ai --spec '[...]'\` par tour, contenant TOUTES tes units. Si tu mets moins d'actions, tes autres units NE JOUENT PAS ce tour (activations gâchées — c'était LE bug de la v2). FORMATS : move {"kind":"move","unit":<id>,"to":[col,row]} ('to'=ARRAY [col,row]) ; ability {"kind":"ability","caster":<id>,"target":<id>[,"ability":N]} ; finish {"kind":"finish","unit":<id>}. Si "TOUR ABANDONNÉ" (action ratée/format) : les actions AVANT l'échec sont conservées et l'endturn n'a PAS eu lieu -> CORRIGE l'action fautive et relance \`play --no-ai\` avec le RESTE des actions (la fin du spec). play --no-ai passe la main sans tour IA — NORMAL.
+    c. Planifie le tour COMPLET de TOUTES tes units (moves + abilities + finishs) selon la doctrine : tuer la wincon adverse ATTEIGNABLE — PROACTIVEMENT (cf. ⏱ TEMPO : n'attends PAS que l'adversaire s'engage le premier ; chaque tour passé sans pression rapproche le no-winner), ne pas sur-étendre une fragile, séquencer buff→frappe. PAS de move-guard (self-play v1). Pour un MOVE de REPOSITIONNEMENT (sans attaque), lance d'abord \`moves\` et choisis une tuile LÉGALE (un move hors movable set est rejeté avant l'endturn — ne devine pas la reachability à la main, elle est creusée par les blockers/terrain). LÉGALITÉ DES ABILITIES — ne devine pas la portée : "MES ACTIFS" de \`view\` (ou \`abilities\`) donne par actif now[..] (castable SANS bouger) / +move[..] (après déplacement) / ∅ (no-op certain), Y COMPRIS les abilities NON-attaque (buff/heal/summon/hex, absentes des PLANS D'ATTAQUE) et les MoW → cible ∈now = caste maintenant ; ∈+move seul = bouge d'abord ; ∉ des deux = n'essaie pas. Un cast ciblé illégal est rejeté avant l'endturn avec la raison exacte (TargetIsInRange / TargetIsTargetable / …).
+    d. FIN DE TOUR : le JEU termine ton tour AUTOMATIQUEMENT dès que TOUTES tes units ont agi (jouées ou \`{"kind":"finish","unit":<id>}\`) — \`play --no-ai\` ne force RIEN. Si ton spec est PARTIEL, le tour CONTINUE (play affiche « il reste [ids] ») → relance \`play --no-ai\` avec le reste : tu peux SPLITTER sans risque, aucune activation perdue (c'était LE bug de la v2, corrigé). Si tu juges ton tour FINI alors que des units pourraient encore agir (réserve délibérée — ex. garder une unité hors de portée), termine EXPLICITEMENT : \`play --no-ai --end --spec '[...]'\` (applique + finit) ou \`act endturn\`. Le passage de main à l'adversaire se fait au flip de currentPlayer (auto ou via --end). FORMATS : move {"kind":"move","unit":<id>,"to":[col,row]} ('to'=ARRAY [col,row]) ; ability {"kind":"ability","caster":<id>,"target":<id>[,"ability":N]} ; finish {"kind":"finish","unit":<id>}. Si "TOUR ABANDONNÉ" (action ratée/format) : les actions AVANT l'échec sont conservées et l'endturn n'a PAS eu lieu -> CORRIGE l'action fautive et relance \`play --no-ai\` avec le RESTE des actions (la fin du spec). play --no-ai passe la main sans tour IA — NORMAL.
     e. Retourne en (a) pour attendre ton prochain tour.
 
-   IMPORTANT : tu ne joues QUE sur yourTurn. "timedOut" n'est PAS une fin de partie. Pas d'abandon en self-play : la partie va à son terme (mort d'un camp ou round-cap), joue pour gagner.
+   IMPORTANT : tu ne joues QUE sur yourTurn. "timedOut" n'est PAS une fin de partie. Pas d'abandon en self-play : la partie va à son terme (mort d'un camp ou round-cap), joue pour gagner — et un no-winner round-cap = DOUBLE-DÉFAITE, pas un nul : joue pour CLORE avant le cap (cf. ⏱ TEMPO).
 
    RETOUR STRUCTURE (PLAYER_SCHEMA) — n'écris AUCUN fichier (le teardown écrit) :
    - side="${side}", team=${s.team}, turns_played, outcome_perceived (de MON côté : W=MA team a gagné / L / uncertain d'après le dernier état).
@@ -220,7 +224,7 @@ function teardownPrompt(m, runnerId, pa, pb) {
    - PLAYER B (team 2, player 4) : ${SQ(pb)}
    (un retour peut être null si le player a échoué — note-le et adjuge avec ce que tu as.)
 
-   1. ADJUDICATION (vainqueur). La self-play est ZERO-SUM. Croise outcome_perceived : si A="W" & B="L" -> team1 gagne ; A="L" & B="W" -> team2 gagne ; sinon (les 2 "W", ou "uncertain", ou divergence) -> lis l'état réel : \`python scripts/python/rl_duel.py status --state-file data/_sp_${m.seed}_A.json\` (+ alive_by_team). authoritative_winner = "team1"|"team2"|"no-winner" (round-cap/mutual-wipe)|"uncertain". winner_consensus = true si A et B sont d'accord sur le vainqueur.
+   1. ADJUDICATION (vainqueur). La self-play est ZERO-SUM. SOURCE AUTORITATIVE = \`python scripts/python/rl_duel.py status --state-file data/_sp_${m.seed}_A.json\` qui imprime désormais \`*** BATTLE FINIE — winner AUTORITATIF = team1|team2|no-winner ***\` (champ NATIF battleStatus.winner, lisible post-Finished — H59). ⚠ NE te fie PAS à \`alive_by_team={}\` post-Finished : decisionView refuse hors-Running donc il est VIDE — IDENTIQUE pour une élimination ET un no-winner round-cap (c'était le piège H59). authoritative_winner = EXACTEMENT ce que cette ligne reporte. Recoupe avec outcome_perceived des 2 players (A="W"&B="L"→team1 ; A="L"&B="W"→team2 ; mutual "L"/ "uncertain"→souvent no-winner) : winner_consensus = true si A et B s'accordent ET que ça MATCHE le winner autoritatif (sinon flag la divergence).
 
    2. CONFRONTATION A vs B = vérif INDÉPENDANTE par consensus (2 observateurs séparés du même match). Compare :
       - win-condition : A.win_condition.theirs (lecture de B par A) vs B.win_condition.mine (auto-lecture de B) ; et A.mine vs B.theirs. Accord = haute confiance. Divergence = un des deux a mal lu -> divergences[].
@@ -229,11 +233,14 @@ function teardownPrompt(m, runnerId, pa, pb) {
       Pour les mécaniques de consensus, recoupe quand même la RÈGLE DISCRÈTE avec gameconfig/i2 si tu as un doute (le consensus est un PRIOR fort, PAS la vérité — les 2 peuvent se tromper pareil). ${GC_HELP}
 
    3. ÉCRITURE (demos + knowledge) :
-      a. DEMOS : append un bloc match à docs/rl/selfplay-journal.md (CRÉE le fichier s'il n'existe pas, avec un titre "# Self-play journal (oracle vs oracle) — demos + confrontation"). Bloc = "## seed ${m.seed} — winner=<...> (ts=${ts})" + rosters + win_condition consensus (mine/theirs) + key_decisions des 2 + le résultat de la CONFRONTATION (consensus vs divergences). Source TAGGÉE self-play (NE mélange PAS avec docs/rl/journal.md qui est la pipeline oracle-vs-IA). Le détail des coups (action_log) est dans data/_sp_${m.seed}_A.json / _B.json — référence-le (les fichiers seront supprimés en 4, donc résume les séquences clés ici si utiles).
+      a. DEMOS : append un bloc match à docs/rl/selfplay-journal.md (CRÉE le fichier s'il n'existe pas, avec un titre "# Self-play journal (oracle vs oracle) — demos + confrontation"). Bloc = "## seed ${m.seed} — winner=<...> (ts=${ts})" + rosters + win_condition consensus (mine/theirs) + key_decisions des 2 + le résultat de la CONFRONTATION (consensus vs divergences). Source TAGGÉE self-play (NE mélange PAS avec docs/rl/journal.md qui est la pipeline oracle-vs-IA). Le détail des coups (action_log) est ARCHIVÉ en 4 (la trajectoire = le dataset IL, dans data/selfplay-logs/sp_${m.seed}_<ts>.json) — référence ce chemin ; résume AUSSI les séquences clés ici pour la lecture humaine.
       b. KNOWLEDGE CONSENSUS : pour chaque mécanique de consensus_mechanics (confirmée par LES DEUX players), inscris-la dans docs/rl/wiki.md (bonne unité/section) avec un tag [self-play consensus, seed ${m.seed}]. RIEN au wiki sans consensus (ou recoupage gameconfig explicite). Les divergences -> docs/rl/hypotheses.md en candidat flaggé "(self-play divergence A/B)".
       NE modifie JAMAIS .claude/skills/tacticus-battle/SKILL.md. NE touche PAS aux métriques win-rate de loop.md (le W/L self-play est zero-sum, non comparable au win-rate oracle-vs-IA).
 
-   4. CLEANUP : \`python scripts/python/rl_duel.py dispose --state-file data/_sp_${m.seed}_A.json\` (libère le runner ${runnerId}) puis supprime les 2 state-files (rm data/_sp_${m.seed}_A.json data/_sp_${m.seed}_B.json). runner_disposed=true si le dispose a réussi.
+   4. ARCHIVE + CLEANUP (dans CET ordre — l'archive AVANT toute suppression) :
+      a. ARCHIVE la trajectoire (= le dataset IL ; IMPÉRATIF avant le rm) : \`python scripts/python/archive_demo.py --a data/_sp_${m.seed}_A.json --b data/_sp_${m.seed}_B.json --ts '${ts}' --winner <authoritative_winner>\` → écrit data/selfplay-logs/sp_${m.seed}_<ts>.json (action_logs des 2 camps + rosters + outcome, rejouable via seed). Mets le chemin imprimé dans files_written.
+      b. DISPOSE le runner : \`python scripts/python/rl_duel.py dispose --state-file data/_sp_${m.seed}_A.json\` (libère le runner ${runnerId}). runner_disposed=true si OK.
+      c. SUPPRIME les 2 state-files : \`rm data/_sp_${m.seed}_A.json data/_sp_${m.seed}_B.json\` (UNIQUEMENT après a+b réussis).
 
    Renvoie le résumé structuré (TEARDOWN_SCHEMA) : seed, authoritative_winner, winner_consensus, consensus_mechanics, divergences, wiki_inscribed, demos_recorded, runner_disposed, files_written, notes.`
 }
@@ -241,35 +248,58 @@ function teardownPrompt(m, runnerId, pa, pb) {
 // =============================================================================
 // Pipeline par match : SETUP -> PLAYERS (//) -> TEARDOWN (single-writer)
 // =============================================================================
+// RÉSILIENCE 529 : agent() a un budget de retry BORNÉ -> sous surcharge soutenue il
+// surface un échec dur (null). On ré-essaie AU NIVEAU WORKFLOW : le setup (qui ne
+// construit RIEN s'il échoue -> 0 fuite, retry gratuit) et le MATCH entier si un player
+// meurt (le runner précédent fuit -> tracké/disposé après ; les state-files sont réécrits
+// par le setup suivant). Les retries cumulés = fenêtre de retry étendue -> encaisse une
+// surcharge FINIE. (Une surcharge longue échouera quand même après MATCH_TRIES.)
+const SETUP_TRIES = 4
+const MATCH_TRIES = 3
+
 async function playMatch(m) {
-  const setup = await agent(setupPrompt(m),
-    { label: `setup:${m.seed}`, phase: 'Setup', model, schema: SETUP_SCHEMA })
-  if (!setup || setup.ok === false || setup.runnerId == null) {
-    log(`match ${m.seed}: SETUP echec${setup && setup.error ? ` (${setup.error})` : ''}`)
-    return null
+  const leaked = []
+  for (let att = 1; att <= MATCH_TRIES; att++) {
+    // --- SETUP avec retry (absorbe un 529 transitoire sur l'agent court) ---
+    let setup = null
+    for (let s = 1; s <= SETUP_TRIES; s++) {
+      const sLabel = `setup:${m.seed}${att > 1 || s > 1 ? ` (a${att}.${s})` : ''}`
+      setup = await agent(setupPrompt(m), { label: sLabel, phase: 'Setup', model, schema: SETUP_SCHEMA })
+      if (setup && setup.ok !== false && setup.runnerId != null) break
+      setup = null
+    }
+    if (!setup) { log(`match ${m.seed}: SETUP KO apres ${SETUP_TRIES} essais (tentative ${att}/${MATCH_TRIES}) -> 529 soutenu ?`); continue }
+    const R = setup.runnerId
+    log(`match ${m.seed}: runner ${R} pret -> 2 players (tentative ${att}/${MATCH_TRIES})`)
+    const [pa, pb] = await parallel([
+      () => agent(playerPrompt('A', R, m, setup),
+        { label: `player:${m.seed}:A${att > 1 ? ` #${att}` : ''}`, phase: 'Match', model, schema: PLAYER_SCHEMA }),
+      () => agent(playerPrompt('B', R, m, setup),
+        { label: `player:${m.seed}:B${att > 1 ? ` #${att}` : ''}`, phase: 'Match', model, schema: PLAYER_SCHEMA }),
+    ])
+    if (!pa || !pb) {
+      // un player mort (529 -> null) : match à 1 camp = invalide -> rejoue TOUT le match.
+      leaked.push(R)
+      log(`match ${m.seed}: player KO (A=${pa ? 'ok' : 'NULL'} B=${pb ? 'ok' : 'NULL'}) tentative ${att}/${MATCH_TRIES} -> RETRY match (runner ${R} laissé, à disposer ; state-files réécrits au prochain setup)`)
+      continue
+    }
+    // --- les 2 players OK -> TEARDOWN single-writer (confrontation + adjudication + écriture) ---
+    const td = await serializeWrite(() => agent(teardownPrompt(m, R, pa, pb),
+      { label: `teardown:${m.seed}`, phase: 'Teardown', agentType: 'general-purpose', model, schema: TEARDOWN_SCHEMA }))
+      .catch(() => null)
+    if (td) {
+      log(`match ${m.seed}: winner=${td.authoritative_winner}`
+        + `${td.winner_consensus === false ? ' (PAS de consensus)' : ''}`
+        + `${(td.divergences || []).length ? ` - ${td.divergences.length} divergence(s)` : ''}`
+        + `${(td.consensus_mechanics || []).length ? ` - ${td.consensus_mechanics.length} mecanique(s) consensus` : ''}`
+        + `${td.runner_disposed === false ? ' - runner NON dispose (fuite!)' : ''}`)
+      return { seed: m.seed, ...td, retries_leaked: leaked }
+    }
+    log(`match ${m.seed}: TEARDOWN echec (ecriture perdue, runner ${R} peut-etre non dispose)`)
+    return { seed: m.seed, authoritative_winner: 'uncertain', runner_disposed: false, retries_leaked: [...leaked, R], files_written: [] }
   }
-  const R = setup.runnerId
-  log(`match ${m.seed}: runner ${R} pret -> 2 players`)
-  const [pa, pb] = await parallel([
-    () => agent(playerPrompt('A', R, m, setup),
-      { label: `player:${m.seed}:A`, phase: 'Match', model, schema: PLAYER_SCHEMA }),
-    () => agent(playerPrompt('B', R, m, setup),
-      { label: `player:${m.seed}:B`, phase: 'Match', model, schema: PLAYER_SCHEMA }),
-  ])
-  // TEARDOWN single-writer (confrontation + adjudication + ecriture)
-  const td = await serializeWrite(() => agent(teardownPrompt(m, R, pa, pb),
-    { label: `teardown:${m.seed}`, phase: 'Teardown', agentType: 'general-purpose', model, schema: TEARDOWN_SCHEMA }))
-    .catch(() => null)
-  if (td) {
-    log(`match ${m.seed}: winner=${td.authoritative_winner}`
-      + `${td.winner_consensus === false ? ' (PAS de consensus)' : ''}`
-      + `${(td.divergences || []).length ? ` - ${td.divergences.length} divergence(s)` : ''}`
-      + `${(td.consensus_mechanics || []).length ? ` - ${td.consensus_mechanics.length} mecanique(s) consensus` : ''}`
-      + `${td.runner_disposed === false ? ' - runner NON dispose (fuite!)' : ''}`)
-  } else {
-    log(`match ${m.seed}: TEARDOWN echec (ecriture perdue, runner peut-etre non dispose)`)
-  }
-  return td ? { seed: m.seed, ...td } : null
+  log(`match ${m.seed}: ECHEC apres ${MATCH_TRIES} tentatives (surcharge API soutenue ?) - runners laissés: ${leaked.join(',') || 'aucun'}`)
+  return leaked.length ? { seed: m.seed, authoritative_winner: 'failed', runner_disposed: false, retries_leaked: leaked, files_written: [] } : null
 }
 
 // =============================================================================
@@ -293,19 +323,24 @@ const results = await boundedPool(matches, MATCHES_INFLIGHT, playMatch)
 // =============================================================================
 // Roll-up final
 // =============================================================================
-const ok = results.filter(Boolean)
-const leaked = ok.filter((r) => r.runner_disposed === false).map((r) => r.seed)
+const all = results.filter(Boolean)
+const done = all.filter((r) => r.authoritative_winner !== 'failed')   // teardown réel (≠ abandon 529)
+const failed = all.filter((r) => r.authoritative_winner === 'failed').map((r) => r.seed)
+// runner IDs laissés par les retries (529) OU un teardown non disposé -> à disposer après run.
+const leakedRunners = [...new Set(all.flatMap((r) => r.retries_leaked || []))]
 const rollup = {
   attempted: matches.length,
-  completed: ok.length,
-  winners: ok.map((r) => ({ seed: r.seed, winner: r.authoritative_winner, consensus: r.winner_consensus !== false })),
-  divergences_total: ok.reduce((n, r) => n + ((r.divergences || []).length), 0),
-  consensus_mechanics_total: ok.reduce((n, r) => n + ((r.consensus_mechanics || []).length), 0),
-  wiki_inscribed: [...new Set(ok.flatMap((r) => r.wiki_inscribed || []))],
-  files_written: [...new Set(ok.flatMap((r) => r.files_written || []))],
-  runners_leaked: leaked,
+  completed: done.length,
+  failed_seeds: failed,                                              // matchs abandonnés (529 soutenu)
+  winners: done.map((r) => ({ seed: r.seed, winner: r.authoritative_winner, consensus: r.winner_consensus !== false })),
+  divergences_total: done.reduce((n, r) => n + ((r.divergences || []).length), 0),
+  consensus_mechanics_total: done.reduce((n, r) => n + ((r.consensus_mechanics || []).length), 0),
+  wiki_inscribed: [...new Set(done.flatMap((r) => r.wiki_inscribed || []))],
+  files_written: [...new Set(done.flatMap((r) => r.files_written || []))],
+  runners_leaked: leakedRunners,                                     // runner IDs à disposer (cf. rl_duel dispose / host)
 }
-log(`self-play fini: ${ok.length}/${matches.length} matchs`
+log(`self-play fini: ${done.length}/${matches.length} matchs aboutis`
   + ` - ${rollup.consensus_mechanics_total} mecanique(s) consensus, ${rollup.divergences_total} divergence(s) A/B`
-  + (leaked.length ? ` - ${leaked.length} runner(s) NON dispose(s): ${leaked.join(',')}` : ''))
+  + (failed.length ? ` - ${failed.length} ECHEC(s) 529: seeds ${failed.join(',')}` : '')
+  + (leakedRunners.length ? ` - runners a disposer: ${leakedRunners.join(',')}` : ''))
 return rollup
