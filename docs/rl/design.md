@@ -148,3 +148,100 @@ concurrente** :
 - **Budget/stop** : combien de matchs par session avant un /compact ? un cap de coût (nb matchs) par run ?
 - **Observabilité** : se contenter des fichiers, ou la mini-dashboard `/view` vaut le coup plus tard ?
 - **Profondeur du sous-agent** : `maxTurns`/garde-fou pour qu'un match ne parte pas en boucle ?
+
+## Self-play oracle-vs-oracle — SPEC (verrouillée 2026-06-22)
+
+**But** : élever le plafond des démos d'IL. Au lieu d'oracle-vs-IA-native, jouer **les deux
+camps par des agents oracle** → dataset où les deux côtés sont experts. (L'oracle battant l'IA
+native sur les matchups jouables, l'IA native n'est plus l'expert à imiter.)
+
+### Découpage des rôles (clé — chacun fait UNE chose)
+| Rôle | Qui | Responsabilité |
+|---|---|---|
+| **Hand-off de tour + exclusion** | **Host** (`/api/selfplay/:id/await`) | long-poll sur `currentPlayer` du runner ; rend la main quand c'est le tour du joueur, ou `gameOver`. PAS de cognition (cohérent avec « Node = plomberie, jamais driver de cognition »). |
+| **Lifecycle du match** | **Arbitre** (≈ script workflow + agents setup/teardown) | build le runner partagé, adjuge W/L/**no-winner** (round-cap `EnvEndBombardment`), timeouts/deadlock, dispose, enregistre la démo. **Ne relaie PAS les tours.** |
+| **Jouer un camp** | **Player agent CHAUD** | 1 seul `agent()` long = recon 1× puis boucle tous ses tours ; joue via `decisionView` + `play --no-ai`. |
+| **Plafond de scale** | **le pump Frida** (mesuré par `rpc-queue`) | borne le fan-out de matchs. |
+
+### Pourquoi « warm » sans SendMessage
+Chaque player est **un `agent()` long** qui joue TOUS ses tours dans un seul contexte → recon +
+doctrine lus **1×**, contexte persistant (cache input). Pas de spawn-par-tour → pas de cold-start
+répété. N'utilise QUE des primitives **sûres** (`agent`/`parallel` + host long-poll), PAS
+l'inférence non vérifiée « SendMessage depuis un sous-agent ».
+
+### Boucle d'un player agent
+```
+recon UNE FOIS (sa team, gameconfig→wiki)
+boucle:
+   GET /api/selfplay/:id/await?runnerId=R&player=P   ← bloque CÔTÉ HOST jusqu'à mon tour / gameOver
+   si gameOver -> sortir (rapporter l'issue)
+   decisionView (état courant) -> planifier -> rl_duel play --no-ai --state-file sf
+       play --no-ai = mes actions + endturn-retry jusqu'au flip adverse, PUIS STOP
+       (pas de tour IA natif : c'est à l'autre agent de jouer)
+```
+L'agent émet **UN seul** GET await par tour (pas de boucle `sleep` côté client — le foreground
+sleep est bloqué par le harness ; c'est le host qui bloque).
+
+### Règle de fidélité (NON négociable)
+A et B = **contextes séparés**. L'arbitre voit leurs résumés retournés mais ne **passe JAMAIS**
+d'info privée d'un camp à l'autre. Chaque player tire son état du **host** (`decisionView`
+perspective-scoped), pas de l'arbitre. → self-play fidèle (≠ le piège « un agent joue les deux »
+= collusion, pire pour l'IL).
+
+### Caveats actés
+- **`rpc-queue` ≠ mutex de tour** : le pump mono-thread garantit l'atomicité **RPC**, PAS celle du
+  **TOUR** (un tour = plusieurs RPC). L'exclusion au niveau tour vient du turnstile (host await +
+  `currentPlayer` : un seul camp est « courant » à la fois).
+- **Le pump EST le plafond de débit** : tous les runners partagent une session Frida → les RPC
+  runner sérialisent → plus de matchs // ≠ plus de débit (mesurer `avgInFlight`/`busyFraction`).
+  Self-play LLM = **quelques** matchs ; le mass = la politique réseau (étape 2, hors Frida).
+- **Move-guard mal-spécifié en self-play** (son « tour ennemi » = IA native, pas l'oracle adverse)
+  → **coupé en v1** ; chaque player raisonne seul.
+
+### Tranches
+1. **(CETTE tranche — FAITE)** `rl_duel play --no-ai` (Python) + RPC hook légère `battleStatus`
+   (stage+currentPlayer seuls, ≠ decisionView lourde) + endpoint host `/api/selfplay/:id/await`
+   (long-poll). = les primitives de hand-off.
+2. Prompts des 2 player agents (perspective, recon-once, boucle await→play) + agent **setup**
+   (build le runner partagé, renvoie runnerId) + agent **teardown** (adjuge + dispose + démo).
+3. Workflow **arbitre** : `parallel([playerA, playerB])` par match + fan-out sur N matchs ;
+   mesure pump via `rpc-queue` (combien de matchs concurrents avant que « ça respire pas »).
+
+### Validation tranche 2 (2026-06-22 — 1 match end-to-end, sonnet)
+**✅ La boucle self-play CONVERGE.** Setup (`build` runner 2) → `attach` player B → 2 player agents
+CHAUDS (équipe 1 / équipe 2) lancés **en parallèle**, coordonnés **uniquement par le host**
+(`/api/selfplay/:id/await`) → match joué jusqu'à `stage=Finished` (team 1 vainqueur, ~6-8 tours
+par camp, ~115 k tokens/agent). **Aucun deadlock**, hand-off A↔B propre, fidélité OK (contextes
+séparés, perspectives séparées), démos + décisions clés remontées par chaque player. Les **3
+chemins de l'endpoint** validés live : `yourTurn` / `timedOut` / `gameOver` (stage=2 Finished).
+- **Friction #1 (PROMPT, pas code) à corriger en tranche 3** : `play --no-ai` **termine le tour
+  après le spec** (applique toutes les actions du spec PUIS endturn-flip). Les players ont
+  **sous-batché** (peu d'actions/spec) → tour terminé avant que toutes leurs units jouent =
+  activations gâchées. **FIX** : le `playerPrompt` doit imposer « un seul `play --no-ai --spec
+  [TOUTES tes units + finishs]` par tour ; pas de within-turn feedback en v1 — on planifie le tour
+  complet depuis la carte (comme les combat-agents) ».
+- **Friction #2 (recon/usage, pas plumbing)** : `LightOfSanguinius` (ability 1177, Dante) renvoie
+  `ok=True mutated=False` (0 effet) sur ~6 tentatives chez les deux players → condition non
+  satisfaite (free-hex adjacent ? « has not moved » ?) mal lue. À recon (`gameconfig.py --ability
+  LightOfSanguinius`) et noter dans toolfeedback/wiki — n'affecte PAS le hand-off.
+
+### Confrontation des 2 retours = vérif indépendante GRATUITE (tranche 3 — teardown)
+Le retrait de l'étage verif (wave) a coûté l'indépendance du verdict (un agent s'auto-juge →
+biais de confirmation). **La self-play la récupère pour rien** : A et B analysent le MÊME match
+depuis des côtés OPPOSÉS, en contextes SÉPARÉS → pour tout ce qui est **cross-observable**, on a
+**2 témoins indépendants**. Le **teardown** (barrière après `parallel([A,B])` qui reçoit les 2
+retours) devient un agent **CONFRONTATION + adjudication** AVANT l'écriture :
+- **win-condition** : `A.win_condition.theirs` (lecture de B par A) vs `B.win_condition.mine`
+  (auto-lecture de B) → accord = confiance, divergence = un des deux a mal lu.
+- **mechanics** : surtout les abilities de l'ADVERSAIRE (cross-observables — A voit les abilities
+  de B frapper contre lui) = 2 observations indépendantes de la même mécanique.
+- **threat/role** + **outcome** (divergence d'issue → fallback sur le **vainqueur autoritatif**
+  FinishMatch/`Match_Winner`, pas la perception — cf. A « team2 wipe » vs B « Njal survit » = timing).
+- **Mapping consensus → confiance** : les 2 d'accord → **high-confidence (wiki)** ; un seul → candidat
+  (hypotheses) ; contradiction → flag. **`gameconfig`/i2 reste l'arbitre** des règles DISCRÈTES —
+  le consensus est un PRIOR fort, PAS la vérité (les 2 peuvent se tromper pareil).
+- **Caveats** : ne couvre que le **cross-observable** (mécanique déclenchée par mes SEULES units →
+  1 seul témoin → retombe sur l'auto-vérif) ; **asymétrie de perspective** (A *infère* B vs B
+  *connaît* B → une divergence peut être complémentaire, pas une erreur).
+→ 2ᵉ raison d'être de la self-play au-delà des démos : un **moteur de vérif par consensus à 2
+observateurs**, qui répond pile à la perte d'indépendance du verif.

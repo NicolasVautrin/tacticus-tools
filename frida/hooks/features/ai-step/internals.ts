@@ -70,6 +70,14 @@ export const entityServicesClass = findClass(
     "BattleLogicAssembly.dll", "IdunBattle.Core.Services", "EntityServices");
 export const dpqInServicesOff = entityServicesClass
     ? getFieldOffset(entityServicesClass, "<DamagePredictionQuery>k__BackingField") : -1;
+// IBattleQuery vit dans EntityServices.<Battle>@0x70 (god-object services). Porte
+// GetAllValidTargetsFromAllPossibleMovementTiles(unit, ActiveAbilityType, bool
+// ignoreMovementFlag) → ValidTargets = énumération des cibles LÉGALES de l'ability
+// TOUTE-LE-TOUR (toutes positions de move incluses). C'est ce que l'IA (BasePlaybook)
+// consomme pour ses abilities non-attaque aussi (buff/summon/hex). Read-only.
+// cf. docs/rl/ai-step-toolkit.md §« Légalité ability + RAISON structurée ».
+export const battleInServicesOff = entityServicesClass
+    ? getFieldOffset(entityServicesClass, "<Battle>k__BackingField") : -1;
 // PositionComponent : Coordinate.Column @0x10, Row @0x14 (cf. move-options).
 export const POS_COL_OFF = 0x10;
 export const POS_ROW_OFF = 0x14;
@@ -144,6 +152,12 @@ export function readAbilityState(ab: NativePointer): {
 export const entityExtClass = findClassAnywhere("IdunBattle.Entities", "EntityExtensions");
 export const getMainTileMi = entityExtClass
     ? findMethodByParamCount(entityExtClass, "GetMainTile", 2) : null;
+// EntityExtensions.GetTiles(entity, state) → IList<IEntity> du footprint courant
+// (multi-tuiles MoW gérées). Sert à fabriquer un UnitPosition value {Tiles=…} sans
+// passer par son ctor ambigu — pour `GetValidTargets(unit, UnitPosition, ability)`
+// « depuis la tuile courante, sans bouger » (cf. abilityTargets.fromHere).
+export const getTilesMi = entityExtClass
+    ? findMethodByParamCount(entityExtClass, "GetTiles", 2) : null;
 
 /** Invoque une méthode statique retournant bool (résultat boxé : valeur @0x10). */
 export function invokeBool(

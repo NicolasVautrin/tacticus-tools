@@ -107,6 +107,47 @@ def _ability_state(a: dict) -> str:
     return " [" + " ".join(parts) + "]"
 
 
+def _tgt_key(t: dict):
+    if t.get("kind") == "unit":
+        return ("u", t.get("targetId"))
+    ti = t.get("tile") or {}
+    return ("t", ti.get("col"), ti.get("row"))
+
+
+def _tgt_compact(t: dict) -> str:
+    if t.get("kind") == "unit":
+        return f"u{t.get('targetId')}"
+    ti = t.get("tile") or {}
+    return f"({ti.get('col')},{ti.get('row')})"
+
+
+def _abil_targets_summary(ab: dict | None, fh_ok: bool, cap: int = 6) -> str:
+    """Résumé compact des cibles légales d'un actif (abilityTargets) : `now` =
+    castable SANS bouger (légalité exacte du cast immédiat) · `+move` = atteignable
+    ce tour en bougeant d'abord. '' si pas d'info ; '∅' si aucune cible (no-op
+    certain). Comble les abilities NON-attaque (buff/heal/summon/hex) absentes des
+    PLANS D'ATTAQUE."""
+    if not ab:
+        return ""
+    here = ab.get("fromHere") or []
+    tgts = ab.get("targets") or []
+    if not here and not tgts:
+        return " →∅(no-op certain)"
+
+    def _fmt(ts: list) -> str:
+        s = ",".join(_tgt_compact(t) for t in ts[:cap])
+        return s + (f",+{len(ts) - cap}" if len(ts) > cap else "")
+
+    if not fh_ok:  # fromHere indispo → superset seul
+        return f" →[{len(tgts)} move incl.]:{_fmt(tgts)}"
+    hk = {_tgt_key(t) for t in here}
+    move_only = [t for t in tgts if _tgt_key(t) not in hk]
+    seg = [f"now[{len(here)}]:{_fmt(here) if here else '∅'}"]
+    if move_only:
+        seg.append(f"+move[{len(move_only)}]:{_fmt(move_only)}")
+    return " →" + " · ".join(seg)
+
+
 # Effets tactiquement CRITIQUES : sous-chaîne du nom EffectType -> (label,
 # hint actionnable). Surfacés en tête de carte pour ne JAMAIS les rater (la
 # défaite = mark railgun ignoré). Recon d'un effet : gameconfig.py --effect <nom>.
@@ -141,9 +182,17 @@ def _effect_label(e: dict) -> str:
     return nm + (f"(r{rem})" if isinstance(rem, int) and rem > 0 else "")
 
 
-def build_card(view: dict, bd: Board) -> str:
+def build_card(view: dict, bd: Board, abil: dict | None = None) -> str:
     units = view.get("units") or []
     cur_player = view.get("currentPlayer")
+    # abilityTargets (optionnel) : index (unitId, abilityId) -> entrée cibles, pour
+    # enrichir MES ACTIFS avec la légalité now/+move (incl. abilities non-attaque).
+    abil_idx: dict = {}
+    fh_ok = bool(abil and abil.get("fromHereResolved"))
+    if abil:
+        for au in (abil.get("units") or []):
+            for ab in (au.get("abilities") or []):
+                abil_idx[(au.get("unitId"), ab.get("abilityId"))] = ab
     my_team = next((u.get("team") for u in units if u.get("ctrl")), None)
     enemies = [u for u in units if not u.get("ctrl") and u.get("alive")]
     mine = [u for u in units if u.get("ctrl") and u.get("alive")]
@@ -219,8 +268,12 @@ def build_card(view: dict, bd: Board) -> str:
         mow_lines.append("  MoW (ability-only — jouer : "
                          "act ability --caster <id> --target T --ability <A>) :")
         for m in mows:
-            ab = ", ".join(f"{x.get('id')}({x.get('name')}){_ability_state(x)}"
-                           for x in (m.get("abilities") or [])) or "—"
+            # cibles légales now/+move par ability MoW (abilityTargets indexe les
+            # Machine du joueur courant par (casterId, abilityId) ; vide pour l'ENNEMI).
+            ab = ", ".join(
+                f"{x.get('id')}({x.get('name')}){_ability_state(x)}"
+                f"{_abil_targets_summary(abil_idx.get((m.get('casterId'), x.get('id'))), fh_ok)}"
+                for x in (m.get("abilities") or [])) or "—"
             side = "MOI" if m.get("team") == my_team else "ENNEMI"
             pos = m.get("pos") or {}
             mow_lines.append(
@@ -238,10 +291,21 @@ def build_card(view: dict, bd: Board) -> str:
         acts = [a for a in (u.get("abilities") or []) if a.get("kind") == "active"]
         if not acts:
             continue
-        s = ", ".join(f"{a.get('name')}({a.get('id')}){_ability_state(a)}" for a in acts)
-        actives_rows.append(f"    u{u.get('id')} [{u.get('visualId')}]: {s}")
+        if abil_idx:  # une ligne par actif AVEC ses cibles légales now/+move.
+            for a in acts:
+                ti = abil_idx.get((u.get("id"), a.get("id")))
+                actives_rows.append(
+                    f"    u{u.get('id')} [{u.get('visualId')}] "
+                    f"{a.get('name')}({a.get('id')}){_ability_state(a)}"
+                    f"{_abil_targets_summary(ti, fh_ok)}")
+        else:  # pas d'abilityTargets → format compact d'origine.
+            s = ", ".join(f"{a.get('name')}({a.get('id')}){_ability_state(a)}" for a in acts)
+            actives_rows.append(f"    u{u.get('id')} [{u.get('visualId')}]: {s}")
     if actives_rows:
-        act_lines.append("  MES ACTIFS (état live — prêt/cdN/disabled/munitions) :")
+        act_lines.append(
+            "  MES ACTIFS (état live + cibles légales — now=sans bouger · "
+            "+move=après déplacement · ∅=no-op certain) :" if abil_idx
+            else "  MES ACTIFS (état live — prêt/cdN/disabled/munitions) :")
         act_lines.extend(actives_rows)
 
     # Effets actifs par unité (decisionView.effects = liste native du jeu, =

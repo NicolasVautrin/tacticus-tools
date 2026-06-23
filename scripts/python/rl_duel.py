@@ -82,7 +82,12 @@ def _show_card(sid: int, rid: int, bc: dict) -> dict:
     if not res.get("ok"):
         print(f"[view] decisionView ERROR: {res.get('error')}")
         return res
-    print(oracle.build_card(res, Board(bc)))
+    # abilityTargets : enrichit MES ACTIFS avec la légalité now/+move des actifs
+    # (incl. NON-attaque buff/heal/summon/hex, absentes des attackPlans). Best-effort.
+    abil = (_rpc(sid, "abilityTargets",
+                 [{"runnerId": rid, "allAbilities": True}], timeout=120)
+            .get("result") or {})
+    print(oracle.build_card(res, Board(bc), abil=abil if abil.get("ok") else None))
     return res
 
 
@@ -239,6 +244,193 @@ def cmd_build(sid: int, a) -> int:
 def cmd_view(sid: int, a) -> int:
     st = _load_state()
     _show_card(sid, st["runnerId"], st["bc"])
+    return 0
+
+
+def _moves_grid(uid: int, vis, uc: int, ur: int, reach: set, occ: dict) -> str:
+    """Grille ASCII CROPPÉE des tuiles légales d'UNE unité (cf. cmd_moves).
+    @ =unité · o =move légal · M/e =autre unité (bloque) · . =inatteignable."""
+    cells = reach | {(uc, ur)}
+    cols = [c for c, _ in cells]
+    rows = [r for _, r in cells]
+    c0, c1 = max(0, min(cols) - 1), max(cols) + 1
+    r0, r1 = max(0, min(rows) - 1), max(rows) + 1
+    out = [f"=== MOVES u{uid} [{vis}] @({uc},{ur}) -> {len(reach)} tuiles légales ===",
+           "    " + " ".join(f"{c}" for c in range(c0, c1 + 1))]
+    for r in range(r0, r1 + 1):
+        cs = []
+        for c in range(c0, c1 + 1):
+            if (c, r) == (uc, ur):
+                cs.append("@")
+            elif (c, r) in occ:
+                cs.append(occ[(c, r)])
+            elif (c, r) in reach:
+                cs.append("o")
+            else:
+                cs.append(".")
+        out.append(f"r{r:>2} " + " ".join(cs))
+    return "\n".join(out)
+
+
+def cmd_moves(sid: int, a) -> int:
+    """Grilles ASCII des MOVES LÉGAUX par unité du joueur courant (via aiMovableTiles).
+    Comble le trou d'info qui faisait deviner des moves ILLÉGAUX (H55) : la carte `view`
+    ne donne que la range + les plans d'ATTAQUE, PAS le set de repositionnement résolu
+    (creusé par blockers/terrain/BFS réel). À lancer AVANT un repositionnement (move sans
+    attaque). `--unit U` = une seule unité."""
+    st = _load_state()
+    rid = st["runnerId"]
+    mov = (_rpc(sid, "aiMovableTiles", [{"runnerId": rid}], timeout=60).get("result") or {})
+    if not mov.get("units"):
+        print(f"[moves] aiMovableTiles vide/erreur : {mov.get('error') or mov}")
+        return 2
+    dec = _decision(sid, rid)
+    occ: dict = {}  # (col,row) -> 'M' (moi) | 'e' (ennemi) : autres unités vivantes (bloquent)
+    vis_by_id: dict = {}
+    for u in (dec.get("units") or []):
+        vis_by_id[u.get("id")] = u.get("visualId")
+        p = u.get("pos") or {}
+        c, r = p.get("col"), p.get("row")
+        if c is not None and u.get("alive"):
+            occ[(c, r)] = "M" if u.get("ctrl") else "e"
+    want = a.unit
+    n = 0
+    for mu in mov.get("units"):
+        uid = mu.get("unitId")
+        if want is not None and uid != want:
+            continue
+        up = mu.get("pos") or {}
+        uc, ur = up.get("col"), up.get("row")
+        if uc is None:
+            continue
+        reach = {(t.get("col"), t.get("row")) for t in (mu.get("tiles") or [])
+                 if t.get("col") is not None and t.get("row") is not None}
+        print(_moves_grid(uid, vis_by_id.get(uid, "?"), uc, ur, reach, occ))
+        n += 1
+    if n == 0:
+        print("[moves] rien à afficher"
+              + (f" (u{want} hors movable set : déjà agi / non contrôlée / morte ?)"
+                 if want is not None else ""))
+        return 2
+    print("  [moves] @ =unité · o =move légal · M/e =autre unité (bloque) · "
+          ". =inatteignable")
+    return 0
+
+
+def _tgt_fmt(t: dict) -> str:
+    if t.get("kind") == "unit":
+        tp = t.get("pos") or {}
+        return (f"u{t.get('targetId')}[{t.get('visualId')}]"
+                f"@({tp.get('col')},{tp.get('row')})")
+    ti = t.get("tile") or {}
+    return f"tile({ti.get('col')},{ti.get('row')})"
+
+
+def _tgt_key(t: dict):
+    if t.get("kind") == "unit":
+        return ("u", t.get("targetId"))
+    ti = t.get("tile") or {}
+    return ("t", ti.get("col"), ti.get("row"))
+
+
+def cmd_abilities(sid: int, a) -> int:
+    """Cibles LÉGALES par (unité, ability) du joueur courant — l'analogue ability de
+    `moves`, pour TOUTES les abilities (y compris NON-attaque : buff/heal/summon/hex,
+    absentes des plans d'attaque de `view`). Via le RPC `abilityTargets` (= la query
+    que l'IA `BasePlaybook` consomme). DEUX listes par ability :
+      now    = castable SANS bouger (fromHere ; légalité EXACTE du cast immédiat) ;
+      +move  = atteignable CE TOUR en bougeant d'abord (superset \\ now).
+    ∉ des deux => cast DÉFINITIVEMENT no-op. `--unit U` / `--ability A` pour filtrer."""
+    st = _load_state()
+    rid = st["runnerId"]
+    body: dict = {"runnerId": rid, "allAbilities": True}
+    if a.unit is not None:
+        body["unitId"] = a.unit
+    if a.ability is not None:
+        body["abilityType"] = a.ability
+    res = (_rpc(sid, "abilityTargets", [body], timeout=120).get("result") or {})
+    if not res.get("ok"):
+        print(f"[abilities] abilityTargets ERROR: {res.get('error')}")
+        return 2
+    units = res.get("units") or []
+    if not units:
+        print("[abilities] aucune unité contrôlée vivante à scanner")
+        return 2
+    fh_ok = res.get("fromHereResolved")
+    print(f"=== ABILITY TARGETS (joueur {res.get('playerId')} · {res.get('ms')}ms · "
+          f"mutated={res.get('mutated')} · fromHere={'OK' if fh_ok else 'INDISPO'}) ===")
+    for u in units:
+        pos = u.get("pos") or {}
+        print(f"\nu{u.get('unitId')} [{u.get('visualId')}] "
+              f"@({pos.get('col')},{pos.get('row')})")
+        for ab in (u.get("abilities") or []):
+            flags = []
+            if ab.get("usable") is not None:
+                flags.append("usable" if ab.get("usable") else "NOT-usable")
+            if ab.get("cooldown"):
+                flags.append(f"cd={ab.get('cooldown')}")
+            if ab.get("disabled"):
+                flags.append("disabled")
+            fl = (" {" + ",".join(flags) + "}") if flags else ""
+            tgts = ab.get("targets") or []
+            here = ab.get("fromHere") or []
+            here_keys = {_tgt_key(t) for t in here}
+            move_only = [t for t in tgts if _tgt_key(t) not in here_keys]
+            if ab.get("err"):
+                desc = f"ERR {ab.get('err')}"
+            elif not fh_ok:
+                # pas de fromHere → on ne montre que le superset (sémantique d'avant).
+                desc = (f"{len(tgts)} (move inclus) → " + ", ".join(_tgt_fmt(t) for t in tgts)
+                        if tgts else "AUCUNE cible ce tour")
+            elif not tgts:
+                desc = "AUCUNE cible (no-op certain)"
+            else:
+                seg = []
+                if here:
+                    seg.append(f"now[{len(here)}]: " + ", ".join(_tgt_fmt(t) for t in here))
+                else:
+                    seg.append("now: ∅")
+                if move_only:
+                    seg.append(f"+move[{len(move_only)}]: "
+                               + ", ".join(_tgt_fmt(t) for t in move_only))
+                desc = " · ".join(seg)
+            print(f"  [{ab.get('kind')}] {ab.get('ability')} "
+                  f"(id{ab.get('abilityId')}){fl}: {desc}")
+    print("\n  [abilities] now = castable SANS bouger (légalité exacte du cast immédiat) · "
+          "+move = atteignable ce tour en bougeant d'abord · ∉ des deux => no-op certain.")
+    return 0
+
+
+def cmd_reason(sid: int, a) -> int:
+    """Raison STRUCTURÉE d'un cast invalide (refinement 2) — RPC `abilityReason` →
+    flag `TargetingRule` décodé en noms. `--caster U --ability A [--target T]`. Sans
+    --target : seulement la raison CASTER (peut-elle caster du tout)."""
+    st = _load_state()
+    rid = st["runnerId"]
+    if a.caster is None or a.ability is None:
+        print("[reason] requiert --caster U --ability A [--target T]")
+        return 2
+    body: dict = {"runnerId": rid, "casterId": a.caster, "abilityType": a.ability}
+    if a.target is not None:
+        body["targetId"] = a.target
+    r = (_rpc(sid, "abilityReason", [body], timeout=60).get("result") or {})
+    if not r.get("ok"):
+        print(f"[reason] ERROR: {r.get('error')}")
+        return 2
+    print(f"=== ABILITY REASON caster u{r.get('casterId')} · ability "
+          f"{r.get('abilityType')} · target {r.get('targetId')} ===")
+    for key, lab in (("casterReason", "CASTER"), ("targetReason", "CIBLE")):
+        rr = r.get(key)
+        if rr is None:
+            print(f"  {lab}: (non évalué)")
+            continue
+        rc = rr.get("ruleClass")
+        if rr.get("reasons"):
+            print(f"  {lab}: {','.join(rr['reasons'])}  [{rr.get('hex')}]")
+        elif rc and rc != "NoBrokenTargetingRule":
+            print(f"  {lab}: {rc} (règle non décodable en flag)")
+        else:
+            print(f"  {lab}: aucune règle cassée (cible VALIDE)")
     return 0
 
 
@@ -408,17 +600,74 @@ def cmd_aiturn(sid: int, a) -> int:
     return 0
 
 
-def _action_failed(r: dict, kind: str) -> str | None:
+def _ability_reason(sid: int, rid: int, action: dict) -> str:
+    """Raison STRUCTURÉE d'un no-op ability (refinement 2) via le RPC `abilityReason`
+    → flag `TargetingRule` décodé en noms (hors portée / déjà utilisée / mauvais type
+    de cible / LoS / tuile occupée…). '' si indispo. Remplace la devinette du filet."""
+    if action.get("kind") != "ability":
+        return ""
+    body: dict = {"runnerId": rid, "casterId": action.get("casterId"),
+                  "abilityType": action.get("abilityType")}
+    if action.get("targetId") is not None:
+        body["targetId"] = action["targetId"]
+    r = (_rpc(sid, "abilityReason", [body], timeout=60).get("result") or {})
+    if not r.get("ok"):
+        return ""
+
+    def _fmt(rr):
+        if not rr:
+            return None
+        if rr.get("reasons"):
+            return ",".join(rr["reasons"])
+        rc = rr.get("ruleClass")
+        return rc if (rc and rc != "NoBrokenTargetingRule") else None  # None = valide
+
+    bits = []
+    tr, cr = _fmt(r.get("targetReason")), _fmt(r.get("casterReason"))
+    if tr:
+        bits.append("cible exige: " + tr)
+    if cr:
+        bits.append("caster: " + cr)
+    return (" | RAISON [" + " ; ".join(bits) + "]") if bits else ""
+
+
+def _ability_prevalidate(sid: int, rid: int, action: dict) -> str:
+    """Pré-validation H55 (volet ability, refinement 2) : AVANT applyAction, vérifie
+    via `abilityReason` que la cible est LÉGALE depuis la position COURANTE. Renvoie
+    une raison structurée si le cast est ILLÉGAL ce tour sans bouger — sinon ''. Comble
+    le no-op « event émis mais 0 effet » (hors portée / untargetable) que le filet
+    réactif (eventCount==0) ne voit PAS. Ne pré-valide que les casts CIBLÉS (targetId) ;
+    laisse passer si abilityReason indispo (fallback réactif)."""
+    if action.get("targetId") is None:
+        return ""
+    body = {"runnerId": rid, "casterId": action.get("casterId"),
+            "abilityType": action.get("abilityType"), "targetId": action["targetId"]}
+    r = (_rpc(sid, "abilityReason", [body], timeout=60).get("result") or {})
+    if not r.get("ok"):
+        return ""
+    tr = r.get("targetReason") or {}
+    if tr.get("reasons"):
+        return ("cast ILLÉGAL ce tour sans bouger -> " + ",".join(tr["reasons"])
+                + " ; déplace d'abord ? cf. `abilities` (now/+move)")
+    rc = tr.get("ruleClass")
+    if rc and rc != "NoBrokenTargetingRule":
+        return f"cast ILLÉGAL -> {rc} (cf. `abilities`)"
+    return ""
+
+
+def _action_failed(r: dict, kind: str, sid: int | None = None,
+                   rid: int | None = None, action: dict | None = None) -> str | None:
     """Raison si l'action a ÉCHOUÉ (-> STOPPER le tour AVANT l'endturn, sinon il
     est donné gratis à l'IA), sinon None. ÉCHEC =
       - apply en erreur : ok=False / error / RPC mort               [tous les kinds]
       - un MOVE sans AUCUN effet associé : ni déplacement (mutated/changes), ni
         event de cascade (eventCount==0) = no-op (tuile invalide/bloquée).
-    NB (vérifié internals.ts) : `mutated` = diff de signature pos+hp seulement ;
-    un déplacement est dans `changes`/`mutated`, PAS dans `events` (cascade =
-    dégâts/effets) -> un vrai move => mutated=True. Les `ability` (effet/buff/
-    marque/différée hors sig pos+hp) et `finish` (pas d'effet board) ne sont PAS
-    jugées sur l'absence d'effet : elles n'avortent QUE sur ok=False / error."""
+      - une ABILITY sans AUCUN event (mutated=False ET eventCount==0) = no-op
+        (hors portée / cooldown / munitions / cible invalide). Un vrai buff/marque/
+        différée émet >=1 event de cascade -> eventCount==0 = rien n'a firé.
+    NB (vérifié internals.ts) : `mutated` = diff de signature pos+hp seulement ; un
+    déplacement => mutated=True ; un effet/buff (hors sig pos+hp) => >=1 event. `finish`
+    (pas d'effet board) n'avorte QUE sur ok=False / error."""
     if not r.get("ok") and not r.get("actions"):
         return f"RPC échec: {r.get('error') or r}"
     for act in (r.get("actions") or []):
@@ -428,7 +677,18 @@ def _action_failed(r: dict, kind: str) -> str | None:
         if (kind == "move" and act.get("mutated") is False
                 and not act.get("changes") and not act.get("eventCount")):
             return ("move sans aucun effet (pos inchangée, 0 event) "
-                    "-> tuile invalide / bloquée / hors portée ?")
+                    "-> tuile invalide / bloquée / hors portée ? (cf. `moves`)")
+        # H55 (volet ability) : une ability sans AUCUN event = vrai no-op (un buff/
+        # marque/différée émet >=1 event de cascade) -> hors portée / cooldown /
+        # munitions / cible invalide. Distinct de mutated (un buff ne change pas pos+hp).
+        if (kind == "ability" and act.get("mutated") is False
+                and not act.get("eventCount")):
+            msg = ("ability sans aucun effet (mutated=false, 0 event) -> hors portée / "
+                   "cooldown / munitions épuisées / cible invalide ? cf. l'état live des "
+                   "actifs (prêt/cdN/munitions) dans `view`")
+            if sid is not None and rid is not None and action is not None:
+                msg += _ability_reason(sid, rid, action)
+            return msg
     return None
 
 
@@ -457,6 +717,26 @@ def _ability_action(ac: dict, plan_ab: dict) -> tuple:
     return action, f"ABILITY {ab} u{caster} (self/target-less)", None
 
 
+def _movable_map(sid: int, rid: int):
+    """{unitId: set((col,row))} des tuiles JOUABLES par unité du joueur courant
+    (via aiMovableTiles). Sert à PRÉ-VALIDER les moves AVANT applyAction et à donner
+    une RAISON précise au lieu d'un no-op silencieux (H55 : move hors-portée/bloqué =
+    moteur ok=true mutated=false SANS raison). Retourne None si l'appel échoue
+    -> on saute la pré-validation (fallback sur la détection post-hoc)."""
+    r = (_rpc(sid, "aiMovableTiles", [{"runnerId": rid}], timeout=60).get("result") or {})
+    units = r.get("units")
+    if not units:
+        return None
+    out: dict = {}
+    for u in units:
+        uid = u.get("unitId")
+        if uid is None:
+            continue
+        out[uid] = {(t.get("col"), t.get("row")) for t in (u.get("tiles") or [])
+                    if t.get("col") is not None and t.get("row") is not None}
+    return out
+
+
 def cmd_play(sid: int, a) -> int:
     """1 ROUND : applique MES actions (--spec JSON), endturn, tour IA, status,
     puis ré-affiche la carte. spec = liste d'actions ; FORMATS EXACTS :
@@ -480,6 +760,11 @@ def cmd_play(sid: int, a) -> int:
     for p in (res.get("attackPlans") or []):
         for ev in (p.get("evals") or []):
             plan_ab[(p["unitId"], ev["targetId"])] = ev.get("abilityId")
+    # H55 — pré-validation des moves : un move hors-portée/bloqué/déjà-agi est un
+    # NO-OP SILENCIEUX côté moteur (ok=true, mutated=false, AUCUNE raison). On calcule
+    # le movable set (1 RPC/tour, seulement s'il y a un move dans le spec) pour rejeter
+    # AVANT applyAction, avec une raison précise + des tuiles légales.
+    movable = _movable_map(sid, rid) if any(ac.get("kind") == "move" for ac in spec) else None
     aborted = None  # raison d'abandon du tour (None = tout OK -> endturn)
     for ac in spec:
         k = ac["kind"]
@@ -493,6 +778,17 @@ def cmd_play(sid: int, a) -> int:
             except (TypeError, ValueError):
                 aborted = (f"move u{ac.get('unit')}: 'to'={to!r} non entier "
                            f"-> [col,row] attendu"); break
+            if movable is not None:  # H55 : raison précise AVANT le no-op silencieux
+                mv = movable.get(ac["unit"])
+                if not mv:
+                    aborted = (f"move u{ac['unit']}: AUCUNE tuile jouable ce tour "
+                               f"(déjà agi / non contrôlée / morte ?) — cf. 'À ACTIVER' dans `view`")
+                    break
+                if (col, row) not in mv:
+                    near = sorted(mv, key=lambda t: abs(t[0] - col) + abs(t[1] - row))[:8]
+                    aborted = (f"move u{ac['unit']}->({col},{row}) HORS du movable set "
+                               f"(hors portée / tuile bloquée). Tuiles légales proches: {near}")
+                    break
             action = {"kind": "move", "unitId": ac["unit"],
                       "to": {"col": col, "row": row}}
             label = f"MOVE u{ac['unit']}->({col},{row})"
@@ -500,6 +796,9 @@ def cmd_play(sid: int, a) -> int:
             action, label, err = _ability_action(ac, plan_ab)
             if err:
                 aborted = err; break
+            pv = _ability_prevalidate(sid, rid, action)
+            if pv:
+                aborted = f"{label} -> {pv}"; break
         elif k == "finish":
             action = {"kind": "finish", "unitId": ac["unit"]}
             label = f"FINISH u{ac['unit']}"
@@ -508,7 +807,7 @@ def cmd_play(sid: int, a) -> int:
         r = (_rpc(sid, "applyAction", [{"runnerId": rid, "action": action}],
                   timeout=60).get("result") or {})
         _print_apply(label, r, my_ids)
-        fail = _action_failed(r, k)
+        fail = _action_failed(r, k, sid, rid, action)
         if fail:
             aborted = f"{label} -> {fail}"; break
         # action RÉUSSIE -> log live (pour replay-to-state du guard). Per-action +
@@ -552,6 +851,18 @@ def cmd_play(sid: int, a) -> int:
               "tour IA NON joué. NE lance PAS `aiturn` manuel ; relance `play` ou "
               "investigue.")
         return cmd_status(sid, a)
+    # SELF-PLAY (--no-ai) : mon tour est fini, la main est passée à l'adversaire
+    # (currentPlayer=aenemy garanti par le flip ci-dessus). On NE joue PAS le tour
+    # IA natif : c'est à l'AUTRE agent oracle de jouer l'autre camp (il attend son
+    # tour via l'endpoint host /api/selfplay/:id/await). cf. docs/rl/design.md.
+    if getattr(a, "no_ai", False):
+        cp_after = _decision(sid, rid).get("currentPlayer")
+        ok = cp_after == aenemy
+        print(f"  [play --no-ai] tour fini -> main passée à l'adversaire "
+              f"(currentPlayer={cp_after}"
+              + ("=adversaire, OK" if ok else f", attendu {aenemy} /!\\")
+              + "). AUCUN tour IA natif joué (self-play : à l'autre agent de jouer).")
+        return cmd_status(sid, a)
     # Tour de l'IA (cp==ennemi garanti -> aiPlayByUnit joue bien l'ADVERSAIRE).
     _ai_turn(sid, rid, a.maxpump, my_team)
     cp_after = _decision(sid, rid).get("currentPlayer")
@@ -594,6 +905,31 @@ def cmd_dispose(sid: int, a) -> int:
     st = _load_state()
     _rpc(sid, "disposeRunner", [{"runnerId": st["runnerId"]}], timeout=15)
     print(f"[dispose] runner {st['runnerId']} libéré")
+    return 0
+
+
+def cmd_attach(sid: int, a) -> int:
+    """SELF-PLAY : crée un state-file pour un 2e agent player pointant sur un
+    runner DÉJÀ construit (pas de rebuild). Copie {runnerId, bc, seed,
+    playerUnits} depuis --from et fixe le camp via --team (1|2 ; omis =
+    auto-dérivé du currentPlayer à chaque tour). action_log repart vide (démo
+    propre par player). cf. docs/rl/design.md §Self-play."""
+    if not a.attach_from:
+        print("[attach] --from <state-file source> requis", file=sys.stderr)
+        return 2
+    src = json.loads(Path(a.attach_from).read_text(encoding="utf-8"))
+    rid = a.runner if a.runner is not None else src.get("runnerId")
+    if rid is None:
+        print("[attach] pas de runnerId (ni --runner ni dans --from)",
+              file=sys.stderr)
+        return 2
+    out = {"runnerId": rid, "bc": src.get("bc"), "seed": src.get("seed"),
+           "playerUnits": src.get("playerUnits"), "action_log": []}
+    if a.team is not None:
+        out["myTeam"] = a.team
+    _save_state(out)
+    print(f"[attach] {STATE} -> runner {rid} "
+          f"team={a.team if a.team is not None else 'auto'}")
     return 0
 
 
@@ -648,7 +984,7 @@ def _apply_spec_to(sid: int, rid: int, spec: list) -> tuple:
             return applied, f"kind inconnu: {k!r}"
         r = (_rpc(sid, "applyAction", [{"runnerId": rid, "action": action}],
                   timeout=60).get("result") or {})
-        fail = _action_failed(r, k)
+        fail = _action_failed(r, k, sid, rid, action)
         if fail:
             return applied, f"{k} -> {fail}"
         applied += 1
@@ -1088,7 +1424,9 @@ def cmd_rollout(sid: int, a) -> int:
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["build", "view", "act", "aiturn",
-                                    "status", "dispose", "play", "guard", "rollout"])
+                                    "status", "dispose", "play", "guard",
+                                    "rollout", "attach", "moves", "abilities",
+                                    "reason"])
     ap.add_argument("kind", nargs="?", default=None,
                     help="pour act: move|ability|finish|endturn")
     ap.add_argument("--spec", default=None,
@@ -1137,6 +1475,17 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--keep", action="store_true",
                     help="build: NE dispose PAS les runners existants "
                          "(coexistence multi-runner / parallèle — cf. TF06)")
+    ap.add_argument("--no-ai", dest="no_ai", action="store_true",
+                    help="play: SELF-PLAY — joue MON tour, endturn (flip sur "
+                         "l'adversaire), puis S'ARRÊTE SANS lancer le tour IA natif "
+                         "(CheatRunAIMessage). C'est à l'AUTRE agent oracle de jouer "
+                         "l'autre camp. cf. docs/rl/design.md §Self-play.")
+    ap.add_argument("--from", dest="attach_from", default=None,
+                    help="attach: state-file source (runner partagé) à copier")
+    ap.add_argument("--team", type=int, default=None,
+                    help="attach: camp de CE player (1|2 ; omis = auto-dérivé)")
+    ap.add_argument("--runner", type=int, default=None,
+                    help="attach: runnerId explicite (défaut = celui du --from)")
     a = ap.parse_args(argv)
 
     global STATE
@@ -1148,7 +1497,9 @@ def main(argv: list[str]) -> int:
     dispatch = {"build": cmd_build, "view": cmd_view, "act": cmd_act,
                 "aiturn": cmd_aiturn, "status": cmd_status,
                 "dispose": cmd_dispose, "play": cmd_play, "guard": cmd_guard,
-                "rollout": cmd_rollout}
+                "rollout": cmd_rollout, "attach": cmd_attach,
+                "moves": cmd_moves, "abilities": cmd_abilities,
+                "reason": cmd_reason}
     return dispatch[a.cmd](sid, a)
 
 

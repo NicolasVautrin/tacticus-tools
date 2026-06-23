@@ -170,6 +170,63 @@ export function buildRouter(defaultLogDir: string): Router {
         }
     });
 
+    // SELF-PLAY turn hand-off (cf. docs/rl/design.md §Self-play). Long-poll : bloque
+    // CÔTÉ HOST jusqu'à ce que ce soit le tour du joueur `player` (= currentPlayer du
+    // runner), OU que la battle soit finie (stage != Running), OU timeout. L'agent
+    // player émet UN seul GET par tour (pas de boucle sleep côté client — le foreground
+    // sleep est bloqué par le harness). Poll léger via la RPC `battleStatus` (PAS
+    // decisionView, qui peut overrun une frame).
+    //   GET /api/selfplay/:id/await?runnerId=R&player=P[&timeoutMs=90000][&pollMs=400]
+    //   -> { ok, yourTurn, gameOver, currentPlayer, stage, stageName, timedOut? }
+    router.get("/api/selfplay/:id/await", async (req: Request, res: Response) => {
+        const id = Number(req.params.id);
+        const runnerId = Number(req.query.runnerId);
+        const player = Number(req.query.player);
+        const timeoutMs = Math.min(300000, Number(req.query.timeoutMs) || 90000);
+        const pollMs = Math.max(100, Number(req.query.pollMs) || 400);
+        if (!Number.isFinite(runnerId) || !Number.isFinite(player)) {
+            res.status(400).json({ error: "runnerId and player (query params) required" });
+            return;
+        }
+        const deadline = Date.now() + timeoutMs;
+        const sleep = (ms: number): Promise<void> =>
+            new Promise((r) => setTimeout(r, ms));
+        try {
+            for (;;) {
+                const r = (await rpcCall(id, "battleStatus",
+                    [{ runnerId }], 15000)) as {
+                        ok?: boolean; error?: string; stage?: number;
+                        stageName?: string; currentPlayer?: number;
+                    };
+                if (r && r.ok === false) {
+                    res.status(502).json({ error: r.error || "battleStatus failed" });
+                    return;
+                }
+                const stage = r?.stage;
+                const currentPlayer = r?.currentPlayer;
+                // stage 1 = Running ; tout autre = battle terminée (plus de tours).
+                if (stage !== undefined && stage !== 1) {
+                    res.json({ ok: true, gameOver: true, yourTurn: false,
+                        currentPlayer, stage, stageName: r?.stageName });
+                    return;
+                }
+                if (currentPlayer === player) {
+                    res.json({ ok: true, yourTurn: true, gameOver: false,
+                        currentPlayer, stage, stageName: r?.stageName });
+                    return;
+                }
+                if (Date.now() >= deadline) {
+                    res.json({ ok: true, yourTurn: false, gameOver: false,
+                        timedOut: true, currentPlayer, stage, stageName: r?.stageName });
+                    return;
+                }
+                await sleep(pollMs);
+            }
+        } catch (e) {
+            res.status(500).json({ error: (e as Error).message });
+        }
+    });
+
     router.post("/api/scripts/:id/message", (req: Request, res: Response) => {
         try {
             postMessage(Number(req.params.id), req.body);

@@ -1,5 +1,6 @@
 import {
-    class_get_name, class_get_namespace, findMethod, findMethodByParamCount, s,
+    class_get_name, class_get_namespace, findMethod, findMethodByParamClasses,
+    findMethodByParamCount, s,
 } from "../../il2cpp/helpers.js";
 import { invokeMethod } from "../../il2cpp/invoke.js";
 import { gcRoot } from "../../il2cpp/gc-root.js";
@@ -13,13 +14,14 @@ import { readEffectsByUnit } from "../../game/effects.js";
 import { state } from "../../game/state.js";
 import { queueOnMainThread } from "../../runtime/queue.js";
 import { abilityName } from "../../data/ability-names.js";
+import { TARGETING_RULE_BITS } from "../../data/targeting-rule-names.js";
 import { Ctx } from "../../controller.js";
 import {
     ActionResult, ActionSpec, activeAbilityMsgClass, applyOneAction,
-    attackQueryOff, dpqInServicesOff, extractTiles, extractTilePtrs,
-    finishUnitTurnMsgClass, getMovableTilesMi, getUnitMainTile, invokeBool,
-    isAliveMi, isCtrlByCurMi, moveUnitMsgClass, movementQueryOff, readTileCoord,
-    resolveDpq, servicesOff, summarize, unitAbilityTypes,
+    attackQueryOff, battleInServicesOff, dpqInServicesOff, extractTiles, extractTilePtrs,
+    finishUnitTurnMsgClass, getMovableTilesMi, getTilesMi, getUnitMainTile, invokeBool,
+    isAliveMi, isCtrlByCurMi, moveUnitMsgClass, movementQueryOff, mowAbilityTypes,
+    readTileCoord, resolveDpq, servicesOff, summarize, unitAbilityTypes,
 } from "./internals.js";
 import { applyAiMsgMi } from "../../game/ai-control.js";
 import {
@@ -28,6 +30,36 @@ import {
 } from "./projection.js";
 
 export function registerView(ctx: Ctx): void {
+    /** STATUS LÉGER pour le long-poll de hand-off self-play : lit SEULEMENT
+     *  stage + currentPlayer du runner, sans projection/units/danger-zone (≠
+     *  decisionView qui peut overrun une frame seule). Conçu pour être poll-é
+     *  toutes les ~400 ms par l'endpoint host /api/selfplay/:id/await.
+     *  body: { runnerId } -> { ok, stage, stageName, currentPlayer }.
+     *  cf. docs/rl/design.md §Self-play. */
+    ctx.rpc.battleStatus = (
+        body?: { runnerId?: number },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        let runner: NativePointer; let label: string;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+            label = "build#" + body.runnerId;
+        } else if (state.liveRunner) {
+            runner = state.liveRunner; label = "live";
+        } else {
+            return { ok: false, error: "no runner — pass runnerId" };
+        }
+        if (runner.isNull()) return { ok: false, error: label + " runner null" };
+        const statePtr = runner.add(runnerOff.state).readPointer();
+        if (statePtr.isNull()) return { ok: false, error: "state null" };
+        const status = readBattleStatus(statePtr);
+        return {
+            ok: true, runner: label,
+            stage: status.stage, stageName: status.stageName,
+            currentPlayer: status.currentTurnPlayer,
+        };
+    });
+
     /** DRY-RUN des tiles atteignables : pour chaque squad contrôlé+vivant du
      *  joueur courant, appelle `MovementQuery.GetMovableTilesFor(unit, false, {})`
      *  et extrait l'ensemble des tiles légales — SANS muter. Une deep-strike
@@ -394,6 +426,335 @@ export function registerView(ctx: Ctx): void {
             mutated: before.sig !== after.sig, removeWorks,
             ms: Date.now() - t0,
             unitCount: results.length, enemyCount: enemies.length, units: results,
+        };
+    });
+
+    /** abilityTargets — énumération des CIBLES LÉGALES par (unit contrôlée,
+     *  ability), l'analogue ability de `aiMovableTiles`/`moves` pour TOUTES les
+     *  abilities — y compris non-attaque (buff/heal/summon/hex) ABSENTES des
+     *  attackPlans. Pour chaque unit ctrl+vivante × chaque ability concrète,
+     *  appelle `BattleQuery.GetAllValidTargetsFromAllPossibleMovementTiles(unit,
+     *  ability, ignoreMovementFlag=false)` (= ce que l'IA `BasePlaybook` consomme)
+     *  → `ValidTargets.AllTargets@0x10` → mappe en cibles (units → squadId/
+     *  visualId/pos ; hex libres → tile coord). DEUX champs par ability :
+     *  `targets` = « ce TOUR, déplacement INCLUS » (superset) ; `fromHere` =
+     *  castable SANS bouger depuis la tuile courante (via `AttackQuery.GetValidTargets(
+     *  unit, UnitPosition{GetTiles}, ability)`, légalité EXACTE du cast immédiat).
+     *  → net H55 précis : ∉ des deux ⇒ no-op certain ; ∈ targets mais ∉ fromHere ⇒
+     *  « bouger d'abord ». Read-only (mutated=false attendu). body: { runnerId,
+     *  unitId?, abilityType?, allAbilities?=true }. cf. docs/rl/ai-step-toolkit.md §d. */
+    ctx.rpc.abilityTargets = (
+        body?: {
+            runnerId?: number; unitId?: number;
+            abilityType?: number; allAbilities?: boolean;
+        },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        const manualAbility = (typeof body?.abilityType === "number")
+            ? (body.abilityType | 0) : null;
+        const allAbilities = body?.allAbilities !== false;   // défaut TRUE
+        let runner: NativePointer; let label: string;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+            label = "build#" + body.runnerId;
+        } else if (state.liveRunner) {
+            runner = state.liveRunner; label = "live";
+        } else {
+            return { ok: false, error: "no runner — pass runnerId" };
+        }
+        if (runner.isNull()) return { ok: false, error: label + " runner null" };
+        const statePtr = runner.add(runnerOff.state).readPointer();
+        if (statePtr.isNull()) return { ok: false, error: "state null" };
+        const status = readBattleStatus(statePtr);
+        if (status.stage !== 1) {
+            return { ok: false, runner: label,
+                error: "stage " + (status.stageName ?? status.stage) + " (need Running)" };
+        }
+        const playerId = status.currentTurnPlayer;
+        if (servicesOff < 0 || battleInServicesOff < 0) {
+            return { ok: false, error: "services/Battle offsets unresolved" };
+        }
+        const services = runner.add(servicesOff).readPointer();
+        if (services.isNull()) return { ok: false, error: "EntityServices null" };
+        const battleQuery = services.add(battleInServicesOff).readPointer();
+        if (battleQuery.isNull()) return { ok: false, error: "BattleQuery null (<Battle>)" };
+        const getAllValidMi = findMethodByParamCount(
+            battleQuery.readPointer(),
+            "GetAllValidTargetsFromAllPossibleMovementTiles", 3);
+        if (!getAllValidMi) {
+            return { ok: false, error:
+                "GetAllValidTargetsFromAllPossibleMovementTiles(3) not resolved on "
+                + s(class_get_name(battleQuery.readPointer()) as NativePointer) };
+        }
+        // Overload per-position « depuis la tuile courante, SANS bouger » :
+        // AttackQuery.GetValidTargets(IEntity unit, UnitPosition from, ActiveAbilityType).
+        // DEUX overloads 3-param (l'autre prend IOrderedSet<UnitPosition>) → désambiguïsé
+        // par le type du param[1] == "UnitPosition". null = fromHere indispo (dégradé).
+        const attackQuery = runner.add(attackQueryOff).readPointer();
+        const getValidFromPosMi = (!attackQuery.isNull() && getTilesMi)
+            ? findMethodByParamClasses(
+                attackQuery.readPointer(), "GetValidTargets",
+                [null, "UnitPosition", null])
+            : null;
+
+        // Carte ptr-entité → {id, type} pour résoudre les cibles renvoyées.
+        const entById = new Map<string, { id: number; ty: number }>();
+        forEachEntity(statePtr, (e, id, ty) => {
+            entById.set(e.toString(), { id, ty });
+        });
+        const proj = projectMatchState(statePtr);
+        const visById = new Map<number, string | null>();
+        const posById = new Map<number, { col: number; row: number } | null>();
+        for (const u of proj.units) {
+            visById.set(u.squadId, u.visualId);
+            posById.set(u.squadId, u.pos);
+        }
+        // Identité MoW : l'entité Machine porte HP/owner/abilities ; casterId = machineId.
+        for (const m of projectMowsFull(statePtr, proj)) {
+            visById.set(m.casterId, m.visualId);
+            posById.set(m.casterId, m.pos);
+        }
+
+        // Casters à scanner : units (Type Unit) + MoW (Type Machine), ctrl+vivants,
+        // filtrables par unitId. Les MoW ne bougent pas mais castent depuis leur place.
+        const myUnits: Array<{ id: number; ptr: NativePointer; isMow: boolean }> = [];
+        forEachEntity(statePtr, (e, id, ty) => {
+            const isMow = ty === EntityType.Machine;
+            if (ty !== EntityType.Unit && !isMow) return;
+            if (!invokeBool(isAliveMi, [e, statePtr])) return;
+            if (!invokeBool(isCtrlByCurMi, [e, statePtr])) return;
+            if (body?.unitId === undefined || body.unitId === id) {
+                myUnits.push({ id, ptr: e, isMow });
+            }
+        });
+
+        const abilBuf = Memory.alloc(4);
+        const boolFalse = Memory.alloc(1); boolFalse.writeU8(0);
+        const before = summarize(statePtr);
+        const t0 = Date.now();
+        type Tgt = {
+            kind: "unit" | "tile"; targetId?: number; visualId?: string | null;
+            pos?: { col: number; row: number } | null;
+            tile?: { col: number; row: number };
+        };
+        interface AbilTargets {
+            abilityId: number; ability: string; kind: string;
+            usable?: boolean; cooldown?: number | null; disabled?: boolean;
+            targetCount: number; targets: Tgt[];     // ce tour, MOVE inclus (superset)
+            fromHereCount: number; fromHere: Tgt[];  // SANS bouger (tuile courante)
+            err?: string;
+        }
+        const results: Array<{
+            unitId: number; isMow: boolean; visualId: string | null;
+            pos: { col: number; row: number } | null;
+            abilities: AbilTargets[];
+        }> = [];
+
+        // ValidTargets.AllTargets@0x10 (OrderedSet<IEntity>) → cibles mappées
+        // (Unit → squadId/visualId/pos ; hex libre → tile coord).
+        const mapTargets = (vt: NativePointer): Tgt[] => {
+            const out: Tgt[] = [];
+            if (vt.isNull()) return out;
+            let allTargets: NativePointer;
+            try { allTargets = vt.add(0x10).readPointer(); } catch { return out; }
+            if (allTargets.isNull()) return out;
+            for (const p of extractTilePtrs(allTargets)) {
+                const info = entById.get(p.ptr.toString());
+                if (info && (info.ty === EntityType.Unit
+                             || info.ty === EntityType.Machine)) {
+                    out.push({
+                        kind: "unit", targetId: info.id,
+                        visualId: visById.get(info.id) ?? null,
+                        pos: posById.get(info.id) ?? { col: p.col, row: p.row },
+                    });
+                } else {
+                    out.push({ kind: "tile", tile: { col: p.col, row: p.row } });
+                }
+            }
+            return out;
+        };
+
+        for (const u of myUnits) {
+            const abilities = (manualAbility !== null)
+                ? [{ id: manualAbility,
+                     name: abilityName(manualAbility) ?? "id:" + manualAbility,
+                     kind: "manual" as string }]
+                : (u.isMow
+                    ? mowAbilityTypes(u.ptr)        // Primary/Secondary machine + actives
+                    : unitAbilityTypes(u.ptr, allAbilities));
+            const abOut: AbilTargets[] = [];
+            // UnitPosition value {Tiles=GetTiles(unit,state)} pour le call per-position
+            // « sans bouger ». gcRoot tant qu'on l'utilise (GetValidTargets alloue du
+            // managé → GC possible entre deux abilities).
+            let unitPosBuf: NativePointer | null = null;
+            let tilesList: NativePointer | null = null;
+            if (getValidFromPosMi && getTilesMi) {
+                try {
+                    const tl = invokeMethod(getTilesMi.info, null, [u.ptr, statePtr]);
+                    if (!tl.isNull()) {
+                        tilesList = tl; gcRoot.add(tl);
+                        unitPosBuf = Memory.alloc(Process.pointerSize);
+                        unitPosBuf.writePointer(tl);
+                    }
+                } catch { /* fromHere indispo pour cette unit */ }
+            }
+            for (const ab of abilities) {
+                abilBuf.writeS32(ab.id);
+                const entry: AbilTargets = {
+                    abilityId: ab.id, ability: ab.name, kind: ab.kind,
+                    targetCount: 0, targets: [], fromHereCount: 0, fromHere: [],
+                };
+                // état live (présent sur les actives via unitAbilityTypes).
+                const st = ab as Partial<{
+                    usable: boolean; cooldown: number | null; disabled: boolean;
+                }>;
+                if (st.usable !== undefined) entry.usable = st.usable;
+                if (st.cooldown !== undefined) entry.cooldown = st.cooldown;
+                if (st.disabled !== undefined) entry.disabled = st.disabled;
+                // targetsThisTurn (MOVE inclus) via BattleQuery.
+                try {
+                    entry.targets = mapTargets(invokeMethod(
+                        getAllValidMi.info, battleQuery, [u.ptr, abilBuf, boolFalse]));
+                } catch (e) { entry.err = (e as Error).message; }
+                // fromHere (SANS bouger) via AttackQuery.GetValidTargets(unit, pos, ability).
+                if (unitPosBuf) {
+                    try {
+                        entry.fromHere = mapTargets(invokeMethod(
+                            getValidFromPosMi!.info, attackQuery,
+                            [u.ptr, unitPosBuf, abilBuf]));
+                    } catch { /* laisse [] */ }
+                }
+                entry.targetCount = entry.targets.length;
+                entry.fromHereCount = entry.fromHere.length;
+                abOut.push(entry);
+            }
+            if (tilesList) { try { gcRoot.remove(tilesList); } catch { /* */ } }
+            results.push({
+                unitId: u.id, isMow: u.isMow, visualId: visById.get(u.id) ?? null,
+                pos: posById.get(u.id) ?? null, abilities: abOut,
+            });
+        }
+        const after = summarize(statePtr);
+        return {
+            ok: true, runner: label, playerId,
+            abilityMode: manualAbility !== null
+                ? "manual:" + manualAbility
+                : (allAbilities ? "auto+actives" : "auto-normal"),
+            fromHereResolved: !!getValidFromPosMi,
+            semantics: "targets=ce tour MOVE inclus (superset) ; fromHere=SANS bouger "
+                + "(légalité exacte du cast immédiat). absent des deux => no-op certain ; "
+                + "dans targets mais pas fromHere => bouger d'abord.",
+            mutated: before.sig !== after.sig, ms: Date.now() - t0,
+            unitCount: results.length, units: results,
+        };
+    });
+
+    /** abilityReason — RAISON STRUCTURÉE d'un cast invalide (volet H55) via
+     *  `AttackQuery.GetInvalidTargetReason(attacker, attackerTile, defender, ability)`
+     *  + `GetInvalidCasterReason(attacker, attackerTile, ability)` → `IBrokenTargetingRule.
+     *  Type` (flag `TargetingRule` 64-bit décodé en NOMS via TARGETING_RULE_BITS).
+     *  Explique POURQUOI une ability ne passe pas : hors portée (`TargetIsInRange`),
+     *  déjà utilisée (`AlreadyUseThisTurn`), mauvais type de cible (`TargetIsHealable`/
+     *  `TargetIsEnemy`…), LoS (`TargetIsUnobscured`), tuile occupée (`TargetTileIsFree`)…
+     *  Overloads désambiguïsés via findMethodByParamClasses (param tile = "IEntity").
+     *  body: { runnerId, casterId, abilityType, targetId? }. Read-only.
+     *  cf. docs/rl/ai-step-toolkit.md §d. */
+    ctx.rpc.abilityReason = (
+        body?: { runnerId?: number; casterId?: number;
+                 targetId?: number; abilityType?: number },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        if (typeof body?.casterId !== "number" || typeof body?.abilityType !== "number") {
+            return { ok: false, error: "need casterId + abilityType" };
+        }
+        let runner: NativePointer; let label: string;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+            label = "build#" + body.runnerId;
+        } else if (state.liveRunner) { runner = state.liveRunner; label = "live"; }
+        else { return { ok: false, error: "no runner — pass runnerId" }; }
+        if (runner.isNull()) return { ok: false, error: label + " runner null" };
+        const statePtr = runner.add(runnerOff.state).readPointer();
+        if (statePtr.isNull()) return { ok: false, error: "state null" };
+        const status = readBattleStatus(statePtr);
+        if (status.stage !== 1) {
+            return { ok: false, error: "stage " + (status.stageName ?? status.stage) };
+        }
+        const attackQuery = runner.add(attackQueryOff).readPointer();
+        if (attackQuery.isNull()) return { ok: false, error: "AttackQuery null" };
+        const aqClass = attackQuery.readPointer();
+        // Overloads 4-/3-param désambiguïsés par le type de la tuile = "IEntity"
+        // (≠ "UnitPosition" / "IList`1").
+        const tgtReasonMi = findMethodByParamClasses(
+            aqClass, "GetInvalidTargetReason", [null, "IEntity", null, null]);
+        const casterReasonMi = findMethodByParamClasses(
+            aqClass, "GetInvalidCasterReason", [null, "IEntity", null]);
+
+        const ptrById = new Map<number, NativePointer>();
+        forEachEntity(statePtr, (e, id) => { ptrById.set(id, e); });
+        const caster = ptrById.get(body.casterId) ?? ptr(0);
+        if (caster.isNull()) {
+            return { ok: false, error: "caster u" + body.casterId + " introuvable" };
+        }
+        const casterTile = getUnitMainTile(caster, statePtr);
+        const abilBuf = Memory.alloc(4); abilBuf.writeS32(body.abilityType | 0);
+
+        // GetInvalidTargetReason renvoie un IBrokenTargetingRule BOXÉ (struct value-type) :
+        //  - NoBrokenTargetingRule = cible VALIDE (pas de champ).
+        //  - GenericBrokenTargetingRule = { TargetingRule <Type>@0x0 } → 1 FLAG unique de
+        //    la règle cassée (range / enemy / healable / AlreadyUseThisTurn…). Boxé → le
+        //    champ est à obj+0x10. (On lit le champ DIRECT, pas get_Type() : invoquer un
+        //    getter de struct boxée demande this=obj+0x10 ; le lire est plus simple+sûr.)
+        //  - autres types (obscured/unwalkable) = règle non-flag → on remonte la classe.
+        const decodeRule = (
+            ruleObj: NativePointer,
+        ): { ruleClass: string; hex: string; reasons: string[] } | null => {
+            if (ruleObj.isNull()) return null;
+            const clsName = s(class_get_name(ruleObj.readPointer()) as NativePointer);
+            if (clsName !== "GenericBrokenTargetingRule") {
+                // NoBrokenTargetingRule = valide ; sinon règle non décodable en flag.
+                return { ruleClass: clsName, hex: "0x0", reasons: [] };
+            }
+            const lo = ruleObj.add(0x10).readU32();
+            const hi = ruleObj.add(0x14).readU32();
+            const reasons: string[] = [];
+            for (let b = 0; b < 58; b++) {
+                const set = b < 32
+                    ? (lo & (1 << b)) !== 0
+                    : (hi & (1 << (b - 32))) !== 0;
+                if (set && TARGETING_RULE_BITS[b]) reasons.push(TARGETING_RULE_BITS[b]);
+            }
+            const hex = "0x" + hi.toString(16).padStart(8, "0")
+                + lo.toString(16).padStart(8, "0");
+            return { ruleClass: clsName, hex, reasons };
+        };
+
+        const before = summarize(statePtr);
+        let casterReason: { hex: string; reasons: string[] } | null = null;
+        let targetReason: { hex: string; reasons: string[] } | null = null;
+        if (casterReasonMi) {
+            try {
+                casterReason = decodeRule(invokeMethod(
+                    casterReasonMi.info, attackQuery, [caster, casterTile, abilBuf]));
+            } catch { /* */ }
+        }
+        if (typeof body.targetId === "number" && tgtReasonMi) {
+            const target = ptrById.get(body.targetId) ?? ptr(0);
+            if (!target.isNull()) {
+                try {
+                    targetReason = decodeRule(invokeMethod(tgtReasonMi.info, attackQuery,
+                        [caster, casterTile, target, abilBuf]));
+                } catch { /* */ }
+            }
+        }
+        const after = summarize(statePtr);
+        return {
+            ok: true, runner: label,
+            casterId: body.casterId, targetId: body.targetId ?? null,
+            abilityType: body.abilityType,
+            resolved: { caster: !!casterReasonMi, target: !!tgtReasonMi },
+            casterReason, targetReason,
+            mutated: before.sig !== after.sig,
         };
     });
 

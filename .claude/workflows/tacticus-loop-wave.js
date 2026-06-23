@@ -1,11 +1,10 @@
 export const meta = {
   name: 'tacticus-loop-wave',
-  description: 'Vague RL Tacticus: 3 etages a concurrence distincte - COMBAT (pool N, //) -> VERIF (//, LECTURE SEULE gameconfig/i2, dedup global) -> SYNTHESE (consommateur concurrence 1, single-writer sans mutex, agent FRAIS par combat). Seule l\'ecriture est serialisee.',
-  whenToUse: 'Jouer N combats Tacticus en parallelisant combats ET verifs (lecture seule), en serialisant la SEULE etape qui ecrit (synthese=single-writer). Pre-requis: session Frida deja warmee par l\'orchestrateur.',
+  description: 'Vague RL Tacticus: 2 etages - COMBAT (pool N, //, chaque combat-agent AUTO-VERIFIE ses mecaniques observees contre gameconfig/i2, en mode adversarial) -> SYNTHESE (consommateur concurrence 1, single-writer sans mutex, agent FRAIS par combat). Plus d\'etage verif separe. Seule l\'ecriture est serialisee.',
+  whenToUse: 'Jouer N combats Tacticus en parallele ; chaque combat-agent verifie LUI-MEME ses observations (gameconfig/i2 deja en contexte) ; la SEULE etape qui ecrit (synthese=single-writer) est serialisee. Pre-requis: session Frida deja warmee par l\'orchestrateur.',
   phases: [
-    { title: 'Combat',   detail: 'pool de N agents combat en //, chacun joue de bout en bout + dispose son runner ; zero ecriture partagee' },
-    { title: 'Verif',    detail: '// (lecture seule, aucune ecriture partagee -> rien a serialiser): 1 agent par mecanique OBSERVEE NEUVE (dedup global), recoupe vs gameconfig/i2' },
-    { title: 'Synthese', detail: 'CONSOMMATEUR concurrence 1 (single-writer sans mutex): agent FRAIS par combat qui ECRIT journal+hypotheses+wiki+metriques+promotion a partir du combat + ses verdicts' },
+    { title: 'Combat',   detail: 'pool de N agents combat en //, chacun joue de bout en bout, AUTO-VERIFIE ses mecaniques observees (adversarial vs gameconfig/i2) + dispose son runner ; zero ecriture partagee' },
+    { title: 'Synthese', detail: 'CONSOMMATEUR concurrence 1 (single-writer sans mutex): agent FRAIS par combat qui ECRIT journal+hypotheses+wiki+metriques+promotion a partir du combat + ses verdicts AUTO-verifies' },
   ],
 }
 
@@ -20,15 +19,14 @@ export const meta = {
 //                hypothesis?: string,                   // H a tester ce combat (validate)
 //              } >
 //   count?:    number      // alternative a battles: genere `count` specs (seeds derives) = NB DE COMBATS (file)
-//   pool?:     number      // PLAFOND GLOBAL d'agents concurrents (TOUS etages confondus: combat+verif+synthese).
+//   pool?:     number      // PLAFOND GLOBAL d'agents concurrents (combat+synthese).
 //                          //   defaut 15 ; borne dure a 15 (le runtime cappe de toute facon a min(16, coeurs-2)).
-//                          //   l'ordonnanceur a priorite repartit ce budget dynamiquement (synthese > verif > combat).
+//                          //   l'ordonnanceur a priorite repartit ce budget dynamiquement (synthese > combat).
 //   seedBase?: number      // base des seeds derives quand on utilise `count` (defaut 70000)
 //   randomizeAi?: boolean   // applique a TOUTES les specs derivees de `count` (defaut false)
 //   model?:    string      // override GLOBAL: force ce modele pour TOUS les etages: "sonnet"|"opus"|"haiku"|"fable"
 //                          //   (alias -> version courante: opus=Opus 4.8, sonnet=Sonnet 4.6, haiku=Haiku 4.5, fable=Fable 5)
-//   verifModel?: string    // modele de l'etage VERIF uniquement (defaut "sonnet"). Ignore si `model` (global) fourni.
-//                          // defaut PAR ETAGE (si `model` omis): combat=herite(opus), verif=sonnet, synthese=herite(opus)
+//                          //   defaut (si omis): combat + synthese heritent du model de session (opus).
 //   focus?:    string      // consigne de vague (ex: "tester AnvilShield <35%")
 //   ts?:       string      // timestamp de la vague (Date.now() throw dans le sandbox)
 // }
@@ -37,18 +35,23 @@ export const meta = {
 //   VALIDATE -> battles avec seed FIXE + hypothesis, SANS randomize : test causal reproductible
 //
 // ARCHITECTURE = ORDONNANCEUR A PRIORITE sur un BUDGET GLOBAL (`MAX` = pool, <=15) :
-//   Au plus `MAX` agents en parallele, TOUS etages confondus. Des qu'un slot se libere,
-//   on lance le travail DISPONIBLE le plus PRIORITAIRE :
+//   Au plus `MAX` agents en parallele (combat + synthese). Des qu'un slot se libere, on lance
+//   le travail DISPONIBLE le plus PRIORITAIRE :
 //     1. SYNTHESE  (si un combat est pret a etre ecrit ET aucune synthese ne tourne deja)
 //                  -> ECRIT les fichiers. Concurrence 1 = single-writer (sans mutex).
-//     2. VERIF     (sinon, si une mecanique NEUVE attend) -> LECTURE SEULE gameconfig/i2.
-//     3. COMBAT    (sinon, si un seed reste) -> joue 1 bataille + DISPOSE son runner.
-//   Dependances: combat(b) -> [verif(b,m)..] -> synthese(b) (quand combat + TOUTES ses
-//   verifs sont finies). Dedup global (Set synchrone) -> une mecanique = 1 seule verif.
-//   POURQUOI prioriser synthese>verif>combat: la synthese (sérielle, single-writer) est le
-//   goulot -> on la sert en 1er ; la verif debloque la synthese -> en 2e ; le combat (qui
-//   PRODUIT du travail) en dernier, juste pour garder le pipeline plein sans sur-produire.
-//   1 slot va toujours a la synthese des qu'elle a du grain ; le reste va verif puis combat.
+//     2. COMBAT    (sinon, si un seed reste) -> joue 1 bataille, AUTO-VERIFIE ses mecaniques,
+//                  + DISPOSE son runner.
+//   Dependances: combat(b) -> synthese(b) (des que combat est fini ; il porte deja ses verdicts).
+//   POURQUOI prioriser synthese>combat: la synthese (serielle, single-writer) est le goulot
+//   -> on la sert en 1er ; le combat (qui PRODUIT du travail) en dernier, juste pour garder le
+//   pipeline plein sans sur-produire.
+//
+// NOTE (2026-06-22) — l'etage VERIF separe a ete SUPPRIME. La verification d'une mecanique
+//   OBSERVEE est faite par le combat-agent LUI-MEME (il a deja gameconfig.py + les kits en
+//   contexte, et il a VU le combat), en mode ADVERSARIAL (il essaie de REFUTER avant de
+//   confirmer) pour limiter le biais de confirmation. Le gate « rien au wiki sans verdict
+//   confirmed » reste cote SYNTHESE. Fallback si la qualite wiki se degrade : re-ajouter un
+//   verif lean (1 agent batche/vague).
 // =============================================================================
 
 // ---- schemas de retour (JSON Schema = objets JS purs) ----
@@ -95,17 +98,25 @@ const BATTLE_SCHEMA = {
         note: { type: 'string' },                                 // contexte si la menace est conditionnelle (ex "high vs roster melee")
       },
     } },
+    // MECANIQUES — chaque entree porte SON PROPRE VERDICT d'auto-verification (l'etage verif
+    // separe a ete supprime : le combat-agent verifie lui-meme, en adversarial, cf. combatPrompt).
     mechanics: { type: 'array', items: {
       type: 'object',
-      required: ['ability', 'observation', 'source', 'confidence'],
+      required: ['ability', 'observation', 'source', 'confidence',
+                 'verdict', 'evidence', 'proposed_destination'],
       properties: {
         ability: { type: 'string' },
         observation: { type: 'string' },
-        source: { enum: ['observed', 'gameconfig'] },             // observed = infere -> a verifier
+        source: { enum: ['observed', 'gameconfig'] },             // observed = infere du combat -> a AUTO-verifier ; gameconfig = lu (deja verite)
         confidence: { enum: ['low', 'med', 'high'] },
+        // --- verdict d'AUTO-verification (ex-VERDICT_SCHEMA, desormais inline) ---
+        verdict: { enum: ['confirmed', 'plausible', 'contradicted'] },  // confirmed = gameconfig/i2 corrobore EXPLICITEMENT ; plausible = coherent non prouve (ex. nombre live/scaling) ; contradicted = la verite dit autre chose
+        evidence: { type: 'string' },                             // ce que dit gameconfig/i2 (la corroboration DISCRETE, ou son absence)
+        proposed_destination: { enum: ['wiki', 'hypotheses', 'discard'] },  // confirmed->wiki, plausible->hypotheses, contradicted->discard
+        proposed_text: { type: 'string' },                        // ligne(s) style wiki que la synthese inscrira
       },
     } },
-    synergies: { type: 'array', items: {                          // ARÊTES ability/unite (wiki §5bis) : combos vus/joues/ratés
+    synergies: { type: 'array', items: {                          // ARETES ability/unite (wiki §5bis) : combos vus/joues/rates
       type: 'object', required: ['pieces', 'class', 'effect', 'play'],
       properties: {
         pieces: { type: 'string' },                               // ex "repair Actus -> GalvanicField", "WarHowl + MurderousSwing"
@@ -113,7 +124,7 @@ const BATTLE_SCHEMA = {
         effect: { type: 'string' },                               // ce que le combo produit
         play: { type: 'string' },                                 // action: couper la source / sequencer / overkill / ne pas planquer…
         status: { enum: ['avoided', 'chained', 'missed', 'triggered-against-me', 'na'] }, // l'ai-je bien joué ?
-        source: { enum: ['observed', 'gameconfig'] },             // observed -> mecaniques composantes a verifier
+        source: { enum: ['observed', 'gameconfig'] },             // observed -> mecaniques composantes a auto-verifier (verdict dans mechanics[])
       },
     } },
     hypotheses_touched: { type: 'array', items: {
@@ -129,21 +140,7 @@ const BATTLE_SCHEMA = {
   },
 }
 
-// retour d'un agent VERIF (etage 2, LECTURE SEULE) — verdict d'une mecanique
-const VERDICT_SCHEMA = {
-  type: 'object',
-  required: ['ability', 'observation', 'verdict', 'evidence', 'proposed_destination'],
-  properties: {
-    ability: { type: 'string' },
-    observation: { type: 'string' },
-    verdict: { enum: ['confirmed', 'plausible', 'contradicted'] },
-    evidence: { type: 'string' },                                 // ce que dit gameconfig/i2
-    proposed_destination: { enum: ['wiki', 'hypotheses', 'discard'] },
-    proposed_text: { type: 'string' },                            // ligne(s) a inscrire
-  },
-}
-
-// retour de la SYNTHESE PAR COMBAT (etage 3, single-writer) — ce qu'a ecrit le consommateur
+// retour de la SYNTHESE PAR COMBAT (single-writer) — ce qu'a ecrit le consommateur
 const WRITE_SCHEMA = {
   type: 'object',
   required: ['seed', 'journal_appended', 'files_written'],
@@ -161,16 +158,6 @@ const WRITE_SCHEMA = {
 }
 
 const SQ = (x) => JSON.stringify(x)
-
-// dedup GLOBAL des mecaniques observees (sur toute la vague) : claim synchrone
-// (pas d'await entre has() et add() -> atomique dans l'event loop) => 2 combats
-// concurrents ne re-verifient pas 2x la meme mecanique.
-const seenMech = new Set()
-function claimMechanic(key) {
-  if (seenMech.has(key)) return false
-  seenMech.add(key)
-  return true
-}
 
 // =============================================================================
 // Validation / normalisation des args  (fail-fast : le gate d'entree que l'outil ne fournit pas)
@@ -196,28 +183,24 @@ need(specs.every((s) => Number.isInteger(s.seed)), 'chaque spec a besoin d\'un s
 
 const focus = A.focus || 'explore: decouvrir des failure modes'
 
-// modeles PAR ETAGE. `A.model` (global) force TOUT ; sinon : combat=herite (opus de session),
-// verif=sonnet (override A.verifModel), synthese=herite (opus). Le COMBAT (jeu tactique:
-// recon/plan/play = le coeur) tourne en opus ; la verif (lookup+compare borne) en sonnet ;
-// la synthese (jugement/promotion/ecriture multi-fichiers) en opus.
+// modeles. `A.model` (global) force TOUT ; sinon combat + synthese heritent du model de session
+// (opus). Le combat (jeu tactique + AUTO-verif) et la synthese (jugement/promotion/ecriture
+// multi-fichiers) tournent tous deux en opus par defaut.
 const GLOBAL_MODEL = A.model || null
 if (GLOBAL_MODEL !== null) need(typeof GLOBAL_MODEL === 'string' && GLOBAL_MODEL.length > 0, 'args.model doit etre une string (ex: "sonnet", "opus", "haiku", "fable")')
-if (A.verifModel != null) need(typeof A.verifModel === 'string' && A.verifModel.length > 0, 'args.verifModel doit etre une string (ex: "sonnet", "haiku")')
 const combatModel = GLOBAL_MODEL || undefined                 // undefined => herite du model de session (opus)
-const verifModel = GLOBAL_MODEL || A.verifModel || 'sonnet'   // verif = portail de verite borne -> sonnet (PAS haiku)
 const synthModel = GLOBAL_MODEL || undefined                  // undefined => herite du model de session (opus)
 
-// MAX = PLAFOND GLOBAL d'agents concurrents (tous etages). Defaut 15, borne dure a 15 (>=1).
+// MAX = PLAFOND GLOBAL d'agents concurrents (combat + synthese). Defaut 15, borne dure a 15 (>=1).
 const MAX = Math.max(1, Math.min(15, (A.pool && A.pool > 0) ? Math.floor(A.pool) : 15))
 
-log(`args OK: ${specs.length} combats - MAX ${MAX} agents concurrents (tous etages) - focus: ${focus}`)
-log(GLOBAL_MODEL ? `modele unique force: ${GLOBAL_MODEL} (tous les agents)` : `modeles: combat=herite(opus), verif=${verifModel}, synthese=herite(opus)`)
-log('ordonnanceur a priorite (synthese > verif > combat), single-writer = synthese concurrence 1')
+log(`args OK: ${specs.length} combats - MAX ${MAX} agents concurrents (combat+synthese) - focus: ${focus}`)
+log(GLOBAL_MODEL ? `modele unique force: ${GLOBAL_MODEL} (tous les agents)` : 'modeles: combat=herite(opus), synthese=herite(opus)')
+log('ordonnanceur a priorite (synthese > combat), single-writer = synthese concurrence 1 ; verif FOLD-IN dans combat')
 
 // ---- prompts ----------------------------------------------------------------
-// Mode d'emploi gameconfig.py injecte dans combat (recon) ET verif : l'outil
-// n'est PAS un MCP auto-documente -> l'agent doit avoir la syntaxe EXACTE sous
-// les yeux, sinon il tatonne (un verif a perdu ~30 appels a chercher "Actus").
+// Mode d'emploi gameconfig.py injecte dans combat (recon ET auto-verif) : l'outil n'est PAS
+// un MCP auto-documente -> l'agent doit avoir la syntaxe EXACTE sous les yeux.
 const GC_HELP =
   `OUTIL gameconfig.py = VÉRITÉ du jeu (chiffres gameconfig + texte de règles i2). Usage EXACT :
      - python scripts/python/gameconfig.py <unitId|nom>  -> KIT COMPLET d'une unité en 1 SEUL appel
@@ -248,9 +231,14 @@ function combatPrompt(b) {
    2ter. WIN-CONDITION = DERIVEE des synergies (2bis), PAS d'une menace isolee. La win-condition est une propriete EMERGENTE des synergies. LEUR wincon = la SYNERGIE/ENGINE dominante (le combo qui, s'il tourne a terme, gagne). Regle: si la plus haute menace est AMPLIFIEE/ENABLED par une autre unite (pump, buff, repair, trigger, summon), alors le wincon EST cette synergie et le COUNTER = casser sa SOURCE (tuer l'enabler/engine TOT, nier le trigger, empecher la chaine) -- PAS affronter la sortie amplifiee (le mur pumpe / la cible re-healed est ~inkillable ; l'enabler, lui, est tuable). Si la menace est AUTONOME (carry sans enabler) -> elle EST le wincon directement. Pareil pour MA wincon = la meilleure synergie que JE peux assembler + son enabler a proteger. Renseigne win_condition {mine, theirs} en NOMMANT la synergie/engine et sa source, pas juste l'unite (ex. "Hollan TwistedScience pump Tarvakh -> tuer Hollan T1-T2", pas "Tarvakh carry").
    3. Runner ISOLE. BUILD: \`${buildCmd}\`. TOUS tes appels rl_duel suivants utilisent --state-file ${sf} (il porte TON runnerId - ne te fie JAMAIS au "runner courant" global, d'autres workers tournent en parallele).
    3bis. MOVE-GUARD PER-TURN (anti-over-extension, OBLIGATOIRE avant CHAQUE \`play\`). L'over-extension est le failure-mode DOMINANT et se CONSTRUIT tour par tour (le danger d'un move n'est souvent visible qu'au tour ou l'IA peut l'atteindre) -> donc AVANT CHAQUE tour (T1, T2, T3, ...), planifie ton tour COMPLET (moves + attaques) puis simule-le : \`python scripts/python/rl_duel.py guard --climb --spec '<mon tour complet>' --state-file ${sf}\`. Le guard CLONE le combat (ne touche PAS ton runner), RECONSTRUIT le tour courant en rejouant l'historique de tes VRAIS moves (action_log, enregistre automatiquement par \`play\`), applique ton spec, FAIT JOUER 1 tour a l'IA ADVERSE (CheatRunAIMessage = ground truth ; l'IA ne joue JAMAIS ta team), et rend le NET du tour + un VERDICT + un "spec recommande" corrige (recule les units qui mourraient pour rien). NET = leurs_pertes - mes_pertes sur CE tour : NET<0 = l'IA te focus AVANT toi = OVER-EXTENDED ; NET>=0 = focus-first (tu tiens/gagnes l'echange). Regle : VERDICT "OVER-EXTENDED" -> joue le spec RECOMMANDE affiche (PAS le tien) ; "FOCUS-FIRST"/"SERRE-neutre" -> joue ton tour. A RAPPELER a CHAQUE tour tant qu'un contact reste possible (inutile une fois clairement gagne/perdu). Si le guard ERREUR/abort -> joue ton tour directement (ne bloque pas). Reporte ce que le guard a dit + si tu as suivi sa reco dans mistakes/notes.
-   4. Joue CE combat TOUR PAR TOUR via \`python scripts/python/rl_duel.py play --spec '<JSON>' --state-file ${sf}\` (1 appel = mon tour : mes actions + endturn + tour IA ; \`play\` enregistre mes actions dans action_log pour le guard). RE-FAIS l'etape 3bis AVANT chaque \`play\`. FORMATS EXACTS des actions (RESPECTE-les a la lettre, sinon le tour est ABANDONNE) : {"kind":"move","unit":<id>,"to":[col,row]} -- 'to' est un ARRAY [col,row] (deux entiers), JAMAIS une string "col,row" ; {"kind":"ability","caster":<id>,"target":<id>} (ou ajoute "ability":<N>) ; {"kind":"finish","unit":<id>}. Si play affiche "TOUR ABANDONNE" (action ratee / mauvais format / hors portee / mutated=false), l'endturn n'a PAS ete joue et l'IA n'a PAS joue : CORRIGE l'action et relance \`play\` (les actions deja appliquees avant l'echec sont conservees). Abandonne (L) des que tu ne peux plus contrer leur win-condition (liberal); W SEULEMENT si finalStage=Finished VERIFIE (jamais devine, jamais "position gagnee").
+   4. Joue CE combat TOUR PAR TOUR via \`python scripts/python/rl_duel.py play --spec '<JSON>' --state-file ${sf}\` (1 appel = mon tour : mes actions + endturn + tour IA ; \`play\` enregistre mes actions dans action_log pour le guard). RE-FAIS l'etape 3bis AVANT chaque \`play\`. Pour un MOVE de REPOSITIONNEMENT (sans attaque), lance d'abord \`python scripts/python/rl_duel.py moves [--unit <id>] --state-file ${sf}\` (grille ASCII des tuiles légales par unité — la carte ne donne que les plans d'ATTAQUE) et choisis une tuile LÉGALE : ne devine PAS la reachability à la main (creusée par blockers/terrain), un move hors-set est rejeté avant l'endturn. FORMATS EXACTS des actions (RESPECTE-les a la lettre, sinon le tour est ABANDONNE) : {"kind":"move","unit":<id>,"to":[col,row]} -- 'to' est un ARRAY [col,row] (deux entiers), JAMAIS une string "col,row" ; {"kind":"ability","caster":<id>,"target":<id>} (ou ajoute "ability":<N>) ; {"kind":"finish","unit":<id>}. Si play affiche "TOUR ABANDONNE" (action ratee / mauvais format / hors portee / mutated=false), l'endturn n'a PAS ete joue et l'IA n'a PAS joue : CORRIGE l'action et relance \`play\` (les actions deja appliquees avant l'echec sont conservees). Abandonne (L) des que tu ne peux plus contrer leur win-condition (liberal); W SEULEMENT si finalStage=Finished VERIFIE (jamais devine, jamais "position gagnee").
    5. Theme de la vague (CONTEXTE seulement, PAS une instruction de jouer plusieurs combats): ${focus}${b.hypothesis ? ` -- teste l'hypothese: ${b.hypothesis}` : ''}.
    6. Revue auto-ADVERSARIALE ("suppose ma defaite de ma faute -> root cause") -> remplis mistakes (ce que j'aurais du faire autrement, MEME sur un W).
+   6bis. AUTO-VERIFICATION des mecaniques (l'etage verif separe a ete SUPPRIME -> c'est TOI qui verifies). Pour CHAQUE entree de mechanics que tu reportes, attribue un verdict en mode ADVERSARIAL -- SOIS TON PROPRE SCEPTIQUE : ne confirme PAS par defaut ce que tu CROIS avoir vu en combat, exige la corroboration DISCRETE dans gameconfig/i2 (tu as deja l'outil + les kits en contexte du recon). ${GC_HELP}
+      - source="gameconfig" (tu l'as LU au recon) -> verdict="confirmed" + evidence = ce que dit le texte.
+      - source="observed" (infere du combat) -> RECOUPE-la : verdict="confirmed" si gameconfig/i2 corrobore EXPLICITEMENT la REGLE DISCRETE (trigger/conditionnel/effet/qui-fait-quoi) ; "plausible" si coherent mais non prouve -- en particulier tout NOMBRE/SCALING live ("pumped", "+X dmg", valeur precise) est "plausible" (gameconfig donne la base, pas la valeur live emergente, n'inscris PAS de nombre au wiki) ; "contradicted" si la verite dit autre chose.
+      - proposed_destination: confirmed->wiki, plausible->hypotheses, contradicted->discard. proposed_text = 1-2 lignes style wiki (que la synthese inscrira). evidence = la corroboration DISCRETE trouvee (ou son absence). Inscription (loop.md + SKILL §2bis): general + verifie + non-derivable ; n=1 reste hypothese.
+      - Budget: pas de rabbit-hole. Apres le kit + l'ability/trait/effet pertinents, CONCLUS. Un nombre live ou un comportement harness = plausible + note dans infra_anomalies/notes.
    7. DISPOSE OBLIGATOIRE: a la fin (W/L/abandon), libere TON runner -> \`${disposeCmd}\` (100 combats sans dispose = 100 runners empiles -> OOM). Mets runner_disposed=true seulement si le dispose a reussi.
    RETOUR STRUCTURE (n'ecris AUCUN fichier partage - c'est la phase Synthese qui ecrit) - en plus des champs de base, renseigne OBLIGATOIREMENT :
     - roster {mine, theirs} = les unites de chaque cote ; win_condition {mine, theirs} = la wincon de CHAQUE cote DERIVEE des synergies (cf. 2ter) : NOMME la synergie/engine dominante + sa SOURCE a casser, pas juste l'unite.
@@ -258,57 +246,44 @@ function combatPrompt(b) {
     - abandoned = true si L par abandon (vs combat mene a terme). runner_disposed = true si dispose OK.
     - threat_cards = pour chaque unite ENNEMIE notable: role/menace/counter (ta lecture tactique -> alimente les cartes du wiki ; corrige si la carte existante etait fausse/incomplete).
     - synergies = les COMBOS de CE matchup (cf. 2bis) : pieces (A+B/trigger), class (enemy-avoid|mine-chain|engine|anti), effect, play, status (l'ai-je bien joue ?) -> alimente wiki §5bis. Inclus surtout ceux que tu as RATES (status=missed/triggered-against-me) = lecons.
-    - mechanics[].source = "observed" (infere du combat) ou "gameconfig" (recoupe dans gameconfig/i2).`
+    - mechanics[] = CHAQUE mecanique notable AVEC son verdict d'auto-verification (cf. 6bis): source, confidence, verdict, evidence, proposed_destination, proposed_text. C'est CE verdict qui gate l'inscription wiki cote synthese -- sois honnete et adversarial.`
 }
 
-function verifPrompt(m) {
-  return `Etage VERIF (LECTURE SEULE - tu n'ecris AUCUN fichier partage, tu RENVOIES juste un verdict). Recoupe cette observation de COMBAT contre la VERITE du jeu (gameconfig + i2_en.json).
-   ${GC_HELP}
-   Si l'observation porte sur une UNITE (repair-engine, sustain, kit…), commence par \`gameconfig.py <nom>\` pour son kit complet AVANT de fouiller ability par ability.
-   Observation: ability="${m.ability}", observation="${m.observation}".
-   PORTEE = corroborer la REGLE DISCRETE (trigger / conditionnel / effet / qui-fait-quoi), PAS un NOMBRE exact. Un claim NUMERIQUE/SCALING ("pumped", "+X dmg", valeur precise, scaling rarete/niveau/buff) : gameconfig donne la BASE (damage-curve/profile) mais la valeur live "pumped" est un produit emergent (niveau x rarete x buffs) -> verdict "plausible" (coherent, chiffre confirme EN JEU), n'inscris PAS de nombre au wiki.
-   BUDGET STRICT : ~5 appels gameconfig.py MAX. NE fouille JAMAIS data/*.json a la main (IDs de traits, tables de rarete, gameconfig.json brut). Si apres le kit + l'ability/trait/effet pertinents tu n'as pas de corroboration DISCRETE -> CONCLUS (plausible si coherent, contradicted si la base dit autre chose) et ARRETE. Pas de rabbit-hole : un nombre live ou un comportement harness = plausible + note toolfeedback.
-   Inscription (docs/rl/loop.md + SKILL section 2bis): general + verifie + non-derivable ; n=1 reste hypothese.
-   verdict="confirmed" si gameconfig/i2 le corrobore explicitement ; "plausible" si coherent mais non prouve ; "contradicted" si la verite dit autre chose.
-   proposed_destination: confirmed->wiki, plausible->hypotheses, contradicted->discard. proposed_text = 1-2 lignes style wiki (que la synthese inscrira).`
-}
-
-function synthesePrompt(b, battle, verdicts) {
+function synthesePrompt(b, battle) {
   return `Etage SYNTHESE (CONSOMMATEUR concurrence 1 = tu es le SEUL ecrivain a cet instant, AUCUN autre agent n'ecrit en parallele -> pas de mutex). D'autres combats ont ecrit AVANT toi et ecriront APRES (1 a la fois). LIS l'etat COURANT de chaque fichier avant de l'editer. Le journal est APPEND-ONLY (ne reecris jamais l'existant). Tu ecris la doctrine d'UN SEUL combat (seed ${b.seed}).
    Entrees:
-   - Combat (retour structure): ${SQ(battle)}
-   - Verdicts de verification de SES mecaniques (deja recoupes vs gameconfig/i2 a l'etage Verif): ${SQ(verdicts)}
+   - Combat (retour structure, AVEC les verdicts d'auto-verification deja DANS battle.mechanics[]): ${SQ(battle)}
    - Timestamp de la vague: ${A.ts || 'inconnu'}
+   NOTE: il n'y a plus d'etage verif separe -- le combat-agent a AUTO-verifie ses mecaniques (mode adversarial vs gameconfig/i2). Tu te FIES a battle.mechanics[].verdict pour le routage, mais le gate « rien au wiki sans verdict 'confirmed' » reste STRICT.
    Actions EN SERIE (pour CE combat uniquement):
    1. APPEND battle.journal_entry a la fin de docs/rl/journal.md (ne touche pas aux entrees existantes).
    2. Applique battle.hypotheses_touched (confirm/refute/inconclusive) dans docs/rl/hypotheses.md.
-   3. Par verdict: "confirmed"->inscris proposed_text dans docs/rl/wiki.md (bonne unite/section) ; "plausible"->docs/rl/hypotheses.md (candidat) ; "contradicted"->rien (rapporte dans discarded). RIEN au wiki sans verdict "confirmed".
+   3. Par mecanique de battle.mechanics[] (selon son verdict) : "confirmed"->inscris proposed_text dans docs/rl/wiki.md (bonne unite/section) ; "plausible"->docs/rl/hypotheses.md (candidat) ; "contradicted"->rien (rapporte dans discarded). RIEN au wiki sans verdict "confirmed".
    4. METRIQUES: recompte le win-rate glissant + la frequence par tag depuis l'INTEGRALITE de docs/rl/journal.md (inclut CE combat + tous ceux ecrits avant toi), mets a jour docs/rl/loop.md (section Metriques). Renvoie la ligne win-rate dans metrics_line.
    5. PROMOTION DOCTRINE: toute hypothese de docs/rl/hypotheses.md desormais confirmee sur >=2 matchups DISTINCTS (gate strict, pas 2 combats correles) + filtre d'inscription -> ajoute-la en doctrine actionnable a .claude/skills/tacticus-battle/doctrine-learned.md (§6 engagement ou §7 pieges, avec preuve [H## · N matchups]). Sous le gate -> elle reste candidate flaggee dans hypotheses.md. NE modifie JAMAIS .claude/skills/tacticus-battle/SKILL.md de base.
    6. CARTES TACTIQUES WIKI: pour chaque battle.threat_cards, ajoute/affine la ligne "▸ Tac: role=… · menace=… · counter=…" sur l'entree de l'unite (§2/§3) ou du trait (§1) dans docs/rl/wiki.md, evidence-tagged [n=]. Garde KIT (faits gameconfig/i2) et Tac (appris) VISUELLEMENT distincts. Signale toute contradiction de menace/counter (champ notes).
-   6bis. SYNERGIES WIKI §5bis: pour chaque battle.synergies, ajoute/affine la ligne au FORMAT \`<pieces> — CLASSE : effet -> PLAY [n=, seed]\` dans la bonne sous-section de §5bis (Ennemies-a-eviter / Miennes-a-enchainer / Anti). N'inscris une synergie que si ses MECANIQUES COMPOSANTES sont confirmees par les verdicts (sinon -> candidate dans hypotheses.md). Incremente [n=]/seeds si la synergie existe deja. PRIORISE les status missed/triggered-against-me (ce sont les lecons les plus utiles).
+   6bis. SYNERGIES WIKI §5bis: pour chaque battle.synergies, ajoute/affine la ligne au FORMAT \`<pieces> — CLASSE : effet -> PLAY [n=, seed]\` dans la bonne sous-section de §5bis (Ennemies-a-eviter / Miennes-a-enchainer / Anti). N'inscris une synergie que si ses MECANIQUES COMPOSANTES sont "confirmed" dans battle.mechanics[] (sinon -> candidate dans hypotheses.md). Incremente [n=]/seeds si la synergie existe deja. PRIORISE les status missed/triggered-against-me (ce sont les lecons les plus utiles).
    7. Le journal doit refleter roster + win_condition (mienne/leur) + mistakes ; signale (notes) toute doctrine dont doctrines_applied.helped="no" = candidate a reformuler/revoquer.
    Renvoie SEULEMENT le resume structure de ce que TU as ecrit (WRITE_SCHEMA).`
 }
 
 // =============================================================================
-// ORDONNANCEUR A PRIORITE (budget global MAX, synthese > verif > combat)
+// ORDONNANCEUR A PRIORITE (budget global MAX, synthese > combat)
 //   File d'attente par etage. A chaque slot libre, pump() lance le travail
 //   disponible le plus prioritaire. Event-driven : chaque completion re-pump.
 // =============================================================================
 const combatQ = specs.slice()     // seeds pas encore joues
-const verifQ = []                 // { st, m } : 1 mecanique NEUVE a verifier (st = etat du combat parent)
-const synthQ = []                 // { st } : un combat pret a etre ECRIT (combat + toutes ses verifs finies)
+const synthQ = []                 // { st } : un combat pret a etre ECRIT (combat fini, verdicts inclus)
 const done = []                   // resultats finaux (1 / synthese terminee)
 const synthFailed = []            // seeds dont la synthese a echoue (ecriture perdue)
-let running = 0                   // agents en vol (tous etages) -> jamais > MAX
+let running = 0                   // agents en vol (combat+synthese) -> jamais > MAX
 let synthRunning = false          // synthese en cours ? (single-writer : 1 max)
 
 let resolveDone
 const finished = new Promise((r) => { resolveDone = r })
 
 function tryFinish() {
-  if (running === 0 && combatQ.length === 0 && verifQ.length === 0 && synthQ.length === 0) {
+  if (running === 0 && combatQ.length === 0 && synthQ.length === 0) {
     resolveDone()
     return true
   }
@@ -319,20 +294,10 @@ function onCombatDone(b, battle) {
   running--
   if (!battle) { log(`combat ${b.seed}: ECHEC (null)`); return pump() }
   if (battle.runner_disposed === false) log(`combat ${b.seed}: runner NON dispose (fuite possible)`)
-  // ETAGE VERIF eligible : mecaniques OBSERVEES NEUVES (dedup global synchrone)
-  const mech = (battle.mechanics || []).filter((m) =>
-    m.source !== 'gameconfig' && claimMechanic(`${m.ability}::${m.observation}`.toLowerCase()))
-  const st = { b, battle, pending: mech.length, verdicts: [] }
-  log(`combat ${b.seed}: ${battle.outcome}${battle.abandoned ? '(abandon)' : ''} ${battle.rounds}r -> ${mech.length} verif`)
-  if (mech.length === 0) synthQ.push({ st })            // rien a verifier -> direct synthese
-  else for (const m of mech) verifQ.push({ st, m })
-  pump()
-}
-
-function onVerifDone(st, v) {
-  running--
-  if (v) st.verdicts.push(v)
-  if (--st.pending === 0) synthQ.push({ st })           // toutes les verifs du combat finies -> synthese eligible
+  const mech = (battle.mechanics || []).length
+  const conf = (battle.mechanics || []).filter((m) => m.verdict === 'confirmed').length
+  log(`combat ${b.seed}: ${battle.outcome}${battle.abandoned ? '(abandon)' : ''} ${battle.rounds}r -> ${mech} mecaniques (${conf} confirmed) -> synthese`)
+  synthQ.push({ st: { b, battle } })   // combat porte deja ses verdicts -> direct synthese
   pump()
 }
 
@@ -349,21 +314,15 @@ function onSynthDone(st, write) {
   pump()
 }
 
-// pump : remplit les slots libres selon la PRIORITE synthese > verif > combat (1 synthese max)
+// pump : remplit les slots libres selon la PRIORITE synthese > combat (1 synthese max)
 function pump() {
   while (running < MAX) {
     if (synthQ.length > 0 && !synthRunning) {
       const { st } = synthQ.shift()
       running++; synthRunning = true
-      agent(synthesePrompt(st.b, st.battle, st.verdicts),
+      agent(synthesePrompt(st.b, st.battle),
         { label: `synthese:${st.b.seed}`, phase: 'Synthese', agentType: 'general-purpose', model: synthModel, schema: WRITE_SCHEMA })
         .then((w) => onSynthDone(st, w), () => onSynthDone(st, null))
-    } else if (verifQ.length > 0) {
-      const { st, m } = verifQ.shift()
-      running++
-      agent(verifPrompt(m),
-        { label: `verif:${st.b.seed}:${m.ability}`, phase: 'Verif', model: verifModel, schema: VERDICT_SCHEMA })
-        .then((v) => onVerifDone(st, v), () => onVerifDone(st, null))
     } else if (combatQ.length > 0) {
       const b = combatQ.shift()
       running++

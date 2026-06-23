@@ -59,6 +59,8 @@ export const class_get_nested_types = new NativeFunction(
     exp("il2cpp_class_get_nested_types"), "pointer", ["pointer", "pointer"]);
 export const method_get_param_count = new NativeFunction(
     exp("il2cpp_method_get_param_count"), "uint32", ["pointer"]);
+export const method_get_param = new NativeFunction(
+    exp("il2cpp_method_get_param"), "pointer", ["pointer", "uint32"]);
 const class_get_type = new NativeFunction(
     exp("il2cpp_class_get_type"), "pointer", ["pointer"]);
 const type_get_object = new NativeFunction(
@@ -222,6 +224,52 @@ export function findCtorByParamCount(
                 return { info: m, ptr: methodEntry(m) };
             }
         } catch { /* skip */ }
+    }
+    return null;
+}
+
+/** Nom de la classe (ou élément) du param `index` d'une méthode — sert à
+ * désambiguïser des overloads de MÊME arité (que findMethodByParamCount ne sait
+ * pas distinguer). ex. GetValidTargets a deux overloads 3-param : param[1] =
+ * "UnitPosition" vs "IOrderedSet`1". null si indéterminable. */
+export function methodParamClassName(
+    m: NativePointer, index: number,
+): string | null {
+    try {
+        const ty = method_get_param(m, index) as NativePointer;
+        if (ty.isNull()) return null;
+        const cls = type_get_class_or_element_class(ty) as NativePointer;
+        if (cls.isNull()) return null;
+        return s(class_get_name(cls) as NativePointer);
+    } catch { return null; }
+}
+
+/** Find an overload by name + param CLASS NAMES (par position ; `null` = joker).
+ * Désambiguïse là où findMethodByParamCount échoue (overloads de même arité).
+ * Walk la chaîne d'héritage. ex. :
+ *   findMethodByParamClasses(k, "GetValidTargets", [null, "UnitPosition", null]) */
+export function findMethodByParamClasses(
+    klass: NativePointer, name: string, classNames: Array<string | null>,
+): MethodRef | null {
+    let k = klass;
+    while (!k.isNull()) {
+        const it = Memory.alloc(Process.pointerSize);
+        it.writePointer(ptr(0));
+        let m: NativePointer;
+        while (!(m = class_get_methods(k, it) as NativePointer).isNull()) {
+            if (s(method_get_name(m) as NativePointer) !== name) continue;
+            try {
+                if ((method_get_param_count(m) as number) !== classNames.length) continue;
+            } catch { continue; }
+            let ok = true;
+            for (let i = 0; i < classNames.length; i++) {
+                const want = classNames[i];
+                if (want === null) continue;
+                if (methodParamClassName(m, i) !== want) { ok = false; break; }
+            }
+            if (ok) return { info: m, ptr: methodEntry(m) };
+        }
+        k = class_get_parent(k) as NativePointer;
     }
     return null;
 }

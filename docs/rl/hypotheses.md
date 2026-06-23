@@ -1800,7 +1800,7 @@ confirmé par gameconfig/i2 (hors domaine). À reproduire avant promotion.
 - **→ wiki si confirmé** : §3bis Sho'syl (carte déjà présente — préciser le drone PERSISTANT bodyguard, pas jetable) + §5bis
   (la synergie screen-on-attack Sho'syl-drone + Tan Gi'da Vanguard suppose la persistance du drone).
 
-## H51 — EnvEndBombardment : hard round cap (~round 10) = bombardement board-wide → mutual wipe both teams, winner=None (draw) — `provisoire` (pour:1 contre:0, verdict Verif=plausible)
+## H51 — EnvEndBombardment : hard round cap (~round 10) = bombardement board-wide → mutual wipe both teams, winner=None (draw) — `confirmée` (pour:2 contre:0, cross-validé self-play 2 sides — INSCRITE wiki §3quater)
 - **claim** : il existe un **hard round cap** (observé ~round 10) où le moteur déclenche `EnvEndBombardment_Incoming` sur
   ~12 tiles (RemainingTurns=1) = un bombardement environnemental board-wide qui **wipe TOUTES les unités des DEUX équipes**
   → `finalStage=Finished`, `alive_by_team={}`, team gagnante=**None**. Conséquence stratégique MAJEURE : une position
@@ -1818,13 +1818,46 @@ confirmé par gameconfig/i2 (hors domaine). À reproduire avant promotion.
   tracker (candidat : `Match_AmountOfTurnsStartedByCurrentPlayer`) pour budgéter le clock.
 - **evidence** : seed 70061 (n=1 — board dominant 4v2-3, les 2 summon-engines morts T3-T4, mais Actus repair-engine jamais
   fini + Corrodius 12551 Resilient jamais engagé → round ~10 EnvEndBombardment → mutual wipe → team gagnante=None = L).
-- **doctrine candidate (sous le gate, NON promue)** : dans une position GAGNÉE (engines adverses morts), SWITCHER de
+  **+ seed 80000 (opus run) self-play — CROSS-VALIDÉ LES DEUX SIDES (2ᵉ observation indépendante → confirmée)** : A (theirs) et
+  B (mine) rapportent CHACUN le même nuke terminal qui a wipe tout le board (alive_by_team={}, `winner=None`), overkillant même
+  Arjac Resilient (final hp=0) ; `rl_duel.py status` post-match = `stage=None alive_by_team={}` team gagnante=None. B menait 1v2
+  (Arjac full-HP) au moment du fire → position gagnante NON convertie devenue draw. A & B concordent sur la leçon (close avant le cap).
+- **doctrine candidate (PROMUE wiki §3quater)** : dans une position GAGNÉE (engines adverses morts), SWITCHER de
   hold-and-react à un **push de CLÔTURE** rounds 6-9 pour wipe l'ennemi avant le cap ; commencer à grind un anvil Resilient
   lent (Corrodius) dès round 5-6 plutôt que de le laisser comme un clock qu'on perd. NE PAS over-hold un board dominant.
-- **→ wiki si confirmé** : §3quater (Terrain / effets de tile) — ajouter EnvEndBombardment comme hazard de round-cap +
-  loop.md (note de méta : budgéter le round clock).
+- **INSCRIT** : wiki §3quater (EnvEndBombardment comme hazard de round-cap, tag [self-play consensus, seed 80000 (opus run)]).
+  Reste à valider : round-cap exact (toujours ~10 ? scale ?) + tracker live du compteur de rounds pour budgéter le clock.
 
-## H52 — Inceptors summonés par Bellator (ultraSmnInceptor) portent-ils MkXGravis ? — `provisoire` (pour:0 contre:0, NON tranché — Verif=plausible sur le summon, MkXGravis sur le summon UNCONFIRMED)
+## H53 — MV71 Sniper Drone (Sho'syl) a un range minimum ~2 hexes — `provisoire` (pour:1 contre:0) (self-play divergence A/B)
+- **claim** : l'attaque normale de Sho'syl (`MV71SniperDroneSquad`) retourne `mutated=False` quand la cible est à ≤1 hex de Sho'syl (adjacent ou same-column-one-row). Le drone serait invocable/attaquant seulement à distance ≥2.
+- **mécanisme proposé** : le drone a `RangedSpecialist` (« if this unit did not START its turn ADJACENT to an enemy unit, it deals +dmg% with ranged attacks ») ET une portée normale = r4 ranged. Invoqué adjacent à un ennemi, le RangedSpecialist serait invalidé et/ou le drone ne peut pas cibler à r=0/1.
+- **evidence** : seed 80000 Player A (about=mine) — MV71 attack `mutated=False` sur Tanksmasha à ≤1 hex, 3 tours consécutifs (T5-T7). La cible Tanksmasha (3793 HP) a survécu 4 tours malgré 3 activations Sho'syl contre elle.
+- **caveat** : OBSERVATEUR UNIQUE (Player A seulement — Player B n'a pas cross-observé). Le drone est un Summon auto-ciblant — le rejet peut aussi venir d'un obstacle de terrain ou d'un bug de runner, pas forcément du range minimum. Non recoupé par gameconfig (aucun `minRange` trouvé dans le kit `tauSmnDroneSniper`).
+- **à valider** : tester explicitement MV71 à distance 1, 2, 3 en duel contrôlé pour confirmer le cutoff.
+- **→ wiki si confirmé** : §3bis Sho'syl (MV71 min-range) + ajouter dans la doctrine oracle « vérifier distance cible avant de compter sur le drone ».
+
+## H54 — FoulInfusion (Pestillian) fire l'attaque mêlée sur un ADJACENT ALÉATOIRE, pas la cible d'ability — `provisoire` (pour:1 contre:0) (self-play divergence A/B)
+- **claim** : `FoulInfusion` déclenche « an immediate normal melee attack against a random adjacent enemy » (i2 verbatim). La target de l'ability (`u95` = Tigurius) n'est PAS la cible de l'attaque mêlée — c'est un ennemi adjacent au hasard au moment du cast.
+- **evidence** : seed 80000 Player B (about=mine) — FoulInfusion castée en ciblant Tigurius (u95), l'attaque normale a résolu sur TG (u97), l'unité ADJACENTE à Pestillian. Perte d'une action ciblée (1 activation Pestillian gaspillée sur une cible non-prioritaire).
+- **recoupage i2** : gameconfig confirme le texte « Pestillian then immediately performs a normal melee attack against a **random adjacent enemy** » → le claim est i2-COHÉRENT, pas une surprise. Mais non observé avant = inscrit comme H pour traçabilité.
+- **implication doctrine** : positionner Pestillian adjacent UNIQUEMENT aux ennemis qu'on veut que son attaque mêlée aléatoire frappe. Cibler l'ability sur un ennemi ≠ contrôler la cible de l'attaque mêlée.
+- **à valider** : re-observer avec un seul ennemi adjacent (no-random : résultat forcé) pour confirmer que la cible ability et la cible mêlée sont bien indépendantes.
+- **→ wiki si confirmé** : §3quater Pestillian (FoulInfusion = melee random-adjacent, pas la target ability).
+
+## H55 — `play --no-ai` rejette SILENCIEUSEMENT des moves (ok=true / mutated=false) sans reason-code — `provisoire` (pour:1 contre:0) (self-play divergence A/B)
+- **claim** : de nombreux moves via `play --no-ai` reviennent `ok=true` mais `mutated=false` (l'unité reste sur place), sans erreur ni reason-code, avec un cascade vide / 2-events. La cause exacte (hex occupé ? water forced-stop ? footprint d'une BigTarget ? hors-portée ?) n'est PAS surfacée.
+- **evidence** : seed 80000 (opus run) Player B (about=mine, friction) — Pestillian (4,9)→(4,6), Vitruvius →(2,7), Arjac →(2,4), Pestillian →(4,5) TOUS rejetés silencieusement ; conséquence directe : la formation s'est fragmentée tour après tour et Tanksmasha s'est retrouvé ISOLÉ à (3,4) → focus-killé. Player A (about=mine) rapporte aussi un échec silencieux analogue (drone MV71 mutated=False, cf. H53) — pattern « mutated=false sans diagnostic » cross-observé sous des formes différentes.
+- **caveat** : OBSERVATION OUTIL/HARNESS, PAS une mécanique de jeu queryable via gameconfig/i2. C'est une divergence d'EXPÉRIENCE entre A et B (B l'a subi massivement sur des moves de formation ; A sur un summon-attack). Pas recoupable par gameconfig (comportement du runner/RPC `play`). Distinct de H53 (qui est spécifiquement le drone MV71).
+- **implication doctrine** : VÉRIFIER que chaque move a `mutated=true` avant d'enchaîner la formation ; si rejet, re-planifier en single-step plus courts OU sonder la légalité (glyph/aiMovableTiles) — ne pas ré-émettre le même pattern d'avance en aveugle (B l'a fait à répétition).
+- **à valider** : (1) faire surfacer un reason-code côté harness (occupied/water/footprint/out-of-range) ; (2) confirmer si le rejet vient du footprint BigTarget ou d'un water forced-stop. → amélioration OUTIL (toolfeedback.md), pas wiki de jeu.
+- **MAJ 2026-06-23 (investigation ghidra)** : la primitive de reason-code EXISTE pour les **abilities** — `AttackQuery.GetInvalidTargetReason(attacker, tile, defender, ability)` → `IBrokenTargetingRule.Type` (flag `TargetingRule` : `TargetIsInRange`/`AlreadyUseThisTurn`/`TargetIsHealable`/`TargetTileIsFree`/…) ; énumération via `BattleQuery.GetAllValidTargetsFromAllPossibleMovementTiles(unit, ability)`. **N.B.** ces primitives concernent les **abilities** (le no-op d'ability de A) ; le no-op de **move pur** de B (footprint/water/occupied) reste côté `MovementQuery` (déjà couvert réactivement par la pré-validation `_movable_map`/`moves`). RPC `abilityTargets` plan + détails RE : `docs/rl/ai-step-toolkit.md` §« Légalité ability + RAISON structurée ».
+
+## H56 — Cause de l'isolation de Tanksmasha (over-extension dive vs fragmentation de formation par moves rejetés) — `provisoire` (pour:0 contre:0, divergence causale A/B NON tranchée) (self-play divergence A/B)
+- **claim (fait concordant)** : LES DEUX sides s'accordent sur le FAIT — Tanksmasha (orksNob, move4 charger ~10040 HP) s'est retrouvé ISOLÉ forward à (3,4) en avance de son support et a été focus-killé en un tour (textbook over-extension, le failure-mode dominant).
+- **divergence sur la CAUSE** : A (theirs) lit ça comme un **dive d'over-extension volontaire/agressif** de l'adversaire qu'A a puni (multi-source focus : drone Sho'syl + Atlacoya Talons + Exitor CordClaw Direct Pierce100 bypass block). B (mine) lit ça comme une **conséquence involontaire** : les moves d'escorte (Arjac/Pestillian) ont été rejetés silencieusement (cf. H55), Tanksmasha a avancé seul faute d'accompagnement, PAS par choix d'agression.
+- **caveat** : pas une mécanique de jeu — divergence d'INTERPRÉTATION de la même séquence (un observateur voit un dive, l'autre connaît la cause harness). B a la vérité causale (c'est SON unité et SES moves rejetés) ; A n'a vu que le résultat. Non recoupable gameconfig.
+- **implication doctrine** : un corps durable laissé forward (volontairement OU par fragmentation) reste focusable = même leçon que le failure-mode dominant. Le correctif est en amont (vérifier `mutated`, cf. H55) ET en aval (committer le MINIMUM forward, rapatrier après un kill).
+- **à valider** : rejouer en vérifiant `mutated=true` sur chaque move d'escorte avant d'avancer un charger ; si la formation reste cohésive, l'isolation disparaît → confirmerait la lecture B. — `provisoire` (pour:0 contre:0, NON tranché — Verif=plausible sur le summon, MkXGravis sur le summon UNCONFIRMED)
 - **claim (à vérifier)** : Bellator `DeathFromAbove` summon **1 Inceptor par round écoulé** (round 2 = 2 Inceptors), chacun
   atterrissant adjacent à la cible + attaquant immédiatement ; killer Bellator annule les summons futurs (suit le gating
   standard caster-mort). Question OUVERTE : les Inceptors summonés (`ultraSmnInceptor`) portent-ils **MkXGravis** (double-armure)
@@ -1840,3 +1873,10 @@ confirmé par gameconfig/i2 (hors domaine). À reproduire avant promotion.
 - **evidence** : seed 70061 (n=1 — les 2 Inceptors tués T3 via Tanksmasha+Certus+Makhotep ; « MkXGravis double-armour sur les
   Inceptors » = observation non recoupée par gameconfig). cf. wiki §3bis Bellator DeathFromAbove + §3bis ultraSmnInceptor.
 - **→ wiki si confirmé** : §3bis ultraSmnInceptor (préciser MkXGravis présent/absent sur le summon).
+
+## H57 — Mis-attribution de la cascade fatale : EnvEndBombardment (B) vs RadBombardment-engine (A, vérifié-correct) — `réfutée côté B` (pour-A:1 contre-B:1) (self-play divergence A/B)
+- **claim (divergence)** : sur le 3ᵉ run seed 80000 (team2 W net à T5), les deux observateurs divergent sur la SOURCE de la cascade qui a wipe la ligne team1. A (about=theirs) attribue le wipe à **RadBombardment + Contamination + Foehammer** (noms d'events explicitement loggés dans son state-file). B (about=theirs, confidence: med) attribue le swing décisif à un **EnvEndBombardment environmental hazard** (« likely a board hazard ») et admet « I won largely BECAUSE of an environmental hazard, not purely through my own engine-denial ».
+- **verdict** : **A a raison, B a mal lu.** Le combat s'est terminé round ~5 (3-4 endturns dans les action logs des deux state-files ; both « turns_played:5 »), BIEN avant le round-cap (~round 10) qui déclenche EnvEndBombardment (cf. H51 confirmée sur le run #2 de cette même seed, qui lui s'est étendu jusqu'au cap). À T5 il ne PEUT PAS y avoir de bombardement de round-cap. La cascade était l'alpha de B lui-même : RadBombardment (ligne Toxic Pierce70 sur le blob clusteré rows 0-1) + MasterAnnihilator mark (+1 hit) + ContagionsOfNurgle armor-shred + Foehammer (snowball post-Tanksmasha-kill).
+- **caveat** : pas une mécanique de jeu nouvelle — divergence d'ATTRIBUTION causale entre observateurs (un mis-read de B sur sa propre win-condition). Recoupé par le COMPTE DE TOURS (load-bearing) : 3-4 endturns = round ~5 ≪ round-cap. EnvEndBombardment (H51) reste confirmée comme mécanique de round-cap réelle, MAIS elle n'était PAS active dans CE run. B a sur-attribué sa victoire à un hazard absent.
+- **implication doctrine** : (1) un observateur doit dater une cascade par le compte de rounds avant d'invoquer EnvEndBombardment (round-cap = ~10, pas T5) ; (2) la vraie leçon pour A (perdant) tient quelle que soit l'attribution — un blob clusteré bas est wipe par RadBombardment+mark+aura, ESPACER ; (3) B a gagné par son propre engine ranged + discipline anti-cluster, PAS par un hazard.
+- **evidence** : seed 80000 (opus + moves fix), 3ᵉ run. A state-file = RadBombardment + Contamination + Foehammer loggés ; B = EnvEndBombardment inféré post-hoc (confidence med). Action logs : 4 endturns (A) / 3 endturns (B) = round ~5. cf. wiki §3bis Vitruvius RadBombardment (3ᵉ confirmation) + selfplay-journal seed 80000 bloc #3 (divergence #1).

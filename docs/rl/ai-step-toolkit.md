@@ -193,6 +193,135 @@ ajouter au set candidat ; `GetMovableTilesFor` exclut la tile d'origine).
   3. figer le **format de capture minimal** d'une battle + 1ʳᵉ pass features offline (IL) ;
   4. impact de l'ordre : winrate ordre naturel vs forcé (même seed, 2 runners).
 
+## Légalité ability + RAISON structurée + couche Playbook (investigation ghidra 2026-06-23)
+
+Investigation pour combler 2 trous : **(H55)** no-op silencieux d'un play d'ability
+(`mutated=false, 0 event` → on devinait la cause) ; **complétude** des abilities
+**non-attaque** (buff/summon/hex absentes des `attackPlans`). Net-new vs la carte
+AttackQuery #1-#4 ci-dessus :
+
+### a) Énumération SANS position (toute-le-tour) — le vrai analogue de `aiMovableTiles`
+`IBattleQuery` (= `EntityServices.<Battle>@0x70`) :
+- **`GetAllValidTargetsFromAllPossibleMovementTiles(IEntity unit, ActiveAbilityType ability, bool ignoreMovementFlag)`** `@1810e8d50` → `ValidTargets`. Calcule en interne tous les
+  tiles de move ET toutes les cibles légales depuis ceux-ci. **Aucune `UnitPosition` à
+  construire** (contrairement à #1/#2). = « ce que l'unité peut caster/toucher CE TOUR ».
+- `GetAbilityTargetingOptions(ActiveAbilityType ability)` `@1810e5c10` → `TargetingOptions`
+  (struct 0x40) = mapper interne ability→options. **On n'a pas à l'appeler** : `GetValidTargets`
+  le fait. Confirme que **toutes** ces méthodes ne prennent qu'un `ActiveAbilityType` (id
+  concret, cf. §« Modèle d'abilities ») et dérivent les options seules.
+
+`ValidTargets` (class, TypeDefIndex 12479) : `OrderedSet<IEntity> AllTargets @0x10` (set plat) ·
+`Dictionary<UnitPosition, OrderedSet<IEntity>> TargetsByPosition @0x18` (cibles par position du
+caster). Cache jeu : `ValidTargetsKey = (BEntityId attacker, UnitPosition from, ActiveAbilityType)`
+→ overloads `GetValidTargetsWithCache(…, Dictionary<ValidTargetsKey,ValidTargets>)`.
+
+### b) RAISON structurée du rejet — `GetInvalidTargetReason` → `TargetingRule` ([Flags] 64-bit)
+La carte note `GetInvalidTargetReason` comme **bool** via `IsInvalid`. En fait son retour
+`IBrokenTargetingRule.Type` est un **flag `TargetingRule`** décodable en raison précise
+(remplace la devinette H55). Body `@1810e1cd0` confirmé : ability pas castable →
+`ValidRequest`(0x1) ; déjà utilisée → **`AlreadyUseThisTurn`(0x40000000000000)** ; sinon →
+vraie règle cassée par cible. Bits utiles (enum complet : `dump.cs` @423198) :
+
+| Flag | Sens |
+|---|---|
+| `TargetIsAtRange`/`TargetIsInRange` | hors portée |
+| `AlreadyUseThisTurn` | déjà utilisée ce tour |
+| `ValidRequest`(1) | ability pas castable (null / `!CanCurrentlyBeUsed` / name==0) |
+| `AbilityIsNotDisabledByConfigModification` | ability désactivée |
+| `TargetIsUnobscured` | ligne de vue bloquée |
+| `TargetIsEnemy`/`Friendly`/`Healable`/`Repairable` | mauvais type de cible |
+| `TargetTileIsFree` | tuile de summon occupée |
+| `CasterHasNotMoved`/`CasterHasCompletedOneTurn` | état caster invalide |
+
+`GetInvalidCasterReason(attacker, attackerTile, ability)` = pourquoi le caster ne peut pas
+caster du tout. Overloads `GetInvalidTargetReason` : `(…, IEntity tile, …)`,
+`(…, UnitPosition, …)`, `(…, IList<IEntity> tiles, …)`. `NoBrokenTargetingRule` = valide.
+
+### c) L'IA (Playbook) consomme EXACTEMENT cette query — parité
+`IdunBattle.AI.Playbook`, 2 couches :
+- **`BasePlaybook`** = légalité générique : `GetEligibleTargetsSelectable(unit, ability, fromTiles)`
+  `@18119fa20` construit un `UnitPosition` → appelle (slot **0x43**) `GetValidTargets(unit,
+  UnitPosition, ability)` → lit `AllTargets@0x10` → filtre via `ShouldEvaluateTarget` ;
+  `GetAllValidTargetsFromAllPossibleMovementTiles(unit, ability)` `@18119f1e0` → slot **0x46**
+  de BattleQuery. + `GetEligibleTargetsEntities`, `GetAllNormalAttackTargets`.
+- **`<Ability>Playbook`** = policy/scoring par-ability (au-dessus des weights `Utilities`) :
+  `Calculate*Utility`/`GetTargetUtility`/`Get*Selector`. Non-attaque : `CrusadeOfWrath.
+  GetBuffTargetsSelector` (buff), `BattleTinkererRepair.FindHighestAttackEnemyWithTarget`
+  (repair), `DeathFromAbove`/`ResurrectionOrb.GetNumPossibleSpawnTilesForTarget` (summon),
+  `NobleCharge.GetPushableTargetOnHighestUtilityTile` (displacement). cf. mémoire
+  `reference_playbook_ai_policy`. → la **légalité** est ce qu'on expose ; la **policy** est de la
+  doctrine lisible si on veut comprendre les choix de l'IA.
+
+### d) RPC `abilityTargets` — IMPLÉMENTÉ + VALIDÉ (2026-06-23)
+`ctx.rpc.abilityTargets` (rpc-view.ts) + offset `battleInServicesOff` (internals.ts) +
+commande `rl_duel abilities [--unit U] [--ability A]`. Par (unit ctrl+vivante × ability
+concrète : normal+actives via `unitAbilityTypes`) : `battleQuery` (= `runner.<Services>` →
+`+battleInServicesOff` = EntityServices.`<Battle>`) → `GetAllValidTargetsFromAllPossible
+MovementTiles(unit, ability, ignoreMovementFlag=false)` (résolu lazy via
+`battleQuery.readPointer()`, 3-param unique → pas d'ambiguïté) → `ValidTargets.AllTargets@0x10`
+→ `extractTilePtrs` → cibles : ptr résolu via carte `forEachEntity` (Unit → squadId/visualId/pos
+projection ; sinon → tile coord `readTileCoord`). Read-only (`mutated=false`), aucune RVA.
+
+**Validé live** (seed 80000, runner mid-combat, **32 ms**, `mutated=False`) : `Foehammer`
+(attaque) → 5 units ; `RadBombardment`/`UnstoppableMomentum` (tile-targeting) → 19/23
+**tiles** ; `FoulInfusion` (self-buff) → self ; `InspiredToGreatness` (buff sans cible) → ∅ ;
+normal attack range-exact. Empty au déploiement (équipes à ~8 rangs) **corroboré par
+`aiAttackRank`** (0 position) ⇒ correct, pas un bug. Les abilities non-attaque (tiles/self),
+absentes des `attackPlans`, sont désormais surfacées — trou de complétude comblé.
+
+DEUX listes par ability (depuis 2026-06-23, refinement 1 fait) : `targets` = « ce tour, MOVE
+inclus » (superset, via BattleQuery) ; **`fromHere`** = castable **SANS bouger** depuis la tuile
+courante (légalité EXACTE du cast immédiat). ∉ des deux ⇒ no-op certain ; ∈ targets mais ∉ fromHere
+⇒ « bouger d'abord ». Champ `fromHereResolved` au top-level.
+
+**`fromHere` — comment c'est fait** : `AttackQuery.GetValidTargets(unit, UnitPosition from,
+ActiveAbilityType)`. Deux pièges réglés : (a) overload de MÊME arité (l'autre prend
+`IOrderedSet<UnitPosition>`) → nouveau helper réutilisable `findMethodByParamClasses(klass, name,
+[null,"UnitPosition",null])` (via `il2cpp_method_get_param` → class name) dans helpers.ts ;
+(b) le struct `UnitPosition` by-value fabriqué SANS son ctor ambigu : `EntityExtensions.GetTiles(
+unit, state)` → `IList<IEntity>` puis buffer 8 octets `{Tiles}` (gcRoot tant qu'utilisé). Le call
+per-position est read-only (`mutated=false` confirmé live). Validé seed 80000 mid-combat (58 ms) :
+Foehammer `now:∅ +move[5]` ; UnstoppableMomentum `now[3] +move[20]` ; FoulInfusion self-buff
+`now[1]=self` ; `targets = fromHere ∪ move_only` cohérent.
+
+**Branché dans la carte oracle** (2026-06-23) : `rl_duel view` (`_show_card`) appelle aussi
+`abilityTargets` et passe le résultat à `oracle.build_card(view, bd, abil=…)`. La section
+**MES ACTIFS** affiche désormais, par actif, l'état live + la légalité `now`/`+move`
+(`u91 RadBombardment(1116) [prêt] →now[3]:(1,9),(2,8),(3,9) · +move[16]:…`) ; `→∅(no-op
+certain)` quand l'actif n'a aucune cible. Comble les actifs NON-attaque (buff/summon/hex,
+absents des PLANS D'ATTAQUE) là où l'oracle choisit. helpers `_tgt_key`/`_tgt_compact`/
+`_abil_targets_summary` (oracle.py) ; `build_card(abil=None)` rétro-compatible.
+
+**MoW FAIT** (2026-06-23, refinement 3) : `abilityTargets` scanne aussi les casters
+`EntityType.Machine` (6) ctrl+vivants → `mowAbilityTypes` (Primary/Secondary + actives) +
+mêmes queries `GetAllValidTargets…`/`GetValidTargets` (elles gèrent les machines : la décompile
+de `GetInvalidTargetReason` a une branche `IsMachinePrimaryAbilityType`). Entrées taggées
+`isMow:true`, identité via `projectMowsFull` (casterId=machineId). Carte : la section MoW affiche
+now/+move par ability (abil_idx indexe aussi `(casterId, abilityId)`). Validé seed 80000 +
+`--mow` : adeptExorcist `ThriceBlessedConflagration(1187)→now[4]` (= 4 alliés, gameconfig
+confirme « Targets a friendly unit » → invisible des attackPlans), `DevastatingRefrain(1188)→
+now[52] tiles` ; MoW ENNEMI listé sans cibles (≠ joueur courant). `fromHere` marche aussi sur les
+Machine (GetTiles+UnitPosition). Reste : `pos/hp` MoW = None à certains états (quirk projection
+préexistant, hors scope).
+
+**Raison structurée FAIT** (2026-06-23, refinement 2) : RPC `abilityReason({runnerId, casterId,
+abilityType, targetId?})` → `AttackQuery.GetInvalidTargetReason(caster, casterTile, target, ability)`
++ `GetInvalidCasterReason` (overloads 4-/3-param désambiguïsés par tile="IEntity" via
+`findMethodByParamClasses`) → `IBrokenTargetingRule` BOXÉ. **Piège résolu** : NoBroken/Generic
+BrokenTargetingRule sont des **struct** ; `get_Type()` sur struct boxée veut `this=obj+0x10` —
+appeler avec `this=obj` lisait le champ@0x0 = **pointeur de klass** (d'où un faux masque
+identique pour 2 abilities). Fix : lire le champ `<Type>@0x0` DIRECT à `obj+0x10` (Generic
+BrokenTargetingRule), garder par `class_get_name` (NoBroken=valide). Décodé en noms via
+`data/targeting-rule-names.ts` (bit→nom, dump-généré comme ability-names). Renvoie **1 flag
+unique** = la 1ʳᵉ règle cassée (l'ordre d'éval du jeu). Validé : vs untargetable (deep-strike)
+→ `TargetIsTargetable` ; vs loin → `TargetIsInRange` ; en portée → `NoBrokenTargetingRule`
+(valide). **Câblé `rl_duel`** : commande `reason` + filet réactif `_action_failed` (eventCount==0)
++ **pré-validation proactive** `_ability_prevalidate` dans `cmd_play` (abort AVANT applyAction sur
+cast ciblé illégal — capte le no-op « event émis, 0 effet » hors-portée que le réactif rate).
+
+Adresses RE = build **kqkbjqfb6c** (lecture humaine) ; le hook résout tout **par nom en
+runtime** (CLAUDE.md). **Tous les refinements (1 fromHere, oracle view, 3 MoW, 2 raison) FAITS.**
+
 ## Infra / rappels
 
 - Host `:8765`, build **kqkbjqfb6c**, PG TACTICUS:5433. ghidra-mcp sur :13337.
