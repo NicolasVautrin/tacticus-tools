@@ -27,17 +27,49 @@ def _load(path):
         return json.load(f)
 
 
-def _rosters(bc):
-    """Rosters best-effort depuis bc.PredefinedUnits ([{Id:teamId, Units:[{UnitId}]}]).
-    Partiel possible (un camp peut être hors PredefinedUnits) ; les rosters complets
-    restent dans le journal prose du teardown. La trajectoire, elle, est toujours captée."""
+# PlayerId -> team label. team1 = humain (TeamId 1), team2 = IA (TeamId 2).
+PLAYER_ID_HUMAN = 11
+PLAYER_ID_AI = 12
+
+
+def _team_key(pid):
+    if pid == PLAYER_ID_HUMAN:
+        return "team1"
+    if pid == PLAYER_ID_AI:
+        return "team2"
+    return f"player{pid}"
+
+
+def _bare(uid):
+    """unitId nu, sans suffixe éventuel (`:pvp`, `:6`, ...)."""
+    return uid.split(":")[0] if isinstance(uid, str) else uid
+
+
+def _rosters(sa, sb, bc):
+    """Rosters {team1, team2} reconstruits depuis les DEUX sources :
+    - team IA : bc.PredefinedUnits ([{Id:playerId, Units:[{UnitId}]}]) — typiquement le
+      seul groupe présent (Id=12).
+    - team joueur : state-file `playerUnits` ([{unitId, playerId}]) — le camp humain
+      n'est JAMAIS dans PredefinedUnits (ajouté via AddUnit), d'où l'ancien team1 vide.
+    Clés normalisées team1/team2 (et non par playerId), suffixes d'unitId strippés."""
     out = {}
+    # 1) groupes PredefinedUnits (IA) — map playerId -> team1/team2.
     if isinstance(bc, dict):
         for pu in (bc.get("PredefinedUnits") or []):
-            tid = pu.get("Id")
-            units = [u.get("UnitId") for u in (pu.get("Units") or []) if u.get("UnitId")]
-            if tid is not None and units:
-                out[str(tid)] = units
+            key = _team_key(pu.get("Id"))
+            units = [_bare(u.get("UnitId") or u.get("Id"))
+                     for u in (pu.get("Units") or [])]
+            units = [u for u in units if u]
+            if units:
+                out[key] = units
+    # 2) playerUnits du state-file (camp joueur) — autoritatif pour son team.
+    pu_list = sa.get("playerUnits") or sb.get("playerUnits") or []
+    if pu_list:
+        key = _team_key((pu_list[0] or {}).get("playerId", PLAYER_ID_HUMAN))
+        units = [_bare(u.get("unitId") or u.get("UnitId")) for u in pu_list]
+        units = [u for u in units if u]
+        if units:
+            out[key] = units
     return out
 
 
@@ -66,7 +98,7 @@ def main():
         "ts": a.ts,
         "winner": a.winner,
         "source": "self-play",            # vs oracle-vs-IA (rl_collect_batch)
-        "rosters": _rosters(bc),          # best-effort ; cf. journal pour l'autoritatif
+        "rosters": _rosters(sa, sb, bc),  # team1 (playerUnits) + team2 (PredefinedUnits)
         "trajectory": {                   # LA démonstration : actions ordonnées par camp
             "team1": traj_a,
             "team2": traj_b,

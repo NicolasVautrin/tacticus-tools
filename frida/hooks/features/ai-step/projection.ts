@@ -158,12 +158,20 @@ export function computeAttackPlans(
                                         if (!boxed.isNull()) {
                                             const bb = boxed.add(0x10);
                                             const hp = bb.readS32();
+                                            // dmgMin/Max = AccurateHealthDamage MITIGÉ
+                                            // (post armure/shield/effets) — pour l'affichage.
                                             entry.dmgMin = bb.add(0x60).readS32();
                                             entry.dmgMax = bb.add(0x64).readS32();
-                                            // kill = possible (max>=hp) ; killSure
-                                            // = garanti (min>=hp, indépendant du roll).
-                                            entry.kill = (entry.dmgMax ?? 0) >= hp;
-                                            entry.killSure = (entry.dmgMin ?? 0) >= hp;
+                                            // kill/killSure : NE PAS dériver de dmgMin/Max@0x60/0x64
+                                            // (= AccurateHealthDamage brut → sur-claime un K! sur un
+                                            // Resilient, cf. TF04 / seed 80085 Aesoth→Lucien). Le moteur
+                                            // expose les seuils de mort EFFECTIFS (post floor-Resilient
+                                            // + overkill) : get_WillBeKill = hp<=dmg@0x24 (garanti) ;
+                                            // get_MightBeKill = hp<=dmg@0x28 (possible). On lit ces champs.
+                                            const willKillDmg = bb.add(0x24).readS32();
+                                            const mightKillDmg = bb.add(0x28).readS32();
+                                            entry.killSure = hp <= willKillDmg;
+                                            entry.kill = hp <= mightKillDmg;
                                             entry.mightCrit = bb.add(0xb1).readU8() !== 0;
                                         }
                                     }

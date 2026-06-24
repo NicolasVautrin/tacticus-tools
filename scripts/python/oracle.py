@@ -76,8 +76,10 @@ def geometric_danger_zone(bd: Board, enemies: list[dict]) -> tuple[Counter, list
 
 
 def _killmark(t: dict) -> str:
-    """K! = kill garanti (min>=hp, indépendant du roll) ; K? = kill possible
-    (max>=hp mais min<hp, seulement sur un bon roll)."""
+    """K! = kill GARANTI ; K? = kill POSSIBLE (seulement sur un bon roll/crit).
+    Base = les seuils de mort EFFECTIFS du moteur (WillBeKill/MightBeKill, post
+    floor-Resilient + overkill) — PAS un simple dmg>=hp (qui sur-claimait un K!
+    sur un Resilient ; cf. TF04)."""
     if t.get("killSure"):
         return "K!"
     if t.get("kill"):

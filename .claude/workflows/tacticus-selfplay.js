@@ -6,6 +6,7 @@ export const meta = {
     { title: 'Setup',    detail: 'build runner partage + attach player B (1 agent court/match)' },
     { title: 'Match',    detail: '2 player agents CHAUDS (team1/team2) en //, recon 1x puis boucle await->view->play --no-ai ; coordonnes UNIQUEMENT par le host (jamais l\'IA native)' },
     { title: 'Teardown', detail: 'CONFRONTATION A vs B (consensus) + adjudication (vainqueur) + ecriture demos/knowledge ; SINGLE-WRITER' },
+    { title: 'Cleanup',  detail: 'dispose runners orphelins (retry leaks + stragglers) + verif atelier vide' },
   ],
 }
 
@@ -16,7 +17,7 @@ export const meta = {
 //   matches?: Array< number | { seed:number, aiUnits?:string[] } >   // 1 entree par match
 //   count?:   number        // alternative: genere `count` seeds derives (= NB DE MATCHS)
 //   seedBase?: number       // base des seeds derives (defaut 80000 — distinct des waves 70000)
-//   matchesInFlight?: number // matchs concurrents (defaut 2, borne [1,6]). LE PUMP FRIDA est le vrai
+//   matchesInFlight?: number // matchs concurrents (defaut 2, borne [1,8] ; 8 = 16 agents = cap harness). LE PUMP FRIDA est le vrai
 //                            //   plafond (tous les runners partagent 1 session) -> petit par defaut ;
 //                            //   mesurer GET /api/rpc-queue pour monter.
 //   sessionId?: number      // id de la session Frida warmee (defaut 1) — pour l'URL host await.
@@ -134,7 +135,10 @@ need(matches.every((m) => Number.isInteger(m.seed)), 'chaque match a besoin d\'u
 
 const sessionId = Number.isInteger(A.sessionId) ? A.sessionId : 1
 const model = A.model || undefined
-const MATCHES_INFLIGHT = Math.max(1, Math.min(6, Number.isInteger(A.matchesInFlight) ? A.matchesInFlight : 2))
+// Borne [1,8] : 8 matchs en vol = 8×2 players = 16 agents au pic = EXACTEMENT le cap
+// de concurrence harness (min(16, max(2, coeurs-2))). 8 = plafond naturel (sature le cap
+// sans rien mettre en queue) ; au-delà (9+), les players excédentaires queueraient au cap.
+const MATCHES_INFLIGHT = Math.max(1, Math.min(8, Number.isInteger(A.matchesInFlight) ? A.matchesInFlight : 2))
 const ts = A.ts || 'inconnu'
 
 log(`args OK: ${matches.length} matchs self-play - ${MATCHES_INFLIGHT} en vol - sessionId=${sessionId}${model ? ` - modele=${model}` : ''}`)
@@ -170,10 +174,12 @@ function setupPrompt(m) {
   const buildCmd = `python scripts/python/rl_duel.py build --seed ${m.seed} --keep --state-file data/_sp_${m.seed}_A.json${aiCsv ? ` --a-units ${aiCsv}` : ''}`
   return `Tu es l'agent SETUP d'UN match self-play Tacticus (seed ${m.seed}). cwd = racine du repo.
    PRECONDITION: session Frida (id=${sessionId}) DEJA warmee par l'orchestrateur -> NE lance JAMAIS warmupGameSingletons, NE navigue PAS l'UI.
+   ⚠ INVARIANT CRITIQUE (matchs concurrents) : un \`rl_duel build\` SANS \`--keep\` applique la SINGLE-BUILD POLICY qui DÉTRUIT SILENCIEUSEMENT tous les runners frères (les autres matchs EN VOL) — sans aucune trace. C'est la cause des matchs "runner not found"/no-result. DONC : lance EXCLUSIVEMENT la commande build ci-dessous (elle a \`--keep\`), JAMAIS un build ad-hoc, JAMAIS sans \`--keep\`, et NE lance JAMAIS \`dispose\` (réservé au teardown). Si tu dois ré-essayer, relance EXACTEMENT la même commande \`--keep\`.
    1. BUILD le runner PARTAGE (team1=joueur, team2=adverse) : \`${buildCmd}\`. Lis le runnerId dans la ligne "[build] runnerId=N" et les 2 rosters ("MON roster (team 1)=..." / "roster ADVERSE (team 2)=...").
    2. CREE le state-file du player B (MEME runner, camp 2) : \`python scripts/python/rl_duel.py attach --from data/_sp_${m.seed}_A.json --team 2 --state-file data/_sp_${m.seed}_B.json\`.
+   3. GATE D'ADRESSABILITÉ (OBLIGATOIRE avant de rendre ok) — vérifie que le runner est joignable par LE MÊME chemin que les players (l'endpoint await), pour attraper un runner nuké par un build concurrent AVANT de spawn 2 players dessus : \`curl -s -m 10 "http://127.0.0.1:8765/api/selfplay/${sessionId}/await?runnerId=<N>&player=3&timeoutMs=3000"\` (remplace <N> par le runnerId du build). VERDICT : réponse JSON avec \`"ok":true\` (\`yourTurn\` OU \`timedOut\`) = runner ADRESSABLE -> rends ok. Réponse avec \`"error"\` (ex. "runner <N> not found", HTTP 502) = runner ABSENT du registry (nuké par un build frère) -> NE rends PAS ok:true : renvoie {ok:false, error:"runner <N> non adressable post-build (nuke concurrent ?)"} pour que le workflow RE-SETUP (le retry rebuild en --keep = non destructif, self-heal).
    NE joue PAS le match, NE dispose PAS le runner (c'est le role des players / du teardown).
-   Renvoie {ok:true, runnerId:<N>, rosterMine:[team1...], rosterTheirs:[team2...]}. Si le build echoue -> {ok:false, error:"..."}.`
+   Renvoie {ok:true, runnerId:<N>, rosterMine:[team1...], rosterTheirs:[team2...]} UNIQUEMENT si la gate (3) passe. Si le build echoue OU la gate echoue -> {ok:false, error:"..."}.`
 }
 
 function playerPrompt(side, runnerId, m, setup) {
@@ -235,6 +241,8 @@ function teardownPrompt(m, runnerId, pa, pb) {
    3. ÉCRITURE (demos + knowledge) :
       a. DEMOS : append un bloc match à docs/rl/selfplay-journal.md (CRÉE le fichier s'il n'existe pas, avec un titre "# Self-play journal (oracle vs oracle) — demos + confrontation"). Bloc = "## seed ${m.seed} — winner=<...> (ts=${ts})" + rosters + win_condition consensus (mine/theirs) + key_decisions des 2 + le résultat de la CONFRONTATION (consensus vs divergences). Source TAGGÉE self-play (NE mélange PAS avec docs/rl/journal.md qui est la pipeline oracle-vs-IA). Le détail des coups (action_log) est ARCHIVÉ en 4 (la trajectoire = le dataset IL, dans data/selfplay-logs/sp_${m.seed}_<ts>.json) — référence ce chemin ; résume AUSSI les séquences clés ici pour la lecture humaine.
       b. KNOWLEDGE CONSENSUS : pour chaque mécanique de consensus_mechanics (confirmée par LES DEUX players), inscris-la dans docs/rl/wiki.md (bonne unité/section) avec un tag [self-play consensus, seed ${m.seed}]. RIEN au wiki sans consensus (ou recoupage gameconfig explicite). Les divergences -> docs/rl/hypotheses.md en candidat flaggé "(self-play divergence A/B)".
+         ⚠ DISCIPLINE "THIN OVERLAY" (le wiki = SEULEMENT le NON-déductible de gameconfig) : une entrée wiki = l'INSIGHT non-déductible (interaction trait×trait, quirk émergent, condition de snowball, doctrine actionnable, counter) + un POINTEUR vers gameconfig pour la règle/les chiffres — JAMAIS un restatement. INTERDIT : recopier du "gameconfig VERBATIM" (la règle/les nombres sont DANS gameconfig → cite "cf. gameconfig --ability/--trait/--effect <Nom>", ne duplique pas) ; mettre des chiffres SPÉCIFIQUES AU MATCH (HP transitions type 8536→1770, dmg exacts, play-by-play) — ceux-là vont au JOURNAL/archive (preuve + trajectoire), pas au wiki durable. Le recoup gameconfig sert à VÉRIFIER avant d'inscrire, PAS à copier dans le wiki. Vise 2-4 lignes d'insight par entrée, pas un dump. Si la "mécanique" est entièrement déductible de gameconfig (pas d'interaction/quirk/doctrine émergente) → NE l'inscris PAS (elle est déjà dans gameconfig).
+      c. BACKLOG OUTILLAGE (NE PAS oublier) : si un player a rapporté une friction outil (champ `frictions`, OU un "TOUR ABANDONNÉ"/cast illégal/label trompeur/POV-flip dans ses key_decisions/mistakes), METS À JOUR docs/rl/toolfeedback.md (LIS-le d'abord). Pour CHAQUE friction : (i) cherche un TF EXISTANT au même symptôme → si trouvé, **incrémente son `recurrence`** dans le header, **ajoute la seed à `vu`**, et append une ligne d'evidence "**n+1 (seed ${m.seed})** : <observé>" ; (ii) sinon **CRÉE** `## TF<NN>` (prochain numéro libre) — `— open — recurrence:1` + sous-champs **friction** / **amélioration** / **vu : seed ${m.seed}**. NE duplique PAS un TF déjà présent. Une friction outil ne va NI au wiki (knowledge de JEU only) NI aux hypotheses (mécaniques de jeu only) — son canal dédié est toolfeedback.md.
       NE modifie JAMAIS .claude/skills/tacticus-battle/SKILL.md. NE touche PAS aux métriques win-rate de loop.md (le W/L self-play est zero-sum, non comparable au win-rate oracle-vs-IA).
 
    4. ARCHIVE + CLEANUP (dans CET ordre — l'archive AVANT toute suppression) :
@@ -343,4 +351,31 @@ log(`self-play fini: ${done.length}/${matches.length} matchs aboutis`
   + ` - ${rollup.consensus_mechanics_total} mecanique(s) consensus, ${rollup.divergences_total} divergence(s) A/B`
   + (failed.length ? ` - ${failed.length} ECHEC(s) 529: seeds ${failed.join(',')}` : '')
   + (leakedRunners.length ? ` - runners a disposer: ${leakedRunners.join(',')}` : ''))
+
+// =============================================================================
+// Cleanup final — `--keep` retire le filet single-build (un build NE balaie PLUS
+// les stragglers), donc on dispose EXPLICITEMENT tout runner restant : les leaks de
+// retry (trackés) ET tout straggler non tracké (ex. gate-fail rebuild). Garantit un
+// atelier vide quel que soit le déroulé. cf. project_multirunner_coexistence (footgun).
+// =============================================================================
+phase('Cleanup')
+const cleanup = await agent(
+  `Tu es l'agent CLEANUP du run self-play. Session Frida id=${sessionId}. Objectif : atelier VIDE (aucun runner orphelin). cwd = racine du repo.
+   1. Dispose ces runners orphelins connus (retry leaks) : [${leakedRunners.join(', ') || 'aucun'}].
+   2. LISTE l'atelier : \`curl -s -X POST http://127.0.0.1:8765/api/scripts/${sessionId}/rpc -H "Content-Type: application/json" -d '{"method":"listRunners","args":[],"timeout":10000}'\`.
+   3. Pour CHAQUE runnerId encore présent (étape 1 + étape 2), dispose-le : \`curl -s -X POST http://127.0.0.1:8765/api/scripts/${sessionId}/rpc -H "Content-Type: application/json" -d '{"method":"disposeRunner","args":[{"runnerId":<N>}],"timeout":15000}'\` (remplace <N>).
+   4. RE-LISTE (listRunners) pour CONFIRMER que l'atelier est vide. NE build RIEN, NE warmup PAS, NE navigue PAS l'UI.
+   Renvoie {disposed:[...ids effectivement libérés...], remaining:[...ids encore présents après cleanup...]}.`,
+  { label: 'cleanup', phase: 'Cleanup', model, agentType: 'general-purpose',
+    schema: { type: 'object', required: ['disposed', 'remaining'], properties: {
+      disposed: { type: 'array', items: { type: 'integer' } },
+      remaining: { type: 'array', items: { type: 'integer' } } } } },
+).catch(() => null)
+if (cleanup) {
+  rollup.cleanup = cleanup
+  log(`cleanup: ${(cleanup.disposed || []).length} disposé(s)`
+    + (cleanup.remaining && cleanup.remaining.length ? ` - ${cleanup.remaining.length} ENCORE présent(s): ${cleanup.remaining.join(',')} (à disposer à la main)` : ' - atelier vide ✓'))
+} else {
+  log('cleanup: agent KO -> vérifier listRunners à la main')
+}
 return rollup
