@@ -8,9 +8,43 @@ import {
     IL2CPP_MODULE_NAME, MethodRef, s,
 } from "./helpers.js";
 import { emit as _emitAiTrace } from "../features/ai-trace/state.js";
+import { log } from "../runtime/diag.js";
 
 function _emitException(rec: Record<string, unknown>): void {
     try { _emitAiTrace(rec); } catch { /* never throw */ }
+    // Console-log error events to the host log too. The ai-trace stream only
+    // keeps a counter; the invoked method + decoded MANAGED exception is the
+    // single most useful signal when an il2cpp invoke faults ("system error").
+    try {
+        const evt = String(rec.evt ?? "");
+        if (evt !== "invoke_native_error" && evt !== "invoke_exception") return;
+        const mx = rec.managedException as
+            { className?: string; message?: string } | null | undefined;
+        const mgd = mx
+            ? ` managed=${mx.className ?? "?"}: ${(mx.message ?? "").slice(0, 300)}`
+            : (rec.className
+                ? ` managed=${rec.className}: ${String(rec.message ?? "").slice(0, 300)}`
+                : " managed=<none>");
+        let btStr = "";
+        const bt = rec.backtrace as Array<{ addr?: string }> | undefined;
+        if (Array.isArray(bt) && bt.length) {
+            const lib = Process.findModuleByName(IL2CPP_MODULE_NAME);
+            const base = lib ? lib.base : null;
+            const size = lib ? lib.size : 0;
+            btStr = " bt=[ " + bt.slice(0, 14).map((f) => {
+                try {
+                    const a = ptr(String(f.addr));
+                    if (base && a.compare(base) >= 0
+                        && a.compare(base.add(size)) < 0) {
+                        return "rva:0x" + a.sub(base).toString(16);
+                    }
+                    return String(f.addr);
+                } catch { return String(f.addr); }
+            }).join(" ") + " ]";
+        }
+        log(`[invoke-err] evt=${evt} method=${rec.method ?? "?"}`
+            + ` msg=${String(rec.message ?? "").slice(0, 160)}${mgd}${btStr}`);
+    } catch { /* never throw */ }
 }
 
 function exp(name: string): NativePointer {

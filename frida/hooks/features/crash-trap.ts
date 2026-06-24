@@ -29,6 +29,7 @@ import {
     class_get_name, s as cstr, IL2CPP_MODULE_NAME,
 } from "../il2cpp/helpers.js";
 import { Ctx } from "../controller.js";
+import { log } from "../runtime/diag.js";
 
 function findIl2cppExport(name: string): NativePointer | null {
     const lib = Process.findModuleByName(IL2CPP_MODULE_NAME);
@@ -43,6 +44,24 @@ let installed = false;
 let crashesSeen = 0;
 let excSeen = 0;
 let initSeen = 0;
+
+// Console-log (host log) each UNIQUE native-fault site once, in RVA form so it
+// can be symbolicated against data/all_game_targets_win.tsv (or ghidra-mcp) on
+// the current build. The ai-trace `native_crash` emit only carries counters;
+// this gives the actual fault location. Deduped by faulting RVA + capped so the
+// 100+ recoverable AVs/session don't flood the log.
+const _loggedFaultSites = new Set<string>();
+let _faultLogCount = 0;
+const FAULT_LOG_CAP = 40;
+function rvaOf(addr: NativePointer, lib: { base: NativePointer; size: number } | null): string {
+    try {
+        if (lib && addr.compare(lib.base) >= 0
+            && addr.compare(lib.base.add(lib.size)) < 0) {
+            return "rva:0x" + addr.sub(lib.base).toString(16);
+        }
+    } catch { /* fall through */ }
+    return addr.toString();
+}
 
 // Only log a small head of class_init calls per second to avoid drowning
 // the trace — class init is hot (hundreds/sec under load).
@@ -97,6 +116,31 @@ function installSehHandler(): void {
             }
             rec.backtrace = describeBacktrace(ctx);
             emit(rec);
+            // Console-log unique fault sites in RVA form for symbolication.
+            try {
+                const lib = Process.findModuleByName(IL2CPP_MODULE_NAME);
+                const btRva = (ctx
+                    ? Thread.backtrace(ctx, Backtracer.ACCURATE)
+                    : Thread.backtrace(undefined, Backtracer.FUZZY))
+                    .slice(0, 20).map((a) => rvaOf(a, lib));
+                // Dedup by the first in-GameAssembly frame (the real il2cpp call
+                // site), NOT the raw fault address — distinct call sites often
+                // fault in the SAME shared system routine (e.g. a null-deref
+                // helper), which a fault-address key would collapse into one.
+                const siteKey = btRva.find((f) => f.startsWith("rva:"))
+                    ?? rvaOf(details.address, lib);
+                if (!_loggedFaultSites.has(siteKey)
+                    && _faultLogCount < FAULT_LOG_CAP) {
+                    _loggedFaultSites.add(siteKey);
+                    _faultLogCount++;
+                    const acc = details.memory
+                        ? ` access=${details.memory.operation}@${details.memory.address}`
+                        : "";
+                    log(`[crash-trap] native_crash #${crashesSeen} kind=${details.type}`
+                        + ` fault=${rvaOf(details.address, lib)}${acc} site=${siteKey}`
+                        + ` bt=[ ${btRva.slice(0, 16).join(" ")} ]`);
+                }
+            } catch { /* never let the handler throw */ }
         } catch { /* never let the handler throw */ }
         // false = let it propagate. We do NOT want to swallow — the
         // upstream NativeFunction in invokeMethod must still throw so

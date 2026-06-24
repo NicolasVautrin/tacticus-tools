@@ -7,7 +7,7 @@
 // fired after 6 seconds.
 
 import {
-    findClassAnywhere, findMethod, findClass,
+    findClassAnywhere, findMethod, findClass, getFieldOffset,
     class_get_fields, field_get_name, field_get_offset,
     class_get_methods, method_get_name, method_get_param_count,
     s, getSystemType, methodEntry, findCtorByParamCount
@@ -34,12 +34,24 @@ export async function extractDependenciesAndNavigate(navInstance: NativePointer)
     log(`[auto-boot] Starting direct dependency extraction from IdunNavigation @ ${navInstance}...`);
 
     try {
-        // Read unitProgression pointer at offset 0x1f0
-        const unitProgressionPtr = navInstance.add(0x1f0).readPointer();
-        // Read gameConfig pointer at offset 0x240
-        const gameConfigPtr = navInstance.add(0x240).readPointer();
+        // Resolve field offsets by NAME via the IL2CPP API — IdunNavigation's
+        // layout shifts between Unity versions (_unitProgression moved
+        // 0x1F0→0x1D8, _gameConfig 0x240→0x228 between builds kqkbjqfb6c and
+        // gqfc5mff6c). A hardcoded offset reads the wrong field on the next
+        // game update and sets a non-null GARBAGE pointer, which silently
+        // blocks the heap-scan / GetUnit-hook fallbacks (they only run when
+        // unitProgressionPtr is still null) — symptom downstream:
+        // "GetIndicesOfAppliedUpgrades(2) not found". cf. CLAUDE.md
+        // "résolution runtime, pas de RVA hardcodées".
+        const navClass = navInstance.readPointer();
+        const upOff = getFieldOffset(navClass, "_unitProgression");
+        const gcOff = getFieldOffset(navClass, "_gameConfig");
+        const unitProgressionPtr = upOff >= 0
+            ? navInstance.add(upOff).readPointer() : ptr(0);
+        const gameConfigPtr = gcOff >= 0
+            ? navInstance.add(gcOff).readPointer() : ptr(0);
 
-        log(`[auto-boot] Extracted pointers: _gameConfig=${gameConfigPtr}, _unitProgression=${unitProgressionPtr}`);
+        log(`[auto-boot] Extracted pointers (_unitProgression@0x${upOff.toString(16)}, _gameConfig@0x${gcOff.toString(16)}): _gameConfig=${gameConfigPtr}, _unitProgression=${unitProgressionPtr}`);
 
         if (!gameConfigPtr.isNull()) {
             setLastGameConfig(gameConfigPtr);

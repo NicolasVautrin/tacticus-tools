@@ -256,13 +256,18 @@ def cmd_build(sid: int, a) -> int:
          "col": int(player_pts[i][0]), "row": int(player_pts[i][1])}
         for i in range(roster_p)
     ]
-    init = (_rpc(sid, "initAndStart",
-                 [{"configJson": json.dumps(bc), "seed": a.seed,
-                   "playerUnits": player_units,
-                   "keepExisting": a.keep}], timeout=40).get("result") or {})
+    init_resp = _rpc(sid, "initAndStart",
+                     [{"configJson": json.dumps(bc), "seed": a.seed,
+                       "playerUnits": player_units,
+                       "keepExisting": a.keep}], timeout=40)
+    init = init_resp.get("result") or {}
     rid = init.get("runnerId")
     if rid is None:
-        print(f"[error] initAndStart: {init}", file=sys.stderr); return 2
+        # Surface the real RPC error (was masked by `or {}` — the host
+        # returns it in `error`, not `result`, when initAndStart throws).
+        print(f"[error] initAndStart: {init_resp.get('error') or init_resp}",
+              file=sys.stderr)
+        return 2
     mow_str = (f"  MoW: moi={p_mow or '-'} IA={a_mow or '-'}"
                if (p_mow or a_mow) else "")
     print(f"[build] runnerId={rid}  MON roster (team 1)={p_units}")
@@ -519,6 +524,20 @@ def cmd_act(sid: int, a) -> int:
               timeout=60).get("result") or {})
     _print_apply(label, r, my_ids)
     print(f"  -> stage={r.get('stage')} currentPlayer={r.get('currentPlayer')}")
+    # CAPTURE dataset IL — SYMÉTRIE avec cmd_play (l.853/884) : `act` DOIT logger comme
+    # `play`, sinon une trajectoire jouée 100% en `act` = action_log VIDE → démo perdue
+    # (ex. seed 80031 b6 : un VAINQUEUR joué entièrement via `act`, team2 archivé 0 action).
+    # On logge l'action RÉUSSIE (même critère d'échec que cmd_play) + save par-action.
+    if a.kind == "endturn":
+        st.setdefault("action_log", []).append({"kind": "endturn"})
+        _save_state(st)
+    else:
+        fail = _action_failed(r, a.kind, sid, rid, action)
+        if fail:
+            print(f"  [act] /!\\ action ÉCHOUÉE -> NON loggée (rien donné à l'IA) : {fail}")
+        else:
+            st.setdefault("action_log", []).append(action)
+            _save_state(st)
     # Ré-évaluation APRÈS l'action (le board a changé) — base de la décision
     # suivante, surtout pour le focus-fire (arrêter dès qu'une cible meurt).
     if a.kind != "endturn":

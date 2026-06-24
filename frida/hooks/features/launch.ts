@@ -511,6 +511,10 @@ export function register(ctx: Ctx): void {
                     catch { /* ignore */ }
                 }
             }
+            // Step breadcrumbs: a native SEH (Frida "system error") inside any
+            // invoke below bypasses the JS catch, so the last logged step is the
+            // fault site (same pattern as playTurn).
+            log("[initAndStart] step=deserialize BC");
             const configPtr = deserializeFromJson(
                 args.configJson, battleConfigClass);
             // Defensive pin BEFORE buildRunner (race: BC unreachable
@@ -521,9 +525,12 @@ export function register(ctx: Ctx): void {
                 runner: NativePointer; innerAiControl: NativePointer } | null = null;
             const addUnits: Array<{ unitId: string; eventCount: number }> = [];
             try {
+                log("[initAndStart] step=buildRunner seed="
+                    + (typeof args.seed === "number" ? args.seed : "none"));
                 const r = buildRunner(configPtr,
                     typeof args.seed === "number" ? { seed: args.seed }
                                                   : undefined);
+                log("[initAndStart] buildRunner ok runner=" + r.runner);
                 // RL/isolated runner → never auto-evicted by recorder (TF06).
                 entry = registerRunner(r, { autoDispose: false });
                 pinForRunner(entry.runnerId, configPtr);
@@ -534,6 +541,8 @@ export function register(ctx: Ctx): void {
 
                 // 2. Apply each player AddUnitMessage at its spawn point.
                 for (const u of args.playerUnits) {
+                    log("[initAndStart] step=Apply AddUnit " + u.unitId
+                        + " @" + u.col + "," + u.row);
                     const msg = buildAddUnitMessage(
                         u.unitId, u.playerId, u.col, u.row);
                     try {
@@ -552,6 +561,7 @@ export function register(ctx: Ctx): void {
                 }
 
                 // 3. StartMatch -> deployment validated, stage=Running.
+                log("[initAndStart] step=StartMatch");
                 const startEvs = captureEvents(
                     entry.runnerId, r.runner, "StartMatch",
                     () => { invokeMethod(
