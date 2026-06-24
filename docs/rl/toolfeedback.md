@@ -23,18 +23,28 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   win-condition adverse + léthal estimé) + un flag `decided: won|lost|undecided` (prudence asymétrique).
 - vu : G01, G02, G03.
 
-## TF03 — `decisionView` bascule de POV (MOI/ENNEMI) quand currentPlayer=4 — open — recurrence:1
+## TF03 — `decisionView` bascule de POV (MOI/ENNEMI) quand currentPlayer=4 — open — recurrence:3
 - **friction** : quand mon tour s'auto-termine et que la vue passe en POV team-2, les labels MOI/ENNEMI
-  s'inversent → re-lectures inutiles, confusion sur les positions.
+  s'inversent → re-lectures inutiles, confusion sur les positions. **n+1 (80072)** : B re-confirme le flip,
+  ET le `decisionView` du state-file LAG le turn-flip → l'attribution d'équipe est ambiguë sur le tour de
+  bascule ; désambiguïser via `status` (autoritatif t1/t2), pas les labels relatifs de la vue.
+  **n+2 (80031)** : B a failli mis-play — la 1ʳᵉ vue de son tour labellait « MOI » le set u95-103 (= team1) ;
+  caught en dérivant le vrai roster via `myTeam`/`playerUnits`, mais c'est le foot-gun récurrent.
 - **amélioration** : option `view --pov me` (toujours mon équipe = MOI), ou afficher teamId explicite.
-- vu : G01.
+- vu : G01, seed 80072, seed 80031.
 
-## TF04 — Label `K!` des plans optimiste (ignore Resilient + réductions défensives) — open — recurrence:1
+## TF04 — Plans = dmg MAX-roll NON mitigé + label `K!` optimiste (ignore Resilient + réductions + buffs défensifs) — open — recurrence:4
 - **friction** : `K!` (« kill sûr ») ne modélise pas Resilient/Terrifying/block → un coup « K! » laisse
-  la cible à 1 PV (Azkor). Induit en erreur sur la létalité.
-- **amélioration** : intégrer Resilient/Terrifying/Daemon-block dans la prédiction, ou dégrader le label
-  en `K?` quand la cible a un trait défensif non modélisé.
-- vu : G01.
+  la cible à 1 PV (Azkor). **n+1 (80072)** : au-delà du label, la RANGE dmg des plans est un **MAX-roll NON
+  mitigé** — `Doombolt [2409-3613]` a dealt **1343** réel (mitigé par le −50% d'Aun'Shi + block) → l'agent
+  a failli mis-committer sur un « kill » fantôme. Induit en erreur sur la létalité ET sur l'output réel.
+  **n+2 (80020)** : Dreir LeadingTheCharge prédit gros mais ~821 net sur l'anvil 12k Snotflogga (SupaCyborkBody
+  + BeastSnagga block) → charge gaspillée. **n+3 (80085)** : Aesoth normale sur Lucien `[1359-1359 K!]` mais
+  SINGLE-HIT floor-à-1 sur un Resilient → ne tue PAS (label `K!` trompeur).
+- **amélioration** : surfacer le **dmg attendu post-mitigation** (la `DamagePrediction` du jeu existe déjà
+  côté caches AI) OU au minimum **tagger la range comme MAX non-mitigé** + une **kill-proba** ; intégrer
+  Resilient/Terrifying/Daemon-block dans la prédiction (dégrader `K!`→`K?` si trait défensif non modélisé).
+- vu : G01, seed 80072, seed 80020, seed 80085.
 
 ## TF05 — `jq` natif absent (Windows) — done(contournement) — recurrence:0
 - **friction** : `npx -y node-jq` lent (re-résout le package à chaque appel).
@@ -154,3 +164,62 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   spawnent correctement) ; (c) d'ici-là, doctrine combat = NE PAS dépenser l'action d'Abraxas sur MasterOfTheTutelaries
   (utiliser sa normale Psychic r2) — cf. H37 RÉFUTÉE.
 - **vu** : seed 70002 (n=1, hypothétisé free-hex gate) + seed 70009 (n=2, free-hex confirmé → quirk tool/engine confirmé).
+
+## TF13 — `abilities`/legality ne tient pas compte du spawn-tile requirement des summons — open — recurrence:1
+- **friction** : `abilities`/`reason` listent un summon (ex. `ScarabHive`, Aleph-Null) comme castable
+  now/+move, mais le cast réel échoue `TargetHasFreeAdjacentTile` (cluster sans hex libre adjacent où
+  spawn) → l'agent BURNE le move de l'unité avant de découvrir l'illégalité (« TOUR ABANDONNÉ » a bien
+  préservé les actions antérieures, mais le move était déjà consommé).
+- **amélioration** : intégrer la contrainte free-adjacent-tile (spawn-tile) dans la requête de légalité des
+  summons → un summon sans hex de spawn libre = ∉ now/+move (comme une cible hors portée). Apparenté à TF01
+  (summons sur hex) et TF12 (summon no-op non surfacé).
+- vu : seed 80072 (ScarabHive Aleph-Null).
+
+## TF14 — header `view` « tour N » figé / pas un indicateur de round fiable — open — recurrence:2
+- **friction** : l'en-tête `view` affiche « tour 4 » sur plusieurs rounds distincts (compteur =
+  `GetAmountOfTurnsStartedByCurrentPlayer`, NON monotone / oscille — cf. note H58) → l'agent qui s'y fie
+  mal-time son engagement anti-cap (⏱ horloge round-cap). Distinct de TF03 (POV) : ici c'est le COMPTEUR
+  de tour, pas les labels MOI/ENNEMI. **n+1 (80097)** : A (« tour 3 » stale) ET B (« tour 4 » figé tout le
+  combat) rapportent INDÉPENDAMMENT le compteur gelé → friction d'observabilité PARTAGÉE (convergence, pas
+  divergence).
+- **amélioration** : afficher le **round-state autoritatif** (`TotalTurnsFinished` / round courant) dans
+  l'en-tête, pas le compteur per-player oscillant ; doctrine = lire le round-state, pas le label.
+- vu : seed 80072, seed 80097.
+
+## TF15 — `act` (single-action) N'APPENDAIT PAS au action_log → trajectoire IL perdue — done — recurrence:2
+- **friction** (CRITIQUE dataset) : `cmd_act` exécutait l'action (`applyAction`) mais — contrairement à
+  `cmd_play` (l.853/884) — ne l'appendait PAS au `action_log` ni ne `_save_state`. Un player qui joue tout
+  ou partie de son tour via `act` (le fallback pris quand `play --spec` le gêne, typiquement après le POV-flip
+  TF03) voit ses actions s'exécuter (le runner mute, il peut GAGNER) mais **ABSENTES du dataset**. seed 80031
+  b6 : team2 (VAINQUEUR) joué ~100% en `act` → archive `team2=0 action` (démo du vainqueur perdue). seed 80053
+  b5 : team1 (vainqueur) 6 actions = capture PARTIELLE. Découvert en auditant les comptes d'actions par side.
+- **fix livré** : `cmd_act` logge désormais l'action RÉUSSIE (même critère `_action_failed` que cmd_play) +
+  `_save_state` par-action ; `act endturn` append le marqueur. Symétrie complète play↔act → capture quel que
+  soit le chemin.
+- **résiduel** : 80031 b6 (team2) + 80053 b5 (team1) sont DÉJÀ perdus (jamais loggés, state-files supprimés)
+  → irrécupérables tels quels mais **re-runnables via le seed** (build déterministe → démo complète neuve).
+  Corrélé à TF03 (le POV-flip pousse vers `act`) → fixer TF03 réduit la fréquence du fallback.
+- vu : seed 80031 (b6, vainqueur vide), seed 80053 (b5, partiel).
+
+## TF16 — contrainte de POSITIONNEMENT d'une ability/attaque non surfacée → no-op silencieux (mutated=false) — open — recurrence:3
+- **friction** : plusieurs actifs/attaques ont une contrainte de positionnement que le PLAN ne montre pas, et
+  un cast/attaque hors-contrainte **no-op silencieusement** (`mutated=false`, action NON consommée, activation
+  gaspillée) au lieu d'auto-résoudre le move : (a) **adjacence requise** — une attaque ne s'auto-move PAS en
+  range : tuile non-adjacente choisie → no-op (80031 : Tarvakh visé 2× sur (2,5) non-adjacent à Kariyan (3,4)
+  → stranded) ; (b) **ligne à DIRECTION FIXE** — `RadBombardment` (Vitruvius) frappe une ligne 6-dir : `--target`
+  hors-axe = no-op, il faut `--to` un hex qui aligne (80085) ; (c) **actif qui a besoin de SON propre budget de
+  move** — `VigilanceEternal` (Tyrith) gap-close avec son move interne : pré-bouger Tyrith consomme le move →
+  actif no-op « sans bouger / TargetIsInRange » (80020).
+- **amélioration** : surfacer la contrainte dans `abilities`/`reason` (adjacence requise / axe de ligne / move-
+  interne) et faire ÉCHOUER explicitement (raison structurée) au lieu du no-op silencieux. Doctrine d'ici-là :
+  confirmer la tuile/cible EXACTE via `moves`/`abilities` AVANT de committer (apparenté TF13 spawn-tile, TF08 no-op).
+- vu : seed 80031 (adjacence), seed 80085 (ligne fixe), seed 80020 (move-interne).
+
+## TF17 — moves de repositionnement (non-attaquants) semblent REVERT au turn-flip en self-play — open — recurrence:1
+- **friction** (candidat, single-observer) : B (80097) rapporte que les units qui font un move PUR (sans
+  attaque) snap back à leur position au turn-flip (Anuphet/Morvenn/Yarrick) — seules les units ayant ATTAQUÉ
+  gardent leur avance → le positionnement défensif délibéré est inefficace. A ne cross-observe pas. Non tranché :
+  artefact de la pipeline state-file self-play OU règle réelle du jeu (un move sans attaque est-il « committé » ?).
+- **amélioration** : reproduire en replay déterministe (seed 80097) et lire la position post-flip vs in-turn ;
+  si artefact tool → fixer la persistance du move dans le state-file self-play. cf. hypotheses.md H74 (même candidat).
+- vu : seed 80097.

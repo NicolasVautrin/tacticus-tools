@@ -83,6 +83,21 @@ sûr) + flag **`autoDispose`** sur l'Entry du registre (durcissement recorder). 
 via `rl_duel build --keep` + `--state-file` isolés. **Enablers du parallèle** : (1) isolation runner ✓,
 (2) state-file par agent ✓, (3) coexistence ✓.
 
+**⚠ FOOTGUN concurrent (self-play, diagnostiqué 2026-06-23)** : la single-build policy est une
+disposition **SILENCIEUSE** (zéro event `runner_disposed` ; `disposeRunner` = `byId.delete` + unpin
+gcRoot). En self-play `matchesInFlight ≥ 2`, un seul `rl_duel build` SANS `--keep` qui entre dans la
+fenêtre concurrente **dispose tous les runners frères en vol** → les matchs concernés tombent en
+"runner not found"/no-result **sans aucune trace** (builds OK, 0 `init_and_start_threw`, 0
+dispose-event). Signature de diag : `listRunners`=[] + `battleStatus ok:false` +
+`/api/selfplay/:id/await` renvoie **502 INSTANTANÉ** (ne bloque PAS jusqu'au timeout) ; le host-tracker
+`/api/runners` garde des entrées **stale** (divergence script-registry ↔ host-tracker). Observé : les 2
+runners de la 1ʳᵉ vague concurrente nukés ; la paire suivante **décalée** survit. Parade (workflow
+`tacticus-selfplay`, prompt SETUP) : (a) `--keep` OBLIGATOIRE — jamais de build ad-hoc ni `dispose`
+côté SETUP/players ; (b) **GATE d'adressabilité** — le SETUP confirme le runner joignable via `await`
+(le chemin EXACT des players) avant de rendre `ok` ; sinon `ok:false` → le workflow retry (rebuild
+`--keep` = non destructif → self-heal). [Root cause confirmé code+logs ; gate à valider sur la
+prochaine batch ≥2 en vol.]
+
 **Pourquoi rien d'autre n'est nécessaire à petite échelle (analysé 2026-06-16)** : avec `await` par
 appelant (le `_rpc` python est bloquant), le pipeline est en **boucle fermée** — chaque sous-agent a
 **≤1 RPC en vol** → total en vol **borné par N** (nb de sous-agents) PARTOUT : `state.pending` Frida ≈1

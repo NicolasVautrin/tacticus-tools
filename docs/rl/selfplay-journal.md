@@ -509,3 +509,704 @@ Action logs complets de CE run : `data/_sp_80000_A.json` (5 turns, dont le Storm
 ### Refs action logs
 
 `data/_sp_80003_A.json` (team1, **4 tours** [4 endturns] ; 24 actions : 6 abilities = SendInTheNextWave 1016, ab 1120, 2× normale 69, ab 1043, DeathFromAbove 1003 ; 2 finish, 12 move) + `data/_sp_80003_B.json` (team2, **4 tours** [4 endturns] ; 43 actions : 19 abilities = **16× normale Psyker 69 [le feed splash→WeaverOfFate]**, Ahriman Doombolt 1102, ab 1021, ab 1007 ; 2 finish, 18 move) — **archivés** dans `data/selfplay-logs/sp_80003_2026-06-23-batchfix.json` puis **supprimés post-teardown** ; séquences clés résumées ci-dessus.
+
+---
+
+## seed 80031 — winner=no-result (MATCH NON JOUÉ — runner absent) (ts=2026-06-23-b5)
+
+### Rosters
+
+| Équipe | Unités |
+|--------|--------|
+| **team1 (Player A, playerId 11)** | INCONNU — jamais énuméré dans la BC statique (PredefinedUnits ne contient que le groupe enemy Id=12) ; aucun runner live n'a pu le résoudre. *(team2.theirs côté B suppose : thousTerminator · spaceWulfen · custoBladeChampion · orksKillaKan · admecDestroyer, lus dans une autre source seed BC `playerUnits` — NON CONFIRMÉ comme roster actif.)* |
+| **team2 (Player B, playerId 12)** | emperNoiseMarine · genesBiophagus · tauMarksman · worldExecutions · admecManipulus *(vérifiable dans la BC statique PredefinedUnits Id=12 ; aucune unité jamais observée live)* |
+
+### Adjudication
+
+- **authoritative_winner = no-result** (ni élimination ni round-cap — la battle n'a JAMAIS démarré).
+- `rl_duel.py status --state-file data/_sp_80031_A.json` : `stage=None turn=None currentPlayer=None alive_by_team={}` et **AUCUNE ligne `*** BATTLE FINIE — winner AUTORITATIF ***`** n'est imprimée. Le H59 ne tranche que post-Finished : ici il n'y a pas de `battleStatus.winner` à lire (runner inexistant), donc PAS de winner autoritatif. À distinguer d'un `no-winner` round-cap (qui exige une battle Finished).
+- `rl_duel.py view --state-file …A.json` → `decisionView ERROR: runner 22 not found`. RPC `listRunners` (session 4) = `[]`. `observeBattle({runnerId:22})` → `ok:false, err 'runner 22 not found'`. Les deux state-files (`_sp_80031_A.json` / `_sp_80031_B.json`) sont bien formés et référencent `runnerId 22 / seed 80031` mais pointent un runner que le host n'a jamais enregistré.
+- **winner_consensus = false** — il n'y a pas de vainqueur sur lequel s'accorder. A.outcome=`uncertain`, B.outcome=`uncertain`, `turns_played=0` des deux côtés : consensus, mais sur l'ÉCHEC du SETUP, pas sur un résultat de combat.
+
+### CONFRONTATION (consensus vs divergences)
+
+- **CONSENSUS (cross-validé A+B) — sur le BLOCKER, pas une mécanique de jeu** : runner 22 n'existe pas dans la session Frida 4. Les deux observateurs indépendants rapportent EXACTEMENT le même diagnostic, depuis la ground truth (pas un proxy) :
+  - `listRunners` (session 4) = `[]` (registry vide, répété).
+  - `observeBattle({runnerId:22})` → `ok:false`, err `runner 22 not found`.
+  - `GET /api/selfplay/4/await?runnerId=22&player=3|4` → retourne INSTANTANÉMENT `{"error":"runner 22 not found"}` (NE bloque PAS jusqu'au timeout — donc la boucle de hand-off ne peut jamais atteindre `yourTurn`). A confirme via une await full-90s.
+  - `rl_duel view/status --state-file` → `runner 22 not found` / `stage=None`.
+  - **Cause probable** : le SETUP n'a jamais complété l'enregistrement `buildPatchedRunner` du runner partagé 22 en session 4, OU un reinject après SETUP a vidé le registry in-memory (cf. `feedback_host_restart_kills_mirror` : un host restart / reinject perd l'état mémoire du runner).
+- **AUCUNE mécanique de jeu cross-observable** (mechanics about="theirs") n'a pu être collectée : zéro tour joué, zéro decisionView, zéro effet vu live. Les `threat_cards` de A sont toutes taggées **INFERRED from id only** (LOW confidence, aucun recon gameconfig/i2 ni decisionView possible) → **non promouvables au wiki** (rien sans consensus OU recoupage gameconfig explicite ; ici ni l'un ni l'autre n'est observé live).
+- **DIVERGENCE (lecture du roster team1, PAS une mécanique)** : A déclare team1 INCONNU (absent de la BC statique). B suppose un roster team1 (thousTerminator/spaceWulfen/custoBladeChampion/orksKillaKan/admecDestroyer) lu dans une *autre* source `playerUnits` de la seed BC, mais le flagge lui-même **UNCONFIRMED**. Aucun des deux n'a observé team1 live → roster team1 non établi. → hypotheses.md (self-play divergence A/B).
+
+### Key decisions (des 2 sides)
+
+- **A** : a awaité son tour d'abord (correct — le runner live se résout via le hand-off host, pas le state-file disque) ; a diagnostiqué le blocker depuis la ground truth (listRunners=[] + observeBattle err + await full-90s = erreur, PAS `timedOut:true`), pas un proxy ; a **REFUSÉ de s'auto-réparer** (pas de build/warmup/nav/dispose) car minter un nouveau runnerId désyncherait la coordination shared-runner avec B et corromprait le match.
+- **B** : a poll `/await` + `listRunners` sur ~30s pour écarter une race de SETUP (le runner n'est jamais apparu) ; a **REFUSÉ de rebuild runner 22** (corromprait l'arène shared dont A dépend) ; a complété le recon one-time (SKILL §6/§7 + doctrine-learned H02/H03/H04/H11) pour appliquer la doctrine SI le runner avait existé. Note outillage : absence d'endpoint `selfplay/:id/status` (seulement `/await`) ralentit le diagnostic.
+
+### Refs action logs
+
+`data/_sp_80031_A.json` / `data/_sp_80031_B.json` (team1=0 actions, team2=0 actions — **aucun tour joué**, `action_log=[]` des deux côtés) — archivés dans `data/selfplay-logs/sp_80031_2026-06-23-b5.json` (winner=no-result) puis supprimés post-teardown. Pas de séquence de jeu à résumer : le match n'a jamais démarré (runner 22 absent du host).
+
+---
+
+## seed 80020 — winner=no-result (MATCH NON JOUÉ — runner absent) (ts=2026-06-23-b5)
+
+### Rosters
+
+| Équipe | Unités |
+|--------|--------|
+| **team1 (Player A, playerId 11)** | genesMagus (Xybia) · custoKyrus (Tyrith) · astraDreir (Dreir) · worldEightbound (Azkor) · eldarMauganRa (Maugan Ra) — *lus dans `playerUnits` des DEUX state-files (`myTeam=1` côté A) ; jamais observés live (decisionView/observeBattle impossibles).* |
+| **team2 (Player B, playerId 12)** | orksRuntherd (Snotflogga) · tauMarksman (Sho'syl) · adeptHospitaller (Isabella) · eldarFarseer (Eldryon) · blackPossession (Archimatos) — *= seul groupe `PredefinedUnits` (Id=12) présent dans la BC statique ; `myTeam=2` côté B ; jamais observés live.* |
+
+> **NB — correction vs seed 80031** : ici l'attribution d'équipe est RÉCUPÉRABLE depuis les state-files (`myTeam` différencie bien A=team1/B=team2, et `playerUnits` contient le roster team1). B avait conclu « team attribution impossible » faute de second groupe `PredefinedUnits` tagué TeamId — mais l'info est dans `myTeam`/`playerUnits`, pas dans la BC `PredefinedUnits`. La BC statique n'a effectivement qu'UN groupe (team2), parce que le SETUP a avorté avant de committer le déploiement deux-équipes.
+
+### Adjudication
+
+- **authoritative_winner = no-result** (ni élimination ni round-cap — la battle n'a JAMAIS démarré).
+- `python scripts/python/rl_duel.py status --state-file data/_sp_80020_A.json` : `stage=None turn=None currentPlayer=None alive_by_team={}` et **AUCUNE ligne `*** BATTLE FINIE — winner AUTORITATIF ***`** n'est imprimée. Le H59 (lecture `battleStatus.winner` natif) ne tranche que post-Finished : ici il n'y a pas de battle Finished à lire (runner inexistant), donc PAS de winner autoritatif. À distinguer d'un `no-winner` round-cap (qui exige une battle Finished).
+- 3 sondes indépendantes confirment l'absence du runner live (ground truth, pas un proxy) : (1) `rl_duel view --state-file …A.json` → `runner 24 not found` ; (2) `GET /api/selfplay/4/await?runnerId=24&player=3|4` → retourne **INSTANTANÉMENT** `{"error":"runner 24 not found"}` (NE bloque PAS jusqu'au timeout 90s — donc la boucle de hand-off ne peut jamais atteindre `yourTurn`), répété 4-7× par chaque side ; (3) `observeBattle({runnerId:24})` (session 4) → `ok:false, runner:null, err 'runner 24 not found'`.
+- **Stale-tracker** : `/api/runners` liste TOUJOURS runnerId 24 (sessionId 4, `lastLabel:"StartMatch"`, jamais progressé) ET les runners 25-31 construits APRÈS 24. Le tracker host garde une entrée périmée alors que le registry IL2CPP-handle script-side a évincé le handle live du 24. Cap/eviction de registry probable : quand 25-31 ont été build, le 24 (le plus ancien encore actif) a été évincé du registry live, mais l'entrée host est restée.
+- `action_log=[]` des deux côtés, `turns_played=0`. PredefinedUnits = 1 seul groupe (team2) → déploiement deux-équipes jamais committé.
+- **winner_consensus = false** — il n'y a pas de vainqueur sur lequel s'accorder. A.outcome=`uncertain`, B.outcome=`uncertain`, `turns_played=0` des deux : consensus, mais sur l'ÉCHEC du SETUP, pas sur un résultat de combat.
+
+### CONFRONTATION (consensus vs divergences)
+
+- **CONSENSUS (cross-validé A+B) — sur le BLOCKER, PAS une mécanique de jeu** : runner 24 absent du registry live de la session Frida 4. Les deux observateurs indépendants rapportent EXACTEMENT le même diagnostic depuis la ground truth (3 chemins d'accès concordants : `await` instantané-en-erreur, `view/decisionView`, `observeBattle`). Cause probable : SETUP n'a jamais complété l'enregistrement du runner partagé 24, OU eviction par cap de registry quand les runners 25-31 ont été build après (cf. `feedback_host_restart_kills_mirror` : un reinject/restart perd l'état mémoire du runner ; ici plutôt un cap d'eviction, le host tournant toujours).
+- **AUCUNE mécanique de jeu cross-observable** (mechanics about="theirs") n'a pu être collectée : zéro tour, zéro decisionView, zéro effet vu live. Les `mechanics` rapportées par B (Incursion/Possession Archimatos, RitesOfRestoration Isabella, Executioner Eldryon, MV71/SeekerMissile Sho'syl) sont TOUTES taggées **recon-only, confidence=low, NOT observed in battle** → **non promouvables au wiki** (rien sans consensus d'OBSERVATION ou recoupage gameconfig explicite ; ici les abilities existent en gameconfig mais ne sont PAS un consensus issu du match — elles sont déjà documentées au wiki par ailleurs, non re-tagguées self-play). A n'a fourni aucune mechanic (roster mine indéterminé de son point de vue).
+- **DIVERGENCE (lecture des rosters, PAS une mécanique de jeu)** : A déclare son propre roster INDÉTERMINÉ (runner introuvable → pas de recon) ; B déclare l'attribution d'équipe IMPOSSIBLE (un seul groupe PredefinedUnits non-tagué). Or les state-files CONTIENNENT `myTeam` + `playerUnits` qui tranchent : team1 = genesMagus/custoKyrus/astraDreir/worldEightbound/eldarMauganRa, team2 = le groupe PredefinedUnits Id=12. Aucun des deux n'a exploité ces champs → friction de lecture, pas une contradiction sur le jeu. → flaggée hypotheses.md (self-play divergence A/B).
+- **DIVERGENCE outillage (déjà notée seed 80031, re-confirmée)** : `/api/selfplay/:id/status` renvoie 404 (seul `/await` existe) — pas d'endpoint de diagnostic d'état de match. Et `/await` sur un runnerId inconnu renvoie une erreur INSTANTANÉE indistinguable (pour la boucle) d'un "pas encore enregistré" : recommandation des 2 sides = (a) pin/refcount les runners self-play pour qu'un match en vol ne soit pas évincé par des builds ultérieurs ; (b) SETUP doit vérifier `observeBattle` adressable AVANT de spawn les 2 players ET avant de build les runners suivants ; (c) `/await` doit bloquer-ou-erreur-distinctement entre "inconnu" et "pas encore mon tour".
+
+### Key decisions (des 2 sides)
+
+- **A** : a synchronisé via `/api/selfplay/4/await` D'ABORD (correct — le runner live se résout via le hand-off host, pas le state-file disque) ; a diagnostiqué depuis la ground truth via 3 sondes indépendantes (pas un proxy) ; a **REFUSÉ de s'auto-réparer** (pas de build/warmup/nav/dispose) car c'est le rôle de l'orchestrateur SETUP et minter un nouveau runnerId désyncherait la coordination shared-runner avec B.
+- **B** : a poll `/await` 7+× pour écarter une race de SETUP (le runner n'est jamais apparu, l'erreur étant instantanée et non un timeout → eviction, pas une race attendable) ; a **REFUSÉ de rebuild runner 24 OU de hijacker les runners 25-31** (qui appartiennent à d'autres matchs) ; a extrait le signal roster de la BC persistée pour un read recon explicitement low-confidence plutôt que de fabriquer des observations de board jamais eues (cf. memory: measure ground truth not proxy).
+
+### Refs action logs
+
+`data/_sp_80020_A.json` / `data/_sp_80020_B.json` (team1=0 actions, team2=0 actions — **aucun tour joué**, `action_log=[]` des deux côtés) — archivés dans `data/selfplay-logs/sp_80020_2026-06-23-b5.json` (winner=no-result, rejouable via seed 80020) puis supprimés post-teardown. Pas de séquence de jeu à résumer : le match n'a jamais démarré (runner 24 évincé du registry live de la session 4).
+
+---
+
+## seed 80042 — winner=team1 (ts=2026-06-23-b5)
+
+> **Match DÉCISIF** (pas un draw round-cap) : team1 a converti une over-extension adverse en un **3-engine focus-kill en UN tour** (Gibbascrapz summoner + Re'vas OW/ranged engine + Tigurius Psyker engine) → effondrement total du wincon-set de team2 (6v3 → engines tous morts). Combat terminé round ~6, bien avant un round-cap. Compo MIROIR de la série seed 80000 inversée côté unités : ici team1 = AdMech ranged-turret + Imperial artillery (Sy-gex/Thaddeus/Actus/Tjark/Yazaghor) vs team2 = Tau OW-turret + Ork summons + Ultramarines Psyker (Re'vas/Gibbascrapz/Certus/Tigurius/Yazaghor-enemy).
+
+### Rosters
+
+| Équipe | Unités |
+|--------|--------|
+| **team1 (Player A / oracle, player 3) — VAINQUEUR** | admecDestroyer (Sy-gex) · spaceHound (Tjark) · admecManipulus (Actus, DIED T~4) · astraOrdnance (Thaddeus) · thousTzaangor (Yazaghor, DIED T~5) |
+| **team2 (Player B / oracle, player 4) — PERDANT** | tauCrisis (Re'vas) · orksBigMek (Gibbascrapz) · thousTzaangor (Yazaghor-enemy) · ultraEliminatorSgt (Certus) · ultraTigurius (Tigurius) |
+
+### Adjudication
+
+- A outcome_perceived = **W** (6 tours) ; B outcome_perceived = **L** (5 tours) → **winner_consensus = true** (A="W" & B="L" → team1, ET ça MATCHE le winner autoritatif).
+- `rl_duel.py status --state-file data/_sp_80042_A.json` : `stage=Finished currentPlayer=3` + *« BATTLE FINIE — winner AUTORITATIF = team1 (battleStatus.winner=3, unitsAlive=13) »*. ⚠ `alive_by_team={}` (decisionView refuse hors-Running) — non utilisé pour l'adjudication (piège H59) ; le champ NATIF `battleStatus.winner=3` est la source.
+- **authoritative_winner = team1.**
+
+### Win-conditions (consensus croisé A.mine ≈ B.theirs et A.theirs ≈ B.mine)
+
+**team1 win-condition (VAINQUEUR)** : noyau **ranged-turret Mechanical** — Sy-gex (HeavyGravCannon anti-Mechanical +364/+pierce, one-shot les engines Mechanical adverses) + Thaddeus (BasiliskBarrage board-wide AoE/Pin/Suppress = standoff-breaker qui chip la grappe ennemie REGARDLESS du gap + SpotterReworked +728 ranged aux alliés HeavyWeapon) ancré par un écran durable (Sy-gex 9537, Tjark 8536 Terrifying) ; SOURCE = le barrage Thaddeus (chip board-wide ignore le standoff) + la punch HeavyGravCannon de Sy-gex (one-shot les engines Mechanical) — converti par un **3-engine focus-kill en un tour** sur le dive adverse.
+→ Accord A.mine / B.theirs = **CONSENSUS** (B identifie correctement Actus repair-engine comme sustain SOURCE + Sy-gex re-arming OW comme deterrent ; A décrit son propre axe barrage+grav-punch).
+
+**team2 win-condition (PERDANT, jamais réalisée)** : noyau **summon-snowball + amplification** — Re'vas (EarlyWarningOverride = 2 Shield Drones + arme OW +1892 + CyclicIonBlaster +437 vs Mechanical/RangedSpecialist) + Gibbascrapz (GrotTank summon-engine + KustomForceField) + Tigurius (StormOfWrath Psychic NoBlocking AoE + PsychicFortress block-aura) ; SOURCE = les TROIS engines, qui doivent rester vivants et écraner les fragiles — tous tués en UN tour sur l'over-extension.
+→ Accord A.theirs / B.mine = **CONSENSUS** (A lit correctement les 3 engines summon/OW/Psyker ; B auto-lit son plan summon-snowball + son flaw : présenter les fragiles isolés à un focus discipliné).
+
+### Séquences clés (résumé des action logs — détail dans `data/selfplay-logs/sp_80042_2026-06-23-b5.json`)
+
+**Player A (team1, VAINQUEUR) :**
+- **T3 — standoff-breaker** : BasiliskBarrage (Thaddeus stationnaire) a chip 3 ennemis ~2025 chacun, Pin (move-1) 3 ennemis ET **disarmé l'Overwatch armé de Certus** (Suppress stoppe l'OW) en un cast → convertit un deep-gap turtle en pression proactive sans exposer personne.
+- **Crippling de Re'vas (leur meilleure unité 10542)** : Sy-gex normal HeavyGravCannon-boosté depuis une tuile shallow (4,2) → 10542→3742 (~6800, +364 dmg/+60% pierce vs Mechanical), pas d'over-commit de fragiles pour un kill non-garanti ; fini de la tuile courante au tour suivant (kill-this-turn-or-don't-commit, payé cheap).
+- **LE TOUR DÉCISIF — 3-engine focus-kill** : sur le dive de tout le bulk ennemi dans sa face, A a converti ses 3 activations en 3 K! GARANTIS sur les 3 ENGINES (Gibbascrapz summoner + Re'vas OW/ranged + Tigurius Psyker) — PAS le chaff — collapse 6v3 → engines tous morts (textbook « kill-the-wincon-source-on-the-dive », H02).
+- Tigurius (4500, fragile, NOT Resilient) K!'d outright depuis une tuile back row 2 (Thaddeus Blast normal) → PsychicFortress aura morte avec lui.
+- **Close** : le lone Certus survivant fini en MÊLÉE (Tjark) pour bypasser sa CamoCloak/HeavyWeapon ranged-mitigation ; Tjark pré-positionné le tour d'avant pour fermer avant le round-cap.
+
+**Player B (team2, PERDANT) :**
+- **T1 — summon-snowball agressif** (correct vs round-cap) : Re'vas EWO (2 Shield Drones 3989 + arme OW +1892) + Gibbascrapz GrotTank (7977) → board 5→8 units en un tour = numbers lead réel.
+- **Sur contact — priorité d'engine CORRECTE** : focus-kill d'Actus (repair-engine Mechanical) la turn de contact via Re'vas CyclicIonBlaster +437-vs-Mechanical (~6452) + GrotTank finish — « kill THIS turn or don't commit » respecté sur le repair-engine (sinon DefendTheDivineWork le re-répare) ; puis Yazaghor-enemy (Psyker dealer le plus soft) focus-killé.
+- **FATAL over-extension (le tour de l'effondrement)** : Gibbascrapz committé deep (4,3) pour un chip NON-LÉTAL sur Sy-gex + Tigurius (fragile 4500, son seul armor-ignore AoE) poussé forward (2,5) en danger-3, avec Re'vas déjà blessée (3742) exposée → le focus-compo ranged discipliné de team1 a delete les TROIS en UN tour, flippant 6v3 → 3v3. **Ce seul tour a perdu le combat.**
+- **Perte gratuite antérieure** : Yazaghor-enemy mort plus tôt en marchant dans l'arc r3 de l'Overwatch armé de Sy-gex (6,3 depuis (3,2)) — one-shot 6525 en 3 shots OW AVANT de pouvoir agir (hex distance mal jugée).
+
+### Confrontation : consensus vs divergences
+
+#### Mécaniques de CONSENSUS (rapportées des DEUX sides — cross-observable, recoupées gameconfig/i2)
+
+1. **EarlyWarningOverride (Re'vas)** : summon 2 Shield Drones (immédiate-attack, no-move ce tour) + Re'vas s'arme en Overwatch +1892 jusqu'à son prochain tour + re-arm (−1 hit/chaîne) à chaque kill OW ; **once-per-turn ([indispo] après cast)**. A(theirs, « EWO ballonne le front 5→8 en un tour, once-per-turn/cd ») + B(mine, « 2 Shield Drones 3989 + arme Re'vas OW + Gibbascrapz GrotTank simultané, took board 5→8 »). gameconfig verbatim (2 drones tauSmnDroneShield + +1892 OW + re-arm −1 hit). Déjà au wiki §3bis/Re'vas — pas ré-inscrit, juste confirmé n+1.
+2. **CyclicIonBlaster +437 vs Mechanical (Re'vas)** : normal attack = 3× Particle hits additionnels (Pierce35) qui deal **+437 Damage si la cible a Markerlight OU le trait Mechanical**. A(mine, « +437/hit anti-Mechanical a aidé à focus-kill mon Actus 9537 ; discount Mechanical HP vs anti-Mechanical ranged ») + B(mine, « ~6452 en une activation sur Actus Mechanical, les +437-vs-Mechanical Particle hits par-dessus les Pulse de base »). gameconfig verbatim (« If the target has a Markerlight or the Mechanical trait these hits deal +437 Damage »). → **INSCRIT wiki Re'vas** (CyclicIonBlaster anti-Mechanical, manquait).
+3. **Sy-gex re-arming Overwatch r3 (admecDestroyer)** : arme normale 4× Physical r3, s'arme en OW s'il n'attaque pas en normal, **tout ennemi qui BOUGE dans son arc r3 = volée gratuite souvent létale** ; DISARME pour le reste du tour ennemi après avoir fire, RE-ARME au début de son tour. A(theirs, « OW-armed plusieurs tours, jamais pathé dans son arc r3 ; barrage T3 l'a disarmé une fois ») + B(theirs, « arc r3 depuis (3,2) a atteint (6,3) et one-shot mon Yazaghor 6525 en 3 shots, puis disarmé, mon GrotTank est passé dans l'ancien arc sans réaction »). gameconfig confirme (Overwatch trait natif). Déjà au wiki Sy-gex — confirmé n+1 ; **la NUANCE disarm-après-fire/re-arm-au-tour-suivant cross-observée des deux côtés est inscrite**.
+4. **Actus DefendTheDivineWork + GalvanicField (admecManipulus)** : répare self+adjacents 4365 + chaque réparé fait une attaque gratuite immédiate (GalvanicField, cap 4365/hit) = sustain + action economy ; un chip non-létal est effacé next turn (« kill THIS turn or don't commit »). A(mine, « repair-engine 4365 + GalvanicField, DIED T~4 ») + B(theirs, « repair-loop, killed ON the turn of contact AVANT qu'il repair-loop »). gameconfig confirme. Déjà au wiki Actus — confirmé n+1.
+5. **HuntersBeyondDeath (Tjark, spaceHound)** : +582 dmg vs Psykers + Psykers ennemis dans 2 hex deal −582 + (sauf Immune) perdent le multi-hit de leur normale ranged. A(mine, « anti-Psyker dédié vs Tigurius/Yazaghor-enemy, mais les Psykers ennemis sont restés back early → aura jamais appliquée positionnellement ») + B(theirs, « −582 à mes Tigurius/Yazaghor dans 2 hex + suppress multi-hit, made committing my Psykers doubly costly »). gameconfig verbatim. Déjà au wiki Tjark — confirmé n+1. ⚠ NUANCE cross-confirmée : l'aura n'a de valeur que si les Psykers ennemis entrent dans les 2 hex — A note qu'elle « n'a jamais porté positionnellement » car les casters sont restés back ; B la lit comme un deterrent QUI A pesé sur son refus d'avancer ses Psykers → l'aura agit aussi comme **menace de zone** (déni de l'approche Psyker), pas seulement comme dégât appliqué.
+6. **CamoCloak (Certus, ultraEliminatorSgt)** : −364/hit quand un tir RANGED entrant a son hit-count réduit → affecte les dealers ranged, PAS la mêlée. A(theirs, « finished Certus en MÊLÉE Tjark pour bypasser CamoCloak/HeavyWeapon ranged-mitigation ») + B(theirs roster, « bypass Terrifying with RANGED ; CamoCloak réduit mes hits ranged »). Recoupé i2. → confirme la doctrine « finir un CamoCloak/HeavyWeapon en MÊLÉE » (le ranged-mitigation ne s'applique pas à la mêlée).
+
+#### Divergences (entre observateurs)
+
+1. **Cause de mort d'Actus : ranged-focus anti-Mechanical (consensus) — pas de divergence de fait** : A et B s'accordent sur le mécanisme (Re'vas CyclicIonBlaster +437-vs-Mechanical + GrotTank finish la turn de contact). Pas de divergence — listée pour mémoire.
+2. **Valeur de BasiliskBarrage comme standoff-breaker** : A(mine) la traite comme le **tempo-answer central** (chip board-wide + Pin + disarm OW = convertit le double-turtle en pression sans exposition). B ne la liste PAS dans ses threat_cards offensives (« stayed back-row, never reached », threat=high par sa SpotterReworked-buff mais pas observée firing offensivement contre lui). → divergence de SALIENCE, pas de fait : A a activement utilisé le barrage (donc l'a observé porter), B a surtout subi le chip sans l'identifier comme l'axe décisif. Pas une mécanique contradictoire ; la mécanique elle-même (board-wide AoE/Pin/Suppress) est gameconfig-confirmée et déjà au wiki. → noté en hypotheses.md comme observation single-side-saillante.
+3. **Frictions outil cross-rapportées (non-mécaniques)** : (a) **pas d'overlay des arcs d'Overwatch armé** — B a perdu Yazaghor-enemy en marchant dans l'arc r3 de Sy-gex sans warning pré-move (le danger-zone number ne flag pas le one-shot OW) ; A confirme indirectement (« never pathed into its r3 arc » = a dû le calculer à la main). → friction outil connue (GAP overlay OW, déjà notée au wiki Re'vas l.710) — re-confirmée n+1. (b) **label de tour stale dans le header de la vue** (« tour 3 · joueur 3 » même tard) — A s'est fié à `status` alive_by_team/À-ACTIVER au lieu du header. (c) **moves silencieusement rejetés « HORS du movable set »** côté B (danger/footprint blocking dur à prédire à l'œil) — friction H55 connue, re-confirmée.
+
+### Erreurs identifiées (leçons, des deux sides)
+
+- **B (#1, ROOT CAUSE)** : over-extension des fragiles/key units une fois le lead acquis — Gibbascrapz (summon-engine #2) committé deep pour un chip + Tigurius (seul armor-ignore AoE, 4500) poussé en danger-3 SANS écran, Re'vas blessée (3742) exposée → focus-compo ranged a delete Re'vas+Gibbascrapz+Tigurius en UN tour (6v3 → 3v3). Failure-mode dominant : présenter des fragiles isolés à un focus discipliné. Garder les summons en écran, tenir les fragiles groupés/back, avancer en masse cohésive.
+- **B** : Yazaghor-enemy marché dans l'arc OW armé r3 de Sy-gex (one-shot 6525 avant de fire) — vérifier l'arc OW (move d'un corps durable d'abord, OU rester hors r3 jusqu'à expiration de l'OW). Hex-distance mal jugée.
+- **B** : StormOfWrath (Tigurius, seul outil armor-ignore vs le cluster tanky Sy-gex/Tjark 9537/8536) JAMAIS fire — laissé back trop longtemps puis over-extended à la mort. Vs un cluster tanky, set up une position forward SUPPORTÉE pour le caster armor-ignore TÔT, derrière l'écran durable, pas en solo.
+- **B** : mis-pacé la close (8v5 fort dépensé inefficacement — un deep chip sur Sy-gex non-létal qui a coûté Gibbascrapz). « kill THIS turn or don't commit » appliqué à Sy-gex : ne pas pouvoir le one-turn → ne pas strander Gibbascrapz à côté.
+- **A (vainqueur, mais des slips réels)** : sur-étendu son écran Mechanical à row 2-3 (T4-5) SANS compter le +437/hit anti-Mechanical de Re'vas + RangedSpecialist → a perdu Actus (repair-engine 9537) puis Yazaghor (fragile) avant le dive-punish (3v6 transitoire). **NUANCE anti-Mechanical** : discount le HP des Mechanicals vs une compo Tau anti-Mechanical ranged ; garder le repair-engine + les fragiles une rangée plus back.
+- **A** : a avancé Sy-gex à (4,2) pour attaquer, cédant sa valeur d'Overwatch-turret armé (un Sy-gex stationnaire armé aurait puni le dive en réactions GRATIS) — ça a marché (cripple Re'vas + survie) mais a payé des HP inutiles. **Doctrine held-OW-turret** (cf. Re'vas/Certus/Azrael) : tenir l'OW armé vaut souvent mieux que pousser pour une attaque.
+- **A** : a laissé Thaddeus bouger à (2,2) pour landerle K! Tigurius (OK ici = engine-kill garanti, mais a nudgé l'engine-barrage forward) — sur un tour non-décisif, garder le barrage-carrier maximalement back (le move-gate void le barrage s'il bouge).
+- **A** : a perdu 2/5 units (40%) pour convertir — le W est venu de l'over-extension ADVERSE qui a gifté le 3-engine focus-kill, PAS d'une ligne défensive propre. Vs un adversaire qui ne dive PAS, sitter le cluster Mechanical à row 2-3 vs une compo Tau anti-Mechanical ranged aurait saigné A (cf. la série reach/attrition).
+
+### Refs action logs
+
+Action logs complets de CE run : `data/_sp_80042_A.json` + `data/_sp_80042_B.json` → archivés dans `data/selfplay-logs/sp_80042_2026-06-23-b5.json` (winner=team1, rejouable via seed 80042) puis supprimés post-teardown ; séquences clés (standoff-breaker T3 → 3-engine focus-kill sur le dive → close mêlée) résumées ci-dessus.
+
+## seed 80053 — winner=team1 (ts=2026-06-23-b5)
+
+**Adjudication AUTORITATIVE** : `rl_duel.py status --state-file data/_sp_80053_A.json` →
+`*** BATTLE FINIE — winner AUTORITATIF = team1 (battleStatus.winner=3, unitsAlive=10) ***`.
+Élimination complète de team2 (`unitsAlive=10` = les 10 emplacements team1 vivants ; team2 wipé).
+**Consensus de résultat** : A (team1) = « W » + B (team2) = « L » → MATCHE le winner autoritatif →
+`winner_consensus = true`. (`alive_by_team={}` post-Finished est attendu/non-discriminant — decisionView
+refuse hors-Running, cf. H59 ; ne PAS l'interpréter.)
+
+**Rosters**
+- **team1 (A, VAINQUEUR)** : bloodMephiston (Mephiston) — Psyker carry Pierce100 NoBlocking r2 + FuryOfTheAncients heal-block ;
+  bloodDante (Dante) — deep-strike melee carry, Pierce80, LordOfTheHost amplifier, FinalJustice, Flying, Terrifying ;
+  necroWarden (Makhotep) — Gauss r3, RelentlessMarch move/repair engine ;
+  adeptMorvenn (Morvenn Vahl) — Blast SanctorumMissile r3 + Bolter r3, BigTarget, Explodes, Mechanical, ActOfFaith ;
+  spaceStormcaller (Njal) — Psyker Pierce100 NoBlocking r2, TerminatorArmour, Stormcaller Ice AoE r3, Unstoppable.
+- **team2 (B, PERDANT)** : worldKharn (Kharn) — TheBetrayer snowball + KillMaimBurn burst, FinalJustice, RapidAssault ;
+  spaceBlackmane (Ragnar) — WarHowl melee buff-engine, FinalJustice, BeastSlayer, RapidAssault ;
+  ultraCalgar (Calgar) — MkXGravis double-armor tank, RitesOfBattle aura, GauntletsOfUltramar AoE r2, FinalJustice ;
+  tauDarkstrider (Darkstrider) — markerlight engine (near-inert : seul Actus est ranged côté team2), Pulse r2, Infiltrate ;
+  admecManipulus (Actus) — repair engine INERTE (aucun allié Mechanical bénéficiaire côté team2), Flying, Energy r2.
+
+**win_condition (consensus A/B — concordant)**
+- **team1 (gagnante)** : DOUBLE noyau Psychic armor-ignore (Mephiston + Njal, tous deux Pierce100 NoBlocking) qui
+  bypasse intégralement MkXGravis/TerminatorArmour → neutralise l'anvil Calgar ; backé par Dante (deep-strike carry +
+  LordOfTheHost) et Morvenn SanctorumMissile Blast AoE r3 pour le softening de cluster ; Makhotep RelentlessMarch =
+  move-engine. **A le lit (mine) IDENTIQUE à l'auto-lecture B (theirs)** → consensus haute confiance.
+- **team2 (perdante)** : engine mêlée snowball/amplifier — Ragnar WarHowl (+1164 dmg/+36% crit/Unstoppable à la ligne
+  mêlée sans normale ranged) feeding un alpha Kharn KillMaimBurn ~10k. **N'A JAMAIS fire** : Ragnar+Kharn tués T5/avant
+  tout cast de WarHowl. **A le lit (theirs) IDENTIQUE à l'auto-lecture B (mine)** → consensus.
+
+**key_decisions — team1 (A)**
+- Tenue de position T3 + avance cohésive vers row 2-3 sans contact → l'ennemi all-melee CONTRAINT de diver dans sa portée.
+- T5 « engine break » : Blast/Ice/Psychic splash a softené le cluster ennemi serré, puis Makhotep K!'d Kharn (snowball)
+  et Dante K!'d Ragnar (WarHowl) AVANT que l'un ou l'autre engine s'arme. Darkstrider (markerlight sans feeders ranged)
+  et Actus (repair sans allié Mechanical) démotés en corps softs dès le recon.
+- Njal (seul Psyker atteignable) assigné au focus Calgar → 4786 en un hit en bypassant MkXGravis.
+- Endgame séquencé en kills garantis depuis tuiles peu profondes ; Calgar final (337 PV) overkillé au Gauss Makhotep pour
+  nier sa FinalJustice → clôture ~round 7, avant le cap round-8.
+
+**key_decisions — team2 (B)**
+- T1 (son 1er vrai tour) : avance du wedge mêlée (Ragnar+Kharn forward row 6) pour combler le gap round-cap et set up un
+  alpha buffé. **ROOT-CAUSE** : l'adversaire avait DÉJÀ avancé son cluster Psychic armor-ignore à row 2-3 → row 6 a mis
+  l'engine (Ragnar) + le carry (Kharn) dans sa portée Psychic+dive → focus-killés sur le tour ennemi, wincon détruit.
+- Après la perte Ragnar+Kharn (3v5) : kill propre de Mephiston à 644 PV avec Darkstrider depuis sa tuile (Infiltrate =
+  pas d'overwatch, zéro exposition) — meilleure valeur dispo, retire leur top armor-ignore carry.
+- Refus correct de feed Calgar/Actus dans le cluster sain 4-unités (down 3v4) — bon sur la valeur, mais position déjà
+  structurellement perdue. Chip final concentré sur Morvenn (9539→2205) mais les rolls K? bas → survit.
+
+**Résultat de la CONFRONTATION : consensus vs divergences** — détail en sous-sections ci-dessous.
+
+### Confrontation : consensus vs divergences
+
+#### Mécaniques de CONSENSUS (rapportées des DEUX sides — cross-observable, recoupées gameconfig/i2)
+
+1. **WarHowl (Ragnar)** : self-cast (Ragnar n'a pas bougé, ne finit PAS son tour) → Ragnar + tous les Characters
+   alliés SANS normale ranged gagnent **Unstoppable + +1164 dmg mêlée + +36% Crit Chance** jusqu'à fin de tour →
+   doit être casté LE MÊME TOUR que l'attaque buffée. A(theirs, « jamais observé firing — Ragnar tué T5 avant cast ;
+   tuer la source pre-cast = engine jamais armé ») + B(mine, « never fired: committed forward AVANT de pouvoir attaquer ;
+   requires Ragnar has NOT moved ; does NOT end his turn »). gameconfig --ability WarHowl **VERBATIM** (« +36% Crit Chance
+   and deal +1164 Damage … Unstoppable … If Ragnar has not moved … does not end Ragnar's turn »). Déjà au wiki §spaceBlackmane —
+   confirmé n+1 (le « kill before WarHowl » et la condition no-move y sont déjà). **n+1 NOTABLE inscrit** : la FinalJustice de
+   Ragnar (tué non-overkill) a chunké Mephiston PLEIN-PV **9537→644** (puis fini) = une seule riposte FJ peut quasi-tuer un
+   carry full-HP — overkill ou dégager les valuables de l'arc FJ avant le coup létal.
+2. **MkXGravis (Calgar) bypassé par Psychic Pierce100 NoBlocking** : double-armure (« Any incoming Damage has to go through
+   Armour a second time. Does not apply to Crits ») → ~halve le dmg mêlée/Power non-crit, MAIS une arme Pierce100 NoBlocking
+   ignore l'armure entièrement (la 2ᵉ passe d'armure n'existe pas s'il n'y a pas d'armure traversée). A(theirs, « Psychic Njal
+   Pierce100 NoBlocking bypasse MkXGravis = 4786 en un hit ; le designated tank-killer ») + B(mine, « Calgar double-armor
+   worthless vs cet adversaire ; chipé 9537→4751→337 malgré MkXGravis car les 2 carries sont Pierce100 NoBlocking »).
+   gameconfig --trait MkXGravis VERBATIM + weapon profile Njal `Psychic{PiercingRatio:100, NoBlocking}`. Déjà au wiki §ultraCalgar +
+   §spaceStormcaller — confirmé n+1. ⚠ PRÉCISION (recoupée gameconfig) : le bypass vient du **profil d'arme Pierce100/NoBlocking**
+   (ignore toute armure), PAS d'une exemption MkXGravis spécifique au Psychic — la seule exemption native de MkXGravis est le **Crit**.
+3. **SanctorumMissile (Morvenn, Blast HitsMultipleMembers r3)** : 2× Blast sur la cible + 1× Blast à TOUS les hexes adjacents
+   à la cible (sauf l'hex de Morvenn) → multi-engine softening sur un cluster serré. A(mine, « un cast a touché Kharn 2546 +
+   splashé Ragnar -2318 + Darkstrider -2434 simultanément ») + B(theirs, « SanctorumMissile Blast AoE r3 punit le clustering ;
+   chipé 9539→2205 »). gameconfig --ability SanctorumMissile VERBATIM (« 2x … and 1x … to all hexes adjacent to the target »).
+   Déjà au wiki §adeptMorvenn — confirmé n+1.
+4. **FuryOfTheAncients heal-block (Mephiston)** : après mouvement, 2× Psychic Pierce100 NoBlocking sur un ennemi adjacent + le
+   2ᵉ adjacent, appliquant un **blocage heal/repair 2 rounds**. B(theirs, « heal-block mon Darkstrider 2 rounds — confirme que
+   c'est un AoE sur les ennemis adjacents APRÈS que Mephiston a bougé, pas un passif »). A ne le mentionne pas explicitement
+   (n'a pas eu l'occasion d'être touché) → rapporté par 1 seul side mais **gameconfig-confirmé + déjà richement au wiki §bloodMephiston** →
+   confirmé n+1 (pas une divergence : absence de mention ≠ contradiction).
+
+#### Divergences (entre observateurs)
+
+1. **Calgar GauntletsOfUltramar (ranged Bolter) [0-0] vs Dante — cause attribuée par B = "Terrifying", or Terrifying est MÊLÉE-only** :
+   B(mine, confidence:med) rapporte que la mêlée non-Psychic ET le **Bolter ranged** de Calgar ont fait 0 à Dante tout le combat,
+   et hésite (« Terrifying reduces MELEE only per i2, but the ranged Bolter also read [0-0] — likely combined with Dante's high
+   armor/defense + Terrifying »). gameconfig --trait Terrifying = VERBATIM **« Takes X% Damage from Melee attacks »** → Terrifying
+   ne réduit QUE la mêlée. Donc le [0-0] sur le **Bolter ranged** de Calgar n'est PAS imputable à Terrifying (qui ne s'applique
+   pas au ranged) mais à l'armure/défense de Dante face au Bolter Pierce20 (faible pen). → divergence de CAUSE (B mal-attribue),
+   PAS un fait nouveau : la règle Terrifying=mêlée-only est déjà au wiki §1/§bloodMephiston/§bloodDante. Flaggée hypotheses.md.
+
+### Erreurs identifiées (leçons, des deux sides)
+
+- **B (#1, ROOT CAUSE)** : over-extension de l'engine (Ragnar) + du carry (Kharn) à row 6 sur son 1er vrai tour, dans la portée
+  Psychic armor-ignore déjà-avancée de l'adversaire → les DEUX focus-killés en un tour ennemi = wincon détruit, jamais de WarHowl,
+  jamais de burst Kharn. Failure-mode dominant. Aurait dû avancer le tank durable (Calgar) FORWARD avec Ragnar/Kharn écranés
+  DERRIÈRE, ou tenir un tour de plus et baiter le cluster Psychic-melee-less DANS sa propre portée KillMaimBurn.
+- **B** : mis-identifié son propre ownership au 1er tour (a joué les units 95-103 de team1 au lieu de ses 85-93 team2) en se
+  fiant au label « MOI »/currentPlayer de la vue sans grounding `status` (flag CTRL). Friction outil cross-rapportée (header de tour
+  stale / off-by-one) → TOUJOURS `status` pour confirmer CTRL=mon équipe avant d'agir.
+- **B (structurel)** : roster all-melee SANS aucun outil Psychic/armor-ignore vs un adversaire double-Psychic + Terrifying Dante
+  (Calgar a fait littéralement 0 à Dante tout le combat) → désavantage structurel à reconnaître au recon = jouer turtle-and-counter,
+  pas un close agressif.
+- **A (VAINQUEUR, slips réels)** : a tué Ragnar (engine) avec une SEULE source non-overkill alors que Mephiston était dans l'arc
+  FinalJustice de Ragnar → FJ a chunké Mephiston 9537→644 (puis fini) = sa SEULE perte d'unité, entièrement évitable. Aurait dû
+  OVERKILL Ragnar OU dégager Mephiston de l'arc FJ avant le coup létal.
+- **A** : over-commit T5 (4/5 units forward dans le cluster 5-ennemis) — a marché parce que les 2 engines sont morts, mais a exposé
+  Mephiston au FJ + au focus adverse. Un kill plus shallow ou router le carry Psyker un rang en arrière l'aurait préservé.
+- **A** : no-op gaspillé en cliquant la normale de Morvenn comme id 69 (générique) au lieu de son id réel **1182**
+  (RighteousRepugnance_NormalAttack) — l'action n'a PAS été consommée (récupéré) mais a coûté un round-trip. Lire l'id de
+  normale par-unité depuis `abilities` avant de tirer pour les units à id spécifique (re-confirme la friction id-69 connue).
+
+### Refs action logs
+
+Action logs complets de CE run : `data/_sp_80053_A.json` + `data/_sp_80053_B.json` → archivés dans
+`data/selfplay-logs/sp_80053_2026-06-23-b5.json` (winner=team1, rejouable via seed 80053) puis supprimés post-teardown ;
+séquences clés (tenue de position T3 → T5 engine-break double-K! Kharn+Ragnar pre-arm + Njal anti-Calgar Psychic →
+overkill final Calgar pour nier FJ) résumées ci-dessus.
+
+---
+
+## seed 80064 — winner=team2 (ts=2026-06-23-b5)
+
+### Rosters
+
+| Équipe | Unités |
+|--------|--------|
+| **team1 (Player A / oracle — PERDANT)** | darkaTerminator (Baraqiel) · spaceStormcaller (Njal) · admecMarshall (Tan Gi'da) · eldarAutarch (Aethana) · tauDarkstrider (Darkstrider) |
+| **team2 (Player B / oracle — VAINQUEUR)** | darkaAzrael (Azrael) · tyranNeurothrope (Neurothrope) · genesPatriarch (The Patermine) · templChampion (Jaeger) · adeptHospitaller (Isabella) |
+
+### Adjudication
+
+- A outcome_perceived = **L** ; B outcome_perceived = **W** → **winner_consensus = true**
+- `rl_duel.py status --state-file data/_sp_80064_A.json` : `*** BATTLE FINIE — winner AUTORITATIF = team2 (battleStatus.winner=4, unitsAlive=11) ***`
+- **authoritative_winner = team2** (champ NATIF battleStatus.winner=4 = team2, lisible post-Finished — H59). ⚠ `alive_by_team={}` VIDE post-Finished (decisionView refuse hors-Running) = NORMAL, ne pas l'interpréter comme draw (H64). L'élimination est confirmée par `unitsAlive=11` (full team2 alive + summons ; team1 wipe).
+
+### Win-conditions (consensus croisé A.mine ≈ B.theirs et A.theirs ≈ B.mine)
+
+**team1 win-condition (A.mine ≈ B.theirs)** : stack d'amplification ranged feeding un carry Psychic — Aethana `PathOfCommand` (+291/+218 Aeldari aura à TOUS) + Darkstrider `StructuralAnalyser` (Markerlight +728 ranged) + Tan Gi'da summon-engine → amplifient Njal (Psychic Pierce100 NoBlocking universal-bypass) + Baraqiel PlasmaCannon line-AoE. SOURCE = les 2 buff-engines (aura Aethana + markerlight Darkstrider).
+→ Accord A.mine / B.theirs : **CONSENSUS** (B a correctement identifié les 2 buff-engines comme la vraie source à couper ; « cut them and Njal/Baraqiel are just two un-amplified bodies »).
+
+**team2 win-condition (B.mine ≈ A.theirs)** : core armor-ignore (Patermine MightFromBelow 5× Psychic Pierce100 NoBlocking + Neurothrope SpiritLeech Psychic self-heal + Azrael DarkTalonStrike DirectDamage Pierce100) — chaque kill bypasse armure/TerminatorArmour/block. PAS de buff-engine unique : carry Patermine + engine snowball Neurothrope, screenés par Jaeger (anvil) + Isabella (sustain/revive). SOURCE = les TYPES de dégâts eux-mêmes (Psychic + Direct) qui ignorent toute armure.
+→ Accord B.mine / A.theirs : **CONSENSUS** (A a correctement identifié Isabella+Neurothrope comme le sustain-core et Patermine comme le carry à tuer au RANGED — Terrifying).
+
+### Séquences clés (résumé des action logs ; détail rejouable dans l'archive)
+
+**Player A (team1, PERDANT) :**
+- T1-T2 : avancé à row 2 (tuiles danger-0) puis HOLD pour recevoir la charge (doctrine « bait-the-dive »). ROOT-CAUSE MISTAKE : vs un adversaire plus rapide/melee-heavy (Patermine move4+Infiltrate) qui avançait, tenir a laissé l'ENNEMI choisir l'engagement → focus-kill de Tan Gi'da (T2) + Darkstrider (T3) GRATIS avant que le moteur markerlight+summon ne fire.
+- T3 : spread-fire sur les 5 ennemis (Njal Ice-AoE 3 cibles + Baraqiel→Jaeger + Darkstrider→Patermine) au lieu de concentrer un kill — vs un double-sustain (Isabella revive/regen + Neurothrope self-heal) le chip étalé est largement undone.
+- T4 : focus-kill PROPRE du Patermine (PlasmaCannon-line + Njal + Aethana finish) = bonne priorité (retire le snowball-carry), MAIS Aethana sur-étendue à (4,3) = focus-killée le tour suivant ; jamais atteint la backline engines (Isabella/Neurothrope row 5-6).
+- T5 : trade Baraqiel+Njal forward pour tuer Jaeger — meleer Jaeger a mangé un counter MartialSuperiority **4307** sur Baraqiel + sa FinalJustice a fini Baraqiel blessé (aurait dû finir Jaeger purement au RANGE).
+
+**Player B (team2, VAINQUEUR) :**
+- Engagé proactivement dans le standoff (round-cap EnvEndBombardment actif) : avancé les bricks durables (Patermine Terrifying 10038 + Jaeger 11046 Parry), fragiles (Neurothrope + Isabella) un rang derrière → forcer la décision avant le cap.
+- Tué les AMPLIFIER engines dans l'ordre de leverage (Tan Gi'da summoner → Darkstrider markerlight → Aethana aura) avec NoBlocking/Direct ignorant leurs buffs d'armure, au lieu de trader dans le tank TerminatorArmour (Baraqiel) → l'offense ennemie n'a JAMAIS scalé.
+- Bon outil armor-bypass sur le bon mur : Azrael DarkTalonStrike (Direct 5015 full sur Njal, Attack_Is_First_Hit=1, ZÉRO réduction) + Neurothrope SpiritLeech (Psychic 2227) **même tour** = Njal 8032→790 malgré TerminatorArmour.
+- Accepté un trade Jaeger-for-Baraqiel : anvil bas-PV isolé forward, sa FinalJustice + MartialSuperiority counter ont rendu l'échange neutre-à-favorable.
+- ⚠ MISTAKE dominante de B (qui a quand même GAGNÉ) : sur-extension du carry Patermine à (4,2) deep dans le cluster pour finir Darkstrider → focus-killé le tour ennemi suivant (perte de sa meilleure pièce dans un fight déjà gagné). Aurait dû finir Darkstrider avec le Direct K! garanti d'Azrael et retraiter le Patermine.
+
+### CONFRONTATION (vérif indépendante par 2 observateurs séparés)
+
+**Consensus mécaniques (rapportées + concordantes des DEUX sides, gameconfig-CONFIRMÉES) :**
+1. **MartialSuperiority (Jaeger)** — counter mêlée AVANT que l'attaque ennemie résolve : A(theirs, high, « 2135+2172=4307 Power sur Baraqiel meleeing Jaeger en une activation ») + B(threat card Jaeger anvil + synergie « MartialSuperiority counters the melee attacker before it hits »). gameconfig --ability MartialSuperiority VERBATIM (« 2x 1455-1601 Power Damage to the attacker before the enemy attack executes »). Déjà au wiki §3bis Jaeger — confirmé n+1.
+2. **FinalJustice (Jaeger/Azrael)** — death-attack à la perte du dernier PV, fire même tué au RANGED, sauf Overkill : A(theirs, high, « FJ de Jaeger tué par Njal ranged a aidé à finir Baraqiel adjacent ») + B(mine, « Jaeger FinalJustice ripostes on death », trade salvagé). gameconfig --trait FinalJustice VERBATIM (« immediately performs a normal attack … unless Overkilled »). Déjà au wiki §1 + §3bis — confirmé n+1.
+3. **TerminatorArmour Psychic/Direct EXCLUDED (Baraqiel/Njal)** — la 1ʳᵉ attaque/tour est réduite SAUF Psychic ET DirectDamage : B(theirs, high, « DarkTalonStrike Direct 5015 full sur Njal Attack_Is_First_Hit=1 sans réduction ; mon Patermine/Neurothrope Psychic bypassent aussi ») + A(mine, win_condition « Njal Psychic NoBlocking universal-bypass ignores armor », Baraqiel Pierce65 ranged bypasse Terrifying). gameconfig --trait TerminatorArmour VERBATIM (`terminatorArmourExcludedDmgProfiles:"Psychic,DirectDamage"`). Déjà au wiki §1 — confirmé n+1.
+4. **SpiritLeech (Neurothrope)** — Psychic r3 self-heal ~60%, engine self-sustaining : A(theirs, high, « Njal 8032→790 + Neurothrope 8014→8533 self-heal en un tour ») + B(mine, high, « self-heals ~60% of damage dealt, Neurothrope 8014→8533 »). gameconfig --ability SpiritLeech VERBATIM (« heals itself … for Health equal to 60% of the total damage dealt »). Déjà au wiki §3bis Neurothrope — confirmé n+1.
+5. **PathOfCommand (Aethana)** — aura +291 dmg / +20% crit / +218 Aeldari aux alliés ≤2 hex, amplificateur UNIVERSEL (tous types) : A(mine, synergie « +291 dmg/+20% crit/+218 Aeldari ») + B(theirs, high, « universal amplifier — higher leverage than markerlight ; killing it defangs the whole enemy offense »). gameconfig --ability PathOfCommand VERBATIM. Déjà au wiki §3bis Aethana — confirmé n+1.
+6. **Stormcaller Ice→Stun-on-Flying (Njal)** — r3 AoE Ice, les Flying touchés sont Stunned 1 round : B(theirs, high, « a STUNNÉ mon Neurothrope Flying → 4 Stunned, denied SpiritLeech ce tour ») + A(mine, high, « no-move r3 a touché 3 ennemis à la fois Psychic NoBlocking »). gameconfig --ability Stormcaller VERBATIM (« Flying enemies damaged this way get Stunned for 1 round »). Déjà au wiki §3bis Njal — confirmé n+1.
+7. **MightFromBelow DECOY-gated (Patermine)** — 5× Psychic Pierce100 NoBlocking ; le summon Genestealer fire mais produit 0 unité si AUCUN decoy adjacent (gaté sur les decoys/kills, PAS sur le cast) : A(theirs, threat « Step on its decoys to deny Genestealer summon ») + B(mine, high, « 5536 sur Tan Gi'da ignorant +582 ProtectorImperative ; Ability_Summon fired but produced 0 units — decoy-gated, not cast-gated »). gameconfig --ability MightFromBelow VERBATIM (« summons a Purestrain Genestealer on each decoy adjacent to the Patermine »). Déjà au wiki §3bis Patermine + §5bis — confirmé n+1.
+8. **CosmicHorror decoy (Patermine)** — pose un genesSmnDecoy (HP0, Steppable) sur l'hex du mort quand le Patermine LUI-MÊME tue ; ancre de summon, destructible en marchant dessus : A(theirs, med, « sur kill Darkstrider, decoy sur l'hex de mort ; Aethana SwoopingHawk a stepped through → détruit → summon nié ») + B(mine, med, « genesSmnDecoy HP0 spawn sur l'hex de mort de Darkstrider »). Déjà au wiki §3bis Patermine + §5bis — confirmé n+1.
+9. **Overwatch armé (Azrael)** — fire sur le MOUVEMENT (move-in) dans l'arc au tour adverse, PAS seulement la mêlée ; gate = NOT-ATTACKED : A(theirs, high, « 1166 free sur Baraqiel move-in, Effect_Type=1009, séparé du counter mêlée — ranged OW punit tout move-in ») + B(threat card Azrael control « Overwatch armé all game »). Déjà au wiki §1 Overwatch (gate=NOT-ATTACKED) — confirmé n+1 (variante RANGED-OW-punit-le-mouvement déjà documentée).
+
+**Divergences (entre observateurs) :** AUCUNE divergence de mécanique de jeu. A et B sont remarquablement concordants : les 2 win-conditions sont cross-lues correctement (A lit la source-engine de B = les 2 buff-engines à couper ; B lit la source de A = les types Psychic/Direct), toutes les mécaniques about=theirs concordent. Seule nuance non-contradictoire : les DEUX sides identifient leur PROPRE sur-extension de carry forward comme la slip dominante (A : Aethana à (4,3) ; B : Patermine à (4,2)) — un MÊME failure-mode (carry/fragile laissé dans la kill-zone après un kill agressif) vécu symétriquement, pas un désaccord. Rien à flagger en hypotheses.md pour ce match.
+
+### Erreurs identifiées (leçons, des deux sides)
+
+- **A (PERDANT, ROOT CAUSE)** : HOLD à row 2 T1-T2 vs un adversaire plus rapide/melee-heavy (Patermine move4+Infiltrate) qui avançait → le danger-overlay lisait danger-0 mais SOUS-warnait la reach d'envelopment move4+Infiltrate → l'ennemi a tué les 2 engine-enablers (Tan Gi'da summoner, Darkstrider markerlight-feeder) GRATIS avant que le moteur fire. La doctrine « hold-to-bait-the-dive » suppose un edge de reach/cohésion qu'A n'avait PAS ici (mirror inverse de seed 70056/70000 où le hold a marché GRÂCE à l'OW armé + reach).
+- **A** : spread T3 sur 5 ennemis vs un double-sustain core (Isabella revive/regen + Neurothrope self-heal) = chip undone ; aurait dû concentrer Njal+Baraqiel+Darkstrider sur UN engine pour un kill garanti.
+- **A** : jamais menacé les SUSTAIN ENGINES backline (Isabella/Neurothrope row 5-6) — seuls Aethana (Flying) et Njal avaient le reach, jamais routés dessus tôt → sustain adverse online tout le combat (mirror reach-fail de la série 70000/19355).
+- **A** : deep-strikes (Baraqiel/Aethana) gaspillés en avance forward T1 (téléport « anywhere » turn-1-only utilisé pour avancer 1 rang) — option perdue pour rien ; aurait pu pré-positionner un reach-asset sur les engines.
+- **B (VAINQUEUR, slip réelle)** : sur-extension du carry Patermine à (4,2) deep pour finir Darkstrider → focus-killé le tour suivant (perte de sa meilleure pièce dans un fight déjà gagné). Aurait dû finir Darkstrider avec le Direct K! garanti d'Azrael / striker depuis un hex shallow + retraite. Failure-mode dominant = carry/fragile laissé dans la kill-zone (IDENTIQUE au slip d'A sur Aethana).
+- **B** : Jaeger (3979) laissé isolé forward-right à (5,3) sans support — trade pour Baraqiel mais une formation plus serrée aurait pu tuer Baraqiel au range et garder Jaeger.
+
+### Frictions outil (cross-rapportées — déjà documentées)
+
+- **decisionView damage predictions pour les ABILITIES systématiquement [0-0]/non fiables** (A) : PlasmaCannon, Stormcaller, SwoopingHawk montraient [0-0] alors qu'ils ont fait 3000-5000 — juger par la CASCADE, pas la prédiction (friction connue, déjà documentée).
+- **play --no-ai re-runs le --spec ENTIER depuis le dernier état commité** (A+B) : re-issuer un spec multi-action dont une partie est déjà appliquée → « already acted »/« TOUR ABANDONNÉ ». Splitter par-unit est plus sûr ; re-view + re-issuer SEULEMENT les units restantes (friction connue H-play-spec).
+- **map ASCII glyph stale/overlapping vs targeting engine** (B) : un glyph ennemi ('b' à (3,6)) stale tandis que abilities/moves/status plaçaient Njal autoritativement à (2,2) ; le glyph collait aussi le 'b' drybush terrain. Faire confiance à abilities/moves/status > au glyph map (friction connue).
+
+### Refs action logs
+
+Action logs complets de CE run : `data/_sp_80064_A.json` + `data/_sp_80064_B.json` → archivés dans
+`data/selfplay-logs/sp_80064_2026-06-23-b5.json` (team1=33 actions, team2=21 actions, winner=team2, rejouable via seed 80064)
+puis supprimés post-teardown ; séquences clés (A hold-row-2 T1-T2 → engine-enablers tués gratis T2-T3 → focus Patermine T4 mais
+Aethana over-extend → trade Baraqiel/Njal forward T5 mauvais melee-into-Jaeger ; B engage proactif → kill amplifier-engines en
+ordre Tan Gi'da→Darkstrider→Aethana via Psychic/Direct bypass → Njal one-turn 8032→790 → Patermine over-extend mais déjà gagnant)
+résumées ci-dessus.
+
+---
+
+## seed 80072 — winner=team2 (ts=2026-06-23-b6)
+
+**Adjudication** : winner AUTORITATIF = **team2** (battleStatus.winner=4, unitsAlive=10 post-Finished, H59). Consensus des observateurs : A (team1) outcome="L", B (team2) outcome="W" → **winner_consensus = true** (A/B concordent ET matche l'autoritatif). Match terminé par **élimination** (5v0 effectif côté team2 ; team1 réduit 5v5→3v5→1v5), pas round-cap.
+
+**Rosters :**
+- **team1 (A, PERDANT)** : deathRotbone (Nauseous, Resilient/Healer tank + ContagionsOfNurgle −armure + TaintedNarthecium Chaos-only revive) · necroSpyder (Aleph-Null, Explodes/LivingMetal/Mechanic — repair INERTE car seul Mechanical) · darkaAzrael (DarkTalonStrike Direct Pierce100 + Bolter-line + Overwatch + FinalJustice) · thousAhriman (Doombolt Psychic NoBlocking AoE + WeaverOfFate) · tyranNeurothrope (SpiritLeech Psychic + self-heal + Neuroparasite + Synapse).
+- **team2 (B, VAINQUEUR)** : ultraApothecary (Incisus, CombatRestoratives heal 4365/5456 + Narthecium 100% revive adjacent) · tauAunShi (Aun'Shi, SereneUnifier buff-cycle + InspiredToGreatness) · tauDarkstrider (Infiltrate + StructuralAnalyser markerlight +728 ranged) · ultraEliminatorSgt (Certus, MortisRound Heavy r3 + Overwatch + HeavyWeapon + Infiltrate + CamoCloak) · thousSorcerer (Thaumachus, Psychic NoBlocking + AttemptedPossession + ArcaneShield 4001).
+
+**Win-conditions (consensus, cross-lues correctement) :**
+- **mine (team2, VAINQUEUR)** : umbrella de sustain Apothecary (CombatRestoratives mass-heal + Narthecium 100% revive du cluster adjacent) **un-out-damageable par un roster chip/burst-once**, amplifiée par le buff-cycle Aun'Shi SereneUnifier (−50%dmg / +move / +582dmg) et les markerlight/Heavy ranged (Darkstrider→Certus). SOURCE protégée = l'Apothecary back-screené (jamais atteignable par le roster r2/r3 adverse).
+- **theirs (team1, PERDANT)** : alpha Psychic/Direct coordonné — Ahriman Doombolt + Neurothrope SpiritLeech (armor-ignore, arme WeaverOfFate à 3+ cibles Psychic + snowball Neuroparasite) + Azrael DarkTalonStrike (Direct single + Bolter-line) derrière un screen Nauseous Resilient/heal + une tourelle OW Azrael. SOURCE = les 2 Psykers + le burst Azrael.
+- **Cross-lecture validée** : A.win_condition.theirs (lecture de B par A) ≈ B.win_condition.mine (auto-lecture B) — accord total sur l'umbrella Apothecary + buff-cycle Aun'Shi. A.mine ≈ B.theirs — accord sur le snowball Psychic + sur l'**over-commit forward** comme la slip qui a exposé les 2 engines.
+
+**Key decisions (les 2 sides) :**
+- **A (PERDANT)** : recon correct des 2 wincons + demote correct de son propre necroSpyder (repair INERTE car seul Mechanical) ; TIMED son alpha sur la phase non-(−50%) d'Aun'Shi (8536→1770 + chip Thaumachus/Darkstrider) ; choisit de NE PAS finir Aun'Shi à 1770 (raisonnement « le revive le ramènerait à 4365>1770 » sound en isolation mais MOOT — l'Apothecary l'a heal à 7753 de toute façon) ; **committé forward dans le danger-5 (anti-turtle round-cap)** → Nauseous puis Neurothrope focus-killés → snowball 5v5→3v5→1v5.
+- **B (VAINQUEUR)** : **HOLD/cohésion** au lieu d'un dive solo (Certus tourelle OW stationnaire + Thaumachus ArcaneShield) → a bait l'over-commit adverse en territoire atteignable ; **heal-then-strike** sur le tour décisif (CombatRestoratives d'ABORD : Aun'Shi 1770→7753 + clear Pinned ×3, PUIS attaque) ; **kill des 2 engines en un tour à zéro perte** (Nauseous via Certus MortisRound→1HP + finition Aun'Shi normale ; Neurothrope one-shot Darkstrider) ; protège ses engines de sustain de l'over-extension (retire Aun'Shi de la radius Explodes, refuse d'envoyer Incisus en mêlée FinalJustice).
+
+**CONFRONTATION (consensus vs divergences) :**
+- **CONSENSUS (mécaniques cross-observées, confirmées par LES DEUX + recoupées gameconfig/i2)** :
+  1. **CombatRestoratives + Narthecium umbrella (Apothecary)** — heal 4365/5456-Imperial + revive 100% à 4365 (unless Overkilled, once/turn, non-Mechanical) du cluster adjacent ; A « Aun'Shi 8536→1770 puis 7753 next turn », B « +5983 sur Aun'Shi + cleared Pinned ×3 ». gameconfig VERBATIM (CombatRestoratives 4365/5456 Imperial ; Narthecium 100% → 4365 unless Overkilled, 1×/tour, non-Mechanical). → wiki.
+  2. **SereneUnifier cycle (Aun'Shi)** — R1 SenseOfStone −50%dmg / R2 ZephyrsGrace +1move / R3 StormOfFire +582dmg, à self+adjacents+T'au ≤2hex, persiste 1 round post-mort. Les DEUX l'observent live (A « −50% a halvé mon alpha » ; B « les 3 rotating, −50% blunt leur Psychic »). gameconfig VERBATIM. → wiki (re-confirme seed 80000).
+  3. **Neuroparasite snowball + clear-on-death (Neurothrope)** — +1237 Psychic/niveau, monte sur Psychic-dmg OU Suppress, **clear quand le Neurothrope meurt OU la cible est heal**. A « Psychic sur cible parasitée = 2993 » ; B « parasite removed on its death ». gameconfig VERBATIM (+1237/niveau, clear on heal/Neurothrope-defeat). → wiki.
+  4. **FinalJustice fires unless Overkilled (Azrael)** — fire même sur un kill cumulatif NON-overkill ; B « kill exact Certus → FJ a chunké Thaumachus 5592→1977 » ; A le liste comme trait Azrael. gameconfig VERBATIM (« unless Overkilled »). → wiki déjà documenté §FinalJustice (n+1).
+  5. **Explodes friendly-fire au range (Aleph-Null)** — 25% maxHP Direct à TOUS les adjacents, friendly inclus ; B « ~4293 splash sur Azrael en le tuant au range » ; A confirme le trait. gameconfig VERBATIM (explodesDmg 25). → wiki déjà documenté §Explodes (n+1). (Note : B a observé ~4293 > 25%maxHP=2259 attendu — anomalie de splash, possible interaction Direct+tile/fire ; PAS une contradiction de la règle de base.)
+- **DIVERGENCES** : **AUCUNE divergence de mécanique.** A et B sont entièrement concordants ; toutes les entrées about="theirs" matchent les auto-lectures adverses. Seule nuance non-contradictoire : les DEUX identifient l'**over-extension forward du carry/screen** comme la slip dominante de leur propre side (A : Nauseous (3,6) + Neurothrope (4,4) ; B : Darkstrider stranded (6,5)/(6,4)) — MÊME failure-mode vécu symétriquement, pas un désaccord. Rien à flagger en hypotheses.md comme contradiction.
+- **CANDIDATES (1 seul observateur, non promues au wiki)** : ArcaneShield no-move → shield 4001 fin-de-tour à l'allié le + proche (B uniquement — A ne voyait pas le cast adverse) ; ScarabHive rejeté TargetHasFreeAdjacentTile sur cluster sans hex libre (A uniquement) ; MortisRound push 1 hex + secondary/splash (B uniquement, recoupé gameconfig « pushed back 1 hex » + « Heavy Weapon double »).
+
+**Erreurs / leçons (les 2 sides) :**
+- **A (PERDANT, ROOT CAUSE STRUCTURELLE)** : mis-recon — un roster chip/burst-once (r2/r3, AUCUN reach-tool, aucun moyen de toucher l'Apothecary back-screené) vs un engine 100%-revive + mass-heal = **textbook « can't out-damage the sustain » (H02 reach-fail + H11 self-healing anvil)**. Aurait dû flagger la loss structurelle AU RECON et jouer le least-bad all-in SPÉCIFIQUEMENT sur l'Apothecary (jamais tenté de l'atteindre).
+- **A** : over-extension forward (Nauseous (3,6) + Neurothrope (4,4) dans le danger-5) → les deux focus-killés le tour suivant (Nauseous ~4740 juste en move-in via OW/réactions) — a tradé son screen + un Psyker pour du chip heal-off.
+- **A** : jamais armé WeaverOfFate (Psychic ne touchait que 1-2 ennemis/tour → Ahriman jamais MAX → snowball Neuroparasite stalled) ; aurait dû positionner Doombolt pour catch 2-3 ennemis clusterés.
+- **B (VAINQUEUR, slip réelle)** : final-blow sequencing sur Azrael — Certus a délivré le kill EXACT (pas overkill) → FinalJustice a fire et chunké Thaumachus 5592→1977 (harmless car Azrael était le dernier ennemi). Ligne correcte = chip-first puis UN coup overkillant, OU router le kill pour qu'aucune pièce de valeur ne soit adjacente.
+- **B** : a tenu Certus (r3) + Thaumachus trop en arrière (row 9) les 1ers tours → a cédé le first-strike et mangé l'alpha ; monter la ligne ranged 1 tour plus tôt (toujours screenée) aurait permis de tirer en premier. Et Darkstrider laissé stranded forward post-kill — survit seulement parce que l'ennemi collapsait déjà.
+
+**Frictions outil (cross-rapportées — déjà documentées) :**
+- **rl_duel PLANS = MAX-roll damage** qui sur-state l'output réel vs blocking/cover/buffed : A « Doombolt plan [2409-3613] a dealt 1343 » → a failli mis-commit sur un « kill » inexistant. La vue devrait flagger expected (post-mitigation) ou marquer la range comme un max non-mitigé.
+- **abilities-legality ne tient pas compte du spawn-tile requirement des summons** : ScarabHive listé castable now/+move, mais le cast réel a échoué TargetHasFreeAdjacentTile (cluster sans hex libre adjacent) → A a burné le move d'Aleph avant de découvrir le cast illégal. « TOUR ABANDONNÉ » a correctement préservé les actions antérieures.
+- **labels MOI/ENNEMI de `view` RELATIFS à currentPlayer et FLIPPÉS entre captures** (B) ; le decisionView du state-file LAG le turn-flip → désambiguïser via `status` (autoritatif t1/t2), pas les labels relatifs de la vue.
+- **header `view` figé « tour 4 »** sur plusieurs rounds distincts (B) — le compteur de tour affiché n'est pas un indicateur de round fiable ; lire le round-state, pas le label.
+
+### Refs action logs
+
+Action logs complets de CE run : `data/_sp_80072_A.json` + `data/_sp_80072_B.json` → archivés dans
+`data/selfplay-logs/sp_80072_2026-06-23-b6.json` (action_logs des 2 camps + rosters + outcome, rejouable via seed 80072)
+puis supprimés post-teardown. Séquence clé : A TIMED l'alpha hors-phase-(−50%) (Aun'Shi 8536→1770) mais committé forward dans le danger-5
+(anti-cap) → Nauseous + Neurothrope focus-killés → 5v5→3v5→1v5 ; B HOLD cohésif (Certus OW-turret + Thaumachus ArcaneShield) bait l'over-commit,
+puis tour décisif heal-first (Incisus CombatRestoratives Aun'Shi 1770→7753 + clear Pinned) → kill des 2 engines au range zéro perte
+(Nauseous Resilient→1HP via MortisRound + finition normale ; Neurothrope one-shot Darkstrider) → swing 5v5→5v3 → élimination.
+
+---
+
+## seed 80085 — winner=team1 (ts=2026-06-23-b6)
+
+### Rosters
+
+| Équipe | Unités |
+|--------|--------|
+| **team1 (Player A / oracle)** | spaceStormcaller (Njal, Psyker/Stormcaller AoE + TermArmour) · tyranWingedPrime (Winged Prime, summon-engine AlphaWarrior+Hormagaunt, Flying, FJ) · custoVexilusPraetor (Aesoth, Resilient+BigTarget+VexillaMagnifica double-stun) · spaceBlackmane (Ragnar, WarHowl pump-engine + FJ + Saga charge) · deathBlightlord (Maladus, Resilient+TermArmour+ContagionsOfNurgle aura, FlailSwing overkill) |
+| **team2 (Player B / oracle)** | admecDominus (Vitruvius, repair-engine + RadBombardment line-AoE) · genesBiophagus (Hollan, Healer+TwistedScience+Aberrant summon+Ambush) · darkaAzrael (Azrael, Overwatch + DarkTalonStrike Direct + LionHelm) · bloodDeathCompany (Lucien, Resilient + BlackRage auto-charge + Blast) · astraBullgryn (Kut, BigTarget anvil + FragBomb) |
+
+### Adjudication
+
+- `rl_duel.py status` : `*** BATTLE FINIE — winner AUTORITATIF = team1 (battleStatus.winner=3, unitsAlive=14) ***`
+- A outcome_perceived = **W** (team1) ; B outcome_perceived = **L** (team2) → **winner_consensus = true** (les 2 sides + la source autoritative concordent)
+- ⚠ `alive_by_team={}` post-Finished = VIDE (decisionView refuse hors-Running, piège H59) — non utilisé pour l'adjudication.
+- **authoritative_winner = team1**
+
+### Win-conditions (consensus croisé A.mine ≈ B.theirs et A.theirs ≈ B.mine)
+
+**team1 win-condition** : mur durable **3 anchors Resilient/TerminatorArmour** (Maladus + Aesoth + Njal) qui kill les engines depuis des tuiles shallow à exposition quasi-nulle, pendant que le summon-engine (Winged Prime AlphaWarrior + Hormagaunt) screen et que WarHowl (Ragnar) burst la ligne mêlée ; l'aura ContagionsOfNurgle (Maladus) -armure croissante enable le FlailSwing one-shot du repair-engine.
+→ Accord A.mine / B.theirs : **CONSENSUS** (B lit correctement le mur 3-Resilient comme la SOURCE, engines = gravy).
+
+**team2 win-condition** : core sustain-summon Genestealer/Imperium ancré sur Hollan (Heal + TwistedScience pump + Ambush revive + Aberrant summon), screené par Kut BigTarget, nourri par Vitruvius repair + MasterAnnihilator mark ; Azrael Overwatch/LionHelm + Lucien BlackRage = pression dive.
+→ Accord A.theirs / B.mine : **CONSENSUS** (A identifie Hollan comme le vrai wincon back-screené ; B confirme « engine-denial + reaction-punish, Hollan sustaining »).
+
+### Confrontation A vs B (2 observateurs indépendants)
+
+**CONSENSUS de mécaniques (confirmées par LES DEUX + recoupées gameconfig — inscrites au wiki, tag [self-play consensus, seed 80085])** :
+1. **FinalJustice (Ragnar / Winged Prime)** — DEUX voies en UN match : Winged Prime tué par Lucien en OVERKILL → FJ DÉNIÉE (`IsActingBeforeDeath=0`) ; Ragnar tué à EXACTEMENT 1787 (no overkill) → FJ a fire ~3771 et a TUÉ le finisseur Hollan. gameconfig VERBATIM « unless Overkilled ». → wiki §FinalJustice (n+1).
+2. **Ambush (Hollan / genesSmnAberrant)** — kill avec decoy un-cleared → résurrection FULL-HP (7477) next turn ; 2ᵉ kill (Ambush consommé) = permanent. Confirme Ambush sur un SUMMON. gameconfig VERBATIM. → wiki §Ambush (n+1).
+3. **VexillaMagnifica (Aesoth)** — double-stun (cible + 1 ennemi adjacent additionnel) + Aesoth -66% dmg, cd2 ; single-hit Physical → ne tue PAS un Resilient. A « stun+kill Kut » / B « stun mon Kut → denié FragBomb → setup focus-kill ». gameconfig VERBATIM. → wiki §Aesoth (n+1).
+4. **ContagionsOfNurgle (Maladus)** — aura -armure croissante (r1→r2→r3) tague les ennemis qui approchent (ArmorReduction1) ; A « softened chaque approchant, enable le FlailSwing one-shot Vitruvius » / B « chip mon armure effective avant contact ». → wiki §ContagionsOfNurgle (n+1).
+5. **BlackRage (Lucien)** — set à 50% PV + auto-attaquant INCONTRÔLABLE. A (adversaire) « HP-halving + drift/auto-charge » / B (propriétaire) idem. gameconfig VERBATIM. → wiki §Lucien (n+1).
+
+**SINGLE-OBSERVER recoupé gameconfig (1 detailed observer, A possédait Njal — inscrit au wiki avec recoup explicite, PAS tag consensus)** :
+- **Stormcaller (Njal)** — UN cast a frappé Azrael (4185→2282) ET Hollan (5522→3771) en même temps (cible + adjacents Ice) = outil d'ouverture de focus multi-cible ; multi-hit Psychic ignore armure + bat floor Resilient. B liste Njal en threat mais il a turtlé (jamais online contre B) → pas de 2ᵉ observation live, recoupé gameconfig à la place. → wiki §Njal Tac.
+
+**DIVERGENCES** : **AUCUNE divergence de mécanique.** A et B sont entièrement concordants sur tous les faits de jeu. Une seule divergence d'**ASSESSMENT** (PAS de mécanique) → flaggée hypotheses.md **H71** : B (perdant) lit le match comme une **loss STRUCTURELLE** (roster all-Power/Physical/Blast, 1 seule source Direct, vs 3 anchors Resilient+TermArmour = mur inattaquable, à flagger AU RECON) ; A (vainqueur) le décrit comme un **out-trade d'exécution** du screen jusqu'au lone engine Hollan. Désaccord sur la CAUSE de l'issue, pas sur un fait — les deux s'accordent sur winner=team1 et toutes les mécaniques.
+
+### Séquences clés (résumé des action logs)
+
+**Player A (team1, VAINQUEUR) :**
+- Ouverture : SUMMON (AlphaWarrior → Warrior 7976 PV) + wedge cohésif, anchors Resilient (Maladus/Aesoth) en bait avant, fragiles (Njal/Ragnar) + engine (Winged Prime) screenés derrière. Cushion qualité avant contact (gap 7 rangées non rushé).
+- Sur le dive ennemi (Vitruvius/Kut forward) : kill du REPAIR-ENGINE Vitruvius pour FREE — Maladus FlailSwing 3-hit depuis sa tuile courante (zéro over-extension), enable par WarHowl + l'aura ContagionsOfNurgle ; HazeOfCorruption splash sur le kill. (engine-over-anvil doctrine)
+- Aesoth VexillaMagnifica stun+chunk l'anvil Kut (+ protège Aesoth bas-PV -66%) → fini par anchors depuis tuiles shallow ; carry jamais envoyé chasser l'anvil.
+- Clôture proactive sous le round-cap : charge Ragnar pour chunk Azrael, puis Njal Stormcaller AoE (Azrael+Hollan en un cast) → finishes garantis → 4v1 propre → élimination. Hollan (back row 9) correctement caché par B mais le screen out-tradé jusqu'au lone engine.
+
+**Player B (team2, PERDANT) :**
+- Won the ENGINE WAR : overkill Winged Prime (FJ dénié) une fois avancé en reach, puis fini Ragnar (pump-engine) — bonne priorité engines>anvil + Direct/overkill pour denier FJ sur WP.
+- Vitruvius RadBombardment tiré up la colonne ennemie : Suppress + chip 3 units (WP 3547, Njal 806, Maladus 887) = fort tempo MAIS le move qui aligne la ligne a stranded Vitruvius forward (3,4) → focus-killé (ROOT CAUSE : engine tradé pour du chip sur un mur Resilient = net loss, 1er domino).
+- Azrael tenu un-attacked early (arm OW) mais l'adversaire a turtlé → reaction-engine jamais payé ; converti en dégâts actifs quand le clock a forcé l'engagement.
+- LESSON-clé : fini Ragnar à EXACTEMENT 1787 (no overkill) avec son dernier corps Hollan → FJ riposte ~3771 a tué Hollan = 0 vs 3.
+
+### Erreurs / leçons (les 2 sides)
+
+- **A (VAINQUEUR, slip réelle)** : OVER-EXTENSION du Winged Prime (summon-engine) vers une tuile d'attaque forward (4,4) pour chip Kut + trigger un Hormagaunt → focus-killé le tour suivant (6491→mort). Le chip ne valait PAS l'engine ; failure-mode d'over-extension dominant, a coûté le meilleur snowball-engine pour le reste du match.
+- **A** : tué l'Aberrant mais LAISSÉ son decoy un-cleared → résurrection full-HP (7477) next turn (Ambush). Aurait dû marcher sur le genesSmnDecoy (Steppable) le même tour. Coûté un tempo + un re-kill.
+- **A** : no-op (tenté Aesoth normale sur Lucien avant de move Aesoth adjacent — harmless, action non consommée) + parking de Ragnar bas-PV (1787) adjacent à Hollan en fin (Hollan avait un K! dessus, non-décisif à 4v1).
+- **B (PERDANT, ROOT CAUSE STRUCTURELLE)** : stranded Vitruvius (repair-engine) forward (3,4) pour RadBombardment → focus-killé (engine tradé pour chip sur Resilient = net loss, 1er domino). + over-extension sérielle de chaque corps dans la zone contact row5/6 (Kut, Aberrant, Azrael, Hollan) → le mur durable out-trade les fragiles un à un (failure-mode répété 5+ fois).
+- **B** : final-blow sequencing — Ragnar fini à PILE 1787 (no overkill) avec le dernier Hollan → FJ a tué Hollan = double-mort, 0 vs 3. Ligne correcte = budgétiser l'overkill OU accepter de laisser Ragnar neutralisé à 1787.
+- **B (recon-level)** : aurait dû flagger la loss STRUCTURELLE au deploy (roster all-Power/Physical/Blast, 1 seule source Direct = Azrael, vs 3 Resilient/TermArmour anvils = mur inattaquable) ; correct plan = engine-race + hold, jamais feeder les fragiles dans le mur, RÉSERVER l'unique burst armor-ignore (DarkTalonStrike) pour l'anvil-wincon late au lieu de le dépenser sur le Winged Prime. (cf. H71)
+
+### Frictions outil (cross-rapportées)
+
+- **RadBombardment (Vitruvius) = ligne à DIRECTION FIXE, pas free-aim** : `--target` sur un hex ennemi no-op silencieux (mutated=false, action NON consommée) quand le caster est hors de l'axe → repositionner + viser via `--to` un hex qui met les ennemis sur une ligne 6-directions. Non-obvious depuis le plan (qui montrait la cible reachable). (B)
+- **Move silencieusement rejeté vers une tuile bloquée/unreachable** (mutated=false, unit reste sur place) → re-run `view`/`abilities` pour confirmer la position réelle AVANT d'attaquer ; le « move-then-ability » deux-temps doit être explicite. Un move qui n'a plus de cible/ability en range auto-finit l'activation. (A + B)
+- **K! sur un SINGLE-HIT vs Resilient over-claim** : Aesoth normale sur Lucien `[1359-1359 K!]` mais single-hit floor à 1, ne tue pas — label trompeur, cohérent doctrine mais à flagger. (A)
+- **header `view` figé « tour 3 »** + compteur turn interne stuck à 3 (flip à 4 sur endturn) → relié sur les unit-counts + l'absence de l'effet ⏱[ROUND-CAP] pour tracker le round réel vs le cap. (A)
+- **await endpoint timedOut fréquent** (opponent oracle deliberating) → re-await ; worked as designed mais slow. (A + B)
+
+### Refs action logs
+
+Action logs complets de CE run : `data/_sp_80085_A.json` + `data/_sp_80085_B.json` → archivés dans
+`data/selfplay-logs/sp_80085_2026-06-23-b6.json` (team1=37 actions, team2=27 actions, rosters + outcome, rejouable via seed 80085)
+puis supprimés post-teardown. Séquence décisive : A bait-and-trade — anchors Resilient avant + summon screen, kill du repair-engine
+Vitruvius pour FREE depuis tuile courante (FlailSwing + WarHowl + aura), stun-control de Kut (VexillaMagnifica), puis clôture
+Stormcaller-AoE (Azrael+Hollan) → 4v1 → élim ; B engine-race (overkill WP/FJ-denied, kill Ragnar) mais stranded son repair-engine
+forward (1er domino) et fini Ragnar non-overkill avec son dernier corps → FJ a tué Hollan (0 vs 3). Mur 3-Resilient a out-attrité le chip roster.
+
+---
+
+## seed 80020 — winner=team2 (ts=2026-06-23-b6)
+
+> ⚠ **Run JOUÉ distinct du bloc seed 80020 ci-dessus** (ts=b5 = MATCH NON JOUÉ, runner absent, 0 action). CE run = match complet (team1=51 actions, team2=71 actions), **team2 W par démontage anti-Resilient + summon-snowball** d'un mur reaction-engine HOLD.
+
+### Rosters
+
+| Équipe | Unités |
+|--------|--------|
+| **team1 (Player A / oracle, player 3) — PERDANT** | genesMagus (Xybia) · custoKyrus (Tyrith) · astraDreir (Dreir) · worldEightbound (Azkor) · eldarMauganRa (Maugan Ra) |
+| **team2 (Player B / oracle, player 4) — VAINQUEUR** | orksRuntherd (Snotflogga) · tauMarksman (Sho'syl) · adeptHospitaller (Isabella) · eldarFarseer (Eldryon) · blackPossession (Archimatos) |
+
+### Adjudication
+
+- A outcome_perceived = **L** ; B outcome_perceived = **W** → **winner_consensus = true** (A="L" & B="W" → team2).
+- `rl_duel.py status --state-file data/_sp_80020_A.json` : `*** BATTLE FINIE — winner AUTORITATIF = team2 (battleStatus.winner=4, unitsAlive=38) ***` (champ NATIF battleStatus.winner post-Finished, H59).
+- **authoritative_winner = team2** (élimination, PAS round-cap : 38 units team2 vivantes à la fin, team1 wipe). winner consensus parfait (A et B s'accordent ET ça matche le winner autoritatif).
+
+### Win-conditions (consensus croisé A.theirs ≈ B.mine et A.mine ≈ B.theirs)
+
+**team2 win-condition (VAINQUEUR)** : summon-snowball + attrition multi-hit anti-Resilient. SOURCE = **TRIPLE summon-engine** (Snotflogga SquigHound auto-Grots 7312 + Archimatos Incursion Bloodletters + Sho'syl MV71 drones) générant des corps depuis les rows 7-9, screené par le 12k Snotflogga anvil et sustained par **Isabella** (MedicusMinistorum regen aura + 2183 heal), JAMAIS besoin de diver ; **Snotflogga SquigHound multi-hit beat le floor Resilient** (floor-to-1 puis overkill dans la même activation) pour SOLO chaque anchor 9.5-10k.
+→ Accord A.theirs / B.mine = **CONSENSUS** : A a correctement lu les 3 summon-engines + Isabella sustain comme le noyau structurellement UNREACHABLE derrière l'anvil.
+
+**team1 win-condition (PERDANT, jamais réalisée)** : reaction-engine HOLD (Tyrith UnwaveringSentinel + Maugan Ra Overwatch r3 + Azkor OverwhelmingWrath Taunt) ancré sur 3 corps 9.5-10k Resilient, baitant le dive pour le punir (H03), + Dreir/Xybia summon-engines pour la masse board.
+→ Accord A.mine / B.theirs = **CONSENSUS** : B a lu le mur Resilient + Overwatch reaction-side et son flaw — un roster melee/r2-r3 (seul Maugan Ra r3) SANS reach tool vers les engines/Healer row 7-9 = reach-fail structurel ; et H03 dive-punish INERTE vs un back-row qui ne dive jamais (le contre-profil 70052).
+
+### Séquences clés (résumé des action logs — détail dans le state-file archivé)
+
+**Player A (team1, perdant) :**
+- T3-5 : avance cohésive, fragiles screenés — propre. L'erreur est venue à T7.
+- T7 (ROOT CAUSE) : Dreir LeadingTheCharge dans le 12k bait-anvil Snotflogga à row 6 (+ Azkor/Tyrith suivant) sous pression d'horloge → over-extension de corps durables dans le focus ennemi DEPUIS une position où ses réactions (Sentinel/Overwatch/Taunt) ne pouvaient PAS trigger (l'ennemi tape au range/summons). Death-Riders summonés (4432 HP/2304 atk) mais Dreir projeté row 6 = focus-killé (Resilient overkillé).
+- Chip futile sur Snotflogga : 1174 dealt → Isabella regen +1197 (net POSITIF pour l'anvil). MindControl +20% window gaspillé (Isabella out-healed tout le chip). Commit étalé T7-T8 → héros focus-killés un à un (Dreir → Azkor → Tyrith → Maugan Ra).
+
+**Player B (team2, vainqueur) :**
+- Hold cohésif (Snotflogga 12k anvil + Grots/drones screen des fragiles) ; refus de diver l'Overwatch Maugan Ra r3 + counter Tyrith ; laissé les anchors forced-melee adverses closer dans SA zone summon/AoE.
+- Snotflogga SquigHound multi-hit a SOLO chaque Resilient en UNE activation : floor Dreir(10038) et Azkor(5307) à 1 puis le hit suivant overkille (WasOverkill=1) → multi-hit beat le clamp Resilient ; a freed Snotflogga des MindControl-taunts et cancelled l'AoE pending d'Azkor.
+- Kill priority correcte (Dreir → Azkor → Tyrith counter → Maugan Ra turret), Resilient survivants finis par une 2ᵉ source/overkill (Tyrith floored par un Bloodletter puis overkillé à 46) ; Archimatos Incursion + drones Sho'syl ont flood un screen. Final : push de la summon-wave sur la Xybia fuyarde → wipe Xybia+Neophyte (one splash) → Finished AVANT round-cap. 38 units alive vs 0.
+
+### Confrontation : consensus vs divergences
+
+#### Mécaniques de CONSENSUS (rapportées des DEUX sides — cross-observable, recoupées gameconfig/i2)
+
+1. **SquigHound (Snotflogga normale) multi-hit BEAT le floor Resilient** : 3 base hits + GetStuckIn + SquigHound extra hit ; floor un Resilient à 1 puis un hit LATER dans la MÊME activation overkille (WasOverkill=1) → SOLO Dreir 10038 ET contribue le floor sur Tyrith 9537. Summon un Grot 7312 après attaque ; un hit sur Xybia splash-tua un Neophyte adjacent. A(theirs, « multi-hit one-shots through Resilient, killed before ToughToKill/LeadingTheCharge ») + B(mine, séquence floor→overkill décrite). gameconfig `Resilient` confirme « reduced to 1 Health, unless Overkilled » → un multi-hit floor-puis-overkill-en-une-activation est LE mécanisme anti-Resilient. → **renforce wiki §3bis Snotflogga + §1 Resilient** [self-play consensus, seed 80020] (déjà au wiki, 3ᵉ confirmation : multi-hit ≥2 + floor→same-activation-overkill).
+2. **MindControl (Xybia) — observé du côté VICTIME (B)** : Snotflogga repeatedly Taunted_OnlySpecificTargets + BlockMovement + CantUseAbility (−582 outgoing, +20% incoming) → forcé d'attaquer le taunter, actif disabled ; MAIS sa NORMALE sur le taunter reste dispo, et tuer le taunter clear le taunt immédiatement (free same-turn). A(mine, cast MindControl, +20% window) + B(theirs, subi le débuff exact, kill-taunter-clears). gameconfig §1 confirme verbatim (−582 / +20% / Taunted plus-haut-PV, curable par heal). → wiki §1 MindControl déjà complet (caster ET victime) [self-play consensus, seed 80020].
+3. **OverwhelmingWrath (Azkor) = AoE PENDING annulée si Azkor tué avant son prochain tour** : cast → OverwhelmingWrath_PendingAttack (Taunt adjacents + −64% ranged subi) puis 2× AoE aux adjacents au DÉBUT du tour suivant. B(theirs, tuer Azkor avant son tour a cancelled l'AoE) + A(mine, OverwhelmingWrath taunt Snotflogga −64% ranged mais Azkor focus-killé, AoE pending non résolue). gameconfig confirme verbatim (« Deals 2x ... at the beginning of Azkor's next turn »). → wiki §3 Azkor déjà documenté (AoE retardée) [self-play consensus, seed 80020].
+4. **Overwatch (Maugan Ra) reste ARMÉ across turns tant qu'il ne tire pas** : Overwatch_AutoAttack (critical effect), r3, fire free sur tout ennemi entrant ; disarm seulement après un tir. B(theirs, évité son arc plusieurs tours, disarm après un tir, attaque depuis >3 hex à gauche) + A(mine, reaction-engine HOLD avec Maugan Ra Overwatch — resté inerte car l'ennemi n'a jamais divé). gameconfig/wiki §3bis confirment (gate NOT-ATTACKED, peut bouger PUIS armer). [self-play consensus, seed 80020].
+5. **Ambush (Xybia/Neophytes) = decoy + resurrect full au DÉBUT du tour suivant SI un decoy ami survit** : Neophytes revived 2× (whack-a-mole) ; tuer le SOURCE Xybia + le DERNIER Neophyte simultanément a flip Finished (équipe à 0 vivants) → la fenêtre resurrect ne s'est jamais ouverte. B(theirs, decoy/revive whack-a-mole) + A(mine, Xybia SpiritualLeader decoys/Neophytes a généré de la masse). gameconfig `Ambush` confirme verbatim (« at the beginning of their next turn, if there is still a friendly decoy ... resurrected with full Health »). → wiki §1 Ambush + Xybia déjà complets [self-play consensus, seed 80020].
+6. **SupaCyborkBody + BeastSnagga block (Snotflogga) = damage-predictions over-estimate massivement** : Dreir LeadingTheCharge prédit gros mais landa ~821 net sur le 12k anvil (hits 950/1129 lourdement mitigés). A(mine, charge predicted high, landed ~821 net) — B ne contre-observe pas le chiffre exact mais décrit Snotflogga comme l'anvil-screen qui out-trade. Crédit confirmé par doctrine (prédictions vs block/crit-reduction non fiables). Candidat single-strong-observer + doctrine → pas une nouvelle inscription wiki (déjà couvert : juger au cascade, pas à la prédiction).
+
+#### Divergences (entre observateurs)
+
+Aucune divergence de FAIT sur les mécaniques (les 6 consensus concordent, recoupés gameconfig). Les deux lectures de win-condition s'accordent parfaitement (A.theirs ≈ B.mine ET A.mine ≈ B.theirs). La seule asymétrie est interprétative/d'exécution, PAS factuelle :
+- **B (auto-critique)** : reconnaît avoir gaspillé un tour sur Ambush-reviving des Neophytes au lieu de beeliner le SOURCE Xybia un tour plus tôt (Xybia re-summonait) — exécution, pas mécanique.
+- **Friction outil VigilanceEternal (Tyrith, A)** : « move-then-VigilanceEternal != VigilanceEternal-with-its-own-move » — l'actif a besoin de SON propre budget de move pour gap-close sur l'hex libre ; pré-bouger Tyrith consomme le move et rend l'actif no-op (« cast illegal sans bouger / TargetIsInRange »). → cohérent avec wiki §3 Tyrith (VigilanceEternal cible un ennemi déjà adjacent OU un hex libre dans la move range 2). → **hypotheses.md (friction outil, candidat self-play).**
+
+### Erreurs identifiées (leçons, des deux sides)
+
+- **A (perdant, ROOT CAUSE)** : commit forward T7 (Dreir charge row 6 + Azkor/Tyrith suivant) dans un cluster summon turtling qui n'avait AUCUNE raison de diver → réactions (Sentinel/Overwatch/Taunt) STRUCTURELLEMENT INERTES car l'ennemi tape au range/summons (H03 dive-punish ne s'applique PAS vs un back-row qui ne dive jamais — contre-profil 70052). Devait tenir un cluster défensif serré, pas feeder ses anvils.
+- **A** : chip répété sur le 12k anvil Snotflogga pendant qu'Isabella out-heal chaque hit (regen +1197 > chip 1174) → gaspillé la charge Dreir, l'attaque Tyrith, et la window MindControl +20% sur une cible inkillable. Ignorer entièrement l'anvil unreachable.
+- **A (recon-level)** : aurait dû flagger au recon que son roster all-melee/r2-r3 (seul Maugan Ra r3) n'a AUCUN reach tool vers les engines/Healer row 7-9 = reach-fail structurel. Avec un round-cap dur, pas de ligne gagnante → jouer un hold no-winner-parity propre plutôt que jeter 4 héros dans le focus.
+- **A** : commit étalé sur plusieurs tours (Dreir T7, Azkor T7, Tyrith T8) → focus-killés un à un (death by piecemeal — le pire des deux mondes : ni all-in ensemble, ni hold).
+- **B (vainqueur)** : T6 drone-chip sur Death Rider u147 = no-op (cible avait bougé/déjà fini) — re-check la tuile live avant de committer un summon. + SeekerMissile T4 dépensé sur Azkor (Resilient, floor wasted) — marker plus de valeur sur une cible soft non-Resilient. + late game sur Ambush-revive au lieu de beeliner Xybia.
+- **LEÇON CENTRALE (consensus)** : vs un **back-row triple-summon-engine + Healer-sustain UNREACHABLE** (le contre-profil 70052 du reaction-engine HOLD), un roster melee/r2-r3 SANS reach n'a PAS de ligne gagnante — H03 (bait-the-dive) est INERTE car l'ennemi ne dive jamais. Reconnaître au recon : si reach=zéro vers les engines back-row ET l'ennemi est un turtle ranged/summon, le commit forward FEED le focus ; jouer pure-hold ou flagger la loss structurelle. Réciproquement, **Snotflogga SquigHound multi-hit est LE démanteleur de mur Resilient** (floor→overkill en une activation), démontable une-anchor-par-tour quand on le laisse closer dans sa zone.
+
+### Refs action logs
+
+Action logs complets de CE run : `data/_sp_80020_A.json` (51 actions) + `data/_sp_80020_B.json` (71 actions) → archivés dans
+`data/selfplay-logs/sp_80020_2026-06-23-b6.json` (rosters + outcome team2, rejouable via seed 80020) puis supprimés post-teardown.
+Séquence décisive : B hold cohésif (Snotflogga 12k anvil + summon screen, refus de diver Overwatch/counter) → A over-commit T7
+(Dreir charge dans le bait-anvil row 6 + Azkor/Tyrith suivant, réactions inertes) → Snotflogga SquigHound multi-hit SOLO chaque
+Resilient anchor (floor→overkill), Isabella regen négatant tout chip adverse, Archimatos/Sho'syl flood le board → focus-kill piecemeal
+des 4 héros A → wipe Xybia final → 38 vs 0.
+
+---
+
+## seed 80097 — winner=team2 (ts=2026-06-23-b6)
+
+> Match self-play oracle vs oracle. **team2 (Player B) VAINQUEUR** par snowball summon-flood (Yarrick SendInTheNextWave)
+> + focus-kill ordonné des engines, malgré DEUX over-extensions early. team1 (Player A) a gagné la guerre des engines EARLY
+> (Parasite + Thaumachus tués) mais a PERDU la guerre d'attrition LATE (le flood Yarrick+Anuphet + Morvenn carry back-row
+> ont out-bodied sa force épuisée d'un lead 4v3 à 1v5).
+
+### Rosters
+
+| Équipe | Unités |
+|--------|--------|
+| **team1 (Player A / oracle, player 3) — PERDANT** | deathRotbone (Nauseous, Healer/revive) · thousInfernalMaster (Abraxas, summon-engine Psyker) · spaceWulfen (Ulf, durable melee FinalJustice) · astraPrimarisPsy (Sibyll, Psyker PsychicMaelstrom) · necroSpyder (Aleph-Null, LivingMetal/Explodes/Flying) |
+| **team2 (Player B / oracle, player 4) — VAINQUEUR** | astraYarrick (Yarrick, summon-engine SendInTheNextWave, Resilient) · thousSorcerer (Thaumachus, control: Possession+ArcaneShield, DIED) · tyranParasite (Parasite of Mortrex, Flying melee Ripper-summon, DIED) · adeptMorvenn (Morvenn Vahl, Legendary ranged carry SanctorumMissile) · necroOverlord (Anuphet, LivingMetal sustain + ResurrectionOrb) |
+
+### Adjudication
+
+- `rl_duel.py status --state-file data/_sp_80097_A.json` : `stage=Finished` + ***« BATTLE FINIE — winner AUTORITATIF = team2 (battleStatus.winner=4, unitsAlive=21) »***.
+- A outcome_perceived = **L** (6 tours) ; B outcome_perceived = **W** (7 tours) → **winner_consensus = true** (A="L" & B="W" → team2, MATCHE le winner autoritatif natif H59).
+- ⚠ `alive_by_team={}` post-Finished (decisionView refuse hors-Running) — NON utilisé pour l'adjudication (piège H59) ; le champ natif `battleStatus.winner=4` est la vérité.
+- **authoritative_winner = team2.** Élimination (pas de round-cap : 21 units team2 vivantes, team1 wipé).
+
+### Win-conditions (consensus croisé A.theirs ≈ B.mine et A.mine ≈ B.theirs)
+
+**team2 win-condition (VAINQUEUR)** : **Yarrick SendInTheNextWave summon-flood** (2 Cadian Guardsmen +1/allié défait, cap 5 ; back-row zéro-exposition ; les pertes propres de B MAXENT le flood) = la SOURCE qui a flippé un déficit 5v7 en 8v4 + grind les engines softés ; secondaire = Anuphet ResurrectionOrb (Necron Warriors round-scaling + LivingMetal regen ~854/tour) + Morvenn SanctorumMissile Blast r3 AoE depuis un back-row jamais atteint.
+→ Accord A.theirs / B.mine = **CONSENSUS FORT** (A a correctement identifié Yarrick+Anuphet flood + Morvenn carry comme les engines qui l'ont out-bodied).
+
+**team1 win-condition (PERDANT, jamais aboutie)** : **engine Psychic-summon-snowball** = Abraxas MasterOfTheTutelaries (cascade Screamer/Psychic-event) + Sibyll PsychicMaelstrom NoBlocking, sustain = Nauseous Healer/revive 75% Chaos. Source à protéger = la paire Psyker Abraxas+Sibyll.
+→ Accord A.mine / B.theirs = **CONSENSUS** (B a correctement lu la paire Psyker Pierce100 NoBlocking comme le kill-vector, et l'a démantelée — Sibyll focus-kill puis Abraxas).
+
+### Séquences clés (résumé des action logs — détail archivé en 4)
+
+**Player A (team1, perdant) :**
+- T4 : Aleph-Null placé forward (4,3) sur une tuile Thorns → focus-killé au tour ennemi AVANT de contribuer son ScarabHive (seul son Explodes a tradé ~2259 sur Parasite). Over-extension d'un durable qui aurait dû screener.
+- T5 : Parasite (engine exposé) tué — cascade summon Abraxas a chunké 6776→3499 puis Ulf GreatFrostAxe 4-hit l'a fini EXACTEMENT (3499→0, Ice posé). Kill propre d'engine sur le dive (durable melee = bon outil).
+- T7 : Sibyll PsychicMaelstrom a one-cast-K!'d Thaumachus (6305 en un cast, multi-hit 3466+2839, NoBlocking bypass shield) le moment où il a avancé en portée — priorité control-engine correcte. MAIS Nauseous (Healer slow move2) poussé forward (3,5) comme « bait » → focus-deleté (10761→1006→mort) SANS heal (ne peut pas heal l'Imperial Ulf, Chaos déjà morts). Engine sustain jamais livré.
+- Late : chip Anuphet 8536→1159 avec 2 units mourantes mais pas fini (LivingMetal regen → 2013) ; le flood Yarrick (3 Guardsmen 3989/3989/723) + Morvenn back-row ont out-bodied le lead 4v3 → 1v5 → wipe.
+
+**Player B (team2, vainqueur) :**
+- Ouverture : Anuphet ResurrectionOrb + avance cohésive row-7 (board presence sans exposition).
+- Over-extension #1 (la faute dominante, H03) : Parasite committé deep (4,4) pour finir l'INERT Aleph-Null (chaff non-engine) → focus-killé le tour ennemi, pendant qu'Abraxas restait libre de cast son flood (board flip 5v7 contre B).
+- Over-extension #2 : Thaumachus (control fragile) poussé (3,6) pour finir un Ulf 1627 → focus-killé de loin (perte de l'outil Possession pour un kill de chaff).
+- Ulf tué au RANGE à (3,4) SANS allié éligible adjacent → **FinalJustice no-op (zéro riposte)** — removal propre de l'anti-summon avant de flooder.
+- **THE comeback move** : Yarrick SendInTheNextWave back-row (zéro exposition) → 5 Guardsmen (scalés par les propres pertes de B) + ~4000 burst sur Nauseous → 5v7 → 8v4, puis focus-kill ordonné (Nauseous sustain → Sibyll Psyker → Horrors → Abraxas) = la W.
+
+### Confrontation : consensus vs divergences
+
+#### Mécaniques de CONSENSUS (cross-observable des DEUX sides — recoupées gameconfig)
+
+1. **SendInTheNextWave (Yarrick)** : summon 2 Cadian Guardsmen +1/allié défait (cap 5), back-row no-move, fire immédiat ; le flood se MAXE par les pertes propres. A(theirs) + B(mine). gameconfig verbatim (base 2910 HP/1746 ; B a observé 3989/2394 = buffé par sa propre aura Contagions, non load-bearing). → **INSCRIT wiki §Yarrick** (wincon late d'attrition + paradoxe de scaling).
+2. **MasterOfTheTutelaries (Abraxas)** : 1 cast → Pink Horror + 2 Screamers car les summons auto-attaquent au spawn et leurs hits Psychic (via InfernalPacts) re-déclenchent la clause Screamer-par-Psychic = cascade self-feeding ; summons action dépensée au spawn (ne peuvent pas re-agir). A(mine) + B(theirs). gameconfig verbatim. → **INSCRIT wiki §Abraxas** (cascade self-feeding + summon action spent).
+3. **Pink Horror → Split → 2 Blue Horrors** (à la mort, sauf Overkill) : daemon resilience qui gonfle le body-count. A(mine) + B(theirs). gameconfig verbatim : `Split {thousSmnBlueHorror}` base 1528 HP (live 2093 = scaling), « Does not apply if Overkilled ». → **INSCRIT wiki §thousSmnPinkHorror** (nouveauté — n'y était pas).
+4. **AttemptedPossession (Thaumachus)** : possède la cible ET ses summons → ils attaquent le camp du caster-victime ; **les summons possédés bougent AVANT d'attaquer** (A a vu ses Screamers row1→row6 puis attaquer son camp). A(mine, high conf) live-confirme le recon-only H28 ; gameconfig verbatim. B(mine, low conf) ne l'a jamais résolu live. → **INSCRIT wiki §Thaumachus** (upgrade H28 recon-only → vérifié).
+5. **FinalJustice no-op sans cible éligible adjacente (Ulf)** : tué à (3,4) sans allié éligible adjacent → riposte fire avec ZÉRO dmg. B(theirs) + A(roster/threat). gameconfig confirme « performs a normal attack on an ELIGIBLE target ... unless Overkilled ». Déjà richement documenté wiki §1/§Ulf (n multiples) — RE-CONFIRMÉ, pas ré-inscrit (redondant).
+6. **Resilient single-hit clamp → besoin d'un finisher (Nauseous)** : un K! single-hit floor à 1 HP, NE tue PAS ; budgéter un coup séparé. B(theirs, « K!-count ne soustrait pas le clamp Resilient ») + A(threat « Overkill or Resilient drops to 1 »). gameconfig verbatim. Déjà documenté wiki §1 (n multiples) — RE-CONFIRMÉ, pas ré-inscrit.
+
+#### Divergences (entre les deux observateurs)
+
+1. **AttemptedPossession résolu vs non-résolu** : A l'a SUBI live (high conf, effet pleinement observé) ; B ne l'a jamais résolu (low conf, « ambiguous/risky as a friendly-fire tool from my framing, never resolved its true effect live »). PAS une contradiction de fait — A a la vérité live + gameconfig la confirme ; B a simplement évité de gambler l'ability. → consigné en hypotheses.md comme divergence de confiance/résolution (A=vérifié-correct).
+2. **Persistance des moves de repositionnement (non-attaquants)** : B (friction, about=mine) rapporte que les moves PURS (sans attaque) semblent REVERT au turn-flip (Anuphet/Morvenn/Yarrick snap back ; seuls les units qui ont ATTAQUÉ gardent leur position forward) → positionnement défensif délibéré inefficace. A ne cross-observe pas ce comportement (n'en parle pas). Observateur unique, candidat friction-outil. → hypotheses.md (self-play divergence A/B, à vérifier : artefact state-file self-play ou règle réelle).
+3. **Header de tour figé** : A (« tour 3 · joueur 3 » stale chaque tour) ET B (« tour 4 » figé tout le combat) rapportent INDÉPENDAMMENT un compteur de tour UI gelé → friction d'observabilité PARTAGÉE (pas une divergence : les deux convergent que le label « tour » est un placeholder, fier au round-counter interne de `status`). → déjà friction connue (cf. blocs antérieurs).
+
+### Erreurs identifiées (leçons, des deux sides)
+
+- **A (perdant)** : a gagné la guerre des engines EARLY (Parasite T5 + Thaumachus T7) mais a PERDU la guerre d'attrition LATE — il a continué à FEED le front avec des units bas-PV (Nauseous 1664, Sibyll 2664) dans le focus ranged-summon adverse → out-tradé d'un lead 4v3 en 1v5. Une fois Nauseous/Sibyll chunkés, il fallait CONSOLIDER (Abraxas + summons cohésifs, refuser les trades), PAS présenter des units mourantes à un flood de focus-fire supérieur.
+- **A** : Aleph-Null forward (4,3) Thorns T4 = over-extension d'un durable qui aurait dû screener → focus-killé avant tout apport ScarabHive.
+- **A** : Nauseous (Healer slow) poussé « bait » (3,5) T7 → deleté sans heal (ne peut pas heal l'Imperial Ulf, Chaos déjà morts) ; le Healer-engine n'a JAMAIS livré de sustain → l'aurait dû tenir back-anchor ou l'accepter non-contributeur.
+- **A** : summons committés forward dans la reach 2-hex de Thaumachus → Possession les a retournés (row1→row6 + attaque son camp) ; reconnaître la menace Possession et garder les summons hors-portée tant que Thaumachus vit.
+- **A** : chip Anuphet 8536→1159 non-létal (LivingMetal regen → 2013) = dmg gaspillé sur une sustain-body regen ; mieux valait tuer 2 Guardsmen actifs (retirer des corps qui shootent ses fragiles) que demi-tuer un engine qui regen.
+- **B (vainqueur)** : DEUX over-extensions propres (Parasite deep pour finir l'INERT Aleph-Null ; Thaumachus forward pour finir un Ulf 1627) → 2 héros tradés pour du chaff, laissant Abraxas libre de flooder. A GAGNÉ MALGRÉ ces fautes UNIQUEMENT grâce au flood Yarrick (amplifié par ses propres pertes) — contre un roster sans son comeback-engine, ces 2 trades auraient été fatals. H02 = kill l'ENGINE pas le chaff ; H03 = ne pas over-extend un durable pour du chaff.
+
+### Refs action logs
+
+Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80097_2026-06-23-b6.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 80097) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
+
+---
+
+## seed 80031 — winner=team2 (ts=2026-06-23-b6)
+
+> Match self-play DÉCISIF par ÉLIMINATION (PAS un round-cap no-winner) : team2 a wipe team1 en ~8 tours. `status` → `*** BATTLE FINIE — winner AUTORITATIF = team2 (battleStatus.winner=4, unitsAlive=17) ***`. Matchup STRUCTUREL : un roster team1 melee/short-r3 SANS reach-tool (no r4+/deep-strike/flyer) vs un engine ranged-summon team2 (drone+Aberrant body-advantage) safe row 8 → reach-fail loss à flagger au recon (classe H02-inapplicable, cf. 97001/98000).
+
+### Rosters
+
+| Équipe | Unités |
+|--------|--------|
+| **team1 (Player A / oracle, player 3) — PERDANT** | thousTerminator (Toth) · spaceWulfen (Ulf) · custoBladeChampion (Kariyan) · orksKillaKan (Snappawrecka) · admecDestroyer (Sy-gex) |
+| **team2 (Player B / oracle, player 4) — VAINQUEUR** | emperNoiseMarine (Shiron) · genesBiophagus (Hollan) · tauMarksman (Sho'syl) · worldExecutions (Tarvakh) · admecManipulus (Actus) |
+
+### Adjudication
+
+- A outcome_perceived = **L** (8 tours) ; B outcome_perceived = **W** (8 tours) → **winner_consensus = true** (A="L" & B="W" → team2, ET ça MATCHE le winner autoritatif).
+- `rl_duel.py status --state-file data/_sp_80031_A.json` : `stage=Finished currentPlayer=4 alive_by_team={}` (decisionView refuse hors-Running → alive vide, NON-discriminant ; cf. piège H59) + `*** winner AUTORITATIF = team2 (battleStatus.winner=4, unitsAlive=17) ***` (champ NATIF battleStatus.winner = autoritatif).
+- **authoritative_winner = team2** (élimination, PAS no-winner — 17 units team2 vivantes, team1 wipe).
+
+### Win-conditions (consensus croisé A.theirs ≈ B.mine et A.mine ≈ B.theirs)
+
+**team2 win-condition (VAINQUEUR)** : body-snowball summon/drone + focus ranged depuis la sécurité. SOURCE = **Hollan** (genesBiophagus : Healer + Ambush-revive + TwistedScience HP-buff + AberrantHypermorph 7477-HP Resilient screen) + **Sho'syl** (tauMarksman : SeekerMissile delayed-nuke + MV71SniperDroneSquad → jusqu'à 3 drones 1996-HP renouvelables) construisant des CORPS expendables qui focus-fire row 8 sans exposer les fragiles ; carries **Shiron** (line-AoE ranged ExcruciatingFrequencies) + **Tarvakh** (Khorne/TrophyTaker melee snowball). Le moteur qui a GAGNÉ = l'avantage-corps drone/Aberrant out-number la turtle adverse et la démonte sans diver.
+→ Accord A.theirs / B.mine = **CONSENSUS** (A a correctement lu Sho'syl comme la source un-counterée de la chip-war + Hollan comme l'engine de sustain/summon).
+
+**team1 win-condition (PERDANT, jamais réalisée)** : mur mêlée durable (Kariyan Resilient-scaling + Toth TerminatorArmour/TimeFlux-revive + Ulf FinalJustice) screenant une **tourelle Sy-gex Overwatch** (HeavyGravCannon anti-Mechanical/Terminator) + Snappa BigTarget ranged — SOURCE = attrition via réactions (Overwatch + FinalJustice) en baitant la mêlée adverse dans le cluster durable. **INERTE ICI** : l'ennemi n'a JAMAIS eu à diver (son ranged out-range), et la mêlée team1 ne pouvait pas atteindre les engines row 8.
+→ Accord A.mine / B.theirs = **CONSENSUS** (B a correctement lu la reaction-turtle dive-punish de team1 et son flaw = reach-zéro vers ses back-row engines + bait inerte vs une ligne ranged qui ne dive jamais).
+
+### Séquences clés (résumé des action logs — archivés, cf. refs)
+
+**Player B (team2, vainqueur) :**
+- Dérivé la propriété du roster quand la vue a flippé sur son tour (team B = Shiron/Hollan/Sho'syl/Tarvakh/Actus, PAS le set u95-103 labellé « MOI » à la 1ʳᵉ vue tour-ennemi) — caught avant de mis-play (foot-gun `view` perspective-currentPlayer, cf. divergence outil).
+- Frame dive-punish-INVERSE : a mené avec un screen expendable Aberrant+Actus, fragiles+carry safe row 8 ; baité l'ennemi à over-committer (a poussé son screen 7477→544 mais n'a jamais touché un héros).
+- **Kill-order ENGINE/THREAT depuis tuiles SAFE ou expendables** : Ulf FIRST T5 (retire le counter SavageKiller anti-summon — chunké via NORMALES depuis des corps déjà-adjacents pour ne PAS trigger SavageKiller) → Snappa T6 (best ranged + son Explodes a chunké Toth 9035→5646 ET Kariyan 5973→3714 = 2 kills mis en place gratis) → Kariyan Resilient (floor-à-1 par drone, fini par Tarvakh = 1er kill Khorne) → la tourelle Sy-gex (après avoir baité son Overwatch avec Tarvakh 710) → Toth en dernier (focus outright, TimeFlux revive n'a pas porté).
+
+**Player A (team1, perdant) :**
+- Recon-flag CORRECT : Actus engine-INERTE (seul Mechanical de son équipe → DefendTheDivineWork self-only, GalvanicField inerte) demoté de repair-engine craint à chaff soft (cf. H02 nuance engine-inerte). Killé PERMANENT pour FREE depuis tuiles safe (Sy-gex SentinelDirectives HeavyGravCannon ~5690 + Snappa) — le SEUL clean play du match.
+- Hold cohésif les ~4 premiers tours pour baiter la mêlée dans le mur durable + Sy-gex Overwatch (doctrine réciproque H03) — bon INSTINCT mais INERTE ici (l'ennemi avait une ligne ranged self-suffisante qui n'a jamais eu besoin de diver → le dive-bait n'a jamais payé, la chip-war l'a run down).
+- REFUS correct d'envoyer Snappa deep pour un K? non-garanti sur Hollan (revive via Ambush + expose son Explodes-on-death) — « kill CE tour ou ne pas committer ».
+- Salvage des doomed units : Kariyan 2380 a tué l'Aberrant PERMANENT (2ᵉ kill, multi-hit MartialInspiration beat Resilient) avant de mourir ; Toth a tué des drones.
+
+### Confrontation : consensus vs divergences
+
+#### Mécaniques de CONSENSUS (rapportées des DEUX sides — cross-observable, recoupées gameconfig)
+
+1. **SavageKiller (Ulf)** : réaction 5-hit Power QUI NE SE DÉCLENCHE QUE (a) sur un summon spawn/move adjacent, ou (b) un ennemi adjacent qui tente un ACTIF (résout AVANT l'actif) — une **attaque NORMALE depuis un corps DÉJÀ-adjacent ne le trigger PAS**. B(theirs, a EXPLOITÉ : chunk Ulf safely via normales pour ne jamais feed SavageKiller) + A(mine, Ulf dans son roster, counter anti-summon). gameconfig verbatim (seuls summon-adjacency + actif-adjacent triggent). → **INSCRIT wiki §3bis (Ulf) [self-play consensus, seed 80031]** : l'actionable = pour tuer Ulf sans le trigger, frapper en NORMALE depuis une unité déjà-adjacente (ni summon, ni actif).
+2. **Explodes (Snappa)** : à la mort, 25% maxHP Direct à TOUS les adjacents (friendly-fire). B(theirs, killing Snappa adjacent à Toth+Kariyan a dealt ~2260 à chacun = 2 kills setup gratis) + A(mine, clustering Snappa serré pour BigTarget aura = son explosion risquait/touchait sa propre ligne). gameconfig confirme `explodesDmg=25` Direct, all-adjacent, no friend/foe filter. Déjà wiki §1 (n multiples) — RE-CONFIRMÉ self-play, pas ré-inscrit (la TENSION BigTarget-veut-adjacence × Explodes-punit-adjacence est notée en mistake A).
+3. **TimeFlux (Toth)** : self-regen RÉPÉTABLE (873 + dmg du dernier hit reçu, cap 4365/tour) + revive ONE-TIME au time-ghost à 2401 (même si Overkill). B(theirs, observé 5646→9035 et 1684→3161, out-DPS via 6v1 numbers, final focus K! outright) + A(mine, son unit le plus durable = last man standing). gameconfig verbatim. Déjà wiki §1 + §3bis (Toth) — RE-CONFIRMÉ, pas ré-inscrit. ⚠ doctrine cross-confirmée : un Toth affaibli heal-back vite → le tuer en UN tour focus, PAS le chiper.
+4. **Overwatch (Sy-gex)** : tire UNE volée sur le 1er mover dans l'arc r3 puis est SPENT le reste du tour ennemi (2ᵉ mover passe sans réaction), RE-ARME au début de SON propre tour (gate=not-attacked). B(theirs, Tarvakh ate 710 puis fragiles/drones sont passés free) + A(mine, tourelle Overwatch armée). gameconfig (trait Overwatch). Déjà wiki §1 + §3bis (Sy-gex l.1038, cross-observé seed 80042) — RE-CONFIRMÉ self-play 2ᵉ fois, pas ré-inscrit. EXPLOIT = bait l'OW avec un corps durable, puis opérer free dans l'arc.
+5. **Ambush (Aberrant summon de Hollan)** : à la 1ʳᵉ mort → decoy Steppable + RESURRECT full-HP (7477) au début du prochain tour si un decoy survit ; 2ᵉ mort PERMANENT. B(mine, l'Aberrant tué à 544 par FinalJustice d'Ulf a revive full 7477) + A(theirs, l'a SUBI : chip 544 → kill → decoy → revive full, puis 2ᵉ kill Kariyan PERMANENT). gameconfig (`Ambush_CanResurrect` 1×). Déjà wiki §1 [self-play consensus, seed 80085] (Aberrant summon Ambush) — RE-CONFIRMÉ 2ᵉ self-play, pas ré-inscrit. Doctrine : kill un summon Resilient renouvelable SEULEMENT quand le 2ᵉ/permanent kill est on the table (sinon il revive full).
+6. **Resilient (Kariyan)** : un hit létal single floor à 1 PV (saved), un hit SÉPARÉ suivant le tue ; un multi-hit bypass en un cast. B(theirs, 912→1 via drone, fini ensuite) + A(mine, Kariyan a tué l'Aberrant via multi-hit MartialInspiration beat Resilient). gameconfig (i2 « if not already at 1 HP »). Déjà wiki §1 (n multiples) — RE-CONFIRMÉ, pas ré-inscrit.
+7. **SeekerMissileFrequencyLock / Markerlight (Sho'syl)** : lock + missile retardé qui fire au DÉBUT du prochain tour de Sho'syl, TRACK la cible (impossible à dodge en bougeant), removable seulement par repair/heal-cleanse. A(mine, markerlit Kariyan ~3564 puis Sy-gex 5585→mort) + B(theirs, SeekerMissile delayed-nuke). gameconfig verbatim. Déjà wiki §3bis (Sho'syl) — RE-CONFIRMÉ, pas ré-inscrit.
+8. **PowerTrip (Snappa)** : au full HP les normales font +1 hit / armor-shred mais self-loss 5% maxHP ; en-dessous du full il perd le bonus ignore-armor PowerTrip_FullHealth. B(theirs, Snappa s'est drop 9037→7681 juste en attaquant) + A(mine, DakkaDakka self-cost). gameconfig verbatim (`extraHit=1, hpPct=5`). → Cohérent, déjà couvert par l'entrée Snappa (PowerTrip ignore l'armure) — la NUANCE self-cost 5%/full-only est mineure, notée mais non décisive.
+
+#### Divergences (entre les deux observateurs)
+
+1. **Cause de la mort d'Actus** : A (about=mine) = killé PERMANENT pour FREE quand il a over-extendu à row 5 (Sy-gex SentinelDirectives HeavyGravCannon + Snappa depuis tuiles safe). B (about=mine) = « spent it forward to kill Ulf — the only hero-side body I lost, a worthwhile trade ». → divergence de RÉCIT causal, PAS de fait : B a délibérément poussé Actus (engine-inerte demoté) forward pour participer au kill d'Ulf T5, et A l'a achevé quand il était exposé. Les deux conviennent qu'Actus était un corps expendable (engine-inerte) ; A voit un free-kill d'over-extension, B un trade choisi. → hypotheses.md (self-play divergence A/B, lecture d'exécution non-mécanique).
+
+### Erreurs identifiées (leçons, des deux sides)
+
+- **A (perdant) — RECON MISS STRUCTUREL** : aurait dû flagger une probable reach-fail loss au recon — roster 4 melee/short-r3 SANS reach-tool vs des engines softs safe row 8 derrière un screen Resilient renouvelable + une ligne ranged self-suffisante. Per H02 reach-attainability : quand les engines sont structurellement inatteignables ET l'ennemi ranged out-range, ni l'attrition lente ni le hold ne portent. A a joué un hold-and-bait hopeful qu'une ligne ranged ne-divant-jamais a simplement out-chipé.
+- **A** : clusterer Snappa (Explodes friendly-fire) serré au CENTRE de sa ligne pour la BigTarget aura → quand l'ennemi a focus-killé Snappa dans le cluster, l'explosion a touché sa propre ligne. Garder l'Explodes au BORD du cluster, pas au centre (tension BigTarget-veut-adjacence × Explodes-punit-adjacence).
+- **A** : staged le mur à row 5 + laissé Ulf (chipped 6420) le plus forward → 1er focus-kill. Pousser dans la kill-zone d'une ligne ranged qui out-range = handed le 1er trade ; reconnaître le dive-bait inerte plus tôt et soit all-in pour crack le screen T4-5, soit grind défensif — pas un demi-pas en avant.
+- **A** : early-turns passifs pendant que l'ennemi chipait free — le round-cap + l'avantage de portée adverse rendait les tours passifs favorables à EUX. Forcer une décision ~T5 (clock mandate) au lieu de drifter dans une attrition perdue d'avance.
+- **B (vainqueur)** : 2× émis une attaque Tarvakh en supposant l'auto-move-into-range ; la tuile choisie (2,5) n'était pas hex-adjacente à Kariyan (3,4) → no-op, Tarvakh stranded (2,5), activation gaspillée. Utiliser `moves`/`abilities` pour confirmer la tuile adjacente EXACTE (4,4 valide) AVANT de committer (cf. friction outil #1).
+- **B** : perdu le compte des units déjà spent → fired un drone/Tarvakh sur une unité sans action restante (mutated=False no-op). Harmless mais sloppy — lire « A ACTIVER » entre chaque action dans un tour multi-kill.
+- **B (note adversariale même en W)** : exposer Sho'syl + Actus forward pour sécuriser le kill d'Ulf n'était acceptable QUE parce que B était déjà up un corps ; contre une tourelle live (Overwatch non-spent) ça aurait pu coûter un fragile pour moins de reward.
+
+### Refs action logs
+
+Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80031_2026-06-23-b6.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 80031) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.

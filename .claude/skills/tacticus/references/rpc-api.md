@@ -50,7 +50,16 @@ JSON, le jouer sans toucher au battle in-game. Ordre obligatoire :
    Tour par tour : **`playTurn({ runnerId })`**.
 6. **`disposeRunner({ runnerId })`** — libère le runner + unpin la BC (gcRoot).
 
-Single-build : `initRunner`/`initAndStart` disposent tout runner précédent.
+Single-build (défaut) : `initRunner`/`initAndStart` disposent **TOUT** runner précédent
+avant d'en bâtir un. ⚠ Cette disposition est **SILENCIEUSE** — aucun event `runner_disposed`
+(`disposeRunner` = `byId.delete` + unpin gcRoot, pas de `send()`). **Multi-runner / self-play :
+passer `keepExisting:true` (`rl_duel build --keep`)** pour faire COEXISTER plusieurs runners.
+FOOTGUN : un seul build SANS `--keep` entré dans une fenêtre CONCURRENTE **nuke tous les runners
+frères en vol** sans trace (builds OK, 0 throw, 0 dispose-event). Signature : `listRunners`=[] +
+`battleStatus ok:false` + `await` (`/api/selfplay/:id/await`) renvoie **502 "runner N not found"
+INSTANTANÉ** (ne bloque pas) ; le host-tracker `/api/runners` reste stale (divergence
+script-registry ↔ host-tracker). Parade self-play = gate d'adressabilité (le SETUP vérifie
+`await` joignable APRÈS build, AVANT de jouer). cf. docs/rl/design.md §Multi-runner.
 
 ### Shape `observeBattle`
 
