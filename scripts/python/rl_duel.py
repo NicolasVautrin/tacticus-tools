@@ -66,6 +66,28 @@ def _load_state() -> dict:
     return json.loads(STATE.read_text(encoding="utf-8"))
 
 
+# --- helpers partagés (dédup : routines répétées sur plusieurs commandes) ---------
+def _winner_team(w) -> int | None:
+    """playerId natif (3=team1 / 4=team2 ; 0/None=aucun) -> n° d'équipe ou None."""
+    return {3: 1, 4: 2}.get(w)
+
+
+def _winner_label(w) -> str:
+    """playerId natif -> libellé lisible ('team1'/'team2'/'no-winner'/'playerN')."""
+    return {0: "no-winner", 3: "team1", 4: "team2"}.get(w, f"player{w}")
+
+
+def _plan_ab_map(res: dict) -> dict:
+    """{(unitId, targetId): abilityId} depuis les attackPlans d'un decisionView
+    (l'attaque concrète que le plan propose pour chaque cible). Auto-résolution de
+    l'ability d'un cast ciblé quand le spec ne la donne pas."""
+    out: dict = {}
+    for p in (res.get("attackPlans") or []):
+        for ev in (p.get("evals") or []):
+            out[(p["unitId"], ev["targetId"])] = ev.get("abilityId")
+    return out
+
+
 def _decision(sid: int, rid: int, maxrank: int = 8) -> dict:
     # allAbilities=True : expose AUSSI les actifs de chaque unité (id + dégâts
     # rankés), pas seulement l'attaque normale. Sans ça, decisionView ne liste
@@ -880,11 +902,7 @@ def cmd_play(sid: int, a) -> int:
         return 2
     res = _decision(sid, rid)
     my_ids = [u["id"] for u in (res.get("units") or []) if u.get("ctrl")]
-    # abilityId par (caster, target) depuis les plans (attaque normale concrète).
-    plan_ab: dict = {}
-    for p in (res.get("attackPlans") or []):
-        for ev in (p.get("evals") or []):
-            plan_ab[(p["unitId"], ev["targetId"])] = ev.get("abilityId")
+    plan_ab = _plan_ab_map(res)  # {(caster,target): abilityId} depuis les plans
     # TF18 : id de l'attaque NORMALE concrète par unité (NormalAttackType, ≠ 69
     # universel) → permet `{"kind":"normal","unit":N,"target":T}` sans deviner l'id
     # ni risquer que le défaut résolve vers un ACTIF. Lu depuis l'ability kind="normal".
@@ -973,7 +991,7 @@ def cmd_play(sid: int, a) -> int:
               .get("result") or {})
         if bs.get("stage") == 2:
             w = bs.get("winner")
-            wteam = {0: "no-winner", 3: "team1", 4: "team2"}.get(w, f"player{w}")
+            wteam = _winner_label(w)
             st["action_log"].append({"kind": "endturn"})  # marqueur fin de trajectoire
             _save_state(st)
             print(f"  [play] *** MATCH DÉJÀ TERMINÉ — winner AUTORITATIF = {wteam} "
@@ -1086,7 +1104,7 @@ def cmd_status(sid: int, a) -> int:
                   f"{'CTRL' if u.get('ctrl') else 'AI'}")
     if bs.get("stage") == 2:  # Finished -> vainqueur AUTORITATIF (champ natif)
         w = bs.get("winner")
-        wteam = {0: "no-winner", 3: "team1", 4: "team2"}.get(w, f"player{w}")
+        wteam = _winner_label(w)
         print(f"  *** BATTLE FINIE — winner AUTORITATIF = {wteam} "
               f"(battleStatus.winner={w}, unitsAlive={bs.get('unitsAlive')}) ***")
     elif len(alive) <= 1 and units:
@@ -1177,10 +1195,7 @@ def _apply_spec_to(sid: int, rid: int, spec: list) -> tuple:
     """Applique le spec sur rid (clone) SANS endturn. Réutilise la garde
     anti-no-op (_action_failed). Retourne (n_appliquées, raison_abort|None)."""
     res = _decision(sid, rid)
-    plan_ab: dict = {}
-    for p in (res.get("attackPlans") or []):
-        for ev in (p.get("evals") or []):
-            plan_ab[(p["unitId"], ev["targetId"])] = ev.get("abilityId")
+    plan_ab = _plan_ab_map(res)
     normal_ab = _normal_ability_map(res)  # TF18 : id normale concrète par unité
     applied = 0
     for ac in spec:
@@ -1677,7 +1692,7 @@ def cmd_verdict(sid: int, a) -> int:
     bs = (_rpc(sid, "battleStatus", [{"runnerId": rid}], timeout=10).get("result") or {})
     if bs.get("stage") == 2:  # match fini → winner autoritatif
         w = bs.get("winner")
-        wteam = {3: 1, 4: 2}.get(w)
+        wteam = _winner_team(w)
         flag = "won" if (my_team is not None and wteam == my_team) else "lost"
         tag = "no-winner (double-wipe round-cap)" if w in (0, None) else f"team{wteam}"
         print(f"[verdict] decided={flag} · BATTLE FINIE — winner autoritatif={tag}")
