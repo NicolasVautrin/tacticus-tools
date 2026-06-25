@@ -19,9 +19,10 @@ choix, **sans présupposer son niveau** :
 
 **Au début d'une battle, demander quel driver adverse** si l'utilisateur ne l'a
 pas dit. Mécaniquement c'est le même harnais : après mon `endturn`, le
-`currentPlayer` bascule sur l'équipe 2, donc `view` la montre comme « MOI »
-(`ctrl` suit le joueur courant) — je joue ses unités exactement comme les
-miennes (`act`), ou je laisse l'IA jouer (`aiturn`).
+`currentPlayer` bascule sur l'équipe 2. `view` garde MES units labellées MOI
+(**POV stable** — les labels ne s'inversent plus) et affiche `⚠ POV ADVERSAIRE`
++ la liste `À ACTIVER` des units de l'équipe 2 = **celles à jouer ce tour** — je
+les joue via `act` exactement comme les miennes, ou je laisse l'IA jouer (`aiturn`).
 
 > **Ne JAMAIS tuner ma propre policy sur la faiblesse supposée de l'adversaire.**
 > Jouer robuste : viser la victoire contre un jeu **optimal**, exploiter les
@@ -258,7 +259,10 @@ munitions) — info que gameconfig NE PEUT PAS donner. Les MoW affichent idem.
      `allAbilities` : il peut piocher le mauvais id (un actif au lieu de l'attaque
      normale) → l'unité **consomme son action pour un no-op** (vécu : Trajann tape
      « 0 » et est grillé). Attaque normale = **id 69** (générique « Loki_NormalAttack »,
-     partagé par bcp d'unités) ou l'id `kind:"normal"` propre (ex. Morvenn 1182).
+     partagé par bcp d'unités) ou l'id propre de l'unité. **En `play --spec`, utiliser
+     `{"kind":"normal","unit":N,"target":T}`** : l'outil résout la `NormalAttackType`
+     CONCRÈTE de l'unité (jamais 69 à deviner, jamais un actif par défaut) et pré-valide
+     la portée — cf. §8.
    - **VÉRIFIER que le move a réussi AVANT d'attaquer** : `act move` vers une tile
      illégale (block `#`, hors portée) est **rejeté SILENCIEUSEMENT** (l'unité reste
      sur place) → l'attaque part alors hors portée = no-op qui grille l'action.
@@ -273,8 +277,10 @@ munitions) — info que gameconfig NE PEUT PAS donner. Les MoW affichent idem.
      abilities **NON-attaque** (buff/heal/summon/hex, **absentes des PLANS
      D'ATTAQUE**) et les MoW. Détail par `abilities [--unit U] [--ability A]`.
      → cible ∈now = caste maintenant ; ∈+move seul = **bouge d'abord** ; ∉ des deux
-     = **n'essaie pas** (no-op certain). En `play --no-ai`, un cast **ciblé** illégal
-     est **rejeté avant l'endturn** avec la raison exacte ; sinon
+     = **n'essaie pas** (no-op certain). En `play`/`act`, un cast illégal — cible
+     ENTITÉ (`--target`) **OU** hex/tuile (`--to` : bombard / ligne à axe FIXE / summon
+     sans spawn-tile) — est désormais **rejeté avant l'endturn** avec la raison exacte
+     (axe / portée / spawn-tile), plus de no-op silencieux ; sinon
      `reason --caster U --ability A [--target T]` diagnostique le no-op (flag
      `TargetingRule` : `TargetIsInRange` / `TargetIsTargetable` / `AlreadyUseThisTurn`
      / `NoBroken`=valide…).
@@ -318,7 +324,10 @@ munitions) — info que gameconfig NE PEUT PAS donner. Les MoW affichent idem.
 ### Après chaque round
 
 `status` → survivants par équipe + winner. **Boucler** jusqu'à une équipe à 0
-(`*** BATTLE FINIE — team gagnante : X ***`). Puis `dispose`.
+(`*** BATTLE FINIE — team gagnante : X ***`). Puis `dispose`. Pour **juger l'abandon
+sans compter HP/unités à la main** (sur-estimer « je gagne » est un piège récurrent) :
+`verdict` → `decided: won|lost|undecided` + score de position (`won` n'est déclaré qu'à
+élimination adverse = prudence asymétrique).
 
 `play --spec '[...]'` fait un round complet en un coup (mes actions + endturn +
 `aiturn` + status + carte suivante) — pratique **uniquement** contre `ia` ; pour
@@ -329,15 +338,22 @@ munitions) — info que gameconfig NE PEUT PAS donner. Les MoW affichent idem.
 ## 4. Lire la carte décision
 
 ```
-=== CARTE DÉCISION — tour T · joueur P (team N) ===
+=== CARTE DÉCISION — mon tour #N · joueur P (team M) ===
+  ⚠ POV ADVERSAIRE — …       <- ligne présente UNIQUEMENT au tour de l'adversaire
        0 1 2 3 4 5 6 ...        <- index colonnes
 r 6   . . a . B . .             <- une ligne par row
 ...
 ```
 
+- **En-tête `mon tour #N`** = compteur de tour FIABLE (monotone, dérivé de l'historique) —
+  s'y fier pour juger la proximité du round-cap. **POV stable** : MES units sont TOUJOURS
+  labellées MOI / l'adversaire ENNEMI, même quand `currentPlayer` bascule sur l'adversaire ;
+  dans ce cas une ligne `⚠ POV ADVERSAIRE` rappelle que les PLANS/ACTIFS affichés sont
+  les SIENS (c'est son tour). (Plus de label MOI/ENNEMI qui s'inverse au flip.)
 - **MAJUSCULE** = mes units, **minuscule** = ennemis (détail en légende).
-- **Glyphes terrain** : `.` grass · `~` water · `#` block · `=` bridge ·
-  `s` swamp · `b` drybush · espace = non jouable.
+- **Glyphes terrain — des SYMBOLES, jamais des lettres** (donc toute lettre sur la carte
+  est une UNITÉ, jamais du terrain) : `.` grass · `~` water · `#` block · `=` bridge ·
+  `%` swamp · `*` drybush · `?` autre · espace = non jouable.
 - **Chiffre `1..N` sur une tile = danger zone** : NB d'ennemis pouvant frapper
   cette tile au prochain tour (move ∪ portée, **LoS incluse** pour ranged).
   `1` = effleuré, `N` = focus → ne pas y laisser un fragile.
@@ -433,6 +449,12 @@ ability / `effect` (label). `aiturn` capture **toute la cascade** du tour advers
   isolé avant d'agir (= mort de Wrask). Le téléport sert à **sauter la traversée (unité
   lente) / infiltrer un flanc-backline**, et **uniquement s'il arrive en GROUPE supporté**
   (ou sur un atterrissage hors de portée). Mécanique complète : wiki §1 `TeleportStrike`.
+- **Actif à move INTERNE (gap-close) : NE PAS pré-bouger le caster.** Certains actifs se
+  déplacent EUX-MÊMES avant de frapper (ex. `VigilanceEternal`/Tyrith) — pré-bouger l'unité
+  consomme son move → l'actif no-op (`TargetIsInRange`, activation gaspillée). Lire la
+  légalité `now` de l'actif (`abilities`/« MES ACTIFS ») AVANT de bouger : si castable `now`,
+  il gère le move lui-même → **ne pas pré-déplacer**. (TF16 — la pré-validation outil ne
+  couvre pas ce cas : c'est une règle de séquencement.)
 - **Anticiper aura/contre** : lire le kit de la cible et des voisins avant
   d'approcher/frapper (cf. §5).
 - **Summons** : les units `genes*` auto-spawn Decoy (HP0) + Neophyte (ranged) —
@@ -478,9 +500,11 @@ ability / `effect` (label). `aiturn` capture **toute la cascade** du tour advers
 - **Move rejeté silencieusement** : `ok=true` mais `mutated=false` + cascade vide
   = tile illégale/inatteignable → traiter comme **illégal**, ne pas réessayer à
   l'identique.
-- **Attaquer HORS PORTÉE = no-op REJETÉ** (cible inchangée) : si je lance `act ability`
-  sans avoir **déplacé l'unité sur la tuile du plan** d'abord, l'attaque ne s'applique
-  pas. ⚠️ l'action n'est **PAS forcément consommée** — vécu : le Terminator est resté
+- **Attaquer/caster HORS PORTÉE** : `play`/`act` **pré-rejettent** désormais ce cas avant
+  l'endturn avec la raison (`TargetIsInRange` pour une cible entité, « hex hors tuiles
+  valides » pour un cast `--to`) — plus de no-op silencieux. Discipline maintenue :
+  déplacer l'unité sur la tuile du plan AVANT l'attaque. ⚠️ une action rejetée n'est
+  **PAS forcément consommée** — vécu : le Terminator est resté
   dans `à activer` après (donc ré-utilisable), contrairement à ce que je croyais.
   Règle sûre : `act move --to <tuile du plan>` PUIS `act ability` ; et après un coup à
   0/cible inchangée, **RE-VÉRIFIER `à activer`** (l'unité est souvent encore dispo —
@@ -516,10 +540,13 @@ ability / `effect` (label). `aiturn` capture **toute la cascade** du tour advers
 | `play --spec '[JSON actions]'` | 1 round complet auto (vs `ia` uniquement) |
 | `guard --climb --spec '[…]'` (ou `--auto hold\|gentle\|aggressive`) `[--cap 5]` | **MOVE-GUARD per-turn** (avant CHAQUE `play`) : clone-sim de ton tour (mes moves → endturn → 1 tour IA adverse, ground truth ; l'IA ne joue jamais ma team) → **NET du tour** (NET<0 = over-extended) + pull-back → **spec recommandé**. Reconstruit le tour courant via `action_log`. Ne touche pas le live. |
 | `status` | Stage + survivants par équipe + winner |
+| `verdict` | Score de position : matériel (HP + unités/équipe), létalité `K!` ce tour, flag `decided: won\|lost\|undecided` à **prudence asymétrique** (`won` seulement à élimination adverse) — juger l'abandon sans compter à la main (TF02) |
 | `dispose` | Libère le runner |
 
 Format `--spec` : `[{"kind":"move","unit":95,"to":[3,2]},`
-`{"kind":"ability","caster":97,"target":89},{"kind":"finish","unit":95}]`.
+`{"kind":"ability","caster":97,"target":89},`
+`{"kind":"normal","unit":95,"target":89},{"kind":"finish","unit":95}]`.
+`normal` = attaque normale, id `NormalAttackType` résolu par l'outil (jamais 69 à deviner, TF18).
 
 ---
 
