@@ -176,6 +176,7 @@ mémoire `project_battle_doctrine`, `feedback_recon_units_first`.
   relocalise à chaque move de Toth (un seul ghost à la fois, invalidé si l'hex devient occupé/impassable,
   cf. H25) → si je contrôlais Toth je le bougerais UNE seule fois pour poser un ghost sûr.
   (cf. gameconfig --ability TimeFlux) `▸ Tac: budget 2ᵉ kill obligatoire ; le finisher permanent = la 2ᵉ mort [n=1, 98002]`
+  `▸ [self-play consensus, seed 80031]` ⚠ **INVERSE actionnable cross-confirmé DEUX sides : un Toth qui TURTLE en place (jamais bougé) = AUCUN ghost sur le board → le revive TimeFlux NE FIRE PAS → kill PERMANENT dès la 1ʳᵉ mort, depuis full PV, SANS 2ᵉ source nécessaire.** Le gate du revive n'est PAS l'overkill (i2 : « works even if Overkilled ») mais la **présence d'un ghost**, créé UNIQUEMENT en bougeant. DOCTRINE : si Toth n'a posé aucun ghost (immobile), le 2ᵉ-kill-budget tombe — un seul burst le défait définitivement ; si je contrôle Toth, ne PAS le laisser immobile sous menace de kill (poser un ghost sûr en bougeant 1×). (cf. gameconfig --ability TimeFlux) [self-play consensus, seed 80031]`
 - **`Terrifying`** : réduit UNIQUEMENT les dégâts de **MÊLÉE** subis. **Bypass fiable = RANGED**
   (vérifié : Thaddeus Blast ranged tue la Terrifying Atlacoya proprement). ⚠️ l'armor-ignore/
   perforant/Direct **NE bypasse PAS** Terrifying (ce n'est pas un mécanisme d'armure) — une mêlée
@@ -1482,6 +1483,12 @@ effondre le reste) · **ANTI** (anti-synergie : ne pas jouer ce combo).
   du tour. Le +dmg FLAT est énorme sur les normales **multi-hit** (Patermine 5× Psychic, Tanksmasha 3× Eviscerate).
   PLAY : WarHowl EN PREMIER → puis délivrer le burst des Characters buffés le MÊME tour (a converti des plans modestes en
   3 K! en UN tour). (cf. gameconfig --ability WarHowl) [n=2, 97002/70009 chained]
+  `▸ [self-play consensus, seed 80053] WarHowl = KEYSTONE d'un alpha 3-kills, cross-confirmé DEUX sides.` Insight
+  non-déductible cross-observé : B (owner) confirme de l'INTÉRIEUR que WarHowl a converti un coup K? en K! GARANTI
+  sur un carry adverse (la diff entre un alpha 2-kills et 3-kills) ; A (theirs) lit indépendamment WarHowl comme la
+  SOURCE-amplificateur qui a permis le 3-kill turn. → le +dmg flat sur un coup near-lethal = la conversion K?→K! la plus
+  fiable du roster Space Wolves ; côté ENNEMI, c'est exactement pourquoi LOCK/tuer Ragnar pre-cast nie le tour-décisif
+  adverse (le buff fait basculer un turn-de-trade en turn-de-wipe). [self-play consensus, seed 80053]
 - `Patermine MightFromBelow (5× Psychic Pierce100 NoBlocking) → lead-burst sur la cible la + armurée` —
   **MIEN-À-ENCHAÎNER (anti-armure)** : 5× Psychic Pierce100 NoBlocking → **ignore armure/block** même sur low roll →
   idéal vs les corps mêlée high-armor. PLAY : **mener** le burst sur la cible la plus dure/blindée, puis **finir avec une K!

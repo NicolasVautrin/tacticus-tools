@@ -1560,3 +1560,142 @@ Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80002_20260
 ### Refs action logs
 
 Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80001_20260625-b7.json` (action_logs des 2 camps + rosters + outcome team1, rejouable via seed 80001) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
+
+---
+
+## seed 80053 — winner=team2 (ts=b8)
+
+> Run self-play oracle-vs-oracle, seed 80053. **team2 (Space Wolves/Khorne/Ultramarines/T'au/AdMech) bat team1 (Blood Angels/Necron/AdMech)** par un alpha **3-kills en UN tour** (T4), amplifié par WarHowl, collapsant un 5v5 -> 5v2. team1 (Blood Angels) avait un wincon structurellement valide (double Psychic NoBlocking anti-armure + Blast AoE + deep-strike) mais l'a perdu par **over-extension** (la mistake dominante des DEUX sides). NB : seed 80053 a un precedent run team1-W (cf. wiki §3bis Ragnar FJ tag « seed 80053 W ») — CE run = team2-W, trajectoire/issue distinctes.
+
+### Rosters
+
+| Equipe | Unites |
+|--------|--------|
+| **team1 (Player A / oracle, player 3) — PERDANT** | bloodMephiston (Mephiston) · bloodDante (Dante) · necroWarden (Makhotep) · adeptMorvenn (Morvenn Vahl) · spaceStormcaller (Njal) |
+| **team2 (Player B / oracle, player 4) — VAINQUEUR** | spaceBlackmane (Ragnar) · worldKharn (Kharn) · ultraCalgar (Calgar) · tauDarkstrider (Darkstrider) · admecManipulus (Actus) |
+
+### Adjudication
+
+- **SOURCE AUTORITATIVE** `rl_duel.py status --state-file data/_sp_80053_A.json` : `*** BATTLE FINIE — winner AUTORITATIF = team2 (battleStatus.winner=4, unitsAlive=10) ***`. (alive_by_team={} post-Finished = decisionView refuse hors-Running, NON probant — c'est le champ natif `battleStatus.winner=4` qui tranche, H59.)
+- A outcome_perceived = **L** ; B outcome_perceived = **W** -> **winner_consensus = true** (A="L" & B="W" -> team2, ET ca MATCHE le winner autoritatif team2).
+- **authoritative_winner = team2.**
+
+### Win-conditions (consensus croise A.theirs ~ B.mine et A.mine ~ B.theirs)
+
+**team2 win-condition (VAINQUEUR)** : alpha melee-burst amplifie par stacking d'enablers de buff — **Kharn KillMaimBurn** (~7.5k multi-hit r2, snowball via BlessingsOfKhorne par kill melee + TheBetrayer free-chain) + **Ragnar charge** (Saga +hits), les MULTIPLICATEURS-source etant **WarHowl** de Ragnar (+1164 dmg/melee + crit + Unstoppable, ne finit PAS le tour) et **RitesOfBattle** aura de Calgar. **WarHowl = la keystone** : a converti le coup de Ragnar sur Njal de K? en K! GARANTI -> a permis un tour-3-kills au lieu de 2.
+-> Accord A.theirs / B.mine = **CONSENSUS** (A a correctement identifie Ragnar WarHowl comme la SOURCE-amplificateur, Kharn comme le snowball-killer, et flagge Actus repair-engine comme INERT (seul Mechanical sur son equipe) + Darkstrider markerlight-engine comme near-self-fed).
+
+**team1 win-condition (PERDANT, jamais realisee)** : triple Psychic NoBlocking (Mephiston FuryOfTheAncients heal-block + Njal Stormcaller — bypass Calgar MkXGravis armure & neutralise Actus repair) + Morvenn Blast AoE + Dante deep-strike charge carry. Enabler a proteger = Mephiston (engine anti-armure + heal-block).
+-> Accord A.mine / B.theirs = **CONSENSUS** (B a lu team1 comme un charge-synergy Blood Angels pilote par Dante LordOfTheHost aura + 2 Psyker-carries anti-armure ; B l'a cut en tuant les carries avant convergence).
+
+### Sequences cles (resume des action logs)
+
+**Player A (team1, perdant) :**
+- Recon SOLIDE : Ragnar=engine WarHowl SOURCE, Kharn=snowball-killer, Actus repair-engine flagge INERT, Darkstrider markerlight near-self-fed -> kill-priority Ragnar > Kharn, demote Actus/Darkstrider. Cette partie etait juste.
+- Dante garde en deep-strike reserve (untargetable) T3-T4 (correct — never solo-deep-strike) -> K! propre sur Darkstrider (3822) une fois l'ennemi committe.
+- T4 : SanctorumMissile sur le cluster ennemi (~10.5k spread : Darkstrider -3708, Kharn -2198, Actus -4184 ; hit direct sur Ragnar BLOQUE a 0 par BeastSlayer block). High-value MAIS a laisse Morvenn forward (4,2) + Makhotep (3,3) + Njal (2,2) dans la reach des bursters melee.
+- T5 : focus-kill de Ragnar (Mephiston + Fury) + Darkstrider (Dante K!) = 2 kills — mais damage-control sur un board deja perdu (3 units deja mortes), Mephiston a mange ~6631 (FJ Ragnar + cluster move-counters) pour finir l'engine point-blank.
+
+**Player B (team2, vainqueur) :**
+- T2 (1er) : avance cohesive rows 5-6 pour casser le double-turtle (round-cap force l'engagement) ; accepte une volee gratuite (~15k spread, surtout sur les supports fragiles Darkstrider/Actus) comme prix d'entree en strike range pour T4.
+- T4 : **WarHowl FIRST** (ne finit pas le tour) -> upgrade le coup sur Njal en K! garanti -> **alpha 3-kills** : Kharn->Makhotep, Ragnar->Njal K!, Darkstrider+Actus->Morvenn. 5v5 -> 5v2 en un tour.
+- TheBetrayer free-chain : apres le kill de Makhotep, auto-2e-attaque ~1142 sur Njal adjacent ; apres le kill de Mephiston, chain ~2819 sur Dante adjacent (4892->2073) gratis.
+- Morvenn et Dante finis depuis tuiles NON-adjacentes/range pour esquiver Explodes (Actus a distance 2 = 0 dmg explosion) et minimiser l'exposition FinalJustice.
+
+### Confrontation : consensus vs divergences
+
+#### Mecaniques de CONSENSUS (rapportees des DEUX sides — cross-observable, recoupees gameconfig)
+
+1. **WarHowl (Ragnar)** : self-buff +1164 dmg + ~36% crit sur la melee normale + Unstoppable, **ne finit PAS le tour** (cast d'abord, puis move+attack). A converti le coup de Ragnar sur Njal de K? en K! GARANTI = la diff entre un alpha 2-kills et 3-kills. A(theirs, « SOURCE buff-engine amplifiant Kharn/Calgar ») + B(mine, « la keystone, K?->K! »). gameconfig verbatim confirme. -> **INSCRIT wiki §5bis** (keystone d'alpha 3-kills, cross-confirme 2 sides).
+2. **KillMaimBurn + TheBetrayer (Kharn)** : KillMaimBurn ~7.5k multi-hit (Pierce adjacent -> 6x Eviscerate meme cible -> Plasma r2) ; apres un kill melee, TheBetrayer auto-2e-attaque chain ~1142 sur Njal puis ~2819 sur Dante adjacents (GRATIS). BlessingsOfKhorne snowball par kill. A(theirs, « ~10k 8-hit burst, snowball + Betrayer counter ») + B(mine, « overkill Makhotep + chain free »). gameconfig confirme. (deja au wiki §2 — pas re-inscrit.)
+3. **MkXGravis (Calgar)** : dmg entrant repasse par l'armure une 2e fois, **seul le Crit bypasse**. Power/Bolter/Blast de A ont fait ~400-430 sur Calgar (lourdement reduit) ; seul le Psychic NoBlocking de A pouvait le damage. A(theirs, threat high « double-armor, Crit-only bypass ») + B(mine, « Calgar MkXGravis anvil bypasse seulement par les Psyker »). gameconfig confirme. (deja au wiki §3 — pas re-inscrit.)
+4. **FuryOfTheAncients / heal-block (Mephiston)** : actif move-triggered, 2x Psychic NoBlocking (cible + 1 adjacent) + heal-block 2 rounds (cible ne peut etre revive/heal/repair). Applique un heal-block sur Calgar. A(mine, « finit Ragnar ce match ») + B(theirs, « heal-block sur mon Calgar, Psychic bypasse MkXGravis »). gameconfig verbatim. (deja au wiki §3bis — pas re-inscrit.)
+5. **Explodes (Morvenn)** : explose a la mort = 25% maxHP Direct aux adjacents (friendly-fire des DEUX cotes). A(mine, « chunke Ragnar ~2385, friendly-fire risk ») + B(theirs, « Ragnar a mange ~2385 car adjacent ; Actus l'a finie a distance 2 = 0 dmg explosion »). gameconfig confirme (radius = adjacent uniquement ; kill au range = 0). (deja au wiki §1 — pas re-inscrit, B re-confirme « kill au range non-adjacent = 0 explosion ».)
+6. **FinalJustice (Ragnar + Dante)** : a la mort (sauf Overkill), 1 attaque normale riposte. Ragnar tue non-overkill a fire une normale dans Mephiston (~995) ; Dante (dernier ennemi) a fire 727+836 sur Kharn adjacent meme tue. A(theirs, Ragnar FJ ~995 + move-counters -> Mephiston 9537->2906) + B(theirs, Dante FJ confirme « fire sur une mort non-overkill »). gameconfig confirme. -> **lecon FJ-chunks-full-HP-carry DEJA au wiki §3bis Ragnar (tag seed 80053)** ; re-confirmee.
+7. **BeastSlayer block (Ragnar)** : a bloque les hits directs de SanctorumMissile entierement (Amount=0, DidBlock=1). A(mine, « missile bloque a 0 »). Cross-coherent avec la nuance block deja au wiki §3bis Tanksmasha (BeastSlayer = clause de block). (candidate single-side cote Ragnar, mais coherent avec la regle existante.)
+
+#### Divergences (entre les deux observateurs)
+
+**AUCUNE divergence mecanique ni d'issue ce run.** Les deux observateurs s'accordent sur le vainqueur (team2), sur toutes les mecaniques cross-observees (WarHowl, Kharn burst+Betrayer, MkXGravis, Fury/heal-block, Explodes, FinalJustice), et sur le failure-mode dominant de team1 (over-extension). Consensus exceptionnellement propre — recoupage gameconfig confirme chaque mecanique.
+
+### Erreurs identifiees (lecons, des deux sides)
+
+- **A (perdant) — ROOT CAUSE (over-extension, failure-mode dominant)** : a avance toute sa ligne 5-units en rows 2-4 (T3-4) DANS la reach de TROIS bursters melee (Kharn ~10k, Ragnar 7-hit, Calgar) et laisse les fragiles (Morvenn 4,2 ; Makhotep 3,3 ; Njal 2,2) exposes -> focus-kill de 3 units en UN tour ennemi (5v5 -> 2v5). A presente des cibles isolees atteignables a une compo focus-fire — exactement ce que la doctrine interdit.
+- **A** : aurait du tenir les fragiles SHALLOW (rows 0-1, screenes par Morvenn BigTarget) et laisser l'ennemi se rapprocher dans une kill-box, puis alpha avec Dante deep-strike + tout le ranged simultanement — au lieu de dribbler du chip en expose.
+- **A** : T5 Mephiston bouge ADJACENT au cluster pour tuer Ragnar -> ~6631 de FJ + move-counters ; tuer un FJ-engine point-blank avec son carry = trop cher. Mais a ce stade plus d'unite expendable.
+- **A** : mis-lu la pression round-cap comme « must engage early » -> avance agressive, alors que la bonne lecture = « engager decisivement depuis une position SUPPORTEE et shallow ». L'horloge ne justifie pas de feeder des fragiles dans la reach melee.
+- **B (vainqueur)** : avance T2 a pousse les supports fragiles (Darkstrider 3822, Actus 5353 post-volee) au front de l'arc de tir ennemi -> ont absorbe toute la volee ; les garder une rangee plus en arriere (derriere les anvils FJ) aurait preserve plus de PV (Darkstrider partiellement perdu a cause de cette sur-exposition early).
+- **B** : a laisse Ragnar a (3,3) adjacent a Morvenn quand Actus l'a finie -> Ragnar a mange ~2385 Explodes (6765->4380) -> sa moindre HP a contribue a son focus-kill au tour ennemi ; une formation plus propre aurait sorti la melee de l'adjacence de Morvenn avant sa mort.
+- **B** : a committe Ragnar ET le fragile Darkstrider profond en rows 3-4 T4 ; les deux sont morts au tour ennemi. Le trade 3-pour-2 etait clairement gagnant (5v2), mais une formation plus serree (mener avec Calgar/Kharn tanky, garder Darkstrider ranged plus en arriere) aurait pu fermer en perdant 0-1 unite au lieu de 2.
+
+### Refs action logs
+
+Action logs complets de CE run archives dans `data/selfplay-logs/sp_80053_b8.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 80053) puis state-files supprimes post-teardown. Sequences decisives (WarHowl-first -> alpha 3-kills T4) resumees ci-dessus.
+
+---
+
+## seed 80031 — winner=team2 (ts=b8)
+
+### Rosters
+
+| Équipe | Unités |
+|--------|--------|
+| **team1 (Player A / oracle, player 3) — PERDANT** | thousTerminator (Toth) · spaceWulfen (Ulf) · custoBladeChampion (Kariyan) · orksKillaKan (Snappawrecka) · admecDestroyer (Sy-gex) |
+| **team2 (Player B / oracle, player 4) — VAINQUEUR** | emperNoiseMarine (Shiron) · genesBiophagus (Hollan) · tauMarksman (Sho'syl) · worldExecutions (Tarvakh) · admecManipulus (Actus) |
+
+### Adjudication
+
+- A outcome_perceived = **L** ; B outcome_perceived = **W** → **winner_consensus = true** (A="L" & B="W" → team2).
+- `rl_duel.py status --state-file data/_sp_80031_A.json` : `*** BATTLE FINIE — winner AUTORITATIF = team2 (battleStatus.winner=4, unitsAlive=15) ***` (champ natif, lisible post-Finished — H59 ; `alive_by_team={}` VIDE = normal post-Running, NON un draw).
+- **authoritative_winner = team2.** Issue formelle confirmée par le champ winner natif ET les deux narratifs (B a fini avec ses engines + carry intacts ; A a perdu son seul peel out-trade Sy-gex puis s'est fait out-focus).
+
+### Win-conditions (consensus croisé A.theirs ≈ B.mine et A.mine ≈ B.theirs)
+
+**team2 win-condition (VAINQUEUR)** : DOUBLE moteur sustain/summon. SOURCE = genesBiophagus (Hollan) — Healer + TwistedScience (pump permanent +PV/+maxHP des alliés healés, summons inclus) + AberrantHypermorph summon (corps-écran 7477 PV) + Ambush revive ; amplifié par admecManipulus (Actus) — Mechanic repair + GalvanicField (réparé fait une attaque gratuite immédiate). Pression avant = worldExecutions (Tarvakh) BlessingsOfKhorne snowball mêlée + MurderousSwing AoE, ET surtout tauMarksman (Sho'syl) SeekerMissile delayed-nuke qui a chunké le seul peel out-trade adverse (Sy-gex) 9537->274 pour zéro exposition.
+→ Accord A.theirs / B.mine = **CONSENSUS** (A a correctement identifié Hollan+Actus comme les engines à cut + Sho'syl/Tarvakh comme la pression avant ; B s'auto-lit pareil, en notant que SES amplifiers Hollan/Actus furent largement INERTES — Actus sans 2e Mechanical à galvaniser, TwistedScience jamais castée safely — et qu'il a gagné sur le TEMPO ranged + les corps-summons jetables, pas sur le sustain).
+
+**team1 win-condition (PERDANT, jamais réalisée)** : durable-brick attrition. SOURCE = les 2 ranged out-trade (Snappawrecka DakkaDakka r3 + Sy-gex HeavyGravCannon r3 bonus vs leurs Mechanicals) + Kariyan anti-summon MartialKatah, front-line Resilient/revive (Kariyan + Toth) absorbant le focus. FAILLE = ZÉRO team-sustain : une fois Sy-gex (le seul ranged qui out-trade ET le seul peel anti-engine) mort au Seeker, les bricks n'avaient plus de peel et se sont fait out-focus par un roster qui out-sustain.
+→ Accord A.mine / B.theirs = **CONSENSUS** (B a correctement lu le mur durable ancré sur l'UNIQUE reaction-engine Sy-gex Overwatch + HeavyGravCannon, sans 2e Mechanical bénéficiaire — et a ciblé Sy-gex EN PREMIER via le Seeker).
+
+### Séquences clés (résumé des action logs — détail archivé dans data/selfplay-logs/sp_80031_b8.json)
+
+**Player B (team2, VAINQUEUR) :**
+- T1 : Sho'syl SeekerMissile markerlight sur le turret Overwatch Sy-gex depuis une tuile écranée + summon Aberrant (corps-écran 7477 gratuit). Le Seeker landa pour un chunk massif (Sy-gex 9537->274) = neutralise le SEUL reaction-engine adverse pour zéro coût héros, setup d'un kill cheap. **Meilleur play du match.**
+- T3 : tué le Sy-gex à 274 avec un corps DURABLE Flying low-value (Actus, amplifier inerte) au lieu d'un héros + chip Snappawrecka avec l'Aberrant EXPENDABLE ; puis Actus FINIT Snappawrecka depuis une tuile telle que son Explodes (2259 Direct) frappe LEUR Ulf + Kariyan, pas les siens (free 2-target chip sur team1).
+- T5-6 : Tarvakh MurderousSwing dans le cluster → floor Resilient Kariyan à 1 + chunk Ulf à 475 en un AoE ; puis kill Ulf par OVERKILL via un hit drone ranged (FinalJustice nié, WasOverkill=1), puis Kariyan(1) et Toth finis au range. A utilisé l'horloge round-cap pour forcer l'engagement proactif plutôt qu'un double-turtle.
+
+**Player A (team1, PERDANT) :**
+- R3 : avance cohésive flanc-gauche danger<=2 + Sy-gex sur Overwatch (départ sain, zéro cible isolée) ; anti-bait HOLD quand B a avancé Tarvakh+Tau en bait (correct en principe) — MAIS a laissé Sy-gex passivement DANS la portée Seeker, fatal.
+- Focus-kill de l'Aberrant à 2 ranged (Snappawrecka+Sy-gex) au lieu de diver Kariyan profond (carry safe) ; 1re kill exact-HP = resurrection Ambush, 2e kill = overkill permanent.
+- R5 conversion désespérée : tué Hollan (Ulf 475 via FinalJustice) + Actus + Drone en un tour en dépensant ses units mourantes (Kariyan 1HP sur le Drone) — valeur max extraite de corps condamnés, engines égalisés mais TROP TARD.
+
+### Confrontation : consensus vs divergences
+
+#### Mécaniques de CONSENSUS (rapportées des DEUX sides — cross-observable, recoupées gameconfig/i2)
+
+1. **SeekerMissileFrequencyLock (Sho'syl)** : Markerlight T → missile fire au DÉBUT du prochain tour de Sho'syl s'il survit ; **undodgeable** (homing, pas de falloff par-hex), annulable SEULEMENT en tuant le caster avant le tir. A(theirs, 9263 sur Sy-gex 9537->274) + B(mine, ~9k chunk sur le turret). gameconfig verbatim (« At the beginning of Sho'syl's next turn, if he is still in play, the target is hit »). NB : le 9263 réel >> nominal 5456-6184 = amplifié RangedSpecialist/HeavyWeapon (numérique/match-spécifique → JOURNAL, pas wiki ; déjà au wiki §3bis « kill garanti undodgeable »). → friction outil TF28 (pas de magnitude incoming surfacée).
+2. **TimeFlux (Toth)** : revive 1x/battle GATÉ sur la présence d'un time-ghost (créé en bougeant). A(mine, revive @2401 via ghost) + B(theirs, « Toth never moved enough to leave a usable ghost → no revive fired → permanent kill from full »). gameconfig verbatim (« if his time ghost is on the battlefield then he revives »). → **INSCRIT wiki §1** (inverse actionnable : Toth immobile = pas de ghost = kill permanent sans 2e source).
+3. **FinalJustice (Ulf)** : death-riposte (1 normale à la mort) NIÉE par OVERKILL (>2x PV restants). A(mine, fire même stunned/AoE sauf OVERKILL) + B(theirs, drone overkill sur Ulf 475 → IsActingBeforeDeath=0, pas de riposte). gameconfig verbatim (« unless Overkilled »). (déjà au wiki §1, n>1.)
+4. **SavageKiller (Ulf)** : réaction 5-hit Power AVANT l'ability de l'ennemi, sur (a) summon move/spawn adjacent OU (b) ennemi adjacent qui tente un ACTIF. A(mine, anti-summon/anti-caster adjacent) + B(theirs, a mangé un counter 5294 en castant MurderousSwing adjacent à Ulf). gameconfig verbatim (« deals his Damage before that unit's ability is activated »). (déjà au wiki §5 + loophole normale-from-adjacent inscrit seed 80031 b6/b7.)
+5. **Explodes (Snappawrecka)** : à la mort, 25% maxHP Direct à TOUS les adjacents (friendly-fire). A(mine, risque friendly près de mon cluster) + B(theirs, killed Snappawrecka adjacent à SON cluster → 2259 sur Ulf+Kariyan = free chip team1). gameconfig verbatim (explodesDmg:25). (déjà au wiki §1, exploit kill-at-range-into-enemy-cluster.)
+6. **Ambush (Hollan / genesSmnAberrant)** : 1re mort → decoy ; resurrect FULL HP au début du prochain tour si decoy ami survit ; kill EXACT-HP déclenche le revive, OVERKILL le nie ; decoys Steppable (clearables). A(theirs, exact kill de l'Aberrant → resurrection, overkill next = permanent ; Hollan revive aussi sur exact-HP) + B(mine, Ambush revive cité comme part de l'engine). gameconfig verbatim (trait). (déjà au wiki §1 + §3bis, n>1.)
+7. **GalvanicField / Mechanic (Actus)** : répare un allié → le réparé fait une attaque gratuite immédiate (<=4365). A(theirs, force-multiplier free-attack) + B(mine, mais largement INERTE = pas de 2e Mechanical à galvaniser, seul self-repair). gameconfig verbatim. (déjà au wiki §3 Actus ; INERTE-sans-2e-Mechanical = nuance déjà documentée, cf. Aleph-Null/§3.)
+
+#### Divergences (entre les deux observateurs)
+
+**AUCUNE divergence substantielle.** Match à TRÈS HAUTE CONCORDANCE : les deux observateurs s'accordent sur le vainqueur (team2), sur les win-conditions croisées (A.theirs ≈ B.mine = dual-engine sustain/summon ancré Hollan+Actus + pression Sho'syl/Tarvakh ; A.mine ≈ B.theirs = durable-brick ancré sur l'UNIQUE reaction-engine Sy-gex), et sur les 7 mécaniques cross-observées ci-dessus. Seule nuance d'interprétation (NON une contradiction de fait) : B s'auto-lit comme ayant gagné sur le TEMPO ranged + corps-summons jetables avec ses amplifiers (Hollan TwistedScience / Actus GalvanicField) **largement INERTES**, tandis qu'A surpondère le sustain comme LA raison de la défaite ; les deux conviennent que le pivot mécanique fut le Seeker T1 sur Sy-gex (suppression du seul peel out-trade) — lecture d'exécution convergente, pas une H.
+
+### Erreurs identifiées (leçons, des deux sides)
+
+- **A (perdant, FATAL)** : a HOLD Sy-gex passivement Markerlighté DANS la portée Seeker en projetant le hit comme ~5800 « survivable » → 9263 réel → Sy-gex à 274 → mort = perte de son UNIQUE peel (Overwatch + HeavyGravCannon out-trade) pour rien. Aurait dû tuer le Tau ce tour (annule le Seeker), OU spend Sy-gex offensivement (SentinelDirectives), OU le retirer hors-range avant la résolution. → friction TF28 (pas de magnitude incoming surfacée).
+- **A** : structural — a amené un roster brick SANS aucun team-sustain dans un matchup dual-engine sustain + sniper (hard-counter connu par doctrine). Les bricks n'avaient plus de peel une fois Sy-gex mort ; la loss était largement décidée au niveau roster, mais le misplay Sy-gex l'a accélérée d'un tour plein.
+- **A** : sur-respect du bait — le double-hold R3 a cédé du tempo à une compo qui grind plus vite qu'il ne trade ; contre un sustain SANS réponse, la passivité = mort lente, il fallait committer le peel ranged sur un engine plus tôt.
+- **A** (défendable) : n'a pas détruit les decoys Aberrant/Hollan (Steppable) pour nier Ambush — mais les atteindre exigeait de suicider Kariyan profond → omission défendable, pas une erreur claire.
+- **B (vainqueur)** : a casté MurderousSwing (un ACTIF) ADJACENT à Ulf → SavageKiller 5294 self-damage (Tarvakh 9537->4243). SavageKiller reconnu au recon mais non anticipé — aurait dû frapper Ulf en normale/range, ou rester non-adjacent.
+- **B** : a gaspillé une activation Tarvakh full late-game (act-ability après un move qui avait silencieusement échoué hors movable set → attaque out-of-range no-op qui A CONSOMMÉ l'action — TF16). Doctrine : VÉRIFIER que le move a atterri avant d'attaquer.
+- **B** : Shiron ExcruciatingFrequencies over-extended deep + ligne mal-visée depuis (3,5) → a touché 1 seul ennemi (Kariyan 2799) au lieu du triple-line col-2 visé → carry ranged stranded pour un chip single-target.
+- **B** : a avancé Sho'syl à (5,6) T1 pour le Seeker → mis Sho'syl (et Tarvakh) dans la reach 2-tours adverse (a dû consolider un tour) ; le payoff Seeker le justifiait mais une tuile Seeker plus shallow eût été plus propre.
+
+### Refs action logs
+
+Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80031_b8.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 80031) puis state-files supprimés post-teardown. Séquences décisives (Seeker T1 sur Sy-gex → suppression du peel → out-focus du mur durable) résumées ci-dessus.
