@@ -697,27 +697,70 @@ def _ability_reason(sid: int, rid: int, action: dict) -> str:
     return (" | RAISON [" + " ; ".join(bits) + "]") if bits else ""
 
 
+def _tile_set(entries) -> set:
+    """{(col,row)} des cibles-TUILE d'une entrée abilityTargets (each t['tile']={col,row})."""
+    out = set()
+    for t in (entries or []):
+        ti = t.get("tile") or {}
+        if ti.get("col") is not None:
+            out.add((ti.get("col"), ti.get("row")))
+    return out
+
+
 def _ability_prevalidate(sid: int, rid: int, action: dict) -> str:
-    """Pré-validation H55 (volet ability, refinement 2) : AVANT applyAction, vérifie
-    via `abilityReason` que la cible est LÉGALE depuis la position COURANTE. Renvoie
-    une raison structurée si le cast est ILLÉGAL ce tour sans bouger — sinon ''. Comble
-    le no-op « event émis mais 0 effet » (hors portée / untargetable) que le filet
-    réactif (eventCount==0) ne voit PAS. Ne pré-valide que les casts CIBLÉS (targetId) ;
-    laisse passer si abilityReason indispo (fallback réactif)."""
-    if action.get("targetId") is None:
+    """Pré-validation (H55 + TF16) : AVANT applyAction, vérifie que le cast est LÉGAL
+    depuis la position COURANTE. Renvoie une raison structurée si ILLÉGAL ce tour sans
+    bouger, sinon ''. DEUX chemins selon le type de cible :
+      - cible ENTITÉ (targetId) → RPC `abilityReason` (GetInvalidTargetReason, IEntity).
+      - cible TILE (`to` hex : bombard / ligne à axe fixe / summon / displace) → RPC
+        `abilityTargets` (énumère les TUILES valides now/+move). `abilityReason` ne gère
+        QUE les entités → SANS ce volet, une ability hex hors-axe/hors-portée/sans
+        spawn-tile no-op SILENCIEUSEMENT (action consommée, activation gaspillée — TF16).
+    Laisse passer (fallback réactif) si la query est indispo."""
+    caster = action.get("casterId")
+    ab = action.get("abilityType")
+    tgt = action.get("targetId")
+    to = action.get("to")
+    if tgt is not None:
+        body = {"runnerId": rid, "casterId": caster, "abilityType": ab, "targetId": tgt}
+        r = (_rpc(sid, "abilityReason", [body], timeout=60).get("result") or {})
+        if not r.get("ok"):
+            return ""
+        tr = r.get("targetReason") or {}
+        if tr.get("reasons"):
+            return ("cast ILLÉGAL ce tour sans bouger -> " + ",".join(tr["reasons"])
+                    + " ; déplace d'abord ? cf. `abilities` (now/+move)")
+        rc = tr.get("ruleClass")
+        if rc and rc != "NoBrokenTargetingRule":
+            return f"cast ILLÉGAL -> {rc} (cf. `abilities`)"
         return ""
-    body = {"runnerId": rid, "casterId": action.get("casterId"),
-            "abilityType": action.get("abilityType"), "targetId": action["targetId"]}
-    r = (_rpc(sid, "abilityReason", [body], timeout=60).get("result") or {})
-    if not r.get("ok"):
-        return ""
-    tr = r.get("targetReason") or {}
-    if tr.get("reasons"):
-        return ("cast ILLÉGAL ce tour sans bouger -> " + ",".join(tr["reasons"])
-                + " ; déplace d'abord ? cf. `abilities` (now/+move)")
-    rc = tr.get("ruleClass")
-    if rc and rc != "NoBrokenTargetingRule":
-        return f"cast ILLÉGAL -> {rc} (cf. `abilities`)"
+    if to is not None and caster is not None and ab is not None:
+        # TF16 : ability TILE-targetée — vérifie la tuile demandée contre le set de
+        # tuiles valides d'abilityTargets (now = sans bouger / +move = après déplacement).
+        col, row = to.get("col"), to.get("row")
+        r = (_rpc(sid, "abilityTargets",
+                  [{"runnerId": rid, "unitId": caster, "abilityType": ab}],
+                  timeout=120).get("result") or {})
+        if not r.get("ok") or not r.get("fromHereResolved"):
+            return ""  # fallback réactif
+        for u in (r.get("units") or []):
+            if u.get("unitId") != caster:
+                continue
+            for abent in (u.get("abilities") or []):
+                if abent.get("abilityId") != ab:
+                    continue
+                here, allt = _tile_set(abent.get("fromHere")), _tile_set(abent.get("targets"))
+                want = (col, row)
+                if want in here:
+                    return ""  # légal now
+                if want in allt:
+                    return (f"hex ({col},{row}) atteignable seulement +move (pas castable "
+                            f"sans bouger) -> déplace u{caster} d'abord")
+                cand = sorted(here or allt)[:6]
+                return (f"hex ({col},{row}) HORS des tuiles valides de cette ability "
+                        f"(axe de ligne / portée / spawn-tile non libre) -> "
+                        f"tuiles légales: {cand or '∅ (aucune ce tour)'}")
+            break
     return ""
 
 
@@ -756,6 +799,20 @@ def _action_failed(r: dict, kind: str, sid: int | None = None,
                 msg += _ability_reason(sid, rid, action)
             return msg
     return None
+
+
+def _normal_ability_map(res: dict) -> dict:
+    """{unitId: id de l'attaque NORMALE concrète} depuis un decisionView (abilities
+    kind='normal'). TF18 : l'attaque normale est un ActiveAbilityType PAR UNITÉ (id 69
+    n'est PAS universel) → résoudre `{"kind":"normal",...}` sans deviner l'id ni se
+    fier au défaut (qui peut résoudre vers un ACTIF)."""
+    out: dict = {}
+    for u in (res.get("units") or []):
+        for ab in (u.get("abilities") or []):
+            if ab.get("kind") == "normal":
+                out[u.get("id")] = ab.get("id")
+                break
+    return out
 
 
 def _ability_action(ac: dict, plan_ab: dict) -> tuple:
@@ -808,6 +865,8 @@ def cmd_play(sid: int, a) -> int:
     puis ré-affiche la carte. spec = liste d'actions ; FORMATS EXACTS :
       {"kind":"move","unit":95,"to":[3,2]}   <- 'to' = ARRAY [col,row], jamais "3,2"
       {"kind":"ability","caster":97,"target":89[,"ability":N]}  (ability auto-résolu)
+      {"kind":"normal","unit":95,"target":89}  <- attaque NORMALE, id résolu par l'outil
+                                                   (TF18 ; ne JAMAIS deviner 69)
       {"kind":"finish","unit":95}
     GARDE anti-no-op : si une action échoue / ne mute pas l'état, on STOPPE
     AVANT l'endturn (échec BRUYANT, l'IA ne joue pas) -> corrige et relance."""
@@ -826,6 +885,10 @@ def cmd_play(sid: int, a) -> int:
     for p in (res.get("attackPlans") or []):
         for ev in (p.get("evals") or []):
             plan_ab[(p["unitId"], ev["targetId"])] = ev.get("abilityId")
+    # TF18 : id de l'attaque NORMALE concrète par unité (NormalAttackType, ≠ 69
+    # universel) → permet `{"kind":"normal","unit":N,"target":T}` sans deviner l'id
+    # ni risquer que le défaut résolve vers un ACTIF. Lu depuis l'ability kind="normal".
+    normal_ab = _normal_ability_map(res)
     # H55 — pré-validation des moves : un move hors-portée/bloqué/déjà-agi est un
     # NO-OP SILENCIEUX côté moteur (ok=true, mutated=false, AUCUNE raison). On calcule
     # le movable set (1 RPC/tour, seulement s'il y a un move dans le spec) pour rejeter
@@ -865,15 +928,35 @@ def cmd_play(sid: int, a) -> int:
             pv = _ability_prevalidate(sid, rid, action)
             if pv:
                 aborted = f"{label} -> {pv}"; break
+        elif k == "normal":
+            caster = ac.get("unit")
+            nid = normal_ab.get(caster)
+            if nid is None:
+                aborted = (f"normal u{caster}: attaque normale non résolue (pas d'ability "
+                           f"kind=normal — u{caster} contrôlée/vivante ?)"); break
+            if ac.get("target") is None and ac.get("to") is None:
+                aborted = (f"normal u{caster}: passe 'target':<id ennemi> (ou 'to':[col,row]) "
+                           f"— une attaque normale a besoin d'une cible"); break
+            action, _lbl, err = _ability_action(
+                {"caster": caster, "target": ac.get("target"),
+                 "to": ac.get("to"), "ability": nid}, plan_ab)
+            if err:
+                aborted = err; break
+            label = (f"NORMAL({nid}) u{caster}->u{ac.get('target')}"
+                     if ac.get("target") is not None
+                     else f"NORMAL({nid}) u{caster}->hex{tuple(ac.get('to'))}")
+            pv = _ability_prevalidate(sid, rid, action)
+            if pv:
+                aborted = f"{label} -> {pv}"; break
         elif k == "finish":
             action = {"kind": "finish", "unitId": ac["unit"]}
             label = f"FINISH u{ac['unit']}"
         else:
-            aborted = f"kind inconnu: {k!r} (attendu move|ability|finish)"; break
+            aborted = f"kind inconnu: {k!r} (attendu move|ability|normal|finish)"; break
         r = (_rpc(sid, "applyAction", [{"runnerId": rid, "action": action}],
                   timeout=60).get("result") or {})
         _print_apply(label, r, my_ids)
-        fail = _action_failed(r, k, sid, rid, action)
+        fail = _action_failed(r, "ability" if k == "normal" else k, sid, rid, action)
         if fail:
             aborted = f"{label} -> {fail}"; break
         # action RÉUSSIE -> log live (pour replay-to-state du guard). Per-action +
@@ -1098,6 +1181,7 @@ def _apply_spec_to(sid: int, rid: int, spec: list) -> tuple:
     for p in (res.get("attackPlans") or []):
         for ev in (p.get("evals") or []):
             plan_ab[(p["unitId"], ev["targetId"])] = ev.get("abilityId")
+    normal_ab = _normal_ability_map(res)  # TF18 : id normale concrète par unité
     applied = 0
     for ac in spec:
         k = ac.get("kind")
@@ -1115,13 +1199,22 @@ def _apply_spec_to(sid: int, rid: int, spec: list) -> tuple:
             action, _label, err = _ability_action(ac, plan_ab)
             if err:
                 return applied, err
+        elif k == "normal":  # TF18 : attaque normale, id résolu (≠ 69 universel)
+            nid = normal_ab.get(ac.get("unit"))
+            if nid is None:
+                return applied, f"normal u{ac.get('unit')}: attaque normale non résolue"
+            action, _label, err = _ability_action(
+                {"caster": ac.get("unit"), "target": ac.get("target"),
+                 "to": ac.get("to"), "ability": nid}, plan_ab)
+            if err:
+                return applied, err
         elif k == "finish":
             action = {"kind": "finish", "unitId": ac["unit"]}
         else:
             return applied, f"kind inconnu: {k!r}"
         r = (_rpc(sid, "applyAction", [{"runnerId": rid, "action": action}],
                   timeout=60).get("result") or {})
-        fail = _action_failed(r, k, sid, rid, action)
+        fail = _action_failed(r, "ability" if k == "normal" else k, sid, rid, action)
         if fail:
             return applied, f"{k} -> {fail}"
         applied += 1
@@ -1573,12 +1666,71 @@ def cmd_rollout(sid: int, a) -> int:
     return 0
 
 
+def cmd_verdict(sid: int, a) -> int:
+    """TF02 — VERDICT de position : matériel (HP + unités par équipe) + létalité estimée
+    CE TOUR (cibles K! dans mes plans) + un flag `decided: won|lost|undecided` à PRUDENCE
+    ASYMÉTRIQUE — 'won' n'est déclaré qu'à élimination adverse (contre la sur-estimation
+    « je gagne » de TF02) ; 'lost' peut s'avancer en early-warning. Aide à décider
+    l'abandon sans compter HP/unités à la main chaque tour."""
+    st = _load_state()
+    rid, my_team = st["runnerId"], st.get("myTeam")
+    bs = (_rpc(sid, "battleStatus", [{"runnerId": rid}], timeout=10).get("result") or {})
+    if bs.get("stage") == 2:  # match fini → winner autoritatif
+        w = bs.get("winner")
+        wteam = {3: 1, 4: 2}.get(w)
+        flag = "won" if (my_team is not None and wteam == my_team) else "lost"
+        tag = "no-winner (double-wipe round-cap)" if w in (0, None) else f"team{wteam}"
+        print(f"[verdict] decided={flag} · BATTLE FINIE — winner autoritatif={tag}")
+        return 0
+    res = _decision(sid, rid)
+    units = [u for u in (res.get("units") or []) if u.get("alive")]
+    if not units:
+        print("[verdict] decided=undecided · aucune unité vivante lisible (état douteux)")
+        return 0
+    if my_team is None:
+        my_team = next((u.get("team") for u in units if u.get("ctrl")), None)
+    teams: dict = {}
+    for u in units:
+        d = teams.setdefault(u.get("team"), {"n": 0, "hp": 0})
+        d["n"] += 1
+        d["hp"] += u.get("hp") or 0
+    enemy_team = next((t for t in teams if t != my_team), None)
+    mine = teams.get(my_team, {"n": 0, "hp": 0})
+    enemy = teams.get(enemy_team, {"n": 0, "hp": 0})
+    # létalité estimée CE TOUR = cibles ennemies distinctes avec un plan K! (killSure)
+    lethal = {ev.get("targetId")
+              for p in (res.get("attackPlans") or [])
+              for ev in (p.get("evals") or []) if ev.get("killSure")}
+    lethal_now = len(lethal)
+    # score matériel [-1..+1] : 60% HP + 40% nombre d'unités
+    tot_hp = (mine["hp"] + enemy["hp"]) or 1
+    tot_n = (mine["n"] + enemy["n"]) or 1
+    score = 0.6 * (mine["hp"] - enemy["hp"]) / tot_hp + 0.4 * (mine["n"] - enemy["n"]) / tot_n
+    # flag à PRUDENCE ASYMÉTRIQUE
+    if enemy["n"] == 0:
+        flag = "won"
+    elif mine["n"] == 0:
+        flag = "lost"
+    elif enemy["n"] - mine["n"] >= 2 and enemy["hp"] >= 1.8 * max(mine["hp"], 1):
+        flag = "lost"   # nettement derrière → early-warning légitime (asymétrie)
+    else:
+        flag = "undecided"
+    lean = "je mène" if score > 0.15 else ("je suis mené" if score < -0.15 else "serré")
+    print(f"[verdict] decided={flag} · score={score:+.2f} ({lean}) · "
+          f"léthal-ce-tour={lethal_now} cible(s) K!")
+    print(f"  team{my_team} (MOI) : {mine['n']} units {mine['hp']} HP  |  "
+          f"team{enemy_team} (ENN) : {enemy['n']} units {enemy['hp']} HP")
+    print("  NB: 'won' uniquement à élimination adverse (prudence asymétrique vs la "
+          "sur-estimation TF02) ; 'undecided' → juge par score/léthal, ne PAS abandonner.")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["build", "view", "act", "aiturn",
                                     "status", "dispose", "play", "guard",
                                     "rollout", "attach", "moves", "abilities",
-                                    "reason"])
+                                    "reason", "verdict"])
     ap.add_argument("kind", nargs="?", default=None,
                     help="pour act: move|ability|finish|endturn")
     ap.add_argument("--spec", default=None,
@@ -1655,7 +1807,7 @@ def main(argv: list[str]) -> int:
                 "dispose": cmd_dispose, "play": cmd_play, "guard": cmd_guard,
                 "rollout": cmd_rollout, "attach": cmd_attach,
                 "moves": cmd_moves, "abilities": cmd_abilities,
-                "reason": cmd_reason}
+                "reason": cmd_reason, "verdict": cmd_verdict}
     return dispatch[a.cmd](sid, a)
 
 

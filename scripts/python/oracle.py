@@ -261,7 +261,7 @@ def build_card(view: dict, bd: Board, abil: dict | None = None,
             else:
                 t = bd.tile(col, row)
                 tid = (t.get("tileId") or "?") if t else "?"
-                cells.append(_GLYPH.get(tid, tid[0].lower()))
+                cells.append(_GLYPH.get(tid, "?"))  # TF20 : fallback non-lettre (pas de collision unité)
         lines.append(f"r{row:2d}   " + " ".join(cells))
 
     # Légende units (+ MoW : clé "casterId" présente → ability-only).
@@ -404,8 +404,8 @@ def build_card(view: dict, bd: Board, abil: dict | None = None,
         "\n".join(lines),
         f"  chiffre 1-{max(max_int, 1)} = NB d'ennemis menaçant la tile "
         f"(danger, LoS incluse ; {len(intensity)} tiles, max {max_int}) · "
-        f"terrain: . grass ~water #block =bridge s swamp b drybush · "
-        f"MAJUSCULE=moi minuscule=ennemi",
+        f"terrain: . grass ~water #block =bridge %swamp *drybush ?autre · "
+        f"MAJUSCULE=moi minuscule=ennemi (lettres = UNITÉS uniquement)",
         "\n".join(leg),
         *(["\n".join(mow_lines)] if mow_lines else []),
         *(["\n".join(act_lines)] if act_lines else []),

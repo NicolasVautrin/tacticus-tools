@@ -21,11 +21,18 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   pour les abilities hex/AoE/MoW. Re-confirme le besoin d'un canal `to`:[c,r] explicite pour les MoW/hex.
 - vu : G02, G03, seed 80001.
 
-## TF02 — Pas de détecteur « match décidé » pour l'abandon — open — recurrence:3
+## TF02 — Pas de détecteur « match décidé » pour l'abandon — done — recurrence:3
 - **friction** : décider gagné/perdu d'avance se fait à la main (compter HP/unités/win-condition) à
   chaque tour. Sujet à erreur (j'ai sur-estimé 2× « je gagne »).
 - **amélioration** : helper `rl_duel.py verdict` → renvoie un score de position (matériel + reach sur la
   win-condition adverse + léthal estimé) + un flag `decided: won|lost|undecided` (prudence asymétrique).
+- **fix livré** : commande `rl_duel.py verdict` — matériel par équipe (HP + nb d'unités), létalité estimée CE TOUR
+  (cibles K! distinctes des plans), score de position [-1..+1] (60% HP + 40% unités), flag `decided:
+  won|lost|undecided` à PRUDENCE ASYMÉTRIQUE (`won` SEULEMENT à élimination adverse — contre la sur-estimation ;
+  `lost` peut s'avancer en early-warning si nettement derrière ; sinon `undecided` + score). `battleStatus`
+  autoritatif si match fini. Validé live (5v5 frais → `undecided · score=-0.02 · léthal=0`). RÉSIDUEL : la « reach
+  sur la win-condition adverse » n'est pas modélisée (mécanique non exposée simplement) — matériel + léthal-ce-tour
+  couvre le cœur du besoin (éviter le mis-juge d'abandon).
 - vu : G01, G02, G03.
 
 ## TF03 — `decisionView` bascule de POV (MOI/ENNEMI) quand currentPlayer=4 — done — recurrence:4
@@ -46,7 +53,7 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   `view` (cmd_view) et la carte post-round de `play`. Validé live (header `joueur 3 (team 1)`, labels stables).
 - vu : G01, seed 80072, seed 80031, seed 80053.
 
-## TF04 — Plans = dmg MAX-roll NON mitigé + label `K!` optimiste (ignore Resilient + réductions + buffs défensifs) — open — recurrence:6
+## TF04 — Plans = dmg MAX-roll NON mitigé + label `K!` optimiste (ignore Resilient + réductions + buffs défensifs) — done — recurrence:6
 - **friction** : `K!` (« kill sûr ») ne modélise pas Resilient/Terrifying/block → un coup « K! » laisse
   la cible à 1 PV (Azkor). **n+1 (80072)** : au-delà du label, la RANGE dmg des plans est un **MAX-roll NON
   mitigé** — `Doombolt [2409-3613]` a dealt **1343** réel (mitigé par le −50% d'Aun'Shi + block) → l'agent
@@ -64,6 +71,14 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   côté caches AI) OU au minimum **tagger la range comme MAX non-mitigé** + une **kill-proba** ; intégrer
   Resilient/Terrifying/Daemon-block/**TerminatorArmour 1ʳᵉ-hit** dans la prédiction (dégrader `K!`→`K?` si trait
   défensif non modélisé).
+- **fix livré** : (re-vérifié contre le code) le claim « MAX-roll NON mitigé » est **RÉFUTÉ** — la range des
+  plans EST DÉJÀ la prédiction MITIGÉE du moteur (`AccurateHealthDamage.Min/Max` @0x60/0x64, post armure + caps +
+  `ApplyTraitDamageLimitsToDamage` Resilient/Impervious ; projection.ts:181-184), pas un max-roll brut.
+  `kill`/`killSure` lisent les seuils EFFECTIFS `get_WillBeKill`/`get_MightBeKill` (@0x24/0x28, post floor-Resilient
+  + overkill), pas un `dmg≥hp` naïf (commit 256563c). Les effets de réduction-TRIGGER que la prédiction n'évalue PAS
+  (TerminatorArmour / `*HitReduction` / …) → tag `↓` + dégradation `K!`→`K?` (commit 2503e95, TF04 predOptimistic).
+  RÉSIDUEL mineur : la range reste optimiste pour ces cibles-`↓` (le vrai chiffre n'existe nulle part dans le struct)
+  → c'est précisément ce que le `↓` signale.
 - vu : G01, seed 80072, seed 80020, seed 80085, seed 80004.
 
 ## TF05 — `jq` natif absent (Windows) — done(contournement) — recurrence:0
@@ -224,7 +239,7 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   la source monotone fiable, et se compare directement au cap pour juger le round-cap.) Validé live (`mon tour #1`).
 - vu : seed 80072, seed 80097, seed 80000, seed 80003, seed 80001.
 
-## TF18 — `play`/`play --spec` : id de l'attaque NORMALE NON-universel (id 69 ≠ toutes les units) + le DÉFAUT résout vers l'ACTIVE → cast illégal → « TOUR ABANDONNÉ » — open — recurrence:2
+## TF18 — `play`/`play --spec` : id de l'attaque NORMALE NON-universel (id 69 ≠ toutes les units) + le DÉFAUT résout vers l'ACTIVE → cast illégal → « TOUR ABANDONNÉ » — done — recurrence:2
 - **friction** : l'attaque normale d'une unité est un `ActiveAbilityType` CONCRET par-unité (ex. Exitor-Rho =
   `OptimizedGait` id 1123, Loki = `Loki_NormalAttack` id 69) — **id 69 n'est PAS universel**. Un agent qui specke
   la normale d'un multi-unit turn avec id 69 (ou 1013) sur une unité dont la normale est 1123 → cast illégal →
@@ -242,6 +257,13 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   résout `{"kind":"normal","unit":N}` (sans id explicite) en lisant `NormalAttackType` de l'unité côté outil →
   supprime la classe d'erreur ; le DÉFAUT de `play` devrait viser la normale/l'attaque-en-range des PLANS, pas
   l'actif. Apparenté à TF08 (no-op silencieux qui abandonne le tour).
+- **fix livré (amélioration (b))** : `play --spec` ET `_apply_spec_to` (guard) supportent désormais
+  `{"kind":"normal","unit":N,"target":T}` (ou `"to":[col,row]`) — l'id de la normale est RÉSOLU côté outil via
+  `_normal_ability_map` (ability `kind="normal"` du decisionView = `NormalAttackType` concret par unité), jamais
+  deviné ni défauté vers un actif ; pré-validation `_ability_prevalidate` → reject structuré (`TargetIsInRange`)
+  si hors portée au lieu d'un cast d'actif erroné. Validé live : necroWarden→id 69 (sa VRAIE normale, lue), reject
+  propre hors-portée PUIS apply RÉUSSI en portée (mutated=True, cascade `Loki_NormalAttack`→`NormalAttack_AtomicDamage`).
+  RÉSIDUEL : la doctrine (a) reste valable, et le DÉFAUT de `play` sans `ability` vise toujours le plan (non touché).
 - vu : seed 80000, seed 80004.
 
 ## TF19 — `await` / RPC timeout transitoires pendant le pump Unity de l'adversaire (curl exit-28 -m 100 ; host « RPC timeout 15000ms » ; status urllib TimeoutError) — open — recurrence:6
@@ -281,7 +303,7 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   Transitoire, aucune action perdue ; re-confirme le pattern adversaire-lent → await-timeout → re-émettre.
 - vu : seed 80000, seed 80003, seed 80004, seed 80002, seed 80001, seed 80053.
 
-## TF20 — collision de glyph board-map : 'b' minuscule = terrain (drybush) ET lettre d'unité (rendu en double sur une rangée) — open — recurrence:2
+## TF20 — collision de glyph board-map : 'b' minuscule = terrain (drybush) ET lettre d'unité (rendu en double sur une rangée) — done — recurrence:2
 - **friction** : l'ASCII map réutilise 'b' minuscule pour À LA FOIS un terrain (drybush) ET la lettre d'une
   unité → glyphe ambigu/dupliqué sur une rangée, mis-lecture de position possible. seed 80000-roundcap (B) :
   'b' drybush mis-lu comme le Tyrant Guard → charge fantôme stranded (cf. H60). **n+1 (seed 80000 ts=b7)** : A
@@ -291,6 +313,11 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   dé-dupliquer le rendu d'unité par rangée ; doctrine d'ici-là = cross-check les positions via `status` (ground
   truth), jamais l'ASCII map seule quand les lettres collisionnent. (cf. hypotheses.md H60, même symptôme côté
   renderer.)
+- **fix livré** : les glyphes terrain de `_GLYPH` (board.py) passent en SYMBOLES — Swamp `s`→`%`, DryBush `b`→`*` —
+  et le fallback `tid[0].lower()` (qui produisait des lettres pour les terrains non mappés) devient `?` dans les DEUX
+  renderers (board.py + oracle.py build_card). Les lettres sont donc RÉSERVÉES aux unités (MAJ=moi / min=ennemi), set
+  disjoint du terrain → plus de collision 's'/'b'. Légendes mises à jour (`%swamp *drybush ?autre`). Validé live
+  (légende correcte, aucun glyphe terrain en lettre sur le board).
 - vu : seed 80000-roundcap, seed 80000-b7.
 
 ## TF15 — `act` (single-action) N'APPENDAIT PAS au action_log → trajectoire IL perdue — done — recurrence:2
@@ -308,7 +335,7 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   Corrélé à TF03 (le POV-flip pousse vers `act`) → fixer TF03 réduit la fréquence du fallback.
 - vu : seed 80031 (b6, vainqueur vide), seed 80053 (b5, partiel).
 
-## TF16 — contrainte de POSITIONNEMENT d'une ability/attaque non surfacée → no-op silencieux (mutated=false) — open — recurrence:5
+## TF16 — contrainte de POSITIONNEMENT d'une ability/attaque non surfacée → no-op silencieux (mutated=false) — done — recurrence:5
 - **friction** : plusieurs actifs/attaques ont une contrainte de positionnement que le PLAN ne montre pas, et
   un cast/attaque hors-contrainte **no-op silencieusement** (`mutated=false`, action NON consommée, activation
   gaspillée) au lieu d'auto-résoudre le move : (a) **adjacence requise** — une attaque ne s'auto-move PAS en
@@ -336,6 +363,15 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   no-op silencieux — **y compris pour les attaques normales des summons hors-portée** (mêmes garde-fous que les
   casts ciblés). Doctrine d'ici-là : confirmer la tuile/cible EXACTE via `moves`/`abilities` AVANT de committer
   (apparenté TF13 spawn-tile, TF08/TF18 no-op normale, TF21 turn-flip sur cast rejeté).
+- **fix livré** : `_ability_prevalidate` (appelé par `play`/`act` AVANT applyAction) couvre désormais les DEUX
+  types de cible → plus de no-op silencieux sur contrainte de positionnement : (a/ENTITÉ) cibles `targetId` via
+  `abilityReason` (GetInvalidTargetReason → raisons structurées `TargetIsInRange`/… — déjà en place) ; (b/TILE)
+  cibles `to` hex (bombard / ligne à axe FIXE / summon / displace) via `abilityTargets` (énumère les TUILES valides
+  now/+move ; `abilityReason` ne gère QUE les entités) → tuile demandée ∉ now → reject structuré « hex (c,r) HORS
+  des tuiles valides (axe de ligne / portée / spawn-tile non libre) -> tuiles légales: [...] » ou « atteignable
+  seulement +move -> déplace d'abord ». Couvre aussi le spawn-tile des summons (apparenté TF13). Helper `_tile_set`.
+  RÉSIDUEL : le cas (c) « actif avec son PROPRE budget de move » (VigilanceEternal — pré-bouger casse l'actif) reste
+  une affaire de DOCTRINE (pas un no-op à détecter au sens strict) → consigne au skill.
 - vu : seed 80031 (adjacence), seed 80085 (ligne fixe), seed 80020 (move-interne), seed 80003 (summon +move / normale summon hors-portée), seed 80031 (b8, act-ability no-auto-move consomme l'activation).
 
 ## TF17 — moves de repositionnement (non-attaquants) semblent REVERT au turn-flip en self-play — open — recurrence:1

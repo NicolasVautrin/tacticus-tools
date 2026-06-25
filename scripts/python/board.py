@@ -31,10 +31,13 @@ _TWPI = {
     4: (3, 0), 5: (3, 1), 6: (0, 0),
 }
 
-# Glyphes terrain pour le rendu ASCII (1re lettre sinon).
+# Glyphes terrain pour le rendu ASCII. TF20 : SYMBOLES uniquement (jamais de
+# lettres) → disjoint des lettres d'unités (A-Z=moi / a-z=ennemi). Avant,
+# Swamp='s'/DryBush='b' collisionnaient avec les lettres d'unités minuscules →
+# glyphe ambigu sur une rangée (mis-lecture de position). Fallback non-lettre aussi.
 _GLYPH = {
     "Grass": ".", "Water": "~", "Block": "#", "Bridge": "=",
-    "Swamp": "s", "DryBush": "b",
+    "Swamp": "%", "DryBush": "*",
 }
 
 
@@ -140,10 +143,10 @@ class Board:
                     cells.append(str(sp["team"]))
                     continue
                 tid = t["tileId"] or "?"
-                cells.append(_GLYPH.get(tid, tid[0].lower()))
+                cells.append(_GLYPH.get(tid, "?"))
             lines.append(f"r{row:2d}  " + " ".join(cells))
-        legend = ("legend: . grass  ~ water  # block  = bridge  s swamp  b drybush  "
-                  "<chiffre>=spawn team   (col impaire décalée +1/2, odd-q)")
+        legend = ("legend: . grass  ~ water  # block  = bridge  % swamp  * drybush  "
+                  "? autre  <chiffre>=spawn team   (col impaire décalée +1/2, odd-q)")
         return "\n".join(lines) + "\n" + legend
 
 
