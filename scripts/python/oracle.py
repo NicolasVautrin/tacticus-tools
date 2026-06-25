@@ -79,12 +79,13 @@ def _killmark(t: dict) -> str:
     """K! = kill GARANTI ; K? = kill POSSIBLE (seulement sur un bon roll/crit).
     Base = les seuils de mort EFFECTIFS du moteur (WillBeKill/MightBeKill, post
     floor-Resilient + overkill) — PAS un simple dmg>=hp (qui sur-claimait un K!
-    sur un Resilient ; cf. TF04)."""
-    if t.get("killSure"):
-        return "K!"
-    if t.get("kill"):
-        return "K?"
-    return ""
+    sur un Resilient ; cf. TF04). `↓` = prédiction OPTIMISTE : la cible porte un
+    effet de réduction-trigger (TerminatorArmour / *HitReduction / *ReduceDmg…)
+    que le moteur NE modélise PAS → dégâts réels plus bas, K! dégradé en K?."""
+    mark = "K!" if t.get("killSure") else ("K?" if t.get("kill") else "")
+    if t.get("predOptimistic"):
+        mark += "↓"
+    return mark
 
 
 def _ability_state(a: dict) -> str:
@@ -383,7 +384,8 @@ def build_card(view: dict, bd: Board, abil: dict | None = None,
         *(["\n".join(eff_block)] if eff_block else []),
         f"  À ACTIVER (mes units/MoW avec action) : {view.get('toActivate')}",
         "  PLANS D'ATTAQUE (où aller -> dégâts [min-max, K!=kill sûr "
-        "K?=kill possible]) :",
+        "K?=kill possible · ↓=préd. OPTIMISTE : cible réduit les dmg (effet "
+        "non modélisé) -> réel plus bas]) :",
     ]
     for p in (view.get("attackPlans") or []):
         pos = p.get("pos") or {}

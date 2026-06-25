@@ -22,6 +22,10 @@ export interface RankedTile {
     col: number; row: number;
     dmgMin?: number; dmgMax?: number;
     kill?: boolean; killSure?: boolean; mightCrit?: boolean;
+    /** Target carries an active trigger-based dmg-reduction effect the engine
+     *  prediction does NOT simulate → predicted dmg/kill is an OVER-estimate
+     *  (K! degraded to K?). cf. TF04. */
+    predOptimistic?: boolean;
 }
 export interface AttackEval {
     targetId: number; targetVis: string | null;
@@ -75,6 +79,21 @@ export function computeAttackPlans(
         }
     });
 
+    // Targets carrying an active damage-REDUCTION effect the engine prediction
+    // does NOT simulate: CalculateDamagePredictionScenario models only armor +
+    // stat caps (+ trait limits via ApplyTraitDamageLimitsToDamage). Trigger-
+    // based defensive effects (TerminatorArmour_ReduceDmg, *_HitReduction,
+    // *_ReduceHits, *_ReduceDmg) fire at REAL attack resolution → predicted dmg
+    // (hence K!) over-states for these targets → degrade K!→K? + tag optimistic.
+    // Matched by EffectType NAME (build-agnostic; enum ids can shift). cf. TF04
+    // (seed 80004 Njal/TerminatorArmour, 80072 Aun'Shi, …).
+    const DMG_REDUCER_RE = /Reduce(Dmg|Damage|Hits)|HitReduction/i;
+    const effectsByUnit = readEffectsByUnit(statePtr);
+    const targetHasDmgReducer = (tid: number): boolean => {
+        const effs = effectsByUnit.get(tid);
+        return effs ? effs.some((e) => DMG_REDUCER_RE.test(e.name ?? "")) : false;
+    };
+
     const abilBuf = Memory.alloc(4);
     const boolFalse = Memory.alloc(1); boolFalse.writeU8(0);
     const optsBuf = Memory.alloc(0x30);
@@ -105,6 +124,7 @@ export function computeAttackPlans(
         for (const ab of abilities) {
             abilBuf.writeS32(ab.id);
             for (const tgt of enemies) {
+                const tgtHasReducer = targetHasDmgReducer(tgt.id);
                 let set: NativePointer;
                 try {
                     set = invokeMethod(getMovableTilesMi!.info, movementQuery,
@@ -173,6 +193,14 @@ export function computeAttackPlans(
                                             entry.killSure = hp <= willKillDmg;
                                             entry.kill = hp <= mightKillDmg;
                                             entry.mightCrit = bb.add(0xb1).readU8() !== 0;
+                                            // Target has a trigger-based dmg-
+                                            // reduction effect the prediction
+                                            // ignores → predicted dmg/K! is
+                                            // optimistic; degrade K!→K?. TF04.
+                                            if (tgtHasReducer) {
+                                                entry.predOptimistic = true;
+                                                entry.killSure = false;
+                                            }
                                         }
                                     }
                                 }
