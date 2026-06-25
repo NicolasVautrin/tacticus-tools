@@ -186,7 +186,8 @@ def _effect_label(e: dict) -> str:
 
 
 def build_card(view: dict, bd: Board, abil: dict | None = None,
-               round_cap: int | None = None) -> str:
+               round_cap: int | None = None, pov_team: int | None = None,
+               turn_no: int | None = None) -> str:
     units = view.get("units") or []
     cur_player = view.get("currentPlayer")
     # abilityTargets (optionnel) : index (unitId, abilityId) -> entrée cibles, pour
@@ -197,9 +198,20 @@ def build_card(view: dict, bd: Board, abil: dict | None = None,
         for au in (abil.get("units") or []):
             for ab in (au.get("abilities") or []):
                 abil_idx[(au.get("unitId"), ab.get("abilityId"))] = ab
-    my_team = next((u.get("team") for u in units if u.get("ctrl")), None)
-    enemies = [u for u in units if not u.get("ctrl") and u.get("alive")]
-    mine = [u for u in units if u.get("ctrl") and u.get("alive")]
+    # POV stable (TF03) : si `pov_team` fourni (= la team du PLAYER, lue dans le
+    # state-file), on labellise MOI/ENNEMI par team ABSOLUE → les labels ne flippent
+    # plus quand `currentPlayer` bascule sur l'adversaire (le `ctrl` du jeu est relatif
+    # au joueur courant). Sinon fallback historique = ctrl (relatif au currentPlayer).
+    if pov_team is not None:
+        my_team = pov_team
+    else:
+        my_team = next((u.get("team") for u in units if u.get("ctrl")), None)
+
+    def _is_mine(u: dict) -> bool:
+        return (u.get("team") == pov_team) if pov_team is not None else bool(u.get("ctrl"))
+
+    enemies = [u for u in units if not _is_mine(u) and u.get("alive")]
+    mine = [u for u in units if _is_mine(u) and u.get("alive")]
 
     # Danger zone géométrique (depuis kits gameconfig).
     danger_inputs = []
@@ -255,7 +267,7 @@ def build_card(view: dict, bd: Board, abil: dict | None = None,
     # Légende units (+ MoW : clé "casterId" présente → ability-only).
     leg = []
     for _key, (ch, u) in sorted(letters.items(), key=lambda kv: kv[1][0]):
-        tag = "<MOI>" if u.get("ctrl") else "ENNEMI"
+        tag = "<MOI>" if _is_mine(u) else "ENNEMI"
         if "casterId" in u:  # MoW
             ab = ",".join(str(x.get("id")) for x in (u.get("abilities") or []))
             leg.append(f"  {ch} = MoW u{u.get('casterId')} [{u.get('visualId')}] "
@@ -321,7 +333,7 @@ def build_card(view: dict, bd: Board, abil: dict | None = None,
     _eff: list[str] = []
     for u in mine_all + enemies_all:
         uid = u.get("casterId", u.get("id"))
-        side = "MOI" if u.get("ctrl") else "ENN"
+        side = "MOI" if _is_mine(u) else "ENN"
         shown = []
         for e in (u.get("effects") or []):
             nm = e.get("name") or ""
@@ -368,9 +380,26 @@ def build_card(view: dict, bd: Board, abil: dict | None = None,
             f"camps = no-winner = double-défaite. Sois en CLÔTURE cohésive pour ton ~{close_by}ᵉ "
             f"tour ; le ⏱[ROUND-CAP] (effet Incoming) n'arme qu'à 2 tours de la fin = TROP TARD.")
 
+    # En-tête : POV explicite (TF03) + n° de tour FIABLE (TF14, `turn_no` dérivé du
+    # state-file action_log) au lieu du compteur per-player oscillant `view.turn`.
+    cur_team = {3: 1, 4: 2}.get(cur_player)
+    if isinstance(turn_no, int):
+        turn_txt = f"mon tour #{turn_no}"
+    else:
+        turn_txt = f"tour {view.get('turn')} (compteur per-player — NON fiable)"
+    pov_warn: list[str] = []
+    if pov_team is not None and cur_team is not None and cur_team != pov_team:
+        pov_txt = (f"POV joueur {cur_player} (team {cur_team} = ADVERSAIRE) · "
+                   f"MON équipe = team {pov_team}")
+        pov_warn = ["  ⚠ POV ADVERSAIRE — c'est le tour de l'ADVERSAIRE (team "
+                    f"{cur_team}) : les PLANS D'ATTAQUE / MES ACTIFS ci-dessous sont "
+                    "les SIENS. Tes units restent labellées MOI (stable) mais tu ne "
+                    "joues pas ce tour-ci (attends ton tour)."]
+    else:
+        pov_txt = f"joueur {cur_player} (team {my_team})"
     out = [
-        f"=== CARTE DÉCISION — tour {view.get('turn')} · joueur {cur_player} "
-        f"(team {my_team}) ===",
+        f"=== CARTE DÉCISION — {turn_txt} · {pov_txt} ===",
+        *pov_warn,
         *([_clock_line] if _clock_line else []),
         "\n".join(lines),
         f"  chiffre 1-{max(max_int, 1)} = NB d'ennemis menaçant la tile "

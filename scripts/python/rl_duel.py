@@ -77,7 +77,15 @@ def _decision(sid: int, rid: int, maxrank: int = 8) -> dict:
                  timeout=300).get("result") or {})
 
 
-def _show_card(sid: int, rid: int, bc: dict) -> dict:
+def _turn_no(st: dict) -> int:
+    """Mon n° de tour FIABLE (monotone) = nb d'endturn déjà joués + 1, dérivé de
+    l'action_log du state-file (même logique que le guard). Remplace dans l'en-tête
+    `view` le compteur per-player oscillant `view.turn` (TF14)."""
+    return sum(1 for x in (st.get("action_log") or []) if x.get("kind") == "endturn") + 1
+
+
+def _show_card(sid: int, rid: int, bc: dict, pov_team: int | None = None,
+               turn_no: int | None = None) -> dict:
     res = _decision(sid, rid)
     if not res.get("ok"):
         print(f"[view] decisionView ERROR: {res.get('error')}")
@@ -88,7 +96,8 @@ def _show_card(sid: int, rid: int, bc: dict) -> dict:
                  [{"runnerId": rid, "allAbilities": True}], timeout=120)
             .get("result") or {})
     print(oracle.build_card(res, Board(bc), abil=abil if abil.get("ok") else None,
-                            round_cap=_env_bombardment_cap(bc)))
+                            round_cap=_env_bombardment_cap(bc),
+                            pov_team=pov_team, turn_no=turn_no))
     return res
 
 
@@ -285,7 +294,8 @@ def cmd_build(sid: int, a) -> int:
 
 def cmd_view(sid: int, a) -> int:
     st = _load_state()
-    _show_card(sid, st["runnerId"], st["bc"])
+    _show_card(sid, st["runnerId"], st["bc"],
+               pov_team=st.get("myTeam"), turn_no=_turn_no(st))
     return 0
 
 
@@ -872,6 +882,21 @@ def cmd_play(sid: int, a) -> int:
         st["action_log"].append(action)
         _save_state(st)
     if aborted is not None:
+        # TF25 : une action PRÉCÉDENTE du spec a pu DÉJÀ terminer le match (un kill
+        # final → FinishMatch) → l'action suivante échoue « stage Finished » : ce n'est
+        # PAS un tour abandonné mais une fin de match. On lit le stage autoritatif avant
+        # d'alarmer, pour ne pas afficher « TOUR ABANDONNÉ » sur une VICTOIRE.
+        bs = (_rpc(sid, "battleStatus", [{"runnerId": rid}], timeout=10)
+              .get("result") or {})
+        if bs.get("stage") == 2:
+            w = bs.get("winner")
+            wteam = {0: "no-winner", 3: "team1", 4: "team2"}.get(w, f"player{w}")
+            st["action_log"].append({"kind": "endturn"})  # marqueur fin de trajectoire
+            _save_state(st)
+            print(f"  [play] *** MATCH DÉJÀ TERMINÉ — winner AUTORITATIF = {wteam} "
+                  f"(battleStatus.winner={w}). L'action suivante « {aborted} » est "
+                  f"arrivée APRÈS la fin du match (rien à abandonner). ***")
+            return cmd_status(sid, a)
         print(f"  [play] /!\\ TOUR ABANDONNÉ (endturn NON joué, l'IA ne joue "
               f"PAS) : {aborted}")
         print("  -> corrige l'action puis relance `play` ; les actions déjà "
@@ -950,7 +975,8 @@ def cmd_play(sid: int, a) -> int:
     res2 = _decision(sid, rid)
     if res2.get("ok"):
         print()
-        print(oracle.build_card(res2, Board(bc), round_cap=_env_bombardment_cap(bc)))
+        print(oracle.build_card(res2, Board(bc), round_cap=_env_bombardment_cap(bc),
+                                pov_team=st.get("myTeam"), turn_no=_turn_no(st)))
     return 0
 
 
@@ -1029,13 +1055,39 @@ DEATH_PENALTY = 1.0  # mort = frac 1.0 (hp) + 1.0 = 2.0 (corps perdu > chip)
 
 
 def _snapshot(sid: int, rid: int) -> dict:
-    """État unités {id: {hp, team, vis}} via decisionView (pour le diff NET)."""
+    """État unités {id: {hp, team, vis, pos}} via decisionView : diff NET (_score_net)
+    + détection de désync du replay du guard (_replay_desync, TF27)."""
     res = _decision(sid, rid)
     out = {}
     for u in (res.get("units") or []):
+        p = u.get("pos") or {}
         out[u["id"]] = {"hp": u.get("hp") or 0, "team": u.get("team"),
-                        "vis": u.get("visualId")}
+                        "vis": u.get("visualId"), "pos": (p.get("col"), p.get("row"))}
     return out
+
+
+def _replay_desync(live: dict | None, clone: dict | None) -> str | None:
+    """TF27 — compare le snapshot du CLONE post-replay au snapshot LIVE. Le replay de
+    l'action_log est censé reconstruire À L'IDENTIQUE l'état live (RNG déterministe ;
+    _enemy_turn 0-diff). S'il DIVERGE (une action live qui no-op silencieusement au
+    replay → état périmé, typiquement après plusieurs tours splittés), le guard
+    évaluerait une spec sur un état FAUX et rendrait un NET trompeur (≈ constant quelle
+    que soit la spec — le symptôme exact de TF27). On le détecte pour ABORT explicitement
+    au lieu de rendre une éval invalide. Retourne une raison de divergence, ou None."""
+    if not live or not clone:
+        return None  # pas de référence live -> pas de check (compat appelants sans live)
+    lk, ck = set(live), set(clone)
+    if lk != ck:
+        miss, extra = sorted(lk - ck)[:4], sorted(ck - lk)[:4]
+        return f"set d'unités divergent (live\\clone={miss}, clone\\live={extra})"
+    diffs = []
+    for uid in lk:
+        a, b = live[uid], clone[uid]
+        if abs((a.get("hp") or 0) - (b.get("hp") or 0)) > 1:
+            diffs.append(f"u{uid} hp {a.get('hp')}≠{b.get('hp')}")
+        elif a.get("pos") != b.get("pos"):
+            diffs.append(f"u{uid} pos {a.get('pos')}≠{b.get('pos')}")
+    return ("état clone≠live: " + ", ".join(diffs[:5])) if diffs else None
 
 
 def _apply_spec_to(sid: int, rid: int, spec: list) -> tuple:
@@ -1260,7 +1312,8 @@ def _replay_log(sid: int, rid: int, prefix_log: list | None, my_team) -> str | N
 
 
 def _sim_turn(sid: int, bc: dict, seed, pu: list, spec: list, my_team,
-              maxpump: int, prefix_log: list | None = None) -> dict:
+              maxpump: int, prefix_log: list | None = None,
+              live_snap: dict | None = None) -> dict:
     """1 SIM (modèle VERROUILLÉ, cf. directive) = [mes moves `spec`] -> endturn ->
     1 tour IA ADVERSE (CheatRunAIMessage via autoPlayRunner maxTurns:1) -> NET.
     JAMAIS plus loin. RÈGLE ABSOLUE : l'IA ne joue QUE l'adversaire ; ma team ne
@@ -1282,6 +1335,11 @@ def _sim_turn(sid: int, bc: dict, seed, pu: list, spec: list, my_team,
             return {"sc": None, "aborted": ab}
         # --- le tour à ÉVALUER : mes moves -> endturn -> 1 tour IA adverse
         before = _snapshot(sid, rid)
+        # TF27 : le clone post-replay DOIT matcher le live ; sinon le replay a désync
+        # (une action live no-op'ée) → évaluer la spec dessus rendrait un NET trompeur.
+        desync = _replay_desync(live_snap, before)
+        if desync is not None:
+            return {"sc": None, "aborted": f"replay désync (clone≠live) — {desync}"}
         n, ab = _apply_spec_to(sid, rid, spec)
         if ab is not None:
             return {"sc": None, "aborted": ab}
@@ -1301,7 +1359,7 @@ def _unit_of(act: dict):
 
 def _hill_climb(sid: int, bc: dict, seed, pu: list, base_spec: list,
                 base_sc: dict, my_team, maxpump: int, max_variants: int,
-                prefix_log: list) -> tuple:
+                prefix_log: list, live_snap: dict | None = None) -> tuple:
     """Greedy BATCHÉ : tant que je ne suis PAS focus-first (NET<0 = l'IA me focus
     avant), retire d'un coup TOUTES mes units MORTES ou ≥50% du sim courant (ground
     truth de la réponse IA d'1 tour) ; à défaut (chip seul) retire le worst. Re-sim
@@ -1325,7 +1383,8 @@ def _hill_climb(sid: int, bc: dict, seed, pu: list, base_spec: list,
         if not pull:
             break  # units touchées pas dans le spec (exposées au déploiement) -> stop
         variant = [act for act in best_spec if _unit_of(act) not in pull]
-        r = _sim_turn(sid, bc, seed, pu, variant, my_team, maxpump, prefix_log)
+        r = _sim_turn(sid, bc, seed, pu, variant, my_team, maxpump, prefix_log,
+                      live_snap=live_snap)
         n += 1
         label = "pull " + ",".join(f"u{i}" for i in sorted(pull))
         if r["sc"] is None:
@@ -1409,14 +1468,19 @@ def cmd_guard(sid: int, a) -> int:
     cap = max(2, getattr(a, "cap", None) or 5)
     do_climb = bool(getattr(a, "climb", False))
     turn_no = sum(1 for x in prefix_log if x.get("kind") == "endturn") + 1
+    # TF27 : réf. de l'état LIVE pour détecter un replay désync (clone≠live → NET
+    # trompeur). Capturé UNE fois sur le runner live, comparé après chaque replay.
+    live_snap = _snapshot(sid, live_rid) if live_rid is not None else None
 
     # baseline hold (ce tour) + plan de base, reconstruits au tour courant via replay.
-    hold_r = _sim_turn(sid, bc, seed, pu, [], my_team, a.maxpump, prefix_log)
+    hold_r = _sim_turn(sid, bc, seed, pu, [], my_team, a.maxpump, prefix_log,
+                       live_snap=live_snap)
     if hold_r["sc"] is None:
         print(f"[guard] hold abort: {hold_r['aborted']}", file=sys.stderr)
         return 2
     hold_net = hold_r["sc"]["net"]
-    base_r = _sim_turn(sid, bc, seed, pu, base_spec, my_team, a.maxpump, prefix_log)
+    base_r = _sim_turn(sid, bc, seed, pu, base_spec, my_team, a.maxpump, prefix_log,
+                       live_snap=live_snap)
     if base_r["sc"] is None:
         print(f"[guard] plan base abort: {base_r['aborted']}", file=sys.stderr)
         return 2
@@ -1433,7 +1497,7 @@ def cmd_guard(sid: int, a) -> int:
 
     best_spec, best_sc, trail, extra = _hill_climb(
         sid, bc, seed, pu, base_spec, base_sc, my_team, a.maxpump,
-        max_variants=cap - sims, prefix_log=prefix_log)
+        max_variants=cap - sims, prefix_log=prefix_log, live_snap=live_snap)
     sims += extra
     print(f"\n=== GUARD tour {turn_no} [{mode}, CLIMB] ({sims} sims) ===")
     print(f"  baseline hold : NET {hold_net:+.2f}")
@@ -1486,7 +1550,9 @@ def cmd_rollout(sid: int, a) -> int:
         spec = json.loads(a.spec) if a.spec else []
         mode = "spec" if spec else "hold-only"
 
-    hold = _sim_turn(sid, bc, seed, pu, [], my_team, a.maxpump, prefix_log)
+    live_snap = _snapshot(sid, live_rid) if live_rid is not None else None  # TF27 désync ref
+    hold = _sim_turn(sid, bc, seed, pu, [], my_team, a.maxpump, prefix_log,
+                     live_snap=live_snap)
     if hold["sc"] is None:
         print(f"[rollout] hold abort: {hold['aborted']}", file=sys.stderr)
         return 2
@@ -1495,7 +1561,8 @@ def cmd_rollout(sid: int, a) -> int:
     print(f"\n=== SIM tour {turn_no} (mes moves -> endturn -> 1 tour IA adverse, maxPump {a.maxpump}) ===")
     print(f"  HOLD : NET {hold_net:+.2f}")
     if spec:
-        plan = _sim_turn(sid, bc, seed, pu, spec, my_team, a.maxpump, prefix_log)
+        plan = _sim_turn(sid, bc, seed, pu, spec, my_team, a.maxpump, prefix_log,
+                         live_snap=live_snap)
         if plan["sc"] is None:
             print(f"  PLAN : ABORT {plan['aborted']}", file=sys.stderr)
             return 2

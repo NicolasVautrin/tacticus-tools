@@ -28,15 +28,23 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   win-condition adverse + léthal estimé) + un flag `decided: won|lost|undecided` (prudence asymétrique).
 - vu : G01, G02, G03.
 
-## TF03 — `decisionView` bascule de POV (MOI/ENNEMI) quand currentPlayer=4 — open — recurrence:3
+## TF03 — `decisionView` bascule de POV (MOI/ENNEMI) quand currentPlayer=4 — done — recurrence:4
 - **friction** : quand mon tour s'auto-termine et que la vue passe en POV team-2, les labels MOI/ENNEMI
   s'inversent → re-lectures inutiles, confusion sur les positions. **n+1 (80072)** : B re-confirme le flip,
   ET le `decisionView` du state-file LAG le turn-flip → l'attribution d'équipe est ambiguë sur le tour de
   bascule ; désambiguïser via `status` (autoritatif t1/t2), pas les labels relatifs de la vue.
   **n+2 (80031)** : B a failli mis-play — la 1ʳᵉ vue de son tour labellait « MOI » le set u95-103 (= team1) ;
   caught en dérivant le vrai roster via `myTeam`/`playerUnits`, mais c'est le foot-gun récurrent.
+  **n+3 (seed 80053, ts=b8)** : B (team2) re-confirme — la 1ʳᵉ `view` qu'il a vue (sur le tour adverse)
+  labellait les Blood Angels (= team1) comme `<MOI>`/MAJUSCULE, l'INVERSE de son vrai roster ; a dû réconcilier
+  via la liste « À ACTIVER » (= ses vraies units) sur SON tour. Pas de mis-play, mais le label s'inverse entre
+  tours et se lit mal. (convergence avec les n précédents — friction d'observabilité récurrente.)
 - **amélioration** : option `view --pov me` (toujours mon équipe = MOI), ou afficher teamId explicite.
-- vu : G01, seed 80072, seed 80031.
+- **fix livré** : `build_card` accepte `pov_team` (= ma team STABLE lue dans le state-file) → labels MOI/ENNEMI
+  par team ABSOLUE (ne flippent plus au POV-switch ; `_is_mine = team==pov_team`) + bannière `⚠ POV ADVERSAIRE`
+  explicite quand c'est le tour adverse (rappelle que les PLANS/ACTIFS affichés sont les SIENS). Câblé dans
+  `view` (cmd_view) et la carte post-round de `play`. Validé live (header `joueur 3 (team 1)`, labels stables).
+- vu : G01, seed 80072, seed 80031, seed 80053.
 
 ## TF04 — Plans = dmg MAX-roll NON mitigé + label `K!` optimiste (ignore Resilient + réductions + buffs défensifs) — open — recurrence:6
 - **friction** : `K!` (« kill sûr ») ne modélise pas Resilient/Terrifying/block → un coup « K! » laisse
@@ -187,7 +195,7 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   (summons sur hex) et TF12 (summon no-op non surfacé).
 - vu : seed 80072 (ScarabHive Aleph-Null).
 
-## TF14 — header `view` « tour N » figé / pas un indicateur de round fiable — open — recurrence:6
+## TF14 — header `view` « tour N » figé / pas un indicateur de round fiable — done — recurrence:6
 - **friction** : l'en-tête `view` affiche « tour 4 » sur plusieurs rounds distincts (compteur =
   `GetAmountOfTurnsStartedByCurrentPlayer`, NON monotone / oscille — cf. note H58) → l'agent qui s'y fie
   mal-time son engagement anti-cap (⏱ horloge round-cap). Distinct de TF03 (POV) : ici c'est le COMPTEUR
@@ -210,6 +218,10 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   la proximité du round-cap illisible depuis la vue seule (A a dû cross-checker `status`). (convergence, pas divergence.)
 - **amélioration** : afficher le **round-state autoritatif** (`TotalTurnsFinished` / round courant) dans
   l'en-tête, pas le compteur per-player oscillant ; doctrine = lire le round-state, pas le label.
+- **fix livré** : l'en-tête `view` affiche désormais `mon tour #N` — N = compteur MONOTONE fiable dérivé des
+  marqueurs `endturn` de l'action_log (helper `_turn_no`, la MÊME logique que le guard) — au lieu du `view.turn`
+  per-player oscillant. (Pas de `GetTotalTurnsFinished` live exposé côté hook ; le count d'endturn côté outil est
+  la source monotone fiable, et se compare directement au cap pour juger le round-cap.) Validé live (`mon tour #1`).
 - vu : seed 80072, seed 80097, seed 80000, seed 80003, seed 80001.
 
 ## TF18 — `play`/`play --spec` : id de l'attaque NORMALE NON-universel (id 69 ≠ toutes les units) + le DÉFAUT résout vers l'ACTIVE → cast illégal → « TOUR ABANDONNÉ » — open — recurrence:2
@@ -232,7 +244,7 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   l'actif. Apparenté à TF08 (no-op silencieux qui abandonne le tour).
 - vu : seed 80000, seed 80004.
 
-## TF19 — `await` / RPC timeout transitoires pendant le pump Unity de l'adversaire (curl exit-28 -m 100 ; host « RPC timeout 15000ms » ; status urllib TimeoutError) — open — recurrence:5
+## TF19 — `await` / RPC timeout transitoires pendant le pump Unity de l'adversaire (curl exit-28 -m 100 ; host « RPC timeout 15000ms » ; status urllib TimeoutError) — open — recurrence:6
 - **friction** : pendant qu'un agent adverse délibère / pendant un long `applyAction`+pump Unity, l'endpoint
   `await` (et parfois `status`) dépasse le cap `-m 100` de curl (exit 28) OU le host lève « RPC timeout after
   15000ms ». seed 80000 (ts=b7) : A a touché le cap plusieurs fois (re-émissions en aveugle requises, incertitude
@@ -264,7 +276,10 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   (idempotence) — l'`endturn` applied-mais-réponse-timeout est exactement le cas dangereux (risque de re-jouer).
   **n+4 (seed 80001, ts=b7)** : A re-signale un `curl await` exit 28 (le client `-m 100` race le timeout serveur 90s)
   → harmless, re-émis. Re-confirme le pattern transitoire ; aucune action perdue.
-- vu : seed 80000, seed 80003, seed 80004, seed 80002, seed 80001.
+  **n+5 (seed 80053, ts=b8)** : A re-signale plusieurs `timedOut:true` CONSÉCUTIFS sur le `await` 90s pendant que
+  l'adversaire (B) délibérait longuement sur plusieurs tours → ré-émission de l'`await` à chaque fois (« as designed »).
+  Transitoire, aucune action perdue ; re-confirme le pattern adversaire-lent → await-timeout → re-émettre.
+- vu : seed 80000, seed 80003, seed 80004, seed 80002, seed 80001, seed 80053.
 
 ## TF20 — collision de glyph board-map : 'b' minuscule = terrain (drybush) ET lettre d'unité (rendu en double sur une rangée) — open — recurrence:2
 - **friction** : l'ASCII map réutilise 'b' minuscule pour À LA FOIS un terrain (drybush) ET la lettre d'une
@@ -293,7 +308,7 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   Corrélé à TF03 (le POV-flip pousse vers `act`) → fixer TF03 réduit la fréquence du fallback.
 - vu : seed 80031 (b6, vainqueur vide), seed 80053 (b5, partiel).
 
-## TF16 — contrainte de POSITIONNEMENT d'une ability/attaque non surfacée → no-op silencieux (mutated=false) — open — recurrence:4
+## TF16 — contrainte de POSITIONNEMENT d'une ability/attaque non surfacée → no-op silencieux (mutated=false) — open — recurrence:5
 - **friction** : plusieurs actifs/attaques ont une contrainte de positionnement que le PLAN ne montre pas, et
   un cast/attaque hors-contrainte **no-op silencieusement** (`mutated=false`, action NON consommée, activation
   gaspillée) au lieu d'auto-résoudre le move : (a) **adjacence requise** — une attaque ne s'auto-move PAS en
@@ -309,12 +324,19 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   auto-résolu 2 normales Inceptor (id 69) sur Nicodemus à **0 dmg** (mauvaise tuile/range), action consommée, no-op
   SILENCIEUX : contrairement aux casts ciblés, l'attaque hors-portée des units summon n'est PAS rejetée pré-endturn.
   (iii) B : `Incursion` (Archimatos) rejeté `out-of-range` APRÈS un move réussi (cf. TF21 pour le turn-flip associé).
+  **n+2 (seed 80031, ts=b8)** : RE-CONFIRMATION variante (a) côté B (owner de Tarvakh) — `act ability`
+  MurderousSwing émis APRÈS un move qui avait silencieusement échoué (la tuile choisie était HORS du movable
+  set, le caster n'a PAS bougé) → l'attaque a résolu out-of-range en **no-op** mais **A CONSOMMÉ l'activation**
+  de Tarvakh (perdue). ⚠ NUANCE vs (a) ci-dessus : ici l'activation a bien été consommée (B « cost me a
+  Tarvakh action ») — `act ability` ne pré-vérifie PAS l'adjacence/range avant de consommer, contrairement au
+  cas idéal « action NON consommée ». Doctrine confirmée : VÉRIFIER que le move a atterri (`view`/`abilities`)
+  AVANT d'émettre l'attaque ; `act ability` n'auto-move PAS le caster vers la tuile du plan.
 - **amélioration** : surfacer la contrainte dans `abilities`/`reason` (adjacence requise / axe de ligne / move-
   interne / range du +move depuis la tuile courante) et faire ÉCHOUER explicitement (raison structurée) au lieu du
   no-op silencieux — **y compris pour les attaques normales des summons hors-portée** (mêmes garde-fous que les
   casts ciblés). Doctrine d'ici-là : confirmer la tuile/cible EXACTE via `moves`/`abilities` AVANT de committer
   (apparenté TF13 spawn-tile, TF08/TF18 no-op normale, TF21 turn-flip sur cast rejeté).
-- vu : seed 80031 (adjacence), seed 80085 (ligne fixe), seed 80020 (move-interne), seed 80003 (summon +move / normale summon hors-portée).
+- vu : seed 80031 (adjacence), seed 80085 (ligne fixe), seed 80020 (move-interne), seed 80003 (summon +move / normale summon hors-portée), seed 80031 (b8, act-ability no-auto-move consomme l'activation).
 
 ## TF17 — moves de repositionnement (non-attaquants) semblent REVERT au turn-flip en self-play — open — recurrence:1
 - **friction** (candidat, single-observer) : B (80097) rapporte que les units qui font un move PUR (sans
@@ -395,3 +417,79 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   cas A) NI au `ValidRequest` de `reason` seul (ciblage-only, ignore le cooldown, cas B) → confirmer la dispo réelle
   d'une ability cooldown via les DEUX, et si ambigu, tenter le cast (no-op/rejet propre si indispo).
 - vu : seed 80001.
+
+## TF25 — un `FINISH`/play APRÈS une action qui a DÉJÀ terminé le match → « ÉCHEC: stage Finished (need Running) » / « TOUR ABANDONNÉ » alarmant mais inoffensif — done — recurrence:1
+- **friction** : sur le tour gagnant de B (team2, seed 80053), l'action précédente (Actus tuant Dante, dernier ennemi)
+  avait DÉJÀ terminé le match (FinishMatch, `Match_Winner=4`). Le `FINISH u82` suivant a renvoyé
+  « **ÉCHEC: stage Finished (need Running)** » et le harness a affiché « **TOUR ABANDONNÉ** » — COSMÉTIQUEMENT alarmant
+  (se lit comme un tour raté) alors que la bataille était GAGNÉE (le kill + le FinishMatch avaient déjà appliqué). Pas
+  de perte de correctness (le match était fini), mais le label « abandonné » sur une VICTOIRE est trompeur. Apparenté à
+  TF21 (label « TOUR ABANDONNÉ » qui contredit le state réel) mais ici le déclencheur est une action POST-match-end.
+- **amélioration** : (a) un `play`/`finish` émis après que le stage est passé `Finished` (match déjà décidé) devrait être
+  **silencieusement no-op'd** (ou rendre « match déjà terminé — winner=N », PAS « TOUR ABANDONNÉ ») ; (b) idéalement le
+  harness détecte le stage `Finished` AVANT d'émettre l'action trailing et s'arrête proprement avec le verdict. Friction
+  d'observabilité (aucune action perdue, aucune correctness en jeu).
+- **fix livré** : `cmd_play` lit le `battleStatus` autoritatif quand une action abort ; si `stage==Finished`, affiche
+  `*** MATCH DÉJÀ TERMINÉ — winner AUTORITATIF = teamN ***` (+ marqueur `endturn` de fin de trajectoire) et retourne le
+  `status`, au lieu de « TOUR ABANDONNÉ ». Le cas « victoire SANS action trailing » était déjà géré (la boucle endturn
+  lit `stage != Running` → « battle finie après mon tour »). Validé par revue (réutilise le mapping winner de cmd_status).
+- vu : seed 80053.
+
+## TF26 — l'overlay « danger-zone » sous-warne (borne géométrique INFÉRIEURE — ne modélise pas RapidAssault/+move/range-2 actives) → focus réalisé pire que le compte affiché — open — recurrence:1
+- **friction** : A (team1, seed 80053) — ses units forward affichaient un danger 2-5, mais le focus RÉALISÉ au tour
+  adverse fut PIRE (3 kills en UN tour ennemi) que le compte ne le laissait présager. Cause : l'overlay calcule une
+  borne géométrique (portée d'attaque « statique ») mais l'adversaire avait 3 bursters mêlée avec **RapidAssault**
+  (+1 move avant la 1ʳᵉ attaque) + actifs **range-2** + charges → leur REACH effective dépasse la zone géométrique
+  affichée. Cohérent avec le caveat documenté « danger-zone = lower-bound » mais re-confirmé coûteux ici (A a sous-estimé
+  l'exposition de Morvenn/Makhotep/Njal en se fiant au compte). Apparenté à TF04 (prédictions optimistes) mais sur la
+  PORTÉE/atteignabilité, pas le dégât.
+- **amélioration** : (a) intégrer les bonus de mouvement conditionnels (RapidAssault, +1 move buffs, charge-range) ET la
+  portée des actives range-2 dans le calcul de danger-zone → afficher la reach effective MAX, pas la portée statique ;
+  (b) à défaut, surfacer explicitement « borne INFÉRIEURE — +move/charge/active-range non modélisés » sur l'overlay.
+  Doctrine d'ici-là : traiter le compte danger-zone comme un PLANCHER, pas un plafond — garder les fragiles encore
+  plus shallow vs un roster à RapidAssault/charge/range-2 (la reach réelle est ~1-2 hex au-delà de l'overlay).
+- vu : seed 80053.
+
+## TF27 — `guard --climb` rend une sortie IDENTIQUE quelle que soit la spec passée (action_log replay DÉSYNC après plusieurs split `play --no-ai`) → guard non-fiable, l'agent décide à la main — done(détection) — recurrence:1
+- **friction** : sur un tour de B (team2, seed 80031, ts=b8), `guard --climb` a retourné une sortie **IDENTIQUE**
+  (même NET −2.46, même worst-unit, mêmes losses) **quelle que soit la spec** que B passait → le replay de
+  l'`action_log` paraissait DÉSYNCHRONISÉ et les actions de la spec n'étaient PAS appliquées au sim cloné. B a dû
+  **abandonner le guard** et raisonner manuellement depuis le board + les kits ce tour-là. Apparu APRÈS plusieurs
+  tours split `play --no-ai` (B note : « guard reliability degrades after several split play --no-ai turns »).
+  DISTINCT de TF23 (guard trop LENT → timeout) : ici le guard RÉPOND vite mais avec une éval CONSTANTE/fausse
+  (la spec n'altère pas le sim) → garde-fou silencieusement inutile (pire qu'un timeout, car l'output a l'air valide).
+- **amélioration** : (a) le clone-sim du guard doit appliquer la spec passée par-dessus l'état COURANT (pas un
+  action_log rejoué périmé) → vérifier que `guard --climb` repart du `_state` à jour, pas d'un replay désynchronisé
+  après des tours split ; (b) si le sim ne peut pas appliquer la spec (désync détecté), ÉCHOUER explicitement
+  (« guard sim désync — décision manuelle ») plutôt que rendre une éval constante trompeuse ; (c) idéalement un
+  hash/marqueur de l'état d'entrée du guard pour détecter qu'il ne bouge pas entre 2 specs distinctes.
+  Doctrine d'ici-là : si `guard --climb` rend le MÊME NET pour 2 specs différentes, le considérer DOWN (désync) et
+  décider manuellement (défaut conservateur), comme pour TF23.
+- **fix livré (détection — améliorations (b)+(c))** : `_sim_turn` compare le snapshot du CLONE post-replay au snapshot
+  LIVE (`_replay_desync` : sets d'unités + hp + position par unité) ; toute divergence → ABORT explicite
+  `replay désync (clone≠live) — <détails>` au lieu d'une éval constante trompeuse. Le snapshot live est capturé 1× sur
+  le runner live et propagé à tous les sims (`guard`/`rollout`, via `_hill_climb`). Le guard signale donc clairement
+  quand il est DOWN → décision manuelle (la doctrine de repli), au lieu de mentir. Validé live (tour 1 : zéro
+  faux-positif, NET varie bien par spec). **RÉSIDUEL (amélioration (a) NON faite)** : la fidélité du replay en tours
+  splittés n'est pas restaurée — le guard abort proprement quand l'état a désync, mais ne « répare » pas le replay
+  (re-bâtir le clone depuis l'état COURANT plutôt qu'un action_log rejoué reste un chantier ouvert).
+- vu : seed 80031.
+
+## TF28 — pas d'estimation du dmg INCOMING worst-case pour les effets à TIR DIFFÉRÉ (Seeker/RailRifle) sur MES units : `MES ACTIFS`/`decisionView.effects` flagge le Markerlight mais SANS magnitude → l'agent sous-évalue la menace pending-fire — open — recurrence:1
+- **friction** : A (team1, seed 80031, ts=b8) — un `SeekerMissileFrequencyLock` avait marqué son admecDestroyer (Sy-gex,
+  9537 PV). La vue `MES ACTIFS` / `decisionView.effects` a bien FLAGGÉ le Markerlight (effet actif présent) mais
+  **sans AUCUNE magnitude** du tir à venir → A a projeté le hit comme « ~5800 survivable » (le nominal gameconfig
+  5456-6184) et a HOLD Sy-gex passivement dans la portée du Seeker. Le missile a landé pour **9263** (amplifié par
+  RangedSpecialist + HeavyWeapon + markerlight, BIEN au-delà du nominal) → Sy-gex à 274, mort le tour suivant = perte
+  de son Overwatch + HeavyGravCannon peel pour rien. L'outil n'avait AUCUNE prédiction du worst-case incoming amplifié.
+  DISTINCT de TF04 (dmg de MES plans optimiste/max-roll non mitigé pour MES attaques sortantes) : ici c'est le dmg
+  ENTRANT d'un effet pending-fire ennemi sur MES units qui n'a pas de magnitude estimée du tout.
+- **amélioration** : (a) pour chaque effet de tir DIFFÉRÉ actif sur une de MES units (Markerlight/Seeker, RailRifle
+  pending, MalleusRocket telegraphié…), surfacer une **estimation worst-case du dmg incoming** (nominal du caster ×
+  amplificateurs connus : RangedSpecialist, HeavyWeapon, markerlight) dans `decisionView.effects` / `MES ACTIFS` →
+  l'agent voit « Seeker pending ~9000+ sur Sy-gex » et bouge/spend la cible AVANT la résolution ; (b) à défaut,
+  TAGGER l'effet pending-fire comme « magnitude amplifiée possible ≫ nominal » pour casser la projection « nominal
+  survivable ». Doctrine d'ici-là : un effet pending-fire (Seeker/RailRifle) sur une de mes units = traiter le hit
+  comme **potentiellement amplifié bien au-delà du nominal** → ne JAMAIS laisser une unité marquée HOLD passivement
+  en portée ; la bouger hors-range (si dodgeable) OU la dépenser offensivement ce tour OU tuer le caster avant le tir.
+- vu : seed 80031.
