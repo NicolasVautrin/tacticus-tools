@@ -518,6 +518,12 @@ ability / `effect` (label). `aiturn` capture **toute la cascade** du tour advers
 - **Pump bloque le main thread** : `aiturn`/`--advance` est chunké (≤ 2-4 tours)
   sinon `UnityFreezeDetector` tue le jeu. Combat entier = boucle de chunks (Unity
   pompe ses frames entre les appels).
+- **Timeout de RÉPONSE ≠ échec (applied-but-slow)** : pendant un pump lourd, un
+  `applyAction`/`play` peut timeout sur la **réponse** alors que l'action a **DÉJÀ
+  appliqué** → **vérifier `status`/`view` AVANT de re-jouer la même action** (ne pas
+  double-apply). En self-play, l'endpoint host `/api/selfplay/:id/await` **avale** les
+  timeouts internes transitoires (pump) et renvoie un `timedOut` propre (+ `transientError`),
+  jamais un raw-fail → **ré-émettre** l'await. (TF19.)
 - **Ne pas restart le host en plein combat** : perd le runner + la sync mirror.
   Mémoire : `feedback_host_restart_kills_mirror`.
 

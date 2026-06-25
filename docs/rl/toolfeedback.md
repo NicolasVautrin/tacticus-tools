@@ -266,7 +266,7 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   RÉSIDUEL : la doctrine (a) reste valable, et le DÉFAUT de `play` sans `ability` vise toujours le plan (non touché).
 - vu : seed 80000, seed 80004.
 
-## TF19 — `await` / RPC timeout transitoires pendant le pump Unity de l'adversaire (curl exit-28 -m 100 ; host « RPC timeout 15000ms » ; status urllib TimeoutError) — open — recurrence:6
+## TF19 — `await` / RPC timeout transitoires pendant le pump Unity de l'adversaire (curl exit-28 -m 100 ; host « RPC timeout 15000ms » ; status urllib TimeoutError) — done — recurrence:6
 - **friction** : pendant qu'un agent adverse délibère / pendant un long `applyAction`+pump Unity, l'endpoint
   `await` (et parfois `status`) dépasse le cap `-m 100` de curl (exit 28) OU le host lève « RPC timeout after
   15000ms ». seed 80000 (ts=b7) : A a touché le cap plusieurs fois (re-émissions en aveugle requises, incertitude
@@ -301,6 +301,18 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   **n+5 (seed 80053, ts=b8)** : A re-signale plusieurs `timedOut:true` CONSÉCUTIFS sur le `await` 90s pendant que
   l'adversaire (B) délibérait longuement sur plusieurs tours → ré-émission de l'`await` à chaque fois (« as designed »).
   Transitoire, aucune action perdue ; re-confirme le pattern adversaire-lent → await-timeout → re-émettre.
+- **fix livré (a/d host-side + b/c doctrine)** : (a/d, `router.ts`) l'endpoint
+  `/api/selfplay/:id/await` **AVALE** un timeout/erreur TRANSITOIRE du poll interne
+  `battleStatus` (queue RPC saturée pendant le pump adverse) au lieu de remonter un raw 500
+  « RPC timeout 15000ms » (qui se lit comme un fail) → il continue à long-poller jusqu'à la
+  deadline puis renvoie un `timedOut` UNIFORME (+ `transientError` pour la visibilité) ; seul
+  un `ok===false` DÉFINITIF (runner nuké) reste un 502. (b/c, prompt player self-play + skill
+  §7) : `curl -m 120` > le timeout serveur 90s (ne le race plus) ; `timedOut`/`transientError`/
+  curl exit-28/sortie vide = TOUJOURS transitoire → RE-ÉMETTRE ; un `play`/`applyAction` qui
+  timeout sur la RÉPONSE a PEUT-ÊTRE déjà appliqué (applied-but-slow) → vérifier `status`/`view`
+  AVANT de re-jouer (ne pas double-apply). RÉSIDUEL : pas de clé d'idempotence DURE côté hook
+  (`alreadyApplied`) — la doctrine check-status-avant-retry couvre le double-apply. **Activation :
+  changement host → effectif au prochain restart host (reinject).**
 - vu : seed 80000, seed 80003, seed 80004, seed 80002, seed 80001, seed 80053.
 
 ## TF20 — collision de glyph board-map : 'b' minuscule = terrain (drybush) ET lettre d'unité (rendu en double sur une rangée) — done — recurrence:2

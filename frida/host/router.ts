@@ -191,14 +191,24 @@ export function buildRouter(defaultLogDir: string): Router {
         const deadline = Date.now() + timeoutMs;
         const sleep = (ms: number): Promise<void> =>
             new Promise((r) => setTimeout(r, ms));
+        // TF19 : un timeout/erreur TRANSITOIRE du poll interne `battleStatus` (queue RPC
+        // saturée pendant le pump Unity du tour adverse) NE DOIT PAS remonter comme un
+        // échec — un raw 500 « RPC timeout 15000ms » se lit comme un vrai fail. On l'AVALE
+        // et on continue à long-poller jusqu'à la deadline, puis on renvoie un `timedOut`
+        // UNIFORME (+ `transientError` pour la visibilité). Le caller ré-émet l'await.
+        type BS = { ok?: boolean; error?: string; stage?: number;
+                    stageName?: string; currentPlayer?: number };
+        let transientError: string | null = null;
         try {
             for (;;) {
-                const r = (await rpcCall(id, "battleStatus",
-                    [{ runnerId }], 15000)) as {
-                        ok?: boolean; error?: string; stage?: number;
-                        stageName?: string; currentPlayer?: number;
-                    };
+                let r: BS | null = null;
+                try {
+                    r = (await rpcCall(id, "battleStatus", [{ runnerId }], 15000)) as BS;
+                } catch (e) {
+                    transientError = (e as Error).message;  // transitoire -> on re-poll
+                }
                 if (r && r.ok === false) {
+                    // échec DÉFINITIF (ex. runner introuvable = nuke concurrent) -> surfacer.
                     res.status(502).json({ error: r.error || "battleStatus failed" });
                     return;
                 }
@@ -217,7 +227,8 @@ export function buildRouter(defaultLogDir: string): Router {
                 }
                 if (Date.now() >= deadline) {
                     res.json({ ok: true, yourTurn: false, gameOver: false,
-                        timedOut: true, currentPlayer, stage, stageName: r?.stageName });
+                        timedOut: true, currentPlayer, stage, stageName: r?.stageName,
+                        ...(transientError ? { transientError } : {}) });
                     return;
                 }
                 await sleep(pollMs);
