@@ -1210,3 +1210,353 @@ Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80097_2026-
 ### Refs action logs
 
 Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80031_2026-06-23-b6.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 80031) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
+
+---
+
+## seed 80000 — winner=team1 (ts=20260625-b7)
+
+> ⚠ **6ᵉ run self-play DÉCISIF de la seed 80000** (cf. blocs antérieurs : run #1 team1 W, #2/#4/#6 no-winner round-cap, #3 team2 W, #5 no-winner quality-ahead). CE run = **team1 W NET par CONVERSION offensive avant le round-cap** : A a tué l'unique ranged ennemi (Vitruvius) T4 pour convertir l'ennemi en ALL-MELEE, puis a screené ses fragiles derrière un mur mêlée inatteignable et focus-killé l'engine-buff (Aun'Shi) + le carry (Tanksmasha) une fois le buff défensif Aun'Shi expiré. **AUCUN EnvEndBombardment** (combat fermé round ~4-5). `status` autoritatif = **winner=team1 (battleStatus.winner=3, unitsAlive=13)**.
+
+### Rosters
+
+| Équipe | Unités |
+|--------|--------|
+| **team1 (Player A / oracle, player 3) — VAINQUEUR** | ultraTigurius (Tigurius) · tyranTyrantGuard (Tyrant Guard) · custoAtlacoya (Atlacoya) · admecRuststalker (Exitor-Rho) · tauMarksman (Sho'syl) |
+| **team2 (Player B / oracle, player 4) — PERDANT** | spaceRockfist (Arjac) · tauAunShi (Aun'Shi) · orksNob (Tanksmasha) · admecDominus (Vitruvius) · deathPutrifier (Pestillian) |
+
+### Adjudication
+
+- A outcome_perceived = **W** ; B outcome_perceived = **L** → A="W" & B="L" → **winner_consensus = true** (concorde avec l'autoritatif).
+- `rl_duel.py status --state-file data/_sp_80000_A.json` : `stage=Finished currentPlayer=3 alive_by_team={}` + ligne autoritative **« BATTLE FINIE — winner AUTORITATIF = team1 (battleStatus.winner=3, unitsAlive=13) »**. ⚠ `alive_by_team={}` post-Finished est VIDE par construction (decisionView refuse hors-Running) — NE rien inférer de ce vide ; le champ NATIF `battleStatus.winner=3` = vérité (H59/H64).
+- **authoritative_winner = team1.**
+
+### Win-conditions (consensus croisé A.mine ≈ B.theirs et A.theirs ≈ B.mine)
+
+**team1 win-condition (VAINQUEUR)** : burst ranged armor-bypass + AoE Psychic = Sho'syl (SeekerMissile / MV71 drone, RangedSpecialist) one-shot la backline depuis tuile safe, enable par Tigurius StormOfWrath (Psychic NoBlocking AoE bypassant armure ET block) + Atlacoya TalonsOfTheEmperor scaling-finisher. SOURCE/enablers à protéger = Sho'syl (reach-tool qui tue l'unique ranged ennemi) + Tigurius (AoE qui softène le cluster).
+→ Accord A.mine / B.theirs = **CONSENSUS** (B identifie correctement Sho'syl drone-summoner + Tigurius armor-bypass comme le focus-core ranged, screené par les tanks TG/Atlacoya).
+
+**team2 win-condition (PERDANT, jamais réalisée)** : melee-brawl + buff-aura + repair = Aun'Shi SereneUnifier cycle-buff engine + Pestillian Nurgle armor-strip + Tanksmasha BeastSlayer anti-BigTarget carry, sustained par Vitruvius repair-engine ; devait CLOSER et grind. SOURCES = Aun'Shi (buff) + Vitruvius (repair) — wincon crippled car (a) le buff Aun'Shi ne touchait que self+adjacent (seul T'au, pas d'extension) et (b) le Mechanic de Vitruvius était inerte (aucun allié Mechanical à réparer).
+→ Accord A.theirs / B.mine = **CONSENSUS** (A lit correctement Aun'Shi SOURCE + Vitruvius enabler ranged, et la limite de portée du buff).
+
+### Séquences clés (résumé des action logs — détail archivé)
+
+**Player A (team1, VAINQUEUR) :**
+- **T4 — kill l'UNIQUE ranged ennemi (Vitruvius) en premier** via MV71 drone de Sho'syl (one-shot ~9035 depuis back-left, zéro exposition) → convertit l'ennemi en ALL-MELEE → A peut désormais screener ses fragiles derrière un mur mêlée que l'ennemi ne peut plus atteindre. **Coup décisif du match.**
+- **Tour défensif de consolidation EN AVANCE** (au lieu de pousser les fragiles) : mur mêlée (TG/Atlacoya/Exitor) devant, Tigurius/Sho'syl/drones derrière ; laisse l'ennemi all-melee diver, et PUNIT au tour SUIVANT une fois le buff défensif Aun'Shi (SenseOfStone −50% dmg subi) EXPIRÉ → ses coups landent à plein.
+- **T5 double-kill** (buff −50% tombé) : TG CrushingClaws + Tigurius StormOfWrath (splash AoE touche Tanksmasha ET Aun'Shi) + Sho'syl drone → kill Tanksmasha ; puis Exitor (expendable 292 PV) CordClaw finit l'Aun'Shi AoE-softé = coupe le buff-engine à la source.
+- Pestillian (Resilient+Explodes) tué au RANGE / 2-hit → l'explosion 25%maxHP chipe Arjac GRATIS (consomme la 1ʳᵉ réduction TerminatorArmour d'Arjac) ; puis Arjac Resilient overkillé via Exitor OptimizedGait multi-hit + drone Sho'syl.
+
+**Player B (team2, PERDANT) :**
+- T1 (ROOT MISTAKE) : avance toute la ligne mêlée à row 5 + engines (Vitruvius/Aun'Shi) screenés row 6 → met les engines screenés DANS la reach ranged+Psychic-NoBlocking ; Vitruvius (repair-engine, unique ranged) focus-delete T4 = enemy converti en all-melee à son désavantage.
+- T2 : focus-kill correct d'Exitor-Rho (Direct-assassin, 8032→292) avec Tanksmasha+Arjac, DÉCLINE de le finir avec Aun'Shi pour ne pas exposer l'aura-engine — bonne priorité (engine≫anvil) mais kill non bouclé.
+- T3 (désespéré 2v6) : commit ses 2 derniers durables (Arjac/Pestillian Resilient) forward pour chunker Sho'syl — tue un drone, ne finit pas Sho'syl ; opponent cleanup. Throughout : **PAS de reaction-engine** (zéro Overwatch armé) → le « hold-and-punish » réciproque ne s'est jamais matérialisé.
+
+### Confrontation : consensus vs divergences
+
+#### Mécaniques de CONSENSUS (rapportées des DEUX sides — cross-observable, recoupées gameconfig/i2)
+
+1. **SereneUnifier R1 SenseOfStone = DÉFENSIF (−50% dmg SUBI, pas dealt)** : A(theirs, high) + B(mine, high) concordent que la phase R1 réduit le dmg PRIS → le cluster buffé est tanky CE round. ⚠ **TIMING DÉCISIF côté VAINQUEUR ce run** : A a explicitement TIMÉ son burst APRÈS l'expiration du −50% → dmg effectif ~doublé (le SeekerMissile dépensé PENDANT le buff sur Pestillian n'a fait que ~2793 au lieu de ~5782). gameconfig : `SenseOfStone` = effet moteur sans i2 (sémantique au wiki). → **n+1 inscrit wiki §3bis Aun'Shi** (côté gagnant cette fois).
+2. **MV71SniperDroneSquad (Sho'syl)** : drone summon qui frappe au **Damage stat de Sho'syl** (boosté RangedSpecialist +80%) → one-shot Vitruvius (~9035) depuis back-left SANS bouger Sho'syl ; chaque cast summon un drone permanent qui re-attaque chaque tour. A(mine, high) + B(theirs, high : « 2 drones up by turn 2, chunked Aun'Shi 2946 from safe row 6 »). gameconfig confirme. (déjà au wiki §3bis — pas ré-inscrit.)
+3. **StormOfWrath (Tigurius)** : Psychic NoBlocking AoE, primary + splash jusqu'à 5 adjacents, bypasse armure ET block (AnvilShield/BigTarget/GuardianOrganism/Terrifying), Psychic exclu de TerminatorArmour. A(mine, splash a touché Tanksmasha + Pestillian + Aun'Shi) + B(theirs, critical « ignores ALL my mitigation, killed Vitruvius »). gameconfig confirme. (déjà au wiki §3bis + synergie §5bis.)
+4. **PutridExplosion (Pestillian)** : explose à la mort = 25% maxHP Toxic aux adjacents sauf Death Guard (friendly-fire). A(theirs, « kill at range → l'explosion chipe Arjac GRATIS ») + B(mine, « ideal forward Explodes/Resilient body »). gameconfig confirme (25% maxHP Toxic). (déjà au wiki §1/§3bis.)
+5. **Foehammer (Arjac)** : Ranged-tag Power, +dmg/Character défait (snowball, les DEUX camps comptent), Stun. A(theirs, « stunned + chunked Sho'syl, scales per kill, don't feed it ») + B(mine, anvil Resilient). gameconfig confirme. (déjà au wiki §3bis + §5bis.)
+
+#### Divergences (entre les deux observateurs)
+
+1. **PutridExplosion consomme la 1ʳᵉ réduction TerminatorArmour de la cible adjacente** : A seul (about=mine/theirs, high) rapporte que l'explosion (Toxic) compte comme la « 1ʳᵉ attaque du tour » d'Arjac → réduite −75% par sa TerminatorArmour ET CONSOMME cette réduction (les coups suivants du tour landent plein). B ne cross-observe pas cette interaction. Mécaniquement cohérent avec gameconfig (TermArmour −75% 1ʳᵉ attaque, Toxic NON exclu — seul Psychic/Direct le sont). → **hypotheses.md H76 (self-play candidate, observateur unique A, recoupé gameconfig = plausible).**
+2. **Source réelle de team2** : A surpondère Aun'Shi comme LA source ; B décrit son plan exécuté comme un brawl mêlée + buff + repair où Vitruvius était l'enabler ranged-clé qu'il a perdu T4 (root mistake d'avoir avancé les engines screenés dans la reach ranged). Accord sur la VALEUR des engines, divergence d'EXÉCUTION/lecture — PAS une mécanique.
+
+### Erreurs identifiées (leçons, des deux sides)
+
+- **B (perdant) — ROOT CAUSE** : avancer toute la ligne (engines Vitruvius+Aun'Shi screenés inclus) à row 5/6 T1 DANS la reach d'une compo ranged+Psychic-NoBlocking + drone. « Row 6 safe » est FAUX vs NoBlocking/ranged/drone-reach — Vitruvius (repair-engine + unique ranged) deleted T1/T4 = enemy converti all-melee à son désavantage. Garder les engines row 0-1 (intouchables), ne pousser QUE les Resilient/Explodes comme screen.
+- **B — RECON reach-fail** : roster melee-only (après mort Vitruvius) SANS reach-tool (r3+/deep-strike/flyer) pour toucher Tigurius (back-row Psychic NoBlocking) ni Sho'syl (kiting summoner) → matchup structurellement hard vs ranged-summoner+NoBlocking-core. À FLAGGER au recon (H02/H71) et jouer un screen serré depuis l'arrière, pas avancer dans l'ouvert.
+- **B** : over-commit du mur row 5 T2 (Tanksmasha + Aun'Shi forward) → perdus au focus de retour ; Aun'Shi (aura-engine) aurait dû être rapatrié row 0-1 après avoir granté son buff, pas laissé à (5,6).
+- **B** : aucun reaction-engine (Overwatch/counter/turret) sur le roster Chaos/Xenos brawl → le « hold-and-punish-the-dive » réciproque ne pouvait PAS se déclencher (doctrine : la réciprocité exige un reaction-engine). A nourri des corps dans le focus sans riposte.
+- **A (vainqueur, notes adversariales malgré la W)** : laissé Sho'syl (fragile reach-tool clé) à (1,5) où Arjac a closé + Foehammer (stun + chunk ~1812) — survécu seulement car A dominait déjà ; screener son flanc Est plus dur ou la rapatrier le tour d'avant.
+- **A** : Atlacoya dive (5,5) deep-behind-lines pour setup le kill Aun'Shi avant de réaliser qu'Exitor (expendable) pouvait finir depuis une tuile plus naturelle — over-extension mineure d'un tank durable, non punie car l'ennemi collapsait.
+- **A** : SeekerMissile dépensé sur Pestillian PENDANT le buff Aun'Shi −50% → halvé (~2793 au lieu de ~5782) ; mis-timé (cible non-buffée aurait donné full value). Cf. consensus #1 (timing post-buff).
+
+### Refs action logs
+
+Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80000_20260625-b7.json` (action_logs des 2 camps + rosters + outcome team1, rejouable via seed 80000) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
+
+---
+
+## seed 80003 — winner=team1 (ts=20260625-b7)
+
+> ⚠ **3ᵉ outcome DISTINCT pour les rosters seed 80003** (cf. les 2 blocs 80003 ci-dessus : `conv80003` = no-winner round-cap ; `batchfix` = team2 W par élimination). CE run = **team1 W par élimination PROPRE** (`battleStatus.winner=3, unitsAlive=15` ⇒ pas un mutual-wipe : team1 ferme 9v1→cleanup AVANT le round-cap). C'est la PREMIÈRE victoire du roster double-summon-engine + alpha Deathleaper/Jain Zar : **punir l'over-commit du Psyker-trio** par un alpha-strike d'une seule activation collective.
+
+### Rosters
+
+| Équipe | Unités |
+|--------|--------|
+| **team1 (Player A / oracle, player 3) — VAINQUEUR** | tyranDeathleaper (Deathleaper) · astraYarrick (Yarrick) · templSwordBrother (Godswyl) · ultraInceptorSgt (Bellator) · eldarJainZar (Jain Zar) |
+| **team2 (Player B / oracle, player 4) — PERDANT** | blackPossession (Archimatos) · necroSpyder (Aleph-Null) · thousSorcerer (Thaumachus) · thousAhriman (Ahriman) · bloodSanguinary (Nicodemus) |
+
+### Adjudication
+
+- A outcome_perceived = **W** (4 tours) ; B outcome_perceived = **L** (3 tours) → **winner_consensus = true** (A="W" & B="L" → team1, ET matche le winner autoritatif).
+- `rl_duel.py status --state-file data/_sp_80003_A.json` : `*** BATTLE FINIE — winner AUTORITATIF = team1 (battleStatus.winner=3, unitsAlive=15) ***` (champ NATIF post-Finished, H59). `unitsAlive=15` = team1 a 15 corps vivants (5 héros + Guardsmen/Inceptors summonés) = élimination, PAS un round-cap (qui aurait `winner=None`).
+- **authoritative_winner = team1.**
+
+### Win-conditions (consensus croisé A.mine ≈ B.theirs et A.theirs ≈ B.mine)
+
+**team1 win-condition (VAINQUEUR)** : alpha-assassination de l'over-commit — **Deathleaper `FearOfTheUnseen`** (vanish 1 round → teleport sur N'IMPORTE QUEL hex libre + attaques +3x Direct bonus = re-crée un deep-strike-avec-attaque APRÈS que le deep-strike est dépensé → atteint la SOURCE board-flip Archimatos qu'aucune autre unité ne peut toucher) couplé à **Jain Zar `SilentDeath`** (Pierce80 adjacency-chain AoE : un cast a tué Thaumachus + chipé Aleph-Null + touché Ahriman dans le même cluster) et **Godswyl `ThunderousAssault`** (stun + overkill finisher). Source = la reach teleport de Deathleaper + l'AoE de Jain Zar permettant d'alpha toute la ligne Psyker en UN tour quand l'ennemi a clusteré en portée. Summon-engines (Bellator Inceptors, Yarrick Guardsmen) = écran expendable + chip sans risquer les héros.
+→ Accord A.mine / B.theirs : **CONSENSUS** (B lit team1 comme « board-flood double summon-engine + fast-alpha Deathleaper teleport + Jain Zar cleave » — concorde sur la SOURCE alpha = Deathleaper + Jain Zar).
+
+**team1 win-condition (PERDANT, jamais réalisée)** : triple-Psyker armor-ignore AoE engine (Ahriman `Doombolt` Pierce100 NoBlocking + Thaumachus `AttemptedPossession`/`ArcaneShield` + Archimatos `Incursion`/`Possession` summons) amplifié par `WeaverOfFate` (max-roll si 3+ ennemis prennent du Psychic) + Nicodemus heal + Aleph-Null repair. SOURCE = les 2 carries armor-ignore (Ahriman/Thaumachus). **Edge GASPILLÉ** : team ranged/Psyker fragile qui devait KITER l'ennemi all-melee et AoE le cluster depuis la safety (rows 7-8), PAS diver.
+→ Accord A.theirs / B.mine : **CONSENSUS** (A a correctement identifié Archimatos = engine board-flip #1, Ahriman/Thaumachus WeaverOfFate = snowball Psychic, et DÉMOTÉ Aleph-Null = repair INERT car seul Mechanical → CRITICAL→LOW).
+
+### Séquences clés (résumé des action logs — archivés en 4)
+
+**Player A (team1, VAINQUEUR, 4 tours) :**
+- **T3-4 (setup, REFUS du bait)** : refus de diver le bait forward (Aleph-Null, un repair-hub INERT) avec les carries fragiles dans la portée Psychic → avance cohésive, summon Guardsmen/Inceptors comme écran forward expendable, et **pré-arme Deathleaper `FearOfTheUnseen`** (vanish + teleport-strike au prochain tour).
+- **T5 (DÉCISIF)** : l'adversaire over-commit TOUT son cluster rows 5-6 en portée → alpha de TOUTE la ligne Psyker en UN tour en ordre de priorité : **Deathleaper `FearOfTheUnseen` K! Archimatos (summon-engine) EN PREMIER** (8034→K!, +3x bonus Direct ignore armure) ; Jain Zar `SilentDeath` AoE tue Thaumachus ; Yarrick finit Aleph-Null (son `Explodes` pope l'`ArcaneShield` d'Ahriman) ; Bellator Inceptors + Godswyl `ThunderousAssault` finissent Ahriman. **5v5 → 9v1.**
+- A tué les engines/Psykers AVANT qu'ils puissent cluster-AoE + armer `WeaverOfFate` (roster A = zéro Psyker, mais WeaverOfFate trigger sur LES UNITÉS DE A prenant du Psychic) → snowball adverse nié.
+- Erreurs (notées même sur W) : T4 Bellator déplacé à (4,4) pour un `DeathFromAbove` sur Aleph-Null mais hors-portée (`TargetIsInRange`) = move déjà dépensé = activation gaspillée (cf. TF16). T6 deux normales Inceptor (id 69) auto-résolues sur Nicodemus = 0 dmg no-op consommant l'action (cf. TF16/TF18 — out-of-range non rejeté pour les summons). Adversarial : tuer Archimatos a nécessité de teleport Deathleaper deep à (6,5) + Jain Zar/Godswyl forward rows 5-6 = SUR-EXTENSION qui n'a marché QUE parce que l'alpha fut létal en un tour ; vs un adversaire prudent gardant ses Psykers back, ce deep-commit aurait stranded les carries.
+
+**Player B (team2, PERDANT, 3 tours) :**
+- **T1 (mistake)** : HOLD passif comme team ranged (nudge 2 écrans durables Aleph-Null/Nicodemus, casters back) MAIS SANS repositionner les casters pour kiter/maximiser la range → tempo gratuit donné à l'ennemi (avance + 2 Guardsmen summonés).
+- **T2 (ROOT CAUSE)** : commit les TROIS casters fragiles (Ahriman/Thaumachus/Archimatos) forward rows 5-7 pour chiper des engines qu'il ne POUVAIT PAS tuer (6000+ HP, Resilient/MkXGravis) → over-extension textbook → l'ennemi a alpha les 4 casters en un tour. WeaverOfFate armé live (Doombolt split 3-way Bellator+Yarrick+Guardsman → 3+ ennemis-Psychic) MAIS max-roll gaspillé en attaquant Bellator en MÊLÉE adjacente (Flame Pierce25 ~646 vs MkXGravis double-armure, au lieu du Psychic Pierce100 à range 2).
+- **Final (1v8)** : Nicodemus seul → tua un Guardsman 326-HP du coin le moins menacé (seule action constructive ; loss déjà structurelle).
+
+### CONFRONTATION (consensus vs divergences)
+
+#### Mécaniques de CONSENSUS (rapportées des DEUX sides — cross-observable, recoupées gameconfig)
+
+1. **`FearOfTheUnseen` (Deathleaper) = re-deep-strike full-board + 3x bonus Direct** : A(theirs→mine, K! Archimatos full-HP 8034 depuis backline) + B(theirs, effets `FearOfTheUnseen_TeleportingIn` + `_ExtraDamage`, relocate (1,0)→(6,5), untargetable while vanished). gameconfig confirme verbatim (« vanishes, cannot be targeted 1 round ; next turn attacks deal +3x Direct ET move to any free hex within Synapse / Tall Grass / non-adjacent à un ennemi »). → **INSCRIT wiki §3bis Deathleaper** (l'insight non-déductible = RECRÉE un deep-strike-avec-attaque APRÈS dépense du deep-strike → atteint N'IMPORTE QUELLE backline = engine-killer ; à TIMER pré-armé avant le tour où l'ennemi cluster en portée).
+2. **`SilentDeath` (Jain Zar) = thrown adjacency-chain AoE, caster NE bouge PAS** : A(mine, 1 cast = kill Thaumachus + chip Aleph-Null + hit Ahriman même cluster) + B(theirs, « cleaves target + up to 3 adjacent, Pierce80 beats Resilient per-target, never cluster fragiles »). gameconfig confirme. (déjà au wiki §3bis Jain Zar — re-confirmé.)
+3. **`Doombolt` (Ahriman) = 3 hits TOTAL distribués sur tous les ennemis ≤2 hex, +1/fire hex (cap 9), re-usable on kill** : A(theirs, AoE Psychic NoBlocking ignore armure/MkXGravis) + B(mine, observé split 3-ways ~1342/1519/1355 — concentré single-target ~2409-3613, spread = ~1 hit chacun mais arme WeaverOfFate cheap). gameconfig confirme verbatim. (déjà au wiki §2 Ahriman — re-confirmé.)
+4. **`WeaverOfFate` (Ahriman+Thaumachus) feed-par-Psyker-splash, ORDRE compte** : A(theirs, snowball si 3+ MES unités prennent du Psychic) + B(mine, Doombolt split 3-way ARME → cast Thaumachus SUIVANT = max-roll ; ⚠ le cast trigger doit PRÉCÉDER le bénéficiaire dans le même tour). gameconfig confirme le trait. (déjà au wiki §interactions Psyker-splash→WeaverOfFate — l'ordre-intra-tour re-confirmé.)
+5. **`ArcaneShield` (Thaumachus) absorbe le spill avant les HP** : A(theirs, shield ~5483 a mangé le SilentDeath spill sur Ahriman → HP resté 8032 ; pope-le d'abord via Explodes/chip) + B(mine). gameconfig confirme (4001 base, le live = scaling). (déjà au wiki §3bis Thaumachus — re-confirmé.)
+6. **`MkXGravis` (Bellator) double-armure bypassée par Psychic NoBlocking/Pierce100, MAIS bloque la mêlée low-pen** : A(theirs, Bellator MkXGravis inutile vs core Psychic) + B(mine, Flame Pierce25 near-fully blocked ~646 vs MkXGravis double-armor → attaquer DEPUIS la range 2 pour le profil Psychic Pierce100). gameconfig confirme (« any incoming Damage goes through Armour a second time ; not on Crits »). (déjà au wiki §1/§3bis — re-confirmé, leçon weapon-selection-à-range pour le caster.)
+7. **`Explodes` (Aleph-Null) = 25% maxHP Direct aux adjacents, friendly-fire leur cluster + pope shields** : A(theirs/mine, killer Aleph-Null DANS leur cluster → pope l'ArcaneShield d'Ahriman GRATIS) + B(mine, friendly-fire risk). gameconfig confirme (`explodesDmg:25`). (déjà au wiki §1/§3bis — re-confirmé.)
+8. **`DeathFromAbove` (Bellator) = 1 Inceptor/round écoulé, land adjacent + attaque immédiate, caster doit MOVE en range** : A(mine, 3 Inceptors à round 5 chip Ahriman 7360→3155 + corps durables) + B(theirs, 3 Inceptors round 3 = +3 corps qui surround). gameconfig confirme verbatim. (déjà au wiki §3bis/§3ter — re-confirmé ; ⚠ le caster doit move en range AVANT, sinon no-op = TF16.)
+
+#### Divergences (entre les deux observateurs)
+
+1. **`EnvFireTileDamage` / fire hexes = dmg start-of-turn (DoT-class, Effect_Type=5)** : B seul (about=theirs, ~142 sur Bellator au start, lié à PsychicStalk fire-setting + Doombolt +1-hit/fire-hex). A ne cross-observe pas. → candidat single-observer (confidence med B) → `hypotheses.md` (self-play divergence A/B).
+2. **`Thorns_DefenseReduction` sur entrée de tile (4,6) sur Aleph-Null** : B seul (about=mine, Effect_Refresh depuis une tile-source). A ne cross-observe pas. → candidat single-observer (confidence low B) → `hypotheses.md` (terrain tile-effect à reconfirmer ; apparenté §3quater Thorns côté Godswyl).
+3. **Issue : aucun désaccord d'issue** (A="W"/B="L" concordent avec le winner autoritatif team1) — pas une divergence.
+
+### Refs action logs
+
+Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80003_20260625-b7.json` (action_logs des 2 camps + rosters + outcome team1, rejouable via seed 80003) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
+
+---
+
+## seed 80004 — winner=team1 (ts=20260625-b7)
+
+### Rosters
+
+| Équipe | Unités |
+|--------|--------|
+| **team1 (Player A / oracle, player 3) — VAINQUEUR** | necroOverlord (Anuphet, DIED) · thousAhriman (Ahriman, DIED) · emperNoiseMarine (Shiron, survived) · templSwordBrother (Godswyl, DIED) · thousTerminator (Toth, survived) · necroSmnWarrior (Necron Warrior summoné, survived) |
+| **team2 (Player B / oracle, player 4) — PERDANT** | astraCreed (Creed) · darkaCompanion (Forcas) · thousTzaangor (Yazaghor) · spaceStormcaller (Njal) · darkaAsmodai (Asmodai) · astraSmnKell (Kell summoné) · astraNpc1Guardsman x2 (summonés) |
+
+### Adjudication
+
+- A outcome_perceived = **W** (6 tours) ; B outcome_perceived = **L** (5 tours) → A="W" & B="L" → **team1**.
+- `rl_duel.py status --state-file data/_sp_80004_A.json` : `*** BATTLE FINIE — winner AUTORITATIF = team1 (battleStatus.winner=3, unitsAlive=14) ***` (champ NATIF battleStatus.winner). `alive_by_team={}` post-Finished (decisionView vide hors-Running — NON discriminant, cf. H59).
+- **authoritative_winner = team1.** **winner_consensus = true** (A et B s'accordent ET ça MATCHE le winner autoritatif).
+
+### Win-conditions (consensus croisé A.mine ≈ B.theirs et A.theirs ≈ B.mine)
+
+**team1 win-condition (VAINQUEUR)** : **moteur de burst Psychic** = Ahriman `Doombolt` (Psychic Pierce100/NoBlocking, 3 hits répartis sur tous les ennemis ≤2 hex) spread du Psychic sur 3+ ennemis en UN cast → **arme `WeaverOfFate` sur Ahriman ET Toth** (MAX dmg ce tour) → Toth `HellfyreMissileRack` au MAX frappe la cible primaire PLUS chaque ennemi ayant subi du Psychic ce tour = multi-kill en une activation. SOURCE/enabler = Ahriman (le seul spreader Psychic) ; Shiron `ExcruciatingFrequencies` (Blast r3 6-hit) = l'exécuteur single-target fiable + Toth `TimeFlux` anvil durable ; Anuphet `ResurrectionOrb` = body-engine d'écran.
+→ Accord A.mine / B.theirs = **CONSENSUS** (B a correctement identifié Anuphet summon-engine + Ahriman Doombolt burst comme sources, Shiron+Toth comme backbone durable).
+
+**team2 win-condition (PERDANT, jamais pleinement réalisée)** : double engine = Creed `SupremeCommander` summon-snowball (Guardsmen qui agissent au spawn + Kell bodyguard via `SwornProtector`) + Njal `Stormcaller` Psychic-AoE armor-ignore, package réaction Dark-Angel = Forcas (Overwatch Strike-stance anvil) + Asmodai (`ExemplarOfHate` mark +728 melee/OW + anti-Chaos sur le roster 100% Chaos de A). Le snowball Psychic secondaire (Yazaghor `WeaverOfFate` fed par Njal) n'a JAMAIS fired (Njal n'a jamais touché 3+ unités de A).
+→ Accord A.theirs / B.mine = **CONSENSUS** (A a correctement lu Creed bodies + Asmodai mark/exec comme sources, Njal/Yazaghor Psychic comme engine inerte).
+
+### Séquences clés (résumé des action logs)
+
+**Player A (team1, vainqueur) :**
+- T1 : `ResurrectionOrb` (Anuphet) pour un Necron Warrior gratuit (round-scaling, zéro risque) → écran de la back-line fragile (le Warrior a survécu jusqu'à la fin).
+- Tour décisif : `Doombolt` (Ahriman) → spread Psychic sur 3 ennemis → **`WeaverOfFate` armé sur Ahriman ET Toth** (cascade Effect_Refresh sur e=90 et e=96) → Toth `HellfyreMissileRack` au MAX a **one-shot les DEUX Cadian Guardsmen** (2564/2569 HP) + double-tap Forcas en UNE activation. ⚠ pour atteindre la portée Doombolt, Ahriman a marché dans l'Overwatch armé de Forcas (~6500 dmg, 8032→1589) puis est mort le tour suivant = enabler perdu.
+- Priorité de kill : enablers/carries dans l'ordre (Asmodai l'anti-Chaos → Kell pour stripper le bodyguard de Creed → Creed → Yazaghor le Psychic-engine → Njal) plutôt que grind le chaff.
+- Shiron `Eviscerate` r3 6-hit = l'exécuteur single-target qui a fermé chaque kill suivant.
+
+**Player B (team2, perdant) :**
+- T4 : avance cohésive forward + Creed summon-screen + Forcas Overwatch arm depuis une position turtle héritée → MAIS over-extension (Forcas à (4,5) + Guardsmen auto-pathés forward-right) → 3 corps dans la reach r4-5 ennemie → focus-killés au tour ennemi pour UN Ahriman chunké.
+- T5 : conversion propre du dive → K! Ahriman (le carry Psychic critique) avec une normale Creed cheap (1589 exact) = meilleur play du match ; puis focus du Godswyl marqué (Njal+Asmodai+Yazaghor) MAIS Yazaghor roll bas → Godswyl laissé à 100 HP (K? au lieu de garantir).
+- T6 : K! Anuphet (summon-engine) via Creed 5342 + Yazaghor 3194 → démantèle le wincon ennemi (Ahriman+Anuphet+Godswyl morts). Gagne la guerre des engines (passe de their-5 à their-3).
+- T6-T8 : MAIS bleed sa propre ligne un corps à la fois (Asmodai, Creed, Yazaghor focus-killés sur des tours consécutifs — JAMAIS rétractés après chaque kill) → gagne les engines mais PERD l'attrition vs le backbone durable Shiron(Blast)+Toth(self-heal) → fin 0v3.
+
+### Confrontation : consensus vs divergences
+
+#### Mécaniques de CONSENSUS (rapportées des DEUX sides — cross-observable, recoupées gameconfig)
+
+1. **`WeaverOfFate` armé par UN Doombolt → MAX-dmg sur les DEUX Psykers (Ahriman+Toth) le même tour** : A(mine, cascade Effect_Refresh e=90/e=96, conf high) + B(theirs, Doombolt re-arm + Psychic-spread). gameconfig `--trait WeaverOfFate` confirme « In any turn where 3 or more enemy units have taken Psychic Damage, this unit will deal the maximum possible Damage. » → l'INSIGHT non-déductible = un SEUL Doombolt (3 hits distribués ≤2 hex) suffit à dépasser le seuil 3-ennemis-Psychic ET arme le trait sur CHAQUE Psyker allié possédant WeaverOfFate (pas que le caster).
+2. **`HellfyreMissileRack` (Toth) = profil HeavyRound (PAS Psychic) qui frappe la cible PLUS chaque ennemi ayant subi du Psychic CE tour, au MAX sous Weaver** : A(mine, 1 cast = kill 2 Guardsmen + double-tap Forcas, conf high) + B(theirs, scale sur les ennemis Psychic-damaged). gameconfig `--ability HellfyreMissileRack` confirme verbatim (« additional 1x to each enemy unit on the map that was dealt Psychic Damage this turn »). Cooldown multi-tour (indispo 2 tours).
+3. **`Overwatch_AutoAttack` (Forcas, Strike stance) fire à l'INSTANT où un ennemi MOVE en range, même si Forcas a attaqué ce tour** : A(theirs, 6 hits ~6500 sur Ahriman entrant, conf high) + B(mine, Strike stance auto-OW ré-armé à l'endturn). gameconfig (`darkaCompanion`/CalibaniteGreatsword) confirme « Strike Stance: At the end of his turn, Forcas starts Overwatching, even if he attacked. » → l'INSIGHT = le warning OVERWATCH de la vue était EXACT ; ignorer un OW armé = perte de l'enabler.
+4. **`SupremeCommander`/`SwornProtector` (Creed) = 2 Guardsmen qui agissent au spawn + Kell auto-bodyguard au 1er ciblage de Creed** : A(theirs, Kell doit mourir avant que Creed soit killable, conf high) + B(mine, Guardsmen ~3989 HP agissent immédiatement, Kell ~5107 HP). gameconfig confirme (SupremeCommander summon 2 + Kell étend à 3 ; SwornProtector = Kell switch-hex et prend le dmg à la place de Creed s'ils sont adjacents).
+5. **`ResurrectionOrb` (Anuphet) = 1 Necron Warrior par round écoulé (+1 par LivingMetal mort), corps durable d'écran** : A(mine, T1 free body, screen back-line, survived) + B(theirs, snowball SOURCE à couper, 1/round). gameconfig confirme verbatim. (déjà au wiki §3bis Anuphet — re-confirmé self-play.)
+6. **`TimeFlux` (Toth) = self-heal anvil (873 + dmg du dernier hit subi, cap 4365/tour) + revive une fois à 2401 HP → le chip est gaspillé** : A(mine, backbone durable) + B(theirs, mes chips 818-841 quasi-fully regen, conf high). gameconfig confirme verbatim. (déjà au wiki §1 TimeFlux — re-confirmé : « budgéter une 2ᵉ source de kill, traiter comme 2 barres de vie ».)
+7. **`TerminatorArmour` (Njal) blunt les gros hits single-source + can't-be-Suppressed → grindy** : A(theirs, K! Shiron over-stated, 1010 au lieu de ~3500 sur le 1er hit, conf med) + B(mine, TermArmour). gameconfig confirme (−75% 1ʳᵉ attaque/tour, exclut Psychic/Direct). → l'INSIGHT = les prédictions `K!` over-statent vs un porteur TermArmour (la réduction 1ʳᵉ-hit non modélisée) → traiter K! vs TermArmour comme K? + stacker une 2ᵉ source. (friction → TF04.)
+
+#### Divergences (entre les deux observateurs)
+
+1. **`LordOfTempests` (Njal) : les normales de Njal deviennent énormes sur une cible Iced (+237/hex d'Ice) — engine secondaire Ice→normal-buff** : B SEUL (about=mine, high — « Njal normal vs Iced Godswyl montrait 6055 K! ; la vraie valeur de Stormcaller = le buff Ice→normale, pas le hit Stormcaller lui-même »). A ne cross-observe PAS (Njal a peu agi côté A, jamais subi l'enchaînement Ice→normale). gameconfig `--ability LordOfTempests` confirme la RÈGLE (« +237 Damage for each hex surrounding him covered in Ice ; hex of each enemy hit gets covered in Ice ») → candidat single-observer (la règle est confirmée mais l'enchaînement Stormcaller-Ice→LordOfTempests-normale-buff comme ENGINE n'est pas cross-observé). → `hypotheses.md` H78 (self-play divergence A/B, B=conf high + recoupé gameconfig).
+2. **`Doombolt` re-cast + scaling fire-hex (PsychicStalk pose des feux, +1 hit/hex En Feu)** : B seul (about=theirs, conf med — « un Ahriman vivant snowballe Fire+Psychic, killing it à 1589 essentiel avant re-arm »). A ne mentionne pas le fire-setting. gameconfig confirme verbatim (Doombolt re-usable on kill + +1 hit/fire hex). Déjà au wiki §3bis Ahriman → PAS une vraie divergence (mécanique déjà connue, juste non cross-observée ce match). Pas porté.
+3. **Issue : aucun désaccord d'issue** (A="W" / B="L" concordent avec le winner autoritatif team1).
+
+### Erreurs identifiées (leçons, des deux sides)
+
+- **A (vainqueur)** : a marché Ahriman (son enabler Psychic) dans l'Overwatch EXPLICITEMENT armé de Forcas pour atteindre la portée Doombolt (~6500 dmg, mort le tour suivant) → ligne plus propre = armer WeaverOfFate depuis une tuile HORS arc OW, ou tuer/déplacer Forcas d'abord, préservant l'engine pour des Doombolts répétés.
+- **A** : over-extension d'Anuphet à (4,4) + Godswyl à (4,5) deep dans le cluster ennemi → focus-killés. Trade net hugement positif (perdu 3, tué 7) MAIS les pièces-engine sont mortes → 5v2 dominant transformé en 3v2 grindier.
+- **A** : trop confiance dans le tag `K!` vs un TermArmour/Psyker (Njal) — un K! tagué a laissé Njal à 970 HP → near-round-cap, aurait dû pré-empiler une 2ᵉ source. (cf. TF04.)
+- **B (perdant)** : over-extension T4 (failure-mode dominant récurrent) — Forcas à (4,5) + Guardsmen auto-pathés forward dans la reach r4-5 ennemie T1 → 3 corps focus-killés pour UN Ahriman chunké. Garder Forcas une rangée back (OW fire sans être le focus).
+- **B** : K? sur Godswyl avec Yazaghor (low roll laissé à 100 HP) au lieu de séquencer un kill garanti → Njal a dû mop un corps 100-HP le tour suivant (potentiel 6055 K! gaspillé).
+- **B** : ligne propre VIOLÉE à répétition — après chaque kill, l'unité tueuse laissée forward (Creed, Asmodai stranded mid-board, Yazaghor) → chacune focus-deletée le tour ennemi suivant. A gagné chaque engine-kill mais JAMAIS rétracté les corps → bleed matériel plus vite que l'adversaire.
+- **B** : mal-jugé l'attrition au recon — roster fragile/mêlée vs backbone durable Shiron(Blast carry)+Toth(self-heal/revive anvil) qui out-attritione un reliquum 2-3 units même après avoir gagné la guerre des engines. Aurait dû valoriser la SURVIE des corps sur les kills max une fois clair qu'il ne pouvait pas tuer Toth/Shiron.
+
+### Refs action logs
+
+Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80004_20260625-b7.json` (action_logs des 2 camps + rosters + outcome team1, rejouable via seed 80004) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
+
+---
+
+## seed 80002 — winner=team2 (ts=20260625-b7)
+
+> ⚠ **team2 W net par ATTRITION RANGED-ENGINE + STRUCTURAL REACH-FAIL côté team1.** B (team2) a out-tradé via un DOUBLE summon-engine ranged (Sho'syl MV71 drones + Anuphet ResurrectionOrb) screené par un triple-anvil (Azkor Resilient/Terrifying + TG BigTarget + Arjac Resilient/TermArmour), sans jamais exposer son carry fragile. A (team1) avait un roster bricks-mêlée mid-pierce + un Mechanic INERTE, SANS reach-tool (r3+/deep-strike/flyer) pour atteindre Anuphet bloqué row-8 → **engine adverse inatteignable = loss structurelle à flagger au recon** (doctrine H02/H71). `status` autoritatif = **winner=team2 (battleStatus.winner=4, unitsAlive=17)** — board flooded 5v5 → 1v8 → 17 vivants = élimination par les summon-engines, PAS un round-cap.
+
+### Rosters
+
+| Équipe | Unités |
+|--------|--------|
+| **team1 (Player A / oracle, player 3) — PERDANT** | bloodSanguinary (Nicodemus) · worldTerminator (Wrask) · spaceStormcaller (Njal) · admecManipulus (Actus) · ultraInceptorSgt (Bellator) |
+| **team2 (Player B / oracle, player 4) — VAINQUEUR** | worldEightbound (Azkor) · tauMarksman (Sho'syl) · tyranTyrantGuard (Tyrant Guard) · necroOverlord (Anuphet) · spaceRockfist (Arjac) |
+
+### Adjudication
+
+- A outcome_perceived = **L** (5 tours) ; B outcome_perceived = **W** (6 tours) → A="L" & B="W" → **winner_consensus = true** (concorde avec l'autoritatif).
+- `rl_duel.py status --state-file data/_sp_80002_A.json` : `stage=Finished currentPlayer=4 alive_by_team={}` + ligne autoritative **« BATTLE FINIE — winner AUTORITATIF = team2 (battleStatus.winner=4, unitsAlive=17) »**. ⚠ `alive_by_team={}` post-Finished est VIDE par construction (decisionView refuse hors-Running) — NE rien inférer de ce vide ; le champ NATIF `battleStatus.winner=4` = vérité (H59). `unitsAlive=17` (5 héros team2 + flood drones MV71/Necron Warriors) = élimination via summon-flood, pas un round-cap (qui aurait `winner=None`).
+- **authoritative_winner = team2.**
+
+### Win-conditions (consensus croisé A.mine ≈ B.theirs et A.theirs ≈ B.mine)
+
+**team2 win-condition (VAINQUEUR)** : DOUBLE summon-engine ranged scaling-rounds = Sho'syl (SeekerMissile undodgeable r5 + MV71 drones frappant au Damage stat de Sho'syl depuis tuile safe, max 3) + Anuphet (ResurrectionOrb Necron Warriors scaling chaque round + LivingMetal self-regen), screenés par un triple-anvil (Azkor Resilient/Terrifying/Daemon + TG BigTarget 12.5k + Arjac Resilient/TermArmour) → out-trade ranged sans exposer le carry fragile, le board passe de 5v5 à 1v8 puis 17 vivants. SOURCE = l'output drone de Sho'syl + le flood Necron d'Anuphet, baitant l'ennemi sur les tanks pendant que les ranged farment.
+→ Accord A.theirs / B.mine = **CONSENSUS** (A lit correctement Sho'syl + Anuphet comme le double summon-engine, Anuphet row-8 inatteignable, Azkor/TG/Arjac comme le screen).
+
+**team1 win-condition (PERDANT, jamais réalisée)** : summon-snowball (Bellator DeathFromAbove Inceptors) + healer-sustain (Nicodemus BloodChalice/regen) + Psychic armor-bypass (Njal Stormcaller Pierce100 NoBlocking = seul outil contournant Terrifying/TermArmour des bruisers Resilient adverses) ; Actus Mechanic repair-engine INERTE (aucun autre allié Mechanical) = démoté en simple ranged. SOURCE/enablers = Bellator (seul engine board-flip) + Njal (seul vrai dealer). Wincon crippled : ZÉRO reach-tool pour toucher Anuphet row-8 (reach max = Bellator move4-Flying, pas de ligne r3+).
+→ Accord A.mine / B.theirs = **CONSENSUS** (B identifie Njal = leur SEUL armor/Terrifying-bypass = le vrai dealer ; Nicodemus + Bellator = les 2 engines à couper ; Actus correctement démoté INERTE).
+
+### Séquences clés (résumé des action logs — détail archivé en 4)
+
+**Player B (team2, VAINQUEUR, 6 tours) :**
+- **RECON FLIP corrigé T1** : la vue MOI suit currentPlayer → B a d'abord lu les rosters à l'envers, corrigé sur son 1er tour (il contrôle Azkor/Sho'syl/TG/Anuphet/Arjac). Bonne identification de Sho'syl = SON engine et Njal/Nicodemus/Bellator = le wincon-set ADVERSE (cf. TF03 POV-flip).
+- **T4 — open Seeker sur le sustain-engine (Nicodemus)** : Markerlight undodgeable (~5844 chunk, 9035→3191) pré-commit un kill, puis avance cohésive du triple-anvil avec les fragiles (Sho'syl/Anuphet) screenés derrière (round-cap force une décision, pas de turtle).
+- **Kill engines en ORDRE de priorité depuis tuiles shallow/ranged (exposition minimale)** : Bellator (stun Foehammer + drone 4079, DÉNIE le summon) → Actus (drones, no deep-dive) → Nicodemus (1 drone 3191) → Njal (THROWAWAY-FIRST-HIT Azkor mange le −75% TermArmour, puis drone Sho'syl tape PLEIN 5252 = kill). Drones (ranged, full-damage) = source de kill sans exposer Sho'syl.
+- **Wrask (near-unkillable : shield WrathfulDevotion + TermArmour) sous round-cap** : BURN le shield ~3989 avec le coup throwaway d'Azkor (qui mange AUSSI la réduction first-hit), PUIS finit aux drones full-damage le MÊME tour (2672-4009 chacun) au lieu de chipper dans le shield. Convertit un 9v1 en wipe propre avant le cap.
+
+**Player A (team1, PERDANT, 5 tours) :**
+- T1 (sound) : aucune attaque en portée, seule BloodChalice castable (aurait HEAL des alliés full-HP) → avance cohésive mesurée, fragiles screenés. ⚠ A a CASSÉ le deep-strike de Wrask en le « finissant » T1 (le « fin de tour » trigger le reveal LoseEffect TeleportStrike_TeleportingIn → Wrask devenu ciblable) → perte de l'option deep-strike supportée (mais DÉCLENCHE WrathfulDevotion +shield).
+- **T2 (PROXIMATE MISTAKE)** : commit Bellator (summon-engine) + Inceptors FORWARD pour drop un écran/chip après le dive ennemi → tombé pile dans le package hard-counter taunt(TG)/stun(Arjac Foehammer)/markerlight(Sho'syl) : Bellator stunné (DeathFromAbove indispo, 1 move) ET markerlighté → neutralisé puis focus-killé ; Inceptors taunt-lockés (Pinned, forced target). Le move-guard (`rl_duel guard --climb`) flaggait baseline-hold NET −4.24 → A aurait dû lire « le commit engine sera puni » et garder Bellator shallow. Perte Bellator + 2 Inceptors pour ~2300 chip = even 5v5 → tempo perdant.
+- Late : reconnaît la loss structurelle, switch cohésion défensive + Njal Psychic chip depuis tuiles shallow sur les bruisers Resilient (Azkor chunké 6652→2111 via Njal Pierce100 + Wrask BloodyFury multi-hit, jamais fini car Daemon-block a halvé) + K! un drone avec la dernière action de Wrask. Mais le double summon-engine intouché avait déjà flippé le board.
+
+### CONFRONTATION (consensus vs divergences)
+
+#### Mécaniques de CONSENSUS (rapportées des DEUX sides — cross-observable, recoupées gameconfig)
+
+1. **`TerminatorArmour` throwaway-first-hit = double-spend sur le MÊME corps blindé** : A(theirs, « Foehammer+markerlight chain », observe le profil) + B(mine, high : séquencer un opener faible Azkor mange le −75% → l'attaquant suivant Sho'syl-drone tape PLEIN 5252 = kill Njal ; même levier crack Wrask). gameconfig confirme (`terminatorArmourDmgReduction:-75`, 1ʳᵉ attaque/tour, exclut Psychic/Direct). Déjà au wiki §1 comme doctrine — ce run CONFIRME côté VAINQUEUR appliqué 2× (Njal + Wrask) → n+1. → tac self-play sur Wrask (le corps qui cumule shield+TermArmour à dépenser).
+2. **`WrathfulDevotion` shield (Wrask) = BURN-avant-HP** : A(mine, high : finir le deep-striker Wrask a trigger +3989 shield) + B(theirs, high : shield ~3989 TurnsLeft=1 absorbe TOUT le chip — drones 0-166 / TG 0-0 ; le brûler 2818 + first-hit réduction d'Azkor, PUIS drones full 2672-4009 = dead). gameconfig confirme (shield à l'arrivée deep-strike OU kill mêlée, 1 round). Insight non-déductible = NE JAMAIS chipper dans le shield ; le BURN avec un throwaway (qui dépense AUSSI la réduction TermArmour du même corps), puis finir full le MÊME tour. → **INSCRIT wiki §3bis Wrask.**
+3. **`MV71SniperDroneSquad` (Sho'syl) = drone frappant au Damage stat de Sho'syl, summon-on-normal** : A(theirs, « markerlighted Nicodemus −5800 puis Bellator ») + B(mine, high : 4079 Bellator / 5310 Actus / 5252 Njal / 3191 Nicodemus depuis tuile shallow, persistent comme écran). gameconfig confirme. (déjà au wiki §3bis Sho'syl — re-confirmé, pas ré-inscrit.)
+4. **`SeekerMissileFrequencyLock` (Sho'syl) = mark→fire-au-début-du-prochain-tour, undodgeable** : A(theirs, « one-shot fragiles next turn ») + B(mine, high : marque Nicodemus T4 → ~5844 au start, 9035→3191, indépendant de la position cible ; cast mutated=False déféré mais applique via play --no-ai). gameconfig confirme. (déjà au wiki §3bis Sho'syl — re-confirmé.)
+5. **`Foehammer` (Arjac) = Stun qui DÉNIE l'actif d'un engine** : A(theirs, stun+markerlight a neutralisé Bellator → DeathFromAbove indispo, focus-killé) + B(mine, med : Stunned_CantUseAbility a dénié DeathFromAbove à Bellator ; 154 dmg seulement vs MkXGravis, la valeur = le stun ; +2183/Character défait). gameconfig confirme. (déjà au wiki §3bis Arjac — re-confirmé ; le stun-deny-summon réitéré.)
+6. **`OverwhelmingWrath` (Azkor) + `CrushingClaws` (TG) = double-taunt qui LOCK un summon forward** : A(theirs, « Taunt + Pin a verrouillé mes 2 Inceptors, forced target, no move/ability ») + B(mine, high : les deux appliquent Taunted_BlockMovement + Taunted_CantUseAbility → ancrent les 2 Inceptors diveurs sur les tanks pendant que je kill les engines). gameconfig confirme (OverwhelmingWrath Taunt adjacents ; CrushingClaws Taunt+push+Suppress). (déjà au wiki §3bis Azkor/TG — confirmation self-play du LOCK d'un summon-screen forward.)
+7. **`DeathFromAbove` (Bellator) = Inceptors landent adjacents + attaquent immédiatement, dmg Inceptor INVISIBLE au plan** : A(mine, high : Inceptors chipent Arjac ~2300 à travers TermArmour, dmg PAS dans la prédiction du plan — seul le hit de Bellator s'affiche) + B(theirs, le stun a empêché le flood après T5). gameconfig confirme (« land adjacent to target, attack immediately »). (déjà au wiki §3bis/§3ter Bellator/Inceptor — re-confirmé.)
+
+#### Divergences (entre les deux observateurs)
+
+1. **`DeathFromAbove` compte le ROUND-INTERNE, PAS le tour affiché** : A seul (about=mine, high : à tour affiché 5 / round-interne ~3 → seulement 2 Inceptors, pas 5). B ne cross-observe pas le compteur (il a observé que le STUN a coupé le flood, pas le décompte). Cohérent avec gameconfig (« 1 Inceptor for each round that has started ») + le fait connu que le header `view` « tour N » est figé/non-fiable (TF14/TF03). → `hypotheses.md` (self-play divergence A/B, observateur unique A, recoupé gameconfig = plausible : round-interne ≠ tour affiché).
+2. **`Daemon` block (Azkor) a halvé un BloodyFury ET empêché le plancher Resilient de trigger** : A seul (about=theirs, med : Wrask BloodyFury sur Azkor 4222 → exactement 2111 ≈ moitié ; le block Daemon a halvé le hit, total dmg < PV courant → pas de floor Resilient, juste du chip). B ne cross-observe pas. Cohérent gameconfig (Daemon = block chance extra). → `hypotheses.md` (self-play divergence A/B, observateur unique A : budgéter ~2× dmg vs porteurs Daemon-block pour finir).
+3. **Issue : aucun désaccord d'issue** (A="L"/B="W" concordent avec le winner autoritatif team2) — pas une divergence.
+
+### Erreurs identifiées (leçons, des deux sides)
+
+- **A (perdant) — ROOT (structural reach-fail)** : roster bricks-mêlée mid-pierce + Mechanic INERTE (Actus) vs un snowball-carry + DOUBLE summon-engine + double-Resilient-anvil, avec Anuphet (ResurrectionOrb) row-8 STRUCTURELLEMENT inatteignable (reach max = Bellator move4-Flying, AUCUNE ligne r3+/deep-strike pour menacer row-8). Per doctrine H02/H71, à FLAGGER au recon comme « engine inatteignable → likely L ». L'engine intouché a flood librement = root cause.
+- **A — PROXIMATE** : over-commit du summon-engine (Bellator) + Inceptors forward DANS le package taunt(TG)/stun(Arjac Foehammer)/markerlight(Sho'syl) = exactement le hard-counter aux summons forward. Perdu Bellator + 2 Inceptors tôt pour ~2300 chip = 5v5 even → tempo perdant. Le guard NET −4.24 + « Bellator stunné » aurait dû garder l'engine SHALLOW.
+- **A** : n'a PAS priorisé un kill garanti multi-source sur Sho'syl (le summon-engine soft ATTEIGNABLE + source markerlight) tôt, quand ça aurait retiré ET un summoner ET la menace missile — a dépensé son commit summon à chipper un anvil Resilient (Arjac), low value.
+- **A** : tempo — roster lent a passé T1-2 à repositionner pendant que les summon-engines adverses compoundaient ; jamais forcé un engine-kill décisif dans la fenêtre, l'attrition (favorisant les summoners) a fait son œuvre.
+- **A (mineur)** : a cassé le deep-strike de Wrask en le finissant T1 (revealed early) → perte de l'option d'un deep-strike alpha supporté plus tard.
+- **B (vainqueur, notes adversariales malgré la W)** : over-commit de 2 corps low-HP forward — Azkor poussé (5,3)→(3,3) tombé à 2111, fini boxed-in (0 move légal) adjacent à Wrask, survécu SEULEMENT via Resilient + ennemi déjà gutté. Dans un match serré, ce carry stranded = focus-kill ; router Azkor une rangée plus shallow après chaque engine-kill.
+- **B** : activations extra pour finir Actus (engine quasi-inerte, low-value) — a exposé Sho'syl forward (3,5) + dive Arjac (2,3) ; payoff stratégique faible vs le risque de positionnement (acceptable seulement parce que déjà 7v5 up).
+- **B** : mal-timé la peur round-cap tôt (header `tour` figé à « tour 4 » 6 tours durant, TF14) → a failli pousser vers des deep-dives prématurés. Tracker SON propre compte de tours joués, pas le header.
+
+### Refs action logs
+
+Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80002_20260625-b7.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 80002) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
+
+---
+
+## seed 80001 — winner=team1 (ts=20260625-b7)
+
+> ⚠ **team1 W par SUMMON-ENGINE BOARD-FLIP (Archimatos Incursion) ressuscitant un combat PERDU 2v3.** A (team1) a été grindé à 2v3 (les 2 anvils Resilient focus-killés en se poussant forward vs un ennemi all-ranged out-rangeant), PUIS un seul cast `Incursion` sur le carry Resilient Abaddon a chain-killé Abaddon ET flood 5 Bloodletters = flip 2v3 → 7v2 = la W. La défaite de B = **kill-not-chip violé sur un summon-engine** (H02) : B a laissé Archimatos à 909 HP au lieu de le tuer, ET a poussé son meilleur anvil Abaddon forward à (3,3) pour le chip non-létal → le flood l'a one-shot. `status` autoritatif = **winner=team1 (battleStatus.winner=3, unitsAlive=18)** — élimination par le flood Bloodletter, pas un round-cap (qui aurait `winner=None`).
+
+### Rosters
+
+| Équipe | Unités |
+|--------|--------|
+| **team1 (Player A / oracle, player 3) — VAINQUEUR** | ultraTigurius (Tigurius) · blackPossession (Archimatos) · astraOrdnance (Thaddeus, MoW) · deathBlightlord (Maladus) · custoTrajann (Trajann) |
+| **team2 (Player B / oracle, player 4) — PERDANT** | ultraEliminatorSgt (Certus) · astraOrdnance (Thaddeus, MoW) · blackAbaddon (Abaddon) · admecManipulus (Actus) · thousInfernalMaster (Abraxas) |
+
+### Adjudication
+
+- A outcome_perceived = **W** (7 tours) ; B outcome_perceived = **L** (7 tours) → A="W" & B="L" → **winner_consensus = true** (concorde avec l'autoritatif).
+- `rl_duel.py status --state-file data/_sp_80001_A.json` : `stage=Finished currentPlayer=3 alive_by_team={}` + ligne autoritative **« BATTLE FINIE — winner AUTORITATIF = team1 (battleStatus.winner=3, unitsAlive=18) »**. ⚠ `alive_by_team={}` post-Finished est VIDE par construction (decisionView refuse hors-Running) — NE rien inférer de ce vide ; le champ NATIF `battleStatus.winner=3` = vérité (H59). `unitsAlive=18` (héros team1 survivants + 5 Bloodletters d'Incursion) = élimination par le summon-flood, pas un round-cap (`winner=None`).
+- **authoritative_winner = team1.**
+
+### Win-conditions (consensus croisé A.mine ≈ B.theirs et A.theirs ≈ B.mine)
+
+**team1 win-condition (VAINQUEUR)** : Archimatos `Incursion`/`Possession` summon-engine (un cast chain-kill le carry Resilient Abaddon ET flood 5 Bloodletters = board-flip de 2v3-perdant à 7v2-gagnant — le game-winner), ENABLÉ par Thaddeus-MoW `BasiliskBarrage` (artillery board-wide Blast, anti-turtle vs un ennemi all-ranged inatteignable — tue Abraxas le summon-engine adverse AVANT son cast) + Tigurius `StormOfWrath` (Psychic NoBlocking armor-bypass AoE — tue 2 Blue Horrors en splash + chunke le carry Resilient).
+→ Accord A.mine / B.theirs = **CONSENSUS** (B identifie Archimatos Incursion/Possession comme la SOURCE board-flip qui a gagné, Tigurius comme engine Psychic secondaire).
+
+**team2 win-condition (PERDANT, jamais convertie)** : Abraxas `MasterOfTheTutelaries` summon-engine (Pink Horror/Screamer cascade sur dégât Psychic) comme board-flood + Abaddon carry (`FirstAmongTraitors` +364 Chaos-buff aura), screenés par un turtle all-ranged (Certus Overwatch r3 + dual astraOrdnance MoW barrage) qui a gagné l'attrition ranged. Engine jamais compoundé — Abraxas tué par le barrage AVANT son cascade.
+→ Accord A.theirs / B.mine = **CONSENSUS** (A lit le turtle all-ranged + le double summon-engine ; B reconnaît avoir gagné l'attrition mais perdu sur le board-flip).
+
+### Séquences clés (résumé des action logs — détail archivé en 4)
+
+**Player A (team1, VAINQUEUR, 7 tours) :**
+- **Opener anti-turtle** : `BasiliskBarrage` board-wide chaque fois qu'off-cooldown sur la grappe ennemie serrée — l'outil correct vs un ennemi all-ranged inatteignable (ne demande pas de closer). A killé Abraxas (le summon-engine soft 4848) au moment décisif AVANT tout cascade Screamer = must-kill SOURCE retiré.
+- Maladus `FlailSwing` + aura `ContagionsOfNurgle` (−armure) → one-shot Actus (repair-engine INERTE, correctement démoté au recon : seul Mechanical = lui-même).
+- **MISTAKE — push des Resilient forward** : Trajann (anvil self-heal + LegendaryCommander) over-étendu à (4,5) pour tuer un chaff Pink Horror (qui a SPLIT en 2 Blue Horrors anyway) → focus-killé par l'ennemi all-ranged. Maladus + Tigurius aussi perdus à l'exposition forward → chute à **2v3**.
+- **WIN — board-flip Incursion** : à 2v3 (2 survivants HP critiques), `Incursion` sur Abaddon (Resilient carry) depuis une tuile NON-mouvante → la chain Bloodletter a tué Abaddon ET laissé 5 Bloodletters (3888 HP each) = flip 2v3 → 7v2 = salvage d'un combat perdu sur l'attrition.
+- Préservation : Thaddeus (75 HP) tiré en coin danger-0 (0,0) pour préserver le board-wide weapon → a délivré le barrage Abraxas-killing 2 tours plus tard.
+
+**Player B (team2, PERDANT, 7 tours) :**
+- T1 : `BasiliskBarrage` sur le cluster engine-corner ennemi (Tigurius/Archimatos/Thaddeus stackés) — crush le mirror artillery 6525→75 + suppressed + chunk Archimatos. Strongest opener vs cluster serré.
+- Mid : hold cohésif (anvils Resilient Abaddon/Actus forward, fragiles shallow) ; punit le dive des anvils ennemis (Trajann focus-killé par 2 Blue Horrors + Abraxas depuis tuiles courantes, zéro exposition ; Maladus grindé sur 2 tours en menant par un weak-hit burn-TermArmour).
+- Late : Tigurius avancé en portée → focus-kill propre (no-Resilient) au Thaddeus one-shot. Atteint **6v2**.
+- **FATAL** : a chunké Archimatos (summon-engine) à 909 au lieu de le KILLER, ET a poussé l'anvil durable Abaddon forward à (3,3) pour le faire → Archimatos a casté `Incursion` → 5 Bloodletters one-shot Abaddon → board flip 6v2 → 2v7 → loss. La normale max d'Abaddon (5425) < HP d'Archimatos (6801) → AUCUN kill dispo ce tour-là → n'aurait JAMAIS dû committer Abaddon (H02 : kill garanti CE tour ou HOLD total).
+
+### CONFRONTATION (consensus vs divergences)
+
+#### Mécaniques de CONSENSUS (rapportées des DEUX sides — cross-observable, recoupées gameconfig)
+
+1. **`Incursion` (Archimatos) = chain-kill + board-flood en UN cast** : A(mine, high : un cast tue le Resilient Abaddon ET laisse 5 Bloodletters permanents = flip 2v3 → 7v2) + B(theirs, high : 5 Bloodletters 3888/1601 immediate-attack one-shot mon Abaddon forward + finissent mes 2 derniers = ce qui a gagné). gameconfig confirme verbatim (« Keeps summoning Bloodletters up to a max of 6, as long as the target has not been defeated, is in range and has a free hex adjacent »). → INSIGHT cross-confirmé : la prédiction de dmg du plan SOUS-LIT massivement la chain (le board-value ≈ 17k de corps, pas le ~2572-3860 affiché). (déjà au wiki §2 Archimatos — re-confirmé self-play ; nouveau tac ajouté.)
+2. **kill-not-chip sur un summon-engine (Archimatos)** : A(mine, a GAGNÉ via le board-flip en tant que propriétaire) + B(theirs/ROOT-CAUSE, a PERDU en laissant Archimatos à 909 → Incursion flood). Les DEUX sides confirment la doctrine depuis des perspectives opposées (owner-W vs victim-L) sur le MÊME match. (déjà au wiki §2 Archimatos « NE JAMAIS CHIPER NON-LÉTALEMENT » — re-confirmé n+1 self-play ; nouveau tac ajouté.)
+3. **`BasiliskBarrage` (Thaddeus MoW) = anti-turtle board-wide, one-shot un soft engine clusteré, ≪ vs TerminatorArmour** : A(mine, high : concentrer le centre sur Abraxas 4848 soft = one-shot ; Blast réduit −315 seulement sur Abaddon TermArmour) + B(mine, high : T1 crush le mirror 6525→75 + suppress + chunk Archimatos). gameconfig confirme (Blast Pierce15 HitsMultipleMembers, scatter, +1 obus/round). (déjà au wiki §3bis Thaddeus move-gate/scatter/≪-armure — re-confirmé self-play.)
+4. **`StormOfWrath` (Tigurius) = Psychic Pierce100 NoBlocking, bypass TermArmour total + AoE splash** : A(mine, high : bypasse la TermArmour d'Abaddon plein + one-shot 2 Blue Horrors adjacents en splash en un cast ; mon Psychic sur LEURS units ne trigger PAS leur Abraxas WeaverOfFate — celui-ci key sur MES units prenant du Psychic) + B(theirs, roster « StormOfWrath Psychic AoE NoBlocking ignore mon armure »). gameconfig confirme. (déjà au wiki §1/§3bis — re-confirmé.)
+5. **`TerminatorArmour` first-attack −75% (Psychic/Direct exclus) ; throwaway-burn n'aide QUE même-tour** : A(mine, Blast réduit sur Abaddon TermArmour) + B(theirs/mine, high : mon lead weak physical sur Maladus lourdement réduit (Abaddon 255-345 chip), Abraxas Psychic plein ~2.6-3.3k ; la réduction RESET chaque tour → burn-then-finish même tour). gameconfig confirme (`terminatorArmourDmgReduction:-75`, exclut Psychic,DirectDamage). (déjà au wiki §1 — re-confirmé.)
+6. **`Resilient` vs ranged massé = NE survit PAS** : A(mine, high : mes 2 anvils Resilient Trajann/Maladus focus-KILLÉS poussés forward vs l'ennemi all-ranged — multi-hit grind past Resilient, 1 HP → next hit kills) + B(theirs, high : Trajann tué par multi-hit séquentiel SANS overkill explicite — cumul de 3 ranged → final hit WasOverkill=1 member-kill = floor-then-finish). gameconfig confirme (`Resilient` = 1 HP sauf Overkill). (déjà au wiki §1 + TF04 — re-confirmé n+1 self-play des 2 sides.)
+7. **`MasterOfTheTutelaries` / Pink Horror Split-on-death = killer un Pink Horror donne PLUS de corps (2 Blue Horrors)** : A(mine, high : tuer le Pink Horror 3589 l'a SPLIT en 2 Blue Horrors 2093 each → mieux d'AoE le pack ou tuer la SOURCE Abraxas que chasser les Horrors individuels) + B(theirs, summon-screen). gameconfig confirme `Split {unitId:thousSmnBlueHorror}` (« summons 2 Blue Horrors… Does not apply if Overkilled »). (déjà au wiki §3ter Pink Horror `Split` [self-play consensus, seed 80097] — re-confirmé n+1.)
+8. **`DefendTheDivineWork`/Mechanic (Actus) = repair-engine INERTE (seul bénéficiaire = lui-même)** : A(mine, high : démoté au recon, seul Mechanical sur son équipe = self-regen only → killé cheap en 1er) + B(mine, high : AUCUNE cible chaque tour, no-op all game). gameconfig confirme (« Repairs himself and all friendly adjacent units » + Mechanical-only repair). → DOCTRINE engine-inerte-at-recon : compter les bénéficiaires valides AVANT de craindre un repair/amplify engine. (déjà au wiki §3bis Actus — re-confirmé self-play des 2 sides.)
+
+#### Divergences (entre les deux observateurs)
+
+1. **`SuppressiveFire`/Suppressed (BasiliskBarrage) bloque la propre ability de la cible (mirror MoW pinned all game)** : B SEUL (about=mine, high : son T1 barrage a suppress le Thaddeus mirror 6525→75 ET « stayed pinned at 75 the whole game, never fired its barrage again » → Suppressed = blocage de la barrage adverse, pas qu'un malus dmg/move). A ne cross-observe PAS ce blocage (les 2 MoW étaient sur des camps opposés ; A possédait son propre Thaddeus). gameconfig : `SuppressiveFire` confirme « enemy hit becomes Suppressed » MAIS le `Suppressed` effect est moteur-only (pas de sémantique i2 sur le blocage d'ability) → la RÈGLE (suppress applique) est confirmée, l'EFFET (Suppressed bloque l'activation barrage) est single-observer non-recoupable. → `hypotheses.md` (self-play divergence A/B, observateur unique B, recoupé partiellement : suppress-applies=confirmé, blocks-own-barrage=plausible non-confirmable via gameconfig).
+2. **Mécanisme de mort de mes anvils (perspective)** : A décrit ses propres Trajann/Maladus focus-killés en se poussant forward ; B décrit les MÊMES kills depuis sa perspective (Trajann par 2 Blue Horrors + Abraxas depuis tuiles courantes ; Maladus grindé sur 2 tours via burn-TermArmour). Accord causal complet (multi-hit ranged bat Resilient) — divergence d'INFORMATION (chaque side voit sa moitié), PAS de fait. Pas une H.
+3. **Issue : aucun désaccord d'issue** (A="W"/B="L" concordent avec le winner autoritatif team1) — pas une divergence.
+
+### Erreurs identifiées (leçons, des deux sides)
+
+- **B (perdant) — ROOT CAUSE (H02 violé)** : kill-not-chip violé sur un summon-engine. Laissé Archimatos vivant à 909 (un poke non-létal) → Incursion-flood 5 Bloodletters one-shot l'Abaddon forward, flip dominant 6v2 → 2v7. La normale max d'Abaddon (5425) < HP Archimatos (6801) → AUCUN kill dispo ce tour → n'aurait PAS dû committer Abaddon du tout, le garder en screen, attendre un kill multi-source garanti.
+- **B — over-extension** : poussé son meilleur anvil survivant (Abaddon) deep à (3,3) adjacent au summoner pour un chip non-létal → atterri pile dans la tuile où le flood pouvait le focus. Compose l'erreur H02 avec le failure-mode dominant d'over-extension.
+- **B** : a brûlé la valeur summon-engine (Abraxas) en grindant le mur Maladus au lieu de la préserver (corps expendables OK, mais Abraxas est un engine).
+- **A (vainqueur, notes malgré la W)** : over-extension de Trajann (Resilient self-heal anvil + LegendaryCommander) à (4,5) pour tuer un chaff Pink Horror (qui a SPLIT anyway) → focus-killé. A tradé sa pièce durable la PLUS précieuse pour de la valeur NÉGATIVE — failure-mode dominant : ne JAMAIS pousser un corps Resilient précieux dans le focus all-ranged pour du chaff (Resilient ne survit PAS au multi-hit massé).
+- **A** : a perdu Maladus + Tigurius à l'exposition forward aussi — vs un ennemi all-ranged qui out-range, CHAQUE corps forward (même les tanks) se fait grind ; aurait dû s'appuyer plus dur sur l'attrition barrage + tenir fragiles/tanks en cluster arrière serré au lieu de feeder un par un (chute à 2v3 avant le salvage Incursion).
+- **A** : mis-lu la dispo de `BasiliskBarrage` 2 tours (a traité le « [indispo] » comme un hard cooldown et tenu passivement) alors que les outils abilities/reason le disaient castable → tempo perdu (cf. TF22/friction).
+
+### Refs action logs
+
+Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80001_20260625-b7.json` (action_logs des 2 camps + rosters + outcome team1, rejouable via seed 80001) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
