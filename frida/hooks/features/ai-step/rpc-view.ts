@@ -705,6 +705,25 @@ export function registerView(ctx: Ctx): void {
         const casterTile = getUnitMainTile(caster, statePtr);
         const abilBuf = Memory.alloc(4); abilBuf.writeS32(body.abilityType | 0);
 
+        // État LIVE de l'ability demandée (cooldown/usable/disabled) lu sur son
+        // objet components.ActiveAbility. La couche targeting (TargetingRule)
+        // n'a AUCUN flag de cooldown → GetInvalidTargetReason/CasterReason rendent
+        // `ValidRequest` même cooldown-locked (TF24) : sans cet ajout, `reason`
+        // laisse croire l'ability castable alors qu'elle est en recharge. null =
+        // ability absente des actives (attaque normale, ou ability-machine
+        // Primary/Secondary dont le cooldown n'est pas porté par un ActiveAbility).
+        let abilityState:
+            { usable?: boolean; cooldown?: number | null; disabled?: boolean } | null = null;
+        try {
+            const ab = unitAbilityTypes(caster, true).find((x) => x.id === body.abilityType);
+            if (ab && (ab.usable !== undefined || ab.cooldown !== undefined
+                       || ab.disabled !== undefined)) {
+                abilityState = {
+                    usable: ab.usable, cooldown: ab.cooldown ?? null, disabled: ab.disabled,
+                };
+            }
+        } catch { /* best-effort */ }
+
         // GetInvalidTargetReason renvoie un IBrokenTargetingRule BOXÉ (struct value-type) :
         //  - NoBrokenTargetingRule = cible VALIDE (pas de champ).
         //  - GenericBrokenTargetingRule = { TargetingRule <Type>@0x0 } → 1 FLAG unique de
@@ -759,7 +778,7 @@ export function registerView(ctx: Ctx): void {
             casterId: body.casterId, targetId: body.targetId ?? null,
             abilityType: body.abilityType,
             resolved: { caster: !!casterReasonMi, target: !!tgtReasonMi },
-            casterReason, targetReason,
+            casterReason, targetReason, abilityState,
             mutated: before.sig !== after.sig,
         };
     });

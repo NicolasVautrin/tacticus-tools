@@ -148,6 +148,14 @@ PYTHONIOENCODING=utf-8 python scripts/python/gameconfig.py worldKharn custoTraja
 > sur cette unité → la faire **BOUGER ≥3 hex** ce tour (−30 % dmg/hex traversé), sinon
 > tir plein. Vécu (défaite) : Ahriman gardé statique malgré le mark → **7240** → carry
 > mort. `remaining` : `r>0` = effet temporisé, `r0` = permanent/aura.
+> **TIR DIFFÉRÉ = magnitude ≫ nominal (TF28)** : un effet pending-fire ENNEMI sur MES
+> units (`SeekerMissileFrequencyLock`, `Markerlight`, `HeavyRailRifle_Pending`,
+> `MalleusRocketLauncher_*`, `TargetingProtocols_PendingAttack`…) est tagué
+> `⚠ [PENDING-FIRE≫]` dans EFFETS CRITIQUES. Le hit réel est **AMPLIFIÉ bien au-delà du
+> nominal gameconfig** (RangedSpecialist + HeavyWeapon + markerlight cumulés : Seeker
+> nominal ~5500 → **9263** observé sur 9537 PV). **NE PAS** projeter « nominal survivable »
+> ni HOLD passivement en portée : bouge la cible hors-range / dépense-la offensivement ce
+> tour / tue le caster AVANT le tir.
 
 - **`docs/rl/wiki.md` — LECTURE OBLIGATOIRE au recon, mais EN COMPLÉMENT (étape 2,
   APRÈS gameconfig/i2 de l'étape 1, jamais avant)** : une fois le kit chiffré lu,
@@ -283,7 +291,17 @@ munitions) — info que gameconfig NE PEUT PAS donner. Les MoW affichent idem.
      (axe / portée / spawn-tile), plus de no-op silencieux ; sinon
      `reason --caster U --ability A [--target T]` diagnostique le no-op (flag
      `TargetingRule` : `TargetIsInRange` / `TargetIsTargetable` / `AlreadyUseThisTurn`
-     / `NoBroken`=valide…).
+     / `NoBroken`=valide…). `reason` affiche aussi l'**ÉTAT LIVE** (`cooldown=N`/
+     `disabled`/`prêt`) : la couche targeting peut dire `ValidRequest` alors que
+     l'ability est **cooldown-locked** — l'ÉTAT LIVE tranche (TF24).
+   - **SUMMONS sur hex** (MasterOfTheTutelaries d'Abraxas, AberrantHypermorph,
+     AlphaWarrior, ScarabHive…) : le Pink Horror/l'unité **spawn À LA TUILE `--to`**,
+     qui DOIT être ∈`now` (`fromHere`). Caster sur une tuile **`+move` seule = NO-OP**
+     (`ok=True` mais `spawned=0`, `actionConsumed=False`, action NON consommée — le
+     piège TF12). Ces summons sont **bien armables** (l'ancienne doctrine « éviter
+     MoTT » était fausse) : prends une tuile de la liste `now` du summon dans `MES
+     ACTIFS`/`abilities`, pas `+move`. La pré-validation rejette déjà la tuile `+move`
+     (« atteignable seulement +move → déplace d'abord »).
    - Souvent : `act ability` **direct depuis la tile courante** (zéro move, zéro
      exposition) si la cible est déjà à portée.
    - **MoW** (ability-only, ne bougent pas) : `act ability --caster <machineId>

@@ -163,6 +163,7 @@ _CRIT_EFFECTS: list[tuple[str, str, str]] = [
     ("Stunned", "STUN", "ne joue pas ce tour (triggers de MORT restent)"),
     ("Taunted", "TAUNT", "forcé de cibler le taunter / mouvement contraint"),
     ("Markerlight", "MARKERLIGHT", "cible l'AoE TwinSmartMissile (Broadside)"),
+    ("SeekerMissileFrequencyLock", "SEEKER", "missile à tir différé verrouillé sur cette unité"),
     ("Incapacitated", "INCAP", "ne joue pas ce tour"),
     ("Infiltrate", "INFILTRATE", "ignore l'overwatch ce tour"),
     ("TeleportStrike_TeleportingIn", "DEEP-STRIKE", "non-ciblable jusqu'à ce qu'elle agisse"),
@@ -176,6 +177,27 @@ def _effect_crit(name: str | None) -> tuple[str, str] | None:
         if sub in name:
             return (label, hint)
     return None
+
+
+# TF28 : effets de TIR DIFFÉRÉ (pending-fire) qu'un ENNEMI pose sur une de MES units
+# = marque/verrou d'un tir à venir. Le moteur n'expose PAS la magnitude du tir, et le
+# dmg RÉEL est amplifié bien au-delà du nominal gameconfig (RangedSpecialist +
+# HeavyWeapon + markerlight cumulés : un Seeker nominal ~5500 a landé 9263 sur 9537 PV).
+# On ne peut pas chiffrer le worst-case sans le kit du caster, mais on CASSE la
+# projection « nominal survivable » en taggant la menace comme amplifiable.
+_PENDING_FIRE_SUBS = (
+    "SeekerMissileFrequencyLock", "HeavyRailRifle_Pending", "Markerlight",
+    "MalleusRocketLauncher_PendingTarget", "MalleusRocketLauncher_SpottedTarget",
+    "TargetingProtocols_PendingAttack", "AnnihilatorBeam_PendingAttack",
+    "PoundThemToDust_PendingAttack",
+)
+
+
+def _is_pending_fire(name: str | None) -> bool:
+    """Nom d'effet = marque/verrou d'un tir DIFFÉRÉ entrant (≠ self-telegraph)."""
+    if not name or "Visual" in name:
+        return False
+    return any(s in name for s in _PENDING_FIRE_SUBS)
 
 
 def _effect_label(e: dict) -> str:
@@ -331,6 +353,7 @@ def build_card(view: dict, bd: Board, abil: dict | None = None,
     # *_Visual cosmétiques filtrés). mine_all/enemies_all incluent les MoW.
     _crit: list[str] = []
     _eff: list[str] = []
+    enemy_ids = {u.get("casterId", u.get("id")) for u in enemies_all}
     for u in mine_all + enemies_all:
         uid = u.get("casterId", u.get("id"))
         side = "MOI" if _is_mine(u) else "ENN"
@@ -341,6 +364,16 @@ def build_card(view: dict, bd: Board, abil: dict | None = None,
             if c:
                 _crit.append(f"    ⚠ [{c[0]}] u{uid} [{u.get('visualId')}] "
                              f"({side}) — {c[1]}")
+            # TF28 : tir différé ENNEMI sur MA unit -> worst-case AMPLIFIÉ (≫ nominal).
+            if (side == "MOI" and _is_pending_fire(nm)
+                    and e.get("source") in enemy_ids):
+                _crit.append(
+                    f"    ⚠ [PENDING-FIRE≫] u{uid} [{u.get('visualId')}] (MOI) marqué "
+                    f"par u{e.get('source')} — TIR DIFFÉRÉ de magnitude AMPLIFIÉE bien "
+                    "au-delà du nominal gameconfig (RangedSpecialist/HeavyWeapon/"
+                    "markerlight : Seeker nominal ~5500 → 9263 observé). NE PAS hold "
+                    "passivement en portée : bouge hors-range / dépense la cible ce "
+                    "tour / tue le caster AVANT le tir (cf. TF28)")
             if "Visual" not in nm:
                 shown.append(_effect_label(e))
         if shown:

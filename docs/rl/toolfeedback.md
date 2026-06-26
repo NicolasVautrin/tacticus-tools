@@ -53,7 +53,7 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   `view` (cmd_view) et la carte post-round de `play`. Validé live (header `joueur 3 (team 1)`, labels stables).
 - vu : G01, seed 80072, seed 80031, seed 80053.
 
-## TF04 — Plans = dmg MAX-roll NON mitigé + label `K!` optimiste (ignore Resilient + réductions + buffs défensifs) — done — recurrence:6
+## TF04 — Plans = dmg MAX-roll NON mitigé + label `K!` optimiste (ignore Resilient + réductions + buffs défensifs) — done — recurrence:8
 - **friction** : `K!` (« kill sûr ») ne modélise pas Resilient/Terrifying/block → un coup « K! » laisse
   la cible à 1 PV (Azkor). **n+1 (80072)** : au-delà du label, la RANGE dmg des plans est un **MAX-roll NON
   mitigé** — `Doombolt [2409-3613]` a dealt **1343** réel (mitigé par le −50% d'Aun'Shi + block) → l'agent
@@ -67,6 +67,21 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   = traiter **K! vs TerminatorArmour comme K?** + stacker une 2ᵉ source. (b) B : `Stormcaller` (Njal) prédit
   **4918-5884** dans les PLANS mais réel **1695** (= 3x ~540 Psychic) → B a dû juger par la cascade, pas la
   prédiction (cohérent avec le caveat doctrine : prédictions d'actifs peu fiables). **n+5** = même seed côté B.
+  **n+6 (seed 81001, ts=b9 — FLAVEUR NOUVELLE : attaquant SUMMONED)** : B rapporte que le K! des plans pour les
+  unités **SUMMONED** est optimiste — le plan d'attaque d'un Skitarii Vanguard sur un Neophyte (2992 PV) affichait
+  `[2992 K!]` mais l'attaque a dealt **2475** (Neophyte laissé à 517) → mis-séquençage d'un kill. ⚠ DISTINCT du
+  résiduel reduction-trigger (`↓`) déjà fixé : ici PAS de trait défensif non-modélisé sur la cible — le delta vient
+  vraisemblablement du fait que la prédiction **sur-évalue l'OUTPUT de l'attaquant summon** (stats/dmg du Vanguard pas
+  pleinement résolues à l'instant de la projection). Doctrine d'ici-là : NE PAS truster les labels K! des plans
+  IMPLIQUANT un attaquant summon (Vanguard/Neophyte/decoy-spawn) — vérifier la cascade réelle avant de compter le kill.
+  **n+7 (seed 81000, ts=b9 — go/no-go FATAL sur un SELF-HEALER)** : A (team1) rapporte que la prédiction
+  `decisionView` sur Incisus (Apothecary) annonçait gros mais l'attaque n'a **chunké qu'à 518** (puis Incisus s'est
+  full-heal le tour suivant) — `↓` tags pervasifs, min-max non trustable pour un GO/NO-GO. La sur-estimation a
+  DIRECTEMENT causé le coup perdant : A a committé sa carry (Snappa, BigTarget) + Makhotep forward pour un kill
+  d'engine **non-garanti** (cru `K?`/gros, réel = chunk) → Incisus a survécu+heal et A a perdu les 2 corps pour zéro
+  net. Leçon : un `↓`/range optimiste sur un SELF-HEALER (Apothecary/Drachnyen-class) = **traiter le kill comme
+  NON-garanti et ne PAS committer** (doctrine « kill CE tour ou ne pas committer » dépend d'une prédiction qu'on ne
+  peut justement pas truster ici → exiger un floor de dmg multi-source au lieu de la prédiction).
 - **amélioration** : surfacer le **dmg attendu post-mitigation** (la `DamagePrediction` du jeu existe déjà
   côté caches AI) OU au minimum **tagger la range comme MAX non-mitigé** + une **kill-proba** ; intégrer
   Resilient/Terrifying/Daemon-block/**TerminatorArmour 1ʳᵉ-hit** dans la prédiction (dégrader `K!`→`K?` si trait
@@ -79,7 +94,7 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   (TerminatorArmour / `*HitReduction` / …) → tag `↓` + dégradation `K!`→`K?` (commit 2503e95, TF04 predOptimistic).
   RÉSIDUEL mineur : la range reste optimiste pour ces cibles-`↓` (le vrai chiffre n'existe nulle part dans le struct)
   → c'est précisément ce que le `↓` signale.
-- vu : G01, seed 80072, seed 80020, seed 80085, seed 80004.
+- vu : G01, seed 80072, seed 80020, seed 80085, seed 80004, seed 81001 (n+6, attaquant summon optimiste), seed 81000 (n+7, go/no-go fatal sur self-healer Incisus).
 
 ## TF05 — `jq` natif absent (Windows) — done(contournement) — recurrence:0
 - **friction** : `npx -y node-jq` lent (re-résout le package à chaque appel).
@@ -182,7 +197,7 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   qualificatif numérique/état dans `observation`. À ajouter au prompt combat.
 - **vu** : seed 98001 (SquigHound summon « pumped »).
 
-## TF12 — `applyAction` : Abraxas `MasterOfTheTutelaries` renvoie `ok=True` SANS summon ET SANS consommer l'action (no-summon non surfacé) — open — recurrence:2
+## TF12 — `applyAction` : Abraxas `MasterOfTheTutelaries` renvoie `ok=True` SANS summon ET SANS consommer l'action (no-summon non surfacé) — done — recurrence:2
 - **friction** : caster `MasterOfTheTutelaries` (Abraxas, summon Pink Horror) via `act ability` renvoie **`ok=True,
   mutated=False`, SEULEMENT un event `User_UseAbility`, AUCUN `Ability_Summon`, AUCUN Pink Horror spawné, et l'action
   N'EST PAS consommée** (Abraxas reste « à activer »). L'agent croit avoir armé son moteur Psychic-snowball (Pink Horror
@@ -198,9 +213,25 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   MasterOfTheTutelaries n'est pas appelé par applyAction (comparer à `Incursion`/`ResurrectionOrb`/`DeathFromAbove` qui
   spawnent correctement) ; (c) d'ici-là, doctrine combat = NE PAS dépenser l'action d'Abraxas sur MasterOfTheTutelaries
   (utiliser sa normale Psychic r2) — cf. H37 RÉFUTÉE.
-- **vu** : seed 70002 (n=1, hypothétisé free-hex gate) + seed 70009 (n=2, free-hex confirmé → quirk tool/engine confirmé).
+- **fix livré + ROOT-CAUSE CORRIGÉ (validé live, build gqfc5mff6c)** : le no-summon **n'est PAS un quirk engine** — c'est
+  une **illégalité de spawn-tile** (classe TF13/TF16). Reproduit live sur Abraxas (`thousInfernalMaster`, ability 1096) :
+  cast `MasterOfTheTutelaries` sur une tuile **+move-only** (2,1) → `ok:true, mutated:false, eventCount:2, spawned:0,
+  actionConsumed:false` (signature TF12 exacte) ; cast sur la tuile **now-legal** (2,0) → `spawned:1, actionConsumed:true`
+  (`AddUnit Unit_IsSummoned=1 Unit_Parent_Id=88` = Pink Horror). Le summon spawn **À LA TUILE `to` du cast** (RE ghidra
+  confirme : `Spawn(ctx, …, ctx+0x178=target-tile, …)`) qui DOIT être dans `fromHere` (now-legal). En seed 70009 le cast
+  (2,1) n'était PAS la tuile spawn now-legale → no-op. **H37 « free-hex » était sur la bonne piste** (c'est bien la
+  spawn-tile) mais sa réfutation a confondu « hex libre adjacent » avec « tuile spawn now-legale de l'engine ».
+  **3 garde-fous livrés** : (1) hook `applyOneAction` renvoie `spawned`+`actionConsumed` sur toute ability ;
+  (2) `_action_failed` flagge le no-op via `actionConsumed=False` (backstop, même quand `eventCount>=1` à cause de
+  `User_UseAbility`) ; (3) la pré-validation tile TF16 **REJETTE proactivement** le cast hors-`fromHere`
+  (« hex (2,1) atteignable seulement +move → déplace d'abord »). **DOCTRINE CORRIGÉE** : MoTT **EST armable** — caster les
+  summons sur une tuile **now-legal (`fromHere`)**, jamais `+move` ; ne PAS éviter l'ability (l'ancienne doctrine (c) était
+  fausse). Note RE : MoTT est un comportement composite `AddEffect(0x4ad) & Spawn(PinkHorror+auto-attaque)` ; l'effet
+  installe la triggered `0x495` qui re-summon `On(9)` quand l'unité marquée inflige du Psychic (profil `0xd`).
+- **vu** : seed 70002 (n=1, hypothétisé free-hex gate) + seed 70009 (n=2, en fait cast hors-`fromHere`) ; résolu live
+  Abraxas seed 555.
 
-## TF13 — `abilities`/legality ne tient pas compte du spawn-tile requirement des summons — open — recurrence:1
+## TF13 — `abilities`/legality ne tient pas compte du spawn-tile requirement des summons — done — recurrence:1
 - **friction** : `abilities`/`reason` listent un summon (ex. `ScarabHive`, Aleph-Null) comme castable
   now/+move, mais le cast réel échoue `TargetHasFreeAdjacentTile` (cluster sans hex libre adjacent où
   spawn) → l'agent BURNE le move de l'unité avant de découvrir l'illégalité (« TOUR ABANDONNÉ » a bien
@@ -208,7 +239,17 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
 - **amélioration** : intégrer la contrainte free-adjacent-tile (spawn-tile) dans la requête de légalité des
   summons → un summon sans hex de spawn libre = ∉ now/+move (comme une cible hors portée). Apparenté à TF01
   (summons sur hex) et TF12 (summon no-op non surfacé).
-- vu : seed 80072 (ScarabHive Aleph-Null).
+- **fix livré (vérifié live via TF12, même mécanisme)** : `abilityTargets.fromHere` = tuiles de spawn **now-legal**
+  (légalité EXACTE de l'engine, EXCLUT déjà les tuiles de spawn illégales) ; `targets` = superset `+move`. Confirmé live
+  sur `MasterOfTheTutelaries`/`AberrantHypermorph` : `fromHere=now[1]:(2,0)` vs `+move[13]` distingués correctement, et la
+  **pré-validation tile TF16 rejette** un cast sur tuile hors-`fromHere` (« atteignable seulement +move → déplace
+  d'abord ») AVANT de consommer le move/l'action. Donc la contrainte spawn-tile EST dans `fromHere` + enforced par la
+  prévalidation → l'agent ne burn plus son move pour découvrir l'illégalité. **Doctrine** : juger la castabilité d'un
+  summon sur `fromHere` (now), pas `targets` (+move). **Résiduel documenté** : `targets` (+move) peut sur-reporter un
+  summon dont la tuile de spawn post-déplacement n'est plus libre (l'engine `GetAllValidTargetsFromAllPossibleMovementTiles`
+  ne re-vérifie pas la liberté de la spawn-tile pour CHAQUE tuile de déplacement) → toujours re-confirmer via `fromHere`
+  après un move.
+- vu : seed 80072 (ScarabHive Aleph-Null) ; mécanisme résolu live Abraxas/Genestealer seed 555.
 
 ## TF14 — header `view` « tour N » figé / pas un indicateur de round fiable — done — recurrence:6
 - **friction** : l'en-tête `view` affiche « tour 4 » sur plusieurs rounds distincts (compteur =
@@ -266,7 +307,7 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   RÉSIDUEL : la doctrine (a) reste valable, et le DÉFAUT de `play` sans `ability` vise toujours le plan (non touché).
 - vu : seed 80000, seed 80004.
 
-## TF19 — `await` / RPC timeout transitoires pendant le pump Unity de l'adversaire (curl exit-28 -m 100 ; host « RPC timeout 15000ms » ; status urllib TimeoutError) — done — recurrence:6
+## TF19 — `await` / RPC timeout transitoires pendant le pump Unity de l'adversaire (curl exit-28 -m 100 ; host « RPC timeout 15000ms » ; status urllib TimeoutError) — done — recurrence:11
 - **friction** : pendant qu'un agent adverse délibère / pendant un long `applyAction`+pump Unity, l'endpoint
   `await` (et parfois `status`) dépasse le cap `-m 100` de curl (exit 28) OU le host lève « RPC timeout after
   15000ms ». seed 80000 (ts=b7) : A a touché le cap plusieurs fois (re-émissions en aveugle requises, incertitude
@@ -301,6 +342,31 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   **n+5 (seed 80053, ts=b8)** : A re-signale plusieurs `timedOut:true` CONSÉCUTIFS sur le `await` 90s pendant que
   l'adversaire (B) délibérait longuement sur plusieurs tours → ré-émission de l'`await` à chaque fois (« as designed »).
   Transitoire, aucune action perdue ; re-confirme le pattern adversaire-lent → await-timeout → re-émettre.
+  **n+6 (seed 81003, ts=b9)** : A re-signale de NOMBREUX `await` timedOut (`currentPlayer=4`) pendant les longs
+  think-times de B → **~7 ré-émissions par hand-off** (lourd mais transitoire, aucune action perdue, géré par
+  re-émission per protocole). B, lui, rapporte `await`/`view`/`play` corrects ce match (le flux partial-turn a marché
+  proprement, finish autoritatif `winner=4` correct). Convergence asymétrique : le coût await-retry se concentre côté
+  le joueur qui ATTEND le tour adverse long. Re-confirme le besoin (a) re-try transitoire côté outil / endpoint
+  « est-ce mon tour ? » bon-marché.
+  **n+7 (seed 81001, ts=b9)** : friction PARTAGÉE, mineure (transitoire, aucune action perdue). A : `await` curl
+  `timedOut` répétés (opponent thinking, normal) + un background-curl exit-28 — tous transitoires, re-émis sans souci.
+  B : un `await` curl exit-28 (client coupé avant le serveur) — transitoire « as documented », re-émis sans impact.
+  Convergent (A+B) — re-confirme le pattern adversaire-lent → await-timeout → re-émettre (le fix host avale déjà le
+  timeout transitoire en `timedOut` uniforme ; reste cosmétique).
+  **n+8 (seed 81002, ts=b9)** : friction PARTAGÉE, transitoire, aucune action perdue. A : hand-off `await` avec
+  `timedOut` fréquents + UN `transientError` (« RPC timeout 45000ms ») sur l'attente — tous transitoires, résolus par
+  re-émission, aucun faux game-over. B : flux normal de `timedOut`/`transientError` + un curl exit-28 sur un `await`
+  backgroundé — tous transitoires, re-émission résout (comportement documenté). Convergent (A+B) — re-confirme que le
+  fix host avale le timeout transitoire en signal uniforme ; reste cosmétique, aucune correctness en jeu.
+  **n+9 (seed 81004, ts=b9)** : B (team2) re-signale `await` exit-28 / `timedOut` MULTIPLES par tour (2-4 polls)
+  pendant la délibération de l'adversaire A → ré-émissions répétées, « expected per protocol, not a failure ».
+  Transitoire, aucune action perdue ; re-confirme le pattern adversaire-lent → await-timeout → re-émettre (le coût
+  await-retry se concentre côté le joueur qui ATTEND le tour adverse long, cohérent avec n+6). Reste cosmétique.
+  **n+10 (seed 81000, ts=b9)** : friction PARTAGÉE, transitoire, aucune action perdue. A (team1) : `await` `timedOut`
+  TRÈS fréquents (longue délibération de B) → nombreuses ré-émissions par tour (« transient/expected per TF19, not a
+  failure »). B (team2) : `timedOut`/`transientError` multiples + un raw « RPC timeout after 30000ms » pendant un pump
+  → re-émission résout chaque fois. Convergent (A+B) — re-confirme le pattern adversaire-lent → await-timeout →
+  re-émettre ; le fix host avale déjà le transitoire en signal uniforme, reste cosmétique.
 - **fix livré (a/d host-side + b/c doctrine)** : (a/d, `router.ts`) l'endpoint
   `/api/selfplay/:id/await` **AVALE** un timeout/erreur TRANSITOIRE du poll interne
   `battleStatus` (queue RPC saturée pendant le pump adverse) au lieu de remonter un raw 500
@@ -313,7 +379,7 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   AVANT de re-jouer (ne pas double-apply). RÉSIDUEL : pas de clé d'idempotence DURE côté hook
   (`alreadyApplied`) — la doctrine check-status-avant-retry couvre le double-apply. **Activation :
   changement host → effectif au prochain restart host (reinject).**
-- vu : seed 80000, seed 80003, seed 80004, seed 80002, seed 80001, seed 80053.
+- vu : seed 80000, seed 80003, seed 80004, seed 80002, seed 80001, seed 80053, seed 81003, seed 81001, seed 81002, seed 81004, seed 81000.
 
 ## TF20 — collision de glyph board-map : 'b' minuscule = terrain (drybush) ET lettre d'unité (rendu en double sur une rangée) — done — recurrence:2
 - **friction** : l'ASCII map réutilise 'b' minuscule pour À LA FOIS un terrain (drybush) ET la lettre d'une
@@ -444,7 +510,7 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   défaut conservateur = NE PAS over-committer un engine/carry forward (garder shallow).
 - vu : seed 80002.
 
-## TF24 — état de COOLDOWN d'une ability non surfacé : `[indispo]` (vue MES ACTIFS) STALE/trompeur + pas de `RemainingCooldownTurns` + `reason` renvoie `ValidRequest` même cooldown-locked → il faut TENTER un cast réel pour savoir — open — recurrence:1
+## TF24 — état de COOLDOWN d'une ability non surfacé : `[indispo]` (vue MES ACTIFS) STALE/trompeur + pas de `RemainingCooldownTurns` + `reason` renvoie `ValidRequest` même cooldown-locked → il faut TENTER un cast réel pour savoir — done — recurrence:2
 - **friction** : sur `BasiliskBarrage` (Thaddeus MoW, cooldown MULTI-tour, ≠ recharge 1-tour), les 3 sources de
   légalité DIVERGENT et AUCUNE ne donne le cooldown restant. **A (team1, seed 80001)** : la vue « MES ACTIFS »
   affichait `BasiliskBarrage [indispo]` pendant 2 tours alors que les outils `abilities`/`reason` le reportaient
@@ -457,6 +523,14 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   dispo » — le `[indispo]` de la vue ET le `ValidRequest` de `reason` sont tous deux NON-fiables pour le cooldown.
   Distinct de TF22 (FAUX-REJET dur non-déterministe d'un cast légal) : ici la légalité-targeting est correcte mais
   le COOLDOWN n'est exposé nulle part, et le flag `[indispo]` de la vue ne corrèle pas avec la dispo réelle.
+  **n+1 (seed 81001, ts=b9)** : A re-signale le PATTERN exact sur `ArmoriumCherub` (Vindicta) — une ability qui ne
+  termine PAS le tour (Cherub + normale possibles) mais qui FLIPPE en `[indispo]`/cooldown après UN usage mid-tour.
+  La légalité `abilities`/`MES ACTIFS` listait encore des cibles valides (`now[..]`) ALORS que l'état live était
+  `[indispo]` → le cast a no-op'd avec `RAISON 'indispo (usable=false)'` → fallback sur la normale. Le `usable=false`
+  rendu = le FIX TF24 qui marche (la pré-validation pré-rejette via `abilityState`), MAIS le ciblage `now[..]`
+  sur-reporte toujours des cibles pour une ability cooldown-locked → re-confirme la friction state-vs-targeting
+  (juger la dispo via `abilityState`/`reason`, JAMAIS le `now[..]` du ciblage seul). Caster ≠ MoW (Cherub porté par un
+  `ActiveAbility` standard) → l'`abilityState` était bien renseigné cette fois (vs le résiduel MoW `Primary/Secondary`).
 - **amélioration** : (a) afficher `RemainingCooldownTurns=N` dans la ligne « MES ACTIFS » de la vue (et dans
   `abilities`) → planifier autour du downtime barrage sans deviner ; (b) réconcilier les 3 chemins (vue `[indispo]`,
   `abilities`, `reason`) sur un MÊME verdict de disponibilité incluant le cooldown ; `reason` ne devrait PAS rendre
@@ -464,7 +538,19 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   Doctrine d'ici-là : ne PAS se fier au flag `[indispo]` de la vue seul (peut être STALE = ability en fait castable,
   cas A) NI au `ValidRequest` de `reason` seul (ciblage-only, ignore le cooldown, cas B) → confirmer la dispo réelle
   d'une ability cooldown via les DEUX, et si ambigu, tenter le cast (no-op/rejet propre si indispo).
-- vu : seed 80001.
+- **fix livré (validé live, build gqfc5mff6c)** : la donnée cooldown EXISTAIT déjà côté hook (`readAbilityState` →
+  `RemainingCooldownTurns` → `decisionView.units[].abilities[].cooldown`, rendu `[cdN]` dans MES ACTIFS). Le résiduel
+  réel = `reason` (`abilityReason`) ignorait le cooldown (la couche `TargetingRule` n'a **aucun flag cooldown** → rend
+  `ValidRequest`). **`abilityReason` renvoie maintenant `abilityState{usable,cooldown,disabled}`** lu sur l'objet
+  `ActiveAbility` du caster. Validé live : `u96 PlasmaCannon` (cd1) → `CASTER: ValidRequest` (la couche targeting dit
+  valide, IGNORE le cooldown — friction TF24 exacte) MAIS la nouvelle ligne `ÉTAT LIVE: cooldown=1 ⚠ targeting peut dire
+  VALID mais COOLDOWN actif` réconcilie ; ability prête → `ÉTAT LIVE: prêt`. rl_duel `reason`/`_ability_reason`
+  surfacent le cooldown comme cause d'indispo, et `_ability_prevalidate` **pré-rejette** un cast cooldown-locked/disabled.
+  Les 3 chemins (vue `[cdN]`, `abilities.cooldown`, `reason.abilityState`) donnent désormais le MÊME verdict incluant le
+  cooldown. **Résiduel** : une ability-machine `Primary/Secondary` dont le cooldown n'est pas porté par un objet
+  `ActiveAbility` rend `abilityState=null` (cas `BasiliskBarrage` à re-vérifier sur un MoW live) → la doctrine « confirmer
+  via vue + reason » reste le filet.
+- vu : seed 80001 ; réconcilié live seed 555 (PlasmaCannon cd1) ; seed 81001 (ArmoriumCherub, n+1 — fix prévalidation a bien pré-rejeté, ciblage `now[..]` sur-reporte encore).
 
 ## TF25 — un `FINISH`/play APRÈS une action qui a DÉJÀ terminé le match → « ÉCHEC: stage Finished (need Running) » / « TOUR ABANDONNÉ » alarmant mais inoffensif — done — recurrence:1
 - **friction** : sur le tour gagnant de B (team2, seed 80053), l'action précédente (Actus tuant Dante, dernier ennemi)
@@ -523,7 +609,7 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   (re-bâtir le clone depuis l'état COURANT plutôt qu'un action_log rejoué reste un chantier ouvert).
 - vu : seed 80031.
 
-## TF28 — pas d'estimation du dmg INCOMING worst-case pour les effets à TIR DIFFÉRÉ (Seeker/RailRifle) sur MES units : `MES ACTIFS`/`decisionView.effects` flagge le Markerlight mais SANS magnitude → l'agent sous-évalue la menace pending-fire — open — recurrence:1
+## TF28 — pas d'estimation du dmg INCOMING worst-case pour les effets à TIR DIFFÉRÉ (Seeker/RailRifle) sur MES units : `MES ACTIFS`/`decisionView.effects` flagge le Markerlight mais SANS magnitude → l'agent sous-évalue la menace pending-fire — done — recurrence:1
 - **friction** : A (team1, seed 80031, ts=b8) — un `SeekerMissileFrequencyLock` avait marqué son admecDestroyer (Sy-gex,
   9537 PV). La vue `MES ACTIFS` / `decisionView.effects` a bien FLAGGÉ le Markerlight (effet actif présent) mais
   **sans AUCUNE magnitude** du tir à venir → A a projeté le hit comme « ~5800 survivable » (le nominal gameconfig
@@ -540,4 +626,232 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   survivable ». Doctrine d'ici-là : un effet pending-fire (Seeker/RailRifle) sur une de mes units = traiter le hit
   comme **potentiellement amplifié bien au-delà du nominal** → ne JAMAIS laisser une unité marquée HOLD passivement
   en portée ; la bouger hors-range (si dodgeable) OU la dépenser offensivement ce tour OU tuer le caster avant le tir.
+- **fix livré (amélioration (b) — pur Python oracle.py, 0 hook ; rendu validé synthétique)** : `oracle.py` détecte les
+  effets de TIR DIFFÉRÉ (`_is_pending_fire` : `SeekerMissileFrequencyLock`/`HeavyRailRifle_Pending`/`Markerlight`/
+  `MalleusRocketLauncher_PendingTarget`|`_SpottedTarget`/`TargetingProtocols_PendingAttack`/`AnnihilatorBeam_PendingAttack`/
+  `PoundThemToDust_PendingAttack`) posés par un **ENNEMI** (gate `source ∈ enemy_ids`) sur une de MES units, et émet en
+  EFFETS CRITIQUES : `⚠ [PENDING-FIRE≫] uX marqué par uY — TIR DIFFÉRÉ de magnitude AMPLIFIÉE bien au-delà du nominal
+  (RangedSpecialist/HeavyWeapon/markerlight : Seeker nominal ~5500 → 9263 observé). NE PAS hold passivement…`. + entrée
+  crit `SEEKER` ajoutée à `_CRIT_EFFECTS`. Casse la projection « nominal survivable ». **Volet (a) NON fait** (estimation
+  chiffrée du worst-case = nécessite le kit du caster + le modèle d'amplification, non porté par l'outil) → le TAG (b) est
+  le filet ; la doctrine « pending-fire = potentiellement ≫ nominal, ne pas hold en portée » reste la règle.
 - vu : seed 80031.
+
+## TF29 — un actif qui NE TERMINE PAS le tour (JakhalStimms, `actionConsumed=False` LÉGITIME) est FAUX-flaggé no-op par le backstop TF12 → `play --spec`/`--no-ai` ABANDONNE le tour (« TOUR ABANDONNÉ ») et drop les actions suivantes du spec, alors que l'ability A RÉSOLU (a dealt damage) — done — recurrence:2
+- **friction** : `JakhalStimms` (Macer/worldJakhal) est conçu pour **NE PAS consommer l'activation** (on stimm PUIS on
+  attaque en normale le MÊME tour). Quand A (team1, seed 81003) l'a joué via `play --no-ai`, l'ability **a bien
+  résolu (dealt damage)** mais `play` l'a flaggée comme **no-op / « TOUR ABANDONNÉ »** (`spawned=0`, le caster garde son
+  activation) ET **n'a PAS lancé les actions suivantes en file** (la normale de Macer + Abraxas) → A a dû ré-émettre
+  chaque follow-up en appels séparés. Aucune activation perdue (splittable), mais le label « abandonné » est trompeur
+  (l'ability a fonctionné). ROOT CAUSE probable = le **backstop TF12** (`_action_failed` flagge le no-op via
+  `actionConsumed=False`, même avec `eventCount>=1`) : il confond un VRAI no-op (summon non spawné) avec un actif
+  **légitimement non-turn-ending** qui A consommé son cast et dealt damage mais ne consomme PAS l'activation de l'unité.
+  C'est le FAUX-POSITIF symétrique du fix TF12. Apparenté TF08 (no-op silencieux abandonne le tour) mais ici l'action
+  a RÉUSSI et le tour ne devrait PAS s'abandonner.
+- **amélioration** : (a) la garde doit distinguer un actif **non-turn-ending qui a résolu** (`ok=True` ET
+  (`mutated=True` OU des events de dégât réels) ) d'un VRAI no-op (aucun event/mutation) → ne PAS abort sur le seul
+  `actionConsumed=False` quand l'ability a produit du dégât ; idéalement un flag `endsTurn`/`keepsActivation` côté hook
+  (lu sur l'ActiveAbility, ex. JakhalStimms) pour que `play --spec` ENCHAÎNE le follow-up sur le même caster au lieu
+  d'abandonner ; (b) corriger le label (« actif non-turn-ending résolu — caster garde son activation, continuer le
+  spec », PAS « TOUR ABANDONNÉ »). Doctrine d'ici-là : pour un actif no-turn-end (JakhalStimms…), émettre le stimm puis
+  les follow-ups en appels `act`/`play` SÉPARÉS (ne pas compter sur l'enchaînement `--spec` sur ce caster).
+- **n+1 (seed 81002, ts=b9)** : WarHowl (Ragnar self-buff) via `play --spec`/`--no-ai` — l'ability A APPLIQUÉ le buff
+  (les 3 melee Characters ont gagné `WarHowl_ExtraDamage_Unstoppable`) ET Ragnar a GARDÉ son activation, mais `play`
+  l'a flaggé « TOUR ABANDONNÉ / NO-OP » → label trompeur (A a failli re-caster / croire à un échec). ⚠ NUANCE vs
+  JakhalStimms (n=1, qui a dealt DAMAGE) : WarHowl est un PUR BUFF → AUCUN event de dégât ni mutation pos/hp →
+  l'amélioration (a) (« ne pas abort si dmg events / `mutated=True` ») NE le rattraperait PAS → renforce le besoin du
+  flag hook `endsTurn`/`keepsActivation` (lu sur l'ActiveAbility) OU de détecter l'application d'un buff (AddEffect)
+  pour distinguer un actif non-turn-ending RÉSOLU d'un vrai no-op.
+- **fix livré (régression du backstop TF12 — pur Python, vérifié live build gqfc5mff6c)** : `_action_failed` ne flagge
+  plus le no-op sur le SEUL `actionConsumed=False` — il exige AUSSI **aucun effet réel** via le helper
+  `_ability_had_real_effect(act)` : `mutated` OU `spawned` OU un event de cascade SIGNIFICATIF
+  (`UnitDamaged`/`ReceiveEffect`/`RemoveUnit`, décodé via `stream_events.step_name`). Un actif non-turn-ending qui a
+  RÉSOLU (JakhalStimms = `UnitDamaged`/mutated ; WarHowl = `ReceiveEffect`) est donc reconnu comme ayant agi → **PAS
+  d'abort, le spec CONTINUE** (le caster garde son activation et enchaîne ses follow-ups). Seul le VRAI no-op (cast
+  échoué : uniquement le marqueur `User_UseAbility`, 0 dmg/effet/spawn/mutation) reste flaggé. **Vérifié sur données
+  RÉELLES** : WarHowl(1106) live → `actionConsumed:false, mutated:false, spawned:0, eventCount:17`, steps =
+  {ReceiveEffect, ActivateEffect, ChangeAbility} → `_ability_had_real_effect=True` → **non flaggé (le tour continue)** ;
+  + 4 cas unitaires (no-op→abort, JakhalStimms→continue, WarHowl→continue, summon-OK→continue). NB : le label/abort
+  d'un VRAI no-op reste correct (et la pré-validation TF16 attrape de toute façon le cas summon-hors-`now` AVANT
+  applyAction). Amélioration (a)/(b) du flag hook `endsTurn` non nécessaire — l'event-cascade suffit.
+- vu : seed 81003, seed 81002 ; corrigé+vérifié live seed 81002 (WarHowl).
+
+## TF30 — `play --no-ai` parfois dispatché en TÂCHE DE FOND (renvoie un task-id au lieu de la sortie inline) → lire le fichier de sortie pour voir la cascade — open — recurrence:2
+- **friction** (cosmétique, harness-side) : B (team2, seed 81003) — un appel `play --no-ai` a été **dispatché de façon
+  inattendue en background task** (a retourné un identifiant de tâche au lieu de la sortie inline) → B a dû lire le
+  fichier de sortie pour voir la cascade. Aucun impact d'état, purement cosmétique. C'est un comportement du HARNESS
+  (heuristique `run_in_background` du tool Bash), PAS un manque de l'outil `rl_duel` — mais signalé comme friction.
+  Apparenté à TF19 doctrine (b) qui documente déjà le pattern « pas de sleep → lire le task-output file d'un `play`
+  backgroundé ».
+- **amélioration** : (a) côté process player self-play, forcer `play --no-ai` en FOREGROUND (sortie inline) ou, si
+  background imposé, surfacer clairement « tâche backgroundée → lis <fichier> » ; (b) doctrine (déjà TF19 b) : si un
+  `play` renvoie un task-id, lire le task-output file (ne pas re-jouer — l'action peut avoir appliqué, cf. TF19 c
+  applied-but-slow). Pas de correctness en jeu.
+- **n+1 (seed 81004, ts=b9)** : A (team1) — un `play --no-ai` (T4) a été **relocalisé en tâche de fond à cause
+  de la LENTEUR** (applied-but-slow) → a dû lire le fichier de sortie pour confirmer l'application. ⚠ NUANCE vs n=1
+  (background « inattendu ») : ici le déclencheur explicite = la durée de l'action a dépassé le seuil foreground du
+  harness (apparenté TF19 c applied-but-slow). A a géré PER DOCTRINE (a vérifié l'application via le fichier AVANT de
+  continuer = PAS de double-apply). Cosmétique, aucune correctness en jeu. Re-confirme la doctrine TF19(b)/(c) :
+  un `play` backgroundé → lire le task-output file ET vérifier l'application avant de re-jouer.
+- vu : seed 81003, seed 81004.
+
+## TF31 — `play --no-ai`/`--spec` : un follow-up dont la CIBLE est DÉJÀ MORTE (tuée par une action ANTÉRIEURE du MÊME spec batch) no-op → « TOUR ABANDONNÉ » + DROP des actions restantes → focus-kill front-loadé force le re-submit — open — recurrence:3
+- **friction** : A (team1, seed 81001) a front-loadé un focus-kill dans un seul `play --no-ai` spec. Une fois la cible
+  morte par la 1ʳᵉ action, les actions SUIVANTES du même batch qui visaient ENCORE cette cible (Cherub + normale de
+  Vindicta sur Kariyan déjà mort T3 ; idem sur Calgar T4) ont **no-op'd** (rien à frapper) → `play` a affiché
+  « **TOUR ABANDONNÉ** » et **n'a PAS lancé les actions restantes** du spec → A a dû **ré-émettre chaque action
+  restante** en appels séparés. Aucune activation perdue (les bonnes units finissent par jouer via re-submit, et la
+  cible était bien tuée), MAIS round-trips en plus à chaque focus-kill front-loadé + label « abandonné » trompeur sur
+  une séquence qui a en fait RÉUSSI son kill. ROOT CAUSE = le **backstop TF12** (`_action_failed` flagge le no-op via
+  `actionConsumed=False`) : il confond un no-op BÉNIN/ATTENDU (cible déjà morte = rien à faire, à SKIPPER) avec un VRAI
+  no-op (summon non spawné) → abandonne tout le reste du spec. DISTINCT de TF29 (où l'actif a RÉSOLU/dealt damage) :
+  ici l'action no-op VRAIMENT (cible morte) mais c'est ATTENDU et le spec devrait CONTINUER, pas s'abandonner.
+- **amélioration** : (a) le runner de spec doit traiter un no-op dont la CIBLE n'existe plus (morte plus tôt dans le
+  même batch) comme un **SKIP bénin** (« cible déjà morte — action ignorée, on continue ») et ENCHAÎNER les actions
+  restantes, au lieu d'abort le tour ; (b) à défaut, ne pas labelliser « TOUR ABANDONNÉ » quand le batch a déjà produit
+  des kills/mutations (distinguer abort-réel d'un skip-cible-morte) ; (c) doctrine d'ici-là : pour un focus-kill
+  front-loadé, ne PAS empiler plusieurs actions sur la MÊME cible dans un seul spec — émettre la 1ʳᵉ (le kill) puis
+  re-séquencer les follow-ups sur des cibles VIVANTES en appels séparés. Apparenté TF12 (backstop)/TF29 (faux no-op
+  abandonne le tour)/TF25 (label « TOUR ABANDONNÉ » trompeur).
+- **n+1 (seed 81002, ts=b9)** : A (team1) — une attaque NORMALE (Actus) sur un Shield Drone que Thoread venait de
+  TUER (cible déjà morte ce tour) a no-op → `play` a affiché « TOUR ABANDONNÉ » et abandonné le reste du spec → A a dû
+  ré-émettre les follow-ups. Même classe que n=1 (no-op BÉNIN/ATTENDU sur cible-morte = à SKIPPER, pas à aborter) ;
+  re-confirme que le runner de spec devrait SKIP une action sur cible-morte et ENCHAÎNER. A l'a noté comme friction
+  (« une dead-target action devrait être auto-skippée plutôt qu'aborter le spec »).
+- **n+2 (seed 81004, ts=b9) — focus sur le RAISON-CODE trompeur** : A (team1) — `play --no-ai` T7 a aborté sur
+  Dreir→Isabella avec la raison `TargetIsInRange` (out-of-range) ALORS qu'Isabella avait DÉJÀ été tuée par Maugan Ra
+  dans le MÊME spec → le code de rejet (hors-portée) était TROMPEUR vs la vraie cause (cible morte). ⚠ NUANCE ce match :
+  A rapporte « partial-apply + continue worked fine » (le reste du spec a été appliqué) → le DROP-des-actions-restantes
+  était moins sévère que n=1/n+1, MAIS le RAISON-CODE reste le résiduel. CONTRASTE intra-match : B a rapporté que
+  `play --no-ai` a géré le dead-target no-op GRACIEUSEMENT (« TOUR ABANDONNÉ », caster a gardé son activation = OK) →
+  l'expérience diverge selon le chemin, ce qui isole le résiduel : c'est le LABEL/raison-code (afficher `TargetIsInRange`
+  pour une cible MORTE, et « TOUR ABANDONNÉ » sur une séquence qui a réussi son kill) qui trompe, PAS la préservation
+  d'activation. Amélioration (b) renforcée : un no-op cible-morte doit rendre « cible déjà morte — action skippée », JAMAIS
+  un faux `TargetIsInRange`/out-of-range.
+- vu : seed 81001, seed 81002, seed 81004.
+
+## TF32 — `decisionView` plans : une tuile « attack-from » suggérée est OCCUPÉE (par un decoy) / HORS de la grille `moves` → les tuiles de plan peuvent inclure des hexes non-atteignables/occupés — open — recurrence:1
+- **friction** : B (team2, seed 81001) — un plan d'attaque listait une tuile d'attaque-depuis `(1,3)` pour un K!
+  (Helbrecht sur Xybia) qui était (a) **OCCUPÉE par un decoy** Genestealer (tuile Steppable non-targetable) ET (b)
+  **ABSENTE de la grille `moves`** → la tuile de plan n'était PAS réellement atteignable. Si B avait committé sur la
+  tuile du plan sans cross-check, le move aurait no-op/échoué (cf. TF16). Friction d'observabilité : les tuiles
+  « attack-from » des plans peuvent inclure des hexes occupés/non-reachable (le moteur `GetAllValidTargetsFrom
+  AllPossibleMovementTiles` ne re-filtre pas l'occupation/atteignabilité réelle de CHAQUE from-tile).
+- **amélioration** : (a) intersecter les tuiles « attack-from » des plans avec la grille `moves` (atteignables ET
+  libres) AVANT de les afficher → ne plus proposer une from-tile occupée par un decoy/unité ou hors-budget de move ;
+  (b) à défaut, TAGGER une from-tile de plan « ⚠ ∉ moves (occupée/non-atteignable) — cross-check ». Doctrine d'ici-là :
+  TOUJOURS cross-checker une tuile d'attaque-depuis suggérée par un plan contre la grille `moves` (ground truth de
+  l'atteignabilité) avant de committer le move. Apparenté TF16 (no-op silencieux sur contrainte de positionnement) /
+  TF13 (spawn-tile re-vérifier via `fromHere`).
+- vu : seed 81001.
+
+## TF33 — la cascade (`play`/`view`) ne LABELLISE PAS la SOURCE d'un dmg ENTRANT pris par une unité PENDANT sa propre action (réaction/counter/attribution non attribuée) — open — recurrence:1
+- **friction** (candidat, observateur unique) : B (team2, seed 81001) — un Skitarii Vanguard summon a pris **~1760 dmg
+  dans la MÊME action où il attaquait le Neophyte** (possible réaction/Overwatch/counter, ou quirk d'attribution) → la
+  cascade rendue **n'a PAS clairement labellisé la SOURCE** de ce dmg entrant → B n'a pas pu déterminer d'où venait le
+  coup (réaction adverse ? counter ? attribution erronée ?). Friction d'observabilité d'ATTRIBUTION : le dmg pris par
+  une unité pendant SA propre activation n'est pas rattaché à un attaquant/effet identifiable dans la sortie.
+- **amélioration** : (a) dans la cascade, attribuer CHAQUE évènement de dmg à sa source (attaquant entityId + ability/
+  effet déclencheur : réaction/Overwatch/counter/DoT) → l'agent voit « Vanguard −1760 par <uX> (Overwatch/reaction) » ;
+  (b) à défaut, au moins tagger un dmg entrant non-attribué comme « source non identifiée (réaction/counter probable) »
+  pour ne pas le lire comme un bug. Apparenté à l'attribution Effect_Type (cf. MEMORY UnitDamaged Effect_Type) mais ici
+  le manque est le RENDU côté `play`/`view`. À re-vérifier sur n>1 (déterminer si c'est une réaction réelle non
+  rendue OU un quirk d'attribution).
+- vu : seed 81001.
+
+## TF34 — pas d'estimation du dmg INCOMING d'un OVERWATCH armé quand on planifie un MOVE dans l'arc : l'overlay danger COMPTE les menaces mais ne donne AUCUNE magnitude → un move dans un arc d'overwatch multi-hit (surtout superposé) = mort mid-move SANS warning — open — recurrence:1
+- **friction** : A (team1, seed 81002) a walké Ragnar (10038, son moteur WarHowl) dans l'arc COMBINÉ Re'vas
+  `EarlyWarningOverride` + Calandis `Overwatch` → tué par ~10k de riposte multi-hit DURANT le move, AVANT toute
+  attaque. L'overlay danger-zone a bien COMPTÉ des menaces sur la tuile mais n'a JAMAIS convey la MAGNITUDE (« entrer
+  dans cet arc = ~10k overwatch multi-hit = mort »). Un move dans un arc d'overwatch ARMÉ (surtout SUPERPOSÉ : EWO +
+  hold-OW) n'est PAS flaggé avec un dmg entrant attendu → l'agent ne peut pas voir que le move est LÉTAL avant de le
+  committer. C'est exactement le coup qui a perdu le match (cf. wiki §1 Overwatch « arcs superposés = one-shot
+  mid-move »). DISTINCT de TF26 (danger-zone = reach géométrique INFÉRIEURE pour le tour ADVERSE, sous-modélise
+  RapidAssault/+move/range-2) : ici la menace est la RÉACTION overwatch déclenchée par MON move, multi-hit, dont la
+  magnitude n'est estimée nulle part. DISTINCT de TF28 (dmg incoming d'un effet pending-fire/différé sur MES units) :
+  ici c'est le dmg RÉACTIF d'un Overwatch ARMÉ déclenché par le déplacement, pas un tir différé.
+- **amélioration** : (a) quand une de MES units planifie un MOVE qui ENTRE dans un arc d'overwatch ENNEMI armé (trait
+  `Overwatch` actif OU `EarlyWarningOverride`/équivalent posé ce tour), surfacer une estimation worst-case du dmg de
+  riposte (nominal × hits × nb d'overwatchers dont l'arc couvre la tuile d'entrée) → « move dans l'arc OW de uX(+uY)
+  ≈ ~Nk multi-hit » ; (b) à défaut, TAGGER toute tuile-cible de move située dans un (a fortiori plusieurs) arc(s)
+  d'overwatch armé(s) comme « ⚠ OW armé — riposte multi-hit possible ≫, ne pas y walker une unité seule » (filet
+  qualitatif si le chiffre n'est pas portable). Apparenté TF28 (magnitude d'un dmg entrant non estimée) et TF26
+  (danger-zone borne inférieure). Doctrine d'ici-là (cf. skill §7 + wiki §1 self-play consensus seed 81002) : ne
+  JAMAIS walker une unité seule dans un arc d'overwatch armé ; SEUL Infiltrate traverse sans trigger ; mapper les
+  overwatchers AVANT d'engager.
+- vu : seed 81002.
+
+## TF35 — l'adjacence hex (PARITÉ) et l'atteignabilité (chemin bloqué par mes propres units) ne sont PAS lisibles sur l'ASCII map → planifier move/attaque exige les pré-checks `moves`/`abilities` (rejets corrects mais map insuffisante) — open — recurrence:2
+- **friction** (observabilité) : B (team2, seed 81002) a rencontré plusieurs rejets de reachability/adjacence NON
+  lisibles sur la carte ASCII : (5,8) inatteignable pour Calandis T1 (chemin bloqué par MES propres units), (4,5)
+  inatteignable pour le drone 151 T4, et Corrodius à (2,3) PAS adjacent-mêlée à Actus à (2,2) (parité hex) →
+  `TargetIsInRange`. Les rejets étaient CORRECTS et ont préservé les actions déjà appliquées (B a pu ré-émettre le
+  reste — fix TF16), MAIS l'adjacence hex (offset de parité ligne paire/impaire) et l'atteignabilité (chemin libre)
+  ne se DÉDUISENT PAS de la grille ASCII → les commandes pré-check `moves`/`abilities` étaient OBLIGATOIRES pour
+  planifier sans burn. Friction d'observabilité distincte de TF16 (la partie no-op silencieux est FIXÉE — ici les
+  rejets sont surfacés/corrects) : le manque est que la MAP elle-même ne rend pas la géométrie hex (« ça a l'air
+  adjacent en ASCII » est FAUX à cause de la parité).
+  **n+1 (seed 81000, ts=b9 — PARTAGÉE A+B, + extension RANGE d'ATTAQUE)** : DEUX sides re-buttent sur la géométrie
+  hex non-lisible. **Move** : A — Makhotep→(2,3) rejeté « HORS du movable set » même APRÈS que le blocker eut quitté
+  la tuile (le movable set résolu ≠ ce que l'ASCII suggère) ; B — `play --spec` move Incisus→(5,6) et Shadowsun→(6,6)
+  pré-rejetés « HORS movable set » alors que les tuiles paraissaient adjacentes/libres (terrain/footprint), validator
+  correct + resume partiel a préservé toutes les actions antérieures (fix TF16). **Range d'ATTAQUE (extension)** : A —
+  Abaddon (4,4) NE POUVAIT PAS toucher Incisus (4,6) (straight +2 rangées rejeté hors-r2) MAIS la diagonale
+  (3,4)→(4,6) ÉTAIT en r2 → la distance hex N'EST PAS axiale simple ; le même piège de parité s'applique à la PORTÉE
+  d'attaque, pas seulement au move/adjacence. Doctrine confirmée+étendue : ne JAMAIS faire de maths hex à la main (ni
+  adjacence, ni atteignabilité, ni PORTÉE) → vérifier via `moves`/`abilities`/plans (listes de tuiles), jamais l'œil
+  sur l'ASCII.
+- **amélioration** : (a) rendre l'adjacence/atteignabilité directement sur la vue (ex. marqueurs des hexes
+  adjacents/reachables autour de l'unité active, ou un mini-overlay « cases atteignables ce tour ») pour ne pas
+  exiger un pré-check séparé par action ; (a-bis) exposer la PORTÉE EFFECTIVE d'une attaque (set de tuiles en-range
+  depuis la tuile courante) — la r2/r3 affichée se lit comme axiale mais ne l'est pas (parité) ; (b) à défaut,
+  doctrine (déjà partielle) : TOUJOURS cross-checker une adjacence/atteignabilité/PORTÉE via `moves`/`abilities`/plans
+  AVANT de committer (ne JAMAIS juger l'adjacence mêlée NI la portée ranged à l'œil sur l'ASCII — la parité hex fausse
+  l'intuition). Apparenté TF16 (contrainte de positionnement) / TF32 (from-tile de plan occupée/hors-grille) / TF20
+  (rendu de glyph ambigu).
+- vu : seed 81002, seed 81000 (A+B, move + range d'attaque).
+
+## TF36 — les unités SUMMONED (Death Riders / Inceptors) ne sont PAS listées dans « À ACTIVER » mais APPARAISSENT dans PLANS D'ATTAQUE et SONT commandables via `play --spec` → ambiguïté sur quels summons ont encore une action ce tour — open — recurrence:1
+- **friction** (observabilité) : A (team1, seed 81004) — ses unités summonées (`astraSmnDeathRider` via Dreir,
+  `ultraSmnInceptor` via Bellator) **n'étaient PAS listées dans la section « À ACTIVER »** de la vue, MAIS
+  elles **figuraient bien dans les PLANS D'ATTAQUE** et **étaient commandables via `play --spec`**. Résultat :
+  ambiguïté sur **quels summons ont encore une action disponible** sur un tour donné — A ne pouvait pas se fier à
+  « À ACTIVER » comme liste exhaustive des unités jouables (les summons jouables en sont absents). Aucune action
+  perdue (A les a commandées via les PLANS), mais la liste « À ACTIVER » sous-rapporte le set jouable réel.
+- **amélioration** : (a) inclure les unités SUMMONED encore actives dans la section « À ACTIVER » (source unique
+  de vérité du set jouable, alignée avec ce que `play --spec` accepte) ; (b) à défaut, TAGGER explicitement les
+  summons jouables (« +N summons jouables non listés ci-dessus — cf. PLANS ») pour lever l'ambiguïté. Doctrine
+  d'ici-là : ne PAS traiter « À ACTIVER » comme exhaustif quand des summons sont sur le board → cross-checker les
+  PLANS D'ATTAQUE pour les summons jouables. Apparenté à la friction d'observabilité du set jouable (≠ no-op).
+- vu : seed 81004.
+
+## TF37 — un MOVE batché dans un `play --no-ai`/`--spec` multi-action n'applique PAS SILENCIEUSEMENT quand il dépend d'une tuile qu'une action ANTÉRIEURE du même batch doit libérer (ordering/validation intra-batch) → l'unité reste sur place + « à activer », re-émis seul ça marche — open — recurrence:1
+- **friction** : B (team2, seed 81004) — un move batché de Makhotep `(5,7)→(5,6)` à l'intérieur d'un spec
+  `play --no-ai` multi-action **n'a PAS appliqué SILENCIEUSEMENT** (l'unité est restée sur place, est restée
+  « à activer ») ; **re-émis SEUL il a marché**. Hypothèse de B : **quirk d'ordering/validation intra-batch** —
+  un move PLUS TARD dans le batch qui dépend d'une tuile qu'une action ANTÉRIEURE du même batch doit d'abord
+  LIBÉRER (la tuile cible était peut-être encore occupée par une unité pas-encore-déplacée au moment où le move
+  batché a été validé). Aucune activation perdue (re-submit seul = OK), MAIS le move a échoué SANS rejet surfacé
+  (≠ TF16 dont les rejets de positionnement sont désormais surfacés ; ≠ TF08 format `to` string) → c'est un
+  no-op SILENCIEUX spécifique à la DÉPENDANCE D'ORDRE entre actions d'un même batch.
+- **amélioration** : (a) le runner de spec doit valider/appliquer chaque action séquentiellement sur l'état
+  RÉSULTANT des actions précédentes du batch (re-résoudre la légalité d'un move APRÈS que les moves antérieurs ont
+  libéré leur tuile), pas sur l'état d'entrée figé ; (b) à défaut, si un move batché no-op (tuile occupée au moment
+  de la validation), ÉCHOUER explicitement (raison structurée « tuile (c,r) occupée — sera libre après l'action X »)
+  au lieu d'un no-op silencieux. Doctrine d'ici-là : pour des moves inter-dépendants (une unité avance sur la tuile
+  qu'une autre vient de quitter), les SÉQUENCER en appels séparés (ne pas compter sur l'ordering d'un seul spec) OU
+  cross-checker via `view` que chaque move a atterri. Apparenté TF16 (no-op de positionnement) / TF08 (move no-op).
+- vu : seed 81004.
+
+## TF38 — `play --no-ai --end` avec un spec VIDE ne TERMINE PAS le tour (`--end` ignoré quand aucune action) → besoin d'un `act endturn` explicite — open — recurrence:1
+- **friction** : A (team1, seed 81000) — un `play --no-ai --end` avec un **spec vide** (aucune action) **n'a PAS
+  joué l'endturn** : le tour n'a pas été passé tant qu'un `act endturn` explicite n'a pas été émis. Surprise mineure
+  (aucune action perdue), MAIS le flag `--end` suggère « finis le tour » → un agent qui veut PASSER son tour (hold
+  total, rien à jouer) s'attend à ce que `--end` seul suffise. C'est vraisemblablement le garde-fou « spec vide →
+  stop » (hérité du fix TF12, pour éviter qu'un spec no-op flippe le tour gratis à l'IA) qui mange aussi le `--end`
+  explicite → ambiguïté entre « spec accidentellement vide » (stop, sûr) et « je VEUX endturn à vide » (intentionnel).
+- **amélioration** : (a) quand `--end` est passé EXPLICITEMENT, jouer l'endturn même sur spec vide (le flag = intention
+  claire de terminer, distinct d'un spec vide accidentel sans `--end`) ; (b) à défaut, documenter au skill/prompt que
+  « passer son tour à vide » exige `act endturn` (et NON `play --no-ai --end` avec spec vide). Apparenté TF12 (garde
+  « spec vide → stop ») / TF08 (no-op silencieux donne le tour à l'IA — ici l'inverse : ne flippe PAS, mais surprend).
+- vu : seed 81000.

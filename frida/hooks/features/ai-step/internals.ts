@@ -360,6 +360,35 @@ export interface ActionResult {
     eventCount: number;
     stage: number | null;
     currentPlayer: number | null;
+    /** ABILITY uniquement (absent sinon) — détection du NO-OP moteur silencieux
+     *  (TF12). `actionConsumed` = le cast a-t-il consommé l'activation du caster
+     *  (HasActionLeft true→false) ; `spawned` = nb d'entités apparues (summon).
+     *  Un cast `ok=true` qui n'a PAS consommé l'action (`actionConsumed=false`)
+     *  est un no-op moteur : ex. Abraxas `MasterOfTheTutelaries` émet un event
+     *  `User_UseAbility` (donc `eventCount>=1`, le filet `eventCount==0` le rate)
+     *  mais ne summon RIEN et laisse Abraxas « à activer ». null = état d'action
+     *  inconnu (caster introuvable / HasActionLeft non résolu). */
+    spawned?: number;
+    actionConsumed?: boolean | null;
+}
+
+/** ptr d'une entité par squadId courant (ou ptr(0)) — lookup ponctuel pour lire
+ *  HasActionLeft du caster avant/après un apply (les ptrs managés peuvent bouger
+ *  au GC → re-résoudre par id de part et d'autre de l'invoke). */
+function findEntityById(statePtr: NativePointer, id: number): NativePointer {
+    let found = ptr(0);
+    forEachEntity(statePtr, (e, eid) => {
+        if (found.isNull() && eid === id) found = e;
+    });
+    return found;
+}
+
+/** HasActionLeft du caster (true/false) ou null si non lisible. */
+function readHasAction(statePtr: NativePointer, casterId: number | undefined): boolean | null {
+    if (casterId === undefined || !hasActionLeftMi) return null;
+    const p = findEntityById(statePtr, casterId);
+    if (p.isNull()) return null;
+    try { return invokeBool(hasActionLeftMi, [p]); } catch { return null; }
 }
 
 /** Construit + applique UNE action via ApplyAiMessage, en snapshotant l'état
@@ -411,6 +440,10 @@ export function applyOneAction(
 
     const statePtr0 = runner.add(runnerOff.state).readPointer();
     const before = summarize(statePtr0);
+    // Activation du caster AVANT l'apply (ability seulement) — pour détecter le
+    // no-op moteur silencieux (TF12) : un cast qui ne consomme pas l'action.
+    const hadAction = action.kind === "ability"
+        ? readHasAction(statePtr0, action.casterId) : null;
     if (buildErr || msg.isNull()) {
         const st = readBattleStatus(statePtr0);
         return {
@@ -447,12 +480,23 @@ export function applyOneAction(
     const statePtr1 = runner.add(runnerOff.state).readPointer();
     const after = summarize(statePtr1);
     const st = readBattleStatus(statePtr1);
-    return {
+    const changes = diffUnits(before, after);
+    const result: ActionResult = {
         kind: action.kind, ok: applyErr === null, error: applyErr,
-        mutated: before.sig !== after.sig, changes: diffUnits(before, after),
+        mutated: before.sig !== after.sig, changes,
         events, eventCount: events.length,
         stage: st.stage, currentPlayer: st.currentTurnPlayer,
     };
+    if (action.kind === "ability") {
+        result.spawned = changes.filter((c) => c.appeared).length;
+        const hasAction = readHasAction(statePtr1, action.casterId);
+        // actionConsumed=true ssi l'activation a basculé true→false. false si elle
+        // est restée true (NO-OP : cast non enregistré comme action). null si
+        // l'un des deux reads a échoué (caster introuvable / méthode non résolue).
+        result.actionConsumed = (hadAction === null || hasAction === null)
+            ? null : (hadAction === true && hasAction === false);
+    }
+    return result;
 }
 
 /** Lit une List<Position> (chemin des pieds de l'unité). */

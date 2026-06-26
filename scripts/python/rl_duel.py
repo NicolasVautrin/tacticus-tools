@@ -493,6 +493,25 @@ def cmd_reason(sid: int, a) -> int:
         return 2
     print(f"=== ABILITY REASON caster u{r.get('casterId')} · ability "
           f"{r.get('abilityType')} · target {r.get('targetId')} ===")
+    # TF24 : état LIVE (cooldown/usable/disabled) — la couche targeting ci-dessous
+    # ne connaît PAS le cooldown (rend ValidRequest même cooldown-locked).
+    ast = r.get("abilityState")
+    if ast is not None:
+        cd = ast.get("cooldown")
+        flags = []
+        if cd:
+            flags.append(f"cooldown={cd}")
+        if ast.get("disabled"):
+            flags.append("disabled")
+        if ast.get("usable") is False:
+            flags.append("usable=false")
+        if not flags:
+            flags.append("prêt")
+        warn = "  ⚠ targeting peut dire VALID mais COOLDOWN actif" if cd else ""
+        print(f"  ÉTAT LIVE: {', '.join(flags)}{warn}")
+    else:
+        print("  ÉTAT LIVE: (indisponible — attaque normale ou ability-machine "
+              "Primary/Secondary sans objet ActiveAbility)")
     for key, lab in (("casterReason", "CASTER"), ("targetReason", "CIBLE")):
         rr = r.get(key)
         if rr is None:
@@ -711,6 +730,17 @@ def _ability_reason(sid: int, rid: int, action: dict) -> str:
         return rc if (rc and rc != "NoBrokenTargetingRule") else None  # None = valide
 
     bits = []
+    # TF24 : la couche targeting IGNORE le cooldown (aucun flag dans TargetingRule)
+    # -> casterReason rend ValidRequest même cooldown-locked. L'état LIVE de
+    # l'ability (abilityState) est le SEUL signal de dispo réelle.
+    ast = r.get("abilityState") or {}
+    cd = ast.get("cooldown")
+    if cd:
+        bits.append(f"COOLDOWN {cd} tour(s) restant(s) (indispo)")
+    elif ast.get("disabled"):
+        bits.append("ability DÉSACTIVÉE ce tour")
+    elif ast.get("usable") is False:
+        bits.append("indispo (usable=false)")
     tr, cr = _fmt(r.get("targetReason")), _fmt(r.get("casterReason"))
     if tr:
         bits.append("cible exige: " + tr)
@@ -748,6 +778,14 @@ def _ability_prevalidate(sid: int, rid: int, action: dict) -> str:
         r = (_rpc(sid, "abilityReason", [body], timeout=60).get("result") or {})
         if not r.get("ok"):
             return ""
+        # TF24 : cooldown/disabled pré-rejetés (la couche targeting les ignore et
+        # rendrait ValidRequest -> cast no-op silencieux, activation gaspillée).
+        ast = r.get("abilityState") or {}
+        if ast.get("cooldown"):
+            return (f"ability en COOLDOWN ({ast['cooldown']} tour(s) restant(s)) -> "
+                    "indispo ce tour (cf. TF24) ; planifie autour du downtime")
+        if ast.get("disabled"):
+            return "ability DÉSACTIVÉE ce tour -> indispo (cf. TF24)"
         tr = r.get("targetReason") or {}
         if tr.get("reasons"):
             return ("cast ILLÉGAL ce tour sans bouger -> " + ",".join(tr["reasons"])
@@ -786,6 +824,23 @@ def _ability_prevalidate(sid: int, rid: int, action: dict) -> str:
     return ""
 
 
+def _ability_had_real_effect(act: dict) -> bool:
+    """True si l'ability a RÉSOLU un effet réel — distingue un actif LÉGITIMEMENT
+    non-turn-ending qui a agi (JakhalStimms = dégât, WarHowl = buff/ReceiveEffect ;
+    `actionConsumed=False` NORMAL, le caster garde son activation) d'un VRAI no-op
+    (cast échoué : seulement le marqueur `User_UseAbility`, rien d'autre). TF29 = le
+    faux-positif symétrique du backstop TF12. Signaux d'effet réel : mutation pos/hp,
+    summon (`spawned`), OU un event de cascade SIGNIFICATIF (UnitDamaged / ReceiveEffect
+    / RemoveUnit) — un no-op n'en émet AUCUN."""
+    if act.get("mutated") or act.get("spawned"):
+        return True
+    meaningful = {"UnitDamaged", "ReceiveEffect", "RemoveUnit"}
+    for ev in (act.get("events") or []):
+        if stream_events.step_name(ev.get("step")) in meaningful:
+            return True
+    return False
+
+
 def _action_failed(r: dict, kind: str, sid: int | None = None,
                    rid: int | None = None, action: dict | None = None) -> str | None:
     """Raison si l'action a ÉCHOUÉ (-> STOPPER le tour AVANT l'endturn, sinon il
@@ -809,6 +864,25 @@ def _action_failed(r: dict, kind: str, sid: int | None = None,
                 and not act.get("changes") and not act.get("eventCount")):
             return ("move sans aucun effet (pos inchangée, 0 event) "
                     "-> tuile invalide / bloquée / hors portée ? (cf. `moves`)")
+        # TF12 : un cast qui n'a PAS consommé l'activation du caster
+        # (actionConsumed=False) ET n'a produit AUCUN effet réel = NO-OP moteur
+        # silencieux. Ex. Abraxas MasterOfTheTutelaries : émet `User_UseAbility`
+        # (donc eventCount>=1, le filet ci-dessous le RATE) mais ne summon rien et
+        # laisse Abraxas « à activer » (typiquement tuile de spawn hors `now`).
+        # TF29 (faux-positif symétrique) : un actif LÉGITIMEMENT non-turn-ending qui
+        # A RÉSOLU (JakhalStimms = dégât, WarHowl = buff) a AUSSI actionConsumed=False
+        # mais GARDE son activation à dessein -> NE PAS l'abandonner : `_ability_had_
+        # real_effect` le distingue (dmg/effet/spawn/mutation = a résolu -> on continue).
+        if (kind == "ability" and act.get("actionConsumed") is False
+                and not _ability_had_real_effect(act)):
+            msg = ("ability NON enregistrée comme action ET sans effet réel (caster "
+                   f"garde son activation, spawned={act.get('spawned', 0)}, 0 dmg/effet) "
+                   "-> NO-OP moteur silencieux (ex. Abraxas MasterOfTheTutelaries : "
+                   "summon non déclenché — tuile de spawn hors `now` ? cf. TF12). "
+                   "Choisis une AUTRE action / tuile pour ce caster")
+            if sid is not None and rid is not None and action is not None:
+                msg += _ability_reason(sid, rid, action)
+            return msg
         # H55 (volet ability) : une ability sans AUCUN event = vrai no-op (un buff/
         # marque/différée émet >=1 event de cascade) -> hors portée / cooldown /
         # munitions / cible invalide. Distinct de mutated (un buff ne change pas pos+hp).
