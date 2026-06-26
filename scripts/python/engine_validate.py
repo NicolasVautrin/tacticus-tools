@@ -45,6 +45,27 @@ _RANGED_CACHE: dict = {}
 _DEBUG = bool(os.environ.get("ENGINE_DEBUG"))
 
 
+_FACTION_CACHE: dict = {}
+
+
+def _faction(visual_id) -> str | None:
+    """FactionId gameconfig d'une unité par visualId (cache). Pour le bonus heal
+    `HasFaction(15)` = Genestealers (cf. dump.cs UnitFaction.Genestealers=15)."""
+    if not visual_id:
+        return None
+    if visual_id in _FACTION_CACHE:
+        return _FACTION_CACHE[visual_id]
+    f = None
+    try:
+        uid = gc.resolve_unit_id(visual_id)
+        u = gc.unit(uid) if uid else None
+        f = (u or {}).get("FactionId")
+    except Exception:
+        f = None
+    _FACTION_CACHE[visual_id] = f
+    return f
+
+
 def _is_ranged_unit(visual_id) -> bool:
     """« ranged-pour-mouvement » d'une unité (cf. RangedAdjacentEnemyUtility.ShouldApply),
     dérivé de gameconfig par visualId. Cache par visualId."""
@@ -127,16 +148,24 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt)
         return {"kind": "ability", "target": best[1], "ability": best[2], "to": best[3],
                 "util": best[0]}
 
-    # 1bis. HEAL (ability Comparable GRANTED-par-passif, ex. TwistedScience_Heal 1167, surfacée
-    #        via le pass GetUnusedAbilities du hook). Le natif la cast quand aucune attaque n'est
-    #        dispo (sa CustomUtility ~100 = échelle attaque, pas summon). Candidats = cibles UNIT ;
-    #        score = montant de soin prédit (aiPredict.healthDmgMax = magnitude de soin). On
-    #        soigne la cible au plus gros soin. (CustomUtility faction-15/effet-1355 = raffinement.)
-    heal_best = None  # (heal_amt, ability, target)
-    for ab in ((me or {}).get("abilities") or []):
-        aid, nm = ab.get("id"), (ab.get("name") or "")
-        if "Heal" not in nm or ab.get("usable") is False:
-            continue
+    # 1bis. HEAL (ability Comparable GRANTED-par-passif, ex. TwistedScience_Heal 1167, surfacée par
+    #        le pass GetUnusedAbilities). Scoreur FIDÈLE à CalculateCustomUtility + soin EFFECTIF :
+    #        le natif soigne `min(healAmount, missing)` PV (PredictHeal = MaxFillUp cappé à missing
+    #        ; =0 si cible PLEINE → le cast sert surtout le BUFF TwistedScience_ExtraHp). ⚠ NE PAS
+    #        scorer via aiPredict.healthDmgMax : c'est GetAllPredictions (query de DÉGÂT, BOGUS pour
+    #        un heal — renvoyait 2429/3036 sur cibles pleines). Score = base 100 + (100 si cible
+    #        Genestealers/faction-15) + soin effectif (missing HP via observeBattle) ; GATÉ à 0 si la
+    #        cible a déjà l'effet TwistedScience_ExtraHp ; tie-break id croissant (ordre natif).
+    unit_by_id = {u.get("id"): u for u in units}
+    heal_abis = [ab for ab in ((me or {}).get("abilities") or [])
+                 if "Heal" in (ab.get("name") or "") and ab.get("usable") is not False]
+    hpmax_by_sq = {}
+    if heal_abis:
+        obs = _r(sid, "observeBattle", {"runnerId": rid}, 40)
+        hpmax_by_sq = {u.get("squadId"): u for u in (obs.get("units") or [])}
+    heal_best = None  # (key=(custom, missing, -id), ability, target)
+    for ab in heal_abis:
+        aid = ab.get("id")
         at = _r(sid, "abilityTargets", {"runnerId": rid, "unitId": uid, "abilityType": aid}, 40)
         tgts = []
         for u in (at.get("units") or []):
@@ -145,14 +174,19 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt)
                     tgts = [t.get("targetId") for t in (a.get("targets") or [])
                             if t.get("kind") == "unit" and t.get("targetId") is not None]
         for tg in tgts:
-            pr = _r(sid, "aiPredict", {"runnerId": rid, "unitId": uid, "targetId": tg,
-                                       "abilityType": aid}, 30)
-            amt = (pr.get("pred") or {}).get("healthDmgMax") or 0
-            if amt > 0 and (heal_best is None or amt > heal_best[0]):
-                heal_best = (amt, aid, tg)
+            tu = unit_by_id.get(tg) or {}
+            effs = [e.get("name") or "" for e in (tu.get("effects") or [])]
+            if any("TwistedScience_ExtraHp" in e for e in effs):
+                continue  # gate CustomUtility : déjà buffé → utilité 0
+            fac = 100 if _faction(tu.get("visualId")) == "Genestealers" else 0
+            ob = hpmax_by_sq.get(tg) or {}
+            missing = max((ob.get("hpMax") or 0) - (ob.get("hp") or 0), 0)
+            key = (100 + fac, missing, -tg)  # custom desc, plus blessé d'abord, id croissant
+            if heal_best is None or key > heal_best[0]:
+                heal_best = (key, aid, tg)
     if heal_best:
         return {"kind": "ability", "target": heal_best[2], "ability": heal_best[1],
-                "to": None, "util": heal_best[0]}
+                "to": None, "util": heal_best[0][0]}
 
     # 1ter. Leaf NonComparable (summon) — RÈGLE DE TIR empirique : quand AUCUNE attaque n'est
     #       disponible, l'unité INVOQUE (si une tuile de spawn a ≥1 ennemi adjacent) plutôt que

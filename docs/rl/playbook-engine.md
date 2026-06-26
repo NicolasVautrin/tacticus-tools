@@ -450,16 +450,19 @@ de soin — le prédicteur réutilise les champs dmg). Règle de tir : si AUCUNE
 plus gros soin. **Résultat : le moteur CAST le heal au step1 (ability 1167 MATCH)** — sans régression
 (seed777 55/77/75 %, seed2024 44/61/100 % inchangés ; le heal ne tire que sans attaque dispo).
 
-**Reste : précision de la CIBLE** (88 vs 94) — **hypothèse faction FALSIFIÉE** (leçon
-measure-ground-truth). RE `CalculateCustomUtility` = `base(TwistedScience_ExtraHpUtility 100) +
-(100 si target HasFaction(15)) `, gaté `0 si effet 1355`. J'ai d'abord supposé faction-15 = Custodes
-(la cible u88) → **FAUX** : `dump.cs` donne `UnitFaction.Genestealers = 15` (Custodes=18,
-BlackTemplars=6). Donc NI u88 (Custodes) NI u94 (BlackTemplars) n'a le bonus faction-15 → CustomUtility
-ÉGALE (base 100). Et le terme heal-event = `magnitude × poids[idx44]` (`CalculateUtilityFromHealEvent`,
-`ForHealPrediction` n'est qu'un builder de struct) → u94 soigne PLUS (3036>2429) donc devrait GAGNER…
-or le natif prend u88. **La règle de cible n'est donc expliquée NI par la faction NI par la magnitude
-de soin.** Piste : pondération par VALEUR/danger de la cible (u88 = le `BigTarget` tank ; u94 non) — et
-mon `aiPredict.healthDmgMax` ne reflète peut-être pas la prédiction de soin INTERNE de l'IA. RE plus
-profonde requise (chaîne de prédiction de soin + valeur d'unité) avant de porter une règle. **Décision :
-NE PAS livrer de règle faction fausse** ; le heal FIRE déjà avec la bonne ability (scoreur défaut =
-max-soin → u94, un MISS de cible assumé). À reprendre si l'agreement le justifie.
+**Précision de la CIBLE (88 vs 94) — RÉSOLU, ability 100 %.** Le chemin (et mes 2 erreurs de mesure) :
+- **Erreur 1 (faction)** : supposé faction-15 = Custodes → FAUX. `dump.cs` : `UnitFaction.Genestealers=15`
+  (Custodes=18, BlackTemplars=6). NI u88 NI u94 n'est Genestealers → CustomUtility ÉGALE (base 100).
+- **Erreur 2 (magnitude)** : mon `aiPredict` appelle **`GetAllPredictions`** (query de DÉGÂT), PAS
+  `PredictHeal`. Sur un heal il renvoyait `2429`/`3036` = **bruit**. La vraie fonction (lue ghidra)
+  `DamagePrediction.PredictHeal` = `MaxFillUp(target, healAmount)` = **cappé à `maxHP − currentHP`**.
+- **Ground truth (mesuré)** : au step1, u88 ET u94 sont à **PV PLEINS** (`hp==hpMax`, missing=0) → soin
+  effectif = `min(healAmount,0)` = **0 pour les deux**. Le cast ne restaure rien : il sert à poser le
+  **buff `TwistedScience_ExtraHp`**. Struct `ProbableHealEvent` (`dump.cs`) : `[0x10]=Probability` (=1) ;
+  la magnitude est dans `HealPrediction@0x8`. Donc utilité ∝ soin effectif (0 ici) → 88/94 **à égalité**.
+- **Fix (scoreur remplacé)** : score = `CalculateCustomUtility` fidèle = `base 100 + (100 si cible
+  Genestealers/faction-15) + soin effectif (missing HP via observeBattle)`, **gaté à 0 si la cible a
+  déjà `TwistedScience_ExtraHp`**, tie-break **id croissant** (ordre natif). `aiPredict.healthDmgMax`
+  SUPPRIMÉ du heal (mauvaise query). → step1 pick **u88** (égalité custom+missing → id 88 < 94) = MATCH.
+
+**Résultat : ability 50 %→75 %→100 % (4/4) seed777 ; seed2024 100 % inchangé ; positioning 55/77.**
