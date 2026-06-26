@@ -405,3 +405,61 @@ le miss step1 ; Comparable, poids heal `cfg+0x90`/`CalculateUtilityFromHealEvent
 attaque spéciale** (pourquoi `DakkaDakkaDakka` > normal — multi-hit / knob `ActiveAbilities`) ; (3)
 le **bucket-tree par-catégorie** (clé d'ordre summon/heal/move/attack) pour la sélection inter-type ;
 (4) refactor package. Le leaf summon reste prêt pour les seeds/états où la mêlée le rend bénéfique.
+
+## 11. Phase 2b — tie-break attaque spéciale > normale (FAIT) + heal bloqué
+
+**Ground-truth (harnais ENGINE_DEBUG, dump des prédictions par-ability)** :
+- **step21 (DakkaDakkaDakka)** : `(69→84, util 50, dmax 1147=hp)` ET `(1171→84, util 50, dmax 1147=hp)`
+  — les deux TUENT u84, **utilité ÉGALE**. La prédiction de dégât est cappée à la PV cible donc 69 et
+  1171 sont indiscernables pour le barème. Le natif prend la **spéciale** `1171` ; mon tie-break
+  « premier gagne » prenait `69`. Aucun knob BC pour DakkaDakkaDakka → préférence **structurelle**
+  (bucket d'ability active > bucket normal-attack).
+- **Fix livré** : tie-break = à utilité égale, préférer l'ability **non-normale** (`name` sans
+  « NormalAttack »). Clé `(util, is_special)`. **Sans régression** (steps15/19 : pas de spéciale à
+  égalité — 1116 util 0, 1183 hors-portée). **Résultat seed777 : ability 50 %→75 % (3/4)** ; seed2024
+  inchangé (100 %/2). step15/19 restent MATCH.
+
+**Heal `1167` — BLOQUÉ (diagnostic)** : `Heal_TwistedScience` **n'est PAS une ability autonome** —
+c'est l'effet du **passif `TwistedScience`** de genesBiophagus (gameconfig : seul actif =
+`AberrantHypermorph` ; `Heal_TwistedScience` = entrée d'effet vide). Le natif l'émet comme
+`ActiveAbilityMessage(1167)` mais elle **n'apparaît PAS** dans `unitAbilityTypes` (= [69, 1166]) →
+le moteur ne peut pas l'énumérer comme candidat. Débloquer = surfacer les abilities **granted par
+passif** (hook ActiveAbilityComponent au-delà de GetActives, OU dériver du passif via gameconfig) +
+modèle de soin (Comparable, poids heal) + sélection bucket-tree (heal vs move). → reste sur task #17.
+
+**État agreement seed777 : positioning 55 %/77 %, ability 75 %.**
+
+## 12. Phase 2b — unblock énumération des abilities GRANTED-par-passif (FAIT) + heal câblé
+
+**Le blocage (RE)** : `unitAbilityTypes` énumérait via `ActiveAbilityComponent.GetActives()`, qui
+**filtre par `IsActiveAbility(type@0x44)`** → RATE les actives **granted-par-trigger** comme le heal
+du passif `TwistedScience` (`TwistedScienceAbility` triggered → grant `TwistedScience_HealAbility`
+1167, type hors enum « active »). Mesuré : `GetActives(u92)` = [69,1166] aux steps 0 ET 1, alors que
+`abilityTargets(1167)` rend ok+2 cibles (l'ability EST castable via `GetOrNull`, juste pas listée).
+
+**Le fix (hook, livré + reinject + validé)** : `GetActives` et `GetUnusedAbilities` itèrent la MÊME
+collection `+0x20` ; `GetActives` filtre par type, `GetUnusedAbilities` par le flag `unused@0x28` →
+inclut les granted. Ajout d'un **pass `GetUnusedAbilities`** dans `unitAbilityTypes` (internals.ts,
+`getUnusedAbilitiesMi`) qui complète la liste avec les abilities castables manquantes (kind=`granted`).
+→ `decisionView.abilities(u92)` rend désormais `(1167,'Heal_TwistedScience','granted',usable)`.
+Bénéfice large : les granted deviennent visibles pour le moteur ET l'oracle/decisionView.
+
+**Heal câblé bout-en-bout** (`engine_validate`, branche HEAL avant le summon) : énumère les abilities
+`name~Heal`, cibles UNIT via `abilityTargets`, score = soin prédit (`aiPredict.healthDmgMax` = magnitude
+de soin — le prédicteur réutilise les champs dmg). Règle de tir : si AUCUNE attaque, soigne la cible au
+plus gros soin. **Résultat : le moteur CAST le heal au step1 (ability 1167 MATCH)** — sans régression
+(seed777 55/77/75 %, seed2024 44/61/100 % inchangés ; le heal ne tire que sans attaque dispo).
+
+**Reste : précision de la CIBLE** (88 vs 94) — **hypothèse faction FALSIFIÉE** (leçon
+measure-ground-truth). RE `CalculateCustomUtility` = `base(TwistedScience_ExtraHpUtility 100) +
+(100 si target HasFaction(15)) `, gaté `0 si effet 1355`. J'ai d'abord supposé faction-15 = Custodes
+(la cible u88) → **FAUX** : `dump.cs` donne `UnitFaction.Genestealers = 15` (Custodes=18,
+BlackTemplars=6). Donc NI u88 (Custodes) NI u94 (BlackTemplars) n'a le bonus faction-15 → CustomUtility
+ÉGALE (base 100). Et le terme heal-event = `magnitude × poids[idx44]` (`CalculateUtilityFromHealEvent`,
+`ForHealPrediction` n'est qu'un builder de struct) → u94 soigne PLUS (3036>2429) donc devrait GAGNER…
+or le natif prend u88. **La règle de cible n'est donc expliquée NI par la faction NI par la magnitude
+de soin.** Piste : pondération par VALEUR/danger de la cible (u88 = le `BigTarget` tank ; u94 non) — et
+mon `aiPredict.healthDmgMax` ne reflète peut-être pas la prédiction de soin INTERNE de l'IA. RE plus
+profonde requise (chaîne de prédiction de soin + valeur d'unité) avant de porter une règle. **Décision :
+NE PAS livrer de règle faction fausse** ; le heal FIRE déjà avec la bonne ability (scoreur défaut =
+max-soin → u94, un MISS de cible assumé). À reprendre si l'agreement le justifie.

@@ -42,6 +42,7 @@ def _r(sid: int, method: str, body: dict, t: float = 90) -> dict:
 #   def="weapon" : arme Range≥2 seulement
 _RANGED_DEF = os.environ.get("ENGINE_RANGED_DEF", "weapon_or_ability").lower()
 _RANGED_CACHE: dict = {}
+_DEBUG = bool(os.environ.get("ENGINE_DEBUG"))
 
 
 def _is_ranged_unit(visual_id) -> bool:
@@ -90,7 +91,15 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt)
     #    allAbilities=True => inclut les abilities spéciales d'attaque (ex. DakkaDakkaDakka 1171),
     #    Comparable, MÊME barème → argmax sûr (n'ajoute que des candidats).
     plan = plans.get(uid) or {}
+    # Ids d'attaque NORMALE de l'unité (name « *NormalAttack »). Tie-break : à utilité
+    # ÉGALE, le natif préfère l'ability SPÉCIALE à l'attaque normale (bucket d'ability
+    # active > bucket normal-attack ; RE bucket-tree §10). Ex. seed777 step21 : 1171
+    # DakkaDakkaDakka et 69 normal tuent tous deux u84 (util 50) -> natif prend 1171.
+    normal_ids = {a.get("id") for a in ((me or {}).get("abilities") or [])
+                  if "NormalAttack" in (a.get("name") or "")}
     best = None  # (util, target, ability, tile)
+    best_key = None  # (util, is_special) — tie-break spécial>normal
+    dbg = []
     for ev in (plan.get("evals") or []):
         if not ev.get("rankCount"):
             continue
@@ -102,13 +111,50 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt)
         pr = _r(sid, "aiPredict", {"runnerId": rid, "unitId": uid, "targetId": tgt,
                                    "abilityType": ab, "col": tile[0], "row": tile[1]}, 30)
         u = attack_utility(pr.get("pred"), wt)
-        if best is None or u > best[0]:
+        key = (u, 0 if ab in normal_ids else 1)  # util d'abord, puis spécial > normal
+        if _DEBUG:
+            p = pr.get("pred") or {}
+            dbg.append((ab, tgt, round(u, 1), p.get("killSure"), p.get("kill"),
+                        p.get("healthDmgMax"), p.get("hpBefore")))
+        if best_key is None or key > best_key:
             best = (u, tgt, ab, tile)
+            best_key = key
+    if _DEBUG:
+        ab_ids = [a.get("id") for a in ((me or {}).get("abilities") or [])]
+        print(f"    [dbg u{uid}] abilities={ab_ids} attack_cands(ab,tgt,util,kS,k,dmax,hp)={dbg}",
+              file=sys.stderr)
     if best and best[0] > 0:
         return {"kind": "ability", "target": best[1], "ability": best[2], "to": best[3],
                 "util": best[0]}
 
-    # 1bis. Leaf NonComparable (summon) — RÈGLE DE TIR empirique : quand AUCUNE attaque n'est
+    # 1bis. HEAL (ability Comparable GRANTED-par-passif, ex. TwistedScience_Heal 1167, surfacée
+    #        via le pass GetUnusedAbilities du hook). Le natif la cast quand aucune attaque n'est
+    #        dispo (sa CustomUtility ~100 = échelle attaque, pas summon). Candidats = cibles UNIT ;
+    #        score = montant de soin prédit (aiPredict.healthDmgMax = magnitude de soin). On
+    #        soigne la cible au plus gros soin. (CustomUtility faction-15/effet-1355 = raffinement.)
+    heal_best = None  # (heal_amt, ability, target)
+    for ab in ((me or {}).get("abilities") or []):
+        aid, nm = ab.get("id"), (ab.get("name") or "")
+        if "Heal" not in nm or ab.get("usable") is False:
+            continue
+        at = _r(sid, "abilityTargets", {"runnerId": rid, "unitId": uid, "abilityType": aid}, 40)
+        tgts = []
+        for u in (at.get("units") or []):
+            for a in (u.get("abilities") or []):
+                if a.get("abilityId") == aid:
+                    tgts = [t.get("targetId") for t in (a.get("targets") or [])
+                            if t.get("kind") == "unit" and t.get("targetId") is not None]
+        for tg in tgts:
+            pr = _r(sid, "aiPredict", {"runnerId": rid, "unitId": uid, "targetId": tg,
+                                       "abilityType": aid}, 30)
+            amt = (pr.get("pred") or {}).get("healthDmgMax") or 0
+            if amt > 0 and (heal_best is None or amt > heal_best[0]):
+                heal_best = (amt, aid, tg)
+    if heal_best:
+        return {"kind": "ability", "target": heal_best[2], "ability": heal_best[1],
+                "to": None, "util": heal_best[0]}
+
+    # 1ter. Leaf NonComparable (summon) — RÈGLE DE TIR empirique : quand AUCUNE attaque n'est
     #       disponible, l'unité INVOQUE (si une tuile de spawn a ≥1 ennemi adjacent) plutôt que
     #       de seulement bouger. Heuristique = `engine/leaves.py` (AberrantHypermorph = #ennemis
     #       adjacents, RE'd). L'ordre exact summon-vs-move du bucket-tree natif reste à RE (§10) :

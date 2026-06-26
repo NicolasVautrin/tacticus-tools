@@ -100,6 +100,12 @@ export const secondaryMachineAbilityOff = activeAbilityComponentClass
     ? getFieldOffset(activeAbilityComponentClass, "SecondaryMachineAbilityType") : -1;
 export const getActivesMi = activeAbilityComponentClass
     ? findMethodByParamCount(activeAbilityComponentClass, "GetActives", 0) : null;
+// GetActives filtre par IsActiveAbility(type) → RATE les actives GRANTED-par-trigger
+// (ex. heal du passif TwistedScience, id 1167 : castable mais hors enum « active »).
+// GetUnusedAbilities itère la MÊME collection mais filtre par le flag « unused » (@0x28)
+// → INCLUT les granted. On l'utilise pour compléter l'énumération (cf. unitAbilityTypes).
+export const getUnusedAbilitiesMi = activeAbilityComponentClass
+    ? findMethodByParamCount(activeAbilityComponentClass, "GetUnusedAbilities", 0) : null;
 export const componentsActiveAbilityClass = findClassAnywhere(
     "IdunBattle.Entities.Components", "ActiveAbility");
 export const abilityNameOff = componentsActiveAbilityClass
@@ -978,6 +984,32 @@ export function unitAbilityTypes(
                             // ActiveAbility — l'info que gameconfig ne peut pas donner.
                             out.push({
                                 id: t, name: abilityName(t) ?? "id:" + t, kind: "active",
+                                ...readAbilityState(ab),
+                            });
+                        }
+                    }
+                }
+            }
+        } catch { /* */ }
+    }
+    // Pass complémentaire : abilities GRANTED-par-trigger que GetActives rate (filtre
+    // IsActiveAbility) mais qui sont castables — ex. heal du passif TwistedScience (1167).
+    // GetUnusedAbilities itère la même collection, filtrée par « unused » (@0x28) → les inclut.
+    if (includeActives && getUnusedAbilitiesMi && abilityNameOff >= 0) {
+        try {
+            const list = invokeMethod(getUnusedAbilitiesMi.info, comp, null);
+            if (!list.isNull()) {
+                const items = list.add(LIST_ITEMS).readPointer();
+                const size = list.add(LIST_SIZE).readS32();
+                if (!items.isNull() && size > 0 && size < 64) {
+                    for (let i = 0; i < size; i++) {
+                        const ab = items
+                            .add(ARRAY_FIRST + i * Process.pointerSize).readPointer();
+                        if (ab.isNull()) continue;
+                        const t = ab.add(abilityNameOff).readS32();
+                        if (t !== 0 && !out.some((e) => e.id === t)) {
+                            out.push({
+                                id: t, name: abilityName(t) ?? "id:" + t, kind: "granted",
                                 ...readAbilityState(ab),
                             });
                         }
