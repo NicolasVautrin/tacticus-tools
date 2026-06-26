@@ -27,6 +27,7 @@ import hexgeo  # noqa: E402
 import gameconfig as gc  # noqa: E402
 from engine import weights, move, leaves  # noqa: E402
 from engine.utility import attack_utility  # noqa: E402
+from engine.utilities import damage_composite  # noqa: E402
 
 
 def _r(sid: int, method: str, body: dict, t: float = 90) -> dict:
@@ -43,6 +44,37 @@ def _r(sid: int, method: str, body: dict, t: float = 90) -> dict:
 _RANGED_DEF = os.environ.get("ENGINE_RANGED_DEF", "weapon_or_ability").lower()
 _RANGED_CACHE: dict = {}
 _DEBUG = bool(os.environ.get("ENGINE_DEBUG"))
+
+# Modèle de dégât pour l'argmax d'attaque (cible/ability) :
+#   "faithful" (DÉFAUT) : composite Damage FIDÈLE `engine.utilities.damage_composite` (DamageDealt 80/20
+#                         RE'd ghidra + KillUnit 100/50 + OverkillUnit 40/15, doc §13.7/13.8). Échelle
+#                         native réelle (~[0,250]), zéro knob. Nécessite target maxHP (observeBattle 1×/
+#                         décision). VALIDÉ à parité du legacy sur seeds 777 (60/80/100) + 2024 (45/65/100).
+#   "legacy"            : ancien barème deviné `engine.utility.attack_utility` (kill + chip frac×50),
+#                         gardé pour A/B / référence.
+_DAMAGE_MODEL = os.environ.get("ENGINE_DAMAGE_MODEL", "faithful").lower()
+
+# Modèle de scoring de MOVE :
+#   "unitmovement" (DÉFAUT) : `move.best_move_faithful` = décideur natif RE'd UnitMovement(6) = Tile(7)
+#                        [Elevation+situationnels] + MinDist(16) sur **distance de CHEMIN** (RPC
+#                        pathDistToEnemies, doc §13.11/13.12). Élévation via tileMeta. VALIDÉ > proxy sur
+#                        seeds 777 (65/80) + 2024 (55/75), ability 100 %. RPC pathfinder 1×/unité/décision.
+#   "proxy"            : ancien `move.best_move` (MinDist + MaxDistEnemies hex, NON-natif) — gardé pour A/B.
+_MOVE_MODEL = os.environ.get("ENGINE_MOVE_MODEL", "unitmovement").lower()
+
+# ATTAQUE-vs-MOVE — argmax sur la devise UNIFIÉE (RE doc §13.6). Le natif ne s'engage dans une
+# attaque que si `U(attaque) = U_damage + tile_util(tuile d'attaque)` bat `U(move) = tile_util(meilleure
+# tuile de move)` ; sinon il se repositionne (= les 4 misses steps 11/12/17/20 où natif MOVE / moteur
+# ATTAQUE). DÉSACTIVÉ par défaut et NON FIDÈLE tant que 2 data manquent (cf. doc §13.7) :
+#   1. `attack_utility` n'est pas encore le composite Damage natif FIDÈLE — la feuille DamageDealt
+#      (DamageUtility, W_damage=80/W_remaining=20, RE'd doc §13.7) est connue, MAIS l'ASSEMBLAGE du
+#      composite (quelles des 13 feuilles + poids/signe par feuille) est dans un tableau statique non
+#      extrait (read_bytes=token). Sans lui, mélanger U_damage et tile_util = comparer 2 échelles non
+#      calibrées → on NE COMPENSE PAS par un knob (devinette). Gate OFF jusqu'à extraction.
+#   2. tile_util fidèle = composite Tile(7) [29 él] (idem non extrait) ; move.py en est un PROXY (55/77).
+# Piloté par ENGINE_MOVE_VS_ATTACK ("on" = expérimental, NON validé). Le terme dégât utilisé reste
+# `best[0]` (barème actuel) — à remplacer par le composite Damage fidèle une fois les arrays extraits.
+_MOVE_VS_ATTACK = os.environ.get("ENGINE_MOVE_VS_ATTACK", "off").lower() == "on"
 
 
 _FACTION_CACHE: dict = {}
@@ -108,6 +140,39 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt)
     epos = [(e["pos"]["col"], e["pos"]["row"]) for e in enemies]
     me = next((u for u in units if u.get("id") == uid), None)
 
+    # maxHP par cible (combinedMax du composite Damage fidèle) — observeBattle 1×/décision, mode
+    # "faithful" seulement. Clé = squadId (= l'id cible des attackPlans, cf. branche heal). Manque -> le
+    # scoreur retombe sur hpBefore (cible pleine), dégradation sûre.
+    hpmax_by_id: dict = {}
+    if _DAMAGE_MODEL == "faithful":
+        obs = _r(sid, "observeBattle", {"runnerId": rid}, 40)
+        hpmax_by_id = {u.get("squadId"): (u.get("hpMax") or 0) for u in (obs.get("units") or [])}
+
+    # Élévation par tuile (Tile(7)) + distance-CHEMIN par tuile (MinDist fidèle, doc §13.12) — mode
+    # "unitmovement" seulement. tileMeta 1×/décision ; pathDistToEnemies 1×/unité.
+    elev_by_pos: dict = {}
+    pathdist_by_pos: dict = {}
+    if _MOVE_MODEL == "unitmovement":
+        tm = _r(sid, "tileMeta", {"runnerId": rid}, 60)
+        elev_by_pos = {(t.get("col"), t.get("row")): t.get("elevation")
+                       for t in (tm.get("tiles") or [])}
+        pdr = _r(sid, "pathDistToEnemies", {"runnerId": rid, "unitId": uid}, 90)
+        pathdist_by_pos = {(t.get("col"), t.get("row")): t.get("pathDist")
+                           for t in (pdr.get("tiles") or [])}
+
+    # Candidat MOVE calculé TÔT (réutilisé par la comparaison attaque-vs-move §13.6 ET la section 2).
+    # origin/ranged = au sens natif (gameconfig), pas le flag unité-classe decisionView.ranged.
+    origin = (me["pos"]["col"], me["pos"]["row"]) if me and me.get("pos") else None
+    ranged = _is_ranged_unit(me.get("visualId")) if me else False
+    move_tiles = (mov_by_unit.get(uid) or {}).get("tiles") or []
+    move_to, move_util = (None, None)
+    if move_tiles and enemies:
+        if _MOVE_MODEL == "unitmovement":
+            move_to, move_util = move.best_move_faithful(
+                move_tiles, elev_by_pos, epos, wt, pathdist_by_pos=pathdist_by_pos)
+        else:
+            move_to, move_util = move.best_move(move_tiles, origin, epos, wt, ranged)
+
     # 1. Attaque : evals atteignables (rankCount>0) -> barème kill/overkill via aiPredict.
     #    allAbilities=True => inclut les abilities spéciales d'attaque (ex. DakkaDakkaDakka 1171),
     #    Comparable, MÊME barème → argmax sûr (n'ajoute que des candidats).
@@ -131,10 +196,18 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt)
         tgt, ab = ev.get("targetId"), ev.get("abilityId")
         pr = _r(sid, "aiPredict", {"runnerId": rid, "unitId": uid, "targetId": tgt,
                                    "abilityType": ab, "col": tile[0], "row": tile[1]}, 30)
-        u = attack_utility(pr.get("pred"), wt)
+        pred = pr.get("pred")
+        # `kill`/`killSure` (WillBeKill/MightBeKill) sont au niveau RÉSULTAT d'aiPredict, PAS dans
+        # `pred` → on les ré-injecte pour que KillUnit/OverkillUnit les voient (sinon kill jamais scoré).
+        if pred:
+            pred = {**pred, "kill": pr.get("kill"), "killSure": pr.get("killSure")}
+        if _DAMAGE_MODEL == "faithful":
+            u = damage_composite(pred, hpmax_by_id.get(tgt), wt)   # composite Damage RE'd (§13.7/13.8)
+        else:
+            u = attack_utility(pred, wt)                           # barème historique
         key = (u, 0 if ab in normal_ids else 1)  # util d'abord, puis spécial > normal
         if _DEBUG:
-            p = pr.get("pred") or {}
+            p = pred or {}
             dbg.append((ab, tgt, round(u, 1), p.get("killSure"), p.get("kill"),
                         p.get("healthDmgMax"), p.get("hpBefore")))
         if best_key is None or key > best_key:
@@ -145,6 +218,22 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt)
         print(f"    [dbg u{uid}] abilities={ab_ids} attack_cands(ab,tgt,util,kS,k,dmax,hp)={dbg}",
               file=sys.stderr)
     if best and best[0] > 0:
+        # ATTAQUE-vs-MOVE (§13.6) : le natif ne s'engage dans l'attaque que si sa devise UNIFIÉE
+        # `U_damage + tile_util(tuile d'attaque)` bat `U_move = tile_util(meilleure tuile de move)`.
+        # ⚠ U_damage DOIT être le composite Damage natif FIDÈLE (KillUnit+OverkillUnit+DamageDealt
+        # magnitude) — `best[0]` n'a PAS DamageDealt → un kill (50-100) se fait battre par le tile
+        # (régression casts létaux). NE PAS compenser par un knob (_MVA_DMG_SCALE) : c'est une
+        # devinette. Le scale réel est à porter depuis la RE de DamageDealtUtility.Evaluate. Tant que
+        # ce barème n'est pas fidèle, le gate reste OFF par défaut.
+        if _MOVE_VS_ATTACK and move_to is not None and move_util is not None:
+            tile_at = move.move_utility(best[3], origin, epos, wt, ranged)
+            u_attack = best[0] + tile_at  # NON FIDÈLE : best[0] ≠ composite Damage natif (cf. ci-dessus)
+            if _DEBUG:
+                print(f"    [mva u{uid}] U_attack={u_attack:.1f} (dmg={best[0]:.1f}+tile={tile_at:.1f}) "
+                      f"vs U_move={move_util:.1f} -> {'MOVE' if move_util > u_attack else 'ATTACK'}",
+                      file=sys.stderr)
+            if move_util > u_attack:
+                return {"kind": "move", "to": move_to, "util": move_util}
         return {"kind": "ability", "target": best[1], "ability": best[2], "to": best[3],
                 "util": best[0]}
 
@@ -215,18 +304,10 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt)
 
     # 2. Sinon move : scoring MovementSuggestion porté (engine/move.py) — somme pondérée
     #    MinDistanceToClosestEnemy + MaxDistanceToEnemies (+ RangedAdjacent ; UnitTile off).
-    mu = mov_by_unit.get(uid) or {}
-    tiles = mu.get("tiles") or []
-    if not tiles or not enemies:
+    #    Candidat déjà calculé tôt (move_to/move_util) → réutilisé.
+    if not move_tiles or not enemies:
         return {"kind": "move", "to": None}
-    origin = None
-    if me and me.get("pos"):
-        origin = (me["pos"]["col"], me["pos"]["row"])
-    # « ranged » au sens du natif (arme/ability ranged via gameconfig), PAS le flag
-    # unité-classe decisionView.ranged (rate les HeavyWeapon mêlée-classe type u96).
-    ranged = _is_ranged_unit(me.get("visualId")) if me else False
-    bt, bu = move.best_move(tiles, origin, epos, wt, ranged)
-    return {"kind": "move", "to": bt, "util": bu}
+    return {"kind": "move", "to": move_to, "util": move_util}
 
 
 def native_first(action: dict) -> dict:

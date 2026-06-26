@@ -22,6 +22,7 @@ import * as aiUtilityTrace from "./features/ai-utility-trace.js";
 import * as simEngine from "./features/sim-engine.js";
 import * as overwatchFix from "./features/overwatch-fix/index.js";
 import * as bucketAudit from "./features/bucket-audit.js";
+import * as dumpComposed from "./features/dump-composed.js";
 import * as dispatchObserve from "./features/dispatch-observe.js";
 import * as whatifTrigger from "./features/whatif-trigger.js";
 import * as autoBoot from "./features/auto-boot.js";
@@ -358,7 +359,7 @@ export function wireRpc(ctx: Ctx): void {
     [status, sim, compare, cheat, configIo, modeSourceCapture, launch,
      unitAssetMap, /* movementTrace, */ unitVisualResolve, introspect,
      campaignBuilder, mowBuilder, aiTrace, aiUtilityTrace, simEngine,
-     overwatchFix, bucketAudit, dispatchObserve, whatifTrigger, autoBoot,
+     overwatchFix, bucketAudit, dumpComposed, dispatchObserve, whatifTrigger, autoBoot,
      uiNav, warmupSingletons, battleConfig, observe, dumpBoards, boardTrace,
      dumpPvpBoards, normalizeBc, crashTrap, initTrace,
      // messageTrace AVANT moveOptions — il set scoringRunnerId/applySeq.

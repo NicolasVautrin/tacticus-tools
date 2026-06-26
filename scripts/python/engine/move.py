@@ -30,18 +30,21 @@ import os
 
 import hexgeo
 from .weights import Weights
+from .utilities import tile_composite
 
-# MaxDistanceToUnitTile : DÉSACTIVÉ par défaut. A/B agreement-driven (seeds 777 + 2024,
-# trajectoire native déterministe) : interprété comme « distance à la tuile d'ORIGINE de
-# l'unité », ce terme est au mieux neutre (777 : far==off) et au pire NUISIBLE (2024 step10 :
-# far envoie u84 sprinter dans un coin à ~6hex de la cible native ; off → ~1hex). `off` domine
-# donc `far` sur les 2 seeds. Conclusion : la *tuile de référence* RE'd (mon hypothèse =
-# tuile courante de l'unité) est FAUSSE — c'est probablement une autre tuile (formation alliée /
-# tuile-cible), pas l'origine. Terme gardé GATÉ (réactivable via env) une fois la vraie référence
-# RE'd. cf. docs/rl/playbook-engine.md §7. Piloté par ENGINE_UNITTILE_MODE :
-#   "off" (défaut) : terme désactivé (validé ≥ far)
-#   "far"          : Wfar=FarthestTile(700), Wclose=ClosestTile(400) → récompense de s'éloigner de l'origine
-#   "near"         : Wfar=ClosestTile(400),  Wclose=FarthestTile(700) → récompense de rester près (777 : pire)
+# MaxDistanceToUnitTile : DÉSACTIVÉ par défaut — CONFIRMÉ par ghidra (pas seulement A/B).
+# `UtilitiesDatabase.InitializeUtilities._composedUtilityLookup` (RE gqfc5mff6c, doc §13.3) :
+#   MovementSuggestion(32) = [Tile(7), TileDistance(33)]   ← le décideur de MOVE PUR
+#   UnitMovementFromTemporary(5) = [UnitMovement(6), MaxDistanceToUnitTile(17)]   ← SEUL porteur du terme 17
+# ⇒ MaxDistanceToUnitTile n'est JAMAIS dans le move pur ; il ne s'applique qu'aux moves « depuis une
+# tuile temporaire ». La formule RE'd (MaxDistanceToUnitTileUtility.<d__2>.MoveNext @1810fdeb0) =
+#   A - (A-B)/d  avec A=FarthestTile(700), B=ClosestTile(400), réf = tuile COURANTE de l'entité —
+# elle est donc CORRECTE, mais hors-périmètre du move pur. Le défaut `off` est ainsi JUSTIFIÉ (l'A/B
+# qui trouvait `off ≥ far` mesurait cette absence). Terme gardé GATÉ pour le futur port du décideur
+# UnitMovementFromTemporary. cf. docs/rl/playbook-engine.md §13.3. Piloté par ENGINE_UNITTILE_MODE :
+#   "off" (défaut) : terme désactivé (hors MovementSuggestion — ghidra)
+#   "far"          : Wfar=FarthestTile(700), Wclose=ClosestTile(400) → s'éloigner de la tuile courante
+#   "near"         : Wfar=ClosestTile(400),  Wclose=FarthestTile(700) → rester près
 _UNITTILE_MODE = os.environ.get("ENGINE_UNITTILE_MODE", "off").lower()
 
 
@@ -99,4 +102,44 @@ def best_move(tiles: list, origin: tuple | None, enemy_positions: list, wt: Weig
         s = move_utility(c, origin, enemy_positions, wt, ranged)
         if bu is None or s > bu:
             best, bu = c, s
+    return best, bu
+
+
+def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt: Weights,
+                       steppable_by_pos: dict | None = None,
+                       pathdist_by_pos: dict | None = None) -> tuple:
+    """Move scoring FIDÈLE — décideur **UnitMovement(6) = Tile(7) + MinDistanceToClosestEnemy(16)**
+    (composition LUE runtime, doc §13.8/13.11). `U(tuile) = tile_composite(Tile(7)) + wMin×d`.
+    PAS de `MaxDistanceToEnemies` (dans AUCUN composite) ni `MaxDistanceToUnitTile` (seulement
+    UnitMovementFromTemporary).
+
+    ⚠ `d` = distance de CHEMIN (pathfinding), PAS hex (RE `GetMinDistanceToEnemy`, doc §13.12) :
+    si `pathdist_by_pos` (RPC `pathDistToEnemies`) est fourni, on l'utilise ; sinon fallback hex
+    (approximation). `elev_by_pos` = `{(col,row): elevation}` (RPC tileMeta) ; max/min sur les
+    tuiles candidates (= `LoadRelevantTileElevations`). Renvoie ((col,row)|None, util).
+    """
+    if not enemy_positions:
+        return None, None
+    coords = [(t["col"], t["row"]) for t in tiles]
+    elevs = [elev_by_pos.get(c) for c in coords]
+    elevs = [e for e in elevs if e is not None]
+    emax, emin = (max(elevs), min(elevs)) if elevs else (None, None)
+    wmin = wt.sub("MinDistanceToClosestEnemy", "PerTileDistance")
+    tile_off = os.environ.get("ENGINE_TILE_OFF") == "1"   # diagnostic : MinDist seul (Tile=0)
+    best = None
+    bu = None
+    for c in coords:
+        e = elev_by_pos.get(c)
+        meta: dict = {"elevation": e, "elevation_max": emax, "elevation_min": emin} \
+            if e is not None else {}
+        if steppable_by_pos and c in steppable_by_pos:
+            meta["steppable"] = steppable_by_pos[c]
+        # MinDist : distance CHEMIN si dispo (fidèle), sinon hex (fallback approx).
+        pd = pathdist_by_pos.get(c) if pathdist_by_pos else None
+        mind = pd if (pd is not None and pd >= 0) else min(hexgeo.distance(c, ep)
+                                                           for ep in enemy_positions)
+        tile_u = 0.0 if tile_off else tile_composite(c, meta, {}, wt)
+        u = tile_u + wmin * mind
+        if bu is None or u > bu:
+            best, bu = c, u
     return best, bu

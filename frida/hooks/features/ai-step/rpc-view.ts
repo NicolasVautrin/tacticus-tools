@@ -1,10 +1,10 @@
 import {
-    class_get_name, class_get_namespace, findMethod, findMethodByParamClasses,
-    findMethodByParamCount, s,
+    class_get_name, class_get_namespace, findClass, findMethod, findMethodByParamClasses,
+    findMethodByParamCount, getFieldOffset, s,
 } from "../../il2cpp/helpers.js";
 import { invokeMethod } from "../../il2cpp/invoke.js";
 import { gcRoot } from "../../il2cpp/gc-root.js";
-import { runnerOff } from "../../game/runner.js";
+import { runnerClass, runnerOff } from "../../game/runner.js";
 import { getRunner } from "../../game/runner-registry.js";
 import {
     EntityType, forEachComponent, forEachEntity, projectMatchState,
@@ -20,7 +20,7 @@ import {
     ActionResult, ActionSpec, activeAbilityMsgClass, applyOneAction,
     attackQueryOff, battleInServicesOff, dpqInServicesOff, extractTiles, extractTilePtrs,
     finishUnitTurnMsgClass, getMovableTilesMi, getTilesMi, getUnitMainTile, invokeBool,
-    isAliveMi, isCtrlByCurMi, moveUnitMsgClass, movementQueryOff, mowAbilityTypes,
+    isAliveMi, isCtrlByCurMi, LIST_SIZE, moveUnitMsgClass, movementQueryOff, mowAbilityTypes,
     readTileCoord, resolveDpq, servicesOff, summarize, unitAbilityTypes,
 } from "./internals.js";
 import { applyAiMsgMi } from "../../game/ai-control.js";
@@ -28,6 +28,26 @@ import {
     classFieldsDump, computeAttackPlans, computeDangerZone, computeExposure,
     projectMowsFull, projectUnitsFull,
 } from "./projection.js";
+
+// --- Pathfinder (distance CHEMIN, pour le scoring de move fidèle, doc §13.12) ---
+// `MinDistanceToClosestEnemyUtility.GetMinDistanceToEnemy` mesure une distance de CHEMIN
+// (`Pathfinders.GetPath(...).Count`), PAS la distance hex. On expose donc la distance-chemin
+// par tuile candidate → ennemi le plus proche, pour remplacer hexgeo.distance dans le moteur.
+// Champ runner = auto-property `<Pathfinders>k__BackingField` (IPathfinders), PAS `_pathfinders`
+// (ça c'est le Dict interne de la classe Pathfinders). GetPath résolu LAZY depuis la classe
+// runtime de l'instance (robuste à l'assembly) : GetPath(unit, from, to, Nullable<UseTeleporter>)
+// (4 params, overload @180f202b0 qui dérive le type pathfinder de l'unité). Count = long. du chemin.
+const pathfindersOff = runnerClass
+    ? getFieldOffset(runnerClass, "<Pathfinders>k__BackingField") : -1;
+// 5-param overload `GetPath(PathfinderType type, unit, from, to, Nullable<UseTeleporter>)`
+// (@180f20190) — type=1 comme `GetMinDistanceToEnemy` (`GetPath(1, unit, evalTile, enemyTile, 0)`).
+let getPathMi: { info: NativePointer; ptr: NativePointer } | null = null;
+function resolveGetPath(pathfinders: NativePointer): typeof getPathMi {
+    if (getPathMi) return getPathMi;
+    try { getPathMi = findMethodByParamCount(pathfinders.readPointer(), "GetPath", 5); }
+    catch { getPathMi = null; }
+    return getPathMi;
+}
 
 export function registerView(ctx: Ctx): void {
     /** STATUS LÉGER pour le long-poll de hand-off self-play : lit SEULEMENT
@@ -208,6 +228,115 @@ export function registerView(ctx: Ctx): void {
             }),
             unitCount: results.length, units: results,
         };
+    });
+
+    /** METADATA PAR TUILE — élévation + attributs terrain pour le moteur playbook
+     *  (engine/utilities/tile.py : ElevationUtility, TileEffects, …). `aiMovableTiles`
+     *  ne rend que col/row ; ce RPC projette TOUTES les tiles (TileComponent) avec
+     *  leur élévation/terrain. L'occupant steppable se dérive côté moteur via les
+     *  positions des summons (decisionView). Read-only. body: { runnerId? }. */
+    ctx.rpc.tileMeta = (
+        body?: { runnerId?: number },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        let runner: NativePointer; let label: string;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+            label = "build#" + body.runnerId;
+        } else if (state.liveRunner) {
+            runner = state.liveRunner; label = "live";
+        } else {
+            return { ok: false, error: "no runner — pass runnerId" };
+        }
+        if (runner.isNull()) return { ok: false, error: label + " runner null" };
+        const statePtr = runner.add(runnerOff.state).readPointer();
+        if (statePtr.isNull()) return { ok: false, error: "state null" };
+        const proj = projectMatchState(statePtr, { includeTiles: true });
+        const tiles = (proj.tiles ?? []).map((t) => ({
+            col: t.col, row: t.row, elevation: t.elevation,
+            isWall: t.isWall, isTemporary: t.isTemporary, isTerritory: t.isTerritory,
+        }));
+        return { ok: true, runner: label, tileCount: tiles.length, tiles };
+    });
+
+    /** DISTANCE-CHEMIN par tuile candidate → ennemi le plus proche (doc §13.12).
+     *  Le move natif (UnitMovement(6) MinDist) mesure une distance de CHEMIN via
+     *  `Pathfinders.GetPath(unit, from, to).Count`, PAS hex. On l'expose pour le moteur :
+     *  pour `unitId`, distance-chemin MIN de chaque tuile atteignable vers une tuile ennemie.
+     *  body: { runnerId, unitId }. Renvoie tiles:[{col,row,pathDist}] (-1 = inatteignable). */
+    ctx.rpc.pathDistToEnemies = (
+        body?: { runnerId?: number; unitId?: number },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        if (pathfindersOff < 0) {
+            return { ok: false, error: "runner.<Pathfinders>k__BackingField non résolu" };
+        }
+        if (typeof body?.unitId !== "number") return { ok: false, error: "unitId requis" };
+        let runner: NativePointer; let label: string;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+            label = "build#" + body.runnerId;
+        } else if (state.liveRunner) {
+            runner = state.liveRunner; label = "live";
+        } else { return { ok: false, error: "no runner — pass runnerId" }; }
+        if (runner.isNull()) return { ok: false, error: label + " runner null" };
+        const statePtr = runner.add(runnerOff.state).readPointer();
+        if (statePtr.isNull()) return { ok: false, error: "state null" };
+        const pathfinders = runner.add(pathfindersOff).readPointer();
+        if (pathfinders.isNull()) return { ok: false, error: "Pathfinders null" };
+        const gp = resolveGetPath(pathfinders);
+        if (!gp) return { ok: false, error: "Pathfinders.GetPath(4) non résolu" };
+        const movementQuery = runner.add(movementQueryOff).readPointer();
+
+        // Tuile ennemie (MainTile) de chaque unité adverse vivante (= !ctrl par le joueur courant).
+        const enemyTiles: NativePointer[] = [];
+        let me: NativePointer = ptr(0);
+        forEachEntity(statePtr, (e, id, ty) => {
+            if (ty !== EntityType.Unit || !invokeBool(isAliveMi, [e, statePtr])) return;
+            if (id === body.unitId) { me = e; return; }
+            if (invokeBool(isCtrlByCurMi, [e, statePtr])) return;   // allié → pas une cible
+            const t = getUnitMainTile(e, statePtr);
+            if (t && !t.isNull()) enemyTiles.push(t);
+        });
+        if (me.isNull()) return { ok: false, error: "unit " + body.unitId + " introuvable/morte" };
+        if (!enemyTiles.length) return { ok: false, error: "aucun ennemi vivant" };
+
+        const tele = Memory.alloc(8); tele.writeU32(0); tele.add(4).writeU32(0);  // Nullable<UseTeleporter>=null
+        const typeBuf = Memory.alloc(4); typeBuf.writeS32(1);  // PathfinderType=1 (cf. GetMinDistanceToEnemy)
+        const pathLen = (from: NativePointer, to: NativePointer): number => {
+            try {
+                const p = invokeMethod(gp.info, pathfinders, [typeBuf, me, from, to, tele]);
+                return (p.isNull()) ? -1 : p.add(LIST_SIZE).readS32();
+            } catch {
+                return -1;
+            }
+        };
+        const minToEnemies = (from: NativePointer): number => {
+            let best = -1;
+            for (const et of enemyTiles) {
+                const d = pathLen(from, et);
+                if (d >= 0 && (best < 0 || d < best)) best = d;
+            }
+            return best;
+        };
+
+        // Tuiles atteignables (GetMovableTilesFor) + tuile COURANTE (rester sur place).
+        const boolBuf = Memory.alloc(1); boolBuf.writeU8(0);
+        const optsBuf = Memory.alloc(0x30); for (let k = 0; k < 0x30; k += 4) optsBuf.add(k).writeU32(0);
+        let tilePtrs: Array<{ ptr: NativePointer; col: number; row: number }> = [];
+        try {
+            const os = invokeMethod(getMovableTilesMi!.info, movementQuery, [me, boolBuf, optsBuf]);
+            tilePtrs = extractTilePtrs(os);
+        } catch (e) { return { ok: false, error: "GetMovableTilesFor: " + (e as Error).message }; }
+        const cur = getUnitMainTile(me, statePtr);
+        if (cur && !cur.isNull()) {
+            const c = readTileCoord(cur);
+            if (!tilePtrs.some((t) => t.col === c.col && t.row === c.row)) {
+                tilePtrs.push({ ptr: cur, col: c.col, row: c.row });
+            }
+        }
+        const tiles = tilePtrs.map((t) => ({ col: t.col, row: t.row, pathDist: minToEnemies(t.ptr) }));
+        return { ok: true, runner: label, unitId: body.unitId, enemyCount: enemyTiles.length, tiles };
     });
 
     /** RANKING des tiles d'attaque par (unit, target) — shrink-and-recall sur

@@ -466,3 +466,382 @@ plus gros soin. **Résultat : le moteur CAST le heal au step1 (ability 1167 MATC
   SUPPRIMÉ du heal (mauvaise query). → step1 pick **u88** (égalité custom+missing → id 88 < 94) = MATCH.
 
 **Résultat : ability 50 %→75 %→100 % (4/4) seed777 ; seed2024 100 % inchangé ; positioning 55/77.**
+
+## 13. Phase 2c — architecture native DÉFINITIVE du scoring + sélection (RE complète, ground truth)
+
+> Déclencheur : « on veut juste répliquer » + « pourquoi tu utilises pas ghidra ? ». Toute cette section
+> est **lue dans ghidra (gqfc5mff6c), pas mesurée**. La mesure d'utilités ne sert PAS à répliquer un
+> argmax (transformation monotone ⇒ même argmax) ; on **réimplémente les fonctions natives**. La mesure
+> ne reste qu'un filet pour lever une ambiguïté de décompilation.
+
+### 13.1 Le scoreur unifié `ComparablePlaybook.CalculateActionUtility` (@181406ee0)
+
+Toute action comparable (attaque / heal / effet / bannière) est scorée par **UNE seule** fonction, en
+**UNE seule devise** Fix64 :
+
+```
+U(action) = CalculateUtilityFromPredictions(action)              # Σ dégât + Σ heal + Σ effet + Σ repair
+          + [si gate caster-pos] Weight[54].Eval(casterBase)     # terme position du caster (secondaire)
+          + CalculateUtilityFromTilePrediction(action)           # utilité de la TUILE d'arrivée (Weight[Tile=7])
+```
+
+`CalculateUtilityFromPredictions` (@181407890) somme, par famille de prédiction :
+- **Dégât** : `Σ proba × Weight[Damage=34].Eval(UtilityAttackCase.ForDamagePrediction(ev))`
+- **Heal** : `Σ Probability × Weight[Heal=44].Eval(UtilityAttackCase.ForHealPrediction(tgt, healPred))`
+- **Effet** : `Σ proba × Weight[AddedTileEffects=45].Eval(ForEffect(0x2d))`  (+ une 2ᵉ passe `× proba`)
+- **Repair** : `Σ Weight[Repair=46].Eval(ForRepairPrediction(0x2e))`
+
+⚠ Les `UtilityAttackCase.For*` (@181104fb0/181105420/181105260) **ne sont PAS les scoreurs** : ce sont des
+**constructeurs** (`memset 200o` + alloc + remplissage de champs) d'un objet `UtilityAttackCase` portant
+les inputs. Le score réel = `Weight_k.Evaluate(caseObj)` via les helpers gshared
+`FUN_180006940(…, playbook.weights@0x40, k)` (récupère le poids d'index `k`) puis `FUN_180003bd0(5, …)`
+(invoke `Evaluate`). `Weight_k` = une **config Utility nommée** de `BattleConfiguration.Utilities.Default`.
+
+### 13.2 `UtilityType` → poids (indices lus dans le décompilé)
+
+`Damage=34 · KillUnit=36 · OverkillUnit=37 · DamageDealt=35 · Tile=7 · Heal=44 · AddedTileEffects=45 ·
+Repair=46`. **`Damage` est COMPOSÉE** (cf. 13.3) : son `Eval` = somme de ses sous-utilités (dont
+KillUnit/OverkillUnit configurées + DamageDealt magnitude). ⇒ mon barème kill 50/100 capturait une
+*partie* de Damage, mais ratait **DamageDealt (dégât brut)** et **toute la branche effet/AoE**.
+
+BC `Utilities.Default` (54 catégories, **toutes non-null**) — clés clés présentes : `KillUnit
+{PossibleKill 50, DefinitelyKill 100}`, `OverkillUnit {Possible 15, Definite 40}`, `AddedTileEffects
+{SpiderWeb 10, Fire 10, Ice 5, Unit_on_* 15/15/0}`, `AttackTargetWithEffect {ArmourOfShriekingSouls 20}`,
+`Elevation {HighestElevation 10, LowestElevation −5, Multiplier 10}`, `MinDistanceToClosestEnemy
+{PerTileDistance −100}`, `MaxDistanceToUnitTile {ClosestTile 400, FarthestTile 700}`, `MaxDistanceToEnemies
+{ClosestEnemy 10, FarthestEnemy 100}`. **`Damage`/`DamageDealt`/`Heal`/`Tile`/`Repair` = ABSENTES** du
+dict (clés inexistantes) ⇒ leur `IUtility` est un comportement par défaut/hardcodé (pas de courbe BC) —
+typiquement une magnitude (dégât/soin brut) ⇒ **échelle native ≈ PV/dégât brut**, ce qui domine le
+barème kill (50/100). `aiPredict` = **GetAllPredictions = query de DÉGÂT seulement** (pas d'effets/heal ;
+même mur que le heal §11/12) ⇒ scorer fidèlement une ability à EFFET offline est **bloqué à la source de
+prédiction**.
+
+### 13.3 `_composedUtilityLookup` — `UtilitiesDatabase.InitializeUtilities` (@1810C9390, lu EN ENTIER)
+
+Deux dicts construits : `_composedUtilityLookup` (7 composites → tableau d'enfants) puis
+`_utilitiesBuilder` (**70 builders** `UtilityType → classe *Utility`, registre complet). Composites :
+
+| Composite | → enfants (UtilityType) |
+|---|---|
+| **MovementSuggestion(32)** | **[Tile(7), TileDistance(33)]** |
+| Tile(7) | tableau statique **29 éléments** (blob `InitializeArray`) |
+| UnitMovement(6) | [Tile(7), MinDistanceToClosestEnemy(16)] |
+| **UnitMovementFromTemporary(5)** | [UnitMovement(6), **MaxDistanceToUnitTile(17)**] |
+| Damage(34) | tableau statique **13 éléments** |
+| Repair(46) | [3 éléments] |
+| Spawn(0) | [Tile(7), SingleAdjacency(1)] |
+
+**Conséquence #1 (tranche le point bloquant Phase 2a)** : `MaxDistanceToUnitTile(17)` (le terme 400/700,
+gaté OFF dans `move.py`) n'est **PAS** dans `MovementSuggestion` — uniquement dans
+`UnitMovementFromTemporary`. Donc le défaut `off` est **CONFIRMÉ par ghidra**, pas un coup de chance A/B :
+le move pur n'utilise jamais ce terme.
+
+**Conséquence #2** : le décideur de move pur = **Tile(7)[29] + TileDistance(33)**. Le set exact des 29
+sous-utilités Tile reste le **seul datum non extrait** : c'est un blob int32 statique référencé par
+`RuntimeHelpers.InitializeArray(arr, DAT_1831c7a48)` ; `read_bytes` au DAT rend un **token de métadonnée**,
+pas les ints. À résoudre via la metadata Il2CppDumper (script.json / field default-value) ou une micro-lecture
+Frida runtime du champ — PAS via `read_bytes` du DAT.
+
+### 13.4 Sélection = bucket-tree `Bucket.ChooseAction` (@1813fc0d0) + gate `FUN_18004cc80`
+
+```
+ChooseAction(bucket):
+  si feasible(bucket.defaultAction):  return bucket.defaultAction          # action par défaut prioritaire
+  sinon: enfant = ChooseActionFromBuckets(bucket.children triés)           # SortedList par clé/priorité
+         return feasible(enfant) ? enfant : null
+```
+
+`ChooseActionFromBuckets` (@1813fbe00) : itère la **SortedList** d'enfants en ordre de clé, renvoie la
+**1ʳᵉ** action faisable (récursivement). Gate `FUN_18004cc80(bucket, action, ctx)` :
+
+```
+feasible(action) = action != null
+                && ( bucket.minUtilityDifference absent  OU  action.Utility >= bucket.minUtilityDifference )
+```
+
+**Où le seuil est CONFIGURÉ (RE complète, redirige le plan)** : config = `IdunBattleLogic.AI.Utilities`
+`UtilityDefinition{ UtilityBucket[] }` → `UtilityBucket{ WeightedUtility[] Utilities, bool
+RejectAllNoneBestCases, Fix64 MinUtilityDifference@0x20 }`. Les ctors `UtilityBucket(UtilityType,
+Nullable<Fix64> minUtilityDifference)` (@180e432b0, concret) ne sont appelés en nombre que par
+**`DefaultGroupOperator..ctor` (@181183dc0)** — qui construit **8 buckets EN ORDRE** :
+
+| # | UtilityType | MinUtilityDifference | flag |
+|---|---|---|---|
+| 1 | PreferSummons(74) | **1** | |
+| 2 | PreferNonBoss(68) | **1** | |
+| 3 | PreferFreshlySpawned(69) | **1** | |
+| 4 | UnitOrder(76) | — | **RejectAllNoneBestCases=true** |
+| 5 | LastAbilities(75) | — | |
+| 6 | PreferAbilities(73) | — | |
+| 7 | UnitWithShortestPathToEnemy(71) | — | |
+| 8 | Remaining(72) | — | |
+
+⇒ **ce décideur à seuils est le `PickNextUnit` (ORDONNANCEMENT des unités), PAS le décideur d'action.**
+C'est la définition authoritative de l'ordre de jeu des unités (cf. mémoire UnitOrder/PickNextUnit) :
+priorité summons → non-boss → fraîchement-spawn (chacun gate util≥1) → UnitOrder (garde le meilleur) →
+… → reste.
+
+**Conséquence pour les 4 misses (steps 11/12/17/20 = natif MOVE / moteur ATTAQUE) — le plan CHANGE** :
+le harnais compare déjà la MÊME unité (`activatedUnitId`) ⇒ l'ordonnancement d'unité n'est PAS la cause.
+Et le tree d'**action par-unité** est bâti dynamiquement par `CreateBucket`/`GetOrCreateBucket` (@1813fc170/
+1813fc550) qui créent des buckets **SANS seuil** (gate `FUN_18004cc80` → `return 1` quand le Nullable est
+absent ⇒ toujours faisable). Donc « attaque-vs-move » par-unité ne se joue **PAS** sur un
+`minUtilityDifference` ; il se joue sur (a) la **clé de CATÉGORIE** d'action (ordre SortedList) et/ou
+(b) l'**utilité unifiée** (la meilleure action d'une catégorie = sa defaultAction). Prochaine couche RE =
+l'émission des actions playbook dans les buckets (la **catégorie** assignée à move vs attack via
+`GenerateAction`) + savoir si la sélection finale est argmax-utilité ou priorité-de-catégorie.
+
+### 13.6 Sélection d'action par-unité = argmax-UTILITÉ unifiée (RE terminée — le vrai correctif des 4 misses)
+
+- **`Bucket.AddAction` (@1813fbcc0)** : dans un bucket, `defaultAction` = l'action de **plus haute
+  utilité** passant le gate (`if action.Utility > default.Utility: default = action`, `op_GreaterThan`).
+  ⇒ **argmax-utilité dans une catégorie**.
+- **`Bucket.AddActionToBucket` (@1813fbb60)** : range l'action dans un sous-bucket par **catégorie**
+  (SortedList key=param_2), créé sans seuil ; argmax dedans. **`ChooseAction`** descend les catégories
+  en ordre de clé, 1ʳᵉ faisable.
+- **`DefaultAiUnitTactic..ctor` (@1810eebc0)** : la liste des générateurs = `GetDefaultActiveAbility
+  ActionGenerators()` **PUIS `MovementActionGenerator` AJOUTÉ EN DERNIER** (field@0x58, list@0x60).
+  Tactics : Default / OnlyMove / Random / BossSkipActiveAbility / SkipTurn (cf. TF). Générateurs :
+  `ActiveAbilityActionGenerator`, `MovementActionGenerator`, `RandomAbilityActionGenerator`.
+
+**Conclusion (réfute « priorité de catégorie » ET « seuil » pour attaque-vs-move)** : si la sélection
+était une pure priorité de catégorie avec movement en DERNIER, l'attaque primerait TOUJOURS le move dès
+qu'une attaque est faisable → le natif ne bougerait jamais avec une attaque dispo. Or il MOVE aux steps
+11/12/17/20. Donc les actions comparables (attaque/ability/**approche-mouvement**) sont départagées par
+**argmax-utilité sur la devise unifiée** (cohérent avec `AddAction` op_GreaterThan + Phase 0
+« ChooseAction = argmax-among-legal »). Le natif MOVE quand `U(move) > U(meilleure attaque)`.
+
+**Correctif moteur (défini, non bloqué par la source de prédiction)** : aujourd'hui `engine_decide`
+attaque dès qu'une attaque a `util>0`, sans jamais comparer au move. Fix = **scorer move ET attaque sur
+LA MÊME devise et argmax** :
+- `U(attaque) = U_damage_composé (KillUnit+OverkillUnit+DamageDealt) + tile_util(tuile d'attaque)`
+- `U(move)    = tile_util(tuile de move)`     (déjà calculé par `move.py` : MinDist×−100 + Σ MaxDistEnemies)
+- argmax → le moteur ne s'engage dans l'attaque que si elle bat le repositionnement.
+- **Point ouvert (scale)** : `tile_util` (centaines, ex. MaxDistEnemies 10/100, MinDist −100) doit être
+  homogène à `U_damage` (KillUnit 50/100 + **DamageDealt brut**, magnitude inconnue car config Damage
+  absente du BC → comportement défaut = dégât brut ?). C'est la SEULE inconnue numérique restante ;
+  à caler par l'agreement (le harnais départage) une fois `tile_util(tuile d'attaque)` ajouté au moteur.
+
+### 13.7 Barème de dégât FIDÈLE (RE'd — répond au « scale », pas de knob) + ce qui reste bloqué
+
+> Déclencheur : tentative de caler le scale par un knob `_MVA_DMG_SCALE` → **devinette** (rejetée par le
+> user « t'es encore en train de deviner »). La réponse correcte = LIRE le barème, ci-dessous.
+
+`DamageDealt` (UtilityType 35) = `IdunBattle.AI.Utilities.DamageUtility`. `.cctor` (@1810cf2e0) pose 2
+constantes statiques : **`W_damage = Fix64(0x50) = 80`**, **`W_remaining = Fix64(0x14) = 20`**. Formule
+(`<EvaluateAttackInSteps>d__2.MoveNext` @1810e2280) :
+
+```
+dmg         = Avg(healthMinMax) + Avg(shieldMinMax)            # dégât moyen prédit (santé + bouclier)
+combinedMax = (target.MaxHealth + 1) + (target.Shield + 1)     # boss : MaxHealth→169
+u_damage    = Clamp(dmg / combinedMax, 0, 1) × 80              # FRACTION des PV max × 80
+u_remaining = (1 − Clamp((remaining − dmg) / combinedMax, 0, 1)) × 20   # finir les blessés
+u           = u_damage + u_remaining ;  ×(−1) si friendly-fire (cible = ami)
+```
+
+⇒ le terme dégât est une **fraction [0,1] des PV max × 80** (≈ [0,100] pour une cible pleine), **PAS des
+milliers bruts** — même ordre de grandeur que `KillUnit` (50/100). Donc un kill DOMINE naturellement
+(KillUnit 100 + DamageDealt ≈ 100 sur la cible tuée), sans aucun facteur ad-hoc. `KillUnitUtility`
+(@1810e1a90) : `+GetUtilityValue(WillBeKill→DefinitelyKill 100 / MightBeKill→PossibleKill 50)`, ×(−1) si
+friendly-fire. `OverkillUnitUtility` (@1810e1ed0) : `+DefinitelyOverkill 40 / PossibleOverkill 15`
+(ADDITIONNÉ — sous réserve du signe/poids du composite, cf. ci-dessous).
+
+**Ce qui reste BLOQUÉ (extraction des arrays statiques)** — empêche un barème 100 % fidèle :
+- L'**assemblage du composite `Damage(34)`** = tableau statique de **13** `UtilityType` (+ les poids/signes
+  `WeightedUtility.Weight` par feuille). On connaît 3 feuilles (DamageDealt 80/20, KillUnit, Overkill),
+  pas les 10 autres ni les signes (ex. Overkill réellement `+` ou pénalité `−` ?).
+- Le composite **`Tile(7)` = 29 él** (idem) dont dépend `tile_util` fidèle.
+- Ces 2 blobs sont des `RuntimeHelpers.InitializeArray(arr, DAT)` ; `read_bytes(DAT)` rend un **token de
+  métadonnée**, pas les ints. À extraire via la metadata Il2CppDumper (field default-value / script.json)
+  ou une **micro-lecture Frida runtime** de `_composedUtilityLookup[Damage]`/`[Tile]` (lecture d'une
+  STRUCTURE de config, pas d'une utilité — légitime, pas une devinette).
+
+**Statut moteur** : `_MVA_DMG_SCALE` (knob) SUPPRIMÉ. Gate `ENGINE_MOVE_VS_ATTACK` laissé OFF + marqué
+NON FIDÈLE (utilise `best[0]`, pas le composite Damage). Comportement par défaut INCHANGÉ (55/77 / 100 %).
+Prochaine étape réelle = extraire les 2 arrays (composite), porter `DamageUtility` fidèle dans
+`engine/utility.py`, puis activer la comparaison move-vs-attack sur une devise homogène.
+
+### 13.8 Composition des composites — LECTURE RUNTIME (ground truth, le « quoi chercher » résolu)
+
+> `read_bytes` du DAT ne décode pas les blobs `InitializeArray` (token de métadonnée). Lu donc à
+> l'exécution : nouveau RPC `dumpComposedUtility` (`frida/hooks/features/dump-composed.ts`) capture la
+> `UtilitiesDatabase` via `DefaultGroupOperator..ctor` arg[4] puis walk `_composedUtilityLookup`
+> (offset résolu par nom = **88=0x58**, conforme dump.cs ; `Dictionary<UtilityType, UtilityType[]>`).
+> Session 8, runner seed 777. **C'est une lecture de STRUCTURE de config, pas une utilité — légitime.**
+
+```
+Damage(34) [13] = OnlyImperviousUnitIfCanBeDamaged(40) · DamageDealt(35) · KillUnit(36) · DislikeObjects(38)
+                · DislikeBoss(43) · DislikeEnvironmentUnits(39) · OverkillUnit(37) · EnemyOnTerritoryTile(41)
+                · TriggeredAbilities(2) · TriggeredAbilitiesNonOwner(4) · UnitSpecificBehaviours(3)
+                · OptimizedGait_AdjacentFriends(59) · AttackTargetWithEffect(42)
+Tile(7) [29]    = Elevation(8) · TemporaryTile(13) · TileEffects(9) · UnitEffectsAdjacent(10)
+                · UnitEffectsSurrounding(11) · UnitEffectsRanged(12) · RangedAdjacentEnemy(15) · SteppableUnit(19)
+                · CapturePoint(24) · TriggeredAbilities(2) · TriggeredAbilitiesNonOwner(4) · UnitSpecificBehaviours(3)
+                · KustomForceField(20) · DefenderOfTheGreaterGood(21) · SaviorProtocols(22) · TilePendingBlockableSummon(14)
+                · PowerUp(26) · DoctrinaImperatives(57) · Phantasm(60) · EchoesFromTheWarp(58) · Contaminated(25)
+                · MoltenForm(23) · BioMinefield(61) · MasterOfTheTutelaries(62) · DecoysAndMisdirection(64)
+                · DespoiledGround(28) · SummonDislikeDoorOpening(29) · HeroLikeDoorOpening(30) · EnvEndBombardment(31)
+Repair(46) [3]  = RepairedAmount(47) · TriggeredAbilities(2) · TriggeredAbilitiesNonOwner(4)
+Spawn(0) [2]    = Tile(7) · SingleAdjacency(1)
+MovementSuggestion(32) [2] = Tile(7) · TileDistance(33)
+UnitMovement(6) [2]        = Tile(7) · MinDistanceToClosestEnemy(16)
+UnitMovementFromTemporary(5) [2] = UnitMovement(6) · MaxDistanceToUnitTile(17)
+```
+
+**Décodage** :
+- **Damage** : dominants = `DamageDealt(80/20) + KillUnit(100/50) + OverkillUnit(40/15)` (RE'd §13.7) ; les
+  10 autres = modificateurs SITUATIONNELS, poids BC connus (`DislikeBoss 80`, `DislikeObjects 50`,
+  `AttackTargetWithEffect 20`, `EnemyOnTerritoryTile 10`, `OnlyImpervious`=gate, knobs traits Triggered/
+  UnitSpecific) → 0 sur une attaque basique d'unité. Donc le barème « 3 feuilles » est une bonne 1ʳᵉ coupe.
+- **Tile(7) ne contient AUCUNE distance.** Les distances sont des leaves séparées :
+  `UnitMovement = Tile + MinDist(16)`, `UnitMovementFromTemporary = UnitMovement + MaxDistToUnitTile(17)`.
+  **`MaxDistanceToEnemies(18)` n'est dans AUCUN composite** (leaf standalone, decider spécifique). ⇒ mon
+  `move.py` (MinDist + MaxDistEnemies) est un PROXY : MinDist ✓, MaxDistEnemies à tort, et il rate tout le
+  composite Tile(7) (dont Elevation, TileEffects…). 55/77 = chance que MinDist domine la direction ici.
+
+### 13.9 Plan de portage des leaf-utilities (le « ré-implémenter les utilities »)
+
+La composition runtime donne la LISTE EXACTE des feuilles à porter → `engine/utilities/` (une fn par
+UtilityType, depuis son `*Utility.<Evaluate*InSteps>d__N.MoveNext` ghidra + poids BC). Statut RE :
+- **PORTÉ + VALIDÉ (défaut)** : composite **Damage(34)** dominant (`engine/utilities/damage.py`) =
+  `DamageDealt(35, 80/20) + KillUnit(36, 100/50) + OverkillUnit(36, 40/15 ADDITIONNÉ)`. Branché
+  `engine_validate` (`ENGINE_DAMAGE_MODEL=faithful` par défaut ; `legacy` = ancien barème deviné pour A/B).
+  maxHP cible via observeBattle (clé squadId). **Bug trouvé PAR MESURE (DEBUG, pas deviné)** : `kill`/
+  `killSure` (WillBeKill/MightBeKill) sont au niveau RÉSULTAT d'`aiPredict`, PAS dans `pred` → KillUnit ne
+  voyait jamais le kill (u84 kill garanti hp=dmax=1147 non scoré → perdait contre u80). Fix = ré-injecter
+  `kill`/`killSure` dans `pred`. **Résultat : parité legacy sur 777 (60/80/100) + 2024 (45/65/100), zéro
+  régression — barème FIDÈLE remplace le deviné.** ⚠ TODO : dégât BOUCLIER (Avg(shieldMinMax), non exposé
+  par aiPredict) ; 10 leaves situationnels du composite (DislikeBoss/Objects/Env, AttackTargetWithEffect…).
+- **RE'd, à porter dans `utilities/`** : MaxDistanceToUnitTile(17, `700-300/d` réf=tuile courante), MinDist(16),
+  MaxDistEnemies(18), RangedAdjacentEnemy(15, -50 si ranged+adjacent) [dans move.py].
+- **Tile(7) PORTÉ (formules) — `engine/utilities/tile.py`** : registry des 29 feuilles. RE'd+portées :
+  **Elevation(8)** = `Multiplier(10)×elev + HighestElevation(10 si max) + LowestElevation(-5 si min)`
+  (`ElevationUtility.<d__8>` @1811019a0) ; **SteppableUnit(19)** = poids selon summon/decoy × ami/ennemi
+  (Enemy 50 / Friendly -50 / FriendlyDecoy -50 / EnemyDecoy 1, `<d__10>` @1810f9850) ; **TileEffects(9)**
+  partiel = Σ poids BC des effets de statut sur la tuile (`<d__1>` @1810fbe50). Les 26 autres = STUBS=0
+  (situationnels : trait/effet/terrain ; =0 sur bataille basique, fidèle). ⚠ **DÉPENDANCE DONNÉE** :
+  les leaves consomment une METADATA PAR TUILE (`{elevation, elevation_max/min, effects[], steppable}`)
+  qu'AUCUN RPC n'expose (`aiMovableTiles`/`decisionView` = col/row seuls). ⇒ PLUMBING requis (enrichir
+  un RPC tuile avec élévation/effets/occupant) AVANT de pouvoir évaluer/valider Tile(7). Sans données,
+  `tile_composite` rend ≈0 (correct en plat, mais inexploitable pour l'agreement).
+- **PLUMBING ÉLÉVATION FAIT + VALIDÉ** : nouveau RPC **`tileMeta`** (`rpc-view.ts`) =
+  `projectMatchState(state,{includeTiles:true}).tiles` → `[{col,row,elevation,isWall,isTemporary,
+  isTerritory}]` (TileComponent). Build+reinjecté session 10. Bataille seed-777 a du RELIEF (élévation
+  1-4, distribution variée). **E2E validé** : `tileMeta → tile_composite` ; pour u88, tuiles élev=2 → 15
+  (`10×2−5`, min), tuile élev=3 → 40 (`10×3+10`, max). Elevation produit des valeurs différenciées par
+  tuile. (Occupant steppable + effets de tuile = dérivables/à enrichir ensuite ; élévation = la donnée
+  clé pour le move scoring, faite.) **NEXT** : intégrer `tile_composite` au scoring de move (décideur =
+  Tile + MinDist, virer MaxDistEnemies hors-composite), trancher le décideur (UnitMovement vs
+  MovementSuggestion) par l'agreement.
+
+### 13.10 Intégration `tile_composite` au move scoring — A/B (décideur à trancher)
+
+`move.best_move_faithful` = **UnitMovement(6) = Tile(7) + MinDist(16)** (composition runtime §13.8) :
+`U = tile_composite(Elevation + situationnels) + wMin×min_d`, SANS MaxDistEnemies (hors composite).
+Branché `engine_validate` (`ENGINE_MOVE_MODEL` : `proxy` défaut / `unitmovement` fidèle), élévation via
+`tileMeta` (1×/décision). **A/B seed 777** :
+
+| modèle | positioning | ability |
+|---|---|---|
+| `proxy` (MinDist + MaxDistEnemies) | **60 % / 80 %** | 100 % |
+| `unitmovement` (Tile(7) + MinDist) | 55 % / 75 % | 100 % |
+
+**Finding (honnête, pas une régression — le fidèle reste GATÉ, proxy défaut)** : le modèle fidèle
+UnitMovement(6) est SOUS le proxy. Comme Tile(7) ≈ Elevation seul ici (les 26 situationnels = 0), ça se
+réduit à `Elevation + MinDist` vs `MaxDistEnemies + MinDist` → **le terme `MaxDistEnemies` (spread)
+corrèle mieux au move natif que `Elevation`**, alors qu'il n'est dans AUCUN composite. ⇒ le décideur du
+move pur n'est probablement PAS UnitMovement(6). Hypothèses : (a) c'est `MovementSuggestion(32)` =
+Tile + **TileDistance(33)** (TileDistance non RE'd — pourrait jouer le rôle de spread) ; (b) le
+`MovementActionGenerator` utilise `MaxDistanceToEnemies(18)` en LEAF STANDALONE (hors composite) ;
+(c) Tile(7) a besoin de plus de leaves portées. **À RE** : `MovementActionGenerator.GenerateActions`
+(quel `UtilityDecider`/composite il applique aux move-actions) + `TileDistanceUtility`. C'est la clé pour
+trancher le décideur — l'agreement départagera une fois le bon composite identifié.
+
+### 13.11 Décideur de move — TRANCHÉ par RE (`MovementActionGenerator`)
+
+`MovementActionGenerator.<GenerateActions>d__6.MoveNext` (@181199d50) construit son décideur :
+`utilDef = new UtilityDefinition((TileExtensions.IsTemporary(mainTile) ^ 1) + 5)` ⇒ tuile NORMALE
+(isTemp=0) → `(0^1)+5 = 6` = **UnitMovement(6) = Tile(7) + MinDist(16)** ; tuile TEMPORAIRE → `(1^1)+5 = 5`
+= **UnitMovementFromTemporary(5) = UnitMovement + MaxDistanceToUnitTile(17)**. Score chaque tuile candidate
+via ce décideur (UtilityMovementCase, FindClosestEnemy en référence) → argmax. **CONFIRME : le move pur =
+`Tile(7) + MinDist` — `MaxDistanceToEnemies(18)` n'y est PAS.** `TileDistanceUtility(33)` =
+`DistanceTo(case, tuile-réf)`, utilisé par `MovementSuggestion(32)` = mécanisme DIFFÉRENT (non pertinent).
+
+**Diagnostic (A/B seed 777)** : MinDist-seul (`ENGINE_TILE_OFF=1`) = **55/75** = IDENTIQUE à
+Tile(Elevation)+MinDist → Elevation ne change pas l'argmax ici (MinDist domine). Proxy = 60/80. ⇒ tout
+l'écart vient de `MaxDistEnemies` (NON-natif) ; il score +5% **par coïncidence** (mon Tile(7) incomplet =
+Elevation seul ; MaxDistEnemies corrèle avec la contribution Tile(7) manquante). **Structure fidèle
+CONFIRMÉE** ; défaut reste `proxy` (60/80, meilleur tant que Tile(7) incomplet, mais NON-fidèle). Combler
+les 5% = compléter les leaves Tile(7) non-nuls ici (SteppableUnit si summons, UnitEffects*, traits) →
+plomber effets/occupation par tuile + RE par leaf. MaxDistToUnitTile(17) RE'd, à activer pour moves
+depuis tuile temporaire (UnitMovementFromTemporary).
+
+### 13.12 La VRAIE divergence du move = distance CHEMIN, pas hex (RE MinDist)
+
+Vérif empirique d'abord : la bataille seed-777 n'a **AUCUN summon** (10 unités = roster exact) et les
+effets présents (InescapableAccuracy, RangedSpecialist, Terrifying…) **ne matchent AUCUN trigger** des
+leaves UnitEffects (InfernalPacts/HunterOfSouls/FirstAmongTraitors/VexillaImperius/PathOfCommand/
+DaughterOfTheAbyss). ⇒ **les leaves Tile(7) non-portées sont TOUTES à 0 ici** — les porter ne change pas
+l'agreement de CETTE bataille. Le gap 5% vient d'ailleurs.
+
+RE `MinDistanceToClosestEnemyUtility.<d__2>.MoveNext` (@1810fe690) + `GetMinDistanceToEnemy` (@1810f04a0) :
+```
+u = 0
+if target(=closest enemy) == null OR IsNonAttacking(target) OR !UnitCanBeDamaged(target): return 0
+d = GetMinDistanceToEnemy(movingUnit, evalTile, target)        # Nullable<int>
+u = FromInt(d) × GetUtilityValue(PerTileDistance = -100)       # = -100 × d
+```
+**`GetMinDistanceToEnemy` = `IterateTiles(target)` × PATHFINDER (`path.Length@0x18`), min sur les tuiles
+occupées par l'ennemi** — c'est une **distance de CHEMIN** (contourne murs/obstacles), PAS la distance hex.
+Mon `move.py`/`best_move_faithful` utilise `hexgeo.distance` (hex straight-line). ⇒ **divergence réelle =
+path-distance vs hex-distance** : quand le chemin se courbe (relief/obstacles), l'argmax diverge (45% de
+mismatch). Le proxy (hex aussi) diverge pareil ; `MaxDistEnemies` compense par coïncidence. Le coefficient
+(-100) et la forme `-100×d` SONT corrects ; seule la MÉTRIQUE de distance est fausse (hex au lieu de chemin).
++ 2 gates : MinDist=0 si l'ennemi le plus proche est NonAttacking / non-damageable.
+
+**Conséquence (redirige le plan)** : compléter Tile(7) ne ferme PAS le gap ici (leaves=0). Le levier réel
+= **une source de distance-CHEMIN** par tuile candidate vers l'ennemi le plus proche (RPC pathfinder, ou
+distance-chemin offline depuis la carte d'obstacles). C'est ça qu'il faut plomber, pas les effets de tuile.
+
+### 13.13 RPC pathfinder + intégration — le fidèle DÉPASSE le proxy (move résolu)
+
+Nouveau RPC **`pathDistToEnemies`** (`rpc-view.ts`) : pour `unitId`, distance de CHEMIN MIN de chaque
+tuile atteignable vers une tuile ennemie. Implémentation = `Pathfinders.GetPath(type=1, unit, from, to,
+Nullable<UseTeleporter>=null)` (overload 5-param @180f20190, comme `GetMinDistanceToEnemy`) → `List<IEntity>`,
+`Count@0x18` = longueur du chemin. Accès : `runner.<Pathfinders>k__BackingField` (PAS `_pathfinders` =
+le Dict interne) ; GetPath résolu lazy depuis la classe runtime de l'instance. **Pièges résolus** : (1)
+mauvais champ runner (`_pathfinders`→`<Pathfinders>k__BackingField`) ; (2) overload 4-param (dérive le
+type) rendait `null` → 5-param avec **type=1** explicite marche (`len=11`, path≠hex sur 10/10 tuiles).
+
+`move.best_move_faithful` consomme `pathdist_by_pos` (sinon fallback hex). `engine_validate`
+`ENGINE_MOVE_MODEL=unitmovement` (DÉFAUT) fetch tileMeta + pathDistToEnemies 1×/unité.
+
+**A/B (le path remplace hex) — le fidèle DÉPASSE le proxy sur les 2 seeds** :
+
+| seed | proxy (hex MinDist+MaxDistEnemies) | unitmovement hex | **unitmovement PATH (fidèle, défaut)** |
+|---|---|---|---|
+| 777  | 60 / 80 | 55 / 75 | **65 / 80** |
+| 2024 | 45 / 65 | — | **55 / 75** |
+
+ability **100 %** partout. ⇒ **move pur RÉSOLU fidèlement** : décideur UnitMovement(6) = Tile(7) +
+MinDist sur distance-CHEMIN. La distance-chemin (vs hex) était la pièce manquante ; le proxy
+(MaxDistEnemies) n'était qu'un placeholder coïncidentel, maintenant battu par le modèle natif RE'd.
+`unitmovement` passé en DÉFAUT. (Cleanup : champ `dbg` diagnostic du RPC `pathDistToEnemies` retiré
+— rebuild OK ; prend effet au prochain reinject.)
+- **À RE/porter** : les 26 autres leaves de Tile(7) (la plupart = poids BC × condition trait/effet/terrain,
+  triviales et souvent 0), DislikeBoss/Objects/Env, EnemyOnTerritoryTile, AttackTargetWithEffect,
+  TileDistance(33), RepairedAmount(47), les composés Triggered/UnitSpecific (knobs traits).
+- **Sélecteur de decider** : confirmer lequel pilote le « move pur » du harnais (UnitMovement(6) vs
+  MovementSuggestion(32) vs UnitMovementFromTemporary(5)) — détermine si MinDist/MaxDistToUnitTile
+  s'appliquent. À trancher par l'agreement une fois Tile(7) porté.
+
+### 13.5 Bilan portage — ce qui est bloqué / la suite
+
+- **Acquis ghidra-authoritative** : scoreur unifié (13.1), mapping poids (13.2), composition (13.3),
+  sélection bucket-tree + gate (13.4). `move.py` mode `off` justifié par ghidra.
+- **Bloqué à la source** : scorer fidèlement les abilities à EFFET/heal offline tant qu'on n'a que
+  `aiPredict`=GetAllPredictions (dégât-only). Débloquer = un RPC de prédiction complet
+  (damage+heal+effets, comme `GetAllPredictions` natif rend déjà les 3 familles côté moteur).
+- **Non extrait** : tableaux statiques Tile(29)/Damage(13) (13.3) → metadata, pas `read_bytes`.
+- **Prochaine couche** : seuils `minUtilityDifference` + construction bucket-tree (13.4) — le vrai
+  correctif « attaque-vs-move » des 4 misses.
