@@ -1,6 +1,6 @@
 import {
-    class_get_name, class_get_namespace, findClass, findMethod, findMethodByParamClasses,
-    findMethodByParamCount, getFieldOffset, s,
+    class_get_name, class_get_namespace, findClass, findClassAnywhere, findMethod,
+    findMethodByParamClasses, findMethodByParamCount, getFieldOffset, readIl2cppString, s,
 } from "../../il2cpp/helpers.js";
 import { invokeMethod } from "../../il2cpp/invoke.js";
 import { gcRoot } from "../../il2cpp/gc-root.js";
@@ -19,9 +19,10 @@ import { Ctx } from "../../controller.js";
 import {
     ActionResult, ActionSpec, activeAbilityMsgClass, applyOneAction,
     attackQueryOff, battleInServicesOff, dpqInServicesOff, extractTiles, extractTilePtrs,
-    finishUnitTurnMsgClass, getMovableTilesMi, getTilesMi, getUnitMainTile, invokeBool,
-    isAliveMi, isCtrlByCurMi, LIST_SIZE, moveUnitMsgClass, movementQueryOff, mowAbilityTypes,
-    readTileCoord, resolveDpq, servicesOff, summarize, unitAbilityTypes,
+    entityExtClass, finishUnitTurnMsgClass, getMovableTilesMi, getTilesMi, getUnitMainTile,
+    invokeBool, isAliveMi, isCtrlByCurMi, LIST_SIZE, moveUnitMsgClass, movementQueryOff,
+    mowAbilityTypes, readTileCoord, resolveDpq, servicesOff, summarize, unitAbilityTypes,
+    unitExtClass,
 } from "./internals.js";
 import { applyAiMsgMi } from "../../game/ai-control.js";
 import {
@@ -39,6 +40,14 @@ import {
 // (4 params, overload @180f202b0 qui dérive le type pathfinder de l'unité). Count = long. du chemin.
 const pathfindersOff = runnerClass
     ? getFieldOffset(runnerClass, "<Pathfinders>k__BackingField") : -1;
+// --- Snapshot one-shot des stats de combat résolues (prédiction 100% offline, doc §16) ---
+// `UnitExtensions.GetStat(actor, StatType, StatPart, Nullable<BEntityId>)` (static 4-args
+// @180ed3cb0) → valeur résolue (boxée int @+0x10). StatPart.Current=0 = valeur courante.
+// StatType (enum): Attack=0 Movement=1 Defense=3 Health=5 BlockChance=7 BlockDamage=8
+// CriticalChance=9 CriticalDamage=10 FixedArmor=16 ExtraHits=17 ExtraPierceMelee=21
+// ExtraPierceRanged=22 ExtraMaxDamage=25 ExtraPierce=26. Faction/class/profil/traits = gameconfig ;
+// effets = decisionView. C'est le SEUL accès live (one-shot au chargement BC) du prédicteur offline.
+const getStatMi = unitExtClass ? findMethodByParamCount(unitExtClass, "GetStat", 4) : null;
 // 5-param overload `GetPath(PathfinderType type, unit, from, to, Nullable<UseTeleporter>)`
 // (@180f20190) — type=1 comme `GetMinDistanceToEnemy` (`GetPath(1, unit, evalTile, enemyTile, 0)`).
 let getPathMi: { info: NativePointer; ptr: NativePointer } | null = null;
@@ -337,6 +346,165 @@ export function registerView(ctx: Ctx): void {
         }
         const tiles = tilePtrs.map((t) => ({ col: t.col, row: t.row, pathDist: minToEnemies(t.ptr) }));
         return { ok: true, runner: label, unitId: body.unitId, enemyCount: enemyTiles.length, tiles };
+    });
+
+    /** SNAPSHOT one-shot des STATS DE COMBAT RÉSOLUES par unité (prédiction 100% offline,
+     *  doc §16). Lit `UnitExtensions.GetStat(entity, StatType)` pour chaque stat combat-
+     *  pertinente. C'est le SEUL accès live du prédicteur offline (à appeler une fois au
+     *  chargement de la BattleConfig) ; faction/class/profil/traits viennent de gameconfig,
+     *  effets de decisionView. Read-only. body: { runnerId } */
+    ctx.rpc.combatSnapshot = (
+        body?: { runnerId?: number },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        let runner: NativePointer; let label: string;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+            label = "build#" + body.runnerId;
+        } else if (state.liveRunner) {
+            runner = state.liveRunner; label = "live";
+        } else { return { ok: false, error: "no runner — pass runnerId" }; }
+        if (runner.isNull()) return { ok: false, error: label + " runner null" };
+        if (!getStatMi) return { ok: false, error: "UnitExtensions.GetStat(4) non résolu" };
+        const statePtr = runner.add(runnerOff.state).readPointer();
+        if (statePtr.isNull()) return { ok: false, error: "state null" };
+
+        const STAT_IDS: Record<string, number> = {
+            attack: 0, movement: 1, defense: 3, health: 5, blockChance: 7,
+            blockDamage: 8, critChance: 9, critDamage: 10, fixedArmor: 16,
+            extraHits: 17, activeAbilityLevel: 18, numberOfMembers: 20,
+            extraPierceMelee: 21, extraPierceRanged: 22, extraHitsMelee: 23,
+            extraMaxDamage: 25, extraPierce: 26,
+        };
+        const idBufs: Record<string, NativePointer> = {};
+        for (const k of Object.keys(STAT_IDS)) {
+            const buf = Memory.alloc(4); buf.writeS32(STAT_IDS[k]); idBufs[k] = buf;
+        }
+        const partBuf = Memory.alloc(4); partBuf.writeS32(0);        // StatPart.Current
+        // Nullable<BEntityId> = null (HasValue=false) : struct zéroé (taille large par sûreté).
+        const nullId = Memory.alloc(16); for (let i = 0; i < 16; i += 4) nullId.add(i).writeS32(0);
+        const getStat = (e: NativePointer, k: string): number | null => {
+            try {
+                const r = invokeMethod(getStatMi!.info, null, [e, idBufs[k], partBuf, nullId]);
+                return r.isNull() ? null : r.add(0x10).readS32();
+            } catch { return null; }
+        };
+
+        // DÉGÂT D'ARME de l'attaque normale (one-shot) : le dégât/hits ne sont PAS des StatType
+        // unité (la stat Attack agrégée ≠ dégât d'arme résolu). On capture la PRÉDICTION native
+        // de l'attaque normale par paire via `CachedDamagePredictionQuery.GetNormalAttackPrediction
+        // (attacker, target, attackerPosition)` (slot 13) — contrairement à `GetAllPredictions`,
+        // CE chemin ne filtre PAS par portée (cible explicite) → capturable à froid au déploiement.
+        // Le dégât de BASE est indépendant de la cible (cf. mesures) sauf effets de réduction sur la
+        // cible → on prend le MAX sur plusieurs cibles ennemies = base NON réduite.
+        //   UnitPosition (dump.cs @385083) = struct 8o {IList Tiles} ; obtenue via
+        //   UnitExtensions.GetUnitPosition(unit, state). DamagePredictionResult : AccurateHealthDamage
+        //   Min@0x60/Max@0x64 ; TotalDamage Min@0x90/Max@0x94 ; AppliedHits@0xBC ; MightCrit@0xB1.
+        const dpq = resolveDpq(runner);
+        const getNormPredMi = dpq.isNull() ? null
+            : findMethodByParamCount(dpq.readPointer(), "GetNormalAttackPrediction", 3);
+        const getUnitPosMi = entityExtClass
+            ? findMethodByParamCount(entityExtClass, "GetUnitPosition", 2) : null;
+        // toutes les unités vivantes (servent de cibles de référence pour la prédiction)
+        const allUnits: Array<{ e: NativePointer; id: number }> = [];
+        forEachEntity(statePtr, (e, id, ty) => {
+            if (ty === EntityType.Unit && invokeBool(isAliveMi, [e, statePtr])) {
+                allUnits.push({ e, id });
+            }
+        });
+        // DÉGÂT DE BASE de l'attaque normale (one-shot, iso-AI) via `GetNormalAttackPrediction
+        // (attacker, target, pos)`. Ce chemin calcule pour les cibles ATTEIGNABLES (0 sinon) ; au
+        // déploiement seuls les alliés sont adjacents → ils donnent la base (le dégât de base EST
+        // indépendant de la cible, cf. mesures, sauf armes Blast/multi-membres). On retient donc
+        // la meilleure entrée NON NULLE = dégât de base d'arme. Les réductions par cible sont
+        // appliquées offline (decisionView.effects) ; le détail par cible (Blast) = amélioration.
+        const readNormalAttack = (attacker: NativePointer): Record<string, unknown> => {
+            if (dpq.isNull()) return { error: "dpq null" };
+            if (!getNormPredMi) return { error: "GetNormalAttackPrediction(3) non résolu sur "
+                + s(class_get_name(dpq.readPointer()) as NativePointer) };
+            if (!getUnitPosMi) return { error: "GetUnitPosition(2) non résolu" };
+            let posPtr: NativePointer;
+            try {
+                const pos = invokeMethod(getUnitPosMi.info, null, [attacker, statePtr]);
+                if (pos.isNull()) return { error: "GetUnitPosition null" };
+                posPtr = pos.add(0x10);                              // struct UnitPosition (8o)
+            } catch (err) { return { error: "GetUnitPosition: " + (err as Error).message }; }
+            let best: Record<string, unknown> | null = null;
+            let reachable = 0;
+            for (const t of allUnits) {
+                if (t.e.equals(attacker)) continue;
+                let boxed: NativePointer;
+                try { boxed = invokeMethod(getNormPredMi.info, dpq, [attacker, t.e, posPtr]); }
+                catch { continue; }
+                if (boxed.isNull()) continue;
+                const b = boxed.add(0x10);
+                const hMax = b.add(0x64).readS32();
+                if (hMax <= 0) continue;                             // cible non atteignable → 0
+                reachable++;
+                if (best === null || hMax > (best.maxDmg as number)) {
+                    best = {
+                        minDmg: b.add(0x60).readS32(), maxDmg: hMax,
+                        hits: b.add(0xbc).readS32(), mightCrit: b.add(0xb1).readU8(),
+                        vsTarget: t.id,
+                    };
+                }
+            }
+            if (best) { best.reachable = reachable; return best; }
+            return { error: "aucune cible atteignable au déploiement (base non capturable)" };
+        };
+
+        // --- multiplier d'ability-variable PAR ENTITÉ (UnitConfiguration via BattleQuery.GetUnitConfig) ---
+        // `AbilityVariablesMultiplierPercentage` (UnitConfiguration@0x74, dérivé progression) scale les
+        // variables d'ability « rareté » (ex. PowerTrip.armorIgnored §17.21). PAS porté sur l'entité ; on
+        // remonte via le registre `BattleQuery.GetUnitConfig(unitId)` (EntityServices.<Battle>@battleInServices).
+        // Clé = la VisualId (string managée) de l'unité (UnitComponent.VisualId@0x20 ; Id==VisualId). Offsets
+        // UnitConfiguration (dump gqfc5mff6c) : mult@0x74, tertiaryMult@0x78, Level@0x7C, ActiveAbilityLevel
+        // @0xB8, PassiveAbilityLevel@0xBC (struct Level = int). Per-entité (≠ BC offline par visualId).
+        const battleQ = (servicesOff >= 0 && battleInServicesOff >= 0)
+            ? (() => {
+                const sv = runner.add(servicesOff).readPointer();
+                return sv.isNull() ? ptr(0) : sv.add(battleInServicesOff).readPointer();
+            })() : ptr(0);
+        const getUnitConfigMi = (!battleQ.isNull())
+            ? findMethodByParamCount(battleQ.readPointer(), "GetUnitConfig", 1) : null;
+        const unitCompClass = findClassAnywhere("IdunBattle.Entities.Components", "UnitComponent");
+        const VISUALID_OFF = 0x20;     // (Base)UnitComponent.VisualId (System.String)
+        const UCFG = { mult: 0x74, tertMult: 0x78, level: 0x7c, activeLvl: 0xb8, passiveLvl: 0xbc };
+        const readUnitConfig = (e: NativePointer): Record<string, unknown> => {
+            if (!getUnitConfigMi) return { error: "GetUnitConfig(1) non résolu" };
+            if (!unitCompClass) return { error: "UnitComponent non résolu" };
+            let vidPtr: NativePointer | null = null;
+            forEachComponent(e, (comp, klass) => {
+                if (vidPtr === null && klass.equals(unitCompClass)) {
+                    const p = comp.add(VISUALID_OFF).readPointer();
+                    if (!p.isNull()) vidPtr = p;
+                }
+            });
+            if (!vidPtr) return { error: "visualId introuvable" };
+            let cfg: NativePointer;
+            try { cfg = invokeMethod(getUnitConfigMi.info, battleQ, [vidPtr]); }
+            catch (err) { return { error: "GetUnitConfig: " + (err as Error).message }; }
+            if (cfg.isNull()) return { error: "config null" };
+            return {
+                visualId: readIl2cppString(vidPtr),
+                abilityVariablesMultiplier: cfg.add(UCFG.mult).readS32(),
+                tertiaryAbilityVariablesMultiplier: cfg.add(UCFG.tertMult).readS32(),
+                level: cfg.add(UCFG.level).readS32(),
+                activeAbilityLevel: cfg.add(UCFG.activeLvl).readS32(),
+                passiveAbilityLevel: cfg.add(UCFG.passiveLvl).readS32(),
+            };
+        };
+
+        const units: Array<Record<string, unknown>> = [];
+        for (const { e, id } of allUnits) {
+            const stats: Record<string, number | null> = {};
+            for (const k of Object.keys(STAT_IDS)) stats[k] = getStat(e, k);
+            units.push({
+                entityId: id, ctrl: invokeBool(isCtrlByCurMi, [e, statePtr]),
+                stats, normalAttack: readNormalAttack(e), unitConfig: readUnitConfig(e),
+            });
+        }
+        return { ok: true, runner: label, statTypes: STAT_IDS, units };
     });
 
     /** RANKING des tiles d'attaque par (unit, target) — shrink-and-recall sur

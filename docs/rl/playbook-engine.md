@@ -890,3 +890,824 @@ ability 100% (reproductible) ; seed-2024 = 70% exact / 90% ≤1hex.
 - **Non extrait** : tableaux statiques Tile(29)/Damage(13) (13.3) → metadata, pas `read_bytes`.
 - **Prochaine couche** : seuils `minUtilityDifference` + construction bucket-tree (13.4) — le vrai
   correctif « attaque-vs-move » des 4 misses.
+
+## 14. Subsystem Playbook — `PlaybookDatabase` + playbooks par-ability (RE ghidra gqfc5mff6c)
+
+RE complète (fan-out d'agents ghidra) du **second étage** de l'IA, sous le scorer Utilities : la couche
+de décision **par-ability**. Les leaves Tile `TriggeredAbilities(2)`/`NonOwner(4)`/`UnitSpecificBehaviours(3)`
+y délèguent (§13.14) : elles chargent un playbook via `PlaybookDatabase`, énumèrent son
+`Calculate{Movement,Attack,Repair}UtilityInSteps` et **somment** les Fix64 rendus.
+
+### 14.1 `PlaybookDatabase` = factory+cache paresseuse (`..ctor` @1810e0380)
+- ctor reçoit **11 services injectés** (champs 0x10–0x60 : match-state, battle-query, registres
+  ability/config, config Utilities, RNG — identités non toutes résolues) qu'il **forwarde dans CHAQUE
+  playbook construit**. La DB est sans état décisionnel : pure factory ; tout l'état vit dans les refs.
+- **4 registres paresseux**, chacun = une map `(int → builder Func)` + un cache `(int → instance)` ;
+  peuplés à la 1ʳᵉ `Load`. Pattern uniforme : `cache.TryGetValue → builder.TryGetValue →
+  builder.Invoke(slot 0x18) → wrap-ctor (forward 0x10–0x60) → cache.Add` :
+
+  | champ map/cache | clé | overload | rôle |
+  |---|---|---|---|
+  | 0x68 / 0x70 | AbilityType id | `LoadPlaybook(int,bool)` @1810e0090 | **active-ability** (218 entrées) ; +fallback DEFAULT |
+  | 0x78 / 0x80 | (param. par la clé) | `LoadDefaultActiveAbilityPlaybook` @1810df810 | builder par défaut (1 délégué) |
+  | 0x88 / 0x90 | id (unit/type) | `LoadPlaybook(int)` @1810dfd10 | owner/unit (104 entrées) ; wrap 1-arg |
+  | 0x98 / 0xa0 | ability id | `LoadPlaybookNonOwner` @1810df9a0 | **non-owner**, SÉPARÉ (25), init-via-interface |
+  | 0xa8 / 0xb0 | behaviour {0,1,2,3} | `LoadPlaybook(int)` @1810dfed0 | unit-specific behaviour (4) |
+
+  `HasNonOwnerPlaybook` @1810d0250 = `ContainsKey(0x98)`. **351 registrations** au total
+  (218+104+25+4) dans `InitializePlaybookBuilders` @1810d02b0.
+
+### 14.2 Catalogue (`InitializePlaybookBuilders` @1810d02b0 — ~62 KB, 351 `Add`)
+- Chaque registration = `dict.Add(<keyImm32>, <lambda b__31_N>)` ; **clé = valeur enum AbilityType**
+  (17/18 = normal-attack génériques ; bloc contigu **1000–1230** = abilities par-personnage ; outliers
+  1152, 1182, 1220, 9007). Chaque lambda = factory singleton paresseuse → `new <X>Playbook(...)`.
+- Namespaces : `Playbook.Common.*` (génériques : `DefaultActiveAbilityPlaybook` = fallback, `HealPlaybook`,
+  `RepairPlaybook`), `Playbook.Idun.*` (`NormalAttackPlaybook`, `GetOverHerePlaybook`), `Playbook.Loki.*`
+  (par-personnage : StormOfFlensingBlades, MortisRound, MightOfHeroes, PrecisionShot_Aim/Attack,
+  MultiThreatEliminator, FragBomb, …). Join clé↔classe complet = décompiler chaque `b__31_N`
+  (mécanique, ~1 ctor chacun ; différé — l'ordre de registration == ordre des lambdas par map).
+
+### 14.3 Interface playbook (hiérarchie générique)
+`Playbook<T>` → `TriggeredAbilityPlaybook<T>` → `TriggeredAbilityNonOwnerPlaybook<T>` ; sœur non-triggered
+`BasePlaybook`. Méthodes : `Calculate{Movement,Attack,Repair}UtilityInSteps` → **`IEnumerable<Fix64>`**
+(state-machines `d__N` ; `get_Current` boxe le Fix64 @iter+0x18). `GetUtilityValue(key)` →
+`Dictionary<string,int>.TryGetValue` (défaut **0** + warn) lifté en Fix64. + `GenerateAction`,
+`ShouldEvaluate`/`Evaluate`, `GetAbilityState`. **Contrat de yield : un seul Fix64 par (ability, case)** =
+l'utilité totale de l'ability, sommée par le dispatcher Tile.
+
+### 14.4 Playbook représentatif — `Loki.SaviorProtocolsPlaybook` (base `TriggeredAbilityPlaybook<T>`)
+ctor pose l'ability id **0x460 (1120)**. Deux scorers :
+- **ATTACK** (`d__5.MoveNext` @18118ff00) : gate `HasEffect(target, 0x462 (1122) marker)` → `+weight[KEY_A]`. 1 yield.
+- **MOVEMENT** (`d__4.MoveNext` @181195b10) : énumère les **alliés près de la tuile caster** (query 0x79) ;
+  par candidat valide (`TargetIsValidTrigger` : `AreFriends` + `HasFaction(9)` + `NOT casterHasAbility(1120)`
+  + `target≠self`) → `+weight[KEY_M1]`, et `+weight[KEY_M2]` si le caster est le parent/owner du candidat.
+  Somme sur les candidats → 1 yield. `FilterMovementTiles` @181188150 élague (melee only ; ranged skip)
+  les tuiles aux seules d'où le trigger peut partir (adjacence à un allié protégeable).
+
+### 14.5 Modèle générique à porter
+`score(case) = Σ_{candidat énuméré} [ gate(candidat) ? Σ weightKeys_applicables(candidat) : 0 ]`, avec
+`weight = playbookWeights[key]` (int, défaut 0) → Fix64. **Par-ability = uniquement** (a) le gate
+(effet/trait/faction/adjacence + ids), (b) l'énumération (quel ensemble cibles/tuiles), (c) les clés de
+poids + l'arithmétique. Tout le reste (scaffolding itérateur, GetUtilityValue, layout source) est dans la base.
+
+### 14.6 Ce qu'il faut pour porter le subsystem
+1. **Registry** : map AbilityType id → playbook (351 entrées ; join clé↔classe à finir en décompilant les `b__31_N`).
+2. **Scaffolding de base** + le contrat 1-Fix64/case.
+3. **Par-ability** : porter gate+énumération+clés (uniforme ; ~351 abilities = longue traîne, portable
+   incrémentalement — commencer par les communes : NormalAttack/Heal/Repair/Default puis les abilities
+   réellement présentes dans les batailles ciblées).
+4. **POIDS de playbook = EXTRACTIBLES OFFLINE** (correction d'une claim erronée antérieure « capture
+   live requise »). Pipeline : décompile → `DAT_<VA>` passé à `GetUtilityValue` → RVA = VA-0x180000000
+   → `data/dumps/<hash>/stringliteral.json` → clé string → valeur dans `Utilities.Default.<catégorie>`.
+   Outil : `scripts/python/playbook_keys.py`. **Vérifié SaviorProtocols** : `0x18325a560`→
+   `SAVIORPROTOCOLS_MarkedTarget`=60 ; `0x18325a2e0`→`SAVIORPROTOCOLS_AdjacentTauFriend`=20 ;
+   `0x18325a420`→`SAVIORPROTOCOLS_AdjacentTauParent`=30. Les poids playbook vivent dans
+   `Utilities.Default.TriggeredAbilities` (owner, ~107 clés) / `TriggeredAbilitiesNonOwner` (~24) /
+   `UnitSpecificBehaviours` (~3) / `ActiveAbilities` (~18), sous des clés `<ABILITY>_<Condition>` (PAS
+   sous le nom de l'ability). Plus généralement **TOUT `DAT_` métadonnée** (string/type/méthode/champ)
+   est résoluble via `stringliteral.json` + `script.json` (ScriptMetadata/ScriptMethod) → RE EXACTE sans
+   inférence ; seuls les globals mutables runtime (gardes cctor `init-once`) n'ont pas de valeur statique.
+5. **Prédiction non-dégât** (heal/repair/effets) reste bloquée par `aiPredict` dégât-only (§13.5) — c'est
+   le SEUL vrai prérequis live restant pour le port complet.
+
+### 14.7 Playbooks COMMUNS = le scorer générique (découverte qui dé-risque le port)
+
+RE des 4 playbooks à plus forte couverture (Default/NormalAttack/Heal/Repair) → **ils ne sont PAS des
+playbooks bespoke à clés-strings**. Ce sont des sous-classes MINCES de
+`ComparablePlaybook<T> → Playbook<T>` qui héritent du **scorer générique partagé**
+`ComparablePlaybook<T>.CalculateActionUtility` @181406ee0 — **identique au §13.1** :
+
+    score(action) = CustomUtility(hook)
+                  + CalculateUtilityFromPredictions @181407890   # Σ dégât/soin/effet/repair events,
+                        #   dégât = (prédDmg × mult) × GetUtilityValue(ForDamagePrediction, idx 0x22=Damage34)
+                        #   soin  = HealRatio × GetUtilityValue(ForHealPrediction, idx 5 -> Heal44)
+                        #   effet = ForEffect (idx 5) × magnitude ;  repair = ForRepairPrediction (idx 6 -> Repair46)
+                  + UtilityAttackCase.Base (idx 0x36 = 54)
+                  + CalculateUtilityFromTilePrediction @181408740  # positional/move (Tile7, idx 8)
+
+=> le calcul **prédiction->utilité** est le **PIPELINE PARTAGÉ** (= engine/utility.py + utilities/{damage,
+tile}.py, via les utilités COMPOSÉES Damage34/Heal44/Repair46/AddedTileEffects45/Tile7 déjà portées),
+**PAS du code par-playbook**. Les GetUtilityValue ici sont des génériques GetUtilityValue<TCase>
+sélectionnés par INDEX (0x22/5/6/8/0x36), pas des clés-strings -> **aucune nouvelle clé BC à résoudre**
+pour les communs.
+
+Chaque playbook commun n'override QUE : (a) le **tag** d'ability (ctor) ; (b) ShouldExecute (gate) ;
+(c) CalculateCustomUtility (constante) ; (d) Make{Damage,Heal,Repair}Predictions (fournisseur).
+
+| playbook | base | tag | ShouldExecute (gate) | CustomUtility | scoring |
+|---|---|---|---|---|---|
+| **DefaultActiveAbilityPlaybook** | BasePlaybook | per-id | ability usable | - | **flat 1.5 / cible éligible** (zéro prédiction/poids) - ENTIÈREMENT porté |
+| **NormalAttackPlaybook** | ComparablePlaybook<T> | 0x11(17) | !HasTriggeredAbility(0x48=72) ET dispo | **+1** | dégât = pipeline (Damage34 = damage.py) |
+| **HealPlaybook** | ComparablePlaybook<T> | 0x12(18) | heal>0 ET non(boss self-heal) | 0 | HealRatio × Heal44 (montant bloqué) |
+| **RepairPlaybook** | ComparablePlaybook<T> | 0x1c(28) | off-cooldown | 0 | Repair46 additif (montant bloqué) |
+
+ATTENTION **Soin/Repair montant** : Heal = StatAmount(weapon)×max(WeaponHighestHits,1) clampé HP-manquant
+-> HealRatio=min(1, usefulHeal/predHeal) ; Repair = prédiction (classe IBattleQuery idx 0x29, sœur du
+heal idx 0x28). aiPredict est dégât-only -> ces montants restent **BLOQUÉS** (cf. §13.5) ; gates/tags/
+custom portés, le scoring soin/repair s'active avec un RPC de prédiction complet.
+
+**Implication (dé-risque le port)** : le **cœur générique** (CalculateActionUtility) que je construis déjà
+EST le moteur des abilities COMMUNES (= la grande majorité des actions). Le dégât marche (damage.py) ;
+soin/repair ne manquent que la prédiction. Les playbooks **bespoke** (Loki.*, SaviorProtocols...) sont des
+**ajouts incrémentaux à clés-strings** (résolus offline via playbook_keys.py) par-dessus ce cœur.
+
+**Port** : engine/playbook/common.py (NormalAttack/Heal/Repair/Default + fallback get_playbook_or_default),
+base étendue (should_execute/custom_utility). Validé OFFLINE (19/19 : registry 17/18/28/1120, fallback,
+gates, custom +1, Default 1.5).
+
+## 15. Prédiction OFFLINE = données gameconfig + scenario-math (le DSL n'est PAS requis)
+
+Question : « les formules DSL sont-elles extractibles ? » Réponse après RE :
+
+- **Le DSL (`IdunBattle.DSL.*` / `Entities.Formulas.*`) est un vrai langage d'expression, mais ses
+  PROGRAMMES (arbres de formule) sont du C# (construits en code), PAS des données sérialisées** —
+  `gameconfig-abilities.json` n'a aucun `$type`/nœud `*Formula`. `StatAmountFormula.Calculate`
+  (@180f22d40) ne stocke qu'un **statId** (ctor @180f230f0, param_1+0x18) et fait
+  `Σ UnitExtensions.GetStat(unit, statId)` → **le DSL ne fait que LIRE des stats**.
+- **MAIS on n'a pas besoin du DSL** : ses SORTIES résolues sont déjà des données par niveau dans
+  gameconfig (`AbilityConfigDto`) : `variables` = `minDmg/maxDmg/hpToHeal/hpToRepair/extraDmg/
+  pierceRatio/…[niveau]` ; `constants` = `nrOfHits/nrOfTargets/damageProfile/armorReduction/
+  HealPercentage/…`. C'est EXACTEMENT ce que `GetStat` renvoie. Le « désérialiseur » = `AbilityConfigDto`.
+- Les CONSTANTES de combat sont aussi des données : `BC.Damage` = `ArmorPercentage 50, ElevationBonus 50,
+  ClassBonus 25, AffinityBonus 50, DamageSpreadPercentage 20, RangedInMeleeReduction -50,
+  TrenchReduction -50, OverkillDmgPctOfHealth 100, DamageProfiles[p].PiercingDamageRatio`.
+
+**Pipeline de prédiction offline (sans DSL)** :
+1. **montants** = gameconfig `variables[clé][niveau]` + `constants` (data ; soin/repair inclus → débloque
+   Heal/Repair des playbooks communs §14.7).
+2. **scenario-math** = `DamagePrediction.PredictAttackRaw` @181032fb0 → `CalculateDamagePredictionScenario`
+   @18102ed00 (cœur RE'd : `max(0, rawDmg − armor)` − réduction par cible (FillUpStat) → cap trait
+   (`MaxReduceByMinimum`) → `MinMaxDamage.ApplyCap`). Armor = `GetStat(target, 0x19=25)`. Scenario
+   appelé 2× (min/max). Bonus Elevation/Class/Affinity + pierce par `damageProfile` = constantes
+   `BC.Damage`. (Assemblage complet = **lu EN ENTIER**, cf. §16.)
+3. **validation** = `aiPredict` (live) comme ORACLE : predict offline vs live par scénario, corriger les
+   modificateurs (buffs/effets) au fil des écarts. Méthodo agreement-driven.
+
+⇒ Le chantier « prédiction offline » se réduit à un **lecteur de données gameconfig** + une **petite
+scenario-math** validée contre l'oracle — PAS un interpréteur DSL. Étape suivante : `engine/predict.py`
+(montants data + scenario-math) + harnais `predict vs aiPredict` sur seed-777.
+
+## 16. `PredictAttackRaw` @181032fb0 — RE LECTURE INTÉGRALE (cœur prédiction, 2026-06-27)
+
+Fonction lue **en entier** (3037 lignes décompilées) + 3 helpers scalaires décompilés. C'est LE noyau où
+convergent les 3 chemins de prédiction (aiPredict / combatSnapshot / le scorer). ~80 % du décompilé =
+bruit de la convention *generic-struct* (recopies `do/while` du scenario 0xc8 o, cctor warmup, alloca).
+
+**Signature** : `PredictAttackRaw(state param_2, Scenario* param_3) → DamagePredictionResult* param_1`.
+- `param_3` = struct-valeur ~0xc8 o (25 qwords) = **AttackScenario** : [10]=target, [0xb]=damage(Nullable),
+  [0xc]=DamageProfile, +0x84=armorOverride(Nullable), +0x7c=autre Nullable, byte flags dans [0xd]/[0x17].
+- `param_2` : +0x20=match/registry, +0x40=attacker entity, +0x10=rules, +0x48/0x50=services.
+- `param_1` (out, 0xc0) offsets confirmés : 0x58 `AccurateHealthDamage` MinMax(Min@0x60,Max@0x64) ;
+  0x88 `TotalDamage` MinMax(Min@0x90,Max@0x94) ; 0x50 List<ProbableDamageEvent> (1 Add/coup) ;
+  0x98 List<HitDamage> ; 0xb1 `MightCrit` ; 0xb3 HasFlag(0x13) ; 0xbc `AppliedHits`.
+
+### 16.1 Pipeline (ordre exact)
+1. `base = max(0, scenario.damage)` ; écrasé par variable d'ability `maxDmg`(id 0xd) si présente.
+2. **MinMax base** `local_938` : flag spread=0 → point `{base,base}` ; sinon `GetBaseDamageFix64(base, isMaxOut)`
+   = **spread ±`DamageSpreadPercentage`(20 %)** (confirme u92 : base 2530 → 2024/3036). Plancher `minDmg`.
+3. **Armure** : `armorOverride = scenario.+0x84 ?? 0` ; `armorMM` = piercing par bout ;
+   `postArmor = {base.min−armor.min, base.max−armor.max}`.
+4. **Bonus plat** = variable d'ability `0xe` (ajouté identiquement aux 2 bouts).
+5. **Tous modificateurs** → `local_8c8` = `CalculateBaseDamageWithAllModifiers(postArmor.min+bonus)` et
+   `…(postArmor.max+bonus)` (cf. §16.3). Plancher minDmg + `MathMax`. Puis `ApplyTraitDamageLimitsToDamage`.
+6. **BOUCLE MULTI-COUP** @2390 (LE point qui manquait) :
+   - `perHitList = service.<slot0>(attacker)` (dispatch interface `FUN_1800053f0`, **Count(+0x18) = nrOfHits**,
+     chaque élément 8 o `{lo32=hitDmg, hi32=critChance%}`).
+   - si `DamageProfile.HasTrait(0)` → SKIP la boucle. `remaining = Fix64(1)`.
+   - `for i in range(Count)` : `w = remaining × (critChance%/100)` ;
+     `ev = CalculateDamagePredictionScenario(dmgMM=local_8c8, armorMM, prevHits=cumul, prob=w×100)` (§16.2) ;
+     `result.events.Add(ev)` ; `remaining ×= (1 − w)`.
+7. **Outcome dominant** (proba `remaining`) → `CalculateDamagePredictionScenario(prevHits=0)` → `param_1[3..9]`.
+8. `TotalDamage`(0x88) = postArmor + armure absorbée ; `MightCrit`(0xb1) via vtable IsCrit(attacker) ;
+   `AppliedHits`(0xbc)=nrOfHits ; conversions Nullable→MinMax→`ApplyCap` pour [0xb]/[0xd]/[0xf].
+
+### 16.2 `CalculateDamagePredictionScenario` @18102ed00 (le cœur par-outcome — PETIT, à porter tel quel)
+`(out, state, target3, comp4, dmgMM*, armorMM*, prevHits u32, prob% u32, outBool*)` :
+```
+eff.min = max(0, Fix64(dmgMM.min) − Fix64(prevHits))      # dmgMM @+0x10=min, @+0x18=max
+eff.max = max(0, Fix64(dmgMM.max) − Fix64(prevHits))
+shieldAbs = absorbShield(eff)                             # interface slot 0xb (FUN_1800068b0)
+healthDmg = max(0, eff − shieldAbs)
+if target.FillUpStatComponent: healthDmg = FillUpStatComponent.MaxReduceByMinimum(healthDmg) → out overkill
+return { +0=prob%, +4=healthDmg MinMax(ApplyCap), +0x14=shieldAbs MinMax, +0x24=armorMM MinMax }
+```
+⇒ `prevHits` (param_7) = **previousHitsPrediction** : chaque coup retire le dégât cumulé → ne compte que
+sur la santé restante. C'est la chaîne multi-coup (explique les plages larges, ex. u80 4 hits 2136-6416).
+
+### 16.3 `CalculateBaseDamageWithAllModifiers` @18102d3f0
+`(state, rawInt, target, comp, p5, critA Nullable, critB Nullable, flag8, flag9)` :
+```
+d = GetBaseDamageWithFixedPiercedArmor(state, Fix64(raw), critA.f0, critB.f0, target, comp, p5,
+                                       flag8, flag9, critA.f8 + critB.f8)        # @181030d10 (déjà RE)
+if critA: d = applyModif(slot 0x11, critA)   ; if critB: d = applyModif(slot 0x11, critB)   # FUN_180031890
+if critA: d = applyModif(slot 0x10, critA.f8); if critB: d = applyModif(slot 0x10, critB.f8) # FUN_18000c030
+if critB (+ sous-cond): d = critB.Value (override)
+return d
+```
+⇒ crit/profil = modificateurs interface (slots 0x10/0x11) appliqués DÉTERMINISTE sur min ET max.
+
+### 16.4 Conséquences pour le port (fidèle)
+- **Portable tel quel maintenant** : `CalculateDamagePredictionScenario` (§16.2, petit & exact) +
+  l'ossature boucle multi-coup (§16.1.6). À mettre dans `engine/services/damage_prediction.py`
+  (`get_attack_prediction` → vraie boucle per-hit) + `engine/playbook/comparable_playbook.py`.
+- **À calibrer vs aiPredict** (les feuilles dont je n'ai pas le scalaire exact) : `perHitList`
+  (contenu hitDmg/critChance par coup — dispatch interface, source service non identifiée), les
+  slots crit 0x10/0x11, `absorbShield`/`FillUpStat.MaxReduceByMinimum`. Live = CONFIRMATION, pas source.
+- **Blast/multi-membres = AU-DESSUS** (`GenerateMultiHitAttackPredictions` @181409da0 itère les membres
+  → rappelle ce noyau par membre). Pas dans `PredictAttackRaw`. Reste l'axe (b).
+- Détail brut + corps décompilés : working-notes `predict_attack_raw_algo.md` (scratchpad session).
+
+### 16.5 Énigme « enveloppe large » RÉSOLUE via ghidra (2026-06-27 — fns nommées, pas l'inline)
+Sonde live seed-777 : **crit/block/members = 0/0/1 PARTOUT** → ni crit, ni block, ni Blast. La largeur
+(u80 2136-6416 ratio 3.0, u86 2.7 ; vs u92/u96 ratio 1.5=spread) vient de DEUX leaves combinées :
+- `CalculateBaseDamageWithModifiers`@1810021c0 = `Round(base × modifier)`. modifier = `DamageModifiers`
+  (additif@+0x10, mult@+0x30=One, %list@+0x18 ; `Empty`@181006370 + `Add`@181005f10/ea0). Construit par
+  `Calculate{Attacker,Defender}ModifiersForPrediction`@181000590/@181002c30 (élévation via GetMainTile,
+  effet 0x423, classe/affinité). **TARGET-dépendant → monte le HAUT.**
+- `GetBaseDamageFix64`@181030ba0 = `{base−spread, base+spread+ExtraMaxDamage(25)}` (extraMax = asymétrie
+  HAUT, attaquant) puis `GetDamageWithPiercing`@1815598b0 = `max(max(0,bout−armure), bout×pierce%/100)`
+  PAR BOUT (perçage=PLANCHER). **Quand l'armure cible mord, écrase le BAS au plancher perçage.**
+⇒ **min↓ (plancher perçage, armure cible) + max↑ (modifier ×, monte tout) = élargissement asymétrique
+target-dépendant, SANS crit/block.** u92/u96 target-indépendants = perçage HAUT (armure ne mord jamais
+→ largeur = spread pur). pierceRatio (GetBaseDamageWithFixedPiercedArmor@181030d10) = `clamp(0..100,
+GetPiercingRatio(profile,traits)+ExtraPierce(26)+ExtraPierce{Melee21/Ranged22})` ; armorEff =
+`max(FixedArmor(16)−pen,0)` ; hitMult 1/2(trait 1013)/3(ability 0x4b6).
+**PORTÉ** (`engine/services/damage_prediction.py`, NON commité) : `get_base_damage_fix64` (asym extraMax)
++ `get_attack_prediction(modifier, extra_max, pierce_pct, armor, hit_mult)` = chaîne base×modifier →
+{∓spread, +extraMax} → GetDamageWithPiercing par bout → ×hits. Défauts (modifier1/armor0/pierce100/
+extraMax0) = rétro-compat exact (u92 2024-3036, u96 2122-3182). Smoke : asym mod1.5/pierce30/armor900 →
+ratio 2.67 (mécanisme prouvé).
+
+> ⚠ **§16.5 partiellement CORRIGÉ par §17** : (1) le `modifier` (DamageModifiers) ne s'applique PAS sur
+> la base avant spread — il s'applique **par coup, APRÈS perçage/armure** (`ApplyCappedModifiers`,
+> preuve numérique exacte §17.2). (2) Source = **effets de bonus de dégât actifs** (pas affinité/classe ;
+> il n'y a PAS d'affinité/classe dans le dégât de combat — cf. §17.1). (3) L'« enveloppe large » d'u90
+> (≠ u94) vient de `PowerTrip_IgnoreArmor` (axe armure dans `PredictAttackRaw`, pas le modifier).
+
+## 17. Couche MODIFIER — RE intégrale + confirmation live (2026-06-27, fns nommées)
+
+Objectif : fermer le gap d'exactitude restant (≠ 8/11). Mesure live seed-777 (confirmation, pas fitting) :
+`xmod = oracle/offline` → **u94 ×1.25**, **u90 ×2.83** ; les 8 autres ×1.00 (chaîne base×hits+pierce+armure
+déjà exacte). Identités live : u94=`templChampion` (effet `RapidAssault_ExtraDamage` actif),
+u90=`orksKillaKan` (effet `PowerTrip_IgnoreArmor` actif). ⇒ **DEUX axes distincts.**
+
+### 17.1 Le modifier (`DamageModifiers`) — structure RE'd
+- **`DamageModifiers` (accumulateur)** : `additif`@+0x10 (Fix64), `%-list`@+0x18 (`List<{mult,cap}>`),
+  `mult`@+0x30 (Fix64=One), `detail-list`@+0x38. `Empty`@181006370 ; `Add`@181005f10.
+  `Add(acc, entry, extraNullable)` : `additif += FromInt(entry.DamageBonus)` (+5) ; `additif -=
+  FromInt(entry.DamageReduction)` (+6) ; si `entry[+9]` → `%-list.Add(1 + round(v/100*100)/100)`.
+- **Construction** : `Calculate{Attacker,Defender}ModifiersForPrediction`@181000590/@181002c30 itèrent
+  les effets/abilities de l'unité + `CalculateModifiersFromStatModifications`@181004380, et pour chaque
+  appellent `GetDamageBonusForAttack` (slots 0x16/0x17/0x18) → un `DamageBonus` (Nullable) →
+  `GetMultiplierFromDamageBonus`@181005210 → `Add`. **Pas d'affinité/classe** (GrandAlliance.GetTrait
+  ne fait que mapper alliance→trait ; l'affinité est UI/méta, jamais dans le dégât de combat).
+- **`GetMultiplierFromDamageBonus(b)`** = `1 + b/100` si `b≥1`, sinon `1 − |b|/100` (Fix64).
+- **Réducteur = `ApplyCappedModifiers`@181000020** `(acc, value)` : POUR CHAQUE entrée `{mult,cap}` de la
+  `%-list` : `value = Clamp(Round(value × mult, 1), −cap, +cap)`. (Le `additif`/`mult` plat se composent
+  à part ; `CalculateBaseDamageWithModifiers`@1810021c0 = `Round(base×mod)` clamp `≤0→0`, `<1→1`.)
+- **Leaves positionnels** (chacun = un `DamageModifier` singulier, kind@+0 + Nullable@+0x20) :
+  - **Élévation** `CalculateElevationBonusModifier`@181003ea0 : si tile attaquant **plus haut** que tile
+    cible → `+ElevationPercentage`(config). Sauté si attaquant **ou** cible a effet `0x423`.
+  - **Ranged-in-melee** `CalculateRangedInMeleeReduction`@181004700 → `ShouldApplyRangedInMelee`@181005810 :
+    attaquant trait `0xb` (Ranged) adjacent à un ennemi melee-able → `−RangedInMeleeReduction`(config).
+  - **Trench** `CalculateTrenchReduction`@181004830 : cible sur tuile trench + adjacence → `−TrenchReduction`.
+
+### 17.2 Placement = APRÈS perçage, PAR COUP (preuve numérique, branche-distinguante)
+Le modifier est **absent de `PredictAttackRaw`** (grep) → appliqué par la chaîne appelante au résultat.
+Preuve (u94, ×1.25, vs DEUX cibles d'armure différente) :
+- u94→u84 (armure 1806) : per-coup non-modifié `[803,1206]` × 1.25 = `[1004,1508]` ×3 = **3012-4524 = oracle EXACT**
+- u94→u86 (armure 2008) : per-coup non-modifié `[803,1205]` × 1.25 = `[1004,1506]` ×3 = **3012-4518 = oracle EXACT**
+La différence d'armure bascule la branche max (`dmg−armure` 1206 vs plancher `dmg×40%` 1205) et ×1.25
+reproduit les DEUX à l'unité. Le modifier-sur-base donnerait 5877/5880 (faux). ⇒ **post-perçage par coup.**
+
+### 17.3 Source du bonus = effet par-unité (pas de playbook — c'est un triggered+effect)
+`RapidAssault` = **trait** → `RapidAssaultAbility` (triggered, pose l'effet) + `RapidAssault_ExtraDamageEffect`
+(porte le bonus) + `RapidAssault_Remove*EffectAbility` (le retire). **Aucun playbook** (les playbooks sont
+pour les abilities actives que l'IA *choisit*). Le bonus entre par :
+`RapidAssault_ExtraDamageEffect.CreateEffectDamageBonusForAttack`@180f67940 :
+```
+extraDmgPct = DSLFactory.ConfigConst(effect, 0xf, ...)              # constante config idx 0xf
+bonus       = EffectBonus.ForPercentIncrease(ownerIsCaster, extraDmgPct)   # DamageBonus +pct%
+return Nullable(bonus)
+```
+⇒ magnitude = **constante de config de l'ability/trait** (ici extraDmgPct, live=25), wrap `ForPercentIncrease`.
+Conditionnel : RapidAssault = « 1re attaque du combat + attaques suivantes du même tour » → actif quand
+l'IA prédit (1re attaque) ; **confirmé par la présence de l'effet `RapidAssault_ExtraDamage` au live.**
+
+### 17.4 ⚠ Effet-NOM ≠ bonus appliqué (garde-fou, ré-confirme la règle EFFECT RECON)
+u88 `custoVexilusPraetor` porte `StandVigil_ExtraDmg` + `MartialKatah_DmgBonus` **et matche modifier=1.0**.
+Donc un effet nommé « DmgBonus » N'IMPLIQUE PAS un bonus appliqué (inactif, ou pour l'ability active
+seulement, ou c'est un ExtraMaxDamage). ⇒ porter via **statut-actif + magnitude recalculée**, JAMAIS le nom.
+
+### 17.5 Axe SÉPARÉ — ignore-armure (u90, n'est PAS le modifier)
+u90 `PowerTrip_IgnoreArmor` : enveloppe oracle 2048-7592 (ratio 3.7×, min×1.85≠max×3.30 → pas un scalaire).
+= le flag `HasTrait 0x420(1056) / HasEffect 0x59a(1434)` de `PredictAttackRaw` step 10 (ignore-armure/
+true-dmg), conditionnel (min=armure s'applique, max=ignorée). À porter dans l'axe **perçage/armure** de
+`get_attack_prediction`, pas dans `DamageModifiers`.
+
+### 17.6 Plan de port (fidèle, recalcul depuis entrées)
+- `engine/services/damage_modifiers.py` : `DamageModifiers` (Empty/Add) + `get_multiplier_from_damage_bonus`
+  + `apply_capped_modifiers(value, mods)` + leaves élévation/ranged-in-melee/trench. **Structure 1:1.**
+- Par-effet `create_effect_damage_bonus_for_attack` : pattern dominant `ForPercentIncrease(ConfigConst)`
+  (couvre RapidAssault + probablement la majorité) → mapping effet→(ability/trait, config-const-idx).
+- **Entrées** : effets ACTIFS captés (decisionView.effects, statut live) × magnitude gameconfig
+  (constante de config) ; positions/tiles pour élévation/trench/ranged-in-melee ; flag ignore-armure
+  (trait/effet) pour l'axe armure (u90).
+- **Câblage** dans `get_attack_prediction` : `value_per_hit = apply_capped_modifiers(value_post_pierce, mods)`
+  (PAS sur la base). Valide via `predict_validate.py` (cible ×mod≈1.00 sur u94).
+
+### 17.7 Intégration TRACÉE EN LIVE (hook `modifier-observe`, 2026-06-27) — CORRIGE §17.2
+Hook d'observation read-only (`frida/hooks/features/modifier-observe.ts`, auto-arm + RPC
+`modifierObserveInstall/Status/Reset`) posé sur les 4 fns modifier + `PredictAttackRaw` +
+`GetAllPredictions` ; backtraces dumpés (RVA→ghidra = `+0x180000000`). Résultat :
+- **Le name-search statique était trompeur** : les 3 fns modifier + `ApplyCappedModifiers` ne sont
+  référencées QUE par elles-mêmes (literal search) car **tous leurs appels passent par dispatch
+  MethodInfo** (appels indirects). Mon « PredictAttackRaw n'a pas de modifier » (§17.2) était FAUX —
+  basé sur un grep qui rate les appels dispatchés.
+- **Chaîne live réelle** :
+  `decisionView → CachedDamagePredictionQuery.GetAllPredictions (CACHE) → DamagePredictionQuery.
+  GetAllPredictions → DamagePrediction.<PredictAttack>b__0 (0x181054041) → PredictAttackRaw`.
+- **Dans `PredictAttackRaw` (@181032fb0)** — backtraces (offset dans la fn) :
+  - `+0x18EE (0x18103489e)` → `CalculateAttackerModifiersForPrediction`
+  - `+0x1E9E (0x181034e4e)` → `CalculateDefenderModifiersForPrediction`
+  - `+0x2176 (0x181035126)` → `CalculateBaseDamageWithAllModifiers` (@18102d3f0)
+       `→ +0x3d9 (0x18102d7c9)` → `ApplyCappedModifiers`
+  Donc `ApplyCappedModifiers` est appelé DANS `CalculateBaseDamageWithAllModifiers` (après
+  `GetBaseDamageWithFixedPiercedArmor` = perçage/armure) → **×bonus post-perçage par coup, confirmé
+  en runtime** (= la preuve numérique §17.2, désormais localisée dans le code).
+- **Le CACHE masquait le recalcul** : tant qu'aucun changement d'état, decisionView relit
+  `CachedDamagePredictionQuery` (0 recompute, 0 fire). Il faut **buster le cache** (un `applyAction move`)
+  pour déclencher la chaîne. ⚠ corollaire pour toute future observation de prédiction : changer l'état
+  avant de mesurer, sinon on lit du cache.
+- **`param_5`** (liste des sources de bonus passée au builder) = **construit dans `PredictAttackRaw`**.
+  Reste à dumper son contenu (énumération live) pour figer sa composition exacte.
+- **Conséquence port** : appeler les builders modifier au sein de la chaîne per-coup de
+  `get_attack_prediction`, exactement comme `CalculateBaseDamageWithAllModifiers` le fait (perçage PUIS
+  `apply_capped_modifiers`), nourri par `param_5` reconstruit depuis les effets actifs captés.
+
+### 17.8 `param_5` (la liste de sources) — RE STATIQUE (ghidra, pas de live)
+Décompilé de `PredictAttackRaw` (working-notes `PredictAttackRaw.c`), call sites repérés via les marqueurs
+d'adresse-retour `*(puVar45-8)=0x...` (= les RVA du backtrace §17.7) :
+- **Builder attaquant** : ligne 1473 `FUN_180031950(&out, 0xd, DAT_183287db8)` (trampoline dispatch,
+  slot 0xd) ; args stagés lignes 1469-1471 : `+0x30=local_988` (=param_5), `+0x28=&local_748`
+  (=AbilityEntities du scénario), `+0x20=state`.
+- **Builder défenseur** : ligne 1796, slot `0xe`, 4 params (résout la cible via l'AbilityEntities
+  `local_748` ; param_5 non utilisé).
+- **Construction de `param_5`** : ligne 1239 `local_988 = FUN_180002560(9, DAT_1831b7938, <obj>)`.
+  `FUN_180002560(slot, ifaceType, obj)` = **dispatch de méthode d'INTERFACE** (cherche `ifaceType` dans
+  l'itable de `obj`, appelle `offset+slot`). **`DAT_1831b7938` = l'interface des EFFETS** — prouvé : même
+  `DAT` que `EntityExtensions.{HasOneOfEffects,IsOwnerOfOneOfEffects,IsTargetOfOneOfEffects}`.
+- ⇒ **`param_5` = la collection d'EFFETS actifs de l'unité** (slot 9 = énumérable groupé). Le builder
+  l'itère (groupes/effets) → `GetDamageBonusForAttack` (= `CreateEffectDamageBonusForAttack`) par effet.
+  Confirme « sources de bonus = effets actifs » (modèle 1-classe-par-effet §17.3).
+- **Seule ambiguïté** : l'`obj` du slot-9 (ligne 1239) est **droppé par le décompilateur** (registre r8
+  non tracké) → entité-attaquant vs service `state.+0x48` non tranché statiquement. Sans impact sur le
+  port (ce sont les effets actifs de l'unité, recapturables offline via `decisionView.effects`).
+- **INTERFACE MODIFIER 100% RE'd** (builder interne + param_5=effets + per-effet + placement post-perçage).
+
+### 17.9 PORT FAIT + VALIDÉ (2026-06-27, NON commité)
+Modules créés (structure 1:1 native, VA citées) :
+- `engine/services/effect_bonus.py` : `EffectBonus` + fabriques `for_percent_increase/decrease/addition/
+  subtraction/piercing` (@180f40xxx).
+- `engine/services/damage_modifiers.py` : `DamageModifiers`(Empty/additif/%-list/mult) + `add_modifier`
+  (@181005f10) + `get_multiplier_from_damage_bonus` (@181005210) + `apply_capped_modifiers` (@181000020 :
+  `v=clamp(round(v×mult),±cap)`) + `apply_all_modifiers` (%-list puis additif, HYPOTHÈSE ordre) +
+  `build_attacker_modifiers` (@181000590) + leaves élévation/ranged-in-melee/trench.
+- `engine/services/effects_damage_bonus.py` : registre par-effet nom→fabrique (`CreateEffect*ForAttack`),
+  RapidAssault posé ; `build_modifiers_from_active_effects(active, magnitudes)`.
+- `get_attack_prediction` rewiré : `modifier:float` (sur la base) → `mods:DamageModifiers|None`, appliqué
+  **post-perçage PAR BOUT** (`apply_all_modifiers`), None=rétro-compat.
+**VALIDÉ (offline, vs nombres natifs mesurés)** : mods=None → 8 cas OK inchangés (u88 EXACT, u92 ±1,
+u96 ±3=résidu Fix64). u94 RapidAssault +25% → u94→u84 **3012-4524 EXACT**, u94→u86 3012-4515 vs 4518
+(±3 = résidu `//100` vs Fix64 sur la branche plancher-perçage, PAS une erreur modifier ; u84 tombe sur la
+branche armure → exact). End-to-end registre : effets actifs captés (non-dmg ignorés) → mods → EXACT.
+**SOURCE DES MAGNITUDES — RÉSOLUE (2026-06-27)** : `gameconfig.globalValues.traitVariables` (traits),
+exposé par `gameconfig.trait(name)["variables"]` — clé = camelCase(trait)+suffixe. Confirmé :
+`trait("RapidAssault").variables.rapidAssaultExtraDmgPct = 25` (= le ×1.25 mesuré live) ;
+`trait("Parry").parryHitReduction = 1`. (Pour une ability : `ability(aid)["variables"/"constants"]`.)
+`effects_damage_bonus.EFFECT_DAMAGE_BONUS` mappe nom-d'effet→(trait, var_key, fabrique) ; la magnitude
+s'AUTO-résout depuis gameconfig (`build_modifiers_from_active_effects` sans input). End-to-end validé :
+effet actif `RapidAssault_ExtraDamage` → 25 → mods → u94→u84 EXACT.
+**RESTE (wiring live)** : (1) `UnitContext.active_effects` capté (decisionView.effects) ; (3)
+comparable_playbook/NormalAttackAbility bâtissent `mods` depuis les effets du caster ; (4) predict_validate
+construit `mods` par attaquant → u94 doit passer ×mod≈1.00 ; (5) **conditions par-effet** (§17.4) : RE le
+`CreateEffectDamageBonusForAttack` des autres effets dégât du roster (HeavyWeapon/MartialKatah/StandVigil
+étaient PRÉSENTS mais non-appliqués sur u88/u96 → condition interne) avant de les inscrire au registre.
+
+### 17.10 La magnitude = DSL re-évalué par-décision depuis l'INSTANCE d'effet (RE complète) — `effects_damage_bonus` registre statique = MAUVAIS ENDROIT
+Tout `*_Effect.CreateEffectDamageBonusForAttack` **construit une expression DSL** (≠ valeur figée) et la
+**ré-évalue à chaque coup/prédiction** (appelé par CalculateAttackerModifiersForPrediction DANS PredictAttackRaw).
+Chaîne d'évaluation RE'd :
+- `EffectBonus.ForPercentIncrease/ForAddition(ownerCond, ConfigAmount)` — nœud DSL {condition, formule}.
+- magnitude = `ConfigAmount` (formule paresseuse) `.Calculate` @180f171c0 → selon le nœud :
+  - **const** : `AbilityConfiguration.GetNumberConstant(cfg, key)` @181576af0 = `GetStringConstant(cfg,key)`→`Int32.Parse`.
+  - **var/level** : `AbilityConfiguration.GetVariableForLevel(cfg, key, level)` @181576fb0 =
+    `TryGetVariableArrayForLevel(cfg, key, level)` → valeur par-niveau.
+  - **`key` = un ENUM** (AbilityVariableType / clé-constante), PAS un index positionnel ; `cfg` =
+    l'`AbilityConfiguration` de l'effet (via son AbilityState `effect.+0x48` → `AbilityStateFromEffect`) ;
+    `level` = `effect.+0x60`.
+  - effets DYNAMIQUES : méthode propre (ex. `EnmityForTheUnworthy.CurrentDamagePct`) lisant l'état courant (stacks).
+- **Modèle = « remonte à la source à chaque fois »** (formule re-évaluée vs cfg+niveau+état), PAS de snapshot à la création.
+**Conséquence (tranche le design)** : re-dériver offline par nom gameconfig est IMPRATICABLE — il faudrait
+(a) l'enum clé→nom `AbilityVariableType` (ABSENT du dump enums.json = 7 groupes seulement) + (b) identifier
+le `cfg` exact de chaque effet + (c) gérer les dynamiques. ⇒ **le bon endroit = lire les variables sur
+l'INSTANCE d'effet active** (son AbilityConfiguration résout le lookup keyé nativement). C.-à-d. :
+**CAPTURER par effet actif ses variables/constantes résolues** (GetVariableForLevel/GetNumberConstant au
+niveau de l'effet, ou la valeur dynamique) → l'engine consomme. `engine/services/effects_damage_bonus.py`
+(registre nom→variable-gameconfig statique) est donc à REMPLACER par une capture-instance (garde RapidAssault
+validé comme cas-test, mais le mécanisme général = capture). ⚠ Toujours le garde-fou §17.4 (présent≠appliqué :
+la CONDITION DSL `ownerCond`/triggers décide ; ne compter que les effets dont le bonus s'évalue >0 in-situ).
+
+### 17.11 Décision design (Option A) + wiring fait — magnitude depuis gameconfig indexée par level, capture origin-agnostique (2026-06-27)
+RE de clôture (ghidra, read-only) qui tranche le « comment lire l'instance » de §17.10 :
+- **L'`AbilityConfiguration` n'est PAS sur l'`EffectComponent` capté.** Décompilé `EffectComponent..ctor`/
+  `GetPropertiesString` : champs = OwnerId@0x14, listes@0x48/0x50/0x78, EffectType@0x58, IsActive@0x5c,
+  Removed@0x5f, RemainingTurns@0x64, Level@0x68 — **aucune** réf AbilityState/AbilityConfiguration.
+  L'objet `effect` de `CreateEffectDamageBonusForAttack` (avec `+0x48`=AbilityState, `+0x60`=level) est une
+  **instance `*_Effect` distincte** (sous-système `param_5`), pas le composant ECS. Donc « lire la variable
+  sur l'instance » = atteindre la collection `*_Effect` (param_5, propriétaire non tranché) **puis** soit
+  ré-implémenter le lookup dict keyé, soit invoquer le resolver natif (`NativeFunction`) sur jeu live (risque).
+- **`ConfigAmount.Calculate` @180f171c0** (resolver RE'd) : cache la cfg @node+0x10 (résolue depuis +0x40/+0x48),
+  puis **constante** → `GetNumberConstant(cfg,key)` (pur, sans contexte) ; **variable** → `GetVariableForLevel
+  (cfg,key,level)` (renvoie l'élément [0] du tableau per-niveau). `RapidAssault` = chemin **constante**
+  (`ConfigConst(abilityState, key=0xf, level)` @180f67940).
+- **PIVOT** : l'`AbilityConfiguration` n'est que le **miroir live, par-instance, de gameconfig**, indexé
+  `key`+`level`. Or on capte déjà `level` (decisionView.effects). ⇒ **Option A (choisie)** : magnitude =
+  gameconfig **indexée par le level capté** (= la donnée que l'instance résoudrait), read-only, zéro
+  invocation native. Seuls les effets **DYNAMIQUES** (stacks) exigent une vraie lecture live (champ
+  `dynamic` du registre, à brancher au cas par cas).
+
+**`effects_damage_bonus.py` réécrit (registre fidèle 1:1 des `*_Effect`)** — `EffectDef{kind, source_type,
+source_name, var_key, native_key, is_constant, cap, condition, dynamic, va}` ; résolution
+`effect_bonus_for(effect, override?)` (ordre magnitude : override > dynamic(live) > gameconfig[level]) ;
+builder `build_modifiers_from_active_effects(active_effects, magnitudes?)`. Registre = `RapidAssault_ExtraDamage`
+(trait, key 0xf, scalaire 25). Validé : effet capté → +25% → u94→u84 **3012-4524 EXACT** (+ override + back-compat str/tuple).
+
+**SOURCE trait ≠ ability (point user 2026-06-27)** — un effet peut être **lié à un TRAIT** (passif), pas
+seulement à une active. Deux axes distincts, séparés dans le registre :
+- **Capture = origin-agnostique** : `decisionView.effects` (= `ActiveEffectIds`, IsActive-filtré) liste **tous**
+  les effets qui s'appliquent, quelle que soit l'origine (trait/active/triggered/environnement). « actifs » =
+  *en cours d'application*, PAS « issus d'une active ». Un effet posé par un trait y est.
+- **Source de la magnitude** = champ `source_type` : `trait`→`gameconfig.trait(name).variables` (scalaire,
+  `traitVariables`) | `ability`→`gameconfig.ability(id).variables[level-1]`/`.constants`. **RapidAssault EST
+  un effet trait-sourcé** (trait→RapidAssaultAbility pose l'effet ; magnitude dans `traitVariables`) ⇒ le cas
+  **trait est le cas VALIDÉ**, pas l'exception.
+- ⚠ **ANGLE MORT** : un trait qui contribue un modifier **sans poser d'effet-entité** (pure
+  stat-modification / contribution directe au builder — cf. `CalculateModifiersFromStatModifications` §17.1)
+  **n'apparaît pas** dans `ActiveEffectIds` → la capture par effet le rate. **Règle d'extension** : avant
+  d'inscrire un effet au registre, vérifier qu'il surface bien comme effet capté ; sinon (trait modifier pur),
+  passer par l'axe stat-modification (à RE/porter séparément).
+
+**Wiring fait (offline-validé, NON commité)** : (1) `UnitContext.active_effects: list[dict]` + méthode
+`attacker_modifiers()` (build depuis les effets captés ; re-évalué par-décision, non figé par from_snapshot) ;
+(2) `comparable_playbook.generate_multi_hit_attack_predictions` bâtit `mods = caster.attacker_modifiers()` et
+le passe à `get_attack_prediction(..., mods=mods)` ; (3) `predict_validate.py` : `effects_by_id` depuis
+decisionView → `mods` par attaquant → `get_attack_prediction(mods=…)`. Empty mods = no-op exact (8 cas clean
+inchangés). **RESTE (live)** : confirmer u94 → xmod≈1.00 via `predict_validate --seed 777` (re-warmup requis) ;
+étendre le registre au roster (conditions §17.4 par effet) ; brancher `dynamic` au 1er effet dynamique.
+
+**CONFIRMÉ LIVE (session 27, seed-777, 2026-06-27)** : la couche modifier (Option A) reproduit le buff in-situ.
+`RapidAssault_ExtraDamage` capté (effet **trait-sourcé**) → ×1.25 post-perçage par bout → u94→u84 **3012-4524
+xmod=1.00 EXACT** (était 1.25), u94→u86 ±3 (arrondi). **Agreement seed-777 : 8/11 → 10/11**. Seul miss clean
+restant = **u90 xmod 2.83** = `PowerTrip_IgnoreArmor` (axe ignore-armure SÉPARÉ, pas le scalaire
+DamageModifiers — §17.5). NEXT modifier : porter l'axe ignore-armure (u90, flag HasTrait 0x420/HasEffect
+0x59a dans get_attack_prediction) ; étendre le registre au roster (conditions §17.4) ; brancher `dynamic`.
+
+### 17.12 IGNORE-ARMURE = axe PÉNÉTRATION (RE complète) — §17.5 « flag asymétrique » RÉFUTÉ (2026-06-27)
+RE intégrale de l'axe armure (décompilé, PAS de fitting) :
+- `CalculateBaseDamageWithAllModifiers` @18102d3f0 extrait des DEUX `DamageModifiers` (attaquant+défenseur)
+  deux champs : **pierce-extra** (struct @0x20) et **armor-penetration** (@0x28, sommés att+def), passés à
+  `GetBaseDamageWithFixedPiercedArmor` @181030d10 → `pierce_eff = clamp(pierce+extra, 0, 100)` ;
+  **`armor_eff = max(FixedArmor − penetration, 0)`**. ⇒ ignore-armure = une **pénétration d'armure**, PAS un flag.
+- **§17.5 RÉFUTÉ** : grep de `PredictAttackRaw` (108K sauvé) = **0** occurrence de `HasTrait 0x420`/`HasEffect
+  0x59a`/`HasEffect`/`HasTrait`. Il n'existe AUCUN flag ignore-armure dans PredictAttackRaw. L'« asymétrie
+  min garde l'armure / max ignore » était une invention non lue → supprimée.
+- **`DamageModifiers.Add` @181005f10** ne route QUE additif (slot 5)/soustraction (6)/percent (9 + cap 10).
+  Il **ne touche pas** pierce/pénétration → ceux-ci viennent d'une **méthode d'interface par-effet dédiée**,
+  pas de `CreateEffectDamageBonusForAttack`. Source confirmée : `KanOpenerEffect.IgnoreArmor` @180f65100 =
+  `ConfigVar(state, key=0x40, level)` (pénétration per-niveau).
+- **`PowerTrip_IgnoreArmorEffect.CreateEffectDamageBonusForAttack` @180f64fa0 = NO-OP** (EffectBonus
+  condition-seule `IsNormalAttack & OwnerIsCaster & !OwnerIsTarget`, tous slots valeur vides → 0 contribution
+  à DamageModifiers) ; et l'effet n'a **PAS** de méthode `IgnoreArmor` (seul KanOpener en a). ⇒ le mécanisme
+  exact par lequel PowerTrip_IgnoreArmor annule l'armure reste **non tranché** (à RE : peut-être via une autre
+  interface, ou l'effet n'est pas la vraie source de l'écart u90).
+- **`PowerTrip_FullHealthEffect`** = axe SÉPARÉ : `CreateEffectHitsBonusForAttack` @180f64cf0 =
+  `EffectBonus.ForAddition(ConfigConst(key=0x2b))` (extra HITS), gaté `CreateActiveCondition` = `!IsDamaged`
+  (PV pleins). ⇒ +N coups quand l'unité est à PV pleins = MULTIPLIE le total (axe hits, pas le scalaire ni l'armure).
+- **u90 NON expliqué par l'ignore-armure** : full-ignore offline = **5550-8322** ≠ oracle **2048-7592**
+  (min ÷ par rapport à la base, max ↑). L'écart vient de l'axe **hits (PowerTrip_FullHealth)** + une réduction
+  du min non encore identifiée — PAS de l'ignore-armure. À reprendre via la MATÉRIALISATION des effets (savoir
+  quels effets PowerTrip sont actifs offline + leurs valeurs), pas en fittant les nombres.
+
+**PORT (axe armure/perçage, FAIT, NON commité)** : `DamageModifiers` += `extra_pierce`(@0x20)/`armor_penetration`
+(@0x28)/`ignore_armor`(bool, =armor_eff 0) ; `add_modifier` route `Piercing`→extra_pierce, `ArmorPenetration`→
+armor_penetration, `IgnoreArmor`→ignore_armor ; `effect_bonus` += `for_armor_penetration`/`for_ignore_armor` ;
+`get_attack_prediction` calcule `pierce_eff`/`armor_eff` depuis mods AVANT le perçage (= GetBaseDamageWith-
+FixedPiercedArmor), le scalaire %-list/additif RESTE post-perçage (= ApplyCappedModifiers). **Validé offline :
+None == mods vides == (1110,2298) (no-regress) ; ignore_armor == pénétration=armure == pierce+80=100 == bout
+plein (5550,8322).** AUCUN effet inscrit au registre sur cet axe (valeurs par-effet = via matérialisation).
+
+### 17.13 EFFETS = hiérarchie de classes (BaseEffect + sous-classes + factory + registre) + matérialisation offline (2026-06-27)
+Refonte (directive user : « classe de base + classes dérivées + registre + factory ») — mirror FIDÈLE du
+modèle natif « 1 classe par effet ». Remplace l'ancien registre de données (`effects_damage_bonus.EffectDef`
++ dict `EFFECT_LIFECYCLE`), supprimé.
+- **`engine/entities/effects/`** : `base.py::BaseEffect` (interface = `create_effect_damage_bonus_for_attack`
+  / `create_effect_hits_bonus_for_attack` / `get_armor_penetration` (IgnoreArmor) / `is_active`
+  (CreateActiveCondition) + cycle de vie `removed_after_attack`/`one_shot`/`expired`) ; `loki.py` = 1
+  sous-classe par effet (RapidAssaultExtraDamageEffect @180f67940, PowerTripFullHealthEffect @180f64cf0/cond
+  @180f64cb0, PowerTripIgnoreArmorEffect @180f64fa0 (no-op), KanOpenerEffect @180f65100) ; `magnitude.py` =
+  résolution gameconfig (trait/ability×level, Option A) ; `factory.py` = `EffectFactory` + `EFFECT_CLASSES`
+  (nom EffectType→classe ; inconnu→BaseEffect no-op) ; `__init__` = `build_attacker_modifiers_from_effects`
+  + `hits_bonus_from_effects`.
+- **`engine/entities/effects_state.py::EffectsState`** = matérialisation **seed one-shot + évolution** :
+  `seed({uid:[capture]})` → instances via factory ; `active_effects(uid, state)` = non-consommés/non-expirés/
+  `is_active` (ce que l'engine consomme par décision, AU LIEU d'une relecture live) ; `on_attack` (one-shot),
+  `on_turn_end(attacked)` (retrait RapidAssault si attaqué + décrément timers).
+- **Mapping natif** : BaseEffect↔BaseEffect ; `*_Effect`↔sous-classes ; dispatch `EffectType→classe`↔factory ;
+  effets posés (triggered `AddEffect`)/portés (`EffectsOwnedComponent`)/itérés (builder `param_5`)/retirés
+  (trigger)↔EffectsState seed+lifecycle. **2 écarts par conception (100% offline)** : magnitude = gameconfig
+  offline indexée level (vs DSL live) ; effets = seed one-shot + évolution (vs ECS temps réel).
+- **Validé offline** : factory dispatche ; matérialisation+cycle de vie OK (PowerTrip_FullHealth actif SSI
+  PV pleins ; RapidAssault retiré après attaque) ; **RapidAssault EXACT préservé** ; UnitContext.attacker_modifiers
+  accepte instances OU dicts. **RESTE** : (a) `combatSnapshot.effects` one-shot (hook, rebuild+reinject) — pour
+  l'instant seed depuis decisionView (oracle) en validation ; (b) magnitudes PowerTrip (clés 0x2b hits / 0x40
+  pénétration → noms gameconfig) ; (c) re-valider live (10/11) après refonte ; (d) u90 (hits full-health + pén).
+
+**§17.13 RE-VALIDÉ LIVE (session 27, seed-777, 2026-06-27)** : refonte classes+factory+matérialisation =
+**10/11** (u94→u84 3012-4524 EXACT, mods ×1.25 via la chaîne EffectsState→factory→RapidAssaultExtraDamageEffect).
+⚠ GOTCHA corrigé : `RemainingTurns` capté = **0 pour TOUS** les effets seed-777 (passifs/aura/this-turn ;
+retrait géré par TRIGGER, pas par timer). Le filtre `expired` (remaining<=0) droppait donc TOUS les effets
+(régression 8/11) → fix dans `EffectFactory.create` : `rem=0 → None` (permanent/no-countdown) ; seul `rem>0`
+est chronométré (expire après décrément `on_turn_end`).
+
+### 17.14 PowerTrip — magnitudes MAPPÉES + u90 NON fermé proprement (RE, 2026-06-27)
+PowerTrip = **ability PASSIVE** de orksKillaKan (PAS un trait ; traits KillaKan = Hero/GetStuckIn/BigTarget/
+Explodes/Mechanical). `gameconfig.ability('PowerTrip')` : constants `{extraHit:1, hpPct:5}` ; variables
+`{armorIgnored:[5,6,7], armorReduction:[5,6,7]}`. Application RE'd (3 sous-mécanismes DISTINCTS) :
+- **`PowerTrip_FullHealthEffect.CreateEffectHitsBonusForAttack` @180f64cf0** = `ForAddition(extraHit=1)`,
+  gaté `!IsDamaged` (PV pleins, `CreateActiveCondition` @180f64cb0) → **+1 COUP** (prédiction-time, PORTÉ).
+- **`PowerTrip_OnAttackAbility.CreateBehaviour` @181111e40** = ON ATTACK : `AddStaticStatModifierEffect
+  (cible, FixedArmor, −GetVariableForLevel(key 0x30=armorReduction[lvl]))` + self `ChangeStat(Health, +hpPct%)`.
+  ⇒ réduction d'armure **STATEFUL** (mute la stat FixedArmor de la cible dans le temps), PAS un modifier de
+  prédiction (la prédiction lit déjà l'armure courante) → RIEN à ajouter au DamageModifiers.
+- **`PowerTrip_IgnoreArmorEffect.CreateEffectDamageBonusForAttack` @180f64fa0 = NO-OP** ; `armorIgnored`
+  (var distincte) consommateur non tranché → no-op (pas d'invention).
+- `PowerTrip_InitAbility.CreateBehaviour` @181111d20 pose les effets 0x551/0x552 (FullHealth/IgnoreArmor).
+
+**WIRING** : `PowerTripFullHealthEffect` +1 coup câblé (magnitude.ability_var('PowerTrip','extraHit',const)) +
+`hits_bonus_from_effects` branché dans predict_validate (`hits += Σ bonus`). **Effet LIVE** : u90→u86 hits 3→4,
+offline 1110-2298 → **1480-3064**, xmod **2.83 → 2.12** ; **10/11 préservé** (seul u90 affecté).
+**u90 PAS FERMÉ — résidu = enveloppe per-coup LARGE & ASYMÉTRIQUE non fittable** : oracle per-coup
+[512,1898] vs offline [370,766] (min ×1.4, max ×2.5 — ratio ≠ scalaire ≠ armure uniforme ≠ +hits). Ne
+correspond à AUCUN axe porté (modifier/armure/hits). Hypothèses NON vérifiées (à RE, PAS à fitter) :
+modifiers DÉFENSEUR de u86 (BigTarget/Explodes/PowerTrip côté cible) et/ou armure déjà réduite live (stateful
+OnAttack) et/ou per-coup à armure décroissante. ⇒ fermeture = RE `CalculateDefenderModifiersForPrediction`
+sur u86 + l'asymétrie per-coup, refusée tant que non lue (règle anti-fitting).
+
+### 17.15 Défenseur RE'd — u86 contribue ZÉRO ; u90 NON fermable en RE statique (2026-06-27)
+`CalculateDefenderModifiersForPrediction` @181002c30 (lu) : `Empty` + `CalculateModifiersFromStatModifications`
+puis itère les EFFETS du DÉFENSEUR (param_5) ; par effet 3 slots — `0x1a`/`0x1b` (FUN_18002fd50 →
+Nullable damage-malus, ajoutés à la %-list via DamageModifiers.Add) + sous-check FUN_1800058b0 → pénétration
+`iVar28`→param_1[5]=@0x28 ; `0x19` (FUN_180024fa0 → pierce `iVar29`→param_1[4]=@0x20). = famille
+`CreateEffectDamageMalusForDefense`/`CreateDamageDefenseModifier`. **CONFIRME** : défenseur alimente le MÊME
+@0x20 (pierce)/@0x28 (pénétration) + une %-list, combinés attaquant+défenseur dans CalculateBaseDamageWith-
+AllModifiers.
+**MAIS u90→u86 NON fermé** : (1) effets de u86 (PowerTrip_IgnoreArmor/PowerTrip_FullHealth/BigTarget_Adjacent)
+n'ont AUCUNE méthode de défense (la famille Malus = d'AUTRES effets) → **défenseur u86 = ZÉRO modifier** ;
+(2) `BigTargetAdjacentEffect.CreateEffectHitsBonusForAttack` @180f33ac0 = condition `OwnerIsTarget &
+IsRangedAttack` (bond ABondEffect 0x406 sur friends adjacents, CreateTargetSelector=Friends(AdjacentUnits))
+→ **tir uniquement** ; attaque normale u90 = arme Chain MÊLÉE → N/A.
+⇒ **TOUS les axes candidats RE'd sont épuisés et AUCUN n'explique u90** (oracle 2048-7592 vs offline 1480-3064
+à 4 coups). Résidu = enveloppe per-coup large/asymétrique [512,1898] vs [370,766]. PowerTrip_IgnoreArmor
+(`armorIgnored` [5,6,7]) reste non consommé (effet = no-op damage bonus, pas d'autre méthode). **Conclusion
+méthodo** : ne PAS fitter ; passer à la CONFIRMATION LIVE — étendre `modifier-observe` pour dumper les VALEURS
+réelles (DamageModifiers additif/%-list/pierce/pénétration + hits + armor_eff) au point CalculateBaseDamageWith-
+AllModifiers de u90→u86, pour identifier l'axe manquant. (Port défenseur = structure RE'd, à porter quand une
+unité a des effets de défense ; inutile pour u86 qui n'en a pas.)
+
+### 17.16 u90 DIAGNOSTIQUÉ via value-dump live — pénétration 499 + 6 coups (GetStuckIn) (2026-06-27)
+Extension `modifier-observe` : value-dump sur `GetBaseDamageWithFixedPiercedArmor` @181030d10 (onEnter args
+Fix64 base/pierceA/pierceB/pénétration + onLeave result ; Fix64=Q31.32 confirmé `0x73a00000000>>32=1850`).
+RPC `modifierObserveStatus.valueDumps`. **Dump u90→u86 (bouts base 1850/2774)** :
+- **pénétration = 499** (param_10) → armor_eff = 2008−499 = **1509** ; result lo = 1850−1509 = **341**, hi =
+  2774−1509 = **1265** (les DEUX sur la branche `base−armor` ⇒ le plancher perçage n'a PAS gagné → pierce
+  effectif BAS ici, ≠ 20 supposé ; pierceA/pierceB args = 0).
+- **`[341,1265] × 6 coups = [2046,7590] ≈ oracle [2048,7592]`** (±2 arrondi). ⇒ u90 = **6 COUPS** + pénétration 499.
+**Source des 2 axes (RE)** :
+- **6 coups = trait GetStuckIn** : `GetStuckInAbility.CreateBehaviour` @180f83280 = `AddBonusHitsToCurrentHitGroup
+  (effet 0x4d2)` sous `Maybe(GetBonusHitChance)` ; `CreateTrigger` @180f83350 = `On(8) & CurrentHitIndex IsOdd
+  & OwnerIsCaster & !(MinDistance>2)` (mêlée) ; `GetBonusHitChance` @180f83460 = ConfigConst 0x2a
+  (`getStuckInChance`=30) / 0x33 (`getStuckInChance_2`=100), 100% si ≥2 Orks adjacents (faction 5) OU ≥4 unités
+  adjacentes. ⇒ ajoute un coup bonus par coup d'index IMPAIR en mêlée → **double ~3→6** (100% ici, 2 orks adjacents).
+- **pénétration 499** = NON encore sourcée (≠ PowerTrip armorIgnored/reduction=5-7 ; ≈25% de 2008=502). À RE :
+  le chemin pénétration du builder ATTAQUANT (`CalculateAttackerModifiersForPrediction` @181000590, champ @0x28).
+**CONCLUSION** : value-dump = CONFIRMATION réussie (méthodo respectée, zéro fitting). u90 = 6 coups (GetStuckIn,
+positionnel/parité d'index) × per-bout[341,1265] (pénétration 499). **PORT pour fermer** = (a) porter GetStuckIn
+(coups bonus odd-index + ≥2 orks adjacents → +hits ; positionnel), (b) sourcer+porter la pénétration 499
+(RE builder attaquant @0x28), (c) profil/pierce réel de l'attaque (bas, ≠ Chain 20). Hook value-dump = NON commité.
+
+### 17.17 LES TRAITS SONT EXPLOITÉS DIRECTEMENT DANS rawDamagePrediction (correction majeure, 2026-06-27)
+**2 erreurs à moi corrigées :** (a) §17.5 (`HasTrait 0x420`/`HasEffect 0x59a` dans PredictAttackRaw) était
+**CORRECT** — je l'avais réfuté à tort en grepant le `.compact.c` (LOSSY) ; le `.c` complet l'a (ligne 2227-2232).
+**Ne jamais conclure « absent » depuis le décompilé compacté — grep le fichier complet.** (b) J'ai ancré toute
+la RE modifier sur le chemin **effet→DamageModifiers** et **loupé que les traits sont exploités DIRECTEMENT**
+dans `PredictAttackRaw` + ses helpers.
+
+**RÉPONSE « les traits sont matérialisés ? » — DEUX chemins d'exploitation :**
+1. **Matérialisés** au battle-init en : (a) ABILITIES accordées par le trait (`<Trait>Ability` triggered/active :
+   GetStuckInAbility, PowerTrip_Init/OnAttack, BigTargetAbility, RapidAssaultAbility…) ; (b) EFFETS que ces
+   abilities posent (`AddEffect(id)` → EffectEntity dans ActiveEffectIds → `decisionView.effects`, SOUS-ENSEMBLE).
+   GetStuckIn = matérialisé en ABILITY (coups bonus transitoires `AddBonusHitsToCurrentHitGroup`), PAS en effet
+   nommé → invisible dans la capture (d'où le miss).
+2. **Exploités DIRECTEMENT dans rawDamagePrediction** (PredictAttackRaw + helpers), via `HasTrait`/`HasEffect`/
+   `GetTraits`/`TryGetAbility`/`HasTriggeredAbility` — couche que l'engine ignorait totalement.
+
+**CONTRAT d'exploitation des traits dans le raw prediction (= la GARDE systématique, fonctions NOMMÉES finies) :**
+- `GetBaseDamageWithFixedPiercedArmor` @181030d10 : `HasTrait(cible, 0x3f5=1013)` → hit-twice (×2) ;
+  `GetPiercingRatio(profil, GetTraits(attaquant))` → pierce trait (lasCannon 0x3e9/0x3f8) ; `TryGetAbility
+  (cible, 0x4b6=1206)` + var 0x51 → triple-hit.
+- PredictAttackRaw @2227 : `HasTrait(attaquant, 0x420=1056) & HasEffect(attaquant, 0x59a=1434)` → flag
+  true-damage/ignore-armure (uVar17 → scenario).
+- PredictAttackRaw @2294 : `ApplyTraitDamageLimitsToDamage` @18102c650 → `ApplyGroupUnitDamageLimit` (×2) +
+  `ApplyResilientTraitDamageLimit` (trait **Resilient**, cap/coup) + `ApplyImperviousTraitDamageLimit` (trait
+  **Impervious**) + cap `HasTriggeredAbility(cible, 0x5d4)` → dmg ≤ `GetStat(MaxHP)×GetNumberConstant(0x12)/100`.
+- PredictAttackRaw @2385 : `DamageProfile.HasTrait`.
+- (+ effet→DamageModifiers = traits matérialisés en effets.)
+⇒ **Pour ne RIEN louper : auditer ce contrat (ces fns nommées) + le chemin trait→ability/effet, PAS seulement
+les effets captés.** Couche jamais portée dans l'engine (Resilient/Impervious/GroupUnit caps, ignore-armure
+flag, hit-twice/triple-hit, profile-traits) = chantier de portage à part entière.
+**u90** : 6 coups = GetStuckIn (confirmé) ; pénétration 499 = champ @0x28 des DamageModifiers (param_10),
+source précise encore à isoler (dump attaquant-vs-défenseur séparé) — mais la LEÇON = la couche trait-direct
+du raw prediction, désormais cartographiée.
+
+### 17.18 MATÉRIALISATION DES TRAITS (framework, 2026-06-27) — symétrique des effets
+Directive user « il faut materialiser les traits aussi ». Même patron que les effets, mais traits =
+**innés/statiques** (gameconfig.unit().traits, jamais retirés ⇒ pas d'évolution). Package
+`engine/entities/traits/` : `base.py::BaseTrait` (contrat = points §17.17 : `as_attacker_bonus_hits`/
+`as_attacker_pierce_bonus`/`as_attacker_ignores_armor`/`as_target_hit_multiplier`/`as_target_damage_cap`,
+défaut no-op) ; `combat.py` (GetStuckInTrait confirmé + ResilientTrait/ImperviousTrait scaffold) ;
+`factory.py` (TraitFactory + TRAIT_CLASSES nom gameconfig→classe, inconnu→BaseTrait no-op) ; `__init__`
+(agrégateurs attacker_bonus_hits/…/target_damage_cap). `engine/entities/traits_state.py::TraitsState`
+(seed `{uid:[noms]}` → instances, statique). `UnitContext.trait_objects()` = matérialise self.traits.
+**GetStuckInTrait** : `as_attacker_bonus_hits` = ×2 (bonus=base_hits) en mêlée + ≥2 Orks adjacents (ou ≥4
+unités) ; **VALIDÉ offline = value-dump u90 (base 3→6)** ; 0 si données d'adjacence absentes (pas d'invention).
+Resilient/Impervious = scaffold (formule cap `ApplyResilient/ImperviousTraitDamageLimit` TODO RE).
+**RESTE** : (a) câbler le contrat dans `get_attack_prediction` (appliquer attacker bonus_hits/pierce/
+ignore-armure + target hit-mult/damage-cap, avec ctx adjacence/positions) ; (b) RE les formules par-trait
+restantes (Resilient/Impervious caps, hit-twice 0x3f5, lasCannon-pierce, flag ignore-armure 0x420/0x59a) ;
+(c) **pénétration 499 de u90 toujours NON sourcée** (champ @0x28 des DamageModifiers ; ni trait ni effet
+identifié de u90/u86 ne la produit → besoin d'un dump séparé attaquant-vs-défenseur de @0x28). u90 = 6 coups
+SOURCÉS (GetStuckIn) ; pénétration = pièce manquante.
+
+### 17.19 Pénétration 499 SOURCÉE = côté ATTAQUANT (u90), via slot-0x16 du builder attaquant (2026-06-27)
+Étendu `modifier-observe` : mods-dump des champs `DamageModifiers` (additif@0x10 / pierce@0x20 / pénétration@0x28)
+retournés par CHAQUE builder (RPC `modifierObserveStatus.modsDumps`). **Résultat u90→u86** :
+`attacker @0x28 = 499`, `defender @0x28 = 0` (distinct par côté : attacker {0,499}, defender {0}).
+⇒ **la pénétration 499 est ATTAQUANT (u90), PAS défenseur.** (CalculateBaseDamageWithAllModifiers somme
+att+def → param_10=499.)
+**Mécanisme (attacker builder @181000590, compact l.796-841)** : pour chaque effet, slot `0x16`
+(`GetDamageBonusForAttack`=`CreateEffectDamageBonusForAttack`) → EffectBonus ; un champ Nullable (FUN_1800058b0
+HasValue) est sommé dans `iVar31` → `param_1[5]`=@0x28=pénétration. (slot 0x17 = autre ; 0x18=FUN_180024fa0=pierce@0x20.)
+**SNAG honnête** : les 3 effets CAPTÉS de u90 (PowerTrip_IgnoreArmor=condition-seule, PowerTrip_FullHealth/
+BigTarget=hits) ne produisent PAS statiquement 499 via slot 0x16. ⇒ soit (a) un 4e effet non capté par
+decisionView.effects (effet transitoire/non-listé), soit (b) un champ pénétration **DYNAMIQUE** de l'EffectBonus
+(rempli à l'évaluation, pas à CreateEffect ; 499 ≈ 25% de l'armure 2008 = peut-être un %-armure dynamique).
+**NEXT (confirmation)** : dump PAR EFFET — hook `<Effect>.CreateEffectDamageBonusForAttack` de u90 + lire le
+champ pénétration de l'EffectBonus retourné (avec l'identité de l'effet) → isole l'effet + la formule (statique
+vs %-armure dynamique). La QUESTION du user (« dump @0x28 att-vs-def ») est RÉPONDUE : attaquant, 499.
+
+### 17.20 u90 = arme PROJECTILE (pierce 15, RANGED), pas Chain — catch user « weapon ? » (2026-06-27)
+Le per-bout réel (value-dump) lo=341 = `1850−1509` (branche ARMURE). Or le plancher perçage Chain(20)=370
+AURAIT gagné (>341) → résultat 370, FAUX. Plancher Projectile(15)=277 (<341) → branche armure 341 gagne ✓.
+**⇒ u90's normal attack = arme Projectile (pierce 15, RANGED), PAS Chain (20).** Vérif : Projectile+pen499
+→ per-bout [341,1265]×6 = **[2046,7590] ≈ oracle [2048,7592]** ; Chain → min 2220 (≠2048).
+**BUG predict_validate** : `_normal_weapon_pierce` choisit l'arme par `hits==normal_hits` ; u90 a 2 armes à
+hits=3 (Chain melee, Projectile ranged) → prend la 1re (Chain) = FAUX. La sélection d'arme doit dépendre du
+contexte (mêlée/portée), pas du 1er match hits.
+**CASCADE de corrections (3 conclusions hâtives à moi) :**
+1. pierce 20→15 (mauvaise arme). 
+2. **Attaque RANGED** ⇒ GetStuckIn (MÊLÉE, `!MinDistance>2`) ne s'applique probablement PAS → **les 6 coups
+   sont vraisemblablement BigTarget** (`BigTargetAdjacentEffect.CreateEffectHitsBonusForAttack` condition
+   `OwnerIsTarget & IsRangedAttack`, u86=big target) **et NON GetStuckIn**. ⚠ Mon attribution GetStuckIn
+   (§17.16/17.18) + le port `GetStuckInTrait` = **à RE-VÉRIFIER** (probablement la mauvaise source pour u90).
+3. (§17.5 déjà corrigé : compact-grep.)
+**Pénétration 499** : toujours côté attaquant, source ouverte — possiblement liée au ranged/BigTarget (à RE).
+**LEÇON** : vérifier l'ARME (mêlée/ranged) AVANT d'attribuer hits/pierce — le choix d'arme conditionne quels
+traits/effets s'appliquent (ranged vs melee gating). cf. [[feedback_recon_full_kit_not_captured_effects]].
+
+### 17.21 PÉNÉTRATION 499 CRACKÉE = armorIgnored × AbilityVariablesMultiplierPercentage (RÈGLE GÉNÉRALE, 2026-06-27)
+Dump par-source live (idée user : hooker les dispatchers de construction du modifier + **stacktrace**).
+Ajouté à `modifier-observe.ts` : 3 hooks génériques dédupliqués `(tag,srcClass)` —
+`BaseEffect.HitsBonusForAttack` @180f12a30 (bonus coups prédiction), `BaseEffect.DamageBonusForAttack`
+@180f0f5e0 (bonus dégât/perçage/pénétration prédiction), `AddBonusHitsToCurrentHitGroupBehaviour.Execute`
+@180f93410 (GetStuckIn EXÉCUTION). `srcClass` lu depuis `this`=args[1] (après le ptr de retour struct).
+
+**DÉCOUVERTE MAJEURE — magnitude d'une variable d'ABILITY = `gameconfig.variables[level] × AbilityVariablesMultiplierPercentage/100`, arrondie.**
+- u90 = orksKillaKan **L50**, `AbilityVariablesMultiplierPercentage = 180` (champ BC `Units[*]`). PowerTrip
+  `armorIgnored[50] = 277` (gameconfig, `variablesAffectedByRarityBonus`). **`round(277 × 1.80) = round(498.6) = 499`** = pénétration live (@0x28 attaquant). ✅✅ fit 3 points (gameconfig + BC + live).
+- **Variables de TRAIT (traitVariables) = globales, NON scalées** (RapidAssault 25% exact sans mult). Seules
+  les variables d'ABILITY (`ability.variables[level]`) sont scalées par le mult de l'unité. Les **constantes**
+  (`GetNumberConstant`, ex. PowerTrip `extraHit`=1) ne sont PAS scalées non plus.
+- ⚠ Mon moteur lit `ability_var(level)` BRUT → manque le ×mult. **Fix général à câbler** : `magnitude.ability_var`
+  doit multiplier par `UnitContext.ability_variables_multiplier` (à capter depuis BC/combatSnapshot).
+
+**PowerTrip mécanique RE'd (décompile leaves) :**
+- `PowerTrip_FullHealthEffect.CreateEffectHitsBonusForAttack` @180f64cf0 = `ForAddition(value=GetNumberConstant(0x2b=extraHit=1))`
+  sous `IsNormalAttack & OwnerIsCaster`. Le gating PV-pleins = **présence de l'effet** (pas la condition du bonus).
+  ⇒ **+1 coup** (constante, non scalée). base 3 → 4.
+- `PowerTrip_IgnoreArmorEffect.CreateEffectDamageBonusForAttack` @180f64fa0 = bonus **condition-seule VALEUR 0**
+  (`IsNormalAttack & OwnerIsCaster & !OwnerIsTarget`, val=0). **N'EST PAS le porteur du 499.** ⇒ correction : la
+  pénétration est bâtie DIRECTEMENT dans `CalculateAttackerModifiersForPrediction` (lit la config PowerTrip), pas
+  via le `DamageBonusForAttack` de l'effet. (≈ pattern d'exploitation directe §17.17, mais pour pénétration.)
+
+**GetStuckIn PAS simulé en prédiction** : `addBonusHitsExec` fires=**0** pendant le decisionView. La prédiction
+n'exécute pas le behaviour triggered GetStuckIn (`On(8) & CurrentHitIndex.IsOdd & OwnerIsCaster & !(MinDistance>2)`,
+chance `If(orks_adj≥2 OU units_adj≥4, chance_2[0x33], chance[0x2a])`). ⇒ **les coups bonus GetStuckIn ne sont PAS
+dans dmgMax** ; le port `GetStuckInTrait` ne doit PAS contribuer à la prédiction (mais reste vrai à l'exécution).
+
+**MÉTHODE — value-dump ≠ hit count** : `GetBaseDamageWithFixedPiercedArmor` calcule le per-bout UNE fois (lo+hi)
+par PRÉDICTION ; le nb de coups est un MULTIPLICATEUR aval (caller). `GenerateMultiHitAttackPredictions`@181409da0
+boucle sur les MEMBRES de squad (param_5), pas les coups ; `hits`=param_7 passé au per-membre. `GetDefaultAttackHits`
+@181032520 = `Max(0, nrOfHits + GetStat(17 ExtraHits) + [melee? GetStat(23 ExtraHitsMelee)])` (PAS GetStuckIn/effet).
+
+**u90 FERMÉ — hit-multiplier = 6, CONFIRMÉ sur 2 cibles (arithmétique exacte, pen=499) :**
+- base per-bout = `attack 2312 ±20%` = [1850,2774] ; `armor_eff = target_armor − 499`.
+- u86 (armor 2008) : per-bout [341,1265] ×6 = **[2044,7592] ≈ oracle [2048,7592]** ✓ (×4=[1362,5062] ✗).
+- u84 (armor 1806) : per-bout [543,1467] ×6 = **[3256,8804] ≈ native normalAttack [3260,8804]** ✓ (×4=[2170,5870] ✗).
+- soustraction d'armure UNIFORME lo+hi (pas de modifier/extraMax ; crit/block/extraMax/members = 0 vérifié snapshot).
+**⇒ hits damage = 6 = 3 (Projectile) + 1 (PowerTrip PV-pleins) + 2 (GetStuckIn = `floor(4/2)`, 100% car ≥2 orks adj).**
+**Le CHAMP `normalAttack.hits` = 4** (GetDefaultAttackHits 3 + PowerTrip 1, **EXCLUT GetStuckIn**) ; mais le DÉGÂT
+applique ×6 (GetStuckIn inclus). GetStuckIn EST dans la prédiction (`!MinDistance>2` = **portée 2, PAS mêlée-only**
+→ s'applique au tir Projectile si cible ≤2 hex) **mais PAS via `AddBonusHitsToCurrentHitGroupBehaviour.Execute`**
+(addBonusHitsExec fires=0) → chemin hits prédiction-spécifique (pas encore localisé en code). **Corrige §17.20**
+(« probablement BigTarget, pas GetStuckIn » = FAUX : GetStuckIn EST le +2) **et le port `GetStuckInTrait`** (×2
+doubling = FAUX ; vrai = `+floor(hits_post_PowerTrip / 2)` = floor(4/2)=2 au taux plein).
+**RESTE (engine)** : (1) câbler `ability_var × AbilityVariablesMultiplierPercentage/100` arrondi (capter le champ BC
+dans UnitContext) → pénétration 499 ; (2) PowerTrip armorIgnored → pénétration attaquant (normal attack, owner=caster,
+toujours-on, scalé) ; (3) GetStuckIn `+floor(hits/2)` au taux plein (≥2 orks adj OU ≥4 unités adj, portée ≤2) ; (4)
+localiser le chemin prédiction GetStuckIn en code (≠ Execute) pour fidélité exacte.
+
+### 17.22 SOURCE du multiplier + WIRING points 1-3 (RE config-driven + port, 2026-06-27)
+**Multiplier sourcé (catch user « trouve dans ghidra d'où le multiplier » + « config a des magnitudes par level ») :**
+- **VALEUR** = `AbilityVariablesMultiplierPercentage` par-unité (BC `Units[*]`, =180 pour u90 L50), dérivée de la
+  progression par `UnitConfigUtil.GetAbilityVariablesMultiplierPercentageForProgressionIndex` @181696230 (table
+  per-progression-index, défaut 100 ; meta-side `IdunMetaLogic.UserProgress.*`).
+- **QUELLES variables** = config-driven : BC `Abilities.PassiveAbilities.PowerTrip` porte les **arrays BASE**
+  `[5..364]` + le flag `VariablesAffectedByUnitRarityMultiplier:[64,48]` (= gameconfig `variablesAffectedByRarityBonus:
+  [armorIgnored,armorReduction]`). Seules ces variables sont scalées ; constantes (extraHit) non.
+- **FORMULE** = `effective = round(base[level] × mult/100)` → round(277×1.8)=499. `GetVariableForLevel` @181576fb0
+  rend la base brute (pas de scaling là) → le scaling est appliqué au build config par-unité (BC→runtime).
+- **GOTCHA `level` (bug trouvé live)** : `decisionView.effects[].level=1` = **stack level**, PAS le niveau d'ability.
+  `armorIgnored` est indexé par le **PassiveAbilityLevel (=50)**. Avec le stack level (1) → armorIgnored[0]=5 → pen=9
+  (FAUX). Fix = champ `BaseEffect.ability_level` distinct (seedé depuis l'unité), utilisé pour les variables d'ability.
+
+**WIRING points 1-3 FAIT + VALIDÉ LIVE (NON commité) :**
+- (1) `magnitude.ability_var(multiplier_pct)` scale les vars `variablesAffectedByRarityBonus` (round). 
+- (2) `PowerTripIgnoreArmorEffect.get_armor_penetration` = `ability_var(armorIgnored, ability_level, mult)` → 499 ;
+  threadé via `BaseEffect.{ability_variables_multiplier,ability_level}` + `EffectFactory`/`EffectsState.seed(mult_by_unit,
+  ability_level_by_unit)` + `UnitContext.ability_variables_multiplier`. **Live u90→u86 : offline hi 3100→5060** (pen 499
+  appliqué : per-bout 1265 = 2774−(2008−499)). 
+- (3) `GetStuckInTrait.as_attacker_bonus_hits` = `+floor(hits/2)` au taux plein ; câblé predict_validate (ctx adjacence
+  cible/portée≤2). **Offline OK** (base4→+2→6).
+- **predict_validate** capte mult + PassiveAbilityLevel depuis la BC (par visualId ; capture per-entité combatSnapshot =
+  TODO robustesse). **AGREEMENT 10/11 préservé** (zéro régression).
+- **(a) SÉLECTION ARME mêlée/ranged FAITHFUL FAIT (2026-06-27)** : RE `ALoki_NormalAttackAbility.PredictAttack`
+  @1811afa50 → `FindAttackWeapon` @1811aeb80 (sélectionne l'arme par PORTÉE/atteignabilité, DamageProfile@0x10).
+  `_normal_weapon_pierce(ctx, dist)` réécrit : cible adjacente (dist≤1)→arme mêlée, sinon→arme ranged (fallback ranged
+  si dispo) ; déplacé PAR-CIBLE (dist=cheby position courante). **u90 → pierce 15 (Projectile, était 20 Chain)** →
+  per-bout [341,1265] = `[1850,2774]−(2008−499)` = **EXACT value-dump**. offline 1364-5060. 10/11 préservé (autres
+  unités mono-arme, inchangées). ⚠ branche mêlée-adjacent non exercée seed-777 (règle portée standard, hypothèse).
+- **u90 = 1 SEUL résidu restant = hit count (4 vs 6)** : tout le per-bout est EXACT (base, pierce 15, pénétration 499,
+  PowerTrip +1, armure). GetStuckIn ne fire pas à la position COURANTE (cheby u90↔u86 >2) alors que l'oracle prédit
+  **post-move** (×6) → **(b) position-aware** (évaluer à la meilleure tuile d'attaque comme l'oracle). Avec h6 →
+  [2046,7590]≈oracle [2048,7592]. Points 1-3 + (a) = corrects ; reste UNIQUEMENT (b).
+
+### 17.23 u90 FERMÉ — prédiction ANCRÉE À LA POSITION D'ATTAQUE → AGREEMENT 11/11 (catch user, 2026-06-27)
+**Point user décisif** : « la prédiction de dégât est relative à UNE position, et celle-ci est soit mêlée soit ranged ».
+⇒ pas 2 problèmes (arme + position) mais UN : ancrer la prédiction à la **position d'attaque que l'oracle a utilisée**.
+`decisionView.attackPlans[].evals[].ranked[]` EXPOSE cette tuile : `{col,row,dmgMin,dmgMax,...}`. u90→u86 :
+`ranked[0]=(5,4)` (post-move), cible (6,6) → **dist 2** (≠ dist courante 4). Fix : `predict_validate` consomme
+`(r0.col,r0.row)` comme position d'attaque pour la **distance** (→ arme) ET le **within-range-2** (→ GetStuckIn).
+- À dist 2 : non-adjacent → **arme ranged (Projectile pierce 15)** ; within range 2 → GetStuckIn trigger OK.
+- **GetStuckIn = prédiction OPTIMISTE** : oracle u90→u86 a dmgMin ET dmgMax à 6 coups, alors que la condition de
+  CHANCE est 30% (1 seul ami adjacent à la cible, <2 orks/<4 amis ADJACENTS range 1). ⇒ le moteur de prédiction
+  résout `Maybe(GetBonusHitChance)` comme « atterrit » (cf. predOptimistic) → compte `+floor(hits/2)` dès que le
+  trigger STRUCTUREL tient (within range 2), SANS gate sur la chance. `GetStuckInTrait.as_attacker_bonus_hits` =
+  `+floor(hits/2)` sur within_range2 seul (orks/amis = info 30 vs 100% réel, pas de gate).
+- **RÉSULTAT** : u90→u86 = 3(Projectile)+1(PowerTrip)+2(GetStuckIn) = **6 coups**, per-bout [341,1265] ×6 =
+  **[2046,7590] ≈ oracle [2048,7592] = xmod 1.00 OK**. **AGREEMENT 11/11** (était 10/11), 0 régression. Les 4 OPT
+  (cibles à réduction) restent hors compte propre. Points 1-3 + (a) + ancrage position = **u90 FERMÉ**. RIEN COMMITÉ.
+
+### 17.24 MULTIPLIER CAPTÉ PAR-ENTITÉ via combatSnapshot (live, 2026-06-27)
+Remplace le fallback BC-offline-par-visualId. `AbilityVariablesMultiplierPercentage` vit sur **`UnitConfiguration`**
+(dump gqfc5mff6c : `Id@0x10, VisualId@0x18, mult@0x74, tertiaryMult@0x78, Level@0x7C, ActiveAbilityLevel@0xB8,
+PassiveAbilityLevel@0xBC` ; `Level`=struct int). PAS sur l'entité (`UnitComponent` = VisualId@0x20/Rank@0x1A4 sans
+mult). Registre runtime = **`BattleQuery.GetUnitConfig(unitId)`** (EntityServices.`<Battle>`@battleInServicesOff ;
+clé = VisualId, Id==VisualId). `combatSnapshot` (rpc-view.ts) ajoute par unité `unitConfig` = {visualId,
+abilityVariablesMultiplier, tertiaryAbilityVariablesMultiplier, level, activeAbilityLevel, passiveAbilityLevel} :
+lit la VisualId-string de l'entité (UnitComponent.VisualId@0x20 via forEachComponent) → `GetUnitConfig` → champs.
+`predict_validate` consomme `snap.units[].unitConfig` (mult_by_id/ablvl_by_id par entityId ; entityId==decisionView.id),
+fallback BC si hook ancien. **Per-entité réel confirmé : mult VARIE (u88=160, u94=200, autres=180)** (table de
+progression @181696230 par unité). **AGREEMENT 11/11 préservé, sourcé LIVE** (plus de dépendance duel_state.bc).
+Build+reinject session 31. RIEN COMMITÉ. (TODO robustesse : duplicates même VisualId mais Id unique en bataille
+non-miroir → clé Id de l'entité requise ; non bloquant pour arène-miroir.)
