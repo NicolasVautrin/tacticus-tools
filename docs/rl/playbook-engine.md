@@ -828,12 +828,57 @@ MinDist sur distance-CHEMIN. La distance-chemin (vs hex) était la pièce manqua
 (MaxDistEnemies) n'était qu'un placeholder coïncidentel, maintenant battu par le modèle natif RE'd.
 `unitmovement` passé en DÉFAUT. (Cleanup : champ `dbg` diagnostic du RPC `pathDistToEnemies` retiré
 — rebuild OK ; prend effet au prochain reinject.)
-- **À RE/porter** : les 26 autres leaves de Tile(7) (la plupart = poids BC × condition trait/effet/terrain,
-  triviales et souvent 0), DislikeBoss/Objects/Env, EnemyOnTerritoryTile, AttackTargetWithEffect,
-  TileDistance(33), RepairedAmount(47), les composés Triggered/UnitSpecific (knobs traits).
+- **Leaves Tile(7) restantes → portées fidèle (§13.14).**
 - **Sélecteur de decider** : confirmer lequel pilote le « move pur » du harnais (UnitMovement(6) vs
   MovementSuggestion(32) vs UnitMovementFromTemporary(5)) — détermine si MinDist/MaxDistToUnitTile
   s'appliquent. À trancher par l'agreement une fois Tile(7) porté.
+
+### 13.14 Port FIDÈLE des leaves Tile(7) restantes (RE ghidra + clés BC réelles)
+
+RE complète (ghidra gqfc5mff6c, fan-out d'agents sur les `*Utility.<EvaluateMovementInSteps>d__N.MoveNext`)
++ clés de poids lues dans `data/arena-battle-config-newtonsoft.json` (`Utilities.Default.<EnumName>` —
+le nom de catégorie BC == le nom du membre `UtilityType`). Les string-keys de poids ne sont PAS
+résolvables depuis la DLL (elles vivent dans `global-metadata.dat`) → on les prend dans la BC.
+
+**Mécanisme commun** : chaque leaf `u=Fix64(0)` ; gate (effet/trait/ability/flag-tuile) ; si gate
+passe `u += GetUtilityValue(this,<clé>)` (poids BC) éventuellement × constante ; sinon 0. `GetUtilityValue`
+= lookup string-key dans le dict de poids `this+0x58` (peuplé depuis la BC).
+
+| leaf (id) | gate (ids hex/déc) | formule + poids BC réel |
+|---|---|---|
+| TemporaryTile(13) | tuile `isTemporary` | **-10000** (constante, pas BC) — **ACTIVE** |
+| CapturePoint(24) | tuile territoire (tile+0x2e) + flag trait 2/13 | flag→`summons_dislike_capture_points`(-300) sinon `heroes_on_capture_points`(+300) |
+| PowerUp(26) | occupant `IsPowerUp` + flag trait 2/13 | `summons_dislike_tiles_with_powerups`(-300) |
+| Contaminated(25) | tile-effect 1244(0x4dc) + non-exclu | `AffectedUnit`(-25) |
+| MoltenForm(23) | trigger 1221(0x4c5) + effet tuile 5/10 | `MoltenForm_ResistFireTiles`(+25, eff5) / `MoltenForm_AvoidHealingTiles`(-25, eff10) |
+| TilePendingBlockableSummon(14) | summon en attente type 1094(0x446) | `EnemySummon`(+25)/`FriendlySummon`(-25) **par** entrée |
+| EnvEndBombardment(31) | tuile ciblée effet 1359(0x54f)/1360(0x550) | `EnvEndBombardment_TileToAvoid`(-30), ×2 si 1360 |
+| DespoiledGround(28) | tile-effect 1476(0x5c4) + trait 2026 / 26\|1006 | `ChaosAffectedUnit`(-5) / `ImperialAndXenosAffectedUnit`(-25) |
+| SummonDislikeDoorOpening(29) | affected (AI \| human+trait2) + porte fermée | `Dislike`(-50) |
+| HeroLikeDoorOpening(30) | hero (trait 16/0x10) | **hardcodé** : -50 si sur porte fermée (mode A) ; (10-coûtChemin)×10 (mode B) |
+| Phantasm(60) | tuile effet 1279(0x4ff) + phantasme ami adj | `Phantasm_AvoidFriendlyPhantasm`(-40) |
+| EchoesFromTheWarp(58) | tuile owner effet 1284(0x504) + ghost ami adj | `GhostTile`(+10) |
+| DoctrinaImperatives/AttractMechanicals(57) | trait 5 + voisin active-ability 1118(0x45e) | `Marshal_AttractMechanicals`(+10) |
+| DecoysAndMisdirection/AttractToDecoys(64) | faction 15(0xf) + steppable(trait27) non-ennemi | `DecoysAndMisdirection_FriendlyGSCLikeDecoys`(+75) **par** ami trigger 1304(0x518) |
+| KustomForceField(20) | base `ATriggeredAbilityUtility` (count×poids) | +20 × count(amis adj R1 ability 1102/0x44e) |
+| DefenderOfTheGreaterGood(21) | gate unité arme-à-distance | +25 × count(amis R1, R2 si faction9, ability 1155/0x483) |
+| SaviorProtocols(22) | gate unité faction9 & !ability1120 | +20 × count(amis adj R1 ability 1120/0x460) |
+| BioMinefield(61) | cible ability/effet 1315(0x523) | **-100 × hexdist**(candidate, cible) |
+| MasterOfTheTutelaries(62) | cible 1096(0x448), trait 2026\|1019 | **-20 × hexdist**(candidate, cible) |
+| UnitEffects Adjacent/Surrounding/Ranged(10/11/12) | amis voisinage R1/R1/R2 (`AdjacentFriends`/`SurroundingFriends r1/r2`) | Σ poids[`EffectType.ToString()`] sur leurs effets (clés dynamiques = noms d'effets) |
+| RangedAdjacentEnemy(15) | — | =0 dans Default (clé `HasAdjacentEnemy` absente) |
+| TriggeredAbilities(2)/NonOwner(4)/UnitSpecificBehaviours(3) | — | **dispatchers** : `LoadPlaybook(unitId)` / `LoadPlaybookNonOwner(abilityId)` / `LoadPlaybook(behaviourId)`, Σ des playbooks par-ability → **moteur Playbook séparé**, pas un simple terme de tuile |
+
+**Implémentation** : `engine/utilities/tile.py` — chaque leaf lit un contrat `meta` (par-tuile) / `ctx`
+(par-unité) documenté en tête de module ; **DORMANTES** (rendent 0) tant que la metadata par-tuile/trait
+n'est pas plombée — c'est la dégradation native exacte. Validé OFFLINE : 26/26 formules = valeurs BC
+attendues ; `tile_composite` à meta vide → 0 (aucune régression par construction). Plumbing actuel :
+`is_temporary` (→ TemporaryTile ACTIVE) via `tileMeta`. **Suite (plumbing prioritaire par feature)** :
+exposer is_territory/tile-effect-type-ids/occupant/door/pending-summons/voisinages-amis + traits/
+abilities/faction de l'unité pour activer les leaves correspondantes. **Re-vérif LIVE (session 16) :
+RÉGRESSION NULLE PROUVÉE** — seed-777 a 0 tuile temporaire/territoire (tileMeta) → TemporaryTile (seule
+leaf active) inerte → scoring move byte-identique à l'avant-port. seed-777 = 72% exact / 90% ≤1hex /
+ability 100% (reproductible) ; seed-2024 = 70% exact / 90% ≤1hex.
 
 ### 13.5 Bilan portage — ce qui est bloqué / la suite
 

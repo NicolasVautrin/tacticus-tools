@@ -152,10 +152,13 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt)
     # "unitmovement" seulement. tileMeta 1×/décision ; pathDistToEnemies 1×/unité.
     elev_by_pos: dict = {}
     pathdist_by_pos: dict = {}
+    is_temporary_by_pos: dict = {}
     if _MOVE_MODEL == "unitmovement":
         tm = _r(sid, "tileMeta", {"runnerId": rid}, 60)
         elev_by_pos = {(t.get("col"), t.get("row")): t.get("elevation")
                        for t in (tm.get("tiles") or [])}
+        is_temporary_by_pos = {(t.get("col"), t.get("row")): bool(t.get("isTemporary"))
+                               for t in (tm.get("tiles") or [])}
         pdr = _r(sid, "pathDistToEnemies", {"runnerId": rid, "unitId": uid}, 90)
         pathdist_by_pos = {(t.get("col"), t.get("row")): t.get("pathDist")
                            for t in (pdr.get("tiles") or [])}
@@ -169,7 +172,8 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt)
     if move_tiles and enemies:
         if _MOVE_MODEL == "unitmovement":
             move_to, move_util = move.best_move_faithful(
-                move_tiles, elev_by_pos, epos, wt, pathdist_by_pos=pathdist_by_pos)
+                move_tiles, elev_by_pos, epos, wt, pathdist_by_pos=pathdist_by_pos,
+                is_temporary_by_pos=is_temporary_by_pos)
         else:
             move_to, move_util = move.best_move(move_tiles, origin, epos, wt, ranged)
 

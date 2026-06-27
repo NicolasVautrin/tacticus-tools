@@ -107,7 +107,8 @@ def best_move(tiles: list, origin: tuple | None, enemy_positions: list, wt: Weig
 
 def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt: Weights,
                        steppable_by_pos: dict | None = None,
-                       pathdist_by_pos: dict | None = None) -> tuple:
+                       pathdist_by_pos: dict | None = None,
+                       is_temporary_by_pos: dict | None = None) -> tuple:
     """Move scoring FIDÈLE — décideur **UnitMovement(6) = Tile(7) + MinDistanceToClosestEnemy(16)**
     (composition LUE runtime, doc §13.8/13.11). `U(tuile) = tile_composite(Tile(7)) + wMin×d`.
     PAS de `MaxDistanceToEnemies` (dans AUCUN composite) ni `MaxDistanceToUnitTile` (seulement
@@ -116,7 +117,8 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
     ⚠ `d` = distance de CHEMIN (pathfinding), PAS hex (RE `GetMinDistanceToEnemy`, doc §13.12) :
     si `pathdist_by_pos` (RPC `pathDistToEnemies`) est fourni, on l'utilise ; sinon fallback hex
     (approximation). `elev_by_pos` = `{(col,row): elevation}` (RPC tileMeta) ; max/min sur les
-    tuiles candidates (= `LoadRelevantTileElevations`). Renvoie ((col,row)|None, util).
+    tuiles candidates (= `LoadRelevantTileElevations`). `is_temporary_by_pos` = `{(col,row): bool}`
+    (tileMeta.isTemporary) → leaf TemporaryTile(13) (-10000 sur tuile temporaire). Renvoie ((col,row)|None, util).
     """
     if not enemy_positions:
         return None, None
@@ -134,6 +136,8 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
             if e is not None else {}
         if steppable_by_pos and c in steppable_by_pos:
             meta["steppable"] = steppable_by_pos[c]
+        if is_temporary_by_pos and c in is_temporary_by_pos:
+            meta["is_temporary"] = is_temporary_by_pos[c]
         # MinDist : distance CHEMIN si dispo (fidèle), sinon hex (fallback approx).
         pd = pathdist_by_pos.get(c) if pathdist_by_pos else None
         mind = pd if (pd is not None and pd >= 0) else min(hexgeo.distance(c, ep)
