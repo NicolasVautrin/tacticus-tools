@@ -151,6 +151,29 @@ def get_base_damage_fix64(base: int, extra_max: int = 0, spread_pct: int = 20,
     return MinMaxDamage(min=lo, max=hi)
 
 
+def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0,
+                               mods: DamageModifiers | None = None, hit_mult: int = 1) -> int:
+    """BASE COMMUNE prédiction↔combat — réduction d'UNE valeur de dégât (= étape 3+3b de
+    `get_attack_prediction`, cf. `CalculateBaseDamageWithAllModifiers` @18102d3f0) :
+        pierce_eff = clamp(0,100, pierce + mods.extra_pierce)
+        armor_eff  = 0 si mods.ignore_armor sinon max(0, armor − mods.armor_penetration)
+        d = GetDamageWithPiercing(value, pierce_eff, armor_eff) répété hit_mult×
+        d = ApplyAllModifiers(d, mods)        # ×bonus post-perçage §17.7
+    La PRÉDICTION l'applique à ses 2 bornes (min,max) ; le COMBAT à la valeur TIRÉE → mêmes
+    dégâts par construction. (Le scénario bouclier/réduction/overkill reste au niveau range,
+    cf. calculate_damage_prediction_scenario.)"""
+    pierce_eff, armor_eff = pierce_pct, armor
+    if mods is not None:
+        pierce_eff = max(0, min(100, pierce_pct + mods.extra_pierce))
+        armor_eff = 0 if mods.ignore_armor else max(0, armor - mods.armor_penetration)
+    d = value
+    for _ in range(max(1, hit_mult)):
+        d = get_damage_with_piercing(d, pierce_eff, armor_eff)
+    if mods is not None:
+        d = apply_all_modifiers(d, mods)
+    return d
+
+
 def get_attack_prediction(
         target_current_health: int, initial_damage: int, hits: int, profile_type: int,
         armor: int = 0, pierce_pct: int = 100, extra_max: int = 0,
@@ -178,20 +201,10 @@ def get_attack_prediction(
     hits = max(1, hits)
     base = initial_damage                                       # 1. base PAR COUP (PAS de modifier ici)
     mm = get_base_damage_fix64(base, extra_max, spread_pct)     # 2. spread + extraMax (asymétrie haut)
-    lo, hi = mm.min, mm.max                                     # 3. armure/perçage PAR BOUT (hit_mult×)
-    pierce_eff, armor_eff = pierce_pct, armor                   # 3a. AXE ARMURE depuis mods (pré-perçage)
-    if mods is not None:
-        # CalculateBaseDamageWithAllModifiers @18102d3f0 : pierce-extra (@0x20) + pénétration (@0x28)
-        # passés à GetBaseDamageWithFixedPiercedArmor → pierce_eff = clamp(pierce+extra,0,100) ;
-        # armor_eff = max(FixedArmor−pénétration, 0) ; ignore-armure totale → armor_eff = 0.
-        pierce_eff = max(0, min(100, pierce_pct + mods.extra_pierce))
-        armor_eff = 0 if mods.ignore_armor else max(0, armor - mods.armor_penetration)
-    for _ in range(max(1, hit_mult)):
-        lo = get_damage_with_piercing(lo, pierce_eff, armor_eff)
-        hi = get_damage_with_piercing(hi, pierce_eff, armor_eff)
-    if mods is not None:                                        # 3b. MODIFIER scalaire post-perçage PAR BOUT
-        lo = apply_all_modifiers(lo, mods)                      #     (ApplyCappedModifiers : %-list + additif)
-        hi = apply_all_modifiers(hi, mods)
+    # 3+3b. réduction perçage/armure + ×modifiers PAR BORNE — BASE COMMUNE avec le combat
+    #       (apply_pierce_and_modifiers : le combat applique la MÊME fn à la valeur TIRÉE).
+    lo = apply_pierce_and_modifiers(mm.min, pierce_pct, armor, mods, hit_mult)
+    hi = apply_pierce_and_modifiers(mm.max, pierce_pct, armor, mods, hit_mult)
     per_hit = calculate_damage_prediction_scenario(            # 4. scenario PAR COUP
         MinMaxDamage(min=lo, max=hi), prev_hits=0, profile_type=profile_type,
         reduction_min=reduction_min, reduction_max=reduction_max)

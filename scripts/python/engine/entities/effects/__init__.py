@@ -15,7 +15,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ...services.damage_modifiers import DamageModifiers, build_attacker_modifiers
+from ...services.damage_modifiers import (
+    DamageModifiers, build_attacker_modifiers, build_defender_modifiers,
+)
 from ...services.effect_bonus import for_armor_penetration
 from .base import BaseEffect
 from .factory import EFFECT_CLASSES, EffectFactory
@@ -30,7 +32,8 @@ __all__ = [
     "BaseEffect", "EffectFactory", "EFFECT_CLASSES",
     "RapidAssaultExtraDamageEffect", "PowerTripFullHealthEffect",
     "PowerTripIgnoreArmorEffect", "KanOpenerEffect",
-    "build_attacker_modifiers_from_effects", "hits_bonus_from_effects",
+    "build_attacker_modifiers_from_effects", "build_defender_modifiers_from_effects",
+    "hits_bonus_from_effects",
 ]
 
 
@@ -59,6 +62,21 @@ def build_attacker_modifiers_from_effects(effects) -> DamageModifiers:
         if pen is not None:
             bonuses.append(for_armor_penetration(True, pen))
     return build_attacker_modifiers(bonuses)
+
+
+def build_defender_modifiers_from_effects(effects) -> DamageModifiers:
+    """`CalculateDefenderModifiersForPrediction` @181002c30 — DamageModifiers depuis les effets de la CIBLE
+    (réductions de dégât reçu). Agrège `create_effect_damage_malus_for_defense` (slot 0x1a). Symétrique de
+    `build_attacker_modifiers_from_effects`. Effets déjà filtrés actifs (EffectsState.active_effects).
+    ⚠ Couvre la famille `ADamageDefenseModifierAbilityEffect` (EffectBonus PercentDecrease ConfigVar gated) ;
+    les réductions par STAT (Defense), par COUPS (Parry_ReduceHits) ou par TRIGGER (predOptimistic) sont des
+    axes SÉPARÉS, non couverts ici (cf. docs/rl/runner-engine.md §1.8)."""
+    maluses = []
+    for e in _as_effects(effects):
+        mb = e.create_effect_damage_malus_for_defense()
+        if mb is not None:
+            maluses.append(mb)
+    return build_defender_modifiers(maluses)
 
 
 def hits_bonus_from_effects(effects) -> int:

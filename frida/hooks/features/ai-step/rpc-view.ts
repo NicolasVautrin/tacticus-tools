@@ -8,7 +8,7 @@ import { runnerClass, runnerOff } from "../../game/runner.js";
 import { getRunner } from "../../game/runner-registry.js";
 import {
     EntityType, forEachComponent, forEachEntity, projectMatchState,
-    readBattleStatus,
+    readBattleStatus, unitFootComponentClass,
 } from "../../game/match-state.js";
 import { readEffectsByUnit, readRoundCapClock } from "../../game/effects.js";
 import { state } from "../../game/state.js";
@@ -93,6 +93,49 @@ export function registerView(ctx: Ctx): void {
             winner: status.winner, unitsAlive: status.unitsAlive,
             cheatFinished: status.cheatFinished,
         };
+    });
+
+    /** DUMP de l'état du RNG de combat (MT19937) — pour synchroniser le runner
+     *  Python (engine/runner/prng.py) sur le live et reproduire un tirage EXACT
+     *  (ex. overwatch). RE `IdunRunner.Initialize` : le RNG de combat
+     *  (IntBasedMersenneTwister) est stocké sur le runner @0x38 (passé à
+     *  DSLFactory.ctor → DisallowablePseudoRNG). Layout MT (de genrand_int32 @180e3a3e0) :
+     *  compteur d'appels @+0x14, tableau d'état uint[624] @+0x20 (len @+0x18, data @+0x20),
+     *  mti @+0x28. Garde-fou : len doit valoir 624 (sinon offset/build invalide).
+     *  body: { runnerId } -> { ok, mt:[624], mti, callCount }. Read-only. */
+    ctx.rpc.dumpRng = (
+        body?: { runnerId?: number },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        let runner: NativePointer; let label: string;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+            label = "build#" + body.runnerId;
+        } else if (state.liveRunner) {
+            runner = state.liveRunner; label = "live";
+        } else {
+            return { ok: false, error: "no runner — pass runnerId" };
+        }
+        if (runner.isNull()) return { ok: false, error: label + " runner null" };
+        try {
+            const rng = runner.add(0x38).readPointer();          // IntBasedMersenneTwister
+            if (rng.isNull()) return { ok: false, error: "rng null @0x38" };
+            const arr = rng.add(0x20).readPointer();             // uint[] d'état
+            if (arr.isNull()) return { ok: false, error: "mt state array null" };
+            const len = arr.add(0x18).readS32();
+            if (len !== 624) {
+                return { ok: false, error: "mt len=" + len + " (attendu 624 — offset/build ?)" };
+            }
+            const mt: number[] = new Array(624);
+            const data = arr.add(0x20);
+            for (let i = 0; i < 624; i++) mt[i] = data.add(i * 4).readU32();
+            return {
+                ok: true, runner: label,
+                mti: rng.add(0x28).readS32(),
+                callCount: rng.add(0x14).readS32(),
+                mt,
+            };
+        } catch (e) { return { ok: false, error: (e as Error).message }; }
     });
 
     /** DRY-RUN des tiles atteignables : pour chaque squad contrôlé+vivant du
@@ -266,6 +309,122 @@ export function registerView(ctx: Ctx): void {
             isWall: t.isWall, isTemporary: t.isTemporary, isTerritory: t.isTerritory,
         }));
         return { ok: true, runner: label, tileCount: tiles.length, tiles };
+    });
+
+    /** GRAPHE DE BOARD STATIQUE — adjacence hex RÉELLE + walkable + élévation,
+     *  pour le pathfinding fidèle (engine/entities/pathfinding/, port du
+     *  WalkPathfinder natif). `tileMeta` ne donne que col/row/élévation/isWall ;
+     *  ici on AJOUTE :
+     *   - `neighbours` : voisins NATIFS via `BattleQuery.GetAdjacentTiles(tile,
+     *     true,true,true)` — le set COMPLET non filtré (cf. `GetFreeAdjacentTiles`
+     *     @181061650 qui appelle exactement ces flags puis filtre). L'adjacence
+     *     du board est géométrique (les murs sont des PROPRIÉTÉS de tuile filtrées
+     *     par IsWalkable, PAS des arêtes manquantes — cf. WalkPathfinder
+     *     .IsValidPathNode @180f2ee50).
+     *   - `walkable` : `BattleQuery.IsWalkableTile(tile)` = le `TileExtensions
+     *     .IsWalkable` consommé par IsValidPathNode (≠ isWall TileComponent ; on
+     *     garde les deux pour recoupement).
+     *  Graphe STATIQUE (les tuiles ne bougent pas) → capter UNE fois par bataille.
+     *  Les occupants (dynamiques) se dérivent côté moteur via les positions
+     *  d'unités (decisionView). Read-only. body: { runnerId? }. */
+    ctx.rpc.boardGraph = (
+        body?: { runnerId?: number },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        let runner: NativePointer; let label: string;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+            label = "build#" + body.runnerId;
+        } else if (state.liveRunner) {
+            runner = state.liveRunner; label = "live";
+        } else {
+            return { ok: false, error: "no runner — pass runnerId" };
+        }
+        if (runner.isNull()) return { ok: false, error: label + " runner null" };
+        const statePtr = runner.add(runnerOff.state).readPointer();
+        if (statePtr.isNull()) return { ok: false, error: "state null" };
+        if (servicesOff < 0 || battleInServicesOff < 0) {
+            return { ok: false, error: "services/Battle offsets unresolved" };
+        }
+        const services = runner.add(servicesOff).readPointer();
+        if (services.isNull()) return { ok: false, error: "EntityServices null" };
+        const battleQ = services.add(battleInServicesOff).readPointer();
+        if (battleQ.isNull()) return { ok: false, error: "BattleQuery null (<Battle>)" };
+        const bqClass = battleQ.readPointer();
+        // GetAdjacentTiles(tile, bool, bool, bool) = 4 params (l'autre overload
+        // prend une List → 3 params). IsWalkableTile(tile) = 1 param.
+        const getAdjMi = findMethodByParamCount(bqClass, "GetAdjacentTiles", 4);
+        if (!getAdjMi) {
+            return { ok: false, error: "GetAdjacentTiles(4) non résolu sur "
+                + s(class_get_name(bqClass) as NativePointer) };
+        }
+        const isWalkMi = findMethodByParamCount(bqClass, "IsWalkableTile", 1);
+
+        // Props statiques par tuile (col/row/élévation/isWall) via la projection.
+        const proj = projectMatchState(statePtr, { includeTiles: true });
+        const projTiles = proj.tiles ?? [];
+        const idByCoord = new Map<string, number>();
+        for (const t of projTiles) idByCoord.set(t.col + "," + t.row, t.id);
+        // ptr natif par id de tuile (pour les appels GetAdjacentTiles/IsWalkableTile).
+        const ptrById = new Map<number, NativePointer>();
+        forEachEntity(statePtr, (e, id, ty) => {
+            if (ty === EntityType.Tile) ptrById.set(id, e);
+        });
+
+        // OCCUPANCE par tuile : tile_entity_id -> squad unitId qui l'occupe. Lue via
+        // les UnitFoot (UnitFootComponent.UnitId@0x10, TileId@0x14) → couvre les
+        // EMPREINTES MULTI-HEX (une unité 2-3 hex = plusieurs UnitFoot → plusieurs
+        // tuiles occupées). Indispensable au pathfinding fidèle : UnitIsBlockedByEnemyUnit
+        // @180f2ef50 bloque l'entrée sur TOUTE tuile occupée par l'ennemi, pas que sa
+        // tuile principale (sinon le moteur traverse les tuiles d'empreinte → sur-portée).
+        const occByTile = new Map<number, number>();
+        if (unitFootComponentClass) {
+            forEachEntity(statePtr, (e, _id, ty) => {
+                if (ty !== EntityType.UnitFoot) return;
+                forEachComponent(e, (comp, klass) => {
+                    if (!klass.equals(unitFootComponentClass!)) return;
+                    try {
+                        const footUnit = comp.add(0x10).readS32();   // UnitId (squad)
+                        const footTile = comp.add(0x14).readS32();   // TileId (entité tuile)
+                        occByTile.set(footTile, footUnit);
+                    } catch { /* skip */ }
+                });
+            });
+        }
+
+        const bTrue = Memory.alloc(1); bTrue.writeU8(1);
+        let adjCalls = 0; let adjFails = 0; let walkFails = 0;
+        const tiles = projTiles.map((t) => {
+            const e = ptrById.get(t.id);
+            const neighbours: number[] = [];
+            let walkable: boolean | null = null;
+            if (e && !e.isNull()) {
+                try {
+                    const os = invokeMethod(getAdjMi.info, battleQ, [e, bTrue, bTrue, bTrue]);
+                    adjCalls++;
+                    for (const n of extractTilePtrs(os)) {
+                        const nid = idByCoord.get(n.col + "," + n.row);
+                        if (typeof nid === "number" && nid !== t.id) neighbours.push(nid);
+                    }
+                } catch { adjFails++; }
+                if (isWalkMi) {
+                    try {
+                        const r = invokeMethod(isWalkMi.info, battleQ, [e]);
+                        walkable = !r.isNull() && r.add(0x10).readU8() !== 0;
+                    } catch { walkFails++; }
+                }
+            }
+            return {
+                id: t.id, col: t.col, row: t.row, elevation: t.elevation,
+                isWall: t.isWall, walkable, neighbours,
+                occupantUnitId: occByTile.get(t.id) ?? null,
+            };
+        });
+        return {
+            ok: true, runner: label, tileCount: tiles.length,
+            occupiedTiles: occByTile.size,
+            adjCalls, adjFails, walkFails, tiles,
+        };
     });
 
     /** DISTANCE-CHEMIN par tuile candidate → ennemi le plus proche (doc §13.12).

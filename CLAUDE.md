@@ -273,6 +273,38 @@ c'est quasi toujours que **le serveur n'est pas lancé** → le démarrer puis `
 Le `<HASH>` change → refaire le pipeline (dump Il2CppDumper v39 → import/analyse
 Ghidra → apply IL2CPP names) puis pointer `-Project` sur le nouveau `.gpr`.
 
+## Compréhension des mécanismes = RE ghidra fidèle, PAS d'expérience
+
+Pour comprendre un mécanisme du jeu (formule de dégât, prédiction, scoring IA, etc.), la
+méthode attendue est la **rétro-ingénierie fidèle via ghidra** (le décompilé = vérité), **pas**
+l'expérimentation live (« je fais varier un input et j'observe la sortie pour deviner la formule »).
+
+- **Le live sert UNIQUEMENT de confirmation** d'un mécanisme déjà compris depuis le code natif,
+  jamais de source pour deviner/fitter une formule.
+- **Chercher d'abord les fonctions NOMMÉES décomposées** (`mcp__ghidra__search_symbols_by_name`
+  sur le namespace, ex. `DamageCalculations$$`, `DamagePrediction$$`) **avant** de grinder une
+  fonction inline géante (`PredictAttackRaw` ≈ l'inline optimisé de ~80 méthodes propres). Porter
+  depuis les feuilles propres (1:1 méthode→fonction), pas depuis l'inline.
+- **Ne JAMAIS asserter un mécanisme sans l'avoir lu dans le décompilé** : un pattern qualitatif
+  observé (« la largeur dépend de la cible ») ≠ formule vérifiée. Marquer toute déduction non
+  encore lue dans le code comme **hypothèse**, et la confirmer dans ghidra avant de l'affirmer ou
+  d'agir dessus.
+- **Pourquoi** : les expériences live coûtent du temps, sont bruitées (positions/effets/RNG
+  cachés), et mènent à des fits faux (cf. hypothèses crit puis perçage-seul réfutées). Le décompilé
+  donne le mécanisme exact, déterministe et modifiable.
+
+### La structure du code Python doit refléter celle du jeu
+
+Le port Python d'un mécanisme natif doit **coller le plus possible à la structure du code du jeu** :
+
+- **1:1 classe native → module, méthode native → fonction homonyme**, avec la **VA citée** en
+  commentaire (ex. `# DamagePrediction.GetBaseDamageFix64 @181030ba0`).
+- **Validable méthode par méthode** contre le natif — pas de black-box ni de cache d'outputs (on
+  RE-CALCULE le mécanisme depuis ses entrées, on ne stocke pas la sortie native).
+- **Pourquoi** : c'est ce qui rend le moteur **fidèle ET modifiable** (le but du portage) — on peut
+  changer un paramètre/une règle au bon endroit, comme dans le jeu. Une structure qui diverge du
+  natif devient impossible à valider finement et à faire évoluer.
+
 ## Ne jamais
 
 - **Utiliser `--reload`/hot-reload côté host** : casse les sessions Frida

@@ -125,24 +125,18 @@ def _drive_into_range(sid, rid, my_team, max_turns):
     return dec()
 
 
-def main(argv):
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--seed", type=int, default=777)
-    ap.add_argument("--max-turns", type=int, default=6)
-    a = ap.parse_args(argv)
-
-    sid = R._resolve_session()
-    print(f"[validate] session {sid} — build seed {a.seed}")
-    subprocess.run([sys.executable, "rl_duel.py", "build", "--seed", str(a.seed)],
-                   capture_output=True, text=True, encoding="utf-8", errors="replace")
-    st = json.loads(STATE.read_text())
-    rid = st["runnerId"]; my_team = st.get("myTeam", 1)
-
+def build_samples(sid, rid, my_team, max_turns=6):
+    """Capture les échantillons d'agrément prédiction (chaîne fidèle) pour le
+    runner `rid` DÉJÀ construit : combatSnapshot (cold) → UnitContext, drive au
+    contact, puis une row par plan d'attaque NORMALE à portée comparant l'offline
+    `get_attack_prediction` à l'oracle live `decisionView`. Réutilisé par le
+    harnais (`main`) ET la suite pytest (tests/engine/test_predict_live.py).
+    Retourne `list[dict]` (vide si combatSnapshot KO ou aucun échantillon)."""
     # 1) capture one-shot (cold) → UnitContext par unité (stats résolues + dégât d'arme capté
     #    + gameconfig-units pour traits/damageType/range). C'est la SEULE lecture live.
     snap = rpc(sid, "combatSnapshot", {"runnerId": rid}, 40)
     if not snap.get("ok"):
-        print(f"[validate] combatSnapshot KO: {snap.get('error')}"); return 1
+        print(f"[validate] combatSnapshot KO: {snap.get('error')}"); return []
     # entityId -> visualId via decisionView (combatSnapshot ne donne pas le visualId)
     dv0 = rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1}, 60)
     vis_by_id = {u["id"]: u.get("visualId") for u in (dv0.get("units") or [])}
@@ -156,7 +150,7 @@ def main(argv):
     print(f"[validate] UnitContext (cold): {len(ctx_by_id)}/{len(snap.get('units') or [])} unités")
 
     # 2) avancer au contact pour obtenir des plans d'attaque (oracle live).
-    dec = _drive_into_range(sid, rid, my_team, a.max_turns)
+    dec = _drive_into_range(sid, rid, my_team, max_turns)
     hp_by_id = {u["id"]: u.get("hp") for u in (dec.get("units") or [])}
     armor_by_id = {u["entityId"]: int((u.get("stats") or {}).get("fixedArmor") or 0)
                    for u in (snap.get("units") or [])}
@@ -266,6 +260,34 @@ def main(argv):
                 "mods": [round(m, 3) for m, _c in mods.pct_list] or None,
                 "effects": eff_names or None,
             })
+    return rows
+
+
+def sample_is_clean(r):
+    """Échantillon EXPLOITABLE pour l'agrément : prédiction non-optimiste (les
+    `predOptimistic` ignorent une réduction de trigger côté moteur, cf. TF04)."""
+    return not r["predOpt"]
+
+
+def sample_is_ok(r, tol=3):
+    """Agrément exact (tolérance arrondi //100 vs Fix64) sur un échantillon clean."""
+    om, oM = r["oracle"]; fm, fM = r["offline"]
+    return sample_is_clean(r) and _cheby((om, oM), (fm, fM)) <= tol
+
+
+def main(argv):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--seed", type=int, default=777)
+    ap.add_argument("--max-turns", type=int, default=6)
+    a = ap.parse_args(argv)
+
+    sid = R._resolve_session()
+    print(f"[validate] session {sid} — build seed {a.seed}")
+    subprocess.run([sys.executable, "rl_duel.py", "build", "--seed", str(a.seed)],
+                   capture_output=True, text=True, encoding="utf-8", errors="replace")
+    st = json.loads(STATE.read_text())
+    rid = st["runnerId"]; my_team = st.get("myTeam", 1)
+    rows = build_samples(sid, rid, my_team, a.max_turns)
 
     if not rows:
         print("[validate] aucun échantillon d'attaque normale capturé."); return 1
@@ -275,8 +297,8 @@ def main(argv):
     n_clean = n_ok = n_chain = 0
     for r in rows:
         om, oM = r["oracle"]; fm, fM = r["offline"]
-        clean = not r["predOpt"]
-        ok = clean and _cheby((om, oM), (fm, fM)) <= 3          # tolérance arrondi //100 vs Fix64
+        clean = sample_is_clean(r)
+        ok = sample_is_ok(r)                                    # tolérance arrondi //100 vs Fix64
         omid, fmid = (om + oM) / 2, (fm + fM) / 2
         mod = omid / fmid if fmid else 0
         chain = clean and 0.97 <= mod <= 1.03                    # ×mod≈1 = chaîne (modifier inclus) exacte

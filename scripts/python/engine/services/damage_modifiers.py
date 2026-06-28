@@ -110,6 +110,19 @@ def build_attacker_modifiers(effect_bonuses: list[EffectBonus | None]) -> Damage
     return acc
 
 
+def build_defender_modifiers(effect_bonuses: list[EffectBonus | None]) -> DamageModifiers:
+    """DamageCalculations.CalculateDefenderModifiersForPrediction @181002c30 — SYMÉTRIQUE de l'attaquant :
+    itère les effets de la CIBLE et accumule chaque `CreateEffectDamageMalusForDefense` (slot 0x1a) →
+    DamageModifiers (%-list de réduction, typiquement PercentDecrease). Même accumulateur que l'attaquant
+    (`add_modifier`) ; appliqué au dégât reçu via `apply_all_modifiers`. (Le natif ajoute aussi 2 additifs
+    @+0x20/@+0x28 = maluses 0x19/0x1b — non portés ici tant qu'aucun effet de la famille ne les fournit.)"""
+    acc = DamageModifiers.empty()
+    for eb in effect_bonuses:
+        if eb is not None:
+            add_modifier(acc, eb)
+    return acc
+
+
 # ─── Leaves positionnels (chacun = un `EffectBonus` selon la position/terrain) ──────────────────────
 
 def calculate_elevation_bonus_modifier(

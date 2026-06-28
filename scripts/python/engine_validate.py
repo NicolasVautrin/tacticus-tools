@@ -331,6 +331,80 @@ def native_first(action: dict) -> dict:
     return {"kind": "other"}
 
 
+def run_agreement(sid: int, rid: int, steps: int, wt, log=print) -> dict:
+    """Marche la trajectoire NATIVE sur `steps` pas (aiStepDryRun → applyAction) et
+    compare la décision du MOTEUR à chaque chunk décisionnel (move/ability). SOURCE
+    UNIQUE de la comparaison — réutilisée par `main` ET la suite pytest
+    (tests/engine/test_playbook_live.py). MUTE l'état du runner (applique les
+    actions natives pour avancer) → runner ISOLÉ recommandé.
+
+    Retourne {pos:{n,exact,near}, ability:{n,match}, records:[…]}."""
+    n_pos = n_pos_exact = n_pos_near = 0
+    n_ab = n_ab_match = 0
+    records: list = []
+    for step in range(steps):
+        dry = _r(sid, "aiStepDryRun", {"runnerId": rid}, 40)
+        if not dry.get("ok") or not dry.get("hasNext"):
+            log(f"  step {step}: native épuisé / fin de tour ({dry.get('error') or 'no action'})")
+            break
+        nat = native_first(dry.get("action") or {})
+        uid = dry.get("activatedUnitId") or nat.get("unit")
+
+        if nat["kind"] in ("move", "ability") and uid is not None:
+            dv = _r(sid, "decisionView", {"runnerId": rid, "allAbilities": True}, 180)
+            mov = _r(sid, "aiMovableTiles", {"runnerId": rid}, 60)
+            mov_by_unit = {u.get("unitId"): u for u in (mov.get("units") or [])}
+            eng = engine_decide(sid, rid, dv, mov_by_unit, uid, wt)
+            eng_to, nat_to = eng.get("to"), nat.get("to")
+            if nat["kind"] == "move":
+                n_pos += 1
+                d = None
+                if eng_to and nat_to:
+                    d = hexgeo.distance(eng_to, nat_to)
+                    n_pos_exact += int(d == 0)
+                    n_pos_near += int(d <= 1)
+                    tag = "EXACT" if d == 0 else f"~{d}hex"
+                else:
+                    tag = "no-dest"
+                records.append({"step": step, "uid": uid, "kind": "move",
+                                "native": nat_to, "engine": eng_to, "dist": d,
+                                "engine_kind": eng["kind"]})
+                log(f"  step {step:2} u{uid}: pos native->{nat_to} engine->{eng_to} "
+                    f"[{tag}] (eng={eng['kind']})")
+            else:  # native ability castée (en place / buff / summon)
+                same_ab = (eng["kind"] == "ability"
+                           and eng.get("target") == nat.get("target")
+                           and eng.get("ability") == nat.get("ability"))
+                n_ab += 1
+                n_ab_match += int(same_ab)
+                records.append({"step": step, "uid": uid, "kind": "ability",
+                                "native": (nat.get("ability"), nat.get("target")),
+                                "engine": (eng.get("ability"), eng.get("target")),
+                                "match": same_ab, "engine_kind": eng["kind"]})
+                log(f"  step {step:2} u{uid}: ABIL native(ab={nat.get('ability')},tgt={nat.get('target')}) "
+                    f"engine={eng['kind']}(ab={eng.get('ability')},tgt={eng.get('target')}) "
+                    f"[{'MATCH' if same_ab else 'MISS'}]")
+        else:
+            log(f"  step {step:2} u{uid}: native={nat['kind']} (non comparé, on avance)")
+
+        # applique l'action NATIVE (on marche SA trajectoire) pour avancer l'état.
+        acts = []
+        for m in (dry["action"]["messages"]):
+            if m.get("cls") == "MoveUnitMessage":
+                acts.append({"kind": "move", "unitId": m["unitId"],
+                             "to": {"col": m["to"]["col"], "row": m["to"]["row"]}})
+            elif m.get("cls") == "ActiveAbilityMessage":
+                acts.append({"kind": "ability", "casterId": m["casterId"],
+                             "targetId": m.get("targetId"), "abilityType": m["abilityType"]})
+            elif m.get("cls") == "FinishUnitTurnMessage":
+                acts.append({"kind": "finish", "unitId": m["unitId"]})
+        if acts:
+            _r(sid, "applyAction", {"runnerId": rid, "actions": acts}, 40)
+
+    return {"pos": {"n": n_pos, "exact": n_pos_exact, "near": n_pos_near},
+            "ability": {"n": n_ab, "match": n_ab_match}, "records": records}
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--runner", type=int, default=None)
@@ -349,73 +423,17 @@ def main(argv: list[str]) -> int:
     wt = weights.load()
     print(f"[validate] session={sid} runner={rid} steps={a.steps}  {wt}")
 
-    # Métriques : POSITIONING (destination = tuile où va l'unité, unifie move &
-    # attack-approach car le natif splitte move|ability) + ABILITY (cast en place).
-    n_pos = n_pos_exact = n_pos_near = 0
-    n_ab = n_ab_match = 0
-    for step in range(a.steps):
-        dry = _r(sid, "aiStepDryRun", {"runnerId": rid}, 40)
-        if not dry.get("ok") or not dry.get("hasNext"):
-            print(f"  step {step}: native épuisé / fin de tour ({dry.get('error') or 'no action'})")
-            break
-        nat = native_first(dry.get("action") or {})
-        uid = dry.get("activatedUnitId") or nat.get("unit")
-
-        # On ne COMPARE que les chunks décisionnels (move/ability) ; finish/other =
-        # on applique et on avance (le natif clôt l'activation d'une unité).
-        if nat["kind"] in ("move", "ability") and uid is not None:
-            dv = _r(sid, "decisionView", {"runnerId": rid, "allAbilities": True}, 180)
-            mov = _r(sid, "aiMovableTiles", {"runnerId": rid}, 60)
-            mov_by_unit = {u.get("unitId"): u for u in (mov.get("units") or [])}
-            eng = engine_decide(sid, rid, dv, mov_by_unit, uid, wt)
-            eng_to, nat_to = eng.get("to"), nat.get("to")
-            if nat["kind"] == "move":
-                # POSITIONING : compare la DESTINATION (peu importe que le moteur
-                # l'étiquette move ou attack-approach — c'est la même tuile-cible).
-                n_pos += 1
-                if eng_to and nat_to:
-                    d = hexgeo.distance(eng_to, nat_to)
-                    n_pos_exact += int(d == 0)
-                    n_pos_near += int(d <= 1)
-                    tag = "EXACT" if d == 0 else f"~{d}hex"
-                else:
-                    tag = "no-dest"
-                print(f"  step {step:2} u{uid}: pos native->{nat_to} engine->{eng_to} "
-                      f"[{tag}] (eng={eng['kind']})")
-            else:  # native ability castée (en place / buff / summon)
-                same_ab = (eng["kind"] == "ability"
-                           and eng.get("target") == nat.get("target")
-                           and eng.get("ability") == nat.get("ability"))
-                n_ab += 1
-                n_ab_match += int(same_ab)
-                print(f"  step {step:2} u{uid}: ABIL native(ab={nat.get('ability')},tgt={nat.get('target')}) "
-                      f"engine={eng['kind']}(ab={eng.get('ability')},tgt={eng.get('target')}) "
-                      f"[{'MATCH' if same_ab else 'MISS'}]")
-        else:
-            print(f"  step {step:2} u{uid}: native={nat['kind']} (non comparé, on avance)")
-
-        # applique l'action NATIVE (on marche SA trajectoire) pour avancer l'état.
-        msgs = [m for m in (dry["action"]["messages"])]
-        acts = []
-        for m in msgs:
-            if m.get("cls") == "MoveUnitMessage":
-                acts.append({"kind": "move", "unitId": m["unitId"],
-                             "to": {"col": m["to"]["col"], "row": m["to"]["row"]}})
-            elif m.get("cls") == "ActiveAbilityMessage":
-                acts.append({"kind": "ability", "casterId": m["casterId"],
-                             "targetId": m.get("targetId"), "abilityType": m["abilityType"]})
-            elif m.get("cls") == "FinishUnitTurnMessage":
-                acts.append({"kind": "finish", "unitId": m["unitId"]})
-        if acts:
-            _r(sid, "applyAction", {"runnerId": rid, "actions": acts}, 40)
+    # Marche la trajectoire native + compare (SOURCE UNIQUE : run_agreement).
+    res = run_agreement(sid, rid, a.steps, wt)
+    pos, ab = res["pos"], res["ability"]
 
     print()
-    if n_pos:
-        print(f"[positioning] {n_pos} moves : exact={n_pos_exact} ({100*n_pos_exact//n_pos}%)  "
-              f"≤1hex={n_pos_near} ({100*n_pos_near//n_pos}%)")
-    if n_ab:
-        print(f"[ability]     {n_ab} casts : match={n_ab_match} ({100*n_ab_match//n_ab}%)")
-    if not n_pos and not n_ab:
+    if pos["n"]:
+        print(f"[positioning] {pos['n']} moves : exact={pos['exact']} ({100*pos['exact']//pos['n']}%)  "
+              f"≤1hex={pos['near']} ({100*pos['near']//pos['n']}%)")
+    if ab["n"]:
+        print(f"[ability]     {ab['n']} casts : match={ab['match']} ({100*ab['match']//ab['n']}%)")
+    if not pos["n"] and not ab["n"]:
         print("[agreement] aucun chunk décisionnel comparé")
     return 0
 

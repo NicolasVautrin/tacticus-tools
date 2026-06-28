@@ -50,6 +50,19 @@ class BaseEffect:
         """`<Effect>.CreateEffectHitsBonusForAttack` — contribution à l'axe COUPS (Addition/Subtraction)."""
         return None
 
+    def create_effect_damage_malus_for_defense(self) -> EffectBonus | None:
+        """`<Effect>.CreateEffectDamageMalusForDefense` — contribution DÉFENSEUR (l'effet est sur la CIBLE,
+        réduit le dégât reçu). Symétrique de `create_effect_damage_bonus_for_attack`. Renvoie un `EffectBonus`
+        (typiquement `PercentDecrease` de valeur `ConfigVar(key)`, gated par une condition d'effet) ou None.
+
+        RE : `CalculateDefenderModifiersForPrediction` @181002c30 itère les effets de la cible et appelle
+        cette méthode (interface effet, slot 0x1a) sur chacun → accumule un `DamageModifiers` (%-list).
+        La famille `ADamageDefenseModifierAbilityEffect` (CloudOfFlies/ContemptuousDisregard/ForwardObservers/
+        HuntersInstincts/… @180f08e60→BaseEffect.DamageMalusForDefense @180f10120) = `EffectBonus(PercentDecrease,
+        ConfigVar(key))` gated (ex. ContemptuousDisregard @180f3a5b0 : OwnerIsTarget & HasUsedActiveAbilityThisTurn
+        → ConfigVar 0x46). Défaut None = effet sans réduction défensive (dégradation fidèle)."""
+        return None
+
     def get_armor_penetration(self) -> int | None:
         """`<Effect>.IgnoreArmor` — pénétration d'armure (axe armure : armor_eff = max(armure − pén, 0))."""
         return None

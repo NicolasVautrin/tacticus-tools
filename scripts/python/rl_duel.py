@@ -270,6 +270,23 @@ def cmd_build(sid: int, a) -> int:
     _patch_predefined_units(bc, a_units)
     _patch_predefined_machines(bc, p_mow, a_mow)
 
+    # --crit/--block "CC,CD" : restaure des stats de combat sur les TEMPLATES Units des
+    # p-units (la normalisation les remet à 0 ; AddUnit honore le template, cf. probe). Sert
+    # à tester crit/block en combat — le crit d'un héros vient des items I_Crit (cf. itemSlots),
+    # absent d'un build frais. --crit-target applique aussi à l'adversaire.
+    def _patch_combat_stat(visual_ids: set[str], field_c: str, field_d: str, spec: str):
+        cc, cd = (int(x) for x in spec.split(","))
+        for u in bc.get("Units", []):
+            if u.get("VisualId") in visual_ids:
+                u[field_c] = cc; u[field_d] = cd
+    p_set, a_set = set(p_units), set(a_units)
+    if getattr(a, "crit", None):
+        _patch_combat_stat(p_set, "CritChance", "CritDamage", a.crit)
+    if getattr(a, "crit_target", None):
+        _patch_combat_stat(a_set, "CritChance", "CritDamage", a.crit_target)
+    if getattr(a, "block_target", None):
+        _patch_combat_stat(a_set, "BlockChance", "BlockDamage", a.block_target)
+
     if (p_mow or a_mow) and not _board_mow_ok(bc):
         print("[warn] board de la seed BC SANS slot MoW (MachineOfWarPosition) "
               "→ le MoW sera DROP silencieusement au déploiement. Il faut une "
@@ -1830,6 +1847,12 @@ def main(argv: list[str]) -> int:
                          "Sans --end, le tour se finit SEUL quand toutes tes units ont agi.")
     ap.add_argument("--seed", type=int, default=777)
     ap.add_argument("--rank", type=int, default=17)
+    ap.add_argument("--crit", default=None,
+                    help="build: force CritChance,CritDamage sur les p-units (ex. '100,700'). "
+                         "Restaure le crit que la normalisation strippe (crit héros = item I_Crit).")
+    ap.add_argument("--crit-target", default=None, help="build: idem --crit pour les a-units")
+    ap.add_argument("--block-target", default=None,
+                    help="build: force BlockChance,BlockDamage sur les a-units (ex. '100,500')")
     ap.add_argument("--roster", type=int, default=5,
                     help="taille de roster pour le tirage ALÉATOIRE "
                          "(ignoré si --p-units/--a-units fournis)")

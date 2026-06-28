@@ -1711,3 +1711,69 @@ fallback BC si hook ancien. **Per-entité réel confirmé : mult VARIE (u88=160,
 progression @181696230 par unité). **AGREEMENT 11/11 préservé, sourcé LIVE** (plus de dépendance duel_state.bc).
 Build+reinject session 31. RIEN COMMITÉ. (TODO robustesse : duplicates même VisualId mais Id unique en bataille
 non-miroir → clé Id de l'entité requise ; non bloquant pour arène-miroir.)
+
+## §18 — Pathfinding fidèle (énumération des tuiles atteignables) — approche A (capture live)
+
+**Objectif** : reproduire en Python l'énumération des tuiles atteignables que l'IA consomme
+(`aiMovableTiles` = `MovementQuery.GetMovableTilesFor`), pour le moteur playbook (positionnement).
+
+### Modèle natif (RE ghidra gqfc5mff6c — decompile=vérité)
+Deux moteurs DISTINCTS, l'IA n'utilise que le premier :
+1. **Énumération (reachable set)** = FLOOD-FILL PAR NIVEAUX, NON pondéré. 1 pas = 1 niveau, `range`
+   niveaux. Chaîne : `GetMovableTilesFor` @18109a330 → `FindAnyOrAllMoveableTiles` @181098cb0 →
+   `BasePathfinder.GetMovablePositions` @180ee25d0 (itér. @180f27840, `NodesInNextLevel`,
+   profondeur −1/niveau). **Aucun coût accumulé.**
+2. **Chemin exact (A*)** = `GenerateBreadthFirstTree` @180ee21a0 + `WeightCost` @180f2f120
+   (coût/pas = (10 ou 10000 si bloquant)−élévation). Sert UNIQUEMENT à `GetPathTo`. PAS porté.
+
+**Prédicat d'arête** `WalkPathfinder.IsValidPathNode` @180f2ee50 (entrer sur `to` depuis `from`) :
+- `IsWalkable(to)` (@180ec6fc0) ;
+- `|elev(to)−elev(from)| ≤ 1` (`IsReachableElevationDifference` @180f2ed80 = `abs<2`, **symétrique**,
+  exception paires de téléporteurs) ;
+- `!UnitIsBlockedByEnemyUnit(to, unit)` (@180f2ef50) : un **ENNEMI** sur la tuile bloque le passage ;
+  un **ALLIÉ laisse passer** (traversable, pas d'arrêt) ; ennemi avec trait `0x1b` laisse passer.
+**Tuile d'ARRÊT** = `GetTileBlockingReasons==0` (`IsValidContinuePathTile` @180f2ee30) = NON occupée
+(ni allié ni ennemi). Start (tuile courante) exclu du set. `GetEffectiveDepth` (hazard→`Min(1,depth)`,
+@180f2e920) = non plombé (pas de hazard board basique).
+
+**Portée** `MovementRangeWithAppliedBonus` @18109cdc0 = stat Movement (`StatComponent.CurrentValue`)
+`+ GetRangeBonusForUnit − Σ réductions`, plancher 0 ; **0 si enraciné** (trait `0x418` / triggered `0x4b8`).
+**Pathfinder type** `GetPathfinderTypeForUnit` @18109a7b0 : `Walk(0)` défaut, `Fly(3)` si `IsLikeFlying`,
+6–13 = blink/téléport (effets `0x40b/0x474/0x4d6/9999`). Cas IA normal = Walk.
+
+### Capture live (approche A) — RPC `boardGraph` (rpc-view.ts)
+Dump statique par tuile `{id,col,row,elevation,isWall,walkable,neighbours[]}` :
+- `walkable` = `BattleQuery.IsWalkableTile(tile)` (= IsWalkable du pathfinder ; **≠ isWall** : 1 tuile
+  walkable=False isWall=False observée → walkable natif = le vrai signal).
+- `neighbours` = `BattleQuery.GetAdjacentTiles(tile,true,true,true)` (set complet, cf.
+  `GetFreeAdjacentTiles` @181061650 qui passe ces flags puis filtre).
+- élévation = PositionComponent@0x18 (révélé par `GetCoordinates` @180ec4e40 : col@0x10,row@0x14,elev@0x18).
+
+### Résultat de validation (`pathfind_validate.py` vs `aiMovableTiles`, seed 777, 7×9=63 tuiles)
+- **L'adjacence native `GetAdjacentTiles` est LOSSY** : asymétrique (~18 arêtes one-way),
+  (0,0) renvoie 0 voisin (corner e3) → modes `native`/`native_sym` échouent (1–2/5).
+- **L'adjacence hex EVEN-Q est fidèle** (parité par COLONNE, convention VÉRIFIÉE sur les tuiles natives
+  à 6 voisins : col pair → `(-1,0)(-1,1)(0,-1)(0,1)(1,0)(1,1)` ; col impair → `(-1,-1)(-1,0)(0,-1)(0,1)(1,-1)(1,0)`).
+  → **WalkPathfinder 4/4 EXACT** sur toutes les unités WALK (u88/u90/u92/u94, à leur **stat Movement
+  réelle** 3/3/3/4 via combatSnapshot). Murs = propriété de tuile (walkable), PAS arête manquante.
+- **u96 (darkaTerminator) — RÉSOLU = non-Walk, PAS un bug** : stat Movement = **2** mais atteint **47**
+  tuiles → impossible en Walk. L'unité a `TeleportStrike_TeleportingIn` actif → `GetPathfinderTypeForUnit`
+  @18109a7b0 renvoie un type **téléport** (HasEffect 0x40b/0x474/0x4d6/9999), reach ignorant la portée de
+  marche. Modèle Walk non applicable. Le harnais le **détecte** (portée effective en pas de marche >
+  stat Movement ⇒ Fly/Teleport/range-bonus, exclu du score Walk). (TODO porter Fly/ATeleportPathfinder ;
+  mapper l'id d'effet TeleportStrike ↔ type pathfinder.)
+- **Diagnostic en route (chemins écartés)** : pas d'empreintes multi-hex (10 unités = 1 tuile,
+  `occupiedTiles=10`) ni MoW ici ; capture d'occupance complète via `UnitFootComponent` (UnitId@0x10,
+  TileId@0x14) AJOUTÉE à `boardGraph` (`occupantUnitId` par tuile) = faithful, prête pour empreintes/MoW
+  réels. Bug harnais corrigé : la portée DOIT venir de la stat Movement (l'inférence depuis le natif
+  sur-comptait via divergences de distance even-q en terrain varié). `aiMovableTiles` (défaut) = RAW
+  `GetMovableTilesFor` (pas de filtre danger-zone). `aiMovableTiles.units` N'A PAS de `team` → decisionView.
+
+### Fichiers (NON commités)
+- `frida/hooks/features/ai-step/rpc-view.ts` : RPC `boardGraph` (read-only) + occupance UnitFoot.
+  Build+reinject session 33.
+- `scripts/python/engine/entities/pathfinding/` : `board.py` (3 modes adjacence), `walk_pathfinder.py`
+  (flood-fill niveaux + IsValidPathNode), `__init__.py`.
+- `scripts/python/pathfind_validate.py` : harnais (portée réelle = stat Movement, détection non-Walk).
+TODO : Fly/ATeleportPathfinder (u96-like) ; MovementRangeWithAppliedBonus (bonus/réduction/enraciné) ;
+GetEffectiveDepth (hazard) ; câblage moteur playbook.
