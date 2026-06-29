@@ -19,21 +19,23 @@ from ...services.damage_modifiers import (
     DamageModifiers, build_attacker_modifiers, build_defender_modifiers,
 )
 from ...services.effect_bonus import for_armor_penetration
-from .base import BaseEffect
+from .base import BaseEffect, SubEffectSpec, SAME_TURNS
 from .factory import EFFECT_CLASSES, EffectFactory
 from .loki import (
     KanOpenerEffect,
     PowerTripFullHealthEffect,
     PowerTripIgnoreArmorEffect,
     RapidAssaultExtraDamageEffect,
+    StunnedEffect,
 )
 
 __all__ = [
-    "BaseEffect", "EffectFactory", "EFFECT_CLASSES",
+    "BaseEffect", "SubEffectSpec", "SAME_TURNS", "EffectFactory", "EFFECT_CLASSES",
     "RapidAssaultExtraDamageEffect", "PowerTripFullHealthEffect",
-    "PowerTripIgnoreArmorEffect", "KanOpenerEffect",
+    "PowerTripIgnoreArmorEffect", "KanOpenerEffect", "StunnedEffect",
     "build_attacker_modifiers_from_effects", "build_defender_modifiers_from_effects",
     "hits_bonus_from_effects",
+    "crit_chance_bonus_from_effects", "crit_damage_bonus_from_effects",
 ]
 
 
@@ -48,14 +50,15 @@ def _as_effects(effects) -> list[BaseEffect]:
     return out
 
 
-def build_attacker_modifiers_from_effects(effects) -> DamageModifiers:
+def build_attacker_modifiers_from_effects(effects, is_ranged: bool | None = None) -> DamageModifiers:
     """`CalculateAttackerModifiersForPrediction` @181000590 — DamageModifiers depuis les effets ACTIFS de
     l'attaquant (§17.8). Agrège : damage-bonus (additif/percent, `create_effect_damage_bonus_for_attack`)
     + pénétration d'armure (`get_armor_penetration` → axe armure). Les effets doivent être déjà filtrés
-    actifs (EffectsState.active_effects) ; si on passe des dicts, AUCUN filtre is_active n'est appliqué."""
+    actifs (EffectsState.active_effects) ; si on passe des dicts, AUCUN filtre is_active n'est appliqué.
+    `is_ranged` = nature du coup (combat) → propagée aux bonus gated `IsRangedAttack` (ex. HeavyWeapon)."""
     bonuses = []
     for e in _as_effects(effects):
-        db = e.create_effect_damage_bonus_for_attack()
+        db = e.create_effect_damage_bonus_for_attack(is_ranged)
         if db is not None:
             bonuses.append(db)
         pen = e.get_armor_penetration()
@@ -91,4 +94,30 @@ def hits_bonus_from_effects(effects) -> int:
             total += hb.value
         elif hb.kind == "Subtraction":
             total -= hb.value
+    return total
+
+
+def crit_chance_bonus_from_effects(effects) -> int:
+    """Σ des bonus de CHANCE de crit des effets ACTIFS de l'attaquant
+    (`DamagePrediction.GetCritChanceBonusFromEffects`@181031180) — couche calc-time ajoutée à
+    `GetStat(9)` dans RollCritical (PAS dans GetStat ⇒ pas dans le combatSnapshot ⇒ à sommer ici).
+    No-op (0) tant qu'aucun effet n'override `create_effect_crit_chance_bonus_for_attack`."""
+    total = 0
+    for e in _as_effects(effects):
+        b = e.create_effect_crit_chance_bonus_for_attack()
+        if b is not None:
+            total += b
+    return total
+
+
+def crit_damage_bonus_from_effects(effects) -> int:
+    """Σ des bonus de DÉGÂT de crit des effets ACTIFS de l'attaquant
+    (`DamagePrediction.GetCritDamageBonusFromEffects`@181031bb0) — couche calc-time ajoutée à
+    `GetStat(10)` dans CalculateCriticalDamage. No-op (0) tant qu'aucun effet n'override
+    `create_effect_crit_damage_bonus_for_attack`."""
+    total = 0
+    for e in _as_effects(effects):
+        b = e.create_effect_crit_damage_bonus_for_attack()
+        if b is not None:
+            total += b
     return total

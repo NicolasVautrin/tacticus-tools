@@ -76,13 +76,16 @@ def build_runner(host, live_session):
     (le runner de travail de l'utilisateur n'est jamais nuké). Chaque runner créé
     par les tests est libéré via `disposeRunner` au teardown → aucun orphelin.
 
-    Renvoie `build(seed="777") -> {"rid": int, "my_team": int}`. Le seed n'est qu'un
-    générateur de bataille, hors critère (l'invariant testé tient pour toute bataille)."""
+    Renvoie `build(seed="777", extra=None) -> {"rid": int, "my_team": int}`. Le seed n'est
+    qu'un générateur de bataille, hors critère (l'invariant testé tient pour toute bataille).
+    `extra` = args `rl_duel build` supplémentaires (ex. 1v1 minimal + `--crit` pour la slice
+    crit) ; None = build par défaut (roster complet)."""
     created: list[int] = []
 
-    def _build(seed: str = "777") -> dict:
+    def _build(seed: str = "777", extra: list[str] | None = None) -> dict:
         proc = subprocess.run(
-            [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--keep"],
+            [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--keep",
+             *(extra or [])],
             cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8",
             errors="replace")
         if not STATE.exists():

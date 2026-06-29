@@ -21,6 +21,22 @@ from dataclasses import dataclass
 
 from ...services.effect_bonus import EffectBonus
 
+# Sentinelle de durée d'un sous-effet : MÊME nombre de tours que le parent (mirror natif
+# `AddSubEffectWithSameTurns`). Distinct de None (= permanent, lié au cycle de vie du parent).
+SAME_TURNS = "same"
+
+
+@dataclass
+class SubEffectSpec:
+    """Sous-effet (enfant) qu'un effet COMPOSITE spawne quand il est appliqué (mirror des
+    `Add*SubEffect`/`AddEffect` de `<Effect>.ApplyInternal`). `turns` :
+      • `SAME_TURNS` → même durée que le parent (`AddSubEffectWithSameTurns`)
+      • `0` ou None  → permanent, lié au parent (rem=0 natif ; reverté à l'expiration du parent)
+      • `N>0`        → N tours."""
+    effect_type: int
+    name: str
+    turns: "int | str | None" = None
+
 
 @dataclass
 class BaseEffect:
@@ -34,7 +50,19 @@ class BaseEffect:
     # par le stack level (=1). Seedé depuis l'unité ; None → fallback sur `level`. §17.21.
     ability_level: int | None = None
     remaining_turns: int | None = None      # None = permanent/aura ; sinon décrémenté en fin de tour
-    source: int | None = None
+    source: int | None = None                # `EffectComponent` SourceUnit @+0x10 (qui a posé l'effet)
+    # `EffectComponent` Target @+0x14 — l'unité QUI PORTE l'effet (peuplé à la MATÉRIALISATION,
+    # AddEffectOperation/AddNewEffect ; les effets seedés one-shot le laissent None, l'unité porteuse
+    # = la clé `EffectsState.by_unit`). Distinct de `source` (qui l'a posé).
+    target: int | None = None
+    # `EffectComponent` Value @+0x60/+0x64 (flag @+0x5d) — magnitude matérialisée (Nullable<int> natif :
+    # None = effet sans valeur portée, la magnitude vient alors de la config d'ability). Peuplé par
+    # AddEffectOperation depuis le builder (param_6) quand l'ability source porte une valeur explicite.
+    value: int | None = None
+    # `EffectComponent` ParentEffect @+0x70 — pour un SOUS-effet (enfant d'un effet composite), le type
+    # de l'effet parent qui l'a spawné (ex. Stunned 1162 parent de 1165/1166/1167). None = effet racine.
+    # Sert au cycle de vie (les enfants sont reverté quand le parent expire). §matérialisation composite.
+    parent_type: int | None = None
     consumed: bool = False                   # retiré par le cycle de vie (one-shot / fin-de-tour)
     # `AbilityVariablesMultiplierPercentage` de l'unité porteuse (BC, défaut 100). Le natif bake le
     # scaling dans la config par-unité ; ici l'effet le porte pour scaler ses variables d'ability
@@ -42,12 +70,27 @@ class BaseEffect:
     ability_variables_multiplier: int = 100
 
     # ── contributions aux modifiers (None = pas de contribution) ────────────────────────────────────
-    def create_effect_damage_bonus_for_attack(self) -> EffectBonus | None:
-        """`<Effect>.CreateEffectDamageBonusForAttack` — contribution au scalaire dégât (additif/percent)."""
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None) -> EffectBonus | None:
+        """`<Effect>.CreateEffectDamageBonusForAttack` — contribution au scalaire dégât (additif/percent).
+        `is_ranged` = nature du coup courant (passée par le combat) : permet aux effets gated `IsRangedAttack`
+        (ex. HeavyWeapon_ExtraDmg) de ne contribuer qu'aux tirs. None = contexte inconnu (prédiction)."""
         return None
 
     def create_effect_hits_bonus_for_attack(self) -> EffectBonus | None:
         """`<Effect>.CreateEffectHitsBonusForAttack` — contribution à l'axe COUPS (Addition/Subtraction)."""
+        return None
+
+    def create_effect_crit_chance_bonus_for_attack(self) -> int | None:
+        """Bonus de CHANCE de crit (%) — couche calc-time SÉPARÉE de `GetStat(9)`, sommée dans
+        `DamagePrediction.GetCritChanceBonusFromEffects`@181031180 puis ajoutée à GetStat(9) dans
+        `RollCritical` (cc = clamp(GetStat(9)+Σbonus, 0, 100)). Distinct des effets StatModification
+        sur la crit-chance (eux DANS GetStat) → pas de double-compte. Défaut None = pas de bonus."""
+        return None
+
+    def create_effect_crit_damage_bonus_for_attack(self) -> int | None:
+        """Bonus de DÉGÂT de crit — couche calc-time SÉPARÉE de `GetStat(10)`, sommée dans
+        `DamagePrediction.GetCritDamageBonusFromEffects`@181031bb0 puis ajoutée à GetStat(10) dans
+        `CalculateCriticalDamage` (critDmgPct = max(0, GetStat(10)+Σbonus)). Défaut None = pas de bonus."""
         return None
 
     def create_effect_damage_malus_for_defense(self) -> EffectBonus | None:
@@ -66,6 +109,13 @@ class BaseEffect:
     def get_armor_penetration(self) -> int | None:
         """`<Effect>.IgnoreArmor` — pénétration d'armure (axe armure : armor_eff = max(armure − pén, 0))."""
         return None
+
+    # ── matérialisation composite ─────────────────────────────────────────────────────────────────
+    def sub_effects_on_apply(self) -> list[SubEffectSpec]:
+        """`<Effect>.ApplyInternal` — sous-effets (enfants) spawnés quand CET effet est appliqué.
+        Défaut : aucun (effet simple). Un effet COMPOSITE (ex. Stunned) override pour déclarer ses
+        enfants ; `AddEffectOperation` les matérialise après le parent (en propageant le lien parent)."""
+        return []
 
     # ── cycle de vie ────────────────────────────────────────────────────────────────────────────────
     def is_active(self, unit_state: Mapping | None = None) -> bool:

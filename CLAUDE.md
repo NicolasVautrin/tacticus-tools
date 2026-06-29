@@ -305,6 +305,43 @@ Le port Python d'un mécanisme natif doit **coller le plus possible à la struct
   changer un paramètre/une règle au bon endroit, comme dans le jeu. Une structure qui diverge du
   natif devient impossible à valider finement et à faire évoluer.
 
+## Sorties console Python — ASCII only (Windows cp1252)
+
+La console Windows (et les tools Bash/PowerShell) tourne en **cp1252**, pas UTF-8.
+Tout caractère non-ASCII envoyé à `stdout` (un `print`, un message d'assertion pytest
+affiché via `-s`, une f-string de diagnostic) lève **`UnicodeEncodeError`** et fait
+**crasher le script / échouer le test** — un faux négatif qui masque le vrai résultat
+(les assertions, elles, passaient).
+
+- **Dans tout `print`/log/sortie de script ou de test Python : ASCII uniquement.**
+  Remplacer les symboles courants : `->` (pas `→`), `OK`/`X` (pas `✓`/`✗`), `<=`/`>=`
+  (pas `≤`/`≥`), `Delta`/`d=` (pas `Δ`), `x` (pas `×`), `v`/`down` (pas `↓`), `...`
+  (pas `…`). Le français accentué (é, è, à) est **aussi** non-ASCII → l'éviter dans les
+  chaînes *imprimées* (OK dans les commentaires/docstrings non imprimés).
+- **Pytest** : ne pas compter sur `-s` pour voir des prints contenant du non-ASCII (ça
+  crashe). Invoquer pytest **sans `-s`** (sortie capturée) ; si une diagnostic est
+  vraiment nécessaire à l'écran, la garder ASCII ou poser `PYTHONIOENCODING=utf-8`.
+- **Pourquoi** : faute déjà commise plusieurs fois (`→`/`✓`/`Δ`/`↓` dans des prints) ;
+  le contenu *écrit dans un fichier* via `open(..., encoding="utf-8")` n'est PAS concerné,
+  seulement ce qui part vers la console.
+
+## Tests du moteur Python — NE PAS relancer la suite complète
+
+Après une modif, **ne lancer QUE les tests CIBLÉS de la tranche touchée**, jamais toute la
+suite `tests/engine/` — **beaucoup trop lourd**.
+
+- **Pourquoi** : chaque test live monte une (ou plusieurs) bataille(s) isolée(s) via le runner
+  (build + nav + RPC). Un seul fichier = quelques dizaines de secondes à plusieurs minutes ; la
+  suite entière = ~10 min+ et sature la session Frida. C'est un coût disproportionné pour valider
+  un changement localisé.
+- **Comment** : invoquer pytest sur les **fichiers pertinents uniquement** (ex. slice DAMAGE →
+  `test_damage_roll_live.py` + `test_runner_attack_live.py` + les tests crit/block ; slice EFFETS →
+  `test_effect_*_live.py`). Inclure un test de garde par dépendance impactée (ex. une modif d'un
+  composant partagé `effects`/`base` → relancer aussi un test damage qui consomme ce chemin), mais
+  **pas plus**.
+- **Suite complète** : seulement sur **demande explicite** de l'utilisateur, ou avant un jalon
+  (commit d'une tranche), pas après chaque édition.
+
 ## Ne jamais
 
 - **Utiliser `--reload`/hot-reload côté host** : casse les sessions Frida

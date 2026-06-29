@@ -72,8 +72,12 @@ class State:
 
     `rng` = RNG de combat du runner (`IntBasedMersenneTwister`). Pour un replay-diff
     bit-exact vs live, on le CALE sur l'état MT live (`dumpRng`) avant de rejouer un
-    message qui tire (attaque). None tant qu'aucun RNG n'est posé."""
-    __slots__ = ("entities", "current_player_id", "_next_entity_id", "effects", "rng")
+    message qui tire (attaque). None tant qu'aucun RNG n'est posé.
+
+    `board` = graphe hex (`engine.entities.pathfinding.board.Board`) optionnel, posé pour
+    les mécaniques qui ont besoin de l'ADJACENCE hex (ex. splash Psyker = ennemis adjacents
+    à la cible). None = pas d'adjacence dispo → ces mécaniques dégradent en no-op."""
+    __slots__ = ("entities", "current_player_id", "_next_entity_id", "effects", "rng", "board")
 
     def __init__(self):
         self.entities: dict[int, Entity] = {}
@@ -81,6 +85,7 @@ class State:
         self._next_entity_id = 1
         self.effects: Optional["EffectsState"] = None
         self.rng: Optional["IntBasedMersenneTwister"] = None
+        self.board = None
 
     def add_entity(self, entity_id: Optional[int] = None) -> Entity:
         if entity_id is None:

@@ -40,12 +40,18 @@ class MoveUnitOperation(Operation):
 
 class MovementHandler:
     """Visiteur des messages de mouvement (mirror du handler natif qui lance
-    MoveUnitOperation). Lié à l'état/bus du runner."""
-    __slots__ = ("state", "bus")
+    MoveUnitOperation). Lié à l'état/bus du runner. `after_move` = résultats du vecteur after-move
+    (effet-triggers ; ex. Overwatch) du dernier move."""
+    __slots__ = ("state", "bus", "after_move")
 
     def __init__(self, state: State, bus: EventBus):
         self.state = state
         self.bus = bus
+        self.after_move: list = []          # cascade after-move (overwatch…) du dernier move
 
     def visit_MoveUnitMessage(self, msg) -> None:
         MoveUnitOperation(msg.unit_id, msg.to).execute(self.state, self.bus)
+        # VECTEUR AFTER-MOVE : dispatcher générique (mirror `EvaluateAfterMoveTriggers`). Déclenche les
+        # effet-triggers after-move (Overwatch…). No-op si pas de board/rng ou aucun trigger en portée.
+        from .triggers import after_move_triggers
+        self.after_move = after_move_triggers(self.state, msg.unit_id)

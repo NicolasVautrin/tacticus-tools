@@ -36,21 +36,30 @@ def _cheby(a: Tuple[int, int], b: Tuple[int, int]) -> int:
     return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
 
 
+def select_weapon(ctx, dist: Optional[int]):
+    """Arme de l'attaque normale sélectionnée par PORTÉE (mêlée si adjacent & arme mêlée existe ; sinon
+    tir si arme ranged). Renvoie le dict d'arme gameconfig (ou None si aucune)."""
+    import gameconfig as GC
+    gu = GC.unit(ctx.visual_id or "") or {}
+    weapons = gu.get("weapons") or []
+    if not weapons:
+        return None
+    melee = [w for w in weapons if not w.get("Range")]
+    ranged = [w for w in weapons if w.get("Range")]
+    adjacent = dist is not None and dist <= 1
+    cand = melee if (adjacent and melee) else (ranged if ranged else (melee or weapons))
+    return next((x for x in cand if int(x.get("hits") or 0) == ctx.normal_hits), cand[0])
+
+
 def select_weapon_pierce(ctx, dist: Optional[int]) -> Tuple[int, bool, int]:
     """Arme de l'attaque normale + perçage, sélection mêlée/ranged par PORTÉE (port de
     `predict_validate._normal_weapon_pierce`) : cible adjacente (dist≤1) → mêlée ; sinon
     tir si une arme ranged existe. pierce = clamp(0,100, profil.PiercingRatio + ExtraPierce(26)
     + ExtraPierce{Melee21|Ranged22}). Renvoie (pierce, is_ranged, whits)."""
     import gameconfig as GC
-    gu = GC.unit(ctx.visual_id or "") or {}
-    weapons = gu.get("weapons") or []
-    if not weapons:
+    w = select_weapon(ctx, dist)
+    if w is None:
         return 100, False, 1
-    melee = [w for w in weapons if not w.get("Range")]
-    ranged = [w for w in weapons if w.get("Range")]
-    adjacent = dist is not None and dist <= 1
-    cand = melee if (adjacent and melee) else (ranged if ranged else (melee or weapons))
-    w = next((x for x in cand if int(x.get("hits") or 0) == ctx.normal_hits), cand[0])
     dp = GC.damage_profile(w.get("DamageProfile")) or {}
     is_ranged = bool(w.get("Range"))
     dir_pierce = ctx.extra_pierce_ranged if is_ranged else ctx.extra_pierce_melee
@@ -65,11 +74,12 @@ def resolve_one_hit(roll: int, pierce: int, armor: int, mods=None) -> int:
     return apply_pierce_and_modifiers(roll, pierce, armor, mods)
 
 
-def attacker_modifiers(state: State, unit_id: int, hp: Optional[int]):
-    """`DamageModifiers` de l'attaquant depuis ses EFFETS actifs (None-safe)."""
+def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged: Optional[bool] = None):
+    """`DamageModifiers` de l'attaquant depuis ses EFFETS actifs (None-safe). `is_ranged` = nature du coup
+    (propagée aux bonus gated `IsRangedAttack`, ex. HeavyWeapon_ExtraDmg)."""
     active = (state.effects.active_effects(unit_id, {"hp": hp})
               if state.effects is not None else [])
-    return build_attacker_modifiers_from_effects(active), active
+    return build_attacker_modifiers_from_effects(active, is_ranged), active
 
 
 def defender_modifiers(state: State, unit_id: int, hp: Optional[int]):

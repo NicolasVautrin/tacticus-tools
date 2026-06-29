@@ -108,7 +108,10 @@ def test_overwatch_fired_live_is_the_pending_increment(move_replay):
     hp_py = m["py_after"]["units"][mv]["hp"]
     if hp_before is None or hp_live is None or hp_live >= hp_before:
         pytest.skip("pas d'overwatch déclenché sur ce move (géométrie) — scénario non couvert")
-    # cascade non encore portée : Python garde les PV d'avant
-    assert hp_py == hp_before, "le runner Python ne devrait pas (encore) reproduire l'overwatch"
-    pytest.xfail(f"INCRÉMENT 1b à porter : overwatch live Δhp={hp_live - hp_before} "
-                 f"(live {hp_before}->{hp_live}), Python reste à {hp_py}")
+    # L'overwatch (vecteur after-move) EST porté + validé bit-exact dans `test_overwatch_live.py`. Ce
+    # fixture-ci seed l'état SANS combatSnapshot/dumpRng/board (load_state(dv,ob) seul) → pas de stats,
+    # pas de RNG, pas d'adjacence hex → le vecteur after-move reste no-op ICI (dégradation fidèle). D'où
+    # le gap attendu sur CE chemin ; la repro bit-exact est couverte par le test dédié.
+    assert hp_py == hp_before, "sans snapshot/rng/board, le move-replay ne reproduit pas l'overwatch"
+    pytest.xfail(f"overwatch porté+validé ailleurs (test_overwatch_live) ; ce fixture ne seed pas "
+                 f"stats/rng/board → no-op. live Δhp={hp_live - hp_before} ({hp_before}->{hp_live})")

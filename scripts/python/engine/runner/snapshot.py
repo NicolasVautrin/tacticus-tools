@@ -91,8 +91,11 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
             continue
         vis = vis_by_id.get(eid)
         su = {**su, "visualId": vis}
-        if (su.get("normalAttack") or {}).get("error"):
-            continue                              # pas d'attaque normale résolue → pas de stats damage
+        # On construit le ctx MÊME si la prédiction `normalAttack` a erré (cible hors portée au moment
+        # de la capture, ex. déploiement) : les STATS (`su["stats"]`) sont valides, et le COMBAT
+        # (`AttackDamageOperation.execute`) re-sélectionne arme/hits/perçage depuis **gameconfig** (pas la
+        # prédiction snapshot) ⇒ un ctx stat-based suffit. (Avant on SAUTAIT ces unités → un overwatcher
+        # ou une cible hors portée à la capture n'avait pas de StatsComponent → vecteur after-move/hit KO.)
         ctx = UnitContext.from_snapshot(su, GC.unit(vis or ""))
         uc = su.get("unitConfig") or {}
         if isinstance(uc, dict) and uc.get("abilityVariablesMultiplier") is not None:
@@ -100,6 +103,11 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
             mult_by_id[eid] = ctx.ability_variables_multiplier
             if uc.get("passiveAbilityLevel"):
                 ablvl_by_id[eid] = int(uc["passiveAbilityLevel"])
+            # NIVEAU d'ability ACTIVE = `unitConfig.activeAbilityLevel` (le stat `activeAbilityLevel` du
+            # combatSnapshot est None) — indexe minDmg/maxDmg[level] des abilities actives (cf.
+            # AActiveAbility.MinMaxDamage / ability_attack_params). Sans ça, niveau=0 → dégât d'ability faux.
+            if uc.get("activeAbilityLevel"):
+                ctx.active_ability_level = int(uc["activeAbilityLevel"])
         ent = state.get_entity(eid)
         if ent is not None:
             ent.add_component(StatsComponent(ctx=ctx))

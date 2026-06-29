@@ -47,6 +47,27 @@ class EffectsState:
         return [e for e in self.by_unit.get(int(unit_id), [])
                 if not e.consumed and not e.expired and e.is_active(unit_state)]
 
+    def has_effect(self, unit_id: int, effect_type: int | None = None,
+                   name: str | None = None) -> bool:
+        """L'unité porte-t-elle DÉJÀ un effet (non consommé) de ce type/nom ? Gate « déjà-présent »
+        de la matérialisation (cf. `AddEffectOperation` : query 0x28 sur la def vs cible, + base de
+        `UpdateExistingEffect`). Match par `effect_type` si fourni, sinon par `name`."""
+        for e in self.by_unit.get(int(unit_id), []):
+            if e.consumed:
+                continue
+            if effect_type is not None and e.effect_type == effect_type:
+                return True
+            if name is not None and e.name == name:
+                return True
+        return False
+
+    def add_effect(self, unit_id: int, effect: BaseEffect) -> BaseEffect:
+        """Enregistre un effet matérialisé sur l'unité (`AddNewEffect` : ajout à la liste portée de la
+        cible). `effect.target` doit être l'unité porteuse. Mirror de l'ajout à
+        `EffectsOwnedComponent` côté entité-effet (la liste structurée ici)."""
+        self.by_unit.setdefault(int(unit_id), []).append(effect)
+        return effect
+
     def on_attack(self, unit_id: int) -> None:
         """L'unité attaque → consomme les effets one-shot stricts."""
         for e in self.by_unit.get(int(unit_id), []):
@@ -55,9 +76,28 @@ class EffectsState:
 
     def on_turn_end(self, unit_id: int, attacked: bool) -> None:
         """Fin de tour de l'unité : retrait des effets « removed-after-attack » si elle a attaqué, puis
-        décrément des timers (expiration quand `remaining_turns` atteint 0)."""
-        for e in self.by_unit.get(int(unit_id), []):
+        décrément des timers (expiration quand `remaining_turns` atteint 0), puis CASCADE composite :
+        un effet PARENT disparu (expiré/consommé) retire ses ENFANTS (lien `parent_type`).
+
+        Mirror du cycle de vie natif d'un effet composite (ex. Stunned 1162) : à l'expiration du parent,
+        `<Effect>.RevertInternal` (@180f6f3e0) fait `RemoveEffect` de ses enfants permanents (1166/1167)
+        et l'enfant same-turns (1165) expire sur son propre timer synchronisé — NET : toute la famille
+        part ensemble. La cascade `parent_type` reproduit ce NET (et couvre le retrait anticipé du parent)."""
+        lst = self.by_unit.get(int(unit_id), [])
+        for e in lst:
             if e.removed_after_attack and attacked:
                 e.consumed = True
             if e.remaining_turns is not None:
                 e.remaining_turns -= 1
+        # cascade : tant qu'un parent vient de disparaître, consommer ses enfants (point fixe — gère un
+        # éventuel chaînage parent->enfant->petit-enfant ; aujourd'hui 1 niveau pour Stunned).
+        while True:
+            gone = {e.effect_type for e in lst
+                    if (e.consumed or e.expired) and e.effect_type is not None}
+            changed = False
+            for e in lst:
+                if not e.consumed and e.parent_type in gone:
+                    e.consumed = True
+                    changed = True
+            if not changed:
+                break

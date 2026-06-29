@@ -49,6 +49,19 @@ class AttackUnitMessage(Message):
         self.target_id = target_id
 
 
+class ActiveAbilityMessage(Message):
+    """`IdunBattle.Messages.ActiveAbilityMessage` (.ctor @180eb1560) — cast d'une ability ACTIVE.
+    `caster_id` lance `ability_type` sur `target_id`. Déclenche l'exécution de la behaviour-seq de
+    l'ability (mirror `AActiveAbility.Execute`→`<Ability>.ExecuteBehaviour`) : attaque + AddEffect +
+    déplacements, etc. — l'engine DÉRIVE les effets posés (cf. `engine/runner/abilities/`)."""
+    __slots__ = ("caster_id", "target_id", "ability_type")
+
+    def __init__(self, caster_id: int, target_id: Optional[int], ability_type: int):
+        self.caster_id = caster_id
+        self.target_id = target_id
+        self.ability_type = ability_type
+
+
 class FinishUnitTurnMessage(Message):
     """`IdunBattle.Messages.FinishUnitTurnMessage` — clôt l'activation d'une unité."""
     __slots__ = ("unit_id",)

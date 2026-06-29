@@ -11,17 +11,25 @@ Chaîne native RE'd (VA citées) :
         (perçage/armure/modifiers appliqués aux bornes base±spread AVANT le tirage)
       → ExecuteHits (boucle nbHits)      @180e607b0
           → ExecuteHit (PAR COUP)        @180e5eff0
-              1. HitDamage.GetDamage     @181007bf0   ← TIRAGE (1er conso RNG) DANS la plage réduite
-              2. roll crit (CritDamageInfo, composant 0xb)        — palier 2
-              3. roll block (composant 10)                        — palier 2
+              1. RollCritical (IDamagePrediction slot 0xa → DamageCalculations.RollCritical
+                 @1810057b0 → NextBool(critChance))  ← 1er conso RNG SI cc≥1 (tirage PAIR)
+              2. HitDamage.GetDamage     @181007bf0   ← spread DANS la plage réduite SÉLECTIONNÉE
+                 (crit → bornes eff_attack=attack+critDamage ; sinon non-crit) — tirage IMPAIR
+              3. roll block (composant 10)                        — palier 2 (non porté)
               4. split bouclier/armure-pool (CalculateDamageOperation) — palier 3
               5. EvaluateAfterHitTriggers (cascade)               — palier 4
 
-**Ordre RNG confirmé** : `HitDamage.GetDamage` est le PREMIER consommateur de RNG
-d'`ExecuteHit` (crit/block viennent APRÈS). Rien avant le 1er coup ne tire de RNG
-pour une attaque mono-coup (GetAttackHits renvoie 1 sans requête). Le tirage de
-dégât d'un coup mono-coup propre est donc le tirage RNG #1 — base de la validation
-bit-exact (`tests/engine/runner/test_damage_roll_live.py`).
+**Ordre RNG CONFIRMÉ (genrand brut live, necroDestroyer CC=100)** : par coup =
+RollCritical (tirage PAIR) PUIS spread (tirage IMPAIR) = 2 tirages/coup. À cc=0,
+RollCritical ne tire RIEN (NextBool gate cc≥1) → 1 tirage/coup → rétro-compat exacte
+du multi-coups non-crit (validé 18/18). Le spread d'un coup non-crit propre reste le
+tirage RNG #1 — base de la validation bit-exact (`tests/engine/runner/test_damage_roll_live.py`).
+
+**CRIT (combat ≠ prédiction)** : le crit du COMBAT s'ajoute à la BASE D'ATTAQUE AVANT
+spread/perçage (`GetBaseDamageFix64` param_4=isCrit ⇒ `eff_attack=attack+critDamage`,
+même pipeline) — PAS l'`ApplyCritDamage` post-réduction (base+bonus) de la PRÉDICTION.
+Confirmé bit-exact : crit per-coup [675,1012] = non-crit [435,652]×(906+500)/906, et
+next_internal(675,1013) aux tirages impairs = live [932,882,967,867,961,955] à l'unité.
 
 **ORDRE réduction↔tirage (CORRIGÉ — confirmé live 18/18 coups, 3 seeds, necroDestroyer 6h**
 **mêlée → eldarFarseer)** : la réduction perçage/armure/modifiers est appliquée aux BORNES
@@ -36,13 +44,16 @@ from __future__ import annotations
 
 from ...services.damage_calculations import spread_to_min_max
 from ...services.damage_prediction import get_base_damage_fix64, apply_pierce_and_modifiers
-from ...services.damage_combat import calculate_damage_operation, Damage
+from ...services.damage_combat import (calculate_damage_operation, Damage, could_crit,
+                                       roll_critical, BlockSource)
 from ...services.damage_modifiers import apply_all_modifiers
 from ..prng import IntBasedMersenneTwister
 from ..state import State
 from ..components import StatsComponent, HealthComponent, PositionComponent
-from ..damage_model import select_weapon_pierce, attacker_modifiers, defender_modifiers, _cheby
-from ...entities.effects import hits_bonus_from_effects
+from ..damage_model import (select_weapon, select_weapon_pierce, attacker_modifiers,
+                            defender_modifiers, _cheby)
+from ...entities.effects import (hits_bonus_from_effects, crit_chance_bonus_from_effects,
+                                 crit_damage_bonus_from_effects)
 
 
 class HitDamage:
@@ -126,14 +137,41 @@ class AttackDamageOperation:
         ctx = sc.ctx
         ap = att.get_component(PositionComponent)
         tp = tgt.get_component(PositionComponent)
-        dist = (_cheby((ap.col, ap.row), (tp.col, tp.row))
-                if ap is not None and tp is not None else None)
+        # DISTANCE pour la sélection d'arme (mêlée si adjacent, sinon tir). La grille est HEXAGONALE :
+        # l'adjacence FIDÈLE = voisinage hex du `state.board` (evenq), PAS chebyshev (cheby==1 peut
+        # correspondre à une paire hex-dist-2 → fausse sélection mêlée d'un tir, ex. overwatch ranged à
+        # dist 2). On retombe sur chebyshev seulement si pas de board (rétro-compat).
+        dist = None
+        if ap is not None and tp is not None:
+            board = getattr(state, "board", None)
+            a_tile = board.id_at(ap.col, ap.row) if board is not None else None
+            t_tile = board.id_at(tp.col, tp.row) if board is not None else None
+            if a_tile is not None and t_tile is not None:
+                dist = 1 if t_tile in board.neighbours(a_tile) else 2   # adjacent hex → 1, sinon tir
+            else:
+                dist = _cheby((ap.col, ap.row), (tp.col, tp.row))
         pierce, _ranged, whits = select_weapon_pierce(ctx, dist)
+        _w = select_weapon(ctx, dist)
+        _profile = _w.get("DamageProfile") if _w else None     # profil du coup (pour vecteurs after-hit)
         ahc = att.get_component(HealthComponent)
-        mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None)
+        mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, is_ranged=_ranged)
         hits = max(1, whits + ctx.extra_hits + hits_bonus_from_effects(active))
         tsc = tgt.get_component(StatsComponent)
+        # armure = GetStat(16) DÉJÀ effet-inclusif : les bonus +armor d'effet sont des StatModifications
+        # (aucun `GetArmorBonusFromEffects` séparé n'existe — seuls crit/hits ont une couche calc-time) →
+        # cuits dans GetStat → dans le combatSnapshot → dans ctx.fixed_armor. Rien à sommer en plus.
         armor = tsc.ctx.fixed_armor if tsc is not None else 0
+        # BLOCK (cible) — sources issues de `GetMultiValueStat(target, 7)` (CalculateBlockChances@181002350) :
+        # les bonus +block d'effet sont aussi des StatModifications (pas de couche calc-time) → déjà dans
+        # GetStat(7/8) → ctx.block_chance/block_damage. Le patch BC --block-target = item I_Block équivalent.
+        # chaque entrée {chance → blockDmg(GetBlockDamageForBlockChance)}. Notre patch BC (BlockChance/
+        # BlockDamage via rl_duel --block-target) = UNE source {chance, amount}. La chaîne (apply_random_
+        # block_damage) tire NextBool par source triée jusqu'à 1ʳᵉ réussite → dmg=max(0,dmg−amount), DidBlock.
+        # Vide (chance/amount≤0) → aucune source → 0 tirage → rétro-compat exacte (cibles sans block).
+        block_chance = int(getattr(tsc.ctx, "block_chance", 0) or 0) if tsc is not None else 0
+        block_amount = int(getattr(tsc.ctx, "block_damage", 0) or 0) if tsc is not None else 0
+        block_sources = ([BlockSource(chance=block_chance, amount=block_amount)]
+                         if block_chance > 0 and block_amount > 0 else None)
         # DÉFENSEUR : réductions de dégât reçu portées par les effets de la CIBLE (symétrique attaquant ;
         # CalculateDefenderModifiersForPrediction). Vide → no-op (apply_all_modifiers identité). Couvre la
         # famille ADamageDefenseModifierAbilityEffect ; STAT/Parry/triggers = axes séparés (cf. §1.8).
@@ -143,59 +181,225 @@ class AttackDamageOperation:
         # appliquée aux BORNES base±spread D'ABORD, puis le tirage `GetDamage` se fait DANS cette plage
         # réduite (next_internal(min_réduit, max_réduit+1)). PAS spread-brut-puis-réduit (qui donne la
         # bonne PLAGE totale mais de mauvaises valeurs par coup — le modulo dépend de la largeur).
-        mm = get_base_damage_fix64(ctx.attack, spread_pct=spread_pct)
-        ph_min = apply_all_modifiers(apply_pierce_and_modifiers(mm.min, pierce, armor, mods), def_mods)
-        ph_max = apply_all_modifiers(apply_pierce_and_modifiers(mm.max, pierce, armor, mods), def_mods)
-        hit = HitDamage(ph_min, ph_max)           # plage RÉDUITE par coup
-        clean_min = ph_min * hits
-        clean_max = ph_max * hits
-        # Pools DÉPLÉTABLES de la cible (bouclier / ArmorComponent) — PAS encore exposés par
-        # l'ECS (HealthComponent = hp seul) ⇒ 0 pour l'instant (toutes les cibles live testées :
-        # RemainingArmor=0/Shield=0). Le split combat se réduit alors à health=raw (no-op validé).
-        # TODO : sourcer shield/armor_pool/armor_pct + crit (stat9/10 attaquant) depuis l'ECS.
-        shield = armor_pool = armor_pct = 0
+        # CRIT — modèle CONFIRMÉ bit-exact (genrand brut live, necroDestroyer CC=100/CD=500 → 12 tirages
+        # /6 coups : 1 crit-roll + 1 spread PAR COUP). Le crit du COMBAT n'est PAS l'`ApplyCritDamage`
+        # post-réduction de la PRÉDICTION : il s'ajoute à la BASE D'ATTAQUE AVANT spread/perçage
+        # (chemin `GetBaseDamageFix64`@181030ba0 param_4=isCrit/param_5=critBonus = +FromInt(critDamage)).
+        # ⇒ `eff_attack = attack + critDamage` PAR COUP qui crite, puis MÊME pipeline (spread→perçage→mods).
+        # Preuve : non-crit spread(906)=181→{725,1087}×0.6=[435,652] ; crit eff=1406, spread=281→
+        # {1125,1687}×0.6=[675,1012] (=W338 du solveur, ×1.552=(906+500)/906) ; next_internal(675,1013)
+        # aux tirages IMPAIRS = live [932,882,967,867,961,955] À L'UNITÉ.
+        # ORDRE PAR COUP (confirmé par positions genrand) : RollCritical D'ABORD (tirage pair), spread APRÈS
+        # (tirage impair). `roll_critical` ne tire QUE si cc≥1 (NextBool) — cc=0 ⇒ 0 tirage ⇒ rétro-compat
+        # exacte du multi-coups non-crit validé (18/18). Gate `could_crit` = cc>0 ET cd>0 (CouldCrit@181004fb0).
+        # crit = GetStat(9/10) [DÉJÀ effet-inclusif : les effets StatModification sur la crit sont
+        # cuits dans GetStat → dans le combatSnapshot → dans ctx] + couche calc-time SÉPARÉE
+        # GetCritChanceBonusFromEffects/GetCritDamageBonusFromEffects (PAS dans GetStat → sommée ici
+        # depuis les effets ACTIFS de l'attaquant). Mirror exact de RollCritical/CalculateCriticalDamage.
+        crit_chance = int(getattr(ctx, "crit_chance", 0) or 0) + crit_chance_bonus_from_effects(active)
+        crit_damage = int(getattr(ctx, "crit_damage", 0) or 0) + crit_damage_bonus_from_effects(active)
+        crit_enabled = could_crit(crit_chance, crit_damage)
+
+        def _reduced_bounds(eff_attack: int) -> "HitDamage":
+            mm = get_base_damage_fix64(eff_attack, spread_pct=spread_pct)
+            lo = apply_all_modifiers(apply_pierce_and_modifiers(mm.min, pierce, armor, mods), def_mods)
+            hi = apply_all_modifiers(apply_pierce_and_modifiers(mm.max, pierce, armor, mods), def_mods)
+            return HitDamage(lo, hi)
+
+        hit_nc = _reduced_bounds(ctx.attack)                              # plage NON-crit par coup
+        hit_cr = _reduced_bounds(ctx.attack + crit_damage) if crit_enabled else hit_nc
+        clean_min = hit_nc.min * hits          # référence affichée = plage non-crit (× hits)
+        clean_max = hit_nc.max * hits
+        r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
+                                            crit_enabled, hits, block_sources)
+        if thc.hp is not None:
+            thc.hp = max(0, thc.hp - r["total"])
+        return {"hits": hits, "total": r["total"], "base": ctx.attack, "pierce": pierce,
+                "armor": armor, "clean_min": clean_min, "clean_max": clean_max,
+                "shield_dmg": r["shield_dmg"], "armor_dmg": r["armor_dmg"],
+                "did_crit": r["did_crit"], "did_block": r["did_block"], "did_evade": r["did_evade"],
+                "crits": r["crits"], "rolls": r["rolls"], "per_hit": r["per_hit"],
+                "ranged": _ranged, "profile": _profile,
+                "effects": [getattr(e, "name", None) for e in active]}
+
+    @staticmethod
+    def _run_hits(rng: IntBasedMersenneTwister, hit_nc: "HitDamage", hit_cr: "HitDamage",
+                  crit_chance: int, crit_enabled: bool, hits: int, block_sources,
+                  shield: int = 0, armor_pool: int = 0, armor_pct: int = 0, post_roll=None) -> dict:
+        """Boucle PAR COUP partagée (attaque normale ET ability) : pour chaque coup, crit-roll D'ABORD
+        (1 tirage NextBool si cc>=1, sinon 0) PUIS tirage dans `hit_cr`/`hit_nc`, PUIS split combat
+        (bouclier/armure-pool/block, `calculate_damage_operation`). Ordre RNG crit->spread->block confirmé.
+
+        `post_roll` = réduction perçage/armure/mods APPLIQUÉE APRÈS le tirage (None = déjà appliquée aux
+        bornes). DEUX ordres distincts (confirmés live) :
+          • ATTAQUE NORMALE = reduce-then-roll : `hit_nc`/`hit_cr` = bornes DÉJÀ réduites, `post_roll=None`.
+          • ABILITY = roll-then-reduce : `hit_nc`/`hit_cr` = bornes BRUTES config (RandomAmount(min,max)),
+            `post_roll=_reduce` → on tire le BRUT puis on réduit (modulo sur la largeur BRUTE != réduite ;
+            confirmé bit-exact ThunderousAssault: roll-then-reduce draw0 = live 6948).
+        Renvoie total/per_hit/rolls/crits + flags. Pools déplétés entre coups (0 -> invariant)."""
         total = shield_dmg = armor_dmg = 0
         did_crit = did_block = did_evade = False
-        rolls: list[int] = []      # tirage par coup DANS la plage réduite (= dégât avant split pools)
-        per_hit: list[int] = []    # dégât FINAL par coup (après split bouclier/armure-pool)
+        crits: list[bool] = []
+        rolls: list[int] = []
+        per_hit: list[int] = []
         for _ in range(hits):
-            # 1. tirage DANS la plage RÉDUITE (1 tirage RNG) = dégât du coup avant split pools
-            roll = hit.get_damage(state.rng)
+            crit = roll_critical(rng, crit_chance) if crit_enabled else False
+            crits.append(crit)
+            hd = hit_cr if crit else hit_nc
+            roll = hd.get_damage(rng)
+            if post_roll is not None:
+                roll = post_roll(roll)        # ability : réduction APRÈS le tirage (roll-then-reduce)
             rolls.append(roll)
-            # 2. SPLIT combat (CalculateDamageOperation : bouclier/armure-pool/block/evasion). Pools=0
-            #    ⇒ dmg.health == roll, aucun tirage RNG supplémentaire (block_sources=None).
             dmg: Damage = calculate_damage_operation(
-                roll, shield=shield, armor_pool=armor_pool, armor_pct=armor_pct, rng=state.rng)
-            # dépletion des pools entre coups (multi-coups consomme le pool ; ici 0 → invariant)
+                roll, shield=shield, armor_pool=armor_pool, armor_pct=armor_pct,
+                block_sources=block_sources, evasion_branch=False, rng=rng)
             shield = max(0, shield - dmg.shield)
             armor_pool = max(0, armor_pool - dmg.armor)
             per_hit.append(dmg.get_total())
             total += dmg.health
             shield_dmg += dmg.shield
             armor_dmg += dmg.armor
-            did_crit |= dmg.did_crit
+            did_crit |= crit
             did_block |= dmg.did_block
             did_evade |= dmg.did_evade
-        if thc.hp is not None:
-            thc.hp = max(0, thc.hp - total)
-        return {"hits": hits, "total": total, "base": ctx.attack, "pierce": pierce,
-                "armor": armor, "clean_min": clean_min, "clean_max": clean_max,
-                "shield_dmg": shield_dmg, "armor_dmg": armor_dmg,
+        return {"total": total, "shield_dmg": shield_dmg, "armor_dmg": armor_dmg,
                 "did_crit": did_crit, "did_block": did_block, "did_evade": did_evade,
-                "rolls": rolls, "per_hit": per_hit,
-                "effects": [getattr(e, "name", None) for e in active]}
+                "crits": crits, "rolls": rolls, "per_hit": per_hit}
+
+    @staticmethod
+    def execute_ability_attack(state: State, attacker_id: int, target_id: int,
+                               base_min: int, base_max: int, profile_pierce: int,
+                               hits: int) -> Optional[dict]:
+        """Attaque d'une ABILITY active (mirror `AttackWithAttackDamage` + `MinMaxDamage`/`GetHits`/
+        `GetDamageProfile`). DIFFÈRE de l'attaque normale par la BASE : les bornes du coup = `[base_min,
+        base_max]` données par la config d'ability (`GetVariableForLevel` clés 0xc/0xd = minDmg/maxDmg),
+        PAS `Attack ± spread%`. Le perçage = celui du PROFIL de l'ability (`GetDamageProfile`). Le RESTE
+        du pipeline est IDENTIQUE (réduction perçage/armure/modifiers sur les bornes -> tirage dans la
+        plage réduite -> crit -> block), donc réutilise `_run_hits`. Mute les PV de la cible.
+
+        `RandomAmount(min,max)` natif = tirage uniforme dans [min,max] (= `get_damage` sur des bornes
+        déjà = [min,max]). Perçage de l'arme normale + ExtraPierce stats : ici on applique le perçage du
+        PROFIL d'ability + ExtraPierce de la cible-source comme l'attaque normale (réduction commune).
+
+        DÉFENSIF : si `state.rng` n'est pas calé (replay effet-seul, sans dumpRng), on SKIP le dégât
+        (return None) au lieu de lever — le wiring d'ability reste utilisable pour matérialiser un effet
+        sans replay de dégât. Un replay de DÉGÂT doit caler rng (dumpRng) avant le cast."""
+        if state.rng is None:
+            return None
+        att = state.get_entity(attacker_id)
+        tgt = state.get_entity(target_id)
+        sc = att.get_component(StatsComponent) if att is not None else None
+        thc = tgt.get_component(HealthComponent) if tgt is not None else None
+        if sc is None or thc is None:
+            return None
+        ctx = sc.ctx
+        ahc = att.get_component(HealthComponent)
+        mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None)
+        tsc = tgt.get_component(StatsComponent)
+        armor = tsc.ctx.fixed_armor if tsc is not None else 0
+        block_chance = int(getattr(tsc.ctx, "block_chance", 0) or 0) if tsc is not None else 0
+        block_amount = int(getattr(tsc.ctx, "block_damage", 0) or 0) if tsc is not None else 0
+        block_sources = ([BlockSource(chance=block_chance, amount=block_amount)]
+                         if block_chance > 0 and block_amount > 0 else None)
+        def_mods, _da = defender_modifiers(state, target_id, thc.hp)
+        crit_chance = int(getattr(ctx, "crit_chance", 0) or 0) + crit_chance_bonus_from_effects(active)
+        crit_damage = int(getattr(ctx, "crit_damage", 0) or 0) + crit_damage_bonus_from_effects(active)
+        crit_enabled = could_crit(crit_chance, crit_damage)
+
+        def _reduce(value: int) -> int:
+            return apply_all_modifiers(
+                apply_pierce_and_modifiers(value, profile_pierce, armor, mods), def_mods)
+
+        # ABILITY = roll-then-reduce : on tire dans les bornes BRUTES config (RandomAmount(min,max)) PUIS
+        # on réduit (perçage/armure/mods) via `post_roll`. (≠ attaque normale reduce-then-roll.) Confirmé
+        # bit-exact live (ThunderousAssault necroOverlord : roll-then-reduce = live 6948, à l'unité).
+        hit_nc = HitDamage(base_min, base_max)                            # bornes BRUTES
+        # CRIT pour ability = HYPOTHÈSE (non RE/validée) : crit plie sur les bornes brutes (min/max +
+        # critDamage) avant réduction. NON exercé tant que cc=0 (crit = item normalisé) ; à confirmer live.
+        hit_cr = HitDamage(base_min + crit_damage, base_max + crit_damage) if crit_enabled else hit_nc
+        hits = max(1, int(hits))
+        r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
+                                            crit_enabled, hits, block_sources, post_roll=_reduce)
+        if thc.hp is not None:
+            thc.hp = max(0, thc.hp - r["total"])
+        return {"hits": hits, "total": r["total"], "base_min": base_min, "base_max": base_max,
+                "pierce": profile_pierce, "armor": armor,
+                "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,
+                "did_crit": r["did_crit"], "did_block": r["did_block"], "did_evade": r["did_evade"],
+                "crits": r["crits"], "rolls": r["rolls"], "per_hit": r["per_hit"]}
+
+
+    @staticmethod
+    def execute_normal_like(state: State, attacker_id: int, target_id: int, base: int,
+                            profile_pierce: int, hits: int = 1, spread_pct: int = 20) -> Optional[dict]:
+        """Attaque dont le node de dégât est un `StatAmount`/`PercentageOf(StatAmount(...))` (ex. splash
+        Psyker = `PercentageOf(StatAmount(Attack), psykerExtraDmg%)`, profil Psychic). Pipeline
+        **reduce-then-roll** (bornes pré-réduites puis tirage, post_roll=None), comme l'attaque normale
+        (≠ ability RandomAmount), avec base + perçage de profil DONNÉS. Mute les PV de la cible.
+        `spread_pct` = variance d'arme (DamageSpreadPercentage) : **0 pour un montant `StatAmount`**
+        (mono-valeur, AUCUNE variance — confirmé live, splash Psyker = base exact) ; 20 seulement si le
+        node porte de vraies bornes min/max d'arme. Renvoie le dict résultat (per_hit/total/...) ou None."""
+        if state.rng is None:
+            return None
+        att = state.get_entity(attacker_id)
+        tgt = state.get_entity(target_id)
+        sc = att.get_component(StatsComponent) if att is not None else None
+        thc = tgt.get_component(HealthComponent) if tgt is not None else None
+        if sc is None or thc is None:
+            return None
+        ctx = sc.ctx
+        ahc = att.get_component(HealthComponent)
+        mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None)
+        tsc = tgt.get_component(StatsComponent)
+        armor = tsc.ctx.fixed_armor if tsc is not None else 0
+        block_chance = int(getattr(tsc.ctx, "block_chance", 0) or 0) if tsc is not None else 0
+        block_amount = int(getattr(tsc.ctx, "block_damage", 0) or 0) if tsc is not None else 0
+        block_sources = ([BlockSource(chance=block_chance, amount=block_amount)]
+                         if block_chance > 0 and block_amount > 0 else None)
+        def_mods, _da = defender_modifiers(state, target_id, thc.hp)
+        crit_chance = int(getattr(ctx, "crit_chance", 0) or 0) + crit_chance_bonus_from_effects(active)
+        crit_damage = int(getattr(ctx, "crit_damage", 0) or 0) + crit_damage_bonus_from_effects(active)
+        crit_enabled = could_crit(crit_chance, crit_damage)
+
+        def _reduced(eff_base: int) -> "HitDamage":
+            mm = get_base_damage_fix64(eff_base, spread_pct=spread_pct)
+            lo = apply_all_modifiers(apply_pierce_and_modifiers(mm.min, profile_pierce, armor, mods), def_mods)
+            hi = apply_all_modifiers(apply_pierce_and_modifiers(mm.max, profile_pierce, armor, mods), def_mods)
+            return HitDamage(lo, hi)
+
+        hit_nc = _reduced(base)
+        hit_cr = _reduced(base + crit_damage) if crit_enabled else hit_nc
+        hits = max(1, int(hits))
+        r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
+                                            crit_enabled, hits, block_sources)   # post_roll=None (reduce-then-roll)
+        if thc.hp is not None:
+            thc.hp = max(0, thc.hp - r["total"])
+        return {"hits": hits, "total": r["total"], "base": base, "pierce": profile_pierce,
+                "armor": armor, "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,
+                "did_crit": r["did_crit"], "did_block": r["did_block"], "did_evade": r["did_evade"],
+                "crits": r["crits"], "rolls": r["rolls"], "per_hit": r["per_hit"]}
 
 
 class DamageHandler:
     """Visiteur des messages d'attaque (mirror du handler natif lançant AttackDamageOperation).
     `spread_pct` = `BattleConfiguration.Damage.DamageSpreadPercentage` (défaut 20)."""
-    __slots__ = ("state", "spread_pct", "last")
+    __slots__ = ("state", "spread_pct", "last", "after_hit")
 
     def __init__(self, state: State, spread_pct: int = 20):
         self.state = state
         self.spread_pct = spread_pct
         self.last: Optional[dict] = None       # résultat du dernier coup (diagnostic/test)
+        self.after_hit: list = []              # extra-attaques after-hit (traits) du dernier coup
 
     def visit_AttackUnitMessage(self, msg) -> None:
         self.last = AttackDamageOperation.execute(
             self.state, msg.attacker_id, msg.target_id, self.spread_pct)
+        # VECTEUR AFTER-HIT : dispatcher GÉNÉRIQUE de triggers (mirror `EvaluateAfterHitTriggers` →
+        # `EvaluateTriggerOperation`). Itère le registre des triggers (traits/effets) ; chaque entrée
+        # scope elle-même via sa condition (ex. Psyker OwnerIsActor). No-op si aucun trigger ne matche.
+        if self.last is not None:
+            from .triggers import after_hit_normal_attack
+            self.after_hit = after_hit_normal_attack(
+                self.state, msg.attacker_id, msg.target_id,
+                bool(self.last.get("ranged")), self.last.get("profile"),
+                is_crit=bool(self.last.get("did_crit")))

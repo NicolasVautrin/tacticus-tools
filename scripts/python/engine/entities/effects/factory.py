@@ -10,17 +10,21 @@ from collections.abc import Mapping
 
 from .base import BaseEffect
 from .loki import (
+    HeavyWeaponExtraDmgEffect,
     KanOpenerEffect,
     PowerTripFullHealthEffect,
     PowerTripIgnoreArmorEffect,
     RapidAssaultExtraDamageEffect,
+    StunnedEffect,
 )
 
 # Registre nom d'EffectType (`decisionView.effects[].name`) → classe d'effet. À ÉTENDRE au roster.
 EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "RapidAssault_ExtraDamage": RapidAssaultExtraDamageEffect,
+    "HeavyWeapon_ExtraDmg": HeavyWeaponExtraDmgEffect,   # +25% dégât RANGED (trait HeavyWeapon→Overwatch)
     "PowerTrip_FullHealth": PowerTripFullHealthEffect,
     "PowerTrip_IgnoreArmor": PowerTripIgnoreArmorEffect,
+    "Stunned": StunnedEffect,           # effet COMPOSITE (parent 1162 → enfants 1165/1166/1167)
     # KanOpener : nom d'EffectType à confirmer avant inscription.
 }
 

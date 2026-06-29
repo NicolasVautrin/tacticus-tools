@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from ...services.effect_bonus import EffectBonus, for_addition, for_percent_increase
-from .base import BaseEffect
+from .base import BaseEffect, SubEffectSpec, SAME_TURNS
 from .magnitude import ability_var, trait_var
 
 
@@ -21,13 +21,29 @@ class RapidAssaultExtraDamageEffect(BaseEffect):
       `On(0x17) & UnitsAttackedThisTurn>0 & HasEffect(0x4cd)`).
     VALIDÉ live : +25% → u94→u84 3012-4524 EXACT."""
 
-    def create_effect_damage_bonus_for_attack(self) -> EffectBonus | None:
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None) -> EffectBonus | None:
         pct = trait_var("RapidAssault", "rapidAssaultExtraDmgPct")
         return for_percent_increase(True, pct) if pct is not None else None
 
     @property
     def removed_after_attack(self) -> bool:
         return True
+
+
+class HeavyWeaponExtraDmgEffect(BaseEffect):
+    """`HeavyWeapon_ExtraDmgEffect` (effet 1008 ; ctor `DamageModifierAbilityEffect(0x3e9)`).
+    - dégât `CreateDamageModifier` @180f4f030 : `EffectBonus.ForPercentIncrease(cond, amount)` où
+      `amount = ConditionalAmount(TriggeringAbilityIs(0x3ec) ? amount×2 : amount)`, `amount = ConfigConst
+      key 0xf` = trait var `heavyWeaponExtraDmg` (=25, scalaire) ; condition = `OwnerIsCaster &
+      IsRangedAttack & flags`. ⇒ **+25% de dégât sur les attaques RANGED** (le ×2 si l'ability
+      déclenchante est 0x3ec = raffinement non porté ; l'attaque normale/overwatch n'est pas 0x3ec).
+    Porté par le trait HeavyWeapon (qui accorde aussi l'Overwatch) → s'applique au tir d'overwatch."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None) -> EffectBonus | None:
+        if not is_ranged:                        # gated IsRangedAttack (no-op sur mêlée / contexte inconnu)
+            return None
+        pct = trait_var("HeavyWeapon", "heavyWeaponExtraDmg")
+        return for_percent_increase(True, pct) if pct is not None else None
 
 
 class PowerTripFullHealthEffect(BaseEffect):
@@ -67,6 +83,28 @@ class PowerTripIgnoreArmorEffect(BaseEffect):
         lvl = self.ability_level if self.ability_level is not None else self.level
         return ability_var("PowerTrip", "armorIgnored", lvl,
                            multiplier_pct=self.ability_variables_multiplier)
+
+
+class StunnedEffect(BaseEffect):
+    """`StunnedEffect` (effet COMPOSITE 0x48a=1162) — `ApplyInternal` @180f6eb30 spawne 3 SOUS-effets
+    quand Stunned est appliqué (confirmé live : parent rem=1 + enfants 1165 rem=1, 1166/1167 rem=0) :
+      - `AddBlockAbilitiesSubEffect` @180f6e870 → 0x48d=1165 Stunned_CantUseAbility, via
+        `AddSubEffectWithSameTurns` ⇒ MÊME durée que le parent.
+      - `ApplyMovementModifier` @180f6ef30 → 0x48e=1166 Stunned_MovementOverride, via
+        `AddStatOverrideEffect` (durée 0 = permanent/lié au parent) ; gardé par `StatAmount(movement)>0`
+        côté natif (simplification ici : toujours spawné — la quasi-totalité des units ont movement>0 ;
+        reverté par `ResetMovementModifier`).
+      - `ApplyDamageModifier` @180f6e9b0 → 0x48f=1167 Stunned_DamageModifier, via `AddEffect(turns=0)`
+        (permanent/lié au parent ; reverté par `ResetDamageModifier`).
+    Les enfants portent `parent_type=1162` (lien `ParentEffect@+0x70`) ; ils n'ont pas eux-mêmes de
+    sous-effets. VALIDÉ live (templSwordBrother/ThunderousAssault → tyranTyrantGuard)."""
+
+    def sub_effects_on_apply(self) -> list[SubEffectSpec]:
+        return [
+            SubEffectSpec(0x48d, "Stunned_CantUseAbility", turns=SAME_TURNS),  # AddSubEffectWithSameTurns
+            SubEffectSpec(0x48e, "Stunned_MovementOverride", turns=0),         # AddStatOverrideEffect (cond. mvt>0)
+            SubEffectSpec(0x48f, "Stunned_DamageModifier", turns=0),           # AddEffect turns=0
+        ]
 
 
 class KanOpenerEffect(BaseEffect):
