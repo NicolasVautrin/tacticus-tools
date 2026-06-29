@@ -291,6 +291,37 @@ seeds testés — Parry/Terrifying — utilisent des axes STAT/COUPS/TRIGGER, ho
 prête mais **non exercée** (comme l'attaquant : magnitudes/conditions portées au fil du roster, validées par
 cas isolé). Les réductions `predOptimistic` (Parry, TerminatorArmour) restent la **tranche TRIGGERS**.
 
+### 1.9 SUMMONS — joués par l'IA via behaviours FORCÉS, hors PickNextUnit (RE + live, 2026-06-29)
+
+Une unité **invoquée par ability** (trait `Summon` — `necroSmnSwarm`, `necroSmnDestroyer`, … vs `Hero`
+pour les unités normales) **n'est jamais activée par la boucle de PLAYBOOK** (`PickNextUnit`). Mais l'IA
+**la joue quand même** (move + attaque) via des **behaviours DSL FORCÉS** déclenchés hors PickNextUnit.
+(Correction d'un finding initial erroné « on-appearance only » : ce n'est vrai que pour le scarab.)
+
+- **Exclusion playbook** : `AnAiGroupOperator.GetValidUnits` @1811833e0 ne retient comme *activable* que
+  `HasActionLeft && !IsDead && *(int*)(BaseUnitComponent+0x60) < 0x3e9 (1001)`. Les unités `+0x60 >= 1001`
+  (= **summons & objects**) sont exclues de `PickNextUnit` et collectées à part (branche `StackDict.New +
+  FUN_18000a970(...,0x17,...)`). `+0x60` = int copié par `BaseUnitComponent.Copy` @180f96110 ; identité
+  exacte = raffinement, **discriminant offline fidèle = trait `Summon`** (gameconfig).
+- **Jeu effectif = behaviour forcé** `DSLFactory.PerformAIAction` @180df8990 / `PerformAIAttack` @180df8b60
+  → `PerformAIActionBehaviour.Execute` @180fcba10 : sélectionne les entités-summon (champ +0x50) et
+  **exécute la décision IA move+attaque** de chacune (2 bools = move? attack?) dans la file de messages.
+  Le summon **utilise donc bien un playbook** (move+attaque), juste invoqué par un trigger forcé.
+- **QUAND le trigger forcé tire = par-ability** :
+  - **À l'apparition seulement** : necron `ScarabSummonAbility.ExecuteBehaviour` @181205290 range un
+    `PerformAIAttack` dans `SpawnUnitOptions+0x18` (1 fois au spawn) ; **aucun trigger récurrent** → le
+    scarab agit 1×, puis persiste inerte. Live (teams adaptées, ennemis gelés) : 0 action sur 3 tours,
+    ennemis à PV pleins.
+  - **Chaque début de tour** : Tyranid `CallRipperSwarms_PendingSummonEffect` = effet **bondé au summoner**
+    avec `GetTurnStartBehaviourTrigger` @180f37e70 (`IsTurnOf(owner)`) → `PerformAIAction` chaque tour.
+- **Test** : `tests/engine/runner/test_summon_not_activated_live.py` prouve UNIQUEMENT l'exclusion de
+  `PickNextUnit` (`aiStepDryRun` = enumerator `CalculateNextActionForPlayer`, groupe normal seul) — PAS
+  l'absence d'action (qui passe par les behaviours forcés).
+- **Implication runner offline** (« playbook des summons ») : (1) spawn ✅, (2) **behaviour on-appearance**
+  ✅ (scarab), (3) **TODO : behaviours forcés récurrents** = effet `*_PendingSummonEffect` bondé +
+  trigger turn-start → invoquer le playbook move+attaque du summon (`PerformAIAction`), (4) exclure les
+  trait-`Summon` de la (future) boucle `PickNextUnit` offline (gate GetValidUnits, cf. §2.6).
+
 ---
 
 ## 2. Plan de tranches verticales (validées vs live, dans l'ordre)
@@ -343,7 +374,9 @@ Chaque tranche = RE ghidra → port 1:1 → test d'agrément vs live (replay-dif
    durée via `StaticBattleRules.Effect.DefaultAmountOfRounds`, id `PlayerIdGenerator`).
 5. **TRIGGERS** — `TriggeredAbilityComponent` + `AbilityAndEffectCache` +
    `EvaluateTriggerOperation` (cascade réactive : overwatch, FinalJustice, …).
-6. **TURN FLOW** — `EndTurn`/`ChangeTurn`/`StartTurn`/`PickUnit`/`SpawnUnitsOfTurn`.
+6. **TURN FLOW** — `EndTurn`/`ChangeTurn`/`StartTurn`/`PickUnit`/`SpawnUnitsOfTurn`. `PickNextUnit`
+   filtre via `AnAiGroupOperator.GetValidUnits` @1811833e0 : alive + action-left + **non-summon/object**
+   (`BaseUnitComponent+0x60 < 1001` ; offline = skip trait-`Summon`, cf. §1.9).
 
 ---
 

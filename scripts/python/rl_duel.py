@@ -286,6 +286,17 @@ def cmd_build(sid: int, a) -> int:
         _patch_combat_stat(a_set, "CritChance", "CritDamage", a.crit_target)
     if getattr(a, "block_target", None):
         _patch_combat_stat(a_set, "BlockChance", "BlockDamage", a.block_target)
+    if getattr(a, "hp_target", None):
+        # Cible « one-shottable » : PV bas (Health + RemainingHealth) ET armure nulle (Armor/FixedArmor=0)
+        # sur les a-units → un allié one-shot pour un kill DÉTERMINISTE (validation du vecteur MORT
+        # ActOfFaith). AddUnit honore le template (cf. --crit). N'affecte que les builds de test qui
+        # passent --hp-target.
+        for u in bc.get("Units", []):
+            if u.get("VisualId") in a_set:
+                u["Health"] = a.hp_target
+                u["RemainingHealth"] = a.hp_target
+                u["Armor"] = 0
+                u["FixedArmor"] = 0
 
     if (p_mow or a_mow) and not _board_mow_ok(bc):
         print("[warn] board de la seed BC SANS slot MoW (MachineOfWarPosition) "
@@ -1853,6 +1864,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--crit-target", default=None, help="build: idem --crit pour les a-units")
     ap.add_argument("--block-target", default=None,
                     help="build: force BlockChance,BlockDamage sur les a-units (ex. '100,500')")
+    ap.add_argument("--hp-target", type=int, default=None,
+                    help="build: force Health+RemainingHealth des a-units (PV bas = kill déterministe)")
     ap.add_argument("--roster", type=int, default=5,
                     help="taille de roster pour le tirage ALÉATOIRE "
                          "(ignoré si --p-units/--a-units fournis)")

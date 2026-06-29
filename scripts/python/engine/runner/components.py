@@ -27,11 +27,14 @@ class UnitComponent(Component):
 
 
 class OwnerComponent(Component):
-    """Propriétaire — `OwnerComponent` @180fa64c0. `team` = équipe (1/2)."""
-    __slots__ = ("team",)
+    """Propriétaire — `OwnerComponent` @180fa64c0. `team` = équipe (1/2) ; `player` = id du player
+    (≠ team : team 1 = player 3, team 2 = player 4 ; un summon hérite team ET player du caster via
+    `SpawnUnitOptions.CopyOwner`, cf. project_summon_team_model). `player` None si non capté."""
+    __slots__ = ("team", "player")
 
-    def __init__(self, team: Optional[int]):
+    def __init__(self, team: Optional[int], player: Optional[int] = None):
         self.team = team
+        self.player = player
 
 
 class PositionComponent(Component):

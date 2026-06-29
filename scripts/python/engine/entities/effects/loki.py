@@ -107,6 +107,34 @@ class StunnedEffect(BaseEffect):
         ]
 
 
+class ActOfFaithBuffEffect(BaseEffect):
+    """`ActOfFaithBuffEffect` (effet 0x3f9=1017, namespace `Effects.Loki`) — buff de crit empilable du
+    trait ActOfFaith (Adepta Sororitas).
+
+    C'est un effet **StatModification** (mute GetStat), PAS un modifier calc-time :
+      - `ApplyModification` @180f302f0 : deux `ChangeStat` sur le porteur —
+          crit-chance (`Position(9,5)`)  += `actOfFaithExtraCritChance` (=10) **FLAT** (la valeur
+            observable get_CurrentValue plafonne à 100 via GetClampedValue) ;
+          crit-damage (`Position(10,5)`) += `Ceiling(GetStat(10=critDmg, part=3) × actOfFaithExtraCritDmgPct%
+            =25%)` où `part=3` = la stat de **BASE** (StatComponent.GetStatPart@180fa8bb0 → offset 0x48, SANS
+            modifications) ⇒ boost **FLAT** sur la crit-dmg hors-ActOfFaith (PAS compound). Confirmé live :
+            3 stacks base 250 → +63 plat à chaque fois (250->313->376->439).
+      - `RevertInternal` @180f306e0 : annule les deux ChangeStat (delta natif stocké @+0xb8).
+
+    Posé par `ActOfFaithAbility` (trigger mort/kill d'allié Imperial), retiré — TOUS les stacks — par
+    `ActOfFaith_RemoveEffectAbility` au crit du porteur. La mutation de stat est faite par le TRIGGER
+    (`operations.triggers`), PAS ici : ctx.crit_chance/crit_damage sont déjà effet-inclusifs (GetStat) →
+    ne PAS contribuer aux hooks calc-time crit (sinon double-compte). Cette classe ne porte que les DELTAS
+    appliqués par CE stack (`cc_delta`/`cd_delta`), pour un revert exact (l'addition compound est
+    ordre-dépendante à l'aller, mais le revert = simple soustraction des deltas stockés, donc exact).
+
+    ⚠ Un stack SEEDÉ depuis un snapshot live (déjà fondu dans ctx) ne connaît pas ses deltas (0 par
+    défaut) : un reset de stacks seedés ne re-baisse pas la stat. Le chemin VALIDÉ accumule depuis 0
+    (deltas exacts) ; le seeding mid-accumulation est un edge case documenté."""
+    cc_delta: int = 0   # delta crit-chance appliqué par CE stack (revert exact)
+    cd_delta: int = 0   # delta crit-damage appliqué par CE stack (revert exact)
+
+
 class KanOpenerEffect(BaseEffect):
     """`KanOpenerEffect` (triggered) — `IgnoreArmor` @180f65100 = `ConfigVar(key 0x40)` = pénétration
     d'armure per-niveau (axe armure, contrairement à PowerTrip dont la réduction est stateful on-attack).

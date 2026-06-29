@@ -83,6 +83,13 @@ def trait(tid: str) -> dict:
     return {"id": tid, "variables": matched}
 
 
+def global_value(key: str):
+    """Scalaire global de combat (`clientGameConfig.globalValues[key]`) — constantes non rattachées à un
+    trait/ability (ex. `actOfFaithExtraCritChance`/`actOfFaithExtraCritDmgPct`, `overkillDmgPctOfHealth`,
+    `meltaDamageExtraDmgPct`…). Distinct de `traitVariables` (que lit `trait()`). None si absent."""
+    return ((_cfg().get("globalValues")) or {}).get(key)
+
+
 def all_unit_ids() -> dict:
     idx = _index()
     return {k: sorted(idx[k].keys()) for k in ("lineup", "npc", "summons")}

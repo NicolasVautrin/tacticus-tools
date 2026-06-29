@@ -13,11 +13,11 @@ DÉRIVE les effets posés (au lieu d'un appel direct à AddEffectOperation).
 from __future__ import annotations
 
 from .base import ActiveAbility, turns_from_rounds
-from .loki import ThunderousAssaultAbility, GravitonRifleAbility
+from .loki import ThunderousAssaultAbility, GravitonRifleAbility, ScarabSummonAbility
 from .handler import AbilityHandler, ABILITY_CLASSES
 
 __all__ = [
     "ActiveAbility", "turns_from_rounds",
-    "ThunderousAssaultAbility", "GravitonRifleAbility",
+    "ThunderousAssaultAbility", "GravitonRifleAbility", "ScarabSummonAbility",
     "AbilityHandler", "ABILITY_CLASSES",
 ]

@@ -13,11 +13,32 @@ from typing import Optional, TYPE_CHECKING
 from .base import ActiveAbility, turns_from_rounds, ability_attack_params
 from ..operations.effects import AddEffectOperation
 from ..operations.damage import AttackDamageOperation
+from ..operations.spawn import SpawnUnitOperation
+from ..components import StatsComponent
 
 if TYPE_CHECKING:
     from ..state import State
 
 STUNNED = 0x48a          # 1162 EffectType.Stunned (effet COMPOSITE → enfants 1165/1166/1167)
+
+
+def _summon_on_appearance_attack(state: "State", summon_id: int, target_id: int,
+                                 profile_name):
+    """`PerformAIAttack` à l'apparition : le summon attaque la cible. Profil = `unitDamageProfile` de
+    l'ability de summon (ex. Piercing) en OVERRIDE de l'arme normale (i2 « immediately attack using
+    Piercing ; subsequent attacks use their normal type »). base = stat Attack du summon, hits = arme du
+    summon, pipeline normal (reduce-then-roll). No-op si rng non calé (return None)."""
+    import gameconfig as GC
+    e = state.get_entity(summon_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    if sc is None:
+        return None
+    ctx = sc.ctx
+    dp = GC.damage_profile(profile_name) or {}
+    pierce = max(0, min(100, int(dp.get("PiercingRatio") or 0) + int(ctx.extra_pierce)))
+    hits = max(1, int(ctx.normal_weapon_hits))
+    return AttackDamageOperation.execute_normal_like(
+        state, summon_id, target_id, int(ctx.attack), pierce, hits=hits, spread_pct=20)
 
 
 class ThunderousAssaultAbility(ActiveAbility):
@@ -49,6 +70,46 @@ class ThunderousAssaultAbility(ActiveAbility):
         # [push/kill/move] PushUnit(target) & KillDeadUnits & MoveUnit(caster) : déplacements/positions.
         # TODO (tranche déplacement). BigTarget cible => push no-op (cf. RE tyranTyrantGuard).
         return {"attack": atk}
+
+
+class ScarabSummonAbility(ActiveAbility):
+    """`ScarabSummonAbility.ExecuteBehaviour` @181205290 (id 1007 = ScarabHive, necroSpyder).
+
+    Séquence native :
+        Spawn(visualId = constants["unitId"] = necroSmnSwarm,
+              tile = PickRandomly(CanAddUnit(AdjacentTiles(target@0x160))),   # libre, adjacent CIBLE
+              owner = SpawnUnitOptions.CopyOwner(caster),                     # team ET player du caster
+              onAppearance = PerformAIAttack)                                 # attaque immédiate
+        × COUNT (2, arg du .ctor AActiveAbility)
+    Stats du summon = `ability_var(ScarabHive, summonHp/summonDmg/…, casterActiveAbilityLevel, mult)`.
+    À l'apparition chaque summon attaque la cible avec le profil `unitDamageProfile` (Piercing) en
+    override de son arme Energy (i2). VALIDÉ live : 2× necroSmnSwarm team/player du caster, hp/attack
+    bit-exact (cf. test_summon_spawn_live) ; wiring message + on-appearance (cf. test_summon_trigger_live)."""
+    __slots__ = ()
+    ABILITY_TYPE = 1007
+    SUMMON_ABILITY = "ScarabHive"     # clé gameconfig (constants.unitId/unitDamageProfile + summon* variables)
+    COUNT = 2                         # nb d'invocations (arg .ctor ; le count GÉNÉRAL est par-ability)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        import gameconfig as GC
+        if target_id is None:
+            return None
+        consts = (GC.ability(self.SUMMON_ABILITY) or {}).get("constants") or {}
+        visual_id = consts.get("unitId")
+        if visual_id is None:
+            return None
+        # [Spawn] CopyOwner + placement adjacent-cible + stats ability_var (cf. SpawnUnitOperation).
+        spawned = SpawnUnitOperation.execute(
+            state, caster_id, target_id, self.SUMMON_ABILITY, visual_id, self.COUNT)
+        # [on-appearance] PerformAIAttack : chaque summon attaque la cible (profil Piercing override).
+        prof = consts.get("unitDamageProfile")
+        attacks = []
+        for sid in spawned:
+            res = _summon_on_appearance_attack(state, sid, target_id, prof)
+            if res is not None:
+                attacks.append({"summon": sid, "total": res.get("total")})
+        return {"summon": visual_id, "spawned": spawned, "attacks": attacks}
 
 
 class GravitonRifleAbility(ActiveAbility):

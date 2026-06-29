@@ -293,6 +293,22 @@ l'expérimentation live (« je fais varier un input et j'observe la sortie pour 
   cachés), et mènent à des fits faux (cf. hypothèses crit puis perçage-seul réfutées). Le décompilé
   donne le mécanisme exact, déterministe et modifiable.
 
+### Tester / confirmer live = ADAPTER LES TEAMS à l'objectif
+
+Quand le live sert à **confirmer** un mécanisme (jamais à le deviner — cf. ci-dessus), **toujours
+crafter les rosters + tailles + positions pour que la condition à observer SOIT remplie et STABLE
+assez longtemps**. Ne pas lancer une bataille générique/aléatoire puis se battre contre ses
+dynamiques émergentes.
+
+- **Garder vivante l'unité observée** : team adverse faible/peu nombreuse, ou la driver en lieu sûr
+  (une unité en sécurité survit indéfiniment — prendre autant de tours que nécessaire).
+- **Éliminer le bruit** : 1 mécanisme à la fois (ex. si on étudie MES summons, pas de summoners
+  ennemis qui polluent l'observation).
+- **Garantir l'occasion d'agir** : un ennemi vivant à portée/atteignable pour voir l'attaque/le move.
+- **Pourquoi** : faute déjà commise (combat où les scarabs se faisaient focus/tuer en 1 round avant
+  d'avoir pu agir → impossible de valider « les summons agissent-ils par tour ? » ; la cause était le
+  setup, pas le mécanisme). Prolonge la règle « driver les positions, ne pas blâmer la géométrie ».
+
 ### La structure du code Python doit refléter celle du jeu
 
 Le port Python d'un mécanisme natif doit **coller le plus possible à la structure du code du jeu** :

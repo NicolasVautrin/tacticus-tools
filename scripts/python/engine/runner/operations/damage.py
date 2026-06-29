@@ -49,7 +49,7 @@ from ...services.damage_combat import (calculate_damage_operation, Damage, could
 from ...services.damage_modifiers import apply_all_modifiers
 from ..prng import IntBasedMersenneTwister
 from ..state import State
-from ..components import StatsComponent, HealthComponent, PositionComponent
+from ..components import StatsComponent, HealthComponent, PositionComponent, UnitComponent
 from ..damage_model import (select_weapon, select_weapon_pierce, attacker_modifiers,
                             defender_modifiers, _cheby)
 from ...entities.effects import (hits_bonus_from_effects, crit_chance_bonus_from_effects,
@@ -112,6 +112,23 @@ class AttackDamageOperation:
         (`HitDamage.GetDamage`). Crit (composant 0xb), block (composant 10), réduction
         perçage/armure et EvaluateAfterHitTriggers = paliers 2-4 (non portés ici)."""
         return hit.get_damage(rng, use_midpoint)
+
+    @staticmethod
+    def _fire_death_if_killed(state: State, target_id: int, attacker_id: int,
+                             hp_before, hp_after, tgt, damage=None) -> Optional[list]:
+        """Si le coup a fait passer la cible de >0 à 0 PV → elle meurt : marque `alive=False` et lance le
+        vecteur MORT (`after_death_triggers`, `On(1)` {dying=cible, killer=attaquant}) qui déclenche les
+        accumulations ActOfFaith des alliés Imperial + l'attaque de mort FinalJustice (worldKharn). No-op si
+        pas de mort. Mirror de l'`OnDeathEvent` natif émis lors de l'application des dégâts. `damage` = dégât
+        LÉTAL total du coup (pour le flag OVERKILL = `dmg >= 2*PV`, gate de FinalJustice)."""
+        if hp_before is None or hp_before <= 0 or hp_after != 0:
+            return None
+        uc = tgt.get_component(UnitComponent) if tgt is not None else None
+        if uc is not None:
+            uc.alive = False
+        from .triggers import after_death_triggers, is_overkill
+        return after_death_triggers(state, target_id, attacker_id,
+                                    overkill=is_overkill(hp_before, damage))
 
     @staticmethod
     def execute(state: State, attacker_id: int, target_id: int,
@@ -212,10 +229,14 @@ class AttackDamageOperation:
         clean_max = hit_nc.max * hits
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources)
+        death = None
         if thc.hp is not None:
+            hp_before = thc.hp
             thc.hp = max(0, thc.hp - r["total"])
+            death = AttackDamageOperation._fire_death_if_killed(
+                state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=r["total"])
         return {"hits": hits, "total": r["total"], "base": ctx.attack, "pierce": pierce,
-                "armor": armor, "clean_min": clean_min, "clean_max": clean_max,
+                "armor": armor, "clean_min": clean_min, "clean_max": clean_max, "death": death,
                 "shield_dmg": r["shield_dmg"], "armor_dmg": r["armor_dmg"],
                 "did_crit": r["did_crit"], "did_block": r["did_block"], "did_evade": r["did_evade"],
                 "crits": r["crits"], "rolls": r["rolls"], "per_hit": r["per_hit"],
@@ -321,7 +342,10 @@ class AttackDamageOperation:
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources, post_roll=_reduce)
         if thc.hp is not None:
+            hp_before = thc.hp
             thc.hp = max(0, thc.hp - r["total"])
+            AttackDamageOperation._fire_death_if_killed(
+                state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=r["total"])
         return {"hits": hits, "total": r["total"], "base_min": base_min, "base_max": base_max,
                 "pierce": profile_pierce, "armor": armor,
                 "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,
@@ -373,7 +397,10 @@ class AttackDamageOperation:
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources)   # post_roll=None (reduce-then-roll)
         if thc.hp is not None:
+            hp_before = thc.hp
             thc.hp = max(0, thc.hp - r["total"])
+            AttackDamageOperation._fire_death_if_killed(
+                state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=r["total"])
         return {"hits": hits, "total": r["total"], "base": base, "pierce": profile_pierce,
                 "armor": armor, "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,
                 "did_crit": r["did_crit"], "did_block": r["did_block"], "did_evade": r["did_evade"],

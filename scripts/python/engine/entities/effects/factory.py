@@ -10,6 +10,7 @@ from collections.abc import Mapping
 
 from .base import BaseEffect
 from .loki import (
+    ActOfFaithBuffEffect,
     HeavyWeaponExtraDmgEffect,
     KanOpenerEffect,
     PowerTripFullHealthEffect,
@@ -25,6 +26,7 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "PowerTrip_FullHealth": PowerTripFullHealthEffect,
     "PowerTrip_IgnoreArmor": PowerTripIgnoreArmorEffect,
     "Stunned": StunnedEffect,           # effet COMPOSITE (parent 1162 → enfants 1165/1166/1167)
+    "ActOfFaith_Effect": ActOfFaithBuffEffect,  # buff crit empilable (1017) — stack seedé = cc/cd_delta 0
     # KanOpener : nom d'EffectType à confirmer avant inscription.
 }
 

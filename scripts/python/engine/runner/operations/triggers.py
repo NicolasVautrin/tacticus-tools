@@ -28,13 +28,38 @@ from __future__ import annotations
 from typing import Optional
 
 from ..state import State
-from ..components import StatsComponent, OwnerComponent, PositionComponent, UnitComponent
+from ..components import (StatsComponent, OwnerComponent, PositionComponent, UnitComponent,
+                         HealthComponent)
 from .damage import AttackDamageOperation
 
 # --- Event ids de trigger (DSLFactory.On(x)) ------------------------------------------------------
 TRIGGER_AFTER_HIT = 0x26        # 38 — après une attaque/coup (EvaluateAfterHitTriggers, message 8)
 TRIGGER_AFTER_MOVE = 4          # 4  — après un déplacement (EvaluateAfterMoveTriggers, message 4 ;
                                 #      RangedAutoAttackEffect.CreateTargetTrigger = On(4))
+TRIGGER_DEATH = 1               # 1  — MORT (OnDeathEvent eventId=1 ; OnPreDeath/OnDeath @180df7ad0).
+                                #      AbilityEntities : slot 0x158=killer, 0x178=dying.
+TRIGGER_TURN_START = 0x16       # 22 — DÉBUT DE TOUR. `StartTurnOperation.Execute`@180ea3fb0 émet une
+                                #      séquence d'events 0x12/0x13/0x14/0x15/0x16 ; `On(0x16)` = le
+                                #      trigger turn-start (ex. TheBetrayer_TakeTurnAbility.CreateTrigger).
+
+# --- TheBetrayer (worldKharn, passiveAbility) -----------------------------------------------------
+THEBETRAYER_EFFECT = 0x4f3      # 1267 — effet « rage » de TheBetrayer (gate de TakeTurn ; gagné au kill).
+THEBETRAYER_RANGE = 2           # `TheBetrayer.variables.range` = 2 (GetVariableForLevel(0x53)) — move max.
+THEBETRAYER_PROFILE = "Eviscerate"  # `TheBetrayer.constants.damageProfile` (attaque 4 coups Eviscerate).
+
+# --- FinalJustice (worldKharn, trait) — attaque normale à la MORT, sauf OVERKILL --------------------
+OVERKILL_PCT_KEY = "overkillDmgPctOfHealth"  # globalValues = 100 → overkill ssi dmg-PV >= 100%*PV (dmg>=2*PV)
+
+# --- ActOfFaith (Adepta Sororitas) ---------------------------------------------------------------
+ACTOFFAITH_EFFECT = 1017        # 0x3f9 — ActOfFaith_Effect (ActOfFaithBuffEffect, buff crit empilable)
+# Grand-alliance « Imperial » = trait 0x1a=26 (`GrandAlliance.GetTrait`@1815647a0 → 0x1a si "Imperial").
+# Le natif teste `HasTrait(unit, 26)` ; offline = appartenance de `FactionId` au groupe Imperial. Les 10
+# factions impériales des 22 du jeu (Chaos: BlackLegion/DeathGuard/ThousandSons/WorldEaters/EmperorsChildren ;
+# Xenos: Necrons/Orks/Aeldari/Tau/Tyranids/Genestealers/LeaguesOfVotann). Stable (lore WH40K + GrandAlliance).
+IMPERIAL_FACTIONS = frozenset({
+    "AdeptusAstartes", "Ultramarines", "BlackTemplars", "SpaceWolves", "DarkAngels", "BloodAngels",
+    "AdeptusMechanicus", "AstraMilitarum", "Sisterhood", "Custodes",
+})
 
 PSYKER_OWNER_SUPPRESS = 1191    # 0x4a7 effet sur l'owner qui supprime le splash psyker
 PSYKER_TARGET_SUPPRESS = 1533   # 0x5fd effet sur la cible qui supprime le splash psyker
@@ -47,18 +72,27 @@ OVERWATCH_SOURCE_DISABLE = 0x429 # 1065 — overwatch désactivé sur l'overwatc
 
 
 class TriggerEvent:
-    """Contexte d'événement de trigger (sous-ensemble de l'`AbilityEntities` natif pertinent pour
-    l'after-hit). `actor_id` = acteur de l'action (attaquant) ; `target_id` = cible primaire."""
-    __slots__ = ("event_id", "actor_id", "target_id", "ranged", "profile", "is_crit")
+    """Contexte d'événement de trigger (sous-ensemble de l'`AbilityEntities` natif). `actor_id` = acteur de
+    l'action (attaquant) ; `target_id` = cible primaire. Pour un événement MORT (`On(1)`), `killer_id` (slot
+    0x158) = l'auteur du coup fatal, `dying_id` (slot 0x178) = l'unité qui meurt (actor/target les reflètent
+    aussi pour rester compatibles avec le dispatch générique)."""
+    __slots__ = ("event_id", "actor_id", "target_id", "ranged", "profile", "is_crit",
+                 "killer_id", "dying_id", "player_id", "overkill")
 
     def __init__(self, event_id: int, actor_id: int, target_id: int, *,
-                 ranged: bool, profile: Optional[str], is_crit: bool = False):
+                 ranged: bool, profile: Optional[str], is_crit: bool = False,
+                 killer_id: Optional[int] = None, dying_id: Optional[int] = None,
+                 player_id: Optional[int] = None, overkill: bool = False):
         self.event_id = event_id
         self.actor_id = actor_id
         self.target_id = target_id
         self.ranged = ranged
         self.profile = profile
         self.is_crit = is_crit
+        self.killer_id = killer_id
+        self.dying_id = dying_id
+        self.player_id = player_id          # tour DÉBUTÉ (event turn-start On(0x16)) — owner doit appartenir
+        self.overkill = overkill            # mort par OVERKILL (dmg >= 2*PV) — gate de FinalJustice
 
 
 class TriggeredAbility:
@@ -66,6 +100,8 @@ class TriggeredAbility:
     écouté (`On(event_id)`) ; `owner_id` = entité porteuse. `matches` = condition `CreateTrigger` ;
     `execute_behaviour` = PossibleTargets + CreateBehaviour. Sous-classes = un trigger concret."""
     event_id: int = -1
+    fire_on_death: bool = False     # ability « fire-on-death » : owner = l'unité MOURANTE (alive=False) —
+                                    # bypass du gate « owner vivant » (CanGetAbilityTrigger). Ex. FinalJustice.
 
     def __init__(self, owner_id: int):
         self.owner_id = owner_id
@@ -175,9 +211,161 @@ class OverwatchAutoAttack(EffectTrigger):
                 "target": ev.actor_id, "result": res}
 
 
-# --- Registre : trait → ability-trigger accordée ---------------------------------------------------
-TRAIT_TRIGGERS: dict[str, type[TriggeredAbility]] = {
-    "Psyker": PsykerExtraAttackAbility,
+class ActOfFaithAccumulateAbility(TriggeredAbility):
+    """`ActOfFaithAbility` (@181219cd0 CreateTrigger / @181219a70 CreateBehaviour) — ACCUMULATION du buff
+    crit du trait ActOfFaith (Adepta Sororitas).
+
+    CreateTrigger@181219cd0 = `OnPreDeath` où **(killer = allié Imperial) OR (mourant = allié Imperial)**
+    (`HasTrait(slot,26=Imperial) & AreFriends(slot,owner)` sur 0x158=killer et 0x178=dying, op_BitwiseOr),
+    `& IsUnit & OnPreDeath & NOT(owner crit_damage == 0)` (gate `IsUnitWithStatAmount(owner,10,0)`→NOT :
+    inutile d'accumuler si le crit-dmg de base est nul). Behaviour@181219a70 = `AddEffect(0x3f9)` sur le
+    porteur (la branche conditionnelle interne mêlée/normalAttack module un cas particulier de l'auteur ;
+    le NET pour la prédiction de crit = +1 stack par déclenchement). i2 : « +X% Crit Chance et +Y% Crit
+    Damage chaque fois qu'un allié Imperial meurt ou tue un ennemi »."""
+    event_id = TRIGGER_DEATH
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        owner = state.get_entity(self.owner_id)
+        if owner is None:
+            return False
+        osc = owner.get_component(StatsComponent)
+        oown = owner.get_component(OwnerComponent)
+        if osc is None or oown is None:
+            return False
+        if int(getattr(osc.ctx, "crit_damage", 0) or 0) == 0:    # NOT(owner crit_damage == 0)
+            return False
+
+        def _friendly_imperial(uid: Optional[int]) -> bool:
+            if uid is None:
+                return False
+            e = state.get_entity(uid)
+            if e is None:
+                return False
+            oc = e.get_component(OwnerComponent)
+            if oc is None or oc.team != oown.team:                # AreFriends(unit, owner) = même équipe
+                return False
+            return _faction_id(state, uid) in IMPERIAL_FACTIONS   # HasTrait(unit, 26 = Imperial)
+
+        return _friendly_imperial(ev.killer_id) or _friendly_imperial(ev.dying_id)
+
+    def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
+        return _apply_act_of_faith_stack(state, self.owner_id)
+
+
+class ActOfFaithResetAbility(TriggeredAbility):
+    """`ActOfFaith_RemoveEffectAbility` (@181219f90 CreateTrigger / @181219eb0 CreateBehaviour) — RESET du
+    buff au crit du porteur.
+
+    CreateTrigger@181219f90 = `On(9,1) & OwnerIsCaster & WasCrit & HasEffect(owner,0x3f9)` — l'événement
+    natif `On(9,1)` (post-attaque) est ici mappé sur le vecteur **after-hit** (`On(0x26)`) qui, dans notre
+    modèle, fire 1×/AttackUnitMessage avec `is_crit` agrégé (même timing : après l'attaque du porteur).
+    `OwnerIsCaster` = owner est l'attaquant (`actor_id`). Behaviour@181219eb0 = `RemoveEffect(0x3f9)` →
+    retire TOUS les stacks et revert leur ChangeStat (soustrait les deltas stockés). ⚠ ne couvre que les
+    attaques NORMALES (le vecteur after-hit n'est pas fired pour les abilities/overwatch ici)."""
+    event_id = TRIGGER_AFTER_HIT
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        if self.owner_id != ev.actor_id:                         # OwnerIsCaster
+            return False
+        if not ev.is_crit:                                       # WasCrit
+            return False
+        if state.effects is None or not state.effects.has_effect(  # HasEffect(owner, 0x3f9)
+                self.owner_id, effect_type=ACTOFFAITH_EFFECT):
+            return False
+        return True
+
+    def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
+        return _reset_act_of_faith(state, self.owner_id)
+
+
+class TheBetrayerAddEffectAbility(TriggeredAbility):
+    """`TheBetrayer_AddEffectAbility` (@1811a4a80 CreateTrigger / @1811a4a00 CreateBehaviour) — GAIN de la
+    rage TheBetrayer (0x4f3) quand le porteur TUE.
+
+    CreateTrigger = `OnDeath(1) & OwnerIsActor & NOT HasEffect(owner,0x4f3)` — l'owner (Kharn) est l'ACTEUR
+    de la mort (= le tueur, slot 0x158=killer) et n'a pas déjà la rage. Behaviour = `AddEffect(0x4f3)` sur
+    lui-même. ⇒ après que Kharn tue une unité, il gagne la rage qui déclenche son auto-tour (cf. TakeTurn).
+    Vérité-terrain : pas d'auto-action AVANT le 1er kill (0x4f3 absent), auto-action APRÈS (cf. recon)."""
+    event_id = TRIGGER_DEATH
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        if ev.killer_id != self.owner_id:                        # OwnerIsActor (= killer)
+            return False
+        if state.effects is not None and state.effects.has_effect(  # NOT HasEffect(owner, 0x4f3)
+                self.owner_id, effect_type=THEBETRAYER_EFFECT):
+            return False
+        return True
+
+    def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
+        return _add_betrayer_effect(state, self.owner_id)
+
+
+class TheBetrayerTakeTurnAbility(TriggeredAbility):
+    """`TheBetrayer_TakeTurnAbility` (@1811a5300 CreateTrigger / @1811a4f70 CreateBehaviour) — AUTO-TOUR
+    forcé de TheBetrayer (worldKharn) au DÉBUT DE TOUR.
+
+    CreateTrigger = `On(0x16 turn-start) & <OwnerActive @+0xa0> & HasEffect(owner,0x4f3)` — au début du
+    tour du player de l'owner, si l'owner a la rage. Behaviour @1811a4f70 = choisit la meilleure cible
+    (`GetAttackTarget` : ennemi le plus proche atteignable préféré, sinon allié), se DÉPLACE vers elle
+    (≤ `range`=2, meilleure tuile adjacente par MinPathLength), puis l'ATTAQUE si adjacent (4 coups
+    Eviscerate, `GetDamageBehaviour`). ⇒ Kharn « charge et frappe » l'unité la plus proche, amie ou
+    ennemie, à chaque début de tour tant qu'il a la rage."""
+    event_id = TRIGGER_TURN_START
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        owner = state.get_entity(self.owner_id)
+        if owner is None:
+            return False
+        oc = owner.get_component(OwnerComponent)
+        if oc is None or oc.player != ev.player_id:              # OwnerActive : tour du player de l'owner
+            return False
+        if state.effects is None or not state.effects.has_effect(  # HasEffect(owner, 0x4f3)
+                self.owner_id, effect_type=THEBETRAYER_EFFECT):
+            return False
+        return True
+
+    def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
+        return _betrayer_take_turn(state, self.owner_id)
+
+
+class FinalJusticeAbility(TriggeredAbility):
+    """`FinalJusticeAbility` (@18121f180 CreateTrigger / @18121ed00 CreateBehaviour) — attaque de MORT de
+    worldKharn (trait `FinalJustice`).
+
+    CreateTrigger = `OnPreDeath & OwnerIsTarget` — l'owner EST l'unité qui meurt (slot 0x178=dying).
+    Behaviour = `UseActiveAbility(UnitNormalAttackType, best)` sur la meilleure cible normal-attaquable
+    (`ValidNormalAttackTargets` -> `SortUnitsByDamageUtility`), GATÉ `Count(validTargets)>0 AND NOT
+    TargetIsOverkilled`. ⇒ en mourant, Kharn porte UNE attaque normale sur l'ennemi le plus rentable —
+    SAUF si le coup fatal l'a OVERKILL (dmg >= 2*PV ; cf. `is_overkill`). `fire_on_death` car l'owner est
+    déjà `alive=False` au moment du dispatch MORT (bypass du gate vivant, comme `CanGetAbilityTrigger`)."""
+    event_id = TRIGGER_DEATH
+    fire_on_death = True
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        if ev.dying_id != self.owner_id:                 # OwnerIsTarget (owner = unité mourante)
+            return False
+        if ev.overkill:                                  # NOT TargetIsOverkilled
+            return False
+        return _finaljustice_target(state, self.owner_id) is not None   # Count(validTargets) > 0
+
+    def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
+        return _finaljustice_attack(state, self.owner_id)
+
+
+# --- Registre : trait → ability-trigger(s) accordée(s) --------------------------------------------
+TRAIT_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
+    "Psyker": [PsykerExtraAttackAbility],
+    # ActOfFaith accorde DEUX ability-triggers (accumulation sur mort/kill + reset au crit).
+    "ActOfFaith": [ActOfFaithAccumulateAbility, ActOfFaithResetAbility],
+    # FinalJustice (worldKharn) = attaque normale à la mort (fire-on-death, gate overkill).
+    "FinalJustice": [FinalJusticeAbility],
+}
+
+# --- Registre : passiveAbility → ability-trigger(s) accordée(s) ------------------------------------
+# Certains triggers viennent d'une PASSIVE ABILITY (≠ trait), ex. worldKharn.passiveAbilities=['TheBetrayer'].
+ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
+    # TheBetrayer = gain-rage-au-kill (mort) + auto-tour (début de tour). Cf. les 2 classes ci-dessus.
+    "TheBetrayer": [TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility],
 }
 
 # --- Registre : effectType → effet-trigger ---------------------------------------------------------
@@ -190,15 +378,21 @@ def collect_triggered_abilities(state: State) -> list[TriggeredAbility]:
     """Mirror du registre `AbilityAndEffectCache` (volet ability-trigger) : itère TOUTES les entités et,
     pour chaque trait à trigger porté, instancie l'ability correspondante (owner = l'entité). (Le volet
     effet-trigger — Overwatch, on-hit — n'est pas encore collecté ici.)"""
+    import gameconfig as GC
     out: list[TriggeredAbility] = []
     for eid, e in state.entities.items():
         sc = e.get_component(StatsComponent)
         if sc is None:
             continue
         for trait in (sc.ctx.traits or []):
-            cls = TRAIT_TRIGGERS.get(trait)
-            if cls is not None:
+            for cls in TRAIT_TRIGGERS.get(trait, ()):            # un trait peut accorder >1 trigger
                 out.append(cls(eid))
+        # passiveAbilities (TheBetrayer…) — résolues via gameconfig par visualId.
+        vid = getattr(sc.ctx, "visual_id", None)
+        if vid:
+            for pa in ((GC.unit(vid) or {}).get("passiveAbilities") or []):
+                for cls in ABILITY_TRIGGERS.get(pa, ()):
+                    out.append(cls(eid))
     return out
 
 
@@ -234,8 +428,8 @@ def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
         if owner is None:
             continue
         uc = owner.get_component(UnitComponent)            # CanGet*Trigger : owner unit vivant
-        if uc is not None and not uc.alive:
-            continue
+        if uc is not None and not uc.alive and not getattr(entry, "fire_on_death", False):
+            continue                                       # sauf ability fire-on-death (ex. FinalJustice)
         # (IsTriggersDisabled + cap GetTimesTriggeredThisPhase<51 : pas d'état offline → non gardés ici.)
         if not entry.matches(state, ev):
             continue
@@ -260,6 +454,42 @@ def after_move_triggers(state: State, mover_id: int) -> list[dict]:
     Construit l'événement `On(4)` {acteur=mover} et lance `evaluate_trigger_operation`. Déclenche les
     effet-triggers after-move (ex. Overwatch). No-op si aucun trigger ne matche (ou pas de board/rng)."""
     ev = TriggerEvent(TRIGGER_AFTER_MOVE, mover_id, mover_id, ranged=False, profile=None)
+    return evaluate_trigger_operation(state, ev)
+
+
+def after_death_triggers(state: State, dying_id: int, killer_id: Optional[int],
+                         overkill: bool = False) -> list[dict]:
+    """Vecteur MORT (mirror `OnDeathEvent`@180df7ad0 → dispatch). Construit l'événement `On(1)`
+    {killer=0x158, dying=0x178, overkill} et lance `evaluate_trigger_operation`. Déclenche les accumulations
+    ActOfFaith (allié Imperial qui meurt ou tue) + FinalJustice (l'unité mourante riposte, sauf overkill).
+    `actor_id`/`target_id` reflètent killer/dying pour le dispatch générique. No-op si aucun trigger ne
+    matche."""
+    ev = TriggerEvent(TRIGGER_DEATH,
+                      killer_id if killer_id is not None else dying_id, dying_id,
+                      ranged=False, profile=None, killer_id=killer_id, dying_id=dying_id,
+                      overkill=overkill)
+    return evaluate_trigger_operation(state, ev)
+
+
+def is_overkill(hp_before, damage) -> bool:
+    """`DamagePrediction.IsOverkill`@181032db0 : coup létal OVERKILL ssi l'excès `(dmg - PV)` >=
+    `overkillDmgPctOfHealth`% du PV (=100% → `dmg >= 2*PV`). `CanBeOverkilled` (= NOT trait 0x1b) non
+    porté offline (aucun nom de trait dispo ; worldKharn ne l'a pas) → supposé True. No-op (False) si
+    dégât inconnu ou PV<=0."""
+    import gameconfig as GC
+    if damage is None or hp_before is None or hp_before <= 0:
+        return False
+    pct = int(GC.global_value(OVERKILL_PCT_KEY) or 100)
+    return (int(damage) - int(hp_before)) * 100 >= pct * int(hp_before)
+
+
+def start_turn_triggers(state: State, player_id: int) -> list[dict]:
+    """Vecteur DÉBUT DE TOUR (mirror `StartTurnOperation.Execute`@180ea3fb0 émettant l'event `On(0x16)`).
+    Construit l'événement turn-start {player=player_id} et lance `evaluate_trigger_operation`. Déclenche
+    les auto-tours forcés du player courant (ex. TheBetrayer de worldKharn : move+attaque). `actor`/`target`
+    = -1 (pas d'acteur unique ; chaque trigger filtre sur `ev.player_id` == son owner). No-op si aucun
+    trigger turn-start ne matche (ou pas de board/rng pour le move+attaque)."""
+    ev = TriggerEvent(TRIGGER_TURN_START, -1, -1, ranged=False, profile=None, player_id=player_id)
     return evaluate_trigger_operation(state, ev)
 
 
@@ -348,6 +578,111 @@ def _in_attack_range(state: State, attacker_id: int, target_id: int) -> bool:
     return _hex_dist(board, a_tile, t_tile, _max_attack_range(sc.ctx)) is not None
 
 
+def _faction_id(state: State, unit_id: int) -> Optional[str]:
+    """`FactionId` gameconfig de l'unité (résolu par `visual_id`) — sert au test Imperial (`HasTrait(26)`).
+    None si l'unité ou son visual_id est introuvable."""
+    import gameconfig as GC
+    e = state.get_entity(unit_id)
+    if e is None:
+        return None
+    vid = None
+    sc = e.get_component(StatsComponent)
+    if sc is not None:
+        vid = getattr(sc.ctx, "visual_id", None)
+    if vid is None:
+        uc = e.get_component(UnitComponent)
+        vid = uc.visual_id if uc is not None else None
+    if vid is None:
+        return None
+    return (GC.unit(vid) or {}).get("FactionId")
+
+
+def _act_of_faith_constants() -> tuple[int, int]:
+    """(extraCritChance, extraCritDmgPct) = `gameconfig.globalValues.actOfFaith*` (=10, =25). Source
+    offline des deux `GetNumberConstant(config, 0x30/0x31)` natifs (config BC = miroir de ces globales)."""
+    import gameconfig as GC
+    cc = int(GC.global_value("actOfFaithExtraCritChance") or 0)
+    cd = int(GC.global_value("actOfFaithExtraCritDmgPct") or 0)
+    return cc, cd
+
+
+CRIT_CHANCE_MAX = 100   # crit-chance plafonnée (StatComponent.GetClampedValue ; confirmé live cc 100+10→100)
+
+
+def _act_of_faith_cd_delta(state: State, owner_id: int, ctx, cd_pct: int) -> int:
+    """`Ceiling(GetStat(critDmg, part=3) × cd_pct%)` = boost crit-dmg d'UN stack. `GetStatPart(3)`
+    @180fa8bb0 = la stat de **BASE** (offset 0x48, SANS modifications) → boost FLAT (≠ compound) calculé
+    sur la crit-dmg hors-ActOfFaith. Confirmé live (3 stacks base 250 → +63 plat à chaque fois). On
+    reconstruit la base = `ctx.crit_damage` (= base + mods) − Σ(deltas ActOfFaith déjà appliqués).
+    ⚠ approxime la base à « courante − stacks ActOfFaith » : exact si ActOfFaith est la seule
+    StatModification sur la crit-dmg (cas validé) ; d'autres mods crit-dmg via ChangeStat la fausseraient."""
+    cur_cd = int(getattr(ctx, "crit_damage", 0) or 0)
+    prior = 0
+    if state.effects is not None:
+        for e in state.effects.by_unit.get(int(owner_id), []):
+            if not e.consumed and e.effect_type == ACTOFFAITH_EFFECT:
+                prior += int(getattr(e, "cd_delta", 0) or 0)
+    base_cd = cur_cd - prior
+    return -(-(base_cd * cd_pct) // 100)                 # Ceiling(base_cd × cd_pct%) en entier (0.25 exact)
+
+
+def _apply_act_of_faith_stack(state: State, owner_id: int) -> Optional[dict]:
+    """`ActOfFaithBuffEffect.ApplyModification`@180f302f0 + `AddEffect(0x3f9)` : applique UN stack sur le
+    porteur. Deux `ChangeStat` :
+      - crit-chance += extraCritChance (=10) FLAT, mais la valeur OBSERVABLE (get_CurrentValue clampée)
+        plafonne à 100 → on stocke le delta RÉELLEMENT observé (post-clamp) pour un revert exact ;
+      - crit-damage += Ceiling(BASE_crit_damage × extraCritDmgPct% =25%) FLAT (base hors-ActOfFaith,
+        cf. `_act_of_faith_cd_delta`).
+    Mute `ctx.crit_chance/crit_damage` (= GetStat) et enregistre l'effet avec ses deltas. No-op si stats
+    absentes."""
+    from ...entities.effects.loki import ActOfFaithBuffEffect
+    owner = state.get_entity(owner_id)
+    sc = owner.get_component(StatsComponent) if owner is not None else None
+    if sc is None:
+        return None
+    ctx = sc.ctx
+    cc_extra, cd_pct = _act_of_faith_constants()
+    cur_cc = int(getattr(ctx, "crit_chance", 0) or 0)
+    new_cc = min(CRIT_CHANCE_MAX, cur_cc + cc_extra)     # clamp 100 (GetClampedValue)
+    cc_delta = new_cc - cur_cc                            # delta OBSERVABLE (0 si déjà au cap) → revert exact
+    cd_delta = _act_of_faith_cd_delta(state, owner_id, ctx, cd_pct)
+    ctx.crit_chance = new_cc
+    ctx.crit_damage = int(getattr(ctx, "crit_damage", 0) or 0) + cd_delta
+    eff = ActOfFaithBuffEffect(name="ActOfFaith_Effect", effect_type=ACTOFFAITH_EFFECT)
+    eff.cc_delta = cc_delta
+    eff.cd_delta = cd_delta
+    if state.effects is not None:
+        state.effects.add_effect(owner_id, eff)
+    return {"trait": "ActOfFaith", "owner": owner_id, "cc_delta": cc_delta, "cd_delta": cd_delta,
+            "crit_chance": ctx.crit_chance, "crit_damage": ctx.crit_damage}
+
+
+def _reset_act_of_faith(state: State, owner_id: int) -> Optional[dict]:
+    """`ActOfFaith_RemoveEffectAbility` behaviour = `RemoveEffect(0x3f9)` tous stacks : retire chaque
+    ActOfFaithBuffEffect du porteur et revert son ChangeStat (soustrait les deltas stockés ; la somme des
+    deltas annule exactement l'accumulation compound, quel que soit l'ordre). No-op si pas d'effets."""
+    owner = state.get_entity(owner_id)
+    sc = owner.get_component(StatsComponent) if owner is not None else None
+    if sc is None or state.effects is None:
+        return None
+    ctx = sc.ctx
+    removed = cc_back = cd_back = 0
+    for e in state.effects.by_unit.get(int(owner_id), []):
+        if e.consumed or e.effect_type != ACTOFFAITH_EFFECT:
+            continue
+        cc = int(getattr(e, "cc_delta", 0) or 0)
+        cd = int(getattr(e, "cd_delta", 0) or 0)
+        ctx.crit_chance = int(getattr(ctx, "crit_chance", 0) or 0) - cc
+        ctx.crit_damage = int(getattr(ctx, "crit_damage", 0) or 0) - cd
+        cc_back += cc
+        cd_back += cd
+        e.consumed = True
+        removed += 1
+    return {"trait": "ActOfFaith", "owner": owner_id, "removed": removed,
+            "cc_back": cc_back, "cd_back": cd_back,
+            "crit_chance": ctx.crit_chance, "crit_damage": ctx.crit_damage}
+
+
 def _pick_randomly(state: State, candidates: list[int]) -> Optional[int]:
     """`PickRandomAmountSelector` (count=1) — choisit UN candidat. Ordre = ids triés (déterministe) ;
     index = tirage RNG `next_internal(0, n)` quand n>1 (1 candidat ⇒ index 0, draw RNG à confirmer live).
@@ -359,3 +694,264 @@ def _pick_randomly(state: State, candidates: list[int]) -> Optional[int]:
     if n == 1 or state.rng is None:
         return cands[0]
     return cands[state.rng.next_internal(0, n)]
+
+
+# --- TheBetrayer (behaviour) -----------------------------------------------------------------------
+def _add_betrayer_effect(state: State, owner_id: int) -> Optional[dict]:
+    """`TheBetrayer_AddEffectAbility` behaviour = `AddEffect(0x4f3)` sur le porteur (marqueur de rage ;
+    aucune StatModification, juste la présence qui gate TakeTurn). No-op si `state.effects` absent."""
+    from ...entities.effects.base import BaseEffect
+    if state.effects is None:
+        return None
+    state.effects.add_effect(owner_id, BaseEffect(name="TheBetrayer_Effect",
+                                                  effect_type=THEBETRAYER_EFFECT))
+    return {"ability": "TheBetrayer", "owner": owner_id, "effect": "added 0x4f3"}
+
+
+def _unit_tile(state: State, board, uid: int) -> Optional[int]:
+    e = state.get_entity(uid)
+    pc = e.get_component(PositionComponent) if e is not None else None
+    return board.id_at(pc.col, pc.row) if pc is not None else None
+
+
+def _is_adjacent_units(state: State, a_id: int, b_id: int) -> bool:
+    board = state.board
+    if board is None:
+        return False
+    at = _unit_tile(state, board, a_id)
+    bt = _unit_tile(state, board, b_id)
+    return at is not None and bt is not None and bt in set(board.neighbours(at))
+
+
+def _betrayer_target(state: State, owner_id: int) -> Optional[int]:
+    """`GetAttackTarget`@1811a53a0 : priorité `ForcedAttackTargets > ennemi-le-plus-proche-en-portée >
+    allié-en-portée > ennemi-le-plus-proche > allié`. (ForcedAttackTargets + filtre `NOT HasTrait(0xd)`
+    non portés : aucun candidat concret dans le roster validé — approximation documentée.) « En portée »
+    = atteignable+frappable ce tour (hex <= `range`=2 + portée mêlée 1). « Le plus proche » = min distance
+    hex (tie-break id croissant)."""
+    board = state.board
+    owner = state.get_entity(owner_id)
+    if board is None or owner is None:
+        return None
+    ot = _unit_tile(state, board, owner_id)
+    oc = owner.get_component(OwnerComponent)
+    if ot is None or oc is None:
+        return None
+    reach = THEBETRAYER_RANGE + 1
+    enemies: list[tuple[int, int]] = []
+    friends: list[tuple[int, int]] = []
+    for eid, e in state.entities.items():
+        if eid == owner_id:
+            continue
+        c = e.get_component(OwnerComponent)
+        u = e.get_component(UnitComponent)
+        if c is None or (u is not None and not u.alive):
+            continue
+        t = _unit_tile(state, board, eid)
+        if t is None:
+            continue
+        d = _hex_dist(board, ot, t, 99)
+        if d is None:
+            continue
+        (friends if c.team == oc.team else enemies).append((d, eid))
+
+    def nearest(cands: list[tuple[int, int]], within: Optional[int] = None) -> Optional[int]:
+        pool = [(d, i) for (d, i) in cands if within is None or d <= within]
+        if not pool:
+            return None
+        pool.sort()                                   # min distance, puis min id (déterministe)
+        return pool[0][1]
+
+    return (nearest(enemies, reach) or nearest(friends, reach)
+            or nearest(enemies) or nearest(friends))
+
+
+def _betrayer_move(state: State, owner_id: int, target_id: int) -> Optional[dict]:
+    """Move forcé `MoveUnit` (CreateBehaviour@1811a4f70) : tuile d'arrêt (≤ `range`=2) ADJACENTE à la cible
+    et la plus proche d'elle (`adjacentTiles(target) & movable`.Otherwise(movable), triée
+    `SortByFormula(MinPathLength)`), s'y déplace (`MoveUnitOperation`) puis déclenche le vecteur after-move
+    (overwatch sur le move forcé). Renvoie {to, after_move} ou None si rien d'atteignable. (Le pré-tri
+    `SortTilesByUtility` natif = tie-break d'utilité de tuile, non porté → on départage par id.)"""
+    from ...entities.pathfinding.walk_pathfinder import get_movable_positions
+    from ..events import EventBus
+    from .movement import MoveUnitOperation
+    board = state.board
+    owner = state.get_entity(owner_id)
+    if board is None or owner is None:
+        return None
+    oc = owner.get_component(OwnerComponent)
+    ot = _unit_tile(state, board, owner_id)
+    tt = _unit_tile(state, board, target_id)
+    if oc is None or ot is None or tt is None:
+        return None
+    occupants: dict = {}
+    for eid, e in state.entities.items():
+        u = e.get_component(UnitComponent)
+        if u is not None and not u.alive:
+            continue
+        t = _unit_tile(state, board, eid)
+        if t is not None:
+            occupants[t] = eid
+    _, stop = get_movable_positions(board, ot, THEBETRAYER_RANGE, occupants, oc.team)
+    t_neigh = set(board.neighbours(tt))
+    cands = [t for t in stop if t in t_neigh] or list(stop)
+    if not cands:
+        return None
+    cands.sort(key=lambda t: (_hex_dist(board, t, tt, 99) or 99, t))   # MinPathLength, puis id (tie-break)
+    col, row = board.coord(cands[0])
+    MoveUnitOperation(owner_id, (col, row)).execute(state, EventBus())
+    return {"to": (col, row), "after_move": after_move_triggers(state, owner_id)}
+
+
+def _betrayer_take_turn(state: State, owner_id: int) -> Optional[dict]:
+    """Behaviour TheBetrayer (CreateBehaviour@1811a4f70) : cible (`_betrayer_target`) → move-vers (si pas
+    adjacent, `_betrayer_move`) → ATTAQUE (si adjacent : 4 coups Eviscerate via le chemin ability-attaque
+    `execute_ability_attack`, déjà bit-exact). No-op si pas de cible / board."""
+    from ..abilities.base import ability_attack_params
+    target = _betrayer_target(state, owner_id)
+    if target is None:
+        return {"ability": "TheBetrayer", "owner": owner_id, "target": None}
+    moved = None
+    if not _is_adjacent_units(state, owner_id, target):
+        moved = _betrayer_move(state, owner_id, target)
+    atk = None
+    if _is_adjacent_units(state, owner_id, target):
+        bmin, bmax, pierce, hits = ability_attack_params(
+            state, owner_id, "TheBetrayer", THEBETRAYER_PROFILE, ranged=False)
+        atk = AttackDamageOperation.execute_ability_attack(
+            state, owner_id, target, bmin, bmax, pierce, hits)
+    return {"ability": "TheBetrayer", "owner": owner_id, "target": target,
+            "moved": moved, "attack": atk}
+
+
+# --- FinalJustice (behaviour) ----------------------------------------------------------------------
+def _adjacent_enemies(state: State, owner_id: int) -> list[int]:
+    """Ennemis VIVANTS adjacents (hex) à `owner` = cibles normal-attaquables d'une unité MÊLÉE (Kharn
+    ne se déplace pas en mourant). Requiert `state.board` (evenq). Sans board → []."""
+    board = state.board
+    owner = state.get_entity(owner_id)
+    if board is None or owner is None:
+        return []
+    ot = _unit_tile(state, board, owner_id)
+    oc = owner.get_component(OwnerComponent)
+    if ot is None or oc is None:
+        return []
+    neigh = set(board.neighbours(ot))
+    out: list[int] = []
+    for eid, e in state.entities.items():
+        if eid == owner_id:
+            continue
+        c = e.get_component(OwnerComponent)
+        u = e.get_component(UnitComponent)
+        if c is None or c.team == oc.team:                 # ennemis de l'owner uniquement
+            continue
+        if u is not None and not u.alive:
+            continue
+        t = _unit_tile(state, board, eid)
+        if t is not None and t in neigh:
+            out.append(eid)
+    return out
+
+
+# Cache des poids d'utilité (BC `Utilities` — statiques, cf. project_ai_weights_in_battle_config) pour le
+# tri de cible FinalJustice (chargé une fois depuis la BC JSON sur disque ; seules KillUnit/OverkillUnit
+# sont lues — les poids DamageDealt 80/20 sont des Fix64 codés en dur dans `DamageUtility.cctor`).
+_DAMAGE_UTILITY_WEIGHTS = None
+
+
+def _damage_utility_weights():
+    global _DAMAGE_UTILITY_WEIGHTS
+    if _DAMAGE_UTILITY_WEIGHTS is None:
+        from ...weights import load as _load_weights
+        _DAMAGE_UTILITY_WEIGHTS = _load_weights()
+    return _DAMAGE_UTILITY_WEIGHTS
+
+
+def _normal_attack_health_range(state: State, owner_id: int):
+    """Plage de dégât SANTÉ (min,max) du TOTAL de l'attaque normale mêlée de l'owner, PRÉ-ARMURE — mirror
+    de la `DamagePrediction` que `SortUnitsByDamageUtilitySelector.Select`@180ef4960 bâtit par cible
+    (`FUN_18002c910` scénario 0x25, profil `NormalAttackDamage`). La prédiction IA d'attaque normale est
+    PRÉ-ARMURE (`armor=0` ; cf. en-tête `services/damage_prediction`) ⇒ le dégât est INDÉPENDANT de la
+    cible → calculé UNE fois. Inclut les ×modifiers d'effet de l'attaquant (RapidAssault…) et les hits
+    d'arme+effet. Renvoie (dmin, dmax) du total, ou None si stats indispo."""
+    from ...services.damage_prediction import get_attack_prediction
+    from ..damage_model import select_weapon_pierce, attacker_modifiers
+    from ...entities.effects import hits_bonus_from_effects
+    owner = state.get_entity(owner_id)
+    sc = owner.get_component(StatsComponent) if owner is not None else None
+    if sc is None:
+        return None
+    ctx = sc.ctx
+    ahc = owner.get_component(HealthComponent)
+    _pierce, _ranged, whits = select_weapon_pierce(ctx, 1)             # dist=1 → arme mêlée
+    mods, active = attacker_modifiers(state, owner_id, ahc.hp if ahc else None, is_ranged=False)
+    hits = max(1, whits + int(getattr(ctx, "extra_hits", 0) or 0) + hits_bonus_from_effects(active))
+    pred = get_attack_prediction(
+        target_current_health=0, initial_damage=int(getattr(ctx, "attack", 0) or 0), hits=hits,
+        profile_type=0, armor=0, pierce_pct=100, mods=mods, spread_pct=20)    # PRÉ-ARMURE (armor=0)
+    return (pred.accurate_health_damage.min, pred.accurate_health_damage.max)
+
+
+def _finaljustice_target(state: State, owner_id: int) -> Optional[int]:
+    """`ValidNormalAttackTargets`@180e01b40 → `SortUnitsByDamageUtility`@180dfb8f0 → MEILLEURE cible.
+
+    Tri natif RE LECTURE INTÉGRALE (`SortUnitsByDamageUtilitySelector.Select`@180ef4960 +
+    `FinalJusticeAbility.CreateBehaviour`@18121ed00) : pour chaque cible normal-attaquable, bâtit une
+    `DamagePrediction` de l'attaque normale → score `UtilityDecider.CalculateUtility(UtilityDefinition
+    0x22 = 34 = composite Damage, cible, prediction)` → Dict cible→util → `OrderBy(util via lambda
+    <Select>b__0)` → 1ʳᵉ. Le lambda `<Select>b__0`@180efec40 renvoie **`Fix64.op_UnaryNegation(util)`**
+    (= −util) ⇒ `OrderBy(−util)` = tri DÉCROISSANT par utilité ⇒ la 1ʳᵉ cible = utilité **MAX**.
+    ⇒ FinalJustice frappe l'**argmax du composite Damage(34)** = DamageDealt(35)+KillUnit(36)+
+    OverkillUnit(37) (`engine.utilities.damage_composite`). Kharn = mêlée ⇒ cibles = ennemis adjacents.
+
+    Prédiction PRÉ-ARMURE (`_normal_attack_health_range`) ⇒ dégât identique pour toutes les cibles ; le
+    classement dépend des PV courants/max + flags kill/overkill PAR cible (kill = dmg ≥ PV). Tie-break :
+    `OrderBy` natif STABLE → ordre source `ValidNormalAttackTargets` ; approximé ici par id croissant
+    (itération `sorted(cands)` + argmax STRICT). Bouclier non modélisé (`shieldBefore=0`, comme le reste
+    du moteur — TODO). Fallback PV-bas si la prédiction est indispo (pas de stats)."""
+    cands = _adjacent_enemies(state, owner_id)
+    if not cands:
+        return None
+
+    def _hp(eid: int) -> int:
+        e = state.get_entity(eid)
+        h = e.get_component(HealthComponent) if e is not None else None
+        return int(h.hp) if (h is not None and h.hp is not None) else (1 << 30)
+
+    rng_pred = _normal_attack_health_range(state, owner_id)
+    if rng_pred is None:                                   # pas de stats → proxy PV-bas (fallback)
+        return min(cands, key=lambda eid: (_hp(eid), eid))
+
+    from ...utilities import damage_composite
+    dmin, dmax = rng_pred
+    wt = _damage_utility_weights()
+    best = None
+    best_util = None
+    for eid in sorted(cands):                              # ordre déterministe (tie-break id croissant)
+        e = state.get_entity(eid)
+        hc = e.get_component(HealthComponent) if e is not None else None
+        hp = int(hc.hp) if (hc is not None and hc.hp is not None) else 0
+        max_hp = int(hc.hp_max) if (hc is not None and hc.hp_max) else hp
+        shield = 0                                         # bouclier non modélisé (rare ; TODO)
+        eff_min = max(0, dmin - shield)
+        eff_max = max(0, dmax - shield)
+        pred = {"healthDmgMin": eff_min, "healthDmgMax": eff_max,
+                "hpBefore": hp, "shieldBefore": shield,
+                "killSure": hp > 0 and eff_min >= hp,      # WillBeKill (dmg min ≥ PV)
+                "kill": hp > 0 and eff_max >= hp}          # MightBeKill (dmg max ≥ PV)
+        util = damage_composite(pred, max_hp, wt)
+        if best_util is None or util > best_util:          # argmax (strict → 1er id en cas d'égalité)
+            best_util = util
+            best = eid
+    return best
+
+
+def _finaljustice_attack(state: State, owner_id: int) -> Optional[dict]:
+    """Behaviour FinalJustice (CreateBehaviour@18121ed00) : `UseActiveAbility(NormalAttack, best)` — UNE
+    attaque NORMALE (chemin `AttackDamageOperation.execute`, déjà bit-exact) sur la meilleure cible. No-op
+    si pas de cible. (L'owner est `alive=False` — death-rattle ; l'attaque s'exécute quand même.)"""
+    target = _finaljustice_target(state, owner_id)
+    if target is None:
+        return {"trait": "FinalJustice", "owner": owner_id, "target": None}
+    res = AttackDamageOperation.execute(state, owner_id, target, 20)
+    return {"trait": "FinalJustice", "owner": owner_id, "target": target, "attack": res}
