@@ -76,6 +76,16 @@ _MOVE_MODEL = os.environ.get("ENGINE_MOVE_MODEL", "unitmovement").lower()
 # `best[0]` (barème actuel) — à remplacer par le composite Damage fidèle une fois les arrays extraits.
 _MOVE_VS_ATTACK = os.environ.get("ENGINE_MOVE_VS_ATTACK", "off").lower() == "on"
 
+# SEUIL HEAL (fix bucket-tree §3.2, RE'd DefaultAiUnitTactic / GetDefaultActiveAbilityActionGenerators).
+# Le natif decide par-unite en iterant une liste ORDONNEE de generateurs [ability(tiers 1000/100/0/-100/
+# -1000)..., MOVEMENT en DERNIER] et prend la 1ere action NON-NULLE ; un generateur d'ability renvoie null
+# si aucune ability ne PASSE le seuil de son bucket (FUN_18004cc80 : priority>=MinimumPriority). Donc le
+# natif prefere une ability au move SEULEMENT si elle passe son seuil, SINON il MOVE. Sans seuil, le moteur
+# soigne trop tot (live: Rotbone heal util ~18 -> natif MOVE, moteur soignait). On gate le heal : pris
+# seulement si U_heal >= seuil. Defaut 50 (entre Rotbone ~18 NON et seed-777 TwistedScience ~100 OUI).
+# Tiers natifs exacts (preference-order par playbook) = calibration fine future. ENGINE_HEAL_MIN_UTIL.
+_HEAL_MIN_UTIL = float(os.environ.get("ENGINE_HEAL_MIN_UTIL", "50"))
+
 
 _FACTION_CACHE: dict = {}
 
@@ -256,7 +266,14 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt)
     if heal_abis:
         obs = _r(sid, "observeBattle", {"runnerId": rid}, 40)
         hpmax_by_sq = {u.get("squadId"): u for u in (obs.get("units") or [])}
-    heal_best = None  # (key=(custom, missing, -id), ability, target)
+    # Utilité native = CalculateActionUtility = CustomUtility (per-ability) + Σ CalculateUtilityFromHealEvent.
+    # heal_term FIDÈLE (HealUtility @1810e16f0) = (effective/(maxHP+1))*100*friendSign*bossMod, où
+    # effective = PredictHeal/MaxFillUp @180f9b790 = min(healAmount, missing). Magnitude SATURÉE
+    # (healAmount >= missing → effective = missing) : exact tant que le soin remplit les PV manquants ;
+    # cap binding = min(hpToHeal[level]×mult, missing) — source gameconfig `hpToHeal` identifiée, scaling
+    # mult par-entité (cf. prediction.md §5/§9) = wiring restant. Remplace l'ancien proxy `missing` brut.
+    from engine.predict import predict_heal_effective, heal_utility
+    heal_best = None  # (key=(U, -id), ability, target) — U = custom + heal_term (additif, natif)
     for ab in heal_abis:
         aid = ab.get("id")
         at = _r(sid, "abilityTargets", {"runnerId": rid, "unitId": uid, "abilityType": aid}, 40)
@@ -270,14 +287,25 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt)
             tu = unit_by_id.get(tg) or {}
             effs = [e.get("name") or "" for e in (tu.get("effects") or [])]
             if any("TwistedScience_ExtraHp" in e for e in effs):
-                continue  # gate CustomUtility : déjà buffé → utilité 0
-            fac = 100 if _faction(tu.get("visualId")) == "Genestealers" else 0
+                continue  # gate CustomUtility (TwistedScience) : déjà buffé → utilité 0
+            # CustomUtility = override par-ability (virtuel +0x338). TwistedScience : base 100 + 100 si
+            # cible Genestealers. Le Heal GENERIQUE (HealPlaybook, ex. Rotbone/Isabella ability 18) n'a
+            # AUCUN custom (common.py HealPlaybook custom=0) -> custom 0. Gate sur le nom de l'ability.
+            is_twisted = "TwistedScience" in (ab.get("name") or "")
+            custom = (100 + (100 if _faction(tu.get("visualId")) == "Genestealers" else 0)) if is_twisted else 0
             ob = hpmax_by_sq.get(tg) or {}
-            missing = max((ob.get("hpMax") or 0) - (ob.get("hp") or 0), 0)
-            key = (100 + fac, missing, -tg)  # custom desc, plus blessé d'abord, id croissant
+            hp_max = int(ob.get("hpMax") or 0)
+            hp_cur = int(ob.get("hp") or 0)
+            eff = predict_heal_effective(hp_max, hp_cur, hp_max)   # saturé (healAmount>=missing) → = missing
+            # cibles via abilityTargets = ALLIÉS (is_friend=True) ; is_boss non capté ici (bossMod×2 rare) → False.
+            heal_term = heal_utility(eff, hp_max, is_friend=True, is_boss=False)
+            key = (custom + heal_term, -tg)  # utilité combinée native, tie-break id croissant
             if heal_best is None or key > heal_best[0]:
                 heal_best = (key, aid, tg)
-    if heal_best:
+    # GATE bucket-tree (§3.2) : le natif ne prend l'ability heal QUE si elle passe le seuil de son bucket,
+    # sinon le generateur d'ability renvoie null et c'est le MOVE (dernier de la liste) qui gagne. On ne
+    # retourne donc le heal que si U_heal >= _HEAL_MIN_UTIL ; sinon on tombe sur summon/move (mirror natif).
+    if heal_best and heal_best[0][0] >= _HEAL_MIN_UTIL:
         return {"kind": "ability", "target": heal_best[2], "ability": heal_best[1],
                 "to": None, "util": heal_best[0][0]}
 
@@ -430,7 +458,7 @@ def main(argv: list[str]) -> int:
     print()
     if pos["n"]:
         print(f"[positioning] {pos['n']} moves : exact={pos['exact']} ({100*pos['exact']//pos['n']}%)  "
-              f"≤1hex={pos['near']} ({100*pos['near']//pos['n']}%)")
+              f"<=1hex={pos['near']} ({100*pos['near']//pos['n']}%)")
     if ab["n"]:
         print(f"[ability]     {ab['n']} casts : match={ab['match']} ({100*ab['match']//ab['n']}%)")
     if not pos["n"] and not ab["n"]:

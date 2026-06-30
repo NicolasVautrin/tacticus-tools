@@ -245,7 +245,36 @@ Mirror fidèle du modèle natif « 1 classe par effet/trait ».
 
 ---
 
-## 9. État de validation
+## 9. Prédiction de SOIN (heal) — RE complet + port offline
+
+La chaîne soin est **entièrement RE'd et offline-calculable** (manque #1 / [`status.md`](status.md) §3.1
+débloqué côté heal). Tout est dans `engine/predict.py` (PARTIE 3), porté 1:1.
+
+| Étape native | VA | Formule |
+|---|---|---|
+| `HealAbility.HealAmount` | `@180e345b0` | `healAmount = StatAmount(weapon) × max(WeaponHighestHits, 1)` |
+| `DamagePrediction.PredictHeal` | `@181037180` | accumule bonus-soin d'effets → caps group/boss → `MaxFillUp` |
+| `FillUpStatComponent.MaxFillUp` | `@180f9b790` | `effective = min(healAmount, maxHP − curHP)` (soin effectif, plafonné aux PV manquants) |
+| `HealUtility.Evaluate` (Weight[Heal=44]) | iter `@1810e16f0`, W via `.cctor @1810cfd10` | `U = (effective / (maxHP + 1)) × 100 × friendSign × bossMod` |
+| `GetUnitUtilityModifier` | `@1810cfc80` | `bossMod = 2` si cible boss, sinon `1` |
+| `ProbableHealEvent..ctor` | `@1811359a0` | `{target@0, (curHP, effective)@8, Probability@0x10 = 1.0}` |
+| `Playbook.CalculateUtilityFromHealEvent` | `@1814aac80` | `Σ_cibles  Probability × U` |
+
+- `friendSign = +1` si la cible est ALLIÉE du caster, `−1` sinon (soigner un ennemi = utilité négative).
+- `W_heal = 100` (`HealUtility.cctor`, `Fix64.FromInt(100)`).
+- `StatAmount`/`WeaponHighestHits` = builders DSL (`StatAmountFormula`) lisant la stat de l'arme de
+  l'ability soin → **sourçables du gameconfig** comme le dégât (§1 ; magnitude scalée par
+  `AbilityVariablesMultiplierPercentage` comme §5 si la variable y est soumise).
+- Soin **négatif** (= dégât) : branche `MaxReduce`, non portée (cas rare).
+
+**Porté + sanity-check** : `heal_amount`/`predict_heal_effective`/`heal_utility`/`heal_action_utility`
+(cohérence math vs RE OK : `amount(1819,2)=3638`, cap `min(heal,missing)`, full HP→0, ennemi<0, boss×2).
+**RESTE** (wiring) : (a) sourcer `StatAmount×hits` du gameconfig de l'ability soin (par level × mult,
+comme le dégât) ; (b) brancher `heal_utility` dans `HealPlaybook`/`engine_decide` à la place du proxy
+missing-HP ; (c) **agreement LIVE** sur un scénario healer-vs-alliés-endommagés (la validation est sur
+la DÉCISION : le moteur soigne la même cible que le natif).
+
+## 10. État de validation
 
 - **Agreement seed-777 = 11/11** (xmod 1.00 partout), sourcé LIVE (multiplier + PassiveAbilityLevel par
   entité via `combatSnapshot.unitConfig`, plus de dépendance BC-offline). 0 régression.

@@ -146,3 +146,74 @@ def damage_with_piercing(base: float, pierce_pct: int, armor: int) -> float:
     if after_armor < 0.0:
         after_armor = 0.0
     return after_armor if after_armor > pierced else pierced
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════
+# PARTIE 3 — prédiction de SOIN (heal) iso-AI + utilité (RE ghidra gqfc5mff6c)
+# ═══════════════════════════════════════════════════════════════════════════════════════
+# Débloque le scoring fidèle des abilities de SOIN (manque #1 / status.md §3.1). La chaîne native
+# est portée 1:1 (fonctions nommées, VA citées) ; tout est OFFLINE-calculable depuis l'état de
+# l'unité + la magnitude gameconfig (comme le dégât) — pas besoin d'`aiPredict` (dégât-only).
+#
+#   HealAbility.HealAmount            @180e345b0 = StatAmount(weapon) × max(WeaponHighestHits, 1)
+#   DamagePrediction.PredictHeal      @181037180 → FillUpStatComponent.MaxFillUp @180f9b790
+#       effective = min(healAmount, maxHP − curHP)   (+ caps group/boss ; soin<0 ⇒ dégât, non porté)
+#   HealUtility.Evaluate (Weight[Heal=44] ; iter @1810e16f0 ; W=100 via .cctor @1810cfd10)
+#       U = (effective / (maxHP + 1)) × 100 × friendSign × bossMod
+#   ProbableHealEvent { target@0, (curHP, effective)@8, Probability@0x10 = 1.0 (FromInt 1) }
+#   Playbook.CalculateUtilityFromHealEvent @1814aac80 = Probability × U   (sommé par cible)
+
+HEAL_UTILITY_WEIGHT = 100   # HealUtility$$.cctor @1810cfd10 : Fix64.FromInt(100)
+
+
+def heal_amount(stat_amount: int, weapon_highest_hits: int) -> int:
+    """`HealAbility.HealAmount` @180e345b0 = `StatAmount(weapon) × max(WeaponHighestHits, 1)`.
+
+    `stat_amount` (soin par coup) et `weapon_highest_hits` = stats de l'ARME de l'ability soin,
+    sourcées du gameconfig comme le dégât (StatAmountFormula évalue la stat d'arme ; le DSL ne
+    fait que lire des stats, cf. journal §15). Magnitude = stat × max(hits, 1)."""
+    return int(stat_amount) * max(int(weapon_highest_hits), 1)
+
+
+def predict_heal_effective(heal_amount_value: int, target_current_hp: int, target_max_hp: int,
+                           boss_max_hp: int | None = None, group_limit: int | None = None) -> int:
+    """`DamagePrediction.PredictHeal` @181037180 → `FillUpStatComponent.MaxFillUp` @180f9b790.
+
+    Soin EFFECTIF = `min(healAmount, maxHP − curHP)`, plafonné aux PV manquants. Caps optionnels :
+    `group_limit` (GetGroupUnitHealLimit, soin de groupe) et `boss_max_hp` (cible boss → cap à
+    `bossMaxHP − curHP`). Soin négatif (= dégât) non porté ici. Renvoie un entier >= 0.
+    (Les bonus-soin d'effets accumulés par PredictHeal avant le cap sont à intégrer à `heal_amount_value`.)"""
+    amt = int(heal_amount_value)
+    if group_limit is not None:
+        amt = min(amt, int(group_limit))
+    if boss_max_hp is not None:
+        amt = min(amt, int(boss_max_hp) - int(target_current_hp))
+    missing = int(target_max_hp) - int(target_current_hp)
+    return max(0, min(max(0, amt), missing))
+
+
+def heal_utility(effective_heal: int, target_max_hp: int,
+                 is_friend: bool, is_boss: bool) -> float:
+    """`HealUtility.Evaluate` (Weight[Heal=44] ; iterator @1810e16f0).
+
+    `U = (effective / (maxHP + 1)) × 100 × friendSign × bossMod`, où
+    `friendSign = +1` si la cible est un ALLIÉ du caster, `−1` sinon (soigner un ennemi = utilité
+    négative) ; `bossMod = 2` si la cible est un BOSS sinon `1` (GetUnitUtilityModifier @1810cfc80).
+    Le ratio `effective/(maxHP+1)` = HealRatio (le +1 évite la division par zéro)."""
+    ratio = effective_heal / (int(target_max_hp) + 1)
+    u = ratio * HEAL_UTILITY_WEIGHT
+    if not is_friend:
+        u = -u
+    return u * (2.0 if is_boss else 1.0)
+
+
+def heal_action_utility(events) -> float:
+    """`Playbook.CalculateUtilityFromHealEvent` @1814aac80 sommé sur les cibles : `Σ Probability × U`.
+
+    `events` = itérable de tuples `(effective_heal, target_max_hp, is_friend, is_boss[, probability])`.
+    `probability` par défaut 1.0 (ProbableHealEvent..ctor @1811359a0 = FromInt(1) sans nullable de proba)."""
+    total = 0.0
+    for ev in events:
+        prob = ev[4] if len(ev) > 4 else 1.0
+        total += prob * heal_utility(ev[0], ev[1], ev[2], ev[3])
+    return total
