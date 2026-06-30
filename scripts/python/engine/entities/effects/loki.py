@@ -144,3 +144,35 @@ class KanOpenerEffect(BaseEffect):
     def get_armor_penetration(self) -> int | None:
         # TODO: mapper la clé 0x40 → var gameconfig (per-niveau) puis return ability_var(..., self.level).
         return None
+
+
+class TauntedEffect(BaseEffect):
+    """`TauntedEffect.ApplyInternal` @180f47510 (effet COMPOSITE 27 = `Taunted_OnlySpecificTargets`,
+    base `ABondEffect` — lien cible↔tauntant). À l'application, spawne 3 SOUS-effets via
+    `AddSubEffectWithSameTurns` (⇒ MÊME durée que le parent) :
+      - 0x19=25  `Taunted_BlockMovement`        (la cible ne peut plus se déplacer)
+      - 0x1a=26  `Taunted_CantUseAbility`        (la cible ne peut plus utiliser d'ability active)
+      - 0x4d5=1237 `Taunted_RefreshUnitTurnFinished`
+    Le natif enregistre aussi le `BondedEntityId` (la cible est forcée d'attaquer le tauntant) — c'est un
+    effet de CIBLAGE IA (concern playbook, non porté ici : on matérialise l'effet + ses enfants ; le
+    `source` de l'effet = le tauntant capture la direction du bond). VALIDÉ live attendu : la cible porte
+    27 + 25/26/1237 (parent 1 round, enfants same-turns) après CrushingClaws."""
+
+    def sub_effects_on_apply(self) -> list[SubEffectSpec]:
+        return [
+            SubEffectSpec(0x19, "Taunted_BlockMovement", turns=SAME_TURNS),      # AddSubEffectWithSameTurns
+            SubEffectSpec(0x1a, "Taunted_CantUseAbility", turns=SAME_TURNS),     # AddSubEffectWithSameTurns
+            SubEffectSpec(0x4d5, "Taunted_RefreshUnitTurnFinished", turns=SAME_TURNS),
+        ]
+
+
+class PinnedEffect(BaseEffect):
+    """`PinnedEffect.ApplyInternal` @180f5e6d0 (effet 1065 `Pinned` ; UI = « Suppressed »). Effet
+    stat-mod SIMPLE (pas de sous-effet nommé) : un `ChangeStat(Position(1,5), statType=4 = Movement,
+    valeur = Negative(EffectConfig(1)))` sur la cible ⇒ réduit le MOUVEMENT (la cible « pinned » ne peut
+    pas avancer le tour suivant).
+
+    ⚠ Contributions NON encore portées (présent ≠ appliqué, §17.4) : (1) la réduction de Movement (le
+    mouvement n'est pas dans le chemin de combat/dégât porté) ; (2) `PinnedEffect.CreateEffectDamageBonusForAttack`
+    @180f5e8e0 (malus de dégât quand l'unité Pinned attaque) — à RE + porter si on modélise le débuff
+    offensif. Ici on MATÉRIALISE l'effet (nom 1065 sur la cible) — c'est le scope de la tranche EFFETS."""

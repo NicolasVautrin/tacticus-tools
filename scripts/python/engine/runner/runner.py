@@ -37,6 +37,7 @@ class Runner:
         `spread_pct` = BattleConfiguration.Damage.DamageSpreadPercentage (défaut 20)."""
         from .operations.movement import MovementHandler
         from .operations.damage import DamageHandler
+        from .operations.turnflow import TurnFlowHandler
         from .abilities import AbilityHandler
         self.movement_handler = MovementHandler(self.state, self.bus)  # after_move (overwatch…)
         self.post_handlers.append(self.movement_handler)
@@ -44,6 +45,8 @@ class Runner:
         self.post_handlers.append(self.damage_handler)
         self.ability_handler = AbilityHandler(self.state)     # ActiveAbilityMessage → ExecuteBehaviour
         self.post_handlers.append(self.ability_handler)
+        self.turnflow_handler = TurnFlowHandler(self.state)   # EndTurnMessage → EndTurn/ChangeTurn/StartTurn
+        self.post_handlers.append(self.turnflow_handler)
         return self
 
     # --- gates (mirror IdunRunner$$ShouldBlockMessage / ShouldRejectMessage) ---

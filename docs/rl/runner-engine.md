@@ -378,6 +378,67 @@ Chaque tranche = RE ghidra → port 1:1 → test d'agrément vs live (replay-dif
    filtre via `AnAiGroupOperator.GetValidUnits` @1811833e0 : alive + action-left + **non-summon/object**
    (`BaseUnitComponent+0x60 < 1001` ; offline = skip trait-`Summon`, cf. §1.9).
 
+   **TF-A PORTÉ + validé live** (`engine/runner/operations/turnflow.py`, `EndTurnMessage`) — l'état
+   OBSERVABLE de la transition de tour :
+   - `EndTurnOperation.Execute` @180e6b3c0 → `RefreshEffects` @180e6bf70 : tick d'1 tour des effets à
+     durée de **toutes** les unités (= `EffectsState.on_turn_end`, déjà porté) ;
+   - `ChangeTurnOperation.Execute` @180e62370 / `FindNextPlayer` @180e62570 → `find_next_player` :
+     prochain joueur cyclique actif (Environment/neutre & équipes éliminées exclus = sans unité vivante ;
+     ordre = ids croissants, exact pour 2 équipes) ; `current_player` flip ;
+   - `StartTurnOperation.Execute` @180ea3fb0 (squelette) : incrémente `state.turn_counts[player]`
+     (`TurnComponent.turnsStarted` @+0x38) + émet la séquence 0x12..0x16 → vecteur `On(0x16)` =
+     `start_turn_triggers` (déjà porté, ex. TheBetrayer). Validé : `test_turnflow_live.py` (flip exact
+     vs live + tick effets) ; smoke offline (flip A↔B, expiration, mono-joueur).
+
+   **TF-A déféré** (état non suivi offline) : `DecreaseAbilityCooldowns` @180e6b0c0 (pas de compteur de
+   cooldown offline), `ActorStatisticsComponent.ResetThisTurn` (stats per-tour),
+   `ResetAbilitiesThatResetOnTurnEnd` @180e6cb90, resets per-unité `UnitFlags`/position de StartTurn,
+   et **`PickNextUnit`** (ordre intra-tour = décision IA → couche playbook, pas une mutation moteur).
+
+   ### 6bis. BOUCLIERS (`ShieldComponent`) — modèle + absorption + décay (RE, port offline-validé)
+
+   Modèle natif (`ShieldComponent` @180fa8770) = liste d'instances (+0x10) + compteur d'id (+0x18) ;
+   chaque **`ShieldInstance`** = {`id`@+0x10, source `AbilityOrEffect`@+0x14, `amount`@+0x30,
+   `remaining` Nullable<int>@+0x3c (**None = permanent**)}. `GetTotalShield` @180fa7f30 = Σ `amount`.
+   Accordés par abilities/effets (`CreateShield` DSL : `APowerUpAbility.AddShield` @180e13cb0 = %·stat,
+   durée `TurnsFromRounds`) — ex. ArcaneShield (Thaumachus), NovaShield (Riptide), WrathfulDevotion
+   (Wrask), Shield power-ups (env). i2 : « A Shield absorbs all damage until destroyed and has no
+   Armour ».
+
+   **Absorption** (`CalculateDamageOperation` @18102dc30, COMBAT) : ordre **shield → block → armure-pool
+   → santé**. Le shield absorbe `min(shield, dégât)` du coup **déjà réduit par l'armure fixe** (le
+   « no Armour » = le POOL bouclier n'a pas d'armure, PAS un bypass de l'armure fixe de l'unité ; la
+   réduction armure-fixe reste appliquée dans `ExecuteHit` AVANT). ⇒ le split du runner
+   (`calculate_damage_operation` shield-first sur le roll réduit) **matche déjà** — il suffit de peupler
+   le total. Porté : `AttackDamageOperation` peuple `shield` (3 chemins execute/ability/normal_like) +
+   `ShieldComponent.deplete` après le coup.
+
+   **Décay** (`RemoveOneTurnOnShields` @180e6c4e0 → `ShieldComponent.RemoveOneTurn` @180fa8080) : à chaque
+   `EndTurn`, chaque instance À DURÉE perd 1 tour ; à 0 → retirée (les permanentes sont sautées). Porté
+   dans `EndTurnOperation` (`turnflow.py`), à côté du tick d'effets.
+
+   **Capture** : `shields` par unité ajouté à `combatSnapshot` (`rpc-view.ts`, lecture `ShieldComponent` :
+   instances {id@+0x10, amount@+0x30, remaining Nullable@+0x3c}) ; `load_state` monte le `ShieldComponent`.
+   ⚠ `remainingRaw=[s32@0x3c, s32@0x40]` émis en plus (layout `Nullable<int>` non tranché : ArcaneShield
+   donne toujours remaining=1 → raw=[1,1] ambigu ; à confirmer avec un bouclier >1 round, sans rebuild).
+
+   **VALIDÉ LIVE end-to-end** (probe `thousSorcerer`/ArcaneShield self-shield) : (A) capture d'un bouclier
+   réel (amount=5483) ; (B) seed offline total == capté ; (C) absorption sur données réelles (ennemi →
+   unité : shield_dmg=2008 absorbé, santé 0, bouclier 5483→3475 — shield-first) ; (D) **décay confronté
+   live** : après 1 `endturn`, bouclier expiré OFFLINE **et** LIVE (présence + total MATCH). + smoke
+   offline (deplete/expiry/multi-coups).
+
+   **GRANTING (CreateShield) — ArcaneShield porté + validé live** : `ShieldComponent.add_or_update_shield`
+   = `AddOrUpdateShield` @180fa7290 (stack même source+durée, sinon nouvelle instance id auto). `Arcane
+   ShieldAbility` (`triggers.py`, @180e16f60/@180e16b40) : amount = `shieldHp[passive_level] × mult%`
+   (var rareté), durée 1 round, cible = ami le plus proche dans range 2 (préf ThousandSons > Chaos >
+   autres > soi) ; **vecteur APPROXIMÉ** sur after-move quand mover==owner (natif `On(0x1c)` = activation
+   terminée, le cas « fin de tour sans move » non couvert). `ctx.passive_ability_level` ajouté (indexe les
+   vars passives). **Validé live** : grant OFFLINE (after_move → target=soi, amount=5483, durée 1) ==
+   bouclier LIVE (5483) — amount bit-exact. Déféré : NovaShield (active, Riptide) / WrathfulDevotion
+   (mort, Wrask) ; vecteur 0x1c propre (cas fin-de-tour) ; ciblage multi-amis (validé solo) ; confirmation
+   layout `Nullable` (bouclier >1 round).
+
 ---
 
 ## 3. Validation (replay-diff vs live)

@@ -24,7 +24,7 @@ from typing import Dict, List, Optional, Tuple
 from .state import State
 from .components import (
     UnitComponent, OwnerComponent, PositionComponent, HealthComponent,
-    EffectsOwnedComponent, StatsComponent,
+    EffectsOwnedComponent, StatsComponent, ShieldComponent, ShieldInstance,
 )
 
 
@@ -108,9 +108,21 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
             # AActiveAbility.MinMaxDamage / ability_attack_params). Sans ça, niveau=0 → dégât d'ability faux.
             if uc.get("activeAbilityLevel"):
                 ctx.active_ability_level = int(uc["activeAbilityLevel"])
+            # niveau des PASSIVES (indexe leurs variables, ex. ArcaneShield.shieldHp[level]).
+            if uc.get("passiveAbilityLevel"):
+                ctx.passive_ability_level = int(uc["passiveAbilityLevel"])
         ent = state.get_entity(eid)
         if ent is not None:
             ent.add_component(StatsComponent(ctx=ctx))
+            # BOUCLIER : instances captées (combatSnapshot.shields) → ShieldComponent (absorption +
+            # décay EndTurn). `remaining` None = permanent. Absent/[] → pas de composant (cible sans bouclier).
+            shields = su.get("shields")
+            if isinstance(shields, list) and shields:
+                insts = [ShieldInstance(int(sh.get("id") or 0), int(sh.get("amount") or 0),
+                                        sh.get("remaining"))
+                         for sh in shields if (sh.get("amount") or 0) > 0]
+                if insts:
+                    ent.add_component(ShieldComponent(shields=insts))
     # effets ACTIFS structurés (decisionView.effects), matérialisés + propagés mult/level.
     effects_by_id = {u.get("id"): (u.get("effects") or []) for u in (decision.get("units") or [])}
     state.effects = EffectsState.seed(effects_by_id, mult_by_id, ablvl_by_id)

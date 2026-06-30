@@ -654,6 +654,42 @@ export function registerView(ctx: Ctx): void {
             };
         };
 
+        // BOUCLIERS (ShieldComponent @180fa8770) : liste d'instances @+0x10 (List<ShieldInstance>,
+        // _items@+0x10/_size@+0x18 ; éléments = pointeurs, data array @+0x20). ShieldInstance :
+        // id@+0x10, amount@+0x30, remaining Nullable<int>@+0x3c (None=permanent). Layout du Nullable
+        // incertain → on émet remainingRaw=[s32@0x3c, s32@0x40] pour trancher en validation, + une
+        // estimation `remaining` (convention .NET {hasValue@0, value@4} : has=byte@0x3c, val=s32@0x40).
+        const shieldCompClass = findClassAnywhere("IdunBattle.Entities.Components", "ShieldComponent");
+        const SH = { id: 0x10, amount: 0x30, rem0: 0x3c, rem1: 0x40 };
+        const readShields = (e: NativePointer): Array<Record<string, unknown>> => {
+            if (!shieldCompClass) return [];
+            let comp: NativePointer | null = null;
+            forEachComponent(e, (c, klass) => {
+                if (comp === null && klass.equals(shieldCompClass)) comp = c;
+            });
+            if (comp === null) return [];
+            const list = (comp as NativePointer).add(0x10).readPointer();
+            if (list.isNull()) return [];
+            const items = list.add(0x10).readPointer();
+            const size = list.add(0x18).readS32();
+            if (items.isNull() || size <= 0 || size > 64) return [];
+            const out: Array<Record<string, unknown>> = [];
+            for (let i = 0; i < size; i++) {
+                const inst = items.add(0x20 + i * 8).readPointer();
+                if (inst.isNull()) continue;
+                const w0 = inst.add(SH.rem0).readS32();
+                const w1 = inst.add(SH.rem1).readS32();
+                const has = inst.add(SH.rem0).readU8();   // convention .NET hasValue@+0
+                out.push({
+                    id: inst.add(SH.id).readS32(),
+                    amount: inst.add(SH.amount).readS32(),
+                    remaining: has ? w1 : null,
+                    remainingRaw: [w0, w1],
+                });
+            }
+            return out;
+        };
+
         const units: Array<Record<string, unknown>> = [];
         for (const { e, id } of allUnits) {
             const stats: Record<string, number | null> = {};
@@ -661,6 +697,7 @@ export function registerView(ctx: Ctx): void {
             units.push({
                 entityId: id, ctrl: invokeBool(isCtrlByCurMi, [e, statePtr]),
                 stats, normalAttack: readNormalAttack(e), unitConfig: readUnitConfig(e),
+                shields: readShields(e),
             });
         }
         return { ok: true, runner: label, statTypes: STAT_IDS, units };

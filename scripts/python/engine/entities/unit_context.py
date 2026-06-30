@@ -26,6 +26,7 @@ class UnitContext:
     extra_pierce_melee: int = 0
     extra_pierce_ranged: int = 0
     active_ability_level: int = 0
+    passive_ability_level: int = 0     # niveau des PASSIVES (indexe leurs variables ; ex. ArcaneShield.shieldHp)
     number_of_members: int = 1
     crit_chance: int = 0
     crit_damage: int = 0

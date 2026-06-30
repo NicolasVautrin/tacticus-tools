@@ -76,8 +76,13 @@ class State:
 
     `board` = graphe hex (`engine.entities.pathfinding.board.Board`) optionnel, posé pour
     les mécaniques qui ont besoin de l'ADJACENCE hex (ex. splash Psyker = ennemis adjacents
-    à la cible). None = pas d'adjacence dispo → ces mécaniques dégradent en no-op."""
-    __slots__ = ("entities", "current_player_id", "_next_entity_id", "effects", "rng", "board")
+    à la cible). None = pas d'adjacence dispo → ces mécaniques dégradent en no-op.
+
+    `turn_counts` = nb de tours DÉMARRÉS par joueur (mirror `TurnComponent.turnsStartedByCurrentPlayer`,
+    dict @+0x38) ; incrémenté par `StartTurnOperation`. Source de `GetAmountOfTurnsStartedByCurrentPlayer`
+    (gate « 1er tour » de certaines mécaniques). Vide tant qu'aucun tour n'a été joué via le runner."""
+    __slots__ = ("entities", "current_player_id", "_next_entity_id", "effects", "rng", "board",
+                 "turn_counts")
 
     def __init__(self):
         self.entities: dict[int, Entity] = {}
@@ -86,6 +91,7 @@ class State:
         self.effects: Optional["EffectsState"] = None
         self.rng: Optional["IntBasedMersenneTwister"] = None
         self.board = None
+        self.turn_counts: dict[int, int] = {}
 
     def add_entity(self, entity_id: Optional[int] = None) -> Entity:
         if entity_id is None:

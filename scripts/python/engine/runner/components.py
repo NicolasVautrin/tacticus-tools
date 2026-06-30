@@ -67,6 +67,153 @@ class EffectsOwnedComponent(Component):
         self.effects = effects
 
 
+class ShieldInstance:
+    """Une instance de bouclier (élément de la liste d'un `ShieldComponent`). Offsets natifs (RE
+    `ShieldComponent.*`) : `id`@+0x10, source `AbilityOrEffect`@+0x14, `amount`@+0x30, `remaining`
+    Nullable<int>@+0x3c (**None = permanent** = pas de durée → non tické par `RemoveOneTurn`).
+    `source` = identité de l'ability/effet source (nom ; sert au merge `AddOrUpdateShield` ; None pour les
+    boucliers CAPTÉS dont la source n'est pas lue)."""
+    __slots__ = ("shield_id", "amount", "remaining", "source")
+
+    def __init__(self, shield_id: int, amount: int, remaining: Optional[int], source=None):
+        self.shield_id = shield_id
+        self.amount = int(amount)
+        self.remaining = remaining        # None = permanent
+        self.source = source
+
+
+class ShieldComponent(Component):
+    """`IdunBattle.Entities.Components.ShieldComponent` @180fa8770 — pool de boucliers de l'unité
+    (liste d'instances @+0x10 + compteur d'id @+0x18). Un bouclier ABSORBE le dégât AVANT les PV
+    (`CalculateDamageOperation` : shield-first, sur le coup déjà réduit par l'armure fixe), et perd 1
+    tour à chaque `EndTurn` (`RemoveOneTurnOnShields` → `RemoveOneTurn`). `GetTotalShield` = somme des
+    `amount` (>0)."""
+    __slots__ = ("shields", "next_id")
+
+    def __init__(self, shields: Optional[List["ShieldInstance"]] = None, next_id: int = 0):
+        self.shields: List[ShieldInstance] = shields if shields is not None else []
+        self.next_id = next_id
+
+    def get_total_shield(self) -> int:
+        """`ShieldComponent.GetTotalShield` @180fa7f30 = Σ des `amount` des instances."""
+        return sum(int(s.amount) for s in self.shields if s.amount > 0)
+
+    def remove_one_turn(self) -> dict:
+        """`ShieldComponent.RemoveOneTurn` @180fa8080 : pour chaque instance À DURÉE (remaining non-None ;
+        les permanentes sont sautées, gate `HasValue` @+0x3c), décrémente `remaining` ; si 0 → l'instance
+        EXPIRE (retirée). Renvoie {removed:[ids], decremented:[ids]} (= `ShieldChanges`)."""
+        removed: List[int] = []
+        decremented: List[int] = []
+        for s in list(self.shields):
+            if s.remaining is None:                  # permanent → non tické
+                continue
+            s.remaining -= 1
+            if s.remaining <= 0:
+                removed.append(s.shield_id)
+                self.shields.remove(s)
+            else:
+                decremented.append(s.shield_id)
+        return {"removed": removed, "decremented": decremented}
+
+    def add_or_update_shield(self, amount: int, source=None,
+                             remaining: Optional[int] = None) -> Optional["ShieldInstance"]:
+        """`ShieldComponent.AddOrUpdateShield` @180fa7290 : accorde un bouclier. Si une instance de MÊME
+        source ET MÊME durée restante existe → **cumule** l'`amount` (stack, branche `+= param_2`) ; sinon
+        crée une nouvelle instance (id auto-incrémenté @+0x18). No-op si `amount<=0`. Renvoie l'instance.
+        (Le tri d'insertion par durée croissante + la branche replace sans-durée = raffinements ;
+        l'essentiel — id unique, stack même-source, total — est porté.)"""
+        amount = int(amount)
+        if amount <= 0:
+            return None
+        for s in self.shields:
+            if s.source == source and s.remaining == remaining:
+                s.amount += amount
+                return s
+        inst = ShieldInstance(self.next_id, amount, remaining, source=source)
+        self.shields.append(inst)
+        self.next_id += 1
+        return inst
+
+    def deplete(self, amount: int) -> int:
+        """Absorption : retire jusqu'à `amount` PV de bouclier des instances. Le TOTAL absorbé est exact
+        (= `min(amount, GetTotalShield)`) ; l'ATTRIBUTION par instance = ordre de liste (le natif insère
+        trié par durée croissante ; l'ordre de déplétion exact = `ApplyDamageOperation`, non RE → front,
+        approximation documentée n'affectant que QUELLE instance expire la première). Renvoie l'absorbé."""
+        left = int(amount)
+        for s in self.shields:
+            if left <= 0:
+                break
+            take = min(s.amount, left)
+            s.amount -= take
+            left -= take
+        self.shields = [s for s in self.shields if s.amount > 0]
+        return int(amount) - left
+
+
+class ForcedAttackTargetsComponent(Component):
+    """`IdunBattle.Entities.Components` — cibles d'attaque FORCÉES de l'unité (liste d'ids d'unité).
+
+    Posé/maj par `AddForcedAttackTargetBehaviour.Execute` @180fb5800 / retiré par
+    `RemoveForcedAttackTargetBehaviour.Execute` @180fcd890 (le natif stocke des entity-ids dans une liste
+    de composant bond @+0x50/+0x58). LU par `UnitForcedAttackTargetsSelector.Select` @180eff450
+    (`GetOnlyTargets` → liste des cibles forcées) = le point où l'IA **doit** cibler ces unités en priorité
+    (cf. `GetAttackTarget` priorité `ForcedAttackTargets > nearest-enemy`, triggers.py). Deux sources :
+    Taunt (la cible est forcée d'attaquer le tauntant) et Instinctive Behaviour (hors Synapse → forcée
+    d'attaquer l'ennemi le plus proche). On clé par id d'UNITÉ (== ECS), comme le reste du runner."""
+    __slots__ = ("targets",)
+
+    def __init__(self, targets: Optional[List[int]] = None):
+        self.targets: List[int] = list(targets) if targets else []
+
+    def add(self, target_id: int) -> bool:
+        """Ajoute une cible forcée (idempotent). Renvoie True si ajoutée (absente avant)."""
+        if target_id in self.targets:
+            return False
+        self.targets.append(int(target_id))
+        return True
+
+    def remove(self, target_id: int) -> bool:
+        """Retire une cible forcée. Renvoie True si présente."""
+        if target_id in self.targets:
+            self.targets.remove(target_id)
+            return True
+        return False
+
+    def set_only(self, target_ids: List[int]) -> dict:
+        """Remplace l'ensemble des cibles forcées (mirror du net `Remove(old−new) + Add(new−old)` de
+        `InstinctiveBehaviour_UpdateTargetAbility.CreateBehaviour`). Renvoie {added, removed}."""
+        new = [int(t) for t in (target_ids or [])]
+        added = [t for t in new if t not in self.targets]
+        removed = [t for t in self.targets if t not in new]
+        self.targets = new
+        return {"added": added, "removed": removed}
+
+    def get(self) -> List[int]:
+        return list(self.targets)
+
+
+class UnitFlagsComponent(Component):
+    """`IdunBattle.Entities.Components.UnitFlagsComponent` @180fad640 — drapeaux booléens de l'unité
+    (un `OrderedSet<int>` @+0x10 ; `Add`/`Remove`/`Has`/`RemoveTurnFlags`). Flag **9 = « a fui »**
+    (posé par `FleeOperation` ; re-testé `NOT HasFlag(self,9)` par BattleFatigue pour ne pas re-fuir, et
+    bloque toute action ce tour). On porte le set d'ints (sémantique 1:1) ; les flags « de tour »
+    (RemoveTurnFlags en fin de tour) = raffinement quand on portera le reset complet."""
+    __slots__ = ("flags",)
+    FLED = 9     # UnitFlag « a fui » ce tour
+
+    def __init__(self, flags=None):
+        self.flags = set(int(f) for f in flags) if flags else set()
+
+    def add(self, flag: int) -> None:
+        self.flags.add(int(flag))
+
+    def remove(self, flag: int) -> None:
+        self.flags.discard(int(flag))
+
+    def has(self, flag: int) -> bool:
+        return int(flag) in self.flags
+
+
 class StatsComponent(Component):
     """Bloc de stats de combat RÉSOLUES de l'unité (Attack, FixedArmor, ExtraHits,
     ExtraPierce, crit/block, AbilityVariablesMultiplier, niveau d'ability…) + config

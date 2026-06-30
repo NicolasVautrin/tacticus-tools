@@ -29,7 +29,7 @@ from typing import Optional
 
 from ..state import State
 from ..components import (StatsComponent, OwnerComponent, PositionComponent, UnitComponent,
-                         HealthComponent)
+                         HealthComponent, ShieldComponent)
 from .damage import AttackDamageOperation
 
 # --- Event ids de trigger (DSLFactory.On(x)) ------------------------------------------------------
@@ -60,6 +60,15 @@ IMPERIAL_FACTIONS = frozenset({
     "AdeptusAstartes", "Ultramarines", "BlackTemplars", "SpaceWolves", "DarkAngels", "BloodAngels",
     "AdeptusMechanicus", "AstraMilitarum", "Sisterhood", "Custodes",
 })
+
+# --- ArcaneShield (ThousandSons, passiveAbility) — bouclier après activation -----------------------
+# Grand-alliance « Chaos » (cf. GrandAlliance) — 5 factions Chaos des 22 du jeu (priorité de ciblage
+# ArcaneShield : ThousandSons > autres Chaos > autres > soi). Stable (lore WH40K).
+CHAOS_FACTIONS = frozenset({
+    "BlackLegion", "DeathGuard", "ThousandSons", "WorldEaters", "EmperorsChildren",
+})
+ARCANESHIELD_RANGE = 2          # `ArcaneShield.constants.range` = 2 (rayon de l'ami ciblé)
+ARCANESHIELD_TRAIT_EXCLUDE = 0x1b  # 27 — `UnitsWithoutTrait(0x1b)` : exclus du ciblage
 
 PSYKER_OWNER_SUPPRESS = 1191    # 0x4a7 effet sur l'owner qui supprime le splash psyker
 PSYKER_TARGET_SUPPRESS = 1533   # 0x5fd effet sur la cible qui supprime le splash psyker
@@ -352,6 +361,36 @@ class FinalJusticeAbility(TriggeredAbility):
         return _finaljustice_attack(state, self.owner_id)
 
 
+class ArcaneShieldAbility(TriggeredAbility):
+    """`ArcaneShieldAbility` (@180e16f60 CreateTrigger / @180e16b40 CreateBehaviour) — bouclier de
+    Thaumachus (`thousSorcerer`, ThousandSons, passive `ArcaneShield`).
+
+    Natif : `CreateTrigger = On(0x1c) & OwnerIsActor & OwnerIsCaster` — `0x1c` = activation TERMINÉE de
+    l'owner (APRÈS son move, OU fin de tour s'il ne bouge pas). Behaviour = accorde un bouclier `shieldHp`
+    (variable rareté → `× AbilityVariablesMultiplier`) durée **1 round** à l'ami le plus proche dans le
+    rayon (`range`=2 ; `UnitsWithoutTrait(0x1b)`), préféré ThousandSons > autres Chaos > autres > **soi**
+    (sinon soi) → `CreateShield` (`AddOrUpdateShield`).
+
+    ⚠ APPROXIMATION du VECTEUR : le runner n'a pas d'event « activation terminée » (0x1c). On le modélise
+    sur le vecteur **after-move** (`On(4)`) quand le MOVER EST l'owner (= cas « après son move », le plus
+    courant). Le cas « fin de tour sans déplacement » n'est pas couvert (raffinement = vecteur 0x1c propre
+    avec la boucle d'activation). La sélection multi-amis (priorité faction) est portée mais validée
+    seulement sur le cas SOLO (target = soi). Behaviour/cible = `_arcaneshield_grant`/`_arcaneshield_target`."""
+    event_id = TRIGGER_AFTER_MOVE
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        if ev.actor_id != self.owner_id:                 # OwnerIsActor : l'owner vient de bouger
+            return False
+        owner = state.get_entity(self.owner_id)
+        uc = owner.get_component(UnitComponent) if owner is not None else None
+        if uc is not None and not uc.alive:
+            return False
+        return True
+
+    def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
+        return _arcaneshield_grant(state, self.owner_id)
+
+
 # --- Registre : trait → ability-trigger(s) accordée(s) --------------------------------------------
 TRAIT_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     "Psyker": [PsykerExtraAttackAbility],
@@ -366,6 +405,8 @@ TRAIT_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
 ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # TheBetrayer = gain-rage-au-kill (mort) + auto-tour (début de tour). Cf. les 2 classes ci-dessus.
     "TheBetrayer": [TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility],
+    # ArcaneShield (Thaumachus) = bouclier après activation (modélisé after-move quand mover==owner).
+    "ArcaneShield": [ArcaneShieldAbility],
 }
 
 # --- Registre : effectType → effet-trigger ---------------------------------------------------------
@@ -379,6 +420,7 @@ def collect_triggered_abilities(state: State) -> list[TriggeredAbility]:
     pour chaque trait à trigger porté, instancie l'ability correspondante (owner = l'entité). (Le volet
     effet-trigger — Overwatch, on-hit — n'est pas encore collecté ici.)"""
     import gameconfig as GC
+    from .behaviour import BEHAVIOUR_TRAIT_TRIGGERS             # lazy : evite circular import behaviour<->triggers
     out: list[TriggeredAbility] = []
     for eid, e in state.entities.items():
         sc = e.get_component(StatsComponent)
@@ -386,6 +428,8 @@ def collect_triggered_abilities(state: State) -> list[TriggeredAbility]:
             continue
         for trait in (sc.ctx.traits or []):
             for cls in TRAIT_TRIGGERS.get(trait, ()):            # un trait peut accorder >1 trigger
+                out.append(cls(eid))
+            for cls in BEHAVIOUR_TRAIT_TRIGGERS.get(trait, ()):  # mecaniques de comportement (Battle Fatigue)
                 out.append(cls(eid))
         # passiveAbilities (TheBetrayer…) — résolues via gameconfig par visualId.
         vid = getattr(sc.ctx, "visual_id", None)
@@ -944,6 +988,73 @@ def _finaljustice_target(state: State, owner_id: int) -> Optional[int]:
             best_util = util
             best = eid
     return best
+
+
+def _arcaneshield_target(state: State, owner_id: int) -> int:
+    """`SurroundingFriends(range, sans trait 0x1b) → SortByFormula(faction, distance) → First(1)` sinon
+    soi. Priorité : même faction (ThousandSons) > autre Chaos > autre > soi ; tie-break distance puis id.
+    Sans board (pas d'adjacence) → soi."""
+    board = state.board
+    owner = state.get_entity(owner_id)
+    if board is None or owner is None:
+        return owner_id
+    oc = owner.get_component(OwnerComponent)
+    ot = _unit_tile(state, board, owner_id)
+    if oc is None or ot is None:
+        return owner_id
+    own_fac = _faction_id(state, owner_id)
+    cands: list[tuple[int, int, int]] = []
+    for eid, e in state.entities.items():
+        if eid == owner_id:
+            continue
+        c = e.get_component(OwnerComponent)
+        u = e.get_component(UnitComponent)
+        if c is None or c.team != oc.team:               # amis uniquement
+            continue
+        if u is not None and not u.alive:
+            continue
+        sc = e.get_component(StatsComponent)
+        if sc is not None and ARCANESHIELD_TRAIT_EXCLUDE in (sc.ctx.traits or []):  # UnitsWithoutTrait(0x1b)
+            continue
+        t = _unit_tile(state, board, eid)
+        if t is None:
+            continue
+        d = _hex_dist(board, ot, t, ARCANESHIELD_RANGE)  # dans le rayon
+        if d is None:
+            continue
+        fac = _faction_id(state, eid)
+        prio = 0 if (own_fac is not None and fac == own_fac) else (1 if fac in CHAOS_FACTIONS else 2)
+        cands.append((prio, d, eid))
+    if cands:
+        cands.sort()                                     # (priorité, distance, id)
+        return cands[0][2]
+    return owner_id                                      # « lastly casting it on himself »
+
+
+def _arcaneshield_grant(state: State, owner_id: int) -> Optional[dict]:
+    """Behaviour ArcaneShield : amount = `shieldHp[passive_level] × mult%`, durée 1 round, sur la cible
+    (`_arcaneshield_target`) → `ShieldComponent.add_or_update_shield`. No-op si stats/amount absents."""
+    from ...entities.effects.magnitude import ability_var
+    owner = state.get_entity(owner_id)
+    sc = owner.get_component(StatsComponent) if owner is not None else None
+    if sc is None:
+        return None
+    ctx = sc.ctx
+    amount = int(ability_var("ArcaneShield", "shieldHp", int(getattr(ctx, "passive_ability_level", 0) or 0),
+                             multiplier_pct=int(getattr(ctx, "ability_variables_multiplier", 100) or 100)) or 0)
+    if amount <= 0:
+        return None
+    target = _arcaneshield_target(state, owner_id)
+    te = state.get_entity(target)
+    if te is None:
+        return None
+    shc = te.get_component(ShieldComponent)
+    if shc is None:
+        shc = ShieldComponent()
+        te.add_component(shc)
+    shc.add_or_update_shield(amount, source="ArcaneShield", remaining=1)   # TurnsFromRounds(1)
+    return {"ability": "ArcaneShield", "owner": owner_id, "target": target, "amount": amount,
+            "remaining": 1, "shield_total": shc.get_total_shield()}
 
 
 def _finaljustice_attack(state: State, owner_id: int) -> Optional[dict]:

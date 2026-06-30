@@ -12,14 +12,20 @@ if TYPE_CHECKING:
 
 
 def ability_attack_params(state: "State", caster_id: int, ability_id: str,
-                          profile_name: str, ranged: bool = False):
+                          profile_name: str, ranged: bool = False,
+                          min_key: str = "minDmg", max_key: str = "maxDmg",
+                          hits_key: str = "nrOfHits"):
     """Paramètres de l'attaque d'une ability (mirror `MinMaxDamage`/`GetHits`/`GetDamageProfile`) depuis
     l'ECS + gameconfig : `(base_min, base_max, pierce, hits)`.
       • base_min/base_max = `GetVariableForLevel(config, 0xc/0xd, level)` = `minDmg`/`maxDmg`[active_ability_level]
         scalés par `AbilityVariablesMultiplier` (vars flaggées rareté) — via `ability_var`.
       • hits = `GetNumberConstant(config, 0x2f)` = `nrOfHits` (constante).
       • pierce = clamp(0,100, profil.PiercingRatio + ExtraPierce + ExtraPierce{Melee|Ranged}) — même
-        modèle que l'attaque normale (`select_weapon_pierce`), avec le PROFIL de l'ability."""
+        modèle que l'attaque normale (`select_weapon_pierce`), avec le PROFIL de l'ability.
+
+    `min_key`/`max_key`/`hits_key` = noms des variables/constantes config à lire (défaut minDmg/maxDmg/
+    nrOfHits). Une ability à DEUX volets de dégât (ex. CrushingClaws : attaque principale + splash) passe
+    le 2ᵉ jeu de clés (`minDmg_2`/`maxDmg_2`/`nrOfHits_2`) + son profil pour le volet secondaire."""
     from ..components import StatsComponent
     from ...entities.effects.magnitude import ability_var
     import gameconfig as GC
@@ -28,9 +34,9 @@ def ability_attack_params(state: "State", caster_id: int, ability_id: str,
     ctx = sc.ctx if sc is not None else None
     level = ctx.active_ability_level if ctx is not None else 0
     mult = ctx.ability_variables_multiplier if ctx is not None else 100
-    bmin = ability_var(ability_id, "minDmg", level, multiplier_pct=mult) or 0
-    bmax = ability_var(ability_id, "maxDmg", level, multiplier_pct=mult) or 0
-    hits = ability_var(ability_id, "nrOfHits", is_constant=True) or 1
+    bmin = ability_var(ability_id, min_key, level, multiplier_pct=mult) or 0
+    bmax = ability_var(ability_id, max_key, level, multiplier_pct=mult) or 0
+    hits = ability_var(ability_id, hits_key, is_constant=True) or 1
     dp = GC.damage_profile(profile_name) or {}
     extra = ctx.extra_pierce if ctx is not None else 0
     dir_pierce = ((ctx.extra_pierce_ranged if ranged else ctx.extra_pierce_melee)

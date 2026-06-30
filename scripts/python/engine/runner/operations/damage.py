@@ -49,7 +49,8 @@ from ...services.damage_combat import (calculate_damage_operation, Damage, could
 from ...services.damage_modifiers import apply_all_modifiers
 from ..prng import IntBasedMersenneTwister
 from ..state import State
-from ..components import StatsComponent, HealthComponent, PositionComponent, UnitComponent
+from ..components import (StatsComponent, HealthComponent, PositionComponent, UnitComponent,
+                         ShieldComponent)
 from ..damage_model import (select_weapon, select_weapon_pierce, attacker_modifiers,
                             defender_modifiers, _cheby)
 from ...entities.effects import (hits_bonus_from_effects, crit_chance_bonus_from_effects,
@@ -129,6 +130,20 @@ class AttackDamageOperation:
         from .triggers import after_death_triggers, is_overkill
         return after_death_triggers(state, target_id, attacker_id,
                                     overkill=is_overkill(hp_before, damage))
+
+    @staticmethod
+    def _target_shield(tgt) -> tuple:
+        """(ShieldComponent|None, total) du bouclier COURANT de la cible — `GetShield`@180ed2030 /
+        `GetTotalShield`@180fa7f30. 0 si pas de composant (rétro-compat : cibles sans bouclier)."""
+        shc = tgt.get_component(ShieldComponent) if tgt is not None else None
+        return shc, (shc.get_total_shield() if shc is not None else 0)
+
+    @staticmethod
+    def _deplete_shield(shc, run_result: dict) -> None:
+        """Déplète le bouclier de l'absorbé (`run_result['shield_dmg']`) après l'attaque (mirror de la
+        déplétion `ApplyDamageOperation` ; le coup réduit l'instance, l'expiration à 0 par `deplete`)."""
+        if shc is not None and int(run_result.get("shield_dmg") or 0) > 0:
+            shc.deplete(int(run_result["shield_dmg"]))
 
     @staticmethod
     def execute(state: State, attacker_id: int, target_id: int,
@@ -227,8 +242,12 @@ class AttackDamageOperation:
         hit_cr = _reduced_bounds(ctx.attack + crit_damage) if crit_enabled else hit_nc
         clean_min = hit_nc.min * hits          # référence affichée = plage non-crit (× hits)
         clean_max = hit_nc.max * hits
+        # BOUCLIER cible : absorbe le coup réduit AVANT les PV (CalculateDamageOperation shield-first) ;
+        # _run_hits déplète le bouclier entre coups (shield -= dmg.shield), total = part SANTÉ seule.
+        shc, shield_total = AttackDamageOperation._target_shield(tgt)
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
-                                            crit_enabled, hits, block_sources)
+                                            crit_enabled, hits, block_sources, shield=shield_total)
+        AttackDamageOperation._deplete_shield(shc, r)
         death = None
         if thc.hp is not None:
             hp_before = thc.hp
@@ -339,8 +358,11 @@ class AttackDamageOperation:
         # critDamage) avant réduction. NON exercé tant que cc=0 (crit = item normalisé) ; à confirmer live.
         hit_cr = HitDamage(base_min + crit_damage, base_max + crit_damage) if crit_enabled else hit_nc
         hits = max(1, int(hits))
+        shc, shield_total = AttackDamageOperation._target_shield(tgt)      # bouclier shield-first
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
-                                            crit_enabled, hits, block_sources, post_roll=_reduce)
+                                            crit_enabled, hits, block_sources, shield=shield_total,
+                                            post_roll=_reduce)
+        AttackDamageOperation._deplete_shield(shc, r)
         if thc.hp is not None:
             hp_before = thc.hp
             thc.hp = max(0, thc.hp - r["total"])
@@ -394,8 +416,11 @@ class AttackDamageOperation:
         hit_nc = _reduced(base)
         hit_cr = _reduced(base + crit_damage) if crit_enabled else hit_nc
         hits = max(1, int(hits))
+        shc, shield_total = AttackDamageOperation._target_shield(tgt)      # bouclier shield-first
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
-                                            crit_enabled, hits, block_sources)   # post_roll=None (reduce-then-roll)
+                                            crit_enabled, hits, block_sources,
+                                            shield=shield_total)   # post_roll=None (reduce-then-roll)
+        AttackDamageOperation._deplete_shield(shc, r)
         if thc.hp is not None:
             hp_before = thc.hp
             thc.hp = max(0, thc.hp - r["total"])

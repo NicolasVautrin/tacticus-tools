@@ -14,12 +14,14 @@ from .base import ActiveAbility, turns_from_rounds, ability_attack_params
 from ..operations.effects import AddEffectOperation
 from ..operations.damage import AttackDamageOperation
 from ..operations.spawn import SpawnUnitOperation
-from ..components import StatsComponent
+from ..components import StatsComponent, OwnerComponent, PositionComponent, UnitComponent
 
 if TYPE_CHECKING:
     from ..state import State
 
 STUNNED = 0x48a          # 1162 EffectType.Stunned (effet COMPOSITE → enfants 1165/1166/1167)
+TAUNTED = 0x1b           # 27 EffectType.Taunted_OnlySpecificTargets (COMPOSITE → 25/26/1237 ; bond)
+PINNED = 0x429           # 1065 EffectType.Pinned (UI « Suppressed ») — stat-mod Movement
 
 
 def _summon_on_appearance_attack(state: "State", summon_id: int, target_id: int,
@@ -110,6 +112,102 @@ class ScarabSummonAbility(ActiveAbility):
             if res is not None:
                 attacks.append({"summon": sid, "total": res.get("total")})
         return {"summon": visual_id, "spawned": spawned, "attacks": attacks}
+
+
+def _adjacent_to_both(state: "State", caster_id: int, target_id: int) -> list[int]:
+    """Splash CrushingClaws : ennemis VIVANTS du caster adjacents (hex) **À LA FOIS** au caster ET à la
+    cible, hors cible. Mirror `GetAdjacentDamageTargetsUnits` @1811cdad0 =
+    `AdjacentEnemies(actor) & (AdjacentFriends(target) - target)` (les amis de la cible = ennemis du
+    caster ⇒ ennemis adjacents aux deux). Requiert `state.board` (evenq). ⚠ exclusion
+    `UnitsWithoutTrait(0xd=13)` NON portée (mapping de l'enum trait 13 inconnu offline) → TODO ; sans
+    board → [] (no-op fidèle)."""
+    board = getattr(state, "board", None)
+    caster = state.get_entity(caster_id)
+    tgt = state.get_entity(target_id)
+    if board is None or caster is None or tgt is None:
+        return []
+    cp = caster.get_component(PositionComponent)
+    tp = tgt.get_component(PositionComponent)
+    co = caster.get_component(OwnerComponent)
+    if cp is None or tp is None or co is None:
+        return []
+    ctile = board.id_at(cp.col, cp.row)
+    ttile = board.id_at(tp.col, tp.row)
+    if ctile is None or ttile is None:
+        return []
+    c_neigh = set(board.neighbours(ctile))
+    t_neigh = set(board.neighbours(ttile))
+    out: list[int] = []
+    for eid, e in state.entities.items():
+        if eid == caster_id or eid == target_id:
+            continue
+        oc = e.get_component(OwnerComponent)
+        uc = e.get_component(UnitComponent)
+        pc = e.get_component(PositionComponent)
+        if oc is None or pc is None or oc.team == co.team:        # ennemis du caster uniquement
+            continue
+        if uc is not None and not uc.alive:
+            continue
+        tile = board.id_at(pc.col, pc.row)
+        if tile in c_neigh and tile in t_neigh:                   # adjacent au caster ET à la cible
+            out.append(eid)
+    return sorted(out)                                            # ordre déterministe (tie-break id)
+
+
+class CrushingClawsAbility(ActiveAbility):
+    """`CrushingClawsAbility.ExecuteBehaviour` @1811cd5e0 (id 1105, tyranTyrantGuard).
+
+    Séquence native (`&`/`+` = compositions de behaviour) :
+        AttackWithAttackDamage(actor, target, MinMaxDamage, profile=Piercing, nrOfHits=const 0x2f=2)  # principale
+      & AddBondEffect(0x1b=27 Taunted, TurnsFromRounds(1))         # Taunt cible (COMPOSITE → 25/26/1237)
+      & AddEffect(0x429=1065 Pinned, target)                       # « Suppressed » cible (DefaultRounds=1)
+      & Foreach(splash = AdjacentEnemies(actor) & (AdjacentFriends(target) − target), UnitsWithoutTrait(0xd)):
+            PushUnit(actor, s)                                     # recul 1 hex  [déplacement — TODO]
+          + If(alive) AddEffect(0x429 Pinned, s)                   # « Suppressed » splash
+          + If(alive) AttackWithAttackDamage(actor, s, MinMaxDamage2, profile2=Physical, nrOfHits=const 0x32=1)
+
+    Matérialise (vecteur ATTAQUE, tranche EFFETS) : la CIBLE porte Taunted(27)+enfants 25/26/1237 +
+    Pinned(1065) ; chaque unité splash subit 1× Physique + Pinned(1065). Le **push** (déplacement, recul
+    1 hex) est différé (cf. ThunderousAssault) ; l'exclusion **trait 0xd** du splash est différée (enum
+    inconnu). Effets posés sur la cible SANS gate IsAlive (comme le natif) ; splash gated alive."""
+    __slots__ = ()
+    ABILITY_TYPE = 1105
+    ABILITY_ID = "CrushingClaws"
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        # [attaque principale] 2× Piercing (minDmg/maxDmg[level], nrOfHits=const 0x2f=2). Mute les PV cible.
+        bmin, bmax, pierce, hits = ability_attack_params(
+            state, caster_id, self.ABILITY_ID, "Piercing", ranged=False)
+        main = AttackDamageOperation.execute_ability_attack(
+            state, caster_id, target_id, bmin, bmax, pierce, hits)
+        # [Taunt] AddBondEffect(27, TurnsFromRounds(1)) — COMPOSITE (enfants 25/26/1237 same-turns).
+        # Bond cible→tauntant (ciblage IA) = concern playbook (TODO) ; source=caster capture la direction.
+        AddEffectOperation.execute(state, source=caster_id, target=target_id, effect_type=TAUNTED,
+                                   name="Taunted_OnlySpecificTargets",
+                                   duration_override=turns_from_rounds(1))
+        # [Suppressed cible] AddEffect(1065 Pinned) — durée = DefaultAmountOfRounds(1065)=1.
+        AddEffectOperation.execute(state, source=caster_id, target=target_id, effect_type=PINNED,
+                                   name="Pinned")
+        # [splash] ennemis adjacents au caster ET à la cible (recul + Suppressed + 1× Physique).
+        bmin2, bmax2, pierce2, hits2 = ability_attack_params(
+            state, caster_id, self.ABILITY_ID, "Physical", ranged=False,
+            min_key="minDmg_2", max_key="maxDmg_2", hits_key="nrOfHits_2")
+        splash: list[dict] = []
+        for sid in _adjacent_to_both(state, caster_id, target_id):
+            # [push] PushUnit(actor, s) recul 1 hex — TODO (tranche déplacement).
+            se = state.get_entity(sid)
+            uc = se.get_component(UnitComponent) if se is not None else None
+            if uc is None or uc.alive:                            # If(alive) AddEffect(Pinned) AVANT l'attaque
+                AddEffectOperation.execute(state, source=caster_id, target=sid, effect_type=PINNED,
+                                           name="Pinned")
+            satk = AttackDamageOperation.execute_ability_attack(
+                state, caster_id, sid, bmin2, bmax2, pierce2, hits2)
+            splash.append({"target": sid, "attack": satk})
+        return {"ability": "CrushingClaws", "caster": caster_id, "target": target_id,
+                "main_attack": main, "splash": splash}
 
 
 class GravitonRifleAbility(ActiveAbility):

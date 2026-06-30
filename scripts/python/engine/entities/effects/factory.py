@@ -13,10 +13,12 @@ from .loki import (
     ActOfFaithBuffEffect,
     HeavyWeaponExtraDmgEffect,
     KanOpenerEffect,
+    PinnedEffect,
     PowerTripFullHealthEffect,
     PowerTripIgnoreArmorEffect,
     RapidAssaultExtraDamageEffect,
     StunnedEffect,
+    TauntedEffect,
 )
 
 # Registre nom d'EffectType (`decisionView.effects[].name`) → classe d'effet. À ÉTENDRE au roster.
@@ -27,6 +29,9 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "PowerTrip_IgnoreArmor": PowerTripIgnoreArmorEffect,
     "Stunned": StunnedEffect,           # effet COMPOSITE (parent 1162 → enfants 1165/1166/1167)
     "ActOfFaith_Effect": ActOfFaithBuffEffect,  # buff crit empilable (1017) — stack seedé = cc/cd_delta 0
+    # Tyrant Guard (CrushingClaws) :
+    "Taunted_OnlySpecificTargets": TauntedEffect,  # COMPOSITE 27 → enfants 25/26/1237 (bond cible↔tauntant)
+    "Pinned": PinnedEffect,             # 1065 (UI « Suppressed ») — stat-mod Movement (matérialisé seul)
     # KanOpener : nom d'EffectType à confirmer avant inscription.
 }
 

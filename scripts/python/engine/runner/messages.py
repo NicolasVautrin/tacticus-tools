@@ -68,3 +68,14 @@ class FinishUnitTurnMessage(Message):
 
     def __init__(self, unit_id: Optional[int] = None):
         self.unit_id = unit_id
+
+
+class EndTurnMessage(Message):
+    """`IdunBattle.Messages.EndTurnMessage` (.ctor @180eb4c60, Accept @180eb4b30) — clôt le tour du
+    JOUEUR courant (toute l'équipe). Déclenche `EndTurnOperation` (tick effets + cooldowns) puis, si
+    `advance`, `ChangeTurnOperation` (flip vers le joueur suivant) + `StartTurnOperation` (vecteur début
+    de tour). `advance=False` = fin de tour SANS changer de joueur (cas natif `param_2==0`)."""
+    __slots__ = ("advance",)
+
+    def __init__(self, advance: bool = True):
+        self.advance = advance
