@@ -337,6 +337,36 @@ Le port Python d'un mécanisme natif doit **coller le plus possible à la struct
   changer un paramètre/une règle au bon endroit, comme dans le jeu. Une structure qui diverge du
   natif devient impossible à valider finement et à faire évoluer.
 
+#### RÈGLE IMPÉRATIVE — PARTIR de la fonction native NOMMÉE, NE JAMAIS inventer
+
+**Avant d'écrire UNE ligne de port, ouvrir le décompilé et partir de la fonction/classe NATIVE
+NOMMÉE.** L'ordre est non négociable : (1) `search_symbols_by_name` sur le mécanisme →
+(2) lire la fonction native → (3) nommer la fonction/classe Python **d'après son homonyme natif +
+`# NomNatif @VA` en commentaire** → (4) mirroir de la **chaîne d'appels** native. **INTERDIT
+d'inventer un nom ou une structure quand une contrepartie native existe.**
+
+- Si un helper offline préexistant a un **nom inventé** (ex. `predict_normal`/`predict_special`),
+  NE PAS prolonger ce pli : le réaligner sur son homonyme natif quand on le touche
+  (`MakeDamagePredictions` → `GenerateMultiHitAttackPredictions` → `CalculateDamagePredictionScenario` ;
+  utilité `CalculateUtilityFromPredictions` = `Σ CalculateUtilityFromDamageEvent`).
+- **Ne pas découper une fonction native en plusieurs fonctions Python** au nommage arbitraire
+  (ex. inventer `predict_special_aoe` alors que le natif est UN seul
+  `<Ability>Playbook.MakeDamagePredictions` qui produit la liste main + AoE). Une fonction native =
+  une fonction Python homonyme.
+- **DSL du jeu = arbre d'expression LAZY** (`DSLFactory`/`TargetsSelector` : `Sum`/`Min`/`If`/
+  `SurroundingUnits`/… sont des NŒUDS, car leurs opérandes sont des sous-formules runtime type
+  `TotalTimesAttacked`). On le mirroir par un **moteur de nœuds** (`engine/dsl/nodes.py`,
+  `Node.evaluate(ctx)`), chaque ability = l'arbre EXACT du décompilé, vérifiable nœud-par-nœud.
+  Nuance port **eager** : on résout les feuilles puis on combine → l'arithmétique triviale
+  (`Sum`=`+`) NE doit PAS être un wrapper inutile ; le socle générique ne garde que le NON-trivial
+  (géométrie/ciblage/état runtime). ⚠ **Ghidra MISLABEL les ctors de nœuds gshared** (le ctor de
+  `DSLFactory.Sum @180dfc200` s'affiche `HasUsedActiveAbilityThisTurnTrigger$$.ctor`) → sémantique
+  lue via la STRUCTURE (pointeur de classe, args, arithmétique), JAMAIS via les noms.
+- **Pourquoi (faute déjà commise, corrigée 3× en une session par l'utilisateur — « pourquoi tu
+  invente alors que la doctrine est claire ? »)** : inventer des noms/structures rend le port
+  invérifiable contre le décompilé, non-évolutif, et fait perdre du temps en corrections. Le nom
+  natif + la VA sont la preuve de fidélité.
+
 ## Sorties console Python — ASCII only (Windows cp1252)
 
 La console Windows (et les tools Bash/PowerShell) tourne en **cp1252**, pas UTF-8.

@@ -227,7 +227,7 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
             # ATTAQUE NORMALE → prédicteur OFFLINE (`predict_validate.predict_normal`) : reproduit
             # `aiPredict` sans lecture live par-candidat (base=Attack×hits + perçage + armure + MODIFIER
             # effets §16/§17, VALIDÉ 11/11 vs oracle). Prédicteur (combatSnapshot cold) capturé 1×/runner.
-            dp = PV.predict_normal(predictor, sctx, uid, tgt, tile, elev_by_pos=elev_by_pos)
+            dp = PV.make_normal_attack_predictions(predictor, sctx, uid, tgt, tile, elev_by_pos=elev_by_pos)
             if dp is None:
                 continue
             r = dp.accurate_health_damage
@@ -239,32 +239,32 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
                     "healthDmgMin": min(r.min, _hp), "healthDmgMax": min(r.max, _hp),
                     "appliedHits": dp.applied_hits,
                     "kill": r.max >= _hp, "killSure": r.min >= _hp}
+            _aoe_events = []
         else:
-            # ABILITY SPÉCIALE → prédicteur OFFLINE `predict_special` (port `MakeDamagePredictions` ->
-            # `GenerateMultiHitAttackPredictions` : damage/hits/profile PROPRES de l'ability gameconfig,
-            # mono-membre). None = NON-attaque (summon/buff/heal : pas de minDmg/maxDmg) → pas candidat.
-            dp = (PV.predict_special(predictor, sctx, uid, tgt, ab, ab_name_by_id.get(ab))
-                  if sctx is not None else None)
-            if dp is None:
+            # ABILITY SPÉCIALE → `MakeDamagePredictions` (mirror `<Ability>Playbook.MakeDamagePredictions`) :
+            # LISTE des events = cible principale + cibles AoE (GetSurroundingUnits/GetOtherTargets). None/
+            # vide = NON-attaque (summon/buff/heal : pas de minDmg/maxDmg) → pas candidat.
+            _events = (PV.make_damage_predictions(predictor, sctx, uid, tgt, ab, ab_name_by_id.get(ab),
+                                                  attack_pos=tile, elev_by_pos=elev_by_pos)
+                       if sctx is not None else [])
+            if not _events:
                 continue
-            r = dp.accurate_health_damage
-            _hp = dp.current_health
-            # FillUpStat overkill cap (CalculateDamagePredictionScenario) : le dégât SANTÉ ne peut
-            # excéder les PV courants → un sur-kill (normal) et un kill juste (spécial) s'ÉGALISENT en
-            # DamageDealt/kill, laissant le tie-break décider (spécial > normal) comme le natif.
-            pred = {"hpBefore": _hp, "shieldBefore": dp.shield,
-                    "healthDmgMin": min(r.min, _hp), "healthDmgMax": min(r.max, _hp),
-                    "appliedHits": dp.applied_hits,
-                    "kill": r.max >= _hp, "killSure": r.min >= _hp}
+            pred = _events[0][1]          # cible PRINCIPALE (tie-break kill/killSure + dbg)
+            _aoe_events = _events[1:]     # cibles AoE additionnelles (surrounding/other)
         if _DAMAGE_MODEL == "faithful":
+            # `CalculateUtilityFromPredictions @181407890` = Σ damage_composite sur TOUS les events (§39) :
+            # principale + AoE. Sur une ability mono-cible, `_aoe_events` est vide → Σ = terme principal.
             u = damage_composite(pred, hpmax_by_id.get(tgt), wt)   # composite Damage RE'd (§13.7/13.8)
+            for _atid, _apred in _aoe_events:
+                u += damage_composite(_apred, hpmax_by_id.get(_atid), wt)
         else:
             u = attack_utility(pred, wt)                           # barème historique
+        aoe_dbg = len(_aoe_events)
         key = (u, 0 if ab in normal_ids else 1)  # util d'abord, puis spécial > normal
         if _DEBUG:
             p = pred or {}
             dbg.append((ab, tgt, round(u, 1), p.get("killSure"), p.get("kill"),
-                        p.get("healthDmgMax"), p.get("hpBefore")))
+                        p.get("healthDmgMax"), p.get("hpBefore"), f"aoe{aoe_dbg}"))
         if best_key is None or key > best_key:
             best = (u, tgt, ab, tile)
             best_key = key

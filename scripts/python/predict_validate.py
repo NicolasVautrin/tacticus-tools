@@ -23,7 +23,9 @@ import rl_collect_batch as R
 import gameconfig as GC
 from engine.entities import UnitContext
 from engine.entities.abilities import NormalAttackAbility
-from engine.entities.abilities.active_ability import AActiveAbility, _PROFILE_BY_INDEX
+from engine.entities.abilities.active_ability import (
+    AActiveAbility, active_ability_for, _PROFILE_BY_INDEX)
+from engine import dsl
 from engine.entities.abilities.ability_configuration import AbilityConfiguration
 from engine.services.damage_calculations import spread_to_min_max
 from engine.services.damage_prediction import get_attack_prediction, get_default_attack_hits
@@ -217,12 +219,36 @@ def step_context(predictor, dv):
     }
 
 
-def predict_normal(predictor, sctx, att_id, tgt_id, attack_pos, *, meta=False, elev_by_pos=None):
-    """Prédiction offline de l'attaque NORMALE (att→tgt depuis `attack_pos`) reproduisant `aiPredict` —
-    chaîne fidèle base=Attack × hits + perçage + armure + MODIFIER (effets attaquant + ElevationBonus +
+def _add_elevation_and_defender_mods(mods, sctx, tgt_id, is_melee, attack_pos, t_pos,
+                                     elev_by_pos, hp_by_id):
+    """Ajoute au `mods` (accumulateur %-list) l'**ElevationBonus** (attaque en surplomb,
+    `CalculateElevationBonusModifier @181003ea0` : +ELEVATION_BONUS_PCT% si tuile d'attaque > tuile cible ;
+    gate effet 0x423 non plombé → False = dégradation sûre) + les **modifiers DÉFENSEUR**
+    (`CalculateDefenderModifiersForPrediction` : effets de la CIBLE réduisant le dégât reçu, ex.
+    Terrifying_ExtraDefense −30% mêlée). PARTAGÉ par `predict_normal` ET `predict_special` : le pipeline
+    natif `CalculateDamagePredictionScenario` applique ces modifiers à TOUT dégât d'attaque (normal comme
+    spécial), pas seulement l'arme normale — les omettre du chemin spécial gonflait le normal (élévation)
+    face au spécial (comparaison inéquitable de l'argmax d'ability)."""
+    if elev_by_pos and attack_pos and t_pos:
+        a_elev, t_elev = elev_by_pos.get(attack_pos), elev_by_pos.get(t_pos)
+        if a_elev is not None and t_elev is not None:
+            eb = calculate_elevation_bonus_modifier(a_elev, t_elev, ELEVATION_BONUS_PCT)
+            if eb is not None:
+                add_modifier(mods, eb)
+    tgt_effects = sctx["eff_state"].active_effects(tgt_id, {"hp": hp_by_id.get(tgt_id)})
+    def_mods = build_defender_modifiers_from_effects(tgt_effects, is_melee)
+    for mult, cap in def_mods.pct_list:
+        mods.pct_list.append((mult, cap))
+
+
+def make_normal_attack_predictions(predictor, sctx, att_id, tgt_id, attack_pos, *, meta=False, elev_by_pos=None):
+    """Mirror `ALoki_NormalAttackPlaybook.MakeDamagePredictions @181372730` (→ `FindAttackWeapon` +
+    `GenerateMultiHitAttackPredictions` + `PredictAttackRaw`) — cible unique (l'attaque normale n'est pas
+    AoE). Chaîne fidèle base=Attack × hits + perçage + armure + MODIFIER (effets attaquant + ElevationBonus +
     modifiers DÉFENSEUR §16/§17). Renvoie un `DamagePredictionResult` (ou `(result, meta_dict)` si meta=True),
     None si l'attaquant n'a pas de contexte capturé. `attack_pos` = tuile d'attaque (post-move) : fixe
-    mêlée/ranged, distance, GetStuckIn. `elev_by_pos` = `{(col,row): elevation}` (tileMeta) → ElevationBonus."""
+    mêlée/ranged, distance, GetStuckIn. `elev_by_pos` = `{(col,row): elevation}` (tileMeta) → ElevationBonus.
+    NB: nom historique `predict_normal` réaligné (§ règle CLAUDE.md « partir de la fonction native nommée »)."""
     ctx = predictor["ctx_by_id"].get(att_id)
     if ctx is None:
         return None
@@ -234,20 +260,8 @@ def predict_normal(predictor, sctx, att_id, tgt_id, attack_pos, *, meta=False, e
     dist = _cheby(attack_pos, t_pos) if (attack_pos and t_pos) else None
     pierce, _ranged, whits = _normal_weapon_pierce(ctx, dist)
     is_melee = not _ranged
-    # ── ElevationBonus (CalculateElevationBonusModifier @181003ea0) : +ELEVATION_BONUS_PCT% si la tuile
-    #    d'attaque surplombe celle de la cible (gate effet 0x423 non plombé → False = dégradation sûre).
-    if elev_by_pos:
-        a_elev, t_elev = elev_by_pos.get(attack_pos), elev_by_pos.get(t_pos)
-        if a_elev is not None and t_elev is not None:
-            eb = calculate_elevation_bonus_modifier(a_elev, t_elev, ELEVATION_BONUS_PCT)
-            if eb is not None:
-                add_modifier(mods, eb)
-    # ── Modifiers DÉFENSEUR (CalculateDefenderModifiersForPrediction) : effets de la CIBLE réduisant le
-    #    dégât reçu (ex. Terrifying_ExtraDefense −30% mêlée). Fusionnés dans le même accumulateur %-list.
-    tgt_effects = sctx["eff_state"].active_effects(tgt_id, {"hp": hp_by_id.get(tgt_id)})
-    def_mods = build_defender_modifiers_from_effects(tgt_effects, is_melee)
-    for mult, cap in def_mods.pct_list:
-        mods.pct_list.append((mult, cap))
+    _add_elevation_and_defender_mods(mods, sctx, tgt_id, is_melee, attack_pos, t_pos,
+                                     elev_by_pos, hp_by_id)
     hits_pre = whits + ctx.extra_hits + eff_hits
     hits = hits_pre + _getstuckin_bonus(ctx, att_id, tgt_id, hits_pre, attack_pos,
                                         pos_by_id, sctx["team_by_id"], predictor["vis_by_id"],
@@ -266,20 +280,66 @@ def predict_normal(predictor, sctx, att_id, tgt_id, attack_pos, *, meta=False, e
 _PROFILE_INDEX = {name: idx for idx, name in _PROFILE_BY_INDEX.items()}
 
 
-def predict_special(predictor, sctx, uid, tgt, ability_id, ability_name):
-    """Prédiction offline d'une ability-attaque SPÉCIALE (mono-membre) — port de
-    `MakeDamagePredictions` -> `GenerateMultiHitAttackPredictions` : `get_attack_prediction` avec le
-    `(damage, hits, profile, pierce)` PROPRE de l'ability (gameconfig, indexé par niveau via
-    `AActiveAbility`), PAS l'arme normale. Le natif itère les membres du SQUAD cible (Blast) — ici
-    mono-membre (cible mono-modèle). Renvoie un `DamagePredictionResult`, ou **None si non-attaque**
-    (l'ability n'a pas de `minDmg/maxDmg` gameconfig -> summon/buff/heal -> pas un candidat d'attaque)."""
+def _event_from_dp(dp, hp):
+    """Construit le `ProbableDamageEvent` (pred dict) d'une cible depuis un `DamagePredictionResult` +
+    ses PV — cap FillUpStat (dégât santé <= PV) inclus. Partagé main/AoE (structure d'event unique)."""
+    r = dp.accurate_health_damage
+    return {"hpBefore": hp, "shieldBefore": dp.shield,
+            "healthDmgMin": min(r.min, hp), "healthDmgMax": min(r.max, hp),
+            "appliedHits": dp.applied_hits, "kill": r.max >= hp, "killSure": r.min >= hp}
+
+
+def make_damage_predictions(predictor, sctx, caster_id, main_tgt_id, ability_id, ability_name,
+                            attack_pos=None, elev_by_pos=None):
+    """Mirror de `<Ability>Playbook.MakeDamagePredictions` (ex. `HarvesterOfSoulsPlaybook @1811428b0`) :
+    produit la LISTE COMPLÈTE des `ProbableDamageEvent` d'une ability spéciale = cible PRINCIPALE + cibles
+    AoE (`GetSurroundingUnits`/`GetOtherTargets` via `ability.get_aoe_targets`, nodes.py). Chaque event
+    passe par `predict_special` (= le per-cible de `GenerateMultiHitAttackPredictions @181409da0`).
+    Retourne `list[(target_id, event_dict)]` (main en tête), `[]` si non-attaque. La somme de leur
+    `damage_composite` = `CalculateUtilityFromPredictions @181407890` (§39). Surrounding dmg =
+    minDmg_2/maxDmg_2 (== minDmg/maxDmg pour Harvester → `predict_special` réutilisé tel quel)."""
+    dp = generate_multi_hit_attack_prediction(predictor, sctx, caster_id, main_tgt_id, ability_id, ability_name,
+                         attack_pos=attack_pos, elev_by_pos=elev_by_pos)
+    if dp is None:
+        return []                                    # non-attaque (summon/buff) → pas d'events
+    events = [(main_tgt_id, _event_from_dp(dp, sctx["hp_by_id"].get(main_tgt_id) or 0))]
+    ctx0 = predictor["ctx_by_id"].get(caster_id)
+    cfg = AbilityConfiguration.from_gameconfig(ability_name, GC.ability(ability_name))
+    if ctx0 is None or cfg is None:
+        return events
+    ab = active_ability_for(ability_name, ability_id, ctx0, cfg)
+    units = sctx["units"]
+    by_id = {u.get("id"): u for u in units}
+    dctx = dsl.DslContext(units=units, caster=by_id.get(caster_id), target=by_id.get(main_tgt_id),
+                          config=cfg, ability_level=ctx0.active_ability_level,
+                          times_attacked=getattr(ctx0, "times_attacked", 0) or 0)
+    for t in ab.get_aoe_targets(dctx):              # 2ᵉ batch (surrounding/other) de MakeDamagePredictions
+        tid = t.get("id")
+        if tid is None or tid == main_tgt_id:
+            continue
+        adp = generate_multi_hit_attack_prediction(predictor, sctx, caster_id, tid, ability_id, ability_name,
+                              attack_pos=attack_pos, elev_by_pos=elev_by_pos)
+        if adp is not None:
+            events.append((tid, _event_from_dp(adp, sctx["hp_by_id"].get(tid) or 0)))
+    return events
+
+
+def generate_multi_hit_attack_prediction(predictor, sctx, uid, tgt, ability_id, ability_name,
+                                         attack_pos=None, elev_by_pos=None):
+    """Per-cible de `ComparablePlaybook.GenerateMultiHitAttackPredictions @181409da0` (appelée par
+    `MakeDamagePredictions`) : produit le `ProbableDamageEvent`/`DamagePredictionResult` d'UNE cible avec
+    le `(damage, hits, profile, pierce)` PROPRE de l'ability (gameconfig, indexé par niveau via
+    `AActiveAbility`), PAS l'arme normale, puis `PredictAttackRaw` (`get_attack_prediction`). Le natif
+    itère le SQUAD cible (Blast) — ici mono-membre. **None si non-attaque** (pas de `minDmg/maxDmg` ->
+    summon/buff/heal -> pas un candidat d'attaque). NB: nom historique `predict_special` réaligné (§ règle
+    CLAUDE.md « partir de la fonction native nommée »)."""
     ctx = predictor["ctx_by_id"].get(uid)
     if ctx is None:
         return None
     cfg = AbilityConfiguration.from_gameconfig(ability_name, GC.ability(ability_name))
     if cfg is None or not (cfg.has_variable("minDmg") or cfg.has_variable("maxDmg")):
         return None                                  # non-attaque -> pas de candidat d'attaque
-    ab = AActiveAbility(ability_id, ctx, cfg)
+    ab = active_ability_for(ability_name, ability_id, ctx, cfg)
     base = ab.get_damage()                           # avg(minDmg,maxDmg) au niveau (GetDamage)
     if base <= 0:
         return None
@@ -293,8 +353,10 @@ def predict_special(predictor, sctx, uid, tgt, ability_id, ability_name):
     if mult and mult != 100 and ({"minDmg", "maxDmg"} & affected):
         base = (base * mult) // 100
     is_melee = (a.get("attackRangeType") or "").lower() == "melee"
-    nrhits = int((cfg.constants or {}).get("nrOfHits") or 1)
-    hits = get_default_attack_hits(nrhits, ctx.extra_hits, ctx.extra_hits_melee, is_melee)
+    # Coups = formule PROPRE de l'ability (`ability.GetHits`, cf. active_ability.py) : les abilities
+    # portées (HarvesterOfSouls flag/extraHit, BloodyFury snowball, …) surchargent ; les autres gardent
+    # le défaut générique `GetDefaultAttackHits(nrOfHits + ExtraHits)` — comportement historique préservé.
+    hits = ab.get_special_hits(is_melee)
     profile_name = ab.get_damage_profile()
     profile_idx = _PROFILE_INDEX.get(profile_name, 0)
     dp = GC.damage_profile(profile_name) or {}
@@ -303,6 +365,11 @@ def predict_special(predictor, sctx, uid, tgt, ability_id, ability_name):
     hp_by_id = sctx["hp_by_id"]
     att_effects = sctx["eff_state"].active_effects(uid, {"hp": hp_by_id.get(uid)})
     mods = build_attacker_modifiers_from_effects(att_effects)
+    # PARITÉ predict_normal : ElevationBonus (surplomb) + modifiers DÉFENSEUR — le pipeline natif
+    # `CalculateDamagePredictionScenario` les applique à TOUT dégât d'attaque (normal ET spécial).
+    t_pos = sctx["pos_by_id"].get(tgt)
+    _add_elevation_and_defender_mods(mods, sctx, tgt, is_melee, attack_pos, t_pos,
+                                     elev_by_pos, hp_by_id)
     return get_attack_prediction(
         target_current_health=hp_by_id.get(tgt, 0), initial_damage=base, hits=hits,
         profile_type=profile_idx, pierce_pct=pierce, armor=predictor["armor_by_id"].get(tgt, 0),
@@ -345,7 +412,7 @@ def build_samples(sid, rid, my_team, max_turns=6):
             # distance. Fallback = position courante de l'attaquant.
             attack_pos = ((r0.get("col"), r0.get("row")) if r0.get("col") is not None
                           else pos_by_id.get(a_id))
-            pred, meta = predict_normal(predictor, sctx, a_id, t_id, attack_pos, meta=True)
+            pred, meta = make_normal_attack_predictions(predictor, sctx, a_id, t_id, attack_pos, meta=True)
             res = pred.accurate_health_damage
             rows.append({
                 "att": a_id, "tgt": t_id, "tgtVis": ev.get("targetVis"),

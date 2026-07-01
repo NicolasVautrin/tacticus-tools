@@ -18,6 +18,7 @@ from ..unit_context import UnitContext
 from .ability_configuration import AbilityConfiguration
 from ...services.damage_prediction import get_default_attack_hits
 from ...services.min_max_damage import MinMaxDamage
+from ... import dsl
 
 # DamageProfileType index → nom (dump.cs @863303)
 _PROFILE_BY_INDEX = {
@@ -70,6 +71,24 @@ class AActiveAbility:
         normale surcharge avec le profil d'arme. (Abilities spéciales : profil config = TODO.)"""
         return 100
 
+    def get_special_hits(self, is_melee: bool) -> int:
+        """Nombre de coups pour la PRÉDICTION spéciale (`Playbook.MakeDamagePredictions` ->
+        `ability.GetHits`). DÉFAUT générique = `GetDefaultAttackHits(nrOfHits + ExtraHits[+Melee])`
+        (comportement historique de `generate_multi_hit_attack_prediction`, préservé pour les abilities non portées). Les
+        abilities à formule de coups PROPRE (DSL : snowball/flag/…) surchargent — mirror des sous-classes
+        `AActiveAbility` natives (ex. `BloodyFuryAbility.GetNumTotalHits`, `HarvesterOfSoulsAbility.GetHits`)."""
+        base = self.config.get_variable_for_level(
+            "nrOfHits", self.caster.active_ability_level, 1) if self.config else 1
+        return get_default_attack_hits(base, self.caster.extra_hits,
+                                       self.caster.extra_hits_melee, is_melee)
+
+    def get_aoe_targets(self, ctx: "dsl.DslContext") -> list:
+        """Cibles AoE ADDITIONNELLES (hors cible principale) que l'ability touche aussi — base du Σ
+        multi-cible (`CalculateUtilityFromPredictions` somme un `ProbableDamageEvent` par cible touchée,
+        cf. §39). DÉFAUT = aucune (ability mono-cible). Les abilities AoE surchargent avec l'arbre DSL de
+        leur `GetSurroundingUnits`/`GetOtherTargets`. `ctx.target` = cible principale (exclue du set)."""
+        return []
+
     def get_damage_min_max_raw(self) -> MinMaxDamage:
         """min/max EXPLICITES de la config (special) — avant scenario. Pour les abilities dont
         gameconfig donne directement min/max (pas de spread symétrique)."""
@@ -112,3 +131,88 @@ class NormalAttackAbility(AActiveAbility):
     def get_damage_min_max_raw(self) -> MinMaxDamage:
         """min/max captés directement (prédiction native vs allié-déploiement — référence de capture)."""
         return MinMaxDamage(min=self.caster.normal_min, max=self.caster.normal_max)
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# Sous-classes SPÉCIALES = mirror 1:1 des `AActiveAbility` natives. Chaque méthode de coups native BÂTIT
+# un arbre DSL (`DSLFactory`) ; on le TRANSCRIT nœud-par-nœud (engine/dsl/nodes.py) et on l'évalue sur un
+# `DslContext`. Constantes config (ids natifs) : nrOfHits(0x2f), extraHit(0x2b), maxNrOfHits(0x48).
+# Registre → `active_ability_for` = miroir du dispatch natif `ActiveAbilityType → classe`.
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+
+
+def _hits_ctx(ability) -> dsl.DslContext:
+    """`DslContext` pour un arbre de coups (numérique) : config + niveau + compteur runtime + flags."""
+    return dsl.DslContext(
+        config=ability.config,
+        ability_level=ability.caster.active_ability_level,
+        times_attacked=getattr(ability.caster, "times_attacked", 0) or 0,
+    )
+
+
+class HarvesterOfSoulsAbility(AActiveAbility):
+    """`HarvesterOfSoulsAbility.GetHits @1811e75b0` — transcription EXACTE de l'arbre DSL natif :
+    `If(HasFlag(@+0x160), ConfigConst(nrOfHits), Sum(ConfigConst(nrOfHits), ConfigConst(extraHit)))`.
+    Le flag (@+0x160, gate non encore RE) est ABSENT dans le cas commun (branche `false` → nrOfHits+extraHit
+    ; confirmé côté agrément : natif = kill sûr, l'attaque normale seule ne l'était pas). ⚠ Volet AoE
+    (`GetSurroundingUnits`/`GetSurroundingDamageAmount`) = prédiction multi-cible séparée (task #39)."""
+
+    _HITS = dsl.If(dsl.HasFlag("harvester_flag_0x160"),
+                   dsl.ConfigConst("nrOfHits", 1),
+                   dsl.Sum(dsl.ConfigConst("nrOfHits", 1), dsl.ConfigConst("extraHit", 0)))
+
+    # GetSurroundingUnits @1811e76a0 : `SurroundingUnits(cible, radius) & Enemies(...)`. Volet géométrie =
+    # ennemis-du-caster à <= radius de la CIBLE (confirmé LIVE step17 : u78 touche 92 + 90(d1) + 88(d2) +
+    # summon = ses ennemis autour de 92). radius = ConfigConst(0x16) (défaut 2). Damage surrounding =
+    # minDmg_2/maxDmg_2 == minDmg/maxDmg (identiques) → réutilise generate_multi_hit_attack_prediction.
+    _AOE = dsl.Damageable(dsl.Enemies(dsl.SurroundingUnits(dsl.TargetTile(), dsl.ConfigConst("radius", 2))))
+
+    def get_special_hits(self, is_melee: bool) -> int:
+        if self.config is None:
+            return 1
+        return self._HITS.evaluate(_hits_ctx(self))
+
+    def get_aoe_targets(self, ctx):
+        return self._AOE.evaluate(ctx)
+
+
+class BloodyFuryAbility(AActiveAbility):
+    """`BloodyFuryAbility.GetNumTotalHits @1811bc270` — transcription EXACTE de l'arbre DSL natif :
+    `Sum(ConfigConst(nrOfHits), Min(Multiply(ConfigConst(extraHit), TotalTimesAttacked),
+    Difference(ConfigConst(maxNrOfHits), ConfigConst(nrOfHits))))` = SNOWBALL sur le nb d'attaques du
+    caster, plafonné à `maxNrOfHits`. `TotalTimesAttacked` (compteur runtime @+0x34) NON capté offline →
+    `ctx.times_attacked` défaut 0 ⇒ coups = nrOfHits (base). Volet AoE (`GetOtherTargets`) = task #39."""
+
+    _HITS = dsl.Sum(
+        dsl.ConfigConst("nrOfHits", 1),
+        dsl.Min(
+            dsl.Multiply(dsl.ConfigConst("extraHit", 0), dsl.TotalTimesAttacked()),
+            dsl.Difference(dsl.ConfigConst("maxNrOfHits", 1), dsl.ConfigConst("nrOfHits", 1)),
+        ),
+    )
+
+    def get_special_hits(self, is_melee: bool) -> int:
+        if self.config is None:
+            return 1
+        return self._HITS.evaluate(_hits_ctx(self))
+
+    def get_aoe_targets(self, ctx):
+        # Sub attend un ensemble d'unités ; la cible principale = ctx.target (via UnitSet).
+        main = dsl.UnitSet([ctx.target] if ctx.target else [])
+        tree = dsl.Damageable(dsl.Sub(dsl.AdjacentEnemies(dsl.CasterTile(), dsl.Const(1)), main))
+        return tree.evaluate(ctx)
+
+
+# Registre nom d'ability → sous-classe à formule de coups propre. À ÉTENDRE au fil du portage.
+_SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
+    "HarvesterOfSouls": HarvesterOfSoulsAbility,
+    "BloodyFury": BloodyFuryAbility,
+}
+
+
+def active_ability_for(ability_name: str | None, ability_type: int, caster: UnitContext,
+                       config: AbilityConfiguration | None) -> AActiveAbility:
+    """Fabrique l'`AActiveAbility` de la bonne sous-classe (formule de coups PROPRE si portée, sinon
+    base générique). Mirror du dispatch natif `ActiveAbilityType → classe d'ability`."""
+    klass = _SPECIAL_ABILITY_CLASSES.get(ability_name or "", AActiveAbility)
+    return klass(ability_type, caster, config)
