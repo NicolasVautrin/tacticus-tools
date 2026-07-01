@@ -67,17 +67,21 @@ def build_attacker_modifiers_from_effects(effects, is_ranged: bool | None = None
     return build_attacker_modifiers(bonuses)
 
 
-def build_defender_modifiers_from_effects(effects, is_melee: bool | None = None) -> DamageModifiers:
+def build_defender_modifiers_from_effects(effects, is_melee: bool | None = None,
+                                          damage_profile: str | None = None) -> DamageModifiers:
     """`CalculateDefenderModifiersForPrediction` @181002c30 — DamageModifiers depuis les effets de la CIBLE
     (réductions de dégât reçu). Agrège `create_effect_damage_malus_for_defense` (slot 0x1a). Symétrique de
     `build_attacker_modifiers_from_effects`. Effets déjà filtrés actifs (EffectsState.active_effects).
-    `is_melee` = nature du coup (propagée aux malus gated `IsMeleeAttack`, ex. Terrifying_ExtraDefense).
+    `is_melee` = nature du coup (propagée aux malus gated `IsMeleeAttack`, ex. Terrifying_ExtraDefense) ;
+    `damage_profile` = NOM du profil de dégât de l'attaque (propagé aux malus gated `DamageProfileIs`, ex.
+    TerminatorArmour -75% SAUF Psychic/DirectDamage).
     ⚠ Couvre la famille `ADamageDefenseModifierAbilityEffect` (EffectBonus PercentDecrease ConfigVar gated) +
-    Terrifying_ExtraDefense (CreateDamageModifier trigger-based) ; les réductions par STAT (Defense), par COUPS
-    (Parry_ReduceHits) ou par TRIGGER (predOptimistic) sont des axes SÉPARÉS (cf. docs/rl/runner-engine.md §1.8)."""
+    Terrifying_ExtraDefense + TerminatorArmour_ReduceDmg (CreateDamageModifier trigger-based) ; les réductions
+    par STAT (Defense), par COUPS (Parry_ReduceHits) ou par TRIGGER (predOptimistic) sont des axes SÉPARÉS
+    (cf. docs/rl/runner-engine.md §1.8)."""
     maluses = []
     for e in _as_effects(effects):
-        mb = e.create_effect_damage_malus_for_defense(is_melee)
+        mb = e.create_effect_damage_malus_for_defense(is_melee, damage_profile)
         if mb is not None:
             maluses.append(mb)
     return build_defender_modifiers(maluses)

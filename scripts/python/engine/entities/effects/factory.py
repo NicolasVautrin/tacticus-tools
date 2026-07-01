@@ -19,6 +19,7 @@ from .loki import (
     RapidAssaultExtraDamageEffect,
     StunnedEffect,
     TauntedEffect,
+    TerminatorArmourReduceDmgEffect,
     TerrifyingExtraDefenseEffect,
 )
 
@@ -34,6 +35,7 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "Taunted_OnlySpecificTargets": TauntedEffect,  # COMPOSITE 27 → enfants 25/26/1237 (bond cible↔tauntant)
     "Pinned": PinnedEffect,             # 1065 (UI « Suppressed ») — stat-mod Movement (matérialisé seul)
     "Terrifying_ExtraDefense": TerrifyingExtraDefenseEffect,  # -30% dégât MÊLÉE reçu (defender, gated melee)
+    "TerminatorArmour_ReduceDmg": TerminatorArmourReduceDmgEffect,  # -75% dégât reçu SAUF Psychic/DirectDamage (defender, gated profil)
     # KanOpener : nom d'EffectType à confirmer avant inscription.
 }
 

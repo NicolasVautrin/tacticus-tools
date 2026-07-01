@@ -24,7 +24,7 @@ import gameconfig as GC
 from engine.entities import UnitContext
 from engine.entities.abilities import NormalAttackAbility
 from engine.entities.abilities.active_ability import (
-    AActiveAbility, active_ability_for, _PROFILE_BY_INDEX)
+    AActiveAbility, active_ability_for, makes_damage_predictions, _PROFILE_BY_INDEX)
 from engine import dsl
 from engine.entities.abilities.ability_configuration import AbilityConfiguration
 from engine.services.damage_calculations import spread_to_min_max
@@ -90,7 +90,7 @@ def _normal_weapon_pierce(ctx, dist=None):
     dir_pierce = ctx.extra_pierce_ranged if is_ranged else ctx.extra_pierce_melee
     pierce = max(0, min(100, prof_ratio + ctx.extra_pierce + dir_pierce))
     whits = int(w.get("hits") or 1)
-    return pierce, is_ranged, whits
+    return pierce, is_ranged, whits, w.get("DamageProfile")   # profil (gate défenseur TerminatorArmour)
 
 
 def _drive_into_range(sid, rid, my_team, max_turns):
@@ -220,7 +220,7 @@ def step_context(predictor, dv):
 
 
 def _add_elevation_and_defender_mods(mods, sctx, tgt_id, is_melee, attack_pos, t_pos,
-                                     elev_by_pos, hp_by_id):
+                                     elev_by_pos, hp_by_id, damage_profile=None):
     """Ajoute au `mods` (accumulateur %-list) l'**ElevationBonus** (attaque en surplomb,
     `CalculateElevationBonusModifier @181003ea0` : +ELEVATION_BONUS_PCT% si tuile d'attaque > tuile cible ;
     gate effet 0x423 non plombé → False = dégradation sûre) + les **modifiers DÉFENSEUR**
@@ -236,7 +236,7 @@ def _add_elevation_and_defender_mods(mods, sctx, tgt_id, is_melee, attack_pos, t
             if eb is not None:
                 add_modifier(mods, eb)
     tgt_effects = sctx["eff_state"].active_effects(tgt_id, {"hp": hp_by_id.get(tgt_id)})
-    def_mods = build_defender_modifiers_from_effects(tgt_effects, is_melee)
+    def_mods = build_defender_modifiers_from_effects(tgt_effects, is_melee, damage_profile)
     for mult, cap in def_mods.pct_list:
         mods.pct_list.append((mult, cap))
 
@@ -258,10 +258,10 @@ def make_normal_attack_predictions(predictor, sctx, att_id, tgt_id, attack_pos, 
     eff_hits = hits_bonus_from_effects(att_effects)
     t_pos = pos_by_id.get(tgt_id)
     dist = _cheby(attack_pos, t_pos) if (attack_pos and t_pos) else None
-    pierce, _ranged, whits = _normal_weapon_pierce(ctx, dist)
+    pierce, _ranged, whits, prof_name = _normal_weapon_pierce(ctx, dist)
     is_melee = not _ranged
     _add_elevation_and_defender_mods(mods, sctx, tgt_id, is_melee, attack_pos, t_pos,
-                                     elev_by_pos, hp_by_id)
+                                     elev_by_pos, hp_by_id, damage_profile=prof_name)
     hits_pre = whits + ctx.extra_hits + eff_hits
     hits = hits_pre + _getstuckin_bonus(ctx, att_id, tgt_id, hits_pre, attack_pos,
                                         pos_by_id, sctx["team_by_id"], predictor["vis_by_id"],
@@ -297,7 +297,14 @@ def make_damage_predictions(predictor, sctx, caster_id, main_tgt_id, ability_id,
     passe par `predict_special` (= le per-cible de `GenerateMultiHitAttackPredictions @181409da0`).
     Retourne `list[(target_id, event_dict)]` (main en tête), `[]` si non-attaque. La somme de leur
     `damage_composite` = `CalculateUtilityFromPredictions @181407890` (§39). Surrounding dmg =
-    minDmg_2/maxDmg_2 (== minDmg/maxDmg pour Harvester → `predict_special` réutilisé tel quel)."""
+    minDmg_2/maxDmg_2 (== minDmg/maxDmg pour Harvester → `predict_special` réutilisé tel quel).
+
+    GATE NonComparable : un playbook sans `MakeDamagePredictions` (RadBombardment/BloodyFury/VexillaMagnifica :
+    NonComparablePlaybook) n'émet AUCUN ProbableDamageEvent — l'IA le score par une heuristique (compte
+    d'ennemis / stat), pas par du dégât. On renvoie `[]` (l'engine ne le scorera pas comme attaque ; il
+    fabriquait sinon un dégât depuis `minDmg/maxDmg` gameconfig → sur-évaluation)."""
+    if not makes_damage_predictions(ability_name):
+        return []                                    # playbook NonComparable → pas de prédiction de dégât
     dp = generate_multi_hit_attack_prediction(predictor, sctx, caster_id, main_tgt_id, ability_id, ability_name,
                          attack_pos=attack_pos, elev_by_pos=elev_by_pos)
     if dp is None:
@@ -369,7 +376,7 @@ def generate_multi_hit_attack_prediction(predictor, sctx, uid, tgt, ability_id, 
     # `CalculateDamagePredictionScenario` les applique à TOUT dégât d'attaque (normal ET spécial).
     t_pos = sctx["pos_by_id"].get(tgt)
     _add_elevation_and_defender_mods(mods, sctx, tgt, is_melee, attack_pos, t_pos,
-                                     elev_by_pos, hp_by_id)
+                                     elev_by_pos, hp_by_id, damage_profile=profile_name)
     return get_attack_prediction(
         target_current_health=hp_by_id.get(tgt, 0), initial_damage=base, hits=hits,
         profile_type=profile_idx, pierce_pct=pierce, armor=predictor["armor_by_id"].get(tgt, 0),

@@ -35,6 +35,50 @@ LEAVES: dict[int, dict] = {
 }
 
 
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# NonComparable ATTACK abilities — playbook SANS `MakeDamagePredictions` dont `EvaluateNonComparable`
+# score par une HEURISTIQUE DE COMPTE d'ennemis, mais SUR L'ÉCHELLE de `damage_composite` (grâce au poids
+# du cctor). Elles entrent donc dans le MÊME argmax plat (bucket tier-0, `ChooseAction` flat-default) que
+# les attaques Comparable — PAS dans la règle-de-tir fallback des summons. utility = base + count x weight.
+# cf. architecture.md (bucket-tree, within-tier flat argmax) + [[project_playbook_engine]].
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+NONCOMP_ATTACK: dict[int, dict] = {
+    # kind="adjacent_count" : utilité = base + (#ennemis adjacents à la TUILE d'attaque) x weight.
+    1129: {"name": "BloodyFury", "kind": "adjacent_count", "base": 1, "weight": 10},
+    # BloodyFuryPlaybook.EvaluateNonComparable @181122be0 = 1 + (#adjacents) x 10 (W=10 cctor @181123340).
+    # NB AberrantHypermorph (1166, summon) N'EST PAS ici : sa tuile est une tuile de SPAWN (vide, via
+    # abilityTargets kind="tile"), PAS une tuile d'attaque du plan -> chemin dédié (leaves.py LEAVES + 1ter) ;
+    # son utilité = FromInt(#ennemis adjacents au spawn), poids brut 1 (cctor @181119cd0 = seuil 1, sans poids
+    # -> échelle basse : ne bat le dégât que si aucune bonne attaque). Wiring flat-argmax spawn-tile = TODO.
+    # kind="target_hp" : utilité = PV COURANTS de la cible (GetStat(5)=Health) -> DOMINE (échelle ~milliers).
+    1183: {"name": "VexillaMagnifica", "kind": "target_hp"},
+    # VexillaMagnificaPlaybook.EvaluateNonComparable @18117f6f0 = FromInt(GetStat(cible,5=Health)) ; debuff
+    # (dmgReductionPct) sur l'ENNEMI le plus haut-PV ; skip si déjà affecté (HasEffect 0x48a) [filtre TODO].
+}
+
+
+def noncomp_attack_utility(ability_id: int, tile: tuple | None, enemy_positions: list,
+                           target_hp: int | None = None) -> float | None:
+    """Utilité NonComparable d'une ability d'ATTAQUE (playbook sans MakeDamagePredictions) évaluée à la
+    TUILE d'attaque (post-move). `adjacent_count` = base + (#ennemis adjacents à `tile`) x weight (poids
+    cctor -> échelle damage_composite) ; `target_hp` = PV courants de la cible (GetStat(5), échelle ~milliers
+    -> domine). None si l'ability n'est pas NonComparable."""
+    spec = NONCOMP_ATTACK.get(ability_id)
+    if not spec:
+        return None
+    kind = spec.get("kind")
+    if kind == "target_hp":
+        return float(target_hp) if target_hp and target_hp > 0 else None
+    if tile is None:
+        return None
+    cnt = sum(1 for e in (enemy_positions or []) if hexgeo.distance(tile, e) == 1)
+    return float(spec["base"] + cnt * spec["weight"])
+
+
+def is_noncomp_attack(ability_id: int) -> bool:
+    return ability_id in NONCOMP_ATTACK
+
+
 def is_leaf(ability_id: int) -> bool:
     return ability_id in LEAVES
 

@@ -272,6 +272,14 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
         ab_ids = [a.get("id") for a in ((me or {}).get("abilities") or [])]
         print(f"    [dbg u{uid}] abilities={ab_ids} attack_cands(ab,tgt,util,kS,k,dmax,hp)={dbg}",
               file=sys.stderr)
+        # NATIVE per-target prediction (decisionView.attackPlans ranked) — vérité live pour comparer
+        # à la prédiction OFFLINE ci-dessus (isole modifier défenseur / conditionnel manquant).
+        nat_dbg = [(ev.get("abilityId"), ev.get("targetId"),
+                    (ev.get("ranked") or [{}])[0].get("dmgMin"),
+                    (ev.get("ranked") or [{}])[0].get("dmgMax"),
+                    "OPT" if (ev.get("ranked") or [{}])[0].get("predOptimistic") else "")
+                   for ev in (plan.get("evals") or []) if ev.get("rankCount")]
+        print(f"    [dbg u{uid}] NATIVE ranked(ab,tgt,dMin,dMax,opt)={nat_dbg}", file=sys.stderr)
     # ── SCORING UNIFIÉ (refonte §2.3bis) : chaque ability candidate = (tuile atteignable, cible)
     #    scorée `pred_util + tile_util(tuile)` ; gate ShouldExecute = `pred_util > 0` ; argmax
     #    `full_util` toutes abilities confondues. Le MOVE est le FALLBACK (RE premier-non-null :
@@ -370,6 +378,28 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
                     cands.append({"target": tg, "ability": aid,
                                   "to": (T if T != origin else None),
                                   "pred": pred, "full": pred + _tile_term(T)})
+
+    # 1quater. ABILITIES NonComparable d'ATTAQUE (BloodyFury…) — playbook sans MakeDamagePredictions ;
+    #        utilité HEURISTIQUE = base + (#ennemis adjacents au caster) x poids-cctor, SUR L'ÉCHELLE de
+    #        damage_composite -> elles concourent dans le MÊME argmax plat (tier-0, ChooseAction flat-default,
+    #        cf. architecture.md bucket-tree). On réutilise le (cible, tuile) du plan natif (decisionView.
+    #        attackPlans.ranked, = l'énumération native cible+tuile d'attaque) MAIS on remplace le score
+    #        dégât par l'heuristique de COMPTE évaluée à la tuile d'attaque (post-move).
+    for ev in (plan.get("evals") or []):
+        aid = ev.get("abilityId")
+        if not leaves.is_noncomp_attack(aid) or not ev.get("rankCount"):
+            continue
+        ranked = ev.get("ranked") or []
+        if not ranked:
+            continue
+        tile = (ranked[0].get("col"), ranked[0].get("row"))
+        tgt = ev.get("targetId")
+        nu = leaves.noncomp_attack_utility(aid, tile, epos, target_hp=hp_cur_by_id.get(tgt))
+        if nu is None or nu <= 0:
+            continue
+        cands.append({"target": tgt, "ability": aid,
+                      "to": (tile if tile != origin else None),
+                      "pred": nu, "full": nu + _tile_term(tile)})
 
     # ── ARGMAX UNIFIÉ : meilleure ability candidate (toutes ont pred>0) par `full_util` ; tie-break
     #    id de cible croissant (ordre natif). Si une existe, elle PRIME sur le move (RE premier-non-null).

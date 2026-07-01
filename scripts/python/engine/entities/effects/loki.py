@@ -53,10 +53,49 @@ class TerrifyingExtraDefenseEffect(BaseEffect):
     = variables vides) ; magnitude **30 confirmée LIVE** (scorer ×0.70 sur eldarMauganRa, seed777 step22).
     ⇒ malus défenseur `PercentDecrease(30)` gated `IsMeleeAttack` (no-op sur attaque ranged / contexte inconnu)."""
 
-    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None) -> EffectBonus | None:
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                                damage_profile: str | None = None) -> EffectBonus | None:
         if not is_melee:                         # gated IsMeleeAttack
             return None
         return for_percent_decrease(False, 30)   # owner_is_caster=False (l'effet est sur le défenseur)
+
+
+_TERMINATOR_EXCLUDED: "frozenset[str] | None" = None
+
+
+def _terminator_excluded_profiles() -> "frozenset[str]":
+    """Profils de dégât PERÇANT le TerminatorArmour (`terminatorArmourExcludedDmgProfiles` du trait,
+    = "Psychic,DirectDamage") → set de noms. Lu une fois en gameconfig, mis en cache."""
+    global _TERMINATOR_EXCLUDED
+    if _TERMINATOR_EXCLUDED is None:
+        raw = ""
+        try:
+            import gameconfig as _GC
+            raw = ((_GC.trait("TerminatorArmour") or {}).get("variables") or {}).get(
+                "terminatorArmourExcludedDmgProfiles") or ""
+        except Exception:
+            raw = ""
+        _TERMINATOR_EXCLUDED = frozenset(p.strip() for p in raw.split(",") if p.strip())
+    return _TERMINATOR_EXCLUDED
+
+
+class TerminatorArmourReduceDmgEffect(BaseEffect):
+    """`TerminatorArmour_ReduceDmg_Effect.CreateEffectDamageMalusForDefense` @180f70f80 : réduit de
+    `terminatorArmourDmgReduction`% (=-75) le dégât reçu par son PORTEUR, SAUF si le profil de dégât de
+    l'attaque figure dans `terminatorArmourExcludedDmgProfiles` (=Psychic,DirectDamage). Trigger natif =
+    `OwnerIsTarget & NOT DamageProfileIs(excludedArray)` (ConfigConst 0x4c=reduction, 0x52=array via
+    `EffectBonus.ForPercentIncrease`) — NON gated mêlée (≠ Terrifying, s'applique mêlée ET ranged).
+    Valeurs LUES en gameconfig (trait TerminatorArmour), -75% confirmé LIVE (u96 encaisse 904 vs u94 3616,
+    même attaquant → ratio 0.25 = -75%)."""
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                                damage_profile: str | None = None) -> EffectBonus | None:
+        red = trait_var("TerminatorArmour", "terminatorArmourDmgReduction")   # -75 (magnitude 75)
+        if not red:
+            return None
+        if damage_profile and damage_profile in _terminator_excluded_profiles():
+            return None                                     # profil perçant (Psychic/DirectDamage) → pas de réduction
+        return for_percent_decrease(False, abs(int(red)))   # owner=défenseur (l'effet est sur la cible)
 
 
 class PowerTripFullHealthEffect(BaseEffect):

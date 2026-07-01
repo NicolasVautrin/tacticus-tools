@@ -210,6 +210,35 @@ _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
 }
 
 
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# Comparable vs NonComparable — mirror du dispatch natif `<Ability>Playbook : ComparablePlaybook |
+# NonComparablePlaybook`. Un playbook COMPARABLE possède `MakeDamagePredictions` et l'IA score l'ability
+# par une PRÉDICTION DE DÉGÂT par cible (attaques : normal, PlasmaCannon, HarvesterOfSouls…). Un playbook
+# NONComparable n'a PAS `MakeDamagePredictions` : `EvaluateNonComparable` produit une utilité HEURISTIQUE
+# (compte d'ennemis touchés / stat de cible), et le natif N'ÉMET AUCUN ProbableDamageEvent (decisionView
+# dMin/dMax = None). L'engine doit donc EXCLURE ces abilities du chemin de prédiction de dégât (il
+# fabriquait un dégât depuis leur `minDmg/maxDmg` gameconfig → sur-évaluation, cf. RadBombardment step15).
+# ⚠ Le DÉGÂT réel À L'EXÉCUTION de ces abilities reste correct (runner engine) ; ce flag ne concerne QUE
+# l'utilité de DÉCISION de l'IA. Chaque entrée = base de playbook RE'd + VA.
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+_NONCOMPARABLE_ABILITIES: "frozenset[str]" = frozenset({
+    "RadBombardment",    # RadBombardmentPlaybook : NonComparablePlaybook @181154660 ; EvaluateNonComparable
+                         # @181154130 = (#ennemis dans GetAffectedTiles) x 2 (AoE différée, Toxic DoT)
+    "BloodyFury",        # BloodyFuryPlaybook : NonComparablePlaybook @1811233d0 ; EvaluateNonComparable
+                         # @181122be0 = 1 + (#ennemis adjacents) x W (heuristique de compte AoE)
+    "VexillaMagnifica",  # VexillaMagnificaPlaybook : EvaluateNonComparable @18117f6f0 = allié GetStat(5),
+                         # skip si HasEffect(0x48a) (buff d'allié, pas du dégât)
+})
+
+
+def makes_damage_predictions(ability_name: str | None) -> bool:
+    """L'IA score-t-elle cette ability par une PRÉDICTION DE DÉGÂT par cible (playbook Comparable,
+    `MakeDamagePredictions`) ou par une utilité HEURISTIQUE (playbook NonComparable) ? Mirror du dispatch
+    natif `<Ability>Playbook : ComparablePlaybook | NonComparablePlaybook`. Défaut = True (Comparable = cas
+    commun des attaques) ; False = NonComparable RE'd (cf. `_NONCOMPARABLE_ABILITIES`)."""
+    return (ability_name or "") not in _NONCOMPARABLE_ABILITIES
+
+
 def active_ability_for(ability_name: str | None, ability_type: int, caster: UnitContext,
                        config: AbilityConfiguration | None) -> AActiveAbility:
     """Fabrique l'`AActiveAbility` de la bonne sous-classe (formule de coups PROPRE si portée, sinon
