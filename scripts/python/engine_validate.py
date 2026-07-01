@@ -171,12 +171,19 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
     elev_by_pos: dict = {}
     pathdist_by_pos: dict = {}
     is_temporary_by_pos: dict = {}
+    effects_by_pos: dict = {}
     if _MOVE_MODEL == "unitmovement":
         tm = _r(sid, "tileMeta", {"runnerId": rid}, 60)
         elev_by_pos = {(t.get("col"), t.get("row")): t.get("elevation")
                        for t in (tm.get("tiles") or [])}
         is_temporary_by_pos = {(t.get("col"), t.get("row")): bool(t.get("isTemporary"))
                                for t in (tm.get("tiles") or [])}
+        # Effets de statut de tuile (tileMeta.effects) -> feuille TileEffects(9). name = clé de
+        # poids Default.TileEffects (ex. Thorns_DefenseReduction=-25). Multiplicateur natif = 1.0
+        # par défaut (PROUVE : Thorns -25 = poids -25 x mult => mult=1) ; la branche speciale
+        # (owner ami/ennemi + effectType==5/Fire) n'est pas encore appliquee (cf. tile.py:tile_effects).
+        effects_by_pos = {(t.get("col"), t.get("row")): [e.get("name") for e in (t.get("effects") or [])]
+                          for t in (tm.get("tiles") or [])}
         pdr = _r(sid, "pathDistToEnemies", {"runnerId": rid, "unitId": uid}, 90)
         pathdist_by_pos = {(t.get("col"), t.get("row")): t.get("pathDist")
                            for t in (pdr.get("tiles") or [])}
@@ -191,7 +198,7 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
         if _MOVE_MODEL == "unitmovement":
             move_to, move_util = move.best_move_faithful(
                 move_tiles, elev_by_pos, epos, wt, pathdist_by_pos=pathdist_by_pos,
-                is_temporary_by_pos=is_temporary_by_pos)
+                is_temporary_by_pos=is_temporary_by_pos, effects_by_pos=effects_by_pos)
         else:
             move_to, move_util = move.best_move(move_tiles, origin, epos, wt, ranged)
 
@@ -220,7 +227,7 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
             # ATTAQUE NORMALE → prédicteur OFFLINE (`predict_validate.predict_normal`) : reproduit
             # `aiPredict` sans lecture live par-candidat (base=Attack×hits + perçage + armure + MODIFIER
             # effets §16/§17, VALIDÉ 11/11 vs oracle). Prédicteur (combatSnapshot cold) capturé 1×/runner.
-            dp = PV.predict_normal(predictor, sctx, uid, tgt, tile)
+            dp = PV.predict_normal(predictor, sctx, uid, tgt, tile, elev_by_pos=elev_by_pos)
             if dp is None:
                 continue
             r = dp.accurate_health_damage
@@ -292,6 +299,8 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
             meta = {"elevation": e, "elevation_max": _emax, "elevation_min": _emin}
         if pos in is_temporary_by_pos:
             meta["is_temporary"] = is_temporary_by_pos[pos]
+        if pos in effects_by_pos:
+            meta["effects"] = effects_by_pos[pos]   # feuille TileEffects (ex. Thorns_DefenseReduction=-25)
         return tile_composite(pos, meta, {}, wt)
 
     cands: list = []  # {target, ability, to:(c,r)|None, pred, full}

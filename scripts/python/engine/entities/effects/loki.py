@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ...services.effect_bonus import EffectBonus, for_addition, for_percent_increase
+from ...services.effect_bonus import EffectBonus, for_addition, for_percent_decrease, for_percent_increase
 from .base import BaseEffect, SubEffectSpec, SAME_TURNS
 from .magnitude import ability_var, trait_var
 
@@ -44,6 +44,19 @@ class HeavyWeaponExtraDmgEffect(BaseEffect):
             return None
         pct = trait_var("HeavyWeapon", "heavyWeaponExtraDmg")
         return for_percent_increase(True, pct) if pct is not None else None
+
+
+class TerrifyingExtraDefenseEffect(BaseEffect):
+    """`Terrifying_ExtraDefense_Effect.CreateDamageModifier` @180f47ba0 : réduit le dégât MÊLÉE reçu par
+    son PORTEUR (l'effet est sur la CIBLE). Trigger natif = `OwnerIsTarget & IsMeleeAttack` (AbilityOrEffect
+    0x62) ; valeur = `ConfigConst(0x28)`. La valeur n'est PAS exposée par gameconfig (trait/effet Terrifying
+    = variables vides) ; magnitude **30 confirmée LIVE** (scorer ×0.70 sur eldarMauganRa, seed777 step22).
+    ⇒ malus défenseur `PercentDecrease(30)` gated `IsMeleeAttack` (no-op sur attaque ranged / contexte inconnu)."""
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None) -> EffectBonus | None:
+        if not is_melee:                         # gated IsMeleeAttack
+            return None
+        return for_percent_decrease(False, 30)   # owner_is_caster=False (l'effet est sur le défenseur)
 
 
 class PowerTripFullHealthEffect(BaseEffect):

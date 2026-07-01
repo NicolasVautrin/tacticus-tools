@@ -108,7 +108,8 @@ def best_move(tiles: list, origin: tuple | None, enemy_positions: list, wt: Weig
 def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt: Weights,
                        steppable_by_pos: dict | None = None,
                        pathdist_by_pos: dict | None = None,
-                       is_temporary_by_pos: dict | None = None) -> tuple:
+                       is_temporary_by_pos: dict | None = None,
+                       effects_by_pos: dict | None = None) -> tuple:
     """Move scoring FIDÈLE — décideur **UnitMovement(6) = Tile(7) + MinDistanceToClosestEnemy(16)**
     (composition LUE runtime, doc §13.8/13.11). `U(tuile) = tile_composite(Tile(7)) + wMin×d`.
     PAS de `MaxDistanceToEnemies` (dans AUCUN composite) ni `MaxDistanceToUnitTile` (seulement
@@ -138,6 +139,8 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
             meta["steppable"] = steppable_by_pos[c]
         if is_temporary_by_pos and c in is_temporary_by_pos:
             meta["is_temporary"] = is_temporary_by_pos[c]
+        if effects_by_pos and c in effects_by_pos:
+            meta["effects"] = effects_by_pos[c]   # feuille TileEffects (Thorns/Fire/... via tileMeta)
         # MinDist : distance CHEMIN si dispo (fidèle), sinon hex (fallback approx).
         pd = pathdist_by_pos.get(c) if pathdist_by_pos else None
         mind = pd if (pd is not None and pd >= 0) else min(hexgeo.distance(c, ep)

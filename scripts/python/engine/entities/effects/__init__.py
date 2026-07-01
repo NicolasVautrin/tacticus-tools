@@ -67,16 +67,17 @@ def build_attacker_modifiers_from_effects(effects, is_ranged: bool | None = None
     return build_attacker_modifiers(bonuses)
 
 
-def build_defender_modifiers_from_effects(effects) -> DamageModifiers:
+def build_defender_modifiers_from_effects(effects, is_melee: bool | None = None) -> DamageModifiers:
     """`CalculateDefenderModifiersForPrediction` @181002c30 — DamageModifiers depuis les effets de la CIBLE
     (réductions de dégât reçu). Agrège `create_effect_damage_malus_for_defense` (slot 0x1a). Symétrique de
     `build_attacker_modifiers_from_effects`. Effets déjà filtrés actifs (EffectsState.active_effects).
-    ⚠ Couvre la famille `ADamageDefenseModifierAbilityEffect` (EffectBonus PercentDecrease ConfigVar gated) ;
-    les réductions par STAT (Defense), par COUPS (Parry_ReduceHits) ou par TRIGGER (predOptimistic) sont des
-    axes SÉPARÉS, non couverts ici (cf. docs/rl/runner-engine.md §1.8)."""
+    `is_melee` = nature du coup (propagée aux malus gated `IsMeleeAttack`, ex. Terrifying_ExtraDefense).
+    ⚠ Couvre la famille `ADamageDefenseModifierAbilityEffect` (EffectBonus PercentDecrease ConfigVar gated) +
+    Terrifying_ExtraDefense (CreateDamageModifier trigger-based) ; les réductions par STAT (Defense), par COUPS
+    (Parry_ReduceHits) ou par TRIGGER (predOptimistic) sont des axes SÉPARÉS (cf. docs/rl/runner-engine.md §1.8)."""
     maluses = []
     for e in _as_effects(effects):
-        mb = e.create_effect_damage_malus_for_defense()
+        mb = e.create_effect_damage_malus_for_defense(is_melee)
         if mb is not None:
             maluses.append(mb)
     return build_defender_modifiers(maluses)

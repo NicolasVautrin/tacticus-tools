@@ -42,6 +42,7 @@ import * as messageTrace from "./features/message-trace.js";
 import * as aiStep from "./features/ai-step/index.js";
 import * as modifierObserve from "./features/modifier-observe.js";
 import * as abilityPrefs from "./features/ability-prefs.js";
+import * as scorerDamageTrace from "./features/scorer-damage-trace.js";
 
 export interface Ctx {
     rpc: Record<string, (...args: any[]) => unknown>;
@@ -365,6 +366,7 @@ export function wireRpc(ctx: Ctx): void {
      uiNav, warmupSingletons, battleConfig, observe, dumpBoards, boardTrace,
      dumpPvpBoards, normalizeBc, crashTrap, initTrace,
      // messageTrace AVANT moveOptions — il set scoringRunnerId/applySeq.
-     messageTrace, moveOptions, winnerCapture, aiStep, modifierObserve, abilityPrefs]
+     messageTrace, moveOptions, winnerCapture, aiStep, modifierObserve, abilityPrefs,
+     scorerDamageTrace]
         .forEach((f) => f.register(ctx));
 }

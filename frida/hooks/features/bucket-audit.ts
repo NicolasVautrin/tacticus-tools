@@ -38,11 +38,15 @@ import {
 
 // --- RVAs (offsets relative to GameAssembly.dll base) ---
 
+// ⚠ RVA build-spécifiques (gshared -> non résolus par findMethod). Rafraîchis pour le build
+// gqfc5mff6c depuis ghidra (VA - 0x180000000) : Bucket<__Il2CppFullySharedGenericType>.
+//   AddAction @1813fbcc0 · AddActionToBucket @1813fbb60 · ChooseAction @1813fc0d0 · IsValidAction @1813fc660
+// À REFAIRE à chaque changement de hash (cf. CLAUDE.md — RVA hardcodée = diagnostic-only).
 const RVA = {
-    addAction: 0x1478820,
-    addActionToBucket: 0x14786B0,
-    isValidAction: 0x1479290,
-    chooseAction: 0x1478CC0,
+    addAction: 0x13fbcc0,
+    addActionToBucket: 0x13fbb60,
+    isValidAction: 0x13fc660,
+    chooseAction: 0x13fc0d0,
 };
 
 // --- BucketAction layout ---

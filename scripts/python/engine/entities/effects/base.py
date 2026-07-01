@@ -93,9 +93,10 @@ class BaseEffect:
         `CalculateCriticalDamage` (critDmgPct = max(0, GetStat(10)+Σbonus)). Défaut None = pas de bonus."""
         return None
 
-    def create_effect_damage_malus_for_defense(self) -> EffectBonus | None:
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None) -> EffectBonus | None:
         """`<Effect>.CreateEffectDamageMalusForDefense` — contribution DÉFENSEUR (l'effet est sur la CIBLE,
-        réduit le dégât reçu). Symétrique de `create_effect_damage_bonus_for_attack`. Renvoie un `EffectBonus`
+        réduit le dégât reçu). Symétrique de `create_effect_damage_bonus_for_attack`. `is_melee` = nature
+        du coup (certains malus sont gated `IsMeleeAttack`, ex. Terrifying_ExtraDefense). Renvoie un `EffectBonus`
         (typiquement `PercentDecrease` de valeur `ConfigVar(key)`, gated par une condition d'effet) ou None.
 
         RE : `CalculateDefenderModifiersForPrediction` @181002c30 itère les effets de la cible et appelle

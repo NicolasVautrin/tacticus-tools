@@ -206,6 +206,169 @@ Mirror fidèle du modèle natif « 1 classe par effet/trait ».
 
 ---
 
+## 7bis. Prédiction PAR-CIBLE = la sélection de cible (mesuré seed 777, TARGET-MISS)
+
+**Découverte** : les mismatches de *sélection de cible* (même ability, mauvaise cible ; 6/20 sur seed
+777) ne viennent PAS d'une feuille d'utilité manquante — c'est la **fidélité de prédiction dégât
+par-cible**. `DamageDealt` pondère le dégât ; si l'offline sort un dégât PLAT par-cible, le classement
+de cible est faux. Le natif prédit le dégât par-cible correctement et frappe la cible qu'il endommage
+le plus.
+
+Preuve (step 22, u96 darkaTerminator normal → **82**, TOUTES les cibles attaquées depuis la MÊME tuile
+caster (5,4) donc pas un effet de position/no-move ; Defense=100 identique, donc pas la défense) :
+
+| cible | mon offline | aiPredict natif | ratio /baseline | Grand Alliance | effet |
+|---|---|---|---|---|---|
+| 80 darkstrider | [2121,3183] | (2124,3183) | **×1.00** baseline (= plancher perçage 40 %) | Xenos | — |
+| 78 MauganRa | [2121,3183] | (1485,2229) | **×0.70** | Xenos | `Terrifying_ExtraDefense` (réduction défenseur) |
+| 82 worldTerminator ←NAT | [2121,3183] | (3183,4776) | **×1.50** | Chaos | `BlessingsOfKhorne` (mais offensif → n'explique PAS) |
+
+- **80** = plancher perçage pur (`bout×40 %`, armure haute) → mon offline matche → **baseline correct**.
+- **78** ×0.70 = **modifier défenseur** (Terrifying). C'est le chemin §4 `CalculateDefenderModifiers-
+  ForPrediction` → `GetMultiplierFromDamageBonus` (`1 − 30/100`). **NON porté offline** : `predict_normal`
+  ne construit QUE les modifiers ATTAQUANT (`build_attacker_modifiers_from_effects`), jamais défenseur.
+- **82** ×1.50 = amplification **+50 %**, source **NON identifiée** et à NE PAS deviner :
+  - RÉFUTÉ : boss (`BossUnit=None` arène) ; CrushingStrike no-move (§ géométrie : les 3 candidats
+    BOUGENT) ; Deathwing (plat +2 au niveau Uncommon, gated-block) ; affinité/Grand-Alliance anti-Chaos
+    (§4 : « Pas d'affinité ni de classe dans le dégât de combat ») ; `BlessingsOfKhorne` (offensif +
+    réduction *Psychique* seulement) ; `TerminatorArmour` (réduction premier coup, pas amplification).
+  - Correspond exactement à l'**angle mort §7** : un modifier qui NE pose PAS d'effet-entité nommé
+    (absent de `ActiveEffectIds`) → à capturer via l'**axe stat-modification** (`CalculateModifiersFrom-
+    StatModifications` @181004380 = `CurrentValue − BaseValue` d'un stat « damage bonus », défenseur
+    négaté). Le nommer exige une **capture du modifier** (probe sur le chemin modifier, pas un fit).
+
+### Primitives RE (généricité) — cf. §4
+
+- `GetMultiplierFromDamageBonus(b)` @181005210 = **`1 + b/100`** (b<1 → réduction, b≥1 → bonus). VALIDÉ
+  numériquement : 78 = −30 → ×0.70, 82 = +50 → ×1.50.
+- `CalculateDefenderModifiersForPrediction` @181002c30 : Σ sur (a) `CalculateModifiersFromStatModi-
+  fications` (stat-mods du défenseur, **négatés**), (b) boucle sur les abilities du défenseur → entrées
+  modifier conditionnelles (types 0x19/0x1a/0x1b) évaluées avec contexte → `GetMultiplierFromDamageBonus`
+  → `DamageModifiers.Add`. Bonus plats accumulés en `param_1[4]/[5]` (Fix64).
+- `CalculateModifiersFromStatModifications` @181004380 : si `StatComponent.CurrentValue != BaseValue`,
+  pour chaque `Modifications` → montant `v` ; `isDefender ? −v : +v` → liste de bonus.
+
+### Plan d'implémentation (couche générique, choisi par l'utilisateur)
+
+1. **Axe stat-modification (source de vérité offline)** : capturer par-unité, dans `combatSnapshot`, le
+   delta `CurrentValue − BaseValue` du/des stat(s) « damage bonus/reduction » (le stat lu par
+   `CalculateModifiersFromStatModifications` — à identifier : slot `DAT_1831fb970`). C'est l'entrée, pas
+   la sortie native → conforme doctrine (on recalcule `1 + delta/100`).
+2. **`build_defender_modifiers`** (miroir de l'attaquant) : depuis les effets défenseur + le delta stat
+   (négaté). Combiner attaquant + défenseur dans `get_attack_prediction(mods=...)`.
+3. **Traits conditionnels** (Deathwing anti-Chaos/adjacence, etc.) via la boucle ability + contexte
+   (faction cible, moved-this-turn) — après (1)/(2).
+4. **Valider** : agreement (78/82 → bon dégât par-cible → steps 11/22/5 remontent) + par-valeur vs
+   aiPredict (80 déjà exact ; 78→×0.70 ; 82→×1.50).
+
+### Capture stat-mod axis — RÉSULTAT (2026-07-01)
+
+`combatSnapshot` étendu (`statDelta` = `Current − Initial` par StatType). Probe step 22 (78/80/82) :
+**seul `health` a un delta** (= dégât subi). AUCUN delta Attack/Defense/FixedArmor. Donc les modifiers
+×0.70/×1.50 **ne sont PAS des stat-modifications** (`CalculateModifiersFromStatModifications` : sa garde
+`CurrentValue != BaseValue` ne fire pas) → ils viennent de la **boucle conditionnelle effet/ability** de
+`Calculate{Attacker,Defender}ModifiersForPrediction` (EffectBonus.DamageBonus), pas de l'axe stat.
+`statDelta` reste capturé (input légitime pour les futurs effets stat-modifiants).
+
+- **78 ×0.70** = `Terrifying_ExtraDefense` (effet défenseur nommé, dans `decisionView.effects`).
+- **82 ×1.50** : `darkaTerminator` (u96) porte l'effet ACTIF **`CrushingStrike`** (+50 % mêlée si non-bougé)
+  — que `predict_normal` IGNORE. MAIS l'application par-candidat ne se résout PAS simplement : (a) le natif
+  BOUGE pour attaquer 82 (`(6,3)->(5,4)` puis attaque) → CrushingStrike « non-bougé » devrait s'éteindre ;
+  (b) **78 et 82 sont prédits depuis la MÊME tuile (5,4)** avec des ratios différents (×0.70 vs ×1.50) →
+  la différence est **par-cible**, pas par-tuile/move. Incohérent avec une règle CrushingStrike simple.
+- **CAVEAT MÉTHODO** : le référentiel par-cible ici = `aiPredict` (= `GetAllPredictions`), qui **N'EST PAS**
+  le prédicteur du scorer (`MakeDamagePredictions`, cf. §début) et a des quirks de re-validation
+  tuile/portée. Les ratios ×0.70/×1.50 peuvent porter ces quirks. **Avant de porter, capturer le dégât
+  par-candidat RÉEL du scorer** (`MakeDamagePredictions` vtable+0x358, ou hook des modifiers
+  `Calculate{Attacker,Defender}ModifiersForPrediction` détail@0x38) = la vraie référence.
+
+### Capture SCORER (ProbableDamageEvent.ctor) — RÉSULTAT (2026-07-01) — RÉFÉRENCE FIABLE
+
+Hook `ProbableDamageEvent..ctor @181135500` (`features/scorer-damage-trace.ts`, gated `trace.on`, RPC
+`scorerDamageTrace{On,Off,Dump,Clear}`) = point d'étranglement de TOUS les `MakeDamagePredictions`
+(vtable+0x358). Struct (dump 12292) : `Target(IEntity)@0x0, DamagePrediction(DamagePredictionResult)@0x8,
+Probability@0xC8, Weight@0xD0` ; DamagePredictionResult `AccurateHealthDamage Min@0x60/Max@0x64,
+AppliedHits@0xBC` ; IEntity `id@+0x10, type@+0x14`. Capturé pendant `aiStepDryRun` = le dégât par-candidat
+RÉEL du scorer (≠ aiPredict). **Step 22 seed 777** (native → 82) :
+
+| cible | events du scorer | lecture |
+|---|---|---|
+| 78 MauganRa | **2** : (1485,2229) ET (2229,3342) | (1485,2229)=Terrifying ×0.70 ; (2229,3342)=×1.50 de la base réduite (**CrushingStrike**) |
+| 80 darkstrider | **1** : (2124,3183) | base seule (ni boost ni réduction) |
+| 82 worldTerminator ←NAT | **2** : (2124,3183) ET (3183,4776) | (3183,4776)=(2124,3183)×**1.50** = **CrushingStrike** (+50 % mêlée) |
+
+**Découverte clé** : le scorer évalue chaque cible depuis **PLUSIEURS tuiles candidates** (n=2 events) et le
+dégât **VARIE par tuile** ; `CrushingStrike` (+50 % mêlée, attaquant, effet ACTIF sur darkaTerminator) fire
+sur les tuiles qualifiantes → le MAX par cible pilote `DamageDealt`. Le max de 82 (×1.5) le rend
+top-cible ⇒ pick natif. **Mon offline plat mono-tuile rate CrushingStrike (attaquant, per-tuile) ET la
+réduction défenseur (Terrifying).** aiPredict était donc trompeur (il renvoyait ~le max/une tuile, pas la
+distribution par-tuile du scorer). `scorer-damage-trace` = la **référence de validation** désormais.
+
+### RÉFUTATION DÉCISIVE — le dégât N'EXPLIQUE PAS le pick 82 (2026-07-01)
+
+Vérifié **avec le code moteur** `damage_composite` sur le dégât RÉEL du scorer (CrushingStrike ×1.5 inclus)
++ maxHP/HP courants observeBattle :
+
+| candidat | DamageDealt |
+|---|---|
+| **78 MauganRa (CS)** | **43.52** ← MAX |
+| 82 worldTerminator (CS) | 41.97 |
+| 80 darkstrider | 38.24 |
+
+**`DamageDealt(78) > DamageDealt(82)` MÊME avec CrushingStrike** (82 a un maxHP plus haut → fraction
+`dmg/combinedMax` plus basse ; 78 est plus entamé → u_remaining plus haut). Or le natif prend **82**.
+⇒ **Le port dégât (a)+(b)+(c) est INSUFFISANT** : le pick 82 n'est PAS piloté par la fidélité de dégât.
+Le scorer-trace a évité de porter la mauvaise chose. Discriminateur réel ∈ { **légalité de candidat**
+(quelle tuile CS est ATTEIGNABLE — 78-CS peut être un candidat illégal élagué tandis que 82-CS est légal),
+**feuille situationnelle** (1 des 10 non-portées du composite Damage(34)), **terme de tuile** Tile(7),
+**scoring joint tuile×cible** }. **PAS le dégât.**
+
+**Prochaine capture = l'UTILITÉ par-candidat** (pas le dégât) : `CalculateActionUtility` (gshared) ou au
+minimum la tuile caster par-event (bloqué : `MakeDamagePredictions` gshared non-résolu par `findMethod` —
+la classe se trouve mais pas le corps gshared ; piste = `GetNormalAttackPrediction` concret, mais retour
+sret complique l'ABI). La tuile caster par-candidat trancherait la légalité + la condition CrushingStrike.
+
+### DISCRIMINATEUR TROUVÉ = scoring JOINT (tuile,cible) + feuille Élévation MAL CALIBRÉE (2026-07-01)
+
+Capture de l'**utilité TOTALE par-candidat** via hook RVA sur `CalculateActionUtility` (@181406ee0,
+gshared → RVA build-spécifique) dans `features/scorer-damage-trace.ts` (`scorerUtilTraceDump`) + backtrace.
+**Chemin RE (stacks)** : `CalculateNextActionForPlayer` → coroutine → `Bucket<UnitAction>.Evaluate(caster,
+casterPosition, UtilityDef)` @111df40 → `ComparablePlaybook.EvaluateInternal` @181408980 → `Calculate-
+ActionUtility` PAR CANDIDAT (tuile,cible) → bucket → argmax. **C'est un scoring JOINT (tuile,cible)**, et
+`CalculateActionUtility` somme **damage-utility + tile-utility** (Tile(7)).
+
+Utilité totale native par-candidat (step 22, `curCaster` propage la tuile aux ProbableDamageEvents) :
+
+| tuile caster | cible | util TOTAL natif | dégât scorer | tile-term natif (=total−dd) |
+|---|---|---|---|---|
+| **(5,4) elev3** | **82** | **72.98 (MAX)** | (3183,4776) CS | 31.0 |
+| (5,3) elev4 | 78 | 69.52 | (2229,3342) CS | 26.0 |
+| (5,3) elev4 | 80 | 64.24 | (2124,3183) | 26.0 |
+| (5,4) elev3 | 78 | 61.31 | (1485,2229) Terrif | 31.0 |
+| (5,5) elev2 | 82 | 49.07 | (2124,3183) | 21.0 |
+
+**Validation offline `damage_composite(dégât scorer) + tile_term(tuile)` vs natif** : match à **~1 pt** sur
+(5,4)/(5,5) MAIS **+24 d'excès sur (5,3) elev4** → **ma feuille Élévation rend 50 pour elev4, le natif 26**.
+Cette sur-valorisation de la tuile haute de 78 fait basculer mon pick vers 78. **Avec le bon tile-term,
+82@(5,4)=71.97 > 78@(5,3)=69.52 → 82 gagne = natif.**
+
+**⇒ Le dégât N'ÉTAIT PAS écarté** : c'est le scoring **JOINT (tuile,cible)** ; mon erreur d'analyse était
+de comparer le meilleur-dégât PAR CIBLE sans le tile-term. La structure `dd + tile_term` de mon moteur est
+BONNE (match ~1pt sur 3/5), le bug = **la feuille Élévation** (tile.py, elev4→50 vs 26) + un **~+1 constant**
+manquant. Tile-term natif non-monotone en élévation (elev2→21, elev3→31, elev4→26) → **RE
+`CalculateUtilityFromTilePrediction` + la feuille Elevation** pour recalibrer.
+
+**FIX À FAIRE** : (1) RE + recaler la feuille **Elevation** (`engine/utilities/tile.py`) sur le natif ;
+(2) CS per-tuile dans `predict_normal` (le dégât scorer VARIE par tuile via CrushingStrike) ; (3) balayage
+JOINT (tuile,cible) dans `engine_decide` (déjà partiel) prenant l'argmax de `dd+tile`. Validation
+event-par-event via `scorerUtilTraceDump` (util totale) + `scorerDamageTraceDump` (dégât).
+
+**Statut** : discriminateur TROUVÉ (scoring joint + feuille Élévation mal calibrée). Outils bâtis :
+`scorer-damage-trace` (dégât + util totale + tuile + backtrace, RVA-based diagnostic). Reste = les 3 fix
+ci-dessus, validés contre les traces.
+
+---
+
 ## 8. Cas d'étude u90 (orksKillaKan) — FERMÉ, agreement 11/11
 
 Énigme « enveloppe oracle 2048-7592 » (ratio 3.7×, asymétrique). Démontée pièce par pièce, sans fitting

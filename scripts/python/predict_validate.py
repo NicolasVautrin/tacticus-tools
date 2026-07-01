@@ -28,11 +28,21 @@ from engine.entities.abilities.ability_configuration import AbilityConfiguration
 from engine.services.damage_calculations import spread_to_min_max
 from engine.services.damage_prediction import get_attack_prediction, get_default_attack_hits
 from engine.entities import EffectsState
-from engine.entities.effects import build_attacker_modifiers_from_effects, hits_bonus_from_effects
+from engine.entities.effects import (
+    build_attacker_modifiers_from_effects, build_defender_modifiers_from_effects, hits_bonus_from_effects,
+)
 from engine.entities.traits import attacker_bonus_hits
+from engine.services.damage_modifiers import add_modifier, calculate_elevation_bonus_modifier
+from engine import weights as _weights
 
 ROOT = Path(__file__).resolve().parents[2]
 STATE = ROOT / "data" / "duel_state.json"
+
+# Bonus de dégât positionnels/config (BC `Damage`) — RE `CalculateElevationBonusModifier` @181003ea0.
+# `ElevationBonus` (=50) = +% si la tuile de l'attaquant surplombe celle de la cible.
+_DMG_CFG: dict = json.loads(_weights.DEFAULT_BC.read_text(encoding="utf-8")).get("Damage", {}) \
+    if _weights.DEFAULT_BC.exists() else {}
+ELEVATION_BONUS_PCT: int = int(_DMG_CFG.get("ElevationBonus", 50))
 
 
 def _res(r):
@@ -207,11 +217,12 @@ def step_context(predictor, dv):
     }
 
 
-def predict_normal(predictor, sctx, att_id, tgt_id, attack_pos, *, meta=False):
+def predict_normal(predictor, sctx, att_id, tgt_id, attack_pos, *, meta=False, elev_by_pos=None):
     """Prédiction offline de l'attaque NORMALE (att→tgt depuis `attack_pos`) reproduisant `aiPredict` —
-    chaîne fidèle base=Attack × hits + perçage + armure + MODIFIER effets (§16/§17). Renvoie un
-    `DamagePredictionResult` (ou `(result, meta_dict)` si meta=True), None si l'attaquant n'a pas de
-    contexte capturé. `attack_pos` = tuile d'attaque (post-move) : fixe mêlée/ranged, distance, GetStuckIn."""
+    chaîne fidèle base=Attack × hits + perçage + armure + MODIFIER (effets attaquant + ElevationBonus +
+    modifiers DÉFENSEUR §16/§17). Renvoie un `DamagePredictionResult` (ou `(result, meta_dict)` si meta=True),
+    None si l'attaquant n'a pas de contexte capturé. `attack_pos` = tuile d'attaque (post-move) : fixe
+    mêlée/ranged, distance, GetStuckIn. `elev_by_pos` = `{(col,row): elevation}` (tileMeta) → ElevationBonus."""
     ctx = predictor["ctx_by_id"].get(att_id)
     if ctx is None:
         return None
@@ -222,6 +233,21 @@ def predict_normal(predictor, sctx, att_id, tgt_id, attack_pos, *, meta=False):
     t_pos = pos_by_id.get(tgt_id)
     dist = _cheby(attack_pos, t_pos) if (attack_pos and t_pos) else None
     pierce, _ranged, whits = _normal_weapon_pierce(ctx, dist)
+    is_melee = not _ranged
+    # ── ElevationBonus (CalculateElevationBonusModifier @181003ea0) : +ELEVATION_BONUS_PCT% si la tuile
+    #    d'attaque surplombe celle de la cible (gate effet 0x423 non plombé → False = dégradation sûre).
+    if elev_by_pos:
+        a_elev, t_elev = elev_by_pos.get(attack_pos), elev_by_pos.get(t_pos)
+        if a_elev is not None and t_elev is not None:
+            eb = calculate_elevation_bonus_modifier(a_elev, t_elev, ELEVATION_BONUS_PCT)
+            if eb is not None:
+                add_modifier(mods, eb)
+    # ── Modifiers DÉFENSEUR (CalculateDefenderModifiersForPrediction) : effets de la CIBLE réduisant le
+    #    dégât reçu (ex. Terrifying_ExtraDefense −30% mêlée). Fusionnés dans le même accumulateur %-list.
+    tgt_effects = sctx["eff_state"].active_effects(tgt_id, {"hp": hp_by_id.get(tgt_id)})
+    def_mods = build_defender_modifiers_from_effects(tgt_effects, is_melee)
+    for mult, cap in def_mods.pct_list:
+        mods.pct_list.append((mult, cap))
     hits_pre = whits + ctx.extra_hits + eff_hits
     hits = hits_pre + _getstuckin_bonus(ctx, att_id, tgt_id, hits_pre, attack_pos,
                                         pos_by_id, sctx["team_by_id"], predictor["vis_by_id"],

@@ -162,6 +162,41 @@ export function readEffectsByUnit(
     return out;
 }
 
+/** Map TILE entityId (EntityType.Tile) → its active tile-status-effects
+ * (name + metadata). A tile carries the SAME `EffectsOwnedComponent`
+ * (ActiveEffectIds @0x10) as a unit — the AI's `TileEffectsUtility` reads
+ * exactly this list (native leaf @1810fbe50: GetComponent(tile, EffectsOwned)
+ * → List@+0x10 → resolve each to its Effect entity → EffectComponent.EffectType).
+ * The effect NAME = EffectType enum ToString = the `Default.TileEffects.<Name>`
+ * weight key (Fire/Ice/SpiderWeb/Thorns_DefenseReduction…). `source` is the
+ * effect's owner (needed for GetStatusEffectMultiplier's friend/foe branch). */
+export function readEffectsByTile(
+    statePtr: NativePointer,
+): Map<number, EffectInfo[]> {
+    const byId = indexEffects(statePtr);
+    const out = new Map<number, EffectInfo[]>();
+    forEachEntity(statePtr, (e, id, ty) => {
+        if (ty !== EntityType.Tile) return;
+        const ids = readOwnedEffectIds(e);
+        if (!ids.length) return;
+        const effs: EffectInfo[] = [];
+        for (const eid of ids) {
+            const info = byId.get(eid);
+            if (info && (!info.active || info.removed)) continue;   // drop inactive/removed
+            effs.push({
+                effectId: eid,
+                name: info?.name ?? null,
+                effectType: info?.effectType ?? null,
+                remaining: info?.remaining ?? null,
+                level: info?.level ?? null,
+                source: info?.source ?? null,
+            });
+        }
+        if (effs.length) out.set(id, effs);
+    });
+    return out;
+}
+
 /** EffectType ids of the board-wide end-of-battle round-cap bombardment.
  * 1359 = EnvEndBombardment_Incoming (countdown telegraph) · 1360 =
  * EnvEndBombardment (the AoE nuke itself). These are NOT attached to any unit's

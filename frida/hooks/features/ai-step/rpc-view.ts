@@ -10,7 +10,7 @@ import {
     EntityType, forEachComponent, forEachEntity, projectMatchState,
     readBattleStatus, unitFootComponentClass,
 } from "../../game/match-state.js";
-import { readEffectsByUnit, readRoundCapClock } from "../../game/effects.js";
+import { readEffectsByUnit, readEffectsByTile, readRoundCapClock } from "../../game/effects.js";
 import { state } from "../../game/state.js";
 import { queueOnMainThread } from "../../runtime/queue.js";
 import { abilityName } from "../../data/ability-names.js";
@@ -304,10 +304,23 @@ export function registerView(ctx: Ctx): void {
         const statePtr = runner.add(runnerOff.state).readPointer();
         if (statePtr.isNull()) return { ok: false, error: "state null" };
         const proj = projectMatchState(statePtr, { includeTiles: true });
-        const tiles = (proj.tiles ?? []).map((t) => ({
-            col: t.col, row: t.row, elevation: t.elevation,
-            isWall: t.isWall, isTemporary: t.isTemporary, isTerritory: t.isTerritory,
-        }));
+        // Effets de statut de tuile (EffectsOwnedComponent sur l'entité Tile) — la feuille
+        // TileEffectsUtility somme Default.TileEffects.<EffectName> pour chaque effet présent.
+        // Clé = entity id de la tuile ; on joint sur t.id de la projection.
+        const effectsByTile = readEffectsByTile(statePtr);
+        const tiles = (proj.tiles ?? []).map((t) => {
+            const effs = effectsByTile.get(t.id) ?? [];
+            return {
+                col: t.col, row: t.row, elevation: t.elevation,
+                isWall: t.isWall, isTemporary: t.isTemporary, isTerritory: t.isTerritory,
+                // effects: liste des effets de statut sur la tuile (name = clé de poids
+                // Default.TileEffects ; effectType/source pour le multiplicateur natif).
+                effects: effs.map((e) => ({
+                    name: e.name, effectType: e.effectType,
+                    source: e.source, remaining: e.remaining, level: e.level,
+                })),
+            };
+        });
         return { ok: true, runner: label, tileCount: tiles.length, tiles };
     });
 
@@ -540,14 +553,16 @@ export function registerView(ctx: Ctx): void {
             const buf = Memory.alloc(4); buf.writeS32(STAT_IDS[k]); idBufs[k] = buf;
         }
         const partBuf = Memory.alloc(4); partBuf.writeS32(0);        // StatPart.Current
+        const partBufInit = Memory.alloc(4); partBufInit.writeS32(3); // StatPart.Initial (=base)
         // Nullable<BEntityId> = null (HasValue=false) : struct zéroé (taille large par sûreté).
         const nullId = Memory.alloc(16); for (let i = 0; i < 16; i += 4) nullId.add(i).writeS32(0);
-        const getStat = (e: NativePointer, k: string): number | null => {
+        const getStatP = (e: NativePointer, k: string, pb: NativePointer): number | null => {
             try {
-                const r = invokeMethod(getStatMi!.info, null, [e, idBufs[k], partBuf, nullId]);
+                const r = invokeMethod(getStatMi!.info, null, [e, idBufs[k], pb, nullId]);
                 return r.isNull() ? null : r.add(0x10).readS32();
             } catch { return null; }
         };
+        const getStat = (e: NativePointer, k: string): number | null => getStatP(e, k, partBuf);
 
         // DÉGÂT D'ARME de l'attaque normale (one-shot) : le dégât/hits ne sont PAS des StatType
         // unité (la stat Attack agrégée ≠ dégât d'arme résolu). On capture la PRÉDICTION native
@@ -693,10 +708,22 @@ export function registerView(ctx: Ctx): void {
         const units: Array<Record<string, unknown>> = [];
         for (const { e, id } of allUnits) {
             const stats: Record<string, number | null> = {};
-            for (const k of Object.keys(STAT_IDS)) stats[k] = getStat(e, k);
+            // AXE STAT-MODIFICATION (§7bis prediction.md) : delta Current-Initial par StatType.
+            // `CalculateModifiersFromStatModifications` @181004380 ne s'active QUE si CurrentValue !=
+            // BaseValue → un delta non-nul = présence de modifications de stat (source des modifiers de
+            // dégât par-cible non exposés comme effets nommés, ex. le +50% sur worldTerminator). Emis
+            // pour NOMMER le modifier par capture (INPUT), pas pour deviner.
+            const statDelta: Record<string, number> = {};
+            for (const k of Object.keys(STAT_IDS)) {
+                stats[k] = getStat(e, k);
+                const init = getStatP(e, k, partBufInit);
+                if (init !== null && stats[k] !== null && stats[k] !== init) {
+                    statDelta[k] = (stats[k] as number) - init;
+                }
+            }
             units.push({
                 entityId: id, ctrl: invokeBool(isCtrlByCurMi, [e, statePtr]),
-                stats, normalAttack: readNormalAttack(e), unitConfig: readUnitConfig(e),
+                stats, statDelta, normalAttack: readNormalAttack(e), unitConfig: readUnitConfig(e),
                 shields: readShields(e),
             });
         }

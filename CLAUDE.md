@@ -285,6 +285,22 @@ l'expérimentation live (« je fais varier un input et j'observe la sortie pour 
   sur le namespace, ex. `DamageCalculations$$`, `DamagePrediction$$`) **avant** de grinder une
   fonction inline géante (`PredictAttackRaw` ≈ l'inline optimisé de ~80 méthodes propres). Porter
   depuis les feuilles propres (1:1 méthode→fonction), pas depuis l'inline.
+- **Les traces/hooks live = un OUTIL DE CIBLAGE de la RE, JAMAIS un outil de découverte de formule.**
+  Le SEUL usage légitime d'un hook live dans une enquête RE : poser **UN** hook + `Thread.backtrace`,
+  lire la **chaîne d'appels** (frames `il2cpp+0xRVA` → soustraire `0x180000000` → adresses de
+  fonctions), en déduire **quelle(s) fonction(s) NOMMÉE(S)** est en jeu, puis **aller LIRE ces
+  fonctions dans ghidra** (`decompile_function`). Le backtrace répond à **« QUELLE fonction dois-je
+  RE ? »**, jamais à « quelle est la formule / la valeur ? » — ça, c'est le décompilé qui le donne.
+  - **Anti-pattern PROSCRIT** (déjà commis, ~10 reinjects gaspillés en une session) : empiler hook
+    après hook (capturer la sortie de la feuille A, puis B, puis les 29 feuilles, puis le bonus…)
+    pour **re-découvrir en tâtonnant** ce que la fonction nommée du décompilé donne en 30 s de
+    lecture. Dès qu'un backtrace (ou un simple `search_symbols_by_name` sur la classe de service)
+    pointe une fonction nommée pertinente (`CalculateElevationBonusModifier`, `CalculateDefenderModifiersForPrediction`,
+    …), **STOP les hooks → lire le décompilé**. Réflexe de départ : `search_symbols_by_name` sur la
+    classe de service (`DamageCalculations$$`, …) et LIRE, **avant** de poser le 1ᵉʳ hook.
+  - Corollaire : ne pas confirmer live une valeur (« le +50 vient-il d'ici ? ») qu'on peut LIRE dans
+    le code. Le live ne confirme QUE ce que le décompilé ne peut pas trancher statiquement (ex.
+    valeur runtime d'un état, ordre d'énumération non-RE, generic-sharing ambigu).
 - **Ne JAMAIS asserter un mécanisme sans l'avoir lu dans le décompilé** : un pattern qualitatif
   observé (« la largeur dépend de la cible ») ≠ formule vérifiée. Marquer toute déduction non
   encore lue dans le code comme **hypothèse**, et la confirmer dans ghidra avant de l'affirmer ou
