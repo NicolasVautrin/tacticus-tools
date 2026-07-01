@@ -80,37 +80,117 @@ Deux **régimes de score** (juste nommés ici, détail → `scoring.md`) :
 `DefaultActiveAbilityPlaybook` (la majorité des abilities) est trivial : énumère les cibles, priorité
 constante `Fix64(3/2)=1.5`, aucune heuristique.
 
-### 2.3 `ChooseAction` / `ChooseActionFromBuckets` — argmax parmi les légales
+### 2.3 Sélection de l'action — générateurs ordonnés, PREMIER NON-NULL (RE confirmé, modèle corrigé)
 
-Le bucket-tree (sous-buckets imbriqués par catégorie, récursion) est un détail d'implémentation ; le
-résultat net est **argmax-utilité parmi les actions légales** :
+> ⚠ **Correction** : l'ancienne section affirmait un « argmax sur une devise unifiée » entre
+> attaque/heal/move. **C'est FAUX** (vérifié dans le code, build gqfc5mff6c). Le vrai mécanisme est
+> une **liste ordonnée de générateurs, premier-non-null**, mouvement en dernier (fallback).
+
+`DefaultAiUnitTactic..ctor` (@1810eebc0) construit une LISTE ORDONNÉE de générateurs (@tactic+0x60) :
 
 ```
-ChooseAction(bucket)               @1813fc0d0:
-  si feasible(bucket.defaultAction):  return bucket.defaultAction
-  sinon: return ChooseActionFromBuckets(bucket.children triés)    # SortedList par clé/priorité
-
-ChooseActionFromBuckets            @1813fbe00:  itère la SortedList en ordre de clé,
-                                                renvoie la 1ʳᵉ action faisable (récursif)
+[ Gen(pref=1000), Gen(100), Gen(0), Gen(-100), Gen(-1000), Gen(final), MovementActionGenerator ]
+  \________ 6 ActiveAbilityActionGenerator, un par TIER de préférence ________/   \_ move EN DERNIER _/
 ```
 
-- Gate de faisabilité `FUN_18004cc80(bucket, action, ctx)` :
-  `action != null && (bucket.minUtilityDifference absent OU action.Utility >= bucket.minUtilityDifference)`.
-- `Bucket.AddAction` (@1813fbcc0) : `defaultAction` = action de **plus haute utilité** passant le gate
-  (`if action.Utility > default.Utility: default = action`, `op_GreaterThan`) ⇒ **argmax dans une
-  catégorie**.
-- `Bucket.AddActionToBucket` (@1813fbb60) : range l'action dans un sous-bucket par **catégorie**
-  (SortedList key=catégorie, créé SANS seuil par `CreateBucket`/`GetOrCreateBucket`
-  @1813fc170/1813fc550 ⇒ gate toujours faisable).
+`CalculateNextActionForUnit.MoveNext` (@1810f54e0) itère la liste et renvoie la **PREMIÈRE action
+NON-NULL** (`if (action != 0) break`). Pas d'argmax inter-générateurs — **premier-non-null par tier**.
 
-**Résolu : « attaque vs move » n'est PAS une priorité-de-catégorie ni un seuil.** Si le movement
-(ajouté EN DERNIER par `DefaultAiUnitTactic..ctor` @1810eebc0, après
-`GetDefaultActiveAbilityActionGenerators()`) était départagé par ordre de catégorie, l'attaque
-primerait toujours et le natif ne bougerait jamais avec une attaque dispo — or il MOVE. Donc
-attaque / ability / approche-mouvement sont départagées par **argmax sur la devise unifiée** : le natif
-MOVE quand `U(move) > U(meilleure attaque)`. Générateurs : `ActiveAbilityActionGenerator`,
-`MovementActionGenerator`, `RandomAbilityActionGenerator` ; tactics : Default / OnlyMove / Random /
-BossSkipActiveAbility / SkipTurn.
+**Tier de préférence par ability = sa PLAYBOOK.** `InitAbilityTypeLists` (@1810ed540) range chaque
+ability dans la liste de son `playbook.Preference` (1000/100/0/-100/-1000 ; sans préférence → liste
+« final »). Dict tier→abilities @tactic+0x40. `GetDefaultActiveAbilityActionGenerators` (@1810ed0c0)
+crée un `ActiveAbilityActionGenerator` par tier dans cet ordre.
+
+**Un générateur de tier** — `ActiveAbilityActionGenerator.GenerateActions` (@18119a3f0) :
+1. énumère les abilities du tier que possède l'unité (`GetUnitAbilitiesInOrder` @181182a40, ordre
+   déclaré, shuffle optionnel selon `ShouldRandomizeOrder`) ;
+2. pour chaque ability UTILISABLE (`!IsAbilityBlocked`, `CanCurrentlyBeUsed`, playbook can-evaluate),
+   exécute sa playbook → actions scorées → `Bucket.Merge` ;
+3. termine par **`Bucket.ChooseAction`** (argmax-faisable, cf. ci-dessous) → renvoie l'action, ou
+   **null si le bucket est VIDE** (aucune ability du tier n'a produit d'action LÉGALE).
+
+**`ChooseAction` (argmax DANS un bucket)** :
+```
+ChooseAction(bucket)        @1813fc0d0:  feasible(default) ? default : ChooseActionFromBuckets(children)
+ChooseActionFromBuckets     @1813fbe00:  itère la SortedList par clé, 1ʳᵉ action faisable (récursif)
+Bucket.AddAction            @1813fbcc0:  default = action de plus haute utilité (op_GreaterThan) ⇒ argmax
+Bucket.AddActionToBucket    @1813fbb60:  sous-bucket par catégorie (SortedList, SANS seuil ⇒ feasible)
+gate FUN_18004cc80       :  action != null && (minUtilityDifference absent OU U >= minUtilityDifference)
+```
+
+**Conséquences (modèle corrigé) :**
+- Ordre inter-catégorie = **tiers de préférence par-ability** (hard priority), PAS un ordre figé
+  attack>heal>summon, PAS un argmax sur devise commune.
+- DANS un tier, plusieurs abilities se départagent par **argmax d'utilité** (le bucket).
+- Le **MOUVEMENT est un FALLBACK** : il ne fire QUE si AUCUN tier d'ability n'a produit d'action
+  légale (= rien d'atteignable/utilisable). **Pas de seuil utilité ability-vs-move.**
+- « Bouger pour mieux attaquer » N'EST PAS le MovementGen : c'est une **action d'ability avec
+  composante de déplacement** (la playbook énumère les couples (tuile atteignable, cible) ; le bucket
+  prend le meilleur). Le MovementGen pur (approche) ne sert que quand aucune attaque n'est possible
+  depuis aucune tuile atteignable.
+
+> **Re-validation LIVE (Rotbone, #38 option A) → VERDICT B** : Rotbone, allié adjacent **manque 2007 PV**
+> (cible LÉGALE de Heal 18 ET Active 1037 via `abilityTargets`), Rotbone sans attaque → **le natif BOUGE**.
+> Donc « premier-non-null PUR » est incomplet : un tier peut renvoyer null **malgré une cible ciblable**.
+
+### 2.3bis Le GATE par-action (`ShouldExecute`) — RE complet
+
+Chaque action *comparable* (attaque/soin/repair) s'auto-gate à l'**émission**. Flux (RE) :
+
+```
+ComparablePlaybook.EvaluateInternal   @181408980 :  pour chaque cible éligible
+    util = CalculateActionUtility(...)              # Nullable<TimeSpan>
+    if util.HasValue:                               # <-- GATE : sinon AUCUNE action émise
+        action = GenerateAction(unit, cible, util.Value)
+        if FUN_18004cc80(bucket, action): bucket.argmax(action)
+
+CalculateActionUtility                @181406ee0 :
+    u = predictionUtility(...)                      # heal: CalculateUtilityFromHealEvent (cf. §9)
+    if !ShouldExecute(unit, cible, u): return null  # vtable +0x328  → Nullable.null
+    u += tileUtility (CalculateUtilityFromTilePrediction) + UtilityAttackCase + ...
+    return Nullable(u)                              # (sentinels TimeSpan Zero/Min/Max gérés à part)
+
+HealPlaybook.ShouldExecute            @181184b30 :  return u > 0 && (cibleNonBoss || cible != caster)
+```
+
+⇒ **Le gate = `prédiction d'utilité > 0`.** Si l'utilité de soin (la cible) est `<= 0`, `ShouldExecute`
+renvoie false → `CalculateActionUtility` renvoie `null` → `EvaluateInternal` **n'émet pas** d'action →
+le tier soin renvoie null → fallback MOVE. (Légalité de ciblage `abilityTargets` ≠ utilité > 0.)
+
+> ⇒ **Remplaçant fidèle de `ENGINE_HEAL_MIN_UTIL`** : émettre le soin **ssi `heal_utility > 0`** (seuil
+> **0**, pas 50), sur l'utilité de soin déjà portée (#37, `predict.py` PARTIE 3). Idem attaque (utilité
+> de prédiction > 0, + sentinels kill).
+>
+> **✅ RÉSOLU — « VERDICT B » était une ERREUR DE MESURE, pas un comportement natif.** Le dump de
+> l'action COMPLÈTE de Rotbone (`aiDryRunAllUnits`, chunk entier, pas juste le 1er message) :
+> `[ MoveUnitMessage u80→(1,2), ActiveAbilityMessage caster=80 target=80 abilityType=18 (Heal) ]`.
+> **Rotbone se DÉPLACE PUIS SOIGNE.** Le helper `native_first` renvoyait `"move"` sur le premier
+> message et **masquait le heal qui suit** → tout le « contradiction / gate mystère » poursuivait un
+> **fantôme**. La chaîne RE était **correcte depuis le début** : `heal_utility > 0` ⟹ le soin EST émis.
+> Les sous-pistes (IsFriend par-joueur `@180ed8550`, magnitude `Damage×hits`, éligibilité
+> `ShouldEvaluateTarget @18111fb10` sans filtre « déjà agi », `get_CanCurrentlyBeUsed @180f8fdb0`
+> cooldown/charges, abilities `18`+`1037` `usable=true`) restent des RE valides, mais elles cherchaient
+> à expliquer un non-événement.
+>
+> **Leçon (mesurer la vérité terrain, pas un proxy)** : l'action native est souvent **COMPOSÉE**
+> (`move + ability`). Toute comparaison moteur-vs-natif doit lire le **chunk entier**, pas
+> `native_first[0]`. ⚠ **`ENGINE_HEAL_MIN_UTIL` est très probablement FAUX** : il fait *bouger* le moteur
+> là où le natif fait *move+heal* ; la « concordance » mesurée plus tôt ne tenait qu'au 1er message
+> (le move), par coïncidence.
+>
+> **✅ REFONTE SCORING UNIFIÉ (1ère tranche, `engine_decide` — VALIDÉE LIVE).** Modèle natif porté :
+> chaque ability candidate = `(tuile atteignable, cible)` scorée `pred_util + tile_util(tuile)` ;
+> gate `ShouldExecute` = `pred_util > 0` (l'ancien seuil 50 RETIRÉ — il était faux) ; argmax `full_util`
+> ; le MOVE est le **fallback** (RE premier-non-null). La branche soin **balaie les tuiles** (cible
+> joignable depuis T ssi `hexdist(T,cible) ≤ HEAL_RANGE`, self depuis toute tuile) → produit une action
+> **composée move+heal**. **Validation Rotbone : MATCH EXACT** (moteur = natif : move→(1,2) + heal
+> ability 18 sur self) après fix `is_friend` (comparer à `me.team` 1/2, pas `currentPlayer` 3/4).
+> **RESTE** : (a) `HEAL_RANGE=1` (mêlée) en dur → portée gameconfig pour soins à distance ; (b)
+> `tile_util` = `move.move_utility` (profil MovementSuggestion) en proxy du tile_util d'action natif
+> (profil `Default` `CalculateUtilityFromTilePrediction`) — calibration ouverte (§3.5) ; (c) intégrer
+> summon/buff au pool unifié (encore en branche fallback) ; (d) **non-régression** : lancer les tests
+> ciblés attaque/heal (la branche attaque passe de return-immédiat à candidat-poolé) avant tout commit ;
+> (e) corriger `native_first`/le harnais d'agreement pour comparer le **chunk complet** (move ∧ ability).
 
 ### 2.4 Modèle générique des feuilles (à porter)
 

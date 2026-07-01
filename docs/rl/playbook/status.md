@@ -23,16 +23,54 @@
 
 ## 3. Ce qui RESTE pour la fidélité (par ordre d'impact)
 
-### 3.1 Prédiction NON-dégât offline (heal / repair / effet) — **le gros bloqueur structurel**
-`aiPredict` = `GetAllPredictions` = **dégât seulement**. Le scoring fidèle des abilities à
-SOIN / RÉPARATION / EFFET (et le dégât BOUCLIER `Avg(shieldMinMax)`) est bloqué à la source.
-- Gates/tags/custom-utility de Heal/Repair sont **déjà portés** ; il ne manque que la **magnitude prédite**.
-- **Voie ouverte** : re-dériver les montants depuis **gameconfig** (`variables[clé][niveau]` + constants — soin/repair inclus), comme on l'a fait pour le dégât (cf. [`prediction.md`](prediction.md) §offline). OU un RPC de prédiction complet (damage+heal+effets).
+### 3.1 Prédiction NON-dégât offline (heal / repair / effet) — ~~bloqueur structurel~~ → SOIN+REPAIR RE'd+portés
+`aiPredict` = `GetAllPredictions` = **dégât seulement** (l'oracle live ne couvre pas le non-dégât).
+- **SOIN** : chaîne `PredictHeal`/`HealUtility` **RE'd + portée** offline (`predict.py` PARTIE 3 ; cf.
+  [`prediction.md`](prediction.md) §9). Wirée + gatée dans `engine_decide` (seuil `ENGINE_HEAL_MIN_UTIL`).
+- **RÉPARATION** : chaîne `PredictRepair`/`RepairedAmountUtility` **RE'd + portée** offline (`predict.py`
+  PARTIE 4 ; [`prediction.md`](prediction.md) §9bis) — utilité à 2 termes (Health W=100 + Armor W=50)×bossMod,
+  pas de friendSign. **Pas encore wirée** dans un `RepairPlaybook`/`engine_decide` (mécanique rare).
+- **POSE D'EFFET** : `AddedEffectUtility` **RE'd + portée** offline (`predict.py` PARTIE 5 ;
+  [`prediction.md`](prediction.md) §9ter). **Pas de magnitude** — poids plat par type d'effet,
+  `U = Weight[name] ± Weight["Unit_on_"+name]`, lu du BC `Utilities.Default` (data-driven, valeurs réelles
+  vérifiées : Fire ennemi=25 / allié=−5). C'est une **feuille** du scorer BC général (cf. §3.2 / #38).
+- **RESTE** : dégât BOUCLIER `Avg(shieldMinMax)` ; magnitude heal/repair sourcée du gameconfig
+  (`hpToHeal`/`hpToRepair` par level × mult) ; **wiring** des utilités heal/repair/effet dans les playbooks
+  + agreement LIVE des décisions correspondantes.
 
-### 3.2 Bucket-tree INTER-catégorie (ordre summon vs heal vs move vs attack) — **pas encore RE**
-La sélection DANS une catégorie = RE'd (argmax). L'**assemblage du bucket racine** + les clés
-d'ordre entre catégories d'utilité non-comparables (summon ~0-6 vs kill ~100 vs move ~100s) =
-non RE. C'est le « vrai correctif attaque-vs-move » des misses résiduels.
+### 3.2 Sélection INTER-catégorie — **RE'd (modèle corrigé)**, refacto moteur EN ATTENTE
+Mécanisme natif **confirmé dans le code** (cf. [`architecture.md`](architecture.md) §2.3) et il
+**invalide deux modèles antérieurs** (« argmax devise unifiée » ET le seuil `ENGINE_HEAL_MIN_UTIL`) :
+- Liste ORDONNÉE de générateurs `[ability@1000, @100, @0, @-100, @-1000, @final, MOVE]`
+  (`DefaultAiUnitTactic..ctor @1810eebc0`), **premier-non-null** (`CalculateNextActionForUnit @1810f54e0`).
+- Tier d'une ability = son **`playbook.Preference`** (`InitAbilityTypeLists @1810ed540`).
+- Un tier = **argmax** (`Bucket.ChooseAction`) des actions LÉGALES de ses abilities, ou **null** si rien.
+- **MOVE = fallback pur** : fire ssi aucun tier d'ability n'a d'action légale. **Pas de seuil ability/move.**
+
+**✅ « VERDICT B » était une ERREUR DE MESURE** (le « natif bouge sans soigner »). Le dump de l'action
+COMPLÈTE de Rotbone (`aiDryRunAllUnits`, chunk entier) = `[MoveUnitMessage→(1,2), ActiveAbilityMessage
+abilityType=18 (Heal)]` : **Rotbone se déplace PUIS soigne**. `native_first` renvoyait `"move"` (1er
+message) et masquait le heal. Donc « premier-non-null PUR » est **maintenu** (le soin a bien été émis,
+en `move+heal`) et la RE était correcte. Leçon : comparer le **chunk entier** (move ∧ ability), jamais
+`native_first[0]`.
+
+**Gate RE'd (cf. [`architecture.md`](architecture.md) §2.3bis)** : chaque action comparable s'auto-gate à
+l'émission via `Playbook.ShouldExecute` (vtable +0x328, appelé dans `CalculateActionUtility @181406ee0`) ;
+`HealPlaybook.ShouldExecute @181184b30` = **`heal_utility > 0`** (+ règle boss). Si `<= 0` →
+`CalculateActionUtility` renvoie `null` → `EvaluateInternal @181408980` n'émet pas l'action → fallback MOVE.
+⇒ **Remplaçant fidèle de `ENGINE_HEAL_MIN_UTIL` = seuil 0** (pas 50) sur l'utilité de soin déjà portée (#37).
+
+**✅ Refonte moteur — 1ère tranche FAITE + VALIDÉE LIVE.** `engine_decide` : la branche soin **balaie
+les tuiles** `(tuile atteignable × cible valide)`, score `pred_util + tile_util(tuile)`, gate
+`ShouldExecute` = `pred_util > 0` (seuil `ENGINE_HEAL_MIN_UTIL`=50 **RETIRÉ**), argmax `full_util` ; MOVE
+= fallback (premier-non-null) → produit une **action composée move+heal**. **Rotbone : MATCH EXACT**
+(moteur = natif : move→(1,2) + heal ability 18 sur self, util≈20) après fix `is_friend` (= `me.team`
+1/2, PAS `currentPlayer` 3/4). **RESTE** : (a) `HEAL_RANGE=1` mêlée en dur → portée gameconfig pour
+soins à distance ; (b) `tile_util` = `move.move_utility` (MovementSuggestion) en proxy du tile_util
+d'action natif (`Default`/`CalculateUtilityFromTilePrediction`) — calibration §3.5 ; (c) intégrer
+summon/buff au pool unifié (encore en fallback) ; (d) **non-régression** : tests ciblés attaque/heal
+(la branche attaque passe de return-immédiat à candidat-poolé) AVANT commit ; (e) corriger
+`native_first`/le harnais d'agreement pour comparer le **chunk complet** (move ∧ ability).
 
 ### 3.3 Longue traîne des ~351 leaf playbooks bespoke
 Catalogue `InitializePlaybookBuilders` @1810d02b0 = 351 entrées. Les communs sont faits ;

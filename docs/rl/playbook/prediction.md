@@ -274,6 +274,61 @@ comme le dégât) ; (b) brancher `heal_utility` dans `HealPlaybook`/`engine_deci
 missing-HP ; (c) **agreement LIVE** sur un scénario healer-vs-alliés-endommagés (la validation est sur
 la DÉCISION : le moteur soigne la même cible que le natif).
 
+## 9bis. Prédiction de RÉPARATION (repair) — RE complet + port offline
+
+Répare les **machines** (Adeptus Mechanicus / Necron). Chaîne **entièrement RE'd et offline-calculable**,
+portée 1:1 dans `engine/predict.py` (PARTIE 4). Quasi identique au soin, mais sur **DEUX** stats
+fill-up — `Health` (id 5) **et** `Armor` (id 4) — d'où une **utilité à deux termes**.
+
+| Étape native | VA | Formule |
+|---|---|---|
+| `DamagePrediction.PredictRepair` | `@181038280` | `repairAmount = floor((floor(modAdd) + base) × modMul)` [RepairModifier caster] → caps group/boss → `MaxFillUp` ×2 |
+| `FillUpStatComponent.MaxFillUp` | `@180f9b790` | `fill_i = min(repairAmount, GetStat(i,Maximum) − GetStat(i,Current))` sur Health **et** Armor |
+| `RepairedAmountUtility.EvaluateRepairInSteps` | méthode `@1810e06f0`, iter `@1810e45b0` | `U = (fill_hp/(maxHP+1) × 100 + fill_armor/(maxArmor+1) × 50) × bossMod` |
+| `RepairedAmountUtility.cctor` (poids) | `@1810e08b0` | `W[0]=Fix64.FromInt(100)` (HP), `W[1]=Fix64.FromInt(0x32=50)` (Armor) |
+| `GetMaxHealth` (denom PV) | `@1810e0760` | `GetStat(Health,Maximum)+1` (boss → const config `0xa9`) |
+| `GetUnitUtilityModifier` | `@1810e0820` | `bossMod = 2` si cible boss, sinon `1` |
+
+- **PAS de friendSign** (≠ soin) : on ne répare que ses **propres** machines → jamais d'utilité négative.
+- `base` = magnitude brute de l'ability de réparation (`StatAmount × max(hits,1)`, source gameconfig
+  `hpToRepair` par level × mult), transformée par le RepairModifier `(add, mul)` côté caster (no-op par
+  défaut : `add=0, mul=1.0`).
+- `StatType` (dump.cs @863349) : `Armor=4`, `Health=5`. `StatPart` : `Current=0`, `Maximum=2`, `Initial=3`.
+
+**Porté + sanity-check** : `repair_amount`/`predict_repair_effective`/`RepairPrediction`/`repair_utility`
+(cohérence math vs RE OK : modifier `(50+800)×1.25=1062`, `fill_hp=min(800,2000)=800`,
+`fill_armor=min(800,400)=400`, `U=59.94`, boss×2=119.87). **RESTE** (wiring, idem heal) : brancher
+`repair_utility` dans `RepairPlaybook`/`engine_decide` + **agreement LIVE** (caster Loki + machine alliée
+endommagée). Boss : dénominateur PV via const config `0xa9` non lue (cas-bord, hors port).
+
+## 9ter. Pose d'EFFET (added effect) — RE complet + port offline
+
+Dernière brique non-dégât (`engine/predict.py` PARTIE 5). Contrairement au soin/repair, **pas de
+« magnitude » d'effet** : l'utilité est un **poids PLAT par TYPE d'effet, 100 % piloté par le BC** —
+la magnitude d'un DoT/réduction passe, elle, par le chemin **dégât** (`ProbableDamageEvent`).
+
+| Étape native | VA | Formule |
+|---|---|---|
+| `AddedEffectUtility.EvaluateAttackInSteps` | iter `@1810f6e70` | `0` si cible a déjà l'effet ; sinon `Weight[name] + signe × Weight["Unit_on_"+name]` |
+| `BaseUtility.HasUtilityValue` | `@1810cd700` | `name in weights` (`Dict<string,int>` @this+0x58) |
+| `BaseUtility.GetUtilityValue` | `@1810cd3c0` | `Fix64.FromInt(weights.get(name, 0))` (clé absente → 0) |
+
+- `name = Enum.ToString(EffectType)` (ex. `"Fire"`, `"SpiderWeb"`, `"Ice"`).
+- `signe = −1` si la cible est un **ALLIÉ** du caster (`UnitExtensions.IsFriend`), `+1` sinon → poser un
+  effet hostile sur son propre camp = utilité négative.
+- `weights` = un dict de catégorie du BC `Utilities.Default` (déjà capturé), p.ex. `AddedTileEffects` :
+  `Fire=10, Unit_on_Fire=15, Ice=5, Unit_on_Ice=0`. **Fire sous un ennemi = 10+15 = 25 ; sous un
+  allié = 10−15 = −5.** Préfixe `"Unit_on_"` **confirmé empiriquement** par les clés BC.
+
+> Ce lookup `BaseUtility.GetUtilityValue(name)` est le **même moteur de poids data-driven** que tout
+> le scorer natif (catégories `KillUnit` 50/100, `TileEffects`, `TriggeredAbilities`, `ActiveAbilities`,
+> … ~50 catégories dans `Default`). La pose d'effet n'en est qu'**une feuille** ; l'assemblage
+> inter-catégorie = [`status.md`](status.md) §3.2 / #38.
+
+**Porté + sanity-check** (vs vrais poids BC) : `utility_value`/`added_effect_utility` — `Fire(ennemi)=25`,
+`Fire(allié)=−5`, `Ice=5`, déjà-présent→0, clé inconnue→0. **RESTE** : wiring dans le scorer d'attaque +
+mapper l'`EffectType` enum → nom de clé BC (déjà aligné : `Enum.ToString`).
+
 ## 10. État de validation
 
 - **Agreement seed-777 = 11/11** (xmod 1.00 partout), sourcé LIVE (multiplier + PassiveAbilityLevel par
@@ -283,9 +338,9 @@ la DÉCISION : le moteur soigne la même cible que le natif).
 
 ### BLOQUÉ / RESTE
 
-- **Prédiction NON-dégât (heal / repair / pose d'effet) offline** : les montants existent en gameconfig
-  (`hpToHeal`/`hpToRepair`), mais la **scenario-math heal/repair** n'est pas RE'd → prédiction de soin
-  non portée. Débloque les playbooks communs Heal/Repair.
+- **Prédiction NON-dégât offline** : heal (§9) **et** repair (§9bis) sont désormais **RE'd + portés**
+  (`PredictHeal`/`PredictRepair` + utilités). RESTE : (a) pose d'**EFFET** (magnitude/utilité d'un effet
+  appliqué) non RE'd ; (b) **wiring** des utilités heal/repair dans les playbooks + agreement LIVE.
 - **`perHitList`** (contenu hitDmg/critChance par coup) : dispatch interface, **service source non
   identifié** ; slots crit 0x10/0x11, `absorbShield`, `FillUpStat.MaxReduceByMinimum` = à calibrer
   vs aiPredict.

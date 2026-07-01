@@ -231,83 +231,84 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt)
         ab_ids = [a.get("id") for a in ((me or {}).get("abilities") or [])]
         print(f"    [dbg u{uid}] abilities={ab_ids} attack_cands(ab,tgt,util,kS,k,dmax,hp)={dbg}",
               file=sys.stderr)
+    # ── SCORING UNIFIÉ (refonte §2.3bis) : chaque ability candidate = (tuile atteignable, cible)
+    #    scorée `pred_util + tile_util(tuile)` ; gate ShouldExecute = `pred_util > 0` ; argmax
+    #    `full_util` toutes abilities confondues. Le MOVE est le FALLBACK (RE premier-non-null :
+    #    une ability avec pred>0 prime toujours sur le move pur), PAS un co-argmax. L'action native
+    #    est COMPOSÉE (move-vers-la-tuile + ability) — c'est ce balayage de tuiles qui la reproduit.
+    import hexgeo
+    cands: list = []  # {target, ability, to:(c,r)|None, pred, full}
     if best and best[0] > 0:
-        # ATTAQUE-vs-MOVE (§13.6) : le natif ne s'engage dans l'attaque que si sa devise UNIFIÉE
-        # `U_damage + tile_util(tuile d'attaque)` bat `U_move = tile_util(meilleure tuile de move)`.
-        # ⚠ U_damage DOIT être le composite Damage natif FIDÈLE (KillUnit+OverkillUnit+DamageDealt
-        # magnitude) — `best[0]` n'a PAS DamageDealt → un kill (50-100) se fait battre par le tile
-        # (régression casts létaux). NE PAS compenser par un knob (_MVA_DMG_SCALE) : c'est une
-        # devinette. Le scale réel est à porter depuis la RE de DamageDealtUtility.Evaluate. Tant que
-        # ce barème n'est pas fidèle, le gate reste OFF par défaut.
-        if _MOVE_VS_ATTACK and move_to is not None and move_util is not None:
-            tile_at = move.move_utility(best[3], origin, epos, wt, ranged)
-            u_attack = best[0] + tile_at  # NON FIDÈLE : best[0] ≠ composite Damage natif (cf. ci-dessus)
-            if _DEBUG:
-                print(f"    [mva u{uid}] U_attack={u_attack:.1f} (dmg={best[0]:.1f}+tile={tile_at:.1f}) "
-                      f"vs U_move={move_util:.1f} -> {'MOVE' if move_util > u_attack else 'ATTACK'}",
-                      file=sys.stderr)
-            if move_util > u_attack:
-                return {"kind": "move", "to": move_to, "util": move_util}
-        return {"kind": "ability", "target": best[1], "ability": best[2], "to": best[3],
-                "util": best[0]}
+        # ATTAQUE : tuile native = attackPlans.ranked (déjà la tuile move-to-attack choisie).
+        tile_at = move.move_utility(best[3], origin, epos, wt, ranged) if epos else 0.0
+        cands.append({"target": best[1], "ability": best[2], "to": best[3],
+                      "pred": best[0], "full": best[0] + tile_at})
 
-    # 1bis. HEAL (ability Comparable GRANTED-par-passif, ex. TwistedScience_Heal 1167, surfacée par
-    #        le pass GetUnusedAbilities). Scoreur FIDÈLE à CalculateCustomUtility + soin EFFECTIF :
-    #        le natif soigne `min(healAmount, missing)` PV (PredictHeal = MaxFillUp cappé à missing
-    #        ; =0 si cible PLEINE → le cast sert surtout le BUFF TwistedScience_ExtraHp). ⚠ NE PAS
-    #        scorer via aiPredict.healthDmgMax : c'est GetAllPredictions (query de DÉGÂT, BOGUS pour
-    #        un heal — renvoyait 2429/3036 sur cibles pleines). Score = base 100 + (100 si cible
-    #        Genestealers/faction-15) + soin effectif (missing HP via observeBattle) ; GATÉ à 0 si la
-    #        cible a déjà l'effet TwistedScience_ExtraHp ; tie-break id croissant (ordre natif).
+    # 1bis. SOIN (tile-swept) — balaie (tuile atteignable × cible valide) et ajoute au pool unifié.
+    #        pred = CustomUtility (per-ability) + heal_term FIDÈLE (HealUtility @1810e16f0 =
+    #        (effective/(maxHP+1))*100*friendSign*bossMod ; effective = PredictHeal/MaxFillUp =
+    #        min(healAmount, missing), SATURÉ = missing). Gate ShouldExecute @181184b30 : on N'ÉMET le
+    #        soin QUE si `pred > 0` (l'ancien seuil `ENGINE_HEAL_MIN_UTIL`=50 était FAUX — le natif
+    #        soigne en MOVE+HEAL dès pred>0, cf. architecture.md §2.3bis). La tuile retenue (full_util =
+    #        pred + tile_util) reproduit le déplacement de l'action native COMPOSÉE (move+heal).
     unit_by_id = {u.get("id"): u for u in units}
+    pos_by_id = {u.get("id"): (u["pos"]["col"], u["pos"]["row"])
+                 for u in units if u.get("pos") and u["pos"].get("col") is not None}
     heal_abis = [ab for ab in ((me or {}).get("abilities") or [])
                  if "Heal" in (ab.get("name") or "") and ab.get("usable") is not False]
-    hpmax_by_sq = {}
     if heal_abis:
+        from engine.predict import heal_utility
         obs = _r(sid, "observeBattle", {"runnerId": rid}, 40)
         hpmax_by_sq = {u.get("squadId"): u for u in (obs.get("units") or [])}
-    # Utilité native = CalculateActionUtility = CustomUtility (per-ability) + Σ CalculateUtilityFromHealEvent.
-    # heal_term FIDÈLE (HealUtility @1810e16f0) = (effective/(maxHP+1))*100*friendSign*bossMod, où
-    # effective = PredictHeal/MaxFillUp @180f9b790 = min(healAmount, missing). Magnitude SATURÉE
-    # (healAmount >= missing → effective = missing) : exact tant que le soin remplit les PV manquants ;
-    # cap binding = min(hpToHeal[level]×mult, missing) — source gameconfig `hpToHeal` identifiée, scaling
-    # mult par-entité (cf. prediction.md §5/§9) = wiring restant. Remplace l'ancien proxy `missing` brut.
-    from engine.predict import predict_heal_effective, heal_utility
-    heal_best = None  # (key=(U, -id), ability, target) — U = custom + heal_term (additif, natif)
-    for ab in heal_abis:
-        aid = ab.get("id")
-        at = _r(sid, "abilityTargets", {"runnerId": rid, "unitId": uid, "abilityType": aid}, 40)
-        tgts = []
-        for u in (at.get("units") or []):
-            for a in (u.get("abilities") or []):
-                if a.get("abilityId") == aid:
-                    tgts = [t.get("targetId") for t in (a.get("targets") or [])
-                            if t.get("kind") == "unit" and t.get("targetId") is not None]
-        for tg in tgts:
-            tu = unit_by_id.get(tg) or {}
-            effs = [e.get("name") or "" for e in (tu.get("effects") or [])]
-            if any("TwistedScience_ExtraHp" in e for e in effs):
-                continue  # gate CustomUtility (TwistedScience) : déjà buffé → utilité 0
-            # CustomUtility = override par-ability (virtuel +0x338). TwistedScience : base 100 + 100 si
-            # cible Genestealers. Le Heal GENERIQUE (HealPlaybook, ex. Rotbone/Isabella ability 18) n'a
-            # AUCUN custom (common.py HealPlaybook custom=0) -> custom 0. Gate sur le nom de l'ability.
+        reach = [(t["col"], t["row"]) for t in move_tiles]
+        if origin is not None and origin not in reach:
+            reach = [origin] + reach
+        if not reach and origin is not None:
+            reach = [origin]
+        HEAL_RANGE = 1  # mêlée/adjacent (trait Healer, AoE adjacent). TODO: portée gameconfig pour soins à distance.
+        for ab in heal_abis:
+            aid = ab.get("id")
+            at = _r(sid, "abilityTargets", {"runnerId": rid, "unitId": uid, "abilityType": aid}, 40)
+            vts = set()
+            for u in (at.get("units") or []):
+                for a in (u.get("abilities") or []):
+                    if a.get("abilityId") == aid:
+                        for t in (a.get("targets") or []):
+                            if t.get("kind") == "unit" and t.get("targetId") is not None:
+                                vts.add(t["targetId"])
             is_twisted = "TwistedScience" in (ab.get("name") or "")
-            custom = (100 + (100 if _faction(tu.get("visualId")) == "Genestealers" else 0)) if is_twisted else 0
-            ob = hpmax_by_sq.get(tg) or {}
-            hp_max = int(ob.get("hpMax") or 0)
-            hp_cur = int(ob.get("hp") or 0)
-            eff = predict_heal_effective(hp_max, hp_cur, hp_max)   # saturé (healAmount>=missing) → = missing
-            # cibles via abilityTargets = ALLIÉS (is_friend=True) ; is_boss non capté ici (bossMod×2 rare) → False.
-            heal_term = heal_utility(eff, hp_max, is_friend=True, is_boss=False)
-            key = (custom + heal_term, -tg)  # utilité combinée native, tie-break id croissant
-            if heal_best is None or key > heal_best[0]:
-                heal_best = (key, aid, tg)
-    # GATE bucket-tree (§3.2) : le natif ne prend l'ability heal QUE si elle passe le seuil de son bucket,
-    # sinon le generateur d'ability renvoie null et c'est le MOVE (dernier de la liste) qui gagne. On ne
-    # retourne donc le heal que si U_heal >= _HEAL_MIN_UTIL ; sinon on tombe sur summon/move (mirror natif).
-    if heal_best and heal_best[0][0] >= _HEAL_MIN_UTIL:
-        return {"kind": "ability", "target": heal_best[2], "ability": heal_best[1],
-                "to": None, "util": heal_best[0][0]}
+            for tg in vts:
+                tu = unit_by_id.get(tg) or {}
+                if any("TwistedScience_ExtraHp" in (e.get("name") or "") for e in (tu.get("effects") or [])):
+                    continue  # gate CustomUtility (TwistedScience) : déjà buffé → 0
+                ob = hpmax_by_sq.get(tg) or {}
+                hp_max = int(ob.get("hpMax") or 0)
+                hp_cur = int(ob.get("hp") or 0)
+                eff = max(0, hp_max - hp_cur)   # soin effectif SATURÉ = missing
+                # cibles abilityTargets d'un SOIN = alliés/self (même équipe que l'unité agissante `me`).
+                # ⚠ comparer à me.team (1/2), PAS à currentPlayer (3/4) — sinon is_friend toujours faux.
+                is_friend = (me is not None and tu.get("team") == me.get("team"))
+                heal_term = heal_utility(eff, hp_max, is_friend=is_friend, is_boss=False)
+                custom = (100 + (100 if _faction(tu.get("visualId")) == "Genestealers" else 0)) if is_twisted else 0
+                pred = custom + heal_term
+                if pred <= 0:
+                    continue  # ShouldExecute : émet le soin SSI pred > 0
+                tpos = pos_by_id.get(tg)
+                for T in reach:
+                    if tg != uid and (tpos is None or hexgeo.distance(T, tpos) > HEAL_RANGE):
+                        continue  # cible hors portée de soin depuis T (self = depuis toute tuile)
+                    tu_pos = move.move_utility(T, origin, epos, wt, ranged) if epos else 0.0
+                    cands.append({"target": tg, "ability": aid,
+                                  "to": (T if T != origin else None),
+                                  "pred": pred, "full": pred + tu_pos})
+
+    # ── ARGMAX UNIFIÉ : meilleure ability candidate (toutes ont pred>0) par `full_util` ; tie-break
+    #    id de cible croissant (ordre natif). Si une existe, elle PRIME sur le move (RE premier-non-null).
+    #    Sinon → summon/move (fallback ci-dessous).
+    if cands:
+        bc = max(cands, key=lambda c: (c["full"], -(c.get("target") or 0)))
+        return {"kind": "ability", "target": bc["target"], "ability": bc["ability"],
+                "to": bc["to"], "util": bc["pred"]}
 
     # 1ter. Leaf NonComparable (summon) — RÈGLE DE TIR empirique : quand AUCUNE attaque n'est
     #       disponible, l'unité INVOQUE (si une tuile de spawn a ≥1 ennemi adjacent) plutôt que

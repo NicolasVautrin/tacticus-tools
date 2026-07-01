@@ -217,3 +217,129 @@ def heal_action_utility(events) -> float:
         prob = ev[4] if len(ev) > 4 else 1.0
         total += prob * heal_utility(ev[0], ev[1], ev[2], ev[3])
     return total
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════
+# PARTIE 4 — prédiction de RÉPARATION (repair) iso-AI + utilité (RE ghidra gqfc5mff6c)
+# ═══════════════════════════════════════════════════════════════════════════════════════
+# Répare les unités MÉCANIQUES (Adeptus Mechanicus / Necron). Structure quasi identique au soin
+# (PARTIE 3) MAIS sur DEUX stats « fill-up » — Health (id 5) ET Armor (id 4, StatType.Armor) —
+# d'où une utilité à DEUX termes. La chaîne native est portée 1:1 (VA citées), 100% OFFLINE.
+#
+#   DamagePrediction.PredictRepair          @181038280 → FillUpStatComponent.MaxFillUp @180f9b790 (×2)
+#       repairAmount = floor((floor(modAdd) + base) × modMul)   [RepairModifier côté caster,
+#           transform Fix64 (add, mul) ; no-op si pas de modificateur ⇒ repairAmount = base]
+#       (+ caps group GetGroupUnitHealLimit / boss comme le soin) ; puis sur CHAQUE stat :
+#       fill_i = MaxFillUp = min(repairAmount, GetStat(i,Maximum) − GetStat(i,Current))
+#   RepairedAmountUtility.EvaluateRepairInSteps @1810e06f0 (iter @1810e45b0 ; cctor @1810e08b0)
+#       U = (fill_hp/(maxHP+1) × 100 + fill_armor/(maxArmor+1) × 50) × bossMod
+#       GetMaxHealth @1810e0760 : denom PV = GetStat(Health,Maximum)+1 (boss → config const 0xa9)
+#       GetUnitUtilityModifier @1810e0820 : bossMod = 2 si boss sinon 1.
+#       ⚠ PAS de friendSign (contrairement au soin) : on ne répare QUE ses propres machines.
+#
+# StatType (dump.cs @863349) : Armor=4, Health=5. StatPart : Current=0, Maximum=2, Initial=3.
+
+REPAIR_UTILITY_WEIGHT_HP = 100      # RepairedAmountUtility.cctor @1810e08b0 : W[0] = Fix64.FromInt(100)
+REPAIR_UTILITY_WEIGHT_ARMOR = 50    # RepairedAmountUtility.cctor @1810e08b0 : W[1] = Fix64.FromInt(0x32)
+
+
+def repair_amount(base: int, mod_add: int = 0, mod_mul: float = 1.0) -> int:
+    """Montant de réparation après modificateur côté caster (path RepairModifier de PredictRepair
+    @181038280) : `floor((floor(mod_add) + base) × mod_mul)`.
+
+    `base` = magnitude brute de l'ability de réparation (StatAmount(weapon) × max(hits,1), comme
+    `HealAbility.HealAmount`). `mod_add`/`mod_mul` = composantes Fix64 (additif, multiplicatif) du
+    RepairModifier évalué sur (caster, cible) ; par défaut 0 / 1.0 → no-op ⇒ renvoie `base`."""
+    return int((int(mod_add) + int(base)) * mod_mul)
+
+
+@dataclass
+class RepairPrediction:
+    """Sortie 4-ints de `PredictRepair` : PV + Armor courants + remplissage effectif sur chacun."""
+    current_hp: int
+    current_armor: int
+    fill_hp: int
+    fill_armor: int
+
+
+def predict_repair_effective(repair_amount_value: int,
+                             target_current_hp: int, target_max_hp: int,
+                             target_current_armor: int = 0, target_max_armor: int = 0,
+                             boss_max_hp: int | None = None,
+                             group_limit: int | None = None) -> RepairPrediction:
+    """`DamagePrediction.PredictRepair` @181038280 → `FillUpStatComponent.MaxFillUp` @180f9b790 (×2).
+
+    Remplissage EFFECTIF (plafonné aux PV/Armor manquants) sur les DEUX stats réparables. Le
+    `repair_amount_value` doit déjà inclure le modificateur caster (cf. repair_amount()). Caps
+    optionnels `group_limit` (soin/réparation de groupe) et `boss_max_hp` (cible boss → cap PV à
+    `bossInitialMaxHP − curHP` = GetStat(Health,Initial)). Renvoie les 4 entiers (>= 0)."""
+    amt = int(repair_amount_value)
+    if group_limit is not None:
+        amt = min(amt, int(group_limit))
+    if boss_max_hp is not None:
+        amt = min(amt, int(boss_max_hp) - int(target_current_hp))
+    amt = max(0, amt)
+    fill_hp = max(0, min(amt, int(target_max_hp) - int(target_current_hp)))
+    fill_armor = max(0, min(amt, int(target_max_armor) - int(target_current_armor)))
+    return RepairPrediction(current_hp=int(target_current_hp), current_armor=int(target_current_armor),
+                            fill_hp=fill_hp, fill_armor=fill_armor)
+
+
+def repair_utility(fill_hp: int, target_max_hp: int,
+                   fill_armor: int, target_max_armor: int, is_boss: bool) -> float:
+    """`RepairedAmountUtility.EvaluateRepairInSteps` (iter @1810e45b0 ; weights cctor @1810e08b0).
+
+    `U = (fill_hp/(maxHP+1) × 100 + fill_armor/(maxArmor+1) × 50) × bossMod`, où `bossMod = 2` si la
+    cible est un BOSS sinon `1` (GetUnitUtilityModifier @1810e0820). Le `+1` aux dénominateurs évite
+    la division par zéro (GetMaxHealth @1810e0760). PAS de friendSign : la réparation ne cible que
+    ses propres machines (≠ soin, qui peut viser un ennemi avec utilité négative)."""
+    term_hp = fill_hp / (int(target_max_hp) + 1) * REPAIR_UTILITY_WEIGHT_HP
+    term_armor = fill_armor / (int(target_max_armor) + 1) * REPAIR_UTILITY_WEIGHT_ARMOR
+    return (term_hp + term_armor) * (2.0 if is_boss else 1.0)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════
+# PARTIE 5 — utilité de POSE D'EFFET (added effect) iso-AI (RE ghidra gqfc5mff6c)
+# ═══════════════════════════════════════════════════════════════════════════════════════
+# Dernière brique non-dégât. Contrairement au soin/repair il n'y a PAS de « magnitude » d'effet :
+# l'utilité est un POIDS PLAT par TYPE d'effet, 100% piloté par les données du BattleConfiguration.
+# (La magnitude d'un DoT/réduction passe, elle, par le chemin DÉGÂT — ProbableDamageEvent.)
+#
+#   AddedEffectUtility.EvaluateAttackInSteps  iter @1810f6e70
+#       si la cible a DÉJÀ l'effet (EntityExtensions.HasEffect)         → U = 0
+#       sinon  U = Weight[name] + signe × Weight["Unit_on_" + name]
+#              name  = Enum.ToString(EffectType)   (ex. "Fire", "SpiderWeb", "Ice")
+#              signe = −1 si la cible est un ALLIÉ du caster (UnitExtensions.IsFriend), sinon +1
+#   BaseUtility.HasUtilityValue @1810cd700 : `name in weights` (Dict<string,int> @this+0x58)
+#   BaseUtility.GetUtilityValue @1810cd3c0 : `Fix64.FromInt(weights.get(name, 0))` (absent → 0)
+#
+# `weights` = le dict de catégorie du BC `Utilities.Default[<cat>]` (ex. AddedTileEffects :
+#   Fire=10, Unit_on_Fire=15, Ice=5, Unit_on_Ice=0). ⇒ Fire sous un ennemi = 10+15 = 25 ;
+#   sous un allié = 10−15 = −5. Préfixe confirmé empiriquement par les clés BC.
+
+EFFECT_UTILITY_PREFIX = "Unit_on_"   # AddedEffectUtility String.Concat(prefix, name) @1810f6e70 ;
+                                     # confirmé par les clés BC AddedTileEffects (Fire / Unit_on_Fire)
+
+
+def utility_value(weights: dict, name: str) -> int:
+    """`BaseUtility.GetUtilityValue` @1810cd3c0 (+ `HasUtilityValue` @1810cd700) : `weights.get(name, 0)`.
+
+    `weights` = un dict de catégorie d'utilité du BC (`Utilities.Default[<cat>]`), `Dict<string,int>`.
+    TryGetValue → `Fix64.FromInt(val)` ; clé absente → 0 (avec un warning dev côté natif, ici muet)."""
+    return int(weights.get(name, 0))
+
+
+def added_effect_utility(effect_name: str, target_has_effect: bool,
+                         is_friend: bool, weights: dict) -> float:
+    """`AddedEffectUtility.EvaluateAttackInSteps` (iter @1810f6e70).
+
+    `U = 0` si la cible a DÉJÀ l'effet ; sinon `Weight[name] + signe × Weight["Unit_on_" + name]`,
+    `signe = −1` si la cible est un ALLIÉ du caster, `+1` sinon. `weights` = dict de catégorie BC
+    (`Utilities.Default[AddedTileEffects]` p.ex.). Poids plat par type d'effet — pas de magnitude."""
+    if target_has_effect:
+        return 0.0
+    base = utility_value(weights, effect_name)
+    prefixed = utility_value(weights, EFFECT_UTILITY_PREFIX + effect_name)
+    if is_friend:
+        prefixed = -prefixed
+    return float(base + prefixed)
