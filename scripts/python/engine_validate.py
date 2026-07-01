@@ -28,6 +28,7 @@ import gameconfig as gc  # noqa: E402
 from engine import weights, move, leaves  # noqa: E402
 from engine.utility import attack_utility  # noqa: E402
 from engine.utilities import damage_composite  # noqa: E402
+import predict_validate as PV  # noqa: E402  (prédicteur OFFLINE : remplace l'aiPredict live)
 
 
 def _r(sid: int, method: str, body: dict, t: float = 90) -> dict:
@@ -140,7 +141,8 @@ def _enemies(units: list, cur_player: int) -> list:
             and u.get("pos")]
 
 
-def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt) -> dict:
+def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
+                  predictor: dict | None = None) -> dict:
     """Décision du moteur pour l'unité uid sur l'état dv. Renvoie une forme normalisée :
     {kind:"move", to:(c,r)} ou {kind:"ability", target, ability, to:(c,r)}."""
     units = dv.get("units") or []
@@ -149,6 +151,8 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt)
     enemies = _enemies(units, cur)
     epos = [(e["pos"]["col"], e["pos"]["row"]) for e in enemies]
     me = next((u for u in units if u.get("id") == uid), None)
+    hp_cur_by_id = {u.get("id"): u.get("hp") for u in units}   # PV courants cible (kill/killSure spéciales)
+    ab_name_by_id = {x.get("id"): x.get("name") for x in ((me or {}).get("abilities") or [])}
 
     # maxHP par cible (combinedMax du composite Damage fidèle) — observeBattle 1×/décision, mode
     # "faithful" seulement. Clé = squadId (= l'id cible des attackPlans, cf. branche heal). Manque -> le
@@ -157,6 +161,10 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt)
     if _DAMAGE_MODEL == "faithful":
         obs = _r(sid, "observeBattle", {"runnerId": rid}, 40)
         hpmax_by_id = {u.get("squadId"): (u.get("hpMax") or 0) for u in (obs.get("units") or [])}
+
+    # État courant du pas pour le prédicteur OFFLINE (hp/pos/team/effets seed) — reconstruit à chaque
+    # décision car l'état mute. `predictor` (tables cold, 1×/runner) fourni par run_agreement.
+    sctx = PV.step_context(predictor, dv) if predictor is not None else None
 
     # Élévation par tuile (Tile(7)) + distance-CHEMIN par tuile (MinDist fidèle, doc §13.12) — mode
     # "unitmovement" seulement. tileMeta 1×/décision ; pathDistToEnemies 1×/unité.
@@ -208,13 +216,39 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt)
             continue
         tile = (ranked[0].get("col"), ranked[0].get("row"))
         tgt, ab = ev.get("targetId"), ev.get("abilityId")
-        pr = _r(sid, "aiPredict", {"runnerId": rid, "unitId": uid, "targetId": tgt,
-                                   "abilityType": ab, "col": tile[0], "row": tile[1]}, 30)
-        pred = pr.get("pred")
-        # `kill`/`killSure` (WillBeKill/MightBeKill) sont au niveau RÉSULTAT d'aiPredict, PAS dans
-        # `pred` → on les ré-injecte pour que KillUnit/OverkillUnit les voient (sinon kill jamais scoré).
-        if pred:
-            pred = {**pred, "kill": pr.get("kill"), "killSure": pr.get("killSure")}
+        if ab in normal_ids and sctx is not None:
+            # ATTAQUE NORMALE → prédicteur OFFLINE (`predict_validate.predict_normal`) : reproduit
+            # `aiPredict` sans lecture live par-candidat (base=Attack×hits + perçage + armure + MODIFIER
+            # effets §16/§17, VALIDÉ 11/11 vs oracle). Prédicteur (combatSnapshot cold) capturé 1×/runner.
+            dp = PV.predict_normal(predictor, sctx, uid, tgt, tile)
+            if dp is None:
+                continue
+            r = dp.accurate_health_damage
+            _hp = dp.current_health
+            # FillUpStat overkill cap (CalculateDamagePredictionScenario) : le dégât SANTÉ ne peut
+            # excéder les PV courants → un sur-kill (normal) et un kill juste (spécial) s'ÉGALISENT en
+            # DamageDealt/kill, laissant le tie-break décider (spécial > normal) comme le natif.
+            pred = {"hpBefore": _hp, "shieldBefore": dp.shield,
+                    "healthDmgMin": min(r.min, _hp), "healthDmgMax": min(r.max, _hp),
+                    "appliedHits": dp.applied_hits,
+                    "kill": r.max >= _hp, "killSure": r.min >= _hp}
+        else:
+            # ABILITY SPÉCIALE → prédicteur OFFLINE `predict_special` (port `MakeDamagePredictions` ->
+            # `GenerateMultiHitAttackPredictions` : damage/hits/profile PROPRES de l'ability gameconfig,
+            # mono-membre). None = NON-attaque (summon/buff/heal : pas de minDmg/maxDmg) → pas candidat.
+            dp = (PV.predict_special(predictor, sctx, uid, tgt, ab, ab_name_by_id.get(ab))
+                  if sctx is not None else None)
+            if dp is None:
+                continue
+            r = dp.accurate_health_damage
+            _hp = dp.current_health
+            # FillUpStat overkill cap (CalculateDamagePredictionScenario) : le dégât SANTÉ ne peut
+            # excéder les PV courants → un sur-kill (normal) et un kill juste (spécial) s'ÉGALISENT en
+            # DamageDealt/kill, laissant le tie-break décider (spécial > normal) comme le natif.
+            pred = {"hpBefore": _hp, "shieldBefore": dp.shield,
+                    "healthDmgMin": min(r.min, _hp), "healthDmgMax": min(r.max, _hp),
+                    "appliedHits": dp.applied_hits,
+                    "kill": r.max >= _hp, "killSure": r.min >= _hp}
         if _DAMAGE_MODEL == "faithful":
             u = damage_composite(pred, hpmax_by_id.get(tgt), wt)   # composite Damage RE'd (§13.7/13.8)
         else:
@@ -403,6 +437,11 @@ def run_agreement(sid: int, rid: int, steps: int, wt, log=print) -> dict:
     actions natives pour avancer) → runner ISOLÉ recommandé.
 
     Retourne {pos:{n,exact,near}, ability:{n,match}, records:[…]}."""
+    # Prédicteur OFFLINE capturé 1×/runner (combatSnapshot cold) — nourrit le scoring d'attaque
+    # d'engine_decide SANS aiPredict live. None si combatSnapshot KO (le scoring d'attaque saute alors).
+    predictor = PV.build_predictor(sid, rid)
+    if predictor is None:
+        log("[agreement] combatSnapshot KO — prédicteur offline indisponible (scoring attaque désactivé)")
     n_pos = n_pos_exact = n_pos_near = 0
     n_ab = n_ab_match = 0
     records: list = []
@@ -418,7 +457,7 @@ def run_agreement(sid: int, rid: int, steps: int, wt, log=print) -> dict:
             dv = _r(sid, "decisionView", {"runnerId": rid, "allAbilities": True}, 180)
             mov = _r(sid, "aiMovableTiles", {"runnerId": rid}, 60)
             mov_by_unit = {u.get("unitId"): u for u in (mov.get("units") or [])}
-            eng = engine_decide(sid, rid, dv, mov_by_unit, uid, wt)
+            eng = engine_decide(sid, rid, dv, mov_by_unit, uid, wt, predictor)
             eng_to = eng.get("to")
             # Chunk COMPOSÉ → on compare les DEUX dimensions présentes (move ET/OU ability).
             # POSITIONING — SSI le natif a bougé (l'`eng.to` porte la tuile move-to, y compris

@@ -23,8 +23,10 @@ import rl_collect_batch as R
 import gameconfig as GC
 from engine.entities import UnitContext
 from engine.entities.abilities import NormalAttackAbility
+from engine.entities.abilities.active_ability import AActiveAbility, _PROFILE_BY_INDEX
+from engine.entities.abilities.ability_configuration import AbilityConfiguration
 from engine.services.damage_calculations import spread_to_min_max
-from engine.services.damage_prediction import get_attack_prediction
+from engine.services.damage_prediction import get_attack_prediction, get_default_attack_hits
 from engine.entities import EffectsState
 from engine.entities.effects import build_attacker_modifiers_from_effects, hits_bonus_from_effects
 from engine.entities.traits import attacker_bonus_hits
@@ -125,110 +127,187 @@ def _drive_into_range(sid, rid, my_team, max_turns):
     return dec()
 
 
-def build_samples(sid, rid, my_team, max_turns=6):
-    """Capture les échantillons d'agrément prédiction (chaîne fidèle) pour le
-    runner `rid` DÉJÀ construit : combatSnapshot (cold) → UnitContext, drive au
-    contact, puis une row par plan d'attaque NORMALE à portée comparant l'offline
-    `get_attack_prediction` à l'oracle live `decisionView`. Réutilisé par le
-    harnais (`main`) ET la suite pytest (tests/engine/test_predict_live.py).
-    Retourne `list[dict]` (vide si combatSnapshot KO ou aucun échantillon)."""
-    # 1) capture one-shot (cold) → UnitContext par unité (stats résolues + dégât d'arme capté
-    #    + gameconfig-units pour traits/damageType/range). C'est la SEULE lecture live.
+# ── PRÉDICTEUR OFFLINE RÉUTILISABLE (câblable dans engine_validate.py, remplace l'aiPredict live) ──
+#   build_predictor : capture one-shot (combatSnapshot) → tables statiques par runner.
+#   step_context    : état COURANT (hp/pos/team/effets) reconstruit à chaque pas depuis un decisionView.
+#   predict_normal  : prédiction offline d'UNE attaque normale (att→tgt depuis attack_pos), = aiPredict.
+
+def _faction_of(vis_by_id, uid):
+    v = vis_by_id.get(uid)
+    return (GC.unit(v) or {}).get("FactionId") if v else None
+
+
+def _getstuckin_bonus(ctx, a_id, t_id, base_hits, attack_pos, pos_by_id, team_by_id, vis_by_id, units):
+    """+floor(base_hits/2) si GetStuckIn. Ancré sur la **position d'attaque** (`ranked`, post-move) —
+    elle fixe within range 2 = cheby(attack_pos, cible)≤2 + les comptes d'adjacence à la CIBLE (le caster
+    post-move y est compté). MinDistance natif = pathfinding ; cheby = proxy (§17.21)."""
+    traits = ctx.trait_objects()
+    if not any(type(t).__name__ == "GetStuckInTrait" for t in traits):
+        return 0
+    tpos = pos_by_id.get(t_id)
+    if not attack_pos or not tpos:
+        return 0
+    u_by_id = {u.get("id"): u for u in units}
+
+    def _adj_pos(uid):
+        if uid == a_id:
+            return attack_pos
+        u2 = u_by_id.get(uid)
+        return (u2["pos"]["col"], u2["pos"]["row"]) if (u2 and u2.get("pos")) else None
+
+    adj = [u for u in units if u.get("id") != t_id and _adj_pos(u.get("id"))
+           and _cheby(_adj_pos(u.get("id")), tpos) == 1]
+    adj_orks = sum(1 for u in adj if _faction_of(vis_by_id, u.get("id")) == "Orks")
+    adj_friends = sum(1 for u in adj if u.get("team") == team_by_id.get(a_id))
+    gctx = {"attacker_within_range2": _cheby(attack_pos, tpos) <= 2, "base_hits": base_hits,
+            "target_adjacent_orks": adj_orks, "target_adjacent_friends": adj_friends}
+    return attacker_bonus_hits(traits, gctx)
+
+
+def build_predictor(sid, rid):
+    """Tables STATIQUES du prédicteur offline pour le runner `rid` — capture one-shot (cold) :
+    `combatSnapshot` (dégât d'arme + stats + `unitConfig` mult/level) + `decisionView` (visualId).
+    C'est la SEULE lecture live du prédicteur (une fois par runner). Renvoie None si combatSnapshot KO."""
     snap = rpc(sid, "combatSnapshot", {"runnerId": rid}, 40)
     if not snap.get("ok"):
-        print(f"[validate] combatSnapshot KO: {snap.get('error')}"); return []
-    # entityId -> visualId via decisionView (combatSnapshot ne donne pas le visualId)
+        print(f"[predict] combatSnapshot KO: {snap.get('error')}")
+        return None
     dv0 = rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1}, 60)
     vis_by_id = {u["id"]: u.get("visualId") for u in (dv0.get("units") or [])}
-    ctx_by_id = {}
+    ctx_by_id, armor_by_id, mult_by_id, ablvl_by_id = {}, {}, {}, {}
     for u in (snap.get("units") or []):
         eid = u["entityId"]
         u["visualId"] = vis_by_id.get(eid)
-        ctx = UnitContext.from_snapshot(u, GC.unit(vis_by_id.get(eid) or ""))
-        if not (u.get("normalAttack") or {}).get("error"):
-            ctx_by_id[eid] = ctx
-    print(f"[validate] UnitContext (cold): {len(ctx_by_id)}/{len(snap.get('units') or [])} unités")
-
-    # 2) avancer au contact pour obtenir des plans d'attaque (oracle live).
-    dec = _drive_into_range(sid, rid, my_team, max_turns)
-    hp_by_id = {u["id"]: u.get("hp") for u in (dec.get("units") or [])}
-    armor_by_id = {u["entityId"]: int((u.get("stats") or {}).get("fixedArmor") or 0)
-                   for u in (snap.get("units") or [])}
-    # effets ACTIFS : MATÉRIALISÉS offline (seed one-shot + évolution, §17.13). Ici on seede depuis le
-    # decisionView (oracle ; la capture one-shot via combatSnapshot.effects = extension à venir), puis
-    # on interroge l'ensemble actif par attaquant (is_active/consumed/expired sur les classes d'effet).
-    effects_by_id = {u["id"]: (u.get("effects") or []) for u in (dec.get("units") or [])}
-    # AbilityVariablesMultiplierPercentage + niveau d'ability PAR ENTITÉ (§17.24) : capté LIVE via
-    # combatSnapshot.units[].unitConfig (BattleQuery.GetUnitConfig → UnitConfiguration). PassiveAbilityLevel
-    # indexe les variables[level] d'ability (≠ stack level capté). Fallback BC offline si vieux hook.
-    mult_by_id, ablvl_by_id = {}, {}
-    for u in (snap.get("units") or []):
+        armor_by_id[eid] = int((u.get("stats") or {}).get("fixedArmor") or 0)
         uc = u.get("unitConfig") or {}
         if isinstance(uc, dict) and uc.get("abilityVariablesMultiplier") is not None:
-            mult_by_id[u["entityId"]] = int(uc["abilityVariablesMultiplier"])
+            mult_by_id[eid] = int(uc["abilityVariablesMultiplier"])
             if uc.get("passiveAbilityLevel"):
-                ablvl_by_id[u["entityId"]] = int(uc["passiveAbilityLevel"])
-    if not mult_by_id:            # fallback : hook sans unitConfig → BC par visualId (duel mirror)
-        bc = st.get("bc") or {}
-        mult_by_vis = {x.get("VisualId"): int(x.get("AbilityVariablesMultiplierPercentage") or 100)
-                       for x in (bc.get("Units") or [])}
-        ablvl_by_vis = {x.get("VisualId"): int(x.get("PassiveAbilityLevel") or x.get("Level") or 0)
-                        for x in (bc.get("Units") or [])}
-        mult_by_id = {eid: mult_by_vis.get(vis_by_id.get(eid), 100) for eid in ctx_by_id}
-        ablvl_by_id = {eid: ablvl_by_vis.get(vis_by_id.get(eid)) for eid in ctx_by_id}
-    eff_state = EffectsState.seed(effects_by_id, mult_by_id, ablvl_by_id)
+                ablvl_by_id[eid] = int(uc["passiveAbilityLevel"])
+        # activeAbilityLevel (indexe minDmg/maxDmg des spéciales) = lu par UnitContext.from_snapshot
+        # depuis u["unitConfig"] directement.
+        if not (u.get("normalAttack") or {}).get("error"):
+            ctx_by_id[eid] = UnitContext.from_snapshot(u, GC.unit(vis_by_id.get(eid) or ""))
+    return {"ctx_by_id": ctx_by_id, "armor_by_id": armor_by_id,
+            "mult_by_id": mult_by_id, "ablvl_by_id": ablvl_by_id, "vis_by_id": vis_by_id}
 
-    # positions/teams/factions (GetStuckIn §17.21 : portée ≤2 + comptes d'adjacence à la CIBLE).
-    units = dec.get("units") or []
-    pos_by_id = {u["id"]: (u["pos"]["col"], u["pos"]["row"]) for u in units if u.get("pos")}
-    team_by_id = {u["id"]: u.get("team") for u in units}
-    _u_by_id = {u.get("id"): u for u in units}
 
-    def _faction(uid):
-        v = vis_by_id.get(uid)
-        return (GC.unit(v) or {}).get("FactionId") if v else None
+def step_context(predictor, dv):
+    """État COURANT réutilisable pour tous les `predict_normal` d'un pas (hp/pos/team + effets
+    matérialisés seed une seule fois). Reconstruit à chaque pas car l'état mute (walk natif)."""
+    units = dv.get("units") or []
+    return {
+        "units": units,
+        "hp_by_id": {u["id"]: u.get("hp") for u in units},
+        "pos_by_id": {u["id"]: (u["pos"]["col"], u["pos"]["row"]) for u in units if u.get("pos")},
+        "team_by_id": {u["id"]: u.get("team") for u in units},
+        "eff_state": EffectsState.seed(
+            {u["id"]: (u.get("effects") or []) for u in units},
+            predictor["mult_by_id"], predictor["ablvl_by_id"]),
+    }
 
-    def _getstuckin_bonus(att_ctx, a_id, t_id, base_hits, attack_pos):
-        """+floor(base_hits/2) si GetStuckIn. La prédiction est ANCRÉE à la **position d'attaque**
-        (`ranked[col,row]`, post-move) — c'est elle qui fixe mêlée/ranged ET la distance. within range 2 =
-        cheby(attack_pos, cible)≤2 ; comptes d'adjacence (≥2 orks OU ≥4 amis) = unités adjacentes à la CIBLE
-        (le caster post-move y est compté s'il devient adjacent). MinDistance natif = pathfinding ; cheby = proxy."""
-        traits = att_ctx.trait_objects()
-        if not any(type(t).__name__ == "GetStuckInTrait" for t in traits):
-            return 0
-        tpos = pos_by_id.get(t_id)
-        if not attack_pos or not tpos:
-            return 0
-        # unités adjacentes (cheby 1) à la cible, AVEC le caster repositionné sur attack_pos.
-        def _adj_pos(uid):
-            return attack_pos if uid == a_id else (
-                (u2["pos"]["col"], u2["pos"]["row"]) if (u2 := _u_by_id.get(uid)) and u2.get("pos") else None)
-        adj = [u for u in units if u.get("id") != t_id and _adj_pos(u.get("id"))
-               and _cheby(_adj_pos(u.get("id")), tpos) == 1]
-        adj_orks = sum(1 for u in adj if _faction(u.get("id")) == "Orks")
-        adj_friends = sum(1 for u in adj if u.get("team") == team_by_id.get(a_id))
-        gctx = {"attacker_within_range2": _cheby(attack_pos, tpos) <= 2, "base_hits": base_hits,
-                "target_adjacent_orks": adj_orks, "target_adjacent_friends": adj_friends}
-        return attacker_bonus_hits(traits, gctx)
 
-    # 3) CHAÎNE FIDÈLE PAR CIBLE (RE §16, câblage A) : base = stat Attack (StatAmountFormula) →
-    #    spread → GetDamageWithPiercing(pierce gameconfig, armure CIBLE) → MODIFIER post-perçage par
-    #    bout (DamageModifiers bâti depuis les effets actifs de l'attaquant §17.7). Comparé à l'oracle
-    #    par (attaquant, cible) : xmod≈1.00 attendu y compris sur les buffés (u94 RapidAssault +25%).
+def predict_normal(predictor, sctx, att_id, tgt_id, attack_pos, *, meta=False):
+    """Prédiction offline de l'attaque NORMALE (att→tgt depuis `attack_pos`) reproduisant `aiPredict` —
+    chaîne fidèle base=Attack × hits + perçage + armure + MODIFIER effets (§16/§17). Renvoie un
+    `DamagePredictionResult` (ou `(result, meta_dict)` si meta=True), None si l'attaquant n'a pas de
+    contexte capturé. `attack_pos` = tuile d'attaque (post-move) : fixe mêlée/ranged, distance, GetStuckIn."""
+    ctx = predictor["ctx_by_id"].get(att_id)
+    if ctx is None:
+        return None
+    hp_by_id, pos_by_id = sctx["hp_by_id"], sctx["pos_by_id"]
+    att_effects = sctx["eff_state"].active_effects(att_id, {"hp": hp_by_id.get(att_id)})
+    mods = build_attacker_modifiers_from_effects(att_effects)
+    eff_hits = hits_bonus_from_effects(att_effects)
+    t_pos = pos_by_id.get(tgt_id)
+    dist = _cheby(attack_pos, t_pos) if (attack_pos and t_pos) else None
+    pierce, _ranged, whits = _normal_weapon_pierce(ctx, dist)
+    hits_pre = whits + ctx.extra_hits + eff_hits
+    hits = hits_pre + _getstuckin_bonus(ctx, att_id, tgt_id, hits_pre, attack_pos,
+                                        pos_by_id, sctx["team_by_id"], predictor["vis_by_id"],
+                                        sctx["units"])
+    armor = predictor["armor_by_id"].get(tgt_id, 0)
+    res = get_attack_prediction(
+        target_current_health=hp_by_id.get(tgt_id, 0), initial_damage=ctx.attack, hits=hits,
+        profile_type=0, pierce_pct=pierce, armor=armor, mods=mods)
+    if meta:
+        return res, {"base": ctx.attack, "pierce": pierce, "armor": armor, "hits": hits,
+                     "mods": [round(m, 3) for m, _c in mods.pct_list] or None,
+                     "effects": [e.name for e in att_effects] or None}
+    return res
+
+
+_PROFILE_INDEX = {name: idx for idx, name in _PROFILE_BY_INDEX.items()}
+
+
+def predict_special(predictor, sctx, uid, tgt, ability_id, ability_name):
+    """Prédiction offline d'une ability-attaque SPÉCIALE (mono-membre) — port de
+    `MakeDamagePredictions` -> `GenerateMultiHitAttackPredictions` : `get_attack_prediction` avec le
+    `(damage, hits, profile, pierce)` PROPRE de l'ability (gameconfig, indexé par niveau via
+    `AActiveAbility`), PAS l'arme normale. Le natif itère les membres du SQUAD cible (Blast) — ici
+    mono-membre (cible mono-modèle). Renvoie un `DamagePredictionResult`, ou **None si non-attaque**
+    (l'ability n'a pas de `minDmg/maxDmg` gameconfig -> summon/buff/heal -> pas un candidat d'attaque)."""
+    ctx = predictor["ctx_by_id"].get(uid)
+    if ctx is None:
+        return None
+    cfg = AbilityConfiguration.from_gameconfig(ability_name, GC.ability(ability_name))
+    if cfg is None or not (cfg.has_variable("minDmg") or cfg.has_variable("maxDmg")):
+        return None                                  # non-attaque -> pas de candidat d'attaque
+    ab = AActiveAbility(ability_id, ctx, cfg)
+    base = ab.get_damage()                           # avg(minDmg,maxDmg) au niveau (GetDamage)
+    if base <= 0:
+        return None
+    a = GC.ability(ability_name) or {}
+    # §5 : scaling par-unité `AbilityVariablesMultiplierPercentage` sur les variables listées dans
+    # `variablesAffectedByUnitRarityMultiplier` (ici minDmg/maxDmg si présentes) — mult capté LIVE
+    # (combatSnapshot.unitConfig, ex. 180). L'attaque normale l'a déjà cuit dans le stat Attack ;
+    # les SPÉCIALES lisent la variable brute → on applique le mult ici.
+    affected = set(a.get("variablesAffectedByRarityBonus") or [])
+    mult = predictor["mult_by_id"].get(uid, 100)
+    if mult and mult != 100 and ({"minDmg", "maxDmg"} & affected):
+        base = (base * mult) // 100
+    is_melee = (a.get("attackRangeType") or "").lower() == "melee"
+    nrhits = int((cfg.constants or {}).get("nrOfHits") or 1)
+    hits = get_default_attack_hits(nrhits, ctx.extra_hits, ctx.extra_hits_melee, is_melee)
+    profile_name = ab.get_damage_profile()
+    profile_idx = _PROFILE_INDEX.get(profile_name, 0)
+    dp = GC.damage_profile(profile_name) or {}
+    dir_pierce = ctx.extra_pierce_melee if is_melee else ctx.extra_pierce_ranged
+    pierce = max(0, min(100, int(dp.get("PiercingRatio") or 0) + ctx.extra_pierce + dir_pierce))
+    hp_by_id = sctx["hp_by_id"]
+    att_effects = sctx["eff_state"].active_effects(uid, {"hp": hp_by_id.get(uid)})
+    mods = build_attacker_modifiers_from_effects(att_effects)
+    return get_attack_prediction(
+        target_current_health=hp_by_id.get(tgt, 0), initial_damage=base, hits=hits,
+        profile_type=profile_idx, pierce_pct=pierce, armor=predictor["armor_by_id"].get(tgt, 0),
+        mods=mods)
+
+
+def build_samples(sid, rid, my_team, max_turns=6):
+    """Capture les échantillons d'agrément prédiction (chaîne fidèle) pour le
+    runner `rid` DÉJÀ construit : `build_predictor` (cold) → drive au contact,
+    puis une row par plan d'attaque NORMALE à portée comparant l'offline
+    `predict_normal` à l'oracle live `decisionView`. Réutilisé par le harnais
+    (`main`) ET la suite pytest (tests/engine/test_predict_live.py). Retourne
+    `list[dict]` (vide si combatSnapshot KO ou aucun échantillon)."""
+    predictor = build_predictor(sid, rid)      # 1) capture one-shot (cold) — SEULE lecture live statique
+    if predictor is None:
+        return []
+    print(f"[validate] UnitContext (cold): {len(predictor['ctx_by_id'])} unités")
+
+    dec = _drive_into_range(sid, rid, my_team, max_turns)   # 2) avancer au contact (oracle live)
+    sctx = step_context(predictor, dec)                     # état courant (hp/pos/team/effets seed)
+    pos_by_id = sctx["pos_by_id"]
+
+    # 3) une row par (attaquant, cible) d'attaque NORMALE à portée : offline `predict_normal` vs oracle
+    #    `decisionView` (dmgMin/dmgMax). xmod≈1.00 attendu y compris sur les buffés (u94 RapidAssault +25%).
     rows = []
     for ap in (dec.get("attackPlans") or []):
         a_id = ap.get("unitId")
-        ctx = ctx_by_id.get(a_id)
-        if not ctx:
+        if a_id not in predictor["ctx_by_id"]:
             continue
         norm_ids = {ab.get("id") for u in (dec.get("units") or []) if u.get("id") == a_id
                     for ab in (u.get("abilities") or []) if ab.get("kind") == "normal"}
-        base = ctx.attack                       # RE : base PAR COUP = stat Attack(0)
-        att_effects = eff_state.active_effects(a_id, {"hp": hp_by_id.get(a_id)})  # matérialisés + filtrés actifs
-        mods = build_attacker_modifiers_from_effects(att_effects)                 # ×bonus + pénétration §17.8
-        eff_hits = hits_bonus_from_effects(att_effects)   # +bonus effets (PowerTrip_FullHealth +1), par-attaquant
-        eff_names = [e.name for e in att_effects]
-        a_pos = pos_by_id.get(a_id)
         for ev in (ap.get("evals") or []):
             if norm_ids and ev.get("abilityId") not in norm_ids:
                 continue
@@ -236,29 +315,20 @@ def build_samples(sid, rid, my_team, max_turns=6):
             if not rk or rk[0].get("dmgMax") is None:
                 continue
             r0 = rk[0]; t_id = ev.get("targetId")
-            armor = armor_by_id.get(t_id, 0)
-            # position d'ATTAQUE = tuile du plan oracle (ranked col,row ; post-move). C'est ELLE qui fixe
-            # mêlée/ranged ET la distance (point user : la prédiction est relative à cette position).
-            attack_pos = ((r0.get("col"), r0.get("row")) if r0.get("col") is not None else a_pos)
-            t_pos = pos_by_id.get(t_id)
-            dist = _cheby(attack_pos, t_pos) if (attack_pos and t_pos) else None
-            pierce, _ranged, whits = _normal_weapon_pierce(ctx, dist)
-            hits_pre_gsi = whits + ctx.extra_hits + eff_hits      # arme + ExtraHits + PowerTrip+1
-            # GetStuckIn (§17.21) : +floor(hits/2) ancré sur la position d'attaque (portée ≤2 + adjacence cible).
-            hits = hits_pre_gsi + _getstuckin_bonus(ctx, a_id, t_id, hits_pre_gsi, attack_pos)
-            pred = get_attack_prediction(
-                target_current_health=hp_by_id.get(t_id, 0), initial_damage=base, hits=hits,
-                profile_type=0, pierce_pct=pierce, armor=armor,
-                mods=mods)                       # MODIFIER post-perçage par bout (§17.7)
+            # position d'ATTAQUE = tuile du plan oracle (ranked col,row ; post-move) — fixe mêlée/ranged +
+            # distance. Fallback = position courante de l'attaquant.
+            attack_pos = ((r0.get("col"), r0.get("row")) if r0.get("col") is not None
+                          else pos_by_id.get(a_id))
+            pred, meta = predict_normal(predictor, sctx, a_id, t_id, attack_pos, meta=True)
             res = pred.accurate_health_damage
             rows.append({
                 "att": a_id, "tgt": t_id, "tgtVis": ev.get("targetVis"),
-                "base": base, "pierce": pierce, "armor": armor, "hits": hits,
+                "base": meta["base"], "pierce": meta["pierce"], "armor": meta["armor"],
+                "hits": meta["hits"],
                 "oracle": (r0.get("dmgMin"), r0.get("dmgMax")),
                 "offline": (res.min, res.max),
                 "predOpt": bool(r0.get("predOptimistic")),
-                "mods": [round(m, 3) for m, _c in mods.pct_list] or None,
-                "effects": eff_names or None,
+                "mods": meta["mods"], "effects": meta["effects"],
             })
     return rows
 

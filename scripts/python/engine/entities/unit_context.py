@@ -109,7 +109,10 @@ class UnitContext:
             extra_hits=g("extraHits"), extra_hits_melee=g("extraHitsMelee"),
             extra_pierce=g("extraPierce"), extra_pierce_melee=g("extraPierceMelee"),
             extra_pierce_ranged=g("extraPierceRanged"),
-            active_ability_level=g("activeAbilityLevel"),
+            # activeAbilityLevel vit dans `unitConfig` (BattleQuery.GetUnitConfig), PAS dans `stats` →
+            # indexe les variables[level] des ABILITIES (minDmg/maxDmg par niveau). Fallback stats/0.
+            active_ability_level=int((snap_unit.get("unitConfig") or {}).get("activeAbilityLevel")
+                                     or s.get("activeAbilityLevel") or 0),
             number_of_members=max(1, g("numberOfMembers")),
             crit_chance=g("critChance"), crit_damage=g("critDamage"),
             block_chance=g("blockChance"), block_damage=g("blockDamage"),
