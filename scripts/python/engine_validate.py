@@ -237,12 +237,34 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt)
     #    une ability avec pred>0 prime toujours sur le move pur), PAS un co-argmax. L'action native
     #    est COMPOSÉE (move-vers-la-tuile + ability) — c'est ce balayage de tuiles qui la reproduit.
     import hexgeo
+    from engine.utilities.tile import tile_composite
+    # Terme de tuile FIDÈLE = composite Tile(7) (RE `CalculateUtilityFromTilePrediction @181408740`,
+    # cf. architecture.md §2.3ter/§2.3quater). REMPLACE `move.move_utility` (profil MovementSuggestion) :
+    # le natif N'utilise PAS l'engagement pour le terme de tuile d'une ACTION — `CalculateActionUtility`
+    # somme `CalculateUtilityFromPredictions@tuile + Tile(7)@tuile` (+ WireweaveNet=0 + CasterPos=0). Sur
+    # carte plate Tile(7)≈0 (feuilles situationnelles gatées sur métadata absente) → discrimine seulement
+    # sur élévation / tuiles spéciales. ⚠ ctx par-unité (traits/faction) non plombé → feuilles
+    # situationnelles = 0 (dégradation native sûre). ⚠ Pour une ability tile-INDÉPENDANTE (self-heal),
+    # tous les termes s'égalisent (pred constant + Tile7≈0) → la tuile est un TIE-BREAK (ordre
+    # d'énumération natif @0x68, non-RE'd) : l'argmax retombe sur la 1ʳᵉ tuile de `reach` (déterministe,
+    # PAS forcément la tuile native exacte — limitation documentée, pas une erreur de score).
+    _elevs = [e for e in elev_by_pos.values() if e is not None]
+    _emax, _emin = (max(_elevs), min(_elevs)) if _elevs else (None, None)
+
+    def _tile_term(pos):
+        meta: dict = {}
+        e = elev_by_pos.get(pos)
+        if e is not None:
+            meta = {"elevation": e, "elevation_max": _emax, "elevation_min": _emin}
+        if pos in is_temporary_by_pos:
+            meta["is_temporary"] = is_temporary_by_pos[pos]
+        return tile_composite(pos, meta, {}, wt)
+
     cands: list = []  # {target, ability, to:(c,r)|None, pred, full}
     if best and best[0] > 0:
         # ATTAQUE : tuile native = attackPlans.ranked (déjà la tuile move-to-attack choisie).
-        tile_at = move.move_utility(best[3], origin, epos, wt, ranged) if epos else 0.0
         cands.append({"target": best[1], "ability": best[2], "to": best[3],
-                      "pred": best[0], "full": best[0] + tile_at})
+                      "pred": best[0], "full": best[0] + _tile_term(best[3])})
 
     # 1bis. SOIN (tile-swept) — balaie (tuile atteignable × cible valide) et ajoute au pool unifié.
     #        pred = CustomUtility (per-ability) + heal_term FIDÈLE (HealUtility @1810e16f0 =
@@ -260,12 +282,17 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt)
         from engine.predict import heal_utility
         obs = _r(sid, "observeBattle", {"runnerId": rid}, 40)
         hpmax_by_sq = {u.get("squadId"): u for u in (obs.get("units") or [])}
+        # reach = destinations de MOUVEMENT (le natif BOUGE : son énumérateur de tuiles @0x68 =
+        # tuiles de mouvement ; le "stay"/NullPosition n'est Merge QUE si AUCUNE tuile de mouvement,
+        # cf. ActiveAbilityActionGenerator.MoveNext §2.3quater). ⇒ on N'AJOUTE PAS origin quand des
+        # destinations existent (sinon l'argmax retombe sur "stay" à égalité Tile7≈0). Origin =
+        # fallback seul (aucune destination). Ordre = ordre du RPC aiMovableTiles (proxy de l'ordre
+        # d'énumération natif ; l'exactitude tuile d'une ability tile-indépendante en dépend).
         reach = [(t["col"], t["row"]) for t in move_tiles]
-        if origin is not None and origin not in reach:
-            reach = [origin] + reach
         if not reach and origin is not None:
             reach = [origin]
-        HEAL_RANGE = 1  # mêlée/adjacent (trait Healer, AoE adjacent). TODO: portée gameconfig pour soins à distance.
+        HEAL_RANGE = 1  # soins d'allie cibles = adjacents. Verifie gameconfig: AUCUN heal cible n'a de
+        # constant `range` (les abilities heal a range = vol de vie sur attaque -> chemin degat). Pas de soin cible a distance.
         for ab in heal_abis:
             aid = ab.get("id")
             at = _r(sid, "abilityTargets", {"runnerId": rid, "unitId": uid, "abilityType": aid}, 40)
@@ -297,10 +324,9 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt)
                 for T in reach:
                     if tg != uid and (tpos is None or hexgeo.distance(T, tpos) > HEAL_RANGE):
                         continue  # cible hors portée de soin depuis T (self = depuis toute tuile)
-                    tu_pos = move.move_utility(T, origin, epos, wt, ranged) if epos else 0.0
                     cands.append({"target": tg, "ability": aid,
                                   "to": (T if T != origin else None),
-                                  "pred": pred, "full": pred + tu_pos})
+                                  "pred": pred, "full": pred + _tile_term(T)})
 
     # ── ARGMAX UNIFIÉ : meilleure ability candidate (toutes ont pred>0) par `full_util` ; tie-break
     #    id de cible croissant (ordre natif). Si une existe, elle PRIME sur le move (RE premier-non-null).
@@ -343,21 +369,30 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt)
     return {"kind": "move", "to": move_to, "util": move_util}
 
 
-def native_first(action: dict) -> dict:
-    """Normalise le 1er message SIGNIFICATIF du chunk natif (move/ability) ; à défaut
-    finish ; sinon other."""
+def native_chunk(action: dict) -> dict:
+    """Extrait le chunk COMPLET d'une action native — move ∧ ability, PAS seulement le 1er
+    message. Une action native est COMPOSÉE : `[MoveUnitMessage?, ActiveAbilityMessage?,
+    FinishUnitTurnMessage?]`. On DOIT comparer les DEUX dimensions (position du move +
+    ability castée) : sinon un soin/attaque COMPOSÉ (move+ability) échappe à la métrique
+    ability — c'est le bug historique `native_first` (s'arrêtait au 1er message → un move+heal
+    ne comptait QUE comme move ; cause de la saga « VERDICT B », cf. doctrine mesure-vérité).
+    Renvoie {move:{to}|None, ability:{ability,target}|None, finish:bool, unit}."""
+    move = ability = None
+    finish = False
+    unit = None
     for m in (action.get("messages") or []):
         cls = m.get("cls")
-        if cls == "MoveUnitMessage":
+        if cls == "MoveUnitMessage" and move is None:
             to = m.get("to") or {}
-            return {"kind": "move", "to": (to.get("col"), to.get("row")), "unit": m.get("unitId")}
-        if cls == "ActiveAbilityMessage":
-            return {"kind": "ability", "target": m.get("targetId"),
-                    "ability": m.get("abilityType"), "unit": m.get("casterId")}
-    for m in (action.get("messages") or []):
-        if m.get("cls") == "FinishUnitTurnMessage":
-            return {"kind": "finish", "unit": m.get("unitId")}
-    return {"kind": "other"}
+            move = {"to": (to.get("col"), to.get("row"))}
+            unit = unit if unit is not None else m.get("unitId")
+        elif cls == "ActiveAbilityMessage" and ability is None:
+            ability = {"ability": m.get("abilityType"), "target": m.get("targetId")}
+            unit = unit if unit is not None else m.get("casterId")
+        elif cls == "FinishUnitTurnMessage":
+            finish = True
+            unit = unit if unit is not None else m.get("unitId")
+    return {"move": move, "ability": ability, "finish": finish, "unit": unit}
 
 
 def run_agreement(sid: int, rid: int, steps: int, wt, log=print) -> dict:
@@ -376,20 +411,23 @@ def run_agreement(sid: int, rid: int, steps: int, wt, log=print) -> dict:
         if not dry.get("ok") or not dry.get("hasNext"):
             log(f"  step {step}: native épuisé / fin de tour ({dry.get('error') or 'no action'})")
             break
-        nat = native_first(dry.get("action") or {})
+        nat = native_chunk(dry.get("action") or {})
         uid = dry.get("activatedUnitId") or nat.get("unit")
 
-        if nat["kind"] in ("move", "ability") and uid is not None:
+        if (nat["move"] or nat["ability"]) and uid is not None:
             dv = _r(sid, "decisionView", {"runnerId": rid, "allAbilities": True}, 180)
             mov = _r(sid, "aiMovableTiles", {"runnerId": rid}, 60)
             mov_by_unit = {u.get("unitId"): u for u in (mov.get("units") or [])}
             eng = engine_decide(sid, rid, dv, mov_by_unit, uid, wt)
-            eng_to, nat_to = eng.get("to"), nat.get("to")
-            if nat["kind"] == "move":
+            eng_to = eng.get("to")
+            # Chunk COMPOSÉ → on compare les DEUX dimensions présentes (move ET/OU ability).
+            # POSITIONING — SSI le natif a bougé (l'`eng.to` porte la tuile move-to, y compris
+            # pour une action composée où eng.kind == "ability").
+            if nat["move"]:
+                nat_to = nat["move"]["to"]
                 n_pos += 1
-                d = None
-                if eng_to and nat_to:
-                    d = hexgeo.distance(eng_to, nat_to)
+                d = hexgeo.distance(eng_to, nat_to) if (eng_to and nat_to) else None
+                if d is not None:
                     n_pos_exact += int(d == 0)
                     n_pos_near += int(d <= 1)
                     tag = "EXACT" if d == 0 else f"~{d}hex"
@@ -400,21 +438,25 @@ def run_agreement(sid: int, rid: int, steps: int, wt, log=print) -> dict:
                                 "engine_kind": eng["kind"]})
                 log(f"  step {step:2} u{uid}: pos native->{nat_to} engine->{eng_to} "
                     f"[{tag}] (eng={eng['kind']})")
-            else:  # native ability castée (en place / buff / summon)
+            # ABILITY — SSI le natif a casté (in-place OU composé move+ability). C'est ICI que
+            # les soins/attaques COMPOSÉS entrent enfin dans la métrique ability (fix §e).
+            if nat["ability"]:
+                na = nat["ability"]
                 same_ab = (eng["kind"] == "ability"
-                           and eng.get("target") == nat.get("target")
-                           and eng.get("ability") == nat.get("ability"))
+                           and eng.get("target") == na["target"]
+                           and eng.get("ability") == na["ability"])
                 n_ab += 1
                 n_ab_match += int(same_ab)
                 records.append({"step": step, "uid": uid, "kind": "ability",
-                                "native": (nat.get("ability"), nat.get("target")),
+                                "native": (na["ability"], na["target"]),
                                 "engine": (eng.get("ability"), eng.get("target")),
                                 "match": same_ab, "engine_kind": eng["kind"]})
-                log(f"  step {step:2} u{uid}: ABIL native(ab={nat.get('ability')},tgt={nat.get('target')}) "
+                log(f"  step {step:2} u{uid}: ABIL native(ab={na['ability']},tgt={na['target']}) "
                     f"engine={eng['kind']}(ab={eng.get('ability')},tgt={eng.get('target')}) "
                     f"[{'MATCH' if same_ab else 'MISS'}]")
         else:
-            log(f"  step {step:2} u{uid}: native={nat['kind']} (non comparé, on avance)")
+            k = "finish" if nat["finish"] else "other"
+            log(f"  step {step:2} u{uid}: native={k} (non comparé, on avance)")
 
         # applique l'action NATIVE (on marche SA trajectoire) pour avancer l'état.
         acts = []

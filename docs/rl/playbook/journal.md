@@ -481,7 +481,10 @@ Toute action comparable (attaque / heal / effet / bannière) est scorée par **U
 
 ```
 U(action) = CalculateUtilityFromPredictions(action)              # Σ dégât + Σ heal + Σ effet + Σ repair
-          + [si gate caster-pos] Weight[54].Eval(casterBase)     # terme position du caster (secondaire)
+          + Weight[54].Eval(casterBase)                          # CORRECTION: 54 = WireweaveNet_FirstAttack
+                                                                 #   (dump.cs), PAS "position caster". Gate:
+                                                                 #   cible adjacente + cible a l'effet 1111
+                                                                 #   -> 0 sinon (cf. architecture.md 2.3quater)
           + CalculateUtilityFromTilePrediction(action)           # utilité de la TUILE d'arrivée (Weight[Tile=7])
 ```
 

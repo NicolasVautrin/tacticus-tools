@@ -13,7 +13,10 @@
 // host is in charge of where the data lands.
 
 import { dumpEnum } from "../il2cpp/enum-dump.js";
-import { findClass, findMethod, readIl2cppString } from "../il2cpp/helpers.js";
+import {
+    findClass, findClassAnywhere, findMethod, readIl2cppString,
+    method_get_name, cstr, il2cppBase,
+} from "../il2cpp/helpers.js";
 import { invokeMethod } from "../il2cpp/invoke.js";
 import { Ctx } from "../controller.js";
 
@@ -69,6 +72,47 @@ export function register(ctx: Ctx): void {
     ctx.rpc.dumpEnum = (args: { asm: string; ns: string; cls: string }) => {
         const values = dumpEnum(args.asm, args.ns, args.cls);
         return { asm: args.asm, ns: args.ns, cls: args.cls, values };
+    };
+
+    /** Resolve IL2CPP vtable slots of a class by reading the runtime
+     * Il2CppClass. Each virtual slot is a VirtualInvokeData { methodPtr(8),
+     * MethodInfo*(8) } — for slot at byte offset `off`, methodPtr = klass+off,
+     * MethodInfo* = klass+off+8. We read the MethodInfo* and name it via
+     * il2cpp_method_get_name. Purely reads pointers (no invoke). Used to
+     * resolve which method sits at a decompiled vtable offset (e.g. +0x398).
+     * args: { ns, cls, start?, end? } — offsets in bytes, default 0x2f8..0x3b8. */
+    ctx.rpc.resolveVtableSlot = (args: {
+        ns: string; cls: string; start?: number; end?: number;
+    }) => {
+        const klass = findClassAnywhere(args.ns, args.cls);
+        if (!klass) return { ok: false, error: `class not found: ${args.ns}.${args.cls}` };
+        const start = args.start ?? 0x2f8;
+        const end = args.end ?? 0x3b8;
+        const base = il2cppBase;
+        const slots: Array<{
+            off: string; funcVA: string; funcRVA: string;
+            ghidraVA: string; method: string | null;
+        }> = [];
+        for (let off = start; off <= end; off += 0x10) {
+            let funcVA = "", funcRVA = "", ghidraVA = "", method: string | null = null;
+            try {
+                const fp = klass.add(off).readPointer();
+                const mi = klass.add(off + 8).readPointer();
+                funcVA = fp.toString();
+                if (!fp.isNull()) {
+                    const rva = fp.sub(base);
+                    funcRVA = rva.toString();
+                    // Ghidra image base for this binary = 0x180000000.
+                    ghidraVA = ptr("0x180000000").add(rva).toString();
+                }
+                if (!mi.isNull()) {
+                    const nm = method_get_name(mi) as NativePointer;
+                    method = nm.isNull() ? null : cstr(nm);
+                }
+            } catch { /* garbage slot outside vtable — leave blanks */ }
+            slots.push({ off: "0x" + off.toString(16), funcVA, funcRVA, ghidraVA, method });
+        }
+        return { ok: true, ns: args.ns, cls: args.cls, klass: klass.toString(), slots };
     };
 
     /** Dump every enum from DEFAULT_ENUMS in one call. Returns
