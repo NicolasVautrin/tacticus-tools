@@ -3,7 +3,11 @@
 Script Frida injecté dans Tacticus (Unity 6 IL2CPP), bundlé par `frida-compile`
 (`npm run build:hooks` → `frida/dist/hooks.js`). Injecté via le host
 (`POST /api/admin/inject`), pas en CLI. Le host (`frida/host/`) est documenté
-ailleurs ; ici = le script injecté. Total ~26k LOC.
+ailleurs ; ici = le script injecté.
+
+**Synchronisé avec le code le 2026-07-02** (carte des dossiers/modules vérifiée
+contre `frida/hooks/`). La liste exhaustive des RPC exposés vit dans
+[rpc-api.md](rpc-api.md).
 
 ## Boot & câblage
 
@@ -20,7 +24,10 @@ main.ts
 `controller.ts` définit `Ctx = { rpc: Record<string, (...args)=>unknown> }` et
 `wireRpc(ctx)` appelle le `register(ctx)` de **chaque feature module** (+ une
 nuée de modules `scratch/*` d'introspection one-shot). Un module ajoute ses
-handlers sur `ctx.rpc.<nom>` → exposés au host (voir [rpc-api.md](rpc-api.md)).
+handlers sur `ctx.rpc.<nom>` → exposés au host. **Ordre = dernier gagne** : un
+nom réenregistré par un module câblé plus tard écrase (ex. `battleStatus` et
+`dumpEntityComponents` d'`ai-step` écrasent les homonymes de `status.ts`/
+`observe.ts`).
 
 ## Dossiers
 
@@ -29,33 +36,56 @@ handlers sur `ctx.rpc.<nom>` → exposés au host (voir [rpc-api.md](rpc-api.md)
     Initialize), offsets runner, `IdunRunner.Apply`/`StartMatch`.
   - `match-state.ts` — **projecteur canonique** `projectMatchState(statePtr)` :
     `forEachEntity`/`forEachComponent` (réflexion par classe, **pas d'offsets
-    devinés**), `EntityType` enum (Tile=0, Unit=1, Match=2, Effect=3, Player=4,
-    UnitFoot=5, Machine=6, MachinePlatform=7, EnvironmentAbility=8), résout
-    UnitFoot→Tile (position) et Player→TeamId. Produit `units[]` + `mows[]`.
-  - `ai-control.ts` — `AiControl.ApplyAiMessage`/`ApplyHumanAiMessage`.
+    devinés**), `EntityType` enum (Tile=0…EnvironmentAbility=8), résout
+    UnitFoot→Tile (position) et Player→TeamId ; `readBattleStatus`. Produit
+    `units[]` + `mows[]`.
+  - `effects.ts` — `readEffectsByUnit`/`readEffectsByTile`/`readRoundCapClock`
+    (EffectsOwnedComponent → EffectComponent, filtré IsActive).
+  - `ai-control.ts` — `ApplyAiMessage`/`ApplyHumanAiMessage`, `CheatRunAIMessage`.
   - `recorder.ts`, `apply-stack.ts` — capture des `Apply` + StreamDispatcher
     events par fenêtre d'apply.
   - `state.ts` — état partagé agent (liveRunner, watchedRunners, applySeq…).
   - `runner-registry.ts` — registre des runners isolés (`getRunner(id)`).
-- `hooks/features/` — un fichier par feature, chacun `export register(ctx)`.
-  Familles : runner/launch (`launch.ts`, `cheat.ts`), sim/mirror
-  (`sim-engine.ts`, `sim.ts`, `compare.ts`), normalisation
-  (`normalize-bc.ts`), capture live (`campaign-builder.ts`, `battle-config.ts`,
-  `mode-source-capture.ts`, `mow-builder.ts`, `dump-boards.ts`,
-  `dump-pvp-boards.ts`), observation (`observe.ts`), AI trace (`ai-trace.ts`,
-  `ai-utility-trace.ts`, `message-trace.ts`, `bucket-audit.ts`,
-  `dispatch-observe.ts`, `move-options.ts`, `movement-trace.ts`,
-  `board-trace.ts`, `winner-capture.ts`, `whatif-trigger.ts`), warmup/boot
-  (`warmup-singletons.ts`, `auto-boot.ts`), résolution visuels
-  (`unit-visual-resolve.ts`, `unit-asset-map.ts`), diag bas niveau
-  (`crash-trap.ts`, `init-trace.ts`, `introspect.ts`, `status.ts`,
-  `config-io.ts`).
+- `hooks/features/` — un fichier (ou sous-dossier) par feature, chacun
+  `export register(ctx)`. Familles :
+  - **runner / launch** : `launch.ts` (initRunner/initAndStart/dispose),
+    `cheat.ts` (cheatRunAi/autoPlayRunner), `warmup-singletons.ts`, `auto-boot.ts`.
+  - **décision & action (oracle live)** : `ai-step/` — `rpc-view.ts`
+    (decisionView, combatSnapshot, tileMeta, boardGraph, pathDistToEnemies,
+    aiMovableTiles, aiAttackRank, abilityTargets, abilityReason, aiPredict,
+    exposureView, applyAction, battleStatus, dumpRng), `rpc-drive.ts`
+    (aiStepDryRun/aiDryRunAllUnits/aiPlayByUnit/aiPlayOrdered), `projection.ts`
+    (computeAttackPlans/DangerZone/Exposure, projectUnitsFull/MowsFull),
+    `internals.ts` (résolution de méthodes/offsets partagée).
+  - **capture live** : `campaign-builder.ts`, `battle-config.ts`
+    (buildPatchedRunner/patch BC), `mode-source-capture.ts`, `mow-builder.ts`,
+    `dump-boards.ts`, `dump-pvp-boards.ts`, `normalize-bc.ts` (+ sous-dossier
+    `normalize-bc/` : live-bc, formula, items-catalog, json-build, debug-rpcs),
+    `observe.ts`, `config-io.ts`, `ui-nav.ts`, `unit-visual-resolve.ts`,
+    `unit-asset-map.ts`.
+  - **sim / mirror** : `sim-engine.ts`, `sim.ts`, `compare.ts`.
+  - **AI trace / observabilité** : `ai-trace.ts` (+ sous-dossier `ai-trace/` :
+    playbooks, generators, predictions, utilities, ai-control, state),
+    `ai-utility-trace.ts`, `scorer-damage-trace.ts`, `message-trace.ts`,
+    `bucket-audit.ts`, `dispatch-observe.ts`, `modifier-observe.ts`,
+    `move-options.ts`, `movement-trace.ts` (désactivé par défaut : `void
+    movementTrace` dans controller — hooks laggy), `board-trace.ts`,
+    `winner-capture.ts`, `whatif-trigger.ts`, `dump-composed.ts`,
+    `overwatch-fix/` (anti-suicide overwatch), `ability-prefs.ts`.
+  - **RL** : `rl/` (bridge, tensorizer — observation tensorisée).
+  - **diag bas niveau** : `crash-trap.ts`, `init-trace.ts`, `introspect.ts`,
+    `status.ts`.
 - `hooks/scratch/` — modules d'introspection RE jetables (dump offsets/méthodes/
   enums/formules). Lecture humaine uniquement, jamais une dépendance de prod.
-- `hooks/il2cpp/` — `helpers.ts` : `findClassAnywhere(ns,cls)`,
-  `findMethod(klass,name)`, `getFieldOffset`, `class_get_name`,
-  `readIl2cppString`, `invokeMethod`, … (API IL2CPP C wrappée).
-- `hooks/runtime/` — pump main thread (`queueOnMainThread`), crash logger,
+- `hooks/ai-toolkit/` — helpers partagés du toolkit décision : `hex.ts`
+  (géométrie hex), `coroutine.ts` (pump MoveNext), `unit-action.ts`,
+  `stack-capture.ts` (backtrace ciblé), `fix64.ts` (arithmétique Fix64).
+- `hooks/data/` — tables de noms figées : `ability-names.ts`,
+  `triggered-ability-names.ts`, `effect-type-names.ts`, `targeting-rule-names.ts`.
+- `hooks/il2cpp/` — `helpers.ts` (`findClassAnywhere`/`findMethod`/
+  `getFieldOffset`/`readIl2cppString`…), `invoke.ts`, `gc-root.ts` (pin/unpin),
+  `serializer.ts`, `mt.ts` (Mersenne Twister), `enum-dump.ts`, `project.ts`.
+- `hooks/runtime/` — pump main thread (`queue.ts`/`main-pump.ts`), crash logger,
   exception tracer, diag log.
 
 ## Conventions (impératives)
@@ -88,5 +118,8 @@ curl -X POST http://127.0.0.1:8765/api/admin/inject -d '{}'   # (ré)injecte
 ```
 
 La (ré)injection **réinitialise l'état agent** (liveRunner=null, caches Frida
-des MethodInfo* perdus) → re-`warmupGameSingletons` requis, et l'utilisateur
-doit re-cliquer une battle de campagne pour ré-armer les captures live.
+des MethodInfo* perdus) → **re-`warmupGameSingletons({ force: true })` requis
+avant tout RPC/probe**. Ce warmup est AUTONOME (il pilote lui-même la nav UI
+campagne→node→play→capture→retreat et recapture `lastSource`) — **jamais de clic
+humain, ne jamais demander à l'utilisateur de cliquer une battle** (cf. CLAUDE.md
+« Workflow RL » + mémoire `feedback_warmup_after_every_reinject`).
