@@ -105,17 +105,17 @@
   rejouer les messages (ReplayRunner). Or **à T1 le SEUL message antérieur à mon coup = le déploiement (`addUnits`)**,
   = exactement ce que `initAndStart(config, playerUnits)` fait. Donc **le clone T1 = un `initAndStart` frais** (même
   config + mêmes playerUnits → même déploiement déterministe, 0 RNG) **+ replay de MON spec candidat T1**. PAS de
-  `MatchState.Copy`, PAS d'inner-runner, PAS de sim 798ms. Briques déjà là : `initAndStart{keepExisting}` (clone,
-  coexistence multi-runner résolue), `applyAction`/`play --spec` (replay), `endturn`, `CheatRunAIMessage` (`cheat.ts`),
-  `disposeRunner`. Seul ajout natif = flag `victimNonCurrent` dans `computeExposure`.
-  - **Workflow guard T1** : plan spec → `initAndStart(config,playerUnits,keepExisting)` (clone) → replay spec →
+  `MatchState.Copy`, PAS d'inner-runner, PAS de sim 798ms. Briques déjà là : `initAndStart` (clone — coexistence
+  multi-runner par défaut depuis 2026-07-03), `applyAction`/`play --spec` (replay), `endturn`, `CheatRunAIMessage`
+  (`cheat.ts`), `disposeRunner`. Seul ajout natif = flag `victimNonCurrent` dans `computeExposure`.
+  - **Workflow guard T1** : plan spec → `initAndStart(config,playerUnits)` (clone) → replay spec →
     `endturn` (ennemis actifs) → `exposureView(victimNonCurrent)` [Capacité=reach_dmg] [+ option `CheatRunAIMessage`+diff
     HP = outcome réel « U meurt-il »] → `disposeRunner` → si U exposé réviser le spec, sinon commit sur le runner live.
   - **T2 (rare) = seul cas avec vrai replay** : rejouer mon T1 + le **tour IA T1** (messages IA), or `Replay.Messages`
     top-level only → l'histoire IA-inner peut manquer (cf. [[feedback_host_restart_kills_mirror]]). → v1 = **T1-only** ; T2 différé.
 ## MAJ — ÉVAL = run l'IA sur le clone (ground truth), pas exposureView-reverse
 - **Décision design** : on ne mesure plus une *capacité* (exposureView victimTeam) mais l'**OUTCOME RÉEL** —
-  clone T1 (initAndStart keepExisting) → replay mon spec d'approche → endturn → **faire jouer l'IA**
+  clone T1 (initAndStart) → replay mon spec d'approche → endturn → **faire jouer l'IA**
   (`aiPlayByUnit`, capture cascade) → évaluer l'état résultant → dispose. Plus honnête (vraies décisions de focus
   de l'IA, zéro estimation) et rend `victimTeam`/exposure-reverse **inutile** (donc NE PAS l'ajouter). C'est un
   **lookahead 1-ply** (mon coup + meilleure réponse adverse).
@@ -136,7 +136,7 @@
   best-of-N encore NET<0 → reporter, pas prendre le moins pire.
 - **PHASE A LIVRÉE + VALIDÉE (2026-06-20)** : sous-commande `python rl_duel.py guard --spec '[...]'` dans
   `scripts/python/rl_duel.py` (cmd_guard + _snapshot/_apply_spec_to/_score_net/_print_guard_report ; build sauve
-  désormais `playerUnits`). Flux : clone `initAndStart{keepExisting}` (T1 frais) → replay spec (garde anti-no-op
+  désormais `playerUnits`). Flux : clone `initAndStart` (T1 frais) → replay spec (garde anti-no-op
   réutilisée) → endturn → `aiPlayByUnit` (1 tour IA) → diff snapshots → **NET** → dispose. Ne touche PAS le live.
   - **Score NET** = leurs_pertes − mes_pertes ; perte/unité = frac_maxHP_perdue + `DEATH_PENALTY`(=1.0)×mort ;
     pondération SIMPLE (pas de rôle). before@T1 = full HP = maxHP. worst_unit = ma perte max.

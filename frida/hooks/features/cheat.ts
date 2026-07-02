@@ -18,6 +18,7 @@ import { runnerApplyMi, runnerOff } from "../game/runner.js";
 import { readBattleStatus, readTurnInfo } from "../game/match-state.js";
 import { state } from "../game/state.js";
 import { getRunner } from "../game/runner-registry.js";
+import { setTraceOrigin } from "../game/trace-origin.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { Ctx } from "../controller.js";
 
@@ -106,6 +107,7 @@ export function register(ctx: Ctx): void {
             };
             const r = await queueOnMainThread<TurnRes>(() => {
                 const entry = getRunner(args.runnerId);
+                setTraceOrigin(args.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
                 const frameNo = state.frameNo;
                 const sp = entry.runner.add(runnerOff.state).readPointer();
                 const sBefore = sp.isNull() ? -1

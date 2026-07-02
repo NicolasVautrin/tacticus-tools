@@ -52,7 +52,8 @@ import {
     findPvpGameModeSourceViaHeap,
 } from "./campaign-builder.js";
 import { buildRunner, runnerApplyMi } from "../game/runner.js";
-import { registerRunner, getRunner as getRegistryRunner }
+import { registerRunner, getRunner as getRegistryRunner,
+    listRunners as listRegistryRunners, MAX_RUNNERS }
     from "../game/runner-registry.js";
 import {
     findClass, findCtorByParamCount, findMethodByParamCount,
@@ -1153,6 +1154,18 @@ export function register(ctx: Ctx): void {
                     ok: false,
                     err: "no live BattleConfiguration captured — " +
                          "warmupGameSingletons first",
+                };
+            }
+            // Same hard cap as initAndStart — this path never disposed
+            // siblings (already coexist), only the gcRoot budget guard
+            // was missing.
+            const active = listRegistryRunners();
+            if (active.length >= MAX_RUNNERS) {
+                return {
+                    ok: false,
+                    err: "runner cap reached (" + MAX_RUNNERS + ") — dispose "
+                         + "one first (disposeRunner). Active runnerIds: "
+                         + active.map((r) => r.runnerId).join(", "),
                 };
             }
             let patchResult: PatchApplyResult | null = null;

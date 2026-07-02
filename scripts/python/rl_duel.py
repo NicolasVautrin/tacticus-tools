@@ -4,8 +4,11 @@
 Le runner vit dans l'agent Frida (registry, par runnerId) entre les invocations
 Python — donc on pilote le duel par sous-commandes successives :
 
-  build              monte le runner (seed/rank/roster), NE dispose PAS, sauve
-                     l'état (runnerId + bc) et affiche la carte décision.
+  build              monte le runner (seed/rank/roster), sauve l'état
+                     (runnerId + bc) et affiche la carte décision. Ne touche
+                     JAMAIS aux runners des autres acteurs (coexistence par
+                     défaut côté hooks, cap dur MAX_RUNNERS) ; remplace
+                     seulement le runner de SON --state-file s'il existe.
   view               re-affiche la carte décision (mon tour).
   act move    --unit U --to C,R
   act ability --caster U --target T --ability A
@@ -315,10 +318,22 @@ def cmd_build(sid: int, a) -> int:
          "col": int(player_pts[i][0]), "row": int(player_pts[i][1])}
         for i in range(roster_p)
     ]
+    # Replace SCOPE par acteur : cote hooks la coexistence est le DEFAUT
+    # (initAndStart ne dispose plus jamais les runners freres ; cap dur
+    # MAX_RUNNERS=10 sinon refus explicite). Rebuild = remplacer LE runner
+    # enregistre dans CE --state-file (celui que _save_state va ecraser),
+    # pas les freres — sinon il deviendrait orphelin et mangerait le cap.
+    if STATE.exists():
+        try:
+            old_rid = json.loads(STATE.read_text(encoding="utf-8")).get("runnerId")
+        except Exception:
+            old_rid = None
+        if old_rid is not None:
+            _rpc(sid, "disposeRunner", [{"runnerId": old_rid}], timeout=15)
+            print(f"[build] ancien runner {old_rid} du state-file dispose")
     init_resp = _rpc(sid, "initAndStart",
                      [{"configJson": json.dumps(bc), "seed": a.seed,
-                       "playerUnits": player_units,
-                       "keepExisting": a.keep}], timeout=40)
+                       "playerUnits": player_units}], timeout=40)
     init = init_resp.get("result") or {}
     rid = init.get("runnerId")
     if rid is None:
@@ -1420,7 +1435,7 @@ def _my_dmg(before: dict, after: dict, my_team) -> float:
 
 def _sim_plan(sid: int, bc: dict, seed, pu: list, spec: list, my_team,
               maxpump: int, two_ply: bool = True) -> dict:
-    """UNE sim isolée : clone T1 (initAndStart keepExisting) -> replay spec ->
+    """UNE sim isolée : clone T1 (initAndStart, coexist par défaut) -> replay spec ->
     endturn -> l'IA joue 1 tour (1-PLY) -> score NET -> dispose. Ne touche pas le live.
     2-PLY (two_ply, défaut ON) : si le 1er tour IA est une AVANCE (~0 dmg sur mes
     units = pas de contact), pousse la sim d'UN tour de plus (mon HOLD T2 -> AI T2)
@@ -1429,7 +1444,7 @@ def _sim_plan(sid: int, bc: dict, seed, pu: list, spec: list, my_team,
     déterministe -> 1 sim/plan. Retourne {sc|None, aborted, n, ai, plies}."""
     init = (_rpc(sid, "initAndStart",
                  [{"configJson": json.dumps(bc), "seed": seed,
-                   "playerUnits": pu, "keepExisting": True}],
+                   "playerUnits": pu}],
                  timeout=40).get("result") or {})
     rid = init.get("runnerId")
     if rid is None:
@@ -1534,7 +1549,7 @@ def _sim_turn(sid: int, bc: dict, seed, pu: list, spec: list, my_team,
     du tour évalué) -> after(post-IA) = coût net de CE tour."""
     init = (_rpc(sid, "initAndStart",
                  [{"configJson": json.dumps(bc), "seed": seed,
-                   "playerUnits": pu, "keepExisting": True}],
+                   "playerUnits": pu}],
                  timeout=40).get("result") or {})
     rid = init.get("runnerId")
     if rid is None:
@@ -1904,10 +1919,9 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--plies", type=int, default=8,
                     help="rollout: cap de l'horizon adaptatif (demi-tours alternés)")
     ap.add_argument("--state-file", default=None,
-                    help="fichier d'état alternatif (isolation multi-agent parallèle)")
-    ap.add_argument("--keep", action="store_true",
-                    help="build: NE dispose PAS les runners existants "
-                         "(coexistence multi-runner / parallèle — cf. TF06)")
+                    help="fichier d'état alternatif (isolation multi-agent "
+                         "parallèle) ; chemin relatif = ancré sur la racine "
+                         "du repo, pas le cwd")
     ap.add_argument("--no-ai", dest="no_ai", action="store_true",
                     help="play: SELF-PLAY — joue MON tour, endturn (flip sur "
                          "l'adversaire), puis S'ARRÊTE SANS lancer le tour IA natif "
@@ -1923,7 +1937,15 @@ def main(argv: list[str]) -> int:
 
     global STATE
     if a.state_file:
-        STATE = Path(a.state_file)
+        sf = Path(a.state_file)
+        # Chemin RELATIF ancre sur la RACINE du repo (pas le cwd) : le
+        # state-file est l'enregistrement de PROPRIETE du runner (replace
+        # scope au build + dispose) — resolu contre le cwd, un lancement
+        # depuis scripts/python crashait _save_state (dossier data/ absent)
+        # APRES initAndStart => runner fraichement built ORPHELIN qui mange
+        # le cap MAX_RUNNERS. Meme chemin nominal = meme fichier, quel que
+        # soit le cwd de l'acteur.
+        STATE = sf if sf.is_absolute() else (ROOT / sf)
 
     sid = _resolve_session()
     _ensure_ai_trace(sid)

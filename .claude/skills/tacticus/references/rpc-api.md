@@ -37,7 +37,7 @@ Ordre obligatoire (détails CLAUDE.md « Workflow RL ») :
   (`normalize-bc.ts`) → `{ ok, configJson, normalized:[unitId], mow:[unitId] }`.
   Résout une BC seed au rank cible ; passage obligé (les UnitId `:pvp` bruts
   échouent la désérialisation).
-- **`initAndStart({ configJson, seed?, playerUnits:[{unitId,playerId,col,row}], keepExisting? })`**
+- **`initAndStart({ configJson, seed?, playerUnits:[{unitId,playerId,col,row}] })`**
   (`launch.ts`) → `{ runnerId, seed, addUnits, startEventCount }`. Atomique :
   deserialize → buildRunner (Initialize auto-spawn PredefinedUnits/Machines) →
   AddUnit joueur → StartMatch. Variante 3-temps : `initRunner` + `applyAddUnit`×N
@@ -58,12 +58,15 @@ Ordre obligatoire (détails CLAUDE.md « Workflow RL ») :
   pour synchroniser `engine/runner/prng.py`.
 - **`disposeRunner({ runnerId })`** / **`listRunners()`** (`launch.ts`).
 
-Single-build (défaut) : `initRunner`/`initAndStart` disposent **TOUT** runner
-précédent **silencieusement**. Multi-runner / self-play : `keepExisting:true`
-(`rl_duel build --keep`). FOOTGUN : un build sans `--keep` dans une fenêtre
-concurrente **nuke les frères en vol** (signature : `listRunners`=[] +
-`await` → 502 instantané) ; parade = gate d'adressabilité au SETUP. cf.
-docs/rl/design.md §Multi-runner.
+Coexistence (défaut) : `initAndStart`/`buildPatchedRunner` ne disposent
+**JAMAIS** les runners frères. Garde-ressource = cap dur **`MAX_RUNNERS=10`**
+(`runner-registry.ts`, budget gcRoot ~900 handles) : au cap le build **REFUSE**
+avec la liste des runnerIds actifs. Discipline : chaque acteur DISPOSE ses
+runners en fin de passe ; `rl_duel build` remplace le runner de SON
+`--state-file` (replace scopé, jamais les frères). Exceptions à sémantique
+**replace** conservée : `initRunner` + `loadFromSavedBundle` (chemins UI
+BUILD/LOAD du front = ops de session, exclusives). cf. docs/rl/design.md
+§Multi-runner.
 
 ### Shape `observeBattle`
 
@@ -161,6 +164,17 @@ Outils de RE / observabilité — jamais une dépendance d'un hook live.
 - **`aiUtilityTrace*`** (`ai-utility-trace.ts`) : clés `UtilityConfig` lues par l'IA.
 - **`scorer*`** (`scorer-damage-trace.ts`) : scoring de dégât par tuile.
 - **`bucketAudit*`** (`bucket-audit.ts`) : actions ajoutées/choisies par bucket.
+  ⚠ hooks constatés MORTS 2026-07-03 (0 fire sur tours IA) — re-diagnostiquer
+  avant usage (cf. docs/rl/validation.md §5).
+- **Traces séparées par runner** : les 3 familles ci-dessus stockent leurs
+  events dans des buffers PAR ORIGINE (`OriginBuffers`,
+  `game/trace-origin.ts` ; origine = runner du RPC déclencheur, `null` = IA
+  live) — CAP par bucket, events tagués `originRunnerId`. Dumps avec
+  `{ runnerId }` → bucket direct ; clears scopables
+  (`scorerDamageTraceClear`/`aiUtilityTraceClear`/`bucketAuditReset`
+  `{ runnerId }`) ; `disposeRunner` PURGE automatiquement les buckets du
+  runner. Capture/lecture concurrente OK ; armement on/off et clear global
+  restent exclusifs (cf. validation.md §0).
 - **`overwatch*`/`overwatchFix*`** (`overwatch-fix/`) : anti-suicide overwatch.
 - **`whatifTrigger*`** (`whatif-trigger.ts`) : simulation « et si » de triggers.
 - **`dispatchObserve*`** (`dispatch-observe.ts`), **`modifierObserve*`**

@@ -6,6 +6,7 @@ import { invokeMethod } from "../../il2cpp/invoke.js";
 import { gcRoot } from "../../il2cpp/gc-root.js";
 import { runnerClass, runnerOff } from "../../game/runner.js";
 import { getRunner } from "../../game/runner-registry.js";
+import { setTraceOrigin } from "../../game/trace-origin.js";
 import {
     EntityType, forEachComponent, forEachEntity, projectMatchState,
     readBattleStatus, unitFootComponentClass,
@@ -72,6 +73,7 @@ export function registerView(ctx: Ctx): void {
         if (typeof body?.runnerId === "number") {
             try { runner = getRunner(body.runnerId).runner; }
             catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
             label = "build#" + body.runnerId;
         } else if (state.liveRunner) {
             runner = state.liveRunner; label = "live";
@@ -110,6 +112,7 @@ export function registerView(ctx: Ctx): void {
         if (typeof body?.runnerId === "number") {
             try { runner = getRunner(body.runnerId).runner; }
             catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
             label = "build#" + body.runnerId;
         } else if (state.liveRunner) {
             runner = state.liveRunner; label = "live";
@@ -164,6 +167,7 @@ export function registerView(ctx: Ctx): void {
         if (typeof body?.runnerId === "number") {
             try { runner = getRunner(body.runnerId).runner; }
             catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
             label = "build#" + body.runnerId;
         } else if (state.liveRunner) {
             runner = state.liveRunner; label = "live";
@@ -294,6 +298,7 @@ export function registerView(ctx: Ctx): void {
         if (typeof body?.runnerId === "number") {
             try { runner = getRunner(body.runnerId).runner; }
             catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
             label = "build#" + body.runnerId;
         } else if (state.liveRunner) {
             runner = state.liveRunner; label = "live";
@@ -347,6 +352,7 @@ export function registerView(ctx: Ctx): void {
         if (typeof body?.runnerId === "number") {
             try { runner = getRunner(body.runnerId).runner; }
             catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
             label = "build#" + body.runnerId;
         } else if (state.liveRunner) {
             runner = state.liveRunner; label = "live";
@@ -456,6 +462,7 @@ export function registerView(ctx: Ctx): void {
         if (typeof body?.runnerId === "number") {
             try { runner = getRunner(body.runnerId).runner; }
             catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
             label = "build#" + body.runnerId;
         } else if (state.liveRunner) {
             runner = state.liveRunner; label = "live";
@@ -532,6 +539,7 @@ export function registerView(ctx: Ctx): void {
         if (typeof body?.runnerId === "number") {
             try { runner = getRunner(body.runnerId).runner; }
             catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
             label = "build#" + body.runnerId;
         } else if (state.liveRunner) {
             runner = state.liveRunner; label = "live";
@@ -770,6 +778,7 @@ export function registerView(ctx: Ctx): void {
         if (typeof body?.runnerId === "number") {
             try { runner = getRunner(body.runnerId).runner; }
             catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
             label = "build#" + body.runnerId;
         } else if (state.liveRunner) {
             runner = state.liveRunner; label = "live";
@@ -982,6 +991,7 @@ export function registerView(ctx: Ctx): void {
         if (typeof body?.runnerId === "number") {
             try { runner = getRunner(body.runnerId).runner; }
             catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
             label = "build#" + body.runnerId;
         } else if (state.liveRunner) {
             runner = state.liveRunner; label = "live";
@@ -1196,6 +1206,7 @@ export function registerView(ctx: Ctx): void {
         if (typeof body?.runnerId === "number") {
             try { runner = getRunner(body.runnerId).runner; }
             catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
             label = "build#" + body.runnerId;
         } else if (state.liveRunner) { runner = state.liveRunner; label = "live"; }
         else { return { ok: false, error: "no runner — pass runnerId" }; }
@@ -1321,6 +1332,7 @@ export function registerView(ctx: Ctx): void {
         if (typeof body?.runnerId === "number") {
             try { runner = getRunner(body.runnerId).runner; }
             catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
             label = "build#" + body.runnerId;
         } else if (state.liveRunner) {
             runner = state.liveRunner; label = "live";
@@ -1408,6 +1420,7 @@ export function registerView(ctx: Ctx): void {
         if (typeof body?.runnerId === "number") {
             try { runner = getRunner(body.runnerId).runner; }
             catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
             label = "build#" + body.runnerId;
         } else if (state.liveRunner) {
             runner = state.liveRunner; label = "live";
@@ -1517,6 +1530,7 @@ export function registerView(ctx: Ctx): void {
         if (typeof body?.runnerId === "number") {
             try { runner = getRunner(body.runnerId).runner; }
             catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
             label = "build#" + body.runnerId;
         } else if (state.liveRunner) {
             runner = state.liveRunner; label = "live";
@@ -1575,6 +1589,7 @@ export function registerView(ctx: Ctx): void {
         if (typeof body?.runnerId === "number") {
             try { runner = getRunner(body.runnerId).runner; }
             catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
             label = "build#" + body.runnerId;
         } else if (state.liveRunner) {
             runner = state.liveRunner; label = "live";

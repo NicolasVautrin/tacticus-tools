@@ -21,7 +21,11 @@ from pathlib import Path
 import rl_collect_batch as R
 
 ROOT = Path(__file__).resolve().parents[2]
-STATE = ROOT / "data" / "duel_state.json"
+# State-file dedie (pas le duel_state.json partage) : depuis le replace scope
+# de `rl_duel build` (2026-07-03), un build dispose le runner enregistre dans
+# SON state-file — sur le fichier par defaut ca toucherait le runner de
+# travail de l'utilisateur.
+STATE = ROOT / "data" / "_probe_overwatch_state.json"
 
 
 def _res(r):
@@ -56,7 +60,8 @@ def main(argv):
     ap.add_argument("--seed", type=int, default=777)
     a = ap.parse_args(argv)
     sid = R._resolve_session()
-    subprocess.run([sys.executable, "rl_duel.py", "build", "--seed", str(a.seed), "--keep"],
+    subprocess.run([sys.executable, "rl_duel.py", "build", "--seed", str(a.seed),
+                    "--state-file", str(STATE)],
                    capture_output=True, text=True, encoding="utf-8", errors="replace")
     rid = json.loads(STATE.read_text())["runnerId"]
     print(f"[probe] session={sid} runner={rid} seed={a.seed}")

@@ -27,9 +27,15 @@ fait foi. Rappels de tes invariants les plus violés :
 Méthodologie de validation complète (oracles, métriques, interprétation des miss) :
 `docs/rl/validation.md`.
 
-- Rebuild OBLIGATOIRE avant chaque run : `python rl_duel.py build --seed <s>` puis
-  `python engine_validate.py --steps N` (le harness MUTE les runners). Depuis
-  `scripts/python`, avec `python` (pas `py`).
+- Rebuild OBLIGATOIRE avant chaque run, et discipline runner SYSTÉMATIQUE
+  (jamais « je suis seul, pas besoin ») : `python rl_duel.py build --seed <s>
+  --state-file <fichier propre>` puis `python engine_validate.py --runner <id>
+  --steps N`. La coexistence est le défaut (un build ne touche jamais les
+  runners frères ; cap dur MAX_RUNNERS=10 → au cap le build REFUSE : dispose
+  les tiens, ne dispose JAMAIS ceux des autres). Depuis `scripts/python`, avec
+  `python` (pas `py`). Dispose tes runners en fin de passe. Traces globales
+  (`scorer*`, `aiUtilityTrace*`…) et ops de session restent exclusives
+  (cf. docs/rl/validation.md §0).
 - Tu peux faire des smoke-checks pendant l'itération (un seed), mais tu ne prononces
   PAS l'acceptance de ton propre fix — c'est le rôle du validator. Ton rapport dit
   « smoke OK », pas « validé ».
@@ -43,6 +49,15 @@ fichier/fonction/contenu) et c'est l'orchestrateur qui applique les modifs moteu
 en session principale : l'utilisateur veut VOIR les diffs en direct. Exception :
 itération RE↔fix trop serrée pour l'aller-retour — tu édites toi-même, mais tu
 l'annonces dans ton rapport et le diff reste relu avant commit.
+
+## Outillage manquant (RPC, trace, contrôle absent du harness)
+
+Si un RPC/outil te manque : ne l'improvise JAMAIS (pas de hook à toi, pas de modif
+frida/). Si c'est BLOQUANT pour la mission → SendMessage à la session principale
+(l'orchestrateur arbitre ; sache qu'un nouveau RPC = rebuild+reinject, donc il
+arrivera pour un run SUIVANT, pas en vol). Sinon → section « Outillage manquant »
+de ton rapport : le besoin précis, ce qu'il débloquerait, et comment tu as
+contourné.
 
 ## Rapport final (ton message de fin de run)
 

@@ -219,8 +219,8 @@ function combatPrompt(b) {
   const sf = `/tmp/wave_${b.seed}.json`
   const aiCsv = b.aiUnits ? b.aiUnits.map((u) => String(u).split(':')[0]).join(',') : null
   const buildCmd = b.randomizeAi
-    ? `python scripts/python/_wave_build.py --seed ${b.seed} --keep --state-file ${sf}`
-    : `python scripts/python/rl_duel.py build --seed ${b.seed} --keep --state-file ${sf}${aiCsv ? ` --a-units ${aiCsv}` : ''}`
+    ? `python scripts/python/_wave_build.py --seed ${b.seed} --state-file ${sf}`
+    : `python scripts/python/rl_duel.py build --seed ${b.seed} --state-file ${sf}${aiCsv ? ` --a-units ${aiCsv}` : ''}`
   const disposeCmd = `python scripts/python/rl_duel.py dispose --state-file ${sf}`
   return `Tu es l'oracle Tacticus. Tu joues EXACTEMENT UN (1) combat: seed ${b.seed}. Puis tu renvoies ton retour structure et tu T'ARRETES.
    Tu n'es PAS responsable des autres combats de la vague (l'orchestrateur lance un agent distinct par seed). NE joue/build/recon AUCUN autre seed, MEME si le theme ci-dessous mentionne d'autres seeds ou un nombre de combats a faire.

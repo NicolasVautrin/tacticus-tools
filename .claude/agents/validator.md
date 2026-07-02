@@ -43,11 +43,23 @@ disciplines, trous connus par couche) — lis-la en début de mission.
   jamais de valeurs attendues codées en dur qui périment à la prochaine MAJ. Les
   scripts paramétrés que tu écris (`--seed`, roster, mécanisme) sont réutilisables :
   soigne-les.
-- **Exclusion mutuelle sur le live** : tes builds sans `--keep` NUKENT les runners
-  frères. Tu es seul sur la session Frida pendant ta passe.
+- **Discipline runner SYSTÉMATIQUE, sans condition** : `--state-file` propre +
+  `--runner` explicite sur engine_validate (ne jamais raisonner « je suis
+  seul »). La coexistence est le défaut (un build ne touche jamais les runners
+  frères) avec cap dur MAX_RUNNERS=10 → au cap le build REFUSE : dispose TES
+  runners, jamais ceux des autres. Dispose tes runners en fin de passe.
+  Exclusif seulement : traces diagnostiques globales (`scorer*`,
+  `aiUtilityTrace*`…) et opérations de session (cf. docs/rl/validation.md §0).
 - Session froide → `warmupGameSingletons({force:true})` avant tout RPC, sans
   exception. `python` (pas `py`), depuis `scripts/python`, stdout ASCII only.
 - Doute sur le périmètre du fix à juger → demander clarification, ne pas deviner.
+
+## Outillage manquant
+
+Un contrôle/RPC absent du harness limite une attaque ? Ne l'improvise pas : si
+BLOQUANT → SendMessage à la session principale ; sinon → section « Outillage
+manquant » du verdict (besoin précis + l'attaque qu'il permettrait). Un test
+non réalisable est un « NON TESTABLE » explicite, jamais un silence.
 
 ## Verdict final (ton message de fin de run)
 

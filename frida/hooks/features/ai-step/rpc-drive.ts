@@ -3,6 +3,7 @@ import { invokeMethod } from "../../il2cpp/invoke.js";
 import { gcRoot } from "../../il2cpp/gc-root.js";
 import { runnerApplyMi, runnerOff } from "../../game/runner.js";
 import { getRunner } from "../../game/runner-registry.js";
+import { setTraceOrigin } from "../../game/trace-origin.js";
 import {
     projectMatchState, readBattleStatus,
 } from "../../game/match-state.js";
@@ -36,6 +37,7 @@ export function registerDrive(ctx: Ctx): void {
         if (typeof body?.runnerId === "number") {
             try { runner = getRunner(body.runnerId).runner; }
             catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
             label = "build#" + body.runnerId;
         } else if (state.liveRunner) {
             runner = state.liveRunner;
@@ -186,6 +188,7 @@ export function registerDrive(ctx: Ctx): void {
         if (typeof body?.runnerId === "number") {
             try { runner = getRunner(body.runnerId).runner; }
             catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
             label = "build#" + body.runnerId;
         } else if (state.liveRunner) {
             runner = state.liveRunner; label = "live";
@@ -412,6 +415,7 @@ export function registerDrive(ctx: Ctx): void {
         if (typeof body?.runnerId === "number") {
             try { runner = getRunner(body.runnerId).runner; }
             catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
             label = "build#" + body.runnerId;
         } else if (state.liveRunner) {
             runner = state.liveRunner; label = "live";
@@ -567,6 +571,7 @@ export function registerDrive(ctx: Ctx): void {
         if (typeof body?.runnerId === "number") {
             try { runner = getRunner(body.runnerId).runner; }
             catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
             label = "build#" + body.runnerId;
         } else if (state.liveRunner) {
             runner = state.liveRunner; label = "live";

@@ -20,6 +20,7 @@ import {
     createManagedString, createObject, il2cpp_object_new, invokeMethod,
 } from "../il2cpp/invoke.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
+import { setTraceOrigin } from "../game/trace-origin.js";
 import {
     deserializeFromJson, isDeserializerReady,
 } from "../il2cpp/serializer.js";
@@ -33,6 +34,7 @@ import { cheatRunAiClass } from "../game/ai-control.js";
 import { purgeLogForOrigin } from "./sim-engine.js";
 import {
     registerRunner, getRunner, listRunners, disposeRunner, pinForRunner,
+    MAX_RUNNERS,
 } from "../game/runner-registry.js";
 import {
     pushApply, popApply, ensureStreamHooks, StreamEvent,
@@ -475,11 +477,6 @@ export function register(ctx: Ctx): void {
         playerUnits: Array<{
             unitId: string; playerId: number; col: number; row: number;
         }>;
-        // Multi-runner (parallel RL): when true, do NOT dispose existing
-        // runners — let this one COEXIST with prior ones (TF06). Default false
-        // = single-build policy (safe: bounds pinned gcRoot handles — Initialize
-        // fails past ~900). Keep the parallel fleet small.
-        keepExisting?: boolean;
     }) => {
         if (!isDeserializerReady()) {
             throw new Error("Newtonsoft DeserializeObject not resolved");
@@ -493,23 +490,21 @@ export function register(ctx: Ctx): void {
         }
         return queueOnMainThread(() => {
             gcRoot.init();
-            // Single-build policy (default): dispose any prior build first.
-            // Skipped when keepExisting=true so multiple RL runners can coexist
-            // for parallel play (TF06). Without this skip, building a 2nd runner
-            // deterministically evicts the 1st — the real cause of the POC's
-            // "runner N not found", not a recorder concurrency race.
-            if (!args.keepExisting) {
-                for (const old of listRunners()) {
-                    try {
-                        const oldEntry = getRunner(old.runnerId);
-                        state.watchedRunners.delete(oldEntry.runner.toString());
-                        state.watchedAiControls.delete(
-                            oldEntry.innerAiControl.toString());
-                    } catch { /* runner already gone */ }
-                    disposeRunner(old.runnerId);
-                    try { purgeLogForOrigin(old.runnerId); }
-                    catch { /* ignore */ }
-                }
+            // Coexistence by default (parallel RL): building NEVER disposes
+            // sibling runners. The old single-build default silently nuked
+            // in-flight parallel runners (TF06 — "runner N not found" in the
+            // self-play POC). The gcRoot handle budget that dispose-all used
+            // to protect is now guarded by MAX_RUNNERS: past the cap the
+            // build REFUSES explicitly — each caller owns its runners and
+            // disposes them at end of pass (`rl_duel dispose` /
+            // `disposeRunner`; rl_duel `build` replaces the runner recorded
+            // in its OWN --state-file).
+            const active = listRunners();
+            if (active.length >= MAX_RUNNERS) {
+                throw new Error(
+                    "runner cap reached (" + MAX_RUNNERS + ") — dispose one "
+                    + "first (disposeRunner). Active runnerIds: "
+                    + active.map((r) => r.runnerId).join(", "));
             }
             // Step breadcrumbs: a native SEH (Frida "system error") inside any
             // invoke below bypasses the JS catch, so the last logged step is the
@@ -710,6 +705,7 @@ export function register(ctx: Ctx): void {
         const klass = cheatRunAiClass;
         return queueOnMainThread(() => {
             const entry = getRunner(args.runnerId);
+            setTraceOrigin(args.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
             const seq = ++playTurnSeq;
 
             // Pre-apply snapshot — if the following invoke crashes, this is

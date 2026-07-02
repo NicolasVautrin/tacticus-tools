@@ -28,7 +28,11 @@ import pytest
 
 PYDIR = Path(__file__).resolve().parents[1]          # scripts/python
 ROOT = Path(__file__).resolve().parents[3]           # racine repo
-STATE = ROOT / "data" / "duel_state.json"
+# State-file DEDIE aux tests — jamais le data/duel_state.json par defaut :
+# depuis le replace scope de `rl_duel build` (2026-07-03), un build dispose
+# le runner enregistre dans SON state-file ; sur le fichier partage par
+# defaut, ca disposerait le runner de travail de l'utilisateur.
+STATE = ROOT / "data" / "_pytest_duel_state.json"
 
 
 def _unwrap(r):
@@ -72,9 +76,10 @@ def rpc(host, live_session):
 def build_runner(host, live_session):
     """Fabrique de runners ISOLÉS frais, AUTO-NETTOYÉS en fin de session.
 
-    `rl_duel build --keep` ⇒ COEXISTENCE : ne dispose JAMAIS les runners existants
-    (le runner de travail de l'utilisateur n'est jamais nuké). Chaque runner créé
-    par les tests est libéré via `disposeRunner` au teardown → aucun orphelin.
+    La coexistence est le DÉFAUT côté hooks (`initAndStart` ne dispose plus
+    jamais les runners frères ; cap dur MAX_RUNNERS) — le runner de travail de
+    l'utilisateur n'est jamais nuké. Chaque runner créé par les tests est
+    libéré via `disposeRunner` au teardown → aucun orphelin, le cap respire.
 
     Renvoie `build(seed="777", extra=None) -> {"rid": int, "my_team": int}`. Le seed n'est
     qu'un générateur de bataille, hors critère (l'invariant testé tient pour toute bataille).
@@ -84,8 +89,8 @@ def build_runner(host, live_session):
 
     def _build(seed: str = "777", extra: list[str] | None = None) -> dict:
         proc = subprocess.run(
-            [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--keep",
-             *(extra or [])],
+            [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
+             "--state-file", str(STATE), *(extra or [])],
             cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8",
             errors="replace")
         if not STATE.exists():

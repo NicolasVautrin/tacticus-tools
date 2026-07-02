@@ -21,6 +21,7 @@
 import { findClass, findMethod, getFieldOffset } from "../il2cpp/helpers.js";
 import { state } from "../game/state.js";
 import { install } from "../game/recorder.js";
+import { clearTraceOrigin } from "../game/trace-origin.js";
 import { log, traceEnter } from "./diag.js";
 
 function drainPending(): void {
@@ -35,6 +36,11 @@ function drainPending(): void {
             }
         } catch (e) {
             req.reject((e as Error).message);
+        } finally {
+            // L'origine de trace posée par les RPCs de pilotage ne vaut que
+            // pour CE job (évaluation native synchrone) — les hooks qui fire
+            // hors job (IA du jeu live) doivent retomber sur null.
+            clearTraceOrigin();
         }
     }
 }

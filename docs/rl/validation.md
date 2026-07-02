@@ -15,8 +15,38 @@
   COMPORTEMENT (agreement) — il ne sert jamais à découvrir/fitter une formule.
 - **Rebuild obligatoire avant chaque run d'agreement** : le harness MUTE les
   runners (`python rl_duel.py build --seed <s>` avant chaque `engine_validate`).
-  Un build sans `--keep` NUKE silencieusement les runners frères → un seul acteur
-  sur le live pendant une passe de validation.
+- **Discipline runner SYSTÉMATIQUE — sans condition, seul ou pas** : la
+  coexistence est le DÉFAUT côté hooks (un build ne dispose JAMAIS les runners
+  frères ; `--keep`/`keepExisting` supprimés 2026-07-03) avec un cap dur
+  `MAX_RUNNERS=10` → au cap, le build REFUSE explicitement (liste des ids).
+  Obligations par acteur : `--state-file` PROPRE (le build remplace le runner
+  de CE state-file — replace scopé, c'est lui l'enregistrement de propriété ;
+  sans `--state-file`, le défaut partagé `data/duel_state.json` est RÉSERVÉ à
+  l'usage interactif de l'utilisateur — scripts/tests/agents passent TOUJOURS
+  le leur, sinon leur build dispose le runner de travail de l'utilisateur),
+  `--runner <id>` EXPLICITE sur engine_validate (le défaut « premier de
+  listRunners » est ambigu), et DISPOSE de ses runners en fin de passe (pas
+  d'orphelins — un orphelin mange le cap pour tout le monde). Un acteur ne
+  peut PAS savoir s'il est seul sur le live (un autre peut arriver en cours
+  de run) → ne jamais raisonner « pas besoin, je suis seul » — même pattern
+  que le warmup inconditionnel. Le parallélisme runner-scoped est AUTORISÉ
+  (prouvé par le self-play : 5 runners simultanés). Les **traces
+  diagnostiques sont séparées par runner** (2026-07-03) : chaque famille
+  stocke ses events dans des buffers PAR ORIGINE (`OriginBuffers`,
+  `game/trace-origin.ts` — Map originRunnerId → bucket, `null` = IA du jeu
+  live ; l'origine est posée par les RPCs de pilotage dans leur job
+  `queueOnMainThread`, attribution exacte par sérialisation). Conséquences :
+  CAP **par bucket** (un acteur bavard n'affame plus la capture des autres),
+  dumps (`scorer*TraceDump`, `aiUtilityTraceDump`, `bucketAuditDump*`) avec
+  `runnerId` → bucket direct, clears scopables, et le **dispose d'un runner
+  purge automatiquement ses buckets** (même hygiène que le purge du log
+  recorder) → la capture/lecture CONCURRENTE par plusieurs acteurs est
+  autorisée, sans orphelins. Restent EXCLUSIFS : (a) l'ARMEMENT/extinction
+  des traces (`trace.on` global : `scorer*On/Off`,
+  `aiUtilityTraceEnable/Disable`…) et le clear GLOBAL (sans `runnerId`) ;
+  (b) les opérations de session (reinject, warmup, restart host) — personne
+  d'autre sur le live pendant ; (c) les chemins UI BUILD/LOAD du front
+  (`initRunner`/`loadFromSavedBundle`, sémantique replace conservée).
 - **Warmup inconditionnel** après chaque (re)inject, avant tout RPC/probe
   (`warmupGameSingletons({force:true})`, autonome). Aucune exception, même pour
   les probes « self-contained » sur seed BC disque.
@@ -122,3 +152,27 @@ Exclusion mutuelle sur la session Frida pendant toute passe de validation.
   d'utilité normale (sans impact argmax connu).
 - **Antériorité hexgeo** : toute validation d'adjacence/AoE antérieure au fix de
   parité hexgeo (2026-07-02) est suspecte et à re-dériver au besoin.
+- **Porte d'élévation de l'adjacence native NON portée** (validator 2026-07-02,
+  preuve concrète seed555) : le natif filtre les voisins par `|Δelev| < 2` +
+  `IsEmptyOrSteppable` (`IterateAdjacentTiles @1810acef0`) ; `_adjacent_count`
+  (summon/BloodyFury/FightingRetreat) compte en hexgeo PUR → sur-compte de +1
+  sur tuiles à fort dénivelé. Gap LATENT (n'a flippé aucun argmax observé sur
+  3 boards) mais déclencheur possible sur terrain élevé. Probe réutilisable :
+  `scripts/python/probe_summon.py`.
+- **Tie origin-vs-move du summon non exercé** : le natif évalue l'origine EN
+  DERNIER (NullPosition) → à égalité origine==tuile-de-move, le natif BOUGE ;
+  le port met l'origine en premier → il resterait. Jamais observé (l'origine
+  n'a jamais égalé le max) ; à trancher si un cas apparaît.
+- **Step-3 seed777 = wash documenté** : égalité parfaite d'utilité entre 2
+  tuiles de move, départage = ordre d'énumération interne natif (gshared non
+  RE-able ; flip d'opérateur RÉFUTÉ par smoke — régresse step-2). Fermable
+  uniquement par capture de l'ordre natif des tuiles de move (outillage).
+- **bucket-audit : hooks morts (constaté 2026-07-03)** : les 5 listeners
+  s'attachent (RVA gqfc5mff6c) mais AUCUN fire (compteurs diag à 0, ctor
+  inclus) sur 4 tours IA complets joués via playTurn — anomalie PRÉEXISTANTE
+  au tagging originRunnerId (le code de tag/filtre est en place mais NON
+  validé live pour cette famille). À re-diagnostiquer avant tout usage :
+  RVA à re-vérifier contre le dump, ou chemin CheatRunAI ≠ chemin bucket.
+  `ai-utility-trace` : tagging par chokepoint central (pushAccess) en place,
+  non exercé live (Enable = hooks Dict lourds) — même mécanisme que le
+  scorer (validé), à confirmer au premier usage réel.

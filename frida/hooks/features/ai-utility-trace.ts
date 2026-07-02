@@ -27,6 +27,7 @@ import { createManagedString, invokeMethod } from "../il2cpp/invoke.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { state } from "../game/state.js";
 import { aiControlClass } from "../game/ai-control.js";
+import { getTraceOrigin, OriginBuffers } from "../game/trace-origin.js";
 
 // Cache the System.String Il2CppClass* once at module load. The hook on
 // Dictionary<string,int>.TryGetValue actually fires for ALL reference-typed
@@ -164,7 +165,7 @@ function ensureUtilitiesDbCapture(): void {
                 // at different ptrs so the prior bindings are stale.
                 knownConfigs.clear();
                 if (!sameMatch) {
-                    trace.buffer = [];
+                    trace.buffer.clear();
                     trace.counters.clear();
                     trace.seq = 0;
                     trace.diag.tryGetValueFires = 0;
@@ -319,6 +320,9 @@ function sampleUntrackedDict(klass: NativePointer): void {
 interface AccessEntry {
     /** monotonic seq number — easier to correlate with ai-trace L3 events */
     seq: number;
+    /** runner du RPC déclencheur (null = IA live) — posé centralement par
+     * pushAccess (cf. game/trace-origin.ts) */
+    originRunnerId?: number | null;
     ts: number;
     configPtr: string;
     /** Qualified type name of the dict instance — tells us EXACTLY what
@@ -353,10 +357,10 @@ interface AccessEntry {
 interface TraceState {
     enabled: boolean;
     seq: number;
-    /** Ring buffer — drops oldest when full. Sized for ~1 turn of AI scoring
+    /** Ring buffers PAR ORIGINE (cf. game/trace-origin.ts) — drop oldest when
+     * full, cap PAR BUCKET. Sized for ~1 turn of AI scoring
      * (53 utilities × 100 candidate tiles × 2 dict accesses ≈ 10k entries). */
-    buffer: AccessEntry[];
-    bufferMax: number;
+    buffer: OriginBuffers<AccessEntry>;
     /** Listeners installed by enable() — kept so disable() can detach. */
     listeners: InvocationListener[];
     /** Per-key read counters — useful summary view without dumping the
@@ -398,8 +402,7 @@ const trace: TraceState = {
     // if the overhead becomes a problem.
     enabled: true,
     seq: 0,
-    buffer: [],
-    bufferMax: 20000,
+    buffer: new OriginBuffers<AccessEntry>(20000, "ring"),
     listeners: [],
     counters: new Map(),
     diag: {
@@ -548,9 +551,7 @@ const TRACE_OWNER_ALLOWLIST = new Set([
 
 function pushAccess(entry: AccessEntry): void {
     if (!TRACE_OWNER_ALLOWLIST.has(entry.ownerType)) return;
-    if (trace.buffer.length >= trace.bufferMax) {
-        trace.buffer.shift();
-    }
+    entry.originRunnerId = getTraceOrigin();   // chokepoint central — attribution runner
     trace.buffer.push(entry);
     const ck = entry.source + "|" + entry.ownerType
         + ":" + (entry.key ?? "<no-key>");
@@ -855,8 +856,15 @@ export function register(ctx: Ctx): void {
         return { ok: true, listeners: trace.listeners.length };
     };
 
-    ctx.rpc.aiUtilityTraceClear = (): unknown => {
-        trace.buffer = [];
+    ctx.rpc.aiUtilityTraceClear = (body?: { runnerId?: number }): unknown => {
+        if (typeof body?.runnerId === "number") {
+            // Clear SCOPÉ multi-acteur : drop le bucket de CE runner (les
+            // compteurs agrégés restent globaux — granularité assumée, ils
+            // ne sont pas rejouables par-runner).
+            trace.buffer.clear(body.runnerId);
+            return { ok: true, remaining: trace.buffer.size() };
+        }
+        trace.buffer.clear();
         trace.counters.clear();
         trace.seq = 0;
         trace.diag.tryGetValueFires = 0;
@@ -872,18 +880,17 @@ export function register(ctx: Ctx): void {
      * - since: only entries with seq > since
      * - max: cap returned count (default 1000) */
     ctx.rpc.aiUtilityTraceDump = (
-        body?: { since?: number; max?: number },
+        body?: { since?: number; max?: number; runnerId?: number },
     ): unknown => {
         const since = body?.since ?? 0;
         const max = body?.max ?? 1000;
-        const filtered = since > 0
-            ? trace.buffer.filter((e) => e.seq > since)
-            : trace.buffer;
+        let filtered = trace.buffer.entries(body?.runnerId);
+        if (since > 0) filtered = filtered.filter((e) => e.seq > since);
         const slice = filtered.slice(-max);
         return {
             enabled: trace.enabled,
             totalSeq: trace.seq,
-            bufferSize: trace.buffer.length,
+            bufferSize: trace.buffer.size(),
             knownConfigs: knownConfigs.size,
             returned: slice.length,
             entries: slice,

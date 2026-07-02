@@ -35,6 +35,7 @@ import {
     class_get_methods, cstr, findClassAnywhere,
     il2cppBase, method_get_name, methodEntry,
 } from "../il2cpp/helpers.js";
+import { getTraceOrigin, OriginBuffers } from "../game/trace-origin.js";
 
 // --- RVAs (offsets relative to GameAssembly.dll base) ---
 
@@ -73,6 +74,7 @@ function fix64ToNumber(raw: Int64): number {
 
 interface AddedAction {
     seq: number;
+    originRunnerId: number | null;   // runner du RPC déclencheur (null = IA live)
     ts: number;
     bucketPtr: string;
     weightBucket: number | null;  // for AddActionToBucket
@@ -86,6 +88,7 @@ interface AddedAction {
 
 interface ChooseEvent {
     seq: number;
+    originRunnerId: number | null;   // runner du RPC déclencheur (null = IA live)
     ts: number;
     bucketPtr: string;
     chosenActionPtr: string | null;
@@ -96,10 +99,9 @@ const audit = {
     enabled: false,
     seq: 0,
     listeners: [] as InvocationListener[],
-    added: [] as AddedAction[],
-    chosen: [] as ChooseEvent[],
-    addedMax: 5000,
-    chosenMax: 200,
+    // Buffers PAR ORIGINE (cf. game/trace-origin.ts) — ring, cap PAR BUCKET.
+    added: new OriginBuffers<AddedAction>(5000, "ring"),
+    chosen: new OriginBuffers<ChooseEvent>(200, "ring"),
     diag: {
         addActionFires: 0,
         addActionToBucketFires: 0,
@@ -250,9 +252,9 @@ function installHooks(): boolean {
                     : readUnitActionFields(content);
                 const targetName = fields.targetPtr
                     ? readTargetName(ptr(fields.targetPtr)) : null;
-                if (audit.added.length >= audit.addedMax) audit.added.shift();
                 audit.added.push({
                     seq: ++audit.seq,
+                    originRunnerId: getTraceOrigin(),
                     ts: Date.now(),
                     bucketPtr: bucket.toString(),
                     weightBucket: null,
@@ -284,9 +286,9 @@ function installHooks(): boolean {
                     : readUnitActionFields(content);
                 const targetName = fields.targetPtr
                     ? readTargetName(ptr(fields.targetPtr)) : null;
-                if (audit.added.length >= audit.addedMax) audit.added.shift();
                 audit.added.push({
                     seq: ++audit.seq,
+                    originRunnerId: getTraceOrigin(),
                     ts: Date.now(),
                     bucketPtr: bucket.toString(),
                     weightBucket: weight,
@@ -327,11 +329,9 @@ function installHooks(): boolean {
             try {
                 const action = retval as NativePointer;
                 if (action.isNull()) {
-                    if (audit.chosen.length >= audit.chosenMax) {
-                        audit.chosen.shift();
-                    }
                     audit.chosen.push({
                         seq: ++audit.seq,
+                        originRunnerId: getTraceOrigin(),
                         ts: Date.now(),
                         bucketPtr,
                         chosenActionPtr: null,
@@ -341,11 +341,9 @@ function installHooks(): boolean {
                 }
                 const utility = fix64ToNumber(
                     action.add(BA.utility).readS64());
-                if (audit.chosen.length >= audit.chosenMax) {
-                    audit.chosen.shift();
-                }
                 audit.chosen.push({
                     seq: ++audit.seq,
+                    originRunnerId: getTraceOrigin(),
                     ts: Date.now(),
                     bucketPtr,
                     chosenActionPtr: action.toString(),
@@ -375,8 +373,8 @@ export function register(ctx: Ctx): void {
     ctx.rpc.bucketAuditStatus = (): unknown => ({
         enabled: audit.enabled,
         listeners: audit.listeners.length,
-        added: audit.added.length,
-        chosen: audit.chosen.length,
+        added: audit.added.size(),
+        chosen: audit.chosen.size(),
         diag: { ...audit.diag },
         backtraceTags: Object.keys(audit.backtraces),
     });
@@ -397,9 +395,17 @@ export function register(ctx: Ctx): void {
         return { ok: true };
     };
 
-    ctx.rpc.bucketAuditReset = (): unknown => {
-        audit.added = [];
-        audit.chosen = [];
+    ctx.rpc.bucketAuditReset = (body?: { runnerId?: number }): unknown => {
+        if (typeof body?.runnerId === "number") {
+            // Reset SCOPÉ multi-acteur : drop les buckets de CE runner
+            // (compteurs diag + backtraces restent globaux).
+            audit.added.clear(body.runnerId);
+            audit.chosen.clear(body.runnerId);
+            return { ok: true, added: audit.added.size(),
+                     chosen: audit.chosen.size() };
+        }
+        audit.added.clear();
+        audit.chosen.clear();
         audit.seq = 0;
         Object.keys(audit.diag).forEach((k) => {
             (audit.diag as Record<string, number>)[k] = 0;
@@ -410,10 +416,10 @@ export function register(ctx: Ctx): void {
 
     /** Dump recent additions (most recent first). */
     ctx.rpc.bucketAuditDumpAdded = (
-        body?: { max?: number; targetPtr?: string },
+        body?: { max?: number; targetPtr?: string; runnerId?: number },
     ): unknown => {
         const max = body?.max ?? 200;
-        let entries = audit.added;
+        let entries = audit.added.entries(body?.runnerId);
         if (body?.targetPtr) {
             entries = entries.filter((e) => e.targetPtr === body.targetPtr);
         }
@@ -424,13 +430,14 @@ export function register(ctx: Ctx): void {
     };
 
     ctx.rpc.bucketAuditDumpChosen = (
-        body?: { max?: number },
+        body?: { max?: number; runnerId?: number },
     ): unknown => {
         const max = body?.max ?? 50;
+        const entries = audit.chosen.entries(body?.runnerId);
         return {
-            total: audit.chosen.length,
-            returned: Math.min(max, audit.chosen.length),
-            entries: audit.chosen.slice(-max),
+            total: entries.length,
+            returned: Math.min(max, entries.length),
+            entries: entries.slice(-max),
         };
     };
 
@@ -438,9 +445,10 @@ export function register(ctx: Ctx): void {
      * and the chosen action. Reveals the decision logic at that bucket. */
     ctx.rpc.bucketAuditByBucket = (body?: { bucketPtr?: string }): unknown => {
         if (!body?.bucketPtr) return { error: "bucketPtr required" };
-        const added = audit.added.filter((e) => e.bucketPtr === body.bucketPtr);
-        const chosen = audit.chosen.filter(
-            (e) => e.bucketPtr === body.bucketPtr);
+        const added = audit.added.entries()
+            .filter((e) => e.bucketPtr === body.bucketPtr);
+        const chosen = audit.chosen.entries()
+            .filter((e) => e.bucketPtr === body.bucketPtr);
         return { bucketPtr: body.bucketPtr, added, chosen };
     };
 }

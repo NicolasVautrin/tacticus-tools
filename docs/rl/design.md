@@ -77,26 +77,26 @@ fréquence des tags d'échec**. PAS le win-rate aléatoire brut. Ne jamais entra
 **✅ RÉSOLU (2026-06-16)** : la coexistence multi-runner MARCHE. Le vrai blocker n'était ni host ni
 une race recorder (2 hypothèses fausses héritées d'un framing d'avant-compact) — c'était la
 **single-build policy d'`initAndStart`** (`launch.ts`:490, déterministe : dispose tous les runners
-existants avant d'en bâtir un). Corrigé par **`keepExisting` opt-in** (défaut inchangé = mono-runner
-sûr) + flag **`autoDispose`** sur l'Entry du registre (durcissement recorder). Validé : 2 runners
+existants avant d'en bâtir un). Corrigé d'abord par **`keepExisting` opt-in** + flag **`autoDispose`**
+sur l'Entry du registre (durcissement recorder) — puis (2026-07-03) la coexistence est devenue le
+**DÉFAUT** et `keepExisting`/`--keep` ont été supprimés (cf. ¶ suivant). Validé : 2 runners
 (seeds 11111/22222) coexistent, `decisionView` OK sur les deux, rosters distincts, **zéro cross-talk**,
-via `rl_duel build --keep` + `--state-file` isolés. **Enablers du parallèle** : (1) isolation runner ✓,
+via `--state-file` isolés. **Enablers du parallèle** : (1) isolation runner ✓,
 (2) state-file par agent ✓, (3) coexistence ✓.
 
-**⚠ FOOTGUN concurrent (self-play, diagnostiqué 2026-06-23)** : la single-build policy est une
-disposition **SILENCIEUSE** (zéro event `runner_disposed` ; `disposeRunner` = `byId.delete` + unpin
-gcRoot). En self-play `matchesInFlight ≥ 2`, un seul `rl_duel build` SANS `--keep` qui entre dans la
-fenêtre concurrente **dispose tous les runners frères en vol** → les matchs concernés tombent en
-"runner not found"/no-result **sans aucune trace** (builds OK, 0 `init_and_start_threw`, 0
-dispose-event). Signature de diag : `listRunners`=[] + `battleStatus ok:false` +
-`/api/selfplay/:id/await` renvoie **502 INSTANTANÉ** (ne bloque PAS jusqu'au timeout) ; le host-tracker
-`/api/runners` garde des entrées **stale** (divergence script-registry ↔ host-tracker). Observé : les 2
-runners de la 1ʳᵉ vague concurrente nukés ; la paire suivante **décalée** survit. Parade (workflow
-`tacticus-selfplay`, prompt SETUP) : (a) `--keep` OBLIGATOIRE — jamais de build ad-hoc ni `dispose`
-côté SETUP/players ; (b) **GATE d'adressabilité** — le SETUP confirme le runner joignable via `await`
-(le chemin EXACT des players) avant de rendre `ok` ; sinon `ok:false` → le workflow retry (rebuild
-`--keep` = non destructif → self-heal). [Root cause confirmé code+logs ; gate à valider sur la
-prochaine batch ≥2 en vol.]
+**⚠ FOOTGUN concurrent (self-play, diagnostiqué 2026-06-23 — ÉLIMINÉ 2026-07-03)** : la single-build
+policy était une disposition **SILENCIEUSE** (zéro event `runner_disposed`). En self-play
+`matchesInFlight ≥ 2`, un seul `rl_duel build` SANS `--keep` entrant dans la fenêtre concurrente
+**disposait tous les runners frères en vol** → matchs en "runner not found"/no-result **sans trace**
+(signature : `listRunners`=[] + `battleStatus ok:false` + `/api/selfplay/:id/await` → 502 instantané ;
+host-tracker stale). **Résolution structurelle (2026-07-03)** : la coexistence est devenue le DÉFAUT
+d'`initAndStart` (`--keep`/`keepExisting` supprimés — le footgun ne peut plus être commis) ; la
+garde-ressource gcRoot est reprise par le cap dur **`MAX_RUNNERS=10`** (`runner-registry.ts`) : au cap,
+le build REFUSE explicitement (liste des runnerIds) au lieu de nuker. Discipline compensatoire : chaque
+acteur **dispose ses runners en fin de passe** ; `rl_duel build` remplace le runner de SON
+`--state-file` (replace scopé par acteur). La **GATE d'adressabilité** du SETUP self-play (confirmer le
+runner joignable via `await` avant `ok`) reste en place comme défense en profondeur. `initRunner` +
+`loadFromSavedBundle` (chemins UI BUILD/LOAD) gardent la sémantique replace = ops de session exclusives.
 
 **Pourquoi rien d'autre n'est nécessaire à petite échelle (analysé 2026-06-16)** : avec `await` par
 appelant (le `_rpc` python est bloquant), le pipeline est en **boucle fermée** — chaque sous-agent a

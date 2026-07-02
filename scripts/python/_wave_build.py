@@ -28,7 +28,6 @@ def main() -> int:
     ap.add_argument("--rank", type=int, default=17)
     ap.add_argument("--roster", type=int, default=5)
     ap.add_argument("--state-file", required=True)
-    ap.add_argument("--keep", action="store_true")
     ap.add_argument("--mow", action="store_true")
     a = ap.parse_args()
 
@@ -64,10 +63,18 @@ def main() -> int:
          "col": int(player_pts[i][0]), "row": int(player_pts[i][1])}
         for i in range(len(p_units))
     ]
+    # Coexistence par defaut cote hooks (plus de keepExisting) ; remplace le
+    # runner de CE state-file s'il existe (meme discipline que rl_duel build).
+    if RD.STATE.exists():
+        try:
+            old_rid = json.loads(RD.STATE.read_text(encoding="utf-8")).get("runnerId")
+        except Exception:
+            old_rid = None
+        if old_rid is not None:
+            _rpc(sid, "disposeRunner", [{"runnerId": old_rid}], timeout=15)
     init = (_rpc(sid, "initAndStart",
                  [{"configJson": json.dumps(bc), "seed": a.seed,
-                   "playerUnits": player_units,
-                   "keepExisting": a.keep}], timeout=40).get("result") or {})
+                   "playerUnits": player_units}], timeout=40).get("result") or {})
     rid = init.get("runnerId")
     if rid is None:
         print(f"[error] initAndStart: {init}", file=sys.stderr)

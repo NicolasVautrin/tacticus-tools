@@ -16,6 +16,7 @@
 
 import { RunnerHandle } from "./runner.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
+import { purgeTracesForRunner } from "./trace-origin.js";
 
 interface Entry extends RunnerHandle {
     runnerId: number;
@@ -33,6 +34,14 @@ interface Entry extends RunnerHandle {
 const byId = new Map<number, Entry>();
 let counter = 0;
 
+/** Hard cap on CONCURRENT managed runners. Replaces the old single-build
+ *  dispose-all default of `initAndStart` (which silently nuked in-flight
+ *  parallel runners — TF06) as the guard on the gcRoot handle budget
+ *  (~100 pinned handles per battle; Initialize fails past ~900, see header).
+ *  Past the cap, build RPCs REFUSE explicitly — callers own their runners
+ *  and must dispose them at end of pass. */
+export const MAX_RUNNERS = 10;
+
 export function registerRunner(
     h: RunnerHandle, opts?: { autoDispose?: boolean },
 ): Entry {
@@ -45,6 +54,11 @@ export function registerRunner(
 export function getRunner(runnerId: number): Entry {
     const e = byId.get(runnerId);
     if (!e) throw new Error(`runner ${runnerId} not found`);
+    // PAS de side effect trace-origin ici : getRunner est aussi appelé
+    // depuis des callbacks de hooks (recorder) et des RPCs non-queués
+    // (disposeRunner, thread RPC) — un set ambiant taignerait l'attribution.
+    // L'origine est posée EXPLICITEMENT par les RPCs de pilotage
+    // (cf. game/trace-origin.ts).
     return e;
 }
 
@@ -85,5 +99,9 @@ export function disposeRunner(runnerId: number): boolean {
         try { gcRoot.remove(p); } catch { /* best effort */ }
     }
     e.pinnedRefs.length = 0;
+    // Drop les buckets de traces diagnostiques du runner mort (scorer /
+    // aiUtilityTrace / bucketAudit) — même hygiène que purgeLogForOrigin
+    // côté recorder. cf. game/trace-origin.ts.
+    try { purgeTracesForRunner(runnerId); } catch { /* best effort */ }
     return byId.delete(runnerId);
 }

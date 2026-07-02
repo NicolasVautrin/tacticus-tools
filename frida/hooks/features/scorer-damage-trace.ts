@@ -35,7 +35,18 @@ import { Ctx } from "../controller.js";
 import { findClassAnywhere, findMethod, il2cppBase, class_get_name, s } from "../il2cpp/helpers.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { log } from "../runtime/diag.js";
+import { getTraceOrigin, OriginBuffers } from "../game/trace-origin.js";
 import { readTileCoord } from "./ai-step/internals.js";
+
+// Attribution runner : les buffers sont SÉPARÉS PAR ORIGINE (OriginBuffers =
+// Map originRunnerId → bucket, null = IA live ; CAP par bucket, éviction
+// dropNew = comportement historique). Chaque event porte aussi
+// `originRunnerId`. Dumps : `runnerId` → bucket direct ; sans → concat
+// toutes origines (ordre seq). Clear scopable par `runnerId` ; le dispose
+// d'un runner purge ses buckets automatiquement (cf. game/trace-origin.ts).
+
+// Cap PAR BUCKET (par origine) de chaque famille de buffers ci-dessous.
+const CAP = 4000;
 
 // ComposedUtility.<EvaluateMovementInSteps>d__8.MoveNext — RVA gqfc5mff6c (@181101600 - base). Le
 // composite Tile(7) est un ComposedUtility qui SOMME ses enfants (liste List<IUtility> @ this+0x18,
@@ -73,6 +84,7 @@ const RVA_CALC_TILE_PRED = 0x1408740;
 
 interface UtilEvent {
     seq: number;
+    originRunnerId: number | null;   // runner du RPC déclencheur (null = IA live)
     casterCol: number;
     casterRow: number;
     targets: number[];   // cibles des ProbableDamageEvents produits dans CET appel
@@ -80,11 +92,14 @@ interface UtilEvent {
     hasValue: number;
     stack?: string[];    // backtrace (offsets rel. il2cppBase) — 1ers events seulement
 }
-const utilTrace: { buf: UtilEvent[]; targets: number[]; stacksLeft: number } =
-    { buf: [], targets: [], stacksLeft: 0 };
+const utilTrace: {
+    buf: OriginBuffers<UtilEvent>; targets: number[]; stacksLeft: number;
+} = { buf: new OriginBuffers<UtilEvent>(CAP, "dropNew"),
+      targets: [], stacksLeft: 0 };
 
 interface ElevEvent {
     seq: number;
+    originRunnerId: number | null;
     col: number;
     row: number;
     elev: number;   // valeur composant Elevation NATIVE de la tuile candidate (util+0x6c)
@@ -93,41 +108,48 @@ interface ElevEvent {
     leaf: number;   // sortie de feuille yieldée (d__8+0x18, Fix64 -> nombre)
     stack?: string[];  // backtrace (1ers events) -> révèle l'AGRÉGATEUR qui somme les feuilles
 }
-const elevTrace: { buf: ElevEvent[]; stacksLeft: number } = { buf: [], stacksLeft: 0 };
+const elevTrace: { buf: OriginBuffers<ElevEvent>; stacksLeft: number } =
+    { buf: new OriginBuffers<ElevEvent>(CAP, "dropNew"), stacksLeft: 0 };
 
 interface TileTermEvent {
     seq: number;
+    originRunnerId: number | null;
     casterCol: number;
     casterRow: number;
     tileTerm: number;   // composite Tile(7) COMPLET (retour Fix64 de CalculateUtilityFromTilePrediction)
 }
-const tileTermTrace: { buf: TileTermEvent[] } = { buf: [] };
+const tileTermTrace: { buf: OriginBuffers<TileTermEvent> } =
+    { buf: new OriginBuffers<TileTermEvent>(CAP, "dropNew") };
 
 // Capture générique de la SORTIE d'une feuille de tuile situationnelle (itérateur *Utility.<d__N>.MoveNext).
 // Layout itérateur : yielded Fix64 @ d__+0x18 ; utility @ d__+0x20 ou +0x28 ; position candidate à
 // posOff (décodée en MainTile via +0x18). Sert à IDENTIFIER la feuille -25 active sur (5,3).
 interface LeafEvent {
     seq: number;
+    originRunnerId: number | null;
     leaf: string;   // label de la feuille (ex. "TileEffects", "Contaminated")
     col: number;
     row: number;
     value: number;  // sortie de feuille yieldée (significative seulement si ret==1)
     ret: number;    // retour MoveNext (1=valeur fraîche, 0=fin/gate) — voir quels enfants sont appelés
 }
-const leafTrace: { buf: LeafEvent[] } = { buf: [] };
+const leafTrace: { buf: OriginBuffers<LeafEvent> } =
+    { buf: new OriginBuffers<LeafEvent>(CAP, "dropNew") };
 
 // Énumération des enfants des composites vus (dédup par ptr `this`). key = ptr hex, val = [classNames].
 const composedChildren: { seen: Map<string, string[]> } = { seen: new Map() };
 
 interface BonusEvent {
     seq: number;
+    originRunnerId: number | null;
     bonus: number;       // valeur du bonus % (param_3+0x20 Nullable<int>) — +50, -30, …
     hasValue: number;
     casterCol: number;   // tuile caster courante (via CalculateActionUtility) — corrèle le CS tile-dépendant
     casterRow: number;
     stack?: string[];    // backtrace -> ATTAQUANT (CalcAttackerModifiers) vs DÉFENSEUR (CalcDefenderModifiers)
 }
-const bonusTrace: { buf: BonusEvent[]; stacksLeft: number } = { buf: [], stacksLeft: 0 };
+const bonusTrace: { buf: OriginBuffers<BonusEvent>; stacksLeft: number } =
+    { buf: new OriginBuffers<BonusEvent>(CAP, "dropNew"), stacksLeft: 0 };
 // Capture GÉNÉRIQUE de la sortie yieldée d'une feuille de tuile (*Utility.<d__N>.MoveNext). Machinerie
 // réutilisable : `scorerLeafTraceDump` donne la valeur + tuile candidate par feuille hookée. Set par
 // DÉFAUT minimal (TileEffects = la feuille -25 identifiée + CapturePoint = contrôle connu-firing) ;
@@ -147,6 +169,7 @@ const LEAF_POS_OFFSETS = [0x28, 0x20];
 
 interface DmgEvent {
     seq: number;
+    originRunnerId: number | null;
     targetId: number;
     targetType: number;
     curHealth: number;
@@ -169,10 +192,9 @@ interface DmgEvent {
 // le ctor ProbableDamageEvent qui suit immédiatement (1 MakeDamagePredictions -> ses events).
 let curCaster: { col: number; row: number } | null = null;
 
-const trace: { on: boolean; seq: number; buf: DmgEvent[] } = {
-    on: false, seq: 0, buf: [],
+const trace: { on: boolean; seq: number; buf: OriginBuffers<DmgEvent> } = {
+    on: false, seq: 0, buf: new OriginBuffers<DmgEvent>(CAP, "dropNew"),
 };
-const CAP = 4000;
 
 // DamagePrediction.CalculateBaseDamageWithAllModifiers @18102d3f0 (méthode NOMMÉE, findMethod —
 // survit au hash) : (this, int baseDamage, IEntity attacker, IEntity defender, DamageProfile,
@@ -181,6 +203,7 @@ const CAP = 4000;
 // aiStepDryRun → tranche le chemin santé par-coup des SPÉCIALES (÷hits ? crit du bout max ?).
 interface AllModsEvent {
     seq: number;
+    originRunnerId: number | null;
     input: number;      // baseDamage int (args[1])
     isCrit: number;
     isMelee: number;
@@ -189,7 +212,8 @@ interface AllModsEvent {
     casterCol: number;
     casterRow: number;
 }
-const allModsTrace: { buf: AllModsEvent[] } = { buf: [] };
+const allModsTrace: { buf: OriginBuffers<AllModsEvent> } =
+    { buf: new OriginBuffers<AllModsEvent>(CAP, "dropNew") };
 let allModsInstalled = false;
 function installAllModsHook(): boolean {
     if (allModsInstalled) return true;
@@ -216,16 +240,15 @@ function installAllModsHook(): boolean {
             try {
                 let raw = BigInt(retval.toString());
                 if (raw >= (1n << 63n)) raw -= (1n << 64n);
-                if (allModsTrace.buf.length < CAP) {
-                    allModsTrace.buf.push({
-                        seq: ++trace.seq,
-                        input: self._in ?? -1, isCrit: self._crit ?? -1, isMelee: self._melee ?? -1,
-                        out: Number(raw) / 4294967296,
-                        site: self._site ?? "?",
-                        casterCol: curCaster ? curCaster.col : -1,
-                        casterRow: curCaster ? curCaster.row : -1,
-                    });
-                }
+                allModsTrace.buf.push({
+                    seq: ++trace.seq,
+                    originRunnerId: getTraceOrigin(),
+                    input: self._in ?? -1, isCrit: self._crit ?? -1, isMelee: self._melee ?? -1,
+                    out: Number(raw) / 4294967296,
+                    site: self._site ?? "?",
+                    casterCol: curCaster ? curCaster.col : -1,
+                    casterRow: curCaster ? curCaster.row : -1,
+                });
             } catch { /* transient — skip */ }
         },
     });
@@ -250,9 +273,9 @@ function installHook(): boolean {
                 if (target.isNull() || dpr.isNull()) return;
                 const targetId = target.add(0x10).readS32();
                 utilTrace.targets.push(targetId);   // corrélation: cible de CET event -> l'appel util courant
-                if (trace.buf.length >= CAP) return;
                 trace.buf.push({
                     seq: ++trace.seq,
+                    originRunnerId: getTraceOrigin(),
                     targetId,
                     targetType: target.add(0x14).readS32(),
                     curHealth: dpr.readS32(),
@@ -341,12 +364,12 @@ function installElevHook(): boolean {
                         if (c) { col = c.col; row = c.row; }
                     }
                 } catch { /* col/row optionnel */ }
-                if (elevTrace.buf.length < CAP) {
-                    const ev: ElevEvent = { seq: ++trace.seq, col, row, elev, max: mx, min: mn, leaf };
-                    const stk = (this as { _stk?: string[] })._stk;
-                    if (stk) { ev.stack = stk; elevTrace.stacksLeft--; }
-                    elevTrace.buf.push(ev);
-                }
+                const ev: ElevEvent = { seq: ++trace.seq,
+                    originRunnerId: getTraceOrigin(),
+                    col, row, elev, max: mx, min: mn, leaf };
+                const stk = (this as { _stk?: string[] })._stk;
+                if (stk) { ev.stack = stk; elevTrace.stacksLeft--; }
+                elevTrace.buf.push(ev);
             } catch { /* transient — skip */ }
         },
     });
@@ -371,14 +394,13 @@ function installTileTermHook(): boolean {
                 let raw = BigInt(retval.toString());
                 if (raw >= (1n << 63n)) raw -= (1n << 64n);   // signe
                 const tt = Number(raw) / 4294967296;
-                if (tileTermTrace.buf.length < CAP) {
-                    tileTermTrace.buf.push({
-                        seq: ++trace.seq,
-                        casterCol: curCaster ? curCaster.col : -1,
-                        casterRow: curCaster ? curCaster.row : -1,
-                        tileTerm: tt,
-                    });
-                }
+                tileTermTrace.buf.push({
+                    seq: ++trace.seq,
+                    originRunnerId: getTraceOrigin(),
+                    casterCol: curCaster ? curCaster.col : -1,
+                    casterRow: curCaster ? curCaster.row : -1,
+                    tileTerm: tt,
+                });
             } catch { /* transient — skip */ }
         },
     });
@@ -417,9 +439,9 @@ function installLeafHooks(): boolean {
                             if (c) { col = c.col; row = c.row; break; }
                         } catch { /* essayer l'offset suivant */ }
                     }
-                    if (leafTrace.buf.length < CAP) {
-                        leafTrace.buf.push({ seq: ++trace.seq, leaf: label, col, row, value, ret });
-                    }
+                    leafTrace.buf.push({ seq: ++trace.seq,
+                        originRunnerId: getTraceOrigin(),
+                        leaf: label, col, row, value, ret });
                 } catch { /* transient — skip */ }
             },
         });
@@ -487,7 +509,9 @@ function installBonusHook(): boolean {
                 const hasValue = p3.add(0x24).readU8();
                 if (!hasValue) return;   // pas de bonus -> multiplicateur nul (skip)
                 const ev: BonusEvent = {
-                    seq: ++trace.seq, bonus, hasValue,
+                    seq: ++trace.seq,
+                    originRunnerId: getTraceOrigin(),
+                    bonus, hasValue,
                     casterCol: curCaster ? curCaster.col : -1,
                     casterRow: curCaster ? curCaster.row : -1,
                 };
@@ -503,7 +527,7 @@ function installBonusHook(): boolean {
                         bonusTrace.stacksLeft--;
                     } catch { /* */ }
                 }
-                if (bonusTrace.buf.length < CAP) bonusTrace.buf.push(ev);
+                bonusTrace.buf.push(ev);
             } catch { /* transient — skip */ }
         },
     });
@@ -570,18 +594,17 @@ function installUtilHook(): boolean {
                 // Nullable<Fix64> layout à confirmer : on capte les DEUX candidats Fix64 (@0 et @8).
                 const raw0 = Number(BigInt(ret.readS64().toString())) / 4294967296;
                 const raw8 = Number(BigInt(ret.add(8).readS64().toString())) / 4294967296;
-                if (utilTrace.buf.length < CAP) {
-                    const ev: UtilEvent = {
-                        seq: ++trace.seq,
-                        casterCol: curCaster ? curCaster.col : -1,
-                        casterRow: curCaster ? curCaster.row : -1,
-                        targets: utilTrace.targets.slice(),
-                        utility: raw8,     // hypothèse : value@8 (fractionnaire observé)
-                        hasValue: raw0,    // debug : l'autre candidat
-                    };
-                    if (self._stk) { ev.stack = self._stk; utilTrace.stacksLeft--; }
-                    utilTrace.buf.push(ev);
-                }
+                const ev: UtilEvent = {
+                    seq: ++trace.seq,
+                    originRunnerId: getTraceOrigin(),
+                    casterCol: curCaster ? curCaster.col : -1,
+                    casterRow: curCaster ? curCaster.row : -1,
+                    targets: utilTrace.targets.slice(),
+                    utility: raw8,     // hypothèse : value@8 (fractionnaire observé)
+                    hasValue: raw0,    // debug : l'autre candidat
+                };
+                if (self._stk) { ev.stack = self._stk; utilTrace.stacksLeft--; }
+                utilTrace.buf.push(ev);
             } catch { /* */ }
             curCaster = null;
         },
@@ -607,13 +630,23 @@ export function register(ctx: Ctx): void {
 
     ctx.rpc.scorerDamageTraceOff = (): unknown => {
         trace.on = false;
-        return { ok: true, bufferSize: trace.buf.length };
+        return { ok: true, bufferSize: trace.buf.size() };
     };
 
-    ctx.rpc.scorerDamageTraceClear = (body?: { stacks?: number }): unknown => {
-        trace.buf = []; trace.seq = 0; utilTrace.buf = []; utilTrace.targets = [];
-        elevTrace.buf = []; tileTermTrace.buf = []; leafTrace.buf = []; composedChildren.seen.clear();
-        bonusTrace.buf = []; allModsTrace.buf = [];
+    ctx.rpc.scorerDamageTraceClear = (
+        body?: { stacks?: number; runnerId?: number },
+    ): unknown => {
+        // runnerId → clear SCOPÉ (drop du bucket de CE runner, les captures
+        // des autres acteurs et du live survivent) ; sans → clear GLOBAL.
+        const rid = body?.runnerId;
+        trace.buf.clear(rid); utilTrace.buf.clear(rid);
+        elevTrace.buf.clear(rid); tileTermTrace.buf.clear(rid);
+        leafTrace.buf.clear(rid); bonusTrace.buf.clear(rid);
+        allModsTrace.buf.clear(rid);
+        if (typeof rid !== "number") {
+            trace.seq = 0; utilTrace.targets = [];
+            composedChildren.seen.clear();
+        }
         utilTrace.stacksLeft = body?.stacks ?? 6;   // capture les N 1res backtraces après clear
         elevTrace.stacksLeft = body?.stacks ?? 6;   // idem pour la feuille Elevation (-> agrégateur)
         bonusTrace.stacksLeft = body?.stacks ?? 6;   // idem pour les bonus de dégât (-> source att/def)
@@ -621,42 +654,50 @@ export function register(ctx: Ctx): void {
     };
 
     /** Dump per-candidate ELEVATION leaf (valeur native + max/min domaine pertinent + sortie feuille). */
-    ctx.rpc.scorerElevTraceDump = (body?: { max?: number }): unknown => {
+    ctx.rpc.scorerElevTraceDump = (
+        body?: { max?: number; runnerId?: number },
+    ): unknown => {
         const max = body?.max ?? 2000;
         return {
             on: trace.on, elevInstalled,
-            bufferSize: elevTrace.buf.length,
-            entries: elevTrace.buf.slice(-max),
+            bufferSize: elevTrace.buf.size(),
+            entries: elevTrace.buf.entries(body?.runnerId).slice(-max),
         };
     };
 
     /** Dump per-candidate TILE-TERM COMPLET (composite Tile(7) via CalculateUtilityFromTilePrediction). */
-    ctx.rpc.scorerTileTermTraceDump = (body?: { max?: number }): unknown => {
+    ctx.rpc.scorerTileTermTraceDump = (
+        body?: { max?: number; runnerId?: number },
+    ): unknown => {
         const max = body?.max ?? 2000;
         return {
             on: trace.on, tileTermInstalled,
-            bufferSize: tileTermTrace.buf.length,
-            entries: tileTermTrace.buf.slice(-max),
+            bufferSize: tileTermTrace.buf.size(),
+            entries: tileTermTrace.buf.entries(body?.runnerId).slice(-max),
         };
     };
 
     /** Dump per-candidate SORTIE des feuilles situationnelles hookées (TileEffects/Contaminated). */
-    ctx.rpc.scorerLeafTraceDump = (body?: { max?: number }): unknown => {
+    ctx.rpc.scorerLeafTraceDump = (
+        body?: { max?: number; runnerId?: number },
+    ): unknown => {
         const max = body?.max ?? 2000;
         return {
             on: trace.on, leafInstalled,
-            bufferSize: leafTrace.buf.length,
-            entries: leafTrace.buf.slice(-max),
+            bufferSize: leafTrace.buf.size(),
+            entries: leafTrace.buf.entries(body?.runnerId).slice(-max),
         };
     };
 
     /** Dump les bonus de dégât capturés (valeur % + tuile caster + backtrace source att/def). */
-    ctx.rpc.scorerBonusTraceDump = (body?: { max?: number }): unknown => {
+    ctx.rpc.scorerBonusTraceDump = (
+        body?: { max?: number; runnerId?: number },
+    ): unknown => {
         const max = body?.max ?? 2000;
         return {
             on: trace.on, bonusInstalled,
-            bufferSize: bonusTrace.buf.length,
-            entries: bonusTrace.buf.slice(-max),
+            bufferSize: bonusTrace.buf.size(),
+            entries: bonusTrace.buf.entries(body?.runnerId).slice(-max),
         };
     };
 
@@ -668,35 +709,40 @@ export function register(ctx: Ctx): void {
     };
 
     /** Dump des appels CalculateBaseDamageWithAllModifiers (input/isCrit/isMelee/output/site). */
-    ctx.rpc.scorerAllModsTraceDump = (body?: { max?: number }): unknown => {
+    ctx.rpc.scorerAllModsTraceDump = (
+        body?: { max?: number; runnerId?: number },
+    ): unknown => {
         const max = body?.max ?? 2000;
         return {
             on: trace.on, allModsInstalled,
-            bufferSize: allModsTrace.buf.length,
-            entries: allModsTrace.buf.slice(-max),
+            bufferSize: allModsTrace.buf.size(),
+            entries: allModsTrace.buf.entries(body?.runnerId).slice(-max),
         };
     };
 
     /** Dump per-candidate TOTAL utility (CalculateActionUtility) — le discriminateur du pick. */
-    ctx.rpc.scorerUtilTraceDump = (body?: { max?: number }): unknown => {
+    ctx.rpc.scorerUtilTraceDump = (
+        body?: { max?: number; runnerId?: number },
+    ): unknown => {
         const max = body?.max ?? 2000;
         return {
             on: trace.on, utilInstalled,
-            bufferSize: utilTrace.buf.length,
-            entries: utilTrace.buf.slice(-max),
+            bufferSize: utilTrace.buf.size(),
+            entries: utilTrace.buf.entries(body?.runnerId).slice(-max),
         };
     };
 
     /** Dump captured events. Body: { since?: seq, max?: number }. */
     ctx.rpc.scorerDamageTraceDump = (
-        body?: { since?: number; max?: number },
+        body?: { since?: number; max?: number; runnerId?: number },
     ): unknown => {
         const since = body?.since ?? 0;
         const max = body?.max ?? 2000;
-        const filtered = since > 0 ? trace.buf.filter((e) => e.seq > since) : trace.buf;
+        let filtered = trace.buf.entries(body?.runnerId);
+        if (since > 0) filtered = filtered.filter((e) => e.seq > since);
         return {
             on: trace.on, installed, totalSeq: trace.seq,
-            bufferSize: trace.buf.length, returned: Math.min(filtered.length, max),
+            bufferSize: trace.buf.size(), returned: Math.min(filtered.length, max),
             entries: filtered.slice(-max),
         };
     };
