@@ -11,6 +11,8 @@ from collections.abc import Mapping
 from .base import BaseEffect
 from .loki import (
     ActOfFaithBuffEffect,
+    FightingRetreatDmgReductionEffect,
+    FightingRetreatHitReductionEffect,
     HeavyWeaponExtraDmgEffect,
     KanOpenerEffect,
     PinnedEffect,
@@ -36,6 +38,10 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "Pinned": PinnedEffect,             # 1065 (UI « Suppressed ») — stat-mod Movement (matérialisé seul)
     "Terrifying_ExtraDefense": TerrifyingExtraDefenseEffect,  # -30% dégât MÊLÉE reçu (defender, gated melee)
     "TerminatorArmour_ReduceDmg": TerminatorArmourReduceDmgEffect,  # -75% dégât reçu SAUF Psychic/DirectDamage (defender, gated profil)
+    # Debuffs FightingRetreat (Darkstrider) — posés sur les ENNEMIS adjacents, s'appliquent aux
+    # ATTAQUES du porteur : -dmgReduction PLAT + -1 coup (plancher 1), 1 round (rem=2 capté).
+    "FightingRetreatDmgReduction": FightingRetreatDmgReductionEffect,
+    "FightingRetreatHitReduction": FightingRetreatHitReductionEffect,
     # KanOpener : nom d'EffectType à confirmer avant inscription.
 }
 

@@ -9,4 +9,5 @@ from .nodes import (  # noqa: F401
     TotalTimesAttacked, HasFlag,
     CasterTile, TargetTile,
     SurroundingUnits, AdjacentEnemies, Enemies, Damageable, And, Sub, UnitSet,
+    UnitsDirectlyBehind,
 )

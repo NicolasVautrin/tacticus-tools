@@ -98,13 +98,47 @@ class TerminatorArmourReduceDmgEffect(BaseEffect):
         return for_percent_decrease(False, abs(int(red)))   # owner=défenseur (l'effet est sur la cible)
 
 
+class FightingRetreatDmgReductionEffect(BaseEffect):
+    """`FightingRetreat_DamageReductionEffect` (effet 1157 `FightingRetreatDmgReduction`) — debuff posé
+    par FightingRetreat (Darkstrider) sur les ennemis adjacents (« deal -582 Damage for one round »).
+    - dégât @180f493a0 : `EffectBonus.ForAddition(OwnerIsCaster, Multiply(ConfigVar(0x12=dmgReduction),
+      MinusOne))` = **-dmgReduction PLAT** sur les attaques du PORTEUR (additif, PAS un pct).
+      `dmgReduction` = variable par niveau (lvl65=582), flaggée `variablesAffectedByRarityBonus`.
+    ⚠ Niveau/multiplier fidèles = ceux du CASTER SOURCE (Darkstrider, abilityState de l'effet), non
+      captés pour un debuff d'origine ennemie → fallback niveau/multiplier du PORTEUR (approximation
+      documentée ; identique en pratique sur rosters au même palier)."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None) -> EffectBonus | None:
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        v = ability_var("FightingRetreat", "dmgReduction", lvl,
+                        multiplier_pct=self.ability_variables_multiplier)
+        return for_addition(True, -int(v)) if v else None
+
+
+class FightingRetreatHitReductionEffect(BaseEffect):
+    """`FightingRetreat_HitReductionEffect` (effet 1158 `FightingRetreatHitReduction`) — même debuff,
+    axe COUPS (« They also have 1 fewer hits, to a minimum of one »).
+    - hits @180f495d0 : `EffectBonus.ForAdditionWithMinimum(OwnerIsCaster, Multiply(MinusOne,
+      ConfigConst(0x2c=hitsReduction=1)), min=Direct(1))` = **-1 coup, PLANCHER 1**. Le plancher est
+      appliqué chez les consommateurs de hits (`max(1, …)`, cf. predict_validate)."""
+
+    def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True) -> EffectBonus | None:
+        # trigger natif = OwnerIsCaster SEUL (@180f495d0, pas de IsNormalAttack) -> TOUTES les attaques.
+        n = ability_var("FightingRetreat", "hitsReduction", is_constant=True)   # ConfigConst 0x2c (=1)
+        return for_addition(True, -int(n)) if n else None
+
+
 class PowerTripFullHealthEffect(BaseEffect):
     """`PowerTrip_FullHealthEffect` — axe COUPS (hits), actif SSI PV pleins.
     - hits @180f64cf0 : `ForAddition(ConfigConst key 0x2b)` = constante `extraHit` de l'ability PowerTrip (=1).
     - condition @180f64cb0 : `!IsDamaged` (hp == max).
     MAGNITUDE résolue : `gameconfig.ability('PowerTrip').constants['extraHit']` = 1 → +1 coup quand PV pleins."""
 
-    def create_effect_hits_bonus_for_attack(self) -> EffectBonus | None:
+    def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True) -> EffectBonus | None:
+        # trigger natif @180f64cf0 = `IsNormalAttack & OwnerIsCaster` -> ATTAQUE NORMALE SEULEMENT
+        # (l'appliquer aux spéciales sur-prédisait DakkaDakkaDakka -> régression steps 6/13).
+        if not is_normal_attack:
+            return None
         n = ability_var("PowerTrip", "extraHit", is_constant=True)   # key 0x2b → constante extraHit (=1)
         return for_addition(True, n) if n else None
 

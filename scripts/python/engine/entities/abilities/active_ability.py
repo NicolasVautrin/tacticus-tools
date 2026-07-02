@@ -89,6 +89,13 @@ class AActiveAbility:
         leur `GetSurroundingUnits`/`GetOtherTargets`. `ctx.target` = cible principale (exclue du set)."""
         return []
 
+    def get_max_secondary_targets(self) -> int | None:
+        """Plafond de cibles SECONDAIRES (`ability.GetMaxSecondaryTargets`, ex. PlasmaCannon
+        `@18039E710 return 2`). Le playbook pondère alors le 2ᵉ batch par `min(1, max/n)`
+        (`FromIntFraction(max, n)` dans `MakeDamagePredictions @181150B10`). None = pas de plafond
+        (batch AoE non pondéré : Harvester/BloodyFury)."""
+        return None
+
     def get_damage_min_max_raw(self) -> MinMaxDamage:
         """min/max EXPLICITES de la config (special) — avant scenario. Pour les abilities dont
         gameconfig donne directement min/max (pas de spread symétrique)."""
@@ -203,10 +210,27 @@ class BloodyFuryAbility(AActiveAbility):
         return tree.evaluate(ctx)
 
 
+class PlasmaCannonAbility(AActiveAbility):
+    """`PlasmaCannonAbility` (TypeDefIndex 9922) — « 3x dégâts Plasma à un ennemi à portée 3 et
+    jusqu'à DEUX ennemis DERRIÈRE la cible ». Playbook `PlasmaCannonPlaybook.MakeDamagePredictions
+    @181150B10` : batch principal + batch SECONDAIRE (`GetValidSecondaryTargetsSelector @1811BB340`
+    = `DSLFactory.UnitsDirectlyBehind(@180dff5e0)`), pondéré `min(1, GetMaxSecondaryTargets/n)`
+    (`GetMaxSecondaryTargets @18039E710 = 2`)."""
+
+    _SECONDARY = dsl.Damageable(dsl.UnitsDirectlyBehind())
+
+    def get_aoe_targets(self, ctx):
+        return self._SECONDARY.evaluate(ctx)
+
+    def get_max_secondary_targets(self) -> int | None:
+        return 2   # GetMaxSecondaryTargets @18039E710
+
+
 # Registre nom d'ability → sous-classe à formule de coups propre. À ÉTENDRE au fil du portage.
 _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
     "HarvesterOfSouls": HarvesterOfSoulsAbility,
     "BloodyFury": BloodyFuryAbility,
+    "PlasmaCannon": PlasmaCannonAbility,
 }
 
 
@@ -228,6 +252,9 @@ _NONCOMPARABLE_ABILITIES: "frozenset[str]" = frozenset({
                          # @181122be0 = 1 + (#ennemis adjacents) x W (heuristique de compte AoE)
     "VexillaMagnifica",  # VexillaMagnificaPlaybook : EvaluateNonComparable @18117f6f0 = allié GetStat(5),
                          # skip si HasEffect(0x48a) (buff d'allié, pas du dégât)
+    "FightingRetreat",   # FightingRetreatPlaybook : NonComparablePlaybook ; EvaluateNonComparable
+                         # @181131ff0 = |ennemis adj| + |alliés adj - self| (self-debuff d'ennemis,
+                         # pas de dégât — inerte ici de toute façon : pas de minDmg/maxDmg)
 })
 
 

@@ -212,6 +212,90 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
     # DakkaDakkaDakka et 69 normal tuent tous deux u84 (util 50) -> natif prend 1171.
     normal_ids = {a.get("id") for a in ((me or {}).get("abilities") or [])
                   if "NormalAttack" in (a.get("name") or "")}
+
+    # ── 0. ÉTAGE NonComparable (tiers de préférence) — évalué AVANT toute Comparable. RE :
+    #    `InitAbilityTypeLists @1810ed540` répartit les abilities par playbook : NonComparable ->
+    #    generators de PRIORITÉ [1000,100,0,-100,-1000] ; Comparable (attaque normale INCLUSE,
+    #    heals, PlasmaCannon…) -> generator FINAL, évalué APRÈS. `GetDefaultActiveAbilityAction-
+    #    Generators @1810ed0c0` = cet ordre exact ; le tactic prend le PREMIER generator non-vide
+    #    => une NC qui passe son MIN_UTILITY (cctor, gate `Bucket.AddAction @1813fbcc0` util>=min)
+    #    PRIME sur toute attaque/heal quelle que soit leur utilité (preuves seed777 : step7
+    #    FightingRetreat u=2 choisi avec attaque ~30 dispo ; step14 summon u>=1 vs attaque 61 ;
+    #    step15 RadBombardment u<2 -> tier vide -> attaque normale). Au sein du tier : argmax
+    #    STRICT `>` (tie -> premier énuméré), heuristique BRUTE sans terme de tuile (Tile7 vit
+    #    dans CalculateActionUtility = chemin Comparable-only). Détail + VAs : engine/leaves.py.
+    fpos = [(u["pos"]["col"], u["pos"]["row"]) for u in units
+            if u.get("ctrl") and u.get("alive") and u.get("pos") and u.get("id") != uid]
+    reach_nc = ([origin] if origin is not None else []) \
+        + [(t["col"], t["row"]) for t in move_tiles]
+    nc_cands: list = []
+    for ab in ((me or {}).get("abilities") or []):
+        aid = ab.get("id")
+        spec = leaves.noncomp_spec(aid)
+        if not spec or ab.get("usable") is False:
+            continue
+        kind = spec["kind"]
+        if kind in ("adjacent_count", "target_hp"):
+            # BloodyFury / Vexilla : abilities d'ATTAQUE -> UN eval PAR CIBLE dans le plan natif
+            # (itérer TOUS les couples cible/tuile) ; l'UTILITÉ est l'heuristique, argmax strict.
+            bt_a = None  # (tgt, tile, nu)
+            for ev in (plan.get("evals") or []):
+                if ev.get("abilityId") != aid or not ev.get("rankCount"):
+                    continue
+                ranked = ev.get("ranked") or []
+                if not ranked:
+                    continue
+                tile = (ranked[0].get("col"), ranked[0].get("row"))
+                tgt = ev.get("targetId")
+                nu = leaves.noncomp_attack_utility(aid, tile, epos, target_hp=hp_cur_by_id.get(tgt))
+                if nu is None:
+                    continue
+                if bt_a is None or nu > bt_a[2]:   # strict > : premier max gardé
+                    bt_a = (tgt, tile, nu)
+            if bt_a is not None and bt_a[2] >= spec["min"]:
+                nc_cands.append({"target": bt_a[0], "ability": aid,
+                                 "to": (bt_a[1] if bt_a[1] != origin else None), "pred": bt_a[2]})
+        elif kind == "self_adjacent_combo":
+            # FightingRetreat : balayage tuiles atteignables (origine EN TÊTE), cible = SELF.
+            bt, bu = None, None
+            for T in reach_nc:
+                u_ = leaves.fighting_retreat_utility(T, epos, fpos)
+                if bu is None or u_ > bu:   # strict > : premier max gardé (ordre natif approx.)
+                    bt, bu = T, u_
+            if _DEBUG:
+                print(f"    [dbg NC u{uid}] FR aid={aid} usable={ab.get('usable')} "
+                      f"reach={len(reach_nc)} best={bt} u={bu} min={spec['min']}", file=sys.stderr)
+            if bu is not None and bu >= spec["min"]:
+                nc_cands.append({"target": uid, "ability": aid,
+                                 "to": (bt if bt != origin else None), "pred": bu})
+        elif kind == "summon":
+            # AberrantHypermorph : tuiles de SPAWN via abilityTargets (kind="tile"). Cible=None
+            # (l'id "cible" natif = l'unité spawnée, artefact post-exécution).
+            at = _r(sid, "abilityTargets", {"runnerId": rid, "unitId": uid, "abilityType": aid}, 40)
+            tiles_s = []
+            for u in (at.get("units") or []):
+                for a in (u.get("abilities") or []):
+                    if a.get("abilityId") == aid:
+                        tiles_s = [t.get("tile") for t in (a.get("targets") or [])
+                                   if t.get("kind") == "tile" and t.get("tile")]
+            bt, bu = None, None
+            for t in tiles_s:
+                c = (t.get("col"), t.get("row"))
+                if c[0] is None:
+                    continue
+                u_ = leaves.summon_utility(c, epos)
+                if bu is None or u_ > bu:
+                    bt, bu = c, u_
+            if bt is not None and bu is not None and bu >= spec["min"]:
+                nc_cands.append({"target": None, "ability": aid, "to": bt, "pred": bu})
+    if nc_cands:
+        if _DEBUG:
+            print(f"    [dbg NC u{uid}] tier0={[(c['ability'], c.get('target'), c.get('to'), c['pred']) for c in nc_cands]}",
+                  file=sys.stderr)
+        bc = max(nc_cands, key=lambda c: c["pred"])   # strict : max() garde le 1er à égalité
+        return {"kind": "ability", "target": bc["target"], "ability": bc["ability"],
+                "to": bc["to"], "util": bc["pred"]}
+
     best = None  # (util, target, ability, tile)
     best_key = None  # (util, is_special) — tie-break spécial>normal
     dbg = []
@@ -253,10 +337,12 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
             _aoe_events = _events[1:]     # cibles AoE additionnelles (surrounding/other)
         if _DAMAGE_MODEL == "faithful":
             # `CalculateUtilityFromPredictions @181407890` = Σ damage_composite sur TOUS les events (§39) :
-            # principale + AoE. Sur une ability mono-cible, `_aoe_events` est vide → Σ = terme principal.
+            # principale + AoE, chaque event × sa `probability` (eventMultiplier de
+            # `CalculateUtilityFromDamageEvent @1814a9f90` ; ex. PlasmaCannon batch secondaire
+            # pondéré min(1, maxSecondary/n)). Mono-cible → Σ = terme principal.
             u = damage_composite(pred, hpmax_by_id.get(tgt), wt)   # composite Damage RE'd (§13.7/13.8)
             for _atid, _apred in _aoe_events:
-                u += damage_composite(_apred, hpmax_by_id.get(_atid), wt)
+                u += _apred.get("probability", 1.0) * damage_composite(_apred, hpmax_by_id.get(_atid), wt)
         else:
             u = attack_utility(pred, wt)                           # barème historique
         aoe_dbg = len(_aoe_events)
@@ -333,15 +419,17 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
         from engine.predict import heal_utility
         obs = _r(sid, "observeBattle", {"runnerId": rid}, 40)
         hpmax_by_sq = {u.get("squadId"): u for u in (obs.get("units") or [])}
-        # reach = destinations de MOUVEMENT (le natif BOUGE : son énumérateur de tuiles @0x68 =
-        # tuiles de mouvement ; le "stay"/NullPosition n'est Merge QUE si AUCUNE tuile de mouvement,
-        # cf. ActiveAbilityActionGenerator.MoveNext §2.3quater). ⇒ on N'AJOUTE PAS origin quand des
-        # destinations existent (sinon l'argmax retombe sur "stay" à égalité Tile7≈0). Origin =
-        # fallback seul (aucune destination). Ordre = ordre du RPC aiMovableTiles (proxy de l'ordre
-        # d'énumération natif ; l'exactitude tuile d'une ability tile-indépendante en dépend).
-        reach = [(t["col"], t["row"]) for t in move_tiles]
-        if not reach and origin is not None:
-            reach = [origin]
+        # reach = ORIGINE + destinations de MOUVEMENT. RE step-1 seed777 (soin 1167 SANS
+        # MoveUnitMessage alors que des tuiles de mouvement existaient) : la liste native des
+        # "AllPossibleMovementTiles" balayées par le generator CONTIENT la tuile courante — la
+        # nuance §2.3quater ("NullPosition Merge que si aucune tuile") porte sur NullPosition,
+        # PAS sur la tuile-origine, qui est une candidate comme les autres. Sélection native =
+        # `ComparablePlaybook.EvaluateInternal @181408980` : bucket best remplacé par STRICT `>`
+        # (tie -> le PREMIER énuméré gagne ; `FUN_18004cc80` = seuil MinUtility du bucket, init
+        # Int32.MinValue -> inopérant ici, PAS un delta). Preuve chiffrée step 1 : (stay@(1,1),88)
+        # = 100+Tile7(elev3=30) = 130 == ((0,2),94) = 130 -> égalité stricte, natif garde (stay,88).
+        # Origine EN TÊTE de reach (proxy de l'ordre natif : premier max gardé par `max()` sur tie).
+        reach = ([origin] if origin is not None else []) + [(t["col"], t["row"]) for t in move_tiles]
         HEAL_RANGE = 1  # soins d'allie cibles = adjacents. Verifie gameconfig: AUCUN heal cible n'a de
         # constant `range` (les abilities heal a range = vol de vie sur attaque -> chemin degat). Pas de soin cible a distance.
         for ab in heal_abis:
@@ -369,6 +457,10 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
                 heal_term = heal_utility(eff, hp_max, is_friend=is_friend, is_boss=False)
                 custom = (100 + (100 if _faction(tu.get("visualId")) == "Genestealers" else 0)) if is_twisted else 0
                 pred = custom + heal_term
+                if _DEBUG:
+                    print(f"    [dbg heal u{uid}->{tg}] vis={tu.get('visualId')} fac={_faction(tu.get('visualId'))} "
+                          f"hp={hp_cur}/{hp_max} miss={eff} custom={custom} heal_term={round(heal_term,2)} pred={round(pred,2)}",
+                          file=sys.stderr)
                 if pred <= 0:
                     continue  # ShouldExecute : émet le soin SSI pred > 0
                 tpos = pos_by_id.get(tg)
@@ -379,60 +471,21 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
                                   "to": (T if T != origin else None),
                                   "pred": pred, "full": pred + _tile_term(T)})
 
-    # 1quater. ABILITIES NonComparable d'ATTAQUE (BloodyFury…) — playbook sans MakeDamagePredictions ;
-    #        utilité HEURISTIQUE = base + (#ennemis adjacents au caster) x poids-cctor, SUR L'ÉCHELLE de
-    #        damage_composite -> elles concourent dans le MÊME argmax plat (tier-0, ChooseAction flat-default,
-    #        cf. architecture.md bucket-tree). On réutilise le (cible, tuile) du plan natif (decisionView.
-    #        attackPlans.ranked, = l'énumération native cible+tuile d'attaque) MAIS on remplace le score
-    #        dégât par l'heuristique de COMPTE évaluée à la tuile d'attaque (post-move).
-    for ev in (plan.get("evals") or []):
-        aid = ev.get("abilityId")
-        if not leaves.is_noncomp_attack(aid) or not ev.get("rankCount"):
-            continue
-        ranked = ev.get("ranked") or []
-        if not ranked:
-            continue
-        tile = (ranked[0].get("col"), ranked[0].get("row"))
-        tgt = ev.get("targetId")
-        nu = leaves.noncomp_attack_utility(aid, tile, epos, target_hp=hp_cur_by_id.get(tgt))
-        if nu is None or nu <= 0:
-            continue
-        cands.append({"target": tgt, "ability": aid,
-                      "to": (tile if tile != origin else None),
-                      "pred": nu, "full": nu + _tile_term(tile)})
+    # (Les abilities NonComparable — BloodyFury, Vexilla, FightingRetreat, summon — sont traitées
+    #  par l'ÉTAGE 0 ci-dessus, AVANT ce pool Comparable : cf. InitAbilityTypeLists @1810ed540.)
 
-    # ── ARGMAX UNIFIÉ : meilleure ability candidate (toutes ont pred>0) par `full_util` ; tie-break
-    #    id de cible croissant (ordre natif). Si une existe, elle PRIME sur le move (RE premier-non-null).
-    #    Sinon → summon/move (fallback ci-dessous).
+    # ── ARGMAX UNIFIÉ (generator FINAL = abilities Comparable) : meilleure candidate par `full_util` ;
+    #    tie-break id de cible croissant (ordre natif). Si une existe, elle PRIME sur le move
+    #    (RE premier-non-null). Sinon → move (fallback ci-dessous).
+    if _DEBUG and cands:
+        for c in sorted(cands, key=lambda c: -c["full"])[:8]:
+            print(f"    [dbg cand u{uid}] tgt={c.get('target')} ab={c.get('ability')} to={c.get('to')} "
+                  f"pred={round(c.get('pred') or 0,3)} tile_term={round((c.get('full') or 0)-(c.get('pred') or 0),3)} "
+                  f"full={round(c.get('full') or 0,3)}", file=sys.stderr)
     if cands:
         bc = max(cands, key=lambda c: (c["full"], -(c.get("target") or 0)))
         return {"kind": "ability", "target": bc["target"], "ability": bc["ability"],
                 "to": bc["to"], "util": bc["pred"]}
-
-    # 1ter. Leaf NonComparable (summon) — RÈGLE DE TIR empirique : quand AUCUNE attaque n'est
-    #       disponible, l'unité INVOQUE (si une tuile de spawn a ≥1 ennemi adjacent) plutôt que
-    #       de seulement bouger. Heuristique = `engine/leaves.py` (AberrantHypermorph = #ennemis
-    #       adjacents, RE'd). L'ordre exact summon-vs-move du bucket-tree natif reste à RE (§10) :
-    #       on VALIDE cette règle par l'agreement (ne tire que pour les leaves PORTÉES → sûr).
-    ctx = {"enemy_positions": epos}
-    best_summon = None  # (util, ability, tile)
-    for ab in ((me or {}).get("abilities") or []):
-        aid = ab.get("id")
-        if not leaves.is_leaf(aid) or ab.get("usable") is False:
-            continue
-        at = _r(sid, "abilityTargets", {"runnerId": rid, "unitId": uid, "abilityType": aid}, 40)
-        tiles_s = []
-        for u in (at.get("units") or []):
-            for a in (u.get("abilities") or []):
-                if a.get("abilityId") == aid:
-                    tiles_s = [t.get("tile") for t in (a.get("targets") or [])
-                               if t.get("kind") == "tile" and t.get("tile")]
-        tile_s, su = leaves.best_leaf_tile(aid, tiles_s, ctx)
-        if tile_s and su and su >= 1 and (best_summon is None or su > best_summon[0]):
-            best_summon = (su, aid, tile_s)
-    if best_summon:
-        return {"kind": "ability", "target": None, "ability": best_summon[1],
-                "to": best_summon[2], "util": best_summon[0]}
 
     # 2. Sinon move : scoring MovementSuggestion porté (engine/move.py) — somme pondérée
     #    MinDistanceToClosestEnemy + MaxDistanceToEnemies (+ RangedAdjacent ; UnitTile off).
@@ -520,8 +573,12 @@ def run_agreement(sid: int, rid: int, steps: int, wt, log=print) -> dict:
             # les soins/attaques COMPOSÉS entrent enfin dans la métrique ability (fix §e).
             if nat["ability"]:
                 na = nat["ability"]
+                # SUMMON : le `targetId` natif = l'id de l'unité SPAWNÉE (artefact post-exécution,
+                # inconnaissable a priori) -> comparaison sur l'ability seule (loggé tel quel).
+                tgt_ok = (eng.get("target") == na["target"]
+                          or leaves.is_summon(na["ability"]))
                 same_ab = (eng["kind"] == "ability"
-                           and eng.get("target") == na["target"]
+                           and tgt_ok
                            and eng.get("ability") == na["ability"])
                 n_ab += 1
                 n_ab_match += int(same_ab)

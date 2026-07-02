@@ -262,7 +262,9 @@ def make_normal_attack_predictions(predictor, sctx, att_id, tgt_id, attack_pos, 
     is_melee = not _ranged
     _add_elevation_and_defender_mods(mods, sctx, tgt_id, is_melee, attack_pos, t_pos,
                                      elev_by_pos, hp_by_id, damage_profile=prof_name)
-    hits_pre = whits + ctx.extra_hits + eff_hits
+    # PLANCHER 1 coup : les malus de coups (ex. FightingRetreatHitReduction, EffectBonus
+    # `ForAdditionWithMinimum(…, min=Direct(1))` @180f495d0) ne descendent JAMAIS sous 1.
+    hits_pre = max(1, whits + ctx.extra_hits + eff_hits)
     hits = hits_pre + _getstuckin_bonus(ctx, att_id, tgt_id, hits_pre, attack_pos,
                                         pos_by_id, sctx["team_by_id"], predictor["vis_by_id"],
                                         sctx["units"])
@@ -319,15 +321,25 @@ def make_damage_predictions(predictor, sctx, caster_id, main_tgt_id, ability_id,
     by_id = {u.get("id"): u for u in units}
     dctx = dsl.DslContext(units=units, caster=by_id.get(caster_id), target=by_id.get(main_tgt_id),
                           config=cfg, ability_level=ctx0.active_ability_level,
-                          times_attacked=getattr(ctx0, "times_attacked", 0) or 0)
-    for t in ab.get_aoe_targets(dctx):              # 2ᵉ batch (surrounding/other) de MakeDamagePredictions
+                          times_attacked=getattr(ctx0, "times_attacked", 0) or 0,
+                          caster_pos=attack_pos, elev_by_pos=elev_by_pos)
+    aoe = [t for t in ab.get_aoe_targets(dctx)      # 2ᵉ batch (surrounding/behind/other)
+           if t.get("id") is not None and t.get("id") != main_tgt_id]
+    # Plafond de cibles secondaires (`GetMaxSecondaryTargets`, ex. PlasmaCannon=2) → le batch
+    # secondaire est pondéré `min(1, max/n)` (`FromIntFraction` dans MakeDamagePredictions
+    # @181150B10) ; l'event porte `probability`, consommée par le Σ d'utilité (eventMultiplier de
+    # `CalculateUtilityFromDamageEvent @1814a9f90`). None (Harvester/BloodyFury) → poids 1.
+    maxsec = ab.get_max_secondary_targets()
+    prob = (min(1.0, maxsec / len(aoe)) if (maxsec is not None and aoe) else 1.0)
+    for t in aoe:
         tid = t.get("id")
-        if tid is None or tid == main_tgt_id:
-            continue
         adp = generate_multi_hit_attack_prediction(predictor, sctx, caster_id, tid, ability_id, ability_name,
                               attack_pos=attack_pos, elev_by_pos=elev_by_pos)
         if adp is not None:
-            events.append((tid, _event_from_dp(adp, sctx["hp_by_id"].get(tid) or 0)))
+            ev = _event_from_dp(adp, sctx["hp_by_id"].get(tid) or 0)
+            if prob < 1.0:
+                ev["probability"] = prob
+            events.append((tid, ev))
     return events
 
 
@@ -363,7 +375,12 @@ def generate_multi_hit_attack_prediction(predictor, sctx, uid, tgt, ability_id, 
     # Coups = formule PROPRE de l'ability (`ability.GetHits`, cf. active_ability.py) : les abilities
     # portées (HarvesterOfSouls flag/extraHit, BloodyFury snowball, …) surchargent ; les autres gardent
     # le défaut générique `GetDefaultAttackHits(nrOfHits + ExtraHits)` — comportement historique préservé.
-    hits = ab.get_special_hits(is_melee)
+    # Bonus/malus de coups des EFFETS de l'attaquant (chaîne partagée `GetHitsWithBonuses` — même
+    # couche que l'attaque normale, ex. FightingRetreatHitReduction -1) + PLANCHER 1
+    # (`ForAdditionWithMinimum(…, min=Direct(1))` @180f495d0).
+    att_effects_h = sctx["eff_state"].active_effects(uid, {"hp": sctx["hp_by_id"].get(uid)})
+    hits = max(1, ab.get_special_hits(is_melee)
+               + hits_bonus_from_effects(att_effects_h, is_normal_attack=False))
     profile_name = ab.get_damage_profile()
     profile_idx = _PROFILE_INDEX.get(profile_name, 0)
     dp = GC.damage_profile(profile_name) or {}

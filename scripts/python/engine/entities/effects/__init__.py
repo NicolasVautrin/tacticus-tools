@@ -87,12 +87,12 @@ def build_defender_modifiers_from_effects(effects, is_melee: bool | None = None,
     return build_defender_modifiers(maluses)
 
 
-def hits_bonus_from_effects(effects) -> int:
+def hits_bonus_from_effects(effects, is_normal_attack: bool = True) -> int:
     """Σ des bonus de COUPS (`CreateEffectHitsBonusForAttack`) des effets actifs (axe hits, ex.
     PowerTrip_FullHealth). Addition = +value, Subtraction = −value."""
     total = 0
     for e in _as_effects(effects):
-        hb = e.create_effect_hits_bonus_for_attack()
+        hb = e.create_effect_hits_bonus_for_attack(is_normal_attack)
         if hb is None:
             continue
         if hb.kind == "Addition":

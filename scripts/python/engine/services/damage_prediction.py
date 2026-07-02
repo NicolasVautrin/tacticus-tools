@@ -17,7 +17,7 @@ AMONT (postArmor) ; `CalculateDamagePredictionScenario` ne soustrait PAS l'armur
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from .min_max_damage import MinMaxDamage
 from .damage_calculations import spread_to_min_max
@@ -197,18 +197,29 @@ def get_attack_prediction(
          un event par coup ; crit=0 → coups identiques → Σ = hits × per-coup). `hits` = hits de l'ARME.
 
     VALIDÉ : 1-coup (u88 pierce1+armure, u92 pierce70) EXACT ; multi-coup u96 (3 hits) = base×3 ;
-    buff u94 (RapidAssault +25%, mods) = oracle EXACT."""
+    buff u94 (RapidAssault +25%, mods) = oracle EXACT.
+
+    5. ADDITIF plat (ForAddition, ex. FightingRetreatDmgReduction -582) : appliqué UNE FOIS PAR
+       ATTAQUE sur le TOTAL agrégé, PAS par coup — TRANCHÉ par RE : dans `PredictAttackRaw`, les
+       2 appels `CalculateBaseDamageWithAllModifiers` (VA 0x181035126/0x181035391) reçoivent le
+       dégât AGRÉGÉ (somme normal+crit+cap-diff) AVANT la boucle d'events par-coup (@ligne ~2394) ;
+       le %-list commute avec ×hits (validations antérieures intactes) mais l'additif NON.
+       Recoupé natif seed777 step-11 : 69->80 = 778-1484 = 2×perhit − 582 (une fois), pas
+       2×(perhit−582). Plancher >= 0 (Fix64.Max(dmg, 0))."""
     hits = max(1, hits)
     base = initial_damage                                       # 1. base PAR COUP (PAS de modifier ici)
     mm = get_base_damage_fix64(base, extra_max, spread_pct)     # 2. spread + extraMax (asymétrie haut)
-    # 3+3b. réduction perçage/armure + ×modifiers PAR BORNE — BASE COMMUNE avec le combat
-    #       (apply_pierce_and_modifiers : le combat applique la MÊME fn à la valeur TIRÉE).
-    lo = apply_pierce_and_modifiers(mm.min, pierce_pct, armor, mods, hit_mult)
-    hi = apply_pierce_and_modifiers(mm.max, pierce_pct, armor, mods, hit_mult)
+    # 3+3b. réduction perçage/armure + %-list PAR BORNE — l'ADDITIF est retiré ici (appliqué en 5).
+    mods_pct = replace(mods, additive=0.0) if (mods is not None and mods.additive) else mods
+    lo = apply_pierce_and_modifiers(mm.min, pierce_pct, armor, mods_pct, hit_mult)
+    hi = apply_pierce_and_modifiers(mm.max, pierce_pct, armor, mods_pct, hit_mult)
     per_hit = calculate_damage_prediction_scenario(            # 4. scenario PAR COUP
         MinMaxDamage(min=lo, max=hi), prev_hits=0, profile_type=profile_type,
         reduction_min=reduction_min, reduction_max=reduction_max)
     total = MinMaxDamage(min=per_hit.min * hits, max=per_hit.max * hits)   # Σ des `hits` events
+    if mods is not None and mods.additive:                     # 5. additif UNE FOIS par attaque
+        total = MinMaxDamage(min=max(0, round(total.min + mods.additive)),
+                             max=max(0, round(total.max + mods.additive)))
     return DamagePredictionResult(
         current_health=target_current_health, armor=armor,
         accurate_health_damage=total, total_damage=total,

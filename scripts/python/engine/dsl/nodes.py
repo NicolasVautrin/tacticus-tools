@@ -36,6 +36,12 @@ class DslContext:
     ability_level: int = 0
     times_attacked: int = 0
     flags: frozenset = field(default_factory=frozenset)
+    # Position VIRTUELLE du caster pour la décision balayée (= la tuile d'attaque post-move,
+    # `casterPosition` passé aux selectors par le generator natif). None → position courante.
+    caster_pos: tuple | None = None
+    # Élévation par tuile (tileMeta) — consommée par les selectors gated élévation
+    # (`TilesOnSameElevationSelector`). None → filtre dégradé no-op (documenté par nœud).
+    elev_by_pos: dict | None = None
 
 
 class Node:
@@ -134,9 +140,10 @@ def _pos(u):
 
 
 class CasterTile(Node):
-    """Tuile du caster (`UnitPosition.MainTile` du caster) — centre d'`AdjacentEnemies`."""
+    """Tuile du caster (`UnitPosition.MainTile` du casterPosition passé par le generator) — pour une
+    décision balayée c'est la TUILE D'ATTAQUE candidate (`ctx.caster_pos`), pas la position courante."""
     def evaluate(self, ctx):
-        return _pos(ctx.caster)
+        return ctx.caster_pos or _pos(ctx.caster)
 
 
 class TargetTile(Node):
@@ -227,3 +234,41 @@ class UnitSet(Node):
 
     def evaluate(self, ctx):
         return list(self.units)
+
+
+class UnitsDirectlyBehind(Node):
+    """`DSLFactory.UnitsDirectlyBehind @180dff5e0` — cibles secondaires « derrière la cible »
+    (PlasmaCannon…). Transcription EXACTE de la construction native :
+        ring    = SurroundingTiles(target, 1, 1) − Tiles(target)          # anneau R1 de la CIBLE
+        cands   = Enemies(caster, Units(ring))                            # ennemis du caster dessus
+        sameElv = TilesOnSameElevationSelector(target, cands, 1)          # même élévation que la cible
+        behind  = FromTrigger(cands, dist(caster, cand) >= dist(caster, target))   # côté OPPOSÉ au caster
+    (Les ctors de nœuds gshared sont MISLABELÉS par ghidra — sémantique lue par STRUCTURE : la paire
+    SortReverse(caster)/SortReverse(x) + AmountIsEqualOrGreater = comparaison de DISTANCES au caster.)
+    `dist` = distance hex ; caster = `ctx.caster_pos` (tuile d'attaque balayée). Élévation :
+    `TilesOnSameElevationSelector.Select @180efa8a0` garde si `GetElevationDifference(cand, target)
+    <= maxDiff` (ctor +0x28 = 1 ici) → TOLÉRANCE ±1, pas une égalité stricte (prouvé step-11 :
+    78 elev1 derrière 82 elev2 inclus par le natif). Dégradé no-op sans `ctx.elev_by_pos`."""
+
+    def evaluate(self, ctx):
+        tpos = _pos(ctx.target)
+        cpos = ctx.caster_pos or _pos(ctx.caster)
+        if tpos is None or cpos is None:
+            return []
+        ct = (ctx.caster or {}).get("team")
+        tid = (ctx.target or {}).get("id")
+        d_ct = hexgeo.distance(cpos, tpos)
+        out = []
+        for u in ctx.units:
+            p = _pos(u)
+            if p is None or u.get("id") == tid or u.get("team") == ct:
+                continue
+            if hexgeo.distance(p, tpos) != 1:                      # anneau R1 de la cible
+                continue
+            if ctx.elev_by_pos is not None:                        # TilesOnSameElevationSelector (maxDiff=1)
+                et, ec = ctx.elev_by_pos.get(tpos), ctx.elev_by_pos.get(p)
+                if et is not None and ec is not None and abs(et - ec) > 1:
+                    continue
+            if hexgeo.distance(cpos, p) >= d_ct:                   # « derrière » = au moins aussi loin
+                out.append(u)
+        return out

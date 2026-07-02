@@ -76,7 +76,7 @@ class BaseEffect:
         (ex. HeavyWeapon_ExtraDmg) de ne contribuer qu'aux tirs. None = contexte inconnu (prédiction)."""
         return None
 
-    def create_effect_hits_bonus_for_attack(self) -> EffectBonus | None:
+    def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True) -> EffectBonus | None:
         """`<Effect>.CreateEffectHitsBonusForAttack` — contribution à l'axe COUPS (Addition/Subtraction)."""
         return None
 

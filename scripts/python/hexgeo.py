@@ -1,22 +1,26 @@
 #!/usr/bin/env python
 """hexgeo — géométrie hexagonale du plateau Tacticus (repère MOTEUR).
 
-Dérivé de la formule moteur (cf. frida/public/src/hex.js,
-`HexUtils.GetTileWorldPosition`) :
-    world.x = col * 3
-    world.z = row * 2*sqrt(3) + (col impair ? sqrt(3) : 0)
-→ hexagones **flat-top**, **colonnes décalées odd-q** (colonnes impaires
-  décalées de +1/2 ligne). 6 voisins.
+Hexagones **flat-top**, offset **odd-q décalé vers le HAUT** : les colonnes
+impaires sont décalées de **-1/2 ligne** (row-). 6 voisins.
+
+⚠ PARITÉ CORRIGÉE (2026-07-02) contre la VÉRITÉ NATIVE `boardGraph` (edges
+d'adjacence du moteur, runner live) — l'ancienne dérivation depuis la formule
+monde de hex.js (`world.z = row*2√3 + (col impair ? √3)`) inversait le sens du
+décalage (l'axe z monde est inversé vs l'axe row logique). Preuves natives :
+voisins((1,1)) = {(0,0),(0,1),(1,0),(1,2),(2,0),(2,1)} [6/6 exact] ;
+voisins((5,5)) ⊃ {(4,5),(5,4),(5,6),(6,5)} + (4,4)/(6,4) exclus car OCCUPÉS
+(le graph exclut les tuiles occupées) alors que (4,6)/(6,6) libres n'y sont
+PAS → seul odd-q-UP est cohérent. Idem (6,7) → {(5,7),(6,6)}.
 
 Coordonnées de jeu = (col, row) "offset". Pour distance/portée on convertit en
 cube (x, y, z), x+y+z=0 :
-    x = col ; z = row - (col - (col & 1)) // 2 ; y = -x - z
+    x = col ; z = row - (col + (col & 1)) // 2 ; y = -x - z
 distance(a, b) = (|dx| + |dy| + |dz|) / 2
 
-Voisins dérivés directement de la géométrie monde (donc fidèles au moteur ;
-chaque voisin est à distance cube 1 — vérifié par _selftest) :
-    col pair   : (0,+1)(0,-1)(+1,0)(+1,-1)(-1,0)(-1,-1)
-    col impair : (0,+1)(0,-1)(+1,+1)(+1,0)(-1,+1)(-1,0)
+Voisins (chaque voisin est à distance cube 1 — vérifié par _selftest) :
+    col pair   : (0,+1)(0,-1)(+1,+1)(+1,0)(-1,+1)(-1,0)
+    col impair : (0,+1)(0,-1)(+1,0)(+1,-1)(-1,0)(-1,-1)
 
 Le visuel (PNG↔pixel) reste au front (hex.js/hex-calibration.js). Ici = LOGIQUE
 pure pour le raisonnement de l'oracle.
@@ -25,19 +29,19 @@ from __future__ import annotations
 
 Coord = tuple  # (col, row)
 
-_NEIGHBORS_EVEN = [(0, 1), (0, -1), (1, 0), (1, -1), (-1, 0), (-1, -1)]
-_NEIGHBORS_ODD = [(0, 1), (0, -1), (1, 1), (1, 0), (-1, 1), (-1, 0)]
+_NEIGHBORS_EVEN = [(0, 1), (0, -1), (1, 1), (1, 0), (-1, 1), (-1, 0)]
+_NEIGHBORS_ODD = [(0, 1), (0, -1), (1, 0), (1, -1), (-1, 0), (-1, -1)]
 
 
 def to_cube(col: int, row: int) -> tuple[int, int, int]:
     x = col
-    z = row - (col - (col & 1)) // 2
+    z = row - (col + (col & 1)) // 2
     return (x, -x - z, z)
 
 
 def from_cube(x: int, z: int) -> tuple[int, int]:
     col = x
-    row = z + (col - (col & 1)) // 2
+    row = z + (col + (col & 1)) // 2
     return (col, row)
 
 

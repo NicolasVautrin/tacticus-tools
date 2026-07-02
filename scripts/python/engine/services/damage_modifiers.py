@@ -90,9 +90,12 @@ def apply_capped_modifiers(value: int, mods: DamageModifiers) -> int:
 
 
 def apply_all_modifiers(value: int, mods: DamageModifiers) -> int:
-    """Combinaison %-list + additif (le terme appliqué par `CalculateBaseDamageWithAllModifiers`
-    @18102d3f0 au dégât per-coup post-perçage). HYPOTHÈSE sur l'ordre additif/%-list (non tranché
-    statiquement) : %-list capés PUIS additif plat. Plancher ≥ 0."""
+    """Combinaison %-list + additif — ORDRE TRANCHÉ par RE de `CalculateBaseDamageWithAllModifiers`
+    @18102d3f0 : ApplyCappedModifiers(%-list attaquant) → (%-list défenseur) → ApplyAdditive(additif
+    attaquant @+0x10) → (additif défenseur) → override défenseur éventuel. Donc %-list PUIS additif,
+    plancher >= 0 (Fix64.Max(dmg, 0)). ⚠ PRÉDICTION d'attaque : l'additif s'applique UNE FOIS PAR
+    ATTAQUE sur le total agrégé (cf. get_attack_prediction §5, call-sites PredictAttackRaw AVANT la
+    boucle d'events) — cette fonction combinée reste pour le chemin COMBAT (valeur tirée)."""
     v = apply_capped_modifiers(value, mods)
     if mods.additive:
         v = round(v + mods.additive)
