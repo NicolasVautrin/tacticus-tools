@@ -186,17 +186,25 @@ def build_predictor(sid, rid):
 
 
 def refresh_shields(predictor, sid, rid):
-    """Rafraîchit `shield_by_id` (ShieldComponent.GetTotalShield @180fa7f30 = Σ amount des
-    instances >0) depuis un `combatSnapshot` FRAIS. Les boucliers sont un état DYNAMIQUE :
-    accordés/consommés en cours de bataille (ex. seed777 : worldTerminator 0 au step 0 →
-    3989 au step 11) — la capture cold de `build_predictor` ne suffit pas, à appeler 1×/pas
-    comparé (même cadence que decisionView)."""
+    """Rafraîchit l'état de combat DYNAMIQUE du prédicteur depuis un `combatSnapshot` FRAIS :
+    - `shield_by_id` (ShieldComponent.GetTotalShield @180fa7f30 = Σ amount des instances >0) —
+      boucliers accordés/consommés en cours de bataille (ex. seed777 : worldTerminator 0 au
+      step 0 → 3989 au step 11) ;
+    - `armor_by_id` (stat FixedArmor COURANTE) — l'armure est aussi DYNAMIQUE : debuffs statefuls
+      la réduisent (ex. seed777 step-8 : u94 porte PowerTrip_ReduceArmor posé par le KillaKan u86
+      au step 6, armure 2510 → 2011 ; la prédiction native lit l'armure courante — la capture
+      cold sous-prédisait 4506 → 2259 et perdait la tuile kill (4,3)).
+    La capture cold de `build_predictor` ne suffit pas → appeler 1×/pas comparé (même cadence
+    que decisionView)."""
     snap = rpc(sid, "combatSnapshot", {"runnerId": rid}, 40)
     if not snap.get("ok"):
         return
     predictor["shield_by_id"] = {
         u["entityId"]: sum(int(s.get("amount") or 0)
                            for s in (u.get("shields") or []) if (s.get("amount") or 0) > 0)
+        for u in (snap.get("units") or [])}
+    predictor["armor_by_id"] = {
+        u["entityId"]: int((u.get("stats") or {}).get("fixedArmor") or 0)
         for u in (snap.get("units") or [])}
 
 
@@ -250,12 +258,16 @@ def make_normal_attack_predictions(predictor, sctx, att_id, tgt_id, attack_pos, 
         return None
     hp_by_id, pos_by_id = sctx["hp_by_id"], sctx["pos_by_id"]
     att_effects = sctx["eff_state"].active_effects(att_id, {"hp": hp_by_id.get(att_id)})
-    mods = build_attacker_modifiers_from_effects(att_effects)
     eff_hits = hits_bonus_from_effects(att_effects)
     t_pos = pos_by_id.get(tgt_id)
     dist = _cheby(attack_pos, t_pos) if (attack_pos and t_pos) else None
     pierce, _ranged, whits, prof_name = _normal_weapon_pierce(ctx, dist)
     is_melee = not _ranged
+    # is_ranged → bonus gated IsRangedAttack (RangedSpecialist +33%, HeavyWeapon +25%) ;
+    # has_moved (tuile candidate != position courante) → gate no-move (HeavyWeapon, « ×1.25
+    # selon tuile » step-11, confirmé step-23 : rangées déplacées SANS le ×1.25).
+    _hm = (attack_pos != pos_by_id.get(att_id)) if attack_pos else None
+    mods = build_attacker_modifiers_from_effects(att_effects, is_ranged=_ranged, has_moved=_hm)
     _add_elevation_and_defender_mods(mods, sctx, tgt_id, is_melee, attack_pos, t_pos,
                                      elev_by_pos, hp_by_id, damage_profile=prof_name)
     # PLANCHER 1 coup : les malus de coups (ex. FightingRetreatHitReduction, EffectBonus
@@ -277,7 +289,7 @@ def make_normal_attack_predictions(predictor, sctx, att_id, tgt_id, attack_pos, 
                      sctx["eff_state"].active_effects(uid, {"hp": hp_by_id.get(uid)}))
                     for uid in pos_by_id if uid != tgt_id]
     hits = max(1, hits
-               + hits_malus_from_defender_effects(tgt_effects, is_melee)
+               + hits_malus_from_defender_effects(tgt_effects, is_melee, prof_name)
                + aura_hits_malus_for_defense(aura_sources, board))
     armor = predictor["armor_by_id"].get(tgt_id, 0)
     res = get_attack_prediction(
@@ -419,6 +431,10 @@ def generate_multi_hit_attack_prediction(predictor, sctx, uid, tgt, ability_id, 
     att_effects = sctx["eff_state"].active_effects(uid, {"hp": hp_by_id.get(uid)})
     # is_normal_attack=False : les pénétrations gated normal-only (PowerTrip_IgnoreArmor) ne
     # s'appliquent PAS aux spéciales (step-13 : DakkaDakkaDakka per-coup natif = armure pleine).
+    # is_ranged VOLONTAIREMENT None sur les SPÉCIALES : appliquer HeavyWeapon (+25% no-move) au
+    # chemin spécial a fait régresser step-17 (Harvester : le natif choisit 92@(4,3), pas le
+    # stay-at-(5,6) boosté) — l'application de HW/RS aux prédictions de SPÉCIALES n'est PAS
+    # validée par une mesure ; à trancher par trace AllMods sur un cast spécial d'un porteur.
     mods = build_attacker_modifiers_from_effects(att_effects, is_normal_attack=False)
     # PARITÉ predict_normal : ElevationBonus (surplomb) + modifiers DÉFENSEUR — le pipeline natif
     # `CalculateDamagePredictionScenario` les applique à TOUT dégât d'attaque (normal ET spécial).

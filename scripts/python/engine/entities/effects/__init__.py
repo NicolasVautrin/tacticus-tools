@@ -51,16 +51,18 @@ def _as_effects(effects) -> list[BaseEffect]:
 
 
 def build_attacker_modifiers_from_effects(effects, is_ranged: bool | None = None,
-                                          is_normal_attack: bool = True) -> DamageModifiers:
+                                          is_normal_attack: bool = True,
+                                          has_moved: bool | None = None) -> DamageModifiers:
     """`CalculateAttackerModifiersForPrediction` @181000590 — DamageModifiers depuis les effets ACTIFS de
     l'attaquant (§17.8). Agrège : damage-bonus (additif/percent, `create_effect_damage_bonus_for_attack`)
     + pénétration d'armure (`get_armor_penetration` → axe armure). Les effets doivent être déjà filtrés
     actifs (EffectsState.active_effects) ; si on passe des dicts, AUCUN filtre is_active n'est appliqué.
-    `is_ranged` = nature du coup (combat) → propagée aux bonus gated `IsRangedAttack` (ex. HeavyWeapon).
-    `is_normal_attack` → pénétrations gated normal-only (PowerTrip_IgnoreArmor, step-13 ground truth)."""
+    `is_ranged` = nature du coup → bonus gated `IsRangedAttack` (HeavyWeapon, RangedSpecialist).
+    `is_normal_attack` → pénétrations gated normal-only (PowerTrip_IgnoreArmor, step-13 ground truth).
+    `has_moved` = candidat avec déplacement → bonus gated no-move (HeavyWeapon @180f4f030)."""
     bonuses = []
     for e in _as_effects(effects):
-        db = e.create_effect_damage_bonus_for_attack(is_ranged)
+        db = e.create_effect_damage_bonus_for_attack(is_ranged, has_moved)
         if db is not None:
             bonuses.append(db)
         pen = e.get_armor_penetration(is_normal_attack)
@@ -104,14 +106,16 @@ def hits_bonus_from_effects(effects, is_normal_attack: bool = True) -> int:
     return total
 
 
-def hits_malus_from_defender_effects(effects, is_melee: bool | None = None) -> int:
-    """Σ des malus de COUPS des effets actifs de la CIBLE (`create_effect_hits_malus_for_defense`,
-    ex. LightCover @180f556b0 : -2 ranged). Natif = même canal `CreateEffectHitsBonusForAttack`
-    trigger `OwnerIsTarget` ; plancher min=1 appliqué chez le consommateur (`max(1, …)`).
-    Retour ≤ 0 (à ADDITIONNER aux hits)."""
+def hits_malus_from_defender_effects(effects, is_melee: bool | None = None,
+                                     damage_profile: str | None = None) -> int:
+    """Σ des modifications de COUPS des effets actifs de la CIBLE (`create_effect_hits_malus_for_defense`,
+    ex. LightCover @180f556b0 : -2 ranged ; Parry @180f5d860 : -1 mêlée ; MasterAnnihilator
+    @180f58d50 : +1 non-Psychic). Natif = même canal `CreateEffectHitsBonusForAttack` trigger
+    `OwnerIsTarget` ; plancher min=1 appliqué chez le consommateur (`max(1, …)`).
+    Retour signé (à ADDITIONNER aux hits)."""
     total = 0
     for e in _as_effects(effects):
-        hb = e.create_effect_hits_malus_for_defense(is_melee)
+        hb = e.create_effect_hits_malus_for_defense(is_melee, damage_profile)
         if hb is None:
             continue
         if hb.kind == "Addition":

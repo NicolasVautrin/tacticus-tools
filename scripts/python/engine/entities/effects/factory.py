@@ -17,6 +17,9 @@ from .loki import (
     HeavyWeaponExtraDmgEffect,
     KanOpenerEffect,
     LightCoverEffect,
+    MasterAnnihilatorAdditionalHitEffect,
+    ParryEffect,
+    RangedSpecialistEffect,
     PinnedEffect,
     PowerTripFullHealthEffect,
     PowerTripIgnoreArmorEffect,
@@ -30,6 +33,7 @@ from .loki import (
 # Registre nom d'EffectType (`decisionView.effects[].name`) → classe d'effet. À ÉTENDRE au roster.
 EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "RapidAssault_ExtraDamage": RapidAssaultExtraDamageEffect,
+    "RangedSpecialist": RangedSpecialistEffect,  # +33% dégât RANGED (trait, actif si pas parti adjacent)
     "HeavyWeapon_ExtraDmg": HeavyWeaponExtraDmgEffect,   # +25% dégât RANGED (trait HeavyWeapon→Overwatch)
     "PowerTrip_FullHealth": PowerTripFullHealthEffect,
     "PowerTrip_IgnoreArmor": PowerTripIgnoreArmorEffect,
@@ -45,6 +49,8 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "FightingRetreatDmgReduction": FightingRetreatDmgReductionEffect,
     "FightingRetreatHitReduction": FightingRetreatHitReductionEffect,
     "LightCover": LightCoverEffect,     # couverture (tuile) : -2 coups ranged reçus, plancher 1
+    "Parry_ReduceHits": ParryEffect,    # trait Parry : -1 coup MÊLÉE reçu, plancher 1
+    "MasterAnnihilator_extraHit": MasterAnnihilatorAdditionalHitEffect,  # debuff Vitruvius : +1 coup reçu (non-Psychic)
     "BigTarget_AdjacentEffect": BigTargetAdjacentEffect,  # aura : -1 coup ranged aux alliés ring-1 du porteur
     # KanOpener : nom d'EffectType à confirmer avant inscription.
 }

@@ -45,6 +45,18 @@ class AActiveAbility:
             prof = (self.config.constants or {}).get("damageProfile")
             if prof:
                 return prof
+        # Config sans damageProfile → le natif rend un Nullable VIDE (-1, @180fb11e0), résolu en
+        # aval sur le profil de l'ARME du porteur, RANGED-first (cf. GetAmountOfHitsRangedFirstOrMelee).
+        # GROUND TRUTH step-17 seed777 : HarvesterOfSouls (pas de damageProfile) → per-coup natif
+        # 987/1481 = entrée × 0.55 = pierce 55 = HeavyRound (l'arme RANGED de Maugan), MÊME en
+        # adjacent — l'ancien fallback Physical (pierce 0) soustrayait l'armure pleine (dmax 549).
+        import gameconfig as _GC
+        gu = _GC.unit(self.caster.visual_id or "") or {}
+        weapons = gu.get("weapons") or []
+        ranged = next((w for w in weapons if w.get("Range")), None)
+        w = ranged or (weapons[0] if weapons else None)
+        if w and w.get("DamageProfile"):
+            return w["DamageProfile"]
         return _PROFILE_BY_INDEX.get(self.caster.damage_type, "Physical")
 
     # GetHits : nombre de coups (base config + ExtraHits / ExtraHitsMelee).
@@ -185,11 +197,16 @@ class HarvesterOfSoulsAbility(AActiveAbility):
                    dsl.ConfigConst("nrOfHits", 1),
                    dsl.Sum(dsl.ConfigConst("nrOfHits", 1), dsl.ConfigConst("extraHit", 0)))
 
-    # GetSurroundingUnits @1811e76a0 : `SurroundingUnits(cible, radius) & Enemies(...)`. Volet géométrie =
-    # ennemis-du-caster à <= radius de la CIBLE (confirmé LIVE step17 : u78 touche 92 + 90(d1) + 88(d2) +
-    # summon = ses ennemis autour de 92). radius = ConfigConst(0x16) (défaut 2). Damage surrounding =
-    # minDmg_2/maxDmg_2 == minDmg/maxDmg (identiques) → réutilise generate_multi_hit_attack_prediction.
-    _AOE = dsl.Damageable(dsl.Enemies(dsl.SurroundingUnits(dsl.TargetTile(), dsl.ConfigConst("radius", 2))))
+    # GetSurroundingUnits @1811e76a0 (re-lu 2026-07-02) : `SurroundingUnits(sel@0x160, ConfigConst(0x16))
+    # & Enemies(sel@0x160, AdjacentFriends(sel@0x178, 1))` — l'opérande DOMINANT observé = les ennemis du
+    # caster ADJACENTS (ring-1 HEX) à la CIBLE (AdjacentFriends(cible, 1) côté cible = ses alliés
+    # adjacents = ennemis du caster). GROUND TRUTH seed777 : step-9 cible 94 → AoE VIDE (90 à d2 exclu ;
+    # l'ancien radius-2 l'incluait → +5.8 → Harvester battait à tort la normale) ; step-17 cible 92 →
+    # 168 (d1) inclus, 88 (d2) exclu. ⚠ L'opérande `SurroundingUnits(sel, const 0x16)` (∩ supplémentaire
+    # qui exclut aussi 90-d1 de la cible 92 au step-17 natif) reste à résoudre (identité des sélecteurs
+    # +0x160/+0x178 à RE) — approximation documentée : ring-1 seul. Damage surrounding = minDmg_2/maxDmg_2
+    # == minDmg/maxDmg (identiques) → réutilise generate_multi_hit_attack_prediction.
+    _AOE = dsl.Damageable(dsl.AdjacentEnemies(dsl.TargetTile(), dsl.Const(1)))
 
     def get_special_hits(self, is_melee: bool) -> int:
         if self.config is None:

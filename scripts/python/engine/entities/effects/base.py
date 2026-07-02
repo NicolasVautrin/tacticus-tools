@@ -70,23 +70,30 @@ class BaseEffect:
     ability_variables_multiplier: int = 100
 
     # ── contributions aux modifiers (None = pas de contribution) ────────────────────────────────────
-    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None) -> EffectBonus | None:
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None) -> EffectBonus | None:
         """`<Effect>.CreateEffectDamageBonusForAttack` — contribution au scalaire dégât (additif/percent).
-        `is_ranged` = nature du coup courant (passée par le combat) : permet aux effets gated `IsRangedAttack`
-        (ex. HeavyWeapon_ExtraDmg) de ne contribuer qu'aux tirs. None = contexte inconnu (prédiction)."""
+        `is_ranged` = nature du coup courant : effets gated `IsRangedAttack` (HeavyWeapon_ExtraDmg,
+        RangedSpecialist). `has_moved` = la position d'attaque diffère de la position COURANTE (candidat
+        avec déplacement) : effets gated no-move (`!HasFlag(HasMoved=0)`, ex. HeavyWeapon @180f4f030 —
+        GROUND TRUTH step-23 : les tuiles ranged AVEC déplacement de u78 collent SANS ×1.25 ; step-11 :
+        « ×1.25 selon tuile »). None = contexte inconnu."""
         return None
 
     def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True) -> EffectBonus | None:
         """`<Effect>.CreateEffectHitsBonusForAttack` — contribution à l'axe COUPS (Addition/Subtraction)."""
         return None
 
-    def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None) -> EffectBonus | None:
-        """Contribution DÉFENSEUR à l'axe COUPS (l'effet est sur la CIBLE, réduit les coups reçus).
+    def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
+                                             damage_profile: str | None = None) -> EffectBonus | None:
+        """Contribution DÉFENSEUR à l'axe COUPS (l'effet est sur la CIBLE, modifie les coups reçus).
         Natif : même canal `CreateEffectHitsBonusForAttack` mais trigger `OwnerIsTarget` (ex.
         `LightCoverEffect.CreateEffectHitsBonusForAttack` @180f556b0 = `ForAdditionWithMinimum(
-        OwnerIsTarget(tuiles égales) & !IsMeleeAttack, -ConfigConst(0x2c hitsReduction), min=Direct(1))`)
-        — le port eager sépare attaquant/défenseur, symétrique de `create_effect_damage_malus_for_defense`.
-        Plancher min=1 appliqué chez le consommateur (`max(1, …)`, predict_validate). Défaut None."""
+        OwnerIsTarget(tuiles égales) & !IsMeleeAttack, -ConfigConst(0x2c hitsReduction), min=Direct(1))` ;
+        `ParryEffect` @180f5d860 idem gated `IsMeleeAttack` ; `MasterAnnihilator_AdditionalHitEffect`
+        @180f58d50 = +nrOfHits gated `!DamageProfileIs(Psychic)`) — le port eager sépare
+        attaquant/défenseur, symétrique de `create_effect_damage_malus_for_defense`. `damage_profile` =
+        NOM du profil de l'attaque (gate Psychic). Plancher min=1 chez le consommateur. Défaut None."""
         return None
 
     def create_aura_hits_malus_for_defense(self, ctx: Mapping | None = None) -> EffectBonus | None:

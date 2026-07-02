@@ -393,7 +393,12 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
             continue
         u_full, u, pred, _aoe_events, tile, _bk = pair_best
         aoe_dbg = len(_aoe_events)
-        key = (u_full, 0 if ab in normal_ids else 1)  # util TOTALE, puis spécial > normal
+        # Tie-break FIDÈLE : Bucket.AddAction @1813fbcc0 = argmax STRICT `>` (égalité → PREMIER
+        # énuméré gardé) et la liste FINAL commence par l'ATTAQUE NORMALE (InitAbilityTypeLists
+        # @1810ed540 : [normal, spéciales…]) → à égalité d'utilité TOTALE, la NORMALE gagne.
+        # (GROUND TRUTH step-9 seed777 : 69→94 et 1067→94 tous deux sure-kill même tuile → le
+        # natif garde la normale ; l'ancien « spécial > normal » était inversé.)
+        key = (u_full, 1 if ab in normal_ids else 0)  # util TOTALE, puis normal premier-énuméré
         if _DEBUG:
             p = pred or {}
             dbg.append((ab, tgt, round(u, 1), round(u_full, 1), p.get("killSure"), p.get("kill"),

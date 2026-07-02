@@ -21,7 +21,8 @@ class RapidAssaultExtraDamageEffect(BaseEffect):
       `On(0x17) & UnitsAttackedThisTurn>0 & HasEffect(0x4cd)`).
     VALIDÉ live : +25% → u94→u84 3012-4524 EXACT."""
 
-    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None) -> EffectBonus | None:
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None) -> EffectBonus | None:
         pct = trait_var("RapidAssault", "rapidAssaultExtraDmgPct")
         return for_percent_increase(True, pct) if pct is not None else None
 
@@ -39,10 +40,36 @@ class HeavyWeaponExtraDmgEffect(BaseEffect):
       déclenchante est 0x3ec = raffinement non porté ; l'attaque normale/overwatch n'est pas 0x3ec).
     Porté par le trait HeavyWeapon (qui accorde aussi l'Overwatch) → s'applique au tir d'overwatch."""
 
-    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None) -> EffectBonus | None:
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None) -> EffectBonus | None:
         if not is_ranged:                        # gated IsRangedAttack (no-op sur mêlée / contexte inconnu)
             return None
+        # Gate NO-MOVE (`!HasFlag(HasMoved=0)` @180f4f030 ; i2 : « When this unit has not moved this
+        # turn »). En PRÉDICTION la tuile candidate fixe le flag : has_moved=True (candidat avec
+        # déplacement) → pas de bonus (GROUND TRUTH step-23 : rangées ranged u78 SANS ×1.25 depuis les
+        # tuiles déplacées ; step-11 : « ×1.25 selon tuile »). None (combat runner, état non tracé) →
+        # comportement historique conservé (bonus appliqué).
+        if has_moved:
+            return None
         pct = trait_var("HeavyWeapon", "heavyWeaponExtraDmg")
+        return for_percent_increase(True, pct) if pct is not None else None
+
+
+class RangedSpecialistEffect(BaseEffect):
+    """`RangedSpecialistEffect` (trait RangedSpecialist — i2 : « If this unit did not start its turn
+    adjacent to an enemy unit, it deals +33% Damage with ranged attacks »).
+    - dégât @180f67520 : `EffectBonus.ForPercentIncrease((OwnerIsCaster & IsRangedAttack &
+      !TriggeringAbilityIs(0x434)) | (branche 0x434 overwatch), Get(ConfigConst 0xf))` =
+      **+rangedSpecialistDmgPct% sur les attaques RANGED** (toutes tuiles — la condition « pas parti
+      adjacent » est l'état ACTIF de l'effet, reflété par la capture isActive, PAS un gate de tuile).
+    MAGNITUDE : `traitVariables.rangedSpecialistDmgPct` = 33. GROUND TRUTH step-8 seed777 :
+    u80→u94 ranged natif = moteur ×1.33 exact (per-coup 534 = round(401×1.33)), mêlée intacte."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None) -> EffectBonus | None:
+        if not is_ranged:                        # gated IsRangedAttack (@180f67520)
+            return None
+        pct = trait_var("RangedSpecialist", "rangedSpecialistDmgPct")
         return for_percent_increase(True, pct) if pct is not None else None
 
 
@@ -108,7 +135,8 @@ class FightingRetreatDmgReductionEffect(BaseEffect):
       captés pour un debuff d'origine ennemie → fallback niveau/multiplier du PORTEUR (approximation
       documentée ; identique en pratique sur rosters au même palier)."""
 
-    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None) -> EffectBonus | None:
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None) -> EffectBonus | None:
         lvl = self.ability_level if self.ability_level is not None else self.level
         v = ability_var("FightingRetreat", "dmgReduction", lvl,
                         multiplier_pct=self.ability_variables_multiplier)
@@ -139,11 +167,50 @@ class LightCoverEffect(BaseEffect):
     GROUND TRUTH step-13 seed777 (trace AllMods, u90→u84 porteur LightCover) : ranged 4→2 coups
     partout, mêlée dist 1 → 4 coups (gate !IsMeleeAttack) — natif dMin/dMax reproduits exacts."""
 
-    def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None) -> EffectBonus | None:
+    def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
+                                             damage_profile: str | None = None) -> EffectBonus | None:
         if is_melee:                        # trigger natif = !IsMeleeAttack (@180f556b0)
             return None
         n = global_value("lightCoverHitReduction")   # miroir du ConfigConst 0x2c (=2)
         return for_addition(True, -int(n)) if n else None
+
+
+class ParryEffect(BaseEffect):
+    """`ParryEffect` (effet `Parry_ReduceHits`, trait Parry — i2 : « reduces incoming melee multi-hit
+    attacks by 1 hit, to a minimum of 1 »).
+    - hits @180f5d860 : `EffectBonus.ForAdditionWithMinimum(OwnerIsTarget & IsMeleeAttack,
+      -ConfigConst(0x2c=hitsReduction), min=Direct(1))` = **-1 coup MÊLÉE reçu, plancher 1**
+      (jumeau mêlée de LightCover). MAGNITUDE : `traitVariables.parryHitReduction` = 1.
+    GROUND TRUTH step-6 seed777 (trace AllMods, u86→u94 porteur Parry) : mêlée dist 1 = 4 coups
+    vs ranged = 5 (base 3 + PowerTrip 1 + MasterAnnihilator 1) — natif reproduit exact."""
+
+    def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
+                                             damage_profile: str | None = None) -> EffectBonus | None:
+        if not is_melee:                    # trigger natif = IsMeleeAttack (@180f5d860)
+            return None
+        n = trait_var("Parry", "parryHitReduction")  # miroir du ConfigConst 0x2c (=1)
+        return for_addition(True, -int(n)) if n else None
+
+
+class MasterAnnihilatorAdditionalHitEffect(BaseEffect):
+    """`MasterAnnihilator_AdditionalHitEffect` (effet `MasterAnnihilator_extraHit` — DEBUFF posé par
+    Vitruvius sur SA cible d'attaque normale ; i2 : « Attacks by any friendly unit against the
+    affected enemy score an additional hit, except attacks that deal Psychic Damage »).
+    - hits @180f58d50 : `EffectAdditionalHits.Create(OwnerIsTarget & !AreEqual(
+      CurrentAttackDamageProfile, 0xd=Psychic), count=ConfigConst(0x2f nrOfHits=1),
+      dmg=FirstHitInCurrentAttackDamageRange capé ConfigVar(0xd maxDmg))` = **+1 coup reçu par le
+      porteur (attaques non-Psychic)**. Les attaquants = ennemis du porteur = alliés du poseur (le
+      gate « friendly unit » de l'i2 est structurel, pas dans le trigger).
+    ⚠ CAP du coup bonus (dmg <= maxDmg[lvl] ex. 5456) non modélisé (per-coup observé << cap) — TODO.
+    GROUND TRUTH step-6 seed777 : u86→u94 ranged = 5 coups (3 arme + 1 PowerTrip + 1 MA) vs 4 sur
+    les cibles non marquées (88/96)."""
+
+    def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
+                                             damage_profile: str | None = None) -> EffectBonus | None:
+        if damage_profile == "Psychic":     # !AreEqual(profil, 0xd=Psychic) (@180f58d50)
+            return None
+        n = ability_var("MasterAnnihilator", "nrOfHits", is_constant=True)   # ConfigConst 0x2f (=1)
+        return for_addition(True, int(n)) if n else None
 
 
 class BigTargetAdjacentEffect(BaseEffect):
