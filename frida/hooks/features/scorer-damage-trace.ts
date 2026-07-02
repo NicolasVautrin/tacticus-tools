@@ -152,6 +152,12 @@ interface DmgEvent {
     curHealth: number;
     healthMin: number;
     healthMax: number;
+    // AccurateShieldDamage @0x78 (MinMaxDamage Min@+8/Max@+0xc, dump.cs TypeDefIndex 11757) —
+    // consommé par DamageUtility.MoveNext @1810e2280 (D = hAvg + sAvg). + LimitedByMinHp @0xB0
+    // (si set, GetHealthDamage @1810cec60 retourne CurrentHealth entier).
+    shieldMin: number;
+    shieldMax: number;
+    limitedByMinHp: number;
     hits: number;
     // Tuile caster du candidat (via MakeDamagePredictions param_3=position) — le nerf de
     // CrushingStrike (+50% mêlée si non-bougé) dépend de si cette tuile == pos courante du caster.
@@ -192,6 +198,9 @@ function installHook(): boolean {
                     curHealth: dpr.readS32(),
                     healthMin: dpr.add(0x60).readS32(),
                     healthMax: dpr.add(0x64).readS32(),
+                    shieldMin: dpr.add(0x80).readS32(),
+                    shieldMax: dpr.add(0x84).readS32(),
+                    limitedByMinHp: dpr.add(0xb0).readU8(),
                     hits: dpr.add(0xbc).readS32(),
                     casterCol: curCaster ? curCaster.col : -1,
                     casterRow: curCaster ? curCaster.row : -1,

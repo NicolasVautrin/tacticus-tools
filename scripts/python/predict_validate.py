@@ -29,6 +29,7 @@ from engine import dsl
 from engine.entities.abilities.ability_configuration import AbilityConfiguration
 from engine.services.damage_calculations import spread_to_min_max
 from engine.services.damage_prediction import get_attack_prediction, get_default_attack_hits
+from engine.services.min_max_damage import MinMaxDamage
 from engine.entities import EffectsState
 from engine.entities.effects import (
     build_attacker_modifiers_from_effects, build_defender_modifiers_from_effects, hits_bonus_from_effects,
@@ -187,10 +188,15 @@ def build_predictor(sid, rid):
     dv0 = rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1}, 60)
     vis_by_id = {u["id"]: u.get("visualId") for u in (dv0.get("units") or [])}
     ctx_by_id, armor_by_id, mult_by_id, ablvl_by_id = {}, {}, {}, {}
+    shield_by_id = {}
     for u in (snap.get("units") or []):
         eid = u["entityId"]
         u["visualId"] = vis_by_id.get(eid)
         armor_by_id[eid] = int((u.get("stats") or {}).get("fixedArmor") or 0)
+        # ShieldComponent.GetTotalShield @180fa7f30 = Σ amount des instances (>0). NB : valeur
+        # snapshot-time (cold) — un bouclier consommé en cours de bataille n'est pas rafraîchi ici.
+        shield_by_id[eid] = sum(int(s.get("amount") or 0)
+                                for s in (u.get("shields") or []) if (s.get("amount") or 0) > 0)
         uc = u.get("unitConfig") or {}
         if isinstance(uc, dict) and uc.get("abilityVariablesMultiplier") is not None:
             mult_by_id[eid] = int(uc["abilityVariablesMultiplier"])
@@ -200,8 +206,23 @@ def build_predictor(sid, rid):
         # depuis u["unitConfig"] directement.
         if not (u.get("normalAttack") or {}).get("error"):
             ctx_by_id[eid] = UnitContext.from_snapshot(u, GC.unit(vis_by_id.get(eid) or ""))
-    return {"ctx_by_id": ctx_by_id, "armor_by_id": armor_by_id,
+    return {"ctx_by_id": ctx_by_id, "armor_by_id": armor_by_id, "shield_by_id": shield_by_id,
             "mult_by_id": mult_by_id, "ablvl_by_id": ablvl_by_id, "vis_by_id": vis_by_id}
+
+
+def refresh_shields(predictor, sid, rid):
+    """Rafraîchit `shield_by_id` (ShieldComponent.GetTotalShield @180fa7f30 = Σ amount des
+    instances >0) depuis un `combatSnapshot` FRAIS. Les boucliers sont un état DYNAMIQUE :
+    accordés/consommés en cours de bataille (ex. seed777 : worldTerminator 0 au step 0 →
+    3989 au step 11) — la capture cold de `build_predictor` ne suffit pas, à appeler 1×/pas
+    comparé (même cadence que decisionView)."""
+    snap = rpc(sid, "combatSnapshot", {"runnerId": rid}, 40)
+    if not snap.get("ok"):
+        return
+    predictor["shield_by_id"] = {
+        u["entityId"]: sum(int(s.get("amount") or 0)
+                           for s in (u.get("shields") or []) if (s.get("amount") or 0) > 0)
+        for u in (snap.get("units") or [])}
 
 
 def step_context(predictor, dv):
@@ -271,7 +292,8 @@ def make_normal_attack_predictions(predictor, sctx, att_id, tgt_id, attack_pos, 
     armor = predictor["armor_by_id"].get(tgt_id, 0)
     res = get_attack_prediction(
         target_current_health=hp_by_id.get(tgt_id, 0), initial_damage=ctx.attack, hits=hits,
-        profile_type=0, pierce_pct=pierce, armor=armor, mods=mods)
+        profile_type=0, pierce_pct=pierce, armor=armor, mods=mods,
+        target_shield=predictor.get("shield_by_id", {}).get(tgt_id, 0))
     if meta:
         return res, {"base": ctx.attack, "pierce": pierce, "armor": armor, "hits": hits,
                      "mods": [round(m, 3) for m, _c in mods.pct_list] or None,
@@ -284,10 +306,14 @@ _PROFILE_INDEX = {name: idx for idx, name in _PROFILE_BY_INDEX.items()}
 
 def _event_from_dp(dp, hp):
     """Construit le `ProbableDamageEvent` (pred dict) d'une cible depuis un `DamagePredictionResult` +
-    ses PV — cap FillUpStat (dégât santé <= PV) inclus. Partagé main/AoE (structure d'event unique)."""
+    ses PV — cap FillUpStat (dégât santé <= PV) inclus. Partagé main/AoE (structure d'event unique).
+    `shieldDmg*` = AccurateShieldDamage@0x78 (split @181002850, consommé par DamageUtility §13.7)."""
     r = dp.accurate_health_damage
+    s = dp.accurate_shield_damage
     return {"hpBefore": hp, "shieldBefore": dp.shield,
             "healthDmgMin": min(r.min, hp), "healthDmgMax": min(r.max, hp),
+            "shieldDmgMin": s.min, "shieldDmgMax": s.max,
+            "limitedByMinHp": dp.limited_by_min_hp,
             "appliedHits": dp.applied_hits, "kill": r.max >= hp, "killSure": r.min >= hp}
 
 
@@ -374,13 +400,13 @@ def generate_multi_hit_attack_prediction(predictor, sctx, uid, tgt, ability_id, 
     is_melee = (a.get("attackRangeType") or "").lower() == "melee"
     # Coups = formule PROPRE de l'ability (`ability.GetHits`, cf. active_ability.py) : les abilities
     # portées (HarvesterOfSouls flag/extraHit, BloodyFury snowball, …) surchargent ; les autres gardent
-    # le défaut générique `GetDefaultAttackHits(nrOfHits + ExtraHits)` — comportement historique préservé.
-    # Bonus/malus de coups des EFFETS de l'attaquant (chaîne partagée `GetHitsWithBonuses` — même
-    # couche que l'attaque normale, ex. FightingRetreatHitReduction -1) + PLANCHER 1
-    # (`ForAdditionWithMinimum(…, min=Direct(1))` @180f495d0).
-    att_effects_h = sctx["eff_state"].active_effects(uid, {"hp": sctx["hp_by_id"].get(uid)})
-    hits = max(1, ab.get_special_hits(is_melee)
-               + hits_bonus_from_effects(att_effects_h, is_normal_attack=False))
+    # le défaut générique `GetDefaultAttackHits(nrOfHits + ExtraHits)`. **SANS le terme d'effets** :
+    # le chemin de hits des SPÉCIALES ne consulte PAS les bonus/malus de coups des effets — PROUVÉ
+    # live step-11 seed777 : u96 porte FightingRetreatHitReduction (−1), le natif prédit quand même
+    # AppliedHits=3 pour PlasmaCannon (nrOfHits=3) alors que l'attaque NORMALE est bien réduite
+    # 3→2 (arme 3 hits, native normalAttack.hits=2). Cohérent avec PowerTrip +1 normal-only
+    # (@180f64cf0) : la chaîne effets-hits n'existe que côté attaque normale.
+    hits = max(1, ab.get_special_hits(is_melee))
     profile_name = ab.get_damage_profile()
     profile_idx = _PROFILE_INDEX.get(profile_name, 0)
     dp = GC.damage_profile(profile_name) or {}
@@ -394,10 +420,24 @@ def generate_multi_hit_attack_prediction(predictor, sctx, uid, tgt, ability_id, 
     t_pos = sctx["pos_by_id"].get(tgt)
     _add_elevation_and_defender_mods(mods, sctx, tgt, is_melee, attack_pos, t_pos,
                                      elev_by_pos, hp_by_id, damage_profile=profile_name)
+    tgt_shield = predictor.get("shield_by_id", {}).get(tgt, 0)
+    shield_raw = None
+    if tgt_shield > 0:
+        # Entrée du blocage bouclier natif (PredictAttackRaw : GetBaseDamageFix64(local_9a8) →
+        # Min(base, shield) @181002850) : local_9a8 = le `GetDamage` int de l'ability = **minDmg**
+        # (PAS l'avg) × mult, bornes ±spread AGRÉGÉES ×hits. PROUVÉ bit-exact live (step-11 seed777 :
+        # sh_min vs worldTerminator = 2873 = round(0.8 × (665×1.8) × 3), tile-indépendant).
+        d_shield = ab.config.get_variable_for_level("minDmg", ab.caster.active_ability_level, 0) \
+            if ab.config else 0
+        if d_shield and mult and mult != 100 and ("minDmg" in affected):
+            d_shield = (d_shield * mult) // 100
+        if d_shield > 0:
+            shield_raw = MinMaxDamage(min=round(d_shield * hits * 0.8),
+                                      max=round(d_shield * hits * 1.2))
     return get_attack_prediction(
         target_current_health=hp_by_id.get(tgt, 0), initial_damage=base, hits=hits,
         profile_type=profile_idx, pierce_pct=pierce, armor=predictor["armor_by_id"].get(tgt, 0),
-        mods=mods)
+        mods=mods, target_shield=tgt_shield, shield_raw=shield_raw)
 
 
 def build_samples(sid, rid, my_team, max_turns=6):

@@ -2,12 +2,18 @@
 
 DamageDealt(35) = `IdunBattle.AI.Utilities.DamageUtility`.
 - `.cctor` (@1810cf2e0) : **W_damage = Fix64(0x50) = 80**, **W_remaining = Fix64(0x14) = 20**.
-- `<EvaluateAttackInSteps>d__2.MoveNext` (@1810e2280) :
-    dmg         = Avg(healthMinMax) [+ Avg(shieldMinMax)]               # voir NOTE bouclier
-    combinedMax = (target.MaxHealth + 1) + (target.Shield + 1)         # boss : MaxHealth -> 169
-    u_damage    = Clamp(dmg / combinedMax, 0, 1) * 80
-    u_remaining = (1 - Clamp((remaining - dmg) / combinedMax, 0, 1)) * 20    # remaining = PV courants
+- `<EvaluateAttackInSteps>d__2.MoveNext` (@1810e2280) — RE LECTURE INTÉGRALE (2026-07-02) :
+    hAvg        = Avg(AccurateHealthDamage@0x58) ; si LimitedByMinHp@0xB0 -> CurrentHealth@0x0
+    sAvg        = Avg(AccurateShieldDamage@0x78)                        # bouclier COMPTE dans l'utilité
+    D           = hAvg + sAvg
+    combinedMax = (target.MaxHealth + 1) + (GetShield(target) + 1)     # boss : config 0xa9 (@1810ce8a0)
+    remaining   = (target.CurrentHealth + 1) + (GetShield(target) + 1) # GetRemainingHealth @1810cee40
+    u_damage    = Clamp(D / combinedMax, 0, 1) * 80
+    u_remaining = (1 - Clamp((remaining - D) / combinedMax, 0, 1)) * 20
     u           = u_damage + u_remaining ;  *-1 si friendly-fire (cible = ami)
+  Preuve numérique (trace scorerUtilTrace seed777 step-11) : 86 dmg 936-2568 hp 8585/9037
+  -> 20.38 EXACT ; 82 (worldTerminator shield 3989, santé 0-58 + bouclier 2871-3989)
+  -> 25.57 EXACT = la raison du pick natif [82,78] (Σ=50.49 + tuile 50 = 100.49).
 
 KillUnit(36) (@1810e1a90)    : +DefinitelyKill(BC 100) si WillBeKill, +PossibleKill(BC 50) si MightBeKill ;
                                0 si la cible est Steppable ; *-1 si friendly-fire.
@@ -38,29 +44,40 @@ def _clamp01(x: float) -> float:
     return 0.0 if x < 0.0 else (1.0 if x > 1.0 else x)
 
 
-def _avg_health_dmg(pred: dict) -> float:
-    """`MinMaxDamage.Avg(AccurateHealthDamage)` = (min+max)/2 du dégât SANTÉ.
-    NOTE bouclier : le natif ajoute aussi `Avg(shieldMinMax)`. `aiPredict` n'expose pas le dégât
-    bouclier séparé (seulement healthDmg + totalDmg). On porte le dégât SANTÉ (dominant ; exact si la
-    cible n'a pas de bouclier). Bouclier = TODO (champ non exposé). cf. doc §13.7."""
+def _get_health_damage(pred: dict) -> float:
+    """`DamageUtility.GetHealthDamage @1810cec60` : Avg(AccurateHealthDamage@0x58) ; si
+    `LimitedByMinHp@0xB0` (dégât plafonné par une règle min-HP) -> CurrentHealth@0x0 entier."""
+    if pred.get("limitedByMinHp"):
+        return float(pred.get("hpBefore") or 0)
     dmin = pred.get("healthDmgMin") or 0
     dmax = pred.get("healthDmgMax") or 0
     return (dmin + dmax) / 2.0
 
 
+def _get_shield_damage(pred: dict) -> float:
+    """`DamageUtility.GetShieldDamage @1810cf080` : Avg(AccurateShieldDamage@0x78). 0 si le
+    prédicteur n'a pas splitté (cible sans bouclier)."""
+    smin = pred.get("shieldDmgMin") or 0
+    smax = pred.get("shieldDmgMax") or 0
+    return (smin + smax) / 2.0
+
+
 def damage_dealt(pred: dict | None, target_max_hp: int | None) -> float:
-    """DamageDealt(35) FIDÈLE : `clamp(dmg/maxPool,0,1)*80 + (1-clamp((remaining-dmg)/maxPool,0,1))*20`.
-    `remaining` = PV courants (`hpBefore`) ; `maxPool` = MaxHealth + Shield + 2 (cible non-boss)."""
+    """DamageDealt(35) FIDÈLE (`<EvaluateAttackInSteps>d__2.MoveNext @1810e2280`) :
+        D = hAvg + sAvg ; maxPool = (MaxHealth+1)+(Shield+1) ;
+        remaining = (CurrentHealth+1)+(Shield+1)   # GetRemainingHealth @1810cee40
+        u = clamp(D/maxPool,0,1)*80 + (1-clamp((remaining-D)/maxPool,0,1))*20."""
     if not pred:
         return 0.0
-    remaining = pred.get("hpBefore") or 0
+    hp = pred.get("hpBefore") or 0
     shield = pred.get("shieldBefore") or 0
     # combinedMax = (MaxHealth+1) + (Shield+1). Fallback maxHP=hpBefore si non fourni (cible pleine).
-    max_hp = target_max_hp if (target_max_hp and target_max_hp > 0) else remaining
+    max_hp = target_max_hp if (target_max_hp and target_max_hp > 0) else hp
     combined_max = (max_hp + 1) + (shield + 1)
     if combined_max <= 0:
         return 0.0
-    dmg = _avg_health_dmg(pred)
+    dmg = _get_health_damage(pred) + _get_shield_damage(pred)
+    remaining = (hp + 1) + (shield + 1)
     u_damage = _clamp01(dmg / combined_max) * W_DAMAGE
     u_remaining = (1.0 - _clamp01((remaining - dmg) / combined_max)) * W_REMAINING
     return u_damage + u_remaining

@@ -29,11 +29,15 @@ class AbilityConfiguration:
 
     def get_variable_for_level(self, var_name: str, level: int,
                                fallback_to_default: int = 0) -> int:
-        """AbilityConfiguration.GetVariableForLevel (@181576fb0) : variable au niveau `level`
-        (clamp aux bornes du tableau), sinon constante, sinon `fallback_to_default`."""
+        """AbilityConfiguration.GetVariableForLevel (@181576fb0) : variable au niveau `level`,
+        sinon constante, sinon `fallback_to_default`. INDEXATION 1-BASED : le natif
+        (`TryGetVariableArrayForLevel @181577510`) convertit via `Idun.Shared.Level.ToZeroBasedIndex`
+        = **level − 1**, clampé [0, len−1] — cohérent avec `ability_var` (magnitude.py) et les
+        ancres bit-exactes (PowerTrip armorIgnored L50=277→499, FR dmgReduction L65=582,
+        PlasmaCannon minDmg L50=665 → sh_min natif 2873). L'ancien index direct = off-by-one."""
         arr = self.variables.get(var_name)
         if arr:
-            i = max(0, min(level, len(arr) - 1))
+            i = max(0, min(level - 1, len(arr) - 1))
             try:
                 return int(arr[i])
             except (TypeError, ValueError):

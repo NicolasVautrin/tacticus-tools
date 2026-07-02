@@ -305,52 +305,70 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
         ranked = ev.get("ranked") or []
         if not ranked:
             continue
-        tile = (ranked[0].get("col"), ranked[0].get("row"))
         tgt, ab = ev.get("targetId"), ev.get("abilityId")
-        if ab in normal_ids and sctx is not None:
-            # ATTAQUE NORMALE → prédicteur OFFLINE (`predict_validate.predict_normal`) : reproduit
-            # `aiPredict` sans lecture live par-candidat (base=Attack×hits + perçage + armure + MODIFIER
-            # effets §16/§17, VALIDÉ 11/11 vs oracle). Prédicteur (combatSnapshot cold) capturé 1×/runner.
-            dp = PV.make_normal_attack_predictions(predictor, sctx, uid, tgt, tile, elev_by_pos=elev_by_pos)
-            if dp is None:
+        # SWEEP DE POSITION par paire (ability, cible) : le natif évalue chaque cible depuis CHAQUE
+        # position candidate (générateur balaye les tuiles × `EvaluateInternal @181408980` boucle les
+        # cibles à position fixe — cf. trace scorerUtilTrace step-11 : (6,3)/(6,4)/(5,5)… × même cible).
+        # `ranked[0]` seul est FAUX pour les spéciales (le classement attackPlans est dMin/dMax-based,
+        # 0-0/arbitraire pour un playbook spécial → tuile scorée arbitraire ; step-11 : (1150,82) était
+        # évalué depuis une tuile non-élevée alors que le natif gagne depuis (6,3) élevée). Argmax
+        # STRICT `>` intra-paire (Bucket.AddAction @1813fbcc0 : tie → premier énuméré).
+        pair_best = None   # (u, pred, aoe_events, tile)
+        for rk in ranked:
+            tile = (rk.get("col"), rk.get("row"))
+            if tile[0] is None:
                 continue
-            r = dp.accurate_health_damage
-            _hp = dp.current_health
-            # FillUpStat overkill cap (CalculateDamagePredictionScenario) : le dégât SANTÉ ne peut
-            # excéder les PV courants → un sur-kill (normal) et un kill juste (spécial) s'ÉGALISENT en
-            # DamageDealt/kill, laissant le tie-break décider (spécial > normal) comme le natif.
-            pred = {"hpBefore": _hp, "shieldBefore": dp.shield,
-                    "healthDmgMin": min(r.min, _hp), "healthDmgMax": min(r.max, _hp),
-                    "appliedHits": dp.applied_hits,
-                    "kill": r.max >= _hp, "killSure": r.min >= _hp}
-            _aoe_events = []
-        else:
-            # ABILITY SPÉCIALE → `MakeDamagePredictions` (mirror `<Ability>Playbook.MakeDamagePredictions`) :
-            # LISTE des events = cible principale + cibles AoE (GetSurroundingUnits/GetOtherTargets). None/
-            # vide = NON-attaque (summon/buff/heal : pas de minDmg/maxDmg) → pas candidat.
-            _events = (PV.make_damage_predictions(predictor, sctx, uid, tgt, ab, ab_name_by_id.get(ab),
-                                                  attack_pos=tile, elev_by_pos=elev_by_pos)
-                       if sctx is not None else [])
-            if not _events:
-                continue
-            pred = _events[0][1]          # cible PRINCIPALE (tie-break kill/killSure + dbg)
-            _aoe_events = _events[1:]     # cibles AoE additionnelles (surrounding/other)
-        if _DAMAGE_MODEL == "faithful":
-            # `CalculateUtilityFromPredictions @181407890` = Σ damage_composite sur TOUS les events (§39) :
-            # principale + AoE, chaque event × sa `probability` (eventMultiplier de
-            # `CalculateUtilityFromDamageEvent @1814a9f90` ; ex. PlasmaCannon batch secondaire
-            # pondéré min(1, maxSecondary/n)). Mono-cible → Σ = terme principal.
-            u = damage_composite(pred, hpmax_by_id.get(tgt), wt)   # composite Damage RE'd (§13.7/13.8)
-            for _atid, _apred in _aoe_events:
-                u += _apred.get("probability", 1.0) * damage_composite(_apred, hpmax_by_id.get(_atid), wt)
-        else:
-            u = attack_utility(pred, wt)                           # barème historique
+            if ab in normal_ids and sctx is not None:
+                # ATTAQUE NORMALE → prédicteur OFFLINE (`predict_validate.predict_normal`) : reproduit
+                # `aiPredict` sans lecture live par-candidat (base=Attack×hits + perçage + armure +
+                # MODIFIER effets §16/§17, VALIDÉ 11/11 vs oracle). Prédicteur cold capturé 1×/runner.
+                dp = PV.make_normal_attack_predictions(predictor, sctx, uid, tgt, tile,
+                                                       elev_by_pos=elev_by_pos)
+                if dp is None:
+                    continue
+                # Event dict via la SOURCE UNIQUE `PV._event_from_dp` (cap FillUpStat + split bouclier
+                # AccurateShieldDamage@0x78 inclus — l'ancien dict inline perdait les champs shieldDmg*).
+                pred = PV._event_from_dp(dp, dp.current_health)
+                _aoe_events = []
+            else:
+                # ABILITY SPÉCIALE → `MakeDamagePredictions` (mirror `<Ability>Playbook.MakeDamage-
+                # Predictions`) : LISTE des events = cible principale + cibles AoE (GetSurroundingUnits/
+                # GetOtherTargets). None/vide = NON-attaque (summon/buff/heal) → pas candidat.
+                _events = (PV.make_damage_predictions(predictor, sctx, uid, tgt, ab,
+                                                      ab_name_by_id.get(ab),
+                                                      attack_pos=tile, elev_by_pos=elev_by_pos)
+                           if sctx is not None else [])
+                if not _events:
+                    continue
+                pred = _events[0][1]          # cible PRINCIPALE (tie-break kill/killSure + dbg)
+                _aoe_events = _events[1:]     # cibles AoE additionnelles (surrounding/behind/other)
+            _bk = []
+            if _DAMAGE_MODEL == "faithful":
+                # `CalculateUtilityFromPredictions @181407890` = Σ damage_composite sur TOUS les events
+                # (§39) : principale + AoE, chaque event × sa `probability` (eventMultiplier de
+                # `CalculateUtilityFromDamageEvent @1814a9f90` ; ex. PlasmaCannon batch secondaire
+                # pondéré min(1, maxSecondary/n)). Mono-cible → Σ = terme principal.
+                u = damage_composite(pred, hpmax_by_id.get(tgt), wt)   # composite Damage (§13.7/13.8)
+                _bk.append((tgt, round(u, 1)))
+                for _atid, _apred in _aoe_events:
+                    _ua = _apred.get("probability", 1.0) * damage_composite(_apred,
+                                                                            hpmax_by_id.get(_atid), wt)
+                    u += _ua
+                    _bk.append((_atid, round(_ua, 1)))
+            else:
+                u = attack_utility(pred, wt)                           # barème historique
+            if pair_best is None or u > pair_best[0]:
+                pair_best = (u, pred, _aoe_events, tile, _bk)
+        if pair_best is None:
+            continue
+        u, pred, _aoe_events, tile, _bk = pair_best
         aoe_dbg = len(_aoe_events)
         key = (u, 0 if ab in normal_ids else 1)  # util d'abord, puis spécial > normal
         if _DEBUG:
             p = pred or {}
             dbg.append((ab, tgt, round(u, 1), p.get("killSure"), p.get("kill"),
-                        p.get("healthDmgMax"), p.get("hpBefore"), f"aoe{aoe_dbg}"))
+                        p.get("healthDmgMax"), p.get("hpBefore"), f"aoe{aoe_dbg}", tile,
+                        ("sh", p.get("shieldDmgMin"), p.get("shieldDmgMax")), ("bk", _bk)))
         if best_key is None or key > best_key:
             best = (u, tgt, ab, tile)
             best_key = key
@@ -546,8 +564,15 @@ def run_agreement(sid: int, rid: int, steps: int, wt, log=print) -> dict:
         uid = dry.get("activatedUnitId") or nat.get("unit")
 
         if (nat["move"] or nat["ability"]) and uid is not None:
-            dv = _r(sid, "decisionView", {"runnerId": rid, "allAbilities": True}, 180)
+            # maxRank 32 (défaut 8) : le SWEEP de position par paire (ability,cible) doit voir TOUTES
+            # les tuiles d'attaque — le rang natif est arbitraire pour les spéciales (dmg 0-0), la
+            # meilleure tuile moteur peut être au-delà du rang 8 (step-11 : (6,3) pour (1150,82)).
+            dv = _r(sid, "decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 180)
             mov = _r(sid, "aiMovableTiles", {"runnerId": rid}, 60)
+            # Boucliers = état DYNAMIQUE (accordés en cours de bataille) → refresh par pas comparé
+            # (cf. PV.refresh_shields ; le cold de build_predictor rate p.ex. worldTerminator 3989).
+            if predictor is not None:
+                PV.refresh_shields(predictor, sid, rid)
             mov_by_unit = {u.get("unitId"): u for u in (mov.get("units") or [])}
             eng = engine_decide(sid, rid, dv, mov_by_unit, uid, wt, predictor)
             eng_to = eng.get("to")
