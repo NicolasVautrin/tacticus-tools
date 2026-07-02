@@ -105,6 +105,14 @@ class AActiveAbility:
         (batch AoE non pondéré : Harvester/BloodyFury)."""
         return None
 
+    def get_health_to_lose(self, max_hp: int) -> int | None:
+        """`<Ability>.GetHealthToLose` — COÛT en PV de l'ability (ex. DakkaDakkaDakka @1811d09a0 =
+        `PercentageOf(StatAmount(owner, 5=Health), ConfigConst(0x4f healthPct))`). Le playbook émet
+        alors un `ProbableDamageEvent` SELF dont l'utilité est NÉGÉE (friendly-fire, DamageUtility
+        @1810e2280) — mesuré step-13 seed777 : −15.0 exact par candidat DakkaDakkaDakka
+        (= (80+20)×healthPct/100 à PV pleins). DÉFAUT None = pas de coût en PV."""
+        return None
+
     def get_damage_min_max_raw(self) -> MinMaxDamage:
         """min/max EXPLICITES de la config (special) — avant scenario. Pour les abilities dont
         gameconfig donne directement min/max (pas de spread symétrique)."""
@@ -246,10 +254,41 @@ class PlasmaCannonAbility(AActiveAbility):
 
 
 # Registre nom d'ability → sous-classe à formule de coups propre. À ÉTENDRE au fil du portage.
+class DakkaDakkaDakkaAbility(AActiveAbility):
+    """`DakkaDakkaDakkaAbility` (KillaKan Snappawrecka) — « 6x dmg Projectile à un ennemi à portée 3 ;
+    +2 coups par réparation (cap 16) ; perd 15% de sa Health max ».
+    - `GetNumHits @1811d0eb0` = arbre DSL EXACT : `Min(Sum(Direct(nrOfHits 0x2f),
+      Multiply(TimesRepaired, Direct(extraHits key 100))), ConfigConst(maxNrOfHits 0x48))`.
+      `TimesRepaired` (compteur runtime) non capté offline → 0 ⇒ nrOfHits (=6).
+    - damage : `GetDamageFormula` (playbook @1811293d0, helper partagé étiqueté BlightGrenades) =
+      `AActiveAbility.MinMaxDamage @180fb2dc0` = avg(minDmg', maxDmg') niveau+mult → la base
+      générique `get_damage()` suffit (bornes VALIDÉES exactes step-13 seed777 : per-coup natif
+      404/728/1028/1331 reproduit sur les 4 cibles, D=2244 vs natif 2244.5 → mêmes entiers).
+    - `GetHealthToLose @1811d09a0` = `PercentageOf(StatAmount(owner, 5=Health), ConfigConst(0x4f
+      healthPct=15))` → event SELF négatif (−15.0 exact mesuré par candidat, cf. base)."""
+
+    _HITS = dsl.Min(
+        dsl.Sum(dsl.ConfigConst("nrOfHits", 1),
+                dsl.Multiply(dsl.TimesRepaired(), dsl.ConfigConst("extraHits", 0))),
+        dsl.ConfigConst("maxNrOfHits", 99),
+    )
+
+    def get_special_hits(self, is_melee: bool) -> int:
+        if self.config is None:
+            return 1
+        return self._HITS.evaluate(_hits_ctx(self))
+
+    def get_health_to_lose(self, max_hp: int) -> int | None:
+        pct = self.config.get_variable_for_level("healthPct", self.caster.active_ability_level, 0) \
+            if self.config else 0
+        return (int(max_hp) * int(pct)) // 100 if pct else None
+
+
 _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
     "HarvesterOfSouls": HarvesterOfSoulsAbility,
     "BloodyFury": BloodyFuryAbility,
     "PlasmaCannon": PlasmaCannonAbility,
+    "DakkaDakkaDakka": DakkaDakkaDakkaAbility,
 }
 
 

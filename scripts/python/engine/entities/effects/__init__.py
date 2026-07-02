@@ -34,7 +34,7 @@ __all__ = [
     "RapidAssaultExtraDamageEffect", "PowerTripFullHealthEffect",
     "PowerTripIgnoreArmorEffect", "KanOpenerEffect", "StunnedEffect",
     "build_attacker_modifiers_from_effects", "build_defender_modifiers_from_effects",
-    "hits_bonus_from_effects",
+    "hits_bonus_from_effects", "hits_malus_from_defender_effects", "aura_hits_malus_for_defense",
     "crit_chance_bonus_from_effects", "crit_damage_bonus_from_effects",
 ]
 
@@ -50,18 +50,20 @@ def _as_effects(effects) -> list[BaseEffect]:
     return out
 
 
-def build_attacker_modifiers_from_effects(effects, is_ranged: bool | None = None) -> DamageModifiers:
+def build_attacker_modifiers_from_effects(effects, is_ranged: bool | None = None,
+                                          is_normal_attack: bool = True) -> DamageModifiers:
     """`CalculateAttackerModifiersForPrediction` @181000590 — DamageModifiers depuis les effets ACTIFS de
     l'attaquant (§17.8). Agrège : damage-bonus (additif/percent, `create_effect_damage_bonus_for_attack`)
     + pénétration d'armure (`get_armor_penetration` → axe armure). Les effets doivent être déjà filtrés
     actifs (EffectsState.active_effects) ; si on passe des dicts, AUCUN filtre is_active n'est appliqué.
-    `is_ranged` = nature du coup (combat) → propagée aux bonus gated `IsRangedAttack` (ex. HeavyWeapon)."""
+    `is_ranged` = nature du coup (combat) → propagée aux bonus gated `IsRangedAttack` (ex. HeavyWeapon).
+    `is_normal_attack` → pénétrations gated normal-only (PowerTrip_IgnoreArmor, step-13 ground truth)."""
     bonuses = []
     for e in _as_effects(effects):
         db = e.create_effect_damage_bonus_for_attack(is_ranged)
         if db is not None:
             bonuses.append(db)
-        pen = e.get_armor_penetration()
+        pen = e.get_armor_penetration(is_normal_attack)
         if pen is not None:
             bonuses.append(for_armor_penetration(True, pen))
     return build_attacker_modifiers(bonuses)
@@ -99,6 +101,44 @@ def hits_bonus_from_effects(effects, is_normal_attack: bool = True) -> int:
             total += hb.value
         elif hb.kind == "Subtraction":
             total -= hb.value
+    return total
+
+
+def hits_malus_from_defender_effects(effects, is_melee: bool | None = None) -> int:
+    """Σ des malus de COUPS des effets actifs de la CIBLE (`create_effect_hits_malus_for_defense`,
+    ex. LightCover @180f556b0 : -2 ranged). Natif = même canal `CreateEffectHitsBonusForAttack`
+    trigger `OwnerIsTarget` ; plancher min=1 appliqué chez le consommateur (`max(1, …)`).
+    Retour ≤ 0 (à ADDITIONNER aux hits)."""
+    total = 0
+    for e in _as_effects(effects):
+        hb = e.create_effect_hits_malus_for_defense(is_melee)
+        if hb is None:
+            continue
+        if hb.kind == "Addition":
+            total += hb.value
+        elif hb.kind == "Subtraction":
+            total -= hb.value
+    return total
+
+
+def aura_hits_malus_for_defense(units_effects, ctx) -> int:
+    """Σ des malus de COUPS projetés sur la CIBLE par des effets AURA possédés par d'AUTRES unités
+    (`create_aura_hits_malus_for_defense`, ex. BigTargetAdjacentEffect @180f33ac0 : -1 ranged pour
+    les alliés ring-1 du porteur). `units_effects` = itérable de (owner_id, owner_pos, owner_team,
+    effets du porteur) ; `ctx` = {tgt_id, t_pos, tgt_team, is_melee}. Plancher min=1 chez le
+    consommateur. Retour ≤ 0 (à ADDITIONNER aux hits)."""
+    total = 0
+    for owner_id, owner_pos, owner_team, effects in (units_effects or []):
+        octx = {**(ctx or {}), "owner_id": owner_id, "owner_pos": owner_pos,
+                "owner_team": owner_team}
+        for e in _as_effects(effects):
+            hb = e.create_aura_hits_malus_for_defense(octx)
+            if hb is None:
+                continue
+            if hb.kind == "Addition":
+                total += hb.value
+            elif hb.kind == "Subtraction":
+                total -= hb.value
     return total
 
 

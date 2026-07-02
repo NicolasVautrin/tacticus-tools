@@ -6,7 +6,7 @@ contre un `DslContext` (état de bataille). cf. nodes.py.
 from .nodes import (  # noqa: F401
     Node, DslContext,
     Const, ConfigConst, Sum, Min, Multiply, Difference, If,
-    TotalTimesAttacked, HasFlag,
+    TotalTimesAttacked, TimesRepaired, HasFlag,
     CasterTile, TargetTile,
     SurroundingUnits, AdjacentEnemies, Enemies, Damageable, And, Sub, UnitSet,
     UnitsDirectlyBehind,

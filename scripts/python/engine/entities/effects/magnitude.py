@@ -23,6 +23,18 @@ def trait_var(trait_name: str, var_key: str) -> int | None:
     return int(v) if v is not None else None
 
 
+def global_value(key: str) -> int | None:
+    """Scalaire global de combat (`clientGameConfig.globalValues[key]`) — magnitude d'effets
+    non rattachés à une ability d'unité (ex. `lightCoverHitReduction`=2 pour LightCoverAbility,
+    ability de TUILE absente de `units.abilities`)."""
+    try:
+        import gameconfig as _GC
+    except Exception:
+        return None
+    v = _GC.global_value(key)
+    return int(v) if v is not None else None
+
+
 def ability_var(ability_id: str, var_key: str, level: int | None = None,
                 is_constant: bool = False, multiplier_pct: int = 100) -> int | None:
     """Variable/constante d'ability. Constante = scalaire ; variable = tableau per-niveau indexé `level`

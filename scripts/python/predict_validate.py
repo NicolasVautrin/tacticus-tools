@@ -33,7 +33,8 @@ from engine.services.damage_prediction import (
 from engine.services.min_max_damage import MinMaxDamage
 from engine.entities import EffectsState
 from engine.entities.effects import (
-    build_attacker_modifiers_from_effects, build_defender_modifiers_from_effects, hits_bonus_from_effects,
+    aura_hits_malus_for_defense, build_attacker_modifiers_from_effects,
+    build_defender_modifiers_from_effects, hits_bonus_from_effects, hits_malus_from_defender_effects,
 )
 from engine.entities.traits import attacker_bonus_hits
 from engine.services.damage_modifiers import add_modifier, calculate_elevation_bonus_modifier
@@ -151,33 +152,6 @@ def _faction_of(vis_by_id, uid):
     return (GC.unit(v) or {}).get("FactionId") if v else None
 
 
-def _getstuckin_bonus(ctx, a_id, t_id, base_hits, attack_pos, pos_by_id, team_by_id, vis_by_id, units):
-    """+floor(base_hits/2) si GetStuckIn. Ancré sur la **position d'attaque** (`ranked`, post-move) —
-    elle fixe within range 2 = cheby(attack_pos, cible)≤2 + les comptes d'adjacence à la CIBLE (le caster
-    post-move y est compté). MinDistance natif = pathfinding ; cheby = proxy (§17.21)."""
-    traits = ctx.trait_objects()
-    if not any(type(t).__name__ == "GetStuckInTrait" for t in traits):
-        return 0
-    tpos = pos_by_id.get(t_id)
-    if not attack_pos or not tpos:
-        return 0
-    u_by_id = {u.get("id"): u for u in units}
-
-    def _adj_pos(uid):
-        if uid == a_id:
-            return attack_pos
-        u2 = u_by_id.get(uid)
-        return (u2["pos"]["col"], u2["pos"]["row"]) if (u2 and u2.get("pos")) else None
-
-    adj = [u for u in units if u.get("id") != t_id and _adj_pos(u.get("id"))
-           and _cheby(_adj_pos(u.get("id")), tpos) == 1]
-    adj_orks = sum(1 for u in adj if _faction_of(vis_by_id, u.get("id")) == "Orks")
-    adj_friends = sum(1 for u in adj if u.get("team") == team_by_id.get(a_id))
-    gctx = {"attacker_within_range2": _cheby(attack_pos, tpos) <= 2, "base_hits": base_hits,
-            "target_adjacent_orks": adj_orks, "target_adjacent_friends": adj_friends}
-    return attacker_bonus_hits(traits, gctx)
-
-
 def build_predictor(sid, rid):
     """Tables STATIQUES du prédicteur offline pour le runner `rid` — capture one-shot (cold) :
     `combatSnapshot` (dégât d'arme + stats + `unitConfig` mult/level) + `decisionView` (visualId).
@@ -287,9 +261,24 @@ def make_normal_attack_predictions(predictor, sctx, att_id, tgt_id, attack_pos, 
     # PLANCHER 1 coup : les malus de coups (ex. FightingRetreatHitReduction, EffectBonus
     # `ForAdditionWithMinimum(…, min=Direct(1))` @180f495d0) ne descendent JAMAIS sous 1.
     hits_pre = max(1, whits + ctx.extra_hits + eff_hits)
-    hits = hits_pre + _getstuckin_bonus(ctx, att_id, tgt_id, hits_pre, attack_pos,
-                                        pos_by_id, sctx["team_by_id"], predictor["vis_by_id"],
-                                        sctx["units"])
+    # Ctx BOARD générique (contrat BaseTrait/aura : « chaque contributeur lit ce dont il a besoin ») —
+    # AUCUNE logique par-mécanisme ici, elle vit dans les classes (GetStuckInTrait, LightCoverEffect,
+    # BigTargetAdjacentEffect…), comme le canal natif CreateEffectHitsBonusForAttack + ses triggers.
+    board = {"att_id": att_id, "tgt_id": tgt_id, "attack_pos": attack_pos, "t_pos": t_pos,
+             "tgt_team": sctx["team_by_id"].get(tgt_id), "is_melee": is_melee,
+             "base_hits": hits_pre, "pos_by_id": pos_by_id, "team_by_id": sctx["team_by_id"],
+             "faction_of": lambda uid: _faction_of(predictor["vis_by_id"], uid)}
+    hits = hits_pre + attacker_bonus_hits(ctx.trait_objects(), board)
+    # Malus de coups CÔTÉ CIBLE (natif : même canal CreateEffectHitsBonusForAttack, triggers
+    # OwnerIsTarget) : effets portés par la cible (LightCover) + auras d'autres unités (BigTarget).
+    # GROUND TRUTH step-13 seed777 (trace AllMods) ; plancher 1 (ForAdditionWithMinimum).
+    tgt_effects = sctx["eff_state"].active_effects(tgt_id, {"hp": hp_by_id.get(tgt_id)})
+    aura_sources = [(uid, pos_by_id.get(uid), sctx["team_by_id"].get(uid),
+                     sctx["eff_state"].active_effects(uid, {"hp": hp_by_id.get(uid)}))
+                    for uid in pos_by_id if uid != tgt_id]
+    hits = max(1, hits
+               + hits_malus_from_defender_effects(tgt_effects, is_melee)
+               + aura_hits_malus_for_defense(aura_sources, board))
     armor = predictor["armor_by_id"].get(tgt_id, 0)
     res = get_attack_prediction(
         target_current_health=hp_by_id.get(tgt_id, 0), initial_damage=ctx.attack, hits=hits,
@@ -367,6 +356,19 @@ def make_damage_predictions(predictor, sctx, caster_id, main_tgt_id, ability_id,
             if prob < 1.0:
                 ev["probability"] = prob
             events.append((tid, ev))
+    # Event SELF négatif — COÛT en PV de l'ability (`ability.GetHealthToLose`, ex. DakkaDakkaDakka
+    # @1811d09a0 = 15% maxHP) : le playbook natif émet un ProbableDamageEvent sur le CASTER dont
+    # l'utilité est NÉGÉE (friendly-fire, DamageUtility @1810e2280). Mesuré step-13 seed777 :
+    # candidats 1171 = utilité moteur − 15.0 EXACT sur les 4 cibles (kill et no-kill).
+    hp_c = sctx["hp_by_id"].get(caster_id) or 0
+    max_c = (sctx.get("hpmax_by_id") or {}).get(caster_id) or hp_c
+    hl = ab.get_health_to_lose(max_c)
+    if hl:
+        events.append((caster_id, {"hpBefore": hp_c, "shieldBefore": 0,
+                                   "healthDmgMin": min(hl, hp_c), "healthDmgMax": min(hl, hp_c),
+                                   "shieldDmgMin": 0, "shieldDmgMax": 0, "limitedByMinHp": False,
+                                   "appliedHits": 0, "kill": hl >= hp_c, "killSure": hl >= hp_c,
+                                   "friendly": True}))
     return events
 
 
@@ -415,7 +417,9 @@ def generate_multi_hit_attack_prediction(predictor, sctx, uid, tgt, ability_id, 
     pierce = max(0, min(100, int(dp.get("PiercingRatio") or 0) + ctx.extra_pierce + dir_pierce))
     hp_by_id = sctx["hp_by_id"]
     att_effects = sctx["eff_state"].active_effects(uid, {"hp": hp_by_id.get(uid)})
-    mods = build_attacker_modifiers_from_effects(att_effects)
+    # is_normal_attack=False : les pénétrations gated normal-only (PowerTrip_IgnoreArmor) ne
+    # s'appliquent PAS aux spéciales (step-13 : DakkaDakkaDakka per-coup natif = armure pleine).
+    mods = build_attacker_modifiers_from_effects(att_effects, is_normal_attack=False)
     # PARITÉ predict_normal : ElevationBonus (surplomb) + modifiers DÉFENSEUR — le pipeline natif
     # `CalculateDamagePredictionScenario` les applique à TOUT dégât d'attaque (normal ET spécial).
     t_pos = sctx["pos_by_id"].get(tgt)

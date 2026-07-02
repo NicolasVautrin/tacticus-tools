@@ -35,6 +35,9 @@ class DslContext:
     config: object | None = None            # AbilityConfiguration
     ability_level: int = 0
     times_attacked: int = 0
+    # Compteur runtime de RÉPARATIONS du caster (`DSLFactory.TimesRepaired`, ex. DakkaDakkaDakka
+    # GetNumHits @1811d0eb0) NON capté offline → défaut 0.
+    times_repaired: int = 0
     flags: frozenset = field(default_factory=frozenset)
     # Position VIRTUELLE du caster pour la décision balayée (= la tuile d'attaque post-move,
     # `casterPosition` passé aux selectors par le generator natif). None → position courante.
@@ -121,6 +124,14 @@ class TotalTimesAttacked(Node):
     (composant @+0x34). NON capté offline → `ctx.times_attacked` (défaut 0 = pré-snowball)."""
     def evaluate(self, ctx):
         return ctx.times_attacked or 0
+
+
+class TimesRepaired(Node):
+    """`DSLFactory.TimesRepaired` : compteur runtime de réparations du caster (Mechanical — ex.
+    DakkaDakkaDakka `GetNumHits @1811d0eb0` : +extraHits coups par réparation). NON capté offline →
+    `ctx.times_repaired` (défaut 0 = pré-snowball)."""
+    def evaluate(self, ctx):
+        return getattr(ctx, "times_repaired", 0) or 0
 
 
 class HasFlag(Node):

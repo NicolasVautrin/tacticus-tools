@@ -11,10 +11,12 @@ from collections.abc import Mapping
 from .base import BaseEffect
 from .loki import (
     ActOfFaithBuffEffect,
+    BigTargetAdjacentEffect,
     FightingRetreatDmgReductionEffect,
     FightingRetreatHitReductionEffect,
     HeavyWeaponExtraDmgEffect,
     KanOpenerEffect,
+    LightCoverEffect,
     PinnedEffect,
     PowerTripFullHealthEffect,
     PowerTripIgnoreArmorEffect,
@@ -42,6 +44,8 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # ATTAQUES du porteur : -dmgReduction PLAT + -1 coup (plancher 1), 1 round (rem=2 capté).
     "FightingRetreatDmgReduction": FightingRetreatDmgReductionEffect,
     "FightingRetreatHitReduction": FightingRetreatHitReductionEffect,
+    "LightCover": LightCoverEffect,     # couverture (tuile) : -2 coups ranged reçus, plancher 1
+    "BigTarget_AdjacentEffect": BigTargetAdjacentEffect,  # aura : -1 coup ranged aux alliés ring-1 du porteur
     # KanOpener : nom d'EffectType à confirmer avant inscription.
 }
 

@@ -165,6 +165,10 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
     # État courant du pas pour le prédicteur OFFLINE (hp/pos/team/effets seed) — reconstruit à chaque
     # décision car l'état mute. `predictor` (tables cold, 1×/runner) fourni par run_agreement.
     sctx = PV.step_context(predictor, dv) if predictor is not None else None
+    if sctx is not None:
+        # PV max par unité (observeBattle) — consommé par `make_damage_predictions` pour le coût en
+        # PV des abilities (`GetHealthToLose`, ex. DakkaDakkaDakka 15% maxHP → event SELF négatif).
+        sctx["hpmax_by_id"] = hpmax_by_id
 
     # Élévation par tuile (Tile(7)) + distance-CHEMIN par tuile (MinDist fidèle, doc §13.12) — mode
     # "unitmovement" seulement. tileMeta 1×/décision ; pathDistToEnemies 1×/unité.
@@ -372,8 +376,11 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
                 u = damage_composite(pred, hpmax_by_id.get(tgt), wt)   # composite Damage (§13.7/13.8)
                 _bk.append((tgt, round(u, 1)))
                 for _atid, _apred in _aoe_events:
-                    _ua = _apred.get("probability", 1.0) * damage_composite(_apred,
-                                                                            hpmax_by_id.get(_atid), wt)
+                    # Event FRIENDLY (self-damage/coût en PV, `GetHealthToLose`) → utilité NÉGÉE
+                    # (DamageUtility @1810e2280 : friendly-fire negated ; step-13 : −15.0 exact).
+                    _sign = -1.0 if _apred.get("friendly") else 1.0
+                    _ua = _sign * _apred.get("probability", 1.0) * damage_composite(
+                        _apred, hpmax_by_id.get(_atid), wt)
                     u += _ua
                     _bk.append((_atid, round(_ua, 1)))
             else:

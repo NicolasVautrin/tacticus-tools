@@ -80,6 +80,23 @@ class BaseEffect:
         """`<Effect>.CreateEffectHitsBonusForAttack` — contribution à l'axe COUPS (Addition/Subtraction)."""
         return None
 
+    def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None) -> EffectBonus | None:
+        """Contribution DÉFENSEUR à l'axe COUPS (l'effet est sur la CIBLE, réduit les coups reçus).
+        Natif : même canal `CreateEffectHitsBonusForAttack` mais trigger `OwnerIsTarget` (ex.
+        `LightCoverEffect.CreateEffectHitsBonusForAttack` @180f556b0 = `ForAdditionWithMinimum(
+        OwnerIsTarget(tuiles égales) & !IsMeleeAttack, -ConfigConst(0x2c hitsReduction), min=Direct(1))`)
+        — le port eager sépare attaquant/défenseur, symétrique de `create_effect_damage_malus_for_defense`.
+        Plancher min=1 appliqué chez le consommateur (`max(1, …)`, predict_validate). Défaut None."""
+        return None
+
+    def create_aura_hits_malus_for_defense(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        """Contribution AURA à l'axe COUPS : l'effet est possédé par une AUTRE unité que la cible et
+        projette un malus sur elle selon la géométrie (natif : effet à `CreateTargetSelector` +
+        `GetRefreshTriggers`, ex. `BigTargetAdjacentEffect` @180f33ac0/@180f33c70 = alliés ring-1 du
+        porteur, -1 coup ranged min 1). `ctx` = {owner_id/pos/team, tgt_id, t_pos, tgt_team, is_melee}
+        fourni par l'agrégateur `aura_hits_malus_for_defense`. Défaut None = pas d'aura."""
+        return None
+
     def create_effect_crit_chance_bonus_for_attack(self) -> int | None:
         """Bonus de CHANCE de crit (%) — couche calc-time SÉPARÉE de `GetStat(9)`, sommée dans
         `DamagePrediction.GetCritChanceBonusFromEffects`@181031180 puis ajoutée à GetStat(9) dans
@@ -110,8 +127,11 @@ class BaseEffect:
         → ConfigVar 0x46). Défaut None = effet sans réduction défensive (dégradation fidèle)."""
         return None
 
-    def get_armor_penetration(self) -> int | None:
-        """`<Effect>.IgnoreArmor` — pénétration d'armure (axe armure : armor_eff = max(armure − pén, 0))."""
+    def get_armor_penetration(self, is_normal_attack: bool = True) -> int | None:
+        """`<Effect>.IgnoreArmor` — pénétration d'armure (axe armure : armor_eff = max(armure − pén, 0)).
+        `is_normal_attack` : certaines pénétrations sont gated attaque normale (i2 PowerTrip
+        « NORMAL attacks ignore X Armour » — GROUND TRUTH step-13 : DakkaDakkaDakka (spéciale) du même
+        porteur ne bénéficie PAS des 499 de pénétration, per-coup natif 404/728 vs 78 = armure pleine)."""
         return None
 
     # ── matérialisation composite ─────────────────────────────────────────────────────────────────

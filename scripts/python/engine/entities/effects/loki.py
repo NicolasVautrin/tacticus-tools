@@ -10,7 +10,7 @@ from collections.abc import Mapping
 
 from ...services.effect_bonus import EffectBonus, for_addition, for_percent_decrease, for_percent_increase
 from .base import BaseEffect, SubEffectSpec, SAME_TURNS
-from .magnitude import ability_var, trait_var
+from .magnitude import ability_var, global_value, trait_var
 
 
 class RapidAssaultExtraDamageEffect(BaseEffect):
@@ -128,6 +128,50 @@ class FightingRetreatHitReductionEffect(BaseEffect):
         return for_addition(True, -int(n)) if n else None
 
 
+class LightCoverEffect(BaseEffect):
+    """`LightCoverEffect` — couverture légère (effet de TUILE posé par `LightCoverAbility`
+    Abilities.Tiles.Loki, `UnitsThatNeedEffect` @1811c1830 = unités SUR les tuiles de couverture).
+    - hits @180f556b0 : `EffectBonus.ForAdditionWithMinimum(OwnerIsTarget(tuiles égales) &
+      !IsMeleeAttack, -ConfigConst(0x2c=hitsReduction), min=Direct(1))` = **-hitsReduction coups
+      sur les attaques NON-mêlée reçues par le porteur, plancher 1**.
+    MAGNITUDE : `globalValues.lightCoverHitReduction` = 2 (LightCoverAbility = ability de TUILE,
+    absente de `units.abilities` — sa config vit dans les valeurs globales).
+    GROUND TRUTH step-13 seed777 (trace AllMods, u90→u84 porteur LightCover) : ranged 4→2 coups
+    partout, mêlée dist 1 → 4 coups (gate !IsMeleeAttack) — natif dMin/dMax reproduits exacts."""
+
+    def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None) -> EffectBonus | None:
+        if is_melee:                        # trigger natif = !IsMeleeAttack (@180f556b0)
+            return None
+        n = global_value("lightCoverHitReduction")   # miroir du ConfigConst 0x2c (=2)
+        return for_addition(True, -int(n)) if n else None
+
+
+class BigTargetAdjacentEffect(BaseEffect):
+    """`BigTargetAdjacentEffect` — AURA du trait BigTarget (i2 : « Adjacent friendly units receive
+    -1 hit from ranged attacks, to a minimum of 1 »). L'effet est POSSÉDÉ par le porteur BigTarget
+    (capté dans SA liste d'effets) ; ses bénéficiaires = les ALLIÉS ring-1 HEX désignés dynamiquement
+    (TargetSelector @180f33c70, refresh @180f33ce0) — PAS le porteur lui-même (GROUND TRUTH step-13
+    seed777 : u86 porteur = 4 coups pleins ; u80 allié adjacent = 3 coups).
+    - hits @180f33ac0 : `ForAdditionWithMinimum(OwnerIsTarget & IsRangedAttack, Direct(-1),
+      min=Direct(1))` — valeur -1 codée dans le natif (pas de config).
+    Canal AURA (le porteur n'est pas la cible de l'attaque) : ctx fourni par l'agrégateur
+    `aura_hits_malus_for_defense` = {owner_id/pos/team, tgt_id, t_pos, tgt_team, is_melee}."""
+
+    def create_aura_hits_malus_for_defense(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        c = ctx or {}
+        if c.get("is_melee") or c.get("owner_id") == c.get("tgt_id"):
+            return None
+        if c.get("owner_team") is None or c.get("owner_team") != c.get("tgt_team"):
+            return None                     # bénéficiaires = alliés du porteur uniquement
+        op, tp = c.get("owner_pos"), c.get("t_pos")
+        if not op or not tp:
+            return None
+        import hexgeo                       # ring-1 HEX (parité validée vs boardGraph)
+        if hexgeo.distance(op, tp) != 1:
+            return None
+        return for_addition(True, -1)       # Direct(-1) @180f33ac0
+
+
 class PowerTripFullHealthEffect(BaseEffect):
     """`PowerTrip_FullHealthEffect` — axe COUPS (hits), actif SSI PV pleins.
     - hits @180f64cf0 : `ForAddition(ConfigConst key 0x2b)` = constante `extraHit` de l'ability PowerTrip (=1).
@@ -163,7 +207,12 @@ class PowerTripIgnoreArmorEffect(BaseEffect):
     `armorReduction` (full-health) = axe SÉPARÉ (debuff stateful de la stat FixedArmor cible, hors
     prédiction — la prédiction lit l'armure courante) → non porté ici (cf. PowerTrip_OnAttackAbility)."""
 
-    def get_armor_penetration(self) -> int | None:
+    def get_armor_penetration(self, is_normal_attack: bool = True) -> int | None:
+        # Gate ATTAQUE NORMALE (i2 : « Normal attacks ignore X Armour ») — GROUND TRUTH step-13 :
+        # DakkaDakkaDakka (spéciale, même porteur u90) per-coup natif 404/728 vs 78 = armure PLEINE
+        # (2208), la pénétration 499 ne s'applique qu'au normal (per-coup 416/1598).
+        if not is_normal_attack:
+            return None
         # armorIgnored indexé par le niveau de l'ABILITY (passive, =50), PAS le stack level (=1), scalé par
         # le multiplier de l'unité. `ability_level` seedé depuis l'unité ; fallback `level` si absent.
         lvl = self.ability_level if self.ability_level is not None else self.level
@@ -227,7 +276,7 @@ class KanOpenerEffect(BaseEffect):
     ⚠ KillaKan n'a PAS KanOpener (kit = PowerTrip) ; clé 0x40 → nom var gameconfig non résolu pour les
     unités qui l'ont → pénétration None tant qu'inconnue (à mapper quand on porte une unité KanOpener)."""
 
-    def get_armor_penetration(self) -> int | None:
+    def get_armor_penetration(self, is_normal_attack: bool = True) -> int | None:
         # TODO: mapper la clé 0x40 → var gameconfig (per-niveau) puis return ability_var(..., self.level).
         return None
 
