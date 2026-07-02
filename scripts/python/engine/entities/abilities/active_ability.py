@@ -197,16 +197,32 @@ class HarvesterOfSoulsAbility(AActiveAbility):
                    dsl.ConfigConst("nrOfHits", 1),
                    dsl.Sum(dsl.ConfigConst("nrOfHits", 1), dsl.ConfigConst("extraHit", 0)))
 
-    # GetSurroundingUnits @1811e76a0 (re-lu 2026-07-02) : `SurroundingUnits(sel@0x160, ConfigConst(0x16))
-    # & Enemies(sel@0x160, AdjacentFriends(sel@0x178, 1))` — l'opérande DOMINANT observé = les ennemis du
-    # caster ADJACENTS (ring-1 HEX) à la CIBLE (AdjacentFriends(cible, 1) côté cible = ses alliés
-    # adjacents = ennemis du caster). GROUND TRUTH seed777 : step-9 cible 94 → AoE VIDE (90 à d2 exclu ;
-    # l'ancien radius-2 l'incluait → +5.8 → Harvester battait à tort la normale) ; step-17 cible 92 →
-    # 168 (d1) inclus, 88 (d2) exclu. ⚠ L'opérande `SurroundingUnits(sel, const 0x16)` (∩ supplémentaire
-    # qui exclut aussi 90-d1 de la cible 92 au step-17 natif) reste à résoudre (identité des sélecteurs
-    # +0x160/+0x178 à RE) — approximation documentée : ring-1 seul. Damage surrounding = minDmg_2/maxDmg_2
-    # == minDmg/maxDmg (identiques) → réutilise generate_multi_hit_attack_prediction.
-    _AOE = dsl.Damageable(dsl.AdjacentEnemies(dsl.TargetTile(), dsl.Const(1)))
+    # GetSurroundingUnits @1811e76a0 (RE COMPLETE 2026-07-02) — tree natif EXACT (chaine LUE) :
+    #   A   = SurroundingUnits(sel@0x160, ConfigConst(0x16))        @180dfcb70 -> SurroundingTiles @180dfca70 -> Units
+    #   B   = Enemies(sel@0x160, AdjacentFriends(sel@0x178, 1))     Enemies @180deedd0 ; AdjacentFriends @180de81d0
+    #   AoE = op_BitwiseAnd(A, B)                                   TargetsSelector.op_BitwiseAnd @181010f10
+    # Selecteurs resolus (InitializeShared @180df2670 alloue +0x148..+0x198 via ctors gshared MISLABELES
+    # `BoardGeometry..ctor` -> identite = pointeur de classe + usage, PAS le nom du ctor) :
+    #   sel@0x160 = OWNER/caster : StatAmount(@0x160,Health=5)=maxHP caster (DakkaDakkaDakka.GetHealthToLose
+    #               @1811d09a0) ; HasFlag(@0x160)=flag caster (Harvester.GetHits @1811e75b0). Comme POSITION
+    #               -> tuile COURANTE de l'owner : GetSurroundingUnits(param_1) ne recoit AUCUN casterPosition
+    #               -> sel@0x160 resout la position LIVE (owner non deplace en prediction), != tuile d'attaque.
+    #   sel@0x178 = TARGET (cible principale param_4 du playbook MakeDamagePredictions @1811428b0).
+    # ConfigConst 0x16 = AbilityConstantType.range=22 (dump.cs) = constante "range" gameconfig = 3 (Harvester) ;
+    #   GetNumberConstant @181576af0 LEVE une exception si la cle est ABSENTE (GetStringConstant @181576bb0
+    #   TryGetValue->throw) -> "range" est TOUJOURS present (l'ancienne hypothese "0x16 absent -> defaut" etait
+    #   FAUSSE). AdjacentFriends(target,1) = Friends(target, Units(AdjacentTiles(target)) - {target}) = allies
+    #   de la CIBLE adjacents a elle = ennemis du caster ; Enemies(caster, .) les garde tous -> B = ring-1 HEX
+    #   ennemis de la cible. A = unites <= range(3) hex de la tuile COURANTE du caster (centre exclu).
+    # A & B PRUNE ASYMETRIQUEMENT : ground-truth seed777 step-17 (caster reel @(5,6), range 3) -> A = {168(d3),
+    #   88(d2)} exclut 92/90(a d4) => main-92->{168} (90 d1-de-92 exclu), main-90->{168} (92 exclu),
+    #   main-168->{88} (92/90 exclus) : les 4 sets natifs EXACTS. L'ancien ring-1-seul sur-incluait (90 dans
+    #   AoE-92, 92/90 dans AoE-168) -> Harvester sur-value 168 vs la vraie cible 92. Surrounding dmg =
+    #   minDmg_2/maxDmg_2 (== minDmg/maxDmg) -> reutilise generate_multi_hit_attack_prediction.
+    _AOE = dsl.Damageable(dsl.And(
+        dsl.SurroundingUnits(dsl.OwnerTile(), dsl.ConfigConst("range", 1)),
+        dsl.AdjacentEnemies(dsl.TargetTile(), dsl.Const(1)),
+    ))
 
     def get_special_hits(self, is_melee: bool) -> int:
         if self.config is None:

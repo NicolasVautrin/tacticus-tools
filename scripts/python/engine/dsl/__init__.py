@@ -7,7 +7,7 @@ from .nodes import (  # noqa: F401
     Node, DslContext,
     Const, ConfigConst, Sum, Min, Multiply, Difference, If,
     TotalTimesAttacked, TimesRepaired, HasFlag,
-    CasterTile, TargetTile,
+    CasterTile, TargetTile, OwnerTile,
     SurroundingUnits, AdjacentEnemies, Enemies, Damageable, And, Sub, UnitSet,
     UnitsDirectlyBehind,
 )

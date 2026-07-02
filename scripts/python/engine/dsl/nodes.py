@@ -65,7 +65,13 @@ class Const(Node):
 
 class ConfigConst(Node):
     """`DSLFactory.ConfigConst(key)` / `AbilityConfiguration.GetNumberConstant` : constante de config
-    d'ability au niveau courant (ids natifs : 0x2f=nrOfHits, 0x2b=extraHit, 0x48=maxNrOfHits, 0x16=radius)."""
+    d'ability au niveau courant. Ids natifs = enum `AbilityConstantType` (dump.cs TypeDefIndex 24411) :
+    0x2f=nrOfHits(47), 0x2b=extraHit(43), 0x48=maxNrOfHits(72), 0x16=range(22). ⚠ `GetNumberConstant
+    @181576af0`->`GetStringConstant @181576bb0` LÈVE une exception si la clé est ABSENTE (TryGetValue
+    échoue -> throw) : une clé référencée par un arbre EST toujours présente dans la config (jamais de
+    défaut natif). ⚠ DIVERGENCE assumée : le `default` Python retourne une valeur là où le natif
+    THROW — garde-fou offline inerte tant que la clé existe, mais il MASQUERAIT silencieusement une
+    clé manquante (verdict validator 2026-07-02 : réserve non bloquante)."""
     def __init__(self, key: str, default: int = 0):
         self.key, self.default = key, default
 
@@ -161,6 +167,19 @@ class TargetTile(Node):
     """Tuile de la cible principale (`MainTile` de la cible) — centre de `SurroundingUnits`."""
     def evaluate(self, ctx):
         return _pos(ctx.target)
+
+
+class OwnerTile(Node):
+    """Tuile COURANTE (réelle) de l'owner/caster — position du composant entité, PAS la tuile d'attaque
+    balayée. `HarvesterOfSoulsAbility.GetSurroundingUnits @1811e76a0` ancre son `SurroundingUnits(sel@0x160,
+    range)` sur ce sélecteur (sel@0x160 = OWNER : cf. `StatAmount(@0x160,Health)`=maxHP caster dans
+    `DakkaDakkaDakka.GetHealthToLose @1811d09a0`, `HasFlag(@0x160)` du caster dans `Harvester.GetHits`).
+    La fonction native ne reçoit AUCUN `casterPosition` (elle ne prend que l'ability) -> sel@0x160 résout
+    la position LIVE de l'owner (non déplacé pendant la prédiction), != `CasterTile` (= `ctx.caster_pos`,
+    la tuile d'attaque post-move). Preuve ground-truth seed777 step-17 : AoE ancré sur (5,6)=owner-réel
+    (et non (4,3)=tuile d'attaque) reproduit les 4 sets natifs (cf. active_ability.HarvesterOfSoulsAbility)."""
+    def evaluate(self, ctx):
+        return _pos(ctx.caster)
 
 
 # ── Ciblage (évaluent → list[unit]) — géométrie hex `hexgeo.distance` fidèle à la grille ─────────
