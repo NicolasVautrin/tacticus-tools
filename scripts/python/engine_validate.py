@@ -273,25 +273,41 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
                 nc_cands.append({"target": uid, "ability": aid,
                                  "to": (bt if bt != origin else None), "pred": bu})
         elif kind == "summon":
-            # AberrantHypermorph : tuiles de SPAWN via abilityTargets (kind="tile"). Cible=None
-            # (l'id "cible" natif = l'unité spawnée, artefact post-exécution).
+            # SUMMON (AberrantHypermorph 1166) — action COMPOSÉE move+summon. Le générateur
+            # ActiveAbilityActionGenerator.<GenerateActions>d__7.MoveNext @18119a3f0 BALAIE les
+            # tuiles de MOUVEMENT du caster (position de l'action = la tuile balayée, via
+            # FUN_1800053f0(7,...,tile,...) = playbook.Evaluate(position=tile)) puis Bucket.ChooseAction.
+            # Par tuile de move T, AberrantHypermorphPlaybook.EvaluateNonComparable @1811197d0 évalue les
+            # tuiles de SPAWN éligibles depuis T (GetEligibleTargetsSelectable @18111f0d0, portée=1 =
+            # ring-1 libre — SOURCE : gameconfig 1166 « Summons an Aberrant Hypermorph in a free
+            # adjacent hex ». ⚠ abilityTargets.targets = UNION des spawns sur TOUTES les tuiles de
+            # move (GetAllValidTargetsFromAllPossibleMovementTiles, dist 0-4 de l'origine) — le
+            # filtre distance(T,ST)==1 reconstitue le per-tuile) ; utilité =
+            # count(GetAdjacentEnemies(ST)) (GetUtility @181119c10, IBattleQuery slot 126). Le caster
+            # BOUGE vers la tuile T qui maximise ce count. L'ancien code balayait les tuiles abilityTargets
+            # 'targets' (superset depuis TOUTES les tuiles de move) et prenait une tuile de SPAWN
+            # NON-atteignable comme destination => positioning faux (step-14 to=(3,4) au lieu de (3,3)).
+            # cctor min @181119cd0 = 1.
             at = _r(sid, "abilityTargets", {"runnerId": rid, "unitId": uid, "abilityType": aid}, 40)
-            tiles_s = []
+            spawn_tiles = []
             for u in (at.get("units") or []):
                 for a in (u.get("abilities") or []):
                     if a.get("abilityId") == aid:
-                        tiles_s = [t.get("tile") for t in (a.get("targets") or [])
-                                   if t.get("kind") == "tile" and t.get("tile")]
+                        spawn_tiles = [(t["tile"].get("col"), t["tile"].get("row"))
+                                       for t in (a.get("targets") or [])
+                                       if t.get("kind") == "tile" and t.get("tile")
+                                       and t["tile"].get("col") is not None]
             bt, bu = None, None
-            for t in tiles_s:
-                c = (t.get("col"), t.get("row"))
-                if c[0] is None:
-                    continue
-                u_ = leaves.summon_utility(c, epos)
-                if bu is None or u_ > bu:
-                    bt, bu = c, u_
-            if bt is not None and bu is not None and bu >= spec["min"]:
-                nc_cands.append({"target": None, "ability": aid, "to": bt, "pred": bu})
+            for T in reach_nc:   # origine + tuiles de MOVE du caster (destinations candidates)
+                # tuiles de spawn éligibles depuis T = ring-1 libre (portée summon 1) inter targets
+                cnt = [leaves.summon_utility(ST, epos) for ST in spawn_tiles
+                       if hexgeo.distance(T, ST) == 1]
+                u_ = max(cnt) if cnt else 0.0
+                if bu is None or u_ > bu:   # strict > : premier max gardé (ordre reach_nc)
+                    bt, bu = T, u_
+            if bt is not None and bu >= spec["min"]:
+                nc_cands.append({"target": None, "ability": aid,
+                                 "to": (bt if bt != origin else None), "pred": bu})
     if nc_cands:
         if _DEBUG:
             print(f"    [dbg NC u{uid}] tier0={[(c['ability'], c.get('target'), c.get('to'), c['pred']) for c in nc_cands]}",
@@ -424,7 +440,6 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
     #    `full_util` toutes abilities confondues. Le MOVE est le FALLBACK (RE premier-non-null :
     #    une ability avec pred>0 prime toujours sur le move pur), PAS un co-argmax. L'action native
     #    est COMPOSÉE (move-vers-la-tuile + ability) — c'est ce balayage de tuiles qui la reproduit.
-    import hexgeo
     from engine.utilities.tile import tile_composite
     # Terme de tuile FIDÈLE = composite Tile(7) (RE `CalculateUtilityFromTilePrediction @181408740`,
     # cf. architecture.md §2.3ter/§2.3quater). REMPLACE `move.move_utility` (profil MovementSuggestion) :
