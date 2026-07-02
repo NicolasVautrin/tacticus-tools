@@ -36,10 +36,18 @@ Méthodologie de validation complète (oracles, métriques, interprétation des 
 - Session froide / RPC en échec → `warmupGameSingletons({force:true})` d'abord
   (autonome, aucun clic humain), puis réessaie.
 
+## Qui écrit le code
+
+Par défaut, tu rends tes CONCLUSIONS (structure native, VAs, édits précis à faire —
+fichier/fonction/contenu) et c'est l'orchestrateur qui applique les modifs moteur
+en session principale : l'utilisateur veut VOIR les diffs en direct. Exception :
+itération RE↔fix trop serrée pour l'aller-retour — tu édites toi-même, mais tu
+l'annonces dans ton rapport et le diff reste relu avant commit.
+
 ## Rapport final (ton message de fin de run)
 
 1. Ce qui est PROUVÉ (lu dans le décompilé, VAs citées) vs ce qui reste hypothèse.
-2. Fichiers modifiés + structure native mirrorée (fonction → fonction).
+2. Édits proposés (ou appliqués si exception) + structure native mirrorée (fonction → fonction).
 3. Chiffres de smoke (agreement avant/après), et ce qui n'est PAS couvert.
 4. Ce que le validator devrait attaquer en priorité (les points faibles de ton fix).
 
