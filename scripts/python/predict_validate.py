@@ -28,7 +28,8 @@ from engine.entities.abilities.active_ability import (
 from engine import dsl
 from engine.entities.abilities.ability_configuration import AbilityConfiguration
 from engine.services.damage_calculations import spread_to_min_max
-from engine.services.damage_prediction import get_attack_prediction, get_default_attack_hits
+from engine.services.damage_prediction import (
+    get_attack_prediction, get_default_attack_hits, get_multi_hit_attack_prediction)
 from engine.services.min_max_damage import MinMaxDamage
 from engine.entities import EffectsState
 from engine.entities.effects import (
@@ -421,12 +422,22 @@ def generate_multi_hit_attack_prediction(predictor, sctx, uid, tgt, ability_id, 
     _add_elevation_and_defender_mods(mods, sctx, tgt, is_melee, attack_pos, t_pos,
                                      elev_by_pos, hp_by_id, damage_profile=profile_name)
     tgt_shield = predictor.get("shield_by_id", {}).get(tgt, 0)
+    # D = le `GetDamage` int natif de l'ability (local_9a8, appel VIRTUEL par-ability
+    # @0x18103477e) — dispatch mirror : `ab.get_multi_hit_damage()` (surcharge par sous-classe,
+    # ex. PlasmaCannon = minDmg, mesuré bit-exact). None = bornes non mesurées → modèle
+    # historique (avg ±20% ×hits, validé p.ex. Harvester step-17).
+    d_multi = ab.get_multi_hit_damage()
+    if d_multi and mult and mult != 100 and ("minDmg" in affected):
+        d_multi = (d_multi * mult) // 100
+    if d_multi:
+        return get_multi_hit_attack_prediction(
+            target_current_health=hp_by_id.get(tgt, 0), damage=d_multi, hits=hits,
+            profile_type=profile_idx, pierce_pct=pierce, armor=predictor["armor_by_id"].get(tgt, 0),
+            mods=mods, target_shield=tgt_shield)
     shield_raw = None
     if tgt_shield > 0:
-        # Entrée du blocage bouclier natif (PredictAttackRaw : GetBaseDamageFix64(local_9a8) →
-        # Min(base, shield) @181002850) : local_9a8 = le `GetDamage` int de l'ability = **minDmg**
-        # (PAS l'avg) × mult, bornes ±spread AGRÉGÉES ×hits. PROUVÉ bit-exact live (step-11 seed777 :
-        # sh_min vs worldTerminator = 2873 = round(0.8 × (665×1.8) × 3), tile-indépendant).
+        # Entrée du pool bouclier (Min(base, shield) @181002850) = minDmg×mult ×hits ±20 %
+        # (bit-exact 2873/3989) — même pour les abilities au modèle santé legacy.
         d_shield = ab.config.get_variable_for_level("minDmg", ab.caster.active_ability_level, 0) \
             if ab.config else 0
         if d_shield and mult and mult != 100 and ("minDmg" in affected):

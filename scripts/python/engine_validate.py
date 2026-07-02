@@ -296,8 +296,29 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
         return {"kind": "ability", "target": bc["target"], "ability": bc["ability"],
                 "to": bc["to"], "util": bc["pred"]}
 
-    best = None  # (util, target, ability, tile)
-    best_key = None  # (util, is_special) — tie-break spécial>normal
+    # Terme de tuile Tile(7) — défini ICI (avant l'argmax d'attaque) : le natif score le JOINT
+    # (tuile, cible) = `CalculateActionUtility` = utilité-dégât + Tile(7)@tuile ENSEMBLE
+    # (EvaluateInternal @181408980 + gate/argmax Bucket sur l'utilité TOTALE). Classer par dégât
+    # seul puis ajouter la tuile après faussait les égalités de dégât (step-11 : (82)@(6,3) tile 50
+    # vs (78)@(5,5) tile 20, Σ dégât identiques → le tie partait sur 78 ; natif départage par la
+    # tuile → 82).
+    from engine.utilities.tile import tile_composite
+    _elevs0 = [e for e in elev_by_pos.values() if e is not None]
+    _emax0, _emin0 = (max(_elevs0), min(_elevs0)) if _elevs0 else (None, None)
+
+    def _tile_term0(pos):
+        meta: dict = {}
+        e = elev_by_pos.get(pos)
+        if e is not None:
+            meta = {"elevation": e, "elevation_max": _emax0, "elevation_min": _emin0}
+        if pos in is_temporary_by_pos:
+            meta["is_temporary"] = is_temporary_by_pos[pos]
+        if pos in effects_by_pos:
+            meta["effects"] = effects_by_pos[pos]
+        return tile_composite(pos, meta, {}, wt)
+
+    best = None  # (util_dégât, target, ability, tile)
+    best_key = None  # (util_TOTALE = dégât + tuile, is_special) — tie-break spécial>normal
     dbg = []
     for ev in (plan.get("evals") or []):
         if not ev.get("rankCount"):
@@ -357,16 +378,18 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
                     _bk.append((_atid, round(_ua, 1)))
             else:
                 u = attack_utility(pred, wt)                           # barème historique
-            if pair_best is None or u > pair_best[0]:
-                pair_best = (u, pred, _aoe_events, tile, _bk)
+            # ARGMAX JOINT (tuile, cible) : u_total = dégât + Tile(7)@tuile (CalculateActionUtility).
+            u_full = u + _tile_term0(tile)
+            if pair_best is None or u_full > pair_best[0]:
+                pair_best = (u_full, u, pred, _aoe_events, tile, _bk)
         if pair_best is None:
             continue
-        u, pred, _aoe_events, tile, _bk = pair_best
+        u_full, u, pred, _aoe_events, tile, _bk = pair_best
         aoe_dbg = len(_aoe_events)
-        key = (u, 0 if ab in normal_ids else 1)  # util d'abord, puis spécial > normal
+        key = (u_full, 0 if ab in normal_ids else 1)  # util TOTALE, puis spécial > normal
         if _DEBUG:
             p = pred or {}
-            dbg.append((ab, tgt, round(u, 1), p.get("killSure"), p.get("kill"),
+            dbg.append((ab, tgt, round(u, 1), round(u_full, 1), p.get("killSure"), p.get("kill"),
                         p.get("healthDmgMax"), p.get("hpBefore"), f"aoe{aoe_dbg}", tile,
                         ("sh", p.get("shieldDmgMin"), p.get("shieldDmgMax")), ("bk", _bk)))
         if best_key is None or key > best_key:

@@ -174,6 +174,66 @@ const trace: { on: boolean; seq: number; buf: DmgEvent[] } = {
 };
 const CAP = 4000;
 
+// DamagePrediction.CalculateBaseDamageWithAllModifiers @18102d3f0 (méthode NOMMÉE, findMethod —
+// survit au hash) : (this, int baseDamage, IEntity attacker, IEntity defender, DamageProfile,
+// Nullable<DamageModifiers> att, Nullable<DamageModifiers> def, bool isCrit, bool isMelee) → Fix64.
+// Capture (baseDamage, isCrit, isMelee, retour Fix64, call-site via returnAddress) par appel pendant
+// aiStepDryRun → tranche le chemin santé par-coup des SPÉCIALES (÷hits ? crit du bout max ?).
+interface AllModsEvent {
+    seq: number;
+    input: number;      // baseDamage int (args[1])
+    isCrit: number;
+    isMelee: number;
+    out: number;        // retour Fix64 -> nombre
+    site: string;       // returnAddress rel. il2cppBase (hex) — distingue les call sites min/max
+    casterCol: number;
+    casterRow: number;
+}
+const allModsTrace: { buf: AllModsEvent[] } = { buf: [] };
+let allModsInstalled = false;
+function installAllModsHook(): boolean {
+    if (allModsInstalled) return true;
+    const klass = findClassAnywhere("IdunBattle.Core.Services", "DamagePrediction");
+    if (!klass) { log("[scorer-trace] DamagePrediction class not found"); return false; }
+    const mi = findMethod(klass, "CalculateBaseDamageWithAllModifiers");
+    if (!mi || mi.ptr.isNull()) { log("[scorer-trace] CalculateBaseDamageWithAllModifiers not resolved"); return false; }
+    Interceptor.attach(mi.ptr, {
+        onEnter(args) {
+            if (!trace.on) return;
+            const self = this as { _in?: number; _crit?: number; _melee?: number; _site?: string; _on?: boolean };
+            self._on = true;
+            self._in = args[1].toInt32();
+            self._crit = args[7].toInt32() & 0xff;
+            self._melee = args[8].toInt32() & 0xff;
+            try {
+                const off = this.returnAddress.sub(il2cppBase);
+                self._site = "il2cpp+0x" + off.toString(16);
+            } catch { self._site = "?"; }
+        },
+        onLeave(retval) {
+            const self = this as { _in?: number; _crit?: number; _melee?: number; _site?: string; _on?: boolean };
+            if (!self._on || !trace.on) return;
+            try {
+                let raw = BigInt(retval.toString());
+                if (raw >= (1n << 63n)) raw -= (1n << 64n);
+                if (allModsTrace.buf.length < CAP) {
+                    allModsTrace.buf.push({
+                        seq: ++trace.seq,
+                        input: self._in ?? -1, isCrit: self._crit ?? -1, isMelee: self._melee ?? -1,
+                        out: Number(raw) / 4294967296,
+                        site: self._site ?? "?",
+                        casterCol: curCaster ? curCaster.col : -1,
+                        casterRow: curCaster ? curCaster.row : -1,
+                    });
+                }
+            } catch { /* transient — skip */ }
+        },
+    });
+    allModsInstalled = true;
+    log("[scorer-trace] hooked CalculateBaseDamageWithAllModifiers @ " + mi.ptr);
+    return true;
+}
+
 let installed = false;
 function installHook(): boolean {
     if (installed) return true;
@@ -539,9 +599,10 @@ export function register(ctx: Ctx): void {
     ctx.rpc.scorerDamageTraceOn = (): Promise<unknown> =>
         queueOnMainThread(() => {
             const ok = installHook();
+            installAllModsHook();   // findMethod (nommé) — survit au hash
             installRvaHooks();   // arme les RVA build-spécifiques (l'utilisateur confirme le hash en armant)
             trace.on = ok;
-            return { ok, on: trace.on, installed, rvaInstalled };
+            return { ok, on: trace.on, installed, rvaInstalled, allModsInstalled };
         });
 
     ctx.rpc.scorerDamageTraceOff = (): unknown => {
@@ -552,7 +613,7 @@ export function register(ctx: Ctx): void {
     ctx.rpc.scorerDamageTraceClear = (body?: { stacks?: number }): unknown => {
         trace.buf = []; trace.seq = 0; utilTrace.buf = []; utilTrace.targets = [];
         elevTrace.buf = []; tileTermTrace.buf = []; leafTrace.buf = []; composedChildren.seen.clear();
-        bonusTrace.buf = [];
+        bonusTrace.buf = []; allModsTrace.buf = [];
         utilTrace.stacksLeft = body?.stacks ?? 6;   // capture les N 1res backtraces après clear
         elevTrace.stacksLeft = body?.stacks ?? 6;   // idem pour la feuille Elevation (-> agrégateur)
         bonusTrace.stacksLeft = body?.stacks ?? 6;   // idem pour les bonus de dégât (-> source att/def)
@@ -604,6 +665,16 @@ export function register(ctx: Ctx): void {
         const composites = Array.from(composedChildren.seen.entries())
             .map(([ptr, children]) => ({ ptr, count: children.length, children }));
         return { on: trace.on, composedInstalled, composites };
+    };
+
+    /** Dump des appels CalculateBaseDamageWithAllModifiers (input/isCrit/isMelee/output/site). */
+    ctx.rpc.scorerAllModsTraceDump = (body?: { max?: number }): unknown => {
+        const max = body?.max ?? 2000;
+        return {
+            on: trace.on, allModsInstalled,
+            bufferSize: allModsTrace.buf.length,
+            entries: allModsTrace.buf.slice(-max),
+        };
     };
 
     /** Dump per-candidate TOTAL utility (CalculateActionUtility) — le discriminateur du pick. */

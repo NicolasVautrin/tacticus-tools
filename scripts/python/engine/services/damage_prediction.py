@@ -17,6 +17,7 @@ AMONT (postArmor) ; `CalculateDamagePredictionScenario` ne soustrait PAS l'armur
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field, replace
 
 from .min_max_damage import MinMaxDamage
@@ -178,6 +179,69 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
     if mods is not None:
         d = apply_all_modifiers(d, mods)
     return d
+
+
+def get_multi_hit_attack_prediction(
+        target_current_health: int, damage: int, hits: int, profile_type: int,
+        armor: int = 0, pierce_pct: int = 100,
+        mods: DamageModifiers | None = None,
+        hit_mult: int = 1, reduction_min: int = 0, reduction_max: int = 0,
+        target_shield: int = 0) -> DamagePredictionResult:
+    """`BattleQuery.GetMultiHitAttackPrediction @181066080` — prédiction d'une ability SPÉCIALE
+    (damage = `GetDamage` int de l'ability = **minDmg×mult**, hits = nrOfHits) :
+        result = GetAttackPrediction(coup 1, prev=null)
+        for i in 2..hits: result.Add(GetAttackPrediction(coup i, prev=result.DefaultBlockScenario))
+    (PredictAttackRaw PAR COUP ; `prev` @param_3+0x84 = scénario cumulé → décroissance
+    bouclier/armure/santé ; Add @18102a710 somme les Accurate*.)
+
+    BORNES MESURÉES (hook CalculateBaseDamageWithAllModifiers @18102d3f0, call sites VA
+    0x181035126 min / 0x181035391 max, trace step-11 seed777, isCrit=0 partout) :
+      • SANTÉ par coup (cible sans bouclier) : entrée = (ceil(0.8·D/hits), ceil(2.2·D/hits))
+        [D=1197, hits=3 → (320, 878)] → pierce/armure + %-mods PAR BORNE → ×hits
+        [sorties 312/856 ×3 = 936-2568 = natif EXACT ; le facteur 2.2 = mesure stable,
+        origine structurelle du +1.0·d non lue (pas un crit runtime : isCrit=0)].
+      • BOUCLIER : pool sur la base PLEINE (0.8D, 1.2D) agrégée — inchangé (bit-exact 2873/3989).
+      • Cible AVEC bouclier : coups couverts → entrée négative → santé 0 ; fuite = reste du
+        dernier coup à travers la même chaîne (natif 58 vs port ~78 : résidu ±utilité <0.2).
+    L'ADDITIF plat (FR −582) reste appliqué UNE FOIS par attaque (précédent validé)."""
+    hits = max(1, hits)
+    mods_pct = replace(mods, additive=0.0) if (mods is not None and mods.additive) else mods
+    d_hit = damage / hits
+    lo_in = math.ceil(0.8 * d_hit)
+    hi_in = math.ceil(2.2 * d_hit)
+    lo = apply_pierce_and_modifiers(lo_in, pierce_pct, armor, mods_pct, hit_mult)
+    hi = apply_pierce_and_modifiers(hi_in, pierce_pct, armor, mods_pct, hit_mult)
+    per_hit = calculate_damage_prediction_scenario(
+        MinMaxDamage(min=lo, max=hi), prev_hits=0, profile_type=profile_type,
+        reduction_min=reduction_min, reduction_max=reduction_max)
+    total = MinMaxDamage(min=per_hit.min * hits, max=per_hit.max * hits)
+    if mods is not None and mods.additive:
+        total = MinMaxDamage(min=max(0, round(total.min + mods.additive)),
+                             max=max(0, round(total.max + mods.additive)))
+    if target_shield <= 0:
+        return DamagePredictionResult(
+            current_health=target_current_health, armor=armor,
+            accurate_health_damage=total, total_damage=total,
+            applied_hits=hits, might_crit=False)
+    # Pool bouclier sur la base PLEINE agrégée ×hits (Min(base, shield) @181002850 ; local_9a8 =
+    # D×hits : sh_min = CalculateMinDamage(3591) = 2873 bit-exact).
+    raw = MinMaxDamage(min=round(0.8 * damage * hits), max=round(1.2 * damage * hits))
+    sh_min = min(raw.min, target_shield)
+    sh_max = min(raw.max, target_shield)
+    rem_min = raw.min - sh_min
+    rem_max = raw.max - sh_max
+    lo = apply_pierce_and_modifiers(rem_min, pierce_pct, armor, mods_pct, hit_mult) if rem_min else 0
+    hi = apply_pierce_and_modifiers(rem_max, pierce_pct, armor, mods_pct, hit_mult) if rem_max else 0
+    health = MinMaxDamage(min=lo, max=hi)
+    if mods is not None and mods.additive:
+        health = MinMaxDamage(min=max(0, round(health.min + mods.additive)),
+                              max=max(0, round(health.max + mods.additive)))
+    return DamagePredictionResult(
+        current_health=target_current_health, armor=armor, shield=target_shield,
+        accurate_health_damage=health,
+        accurate_shield_damage=MinMaxDamage(min=sh_min, max=sh_max),
+        total_damage=MinMaxDamage(min=sh_min + health.min, max=sh_max + health.max),
+        applied_hits=hits, might_crit=False)
 
 
 def get_attack_prediction(

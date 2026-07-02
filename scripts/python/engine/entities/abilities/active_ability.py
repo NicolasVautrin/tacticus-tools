@@ -71,6 +71,15 @@ class AActiveAbility:
         normale surcharge avec le profil d'arme. (Abilities spéciales : profil config = TODO.)"""
         return 100
 
+    def get_multi_hit_damage(self) -> int | None:
+        """`GetDamage` VIRTUEL par-ability consommé par `BattleQuery.GetMultiHitAttackPrediction
+        @181066080` (l'int `local_9a8` de PredictAttackRaw, appel @0x18103477e) — la base du modèle
+        de prédiction fidèle par-coup (`get_multi_hit_attack_prediction`, bornes santé
+        (0.8, 2.2)·D/hits + pool bouclier (0.8, 1.2)·D·hits). **None (défaut) = bornes non encore
+        MESURÉES pour cette ability → le prédicteur garde le modèle historique (avg ±20 % ×hits)**.
+        Les surcharges retournent la valeur BRUTE (le mult rareté est appliqué par l'appelant)."""
+        return None
+
     def get_special_hits(self, is_melee: bool) -> int:
         """Nombre de coups pour la PRÉDICTION spéciale (`Playbook.MakeDamagePredictions` ->
         `ability.GetHits`). DÉFAUT générique = `GetDefaultAttackHits(nrOfHits + ExtraHits[+Melee])`
@@ -224,6 +233,16 @@ class PlasmaCannonAbility(AActiveAbility):
 
     def get_max_secondary_targets(self) -> int | None:
         return 2   # GetMaxSecondaryTargets @18039E710
+
+    def get_multi_hit_damage(self) -> int | None:
+        """`GetDamage` de PlasmaCannon = **minDmg[lvl]** (PAS l'avg) — MESURÉ bit-exact live
+        (trace CalculateBaseDamageWithAllModifiers step-11 seed777 : sh_min =
+        CalculateMinDamage(1197×3) = 2873 ; entrées santé/coup 320/878 = ceil((0.8|2.2)·D/3),
+        D = 665×1.8)."""
+        if not self.config:
+            return None
+        return self.config.get_variable_for_level(
+            "minDmg", self.caster.active_ability_level, 0) or None
 
 
 # Registre nom d'ability → sous-classe à formule de coups propre. À ÉTENDRE au fil du portage.
