@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 import hexgeo  # noqa: E402
 import gameconfig as gc  # noqa: E402
-from engine import weights, move, leaves, playbooks  # noqa: E402
+from engine import weights, move, playbooks  # noqa: E402
 from engine.utilities import damage_composite  # noqa: E402
 import predict_validate as PV  # noqa: E402  (prédicteur OFFLINE : remplace l'aiPredict live)
 
@@ -174,7 +174,7 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
         + [(t["col"], t["row"]) for t in move_tiles]
     nc_ctx = playbooks.NCContext(
         uid=uid, origin=origin, reach_nc=reach_nc, epos=epos, fpos=fpos,
-        plan=plan, hp_cur_by_id=hp_cur_by_id,
+        plan=plan, hp_cur_by_id=hp_cur_by_id, elev_by_pos=elev_by_pos,
         ability_targets=lambda u, a: _r(
             sid, "abilityTargets", {"runnerId": rid, "unitId": u, "abilityType": a}, 40),
         debug=_DEBUG)
@@ -515,7 +515,7 @@ def run_agreement(sid: int, rid: int, steps: int, wt, log=print) -> dict:
                 # SUMMON : le `targetId` natif = l'id de l'unité SPAWNÉE (artefact post-exécution,
                 # inconnaissable a priori) -> comparaison sur l'ability seule (loggé tel quel).
                 tgt_ok = (eng.get("target") == na["target"]
-                          or leaves.is_summon(na["ability"]))
+                          or playbooks.is_summon(na["ability"]))
                 same_ab = (eng["kind"] == "ability"
                            and tgt_ok
                            and eng.get("ability") == na["ability"])

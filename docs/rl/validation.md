@@ -152,13 +152,21 @@ Exclusion mutuelle sur la session Frida pendant toute passe de validation.
   d'utilité normale (sans impact argmax connu).
 - **Antériorité hexgeo** : toute validation d'adjacence/AoE antérieure au fix de
   parité hexgeo (2026-07-02) est suspecte et à re-dériver au besoin.
-- **Porte d'élévation de l'adjacence native NON portée** (validator 2026-07-02,
-  preuve concrète seed555) : le natif filtre les voisins par `|Δelev| < 2` +
-  `IsEmptyOrSteppable` (`IterateAdjacentTiles @1810acef0`) ; `_adjacent_count`
-  (summon/BloodyFury/FightingRetreat) compte en hexgeo PUR → sur-compte de +1
-  sur tuiles à fort dénivelé. Gap LATENT (n'a flippé aucun argmax observé sur
-  3 boards) mais déclencheur possible sur terrain élevé. Probe réutilisable :
-  `scripts/python/probe_summon.py`.
+- **Porte d'élévation de l'adjacence native — PORTÉE 2026-07-03** : le natif
+  filtre les voisins par un gate INCONDITIONNEL `|elev(tile) - elev(voisin)| < 2`
+  (`IterateAdjacentTiles.<>d__8.MoveNext @1810acef0`, lu au décompilé : après les
+  filtres terrain optionnels, `iVar4 = abs(elev_origine - elev_voisin) ; if < 2
+  yield`), consommé par `GetAdjacentEnemies @18105af60` (→ GetUnitsOnTiles). Pour
+  un COMPTAGE d'unités les filtres terrain (walkable/emptyOrSteppable) ne retirent
+  jamais une tuile occupée → seule l'élévation discrimine. Porté dans
+  `leaves._adjacent_count(tile, positions, elev_by_pos)` (gate si les 2 élévations
+  connues, sinon hexgeo pur = fallback sûr), threadé via `NCContext.elev_by_pos`
+  (tileMeta) jusqu'aux 3 feuilles (summon/BloodyFury/FightingRetreat). Validé :
+  unit-test (port == formule native), discrimination sur vraies données board 777
+  (tuile (1,2) e2 / voisin (1,3) e4 Δ=2 exclu, PUR 6 → GATE 5), non-régression
+  seed777 24 steps (19/20 exact, ability 20/20 — le gate était un no-op aux
+  tuiles de décision du summoner, localement plates). Probe :
+  `scripts/python/probe_summon.py` (colonnes PUR vs GATE par tuile de move).
 - **Tie origin-vs-move du summon non exercé** : le natif évalue l'origine EN
   DERNIER (NullPosition) → à égalité origine==tuile-de-move, le natif BOUGE ;
   le port met l'origine en premier → il resterait. Jamais observé (l'origine

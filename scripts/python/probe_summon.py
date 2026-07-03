@@ -12,7 +12,8 @@ import argparse
 import sys
 
 from rl_collect_batch import _resolve_session, _rpc
-from engine import weights, leaves
+from engine import weights, playbooks
+from engine import battle_query as bq
 import hexgeo
 import engine_validate as EV
 import predict_validate as PV
@@ -45,7 +46,7 @@ def main(argv):
         uid = dry.get("activatedUnitId") or nat.get("unit")
 
         # Detecte l'ability summon dans le chunk natif
-        is_summon_step = bool(nat["ability"] and leaves.is_summon(nat["ability"]["ability"]))
+        is_summon_step = bool(nat["ability"] and playbooks.is_summon(nat["ability"]["ability"]))
 
         if is_summon_step:
             dv = _r(sid, "decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 180)
@@ -103,7 +104,7 @@ def main(argv):
             per_T = []
             for T in reach_nc:
                 inter = [ST for ST in spawn_tiles if hexgeo.distance(T, ST) == 1]
-                cnt = [leaves.summon_utility(ST, epos) for ST in inter]  # PUR (port actuel)
+                cnt = [float(bq.count_adjacent(ST, epos)) for ST in inter]  # PUR (hexgeo, sans gate)
                 cntg = [gated_count(ST) for ST in inter]                 # GATE (natif)
                 u_ = max(cnt) if cnt else 0.0
                 ug = max(cntg) if cntg else 0.0

@@ -16,21 +16,22 @@ par un mecanisme generique (registre de classes + driver commun). Structure FIDE
     (util >= min, remplacement STRICT `>`).
   - `Bucket.ChooseAction` = argmax STRICT (tie -> premier enumere).
 
-Mapping : une CLASSE = un playbook natif ; `evaluate_non_comparable` = le leaf homonyme (formule
-RE deleguee a engine/leaves.py, meme VA citee) ; `generate_candidates` = le balayage
-generator+selector propre a l'ability (positions/cibles specifiques). Le driver generique
-`choose_action` (mirror ChooseAction) collecte les candidats de toutes les abilities NC usable de
-l'unite et rend l'argmax -> remplace le switch. Utilite = heuristique BRUTE (pas de terme Tile7 :
-CalculateActionUtility/Tile7 est un chemin Comparable-only).
+Mapping : une CLASSE = un playbook natif ; `evaluate_non_comparable` = la methode homonyme
+(formule EvaluateNonComparable INLINE, VA citee) ; `generate_candidates` = le balayage
+generator+selector propre a l'ability (positions/cibles specifiques). Les requetes spatiales
+(GetAdjacentEnemies/Friends) deleguent a `engine/battle_query.py` (primitive IBattleQuery).
+Le driver generique `choose_action` (mirror ChooseAction) collecte les candidats de toutes les
+abilities NC usable de l'unite et rend l'argmax -> remplace le switch. Utilite = heuristique BRUTE
+(pas de terme Tile7 : CalculateActionUtility/Tile7 est un chemin Comparable-only).
 
-cf. engine/leaves.py (formules + VAs), docs/rl/playbook-engine.md §1.3 + §10.
+cf. engine/battle_query.py (primitives), docs/rl/playbook-engine.md §1.3 + §10.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 import hexgeo
-from engine import leaves
+from engine import battle_query as bq
 
 
 @dataclass
@@ -44,6 +45,7 @@ class NCContext:
     plan: dict                     # plan natif (evals rankes) — abilities d'ATTAQUE
     hp_cur_by_id: dict             # PV courants par id cible (GetStat 5 = Health ; Vexilla)
     ability_targets: object = None # callable(uid, ability_id) -> dict RPC abilityTargets (summon)
+    elev_by_pos: dict = None       # {(col,row): elevation} (tileMeta) — porte d'adjacence |Δelev|<2
     debug: bool = False
 
 
@@ -91,12 +93,16 @@ class _PlanTargetPlaybook(Playbook):
 
 class BloodyFuryPlaybook(_PlanTargetPlaybook):
     """BloodyFuryPlaybook.EvaluateNonComparable @181122be0 = 1 + (#ennemis adjacents a la tuile
-    d'attaque) x 10. cctor @181123340 : MIN_UTILITY=1."""
+    d'attaque) x ADJACENT_ENEMIES_UTILITY. cctor @181123340 : MIN_UTILITY=1, ADJACENT=10."""
     ABILITY_ID = 1129
     MIN_UTILITY = 1.0
+    _ADJACENT_ENEMIES_UTILITY = 10   # cctor @181123340
 
     def evaluate_non_comparable(self, tile, target, ctx):
-        return leaves.noncomp_attack_utility(self.ABILITY_ID, tile, ctx.epos)
+        if tile is None:
+            return None
+        adj = bq.count_adjacent(tile, ctx.epos, ctx.elev_by_pos)   # GetAdjacentEnemies @18105af60
+        return 1.0 + adj * self._ADJACENT_ENEMIES_UTILITY
 
 
 class VexillaMagnificaPlaybook(_PlanTargetPlaybook):
@@ -106,21 +112,29 @@ class VexillaMagnificaPlaybook(_PlanTargetPlaybook):
     MIN_UTILITY = 1.0
 
     def evaluate_non_comparable(self, tile, target, ctx):
-        return leaves.noncomp_attack_utility(
-            self.ABILITY_ID, tile, ctx.epos, target_hp=ctx.hp_cur_by_id.get(target))
+        hp = ctx.hp_cur_by_id.get(target)                          # GetStat(cible, 5=Health)
+        return float(hp) if hp and hp > 0 else None
 
 
 class FightingRetreatPlaybook(Playbook):
     """FightingRetreatPlaybook.EvaluateNonComparable @181131ff0 : u = |ennemis adj a la tuile| +
     (si >0) |allies adj a la tuile - self|, balaye sur les tuiles atteignables (origine EN TETE) ;
     cible = SELF. cctor @1811323b0 : MIN_UTILITY=2."""
-    ABILITY_ID = leaves.FIGHTING_RETREAT   # 1081
+    ABILITY_ID = 1081
     MIN_UTILITY = 2.0
+
+    def evaluate_non_comparable(self, tile, ctx):
+        # A = GetAdjacentEnemies(tile) [slot 124] ; B = GetAdjacentFriends(tile)-self [slot 128]
+        # (self deja exclu de ctx.fpos ; le natif fait B.Remove(self)). u = |A| + (|A|>0 ? |B| : 0).
+        a = bq.count_adjacent(tile, ctx.epos, ctx.elev_by_pos)
+        if a == 0:
+            return 0.0
+        return float(a + bq.count_adjacent(tile, ctx.fpos, ctx.elev_by_pos))
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         best_t, best_u = None, None
         for T in ctx.reach_nc:
-            u_ = leaves.fighting_retreat_utility(T, ctx.epos, ctx.fpos)
+            u_ = self.evaluate_non_comparable(T, ctx)
             if best_u is None or u_ > best_u:   # strict > : premier max garde (ordre reach_nc)
                 best_t, best_u = T, u_
         if ctx.debug:
@@ -144,15 +158,16 @@ class AberrantHypermorphPlaybook(Playbook):
     NB abilityTargets.targets = UNION des spawns sur TOUTES les tuiles de move
     (GetAllValidTargetsFromAllPossibleMovementTiles, dist 0-4 de l'origine) — le filtre
     distance(T,ST)==1 reconstitue le per-tuile."""
-    ABILITY_ID = leaves.ABERRANT_HYPERMORPH   # 1166
+    ABILITY_ID = 1166
     MIN_UTILITY = 1.0
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         spawn_tiles = self._eligible_spawn_tiles(ctx)
         best_t, best_u = None, None
         for T in ctx.reach_nc:   # positions candidates du caster (origine + tuiles de move)
-            cnt = [leaves.summon_utility(ST, ctx.epos) for ST in spawn_tiles
-                   if hexgeo.distance(T, ST) == 1]
+            # GetUtility @181119c10 (slot 126 GetAdjacentEnemies) = #ennemis adjacents au spawn ST.
+            cnt = [float(bq.count_adjacent(ST, ctx.epos, ctx.elev_by_pos))
+                   for ST in spawn_tiles if hexgeo.distance(T, ST) == 1]
             u_ = max(cnt) if cnt else 0.0
             if best_u is None or u_ > best_u:   # strict > : premier max garde (ordre reach_nc)
                 best_t, best_u = T, u_
@@ -191,6 +206,17 @@ PLAYBOOKS: dict[int, Playbook] = {
 
 def playbook_for(ability_id: int) -> Playbook | None:
     return PLAYBOOKS.get(ability_id)
+
+
+def is_noncomp(ability_id: int) -> bool:
+    """L'ability a-t-elle un playbook NonComparable porté ?"""
+    return ability_id in PLAYBOOKS
+
+
+def is_summon(ability_id: int) -> bool:
+    """L'ability est-elle le summon composé (AberrantHypermorph) ? Son targetId natif = l'unité
+    SPAWNÉE (post-exec) — la comparaison d'agreement se fait sur l'ability seule, pas la cible."""
+    return isinstance(PLAYBOOKS.get(ability_id), AberrantHypermorphPlaybook)
 
 
 def choose_action(abilities: list, ctx: NCContext) -> dict | None:
