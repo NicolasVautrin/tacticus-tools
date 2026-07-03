@@ -40,6 +40,7 @@ from engine import move
 from engine.playbook import noncomparable as playbooks
 from engine.playbook import get_playbook_or_default, tile_utility
 from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK, HEAL_PLAYBOOK
+from engine.predict import repair_utility   # RepairedAmountUtility (repair = analogue non-custom du soin)
 from engine.ai.bucket import Action, Bucket
 
 
@@ -90,7 +91,7 @@ class NonComparableGenerator(ActionGenerator):
             plan=ctx.plans.get(ctx.uid) or {}, hp_cur_by_id=ctx.hp_cur_by_id,
             elev_by_pos=ctx.elev_by_pos, ability_targets=ctx.ability_targets,
             wt=ctx.wt, is_temporary_by_pos=ctx.is_temporary_by_pos,
-            effects_by_pos=ctx.effects_by_pos, debug=ctx.debug)
+            effects_by_pos=ctx.effects_by_pos, obs_units=ctx.obs_units, debug=ctx.debug)
         bc = playbooks.choose_action((ctx.me or {}).get("abilities") or [], nc_ctx,
                                      priority=self.priority)
         if bc is None:
@@ -217,6 +218,60 @@ class ComparableAbilityGenerator(ActionGenerator):
                                 "pred": pred, "full": pred + tile_utility(ctx, T)})
         return out
 
+    def _repair_candidates(self, ctx) -> list:
+        """Sweep RÉPARATION (tile-swept) via `RepairPlaybook` (Comparable, @181187c00) -> liste
+        {target, ability, to, pred, full}. MIROIR de `_heal_candidates` : identification par nom
+        `"Repair" in ab.name` (composant live : `Repair_GalvanicField`/`MechRepair`/… , cf. heal
+        `Heal_TwistedScience`) ; énumération cibles = `abilityTargets` ; utilité par cible =
+        `repair_utility` (RepairedAmountUtility : `fill_hp/(maxHP+1)×100 + fill_armor/(maxArmor+1)×50`,
+        PAS de friendSign — répare ses propres machines) ; gate `ShouldExecute` : pred > 0.
+
+        SIMPLIFICATIONS (1er wiring, notées) : (a) `fill_hp = missing_hp` SATURÉ (repairAmount supposé
+        >= manquant, comme `_heal_candidates` avec `missing`) — le repairAmount exact (config d'ability
+        via predict_repair_effective) est un raffinement ; (b) terme ARMOR = 0 (armure courante/max non
+        exposée dans observeBattle.units → à capturer ; W_armor=50 < W_hp=100, terme secondaire)."""
+        me = ctx.me
+        repair_abis = [ab for ab in ((me or {}).get("abilities") or [])
+                       if "Repair" in (ab.get("name") or "") and ab.get("usable") is not False]
+        if not repair_abis:
+            return []
+        pos_by_id = {u.get("id"): (u["pos"]["col"], u["pos"]["row"])
+                     for u in ctx.units if u.get("pos") and u["pos"].get("col") is not None}
+        obs_by_sq = {u.get("squadId"): u for u in ctx.obs_units}
+        reach = ([ctx.origin] if ctx.origin is not None else []) \
+            + [(t["col"], t["row"]) for t in ctx.move_tiles]
+        REPAIR_RANGE = 1  # gameconfig : repair ciblé adjacent (pas de `range` propre observé)
+        out = []
+        for ab in repair_abis:
+            aid = ab.get("id")
+            at = ctx.ability_targets(ctx.uid, aid)
+            vts = set()
+            for u in (at.get("units") or []):
+                for a in (u.get("abilities") or []):
+                    if a.get("abilityId") == aid:
+                        for t in (a.get("targets") or []):
+                            if t.get("kind") == "unit" and t.get("targetId") is not None:
+                                vts.add(t["targetId"])
+            for tg in vts:
+                ob = obs_by_sq.get(tg) or {}
+                hp_max = int(ob.get("hpMax") or 0)
+                hp_cur = int(ob.get("hp") or 0)
+                fill_hp = max(0, hp_max - hp_cur)          # (a) saturation missing ; (b) armor=0
+                pred = repair_utility(fill_hp, hp_max, 0, 0, is_boss=False)
+                if ctx.debug:
+                    print(f"    [dbg repair u{ctx.uid}->{tg}] vis={ob.get('visualId')} "
+                          f"hp={hp_cur}/{hp_max} fill={fill_hp} pred={pred}", file=sys.stderr)
+                if pred <= 0:
+                    continue   # ShouldExecute : émet la réparation SSI pred > 0
+                tpos = pos_by_id.get(tg)
+                for T in reach:
+                    if tg != ctx.uid and (tpos is None or hexgeo.distance(T, tpos) > REPAIR_RANGE):
+                        continue   # cible hors portée depuis T (self = depuis toute tuile)
+                    out.append({"target": tg, "ability": aid,
+                                "to": (T if T != ctx.origin else None),
+                                "pred": pred, "full": pred + tile_utility(ctx, T)})
+        return out
+
     def generate(self, ctx) -> dict | None:
         cands: list = []  # {target, ability, to:(c,r)|None, pred, full}
         best = self._best_attack(ctx)
@@ -224,6 +279,7 @@ class ComparableAbilityGenerator(ActionGenerator):
             cands.append({"target": best[2], "ability": best[3], "to": best[4],
                           "pred": best[0], "full": best[1]})   # full = u_full (dégât + Tile7)
         cands += self._heal_candidates(ctx)
+        cands += self._repair_candidates(ctx)
         # (Les NonComparable sont traitées par le générateur précédent — cf. InitAbilityTypeLists.)
         if ctx.debug and cands:
             for c in sorted(cands, key=lambda c: -c["full"])[:8]:

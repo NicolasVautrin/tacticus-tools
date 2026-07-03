@@ -36,9 +36,25 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import hexgeo
+import gameconfig as _gc
 from engine import battle_query as bq
 from engine.ai.utilities import get_movement_utility   # IdunBattle.AI.Utilities : GetMovementUtility
 from engine.utilities.utility_type import UtilityType
+
+
+_TRAITS_CACHE: dict = {}
+
+
+def _traits(visual_id) -> list:
+    """Traits gameconfig d'une unite par visualId (cache). Hero/Mechanical pour RitesOfRestoration
+    (resurrect hero = trait Hero ; heal = Healable = non-Mecanique)."""
+    if not visual_id:
+        return []
+    t = _TRAITS_CACHE.get(visual_id)
+    if t is None:
+        t = (_gc.unit(visual_id) or {}).get("traits") or []
+        _TRAITS_CACHE[visual_id] = t
+    return t
 
 
 @dataclass
@@ -52,6 +68,9 @@ class NCContext:
     plan: dict                     # plan natif (evals rankes) — abilities d'ATTAQUE
     hp_cur_by_id: dict             # PV courants par id cible (GetStat 5 = Health ; Vexilla)
     ability_targets: object = None # callable(uid, ability_id) -> dict RPC abilityTargets (summon)
+    obs_units: list = field(default_factory=list)  # observeBattle.units (isDead/teamId/visualId/pos) :
+    #                                SOURCE DES MORTS pour RitesOfRestoration (decisionView garde les
+    #                                depouilles -> observeBattle.isDead, cf. project_decisionview_keeps_dead)
     elev_by_pos: dict = None       # {(col,row): elevation} (tileMeta) — porte d'adjacence |Δelev|<2
     wt: object = None              # Weights BC (NovaShield : terme Tile(7) = tile_utility)
     is_temporary_by_pos: dict = field(default_factory=dict)  # Tile(7) (feuille is_temporary)
@@ -314,6 +333,72 @@ class NovaShieldPlaybook(NonComparablePlaybook):
         return out
 
 
+class RitesOfRestorationPlaybook(NonComparablePlaybook):
+    """`RitesOfRestorationPlaybook.EvaluateNonComparable @181157a60` (NonComparable, id 1039). Soin AoE +
+    RESURRECTION (adeptHospitaller). Emet l'action en 1039, ciblee sur SOI (confirme live : ATK(1039,78)).
+
+    - `ShouldEvaluate @1811580a0` : `Count(GetPossibleResurrectTargets) > 0` -> l'IA n'evalue Rites QUE
+      s'il y a un allie DEFAIT. Morts lus via `obs_units.isDead` (decisionView garde les depouilles ->
+      observeBattle est la source ; cf. project_decisionview_keeps_dead).
+    - Gate (par position T du caster) : `(heroDead>=1 & |resurrectTiles|>=1) | (summonDead>=2 & |tiles|>=2)`.
+      hero = allie mort avec trait `Hero` (UnitsWithTrait 0x10 @GetPossibleResurrectHeroTargets 181203d00) ;
+      summon = allie mort SANS `Hero` (UnitsWithTrait 2 @181203d40). resurrectTiles = `CanAddUnit(
+      AdjacentTiles(T))` @181203f70 = hex adjacents sur board, libres (unite vivante absente).
+    - util = `1 + Count(GetHealTargets)` (cctor Fix64(1) @1811581d0 ; GetHealTargets @181203c80 =
+      `Healable(owner + AdjacentFriends(owner,1))` = self (non-Mecanique) + amis adjacents non-Mecaniques).
+      MIN_UTILITY=1 (Bucket du cctor). Sweep reach_nc (adjacence -> depend de la position -> le caster va
+      la ou il soigne le plus).
+    PRIORITY=0 ASSUME (get_Priority non RE ; a confirmer si l'inter-tier est exerce)."""
+    ABILITY_ID = 1039
+    MIN_UTILITY = 1.0
+    PRIORITY = 0
+
+    def generate_candidates(self, ctx: NCContext) -> list[dict]:
+        obs = ctx.obs_units or []
+        me_obs = next((u for u in obs if u.get("squadId") == ctx.uid), None)
+        if me_obs is None:
+            return []
+        team = me_obs.get("teamId")
+        # ShouldEvaluate : allies DEFAITS (isDead), meme team, hors self.
+        dead = [u for u in obs if u.get("teamId") == team and u.get("isDead")
+                and u.get("squadId") != ctx.uid]
+        if not dead:
+            return []   # Count(GetPossibleResurrectTargets) == 0 -> ability non evaluee
+        hero_dead = sum(1 for u in dead if "Hero" in _traits(u.get("visualId")))
+        summon_dead = len(dead) - hero_dead                      # non-Hero = summon (troupe spawnee)
+        # Alliees VIVANTES non-Mecaniques (heal targets adjacents) + occupation (resurrectTiles).
+        ally_nonmech_pos = [(u.get("col"), u.get("row")) for u in obs
+                            if u.get("teamId") == team and not u.get("isDead")
+                            and u.get("squadId") != ctx.uid and u.get("col") is not None
+                            and "Mechanical" not in _traits(u.get("visualId"))]
+        self_nonmech = "Mechanical" not in _traits(me_obs.get("visualId"))
+        occupied = {(u.get("col"), u.get("row")) for u in obs
+                    if not u.get("isDead") and u.get("squadId") != ctx.uid
+                    and u.get("col") is not None}                # le caster (mobile) n'occupe pas
+        board = ctx.elev_by_pos or {}
+        best = None  # (T, util)
+        for T in ctx.reach_nc:
+            res_tiles = [n for n in hexgeo.neighbors(*T)
+                         if ((not board) or n in board) and n not in occupied]
+            gate = (hero_dead >= 1 and len(res_tiles) >= 1) or (summon_dead >= 2 and len(res_tiles) >= 2)
+            if not gate:
+                continue
+            heal_count = (1 if self_nonmech else 0) + sum(1 for p in ally_nonmech_pos
+                                                          if hexgeo.distance(T, p) == 1)
+            util = 1.0 + heal_count
+            if best is None or util > best[1]:   # strict > : 1er max garde (ordre reach_nc)
+                best = (T, util)
+        if ctx.debug:
+            import sys
+            print(f"    [dbg NC u{ctx.uid}] Rites deadHero={hero_dead} deadSum={summon_dead} "
+                  f"best={best} min={self.MIN_UTILITY}", file=sys.stderr)
+        if best is None or best[1] < self.MIN_UTILITY:
+            return []
+        T, util = best
+        return [{"target": ctx.uid, "ability": self.ABILITY_ID,   # cast sur SOI (self-target)
+                 "to": (T if T != ctx.origin else None), "pred": util}]
+
+
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
 PLAYBOOKS: dict[int, NonComparablePlaybook] = {
     pb.ABILITY_ID: pb for pb in (
@@ -323,6 +408,7 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         AberrantHypermorphPlaybook(),
         NovaBoostPlaybook(),
         NovaShieldPlaybook(),
+        RitesOfRestorationPlaybook(),
     )
 }
 
