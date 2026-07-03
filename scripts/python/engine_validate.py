@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 import hexgeo  # noqa: E402
 import gameconfig as gc  # noqa: E402
-from engine import weights, move, leaves  # noqa: E402
+from engine import weights, move, leaves, playbooks  # noqa: E402
 from engine.utility import attack_utility  # noqa: E402
 from engine.utilities import damage_composite  # noqa: E402
 import predict_validate as PV  # noqa: E402  (prédicteur OFFLINE : remplace l'aiPredict live)
@@ -225,94 +225,22 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
     #    => une NC qui passe son MIN_UTILITY (cctor, gate `Bucket.AddAction @1813fbcc0` util>=min)
     #    PRIME sur toute attaque/heal quelle que soit leur utilité (preuves seed777 : step7
     #    FightingRetreat u=2 choisi avec attaque ~30 dispo ; step14 summon u>=1 vs attaque 61 ;
-    #    step15 RadBombardment u<2 -> tier vide -> attaque normale). Au sein du tier : argmax
-    #    STRICT `>` (tie -> premier énuméré), heuristique BRUTE sans terme de tuile (Tile7 vit
-    #    dans CalculateActionUtility = chemin Comparable-only). Détail + VAs : engine/leaves.py.
+    #    step15 RadBombardment u<2 -> tier vide -> attaque normale). Chaque playbook natif = UNE
+    #    classe homonyme dans engine/playbooks.py (selector + leaf EvaluateNonComparable + cctor
+    #    MIN_UTILITY) ; `choose_action` = le driver générique (mirror Bucket.ChooseAction : argmax
+    #    STRICT `>`, tie -> premier énuméré, heuristique BRUTE sans terme Tile7).
     fpos = [(u["pos"]["col"], u["pos"]["row"]) for u in units
             if u.get("ctrl") and u.get("alive") and u.get("pos") and u.get("id") != uid]
     reach_nc = ([origin] if origin is not None else []) \
         + [(t["col"], t["row"]) for t in move_tiles]
-    nc_cands: list = []
-    for ab in ((me or {}).get("abilities") or []):
-        aid = ab.get("id")
-        spec = leaves.noncomp_spec(aid)
-        if not spec or ab.get("usable") is False:
-            continue
-        kind = spec["kind"]
-        if kind in ("adjacent_count", "target_hp"):
-            # BloodyFury / Vexilla : abilities d'ATTAQUE -> UN eval PAR CIBLE dans le plan natif
-            # (itérer TOUS les couples cible/tuile) ; l'UTILITÉ est l'heuristique, argmax strict.
-            bt_a = None  # (tgt, tile, nu)
-            for ev in (plan.get("evals") or []):
-                if ev.get("abilityId") != aid or not ev.get("rankCount"):
-                    continue
-                ranked = ev.get("ranked") or []
-                if not ranked:
-                    continue
-                tile = (ranked[0].get("col"), ranked[0].get("row"))
-                tgt = ev.get("targetId")
-                nu = leaves.noncomp_attack_utility(aid, tile, epos, target_hp=hp_cur_by_id.get(tgt))
-                if nu is None:
-                    continue
-                if bt_a is None or nu > bt_a[2]:   # strict > : premier max gardé
-                    bt_a = (tgt, tile, nu)
-            if bt_a is not None and bt_a[2] >= spec["min"]:
-                nc_cands.append({"target": bt_a[0], "ability": aid,
-                                 "to": (bt_a[1] if bt_a[1] != origin else None), "pred": bt_a[2]})
-        elif kind == "self_adjacent_combo":
-            # FightingRetreat : balayage tuiles atteignables (origine EN TÊTE), cible = SELF.
-            bt, bu = None, None
-            for T in reach_nc:
-                u_ = leaves.fighting_retreat_utility(T, epos, fpos)
-                if bu is None or u_ > bu:   # strict > : premier max gardé (ordre natif approx.)
-                    bt, bu = T, u_
-            if _DEBUG:
-                print(f"    [dbg NC u{uid}] FR aid={aid} usable={ab.get('usable')} "
-                      f"reach={len(reach_nc)} best={bt} u={bu} min={spec['min']}", file=sys.stderr)
-            if bu is not None and bu >= spec["min"]:
-                nc_cands.append({"target": uid, "ability": aid,
-                                 "to": (bt if bt != origin else None), "pred": bu})
-        elif kind == "summon":
-            # SUMMON (AberrantHypermorph 1166) — action COMPOSÉE move+summon. Le générateur
-            # ActiveAbilityActionGenerator.<GenerateActions>d__7.MoveNext @18119a3f0 BALAIE les
-            # tuiles de MOUVEMENT du caster (position de l'action = la tuile balayée, via
-            # FUN_1800053f0(7,...,tile,...) = playbook.Evaluate(position=tile)) puis Bucket.ChooseAction.
-            # Par tuile de move T, AberrantHypermorphPlaybook.EvaluateNonComparable @1811197d0 évalue les
-            # tuiles de SPAWN éligibles depuis T (GetEligibleTargetsSelectable @18111f0d0, portée=1 =
-            # ring-1 libre — SOURCE : gameconfig 1166 « Summons an Aberrant Hypermorph in a free
-            # adjacent hex ». ⚠ abilityTargets.targets = UNION des spawns sur TOUTES les tuiles de
-            # move (GetAllValidTargetsFromAllPossibleMovementTiles, dist 0-4 de l'origine) — le
-            # filtre distance(T,ST)==1 reconstitue le per-tuile) ; utilité =
-            # count(GetAdjacentEnemies(ST)) (GetUtility @181119c10, IBattleQuery slot 126). Le caster
-            # BOUGE vers la tuile T qui maximise ce count. L'ancien code balayait les tuiles abilityTargets
-            # 'targets' (superset depuis TOUTES les tuiles de move) et prenait une tuile de SPAWN
-            # NON-atteignable comme destination => positioning faux (step-14 to=(3,4) au lieu de (3,3)).
-            # cctor min @181119cd0 = 1.
-            at = _r(sid, "abilityTargets", {"runnerId": rid, "unitId": uid, "abilityType": aid}, 40)
-            spawn_tiles = []
-            for u in (at.get("units") or []):
-                for a in (u.get("abilities") or []):
-                    if a.get("abilityId") == aid:
-                        spawn_tiles = [(t["tile"].get("col"), t["tile"].get("row"))
-                                       for t in (a.get("targets") or [])
-                                       if t.get("kind") == "tile" and t.get("tile")
-                                       and t["tile"].get("col") is not None]
-            bt, bu = None, None
-            for T in reach_nc:   # origine + tuiles de MOVE du caster (destinations candidates)
-                # tuiles de spawn éligibles depuis T = ring-1 libre (portée summon 1) inter targets
-                cnt = [leaves.summon_utility(ST, epos) for ST in spawn_tiles
-                       if hexgeo.distance(T, ST) == 1]
-                u_ = max(cnt) if cnt else 0.0
-                if bu is None or u_ > bu:   # strict > : premier max gardé (ordre reach_nc)
-                    bt, bu = T, u_
-            if bt is not None and bu >= spec["min"]:
-                nc_cands.append({"target": None, "ability": aid,
-                                 "to": (bt if bt != origin else None), "pred": bu})
-    if nc_cands:
-        if _DEBUG:
-            print(f"    [dbg NC u{uid}] tier0={[(c['ability'], c.get('target'), c.get('to'), c['pred']) for c in nc_cands]}",
-                  file=sys.stderr)
-        bc = max(nc_cands, key=lambda c: c["pred"])   # strict : max() garde le 1er à égalité
+    nc_ctx = playbooks.NCContext(
+        uid=uid, origin=origin, reach_nc=reach_nc, epos=epos, fpos=fpos,
+        plan=plan, hp_cur_by_id=hp_cur_by_id,
+        ability_targets=lambda u, a: _r(
+            sid, "abilityTargets", {"runnerId": rid, "unitId": u, "abilityType": a}, 40),
+        debug=_DEBUG)
+    bc = playbooks.choose_action((me or {}).get("abilities") or [], nc_ctx)
+    if bc is not None:
         return {"kind": "ability", "target": bc["target"], "ability": bc["ability"],
                 "to": bc["to"], "util": bc["pred"]}
 
