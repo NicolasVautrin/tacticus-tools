@@ -44,6 +44,13 @@ from engine.predict import repair_utility   # RepairedAmountUtility (repair = an
 from engine.ai.bucket import Action, Bucket
 
 
+# Abilities REPAIR Comparable (RepairPlaybook @181187c00 / Repair_GalvanicFieldPlaybook @181155b80) —
+# identifiees par ID, PAS par `"Repair" in name` (R2 : ce substring captait aussi
+# NanoscarabRepairProtocols(1224) qui est NonComparablePlaybook @18114e1f0 -> mauvais routage). IDs :
+# Repair(28), MechRepair(82), BattleTinkererRepair(84), Repair_GalvanicField(1119). A ETENDRE au portage.
+_COMPARABLE_REPAIR_IDS: "frozenset[int]" = frozenset({28, 82, 84, 1119})
+
+
 _FACTION_CACHE: dict = {}
 
 
@@ -232,7 +239,7 @@ class ComparableAbilityGenerator(ActionGenerator):
         exposée dans observeBattle.units → à capturer ; W_armor=50 < W_hp=100, terme secondaire)."""
         me = ctx.me
         repair_abis = [ab for ab in ((me or {}).get("abilities") or [])
-                       if "Repair" in (ab.get("name") or "") and ab.get("usable") is not False]
+                       if ab.get("id") in _COMPARABLE_REPAIR_IDS and ab.get("usable") is not False]
         if not repair_abis:
             return []
         pos_by_id = {u.get("id"): (u["pos"]["col"], u["pos"]["row"])

@@ -42,19 +42,28 @@ from engine.ai.utilities import get_movement_utility   # IdunBattle.AI.Utilities
 from engine.utilities.utility_type import UtilityType
 
 
-_TRAITS_CACHE: dict = {}
+_CFG_CACHE: dict = {}
+
+
+def _unit_cfg(visual_id) -> dict:
+    """Config gameconfig d'une unite par visualId (resolue + cachee ; `resolve_unit_id` d'abord, comme
+    `_faction`). Le dict porte `traits` / `GrandAllianceId` / `kind`. Vide si introuvable."""
+    if not visual_id:
+        return {}
+    c = _CFG_CACHE.get(visual_id)
+    if c is None:
+        try:
+            uid = _gc.resolve_unit_id(visual_id)
+            c = (_gc.unit(uid) if uid else _gc.unit(visual_id)) or {}
+        except Exception:
+            c = {}
+        _CFG_CACHE[visual_id] = c
+    return c
 
 
 def _traits(visual_id) -> list:
-    """Traits gameconfig d'une unite par visualId (cache). Hero/Mechanical pour RitesOfRestoration
-    (resurrect hero = trait Hero ; heal = Healable = non-Mecanique)."""
-    if not visual_id:
-        return []
-    t = _TRAITS_CACHE.get(visual_id)
-    if t is None:
-        t = (_gc.unit(visual_id) or {}).get("traits") or []
-        _TRAITS_CACHE[visual_id] = t
-    return t
+    """Traits gameconfig (Hero/Mechanical). heal = Healable = non-Mecanique ; resurrect hero = Hero(16)."""
+    return _unit_cfg(visual_id).get("traits") or []
 
 
 @dataclass
@@ -359,13 +368,25 @@ class RitesOfRestorationPlaybook(NonComparablePlaybook):
         if me_obs is None:
             return []
         team = me_obs.get("teamId")
-        # ShouldEvaluate : allies DEFAITS (isDead), meme team, hors self.
+        # ShouldEvaluate : Count(GetPossibleResurrectTargets) > 0. GetPossibleResurrectTargets @181203d80
+        # = AllDeadUnits -> Friends -> UnitsWithTrait(0x1a=Imperial=26) -> UnitsAffectedByHealType(0).
+        # IsAffectedByHealType(u,0) @180ed77d0 = HasTrait(0x421) OU non-Mecanique. (R1 corrige : mon port
+        # ignorait les filtres Imperial + heal-type -> FAUX POSITIF sur allie mort non-Imperial/Mecanique,
+        # masque par le test all-Imperial. Imperial = gameconfig GrandAllianceId ; heal-affectable ~
+        # non-Mecanique, trait 0x421 override NON modelise -> TODO.) Morts lus via obs_units.isDead.
+        def _resurrectable(u):
+            cfg = _unit_cfg(u.get("visualId"))
+            return (cfg.get("GrandAllianceId") == "Imperial"                 # UnitsWithTrait(0x1a=26)
+                    and "Mechanical" not in (cfg.get("traits") or []))       # AffectedByHealType(0)
         dead = [u for u in obs if u.get("teamId") == team and u.get("isDead")
-                and u.get("squadId") != ctx.uid]
+                and u.get("squadId") != ctx.uid and _resurrectable(u)]
         if not dead:
             return []   # Count(GetPossibleResurrectTargets) == 0 -> ability non evaluee
+        # hero = ResurrectTargets ∩ UnitsWithTrait(0x10=Hero=16) @181203d00 ; summon = ∩ Summon(2)
+        # @181203d40. Summon(2) = flag runtime ABSENT de gameconfig.traits -> proxy kind=="npc"
+        # (roster=lineup, unite spawnee=npc). heuristique.
         hero_dead = sum(1 for u in dead if "Hero" in _traits(u.get("visualId")))
-        summon_dead = len(dead) - hero_dead                      # non-Hero = summon (troupe spawnee)
+        summon_dead = sum(1 for u in dead if _unit_cfg(u.get("visualId")).get("kind") == "npc")
         # Alliees VIVANTES non-Mecaniques (heal targets adjacents) + occupation (resurrectTiles).
         ally_nonmech_pos = [(u.get("col"), u.get("row")) for u in obs
                             if u.get("teamId") == team and not u.get("isDead")
