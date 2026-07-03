@@ -404,6 +404,41 @@ suite `tests/engine/` — **beaucoup trop lourd**.
 - **Suite complète** : seulement sur **demande explicite** de l'utilisateur, ou avant un jalon
   (commit d'une tranche), pas après chaque édition.
 
+## Agents (subagents) — TOUJOURS en worktree isolé
+
+**Tout agent (outil `Agent`, et `agent()` d'un `Workflow`) doit être lancé avec
+`isolation: "worktree"`, sans exception.**
+
+- **Pourquoi** : sans `isolation`, l'agent partage MON working directory et peut
+  éditer les mêmes fichiers que moi. Un agent qui monkeypatche le code (même
+  « temporairement » pour reproduire un cas) corrompt alors mon arbre — déjà subi :
+  un validateur a laissé `return /float(...)` dans `engine/utilities/tile.py`
+  → `SyntaxError` cassant tout l'import `engine`. Avec `isolation: "worktree"`,
+  l'agent bosse dans SON checkout jetable (`.claude/worktrees/agent-<id>/`, branche
+  `worktree-agent-<id>`, auto-nettoyé si inchangé) → ses edits/monkeypatches ne
+  touchent JAMAIS mon arbre. L'isolation par défaut prime sur son coût (~200-500 ms
+  + disque). (`isolation: "remote"` = variante cloud, toujours en background.)
+
+- **CONSÉQUENCE — le worktree part du HEAD de `master` (la base), PAS de ma branche
+  courante ni de mes changements NON COMMITÉS.** Un working tree sale / une
+  side-branch est INVISIBLE au worktree → l'agent auditerait du code périmé (déjà
+  arrivé : un validateur a audité `8f9c547` sans le code à valider). Donc si l'agent
+  doit VOIR mon travail en cours :
+  1. **commiter sur `master` d'abord** → le worktree (= master HEAD) a le code
+     automatiquement, aucun hash à passer (chemin propre, à privilégier) ; OU
+  2. **fallback** : passer le **hash du commit dans le `prompt`** + instruire l'agent
+     de `git checkout <hash>` + vérifier (`git rev-parse HEAD` == hash + grep un
+     marqueur) AVANT d'agir. Il n'existe PAS de champ structuré pour un ref/commit
+     dans l'outil `Agent` — c'est une convention de prompt (fragile, filet de secours).
+
+- **Pipeline (optimiste, ne bloque jamais)** : commiter le checkpoint sur `master`
+  → lancer le(s) agent(s) worktree (async, chacun épinglé sur ce commit) → continuer
+  à travailler sur `master` (les agents déjà lancés ne bougent pas) → **fix-forward**
+  (nouveau commit) sur les findings. N agents = N worktrees isolés (git autorise
+  plusieurs worktrees détachés au même commit) → **panel adversarial** possible sur
+  un seul commit. Pour un agent d'audit (validator), je prends son **VERDICT**, jamais
+  son code (son worktree est jetable).
+
 ## Ne jamais
 
 - **Utiliser `--reload`/hot-reload côté host** : casse les sessions Frida
