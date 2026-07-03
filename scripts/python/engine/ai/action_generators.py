@@ -24,9 +24,11 @@ Le SCORING Comparable est dispatché par playbook (`engine.playbook` : NormalAtt
 chacun déléguant sa prédiction à `engine.playbook.prediction` (modèle objet). Intra-générateur :
 argmax d'utilité faisable (`Bucket` `default`), seuil par-playbook comme gate.
 
-NB : les 4 NonComparable portées sont toutes priorité 0 -> sur seed777 seul le générateur #3 (dict[0])
-tire côté NC. Les 5 tiers sont présents structurellement (fidélité) mais l'ORDRE inter-tier NonComparable
-n'est pas exercé tant qu'aucune NonComparable de priorité != 0 n'est portée (à valider alors).
+NB : sur seed777, les 4 NonComparable présentes (BloodyFury/Vexilla/FightingRetreat/AberrantHypermorph)
+sont priorité 0 -> seul le générateur #3 (dict[0]) tire côté NC. L'ORDRE inter-tier est exercé par
+NovaBoost (tier **1000**) vs NovaShield (tier **-1000**), portées pour tauBossRiptide (roster crafté) :
+NovaBoost (util=1) prime sur NovaShield (util>=100) PAR L'ORDRE DES GÉNÉRATEURS (tier 1000 avant -1000),
+pas par l'utilité -> preuve que le tier domine l'argmax (cf. noncomparable.py).
 """
 from __future__ import annotations
 
@@ -86,7 +88,9 @@ class NonComparableGenerator(ActionGenerator):
         nc_ctx = playbooks.NCContext(
             uid=ctx.uid, origin=ctx.origin, reach_nc=ctx.reach_nc, epos=ctx.epos, fpos=ctx.fpos,
             plan=ctx.plans.get(ctx.uid) or {}, hp_cur_by_id=ctx.hp_cur_by_id,
-            elev_by_pos=ctx.elev_by_pos, ability_targets=ctx.ability_targets, debug=ctx.debug)
+            elev_by_pos=ctx.elev_by_pos, ability_targets=ctx.ability_targets,
+            wt=ctx.wt, is_temporary_by_pos=ctx.is_temporary_by_pos,
+            effects_by_pos=ctx.effects_by_pos, debug=ctx.debug)
         bc = playbooks.choose_action((ctx.me or {}).get("abilities") or [], nc_ctx,
                                      priority=self.priority)
         if bc is None:

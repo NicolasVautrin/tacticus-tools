@@ -18,9 +18,9 @@ from __future__ import annotations
 
 import os
 
-import hexgeo
 from .weights import Weights
 from .utilities import tile_composite
+from .utilities.move import MIN_DIST_UTILITY, UNIT_MOVEMENT  # noqa: F401 (UNIT_MOVEMENT = record membership)
 
 
 def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt: Weights,
@@ -45,7 +45,6 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
     elevs = [elev_by_pos.get(c) for c in coords]
     elevs = [e for e in elevs if e is not None]
     emax, emin = (max(elevs), min(elevs)) if elevs else (None, None)
-    wmin = wt.sub("MinDistanceToClosestEnemy", "PerTileDistance")
     tile_off = os.environ.get("ENGINE_TILE_OFF") == "1"   # diagnostic : MinDist seul (Tile=0)
     best = None
     bu = None
@@ -59,12 +58,11 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
             meta["is_temporary"] = is_temporary_by_pos[c]
         if effects_by_pos and c in effects_by_pos:
             meta["effects"] = effects_by_pos[c]   # feuille TileEffects (Thorns/Fire/... via tileMeta)
-        # MinDist : distance CHEMIN si dispo (fidèle), sinon hex (fallback approx).
-        pd = pathdist_by_pos.get(c) if pathdist_by_pos else None
-        mind = pd if (pd is not None and pd >= 0) else min(hexgeo.distance(c, ep)
-                                                           for ep in enemy_positions)
+        # UnitMovement(6) = Tile(7) [canal tile] + MinDistanceToClosestEnemy(16) [canal mouvement].
+        # MinDist gère lui-même distance CHEMIN (si dispo) vs hex (fallback) — corps dans la feuille.
         tile_u = 0.0 if tile_off else tile_composite(c, meta, {}, wt)
-        u = tile_u + wmin * mind
+        mindist_u = MIN_DIST_UTILITY.evaluate_movement(c, enemy_positions, wt, pathdist_by_pos)
+        u = tile_u + mindist_u
         if bu is None or u > bu:
             best, bu = c, u
     return best, bu

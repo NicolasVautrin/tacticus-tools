@@ -1,15 +1,22 @@
-"""engine.utilities — réimplémentation FIDÈLE des leaf-utilities natives, une fonction par
-`UtilityType`, portée depuis son `*Utility.<Evaluate*InSteps>d__N.MoveNext` (ghidra gqfc5mff6c)
-+ poids `BattleConfiguration.Utilities` (BC JSON).
+"""engine.utilities — réimplémentation FIDÈLE des leaf-utilities natives `IdunBattle.AI.Utilities`,
+UNE CLASSE `*Utility` par `UtilityType` (nom natif), dont `evaluate(...)` porte le corps de son
+`*Utility.<Evaluate*InSteps>d__N.MoveNext` (ghidra gqfc5mff6c) + poids `BattleConfiguration.Utilities`.
 
-Le composite à scorer (ex. Damage(34), Tile(7)) = SOMME de ses feuilles. La MEMBERSHIP exacte est
-LUE À L'EXÉCUTION (RPC `dumpComposedUtility`, doc §13.8) — pas devinée. cf. docs/rl/playbook-engine.md
-§13.7 (DamageUtility) / §13.8 (composition runtime) / §13.9 (plan de portage).
+Le composite à scorer (Damage=34, Tile=7) = INSTANCE `ComposedUtility` (SOMME de ses feuilles ; ce ne
+sont PAS des classes dédiées). La MEMBERSHIP exacte est LUE À L'EXÉCUTION (RPC `dumpComposedUtility`,
+doc §13.8) — pas devinée. cf. docs/rl/playbook-engine.md §13.7 / §13.8 / §13.9.
 
-Principe : chaque leaf = `f(pred|tile|ctx) -> float` sur la MÊME devise Fix64 que le natif (pas de
-knob de scale ; les constantes sont LUES, ex. W_damage=80, W_remaining=20).
+Base + enum : `base.py` (BaseUtility/ComposedUtility), `utility_type.py` (enum UtilityType, dump.cs).
+Wrappers minces `tile_composite`/`damage_composite` conservés pour les appelants existants.
 """
 from __future__ import annotations
 
-from .damage import damage_composite, damage_dealt, kill_unit, overkill_unit  # noqa: F401
-from .tile import tile_composite, TILE_LEAVES, TILE_LEAF_IDS  # noqa: F401
+from .base import BaseUtility, ComposedUtility  # noqa: F401
+from .utility_type import UtilityType  # noqa: F401
+from .damage import (  # noqa: F401
+    damage_composite, DamageUtility, KillUnitUtility, OverkillUnitUtility, DAMAGE_UTILITY)
+from .tile import tile_composite, TILE_LEAVES, TILE_LEAF_IDS, TILE_UTILITY  # noqa: F401
+from .move import MinDistanceToClosestEnemyUtility, MIN_DIST_UTILITY, UNIT_MOVEMENT  # noqa: F401
+from .heal import HealUtility, HEAL_UTILITY  # noqa: F401
+from .repair import RepairedAmountUtility, REPAIR_UTILITY  # noqa: F401
+from .effect import AddedEffectUtility, ADDED_EFFECT_UTILITY, EFFECT_UTILITY_PREFIX  # noqa: F401

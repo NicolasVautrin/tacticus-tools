@@ -1,9 +1,11 @@
-"""Tile(7) composite — les 29 leaf-utilities de tuile (membership LUE runtime, doc §13.8).
+"""Tile(7) composite — les 29 leaf-utilities de tuile, UNE CLASSE `*Utility` par feuille (nom NATIF).
 
 `Tile(7)` (composite scoré par `Weight[Tile=7]` dans `CalculateUtilityFromTilePrediction`) = SOMME de
 29 feuilles. La plupart sont SITUATIONNELLES (terrain spécial / trait de l'unité / effet présent) → =0
-sur une bataille basique plate. Chaque feuille = `f(tile, meta, ctx, wt) -> float`, portée depuis son
-`*Utility.<EvaluateMovementInSteps>d__N.MoveNext` (ghidra gqfc5mff6c) + poids BC `Utilities.Default`.
+sur une bataille basique plate. Chaque feuille = une CLASSE `IdunBattle.AI.Utilities.*Utility` dont
+`evaluate(self, tile, meta, ctx, wt)` PORTE le corps de son `*Utility.<EvaluateMovementInSteps>d__N.MoveNext`
+(ghidra gqfc5mff6c) + poids BC `Utilities.Default`. Le composite Tile(7) = INSTANCE `ComposedUtility`
+(Tile est un UtilityType, pas une classe). `tile_composite` = wrapper mince pour les appelants existants.
 
 ⚠ DÉPENDANCE DONNÉE : beaucoup de feuilles consomment une METADATA PAR TUILE / PAR UNITÉ que
 `aiMovableTiles` n'expose pas (col/row seulement). Chaque feuille lit deux dicts optionnels et rend 0
@@ -43,80 +45,18 @@ Statut de portage (cf. docs/rl/playbook-engine.md §13.8/§13.14) :
 from __future__ import annotations
 
 from ..weights import Weights
+from .base import BaseUtility, ComposedUtility
+from .utility_type import UtilityType
 
 # UtilityType des 29 feuilles de Tile(7) (ordre runtime). name = catégorie BC `Default.<name>`.
 TILE_LEAF_IDS = [8, 13, 9, 10, 11, 12, 15, 19, 24, 2, 4, 3, 20, 21, 22, 14, 26, 57, 60, 58, 25, 23,
                  61, 62, 64, 28, 29, 30, 31]
 
-
-def elevation(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """Elevation(8) FIDÈLE (`ElevationUtility.<d__8>.MoveNext` @1811019a0) :
-        u = Multiplier × elev  (+ HighestElevation si elev == max parmi tuiles pertinentes)
-                               (+ LowestElevation  si elev == min)
-    BC : Multiplier=10, HighestElevation=10, LowestElevation=-5. `meta` requis (élévation tuile + max/min)."""
-    if not meta or "elevation" not in meta:
-        return 0.0
-    elev = meta["elevation"]
-    u = wt.sub("Elevation", "Multiplier") * elev
-    if meta.get("elevation_max") is not None and elev == meta["elevation_max"]:
-        u += wt.sub("Elevation", "HighestElevation")
-    if meta.get("elevation_min") is not None and elev == meta["elevation_min"]:
-        u += wt.sub("Elevation", "LowestElevation")
-    return u
-
-
-def steppable_unit(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """SteppableUnit(19) FIDÈLE (`SteppableUnitUtility.<d__10>.MoveNext` @1810f9850) : si une unité
-    STEPPABLE (summon/decoy) est sur la tuile → poids selon ami/ennemi × summon/decoy.
-    BC : EnemySteppableUnit=50, FriendlySteppableUnit=-50, FriendlyDecoy=-50, EnemyDecoy=1.
-    (Les 2 abilities triggered 0x4d/0x72 = cas spéciaux non portés ; rares.) `meta.steppable` requis."""
-    st = (meta or {}).get("steppable")
-    if not st:
-        return 0.0
-    is_enemy = st.get("is_enemy")
-    if st.get("is_decoy"):
-        return wt.sub("SteppableUnit", "EnemyDecoy" if is_enemy else "FriendlyDecoy")
-    return wt.sub("SteppableUnit", "EnemySteppableUnit" if is_enemy else "FriendlySteppableUnit")
-
-
-def tile_effects(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """TileEffects(9) PARTIEL (`TileEffectsUtility.<d__1>.MoveNext` @1810fbe50) : somme des poids BC
-    `Default.TileEffects.<EffectName>` pour chaque effet de statut présent SUR la tuile (le natif
-    multiplie les status-effects par un facteur de durée ; non porté → poids brut). `meta.effects` requis.
-    BC TileEffects : Shrub_BonusDefense 25, FirstAidHeal 20, Thorns_DefenseReduction -25, SpiderWeb -25,
-    Fire -25, Ice -25, … (cf. wt.category('TileEffects'))."""
-    effs = (meta or {}).get("effects") or []
-    if not effs:
-        return 0.0
-    cat = wt.category("TileEffects")
-    return float(sum(cat.get(e, 0) for e in effs if isinstance(cat.get(e), (int, float))))
-
-
 # Pénalité constante (Fix64) appliquée aux tuiles temporaires — RE'd, PAS un poids BC.
 TEMPORARY_TILE_PENALTY = -10000.0
 
 
-def temporary_tile(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """TemporaryTile(13) FIDÈLE (`TemporaryTileUtility.<d__1>.MoveNext` @1810faed0) :
-        u = 0 ; si la tuile candidate est TEMPORAIRE → u -= Fix64(10000)
-    Le natif lit `tileData+0x2c` (flag IsTemporary) de la MainTile de l'unité (= tuile candidate) et
-    soustrait la CONSTANTE 10000 (pas un poids BC). ⇒ l'IA évite fortement de finir sur une tuile
-    temporaire (terrain créé par capacité : glace, blocage de summon…). `meta.is_temporary` requis
-    (exposé par le RPC `tileMeta`, champ `isTemporary`)."""
-    if (meta or {}).get("is_temporary"):
-        return TEMPORARY_TILE_PENALTY
-    return 0.0
-
-
-# ---------------------------------------------------------------------------
-# Leaves SITUATIONNELLES portées (RE fidèle ghidra gqfc5mff6c + poids BC réels du
-# profil `Utilities.Default`). TOUTES DORMANTES tant que la metadata par-tuile/unité
-# n'est pas plombée : chaque fonction lit le contrat `meta`/`ctx` (cf. docstring module)
-# et rend 0 quand la donnée manque — c'est EXACTEMENT la dégradation native (la condition
-# de gate ne tient pas). Chaque docstring cite l'adresse MoveNext + les ids de gate
-# (effet/trait/ability, hex+déc) + la/les clé(s) de poids BC réelle(s). cf. §13.14.
-# ---------------------------------------------------------------------------
-
+# ── Helpers PARTAGES (petites primitives réutilisées par plusieurs feuilles) ─────────────────────────
 def _has(ctx: dict, key: str, val: int) -> bool:
     """True si `ctx[key]` (itérable d'ids) contient `val`."""
     s = (ctx or {}).get(key)
@@ -127,272 +67,403 @@ def _eff_ids(meta: dict, key: str) -> set:
     return set((meta or {}).get(key) or ())
 
 
-def _unit_effects(meta: dict, wt: Weights, cat: str, zone: str) -> float:
-    """AUnitEffectsUtility.MoveNext @1810fb260 : Σ sur les amis du voisinage `zone`, Σ sur leurs
-    effets, poids[EffectType.ToString()] si la clé existe dans la catégorie BC `cat`. Voisinages :
-    Adjacent=ring R1, Surrounding=R1, Ranged=R2 (minus self, amis seulement). meta.neighbor_effect_names."""
-    names = ((meta or {}).get("neighbor_effect_names") or {}).get(zone) or []
-    if not names:
-        return 0.0
-    c = wt.category(cat)
-    return float(sum(c.get(n, 0) for n in names if isinstance(c.get(n), (int, float))))
-
-
-def unit_effects_adjacent(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    return _unit_effects(meta, wt, "UnitEffectsAdjacent", "adjacent")
-
-
-def unit_effects_surrounding(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    return _unit_effects(meta, wt, "UnitEffectsSurrounding", "surrounding1")
-
-
-def unit_effects_ranged(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    return _unit_effects(meta, wt, "UnitEffectsRanged", "ranged2")
-
-
-def capture_point(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """CapturePoint(24) @1811000a0 : sur tuile TERRITOIRE (flag tile+0x2e) → poids selon flag unité.
-    RE : flag = HasTrait(2 summon) || HasTrait(13). Mapping branch→clé déduit de la sémantique des
-    2 seules clés BC : flag(summon) → summons_dislike_capture_points(-300) ; sinon
-    heroes_on_capture_points(+300). (trait 13 non confirmé ; mapping DAT→clé non résolu côté binaire.)
-    meta.is_territory + ctx.unit_traits."""
-    if not (meta or {}).get("is_territory"):
-        return 0.0
-    flag = _has(ctx, "unit_traits", 2) or _has(ctx, "unit_traits", 13)
-    key = "summons_dislike_capture_points" if flag else "heroes_on_capture_points"
-    return wt.sub("CapturePoint", key)
-
-
-def power_up(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """PowerUp(26) @1810fd130 : -300 si l'occupant de la tuile EstPowerUp ET flag(trait 2||13).
-    meta.occupant_is_powerup + ctx.unit_traits."""
-    if not (meta or {}).get("occupant_is_powerup"):
-        return 0.0
-    if not (_has(ctx, "unit_traits", 2) or _has(ctx, "unit_traits", 13)):
-        return 0.0
-    return wt.sub("PowerUp", "summons_dislike_tiles_with_powerups")
-
-
-def contaminated(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """Contaminated(25) @181100670 : -25 si la tuile porte un effet type 1244 (0x4dc) ET l'unité
-    n'est pas exclue (= n'est pas la source de la contamination). meta.tile_effect_type_ids +
-    ctx.contaminated_excluded."""
-    if 1244 not in _eff_ids(meta, "tile_effect_type_ids"):
-        return 0.0
-    if (ctx or {}).get("contaminated_excluded"):
-        return 0.0
-    return wt.sub("Contaminated", "AffectedUnit")
-
-
-def molten_form(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """MoltenForm(23) @1810fd300 : si l'unité a la triggered ability 1221 (0x4c5) →
-    +25 si la tuile a l'effet type 5 (ResistFireTiles) ; -25 si effet type 10 (AvoidHealingTiles).
-    ctx.unit_triggered_abilities + meta.tile_effect_type_ids."""
-    if not _has(ctx, "unit_triggered_abilities", 1221):
-        return 0.0
-    ids = _eff_ids(meta, "tile_effect_type_ids")
-    u = 0.0
-    if 5 in ids:
-        u += wt.sub("MoltenForm", "MoltenForm_ResistFireTiles")
-    if 10 in ids:
-        u += wt.sub("MoltenForm", "MoltenForm_AvoidHealingTiles")
-    return u
-
-
-def tile_pending_blockable_summon(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """TilePendingBlockableSummon(14) @181100250 : Σ sur les summons en attente de type 1094 (0x446)
-    sur la tuile : +25 si owner ENNEMI, -25 si AMI. meta.pending_summons=[{type_id,owner_is_enemy}]."""
-    ps = (meta or {}).get("pending_summons") or []
-    we = wt.sub("TilePendingBlockableSummon", "EnemySummon")
-    wf = wt.sub("TilePendingBlockableSummon", "FriendlySummon")
-    return float(sum((we if e.get("owner_is_enemy") else wf)
-                     for e in ps if e.get("type_id") == 1094))
-
-
-def env_end_bombardment(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """EnvEndBombardment(31) @1810fe4c0 : tuile ciblée par l'effet 1359 (0x54f) → -30 ; sinon par
-    l'effet 1360 (0x550) → -60 (×2). meta.effect_target_ids."""
-    ids = _eff_ids(meta, "effect_target_ids")
-    w = wt.sub("EnvEndBombardment", "EnvEndBombardment_TileToAvoid")
-    if 1359 in ids:
-        return w
-    if 1360 in ids:
-        return w * 2
-    return 0.0
-
-
-def despoiled_ground(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """DespoiledGround(28) @181100ac0 : si la tuile porte un tile-effect type 1476 (0x5c4) →
-    trait 2026 (0x7ea, Chaos) → ChaosAffectedUnit(-5) ; trait 26 (0x1a) ou 1006 (0x3ee)
-    (Imperial/Xenos) → ImperialAndXenosAffectedUnit(-25). meta.tile_effect_type_ids + ctx.unit_traits.
-    (mapping trait→clé déduit de la sémantique ; DAT→clé non résolu côté binaire.)"""
-    if 1476 not in _eff_ids(meta, "tile_effect_type_ids"):
-        return 0.0
-    if _has(ctx, "unit_traits", 2026):
-        return wt.sub("DespoiledGround", "ChaosAffectedUnit")
-    if _has(ctx, "unit_traits", 26) or _has(ctx, "unit_traits", 1006):
-        return wt.sub("DespoiledGround", "ImperialAndXenosAffectedUnit")
-    return 0.0
-
-
-def summon_dislike_door(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """SummonDislikeDoorOpening(29) @1810fce30 : -50 si l'unité est "affected" (AI-controlled OU
-    human + trait 2 summon) ET la tuile candidate est une PORTE FERMÉE (tile→door link + door open-flag=0).
-    meta.door={linked,closed} + ctx.unit_is_ai/unit_traits."""
-    door = (meta or {}).get("door") or {}
-    if not (door.get("linked") and door.get("closed")):
-        return 0.0
-    affected = bool((ctx or {}).get("unit_is_ai")) or _has(ctx, "unit_traits", 2)
-    if not affected:
-        return 0.0
-    return wt.sub("SummonDislikeDoorOpening", "Dislike")
-
-
-def hero_door(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """HeroLikeDoorOpening(30) @1810fe100 : UNIQUEMENT unité hero (trait 16 / 0x10). PAS de poids BC
-    (constantes hardcodées). branche A (player flag==0) : -50 si la tuile candidate est une porte
-    fermée (activation), sinon 0. branche B (player flag!=0) : (10 - cost)*10 où cost = min coût de
-    CHEMIN depuis la tuile candidate vers la porte fermée la plus proche. ctx.player_door_mode +
-    meta.door + meta.hero_door_nearest_cost."""
-    if not _has(ctx, "unit_traits", 16):
-        return 0.0
-    if (ctx or {}).get("player_door_mode", 0) == 0:
-        door = (meta or {}).get("door") or {}
-        return -50.0 if (door.get("linked") and door.get("closed")) else 0.0
-    cost = (meta or {}).get("hero_door_nearest_cost")
-    if cost is None:
-        return 0.0
-    return (10 - cost) * 10.0
-
-
-def phantasm_avoid_friendly(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """Phantasm_AvoidFriendlyPhantasm(60) @1810fb020 : -40 si la tuile candidate porte l'effet
-    Phantasm 1279 (0x4ff) ET un phantasme AMI est adjacent. meta.phantasm_friendly_adjacent."""
-    if not (meta or {}).get("phantasm_friendly_adjacent"):
-        return 0.0
-    return wt.sub("Phantasm_AvoidFriendlyPhantasm", "Phantasm_AvoidFriendlyPhantasm")
-
-
-def echoes_avoid_ghost(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """EchoesFromTheWarp_FriendliesAvoidGhost(58) @1810e3750 : +10 si la tuile POSSÈDE (owner) l'effet
-    ghost 1284 (0x504) ET le ghost ami est adjacent. meta.ghost_friendly_adjacent."""
-    if not (meta or {}).get("ghost_friendly_adjacent"):
-        return 0.0
-    return wt.sub("EchoesFromTheWarp_FriendliesAvoidGhost", "GhostTile")
-
-
-def attract_mechanicals(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """DoctrinaImperatives_AttractMechanicals(57) @1810e3af0 : +10 si l'unité a le trait 5 ET au moins
-    un voisin (autour de la tuile) a l'active ability 1118 (0x45e) et n'est pas l'unité elle-même.
-    ctx.unit_traits + meta.attract_mechanicals_neighbor."""
-    if not _has(ctx, "unit_traits", 5):
-        return 0.0
-    if not (meta or {}).get("attract_mechanicals_neighbor"):
-        return 0.0
-    return wt.sub("DoctrinaImperatives_AttractMechanicals", "Marshal_AttractMechanicals")
-
-
-def attract_to_decoys(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """DecoysAndMisdirection_AttractToDecoys(64) @1810e2ef0 : +75 PAR ami avec triggered ability 1304
-    (0x518), gate : unité faction 15 (0xf) ET la tuile a une unité steppable (trait 27 / 0x1b) NON
-    ennemie. ctx.unit_faction + meta.decoy_gate + meta.decoy_friend_count (PER-unit, sommé)."""
-    if (ctx or {}).get("unit_faction") != 15:
-        return 0.0
-    if not (meta or {}).get("decoy_gate"):
-        return 0.0
-    n = (meta or {}).get("decoy_friend_count") or 0
-    return n * wt.sub("DecoysAndMisdirection_AttractToDecoys",
-                      "DecoysAndMisdirection_FriendlyGSCLikeDecoys")
-
-
 def _ability_count(meta: dict, ability_id: int) -> int:
     """count d'amis (dans le rayon propre à la leaf) ayant l'ability `ability_id`."""
     counts = (meta or {}).get("ability_friend_counts") or {}
     return int(counts.get(ability_id) or counts.get(str(ability_id)) or 0)
 
 
-def kustom_force_field(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """KustomForceField(20) base ATriggeredAbilityUtility.d__3 @1810e4160 : +20 × count(amis ADJACENTS
-    (R1) avec triggered ability 1102 (0x44e)). meta.ability_friend_counts[1102]."""
-    return _ability_count(meta, 1102) * wt.sub("KustomForceField", "AdjacentFriendly")
+# ── Classes `IdunBattle.AI.Utilities.*Utility` (une par feuille ; corps DANS la méthode) ─────────────
+class ElevationUtility(BaseUtility):
+    """`ElevationUtility` (@1810efa20 ; UtilityType.Elevation=8) ; `<d__8>.MoveNext @1811019a0` :
+        u = Multiplier × elev  (+ HighestElevation si elev == max) (+ LowestElevation si elev == min)
+    BC : Multiplier=10, HighestElevation=10, LowestElevation=-5. `meta` requis (élévation tuile + max/min)."""
+    UTILITY_TYPE = 8
 
-
-def defender_greater_good(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """DefenderOfTheGreaterGood(21) @1810e4160 : +25 × count(amis R1, ou R2 si l'unité faction 9,
-    avec ability 1155 (0x483)). Gate : l'unité a une arme à distance. ctx.unit_has_ranged_weapon +
-    meta.ability_friend_counts[1155]."""
-    if not (ctx or {}).get("unit_has_ranged_weapon"):
-        return 0.0
-    return _ability_count(meta, 1155) * wt.sub("DefenderOfTheGreaterGood", "PerUnitWithAbilityInRange")
-
-
-def savior_protocols(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """SaviorProtocols(22) @1810e4160 : +20 × count(amis ADJACENTS R1 avec ability 1120 (0x460)).
-    Gate : l'unité est faction 9 ET n'a pas elle-même l'ability 1120. ctx.unit_faction/
-    unit_triggered_abilities + meta.ability_friend_counts[1120]."""
-    if (ctx or {}).get("unit_faction") != 9 or _has(ctx, "unit_triggered_abilities", 1120):
-        return 0.0
-    return _ability_count(meta, 1120) * wt.sub("SaviorProtocols", "PerUnitWithAbilityInRange")
-
-
-def _movetowards(meta: dict, wt: Weights, cat: str, ability_id: int,
-                 trait_gate: set | None, ctx: dict) -> float:
-    """MoveTowardsUnitUtility.MoveNext @1810f9b40 : score = poids("PerTileDistance") × hexdist(candidate,
-    cible). cible = unité ayant l'ability/effet `ability_id` (ou le parent). distance = HEX (cube).
-    meta.movetowards_hexdist[ability_id]."""
-    if trait_gate is not None:
-        if not (set((ctx or {}).get("unit_traits") or ()) & trait_gate):
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        if not meta or "elevation" not in meta:
             return 0.0
-    dd = (meta or {}).get("movetowards_hexdist") or {}
-    d = dd.get(ability_id)
-    if d is None:
-        d = dd.get(str(ability_id))
-    if d is None:
+        elev = meta["elevation"]
+        u = wt.sub("Elevation", "Multiplier") * elev
+        if meta.get("elevation_max") is not None and elev == meta["elevation_max"]:
+            u += wt.sub("Elevation", "HighestElevation")
+        if meta.get("elevation_min") is not None and elev == meta["elevation_min"]:
+            u += wt.sub("Elevation", "LowestElevation")
+        return u
+
+
+class SteppableUnitUtility(BaseUtility):
+    """`SteppableUnitUtility` (@1810f1d50 ; UtilityType.SteppableUnit=19) ; `<d__10>.MoveNext @1810f9850` :
+    si une unité STEPPABLE (summon/decoy) est sur la tuile → poids ami/ennemi × summon/decoy.
+    BC : EnemySteppableUnit=50, FriendlySteppableUnit=-50, FriendlyDecoy=-50, EnemyDecoy=1. `meta.steppable`."""
+    UTILITY_TYPE = 19
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        st = (meta or {}).get("steppable")
+        if not st:
+            return 0.0
+        is_enemy = st.get("is_enemy")
+        if st.get("is_decoy"):
+            return wt.sub("SteppableUnit", "EnemyDecoy" if is_enemy else "FriendlyDecoy")
+        return wt.sub("SteppableUnit", "EnemySteppableUnit" if is_enemy else "FriendlySteppableUnit")
+
+
+class TileEffectsUtility(BaseUtility):
+    """`TileEffectsUtility` (@1810f2980 ; UtilityType.TileEffects=9) ; `<d__1>.MoveNext @1810fbe50` :
+    Σ des poids BC `Default.TileEffects.<EffectName>` pour chaque effet présent SUR la tuile (le natif
+    multiplie les status-effects par un facteur de durée ; non porté → poids brut). `meta.effects` requis."""
+    UTILITY_TYPE = 9
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        effs = (meta or {}).get("effects") or []
+        if not effs:
+            return 0.0
+        cat = wt.category("TileEffects")
+        return float(sum(cat.get(e, 0) for e in effs if isinstance(cat.get(e), (int, float))))
+
+
+class TemporaryTileUtility(BaseUtility):
+    """`TemporaryTileUtility` (@1810f2180 ; UtilityType.TemporaryTile=13) ; `<d__1>.MoveNext @1810faed0` :
+    u = 0 ; si la tuile candidate est TEMPORAIRE → u -= Fix64(10000) (CONSTANTE, pas un poids BC ; le natif
+    lit `tileData+0x2c` IsTemporary). L'IA évite fortement les tuiles temporaires. `meta.is_temporary`."""
+    UTILITY_TYPE = 13
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        if (meta or {}).get("is_temporary"):
+            return TEMPORARY_TILE_PENALTY
         return 0.0
-    return d * wt.sub(cat, "PerTileDistance")
 
 
-def bio_minefield_movetowards(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """BioMinefield_MoveTowardsTarget(61) : -100 × hexdist(candidate, cible ability/effet 1315 (0x523)).
-    Pas de gate trait."""
-    return _movetowards(meta, wt, "BioMinefield_MoveTowardsTarget", 1315, None, ctx)
+class AUnitEffectsUtility(BaseUtility):
+    """`AUnitEffectsUtility` (@1810ee350, TypeDefIndex 12150) — base ABSTRAITE ; `MoveNext @1810fb260` = le
+    corps PARTAGE : Σ sur les amis du voisinage `_ZONE`, Σ sur leurs effets, poids[EffectType.ToString()]
+    dans la catégorie BC `_CAT`. Voisinages : Adjacent/Surrounding=R1, Ranged=R2 (minus self, amis). Les 3
+    sous-classes CONCRETES (12151/12152/12153) ne different QUE par `_CAT`/`_ZONE`. `meta.neighbor_effect_names`."""
+    _CAT: str = ""
+    _ZONE: str = ""
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        names = ((meta or {}).get("neighbor_effect_names") or {}).get(self._ZONE) or []
+        if not names:
+            return 0.0
+        c = wt.category(self._CAT)
+        return float(sum(c.get(n, 0) for n in names if isinstance(c.get(n), (int, float))))
 
 
-def master_tutelaries_movetowards(tile, meta: dict, ctx: dict, wt: Weights) -> float:
-    """MasterOfTheTutelaries_MoveTowardsTarget(62) : -20 × hexdist(candidate, cible 1096 (0x448)).
-    Gate trait : l'unité a 2026 (0x7ea) ou 1019 (0x3fb)."""
-    return _movetowards(meta, wt, "MasterOfTheTutelaries_MoveTowardsTarget", 1096, {2026, 1019}, ctx)
+class UnitEffectsAdjacentUtility(AUnitEffectsUtility):
+    """`UnitEffectsAdjacentUtility` (TypeDefIndex 12151 ; UtilityType.UnitEffectsAdjacent=10)."""
+    UTILITY_TYPE = 10
+    _CAT = "UnitEffectsAdjacent"
+    _ZONE = "adjacent"
 
 
-# Registry : UtilityType -> (name, fn|None). fn=None => délégué/non-portable comme simple leaf.
+class UnitEffectsSurroundingUtility(AUnitEffectsUtility):
+    """`UnitEffectsSurroundingUtility` (TypeDefIndex 12152 ; UtilityType.UnitEffectsSurrounding=11)."""
+    UTILITY_TYPE = 11
+    _CAT = "UnitEffectsSurrounding"
+    _ZONE = "surrounding1"
+
+
+class UnitEffectsRangedUtility(AUnitEffectsUtility):
+    """`UnitEffectsRangedUtility` (TypeDefIndex 12153 ; UtilityType.UnitEffectsRanged=12)."""
+    UTILITY_TYPE = 12
+    _CAT = "UnitEffectsRanged"
+    _ZONE = "ranged2"
+
+
+class CapturePointTileUtility(BaseUtility):
+    """`CapturePointTileUtility` (@1810ee7f0 ; UtilityType.CapturePoint=24) ; @1811000a0 : sur tuile
+    TERRITOIRE (flag tile+0x2e = HasTrait(2 summon)||HasTrait(13)) → flag(summon) →
+    summons_dislike_capture_points(-300) ; sinon heroes_on_capture_points(+300). `meta.is_territory` + `ctx.unit_traits`."""
+    UTILITY_TYPE = 24
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        if not (meta or {}).get("is_territory"):
+            return 0.0
+        flag = _has(ctx, "unit_traits", 2) or _has(ctx, "unit_traits", 13)
+        key = "summons_dislike_capture_points" if flag else "heroes_on_capture_points"
+        return wt.sub("CapturePoint", key)
+
+
+class PowerUpTileUtility(BaseUtility):
+    """`PowerUpTileUtility` (@1810f15b0 ; UtilityType.PowerUp=26) ; @1810fd130 : -300 si l'occupant de la
+    tuile EstPowerUp ET flag(trait 2||13). `meta.occupant_is_powerup` + `ctx.unit_traits`."""
+    UTILITY_TYPE = 26
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        if not (meta or {}).get("occupant_is_powerup"):
+            return 0.0
+        if not (_has(ctx, "unit_traits", 2) or _has(ctx, "unit_traits", 13)):
+            return 0.0
+        return wt.sub("PowerUp", "summons_dislike_tiles_with_powerups")
+
+
+class ContaminatedUtility(BaseUtility):
+    """`ContaminatedUtility` (@1810ee930 ; UtilityType.Contaminated=25) ; @181100670 : -25 si la tuile porte
+    un effet type 1244 (0x4dc) ET l'unité n'est pas exclue. `meta.tile_effect_type_ids` + `ctx.contaminated_excluded`."""
+    UTILITY_TYPE = 25
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        if 1244 not in _eff_ids(meta, "tile_effect_type_ids"):
+            return 0.0
+        if (ctx or {}).get("contaminated_excluded"):
+            return 0.0
+        return wt.sub("Contaminated", "AffectedUnit")
+
+
+class MoltenForm_TilesUtility(BaseUtility):
+    """`MoltenForm_TilesUtility` (@1810f08d0 ; UtilityType.MoltenForm=23) ; @1810fd300 : si l'unité a la
+    triggered ability 1221 (0x4c5) → +25 si tuile effet type 5 (ResistFireTiles) ; -25 si type 10
+    (AvoidHealingTiles). `ctx.unit_triggered_abilities` + `meta.tile_effect_type_ids`."""
+    UTILITY_TYPE = 23
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        if not _has(ctx, "unit_triggered_abilities", 1221):
+            return 0.0
+        ids = _eff_ids(meta, "tile_effect_type_ids")
+        u = 0.0
+        if 5 in ids:
+            u += wt.sub("MoltenForm", "MoltenForm_ResistFireTiles")
+        if 10 in ids:
+            u += wt.sub("MoltenForm", "MoltenForm_AvoidHealingTiles")
+        return u
+
+
+class TilePendingBlockableSummonUtility(BaseUtility):
+    """`TilePendingBlockableSummonUtility` (@1810f2d70 ; UtilityType.TilePendingBlockableSummon=14) ; @181100250 :
+    Σ sur les summons en attente de type 1094 (0x446) sur la tuile : +25 si owner ENNEMI, -25 si AMI.
+    `meta.pending_summons=[{type_id,owner_is_enemy}]`."""
+    UTILITY_TYPE = 14
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        ps = (meta or {}).get("pending_summons") or []
+        we = wt.sub("TilePendingBlockableSummon", "EnemySummon")
+        wf = wt.sub("TilePendingBlockableSummon", "FriendlySummon")
+        return float(sum((we if e.get("owner_is_enemy") else wf)
+                         for e in ps if e.get("type_id") == 1094))
+
+
+class EnvEndBombardmentUtility(BaseUtility):
+    """`EnvEndBombardmentUtility` (@1810efb60 ; UtilityType.EnvEndBombardment=31) ; @1810fe4c0 : tuile ciblée
+    par l'effet 1359 (0x54f) → -30 ; sinon par 1360 (0x550) → -60 (×2). `meta.effect_target_ids`."""
+    UTILITY_TYPE = 31
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        ids = _eff_ids(meta, "effect_target_ids")
+        w = wt.sub("EnvEndBombardment", "EnvEndBombardment_TileToAvoid")
+        if 1359 in ids:
+            return w
+        if 1360 in ids:
+            return w * 2
+        return 0.0
+
+
+class DespoiledGroundUtility(BaseUtility):
+    """`DespoiledGroundUtility` (@1810ef280 ; UtilityType.DespoiledGround=28) ; @181100ac0 : si tuile
+    tile-effect type 1476 (0x5c4) → trait 2026 (Chaos) → ChaosAffectedUnit(-5) ; trait 26 ou 1006
+    (Imperial/Xenos) → ImperialAndXenosAffectedUnit(-25). `meta.tile_effect_type_ids` + `ctx.unit_traits`."""
+    UTILITY_TYPE = 28
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        if 1476 not in _eff_ids(meta, "tile_effect_type_ids"):
+            return 0.0
+        if _has(ctx, "unit_traits", 2026):
+            return wt.sub("DespoiledGround", "ChaosAffectedUnit")
+        if _has(ctx, "unit_traits", 26) or _has(ctx, "unit_traits", 1006):
+            return wt.sub("DespoiledGround", "ImperialAndXenosAffectedUnit")
+        return 0.0
+
+
+class SummonDislikeDoorOpeningUtility(BaseUtility):
+    """`SummonDislikeDoorOpeningUtility` (@1810f2050 ; UtilityType.SummonDislikeDoorOpening=29) ; @1810fce30 :
+    -50 si l'unité est "affected" (AI-controlled OU human+trait 2) ET la tuile est une PORTE FERMÉE.
+    `meta.door={linked,closed}` + `ctx.unit_is_ai/unit_traits`."""
+    UTILITY_TYPE = 29
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        door = (meta or {}).get("door") or {}
+        if not (door.get("linked") and door.get("closed")):
+            return 0.0
+        affected = bool((ctx or {}).get("unit_is_ai")) or _has(ctx, "unit_traits", 2)
+        if not affected:
+            return 0.0
+        return wt.sub("SummonDislikeDoorOpening", "Dislike")
+
+
+class HeroDoorOpeningUtility(BaseUtility):
+    """`HeroDoorOpeningUtility` (@1810efdc0 ; UtilityType.HeroLikeDoorOpening=30) ; @1810fe100 : UNIQUEMENT
+    unité hero (trait 16). PAS de poids BC (constantes). branche A (player flag==0) : -50 si la tuile est
+    une porte fermée. branche B (flag!=0) : (10 - cost)*10, cost = min coût CHEMIN vers la porte fermée la
+    plus proche. `ctx.player_door_mode` + `meta.door` + `meta.hero_door_nearest_cost`."""
+    UTILITY_TYPE = 30
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        if not _has(ctx, "unit_traits", 16):
+            return 0.0
+        if (ctx or {}).get("player_door_mode", 0) == 0:
+            door = (meta or {}).get("door") or {}
+            return -50.0 if (door.get("linked") and door.get("closed")) else 0.0
+        cost = (meta or {}).get("hero_door_nearest_cost")
+        if cost is None:
+            return 0.0
+        return (10 - cost) * 10.0
+
+
+class Phantasm_AvoidFriendlyPhantasmUtility(BaseUtility):
+    """`Phantasm_AvoidFriendlyPhantasmUtility` (@1810f1470 ; UtilityType.Phantasm_AvoidFriendlyPhantasm=60) ;
+    @1810fb020 : -40 si la tuile porte l'effet Phantasm 1279 (0x4ff) ET un phantasme AMI est adjacent.
+    `meta.phantasm_friendly_adjacent`."""
+    UTILITY_TYPE = 60
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        if not (meta or {}).get("phantasm_friendly_adjacent"):
+            return 0.0
+        return wt.sub("Phantasm_AvoidFriendlyPhantasm", "Phantasm_AvoidFriendlyPhantasm")
+
+
+class EchoesFromTheWarp_FriendliesAvoidGhostUtility(BaseUtility):
+    """`EchoesFromTheWarp_FriendliesAvoidGhostUtility` (@1810cfa30 ; UtilityType.=58) ; @1810e3750 : +10 si
+    la tuile POSSÈDE (owner) l'effet ghost 1284 (0x504) ET le ghost ami est adjacent. `meta.ghost_friendly_adjacent`."""
+    UTILITY_TYPE = 58
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        if not (meta or {}).get("ghost_friendly_adjacent"):
+            return 0.0
+        return wt.sub("EchoesFromTheWarp_FriendliesAvoidGhost", "GhostTile")
+
+
+class AttractMechanicalsUtility(BaseUtility):
+    """`AttractMechanicalsUtility` (@1810ccea0 ; UtilityType.DoctrinaImperatives_AttractMechanicals=57) ;
+    @1810e3af0 : +10 si l'unité a le trait 5 ET un voisin (autour de la tuile) a l'active ability 1118
+    (0x45e). `ctx.unit_traits` + `meta.attract_mechanicals_neighbor`."""
+    UTILITY_TYPE = 57
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        if not _has(ctx, "unit_traits", 5):
+            return 0.0
+        if not (meta or {}).get("attract_mechanicals_neighbor"):
+            return 0.0
+        return wt.sub("DoctrinaImperatives_AttractMechanicals", "Marshal_AttractMechanicals")
+
+
+class AttractToDecoysUtility(BaseUtility):
+    """`AttractToDecoysUtility` (@1810ccf60 ; UtilityType.DecoysAndMisdirection_AttractToDecoys=64) ;
+    @1810e2ef0 : +75 PAR ami avec triggered ability 1304 (0x518), gate : unité faction 15 ET tuile avec une
+    unité steppable (trait 27) NON ennemie. `ctx.unit_faction` + `meta.decoy_gate` + `meta.decoy_friend_count`."""
+    UTILITY_TYPE = 64
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        if (ctx or {}).get("unit_faction") != 15:
+            return 0.0
+        if not (meta or {}).get("decoy_gate"):
+            return 0.0
+        n = (meta or {}).get("decoy_friend_count") or 0
+        return n * wt.sub("DecoysAndMisdirection_AttractToDecoys",
+                          "DecoysAndMisdirection_FriendlyGSCLikeDecoys")
+
+
+class KustomForceFieldUtility(BaseUtility):
+    """`KustomForceFieldUtility` (@1810cffe0 ; UtilityType.KustomForceField=20) ; base ATriggeredAbilityUtility.d__3
+    @1810e4160 : +20 × count(amis ADJACENTS R1 avec triggered ability 1102). `meta.ability_friend_counts[1102]`."""
+    UTILITY_TYPE = 20
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        return _ability_count(meta, 1102) * wt.sub("KustomForceField", "AdjacentFriendly")
+
+
+class DefenderOfTheGreaterGoodUtility(BaseUtility):
+    """`DefenderOfTheGreaterGoodUtility` (@1810cf570 ; UtilityType.DefenderOfTheGreaterGood=21) ; @1810e4160 :
+    +25 × count(amis R1, ou R2 si faction 9, avec ability 1155). Gate : arme à distance.
+    `ctx.unit_has_ranged_weapon` + `meta.ability_friend_counts[1155]`."""
+    UTILITY_TYPE = 21
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        if not (ctx or {}).get("unit_has_ranged_weapon"):
+            return 0.0
+        return _ability_count(meta, 1155) * wt.sub("DefenderOfTheGreaterGood", "PerUnitWithAbilityInRange")
+
+
+class SaviorProtocolsUtility(BaseUtility):
+    """`SaviorProtocolsUtility` (@1810e0b90 ; UtilityType.SaviorProtocols=22) ; @1810e4160 : +20 × count(amis
+    ADJACENTS R1 avec ability 1120). Gate : faction 9 ET n'a pas l'ability 1120. `ctx.unit_faction/
+    unit_triggered_abilities` + `meta.ability_friend_counts[1120]`."""
+    UTILITY_TYPE = 22
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        if (ctx or {}).get("unit_faction") != 9 or _has(ctx, "unit_triggered_abilities", 1120):
+            return 0.0
+        return _ability_count(meta, 1120) * wt.sub("SaviorProtocols", "PerUnitWithAbilityInRange")
+
+
+class MoveTowardsUnitUtility(BaseUtility):
+    """`MoveTowardsUnitUtility` (@1810f0ff0 ; base) ; `MoveNext @1810f9b40` : score = poids("PerTileDistance")
+    × hexdist(candidate, cible) ; cible = unité ayant l'ability/effet `_ABILITY_ID`. distance = HEX (cube ;
+    fournie par `meta.movetowards_hexdist[_ABILITY_ID]`). `_TRAIT_GATE` (None = pas de gate). Corps PARTAGE
+    par les 2 sous-classes (BioMinefield, MasterOfTheTutelaries) qui parametrent `_CAT`/`_ABILITY_ID`/`_TRAIT_GATE`."""
+    _CAT: str = ""
+    _ABILITY_ID: int = -1
+    _TRAIT_GATE: "set | None" = None
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        if self._TRAIT_GATE is not None:
+            if not (set((ctx or {}).get("unit_traits") or ()) & self._TRAIT_GATE):
+                return 0.0
+        dd = (meta or {}).get("movetowards_hexdist") or {}
+        d = dd.get(self._ABILITY_ID)
+        if d is None:
+            d = dd.get(str(self._ABILITY_ID))
+        if d is None:
+            return 0.0
+        return d * wt.sub(self._CAT, "PerTileDistance")
+
+
+class BioMinefield_MoveTowardsTargetUtility(MoveTowardsUnitUtility):
+    """`BioMinefield_MoveTowardsTargetUtility` (@1810ee5e0 ; UtilityType.=61) : -100 × hexdist(candidate,
+    cible ability/effet 1315). Pas de gate trait."""
+    UTILITY_TYPE = 61
+    _CAT = "BioMinefield_MoveTowardsTarget"
+    _ABILITY_ID = 1315
+    _TRAIT_GATE = None
+
+
+class MasterOfTheTutelaries_MoveTowardsTargetUtility(MoveTowardsUnitUtility):
+    """`MasterOfTheTutelaries_MoveTowardsTargetUtility` (@1810f0130 ; UtilityType.=62) : -20 × hexdist(candidate,
+    cible 1096). Gate trait : l'unité a 2026 ou 1019."""
+    UTILITY_TYPE = 62
+    _CAT = "MasterOfTheTutelaries_MoveTowardsTarget"
+    _ABILITY_ID = 1096
+    _TRAIT_GATE = {2026, 1019}
+
+
+# ── Registry : UtilityType -> (name, instance|None). None => délégué/non-portable comme simple leaf. ──
 TILE_LEAVES: dict[int, tuple] = {
     # --- ACTIVES (metadata dispo aujourd'hui) ---
-    8:  ("Elevation", elevation),
-    19: ("SteppableUnit", steppable_unit),
-    9:  ("TileEffects", tile_effects),
-    13: ("TemporaryTile", temporary_tile),   # RÉELLE (meta.is_temporary via tileMeta)
+    8:  ("Elevation", ElevationUtility()),
+    19: ("SteppableUnit", SteppableUnitUtility()),
+    9:  ("TileEffects", TileEffectsUtility()),
+    13: ("TemporaryTile", TemporaryTileUtility()),   # RÉELLE (meta.is_temporary via tileMeta)
     # --- PORTÉES FIDÈLE, DORMANTES (gate sur metadata par-tuile/unité non encore plombée → 0) ---
-    10: ("UnitEffectsAdjacent", unit_effects_adjacent),
-    11: ("UnitEffectsSurrounding", unit_effects_surrounding),
-    12: ("UnitEffectsRanged", unit_effects_ranged),
-    24: ("CapturePoint", capture_point),
-    26: ("PowerUp", power_up),
-    25: ("Contaminated", contaminated),
-    23: ("MoltenForm", molten_form),
-    14: ("TilePendingBlockableSummon", tile_pending_blockable_summon),
-    31: ("EnvEndBombardment", env_end_bombardment),
-    28: ("DespoiledGround", despoiled_ground),
-    29: ("SummonDislikeDoorOpening", summon_dislike_door),
-    30: ("HeroLikeDoorOpening", hero_door),
-    60: ("Phantasm_AvoidFriendlyPhantasm", phantasm_avoid_friendly),
-    58: ("EchoesFromTheWarp_FriendliesAvoidGhost", echoes_avoid_ghost),
-    57: ("DoctrinaImperatives_AttractMechanicals", attract_mechanicals),
-    64: ("DecoysAndMisdirection_AttractToDecoys", attract_to_decoys),
-    20: ("KustomForceField", kustom_force_field),
-    21: ("DefenderOfTheGreaterGood", defender_greater_good),
-    22: ("SaviorProtocols", savior_protocols),
-    61: ("BioMinefield_MoveTowardsTarget", bio_minefield_movetowards),
-    62: ("MasterOfTheTutelaries_MoveTowardsTarget", master_tutelaries_movetowards),
+    10: ("UnitEffectsAdjacent", UnitEffectsAdjacentUtility()),
+    11: ("UnitEffectsSurrounding", UnitEffectsSurroundingUtility()),
+    12: ("UnitEffectsRanged", UnitEffectsRangedUtility()),
+    24: ("CapturePoint", CapturePointTileUtility()),
+    26: ("PowerUp", PowerUpTileUtility()),
+    25: ("Contaminated", ContaminatedUtility()),
+    23: ("MoltenForm", MoltenForm_TilesUtility()),
+    14: ("TilePendingBlockableSummon", TilePendingBlockableSummonUtility()),
+    31: ("EnvEndBombardment", EnvEndBombardmentUtility()),
+    28: ("DespoiledGround", DespoiledGroundUtility()),
+    29: ("SummonDislikeDoorOpening", SummonDislikeDoorOpeningUtility()),
+    30: ("HeroLikeDoorOpening", HeroDoorOpeningUtility()),
+    60: ("Phantasm_AvoidFriendlyPhantasm", Phantasm_AvoidFriendlyPhantasmUtility()),
+    58: ("EchoesFromTheWarp_FriendliesAvoidGhost", EchoesFromTheWarp_FriendliesAvoidGhostUtility()),
+    57: ("DoctrinaImperatives_AttractMechanicals", AttractMechanicalsUtility()),
+    64: ("DecoysAndMisdirection_AttractToDecoys", AttractToDecoysUtility()),
+    20: ("KustomForceField", KustomForceFieldUtility()),
+    21: ("DefenderOfTheGreaterGood", DefenderOfTheGreaterGoodUtility()),
+    22: ("SaviorProtocols", SaviorProtocolsUtility()),
+    61: ("BioMinefield_MoveTowardsTarget", BioMinefield_MoveTowardsTargetUtility()),
+    62: ("MasterOfTheTutelaries_MoveTowardsTarget", MasterOfTheTutelaries_MoveTowardsTargetUtility()),
     # --- NON portées comme simples leaves ---
     15: ("RangedAdjacentEnemy", None),       # =0 dans le profil Default (BC HasAdjacentEnemy absent)
     # 2/3/4 = dispatchers vers le moteur Playbook PAR-ABILITY (LoadPlaybook/LoadPlaybookNonOwner ;
@@ -404,13 +475,15 @@ TILE_LEAVES: dict[int, tuple] = {
 }
 
 
+# Composite Tile(7) = INSTANCE `ComposedUtility` (PAS de classe `TileUtility` : Tile est un UtilityType,
+# le composite est un ComposedUtility enregistre a 7). `CalculateUtilityFromTilePrediction @181408740`
+# = Σ feuilles (ordre runtime TILE_LEAF_IDS, feuilles non portees ecartees). Carte plate ≈ 0.
+TILE_UTILITY = ComposedUtility(
+    [TILE_LEAVES[i][1] for i in TILE_LEAF_IDS if TILE_LEAVES.get(i, (None, None))[1] is not None],
+    utility_type=UtilityType.Tile)
+
+
 def tile_composite(tile, meta: dict | None, ctx: dict, wt: Weights) -> float:
-    """Composite Tile(7) = somme des 29 feuilles portées (les stubs rendent 0). `meta` = metadata
-    par tuile (élévation/effets/steppable) ; absent ⇒ seules les feuilles sans donnée contribuent (≈0)."""
-    m = meta or {}
-    total = 0.0
-    for uid in TILE_LEAF_IDS:
-        fn = TILE_LEAVES.get(uid, (None, None))[1]
-        if fn is not None:
-            total += fn(tile, m, ctx, wt)
-    return total
+    """Composite Tile(7) = `TILE_UTILITY.evaluate` (Σ des feuilles portées). Wrapper mince pour les
+    appelants existants (`engine.playbook.base.tile_utility`, `engine.move`). `meta` absent ⇒ ≈0."""
+    return TILE_UTILITY.evaluate(tile, meta or {}, ctx, wt)

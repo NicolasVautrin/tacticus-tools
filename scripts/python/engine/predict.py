@@ -36,6 +36,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+# Utilites d'IA (classes natives IdunBattle.AI.Utilities, cf. engine/utilities/). Les fonctions
+# heal_utility/repair_utility/added_effect_utility/utility_value ci-dessous sont des WRAPPERS MINCES
+# vers ces instances (meme pli que damage_composite -> DAMAGE_UTILITY) : le CORPS vit dans la classe.
+from .utilities.heal import HEAL_UTILITY
+from .utilities.repair import REPAIR_UTILITY
+from .utilities.effect import ADDED_EFFECT_UTILITY, EFFECT_UTILITY_PREFIX  # noqa: F401 (re-export)
+
 # DamageProfileType (dump.cs @863303) — index enum → nom de profil BC.
 DAMAGE_PROFILE_BY_INDEX: dict[int, str] = {
     -1: "None", 0: "Physical", 1: "Projectile", 3: "Flame", 4: "Bolter", 5: "Particle",
@@ -162,8 +169,7 @@ def damage_with_piercing(base: float, pierce_pct: int, armor: int) -> float:
 #       U = (effective / (maxHP + 1)) × 100 × friendSign × bossMod
 #   ProbableHealEvent { target@0, (curHP, effective)@8, Probability@0x10 = 1.0 (FromInt 1) }
 #   Playbook.CalculateUtilityFromHealEvent @1814aac80 = Probability × U   (sommé par cible)
-
-HEAL_UTILITY_WEIGHT = 100   # HealUtility$$.cctor @1810cfd10 : Fix64.FromInt(100)
+# Le poids W_HEAL=100 (HealUtility.cctor @1810cfd10) vit desormais dans engine.utilities.heal (HealUtility).
 
 
 def heal_amount(stat_amount: int, weapon_highest_hits: int) -> int:
@@ -194,17 +200,10 @@ def predict_heal_effective(heal_amount_value: int, target_current_hp: int, targe
 
 def heal_utility(effective_heal: int, target_max_hp: int,
                  is_friend: bool, is_boss: bool) -> float:
-    """`HealUtility.Evaluate` (Weight[Heal=44] ; iterator @1810e16f0).
-
-    `U = (effective / (maxHP + 1)) × 100 × friendSign × bossMod`, où
-    `friendSign = +1` si la cible est un ALLIÉ du caster, `−1` sinon (soigner un ennemi = utilité
-    négative) ; `bossMod = 2` si la cible est un BOSS sinon `1` (GetUnitUtilityModifier @1810cfc80).
-    Le ratio `effective/(maxHP+1)` = HealRatio (le +1 évite la division par zéro)."""
-    ratio = effective_heal / (int(target_max_hp) + 1)
-    u = ratio * HEAL_UTILITY_WEIGHT
-    if not is_friend:
-        u = -u
-    return u * (2.0 if is_boss else 1.0)
+    """Wrapper mince -> `HEAL_UTILITY.evaluate` (`IdunBattle.AI.Utilities.HealUtility`, corps dans la
+    classe : `U = (effective/(maxHP+1)) × 100 × friendSign × bossMod`). Conserve pour les appelants
+    (HealPlaybook)."""
+    return HEAL_UTILITY.evaluate(effective_heal, target_max_hp, is_friend, is_boss)
 
 
 def heal_action_utility(events) -> float:
@@ -238,9 +237,8 @@ def heal_action_utility(events) -> float:
 #       ⚠ PAS de friendSign (contrairement au soin) : on ne répare QUE ses propres machines.
 #
 # StatType (dump.cs @863349) : Armor=4, Health=5. StatPart : Current=0, Maximum=2, Initial=3.
-
-REPAIR_UTILITY_WEIGHT_HP = 100      # RepairedAmountUtility.cctor @1810e08b0 : W[0] = Fix64.FromInt(100)
-REPAIR_UTILITY_WEIGHT_ARMOR = 50    # RepairedAmountUtility.cctor @1810e08b0 : W[1] = Fix64.FromInt(0x32)
+# Les poids W_HP=100 / W_ARMOR=50 (RepairedAmountUtility.cctor @1810e08b0) vivent desormais dans
+# engine.utilities.repair (RepairedAmountUtility).
 
 
 def repair_amount(base: int, mod_add: int = 0, mod_mul: float = 1.0) -> int:
@@ -287,15 +285,9 @@ def predict_repair_effective(repair_amount_value: int,
 
 def repair_utility(fill_hp: int, target_max_hp: int,
                    fill_armor: int, target_max_armor: int, is_boss: bool) -> float:
-    """`RepairedAmountUtility.EvaluateRepairInSteps` (iter @1810e45b0 ; weights cctor @1810e08b0).
-
-    `U = (fill_hp/(maxHP+1) × 100 + fill_armor/(maxArmor+1) × 50) × bossMod`, où `bossMod = 2` si la
-    cible est un BOSS sinon `1` (GetUnitUtilityModifier @1810e0820). Le `+1` aux dénominateurs évite
-    la division par zéro (GetMaxHealth @1810e0760). PAS de friendSign : la réparation ne cible que
-    ses propres machines (≠ soin, qui peut viser un ennemi avec utilité négative)."""
-    term_hp = fill_hp / (int(target_max_hp) + 1) * REPAIR_UTILITY_WEIGHT_HP
-    term_armor = fill_armor / (int(target_max_armor) + 1) * REPAIR_UTILITY_WEIGHT_ARMOR
-    return (term_hp + term_armor) * (2.0 if is_boss else 1.0)
+    """Wrapper mince -> `REPAIR_UTILITY.evaluate` (`IdunBattle.AI.Utilities.RepairedAmountUtility`,
+    corps dans la classe : `U = (fill_hp/(maxHP+1)×100 + fill_armor/(maxArmor+1)×50) × bossMod`)."""
+    return REPAIR_UTILITY.evaluate(fill_hp, target_max_hp, fill_armor, target_max_armor, is_boss)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════════════
@@ -317,29 +309,19 @@ def repair_utility(fill_hp: int, target_max_hp: int,
 #   Fire=10, Unit_on_Fire=15, Ice=5, Unit_on_Ice=0). ⇒ Fire sous un ennemi = 10+15 = 25 ;
 #   sous un allié = 10−15 = −5. Préfixe confirmé empiriquement par les clés BC.
 
-EFFECT_UTILITY_PREFIX = "Unit_on_"   # AddedEffectUtility String.Concat(prefix, name) @1810f6e70 ;
-                                     # confirmé par les clés BC AddedTileEffects (Fire / Unit_on_Fire)
+# EFFECT_UTILITY_PREFIX est re-exporte depuis engine.utilities.effect (import en tete) — plus de
+# redefinition locale (source unique = la classe AddedEffectUtility).
 
 
 def utility_value(weights: dict, name: str) -> int:
-    """`BaseUtility.GetUtilityValue` @1810cd3c0 (+ `HasUtilityValue` @1810cd700) : `weights.get(name, 0)`.
-
-    `weights` = un dict de catégorie d'utilité du BC (`Utilities.Default[<cat>]`), `Dict<string,int>`.
-    TryGetValue → `Fix64.FromInt(val)` ; clé absente → 0 (avec un warning dev côté natif, ici muet)."""
-    return int(weights.get(name, 0))
+    """Wrapper mince -> `ADDED_EFFECT_UTILITY.get_utility_value` (`BaseUtility.GetUtilityValue`
+    @1810cd3c0 : `weights.get(name, 0)`). `weights` = dict de categorie BC (`Utilities.Default[<cat>]`)."""
+    return ADDED_EFFECT_UTILITY.get_utility_value(weights, name)
 
 
 def added_effect_utility(effect_name: str, target_has_effect: bool,
                          is_friend: bool, weights: dict) -> float:
-    """`AddedEffectUtility.EvaluateAttackInSteps` (iter @1810f6e70).
-
-    `U = 0` si la cible a DÉJÀ l'effet ; sinon `Weight[name] + signe × Weight["Unit_on_" + name]`,
-    `signe = −1` si la cible est un ALLIÉ du caster, `+1` sinon. `weights` = dict de catégorie BC
-    (`Utilities.Default[AddedTileEffects]` p.ex.). Poids plat par type d'effet — pas de magnitude."""
-    if target_has_effect:
-        return 0.0
-    base = utility_value(weights, effect_name)
-    prefixed = utility_value(weights, EFFECT_UTILITY_PREFIX + effect_name)
-    if is_friend:
-        prefixed = -prefixed
-    return float(base + prefixed)
+    """Wrapper mince -> `ADDED_EFFECT_UTILITY.evaluate` (`IdunBattle.AI.Utilities.AddedEffectUtility`,
+    corps dans la classe : `U = 0` si effet deja present, sinon `Weight[name] + signe × Weight["Unit_on_"
+    + name]`, `signe = −1` si cible alliee)."""
+    return ADDED_EFFECT_UTILITY.evaluate(effect_name, target_has_effect, is_friend, weights)

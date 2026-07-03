@@ -5,9 +5,12 @@ par un mecanisme generique (registre de classes + driver commun). Structure FIDE
 (confirme sur AberrantHypermorphPlaybook.EvaluateNonComparable @1811197d0) :
 
   - `ABaseAiActorTactic.InitAbilityTypeLists @1810ed540` range chaque ability NonComparable par
-    son playbook ; `GetDefaultActiveAbilityActionGenerators @1810ed0c0` cree les generators par
-    priorite (tous les portes = Normal 0, aucun n'override get_Priority) ; le tactic prend le
-    PREMIER generator non-vide -> une NC qui passe son MIN_UTILITY prime sur toute Comparable.
+    son playbook dans `dict[get_Priority]` ; `GetDefaultActiveAbilityActionGenerators @1810ed0c0`
+    cree UN generator par tier [1000,100,0,-100,-1000] ; le tactic prend le PREMIER generator
+    non-vide -> une NC qui passe son MIN_UTILITY prime sur toute Comparable, ET une NC de tier
+    superieur prime sur une NC de tier inferieur PAR L'ORDRE (pas l'utilite). PRIORITY par classe
+    (get_Priority, litteral compile-time slot0 interface) : les 4 attaques/buffs portees = 0 ;
+    NovaBoost=1000, NovaShield=-1000 (exercent l'ordre inter-tier).
   - Le generator `ActiveAbilityActionGenerator.<GenerateActions>d__7.MoveNext @18119a3f0` BALAIE
     les positions candidates du caster (tuiles de move) et appelle par position
     `<Playbook>.EvaluateNonComparable(this, ctx, position)` : celui-ci cree un Bucket (MIN_UTILITY
@@ -30,10 +33,12 @@ Vit dans le namespace unifie `engine.playbook` (= `IdunBattle.AI.Playbook`), aux
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import hexgeo
 from engine import battle_query as bq
+from engine.ai.utilities import get_movement_utility   # IdunBattle.AI.Utilities : GetMovementUtility
+from engine.utilities.utility_type import UtilityType
 
 
 @dataclass
@@ -48,6 +53,9 @@ class NCContext:
     hp_cur_by_id: dict             # PV courants par id cible (GetStat 5 = Health ; Vexilla)
     ability_targets: object = None # callable(uid, ability_id) -> dict RPC abilityTargets (summon)
     elev_by_pos: dict = None       # {(col,row): elevation} (tileMeta) — porte d'adjacence |Δelev|<2
+    wt: object = None              # Weights BC (NovaShield : terme Tile(7) = tile_utility)
+    is_temporary_by_pos: dict = field(default_factory=dict)  # Tile(7) (feuille is_temporary)
+    effects_by_pos: dict = field(default_factory=dict)       # Tile(7) (feuille TileEffects)
     debug: bool = False
 
 
@@ -199,6 +207,113 @@ class AberrantHypermorphPlaybook(NonComparablePlaybook):
         return tiles
 
 
+class NovaBoostPlaybook(NonComparablePlaybook):
+    """`NovaBoostPlaybook.EvaluateNonComparable @18114ee60` : util = `Fix64.FromInt(1)` CONSTANTE par
+    cible éligible (self ; marque les hex adjacents au caster). cctor @18114f1e0 : MIN_UTILITY=1.
+    ctor @18114f250 (id 0x4a8=1192). Tier get_Priority=**1000** (validateur : `@1807D66A0` = `mov eax,0x3E8`).
+
+    STATUT : DECOMPILE-PROVEN, **ARENE-INAGREABLE** (Riptide non spawnable au rank 17 -> pas de test
+    d'agreement live ; le mecanisme repose sur le decompile, tiers tranches a l'octet par le validateur).
+    - R1 CORRIGE : le natif évalue les tuiles de MOVE d'abord et l'ORIGINE en DERNIER (`NullPosition`,
+      `<GenerateActions>d__7 @18119a3f0`), `Bucket.AddAction` garde le 1er au tie. util=1 CONSTANTE ->
+      tie systématique -> **le natif BOUGE** (1re tuile de move). Fix = `reach_nc` origine-LAST
+      (context.py) + émission de `reach_nc[0]`. CAVEAT : la tuile de move EXACTE (ordre d'énumération
+      natif) n'est pas confirmable en agreement (arene-inagreable).
+    - N1 : gate `ShouldEvaluate @18114f160` = `if query.slot0x1a(unit,2) then base.ShouldEvaluate else 0`
+      (précondition Nova, prob. charge, + base) NON modélisé -> on s'appuie sur le filtre driver
+      `usable is False` (supposé encoder la précondition). L'eligible-empty (`GetEligibleTargetsSelectable`
+      vide -> le natif n'émet rien) est modélisé ci-dessous."""
+    ABILITY_ID = 1192
+    MIN_UTILITY = 1.0
+    PRIORITY = 1000
+
+    def generate_candidates(self, ctx: NCContext) -> list[dict]:
+        if not self._has_eligible_target(ctx):
+            return []   # N1 : GetEligibleTargetsSelectable vide -> le natif n'émet rien
+        # R1 : util=1 CONSTANTE -> tie sur toutes les positions -> keep-first sur reach_nc (origine-LAST)
+        # -> le natif prend la 1re tuile de MOVE (il BOUGE) ; origine seulement si aucun move.
+        to = next(iter(ctx.reach_nc), None)
+        return [{"target": ctx.uid, "ability": self.ABILITY_ID,
+                 "to": (to if to != ctx.origin else None), "pred": 1.0}]
+
+    def _has_eligible_target(self, ctx: NCContext) -> bool:
+        """`BasePlaybook.GetEligibleTargetsSelectable @18111f0d0` non-vide. Cible éligible d'un self-buff =
+        self (via abilityTargets, qui inclut les cibles NON-attaque). PERMISSIF si la source d'éligibilité
+        est indisponible (le driver filtre déjà `usable is False`)."""
+        if ctx.ability_targets is None:
+            return True
+        at = ctx.ability_targets(ctx.uid, self.ABILITY_ID) or {}
+        for u in (at.get("units") or []):
+            for a in (u.get("abilities") or []):
+                if a.get("abilityId") == self.ABILITY_ID and (a.get("targets") or []):
+                    return True
+        return False
+
+
+class NovaShieldPlaybook(NonComparablePlaybook):
+    """`NovaShieldPlaybook.EvaluateNonComparable @18114f9d0` (tier get_Priority=**-1000**, id 0x4aa=1194).
+    cctor @1811502c0 : MIN_UTILITY=1. Marque un hex CENTRE + son ring-1 (hors trench), dégât AoE différé.
+    Par (casterPos ∈ reach, center ∈ cibles-éligibles) :
+        marked(center) = {center} ∪ neighbors(center) \\ trench          # GetMarkedTiles @1811f83c0
+        util = 100*CountEnemiesOnTiles(marked) + Count(marked)            # @1814aae40 (non-alliés) + get_Count
+               + Tile(7)@casterPos + DislikeStartingTiles(27)@casterPos   # GetMovementUtility @1814ab490
+    Les 2 termes mouvement dépendent de `casterPos` SEUL (constants sur la boucle center). `ChooseAction`
+    = argmax STRICT `>`, gate util >= 1. Cible native = le CENTRE marqué (kind=tile).
+    HYPOTHÈSE(trench) : flag isTrench non capturé -> ring géométrique complet (biais <=6 sur Count,
+    écrasé par 100*enemies).
+    STATUT : DECOMPILE-PROVEN, ARENE-INAGREABLE (Riptide non spawnable). R1 : émission caster-pos
+    auto-corrigée par `reach_nc` origine-LAST (context.py) -> au tie constant (move_term~0) le natif
+    BOUGE (1re tuile de move), plus de biais rester-a-l'origine. R2 : `DislikeStartingTilesUtility` no-op
+    (poids BC non confirmé, arene-inagreable) -> tie-breaker origine-vs-move neutralisé (cf. utilities.py)."""
+    ABILITY_ID = 1194
+    MIN_UTILITY = 1.0
+    PRIORITY = -1000
+
+    def generate_candidates(self, ctx: NCContext) -> list[dict]:
+        centers = self._eligible_mark_centers(ctx)
+        if not centers:
+            return []
+        epos = set(ctx.epos or [])
+        board = ctx.elev_by_pos or {}
+        best = None  # (caster_pos, util)
+        for caster_pos in ctx.reach_nc:
+            # GetMovementUtility(Tile) + GetMovementUtility(DislikeStartingTiles) @1814ab490 (2 appels natifs).
+            move_term = (get_movement_utility(ctx, caster_pos, UtilityType.Tile)
+                         + get_movement_utility(ctx, caster_pos, UtilityType.DislikeStartingTilesUtility))
+            for center in centers:
+                marked = [center] + [n for n in hexgeo.neighbors(*center)
+                                     if (not board) or (n in board)]        # GetMarkedTiles \ trench
+                n_enemy = sum(1 for t in marked if t in epos)               # CountEnemiesOnTiles @1814aae40
+                u = 100.0 * n_enemy + len(marked) + move_term              # 100*enemies + get_Count(marked)
+                if best is None or u > best[1]:   # strict > : 1er max garde
+                    best = (caster_pos, u)
+        if best is None or best[1] < self.MIN_UTILITY:
+            return []
+        caster_pos, u = best
+        if ctx.debug:
+            import sys
+            print(f"    [dbg NC u{ctx.uid}] NovaShield centers={len(centers)} best_to={caster_pos} "
+                  f"u={u} min={self.MIN_UTILITY}", file=sys.stderr)
+        return [{"target": None, "ability": self.ABILITY_ID,
+                 "to": (caster_pos if caster_pos != ctx.origin else None), "pred": u}]
+
+    def _eligible_mark_centers(self, ctx: NCContext) -> list[tuple]:
+        """Mirror `BasePlaybook.GetEligibleTargetsSelectable @18111f0d0` : hex candidats du marquage
+        (kind="tile") via l'RPC abilityTargets (union sur toutes les tuiles de move)."""
+        if ctx.ability_targets is None:
+            return []
+        at = ctx.ability_targets(ctx.uid, self.ABILITY_ID) or {}
+        out: list[tuple] = []
+        for u in (at.get("units") or []):
+            for a in (u.get("abilities") or []):
+                if a.get("abilityId") == self.ABILITY_ID:
+                    out = [(t["tile"].get("col"), t["tile"].get("row"))
+                           for t in (a.get("targets") or [])
+                           if t.get("kind") == "tile" and t.get("tile")
+                           and t["tile"].get("col") is not None]
+        return out
+
+
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
 PLAYBOOKS: dict[int, NonComparablePlaybook] = {
     pb.ABILITY_ID: pb for pb in (
@@ -206,6 +321,8 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         VexillaMagnificaPlaybook(),
         FightingRetreatPlaybook(),
         AberrantHypermorphPlaybook(),
+        NovaBoostPlaybook(),
+        NovaShieldPlaybook(),
     )
 }
 

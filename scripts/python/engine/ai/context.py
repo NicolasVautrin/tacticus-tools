@@ -116,7 +116,11 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     move_tiles = (mov_by_unit.get(uid) or {}).get("tiles") or []
     fpos = [(u["pos"]["col"], u["pos"]["row"]) for u in units
             if u.get("ctrl") and u.get("alive") and u.get("pos") and u.get("id") != uid]
-    reach_nc = ([origin] if origin is not None else []) + [(t["col"], t["row"]) for t in move_tiles]
+    # R1 (validateur) : le generateur NonComparable `<GenerateActions>d__7 @18119a3f0` evalue les tuiles
+    # de MOVE d'abord et l'ORIGINE (`NullPosition`) EN DERNIER ; `Bucket.AddAction` garde le 1er ajoute au
+    # tie -> au tie CONSTANT le natif BOUGE (1re tuile de move). Origine en DERNIER = mirror (keep-first `>`
+    # sur les tuiles de move -> move gagne au tie ; l'origine ne l'emporte que si elle est STRICTEMENT max).
+    reach_nc = [(t["col"], t["row"]) for t in move_tiles] + ([origin] if origin is not None else [])
 
     # Scene objet = predictor + sctx consolidés (+ élévation) — consommée par engine.playbook.prediction.
     scene = (Scene.from_predictor_sctx(predictor, sctx, elev_by_pos)

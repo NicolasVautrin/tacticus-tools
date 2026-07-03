@@ -22,7 +22,11 @@ from engine.playbook.scene import Scene
 from engine.playbook import prediction
 
 ROOT = Path(__file__).resolve().parents[2]
-STATE = ROOT / "data" / "duel_state.json"
+# state-file DEDIE au harnais CLI : jamais data/duel_state.json (reserve au runner de travail
+# utilisateur). Le CLI build+dispose SON propre runner sans toucher a celui de l'utilisateur
+# (discipline coexistence : proprietaire = son --state-file, root-anchored).
+STATE_REL = "data/_predict_samples.json"
+STATE = ROOT / STATE_REL
 
 
 def _res(r):
@@ -135,22 +139,28 @@ def main(argv):
     a = ap.parse_args(argv)
     sid = R._resolve_session()
     print(f"[validate] session {sid} — build seed {a.seed}")
-    subprocess.run([sys.executable, "rl_duel.py", "build", "--seed", str(a.seed)],
+    subprocess.run([sys.executable, "rl_duel.py", "build", "--seed", str(a.seed),
+                    "--state-file", STATE_REL],
                    capture_output=True, text=True, encoding="utf-8", errors="replace")
-    st = json.loads(STATE.read_text())
-    rid = st["runnerId"]; my_team = st.get("myTeam", 1)
-    rows = build_samples(sid, rid, my_team, a.max_turns)
-    if not rows:
-        print("[validate] aucun échantillon d'attaque normale capturé."); return 1
-    print(f"\n=== {len(rows)} ÉCHANTILLONS (base=Attack+pierce+armure+MODIFIER effets) ===")
-    n_clean = n_ok = 0
-    for r in rows:
-        clean = sample_is_clean(r)
-        if clean:
-            n_clean += 1
-            n_ok += int(sample_is_ok(r))
-    print(f"AGREEMENT exact (+/-3) : {n_ok}/{n_clean}")
-    return 0
+    try:
+        st = json.loads(STATE.read_text())
+        rid = st["runnerId"]; my_team = st.get("myTeam", 1)
+        rows = build_samples(sid, rid, my_team, a.max_turns)
+        if not rows:
+            print("[validate] aucun échantillon d'attaque normale capturé."); return 1
+        print(f"\n=== {len(rows)} ÉCHANTILLONS (base=Attack+pierce+armure+MODIFIER effets) ===")
+        n_clean = n_ok = 0
+        for r in rows:
+            clean = sample_is_clean(r)
+            if clean:
+                n_clean += 1
+                n_ok += int(sample_is_ok(r))
+        print(f"AGREEMENT exact (+/-3) : {n_ok}/{n_clean}")
+        return 0
+    finally:
+        # dispose du runner du harnais (jamais orphelin, jamais le runner utilisateur)
+        subprocess.run([sys.executable, "rl_duel.py", "dispose", "--state-file", STATE_REL],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 
 if __name__ == "__main__":
