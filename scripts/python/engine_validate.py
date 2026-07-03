@@ -26,7 +26,6 @@ from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 import hexgeo  # noqa: E402
 import gameconfig as gc  # noqa: E402
 from engine import weights, move, leaves, playbooks  # noqa: E402
-from engine.utility import attack_utility  # noqa: E402
 from engine.utilities import damage_composite  # noqa: E402
 import predict_validate as PV  # noqa: E402  (prédicteur OFFLINE : remplace l'aiPredict live)
 
@@ -35,46 +34,23 @@ def _r(sid: int, method: str, body: dict, t: float = 90) -> dict:
     return (_rpc(sid, method, [body], timeout=t).get("result") or {})
 
 
-# Le natif `RangedAdjacentEnemyUtility.ShouldApply` gate sur l'arme/ability RANGED
-# (`WeaponProfile.IsRanged`), PAS le flag unité-classe `UnitExtensions.IsRanged` que
-# decisionView expose (faux pour les unités HeavyWeapon mêlée-classe : darkaTerminator
-# = melee mais PlasmaCannon ranged). On dérive donc « ranged-pour-mouvement » de
-# gameconfig (vérité offline) via le visualId : arme Range≥2 OU active attackRangeType==Ranged.
-#   def="weapon_or_ability" (défaut) : arme OU ability ranged (capture u96)
-#   def="weapon" : arme Range≥2 seulement
-_RANGED_DEF = os.environ.get("ENGINE_RANGED_DEF", "weapon_or_ability").lower()
-_RANGED_CACHE: dict = {}
 _DEBUG = bool(os.environ.get("ENGINE_DEBUG"))
 
-# Modèle de dégât pour l'argmax d'attaque (cible/ability) :
-#   "faithful" (DÉFAUT) : composite Damage FIDÈLE `engine.utilities.damage_composite` (DamageDealt 80/20
-#                         RE'd ghidra + KillUnit 100/50 + OverkillUnit 40/15, doc §13.7/13.8). Échelle
-#                         native réelle (~[0,250]), zéro knob. Nécessite target maxHP (observeBattle 1×/
-#                         décision). VALIDÉ à parité du legacy sur seeds 777 (60/80/100) + 2024 (45/65/100).
-#   "legacy"            : ancien barème deviné `engine.utility.attack_utility` (kill + chip frac×50),
-#                         gardé pour A/B / référence.
-_DAMAGE_MODEL = os.environ.get("ENGINE_DAMAGE_MODEL", "faithful").lower()
-
-# Modèle de scoring de MOVE :
-#   "unitmovement" (DÉFAUT) : `move.best_move_faithful` = décideur natif RE'd UnitMovement(6) = Tile(7)
-#                        [Elevation+situationnels] + MinDist(16) sur **distance de CHEMIN** (RPC
-#                        pathDistToEnemies, doc §13.11/13.12). Élévation via tileMeta. VALIDÉ > proxy sur
-#                        seeds 777 (65/80) + 2024 (55/75), ability 100 %. RPC pathfinder 1×/unité/décision.
-#   "proxy"            : ancien `move.best_move` (MinDist + MaxDistEnemies hex, NON-natif) — gardé pour A/B.
-_MOVE_MODEL = os.environ.get("ENGINE_MOVE_MODEL", "unitmovement").lower()
+# Modèle de dégât : composite Damage FIDÈLE `engine.utilities.damage_composite` (DamageDealt 80/20
+# RE'd ghidra + KillUnit 100/50 + OverkillUnit 40/15, doc §13.7/13.8). Échelle native réelle
+# (~[0,250]), zéro knob. Nécessite target maxHP (observeBattle 1×/décision).
+# Modèle de MOVE : `move.best_move_faithful` = décideur natif RE'd UnitMovement(6) = Tile(7)
+# [Elevation+situationnels] + MinDist(16) sur **distance de CHEMIN** (RPC pathDistToEnemies,
+# doc §13.11/13.12). Élévation via tileMeta. RPC pathfinder 1×/unité/décision.
 
 # ATTAQUE-vs-MOVE — argmax sur la devise UNIFIÉE (RE doc §13.6). Le natif ne s'engage dans une
 # attaque que si `U(attaque) = U_damage + tile_util(tuile d'attaque)` bat `U(move) = tile_util(meilleure
 # tuile de move)` ; sinon il se repositionne (= les 4 misses steps 11/12/17/20 où natif MOVE / moteur
-# ATTAQUE). DÉSACTIVÉ par défaut et NON FIDÈLE tant que 2 data manquent (cf. doc §13.7) :
-#   1. `attack_utility` n'est pas encore le composite Damage natif FIDÈLE — la feuille DamageDealt
-#      (DamageUtility, W_damage=80/W_remaining=20, RE'd doc §13.7) est connue, MAIS l'ASSEMBLAGE du
-#      composite (quelles des 13 feuilles + poids/signe par feuille) est dans un tableau statique non
-#      extrait (read_bytes=token). Sans lui, mélanger U_damage et tile_util = comparer 2 échelles non
-#      calibrées → on NE COMPENSE PAS par un knob (devinette). Gate OFF jusqu'à extraction.
-#   2. tile_util fidèle = composite Tile(7) [29 él] (idem non extrait) ; move.py en est un PROXY (55/77).
-# Piloté par ENGINE_MOVE_VS_ATTACK ("on" = expérimental, NON validé). Le terme dégât utilisé reste
-# `best[0]` (barème actuel) — à remplacer par le composite Damage fidèle une fois les arrays extraits.
+# ATTAQUE). DÉSACTIVÉ par défaut, bloqué par UNE data manquante (cf. doc §13.7) : le `tile_util`
+# fidèle = composite Tile(7) [29 éléments] n'est pas extrait (tableau statique, read_bytes=token) ;
+# `_tile_term0` en est un PROXY. Sans lui, mélanger `U_damage` (composite Damage fidèle, dispo) et
+# `tile_util` = comparer 2 échelles dont une non calibrée → on NE COMPENSE PAS par un knob (devinette).
+# Piloté par ENGINE_MOVE_VS_ATTACK ("on" = expérimental, NON validé).
 _MOVE_VS_ATTACK = os.environ.get("ENGINE_MOVE_VS_ATTACK", "off").lower() == "on"
 
 # SEUIL HEAL (fix bucket-tree §3.2, RE'd DefaultAiUnitTactic / GetDefaultActiveAbilityActionGenerators).
@@ -109,32 +85,6 @@ def _faction(visual_id) -> str | None:
     return f
 
 
-def _is_ranged_unit(visual_id) -> bool:
-    """« ranged-pour-mouvement » d'une unité (cf. RangedAdjacentEnemyUtility.ShouldApply),
-    dérivé de gameconfig par visualId. Cache par visualId."""
-    if not visual_id:
-        return False
-    if visual_id in _RANGED_CACHE:
-        return _RANGED_CACHE[visual_id]
-    res = False
-    try:
-        uid = gc.resolve_unit_id(visual_id)
-        u = gc.unit(uid) if uid else None
-        if u:
-            if any((w.get("Range") or 0) >= 2 for w in (u.get("weapons") or [])):
-                res = True
-            elif _RANGED_DEF != "weapon":
-                for aid in (u.get("activeAbilities") or []):
-                    a = gc.ability(aid) or {}
-                    if (a.get("attackRangeType") or "").lower() == "ranged":
-                        res = True
-                        break
-    except Exception:
-        res = False
-    _RANGED_CACHE[visual_id] = res
-    return res
-
-
 def _enemies(units: list, cur_player: int) -> list:
     # ctrl=False => unité adverse ; vivante
     return [u for u in units if not u.get("ctrl") and u.get("alive")
@@ -154,13 +104,11 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
     hp_cur_by_id = {u.get("id"): u.get("hp") for u in units}   # PV courants cible (kill/killSure spéciales)
     ab_name_by_id = {x.get("id"): x.get("name") for x in ((me or {}).get("abilities") or [])}
 
-    # maxHP par cible (combinedMax du composite Damage fidèle) — observeBattle 1×/décision, mode
-    # "faithful" seulement. Clé = squadId (= l'id cible des attackPlans, cf. branche heal). Manque -> le
-    # scoreur retombe sur hpBefore (cible pleine), dégradation sûre.
-    hpmax_by_id: dict = {}
-    if _DAMAGE_MODEL == "faithful":
-        obs = _r(sid, "observeBattle", {"runnerId": rid}, 40)
-        hpmax_by_id = {u.get("squadId"): (u.get("hpMax") or 0) for u in (obs.get("units") or [])}
+    # maxHP par cible (combinedMax du composite Damage fidèle) — observeBattle 1×/décision.
+    # Clé = squadId (= l'id cible des attackPlans, cf. branche heal). Manque -> le scoreur retombe
+    # sur hpBefore (cible pleine), dégradation sûre.
+    obs = _r(sid, "observeBattle", {"runnerId": rid}, 40)
+    hpmax_by_id = {u.get("squadId"): (u.get("hpMax") or 0) for u in (obs.get("units") or [])}
 
     # État courant du pas pour le prédicteur OFFLINE (hp/pos/team/effets seed) — reconstruit à chaque
     # décision car l'état mute. `predictor` (tables cold, 1×/runner) fourni par run_agreement.
@@ -170,41 +118,32 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
         # PV des abilities (`GetHealthToLose`, ex. DakkaDakkaDakka 15% maxHP → event SELF négatif).
         sctx["hpmax_by_id"] = hpmax_by_id
 
-    # Élévation par tuile (Tile(7)) + distance-CHEMIN par tuile (MinDist fidèle, doc §13.12) — mode
-    # "unitmovement" seulement. tileMeta 1×/décision ; pathDistToEnemies 1×/unité.
-    elev_by_pos: dict = {}
-    pathdist_by_pos: dict = {}
-    is_temporary_by_pos: dict = {}
-    effects_by_pos: dict = {}
-    if _MOVE_MODEL == "unitmovement":
-        tm = _r(sid, "tileMeta", {"runnerId": rid}, 60)
-        elev_by_pos = {(t.get("col"), t.get("row")): t.get("elevation")
-                       for t in (tm.get("tiles") or [])}
-        is_temporary_by_pos = {(t.get("col"), t.get("row")): bool(t.get("isTemporary"))
-                               for t in (tm.get("tiles") or [])}
-        # Effets de statut de tuile (tileMeta.effects) -> feuille TileEffects(9). name = clé de
-        # poids Default.TileEffects (ex. Thorns_DefenseReduction=-25). Multiplicateur natif = 1.0
-        # par défaut (PROUVE : Thorns -25 = poids -25 x mult => mult=1) ; la branche speciale
-        # (owner ami/ennemi + effectType==5/Fire) n'est pas encore appliquee (cf. tile.py:tile_effects).
-        effects_by_pos = {(t.get("col"), t.get("row")): [e.get("name") for e in (t.get("effects") or [])]
-                          for t in (tm.get("tiles") or [])}
-        pdr = _r(sid, "pathDistToEnemies", {"runnerId": rid, "unitId": uid}, 90)
-        pathdist_by_pos = {(t.get("col"), t.get("row")): t.get("pathDist")
-                           for t in (pdr.get("tiles") or [])}
+    # Élévation par tuile (Tile(7)) + distance-CHEMIN par tuile (MinDist fidèle, doc §13.12).
+    # tileMeta 1×/décision ; pathDistToEnemies 1×/unité.
+    tm = _r(sid, "tileMeta", {"runnerId": rid}, 60)
+    elev_by_pos = {(t.get("col"), t.get("row")): t.get("elevation")
+                   for t in (tm.get("tiles") or [])}
+    is_temporary_by_pos = {(t.get("col"), t.get("row")): bool(t.get("isTemporary"))
+                           for t in (tm.get("tiles") or [])}
+    # Effets de statut de tuile (tileMeta.effects) -> feuille TileEffects(9). name = clé de
+    # poids Default.TileEffects (ex. Thorns_DefenseReduction=-25). Multiplicateur natif = 1.0
+    # par défaut (PROUVE : Thorns -25 = poids -25 x mult => mult=1) ; la branche speciale
+    # (owner ami/ennemi + effectType==5/Fire) n'est pas encore appliquee (cf. tile.py:tile_effects).
+    effects_by_pos = {(t.get("col"), t.get("row")): [e.get("name") for e in (t.get("effects") or [])]
+                      for t in (tm.get("tiles") or [])}
+    pdr = _r(sid, "pathDistToEnemies", {"runnerId": rid, "unitId": uid}, 90)
+    pathdist_by_pos = {(t.get("col"), t.get("row")): t.get("pathDist")
+                       for t in (pdr.get("tiles") or [])}
 
     # Candidat MOVE calculé TÔT (réutilisé par la comparaison attaque-vs-move §13.6 ET la section 2).
-    # origin/ranged = au sens natif (gameconfig), pas le flag unité-classe decisionView.ranged.
+    # origin = au sens natif (gameconfig), pas le flag unité-classe decisionView.ranged.
     origin = (me["pos"]["col"], me["pos"]["row"]) if me and me.get("pos") else None
-    ranged = _is_ranged_unit(me.get("visualId")) if me else False
     move_tiles = (mov_by_unit.get(uid) or {}).get("tiles") or []
     move_to, move_util = (None, None)
     if move_tiles and enemies:
-        if _MOVE_MODEL == "unitmovement":
-            move_to, move_util = move.best_move_faithful(
-                move_tiles, elev_by_pos, epos, wt, pathdist_by_pos=pathdist_by_pos,
-                is_temporary_by_pos=is_temporary_by_pos, effects_by_pos=effects_by_pos)
-        else:
-            move_to, move_util = move.best_move(move_tiles, origin, epos, wt, ranged)
+        move_to, move_util = move.best_move_faithful(
+            move_tiles, elev_by_pos, epos, wt, pathdist_by_pos=pathdist_by_pos,
+            is_temporary_by_pos=is_temporary_by_pos, effects_by_pos=effects_by_pos)
 
     # 1. Attaque : evals atteignables (rankCount>0) -> barème kill/overkill via aiPredict.
     #    allAbilities=True => inclut les abilities spéciales d'attaque (ex. DakkaDakkaDakka 1171),
@@ -312,23 +251,20 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
                 pred = _events[0][1]          # cible PRINCIPALE (tie-break kill/killSure + dbg)
                 _aoe_events = _events[1:]     # cibles AoE additionnelles (surrounding/behind/other)
             _bk = []
-            if _DAMAGE_MODEL == "faithful":
-                # `CalculateUtilityFromPredictions @181407890` = Σ damage_composite sur TOUS les events
-                # (§39) : principale + AoE, chaque event × sa `probability` (eventMultiplier de
-                # `CalculateUtilityFromDamageEvent @1814a9f90` ; ex. PlasmaCannon batch secondaire
-                # pondéré min(1, maxSecondary/n)). Mono-cible → Σ = terme principal.
-                u = damage_composite(pred, hpmax_by_id.get(tgt), wt)   # composite Damage (§13.7/13.8)
-                _bk.append((tgt, round(u, 1)))
-                for _atid, _apred in _aoe_events:
-                    # Event FRIENDLY (self-damage/coût en PV, `GetHealthToLose`) → utilité NÉGÉE
-                    # (DamageUtility @1810e2280 : friendly-fire negated ; step-13 : −15.0 exact).
-                    _sign = -1.0 if _apred.get("friendly") else 1.0
-                    _ua = _sign * _apred.get("probability", 1.0) * damage_composite(
-                        _apred, hpmax_by_id.get(_atid), wt)
-                    u += _ua
-                    _bk.append((_atid, round(_ua, 1)))
-            else:
-                u = attack_utility(pred, wt)                           # barème historique
+            # `CalculateUtilityFromPredictions @181407890` = Σ damage_composite sur TOUS les events
+            # (§39) : principale + AoE, chaque event × sa `probability` (eventMultiplier de
+            # `CalculateUtilityFromDamageEvent @1814a9f90` ; ex. PlasmaCannon batch secondaire
+            # pondéré min(1, maxSecondary/n)). Mono-cible → Σ = terme principal.
+            u = damage_composite(pred, hpmax_by_id.get(tgt), wt)   # composite Damage (§13.7/13.8)
+            _bk.append((tgt, round(u, 1)))
+            for _atid, _apred in _aoe_events:
+                # Event FRIENDLY (self-damage/coût en PV, `GetHealthToLose`) → utilité NÉGÉE
+                # (DamageUtility @1810e2280 : friendly-fire negated ; step-13 : −15.0 exact).
+                _sign = -1.0 if _apred.get("friendly") else 1.0
+                _ua = _sign * _apred.get("probability", 1.0) * damage_composite(
+                    _apred, hpmax_by_id.get(_atid), wt)
+                u += _ua
+                _bk.append((_atid, round(_ua, 1)))
             # ARGMAX JOINT (tuile, cible) : u_total = dégât + Tile(7)@tuile (CalculateActionUtility).
             u_full = u + _tile_term0(tile)
             if pair_best is None or u_full > pair_best[0]:
