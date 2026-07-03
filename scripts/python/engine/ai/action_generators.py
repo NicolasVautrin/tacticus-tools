@@ -46,9 +46,10 @@ from engine.ai.bucket import Action, Bucket
 
 # Abilities REPAIR Comparable (RepairPlaybook @181187c00 / Repair_GalvanicFieldPlaybook @181155b80) —
 # identifiees par ID, PAS par `"Repair" in name` (R2 : ce substring captait aussi
-# NanoscarabRepairProtocols(1224) qui est NonComparablePlaybook @18114e1f0 -> mauvais routage). IDs :
-# Repair(28), MechRepair(82), BattleTinkererRepair(84), Repair_GalvanicField(1119). A ETENDRE au portage.
-_COMPARABLE_REPAIR_IDS: "frozenset[int]" = frozenset({28, 82, 84, 1119})
+# NanoscarabRepairProtocols(1224), NonComparablePlaybook @18114e1f0 -> mauvais routage). ActiveAbilityType :
+# SEULS Repair(28) + Repair_GalvanicField(1119) sont Comparable-repair (RepairedAmountUtility instanciee 1x) ;
+# 1224 = le seul NonComparable-repair, exclu. (82/84 = IDs inexistants dans l'enum, retires -- validateur.)
+_COMPARABLE_REPAIR_IDS: "frozenset[int]" = frozenset({28, 1119})
 
 
 _FACTION_CACHE: dict = {}
@@ -227,9 +228,10 @@ class ComparableAbilityGenerator(ActionGenerator):
 
     def _repair_candidates(self, ctx) -> list:
         """Sweep RÉPARATION (tile-swept) via `RepairPlaybook` (Comparable, @181187c00) -> liste
-        {target, ability, to, pred, full}. MIROIR de `_heal_candidates` : identification par nom
-        `"Repair" in ab.name` (composant live : `Repair_GalvanicField`/`MechRepair`/… , cf. heal
-        `Heal_TwistedScience`) ; énumération cibles = `abilityTargets` ; utilité par cible =
+        {target, ability, to, pred, full}. MIROIR de `_heal_candidates` : identification par ID Comparable-
+        repair (`_COMPARABLE_REPAIR_IDS` = {28, 1119} = Repair / Repair_GalvanicField ; PAS `"Repair" in
+        name` qui captait le NonComparable NanoscarabRepairProtocols(1224)) ; énumération cibles =
+        `abilityTargets` ; utilité par cible =
         `repair_utility` (RepairedAmountUtility : `fill_hp/(maxHP+1)×100 + fill_armor/(maxArmor+1)×50`,
         PAS de friendSign — répare ses propres machines) ; gate `ShouldExecute` : pred > 0.
 

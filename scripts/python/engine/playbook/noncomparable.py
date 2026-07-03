@@ -382,11 +382,12 @@ class RitesOfRestorationPlaybook(NonComparablePlaybook):
                 and u.get("squadId") != ctx.uid and _resurrectable(u)]
         if not dead:
             return []   # Count(GetPossibleResurrectTargets) == 0 -> ability non evaluee
-        # hero = ResurrectTargets ∩ UnitsWithTrait(0x10=Hero=16) @181203d00 ; summon = ∩ Summon(2)
-        # @181203d40. Summon(2) = flag runtime ABSENT de gameconfig.traits -> proxy kind=="npc"
-        # (roster=lineup, unite spawnee=npc). heuristique.
+        # hero = ResurrectTargets ∩ UnitsWithTrait(0x10=Hero=16) @181203d00 ; summon = ∩ UnitsWithTrait(
+        # Summon=2) @181203d40. Le trait "Summon" EST exposé par gameconfig (59 unités ; les summons
+        # Imperial sont en section kind="summons", PAS "npc") -> l'ancien proxy kind=="npc" ratait 100%
+        # des vrais summons ET comptait des npc non-summon (faux nég + faux pos, validateur) -> trait exact.
         hero_dead = sum(1 for u in dead if "Hero" in _traits(u.get("visualId")))
-        summon_dead = sum(1 for u in dead if _unit_cfg(u.get("visualId")).get("kind") == "npc")
+        summon_dead = sum(1 for u in dead if "Summon" in _traits(u.get("visualId")))
         # Alliees VIVANTES non-Mecaniques (heal targets adjacents) + occupation (resurrectTiles).
         ally_nonmech_pos = [(u.get("col"), u.get("row")) for u in obs
                             if u.get("teamId") == team and not u.get("isDead")
