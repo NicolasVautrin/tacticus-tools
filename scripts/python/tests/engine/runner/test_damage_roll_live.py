@@ -53,7 +53,7 @@ def damage_roll_case(live_session, rpc, build_runner):
     Renvoie le 1er cas exploitable (sur quelques seeds) : plage brute (aiPredict
     pré-armure), perçage/armure, dégât réellement infligé, et les dumps MT avant/après.
     """
-    import predict_validate as PV          # lazy : tire rl_collect_batch
+    import predict_samples as PV  # harnais de validation prédiction (ex-predict_validate)          # lazy : tire rl_collect_batch
     sid = live_session
 
     for seed in _SEEDS:

@@ -24,7 +24,9 @@ Le driver generique `choose_action` (mirror ChooseAction) collecte les candidats
 abilities NC usable de l'unite et rend l'argmax -> remplace le switch. Utilite = heuristique BRUTE
 (pas de terme Tile7 : CalculateActionUtility/Tile7 est un chemin Comparable-only).
 
-cf. engine/battle_query.py (primitives), docs/rl/playbook-engine.md §1.3 + §10.
+cf. engine/battle_query.py (primitives), docs/rl/playbook/architecture.md §2.3 + playbooks.md.
+Vit dans le namespace unifie `engine.playbook` (= `IdunBattle.AI.Playbook`), aux cotes de
+`comparable.py`/`common.py` (les playbooks Comparable).
 """
 from __future__ import annotations
 
@@ -49,11 +51,15 @@ class NCContext:
     debug: bool = False
 
 
-class Playbook:
-    """Base — partie NonComparable de `IdunBattle.AI.Playbook.BasePlaybook`. Priorite Normal(0)
-    pour tous les portes. Sous-classe = un playbook natif (selector + leaf + MIN_UTILITY)."""
+class NonComparablePlaybook:
+    """`NonComparablePlaybook<T>` — playbook à heuristique ENTIÈRE écrite dans la feuille (summons,
+    buffs, retraite), par opposition à `ComparablePlaybook<T>` (attaques/soins = somme pondérée sur
+    prédictions). Priorité Normal(0) pour tous les portés. Sous-classe = un playbook natif homonyme
+    (selector + leaf `EvaluateNonComparable` + MIN_UTILITY du cctor)."""
     ABILITY_ID: int = -1
     MIN_UTILITY: float = 0.0       # cctor du playbook -> gate Bucket.AddAction (util >= min)
+    PRIORITY: int = 0              # get_Priority (slot0) -> tier NonComparable (dict[prio], @1810ed540)
+    #                                les 4 portés = 0 (confirmé live via abilityPreferences/get_Priority)
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         """Mirror <GenerateActions>d__7 pour CETTE ability : balaie positions/cibles (selector
@@ -62,7 +68,7 @@ class Playbook:
         raise NotImplementedError
 
 
-class _PlanTargetPlaybook(Playbook):
+class _PlanTargetPlaybook(NonComparablePlaybook):
     """Base des abilities d'ATTAQUE NonComparable (BloodyFury, VexillaMagnifica). Le generator
     natif enumere ici les couples (cible, tuile d'attaque) via le plan natif rank
     (`abilityTargets`/ranked du plan) au lieu d'un balayage de tuiles de move ; leaf par sous-classe.
@@ -116,7 +122,7 @@ class VexillaMagnificaPlaybook(_PlanTargetPlaybook):
         return float(hp) if hp and hp > 0 else None
 
 
-class FightingRetreatPlaybook(Playbook):
+class FightingRetreatPlaybook(NonComparablePlaybook):
     """FightingRetreatPlaybook.EvaluateNonComparable @181131ff0 : u = |ennemis adj a la tuile| +
     (si >0) |allies adj a la tuile - self|, balaye sur les tuiles atteignables (origine EN TETE) ;
     cible = SELF. cctor @1811323b0 : MIN_UTILITY=2."""
@@ -147,7 +153,7 @@ class FightingRetreatPlaybook(Playbook):
                  "to": (best_t if best_t != ctx.origin else None), "pred": best_u}]
 
 
-class AberrantHypermorphPlaybook(Playbook):
+class AberrantHypermorphPlaybook(NonComparablePlaybook):
     """AberrantHypermorphPlaybook.EvaluateNonComparable @1811197d0 (action COMPOSEE move+summon).
     Le generator balaie les tuiles de MOVE du caster ; par tuile T, le selector
     `GetEligibleTargetsSelectable @18111f0d0` rend les tuiles de SPAWN eligibles (ring-1 libre,
@@ -194,7 +200,7 @@ class AberrantHypermorphPlaybook(Playbook):
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
-PLAYBOOKS: dict[int, Playbook] = {
+PLAYBOOKS: dict[int, NonComparablePlaybook] = {
     pb.ABILITY_ID: pb for pb in (
         BloodyFuryPlaybook(),
         VexillaMagnificaPlaybook(),
@@ -204,7 +210,7 @@ PLAYBOOKS: dict[int, Playbook] = {
 }
 
 
-def playbook_for(ability_id: int) -> Playbook | None:
+def playbook_for(ability_id: int) -> NonComparablePlaybook | None:
     return PLAYBOOKS.get(ability_id)
 
 
@@ -219,21 +225,27 @@ def is_summon(ability_id: int) -> bool:
     return isinstance(PLAYBOOKS.get(ability_id), AberrantHypermorphPlaybook)
 
 
-def choose_action(abilities: list, ctx: NCContext) -> dict | None:
-    """Driver NonComparable (mirror du tactic + Bucket.ChooseAction) : pour chaque ability NC
-    usable de l'unite, collecte les candidats de son playbook (generator + gate MIN_UTILITY),
-    rend l'argmax STRICT (tie -> 1er) ou None si aucun tier ne tire. Remplace le switch `kind`."""
+def choose_action(abilities: list, ctx: NCContext, priority: int | None = None) -> dict | None:
+    """Driver d'UN generateur NonComparable (mirror `ActiveAbilityActionGenerator.GenerateActions`
+    @18119a3f0 + `Bucket.ChooseAction`) : pour chaque ability NC usable de l'unite DU TIER `priority`
+    (get_Priority ; None = tous tiers confondus), collecte les candidats de son playbook (generator +
+    gate MIN_UTILITY), rend l'argmax STRICT (tie -> 1er) ou None si le generateur est vide.
+
+    Le natif range les NonComparable dans `dict[get_Priority]` (@1810ed540) : un generateur PAR tier,
+    evalues dans l'ordre 1000..-1000 AVANT le fallback Comparable. `priority` selectionne ce tier."""
     nc_cands: list[dict] = []
     for ab in (abilities or []):
         pb = playbook_for(ab.get("id"))
         if pb is None or ab.get("usable") is False:
             continue
+        if priority is not None and pb.PRIORITY != priority:
+            continue   # ability d'un autre tier NonComparable -> pas dans CE generateur
         nc_cands += pb.generate_candidates(ctx)
     if not nc_cands:
         return None
     if ctx.debug:
         import sys
-        print(f"    [dbg NC u{ctx.uid}] tier0="
+        print(f"    [dbg NC u{ctx.uid}] tier{priority}="
               f"{[(c['ability'], c.get('target'), c.get('to'), c['pred']) for c in nc_cands]}",
               file=sys.stderr)
     return max(nc_cands, key=lambda c: c["pred"])   # strict : max() garde le 1er a egalite

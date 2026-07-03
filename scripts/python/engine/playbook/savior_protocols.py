@@ -19,7 +19,7 @@ Contrat `case` :
 from __future__ import annotations
 
 from ..weights import Weights
-from .base import Playbook, register
+from .base import BasePlaybook
 
 # Ids RE'd (hex/déc) — pour le plumbing de la metadata.
 ABILITY_ID = 0x460          # 1120
@@ -27,8 +27,16 @@ MARKER_EFFECT_ID = 0x462    # 1122
 FACTION_GATE = 9            # T'au-style (HasFaction(9))
 
 
-class SaviorProtocolsPlaybook(Playbook):
+class SaviorProtocolsPlaybook(BasePlaybook):
+    """DORMANT — référence RE d'un playbook bespoke à clés-strings (modèle `case`/GetUtilityValue).
+    NON enregistré dans le registry de scoring (pas sur le chemin live ; le générateur retombe sur
+    DefaultActiveAbilityPlaybook pour 1120). Conservé pour la doc des poids TriggeredAbilities."""
     ability_id = ABILITY_ID  # 1120
+    cat = "TriggeredAbilities"
+
+    def w(self, wt: Weights, key: str) -> float:
+        """Poids BC `Utilities.Default.<cat>.<key>` (défaut 0 = GetUtilityValue natif)."""
+        return wt.sub(self.cat, key)
 
     def attack_utility(self, case: dict, wt: Weights) -> float:
         """Gate : la cible porte l'effet marqueur 1122 → +MarkedTarget. (1 yield natif)."""
@@ -50,5 +58,5 @@ class SaviorProtocolsPlaybook(Playbook):
                 u += w_parent
         return u
 
-
-register(SaviorProtocolsPlaybook())
+# NON enregistré (dormant) : pas de register(...) — le générateur retombe sur DefaultActiveAbilityPlaybook
+# pour l'ability 1120 si elle apparaît.

@@ -12,11 +12,12 @@ import argparse
 import sys
 
 from rl_collect_batch import _resolve_session, _rpc
-from engine import weights, playbooks
+from engine import weights
+from engine.playbook import noncomparable as playbooks  # namespace unifié
 from engine import battle_query as bq
 import hexgeo
 import engine_validate as EV
-import predict_validate as PV
+from engine.playbook import scene as _scene  # seam live-feed (build_predictor/refresh_shields)
 
 
 def _r(sid, method, params, timeout=40):
@@ -34,7 +35,7 @@ def main(argv):
         rl = _rpc(sid, "listRunners", [], timeout=10).get("result") or []
         rid = (rl[-1]["runnerId"] if isinstance(rl[-1], dict) else rl[-1]) if rl else None
     wt = weights.load()
-    predictor = PV.build_predictor(sid, rid)
+    predictor = _scene.build_predictor(lambda m, b, t: _r(sid, m, b, t), rid)
     print(f"[probe] session={sid} runner={rid}")
 
     for step in range(a.steps):
@@ -55,7 +56,7 @@ def main(argv):
             elev_by_pos = {(t.get("col"), t.get("row")): t.get("elevation")
                            for t in (tm.get("tiles") or [])}
             if predictor is not None:
-                PV.refresh_shields(predictor, sid, rid)
+                _scene.refresh_shields(predictor, lambda m, b, t: _r(sid, m, b, t), rid)
             mov_by_unit = {u.get("unitId"): u for u in (mov.get("units") or [])}
 
             # Reconstitue le contexte du bloc summon (mirroir d'engine_decide)

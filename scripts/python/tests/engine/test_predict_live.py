@@ -23,7 +23,7 @@ import pytest
 @pytest.fixture(scope="session")
 def predict_samples(live_session, build_runner):
     """Échantillons d'agrément capturés une fois (runner isolé frais auto-disposé)."""
-    import predict_validate as PV
+    import predict_samples as PV  # harnais de validation prédiction (ex-predict_validate)
 
     info = build_runner(os.environ.get("PREDICT_SEED", "777"))   # générateur, hors critère
     rows = PV.build_samples(live_session, info["rid"], info["my_team"],
@@ -35,7 +35,7 @@ def predict_samples(live_session, build_runner):
 
 def test_normal_attack_prediction_matches_oracle(predict_samples):
     """Chaque attaque normale clean : prédiction offline == oracle natif, exact."""
-    import predict_validate as PV
+    import predict_samples as PV  # harnais de validation prédiction (ex-predict_validate)
 
     clean = [r for r in predict_samples if PV.sample_is_clean(r)]
     assert clean, "aucun échantillon clean (non predOptimistic) capturé"
@@ -54,7 +54,7 @@ def test_normal_attack_prediction_matches_oracle(predict_samples):
 def test_prediction_has_meaningful_coverage(predict_samples):
     """Garde-fou anti-faux-vert : au moins quelques attaquants distincts couverts
     (sinon le test ci-dessus passerait sur un échantillon trivial)."""
-    import predict_validate as PV
+    import predict_samples as PV  # harnais de validation prédiction (ex-predict_validate)
 
     attackers = {r["att"] for r in predict_samples if PV.sample_is_clean(r)}
     assert len(attackers) >= 2, (

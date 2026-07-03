@@ -1,96 +1,96 @@
-"""Base scaffolding du subsystem Playbook + registry (RE docs/rl/playbook-engine.md §14.3/§14.5).
+"""Base du namespace `IdunBattle.AI.Playbook` — hiérarchie + registry (RE playbook/architecture.md §2.2).
 
-Hiérarchie native : `Playbook<T> → TriggeredAbilityPlaybook<T> → …NonOwnerPlaybook<T>`. Méthodes
-`Calculate{Movement,Attack,Repair}UtilityInSteps` → `IEnumerable<Fix64>` qui yield **un seul Fix64**
-(= utilité totale de l'ability pour ce case), sommé par le dispatcher. `GetUtilityValue(key)` =
-`Dictionary<string,int>.TryGetValue` (défaut 0) → Fix64.
+Hiérarchie native : `BasePlaybook -> {ComparablePlaybook<T>, NonComparablePlaybook<T>}`. Un générateur
+d'action fait `LoadPlaybook(abilityType) -> playbook.Evaluate(unit, tile)` ; c'est le playbook qui
+énumère ses cibles et les score. Deux régimes :
 
-Ici on modélise un playbook comme un objet exposant `attack_utility`/`movement_utility`/`repair_utility`
-qui rendent un `float` (on compare l'argmax, pas la valeur Fix64 bit-exacte — cf. doc §6). Le poids est
-lu via `Weights.sub(dispatcher_category, key)` — les clés sont les littéraux résolus offline
-(`playbook_keys.py`), qui vivent dans `Utilities.Default.{TriggeredAbilities|TriggeredAbilitiesNonOwner|
-UnitSpecificBehaviours|ActiveAbilities}`.
+- **Comparable** (`ComparablePlaybook<T>`, attaques/soins) : `EvaluateInternal @181408980` boucle les
+  cibles éligibles à position caster FIXÉE, `CalculateActionUtility @181406ee0` par cible
+  (`= predictionUtility + Σ CalculateUtilityFromPredictions + [gate ShouldExecute] + Tile(7)`), argmax
+  dans un Bucket. `MakeDamagePredictions` (vtable) = le fournisseur de prédiction, OVERRIDÉ par playbook.
+- **NonComparable** (`NonComparablePlaybook<T>`) : heuristique entière dans la feuille -> `noncomparable.py`.
+
+PRÉDICTEUR : `ComparablePlaybook.make_damage_predictions` délègue à `engine.playbook.prediction`
+(orchestration mince) sur le MODÈLE OBJET — `Scene` (état live) + `AActiveAbility`/`UnitContext`
+(entities) + services (`BattleQuery` sélection d'arme, `DamagePrediction`/`DamageCalculations`) — et
+produit des `ProbableDamageEvent`. Couvre AoE, multi-hit, split bouclier, modifiers d'effets, self-damage.
 """
 from __future__ import annotations
 
+from typing import Callable
+
 from ..weights import Weights
-
-# Catégories BC où vivent les poids de playbook, par type de dispatcher (§14.6).
-CAT_OWNER = "TriggeredAbilities"
-CAT_NONOWNER = "TriggeredAbilitiesNonOwner"
-CAT_UNITSPEC = "UnitSpecificBehaviours"
-CAT_ACTIVE = "ActiveAbilities"
+from ..utilities import damage_composite
+from ..utilities.tile import tile_composite
 
 
-class Playbook:
-    """Base : un playbook par-ability. Sous-classes overrident le gate + l'énumération + les clés.
-
-    `ability_id` = l'AbilityType (clé du registry, = id posé par le ctor natif). `cat` = la catégorie BC
-    du dispatcher (owner par défaut). Les 3 méthodes rendent un `float` (0 si gate non tenu / metadata
-    absente = dégradation native). `case` = dict décrivant l'action candidate + l'état pertinent
-    (contrat documenté par sous-classe) ; `wt` = poids BC chargés."""
+class BasePlaybook:
+    """Racine `BasePlaybook`. `ability_id` = l'AbilityType (clé du registry). `priority` = le tier de
+    préférence (`get_Priority`, interface slot 0 ; défaut 0 = tier final). Les sous-classes concrètes
+    (Comparable/NonComparable) définissent l'énumération + le scoring."""
 
     ability_id: int = -1
-    cat: str = CAT_OWNER
-
-    def w(self, wt: Weights, key: str) -> float:
-        """Poids BC `Utilities.Default.<cat>.<key>` (défaut 0 = comportement natif GetUtilityValue)."""
-        return wt.sub(self.cat, key)
-
-    # --- Hooks du scorer générique (ComparablePlaybook<T>, §14.7) ---
-    # Les playbooks COMMUNS (Default/NormalAttack/Heal/Repair) n'overrident que ces hooks ; le calcul
-    # prédiction→utilité (dégât/soin/effet/repair × utilités composées Damage34/Heal44/Repair46/Tile7)
-    # est le PIPELINE PARTAGÉ = engine/utility.py + utilities/{damage,tile}.py — PAS du code par-playbook.
-
-    def should_execute(self, case: dict, wt: Weights) -> bool:
-        """Gate `ShouldExecute` natif (ability éligible pour ce case). Défaut : True."""
-        return True
-
-    def custom_utility(self, case: dict, wt: Weights) -> float:
-        """`CalculateCustomUtility` natif (constante ajoutée au score d'action). Défaut : 0
-        (NonComparable/ComparablePlaybook base) ; certains playbooks rendent une constante."""
-        return 0.0
-
-    # --- Chaîne PRÉDICTION→UTILITÉ (ComparablePlaybook, RE §14.7 + comparable_playbook.py) ---
-    def make_damage_predictions(self, caster, target, ability,
-                                reduction_min: int = 0, reduction_max: int = 0):
-        """Playbook.MakeDamagePredictions : prédictions de dégât pour (caster→target) via l'ability.
-        Base = GenerateMultiHitAttackPredictions ; les playbooks à dégât bespoke overrident."""
-        from .comparable_playbook import generate_multi_hit_attack_predictions
-        return generate_multi_hit_attack_predictions(
-            caster, target, ability, reduction_min, reduction_max)
-
-    def calculate_action_utility(self, caster, target, ability, wt: Weights,
-                                 case: dict | None = None,
-                                 target_max_health: int | None = None) -> float:
-        """ComparablePlaybook.CalculateActionUtility = CustomUtility + Σ des prédictions de dégât
-        (CalculateUtilityFromPredictions). (Soin/effet/position/tile = couches additionnelles à
-        câbler ensuite ; ici = terme dégât + custom, le cœur attaque.)"""
-        from .comparable_playbook import calculate_utility_from_predictions
-        events = self.make_damage_predictions(caster, target, ability)
-        return (self.custom_utility(case or {}, wt)
-                + calculate_utility_from_predictions(events, wt, target_max_health))
-
-    # --- Termes par-ability bespoke (string-keyed), pour les playbooks type SaviorProtocols ---
-    def attack_utility(self, case: dict, wt: Weights) -> float:
-        return 0.0
-
-    def movement_utility(self, case: dict, wt: Weights) -> float:
-        return 0.0
-
-    def repair_utility(self, case: dict, wt: Weights) -> float:
-        return 0.0
+    priority: int = 0                     # tier de préférence (0 = défaut/final)
 
 
-# Registry AbilityType id -> instance Playbook (§14.2 : 351 registrations natives ; port incrémental).
-# On enregistre au fur et à mesure les playbooks portés ; les ids absents = pas encore portés (→ 0).
-REGISTRY: dict[int, Playbook] = {}
+# ── Terme de tuile Tile(7) partagé (`CalculateUtilityFromTilePrediction @181408740`) ────────────────
+def tile_utility(ctx, pos) -> float:
+    """Composite Tile(7) évalué sur la tuile caster `pos`. Sur carte plate ≈ 0 (feuilles situationnelles
+    gatées sur métadata absente) -> ne discrimine que sur élévation / tuiles spéciales. Bonus additif."""
+    meta: dict = {}
+    e = ctx.elev_by_pos.get(pos)
+    if e is not None:
+        _elevs = [x for x in ctx.elev_by_pos.values() if x is not None]
+        meta = {"elevation": e, "elevation_max": max(_elevs), "elevation_min": min(_elevs)}
+    if pos in ctx.is_temporary_by_pos:
+        meta["is_temporary"] = ctx.is_temporary_by_pos[pos]
+    if pos in ctx.effects_by_pos:
+        meta["effects"] = ctx.effects_by_pos[pos]   # feuille TileEffects (ex. Thorns=-25)
+    return tile_composite(pos, meta, {}, ctx.wt)
 
 
-def register(pb: Playbook) -> Playbook:
+class ComparablePlaybook(BasePlaybook):
+    """`ComparablePlaybook<T>` — régime somme-pondérée sur prédictions (attaques d'abord). Le playbook
+    dispatché par le générateur ; `make_damage_predictions` (le fournisseur de prédiction) est OVERRIDÉ
+    par sous-classe (NormalAttack -> PV.normal ; Default/spéciales -> PV.special)."""
+
+    is_normal_attack: bool = False        # tie-break natif : à utilité TOTALE égale, la normale gagne
+
+    def make_damage_predictions(self, ctx, caster_tile, target, ability_id):
+        """`Playbook.MakeDamagePredictions` (vtable +0x358) : liste `[(target_id, event_dict), …]` =
+        cible principale + AoE, ou None/[] si NON-attaque. Délègue au port PV (complet/validé)."""
+        raise NotImplementedError
+
+    def calculate_action_utility(self, ctx, caster_tile, target, ability_id) -> dict | None:
+        """`CalculateActionUtility @181406ee0` pour (caster@caster_tile, target) : Σ des events (dégât)
+        + Tile(7)@tuile. Gate `ShouldExecute` = pas de prédiction d'attaque -> None (pas d'action émise).
+        Renvoie `{u, u_full, pred, aoe, bk}` (u = dégât seul ; u_full = u + tile ; pred = event principal)."""
+        events = self.make_damage_predictions(ctx, caster_tile, target, ability_id)  # list[ProbableDamageEvent]
+        if not events:
+            return None
+        from .probable_damage_event import calculate_utility_from_damage_event
+        # `CalculateUtilityFromPredictions @181407890` = Σ `CalculateUtilityFromDamageEvent @1814a9f90`
+        # (= prob1 × prob2 × composite Damage ; event FRIENDLY -> utilité NÉGÉE).
+        u = 0.0
+        bk = []
+        for ev in events:
+            ua = calculate_utility_from_damage_event(ev, ctx.wt, ctx.hpmax_by_id.get(ev.target))
+            u += ua
+            bk.append((ev.target, round(ua, 1)))
+        main = events[0]
+        return {"u": u, "u_full": u + tile_utility(ctx, caster_tile),
+                "pred": main.composite_fields(), "aoe": events[1:], "bk": bk}
+
+
+# Registry AbilityType id -> instance de playbook (Comparable ; les NonComparable ont leur propre
+# registre dans noncomparable.py). Port incrémental : les ids absents -> DefaultActiveAbilityPlaybook.
+REGISTRY: dict[int, ComparablePlaybook] = {}
+
+
+def register(pb: ComparablePlaybook) -> ComparablePlaybook:
     REGISTRY[pb.ability_id] = pb
     return pb
 
 
-def get_playbook(ability_id: int) -> Playbook | None:
+def get_playbook(ability_id: int) -> ComparablePlaybook | None:
     return REGISTRY.get(ability_id)

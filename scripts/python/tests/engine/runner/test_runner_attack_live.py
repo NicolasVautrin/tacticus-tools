@@ -49,7 +49,7 @@ def attack_replay(live_session, rpc, build_runner):
 
     Renvoie `{"cases": [...]}` où chaque cas = {att, tgt, live_after, off_after, off_total,
     live_dmg, in_clean, hits, effects}. `cases` non vide (sinon skip)."""
-    import predict_validate as PV          # lazy : tire rl_collect_batch
+    import predict_samples as PV  # harnais de validation prédiction (ex-predict_validate)          # lazy : tire rl_collect_batch
     sid = live_session
 
     for seed in _SEEDS:

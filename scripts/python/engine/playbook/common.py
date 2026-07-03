@@ -1,91 +1,81 @@
-"""Playbooks COMMUNS — Default / NormalAttack / Heal / Repair (RE docs/rl/playbook-engine.md §14.7).
+"""Playbooks Comparable COMMUNS — Normal / Default / Heal / Repair (namespace `IdunBattle.AI.Playbook`).
 
-DÉCOUVERTE CLÉ : ces 4 playbooks ne sont PAS des playbooks bespoke à clés-strings. Ce sont des
-sous-classes MINCES de `ComparablePlaybook<T> → Playbook<T>` qui héritent du SCORER GÉNÉRIQUE partagé
-`CalculateActionUtility` (= le §13.1) :
+Sous-classes MINCES de `ComparablePlaybook<T>` (base.py) : elles n'overrident QUE le fournisseur de
+prédiction (`MakeDamagePredictions`, vtable +0x358) et éventuellement le gate/custom. Le calcul
+prédiction->utilité (Σ damage_composite + Tile(7)) est mutualisé dans la base.
 
-    score(action) = CustomUtility
-                  + Σ CalculateUtilityFromPredictions   # dégât/soin/effet/repair × utilités composées
-                                                          #   (Damage34 / Heal44 / Repair46 / AddedTileEffects45)
-                  + base(UtilityAttackCase.Base, idx 54)
-                  + CalculateUtilityFromTilePrediction   # positional/move (Tile 7, idx 8)
+- `NormalAttackPlaybook` (ALoki_NormalAttackPlaybook & co, un par unité côté natif) : prédiction =
+  `prediction.make_normal_attack_predictions` (sélection d'arme + hits + perçage + armure + modifiers effets).
+- `DefaultActiveAbilityPlaybook` : fallback pour toute ability spéciale sans playbook bespoke ->
+  `prediction.make_damage_predictions` (cible principale + AoE ; None/[] pour summon/buff/heal = NON-attaque).
+- `HealPlaybook` (tag 18) : soin = `HealUtility @1810e16f0` (heal_utility) + CustomUtility (TwistedScience).
+  Gate `ShouldExecute @181184b30` : pred > 0.
+- `RepairPlaybook` (tag 28) : DORMANT (prédiction repair non-dégât, pas de repair dans les batailles testées).
 
-Le calcul prédiction→utilité est le PIPELINE PARTAGÉ (engine/utility.py + utilities/{damage,tile}.py),
-PAS du code par-playbook. Un playbook commun n'override que : (a) le TAG d'ability (ctor), (b)
-`ShouldExecute` (gate), (c) `CustomUtility` (constante), (d) le fournisseur de prédiction
-(`Make{Damage,Heal,Repair}Predictions`). Aucune nouvelle clé de poids BC : ils consomment les utilités
-composées déjà portées.
-
-⚠ Soin/Repair : le MONTANT vient d'une prédiction non-dégât (Heal = `StatAmount(weapon)×max(hits,1)`
-clampé HP-manquant → HealRatio ; Repair = prédiction idx 0x29). `aiPredict` est dégât-only → ces
-montants sont BLOQUÉS (cf. §13.5). Les gates/tags/custom sont portés ; le scoring soin/repair s'activera
-avec un RPC de prédiction complet.
-
-Ids RE'd (constantes plates, pas de DAT) : NormalAttack tag 0x11(17) gate !triggered 0x48(72) custom +1 ;
-Heal tag 0x12(18) ; Repair tag 0x1c(28) ; Default = flat 1.5 / cible éligible.
+PRÉDICTEUR = `engine.playbook.prediction` (modèle objet : Scene + ability + services + ProbableDamageEvent).
 """
 from __future__ import annotations
 
-from ..weights import Weights
-from .base import Playbook, register
+from . import prediction
+from .base import ComparablePlaybook, register
+from ..predict import heal_utility
 
 
-class NormalAttackPlaybook(Playbook):
-    """NormalAttack (tag 17). Dégât = pipeline générique (Damage 34 = damage.py). +CustomUtility 1.
-    Gate : l'unité n'a PAS la triggered ability 0x48(72) ET l'ability est dispo (timespan>0)."""
-    ability_id = 0x11  # 17
+class NormalAttackPlaybook(ComparablePlaybook):
+    """Attaque normale (par-unité côté natif ; ici une classe, PV gère la sélection d'arme). Tie-break :
+    à utilité TOTALE égale, la normale gagne (`InitAbilityTypeLists` : [normal, spéciales…])."""
+    is_normal_attack = True
 
-    def should_execute(self, case: dict, wt: Weights) -> bool:
-        c = case or {}
-        if c.get("unit_has_triggered_72"):
-            return False
-        return bool(c.get("available", True))
-
-    def custom_utility(self, case: dict, wt: Weights) -> float:
-        return 1.0  # Fix64.FromInt(1)
+    def make_damage_predictions(self, ctx, caster_tile, target, ability_id):
+        if ctx.scene is None:
+            return None
+        ev = prediction.make_normal_attack_predictions(ctx.scene, ctx.uid, target, caster_tile)
+        return None if ev is None else [ev]
 
 
-class HealPlaybook(Playbook):
-    """Heal (tag 18). Utilité soin = HealRatio × Heal(44) (pipeline générique). Gate : heal prédite >0,
-    et un boss ne peut pas se soigner lui-même (peut soigner les autres). ⚠ montant soin BLOQUÉ
-    (aiPredict dégât-only) — gate/tag portés, scoring s'active avec prédiction complète."""
+class DefaultActiveAbilityPlaybook(ComparablePlaybook):
+    """Fallback générique pour toute ability spéciale d'attaque (non enregistrée sous un id bespoke).
+    Prédiction = `PV.make_damage_predictions` : liste cible principale + AoE. None/[] = NON-attaque
+    (summon/buff/heal) -> aucune action émise (gate). ability_id -1 (non enregistré ; défaut)."""
+    ability_id = -1
+    is_normal_attack = False
+
+    def make_damage_predictions(self, ctx, caster_tile, target, ability_id):
+        if ctx.scene is None:
+            return None
+        return prediction.make_damage_predictions(ctx.scene, ctx.uid, target, ability_id,
+                                                  ctx.ab_name_by_id.get(ability_id), attack_pos=caster_tile)
+
+
+class HealPlaybook(ComparablePlaybook):
+    """Soin (tag 18). Utilité = CustomUtility (TwistedScience : +100, +100 si cible Genestealers) +
+    `HealUtility` (heal_utility = (missing/(maxHP+1))×100×friendSign×bossMod). Gate `ShouldExecute
+    @181184b30` : pred > 0 (self-heal permis). L'énumération cibles/tuiles reste au générateur ;
+    `score` = le terme d'utilité par cible."""
     ability_id = 0x12  # 18
 
-    def should_execute(self, case: dict, wt: Weights) -> bool:
-        c = case or {}
-        if not c.get("predicted_heal_gt0"):
-            return False
-        if c.get("target_is_boss") and c.get("target_is_caster"):
-            return False
-        return True
+    def score(self, missing, hp_max, is_friend, is_twisted, target_faction):
+        """Utilité de soin d'une cible, ou None si `pred <= 0` (gate `ShouldExecute`). Le skip
+        « cible déjà buffée TwistedScience » est un gate d'ÉNUMÉRATION (fait par le générateur,
+        inconditionnel), pas ce CustomUtility."""
+        heal_term = heal_utility(missing, hp_max, is_friend=is_friend, is_boss=False)
+        custom = (100 + (100 if target_faction == "Genestealers" else 0)) if is_twisted else 0
+        pred = custom + heal_term
+        return pred if pred > 0 else None
 
 
-class RepairPlaybook(Playbook):
-    """Repair (tag 28). Utilité = Repair(46) (pipeline générique, additif sans ×magnitude). Gate :
-    ability off-cooldown (timespan>0) ; cibles = mécaniques endommagées (filtre amont). ⚠ montant
-    repair BLOQUÉ (prédiction non-dégât idx 0x29) — gate/tag portés."""
+class RepairPlaybook(ComparablePlaybook):
+    """Repair (tag 28) — DORMANT : la prédiction repair est non-dégât (idx 0x29), pas encore portée ;
+    aucune ability repair dans les batailles testées. `make_damage_predictions` -> None (pas d'attaque)."""
     ability_id = 0x1c  # 28
 
-    def should_execute(self, case: dict, wt: Weights) -> bool:
-        return bool((case or {}).get("available", True))
+    def make_damage_predictions(self, ctx, caster_tile, target, ability_id):
+        return None
 
 
-class DefaultActiveAbilityPlaybook(Playbook):
-    """Fallback générique (Common) pour toute ability sans playbook bespoke. ENTIÈREMENT porté :
-    utilité PLATE 1.5 par cible éligible (aucune prédiction, aucun poids BC). Rend l'ability
-    « utilisable, légèrement préférée » ; le ranking fin vient des couches au-dessus.
-    N'est PAS enregistré sous un id (c'est le défaut, un par ability-id sans bespoke — voir get_playbook)."""
-    ability_id = -1  # fallback (non enregistré dans REGISTRY)
-    DEFAULT_UTILITY = 1.5  # Fix64.FromIntFraction(3,2)
-
-    def attack_utility(self, case: dict, wt: Weights) -> float:
-        """1.5 si la cible est éligible (case.eligible), sinon 0."""
-        return self.DEFAULT_UTILITY if (case or {}).get("eligible") else 0.0
-
-
-# Instance unique du fallback (utilisée par get_playbook_or_default).
+# Instance unique du fallback (spéciales sans bespoke) + du soin (dispatch par le générateur).
 DEFAULT_PLAYBOOK = DefaultActiveAbilityPlaybook()
+NORMAL_ATTACK_PLAYBOOK = NormalAttackPlaybook()
+HEAL_PLAYBOOK = HealPlaybook()
 
-register(NormalAttackPlaybook())
-register(HealPlaybook())
 register(RepairPlaybook())
