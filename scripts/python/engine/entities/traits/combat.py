@@ -49,26 +49,13 @@ class GetStuckInTrait(BaseTrait):
             return 0
         if _cheby(apos, tpos) > 2:                # !(MinDistance>2) = cible à <=2 hex (trigger structurel)
             return 0
-        att_id, tgt_id = c.get("att_id"), c.get("tgt_id")
-        pos_by_id = c.get("pos_by_id") or {}
-        team_by_id = c.get("team_by_id") or {}
-        faction_of = c.get("faction_of") or (lambda uid: None)
-
-        def _p(uid):                              # caster compté à sa tuile d'attaque (post-move)
-            return apos if uid == att_id else pos_by_id.get(uid)
-
-        adj = [uid for uid in pos_by_id
-               if uid != tgt_id and _p(uid) and _cheby(_p(uid), tpos) == 1]
-        # Maybe(chance) : la prédiction n'inclut le groupe que si la chance est CERTAINE (100 =
-        # condition chance_2 : >=2 orks OU >=4 amis adjacents à la cible). 30% → exclu (step-13 trace).
-        # Les DEUX comptes sont FRIENDLY-filtrés (i2 : « 2 or more friendly Orks or 4 or more friendly
-        # units » ; DSL @180f83460 : UnitsFromFaction(5) + Friends(owner)). GROUND TRUTH step-13 :
-        # u90→80@(3,4) mêlée, Ork ENNEMI 86 adjacent à 80 → natif 4 coups (pas de GetStuckIn) — sans
-        # le filtre équipe l'Ork ennemi comptait pour la condition 100%.
-        friends = [uid for uid in adj if team_by_id.get(uid) == team_by_id.get(att_id)]
-        orks = sum(1 for uid in friends if faction_of(uid) == "Orks")
-        if not (orks >= 2 or len(friends) >= 4):
-            return 0
+        # Maybe(chance) EN PRÉDICTION = INCLUS INCONDITIONNELLEMENT (la chance 30/100 ne pilote QUE le
+        # roll RNG d'exécution, pas la prédiction de dégât de l'IA). GROUND TRUTH seed777 u90(Snappawrecka)
+        # ->u86 RANGED (chance=30 : 1 seul ami adjacent à u86, chance_2 hors d'atteinte) : natif = 6 coups
+        # DÉTERMINISTES (oracle/offline = x1.50 uniforme sur min ET max = 4->6). Le gate `chance==100`
+        # précédent était FAUX (issu de l'observation step-13 "exclure à 30%", SUPERSÉDÉE — raisonnement
+        # d'adjacence pré-fix parité hexgeo, cf. [[project_hexgeo_parity_fix]]). La condition orks>=2/
+        # amis>=4 (GetBonusHitChance @180f83460) n'affecte donc PAS la prédiction → on ne l'évalue plus ici.
         base_hits = int(c.get("base_hits") or 0)  # hits APRÈS PowerTrip, AVANT GetStuckIn
         if base_hits <= 0:
             return 0
