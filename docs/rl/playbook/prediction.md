@@ -408,6 +408,169 @@ ci-dessus, validés contre les traces.
 
 ---
 
+## 8bis. Cas d'étude u92 (bloodDeathCompany, « Lucien ») — OUVERT (#49)
+
+> **Écrit pour ne JAMAIS re-dériver.** Le gap est réduit à UN seul nombre (base 4309 vs 3011).
+
+**Repro (durable)** : `predict_samples.build_samples(seed=31337)` puis filtrer `att == 92`. u92 est mon
+carry (team 1) → il apparaît dans mes `attackPlans`. Dump prêt : `scratchpad/dbg49_dump.py` (rows
+port-vs-oracle + visualId attaquant + ratio ; recette = build seed → `decisionView` pour le map
+id→visualId → `build_samples`). ⚠ `test_predict_live` **PASSE malgré #49** : les rows u92 sur cibles
+armure-lourdes sont taguées `predOptimistic` (exclues du critère exact) OU leur max est capé à hp → le gap
+MIN est masqué. Ne jamais conclure « #49 fermé » depuis un test vert.
+
+**Ground truth (seed 31337 ; Blast pierce 15, hits 3, ×1.25 RapidAssault) :**
+
+| cible | armor | oracle (min,max) | offline PORT (min,max) | per-coup oracle | per-coup PORT |
+|---|---|---|---|---|---|
+| u82 bloodMephiston | 2008 | (1503, 6018) | (5397, 9537*) | (501, 2006) | (1799, 3954) |
+| u84 eldarAutarch | 1707 | (2634, 7149) | (6525, 8034*) | (878, 2383) | (2175, 4330) |
+| u86 astraPrimarisPsy | 2008 | (2256, 5522) | (5397, 5522*) | (752, ~1841) | (1799, 3954) |
+
+`*` = max capé à hp cible. Ratio min port/oracle ≈ 3.6× (u82).
+
+**LOCALISATION (reverse-eng de l'oracle, pas de fitting)** : per-coup oracle u82 = `reduce(spread(B),15,
+2008)×1.25` avec **B natif = 3011** (spread {2409,3613}) ; idem u84 (B=3011, indépendant de l'armure). Le
+PORT prend **base = 4309 = le stat Attack BRUT** (`combatSnapshot.stats.attack=4309`, level 50,
+abilityVariablesMultiplier=180). **Seul écart = la base : port 4309 vs natif 3011** (×0.699, ou −1298 flat) ;
+pierce/armure/hits/×1.25 identiques. Les autres attaquants matchent (u88 base 2811 ✓, u96 base 3011 ✓ = leur
+stat Attack) → **seul u92 diverge, uniquement par la base.**
+
+**3-WAY DÉCISIF (aiPredict pos-courante / attackPlan meilleure-tuile / port) — REFRAME = c'est POSITIONNEL :**
+
+| cible | attackPlan | aiPredict (pos 5,5) | port | lecture |
+|---|---|---|---|---|
+| u80 | (858,2109) | (858,2109) | (3885,9537) | natifs AGREENT → **port faux** |
+| u82 | (1503,6018) | (1503,6018) | (5397,9537) | natifs AGREENT → **port faux** |
+| u86 | (2256,5522) | **(5397,5522)** | (5397,5522) | natifs DIFFÈRENT ; **port = aiPredict** |
+
+Sur u86 : `aiPredict` (pos courante (5,5), PAS de move, cible à portée 2) = **5397 = exactement le port** (base
+4309) ; `attackPlan` (meilleure tuile) = 2256 (base 3011). Sur u82 : les DEUX oracles = 1503 (base 3011),
+port faux. ⇒ **le port calcule la base juste POUR LA POSITION COURANTE (4309 = aiPredict) mais rate un
+modificateur de base DÉPENDANT DE LA TUILE** à la meilleure tuile d'attaque (base 3011). Effet de POSITION
+(probablement moved-ranged / pénalité de tuile, lié à #60 has_moved) : le port thread `_hm` dans les mods MAIS
+u92 n'a aucun effet gated has_moved → aucune réduction ; la pénalité native est un modifier de BASE, pas un
+effet. `predict_samples` ancre `attack_pos = ranked[0].tile` → il DEVRAIT voir la pénalité, mais ne l'applique pas.
+
+**MOVE CONFIRMÉ (dbg49_pos.py — tuiles + élévations) :** non-moved (pos courante (5,5), u86 à portée 2) base
+**4309** ; TOUTES les meilleures tuiles (MOVED : u86=(6,4), u82=(4,6), u84=(2,7)) base **3011**. Ratio
+4309/3011 = 1.431 (+43%). L'ÉLÉVATION est un axe SÉPARÉ correctement identifié : u86 moved (6,4 elev3 → u86
+elev2, attaquant +haut) per-coup **752 = 501 × 1.5** (le +50% élévation) vs u82 moved (elev égal) 501 — donc le
+« 2ᵉ axe » u82-vs-u86 = **ÉLÉVATION, pas un modifier défenseur** (corrige la note #50 ci-dessus pour ce cas).
+
+**Source du modificateur MOVE — PAS ENCORE trouvée (RE post-compact) :** ce N'EST PAS RapidAssault (réfuté,
+calc-time +25% constant) ni HeavyWeapon/RangedSpecialist (u92 ne les a PAS ; kit = Hero/RapidAssault/Resilient/
+Unstoppable). Le port GATE correctement no-move pour les effets qu'il PORTE (`HeavyWeaponExtraDmgEffect` :
+`if has_moved: return None`, loki.py) mais u92 n'a aucun effet no-move → base 4309 partout. Le modificateur
+natif est donc bâti HORS-EFFET (pattern PowerTrip @CalculateAttackerModifiersForPrediction). MAIS
+`CalculateAttackerModifiersForPrediction @181000590` (57K, noms génériques) = grep NÉGATIF sur
+Moved/HasFlag/Movement/ForPercent → pas confirmé là. **NEXT** : (1) capter la liste de modifiers NATIVE de
+l'attaque MOVED de u92 (trace ground-truth, PAS grind du 57K) ; OU (2) xref du getter du flag `HasMoved` pour
+trouver qui applique le −43%. Ratio 1.431 = pas un % propre connu → possiblement config-based.
+
+**Confirmé / écarté :**
+- PAS un double-buff RapidAssault : 4309 ≠ 3011×1.25 (=3764). Le natif applique bien ×1.25 SUR base 3011.
+- Le stat brut EST 4309 (combatSnapshot). Donc c'est le NATIF qui part d'une base < stat Attack pour ce Blast.
+- Chaîne natif : `ALoki_NormalAttackAbility.PredictAttack @1811afa50` → `GetAttackHitPrediction @1811af4e0`
+  (délègue au prédicteur générique via slot 0x26 — pas de base spéciale visible là) →
+  `GetAdditionalHitsFromEffectsForPrediction` + `AddAdditionalHitsToPrediction`.
+- Le « 1799 » des vieux résumés = per-coup PORT (armor 2008), PAS VisionsOfHeresy. VisionsOfHeresy (follow-up
+  Bolter 1819-2619) est un event SÉPARÉ, non modélisé côté port — hors sujet pour ce gap.
+
+**OUVERT — d'où vient 3011 (≈ Attack×0.7) ?**
+- ~~(c) RapidAssault double-compté (stat 4309 bufflé + `mods`)~~ **RÉFUTÉ (RE 2026-07-04)** :
+  `RapidAssault_ExtraDamageEffect.CreateEffectDamageBonusForAttack @180f67940` = `EffectBonus.ForPercent-
+  Increase(OwnerIsCaster, ConfigConst(0xf), …)` = modifier de dégât PERCENT **CALC-TIME**, PAS un stat-mod
+  sur Attack. Donc `combatSnapshot.attack=4309` = stat BRUT (non bufflé), RapidAssault appliqué 1× via `mods
+  =[1.25]`. **Pas de double-compte.** (`RapidAssault_RemoveExtraDamageEffectAbility` @181224a50 = le retire
+  après l'attaque ; c'est bien un effet, pas un stat permanent.)
+- (a) le normal-attack Loki lit une base de CONFIG d'ability au lieu du stat Attack (à vérifier) ;
+- (b) un modifier ranged/Blast (BC Damage, cf. `RangedInMelee=-50` / #61) non appliqué par le port.
+
+**Trancher = capter la base per-coup NATIVE** via le hook `allmods` (`CalculateBaseDamageWithAllModifiers.
+input`) de `scorer_trace_capture` sur l'attaque de u92 (vérité terrain : input min ≈ 2409 si base 3011 vs
+3447 si base 4309), OU RE du prédicteur générique (slot 0x26 depuis `GetAttackHitPrediction`) pour ce Blast.
+NE PAS deviner. Note : le ×0.699 n'est pas un ratio propre (pas ×0.5/×0.7/×0.75) → probablement une base de
+config, pas un simple scalaire.
+
+**MAJ 2026-07-04 (session 2, post-compact) — RangedInMelee ÉCARTÉ (géométrie), re-localisation `has_moved` :**
+
+1. **RangedInMelee/Trench WIRÉS** (prediction.py `_add_positional_and_defender_mods`) : feuilles positionnelles
+   de `CalculateAttackerModifiersForPrediction @181000590` (callgraph `called` = StatModifications +
+   GetMultiplierFromDamageBonus + ShouldApplyRangedInMelee + Trench ; PAS d'élévation ici). Config native
+   `RangedInMeleeReductionPercentage=-50` → magnitude 50 passée à `calculate_ranged_in_melee_reduction` →
+   `EffectBonus PercentDecrease` → **×0.5** (`GetMultiplierFromDamageBonus @181005210` décompilé confirme :
+   `value<1 → 1−|value|/100`). Staging POST-armure (`GetBaseDamageWithFixedPiercedArmor @181030d10` n'applique
+   QUE perçage+armure ; les %-modifiers sont les `op 0x10/0x11` APRÈS, dans `CalculateBaseDamageWithAllModifiers`).
+2. **MESURE RÉSIDU (dbg49_wired.py, seed 31337) : RangedInMelee ne FIRE PAS** → port inchangé (base 4309,
+   mods=[1.25], sur-préd identique). Géométrie (dbg49_pos.py) : **`minEnemyDist(atk) ≥ 2` à TOUTES les tuiles
+   d'attaque** (u80/u82 atk (4,6) dist2 ; u84 atk (2,7) dist3 ; u86 atk (6,4) dist3) → AUCUN ennemi adjacent →
+   ShouldApplyRangedInMelee=False, correct. **RangedInMelee n'est PAS la cause de #49** (le wiring reste juste,
+   ferme #61, zéro faux positif ici).
+3. **RE-LOCALISATION = `has_moved` (#60), PAS défenseur ni élévation.** Le SEUL cas NON réduit = **u86 attaqué
+   depuis la tuile COURANTE (5,5) = NON déplacé → base 4309** (port == oracle `aiPredict` = 5397). TOUTE attaque
+   depuis une tuile MOVED → base 3011, **y compris à élévation ÉGALE** (u82 atk (4,6) elev1 = u82 elev1 ;
+   u84 atk (2,7) elev1 = u84 elev1). Donc l'élévation N'EST PAS le discriminant (u82 égal-elev réduit, u86 égal-
+   elev non réduit) → **le discriminant est déplacé-vs-pas** (u86-depuis-(5,5) = seul non-déplacé, tous les
+   autres déplacés). `TilesMovedThisTurn` ÉCARTÉ : xrefs = `MastersOfManoeuvre`/`SmashaEad` uniquement (PAS le
+   kit u92).
+4. **SCÉNARIO CRAFTÉ → (A) CONFIRMÉ (2026-07-04) : réduction position-gated RÉELLE, PAS artefact display.**
+   Preuve 1 (`dbg49_craft.py`, `decisionView.attackPlan` = chemin SCORING) : la MÊME attaque u92→u86 (toutes
+   tuiles hexToTgt=2 = ranged Blast) donne **base 4309** aux tuiles {(5,5),(4,5)} et **base 3011** aux tuiles
+   {(6,4),(4,6)}. Preuve 2 (`dbg49_trace.py/2`, hook `allmods` = `CalculateBaseDamageWithAllModifiers.input`
+   pendant l'`aiStepDryRun` réel) : **les DEUX bases coexistent** — spread de 3011 (2409/3613) ET spread de 4309
+   (3447/5170) présents. Donc le vrai scoring calcule bien 4309 à certaines tuiles et 3011 à d'autres. NON-`has_moved`
+   binaire : (4,5) est DÉPLACÉE et garde 4309.
+5. **DISCRIMINANT tile = NON géométrique (tout écarté offline) + base décidée EN AMONT du spread.** Écartés :
+   move-cost (pathfinder : (4,5) et (6,4) tous deux move-level 1, base différente), élévation absolue ((4,5)e1→4309
+   vs (4,6)e1→3011), élévation relative, RangedInMelee (minEnemyDist≥2), défenseur (base 3011 identique pour u82
+   ET u86 depuis (4,6) = propriété de la TUILE d'attaque, pas de la cible). Le hook `allmods` montre l'`input`
+   **déjà spreadé** (2409=3011×0.8) → la base 3011-vs-4309 est décidée **avant le spread**, dans le calcul de base
+   de l'ability (`scenario.damage`), **PAS** dans la couche modifier post-base. **NEXT** : RE du chemin de base de
+   l'ability `ALoki_NormalAttackAbility.PredictAttack @1811afa50` → `GetAttackHitPrediction @1811af4e0` (slot 0x26)
+   pour trouver ce qui rend `scenario.damage` **tile-dépendant** (4309 vs 3011) — feuille positionnelle inconnue,
+   probablement un état/flag de tuile non capturé (LOS/cover/tile-flag ? à identifier au décompilé, PAS deviner).
+   Le hook `scorerBonusTraceDump` n'a pas aidé (casterTile=(-1,-1), stack non symbolisée).
+7. **VERDICT AGENT re-expert (2026-07-04, `PredictAttackRaw @181032fb0` LU intégralement) — réduction PRÉ-SPREAD
+   dans `local_9a8`, PAS un scaling inline.** Base pré-spread = `local_9a8` (lignes ~1483-1512) =
+   `GetValueOrDefault(context[+0x58])` (Nullable) avec **override optionnel** `profileMethod_0xd`
+   (`local_9a8 = op_Explicit(profileMethod_0xd.Value)`). `GetBaseDamageFix64 @181030ba0` = pur spread ±20%
+   (`CalculateMinDamage @181004300 = base − CalculateDamageSpread`), **ZÉRO terme positionnel** (extraMax =
+   `GetStat(att,0x19)` sur le MAX seulement) → `{2409,3613}=3011×{.8,1.2}`, `{3447,5170}=4309×{.8,1.2}` = deux
+   bases pré-spread. Aucun `op_Multiply`/`op_Subtraction` positionnel entre lecture-base et spread (vérifié ligne
+   à ligne). Élévation `@181003ea0` = additif, seulement si attaquant plus haut = axe séparé. Seul modificateur
+   positionnel-tuile candidat = `CalculateTrenchReduction @181004830` (via `CalculateAttackerModifiersForPrediction
+   @181000590`, interface dispatch invisible au callgraph statique ; gate `IsTrench(attackTile)` +
+   `!IsNeighbour(attackTile,targetTile)`). **MAGNITUDE ≈ −30%** : `3011/4309 = 0.6988 ≈ 0.70` → **modificateur −30%** (l'écart 3011-vs-3016 ≈ 5
+   = bruit d'arrondi Fix64/ordre d'ops, PAS bloquant). C'est un **modificateur %-entier −30% positionnel**. `Trench=-50`
+   (×0.5→2154) NE colle PAS → trench écarté par magnitude (comme RangedInMelee) ; il reste un modificateur −30%
+   (source exacte à confirmer : override `profileMethod_0xd` base-recomputée OU un modifier attaquant −30% via
+   `CalculateAttackerModifiersForPrediction`). **CHECKS DÉCISIFS
+   (agent)** : (1) hook `GetBaseDamageFix64 @181030ba0` lire `param_3`(rdx=base Fix64) sur les 4 tuiles + tuile
+   → 3011 vs 4309 confirme base-level ; (2) lire `IsTrench` des 4 tuiles d'attaque (board live) → si {(6,4),(4,6)}
+   trench et {(5,5),(4,5)} non → trench ; sinon écarter → **RE du setup `context[+0x58]`** (base par-tuile posée
+   en AMONT, dans `MakeDamagePredictions @181372730` / scenario setup) ; (3) impl. concrète interface `DAT_183287db8`
+   slot 0xd (gshared, non décompilée) = maillon qui dirait si la base est recalculée positionnellement.
+6. **RE du chemin de base de l'ability (2026-07-04, décompilé)** : `ALoki_NormalAttackAbility.GetAttackHitPrediction
+   @1811af4e0` fixe la base = **`GetStat(attacker, 5)`** (stat 5 = Attack = 4309, **TILE-INDÉPENDANT**), wrappée
+   Nullable et passée au **prédicteur générique via slot 0x26** avec la position caster (`local_2c8` ← param_7).
+   Donc la base ENTRANTE est uniforme 4309 → **la réduction à 3011 est appliquée DANS le prédicteur générique
+   (`PredictAttackRaw @181032fb0`)**, pré-spread. Callgraph `called` de PredictAttackRaw : lit la position
+   (`GetUnitPosition`@7, `UnitPosition.get_MainTile`@12), élévation INLINE (pas d'appel `CalculateElevationBonus`),
+   `GetBaseDamageFix64`, `IsAttackMaxOutDamage`, `CalculateBaseDamageWithAllModifiers`, `ApplyTraitDamageLimits`.
+   **AUCUNE feuille nommée cover/LOS/position→base.** `IsAttackMaxOutDamage @180ed7a50` ÉCARTÉ (dépend de l'effet
+   `0x4a1` owner/target OU triggered-ability `0x5d6` ; u92 n'a NI l'un NI l'autre → false uniforme). ⇒ la
+   réduction tile-dépendante 4309→3011 est dans la **logique position/élévation INLINE de `PredictAttackRaw`**
+   (corps 3037 lignes), PAS une fonction nommée. **NEXT** : deep-read de la section position/base de
+   `PredictAttackRaw` (grind lourd — candidat agent re-expert worktree) OU capter la base per-tuile via un hook
+   `CalculateDamagePredictionScenario` (rawMin/rawMax + targetId) corrélé à la tuile caster.
+
+**2ᵉ axe (séparé = #50)** : à armure égale (u82/u86 = 2008), per-coup oracle diffère (501 vs 752) → modifier
+DÉFENSEUR par-cible. **MAJ** : pour u86, le 752 = 501×1.5 (ÉLÉVATION depuis (6,4) elev3), pas un modif défenseur
+→ ce cas u82/u86 est ÉLÉVATION, pas #50 (cf. bloc MOVE CONFIRMÉ).
+
+---
+
 ## 9. Prédiction de SOIN (heal) — RE complet + port offline
 
 La chaîne soin est **entièrement RE'd et offline-calculable** (manque #1 / [`status.md`](status.md) §3.1
