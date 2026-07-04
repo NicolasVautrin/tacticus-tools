@@ -346,6 +346,9 @@ _NONCOMPARABLE_ABILITIES: "frozenset[str]" = frozenset({
     "FightingRetreat",   # FightingRetreatPlaybook : NonComparablePlaybook ; EvaluateNonComparable
                          # @181131ff0 = |ennemis adj| + |alliés adj - self| (self-debuff d'ennemis,
                          # pas de dégât — inerte ici de toute façon : pas de minDmg/maxDmg)
+    "RitesOfRestoration",  # RitesOfRestorationPlaybook : NonComparablePlaybook @181157a60 (soin AoE +
+                         # résurrection, id 1039) ; utilité = 1 + Count(healTargets), résurrection-gated.
+                         # PAS de prédiction de dégât (porté dans engine.playbook.noncomparable).
 })
 
 
