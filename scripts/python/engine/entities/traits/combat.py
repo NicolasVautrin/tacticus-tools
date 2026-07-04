@@ -63,19 +63,20 @@ class GetStuckInTrait(BaseTrait):
 
 
 class ResilientTrait(BaseTrait):
-    """`Resilient` — plafond de dégât PAR COUP côté cible (`ApplyResilientTraitDamageLimit`, appelée par
-    `ApplyTraitDamageLimitsToDamage` @18102c650). Doctrine : NE survit PAS au multi-coup (chaque coup capé,
-    mais N coups cumulent). ⚠ formule exacte du cap NON encore RE'd (ApplyResilientTraitDamageLimit) → no-op + TODO."""
+    """`Resilient` (trait 0x3f1) — plafond de SURVIE côté cible. **Port fidèle = le SERVICE**
+    `services.trait_damage_limits.apply_resilient_trait_damage_limit` (`ApplyResilientTraitDamageLimit @18102c3a0`,
+    homonyme natif : cap `hp-1` hors overkill si `max_hp>1`). Structure native = service `DamagePrediction` +
+    `HasTrait`, PAS un cap OO par-trait -> NE PAS re-porter la formule ici (une seule source). Le cap sera
+    consommé par `apply_trait_damage_limits_to_damage` quand la chaîne sera wirée (#56)."""
 
-    def as_target_damage_cap(self, per_hit_damage: int, ctx: Mapping | None = None) -> int | None:
-        # TODO: RE ApplyResilientTraitDamageLimit (cap = ? par coup) puis retourner le plafond.
-        return None
+    # as_target_damage_cap : intentionnellement no-op (hérité de BaseTrait). Le cap Resilient vit dans le
+    # service trait_damage_limits (fidèle au natif) ; cette classe OO ne le duplique pas.
 
 
 class ImperviousTrait(BaseTrait):
-    """`Impervious` — plafond de dégât côté cible (`ApplyImperviousTraitDamageLimit`, via
-    `ApplyTraitDamageLimitsToDamage` @18102c650, branche `param_2==1`). ⚠ formule NON RE'd → no-op + TODO."""
+    """`Impervious` (trait 0x1c) — côté cible. **Port fidèle = le SERVICE**
+    `services.trait_damage_limits.apply_impervious_trait_damage_limit` (`ApplyImperviousTraitDamageLimit @18102c190` :
+    dégât=0 tant que la jauge `StatComponent.CurrentValue` < 100 ; StatType du composant `DAT_1831b6d48` encore à
+    identifier). Comme Resilient : structure native = service, on ne duplique PAS la formule dans la classe OO."""
 
-    def as_target_damage_cap(self, per_hit_damage: int, ctx: Mapping | None = None) -> int | None:
-        # TODO: RE ApplyImperviousTraitDamageLimit puis retourner le plafond.
-        return None
+    # as_target_damage_cap : no-op (hérité). Cap dans services.trait_damage_limits (fidèle au natif).

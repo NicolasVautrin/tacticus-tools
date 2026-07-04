@@ -32,9 +32,12 @@ class Scene:
     eff_state: object          # EffectsState (effets matérialisés seed)
     hpmax_by_id: dict = field(default_factory=dict)   # {squadId: hpMax} (observeBattle)
     elev_by_pos: dict | None = None                    # {(col,row): elevation} (tileMeta)
+    board: object | None = None                        # Board (voisins natifs, adjacence hex) — cf.
+    #                                                    # engine.entities.pathfinding.board ; None → evenq
 
     @classmethod
-    def from_predictor_sctx(cls, predictor: dict, sctx: dict, elev_by_pos: dict | None = None) -> "Scene":
+    def from_predictor_sctx(cls, predictor: dict, sctx: dict, elev_by_pos: dict | None = None,
+                            board: object | None = None) -> "Scene":
         """Bridge des dicts de l'ancien PV vers l'objet Scene (mêmes données, forme objet)."""
         return cls(
             ctx_by_id=predictor.get("ctx_by_id") or {}, armor_by_id=predictor.get("armor_by_id") or {},
@@ -43,7 +46,7 @@ class Scene:
             units=sctx.get("units") or [], hp_by_id=sctx.get("hp_by_id") or {},
             pos_by_id=sctx.get("pos_by_id") or {}, team_by_id=sctx.get("team_by_id") or {},
             eff_state=sctx.get("eff_state"), hpmax_by_id=sctx.get("hpmax_by_id") or {},
-            elev_by_pos=elev_by_pos)
+            elev_by_pos=elev_by_pos, board=board)
 
     # ── Accesseurs (mirror des lectures dict de PV) ────────────────────────────────────────────────
     def ctx(self, uid):

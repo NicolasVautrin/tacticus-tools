@@ -46,5 +46,8 @@ class BaseTrait:
         return 1
 
     def as_target_damage_cap(self, per_hit_damage: int, ctx: Mapping | None = None) -> int | None:
-        """Plafond du dégât PAR COUP subi (Resilient/Impervious). None = pas de plafond."""
+        """Plafond du dégât PAR COUP subi. None = pas de plafond. ⚠ Les caps `ApplyTraitDamageLimitsToDamage`
+        (Resilient/Impervious/member-cap/boss) sont portés FIDÈLEMENT côté SERVICE dans
+        `services.trait_damage_limits` (structure native = service + `HasTrait`). Ce point de contrat OO reste
+        no-op pour ces traits afin de NE PAS dupliquer le service (source unique)."""
         return None

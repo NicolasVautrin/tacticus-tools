@@ -17,6 +17,23 @@ Raffinements natifs `rangeType==3 (mixte) + flag 0x15` = documentés, à valider
 from __future__ import annotations
 
 import gameconfig as GC
+import hexgeo
+
+
+def are_tiles_adjacent(a_pos, t_pos, board=None):
+    """`BattleQuery.AreTilesAdjacent` / `AreUnitsInMelee` — ADJACENCE HEX (PAS Chebyshev), service
+    PARTAGÉ prédiction↔runner. `board` fourni (runner `state.board`, ou `Scene.board`) → voisins NATIFS
+    (`board.neighbours`, ground-truth capturé) ; sinon géométrie **evenq** (= le mode d'adjacence combat
+    du runner, cf. `damage.py`), via `hexgeo.distance==1` (parité evenq validée vs boardGraph). Renvoie
+    `True`/`False`, ou `None` si une position est inconnue (→ l'appelant retombe sur ranged)."""
+    if a_pos is None or t_pos is None:
+        return None
+    if board is not None:
+        a_tile = board.id_at(a_pos[0], a_pos[1])
+        t_tile = board.id_at(t_pos[0], t_pos[1])
+        if a_tile is not None and t_tile is not None:
+            return t_tile in board.neighbours(a_tile)
+    return hexgeo.distance(a_pos, t_pos) == 1
 
 
 def _find_by_hits(cands: list, prefer_hits) -> dict:
@@ -28,8 +45,8 @@ def _find_by_hits(cands: list, prefer_hits) -> dict:
 
 def get_attack_weapon_for_default_normal_attack(visual_id, is_adjacent: bool, prefer_hits=None):
     """`GetAttackWeaponForDefaultNormalAttack` (distance-aware). Renvoie `(weapon_dict|None, is_ranged)`.
-    `is_adjacent` = cible en mêlée (`AreUnitsInMelee`/`AreTilesAdjacent`, ~dist<=1). Fallback : ranged si
-    dispo à distance (ou position inconnue), sinon mêlée/1re arme."""
+    `is_adjacent` = cible en mêlée (`AreUnitsInMelee`/`AreTilesAdjacent` = **adjacence HEX**, PAS
+    Chebyshev). Fallback : ranged si dispo à distance (ou position inconnue), sinon mêlée/1re arme."""
     gu = GC.unit(visual_id or "") or {}
     weapons = gu.get("weapons") or []
     if not weapons:
@@ -44,3 +61,21 @@ def get_attack_weapon_for_default_normal_attack(visual_id, is_adjacent: bool, pr
         cand = melee or weapons
     w = _find_by_hits(cand, prefer_hits)
     return w, bool(w.get("Range"))
+
+
+def select_weapon_pierce(ctx, is_adjacent):
+    """SÉLECTION D'ARME + PERÇAGE — service PARTAGÉ prédiction↔runner (foyer natif `BattleQuery`).
+    `GetAttackWeaponForDefaultNormalAttack` (arme mêlée/ranged par adjacence HEX) + `GetAttackPiercing-
+    DamageRatio @181030a20` (profil.PiercingRatio + ExtraPierce(26) + ExtraPierce{Melee21|Ranged22}).
+    UN seul port : prédiction (`prediction._weapon_pierce`) ET combat (`damage_model.select_weapon_pierce`)
+    l'appellent (un service natif appelé par N chemins = UNE fonction). `ctx` = UnitContext (les 2 en ont
+    un). Renvoie `(pierce, is_ranged, weapon_hits, profile_name)`."""
+    w, is_ranged = get_attack_weapon_for_default_normal_attack(
+        ctx.visual_id, is_adjacent, prefer_hits=ctx.normal_hits)
+    if w is None:
+        return 100, False, 1, None
+    dp = GC.damage_profile(w.get("DamageProfile")) or {}
+    prof_ratio = int(dp.get("PiercingRatio") or 0)
+    dir_pierce = ctx.extra_pierce_ranged if is_ranged else ctx.extra_pierce_melee
+    pierce = max(0, min(100, prof_ratio + ctx.extra_pierce + dir_pierce))
+    return pierce, is_ranged, int(w.get("hits") or 1), w.get("DamageProfile")

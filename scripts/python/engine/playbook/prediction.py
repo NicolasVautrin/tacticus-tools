@@ -25,48 +25,82 @@ from engine.entities.effects import (
 from engine.entities.traits import attacker_bonus_hits
 from engine.services.damage_prediction import get_attack_prediction, get_multi_hit_attack_prediction
 from engine.services.min_max_damage import MinMaxDamage
-from engine.services.damage_modifiers import add_modifier, calculate_elevation_bonus_modifier
-from engine.services.battle_query import get_attack_weapon_for_default_normal_attack
+from engine.services.damage_modifiers import (
+    add_modifier, calculate_elevation_bonus_modifier,
+    calculate_ranged_in_melee_reduction, calculate_trench_reduction)
+from engine.services.battle_query import select_weapon_pierce, are_tiles_adjacent
 from engine.playbook.probable_damage_event import ProbableDamageEvent
 
 import json as _json
 _DMG_CFG: dict = _json.loads(_weights.DEFAULT_BC.read_text(encoding="utf-8")).get("Damage", {}) \
     if _weights.DEFAULT_BC.exists() else {}
 ELEVATION_BONUS_PCT: int = int(_DMG_CFG.get("ElevationBonus", 50))   # CalculateElevationBonusModifier @181003ea0
+# Feuilles positionnelles de CalculateAttackerModifiersForPrediction @181000590 (PAS des effets) :
+# config native = pourcentage NEGATIF (ReductionPercentage=-50) ; le port passe la MAGNITUDE a
+# calculate_*_reduction (kind PercentDecrease -> add_modifier flippe le signe -> x0.5). Cf.
+# GetMultiplierFromDamageBonus @181005210 (value<1 -> 1-|value|/100), decompile confirme x0.5.
+RANGED_IN_MELEE_PCT: int = abs(int(_DMG_CFG.get("RangedInMeleeReductionPercentage", -50)))  # @181004700
+TRENCH_PCT: int = abs(int(_DMG_CFG.get("TrenchReductionPercentage", -50)))                  # @181004830
 _PROFILE_INDEX = {name: idx for idx, name in _PROFILE_BY_INDEX.items()}
 
 
-def _cheby(a, b) -> int:
-    return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
+def _weapon_pierce(scene, att_id, is_adjacent):
+    """Arme + perçage de l'attaque normale — DÉLÈGUE au service PARTAGÉ `battle_query.select_weapon_pierce`
+    (MÊME port que le combat/runner ; `is_adjacent` = adjacence HEX native, cf.
+    `make_normal_attack_predictions`). Renvoie `(pierce, is_ranged, weapon_hits, profile_name)`."""
+    return select_weapon_pierce(scene.ctx(att_id), is_adjacent)
 
 
-def _weapon_pierce(scene, att_id, dist):
-    """Arme de l'attaque normale (`BattleQuery.GetAttackWeaponForDefaultNormalAttack`, distance-aware)
-    + son perçage (`GetAttackPiercingDamageRatio @181030a20` : profil + ExtraPierce{,Melee,Ranged}).
-    Renvoie `(pierce, is_ranged, weapon_hits, profile_name)`."""
-    ctx = scene.ctx(att_id)
-    is_adjacent = dist is not None and dist <= 1
-    w, is_ranged = get_attack_weapon_for_default_normal_attack(
-        ctx.visual_id, is_adjacent, prefer_hits=ctx.normal_hits)
-    if w is None:
-        return 100, False, 1, None
-    dp = GC.damage_profile(w.get("DamageProfile")) or {}
-    prof_ratio = int(dp.get("PiercingRatio") or 0)
-    dir_pierce = ctx.extra_pierce_ranged if is_ranged else ctx.extra_pierce_melee
-    pierce = max(0, min(100, prof_ratio + ctx.extra_pierce + dir_pierce))
-    return pierce, is_ranged, int(w.get("hits") or 1), w.get("DamageProfile")
+def _should_apply_ranged_in_melee(scene, att_id, attack_pos) -> bool:
+    """`ShouldApplyRangedInMelee @181005810` : depuis `attack_pos`, existe-t-il un ENNEMI melee-able
+    ADJACENT ? (any-enemy, PAS seulement la cible — le natif boucle sur les tuiles adjacentes de
+    l'attaquant). Filtres : ennemi (team != attaquant) + vivant + `CanMeleeAttackOverElevationDifference`
+    (|Δelev|<2). Adjacence HEX via le service PARTAGÉ `are_tiles_adjacent` (board natif si dispo).
+    Le gate trait 0xb (ranged) est vérifié par l'appelant (`is_ranged`)."""
+    if attack_pos is None:
+        return False
+    att_team = scene.team(att_id)
+    a_elev = scene.elev_by_pos.get(attack_pos) if scene.elev_by_pos else None
+    for uid, epos in scene.pos_by_id.items():
+        if uid == att_id or epos is None or scene.team(uid) == att_team:
+            continue
+        if (scene.hp(uid) or 0) <= 0:                      # IsAlive
+            continue
+        if are_tiles_adjacent(attack_pos, epos, scene.board) is not True:
+            continue
+        if a_elev is not None and scene.elev_by_pos:       # CanMeleeAttackOverElevationDifference
+            e_elev = scene.elev_by_pos.get(epos)
+            if e_elev is not None and abs(a_elev - e_elev) >= 2:
+                continue
+        return True
+    return False
 
 
-def _add_elevation_and_defender_mods(mods, scene, tgt_id, is_melee, attack_pos, t_pos, damage_profile=None):
-    """Ajoute au `mods` : ElevationBonus (`CalculateElevationBonusModifier @181003ea0`, surplomb) +
-    modifiers DÉFENSEUR (`CalculateDefenderModifiersForPrediction` : effets de la CIBLE réduisant le dégât
-    reçu). Le pipeline natif `CalculateDamagePredictionScenario` les applique à TOUT dégât (normal ET spécial)."""
+def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, attack_pos, t_pos,
+                                      damage_profile=None):
+    """Ajoute au `mods` les feuilles NON-effet du builder natif `CalculateAttackerModifiersForPrediction`
+    @181000590 (positionnelles, géométrie) + les modifiers DÉFENSEUR. Le pipeline natif
+    `CalculateDamagePredictionScenario` les applique à TOUT dégât (normal ET spécial) APRÈS perçage/armure.
+      • ElevationBonus (`CalculateElevationBonusModifier @181003ea0`, surplomb +50%).
+      • RangedInMelee (`CalculateRangedInMeleeReduction @181004700`, ranged adjacent à un ennemi → ×0.5).
+      • Trench (`CalculateTrenchReduction @181004830`) — HYPOTHÈSE : flag `isTrench` NON capturé dans la
+        Scene → non applicable tant que la donnée tuile-trench n'est pas exposée (structurellement présent,
+        no-op ici : `target_on_trench=False`).
+      • DÉFENSEUR (`CalculateDefenderModifiersForPrediction` : effets de la CIBLE réduisant le dégât reçu)."""
     if scene.elev_by_pos and attack_pos and t_pos:
         a_elev, t_elev = scene.elev_by_pos.get(attack_pos), scene.elev_by_pos.get(t_pos)
         if a_elev is not None and t_elev is not None:
             eb = calculate_elevation_bonus_modifier(a_elev, t_elev, ELEVATION_BONUS_PCT)
             if eb is not None:
                 add_modifier(mods, eb)
+    is_ranged = not is_melee
+    if is_ranged and _should_apply_ranged_in_melee(scene, att_id, attack_pos):     # trait 0xb + adjacence
+        eb = calculate_ranged_in_melee_reduction(True, RANGED_IN_MELEE_PCT)
+        if eb is not None:
+            add_modifier(mods, eb)
+    eb = calculate_trench_reduction(False, TRENCH_PCT)      # target_on_trench=False (data non capturée)
+    if eb is not None:
+        add_modifier(mods, eb)
     tgt_effects = scene.effects(tgt_id)
     def_mods = build_defender_modifiers_from_effects(tgt_effects, is_melee, damage_profile)
     for mult, cap in def_mods.pct_list:
@@ -84,12 +118,17 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     att_effects = scene.effects(att_id)
     eff_hits = hits_bonus_from_effects(att_effects)
     t_pos = scene.pos(tgt_id)
-    dist = _cheby(attack_pos, t_pos) if (attack_pos and t_pos) else None
-    pierce, _ranged, whits, prof_name = _weapon_pierce(scene, att_id, dist)
+    # Sélection d'arme mêlée<->ranged : service PARTAGÉ `BattleQuery.are_tiles_adjacent` (MÊME que le
+    # runner combat). ADJACENCE HEX, PAS Chebyshev — une unité à armes mixtes (u92 : mêlée 4x + ranged
+    # 3x Blast) bascule mêlée UNIQUEMENT sur une tuile hex-adjacente ; les tuiles cheby=1 mais hex=2
+    # (ex. (5,5)->(6,6)) restent ranged. `scene.board` (si fourni) = voisins natifs, sinon evenq.
+    is_adjacent = are_tiles_adjacent(attack_pos, t_pos, scene.board)
+    pierce, _ranged, whits, prof_name = _weapon_pierce(scene, att_id, is_adjacent)
     is_melee = not _ranged
     _hm = (attack_pos != scene.pos(att_id)) if attack_pos else None
     mods = build_attacker_modifiers_from_effects(att_effects, is_ranged=_ranged, has_moved=_hm)
-    _add_elevation_and_defender_mods(mods, scene, tgt_id, is_melee, attack_pos, t_pos, damage_profile=prof_name)
+    _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, attack_pos, t_pos,
+                                      damage_profile=prof_name)
     hits_pre = max(1, whits + ctx.extra_hits + eff_hits)   # plancher 1 coup
     board = {"att_id": att_id, "tgt_id": tgt_id, "attack_pos": attack_pos, "t_pos": t_pos,
              "tgt_team": scene.team(tgt_id), "is_melee": is_melee, "base_hits": hits_pre,
@@ -141,7 +180,8 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
     pierce = max(0, min(100, int(dp.get("PiercingRatio") or 0) + ctx.extra_pierce + dir_pierce))
     mods = build_attacker_modifiers_from_effects(scene.effects(uid), is_normal_attack=False)
     t_pos = scene.pos(tgt)
-    _add_elevation_and_defender_mods(mods, scene, tgt, is_melee, attack_pos, t_pos, damage_profile=profile_name)
+    _add_positional_and_defender_mods(mods, scene, uid, tgt, is_melee, attack_pos, t_pos,
+                                      damage_profile=profile_name)
     tgt_shield = scene.shield(tgt)
     d_multi = ab.get_multi_hit_damage()      # GetDamage int par-ability (slot virtuel)
     if d_multi and mult and mult != 100 and ("minDmg" in affected):

@@ -24,6 +24,9 @@ from typing import Optional, Tuple
 from .state import State
 from .components import StatsComponent, HealthComponent
 from ..services.damage_prediction import get_attack_prediction, apply_pierce_and_modifiers
+from ..services.battle_query import (
+    get_attack_weapon_for_default_normal_attack,
+    select_weapon_pierce as _bq_select_weapon_pierce)
 from ..entities.effects import (
     build_attacker_modifiers_from_effects, build_defender_modifiers_from_effects,
     hits_bonus_from_effects,
@@ -37,34 +40,21 @@ def _cheby(a: Tuple[int, int], b: Tuple[int, int]) -> int:
 
 
 def select_weapon(ctx, dist: Optional[int]):
-    """Arme de l'attaque normale sélectionnée par PORTÉE (mêlée si adjacent & arme mêlée existe ; sinon
-    tir si arme ranged). Renvoie le dict d'arme gameconfig (ou None si aucune)."""
-    import gameconfig as GC
-    gu = GC.unit(ctx.visual_id or "") or {}
-    weapons = gu.get("weapons") or []
-    if not weapons:
-        return None
-    melee = [w for w in weapons if not w.get("Range")]
-    ranged = [w for w in weapons if w.get("Range")]
-    adjacent = dist is not None and dist <= 1
-    cand = melee if (adjacent and melee) else (ranged if ranged else (melee or weapons))
-    return next((x for x in cand if int(x.get("hits") or 0) == ctx.normal_hits), cand[0])
+    """Arme de l'attaque normale par PORTÉE — DÉLÈGUE au service PARTAGÉ
+    `battle_query.get_attack_weapon_for_default_normal_attack` (foyer natif BattleQuery ; MÊME port que
+    la prédiction). `dist` = distance hex du runner (1=adjacent via `board.neighbours`, 2=tir) → is_adjacent.
+    Renvoie le dict d'arme gameconfig (ou None)."""
+    w, _ranged = get_attack_weapon_for_default_normal_attack(
+        ctx.visual_id, is_adjacent=(dist is not None and dist <= 1), prefer_hits=ctx.normal_hits)
+    return w
 
 
 def select_weapon_pierce(ctx, dist: Optional[int]) -> Tuple[int, bool, int]:
-    """Arme de l'attaque normale + perçage, sélection mêlée/ranged par PORTÉE (port de
-    `predict_validate._normal_weapon_pierce`) : cible adjacente (dist≤1) → mêlée ; sinon
-    tir si une arme ranged existe. pierce = clamp(0,100, profil.PiercingRatio + ExtraPierce(26)
-    + ExtraPierce{Melee21|Ranged22}). Renvoie (pierce, is_ranged, whits)."""
-    import gameconfig as GC
-    w = select_weapon(ctx, dist)
-    if w is None:
-        return 100, False, 1
-    dp = GC.damage_profile(w.get("DamageProfile")) or {}
-    is_ranged = bool(w.get("Range"))
-    dir_pierce = ctx.extra_pierce_ranged if is_ranged else ctx.extra_pierce_melee
-    pierce = max(0, min(100, int(dp.get("PiercingRatio") or 0) + ctx.extra_pierce + dir_pierce))
-    return pierce, is_ranged, int(w.get("hits") or 1)
+    """Arme + perçage par PORTÉE — DÉLÈGUE au service PARTAGÉ `battle_query.select_weapon_pierce`
+    (un service natif = UN port, prédiction ET combat l'appellent). `dist` hex (1=adjacent) → is_adjacent.
+    Renvoie `(pierce, is_ranged, whits)` (le profil est fourni séparément par `select_weapon`)."""
+    pierce, is_ranged, whits, _prof = _bq_select_weapon_pierce(ctx, dist is not None and dist <= 1)
+    return pierce, is_ranged, whits
 
 
 def resolve_one_hit(roll: int, pierce: int, armor: int, mods=None) -> int:

@@ -8,12 +8,12 @@ black-box. La struct résultat mirror `DamagePredictionResult`.
 `GetNormalAttackPrediction`/`GetAttackPrediction`, même cœur `PredictAttackRaw`) est PRÉ-ARMURE
 pour l'attaque normale (dmg indépendant de l'armure cible ; `armorBefore=0`).
 
-`PredictAttackRaw` @181032fb0 a été **RE LECTURE INTÉGRALE** (3037 lignes + 3 helpers scalaires
-décompilés) — algorithme complet dans playbook-engine.md §16. Confirmé : l'armure est soustraite EN
-AMONT (postArmor) ; `CalculateDamagePredictionScenario` ne soustrait PAS l'armure mais le
-`previousHitsPrediction` (param_7, longtemps mal nommé `armor`). Restent à CALIBRER vs aiPredict (live
-= confirmation) : le multiplicateur crit (§16.3 slots 0x10/0x11) et la source `perHitList`
-(crit-chance par coup) — exposés comme hooks paramétrés ci-dessous.
+STRUCTURE (calquée 1:1 sur le natif — le `×hits` N'est PAS dans PredictAttackRaw) :
+  - `predict_attack_raw`            = `DamagePrediction.PredictAttackRaw @181032fb0`  (UN COUP, prev-aware)
+  - `get_multi_hit_attack_prediction` = `BattleQuery.GetMultiHitAttackPrediction @181066080`  (LA boucle)
+  - `DamagePredictionResult.add`     = `DamagePredictionResult.Add @18102a710`  (Σ des coups)
+  - `.default_block_scenario`        = `get_DefaultBlockScenario @18102bcd0`  (prev cumulé threadé)
+  - `get_attack_prediction`          = entrée attaque NORMALE (whole-attack) → route par la boucle.
 """
 from __future__ import annotations
 
@@ -58,6 +58,46 @@ class DamagePredictionResult:
     limited_by_min_hp: bool = False
     might_crit: bool = False
     applied_hits: int = 0
+
+    def default_block_scenario(self) -> "BlockScenario":
+        """`DamagePredictionResult.get_DefaultBlockScenario` @18102bcd0 — le scénario cumulé (dégât santé/
+        bouclier déjà infligé) threadé comme `prev` au coup suivant → ressources RESTANTES de la cible."""
+        return BlockScenario(
+            health_min=self.accurate_health_damage.min, health_max=self.accurate_health_damage.max,
+            shield_min=self.accurate_shield_damage.min, shield_max=self.accurate_shield_damage.max)
+
+    def add(self, other: "DamagePredictionResult") -> None:
+        """`DamagePredictionResult.Add` @18102a710 — somme ENTIÈRE champ-par-champ (Accurate* santé/bouclier
+        + Total + AppliedHits) avec ApplyCap. MUTE self (agrège le coup `other` de la boucle multi-coups)."""
+        h = MinMaxDamage(min=self.accurate_health_damage.min + other.accurate_health_damage.min,
+                         max=self.accurate_health_damage.max + other.accurate_health_damage.max,
+                         cap=self.accurate_health_damage.cap)
+        h.apply_cap()
+        self.accurate_health_damage = h
+        s = MinMaxDamage(min=self.accurate_shield_damage.min + other.accurate_shield_damage.min,
+                         max=self.accurate_shield_damage.max + other.accurate_shield_damage.max,
+                         cap=self.accurate_shield_damage.cap)
+        s.apply_cap()
+        self.accurate_shield_damage = s
+        t = MinMaxDamage(min=self.total_damage.min + other.total_damage.min,
+                         max=self.total_damage.max + other.total_damage.max, cap=self.total_damage.cap)
+        t.apply_cap()
+        self.total_damage = t
+        self.applied_hits += other.applied_hits
+        self.might_crit = self.might_crit or other.might_crit
+
+
+@dataclass
+class BlockScenario:
+    """Scénario cumulé threadé comme `prev` entre coups — `get_DefaultBlockScenario` @18102bcd0. Porte le
+    dégât CUMULÉ (santé/bouclier) des coups précédents → RESSOURCES RESTANTES de la cible au coup suivant
+    (`rem = pleine − cumul`). Champs natifs consommés par `PredictAttackRaw` (prev = Nullable@param_3+0x84) :
+    healthDmg@+0x08 (rem_HP @181034087), shieldAbs min@+0x28 / max@+0x2c (rem_shield @1810341d5/427a).
+    (armorDmg@+0x18 non threadé ici — armure=0 en prédiction IA.) Vide (tout 0) = 1er coup = pleines."""
+    health_min: int = 0
+    health_max: int = 0
+    shield_min: int = 0
+    shield_max: int = 0
 
 
 def get_default_attack_hits(base_hits: int, extra_hits: int,
@@ -116,17 +156,17 @@ def calculate_damage_prediction_scenario(
     """DamagePrediction.CalculateDamagePredictionScenario (@18102ed00) — UN outcome (1 coup × 1 état).
     Corps RE LECTURE INTÉGRALE (playbook-engine.md §16.2) :
 
-        eff = max(0, raw − prev_hits)              # param_7 = previousHitsPrediction (PAS l'armure !)
+        eff = max(0, raw − prev_hits)              # param_7 = BONUS CRIT du scénario courant (intra-coup)
         shieldAbs = absorbShield(eff)              # interface slot 0xb (FUN_1800068b0)
         health    = max(0, eff − shieldAbs)
         if cible.FillUpStatComponent : health = MaxReduceByMinimum(health, remaining_health)  # overkill
         MinMaxDamage.ApplyCap
 
-    ⚠ CORRECTION RE : `param_7` natif = **previousHitsPrediction** (dégât cumulé des coups précédents),
-    PAS l'armure (l'ancien code le nommait `armor` à tort — sans effet car la prédiction IA pré-armure
-    passait 0). L'armure est soustraite EN AMONT (postArmor, §16.1.3), pas ici ; `armor` reste un knob
-    optionnel kw-only (0 par défaut = prédiction IA pré-armure). `reduction_*` = réduction trigger cible
-    (decisionView.effects ; 0 baseline). `remaining_health` (FillUpStat) = plafond overkill (None=off)."""
+    ⚠ CORRECTION RE (verdict prev-threading @181035dce) : `param_7` natif = le **bonus du scénario de crit
+    COURANT** (répartition crit/non-crit d'UN hit), PAS un cumul inter-coups. La déplétion inter-coups
+    (bouclier/HP restant) se fait EN AMONT dans `predict_attack_raw` sur les ressources restantes, PAS via
+    `prev_hits` ici. `armor` = knob kw-only (0 = prédiction IA pré-armure). `reduction_*` = réduction
+    trigger cible (decisionView.effects ; 0 baseline). `remaining_health` (FillUpStat) = plafond overkill."""
     eff_min = max(0, raw.min - prev_hits - armor)
     eff_max = max(0, raw.max - prev_hits - armor)
     m = max(0, eff_min - shield_absorb_min - reduction_min)
@@ -142,19 +182,6 @@ def calculate_damage_prediction_scenario(
     out = MinMaxDamage(min=m, max=big, cap=result_cap)
     out.apply_cap()
     return out
-
-
-def _cap_overkill(dmg: MinMaxDamage, current_health: int) -> MinMaxDamage:
-    """Cap OVERKILL (`FillUpStatComponent.MaxReduceByMinimum`) : le degat SANTE ne peut exceder la sante
-    COURANTE de la cible. Le natif l'applique PER-COUP cumulatif dans `CalculateDamagePredictionScenario`
-    (@18102ed00, param `remaining_health`) ; le moteur agrege per-hit x hits -> on cape sur l'AGREGAT
-    (equivalent : total capable <= hp ; borne MAX si depasse, MIN inchange sinon). GROUND TRUTH aiPredict
-    seed777/31337 : u84 max=8034=hpBefore, u86 max=5522=hpBefore (EXACT) ; u82 6018<9537 -> non cape.
-    Gate `current_health>0` (0 = sante inconnue passee par l'appelant -> pas de cap, retro-compat)."""
-    if current_health <= 0:
-        return dmg
-    return MinMaxDamage(min=min(dmg.min, current_health), max=min(dmg.max, current_health),
-                        cap=dmg.cap)
 
 
 def get_base_damage_fix64(base: int, extra_max: int = 0, spread_pct: int = 20,
@@ -174,7 +201,7 @@ def get_base_damage_fix64(base: int, extra_max: int = 0, spread_pct: int = 20,
 def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0,
                                mods: DamageModifiers | None = None, hit_mult: int = 1) -> int:
     """BASE COMMUNE prédiction↔combat — réduction d'UNE valeur de dégât (= étape 3+3b de
-    `get_attack_prediction`, cf. `CalculateBaseDamageWithAllModifiers` @18102d3f0) :
+    `predict_attack_raw`, cf. `CalculateBaseDamageWithAllModifiers` @18102d3f0) :
         pierce_eff = clamp(0,100, pierce + mods.extra_pierce)
         armor_eff  = 0 si mods.ignore_armor sinon max(0, armor − mods.armor_penetration)
         d = GetDamageWithPiercing(value, pierce_eff, armor_eff) répété hit_mult×
@@ -194,163 +221,120 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
     return d
 
 
-def get_multi_hit_attack_prediction(
-        target_current_health: int, damage: int, hits: int, profile_type: int,
-        armor: int = 0, pierce_pct: int = 100,
-        mods: DamageModifiers | None = None,
-        hit_mult: int = 1, reduction_min: int = 0, reduction_max: int = 0,
-        target_shield: int = 0) -> DamagePredictionResult:
-    """`BattleQuery.GetMultiHitAttackPrediction @181066080` — prédiction d'une ability SPÉCIALE
-    (damage = `GetDamage` int de l'ability = **minDmg×mult**, hits = nrOfHits) :
-        result = GetAttackPrediction(coup 1, prev=null)
-        for i in 2..hits: result.Add(GetAttackPrediction(coup i, prev=result.DefaultBlockScenario))
-    (PredictAttackRaw PAR COUP ; `prev` @param_3+0x84 = scénario cumulé → décroissance
-    bouclier/armure/santé ; Add @18102a710 somme les Accurate*.)
+def predict_attack_raw(
+        prev: "BlockScenario", initial_damage: int, profile_type: int = 0,
+        armor: int = 0, pierce_pct: int = 100, extra_max: int = 0,
+        mods: DamageModifiers | None = None, hit_mult: int = 1,
+        reduction_min: int = 0, reduction_max: int = 0, spread_pct: int = 20,
+        target_current_health: int = 0, target_shield: int = 0,
+        predefined: MinMaxDamage | None = None, might_crit: bool = False) -> DamagePredictionResult:
+    """`DamagePrediction.PredictAttackRaw` @181032fb0 — prédiction d'UN COUP contre les RESSOURCES RESTANTES
+    de la cible (déplétées par `prev`, scénario cumulé des coups précédents ; `prev` vide = ressources
+    pleines = 1er coup). NE fait NI ×hits NI additif (→ `get_multi_hit_attack_prediction`).
 
-    BORNES MESURÉES (hook CalculateBaseDamageWithAllModifiers @18102d3f0, call sites VA
-    0x181035126 min / 0x181035391 max, trace step-11 seed777, isCrit=0 partout) :
-      • SANTÉ par coup (cible sans bouclier) : entrée = (ceil(0.8·D/hits), ceil(2.2·D/hits))
-        [D=1197, hits=3 → (320, 878)] → pierce/armure + %-mods PAR BORNE → ×hits
-        [sorties 312/856 ×3 = 936-2568 = natif EXACT ; le facteur 2.2 = mesure stable,
-        origine structurelle du +1.0·d non lue (pas un crit runtime : isCrit=0)].
-      • BOUCLIER : pool sur la base PLEINE (0.8D, 1.2D) agrégée — inchangé (bit-exact 2873/3989).
-      • Cible AVEC bouclier : coups couverts → entrée négative → santé 0 ; fuite = reste du
-        dernier coup à travers la même chaîne (natif 58 vs port ~78 : résidu ±utilité <0.2).
-    L'ADDITIF plat (FR −582) reste appliqué UNE FOIS par attaque (précédent validé)."""
-    hits = max(1, hits)
+    Recurrence RE (verdict prev-threading, VA/offsets) :
+      rem_shld = max(0, target_shield − prev.shieldAbs)         # bouclier restant (prev@+0x28/+0x2c) @1810341d5/427a
+      rem_HP   = max(0, target_current_health − prev.healthDmg) # HP restant (prev@+0x08)             @181034087
+      base = predefined | GetBaseDamageFix64(initial_damage)    # {base−spread, base+spread+extraMax}
+      blocked = Min(base, rem_shld)                             # split bouclier PER-COUP (slot 0xc @181034caa/ce7)
+      health  = ApplyPierce/Armure/%-mods(base − blocked)       # CalculateBaseDamageWithAllModifiers @18102d3f0
+      health  = min(health, rem_HP)                             # overkill PER-COUP (FillUpStat.MaxReduceByMinimum)
+    ⚠ `prev` déplète les RESSOURCES EN AMONT (bouclier/HP restant) — ce N'EST PAS `param_7`
+    (previousHitsPrediction) de CDS, qui est le bonus crit INTRA-coup (verdict RE @181035dce)."""
+    mm = predefined if predefined is not None \
+        else get_base_damage_fix64(initial_damage, extra_max, spread_pct)
     mods_pct = replace(mods, additive=0.0) if (mods is not None and mods.additive) else mods
-    d_hit = damage / hits
-    lo_in = math.ceil(0.8 * d_hit)
-    hi_in = math.ceil(2.2 * d_hit)
-    lo = apply_pierce_and_modifiers(lo_in, pierce_pct, armor, mods_pct, hit_mult)
-    hi = apply_pierce_and_modifiers(hi_in, pierce_pct, armor, mods_pct, hit_mult)
-    per_hit = calculate_damage_prediction_scenario(
+    if target_shield > 0:
+        # split bouclier PER-COUP sur le bouclier RESTANT (déplété par prev) : Min(base, rem_shield)
+        blk_lo = min(mm.min, max(0, target_shield - prev.shield_min))
+        blk_hi = min(mm.max, max(0, target_shield - prev.shield_max))
+        rem_lo, rem_hi = mm.min - blk_lo, mm.max - blk_hi
+    else:
+        blk_lo = blk_hi = 0
+        rem_lo, rem_hi = mm.min, mm.max
+    lo = apply_pierce_and_modifiers(rem_lo, pierce_pct, armor, mods_pct, hit_mult) if rem_lo else 0
+    hi = apply_pierce_and_modifiers(rem_hi, pierce_pct, armor, mods_pct, hit_mult) if rem_hi else 0
+    health = calculate_damage_prediction_scenario(
         MinMaxDamage(min=lo, max=hi), prev_hits=0, profile_type=profile_type,
         reduction_min=reduction_min, reduction_max=reduction_max)
-    total = MinMaxDamage(min=per_hit.min * hits, max=per_hit.max * hits)
-    if mods is not None and mods.additive:
-        total = MinMaxDamage(min=max(0, round(total.min + mods.additive)),
-                             max=max(0, round(total.max + mods.additive)))
-    total = _cap_overkill(total, target_current_health)         # cap overkill (health <= hp courant)
-    if target_shield <= 0:
-        return DamagePredictionResult(
-            current_health=target_current_health, armor=armor,
-            accurate_health_damage=total, total_damage=total,
-            applied_hits=hits, might_crit=False)
-    # Pool bouclier sur la base PLEINE agrégée ×hits (Min(base, shield) @181002850 ; local_9a8 =
-    # D×hits : sh_min = CalculateMinDamage(3591) = 2873 bit-exact).
-    raw = MinMaxDamage(min=round(0.8 * damage * hits), max=round(1.2 * damage * hits))
-    sh_min = min(raw.min, target_shield)
-    sh_max = min(raw.max, target_shield)
-    rem_min = raw.min - sh_min
-    rem_max = raw.max - sh_max
-    lo = apply_pierce_and_modifiers(rem_min, pierce_pct, armor, mods_pct, hit_mult) if rem_min else 0
-    hi = apply_pierce_and_modifiers(rem_max, pierce_pct, armor, mods_pct, hit_mult) if rem_max else 0
-    health = MinMaxDamage(min=lo, max=hi)
-    if mods is not None and mods.additive:
-        health = MinMaxDamage(min=max(0, round(health.min + mods.additive)),
-                              max=max(0, round(health.max + mods.additive)))
-    health = _cap_overkill(health, target_current_health)       # cap overkill (health <= hp courant)
+    if target_current_health > 0:
+        # overkill PER-COUP : la santé de CE coup <= HP RESTANT (HP courant − cumul prev). La somme sur les
+        # coups = min(Σ, HP) — équivalent à l'ancien cap-sur-agrégat, mais fidèle à la déplétion native.
+        health = MinMaxDamage(min=min(health.min, max(0, target_current_health - prev.health_min)),
+                              max=min(health.max, max(0, target_current_health - prev.health_max)),
+                              cap=health.cap)
     return DamagePredictionResult(
         current_health=target_current_health, armor=armor, shield=target_shield,
-        accurate_health_damage=health,
-        accurate_shield_damage=MinMaxDamage(min=sh_min, max=sh_max),
-        total_damage=MinMaxDamage(min=sh_min + health.min, max=sh_max + health.max),
-        applied_hits=hits, might_crit=False)
+        accurate_health_damage=health, accurate_shield_damage=MinMaxDamage(min=blk_lo, max=blk_hi),
+        total_damage=MinMaxDamage(min=blk_lo + health.min, max=blk_hi + health.max),
+        applied_hits=1, might_crit=might_crit)
+
+
+def get_multi_hit_attack_prediction(
+        target_current_health: int, initial_damage: int | None = None, hits: int = 1,
+        profile_type: int = 0, armor: int = 0, pierce_pct: int = 100, extra_max: int = 0,
+        mods: DamageModifiers | None = None, hit_mult: int = 1,
+        reduction_min: int = 0, reduction_max: int = 0, spread_pct: int = 20,
+        target_shield: int = 0, might_crit: bool = False,
+        damage: int | None = None) -> DamagePredictionResult:
+    """`BattleQuery.GetMultiHitAttackPrediction` @181066080 — LA boucle multi-coups (le `×hits` est ICI, PAS
+    dans PredictAttackRaw) :
+        result = predict_attack_raw(coup 1, prev=vide)
+        for i in 2..hits: prev = result.default_block_scenario(); result.add(predict_attack_raw(coup i, prev))
+    `prev` (`get_DefaultBlockScenario @18102bcd0`) porte le cumul santé/bouclier → chaque coup opère sur les
+    ressources RESTANTES (déplétion PER-COUP fidèle : bouclier/HP décroissent d'un coup à l'autre). `Add`
+    @18102a710 somme les Accurate*. L'ADDITIF plat (ForAddition, ex. −582) s'applique UNE FOIS sur l'agrégat.
+
+    Base par coup : NORMALE = `GetBaseDamageFix64(initial_damage)` (spread de la stat Attack) ; SPÉCIALE
+    (`damage` fourni = `GetDamage` int de l'ability) = plage reconstruite `(ceil(0.8·d/hits), ceil(2.2·d/hits))`.
+    ⚠ Le facteur 2.2 reste EMPIRIQUE (origine structurelle non lue — cf. #49) ; TODO : porter le
+    predefinedRange minDmg/maxDmg réel de l'ability (nullable natif @param_3+0x58)."""
+    hits = max(1, hits)
+    predefined = None
+    if damage is not None:
+        d_hit = damage / hits
+        predefined = MinMaxDamage(min=math.ceil(0.8 * d_hit), max=math.ceil(2.2 * d_hit))
+
+    def _hit(prev: "BlockScenario") -> DamagePredictionResult:
+        return predict_attack_raw(
+            prev, initial_damage or 0, profile_type=profile_type, armor=armor, pierce_pct=pierce_pct,
+            extra_max=extra_max, mods=mods, hit_mult=hit_mult, reduction_min=reduction_min,
+            reduction_max=reduction_max, spread_pct=spread_pct,
+            target_current_health=target_current_health, target_shield=target_shield,
+            predefined=predefined, might_crit=might_crit)
+
+    result = _hit(BlockScenario())                          # coup 1 : prev vide → ressources pleines
+    for _i in range(1, hits):
+        result.add(_hit(result.default_block_scenario()))   # coup i : prev = cumul → ressources restantes
+    if mods is not None and mods.additive:                  # additif plat UNE FOIS sur l'agrégat (ForAddition)
+        health = MinMaxDamage(min=max(0, round(result.accurate_health_damage.min + mods.additive)),
+                              max=max(0, round(result.accurate_health_damage.max + mods.additive)))
+        result.accurate_health_damage = health
+        result.total_damage = MinMaxDamage(min=result.accurate_shield_damage.min + health.min,
+                                           max=result.accurate_shield_damage.max + health.max)
+    return result
 
 
 def get_attack_prediction(
         target_current_health: int, initial_damage: int, hits: int, profile_type: int,
         armor: int = 0, pierce_pct: int = 100, extra_max: int = 0,
-        mods: DamageModifiers | None = None,
-        hit_mult: int = 1, reduction_min: int = 0, reduction_max: int = 0,
-        spread_pct: int = 20, might_crit: bool = False,
-        target_shield: int = 0,
+        mods: DamageModifiers | None = None, hit_mult: int = 1,
+        reduction_min: int = 0, reduction_max: int = 0, spread_pct: int = 20,
+        might_crit: bool = False, target_shield: int = 0,
         shield_raw: MinMaxDamage | None = None) -> DamagePredictionResult:
-    """DamagePredictionQuery.GetAttackPrediction (slot 14) → `PredictAttackRaw` @181032fb0
-    (RE LECTURE INTÉGRALE §16 + couche modifier tracée live §17). Prédiction d'UNE attaque (scorer).
+    """`BattleQuery.GetNormalAttackPrediction` / `GetAttackPrediction` (slot 14) — entrée attaque NORMALE
+    (whole-attack). Le natif route TOUTE attaque multi-coups par `GetMultiHitAttackPrediction` (boucle
+    `PredictAttackRaw` par coup + `prev` déplété + `Add`) : on DÉLÈGUE donc à `get_multi_hit_attack_prediction`.
+    Le `×hits`, le split bouclier et l'overkill sont désormais PER-COUP là-dedans (plus d'agrégat).
 
-    CHAÎNE FIDÈLE (RE + VALIDÉE live ; `DSLFactory.NormalAttackDamage`=`StatAmountFormula(Attack)`) :
-      1. base = initial_damage  PAR COUP (= stat Attack de l'attaque normale). **PAS de modifier ici.**
-      2. mm = GetBaseDamageFix64(base, extra_max)               # {base−spread, base+spread+ExtraMaxDamage}
-      3. par BOUT : GetDamageWithPiercing(bout, pierce%, armor) répété `hit_mult`×  (GetBaseDamageWith-
-         FixedPiercedArmor : max(max(0,bout−armure), bout×pierce%/100))
-      3b. **MODIFIER post-perçage PAR BOUT** : apply_all_modifiers(bout, mods)       # ApplyCappedModifiers
-         (RE §17.7 : dans `CalculateBaseDamageWithAllModifiers`@18102d3f0, le ×bonus est appliqué APRÈS
-          le perçage/armure ; `mods`=DamageModifiers bâti depuis les EFFETS actifs de l'attaquant §17.8 ;
-          None = aucun bonus → rétro-compat exacte). Preuve numérique : u94 +25% reproduit u94→u84 4524
-          ET u94→u86 4518 à l'unité (placement-sur-base donnerait 5877/5880, faux).
-      4. scenario (bouclier/réduction/overkill) PAR COUP, puis **× hits** (la boucle proba @2390 ajoute
-         un event par coup ; crit=0 → coups identiques → Σ = hits × per-coup). `hits` = hits de l'ARME.
+    ⚠ `shield_raw` (ancien override de la base bouclier AGRÉGÉE pour les spéciales) est OBSOLÈTE — le
+    bouclier est déplété PAR COUP via `prev` ; accepté pour compat des appelants mais IGNORÉ.
 
-    VALIDÉ : 1-coup (u88 pierce1+armure, u92 pierce70) EXACT ; multi-coup u96 (3 hits) = base×3 ;
-    buff u94 (RapidAssault +25%, mods) = oracle EXACT.
-
-    5. ADDITIF plat (ForAddition, ex. FightingRetreatDmgReduction -582) : appliqué UNE FOIS PAR
-       ATTAQUE sur le TOTAL agrégé, PAS par coup — TRANCHÉ par RE : dans `PredictAttackRaw`, les
-       2 appels `CalculateBaseDamageWithAllModifiers` (VA 0x181035126/0x181035391) reçoivent le
-       dégât AGRÉGÉ (somme normal+crit+cap-diff) AVANT la boucle d'events par-coup (@ligne ~2394) ;
-       le %-list commute avec ×hits (validations antérieures intactes) mais l'additif NON.
-       Recoupé natif seed777 step-11 : 69->80 = 778-1484 = 2×perhit − 582 (une fois), pas
-       2×(perhit−582). Plancher >= 0 (Fix64.Max(dmg, 0)).
-
-    6. BOUCLIER (ORDRE NATIF, PredictAttackRaw lignes GetBaseDamageFix64@0x181034b05 →
-       Min(base, shieldRestant)@0x181034caa/ce7 → remainder = base − blocked → chaîne
-       armure/modifiers @0x181035126/391) : le bouclier absorbe la **BASE AGRÉGÉE BRUTE**
-       (mm × hits, PRÉ-armure/perçage/élévation/modifiers), PAS le dégât final.
-       `CalculateDamageBlockedByShield @181002850` = Min(dmg, shield) PAR BORNE.
-       PREUVE live (trace step-11 seed777, hook shieldMin/Max @0x80/0x84) : sh_min vs 82
-       (worldTerminator, shield 3989) = **2873 CONSTANT sur (6,4)/(6,3)/(5,5)** (l'élévation
-       varie) → l'entrée du blocage est tile-indépendante = base brute ; sh_max = 3989
-       (saturé) ; santé = le RESTE passé dans armure/perçage/%-mods (tile-dépendant : fuite
-       73/58/39). `target_shield` = ShieldComponent.GetTotalShield @180fa7f30 (0 = pas de
-       bouclier → chemin historique VALIDÉ 11/11 inchangé).
-       ⚠ AMBIGUÏTÉ documentée : pour shield=0 le port applique armure/perçage PAR COUP puis
-       ×hits (validé live) alors que le natif opère sur l'agrégat — indiscernable quand le
-       perçage domine (commute) ; un cas armure-dominé multi-coups départagerait (TODO)."""
-    hits = max(1, hits)
-    base = initial_damage                                       # 1. base PAR COUP (PAS de modifier ici)
-    mm = get_base_damage_fix64(base, extra_max, spread_pct)     # 2. spread + extraMax (asymétrie haut)
-    mods_pct = replace(mods, additive=0.0) if (mods is not None and mods.additive) else mods
-    if target_shield > 0:
-        # 6. ORDRE NATIF bouclier (cf. docstring) : base AGRÉGÉE BRUTE → Min(base, shield)
-        # (@181002850) → le RESTE seul traverse perçage/armure/%-mods (une fois, agrégé) → santé.
-        # `shield_raw` (fourni par l'appelant spécial) = bornes du `GetDamage` int natif (local_9a8,
-        # PredictAttackRaw @0x18103477e = minDmg×mult pour les spéciales — PROUVÉ bit-exact live
-        # sh_min 2873 = round(0.8·1197·3)) ; défaut = mm×hits (attaque normale : base = stat Attack).
-        raw = shield_raw if shield_raw is not None \
-            else MinMaxDamage(min=mm.min * hits, max=mm.max * hits)
-        sh_min = min(raw.min, target_shield)
-        sh_max = min(raw.max, target_shield)
-        rem_min = raw.min - sh_min
-        rem_max = raw.max - sh_max
-        lo = apply_pierce_and_modifiers(rem_min, pierce_pct, armor, mods_pct, hit_mult) if rem_min else 0
-        hi = apply_pierce_and_modifiers(rem_max, pierce_pct, armor, mods_pct, hit_mult) if rem_max else 0
-        health = calculate_damage_prediction_scenario(
-            MinMaxDamage(min=lo, max=hi), prev_hits=0, profile_type=profile_type,
-            reduction_min=reduction_min, reduction_max=reduction_max)
-        if mods is not None and mods.additive:                  # additif UNE FOIS par attaque
-            health = MinMaxDamage(min=max(0, round(health.min + mods.additive)),
-                                  max=max(0, round(health.max + mods.additive)))
-        health = _cap_overkill(health, target_current_health)   # cap overkill (health <= hp courant)
-        return DamagePredictionResult(
-            current_health=target_current_health, armor=armor, shield=target_shield,
-            accurate_health_damage=health,
-            accurate_shield_damage=MinMaxDamage(min=sh_min, max=sh_max),
-            total_damage=MinMaxDamage(min=sh_min + health.min, max=sh_max + health.max),
-            applied_hits=hits, might_crit=might_crit)
-    # 3+3b. réduction perçage/armure + %-list PAR BORNE — l'ADDITIF est retiré ici (appliqué en 5).
-    lo = apply_pierce_and_modifiers(mm.min, pierce_pct, armor, mods_pct, hit_mult)
-    hi = apply_pierce_and_modifiers(mm.max, pierce_pct, armor, mods_pct, hit_mult)
-    per_hit = calculate_damage_prediction_scenario(            # 4. scenario PAR COUP
-        MinMaxDamage(min=lo, max=hi), prev_hits=0, profile_type=profile_type,
-        reduction_min=reduction_min, reduction_max=reduction_max)
-    total = MinMaxDamage(min=per_hit.min * hits, max=per_hit.max * hits)   # Σ des `hits` events
-    if mods is not None and mods.additive:                     # 5. additif UNE FOIS par attaque
-        total = MinMaxDamage(min=max(0, round(total.min + mods.additive)),
-                             max=max(0, round(total.max + mods.additive)))
-    total = _cap_overkill(total, target_current_health)        # 7. cap overkill (health <= hp courant)
-    return DamagePredictionResult(
-        current_health=target_current_health, armor=armor,
-        accurate_health_damage=total, total_damage=total,
-        applied_hits=hits, might_crit=might_crit)
+    VALIDÉ (à préserver) : 1-coup (u88 pierce1+armure, u92 pierce70) ; multi-coup u96 = base×3 ;
+    buff u94 (RapidAssault +25%) = oracle EXACT ; seed777 step-11 ; #47 GetStuckIn 11/11 ; bouclier
+    worldTerminator (sh 3989)."""
+    return get_multi_hit_attack_prediction(
+        target_current_health=target_current_health, initial_damage=initial_damage, hits=hits,
+        profile_type=profile_type, armor=armor, pierce_pct=pierce_pct, extra_max=extra_max,
+        mods=mods, hit_mult=hit_mult, reduction_min=reduction_min, reduction_max=reduction_max,
+        spread_pct=spread_pct, target_shield=target_shield, might_crit=might_crit)

@@ -47,12 +47,13 @@ from ...services.damage_prediction import get_base_damage_fix64, apply_pierce_an
 from ...services.damage_combat import (calculate_damage_operation, Damage, could_crit,
                                        roll_critical, BlockSource)
 from ...services.damage_modifiers import apply_all_modifiers
+from ...services.battle_query import are_tiles_adjacent
 from ..prng import IntBasedMersenneTwister
 from ..state import State
 from ..components import (StatsComponent, HealthComponent, PositionComponent, UnitComponent,
                          ShieldComponent)
 from ..damage_model import (select_weapon, select_weapon_pierce, attacker_modifiers,
-                            defender_modifiers, _cheby)
+                            defender_modifiers)
 from ...entities.effects import (hits_bonus_from_effects, crit_chance_bonus_from_effects,
                                  crit_damage_bonus_from_effects)
 
@@ -169,19 +170,14 @@ class AttackDamageOperation:
         ctx = sc.ctx
         ap = att.get_component(PositionComponent)
         tp = tgt.get_component(PositionComponent)
-        # DISTANCE pour la sélection d'arme (mêlée si adjacent, sinon tir). La grille est HEXAGONALE :
-        # l'adjacence FIDÈLE = voisinage hex du `state.board` (evenq), PAS chebyshev (cheby==1 peut
-        # correspondre à une paire hex-dist-2 → fausse sélection mêlée d'un tir, ex. overwatch ranged à
-        # dist 2). On retombe sur chebyshev seulement si pas de board (rétro-compat).
+        # DISTANCE pour la sélection d'arme (mêlée si adjacent, sinon tir). Adjacence HEX via le service
+        # PARTAGÉ `BattleQuery.are_tiles_adjacent` (MÊME que la prédiction) : `state.board` → voisins
+        # natifs (evenq), fallback géométrie evenq — PAS chebyshev (cheby==1 peut être hex-dist-2 → fausse
+        # sélection mêlée d'un tir, ex. overwatch ranged à dist 2).
         dist = None
         if ap is not None and tp is not None:
-            board = getattr(state, "board", None)
-            a_tile = board.id_at(ap.col, ap.row) if board is not None else None
-            t_tile = board.id_at(tp.col, tp.row) if board is not None else None
-            if a_tile is not None and t_tile is not None:
-                dist = 1 if t_tile in board.neighbours(a_tile) else 2   # adjacent hex → 1, sinon tir
-            else:
-                dist = _cheby((ap.col, ap.row), (tp.col, tp.row))
+            adj = are_tiles_adjacent((ap.col, ap.row), (tp.col, tp.row), getattr(state, "board", None))
+            dist = 1 if adj else 2
         pierce, _ranged, whits = select_weapon_pierce(ctx, dist)
         _w = select_weapon(ctx, dist)
         _profile = _w.get("DamageProfile") if _w else None     # profil du coup (pour vecteurs after-hit)
