@@ -15,6 +15,7 @@ from __future__ import annotations
 from .base import BasePlaybook, ComparablePlaybook, REGISTRY, register, get_playbook, tile_utility
 from .probable_damage_event import (
     ProbableDamageEvent, calculate_utility_from_damage_event, calculate_utility_from_predictions,
+    ProbableEffectEvent, calculate_utility_from_effect_event,
 )
 from .common import (
     NormalAttackPlaybook, HealPlaybook, RepairPlaybook,
@@ -39,6 +40,7 @@ __all__ = [
     "BasePlaybook", "ComparablePlaybook", "REGISTRY", "register", "get_playbook",
     "get_playbook_or_default", "tile_utility",
     "ProbableDamageEvent", "calculate_utility_from_damage_event", "calculate_utility_from_predictions",
+    "ProbableEffectEvent", "calculate_utility_from_effect_event",
     "NormalAttackPlaybook", "HealPlaybook", "RepairPlaybook", "DefaultActiveAbilityPlaybook",
     "DEFAULT_PLAYBOOK", "NORMAL_ATTACK_PLAYBOOK", "HEAL_PLAYBOOK", "SaviorProtocolsPlaybook",
     "NonComparablePlaybook", "NCContext", "nc_choose_action", "is_noncomp", "is_summon",

@@ -61,22 +61,33 @@ class ComparablePlaybook(BasePlaybook):
         cible principale + AoE, ou None/[] si NON-attaque. Délègue au port PV (complet/validé)."""
         raise NotImplementedError
 
+    def make_effect_predictions(self, ctx, caster_tile, target, ability_id):
+        """`ComparablePlaybook.MakeEffectPredictions` (vtable +0x388) : liste de `ProbableEffectEvent`
+        (pose d'effet probable). BASE = VIDE (`@18140a930` = `new List()`) — l'immense majorité des
+        abilities n'ajoute PAS d'effet-prédiction. SEUL `SpiritLeechPlaybook @18115d690` l'override dans
+        ce build (effet Pinned=0x429, poids 0 -> inerte). Override par sous-classe au besoin."""
+        return []
+
     def calculate_action_utility(self, ctx, caster_tile, target, ability_id) -> dict | None:
         """`CalculateActionUtility @181406ee0` pour (caster@caster_tile, target) : Σ des events (dégât)
-        + Tile(7)@tuile. Gate `ShouldExecute` = pas de prédiction d'attaque -> None (pas d'action émise).
-        Renvoie `{u, u_full, pred, aoe, bk}` (u = dégât seul ; u_full = u + tile ; pred = event principal)."""
+        + Σ effet + Tile(7)@tuile. Gate `ShouldExecute` = pas de prédiction d'attaque -> None (pas d'action).
+        Renvoie `{u, u_full, pred, aoe, bk}` (u = dégât+effet ; u_full = u + tile ; pred = event principal)."""
         events = self.make_damage_predictions(ctx, caster_tile, target, ability_id)  # list[ProbableDamageEvent]
         if not events:
             return None
-        from .probable_damage_event import calculate_utility_from_damage_event
+        from .probable_damage_event import (calculate_utility_from_damage_event,
+                                            calculate_utility_from_effect_event)
         # `CalculateUtilityFromPredictions @181407890` = Σ `CalculateUtilityFromDamageEvent @1814a9f90`
-        # (= prob1 × prob2 × composite Damage ; event FRIENDLY -> utilité NÉGÉE).
+        # (= prob1 × prob2 × composite Damage ; event FRIENDLY -> utilité NÉGÉE) + Σ des events d'EFFET.
         u = 0.0
         bk = []
         for ev in events:
             ua = calculate_utility_from_damage_event(ev, ctx.wt, ctx.hpmax_by_id.get(ev.target))
             u += ua
             bk.append((ev.target, round(ua, 1)))
+        # Fold EFFET (branche +0x388) : base vide -> no-op pour toute ability sans override (additif).
+        for ee in self.make_effect_predictions(ctx, caster_tile, target, ability_id) or []:
+            u += calculate_utility_from_effect_event(ee, ctx.wt)
         main = events[0]
         return {"u": u, "u_full": u + tile_utility(ctx, caster_tile),
                 "pred": main.composite_fields(), "aoe": events[1:], "bk": bk}
