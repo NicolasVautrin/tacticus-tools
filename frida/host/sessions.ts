@@ -49,6 +49,19 @@ export function getSession(id: number): RunSession | undefined {
     return s ? sanitize(s) : undefined;
 }
 
+/** Most-recently-started session that is running AND whose script is still
+ * alive. Callers outside this module can't check script liveness themselves
+ * (sanitize() strips fridaScript), so they must go through here rather than
+ * filtering listSessions() on status — otherwise a zombie (status "running",
+ * script destroyed, signal not yet propagated) gets advertised as active. */
+export function pickLiveSessionId(): number | null {
+    const live = [...sessions.values()].filter(
+        (s) => s.status === "running" && !!s.fridaScript && !isScriptDestroyed(s.fridaScript),
+    );
+    if (live.length === 0) return null;
+    return live[live.length - 1].id;
+}
+
 export async function listProcesses(): Promise<Array<{
     pid: number; name: string;
 }>> {
@@ -108,17 +121,31 @@ export async function runScript(opts: RunScriptOpts): Promise<RunSession> {
         onMessage(sessionId, message, data);
     });
 
-    fridaSession.detached.connect(() => {
-        session.status = "stopped";
+    // Mark the session dead exactly once, whichever teardown signal fires
+    // first. The SESSION emits `detached` (process gone / explicit detach);
+    // the SCRIPT emits `destroyed` (unload, runtime teardown, or the agent
+    // dying without the whole session detaching). Historically only
+    // `detached` was wired, so a script that died on its own left a zombie
+    // session stuck at status "running" — every subsequent RPC then threw a
+    // raw "Script is destroyed" from Frida. Wiring `destroyed` too closes
+    // that gap; the `finalized` guard keeps side-effects single-shot when
+    // both signals fire (they do during a normal stopSession unload+detach).
+    let finalized = false;
+    const finalize = (reason: string): void => {
+        if (finalized) return;
+        finalized = true;
+        if (session.status === "running") session.status = "stopped";
         session.endedAt = new Date().toISOString();
         closeLog(sessionId);
-        // Same rationale as stopSession — runners are dead once the script is
-        // gone, so their host metadata must disappear too.
+        // Runners are dead once the script is gone, so their host metadata
+        // must disappear too (same rationale as stopSession).
         pruneRunnersBySession(sessionId).catch((e) => {
-            console.log(`[sessions] prune (detached) failed for ${sessionId}: ${e.message}`);
+            console.log(`[sessions] prune (${reason}) failed for ${sessionId}: ${e.message}`);
         });
         persist();
-    });
+    };
+    fridaSession.detached.connect(() => finalize("detached"));
+    fridaScript.destroyed.connect(() => finalize("script-destroyed"));
 
     // Wait for the agent to finish its top-level init (lots of
     // findClass + Interceptor.attach) before returning, so the first
@@ -141,6 +168,24 @@ export async function runScript(opts: RunScriptOpts): Promise<RunSession> {
         readyPromise,
         new Promise<void>((resolve) => setTimeout(resolve, 15000)),
     ]);
+
+    // Liveness gate: re-attaching to a PID left wedged by a prior agent can
+    // load the script only for the runtime to tear it straight back down.
+    // Without this check runScript would still hand back a session marked
+    // "running" — a phantom that fails every RPC with "Script is destroyed".
+    // `isDestroyed` is the one unambiguous failure signal at this point: a
+    // mere ready-timeout is expected (the 15s race above is a deliberate
+    // fallback), so we must NOT fail on that alone.
+    if (isScriptDestroyed(fridaScript)) {
+        session.status = "error";
+        session.errorMessage =
+            "script was destroyed right after load — the target PID is likely " +
+            "wedged; relaunch Tacticus, then reinject";
+        session.endedAt = new Date().toISOString();
+        closeLog(sessionId);
+        persist();
+        throw new Error(`inject failed on pid ${pid}: ${session.errorMessage}`);
+    }
 
     if (opts.mode === "spawn") {
         await device.resume(pid);
@@ -231,10 +276,7 @@ export async function rpcCall(
     args: unknown[] | Record<string, unknown>,
     timeout = 10000,
 ): Promise<unknown> {
-    const session = sessions.get(id);
-    if (!session?.fridaScript || session.status !== "running") {
-        throw new Error(`Session ${id} not running`);
-    }
+    const session = requireLiveSession(id);
 
     // Frida exposes rpc.exports as an object of async functions under
     // script.exports — we awaited it once to get the map.
@@ -282,11 +324,8 @@ export async function rpcCall(
 }
 
 export function postMessage(id: number, message: unknown): void {
-    const session = sessions.get(id);
-    if (!session?.fridaScript || session.status !== "running") {
-        throw new Error(`Session ${id} not running`);
-    }
-    session.fridaScript.post(message as frida.Message);
+    const session = requireLiveSession(id);
+    session.fridaScript!.post(message as frida.Message);
 }
 
 // ---------- Persistence ----------
@@ -418,6 +457,42 @@ async function tryRestoreOne(
 
 async function getDevice(): Promise<frida.Device> {
     return frida.getLocalDevice();
+}
+
+/** Safe read of Frida's `Script.isDestroyed` getter. A live script never
+ * throws here; treat a throw (native handle gone) as destroyed. */
+function isScriptDestroyed(script: frida.Script): boolean {
+    try {
+        return (script as unknown as { isDestroyed: boolean }).isDestroyed === true;
+    } catch {
+        return true;
+    }
+}
+
+/** Resolve a session that is BOTH marked running AND whose script is still
+ * alive. Self-heals a zombie (status "running" but the script was destroyed
+ * without the session detaching) by finalizing it, and throws an actionable
+ * error instead of leaking Frida's raw "Script is destroyed". */
+function requireLiveSession(id: number): RunSession {
+    const session = sessions.get(id);
+    if (!session?.fridaScript || session.status !== "running") {
+        throw new Error(`Session ${id} not running`);
+    }
+    if (isScriptDestroyed(session.fridaScript)) {
+        // Zombie: the destroyed signal may not have propagated yet (or fired
+        // before this session's handler was wired). Mark it dead now so
+        // pickRunningSession / admin status stop advertising it.
+        session.status = "stopped";
+        session.endedAt = new Date().toISOString();
+        closeLog(session.id);
+        pruneRunnersBySession(session.id).catch(() => { /* best effort */ });
+        persist();
+        throw new Error(
+            `Session ${id} script is destroyed — reinject (POST /api/admin/inject); ` +
+            "if inject wedges on the same PID, relaunch Tacticus first",
+        );
+    }
+    return session;
 }
 
 function onMessage(sessionId: number, message: frida.Message, data: Buffer | null): void {

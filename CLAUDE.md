@@ -84,7 +84,10 @@ Host sur `http://127.0.0.1:8765`. Front sur `http://127.0.0.1:8765/view/`.
 
 1. Lancer Tacticus, attendre que le menu principal soit pleinement loaded.
 2. Ouvrir le front (`/view/`).
-3. Cliquer **INJECT** dans l'UI (auto-discovery du PID via `_Data/` adjacent à l'exe).
+3. **Injecter** via `POST /api/admin/inject` (body `{}`) — auto-discovery du PID
+   du jeu via le dossier `<basename>_Data/` adjacent à l'exe. (Le bouton INJECT
+   du front `/view/` fait le même appel mais **n'est plus utilisé** : l'injection
+   passe par l'API / les scripts.)
 4. **Warmup** = appeler le RPC `warmupGameSingletons({ force: true })`.
    **Autonome** : il pilote toute la nav UI lui-même (campagne → node → play →
    capture ctor → pause → retreat) et capture `lastSource` +
@@ -168,11 +171,16 @@ le jeu actif.
 cd frida && npm run build:hooks   # → frida/dist/hooks.js (~110 KB)
 ```
 
-L'**injection se fait via l'UI** (`POST /api/admin/inject`) — pas en ligne de
-commande. Le host gère device discovery, attach, load script, session lifecycle.
+L'**injection se fait via `POST /api/admin/inject`** (body `{}`) — pas en ligne
+de commande, et **plus via le bouton UI** (le front `/view/` n'est plus utilisé
+depuis longtemps ; il appelle le même endpoint). Le host gère device discovery,
+attach, load script, session lifecycle. Un inject frais crée une session neuve
+qui charge le `dist/hooks.js` courant ET est trackée par `/api/admin/status`
+(→ re-warmup ensuite, cf. Workflow RL).
 
 Pour info : (file:///C:/Users/nicolasv/tacticus-tools/frida/host/admin.ts) +
-(file:///C:/Users/nicolasv/tacticus-tools/frida/public/src/admin.js).
+(file:///C:/Users/nicolasv/tacticus-tools/frida/host/sessions.ts) (cycle de vie
+des sessions, durci — cf. « Robustesse du harnais » ci-dessous).
 
 ## Arrêt
 
@@ -215,6 +223,34 @@ code `frida/host/*` a changé. Dans les deux cas, **re-warmup ensuite via
 `warmupGameSingletons({ force: true })`** (autonome — cf. Workflow RL) **AVANT
 tout RPC/probe, sans exception** (même les probes seed-BC sur disque type
 `rl_probe_step --mode card` : cf. la RÈGLE INCONDITIONNELLE du Workflow RL).
+
+### Robustesse du harnais de session (`frida/host/sessions.ts`)
+
+Le cycle de vie des sessions Frida est **durci** contre les zombies et les
+injects wedgés. À connaître pour diagnostiquer un état de session incohérent :
+
+- **Signal `fridaScript.destroyed` câblé** (en plus de `fridaSession.detached`) :
+  un script qui meurt seul marque la session `stopped` via un `finalize()`
+  idempotent — **plus de session fantôme « running » à script mort** qui faisait
+  échouer tout RPC avec le brut `"Script is destroyed"`.
+- **Porte de vivacité post-`load()`** dans `runScript` : si le script est
+  `isDestroyed` juste après le load (typique d'un **PID wedgé** par un agent
+  précédent), la session passe `error` (message actionnable) et `runScript`
+  **throw** — au lieu de rendre une session fantôme « running ». La course
+  `agent_ready` de 15 s reste un fallback by-design ; seul `isDestroyed` est un
+  échec dur (pas de faux positif sur un simple boot lent).
+- **`requireLiveSession(id)`** (utilisé par `rpcCall` / `postMessage`) : self-heal
+  du zombie (marque `stopped` + prune runners) puis erreur **actionnable** au lieu
+  du brut frida : « reinject (`POST /api/admin/inject`) ; si l'inject wedge sur le
+  même PID, relance Tacticus d'abord ».
+- **`pickLiveSessionId()`** (délégué par `pickRunningSession`, donc
+  `/api/admin/status` et les autres call-sites) : filtre `running` **ET** script
+  vivant → l'état admin ne publie plus un zombie.
+
+**Conséquence pratique** : un reinject qui wedge le PID (cf. le cas connu où un
+reinject après stop hang dans le même PID Tacticus) échoue désormais **franchement**
+avec « relance Tacticus ». Récupération = **relancer le jeu** puis restart host
+(l'auto-restore rediscover le nouveau PID par exePath) ou fresh inject.
 
 ## Serveur ghidra-mcp (analyse offline)
 

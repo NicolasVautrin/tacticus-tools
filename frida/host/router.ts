@@ -19,7 +19,7 @@ import express, { Router, Request, Response } from "express";
 import { promises as fs, readFileSync, existsSync } from "fs";
 import path from "path";
 import {
-    getSession, listProcesses, listSessions, postMessage,
+    getSession, listProcesses, listSessions, postMessage, pickLiveSessionId,
     rpcCall, runScript, stopAllPreservingState, stopSession,
 } from "./sessions.js";
 import {
@@ -1608,11 +1608,11 @@ export function buildRouter(defaultLogDir: string): Router {
         }
     });
 
+    // Liveness-aware: skips zombies (status "running" but script destroyed).
+    // Delegates to sessions.ts because script liveness isn't visible here
+    // (listSessions() returns sanitized views without fridaScript).
     function pickRunningSession(): number | null {
-        const running = listSessions().filter((s) => s.status === "running");
-        if (running.length === 0) return null;
-        // Most recently started.
-        return running[running.length - 1].id;
+        return pickLiveSessionId();
     }
 
     router.post("/api/_dev/shutdown", async (_req: Request, res: Response) => {

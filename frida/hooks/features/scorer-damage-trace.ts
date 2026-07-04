@@ -275,6 +275,78 @@ function installAllModsHook(): boolean {
     return true;
 }
 
+// DamagePrediction.CalculateDamagePredictionScenario @18102ed00 (méthode NOMMÉE, findMethod — survit
+// au hash) : le NOYAU par-coup de la boucle multi-hit. Signature (Ghidra) :
+//   (param_1=out struct, param_2=service, param_3, param_4=target, param_5=rawMM(MinMaxDamageFix64
+//    min Fix64@0x10 / max Fix64@0x18), param_6, param_7=int previousHitsPrediction, param_8=int prob,
+//    param_9=out byte). Retourne param_1 : healthMin S32@0xc, healthMax S32@0x10.
+// But #49 : capturer `prevHits` (param_7 = args[6]) par coup — la réduction per-cible ~1047-1298 que
+// l'analyse statique/nombres n'a pas pu nommer (perHitList dispatch générique). rawMin doit == per_coup
+// (1799) et out la sortie santé du coup.
+interface ScenarioEvent {
+    seq: number;
+    originRunnerId: number | null;
+    targetId: number;   // param_4 = args[3] = target entity -> id @0x10 (attribution sans ambiguite)
+    rawMin: number;     // param_5 +0x10 (Fix64 -> int)
+    rawMax: number;     // param_5 +0x18
+    prevHits: number;   // param_7 = args[6]
+    prob: number;       // param_8 = args[7]
+    outMin: number;     // retval +0xc
+    outMax: number;     // retval +0x10
+    casterCol: number;
+    casterRow: number;
+}
+const scenarioTrace: { buf: OriginBuffers<ScenarioEvent> } =
+    { buf: new OriginBuffers<ScenarioEvent>(CAP, "dropNew") };
+let scenarioInstalled = false;
+function installScenarioHook(): boolean {
+    if (scenarioInstalled) return true;
+    const klass = findClassAnywhere("IdunBattle.Core.Services", "DamagePrediction");
+    if (!klass) { log("[scorer-trace] DamagePrediction class not found (scenario)"); return false; }
+    const mi = findMethod(klass, "CalculateDamagePredictionScenario");
+    if (!mi || mi.ptr.isNull()) { log("[scorer-trace] CalculateDamagePredictionScenario not resolved"); return false; }
+    const f64 = (p: NativePointer): number => {
+        try { return Number(p.readS64()) / 4294967296; } catch { return NaN; }
+    };
+    Interceptor.attach(mi.ptr, {
+        onEnter(args) {
+            if (!trace.on) return;
+            const self = this as { _on?: boolean; _raw?: NativePointer; _prev?: number; _prob?: number; _tgt?: number };
+            self._on = true;
+            try {
+                self._raw = args[4];
+                self._prev = args[6].toInt32();
+                self._prob = args[7].toInt32();
+                const tgt = args[3];   // param_4 = target entity
+                self._tgt = (tgt && !tgt.isNull()) ? tgt.add(0x10).readS32() : -1;
+            } catch { self._on = false; }
+        },
+        onLeave(retval) {
+            const self = this as { _on?: boolean; _raw?: NativePointer; _prev?: number; _prob?: number; _tgt?: number };
+            if (!self._on || !trace.on) return;
+            try {
+                const raw = self._raw as NativePointer;
+                scenarioTrace.buf.push({
+                    seq: ++trace.seq,
+                    originRunnerId: getTraceOrigin(),
+                    targetId: self._tgt ?? -1,
+                    rawMin: raw && !raw.isNull() ? f64(raw.add(0x10)) : NaN,
+                    rawMax: raw && !raw.isNull() ? f64(raw.add(0x18)) : NaN,
+                    prevHits: self._prev ?? -1,
+                    prob: self._prob ?? -1,
+                    outMin: retval.add(0xc).readS32(),
+                    outMax: retval.add(0x10).readS32(),
+                    casterCol: curCaster ? curCaster.col : -1,
+                    casterRow: curCaster ? curCaster.row : -1,
+                });
+            } catch { /* transient — skip */ }
+        },
+    });
+    scenarioInstalled = true;
+    log("[scorer-trace] hooked CalculateDamagePredictionScenario @ " + mi.ptr);
+    return true;
+}
+
 let installed = false;
 function installHook(): boolean {
     if (installed) return true;
@@ -641,6 +713,7 @@ export function register(ctx: Ctx): void {
         queueOnMainThread(() => {
             const ok = installHook();
             installAllModsHook();   // findMethod (nommé) — survit au hash
+            installScenarioHook();  // findMethod (nommé) — noyau par-coup (prevHits #49)
             installRvaHooks();   // arme les RVA build-spécifiques (l'utilisateur confirme le hash en armant)
             trace.on = ok;
             return { ok, on: trace.on, installed, rvaInstalled, allModsInstalled };
@@ -660,7 +733,7 @@ export function register(ctx: Ctx): void {
         trace.buf.clear(rid); utilTrace.buf.clear(rid);
         elevTrace.buf.clear(rid); tileTermTrace.buf.clear(rid);
         leafTrace.buf.clear(rid); bonusTrace.buf.clear(rid);
-        allModsTrace.buf.clear(rid);
+        allModsTrace.buf.clear(rid); scenarioTrace.buf.clear(rid);
         if (typeof rid !== "number") {
             trace.seq = 0; utilTrace.targets = [];
             composedChildren.seen.clear();
@@ -747,6 +820,19 @@ export function register(ctx: Ctx): void {
             on: trace.on, utilInstalled,
             bufferSize: utilTrace.buf.size(),
             entries: utilTrace.buf.entries(body?.runnerId).slice(-max),
+        };
+    };
+
+    /** Dump des appels CalculateDamagePredictionScenario (rawMin/Max, prevHits, prob, outMin/Max) —
+     *  noyau par-coup ; prevHits = la reduction per-cible #49 non lisible statiquement. */
+    ctx.rpc.scorerScenarioTraceDump = (
+        body?: { max?: number; runnerId?: number },
+    ): unknown => {
+        const max = body?.max ?? 2000;
+        return {
+            on: trace.on, scenarioInstalled,
+            bufferSize: scenarioTrace.buf.size(),
+            entries: scenarioTrace.buf.entries(body?.runnerId).slice(-max),
         };
     };
 
