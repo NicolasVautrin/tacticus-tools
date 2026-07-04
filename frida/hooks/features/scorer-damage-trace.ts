@@ -1,6 +1,24 @@
-// Scorer / utility / damage-modifier TRACE TOOLKIT — capture, during `aiStepDryRun`, exactly what the
-// native AI computes per attack candidate: scorer damage, JOINT (tile,target) utility, tile-term, tile-leaf
-// outputs, composite children, damage bonuses. A reusable agreement-debugging kit (NOT a one-shot probe).
+    // Scorer / utility / damage-modifier TRACE TOOLKIT — capture, during a FRESH scoring pass, exactly what
+// the native AI computes per attack candidate: scorer damage, JOINT (tile,target) utility, tile-term,
+// tile-leaf outputs, composite children, damage bonuses. A reusable agreement-debugging kit (NOT a one-shot).
+//
+// ═══ CAPTURE RECIPE (post multi-runner refacto #43 — 3 gotchas, sinon buffer VIDE) ═════════════════════
+// Le helper Python `scripts/python/scorer_trace_capture.py::capture(seed, want=...)` encapsule ce flux —
+// s'en servir plutot que de le re-deriver. Les 3 gotchas :
+//   1. Runner isole : `rl_duel build --state-file data/X.json` (ROOT-ANCHORED, <repo>/data/) ; le runnerId
+//      se lit DANS ce fichier JSON, pas dans stdout.
+//   2. Traces = OriginBuffers PAR ORIGINE (#43, purge au dispose) : dumper avec `{runnerId: rid}`. Les RPC
+//      ai-step posent `setTraceOrigin(runnerId)` ; sans le bon filtre le dump revient vide (hooks OK quand meme).
+//   3. Les hooks (ctor + AllMods) ne firent que quand l'IA native SCORE vraiment (tour joué :
+//      `aiStepDryRun`, ou l'`endturn` d'un joueur IA). `aiStepDryRun` ne score que l'action CHOISIE
+//      (si l'IA choisit un move => AUCUN ctor d'attaque). Le `decisionView` du drive NE suffit PAS a
+//      lui seul (chemin de prediction d'AFFICHAGE, + CachedDamagePrediction). => activer
+//      `scorerDamageTraceOn` AVANT que le scenario tourne (p.ex. avant le drive) ET capter sur les
+//      tours REELLEMENT joués. OBSERVE : un drive skewe vers les attaques ENNEMIES (scorees pendant
+//      leurs endturn) ; capter l'attaque d'une unite AMIE precise demande que l'IA CHOISISSE cette
+//      attaque (positionner pour que ce soit son meilleur coup). L'ancienne mention « during
+//      aiStepDryRun » n'etait pas fausse mais incomplete (endturn IA score aussi).
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════
 //
 // ═══ ⚠ BUILD-SPECIFIC RVA HOOKS — REFRESH FROM DUMP ON EVERY HASH CHANGE ═══════════════════════════════
 // Only ONE hook resolves cleanly across builds: `ProbableDamageEvent..ctor` (findMethod — the scorer damage,
