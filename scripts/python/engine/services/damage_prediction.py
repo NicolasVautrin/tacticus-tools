@@ -144,6 +144,19 @@ def calculate_damage_prediction_scenario(
     return out
 
 
+def _cap_overkill(dmg: MinMaxDamage, current_health: int) -> MinMaxDamage:
+    """Cap OVERKILL (`FillUpStatComponent.MaxReduceByMinimum`) : le degat SANTE ne peut exceder la sante
+    COURANTE de la cible. Le natif l'applique PER-COUP cumulatif dans `CalculateDamagePredictionScenario`
+    (@18102ed00, param `remaining_health`) ; le moteur agrege per-hit x hits -> on cape sur l'AGREGAT
+    (equivalent : total capable <= hp ; borne MAX si depasse, MIN inchange sinon). GROUND TRUTH aiPredict
+    seed777/31337 : u84 max=8034=hpBefore, u86 max=5522=hpBefore (EXACT) ; u82 6018<9537 -> non cape.
+    Gate `current_health>0` (0 = sante inconnue passee par l'appelant -> pas de cap, retro-compat)."""
+    if current_health <= 0:
+        return dmg
+    return MinMaxDamage(min=min(dmg.min, current_health), max=min(dmg.max, current_health),
+                        cap=dmg.cap)
+
+
 def get_base_damage_fix64(base: int, extra_max: int = 0, spread_pct: int = 20,
                           is_max_out: bool = False) -> MinMaxDamage:
     """DamagePrediction.GetBaseDamageFix64 (@181030ba0) — la MinMax de base AVANT armure (local_938).
@@ -218,6 +231,7 @@ def get_multi_hit_attack_prediction(
     if mods is not None and mods.additive:
         total = MinMaxDamage(min=max(0, round(total.min + mods.additive)),
                              max=max(0, round(total.max + mods.additive)))
+    total = _cap_overkill(total, target_current_health)         # cap overkill (health <= hp courant)
     if target_shield <= 0:
         return DamagePredictionResult(
             current_health=target_current_health, armor=armor,
@@ -236,6 +250,7 @@ def get_multi_hit_attack_prediction(
     if mods is not None and mods.additive:
         health = MinMaxDamage(min=max(0, round(health.min + mods.additive)),
                               max=max(0, round(health.max + mods.additive)))
+    health = _cap_overkill(health, target_current_health)       # cap overkill (health <= hp courant)
     return DamagePredictionResult(
         current_health=target_current_health, armor=armor, shield=target_shield,
         accurate_health_damage=health,
@@ -317,6 +332,7 @@ def get_attack_prediction(
         if mods is not None and mods.additive:                  # additif UNE FOIS par attaque
             health = MinMaxDamage(min=max(0, round(health.min + mods.additive)),
                                   max=max(0, round(health.max + mods.additive)))
+        health = _cap_overkill(health, target_current_health)   # cap overkill (health <= hp courant)
         return DamagePredictionResult(
             current_health=target_current_health, armor=armor, shield=target_shield,
             accurate_health_damage=health,
@@ -333,6 +349,7 @@ def get_attack_prediction(
     if mods is not None and mods.additive:                     # 5. additif UNE FOIS par attaque
         total = MinMaxDamage(min=max(0, round(total.min + mods.additive)),
                              max=max(0, round(total.max + mods.additive)))
+    total = _cap_overkill(total, target_current_health)        # 7. cap overkill (health <= hp courant)
     return DamagePredictionResult(
         current_health=target_current_health, armor=armor,
         accurate_health_damage=total, total_damage=total,
