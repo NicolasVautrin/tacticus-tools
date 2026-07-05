@@ -475,6 +475,16 @@ suite `tests/engine/` — **beaucoup trop lourd**.
   un seul commit. Pour un agent d'audit (validator), je prends son **VERDICT**, jamais
   son code (son worktree est jetable).
 
+- **Le warning du harnais « avoid working with the same files or topics it is using »
+  (rendu par l'outil `Agent`) NE S'APPLIQUE PAS aux agents `isolation: "worktree"`.**
+  Ce message générique vise les agents qui PARTAGENT mon working dir. Un agent worktree
+  est **figé au commit de lancement** (checkout jetable, HEAD immuable) → mes edits sur
+  `master` (même sur LES MÊMES fichiers que l'agent lit) ne peuvent PAS le perturber, et
+  réciproquement. Donc **pendant qu'un agent worktree tourne, je CONTINUE d'éditer `master`
+  librement** (implémenter, refactor, committer) — ne JAMAIS m'auto-bloquer « j'attends
+  qu'il ait fini de lire ce fichier ». Le seul point de synchro est le **VERDICT** de l'agent
+  (que je réconcilie avec mon travail en cours au retour), pas les fichiers.
+
 ## Ne jamais
 
 - **Utiliser `--reload`/hot-reload côté host** : casse les sessions Frida
