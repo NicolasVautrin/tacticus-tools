@@ -49,6 +49,15 @@ const pathfindersOff = runnerClass
 // ExtraPierceRanged=22 ExtraMaxDamage=25 ExtraPierce=26. Faction/class/profil/traits = gameconfig ;
 // effets = decisionView. C'est le SEUL accès live (one-shot au chargement BC) du prédicteur offline.
 const getStatMi = unitExtClass ? findMethodByParamCount(unitExtClass, "GetStat", 4) : null;
+// StatType ids (enum) partagés par `combatSnapshot` + `statModSources` — source unique
+// (évite la divergence si on ajoute un stat d'un côté seulement, cf. discipline « check own port »).
+const COMBAT_STAT_IDS: Record<string, number> = {
+    attack: 0, movement: 1, defense: 3, health: 5, blockChance: 7,
+    blockDamage: 8, critChance: 9, critDamage: 10, fixedArmor: 16,
+    extraHits: 17, activeAbilityLevel: 18, numberOfMembers: 20,
+    extraPierceMelee: 21, extraPierceRanged: 22, extraHitsMelee: 23,
+    extraMaxDamage: 25, extraPierce: 26,
+};
 // 5-param overload `GetPath(PathfinderType type, unit, from, to, Nullable<UseTeleporter>)`
 // (@180f20190) — type=1 comme `GetMinDistanceToEnemy` (`GetPath(1, unit, evalTile, enemyTile, 0)`).
 let getPathMi: { info: NativePointer; ptr: NativePointer } | null = null;
@@ -549,13 +558,7 @@ export function registerView(ctx: Ctx): void {
         const statePtr = runner.add(runnerOff.state).readPointer();
         if (statePtr.isNull()) return { ok: false, error: "state null" };
 
-        const STAT_IDS: Record<string, number> = {
-            attack: 0, movement: 1, defense: 3, health: 5, blockChance: 7,
-            blockDamage: 8, critChance: 9, critDamage: 10, fixedArmor: 16,
-            extraHits: 17, activeAbilityLevel: 18, numberOfMembers: 20,
-            extraPierceMelee: 21, extraPierceRanged: 22, extraHitsMelee: 23,
-            extraMaxDamage: 25, extraPierce: 26,
-        };
+        const STAT_IDS = COMBAT_STAT_IDS;
         const idBufs: Record<string, NativePointer> = {};
         for (const k of Object.keys(STAT_IDS)) {
             const buf = Memory.alloc(4); buf.writeS32(STAT_IDS[k]); idBufs[k] = buf;
@@ -736,6 +739,107 @@ export function registerView(ctx: Ctx): void {
             });
         }
         return { ok: true, runner: label, statTypes: STAT_IDS, units };
+    });
+
+    /** PER-SOURCE STAT-MODIFICATION breakdown — la sonde DÉFINITIVE pour SOURCER un
+     *  `statDelta` opaque : « le +1298 Attack sur u92 vient de QUELLE entité ? »
+     *  devient une LECTURE au lieu d'une triangulation (base↔tuile + recon allié +
+     *  gameconfig). Chemin natif VÉRIFIÉ (décompilé) :
+     *    `UnitExtensions.GetStat(entity, statType, StatPart=5, Nullable<BEntityId> src)`
+     *    → `StatComponent.GetStatPart @180fa8bb0` case 5/9 :
+     *        • src.HasValue=false → `*(int*)(comp+0x10)` = TOTAL Σ des modifications
+     *        • src.HasValue=true  → `ValueModification.GetModificationFromEntity(
+     *            comp+0x10, srcId) @180fadf10` → Dict<BEntityId,Modifier> keyé par
+     *          l'ENTITÉ SOURCE du buff → contribution de CETTE source.
+     *  On lit le total (part 5, src null) par stat ; si non-nul, on SCANNE toutes les
+     *  entités comme sources candidates (BEntityId = `forEachEntity` id) et on garde
+     *  les contributions non-nulles. `residual = total - Σ(sources)` : 0 = tout
+     *  attribué à des entités (cas aura d'allié / self-buff) ; non-nul = une source
+     *  non-entité (modif SETUP `ModifyUnit*` / système) → à investiguer, pas deviner.
+     *  Ne matérialise QUE ce qui est présent dans la ValueModification À CET INSTANT
+     *  (une aura d'adjacence n'y est que si l'unité est actuellement adjacente au
+     *  porteur — cf. #49 : re-évaluée par candidat en prédiction). Read-only, one-shot.
+     *  body: { runnerId?, unitId?, stats?: string[], minAbs?=1 } */
+    ctx.rpc.statModSources = (
+        body?: {
+            runnerId?: number; unitId?: number; stats?: string[]; minAbs?: number;
+        },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        let runner: NativePointer; let label: string;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);
+            label = "build#" + body.runnerId;
+        } else if (state.liveRunner) {
+            runner = state.liveRunner; label = "live";
+        } else { return { ok: false, error: "no runner — pass runnerId" }; }
+        if (runner.isNull()) return { ok: false, error: label + " runner null" };
+        if (!getStatMi) return { ok: false, error: "UnitExtensions.GetStat(4) non résolu" };
+        const statePtr = runner.add(runnerOff.state).readPointer();
+        if (statePtr.isNull()) return { ok: false, error: "state null" };
+
+        const requested = (Array.isArray(body?.stats) && body!.stats!.length)
+            ? body!.stats!.filter((k) => k in COMBAT_STAT_IDS)
+            : Object.keys(COMBAT_STAT_IDS);
+        const minAbs = typeof body?.minAbs === "number"
+            ? Math.abs(body.minAbs) : 1;
+
+        const idBufs: Record<string, NativePointer> = {};
+        for (const k of requested) {
+            const buf = Memory.alloc(4); buf.writeS32(COMBAT_STAT_IDS[k]); idBufs[k] = buf;
+        }
+        const partBuf5 = Memory.alloc(4); partBuf5.writeS32(5);   // StatPart = branche modification
+        // Nullable<BEntityId> — layout Mono : hasValue byte @+0, value(int32 BEntityId) @+4.
+        const nullSrc = Memory.alloc(16); for (let i = 0; i < 16; i += 4) nullSrc.add(i).writeS32(0);
+        const srcBuf = Memory.alloc(16); for (let i = 0; i < 16; i += 4) srcBuf.add(i).writeS32(0);
+        srcBuf.writeU8(1);   // HasValue = true (réécrit srcBuf+4 = value à chaque source)
+        // GetStat(4-arg) rend un int BOXÉ → valeur signée @+0x10 (idem combatSnapshot).
+        const getMod = (e: NativePointer, k: string, src: NativePointer): number => {
+            try {
+                const r = invokeMethod(getStatMi!.info, null, [e, idBufs[k], partBuf5, src]);
+                return r.isNull() ? 0 : r.add(0x10).readS32();
+            } catch { return 0; }
+        };
+
+        // Toutes les entités = sources candidates ; unités vivantes (filtrées par unitId) = cibles.
+        const allEntities: Array<{ e: NativePointer; id: number; isUnit: boolean }> = [];
+        const targetUnits: Array<{ e: NativePointer; id: number }> = [];
+        forEachEntity(statePtr, (e, id, ty) => {
+            const isUnit = ty === EntityType.Unit;
+            allEntities.push({ e, id, isUnit });
+            if (isUnit && (body?.unitId === undefined || id === body.unitId)
+                && invokeBool(isAliveMi, [e, statePtr])) {
+                targetUnits.push({ e, id });
+            }
+        });
+
+        const units: Array<Record<string, unknown>> = [];
+        for (const { e, id } of targetUnits) {
+            const mods: Record<string, unknown> = {};
+            for (const k of requested) {
+                const total = getMod(e, k, nullSrc);
+                if (Math.abs(total) < minAbs) continue;          // pas de modification → skip le scan
+                const bySource: Array<Record<string, unknown>> = [];
+                for (const src of allEntities) {
+                    srcBuf.add(4).writeS32(src.id);              // value = BEntityId de la source
+                    const amount = getMod(e, k, srcBuf);
+                    if (amount !== 0) {
+                        bySource.push({
+                            source: src.id, amount,
+                            self: src.id === id, sourceIsUnit: src.isUnit,
+                        });
+                    }
+                }
+                const attributed = bySource.reduce(
+                    (a, b) => a + (b.amount as number), 0);
+                mods[k] = { total, residual: total - attributed, bySource };
+            }
+            units.push({
+                entityId: id, ctrl: invokeBool(isCtrlByCurMi, [e, statePtr]), mods,
+            });
+        }
+        return { ok: true, runner: label, statTypes: COMBAT_STAT_IDS, units };
     });
 
     /** RANKING des tiles d'attaque par (unit, target) — shrink-and-recall sur

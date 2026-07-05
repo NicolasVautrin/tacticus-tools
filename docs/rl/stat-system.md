@@ -83,6 +83,18 @@ plupart min=0 max=+inf ; certains stats bornes).
 **Consequence cle** : une modification est **droppable individuellement** (par source). C'est ce
 qui permet, offline, de retirer un buff conditionnel/expire pour recalculer Current sans lui.
 
+**Sonde LIVE (RPC `statModSources`, rpc-view.ts)** : lit ce Dict par source SANS decoder son layout,
+via `GetStat(entity, statType, StatPart=5, Nullable<BEntityId>=src)` (`GetStatPart @180fa8bb0` case 5/9,
+decompile-verifie) : src null -> total `*(int*)(comp+0x10)` ; src fournie -> `GetModificationFromEntity
+(comp+0x10, srcId) @180fadf10`. Le Dict est keye par l'entite **EFFET** qui a pose la modif (PAS le porteur
+UNIT) -> `sourceIsUnit=false` pour une aura/effet ; mapper effet->owner pour remonter au UNIT. On scanne les
+entites comme sources candidates -> `{source, amount, self, sourceIsUnit}` + `total` + `residual = total -
+Sigma`. C'est la sonde DEFINITIVE pour SOURCER un `statDelta` opaque (ex. aura RitesOfBattle = LECTURE, pas
+triangulation). Ne montre une aura d'adjacence que si l'unite est **actuellement adjacente** au porteur (la
+ValueModification ne la contient qu'a cet instant). **VALIDE LIVE (demo #49)** : u82 bloodDeathCompany adjacent
+Calgar -> `attack{total:1298, residual:0, source:97=effet RitesOfBattle_ExtraDmgImperial}` ; deplace hors
+adjacence -> aura disparue. cf. `docs/rl/playbook/prediction.md` §8bis point 20.
+
 ## 4. ValueOverride
 
 `GetOverrideValueWithModification(vo, modTotal)` @180fae700 :

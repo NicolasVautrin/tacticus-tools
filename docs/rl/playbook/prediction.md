@@ -975,6 +975,39 @@ config, pas un simple scalaire.
     (SurroundingUnits range config, trait 1001) même patron ; `StandVigil_ExtraDmg` à confirmer ; le `+400`
     = une 2e aura non identifiée. `base=Initial` FIT SUPERSÉDÉ.
 
+20. **★★★ POST-MORTEM #49 — 2 leçons de diag (pourquoi ~8 h sur l'aura) + outillage (2026-07-05). ★★★**
+    - **Leçon RECON** : un écart de base (`statDelta`) **non expliqué par le kit PROPRE de l'unité** (traits +
+      abilities gameconfig) doit faire **suspecter une AURA d'allié adjacent**, PAS une erreur d'agrégation dégât ni
+      un weapon-split. Le `+1298` de u92 a été cherché dans son kit, puis dans le multi-coup, puis dans le split
+      mêlée/ranged (3011↔4309) — c'était Calgar (RitesOfBattle) adjacent. **`decisionView.effects` est AVEUGLE aux
+      auras** : les stat-mods d'aura sont posés comme `ValueModification` **bruts** sur le stat du buffé (Dict keyé
+      par l'entité SOURCE), **jamais** matérialisés en `EffectComponent` sur le buffé → une analyse effet-centrique
+      ne peut PAS les voir. Le natif les ré-inclut via `GetStat(Current) = Initial + Σ(ValueModifications actives)`,
+      ré-évalué par tuile candidate (adjacence recalculée). Réflexe : recon kit complet (cf.
+      `feedback_recon_full_kit_not_captured_effects`) → si inexpliqué, chercher un **porteur d'aura adjacent**
+      (RitesOfBattle=Calgar, Spotter, PathOfCommand, StandVigil-self…).
+    - **Leçon OUTILLAGE** : sourcer un `statDelta` opaque doit être une **LECTURE**, pas une triangulation
+      (base↔tuile + recon allié + gameconfig). RPC **`statModSources`** (rpc-view.ts, à côté de `combatSnapshot`)
+      lit la décomposition **par source** de la `ValueModification` d'un stat : `{source: entityId, amount, self,
+      sourceIsUnit}` + `total` + `residual`. Mécanisme (décompilé-vérifié) = `GetStat(entity, statType,
+      StatPart=5, Nullable<BEntityId>=src)` → `StatComponent.GetStatPart @180fa8bb0` case 5/9 : src null →
+      `*(int*)(comp+0x10)` total ; src fournie → `ValueModification.GetModificationFromEntity(comp+0x10, srcId)
+      @180fadf10` (Dict keyé par l'entité **EFFET** qui a posé la modif — `sourceIsUnit=false` ; mapper effet→owner
+      pour remonter au porteur UNIT). On scanne les entités comme sources candidates ; `residual = total − Σ` : 0 =
+      tout attribué à des entités (aura/self) ; non-nul = source non-entité (setup `ModifyUnit*`). **Limite** : ne
+      montre l'aura d'adjacence QUE si l'unité est **actuellement adjacente** au porteur (sinon la `ValueModification`
+      ne la contient pas — cf. re-éval par position). Chaîne stat native complète : [`../stat-system.md`](../stat-system.md) §3.
+    - **★ VALIDÉ LIVE (démo #49, 2026-07-05) ★** : runner `ultraCalgar`(u80,(1,0)) + `bloodDeathCompany`(u82,(0,0)) team 1,
+      adjacents. `statModSources(u82)` → `attack{total:1298, residual:0, bySource:[{source:97 (effet
+      RitesOfBattle_ExtraDmgImperial), amount:1298, sourceIsUnit:false}]}` (= `extraDmg_2[L50]×1.8`, exact #49) ; cross-check
+      `combatSnapshot` u82 attack=4309 statDelta.attack=1298 (concorde), Calgar attack=2811 statDelta={} (pas de self-buff).
+      `decisionView.effects(u82)` ne montre PAS l'aura (seulement RapidAssault) — cécité confirmée. Puis **u82 déplacé (0,0)→(0,3)
+      hors adjacence → l'aura attack DISPARAÎT** (statModSources ne rend plus que `movement:+1` self) = preuve causale + démonstration
+      de la ré-éval par position. **Statut** : implémenté + build + décompilé-vérifié + VALIDÉ LIVE. NON commité. (Note harnais :
+      le « buildRunner system error » vu au smoke initial n'était PAS un wedge PID mais `getLiveBattleConfig` rendant un
+      `_currentBattle` PvP stale = `JPropertyKeyedCollection` qui masquait la BC campagne valide → corrigé par type-guard
+      `BattleConfiguration` dans battle-config.ts.)
+
 **2ᵉ axe (séparé = #50)** : à armure égale (u82/u86 = 2008), per-coup oracle diffère (501 vs 752) → modifier
 DÉFENSEUR par-cible. **MAJ** : pour u86, le 752 = 501×1.5 (ÉLÉVATION depuis (6,4) elev3), pas un modif défenseur
 → ce cas u82/u86 est ÉLÉVATION, pas #50 (cf. bloc MOVE CONFIRMÉ).

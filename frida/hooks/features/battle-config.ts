@@ -41,7 +41,7 @@
 //     +0x18  _size                          int
 
 import {
-    readIl2cppString, findClassAnywhere, findMethod, class_get_methods,
+    readIl2cppString, findClassAnywhere, findMethod, class_get_methods, class_get_name,
     method_get_name, method_get_param_count, methodEntry, s as cstr, MethodRef,
 } from "../il2cpp/helpers.js";
 import { createManagedString } from "../il2cpp/invoke.js";
@@ -164,30 +164,60 @@ const BCBC_OFF_HEIGHT = 0x1C;
  * Si Campaign source absent ou BC null, fallback sur MoW Event source
  * (offset _currentBattle different : 0xF0 vs 0x80). User doit avoir navigué
  * manuellement vers le MoW Event in-game pour que ce dernier soit capturé. */
+// Un `_currentBattle` valide DOIT être une `IdunBattle.Configuration.BattleConfiguration`
+// (class_get_name -> "BattleConfiguration"). Une source de mode PÉRIMÉE (typiquement une
+// source PvP résiduelle après une nav PvP) peut garder à cet offset un objet à moitié
+// démonté / pré-désérialisé — `JPropertyKeyedCollection` (JSON Newtonsoft), PAS une BC.
+// Sans ce garde, la priorité PvP masquait une BC campagne VALIDE avec ce JObject stale ->
+// `buildRunner` passait un non-BC à `Initialize` -> lecture de champs BC à des offsets
+// faux -> access violation « system error » (crash opaque, diag: runner_init_threw
+// step=initialize configKlass=JPropertyKeyedCollection). On type-check par NOM de classe
+// (robuste, sur l'objet runtime, sans dépendre d'une résolution de classe au load).
+function isBattleConfig(bc: NativePointer): boolean {
+    try {
+        const klass = bc.readPointer();
+        if (klass.isNull()) return false;
+        return cstr(class_get_name(klass) as NativePointer) === "BattleConfiguration";
+    } catch { return false; }
+}
+
+/** Lit `src._currentBattle` (offset `off`) et ne le rend QUE si c'est une BattleConfiguration
+ *  valide. Un candidat non-BC (source stale) est signalé et rejeté (jamais rendu) -> on tombe
+ *  sur la source suivante. */
+function readCurrentBattleIfValid(
+    src: NativePointer, off: number, tag: string,
+): NativePointer | null {
+    try {
+        const bc = src.add(off).readPointer();
+        if (bc.isNull()) return null;
+        if (isBattleConfig(bc)) return bc;
+        let kn = "?";
+        try { kn = cstr(class_get_name(bc.readPointer()) as NativePointer); } catch { /* */ }
+        log(`[battle-config] getLiveBattleConfig: ${tag} _currentBattle n'est pas une `
+            + `BattleConfiguration (classe=${kn}) -> source stale ignorée`);
+        return null;
+    } catch { return null; }
+}
+
 function getLiveBattleConfig(): NativePointer | null {
-    // Priorité : Pvp > MoW Event > Campaign. Quand l'user navigue vers
-    // un mode plus avancé (PvP, MoW), on veut sa BC en priorité (plus
-    // riche : RuleSet, MoW ammo, templates :pvp init).
+    // Priorité : Pvp > MoW Event > Campaign. Quand l'user navigue vers un mode plus avancé
+    // (PvP, MoW), on veut sa BC en priorité (plus riche : RuleSet, MoW ammo, templates :pvp).
+    // CHAQUE candidat est TYPE-GUARDÉ (BattleConfiguration) : une source stale d'un mode
+    // supérieur ne peut plus masquer une BC valide d'un mode inférieur.
     const pSrc = getPvpGameModeSourcePtr();
     if (pSrc !== null) {
-        try {
-            const bc = pSrc.add(PVP_OFF_CURRENT_BATTLE).readPointer();
-            if (!bc.isNull()) return bc;
-        } catch { /* fall through */ }
+        const bc = readCurrentBattleIfValid(pSrc, PVP_OFF_CURRENT_BATTLE, "PvP");
+        if (bc !== null) return bc;
     }
     const mSrc = getMowEventGameModeSourcePtr();
     if (mSrc !== null) {
-        try {
-            const bc = mSrc.add(MOWE_OFF_CURRENT_BATTLE).readPointer();
-            if (!bc.isNull()) return bc;
-        } catch { /* fall through */ }
+        const bc = readCurrentBattleIfValid(mSrc, MOWE_OFF_CURRENT_BATTLE, "MoW");
+        if (bc !== null) return bc;
     }
     const cSrc = getCampaignGameModeSourcePtr();
     if (cSrc !== null) {
-        try {
-            const bc = cSrc.add(CGMS_OFF_CURRENT_BATTLE).readPointer();
-            if (!bc.isNull()) return bc;
-        } catch { /* fall through */ }
+        const bc = readCurrentBattleIfValid(cSrc, CGMS_OFF_CURRENT_BATTLE, "Campaign");
+        if (bc !== null) return bc;
     }
     return null;
 }
