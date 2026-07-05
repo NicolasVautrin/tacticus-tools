@@ -934,6 +934,29 @@ config, pas un simple scalaire.
     élévation** (base flat / armure-PowerTrip / défenseur #50 — l'élévation ×1.5 est appliquée IDENTIQUEMENT des 2
     côtés ; l'écart est dans la base flat). Chaîne COMBAT (runner) = fork déféré (cf. #58 desc).
 
+18. **★★★ #49 SOURCE NAILÉE (2026-07-05, probe gate + recon) : le `+1298` = AURA `RitesOfBattle` (Calgar), PAS
+    BlackRage. ★★★** Probe base(predBase.f58)↔tuile pour u92 (seed 31337) : **base=4309 (buff) aux tuiles
+    adjacentes à Calgar `(4,4)`** ((5,5)/(4,5)), **3011 ailleurs**. Recon : **u88=ultraCalgar @(4,4)** porte
+    `RitesOfBattle_ExtraDmg` (effets 1002 Basic + 1003 Imperial). `gameconfig RitesOfBattle` = « Adjacent friendly
+    units gain +655 Damage. **Imperial** units gain +946 instead ». u92 (bloodDeathCompany = BloodAngels/**Imperial**)
+    adjacent → buff (+946 base, ~+1298 au niveau réel de Calgar). ⇒ **le `+1298` est une `ValueModification` sur
+    l'Attack de u92 émise par l'AURA de Calgar, RÉ-ÉVALUÉE PAR TUILE (adjacence à la source)** : u92 s'éloigne de
+    Calgar → perd le buff → 3011. C'est exactement la « re-résolution par candidat » du point 16.
+    - **Pourquoi le port rate ça** : la buff RitesOfBattle sur u92 N'EST PAS dans `decisionView.effects(u92)` (qui
+      ne montre que RapidAssault) — elle est appliquée comme `ValueModification` brute (aura), donc le port la voit
+      seulement comme `statDelta` opaque non-attribué (Current figé 4309). Le port A la classe
+      `RitesOfBattleExtraDmgEffect` (loki.py, stat-mod Attack) MAIS elle est pilotée par un effet CAPTURÉ sur l'unité
+      buffée — u92 n'a pas d'effet RitesOfBattle capté → non instanciée, non ré-évaluée par tuile.
+    - **FIX FIDÈLE (= tranche AURA, plus gros que #49)** : modéliser les auras `+dégât` d'allié adjacent
+      (RitesOfBattle, et génériques `SurroundingUnits`/`GetOtherTargets`) comme **stat-mods PER-CANDIDAT** : pour
+      chaque tuile d'attaque candidate, re-tester l'adjacence de l'attaquant à chaque allié porteur d'aura et
+      ajouter/retirer le delta à la base. Le socle #63 (`ValueModification.per_source`) + la géométrie hex
+      (`are_tiles_adjacent`) sont là. `base=Initial` reste un FIT stopgap (marche pour les plans ranged scorés qui
+      s'éloignent de Calgar ; sous-prédirait une attaque mêlée où u92 RESTE adjacent à Calgar → natif 4309).
+    - **Reste à confirmer bit-exact (optionnel)** : le montant précis (+946 vs +1298 = scaling niveau Calgar ; +655
+      Basic vs +946 Imperial → quelle variante `extraDmg`/`extraDmg_2`) + la portée exacte de l'aura (adjacence pure
+      d1 ou range) via aiPredict par-tuile propre (predBase tile-scan bruité). Source/mécanisme = ACQUIS.
+
 **2ᵉ axe (séparé = #50)** : à armure égale (u82/u86 = 2008), per-coup oracle diffère (501 vs 752) → modifier
 DÉFENSEUR par-cible. **MAJ** : pour u86, le 752 = 501×1.5 (ÉLÉVATION depuis (6,4) elev3), pas un modif défenseur
 → ce cas u82/u86 est ÉLÉVATION, pas #50 (cf. bloc MOVE CONFIRMÉ).
