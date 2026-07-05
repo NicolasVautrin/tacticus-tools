@@ -7,8 +7,16 @@ from .effects_state import EffectsState
 from .effects import BaseEffect, EffectFactory
 from .traits_state import TraitsState
 from .traits import BaseTrait, TraitFactory
+from .stats import (
+    StatType, StatPart, StatComponent, FillUpStatComponent,
+    ValueModification, ValueOverride, UnitStats, seed_unit_stats,
+    native_stat_parts, compare_unit_stats,
+)
 
 __all__ = [
     "UnitContext", "EffectsState", "BaseEffect", "EffectFactory",
     "TraitsState", "BaseTrait", "TraitFactory",
+    "StatType", "StatPart", "StatComponent", "FillUpStatComponent",
+    "ValueModification", "ValueOverride", "UnitStats", "seed_unit_stats",
+    "native_stat_parts", "compare_unit_stats",
 ]

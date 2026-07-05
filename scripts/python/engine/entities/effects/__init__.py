@@ -36,6 +36,7 @@ __all__ = [
     "build_attacker_modifiers_from_effects", "build_defender_modifiers_from_effects",
     "hits_bonus_from_effects", "hits_malus_from_defender_effects", "aura_hits_malus_for_defense",
     "crit_chance_bonus_from_effects", "crit_damage_bonus_from_effects",
+    "apply_effect_stat_modifications", "stat_modifications_by_source",
 ]
 
 
@@ -170,3 +171,52 @@ def crit_damage_bonus_from_effects(effects) -> int:
         if b is not None:
             total += b
     return total
+
+
+def stat_modifications_by_source(effects, source_of=None) -> dict:
+    """Contributions stat-mod DÉCLARÉES par les effets actifs, groupées `{idxStatType: {source: amount}}`
+    — à passer à `stats.seed_unit_stats(attributed=...)` pour une modification **attribuée** (résidu
+    opaque réduit). Mirror de l'agrégation `AStatModifierEffect.ApplyModification` par (stat, source).
+    `source_of(effect) -> clé de source` (défaut : tuple stable `("statmod", effect_type, source, name)`).
+    No-op pour les effets non-StatModifier (stat `None` / amount `None`/0)."""
+    out: dict = {}
+    for e in _as_effects(effects):
+        st = e.get_stat_modification_stat()
+        if st is None:
+            continue
+        amt = e.get_stat_modification_amount()
+        if not amt:
+            continue
+        src = (source_of(e) if source_of else
+               ("statmod", getattr(e, "effect_type", None), getattr(e, "source", None),
+                getattr(e, "name", None)))
+        d = out.setdefault(int(st), {})
+        d[src] = d.get(src, 0) + int(amt)
+    return out
+
+
+def apply_effect_stat_modifications(unit_stats, effects, source_of=None) -> list:
+    """Applique sur `unit_stats` (`UnitStats`) les stat-modifications DÉCLARÉES par les effets actifs
+    (`AStatModifierEffect` : `get_stat_modification_stat` + `get_stat_modification_amount`),
+    attribuées à la source de chaque effet — mirror de `AStatModifierEffect.ApplyModification`
+    @180f0a2f0 (émet un `ChangeStat` sur la **modification** du stat, part 5/9). Réciproque =
+    `unit_stats.revert_stat` (`RevertModification` @180f0aa40, part 6).
+
+    `source_of(effect) -> clé de source` (défaut : tuple stable `("statmod", effect_type, source,
+    name)`) sert au revert par-source. No-op pour les effets non-StatModifier (stat `None` /
+    amount `None`/0). Renvoie la liste des `(source, statType, amount)` appliqués (pour un revert
+    ultérieur exact ou une validation d'attribution vs `statDelta`)."""
+    applied = []
+    for e in _as_effects(effects):
+        st = e.get_stat_modification_stat()
+        if st is None:
+            continue
+        amt = e.get_stat_modification_amount()
+        if not amt:
+            continue
+        src = (source_of(e) if source_of else
+               ("statmod", getattr(e, "effect_type", None), getattr(e, "source", None),
+                getattr(e, "name", None)))
+        unit_stats.change_stat(int(st), src, int(amt))
+        applied.append((src, int(st), int(amt)))
+    return applied

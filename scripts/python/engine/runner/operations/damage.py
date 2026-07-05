@@ -48,6 +48,7 @@ from ...services.damage_combat import (calculate_damage_operation, Damage, could
                                        roll_critical, BlockSource)
 from ...services.damage_modifiers import apply_all_modifiers
 from ...services.battle_query import are_tiles_adjacent
+from ...entities.stats import StatType
 from ..prng import IntBasedMersenneTwister
 from ..state import State
 from ..components import (StatsComponent, HealthComponent, PositionComponent, UnitComponent,
@@ -183,12 +184,12 @@ class AttackDamageOperation:
         _profile = _w.get("DamageProfile") if _w else None     # profil du coup (pour vecteurs after-hit)
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, is_ranged=_ranged)
-        hits = max(1, whits + ctx.extra_hits + hits_bonus_from_effects(active))
+        hits = max(1, whits + ctx.stat(StatType.EXTRA_HITS) + hits_bonus_from_effects(active))
         tsc = tgt.get_component(StatsComponent)
         # armure = GetStat(16) DÉJÀ effet-inclusif : les bonus +armor d'effet sont des StatModifications
         # (aucun `GetArmorBonusFromEffects` séparé n'existe — seuls crit/hits ont une couche calc-time) →
         # cuits dans GetStat → dans le combatSnapshot → dans ctx.fixed_armor. Rien à sommer en plus.
-        armor = tsc.ctx.fixed_armor if tsc is not None else 0
+        armor = tsc.ctx.stat(StatType.FIXED_ARMOR) if tsc is not None else 0
         # BLOCK (cible) — sources issues de `GetMultiValueStat(target, 7)` (CalculateBlockChances@181002350) :
         # les bonus +block d'effet sont aussi des StatModifications (pas de couche calc-time) → déjà dans
         # GetStat(7/8) → ctx.block_chance/block_damage. Le patch BC --block-target = item I_Block équivalent.
@@ -224,8 +225,8 @@ class AttackDamageOperation:
         # cuits dans GetStat → dans le combatSnapshot → dans ctx] + couche calc-time SÉPARÉE
         # GetCritChanceBonusFromEffects/GetCritDamageBonusFromEffects (PAS dans GetStat → sommée ici
         # depuis les effets ACTIFS de l'attaquant). Mirror exact de RollCritical/CalculateCriticalDamage.
-        crit_chance = int(getattr(ctx, "crit_chance", 0) or 0) + crit_chance_bonus_from_effects(active)
-        crit_damage = int(getattr(ctx, "crit_damage", 0) or 0) + crit_damage_bonus_from_effects(active)
+        crit_chance = ctx.stat(StatType.CRIT_CHANCE) + crit_chance_bonus_from_effects(active)
+        crit_damage = ctx.stat(StatType.CRIT_DAMAGE) + crit_damage_bonus_from_effects(active)
         crit_enabled = could_crit(crit_chance, crit_damage)
 
         def _reduced_bounds(eff_attack: int) -> "HitDamage":
@@ -234,8 +235,8 @@ class AttackDamageOperation:
             hi = apply_all_modifiers(apply_pierce_and_modifiers(mm.max, pierce, armor, mods), def_mods)
             return HitDamage(lo, hi)
 
-        hit_nc = _reduced_bounds(ctx.attack)                              # plage NON-crit par coup
-        hit_cr = _reduced_bounds(ctx.attack + crit_damage) if crit_enabled else hit_nc
+        hit_nc = _reduced_bounds(ctx.stat(StatType.ATTACK))               # plage NON-crit par coup
+        hit_cr = _reduced_bounds(ctx.stat(StatType.ATTACK) + crit_damage) if crit_enabled else hit_nc
         clean_min = hit_nc.min * hits          # référence affichée = plage non-crit (× hits)
         clean_max = hit_nc.max * hits
         # BOUCLIER cible : absorbe le coup réduit AVANT les PV (CalculateDamageOperation shield-first) ;
@@ -250,7 +251,7 @@ class AttackDamageOperation:
             thc.hp = max(0, thc.hp - r["total"])
             death = AttackDamageOperation._fire_death_if_killed(
                 state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=r["total"])
-        return {"hits": hits, "total": r["total"], "base": ctx.attack, "pierce": pierce,
+        return {"hits": hits, "total": r["total"], "base": ctx.stat(StatType.ATTACK), "pierce": pierce,
                 "armor": armor, "clean_min": clean_min, "clean_max": clean_max, "death": death,
                 "shield_dmg": r["shield_dmg"], "armor_dmg": r["armor_dmg"],
                 "did_crit": r["did_crit"], "did_block": r["did_block"], "did_evade": r["did_evade"],
@@ -332,14 +333,14 @@ class AttackDamageOperation:
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None)
         tsc = tgt.get_component(StatsComponent)
-        armor = tsc.ctx.fixed_armor if tsc is not None else 0
+        armor = tsc.ctx.stat(StatType.FIXED_ARMOR) if tsc is not None else 0
         block_chance = int(getattr(tsc.ctx, "block_chance", 0) or 0) if tsc is not None else 0
         block_amount = int(getattr(tsc.ctx, "block_damage", 0) or 0) if tsc is not None else 0
         block_sources = ([BlockSource(chance=block_chance, amount=block_amount)]
                          if block_chance > 0 and block_amount > 0 else None)
         def_mods, _da = defender_modifiers(state, target_id, thc.hp)
-        crit_chance = int(getattr(ctx, "crit_chance", 0) or 0) + crit_chance_bonus_from_effects(active)
-        crit_damage = int(getattr(ctx, "crit_damage", 0) or 0) + crit_damage_bonus_from_effects(active)
+        crit_chance = ctx.stat(StatType.CRIT_CHANCE) + crit_chance_bonus_from_effects(active)
+        crit_damage = ctx.stat(StatType.CRIT_DAMAGE) + crit_damage_bonus_from_effects(active)
         crit_enabled = could_crit(crit_chance, crit_damage)
 
         def _reduce(value: int) -> int:
@@ -393,14 +394,14 @@ class AttackDamageOperation:
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None)
         tsc = tgt.get_component(StatsComponent)
-        armor = tsc.ctx.fixed_armor if tsc is not None else 0
+        armor = tsc.ctx.stat(StatType.FIXED_ARMOR) if tsc is not None else 0
         block_chance = int(getattr(tsc.ctx, "block_chance", 0) or 0) if tsc is not None else 0
         block_amount = int(getattr(tsc.ctx, "block_damage", 0) or 0) if tsc is not None else 0
         block_sources = ([BlockSource(chance=block_chance, amount=block_amount)]
                          if block_chance > 0 and block_amount > 0 else None)
         def_mods, _da = defender_modifiers(state, target_id, thc.hp)
-        crit_chance = int(getattr(ctx, "crit_chance", 0) or 0) + crit_chance_bonus_from_effects(active)
-        crit_damage = int(getattr(ctx, "crit_damage", 0) or 0) + crit_damage_bonus_from_effects(active)
+        crit_chance = ctx.stat(StatType.CRIT_CHANCE) + crit_chance_bonus_from_effects(active)
+        crit_damage = ctx.stat(StatType.CRIT_DAMAGE) + crit_damage_bonus_from_effects(active)
         crit_enabled = could_crit(crit_chance, crit_damage)
 
         def _reduced(eff_base: int) -> "HitDamage":

@@ -24,6 +24,8 @@ from .loki import (
     PowerTripFullHealthEffect,
     PowerTripIgnoreArmorEffect,
     RapidAssaultExtraDamageEffect,
+    RitesOfBattleExtraDmgEffect,
+    StandVigilExtraArmorEffect,
     StunnedEffect,
     TauntedEffect,
     TerminatorArmourReduceDmgEffect,
@@ -33,6 +35,10 @@ from .loki import (
 # Registre nom d'EffectType (`decisionView.effects[].name`) → classe d'effet. À ÉTENDRE au roster.
 EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "RapidAssault_ExtraDamage": RapidAssaultExtraDamageEffect,
+    # Stat-mod +dégât (Attack) FLAT depuis extraDmg[level] du SOURCE (nom d'EffectType à confirmer live).
+    "RitesOfBattle_ExtraDmg": RitesOfBattleExtraDmgEffect,
+    # Stat-mod +armure (FixedArmor) FLAT, SELF-buff extraArmor[level] (résidu 0 validable ; nom à confirmer).
+    "StandVigil_ExtraArmor": StandVigilExtraArmorEffect,
     "RangedSpecialist": RangedSpecialistEffect,  # +33% dégât RANGED (trait, actif si pas parti adjacent)
     "HeavyWeapon_ExtraDmg": HeavyWeaponExtraDmgEffect,   # +25% dégât RANGED (trait HeavyWeapon→Overwatch)
     "PowerTrip_FullHealth": PowerTripFullHealthEffect,
@@ -64,7 +70,8 @@ class EffectFactory:
 
     @classmethod
     def create(cls, captured: Mapping, ability_variables_multiplier: int = 100,
-               ability_level: int | None = None) -> BaseEffect:
+               ability_level: int | None = None,
+               active_ability_level: int | None = None) -> BaseEffect:
         name = captured.get("name")
         klass = cls.registry.get(name, BaseEffect)
         # RemainingTurns capté : 0 = PAS de compte-à-rebours (passif/aura/this-turn ; retrait géré par
@@ -77,14 +84,15 @@ class EffectFactory:
         # d'ability §17.21). `level` capté = stack level (≠ ability level).
         return klass(
             name=name, effect_type=captured.get("effectType"), level=captured.get("level"),
-            ability_level=ability_level,
+            ability_level=ability_level, active_ability_level=active_ability_level,
             remaining_turns=remaining_turns, source=captured.get("source"),
             ability_variables_multiplier=ability_variables_multiplier)
 
     @classmethod
     def create_many(cls, captured_list, ability_variables_multiplier: int = 100,
-                    ability_level: int | None = None) -> list[BaseEffect]:
-        return [cls.create(c, ability_variables_multiplier, ability_level)
+                    ability_level: int | None = None,
+                    active_ability_level: int | None = None) -> list[BaseEffect]:
+        return [cls.create(c, ability_variables_multiplier, ability_level, active_ability_level)
                 for c in (captured_list or [])
                 if isinstance(c, Mapping) and c.get("name")]
 

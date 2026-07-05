@@ -11,6 +11,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .stats import UnitStats, seed_unit_stats
+
+# StatType -> champ plat `UnitContext` (fallback de `stat()` quand le composant n'est pas seedé,
+# ex. summon construit hors combatSnapshot). Cohérent avec `runner.operations.stat_ops.FLAT_FIELD`.
+_FLAT_FIELD = {0: "attack", 5: "health", 7: "block_chance", 8: "block_damage",
+               9: "crit_chance", 10: "crit_damage", 16: "fixed_armor", 17: "extra_hits"}
+
 
 @dataclass
 class UnitContext:
@@ -54,6 +61,11 @@ class UnitContext:
     # effets ACTIFS captés (decisionView.effects : [{name, level, …}]) — sources des modifiers de
     # dégât (§17.8). Re-évalués PAR DÉCISION (changent par tour) ; NON figés par from_snapshot (cold).
     active_effects: list[dict] = field(default_factory=list)
+    # Système de stats natif porté (`UnitStats` : StatComponent/ValueModification par StatType) :
+    # `GetStat = Initial + Σ(stat-modifications)` clampé, CALCULÉ au lieu de figé. Seedé par
+    # `from_snapshot` (si `stat_ids` fourni) depuis combatSnapshot (Current + statDelta → Initial +
+    # modification) ; `get_stat(Current)` reproduit exactement Current. Cf. stats.py / docs/rl/stat-system.md.
+    stats: "UnitStats" = field(default_factory=UnitStats)
 
     @property
     def is_melee(self) -> bool:
@@ -80,8 +92,26 @@ class UnitContext:
         Le port de prédiction ré-applique le spread (CalculateDamageSpread)."""
         return (self.normal_min + self.normal_max) // 2
 
+    def get_stat(self, stat_type: int, stat_part: int = 0, source: object = None) -> int:
+        """`UnitExtensions.GetStat @180ed30d0` sur les stats portées de l'unité. Défaut = Current
+        (partie 0). Renvoie 0 si le StatType n'est pas seedé (unité sans UnitStats, ex. summon
+        frais construit hors combatSnapshot)."""
+        return self.stats.get_stat(int(stat_type), int(stat_part), source)
+
+    def stat(self, stat_type: int) -> int:
+        """Valeur COURANTE d'une stat pour la CONSOMMATION combat/prédiction : `get_stat(Current)` du
+        système de stats porté si le composant est seedé, SINON le champ plat (fallback config/summon
+        non-seedé). Remplace la lecture directe `ctx.<champ>` pour que les stat-mods appliqués par
+        `ChangeStat` (`apply_change_stat`) soient vus SANS synchro de champ plat."""
+        idx = int(stat_type)
+        if idx in self.stats.components:
+            return self.stats.get_stat(idx, 0)          # StatPart.CURRENT
+        field = _FLAT_FIELD.get(idx)
+        return int(getattr(self, field, 0) or 0) if field is not None else 0
+
     @classmethod
-    def from_snapshot(cls, snap_unit: dict, unit_cfg: dict | None) -> "UnitContext":
+    def from_snapshot(cls, snap_unit: dict, unit_cfg: dict | None,
+                      stat_ids: dict | None = None, effects=None) -> "UnitContext":
         s = snap_unit.get("stats") or {}
         na = snap_unit.get("normalAttack") or {}
         g = lambda k: int(s.get(k) or 0)
@@ -103,6 +133,17 @@ class UnitContext:
             prof_pierce = int(dp.get("PiercingRatio") or 0)
             w_hits = int(w.get("hits") or 1)
             ranged = bool(w.get("Range"))
+        # Système de stats porté : seedé depuis combatSnapshot (Current + statDelta) si le mapping
+        # nom→StatType (`stat_ids` = combatSnapshot.statTypes) est fourni ; sinon UnitStats vide
+        # (les consommateurs actuels lisent encore les champs plats `attack`/… ; identiques à Current).
+        # Si `effects` (BaseEffect matérialisés de l'unité) est fourni, la modification est ATTRIBUÉE
+        # par source (stat-mods déclarés) + résidu opaque ; sinon tout le delta reste opaque.
+        attributed = None
+        if stat_ids and effects:
+            from .effects import stat_modifications_by_source
+            attributed = stat_modifications_by_source(effects)
+        unit_stats = (seed_unit_stats(s, snap_unit.get("statDelta"), stat_ids, attributed)
+                      if stat_ids else UnitStats())
         return cls(
             entity_id=snap_unit.get("entityId"), visual_id=snap_unit.get("visualId"),
             attack=g("attack"), health=g("health"), fixed_armor=g("fixedArmor"),
@@ -125,4 +166,5 @@ class UnitContext:
             normal_hits=nh,
             normal_profile=prof_name, normal_profile_pierce=prof_pierce,
             normal_weapon_hits=max(1, w_hits), normal_ranged=ranged,
+            stats=unit_stats,
         )

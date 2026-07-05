@@ -49,6 +49,10 @@ class BaseEffect:
     # d'ability (≠ stack `level`). Ex. PowerTrip.armorIgnored indexé par PassiveAbilityLevel (=50), PAS
     # par le stack level (=1). Seedé depuis l'unité ; None → fallback sur `level`. §17.21.
     ability_level: int | None = None
+    # Niveau de l'ability ACTIVE de l'unité (unitConfig.activeAbilityLevel) — pour les stat-mods dont la
+    # source est une ability ACTIVE (ex. StandVigil) : indexe `variables[level]` sur l'active, pas la
+    # passive. `ability_level` reste le niveau passif (défaut). Un effet choisit le slot pertinent.
+    active_ability_level: int | None = None
     remaining_turns: int | None = None      # None = permanent/aura ; sinon décrémenté en fin de tour
     source: int | None = None                # `EffectComponent` SourceUnit @+0x10 (qui a posé l'effet)
     # `EffectComponent` Target @+0x14 — l'unité QUI PORTE l'effet (peuplé à la MATÉRIALISATION,
@@ -139,6 +143,22 @@ class BaseEffect:
         `is_normal_attack` : certaines pénétrations sont gated attaque normale (i2 PowerTrip
         « NORMAL attacks ignore X Armour » — GROUND TRUTH step-13 : DakkaDakkaDakka (spéciale) du même
         porteur ne bénéficie PAS des 499 de pénétration, per-coup natif 404/728 vs 78 = armure pleine)."""
+        return None
+
+    # ── stat-modification (famille AStatModifierEffect) ─────────────────────────────────────────────
+    def get_stat_modification_stat(self) -> "int | None":
+        """`AStatModifierEffect.GetStatModificationStat @180f0a890` — le **StatType** que CET effet
+        modifie (natif : `EffectComponent+0x10`). `None` = l'effet n'est pas un StatModifier (défaut).
+        Un effet StatModification écrit sa magnitude dans la **modification** du stat (part 5/9),
+        attribuée à sa source, appliquée via `ChangeStat` (cf. `UnitStats.change_stat`)."""
+        return None
+
+    def get_stat_modification_amount(self) -> "int | None":
+        """`StaticStatModifierEffect.GetStatModificationAmount @180f47430` (natif : `EffectComponent+0x14`,
+        fixe) / `ADynamicStatModifierEffect.GetStatModificationAmount @180f090f0` (calculé).
+        Magnitude (delta additif) ajoutée à la modification du StatType de
+        `get_stat_modification_stat`. `None`/0 = aucune (défaut). Un effet StatModification concret
+        override les deux (StatType + magnitude, typiquement depuis sa config d'ability)."""
         return None
 
     # ── matérialisation composite ─────────────────────────────────────────────────────────────────

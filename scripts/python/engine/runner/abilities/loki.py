@@ -15,6 +15,7 @@ from ..operations.effects import AddEffectOperation
 from ..operations.damage import AttackDamageOperation
 from ..operations.spawn import SpawnUnitOperation
 from ..components import StatsComponent, OwnerComponent, PositionComponent, UnitComponent
+from ...entities.stats import StatType
 
 if TYPE_CHECKING:
     from ..state import State
@@ -40,7 +41,7 @@ def _summon_on_appearance_attack(state: "State", summon_id: int, target_id: int,
     pierce = max(0, min(100, int(dp.get("PiercingRatio") or 0) + int(ctx.extra_pierce)))
     hits = max(1, int(ctx.normal_weapon_hits))
     return AttackDamageOperation.execute_normal_like(
-        state, summon_id, target_id, int(ctx.attack), pierce, hits=hits, spread_pct=20)
+        state, summon_id, target_id, int(ctx.stat(StatType.ATTACK)), pierce, hits=hits, spread_pct=20)
 
 
 class ThunderousAssaultAbility(ActiveAbility):

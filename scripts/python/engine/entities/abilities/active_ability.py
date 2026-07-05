@@ -15,6 +15,7 @@ par la capture `combatSnapshot.normalAttack` (= dégât de base d'arme résolu).
 from __future__ import annotations
 
 from ..unit_context import UnitContext
+from ..stats import StatType
 from .ability_configuration import AbilityConfiguration
 from ...services.damage_prediction import get_default_attack_hits
 from ...services.min_max_damage import MinMaxDamage
@@ -63,7 +64,7 @@ class AActiveAbility:
     def get_hits(self) -> int:
         base = self.config.get_variable_for_level(
             "nrOfHits", self.caster.active_ability_level, 1) if self.config else 1
-        return get_default_attack_hits(base, self.caster.extra_hits,
+        return get_default_attack_hits(base, self.caster.stat(StatType.EXTRA_HITS),
                                        self.caster.extra_hits_melee, self.caster.is_melee)
 
     # GetDamage : base de dégât (single, pré-spread) — défaut générique (special : min/max config).
@@ -100,7 +101,7 @@ class AActiveAbility:
         `AActiveAbility` natives (ex. `BloodyFuryAbility.GetNumTotalHits`, `HarvesterOfSoulsAbility.GetHits`)."""
         base = self.config.get_variable_for_level(
             "nrOfHits", self.caster.active_ability_level, 1) if self.config else 1
-        return get_default_attack_hits(base, self.caster.extra_hits,
+        return get_default_attack_hits(base, self.caster.stat(StatType.EXTRA_HITS),
                                        self.caster.extra_hits_melee, is_melee)
 
     def get_aoe_targets(self, ctx: "dsl.DslContext") -> list:
@@ -145,12 +146,12 @@ class NormalAttackAbility(AActiveAbility):
         VALIDÉ live (8/11 exact) : la chaîne `base par-coup × hits-arme + pierce + armure` reproduit
         l'oracle pour les unités sans buff dégât (u88/u92/u96). `get_attack_prediction` applique le ×hits
         (la boucle proba somme un event par coup ; crit=0 → Σ = hits × per-coup)."""
-        return self.caster.attack
+        return self.caster.stat(StatType.ATTACK)          # stat(0)=Attack
 
     def get_hits(self) -> int:
         """hits de l'ARME (gameconfig) + ExtraHits — GetDefaultAttackHits. (≠ `normal_hits` capté
         parfois : u96 capté=2 mais arme Power=3.)"""
-        return get_default_attack_hits(self.caster.normal_weapon_hits, self.caster.extra_hits,
+        return get_default_attack_hits(self.caster.normal_weapon_hits, self.caster.stat(StatType.EXTRA_HITS),
                                        self.caster.extra_hits_melee, not self.caster.normal_ranged)
 
     def get_pierce(self) -> int:

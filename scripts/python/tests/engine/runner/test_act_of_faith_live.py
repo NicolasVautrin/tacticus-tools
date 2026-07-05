@@ -20,6 +20,8 @@ from __future__ import annotations
 import math
 from collections import deque
 
+from engine.entities.stats import StatType
+
 import pytest
 
 from engine.runner.snapshot import load_state
@@ -210,7 +212,10 @@ def test_act_of_faith_accumulation_bit_exact(live_session, rpc, build_runner):
 
     en_hp_off = en_off.get_component(HealthComponent).hp
     ctx = si_off.get_component(StatsComponent).ctx
-    print(f"[ACTOFFAITH] moteur : ennemi hp={en_hp_off} | Sister crit cc={ctx.crit_chance} cd={ctx.crit_damage}")
+    # crit courant lu via le systeme de stats porte (get_stat) : le champ plat ctx.crit_chance n'est plus
+    # synchronise depuis le retrait de la synchro ChangeStat (la mutation vit dans UnitStats).
+    cc_off, cd_off = ctx.stat(StatType.CRIT_CHANCE), ctx.stat(StatType.CRIT_DAMAGE)
+    print(f"[ACTOFFAITH] moteur : ennemi hp={en_hp_off} | Sister crit cc={cc_off} cd={cd_off}")
     assert en_hp_off == 0, f"moteur n'a pas tue l'ennemi (hp={en_hp_off}) → vecteur MORT non declenche"
-    assert ctx.crit_chance == k["cc_a"], f"moteur cc {ctx.crit_chance} != live {k['cc_a']}"
-    assert ctx.crit_damage == k["cd_a"], f"moteur cd {ctx.crit_damage} != live {k['cd_a']}"
+    assert cc_off == k["cc_a"], f"moteur cc {cc_off} != live {k['cc_a']}"
+    assert cd_off == k["cd_a"], f"moteur cd {cd_off} != live {k['cd_a']}"

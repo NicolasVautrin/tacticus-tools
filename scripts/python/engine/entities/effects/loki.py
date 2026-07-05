@@ -31,6 +31,47 @@ class RapidAssaultExtraDamageEffect(BaseEffect):
         return True
 
 
+class RitesOfBattleExtraDmgEffect(BaseEffect):
+    """`RitesOfBattleExtraDmgEffect` (Effects.Loki) — buff **StatModification** +dégât (Imperial, ex.
+    Ultramarines). Effet stat-mod DYNAMIQUE : `GetDynamicStatModificationAmount @180f69810` =
+    `ConfigVar(key 0x3f6=1014, EffectSource, 8)` = ability var `RitesOfBattle.extraDmg[sourceLevel]`
+    (FLAT, `Nullable<int>`), ajouté à la **modification** du stat **Attack** (=dégât) via `ChangeStat`
+    (part 5/9, mirror `AStatModifierEffect.ApplyModification @180f0a2f0`) ; revert via part 6.
+
+    ⚠ `level` = niveau de l'ability RitesOfBattle du **SOURCE** (buff cross-unité) → `self.ability_level`
+    (niveau de l'ability source si seedé), fallback `self.level`. La variante `extraDmg_2` (rareté/
+    upgrade ?) n'est PAS sélectionnée ici (clé 0x3f6 → `extraDmg` primaire ; à trancher live si écart).
+    StatType = Attack=0 (natif `EffectComponent+0x10` ; « ExtraDmg » = la stat de dégât)."""
+
+    def get_stat_modification_stat(self) -> int | None:
+        return 0                                    # StatType.ATTACK (=dégât)
+
+    def get_stat_modification_amount(self) -> int | None:
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        return ability_var("RitesOfBattle", "extraDmg", lvl)
+
+
+class StandVigilExtraArmorEffect(BaseEffect):
+    """`StandVigil_ExtraArmorEffect` (Effects.Loki) — buff **StatModification** +armure, **SELF-buff**
+    (l'unité se buffe elle-même en « stand vigil » = sans se déplacer). `GetDynamicStatModificationAmount
+    @180f6d910` = `ConfigVar(key 0x51c=1308, EffectSource, 0x1b)` = ability var
+    `StandVigil.extraArmor[level]` (FLAT), ajouté à la **modification** du stat **FixedArmor** (=16) via
+    `ChangeStat` (part 5/9 ; revert part 6).
+
+    **Self-buff** ⇒ la source EST l'unité porteuse → `level` = niveau de l'ability StandVigil de l'unité
+    elle-même (`self.ability_level` capté depuis unitConfig, sinon `self.level`) → magnitude EXACTE
+    offline ⇒ **résidu 0 validable live** (contrairement à RitesOfBattle, buff cross-unité)."""
+
+    def get_stat_modification_stat(self) -> int | None:
+        return 16                                   # StatType.FIXED_ARMOR
+
+    def get_stat_modification_amount(self) -> int | None:
+        # StandVigil = ability ACTIVE → indexer sur activeAbilityLevel (fallback passif, puis stack level).
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        return ability_var("StandVigil", "extraArmor", lvl)
+
+
 class HeavyWeaponExtraDmgEffect(BaseEffect):
     """`HeavyWeapon_ExtraDmgEffect` (effet 1008 ; ctor `DamageModifierAbilityEffect(0x3e9)`).
     - dégât `CreateDamageModifier` @180f4f030 : `EffectBonus.ForPercentIncrease(cond, amount)` où
@@ -333,8 +374,9 @@ class ActOfFaithBuffEffect(BaseEffect):
     ⚠ Un stack SEEDÉ depuis un snapshot live (déjà fondu dans ctx) ne connaît pas ses deltas (0 par
     défaut) : un reset de stacks seedés ne re-baisse pas la stat. Le chemin VALIDÉ accumule depuis 0
     (deltas exacts) ; le seeding mid-accumulation est un edge case documenté."""
-    cc_delta: int = 0   # delta crit-chance appliqué par CE stack (revert exact)
-    cd_delta: int = 0   # delta crit-damage appliqué par CE stack (revert exact)
+    cc_delta: int = 0   # delta crit-chance OBSERVÉ par CE stack (info/report)
+    cd_delta: int = 0   # delta crit-damage OBSERVÉ par CE stack (info/report)
+    stat_mod_source = None   # clé de source ChangeStat (revert par-source via UnitStats.revert_stat)
 
 
 class KanOpenerEffect(BaseEffect):

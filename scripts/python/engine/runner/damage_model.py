@@ -23,6 +23,7 @@ from typing import Optional, Tuple
 
 from .state import State
 from .components import StatsComponent, HealthComponent
+from ..entities.stats import StatType
 from ..services.damage_prediction import get_attack_prediction, apply_pierce_and_modifiers
 from ..services.battle_query import (
     get_attack_weapon_for_default_normal_attack,
@@ -99,11 +100,11 @@ def normal_attack_per_hit_range(state: State, unit_id: int) -> Optional[dict]:
     # armure=0 & perçage=100 → réduction = identité ⇒ la plage retournée est BRUTE (pré-armure),
     # = ce que `aiPredict` (pré-armure) renvoie par coup ; les MODIFIERS d'effet sont inclus.
     res = get_attack_prediction(
-        target_current_health=_BIG_HP, initial_damage=ctx.attack, hits=1,
+        target_current_health=_BIG_HP, initial_damage=ctx.stat(StatType.ATTACK), hits=1,
         profile_type=ctx.damage_type, armor=0, pierce_pct=100, mods=mods)
     r = res.accurate_health_damage
     return {
-        "min": r.min, "max": r.max, "base": ctx.attack,
+        "min": r.min, "max": r.max, "base": ctx.stat(StatType.ATTACK),
         "effects": [getattr(ef, "name", None) for ef in active],
         "hasMods": bool(mods is not None and (mods.pct_list or getattr(mods, "additive", 0))),
     }

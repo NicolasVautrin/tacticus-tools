@@ -80,9 +80,10 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
     `decisionView.id` (== id d'unité ECS, cf. en-tête). Mirror de la chaîne validée
     `predict_validate.build_samples` (UnitContext.from_snapshot + EffectsState.seed)."""
     import gameconfig as GC                      # données offline (traits/arme/profil)
-    from ..entities import UnitContext, EffectsState
+    from ..entities import UnitContext, EffectsState, EffectFactory
 
     vis_by_id = {u.get("id"): u.get("visualId") for u in (decision.get("units") or [])}
+    effects_by_id = {u.get("id"): (u.get("effects") or []) for u in (decision.get("units") or [])}
     mult_by_id: Dict[int, int] = {}
     ablvl_by_id: Dict[int, Optional[int]] = {}
     for su in (snapshot.get("units") or []):
@@ -96,8 +97,17 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
         # (`AttackDamageOperation.execute`) re-sélectionne arme/hits/perçage depuis **gameconfig** (pas la
         # prédiction snapshot) ⇒ un ctx stat-based suffit. (Avant on SAUTAIT ces unités → un overwatcher
         # ou une cible hors portée à la capture n'avait pas de StatsComponent → vecteur after-move/hit KO.)
-        ctx = UnitContext.from_snapshot(su, GC.unit(vis or ""))
         uc = su.get("unitConfig") or {}
+        # Effets matérialisés de l'unité → attribution stat-mod dans ctx.stats (via from_snapshot).
+        # mult/ablvl captés EARLY. ⚠ Pour un buff CROSS-UNITÉ (ex. RitesOfBattle), le niveau exact
+        # est celui du SOURCE, absent de la capture → on utilise l'ablvl de l'unité PORTEUSE ; le
+        # RÉSIDU opaque absorbe l'écart, `get_stat(Current)` reste EXACT (zéro régression).
+        _has_mult = isinstance(uc, dict) and uc.get("abilityVariablesMultiplier") is not None
+        _emult = int(uc["abilityVariablesMultiplier"]) if _has_mult else 100
+        _eablvl = int(uc["passiveAbilityLevel"]) if (_has_mult and uc.get("passiveAbilityLevel")) else None
+        _eactive = int(uc["activeAbilityLevel"]) if (_has_mult and uc.get("activeAbilityLevel")) else None
+        _effs = EffectFactory.create_many(effects_by_id.get(eid) or [], _emult, _eablvl, _eactive)
+        ctx = UnitContext.from_snapshot(su, GC.unit(vis or ""), snapshot.get("statTypes"), _effs)
         if isinstance(uc, dict) and uc.get("abilityVariablesMultiplier") is not None:
             ctx.ability_variables_multiplier = int(uc["abilityVariablesMultiplier"])
             mult_by_id[eid] = ctx.ability_variables_multiplier
@@ -124,7 +134,6 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
                 if insts:
                     ent.add_component(ShieldComponent(shields=insts))
     # effets ACTIFS structurés (decisionView.effects), matérialisés + propagés mult/level.
-    effects_by_id = {u.get("id"): (u.get("effects") or []) for u in (decision.get("units") or [])}
     state.effects = EffectsState.seed(effects_by_id, mult_by_id, ablvl_by_id)
 
 

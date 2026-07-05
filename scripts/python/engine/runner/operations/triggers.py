@@ -28,6 +28,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ..state import State
+from ...entities.stats import StatType
 from ..components import (StatsComponent, OwnerComponent, PositionComponent, UnitComponent,
                          HealthComponent, ShieldComponent)
 from .damage import AttackDamageOperation
@@ -157,7 +158,7 @@ class PsykerExtraAttackAbility(TriggeredAbility):
         # LIVE bit-exact : splash = round(Attack×50%) (Psychic pierce 100 → armure ignorée), AUCUN ±20%.
         # Crit/block sur splash = non vérifié (cc=0 ici).
         pct = int((GC.trait("Psyker") or {}).get("variables", {}).get("psykerExtraDmg") or 0)
-        base = round(ctx.attack * pct / 100)
+        base = round(ctx.stat(StatType.ATTACK) * pct / 100)
         dp = GC.damage_profile(PSYCHIC_PROFILE) or {}
         pierce = max(0, min(100, int(dp.get("PiercingRatio") or 0)
                             + ctx.extra_pierce + ctx.extra_pierce_ranged))
@@ -241,7 +242,7 @@ class ActOfFaithAccumulateAbility(TriggeredAbility):
         oown = owner.get_component(OwnerComponent)
         if osc is None or oown is None:
             return False
-        if int(getattr(osc.ctx, "crit_damage", 0) or 0) == 0:    # NOT(owner crit_damage == 0)
+        if osc.ctx.stat(StatType.CRIT_DAMAGE) == 0:    # NOT(owner crit_damage == 0)
             return False
 
         def _friendly_imperial(uid: Optional[int]) -> bool:
@@ -653,20 +654,20 @@ def _act_of_faith_constants() -> tuple[int, int]:
 CRIT_CHANCE_MAX = 100   # crit-chance plafonnée (StatComponent.GetClampedValue ; confirmé live cc 100+10→100)
 
 
-def _act_of_faith_cd_delta(state: State, owner_id: int, ctx, cd_pct: int) -> int:
-    """`Ceiling(GetStat(critDmg, part=3) × cd_pct%)` = boost crit-dmg d'UN stack. `GetStatPart(3)`
+def _act_of_faith_cd_amount(ctx, cd_pct: int) -> int:
+    """`Ceiling(GetStat(critDmg, part=3=Initial) × cd_pct%)` = boost crit-dmg d'UN stack. `GetStatPart(3)`
     @180fa8bb0 = la stat de **BASE** (offset 0x48, SANS modifications) → boost FLAT (≠ compound) calculé
-    sur la crit-dmg hors-ActOfFaith. Confirmé live (3 stacks base 250 → +63 plat à chaque fois). On
-    reconstruit la base = `ctx.crit_damage` (= base + mods) − Σ(deltas ActOfFaith déjà appliqués).
-    ⚠ approxime la base à « courante − stacks ActOfFaith » : exact si ActOfFaith est la seule
-    StatModification sur la crit-dmg (cas validé) ; d'autres mods crit-dmg via ChangeStat la fausseraient."""
-    cur_cd = int(getattr(ctx, "crit_damage", 0) or 0)
-    prior = 0
-    if state.effects is not None:
-        for e in state.effects.by_unit.get(int(owner_id), []):
-            if not e.consumed and e.effect_type == ACTOFFAITH_EFFECT:
-                prior += int(getattr(e, "cd_delta", 0) or 0)
-    base_cd = cur_cd - prior
+    sur la crit-dmg hors-ActOfFaith. Confirmé live (3 stacks base 250 → +63 plat à chaque fois).
+
+    Utilise DIRECTEMENT l'`Initial` du système de stats porté (`ctx.get_stat(CRIT_DAMAGE, Initial)`),
+    remplaçant l'ancienne reconstruction « courante − Σ(deltas AoF) » : exact même si la crit-dmg porte
+    d'AUTRES modifications, ET pour les stacks SEEDÉS (delta inconnu) — la base = Initial reste juste.
+    Fallback sur le champ plat si le composant crit-dmg n'est pas seedé (unité sans UnitStats)."""
+    from ...entities.stats import StatType, StatPart
+    if int(StatType.CRIT_DAMAGE) in ctx.stats.components:
+        base_cd = ctx.stats.get_stat(int(StatType.CRIT_DAMAGE), int(StatPart.INITIAL))
+    else:
+        base_cd = int(getattr(ctx, "crit_damage", 0) or 0)
     return -(-(base_cd * cd_pct) // 100)                 # Ceiling(base_cd × cd_pct%) en entier (0.25 exact)
 
 
@@ -680,51 +681,63 @@ def _apply_act_of_faith_stack(state: State, owner_id: int) -> Optional[dict]:
     Mute `ctx.crit_chance/crit_damage` (= GetStat) et enregistre l'effet avec ses deltas. No-op si stats
     absentes."""
     from ...entities.effects.loki import ActOfFaithBuffEffect
+    from ...entities.stats import StatType
+    from .stat_ops import apply_change_stat
     owner = state.get_entity(owner_id)
     sc = owner.get_component(StatsComponent) if owner is not None else None
     if sc is None:
         return None
     ctx = sc.ctx
     cc_extra, cd_pct = _act_of_faith_constants()
-    cur_cc = int(getattr(ctx, "crit_chance", 0) or 0)
-    new_cc = min(CRIT_CHANCE_MAX, cur_cc + cc_extra)     # clamp 100 (GetClampedValue)
-    cc_delta = new_cc - cur_cc                            # delta OBSERVABLE (0 si déjà au cap) → revert exact
-    cd_delta = _act_of_faith_cd_delta(state, owner_id, ctx, cd_pct)
-    ctx.crit_chance = new_cc
-    ctx.crit_damage = int(getattr(ctx, "crit_damage", 0) or 0) + cd_delta
+    cd_amount = _act_of_faith_cd_amount(ctx, cd_pct)      # Ceiling(BASE=Initial × cd_pct%) FLAT
+    # source UNIQUE par stack (indexée par le nombre de stacks actifs) → revert par-source exact
+    stack_n = sum(1 for e in (state.effects.by_unit.get(int(owner_id), []) if state.effects else [])
+                  if (not e.consumed) and e.effect_type == ACTOFFAITH_EFFECT)
+    src = ("ActOfFaith", int(owner_id), stack_n)
+    cc_before = ctx.stat(StatType.CRIT_CHANCE)
+    cd_before = ctx.stat(StatType.CRIT_DAMAGE)
+    apply_change_stat(state, owner_id, StatType.CRIT_CHANCE, src, cc_extra)   # +10, clamp 100 via l'op
+    apply_change_stat(state, owner_id, StatType.CRIT_DAMAGE, src, cd_amount)
     eff = ActOfFaithBuffEffect(name="ActOfFaith_Effect", effect_type=ACTOFFAITH_EFFECT)
-    eff.cc_delta = cc_delta
-    eff.cd_delta = cd_delta
+    eff.stat_mod_source = src
+    eff.cc_delta = ctx.stat(StatType.CRIT_CHANCE) - cc_before       # OBSERVÉ (report)
+    eff.cd_delta = ctx.stat(StatType.CRIT_DAMAGE) - cd_before
     if state.effects is not None:
         state.effects.add_effect(owner_id, eff)
-    return {"trait": "ActOfFaith", "owner": owner_id, "cc_delta": cc_delta, "cd_delta": cd_delta,
-            "crit_chance": ctx.crit_chance, "crit_damage": ctx.crit_damage}
+    return {"trait": "ActOfFaith", "owner": owner_id, "cc_delta": eff.cc_delta, "cd_delta": eff.cd_delta,
+            "crit_chance": ctx.stat(StatType.CRIT_CHANCE), "crit_damage": ctx.stat(StatType.CRIT_DAMAGE)}
 
 
 def _reset_act_of_faith(state: State, owner_id: int) -> Optional[dict]:
     """`ActOfFaith_RemoveEffectAbility` behaviour = `RemoveEffect(0x3f9)` tous stacks : retire chaque
     ActOfFaithBuffEffect du porteur et revert son ChangeStat (soustrait les deltas stockés ; la somme des
     deltas annule exactement l'accumulation compound, quel que soit l'ordre). No-op si pas d'effets."""
+    from ...entities.stats import StatType
+    from .stat_ops import revert_change_stat
     owner = state.get_entity(owner_id)
     sc = owner.get_component(StatsComponent) if owner is not None else None
     if sc is None or state.effects is None:
         return None
     ctx = sc.ctx
-    removed = cc_back = cd_back = 0
+    cc_before = ctx.stat(StatType.CRIT_CHANCE)
+    cd_before = ctx.stat(StatType.CRIT_DAMAGE)
+    removed = 0
     for e in state.effects.by_unit.get(int(owner_id), []):
         if e.consumed or e.effect_type != ACTOFFAITH_EFFECT:
             continue
-        cc = int(getattr(e, "cc_delta", 0) or 0)
-        cd = int(getattr(e, "cd_delta", 0) or 0)
-        ctx.crit_chance = int(getattr(ctx, "crit_chance", 0) or 0) - cc
-        ctx.crit_damage = int(getattr(ctx, "crit_damage", 0) or 0) - cd
-        cc_back += cc
-        cd_back += cd
+        # revert par SOURCE (ReverseModification) : la valeur se re-clampe au read, sans delta stocké.
+        # ⚠ un stack SEEDÉ (materialisé depuis la capture) n'a pas de source (dans le résidu opaque) →
+        # non reverté (limitation préexistante : le reset de stacks seedés ne re-baisse pas la stat).
+        src = getattr(e, "stat_mod_source", None)
+        if src is not None:
+            revert_change_stat(state, owner_id, StatType.CRIT_CHANCE, src)
+            revert_change_stat(state, owner_id, StatType.CRIT_DAMAGE, src)
         e.consumed = True
         removed += 1
     return {"trait": "ActOfFaith", "owner": owner_id, "removed": removed,
-            "cc_back": cc_back, "cd_back": cd_back,
-            "crit_chance": ctx.crit_chance, "crit_damage": ctx.crit_damage}
+            "cc_back": cc_before - ctx.stat(StatType.CRIT_CHANCE),
+            "cd_back": cd_before - ctx.stat(StatType.CRIT_DAMAGE),
+            "crit_chance": ctx.stat(StatType.CRIT_CHANCE), "crit_damage": ctx.stat(StatType.CRIT_DAMAGE)}
 
 
 def _pick_randomly(state: State, candidates: list[int]) -> Optional[int]:
@@ -929,9 +942,9 @@ def _normal_attack_health_range(state: State, owner_id: int):
     ahc = owner.get_component(HealthComponent)
     _pierce, _ranged, whits = select_weapon_pierce(ctx, 1)             # dist=1 → arme mêlée
     mods, active = attacker_modifiers(state, owner_id, ahc.hp if ahc else None, is_ranged=False)
-    hits = max(1, whits + int(getattr(ctx, "extra_hits", 0) or 0) + hits_bonus_from_effects(active))
+    hits = max(1, whits + ctx.stat(StatType.EXTRA_HITS) + hits_bonus_from_effects(active))
     pred = get_attack_prediction(
-        target_current_health=0, initial_damage=int(getattr(ctx, "attack", 0) or 0), hits=hits,
+        target_current_health=0, initial_damage=int(ctx.stat(StatType.ATTACK)), hits=hits,
         profile_type=0, armor=0, pierce_pct=100, mods=mods, spread_pct=20)    # PRÉ-ARMURE (armor=0)
     return (pred.accurate_health_damage.min, pred.accurate_health_damage.max)
 

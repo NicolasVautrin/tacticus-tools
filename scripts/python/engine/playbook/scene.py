@@ -104,7 +104,8 @@ def build_predictor(rpc, rid):
             if uc.get("passiveAbilityLevel"):
                 ablvl_by_id[eid] = int(uc["passiveAbilityLevel"])
         if not (u.get("normalAttack") or {}).get("error"):
-            ctx_by_id[eid] = UnitContext.from_snapshot(u, GC.unit(vis_by_id.get(eid) or ""))
+            ctx_by_id[eid] = UnitContext.from_snapshot(u, GC.unit(vis_by_id.get(eid) or ""),
+                                                       snap.get("statTypes"))
     return {"ctx_by_id": ctx_by_id, "armor_by_id": armor_by_id, "shield_by_id": shield_by_id,
             "mult_by_id": mult_by_id, "ablvl_by_id": ablvl_by_id, "vis_by_id": vis_by_id}
 
