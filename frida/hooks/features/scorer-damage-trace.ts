@@ -74,11 +74,34 @@ const RVA_COMPOSED_UTILITY = 0x1101600;
 
 // DamageCalculations.GetMultiplierFromDamageBonus @181005210 (RVA 0x1005210) — convertit un bonus %
 // (Nullable<int> @ param_3+0x20) en multiplicateur (>0: 1+b/100 ; <0: 1-|b|/100). Signature :
-// (ret*, p2, param_3). Hooké pour CAPTURER chaque bonus appliqué pendant la prédiction (le +50 sur 82,
-// le -30 Terrifying sur 78) + backtrace pour distinguer ATTAQUANT (CalculateAttackerModifiers @181000590)
-// vs DÉFENSEUR (CalculateDefenderModifiers @181002c30/a70). À REFAIRE au changement de hash.
-// Deux variantes (instanciations génériques) : @181005210 (concrète, refcount 10) + @1810053e0 (refcount 3).
-const RVA_GET_MULT_DMG_BONUS: number[] = [0x1005210, 0x10053e0];
+// (param_1 out Nullable<Fix64>*, param_2 ctx, param_3). RETOURNE param_1 = le multiplicateur Fix64 (@0).
+// Hooké pour CAPTURER chaque bonus appliqué pendant la prédiction (le +50 sur 82, le -30 sur 78) + backtrace :
+// le RETURN-ADDRESS = le CALL SITE source, qui distingue ATTAQUANT (CalculateAttackerModifiersForPrediction
+// @181000590 : 4 sites — statmods @181001947 ; positionnels elevation/RangedInMelee/Trench @181001ef9/
+// 181001ff2/1810020df) vs DÉFENSEUR (CalculateDefenderModifiersForPrediction @181002c30, site @181003d51).
+// À REFAIRE au changement de hash. ⚠ ON NE HOOKE QUE la variante SINGLE @181005210 : la variante LIST
+// @1810053e0 a la signature (param_1, List) à 2 args — PAS de param_3 → la hooker lisait args[2] parasite
+// (bonus=1) ; elle ne fait qu'itérer et rappeler la single en interne, donc la single capte DÉJÀ chaque bonus.
+const RVA_GET_MULT_DMG_BONUS: number[] = [0x1005210];
+
+// #49 — RÉSOLVEUR DE L'OVERRIDE DE BASE (profileMethod). Dans GetAttackHitPrediction @1811af4e0, 2 délégués
+// portent l'override base (invoqué par PredictAttackRaw via l'interface DAT_183287db8 idx 0xd) :
+//   b__0 @1811c9d10 : appelle la méthode VIRTUELLE `*(klass+0x4d8)` de l'instance (param_1+0x10) — slot 58.
+//   b__1 @1811c9e50 : appelle l'interface `DAT_18327ff80` idx 0xb4 sur (param_1+0x10)+0x20, (target,position).
+// Ces slots vtable/interface sont résolus au RUNTIME → non mappables offline par ghidra. Ce résolveur lit,
+// pendant une prédiction u92 live, la VA CONCRÈTE que chaque délégué invoque (= la formule de la base réduite)
+// → on la décompile ensuite dans ghidra. Ciblage pur (doctrine), aucune formule devinée. À REFAIRE au hash.
+const RVA_PROFILE_B0 = 0x11c9d10;
+const RVA_PROFILE_B1 = 0x11c9e50;
+const RVA_ATTACK_IFACE = 0x327ff80;   // DAT_18327ff80 (Il2CppClass* de l'interface ability), pour idx 0xb4
+// Le VRAI override de base : PredictAttackRaw @181034898 fait `FUN_180031950(recv, idx=0xd, DAT_183287db8)`
+// → Nullable<Fix64> ; si HasValue, remplace la base 4309. On résout le receiver (R9=args[3]) sur CE site
+// (filtre returnAddress) → classe concrète + VA de la méthode idx 0xd → à décompiler pour LIRE la formule.
+const RVA_IFACE_DMG = 0x3287db8;       // DAT_183287db8 (interface de l'override base)
+const RVA_FUN_INVOKE = 0x31950;        // FUN_180031950 (invocateur d'interface générique — CHAUD)
+const RVA_OVERRIDE_RETADDR = 0x103489e; // return-addr du call idx-0xd (isole CE site, évite le hot broad-hook)
+const baseOverrideResolved = new Set<string>();
+let overrideIdxdResolved = false;      // resolve-once (reset au clear global)
 
 // CalculateActionUtility (gshared, non résolu par findMethod) — RVA build-spécifique gqfc5mff6c
 // (ghidra @181406ee0 - 0x180000000). Donne l'UTILITÉ TOTALE par-candidat (le discriminateur : le
@@ -161,10 +184,11 @@ interface BonusEvent {
     seq: number;
     originRunnerId: number | null;
     bonus: number;       // valeur du bonus % (param_3+0x20 Nullable<int>) — +50, -30, …
+    mult: number;        // multiplicateur en SORTIE (retval = param_1, Fix64 @0) — cross-check : 0.70 <-> bonus -30
     hasValue: number;
     casterCol: number;   // tuile caster courante (via CalculateActionUtility) — corrèle le CS tile-dépendant
     casterRow: number;
-    stack?: string[];    // backtrace -> ATTAQUANT (CalcAttackerModifiers) vs DÉFENSEUR (CalcDefenderModifiers)
+    stack?: string[];    // backtrace -> return-address = CALL SITE source (att statmods/positional vs def)
 }
 const bonusTrace: { buf: OriginBuffers<BonusEvent>; stacksLeft: number } =
     { buf: new OriginBuffers<BonusEvent>(CAP, "dropNew"), stacksLeft: 0 };
@@ -210,6 +234,11 @@ interface DmgEvent {
 // le ctor ProbableDamageEvent qui suit immédiatement (1 MakeDamagePredictions -> ses events).
 let curCaster: { col: number; row: number } | null = null;
 
+// #49 — tuile de la PRÉDICTION courante, posée par le hook PredictAttackRaw onEnter (scan du context
+// pour la UnitPosition) et lue par les hooks NESTÉS (statMods/attMod firent DANS PredictAttackRaw). Robuste
+// (sur le chemin de prédiction par construction) là où curCaster (via CalculateActionUtility) est découplé.
+let curPredTile: { col: number; row: number } | null = null;
+
 const trace: { on: boolean; seq: number; buf: OriginBuffers<DmgEvent> } = {
     on: false, seq: 0, buf: new OriginBuffers<DmgEvent>(CAP, "dropNew"),
 };
@@ -233,6 +262,254 @@ interface AllModsEvent {
 const allModsTrace: { buf: OriginBuffers<AllModsEvent> } =
     { buf: new OriginBuffers<AllModsEvent>(CAP, "dropNew") };
 let allModsInstalled = false;
+
+// #49 — capture le BASE-OVERRIDE : return[0] (Nullable) de CalculateAttackerModifiersForPrediction @181000590.
+// PredictAttackRaw lit ce champ `HasValue → op_Explicit(Value)` pour REMPLACER la base 4309 (pré-spread).
+// On lit plusieurs interprétations (Nullable<int> value@0/hasValue@4 ; Nullable<Fix64> value@0/hasValue@8)
+// pour lever l'ambiguïté gshared, + tuile caster. Méthode NOMMÉE → findMethod (survit au hash).
+interface AttModEvent {
+    seq: number;
+    originRunnerId: number | null;
+    i0: number;     // int32 @0 (candidat Nullable<int>.value)
+    hv4: number;    // byte @4 (candidat Nullable<int>.hasValue)
+    f0: number;     // Fix64 @0 -> nombre (candidat Nullable<Fix64>.value)
+    hv8: number;    // byte @8 (candidat Nullable<Fix64>.hasValue)
+    add: number;    // #49 : retval+0x10 = DamageModifiers.additive (Fix64) — le NET ±mods appliqué à la base
+    casterCol: number;
+    casterRow: number;
+}
+const attModTrace: { buf: OriginBuffers<AttModEvent> } =
+    { buf: new OriginBuffers<AttModEvent>(CAP, "dropNew") };
+let attModInstalled = false;
+function installAttModHook(): boolean {
+    if (attModInstalled) return true;
+    const klass = findClassAnywhere("IdunBattle.Core.Services", "DamageCalculations");
+    if (!klass) { log("[scorer-trace] DamageCalculations class not found (attMod)"); return false; }
+    const mi = findMethod(klass, "CalculateAttackerModifiersForPrediction");
+    if (!mi || mi.ptr.isNull()) { log("[scorer-trace] CalculateAttackerModifiersForPrediction not resolved"); return false; }
+    Interceptor.attach(mi.ptr, {
+        onLeave(retval) {
+            if (!trace.on) return;
+            try {
+                if (retval.isNull()) return;
+                const i0 = retval.readS32();
+                const hv4 = retval.add(4).readU8();
+                let raw = BigInt(retval.readS64().toString());
+                if (raw >= (1n << 63n)) raw -= (1n << 64n);
+                const f0 = Number(raw) / 4294967296;
+                const hv8 = retval.add(8).readU8();
+                let addRaw = BigInt(retval.add(0x10).readS64().toString());   // DamageModifiers.additive @+0x10
+                if (addRaw >= (1n << 63n)) addRaw -= (1n << 64n);
+                const add = Number(addRaw) / 4294967296;
+                attModTrace.buf.push({
+                    seq: ++trace.seq, originRunnerId: getTraceOrigin(),
+                    i0, hv4, f0, hv8, add,
+                    casterCol: curPredTile ? curPredTile.col : (curCaster ? curCaster.col : -1),
+                    casterRow: curPredTile ? curPredTile.row : (curCaster ? curCaster.row : -1),
+                });
+            } catch { /* transient */ }
+        },
+    });
+    attModInstalled = true;
+    log("[scorer-trace] hooked CalculateAttackerModifiersForPrediction @ " + mi.ptr);
+    return true;
+}
+
+// #49 — LE hook décisif : CalculateModifiersFromStatModifications @181004380 (méthode NOMMÉE → findMethod,
+// survit au hash). En hookant la FONCTION (et non le call-site), `args[2]` = le param `negate` est
+// NON-AMBIGU (aucun shuffle d'args côté appelant gshared) → tranche add(0) vs subtract(1). On lit aussi le
+// StatComponent d'entrée (args[1]) : Initial @+0x48 (=3011 identifie l'Attack de u92) + candidats mod, et
+// en sortie le nb de modifiers produits (List _size @+0x18). Corrèle par tuile caster (curCaster).
+interface StatModsEvent {
+    seq: number;
+    originRunnerId: number | null;
+    negate: number;     // args[2] byte — 0=ADDITION, 1=SUBTRACTION (le signe cherché)
+    initial: number;    // StatComponent+0x48 (Initial) — 3011 => stat Attack u92
+    mod10: number;      // StatComponent+0x10 lu inline (candidat ValueModification.total)
+    mod10ptr: number;   // *(StatComponent+0x10)+0 (candidat si +0x10 est un pointeur)
+    listCount: number;  // retour = List<DamageModifier> _size @+0x18 (0 = garde Current==Initial)
+    casterCol: number;
+    casterRow: number;
+}
+const statModsTrace: { buf: OriginBuffers<StatModsEvent> } =
+    { buf: new OriginBuffers<StatModsEvent>(CAP, "dropNew") };
+let statModsInstalled = false;
+function installStatModsHook(): boolean {
+    if (statModsInstalled) return true;
+    const klass = findClassAnywhere("IdunBattle.Core.Services", "DamageCalculations");
+    if (!klass) { log("[scorer-trace] DamageCalculations class not found (statMods)"); return false; }
+    const mi = findMethod(klass, "CalculateModifiersFromStatModifications");
+    if (!mi || mi.ptr.isNull()) { log("[scorer-trace] CalculateModifiersFromStatModifications not resolved"); return false; }
+    Interceptor.attach(mi.ptr, {
+        onEnter(args) {
+            if (!trace.on) return;
+            const self = this as { _on?: boolean; _neg?: number; _init?: number; _m10?: number; _m10p?: number };
+            self._on = true;
+            try {
+                self._neg = args[2].toInt32() & 0xff;
+                const stat = args[1];
+                if (stat && !stat.isNull()) {
+                    self._init = stat.add(0x48).readS32();
+                    self._m10 = stat.add(0x10).readS32();
+                    try { const p = stat.add(0x10).readPointer(); self._m10p = (!p.isNull()) ? p.readS32() : -1; }
+                    catch { self._m10p = -1; }
+                }
+            } catch { self._on = false; }
+        },
+        onLeave(retval) {
+            const self = this as { _on?: boolean; _neg?: number; _init?: number; _m10?: number; _m10p?: number };
+            if (!self._on || !trace.on) return;
+            try {
+                let listCount = -1;
+                if (retval && !retval.isNull()) { try { listCount = retval.add(0x18).readS32(); } catch { /* */ } }
+                statModsTrace.buf.push({
+                    seq: ++trace.seq, originRunnerId: getTraceOrigin(),
+                    negate: self._neg ?? -1, initial: self._init ?? -1,
+                    mod10: self._m10 ?? -1, mod10ptr: self._m10p ?? -1, listCount,
+                    casterCol: curPredTile ? curPredTile.col : (curCaster ? curCaster.col : -1),
+                    casterRow: curPredTile ? curPredTile.row : (curCaster ? curCaster.row : -1),
+                });
+            } catch { /* transient */ }
+        },
+    });
+    statModsInstalled = true;
+    log("[scorer-trace] hooked CalculateModifiersFromStatModifications @ " + mi.ptr);
+    return true;
+}
+
+// #49 — LE hook du GATE : ValueModification.Modify @180fadfc0 (source, amount) écrit UNE contribution
+// stat-mod. La base f58 varie (3011/4309) => le +1298 est TOGGLÉ sur le stat Attack par-candidat. Ce
+// hook capture chaque Modify de gros montant (|amount|>=500 => filtre le +1298, ignore le bruit) AVEC
+// BACKTRACE (1ers events) → la pile révèle la FONCTION qui applique/retire le +1298 pendant la prédiction
+// = le GATE cherché. + source entity (qui applique). findMethod (ValueModification concret), RVA fallback.
+const RVA_VALUE_MOD_MODIFY = 0x1fadfc0;   // ValueModification.Modify @180fadfc0 (build gqfc5mff6c)
+interface ModifyEvent {
+    seq: number;
+    originRunnerId: number | null;
+    amount: number;     // args[2] (int) — la contribution écrite (~1298 pour le buff u92)
+    srcId: number;      // args[1] source entity id @+0x10
+    srcType: number;    // args[1] source entity type @+0x14
+    stack?: string[];   // backtrace (1ers events) — return-addr = call-site = la fonction-GATE
+}
+const modifyTrace: { buf: OriginBuffers<ModifyEvent>; stacksLeft: number } =
+    { buf: new OriginBuffers<ModifyEvent>(CAP, "dropNew"), stacksLeft: 0 };
+let modifyInstalled = false;
+function installModifyHook(): boolean {
+    if (modifyInstalled) return true;
+    let ptr: NativePointer | null = null;
+    const klass = findClassAnywhere("IdunBattle.Entities.Components", "ValueModification");
+    if (klass) { const mi = findMethod(klass, "Modify"); if (mi && !mi.ptr.isNull()) ptr = mi.ptr; }
+    if (!ptr) {
+        if (il2cppBase.isNull()) { log("[scorer-trace] ValueModification.Modify unresolved + base null"); return false; }
+        ptr = il2cppBase.add(RVA_VALUE_MOD_MODIFY);
+        log("[scorer-trace] ValueModification.Modify via RVA fallback @ " + ptr);
+    }
+    Interceptor.attach(ptr, {
+        onEnter(args) {
+            if (!trace.on) return;
+            try {
+                const amount = args[2].toInt32();
+                if (Math.abs(amount) < 500) return;   // ignore les petits mods (mouvement +1, etc.)
+                const src = args[1];
+                const srcId = (src && !src.isNull()) ? src.add(0x10).readS32() : -1;
+                const srcType = (src && !src.isNull()) ? src.add(0x14).readS32() : -1;
+                const ev: ModifyEvent = {
+                    seq: ++trace.seq, originRunnerId: getTraceOrigin(),
+                    amount, srcId, srcType,
+                };
+                if (modifyTrace.stacksLeft > 0) {
+                    try {
+                        ev.stack = Thread.backtrace(this.context, Backtracer.ACCURATE)
+                            .slice(0, 14)
+                            .map((a) => {
+                                const off = a.sub(il2cppBase);
+                                return (off.compare(0) > 0 && off.compare(il2cppBase) < 0)
+                                    ? "il2cpp+0x" + off.toString(16) : a.toString();
+                            });
+                        modifyTrace.stacksLeft--;
+                    } catch { /* */ }
+                }
+                modifyTrace.buf.push(ev);
+            } catch { /* transient */ }
+        },
+    });
+    modifyInstalled = true;
+    log("[scorer-trace] hooked ValueModification.Modify @ " + ptr);
+    return true;
+}
+
+// #49 — capture la BASE PRÉ-SPREAD fed to PredictAttackRaw : GetValueOrDefault(param_3 + 0x58). param_3 = R8
+// = args[2] (context). Si args[2]+0x58 = 3011 aux tuiles réduites / 4309 aux pleines → le 3011 est DÉJÀ dans
+// le base à l'entrée de PredictAttackRaw (posé en amont), PAS un modifier interne. On lit plusieurs offsets
+// candidats (le layout Nullable peut décaler). PredictAttackRaw = gshared → findMethod peut échouer → RVA fallback.
+const RVA_PREDICT_ATTACK_RAW = 0x1032fb0;   // DamagePrediction.PredictAttackRaw @181032fb0 (build gqfc5mff6c)
+interface PredBaseEvent {
+    seq: number;
+    originRunnerId: number | null;
+    i58: number;    // int32 @+0x58
+    f58: number;    // Fix64 @+0x58 -> nombre
+    hv60: number;   // byte @+0x60
+    i50: number;    // int32 @+0x50 (offset voisin, au cas où)
+    f50: number;    // Fix64 @+0x50
+    posCol: number; // tuile candidate décodée du context (scan) — LA corrélation base<->tuile (#49)
+    posRow: number;
+    posOff: number; // offset où la position a décodé (diagnostic)
+    casterCol: number;
+    casterRow: number;
+}
+const predBaseTrace: { buf: OriginBuffers<PredBaseEvent> } =
+    { buf: new OriginBuffers<PredBaseEvent>(CAP, "dropNew") };
+let predBaseInstalled = false;
+function installPredictBaseHook(): boolean {
+    if (predBaseInstalled) return true;
+    let ptr: NativePointer | null = null;
+    const klass = findClassAnywhere("IdunBattle.Core.Services", "DamagePrediction");
+    if (klass) {
+        const mi = findMethod(klass, "PredictAttackRaw");
+        if (mi && !mi.ptr.isNull()) ptr = mi.ptr;
+    }
+    if (!ptr) {
+        if (il2cppBase.isNull()) { log("[scorer-trace] PredictAttackRaw unresolved + il2cppBase null"); return false; }
+        ptr = il2cppBase.add(RVA_PREDICT_ATTACK_RAW);   // fallback RVA build-spécifique
+        log("[scorer-trace] PredictAttackRaw via RVA fallback (build gqfc5mff6c) @ " + ptr);
+    }
+    const f64 = (p: NativePointer): number => {
+        try { let r = BigInt(p.readS64().toString()); if (r >= (1n << 63n)) r -= (1n << 64n); return Number(r) / 4294967296; }
+        catch { return NaN; }
+    };
+    Interceptor.attach(ptr, {
+        onEnter(args) {
+            if (!trace.on) return;
+            try {
+                const ctx = args[2];   // param_3 (R8) = context ; base Nullable @+0x58
+                if (ctx.isNull()) return;
+                // Scan du context pour la UnitPosition candidate (robuste, sur le chemin de prédiction) →
+                // pose curPredTile pour les hooks nestés (statMods/attMod). posOff = offset trouvé (diag).
+                let posCol = -1, posRow = -1, posOff = -1;
+                for (let off = 0; off <= 0x120; off += 8) {
+                    try {
+                        const c = decodePos(ctx.add(off));
+                        if (c && c.col >= 0 && c.row >= 0) { posCol = c.col; posRow = c.row; posOff = off; break; }
+                    } catch { /* offset suivant */ }
+                }
+                curPredTile = (posCol >= 0) ? { col: posCol, row: posRow } : null;
+                predBaseTrace.buf.push({
+                    seq: ++trace.seq, originRunnerId: getTraceOrigin(),
+                    i58: ctx.add(0x58).readS32(), f58: f64(ctx.add(0x58)), hv60: ctx.add(0x60).readU8(),
+                    i50: ctx.add(0x50).readS32(), f50: f64(ctx.add(0x50)),
+                    posCol, posRow, posOff,
+                    casterCol: curCaster ? curCaster.col : -1,
+                    casterRow: curCaster ? curCaster.row : -1,
+                });
+            } catch { /* transient */ }
+        },
+        // NB : on NE clear PAS curPredTile onLeave — le ctor ProbableDamageEvent (avec les hits=arme) fire
+        // APRÈS PredictAttackRaw ; il doit lire la tuile de CETTE prédiction (écrasée par la suivante).
+    });
+    predBaseInstalled = true;
+    log("[scorer-trace] hooked PredictAttackRaw (base fed-in) @ " + ptr);
+    return true;
+}
 function installAllModsHook(): boolean {
     if (allModsInstalled) return true;
     const klass = findClassAnywhere("IdunBattle.Core.Services", "DamagePrediction");
@@ -336,8 +613,8 @@ function installScenarioHook(): boolean {
                     prob: self._prob ?? -1,
                     outMin: retval.add(0xc).readS32(),
                     outMax: retval.add(0x10).readS32(),
-                    casterCol: curCaster ? curCaster.col : -1,
-                    casterRow: curCaster ? curCaster.row : -1,
+                    casterCol: curPredTile ? curPredTile.col : (curCaster ? curCaster.col : -1),
+                    casterRow: curPredTile ? curPredTile.row : (curCaster ? curCaster.row : -1),
                 });
             } catch { /* transient — skip */ }
         },
@@ -375,8 +652,8 @@ function installHook(): boolean {
                     shieldMax: dpr.add(0x84).readS32(),
                     limitedByMinHp: dpr.add(0xb0).readU8(),
                     hits: dpr.add(0xbc).readS32(),
-                    casterCol: curCaster ? curCaster.col : -1,
-                    casterRow: curCaster ? curCaster.row : -1,
+                    casterCol: curPredTile ? curPredTile.col : (curCaster ? curCaster.col : -1),
+                    casterRow: curPredTile ? curPredTile.row : (curCaster ? curCaster.row : -1),
                 });
             } catch { /* transient — skip */ }
         },
@@ -403,6 +680,7 @@ function installRvaHooks(): boolean {
     installLeafHooks();
     installComposedHook();
     installBonusHook();
+    installBaseOverrideResolver();   // #49 : résout la VA concrète de l'override de base (b__0/b__1)
     rvaInstalled = true;
     return true;
 }
@@ -591,39 +869,143 @@ function installBonusHook(): boolean {
     Interceptor.attach(ptrFn, {
         onEnter(args) {
             if (!trace.on) return;
+            void args;
+            const self = this as { _on?: boolean; _stk?: string[] };
+            self._on = true;
+            // Backtrace pris à l'ENTRÉE (pile propre du call site) : le RETURN-ADDRESS = le CALL SITE
+            // source (att statmods/positional vs def) — LIVRABLE DÉCISIF #49. Gardé au call level.
+            if (bonusTrace.stacksLeft > 0) {
+                try {
+                    self._stk = Thread.backtrace(this.context, Backtracer.ACCURATE)
+                        .slice(0, 12)
+                        .map((a) => {
+                            const off = a.sub(il2cppBase);
+                            return (off.compare(0) > 0 && off.compare(il2cppBase) < 0)
+                                ? "il2cpp+0x" + off.toString(16) : a.toString();
+                        });
+                } catch { self._stk = undefined; }
+            }
+        },
+        onLeave(retval) {
+            const self = this as { _on?: boolean; _stk?: string[] };
+            if (!self._on || !trace.on) return;
             try {
-                const p3 = args[2];   // param_3 : porte le Nullable<int> bonus @ +0x20
-                if (p3.isNull()) return;
-                // Nullable<int> layout IL2CPP : value@0x0, hasValue@0x4 (relatif à p3+0x20).
-                const bonus = p3.add(0x20).readS32();
-                const hasValue = p3.add(0x24).readU8();
-                if (!hasValue) return;   // pas de bonus -> multiplicateur nul (skip)
+                // GATE ROBUSTE sur le multiplicateur de SORTIE (retval = param_1 out ptr, Fix64 @0) :
+                // la branche no-value écrit *param_1=0 -> mult==0 = PAS de bonus (skip). Le Nullable<int>
+                // d'ENTRÉE (param_3+0x20) est gshared (get_Value/HasValue via runtime, offset non-fixe) →
+                // sa lecture directe est PARASITE (bonus=1) : on ne s'y fie PAS, on dérive le bonus du mult.
+                let raw = BigInt(retval.readS64().toString());
+                if (raw >= (1n << 63n)) raw -= (1n << 64n);
+                const mult = Number(raw) / 4294967296;
+                if (mult === 0) return;   // no-value (ou -100% dégénéré) -> pas de modifier applicable
+                const bonus = Math.round((mult - 1) * 100);   // 0.70 -> -30 ; 1.50 -> +50 (bonus % entier)
                 const ev: BonusEvent = {
                     seq: ++trace.seq,
                     originRunnerId: getTraceOrigin(),
-                    bonus, hasValue,
+                    bonus, mult, hasValue: 1,
                     casterCol: curCaster ? curCaster.col : -1,
                     casterRow: curCaster ? curCaster.row : -1,
                 };
-                if (bonusTrace.stacksLeft > 0) {
-                    try {
-                        ev.stack = Thread.backtrace(this.context, Backtracer.ACCURATE)
-                            .slice(0, 12)
-                            .map((a) => {
-                                const off = a.sub(il2cppBase);
-                                return (off.compare(0) > 0 && off.compare(il2cppBase) < 0)
-                                    ? "il2cpp+0x" + off.toString(16) : a.toString();
-                            });
-                        bonusTrace.stacksLeft--;
-                    } catch { /* */ }
-                }
+                if (self._stk) { ev.stack = self._stk; bonusTrace.stacksLeft--; }
                 bonusTrace.buf.push(ev);
             } catch { /* transient — skip */ }
         },
     });
-    log("[scorer-trace] hooked GetMultiplierFromDamageBonus (RVA) @ " + ptrFn);
+    log("[scorer-trace] hooked GetMultiplierFromDamageBonus SINGLE (RVA) @ " + ptrFn);
     }
     bonusInstalled = true;
+    return true;
+}
+
+// #49 — résolveurs de VA concrète des délégués d'override de base (b__0/b__1). Ciblage pur : lit, pendant
+// une prédiction u92 live, la VA que chaque délégué invoque (formule de la base réduite) → décompile après.
+let baseOverrideInstalled = false;
+function installBaseOverrideResolver(): boolean {
+    if (baseOverrideInstalled) return true;
+    if (il2cppBase.isNull()) { log("[scorer-trace] il2cppBase null — base-override resolver skipped"); return false; }
+    // b__0 : méthode VIRTUELLE `*(klass + 0x4d8)` de l'instance (param_1+0x10) — slot 58.
+    Interceptor.attach(il2cppBase.add(RVA_PROFILE_B0), {
+        onEnter(args) {
+            if (!trace.on) return;
+            try {
+                const inst = args[0].add(0x10).readPointer();
+                if (inst.isNull()) return;
+                const klass = inst.readPointer();
+                if (klass.isNull()) return;
+                const func = klass.add(0x4d8).readPointer();
+                if (func.isNull()) return;
+                baseOverrideResolved.add("b__0(vtable+0x4d8) -> il2cpp+0x" + func.sub(il2cppBase).toString(16));
+            } catch { /* transient */ }
+        },
+    });
+    // b__1 : interface `DAT_18327ff80` idx 0xb4 sur svc = *((param_1+0x10)+0x20) — signature (target, position).
+    Interceptor.attach(il2cppBase.add(RVA_PROFILE_B1), {
+        onEnter(args) {
+            if (!trace.on) return;
+            try {
+                const ctx = args[0].add(0x10).readPointer();
+                if (ctx.isNull()) return;
+                const svc = ctx.add(0x20).readPointer();
+                if (svc.isNull()) return;
+                const klass = svc.readPointer();
+                if (klass.isNull()) return;
+                const ifaceVal = il2cppBase.add(RVA_ATTACK_IFACE).readPointer();
+                const count = klass.add(0x12e).readU16();
+                const itable = klass.add(0xb0).readPointer();
+                if (itable.isNull()) return;
+                let off = -1;
+                for (let i = 0; i < count && i < 300; i++) {
+                    const e = itable.add(i * 0x10);
+                    if (e.readPointer().equals(ifaceVal)) { off = e.add(8).readS32(); break; }
+                }
+                if (off < 0) { baseOverrideResolved.add("b__1(iface idx0xb4) -> IFACE NOT FOUND (count=" + count + ")"); return; }
+                const slot = klass.add(0x138).add((off + 0xb4) * 0x10);
+                const func = slot.readPointer();
+                if (func.isNull()) return;
+                baseOverrideResolved.add("b__1(iface+0xb4 off=" + off + ") -> il2cpp+0x" + func.sub(il2cppBase).toString(16));
+            } catch { /* transient */ }
+        },
+    });
+    // VRAI override : FUN_180031950(recv, idx 0xd, DAT_183287db8) @181034898. Hook gaté trace.on + filtré
+    // returnAddress (isole CE site du hot invocateur) + resolve-once → non-intrusif. Lit le receiver (R9=args[3]),
+    // résout la méthode concrète idx 0xd + son nom de classe, ET capture la valeur override en sortie.
+    Interceptor.attach(il2cppBase.add(RVA_FUN_INVOKE), {
+        onEnter(args) {
+            if (!trace.on || overrideIdxdResolved) return;
+            try {
+                if (!this.returnAddress.equals(il2cppBase.add(RVA_OVERRIDE_RETADDR))) return;
+                const idx = args[1].toInt32() & 0xffff;
+                const recv = args[3];   // param_4 = R9 = receiver de l'interface
+                if (recv.isNull()) return;
+                const klass = recv.readPointer();
+                if (klass.isNull()) return;
+                let recvName = "?";
+                try { recvName = s(class_get_name(klass) as NativePointer); } catch { /* */ }
+                const ifaceVal = il2cppBase.add(RVA_IFACE_DMG).readPointer();
+                const count = klass.add(0x12e).readU16();
+                const itable = klass.add(0xb0).readPointer();
+                let off = -1;
+                if (!itable.isNull()) {
+                    for (let i = 0; i < count && i < 400; i++) {
+                        const e = itable.add(i * 0x10);
+                        if (e.readPointer().equals(ifaceVal)) { off = e.add(8).readS32(); break; }
+                    }
+                }
+                if (off < 0) {
+                    baseOverrideResolved.add("override idx" + idx + " recv=" + recvName + " -> IFACE NOT FOUND");
+                    overrideIdxdResolved = true; return;
+                }
+                const slot = klass.add(0x138).add((off + idx) * 0x10);
+                const func = slot.readPointer();
+                if (func.isNull()) return;
+                baseOverrideResolved.add("override idx" + idx + " recv=" + recvName
+                    + " -> il2cpp+0x" + func.sub(il2cppBase).toString(16));
+                overrideIdxdResolved = true;
+            } catch { /* transient */ }
+        },
+    });
+    baseOverrideInstalled = true;
+    log("[scorer-trace] hooked base-override resolvers b__0/b__1 + idx0xd(FUN_180031950 site-filtered)");
     return true;
 }
 
@@ -714,6 +1096,10 @@ export function register(ctx: Ctx): void {
             const ok = installHook();
             installAllModsHook();   // findMethod (nommé) — survit au hash
             installScenarioHook();  // findMethod (nommé) — noyau par-coup (prevHits #49)
+            installAttModHook();    // findMethod (nommé) — base-override return[0] + additive @+0x10 (#49)
+            installStatModsHook();  // findMethod (nommé) — LE hook négate (args[2]) add vs subtract (#49)
+            installModifyHook();    // ValueModification.Modify + backtrace — le GATE du toggle +1298 (#49)
+            installPredictBaseHook(); // base pré-spread fed to PredictAttackRaw (context+0x58) (#49)
             installRvaHooks();   // arme les RVA build-spécifiques (l'utilisateur confirme le hash en armant)
             trace.on = ok;
             return { ok, on: trace.on, installed, rvaInstalled, allModsInstalled };
@@ -734,13 +1120,17 @@ export function register(ctx: Ctx): void {
         elevTrace.buf.clear(rid); tileTermTrace.buf.clear(rid);
         leafTrace.buf.clear(rid); bonusTrace.buf.clear(rid);
         allModsTrace.buf.clear(rid); scenarioTrace.buf.clear(rid);
+        attModTrace.buf.clear(rid); predBaseTrace.buf.clear(rid);
+        statModsTrace.buf.clear(rid); modifyTrace.buf.clear(rid);
         if (typeof rid !== "number") {
             trace.seq = 0; utilTrace.targets = [];
             composedChildren.seen.clear();
+            baseOverrideResolved.clear(); overrideIdxdResolved = false;   // #49 : re-résout au clear global
         }
         utilTrace.stacksLeft = body?.stacks ?? 6;   // capture les N 1res backtraces après clear
         elevTrace.stacksLeft = body?.stacks ?? 6;   // idem pour la feuille Elevation (-> agrégateur)
         bonusTrace.stacksLeft = body?.stacks ?? 6;   // idem pour les bonus de dégât (-> source att/def)
+        modifyTrace.stacksLeft = body?.stacks ?? 12;  // #49 : backtraces des Modify(+1298) -> la fonction-GATE
         return { ok: true, stacksLeft: utilTrace.stacksLeft };
     };
 
@@ -790,6 +1180,59 @@ export function register(ctx: Ctx): void {
             bufferSize: bonusTrace.buf.size(),
             entries: bonusTrace.buf.entries(body?.runnerId).slice(-max),
         };
+    };
+
+    /** #49 : dump la base pré-spread fed to PredictAttackRaw (context+0x58) par tuile. */
+    ctx.rpc.scorerPredBaseDump = (
+        body?: { max?: number; runnerId?: number },
+    ): unknown => {
+        const max = body?.max ?? 8000;
+        return {
+            on: trace.on, predBaseInstalled,
+            bufferSize: predBaseTrace.buf.size(),
+            entries: predBaseTrace.buf.entries(body?.runnerId).slice(-max),
+        };
+    };
+
+    /** #49 : dump le base-override (return[0]) capturé de CalculateAttackerModifiersForPrediction par tuile. */
+    ctx.rpc.scorerAttModDump = (
+        body?: { max?: number; runnerId?: number },
+    ): unknown => {
+        const max = body?.max ?? 4000;
+        return {
+            on: trace.on, attModInstalled,
+            bufferSize: attModTrace.buf.size(),
+            entries: attModTrace.buf.entries(body?.runnerId).slice(-max),
+        };
+    };
+
+    /** #49 : dump CalculateModifiersFromStatModifications — negate(add/subtract) + Initial + listCount par tuile. */
+    ctx.rpc.scorerStatModsDump = (
+        body?: { max?: number; runnerId?: number },
+    ): unknown => {
+        const max = body?.max ?? 8000;
+        return {
+            on: trace.on, statModsInstalled,
+            bufferSize: statModsTrace.buf.size(),
+            entries: statModsTrace.buf.entries(body?.runnerId).slice(-max),
+        };
+    };
+
+    /** #49 : dump ValueModification.Modify (amount>=500) + backtrace — la fonction-GATE du toggle +1298. */
+    ctx.rpc.scorerModifyDump = (
+        body?: { max?: number; runnerId?: number },
+    ): unknown => {
+        const max = body?.max ?? 4000;
+        return {
+            on: trace.on, modifyInstalled,
+            bufferSize: modifyTrace.buf.size(),
+            entries: modifyTrace.buf.entries(body?.runnerId).slice(-max),
+        };
+    };
+
+    /** #49 : dump les VA concrètes résolues des délégués d'override de base (b__0 vtable / b__1 iface). */
+    ctx.rpc.scorerBaseOverrideDump = (): unknown => {
+        return { on: trace.on, baseOverrideInstalled, resolved: Array.from(baseOverrideResolved) };
     };
 
     /** Dump les enfants (noms de classe) de chaque ComposedUtility vu — identifie les feuilles du composite. */

@@ -17,6 +17,7 @@ from collections.abc import Mapping
 
 from ...services.damage_modifiers import (
     DamageModifiers, build_attacker_modifiers, build_defender_modifiers,
+    calculate_modifiers_from_stat_modifications,
 )
 from ...services.effect_bonus import for_armor_penetration
 from .base import BaseEffect, SubEffectSpec, SAME_TURNS
@@ -33,7 +34,8 @@ __all__ = [
     "BaseEffect", "SubEffectSpec", "SAME_TURNS", "EffectFactory", "EFFECT_CLASSES",
     "RapidAssaultExtraDamageEffect", "PowerTripFullHealthEffect",
     "PowerTripIgnoreArmorEffect", "KanOpenerEffect", "StunnedEffect",
-    "build_attacker_modifiers_from_effects", "build_defender_modifiers_from_effects",
+    "build_attacker_modifiers_from_effects", "calculate_attacker_modifiers_for_prediction",
+    "build_defender_modifiers_from_effects",
     "hits_bonus_from_effects", "hits_malus_from_defender_effects", "aura_hits_malus_for_defense",
     "crit_chance_bonus_from_effects", "crit_damage_bonus_from_effects",
     "apply_effect_stat_modifications", "stat_modifications_by_source",
@@ -51,16 +53,11 @@ def _as_effects(effects) -> list[BaseEffect]:
     return out
 
 
-def build_attacker_modifiers_from_effects(effects, is_ranged: bool | None = None,
-                                          is_normal_attack: bool = True,
-                                          has_moved: bool | None = None) -> DamageModifiers:
-    """`CalculateAttackerModifiersForPrediction` @181000590 — DamageModifiers depuis les effets ACTIFS de
-    l'attaquant (§17.8). Agrège : damage-bonus (additif/percent, `create_effect_damage_bonus_for_attack`)
-    + pénétration d'armure (`get_armor_penetration` → axe armure). Les effets doivent être déjà filtrés
-    actifs (EffectsState.active_effects) ; si on passe des dicts, AUCUN filtre is_active n'est appliqué.
-    `is_ranged` = nature du coup → bonus gated `IsRangedAttack` (HeavyWeapon, RangedSpecialist).
-    `is_normal_attack` → pénétrations gated normal-only (PowerTrip_IgnoreArmor, step-13 ground truth).
-    `has_moved` = candidat avec déplacement → bonus gated no-move (HeavyWeapon @180f4f030)."""
+def _attacker_effect_bonuses(effects, is_ranged: bool | None, is_normal_attack: bool,
+                             has_moved: bool | None) -> list:
+    """Boucle EFFETS de l'attaquant (contribution PARTAGÉE prédiction/combat) : pour chaque effet ACTIF,
+    `create_effect_damage_bonus_for_attack` (additif/percent) + `get_armor_penetration` (axe armure) →
+    liste d'`EffectBonus`. C'est la boucle `param_5` commune aux deux slots natifs (0xd préd / 0xf combat)."""
     bonuses = []
     for e in _as_effects(effects):
         db = e.create_effect_damage_bonus_for_attack(is_ranged, has_moved)
@@ -69,6 +66,42 @@ def build_attacker_modifiers_from_effects(effects, is_ranged: bool | None = None
         pen = e.get_armor_penetration(is_normal_attack)
         if pen is not None:
             bonuses.append(for_armor_penetration(True, pen))
+    return bonuses
+
+
+def build_attacker_modifiers_from_effects(effects, is_ranged: bool | None = None,
+                                          is_normal_attack: bool = True,
+                                          has_moved: bool | None = None) -> DamageModifiers:
+    """DamageModifiers **COMBAT** (chemin runner) depuis les EFFETS ACTIFS de l'attaquant (§17.8) —
+    agrège damage-bonus (`create_effect_damage_bonus_for_attack`) + pénétration d'armure. C'est la
+    contribution EFFETS SEULE (boucle `param_5`), **SANS le debuff stat-modifications** : le combat
+    (`CalculateAbilityDamage`/`HitDamage.GetDamage`) déale la base PLEINE (Current) — cf. xref
+    `CalculateModifiersFromStatModifications` prédiction-only. La PRÉDICTION passe par
+    `calculate_attacker_modifiers_for_prediction` (= cette boucle + le debuff).
+    Effets déjà filtrés actifs (EffectsState.active_effects) ; dicts → aucun filtre is_active.
+    `is_ranged` → bonus gated `IsRangedAttack` ; `is_normal_attack` → pénétrations gated normal-only ;
+    `has_moved` → bonus gated no-move (HeavyWeapon @180f4f030)."""
+    return build_attacker_modifiers(
+        _attacker_effect_bonuses(effects, is_ranged, is_normal_attack, has_moved))
+
+
+def calculate_attacker_modifiers_for_prediction(
+        effects, is_ranged: bool | None = None, is_normal_attack: bool = True,
+        has_moved: bool | None = None, attack_stat=None,
+        apply_stat_mod_debuff: bool = False) -> DamageModifiers:
+    """`CalculateAttackerModifiersForPrediction @181000590` (slot 0xd) — chemin **PRÉDICTION**, DISTINCT
+    du combat. = la boucle EFFETS partagée (`_attacker_effect_bonuses`) **PLUS** le debuff
+    stat-modifications `CalculateModifiersFromStatModifications` (prédiction-only, xref @181000cac).
+
+    Le debuff ramène la base `Current→Initial` en soustrayant les stat-modifications de l'attaquant
+    (racine du gap #49 : la prédiction retire les buffs stat-baked que le combat garde). SÉPARATION
+    STRUCTURELLE d'abord : le debuff est GATÉ par `apply_stat_mod_debuff` (défaut False → strictement
+    identique à `build_attacker_modifiers_from_effects`, ZÉRO régression). Le FIT ultérieur = passer
+    `attack_stat` (le `StatComponent` Attack de l'attaquant) + la CONDITION exacte de `param_3` (quand
+    négocier selon l'attaque prédite)."""
+    bonuses = _attacker_effect_bonuses(effects, is_ranged, is_normal_attack, has_moved)
+    if apply_stat_mod_debuff and attack_stat is not None:
+        bonuses += calculate_modifiers_from_stat_modifications(attack_stat, negate=True)
     return build_attacker_modifiers(bonuses)
 
 

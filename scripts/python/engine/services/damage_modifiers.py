@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .effect_bonus import EffectBonus
+from .effect_bonus import EffectBonus, for_addition, for_subtraction
 
 
 @dataclass
@@ -111,6 +111,28 @@ def build_attacker_modifiers(effect_bonuses: list[EffectBonus | None]) -> Damage
         if eb is not None:
             add_modifier(acc, eb)
     return acc
+
+
+def calculate_modifiers_from_stat_modifications(stat_component, negate: bool = False) -> list[EffectBonus]:
+    """`DamageCalculations.CalculateModifiersFromStatModifications @181004380` — convertit les
+    **modifications per-source** d'un `StatComponent` (le dict `ValueModification`, cf. entities/stats.py)
+    en `EffectBonus` PLATS. `param_3`=`negate` fixe le SIGNE : `True` → `ForSubtraction` (**DEBUFF** :
+    retire la modification), `False` → `ForAddition`. Une contribution par source (KeyValuePair du dict).
+    Garde native `if get_CurrentValue() != Initial(+0x48)` : liste vide si le stat n'a aucune modification.
+
+    ⚠ **PRÉDICTION-ONLY** — appelé UNIQUEMENT par `CalculateAttackerModifiersForPrediction @181000cac`
+    et `CalculateDefenderModifiersForPrediction @181003066` (xref confirmé), JAMAIS par le combat
+    (`CalculateAbilityDamage`/`HitDamage.GetDamage` dealent la base PLEINE = Current). C'est le
+    mécanisme du gap #49 : la PRÉDICTION ramène la base `Current→Initial` en soustrayant les
+    stat-modifications (debuff), le COMBAT garde Current. Duck-typé sur `StatComponent`
+    (`.get_current_value()`, `.initial`, `.modification.per_source`)."""
+    if stat_component is None:
+        return []
+    if stat_component.get_current_value() == stat_component.initial:   # aucune modification -> rien
+        return []
+    make = for_subtraction if negate else for_addition
+    return [make(True, int(amount))
+            for amount in stat_component.modification.per_source.values() if amount]
 
 
 def build_defender_modifiers(effect_bonuses: list[EffectBonus | None]) -> DamageModifiers:

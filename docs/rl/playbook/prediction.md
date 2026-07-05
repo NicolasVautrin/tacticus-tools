@@ -545,12 +545,32 @@ config, pas un simple scalaire.
    = bruit d'arrondi Fix64/ordre d'ops, PAS bloquant). C'est un **modificateur %-entier −30% positionnel**. `Trench=-50`
    (×0.5→2154) NE colle PAS → trench écarté par magnitude (comme RangedInMelee) ; il reste un modificateur −30%
    (source exacte à confirmer : override `profileMethod_0xd` base-recomputée OU un modifier attaquant −30% via
-   `CalculateAttackerModifiersForPrediction`). **CHECKS DÉCISIFS
+   `CalculateAttackerModifiersForPrediction`). **TILE-EFFECTS ÉCARTÉS (dbg49_tilemeta.py)** : (6,4) réduite SANS effet ; (4,6) réduite AVEC
+   `BlockEnteringUnits`+`Thorns_DefenseReduction` ; (5,5)/(4,5) pleines sans rien → 2 tuiles réduites, une avec
+   effet une sans → l'effet de hex n'est PAS le discriminant (ni isWall/isTemporary/isTerritory, tous False). Le
+   discriminant géométrique reste introuvable (élévation/move-cost/adjacence/tile-effects tous réfutés) → la
+   source est en AMONT (setter de `context[+0x58]`). **CHECKS DÉCISIFS
    (agent)** : (1) hook `GetBaseDamageFix64 @181030ba0` lire `param_3`(rdx=base Fix64) sur les 4 tuiles + tuile
    → 3011 vs 4309 confirme base-level ; (2) lire `IsTrench` des 4 tuiles d'attaque (board live) → si {(6,4),(4,6)}
    trench et {(5,5),(4,5)} non → trench ; sinon écarter → **RE du setup `context[+0x58]`** (base par-tuile posée
    en AMONT, dans `MakeDamagePredictions @181372730` / scenario setup) ; (3) impl. concrète interface `DAT_183287db8`
    slot 0xd (gshared, non décompilée) = maillon qui dirait si la base est recalculée positionnellement.
+8. **CLÔTURE (2026-07-04, agent-suite + vérif magnitude) — modificateur = VALEUR 30 (−30%), trench RÉFUTÉ.**
+   Mécanisme PROUVÉ (décompilé) : base réduite = `Round(base × mult)` PRÉ-spread (`CalculateBaseDamageWithModifiers
+   @1810021c0`), `mult` produit par `GetMultiplierFromDamageBonus @181005210` depuis une **valeur ENTIÈRE**. Vérif
+   chiffrée : `mult=×0.70` (val **30**) → base 3016 → dmgMin ~1518 ≈ 1503 observé ✓ ; `×0.50` (trench `-50`) → base
+   2155 → dmgMin ~972 ✗. Donc **trench `TrenchReductionPercentage=-50` (×0.5) RÉFUTÉ par magnitude** (comme
+   RangedInMelee −50), MÊME si les tuiles sont des tranchées (`IsTrench` = type de tuile, non lu live mais
+   non-décisif car ×0.5 exclu). L'agent avait raison que je n'ai pas lu `IsTrench` (le check tile-effects ne le
+   couvre pas), mais la magnitude ferme : la valeur cherchée = **30**, pas 50. **Aucun champ BC.Damage = 30**
+   (ElevationBonus 50, ClassBonus 25, AffinityBonus 50, Knockback 20…). Tous les leaves NOMMÉS de
+   `CalculateAttackerModifiersForPrediction @181000590` (StatModifications non-positionnel, RangedInMelee −50, Trench
+   −50) écartés → la **valeur 30 tile-dépendante vient du chemin gshared/vtable** (override `profileMethod_0xd` OU
+   `context[+0x58]` posé par le playbook concret). **OUTIL DÉCISIF RESTANT** : fixer le hook `scorerBonusTraceDump`
+   (`GetMultiplierFromDamageBonus`) — bugs actuels casterTile=(-1,-1) (poser via `curCaster` du onEnter
+   `MakeDamagePredictions`) + `bonus=1` (mauvais offset ; attendu 30 sur tuiles réduites) + stack att/déf — puis
+   re-run : capte le −30 + sa source par tuile. État : mécanisme (`Round(base×0.70)`) + magnitude (val 30) PROUVÉS ;
+   SOURCE du 30 = gshared, non tranchée.
 6. **RE du chemin de base de l'ability (2026-07-04, décompilé)** : `ALoki_NormalAttackAbility.GetAttackHitPrediction
    @1811af4e0` fixe la base = **`GetStat(attacker, 5)`** (stat 5 = Attack = 4309, **TILE-INDÉPENDANT**), wrappée
    Nullable et passée au **prédicteur générique via slot 0x26** avec la position caster (`local_2c8` ← param_7).
@@ -564,6 +584,310 @@ config, pas un simple scalaire.
    (corps 3037 lignes), PAS une fonction nommée. **NEXT** : deep-read de la section position/base de
    `PredictAttackRaw` (grind lourd — candidat agent re-expert worktree) OU capter la base per-tuile via un hook
    `CalculateDamagePredictionScenario` (rawMin/rawMax + targetId) corrélé à la tuile caster.
+
+9. **CORRECTION MAJEURE (2026-07-04, hook `GetMultiplierFromDamageBonus` CORRIGÉ + re-run all-fresh) — les points
+   7/8 sont RÉFUTÉS : la réduction N'EST PAS un modificateur −30% via `GetMultiplierFromDamageBonus`.** Le hook a été
+   corrigé (single overload @181005210 uniquement — la variante LIST @1810053e0 à 2 args lisait `args[2]` parasite
+   = `bonus=1` ; gate sur le **multiplicateur de SORTIE** `retval`=Fix64, le `Nullable<int>` d'entrée est gshared
+   non-lisible directement). Re-run seed 31337 `aiDryRunAllUnits` (dbg49_bonus4.py) :
+   - **`GetMultiplierFromDamageBonus` ne renvoie QUE du no-value** (344 appels, tous `mult=0`) pendant le scoring —
+     AUCUN `mult=0.70`. Il n'applique donc PAS de −30%.
+   - **`allmods` (input = base AVANT modifiers) diffère par tuile** : tuiles (5,6)/(6,5) attribuées → `input∈{2409,3613}`
+     = **base 3011** ; bucket non-attribué → aussi `{3447,5171}` = **base 4309**. Comme `attMods`/`GetMult` sont
+     appliqués APRÈS et que l'`input` d'`allmods` = base PRÉ-modifier, la réduction est **en AMONT de toute la chaîne
+     modifier** → structurellement NE PEUT PAS venir de `GetMultiplierFromDamageBonus`. Le fit `×0.70` (3016 vs 3011,
+     off de 5) était une COÏNCIDENCE, pas le mécanisme. **`context[+0x58]`/`profileMethod_0xd` (point 6) confirmé.**
+   - **Vraie piste = ARME BLAST + base PAR (tuile, cible).** u92 « Lucien » a **2 armes** (gameconfig) : Melee (4 hits,
+     pierce 1, Physical, range 0) et **Ranged Blast** (3 hits, pierce 15, `HitsMultipleMembers`, range 2). Corrélation
+     DmgEvent par tuile caster → cible u86 (6,6) : hexdist=1 → MELEE 4 hits ; hexdist=2 → RANGED 3 hits.
+   - **La base est PAR (tuile caster, cible), pas par tuile** (dbg49_multitarget.py, attackPlan de u92) : dans UN MÊME
+     eval touchant 3 cibles, `dmgMin` diffère par cible — ex. `[(2256,5522),(5397,5522),(5397,5522)]` = **2 cibles base
+     pleine 4309 (5397) + 1 cible réduite (2256)** ; autre eval `[(1503,6018),(1404,5616),(1404,5616)]` = 3 réduites ;
+     eval single-cible = `(5397)` = 4309. Donc ce n'est **NI un −30% générique, NI "nombre de cibles → tout réduit",
+     NI un axe positionnel de la tuile** : c'est une **réduction de base PAR CIBLE au sein de l'AoE Blast** (primaire vs
+     éclaboussure / distance de splash / membre). `dmgMax` = cap santé de la cible (u86=5522, u82=6018…).
+     → **HYPOTHÈSE (à LIRE au décompilé, PAS fitter) : la Blast `MakeDamagePredictions` produit un event PRINCIPAL
+     (base pleine) + des events AoE/splash à base RÉDUITE** (falloff par distance-au-centre ou règle multi-membre) ;
+     le port `predict_normal` applique la base pleine 4309 à toutes les cibles.
+   - **VERDICT re-expert (2026-07-04, worktree) — mécanisme LOCALISÉ PROUVÉ, formule bloquée gshared.** Point EXACT de
+     l'override (lu dans `PredictAttackRaw @181032fb0`) : `@181034898 slot0xd = interfaceCall(DAT_183287db8, idx 0xd)`
+     → `local_838` (Nullable<Fix64>) ; `@1810348dd local_9a8 = GetValueOrDefault(context[+0x58])` = 4309 ; `@181034957
+     if local_838.HasValue: @181034976 local_9a8 = op_Explicit(local_838.Value)` = **OVERRIDE base**. En AMONT de
+     `GetBaseDamageFix64` (spread), de `CalculateBaseDamageWithAllModifiers` et des trait-limits → cohérent avec
+     « allmods input déjà 3011 ». Analog COMBAT : `CalculateAbilityDamage @18102cb50` utilise **slot 0xf** de la même
+     interface `DAT_183287db8`. RÉFUTÉ additionnel : member-cap (`ApplyGroupUnitDamageLimit @18102bfe0` `return` si
+     `HasTrait(2=HitsMultipleMembers)` → SKIPPÉ pour Blast) ; aucune clé Blast/splash dans BC.Damage.
+   - **GAP PORT confirmé (point unique)** : `damage_prediction.py::predict_attack_raw` n'a **AUCUN chemin d'override**
+     `profileMethod_0xd`/`context[+0x58]` — il prend `initial_damage` (4309) tel quel. `prediction.py::make_normal_attack_predictions`
+     (l.143) passe `ctx.attack`=4309 plat. Fix = point PARTAGÉ (service appelé par prédiction ET runner combat
+     `runner/damage_model.py`), pas forké.
+   - **BLOQUANT = formule numérique gshared.** L'override invoque, dans `GetAttackHitPrediction @1811af4e0`, un des 2
+     délégués créés : `<GetAttackHitPrediction>b__0 @1811c9d10` = `ability.vtable+0x4d8` (méthode virtuelle slot 58) ;
+     `b__1 @1811c9e50` = interface `DAT_18327ff80` **idx 0xb4** `(target, position, abilityOrEffect)` (signature
+     per-(cible,position)). Ces slots vtable/interface sont **résolus au RUNTIME → ghidra ne les mappe pas offline**
+     (vérifié : `AttackAmount @1811ae260` = pur `DSLFactory.NormalAttackDamage`=stat 4309, PAS l'override). La formule
+     EXACTE reste NON LUE.
+   - **RÉSOLUTION LIVE (2026-07-04, résolveur b__0/b__1 dans scorer-damage-trace.ts) — b__0/b__1 = RED HERRINGS.**
+     Résolus live : **b__0 (`vtable+0x4d8`) → `AttackAmount @1811ae260`** (base 4309, tile-indep) ; **b__1 (`iface
+     DAT_18327ff80 idx 0xb4`) → `BattleQuery.GetAttackHits @18105d8d0`** (compteur de coups). Ni base-override, ni
+     tile-dépendant. Le VRAI override = l'appel `local_838 = FUN_180031950(receiver, idx=0xd, DAT_183287db8)`
+     @181034898 (lu dans `predictraw.c` l.1473 : `FUN_180031950(out, idx, iface, RECEIVER=param_4=R9, ., args, .)`),
+     Nullable gaté `HasValue` → `op_Explicit(Value)` remplace la base. Sibling `idx 0xe` @181796 (extraMax probable).
+     Le **receiver est en R9 (perdu par le décompilo)** → non résoluble statiquement (les méthodes NOMMÉES de
+     `DamageCalculations` n'ont pas d'override base-par-profil/position évident ; receiver pas forcément
+     `DamageCalculations`).
+   - **DERNIER HOP RÉSOLU LIVE (2026-07-05, résolveur idx-0xd FUN_180031950 site-filtré @181034898)** :
+     `override idx13 recv=DamageCalculations -> il2cpp+0x1000590` = **`CalculateAttackerModifiersForPrediction
+     @181000590`** (idx 0xd de l'interface `IDamageCalculations` = `DAT_183287db8`). **Plus aucun hop gshared** : c'est
+     une fonction NOMMÉE déjà décompilée (`attmods.c`). Le **base-override = le 1er champ `Nullable<Fix64>` (offset 0)
+     du `DamageModifiers` retourné** ; `PredictAttackRaw` le lit `HasValue`→`op_Explicit(Value)` pour REMPLACER la base
+     4309 (pré-spread). (Les délégués b__0=`AttackAmount`, b__1=`GetAttackHits` étaient des red herrings ; l'interface
+     `DAT_18327ff80` de b__1 ≠ `IDamageCalculations`.)
+   - **SOURCE du base-override = la boucle STAT-MODIFICATIONS de `CalculateAttackerModifiersForPrediction`** (attmods.c
+     l.660-1040) : construit `AbilityEntities` (l.682) puis, par groupe de `param_5`, évalue **3 formules DSL de
+     l'ability via interface idx 0x16 (@799), 0x17 (@934), 0x18 (@1022 via FUN_180024fa0)** → accumule des flats
+     (`iVar31`, `iVar30`) + un `Nullable` (`local_618` @880) ; puis les modifiers % (GetMult, l.1073+, prouvés
+     no-value). Le override est donc **EFFET/ABILITY-driven** (pas positionnel générique). **Kit u92 « Lucien »
+     (gameconfig) = complexe 3-profils** : normal Melee(4h) + Ranged Blast(3h) ; **VisionsOfHeresy** (attaque de suivi
+     2×Bolter pierce20, +20% pierce si HP<=50%) ; **BlackRage** (charge mêlée conditionnelle « if not moved -> set 50%
+     HP + +728 Damage when charging »). Le 4309-vs-3011 vient très probablement de l'une de ces stat-modifications
+     conditionnelles évaluées par la boucle (à confirmer : capturer `CalculateAttackerModifiersForPrediction` return[0]
+     par tuile/ability, ou lire l'assemblage DSL idx 0x16/0x17/0x18). ⚠ NE PAS re-fitter `×0.70`/`-1298`.
+     **ÉTAT** : chaîne résolue jusqu'à la fonction nommée `CalculateAttackerModifiersForPrediction`.
+   - **CAPTURE return[0] (2026-07-05, hook findMethod `CalculateAttackerModifiersForPrediction`) — HYPOTHÈSE
+     OVERRIDE RÉFUTÉE/INCONCLUSIVE.** Les 423 events lisent `return[0] = (i0=0,hv4=0,f0=0,hv8=0)` — TOUJOURS vide,
+     y compris tuiles (5,6)/(6,5) attribuées — alors que les DmgEvents montrent 3011 (hMin 1503) qui reproduit. Donc
+     soit (1) le base-override `return[0]` est génuinement vide → l'override idx-0xd N'EST PAS la source du 3011 ;
+     soit (2) `CalculateAttackerModifiersForPrediction` a DEUX out-params (`param_1` zéro-init l.253-260 ET
+     `return puVar20`=param_4) → `retval[0]` lit peut-être le mauvais struct (inconclusif). **Dans les deux cas : le
+     3011 est le BASE fed to `PredictAttackRaw` via `context[+0x58]` LUI-MÊME (tile-dépendant), PAS l'override.**
+   - **MÉCANISMES ÉCARTÉS (cumul)** : GetMultiplierFromDamageBonus (no-value), member-cap (skip Blast), base-override
+     idx-0xd (return[0] vide).
+   - **CAPTURE `context[+0x58]` (2026-07-05, hook PredictAttackRaw onEnter, Fix64 @ args[2]+0x58) — TRANCHE
+     DÉFINITIVEMENT.** `f58` (la base pré-spread fed to PredictAttackRaw) = valeurs PROPRES ; tuiles attribuées
+     **(5,6)/(6,5) = 3011** exact (hv60 set). Donc **le 3011 EST la valeur de base à l'ENTRÉE de PredictAttackRaw**
+     — PAS un modifier ni un override interne. Distribution multi-unités (698/1003/1408/2107/2507/2811/3011/3915…) =
+     bases des 10 unités du dry-run ; u92 attribué = 3011. **La réduction est dans la base elle-même**, posée EN AMONT
+     par le setup du scenario / `GetAttackHitPrediction` (base = `GetStat(attacker, 5)`). ⇒ **le 4309-vs-3011 est très
+     probablement `GetStat(5)` CONDITIONNEL** (stat de dégât effective incluant un buff move/position-dépendant :
+     not-moved/charge → 4309 ; moved → 3011 brut) — cohérent avec `BlackRage` (« if not moved → +Damage when
+     charging »). Le PORT prend `combatSnapshot.attack=4309` (valeur bufflée courante) pour TOUTES les tuiles.
+   - **RÉSOLUTION FINALE (2026-07-05) — base = `GetStat(5)` recalculée par-position + effet `RapidAssault_ExtraDamage`.**
+     Chaîne native tracée intégralement : `GenerateMultiHitAttackPredictions @181409da0` (itère cibles, appelle slot
+     0x27 = `PredictAttack` avec la POSITION candidate `local_res18`) → `PredictAttack @1811afa50` → `FindAttackWeapon
+     @1811aeb80` (sélection d'arme par position) → `GetAttackHitPrediction @1811af4e0` (base = `GetStat(attacker, 5)`)
+     → `PredictAttackRaw` (`context+0x58`). **`GetStat(5)` est recalculée par prédiction avec l'état d'attaque** →
+     résout les effets de dégât CONDITIONNELS. `decisionView` : u92 porte `RapidAssault_ExtraDamage` (effectType 1229)
+     + `RapidAssault_Movement` (1228) actifs ; gameconfig `RapidAssault = {rapidAssaultExtraDmgPct:25}` (« 1ère attaque
+     du combat + suivantes du même tour +25% Damage »). La base statique `combatSnapshot.attack=4309` inclut ce buff ;
+     les prédictions moved donnent 3011 (base sans le buff conditionnel). ⚠ 4309/3011=1.431 ≠ 1.25 seul → décomposition
+     numérique exacte (raw stat + valeur effet) encore à confirmer (hook `GetStat`/lire le stat-breakdown snapshot).
+   - **PATH MATÉRIALISÉ OFFLINE = À MOITIÉ.** `prediction.py::make_normal_attack_predictions` : ✅ weapon-select
+     par-position (service partagé #57), ✅ `has_moved` threadé dans `build_attacker_modifiers_from_effects` (l.128-129),
+     ❌ **BASE = `ctx.attack` STATIQUE (l.144 `initial_damage=ctx.attack`), PAS recalculée par-position via `GetStat`.**
+     Le port gate le buff dans les `mods` mais ne l'ôte PAS de la base `ctx.attack` (4309, buff inclus) → sur-préd aux
+     tuiles moved (natif=3011). **FIX** : recalculer la base par-position (résoudre les effets dégât conditionnels type
+     RapidAssault selon l'état d'attaque prédit) au lieu du `ctx.attack` figé ; ou ôter le buff conditionnel de la base
+     quand `has_moved`/état-consommé. **NEXT concret** : confirmer si `ctx.attack` contient RapidAssault (double-count)
+     + la valeur exacte du buff → wirer la base conditionnelle. Lié à #60 (has_moved runner).
+   - **★ RÉSOLUTION EXACTE (2026-07-05, capture décomposition aiPredict col/row + combatSnapshot) ★.** Base BRUTE de
+     u92 = **3011** = `combatSnapshot.stats.attack (4309) − statDelta.attack (1298)` (EXACT, zéro arrondi). Le **+1298**
+     = buff conditionnel actif (`statDelta.attack=1298`, `statDelta.movement=1` = `RapidAssault_Movement`). Confirmé
+     LIVE via `aiPredict{col,row}` (position hypothétique, base propre par tuile) : tuiles melee-adjacentes (6,5)/(5,6)
+     = **3011 exact** (base brute, buff exclu). Le natif **recalcule `GetStat(5)` par prédiction** → brut 3011 quand le
+     buff ne s'applique pas à l'attaque prédite (melee/moved), 4309 (bufflé) sinon. **GAP PORT = `unit_context.py:108`
+     `attack=g("attack")` prend `stats.attack`=4309 BUFFLÉ pour TOUTES les tuiles, ignore `statDelta`.** Ratio base
+     4309/3011=1.43 → 1.7-2.4× sur PV après armure/perçage = le gap #49. **Boucle la boucle** : ni GetMult, ni
+     member-cap, ni override idx-0xd, ni arme (armes partagent Damage=30) — c'est la **stat bufflée figée** vs la stat
+     BRUTE + buff conditionnel recalculé par-position (natif `GenerateMultiHitAttackPredictions → PredictAttack(POSITION)
+     → FindAttackWeapon → GetAttackHitPrediction → GetStat`). **FIX** : baser la prédiction sur la stat BRUTE
+     (`stats.attack − partie conditionnelle de statDelta`) + réappliquer le buff conditionnel via la couche effet/mod
+     (le port a déjà `RapidAssaultExtraDamageEffect` + `has_moved` threadé) ; NE PAS partir de `stats.attack` bufflé.
+     ⚠ Nuance : `statDelta` peut mêler buffs PERMANENTS (à garder dans la base) et CONDITIONNELS (à exclure/recalculer)
+     — identifier la part conditionnelle (RapidAssault_ExtraDamage) et n'exclure QUE celle-là selon l'état d'attaque
+     prédit. Reste : la condition exacte d'application du +1298 (RapidAssault dit « toutes attaques du tour » mais moved
+     l'exclut → consommation/gate à confirmer) + le mapping effect→statDelta.
+   - **#49 (2026-07-05)** après ~9 cycles reinject. **Acquis durable** : diagnostic INVERSÉ (PAS un −30% GetMult) ;
+     mécanismes écartés (GetMult, member-cap, override idx-0xd) ; **base = valeur 3011 directe à l'entrée
+     PredictAttackRaw (`context[+0x58]`), posée en amont via `GetStat(5)` conditionnel**. **Reste (rouvrable)** :
+     identifier le buff conditionnel exact (hook `GetStat`/`GetAttackHitPrediction @1811af4e0` onLeave par tuile, OU
+     recon des effets move-conditionnels de u92) → le PORT doit résoudre `GetStat(5)` par-position (ne pas appliquer le
+     buff not-moved aux tuiles moved). ⚠ NE PAS re-fitter `×0.70`/`-1298`. Infra hooks (résolveurs + attMod + predBase)
+     dans scorer-damage-trace.ts pour rouvrir.
+10. **CORRECTION (2026-07-05, décompilé `GetAttackHitPrediction @1811af4e0` LU directement) — la ★ résolution
+    « GetStat(5) recalculée par-position » est RÉFUTÉE ; `GetStat` N'EST PAS positionnel.** La ligne de base est
+    `uVar16 = UnitExtensions.GetStat(*(context+0x38), 5, 0, 0, 0)` = **`GetStat(attacker, statType=5, part=0=Current)`,
+    lecture stat PLATE — AUCUN argument de position**. Chaîne : `PredictAttack @1811afa50` → `FindAttackWeapon`
+    (choix d'arme par position) → `GetAttackHitPrediction` lit `GetStat(5)` sur l'entité caster RÉELLE du scénario
+    (`context+0x38` = attaquant issu d'`AbilityEntities`, pas un clone par-tuile) → **4309, POSITION-INDÉPENDANT**.
+    La position candidate (`param_7`) est threadée SÉPARÉMENT dans le prédicteur générique (slot 0x26 de l'interface
+    `DAT_18327ff80`), avec la base Nullable(4309). ⇒ **la base injectée dans le prédicteur = Current(4309) pour TOUTES
+    les positions** ; le **3011 naît EN AVAL** (dans le générique / `PredictAttackRaw`), piloté par la position — PAS
+    dans la base stat. Reconfirme le **point 6** (« GetStat(5)=4309 tile-indep »), REFUTE le point ★. **Le compact avait
+    propagé le mauvais mécanisme** (re-vérif post-compact = user a rattrapé).
+    - **Conséquence PORT** : le fix « base = Initial(3011) quand moved » (via la couche stats #63) serait du **FITTING
+      sur coïncidence** — `3011 = Current − statDelta` égale `Initial`, MAIS le décompilé montre base injectée = Current
+      partout. NE PAS porter ça tel quel. ⚠ La coïncidence `3011 = Initial` EXACTE (zéro arrondi) reste **suggestive** :
+      possible que le générique, sous condition positionnelle, bascule `Current → Initial` (retire les modifications) OU
+      soustraie exactement le total-modification — **HYPOTHÈSE à LIRE, pas à porter**.
+    - **VRAIE question rouverte** : OÙ, dans le prédicteur générique (slot 0x26 → `PredictAttackRaw`, corps 3037 l.),
+      la base 4309 est réduite à 3011 en fonction de la position. Candidats DÉJÀ écartés (pts 7/8/9) : GetMult (no-value),
+      member-cap (skip Blast), override idx-0xd (return[0] vide), trench/RangedInMelee (magnitude −50 ≠). **NEXT** :
+      deep-read du slot-0x26 (résoudre l'interface `DAT_18327ff80` idx 0x26 → fonction nommée) + de la section base de
+      `PredictAttackRaw`, en cherchant un SECOND `GetStat` (part Initial/3 ?) ou une soustraction du mod-total gaté
+      position/attack-state. Candidat **agent re-expert worktree** (grind lourd, lecture seule).
+    - **TRACE AMONT FRAÎCHE (2026-07-05, décompilé LU) — la réduction N'EST PAS en amont de `PredictAttackRaw`** :
+      `GenerateMultiHitAttackPredictions @181409da0` **itère les tuiles candidates** (`FUN_180025220(…,param_5,…)`)
+      et délègue CHAQUE tuile à `ability.PredictAttack(candidatePos)` (interface `DAT_18327ff80` **slot 0x27**), puis
+      bâtit un `ProbableDamageEvent` du retour — **aucun calcul de base**. `ALoki_NormalAttackAbility.PredictAttack
+      @1811afa50` : `FindAttackWeapon(pos)` (choix arme mêlée/tir par tuile) → `GetAttackHitPrediction`
+      (`GetStat(5)=4309` plat) → prédicteur générique **slot 0x26** avec la POSITION. `DamagePrediction.PredictAttack`
+      (@181036ab0/@181036e30, les 2 overloads) : ne fait que **marshaller le scénario + résoudre la position**
+      (`GetUnitPosition` si Nullable vide) puis dispatch `FUN_180031370` → `PredictAttackRaw`. **AUCUN transform de base
+      dans toute cette chaîne.** ⇒ **le 4309→3011 est DANS `PredictAttackRaw`, piloté par la position** (ou par l'arme
+      mêlée-vs-tir choisie par `FindAttackWeapon(pos)` — 2ᵉ candidat à écarter/confirmer : les 2 armes partagent
+      Damage=30, mais base per-(tuile,cible) observée). **NEXT = deep-read `PredictAttackRaw` (locus confirmé)**, ciblé
+      sur : la base pré-spread `context+0x58` (=3011 capturé) est-elle FED (depuis quel champ scénario) ou CALCULÉE
+      intra-fonction depuis la position ? + réconcilier avec l'arg base Nullable(4309). Candidat **agent re-expert**.
+
+11. **★ MÉCANISME TROUVÉ (2026-07-05, décompilé LU) — le `4309→3011` = `CalculateModifiersFromStatModifications
+    @181004380`, un debuff = −Σ(stat-modifications), PAS un effet/ability spécial. ★** Chaîne : prédiction et combat
+    sont DEUX chemins natifs séparés (interface `IDamageCalculations` = `DAT_183287db8`) — prédiction `PredictAttackRaw`
+    via **slot idx 0xd** = `CalculateAttackerModifiersForPrediction @181000590` ; combat `CalculateAbilityDamage
+    @18102cb50` via **slot idx 0xf**. Les deux partagent les feuilles (`CalculateBaseDamageWithAllModifiers`,
+    `ApplyTraitDamageLimits`) mais diffèrent sur le calcul des modifiers attaquant. `CalculateAttackerModifiersForPrediction`
+    appelle **`CalculateModifiersFromStatModifications @181004380`** dont le corps (LU) :
+    ```
+    Current = StatComponent.get_CurrentValue()                 // 4309
+    if (Current != StatComponent[+0x48]=Initial /*3011*/):     // garde : "il y a des modifications"
+        for (source, modifier) in StatComponent.get_Modifications():   // dict ValueModification per-source (= #63)
+            amount = modifier.value ; if (param_3) amount = -amount    // <-- param_3 => NÉGATION = debuff
+            list.Add(flat DamageModifier(amount))
+    ```
+    ⇒ **`param_3=true` produit −Σ(stat-mods) = le debuff** : base `4309 + (−1298) = 3011 = Initial`. La différenciation
+    n'est PAS par-buff : ça retire TOUT le delta `Current−Initial` uniformément (source par source) ; la **condition**
+    (négocier ou non) est dans l'appelant `CalculateAttackerModifiersForPrediction` selon l'attaque prédite. RapidAssault
+    (+25 %) est SÉPARÉ (effet calc-time `CreateEffectDamageBonusForAttack`, ré-appliqué par-dessus). Colle aux chiffres :
+    per-coup oracle = `spread(3011)×1.25` = base ramenée à Initial + RapidAssault. **RÉPONSE à « effet ou ability » :
+    NI l'un NI l'autre — la couche STAT-MODIFICATION** (`ValueModification` per-source sur `StatComponent`).
+    - **PORT (branche direct sur #63)** : le port a `get_stat(Initial)=3011`, `get_stat(Current)=4309`, `ValueModification.
+      per_source` → `CalculateModifiersFromStatModifications` portable tel quel (énumérer per_source → émettre ±flat).
+    - **DIVERGENCE STRUCTURELLE PORT (racine #49)** : le port FUSIONNE prédiction+combat (`runner/damage_model.py` importe
+      `services.damage_prediction.get_attack_prediction` + même `build_attacker_modifiers_from_effects` que la prédiction).
+      Le natif SÉPARE (slot 0xd préd / 0xf combat). Le port n'applique PAS `CalculateModifiersFromStatModifications` côté
+      prédiction → base pleine 4309 partout → sur-préd #49. **Fix = dé-fusionner** : couche modifiers-attaquant PRÉDICTION
+      (0xd, avec le debuff stat-mods) distincte du COMBAT (0xf).
+    - **RESTE (2 inconnues)** : (a) la CONDITION dans `CalculateAttackerModifiersForPrediction` qui décide `param_3`
+      (négocier) selon l'attaque prédite (moved ? consommé ?) ; (b) le slot COMBAT 0xf appelle-t-il AUSSI
+      `CalculateModifiersFromStatModifications` (→ combat réduit aussi) ou garde-t-il 4309 (→ debuff prédiction-only) ?
+      Trancher (b) = confronter live u92 PRÉDIT (`aiPredict`) vs RÉELLEMENT dealé (`UnitDamaged`).
+    - **SÉPARATION FAITE (2026-07-05, structurelle, ZÉRO régression)** : xref PROUVE le debuff prédiction-only
+      (`CalculateModifiersFromStatModifications @181004380` appelé QUE par `Calculate{Attacker,Defender}Modifiers
+      ForPrediction`). Port dé-fusionné : (1) `damage_modifiers.calculate_modifiers_from_stat_modifications`
+      (homonyme @181004380 — per-source ±flat, garde Current!=Initial) ; (2) `effects.calculate_attacker_modifiers_
+      for_prediction` (homonyme @181000590 = boucle effets partagée `_attacker_effect_bonuses` + debuff GATÉ
+      `apply_stat_mod_debuff`, défaut OFF) ; (3) `build_attacker_modifiers_from_effects` = COMBAT (effets seuls,
+      runner inchangé) ; (4) prédiction `playbook/prediction.py:130/182` routée sur `..._for_prediction`. Smoke :
+      debuff OFF == ancien chemin (byte-identique) ; debuff ON = −Σmods (−1298 sur u92). **FIT restant (task #64)** :
+      passer `attack_stat` + la CONDITION `param_3` (quand négocier) + placement pré-spread vs additif-agrégat.
+
+12. **★★ LIVE TRANCHÉ (2026-07-05, hooks statMods/attMod/predBase/Modify) — le `4309→3011` = la BASE
+    `GetStat(Attack,Current)` avec le `+1298` conditionnel, PAS un modifier. ★★** Capture seed 31337 (drive,
+    session 11) :
+    - **`negate`** (`CalculateModifiersFromStatModifications` args[2], hook FONCTION = non-ambigu) : **attaquant=0
+      (ADD)**, défenseur=1 (SUB) — split 415/415. (Mon seam utilisait subtract côté attaquant = mauvaise direction.)
+    - **RED HERRING** : `CalculateAttackerModifiersForPrediction` retourne `additive (retval+0x10) = 0.0` sur les
+      415 appels → le `+1298` produit par `CalculateModifiersFromStatModifications` (listCount=1) **NE SURVIT PAS**
+      dans le DamageModifiers appliqué. Ce n'est donc PAS le canal du gap.
+    - **LA BASE est le canal** : `predBase.f58` (base pré-spread fed to PredictAttackRaw = `GetStat(Attack,Current)`)
+      prend pour u92 **3011 ET 4309** (4309 = Initial 3011 + mod 1298 ; AUCUN autre unit n'a Initial 3011 ni 4309 →
+      les deux sont u92). Et `statMods` voit le MÊME stat Attack u92 (Initial=3011) avec **`mod10 (ValueModification.
+      total) = 0` (→3011) OU `= 1298` (→4309)**, une seule source (listCount=1).
+    - **PAS togglé via `Modify`** : hook `ValueModification.Modify(|amount|>=500)` = **0 event**. Donc le `+1298`
+      n'est PAS écrit/retiré sur le stat réel pendant la prédiction → les 2 états viennent de **stat objects
+      DIFFÉRENTS / une ré-évaluation CONTEXTE** : la prédiction évalue `GetStat` contre un **état d'attaque
+      hypothétique** où le buff RapidAssault-family (statDelta.movement=1 co-occurre) est **présent OU CONSOMMÉ**
+      (post-move). not-moved → buff → 4309 ; moved (buff consommé) → 3011.
+    - **BLOQUÉ** : `curCaster=(-1,-1)` sur toute la capture (le hook RVA `CalculateActionUtility` n'a pas posé la
+      tuile sur le chemin de scoring du drive) → corrélation exacte tuile/arme non obtenue cette passe.
+    - **FIT (redirigé, task #64)** : le fix N'EST PAS un debuff modifier (mon seam `apply_stat_mod_debuff` = mauvais
+      axe, reste OFF). Le fix est sur **la BASE de `predict_attack_raw` (chemin PRÉDICTION)** : base par-candidat =
+      `GetStat(Attack)` résolvant la modif conditionnelle — `Current` (4309, buff) quand il s'applique, base sans la
+      source conditionnelle (`Initial`-like 3011) quand l'attaque prédite le consomme. Pile la couche #63
+      (`get_stat(Initial)` + per-source). Gate ≈ `has_moved` (déjà threadé) — 1er jet, à raffiner via agreement
+      `aiPredict{col,row}` par-tuile (le doc note (4,5) moved garde 4309 → gate pas binaire pur). La séparation
+      des branches (préd/combat) reste JUSTE — c'est bien le chemin prédiction qui porte le base-conditionnel.
+
+13. **★ TUILE CORRÉLÉE (2026-07-05, curCaster réparé via scan du context PredictAttackRaw, sessions 12-13) ★.**
+    `curCaster` (via `CalculateActionUtility`) était `(-1,-1)` car les prédictions sont DÉCOUPLÉES du scoring
+    (predict-then-score). Fix : `predBase` (PredictAttackRaw onEnter) **scanne le context (args[2]) pour la
+    UnitPosition candidate** → tuile robuste, propagée aux hooks nestés. Mesure (seed 31337) :
+    - **u92 base=4309 (buff) UNIQUEMENT aux tuiles `{(5,5),(4,5)}`** (courante + 1 adjacente) ; **base=3011
+      (raw) à CES tuiles AUSSI + partout ailleurs**. Donc la tuile caster seule N'EST PAS le discriminant :
+      à (5,5)/(4,5), les DEUX bases coexistent → c'est **per-(tuile, cible/arme)**, pas per-tuile.
+    - **Les prédictions 4309 n'ont AUCUN scenario per-coup** (`CalculateDamagePredictionScenario`) ; seules
+      les 3011 en ont (rawMax=3613=3011×1.2). Cohérent avec **4309 = MÊLÉE** (`DamageProfile.HasTrait(0)`
+      SKIP la boucle per-coup, cf. §2) et **3011 = Ranged Blast** (per-coup).
+    - **HYPOTHÈSE FORTE (mesurée mais pas 100% isolée — join base↔arme bruité car (tuile,cible) non-unique
+      à u92)** : le buff `+1298` s'applique à l'attaque **MÊLÉE** (base 4309), PAS au **Ranged Blast** (base
+      3011). #49 porte justement sur le Blast ranged → **base ranged = Initial 3011 (buff exclu)** ; le port
+      prend Current 4309 → sur-prédit. Mêlée seulement géométriquement possible près de la position courante
+      (ennemi adjacent) → explique 4309 confiné à (5,5)/(4,5).
+    - **FIX #49 (mesuré pour le cas ranged) :** la prédiction du Ranged Blast doit partir de la base **RAW
+      (Initial-like, buff conditionnel exclu)**, pas de Current. Généralement : base par-candidat = GetStat
+      résolvant le buff conditionnel PAR ARME (mêlée buffée / ranged raw). Reste à confirmer proprement l'axe
+      arme (1 capture ciblée : target ajouté à predBase) + identifier la source exacte du +1298 (listCount=1).
+      NE PAS fitter has_moved (réfuté : (4,5) déplacée garde 4309 côté mêlée).
+
+14. **★★★ #49 RÉSOLU (2026-07-05, option A — aiPredict ORACLE + décomposition numérique + snapshot PORT). RÉFUTE
+    l'hypothèse mêlée/ranged du point 13. ★★★** La base de l'attaque NORMALE de u92 = **Attack INITIAL (3011) pour
+    LES DEUX armes** ; l'écart per-coup mêlée(1404)/ranged(2006) du point 13 était une **MAUVAISE ATTRIBUTION** — il
+    vient du **PERÇAGE (mêlée p1 vs ranged p15)**, PAS de la base (l'armure `after_armor=d−armor` domine le plancher
+    perçage → ranged pierce+haut passe plus). Preuve DÉCISIVE (aiPredict, armure 2008, ×1.25 RapidAssault) :
+    - base **3011** + spread ±20 % + `GetDamageWithPiercing` + ×1.25 reproduit l'oracle **EXACT** : u82 ranged
+      `(1503,6018)`, u82 mêlée idem chaîne, u84 `(2634,7146)≈(2634,7149)`, u86 `=×1.5 ÉLÉVATION` → `1503×1.5=2256`
+      = oracle `2256`. base **4309** donne `(5397,11862)` = la SUR-PRÉDICTION du port.
+    - **Snapshot PORT confirmé** (`ctx.stats.get_stat`) : u92 Attack `Initial(part3)=3011`, `mod(part5)=+1298`,
+      `Current(part0)=4309`. `ctx.stat(ATTACK)` (ce que la prédiction utilise) = **4309** → sur-préd.
+    - **Effets live u92** (`decisionView.effects`) = **UNIQUEMENT RapidAssault** (Movement eff130 + ExtraDamage
+      eff131 = le +25 % = le ×1.25 déjà capturé en `mods`). AUCUN effet n'ajoute +1298 Attack → le `+1298` est une
+      **ValueModification en-bataille (conditionnelle, non-effet)** que la prédiction native EXCLUT de la base.
+    - **Mécanisme RE** (`CalculateModifiersFromStatModifications @181004380`, LU) : garde `if Current != Initial(+0x48)`,
+      puis boucle la Dict `ValueModification.Modifications` PAR SOURCE → émet un modifier `{kind=1, ±amount}`
+      (`param_3=0` → `+`, sinon `−`). En prédiction, le stat-context est PROPRE (`Current==Initial`) → émet 0 ; la
+      base `context+0x58` reçue par `PredictAttackRaw` = **Initial (3011)** (mesuré `predBase.f58`). Le port a un
+      snapshot SALE (`Current=4309`, mod +1298) → il doit partir d'**Initial**, PAS re-jouer `CalcModsFromStatMods`
+      dessus (sinon +1298 recompté).
+    - **FIX APPLIQUÉ (oracle-validé) : la base de l'attaque NORMALE en PRÉDICTION = `GetStat(Attack, Initial)`**, pas
+      `Current`. Reproduit l'oracle EXACT sur les plans TOP-rankés u82/u84 ; seed777 CLEAN=11/0. Ne change QUE
+      `Current!=Initial`. ⚠ **VOIR POINT 15 — c'est un FIT, PAS le mécanisme fidèle.**
+
+15. **⚠⚠ CORRECTION (2026-07-05, challenge utilisateur « tu as RE ça ? ») — le fix point 14 (`base=Initial`) est un
+    FIT, le mécanisme natif N'EST PAS « Initial ». ⚠⚠** RE poussée révèle :
+    - **Chemin scoring** (`aiPredict` = `DamagePredictionQuery.GetAllPredictions` → `GetNormalAttackPrediction @181092b60`
+      → `FUN_18000cdc0` → `ability.PredictAttack` → `ALoki_NormalAttackAbility.GetAttackHitPrediction @1811af4e0`) LIT
+      la base = **`GetStat(Attack, statType=5, part=0=Current)` = 4309**, PAS Initial. (`GetAttackHitPrediction` idem
+      pour le display.) Donc le natif part de **Current**, pas Initial.
+    - **Réconciliation** : `statMods` a mesuré (probe49_clean, MÊME passe de scoring) le stat Attack de u92
+      (`Initial=3011`) avec **`mod_total` VARIABLE par candidat = `{0, 400, 898, 1298}`** (Current = `{3011, 3411,
+      3909, 4309}`). ⇒ **`Current` est RÉ-ÉVALUÉ PAR CANDIDAT** : une modification Attack **conditionnelle**
+      (source flat +400/+898/+1298 NON identifiée ; PAS RapidAssault qui est le ×1.25 %) qui s'applique selon le
+      scénario du candidat (tuile/état). Le plan ranged scoré avait `mod=0` → base `Current=3011` (== Initial par
+      coïncidence). `base=Initial` matche u92 SEULEMENT parce que le buff conditionnel est INACTIF sur les plans scorés.
+    - **Conséquence (le caveat de l'utilisateur est JUSTE)** : un buff Attack **inconditionnel** (toujours dans
+      Current, ré-évalué actif à chaque candidat) serait INCLUS par le natif (base = Current buffé) mais EXCLU par
+      `base=Initial` → **sous-prédiction**. `base=Initial` n'est donc PAS fidèle en général ; il fit le cas
+      u92 (conditionnel-inactif-sur-plans-scorés).
+    - **VRAI mécanisme (hypothèse à confirmer)** : base = `GetStat(Attack, Current)` **ré-évalué pour le scénario du
+      candidat** (modifs conditionnelles appliquées per-candidat). Le port a un snapshot STATIQUE (Current figé au
+      moment du snapshot, buff actif → 4309) → il ne peut pas ré-évaluer sans modéliser la/les modif(s)
+      conditionnelle(s). **RESTE À RE** : (1) identifier la source du flat conditionnel +400/+898/+1298 sur Attack
+      u92 (per-candidat) ; (2) LIRE où/comment `ability.PredictAttack`→`PredictAttackRaw` obtient `context+0x58=3011`
+      alors que `GetAttackHitPrediction` lit `GetStat(Current)` — la réduction 4309→3011 par candidat (via
+      `CalculateAttackerModifiersForPrediction`/`CalcModsFromStatMods` négate, ou re-résolution de la condition).
+    - **STATUT** : #49 ré-ouvert. Le fix `base=Initial` reste EN PLACE comme **amélioration** (réduit la sur-préd,
+      oracle-matche les plans scorés, no-régression) mais **TAGGÉ FIT** — à remplacer par la ré-évaluation
+      conditionnelle une fois RE. NE PAS considérer #49 clos.
 
 **2ᵉ axe (séparé = #50)** : à armure égale (u82/u86 = 2008), per-coup oracle diffère (501 vs 752) → modifier
 DÉFENSEUR par-cible. **MAJ** : pour u86, le 752 = 501×1.5 (ÉLÉVATION depuis (6,4) elev3), pas un modif défenseur

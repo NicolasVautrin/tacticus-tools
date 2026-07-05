@@ -7,9 +7,11 @@ GÉNÉRALISE la mutation de stat ad-hoc (ActOfFaith `cc_delta/cd_delta`, `operat
 **modification par-source** de `UnitStats` rend le revert EXACT **sans stocker de delta** (le natif
 retire le modifier de la source via `ReverseModification`, la valeur observable se re-clampe au read).
 
-Les consommateurs combat/prédiction lisent la stat via `UnitContext.stat(type)` (= `get_stat(Current)`
-si le composant est seedé, sinon champ plat) → **plus de synchro de champ plat nécessaire** : muter
-`UnitStats` suffit à ce que le combat voie le stat-mod.
+Les consommateurs combat/prédiction lisent la stat via `UnitContext.stat(type)` / les propriétés
+`ctx.<stat>` (= `get_stat(Current)`) → **aucune synchro de champ plat** : muter `UnitStats` suffit à ce
+que le combat voie le stat-mod. Les 8 stats de base sont TOUJOURS seedées à la construction (from_snapshot
+/ build_summon_context), donc `_ensure_component` ne crée un composant (`initial=0`) que pour un StatType
+non-seedé (0 = défaut natif).
 """
 from __future__ import annotations
 
@@ -17,12 +19,6 @@ from typing import Optional
 
 from ...entities.stats import StatComponent, StatPart, STAT_CLAMP_MAX
 from ..components import StatsComponent
-
-# StatType → champ plat `UnitContext` (ce que les consommateurs combat lisent encore ; None = aucun).
-FLAT_FIELD = {
-    0: "attack", 5: "health", 7: "block_chance", 8: "block_damage",
-    9: "crit_chance", 10: "crit_damage", 16: "fixed_armor", 17: "extra_hits",
-}
 
 
 def _ctx(state, unit_id: int):
@@ -32,15 +28,14 @@ def _ctx(state, unit_id: int):
 
 
 def _ensure_component(ctx, stat_type: int) -> StatComponent:
-    """Garantit un `StatComponent` pour `stat_type` ; si absent, le seede avec `initial` = valeur plate
-    COURANTE (sinon la modification partirait d'une base 0 → Current faux). Applique le plafond par-stat."""
+    """Garantit un `StatComponent` pour `stat_type` ; si absent, le seede `initial=0`. Les 8 stats de
+    base sont déjà seedées à la construction (from_snapshot / build_summon_context) → ce chemin ne se
+    déclenche que pour un StatType non-seedé (base 0 = défaut natif correct). Applique le plafond par-stat."""
     idx = int(stat_type)
     us = ctx.stats
     comp = us.components.get(idx)
     if comp is None:
-        field = FLAT_FIELD.get(idx)
-        cur = int(getattr(ctx, field, 0) or 0) if field else 0
-        comp = StatComponent(initial=cur, min_value=0, max_value=STAT_CLAMP_MAX.get(idx))
+        comp = StatComponent(initial=0, min_value=0, max_value=STAT_CLAMP_MAX.get(idx))
         us.set_component(idx, comp)
     return comp
 

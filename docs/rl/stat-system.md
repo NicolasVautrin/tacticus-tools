@@ -229,12 +229,12 @@ source est ACTIVE, utiliser `activeAbilityLevel` (le residu absorbe l'ecart sino
 
 Operation runner ChangeStat (FAIT) : `engine/runner/operations/stat_ops.py` — `apply_change_stat(state,
 unit, statType, source, amount)` / `revert_change_stat(...)` = mirror `ModifyStatMessage` (apply part
-5/9 -> `UnitStats.change_stat` ; revert part 6 -> `revert_stat`) + **synchro du champ plat** `ctx.<stat>`
-(que le combat lit encore) + **clamp** par-stat (`STAT_CLAMP_MAX` : BlockChance/CritChance 100 ;
-`_ensure_component` seede l'`initial` depuis le champ plat si absent). GENERALISE la mutation ad-hoc
-ActOfFaith : revert EXACT par-source (`ReverseModification`) SANS stocker de delta (plus fidele que
-`cc_delta/cd_delta`). Valide : apply/revert/sync/clamp/ensure. ActOfFaith #32 NON rewire (valide) mais
-migrable vers cette op.
+5/9 -> `UnitStats.change_stat` ; revert part 6 -> `revert_stat`) + **clamp** par-stat (`STAT_CLAMP_MAX` :
+BlockChance/CritChance 100). AUCUNE synchro de champ plat : muter `UnitStats` suffit, le combat lit
+`ctx.stat(type)` = `get_stat`. `_ensure_component` : `initial=0` si le composant est absent (les 8 stats
+de base sont deja seedees a la construction -> ce chemin ne sert qu'aux StatTypes non-seedes, 0 = defaut
+natif). GENERALISE la mutation ad-hoc ActOfFaith : revert EXACT par-source (`ReverseModification`) SANS
+stocker de delta (plus fidele que `cc_delta/cd_delta`). Valide : apply/revert/clamp/ensure.
 
 Integration runner (FAIT) :
 - **ActOfFaith rewire** (`operations.triggers`) : `_apply/_reset_act_of_faith` utilisent `apply_change_stat`
@@ -243,14 +243,22 @@ Integration runner (FAIT) :
   de `cc_delta/cd_delta` fonctionnel (informatif seulement). VALIDE live (accumulation + reset bit-exact).
 - **Niveau-source active/passive** : `BaseEffect.active_ability_level` (unitConfig.activeAbilityLevel)
   threade via EffectFactory + snapshot.py ; StandVigil (active) indexe dessus. Buff passif = `ability_level`.
-- **Migration consommateurs -> `UnitContext.stat(type)`** (= `get_stat(Current)` si composant seede, sinon
-  champ plat pour summon) : tous les reads combat/prediction (`attack/crit_chance/crit_damage/fixed_armor/
-  extra_hits`) dans damage.py / prediction.py / damage_model.py / active_ability.py / abilities/loki.py /
-  triggers.py passent par `ctx.stat(StatType.X)` (enum). **Synchro de champ plat RETIREE** de
-  `apply_change_stat` : muter `UnitStats` suffit. VALIDE live : test_runner_attack + test_damage_crit +
-  test_act_of_faith (accumulation+reset) + test_predict, tous verts. (Test ActOfFaith mis a jour :
-  lit `ctx.stat()` au lieu du champ plat, accord user.)
+- **Migration consommateurs -> `UnitContext.stat(type)`** : tous les reads combat/prediction
+  (`attack/crit_chance/crit_damage/fixed_armor/extra_hits`) dans damage.py / prediction.py / damage_model.py
+  / active_ability.py / abilities/loki.py / triggers.py passent par `ctx.stat(StatType.X)` (enum).
+  **Synchro de champ plat RETIREE** de `apply_change_stat` : muter `UnitStats` suffit.
+
+- **Les 8 stats de base = PROPRIETES `get_stat` (FAIT)** : `attack/health/fixed_armor/extra_hits/crit_chance/
+  crit_damage/block_chance/block_damage` ne sont plus des CHAMPS plats du dataclass `UnitContext` mais des
+  **proprietes lecture-seule** adossees a `get_stat(Current)` (`ctx.attack` == GetStat natif, effet-inclusif ;
+  ecriture -> `AttributeError`, muter = `apply_change_stat`). Source unique : `stats.CORE_STAT_FIELDS`
+  (nom prop -> StatType). Le seeding est GARANTI : `from_snapshot` gap-fill via `UnitStats.ensure_seeded`
+  (idempotent — ne clobbere pas le composant delta/attribue de `seed_unit_stats` ; couvre `stat_ids`
+  absent/incomplet), `build_summon_context` seede les 8 depuis les variables `summon*` (block/hits = 0).
+  Consequences : `_FLAT_FIELD` (unit_context) + `FLAT_FIELD` (stat_ops) SUPPRIMES, plus de double stockage
+  ni de fallback. VALIDE live : test_getstat + test_summon_spawn + test_summon_trigger + test_act_of_faith
+  (accumulation+reset) + test_runner_attack, tous verts ; + smoke pur-Python (from_snapshot/gap-fill/clamp/
+  read-only/apply-revert/idempotent).
 
 RESTE : confrontation live non-circulaire (residu 0) sur une unite portant StandVigil (craft via unit_map) ;
-convertir a terme les champs plats `UnitContext` en properties `get_stat` (retire le fallback flat) ;
 etendre le canal a d'autres effets StatModifier concrets.

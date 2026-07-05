@@ -20,10 +20,10 @@ from engine.entities.abilities.active_ability import (
     active_ability_for, makes_damage_predictions, _PROFILE_BY_INDEX)
 from engine.entities.abilities.ability_configuration import AbilityConfiguration
 from engine.entities.effects import (
-    aura_hits_malus_for_defense, build_attacker_modifiers_from_effects,
+    aura_hits_malus_for_defense, calculate_attacker_modifiers_for_prediction,
     build_defender_modifiers_from_effects, hits_bonus_from_effects, hits_malus_from_defender_effects)
 from engine.entities.traits import attacker_bonus_hits
-from engine.entities.stats import StatType
+from engine.entities.stats import StatType, StatPart
 from engine.services.damage_prediction import get_attack_prediction, get_multi_hit_attack_prediction
 from engine.services.min_max_damage import MinMaxDamage
 from engine.services.damage_modifiers import (
@@ -127,7 +127,18 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     pierce, _ranged, whits, prof_name = _weapon_pierce(scene, att_id, is_adjacent)
     is_melee = not _ranged
     _hm = (attack_pos != scene.pos(att_id)) if attack_pos else None
-    mods = build_attacker_modifiers_from_effects(att_effects, is_ranged=_ranged, has_moved=_hm)
+    # PRÉDICTION (slot 0xd) — branche distincte du combat (runner). Le debuff stat-modifications
+    # (CalculateModifiersFromStatModifications @181004380, prédiction-only) reste GATÉ off : ce
+    # N'EST PAS un modifier post-perçage mais un effet AU NIVEAU DE LA BASE (cf. base=Initial ci-dessous).
+    mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm)
+    # #49 : base de l'attaque NORMALE en PRÉDICTION. ⚠ FIT (PAS le mécanisme fidèle — cf. prediction.md
+    # §8bis point 15). Le natif LIT `GetStat(Attack, Current)` (GetAttackHitPrediction @1811af4e0) mais
+    # `Current` est RÉ-ÉVALUÉ PAR CANDIDAT (modif Attack conditionnelle : statMods u92 mod ∈ {0,400,898,
+    # 1298}). Le plan scoré a mod=0 → Current==Initial. `Initial` matche donc u92 (buff conditionnel
+    # inactif) MAIS sous-prédirait un buff Attack INCONDITIONNEL. Amélioration vs Current-figé-du-snapshot
+    # (réduit la sur-préd, oracle-matche les plans scorés, no-régression Current==Initial) ; À REMPLACER
+    # par la ré-évaluation conditionnelle une fois le +400/+898/+1298 conditionnel RE (#49 ré-ouvert).
+    attack_base = ctx.get_stat(StatType.ATTACK, StatPart.INITIAL)
     _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, attack_pos, t_pos,
                                       damage_profile=prof_name)
     hits_pre = max(1, whits + ctx.stat(StatType.EXTRA_HITS) + eff_hits)   # plancher 1 coup
@@ -142,12 +153,12 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                + hits_malus_from_defender_effects(tgt_effects, is_melee, prof_name)
                + aura_hits_malus_for_defense(aura_sources, board))
     res = get_attack_prediction(
-        target_current_health=scene.hp(tgt_id) or 0, initial_damage=ctx.stat(StatType.ATTACK), hits=hits,
+        target_current_health=scene.hp(tgt_id) or 0, initial_damage=attack_base, hits=hits,
         profile_type=0, pierce_pct=pierce, armor=scene.armor(tgt_id), mods=mods,
         target_shield=scene.shield(tgt_id))
     ev = ProbableDamageEvent(target=tgt_id, prediction=res)
     if meta:
-        return ev, {"base": ctx.stat(StatType.ATTACK), "pierce": pierce, "armor": scene.armor(tgt_id), "hits": hits,
+        return ev, {"base": attack_base, "pierce": pierce, "armor": scene.armor(tgt_id), "hits": hits,
                     "mods": [round(m, 3) for m, _c in mods.pct_list] or None,
                     "effects": [e.name for e in att_effects] or None}
     return ev
@@ -179,7 +190,7 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
     dp = GC.damage_profile(profile_name) or {}
     dir_pierce = ctx.extra_pierce_melee if is_melee else ctx.extra_pierce_ranged
     pierce = max(0, min(100, int(dp.get("PiercingRatio") or 0) + ctx.extra_pierce + dir_pierce))
-    mods = build_attacker_modifiers_from_effects(scene.effects(uid), is_normal_attack=False)
+    mods = calculate_attacker_modifiers_for_prediction(scene.effects(uid), is_normal_attack=False)
     t_pos = scene.pos(tgt)
     _add_positional_and_defender_mods(mods, scene, uid, tgt, is_melee, attack_pos, t_pos,
                                       damage_profile=profile_name)

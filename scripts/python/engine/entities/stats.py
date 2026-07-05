@@ -237,6 +237,17 @@ class UnitStats:
     def set_component(self, stat_type: int, component: object) -> None:
         self.components[int(stat_type)] = component
 
+    def ensure_seeded(self, stat_type: int, initial: int) -> None:
+        """Seede un `StatComponent(initial)` **identité** (ni delta ni modification) pour `stat_type`
+        s'il est ABSENT. Idempotent : ne touche PAS un composant déjà seedé (garde son delta/attribution
+        issu de `seed_unit_stats`). Sert à garantir que les 8 stats « de base » (`CORE_STAT_FIELDS`) sont
+        toujours présentes — summon offline, ou gap `combatSnapshot` — pour que les propriétés
+        `UnitContext.<stat>` (= `get_stat(Current)`) ne retombent jamais sur 0 faute de composant."""
+        idx = int(stat_type)
+        if idx not in self.components:
+            self.components[idx] = StatComponent(
+                initial=int(initial), min_value=0, max_value=STAT_CLAMP_MAX.get(idx))
+
     def change_stat(self, stat_type: int, source: object, amount: int) -> None:
         """`DSLFactory.ChangeStat` (Position(statType, part 5/9) = apply) : ajoute `amount` (delta
         additif) attribué à `source` dans la modification du StatType. Crée un `StatComponent(initial=0)`
@@ -271,6 +282,18 @@ _FILLUP_STATS = frozenset({4, 5})
 # Plafonds par-stat (virtuel GetMaxValue) : les pourcentages BlockChance/CritChance sont clampés à 100
 # par `GetClampedValue @180fa8aa0` (le reste = pas de plafond). Sert au clamp de `get_current_value`.
 STAT_CLAMP_MAX = {7: 100, 9: 100}      # BlockChance / CritChance
+
+# Les 8 StatTypes « de base » exposés comme propriétés lecture-seule de `UnitContext`
+# (`ctx.attack` == `get_stat(ATTACK, Current)`, etc.) : nom de propriété -> StatType. Source unique
+# de vérité pour le seeding — `UnitContext` (propriétés), `from_snapshot` (gap-fill via `ensure_seeded`)
+# et `spawn.build_summon_context` (seed summon) s'y alignent. Le seeding systématique de ces 8 stats
+# supprime tout stockage plat (plus de champ ni de fallback `_FLAT_FIELD`).
+CORE_STAT_FIELDS = {
+    "attack": StatType.ATTACK, "health": StatType.HEALTH,
+    "block_chance": StatType.BLOCK_CHANCE, "block_damage": StatType.BLOCK_DAMAGE,
+    "crit_chance": StatType.CRIT_CHANCE, "crit_damage": StatType.CRIT_DAMAGE,
+    "fixed_armor": StatType.FIXED_ARMOR, "extra_hits": StatType.EXTRA_HITS,
+}
 
 
 def seed_unit_stats(stats: Dict[str, Optional[int]],

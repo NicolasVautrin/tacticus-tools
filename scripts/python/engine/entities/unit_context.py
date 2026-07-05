@@ -11,23 +11,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .stats import UnitStats, seed_unit_stats
-
-# StatType -> champ plat `UnitContext` (fallback de `stat()` quand le composant n'est pas seedé,
-# ex. summon construit hors combatSnapshot). Cohérent avec `runner.operations.stat_ops.FLAT_FIELD`.
-_FLAT_FIELD = {0: "attack", 5: "health", 7: "block_chance", 8: "block_damage",
-               9: "crit_chance", 10: "crit_damage", 16: "fixed_armor", 17: "extra_hits"}
+from .stats import UnitStats, StatType, seed_unit_stats
 
 
 @dataclass
 class UnitContext:
     entity_id: int
     visual_id: str | None = None
-    # stats résolues (combatSnapshot.units[*].stats)
-    attack: int = 0
-    health: int = 0                 # PV courants (StatType.Health, Current)
-    fixed_armor: int = 0
-    extra_hits: int = 0
+    # Les 8 stats « de base » (attack, health, fixed_armor, extra_hits, crit_chance, crit_damage,
+    # block_chance, block_damage) NE SONT PLUS des champs plats : ce sont des PROPRIÉTÉS lecture-seule
+    # adossées à `get_stat(Current)` (cf. plus bas + `CORE_STAT_FIELDS`). Elles sont toujours seedées
+    # dans `stats` (from_snapshot / build_summon_context), donc `ctx.attack` == GetStat natif, effet-
+    # inclusif, SANS stockage dupliqué ni synchro.
     extra_hits_melee: int = 0
     extra_pierce: int = 0
     extra_pierce_melee: int = 0
@@ -35,10 +30,6 @@ class UnitContext:
     active_ability_level: int = 0
     passive_ability_level: int = 0     # niveau des PASSIVES (indexe leurs variables ; ex. ArcaneShield.shieldHp)
     number_of_members: int = 1
-    crit_chance: int = 0
-    crit_damage: int = 0
-    block_chance: int = 0
-    block_damage: int = 0
     # AbilityVariablesMultiplierPercentage (BC Units[*], dérivé progression ; défaut 100=neutre). Scale
     # les variables d'ability « affectées par la rareté » (ex. PowerTrip.armorIgnored) §17.21. Capté hors
     # combatSnapshot (BC) pour l'instant ; non figé par from_snapshot.
@@ -99,15 +90,49 @@ class UnitContext:
         return self.stats.get_stat(int(stat_type), int(stat_part), source)
 
     def stat(self, stat_type: int) -> int:
-        """Valeur COURANTE d'une stat pour la CONSOMMATION combat/prédiction : `get_stat(Current)` du
-        système de stats porté si le composant est seedé, SINON le champ plat (fallback config/summon
-        non-seedé). Remplace la lecture directe `ctx.<champ>` pour que les stat-mods appliqués par
-        `ChangeStat` (`apply_change_stat`) soient vus SANS synchro de champ plat."""
-        idx = int(stat_type)
-        if idx in self.stats.components:
-            return self.stats.get_stat(idx, 0)          # StatPart.CURRENT
-        field = _FLAT_FIELD.get(idx)
-        return int(getattr(self, field, 0) or 0) if field is not None else 0
+        """Valeur COURANTE d'une stat pour la CONSOMMATION combat/prédiction = `get_stat(Current)`.
+        Les 8 stats de base sont TOUJOURS seedées (from_snapshot / build_summon_context) → plus de
+        fallback de champ plat ; les stat-mods appliqués par `ChangeStat` (`apply_change_stat`) sont
+        vus directement. `get_stat` renvoie 0 pour un StatType sans composant (ex. summon + stat non
+        seedée), ce qui reste le comportement natif (`default -> 0`)."""
+        return self.stats.get_stat(int(stat_type), 0)   # StatPart.CURRENT
+
+    # ── Les 8 stats de base = propriétés lecture-seule adossées à `get_stat(Current)` (CORE_STAT_FIELDS).
+    #    Elles remplacent les anciens champs plats : plus de stockage dupliqué, `ctx.<stat>` == GetStat
+    #    natif (effet-inclusif). Écriture INTERDITE — muter un stat passe par `apply_change_stat`.
+    @property
+    def attack(self) -> int:
+        return self.stat(StatType.ATTACK)
+
+    @property
+    def health(self) -> int:
+        """PV « Current » (StatType.Health) résolu par GetStat. NB le PV COURANT en cours de bataille
+        vit dans `HealthComponent` (muté par les dégâts) — ceci = la valeur de stat (init/snapshot)."""
+        return self.stat(StatType.HEALTH)
+
+    @property
+    def fixed_armor(self) -> int:
+        return self.stat(StatType.FIXED_ARMOR)
+
+    @property
+    def extra_hits(self) -> int:
+        return self.stat(StatType.EXTRA_HITS)
+
+    @property
+    def crit_chance(self) -> int:
+        return self.stat(StatType.CRIT_CHANCE)
+
+    @property
+    def crit_damage(self) -> int:
+        return self.stat(StatType.CRIT_DAMAGE)
+
+    @property
+    def block_chance(self) -> int:
+        return self.stat(StatType.BLOCK_CHANCE)
+
+    @property
+    def block_damage(self) -> int:
+        return self.stat(StatType.BLOCK_DAMAGE)
 
     @classmethod
     def from_snapshot(cls, snap_unit: dict, unit_cfg: dict | None,
@@ -144,10 +169,18 @@ class UnitContext:
             attributed = stat_modifications_by_source(effects)
         unit_stats = (seed_unit_stats(s, snap_unit.get("statDelta"), stat_ids, attributed)
                       if stat_ids else UnitStats())
+        # Garantit que les 8 stats de base (propriétés) sont seedées même si `stat_ids` est absent /
+        # incomplet : `ensure_seeded` est idempotent (ne touche pas un composant déjà seedé par
+        # seed_unit_stats, qui porte delta + attribution). Les valeurs plates snapshot = base identité.
+        _core_snapshot = {StatType.ATTACK: g("attack"), StatType.HEALTH: g("health"),
+                          StatType.FIXED_ARMOR: g("fixedArmor"), StatType.EXTRA_HITS: g("extraHits"),
+                          StatType.CRIT_CHANCE: g("critChance"), StatType.CRIT_DAMAGE: g("critDamage"),
+                          StatType.BLOCK_CHANCE: g("blockChance"), StatType.BLOCK_DAMAGE: g("blockDamage")}
+        for _idx, _val in _core_snapshot.items():
+            unit_stats.ensure_seeded(_idx, _val)
         return cls(
             entity_id=snap_unit.get("entityId"), visual_id=snap_unit.get("visualId"),
-            attack=g("attack"), health=g("health"), fixed_armor=g("fixedArmor"),
-            extra_hits=g("extraHits"), extra_hits_melee=g("extraHitsMelee"),
+            extra_hits_melee=g("extraHitsMelee"),
             extra_pierce=g("extraPierce"), extra_pierce_melee=g("extraPierceMelee"),
             extra_pierce_ranged=g("extraPierceRanged"),
             # activeAbilityLevel vit dans `unitConfig` (BattleQuery.GetUnitConfig), PAS dans `stats` →
@@ -155,8 +188,6 @@ class UnitContext:
             active_ability_level=int((snap_unit.get("unitConfig") or {}).get("activeAbilityLevel")
                                      or s.get("activeAbilityLevel") or 0),
             number_of_members=max(1, g("numberOfMembers")),
-            crit_chance=g("critChance"), crit_damage=g("critDamage"),
-            block_chance=g("blockChance"), block_damage=g("blockDamage"),
             traits=list(cfg.get("traits") or []),
             damage_type=int(cfg.get("damageType", 0) or 0),
             range=int(cfg.get("range", 0) or 0),

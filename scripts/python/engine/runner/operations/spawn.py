@@ -36,6 +36,7 @@ def build_summon_context(entity_id: int, visual_id: str, summon_ability: str,
     import gameconfig as GC
     from ...entities import UnitContext
     from ...entities.effects.magnitude import ability_var
+    from ...entities.stats import UnitStats, StatType
 
     def sv(key: str) -> int:
         v = ability_var(summon_ability, key, caster_level, multiplier_pct=caster_mult)
@@ -53,10 +54,17 @@ def build_summon_context(entity_id: int, visual_id: str, summon_ability: str,
         prof_pierce = int(dp.get("PiercingRatio") or 0)
         w_hits = int(w.get("hits") or 1)
         ranged = bool(w.get("Range"))
+    # Les 8 stats de base sont des propriétés `get_stat` → on SEEDE `UnitStats` (au lieu de champs plats).
+    # Base identité (ni delta ni mod) depuis les variables `summon*` ; les clés absentes (block/hits) = 0.
+    stats = UnitStats()
+    for st, key in ((StatType.ATTACK, "summonDmg"), (StatType.HEALTH, "summonHp"),
+                    (StatType.FIXED_ARMOR, "summonArmor"), (StatType.CRIT_CHANCE, "summonCritChance"),
+                    (StatType.CRIT_DAMAGE, "summonCritDmg")):
+        stats.ensure_seeded(st, sv(key))
+    for st in (StatType.BLOCK_CHANCE, StatType.BLOCK_DAMAGE, StatType.EXTRA_HITS):
+        stats.ensure_seeded(st, 0)
     return UnitContext(
         entity_id=entity_id, visual_id=visual_id,
-        attack=sv("summonDmg"), health=sv("summonHp"), fixed_armor=sv("summonArmor"),
-        crit_chance=sv("summonCritChance"), crit_damage=sv("summonCritDmg"),
         ability_variables_multiplier=caster_mult,
         traits=list(gu.get("traits") or []),
         range=int(w.get("Range") or 0) if w else 0,
@@ -64,6 +72,7 @@ def build_summon_context(entity_id: int, visual_id: str, summon_ability: str,
         number_of_members=max(1, int(gu.get("nrOfMembers") or 1)),
         normal_profile=prof_name, normal_profile_pierce=prof_pierce,
         normal_weapon_hits=max(1, w_hits), normal_ranged=ranged,
+        stats=stats,
     )
 
 
