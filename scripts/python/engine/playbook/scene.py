@@ -46,7 +46,8 @@ class Scene:
             units=sctx.get("units") or [], hp_by_id=sctx.get("hp_by_id") or {},
             pos_by_id=sctx.get("pos_by_id") or {}, team_by_id=sctx.get("team_by_id") or {},
             eff_state=sctx.get("eff_state"), hpmax_by_id=sctx.get("hpmax_by_id") or {},
-            elev_by_pos=elev_by_pos, board=board)
+            elev_by_pos=elev_by_pos if elev_by_pos is not None else predictor.get("elev_by_pos"),
+            board=board if board is not None else predictor.get("board"))
 
     # ── Accesseurs (mirror des lectures dict de PV) ────────────────────────────────────────────────
     def ctx(self, uid):
@@ -107,7 +108,28 @@ def build_predictor(rpc, rid):
             ctx_by_id[eid] = UnitContext.from_snapshot(u, GC.unit(vis_by_id.get(eid) or ""),
                                                        snap.get("statTypes"))
     return {"ctx_by_id": ctx_by_id, "armor_by_id": armor_by_id, "shield_by_id": shield_by_id,
-            "mult_by_id": mult_by_id, "ablvl_by_id": ablvl_by_id, "vis_by_id": vis_by_id}
+            "mult_by_id": mult_by_id, "ablvl_by_id": ablvl_by_id, "vis_by_id": vis_by_id,
+            "elev_by_pos": build_elev_by_pos(rpc, rid)}
+
+
+def build_elev_by_pos(rpc, rid):
+    """`elev_by_pos` {(col,row): elevation} depuis le RPC `boardGraph` (graphe STATIQUE, 1x/runner).
+    Alimente la couche ELEVATION de la prediction (`CalculateElevationBonusModifier @181003ea0`, cf.
+    `_add_positional_and_defender_mods` : +ElevationBonus si la tuile attaquant > tuile cible). None si
+    `boardGraph` KO -> l'elevation redevient no-op (pas de crash ; ancien comportement)."""
+    try:
+        bg = rpc("boardGraph", {"runnerId": rid}, 60)
+    except Exception:
+        return None
+    tiles = (bg or {}).get("tiles") if isinstance(bg, dict) else None
+    if not tiles:
+        return None
+    out = {}
+    for t in tiles:
+        c, r = t.get("col"), t.get("row")
+        if c is not None and r is not None:
+            out[(c, r)] = int(t.get("elevation") or 0)
+    return out or None
 
 
 def refresh_shields(predictor, rpc, rid):

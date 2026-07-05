@@ -889,6 +889,51 @@ config, pas un simple scalaire.
       oracle-matche les plans scorés, no-régression) mais **TAGGÉ FIT** — à remplacer par la ré-évaluation
       conditionnelle une fois RE. NE PAS considérer #49 clos.
 
+16. **★★★ VERDICT re-expert (2026-07-05, décompilé LU, worktree sur `6cc3fec`) — CONFIRME le point 15 : base =
+    `GetStat(Current)` ré-évalué par candidat, PAS de réduction. ★★★**
+    - **Q2 tranché** : `ALoki_NormalAttackAbility.GetAttackHitPrediction @1811af4e0` injecte la base = `GetStat(
+      attacker, damageStat=5, part0=Current)` **telle quelle** dans le prédicteur générique (slot 0x26 →
+      `PredictAttackRaw` `context+0x58`). AUCUNE lecture d'Initial, AUCUN `op_Subtraction`, AUCUN override dans ce
+      chemin. `get_CurrentValue @180fa91d0` = `clamp(Initial[+0x48] + Σ modifications per-source[+0x10])`. ⇒ **4309
+      et 3011 = deux valeurs de `Current` différentes** (mods présents/absents selon le candidat), PAS une réduction.
+    - **Réponse au caveat (CONFIRMÉ)** : un buff Attack **INCONDITIONNEL** (toujours dans `Current`) EST inclus dans
+      la base ⇒ **`base=Initial` est faux en général** (jette TOUS les mods, même permanents). Le fit u92 ne marche
+      que parce que son `+1298` est absent (`mod=0`) sur les plans ranged/moved scorés.
+    - **+1298 = un `ValueModification` per-source** (StatComponent+0x10 dict), PAS les effets calc-time nommés :
+      `RapidAssault_ExtraDamageEffect.CreateEffectDamageBonusForAttack @180f67940` = `EffectBonus.ForPercentIncrease`
+      (le ×1.25) ; `BlackRage_ExtraDamageEffect @180f340e0` = trigger DSL `IsCharging & IsNormalAttack` → `ConfigVar(8)`
+      (+728) — **les deux sont des modifiers post-base, PAS la base**. `CalculateModifiersFromStatModifications
+      @181004380` = producteur de `List<DamageModifier>` post-base (mesuré non-survivant, additive=0), **orthogonal
+      à la base** — le laisser OFF.
+    - **Lead source (hypothèse, bloqué statiquement par dispatch virtuel + pas de roster)** : `BlackRageAbility.
+      ExecuteBehaviour @1811b9c20` applique `AddStaticStatModifierEffect(0x53e, ConfigConst(0xe))` = un stat-mod PLAT
+      (famille BlackRage/kit) — candidat pour le `+1298` (=400+898, >=2 sources) présent dans les états simulés
+      near-current/charge-mêlée, absent pour le Blast ranged depuis une tuile moved. `has_moved` binaire RÉFUTÉ
+      ((4,5) moved garde 4309).
+    - **FIX FIDÈLE (à coder après probe)** : `make_normal_attack_predictions` base per-candidat = `Initial +
+      Σ(ValueModifications ACTIFS pour ce candidat)` — décomposer le `Current` figé (4309) en `Initial + deltas
+      per-source` (socle #63 : `get_stat(Current/Initial)`, `ValueModification.per_source`) puis gate `is_active`
+      par candidat (arme mêlée/tir via weapon-select partagé #57, has_moved, charge). NE PAS basculer sur Initial.
+    - **PROBE LIVE REQUIS pour lever l'hypothèse** (avant de coder le gate) : (A) hook `StatComponent.get_Modifications`
+      (ou le predBase existant) → dumper par candidat {tuile, arme, chaque source `AbilityOrEffect id` + amount} ;
+      (B) dumper le dict Modifications du stat de dégât u92 dans l'état COURANT sans simulation : `+1298` présent →
+      mod réel actif (identifier source) ; absent → introduit en simulation (BlackRage-family) → `base=Initial`
+      safe pour l'attaque normale de u92. Tranche source + gate exact.
+    - **Alerte port relevée par re-expert** : incohérence d'index de stat (`stats.py ATTACK=0/HEALTH=5` vs
+      `damage_combat.py STAT_HEALTH=4/STAT_ARMOR=5`) = probablement 2 enums natifs distincts. La VALEUR 4309 est
+      juste (probe #63 confirmé) ; l'étiquette d'index peut mentir — à vérifier avant de toucher la base.
+
+17. **#58 ÉLÉVATION — mécanisme CONFIRMÉ + wiring (2026-07-05).** `CalculateElevationBonusModifier @181003ea0` LU :
+    bonus `+ElevationBonus` si `attackerTile.elev > GetMainTile(cible).elev` ; SAUTÉ si attaquant OU cible a l'effet
+    `0x423` (effectType 1059). **PER-TUILE CANDIDATE** (mesuré aiPredict u90→u86 seed777 : tuile (5,4)elev3 →
+    (2048,7592) vs tuile (3,5)elev2 → (1364,5060) = **×1.5 EXACT**). Le port `_add_positional_and_defender_mods`
+    avait le modifier câblé mais `elev_by_pos` VIDE (jamais peuplé) → élévation no-op. **FIX** : `scene.build_elev_by_pos`
+    (RPC `boardGraph`, statique 1×/runner) peuple `elev_by_pos` dans `build_predictor` ; `from_predictor_sctx` le
+    propage ; gate `0x423` câblé (via `_has_effect_type`, effectType 1059 — non testé, absent des seeds). VALIDÉ :
+    u92→u86 seed31337 = (2256,5522) EXACT (`mods=[1.25,1.5]`). Résidus u90→u86 (seed777) / u96→u86 = **PAS
+    élévation** (base flat / armure-PowerTrip / défenseur #50 — l'élévation ×1.5 est appliquée IDENTIQUEMENT des 2
+    côtés ; l'écart est dans la base flat). Chaîne COMBAT (runner) = fork déféré (cf. #58 desc).
+
 **2ᵉ axe (séparé = #50)** : à armure égale (u82/u86 = 2008), per-coup oracle diffère (501 vs 752) → modifier
 DÉFENSEUR par-cible. **MAJ** : pour u86, le 752 = 501×1.5 (ÉLÉVATION depuis (6,4) elev3), pas un modif défenseur
 → ce cas u82/u86 est ÉLÉVATION, pas #50 (cf. bloc MOVE CONFIRMÉ).

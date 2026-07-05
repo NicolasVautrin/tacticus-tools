@@ -43,6 +43,12 @@ ELEVATION_BONUS_PCT: int = int(_DMG_CFG.get("ElevationBonus", 50))   # Calculate
 RANGED_IN_MELEE_PCT: int = abs(int(_DMG_CFG.get("RangedInMeleeReductionPercentage", -50)))  # @181004700
 TRENCH_PCT: int = abs(int(_DMG_CFG.get("TrenchReductionPercentage", -50)))                  # @181004830
 _PROFILE_INDEX = {name: idx for idx, name in _PROFILE_BY_INDEX.items()}
+EFFECT_NO_ELEVATION = 0x423   # HasEffect(...,0x423) : gate de CalculateElevationBonusModifier @181003ea0
+
+
+def _has_effect_type(effects, etype) -> bool:
+    """True si un effet ACTIF de la liste a cet `effectType` (int)."""
+    return any(getattr(e, "effect_type", None) == etype for e in (effects or []))
 
 
 def _weapon_pierce(scene, att_id, is_adjacent):
@@ -91,7 +97,14 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     if scene.elev_by_pos and attack_pos and t_pos:
         a_elev, t_elev = scene.elev_by_pos.get(attack_pos), scene.elev_by_pos.get(t_pos)
         if a_elev is not None and t_elev is not None:
-            eb = calculate_elevation_bonus_modifier(a_elev, t_elev, ELEVATION_BONUS_PCT)
+            # Gate 0x423 (CalculateElevationBonusModifier @181003ea0) : élévation SAUTÉE si l'attaquant OU
+            # la cible a un effet "no elevation bonus" (effectType 1059). Non testé (1059 absent des seeds
+            # courants) mais fidèle au décompilé. Comparaison a_elev>t_elev = tuile attaquant > tuile cible
+            # (mesuré : (5,4)elev3 vs cible elev2 -> x1.5 EXACT ; per-tuile candidate, cf. #58).
+            no_elev = (_has_effect_type(scene.effects(att_id), EFFECT_NO_ELEVATION)
+                       or _has_effect_type(scene.effects(tgt_id), EFFECT_NO_ELEVATION))
+            eb = calculate_elevation_bonus_modifier(a_elev, t_elev, ELEVATION_BONUS_PCT,
+                                                    attacker_or_target_has_no_elev_effect=no_elev)
             if eb is not None:
                 add_modifier(mods, eb)
     is_ranged = not is_melee
