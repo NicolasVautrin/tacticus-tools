@@ -108,6 +108,15 @@ class BaseEffect:
         fourni par l'agrégateur `aura_hits_malus_for_defense`. Défaut None = pas d'aura."""
         return None
 
+    def create_aura_attack_bonus(self, ctx: Mapping | None = None) -> "int | None":
+        """Contribution AURA à la BASE (stat Attack) : effet stat-mod possédé par un ALLIÉ du porteur qui
+        buffe le dégât de base de l'attaquant quand il est à portée (natif : `DynamicStatModifierEffect` à
+        `CreateTargetSelector` = `AdjacentUnits(1)→Friends→With/WithoutTrait`, ex. `RitesOfBattleAbility`
+        @181225340). Ajouté PLAT à `GetStat(Attack, INITIAL)`, RÉ-ÉVALUÉ PAR CANDIDAT (adjacence à la tuile
+        d'attaque). `ctx` = {owner_id/pos/team/mult/level, att_id/att_pos/att_team/att_grand_alliance, board}
+        fourni par l'agrégateur `aura_attack_bonus_from_allies`. Défaut None = pas d'aura."""
+        return None
+
     def create_effect_crit_chance_bonus_for_attack(self) -> int | None:
         """Bonus de CHANCE de crit (%) — couche calc-time SÉPARÉE de `GetStat(9)`, sommée dans
         `DamagePrediction.GetCritChanceBonusFromEffects`@181031180 puis ajoutée à GetStat(9) dans

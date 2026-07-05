@@ -20,8 +20,9 @@ from engine.entities.abilities.active_ability import (
     active_ability_for, makes_damage_predictions, _PROFILE_BY_INDEX)
 from engine.entities.abilities.ability_configuration import AbilityConfiguration
 from engine.entities.effects import (
-    aura_hits_malus_for_defense, calculate_attacker_modifiers_for_prediction,
-    build_defender_modifiers_from_effects, hits_bonus_from_effects, hits_malus_from_defender_effects)
+    aura_attack_bonus_from_allies, aura_hits_malus_for_defense,
+    calculate_attacker_modifiers_for_prediction, build_defender_modifiers_from_effects,
+    hits_bonus_from_effects, hits_malus_from_defender_effects)
 from engine.entities.traits import attacker_bonus_hits
 from engine.entities.stats import StatType, StatPart
 from engine.services.damage_prediction import get_attack_prediction, get_multi_hit_attack_prediction
@@ -144,14 +145,22 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # (CalculateModifiersFromStatModifications @181004380, prédiction-only) reste GATÉ off : ce
     # N'EST PAS un modifier post-perçage mais un effet AU NIVEAU DE LA BASE (cf. base=Initial ci-dessous).
     mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm)
-    # #49 : base de l'attaque NORMALE en PRÉDICTION. ⚠ FIT (PAS le mécanisme fidèle — cf. prediction.md
-    # §8bis point 15). Le natif LIT `GetStat(Attack, Current)` (GetAttackHitPrediction @1811af4e0) mais
-    # `Current` est RÉ-ÉVALUÉ PAR CANDIDAT (modif Attack conditionnelle : statMods u92 mod ∈ {0,400,898,
-    # 1298}). Le plan scoré a mod=0 → Current==Initial. `Initial` matche donc u92 (buff conditionnel
-    # inactif) MAIS sous-prédirait un buff Attack INCONDITIONNEL. Amélioration vs Current-figé-du-snapshot
-    # (réduit la sur-préd, oracle-matche les plans scorés, no-régression Current==Initial) ; À REMPLACER
-    # par la ré-évaluation conditionnelle une fois le +400/+898/+1298 conditionnel RE (#49 ré-ouvert).
-    attack_base = ctx.get_stat(StatType.ATTACK, StatPart.INITIAL)
+    # #49 : base de l'attaque NORMALE en PRÉDICTION = `GetStat(Attack, Current)` RÉ-ÉVALUÉ PAR CANDIDAT
+    # (GetAttackHitPrediction @1811af4e0 lit part0=Current ; Current=Initial+Σmods actifs). On part de
+    # INITIAL (bare, exclut TOUTE modification captée dans le snapshot → pas de double-compte) puis on
+    # ré-ajoute per-candidat les AURAS stat-mod d'alliés adjacents (RitesOfBattle @181225340 : +extraDmg/_2
+    # aux alliés ring-1, gate Imperial) — leur appartenance au TargetSelector est ré-évaluée selon la tuile
+    # d'attaque. Prouvé RE+oracle : u92 adjacent à Calgar → 3011+1298=4309 ; éloigné → 3011 (prediction.md
+    # points 16/18). ⚠ Le résidu `+400` (autre aura non identifiée) n'est PAS couvert ici.
+    _ap = attack_pos or scene.pos(att_id)
+    att_grand = (GC.unit(scene.vis_by_id.get(att_id)) or {}).get("GrandAllianceId")
+    aura_ctx = {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
+                "att_grand_alliance": att_grand, "board": scene.board}
+    carriers = [(uid, scene.pos(uid), scene.team(uid), scene.mult(uid), scene.ablvl_by_id.get(uid),
+                 scene.effects(uid)) for uid in scene.pos_by_id
+                if uid != att_id and (scene.hp(uid) or 0) > 0]
+    attack_base = ctx.get_stat(StatType.ATTACK, StatPart.INITIAL) \
+        + aura_attack_bonus_from_allies(carriers, aura_ctx)
     _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, attack_pos, t_pos,
                                       damage_profile=prof_name)
     hits_pre = max(1, whits + ctx.stat(StatType.EXTRA_HITS) + eff_hits)   # plancher 1 coup

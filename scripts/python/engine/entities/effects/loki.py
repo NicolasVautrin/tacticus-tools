@@ -32,23 +32,48 @@ class RapidAssaultExtraDamageEffect(BaseEffect):
 
 
 class RitesOfBattleExtraDmgEffect(BaseEffect):
-    """`RitesOfBattleExtraDmgEffect` (Effects.Loki) — buff **StatModification** +dégât (Imperial, ex.
-    Ultramarines). Effet stat-mod DYNAMIQUE : `GetDynamicStatModificationAmount @180f69810` =
-    `ConfigVar(key 0x3f6=1014, EffectSource, 8)` = ability var `RitesOfBattle.extraDmg[sourceLevel]`
-    (FLAT, `Nullable<int>`), ajouté à la **modification** du stat **Attack** (=dégât) via `ChangeStat`
-    (part 5/9, mirror `AStatModifierEffect.ApplyModification @180f0a2f0`) ; revert via part 6.
+    """`RitesOfBattleExtraDmgEffect` (Effects.Loki) — AURA stat-mod +dégât de Calgar (2 EffectTypes
+    permanents sur le porteur : Basic `...ExtraDmgBasic` 1002 / Imperial `...ExtraDmgImperial` 1003).
+    `RitesOfBattleAbility.CreateBehaviour @181225340` → 2 `DynamicStatModifierEffect` sur le SOURCE ;
+    `CreateTargetSelector` = `AdjacentUnits(1) @180de8320` (source EXCLUE) → `Friends @180df0040` →
+    `With/WithoutTrait(0x1a=26)` (26 = grande-alliance Imperial, `GrandAlliance.GetTrait @1815647a0`).
+    Montant `GetDynamicStatModificationAmount` = `GetVariableForLevel(idx8→extraDmg | idx9→extraDmg_2,
+    niveau SOURCE)` × multiplier SOURCE (les 2 vars dans `variablesAffectedByRarityBonus`) ; ajouté à la
+    **modification** du stat **Attack**. RE-validé : `extraDmg_2[L50]×1.8 = 1298` (Imperial, u92 adjacent
+    à Calgar) ; `extraDmg[L50]×1.8 = 898` (basic).
 
-    ⚠ `level` = niveau de l'ability RitesOfBattle du **SOURCE** (buff cross-unité) → `self.ability_level`
-    (niveau de l'ability source si seedé), fallback `self.level`. La variante `extraDmg_2` (rareté/
-    upgrade ?) n'est PAS sélectionnée ici (clé 0x3f6 → `extraDmg` primaire ; à trancher live si écart).
-    StatType = Attack=0 (natif `EffectComponent+0x10` ; « ExtraDmg » = la stat de dégât)."""
+    ⚠ Modélisée UNIQUEMENT côté SOURCE via `create_aura_attack_bonus` (l'effet-entité vit sur le PORTEUR,
+    pas sur le buffé → PAS de `get_stat_modification_*` target-side : le porteur ne se self-buff pas,
+    AdjacentUnits l'exclut). La sélection Basic/Imperial + le montant sont ré-évalués PAR CANDIDAT."""
 
-    def get_stat_modification_stat(self) -> int | None:
-        return 0                                    # StatType.ATTACK (=dégât)
-
-    def get_stat_modification_amount(self) -> int | None:
-        lvl = self.ability_level if self.ability_level is not None else self.level
-        return ability_var("RitesOfBattle", "extraDmg", lvl)
+    def create_aura_attack_bonus(self, ctx: Mapping | None = None) -> int | None:
+        """AURA `RitesOfBattleAbility` @181225340 (2 effets permanents sur Calgar : Basic 1002 / Imperial
+        1003) : +extraDmg/_2 au DÉGÂT DE BASE des ALLIÉS ring-1 du porteur, gate grande-alliance Imperial.
+        `AdjacentUnits(1) @180de8320` (source EXCLUE) → `Friends @180df0040` (même équipe) →
+        `With/WithoutTrait(0x1a=26)`. Montant = `GetVariableForLevel(var, niveau SOURCE) × multiplier SOURCE`
+        (RE-validé : `extraDmg_2[L50]×1.8 = 1298`, `extraDmg[L50]×1.8 = 898`). Modélisé CÔTÉ SOURCE
+        (l'effet-entité vit sur Calgar, pas sur le buffé) et ré-évalué PAR CANDIDAT (adjacence à `att_pos`)."""
+        c = ctx or {}
+        if c.get("owner_id") == c.get("att_id"):
+            return None                                  # AdjacentUnits exclut la source (op_Subtraction self)
+        if c.get("owner_team") is None or c.get("owner_team") != c.get("att_team"):
+            return None                                  # Friends = même équipe que le porteur
+        op, ap = c.get("owner_pos"), c.get("att_pos")
+        if not op or not ap:
+            return None
+        import hexgeo
+        if hexgeo.distance(op, ap) != 1:                 # AdjacentUnits(range 1) — pure adjacence HEX
+            return None
+        # Gate trait 0x1a=26 = grande-alliance Imperial (GrandAlliance.GetTrait @1815647a0 : Imperial→26).
+        # ABSENT de gameconfig.traits → dérivé de GrandAllianceId. Les 2 effets sont MUTUELLEMENT EXCLUSIFS
+        # ("instead") : Basic→WithoutTrait(26) (non-Imperial), Imperial→WithTrait(26).
+        target_imperial = (c.get("att_grand_alliance") == "Imperial")
+        effect_imperial = bool(self.name and self.name.endswith("Imperial"))
+        if effect_imperial != target_imperial:
+            return None
+        var = "extraDmg_2" if effect_imperial else "extraDmg"
+        return ability_var("RitesOfBattle", var, c.get("owner_level"),
+                           multiplier_pct=c.get("owner_mult") or 100)
 
 
 class StandVigilExtraArmorEffect(BaseEffect):

@@ -35,8 +35,12 @@ from .loki import (
 # Registre nom d'EffectType (`decisionView.effects[].name`) → classe d'effet. À ÉTENDRE au roster.
 EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "RapidAssault_ExtraDamage": RapidAssaultExtraDamageEffect,
-    # Stat-mod +dégât (Attack) FLAT depuis extraDmg[level] du SOURCE (nom d'EffectType à confirmer live).
-    "RitesOfBattle_ExtraDmg": RitesOfBattleExtraDmgEffect,
+    # AURA +dégât (Attack) du SOURCE Calgar (RitesOfBattleAbility @181225340) : 2 effets permanents
+    # mutuellement exclusifs par trait Imperial (26). Noms captés EXACTS = ...Basic (1002) / ...Imperial
+    # (1003) ; la classe lit le variant via self.name (endswith Imperial). Modélisée SOURCE-side
+    # (create_aura_attack_bonus, ré-évaluée par candidat) — cf. #49 prediction.md point 18.
+    "RitesOfBattle_ExtraDmgBasic": RitesOfBattleExtraDmgEffect,
+    "RitesOfBattle_ExtraDmgImperial": RitesOfBattleExtraDmgEffect,
     # Stat-mod +armure (FixedArmor) FLAT, SELF-buff extraArmor[level] (résidu 0 validable ; nom à confirmer).
     "StandVigil_ExtraArmor": StandVigilExtraArmorEffect,
     "RangedSpecialist": RangedSpecialistEffect,  # +33% dégât RANGED (trait, actif si pas parti adjacent)

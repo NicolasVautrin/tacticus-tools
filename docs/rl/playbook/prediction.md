@@ -957,6 +957,24 @@ config, pas un simple scalaire.
       Basic vs +946 Imperial → quelle variante `extraDmg`/`extraDmg_2`) + la portée exacte de l'aura (adjacence pure
       d1 ou range) via aiPredict par-tuile propre (predBase tile-scan bruité). Source/mécanisme = ACQUIS.
 
+19. **★★★ #49 IMPLÉMENTÉ + VALIDÉ (2026-07-05, re-expert @181225340 + oracle). ★★★** Spec native prouvée
+    (re-expert, décompilé) : `RitesOfBattleAbility.CreateBehaviour @181225340` → 2 `DynamicStatModifierEffect`
+    permanents sur Calgar ; `CreateTargetSelector` = `AdjacentUnits(1) @180de8320` (source exclue) →
+    `Friends @180df0040` → `With/WithoutTrait(0x1a=26)` (26 = Imperial, `GrandAlliance.GetTrait @1815647a0`,
+    ABSENT de gameconfig.traits → dérivé de GrandAllianceId) ; montant = `GetVariableForLevel(idx8→extraDmg |
+    idx9→extraDmg_2, niveau SOURCE) × mult SOURCE`. Mutuellement exclusifs ("instead"). **PORT (fidèle)** :
+    `RitesOfBattleExtraDmgEffect.create_aura_attack_bonus` (loki.py, SOURCE-side, gate adjacence+équipe+
+    faction, variant via `self.name` Basic/Imperial) ; agrégateur `aura_attack_bonus_from_allies`
+    (effects/__init__.py, mirror `aura_hits_malus_for_defense`) ; `make_normal_attack_predictions` base =
+    `GetStat(Attack, INITIAL) + Σ aura` (per-candidat). Factory : enregistrer les noms EXACTS
+    `RitesOfBattle_ExtraDmgBasic`/`...Imperial` (l'ancien `RitesOfBattle_ExtraDmg` ne matchait jamais →
+    effets = BaseEffect morts). Retiré `get_stat_modification_*` target-side (mauvais modèle : le porteur ne
+    se self-buff pas). **VALIDÉ** : u92 adj-Calgar base=4309, far=3011 (extraDmg_2[L50]×1.8=1298 EXACT) ;
+    Calgar own base=2811=Initial (pas de self-buff) ; seed31337 CLEAN=8/0 ; seed777 no-régression (résidu
+    u90→u86 = PowerTrip/armure, séparé). Généralisation restante (re-expert) : `Spotter_ExtraDmg`
+    (SurroundingUnits range config, trait 1001) même patron ; `StandVigil_ExtraDmg` à confirmer ; le `+400`
+    = une 2e aura non identifiée. `base=Initial` FIT SUPERSÉDÉ.
+
 **2ᵉ axe (séparé = #50)** : à armure égale (u82/u86 = 2008), per-coup oracle diffère (501 vs 752) → modifier
 DÉFENSEUR par-cible. **MAJ** : pour u86, le 752 = 501×1.5 (ÉLÉVATION depuis (6,4) elev3), pas un modif défenseur
 → ce cas u82/u86 est ÉLÉVATION, pas #50 (cf. bloc MOVE CONFIRMÉ).
