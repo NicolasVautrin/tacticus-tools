@@ -24,7 +24,7 @@ from .min_max_damage import MinMaxDamage
 from .damage_calculations import spread_to_min_max
 from .static_battle_rules import get_damage_with_piercing, get_piercing_ratio
 from .damage_modifiers import DamageModifiers, apply_all_modifiers
-from .trait_damage_limits import apply_trait_damage_limits_to_damage
+from .trait_damage_limits import apply_trait_damage_limits_to_damage, compute_prediction_overkill
 
 # StatType (dump.cs @863349)
 STAT_FIXED_ARMOR = 0x10        # 16
@@ -264,10 +264,19 @@ def predict_attack_raw(
         # offline (Impervious charge, member-count stat 20, boss 0x5d4) y sont des no-op documentés.
         _rem_lo = max(0, target_current_health - prev.health_min)
         _rem_hi = max(0, target_current_health - prev.health_max)
+        # Porte IsOverkill (@181032db0) : le natif calcule le flag UNE fois depuis la borne MIN (accum =
+        # (maxHP - curHP) + dmgMin) et l'applique aux 2 bornes (ApplyResilient(min,ovk)+ApplyResilient(max,
+        # ovk)). overkill=True => cap Resilient BYPASSE (l'unite meurt) => pas de HP-1. Fidele au live :
+        # over-kill massif -> skip (HP), modere -> cape (HP-1). max_health peuple par le vrai moteur
+        # (engine/ai/context.py observeBattle) ; None dans le harnais de sonde -> flag inerte (cap deja off).
+        _maxhp = int(target_limits.get("max_health") or 0)
+        _ovk = compute_prediction_overkill(_rem_lo, _maxhp, lo) if (lo and _maxhp > 0) else False
         if lo:
-            lo = apply_trait_damage_limits_to_damage(lo, current_health=_rem_lo, **target_limits)
+            lo = apply_trait_damage_limits_to_damage(lo, current_health=_rem_lo, overkill=_ovk,
+                                                     **target_limits)
         if hi:
-            hi = apply_trait_damage_limits_to_damage(hi, current_health=_rem_hi, **target_limits)
+            hi = apply_trait_damage_limits_to_damage(hi, current_health=_rem_hi, overkill=_ovk,
+                                                     **target_limits)
     health = calculate_damage_prediction_scenario(
         MinMaxDamage(min=lo, max=hi), prev_hits=0, profile_type=profile_type,
         reduction_min=reduction_min, reduction_max=reduction_max)

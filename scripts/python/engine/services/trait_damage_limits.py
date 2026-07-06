@@ -131,6 +131,34 @@ def is_overkill(current_health: int, damage: int, default_flag: int,
     return 0
 
 
+def _overkill_threshold_pct() -> int:
+    """Seuil % de la porte overkill du chemin PREDICTION. Le natif le lit dans le composant DI
+    `DamagePrediction+0x10 @0x34` (config asset-driven, PAS un litteral binaire ; VERDICT RE : borne live
+    (33,101]). On le source de gameconfig `overkillDmgPctOfHealth` (=100) : MEME global que le `is_overkill`
+    death-riposte (FinalJustice/TheBetrayer, meme fn native @181032db0), et == la borne live => HYPOTHESE
+    forte config-DI == overkillDmgPctOfHealth (les deux valent 100). Derivable offline, pas de hardcode."""
+    import gameconfig as GC
+    return int(GC.global_value("overkillDmgPctOfHealth") or 100)
+
+
+def compute_prediction_overkill(cur_hp: int, max_hp: int, dmg_min: int, *,
+                                suppress: bool = False, p12: int = 0) -> bool:
+    """Flag overkill du chemin PREDICTION — `ApplyTraitDamageLimitsToDamage @18102c650` calcule
+    `IsOverkill(maxHP, accum, ...) @181032db0` UNE fois depuis la borne **MIN** et le passe aux 2 bornes du
+    cap Resilient/member. accum = `(maxHP - curHP) + dmgMin (+p12)` ; base pct = maxHP (troncature Fix64).
+    Defauts bataille reelle (VERDICT RE) : cond=1, default=0, allow=0, global-override absent. `suppress` =
+    flag runtime BlockOverkill `HasFlag(target,0x13)` pose par `FuelledByFury_BlockOverkillEffect @180f4a7c0`
+    (effet Loki, normalement False -> derivable via la couche effets si un roster Loki entre en jeu).
+    Renvoie True => cap Resilient BYPASSE (l'unite meurt : dmg non cape a HP-1). Confirme live (u78 Resilient :
+    over-kill massif PV=10 -> skip=meurt=HP ; modere PV=4700/6000/6900 -> cape=HP-1)."""
+    if max_hp <= 0:
+        return False
+    accum = (max_hp - cur_hp) + dmg_min + p12
+    return bool(is_overkill(current_health=max_hp, damage=accum, default_flag=0, allow_flag=0,
+                            suppress=1 if suppress else 0, cond=1,
+                            threshold_pct=_overkill_threshold_pct()))
+
+
 def apply_trait_damage_limits_to_damage(
         dmg: int, *, is_special: int = 1,
         target_has_resilient: bool = False, target_has_impervious: bool = False,

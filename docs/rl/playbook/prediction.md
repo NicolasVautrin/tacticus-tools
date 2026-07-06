@@ -1116,8 +1116,26 @@ mapper l'`EffectType` enum → nom de clé BC (déjà aligné : `Enum.ToString`)
 - **Chemin code GetStuckIn en PRÉDICTION non localisé** : `AddBonusHitsToCurrentHitGroupBehaviour.Execute`
   @180f93410 fires=0 pendant le decisionView → les +2 coups passent par un chemin prédiction-spécifique
   encore non trouvé (le port reproduit le résultat, pas la voie exacte).
-- **Formules de cap par trait** `ApplyResilientTraitDamageLimit` / `ApplyImperviousTraitDamageLimit`
-  (scaffold) : à RE.
+- **Cap Resilient (#56) — PORTÉ + VALIDÉ bit-exact (chemin réel, porte `IsOverkill` INCLUSE).** RE complète
+  (`ApplyResilientTraitDamageLimit @18102c3a0` : cape à `curHP-1` si `HasTrait(0x3f1)` & `maxHP>1` & `curHP>0`
+  & **PAS overkill**) + confirmation live (build gqfc5mff6c, attaquant single-hit `custoVexilusPraetor` vs cible
+  `astraDreir` Resilient à PV forcés, hpmax injecté comme le vrai moteur) :
+  - **Cap appliqué (over-kill MODÉRÉ)** : dmgMin 4658 < curHP (PV 4700/6000/6900) → non-létal → cap → natif ET
+    port cappent à **PV-1** (4699/5999/6899) ; contrôle non-Resilient à **PV**. `scene.hpmax` doit être peuplé.
+  - **Cap BYPASSÉ (over-kill MASSIF)** : PV=10 vs dmg ~6988 (~70000 %) → `IsOverkill` renvoie 1 → natif ET port
+    donnent **10** (l'unité meurt). Avant la porte, le port donnait 9 (MISMATCH) ; APRÈS, bit-exact.
+  - **Porte `IsOverkill` portée** : `compute_prediction_overkill` (`trait_damage_limits.py`) = mirror de
+    `IsOverkill @181032db0` appelée par `ApplyTraitDamageLimitsToDamage @18102c650` — `accum = (maxHP-curHP)+
+    dmgMin`, flag calculé UNE fois depuis la borne **min** et appliqué aux 2 bornes ; `cond=1/default=0/allow=0/
+    global-override absent` (défauts bataille réelle, VERDICT RE agent). **Seuil = `gameconfig.overkillDmgPctOf
+    Health` (=100)** = même global que le `is_overkill` death-riposte (FinalJustice) → dérivable offline, pas de
+    hardcode (identité config-DI `comp@0x34` == overkillDmgPctOfHealth = HYPOTHÈSE forte, les deux valent 100 ;
+    borné live à (33,101]). Wiring dans `predict_attack_raw` (`overkill=_ovk` aux 2 apply). `suppress` (flag
+    BlockOverkill 0x13, `FuelledByFury_BlockOverkillEffect @180f4a7c0`) = no-op par défaut (dérivable via effets
+    si roster Loki). ⚠ **Inerte dans le harnais de sonde `predict_samples`** (`scene.hpmax=None`→`max_health=0`),
+    ACTIF dans le vrai moteur (`engine/ai/context.py::build` injecte `hpmax_by_id` via `observeBattle`).
+- **`ApplyImperviousTraitDamageLimit`** (scaffold) : formule RE'd (charge < 1 OU < 100 -> dégât 0) mais
+  charge Impervious non captée offline -> no-op.
 - **Couche trait-direct du raw prediction** (hit-twice 0x3f5, lasCannon-pierce, triple-hit 0x4b6/var 0x51,
   GroupUnit caps) : cartographiée (§6) mais **non portée** dans `get_attack_prediction`.
 - **Arrays statiques** : enum `AbilityVariableType` ABSENT du dump `enums.json` (7 groupes seulement) →
