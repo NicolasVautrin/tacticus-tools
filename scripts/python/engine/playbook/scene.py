@@ -36,6 +36,69 @@ class Scene:
     #                                                    # engine.entities.pathfinding.board ; None → evenq
 
     @classmethod
+    def from_state(cls, state) -> "Scene":
+        """Construit la Scene DIRECTEMENT depuis un `State` runner (offline, SANS RPC/combatSnapshot).
+
+        C'est la moitié « prédiction » du bridge `State -> AiDecisionContext` (#65) : le `StatsComponent.ctx`
+        d'une unité EST le même `UnitContext` que `build_predictor` cache (via `from_snapshot`) ; `State.effects`
+        EST l'`EffectsState` seed ; `State.board` fournit élévation + adjacence hex. Donc `predictor`/`sctx`
+        deviennent inutiles (le spine de décision ne lit QUE `ctx.scene`). Armure/bouclier = valeurs LIVE des
+        composants (plus fidèle que le cold `refresh_shields` par-pas). Inclut les corpses (comme dv.units) ;
+        les tables per-unité ne couvrent que les entités à `StatsComponent`."""
+        from ..runner.components import (StatsComponent, OwnerComponent, PositionComponent,
+                                         HealthComponent, UnitComponent, ShieldComponent,
+                                         EffectsOwnedComponent)
+        ctx_by_id, armor_by_id, shield_by_id, mult_by_id, ablvl_by_id, vis_by_id = {}, {}, {}, {}, {}, {}
+        hp_by_id, hpmax_by_id, pos_by_id, team_by_id = {}, {}, {}, {}
+        units: list = []
+        for eid, e in state.entities.items():
+            uc = e.get_component(UnitComponent)
+            sc = e.get_component(StatsComponent)
+            oc = e.get_component(OwnerComponent)
+            pc = e.get_component(PositionComponent)
+            hc = e.get_component(HealthComponent)
+            ec = e.get_component(EffectsOwnedComponent)
+            shc = e.get_component(ShieldComponent)
+            if uc is None:
+                continue
+            vis = uc.visual_id if uc else None
+            pos = (pc.col, pc.row) if pc is not None else None
+            if sc is not None:                                    # tables prédiction : entités à ctx
+                ctx = sc.ctx
+                ctx_by_id[eid] = ctx
+                armor_by_id[eid] = int(ctx.fixed_armor)
+                mult_by_id[eid] = int(ctx.ability_variables_multiplier or 100)
+                ablvl_by_id[eid] = int(ctx.passive_ability_level or 0)
+            shield_by_id[eid] = shc.get_total_shield() if shc is not None else 0
+            vis_by_id[eid] = vis
+            if hc is not None:
+                hp_by_id[eid] = hc.hp
+                hpmax_by_id[eid] = hc.hp_max
+            if pos is not None:
+                pos_by_id[eid] = pos
+            if oc is not None:
+                team_by_id[eid] = oc.team
+            units.append({
+                "id": eid, "visualId": vis, "alive": bool(uc.alive),
+                "team": oc.team if oc is not None else None,
+                "pos": {"col": pos[0], "row": pos[1]} if pos is not None else None,
+                "hp": hc.hp if hc is not None else None,
+                "effects": list(ec.effects) if ec is not None else [],
+            })
+        elev_by_pos = None
+        board = getattr(state, "board", None)
+        if board is not None:
+            elev_by_pos = {(t.get("col"), t.get("row")): int(t.get("elevation") or 0)
+                           for t in board.by_id.values()
+                           if t.get("col") is not None and t.get("row") is not None}
+        return cls(
+            ctx_by_id=ctx_by_id, armor_by_id=armor_by_id, shield_by_id=shield_by_id,
+            mult_by_id=mult_by_id, ablvl_by_id=ablvl_by_id, vis_by_id=vis_by_id,
+            units=units, hp_by_id=hp_by_id, pos_by_id=pos_by_id, team_by_id=team_by_id,
+            eff_state=getattr(state, "effects", None), hpmax_by_id=hpmax_by_id,
+            elev_by_pos=elev_by_pos, board=board)
+
+    @classmethod
     def from_predictor_sctx(cls, predictor: dict, sctx: dict, elev_by_pos: dict | None = None,
                             board: object | None = None) -> "Scene":
         """Bridge des dicts de l'ancien PV vers l'objet Scene (mêmes données, forme objet)."""

@@ -141,7 +141,10 @@ class SpawnUnitOperation:
             tiles = _free_tiles_adjacent(state, target_id, chosen)
             tile = _pick_randomly(state, tiles)
             e = state.add_entity()                           # id auto (≠ live ; confront par vis/team/pos)
-            e.add_component(UnitComponent(visual_id=visual_id, alive=True))
+            # ai_controlled=True : un summon est joué par l'IA au turn-start de sa team (même sur une team
+            # joueur) — mirroir du flag per-unité runtime de `IsPlayerAiControlled` @1804d7b10 posé à
+            # l'invocation. C'est ce qui l'inclut dans la passe AI-control du `StartTurnOperation`.
+            e.add_component(UnitComponent(visual_id=visual_id, alive=True, ai_controlled=True))
             e.add_component(OwnerComponent(team=coc.team, player=coc.player))   # CopyOwner
             ctx = build_summon_context(e.id, visual_id, summon_ability, level, mult)
             e.add_component(StatsComponent(ctx=ctx))

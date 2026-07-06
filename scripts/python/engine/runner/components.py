@@ -18,12 +18,20 @@ if TYPE_CHECKING:
 
 class UnitComponent(Component):
     """Identité d'unité — `UnitComponent` @180facf20 / `BaseUnitComponent` @180f96380.
-    `visual_id` = id visuel (ex. 'necroNpc1Warrior'), `alive` = vivante."""
-    __slots__ = ("visual_id", "alive")
+    `visual_id` = id visuel (ex. 'necroNpc1Warrior'), `alive` = vivante.
 
-    def __init__(self, visual_id: Optional[str], alive: bool):
+    `ai_controlled` = l'unité est jouée par l'IA au turn-start de sa team, MÊME sur une team
+    par ailleurs contrôlée par le joueur (cas des SUMMONS). Mirroir du flag per-unité runtime lu par
+    `IdunGameViews.IsPlayerAiControlled` @1804d7b10 (SortedDictionary +0x18==1 → AI-contrôlé ; posé
+    quand l'unité est invoquée). N'est PAS un trait gameconfig — c'est un état runtime posé au spawn
+    (cf. `SpawnUnitOperation`). Une unité d'une team entièrement-IA est de toute façon jouée par l'IA
+    (type player 2) ; ce flag cible le cas summon-sur-team-joueur."""
+    __slots__ = ("visual_id", "alive", "ai_controlled")
+
+    def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False):
         self.visual_id = visual_id
         self.alive = alive
+        self.ai_controlled = ai_controlled
 
 
 class OwnerComponent(Component):

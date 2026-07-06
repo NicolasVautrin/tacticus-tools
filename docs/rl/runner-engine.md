@@ -483,3 +483,104 @@ Chaque tranche = RE ghidra → port 1:1 → test d'agrément vs live (replay-dif
   amorcées par ce cas.
 - Paquet : `scripts/python/engine/runner/`. Port BC→Initialize (indépendance totale)
   différé (l'état initial est chargé depuis le live = ground-truth-first).
+
+## Summon turn-start auto-play (#65) — CONFIRMÉ live + mécanisme RE'd (build gqfc5mff6c)
+
+**Vérité-terrain (live) :** les summons jouent SEULS au début du tour de leur team. Scénario :
+`rl_duel build --p-units astraYarrick,astraCreed --a-units custoVexilusPraetor,custoTrajann` (seed 555) ;
+driver Yarrick adjacent à un ennemi ; `applyAction {kind:ability, casterId:82, targetId:78, abilityType:1016}`
+(SendInTheNextWave cible un ENNEMI, spawn 2× `astraNpc1Guardsman` team-du-caster adjacents à la cible,
+attaque on-appearance −620). Puis endturn team1 → endturn team2 **passif** (garder les Cadiens vivants) →
+**au turn-start de team1, AVANT que le contrôleur agisse, les Cadiens ont bougé SEULS** (repositionnés).
+
+**Mécanisme (RE, ce N'EST PAS un triggered ability) :**
+- Le **trigger-trace** (hook `BaseTriggeredAbility.ShouldTrigger`) ne capture pour les Cadiens que des
+  `PreUnitMove` (réactions à LEUR move) + des env-effects — **AUCUN trigger turn-start summon**.
+- `StartTurnOperation.Execute @180ea3fb0` NE joue PAS les summons (reset `ActorStatistics`
+  attacks/blocks/damage-this-turn + itère `CurrentlyOwnedUnitIds` + `RemoveTurnFlags` + émet events
+  `0x12..0x16` + drafting `BlockDrafting`/`EnableDrafting`).
+- L'auto-play = **passe AI-control du runner APRÈS StartTurn** : `IdunGameViews.IsPlayerAiControlled
+  @1804d7b10` + les summons ont leur **propre playbook** dans `IdunBattle.AI.Playbook` (ex.
+  `ScarabSummonPlaybook @181159380`). Les summons sont des **unités AI-contrôlées** jouées par l'IA
+  au turn-start de leur team, AVANT que le joueur contrôle le reste.
+- **On-appearance selector = `ActiveTarget`** (`PerformAIAttack(param_2 = DSLFactory+0x180)`,
+  `PerformAIAbilityUnitBehaviour.Execute @180fcb070` = routine IA mono-unité cible→move→attaque).
+  Carte des `TargetsSelector` cachés du `DSLFactory` (dump.cs, réutilisable) : `0x148 Owner · 0x150 Effect
+  · 0x158 Actor · 0x160 Caster · 0x168 CasterTile · 0x170 CasterTiles · 0x178 Target · 0x180 ActiveTarget
+  · 0x188 PreviousActiveTarget · 0x190 TargetTiles · 0x198 UnitFeetTiles`.
+
+**PORT #65 (net) :** le `StartTurnOperation` offline doit, APRÈS `start_turn_triggers`, lancer une **passe
+AI-control sur les unités AI-contrôlées de la team courante** (= les summons) — chaque summon → décision
+playbook → move+attaque → apply — AVANT de rendre la main au contrôleur.
+
+⚠ CORRECTION post-RE (2026-07-06) : l'identification d'un summon N'EST PAS « trait Summon=2 » (hypothèse
+pré-compact FAUSSE). Le natif utilise un **flag runtime per-unité** lu par `IsPlayerAiControlled`
+(SortedDictionary `+0x18==1`), posé à l'invocation — pas un trait gameconfig. Le caller RE'd =
+`IdunGameViews.QueueComputerActions @1804d90d0` (`type player==2` = team entièrement-IA ; sinon flag
+per-unité summon) ; la routine de décision = `PerformAIAbilityUnitBehaviour.Execute @180fcb070` (énumère
+les cibles du sélecteur +0x50 → per-cible génère un candidat move(+0x60)+attaque(+0x78), msg 0x37/0x38 →
+utility-argmax downstream). ⇒ c'est le PLAYBOOK COMPLET (sélection de cible utility-based), pas une routine
+« plus proche ennemi ».
+
+**Décision utilisateur (2026-07-06) : porter le PLAYBOOK COMPLET** (pas la réduction target→move→attaque).
+Chemin natif exact = au turn-start, invoquer la décision playbook du summon (`DefaultAiUnitTactic.
+calculate_next_action` déjà porté dans `engine/ai/`). Sous-chantier = **bridge `State → AiDecisionContext`** :
+le décideur `calculate_next_action(ctx)` ne consomme QUE un `AiDecisionContext` ; aujourd'hui `context.build`
+le remplit via RPC live (decisionView/observeBattle/tileMeta/pathDistToEnemies/aiMovableTiles/combatSnapshot).
+Il faut un `build_from_state(state, uid) -> AiDecisionContext` qui dérive TOUS les champs du runner `State`
+(sans RPC) — les 2 champs durs = `plans` (attackPlans générés offline) et `scene`/`predictor` (prédicteur
+offline depuis le `UnitContext`/`StatsComponent` du State au lieu de `combatSnapshot`).
+
+**FAIT (slice 1, offline-smoke OK) :**
+- `UnitComponent.ai_controlled` (flag runtime, mirror `IsPlayerAiControlled`) + `SpawnUnitOperation` le pose
+  sur chaque summon spawné.
+- `Scene.from_state(state)` (`engine/playbook/scene.py`) : Scene de prédiction 100% depuis les composants
+  (`StatsComponent.ctx` == UnitContext ; `State.effects` == EffectsState ; `State.board` = élévation). Le
+  spine ne lit QUE `ctx.scene` (jamais `predictor`/`sctx`, morts).
+- `build_from_state(state, uid) -> AiDecisionContext` (`engine/ai/state_bridge.py`) : bridge offline complet.
+  Champs durs : `plans` = énumération offline (par ability d'attaque × ennemi → SET de tuiles-caster légales,
+  portée = max Range d'arme ; ordre indifférent car argmax strict) ; `ability_targets` = no-op (SLICE 2 :
+  seuls heal/repair/summon/Nova l'utilisent). Normal attack = id synthétique 17 (le concret per-unité est un
+  état runtime non-gameconfig, INUTILE : prédiction lit l'arme du ctx, apply = AttackUnitMessage sans id).
+  Gaps no-op documentés : `is_temporary_by_pos`/`effects_by_pos` = {} ; `pathdist_by_pos` = BFS multi-source
+  approx (fallback hex dans best_move).
+- `run_ai_control_pass(state, player)` (`engine/runner/operations/summon_ai.py`) : collecte les unités
+  `ai_controlled` vivantes du player, décision playbook (`DefaultAiUnitTactic.calculate_next_action`) → apply
+  (move via `MoveUnitOperation`+after-move ; attaque normale via `AttackDamageOperation`+after-hit — mirror
+  exact de `visit_AttackUnitMessage`). Ordre = id (PickNextUnit = raffinement).
+- Wiré dans `StartTurnOperation.execute` APRÈS `start_turn_triggers`. No-op si la team n'a aucun summon
+  (aucune régression turn-flow).
+- **Smoke offline (board ligne, Cadien summon col 0 + ennemi col 5) : le Cadien MOVE (0,0)->(3,0) pour mettre
+  son Las à portée (dist 2) puis ATTAQUE (2 coups, ranged) — décision full-playbook cohérente.**
+
+**VALIDÉ LIVE (bridge-equivalence, seed 777) :** `calculate_next_action(build_from_state(state,uid))` ==
+`engine_decide(...)` (RPC-fed) sur un runner live — MÊME moteur, entrée reconstruite du State ⇒ tout écart =
+infidélité du bridge. Résultat sur les unités de la team courante : **SLICE-1 (move) 3/3 EXACT** (u88/u90/u94,
+dont u94 `templChampion` mr=4 ⇒ preuve que le bridge lit le STAT movement live, pas gameconfig=3). Exclus
+(hors #65, attendus) : u96 `darkaTerminator` = **Teleport/non-Walk** (le flood Walk ne peut PAS le reproduire —
+limitation partagée avec le port pathfinding ; les summons sont Walk) ; u92 `genesBiophagus` = **caster
+d'ability spéciale** (SLICE 2 — les `plans` offline n'énumèrent que l'attaque normale).
+
+**FIX clé (trouvé par le bridge-equivalence) :** `_move_range` lit d'abord le STAT `MOVEMENT` (effet-inclusif)
+puis fallback gameconfig `Movement` (le summon offline n'a pas de combatSnapshot ⇒ base = bonne portée). Avant
+le fix, gameconfig `Movement`=3 fixe donnait un `move_tiles` sous-ensemble strict du natif (u94 devait avoir 4).
+
+**Yarrick END-TO-END live (tenté) — CONFONDU, pas un pass/fail propre :** build Yarrick vs Custodes, drive
+Yarrick à portée, cast `SendInTheNextWave` -> 2 `astraNpc1Guardsman` spawnés adjacents à l'ennemi. Constats :
+(1) `aiStepDryRun` active l'ENNEMI (u78), PAS un Cadien ⇒ **le summon NE surface PAS dans l'aiStep** (il joue
+via la coroutine View `QueueComputerActions`, confirmant la RE) ; (2) l'état capturé post-cast est en FLUX
+(les Cadiens ont déjà agi ON-APPEARANCE, le tour bascule vers team2) ⇒ `engine_decide` (RPC-fed) rend `stay`
+et l'offline rend un kite-Las, mais les DEUX portent sur une unité déjà-agie ce tour = **baseline non
+interprétable**. Le clean « action turn-start summon natif vs offline » exigerait l'état PRÉ-turn-start, que
+l'API live n'expose pas proprement (le natif joue le summon automatiquement au flip). ⇒ **abandonné comme
+métrique** ; la fidélité de décision reste couverte par le bridge-equivalence (3/3 Walk) + le smoke.
+
+**Vérif offline complémentaire (summon adjacent à un ennemi) :** un Cadien (arme Las range 2, 2 coups + Physical
+mêlée 1 coup) à côté d'un ennemi **kite en dist 2 pour tirer au Las (2 coups)** au lieu de rester en mêlée
+(1 coup) — comportement RANGÉ correct (maximise les coups + évite la riposte mêlée), PAS un bug. (L'attente
+« attaque sur place » était fausse pour une unité rangée.)
+
+**RESTE :** SLICE 2 = abilities ACTIVES : (a) `plans` des abilities d'ATTAQUE actives (au-delà de l'attaque
+normale) via leur portée ; (b) énumérateur `ability_targets` offline (heal/repair/summon/Nova) ; (c) apply des
+abilities actives via le handler (seules 4 portées ; sinon no-op). Gap connu : un summon présent DÈS la capture
+(snapshot.py) n'est pas marqué `ai_controlled` — raffinement.

@@ -89,13 +89,21 @@ class StartTurnOperation:
     """`StartTurnOperation.Execute` @180ea3fb0 (squelette fidele) : incremente le compteur de tours du
     joueur (TurnComponent.turnsStarted, dict @+0x38) puis emet la sequence d'events 0x12..0x16 ; ici on
     tire le vecteur turn-start `On(0x16)` deja porte (`start_turn_triggers` -> ex. TheBetrayer auto-tour).
-    Les resets per-unite natifs (ActorStatistics/UnitFlags) ne sont pas suivis offline (cf. en-tete)."""
+    Les resets per-unite natifs (ActorStatistics/UnitFlags) ne sont pas suivis offline (cf. en-tete).
+
+    APRES les triggers turn-start : passe AI-control (`run_ai_control_pass`) — joue les summons
+    (`ai_controlled`) de la team courante via le playbook complet AVANT que le controleur agisse. Mirror de
+    `IdunGameViews.QueueComputerActions @1804d90d0` (cf. summon_ai / docs/rl/runner-engine.md #65). No-op si
+    la team n'a aucun summon (aucune regression turn-flow)."""
     __slots__ = ()
 
     @staticmethod
     def execute(state: State, player: int) -> list[dict]:
         state.turn_counts[player] = state.turn_counts.get(player, 0) + 1
-        return start_turn_triggers(state, player)
+        out = start_turn_triggers(state, player)
+        from .summon_ai import run_ai_control_pass         # lazy : evite le cycle turnflow<->summon_ai
+        out = out + run_ai_control_pass(state, player)
+        return out
 
 
 class EndTurnOperation:
