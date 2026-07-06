@@ -104,10 +104,39 @@ def apply_action(state: State, uid: int, action: dict) -> dict:
                 res["after_hit"] = after_hit_normal_attack(
                     state, uid, target, bool(r.get("ranged")), r.get("profile"),
                     is_crit=bool(r.get("did_crit")))
-        elif target is not None or ability is not None:
-            from ..abilities.handler import AbilityHandler
-            from ..messages import ActiveAbilityMessage
-            AbilityHandler(state).visit_ActiveAbilityMessage(
-                ActiveAbilityMessage(uid, target, ability))
-            res["attack"] = {"ability": ability, "target": target, "routed": "handler"}
+        elif ability is not None:
+            res["attack"] = _apply_active_ability(state, uid, target, ability)
     return res
+
+
+def _apply_active_ability(state: State, uid: int, target: Optional[int], ability: int) -> dict:
+    """Apply d'une ability ACTIVE décidée (SLICE 2). Ordre : (1) port DÉDIÉ via le `AbilityHandler`
+    (CrushingClaws splash 1105, ScarabHive spawn 1007, ThunderousAssault 1043, GravitonRifle 1206 — sa
+    behaviour propre prime) ; sinon (2) attaque active SANS port dédié -> chemin GÉNÉRIQUE déjà porté
+    `execute_ability_attack` (mirror `AttackWithAttackDamage`), config résolue par `ability_attack_params` ;
+    sinon (3) no-op (ability non-attaque non portée -> DÉCISION produite, EXÉCUTION offline manquante)."""
+    from ..abilities.handler import AbilityHandler
+    from ..messages import ActiveAbilityMessage
+    from ..abilities.base import ability_attack_params
+    from .damage import AttackDamageOperation
+    h = AbilityHandler(state)
+    h.visit_ActiveAbilityMessage(ActiveAbilityMessage(uid, target, ability))
+    if h.last and h.last.get("ported"):
+        return {"ability": ability, "target": target, "routed": "handler", "diag": h.last}
+    if target is not None and _is_active_attack_ability(ability):
+        from engine.ai.state_bridge import _resolve_ability
+        _name, cfg = _resolve_ability(ability)
+        profile = (cfg.get("constants") or {}).get("damageProfile")
+        ranged = (cfg.get("attackRangeType") == "Ranged")
+        bmin, bmax, pierce, hits = ability_attack_params(state, uid, _name, profile, ranged=ranged)
+        r = AttackDamageOperation.execute_ability_attack(state, uid, target, bmin, bmax, pierce, hits)
+        return {"ability": ability, "target": target, "routed": "generic_attack", "result": r}
+    return {"ability": ability, "target": target, "routed": "noop"}
+
+
+def _is_active_attack_ability(ability_id: int) -> bool:
+    """ATTAQUE active (a un `damageProfile`, non-NonComparable) — délègue au classifieur partagé du bridge
+    (source unique, pas de duplication de la classification gameconfig)."""
+    from engine.ai.state_bridge import _resolve_ability, _is_attack_ability
+    _n, cfg = _resolve_ability(ability_id)
+    return _is_attack_ability(ability_id, cfg)

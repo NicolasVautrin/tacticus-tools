@@ -10,11 +10,13 @@ Faits cles (map de la passe RE / agent) :
  - Le spine ne lit QUE `ctx.scene` pour la prediction (jamais `predictor`/`sctx`) et `ctx.cur` est mort.
  - `scene = Scene.from_state(state)` : le `StatsComponent.ctx` d'une unite EST le meme `UnitContext` que le
    predicteur cache ; `State.effects` EST l'`EffectsState` ; `State.board` = elevation + adjacence hex.
- - `plans` = enumeration offline {uid: {evals:[{abilityId,targetId,rankCount,ranked:[{col,row}]}]}}.
-   L'ORDRE de rank est INDIFFERENT : `_best_attack` fait un argmax STRICT sur le SET de tuiles atteignables
-   -> on n'a pas a porter le heuristique `GetBest`, seulement le SET (tuiles de move d'ou l'attaque est legale).
- - `ability_targets` = fermeture no-op (retourne vide) : SEULS heal/repair/summon/Nova l'utilisent ; un summon
-   a attaque-normale (Cadien) n'en a pas besoin (SLICE 1). SLICE 2 = enumerateur de cibles offline.
+ - `plans` = enumeration offline {uid: {evals:[{abilityId,targetId,rankCount,ranked:[{col,row}]}]}} pour
+   l'attaque normale ET les abilities ACTIVES d'attaque (SLICE 2). L'ORDRE de rank est INDIFFERENT :
+   `_best_attack` fait un argmax STRICT sur le SET de tuiles atteignables -> on n'a pas a porter le heuristique
+   `GetBest`, seulement le SET (tuiles de move d'ou l'attaque est legale, portee = `_ability_reach`).
+ - `ability_targets` (SLICE 2) = `ability_targets_offline` (heal/repair/summon/Nova) : enumere l'UNION des cibles
+   legales sur toutes les tuiles-caster, mirror `GetAllValidTargetsFromAllPossibleMovementTiles @18111e890` /
+   `GetEligibleTargetsSelectable @18111f0d0` (kind/portee derives de gameconfig, cf. `_ability_kind`).
 
 Attaque normale : son ActiveAbilityType CONCRET per-unite (Loki_NormalAttack=69, ...) est un etat RUNTIME
 (`ActiveAbilityComponent.NormalAttackType`) NON derivable de gameconfig -> on utilise l'id SYNTHETIQUE 17
@@ -153,31 +155,168 @@ def _pathdist_to_enemies(state, uid: int, my_team: int, enemy_positions: list) -
     return {board.coord(t): d for t, d in level.items()}
 
 
+# --- Classification d'ability (SLICE 2) — mirror TargetingQuery.GetRange @1810bd670 + le TargetsSelector DSL
+#     par-ability (kind non-gameconfig -> derive de la SIGNATURE des constants, exact pour attack/heal/repair/
+#     summon, heuristique self pour le residuel). Portee = constants.range sinon attackRangeType sinon arme. ----
+HEAL_ABILITY_IDS = frozenset({18, 1167, 1212})       # Heal / Heal_TwistedScience / HealingBalms_Heal
+REPAIR_ABILITY_IDS = frozenset({28, 1119})           # Repair (+ variante)
+
+
+def _resolve_ability(ability_id: int):
+    """(name, cfg) d'une ability : name via l'enum `ACTIVE_ABILITY_TYPE` (id->nom), cfg via gameconfig."""
+    import enum_maps as EM
+    name = EM.ACTIVE_ABILITY_TYPE.get(int(ability_id))
+    return (name or ""), (GC.ability(name) if name else None) or {}
+
+
+def _is_attack_ability(ability_id: int, cfg: dict) -> bool:
+    """ATTAQUE (produit du degat) ssi `constants.damageProfile` present ET l'ability n'est PAS deja routee
+    vers un playbook NonComparable (NovaBoost/NovaShield portent un damageProfile mais sont buff/tile)."""
+    if not (cfg.get("constants") or {}).get("damageProfile"):
+        return False
+    from engine.playbook.noncomparable import is_noncomp
+    return not is_noncomp(int(ability_id))
+
+
+def _ability_reach(vid: str, ability_id: int, cfg: dict) -> int:
+    """Portee de l'ability (mirror `TargetingQuery.GetRange` @1810bd670) : `constants.range` si present, sinon
+    `attackRangeType` (Melee->1 ; Normal/Ranged->portee arme), sinon portee arme. (Le +GetStat(0x18) ranged-bonus
+    et le clamp effet 0x529 = raffinements runtime non portes.)"""
+    c = cfg.get("constants") or {}
+    if c.get("range") is not None:
+        return int(c["range"])
+    if cfg.get("attackRangeType") == "Melee":
+        return 1
+    return _max_attack_range(vid)
+
+
+def _ability_kind(ability_id: int, name: str, cfg: dict) -> str:
+    """KIND de cible derive offline : 'enemy' (attaque) / 'ally' (heal) / 'machine' (repair) / 'tile' (summon)
+    / 'self' (residuel). Cf. §2(c) de la RE : exact pour les 4 premieres, defaut self pour le reste."""
+    c = cfg.get("constants") or {}
+    if _is_attack_ability(ability_id, cfg):
+        return "enemy"
+    if int(ability_id) in HEAL_ABILITY_IDS or "Heal" in (name or ""):
+        return "ally"
+    if int(ability_id) in REPAIR_ABILITY_IDS or "Repair" in (name or ""):
+        return "machine"
+    if c.get("unitId") and not c.get("damageProfile"):
+        return "tile"
+    return "self"
+
+
+def _attack_abilities(vid: str) -> list:
+    """[(ability_id, reach)] des abilities d'ATTAQUE de l'unite : l'attaque normale (17, portee=max arme) + chaque
+    active a `damageProfile` (non-NonComparable), portee = `_ability_reach`."""
+    out = [(NORMAL_ATTACK_ID, _max_attack_range(vid))]
+    for aid, _name in _abilities_of(vid):
+        if aid == NORMAL_ATTACK_ID:
+            continue
+        _n, cfg = _resolve_ability(aid)
+        if _is_attack_ability(aid, cfg):
+            out.append((aid, _ability_reach(vid, aid, cfg)))
+    return out
+
+
 def _plans_for_unit(uid: int, vid: str, origin: tuple | None, move_tiles: list,
                     enemies: list) -> dict:
-    """Enumere le `plan` d'attaque de `uid` : pour chaque (ability d'attaque, ennemi), le SET de tuiles-caster
+    """Enumere le `plan` d'attaque de `uid` : pour chaque (ability d'ATTAQUE, ennemi), le SET de tuiles-caster
     (origine + tuiles de move) d'ou l'attaque est legale (dist hex <= portee de l'ability). Forme mirroir de
     `decisionView.attackPlans[uid]` REDUITE a ce que le spine lit (`_best_attack` : abilityId/targetId/rankCount/
     ranked[(col,row)] ; les nombres de degat sont debug-only). Ordre de `ranked` indifferent (argmax strict).
 
-    SLICE 1 : seule l'ATTAQUE NORMALE est enumeree (portee = max Range d'arme). Les abilities actives d'attaque
-    (DefaultActiveAbilityPlaybook) = SLICE 2 (necessite leur portee/ciblage propre)."""
-    reach = _max_attack_range(vid)
+    SLICE 2 : attaque normale (portee=max arme) + abilities ACTIVES d'attaque (portee propre `_ability_reach`)."""
     cand_tiles = [(t["col"], t["row"]) for t in move_tiles]
     if origin is not None:
         cand_tiles.append(origin)
     evals: list = []
-    for en in enemies:
-        ep = en.get("pos")
-        if not ep:
-            continue
-        epos = (ep["col"], ep["row"]) if isinstance(ep, dict) else (ep[0], ep[1])
-        ranked = [{"col": c, "row": r} for (c, r) in cand_tiles
-                  if hexgeo.distance((c, r), epos) <= reach]
-        if ranked:
-            evals.append({"abilityId": NORMAL_ATTACK_ID, "targetId": en.get("id"),
-                          "rankCount": len(ranked), "ranked": ranked})
+    for (aid, reach) in _attack_abilities(vid):
+        for en in enemies:
+            ep = en.get("pos")
+            if not ep:
+                continue
+            epos = (ep["col"], ep["row"]) if isinstance(ep, dict) else (ep[0], ep[1])
+            ranked = [{"col": c, "row": r} for (c, r) in cand_tiles
+                      if hexgeo.distance((c, r), epos) <= reach]
+            if ranked:
+                evals.append({"abilityId": aid, "targetId": en.get("id"),
+                              "rankCount": len(ranked), "ranked": ranked})
     return {"evals": evals}
+
+
+def _is_machine(entity) -> bool:
+    """Unite MACHINE (cible du repair) — trait `Mechanical` du gameconfig. Fallback True si indeterminable
+    (le repair est dormant ; sur-emettre = filtre downstream)."""
+    sc = entity.get_component(StatsComponent)
+    traits = (sc.ctx.traits if sc is not None else None) or []
+    return "Mechanical" in traits
+
+
+def ability_targets_offline(state, uid: int, ability_id: int) -> dict:
+    """`BasePlaybook.GetAllValidTargetsFromAllPossibleMovementTiles @18111e890` / `BattleQuery @18105d700` /
+    `GetEligibleTargetsSelectable @18111f0d0` — enumerateur de ciblage OFFLINE (SLICE 2). Renvoie l'UNION des
+    cibles legales sur toutes les tuiles-caster (origine + move) au format du RPC `abilityTargets` que le seam
+    `AiDecisionContext.ability_targets` consomme :
+      {units:[{unitId, abilities:[{abilityId, targets:[{kind:'unit'|'tile', targetId, tile:{col,row}}]}]}]}
+    kind emis = 'unit' (enemy/ally/machine/self) ou 'tile' (summon). Portee/kind via la classification gameconfig
+    (`_ability_kind`/`_ability_reach`). Reutilise `_move_tiles`/`_occupants`/board/hexgeo (aucun code board neuf)."""
+    me = state.get_entity(uid)
+    if me is None:
+        return {"units": []}
+    oc = me.get_component(OwnerComponent)
+    pc = me.get_component(PositionComponent)
+    uco = me.get_component(UnitComponent)
+    my_team = oc.team if oc is not None else None
+    vid = uco.visual_id if uco is not None else ""
+    origin = (pc.col, pc.row) if pc is not None else None
+    name, cfg = _resolve_ability(ability_id)
+    kind = _ability_kind(ability_id, name, cfg)
+    reach = _ability_reach(vid, ability_id, cfg) if kind in ("enemy", "ally", "machine") else 1
+    reach_tiles = [(t["col"], t["row"]) for t in _move_tiles(state, uid, vid, my_team, origin)]
+    if origin is not None:
+        reach_tiles.append(origin)
+    targets: list = []
+    board = state.board
+    if kind == "self":
+        targets.append({"kind": "unit", "targetId": uid,
+                        "tile": {"col": origin[0], "row": origin[1]} if origin else None})
+    elif kind in ("enemy", "ally", "machine"):
+        for eid, e in state.entities.items():
+            u = e.get_component(UnitComponent)
+            o = e.get_component(OwnerComponent)
+            p = e.get_component(PositionComponent)
+            if u is None or not u.alive or o is None or p is None:
+                continue
+            is_ally = (o.team == my_team)
+            if kind == "enemy" and is_ally:
+                continue
+            if kind in ("ally", "machine") and not is_ally:
+                continue
+            if kind == "machine" and not _is_machine(e):
+                continue
+            tp = (p.col, p.row)
+            if eid == uid or any(hexgeo.distance(T, tp) <= reach for T in reach_tiles):
+                targets.append({"kind": "unit", "targetId": eid,
+                                "tile": {"col": tp[0], "row": tp[1]}})
+    elif kind == "tile" and board is not None:
+        occupied = {(p.col, p.row) for e in state.entities.values()
+                    for p in (e.get_component(PositionComponent),)
+                    for u in (e.get_component(UnitComponent),)
+                    if p is not None and (u is None or u.alive)}
+        seen: set = set()
+        for T in reach_tiles:                                    # spawn adjacent (ring-1) a une tuile-caster
+            ttile = board.id_at(T[0], T[1])
+            if ttile is None:
+                continue
+            for n in board.neighbours(ttile):
+                col, row = board.coord(n)
+                if (col, row) in seen or (col, row) in occupied:
+                    continue
+                if not board.by_id.get(n, {}).get("walkable", True):
+                    continue
+                seen.add((col, row))
+                targets.append({"kind": "tile", "targetId": None, "tile": {"col": col, "row": row}})
+    return {"units": [{"unitId": uid, "abilities": [{"abilityId": int(ability_id), "targets": targets}]}]}
 
 
 def _dv_units(state) -> list:
@@ -269,8 +408,15 @@ def build_from_state(state, uid: int, debug: bool = False):
     pathdist_by_pos = _pathdist_to_enemies(state, uid, my_team, epos)
     plans = {uid: _plans_for_unit(uid, vid or "", origin, move_tiles, enemies)}
 
+    def _rpc(method, body, timeout=0):
+        """Seam RPC offline (SLICE 2) : `abilityTargets` -> enumerateur offline (heal/repair/summon/Nova) ;
+        tout autre method -> vide. Capture `state` (closure) pour `AiDecisionContext.ability_targets`."""
+        if method == "abilityTargets" and isinstance(body, dict):
+            return ability_targets_offline(state, body.get("unitId"), body.get("abilityType"))
+        return {"units": []}
+
     return AiDecisionContext(
-        rpc=_no_rpc, rid=0, wt=_weights(), predictor=None, sctx=None, scene=scene,
+        rpc=_rpc, rid=0, wt=_weights(), predictor=None, sctx=None, scene=scene,
         uid=uid, me=me, units=units, cur=getattr(state, "current_player_id", None), plans=plans,
         enemies=enemies, epos=epos, fpos=fpos, origin=origin,
         move_tiles=move_tiles, reach_nc=reach_nc,

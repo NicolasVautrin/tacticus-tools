@@ -580,7 +580,38 @@ mêlée 1 coup) à côté d'un ennemi **kite en dist 2 pour tirer au Las (2 coup
 (1 coup) — comportement RANGÉ correct (maximise les coups + évite la riposte mêlée), PAS un bug. (L'attente
 « attaque sur place » était fausse pour une unité rangée.)
 
-**RESTE :** SLICE 2 = abilities ACTIVES : (a) `plans` des abilities d'ATTAQUE actives (au-delà de l'attaque
-normale) via leur portée ; (b) énumérateur `ability_targets` offline (heal/repair/summon/Nova) ; (c) apply des
-abilities actives via le handler (seules 4 portées ; sinon no-op). Gap connu : un summon présent DÈS la capture
-(snapshot.py) n'est pas marqué `ai_controlled` — raffinement.
+## SLICE 2 (abilities actives) — IMPLÉMENTÉ offline (RE re-expert : chaîne native `GetAllValidTargetsFrom
+AllPossibleMovementTiles @18111e890` / `GetEligibleTargetsSelectable @18111f0d0` / `TargetingQuery.GetRange
+@1810bd670`)
+
+**FAIT (`engine/ai/state_bridge.py`) :**
+- `ability_targets_offline(state, uid, ability_id)` : énumérateur de ciblage offline (branché dans le seam
+  `_rpc` de `build_from_state` → `ctx.ability_targets`). Rend l'UNION des cibles légales sur les tuiles-caster
+  (origine + move). Classif gameconfig : ATTACK ⇔ `constants.damageProfile` ET non-NonComparable ; kind =
+  enemy (`damageProfile`) / ally (`Heal*`/id∈{18,1167,1212}) / machine (`Repair*`/id∈{28,1119}) / tile
+  (`unitId` sans `damageProfile` → summon, ring-1 libre) / self (résiduel) ; portée = `constants.range` sinon
+  `attackRangeType` sinon portée arme.
+- `_plans_for_unit` étendu aux abilities d'ATTAQUE actives (via `_attack_abilities` : normale 17 + chaque
+  active à `damageProfile` non-NC, portée propre `_ability_reach`). Le spine `_best_attack` sweepe déjà tous
+  les evals → aucun changement consommateur.
+- Vérifié offline : SendInTheNextWave/ScarabHive/Aberrant→tile, Heal→ally, NovaBoost→self ; énumération tile
+  (34 tuiles ring-1 libres) + heal (self) OK ; smoke normal-attack inchangé (33 dmg).
+
+**(c) APPLY des abilities actives — ATTAQUE FAIT** (`summon_ai._apply_active_ability`) : ordre (1) port DÉDIÉ
+via `AbilityHandler` (CrushingClaws 1105 splash / ScarabHive 1007 spawn / ThunderousAssault 1043 / GravitonRifle
+1206 — leur behaviour propre prime, `last.ported`) ; sinon (2) attaque active SANS port dédié → chemin
+GÉNÉRIQUE `execute_ability_attack` (mirror `AttackWithAttackDamage`, config via `ability_attack_params`) ; sinon
+(3) no-op. Vérifié offline : GauntletsOfUltramar(1000, non porté)→dmg 97 ; CrushingClaws(1105)→handler ; MightOf
+Heroes(1001, non-attaque)→noop ; smoke normal inchangé.
+
+**RESTE SLICE 2 :** (c') apply des abilities NON-attaque non portées (heal/buff/summon hors les 4 portées) =
+`ExecuteBehaviour` par-ability (RE per-ability : AddEffect/heal/spawn). (d) **validation live** (validator
+worktree, cf. §6 de la RE : énumération tile summon vs natif, set heal, portée attaque-active, bucket self/
+résiduel + apply generic_attack vs natif).
+
+**GAPS documentés (RE §5) :** kind résiduel = self par défaut (faux pour un buff ally/tile type MightOfHeroes) ;
+`+GetStat(0x18)` ranged-bonus + clamp effet 0x529 ignorés (portée arme seule) ; portée heal/repair codée 1 ;
+`CanAddUnit` trench/hazard non filtré ; 37 abilities d'attaque sans `range`/`attackRangeType` → fallback arme.
+
+**Gap SLICE 1 restant :** un summon présent DÈS la capture (snapshot.py) n'est pas marqué `ai_controlled`
+(seuls les spawns en cours de run le sont) — raffinement.
