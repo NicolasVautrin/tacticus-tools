@@ -24,6 +24,7 @@ from .min_max_damage import MinMaxDamage
 from .damage_calculations import spread_to_min_max
 from .static_battle_rules import get_damage_with_piercing, get_piercing_ratio
 from .damage_modifiers import DamageModifiers, apply_all_modifiers
+from .trait_damage_limits import apply_trait_damage_limits_to_damage
 
 # StatType (dump.cs @863349)
 STAT_FIXED_ARMOR = 0x10        # 16
@@ -227,6 +228,7 @@ def predict_attack_raw(
         mods: DamageModifiers | None = None, hit_mult: int = 1,
         reduction_min: int = 0, reduction_max: int = 0, spread_pct: int = 20,
         target_current_health: int = 0, target_shield: int = 0,
+        target_limits: dict | None = None,
         predefined: MinMaxDamage | None = None, might_crit: bool = False) -> DamagePredictionResult:
     """`DamagePrediction.PredictAttackRaw` @181032fb0 — prédiction d'UN COUP contre les RESSOURCES RESTANTES
     de la cible (déplétées par `prev`, scénario cumulé des coups précédents ; `prev` vide = ressources
@@ -254,6 +256,18 @@ def predict_attack_raw(
         rem_lo, rem_hi = mm.min, mm.max
     lo = apply_pierce_and_modifiers(rem_lo, pierce_pct, armor, mods_pct, hit_mult) if rem_lo else 0
     hi = apply_pierce_and_modifiers(rem_hi, pierce_pct, armor, mods_pct, hit_mult) if rem_hi else 0
+    if target_limits:
+        # ApplyTraitDamageLimitsToDamage @18102c650 — cape le dégât per-bout APRÈS modifiers, AVANT le
+        # scénario (ordre natif). Appliqué aux 2 bornes (le natif appelle chaque Apply 2× : min puis max).
+        # `current_health` = HP RESTANT de la cible avant CE coup (déplété par `prev`). `target_limits` =
+        # champs STATIQUES cible (traits/member/max_health) montés par l'appelant ; les caps non dérivables
+        # offline (Impervious charge, member-count stat 20, boss 0x5d4) y sont des no-op documentés.
+        _rem_lo = max(0, target_current_health - prev.health_min)
+        _rem_hi = max(0, target_current_health - prev.health_max)
+        if lo:
+            lo = apply_trait_damage_limits_to_damage(lo, current_health=_rem_lo, **target_limits)
+        if hi:
+            hi = apply_trait_damage_limits_to_damage(hi, current_health=_rem_hi, **target_limits)
     health = calculate_damage_prediction_scenario(
         MinMaxDamage(min=lo, max=hi), prev_hits=0, profile_type=profile_type,
         reduction_min=reduction_min, reduction_max=reduction_max)
@@ -275,7 +289,7 @@ def get_multi_hit_attack_prediction(
         profile_type: int = 0, armor: int = 0, pierce_pct: int = 100, extra_max: int = 0,
         mods: DamageModifiers | None = None, hit_mult: int = 1,
         reduction_min: int = 0, reduction_max: int = 0, spread_pct: int = 20,
-        target_shield: int = 0, might_crit: bool = False,
+        target_shield: int = 0, might_crit: bool = False, target_limits: dict | None = None,
         damage: int | None = None) -> DamagePredictionResult:
     """`BattleQuery.GetMultiHitAttackPrediction` @181066080 — LA boucle multi-coups (le `×hits` est ICI, PAS
     dans PredictAttackRaw) :
@@ -301,7 +315,7 @@ def get_multi_hit_attack_prediction(
             extra_max=extra_max, mods=mods, hit_mult=hit_mult, reduction_min=reduction_min,
             reduction_max=reduction_max, spread_pct=spread_pct,
             target_current_health=target_current_health, target_shield=target_shield,
-            predefined=predefined, might_crit=might_crit)
+            target_limits=target_limits, predefined=predefined, might_crit=might_crit)
 
     result = _hit(BlockScenario())                          # coup 1 : prev vide → ressources pleines
     for _i in range(1, hits):
@@ -320,7 +334,7 @@ def get_attack_prediction(
         armor: int = 0, pierce_pct: int = 100, extra_max: int = 0,
         mods: DamageModifiers | None = None, hit_mult: int = 1,
         reduction_min: int = 0, reduction_max: int = 0, spread_pct: int = 20,
-        might_crit: bool = False, target_shield: int = 0,
+        might_crit: bool = False, target_shield: int = 0, target_limits: dict | None = None,
         shield_raw: MinMaxDamage | None = None) -> DamagePredictionResult:
     """`BattleQuery.GetNormalAttackPrediction` / `GetAttackPrediction` (slot 14) — entrée attaque NORMALE
     (whole-attack). Le natif route TOUTE attaque multi-coups par `GetMultiHitAttackPrediction` (boucle
@@ -337,4 +351,5 @@ def get_attack_prediction(
         target_current_health=target_current_health, initial_damage=initial_damage, hits=hits,
         profile_type=profile_type, armor=armor, pierce_pct=pierce_pct, extra_max=extra_max,
         mods=mods, hit_mult=hit_mult, reduction_min=reduction_min, reduction_max=reduction_max,
-        spread_pct=spread_pct, target_shield=target_shield, might_crit=might_crit)
+        spread_pct=spread_pct, target_shield=target_shield, might_crit=might_crit,
+        target_limits=target_limits)

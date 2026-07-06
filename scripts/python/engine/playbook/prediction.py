@@ -122,6 +122,29 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
         mods.pct_list.append((mult, cap))
 
 
+def _target_damage_limits(scene, tgt_id):
+    """Champs STATIQUES cible pour `apply_trait_damage_limits_to_damage` (#56, `ApplyTraitDamageLimits
+    ToDamage @18102c650`). SEUL **Resilient** est dérivable offline (trait gameconfig + hp/hpmax → cape
+    le dégât à `HP-1`, la cible ne peut pas être one-shot). Les autres sous-limites restent des **NO-OP
+    documentés** (defaults conservateurs) faute d'input offline : member-cap (`numberOfMembers` = StatType
+    20, non mappé offline), Impervious (charge runtime non captée par combatSnapshot), boss-cap
+    (`HasTriggeredAbility(0x5d4)` non vérifié offline). Le service porte les 5 ; ici on ne nourrit que ce
+    qui est fidèlement dérivable."""
+    utraits = set((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits") or [])
+    hpmax = scene.hpmax(tgt_id) or 0
+    return {
+        "target_has_resilient": "Resilient" in utraits,
+        "target_has_impervious": "Impervious" in utraits,
+        "impervious_stat_current": None,             # charge Impervious non captée offline -> no-op (TODO)
+        "member_count": 1,                           # numberOfMembers (StatType 20) non mappé offline -> no-op (TODO)
+        "member_total_hp": hpmax,
+        "profile_has_hits_multiple_members": False,  # moot tant que member_count=1 (Blast skip member-cap)
+        "max_health": hpmax,
+        "target_has_boss_cap": False,                # HasTriggeredAbility(0x5d4) non vérifié offline -> no-op (TODO)
+        "boss_cap_const": 0,
+    }
+
+
 def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=False):
     """`ALoki_NormalAttackPlaybook.MakeDamagePredictions @181372730` -> `ability.PredictAttack @1811afa50` :
     base=Attack × hits + perçage + armure + MODIFIER (effets attaquant + ElevationBonus + défenseur).
@@ -177,7 +200,7 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     res = get_attack_prediction(
         target_current_health=scene.hp(tgt_id) or 0, initial_damage=attack_base, hits=hits,
         profile_type=0, pierce_pct=pierce, armor=scene.armor(tgt_id), mods=mods,
-        target_shield=scene.shield(tgt_id))
+        target_shield=scene.shield(tgt_id), target_limits=_target_damage_limits(scene, tgt_id))
     ev = ProbableDamageEvent(target=tgt_id, prediction=res)
     if meta:
         return ev, {"base": attack_base, "pierce": pierce, "armor": scene.armor(tgt_id), "hits": hits,
@@ -224,7 +247,7 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
         return get_multi_hit_attack_prediction(
             target_current_health=scene.hp(tgt) or 0, damage=d_multi, hits=hits,
             profile_type=profile_idx, pierce_pct=pierce, armor=scene.armor(tgt),
-            mods=mods, target_shield=tgt_shield)
+            mods=mods, target_shield=tgt_shield, target_limits=_target_damage_limits(scene, tgt))
     shield_raw = None
     if tgt_shield > 0:
         d_shield = ab.config.get_variable_for_level("minDmg", ab.caster.active_ability_level, 0) \
@@ -236,7 +259,8 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
     return get_attack_prediction(
         target_current_health=scene.hp(tgt) or 0, initial_damage=base, hits=hits,
         profile_type=profile_idx, pierce_pct=pierce, armor=scene.armor(tgt),
-        mods=mods, target_shield=tgt_shield, shield_raw=shield_raw)
+        mods=mods, target_shield=tgt_shield, shield_raw=shield_raw,
+        target_limits=_target_damage_limits(scene, tgt))
 
 
 def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_name, attack_pos=None):
