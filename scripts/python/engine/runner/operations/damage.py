@@ -204,7 +204,12 @@ class AttackDamageOperation:
         # DÉFENSEUR : réductions de dégât reçu portées par les effets de la CIBLE (symétrique attaquant ;
         # CalculateDefenderModifiersForPrediction). Vide → no-op (apply_all_modifiers identité). Couvre la
         # famille ADamageDefenseModifierAbilityEffect ; STAT/Parry/triggers = axes séparés (cf. §1.8).
-        def_mods, _def_active = defender_modifiers(state, target_id, thc.hp)
+        # #59 : threade is_melee (= coup mêlée = arme non-rangée) + profil de dégât → malus gatés corrects
+        # (Terrifying_ExtraDefense gate IsMeleeAttack ; TerminatorArmour exclut Psychic/DirectDamage). Mirror
+        # de la prédiction. Les chemins ABILITY (execute_ability_attack/execute_normal_like) ne câblent PAS
+        # encore ces gates (signature sans profil/is_melee) → comportement historique (TODO #59 suite).
+        def_mods, _def_active = defender_modifiers(state, target_id, thc.hp,
+                                                   is_melee=not _ranged, damage_profile=_profile)
         # ORDRE RÉEL (confirmé live 18/18 coups, 3 seeds, necroDestroyer 6h) : le HitDamage natif
         # porte la plage RÉDUITE — la réduction (perçage/armure/modifiers attaquant+défenseur) est
         # appliquée aux BORNES base±spread D'ABORD, puis le tirage `GetDamage` se fait DANS cette plage

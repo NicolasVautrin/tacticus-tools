@@ -73,12 +73,19 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     return build_attacker_modifiers_from_effects(active, is_ranged), active
 
 
-def defender_modifiers(state: State, unit_id: int, hp: Optional[int]):
+def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
+                       is_melee: Optional[bool] = None, damage_profile: Optional[str] = None):
     """`DamageModifiers` de réduction du DÉFENSEUR (cible) depuis ses EFFETS actifs (symétrique attaquant ;
-    `CalculateDefenderModifiersForPrediction`). Renvoie (mods, active_effects). None-safe (mods vide → no-op)."""
+    `CalculateDefenderModifiersForPrediction`). Renvoie (mods, active_effects). None-safe (mods vide → no-op).
+
+    `is_melee`/`damage_profile` = nature du coup, propagés aux malus GATÉS (mirror de la prédiction, #59) :
+    `IsMeleeAttack` (ex. Terrifying_ExtraDefense : `if not is_melee: return None`) et `DamageProfileIs`
+    (ex. TerminatorArmour : PAS de réduction si profil ∈ Psychic/DirectDamage). None (défaut, ex. chemins
+    ability non encore câblés) = comportement historique (les malus gatés IsMeleeAttack ne s'appliquent pas ;
+    TerminatorArmour s'applique quel que soit le profil) — INERTE pour une cible sans effet de défense gaté."""
     active = (state.effects.active_effects(unit_id, {"hp": hp})
               if state.effects is not None else [])
-    return build_defender_modifiers_from_effects(active), active
+    return build_defender_modifiers_from_effects(active, is_melee, damage_profile), active
 
 
 def normal_attack_per_hit_range(state: State, unit_id: int) -> Optional[dict]:
