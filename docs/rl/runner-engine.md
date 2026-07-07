@@ -598,20 +598,112 @@ AllPossibleMovementTiles @18111e890` / `GetEligibleTargetsSelectable @18111f0d0`
   (34 tuiles ring-1 libres) + heal (self) OK ; smoke normal-attack inchangé (33 dmg).
 
 **(c) APPLY des abilities actives — ATTAQUE FAIT** (`summon_ai._apply_active_ability`) : ordre (1) port DÉDIÉ
-via `AbilityHandler` (CrushingClaws 1105 splash / ScarabHive 1007 spawn / ThunderousAssault 1043 / GravitonRifle
-1206 — leur behaviour propre prime, `last.ported`) ; sinon (2) attaque active SANS port dédié → chemin
-GÉNÉRIQUE `execute_ability_attack` (mirror `AttackWithAttackDamage`, config via `ability_attack_params`) ; sinon
-(3) no-op. Vérifié offline : GauntletsOfUltramar(1000, non porté)→dmg 97 ; CrushingClaws(1105)→handler ; MightOf
-Heroes(1001, non-attaque)→noop ; smoke normal inchangé.
+via `AbilityHandler` (`ABILITY_CLASSES`) ; sinon (2) attaque active SANS port dédié → chemin GÉNÉRIQUE
+`execute_ability_attack` (mirror `AttackWithAttackDamage`, config via `ability_attack_params`) ; sinon (3) no-op.
+Vérifié offline : GauntletsOfUltramar(1000, non porté)→dmg 97 ; CrushingClaws(1105)→handler ; MightOfHeroes(1001,
+non-attaque)→noop ; smoke normal inchangé.
 
-**RESTE SLICE 2 :** (c') apply des abilities NON-attaque non portées (heal/buff/summon hors les 4 portées) =
-`ExecuteBehaviour` par-ability (RE per-ability : AddEffect/heal/spawn). (d) **validation live** (validator
-worktree, cf. §6 de la RE : énumération tile summon vs natif, set heal, portée attaque-active, bucket self/
-résiduel + apply generic_attack vs natif).
+**(c') PORTS DÉDIÉS de summon abilities — FAIT** (`engine/runner/abilities/loki.py` + `handler.py`, spec RE
+`docs/rl/summon-abilities-port-spec.md`). `ABILITY_CLASSES` (9) = ThunderousAssault 1043 / GravitonRifle 1206 /
+ScarabHive 1007 / CrushingClaws 1105 **+ (nouveaux)** :
+- **ValkyrieStrike 1018** @181229e40 (astraSmnVoxcaster) — **CORRECTION SUR-TIR** : ExecuteBehaviour natif = SEUL
+  `AddBondEffect(1022 ValkyrieStrike_Effect)`, AUCUNE attaque immédiate (le Blast est le payload de l'airstrike
+  DIFFÉRÉ). 1018 a `constants.damageProfile` (`_is_attack_ability=True`) → le générique TIRAIT à tort un Blast
+  immédiat ; le port dédié (handler `ported=True`) EXCLUT 1018 du générique → ne pose QUE l'effet 1022. (Fire
+  différé du 1022 = tranche pending-effect, TODO.)
+- **B1 splash** (1 attaque main sur target + 1 volet splash PARTAGEANT `minDmg/maxDmg`, seul `nrOfHits_2` diffère —
+  helper `_splash_ability_behaviour`) : **PlasmaGrenade 1098** (Plasma, splash `_adjacent_enemies_of`, 2/1) ·
+  **Stikkbomb 1051** (Blast, idem, 2/1) · **Fragstorm 1078** (Blast, splash pick-random ≤4 `_pick_randomly_n`,
+  4/2) · **ScythingTalons 1065** (Bio melee, splash `_adjacent_to_both`, 3/2). Avant : le générique ne tirait
+  QUE l'attaque main mono-cible (splash raté). Vérifié offline : registry 9 abilities, imports OK, les 5
+  `_is_attack_ability=True` (prouve le sur-tir/perte-de-splash générique corrigés).
+  - **VALIDÉ LIVE** (build gqfc5mff6c, board+units RÉELS, `tests/engine/runner/test_summon_ability_ports_live.py`
+    NON commité, via le chemin réel `_apply_active_ability`) : **ValkyrieStrike 1018** → `routed=handler`, HP cible
+    7029→7029 (ZÉRO dégât immédiat), effet `ValkyrieStrike_Effect` 1022 posé ; **PlasmaGrenade 1098** →
+    `routed=handler`, `hits_main=2`/`hits_splash=1`, SET splash == voisins boardGraph NATIF ∩ ennemis (exact
+    `[80,82]`). Couvre priorités validator 1 (counts/partage plage), 2 (sur-tir ValkyrieStrike), 4 (helper
+    géométrie `_adjacent_enemies_of` vs adjacence native). **Stikkbomb 1051** = MÊME chemin/helpers (couvert par
+    construction). NON validés live (GAPS déjà flaggés) : pick-random Fragstorm, doublement trait-2 ScythingTalons.
+  - **GAPS inline flaggés** : doublement hits ScythingTalons `ConditionalAmount(HasTrait(target, trait enum 2))`
+    (3→6/2→4) NON porté (trait enum 2 non mappé offline, famille 0xd) → hits de BASE (jamais de sur-compte) ;
+    coût/ordre RNG du pick Fragstorm non calibré (désync possible `state.rng` si >4 candidats).
+
+**RESTE SLICE 2 :** (c'') B2 (attaque-normale + move : DevoutPush 1053, WallOfMirrors 1186 — le move différé
+tranche déplacement) ; B3 effet-seul/self (ForwardObservers 1185, Burrowers 1023, TunnelingHorror 1011 =
+`AddEffect` non porté → `BaseEffect` no-op) ; GAPS non-portables offline (PrecisionShot 1015 aim→shoot,
+KissOfDeath 1108 chain+blink, SlashingDive 1091 dive-ligne). (d) **validation live** (validator worktree, cf.
+spec « Ce que le validator doit attaquer d'abord » : partage plage splash, sur-tir ValkyrieStrike, doublement
+trait-2, helper géométrie, pick Fragstorm).
 
 **GAPS documentés (RE §5) :** kind résiduel = self par défaut (faux pour un buff ally/tile type MightOfHeroes) ;
 `+GetStat(0x18)` ranged-bonus + clamp effet 0x529 ignorés (portée arme seule) ; portée heal/repair codée 1 ;
 `CanAddUnit` trench/hazard non filtré ; 37 abilities d'attaque sans `range`/`attackRangeType` → fallback arme.
+
+**TRAITS DES SUMMONS SPAWNÉS — CORRIGÉ (RE + seed au spawn, 2026-07-07) :** avant, `SpawnUnitOperation.execute`
+ajoutait au summon 5 composants mais **ne le seedait NI dans `state.effects` NI dans `state.traits`** → l'APPLY
+d'attaque (`attacker_modifiers`/`defender_modifiers` → `build_*_modifiers_from_effects(state.effects.active_effects)`)
+ne voyait AUCUN effet du summon → ses traits de dégât étaient MANQUÉS.
+
+**Mécanisme natif RE'd (décompilé, VAs citées)** : à la création d'unité, `InitializeActorAbilitiesOperation.Execute`
+@180e74660 fait 2 boucles — (a) par ABILITY → `StaticBattleRules.ActiveAbility.GetEffectToBeAddedToOwnerForAbility`
+@1815551f0 (dict `ActiveAbility` static +0x50) ; (b) par TRAIT → `StaticBattleRules.Trait.GetEffectToBeAddedToOwnerForTrait`
+@18157e800 (dict `Trait..cctor` @18157f650 static **+0x30**) — et `AddEffect(owner)` pour chaque owner-effect
+retourné. La dict TRAIT a **4 entrées LUES** (ids natifs) : `HeavyWeapon(0x3e9)→HeavyWeapon_ExtraDmg(0x3f0)` ·
+`MartialKatah(0x41f)→{MartialKatah_DmgBonus(0x56b),DmgReduction(0x56a)}` · `RangedSpecialist(0x424)→RangedSpecialist(0x5eb)`
+· `trait 0x41e→Clone(0x53d)`. Nom↔id TRIANGULÉS (trait gameconfig `units.traits` ↔ effet capté live ↔ dict :
+custoVexilusPraetor `MartialKatah`→effets MK captés ; tauDarkstrider `RangedSpecialist`→effet capté).
+
+**Port** : `entities/effects/factory.py::get_effect_to_be_added_to_owner_for_trait` (homonyme + `TRAIT_OWNER_EFFECTS`)
++ `spawn.py::_seed_trait_owner_effects` (mirror la boucle TRAITS) appelé dans `SpawnUnitOperation.execute` → matérialise
+les owner-effects PERMANENTS (rem=None) dans `EffectsState` (comme les unités initiales seedées depuis capture),
+gate `has_effect` idempotent. **VALIDÉ LIVE** (`tests/engine/runner/test_summon_trait_effects_live.py`, NON commité) :
+tauSmnStealthSuit → `RangedSpecialist` seedé, +% appliqué RANGED-only (melee gate OK) ; necroSmnDeathmark →
+`HeavyWeapon_ExtraDmg` seedé ; contrôle necroSmnSwarm → aucun (pas de faux seed).
+
+**BigTarget (chemin trait→ability dérivée) — CORRIGÉ (RE re-expert, 2026-07-07).** ⚠ Correction d'une erreur
+de lecture : `BigTarget_AdjacentEffect` ne vient NI de la dict trait +0x30 NI de la dict ability +0x50 (celle-ci
+= `GetEffectToBeAddedToOwnerForAbility`, static `ActiveAbility` +0x50, seulement 2 entrées `PlasmaCannon→
+PlasmaCannon_Visual` / `GravitonRifle→GravitonRifle_ExtraPierce`, aucun summon concerné). Le mécanisme RÉEL est
+DISTINCT : `AddTraitOperation.AddDerivedAbilities @180e513c0` dérive du trait `BigTarget` (0x3f9=1017) l'ability
+`BigTarget` (0x406=1030) via la dict Trait **+0x0** (`GetTriggeredAbility @18157ed10`), puis
+`BigTargetAbility.CreateBehaviour @18121a910` fait `AddEffect(0x402 BigTarget_AdjacentEffect)` à l'init de
+l'ability (aura -1 hit ranged aux alliés ring-1). Port : `factory.TRAIT_DERIVED_ABILITIES` (mirror Trait+0x0) +
+`ABILITY_INIT_OWNER_EFFECTS` (mirror `<Ability>.CreateBehaviour` AddEffect) + `spawn._seed_derived_ability_owner_effects`.
+**VALIDÉ LIVE** (`test_summon_trait_effects_live.py`) : tyranSmnWarrior → `BigTarget_AdjacentEffect` seedé, classe
+`BigTargetAdjacentEffect` (pas un no-op). (Le J'ai-lu-le-mauvais-dict = piège de frontière d'enum : 1026 =
+`BigTarget_AdjacentEffect` en EFFECT_TYPE MAIS aussi un TriggeredAbilityType dans la dict `GetDerivedTriggeredAbilities`
++0x30.)
+
+**Autres traits summon — RE FAIT (2026-07-07), rien à seeder de contributif :**
+- **BattleFatigue** (eldarSmnGuardian/orksOrkBoys/astraSmnVoxcaster/tyranSmnRipperSwarm) : `BattleFatigueAbility.CreateBehaviour`
+  @18121a0d0 = arbre `Flee`/`If`/`Repeat`/`ModuloAbilityTrigger` (aucun `AddEffect` dans les callees) → **PAS
+  d'owner-effect** (déjà porté = death-trigger + Flee flag 9). Rien à seeder.
+- **InstinctiveBehaviour** (tyranSmnSporeMine/tyranSmnRipperSwarm) : `InstinctiveBehaviour_UpdateTargetAbility` —
+  **DROPPÉ** (décision utilisateur antérieure). Rien à seeder.
+- **Synapse** (tyranSmnWarrior) : `Synapse_AddEffectAbility` → `Synapse_Effect` (1052=0x41c) ; **ShadowInTheWarp**
+  (tyranSmnWarrior) : `ShadowInTheWarp_AddEffectAbility` → `ShadowInTheWarp_LessDmg_Effect` (1053=0x41d). Ce sont
+  des `<Trait>_AddEffectAbility` (pattern GÉNÉRIQUE : base `AddEffectAbility.CreateBehaviour` pose `constants.effectType`
+  au porteur ; cf. aussi TerminatorArmour/Infiltrate/CloseCombatWeakness). ⚠ Ces 2 effets ne sont **PAS dans
+  `EFFECT_CLASSES`** → un seed serait un `BaseEffect` no-op (aura sur autres units, sans contribution) → **NON
+  seedés** tant que les classes d'effet ne sont pas portées (les porter D'ABORD, puis les ajouter aux tables).
+
+**RESTE (flaggé)** : (1) porter `Synapse_Effect`/`ShadowInTheWarp_LessDmg_Effect` (auras) puis les seeder via le
+pattern `_AddEffectAbility` ; (2) owner-effects posés par les abilities PROPRES du summon (non dérivées) à leur
+init — même mécanisme `CreateBehaviour`, non balayé (aucun cas contributif connu sur le roster summon actuel) ;
+(3) `MartialKatah_DmgBonus/DmgReduction` = effets non dans `EFFECT_CLASSES` → `BaseEffect` no-op ; (4) ScythingTalons
+doublement trait-2 (défenseur) toujours non porté.
+
+**GAP granted-abilities — CORRIGÉ (passive-derived, `state_bridge._granted_abilities`) :** `_abilities_of` ne
+lisait que les `activeAbilities` GAMECONFIG → il RATAIT les abilities GRANTED par un passive au runtime. Cas
+concret : `genesBiophagus` (`activeAbilities=['AberrantHypermorph']` seul) CASTE en natif `Heal_TwistedScience
+(1167)` sur un allié — accordé par le passive TwistedScience, absent de `activeAbilities` → l'offline décidait
+un MOVE (bridge-equivalence special 0/1). **Fix DÉRIVÉ DU PASSIVE (aucune table)** : le natif nomme la classe
+accordée `<Passive>_HealAbility` = membre d'enum `Heal_<Passive>` (`TwistedScience_HealAbility$ExecuteBehaviour
+@181217ad0` = `Heal_TwistedScience` 1167) → `_granted_abilities(vid)` scanne `passiveAbilities` et résout
+`Heal_<passive>` via l'enum ACTIVE_ABILITY_TYPE (mergé après weapons(17)+activeAbilities dans `_abilities_of`).
+Vérifié : `genesBiophagus` → `((17,NormalAttack),(1166,AberrantHypermorph),(1167,Heal_TwistedScience))` ;
+Biophagus décide désormais le heal 1167 (reste un écart de CIBLE self-vs-allié = raffinement sélection heal).
+Bridge-equivalence SLICE 1 (move) reste 3/3.
 
 **Gap SLICE 1 restant :** un summon présent DÈS la capture (snapshot.py) n'est pas marqué `ai_controlled`
 (seuls les spawns en cours de run le sont) — raffinement.
