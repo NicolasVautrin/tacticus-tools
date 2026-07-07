@@ -66,6 +66,67 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
 }
 
 
+# `StaticBattleRules.Trait.GetEffectToBeAddedToOwnerForTrait` @18157e800 — dict TraitType -> List<EffectType>
+# des owner-effects AJOUTÉS au porteur À LA CRÉATION D'UNITÉ (`InitializeActorAbilitiesOperation.Execute`
+# @180e74660, boucle TRAITS). Dict peuplé par `Trait..cctor` @18157f650 (static field +0x30). 4 entrées LUES
+# du décompilé (ids natifs cités). Clés = NOM de trait gameconfig ; le natif clé par TraitType enum, la
+# correspondance nom<->id est TRIANGULÉE (trait gameconfig `units.traits` <-> effet capté live <-> dict) :
+#   custoVexilusPraetor trait "MartialKatah" -> effets captés MartialKatah_DmgBonus+DmgReduction == dict 0x41f ;
+#   tauDarkstrider trait "RangedSpecialist" -> effet capté "RangedSpecialist" == dict 0x424 ; idem HeavyWeapon.
+# Le natif AJOUTE aussi des owner-effects via la boucle ABILITIES (GetEffectToBeAddedToOwnerForAbility, dict
+# ActiveAbility +0x50) — chemin SÉPARÉ non porté ici (ex. BigTarget passe par une ability accordée).
+TRAIT_OWNER_EFFECTS: dict[str, list[str]] = {
+    "HeavyWeapon": ["HeavyWeapon_ExtraDmg"],                                 # trait 0x3e9=1001 -> 0x3f0=1008
+    "MartialKatah": ["MartialKatah_DmgBonus", "MartialKatah_DmgReduction"],  # 0x41f=1055 -> 0x56b=1387,0x56a=1386
+    "RangedSpecialist": ["RangedSpecialist"],                                # 0x424=1060 -> 0x5eb=1515
+    # trait 0x41e=1054 -> Clone (0x53d=1341) : trait de clone/summon, nom gameconfig non requis (aucun
+    # summon concerné) -> omis tant que le nom n'est pas confirmé (fidélité-safe : n'affecte aucun porteur ici).
+}
+
+
+def get_effect_to_be_added_to_owner_for_trait(trait_name: str) -> list[str]:
+    """`StaticBattleRules.Trait.GetEffectToBeAddedToOwnerForTrait` @18157e800 — pour un trait, la LISTE des
+    noms d'EffectType à ajouter à son porteur à la création (dict `Trait..cctor` @18157f650 +0x30). Trait
+    sans owner-effect -> [] (le natif renvoie null)."""
+    return TRAIT_OWNER_EFFECTS.get(trait_name, [])
+
+
+# --- Chemin ABILITY-DÉRIVÉE (distinct des 2 dicts owner-effect directs) : un trait DÉRIVE une ability, et
+# c'est le `CreateBehaviour` de cette ability qui pose l'owner-effect à SON init. (RE re-expert : BigTarget.)
+#
+# ⚠ NE PAS confondre avec `GetEffectToBeAddedToOwnerForAbility` (dict `ActiveAbility` +0x50) : celui-ci ne
+# contient QUE {PlasmaCannon->PlasmaCannon_Visual, GravitonRifle->GravitonRifle_ExtraPierce} (armes joueur,
+# aucun summon concerné) -> non porté. BigTarget passe par LE CHEMIN CI-DESSOUS.
+#
+# Étape 1 — `AddTraitOperation.AddDerivedAbilities @180e513c0` (appelé par `AddTraitOperation.Execute
+# @180e51901`) : à la création, un trait dérive une ability via `Trait.GetTriggeredAbility` (dict Trait +0x0
+# @18157ed10) / `GetActiveAbility` (dict Trait +0x8 @18157e720) et l'ajoute à l'unité. Clés = NOM trait
+# gameconfig. Seul BigTarget est porté (chaîne complète RE'd + effet modélisé) ; les autres traits summon
+# dérivent aussi une ability (Synapse 0x423, ShadowInTheWarp 0x424, InstinctiveBehaviour 0x413, BattleFatigue
+# 0x401) MAIS on n'a PAS lu si leur CreateBehaviour pose un owner-effect -> non portées (fidélité-safe).
+TRAIT_DERIVED_ABILITIES: dict[str, list[str]] = {
+    "BigTarget": ["BigTarget"],     # UnitTrait.BigTarget 0x3f9=1017 -> ability 0x406=1030 (dict Trait +0x0)
+}
+
+# Étape 2 — owner-effects posés par `<Ability>.CreateBehaviour` À L'INIT de l'ability (DSL `AddEffect(owner)`).
+# Table par NOM d'ability (chaque entrée = VA du CreateBehaviour source).
+ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
+    "BigTarget": ["BigTarget_AdjacentEffect"],   # `BigTargetAbility.CreateBehaviour` @18121a910 : AddEffect(0x402)
+}
+
+
+def get_derived_abilities_for_trait(trait_name: str) -> list[str]:
+    """`AddTraitOperation.AddDerivedAbilities` @180e513c0 (dicts Trait +0x0 triggered / +0x8 active) — abilities
+    dérivées d'un trait à la création de l'unité. Trait sans dérivation portée -> []."""
+    return TRAIT_DERIVED_ABILITIES.get(trait_name, [])
+
+
+def get_owner_effects_added_on_ability_init(ability_name: str) -> list[str]:
+    """Owner-effects posés par `<Ability>.CreateBehaviour` à l'INIT de l'ability (DSL AddEffect(owner)).
+    Ability sans owner-effect-à-l'init porté -> []."""
+    return ABILITY_INIT_OWNER_EFFECTS.get(ability_name, [])
+
+
 class EffectFactory:
     """Factory d'effets matérialisés. `registry` = attribut de classe (partagé, extensible). `create`
     mappe UN effet capté ({name, effectType, level, remaining, source}) → sa sous-classe BaseEffect."""

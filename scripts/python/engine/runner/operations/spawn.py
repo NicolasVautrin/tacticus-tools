@@ -116,6 +116,55 @@ def _pick_randomly(state: State, tiles: list):
     return tiles[state.rng.next_internal(0, len(tiles))]
 
 
+def _materialize_owner_effect(state: State, unit_id: int, name: str, mult: int) -> bool:
+    """Matérialise UN owner-effect (par nom) sur l'unité dans `EffectsState`, PERMANENT (rem=None), comme les
+    unités initiales seedées depuis capture — pour que `attacker_modifiers`/`defender_modifiers` (qui lisent
+    `state.effects`) le voient. Idempotent (gate `has_effect`). Renvoie True si ajouté."""
+    from ...entities.effects import EffectFactory
+    from ...entities import EffectsState
+    if state.effects is None:
+        state.effects = EffectsState.seed({})
+    if state.effects.has_effect(unit_id, name=name):
+        return False                                         # déjà présent
+    eff = EffectFactory.create({"name": name, "remaining": 0},   # rem 0 -> permanent
+                               ability_variables_multiplier=int(mult or 100))
+    eff.target = unit_id
+    state.effects.add_effect(unit_id, eff)
+    return True
+
+
+def _seed_trait_owner_effects(state: State, unit_id: int, traits, mult: int) -> list:
+    """`InitializeActorAbilitiesOperation.Execute` @180e74660 (boucle TRAITS) : à la création d'unité, CHAQUE
+    trait ajoute à son PORTEUR les owner-effects de `StaticBattleRules.Trait.GetEffectToBeAddedToOwnerForTrait`
+    @18157e800 (dict `Trait..cctor` @18157f650 +0x30). Sans ce seed, un summon SPAWNÉ n'a AUCUN effet -> ses
+    traits de dégât (HeavyWeapon +25% ranged, RangedSpecialist +33% ranged, ...) ne s'appliquent PAS à ses
+    attaques (gap corrigé)."""
+    from ...entities.effects.factory import get_effect_to_be_added_to_owner_for_trait
+    return [name for tr in (traits or [])
+            for name in get_effect_to_be_added_to_owner_for_trait(tr)
+            if _materialize_owner_effect(state, unit_id, name, mult)]
+
+
+def _seed_derived_ability_owner_effects(state: State, unit_id: int, traits, mult: int) -> list:
+    """Chemin trait -> ability DÉRIVÉE -> owner-effect posé à l'INIT de l'ability (mécanisme DISTINCT des 2
+    dicts owner-effect directs). Mirror `AddTraitOperation.AddDerivedAbilities @180e513c0` (trait -> ability,
+    dict Trait +0x0/+0x8) puis `<Ability>.CreateBehaviour` (DSL `AddEffect(owner)` à l'init de l'ability).
+
+    Cas porté : trait **BigTarget** -> ability `BigTarget` (0x406) -> `BigTargetAbility.CreateBehaviour
+    @18121a910` = `AddEffect(BigTarget_AdjacentEffect)` (aura -1 hit ranged aux alliés ring-1, source-side).
+    Les autres traits summon dérivent aussi une ability mais leur owner-effect à l'init n'est pas encore LU
+    (cf. `factory.ABILITY_INIT_OWNER_EFFECTS`) -> non seedés (fidélité-safe)."""
+    from ...entities.effects.factory import (get_derived_abilities_for_trait,
+                                             get_owner_effects_added_on_ability_init)
+    added: list = []
+    for tr in (traits or []):
+        for ab in get_derived_abilities_for_trait(tr):
+            for name in get_owner_effects_added_on_ability_init(ab):
+                if _materialize_owner_effect(state, unit_id, name, mult):
+                    added.append(name)
+    return added
+
+
 class SpawnUnitOperation:
     """Crée `count` unités summon de type `visual_id`, owner = caster (team+player), placées sur des tuiles
     libres adjacentes à la cible, stats résolues depuis `summon_ability`. Renvoie la liste des entityId
@@ -149,6 +198,11 @@ class SpawnUnitOperation:
             ctx = build_summon_context(e.id, visual_id, summon_ability, level, mult)
             e.add_component(StatsComponent(ctx=ctx))
             e.add_component(HealthComponent(hp=ctx.health, hp_max=ctx.health))
+            # [InitializeActorAbilitiesOperation boucle TRAITS] owner-effects des traits du summon dans
+            # EffectsState (sinon ses traits de dégât ne s'appliquent pas à ses attaques — gap corrigé).
+            _seed_trait_owner_effects(state, e.id, ctx.traits, mult)
+            # [trait -> ability dérivée -> AddEffect(owner) à l'init] ex. BigTarget -> BigTarget_AdjacentEffect.
+            _seed_derived_ability_owner_effects(state, e.id, ctx.traits, mult)
             if tile is not None and board is not None:
                 tinfo = board.by_id.get(tile)
                 if tinfo is not None:
