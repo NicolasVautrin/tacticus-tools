@@ -305,32 +305,46 @@ async function warmupGameSingletons(
     //    → Indomitus tile), which was fragile because FindObjectsByType doesn't
     //    guarantee ordering and the "first" /RegularContainer/Button could land
     //    on a sibling campaign that crashes on click without proper context.
+    // Invoke IdunNavigation.ToCampaign UNCONDITIONALLY to normalize the view to
+    // the Indomitus campaign OVERVIEW. Even when level nodes are already present
+    // in the hierarchy, the screen can be left zoomed into a sub-part (e.g.
+    // CampaignScreen_Part_1_5) whose first-found node isn't launchable, so the
+    // BattlePreview popup never mounts and click-play fails. The old code
+    // short-circuited ToCampaign on "already-on-campaign", trusting that stale
+    // zoomed view. ToCampaign is the game's own idempotent nav ("if already
+    // there, no-op" — see below), so resetting is safe and re-centers on a
+    // launchable node. Best-effort: if the nav instance can't be resolved but
+    // nodes are already present, fall back to the current view (no regression).
     const onCampaignAlready = await queueOnMainThread(
         () => findButtonBySuffix(r, NODE_SUFFIX) !== null);
 
-    if (onCampaignAlready) {
-        steps.push({
-            step: "to-campaign", ok: true, info: "already-on-campaign",
-        });
-    } else {
-        const navResult = await queueOnMainThread(() => {
-            try {
-                const n = ensureNavRefs();
-                const inst = findLiveIdunNavigation(n);
-                if (inst === null) {
-                    return { ok: false, err: "no live IdunNavigation instance" };
-                }
-                invokeToCampaign(n, inst, true,
-                    CAMPAIGN_TYPE_INDOMITUS, CAMPAIGN_ID_INDOMITUS);
-                return { ok: true, navInstance: inst.toString() };
-            } catch (e) {
-                return { ok: false, err: (e as Error).message };
+    const navResult = await queueOnMainThread(() => {
+        try {
+            const n = ensureNavRefs();
+            const inst = findLiveIdunNavigation(n);
+            if (inst === null) {
+                return { ok: false, err: "no live IdunNavigation instance" };
             }
-        });
-        if (!navResult.ok) {
+            invokeToCampaign(n, inst, true,
+                CAMPAIGN_TYPE_INDOMITUS, CAMPAIGN_ID_INDOMITUS);
+            return { ok: true, navInstance: inst.toString() };
+        } catch (e) {
+            return { ok: false, err: (e as Error).message };
+        }
+    });
+    if (!navResult.ok) {
+        if (!onCampaignAlready) {
             return fail("to-campaign", navResult.err ?? "ToCampaign failed");
         }
-        // Wait for the campaign screen with its level nodes to mount.
+        // Couldn't reset the view, but nodes are present -> proceed with the
+        // current campaign screen (exactly the pre-fix behaviour, no regression).
+        steps.push({
+            step: "to-campaign", ok: true,
+            info: `no-reset (${navResult.err}); nodes-already-present`,
+        });
+    } else {
+        // Wait for the campaign screen with its level nodes to (re)mount after
+        // the reset.
         const ready = await waitFor(
             () => findButtonBySuffix(r, NODE_SUFFIX), 5000);
         if (ready === null) {
@@ -339,7 +353,7 @@ async function warmupGameSingletons(
         }
         steps.push({
             step: "to-campaign", ok: true,
-            info: `via-idun-nav (@${navResult.navInstance})`,
+            info: `reset-via-idun-nav (@${navResult.navInstance})`,
         });
     }
 
