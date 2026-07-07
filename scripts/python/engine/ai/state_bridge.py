@@ -51,11 +51,31 @@ def _weights():
     return _load()
 
 
+def _granted_abilities(vid: str) -> list:
+    """Abilities ACTIVES accordees au runtime par un `passiveAbilities` de l'unite (absentes de
+    `activeAbilities` — le natif les peuple dans l'ActiveAbilityComponent VIA le passive). DERIVEES DU PASSIVE
+    (aucune table hardcodee) : le natif nomme la classe accordee `<Passive>_HealAbility` = membre d'enum
+    `Heal_<Passive>` (ex. passive `TwistedScience` -> `TwistedScience_HealAbility$$ExecuteBehaviour @181217ad0`
+    = enum `Heal_TwistedScience` 1167). Donc pour chaque passive P on resout l'enum `Heal_<P>` s'il existe.
+    C'est le PASSIVE (donnee jeu) + la convention de nommage NATIVE (enum) qui donnent l'ability — pas un
+    mapping invente. (Couvre les grants HEAL ; d'autres familles de grant = extension a confirmer.)"""
+    import enum_maps as EM
+    rev = {v: k for k, v in EM.ACTIVE_ABILITY_TYPE.items()}
+    out: list = []
+    for p in ((GC.unit(vid) or {}).get("passiveAbilities") or []):
+        nm = f"Heal_{p}"
+        aid = rev.get(nm)
+        if aid is not None:
+            out.append((int(aid), nm))
+    return out
+
+
 @functools.lru_cache(maxsize=None)
 def _abilities_of(vid: str) -> tuple:
-    """Abilities de l'unite (offline) sous forme `((id, name), ...)` : l'attaque normale (id synthetique 17
-    si l'unite a une arme) + chaque `activeAbilities` (nom == membre d'enum -> id via reverse ACTIVE_ABILITY_TYPE).
-    Une active dont le nom n'est pas dans l'enum du build est ignoree (documente)."""
+    """Abilities de l'unite reconstruites depuis gameconfig : l'attaque normale (id synthetique 17 si l'unite a
+    une arme) + `activeAbilities` (nom == membre d'enum -> id via reverse ACTIVE_ABILITY_TYPE) + les abilities
+    ACCORDEES par un passive (`_granted_abilities`, DERIVEES du passive, ex. TwistedScience -> Heal 1167). Une
+    active dont le nom n'est pas dans l'enum est ignoree."""
     import enum_maps as EM
     rev = {v: k for k, v in EM.ACTIVE_ABILITY_TYPE.items()}
     gu = GC.unit(vid) or {}
@@ -66,6 +86,9 @@ def _abilities_of(vid: str) -> tuple:
         aid = rev.get(key)
         if aid is not None:
             out.append((int(aid), key))
+    for (aid, name) in _granted_abilities(vid):        # actives accordees par passive (derivees du passive)
+        if not any(a[0] == aid for a in out):
+            out.append((int(aid), name))
     return tuple(out)
 
 
@@ -336,6 +359,8 @@ def _dv_units(state) -> list:
             "team": oc.team if oc is not None else None,
             "pos": {"col": pc.col, "row": pc.row} if pc is not None else None,
             "hp": hc.hp if hc is not None else None,
+            # `effects` = noms bruts du composant natif `EffectsOwnedComponent.effects` (str). Les gates
+            # d'effets de DÉCISION lisent l'état STRUCTURÉ `State.effects` (HasEffect), pas ce champ.
             "effects": list(ec.effects) if ec is not None else [],
         })
     return out

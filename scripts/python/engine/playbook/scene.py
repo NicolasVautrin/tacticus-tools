@@ -83,7 +83,7 @@ class Scene:
                 "team": oc.team if oc is not None else None,
                 "pos": {"col": pos[0], "row": pos[1]} if pos is not None else None,
                 "hp": hc.hp if hc is not None else None,
-                "effects": list(ec.effects) if ec is not None else [],
+                "effects": list(ec.effects) if ec is not None else [],  # noms bruts (EffectsOwnedComponent)
             })
         elev_by_pos = None
         board = getattr(state, "board", None)

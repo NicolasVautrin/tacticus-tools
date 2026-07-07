@@ -202,8 +202,13 @@ class ComparableAbilityGenerator(ActionGenerator):
             is_twisted = "TwistedScience" in (ab.get("name") or "")
             for tg in vts:
                 tu = unit_by_id.get(tg) or {}
-                if any("TwistedScience_ExtraHp" in (e.get("name") or "") for e in (tu.get("effects") or [])):
-                    continue  # gate d'énumération : cible déjà buffée -> ignorée (inconditionnel)
+                # gate natif `HasEffect(target, EffectType.TwistedScience_ExtraHp=1355)` sur l'état d'effets
+                # STRUCTURÉ (`EffectsState`) — on colle au JEU (HasEffect sur les EffectComponent), PAS à la
+                # liste sérialisée `unit["effects"]` de decisionView. Les deux chemins (live/offline) portent
+                # cet état via `ctx.scene.eff_state`. Scene absente -> pas d'exclusion (no-op fidèle).
+                _eff = getattr(getattr(ctx, "scene", None), "eff_state", None)
+                if _eff is not None and _eff.has_effect(tg, effect_type=1355):
+                    continue  # cible déjà buffée (TwistedScience_ExtraHp) -> ignorée (inconditionnel)
                 ob = hpmax_by_sq.get(tg) or {}
                 hp_max = int(ob.get("hpMax") or 0)
                 hp_cur = int(ob.get("hp") or 0)
