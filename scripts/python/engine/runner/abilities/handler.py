@@ -13,7 +13,8 @@ from typing import Optional
 from ..state import State
 from .base import ActiveAbility
 from .loki import (ThunderousAssaultAbility, GravitonRifleAbility, ScarabSummonAbility,
-                   CrushingClawsAbility)
+                   CrushingClawsAbility, ValkyrieStrikeAbility, PlasmaGrenadeAbility,
+                   StikkbombAbility, FragstormAbility, ScythingTalonsAbility)
 
 # Registre ActiveAbilityType (int) -> classe d'ability portée. À ÉTENDRE au roster.
 ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
@@ -21,6 +22,11 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     GravitonRifleAbility.ABILITY_TYPE: GravitonRifleAbility,           # 1206 (pattern documenté)
     ScarabSummonAbility.ABILITY_TYPE: ScarabSummonAbility,             # 1007 ScarabHive (summon, validé live)
     CrushingClawsAbility.ABILITY_TYPE: CrushingClawsAbility,           # 1105 (Tyrant Guard : attaque+Taunt+Suppress+splash)
+    ValkyrieStrikeAbility.ABILITY_TYPE: ValkyrieStrikeAbility,         # 1018 (airstrike différé — EXCLUT le sur-tir générique)
+    PlasmaGrenadeAbility.ABILITY_TYPE: PlasmaGrenadeAbility,           # 1098 (splash Plasma adjacent-cible)
+    StikkbombAbility.ABILITY_TYPE: StikkbombAbility,                   # 1051 (splash Blast adjacent-cible)
+    FragstormAbility.ABILITY_TYPE: FragstormAbility,                   # 1078 (splash Blast pick-random <=4)
+    ScythingTalonsAbility.ABILITY_TYPE: ScythingTalonsAbility,         # 1065 (splash Bio adjacent-both)
 }
 
 
