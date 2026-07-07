@@ -36,9 +36,7 @@ class MoveUnitOperation(Operation):
         else:
             pc.col, pc.row = self.to
         # #60 has_moved : marque l'unite "a bouge ce tour" (gate no-move HeavyWeapon lu en combat).
-        moved = getattr(state, "moved_this_turn", None)
-        if moved is not None:
-            moved.add(self.unit_id)
+        state.moved_this_turn.add(self.unit_id)
         # INCRÉMENT 1b : AddMoveEvent (bus) + EvaluateAfterMoveTriggers (overwatch) ici.
 
 

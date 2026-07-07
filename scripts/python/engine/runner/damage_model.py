@@ -72,7 +72,7 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     (verdict RE cluster #60 : le combat lisait has_moved=None -> bonus TOUJOURS appliqué, FAUX)."""
     active = (state.effects.active_effects(unit_id, {"hp": hp})
               if state.effects is not None else [])
-    has_moved = unit_id in getattr(state, "moved_this_turn", ())
+    has_moved = unit_id in state.moved_this_turn
     return build_attacker_modifiers_from_effects(active, is_ranged, has_moved=has_moved), active
 
 
@@ -98,7 +98,7 @@ def apply_elevation_bonus(state: State, mods, attacker_id: int, target_id: int) 
     (attaquant/cible) ; gate no-elevation (effet 0x423 sur attaquant OU cible). No-op sans board/positions
     (mods inchange). MEME service `calculate_elevation_bonus_modifier` (DamageCalculations) que la
     prediction, MEME constante `ELEVATION_BONUS_PCT` (pas de fork)."""
-    board = getattr(state, "board", None)
+    board = state.board          # toujours present (__slots__) ; None tant que le boardGraph n'est pas cale
     if board is None:
         return
     from .components import PositionComponent

@@ -125,7 +125,7 @@ def _adjacent_to_both(state: "State", caster_id: int, target_id: int) -> list[in
     caster ⇒ ennemis adjacents aux deux). Requiert `state.board` (evenq). ⚠ exclusion
     `UnitsWithoutTrait(0xd=13)` NON portée (mapping de l'enum trait 13 inconnu offline) → TODO ; sans
     board → [] (no-op fidèle)."""
-    board = getattr(state, "board", None)
+    board = state.board
     caster = state.get_entity(caster_id)
     tgt = state.get_entity(target_id)
     if board is None or caster is None or tgt is None:
@@ -163,7 +163,7 @@ def _adjacent_enemies_of(state: "State", caster_id: int, target_id: int) -> list
     `Enemies(caster, AdjacentUnits(target))` = les ennemis du caster sur `board.neighbours(target tile)`.
     Requiert `state.board` (evenq) ; sans board → [] (no-op fidèle). Ordre déterministe (tie-break id).
     (Volet splash de PlasmaGrenade/Stikkbomb ; base de tuiles de Fragstorm avant PickRandomly.)"""
-    board = getattr(state, "board", None)
+    board = state.board
     caster = state.get_entity(caster_id)
     tgt = state.get_entity(target_id)
     if board is None or caster is None or tgt is None:

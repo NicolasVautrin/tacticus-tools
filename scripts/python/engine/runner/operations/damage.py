@@ -178,7 +178,7 @@ class AttackDamageOperation:
         # sélection mêlée d'un tir, ex. overwatch ranged à dist 2).
         dist = None
         if ap is not None and tp is not None:
-            adj = are_tiles_adjacent((ap.col, ap.row), (tp.col, tp.row), getattr(state, "board", None))
+            adj = are_tiles_adjacent((ap.col, ap.row), (tp.col, tp.row), state.board)
             dist = 1 if adj else 2
         pierce, _ranged, whits = select_weapon_pierce(ctx, dist)
         _w = select_weapon(ctx, dist)

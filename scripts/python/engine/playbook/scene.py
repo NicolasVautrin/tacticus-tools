@@ -86,7 +86,7 @@ class Scene:
                 "effects": list(ec.effects) if ec is not None else [],  # noms bruts (EffectsOwnedComponent)
             })
         elev_by_pos = None
-        board = getattr(state, "board", None)
+        board = state.board
         if board is not None:
             elev_by_pos = {(t.get("col"), t.get("row")): int(t.get("elevation") or 0)
                            for t in board.by_id.values()

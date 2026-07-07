@@ -62,7 +62,7 @@ class FleeOperation:
     def _safest_tile(state, unit_id: int, movement: int):
         """Tuile atteignable (<= movement) maximisant la distance min a tout ennemi VIVANT. Requiert
         `state.board` (evenq). None si pas de board / pas d'ennemi / aucune tuile."""
-        board = getattr(state, "board", None)
+        board = state.board
         e = state.get_entity(unit_id)
         if board is None or e is None:
             return None
@@ -121,7 +121,7 @@ class BattleFatigueAbility(TriggeredAbility):
         if (state.effects is not None and                    # NOT HasEffect(self, 1079)
                 state.effects.has_effect(self.owner_id, effect_type=IGNORE_BATTLE_FATIGUE)):
             return False
-        board = getattr(state, "board", None)
+        board = state.board
         if board is None:
             return False
         ot = _unit_tile(state, board, self.owner_id)
