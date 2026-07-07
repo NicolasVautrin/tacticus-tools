@@ -42,7 +42,8 @@ def _summon_on_appearance_attack(state: "State", summon_id: int, target_id: int,
     pierce = max(0, min(100, int(dp.get("PiercingRatio") or 0) + int(ctx.extra_pierce)))
     hits = max(1, int(ctx.normal_weapon_hits))
     return AttackDamageOperation.execute_normal_like(
-        state, summon_id, target_id, int(ctx.stat(StatType.ATTACK)), pierce, hits=hits, spread_pct=20)
+        state, summon_id, target_id, int(ctx.stat(StatType.ATTACK)), pierce, hits=hits, spread_pct=20,
+        damage_profile=profile_name, is_melee=ctx.is_melee)
 
 
 class ThunderousAssaultAbility(ActiveAbility):
@@ -66,7 +67,8 @@ class ThunderousAssaultAbility(ActiveAbility):
             bmin, bmax, pierce, hits = ability_attack_params(
                 state, caster_id, "ThunderousAssault", "Power", ranged=False)
             atk = AttackDamageOperation.execute_ability_attack(
-                state, caster_id, target_id, bmin, bmax, pierce, hits)
+                state, caster_id, target_id, bmin, bmax, pierce, hits,
+                damage_profile="Power", is_melee=True)
             # [AddEffect] Stunned 1162, durée = TurnsFromRounds(1 round) :
             AddEffectOperation.execute(state, source=caster_id, target=target_id,
                                        effect_type=STUNNED, name="Stunned",
@@ -214,13 +216,15 @@ def _splash_ability_behaviour(state: "State", caster_id: int, target_id: int, ab
     nb de hits diffère (splash = `nrOfHits_2`). ⚠ le splash réutilise minDmg/maxDmg/pierce (PAS
     minDmg_2/maxDmg_2 : ce pattern var-séparées = CrushingClaws only). Chaque volet = `execute_ability_attack`."""
     bmin, bmax, pierce, hits = ability_attack_params(state, caster_id, ability_id, profile, ranged=ranged)
-    main = AttackDamageOperation.execute_ability_attack(state, caster_id, target_id, bmin, bmax, pierce, hits)
+    main = AttackDamageOperation.execute_ability_attack(state, caster_id, target_id, bmin, bmax, pierce, hits,
+                                                        damage_profile=profile, is_melee=not ranged)
     # splash : MÊME plage (minDmg/maxDmg/pierce), seule la constante de hits change (nrOfHits_2).
     _bmin2, _bmax2, _pierce2, hits2 = ability_attack_params(
         state, caster_id, ability_id, profile, ranged=ranged, hits_key="nrOfHits_2")
     splash: list[dict] = []
     for sid in splash_set:
-        satk = AttackDamageOperation.execute_ability_attack(state, caster_id, sid, bmin, bmax, pierce, hits2)
+        satk = AttackDamageOperation.execute_ability_attack(state, caster_id, sid, bmin, bmax, pierce, hits2,
+                                                            damage_profile=profile, is_melee=not ranged)
         splash.append({"target": sid, "attack": satk})
     return {"main_attack": main, "splash": splash, "hits_main": hits, "hits_splash": hits2}
 
@@ -253,7 +257,8 @@ class CrushingClawsAbility(ActiveAbility):
         bmin, bmax, pierce, hits = ability_attack_params(
             state, caster_id, self.ABILITY_ID, "Piercing", ranged=False)
         main = AttackDamageOperation.execute_ability_attack(
-            state, caster_id, target_id, bmin, bmax, pierce, hits)
+            state, caster_id, target_id, bmin, bmax, pierce, hits,
+            damage_profile="Piercing", is_melee=True)
         # [Taunt] AddBondEffect(27, TurnsFromRounds(1)) — COMPOSITE (enfants 25/26/1237 same-turns).
         # Bond cible→tauntant (ciblage IA) = concern playbook (TODO) ; source=caster capture la direction.
         AddEffectOperation.execute(state, source=caster_id, target=target_id, effect_type=TAUNTED,
@@ -275,7 +280,8 @@ class CrushingClawsAbility(ActiveAbility):
                 AddEffectOperation.execute(state, source=caster_id, target=sid, effect_type=PINNED,
                                            name="Pinned")
             satk = AttackDamageOperation.execute_ability_attack(
-                state, caster_id, sid, bmin2, bmax2, pierce2, hits2)
+                state, caster_id, sid, bmin2, bmax2, pierce2, hits2,
+                damage_profile="Physical", is_melee=True)
             splash.append({"target": sid, "attack": satk})
         return {"ability": "CrushingClaws", "caster": caster_id, "target": target_id,
                 "main_attack": main, "splash": splash}
@@ -419,7 +425,8 @@ class GravitonRifleAbility(ActiveAbility):
             bmin, bmax, pierce, hits = ability_attack_params(
                 state, caster_id, "GravitonRifle", "Physical", ranged=True)
             atk = AttackDamageOperation.execute_ability_attack(
-                state, caster_id, target_id, bmin, bmax, pierce, hits)
+                state, caster_id, target_id, bmin, bmax, pierce, hits,
+                damage_profile="Physical", is_melee=False)
             # [AddEffect] Stunned 1162, durée = TurnsFromRounds(nrOfRounds=1) :
             AddEffectOperation.execute(state, source=caster_id, target=target_id,
                                        effect_type=STUNNED, name="Stunned",

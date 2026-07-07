@@ -129,7 +129,8 @@ def _apply_active_ability(state: State, uid: int, target: Optional[int], ability
         profile = (cfg.get("constants") or {}).get("damageProfile")
         ranged = (cfg.get("attackRangeType") == "Ranged")
         bmin, bmax, pierce, hits = ability_attack_params(state, uid, _name, profile, ranged=ranged)
-        r = AttackDamageOperation.execute_ability_attack(state, uid, target, bmin, bmax, pierce, hits)
+        r = AttackDamageOperation.execute_ability_attack(state, uid, target, bmin, bmax, pierce, hits,
+                                                         damage_profile=profile, is_melee=not ranged)
         return {"ability": ability, "target": target, "routed": "generic_attack", "result": r}
     return {"ability": ability, "target": target, "routed": "noop"}
 

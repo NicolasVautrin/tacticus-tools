@@ -163,7 +163,8 @@ class PsykerExtraAttackAbility(TriggeredAbility):
         pierce = max(0, min(100, int(dp.get("PiercingRatio") or 0)
                             + ctx.extra_pierce + ctx.extra_pierce_ranged))
         res = AttackDamageOperation.execute_normal_like(state, self.owner_id, picked, base, pierce,
-                                                        hits=1, spread_pct=0)
+                                                        hits=1, spread_pct=0,
+                                                        damage_profile=PSYCHIC_PROFILE, is_melee=False)
         return {"trait": "Psyker", "target": picked, "base": base, "pierce": pierce, "result": res}
 
 
@@ -876,7 +877,8 @@ def _betrayer_take_turn(state: State, owner_id: int) -> Optional[dict]:
         bmin, bmax, pierce, hits = ability_attack_params(
             state, owner_id, "TheBetrayer", THEBETRAYER_PROFILE, ranged=False)
         atk = AttackDamageOperation.execute_ability_attack(
-            state, owner_id, target, bmin, bmax, pierce, hits)
+            state, owner_id, target, bmin, bmax, pierce, hits,
+            damage_profile=THEBETRAYER_PROFILE, is_melee=True)
     return {"ability": "TheBetrayer", "owner": owner_id, "target": target,
             "moved": moved, "attack": atk}
 

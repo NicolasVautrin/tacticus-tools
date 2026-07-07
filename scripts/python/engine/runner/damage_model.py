@@ -88,6 +88,45 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
     return build_defender_modifiers_from_effects(active, is_melee, damage_profile), active
 
 
+def build_hits_board(state: State, att_id: int, tgt_id: int,
+                     attack_pos, t_pos, is_melee: Optional[bool]):
+    """Bâtit `(board, aura_sources, target_effects)` pour `total_attack_hits` depuis l'ECS (positions/teams/
+    effets REELS) — mirror CÔTÉ COMBAT du board de la prédiction (Scene). `board` = {att_id, tgt_id,
+    attack_pos, t_pos, tgt_team, is_melee, pos_by_id, team_by_id, faction_of} ; `aura_sources` = [(owner_id,
+    pos, team, effets)] des unités != cible (porteurs d'auras de coups type BigTarget) ; `target_effects` =
+    effets actifs de la cible (LightCover/Parry). `faction_of` = closure paresseuse (lookup gameconfig à la
+    demande ; non consommé par GetStuckIn/BigTarget aujourd'hui, présent pour fidélité au board préd)."""
+    from .components import PositionComponent, OwnerComponent, HealthComponent
+    import gameconfig as GC
+    pos_by_id: dict = {}
+    team_by_id: dict = {}
+    vis_by_id: dict = {}
+    aura_sources = []
+    target_effects: list = []
+    for uid, e in state.entities.items():
+        pc = e.get_component(PositionComponent)
+        oc = e.get_component(OwnerComponent)
+        sc = e.get_component(StatsComponent)
+        hc = e.get_component(HealthComponent)
+        if pc is not None:
+            pos_by_id[uid] = (pc.col, pc.row)
+        if oc is not None:
+            team_by_id[uid] = oc.team
+        if sc is not None:
+            vis_by_id[uid] = getattr(sc.ctx, "visual_id", None)
+        effs = (state.effects.active_effects(uid, {"hp": hc.hp if hc is not None else None})
+                if state.effects is not None else [])
+        if uid == tgt_id:
+            target_effects = effs
+        else:
+            aura_sources.append((uid, pos_by_id.get(uid), team_by_id.get(uid), effs))
+    board = {"att_id": att_id, "tgt_id": tgt_id, "attack_pos": attack_pos, "t_pos": t_pos,
+             "tgt_team": team_by_id.get(tgt_id), "is_melee": is_melee,
+             "pos_by_id": pos_by_id, "team_by_id": team_by_id,
+             "faction_of": lambda u: (GC.unit(vis_by_id.get(u)) or {}).get("GrandAllianceId")}
+    return board, aura_sources, target_effects
+
+
 def normal_attack_per_hit_range(state: State, unit_id: int) -> Optional[dict]:
     """Plage BRUTE (pré-armure) d'UN coup d'attaque normale de l'unité, calculée depuis
     l'ECS (StatsComponent + effets actifs). Renvoie `{min, max, base, effects, hasMods}`

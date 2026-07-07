@@ -48,13 +48,14 @@ from ...services.damage_combat import (calculate_damage_operation, Damage, could
                                        roll_critical, BlockSource)
 from ...services.damage_modifiers import apply_all_modifiers
 from ...services.battle_query import are_tiles_adjacent
+from ...services.attack_hits import total_attack_hits
 from ...entities.stats import StatType
 from ..prng import IntBasedMersenneTwister
 from ..state import State
 from ..components import (StatsComponent, HealthComponent, PositionComponent, UnitComponent,
                          ShieldComponent)
 from ..damage_model import (select_weapon, select_weapon_pierce, attacker_modifiers,
-                            defender_modifiers)
+                            defender_modifiers, build_hits_board)
 from ...entities.effects import (hits_bonus_from_effects, crit_chance_bonus_from_effects,
                                  crit_damage_bonus_from_effects)
 
@@ -184,7 +185,19 @@ class AttackDamageOperation:
         _profile = _w.get("DamageProfile") if _w else None     # profil du coup (pour vecteurs after-hit)
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, is_ranged=_ranged)
-        hits = max(1, whits + ctx.stat(StatType.EXTRA_HITS) + hits_bonus_from_effects(active))
+        # Nb de coups = service PARTAGE `total_attack_hits` (MEME que la prediction) : base weapon+ExtraHits+
+        # effets, +GetStuckIn/traits, +malus defenseur (LightCover/Parry) + auras (BigTarget). #62a : le combat
+        # ne sommait que weapon+ExtraHits+effets -> divergent de la prediction sur GetStuckIn/LightCover/BigTarget.
+        if ap is not None and tp is not None:
+            _board, _auras, _tgt_eff = build_hits_board(
+                state, attacker_id, target_id, (ap.col, ap.row), (tp.col, tp.row), is_melee=not _ranged)
+            hits = total_attack_hits(
+                weapon_hits=whits, extra_hits=ctx.stat(StatType.EXTRA_HITS),
+                attacker_effects=active, trait_objects=ctx.trait_objects(),
+                target_effects=_tgt_eff, aura_sources=_auras, board=_board,
+                is_melee=not _ranged, damage_profile=_profile)
+        else:                                     # positions manquantes -> base seule (pas de GetStuckIn/aura)
+            hits = max(1, whits + ctx.stat(StatType.EXTRA_HITS) + hits_bonus_from_effects(active))
         tsc = tgt.get_component(StatsComponent)
         # armure = GetStat(16) DÉJÀ effet-inclusif : les bonus +armor d'effet sont des StatModifications
         # (aucun `GetArmorBonusFromEffects` séparé n'existe — seuls crit/hits ont une couche calc-time) →
@@ -206,8 +219,8 @@ class AttackDamageOperation:
         # famille ADamageDefenseModifierAbilityEffect ; STAT/Parry/triggers = axes séparés (cf. §1.8).
         # #59 : threade is_melee (= coup mêlée = arme non-rangée) + profil de dégât → malus gatés corrects
         # (Terrifying_ExtraDefense gate IsMeleeAttack ; TerminatorArmour exclut Psychic/DirectDamage). Mirror
-        # de la prédiction. Les chemins ABILITY (execute_ability_attack/execute_normal_like) ne câblent PAS
-        # encore ces gates (signature sans profil/is_melee) → comportement historique (TODO #59 suite).
+        # de la prédiction. #59 suite : les chemins ABILITY (execute_ability_attack/execute_normal_like)
+        # câblent DÉSORMAIS ces gates aussi (params damage_profile/is_melee threadés par tous leurs callers).
         def_mods, _def_active = defender_modifiers(state, target_id, thc.hp,
                                                    is_melee=not _ranged, damage_profile=_profile)
         # ORDRE RÉEL (confirmé live 18/18 coups, 3 seeds, necroDestroyer 6h) : le HitDamage natif
@@ -311,7 +324,8 @@ class AttackDamageOperation:
     @staticmethod
     def execute_ability_attack(state: State, attacker_id: int, target_id: int,
                                base_min: int, base_max: int, profile_pierce: int,
-                               hits: int) -> Optional[dict]:
+                               hits: int, damage_profile: Optional[str] = None,
+                               is_melee: Optional[bool] = None) -> Optional[dict]:
         """Attaque d'une ABILITY active (mirror `AttackWithAttackDamage` + `MinMaxDamage`/`GetHits`/
         `GetDamageProfile`). DIFFÈRE de l'attaque normale par la BASE : les bornes du coup = `[base_min,
         base_max]` données par la config d'ability (`GetVariableForLevel` clés 0xc/0xd = minDmg/maxDmg),
@@ -343,7 +357,11 @@ class AttackDamageOperation:
         block_amount = int(getattr(tsc.ctx, "block_damage", 0) or 0) if tsc is not None else 0
         block_sources = ([BlockSource(chance=block_chance, amount=block_amount)]
                          if block_chance > 0 and block_amount > 0 else None)
-        def_mods, _da = defender_modifiers(state, target_id, thc.hp)
+        # #59 suite : threade is_melee + profil de l'ability -> malus DÉFENSEUR gatés (Terrifying_ExtraDefense
+        # IsMeleeAttack ; TerminatorArmour DamageProfileIs). None (caller non mis à jour) = comportement
+        # historique (gates non appliqués) — INERTE pour une cible sans effet de défense gaté.
+        def_mods, _da = defender_modifiers(state, target_id, thc.hp,
+                                           is_melee=is_melee, damage_profile=damage_profile)
         crit_chance = ctx.stat(StatType.CRIT_CHANCE) + crit_chance_bonus_from_effects(active)
         crit_damage = ctx.stat(StatType.CRIT_DAMAGE) + crit_damage_bonus_from_effects(active)
         crit_enabled = could_crit(crit_chance, crit_damage)
@@ -379,7 +397,9 @@ class AttackDamageOperation:
 
     @staticmethod
     def execute_normal_like(state: State, attacker_id: int, target_id: int, base: int,
-                            profile_pierce: int, hits: int = 1, spread_pct: int = 20) -> Optional[dict]:
+                            profile_pierce: int, hits: int = 1, spread_pct: int = 20,
+                            damage_profile: Optional[str] = None,
+                            is_melee: Optional[bool] = None) -> Optional[dict]:
         """Attaque dont le node de dégât est un `StatAmount`/`PercentageOf(StatAmount(...))` (ex. splash
         Psyker = `PercentageOf(StatAmount(Attack), psykerExtraDmg%)`, profil Psychic). Pipeline
         **reduce-then-roll** (bornes pré-réduites puis tirage, post_roll=None), comme l'attaque normale
@@ -404,7 +424,10 @@ class AttackDamageOperation:
         block_amount = int(getattr(tsc.ctx, "block_damage", 0) or 0) if tsc is not None else 0
         block_sources = ([BlockSource(chance=block_chance, amount=block_amount)]
                          if block_chance > 0 and block_amount > 0 else None)
-        def_mods, _da = defender_modifiers(state, target_id, thc.hp)
+        # #59 suite : threade is_melee + profil -> malus DÉFENSEUR gatés (cf. execute_ability_attack).
+        # None (caller non mis à jour) = comportement historique — INERTE sans effet de défense gaté.
+        def_mods, _da = defender_modifiers(state, target_id, thc.hp,
+                                           is_melee=is_melee, damage_profile=damage_profile)
         crit_chance = ctx.stat(StatType.CRIT_CHANCE) + crit_chance_bonus_from_effects(active)
         crit_damage = ctx.stat(StatType.CRIT_DAMAGE) + crit_damage_bonus_from_effects(active)
         crit_enabled = could_crit(crit_chance, crit_damage)

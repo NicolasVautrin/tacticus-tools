@@ -32,6 +32,7 @@ from engine.services.damage_modifiers import (
     add_modifier, calculate_elevation_bonus_modifier,
     calculate_ranged_in_melee_reduction, calculate_trench_reduction)
 from engine.services.battle_query import select_weapon_pierce, are_tiles_adjacent
+from engine.services.attack_hits import total_attack_hits
 from engine.playbook.probable_damage_event import ProbableDamageEvent
 
 import json as _json
@@ -155,7 +156,6 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     if ctx is None:
         return None
     att_effects = scene.effects(att_id)
-    eff_hits = hits_bonus_from_effects(att_effects)
     t_pos = scene.pos(tgt_id)
     # Sélection d'arme mêlée<->ranged : service PARTAGÉ `BattleQuery.are_tiles_adjacent` (MÊME que le
     # runner combat). ADJACENCE HEX, PAS Chebyshev — une unité à armes mixtes (u92 : mêlée 4x + ranged
@@ -194,17 +194,18 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
             carriers, {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
                        "damage_profile": prof_name}):
         add_modifier(mods, _eb)
-    hits_pre = max(1, whits + ctx.stat(StatType.EXTRA_HITS) + eff_hits)   # plancher 1 coup
+    # Nb de coups = service PARTAGE `total_attack_hits` (MEME fonction que le combat runner) : base
+    # weapon+ExtraHits+effets, +GetStuckIn/traits, +malus defenseur (LightCover/Parry) + auras (BigTarget).
     board = {"att_id": att_id, "tgt_id": tgt_id, "attack_pos": attack_pos, "t_pos": t_pos,
-             "tgt_team": scene.team(tgt_id), "is_melee": is_melee, "base_hits": hits_pre,
+             "tgt_team": scene.team(tgt_id), "is_melee": is_melee,
              "pos_by_id": scene.pos_by_id, "team_by_id": scene.team_by_id, "faction_of": scene.faction}
-    hits = hits_pre + attacker_bonus_hits(ctx.trait_objects(), board)
     tgt_effects = scene.effects(tgt_id)
     aura_sources = [(uid, scene.pos(uid), scene.team(uid), scene.effects(uid))
                     for uid in scene.pos_by_id if uid != tgt_id]
-    hits = max(1, hits
-               + hits_malus_from_defender_effects(tgt_effects, is_melee, prof_name)
-               + aura_hits_malus_for_defense(aura_sources, board))
+    hits = total_attack_hits(weapon_hits=whits, extra_hits=ctx.stat(StatType.EXTRA_HITS),
+                             attacker_effects=att_effects, trait_objects=ctx.trait_objects(),
+                             target_effects=tgt_effects, aura_sources=aura_sources, board=board,
+                             is_melee=is_melee, damage_profile=prof_name)
     res = get_attack_prediction(
         target_current_health=scene.hp(tgt_id) or 0, initial_damage=attack_base, hits=hits,
         profile_type=0, pierce_pct=pierce, armor=scene.armor(tgt_id), mods=mods,
