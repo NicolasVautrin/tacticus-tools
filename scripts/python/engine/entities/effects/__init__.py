@@ -190,14 +190,15 @@ def aura_hits_malus_for_defense(units_effects, ctx) -> int:
 def aura_attack_bonus_from_allies(carriers, ctx) -> int:
     """Σ des bonus PLATS au stat Attack (BASE) projetés sur l'ATTAQUANT par les auras stat-mod possédées
     par ses ALLIÉS à portée (`create_aura_attack_bonus`, ex. `RitesOfBattleAbility` @181225340 :
-    +extraDmg/_2 aux alliés ring-1, gate Imperial). `carriers` = itérable de (owner_id, owner_pos,
-    owner_team, owner_mult, owner_level, effets du porteur) ; `ctx` = {att_id, att_pos, att_team,
-    att_grand_alliance, board}. Modélisé CÔTÉ SOURCE + ré-évalué PAR CANDIDAT (adjacence owner↔att_pos).
+    +extraDmg/_2 aux alliés ring-1, gate Imperial ; `PathOfCommandAbility` @181110f10 : +extraDmg(/_2 si
+    même grande-alliance) aux alliés dans un rayon 2). `carriers` = itérable de (owner_id, owner_pos,
+    owner_team, owner_mult, owner_level, owner_grand_alliance, effets du porteur) ; `ctx` = {att_id, att_pos,
+    att_team, att_grand_alliance, board}. Modélisé CÔTÉ SOURCE + ré-évalué PAR CANDIDAT (portée owner↔att_pos).
     Retour ≥ 0 (à AJOUTER à `GetStat(Attack, INITIAL)` — mirror de `GetStat(Current)` per-candidat)."""
     total = 0
-    for owner_id, owner_pos, owner_team, owner_mult, owner_level, effects in (carriers or []):
+    for owner_id, owner_pos, owner_team, owner_mult, owner_level, owner_ga, effects in (carriers or []):
         octx = {**(ctx or {}), "owner_id": owner_id, "owner_pos": owner_pos, "owner_team": owner_team,
-                "owner_mult": owner_mult, "owner_level": owner_level}
+                "owner_mult": owner_mult, "owner_level": owner_level, "owner_grand_alliance": owner_ga}
         for e in _as_effects(effects):
             b = e.create_aura_attack_bonus(octx)
             if b:

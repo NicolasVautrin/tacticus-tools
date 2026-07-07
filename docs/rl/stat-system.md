@@ -273,4 +273,86 @@ Integration runner (FAIT) :
   read-only/apply-revert/idempotent).
 
 RESTE : confrontation live non-circulaire (residu 0) sur une unite portant StandVigil (craft via unit_map) ;
-etendre le canal a d'autres effets StatModifier concrets.
+porter le canal aux StatModifier DYNAMIQUES concrets (cartographie ci-dessous, RE 2026-07-07).
+
+## Magnitudes des StatModifier DYNAMIQUES (ADynamicStatModifierEffect) — RE 2026-07-07 (re-expert)
+
+### Mecanique de base (PROUVE, VAs lues)
+- `ADynamicStatModifierEffect.GetStatModificationAmount @180f090f0` = `round( virtuel[vtable+0x798](this) )`
+  (arrondi NumberFormat). La VRAIE magnitude par sous-classe = son override **`GetDynamicStatModificationAmount`
+  (vtable+0x798)**. Les sous-classes n'overrident PAS GetStatModificationAmount.
+- **StatType = PAS dans l'override d'amount** : `AStatModifierEffect.GetStatModificationStat @180f0a890` (seule
+  impl, aucun override) mappe le descripteur `AbilityOrEffect` (stocke au ctor base `@180f09280`, champ
+  `Nullable<AbilityOrEffect>` @+0x14) -> `StatType` via un **dict statique `DAT_1831b92c8`** (valeur @+0x10).
+  -> pour figer les StatType exacts, DECODER ce dict (TODO ; pour RitesOfBattle StatType=Attack deja confirme
+  live #49). Champs d'instance communs : `+0x48`=DSLFactory, `+0x60`=AbilityConfiguration, `+0x50`=contexte.
+
+### Deux patterns de magnitude (PROUVE)
+- **PATTERN A** (~14 sous-classes) = arbre DSL `ConfigVar(configId, EffectSource(Get(target)), varType)` eval
+  via `ConfigAmount.Calculate @180f171c0` = lit un NOMBRE DE CONFIG `configId` sur l'unite **SOURCE** resolue
+  (son AbilityConfiguration), soit `GetVariableForLevel(configId, source.level)` soit `GetNumberConstant`. **=>
+  la valeur (ex. +1298) est dans gameconfig/BC, PAS dans le binaire.** Port = `effects/magnitude.py::ability_var`
+  (deja le miroir de `ConfigAmount.Calculate`) ; SEUL travail par effet = resoudre le `configId` numerique ->
+  nom camelCase du `var_key` gameconfig (enum cle->nom absent du dump ; cas par cas, ex. RapidAssault 0xf =
+  `rapidAssaultExtraDmgPct`).
+- **PATTERN B** (~4 sous-classes) = lit une stat (`GetStat`) + scaling/negation (Hypermorph/PowerUp =
+  `stat * GetNumberConstant(0x4f)/100` ; Contaminated = `-GetStat(6)`).
+
+### Table des sous-classes (18) — configId/varType/pattern/aura
+| Sous-classe | override @VA | Pat | Magnitude | Stat (hyp sauf note) | Aura/Self | Porteur (hyp) |
+|--|--|--|--|--|--|--|
+| **RitesOfBattleExtraDmg** | 180f69810 | A | `ConfigVar(0x3f6,vt=8)` | Attack (**confirme #49**) | **AURA r1** | Rites of Battle (Calgar) |
+| RitesOfBattleExtraDmgImperial | 180f69a60 | A | `ConfigVar(0x3f6,vt=9)` | Attack | AURA | RoB Imperial |
+| Spotter_ExtraDmg | 180f6cce0 | A | `ConfigVar(0x417,vt=8)` | Attack | AURA | Spotter |
+| PathOfCommandExtraCrit | 18119c5f0 | A | `ConfigVar(0x458,vt=0x41)` | Crit | AURA/buff | Loki PoC |
+| KustomForceField (+_Orks 180f53d00, Reworked 180f537c0) | 180f53a40 | A | `ConfigVar(0x44e,vt=0x1b)` | Armor | AURA/buff | Orks KFF |
+| StandVigil_ExtraArmor | 180f6d910 | A | `ConfigVar(0x51c,vt=0x1b)` | Armor | buff | Stand Vigil |
+| LionHelm_ExtraBlockChance | 180f55d80 | A | `ConfigVar(0x48b,vt=0x15)` | BlockChance | buff | Lion Helm |
+| LionHelm_ExtraBlockDamage | 180f56000 | A | `ConfigVar(0x48b,vt=0x14)` | BlockAmount | buff | Lion Helm |
+| SummaryExecution | 180f6f910 | A | `ConfigVar(0x409,vt=9)` | Attack | buff | Summary Execution |
+| SummaryExecution_Always | 180f6fb90 | A | `ConfigVar(0x409,vt=8)` | Attack | buff | Summary Execution |
+| **DynamicStatModifierEffect** (generique) | 180f3fe00 | A | `ConfigVar(this[+0x490\|+0x498], vt=this[+0x4a0])`, signe nie si `+0x4a4` | variable | selon usage | stat-mods config-driven (BEAUCOUP) |
+| Contaminated | 180f3a460 | B | `-GetStat(stat=6)` | stat#6 negation | self debuff | Nurgle Contaminated |
+| Hypermorph | 180f519f0 | B | `GetStat(5,part0) * GetNumberConstant(0x4f)/100` | (stat propre) | self | Tyranid Hypermorph |
+| PowerUp_Armor | 180f45e20 | B | `GetStat(5,part2) * frac(GetNumberConstant(0x4f))` | Armor | self | PowerUp |
+| PathOfCommandExtraDmg | 18119c7b0 | mixte | `If(IsSameFaction(owner,target), v8+v9, v8)` (vars 8/9 per-level de l'ability 0x458) | Attack | buff cond. faction | Loki PoC |
+| ContagionsOfNurgle_ArmorReduction | override DIRECT `GetStatModificationAmount @180f39ce0` | config | `GetNumberConstant(cle=+0x488)` ; ctor `@180f39d20` AbilityOrEffect=0x431 | Armor (reduc) | AURA (ContagionsRange) | Nurgle Contagions |
+
+### RitesOfBattleExtraDmg = gap #49 (effet 97 = +1298 Attack) — DETAIL
+- **AURA prouve** `CreateTargetSelector @180f69770` = `AdjacentUnits(source, range=1) -> Friends ->
+  UnitsWithoutTrait(0x1a)` = allies ADJACENTS (r1) de la source sans trait 0x1a. Match exact du +1298 adjacent a Calgar.
+- **Magnitude** `@180f69810` = `ConfigVar(0x3f6, EffectSource, vt=8)` -> `config[0x3f6]` sur l'AbilityConfiguration
+  de la SOURCE (Calgar) a son niveau. **Le 1298 = config[0x3f6] de RitesOfBattle pour Calgar** (gameconfig, pas binaire).
+- **Port** : `amount = ability_var(rites_of_battle_id, var_key=<nom de 0x3f6>, level=source.level)`, applique en
+  +Attack a chaque allie adjacent (r1, Friends, sans trait 0x1a). StatType=Attack confirme live #49.
+
+### PROUVE vs HYPOTHESE
+- PROUVE : chaine base->virtuelle+0x798->round ; Pattern A = ConfigVar/EffectSource/ConfigAmount lisant la SOURCE ;
+  (configId,varType) par sous-classe (VAs) ; RitesOfBattle aura r1 ; ContagionsOfNurgle override direct ;
+  Pattern B lecture GetStat+scaling ; PathOfCommand If(IsSameFaction).
+- HYPOTHESE (a fermer) : (1) mapping `configId -> var_key camelCase -> valeur` = gameconfig, cas par cas ;
+  (2) enum exact `varType`/`StatType` (dict @180f0a890 non decode ; correlation observee 0x1b=Armor, 0x14/0x15=Block,
+  0x41=Crit, 8/9=Damage) ; (3) `statType=5/6` Pattern B ; (4) porteurs gameconfig (colonne Porteur) ;
+  (5) branche `+0x490` vs `+0x498` du generique.
+
+### Etat du port (MAJ 2026-07-07)
+- **RitesOfBattleExtraDmg (#49)** : DEJA PORTE avant cette session (loki.py `RitesOfBattleExtraDmgEffect.
+  create_aura_attack_bonus`, wire `prediction.py:189` via `aura_attack_bonus_from_allies`, RE-valide
+  `extraDmg_2[L50]x1.8=1298`). Rien a refaire (verifie apres une fausse relance).
+- **PathOfCommandExtraDmg (1112, Loki)** : PORTE cette session. `loki.py::PathOfCommandExtraDmgEffect.
+  create_aura_attack_bonus` = AURA `SurroundingFriends @180dfc640` (`SurroundingTiles(range) - Tiles(self)`,
+  self EXCLU) rayon 2 (`GetNumberConstant(0x16)=range=2`), meme equipe ; montant `@18119c7b0` =
+  `If(IsSameFaction(owner,target), extraDmg+extraDmg_2, extraDmg)[niveau SOURCE] x mult SOURCE`. Wire :
+  factory `PathOfCommand_ExtraDmg`, carrier etendu a 7-tuple avec `owner_grand_alliance`
+  (`prediction.py`, type-level via vis_by_id -> GrandAllianceId, miroir-safe). Sanity offline OK (388
+  same-faction / 222 autre faction / None hors-rayon,self,ennemi ; RitesOfBattle non regresse = 1298).
+  **LIVE a valider** (Loki + allie a distance <=2 -> +extraDmg dans la prediction d'attaque de l'allie).
+- **PathOfCommandExtraCrit (1107, extraCritChance)** : NON porte. Axe CRIT -> `create_aura_attack_bonus`
+  ne couvre que Attack ; il faut un canal AURA-CRIT dedie (`create_aura_crit_bonus` + agregateur + wire
+  dans la crit chance de prediction). `@18119c5f0` = `ConfigVar(0x458, EffectSource, varType=0x41)` =
+  `extraCritChance[niveau SOURCE]` (NON scale rarete). TODO.
+
+### Ordre de port suivant (recommande)
+1. Canal AURA-CRIT (debloque PathOfCommand ExtraCrit + futurs crit-auras).
+2. Decoder le dict `AbilityOrEffect->StatType` (@180f0a890) pour figer les StatType (retirer l'hypothese).
+3. Generique `DynamicStatModifierEffect` (couvre beaucoup de stat-mods config-driven) une fois (1)+(2) surs.

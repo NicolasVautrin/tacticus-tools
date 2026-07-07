@@ -183,7 +183,8 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     aura_ctx = {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
                 "att_grand_alliance": att_grand, "board": scene.board}
     carriers = [(uid, scene.pos(uid), scene.team(uid), scene.mult(uid), scene.ablvl_by_id.get(uid),
-                 scene.effects(uid)) for uid in scene.pos_by_id
+                 (GC.unit(scene.vis_by_id.get(uid)) or {}).get("GrandAllianceId"),  # owner grande-alliance
+                 scene.effects(uid)) for uid in scene.pos_by_id                     # (type-level, miroir-safe)
                 if uid != att_id and (scene.hp(uid) or 0) > 0]
     attack_base = ctx.get_stat(StatType.ATTACK, StatPart.INITIAL) \
         + aura_attack_bonus_from_allies(carriers, aura_ctx)

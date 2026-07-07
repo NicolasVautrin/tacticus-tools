@@ -76,6 +76,48 @@ class RitesOfBattleExtraDmgEffect(BaseEffect):
                            multiplier_pct=c.get("owner_mult") or 100)
 
 
+class PathOfCommandExtraDmgEffect(BaseEffect):
+    """`PathOfCommandExtraDmgEffect` (Effects.Triggered.Loki) — AURA stat-mod +Attack de Loki
+    (`PathOfCommand_ExtraDmg` 1112). `PathOfCommandAbility.CreateBehaviour @181110f10` pose 2 effets
+    DynamicStatModifier sur le SOURCE (Loki) : ExtraDmg (0x458=1112) + ExtraCrit (0x453=1107).
+    `CreateTargetSelector @180f4bf30` = `SurroundingFriends(owner, range=GetNumberConstant(0x16)=2)` =
+    `SurroundingTiles(range) - Tiles(self)` → `Friends` → alliés (même équipe) à distance hex <=2, SOURCE
+    EXCLUE (comme RitesOfBattle mais range 2 au lieu de 1).
+
+    Montant `GetDynamicStatModificationAmount @18119c7b0` = `If(IsSameFaction(owner, target), v8+v9, v8)`
+    avec `v8 = GetVariableForLevel(8=extraDmg, niveau SOURCE)`, `v9 = (9=extraDmg_2, niveau SOURCE)` (mêmes
+    enum-keys 8/9 = extraDmg/extraDmg_2 que RitesOfBattle) × multiplier SOURCE (les 2 dans
+    `variablesAffectedByRarityBonus`). IsSameFaction = **même grande-alliance** : allié même équipe ET même
+    faction → extraDmg+extraDmg_2 ; même équipe autre faction → extraDmg seul. Ajouté à la **modification**
+    du stat **Attack** (comme RitesOfBattle).
+
+    ⚠ Modélisée CÔTÉ SOURCE via `create_aura_attack_bonus` (l'effet-entité vit sur Loki, pas sur le buffé) et
+    ré-évaluée PAR CANDIDAT (distance <=2 à `att_pos`). PAS de `get_stat_modification_*` target-side (Loki ne
+    se self-buff pas : SurroundingFriends l'exclut). L'axe CRIT (ExtraCrit 1107 = extraCritChance) = effet
+    SÉPARÉ non porté ici (nécessite un canal aura-crit dédié — TODO)."""
+
+    def create_aura_attack_bonus(self, ctx: Mapping | None = None) -> int | None:
+        c = ctx or {}
+        if c.get("owner_id") == c.get("att_id"):
+            return None                                  # SurroundingFriends exclut la source (- Tiles(self))
+        if c.get("owner_team") is None or c.get("owner_team") != c.get("att_team"):
+            return None                                  # Friends = même équipe que le porteur (Loki)
+        op, ap = c.get("owner_pos"), c.get("att_pos")
+        if not op or not ap:
+            return None
+        import hexgeo
+        rng = ability_var("PathOfCommand", "range", is_constant=True) or 2   # GetNumberConstant(0x16)=range=2
+        if hexgeo.distance(op, ap) > rng:                # SurroundingFriends(range) — portée hex du porteur
+            return None
+        lvl, mult = c.get("owner_level"), (c.get("owner_mult") or 100)
+        base = ability_var("PathOfCommand", "extraDmg", lvl, multiplier_pct=mult) or 0
+        # If(IsSameFaction(owner, target), extraDmg + extraDmg_2, extraDmg) — même grande-alliance = bonus.
+        oga, aga = c.get("owner_grand_alliance"), c.get("att_grand_alliance")
+        if oga is not None and oga == aga:
+            base += ability_var("PathOfCommand", "extraDmg_2", lvl, multiplier_pct=mult) or 0
+        return base or None
+
+
 class StandVigilExtraArmorEffect(BaseEffect):
     """`StandVigil_ExtraArmorEffect` (Effects.Loki) — buff **StatModification** +armure, **SELF-buff**
     (l'unité se buffe elle-même en « stand vigil » = sans se déplacer). `GetDynamicStatModificationAmount

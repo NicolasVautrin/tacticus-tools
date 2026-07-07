@@ -19,6 +19,7 @@ from .loki import (
     LightCoverEffect,
     MasterAnnihilatorAdditionalHitEffect,
     ParryEffect,
+    PathOfCommandExtraDmgEffect,
     RangedSpecialistEffect,
     PinnedEffect,
     PowerTripFullHealthEffect,
@@ -42,6 +43,10 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # (create_aura_attack_bonus, ré-évaluée par candidat) — cf. #49 prediction.md point 18.
     "RitesOfBattle_ExtraDmgBasic": RitesOfBattleExtraDmgEffect,
     "RitesOfBattle_ExtraDmgImperial": RitesOfBattleExtraDmgEffect,
+    # AURA +Attack (rayon 2) du SOURCE Loki (PathOfCommandAbility @181110f10) : friends dist<=2,
+    # +extraDmg (+extraDmg_2 si même grande-alliance que Loki). ExtraDmg=1112 ; ExtraCrit (1107,
+    # extraCritChance) = axe CRIT, canal aura-crit non porté (TODO). Nom capté = "PathOfCommand_ExtraDmg".
+    "PathOfCommand_ExtraDmg": PathOfCommandExtraDmgEffect,
     # Stat-mod +armure (FixedArmor) FLAT, SELF-buff extraArmor[level] (résidu 0 validable ; nom à confirmer).
     "StandVigil_ExtraArmor": StandVigilExtraArmorEffect,
     "RangedSpecialist": RangedSpecialistEffect,  # +33% dégât RANGED (trait, actif si pas parti adjacent)
