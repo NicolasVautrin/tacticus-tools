@@ -21,6 +21,7 @@ from engine.entities.abilities.active_ability import (
 from engine.entities.abilities.ability_configuration import AbilityConfiguration
 from engine.entities.effects import (
     aura_attack_bonus_from_allies, aura_hits_malus_for_defense,
+    aura_attack_damage_malus_from_enemies,
     calculate_attacker_modifiers_for_prediction, build_defender_modifiers_from_effects,
     hits_bonus_from_effects, hits_malus_from_defender_effects)
 from engine.entities.traits import attacker_bonus_hits
@@ -186,6 +187,13 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
         + aura_attack_bonus_from_allies(carriers, aura_ctx)
     _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, attack_pos, t_pos,
                                       damage_profile=prof_name)
+    # AURA ENNEMIE %-degat projetee sur l'ATTAQUANT : ShadowInTheWarp_LessDmg_Effect (-25% Psychic aux
+    # ennemis a portee du porteur) — reutilise `carriers` (toutes les autres unites vivantes), gate Psychic
+    # + team ennemie + portee dans le create_aura_. Ajoute aux modifiers %-list de l'attaquant.
+    for _eb in aura_attack_damage_malus_from_enemies(
+            carriers, {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
+                       "damage_profile": prof_name}):
+        add_modifier(mods, _eb)
     hits_pre = max(1, whits + ctx.stat(StatType.EXTRA_HITS) + eff_hits)   # plancher 1 coup
     board = {"att_id": att_id, "tgt_id": tgt_id, "attack_pos": attack_pos, "t_pos": t_pos,
              "tgt_team": scene.team(tgt_id), "is_melee": is_melee, "base_hits": hits_pre,

@@ -680,17 +680,29 @@ l'ability (aura -1 hit ranged aux alliés ring-1). Port : `factory.TRAIT_DERIVED
   d'owner-effect** (déjà porté = death-trigger + Flee flag 9). Rien à seeder.
 - **InstinctiveBehaviour** (tyranSmnSporeMine/tyranSmnRipperSwarm) : `InstinctiveBehaviour_UpdateTargetAbility` —
   **DROPPÉ** (décision utilisateur antérieure). Rien à seeder.
-- **Synapse** (tyranSmnWarrior) : `Synapse_AddEffectAbility` → `Synapse_Effect` (1052=0x41c) ; **ShadowInTheWarp**
-  (tyranSmnWarrior) : `ShadowInTheWarp_AddEffectAbility` → `ShadowInTheWarp_LessDmg_Effect` (1053=0x41d). Ce sont
-  des `<Trait>_AddEffectAbility` (pattern GÉNÉRIQUE : base `AddEffectAbility.CreateBehaviour` pose `constants.effectType`
-  au porteur ; cf. aussi TerminatorArmour/Infiltrate/CloseCombatWeakness). ⚠ Ces 2 effets ne sont **PAS dans
-  `EFFECT_CLASSES`** → un seed serait un `BaseEffect` no-op (aura sur autres units, sans contribution) → **NON
-  seedés** tant que les classes d'effet ne sont pas portées (les porter D'ABORD, puis les ajouter aux tables).
+- **ShadowInTheWarp** (tyranSmnWarrior) — **PORTÉ (aura, 2026-07-07)** : `ShadowInTheWarp_AddEffectAbility`
+  (`_AddEffectAbility`, base `CreateBehaviour` pose `constants.effectType`) → `ShadowInTheWarp_LessDmg_Effect`
+  (1053=0x41d). `CreateEffectDamageBonusForAttack @180f6b420` = `ForPercentIncrease(OwnerIsActor &
+  DamageProfileIs(Psychic), ConfigConst 0x3b)` ; `CreateTargetSelector @180f6b5f0` = `SurroundingEnemies(range=
+  ConfigConst 0x16) & UnitsWithTrait(0x3ea) & UnitsNotFromFaction(0xc)`. **= AURA -25% dégât PSYCHIQUE aux
+  ennemis psykers environnants (portée 2)**. Magnitude+portée LUES du **trait** (`shadowInTheWarpDmgModifier=-25`,
+  `shadowInTheWarpRange=2`). Port : classe `ShadowInTheWarpLessDmgEffect` (loki.py) + canal aura
+  `create_aura_attack_damage_malus_for_enemy` + agrégateur `aura_attack_damage_malus_from_enemies` (effects/__init__)
+  wiré dans `prediction.py` (ajouté aux mods de l'ATTAQUANT, comme BigTarget/RitesOfBattle) + `EFFECT_CLASSES` +
+  tables `TRAIT_DERIVED_ABILITIES`/`ABILITY_INIT_OWNER_EFFECTS`. Validé OFFLINE (logique aura : -25% ssi
+  Psychic+ennemi+portée, None sinon ; seed chain). ⚠ Filtre `UnitsWithTrait(0x3ea)` (psyker) SUR-APPROXIMÉ au seul
+  gate Psychic (trait non mappé offline). Live seeding re-confirm = identique au chemin BigTarget (déjà validé live).
+- **Synapse** (tyranSmnWarrior) : `Synapse_AddEffectAbility` → `SynapseEffect` (1052=0x41c). ⚠ `SynapseEffect`
+  n'a **AUCUNE** méthode de modifier dégât/hits (que `CreateTargetSelector`/`GetMaxRange`/`GetRefreshTriggers`) :
+  c'est un effet **COMPORTEMENTAL** (grant synapse aux Tyranids ring-2 pour suppression d'Instinctive Behaviour —
+  `SurroundingUnits(2) & Friends & (trait 0x3f7 | InstinctiveBehaviour 0x7e5 | ...)`), PAS une aura de combat.
+  **NON porté dans le chemin dégât** (le porter comme modifier serait inventer une contribution inexistante ;
+  InstinctiveBehaviour est de toute façon droppé).
 
-**RESTE (flaggé)** : (1) porter `Synapse_Effect`/`ShadowInTheWarp_LessDmg_Effect` (auras) puis les seeder via le
-pattern `_AddEffectAbility` ; (2) owner-effects posés par les abilities PROPRES du summon (non dérivées) à leur
-init — même mécanisme `CreateBehaviour`, non balayé (aucun cas contributif connu sur le roster summon actuel) ;
-(3) `MartialKatah_DmgBonus/DmgReduction` = effets non dans `EFFECT_CLASSES` → `BaseEffect` no-op ; (4) ScythingTalons
+**RESTE (flaggé)** : (1) trait `0x3ea` (psyker) à mapper pour affiner le sélecteur ShadowInTheWarp ; (2)
+owner-effects posés par les abilities PROPRES du summon (non dérivées) à leur init — même mécanisme
+`CreateBehaviour`, non balayé (aucun cas contributif connu sur le roster summon actuel) ; (3)
+`MartialKatah_DmgBonus/DmgReduction` = effets non dans `EFFECT_CLASSES` → `BaseEffect` no-op ; (4) ScythingTalons
 doublement trait-2 (défenseur) toujours non porté.
 
 **GAP granted-abilities — CORRIGÉ (passive-derived, `state_bridge._granted_abilities`) :** `_abilities_of` ne

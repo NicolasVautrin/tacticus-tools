@@ -117,6 +117,15 @@ class BaseEffect:
         fourni par l'agrégateur `aura_attack_bonus_from_allies`. Défaut None = pas d'aura."""
         return None
 
+    def create_aura_attack_damage_malus_for_enemy(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        """Contribution AURA %-DÉGÂT projetée sur un ENNEMI ATTAQUANT à portée (l'effet est possédé par une
+        unité, se projette sur les ENNEMIS environnants qui subissent un malus sur LEUR propre attaque —
+        natif : effet à `CreateEffectDamageBonusForAttack(OwnerIsActor & ...)` + `CreateTargetSelector` =
+        `SurroundingEnemies(range)`, ex. `ShadowInTheWarp_LessDmg_Effect` @180f6b420/@180f6b5f0 = -25%
+        Psychic). `ctx` = {owner_id/pos/team, att_id/att_pos/att_team, damage_profile} fourni par
+        l'agrégateur `aura_attack_damage_malus_from_enemies`. Défaut None = pas d'aura."""
+        return None
+
     def create_effect_crit_chance_bonus_for_attack(self) -> int | None:
         """Bonus de CHANCE de crit (%) — couche calc-time SÉPARÉE de `GetStat(9)`, sommée dans
         `DamagePrediction.GetCritChanceBonusFromEffects`@181031180 puis ajoutée à GetStat(9) dans

@@ -25,6 +25,7 @@ from .loki import (
     PowerTripIgnoreArmorEffect,
     RapidAssaultExtraDamageEffect,
     RitesOfBattleExtraDmgEffect,
+    ShadowInTheWarpLessDmgEffect,
     StandVigilExtraArmorEffect,
     StunnedEffect,
     TauntedEffect,
@@ -62,6 +63,7 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "Parry_ReduceHits": ParryEffect,    # trait Parry : -1 coup MÊLÉE reçu, plancher 1
     "MasterAnnihilator_extraHit": MasterAnnihilatorAdditionalHitEffect,  # debuff Vitruvius : +1 coup reçu (non-Psychic)
     "BigTarget_AdjacentEffect": BigTargetAdjacentEffect,  # aura : -1 coup ranged aux alliés ring-1 du porteur
+    "ShadowInTheWarp_LessDmg_Effect": ShadowInTheWarpLessDmgEffect,  # aura : -25% degat PSYCHIQUE aux ennemis a portee
     # KanOpener : nom d'EffectType à confirmer avant inscription.
 }
 
@@ -106,12 +108,17 @@ def get_effect_to_be_added_to_owner_for_trait(trait_name: str) -> list[str]:
 # 0x401) MAIS on n'a PAS lu si leur CreateBehaviour pose un owner-effect -> non portées (fidélité-safe).
 TRAIT_DERIVED_ABILITIES: dict[str, list[str]] = {
     "BigTarget": ["BigTarget"],     # UnitTrait.BigTarget 0x3f9=1017 -> ability 0x406=1030 (dict Trait +0x0)
+    # ShadowInTheWarp 0x3f9+... 2025 -> ability derivee 0x424 = ShadowInTheWarp_AddEffectAbility (pattern
+    # generique _AddEffectAbility : base CreateBehaviour pose constants.effectType au porteur).
+    "ShadowInTheWarp": ["ShadowInTheWarp"],
 }
 
 # Étape 2 — owner-effects posés par `<Ability>.CreateBehaviour` À L'INIT de l'ability (DSL `AddEffect(owner)`).
 # Table par NOM d'ability (chaque entrée = VA du CreateBehaviour source).
 ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     "BigTarget": ["BigTarget_AdjacentEffect"],   # `BigTargetAbility.CreateBehaviour` @18121a910 : AddEffect(0x402)
+    # `ShadowInTheWarp_AddEffectAbility` (base `AddEffectAbility.CreateBehaviour`) : AddEffect(0x41d=1053).
+    "ShadowInTheWarp": ["ShadowInTheWarp_LessDmg_Effect"],
 }
 
 

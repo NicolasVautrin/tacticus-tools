@@ -305,6 +305,39 @@ class BigTargetAdjacentEffect(BaseEffect):
         return for_addition(True, -1)       # Direct(-1) @180f33ac0
 
 
+class ShadowInTheWarpLessDmgEffect(BaseEffect):
+    """`ShadowInTheWarp_LessDmg_Effect` (effet 1053=0x41d) — AURA de RÉDUCTION du dégât PSYCHIQUE. L'effet
+    vit sur le PORTEUR (trait ShadowInTheWarp, ex. tyranSmnWarrior) et se PROJETTE sur les ENNEMIS
+    environnants (psykers) : quand un tel ennemi attaque en PSYCHIQUE, son dégât est réduit.
+    - dégât `CreateEffectDamageBonusForAttack` @180f6b420 : `ForPercentIncrease(OwnerIsActor &
+      DamageProfileIs(0xd=Psychic), ConfigConst(0x3b))` = `shadowInTheWarpDmgModifier`% (=-25, négatif).
+    - cible `CreateTargetSelector` @180f6b5f0 : `SurroundingEnemies(range=ConfigConst 0x16) &
+      UnitsWithTrait(0x3ea) & UnitsNotFromFaction(0xc)`.
+    MAGNITUDE + PORTÉE LUES du trait (`traitVariables.shadowInTheWarpDmgModifier=-25`, `shadowInTheWarpRange=2`).
+    ⚠ Filtre `UnitsWithTrait(0x3ea)` (psyker) NON décodable offline (pas de map TRAIT) → SUR-APPROXIMÉ au
+    seul gate PSYCHIQUE (tout ennemi attaquant en Psychic dans la portée subit le malus) ; raffinement quand
+    le trait 0x3ea sera mappé. Canal AURA côté SOURCE (`create_aura_attack_damage_malus_for_enemy`), agrégé
+    par `aura_attack_damage_malus_from_enemies` et ajouté aux modifiers de l'ATTAQUANT en prédiction."""
+
+    def create_aura_attack_damage_malus_for_enemy(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        c = ctx or {}
+        if (c.get("damage_profile") or "") != "Psychic":    # DamageProfileIs(0xd) @180f6b420
+            return None
+        if c.get("owner_team") is None or c.get("owner_team") == c.get("att_team"):
+            return None                                       # SurroundingEnemies : l'attaquant est ENNEMI du porteur
+        op, ap = c.get("owner_pos"), c.get("att_pos")
+        if not op or not ap:
+            return None
+        import hexgeo
+        rng = trait_var("ShadowInTheWarp", "shadowInTheWarpRange")
+        if hexgeo.distance(op, ap) > int(rng if rng else 2):  # SurroundingEnemies(range ConfigConst 0x16)
+            return None
+        red = trait_var("ShadowInTheWarp", "shadowInTheWarpDmgModifier")   # -25 (ConfigConst 0x3b)
+        if not red:
+            return None
+        return for_percent_decrease(True, abs(int(red)))      # OwnerIsActor : malus sur l'attaque de l'ennemi
+
+
 class PowerTripFullHealthEffect(BaseEffect):
     """`PowerTrip_FullHealthEffect` — axe COUPS (hits), actif SSI PV pleins.
     - hits @180f64cf0 : `ForAddition(ConfigConst key 0x2b)` = constante `extraHit` de l'ability PowerTrip (=1).

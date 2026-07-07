@@ -198,6 +198,24 @@ def aura_attack_bonus_from_allies(carriers, ctx) -> int:
     return total
 
 
+def aura_attack_damage_malus_from_enemies(carriers, ctx) -> list:
+    """Liste des malus %-DÉGÂT projetés sur l'ATTAQUANT par les auras d'effet possédées par ses ENNEMIS à
+    portée (`create_aura_attack_damage_malus_for_enemy`, ex. `ShadowInTheWarp_LessDmg_Effect` : -25% Psychic
+    aux ennemis environnants dans la portée du porteur). `carriers` = itérable (owner_id, owner_pos,
+    owner_team, effets du porteur) ; `ctx` = {att_id, att_pos, att_team, damage_profile}. Renvoie une liste
+    d'`EffectBonus` (chaque porteur à portée empile son malus) à intégrer aux modifiers de l'attaquant via
+    `add_modifier`. Chaque `carrier` = tuple dont [0]=owner_id, [1]=owner_pos, [2]=owner_team, [-1]=effets
+    (accepte le 4-tuple dédié comme le 6-tuple `carriers` de la prédiction)."""
+    out = []
+    for c in (carriers or []):
+        octx = {**(ctx or {}), "owner_id": c[0], "owner_pos": c[1], "owner_team": c[2]}
+        for e in _as_effects(c[-1]):
+            eb = e.create_aura_attack_damage_malus_for_enemy(octx)
+            if eb is not None:
+                out.append(eb)
+    return out
+
+
 def crit_chance_bonus_from_effects(effects) -> int:
     """Σ des bonus de CHANCE de crit des effets ACTIFS de l'attaquant
     (`DamagePrediction.GetCritChanceBonusFromEffects`@181031180) — couche calc-time ajoutée à
