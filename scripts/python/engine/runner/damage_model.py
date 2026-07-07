@@ -132,30 +132,26 @@ def apply_elevation_bonus(state: State, mods, attacker_id: int, target_id: int) 
 
 def build_hits_board(state: State, att_id: int, tgt_id: int,
                      attack_pos, t_pos, is_melee: Optional[bool]):
-    """Bâtit `(board, aura_sources, target_effects)` pour `attack_hits_with_modifiers` depuis l'ECS (positions/teams/
-    effets REELS) — mirror CÔTÉ COMBAT du board de la prédiction (Scene). `board` = {att_id, tgt_id,
-    attack_pos, t_pos, tgt_team, is_melee, pos_by_id, team_by_id, faction_of} ; `aura_sources` = [(owner_id,
-    pos, team, effets)] des unités != cible (porteurs d'auras de coups type BigTarget) ; `target_effects` =
-    effets actifs de la cible (LightCover/Parry). `faction_of` = closure paresseuse (lookup gameconfig à la
-    demande ; non consommé par GetStuckIn/BigTarget aujourd'hui, présent pour fidélité au board préd)."""
+    """Bâtit `(board, aura_sources, target_effects)` pour `attack_hits_with_modifiers` depuis l'ECS
+    (positions/teams/effets REELS). `board` = {att_id, tgt_id, attack_pos, t_pos, tgt_team, is_melee,
+    pos_by_id, team_by_id} (base_hits posé par la Formule) ; `aura_sources` = [(owner_id, pos, team, effets)]
+    des unités != cible (porteurs d'auras de coups type BigTarget) ; `target_effects` = effets actifs de la
+    cible (LightCover/Parry). Identité = **entity_id**, team = **OwnerComponent.team** (instance-safe). PAS
+    de `faction_of`/visual_id : le comptage par faction de GetStuckIn est retiré, aucun consommateur ne le
+    lit — et `visual_id` ne distinguerait pas 2 instances du même type en miroir (danger connu)."""
     from .components import PositionComponent, OwnerComponent, HealthComponent
-    import gameconfig as GC
     pos_by_id: dict = {}
     team_by_id: dict = {}
-    vis_by_id: dict = {}
     aura_sources = []
     target_effects: list = []
     for uid, e in state.entities.items():
         pc = e.get_component(PositionComponent)
         oc = e.get_component(OwnerComponent)
-        sc = e.get_component(StatsComponent)
         hc = e.get_component(HealthComponent)
         if pc is not None:
             pos_by_id[uid] = (pc.col, pc.row)
         if oc is not None:
             team_by_id[uid] = oc.team
-        if sc is not None:
-            vis_by_id[uid] = getattr(sc.ctx, "visual_id", None)
         effs = (state.effects.active_effects(uid, {"hp": hc.hp if hc is not None else None})
                 if state.effects is not None else [])
         if uid == tgt_id:
@@ -164,8 +160,7 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
             aura_sources.append((uid, pos_by_id.get(uid), team_by_id.get(uid), effs))
     board = {"att_id": att_id, "tgt_id": tgt_id, "attack_pos": attack_pos, "t_pos": t_pos,
              "tgt_team": team_by_id.get(tgt_id), "is_melee": is_melee,
-             "pos_by_id": pos_by_id, "team_by_id": team_by_id,
-             "faction_of": lambda u: (GC.unit(vis_by_id.get(u)) or {}).get("GrandAllianceId")}
+             "pos_by_id": pos_by_id, "team_by_id": team_by_id}
     return board, aura_sources, target_effects
 
 

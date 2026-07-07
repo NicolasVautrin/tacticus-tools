@@ -291,6 +291,87 @@ seeds testés — Parry/Terrifying — utilisent des axes STAT/COUPS/TRIGGER, ho
 prête mais **non exercée** (comme l'attaquant : magnitudes/conditions portées au fil du roster, validées par
 cas isolé). Les réductions `predOptimistic` (Parry, TerminatorArmour) restent la **tranche TRIGGERS**.
 
+#### Cluster runner↔prédiction — divergences fermées (verdict RE re-expert + validator, 2026-07-07)
+
+Le port avait **forké** le calcul de dégât en 2 chemins (prédiction playbook / combat runner) qui doivent
+mirrorer le natif à l'identique. Verdict RE (agent re-expert, décompilé) sur 5 divergences, portées sur
+`master` (commits `61a36a0`, `01ae5ec`, `6989aaa`). **Fait clé** : le natif a **UN SEUL** builder de
+modifiers attaquant `CalculateAttackerModifiersForPrediction @181000590` (pas de variante « ForCombat » —
+le suffixe « ForPrediction » est un **misnomer**) ; combat `DamagePrediction.CalculateAbilityDamage
+@18102cb50` et prédiction `PredictAttackRaw @181032fb0` appellent **tous deux** `CalculateBaseDamageWith
+AllModifiers @18102d3f0`. Donc les feuilles positionnelles sont partagées BY CONSTRUCTION.
+
+- **#62a — nb de coups = FORMULE partagée**. Le compte n'est PAS une méthode unique : c'est
+  `IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula.Calculate @180f0bf50` (la FORMULE, nœud DSL)
+  que les **façades** `GetAttackHits` (slot iface 0xb5) délèguent, une par contexte :
+  `AttackDamageOperation.GetAttackHits @180e613d0` (COMBAT), `DamagePrediction.GetAttackHits @18102f240`
+  (PRÉDICTION), `BattleQuery.GetAttackHits @18105d8d0`. Composition = base (`weapon + ExtraHits(0x11) +
+  Σ effets` via `AdditionalHitsFromEffects.GetAdditionalHitsFromEffects @180e59e50`, clamps Min/Max type
+  LightCover) + **GetStuckIn** = behaviour SÉPARÉ `AddBonusHitsToCurrentHitGroupBehaviour.Execute @180f93410`
+  (ajout au hit-group pendant l'exec) + malus/aura de coups (effets). Le COMBAT manquait GetStuckIn + malus
+  défenseur/aura → divergeait. **Port** : `services/attack_hits_formula.py::attack_hits_with_modifiers`
+  (= la Formule, partagée) ; les 2 call-sites (combat `AttackDamageOperation.execute`, prédiction
+  `make_normal_attack_predictions`) SONT les façades. **GetStuckIn = gate `include_bonus_hit_behaviours`**
+  (verdict validateur, BITE 2) : la prédiction le folde (déterministe, `=True` — la chance ne pilote que le
+  roll d'exec, pas la prédiction IA), le COMBAT ne le folde PAS (`=False`) car le natif le roll via
+  `Maybe(GetBonusHitChance @180f83460)` (30 %/100 %) dans le behaviour `AddBonusHitsToCurrentHitGroupBehaviour
+  @180f93410` À L'EXÉCUTION. Folder inconditionnellement sur-comptait en combat (prouvé live : orksNob 1v1
+  chance=30 → natif **3** coups, port **4**). Malus défenseur/aura (LightCover/Parry/BigTarget) NON chance-gaté
+  → partagé sans réserve. **TODO #62c** : porter le behaviour combat (roll RNG à la bonne position → bit-exact).
+
+- **#58 — ÉLÉVATION appliquée EN COMBAT** (feuille positionnelle du builder partagé). `CalculateElevation
+  BonusModifier @181003ea0` (+50 % surplomb, ELEVATION_BONUS_PCT) est inline dans le builder, calculée depuis
+  les positions (pas des effets). **Port** : `damage_model.apply_elevation_bonus` ajoute au `mods` de
+  l'attaquant depuis `state.board` + positions réelles ; constante rapatriée dans `damage_modifiers.py`
+  (= port de `DamageCalculations`, config `Init @181005790`), plus de module inventé `positional_mods`.
+  ⚠ **RÉSIDU** : le call-site COMBAT natif du builder positionnel n'a PAS pu être épinglé **statiquement**
+  (dispatch gshared) → confirmation LIVE requise (attaquant en surplomb → dégât réel ×1.5). ranged-in-melee
+  /trench en combat = même famille, PAS encore portés (follow-up).
+
+- **#60 — HAS_MOVED (gate no-move HeavyWeapon) lu en COMBAT**. `HeavyWeapon_ExtraDmgEffect.CreateDamage
+  Modifier @180f4f030` = `ForPercentIncrease(OwnerIsCaster & IsRangedAttack & NOT HasFlag(execCtx.flags@0x148,
+  3) …)` — le « n'a pas bougé ce tour » est un **flag d'état de tour** (contexte d'exécution d'ability),
+  PAS une comparaison de position (i2 : « when this unit has not moved this turn »). Le port passait
+  has_moved=None → bonus TOUJOURS appliqué (FAUX). **Port** : `state.moved_this_turn` (set), posé par
+  `MoveUnitOperation`, reset au `StartTurnOperation` (mirror RemoveTurnFlags), lu par `attacker_modifiers`.
+  Bypass overwatch (flags 0/0xc) = le bonus SURVIT en tir d'overwatch (déjà couvert : l'overwatch garde le bonus).
+
+- **#62b — CRIT en prédiction normale = PAS de changement (déjà fidèle)**. `DamagePredictionResult` porte
+  `AccurateHealthDamage@0x58` (range NON-crit) + un **booléen** `MightCrit@0xB1` (+ `ForceOverkill@0xB2`) —
+  **aucun champ de dégât crit séparé**. La prédiction NE pondère PAS le crit (elle expose un flag) ; le
+  COMBAT tire le crit réel (`RollCritical`/`CalculateCriticalDamage`, cf. ci-dessus). Divergence **VOULUE**.
+  `might_crit` n'est consommé nulle part dans le scoring IA → poser/ne pas poser = no-op. Port déjà correct.
+
+- **#59-suite — gates DÉFENSEUR sur chemins ABILITY**. `execute_ability_attack` / `execute_normal_like`
+  threadent `is_melee` + `damage_profile` → `build_defender_modifiers_from_effects` (gates
+  Terrifying_ExtraDefense = IsMeleeAttack ; TerminatorArmour = exclut Psychic/DirectDamage). Étend le fix
+  attaque-normale (`1f9097f`) aux abilities.
+
+**Convention de structure (clarifiée dans les en-têtes)** : `DamageCalculations` (grosse classe service)
+est **ÉCLATÉE PAR CONCERN** dans le port (PAS « 1 classe = 1 module ») — tranche MODIFIER →
+`services/damage_modifiers.py`, tranche COMBAT (crit/block/evasion) → `services/damage_combat.py`, builders
+qui itèrent les EFFETS (`CalculateAttackerModifiersForPrediction`/`…Defender…`) →
+`entities/effects/__init__.py`. Chaque en-tête cite sa tranche + VA. `DamagePrediction` → `damage_prediction.py`,
+`BattleQuery` → `battle_query.py`, la Formule des coups → `attack_hits_formula.py`.
+
+**Validation** : no-régression 5 passed / 1 red **pré-existant** (`u90→u86`, gap base/modifier famille #49,
+indépendant de ce cluster). **Live-bites — VERDICT validateur adversarial (session 25, oracle=natif, discriminateur
+bit-exact same-`dumpRng`)** : **3 MORDENT** — (#58) élévation ×1.5 réelle en combat CONFIRMÉE (porteur clean
+`astraPrimarisPsy`, surplomb 4278==4278, plat 3336==3336, bornes ×1.5 exact ; le call-site combat non-résoluble
+statiquement était le résidu, tranché live) ; (#60) HeavyWeapon annulé après move CONFIRMÉ (moved 5274==5274) ;
+(#59) gates défenseur ability CONFIRMÉS (splash Psychic vs TerminatorArmour 1506==1506, non réduit). **1 SUR-AJUSTÉ**
+— (#62a) GetStuckIn en combat : le fold inconditionnel sur-comptait (orksNob chance=30 → natif 3 vs port 4) →
+**découplé** (`include_bonus_hit_behaviours`, cf. #62a ci-dessus : prédiction folde, combat omet ; behaviour combat
+= TODO #62c). **ExtraHitsMelee (StatType 0x17=23) — TRANCHÉ + corrigé** : stat réel (map hook
+`extraHitsMelee:23`, capturé combatSnapshot), dans la formule native `GetDefaultAttackHits @181032520`
+(`base + ExtraHits(0x11) + (mêlée ? ExtraHitsMelee(0x17))`). Le port l'utilisait déjà côté ABILITY
+(`get_default_attack_hits`, `active_ability`) mais la Formule d'attaque normale `attack_hits_with_modifiers`
+ré-inlinait `weapon + ExtraHits` **sans** lui → les 2 chemins normaux (préd+combat, Formule partagée) le
+rataient en mêlée. **Fix** : la Formule appelle désormais `get_default_attack_hits(weapon, extra_hits,
+extra_hits_melee, is_melee)` (homonyme validé). **Inerte** sur les unités testées (`extra_hits_melee=0` →
+agreement vert inchangé) ; bite plein-roster non scannable offline (gameconfig hors-live = 3 unités,
+unit_map n'indexe que les hits d'arme) → à confirmer sur un porteur live.
+
 ### 1.9 SUMMONS — joués par l'IA via behaviours FORCÉS, hors PickNextUnit (RE + live, 2026-06-29)
 
 Une unité **invoquée par ability** (trait `Summon` — `necroSmnSwarm`, `necroSmnDestroyer`, … vs `Hero`

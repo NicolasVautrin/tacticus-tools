@@ -192,16 +192,21 @@ class AttackDamageOperation:
         # Nb de coups : cette execution EST la facade `AttackDamageOperation.GetAttackHits @180e613d0` — elle
         # rassemble les entrees depuis l'ECS puis appelle la FORMULE PARTAGEE `attack_hits_with_modifiers`
         # (`AttackHitsWithModifiersFormula.Calculate @180f0bf50`, MEME formule que la facade prediction) :
-        # base weapon+ExtraHits+effets, +GetStuckIn/traits, +malus defenseur (LightCover/Parry) + auras
-        # (BigTarget). #62a : le combat ne sommait que weapon+ExtraHits+effets -> divergeait de la prediction.
+        # base weapon+ExtraHits+effets, +malus defenseur (LightCover/Parry) + auras (BigTarget). #62a : le
+        # combat ne sommait que weapon+ExtraHits+effets -> divergeait sur (3). BITE 2 (verdict validateur) :
+        # GetStuckIn est un behaviour d'exec chance-gate (`AddBonusHitsToCurrentHitGroupBehaviour @180f93410`,
+        # roll `Maybe(GetBonusHitChance)` 30%/100%) NON porte -> `include_bonus_hit_behaviours=False` : le combat
+        # l'OMET (folder en dur sur-comptait : orksNob 1v1 chance=30 -> natif 3 coups, port 4). TODO #62c.
         if ap is not None and tp is not None:
             _board, _auras, _tgt_eff = build_hits_board(
                 state, attacker_id, target_id, (ap.col, ap.row), (tp.col, tp.row), is_melee=not _ranged)
             hits = attack_hits_with_modifiers(
                 weapon_hits=whits, extra_hits=ctx.stat(StatType.EXTRA_HITS),
+                extra_hits_melee=ctx.extra_hits_melee,
                 attacker_effects=active, trait_objects=ctx.trait_objects(),
                 target_effects=_tgt_eff, aura_sources=_auras, board=_board,
-                is_melee=not _ranged, damage_profile=_profile)
+                is_melee=not _ranged, damage_profile=_profile,
+                include_bonus_hit_behaviours=False)  # combat: GetStuckIn = behaviour chance-gate non porte (BITE 2)
         else:                                     # positions manquantes -> base seule (pas de GetStuckIn/aura)
             hits = max(1, whits + ctx.stat(StatType.EXTRA_HITS) + hits_bonus_from_effects(active))
         tsc = tgt.get_component(StatsComponent)

@@ -202,14 +202,16 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # base weapon+ExtraHits+effets, +GetStuckIn/traits, +malus defenseur (LightCover/Parry) + auras (BigTarget).
     board = {"att_id": att_id, "tgt_id": tgt_id, "attack_pos": attack_pos, "t_pos": t_pos,
              "tgt_team": scene.team(tgt_id), "is_melee": is_melee,
-             "pos_by_id": scene.pos_by_id, "team_by_id": scene.team_by_id, "faction_of": scene.faction}
+             "pos_by_id": scene.pos_by_id, "team_by_id": scene.team_by_id}   # pas de faction_of/visual_id (mort)
     tgt_effects = scene.effects(tgt_id)
     aura_sources = [(uid, scene.pos(uid), scene.team(uid), scene.effects(uid))
                     for uid in scene.pos_by_id if uid != tgt_id]
     hits = attack_hits_with_modifiers(weapon_hits=whits, extra_hits=ctx.stat(StatType.EXTRA_HITS),
+                                      extra_hits_melee=ctx.extra_hits_melee,
                                       attacker_effects=att_effects, trait_objects=ctx.trait_objects(),
                                       target_effects=tgt_effects, aura_sources=aura_sources, board=board,
-                                      is_melee=is_melee, damage_profile=prof_name)
+                                      is_melee=is_melee, damage_profile=prof_name,
+                                      include_bonus_hit_behaviours=True)  # prediction folde GetStuckIn (deterministe)
     res = get_attack_prediction(
         target_current_health=scene.hp(tgt_id) or 0, initial_damage=attack_base, hits=hits,
         profile_type=0, pierce_pct=pierce, armor=scene.armor(tgt_id), mods=mods,
