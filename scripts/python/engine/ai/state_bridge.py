@@ -40,8 +40,20 @@ from engine.playbook.scene import Scene
 from engine.runner.components import (StatsComponent, OwnerComponent, PositionComponent,
                                       HealthComponent, UnitComponent)
 from engine.entities.pathfinding.walk_pathfinder import get_movable_positions, is_valid_path_node
+from engine.entities.pathfinding.fly_pathfinder import (
+    is_like_flying, get_movable_positions as fly_get_movable_positions,
+    is_valid_path_node as fly_is_valid_path_node)
 
 NORMAL_ATTACK_ID = 17    # ActiveAbilityType.NormalAttack (id synthetique offline ; cf. en-tete)
+TELEPORT_STRIKE_TELEPORTING_IN = 1035    # effet deep-strike -> unite NON-CIBLABLE (IsTargetable=!HasFlag(0x11))
+
+
+def _is_untargetable(state, uid: int) -> bool:
+    """`UnitExtensions.IsTargetable @180ed8ff0` = `!HasFlag(Untargetable=0x11)`. Signal OFFLINE du deep-strike :
+    une unite en cours de teleportation (effet `TeleportStrike_TeleportingIn` 1035) est non-ciblable jusqu'a son
+    atterrissage (ground truth live ds_landing). -> exclue de l'enumeration de cibles (attaque/ability)."""
+    return state.effects is not None and state.effects.has_effect(
+        uid, effect_type=TELEPORT_STRIKE_TELEPORTING_IN)
 
 
 @functools.lru_cache(maxsize=1)
@@ -107,8 +119,10 @@ def _move_range(ctx, vid: str) -> int:
     a `aiMovableTiles`) ; sinon fallback gameconfig `Movement` (cas du summon spawne offline sans combatSnapshot,
     ou la base sans bonus = la bonne portee). 0 -> unite immobile.
 
-    NB : les unites NON-WALK (Fly/Teleport : portee native > stat Movement) ne sont PAS reproductibles par le
-    flood Walk (limitation partagee avec le port pathfinding, cf. `_is_non_walk`) ; les summons sont Walk."""
+    NB : la PORTEE (nombre de tuiles) = stat Movement pour TOUS les pathfinders (Walk comme Fly ; le vol
+    change la TRAVERSEE, pas la portee). Le FlyPathfinder (Flying/Burrow) est desormais reproduit par
+    `fly_pathfinder` (`_move_tiles` choisit l'arete). Reste non porte : le TeleportStrike (deep-strike =
+    tranche deploiement) et les tuiles-hazard temporaires."""
     from engine.entities.stats import StatType
     mv = ctx.get_stat(int(StatType.MOVEMENT)) if ctx is not None else 0
     if mv and mv > 0:
@@ -146,7 +160,12 @@ def _move_tiles(state, uid: int, vid: str, my_team: int, origin: tuple | None) -
     depth = _move_range(sc.ctx if sc is not None else None, vid)
     if otile is None or depth <= 0:
         return []
-    _, stop = get_movable_positions(board, otile, depth, _occupants(state), my_team)
+    # Sélection du pathfinder par trait (mirror dispatch virtuel `MovementQuery.GetReachableTiles`
+    # @18109b380) : unité « comme volante » (Flying/Burrow) -> FlyPathfinder (ignore élévation +
+    # unités) ; sinon WalkPathfinder. Portée = même stat Movement dans les deux cas.
+    traits = (sc.ctx.traits if sc is not None else None) or []
+    _mv = fly_get_movable_positions if is_like_flying(traits) else get_movable_positions
+    _, stop = _mv(board, otile, depth, _occupants(state), my_team)
     out = []
     for t in stop:
         c, r = board.coord(t)
@@ -165,6 +184,11 @@ def _pathdist_to_enemies(state, uid: int, my_team: int, enemy_positions: list) -
     seeds = [board.id_at(c, r) for (c, r) in enemy_positions]
     seeds = [t for t in seeds if t is not None]
     occ = _occupants(state)
+    # Arête = pathfinder du MOVER (fly s'il vole -> ignore élévation/unités, comme _move_tiles).
+    me = state.get_entity(uid)
+    sc = me.get_component(StatsComponent) if me is not None else None
+    _edge = fly_is_valid_path_node if is_like_flying(
+        (sc.ctx.traits if sc is not None else None) or []) else is_valid_path_node
     level = {t: 0 for t in seeds}
     q = deque(seeds)
     while q:
@@ -172,7 +196,7 @@ def _pathdist_to_enemies(state, uid: int, my_team: int, enemy_positions: list) -
         for n in board.neighbours(cur):
             if n in level:
                 continue
-            if is_valid_path_node(board, cur, n, occ, my_team):
+            if _edge(board, cur, n, occ, my_team):
                 level[n] = level[cur] + 1
                 q.append(n)
     return {board.coord(t): d for t, d in level.items()}
@@ -317,6 +341,8 @@ def ability_targets_offline(state, uid: int, ability_id: int) -> dict:
                 continue
             if kind == "machine" and not _is_machine(e):
                 continue
+            if _is_untargetable(state, eid):             # non-ciblable (deep-strike teleporting-in)
+                continue
             tp = (p.col, p.row)
             if eid == uid or any(hexgeo.distance(T, tp) <= reach for T in reach_tiles):
                 targets.append({"kind": "unit", "targetId": eid,
@@ -431,7 +457,10 @@ def build_from_state(state, uid: int, debug: bool = False):
     hpmax_by_id = dict(scene.hpmax_by_id)
     elev_by_pos = scene.elev_by_pos or {}
     pathdist_by_pos = _pathdist_to_enemies(state, uid, my_team, epos)
-    plans = {uid: _plans_for_unit(uid, vid or "", origin, move_tiles, enemies)}
+    # Plans d'ATTAQUE : ne cibler que les ennemis CIBLABLES (exclut les deep-strike teleporting-in, non-ciblables
+    # jusqu'a l'atterrissage). `enemies` reste complet pour le positionnement (ils occupent le board).
+    tgt_enemies = [e for e in enemies if not _is_untargetable(state, e.get("id"))]
+    plans = {uid: _plans_for_unit(uid, vid or "", origin, move_tiles, tgt_enemies)}
 
     def _rpc(method, body, timeout=0):
         """Seam RPC offline (SLICE 2) : `abilityTargets` -> enumerateur offline (heal/repair/summon/Nova) ;

@@ -51,10 +51,16 @@ def get_reachable_levels(
     board: Board, start_id: int,
     occupants: dict, moving_team: int,
     max_depth: int | None = None,
+    edge=is_valid_path_node,
 ) -> dict:
     """BFS niveau-par-niveau → {tile_id -> distance-en-pas depuis start}. Inclut
     le start (niveau 0). `max_depth` borne la profondeur (None = illimité). Le
-    start lui-même n'est pas filtré par son propre occupant (on part de là)."""
+    start lui-même n'est pas filtré par son propre occupant (on part de là).
+
+    `edge(board, from_id, to_id, occupants, moving_team) -> bool` = prédicat d'arête
+    (peut-on TRAVERSER vers `to`). Défaut = `is_valid_path_node` (WalkPathfinder) ;
+    le FlyPathfinder passe son propre prédicat (mirror natif `BasePathfinder` = BFS
+    générique, chaque pathfinder override `IsValidPathNode`)."""
     level = {start_id: 0}
     frontier = [start_id]
     depth = 0
@@ -65,7 +71,7 @@ def get_reachable_levels(
             for n in board.neighbours(cur):
                 if n in level:
                     continue
-                if is_valid_path_node(board, cur, n, occupants, moving_team):
+                if edge(board, cur, n, occupants, moving_team):
                     level[n] = depth
                     nxt.append(n)
         frontier = nxt
@@ -75,13 +81,17 @@ def get_reachable_levels(
 def get_movable_positions(
     board: Board, start_id: int, depth: int,
     occupants: dict, moving_team: int,
+    edge=is_valid_path_node,
 ) -> tuple[set, set]:
     """Renvoie (visited, stop_set) pour une portée `depth` (niveaux).
       - visited : toutes les tuiles atteintes en ≤ depth pas (traversables, start inclus).
       - stop_set: tuiles où l'unité peut S'ARRÊTER = visited \\ occupées \\ {start}
                   (IsValidContinuePathTile : pas d'occupant ; le natif exclut la
-                  tuile courante du résultat)."""
-    level = get_reachable_levels(board, start_id, occupants, moving_team, max_depth=depth)
+                  tuile courante du résultat).
+    `edge` = prédicat de TRAVERSÉE (défaut walk ; fly passe le sien). Le stop reste
+    identique (tuile libre) : les tuiles visitées sont déjà passables par construction
+    (l'arête exige `walkable`), donc « non occupée » suffit pour les deux pathfinders."""
+    level = get_reachable_levels(board, start_id, occupants, moving_team, max_depth=depth, edge=edge)
     visited = set(level)
     stop = set()
     for tid in visited:

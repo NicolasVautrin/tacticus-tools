@@ -87,9 +87,12 @@ class PathOfCommandExtraDmgEffect(BaseEffect):
     Montant `GetDynamicStatModificationAmount @18119c7b0` = `If(IsSameFaction(owner, target), v8+v9, v8)`
     avec `v8 = GetVariableForLevel(8=extraDmg, niveau SOURCE)`, `v9 = (9=extraDmg_2, niveau SOURCE)` (mêmes
     enum-keys 8/9 = extraDmg/extraDmg_2 que RitesOfBattle) × multiplier SOURCE (les 2 dans
-    `variablesAffectedByRarityBonus`). IsSameFaction = **même grande-alliance** : allié même équipe ET même
-    faction → extraDmg+extraDmg_2 ; même équipe autre faction → extraDmg seul. Ajouté à la **modification**
-    du stat **Attack** (comme RitesOfBattle).
+    `variablesAffectedByRarityBonus`). `IsSameFaction` = **même FACTION** (FactionId, ex. Aeldari), PAS la
+    grande-alliance : `IsSameFaction` s'appuie sur `UnitExtensions.HasFaction @180ed6450` (compare le champ
+    FactionId string). CONFIRMÉ RE + LIVE (discriminateur : allié Aeldari adjacent = extraDmg+extraDmg_2=+699 ;
+    allié Ork = Xenos MAIS pas Aeldari = extraDmg SEUL=+400). → allié même faction → extraDmg+extraDmg_2 ; autre
+    faction (même Xenos) → extraDmg seul. (⚠ DIFFÉRENT de RitesOfBattle dont le gate extraDmg_2 = grande-alliance
+    Imperial via trait 26.) Ajouté à la **modification** du stat **Attack**.
 
     ⚠ Modélisée CÔTÉ SOURCE via `create_aura_attack_bonus` (l'effet-entité vit sur Loki, pas sur le buffé) et
     ré-évaluée PAR CANDIDAT (distance <=2 à `att_pos`). PAS de `get_stat_modification_*` target-side (Loki ne
@@ -111,9 +114,10 @@ class PathOfCommandExtraDmgEffect(BaseEffect):
             return None
         lvl, mult = c.get("owner_level"), (c.get("owner_mult") or 100)
         base = ability_var("PathOfCommand", "extraDmg", lvl, multiplier_pct=mult) or 0
-        # If(IsSameFaction(owner, target), extraDmg + extraDmg_2, extraDmg) — même grande-alliance = bonus.
-        oga, aga = c.get("owner_grand_alliance"), c.get("att_grand_alliance")
-        if oga is not None and oga == aga:
+        # If(IsSameFaction(owner, target), extraDmg + extraDmg_2, extraDmg) — IsSameFaction = même FACTION
+        # (FactionId, cf. HasFaction @180ed6450), PAS grande-alliance. Confirmé live (Ork Xenos = extraDmg seul).
+        ofac, afac = c.get("owner_faction"), c.get("att_faction")
+        if ofac is not None and ofac == afac:
             base += ability_var("PathOfCommand", "extraDmg_2", lvl, multiplier_pct=mult) or 0
         return base or None
 

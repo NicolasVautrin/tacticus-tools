@@ -124,6 +124,12 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     "BigTarget": ["BigTarget_AdjacentEffect"],   # `BigTargetAbility.CreateBehaviour` @18121a910 : AddEffect(0x402)
     # `ShadowInTheWarp_AddEffectAbility` (base `AddEffectAbility.CreateBehaviour`) : AddEffect(0x41d=1053).
     "ShadowInTheWarp": ["ShadowInTheWarp_LessDmg_Effect"],
+    # `PathOfCommandAbility.CreateBehaviour` @181110f10 : AddEffect(0x458=1112 ExtraDmg) + AddEffect(0x453=1107
+    # ExtraCrit). AURA +Attack rayon 2 aux allies (cf. loki.PathOfCommandExtraDmgEffect). Ces owner-effects sont
+    # poses a l'INIT de l'ability = a l'ATTERRISSAGE pour un deep-strike (deferres pendant TeleportingIn ;
+    # ground truth live ds_landing : absents au teleport-in, apparaissent au landing). ExtraCrit (axe crit) non
+    # porte -> seul ExtraDmg est materialise.
+    "PathOfCommand": ["PathOfCommand_ExtraDmg"],
 }
 
 

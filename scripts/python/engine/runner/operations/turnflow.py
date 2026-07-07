@@ -133,8 +133,20 @@ class EndTurnOperation:
                 ch = shc.remove_one_turn()
                 if ch["removed"] or ch["decremented"]:
                     shields_ticked.append((int(uid), ch))
+        # DEEP-STRIKE LANDING : les unites TeleportStrike du joueur FINISSANT atterrissent a la fin de leur
+        # 1er tour (ground truth live ds_landing : discret, PAS un tick de duree) -> retire TeleportingIn +
+        # init des passives deferrees (aura PathOfCommand). Mirror natif : landing = InitializeActorAbilities.
+        from .spawn import land_deep_strike
+        finishing = state.current_player_id
+        landed: list[dict] = []
+        for uid, e in state.entities.items():
+            oc = e.get_component(OwnerComponent)
+            if oc is not None and oc.player == finishing:
+                r = land_deep_strike(state, uid)
+                if r is not None:
+                    landed.append(r)
         if not advance:
-            return {"ticked": ticked, "shields_ticked": shields_ticked,
+            return {"ticked": ticked, "shields_ticked": shields_ticked, "landed": landed,
                     "next_player": None, "start": None}
         nxt = ChangeTurnOperation.execute(state)
         start = StartTurnOperation.execute(state, nxt) if nxt is not None else None

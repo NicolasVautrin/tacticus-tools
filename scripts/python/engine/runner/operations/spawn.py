@@ -165,6 +165,47 @@ def _seed_derived_ability_owner_effects(state: State, unit_id: int, traits, mult
     return added
 
 
+TELEPORT_STRIKE_TELEPORTING_IN = 1035    # AbilityOrEffect.TeleportStrike_TeleportingIn (0x40b) — etat deep-strike
+
+
+def _seed_ability_owner_effects(state: State, unit_id: int, vid: str, mult: int) -> list:
+    """`InitializeActorAbilitiesOperation.Execute @180e74660` (boucle ABILITIES) : pour chaque ability de
+    l'unite, l'owner-effect pose par son `CreateBehaviour` a l'init (DSL `AddEffect(owner)`). Ex. passive
+    `PathOfCommand` -> `PathOfCommand_ExtraDmg` (aura +Attack). Abilities lues de gameconfig (active+passive)."""
+    import gameconfig as GC
+    from ...entities.effects.factory import get_owner_effects_added_on_ability_init
+    gu = GC.unit(vid) or {}
+    abilities = list(gu.get("activeAbilities") or []) + list(gu.get("passiveAbilities") or [])
+    return [name for ab in abilities
+            for name in get_owner_effects_added_on_ability_init(ab)
+            if _materialize_owner_effect(state, unit_id, name, mult)]
+
+
+def land_deep_strike(state: State, unit_id: int) -> Optional[dict]:
+    """ATTERRISSAGE d'une unite TeleportStrike (deep-strike). Ground truth live (probe ds_landing) : a la FIN
+    du 1er tour de son proprietaire, l'unite passe de « teleporting-in » (effet 1035, non-ciblable, passives
+    NON initialisees) a « posee » -> TeleportStrike_TeleportingIn RETIRE + `InitializeActorAbilities` (init des
+    passives deferrees = owner-effects des abilities+traits, ex. aura `PathOfCommand_ExtraDmg`) -> ciblable +
+    auras projettent. No-op si l'unite n'est pas teleporting-in."""
+    if state.effects is None or not state.effects.has_effect(
+            unit_id, effect_type=TELEPORT_STRIKE_TELEPORTING_IN):
+        return None
+    for e in state.effects.by_unit.get(int(unit_id), []):     # retire TeleportingIn (consomme l'instance)
+        if not e.consumed and e.effect_type == TELEPORT_STRIKE_TELEPORTING_IN:
+            e.consumed = True
+    ent = state.get_entity(unit_id)
+    uc = ent.get_component(UnitComponent) if ent is not None else None
+    sc = ent.get_component(StatsComponent) if ent is not None else None
+    ctx = sc.ctx if sc is not None else None
+    vid = uc.visual_id if uc is not None else ""
+    mult = int(getattr(ctx, "ability_variables_multiplier", 100) or 100) if ctx is not None else 100
+    traits = list(getattr(ctx, "traits", None) or [])
+    added = _seed_ability_owner_effects(state, unit_id, vid, mult)      # ex. PathOfCommand -> aura +Attack
+    added += _seed_trait_owner_effects(state, unit_id, traits, mult)    # owner-effects des traits (idempotent)
+    added += _seed_derived_ability_owner_effects(state, unit_id, traits, mult)
+    return {"landed": unit_id, "owner_effects_added": added}
+
+
 class SpawnUnitOperation:
     """Crée `count` unités summon de type `visual_id`, owner = caster (team+player), placées sur des tuiles
     libres adjacentes à la cible, stats résolues depuis `summon_ability`. Renvoie la liste des entityId

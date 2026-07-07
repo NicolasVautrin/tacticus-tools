@@ -179,12 +179,15 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # d'attaque. Prouvé RE+oracle : u92 adjacent à Calgar → 3011+1298=4309 ; éloigné → 3011 (prediction.md
     # points 16/18). ⚠ Le résidu `+400` (autre aura non identifiée) n'est PAS couvert ici.
     _ap = attack_pos or scene.pos(att_id)
-    att_grand = (GC.unit(scene.vis_by_id.get(att_id)) or {}).get("GrandAllianceId")
+    _att_gu = GC.unit(scene.vis_by_id.get(att_id)) or {}
+    att_grand = _att_gu.get("GrandAllianceId")           # gate RitesOfBattle (Imperial)
+    att_faction = _att_gu.get("FactionId")               # gate PathOfCommand (IsSameFaction = FactionId)
     aura_ctx = {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
-                "att_grand_alliance": att_grand, "board": scene.board}
+                "att_grand_alliance": att_grand, "att_faction": att_faction, "board": scene.board}
     carriers = [(uid, scene.pos(uid), scene.team(uid), scene.mult(uid), scene.ablvl_by_id.get(uid),
-                 (GC.unit(scene.vis_by_id.get(uid)) or {}).get("GrandAllianceId"),  # owner grande-alliance
-                 scene.effects(uid)) for uid in scene.pos_by_id                     # (type-level, miroir-safe)
+                 (GC.unit(scene.vis_by_id.get(uid)) or {}).get("GrandAllianceId"),   # owner grande-alliance
+                 (GC.unit(scene.vis_by_id.get(uid)) or {}).get("FactionId"),         # owner faction
+                 scene.effects(uid)) for uid in scene.pos_by_id                      # (type-level, miroir-safe)
                 if uid != att_id and (scene.hp(uid) or 0) > 0]
     attack_base = ctx.get_stat(StatType.ATTACK, StatPart.INITIAL) \
         + aura_attack_bonus_from_allies(carriers, aura_ctx)
