@@ -97,73 +97,34 @@ Host sur `http://127.0.0.1:8765`. Front sur `http://127.0.0.1:8765/view/`.
 5. Builder front : tout est armé. On peut générer la `BattleConfiguration` de
    n'importe quelle node (events inactifs inclus) sans relancer une battle.
 
-## Workflow RL — runner isolé avec config patchée
+## Workflow RL — runner isolé
 
-Pour entraîner un agent RL sans toucher au battle in-game, on utilise un
-**runner isolé** construit depuis la `BattleConfiguration` capturée. Le runner
-isole complètement le state — on peut le créer/détruire à volonté sans casser
-le jeu actif.
+> **Le LANCEMENT DE RUNNER est centralisé dans `.claude/skills/tacticus/references/runner.md`**
+> (inclus ci-dessus, pointé par les agents `validator`/`re-expert`) : warmup obligatoire, voie
+> `rl_duel build`, choix de board (`--board`/`--board-pool` + `board.py`), discipline runner.
+> C'est LA source unique — ne pas dupliquer ces règles ici.
 
-**Procédure obligatoire dans cet ordre** :
+Pour entraîner un agent RL / valider le moteur sans toucher au battle in-game, on monte un
+**runner isolé** depuis une **seed BC sur disque** (`rl_duel build`), déployé et pilotable à
+volonté sans casser le jeu actif. Rappel des deux points les plus violés (détail : `runner.md`) :
 
-1. **Warmup une fois** par session Frida (après chaque inject/reinject) :
-   ```
-   warmupGameSingletons({ force: true })
-   ```
-   **C'est AUTONOME — pas de clic humain.** Ce RPC pilote toute la nav UI
-   lui-même : campagne (`IdunNavigation.ToCampaign`) → clic node → clic play →
-   capture du ctor `CampaignGameModeSource` → attente déploiement stable →
-   pause → retreat → confirm, et laisse le jeu revenu à l'écran campagne.
-   **Claude doit l'appeler directement après chaque (re)inject et NE JAMAIS
-   demander à l'utilisateur de cliquer une battle in-game.**
+1. **Warmup une fois par session Frida** (après chaque inject/reinject), AVANT tout RPC/build :
+   `warmupGameSingletons({ force: true })`. **Autonome — aucun clic humain** : pilote la nav
+   (campagne → node → play → capture ctor → pause → retreat) et force l'init des singletons/classes.
+   Claude l'appelle directement après chaque (re)inject et NE demande JAMAIS de cliquer une battle.
 
-   > **RÈGLE INCONDITIONNELLE — warmup après CHAQUE (re)inject, AVANT tout
-   > RPC/probe, SANS EXCEPTION.** Y compris les probes « self-contained » qui
-   > montent un runner depuis une **seed BC sur disque** (ex.
-   > `rl_probe_step.py --mode card|view|rank|predict`, `rl_collect_batch`) et
-   > ne touchent pas `lastSource`. Raison : un (re)inject ne perd pas seulement
-   > `lastSource._currentBattle` (→ `buildPatchedRunner`/`inspectBattleConfig`
-   > échouent), il **repart aussi avec des caches `MethodInfo*` Frida-side vides
-   > et la couche d'init IL2CPP non ré-amorcée** dont dépendent `initAndStart`/
-   > `buildPatchedRunner`. Un probe qui « marche » sans warmup ne prouve rien :
-   > c'est que le jeu était déjà warm d'une nav précédente (chance), pas de la
-   > correction — au prochain build froid c'est le crash `0x2c` (metadata non
-   > initialisée). **Ne jamais raisonner « ce mode-là n'a pas besoin de
-   > warmup ».** Le warmup déclenche `CampaignGameModeSource.LoadBattle` (peuple
-   > `_currentBattle`) ET force l'init des singletons/classes.
+   > **RÈGLE INCONDITIONNELLE — warmup après CHAQUE (re)inject, AVANT tout RPC/probe, SANS EXCEPTION**,
+   > y compris les probes « self-contained » montés depuis une seed BC sur disque (ex.
+   > `rl_probe_step.py`, `rl_collect_batch`). Un (re)inject repart avec des caches `MethodInfo*`
+   > Frida-side vides + la couche d'init IL2CPP non ré-amorcée dont dépend `initAndStart`. Un probe
+   > qui « marche » sans warmup ne prouve rien (jeu déjà warm par chance) → au prochain build froid
+   > c'est le crash `0x2c` (metadata non initialisée). Ne jamais raisonner « ce mode-là n'a pas
+   > besoin de warmup ».
 
-2. **Build runner isolé** (avec patch optionnel) :
-   ```
-   buildPatchedRunner({
-     aiUnits: ["necroNpc1Warrior:6", ...], // 10 strings exactes
-     randomizeAi: true,                     // optionnel
-     templateOverrides: { ... },            // optionnel (HP/dmg sur player roster)
-   })
-   ```
-   Retourne `{ runnerId, runner, seed, bcPtr, patch }`. Le patch s'applique
-   in-place sur `lastSource._currentBattle`. **`Initialize()` du runner consume
-   les `PredefinedUnits` patchées et auto-spawn les enemies** — pas besoin
-   d'appeler `spawnPredefinedUnits` séparément.
-
-3. **Observer l'état** :
-   ```
-   observeBattle({ runnerId })
-   ```
-   Renvoie `{ stage, byType, units: [{ entityId, visualId, hp, ... }] }`.
-   À ce stade : `stage=Setup` (0), 10 units présentes côté AI.
-
-4. **Itérer sans repasser par la game UI** : le `lastSource._currentBattle`
-   reste valide tant que la session Frida n'est pas réinjectée. On peut
-   re-patch + re-buildPatchedRunner autant qu'on veut. Chaque appel crée
-   un nouveau `runnerId`.
-
-**À NE PAS oublier** :
-- Re-warmup après chaque `reinject` (la mémoire managée du wrapper survit
-  mais les caches Frida-side perdent les MethodInfo*).
-- `buildPatchedRunner` mute la BC source — clone si on veut comparer
-  multiple variants.
-- Les unit IDs AI sont au format `"unitId:level"` (ex. `"necroNpc1Warrior:6"`),
-  pas juste `"necroNpc1Warrior"`.
+2. **Build + pilotage** : `rl_duel build --seed <s> --state-file <propre> [--p-units/--a-units,
+   --board/--board-pool, ...]` puis `view/act/play/aiturn` ou `engine_validate.py --runner <id>`.
+   Discipline runner (state-file propre, `--runner` explicite, coexistence/MAX_RUNNERS=10, dispose
+   tes runners jamais ceux des autres) : `runner.md` §3.
 
 ## Build + Injection
 
@@ -508,6 +469,7 @@ suite `tests/engine/` — **beaucoup trop lourd**.
 
 !include .claude/skills/tacticus/references/hooks.md
 !include .claude/skills/tacticus/references/rpc-api.md
+!include .claude/skills/tacticus/references/runner.md
 
 <!-- TODO références à (ré)écrire contre le code actuel (les drafts d'avril
      dans .claude/worktrees/agent-a0e45617/ sont périmés) : frida-host.md,

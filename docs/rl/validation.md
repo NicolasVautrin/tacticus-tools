@@ -114,12 +114,13 @@ summon manquante). L'étage 3 construit des cas que le fix n'a jamais vus :
 - **Choisir les porteurs** avec `unit_map.py` (index requêtable des 669 unités :
   armes/hits/pierce, traits, abilities) — on SÉLECTIONNE l'unité qui exerce le
   mécanisme, on ne seed-hunt pas.
-- **Crafter le roster** avec `buildPatchedRunner({aiUnits:["unitId:level",…],
-  templateOverrides})` : la condition testée doit être remplie ET stable —
-  garder l'unité observée vivante (adversaires faibles/peu nombreux), éliminer le
-  bruit (un mécanisme à la fois), garantir une occasion d'agir (cible atteignable).
-  Driver les positions si la géométrie compte (une unité qui ne fait que bouger
-  survit indéfiniment) — ne jamais « blâmer la géométrie de spawn ».
+- **Crafter le roster** avec `rl_duel build --p-units/--a-units` (board choisi via
+  `--board`/`--board-pool` si la mécanique en dépend — cf.
+  `.claude/skills/tacticus/references/runner.md`) : la condition testée doit être remplie ET
+  stable — garder l'unité observée vivante (adversaires faibles/peu nombreux), éliminer le
+  bruit (un mécanisme à la fois), garantir une occasion d'agir (cible atteignable). Driver les
+  positions si la géométrie compte (une unité qui ne fait que bouger survit indéfiniment) —
+  ne jamais « blâmer la géométrie de spawn ».
 - **Probes ciblés mécanisme** : comparer la sortie moteur vs native pour CETTE
   config (ex. le set AoE exact d'un cast), pas l'agreement global. Les scripts
   paramétrés (`--seed`, roster, mécanisme) rejoignent l'outillage réutilisable.

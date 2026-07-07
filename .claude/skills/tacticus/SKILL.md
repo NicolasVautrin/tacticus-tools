@@ -202,50 +202,21 @@ Le standalone runner partage le PRNG seed avec live (depuis
 `ReplayRecorder._replay.RngSeed`) → même `mt[]` → décisions IA
 déterministes.
 
-## Workflow RL — runner isolé sur BattleConfiguration capturée + patchée
+## Workflow RL — runner isolé
 
-Pour entraîner un agent RL **sans toucher au battle in-game**, on récupère
-la `BattleConfiguration` capturée via warmup, on la patche, on construit
-un runner isolé qui consume les `PredefinedUnits` patchées dans
-`Initialize()` — les enemies spawnent automatiquement avec la nouvelle compo.
+Pour entraîner un agent RL / valider le moteur **sans toucher au battle in-game**, on monte un
+runner isolé depuis une **seed BC sur disque** via `rl_duel build`, déployé et pilotable.
 
-**Procédure obligatoire** (ordre crucial, après chaque inject/reinject) :
+> **Le lancement de runner est centralisé dans `references/runner.md`** (warmup obligatoire,
+> `rl_duel build` + options, choix de board `--board`/`--board-pool` + `board.py`, discipline
+> runner) — s'y référer, ne pas dupliquer ici.
 
-```
-1. warmupGameSingletons({ force: true })
-   → capture lastSource + popule _currentBattle via LoadBattle
-
-2. buildPatchedRunner({
-     aiUnits: [
-       "necroNpc1Warrior:6", "necroNpc2FlayedOne:6",
-       "necroNpc3Deathmark:6", "necroNpc5Swarm:5",
-       ...  // 10 strings au format "unitId:level"
-     ],
-     randomizeAi: true,                  // optionnel
-     templateOverrides: {                // optionnel (heroes player roster)
-       "ultraTigurius": { health: 9999 }
-     }
-   })
-   → { runnerId, runner, seed, bcPtr, patch: {...} }
-   Le patch s'applique in-place sur lastSource._currentBattle.
-   Initialize() consume les PredefinedUnits patchées et auto-spawn
-   les enemies — PAS BESOIN d'appeler spawnPredefinedUnits.
-
-3. observeBattle({ runnerId })
-   → { stage, byType, units: [{ entityId, visualId, hp, ... }] }
-   À ce stade : stage=Setup (0), N units AI présentes.
-```
-
-**Pièges à éviter** :
-- Pas de warmup après reinject = `buildPatchedRunner` échoue silencieusement
-  (les units ne spawnent pas, observe = 0 units type 1).
-- `buildPatchedRunner` MUTE la BC source. Re-appel = patch cumulatif.
-  Pour comparer plusieurs variants, refaire un warmup propre entre.
-- UnitId format = `"unitId:level"` (ex. `"necroNpc1Warrior:6"`). Sans
-  le suffix `:N` le spawn rejette silencieusement.
-- `spawnPredefinedUnits(runnerId)` est redondant — Initialize l'a déjà
-  fait. Le garder ne casse rien mais ajoute des doublons si la BC a
-  changé entre buildPatchedRunner et spawnPredefinedUnits.
+Rappel minimal :
+- `warmupGameSingletons({ force: true })` d'abord (autonome), après chaque (re)inject, AVANT
+  tout build/RPC — sinon crash `0x2c`.
+- `python rl_duel.py build --seed <s> --state-file <propre> [--p-units/--a-units, --board, ...]`
+  puis `view/act/play` ou `engine_validate.py --runner <id>`. Discipline : state-file propre,
+  `--runner` explicite, dispose tes runners (coexistence, cap MAX_RUNNERS=10).
 
 **Offsets validés (Tacticus 1.39.40)** :
 ```
@@ -279,7 +250,7 @@ SpawnPointConfiguration : BattleConfigPosition
 
 **Modules concernés** :
 - (file:///C:/Users/nicolasv/tacticus-tools/frida/hooks/features/battle-config.ts)
-  inspect / patch / buildPatchedRunner / spawnPredefinedUnits
+  inspect / patch / normalisation BC (lancement de runner : cf. `references/runner.md`)
 - (file:///C:/Users/nicolasv/tacticus-tools/frida/hooks/features/observe.ts)
   observeBattle (live runner ou registry par runnerId)
 - (file:///C:/Users/nicolasv/tacticus-tools/frida/hooks/features/warmup-singletons.ts)

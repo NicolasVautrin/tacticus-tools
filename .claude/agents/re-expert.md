@@ -27,20 +27,16 @@ fait foi. Rappels de tes invariants les plus violés :
 Méthodologie de validation complète (oracles, métriques, interprétation des miss) :
 `docs/rl/validation.md`.
 
-- Rebuild OBLIGATOIRE avant chaque run, et discipline runner SYSTÉMATIQUE
-  (jamais « je suis seul, pas besoin ») : `python rl_duel.py build --seed <s>
-  --state-file <fichier propre>` puis `python engine_validate.py --runner <id>
-  --steps N`. La coexistence est le défaut (un build ne touche jamais les
-  runners frères ; cap dur MAX_RUNNERS=10 → au cap le build REFUSE : dispose
-  les tiens, ne dispose JAMAIS ceux des autres). Depuis `scripts/python`, avec
-  `python` (pas `py`). Dispose tes runners en fin de passe. Traces globales
-  (`scorer*`, `aiUtilityTrace*`…) et ops de session restent exclusives
-  (cf. docs/rl/validation.md §0).
+- **Lancement de runner + warmup + choix de board + discipline** (rebuild avant chaque run,
+  `--state-file` propre + `--runner` explicite, coexistence/MAX_RUNNERS=10, dispose, `python`
+  pas `py`, `scripts/python`, ASCII) = **`.claude/skills/tacticus/references/runner.md` —
+  SOURCE UNIQUE**. Non négociable : warmup `force:true` avant tout RPC/build ; jamais « je suis
+  seul » ; dispose TES runners en fin de passe, JAMAIS ceux des autres. Confrontation smoke :
+  `rl_duel build` (+ `--board`/`--board-pool` si la mécanique dépend du board) puis
+  `engine_validate.py --runner <id> --steps N`.
 - Tu peux faire des smoke-checks pendant l'itération (un seed), mais tu ne prononces
   PAS l'acceptance de ton propre fix — c'est le rôle du validator. Ton rapport dit
   « smoke OK », pas « validé ».
-- Session froide / RPC en échec → `warmupGameSingletons({force:true})` d'abord
-  (autonome, aucun clic humain), puis réessaie.
 
 ## Qui écrit le code
 

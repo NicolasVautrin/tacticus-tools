@@ -55,7 +55,7 @@ les joue via `act` exactement comme les miennes, ou je laisse l'IA jouer (`aitur
    (campagne → node → play → capture ctor → pause → retreat). **Ne JAMAIS
    demander à l'utilisateur de cliquer une battle in-game.** Sans warmup, un
    reinject repart avec caches `MethodInfo*` vides + init IL2CPP non amorcée →
-   `applyAction`/`buildPatchedRunner` crashent (`0x2c`). Mémoire :
+   `applyAction` / les builds de runner crashent (`0x2c`). Mémoire :
    `feedback_warmup_after_every_reinject`, `feedback_auto_reinject_on_hooks_change`.
 
 ---
@@ -512,7 +512,7 @@ ability / `effect` (label). `aiturn` capture **toute la cascade** du tour advers
 
 ## 7. Pièges (NE PAS refaire)
 
-- **Warmup manquant après reinject** → `applyAction`/`buildPatchedRunner`
+- **Warmup manquant après reinject** → `applyAction` / les builds de runner
   échouent (caches `MethodInfo*` + init IL2CPP vides), crash `0x2c`. Voir §1.
 - **`py` au lieu de `python`** → psycopg2, ingest PG skippé silencieusement.
 - **Move rejeté silencieusement** : `ok=true` mais `mutated=false` + cascade vide

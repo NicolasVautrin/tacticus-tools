@@ -38,6 +38,7 @@ from rl_collect_batch import (  # noqa: E402
     _resolve_session, _ensure_ai_trace, _load_seed_bc, _load_unspawnable,
     _normalize_and_extract_pool, _spawn_points_by_twpi,
     _patch_predefined_units, _patch_predefined_machines, _rpc,
+    _load_board_dump, _load_board_pool,
     PLAYER_ID_HUMAN,
 )
 from rl_probe_step import _print_apply  # noqa: E402
@@ -227,8 +228,25 @@ def _board_mow_ok(bc: dict) -> bool:
 
 
 def cmd_build(sid: int, a) -> int:
+    # Board swap (--board id fixe / --board-pool aleatoire) — mirror rl_collect_batch.
+    if getattr(a, "board", None) and getattr(a, "board_pool", None):
+        print("[error] --board et --board-pool sont mutuellement exclusifs", file=sys.stderr)
+        return 2
+    fixed_board_dump = None
+    if getattr(a, "board", None):
+        try:
+            fixed_board_dump = _load_board_dump(a.board)
+        except (FileNotFoundError, RuntimeError) as e:
+            print(f"[error] {e}", file=sys.stderr)
+            return 2
+        _bi = fixed_board_dump.get("board") or {}
+        print(f"[build] board swap (fixe): id={fixed_board_dump.get('id')} "
+              f"kind={fixed_board_dump.get('kind')} {_bi.get('Width')}x{_bi.get('Height')} "
+              f"sps={fixed_board_dump.get('spawnPointsSet')}")
     seed_bc = _load_seed_bc()
-    template_bc, pool, pool_mow = _normalize_and_extract_pool(sid, seed_bc, a.rank)
+    # --board fixe : swap au moment de la normalisation (buildNormalizedBC boardJson+spawnPointSetIndex).
+    template_bc, pool, pool_mow = _normalize_and_extract_pool(
+        sid, seed_bc, a.rank, board_dump=fixed_board_dump)
     bad_u, bad_mow = _load_unspawnable(a.rank)
     pool = [u for u in pool if u not in bad_u]
     pool_mow = [u for u in pool_mow if u not in bad_mow]
@@ -270,6 +288,27 @@ def cmd_build(sid: int, a) -> int:
             return 2
 
     bc = copy.deepcopy(template_bc)
+    # --board-pool : board aleatoire (post-normalisation, car le filtre MoW a besoin de pool_mow).
+    # Swap direct sur la BC (Board + SpawnPointSetIndex apparie) ; les spawns joueur sont re-derives
+    # plus bas depuis le nouveau board.
+    if getattr(a, "board_pool", None):
+        require_mow = bool(p_mow or a_mow)
+        try:
+            _bpool = _load_board_pool(a.board_pool, a.roster, require_mow)
+        except (FileNotFoundError, RuntimeError) as e:
+            print(f"[error] {e}", file=sys.stderr)
+            return 2
+        if not _bpool:
+            print(f"[error] pool de boards vide pour kind={a.board_pool!r}"
+                  f"{' (contrainte MoW)' if require_mow else ''}", file=sys.stderr)
+            return 2
+        _pick = random.Random(a.seed).choice(_bpool)
+        bc["Board"] = _pick["board"]
+        bc["SpawnPointSetIndex"] = _pick["spawnPointsSet"]
+        _pi = _pick.get("board") or {}
+        print(f"[build] board swap (pool {a.board_pool}): id={_pick.get('id')} "
+              f"{_pi.get('Width')}x{_pi.get('Height')} sps={_pick.get('spawnPointsSet')} "
+              f"({len(_bpool)} eligibles)")
     _patch_predefined_units(bc, a_units)
     _patch_predefined_machines(bc, p_mow, a_mow)
 
@@ -1899,6 +1938,16 @@ def main(argv: list[str]) -> int:
                          "(si ni --p-mow ni --a-mow)")
     ap.add_argument("--list-pool", action="store_true",
                     help="build: imprime le pool spawnable (units + MoW) et sort")
+    ap.add_argument("--board", type=str, default=None,
+                    help="build: swap le board du seed BC pour ce board dumpe (id, ex. C3_46). "
+                         "Cherche data/boards/<pvp|syncPvp|global>/<id>.json ; le SPS apparie est "
+                         "auto-applique (a la normalisation). Exclusif avec --board-pool. "
+                         "Caracteristiques statiques (elevation/terrain/MoW) : cf. board.py.")
+    ap.add_argument("--board-pool", type=str, default=None,
+                    choices=["pvp", "syncPvp", "global"],
+                    help="build: board ALEATOIRE (seede) depuis ce pool dumpe, filtre aux boards "
+                         "avec assez de spawns/cote (+ MoW-capable si un MoW est en jeu). "
+                         "Exclusif avec --board.")
     ap.add_argument("--advance", type=int, default=0)
     ap.add_argument("--maxpump", type=int, default=2000)
     ap.add_argument("--unit", type=int, default=None)
