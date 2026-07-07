@@ -100,6 +100,10 @@ class StartTurnOperation:
     @staticmethod
     def execute(state: State, player: int) -> list[dict]:
         state.turn_counts[player] = state.turn_counts.get(player, 0) + 1
+        # #60 has_moved : nouveau tour d'equipe -> reset des flags "a bouge ce tour" (mirror RemoveTurnFlags
+        # natif). Chaque unite qui bouge ce tour re-marquera son id via MoveUnitOperation.
+        if getattr(state, "moved_this_turn", None) is not None:
+            state.moved_this_turn.clear()
         out = start_turn_triggers(state, player)
         from .summon_ai import run_ai_control_pass         # lazy : evite le cycle turnflow<->summon_ai
         out = out + run_ai_control_pass(state, player)

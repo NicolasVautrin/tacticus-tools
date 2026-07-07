@@ -67,10 +67,13 @@ def resolve_one_hit(roll: int, pierce: int, armor: int, mods=None) -> int:
 
 def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged: Optional[bool] = None):
     """`DamageModifiers` de l'attaquant depuis ses EFFETS actifs (None-safe). `is_ranged` = nature du coup
-    (propagée aux bonus gated `IsRangedAttack`, ex. HeavyWeapon_ExtraDmg)."""
+    (propagée aux bonus gated `IsRangedAttack`, ex. HeavyWeapon_ExtraDmg). `has_moved` (#60) = l'unité a-t-elle
+    BOUGE ce tour (state.moved_this_turn) -> gate no-move : HeavyWeapon_ExtraDmg s'ANNULE si l'unité a bougé
+    (verdict RE cluster #60 : le combat lisait has_moved=None -> bonus TOUJOURS appliqué, FAUX)."""
     active = (state.effects.active_effects(unit_id, {"hp": hp})
               if state.effects is not None else [])
-    return build_attacker_modifiers_from_effects(active, is_ranged), active
+    has_moved = unit_id in getattr(state, "moved_this_turn", ())
+    return build_attacker_modifiers_from_effects(active, is_ranged, has_moved=has_moved), active
 
 
 def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
@@ -88,9 +91,48 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
     return build_defender_modifiers_from_effects(active, is_melee, damage_profile), active
 
 
+def apply_elevation_bonus(state: State, mods, attacker_id: int, target_id: int) -> None:
+    """#58 : ajoute au `mods` de l'ATTAQUANT le bonus d'ELEVATION (+surplomb) — feuille positionnelle du
+    builder PARTAGE `CalculateAttackerModifiersForPrediction @181000590` que le COMBAT applique AUSSI
+    (verdict RE cluster : misnomer "ForPrediction"). Elevations = `state.board` aux tuiles REELLES
+    (attaquant/cible) ; gate no-elevation (effet 0x423 sur attaquant OU cible). No-op sans board/positions
+    (mods inchange). MEME service `calculate_elevation_bonus_modifier` (DamageCalculations) que la
+    prediction, MEME constante `ELEVATION_BONUS_PCT` (pas de fork)."""
+    board = getattr(state, "board", None)
+    if board is None:
+        return
+    from .components import PositionComponent
+    from ..services.damage_modifiers import (add_modifier, calculate_elevation_bonus_modifier,
+                                             ELEVATION_BONUS_PCT, EFFECT_NO_ELEVATION)
+    ea, et = state.get_entity(attacker_id), state.get_entity(target_id)
+    pa = ea.get_component(PositionComponent) if ea is not None else None
+    pt = et.get_component(PositionComponent) if et is not None else None
+    if pa is None or pt is None:
+        return
+    ta, tt = board.tile_at(pa.col, pa.row), board.tile_at(pt.col, pt.row)
+    if ta is None or tt is None:
+        return
+    a_elev, t_elev = ta.get("elevation"), tt.get("elevation")
+    if a_elev is None or t_elev is None:
+        return
+
+    def _has_no_elev(uid: int) -> bool:
+        e = state.get_entity(uid)
+        hc = e.get_component(HealthComponent) if e is not None else None
+        effs = (state.effects.active_effects(uid, {"hp": hc.hp if hc is not None else None})
+                if state.effects is not None else [])
+        return any(getattr(ef, "effect_type", None) == EFFECT_NO_ELEVATION for ef in effs)
+
+    no_elev = _has_no_elev(attacker_id) or _has_no_elev(target_id)
+    eb = calculate_elevation_bonus_modifier(a_elev, t_elev, ELEVATION_BONUS_PCT,
+                                            attacker_or_target_has_no_elev_effect=no_elev)
+    if eb is not None:
+        add_modifier(mods, eb)
+
+
 def build_hits_board(state: State, att_id: int, tgt_id: int,
                      attack_pos, t_pos, is_melee: Optional[bool]):
-    """Bâtit `(board, aura_sources, target_effects)` pour `total_attack_hits` depuis l'ECS (positions/teams/
+    """Bâtit `(board, aura_sources, target_effects)` pour `attack_hits_with_modifiers` depuis l'ECS (positions/teams/
     effets REELS) — mirror CÔTÉ COMBAT du board de la prédiction (Scene). `board` = {att_id, tgt_id,
     attack_pos, t_pos, tgt_team, is_melee, pos_by_id, team_by_id, faction_of} ; `aura_sources` = [(owner_id,
     pos, team, effets)] des unités != cible (porteurs d'auras de coups type BigTarget) ; `target_effects` =

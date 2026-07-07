@@ -113,8 +113,9 @@ class HeavyWeaponExtraDmgEffect(BaseEffect):
         # Gate NO-MOVE (`!HasFlag(HasMoved=0)` @180f4f030 ; i2 : « When this unit has not moved this
         # turn »). En PRÉDICTION la tuile candidate fixe le flag : has_moved=True (candidat avec
         # déplacement) → pas de bonus (GROUND TRUTH step-23 : rangées ranged u78 SANS ×1.25 depuis les
-        # tuiles déplacées ; step-11 : « ×1.25 selon tuile »). None (combat runner, état non tracé) →
-        # comportement historique conservé (bonus appliqué).
+        # tuiles déplacées ; step-11 : « ×1.25 selon tuile »). En COMBAT (#60) l'état est DÉSORMAIS tracé
+        # (`state.moved_this_turn` -> `attacker_modifiers` passe un bool défini) : le bonus s'annule si
+        # l'unité a bougé ce tour. None (contexte hors combat/prédiction) → bonus appliqué (fallback).
         if has_moved:
             return None
         pct = trait_var("HeavyWeapon", "heavyWeaponExtraDmg")

@@ -1,12 +1,23 @@
-"""Port FIDÈLE de la COUCHE MODIFIER native (gqfc5mff6c) — RE intégrale + tracée live, doc §17.
+"""Port FIDÈLE de DEUX classes natives (gqfc5mff6c) — RE intégrale + tracée live, doc §17 :
+  • `IdunBattle.Core.Services.DamageModifiers`   = le STRUCT accumulateur (d'où le nom du module) ;
+  • la TRANCHE "MODIFIER" de `IdunBattle.Core.Services.DamageCalculations` = les feuilles qui construisent /
+    appliquent ce struct (multiplier, cap, builder attaquant, feuilles positionnelles + leur config).
 
-Classes/fonctions natives portées 1:1 (VA citée) :
-  • `IdunBattle.Core.Services.DamageModifiers`           (accumulateur)  Empty@181006370 / Add@181005f10
+⚠ `DamageCalculations` est une grosse classe service ÉCLATÉE PAR CONCERN dans le port (convention du repo,
+PAS une classe = un module) : la tranche MODIFIER est ICI ; la tranche COMBAT (crit/block/evasion) est dans
+`damage_combat.py` ; les builders qui itèrent les EFFETS (`CalculateAttackerModifiersForPrediction` boucle,
+`CalculateDefenderModifiersForPrediction`) vivent dans `entities/effects/__init__.py`. Chaque tranche cite
+sa VA. Voir aussi `damage_prediction.py` (= classe `DamagePrediction`, le pipeline PredictAttackRaw).
+
+Fonctions/données natives portées 1:1 ICI (VA citée) :
+  • `DamageModifiers`                                    (struct)        Empty@181006370 / Add@181005f10
   • `DamageCalculations.GetMultiplierFromDamageBonus`    @181005210      (1 ± pct/100)
   • `DamageCalculations.ApplyCappedModifiers`            @181000020      (réducteur : v=clamp(round(v×mult),±cap))
   • `DamageCalculations.CalculateAttackerModifiersForPrediction` @181000590  (builder = boucle sur param_5)
   • leaves positionnels : CalculateElevationBonusModifier@181003ea0 /
     CalculateRangedInMeleeReduction@181004700 / CalculateTrenchReduction@181004830
+  • config `DamageCalculations.Init @181005790` : ELEVATION_BONUS_PCT / EFFECT_NO_ELEVATION (section Damage
+    de la BC) — consommee a l'identique par la prediction (playbook) ET le combat (runner).
 
 CHAÎNE (RE §17, tracée live §17.7) : dans `PredictAttackRaw`, `CalculateBaseDamageWithAllModifiers`
 applique le modifier **par coup, APRÈS perçage/armure** via `ApplyCappedModifiers`. `param_5` (la liste
@@ -20,9 +31,19 @@ de l'`additif` plat (Addition/Subtraction) vs le `%-list` — ici additif appliq
 """
 from __future__ import annotations
 
+import json as _json
 from dataclasses import dataclass, field
 
 from .effect_bonus import EffectBonus, for_addition, for_subtraction
+from .. import weights as _weights
+
+# Config `DamageCalculations` (section Damage de la BattleConfiguration) — le natif la charge via
+# `DamageCalculations.Init @181005790`. Ces constantes appartiennent au port de DamageCalculations (ce
+# module), consommees a l'identique par la PREDICTION (playbook) ET le COMBAT (runner) — pas de fork.
+_DMG_CFG: dict = _json.loads(_weights.DEFAULT_BC.read_text(encoding="utf-8")).get("Damage", {}) \
+    if _weights.DEFAULT_BC.exists() else {}
+ELEVATION_BONUS_PCT: int = int(_DMG_CFG.get("ElevationBonus", 50))   # CalculateElevationBonusModifier @181003ea0
+EFFECT_NO_ELEVATION: int = 0x423   # effectType gate (0x423) : elevation coupee si attaquant OU cible le porte
 
 
 @dataclass

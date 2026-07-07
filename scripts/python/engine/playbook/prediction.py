@@ -29,24 +29,26 @@ from engine.entities.stats import StatType, StatPart
 from engine.services.damage_prediction import get_attack_prediction, get_multi_hit_attack_prediction
 from engine.services.min_max_damage import MinMaxDamage
 from engine.services.damage_modifiers import (
-    add_modifier, calculate_elevation_bonus_modifier,
-    calculate_ranged_in_melee_reduction, calculate_trench_reduction)
+    add_modifier, calculate_elevation_bonus_modifier, calculate_ranged_in_melee_reduction,
+    calculate_trench_reduction, ELEVATION_BONUS_PCT, EFFECT_NO_ELEVATION)
 from engine.services.battle_query import select_weapon_pierce, are_tiles_adjacent
-from engine.services.attack_hits import total_attack_hits
+from engine.services.attack_hits_formula import attack_hits_with_modifiers
 from engine.playbook.probable_damage_event import ProbableDamageEvent
 
 import json as _json
 _DMG_CFG: dict = _json.loads(_weights.DEFAULT_BC.read_text(encoding="utf-8")).get("Damage", {}) \
     if _weights.DEFAULT_BC.exists() else {}
-ELEVATION_BONUS_PCT: int = int(_DMG_CFG.get("ElevationBonus", 50))   # CalculateElevationBonusModifier @181003ea0
 # Feuilles positionnelles de CalculateAttackerModifiersForPrediction @181000590 (PAS des effets) :
-# config native = pourcentage NEGATIF (ReductionPercentage=-50) ; le port passe la MAGNITUDE a
+# ELEVATION_BONUS_PCT + EFFECT_NO_ELEVATION vivent dans le port de DamageCalculations (`damage_modifiers`),
+# importes ci-dessus, consommes a l'identique par la prediction ET le combat (#58, pas de fork).
+# RANGED_IN_MELEE_PCT / TRENCH_PCT (ci-dessous) : config native = pourcentage NEGATIF (ReductionPercentage
+# =-50) ; le port passe la MAGNITUDE a calculate_*_reduction (kind PercentDecrease -> add_modifier flippe le
+# signe -> x0.5). Cf.
 # calculate_*_reduction (kind PercentDecrease -> add_modifier flippe le signe -> x0.5). Cf.
 # GetMultiplierFromDamageBonus @181005210 (value<1 -> 1-|value|/100), decompile confirme x0.5.
 RANGED_IN_MELEE_PCT: int = abs(int(_DMG_CFG.get("RangedInMeleeReductionPercentage", -50)))  # @181004700
 TRENCH_PCT: int = abs(int(_DMG_CFG.get("TrenchReductionPercentage", -50)))                  # @181004830
 _PROFILE_INDEX = {name: idx for idx, name in _PROFILE_BY_INDEX.items()}
-EFFECT_NO_ELEVATION = 0x423   # HasEffect(...,0x423) : gate de CalculateElevationBonusModifier @181003ea0
 
 
 def _has_effect_type(effects, etype) -> bool:
@@ -194,18 +196,20 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
             carriers, {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
                        "damage_profile": prof_name}):
         add_modifier(mods, _eb)
-    # Nb de coups = service PARTAGE `total_attack_hits` (MEME fonction que le combat runner) : base
-    # weapon+ExtraHits+effets, +GetStuckIn/traits, +malus defenseur (LightCover/Parry) + auras (BigTarget).
+    # Nb de coups : cette prediction EST la facade `DamagePrediction.GetAttackHits @18102f240` — elle
+    # rassemble les entrees depuis la Scene puis appelle la FORMULE PARTAGEE `attack_hits_with_modifiers`
+    # (`AttackHitsWithModifiersFormula.Calculate @180f0bf50`, MEME formule que la facade combat runner) :
+    # base weapon+ExtraHits+effets, +GetStuckIn/traits, +malus defenseur (LightCover/Parry) + auras (BigTarget).
     board = {"att_id": att_id, "tgt_id": tgt_id, "attack_pos": attack_pos, "t_pos": t_pos,
              "tgt_team": scene.team(tgt_id), "is_melee": is_melee,
              "pos_by_id": scene.pos_by_id, "team_by_id": scene.team_by_id, "faction_of": scene.faction}
     tgt_effects = scene.effects(tgt_id)
     aura_sources = [(uid, scene.pos(uid), scene.team(uid), scene.effects(uid))
                     for uid in scene.pos_by_id if uid != tgt_id]
-    hits = total_attack_hits(weapon_hits=whits, extra_hits=ctx.stat(StatType.EXTRA_HITS),
-                             attacker_effects=att_effects, trait_objects=ctx.trait_objects(),
-                             target_effects=tgt_effects, aura_sources=aura_sources, board=board,
-                             is_melee=is_melee, damage_profile=prof_name)
+    hits = attack_hits_with_modifiers(weapon_hits=whits, extra_hits=ctx.stat(StatType.EXTRA_HITS),
+                                      attacker_effects=att_effects, trait_objects=ctx.trait_objects(),
+                                      target_effects=tgt_effects, aura_sources=aura_sources, board=board,
+                                      is_melee=is_melee, damage_profile=prof_name)
     res = get_attack_prediction(
         target_current_health=scene.hp(tgt_id) or 0, initial_damage=attack_base, hits=hits,
         profile_type=0, pierce_pct=pierce, armor=scene.armor(tgt_id), mods=mods,

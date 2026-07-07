@@ -48,14 +48,14 @@ from ...services.damage_combat import (calculate_damage_operation, Damage, could
                                        roll_critical, BlockSource)
 from ...services.damage_modifiers import apply_all_modifiers
 from ...services.battle_query import are_tiles_adjacent
-from ...services.attack_hits import total_attack_hits
+from ...services.attack_hits_formula import attack_hits_with_modifiers
 from ...entities.stats import StatType
 from ..prng import IntBasedMersenneTwister
 from ..state import State
 from ..components import (StatsComponent, HealthComponent, PositionComponent, UnitComponent,
                          ShieldComponent)
 from ..damage_model import (select_weapon, select_weapon_pierce, attacker_modifiers,
-                            defender_modifiers, build_hits_board)
+                            defender_modifiers, build_hits_board, apply_elevation_bonus)
 from ...entities.effects import (hits_bonus_from_effects, crit_chance_bonus_from_effects,
                                  crit_damage_bonus_from_effects)
 
@@ -185,13 +185,19 @@ class AttackDamageOperation:
         _profile = _w.get("DamageProfile") if _w else None     # profil du coup (pour vecteurs after-hit)
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, is_ranged=_ranged)
-        # Nb de coups = service PARTAGE `total_attack_hits` (MEME que la prediction) : base weapon+ExtraHits+
-        # effets, +GetStuckIn/traits, +malus defenseur (LightCover/Parry) + auras (BigTarget). #62a : le combat
-        # ne sommait que weapon+ExtraHits+effets -> divergent de la prediction sur GetStuckIn/LightCover/BigTarget.
+        # #58 : feuille positionnelle ELEVATION (+surplomb) ajoutee au `mods` de l'attaquant, comme la
+        # prediction (service PARTAGE `calculate_elevation_bonus_modifier` de DamageCalculations ; positions
+        # REELLES depuis l'ECS/board).
+        apply_elevation_bonus(state, mods, attacker_id, target_id)
+        # Nb de coups : cette execution EST la facade `AttackDamageOperation.GetAttackHits @180e613d0` — elle
+        # rassemble les entrees depuis l'ECS puis appelle la FORMULE PARTAGEE `attack_hits_with_modifiers`
+        # (`AttackHitsWithModifiersFormula.Calculate @180f0bf50`, MEME formule que la facade prediction) :
+        # base weapon+ExtraHits+effets, +GetStuckIn/traits, +malus defenseur (LightCover/Parry) + auras
+        # (BigTarget). #62a : le combat ne sommait que weapon+ExtraHits+effets -> divergeait de la prediction.
         if ap is not None and tp is not None:
             _board, _auras, _tgt_eff = build_hits_board(
                 state, attacker_id, target_id, (ap.col, ap.row), (tp.col, tp.row), is_melee=not _ranged)
-            hits = total_attack_hits(
+            hits = attack_hits_with_modifiers(
                 weapon_hits=whits, extra_hits=ctx.stat(StatType.EXTRA_HITS),
                 attacker_effects=active, trait_objects=ctx.trait_objects(),
                 target_effects=_tgt_eff, aura_sources=_auras, board=_board,

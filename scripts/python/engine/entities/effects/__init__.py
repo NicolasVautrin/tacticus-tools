@@ -2,6 +2,13 @@
 de classes (BaseEffect + sous-classes 1:1 + factory + registre), remplaçant l'ancien registre de données
 (`effects_damage_bonus.EffectDef`). Mirror fidèle du modèle natif « 1 classe par effet ».
 
+Ce module héberge AUSSI la tranche « builders qui ITERENT LES EFFETS » de `IdunBattle.Core.Services.
+DamageCalculations` (convention repo : DamageCalculations eclatee par concern — cf. en-tete de
+`services/damage_modifiers.py`) : `build_attacker_modifiers_from_effects` = `CalculateAttackerModifiers
+ForPrediction @181000590` (boucle effets), `build_defender_modifiers_from_effects` = `CalculateDefender
+ModifiersForPrediction @181002c30`, + les axes COUPS (`hits_bonus_from_effects` / `_defender_` / auras).
+Ils sont ICI (et pas dans damage_modifiers.py) parce que leur corps EST la boucle sur les effets.
+
 API :
   • `BaseEffect` / sous-classes (loki.py …) — 1 classe par effet, override des méthodes implémentées.
   • `EffectFactory` / `EFFECT_CLASSES` — instancie la bonne classe depuis un effet capté.
