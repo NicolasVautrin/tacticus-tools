@@ -29,8 +29,7 @@ from engine.entities.stats import StatType, StatPart
 from engine.services.damage_prediction import get_attack_prediction, get_multi_hit_attack_prediction
 from engine.services.min_max_damage import MinMaxDamage
 from engine.services.damage_modifiers import (
-    add_modifier, calculate_elevation_bonus_modifier, calculate_ranged_in_melee_reduction,
-    calculate_trench_reduction, ELEVATION_BONUS_PCT, EFFECT_NO_ELEVATION)
+    add_modifier, calculate_ranged_in_melee_reduction, calculate_trench_reduction)
 from engine.services.battle_query import select_weapon_pierce, are_tiles_adjacent
 from engine.services.attack_hits_formula import attack_hits_with_modifiers
 from engine.playbook.probable_damage_event import ProbableDamageEvent
@@ -39,8 +38,10 @@ import json as _json
 _DMG_CFG: dict = _json.loads(_weights.DEFAULT_BC.read_text(encoding="utf-8")).get("Damage", {}) \
     if _weights.DEFAULT_BC.exists() else {}
 # Feuilles positionnelles de CalculateAttackerModifiersForPrediction @181000590 (PAS des effets) :
-# ELEVATION_BONUS_PCT + EFFECT_NO_ELEVATION vivent dans le port de DamageCalculations (`damage_modifiers`),
-# importes ci-dessus, consommes a l'identique par la prediction ET le combat (#58, pas de fork).
+# ELEVATION (ELEVATION_BONUS_PCT/EFFECT_NO_ELEVATION) = modificateur COMBAT reel (melee ET ranged) applique
+# par `runner/damage_model.apply_elevation_bonus` ; le PREVIEW de prediction de l'IA (GetAllPredictions) ne le
+# calcule PAS (ground truth aiPredict) -> ces constantes ne sont plus importees ici (cf.
+# `_add_positional_and_defender_mods`). RangedInMelee/defenseur, EUX, sont dans le preview (10/11).
 # RANGED_IN_MELEE_PCT / TRENCH_PCT (ci-dessous) : config native = pourcentage NEGATIF (ReductionPercentage
 # =-50) ; le port passe la MAGNITUDE a calculate_*_reduction (kind PercentDecrease -> add_modifier flippe le
 # signe -> x0.5). Cf.
@@ -49,11 +50,6 @@ _DMG_CFG: dict = _json.loads(_weights.DEFAULT_BC.read_text(encoding="utf-8")).ge
 RANGED_IN_MELEE_PCT: int = abs(int(_DMG_CFG.get("RangedInMeleeReductionPercentage", -50)))  # @181004700
 TRENCH_PCT: int = abs(int(_DMG_CFG.get("TrenchReductionPercentage", -50)))                  # @181004830
 _PROFILE_INDEX = {name: idx for idx, name in _PROFILE_BY_INDEX.items()}
-
-
-def _has_effect_type(effects, etype) -> bool:
-    """True si un effet ACTIF de la liste a cet `effectType` (int)."""
-    return any(getattr(e, "effect_type", None) == etype for e in (effects or []))
 
 
 def _weapon_pierce(scene, att_id, is_adjacent):
@@ -99,19 +95,18 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
         Scene → non applicable tant que la donnée tuile-trench n'est pas exposée (structurellement présent,
         no-op ici : `target_on_trench=False`).
       • DÉFENSEUR (`CalculateDefenderModifiersForPrediction` : effets de la CIBLE réduisant le dégât reçu)."""
-    if scene.elev_by_pos and attack_pos and t_pos:
-        a_elev, t_elev = scene.elev_by_pos.get(attack_pos), scene.elev_by_pos.get(t_pos)
-        if a_elev is not None and t_elev is not None:
-            # Gate 0x423 (CalculateElevationBonusModifier @181003ea0) : élévation SAUTÉE si l'attaquant OU
-            # la cible a un effet "no elevation bonus" (effectType 1059). Non testé (1059 absent des seeds
-            # courants) mais fidèle au décompilé. Comparaison a_elev>t_elev = tuile attaquant > tuile cible
-            # (mesuré : (5,4)elev3 vs cible elev2 -> x1.5 EXACT ; per-tuile candidate, cf. #58).
-            no_elev = (_has_effect_type(scene.effects(att_id), EFFECT_NO_ELEVATION)
-                       or _has_effect_type(scene.effects(tgt_id), EFFECT_NO_ELEVATION))
-            eb = calculate_elevation_bonus_modifier(a_elev, t_elev, ELEVATION_BONUS_PCT,
-                                                    attacker_or_target_has_no_elev_effect=no_elev)
-            if eb is not None:
-                add_modifier(mods, eb)
+    # ELEVATION : PAS appliquee dans le PREVIEW de prediction de l'IA. L'elevation EST un modificateur de
+    # COMBAT reel (ground truth jeu : bonus surplomb +50%, MELEE **et** RANGED) -> applique par le combat
+    # (`runner/damage_model.apply_elevation_bonus`, positions REELLES, inchange). MAIS le preview de degat que
+    # l'IA calcule pour classer ses moves (`BattleQuery/DamagePrediction.GetAllPredictions`, = l'oracle
+    # decisionView) NE le calcule PAS. GROUND TRUTH LIVE (aiPredict = GetAllPredictions direct) : dmg u90->u86
+    # IDENTIQUE a la tuile candidate ELEVEE (5,4 elev3) ET a la tuile courante (3,2 elev2) -> insensible a
+    # l'elevation ; et u88 (tuile courante (4,4) elev2 > cible (6,7) elev1) n'a AUCUN bonus dans decisionView.
+    # (Le preview INCLUT en revanche RangedInMelee + defenseur ci-dessous : les 10/11 collent avec.) Le builder
+    # `CalculateAttackerModifiersForPrediction @181000590` (feuille elevation @181003ea0) est un MISNOMER = mods
+    # de COMBAT, pas ce que consomme le preview IA (#58 "verdict RE cluster : misnomer ForPrediction"). Le port
+    # l'ajoutait a tort ici -> sur-predisait u90 (candidate elevee, ranged) x1.5 ; corrige l'hypothese
+    # "per-tuile candidate" de #58 (qui ne tenait que sur les cas SANS elevation au-dessus de la cible).
     is_ranged = not is_melee
     if is_ranged and _should_apply_ranged_in_melee(scene, att_id, attack_pos):     # trait 0xb + adjacence
         eb = calculate_ranged_in_melee_reduction(True, RANGED_IN_MELEE_PCT)
