@@ -24,7 +24,8 @@ class RapidAssaultExtraDamageEffect(BaseEffect):
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
                                               has_moved: bool | None = None,
-                                              target_traits: "frozenset[str] | None" = None) -> EffectBonus | None:
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False) -> EffectBonus | None:
         pct = trait_var("RapidAssault", "rapidAssaultExtraDmgPct")
         return for_percent_increase(True, pct) if pct is not None else None
 
@@ -54,7 +55,15 @@ class SmashaEadExtraDamageEffect(BaseEffect):
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
                                               has_moved: bool | None = None,
-                                              target_traits: "frozenset[str] | None" = None) -> EffectBonus | None:
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False) -> EffectBonus | None:
+        # #71 : trigger natif = OwnerIsCaster & IsNormalAttack (@180f6bee0). Le noeud DSL IsNormalAttack
+        # evalue FALSE dans le contexte PREDICTION DISPLAY (verdict re-expert : additif absent de
+        # decisionView ; off_sans ~= oracle) -> l'additif ne doit PAS entrer dans la DamageModifiers de
+        # PREDICTION. En COMBAT (is_prediction=False) IsNormalAttack=True -> additif applique. RapidAssault
+        # (trigger OwnerIsCaster SEUL) N'est PAS gate ainsi -> il matche le DISPLAY.
+        if is_prediction:
+            return None
         lvl = (self.active_ability_level if self.active_ability_level is not None
                else (self.ability_level if self.ability_level is not None else self.level))
         amt = ability_var("SmashaEad", "extraDmg", lvl,
@@ -186,7 +195,8 @@ class HeavyWeaponExtraDmgEffect(BaseEffect):
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
                                               has_moved: bool | None = None,
-                                              target_traits: "frozenset[str] | None" = None) -> EffectBonus | None:
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False) -> EffectBonus | None:
         if not is_ranged:                        # gated IsRangedAttack (no-op sur mêlée / contexte inconnu)
             return None
         # Gate NO-MOVE (`!HasFlag(HasMoved=0)` @180f4f030 ; i2 : « When this unit has not moved this
@@ -213,7 +223,8 @@ class RangedSpecialistEffect(BaseEffect):
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
                                               has_moved: bool | None = None,
-                                              target_traits: "frozenset[str] | None" = None) -> EffectBonus | None:
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False) -> EffectBonus | None:
         if not is_ranged:                        # gated IsRangedAttack (@180f67520)
             return None
         pct = trait_var("RangedSpecialist", "rangedSpecialistDmgPct")
@@ -236,7 +247,8 @@ class BeastSlayerExtraDmgEffect(BaseEffect):
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
                                               has_moved: bool | None = None,
-                                              target_traits: "frozenset[str] | None" = None) -> EffectBonus | None:
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False) -> EffectBonus | None:
         if is_ranged:                                  # IsMeleeAttack -> melee uniquement
             return None
         if not target_traits or _BEAST_SLAYER_TARGET_TRAITS.isdisjoint(target_traits):
@@ -309,7 +321,8 @@ class FightingRetreatDmgReductionEffect(BaseEffect):
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
                                               has_moved: bool | None = None,
-                                              target_traits: "frozenset[str] | None" = None) -> EffectBonus | None:
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False) -> EffectBonus | None:
         lvl = self.ability_level if self.ability_level is not None else self.level
         v = ability_var("FightingRetreat", "dmgReduction", lvl,
                         multiplier_pct=self.ability_variables_multiplier)

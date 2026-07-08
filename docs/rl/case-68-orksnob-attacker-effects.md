@@ -22,7 +22,23 @@ soit portee + enregistree dans `factory.py`, et que sa magnitude/condition soien
 `extraDmg` in variablesAffectedByRarityBonus (scale par mult) ; array VA jusqu'a L50 (`extraDmg[50] x
 mult180 = 599`, PAS 41 : l'hypothese '14 niveaux clamp 23' etait FAUSSE).
 
-**SUR-PREDICTION (mesure DETERMINISTE, #71)** : via `Scene.from_state` (aiPredict, aucun roll RNG),
+**RESOLU #71 (verdict re-expert + fix valide)** : la sur-prediction venait du trigger natif de SmashaEad
+`ForAddition(OwnerIsCaster & IsNormalAttack, ...)` (@180f6bee0). Le noeud DSL **`IsNormalAttack` evalue
+FALSE dans le contexte PREDICTION DISPLAY** (RapidAssault, trigger `OwnerIsCaster` SEUL, evalue TRUE ->
+matche). Le port avait collapse le AbilityTrigger en un bool `owner_is_caster` sans porter `IsNormalAttack`.
+FIX : flag `is_prediction` threade dans le funnel attaquant ; `calculate_attacker_modifiers_for_prediction`
+passe `is_prediction=True` -> `SmashaEadExtraDamageEffect.create_effect_damage_bonus_for_attack` renvoie
+None (additif absent de la prediction, matche le DISPLAY) ; `build_attacker_modifiers_from_effects`
+(COMBAT) garde `is_prediction=False` -> additif applique. Gate SPECIFIQUE a SmashaEad (seul effet dont
+le trigger natif contient IsNormalAttack ; RapidAssault/FightingRetreat = OwnerIsCaster seul, non gates).
+VALIDE : deterministe off_avec == off_sans == (964,1448) ~= oracle (948,1311) [avant : off_avec=(1563,2047)] ;
+test_predict_live 2/2 (RapidAssault matche) ; combat armored/ability 2/2 (is_prediction=False, SmashaEad
+reste en combat). Chemin #64 (debuff stat-mod) = branche separee, non touchee. (Combat magnitude/presence
+SmashaEad = incertitude #68 separee, confondue par GetStuckIn.)
+
+---
+
+**(historique) SUR-PREDICTION (mesure DETERMINISTE, #71)** : via `Scene.from_state` (aiPredict, aucun roll RNG),
 orksNob->worldTerminator (cible NON-Big -> BeastSlayer=0, isole SmashaEad) :
 - off WITH SmashaEad = `(1563, 2047)` ; oracle `decisionView` = `(948, 1311)` ; off WITHOUT = `(964, 1448)` ~= oracle.
 - => l'oracle DISPLAY (`decisionView` = `GetAllPredictions`, lit `GetStat(Attack Current)`) **N'APPLIQUE PAS**

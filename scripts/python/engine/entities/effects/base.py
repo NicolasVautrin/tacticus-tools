@@ -76,7 +76,8 @@ class BaseEffect:
     # ── contributions aux modifiers (None = pas de contribution) ────────────────────────────────────
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
                                               has_moved: bool | None = None,
-                                              target_traits: "frozenset[str] | None" = None) -> EffectBonus | None:
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False) -> EffectBonus | None:
         """`<Effect>.CreateEffectDamageBonusForAttack` — contribution au scalaire dégât (additif/percent).
         `target_traits` = noms de traits gameconfig de la CIBLE (mirror `HasTrait(target,…)` natif) pour
         les bonus target-conditionnels (ex. BeastSlayer vs BigTarget/Vehicle) ; None = cible inconnue.
