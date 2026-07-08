@@ -18,6 +18,7 @@ from .loki import (
     KanOpenerEffect,
     LightCoverEffect,
     BeastSlayerExtraDmgEffect,
+    BeastSlayerExtraBlockEffect,
     MasterAnnihilatorAdditionalHitEffect,
     ParryEffect,
     PathOfCommandExtraDmgEffect,
@@ -59,6 +60,9 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # BeastSlayer (orksNob/Titus/Farsight/...) : +20% degat MELEE vs BigTarget/Vehicle (trait,
     # target-conditionnel @180f336c0 ForPercentIncrease ; gate is_melee + target_traits). #68.
     "BeastSlayer_ExtraDmg": BeastSlayerExtraDmgEffect,
+    # BeastSlayer cote DEFENSE : +10% chance de bloquer 100% du FixedArmor courant en degat (source de
+    # block SUPPLEMENTAIRE, AddExtraBlockEffectToOwner @180e18b70 ; absente du scalaire GetStat(7/8)). #72.
+    "BeastSlayer_ExtraBlock": BeastSlayerExtraBlockEffect,
     "PowerTrip_FullHealth": PowerTripFullHealthEffect,
     "PowerTrip_IgnoreArmor": PowerTripIgnoreArmorEffect,
     "Stunned": StunnedEffect,           # effet COMPOSITE (parent 1162 → enfants 1165/1166/1167)

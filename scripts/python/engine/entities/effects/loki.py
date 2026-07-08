@@ -12,6 +12,7 @@ from ...services.effect_bonus import (EffectBonus, for_addition,
                                       for_percent_decrease, for_percent_increase)
 from .base import BaseEffect, SubEffectSpec, SAME_TURNS
 from .magnitude import ability_var, global_value, trait_var
+from ...services.damage_combat import BlockSource
 
 
 class RapidAssaultExtraDamageEffect(BaseEffect):
@@ -255,6 +256,30 @@ class BeastSlayerExtraDmgEffect(BaseEffect):
             return None                                # cible ni BigTarget ni Vehicle -> 0
         pct = trait_var("BeastSlayer", "beastSlayerExtraDmgPct")
         return for_percent_increase(True, pct) if pct is not None else None
+
+
+class BeastSlayerExtraBlockEffect(BaseEffect):
+    """`BeastSlayerAbility.CreateAddBlockEffectBehaviour @180e18b70` (trait BeastSlayer, effet
+    `BeastSlayer_ExtraBlock`, cote DEFENSE) : `AddExtraBlockEffectToOwner(chance, amount)` avec
+    chance=`GetBlockChance @180e19120`=`GetNumberConstant(0x2d=beastSlayerBlockChance)` (=10) et
+    amount=`GetBlockDamage @180e19160`=`PercentageOf(StatAmount(0x10=FixedArmor),
+    GetNumberConstant(0x36=beastSlayerBlockAsMaxArmorPct))` (=100% du FixedArmor COURANT).
+    => source de BLOCK SUPPLEMENTAIRE (roll separe : +10% chance de bloquer 100% de l'armure courante
+    en degat), ABSENTE du scalaire GetStat(7/8) (verifie LIVE 2026-07-09 : orksNob blockChance=0). Le
+    natif la tient dans `GetMultiValueStat(7)`. Variables de TRAIT -> globales, NON scalees par le mult.
+    Cf. docs/rl/case-68-orksnob-attacker-effects.md (#72)."""
+
+    def create_effect_block_source_for_defense(self, defender_fixed_armor: int = 0):
+        chance = trait_var("BeastSlayer", "beastSlayerBlockChance")
+        pct = trait_var("BeastSlayer", "beastSlayerBlockAsMaxArmorPct")
+        if not chance or pct is None:
+            return None
+        amount = int(int(defender_fixed_armor) * int(pct) / 100)   # PercentageOf(FixedArmor, blockDmgPct)
+        if amount <= 0:
+            return None
+        # block_id = la chance (id natif dans failedList @181002350) : une source EXCLUE apres son 1er
+        # echec sur un coup (exclusion inter-coups, cf. AttackDamageOperation._run_hits #72).
+        return BlockSource(chance=int(chance), amount=amount, block_id=int(chance))
 
 
 class TerrifyingExtraDefenseEffect(BaseEffect):

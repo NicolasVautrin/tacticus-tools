@@ -139,6 +139,22 @@ def build_defender_modifiers_from_effects(effects, is_melee: bool | None = None,
     return build_defender_modifiers(maluses)
 
 
+def defender_effect_block_sources(effects, defender_fixed_armor: int = 0) -> list:
+    """Sources de BLOCK supplementaires posees par les effets de la CIBLE (defenseur) — a AJOUTER a la
+    chaine `apply_random_block_damage` APRES le block de base (scalaire `GetStat(7/8)`). Mirror des
+    entrees SEPAREES de `GetMultiValueStat(7)` (`CalculateBlockChances @181002350`) posees par
+    `AddExtraBlockEffectToOwner` (ex. BeastSlayer @180e18b70 : chance 10% / amount=100% FixedArmor courant),
+    ABSENTES du scalaire (verifie live : orksNob blockChance=0). Agrege
+    `create_effect_block_source_for_defense(defender_fixed_armor)` (defaut None). Effets deja filtres actifs.
+    Retourne [] si aucun effet ne pose de source -> combat exact inchange (no-op). #72."""
+    out = []
+    for e in _as_effects(effects):
+        bs = e.create_effect_block_source_for_defense(defender_fixed_armor)
+        if bs is not None:
+            out.append(bs)
+    return out
+
+
 def hits_bonus_from_effects(effects, is_normal_attack: bool = True) -> int:
     """Σ des bonus de COUPS (`CreateEffectHitsBonusForAttack`) des effets actifs (axe hits, ex.
     PowerTrip_FullHealth). Addition = +value, Subtraction = −value."""
@@ -200,8 +216,10 @@ def aura_attack_bonus_from_allies(carriers, ctx) -> int:
     +extraDmg/_2 aux alliés ring-1, gate grande-alliance Imperial ; `PathOfCommandAbility` @181110f10 :
     +extraDmg(/_2 si même FACTION) aux alliés dans un rayon 2). `carriers` = itérable de (owner_id, owner_pos,
     owner_team, owner_mult, owner_level, owner_grand_alliance, owner_faction, effets du porteur) ; `ctx` =
-    {att_id, att_pos, att_team, att_grand_alliance, att_faction, board}. Modélisé CÔTÉ SOURCE + ré-évalué PAR
-    CANDIDAT (portée owner↔att_pos). Retour ≥ 0 (à AJOUTER à `GetStat(Attack, INITIAL)` per-candidat).
+    {att_id, att_pos, att_team, att_grand_alliance, att_faction, board}. Modélisé CÔTÉ SOURCE, évalué à la
+    position passée dans `att_pos`. #67 : l'appelant prédiction passe la position RÉELLE de l'attaquant (aura
+    stat-mod bakée event-driven, GetStat Current SANS position -> IDENTIQUE sur toutes les tuiles candidates),
+    JAMAIS la tuile candidate. Retour >= 0 (à AJOUTER à `GetStat(Attack, INITIAL)`).
     NB gates DIFFÉRENTS : RitesOfBattle=grande-alliance (Imperial), PathOfCommand=faction (IsSameFaction)."""
     total = 0
     for owner_id, owner_pos, owner_team, owner_mult, owner_level, owner_ga, owner_faction, effects \

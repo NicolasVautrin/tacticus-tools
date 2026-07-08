@@ -58,7 +58,7 @@ from ..damage_model import (select_weapon, select_weapon_pierce, attacker_modifi
                             defender_modifiers, build_hits_board, apply_elevation_bonus,
                             target_trait_names)
 from ...entities.effects import (hits_bonus_from_effects, crit_chance_bonus_from_effects,
-                                 crit_damage_bonus_from_effects)
+                                 crit_damage_bonus_from_effects, defender_effect_block_sources)
 
 
 class HitDamage:
@@ -150,6 +150,36 @@ class AttackDamageOperation:
             shc.deplete(int(run_result["shield_dmg"]))
 
     @staticmethod
+    def _block_sources(tsc, tgt_active_effects, defender_armor: int):
+        """Sources de block du DEFENSEUR pour `apply_random_block_damage` : block de BASE (scalaire
+        `GetStat(7/8)` -> ctx.block_chance/block_damage) PUIS les sources SUPPLEMENTAIRES posees par ses
+        effets (`AddExtraBlockEffectToOwner`, ex. BeastSlayer @180e18b70 : chance beastSlayerBlockChance /
+        amount = blockDmgPct% du FixedArmor courant) — ABSENTES du scalaire (verifie live orksNob
+        blockChance=0), que le natif tient dans `GetMultiValueStat(7)` (`CalculateBlockChances @181002350`).
+        ORDRE : base d'abord, effets ensuite (cible sans block de base -> effet = seule source, ordre moot).
+        None si aucune source (retro-compat : 0 tirage). Consomme par les 3 vecteurs (normale/ability/splash). #72."""
+        if tsc is None:
+            return None
+        block_chance = int(getattr(tsc.ctx, "block_chance", 0) or 0)
+        block_amount = int(getattr(tsc.ctx, "block_damage", 0) or 0)
+        sources = []
+        if block_chance > 0 and block_amount > 0:
+            # block_id = la CHANCE (= `local_88`, l'id natif dans failedList/Contains @181002350) : distingue
+            # les sources pour l'exclusion apres-echec inter-coups (cf. _run_hits #72).
+            sources.append(BlockSource(chance=block_chance, amount=block_amount, block_id=block_chance))
+        sources.extend(defender_effect_block_sources(tgt_active_effects, defender_armor))
+        return sources or None
+
+    @staticmethod
+    def _crit_params(ctx, attacker_effects) -> tuple:
+        """(crit_chance, crit_damage, crit_enabled) de l'ATTAQUANT — GetStat(9/10) + bonus calc-time des
+        effets (`GetCritChanceBonusFromEffects @181031180` / `GetCritDamageBonusFromEffects @181031bb0`) ;
+        `could_crit` = `CouldCrit @181004fb0`. Partage par les 3 vecteurs (normale/ability/splash)."""
+        cc = ctx.stat(StatType.CRIT_CHANCE) + crit_chance_bonus_from_effects(attacker_effects)
+        cd = ctx.stat(StatType.CRIT_DAMAGE) + crit_damage_bonus_from_effects(attacker_effects)
+        return cc, cd, could_crit(cc, cd)
+
+    @staticmethod
     def execute(state: State, attacker_id: int, target_id: int,
                 spread_pct: int = 20) -> Optional[dict]:
         """Résolution d'une attaque normale (mirror Execute→ExecuteHits→ExecuteHit) depuis
@@ -216,17 +246,6 @@ class AttackDamageOperation:
         # (aucun `GetArmorBonusFromEffects` séparé n'existe — seuls crit/hits ont une couche calc-time) →
         # cuits dans GetStat → dans le combatSnapshot → dans ctx.fixed_armor. Rien à sommer en plus.
         armor = tsc.ctx.stat(StatType.FIXED_ARMOR) if tsc is not None else 0
-        # BLOCK (cible) — sources issues de `GetMultiValueStat(target, 7)` (CalculateBlockChances@181002350) :
-        # les bonus +block d'effet sont aussi des StatModifications (pas de couche calc-time) → déjà dans
-        # GetStat(7/8) → ctx.block_chance/block_damage. Le patch BC --block-target = item I_Block équivalent.
-        # chaque entrée {chance → blockDmg(GetBlockDamageForBlockChance)}. Notre patch BC (BlockChance/
-        # BlockDamage via rl_duel --block-target) = UNE source {chance, amount}. La chaîne (apply_random_
-        # block_damage) tire NextBool par source triée jusqu'à 1ʳᵉ réussite → dmg=max(0,dmg−amount), DidBlock.
-        # Vide (chance/amount≤0) → aucune source → 0 tirage → rétro-compat exacte (cibles sans block).
-        block_chance = int(getattr(tsc.ctx, "block_chance", 0) or 0) if tsc is not None else 0
-        block_amount = int(getattr(tsc.ctx, "block_damage", 0) or 0) if tsc is not None else 0
-        block_sources = ([BlockSource(chance=block_chance, amount=block_amount)]
-                         if block_chance > 0 and block_amount > 0 else None)
         # DÉFENSEUR : réductions de dégât reçu portées par les effets de la CIBLE (symétrique attaquant ;
         # CalculateDefenderModifiersForPrediction). Vide → no-op (apply_all_modifiers identité). Couvre la
         # famille ADamageDefenseModifierAbilityEffect ; STAT/Parry/triggers = axes séparés (cf. §1.8).
@@ -236,6 +255,10 @@ class AttackDamageOperation:
         # câblent DÉSORMAIS ces gates aussi (params damage_profile/is_melee threadés par tous leurs callers).
         def_mods, _def_active = defender_modifiers(state, target_id, thc.hp,
                                                    is_melee=not _ranged, damage_profile=_profile)
+        # BLOCK (cible) = base (scalaire GetStat 7/8) + sources d'effet (ex. BeastSlayer) — helper PARTAGE
+        # par les 3 vecteurs (normale/ability/splash), mirror du `GetMultiValueStat(7)`/CalculateBlockChances
+        # @181002350 unique du natif. Besoin des effets actifs de la cible -> apres defender_modifiers.
+        block_sources = AttackDamageOperation._block_sources(tsc, _def_active, armor)
         # ORDRE RÉEL (confirmé live 18/18 coups, 3 seeds, necroDestroyer 6h) : le HitDamage natif
         # porte la plage RÉDUITE — la réduction (perçage/armure/modifiers attaquant+défenseur) est
         # appliquée aux BORNES base±spread D'ABORD, puis le tirage `GetDamage` se fait DANS cette plage
@@ -256,9 +279,7 @@ class AttackDamageOperation:
         # cuits dans GetStat → dans le combatSnapshot → dans ctx] + couche calc-time SÉPARÉE
         # GetCritChanceBonusFromEffects/GetCritDamageBonusFromEffects (PAS dans GetStat → sommée ici
         # depuis les effets ACTIFS de l'attaquant). Mirror exact de RollCritical/CalculateCriticalDamage.
-        crit_chance = ctx.stat(StatType.CRIT_CHANCE) + crit_chance_bonus_from_effects(active)
-        crit_damage = ctx.stat(StatType.CRIT_DAMAGE) + crit_damage_bonus_from_effects(active)
-        crit_enabled = could_crit(crit_chance, crit_damage)
+        crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(ctx, active)
 
         def _reduced_bounds(eff_attack: int) -> "HitDamage":
             mm = get_base_damage_fix64(eff_attack, spread_pct=spread_pct)
@@ -310,6 +331,7 @@ class AttackDamageOperation:
         crits: list[bool] = []
         rolls: list[int] = []
         per_hit: list[int] = []
+        failed_block: set = set()          # ids de sources de block AYANT ECHOUE (accumule ENTRE coups, #72)
         for _ in range(hits):
             crit = roll_critical(rng, crit_chance) if crit_enabled else False
             crits.append(crit)
@@ -318,9 +340,17 @@ class AttackDamageOperation:
             if post_roll is not None:
                 roll = post_roll(roll)        # ability : réduction APRÈS le tirage (roll-then-reduce)
             rolls.append(roll)
+            # #72 : mirror `CalculateBlockChances(param_4=failedList)` @181002350 -> une source de block
+            # AYANT ECHOUE a un coup precedent est EXCLUE des coups suivants (Contains(failedList, id)) ;
+            # une source qui REUSSIT reste jouable (ApplyRandomBlockDamage return sans AddFailedBlockId).
+            # Donc une source est jouee chaque coup JUSQU'A son 1er echec, puis plus (aucun tirage). Preuve
+            # live (orksNob BeastSlayer chance=10) : hit1 succes + hit2 echec -> 0 roll hits 3-6 = 8 tirages.
+            hit_block = ([s for s in block_sources if s.block_id not in failed_block] or None
+                         ) if block_sources else None
             dmg: Damage = calculate_damage_operation(
                 roll, shield=shield, armor_pool=armor_pool, armor_pct=armor_pct,
-                block_sources=block_sources, evasion_branch=False, rng=rng)
+                block_sources=hit_block, evasion_branch=False, rng=rng)
+            failed_block.update(dmg.failed_block_ids or [])
             shield = max(0, shield - dmg.shield)
             armor_pool = max(0, armor_pool - dmg.armor)
             per_hit.append(dmg.get_total())
@@ -366,18 +396,15 @@ class AttackDamageOperation:
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None)
         tsc = tgt.get_component(StatsComponent)
         armor = tsc.ctx.stat(StatType.FIXED_ARMOR) if tsc is not None else 0
-        block_chance = int(getattr(tsc.ctx, "block_chance", 0) or 0) if tsc is not None else 0
-        block_amount = int(getattr(tsc.ctx, "block_damage", 0) or 0) if tsc is not None else 0
-        block_sources = ([BlockSource(chance=block_chance, amount=block_amount)]
-                         if block_chance > 0 and block_amount > 0 else None)
         # #59 suite : threade is_melee + profil de l'ability -> malus DÉFENSEUR gatés (Terrifying_ExtraDefense
         # IsMeleeAttack ; TerminatorArmour DamageProfileIs). None (caller non mis à jour) = comportement
         # historique (gates non appliqués) — INERTE pour une cible sans effet de défense gaté.
         def_mods, _da = defender_modifiers(state, target_id, thc.hp,
                                            is_melee=is_melee, damage_profile=damage_profile)
-        crit_chance = ctx.stat(StatType.CRIT_CHANCE) + crit_chance_bonus_from_effects(active)
-        crit_damage = ctx.stat(StatType.CRIT_DAMAGE) + crit_damage_bonus_from_effects(active)
-        crit_enabled = could_crit(crit_chance, crit_damage)
+        # BLOCK (cible) = base (GetStat 7/8) + sources d'effet (BeastSlayer...) via le helper PARTAGE
+        # `_block_sources` (mirror du GetMultiValueStat(7)/CalculateBlockChances@181002350 unique du natif).
+        block_sources = AttackDamageOperation._block_sources(tsc, _da, armor)
+        crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(ctx, active)
 
         def _reduce(value: int) -> int:
             return apply_all_modifiers(
@@ -433,17 +460,14 @@ class AttackDamageOperation:
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None)
         tsc = tgt.get_component(StatsComponent)
         armor = tsc.ctx.stat(StatType.FIXED_ARMOR) if tsc is not None else 0
-        block_chance = int(getattr(tsc.ctx, "block_chance", 0) or 0) if tsc is not None else 0
-        block_amount = int(getattr(tsc.ctx, "block_damage", 0) or 0) if tsc is not None else 0
-        block_sources = ([BlockSource(chance=block_chance, amount=block_amount)]
-                         if block_chance > 0 and block_amount > 0 else None)
         # #59 suite : threade is_melee + profil -> malus DÉFENSEUR gatés (cf. execute_ability_attack).
         # None (caller non mis à jour) = comportement historique — INERTE sans effet de défense gaté.
         def_mods, _da = defender_modifiers(state, target_id, thc.hp,
                                            is_melee=is_melee, damage_profile=damage_profile)
-        crit_chance = ctx.stat(StatType.CRIT_CHANCE) + crit_chance_bonus_from_effects(active)
-        crit_damage = ctx.stat(StatType.CRIT_DAMAGE) + crit_damage_bonus_from_effects(active)
-        crit_enabled = could_crit(crit_chance, crit_damage)
+        # BLOCK (cible) = base (GetStat 7/8) + sources d'effet (BeastSlayer...) via le helper PARTAGE
+        # `_block_sources` (mirror du GetMultiValueStat(7)/CalculateBlockChances@181002350 unique du natif).
+        block_sources = AttackDamageOperation._block_sources(tsc, _da, armor)
+        crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(ctx, active)
 
         def _reduced(eff_base: int) -> "HitDamage":
             mm = get_base_damage_fix64(eff_base, spread_pct=spread_pct)

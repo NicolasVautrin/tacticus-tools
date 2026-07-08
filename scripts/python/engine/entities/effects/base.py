@@ -160,6 +160,18 @@ class BaseEffect:
         → ConfigVar 0x46). Défaut None = effet sans réduction défensive (dégradation fidèle)."""
         return None
 
+    def create_effect_block_source_for_defense(self, defender_fixed_armor: int = 0):
+        """`<Effect>.CreateAddBlockEffectBehaviour`/`AddExtraBlockEffectToOwner` @180e18b70 — source de
+        BLOCK SUPPLEMENTAIRE possedee par la CIBLE (defenseur), AJOUTEE a la chaine
+        `apply_random_block_damage` EN PLUS du block de base (scalaire `GetStat(7/8)`). Renvoie un
+        `BlockSource(chance, amount)` ou None (defaut). Ex. BeastSlayer @180e18b70 :
+        chance=`GetBlockChance @180e19120`=beastSlayerBlockChance ; amount=`GetBlockDamage @180e19160`=
+        blockDmgPct% du FixedArmor COURANT du defenseur. Ces entrees sont ABSENTES du scalaire GetStat(7/8)
+        (verifie live 2026-07-09 : orksNob blockChance=0 alors que BeastSlayer donne +10%) -> le natif les
+        tient dans `GetMultiValueStat(7)` (`CalculateBlockChances @181002350`). `defender_fixed_armor` =
+        FixedArmor courant de la CIBLE (pour les sources dont l'amount depend de l'armure). #72."""
+        return None
+
     def get_armor_penetration(self, is_normal_attack: bool = True) -> int | None:
         """`<Effect>.IgnoreArmor` — pénétration d'armure (axe armure : armor_eff = max(armure − pén, 0)).
         `is_normal_attack` : certaines pénétrations sont gated attaque normale (i2 PowerTrip

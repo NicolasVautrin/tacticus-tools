@@ -86,9 +86,54 @@ RE ghidra + gameconfig + i2 :
 - **`BeastSlayer_ExtraDmgEffect.CreateDamageModifier @180f336c0`** : magnitude = `ConfigConst(0xf)` =
   `beastSlayerExtraDmgPct` = **+20% (PercentIncrease)** ; condition =
   `OwnerIsCaster & IsMeleeAttack & ( HasTrait(target, 0x405=1029 BigTarget) | HasTrait(target, 0x3f9=1017 Vehicle) )`.
-- Effet cree par `BeastSlayerAbility.CreateTrigger @180e18f90` (triggered) ; cote DEFENSE il y a AUSSI
-  `BeastSlayer_ExtraBlock` (block +10% de l'armure courante ; `CreateAddBlockEffectBehaviour @180e18b70`,
-  `GetBlockDamage @180e19160`, `GetBlockChance @180e19120`) — non porte, hors scope #68 (attaque).
+- Effet cree par `BeastSlayerAbility.CreateTrigger @180e18f90` (triggered).
+
+### BeastSlayer_ExtraBlock (cote DEFENSE) — PORTE + VALIDE LIVE (2026-07-09, #72)
+
+**RESOLU** : source de bloc supplementaire + roll-gating fidele. Validation replay-diff BIT-EXACT
+(necroDestroyer 6 coups -> orksNob) : off per-hit == live, PV egaux (`test_beast_slayer_block_live.py`).
+Diagnostic double-compte LEVE (live) : orksNob snapshot `blockChance=0` -> BeastSlayer ABSENT du scalaire
+GetStat(7/8) (aucun double-compte ; le runner le manquait entierement avant le port).
+
+**Port** : (1) `BeastSlayerExtraBlockEffect` (loki.py) `create_effect_block_source_for_defense(armor)` ->
+`BlockSource(chance=beastSlayerBlockChance=10, amount=beastSlayerBlockAsMaxArmorPct% x FixedArmor, block_id=chance)`,
+enregistre `"BeastSlayer_ExtraBlock"` (factory). (2) Canal defenseur : agregateur `defender_effect_block_sources`
+(effects/__init__.py) + helper PARTAGE `AttackDamageOperation._block_sources(tsc, tgt_effects, armor)` = base
+(scalaire GetStat 7/8) + sources d'effet, appele par les 3 vecteurs (mirror du `GetMultiValueStat(7)` unique
+du natif). (3) **ROLL-GATING (RE CLE, decouvert par replay-diff)** : `ApplyRandomBlockDamage @181000390`
+ajoute l'id (= la chance `local_88`) d'une source ECHOUEE a `failedList` ; `CalculateBlockChances @181002350`
+(rebuild PAR COUP) fait `Contains(failedList, id)` -> **EXCLUT toute source AYANT ECHOUE des coups suivants**
+(une source qui REUSSIT reste jouable, ApplyRandomBlockDamage return sans AddFailedBlockId). Donc une source
+de bloc est jouee chaque coup JUSQU'A son 1er echec, puis plus jamais. Porte dans
+`AttackDamageOperation._run_hits` (accumulateur `failed_block` inter-coups + filtre par-coup). Preuve : orksNob
+BeastSlayer (chance 10) hit1 succes + hit2 echec -> 0 roll hits 3-6 = **8 tirages RNG (pas 12)** -> replay
+bit-exact. NB : `--block-target` (chance 100) NE l'exercait PAS (100% ne rate jamais -> jamais exclu -> roll
+chaque coup ; c'est pourquoi le test block de base passait sans ce gating). Refacto au passage (#72) : helpers
+partages `_block_sources` + `_crit_params` (dedup des 3 vecteurs normale/ability/splash).
+
+> **A VERIFIER (hint utilisateur "comme les crits")** : le CRIT a-t-il le meme gating (stop apres le 1er
+> non-crit sur un coup) ? Crit = stat unique (GetStat 9), PAS une multi-value avec failedList -> mecanisme
+> PROBABLEMENT different, mais NON confirme. Tache dediee (RE + test multi-coups CC<100).
+
+**(RE conserve)** c'est un ROLL de bloc SUPPLEMENTAIRE (pas un simple bonus de chance).
+- `GetBlockChance @180e19120` = `GetNumberConstant(0x2d)` = `beastSlayerBlockChance` = **10%**.
+- `GetBlockDamage @180e19160` = `PercentageOf(StatAmount(0x10=FixedArmor), Direct(GetNumberConstant(0x36)=100))`
+  = **100% du FixedArmor COURANT** comme montant de bloc.
+- `CreateAddBlockEffectBehaviour @180e18b70` = `AddExtraBlockEffectToOwner(0x5ed, Direct(chance=10), GetBlockDamage)`
+  + 2 `AddOrUpdateStaticStatModifierEffect` (0x619/0x61a) gates `If(ActorHasTriggeredAbility(0x5e9), ...)`.
+  i2 : « +10% chance to Block 100% of current Armour as Damage ».
+Port : le moteur a un systeme de bloc (`damage_combat.py apply_random_block_damage(rng, block_sources, dmg)`
+= chaine de sources, 1er succes bloque). MAIS le runner (damage.py:226/369/436) construit `block_sources`
+= UNE SEULE source depuis `tsc.ctx.block_chance/block_damage` (snapshot `GetStat(7/8)` mono-valeur ;
+unit_context.py:178 blockChance/blockDamage plats). Le natif utilise `GetMultiValueStat(7)`
+(`CalculateBlockChances @181002350`) = LISTE de sources ; BeastSlayer ajoute une entree SEPAREE
+(chance 10%, amount=100% FixedArmor, via `AddOrUpdateStaticStatModifierEffect 0x619/0x61a`) avec un
+amount DIFFERENT du bloc de base. Donc porter fidelement = (a) canal MULTI-source de bloc cote defenseur
+(collecter les sources de bloc des effets de la CIBLE), (b) verifier le DOUBLE-COMPTE (le snapshot
+`blockChance` d'orksNob inclut-il deja le +10% de BeastSlayer ? a checker live), (c) l'ORDRE des sources
+(CalculateBlockChances trie la multi-value). SLICE DEDIEE non-triviale (risque double-compte/ordre) —
+NON faite. RE mecanisme = complete ci-dessus ; l'integration reste a faire proprement (defense, hors
+scope attaque #68).
 
 ### Port a faire (slice wiring)
 1. Classe `BeastSlayerExtraDmgEffect` (loki.py) : `create_effect_damage_bonus_for_attack` renvoie
