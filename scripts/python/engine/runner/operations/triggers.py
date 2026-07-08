@@ -485,14 +485,32 @@ def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
     return out
 
 
+def _squighound_after_attack(state: State, attacker_id: int, target_id: int) -> list[dict]:
+    """`SquigHoundSummonUnitAbility` trigger `On(0x26) & OwnerIsCaster` @1811a1c60 : APRÈS une attaque du
+    caster porteur du passif `SquigHound`, si **< maxSummons(5)** grots amis, spawn 1 grot adjacent à la CIBLE
+    (behaviour @1811a1a30 -> `SpawnUnitOperation.execute_squighound_summon`, `WithStatsFromConfig(SquigHound)`
+    au niveau du caster -> le grot porte `active_ability_level` = **lève le GAP PileIn**). No-op si l'attaquant
+    n'a pas SquigHound. Le `PerformAIAttack` on-appearance = FLAGGÉ non porté (secondaire)."""
+    import gameconfig as GC
+    from .spawn import SpawnUnitOperation
+    e = state.get_entity(attacker_id)
+    uc = e.get_component(UnitComponent) if e is not None else None
+    if uc is None or "SquigHound" not in ((GC.unit(uc.visual_id) or {}).get("passiveAbilities") or []):
+        return []
+    spawned = SpawnUnitOperation.execute_squighound_summon(state, attacker_id, target_id)
+    return [{"squighound": attacker_id, "spawned": spawned}] if spawned else []
+
+
 def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
                             ranged: bool, profile: Optional[str], is_crit: bool = False) -> list[dict]:
     """Vecteur after-hit (mirror `EvaluateAfterHitTriggers` → dispatch generique). Construit l'événement
     `On(0x26)` {acteur=attaquant, cible, ranged, profil, isCrit} et lance `evaluate_trigger_operation`.
-    `ranged`/`profile` = nature du coup primaire. No-op si aucun trigger ne matche."""
+    `ranged`/`profile` = nature du coup primaire. Ajoute le passif `SquigHound` (spawn de grot après attaque).
+    No-op si aucun trigger ne matche."""
     ev = TriggerEvent(TRIGGER_AFTER_HIT, attacker_id, target_id,
                       ranged=ranged, profile=profile, is_crit=is_crit)
-    return evaluate_trigger_operation(state, ev)
+    out = evaluate_trigger_operation(state, ev)
+    return out + _squighound_after_attack(state, attacker_id, target_id)
 
 
 def after_move_triggers(state: State, mover_id: int) -> list[dict]:
@@ -537,6 +555,58 @@ def start_turn_triggers(state: State, player_id: int) -> list[dict]:
     trigger turn-start ne matche (ou pas de board/rng pour le move+attaque)."""
     ev = TriggerEvent(TRIGGER_TURN_START, -1, -1, ranged=False, profile=None, player_id=player_id)
     return evaluate_trigger_operation(state, ev)
+
+
+PILEIN_MIN_OWNER_TURNS = 2      # `OwnerHasFinishedMinTurns(2)` — gate du trigger PileIn @181223c50
+
+
+def end_turn_summon_triggers(state: State, player_id: int) -> list[dict]:
+    """Vecteur FIN DE TOUR — passif d'auto-dédoublement `PileInAbility` (trigger @181223c50 `On(0x17)` &
+    `OwnerHasFinishedMinTurns(2)` & `IsUnitWithStatAmount(Health Cur==Max)` ; behaviour @181223990).
+
+    Chaque grot (passif `PileIn`) du `player_id` FINISSANT son tour, s'il est à PV PLEINS et que son owner a
+    fini >=2 tours, s'auto-dédouble avec probabilité `chance − chance_2 × (#grots amis)` = 75 − 5×n (constantes
+    `GetNumberConstant(0x2a)=chance`, `(0x33)=chance_2`). Le RNG `Maybe(chance)` n'est PAS modélisé offline ->
+    DÉTERMINISTE : fire si chance>0 (cap NATUREL à n=15 -> 0 %). Le double = `execute_pilein_replica`
+    (`WithStatsFromConfig(PileIn)` = stats config, PAS clone). Snapshot des grots AVANT la boucle : les doubles
+    spawnés ce tour ne se re-déclenchent pas (« acts on its NEXT turn »)."""
+    import gameconfig as GC
+    from .spawn import SpawnUnitOperation
+    from ..components import HealthComponent
+    if state.turn_counts.get(int(player_id), 0) < PILEIN_MIN_OWNER_TURNS:
+        return []
+    consts = (GC.ability("PileIn") or {}).get("constants") or {}
+    chance0 = int(consts.get("chance") or 75)
+    chance_2 = int(consts.get("chance_2") or 5)
+    # snapshot des grots-PileIn vivants du player, à PV PLEINS (avant tout spawn de ce tour).
+    candidates: list[tuple] = []
+    for eid, e in state.entities.items():
+        uc = e.get_component(UnitComponent)
+        oc = e.get_component(OwnerComponent)
+        hc = e.get_component(HealthComponent)
+        if uc is None or oc is None or hc is None or not uc.alive:
+            continue
+        if oc.player != int(player_id):
+            continue
+        if "PileIn" not in ((GC.unit(uc.visual_id) or {}).get("passiveAbilities") or []):
+            continue
+        if hc.hp < hc.hp_max:                  # `IsUnitWithStatAmount(Health Cur==Max)` = PV PLEINS
+            continue
+        candidates.append((eid, uc.visual_id, oc.team))
+    out: list[dict] = []
+    for (gid, vid, team) in candidates:
+        # `UnitsWithSameVisualId(self) & Friends(3)` -> Count = grots amis (même visualId) hors self.
+        n = sum(1 for e2 in state.entities.values()
+                if e2.id != gid
+                and (u2 := e2.get_component(UnitComponent)) is not None and u2.alive and u2.visual_id == vid
+                and (o2 := e2.get_component(OwnerComponent)) is not None and o2.team == team)
+        chance = chance0 - chance_2 * n        # `Difference(75, Multiply(count, 5))`
+        if chance <= 0:                        # cap naturel : 0 % dès n>=15 grots
+            continue
+        spawned = SpawnUnitOperation.execute_pilein_replica(state, gid)
+        if spawned:
+            out.append({"grot": gid, "spawned": spawned, "chance": chance, "n_grots": n})
+    return out
 
 
 # --- Helpers de behaviour --------------------------------------------------------------------------

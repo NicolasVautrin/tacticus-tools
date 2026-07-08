@@ -145,13 +145,18 @@ class EndTurnOperation:
                 r = land_deep_strike(state, uid)
                 if r is not None:
                     landed.append(r)
+        # PILEIN @181223990/@181223c50 : passif fin-de-tour des grots du joueur FINISSANT à PV pleins ->
+        # auto-dédoublement (WithStatsFromConfig(PileIn), 75-5%/grot). Après le tick d'effets (un DoT qui
+        # entame les PV du grot le disqualifie du gate PV-pleins). No-op si aucun grot PileIn.
+        from .triggers import end_turn_summon_triggers
+        pilein = end_turn_summon_triggers(state, finishing)
         if not advance:
             return {"ticked": ticked, "shields_ticked": shields_ticked, "landed": landed,
-                    "next_player": None, "start": None}
+                    "pilein": pilein, "next_player": None, "start": None}
         nxt = ChangeTurnOperation.execute(state)
         start = StartTurnOperation.execute(state, nxt) if nxt is not None else None
-        return {"ticked": ticked, "shields_ticked": shields_ticked,
-                "next_player": nxt, "start": start}
+        return {"ticked": ticked, "shields_ticked": shields_ticked, "landed": landed,
+                "pilein": pilein, "next_player": nxt, "start": start}
 
 
 class TurnFlowHandler:

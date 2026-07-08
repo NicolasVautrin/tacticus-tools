@@ -1,8 +1,8 @@
 """WIRING TRIGGER + ON-APPEARANCE du summon — `Runner.apply(ActiveAbilityMessage)` → spawn + attaque.
 
 Valide que le cast d'une ability de summon (ici `ScarabHive`, ActiveAbilityType **1007**) route bien par
-`AbilityHandler` → `ScarabSummonAbility.execute_behaviour` → `SpawnUnitOperation` (2× necroSmnSwarm, owner
-du caster, adjacents à la cible, stats `ability_var`) PUIS l'**attaque on-appearance** (`PerformAIAttack`,
+`AbilityHandler` → `ScarabHiveAbility.execute_behaviour` → `SpawnUnitOperation` (2× necroSmnSwarm, owner
+du caster, adjacents à la cible, stats `ability_var`) PUIS l'**attaque on-appearance** (`UseNormalAttackIfAble`,
 profil Piercing) qui ampute les PV de la cible.
 
 État seedé depuis un build live (positions/stats réelles) ; on applique le message OFFLINE (le runner
@@ -70,7 +70,7 @@ def test_summon_trigger_and_on_appearance(live_session, rpc, build_runner):
     thc = state.get_entity(enemy_id).get_component(HealthComponent)
     hp_before = thc.hp if thc is not None else None
 
-    # === apply le cast (wiring AbilityHandler -> ScarabSummonAbility) ===
+    # === apply le cast (wiring AbilityHandler -> ScarabHiveAbility, id 1007) ===
     runner = Runner(state).install_default_handlers(20)
     runner.apply(ActiveAbilityMessage(caster_id, enemy_id, SCARABHIVE))
     diag = runner.ability_handler.last or {}

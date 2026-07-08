@@ -2,11 +2,100 @@
 
 Retour du re-expert (#65 SLICE 2 part c' = apply des abilities actives des summons). Base : le chemin
 `engine/runner/operations/summon_ai.py::_apply_active_ability` route (1) port DÉDIÉ via `AbilityHandler`/
-`ABILITY_CLASSES` (`handler.py` : 1043 ThunderousAssault, 1206 GravitonRifle, 1007 ScarabHive/ScarabSummon,
+`ABILITY_CLASSES` (`handler.py` : 1043 ThunderousAssault, 1206 GravitonRifle, 1007 ScarabHive,
 1105 CrushingClaws) ; sinon (2) GÉNÉRIQUE `AttackDamageOperation.execute_ability_attack` (attaque active à
 `damageProfile`, config via `ability_attack_params`) ; sinon (3) no-op.
 
-## Calibration ctx (natives déjà portées : ThunderousAssault @1812158b0, CrushingClaws @1811cd5e0, ScarabSummon @181205290)
+## ⚠ ScarabHive (1007) ≠ ScarabSummon (1047) — DEUX abilities, ne PAS les confondre (RE ghidra + gameconfig)
+
+Piège de nommage corrigé (#65) : le port a longtemps eu UNE classe `ScarabSummonAbility` (id 1007, VA citée
+`@181205290`) qui portait EN FAIT **ScarabHive**. Les deux abilities sont distinctes et TOUTES DEUX spawnent
+`necroSmnSwarm` mais par des chemins différents :
+
+| Ability | id | VA native | Porteur | Placement | Owner+stats | On-appearance |
+|---|---|---|---|---|---|---|
+| **ScarabHive**  | 1007 | `ScarabHiveAbility.ExecuteBehaviour @181204cb0` | necroSpyder (SUMMONER) | `First(SortByDistance(CanAddUnit(AdjacentTiles(target@0x178)), self@0x160))` = adjacent **CIBLE** | `WithStatsFromConfig(config)` → stats **summoner-scaled** `ability_var(ScarabHive, summon*, casterLevel, mult)` | `UseNormalAttackIfAble` |
+| **ScarabSummon** | 1047 | `ScarabSummonAbility.ExecuteBehaviour @181205290` | necroSmnSwarm (le SCARAB, auto-DÉDOUBLEMENT) | `PickRandomly(CanAddUnit(AdjacentTiles(self@0x160)))` = adjacent **SOI** | `CopyOwner(caster)` → owner + **stats CLONÉES du parent** | `PerformAIAttack` (« immediately takes a turn ») |
+
+- **`CopyOwner @180fd5ba0` copie des STATS, pas juste l'owner** (RE) : il bâtit une liste
+  `StatAmount(caster, statType, StatPart=3)` pour les StatType `{5=Health, 16=Armor, 0=Attack, 1=Movement, 20}`
+  puis `CreateSpawnOptions(owner)`. ⇒ le scarab auto-dédoublé est un **clone** du parent (mêmes Attack/Move/HP/
+  Armor), PAS un `ability_var(ScarabSummon,…)` (qui n'existe pas — `ScarabSummon.constants` = `{unitId, chance:50}`).
+- **Le scarab n'est JAMAIS apparition-only** : trait `Summon` = « Moves and attacks automatically at the beginning
+  of its turn » → joué au TURN-START via `run_ai_control_pass` (chemin SÉPARÉ de `PickNextUnit`/`aiStepDryRun`).
+  Le gate défensif `_APPEARANCE_ONLY_SUMMON_ABILITIES` (qui mettait ScarabHive → `ai_controlled=False`) était
+  FAUX (basé sur un « 0 action » via `aiStepDryRun`, un artefact de sonde) → **retiré #65** : tous les summons =
+  `ai_controlled=True`. Playbook du dédoublement = `ScarabSummonPlaybook` (`GetUseProbability` = 1.0 ou 1/2 selon
+  un compteur runtime ; utilité 3/2 par cible éligible).
+- **PORTÉ + VALIDÉ LIVE (#65)** : ScarabSummon (1047) = classe `ScarabSummonAbility` (`loki.py`,
+  `SpawnUnitOperation.execute_self_replica`) + `ScarabSummonPlaybook` (`noncomparable.py`, NC prio 0, util 1.5)
+  + registre `ABILITY_CLASSES`/`PLAYBOOKS`. **Confronté live** (necroSpyder vs 2 healers) : le count de scarabs
+  snowball 2->3->5->6->8 (auto-dédoublement natif), tous hpMax=2218 IDENTIQUES (clone). Offline : l'auto-play
+  décide ScarabSummon(1047) pour chaque scarab, `execute_self_replica` produit un clone hp=2218/atk=998 adjacent
+  au parent, ai_controlled=True (récursif). GAP restant : `GetUseProbability` (RNG 50%) + cap `UnitDuplicationLimit`
+  non modélisés (le port se dédouble à chaque tour dès qu'une tuile ring-1 est libre).
+
+## Auto-DÉDOUBLEMENT : 2 mécanismes DISTINCTS (scan exhaustif 55 summons, actives ET passives)
+
+**SEULS 2 summons se ré-invoquent EUX-MÊMES** — et par des chemins différents (ne PAS généraliser l'un à l'autre) :
+
+| | **ScarabSummon** (necroSmnSwarm) | **PileIn** (orksGrot) |
+|---|---|---|
+| Nature | **active** (l'IA décide en tour, playbook `ScarabSummonPlaybook`) | **passive** = TRIGGER fin-de-tour (`PileInAbility` @181223990/@181223c50) |
+| Gate | `GetUseProbability` ~50% | `On(0x17 fin-de-tour)` & `OwnerHasFinishedMinTurns(2)` & PV PLEINS (`IsUnitWithStatAmount(Health Cur==Max)`) & `Maybe(75 − 5×#grots)%` |
+| Stats du double | `CopyOwner @180fd5ba0` = **CLONE du parent** (Attack/Move/Health/Armor du parent) | `WithStatsFromConfig(config)` = **stats de base config** (2910 PV / 1455 dmg), PAS un clone |
+| Placement | `PickRandomly(CanAddUnit(AdjacentTiles(self)))` | `First(SortByFormula(Randomize(CanAddUnit(AdjacentTiles(self)))))` |
+| À l'apparition | `PerformAIAttack` (attaque IMMÉDIATE) | agit à son PROCHAIN tour (pas d'attaque immédiate) |
+
+- **PileIn PORTÉ (#65)** : c'est un TRIGGER fin-de-tour (`triggers.end_turn_summon_triggers` appelé par
+  `EndTurnOperation`), PAS une active+playbook. `SpawnUnitOperation.execute_pilein_replica` = spawn grot
+  `WithStatsFromConfig(PileIn)` = `ability_var(PileIn, summon*, level, mult)` (PAS `CopyOwner`). Constantes :
+  `GetStringConstant(0x46)`=summonId(orksGrot), `GetNumberConstant(0x2a)`=chance(75), `(0x33)`=chance_2(5).
+  Gates : owner a fini >=2 tours (`OwnerHasFinishedMinTurns(2)` -> `turn_counts>=2`), grot à PV PLEINS
+  (`IsUnitWithStatAmount(Health Cur==Max)`), proba `75 − 5×#grots amis` (RNG `Maybe` non modélisé -> fire si
+  chance>0 ; cap naturel n=15). Stats confirmées : `ability_var(PileIn,summonHp,65,100)=2910`,
+  `ability_var(GetEmRuntz,...)=4802` (== tooltips) -> PileIn grot = ~0.606× le grot GetEmRuntz, PAS un clone.
+  **VALIDÉ OFFLINE** (grot lvl50/mult200 injecté : trigger fire à PV pleins & >=2 tours, produit un grot hp=4432
+  =config ≠ parent 7312, adjacent, ai_ctrl ; gates PV-pleins/<2-tours refusent). GAP RESTANT : observation LIVE
+  isolée impraticable (GetEmRuntz/SquigHound/PileIn spawnent TOUS des grots + condition PV-pleins) -> on s'appuie
+  sur le décompilé (=vérité) + match tooltip + validation offline. Autres traits grot : `Diminutive` (réduit hits
+  entrants), `BattleFatigue` (fuite si allié adjacent tué) — déjà connus.
+
+## GetEmRuntz (1045) + SquigHound — PORTÉS (#65) — LÈVENT le GAP level de PileIn
+
+Le GAP « grot seedé sans `activeAbilityLevel` → PileIn résout mal » est **LEVÉ** : un grot spawné par le port
+GetEmRuntz/SquigHound porte `active_ability_level = niveau du caster` (le Runtherd, capté offline via
+`snapshot.py:120` depuis `combatSnapshot.activeAbilityLevel`) -> `build_summon_context` propage ce niveau
+(`spawn.py:77`) -> PileIn résout `ability_var(PileIn, ..., casterLevel)` correctement.
+
+| Ability | Native | Type | Placement | Stats | Port |
+|---|---|---|---|---|---|
+| **GetEmRuntz** (1045) | `@1811e2210` (+`GetSpawnTileSelector @1811e26b0`) | ACTIVE (orksRuntherd décide, `GetEmRuntzPlaybook @18113ee00`) | 1 grot par hex LIBRE **adj-caster ∩ adj-ennemi** | `WithStatsFromConfig(GetEmRuntz)` (7312@50/200) | `SpawnUnitOperation.execute_getemruntz` + `GetEmRuntzAbility` + `GetEmRuntzPlaybook` |
+| **SquigHound** | `@1811a1a30` (+`CreateTrigger @1811a1c60`) | TRIGGERED (après attaque du caster, `On(0x26)&OwnerIsCaster`) | 1 grot adj-CIBLE si **<maxSummons(5)** grots | `WithStatsFromConfig(SquigHound)` (7312@50/200) | `execute_squighound_summon` + hook `after_hit_normal_attack` |
+
+- **GetEmRuntzPlaybook** : utilité = `numTiles` (# grots qui apparaîtraient) ; `MIN_UTILITY` dynamique =
+  `minSummons` selon PV% du caster (`GetMinSummonsToUse @18113f0b0` : <=49→1, 49<..<75→2, >=75→3). Caste si
+  `numTiles >= minSummons`. Le caster ne bouge pas.
+- **VALIDÉ OFFLINE** (Runtherd lvl50 + ennemi adjacent) : GetEmRuntz spawn grot hp=7312 level=50 ; ce grot PileIn
+  -> grot hp=4432 (**GAP LEVÉ**, ≠ 0) ; SquigHound after-attack -> grot hp=7312 level=50 adj-cible.
+- **Effets secondaires PORTÉS + VALIDÉS OFFLINE** (#65) :
+  - **Taunt GetEmRuntz** (`TauntWithNewChildrenWhoDidDamage @1811e27a0`) : chaque ennemi attaqué par un NOUVEAU
+    grot (LastUnitAttackedBy, vivant, a subi du dégât) est **Taunted(27)** 1 round (`AddBondEffect(0x1b)`,
+    COMPOSITE 25/26/1237). Porté dans `GetEmRuntzAbility.execute_behaviour` (AddEffectOperation après l'attaque).
+  - **SquigHound_IgnoreBattleFatigue** (`@180f6d210`, aura Snotflogga -> grots amis) : pose **IgnoreBattleFatigue
+    (1079=0x437)** sur les grots amis quand la team a un porteur `SquigHound` VIVANT -> immunisés du flee
+    `BattleFatigue` (gate DÉJÀ porté `behaviour.py:121`). Porté = `_maybe_seed_ignore_battle_fatigue` dans
+    tous les spawns de grot (GetEmRuntz/SquigHound/PileIn). Distinction ids : 1078=SquigHound_IgnoreBattleFatigue
+    (l'aura sur Snotflogga) / 1079=IgnoreBattleFatigue (le status projeté sur le grot, vérifié par BattleFatigue).
+    VALIDÉ : grot d'un Runtherd -> 1079 posé ; grot d'une team sans SquigHound -> refusé. ⚠ snapshot au spawn
+    (retrait si Snotflogga meurt non modélisé).
+- **FLAGGÉ non porté** (reste) : `SquigHound_AdditionalHitsEffect` (1292 : Snotflogga +2 coups Physical de
+  dégât PROPRE 1746-2619 — nécessite l'infra « coups additionnels à plage de dégât propre », slice DÉGÂT
+  distincte, hors thème summon) ; on-appearance `PerformAIAttackFromCurrentPosition` (approx : ennemi le plus
+  proche — OK pour poser le Taunt) ; exclusion `UnitsWithoutTrait(0x1b)` (enum trait non mappé, non-fonctionnel
+  comme dans ArcaneShield) ; placement RNG-exact (`SortTilesByUtilityForSummon`).
+
+## Calibration ctx (natives déjà portées : ThunderousAssault @1812158b0, CrushingClaws @1811cd5e0, ScarabHive @181204cb0)
 - **ctx+0x160 = caster/actor** (attacker de `AttackWithAttackDamage`, actor de `MoveUnit`/`PushUnit`).
 - **ctx+0x178 = TARGET** (ennemi) — attaques ; aussi `Tiles(target)` pour la géométrie splash.
 - **ctx+0x148 = caster SELF-ref** (self-cast : `RemoveUnitFromItsTiles`/self-`AddEffect`).

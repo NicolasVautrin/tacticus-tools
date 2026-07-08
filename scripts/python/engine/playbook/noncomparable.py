@@ -421,6 +421,79 @@ class RitesOfRestorationPlaybook(NonComparablePlaybook):
                  "to": (T if T != ctx.origin else None), "pred": util}]
 
 
+class ScarabSummonPlaybook(NonComparablePlaybook):
+    """`ScarabSummonPlaybook.EvaluateNonComparable @181158f10` (auto-DÉDOUBLEMENT du scarab, id 0x417=1047).
+    Pour CHAQUE cible éligible (`GetEligibleTargetsSelectable(MainTile(caster))` = tuiles de spawn ring-1
+    libres adjacentes à SOI), `GenerateAction` à utilité CONSTANTE `Fix64.FromIntFraction(3,2)=1.5`.
+    cctor @181159310 : MIN_UTILITY=1 (`Fix64.FromInt(1)`). ctor @181159380 : `NonComparablePlaybook(0x417)`
+    SANS priorité -> get_Priority=**0** (défaut). Le caster NE bouge PAS (spawn adjacent à soi, pas de move).
+
+    GAP : `GetUseProbability @181159220` (1.0 ou 1/2 selon un compteur runtime = `chance:50` gameconfig) =
+    gate RNG NON modélisé offline -> le port décide TOUJOURS de se dédoubler dès qu'une tuile ring-1 est
+    libre (le natif ~50%). Idem cap de duplication (`UnitDuplicationLimitSelector`) non porté."""
+    ABILITY_ID = 1047
+    MIN_UTILITY = 1.0
+    _UTILITY = 1.5   # Fix64.FromIntFraction(3,2) — CONSTANTE par cible éligible
+
+    def generate_candidates(self, ctx: NCContext) -> list[dict]:
+        # GetEligibleTargetsSelectable = tuiles de spawn ring-1 libres (kind="tile" via ability_targets offline).
+        if ctx.ability_targets is None or self._UTILITY < self.MIN_UTILITY:
+            return []
+        at = ctx.ability_targets(ctx.uid, self.ABILITY_ID) or {}
+        has_tile = any(
+            t.get("kind") == "tile"
+            for u in (at.get("units") or [])
+            for a in (u.get("abilities") or [])
+            if a.get("abilityId") == self.ABILITY_ID
+            for t in (a.get("targets") or []))
+        if not has_tile:
+            return []                                  # aucune tuile ring-1 libre -> pas de dédoublement
+        # Utilité CONSTANTE 1.5 ; caster ne bouge pas (to=None) ; target=None (spawn adjacent-soi au runtime).
+        return [{"target": None, "ability": self.ABILITY_ID, "to": None, "pred": self._UTILITY}]
+
+
+class GetEmRuntzPlaybook(NonComparablePlaybook):
+    """`GetEmRuntzPlaybook.EvaluateNonComparable @18113ee00` (id 1045, orksRuntherd). Utilité = NOMBRE de
+    tuiles de spawn = |hex LIBRES adjacents au caster ∩ adjacents à un ennemi| (`GetSpawnTileSelector`).
+    `MIN_UTILITY` = `minSummons` DYNAMIQUE selon les PV% du caster (`GetMinSummonsToUse @18113f0b0` :
+    `GetStat(Health, part1=%)` -> <=49 => 1 ; 49<..<75 => 2 ; >=75 => 3). L'IA caste si `numTiles >= minSummons` ;
+    utilité = `numTiles`. cctor @18113f250 : base 1. get_Priority = 0 (défaut). NonComparable = évaluée AVANT
+    l'attaque. Le caster NE bouge PAS (spawn autour de sa position actuelle)."""
+    ABILITY_ID = 1045
+    MIN_UTILITY = 1.0      # plancher structurel ; le vrai gate = minSummons dynamique (generate_candidates)
+
+    def _min_summons(self, ctx: NCContext) -> int:
+        # GetMinSummonsToUse : PV% du caster -> 1/2/3 (défaut prudent 3 si inconnu).
+        hp = hpmax = None
+        for u in (ctx.obs_units or []):
+            if u.get("squadId") == ctx.uid:
+                hp, hpmax = u.get("hp"), u.get("hpMax")
+                break
+        if not hp or not hpmax:
+            return 3
+        pct = 100 * int(hp) // int(hpmax)
+        return 1 if pct <= 49 else (2 if pct < 75 else 3)
+
+    def _spawn_tile_count(self, ctx: NCContext) -> int:
+        # GetSpawnTileSelector : hex LIBRES adjacents au caster (dist hex 1) ∩ adjacents à >=1 ennemi.
+        valid = set(ctx.elev_by_pos.keys()) if ctx.elev_by_pos else set()
+        occ = set(ctx.epos) | set(ctx.fpos) | {ctx.origin}
+        n = 0
+        for T in valid:
+            if T in occ or hexgeo.distance(ctx.origin, T) != 1:
+                continue
+            if any(hexgeo.distance(e, T) == 1 for e in ctx.epos):    # adjacent à un ennemi
+                n += 1
+        return n
+
+    def generate_candidates(self, ctx: NCContext) -> list[dict]:
+        num = self._spawn_tile_count(ctx)
+        if num <= 0 or num < self._min_summons(ctx):     # gate minSummons (HP%-dépendant)
+            return []
+        # utilité = nombre de grots qui apparaîtraient ; caster ne bouge pas (to=None) ; target=None.
+        return [{"target": None, "ability": self.ABILITY_ID, "to": None, "pred": float(num)}]
+
+
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
 PLAYBOOKS: dict[int, NonComparablePlaybook] = {
     pb.ABILITY_ID: pb for pb in (
@@ -431,6 +504,8 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         NovaBoostPlaybook(),
         NovaShieldPlaybook(),
         RitesOfRestorationPlaybook(),
+        ScarabSummonPlaybook(),
+        GetEmRuntzPlaybook(),
     )
 }
 

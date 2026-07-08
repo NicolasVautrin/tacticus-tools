@@ -1,8 +1,8 @@
 """SPAWN de SUMMON — `SpawnUnitOperation` confronté au LIVE (étape 2 du runner autonome).
 
-Valide le port de la chaîne summon (`ScarabSummonAbility.ExecuteBehaviour` → `DSLFactory.Spawn` →
-`AddUnitOperation`) : un summon d'ability spawn sur **la team ET le player du caster** (CopyOwner), sur une
-tuile LIBRE adjacente à la **cible**, avec des stats `ability_var(<summon>, summon*, casterLevel, mult)`.
+Valide le port de la chaîne summon (`ScarabHiveAbility.ExecuteBehaviour @181204cb0` → `DSLFactory.Spawn` →
+`AddUnitOperation`) : un summon d'ability spawn sur **la team ET le player du caster**, sur une tuile LIBRE
+adjacente à la **cible**, avec des stats `ability_var(ScarabHive, summon*, casterLevel, mult)`.
 
 Fixture = `necroSpyder` (caste `ScarabHive`) vs `necroDestroyer` (cible unique). On joue l'IA native
 (`aiPlayByUnit`, pump) jusqu'à ce que les 2 `necroSmnSwarm` spawnent, on lit leur état LIVE (hp/attack/

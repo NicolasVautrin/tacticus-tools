@@ -78,19 +78,25 @@ class ThunderousAssaultAbility(ActiveAbility):
         return {"attack": atk}
 
 
-class ScarabSummonAbility(ActiveAbility):
-    """`ScarabSummonAbility.ExecuteBehaviour` @181205290 (id 1007 = ScarabHive, necroSpyder).
+class ScarabHiveAbility(ActiveAbility):
+    """`ScarabHiveAbility.ExecuteBehaviour` @181204cb0 (id 1007, necroSpyder — le SUMMONER).
 
     Séquence native :
         Spawn(visualId = constants["unitId"] = necroSmnSwarm,
-              tile = PickRandomly(CanAddUnit(AdjacentTiles(target@0x160))),   # libre, adjacent CIBLE
-              owner = SpawnUnitOptions.CopyOwner(caster),                     # team ET player du caster
-              onAppearance = PerformAIAttack)                                 # attaque immédiate
+              tile = First(SortByDistance(CanAddUnit(AdjacentTiles(target@0x178)), self@0x160)), # libre, adj. CIBLE
+              owner+stats = SpawnUnitOptions.WithStatsFromConfig(config),    # team+player caster, stats ability_var
+              effet = AddEffect(0x4a3 = ScarabHive_OverrideDamageProfileEffect),
+              onAppearance = UseNormalAttackIfAble)                          # attaque normale immédiate
         × COUNT (2, arg du .ctor AActiveAbility)
     Stats du summon = `ability_var(ScarabHive, summonHp/summonDmg/…, casterActiveAbilityLevel, mult)`.
     À l'apparition chaque summon attaque la cible avec le profil `unitDamageProfile` (Piercing) en
     override de son arme Energy (i2). VALIDÉ live : 2× necroSmnSwarm team/player du caster, hp/attack
-    bit-exact (cf. test_summon_spawn_live) ; wiring message + on-appearance (cf. test_summon_trigger_live)."""
+    bit-exact (cf. test_summon_spawn_live) ; wiring message + on-appearance (cf. test_summon_trigger_live).
+
+    ⚠ DISTINCT de `ScarabSummonAbility` @181205290 (id 1047) = l'auto-DÉDOUBLEMENT porté par le scarab
+    SPAWNÉ lui-même (spawn adjacent à SOI, stats clonées du parent via CopyOwner, on-appearance
+    PerformAIAttack). NON encore porté (cf. commentaire GAP plus bas). Ne PAS confondre les deux (même
+    unitId necroSmnSwarm, mais summoner-scaled vs clone-du-parent)."""
     __slots__ = ()
     ABILITY_TYPE = 1007
     SUMMON_ABILITY = "ScarabHive"     # clé gameconfig (constants.unitId/unitDamageProfile + summon* variables)
@@ -116,6 +122,116 @@ class ScarabSummonAbility(ActiveAbility):
             if res is not None:
                 attacks.append({"summon": sid, "total": res.get("total")})
         return {"summon": visual_id, "spawned": spawned, "attacks": attacks}
+
+
+def _nearest_enemy(state: "State", unit_id: int) -> Optional[int]:
+    """Ennemi VIVANT le plus proche (distance hex) de `unit_id` — cible de `PerformAIAttack` (approx du
+    choix AI natif). None si pas de position/board ou aucun ennemi. Tie-break `id` (déterministe)."""
+    import hexgeo
+    e = state.get_entity(unit_id)
+    pc = e.get_component(PositionComponent) if e is not None else None
+    oc = e.get_component(OwnerComponent) if e is not None else None
+    if pc is None or oc is None:
+        return None
+    src = (pc.col, pc.row)
+    best = None
+    best_key = None
+    for eid, o in state.entities.items():
+        if eid == unit_id:
+            continue
+        ooc = o.get_component(OwnerComponent)
+        ouc = o.get_component(UnitComponent)
+        opc = o.get_component(PositionComponent)
+        if ooc is None or opc is None or ooc.team == oc.team:      # ennemis uniquement
+            continue
+        if ouc is not None and not ouc.alive:
+            continue
+        key = (hexgeo.distance(src, (opc.col, opc.row)), eid)
+        if best_key is None or key < best_key:
+            best_key, best = key, eid
+    return best
+
+
+class ScarabSummonAbility(ActiveAbility):
+    """`ScarabSummonAbility.ExecuteBehaviour @181205290` (id 1047, necroSmnSwarm — auto-DÉDOUBLEMENT).
+
+    Le scarab s'invoque LUI-MÊME (« Summons another Scarab Swarm ... which then immediately takes a turn ») :
+        Spawn(visualId = constants["unitId"] = necroSmnSwarm,
+              tile = PickRandomly(CanAddUnit(AdjacentTiles(self@0x160))),   # libre, adjacent à SOI
+              owner+stats = SpawnUnitOptions.CopyOwner(caster),             # clone du parent (owner + stats)
+              onAppearance = PerformAIAttack(1))                            # le DOUBLE attaque immédiatement
+        × COUNT (1)
+    Stats = CLONE du parent (`CopyOwner @180fd5ba0` copie {Attack,Move,Health,Armor,20} ; le reste = config
+    base necroSmnSwarm = identique au parent) → `SpawnUnitOperation.execute_self_replica`. On-appearance :
+    le double attaque l'ennemi le plus proche (approx de `PerformAIAttack` ; cible AI-exacte = raffinement).
+    Chance gameconfig = 50 ; playbook `ScarabSummonPlaybook`. GAP : cap de duplication
+    (`UnitDuplicationLimitSelector`/`LimitUnitDuplications`) non porté (récurrence non bornée offline)."""
+    __slots__ = ()
+    ABILITY_TYPE = 1047
+    SUMMON_ABILITY = "ScarabSummon"     # clé gameconfig (constants.unitId = necroSmnSwarm)
+    COUNT = 1
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        import gameconfig as GC
+        consts = (GC.ability(self.SUMMON_ABILITY) or {}).get("constants") or {}
+        visual_id = consts.get("unitId")
+        if visual_id is None:
+            return None
+        # [Spawn] adjacent-à-soi + CopyOwner (clone du parent), cf. SpawnUnitOperation.execute_self_replica.
+        spawned = SpawnUnitOperation.execute_self_replica(state, caster_id, visual_id, self.COUNT)
+        # [on-appearance] PerformAIAttack : chaque double attaque immédiatement l'ennemi le plus proche.
+        # Le dégât consomme `state.rng` (roll) -> no-op gracieux si rng non calé (mirror `_summon_on_
+        # appearance_attack` : la SÉQUENCE reste fidèle, seul le tirage est différé au flux runner calé).
+        attacks = []
+        if state.rng is not None:
+            for sid in spawned:
+                tgt = _nearest_enemy(state, sid)
+                if tgt is not None:
+                    r = AttackDamageOperation.execute(state, sid, tgt)
+                    if r is not None:
+                        attacks.append({"summon": sid, "target": tgt, "total": r.get("total")})
+        return {"summon": visual_id, "spawned": spawned, "attacks": attacks, "replica": True}
+
+
+class GetEmRuntzAbility(ActiveAbility):
+    """`GetEmRuntzAbility.ExecuteBehaviour @1811e2210` (id 1045, orksRuntherd/Snotflogga). Spawn UN grot par
+    hex LIBRE adjacent au caster **ET** adjacent à un ennemi (`GetSpawnTileSelector @1811e26b0`), stats
+    `WithStatsFromConfig(GetEmRuntz)` (4802 PV @lvl65/mult100 ; 7312 @lvl50/mult200). Chaque grot porte
+    `active_ability_level = casterLevel` → **lève le GAP PileIn** (les grots pourront se dédoubler avec des
+    stats correctes). Cf. `SpawnUnitOperation.execute_getemruntz`.
+
+    On-appearance : `PerformAIAttackFromCurrentPosition` (le grot attaque SANS bouger) — ici approximé par une
+    attaque sur l'ennemi le plus proche (rng requis) ; le Taunt(1t) des ennemis touchés
+    (`TauntWithNewChildrenWhoDidDamage @1811e27a0`) = FLAGGÉ non porté (secondaire)."""
+    __slots__ = ()
+    ABILITY_TYPE = 1045
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        spawned = SpawnUnitOperation.execute_getemruntz(state, caster_id)
+        attacks, taunts = [], []
+        if state.rng is not None:                # on-appearance PerformAIAttackFromCurrentPosition
+            for sid in spawned:
+                tgt = _nearest_enemy(state, sid)
+                if tgt is None:
+                    continue
+                r = AttackDamageOperation.execute(state, sid, tgt)
+                if r is None:
+                    continue
+                attacks.append({"summon": sid, "target": tgt, "total": r.get("total")})
+                # [Taunt] `TauntWithNewChildrenWhoDidDamage @1811e27a0` : l'ennemi attaqué par un NOUVEAU grot
+                # qui a fait du dégât (LastUnitAttackedBy & TotalAttacksMade>0 & vivant) est Taunted 1 round
+                # (`AddBondEffect(0x1b=27)` — COMPOSITE 25/26/1237). Bond grot↔ennemi = ciblage IA (playbook).
+                te = state.get_entity(tgt)
+                tuc = te.get_component(UnitComponent) if te is not None else None
+                if tuc is not None and tuc.alive:
+                    AddEffectOperation.execute(state, source=sid, target=tgt, effect_type=TAUNTED,
+                                               name="Taunted_OnlySpecificTargets",
+                                               duration_override=turns_from_rounds(1))
+                    taunts.append(tgt)
+        return {"summon": "orksGrot", "spawned": spawned, "attacks": attacks, "taunted": taunts,
+                "getemruntz": True}
 
 
 def _adjacent_to_both(state: "State", caster_id: int, target_id: int) -> list[int]:
