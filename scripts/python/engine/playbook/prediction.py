@@ -169,18 +169,24 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     _tgt_traits = frozenset((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits") or [])
     mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm,
                                                        target_traits=_tgt_traits)
-    # #49 : base de l'attaque NORMALE en PRÉDICTION = `GetStat(Attack, Current)` RÉ-ÉVALUÉ PAR CANDIDAT
-    # (GetAttackHitPrediction @1811af4e0 lit part0=Current ; Current=Initial+Σmods actifs). On part de
-    # INITIAL (bare, exclut TOUTE modification captée dans le snapshot → pas de double-compte) puis on
-    # ré-ajoute per-candidat les AURAS stat-mod d'alliés adjacents (RitesOfBattle @181225340 : +extraDmg/_2
-    # aux alliés ring-1, gate Imperial) — leur appartenance au TargetSelector est ré-évaluée selon la tuile
-    # d'attaque. Prouvé RE+oracle : u92 adjacent à Calgar → 3011+1298=4309 ; éloigné → 3011 (prediction.md
-    # points 16/18). ⚠ Le résidu `+400` (autre aura non identifiée) n'est PAS couvert ici.
+    # #49/#67 : base de l'attaque NORMALE en PREDICTION = `GetStat(Attack, Current)` (GetAttackHitPrediction
+    # @1811af4e0 lit part0=Current SANS position ; Current=Initial+Sigma mods actifs BAKES). On part de
+    # INITIAL (bare, exclut TOUTE modification captee dans le snapshot -> pas de double-compte) puis on
+    # re-ajoute les AURAS stat-mod d'allies adjacents (RitesOfBattle @181225340) evaluees a la POSITION
+    # REELLE de l'attaquant (cf. bloc ci-dessous, #67 : bakees a la vraie position, IDENTIQUES sur toutes
+    # les tuiles candidates -- le 24/28 de #49 = elevation/arme, PAS une re-eval d'aura). NB : le residu
+    # `+400` (autre aura non identifiee) n'est PAS couvert ici.
     _ap = attack_pos or scene.pos(att_id)
+    # #67 (re-expert) : l'aura d'ATTAQUE-STAT (RitesOfBattle/PathOfCommand) est un DynamicStatModifierEffect
+    # bake dans le StatComponent du beneficiaire, refresh EVENT-DRIVEN (@180f09220), PAS re-teste par GetStat.
+    # GetAttackHitPrediction @1811af4e0 lit GetStat(Attack, Current) SANS position -> la valeur bakee a la
+    # position REELLE de l'attaquant s'applique IDENTIQUEMENT a toutes les tuiles candidates. On evalue donc
+    # l'aura a `scene.pos(att_id)` (position reelle), JAMAIS a `attack_pos` (tuile candidate = l'ancien bug #67).
+    _att_real = scene.pos(att_id)
     _att_gu = GC.unit(scene.vis_by_id.get(att_id)) or {}
     att_grand = _att_gu.get("GrandAllianceId")           # gate RitesOfBattle (Imperial)
     att_faction = _att_gu.get("FactionId")               # gate PathOfCommand (IsSameFaction = FactionId)
-    aura_ctx = {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
+    aura_ctx = {"att_id": att_id, "att_pos": _att_real, "att_team": scene.team(att_id),
                 "att_grand_alliance": att_grand, "att_faction": att_faction, "board": scene.board}
     carriers = [(uid, scene.pos(uid), scene.team(uid), scene.mult(uid), scene.ablvl_by_id.get(uid),
                  (GC.unit(scene.vis_by_id.get(uid)) or {}).get("GrandAllianceId"),   # owner grande-alliance

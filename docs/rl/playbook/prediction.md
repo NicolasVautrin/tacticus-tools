@@ -1008,6 +1008,32 @@ config, pas un simple scalaire.
       `_currentBattle` PvP stale = `JPropertyKeyedCollection` qui masquait la BC campagne valide → corrigé par type-guard
       `BattleConfiguration` dans battle-config.ts.)
 
+21. **★★★ #67 CORRECTION (2026-07-09, verdict re-expert acf1a624 + fix + validé) — l'aura n'est PAS
+    ré-évaluée par TUILE CANDIDATE : elle est bakée à la POSITION RÉELLE. ★★★** Les points 16/18/19/20
+    disaient « aura ré-évaluée PAR TUILE CANDIDATE » (le port ajoutait le delta d'aura à chaque
+    `attack_pos` candidate en re-testant l'adjacence attaquant↔porteur). **C'était le bug #67** :
+    sur les ~24/28 tuiles candidates NON hex-adjacentes à Calgar le port donnait `base=3011` (aura
+    absente), alors que l'oracle DISPLAY donne 4309 sur TOUTES les tuiles.
+    - **RE** : `GetAttackHitPrediction @1811af4e0` lit `GetStat(Attack, Current)` **SANS argument de
+      position**. L'aura (`DynamicStatModifierEffect @181225340`) est **bakée dans le StatComponent** du
+      bénéficiaire, refresh **EVENT-DRIVEN** (`RefreshValueInternal @180f09220` — déploiement + entrée/
+      sortie de ring sur un **MOVE RÉEL**), **PAS re-testée à chaque `GetStat`**. La prédiction déplace
+      l'attaquant virtuellement pour la GÉOMÉTRIE seule (élévation/distance/arme, slot 0x26), **jamais**
+      pour re-baker Attack. ⇒ la valeur bakée à la **position réelle** s'applique **IDENTIQUEMENT** à
+      toutes les tuiles candidates. **Distinguer** : « re-éval par POSITION RÉELLE » (moves réels,
+      event-driven — CORRECT, cf. point 20 `statModSources` : l'aura disparaît quand u82 **bouge**
+      réellement hors adjacence) ≠ « re-éval par tuile candidate DISPLAY » (ce que le port faisait à
+      tort).
+    - **FIX (prediction.py ~179)** : aura évaluée à `scene.pos(att_id)` (position réelle), **jamais** à
+      `attack_pos` (tuile candidate). 1 ligne. Bénéficie à PathOfCommand (même funnel
+      `aura_attack_bonus_from_allies`). Combat (runner) intact (lit `GetStat` réel). #64 (debuff stat-mod)
+      non touché.
+    - **VALIDÉ** : `tests/engine/test_aura_position_live.py` (ultraCalgar + bloodDeathCompany=u82/u92) —
+      attaquant adjacent au porteur → `base` CONSTANT = Initial+aura sur TOUTES les tuiles candidates
+      (**3011+1298=4309**, y compris la tuile far où le bug donnait 3011) ; attaquant éloigné → `base`
+      CONSTANT = Initial bare (**3011**). No-rég : deep_strike + predict_live 3/3. Le résidu (6,4)=2256 =
+      axe élévation/arme SÉPARÉ, hors #67 (case-49 : NE PAS le fitter).
+
 **2ᵉ axe (séparé = #50)** : à armure égale (u82/u86 = 2008), per-coup oracle diffère (501 vs 752) → modifier
 DÉFENSEUR par-cible. **MAJ** : pour u86, le 752 = 501×1.5 (ÉLÉVATION depuis (6,4) elev3), pas un modif défenseur
 → ce cas u82/u86 est ÉLÉVATION, pas #50 (cf. bloc MOVE CONFIRMÉ).
