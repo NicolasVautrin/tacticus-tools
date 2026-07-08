@@ -165,7 +165,10 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # PRÉDICTION (slot 0xd) — branche distincte du combat (runner). Le debuff stat-modifications
     # (CalculateModifiersFromStatModifications @181004380, prédiction-only) reste GATÉ off : ce
     # N'EST PAS un modifier post-perçage mais un effet AU NIVEAU DE LA BASE (cf. base=Initial ci-dessous).
-    mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm)
+    # BeastSlayer (target-conditionnel) : traits de la CIBLE (mirror HasTrait) -> gate BigTarget/Vehicle.
+    _tgt_traits = frozenset((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits") or [])
+    mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm,
+                                                       target_traits=_tgt_traits)
     # #49 : base de l'attaque NORMALE en PRÉDICTION = `GetStat(Attack, Current)` RÉ-ÉVALUÉ PAR CANDIDAT
     # (GetAttackHitPrediction @1811af4e0 lit part0=Current ; Current=Initial+Σmods actifs). On part de
     # INITIAL (bare, exclut TOUTE modification captée dans le snapshot → pas de double-compte) puis on

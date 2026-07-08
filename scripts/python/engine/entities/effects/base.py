@@ -75,8 +75,11 @@ class BaseEffect:
 
     # ── contributions aux modifiers (None = pas de contribution) ────────────────────────────────────
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
-                                              has_moved: bool | None = None) -> EffectBonus | None:
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None) -> EffectBonus | None:
         """`<Effect>.CreateEffectDamageBonusForAttack` — contribution au scalaire dégât (additif/percent).
+        `target_traits` = noms de traits gameconfig de la CIBLE (mirror `HasTrait(target,…)` natif) pour
+        les bonus target-conditionnels (ex. BeastSlayer vs BigTarget/Vehicle) ; None = cible inconnue.
         `is_ranged` = nature du coup courant : effets gated `IsRangedAttack` (HeavyWeapon_ExtraDmg,
         RangedSpecialist). `has_moved` = la position d'attaque diffère de la position COURANTE (candidat
         avec déplacement) : effets gated no-move (`!HasFlag(HasMoved=0)`, ex. HeavyWeapon @180f4f030 —

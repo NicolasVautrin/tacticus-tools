@@ -43,7 +43,10 @@ def for_percent_decrease(owner_is_caster: bool, value: int,
     return EffectBonus("PercentDecrease", value, owner_is_caster, cap)
 
 
-# EffectBonus.ForAddition @180f406e0 — +value plat (additif)
+# EffectBonus.ForAddition @180f406e0 — +value plat (additif). Écrit le champ DamageBonus (+5) de
+# l'EffectBonus → `DamageModifiers.Add @181005f10` fait `additif @+0x10 += FromInt(v)`, appliqué
+# APRÈS perçage/armure (`CalculateBaseDamageWithAllModifiers @18102d3f0`). Il n'existe PAS de canal
+# additif « de base » pré-perçage dans le natif (cf. #69 : kind « BaseAddition » inventé retiré).
 def for_addition(owner_is_caster: bool, value: int) -> EffectBonus:
     return EffectBonus("Addition", value, owner_is_caster)
 

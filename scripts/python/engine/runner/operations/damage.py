@@ -55,7 +55,8 @@ from ..state import State
 from ..components import (StatsComponent, HealthComponent, PositionComponent, UnitComponent,
                          ShieldComponent)
 from ..damage_model import (select_weapon, select_weapon_pierce, attacker_modifiers,
-                            defender_modifiers, build_hits_board, apply_elevation_bonus)
+                            defender_modifiers, build_hits_board, apply_elevation_bonus,
+                            target_trait_names)
 from ...entities.effects import (hits_bonus_from_effects, crit_chance_bonus_from_effects,
                                  crit_damage_bonus_from_effects)
 
@@ -184,7 +185,8 @@ class AttackDamageOperation:
         _w = select_weapon(ctx, dist)
         _profile = _w.get("DamageProfile") if _w else None     # profil du coup (pour vecteurs after-hit)
         ahc = att.get_component(HealthComponent)
-        mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, is_ranged=_ranged)
+        mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, is_ranged=_ranged,
+                                          target_traits=target_trait_names(state, target_id))
         # #58 : feuille positionnelle ELEVATION (+surplomb) ajoutee au `mods` de l'attaquant, comme la
         # prediction (service PARTAGE `calculate_elevation_bonus_modifier` de DamageCalculations ; positions
         # REELLES depuis l'ECS/board).

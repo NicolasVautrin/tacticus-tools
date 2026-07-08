@@ -17,6 +17,7 @@ from .loki import (
     HeavyWeaponExtraDmgEffect,
     KanOpenerEffect,
     LightCoverEffect,
+    BeastSlayerExtraDmgEffect,
     MasterAnnihilatorAdditionalHitEffect,
     ParryEffect,
     PathOfCommandExtraDmgEffect,
@@ -27,6 +28,7 @@ from .loki import (
     RapidAssaultExtraDamageEffect,
     RitesOfBattleExtraDmgEffect,
     ShadowInTheWarpLessDmgEffect,
+    SmashaEadExtraDamageEffect,
     StandVigilExtraArmorEffect,
     StunnedEffect,
     TauntedEffect,
@@ -51,6 +53,12 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "StandVigil_ExtraArmor": StandVigilExtraArmorEffect,
     "RangedSpecialist": RangedSpecialistEffect,  # +33% dégât RANGED (trait, actif si pas parti adjacent)
     "HeavyWeapon_ExtraDmg": HeavyWeaponExtraDmgEffect,   # +25% dégât RANGED (trait HeavyWeapon→Overwatch)
+    # SmashaEad (orksNob "Tanksmasha") : +extraDmg[level]×mult FLAT au dégât des attaques NORMALES
+    # (effet posé quand le porteur a traversé ≥2 hexes ce tour ; @180f6bee0 ForAddition). #68.
+    "SmashaEad": SmashaEadExtraDamageEffect,
+    # BeastSlayer (orksNob/Titus/Farsight/...) : +20% degat MELEE vs BigTarget/Vehicle (trait,
+    # target-conditionnel @180f336c0 ForPercentIncrease ; gate is_melee + target_traits). #68.
+    "BeastSlayer_ExtraDmg": BeastSlayerExtraDmgEffect,
     "PowerTrip_FullHealth": PowerTripFullHealthEffect,
     "PowerTrip_IgnoreArmor": PowerTripIgnoreArmorEffect,
     "Stunned": StunnedEffect,           # effet COMPOSITE (parent 1162 → enfants 1165/1166/1167)

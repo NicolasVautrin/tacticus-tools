@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ...services.effect_bonus import EffectBonus, for_addition, for_percent_decrease, for_percent_increase
+from ...services.effect_bonus import (EffectBonus, for_addition,
+                                      for_percent_decrease, for_percent_increase)
 from .base import BaseEffect, SubEffectSpec, SAME_TURNS
 from .magnitude import ability_var, global_value, trait_var
 
@@ -22,13 +23,44 @@ class RapidAssaultExtraDamageEffect(BaseEffect):
     VALIDÉ live : +25% → u94→u84 3012-4524 EXACT."""
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
-                                              has_moved: bool | None = None) -> EffectBonus | None:
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None) -> EffectBonus | None:
         pct = trait_var("RapidAssault", "rapidAssaultExtraDmgPct")
         return for_percent_increase(True, pct) if pct is not None else None
 
     @property
     def removed_after_attack(self) -> bool:
         return True
+
+
+class SmashaEadExtraDamageEffect(BaseEffect):
+    """`SmashaEadEffect.CreateEffectDamageBonusForAttack @180f6bee0` (orksNob "Tanksmasha", ability
+    SmashaEad, EffectType "SmashaEad") : `EffectBonus.ForAddition(OwnerIsCaster & IsNormalAttack,
+    ConfigVar(8=extraDmg, EffectSource))` = +`extraDmg[level]` x multiplier au degat des attaques
+    NORMALES du porteur — FLAT additif (PAS %, contrairement a RapidAssault).
+
+    Placement (#69, natif LU) : `ForAddition` ecrit le champ DamageBonus (+5) de l'EffectBonus ->
+    `DamageModifiers.Add @181005f10` fait `additif @+0x10 += FromInt(v)`, applique APRES percage/armure
+    par `CalculateBaseDamageWithAllModifiers @18102d3f0` (meme canal `additive` que tout ForAddition).
+    Il n'existe PAS de canal additif "de base" pre-percage dans le natif -> le kind "BaseAddition"
+    invente a ete retire ; le `+66` observe post-percage etait confondu par l'aura #49 + BeastSlayer.
+
+    Effet pose par `SmashaEadAbility.CreateTrigger @1811a0610` quand le porteur a traverse >=2 hexes
+    ce tour (condition d'EFFECT-CREATION, deja bakee dans l'effet materialise ; le bonus s'applique
+    tant que l'effet est actif -> pas de re-gate ici). `extraDmg` in variablesAffectedByRarityBonus ->
+    scale par le multiplier de l'unite. i2 : "+437 Damage" (au niveau/mult affiche). ability ACTIVE ->
+    indexe activeAbilityLevel. (L'effet porte AUSSI -dmgReductionPct au degat RECU via
+    `CreateEffectDamageMalusForDefense @180f6c060` = cote DEFENSE, non porte ici : #68 = l'attaque.)"""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None) -> EffectBonus | None:
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        amt = ability_var("SmashaEad", "extraDmg", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
+        # ForAddition -> canal `additive @+0x10` applique POST-percage (DamageModifiers.Add @181005f10).
+        return for_addition(True, amt) if amt is not None else None
 
 
 class RitesOfBattleExtraDmgEffect(BaseEffect):
@@ -153,7 +185,8 @@ class HeavyWeaponExtraDmgEffect(BaseEffect):
     Porté par le trait HeavyWeapon (qui accorde aussi l'Overwatch) → s'applique au tir d'overwatch."""
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
-                                              has_moved: bool | None = None) -> EffectBonus | None:
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None) -> EffectBonus | None:
         if not is_ranged:                        # gated IsRangedAttack (no-op sur mêlée / contexte inconnu)
             return None
         # Gate NO-MOVE (`!HasFlag(HasMoved=0)` @180f4f030 ; i2 : « When this unit has not moved this
@@ -179,10 +212,36 @@ class RangedSpecialistEffect(BaseEffect):
     u80→u94 ranged natif = moteur ×1.33 exact (per-coup 534 = round(401×1.33)), mêlée intacte."""
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
-                                              has_moved: bool | None = None) -> EffectBonus | None:
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None) -> EffectBonus | None:
         if not is_ranged:                        # gated IsRangedAttack (@180f67520)
             return None
         pct = trait_var("RangedSpecialist", "rangedSpecialistDmgPct")
+        return for_percent_increase(True, pct) if pct is not None else None
+
+
+# Traits cible gatant BeastSlayer_ExtraDmg (natif `HasTrait(target, X)`) : BigTarget=0x405=1029,
+# Vehicle=0x3f9=1017. Noms gameconfig confirmes (unit_map find --trait BigTarget/Vehicle).
+_BEAST_SLAYER_TARGET_TRAITS = frozenset({"BigTarget", "Vehicle"})
+
+
+class BeastSlayerExtraDmgEffect(BaseEffect):
+    """`BeastSlayer_ExtraDmgEffect.CreateDamageModifier @180f336c0` (trait BeastSlayer, effet
+    `BeastSlayer_ExtraDmg`) : `ForPercentIncrease(ConfigConst 0xf = beastSlayerExtraDmgPct=20)` gate
+    `OwnerIsCaster & IsMeleeAttack & (HasTrait(target, 0x405=BigTarget) | HasTrait(target, 0x3f9=Vehicle))`.
+    => +20% de degat MELEE vs Big Targets / Vehicles (i2). Variable de TRAIT -> globale, NON scalee.
+    `target_traits` = noms de traits de la CIBLE ; None (contexte sans cible : prediction generique,
+    trigger, ability/splash melee) -> pas de bonus (cible inconnue -> "present != applique").
+    Cf. docs/rl/case-68-orksnob-attacker-effects.md."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None) -> EffectBonus | None:
+        if is_ranged:                                  # IsMeleeAttack -> melee uniquement
+            return None
+        if not target_traits or _BEAST_SLAYER_TARGET_TRAITS.isdisjoint(target_traits):
+            return None                                # cible ni BigTarget ni Vehicle -> 0
+        pct = trait_var("BeastSlayer", "beastSlayerExtraDmgPct")
         return for_percent_increase(True, pct) if pct is not None else None
 
 
@@ -249,7 +308,8 @@ class FightingRetreatDmgReductionEffect(BaseEffect):
       documentée ; identique en pratique sur rosters au même palier)."""
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
-                                              has_moved: bool | None = None) -> EffectBonus | None:
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None) -> EffectBonus | None:
         lvl = self.ability_level if self.ability_level is not None else self.level
         v = ability_var("FightingRetreat", "dmgReduction", lvl,
                         multiplier_pct=self.ability_variables_multiplier)

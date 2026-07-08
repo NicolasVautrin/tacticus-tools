@@ -218,7 +218,7 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
     for _ in range(max(1, hit_mult)):
         d = get_damage_with_piercing(d, pierce_eff, armor_eff)
     if mods is not None:
-        d = apply_all_modifiers(d, mods)
+        d = apply_all_modifiers(d, mods)   # %-list PUIS additif (@+0x10) — APRES percage (§17.7)
     return d
 
 

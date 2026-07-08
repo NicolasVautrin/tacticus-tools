@@ -65,7 +65,17 @@ def resolve_one_hit(roll: int, pierce: int, armor: int, mods=None) -> int:
     return apply_pierce_and_modifiers(roll, pierce, armor, mods)
 
 
-def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged: Optional[bool] = None):
+def target_trait_names(state: State, target_id: int) -> "frozenset[str]":
+    """Noms de traits gameconfig de la CIBLE (via `StatsComponent.ctx.traits`) — pour les conditions
+    target-trait des bonus ATTAQUANT (ex. BeastSlayer vs BigTarget/Vehicle ; mirror `HasTrait(target,…)`).
+    frozenset vide si indispo (cible sans StatsComponent)."""
+    e = state.get_entity(target_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    return frozenset(getattr(sc.ctx, "traits", None) or []) if sc is not None else frozenset()
+
+
+def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged: Optional[bool] = None,
+                       target_traits=None):
     """`DamageModifiers` de l'attaquant depuis ses EFFETS actifs (None-safe). `is_ranged` = nature du coup
     (propagée aux bonus gated `IsRangedAttack`, ex. HeavyWeapon_ExtraDmg). `has_moved` (#60) = l'unité a-t-elle
     BOUGE ce tour (state.moved_this_turn) -> gate no-move : HeavyWeapon_ExtraDmg s'ANNULE si l'unité a bougé
@@ -73,7 +83,8 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     active = (state.effects.active_effects(unit_id, {"hp": hp})
               if state.effects is not None else [])
     has_moved = unit_id in state.moved_this_turn
-    return build_attacker_modifiers_from_effects(active, is_ranged, has_moved=has_moved), active
+    return build_attacker_modifiers_from_effects(active, is_ranged, has_moved=has_moved,
+                                                 target_traits=target_traits), active
 
 
 def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
