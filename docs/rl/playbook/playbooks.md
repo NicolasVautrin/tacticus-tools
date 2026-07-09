@@ -326,19 +326,56 @@ et `fill_armor = 0` au lieu de la vraie magnitude `RepairAmount` sur les DEUX st
   contribue que si une unité a une pool d'armure non-nulle (non observé sur ces rosters).
 - **Câblage** : `predict.repair_amount_config`/`_repair_config_key` + `_repair_candidates`
   (`predict_repair_effective(repair_amt, hp_cur, hp_max, arm_cur, arm_max)` → `fill_hp`/`fill_armor`).
-- **Validation LIVE — IMPOSSIBLE (blocage dur, jumeau #79 spaceWolfPriest)** : `_repair_candidates` (id 28/1119)
-  n'a **qu'UN SEUL** porteur lineup — **necroReanimator** (`ReanimationBeam`) ; les autres clés `hpToRepair`
+- **Validation LIVE — IMPOSSIBLE (blocage dur, cause = MoW non unlocké)** : `_repair_candidates` (id 28/1119)
+  n'a **qu'UN SEUL** porteur — **necroReanimator** (`ReanimationBeam`) ; les autres clés `hpToRepair`
   (FabricatorClawArray, RelentlessMarch, SelfRepairMechanism) sont des **PASSIFS** (ne déclenchent jamais
   `_repair_candidates`), et admecManipulus utilise le NonComparable `DefendTheDivineWork` (#77). Or
-  necroReanimator est **UNSPAWNABLE** dans ce build — confirmé EXHAUSTIVEMENT : `--p-units` (blocklist
-  `unspawnable_rank17.json`), `buildPatchedRunner aiUnits` côté AI (**silently dropped** : 11/12 spawnent, le slot
-  Reanimator disparaît), format `:17`, variante NPC `necroNpcMoWReanimator` (droppée aussi), pas dans le pool
-  MoW (8 MoW, aucun Reanimator). ⇒ aucune unité spawnable n'exerce le chemin Comparable-repair. **Validation
-  atteignable** : chaîne magnitude numériquement EXACTE offline (228 / ×1.8=410 / caps HP+Armor / non-repair→None)
-  + hook armure live-prouvé + no-régression STRUCTURELLE (aucune unité pool n'a de repair Comparable → décisions
-  pool inchangées, le gate `id∈{28,1119}` reste vide) + glue = jumeau ligne-à-ligne de `_heal_candidates` (#79).
-  La décision-agreement live restera bloquée tant qu'un build/roster ne rend pas un porteur Comparable-repair
-  spawnable (même classe que #79 « reporté bas-ROI »).
+  **necroReanimator est un MACHINE OF WAR** (signature gameconfig identique à ultraDreadnought = MoW connu :
+  `upgrades`+`upgradesStatIncrease`, PAS de champ `Movement` — les units régulières ont `Movement`) **que le
+  compte n'a PAS unlocké** → absent du roster que la BC campagne (warmup) reflète → **UNSPAWNABLE**. Confirmé
+  EXHAUSTIVEMENT : `--p-units` (blocklist `unspawnable_rank17.json`), `buildPatchedRunner aiUnits` côté AI
+  (**silently dropped** : 11/12 spawnent, le slot Reanimator disparaît — normal, c'est un MoW pas une PredefinedUnit),
+  format `:17`, variante NPC `necroNpcMoWReanimator` (droppée aussi), **pas dans le pool MoW spawnable** (8 MoW :
+  adeptExorcist/astraOrdnanceBattery/blackForgefiend/deathCrawler/orksRukkatrukk/tauBroadside/tyranBiovore/
+  ultraDreadnought — aucun Reanimator, car non possédé). ⇒ aucune unité spawnable n'exerce le chemin
+  Comparable-repair. **Validation atteignable** : chaîne magnitude numériquement EXACTE offline (228 / ×1.8=410 /
+  caps HP+Armor / non-repair→None) + hook armure live-prouvé + no-régression STRUCTURELLE (aucune unité pool n'a
+  de repair Comparable → décisions pool inchangées, le gate `id∈{28,1119}` reste vide) + glue = jumeau
+  ligne-à-ligne de `_heal_candidates` (#79). **RÉSIDU ACTIONNABLE** : si le compte **unlocke le MoW Reanimator**,
+  il entre dans le pool MoW → spawnable via `rl_duel build --p-mow/--a-mow necroReanimator` (les MoW SONT
+  AI-joués, cf. mémoire « MoW deploy gate ») → la décision-agreement live de `_repair_candidates` devient
+  testable (craft : allié adjacent blessé + MoW Reanimator).
+- **CORRECTION (val #77) — un carrier Comparable-repair EST in-pool** : `admecManipulus`/Actus (IN-POOL) porte
+  `Repair_GalvanicField(1119)` GRANTED par son passif `GalvanicField` (id 1119 ∈ `_COMPARABLE_REPAIR_IDS`). Ma
+  recension « aucun porteur Comparable-repair spawnable » ne regardait que `activeAbilities` -> a raté les
+  repairs GRANTED-par-passif. ⇒ `_repair_candidates` (id 1119) EST exercé live par admecManipulus (vu step 14/17
+  seed-909 : port == natif). Gap observé (step 8 seed-202) : port SOUS-évalue le repair 1119 (razor-thin 0.25,
+  attaque 72.85 vs repair 72.59) → tâche **#85**. (Le blocage necroReanimator/MoW reste vrai pour SA magnitude
+  `hpToRepair` propre, mais la décision-agreement Comparable-repair N'EST PLUS bloquée.)
+
+### MAJ #77 (2026-07-10) — DefendTheDivineWork : terme +0.5 combat-readiness porté + LIVE-validé
+
+Clôt #77. `DefendTheDivineWorkPlaybook.EvaluateNonComparable @18112b9b0` (NonComparable, id 1117 ; admecManipulus/
+Actus) : la boucle sur HealTargets (self + amis adjacents) ajoute PAR CIBLE `(1 - RemainingPercentage_health)`
++ `Fix64.FromIntFraction(1,2)=0.5` SSI `IBattleQuery.HasValidTargets(cible, GetUnitPosition(cible),
+GetNormalAttackType(cible))` (slot 0x3f → `AttackQuery.HasValidTargets @181057540`). Gate MIN_UTILITY = 0.9
+(cctor @18112c070). Le +0.5 = « la cible réparée peut-elle attaquer un ennemi DEPUIS SA POSITION FIXE » (combat-
+readiness). Le port l'OMETTAIT (borne inf, #37).
+
+- **HasValidTargets OFFLINE** = `abilityTargets(cible, GetNormalAttackType(cible))` → `usable`
+  (CanCurrentlyBeUsed) ET `fromHereCount > 0` (`fromHere` = `AttackQuery.GetValidTargets(unit, pos_FIXE,
+  ability)`, DÉJÀ exposé par le RPC = cibles légales SANS bouger). La note tâche « couche targeting absente
+  offline » était **PÉRIMÉE** (le flag `fromHere` existe). POSITION-INDÉP du sweep du caster → calculé 1x par
+  cible via `noncomparable._has_valid_targets(ctx, unit_id)`.
+- **Câblage** : `DefendTheDivineWorkPlaybook.generate_candidates` = Σ `[(1-hp%) + 0.5×readiness]` sur {self +
+  adjacents} (readiness par cible), gate 0.9, sweep origine-first.
+- **VALIDÉ LIVE (admecManipulus IN-POOL, seed 909, engine_validate runner)** : step 12 — natif ET port castent
+  `1117` tgt=26 à pos (1,4) [EXACT + MATCH]. util = **1.079** (selfReady=0.5). Le +0.5 est **LOAD-BEARING** :
+  sans lui, util ≤ 1.079 − 0.5 = 0.579 < 0.9 → l'ability ne passerait PAS le gate → le port tomberait sur une
+  Comparable (attaque/repair) = MISS. Avec, MATCH exact. No-régression (10/12 casts match ; les 2 misses =
+  sélection de cible d'attaque d'ennemis Necron, hors #77).
+
+## Exemple bespoke — `Loki.SaviorProtocolsPlaybook` (base `TriggeredAbilityPlaybook<T>`)
 
 ctor pose l'ability id **`0x460` (1120)**. Deux scorers :
 

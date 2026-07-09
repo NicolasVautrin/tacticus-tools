@@ -66,6 +66,35 @@ def _traits(visual_id) -> list:
     return _unit_cfg(visual_id).get("traits") or []
 
 
+def _has_valid_targets(ctx: "NCContext", unit_id: int) -> bool:
+    """`IBattleQuery.HasValidTargets(unit, GetUnitPosition(unit), GetNormalAttackType(unit))` (slot 0x3f
+    -> `BattleQuery.HasValidTargets @18106e8d0` -> `AttackQuery.HasValidTargets @181057540`) résolu OFFLINE :
+    l'unité peut-elle attaquer >= 1 ennemi avec son attaque NORMALE DEPUIS SA POSITION ACTUELLE (SANS bouger) ?
+    = `abilityTargets(unit, GetNormalAttackType(unit))` -> `usable` (CanCurrentlyBeUsed = cooldown/munitions)
+    ET `fromHereCount > 0` (`fromHere` = `AttackQuery.GetValidTargets(unit, pos, ability)` = légalité du cast
+    immédiat : portée + LoS + filtre ennemi). POSITION-INDÉPENDANT du sweep du caster (dépend de la tuile
+    FIXE de `unit`) -> à calculer 1x par cible. `ability_targets`/`units` absent, unité/attaque introuvable,
+    RPC vide -> False (fallback = borne inf, = comportement pré-#77)."""
+    if ctx.ability_targets is None:
+        return False
+    u = next((x for x in (ctx.units or []) if x.get("id") == unit_id), None)
+    if u is None:
+        return False
+    # GetNormalAttackType = l'attaque normale CONCRETE de l'unité (id per-unit, pas l'abstrait 17).
+    na = next((a for a in (u.get("abilities") or [])
+               if a.get("kind") == "normal" and a.get("id") is not None), None)
+    if na is None:
+        return False
+    at = ctx.ability_targets(unit_id, na["id"]) or {}
+    for uu in (at.get("units") or []):
+        if uu.get("unitId") != unit_id:
+            continue
+        for a in (uu.get("abilities") or []):
+            if a.get("abilityId") == na["id"]:
+                return (a.get("usable") is not False) and int(a.get("fromHereCount") or 0) > 0
+    return False
+
+
 def _sweep_origin_first(ctx: "NCContext") -> list:
     """Ordre de balayage des positions candidates pour un SELF-CAST (heal/repair/rites) : ORIGINE
     D'ABORD, puis les tuiles de move.
@@ -527,14 +556,14 @@ class DefendTheDivineWorkPlaybook(NonComparablePlaybook):
     - Ciblage = `CombatRestorativesAbility.HealTargets @1811cca50` REUTILISE (self + amis adjacents),
       GATE par `GetEligibleTargetsEntities` : l'ability n'est evaluee QUE s'il existe >=1 cible eligible
       (repair -> unite MECANIQUE). Sinon aucune action a cette position.
-    - util(T) = `Σ (1 - FillUpStatComponent.RemainingPercentage_health @180f9be60)` sur {self + adjacents}
-      + `0.5 × |{cible : IBattleQuery.HasValidTargets(cible, pos(cible), NormalAttackType(cible))}|`
-      (slot 0x3f @18106e8d0 = "la cible peut-elle attaquer un ennemi avec son attaque NORMALE depuis sa
-      position" = combat-readiness ; +0.5 par allie repare pret a combattre).
-      *** GAP #37 : le terme +0.5 N'EST PAS PORTE (necessite HasValidTargets PAR-ALLIE = attack-reachability
-      d'une AUTRE unite, absent offline). util port = Σ health-wound SEULE = BORNE INF de la native. ***
-      Fiable des qu'un mecanique adjacent est lourdement blesse (Σ >= 0.9) ; marginal sinon (le +0.5
-      manquant peut faire manquer le gate quand Σ health-wound seule < 0.9).
+    - util(T) = `Σ_{cible ∈ HealTargets} [ (1 - FillUpStatComponent.RemainingPercentage_health @180f9be60)
+      + 0.5 × HasValidTargets(cible) ]` sur {self + amis adjacents}. Le +0.5 (`Fix64.FromIntFraction(1,2)`)
+      par cible SSI `IBattleQuery.HasValidTargets(cible, GetUnitPosition(cible), GetNormalAttackType(cible))`
+      (slot 0x3f @18106e8d0 -> `AttackQuery.HasValidTargets @181057540`) = "la cible peut-elle attaquer un
+      ennemi avec son attaque NORMALE DEPUIS SA POSITION (sans bouger)" = combat-readiness (+0.5 par allié
+      réparé prêt à combattre). PORTÉ (#77) via `_has_valid_targets(ctx, cible)` = `abilityTargets(cible,
+      normalAttack).usable ET fromHereCount>0` (`fromHere` = GetValidTargets à position FIXE) — calculé 1x
+      par cible (position-indép du sweep). `ability_targets` absent -> +0.5 omis (borne inf, pré-#77).
     - MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (cctor @18112c070). Sweep reach_nc, argmax STRICT.
     PRIORITY=0 ASSUME (get_Priority non RE)."""
     ABILITY_ID = 1117
@@ -550,24 +579,28 @@ class DefendTheDivineWorkPlaybook(NonComparablePlaybook):
         wf = CombatRestorativesPlaybook._wound_fraction
         self_wound = wf(me_obs)                                       # self TOUJOURS dans HealTargets
         self_mech = "Mechanical" in _traits(me_obs.get("visualId"))   # repair-eligible = Mecanique
-        allies = [(u.get("col"), u.get("row"), wf(u), "Mechanical" in _traits(u.get("visualId")))
+        # combat-readiness (#77) : +0.5 par cible qui HasValidTargets DEPUIS SA POSITION FIXE (position-indep
+        # du sweep -> resolu 1x par cible). self TOUJOURS dans HealTargets -> son readiness compte aussi.
+        self_ready = 0.5 if _has_valid_targets(ctx, ctx.uid) else 0.0
+        allies = [(u.get("col"), u.get("row"), wf(u), "Mechanical" in _traits(u.get("visualId")),
+                   0.5 if _has_valid_targets(ctx, u.get("squadId")) else 0.0)
                   for u in obs if u.get("teamId") == team and not u.get("isDead")
                   and u.get("squadId") != ctx.uid and u.get("col") is not None]
         best = None  # (T, util)
         for T in _sweep_origin_first(ctx):   # ORIGINE d'abord : keep-first au tie -> reste en place (#76)
-            adj = [(w, mech) for c, r, w, mech in allies
+            adj = [(w, mech, rd) for c, r, w, mech, rd in allies
                    if bq.is_adjacent(T, (c, r), ctx.elev_by_pos)]   # AdjacentUnits gate (#45/#76)
             # GATE GetEligibleTargetsEntities : >=1 cible MECANIQUE (self ou adjacent) sinon ability non evaluee.
-            if not (self_mech or any(mech for _, mech in adj)):
+            if not (self_mech or any(mech for _, mech, _ in adj)):
                 continue
-            # util = Σ (1 - healthPct) sur self + adjacents (mirror boucle HealTargets). +0.5 readiness OMIS.
-            util = self_wound + sum(w for w, _ in adj)
+            # util = Σ [ (1 - healthPct) + 0.5×HasValidTargets ] sur self + adjacents (boucle HealTargets, #77).
+            util = self_wound + self_ready + sum(w + rd for w, _, rd in adj)
             if best is None or util > best[1]:                       # strict > : 1er max garde
                 best = (T, util)
         if ctx.debug:
             import sys
-            print(f"    [dbg NC u{ctx.uid}] DefendTheDivineWork selfMech={self_mech} best={best} "
-                  f"min={self.MIN_UTILITY} (+0.5 readiness OMIS)", file=sys.stderr)
+            print(f"    [dbg NC u{ctx.uid}] DefendTheDivineWork selfMech={self_mech} selfReady={self_ready} "
+                  f"best={best} min={self.MIN_UTILITY}", file=sys.stderr)
         if best is None or best[1] < self.MIN_UTILITY:
             return []
         T, util = best
