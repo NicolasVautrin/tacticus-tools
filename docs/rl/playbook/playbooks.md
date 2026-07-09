@@ -375,6 +375,46 @@ readiness). Le port l'OMETTAIT (borne inf, #37).
   Comparable (attaque/repair) = MISS. Avec, MATCH exact. No-régression (10/12 casts match ; les 2 misses =
   sélection de cible d'attaque d'ennemis Necron, hors #77).
 
+### MAJ #85 (2026-07-10) — `Repair_GalvanicField(1119)` : playbook BESPOKE distinct du repair générique
+
+Clôt #85. **Prémisse RÉFUTÉE puis vrai gap FORMULE corrigé.** La tâche disait « step 8 seed-202 : natif cast
+`1119`, port cast attaque → MISS ». **Re-vérification live** : à seed-202 le natif **ne caste JAMAIS `1119`**
+en 14 pas ; à seed-909 le port **matchait déjà** les 2 casts de `1119` (steps 14/17). Le « MISS » (et le
+« razor-thin 0.25 » noté en MAJ #83) **ne reproduit pas** — artefact d'un résumé /compact. MAIS un vrai gap de
+**fidélité de formule** existait : le port routait `1119` dans le repair GÉNÉRIQUE (`_repair_candidates`, saturation
+`fill=missing` + pas de terme bespoke), décision-juste par chance mais util-number faux.
+
+- **RE (ghidra gqfc5mff6c) — `Repair_GalvanicFieldPlaybook @181155b80`** (`ComparablePlaybook<0x45f=1119>`,
+  admecManipulus/**codename interne « Loki »**, GRANTED par le passif `GalvanicField`). C'est un playbook
+  **BESPOKE**, PAS le `RepairPlaybook` générique (id 28). Overrides : `MakeRepairPredictions @1811557b0`,
+  `CalculateCustomUtility @181155520`, `ShouldExecute @181155b20`.
+- **MAGNITUDE `GetOverrideAttackDamageAmount @181200080` = `PercentageOfAttackCappedAtMax @180df8530`** :
+  `M = min(round(cible.Attack_INITIALE × dmgPct/100), maxDmg)`. **PIÈGES corrigés par le re-expert** : (a) c'est
+  l'Attack de la **CIBLE réparée** (`DSLFactory.ActiveTarget@0x180`), PAS du caster — le tooltip « 100% of *its
+  own* Damage » ; (b) `StatType=0=Attack`, `StatPart=3=Initial` (le `3` du décompilé est un StatPart, pas un
+  StatType — ne PAS lire Defense) ; (c) `ConfigVar 0xd=maxDmg=CAP`, `0x4a=dmgPct=PERCENT` (GalvanicField vars, au
+  niveau **PASSIF du caster** ; `maxDmg` seul rarity-scaled). **PAS `hpToRepair`.** (dmgPct[L50]=100 → `M =
+  min(Attack_cible, maxDmg)`.)
+- **UTILITÉ `CalculateActionUtility @181406ee0` (chemin repair) = SOMME ADDITIVE** (lu dans le décompilé, slots
+  virtuels 0x328=ShouldExecute / 0x338=CustomUtility / 0x348=CasterPositionUtility) : (1) `RepairedAmountUtility`
+  générique (`fill = min(M, manquant)` sur Health+Armor, `repair_utility`, cf. #83) **+** (2) `CalculateCustomUtility`
+  bespoke = `M/(cible.maxHP+1) × 50`, **GATÉ** par `HasValidTargets(cible)` (même prédicat combat-readiness que
+  #77, slot 0x3f → `AttackQuery.HasValidTargets` → 0 si la cible ne peut pas attaquer depuis sa position) **+**
+  termes de position/tuile (framework, communs à l'attaque).
+- **Ciblage** : ami + Mechanical. Le re-expert a lu une garde `target != caster` (pas de self), MAIS le
+  **self-repair est OBSERVÉ LIVE** (seed-909 step 14, `1119` tgt=84=caster). → le port s'appuie sur `abilityTargets`
+  (énumération live = vérité), PAS sur une règle self/ally codée en dur.
+- **Câblage** : `1119` RETIRÉ de `_COMPARABLE_REPAIR_IDS` (générique = `{28}` seul) → nouvelle méthode dédiée
+  `_repair_galvanic_candidates` (homonyme `Repair_GalvanicFieldPlaybook`) : `M` via
+  `ctx.scene.ctx_by_id[cible].get_stat(Attack, Initial)` + `ability_var(GalvanicField, maxDmg/dmgPct, passiveLvl,
+  mult)` ; pred = `repair_utility(fill) + (HasValidTargets ? M/(maxHP+1)×50 : 0)`.
+- **VALIDÉ LIVE (seed 909, engine_validate)** : step 14 `1119` tgt=**84 (SELF)** + step 17 tgt=**86 (allié)** =
+  **MATCH** (les deux). Chiffres : cible Attack=2512, maxDmg=5983 → **M=2512** ; step-14 self `repaired=26.34 +
+  custom=0` (HasValidTargets(self) false à ce pas) `= 26.34` ; allié `26.34 + 13.17 = 39.51`. La correction fait
+  passer l'util self de 38.27 (saturation) → 26.34 (fidèle) **sans changer la décision** (repair > attaque). Overall
+  **10/12** casts match = INCHANGÉ vs avant-fix (2 misses = cibles d'attaque Necron, hors #85). Test de garde
+  `test_playbook_live.py` = **3 passed** (no-régression autres rosters).
+
 ## Exemple bespoke — `Loki.SaviorProtocolsPlaybook` (base `TriggeredAbilityPlaybook<T>`)
 
 ctor pose l'ability id **`0x460` (1120)**. Deux scorers :
