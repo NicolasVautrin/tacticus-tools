@@ -118,6 +118,24 @@ Accumulateur (offsets) : `additif`@0x10 (Fix64), `%-list`@0x18 (`List<{mult,cap}
 - `GetMultiplierFromDamageBonus` @181005210 = `1 + b/100` si `b≥1`, sinon `1 − |b|/100`.
 - `ApplyCappedModifiers` @181000020 `(acc, value)` : pour chaque `{mult,cap}` de la `%-list` :
   `value = Clamp(Round(value × mult, 1), −cap, +cap)`.
+- **LOCUS de l'additif = PER-COUP (verdict #70, RE 2026-07-09).** L'additif plat (`Add`@+0x10) est
+  appliqué DANS `CalculateBaseDamageWithAllModifiers @18102d3f0` (slot 0x10 `ApplyAdditive`, APRÈS le
+  `%-list`) sur la BASE D'UN COUP. Or `BattleQuery.GetMultiHitAttackPrediction @181066080` = la boucle
+  multi-coups appelle `GetAttackPrediction`→`PredictAttackRaw` **par coup** puis `DamagePredictionResult.Add`,
+  et **N'A AUCUNE application d'additif post-boucle** (lu intégralement : `return param_1` direct après la
+  boucle). ⇒ **le natif applique l'additif ×hits (une fois par coup), PAS une fois sur l'agrégat.** Le port
+  (`damage_prediction.py`) fait l'INVERSE : strip additif du chemin per-coup (`predict_attack_raw` l.248
+  `replace(mods, additive=0.0)`) + application UNE FOIS sur l'agrégat (l.332-337) — étape SANS contrepartie
+  native (artefact probable d'avant le refactor #51 qui a déplacé la boucle multi-coups hors de PredictAttackRaw).
+  **Divergence LATENTE côté attaquant** (`CalculateAttackerModifiersForPrediction` renvoie additive=0.0 sur
+  les cas mesurés, cf. §7bis) ; **ACTIVE côté défenseur** (une réduction plate `DamageReduction` = additif
+  négatif, ex. −582, serait soustraite ×hits par le natif, une seule fois par le port ⇒ port SUR-prédit le
+  dégât sur cible à réduction-plate multi-coups). FIX (à valider live AVANT commit — carrier = défenseur à
+  réduction plate + attaquant multi-coups, `aiPredict` discrimine ×hits vs ×1) : ne PAS strip l'additif dans
+  `predict_attack_raw` (le passer à `apply_pierce_and_modifiers` par coup, ordre %-list→additif déjà fidèle)
+  + RETIRER le bloc agrégat l.332-337. ⚠ per-coup ≠ trivialement `×hits` : l'additif per-coup interagit avec
+  le plancher `max(0,…)`, le split bouclier et le cap overkill PAR COUP (peut différer de l'agrégat quand un
+  cap mord).
 - Construction : `Calculate{Attacker,Defender}ModifiersForPrediction` itèrent les EFFETS de l'unité
   (param_5 = collection d'effets actifs, dispatch interface slot 9) + `CalculateModifiersFromStat-
   Modifications` @181004380, et par effet appellent `GetDamageBonusForAttack` → `DamageBonus` →

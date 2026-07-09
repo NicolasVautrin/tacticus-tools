@@ -232,7 +232,8 @@ def predict_attack_raw(
         predefined: MinMaxDamage | None = None, might_crit: bool = False) -> DamagePredictionResult:
     """`DamagePrediction.PredictAttackRaw` @181032fb0 — prédiction d'UN COUP contre les RESSOURCES RESTANTES
     de la cible (déplétées par `prev`, scénario cumulé des coups précédents ; `prev` vide = ressources
-    pleines = 1er coup). NE fait NI ×hits NI additif (→ `get_multi_hit_attack_prediction`).
+    pleines = 1er coup). NE fait PAS le ×hits (→ `get_multi_hit_attack_prediction`) ; l'additif plat EST
+    appliqué ICI PAR COUP (via `mods` non strippé, #70).
 
     Recurrence RE (verdict prev-threading, VA/offsets) :
       rem_shld = max(0, target_shield − prev.shieldAbs)         # bouclier restant (prev@+0x28/+0x2c) @1810341d5/427a
@@ -245,7 +246,11 @@ def predict_attack_raw(
     (previousHitsPrediction) de CDS, qui est le bonus crit INTRA-coup (verdict RE @181035dce)."""
     mm = predefined if predefined is not None \
         else get_base_damage_fix64(initial_damage, extra_max, spread_pct)
-    mods_pct = replace(mods, additive=0.0) if (mods is not None and mods.additive) else mods
+    # #70 : additif plat NON strippé -> appliqué PAR COUP ici (mirror natif : `CalculateBaseDamageWithAllModifiers
+    # @18102d3f0` applique l'additif @+0x10 sur la base D'UN COUP ; `GetMultiHitAttackPrediction @181066080`
+    # appelle `PredictAttackRaw` PAR COUP + `Add`, SANS additif post-boucle). L'ancien strip + application
+    # UNE FOIS sur l'agrégat = artefact pré-refactor #51 (loop deplacee hors de PredictAttackRaw).
+    mods_pct = mods
     if target_shield > 0:
         # split bouclier PER-COUP sur le bouclier RESTANT (déplété par prev) : Min(base, rem_shield)
         blk_lo = min(mm.min, max(0, target_shield - prev.shield_min))
@@ -306,7 +311,8 @@ def get_multi_hit_attack_prediction(
         for i in 2..hits: prev = result.default_block_scenario(); result.add(predict_attack_raw(coup i, prev))
     `prev` (`get_DefaultBlockScenario @18102bcd0`) porte le cumul santé/bouclier → chaque coup opère sur les
     ressources RESTANTES (déplétion PER-COUP fidèle : bouclier/HP décroissent d'un coup à l'autre). `Add`
-    @18102a710 somme les Accurate*. L'ADDITIF plat (ForAddition, ex. −582) s'applique UNE FOIS sur l'agrégat.
+    @18102a710 somme les Accurate*. L'ADDITIF plat (ForAddition, ex. −582) s'applique PAR COUP dans
+    `predict_attack_raw` (mirror natif ; PAS une fois sur l'agrégat — #70).
 
     Base par coup : NORMALE = `GetBaseDamageFix64(initial_damage)` (spread de la stat Attack) ; SPÉCIALE
     (`damage` fourni = `GetDamage` int de l'ability) = plage reconstruite `(ceil(0.8·d/hits), ceil(2.2·d/hits))`.
@@ -329,12 +335,9 @@ def get_multi_hit_attack_prediction(
     result = _hit(BlockScenario())                          # coup 1 : prev vide → ressources pleines
     for _i in range(1, hits):
         result.add(_hit(result.default_block_scenario()))   # coup i : prev = cumul → ressources restantes
-    if mods is not None and mods.additive:                  # additif plat UNE FOIS sur l'agrégat (ForAddition)
-        health = MinMaxDamage(min=max(0, round(result.accurate_health_damage.min + mods.additive)),
-                              max=max(0, round(result.accurate_health_damage.max + mods.additive)))
-        result.accurate_health_damage = health
-        result.total_damage = MinMaxDamage(min=result.accurate_shield_damage.min + health.min,
-                                           max=result.accurate_shield_damage.max + health.max)
+    # #70 : l'additif plat (ForAddition) est appliqué PAR COUP dans `predict_attack_raw` (via `mods` non
+    # strippé) -> mirror natif (Σ des events per-coup, chacun avec l'additif). PLUS d'application UNE FOIS
+    # sur l'agrégat (ancien bloc = artefact pré-refactor #51 ; SANS contrepartie native, cf. prediction.md §4).
     return result
 
 
