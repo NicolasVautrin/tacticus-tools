@@ -40,6 +40,7 @@ from engine import move
 from engine.playbook import noncomparable as playbooks
 from engine.playbook import get_playbook_or_default, tile_utility
 from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK, HEAL_PLAYBOOK
+from engine.playbook.bespoke_heals import BESPOKE_SELFCAST   # #82 : BloodChalice/MomentShackle self-cast
 from engine.predict import (repair_utility,            # RepairedAmountUtility (analogue non-custom du soin)
                             predict_heal_effective, heal_amount_config)  # magnitude soin OFFLINE (#79)
 from engine.ai.bucket import Action, Bucket
@@ -298,6 +299,19 @@ class ComparableAbilityGenerator(ActionGenerator):
                                 "pred": pred, "full": pred + tile_utility(ctx, T)})
         return out
 
+    def _bespoke_candidates(self, ctx) -> list:
+        """Playbooks Comparable BESPOKE self-cast (#82 : BloodChalice/MomentShackle) — chacun a son
+        scoring PROPRE (override `EvaluateInternal`, PAS `HEAL_PLAYBOOK.score`). Dispatch par ID d'ability
+        présente + `usable` (identification par id, PAS `"Heal" in name` : leur nom n'a pas "Heal")."""
+        me_abis = {ab.get("id"): ab for ab in ((ctx.me or {}).get("abilities") or [])}
+        out = []
+        for aid, pb in BESPOKE_SELFCAST.items():
+            ab = me_abis.get(aid)
+            if ab is None or ab.get("usable") is False:
+                continue
+            out += pb.generate_candidates(ctx)
+        return out
+
     def generate(self, ctx) -> dict | None:
         cands: list = []  # {target, ability, to:(c,r)|None, pred, full}
         best = self._best_attack(ctx)
@@ -306,6 +320,7 @@ class ComparableAbilityGenerator(ActionGenerator):
                           "pred": best[0], "full": best[1]})   # full = u_full (dégât + Tile7)
         cands += self._heal_candidates(ctx)
         cands += self._repair_candidates(ctx)
+        cands += self._bespoke_candidates(ctx)   # #82 : BloodChalice/MomentShackle
         # (Les NonComparable sont traitées par le générateur précédent — cf. InitAbilityTypeLists.)
         if ctx.debug and cands:
             for c in sorted(cands, key=lambda c: -c["full"])[:8]:

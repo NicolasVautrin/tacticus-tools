@@ -252,6 +252,50 @@ câblage du helper `ability_var` (déjà RE'd en #37, jamais appelé) — **stru
   via Nicodemus, in-pool). Repair `_repair_candidates` : même câblage `hpToHeal`→`hpToRepair` à faire + terme
   ARMOR=0.
 
+### MAJ #82 (2026-07-09) — heals COMPARABLE BESPOKE (BloodChalice / MomentShackle / SpiritLeech)
+
+Route les 3 heals Comparable BESPOKE que `_heal_candidates` ratait (nom sans "Heal" -> identification par
+**ID**, pas substring). Chacun OVERRIDE le scoring générique (`ComparablePlaybook<T>.EvaluateInternal
+@181408980` / `CalculateActionUtility @181406ee0`) par une utilité PROPRE. Poids `GetUtilityValue` résolus
+OFFLINE depuis `BattleConfiguration.Utilities.Default.ActiveAbilities` (clés du dump `stringliteral.json`).
+
+**BloodChalice (0x497=1175 ; bloodSanguinary/Nicodemus) — PORTÉ** (`bespoke_heals.BloodChalicePlaybook`) :
+- `EvaluateInternal @1811224c0` = override TOTAL (PAS de HealUtility) : util = `count(alliés NON-mécaniques
+  ADJACENTS au caster, PV% < seuil) × W`. Self-cast AoE (cible = MainTile ; `GenerateAction(this,casterTile)`).
+- seuil = `GetNumberConstant(0x4f)` = config `healthPct` = 50 ; PV% = `GetStat(Health, StatPart=1)` =
+  `round(cur/max×100)`. W = `BloodChalice_AdjacentDamagedNonMechanicalFriend` = **50**. MIN_UTILITY=1
+  (cctor @181122b10). `ShouldExecute @1811228b0` : `Σ(seuil − PV%)` sur amis non-méca > 0.
+
+**MomentShackle (0x4a0=1184 ; custoTrajann/Trajann) — PORTÉ** (`bespoke_heals.MomentShacklePlaybook`) :
+- Util = HealUtility(SELF-heal) + `CalculateCasterPositionUtility`. Cible = SOI. Position-swept.
+- Self-heal : `MakeHealPredictions @18114c7f0` -> `GetHealAmount = ConfigVar(0x20)` = **`hpToHeal[level]`**
+  (MomentShackle config a `hpToHeal`) -> `PredictHeal` (`min(healAmount, missing_self)`, #79) -> HealUtility
+  (POSITION-INDÉP). Position : `CalculateCasterPositionUtility @18114c6e0` = `count(ennemis ADJACENTS@T) × W`,
+  W = `MomentShackle_AdjacentEnemy` = **25**. MIN_UTILITY=1 (cctor @18114c960).
+- **Exerce la cap #79** (self-heal via ConfigVar(0x20)=hpToHeal) : magnitude live-consistante confirmée
+  (Trajann rank-17 : `heal_amount_config("MomentShackle")` = 5983 = hpToHeal[L]×mult).
+
+**SpiritLeech (0x450=1104 ; tyranNeurothrope/Neurothrope, Tyranids) — RE COMPLET, PORT EN ATTENTE** :
+- PAS un self-cast : per-ENNEMI (attaque psychique range 3) + lifesteal. Régime `_best_attack`/registry.
+- Dégât (`MakeDamagePredictions @18115d490` / `GetAttackDamage @181209dd0`) = `base(minDmg/maxDmg) +
+  extraDmg SSI la cible est Suppressed(Pinned 0x429)` (`ConditionalAmount(NOT HasEffect, base, base+extra)`).
+- Effet (`MakeEffectPredictions @18115d690`) = pose `Pinned(1065)` sauf si déjà présent (poids BC ~0/inerte).
+- **Lifesteal** (`GetHealAmountForPrediction @181209fa0`) = `round_up(dégât PRÉDIT × hpToHealPct/100)`
+  (`PercentageOf @180df8720` ; `hpToHealPct` = var 0x4b=75, [40..60], **PAS** rareté). Cibles heal
+  (`GetHealTargets @18120a1e0`) = **self + alliés Tyranids ADJACENTS (1 hex)** ; N heal-events même montant.
+- Combinaison (`CalculateActionUtility @181406ee0` -> `CalculateUtilityFromPredictions @181407890`) =
+  `Σ DamageUtility + Σ(EffectUtility×prob) + Σ HealUtility` (position/custom base = 0). **GAP** : le
+  `heal_amount_config` (#79) lit `hpToHeal`, PAS `hpToHealPct` -> SpiritLeech doit calculer explicitement
+  `heal = PercentageOf(predicted_damage, hpToHealPct)`. À porter comme `SpiritLeechPlaybook(ComparablePlaybook)`
+  (make_damage/effect/heal_predictions + override calculate_action_utility pour ajouter le lifesteal).
+
+**Câblage** : `ComparableAbilityGenerator._bespoke_candidates` (identification par ID + `usable`) ->
+`BESPOKE_SELFCAST[id].generate_candidates(ctx)`. **VALIDÉ LIVE (increment 1, session 44)** : port ROUTE
+BloodChalice(1175)+MomentShackle(1184) sans crash ; candidats corrects (BloodChalice `None` sans allié
+blessé ; MomentShackle util=25 dès 1 ennemi adjacent) ; port == natif (MATCH ability+cible) sur tous les
+pas observés. NON encore confirmé : agreement quand la bespoke est l'action CHOISIE (nécessite un craft où
+sa util bat l'attaque — enemies tanky + condition remplie).
+
 ## Exemple bespoke — `Loki.SaviorProtocolsPlaybook` (base `TriggeredAbilityPlaybook<T>`)
 
 ctor pose l'ability id **`0x460` (1120)**. Deux scorers :
