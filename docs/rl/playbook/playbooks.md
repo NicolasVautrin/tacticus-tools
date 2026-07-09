@@ -103,6 +103,36 @@ heal idx `0x28`). `aiPredict` est dégât-only → ces montants restent **BLOQU�
 [`prediction.md`](prediction.md)) ; gates/tags/custom portés, le scoring soin/repair s'active dès
 qu'un RPC de prédiction complet existe.
 
+### MAJ #37 (2026-07-09) — montants Soin/Repair NON bloqués (offline-sourceables) + 2 régimes heal
+
+**Correction du « BLOQUÉ » ci-dessus** : la magnitude soin/repair N'A PAS besoin d'`aiPredict`. Elle vit
+dans une **variable de config d'ability** `hpToHeal` / `hpToRepair` (tableau per-niveau, flaggé
+`variablesAffectedByRarityBonus`), exactement comme `minDmg`/`maxDmg` du dégât → **offline-sourceable**
+via `engine.entities.effects.magnitude.ability_var(name, "hpToHeal"|"hpToRepair", level, multiplier_pct)`.
+22 abilities la portent (CombatRestoratives, DefendTheDivineWork, MedicusMinistorum, RitesOfRestoration,
+HealingBalms…). Vérifié desc↔variable sur 5 (MedicusMinistorum 14, RitesOfRestoration 36, CombatRestoratives
+72, BloodChalice 60, HealingBalms 60 = tous `hpToHeal[lvl]` **exactement**, sans `×hits`). Chaîne native
+confirmée : `HealAbility.HealAmount @180e345b0` = `StatAmount(weapon@+0x160) × Max(WeaponHighestHits,1)` ;
+`RepairAbility.RepairAmount @1811c4860` = idem (sans modifier ⇒ = base). Effectif = `min(amount, missing)`
+(`predict_heal_effective`/`predict_repair_effective`, déjà portés). Gap wiring RESTANT (`action_generators.py`) :
+`_heal_candidates`/`_repair_candidates` saturent à `missing` au lieu d'`ability_var(hpToHeal/hpToRepair)` ;
+identification heal par `"Heal" in name` INCOMPLÈTE (rate MedicusMinistorum/CombatRestoratives/… ; devrait
+être par présence de `hpToHeal` / ActiveAbilityType) ; terme ARMOR repair = 0.
+
+**DEUX régimes de soin distincts** (routage par le flag Comparable/NonComparable du playbook) :
+- **Comparable** (`HealPlaybook.MakeHealPredictions @181184a70` → `GenerateHealPredictions`) : HealingBalms,
+  TwistedScience, base Heal(18). Utilité = `Σ HealUtility = Σ (effective/(maxHP+1))×100×friendSign×bossMod`.
+- **NonComparable** (`CombatRestorativesPlaybook.EvaluateNonComparable @181125fd0`, id 1002 ; et
+  `RitesOfRestorationPlaybook` id 1039) : ciblage `HealTargets @1811cca50 = Friends(AdjacentUnits(caster,r=1))
+  + self` (self + alliés adjacents, PAS de wrapper `Healable` ⇒ inclut les mécaniques). Utilité =
+  **`Σ (1 − FillUpStatComponent.RemainingPercentage @180f9be60)`** avec `RemainingPercentage = max(0,cur/max)`
+  ⇒ `Σ (missing/maxHP)` = somme des fractions de PV manquantes des cibles. **N'utilise PAS `hpToHeal`**
+  (magnitude ≠ utilité dans ce régime). Gate `MIN_UTILITY = Fix64.FromIntFraction(9,10) = 0.9` (cctor
+  @1811265c0). Sweep positions caster → argmax.
+  → **CombatRestoratives PORTÉ** dans `engine/playbook/noncomparable.py` (`CombatRestorativesPlaybook`,
+    smoke-test OK) ; **agreement LIVE encore à confirmer** (exige un état mid-combat avec alliés blessés
+    current<max ; `--hp-target` met current=max donc ne blesse pas → driver un échange ou patcher la BC).
+
 **Implication** : le cœur générique (`CalculateActionUtility`) déjà construit EST le moteur des
 abilities COMMUNES (= la grande majorité des actions). Le dégât marche (`damage.py`) ; soin/repair ne
 manquent que la prédiction. Les playbooks **bespoke** sont des **ajouts incrémentaux à clés-strings**

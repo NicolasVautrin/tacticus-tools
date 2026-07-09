@@ -84,6 +84,8 @@ class NCContext:
     wt: object = None              # Weights BC (NovaShield : terme Tile(7) = tile_utility)
     is_temporary_by_pos: dict = field(default_factory=dict)  # Tile(7) (feuille is_temporary)
     effects_by_pos: dict = field(default_factory=dict)       # Tile(7) (feuille TileEffects)
+    tile_id_by_pos: dict = field(default_factory=dict)       # {(col,row): tileEntityId} (boardGraph) :
+    #                            cible d'une self-cast AoE (heal) = MainTile-id du caster, PAS son unit-id
     debug: bool = False
 
 
@@ -421,6 +423,167 @@ class RitesOfRestorationPlaybook(NonComparablePlaybook):
                  "to": (T if T != ctx.origin else None), "pred": util}]
 
 
+class CombatRestorativesPlaybook(NonComparablePlaybook):
+    """`CombatRestorativesPlaybook.EvaluateNonComparable @181125fd0` (NonComparable, id 1002 ;
+    ultraApothecary/Incisus). Soin AoE self + allies adjacents. Emet l'action ciblee sur SOI.
+
+    - Ciblage `CombatRestorativesAbility.HealTargets @1811cca50` = `Friends(AdjacentUnits(caster,r=1))
+      + self` -> SOI + unites ALLIEES adjacentes. Pas de wrapper `Healable` (contrairement a Rites
+      @181203c80) : inclut les allies MECANIQUES (le natif compte leur fraction de PV manquante).
+    - util(T) = `Σ (1 - FillUpStatComponent.RemainingPercentage) @180f9be60` sur {self + allies
+      adjacents a T}. `RemainingPercentage = max(0, cur/max)` (Health fillup : cur@+0x18 / CurrentMax)
+      -> `1 - RemainingPercentage = missing/maxHP` = FRACTION de PV MANQUANTE. N'utilise PAS le
+      montant `hpToHeal` (magnitude != utilite dans ce regime NonComparable). Un allie plein -> 0.
+    - MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (cctor @1811265c0). Sweep reach_nc (le caster
+      va la ou la somme des fractions manquantes adjacentes est max), argmax STRICT.
+    PRIORITY=0 ASSUME (get_Priority non RE ; a confirmer si l'inter-tier est exerce)."""
+    ABILITY_ID = 1002
+    MIN_UTILITY = 0.9      # cctor @1811265c0 : Fix64.FromIntFraction(9,10)
+    PRIORITY = 0
+
+    @staticmethod
+    def _wound_fraction(u: dict) -> float:
+        """`1 - FillUpStatComponent.RemainingPercentage` = `(maxHP - curHP)/maxHP` (>= 0). Health fillup
+        lu depuis obs_units (hp/hpMax). maxHP <= 0 -> 0 (evite /0, comme le +1 defensif natif absent ici)."""
+        mx = int(u.get("hpMax") or 0)
+        if mx <= 0:
+            return 0.0
+        cur = int(u.get("hp") or 0)
+        return max(0.0, 1.0 - cur / mx)
+
+    def generate_candidates(self, ctx: NCContext) -> list[dict]:
+        obs = ctx.obs_units or []
+        me_obs = next((u for u in obs if u.get("squadId") == ctx.uid), None)
+        if me_obs is None:
+            return []
+        team = me_obs.get("teamId")
+        self_wound = self._wound_fraction(me_obs)      # self TOUJOURS dans HealTargets (0 si plein)
+        # Allies VIVANTS (self exclu) avec position -> candidats "adjacents a T" (Friends(AdjacentUnits)).
+        allies = [(u.get("col"), u.get("row"), self._wound_fraction(u)) for u in obs
+                  if u.get("teamId") == team and not u.get("isDead")
+                  and u.get("squadId") != ctx.uid and u.get("col") is not None]
+        best = None  # (T, util)
+        for T in ctx.reach_nc:
+            # AdjacentUnits(caster@T, r=1) : plain hex-adjacence (precedent Rites l.408). La porte
+            # d'elevation |dElev|<2 d'IterateAdjacentTiles est un raffinement possible (non porte ici).
+            util = self_wound + sum(w for c, r, w in allies if hexgeo.distance(T, (c, r)) == 1)
+            if best is None or util > best[1]:         # strict > : 1er max garde (ordre reach_nc)
+                best = (T, util)
+        if ctx.debug:
+            import sys
+            print(f"    [dbg NC u{ctx.uid}] CombatRestoratives selfW={self_wound:.2f} "
+                  f"best={best} min={self.MIN_UTILITY}", file=sys.stderr)
+        if best is None or best[1] < self.MIN_UTILITY:
+            return []
+        T, util = best
+        # Cible native = MainTile-id du caster (self-cast AoE : GenerateAction(this, pos, MainTile, util) ;
+        # mesure live tgt=22 = id de la tuile (1,0) du caster). Fallback ctx.uid si tile-id absent.
+        target = ctx.tile_id_by_pos.get(T, ctx.uid)
+        return [{"target": target, "ability": self.ABILITY_ID,
+                 "to": (T if T != ctx.origin else None), "pred": util}]
+
+
+class DefendTheDivineWorkPlaybook(NonComparablePlaybook):
+    """`DefendTheDivineWorkPlaybook.EvaluateNonComparable @18112b9b0` (NonComparable REPAIR, id 1117 ;
+    admecManipulus/Actus). Repair AoE self + allies adjacents ; emet l'action ciblee sur SOI (MainTile).
+
+    - Ciblage = `CombatRestorativesAbility.HealTargets @1811cca50` REUTILISE (self + amis adjacents),
+      GATE par `GetEligibleTargetsEntities` : l'ability n'est evaluee QUE s'il existe >=1 cible eligible
+      (repair -> unite MECANIQUE). Sinon aucune action a cette position.
+    - util(T) = `Σ (1 - FillUpStatComponent.RemainingPercentage_health @180f9be60)` sur {self + adjacents}
+      + `0.5 × |{cible : IBattleQuery.HasValidTargets(cible, pos(cible), NormalAttackType(cible))}|`
+      (slot 0x3f @18106e8d0 = "la cible peut-elle attaquer un ennemi avec son attaque NORMALE depuis sa
+      position" = combat-readiness ; +0.5 par allie repare pret a combattre).
+      *** GAP #37 : le terme +0.5 N'EST PAS PORTE (necessite HasValidTargets PAR-ALLIE = attack-reachability
+      d'une AUTRE unite, absent offline). util port = Σ health-wound SEULE = BORNE INF de la native. ***
+      Fiable des qu'un mecanique adjacent est lourdement blesse (Σ >= 0.9) ; marginal sinon (le +0.5
+      manquant peut faire manquer le gate quand Σ health-wound seule < 0.9).
+    - MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (cctor @18112c070). Sweep reach_nc, argmax STRICT.
+    PRIORITY=0 ASSUME (get_Priority non RE)."""
+    ABILITY_ID = 1117
+    MIN_UTILITY = 0.9      # cctor @18112c070 : Fix64.FromIntFraction(9,10)
+    PRIORITY = 0
+
+    def generate_candidates(self, ctx: NCContext) -> list[dict]:
+        obs = ctx.obs_units or []
+        me_obs = next((u for u in obs if u.get("squadId") == ctx.uid), None)
+        if me_obs is None:
+            return []
+        team = me_obs.get("teamId")
+        wf = CombatRestorativesPlaybook._wound_fraction
+        self_wound = wf(me_obs)                                       # self TOUJOURS dans HealTargets
+        self_mech = "Mechanical" in _traits(me_obs.get("visualId"))   # repair-eligible = Mecanique
+        allies = [(u.get("col"), u.get("row"), wf(u), "Mechanical" in _traits(u.get("visualId")))
+                  for u in obs if u.get("teamId") == team and not u.get("isDead")
+                  and u.get("squadId") != ctx.uid and u.get("col") is not None]
+        best = None  # (T, util)
+        for T in ctx.reach_nc:
+            adj = [(w, mech) for c, r, w, mech in allies if hexgeo.distance(T, (c, r)) == 1]
+            # GATE GetEligibleTargetsEntities : >=1 cible MECANIQUE (self ou adjacent) sinon ability non evaluee.
+            if not (self_mech or any(mech for _, mech in adj)):
+                continue
+            # util = Σ (1 - healthPct) sur self + adjacents (mirror boucle HealTargets). +0.5 readiness OMIS.
+            util = self_wound + sum(w for w, _ in adj)
+            if best is None or util > best[1]:                       # strict > : 1er max garde
+                best = (T, util)
+        if ctx.debug:
+            import sys
+            print(f"    [dbg NC u{ctx.uid}] DefendTheDivineWork selfMech={self_mech} best={best} "
+                  f"min={self.MIN_UTILITY} (+0.5 readiness OMIS)", file=sys.stderr)
+        if best is None or best[1] < self.MIN_UTILITY:
+            return []
+        T, util = best
+        target = ctx.tile_id_by_pos.get(T, ctx.uid)                  # MainTile-id (self-cast AoE)
+        return [{"target": target, "ability": self.ABILITY_ID,
+                 "to": (T if T != ctx.origin else None), "pred": util}]
+
+
+class RevitalizingMalignancyPlaybook(NonComparablePlaybook):
+    """`RevitalizingMalignancyPlaybook.EvaluateNonComparable @181156790` (NonComparable heal, id 1037 ;
+    deathRotbone/Nauseous). Soin AoE self + adjacents, FILTRE non-Imperial ET non-Mecanique.
+
+    - Ciblage `GetAllHealTargets @181201150` = `Healable(UnitsWithoutTrait(0x1a=Imperial=26,
+      Friends(AdjacentUnits(caster,r=1)) + self))` = self + amis adjacents qui sont NON-Imperial ET
+      non-Mecanique (`Healable`). (Chaos ne soigne pas les Imperials ni les machines.)
+    - util(T) = `Σ (1 - RemainingPercentage_health @180f9be60)` sur ces cibles (= Σ missing/max). Meme
+      formule que CombatRestoratives. MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (cctor @181156d30).
+      Sweep reach_nc, argmax STRICT ; self-cast (MainTile-id). PRIORITY=0 ASSUME."""
+    ABILITY_ID = 1037
+    MIN_UTILITY = 0.9      # cctor @181156d30 : Fix64.FromIntFraction(9,10)
+    PRIORITY = 0
+
+    @staticmethod
+    def _healable(u: dict) -> bool:
+        """`Healable ∘ UnitsWithoutTrait(Imperial)` : non-Imperial (GrandAllianceId) ET non-Mecanique (trait)."""
+        cfg = _unit_cfg(u.get("visualId"))
+        return (cfg.get("GrandAllianceId") != "Imperial"
+                and "Mechanical" not in (cfg.get("traits") or []))
+
+    def generate_candidates(self, ctx: NCContext) -> list[dict]:
+        obs = ctx.obs_units or []
+        me_obs = next((u for u in obs if u.get("squadId") == ctx.uid), None)
+        if me_obs is None:
+            return []
+        team = me_obs.get("teamId")
+        wf = CombatRestorativesPlaybook._wound_fraction
+        self_wound = wf(me_obs) if self._healable(me_obs) else 0.0   # self compte SSI Healable
+        allies = [(u.get("col"), u.get("row"), wf(u)) for u in obs
+                  if u.get("teamId") == team and not u.get("isDead")
+                  and u.get("squadId") != ctx.uid and u.get("col") is not None
+                  and self._healable(u)]
+        best = None  # (T, util)
+        for T in ctx.reach_nc:
+            util = self_wound + sum(w for c, r, w in allies if hexgeo.distance(T, (c, r)) == 1)
+            if best is None or util > best[1]:
+                best = (T, util)
+        if best is None or best[1] < self.MIN_UTILITY:
+            return []
+        T, util = best
+        target = ctx.tile_id_by_pos.get(T, ctx.uid)
+        return [{"target": target, "ability": self.ABILITY_ID,
+                 "to": (T if T != ctx.origin else None), "pred": util}]
+
+
 class ScarabSummonPlaybook(NonComparablePlaybook):
     """`ScarabSummonPlaybook.EvaluateNonComparable @181158f10` (auto-DÉDOUBLEMENT du scarab, id 0x417=1047).
     Pour CHAQUE cible éligible (`GetEligibleTargetsSelectable(MainTile(caster))` = tuiles de spawn ring-1
@@ -504,6 +667,9 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         NovaBoostPlaybook(),
         NovaShieldPlaybook(),
         RitesOfRestorationPlaybook(),
+        CombatRestorativesPlaybook(),
+        DefendTheDivineWorkPlaybook(),
+        RevitalizingMalignancyPlaybook(),
         ScarabSummonPlaybook(),
         GetEmRuntzPlaybook(),
     )

@@ -62,6 +62,8 @@ class AiDecisionContext:
     is_temporary_by_pos: dict         # {(col,row): bool}
     effects_by_pos: dict              # {(col,row): [effectName…]} (feuille TileEffects)
     pathdist_by_pos: dict             # {(col,row): pathDist} (MinDist fidèle, distance de CHEMIN)
+    tile_id_by_pos: dict              # {(col,row): tileEntityId} (boardGraph) — cible d'une self-cast
+    #                                   AoE = MainTile-id du caster (GenerateAction(this,pos,MainTile,util))
 
     debug: bool = False
 
@@ -70,6 +72,21 @@ class AiDecisionContext:
         Appelé à la demande (summon, heal) : coûteux, donc PAS pré-fetché pour toutes les abilities."""
         return self.rpc("abilityTargets",
                          {"runnerId": self.rid, "unitId": unit_id, "abilityType": ability_id}, 40)
+
+
+_BOARD_TILE_IDS_CACHE: dict = {}   # {rid: {(col,row): tileEntityId}} — board statique, 1 fetch/rid
+
+
+def _board_tile_ids(rpc: Callable[..., dict], rid: int) -> dict:
+    """{(col,row): tileEntityId} depuis `boardGraph` (board STATIQUE -> caché par rid). Le tile-id
+    = l'entity-id de tuile qu'`applyOneAction` attend comme cible (findTileEntityId) ET que le natif
+    encode comme cible d'une self-cast AoE (MainTile). `tileMeta` ne porte pas l'id -> boardGraph."""
+    m = _BOARD_TILE_IDS_CACHE.get(rid)
+    if m is None:
+        bg = rpc("boardGraph", {"runnerId": rid}, 60) or {}
+        m = {(t.get("col"), t.get("row")): t.get("id") for t in (bg.get("tiles") or [])}
+        _BOARD_TILE_IDS_CACHE[rid] = m
+    return m
 
 
 def _enemies(units: list) -> list:
@@ -111,6 +128,9 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
                       for t in tiles}
     pdr = rpc("pathDistToEnemies", {"runnerId": rid, "unitId": uid}, 90)
     pathdist_by_pos = {(t.get("col"), t.get("row")): t.get("pathDist") for t in (pdr.get("tiles") or [])}
+    # {(col,row): tileEntityId} — board STATIQUE (caché par rid). Cible native d'une self-cast AoE
+    # = MainTile-id du caster (mesuré CombatRestoratives : tgt=22 = id de la tuile du caster).
+    tile_id_by_pos = _board_tile_ids(rpc, rid)
 
     origin = (me["pos"]["col"], me["pos"]["row"]) if me and me.get("pos") else None
     move_tiles = (mov_by_unit.get(uid) or {}).get("tiles") or []
@@ -134,4 +154,5 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
         hp_cur_by_id=hp_cur_by_id, hpmax_by_id=hpmax_by_id, obs_units=obs_units,
         ab_name_by_id=ab_name_by_id, normal_ids=normal_ids,
         elev_by_pos=elev_by_pos, is_temporary_by_pos=is_temporary_by_pos,
-        effects_by_pos=effects_by_pos, pathdist_by_pos=pathdist_by_pos, debug=debug)
+        effects_by_pos=effects_by_pos, pathdist_by_pos=pathdist_by_pos,
+        tile_id_by_pos=tile_id_by_pos, debug=debug)
