@@ -211,6 +211,47 @@ positions**.
   NB : le cas `currentValid=True` (origine castable) émet `to=None` (origine-préf #76 self-cast) — non
   crafté pour l'ally-target (keep-first-move-first pourrait BOUGER si des tuiles de move sont aussi légales).
 
+### MAJ #79 (2026-07-09) — magnitude du régime COMPARABLE heal câblée (fin du gap wiring #37)
+
+Clôt le **gap wiring** signalé en MAJ #37 : `_heal_candidates` (générateur Comparable) **saturait** le soin
+effectif à `missing` (`maxHP - curHP`) au lieu de la vraie magnitude `HealAmount`. Fidélité restaurée par
+câblage du helper `ability_var` (déjà RE'd en #37, jamais appelé) — **structure 1:1 du natif**.
+
+- **Chaîne native (décompilée, build gqfc5mff6c)** : `HealPlaybook.MakeHealPredictions @181184a70`
+  (identique pour `TwistedScience_HealPlaybook @18116fc60` et `HealingBalms_HealPlaybook @181143100` : les
+  bespoke ne diffèrent QUE par `CalculateCustomUtility`/`ShouldExecute`) → `HealAbility.HealAmount @180e345b0`
+  = `StatAmount(weapon@+0x160) × Max(WeaponHighestHits,1)` → `GenerateHealPredictions @181409810` (par cible :
+  évalue `HealAmount` puis `PredictHeal`) → **`DamagePrediction.PredictHeal @181037180`** = accumule les
+  bonus-soin d'effets, puis `MaxFillUp @180f9b790` = **`min(healAmount, missing)`** (+ caps group/boss).
+- **Magnitude OFFLINE** = `HealAmount` résolu = la variable de config `hpToHeal` de l'ability, indexée par
+  niveau (arme-soin synthétique : `StatAmount(weapon) = hpToHeal[level]`, `hits=1` ⇒ **pas de `×hits`** ;
+  vérifié desc↔variable sur 5 abilities en #37). Via **`ability_var(key,"hpToHeal",level,multiplier_pct)`**
+  (`engine/entities/effects/magnitude.py`, mirror `ConfigAmount.Calculate @180f171c0`) : gère l'index +
+  le **scaling rareté** `AbilityVariablesMultiplierPercentage` (`hpToHeal` ∈ `variablesAffectedByRarityBonus`).
+- **Port** (`engine.predict.heal_amount_config` + `_heal_config_key`) : le nom runtime → clé gameconfig
+  (soin accordé par un passive `Heal_<P>`/`<P>_Heal` → clé = le passive + **niveau PASSIF** unitConfig+0xBC ;
+  soin natif → **niveau ACTIF** +0xB8) ; `multiplier_pct` = `unitConfig.abilityVariablesMultiplier` (+0x74).
+  `_heal_candidates` : `effective = predict_heal_effective(heal_amt, cur, max) = min(heal_amt, missing)`
+  au lieu de `missing`. Plumbing : `AiDecisionContext.heal_config(uid)` (combatSnapshot cache/rid, expose
+  active/passif/multiplier ; `active_ability_levels` #78 préservé).
+- **Résidus DOCUMENTÉS (fallback saturation, `heal_amt=None`, sans régression)** : base `Heal(18)` = arme
+  RÉELLE (pas de `hpToHeal`) ; `Heal_TwistedScience(1167)` = magnitude SPÉCIALE (`hp` = bump de max-PV, heals
+  full-HP ⇒ le custom +100 pilote la décision, pas la magnitude). Seul `HealingBalms_Heal(1212)` a un
+  `hpToHeal` propre parmi les 3 routés par le filtre `"Heal" in name`.
+- **Validation LIVE (bornée par le pool)** : `HealingBalms`/Baldr (le porteur `hpToHeal` propre) **n'est PAS
+  spawnable au rank 17** (blocage pool confirmé, cf. tâche). Validé sur ce qui EST in-pool :
+  (a) **resolver live-consistent** — Nicodemus/`BloodChalice` (niveau LIVE 50, mult 180) : port
+  `heal_amount_config=4986 = hpToHeal[49](2770) × 180/100` — confirme clé+index+**multiplier rareté** ;
+  (b) **non-régression + wiring-safe** — Hollan/`Heal_TwistedScience` (routé, `heal_amt=None → saturation`) :
+  port **ET** natif castent 1167 tgt=86 (MATCH ability+cible ; le nouveau chemin `heal_config`/
+  `heal_amount_config` tourne live sans erreur).
+- **RESTE (tâches créées)** : identification `"Heal" in name` INCOMPLÈTE — les heals Comparable BESPOKE
+  in-pool (`BloodChalice`/Nicodemus, `MomentShackle`/Trajann, `SpiritLeech`) ne sont **pas routés** par
+  `_heal_candidates` (nom sans "Heal") et ont chacun leur **playbook propre** (`BloodChalicePlaybook`
+  deal-dmg+heal+extraPierce…) → à porter séparément (leur portage rendrait la cap `hpToHeal` **live-observable**
+  via Nicodemus, in-pool). Repair `_repair_candidates` : même câblage `hpToHeal`→`hpToRepair` à faire + terme
+  ARMOR=0.
+
 ## Exemple bespoke — `Loki.SaviorProtocolsPlaybook` (base `TriggeredAbilityPlaybook<T>`)
 
 ctor pose l'ability id **`0x460` (1120)**. Deux scorers :

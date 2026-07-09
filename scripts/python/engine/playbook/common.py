@@ -54,11 +54,12 @@ class HealPlaybook(ComparablePlaybook):
     `score` = le terme d'utilité par cible."""
     ability_id = 0x12  # 18
 
-    def score(self, missing, hp_max, is_friend, is_twisted, target_faction):
-        """Utilité de soin d'une cible, ou None si `pred <= 0` (gate `ShouldExecute`). Le skip
-        « cible déjà buffée TwistedScience » est un gate d'ÉNUMÉRATION (fait par le générateur,
-        inconditionnel), pas ce CustomUtility."""
-        heal_term = heal_utility(missing, hp_max, is_friend=is_friend, is_boss=False)
+    def score(self, effective_heal, hp_max, is_friend, is_twisted, target_faction):
+        """Utilité de soin d'une cible, ou None si `pred <= 0` (gate `ShouldExecute`). `effective_heal` =
+        soin EFFECTIF `min(HealAmount, missing)` (le générateur le cape via `predict_heal_effective`, #79 ;
+        auparavant saturé à `missing`). Le skip « cible déjà buffée TwistedScience » est un gate
+        d'ÉNUMÉRATION (fait par le générateur, inconditionnel), pas ce CustomUtility."""
+        heal_term = heal_utility(effective_heal, hp_max, is_friend=is_friend, is_boss=False)
         custom = (100 + (100 if target_faction == "Genestealers" else 0)) if is_twisted else 0
         pred = custom + heal_term
         return pred if pred > 0 else None

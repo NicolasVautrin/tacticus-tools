@@ -40,7 +40,8 @@ from engine import move
 from engine.playbook import noncomparable as playbooks
 from engine.playbook import get_playbook_or_default, tile_utility
 from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK, HEAL_PLAYBOOK
-from engine.predict import repair_utility   # RepairedAmountUtility (repair = analogue non-custom du soin)
+from engine.predict import (repair_utility,            # RepairedAmountUtility (analogue non-custom du soin)
+                            predict_heal_effective, heal_amount_config)  # magnitude soin OFFLINE (#79)
 from engine.ai.bucket import Action, Bucket
 
 
@@ -202,6 +203,11 @@ class ComparableAbilityGenerator(ActionGenerator):
                             if t.get("kind") == "unit" and t.get("targetId") is not None:
                                 vts.add(t["targetId"])
             is_twisted = "TwistedScience" in (ab.get("name") or "")
+            # Magnitude OFFLINE du soin = `HealAbility.HealAmount @180e345b0` = `ability_var(hpToHeal, level)`
+            # (#79 ; depend de l'ability + du niveau du caster, PAS de la cible -> resolu 1x). None -> pas de
+            # `hpToHeal` (soin a arme reelle Heal(18) / magnitude speciale TwistedScience) -> saturation.
+            _hc = ctx.heal_config(ctx.uid)
+            heal_amt = heal_amount_config(ab.get("name"), _hc["active"], _hc["passive"], _hc["multiplier"])
             for tg in vts:
                 tu = unit_by_id.get(tg) or {}
                 # gate natif `HasEffect(target, EffectType.TwistedScience_ExtraHp=1355)` sur l'état d'effets
@@ -214,14 +220,18 @@ class ComparableAbilityGenerator(ActionGenerator):
                 ob = hpmax_by_sq.get(tg) or {}
                 hp_max = int(ob.get("hpMax") or 0)
                 hp_cur = int(ob.get("hp") or 0)
-                missing = max(0, hp_max - hp_cur)   # soin effectif SATURÉ = missing
+                missing = max(0, hp_max - hp_cur)   # PV manquants = BORNE du soin effectif
+                # Soin EFFECTIF = `PredictHeal @181037180` (MaxFillUp @180f9b790) = min(healAmount, missing).
+                # heal_amt None (soin non-hpToHeal) -> saturation `missing` (approximation documentee #79,
+                # sans regression). Le -50/+50 friendSign + bossMod restent dans HealUtility (score).
+                effective = missing if heal_amt is None else predict_heal_effective(heal_amt, hp_cur, hp_max)
                 is_friend = (me is not None and tu.get("team") == me.get("team"))
                 faction = _faction(tu.get("visualId"))
-                pred = HEAL_PLAYBOOK.score(missing, hp_max, is_friend, is_twisted, faction)
+                pred = HEAL_PLAYBOOK.score(effective, hp_max, is_friend, is_twisted, faction)
                 if ctx.debug:
                     print(f"    [dbg heal u{ctx.uid}->{tg}] vis={tu.get('visualId')} fac={faction} "
-                          f"hp={hp_cur}/{hp_max} miss={missing} twisted={is_twisted} pred={pred}",
-                          file=sys.stderr)
+                          f"hp={hp_cur}/{hp_max} miss={missing} healAmt={heal_amt} eff={effective} "
+                          f"twisted={is_twisted} pred={pred}", file=sys.stderr)
                 if pred is None:
                     continue  # ShouldExecute : émet le soin SSI pred > 0
                 tpos = pos_by_id.get(tg)

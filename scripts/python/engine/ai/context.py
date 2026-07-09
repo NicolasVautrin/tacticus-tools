@@ -80,28 +80,41 @@ class AiDecisionContext:
         return self.rpc("castFromTiles", {"runnerId": self.rid, "casterId": unit_id,
                                           "targetId": target_id, "abilityType": ability_id}, 40)
 
-    def active_ability_levels(self) -> dict:
-        """`{unitId: activeAbilityLevel}` (stat 18) via `combatSnapshot` (statique/bataille -> cache par
-        rid). Source du NIVEAU d'ability pour `InspiredToGreatnessPlaybook` (util = level zero-based).
-        Lazy (1 fetch/rid, seul InspiredToGreatness l'appelle). Clef = squadId/unitId/id (aligne sur
-        `dv.units[i].id`)."""
+    def _unit_ability_config(self) -> dict:
+        """`{unitId: {"active", "passive", "multiplier"}}` via `combatSnapshot.unitConfig` (statique/
+        bataille -> cache par rid, 1 fetch lazy). Niveau ACTIF `activeAbilityLevel` (cfg+0xB8), niveau
+        PASSIF `passiveAbilityLevel` (cfg+0xBC), `AbilityVariablesMultiplierPercentage` (cfg+0x74, defaut
+        100). Clef = `entityId` (= dv.id/squadId). `stats`/GetStat(18) renvoie null ici -> unitConfig."""
         m = _ACTIVE_LEVEL_CACHE.get(self.rid)
         if m is None:
             snap = self.rpc("combatSnapshot", {"runnerId": self.rid}, 40) or {}
             m = {}
             for u in (snap.get("units") or []):
-                # combatSnapshot : clef = `entityId` (= dv.id/squadId) ; le niveau vit sous
-                # `unitConfig.activeAbilityLevel` (readUnitConfig cfg+0xb8), PAS `stats` (GetStat(18)=null ici).
                 k = u.get("entityId")
                 if k is not None:
-                    lvl = (u.get("unitConfig") or {}).get("activeAbilityLevel")
-                    m[k] = int(lvl or 0)
+                    cfg = u.get("unitConfig") or {}
+                    m[k] = {"active": int(cfg.get("activeAbilityLevel") or 0),
+                            "passive": int(cfg.get("passiveAbilityLevel") or 0),
+                            "multiplier": int(cfg.get("abilityVariablesMultiplier") or 100)}
             _ACTIVE_LEVEL_CACHE[self.rid] = m
         return m
 
+    def active_ability_levels(self) -> dict:
+        """`{unitId: activeAbilityLevel}` (stat 18 / unitConfig+0xB8). Source du NIVEAU d'ability ACTIVE
+        pour `InspiredToGreatnessPlaybook` (util = level zero-based)."""
+        return {k: v["active"] for k, v in self._unit_ability_config().items()}
+
+    def heal_config(self, unit_id: int) -> dict:
+        """`{"active","passive","multiplier"}` de `unit_id` (unitConfig) : niveaux d'ability actif/passif
+        + AbilityVariablesMultiplierPercentage. Source OFFLINE de la magnitude de soin
+        `ability_var(hpToHeal, level, multiplier_pct)` (#79) : un soin ACCORDE par un passive
+        (`Heal_<P>`/`<P>_Heal`) s'indexe au niveau PASSIF ; un soin natif au niveau ACTIF."""
+        return self._unit_ability_config().get(
+            unit_id, {"active": 0, "passive": 0, "multiplier": 100})
+
 
 _BOARD_TILE_IDS_CACHE: dict = {}   # {rid: {(col,row): tileEntityId}} — board statique, 1 fetch/rid
-_ACTIVE_LEVEL_CACHE: dict = {}     # {rid: {unitId: activeAbilityLevel}} — combatSnapshot, 1 fetch/rid
+_ACTIVE_LEVEL_CACHE: dict = {}     # {rid: {unitId: {active,passive,multiplier}}} — combatSnapshot, 1 fetch/rid
 
 
 def _board_tile_ids(rpc: Callable[..., dict], rid: int) -> dict:

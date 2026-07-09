@@ -181,6 +181,43 @@ def heal_amount(stat_amount: int, weapon_highest_hits: int) -> int:
     return int(stat_amount) * max(int(weapon_highest_hits), 1)
 
 
+def _heal_config_key(ability_name: str | None) -> str | None:
+    """Nom d'ability runtime -> cle gameconfig porteuse de la magnitude. Un soin ACCORDE par un passive
+    est nomme `Heal_<Passive>` (Heal_TwistedScience) ou `<Passive>_Heal` (HealingBalms_Heal) ; sa
+    variable `hpToHeal` vit sous l'entree gameconfig du PASSIVE (cf. state_bridge `_granted_abilities`).
+    Un soin a nom propre (`CombatRestoratives`...) est deja sa cle. None si nom vide."""
+    if not ability_name:
+        return None
+    n = str(ability_name)
+    if n.startswith("Heal_"):
+        return n[5:]
+    if n.endswith("_Heal"):
+        return n[:-5]
+    return n
+
+
+def heal_amount_config(ability_name: str | None, active_level: int, passive_level: int,
+                       multiplier_pct: int = 100) -> int | None:
+    """`HealAbility.HealAmount @180e345b0` resolu OFFLINE = la variable de config `hpToHeal` de l'ability
+    (StatAmount(weapon synthetique) = hpToHeal indexe par niveau ; soins = 1 coup -> PAS de `x hits` ;
+    verifie desc<->variable sur 5 abilities, MAJ #37). Via `ability_var` (mirror `ConfigAmount.Calculate
+    @180f171c0`, gere l'index + le scaling rarete `AbilityVariablesMultiplierPercentage` pour les
+    variables `variablesAffectedByRarityBonus` dont `hpToHeal` fait partie).
+
+    Soin ACCORDE par un passive (`Heal_<P>`/`<P>_Heal`) -> niveau du PASSIF (unitConfig+0xBC) ; soin
+    natif -> niveau ACTIF (+0xB8). Renvoie None si l'ability n'a PAS de `hpToHeal` (soin a ARME reelle
+    comme Heal(18), ou magnitude SPECIALE comme TwistedScience dont `hp` = bump de max-PV, pas un
+    `hpToHeal`) -> l'appelant retombe alors sur la saturation `effective = missing` (approximation
+    documentee, sans regression)."""
+    key = _heal_config_key(ability_name)
+    if not key:
+        return None
+    from engine.entities.effects.magnitude import ability_var  # lazy : evite tout cycle d'import
+    granted = (key != str(ability_name))
+    level = passive_level if granted else active_level
+    return ability_var(key, "hpToHeal", level, multiplier_pct=multiplier_pct)
+
+
 def predict_heal_effective(heal_amount_value: int, target_current_hp: int, target_max_hp: int,
                            boss_max_hp: int | None = None, group_limit: int | None = None) -> int:
     """`DamagePrediction.PredictHeal` @181037180 → `FillUpStatComponent.MaxFillUp` @180f9b790.
