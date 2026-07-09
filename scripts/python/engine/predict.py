@@ -288,6 +288,52 @@ def repair_amount(base: int, mod_add: int = 0, mod_mul: float = 1.0) -> int:
     return int((int(mod_add) + int(base)) * mod_mul)
 
 
+# Réparations NonComparable (régime propre, PAS `_repair_candidates`) : à EXCLURE de la résolution
+# de cle Comparable. NanoscarabRepairProtocols(1224) et DefendTheDivineWork(1117, #77) portent aussi
+# `hpToRepair` mais suivent leur playbook NonComparable dedie -> ne pas les prendre pour la Comparable.
+_REPAIR_NC_KEYS = frozenset({"NanoscarabRepairProtocols", "DefendTheDivineWork"})
+
+
+def _repair_config_key(active_ability_keys) -> str | None:
+    """Clé gameconfig CONCRÈTE de la réparation COMPARABLE d'une unité. Contrairement au soin (dont le nom
+    runtime EST la clé), le nom runtime d'une réparation est l'enum GÉNÉRIQUE (`Repair`=28 /
+    `Repair_GalvanicField`=1119) — la magnitude vit sous une clé PAR-UNITÉ (`ReanimationBeam`, …). On la
+    résout depuis la liste `activeAbilities` du gameconfig de l'unité : l'entrée portant `hpToRepair` qui
+    n'est PAS une réparation NonComparable (`_REPAIR_NC_KEYS`). None si aucune.
+    (necroReanimator : {ReanimationBeam, NanoscarabRepairProtocols} → ReanimationBeam.)"""
+    if not active_ability_keys:
+        return None
+    import gameconfig as _GC  # source offline autorisée (comme heal_amount_config)
+    for k in active_ability_keys:
+        if k in _REPAIR_NC_KEYS:
+            continue
+        a = _GC.ability(k) or {}
+        if "hpToRepair" in (a.get("variables") or {}):
+            return k
+    return None
+
+
+def repair_amount_config(caster_visual_id: str | None, active_level: int,
+                         multiplier_pct: int = 100) -> int | None:
+    """`RepairAbility.RepairAmount @1811c4860` = `StatAmount(weapon) × Max(WeaponHighestHits, 1)` résolu
+    OFFLINE = la variable `hpToRepair[level]` de la clé CONCRÈTE de réparation Comparable de l'unité
+    (`_repair_config_key` depuis `gameconfig.unit(visualId).activeAbilities`), via `ability_var` (index
+    niveau + scaling rareté `variablesAffectedByRarityBonus` dont `hpToRepair` fait partie). Réparation =
+    1 coup → PAS de `× hits` (comme le soin, MAJ #37/#79). Niveau = ACTIF (réparation native, +0xB8).
+    Renvoie None si l'unité n'a pas de réparation Comparable à `hpToRepair` → l'appelant retombe alors sur
+    la saturation `fill = missing` (approximation documentée, sans régression)."""
+    if not caster_visual_id:
+        return None
+    import gameconfig as _GC
+    u = _GC.unit(caster_visual_id) or (_GC.unit(_GC.resolve_unit_id(caster_visual_id) or "") if
+                                       _GC.resolve_unit_id(caster_visual_id) else None)
+    key = _repair_config_key((u or {}).get("activeAbilities"))
+    if not key:
+        return None
+    from engine.entities.effects.magnitude import ability_var  # lazy : évite tout cycle d'import
+    return ability_var(key, "hpToRepair", active_level, multiplier_pct=multiplier_pct)
+
+
 @dataclass
 class RepairPrediction:
     """Sortie 4-ints de `PredictRepair` : PV + Armor courants + remplissage effectif sur chacun."""

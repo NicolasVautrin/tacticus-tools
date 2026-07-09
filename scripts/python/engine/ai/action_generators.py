@@ -42,7 +42,8 @@ from engine.playbook import get_playbook_or_default, tile_utility
 from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK, HEAL_PLAYBOOK
 from engine.playbook.bespoke_heals import BESPOKE_SELFCAST   # #82 : BloodChalice/MomentShackle self-cast
 from engine.predict import (repair_utility,            # RepairedAmountUtility (analogue non-custom du soin)
-                            predict_heal_effective, heal_amount_config)  # magnitude soin OFFLINE (#79)
+                            predict_heal_effective, heal_amount_config,   # magnitude soin OFFLINE (#79)
+                            predict_repair_effective, repair_amount_config)  # magnitude repair OFFLINE (#83)
 from engine.ai.bucket import Action, Bucket
 
 
@@ -253,10 +254,13 @@ class ComparableAbilityGenerator(ActionGenerator):
         `repair_utility` (RepairedAmountUtility : `fill_hp/(maxHP+1)×100 + fill_armor/(maxArmor+1)×50`,
         PAS de friendSign — répare ses propres machines) ; gate `ShouldExecute` : pred > 0.
 
-        SIMPLIFICATIONS (1er wiring, notées) : (a) `fill_hp = missing_hp` SATURÉ (repairAmount supposé
-        >= manquant, comme `_heal_candidates` avec `missing`) — le repairAmount exact (config d'ability
-        via predict_repair_effective) est un raffinement ; (b) terme ARMOR = 0 (armure courante/max non
-        exposée dans observeBattle.units → à capturer ; W_armor=50 < W_hp=100, terme secondaire)."""
+        MAGNITUDE (#83) : `RepairAmount @1811c4860` = `hpToRepair[activeLevel]` de la clé CONCRÈTE de
+        l'unité (`repair_amount_config` : nom runtime `Repair` GÉNÉRIQUE → clé résolue via gameconfig
+        `activeAbilities`, ex. necroReanimator → ReanimationBeam). `PredictRepair @181038280` remplit DEUX
+        stats via `MaxFillUp` : Health(5) + Armor(4) → `fill_hp`/`fill_armor` = `min(repairAmount,
+        manquant_i)` (`predict_repair_effective`). Armor courante/max = `observeBattle.armor/armorMax`
+        (ArmorComponent, #83). `repair_amt` None (unité sans réparation Comparable à `hpToRepair`) →
+        saturation `fill = missing` (approximation documentée, sans régression)."""
         me = ctx.me
         repair_abis = [ab for ab in ((me or {}).get("abilities") or [])
                        if ab.get("id") in _COMPARABLE_REPAIR_IDS and ab.get("usable") is not False]
@@ -268,6 +272,11 @@ class ComparableAbilityGenerator(ActionGenerator):
         reach = ([ctx.origin] if ctx.origin is not None else []) \
             + [(t["col"], t["row"]) for t in ctx.move_tiles]
         REPAIR_RANGE = 1  # gameconfig : repair ciblé adjacent (pas de `range` propre observé)
+        # Magnitude REPAIR OFFLINE = hpToRepair[activeLevel] × rareté (résolu 1x : dépend du caster, pas de
+        # la cible). Niveau = ACTIF (réparation native, +0xB8) via heal_config (même source unitConfig).
+        _rc = ctx.heal_config(ctx.uid)
+        _caster_vid = (obs_by_sq.get(ctx.uid) or {}).get("visualId")
+        repair_amt = repair_amount_config(_caster_vid, _rc["active"], _rc["multiplier"])
         out = []
         for ab in repair_abis:
             aid = ab.get("id")
@@ -283,11 +292,19 @@ class ComparableAbilityGenerator(ActionGenerator):
                 ob = obs_by_sq.get(tg) or {}
                 hp_max = int(ob.get("hpMax") or 0)
                 hp_cur = int(ob.get("hp") or 0)
-                fill_hp = max(0, hp_max - hp_cur)          # (a) saturation missing ; (b) armor=0
-                pred = repair_utility(fill_hp, hp_max, 0, 0, is_boss=False)
+                arm_max = int(ob.get("armorMax") or 0)
+                arm_cur = int(ob.get("armor") or 0)
+                if repair_amt is None:   # pas de magnitude Comparable -> saturation (approx documentée)
+                    fill_hp = max(0, hp_max - hp_cur)
+                    fill_armor = max(0, arm_max - arm_cur)
+                else:                    # PredictRepair : min(repairAmount, manquant) par stat (Health+Armor)
+                    rp = predict_repair_effective(repair_amt, hp_cur, hp_max, arm_cur, arm_max)
+                    fill_hp, fill_armor = rp.fill_hp, rp.fill_armor
+                pred = repair_utility(fill_hp, hp_max, fill_armor, arm_max, is_boss=False)
                 if ctx.debug:
                     print(f"    [dbg repair u{ctx.uid}->{tg}] vis={ob.get('visualId')} "
-                          f"hp={hp_cur}/{hp_max} fill={fill_hp} pred={pred}", file=sys.stderr)
+                          f"hp={hp_cur}/{hp_max} arm={arm_cur}/{arm_max} repairAmt={repair_amt} "
+                          f"fillHp={fill_hp} fillArm={fill_armor} pred={pred}", file=sys.stderr)
                 if pred <= 0:
                     continue   # ShouldExecute : émet la réparation SSI pred > 0
                 tpos = pos_by_id.get(tg)

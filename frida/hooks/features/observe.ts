@@ -78,6 +78,10 @@ interface UnitObservation {
     row: number | null;
     hp: number | null;
     hpMax: number | null;
+    /** Depletable armor pool (ArmorComponent, StatType.Armor=4). null if the
+     * unit has no ArmorComponent (unarmored). Feeds the repair ARMOR term (#83). */
+    armor: number | null;
+    armorMax: number | null;
     rank: number | null;
     isDead: boolean;
 }
@@ -159,6 +163,8 @@ function observeBattle(opts?: { runnerId?: number }): BattleObservation {
             row: u.pos?.row ?? null,
             hp: u.hp,
             hpMax: u.maxHp,
+            armor: u.armor,
+            armorMax: u.armorMax,
             rank: u.rank,
             isDead: u.isDead,
         });

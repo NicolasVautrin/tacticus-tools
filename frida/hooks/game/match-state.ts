@@ -34,6 +34,12 @@ export const positionComponentClass = findClassAnywhere(
     "IdunBattle.Entities.Components", "PositionComponent");
 const healthComponentClass = findClassAnywhere(
     "IdunBattle.Entities.Components", "HealthComponent");
+// ArmorComponent extends FillUpStatComponent (same Maximum@0x14 / Remaining@0x18
+// layout as HealthComponent) — StatType.Armor=4, the DEPLETABLE armor pool that
+// PredictRepair @181038280 fills (distinct from FixedArmorComponent=16). Read for
+// the repair magnitude ARMOR term (#83). Absent on unarmored units → armor stays null.
+const armorComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "ArmorComponent");
 const movementComponentClass = findClassAnywhere(
     "IdunBattle.Entities.Components", "MovementComponent");
 const ownerComponentClass = findClassAnywhere(
@@ -255,6 +261,10 @@ export interface UnitProjection {
     pos: { col: number; row: number } | null;
     hp: number | null;
     maxHp: number | null;
+    /** Depletable armor pool (ArmorComponent, StatType.Armor=4). null if
+     * unarmored. Feeds the repair ARMOR term (#83). */
+    armor: number | null;
+    armorMax: number | null;
     ownerId: number | null;
     /** TeamId enum value (1, 2, 3) read from the player's PlayerComponent.
      * Lets the front color units by team without a config-side mapping. */
@@ -361,6 +371,10 @@ export function forEachComponent(
 interface SquadStats {
     hp: number | null;
     maxHp: number | null;
+    /** ArmorComponent RemainingValue/MaximumValue (StatType.Armor=4). null on
+     * unarmored units (no ArmorComponent). Feeds the repair ARMOR term (#83). */
+    armor: number | null;
+    armorMax: number | null;
     ownerId: number | null;
     visualId: string | null;
     rank: number | null;
@@ -373,7 +387,7 @@ interface SquadStats {
  * PositionComponent. */
 function projectSquadStats(entityPtr: NativePointer): SquadStats {
     const out: SquadStats = {
-        hp: null, maxHp: null, ownerId: null,
+        hp: null, maxHp: null, armor: null, armorMax: null, ownerId: null,
         visualId: null, rank: null, isDead: false,
     };
     try {
@@ -381,6 +395,10 @@ function projectSquadStats(entityPtr: NativePointer): SquadStats {
             if (healthComponentClass && klass.equals(healthComponentClass)) {
                 out.hp = comp.add(COMP_FIELD.hpRemaining).readS32();
                 out.maxHp = comp.add(COMP_FIELD.hpMax).readS32();
+            } else if (armorComponentClass && klass.equals(armorComponentClass)) {
+                // Same FillUpStatComponent layout: Remaining@0x18, Maximum@0x14.
+                out.armor = comp.add(COMP_FIELD.hpRemaining).readS32();
+                out.armorMax = comp.add(COMP_FIELD.hpMax).readS32();
             } else if (ownerComponentClass && klass.equals(ownerComponentClass)) {
                 out.ownerId = comp.add(COMP_FIELD.ownerPlayerId).readS32();
             } else if (unitComponentClass && klass.equals(unitComponentClass)) {
@@ -594,6 +612,8 @@ export function projectMatchState(
             pos,
             hp: parent?.hp ?? null,
             maxHp: parent?.maxHp ?? null,
+            armor: parent?.armor ?? null,
+            armorMax: parent?.armorMax ?? null,
             ownerId: parent?.ownerId ?? null,
             teamId,
             visualId: parent?.visualId ?? null,

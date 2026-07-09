@@ -296,7 +296,49 @@ blessé ; MomentShackle util=25 dès 1 ennemi adjacent) ; port == natif (MATCH a
 pas observés. NON encore confirmé : agreement quand la bespoke est l'action CHOISIE (nécessite un craft où
 sa util bat l'attaque — enemies tanky + condition remplie).
 
-## Exemple bespoke — `Loki.SaviorProtocolsPlaybook` (base `TriggeredAbilityPlaybook<T>`)
+### MAJ #83 (2026-07-09) — magnitude du régime COMPARABLE repair câblée (jumeau #79) + hook armure
+
+Clôt le **gap wiring** repair (jumeau exact de #79) : `_repair_candidates` **saturait** `fill_hp = missing`
+et `fill_armor = 0` au lieu de la vraie magnitude `RepairAmount` sur les DEUX stats. Fidélité restaurée.
+
+- **Chaîne native (décompilée, gqfc5mff6c)** : `RepairAbility.RepairAmount @1811c4860` =
+  `StatAmount(weapon@+0x160) × Max(WeaponHighestHits,1)` — **structure BIT-IDENTIQUE à `HealAbility.HealAmount`**.
+  → `DamagePrediction.PredictRepair @181038280` : lit `GetStat(Health=5,Current)` + `GetStat(Armor=4,Current)`,
+  applique le RepairModifier caster (`floor((floor(modAdd)+amt)×modMul)`, no-op ⇒ amt), caps group/boss, puis
+  **DEUX** `FillUpStatComponent.MaxFillUp @180f9b790` : Health (→`fill_hp`) + **Armor** (→`fill_armor`), chacun
+  `min(repairAmount, maximum_i − current_i)`. Utilité = `RepairedAmountUtility` (#37) : `fill_hp/(maxHP+1)×100
+  + fill_armor/(maxArmor+1)×50`, **pas** de friendSign (répare ses propres machines).
+- **Magnitude OFFLINE** = `hpToRepair[activeLevel]` × rareté, via `ability_var` (comme #79). **NUANCE vs heal**
+  (piège) : le nom runtime de la réparation est l'enum **GÉNÉRIQUE** (`Repair`=28 / `Repair_GalvanicField`=1119),
+  PAS la clé de config (contrairement au soin dont le nom accordé EST la clé). La magnitude vit sous une clé
+  **PAR-UNITÉ** (`ReanimationBeam`, `FabricatorClawArray`, …). Résolue par
+  `predict._repair_config_key(unit.activeAbilities)` = l'entrée `hpToRepair` de la liste `activeAbilities` du
+  gameconfig qui n'est PAS une réparation NonComparable (`{NanoscarabRepairProtocols(1224),
+  DefendTheDivineWork(1117)}`). Ex. necroReanimator `{ReanimationBeam, NanoscarabRepairProtocols}` →
+  `ReanimationBeam` → `hpToRepair[17]=228` (×1.8 rareté = 410). `repair_amount_config(visualId, activeLvl,
+  mult)` renvoie None si pas de réparation Comparable → saturation `fill=missing` (fallback documenté).
+- **Hook ARMURE (nouveau)** : le terme armure exige l'armure courante/max, ABSENTE d'`observeBattle`. Ajouté :
+  `match-state.ts` lit `ArmorComponent` (StatType.Armor=4, même layout FillUpStatComponent que Health :
+  Maximum@0x14 / Remaining@0x18 ; distinct de `FixedArmorComponent=16` = mitigation) → `observeBattle.armor/
+  armorMax`. **Validé live** : lecture correcte (renvoie 0 réel, pas le `null` défaut → le composant EST trouvé)
+  — mais la POOL d'armure (StatType.Armor=4) est **0 au spawn** pour Necron/Marine/AdMech (mitigation =
+  `fixedArmor`, PAS ce pool). Donc le terme armure = 0 fidèle (natif lit le même `GetStat(Armor=4)=0`) ; il ne
+  contribue que si une unité a une pool d'armure non-nulle (non observé sur ces rosters).
+- **Câblage** : `predict.repair_amount_config`/`_repair_config_key` + `_repair_candidates`
+  (`predict_repair_effective(repair_amt, hp_cur, hp_max, arm_cur, arm_max)` → `fill_hp`/`fill_armor`).
+- **Validation LIVE — IMPOSSIBLE (blocage dur, jumeau #79 spaceWolfPriest)** : `_repair_candidates` (id 28/1119)
+  n'a **qu'UN SEUL** porteur lineup — **necroReanimator** (`ReanimationBeam`) ; les autres clés `hpToRepair`
+  (FabricatorClawArray, RelentlessMarch, SelfRepairMechanism) sont des **PASSIFS** (ne déclenchent jamais
+  `_repair_candidates`), et admecManipulus utilise le NonComparable `DefendTheDivineWork` (#77). Or
+  necroReanimator est **UNSPAWNABLE** dans ce build — confirmé EXHAUSTIVEMENT : `--p-units` (blocklist
+  `unspawnable_rank17.json`), `buildPatchedRunner aiUnits` côté AI (**silently dropped** : 11/12 spawnent, le slot
+  Reanimator disparaît), format `:17`, variante NPC `necroNpcMoWReanimator` (droppée aussi), pas dans le pool
+  MoW (8 MoW, aucun Reanimator). ⇒ aucune unité spawnable n'exerce le chemin Comparable-repair. **Validation
+  atteignable** : chaîne magnitude numériquement EXACTE offline (228 / ×1.8=410 / caps HP+Armor / non-repair→None)
+  + hook armure live-prouvé + no-régression STRUCTURELLE (aucune unité pool n'a de repair Comparable → décisions
+  pool inchangées, le gate `id∈{28,1119}` reste vide) + glue = jumeau ligne-à-ligne de `_heal_candidates` (#79).
+  La décision-agreement live restera bloquée tant qu'un build/roster ne rend pas un porteur Comparable-repair
+  spawnable (même classe que #79 « reporté bas-ROI »).
 
 ctor pose l'ability id **`0x460` (1120)**. Deux scorers :
 
