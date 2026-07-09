@@ -33,8 +33,36 @@ None (additif absent de la prediction, matche le DISPLAY) ; `build_attacker_modi
 le trigger natif contient IsNormalAttack ; RapidAssault/FightingRetreat = OwnerIsCaster seul, non gates).
 VALIDE : deterministe off_avec == off_sans == (964,1448) ~= oracle (948,1311) [avant : off_avec=(1563,2047)] ;
 test_predict_live 2/2 (RapidAssault matche) ; combat armored/ability 2/2 (is_prediction=False, SmashaEad
-reste en combat). Chemin #64 (debuff stat-mod) = branche separee, non touchee. (Combat magnitude/presence
-SmashaEad = incertitude #68 separee, confondue par GetStuckIn.)
+reste en combat). Chemin #64 (debuff stat-mod) = branche separee, non touchee.
+
+**MAJ 2026-07-09 (GetStuckIn combat porte => confond LEVE) — DIAGNOSTIC : MAGNITUDE ~2x, PAS presence.**
+Replay-diff orksNob->bloodIntercessor (cible NON-Big, seed 4242, per-hit) en isolant la contribution SmashaEad :
+- `off_SANS_SmashaEad` = [1240,1438,1226]
+- `live`              = [1540,1738,1526]  = off_sans **+ 300 CONSTANT**
+- `off_AVEC_SmashaEad` (port, 599/coup) = [1839,2037,1825] = off_sans **+ 599**
+(base=2411 ; effects offline=[BeastSlayer_ExtraDmg, BeastSlayer_ExtraBlock, SmashaEad]).
+=> **le LIVE applique bien SmashaEad en combat (~+300/coup), le PORT applique ~+599/coup = ~2x trop grand.**
+La 1re hypothese "SmashaEad absent en combat" (fix `return None`) etait FAUSSE : le fix a fait passer off SOUS
+live (-300) => REVERT. L'ecart CONSTANT sur des coups a rolls DIFFERENTS => additif POST-reduction constant
+(donc NI placement pre-percage — #69 reste valide — NI per-coup-vs-once — les deux sont per-coup). GetStuckIn
+ECARTE (coup index 0 PAIR sans Maybe porte le meme offset ; l'ecart constant a travers la frontiere Maybe
+PROUVE le bon positionnement du tirage, cf. case-62c). RESTE #68 = **RE de la VALEUR** : `extraDmg` (array
+gameconfig) x `ability_variables_multiplier` x niveau (`active_ability_level`) -> pourquoi 599 vs ~300 live
+(facteur ~2 : multiplier double-applique ? mauvais niveau ? confusion extraDmg/extraDmg_2 ?). Corriger la
+valeur => off==live => test xfail `test_getstuckin_combat_absolute_bit_exact` xpass. `IsNormalAttack`
+(= `IsRegularAttack(ability declenchante)` @180f8d260/@181555b40) = FALSE sans contexte d'ability (explique
+l'absence en PREDICTION display #71), mais en COMBAT SmashaEad EST bien applique (presence confirmee).
+
+**RESOLU (RE re-expert, bit-exact) : le bug = le MULTIPLIER (180 au lieu de 90).** Formule native PROUVEE :
+additif = `round(extraDmg[level-1] x multiplier/100)` (ConfigVar(8)@180f6bee0 -> ConfigAmount.Calculate@180f171c0
+-> GetVariableForLevel@181576fb0 -> TryGetVariableArrayForLevel@181577510 ; index=level-1 @181565ce0 ; multiplier
+applique SSI var in variablesAffectedByRarityBonus, lu = `AbilityState+4`). level=50/extraDmg[49]=333/index :
+tous CORRECTS. SEUL le multiplier est faux : le port prend `self.ability_variables_multiplier=180` (UnitConfig
++0x74 = multiplier de l'ability PRIMAIRE/active) ; or la TRIGGERED SmashaEad a son PROPRE multiplier par-ability
+= **90** (`GetAbilityVariablesMultiplierPercentage(abilityId)@181696230` est PAR-ABILITY : +0x24 ou +0x2c selon
+appartenance liste). `round(333x0.9)=300` = live EXACT ; `round(333x1.8)=599` = port. Ce multiplier par-ability
+des triggered N'est capte par AUCUN champ actuel (combatSnapshot = UnitConfig +0x74=180/+0x78=100, aucun=90) ->
+fix FIDELE = nouveau capteur (tache #75) ; stopgap `mult/2` = coincidence non generalisee (a FLAGGER hardcode).
 
 ---
 
@@ -111,9 +139,20 @@ bit-exact. NB : `--block-target` (chance 100) NE l'exercait PAS (100% ne rate ja
 chaque coup ; c'est pourquoi le test block de base passait sans ce gating). Refacto au passage (#72) : helpers
 partages `_block_sources` + `_crit_params` (dedup des 3 vecteurs normale/ability/splash).
 
-> **A VERIFIER (hint utilisateur "comme les crits")** : le CRIT a-t-il le meme gating (stop apres le 1er
-> non-crit sur un coup) ? Crit = stat unique (GetStat 9), PAS une multi-value avec failedList -> mecanisme
-> PROBABLEMENT different, mais NON confirme. Tache dediee (RE + test multi-coups CC<100).
+> **RESOLU 2026-07-09 (#73) — le CRIT n'a PAS ce gating (le port etait deja correct).** RE fidele
+> (decompile) : la fonction de roll `DamagePrediction.RollCritical @1810387a0` (-> `DamageCalculations.RollCritical
+> @1810057b0` = `NextBool(chance)`) est SANS ETAT : chance = `GetStat(attaquant, 9)` + `GetCritChanceBonusFromEffects`,
+> `<1` -> false sans tirage, sinon `NextBool` ; AUCUN input de coup precedent, AUCUN accumulateur "deja rate".
+> `CalculateCriticalDamage @18102da90` = `GetStat(10)`+bonus, pur, sans RNG. Dans `ExecuteHit @180e5eff0`, le
+> block appelle explicitement `OperationResult.AddFailedBlockIds` (threade par `ExecuteHits`->`RegisterBlocks`->
+> HitGroup) ; il N'EXISTE AUCUN "AddFailedCrit" analogue, et la chance de crit passee chaque coup est un champ
+> constant (jamais reduit apres un non-crit). Le gating du BLOCK existe PARCE QUE le block est multi-source (chaque
+> source a un id -> exclusion individuelle) ; le crit est une chance UNIQUE -> rien a exclure. Chaque coup tire le
+> crit INDEPENDAMMENT (deja valide bit-exact a CC=100 : RollCritical tire a CHAQUE coup, 2 tirages/coup). Le
+> "comme les crits" utilisateur = analogie libre, PAS un mecanisme partage. Port `_run_hits` (crit independant
+> par coup) = deja fidele, aucun changement de code. Nuance distincte (hors #73) : le natif relit `GetStat(9)`+bonus
+> PAR COUP alors que le port lit `crit_chance` UNE FOIS avant la boucle -> divergerait seulement si un effet
+> modifiait la crit-chance de l'ATTAQUANT EN COURS d'attaque (aucun porteur connu ; suivi en tache separee).
 
 **(RE conserve)** c'est un ROLL de bloc SUPPLEMENTAIRE (pas un simple bonus de chance).
 - `GetBlockChance @180e19120` = `GetNumberConstant(0x2d)` = `beastSlayerBlockChance` = **10%**.

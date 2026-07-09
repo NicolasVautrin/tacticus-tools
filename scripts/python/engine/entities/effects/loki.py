@@ -59,10 +59,18 @@ class SmashaEadExtraDamageEffect(BaseEffect):
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False) -> EffectBonus | None:
         # #71 : trigger natif = OwnerIsCaster & IsNormalAttack (@180f6bee0). Le noeud DSL IsNormalAttack
-        # evalue FALSE dans le contexte PREDICTION DISPLAY (verdict re-expert : additif absent de
+        # (= `IsRegularAttack(ability DECLENCHANTE)` @180f8d260/@181555b40, FALSE si pas d'ability dans le
+        # contexte) evalue FALSE dans le contexte PREDICTION DISPLAY (verdict re-expert : additif absent de
         # decisionView ; off_sans ~= oracle) -> l'additif ne doit PAS entrer dans la DamageModifiers de
-        # PREDICTION. En COMBAT (is_prediction=False) IsNormalAttack=True -> additif applique. RapidAssault
-        # (trigger OwnerIsCaster SEUL) N'est PAS gate ainsi -> il matche le DISPLAY.
+        # PREDICTION. En COMBAT (is_prediction=False) l'additif est applique.
+        # ⚠ #68 (BUG MAGNITUDE = MULTIPLIER, RE close bit-exact) : le COMBAT live applique +300/coup exact
+        # (round(extraDmg[L50]=333 x 90/100)) alors que ce port applique +599 (round(333 x 180/100)) -> SUR-
+        # applique ~2x. Le niveau (50), la variable (extraDmg) et l'index (level-1) sont CORRECTS ; SEUL le
+        # multiplier est faux : `self.ability_variables_multiplier=180` est le multiplier GLOBAL/primaire de
+        # l'unite (UnitConfig+0x74), or la TRIGGERED SmashaEad a son PROPRE multiplier par-ability = 90
+        # (`GetAbilityVariablesMultiplierPercentage(abilityId)@181696230` est PAR-ABILITY). Ce multiplier
+        # par-ability des triggered n'est capte par AUCUN champ actuel -> fix FIDELE = nouveau capteur (tache
+        # #75) ; presence CORRECTE. Test xfail test_getstuckin_combat_absolute_bit_exact -> xpass apres fix.
         if is_prediction:
             return None
         lvl = (self.active_ability_level if self.active_ability_level is not None

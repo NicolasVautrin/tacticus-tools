@@ -31,6 +31,12 @@ même pipeline) — PAS l'`ApplyCritDamage` post-réduction (base+bonus) de la P
 Confirmé bit-exact : crit per-coup [675,1012] = non-crit [435,652]×(906+500)/906, et
 next_internal(675,1013) aux tirages impairs = live [932,882,967,867,961,955] à l'unité.
 
+**#73 (RE close, 2026-07-09) : le crit N'A PAS de gating inter-coups** (contrairement au block #72).
+`RollCritical @1810387a0`→`@1810057b0` = NextBool(GetStat(9)+bonus) SANS ETAT ; pas d'"AddFailedCrit"
+dans `ExecuteHit @180e5eff0` (le block, lui, a `AddFailedBlockIds`). Chaque coup tire le crit INDÉPENDAMMENT
+avec la même chance ⇒ `_run_hits` (crit par-coup, aucun accumulateur) est déjà fidèle. Le block gate PARCE
+QUE multi-source (id par source) ; le crit est chance unique ⇒ rien à exclure. (Détail : docs/rl/case-68.)
+
 **ORDRE réduction↔tirage (CORRIGÉ — confirmé live 18/18 coups, 3 seeds, necroDestroyer 6h**
 **mêlée → eldarFarseer)** : la réduction perçage/armure/modifiers est appliquée aux BORNES
 du `HitDamage` D'ABORD (le struct porte la plage RÉDUITE `[reduce(base−delta), reduce(base+delta)]`),
@@ -56,7 +62,7 @@ from ..components import (StatsComponent, HealthComponent, PositionComponent, Un
                          ShieldComponent)
 from ..damage_model import (select_weapon, select_weapon_pierce, attacker_modifiers,
                             defender_modifiers, build_hits_board, apply_elevation_bonus,
-                            target_trait_names)
+                            target_trait_names, getstuckin_combat_chance)
 from ...entities.effects import (hits_bonus_from_effects, crit_chance_bonus_from_effects,
                                  crit_damage_bonus_from_effects, defender_effect_block_sources)
 
@@ -294,8 +300,14 @@ class AttackDamageOperation:
         # BOUCLIER cible : absorbe le coup réduit AVANT les PV (CalculateDamageOperation shield-first) ;
         # _run_hits déplète le bouclier entre coups (shield -= dmg.shield), total = part SANTÉ seule.
         shc, shield_total = AttackDamageOperation._target_shield(tgt)
+        # #62c GetStuckIn (combat) : chance des coups bonus (behaviour Maybe chance-gate @180f83280) — None si
+        # l'attaquant ne porte pas GetStuckIn ou si la cible est a >2 hex. cf. getstuckin_combat_chance + _run_hits.
+        _gsi = getstuckin_combat_chance(state, attacker_id, target_id,
+                                        (ap.col, ap.row) if ap is not None else None,
+                                        (tp.col, tp.row) if tp is not None else None, state.board)
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
-                                            crit_enabled, hits, block_sources, shield=shield_total)
+                                            crit_enabled, hits, block_sources, shield=shield_total,
+                                            bonus_hit_chance=_gsi)
         AttackDamageOperation._deplete_shield(shc, r)
         death = None
         if thc.hp is not None:
@@ -314,7 +326,8 @@ class AttackDamageOperation:
     @staticmethod
     def _run_hits(rng: IntBasedMersenneTwister, hit_nc: "HitDamage", hit_cr: "HitDamage",
                   crit_chance: int, crit_enabled: bool, hits: int, block_sources,
-                  shield: int = 0, armor_pool: int = 0, armor_pct: int = 0, post_roll=None) -> dict:
+                  shield: int = 0, armor_pool: int = 0, armor_pct: int = 0, post_roll=None,
+                  bonus_hit_chance: Optional[int] = None) -> dict:
         """Boucle PAR COUP partagée (attaque normale ET ability) : pour chaque coup, crit-roll D'ABORD
         (1 tirage NextBool si cc>=1, sinon 0) PUIS tirage dans `hit_cr`/`hit_nc`, PUIS split combat
         (bouclier/armure-pool/block, `calculate_damage_operation`). Ordre RNG crit->spread->block confirmé.
@@ -325,6 +338,16 @@ class AttackDamageOperation:
           • ABILITY = roll-then-reduce : `hit_nc`/`hit_cr` = bornes BRUTES config (RandomAmount(min,max)),
             `post_roll=_reduce` → on tire le BRUT puis on réduit (modulo sur la largeur BRUTE != réduite ;
             confirmé bit-exact ThunderousAssault: roll-then-reduce draw0 = live 6948).
+
+        #62c GetStuckIn (COMBAT) : si `bonus_hit_chance` non None (attaquant porteur GetStuckIn + cible à
+        <=2 hex, cf. `getstuckin_combat_chance`), APRÈS crit+spread+block de chaque coup d'INDEX IMPAIR
+        (0-based) on tire 1 `next_bool(chance)` — mirror du behaviour `Maybe(AddBonusHits, GetBonusHitChance)`
+        (`CreateBehaviour @180f83280`, roll `MaybeBehaviour.Execute @180fc9dc0`) évalué dans
+        `EvaluateAfterHitTriggers @180e25fc0` (dernière instr. de `ExecuteHit`). Chaque SUCCÈS d'un coup de
+        BASE ajoute 1 coup bonus DÉFÉRÉ (FIFO, `ExecuteAdditionalHitsWithoutDamageProfileType @180e5e7c0`,
+        gate natif `attack.count==1 && !additionalHitsFlag`) exécuté APRÈS la boucle de base, MÊME profil
+        réduit. Un coup bonus d'index impair RE-tire un Maybe (tirage consommé) mais son succès est IGNORÉ
+        (anti-récursion). `bonus_hit_chance is None` (défaut) => strict no-op (rétro-compat totale).
         Renvoie total/per_hit/rolls/crits + flags. Pools déplétés entre coups (0 -> invariant)."""
         total = shield_dmg = armor_dmg = 0
         did_crit = did_block = did_evade = False
@@ -332,7 +355,12 @@ class AttackDamageOperation:
         rolls: list[int] = []
         per_hit: list[int] = []
         failed_block: set = set()          # ids de sources de block AYANT ECHOUE (accumule ENTRE coups, #72)
-        for _ in range(hits):
+
+        def _one_hit(idx: int) -> bool:
+            """Un coup complet crit->spread->block + le roll Maybe GetStuckIn si `idx` impair. Renvoie True
+            si le Maybe a RÉUSSI (coup bonus à spawner) — le caller décide de l'exécuter (base) ou l'ignore
+            (bonus, anti-récursion)."""
+            nonlocal total, shield, armor_pool, shield_dmg, armor_dmg, did_crit, did_block, did_evade
             crit = roll_critical(rng, crit_chance) if crit_enabled else False
             crits.append(crit)
             hd = hit_cr if crit else hit_nc
@@ -360,9 +388,26 @@ class AttackDamageOperation:
             did_crit |= crit
             did_block |= dmg.did_block
             did_evade |= dmg.did_evade
+            # #62c : behaviour Maybe(GetBonusHitChance) sur coup d'INDEX IMPAIR (0-based), APRES le degat.
+            if bonus_hit_chance is not None and (idx % 2 == 1):
+                return rng.next_bool(bonus_hit_chance)      # 1 tirage genrand (chance 30/100, toujours >=1)
+            return False
+
+        base_bonus = 0
+        for i in range(hits):
+            if _one_hit(i):
+                base_bonus += 1
+        # #62c : coups bonus DEFERES (FIFO) apres la boucle de base — exactement `base_bonus` coups (count=1
+        # par succes). Chaque coup bonus repasse le corps complet (crit/spread/block + re-roll Maybe si son
+        # index est impair) ; son succes eventuel est IGNORE (pas de recursion, garde native).
+        bonus_idx = hits
+        for _ in range(base_bonus):
+            _one_hit(bonus_idx)
+            bonus_idx += 1
         return {"total": total, "shield_dmg": shield_dmg, "armor_dmg": armor_dmg,
                 "did_crit": did_crit, "did_block": did_block, "did_evade": did_evade,
-                "crits": crits, "rolls": rolls, "per_hit": per_hit}
+                "crits": crits, "rolls": rolls, "per_hit": per_hit,
+                "bonus_hits": base_bonus}
 
     @staticmethod
     def execute_ability_attack(state: State, attacker_id: int, target_id: int,

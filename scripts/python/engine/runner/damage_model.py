@@ -22,16 +22,18 @@ from __future__ import annotations
 from typing import Optional, Tuple
 
 from .state import State
-from .components import StatsComponent, HealthComponent
+from .components import StatsComponent, HealthComponent, OwnerComponent, PositionComponent
 from ..entities.stats import StatType
 from ..services.damage_prediction import get_attack_prediction, apply_pierce_and_modifiers
 from ..services.battle_query import (
     get_attack_weapon_for_default_normal_attack,
-    select_weapon_pierce as _bq_select_weapon_pierce)
+    select_weapon_pierce as _bq_select_weapon_pierce,
+    are_tiles_adjacent)
 from ..entities.effects import (
     build_attacker_modifiers_from_effects, build_defender_modifiers_from_effects,
     hits_bonus_from_effects,
 )
+from ..entities.traits.combat import GetStuckInTrait
 
 _BIG_HP = 1 << 30          # santé cible « infinie » → scenario sans overkill/cap
 
@@ -173,6 +175,50 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
              "tgt_team": team_by_id.get(tgt_id), "is_melee": is_melee,
              "pos_by_id": pos_by_id, "team_by_id": team_by_id}
     return board, aura_sources, target_effects
+
+
+def getstuckin_combat_chance(state: State, att_id: int, tgt_id: int,
+                             attack_pos, t_pos, board) -> Optional[int]:
+    """Chance du coup bonus GetStuckIn en COMBAT (#62c), ou None si GetStuckIn INACTIF pour cet
+    attaquant/cible. Mirror `GetStuckInAbility.GetBonusHitChance @180f83460` + gate trigger `@180f83350`
+    (`On(8) & IsOdd & OwnerIsCaster & !(MinDistance > 2)`).
+
+    Actif ssi l'attaquant PORTE GetStuckIn ET `hex_dist(caster,target) <= 2` (proxy cheby, MEME que la
+    prediction `GetStuckInTrait.as_attacker_bonus_hits`). Chance = `If(orks_adj(cible) >= 2 OU
+    amis_adj(caster) >= 4, ConfigConst(0x33)=100, ConfigConst(0x2a)=30)`.
+
+    GAP DOCUMENTE (case-62c point 4) : la branche `orks_adj(cible) >= 2` (faction Orks=5) N'EST PAS
+    calculee offline -- le runner ne porte PAS la FACTION (retiree de `build_hits_board` : `visual_id` ne
+    distingue pas 2 instances du meme type en miroir). Seul `amis_adj(caster) >= 4` (team via
+    OwnerComponent, adjacence via le service partage `are_tiles_adjacent`) est evalue -> en 1v1 = 30
+    (la branche 100 n'est de toute facon pas confirmee live)."""
+    if attack_pos is None or t_pos is None:
+        return None
+    att = state.get_entity(att_id)
+    sc = att.get_component(StatsComponent) if att is not None else None
+    if sc is None:
+        return None
+    if not any(isinstance(t, GetStuckInTrait) for t in sc.ctx.trait_objects()):
+        return None
+    if _cheby(attack_pos, t_pos) > 2:            # !(MinDistance > 2) = cible a <=2 hex (trigger structurel)
+        return None
+    oc = att.get_component(OwnerComponent)
+    caster_team = oc.team if oc is not None else None
+    friends_adj = 0
+    if caster_team is not None:
+        for uid, e in state.entities.items():
+            if uid == att_id:
+                continue
+            oc2 = e.get_component(OwnerComponent)
+            pc2 = e.get_component(PositionComponent)
+            if oc2 is None or pc2 is None or oc2.team != caster_team:
+                continue
+            hc2 = e.get_component(HealthComponent)
+            if hc2 is not None and hc2.hp is not None and hc2.hp <= 0:
+                continue                         # unite morte -> non comptee
+            if are_tiles_adjacent(attack_pos, (pc2.col, pc2.row), board):
+                friends_adj += 1
+    return 100 if friends_adj >= 4 else 30
 
 
 def normal_attack_per_hit_range(state: State, unit_id: int) -> Optional[dict]:
