@@ -100,7 +100,8 @@ class NonComparableGenerator(ActionGenerator):
             elev_by_pos=ctx.elev_by_pos, ability_targets=ctx.ability_targets,
             wt=ctx.wt, is_temporary_by_pos=ctx.is_temporary_by_pos,
             effects_by_pos=ctx.effects_by_pos, obs_units=ctx.obs_units,
-            tile_id_by_pos=ctx.tile_id_by_pos, debug=ctx.debug)
+            tile_id_by_pos=ctx.tile_id_by_pos, active_levels=ctx.active_ability_levels,
+            units=ctx.units, debug=ctx.debug)
         bc = playbooks.choose_action((ctx.me or {}).get("abilities") or [], nc_ctx,
                                      priority=self.priority)
         if bc is None:

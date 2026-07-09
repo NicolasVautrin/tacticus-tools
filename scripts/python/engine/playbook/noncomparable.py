@@ -66,6 +66,24 @@ def _traits(visual_id) -> list:
     return _unit_cfg(visual_id).get("traits") or []
 
 
+def _sweep_origin_first(ctx: "NCContext") -> list:
+    """Ordre de balayage des positions candidates pour un SELF-CAST (heal/repair/rites) : ORIGINE
+    D'ABORD, puis les tuiles de move.
+
+    Le generateur natif `ActiveAbilityActionGenerator.<GenerateActions>d__7 @18119a3f0` evalue chaque
+    position dans un Bucket ; `Bucket.AddAction @1813fbcc0` SEED le 1er ajoute puis ne remplace QUE si
+    STRICTEMENT superieur (`System.TimeSpan.op_GreaterThan`) -> keep-first au tie. La `NullPosition`
+    (cast EN PLACE) est TOUJOURS evaluee. CONFIRME LIVE (#76, deathRotbone RevitalizingMalignancy) :
+    a utilite CONSTANTE (seul le caster blesse -> terme adjacents = 0) le natif RESTE EN PLACE (target
+    = MainTile origine), il ne bouge QUE si une tuile de move AMELIORE STRICTEMENT la somme de soin.
+    -> origine EN TETE du sweep + remplacement strict `>` = origine gagne le tie ; un move ne gagne
+    que sur gain strict. (Le port balayait `reach_nc` = [moves..., origine] -> gardait la 1re tuile de
+    move au tie -> divergence : bougeait pour rien.)"""
+    if ctx.origin is None:
+        return list(ctx.reach_nc)
+    return [ctx.origin] + [t for t in ctx.reach_nc if t != ctx.origin]
+
+
 @dataclass
 class NCContext:
     """Etat live consomme par les generators de playbook (bundle du scope engine_decide)."""
@@ -86,6 +104,10 @@ class NCContext:
     effects_by_pos: dict = field(default_factory=dict)       # Tile(7) (feuille TileEffects)
     tile_id_by_pos: dict = field(default_factory=dict)       # {(col,row): tileEntityId} (boardGraph) :
     #                            cible d'une self-cast AoE (heal) = MainTile-id du caster, PAS son unit-id
+    active_levels: object = None   # callable() -> {unitId: activeAbilityLevel} (lazy combatSnapshot) :
+    #                            niveau d'ability des allies pour InspiredToGreatness (util = level)
+    units: list = field(default_factory=list)   # dv.units (par-unite abilities + usable/cooldown) :
+    #                            etat cooldown des allies pour InspiredToGreatness (GetActive usable)
     debug: bool = False
 
 
@@ -244,11 +266,16 @@ class NovaBoostPlaybook(NonComparablePlaybook):
 
     STATUT : DECOMPILE-PROVEN, **ARENE-INAGREABLE** (Riptide non spawnable au rank 17 -> pas de test
     d'agreement live ; le mecanisme repose sur le decompile, tiers tranches a l'octet par le validateur).
-    - R1 CORRIGE : le natif évalue les tuiles de MOVE d'abord et l'ORIGINE en DERNIER (`NullPosition`,
-      `<GenerateActions>d__7 @18119a3f0`), `Bucket.AddAction` garde le 1er au tie. util=1 CONSTANTE ->
-      tie systématique -> **le natif BOUGE** (1re tuile de move). Fix = `reach_nc` origine-LAST
-      (context.py) + émission de `reach_nc[0]`. CAVEAT : la tuile de move EXACTE (ordre d'énumération
-      natif) n'est pas confirmable en agreement (arene-inagreable).
+    - R1 RESOLU (#80) : NovaBoost est un SELF-buff (cible = self, util=1 CONSTANTE) -> MEME CLASSE que les
+      self-cast heals. Le generateur `<GenerateActions>d__7 @18119a3f0` GATE chaque tuile de move par
+      `HasValidTargets(0x3f)(unit, movePos, ability)` puis `Bucket.AddAction` garde le 1er ajoute (NullPosition
+      = cast EN PLACE, TOUJOURS evaluee). Pour un SELF-target la cible (self) est position-INDEPENDANTE -> le
+      gate ne motive aucune tuile de move -> le natif CASTE EN PLACE. CONFIRME LIVE (self-cast heal #76 :
+      deathRotbone self-heal RESTE EN PLACE a util constante). FIX = `_sweep_origin_first` (origine d'abord ->
+      to=None), mirror du comportement heal confirme. [La fonction exacte de `HasValidTargets` est derriere un
+      dispatch d'interface (@180028910 = trampoline), non lisible statiquement -> la base est la COHERENCE
+      GENERATEUR + la classe self-target confirmee, PAS un agreement (arene-inagreable). Cf. NovaShield =
+      classe TILE-target, comportement OPPOSE.]
     - N1 : gate `ShouldEvaluate @18114f160` = `if query.slot0x1a(unit,2) then base.ShouldEvaluate else 0`
       (précondition Nova, prob. charge, + base) NON modélisé -> on s'appuie sur le filtre driver
       `usable is False` (supposé encoder la précondition). L'eligible-empty (`GetEligibleTargetsSelectable`
@@ -260,9 +287,10 @@ class NovaBoostPlaybook(NonComparablePlaybook):
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         if not self._has_eligible_target(ctx):
             return []   # N1 : GetEligibleTargetsSelectable vide -> le natif n'émet rien
-        # R1 : util=1 CONSTANTE -> tie sur toutes les positions -> keep-first sur reach_nc (origine-LAST)
-        # -> le natif prend la 1re tuile de MOVE (il BOUGE) ; origine seulement si aucun move.
-        to = next(iter(ctx.reach_nc), None)
+        # R1 RESOLU (#80) : SELF-target (util=1 CONSTANTE) = MEME CLASSE que les self-cast heals #76 -> le
+        # generateur gate les tuiles de move (self-cible position-independante) -> keep-first sur NullPosition
+        # => le natif RESTE EN PLACE. `_sweep_origin_first` (origine d'abord) -> to=None.
+        to = next(iter(_sweep_origin_first(ctx)), None)
         return [{"target": ctx.uid, "ability": self.ABILITY_ID,
                  "to": (to if to != ctx.origin else None), "pred": 1.0}]
 
@@ -291,10 +319,16 @@ class NovaShieldPlaybook(NonComparablePlaybook):
     = argmax STRICT `>`, gate util >= 1. Cible native = le CENTRE marqué (kind=tile).
     HYPOTHÈSE(trench) : flag isTrench non capturé -> ring géométrique complet (biais <=6 sur Count,
     écrasé par 100*enemies).
-    STATUT : DECOMPILE-PROVEN, ARENE-INAGREABLE (Riptide non spawnable). R1 : émission caster-pos
-    auto-corrigée par `reach_nc` origine-LAST (context.py) -> au tie constant (move_term~0) le natif
-    BOUGE (1re tuile de move), plus de biais rester-a-l'origine. R2 : `DislikeStartingTilesUtility` no-op
-    (poids BC non confirmé, arene-inagreable) -> tie-breaker origine-vs-move neutralisé (cf. utilities.py)."""
+    STATUT : DECOMPILE-PROVEN, ARENE-INAGREABLE (Riptide non spawnable). R1 (#80) : NovaShield est
+    TILE-target (marque un CENTRE hex, cible kind=tile) -> classe DIFFERENTE des self-cast heals/NovaBoost.
+    Le generateur `<GenerateActions>d__7 @18119a3f0` gate les tuiles de move par `HasValidTargets(0x3f)` :
+    pour une TILE-target les hex a marquer existent depuis la plupart des positions -> les tuiles de move NE
+    sont PAS gatees comme un self-cast -> au tie keep-first la 1re tuile de move gagne (le natif BOUGE). De
+    plus l'utilite DEPEND de la position (100*ennemis marques) -> argmax non-trivial, le tie-break n'est que
+    secondaire. => on GARDE le sweep origine-LAST (`ctx.reach_nc`). [UNVERIFIED : arene-inagreable +
+    `HasValidTargets` derriere dispatch d'interface ; la classe TILE-target n'a PAS de confirmation live comme
+    la classe self-target #76 -> ne PAS asserter fermement.] R2 : `DislikeStartingTilesUtility` no-op (poids
+    BC non confirmé, arene-inagreable)."""
     ABILITY_ID = 1194
     MIN_UTILITY = 1.0
     PRIORITY = -1000
@@ -401,14 +435,14 @@ class RitesOfRestorationPlaybook(NonComparablePlaybook):
                     and u.get("col") is not None}                # le caster (mobile) n'occupe pas
         board = ctx.elev_by_pos or {}
         best = None  # (T, util)
-        for T in ctx.reach_nc:
+        for T in _sweep_origin_first(ctx):   # ORIGINE d'abord : keep-first au tie -> reste en place (#76)
             res_tiles = [n for n in hexgeo.neighbors(*T)
                          if ((not board) or n in board) and n not in occupied]
             gate = (hero_dead >= 1 and len(res_tiles) >= 1) or (summon_dead >= 2 and len(res_tiles) >= 2)
             if not gate:
                 continue
-            heal_count = (1 if self_nonmech else 0) + sum(1 for p in ally_nonmech_pos
-                                                          if hexgeo.distance(T, p) == 1)
+            heal_count = (1 if self_nonmech else 0) + sum(
+                1 for p in ally_nonmech_pos if bq.is_adjacent(T, p, ctx.elev_by_pos))  # AdjacentUnits gate (#45/#76)
             util = 1.0 + heal_count
             if best is None or util > best[1]:   # strict > : 1er max garde (ordre reach_nc)
                 best = (T, util)
@@ -463,10 +497,11 @@ class CombatRestorativesPlaybook(NonComparablePlaybook):
                   if u.get("teamId") == team and not u.get("isDead")
                   and u.get("squadId") != ctx.uid and u.get("col") is not None]
         best = None  # (T, util)
-        for T in ctx.reach_nc:
-            # AdjacentUnits(caster@T, r=1) : plain hex-adjacence (precedent Rites l.408). La porte
-            # d'elevation |dElev|<2 d'IterateAdjacentTiles est un raffinement possible (non porte ici).
-            util = self_wound + sum(w for c, r, w in allies if hexgeo.distance(T, (c, r)) == 1)
+        for T in _sweep_origin_first(ctx):   # ORIGINE d'abord : keep-first au tie -> reste en place (#76)
+            # AdjacentUnits(caster@T, r=1) @180de8320 = AdjacentTiles + porte d'elevation |dElev|<2
+            # d'IterateAdjacentTiles (#45/#76). bq.is_adjacent = MEME adjacence que les comptages
+            # GetAdjacent* -> plus de fork raw-hexgeo qui sur-comptait des voisins hors-elevation.
+            util = self_wound + sum(w for c, r, w in allies if bq.is_adjacent(T, (c, r), ctx.elev_by_pos))
             if best is None or util > best[1]:         # strict > : 1er max garde (ordre reach_nc)
                 best = (T, util)
         if ctx.debug:
@@ -517,8 +552,9 @@ class DefendTheDivineWorkPlaybook(NonComparablePlaybook):
                   for u in obs if u.get("teamId") == team and not u.get("isDead")
                   and u.get("squadId") != ctx.uid and u.get("col") is not None]
         best = None  # (T, util)
-        for T in ctx.reach_nc:
-            adj = [(w, mech) for c, r, w, mech in allies if hexgeo.distance(T, (c, r)) == 1]
+        for T in _sweep_origin_first(ctx):   # ORIGINE d'abord : keep-first au tie -> reste en place (#76)
+            adj = [(w, mech) for c, r, w, mech in allies
+                   if bq.is_adjacent(T, (c, r), ctx.elev_by_pos)]   # AdjacentUnits gate (#45/#76)
             # GATE GetEligibleTargetsEntities : >=1 cible MECANIQUE (self ou adjacent) sinon ability non evaluee.
             if not (self_mech or any(mech for _, mech in adj)):
                 continue
@@ -572,8 +608,9 @@ class RevitalizingMalignancyPlaybook(NonComparablePlaybook):
                   and u.get("squadId") != ctx.uid and u.get("col") is not None
                   and self._healable(u)]
         best = None  # (T, util)
-        for T in ctx.reach_nc:
-            util = self_wound + sum(w for c, r, w in allies if hexgeo.distance(T, (c, r)) == 1)
+        for T in _sweep_origin_first(ctx):   # ORIGINE d'abord : keep-first au tie -> reste en place (#76)
+            util = self_wound + sum(w for c, r, w in allies
+                                    if bq.is_adjacent(T, (c, r), ctx.elev_by_pos))  # AdjacentUnits gate (#45/#76)
             if best is None or util > best[1]:
                 best = (T, util)
         if best is None or best[1] < self.MIN_UTILITY:
@@ -582,6 +619,93 @@ class RevitalizingMalignancyPlaybook(NonComparablePlaybook):
         target = ctx.tile_id_by_pos.get(T, ctx.uid)
         return [{"target": target, "ability": self.ABILITY_ID,
                  "to": (T if T != ctx.origin else None), "pred": util}]
+
+
+def _active_ability_levels(ctx: NCContext) -> dict:
+    """`{unitId: activeAbilityLevel}` — délègue à `ctx.active_levels()` (bound sur l'AiDecisionContext,
+    combatSnapshot cache/rid). `{}` si non branché (harnais de sonde) -> level 0 = argmax trivial a UN
+    seul candidat (le niveau ne départage QUE plusieurs allies en cooldown)."""
+    f = getattr(ctx, "active_levels", None)
+    return f() if callable(f) else {}
+
+
+class InspiredToGreatnessPlaybook(NonComparablePlaybook):
+    """`InspiredToGreatnessPlaybook.EvaluateNonComparable @181145b80` (NonComparable, id 0x43a=1082 ;
+    tauAunShi/Kroot). Refresh l'ability d'un ALLIE (`RepairOrHeal @1811eb050` = If(IsRepairable, Repair,
+    Heal) + `InspiredToGreatness_OverrideLevelEffect`). Cible = l'ALLIE (unit-id), PAS une tuile.
+
+    - Ciblage : `GetEligibleTargetsSelectable` (targeting `AActiveAbility`) filtre par
+      `GetDynamicInvalidTargetReason @1811eaec0` = cible != caster, PAS trait 0x7e7, ET
+      (repairable | healable-blesse | ability-en-cooldown) [slots 0x11/0x12/0x31]. -> on delegue au jeu
+      via `ctx.ability_targets(uid, 1082)` (VIDE si aucun allie blesse/reparable/en-cooldown -> pas d'action).
+    - util(cible) : le natif prend l'ACTIVE ability de la cible (`ActiveAbilityComponent.GetActive`) ;
+      SEULEMENT si `ActiveAbility.CanCurrentlyBeUsed == FALSE` (= EN COOLDOWN) -> util =
+      `Fix64.FromInt(Level.ToZeroBasedIndex(AbilityState.Level))` = NIVEAU zero-based de cette ability.
+      Les allies dont l'active est PRETE (usable) NE contribuent PAS. `Bucket.AddAction` argmax STRICT ->
+      l'IA refresh l'ability EN COOLDOWN de plus HAUT NIVEAU.
+    - MIN_UTILITY=0 (ctor `NonComparablePlaybook(0x43a)` @181146090, SANS min explicite). PRIORITY=0 ASSUME.
+    - Data offline : eligibilite = `abilityTargets` (jeu) ; cooldown = entree active de `dv.units[ally]
+      .abilities` (`usable`) ; niveau = `combatSnapshot.unitConfig.activeAbilityLevel` (cfg+0xb8 ;
+      `GetStat(18)`=null en snapshot -> via unitConfig). Le level ne departage QUE plusieurs allies en
+      cooldown -> a UN seul candidat la cible est determinee sans lui. VALIDE LIVE (#78) : util=49 (level 50).
+    - Eligibilite = `targets` (superset MOVE-inclus) : VALIDE LIVE (#78) que le natif BALAIE les tuiles de
+      move et CASTE 1082 AVEC un move pour atteindre l'allie en cooldown (tauShadowsun hors portee in-place)
+      -> on prend le superset (ability+cible fideles). LIMITE : la TUILE DE MOVE exacte (le natif choisit une
+      tuile d'ou l'allie est atteignable) N'EST PAS portee -> `to=None` (positionnement = raffinement differe,
+      comme le move-to-reach des heals ; l'agreement ability+cible matche, la tuile de move peut differer)."""
+    ABILITY_ID = 1082
+    MIN_UTILITY = 0.0     # ctor NonComparablePlaybook(0x43a) sans min -> 0
+    PRIORITY = 0
+
+    @staticmethod
+    def _eligible_targets(at: dict) -> list:
+        """Cibles alliees eligibles pour 1082 (le jeu a deja applique repairable/healable/on-cooldown).
+        `targets` = superset MOVE-inclus (le natif balaie les tuiles de move pour atteindre l'allie ; cf.
+        validation #78 ou le natif BOUGE pour caster). On prend ce superset pour l'ELIGIBILITE (ability+
+        cible) ; la tuile de move exacte reste un raffinement de positionnement non porte."""
+        out: list = []
+        for u in (at.get("units") or []):
+            for a in (u.get("abilities") or []):
+                if a.get("abilityId") == InspiredToGreatnessPlaybook.ABILITY_ID:
+                    src = a.get("targets") or []
+                    out = [t.get("targetId") for t in src        # Tgt.targetId (PAS squadId)
+                           if t.get("kind") == "unit" and t.get("targetId") is not None]
+        return list(dict.fromkeys(out))
+
+    @staticmethod
+    def _active_ability(au: dict) -> dict | None:
+        """`ActiveAbilityComponent.GetActive` : l'active NON-normale de l'unite (entree `kind` active/
+        granted de `dv.units[i].abilities`)."""
+        return next((ab for ab in (au.get("abilities") or [])
+                     if ab.get("kind") in ("active", "granted")), None)
+
+    def generate_candidates(self, ctx: NCContext) -> list[dict]:
+        if ctx.ability_targets is None:
+            return []
+        at = ctx.ability_targets(ctx.uid, self.ABILITY_ID) or {}
+        eligible = self._eligible_targets(at)
+        if not eligible:
+            return []                                  # aucun allie eligible en portee -> pas d'action
+        levels = _active_ability_levels(ctx)
+        best = None  # (ally_id, level_zero_based)
+        for ally_id in eligible:
+            au = next((u for u in ctx.units if u.get("id") == ally_id), None)
+            if au is None:
+                continue
+            active = self._active_ability(au)          # GetActive
+            if active is None or active.get("usable") is not False:
+                continue                               # requis : ability EN COOLDOWN (usable == False)
+            lvl = max(0, int(levels.get(ally_id, 1)) - 1)   # ToZeroBasedIndex (activeAbilityLevel 1-based)
+            if best is None or lvl > best[1]:          # argmax STRICT (keep-first au tie)
+                best = (ally_id, lvl)
+        if ctx.debug:
+            import sys
+            print(f"    [dbg NC u{ctx.uid}] InspiredToGreatness eligible={eligible} best={best}",
+                  file=sys.stderr)
+        if best is None:
+            return []
+        # Cible = l'ALLIE (unit-id) ; cast SANS bouger (to=None) sur la cible en cooldown de plus haut niveau.
+        return [{"target": best[0], "ability": self.ABILITY_ID, "to": None, "pred": float(best[1])}]
 
 
 class ScarabSummonPlaybook(NonComparablePlaybook):
@@ -670,6 +794,7 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         CombatRestorativesPlaybook(),
         DefendTheDivineWorkPlaybook(),
         RevitalizingMalignancyPlaybook(),
+        InspiredToGreatnessPlaybook(),
         ScarabSummonPlaybook(),
         GetEmRuntzPlaybook(),
     )

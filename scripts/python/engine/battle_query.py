@@ -11,25 +11,32 @@ from __future__ import annotations
 import hexgeo
 
 
+def is_adjacent(tile: tuple, pos: tuple, elev_by_pos: dict | None = None) -> bool:
+    """`pos` est-il sur une tuile ADJACENTE à `tile` selon l'adjacence NATIVE ?
+
+    Primitive d'adjacence COMMUNE à tous les usages du playbook : les comptages `GetAdjacent*`
+    (slots 124/126/128) ET `DSLFactory.AdjacentUnits @180de8320` (= `AdjacentTiles` puis `Units`,
+    ciblage des heals `HealTargets @1811cca50`). Les deux passent par `IterateAdjacentTiles`, donc
+    la MÊME porte d'élévation doit s'appliquer.
+
+    `IterateAdjacentTiles.<>d__8.MoveNext @1810acef0` applique, APRÈS les filtres terrain optionnels
+    (temporary/walkable/emptyOrSteppable), un gate INCONDITIONNEL :
+    `iVar4 = abs(elev(tile) - elev(voisin)) ; if (iVar4 < 2) yield`. Pour un usage sur unités
+    (comptage OU somme de poids), les filtres terrain ne retirent jamais une tuile occupée (une unité
+    y stationne) → seule l'élévation discrimine ; le gate est symétrique (abs). elev = champ
+    `tile→[0x20]→[0x18]` (= tileMeta.elevation). `elev_by_pos = {(col,row): elev}` : fourni ET les 2
+    élévations connues -> gate `|Δ| < 2` ; sinon on retient (fallback hexgeo pur = dégradation sûre)."""
+    if hexgeo.distance((tile[0], tile[1]), (pos[0], pos[1])) != 1:
+        return False
+    if elev_by_pos is not None:
+        te = elev_by_pos.get((tile[0], tile[1]))
+        pe = elev_by_pos.get((pos[0], pos[1]))
+        if te is not None and pe is not None and abs(te - pe) >= 2:
+            return False   # voisin hors portée d'élévation (|Δelev| >= 2) — natif l'exclut
+    return True
+
+
 def count_adjacent(tile: tuple, positions: list, elev_by_pos: dict | None = None) -> int:
     """`GetAdjacentEnemies/Friends(tile).Count` — nombre d'unités de `positions` sur une tuile
-    ADJACENTE à `tile`, filtrées par la PORTE D'ÉLÉVATION native.
-
-    `IterateAdjacentTiles.<>d__8.MoveNext @1810acef0` applique, APRÈS les filtres terrain
-    optionnels (temporary/walkable/emptyOrSteppable), un gate INCONDITIONNEL :
-    `iVar4 = abs(elev(tile) - elev(voisin)) ; if (iVar4 < 2) yield`. Pour un COMPTAGE d'unités,
-    les filtres terrain ne retirent jamais une tuile occupée (une unité y stationne) → seule
-    l'élévation discrimine ; le gate est symétrique (abs). elev = champ `tile→[0x20]→[0x18]`
-    (= tileMeta.elevation). `elev_by_pos = {(col,row): elev}` : fourni ET les 2 élévations connues
-    -> gate `|Δ| < 2` ; sinon on compte (fallback hexgeo pur = dégradation sûre)."""
-    te = elev_by_pos.get((tile[0], tile[1])) if elev_by_pos else None
-    cnt = 0
-    for p in (positions or []):
-        if hexgeo.distance((tile[0], tile[1]), p) != 1:
-            continue
-        if elev_by_pos is not None and te is not None:
-            pe = elev_by_pos.get((p[0], p[1]))
-            if pe is not None and abs(te - pe) >= 2:
-                continue   # voisin hors portée d'élévation (|Δelev| >= 2) — natif l'exclut
-        cnt += 1
-    return cnt
+    ADJACENTE à `tile`, filtrées par la porte d'élévation native (cf. `is_adjacent`)."""
+    return sum(1 for p in (positions or []) if is_adjacent(tile, p, elev_by_pos))

@@ -73,8 +73,28 @@ class AiDecisionContext:
         return self.rpc("abilityTargets",
                          {"runnerId": self.rid, "unitId": unit_id, "abilityType": ability_id}, 40)
 
+    def active_ability_levels(self) -> dict:
+        """`{unitId: activeAbilityLevel}` (stat 18) via `combatSnapshot` (statique/bataille -> cache par
+        rid). Source du NIVEAU d'ability pour `InspiredToGreatnessPlaybook` (util = level zero-based).
+        Lazy (1 fetch/rid, seul InspiredToGreatness l'appelle). Clef = squadId/unitId/id (aligne sur
+        `dv.units[i].id`)."""
+        m = _ACTIVE_LEVEL_CACHE.get(self.rid)
+        if m is None:
+            snap = self.rpc("combatSnapshot", {"runnerId": self.rid}, 40) or {}
+            m = {}
+            for u in (snap.get("units") or []):
+                # combatSnapshot : clef = `entityId` (= dv.id/squadId) ; le niveau vit sous
+                # `unitConfig.activeAbilityLevel` (readUnitConfig cfg+0xb8), PAS `stats` (GetStat(18)=null ici).
+                k = u.get("entityId")
+                if k is not None:
+                    lvl = (u.get("unitConfig") or {}).get("activeAbilityLevel")
+                    m[k] = int(lvl or 0)
+            _ACTIVE_LEVEL_CACHE[self.rid] = m
+        return m
+
 
 _BOARD_TILE_IDS_CACHE: dict = {}   # {rid: {(col,row): tileEntityId}} — board statique, 1 fetch/rid
+_ACTIVE_LEVEL_CACHE: dict = {}     # {rid: {unitId: activeAbilityLevel}} — combatSnapshot, 1 fetch/rid
 
 
 def _board_tile_ids(rpc: Callable[..., dict], rid: int) -> dict:
@@ -136,10 +156,13 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     move_tiles = (mov_by_unit.get(uid) or {}).get("tiles") or []
     fpos = [(u["pos"]["col"], u["pos"]["row"]) for u in units
             if u.get("ctrl") and u.get("alive") and u.get("pos") and u.get("id") != uid]
-    # R1 (validateur) : le generateur NonComparable `<GenerateActions>d__7 @18119a3f0` evalue les tuiles
-    # de MOVE d'abord et l'ORIGINE (`NullPosition`) EN DERNIER ; `Bucket.AddAction` garde le 1er ajoute au
-    # tie -> au tie CONSTANT le natif BOUGE (1re tuile de move). Origine en DERNIER = mirror (keep-first `>`
-    # sur les tuiles de move -> move gagne au tie ; l'origine ne l'emporte que si elle est STRICTEMENT max).
+    # reach_nc = tuiles de MOVE puis ORIGINE (`NullPosition`) EN DERNIER : ORDRE BRUT du generateur
+    # `<GenerateActions>d__7 @18119a3f0` (`Bucket.AddAction` keep-first `>`). NUANCE #76/#80 : le tie-break
+    # depend de `HasValidTargets(0x3f)` PAR tuile de move. SELF-cast (heals, NovaBoost) : self-cible
+    # position-independante -> le generateur gate les tuiles de move -> le natif RESTE EN PLACE au tie
+    # (CONFIRME LIVE #76) -> ces playbooks balaient `_sweep_origin_first` (origine d'abord), PAS cet ordre brut.
+    # TILE/other-target (NovaShield) : tuiles de move non gatees -> le natif BOUGE au tie -> sweep origine-LAST
+    # (cet ordre brut). Donc `reach_nc` reste origine-LAST ; les self-cast le reordonnent localement.
     reach_nc = [(t["col"], t["row"]) for t in move_tiles] + ([origin] if origin is not None else [])
 
     # Scene objet = predictor + sctx consolidés (+ élévation) — consommée par engine.playbook.prediction.

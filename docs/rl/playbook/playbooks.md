@@ -138,6 +138,71 @@ abilities COMMUNES (= la grande majorité des actions). Le dégât marche (`dama
 manquent que la prédiction. Les playbooks **bespoke** sont des **ajouts incrémentaux à clés-strings**
 par-dessus ce cœur.
 
+### MAJ #76 (2026-07-09) — tie-break du sweep NonComparable = ORIGINE préférée (confirmé LIVE)
+
+**Cause d'un MISS de positionnement/cible sur les self-cast heal** (le port bougeait pour rien : tgt=23
+tuile de move vs natif 22 origine). Ce N'ÉTAIT PAS l'adjacence — c'est le **TIE-BREAK du balayage de
+positions**.
+
+- **RE tie-break** (LU) : `Bucket.AddAction @1813fbcc0` **seed** la 1ʳᵉ action ajoutée puis ne la remplace
+  QUE si la nouvelle est **STRICTEMENT supérieure** (`System.TimeSpan.op_GreaterThan`) → **keep-first au
+  tie**. Le générateur `ActiveAbilityActionGenerator.<GenerateActions>d__7 @18119a3f0` évalue les positions
+  de move puis évalue **TOUJOURS** la `NullPosition` (cast EN PLACE) ; chaque position → `EvaluateNonComparable`
+  → `Merge` dans le bucket. Une tuile de move n'est retenue (`FUN_18000c1b0(0x3f)` = `HasValidTargets(unit,
+  movePos, ability)`) que si elle a des cibles valides.
+- **Observable CONFIRMÉ LIVE (4/4)** : à utilité CONSTANTE (self-heal, seul le caster blessé → terme
+  adjacents = 0), le natif **RESTE EN PLACE** (target = MainTile origine, pas de MoveUnitMessage). Il ne
+  **bouge que si une tuile de move AMÉLIORE STRICTEMENT** la somme de soin (`Σ (1−RemainingPercentage)` des
+  cibles couvertes). Règle nette : **origine préférée au tie ; move sur gain strict**.
+- **Adjacence `HealTargets`** : `DSLFactory.AdjacentUnits @180de8320` = `AdjacentTiles + Units − unit@pos`,
+  via `IterateAdjacentTiles` = **même porte d'élévation `|Δelev|<2`** que les comptages `GetAdjacent*`
+  (#45). Le port des heals utilisait `hexgeo.distance==1` brut (fork) → factorisé en `bq.is_adjacent`
+  (comptages ET heals partagent 1 primitive).
+- **Fix** (`engine/playbook/noncomparable.py`) : `_sweep_origin_first(ctx) = [origine] + moves`, appliqué
+  aux 4 self-cast (CombatRestoratives 1002, RevitalizingMalignancy 1037, DefendTheDivineWork 1117,
+  RitesOfRestoration 1039) + `bq.is_adjacent` partagé. **Validé LIVE** (deathRotbone/ultraApothecary/
+  admecManipulus self + →destroyer : tous in-place, MATCH target+ability natif).
+- **NovaBoost/NovaShield RÉCONCILIÉS (#80)** — par CLASSE de cible (le tie-break dépend de
+  `HasValidTargets(0x3f)` par-tuile-de-move ; sa fonction exacte est derrière un dispatch d'interface
+  `@180028910` = trampoline, NON lisible statiquement → résolution par **cohérence générateur + la classe
+  confirmée**, PAS par agreement arène-inagréable) :
+  - **NovaBoost = SELF-target** (util=1, cible=self) → MÊME classe que les self-cast heals → la self-cible
+    est position-indépendante → le générateur gate les tuiles de move → **RESTE EN PLACE** au tie (comme
+    deathRotbone #76). **FIX : `_sweep_origin_first`** (origine d'abord → `to=None`).
+  - **NovaShield = TILE-target** (marque un centre, cible kind=tile) → classe DIFFÉRENTE : les hex à marquer
+    existent depuis la plupart des positions → tuiles de move NON gatées → au tie **BOUGE** (keep-first) ; +
+    utilité position-dépendante (100·ennemis) → argmax non-trivial. **On GARDE origine-LAST.** *UNVERIFIED*
+    (arène-inagréable ; la classe tile-target n'a pas de confirmation live comme la self-target) → ne pas
+    asserter fermement.
+
+### MAJ #78 (2026-07-09) — InspiredToGreatness (tauAunShi) : refresh d'ability alliée level-weighted
+
+`InspiredToGreatnessPlaybook.EvaluateNonComparable @181145b80` (id 0x43a=1082) — playbook NonComparable
+**bespoke** (≠ Σ wound-fraction des heals) porté + **VALIDÉ LIVE** (MATCH ability+cible).
+
+- **Mécanisme** : l'ability refresh (`RepairOrHeal @1811eb050` = `If(IsRepairable, Repair, Heal)` +
+  `InspiredToGreatness_OverrideLevelEffect`) l'ability d'un **ALLIÉ**. La cible = l'allié (unit-id), pas
+  une tuile.
+- **Ciblage** (`GetDynamicInvalidTargetReason @1811eaec0`) : cible != caster, PAS trait `0x7e7`, ET
+  (repairable | healable-blessé | ability-en-cooldown) [slots `0x11/0x12/0x31`]. -> l'AI ne peut cibler un
+  allié QUE s'il est blessé/réparable **ou** a une ability en cooldown.
+- **Utilité** : la boucle sur les cibles éligibles ajoute une action **UNIQUEMENT** pour l'allié dont
+  l'ACTIVE ability (`ActiveAbilityComponent.GetActive`) est `CanCurrentlyBeUsed == FALSE` (= EN COOLDOWN),
+  avec `util = Fix64.FromInt(Level.ToZeroBasedIndex(AbilityState.Level))` = **NIVEAU zero-based** de cette
+  ability. `Bucket.AddAction` argmax STRICT -> refresh l'ability EN COOLDOWN de **plus HAUT NIVEAU**. cctor
+  `NonComparablePlaybook(0x43a)` SANS min -> `MIN_UTILITY=0`.
+- **Data offline** (aucun changement de hook) : éligibilité = `abilityTargets` (le jeu applique les 3
+  checks ; `Tgt.targetId` = l'allié) ; cooldown = entrée active de `dv.units[ally].abilities` (`usable`) ;
+  niveau = `combatSnapshot.unitConfig.activeAbilityLevel` (cfg+0xb8 ; `GetStat(18)`=null en snapshot).
+  Plumbing : `NCContext.{active_levels(callable), units}` + `AiDecisionContext.active_ability_levels()`
+  (combatSnapshot cache/rid).
+- **Validation** (`val78` craft) : drive `tauShadowsun` à caster son active (1087 -> cooldown) ->
+  `abilityTargets(tauAunShi,1082)` surface tauShadowsun -> **natif ET port castent 1082 tgt=86, util=49**
+  (level 50). MATCH ability+cible.
+- **RÉSIDU (positionnement)** : le natif **BOUGE** pour atteindre l'allié hors portée in-place (a casté
+  1082 avec un move to (1,1)) ; le port émet `to=None` (cast en place) — la **tuile de move exacte** n'est
+  pas portée (raffinement, comme le move-to-reach des heals ; l'agreement ability+cible matche).
+
 ## Exemple bespoke — `Loki.SaviorProtocolsPlaybook` (base `TriggeredAbilityPlaybook<T>`)
 
 ctor pose l'ability id **`0x460` (1120)**. Deux scorers :
