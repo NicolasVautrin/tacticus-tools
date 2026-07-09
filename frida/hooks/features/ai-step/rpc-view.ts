@@ -1418,6 +1418,86 @@ export function registerView(ctx: Ctx): void {
         };
     });
 
+    /** castFromTiles — les tuiles (COURANTE + MOVE) d'où le cast de `abilityType` sur `targetId`
+     *  est LÉGAL, via `AttackQuery.GetInvalidTargetReason(caster, tile, target, ability)` == valide
+     *  (`NoBrokenTargetingRule`). La tuile est un param EXPLICITE (IEntity) → pas besoin de
+     *  construire un `UnitPosition` par tuile. Résout le positionnement MOVE-TO-REACH des NC
+     *  ally-targeted (#81 : InspiredToGreatness caste 1082 depuis une tuile de move quand l'allié
+     *  n'est pas atteignable in-place). Le port choisit : origine si `currentValid`, sinon la 1re
+     *  tuile de `moveTiles` (ordre `GetMovableTilesFor`). Read-only (mutated=false attendu). body:
+     *  { runnerId, casterId, targetId, abilityType }. */
+    ctx.rpc.castFromTiles = (
+        body?: { runnerId?: number; casterId?: number; targetId?: number; abilityType?: number },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        if (typeof body?.casterId !== "number" || typeof body?.targetId !== "number"
+            || typeof body?.abilityType !== "number") {
+            return { ok: false, error: "need casterId + targetId + abilityType" };
+        }
+        let runner: NativePointer; let label: string;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);
+            label = "build#" + body.runnerId;
+        } else if (state.liveRunner) { runner = state.liveRunner; label = "live"; }
+        else { return { ok: false, error: "no runner — pass runnerId" }; }
+        if (runner.isNull()) return { ok: false, error: label + " runner null" };
+        if (!getMovableTilesMi) return { ok: false, error: "GetMovableTilesFor not resolved" };
+        const statePtr = runner.add(runnerOff.state).readPointer();
+        if (statePtr.isNull()) return { ok: false, error: "state null" };
+        const status = readBattleStatus(statePtr);
+        if (status.stage !== 1) {
+            return { ok: false, error: "stage " + (status.stageName ?? status.stage) };
+        }
+        const attackQuery = runner.add(attackQueryOff).readPointer();
+        const movementQuery = runner.add(movementQueryOff).readPointer();
+        if (attackQuery.isNull() || movementQuery.isNull()) {
+            return { ok: false, error: "AttackQuery/MovementQuery null" };
+        }
+        const tgtReasonMi = findMethodByParamClasses(
+            attackQuery.readPointer(), "GetInvalidTargetReason", [null, "IEntity", null, null]);
+        if (!tgtReasonMi) return { ok: false, error: "GetInvalidTargetReason not resolved" };
+        const ptrById = new Map<number, NativePointer>();
+        forEachEntity(statePtr, (e, id) => { ptrById.set(id, e); });
+        const caster = ptrById.get(body.casterId) ?? ptr(0);
+        const target = ptrById.get(body.targetId) ?? ptr(0);
+        if (caster.isNull() || target.isNull()) {
+            return { ok: false, error: "caster/target introuvable" };
+        }
+        const abilBuf = Memory.alloc(4); abilBuf.writeS32(body.abilityType | 0);
+        // Cast légal depuis `tilePtr` = GetInvalidTargetReason rend NoBrokenTargetingRule.
+        const isValid = (tilePtr: NativePointer): boolean => {
+            try {
+                const rule = invokeMethod(tgtReasonMi.info, attackQuery,
+                    [caster, tilePtr, target, abilBuf]);
+                if (rule.isNull()) return false;
+                return s(class_get_name(rule.readPointer()) as NativePointer)
+                    === "NoBrokenTargetingRule";
+            } catch { return false; }
+        };
+        const before = summarize(statePtr);
+        const curTile = getUnitMainTile(caster, statePtr);
+        const currentValid = !curTile.isNull() && isValid(curTile);
+        // Tuiles de move (GetMovableTilesFor(caster, false, {})) en ORDRE ; on garde celles d'ou
+        // le cast sur la cible est legal (mirror du sweep de positions du generateur natif).
+        const boolBuf = Memory.alloc(1); boolBuf.writeU8(0);
+        const optsBuf = Memory.alloc(0x30);
+        for (let k = 0; k < 0x30; k += 4) optsBuf.add(k).writeU32(0);
+        const moveTiles: Array<{ col: number; row: number }> = [];
+        try {
+            const os = invokeMethod(getMovableTilesMi.info, movementQuery, [caster, boolBuf, optsBuf]);
+            for (const t of extractTilePtrs(os)) {
+                if (isValid(t.ptr)) moveTiles.push({ col: t.col, row: t.row });
+            }
+        } catch { /* moveTiles reste [] */ }
+        const after = summarize(statePtr);
+        return {
+            ok: true, runner: label, casterId: body.casterId, targetId: body.targetId,
+            abilityType: body.abilityType, currentValid, moveTiles,
+            mutated: before.sig !== after.sig,
+        };
+    });
+
     /** decisionView — LA vue décision-ready en UN appel (couche DYNAMIQUE de
      *  l'oracle). Agrège : méta (stage/tour/joueur courant) ; TOUTES les units
      *  (pos hex/HP/team/owner/alive/ctrl/hasAction/ranged/abilities concrètes) ;

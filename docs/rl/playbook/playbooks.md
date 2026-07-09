@@ -199,9 +199,17 @@ positions**.
 - **Validation** (`val78` craft) : drive `tauShadowsun` à caster son active (1087 -> cooldown) ->
   `abilityTargets(tauAunShi,1082)` surface tauShadowsun -> **natif ET port castent 1082 tgt=86, util=49**
   (level 50). MATCH ability+cible.
-- **RÉSIDU (positionnement)** : le natif **BOUGE** pour atteindre l'allié hors portée in-place (a casté
-  1082 avec un move to (1,1)) ; le port émet `to=None` (cast en place) — la **tuile de move exacte** n'est
-  pas portée (raffinement, comme le move-to-reach des heals ; l'agreement ability+cible matche).
+- **Positionnement move-to-reach (#81, RÉSOLU + VALIDÉ)** : le natif **BOUGE** pour atteindre l'allié hors
+  portée in-place (casté 1082 avec un move to (1,1)). Porté via un **nouvel RPC hook `castFromTiles`**
+  (`rpc-view.ts`) = les tuiles (courante + move) d'où `AttackQuery.GetInvalidTargetReason(caster, tile, ally,
+  ability)` est **valide** (`NoBrokenTargetingRule`) — la tuile est un param EXPLICITE (`IEntity`), donc pas
+  de construction `UnitPosition` par tuile. Aucun RPC existant ne le donnait (attackPlans évalue 1082 vs
+  ENNEMIS `rankCount=0` ; abilityTargets agrège ; `GetBestTileToAttackFrom` vide pour cible alliée) ; la
+  reachability offline (range+LoS) n'est pas fiable (natif non-obvie : allié hex-adjacent mais `fromHere`
+  vide). Le port émet `to` = origine si `currentValid` (origine-préf #76) sinon 1re tuile de move légale
+  (`moveTiles[0]`). **VALIDÉ LIVE** : port `to=(1,1)` == natif move-to (1,1) — MATCH ability+cible+POSITION.
+  NB : le cas `currentValid=True` (origine castable) émet `to=None` (origine-préf #76 self-cast) — non
+  crafté pour l'ally-target (keep-first-move-first pourrait BOUGER si des tuiles de move sont aussi légales).
 
 ## Exemple bespoke — `Loki.SaviorProtocolsPlaybook` (base `TriggeredAbilityPlaybook<T>`)
 

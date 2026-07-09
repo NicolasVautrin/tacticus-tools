@@ -73,6 +73,13 @@ class AiDecisionContext:
         return self.rpc("abilityTargets",
                          {"runnerId": self.rid, "unitId": unit_id, "abilityType": ability_id}, 40)
 
+    def cast_from_tiles(self, unit_id: int, target_id: int, ability_id: int) -> dict:
+        """Lazy `castFromTiles` : tuiles (courante + move) d'ou `unit_id` peut caster `ability_id` sur
+        `target_id` (GetInvalidTargetReason valide par tuile). `{currentValid, moveTiles:[{col,row}]}`.
+        Résout le positionnement move-to-reach des NC ally-targeted (#81 : InspiredToGreatness)."""
+        return self.rpc("castFromTiles", {"runnerId": self.rid, "casterId": unit_id,
+                                          "targetId": target_id, "abilityType": ability_id}, 40)
+
     def active_ability_levels(self) -> dict:
         """`{unitId: activeAbilityLevel}` (stat 18) via `combatSnapshot` (statique/bataille -> cache par
         rid). Source du NIVEAU d'ability pour `InspiredToGreatnessPlaybook` (util = level zero-based).

@@ -108,6 +108,8 @@ class NCContext:
     #                            niveau d'ability des allies pour InspiredToGreatness (util = level)
     units: list = field(default_factory=list)   # dv.units (par-unite abilities + usable/cooldown) :
     #                            etat cooldown des allies pour InspiredToGreatness (GetActive usable)
+    cast_from_tiles: object = None   # callable(uid, target_id, ability_id) -> {currentValid, moveTiles} :
+    #                            positionnement move-to-reach des NC ally-targeted (#81)
     debug: bool = False
 
 
@@ -648,11 +650,15 @@ class InspiredToGreatnessPlaybook(NonComparablePlaybook):
       .abilities` (`usable`) ; niveau = `combatSnapshot.unitConfig.activeAbilityLevel` (cfg+0xb8 ;
       `GetStat(18)`=null en snapshot -> via unitConfig). Le level ne departage QUE plusieurs allies en
       cooldown -> a UN seul candidat la cible est determinee sans lui. VALIDE LIVE (#78) : util=49 (level 50).
-    - Eligibilite = `targets` (superset MOVE-inclus) : VALIDE LIVE (#78) que le natif BALAIE les tuiles de
-      move et CASTE 1082 AVEC un move pour atteindre l'allie en cooldown (tauShadowsun hors portee in-place)
-      -> on prend le superset (ability+cible fideles). LIMITE : la TUILE DE MOVE exacte (le natif choisit une
-      tuile d'ou l'allie est atteignable) N'EST PAS portee -> `to=None` (positionnement = raffinement differe,
-      comme le move-to-reach des heals ; l'agreement ability+cible matche, la tuile de move peut differer)."""
+    - Eligibilite = `targets` (superset MOVE-inclus) : le natif BALAIE les tuiles de move et CASTE 1082 AVEC
+      un move pour atteindre l'allie en cooldown quand il est hors portee in-place (VALIDE LIVE #78/#81).
+    - POSITIONNEMENT move-to-reach (#81, PORTE + VALIDE LIVE via `castFromTiles`) : `to` = origine si l'allie
+      est castable in-place (`currentValid`, origine-preference #76), sinon la 1re tuile de move LEGALE
+      (`GetInvalidTargetReason(caster, tile, ally, 1082)` valide par tuile, ordre `GetMovableTilesFor`) ->
+      MATCH EXACT natif (tauAunShi caste 1082 depuis (1,1) = port to=(1,1)). NB : le cas `currentValid=True`
+      (origine castable) emet to=None par origine-preference #76 (self-cast confirme) ; NON separement crafte
+      pour l'ally-target (le generateur keep-first-move-first pourrait BOUGER si des tuiles de move sont aussi
+      legales -> a confirmer si un craft origine-castable apparait)."""
     ABILITY_ID = 1082
     MIN_UTILITY = 0.0     # ctor NonComparablePlaybook(0x43a) sans min -> 0
     PRIORITY = 0
@@ -698,14 +704,30 @@ class InspiredToGreatnessPlaybook(NonComparablePlaybook):
             lvl = max(0, int(levels.get(ally_id, 1)) - 1)   # ToZeroBasedIndex (activeAbilityLevel 1-based)
             if best is None or lvl > best[1]:          # argmax STRICT (keep-first au tie)
                 best = (ally_id, lvl)
+        if best is None:
+            if ctx.debug:
+                import sys
+                print(f"    [dbg NC u{ctx.uid}] InspiredToGreatness eligible={eligible} best=None",
+                      file=sys.stderr)
+            return []
+        ally_id, lvl = best
+        # POSITIONNEMENT (#81) : cast SANS bouger si l'allie est castable in-place (origine-preference #76) ;
+        # sinon la 1re tuile de move LEGALE (GetInvalidTargetReason par tuile via castFromTiles) -> le natif
+        # BALAIE les tuiles de move et caste depuis la 1re d'ou l'allie est atteignable (keep-first).
+        to = None
+        cft_fn = getattr(ctx, "cast_from_tiles", None)
+        if callable(cft_fn):
+            cft = cft_fn(ctx.uid, ally_id, self.ABILITY_ID) or {}
+            if not cft.get("currentValid"):
+                mt = cft.get("moveTiles") or []
+                if mt:
+                    to = (mt[0].get("col"), mt[0].get("row"))
         if ctx.debug:
             import sys
-            print(f"    [dbg NC u{ctx.uid}] InspiredToGreatness eligible={eligible} best={best}",
+            print(f"    [dbg NC u{ctx.uid}] InspiredToGreatness eligible={eligible} best={best} to={to}",
                   file=sys.stderr)
-        if best is None:
-            return []
-        # Cible = l'ALLIE (unit-id) ; cast SANS bouger (to=None) sur la cible en cooldown de plus haut niveau.
-        return [{"target": best[0], "ability": self.ABILITY_ID, "to": None, "pred": float(best[1])}]
+        # Cible = l'ALLIE (unit-id) ; to = origine (in-place) ou 1re tuile de move legale (#81).
+        return [{"target": ally_id, "ability": self.ABILITY_ID, "to": to, "pred": float(lvl)}]
 
 
 class ScarabSummonPlaybook(NonComparablePlaybook):
