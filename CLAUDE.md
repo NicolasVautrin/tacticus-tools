@@ -364,6 +364,34 @@ d'inventer un nom ou une structure quand une contrepartie native existe.**
   invérifiable contre le décompilé, non-évolutif, et fait perdre du temps en corrections. Le nom
   natif + la VA sont la preuve de fidélité.
 
+## Divergence de dégât off↔live = DÉCOMPOSITION PAR ÉTAGE (outil), JAMAIS fit de scalaire
+
+**PREMIER RÉFLEXE, INCONDITIONNEL : dès qu'une valeur de dégât diverge offline↔live** (replay-diff,
+prédiction↔oracle, `off ≠ live`, un ratio/écart « bizarre »), **le geste n°1 est l'OUTIL DE DÉCOMPOSITION
+`scripts/python/tools/damage_decomp.py` — lire la valeur PAR ÉTAGE du pipeline des DEUX côtés et localiser
+l'étage divergent. NE JAMAIS fitter un scalaire (×0.9 ? /2 ? mult 90 ?) sur le dégât FINAL.**
+
+- **Pourquoi** : un dégât final est **sous-déterminé** — `300 = 333×0.9 = 167×1.8 = 599/2` : impossible de
+  distinguer multiplier / valeur / base / nb de coups depuis le seul endpoint. Le fit-de-scalaire mène à la
+  mauvaise piste **de façon quasi garantie** (déjà : ~5 reinjects gaspillés sur #68 à « capter le mult 90 »
+  alors que le mult=180 était confirmé live et que le vrai signal était l'additif RÉSOLU ; #49 élévation
+  red-herring). **L'étage se LIT, il ne se devine pas.** Si tu es tenté d'écrire « le facteur est ~X donc le
+  paramètre Y vaut Z » → **STOP, décompose d'abord.**
+- **Pipeline natif (étages nommés)** : `base → GetBaseDamageWithFixedPiercedArmor (pierce/armure) →
+  result_bout → CalculateBaseDamageWithAllModifiers (%-mult + ADDITIF via DamageModifiers.Add) → crit/block
+  → Amount`. `modifier-observe` (DÉJÀ dans les hooks : RPC `modifierObserveInstall`/`modifierObserveStatus`/
+  `modifierObserveReset`) capte la valeur LIVE par étage (base/pierceA/pierceB/penetration/result par bout +
+  additif attaquant/défenseur + attribution par-source via `BaseEffect.DamageBonusForAttack`).
+  `tools/damage_decomp` : `arm(rpc)` → rejouer l'attaque (seedée) → `read_live_decomp(rpc)` →
+  `decomp_report(rr, live_ph, live_decomp)` imprime le tableau + l'ÉTAGE divergent. Démo/gabarit :
+  `tests/engine/runner/test_damage_decomp_live.py`.
+- **Le décompilé décide QUEL étage RE ; UNE lecture live confirme SA valeur runtime** (cf. « RE ghidra fidèle,
+  PAS d'expérience » + « mirror named game functions »). Le live NE sert JAMAIS à deviner une formule.
+- **Un « facteur qui colle » sur UN cas = HYPOTHÈSE, pas un fait** : trouver un 2ᵉ cas qui SÉPARE les
+  candidats avant de committer (ex. u90 PowerTrip ×180 sans /2 réfute un /2 universel en une ligne). Si une
+  mesure DIRECTE contredit l'hypothèse (Level.mult=180 ≠ 90) → **RE-DÉRIVER**, pas patcher l'hypothèse.
+- Détail : `docs/rl/case-68-orksnob-attacker-effects.md` + memory `feedback_damage_decomposition_measure_stage`.
+
 ## Sorties console Python — ASCII only (Windows cp1252)
 
 La console Windows (et les tools Bash/PowerShell) tourne en **cp1252**, pas UTF-8.
@@ -445,6 +473,48 @@ suite `tests/engine/` — **beaucoup trop lourd**.
   librement** (implémenter, refactor, committer) — ne JAMAIS m'auto-bloquer « j'attends
   qu'il ait fini de lire ce fichier ». Le seul point de synchro est le **VERDICT** de l'agent
   (que je réconcilie avec mon travail en cours au retour), pas les fichiers.
+
+- **Corollaire — « avancer pendant qu'un agent tourne » = prendre la tâche la PLUS UTILE,
+  pas la plus isolée.** Ne JAMAIS m'auto-restreindre à du « hors-sujet / offline / pas-ses-
+  fichiers » : c'est une sur-prudence qui gâche la parallélisation (déjà subi : une session
+  entière passée à me cantonner à des tâches « non-overlappantes » sans raison). Deux clarifs :
+  - **Fichiers/sujet = AUCUNE contrainte** (cf. bullet ci-dessus : le worktree est figé au
+    commit de lancement).
+  - **Session Frida live = PAS un blocage non plus.** La game encaisse très bien plusieurs
+    runners concurrents, et les traces sont **par-runner distinctes** (OriginBuffers, mig #43 :
+    buffers séparés par origine, purgés au dispose). L'agent et moi pouvons faire des RPC /
+    monter des runners EN MÊME TEMPS sans se marcher dessus (disciplines mineures : ne pas
+    dépasser **MAX_RUNNERS=10**, **disposer MES runners** jamais ceux des autres).
+  - **⛔ LA SEULE VRAIE INTERDICTION pendant qu'un agent tourne : ne PAS (ré)injecter Frida**
+    (`POST /api/admin/inject`) — ni **restart host** (qui auto-réinjecte). L'inject STOPPE la
+    session courante et en ré-attache une neuve → ça **CASSE la session / le harnais que l'agent
+    utilise** (état warm + RPC en vol perdus). C'est le SEUL geste à proscrire ; tout le reste
+    (fichiers, sujet, RPC concurrents, runners) est libre. Corollaire : si la game a crashé/
+    redémarré et qu'un reinject est nécessaire, **attendre la fin de l'agent** (ou le stopper
+    sciemment) avant de réinjecter.
+  - **La SEULE attente légitime (hors reinject) = une dépendance de CONTENU** : si mon prochain
+    pas (ex. un port) dépend du **VERDICT** de l'agent (une réponse RE encore inconnue), j'attends
+    ce verdict — pas parce que « fichiers/session partagés » (faux), mais parce que coder à
+    l'aveugle = deviner. Distinguer cette vraie dépendance de la fausse contrainte d'isolation.
+
+## Manques de portage = tâches (automatique)
+
+**Tout manque de portage constaté ⇒ une tâche créée IMMÉDIATEMENT (`TaskCreate`), sans attendre.**
+Dès que je constate qu'un mécanisme natif n'est pas reproduit par le moteur offline — effet/trait/
+formule non porté, divergence runner↔live ou prédiction↔oracle, `off ≠ live` dans un replay-diff,
+un `# TODO`/no-op documenté rencontré — je crée automatiquement une tâche qui le capture : **unité/
+effet concerné + symptôme CHIFFRÉ (off vs live) + VA/fonction native si connue + pointeur doc
+case-study** si pertinent.
+
+- **Pourquoi** : un gap laissé en remarque de conversation est perdu au `/compact` ; laissé dans
+  un seul doc, il n'est pas suivi. Le système de tâches est LE registre des gaps de fidélité — je
+  dois pouvoir lister « ce que le moteur ne reproduit pas encore » à tout moment.
+- **S'applique aux découvertes FORTUITES autant qu'aux gaps ciblés**, et sans me laisser détourner
+  de la tâche courante (créer la tâche ≠ la traiter tout de suite). Ex. la sonde RNG de #62c a
+  révélé au passage que le runner omet des effets de dégât d'orksNob (SmashaEad self-buff,
+  BeastSlayer) → tâche créée sur-le-champ.
+- Complète « persist findings durably » : la tâche = le tracker actionnable ; le doc case-study =
+  le détail RE. Les deux, pas l'un OU l'autre.
 
 ## Ne jamais
 

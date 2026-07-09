@@ -64,6 +64,403 @@ appartenance liste). `round(333x0.9)=300` = live EXACT ; `round(333x1.8)=599` = 
 des triggered N'est capte par AUCUN champ actuel (combatSnapshot = UnitConfig +0x74=180/+0x78=100, aucun=90) ->
 fix FIDELE = nouveau capteur (tache #75) ; stopgap `mult/2` = coincidence non generalisee (a FLAGGER hardcode).
 
+### CAPTURE RECIPE #75 (RE close 2026-07-09, chaine LUE integralement)
+
+Ou vit le 90 au RUNTIME et comment le capter fidelement.
+
+**1. Le multiplier est BAKE par-ability dans l'AbilityState.Level, PAS derivable d'un champ UnitConfig.**
+`@181696230` (`UnitConfigUtil.GetAbilityVariablesMultiplierPercentageForProgressionIndex`, META/setup) lit sur
+l'entree de progression de l'unite DEUX champs sur le MEME objet : `+0x24` (=180, "normal") et `+0x2c` (=90,
+"rarity-bonus"). Le choix = `bVar2` = « la VARIABLE (param_4) est-elle dans `variablesAffectedByRarityBonus`
+de l'ability (item+0x88) ? ». extraDmg y est -> 90. Ce resultat est BAKE dans le `Level.multiplier` de chaque
+AbilityState au setup. => 90 n'est sur AUCUN champ battle UnitConfig ; l'unique source battle-time = l'AbilityState.
+
+**2. Chaine battle-time (LUE) :** l'effet SmashaEad porte un `ConfigAmount` (ConfigVar(8=extraDmg)). Sa resolution :
+`ConfigAmount.Calculate @180f171c0` -> `GetAbilityState @180f175a0` (resout l'AbilityState de l'ability SOURCE
+via `UnitExtensions.GetAbilityState(unit, abilityType)`) -> le `Level{level@0, multiplier@4}` de cet AbilityState
+-> `GetVariableForLevel @181576fb0` -> `TryGetVariableArrayForLevel @181577510` : applique `Round(raw x Level+4/100)`
+SSI la variable in `AbilityConfiguration+0x28` (=`variablesAffectedByRarityBonus`). Donc **`Level.multiplier` (=+4
+du struct Level) = 90 pour la triggered SmashaEad**.
+
+**3. `UnitExtensions.GetAbilityState(unit, abilityType)` (LUE, 3 overloads) :**
+- `@180eced70(out, unit, int abilityType)` = le resolveur COMPLET (le bon pour SmashaEad) : `GetActiveAbilityUsedForConfig(type)`
+  -> sinon `TriggeredAbilityComponent.TryGetAbility(type)` (l'instance triggered porte le Level a +0x20/+0x24/+0x28
+  = level/multiplier/rarity) -> sinon `GetTriggeredAbilityUsedForConfig`. Retour = Nullable<Level> (16 o) dans `out`.
+- `@180ecea30(out, unit, int)` = enumere SEULEMENT la collection ActiveAbility (component+0x20 ; ActiveAbility.type@+0x44 ;
+  `get_AbilityState`) -> RATE les triggered. NE PAS utiliser pour SmashaEad.
+- `@180ecec80(out, unit, AbilityType*)` = variante prenant un objet AbilityType.
+
+**4. IDs :** SmashaEad = TriggeredAbilityType **1246** (`triggered-ability-names.ts`) ; EffectType SmashaEad = **1319**
+(`effect-type-names.ts`). L'effet 1319 est cree par l'ability triggered 1246 -> c'est le multiplier de 1246 qu'il faut.
+
+**5. Plan capture (frida) :** par unite, exposer `abilityMultipliers: {abilityName -> Level.multiplier}` en appelant
+`invokeMethod(GetAbilityState@180eced70, null, [unitPtr, ptr(int abilityType)])` (retour boxe -> struct @+0x10 ;
+`multiplier = boxed+0x14`, `level = boxed+0x10`) pour chaque ability du kit (actives via ActiveAbilityComponent +
+triggered via TriggeredAbilityComponent/nom-enum). Overload a DESAMBIGUER live (prendre `@180eced70`, param_3=int
+TriggeredAbilityType). **Wiring offline** : `snapshot.py` lit `unitConfig.abilityMultipliers` -> `ctx.ability_multipliers`
+(dict) ; `EffectFactory.create` passe le multiplier par-effet quand connu ; `SmashaEadExtraDamageEffect` fait
+`mult = ctx.ability_multipliers.get("SmashaEad", self.ability_variables_multiplier)`. **Valider** : xpass
+`test_getstuckin_combat_absolute_bit_exact` (off==live) + un 2e triggered a rarete/niveau different (prouver la
+capture, pas un /2).
+
+### VERDICT RECONCILIE #68/#75 (2026-07-09, hint terrain/elevation user) — c'est le MULTIPLIER RARITY par-ability (90), PAS l'elevation NI un /2 downstream
+
+Enquete terrain/elevation (hint user "c'etait un trigger qui modifiait les degats") + RE combat -> dossier clos :
+- **ELEVATION ECARTEE (preuve arithmetique + decompile).** `CalculateElevationBonusModifier @181003ea0`
+  = %-leaf POSITIONNEL (ecrit un Nullable pct au slot `DamageModifiers+0x20` SSI tuiles d'elevation
+  differentes ; coupe si attaquant OU cible porte l'effet 0x423). PAS un trigger, PAS flat. Un % NE PEUT
+  PAS produire l'ecart FLAT constant +300. Et comme `live = off_sans + 300` EXACT et constant sur des
+  coups a rolls DIFFERENTS, TOUS les etages non-SmashaEad (base/pierce/armure/**ELEVATION**/crit) matchent
+  DEJA dans off_sans -> l'elevation (et tout terrain) n'est pas le delta. (Le hint pointe le bon TYPE de
+  mecanisme — un trigger — mais le bon trigger est SmashaEad lui-meme, ability TRIGGERED 1246, pas l'elevation.)
+- **COMBAT ne resout PAS l'additif via `DamageBonusForAttack`/`GetVariableForLevel`** (0 fire combat).
+  `AttackDamageOperation.ExecuteHit @180e5eff0` calcule le degat par des appels de service INTERFACE-dispatches
+  (`DAT_183287ef8`, slots +0xb/+4/+8/+0xac = crit/block/armure/bonus) ; `HitDamage.GetDamage` ne rend que la
+  base {2411,2411}. L'additif effet passe par CE service (chemin DISTINCT de la prediction).
+- **VRAIE CAUSE (LOGIQUE LUE @181696230 `GetAbilityVariablesMultiplierPercentageForProgressionIndex`)** :
+  pour une variable dans `variablesAffectedByRarityBonus` (extraDmg L'EST -> `bVar2=true` via Contains sur
+  `ability+0x88`), le multiplier = progression entry **`+0x2c` (RARITY)**, sinon `+0x24` (normal). Fonction
+  META/setup (bake le `Level.multiplier` de l'AbilityState au roster). orksNob SmashaEad : +0x24=180,
+  +0x2c=90 (mesure prior). => additif combat = `round(333 x 90/100) = 300` = live EXACT. Le PORT applique
+  180 (mult unit-global `ability_variables_multiplier`) a TOUS les additifs -> 599.
+- **"/2 DOWNSTREAM" (hypothese MESURES DEFINITIVES ci-dessous) REFUTEE par le SEPARATEUR u90 PowerTrip** :
+  son additif matche a 180 SANS /2 (rarity==normal==180 pour u90). Un /2 combat UNIVERSEL halverait aussi
+  u90 -> faux. Ce n'est PAS un /2 ; c'est que 90 = la moitie de 180 POUR CETTE unite/ability (rarity), une
+  coincidence de ratio qui a fait croire a un /2. (Lecon : un facteur ~0.5 sur UN cas = hypothese ; le 2e
+  cas qui SEPARE tranche. cf. CLAUDE.md.)
+- **SOURCE DU 90 — ENCORE NON MESUREE DIRECTEMENT (attention)** : le `Level.multiplier` de l'instance
+  triggered a DEJA ete lu live = **180** (section REFUTATION plan-5 ci-dessous), et `GetVariableForLevel`
+  resout a 180 -> 599 (MESURES). Donc le 90 n'est NI sur l'instance triggered NI sur la resolution
+  prediction. L'hypothese P1 (RE, non confirmee live) : le 90 vit dans le **Level CACHE du ConfigAmount
+  PROPRE de l'effet** (`ConfigAmount+0x20`, bake a la creation par `CreateEffectDamageBonusForAttack` avec
+  le rarity `+0x2c`=90 de @181696230). Hypothese P3 concurrente NON ecartee par u90 : l'additif SmashaEad
+  serait un **ExtraMaxDamage** (canal MAX seul) -> midpoint per-coup n'en reflete que ~la moitie. **u90
+  separe P2(/2 universel) mais PAS P1 vs P3.**
+- **FIX FIDELE (capture) — LA SONDE JAMAIS POSEE** : lire, LIVE, l'additif au SITE DE RESOLUTION COMBAT
+  (dans `ExecuteHit`/le service interface-dispatche) : (a) la VALEUR ajoutee par coup (300 ? 599 ?) et
+  (b) son CANAL (additif plat @+0x10 vs ExtraMaxDamage @MAX). Ou, equivalent statique : lire le
+  `ConfigAmount+0x20` cache de l'effet SmashaEad (P1 -> 90). UN de ces deux reads separe P1/P3 et donne la
+  source fidele. `GetAbilityState(unit,1246)` (plan-5) = REFUTE (rend 180=active). Valider : xpass
+  `test_getstuckin_combat_absolute_bit_exact` (off==live) + 2e triggered rarity!=normal.
+
+### MESURE BACKTRACE DECISIVE (probe #75, 2026-07-09) — COMBAT NE RESOUT PAS l'additif ; il lit une valeur BAKEE a la creation
+
+Sonde : hook `GetVariableForLevel @181576fb0` + BACKTRACE par fire (`modifier-observe`, champ `frames`),
+classe COMBAT (chaine via `AttackDamageOperation.*` 0xe5e..0xe62) vs PREDICTION (via `DamagePrediction.*`
+0x102..0x104). Attaque orksNob->bloodIntercessor (applyAction ability, RNG seede). Resultat :
+- **3 fires extraDmg(id8), TOUS mult=180 -> 599, TOUS classes PREDICTION** (frames :
+  `ConfigAmount.Calculate -> DamageBonusForAttack(0x2fe62) -> CalculateAttackerModifiers(0x1001061) ->
+  DamagePrediction(0x103489e) -> MakeDamagePredictions(0x1054041)`).
+- **0 fire classe COMBAT.** => **le COMBAT n'appelle JAMAIS GetVariableForLevel pendant le coup.**
+=> **VERDICT (outcome C) : l'additif combat est une valeur BAKEE a la CREATION de l'effet** (ConfigAmount
+resolu une fois avec le Level PROPRE de SmashaEad, mult rarity **90** -> ~300, mis en cache
+`ConfigAmount+0x10`), que le combat LIT. La PREDICTION, elle, RE-resout frais via le Level de l'ability
+ACTIVE (180 -> 599) — d'ou les 3 fires 180 et la sur-prediction #71 (gate display). **P1-tel-quel (combat
+re-resout a 90) ET P3 (/2 aval) REFUTES** : combat ne re-resout pas du tout ; il lit le bake. Le PORT
+recalcule `extraDmg x ability_variables_multiplier(180)` = 599 en combat au lieu de lire le bake (300).
+
+**MAJ (probe arme AU DEBUT de bataille, 2026-07-09) — "MULT 90" REFUTE PAR MESURE ; hypothese P3 (ExtraMaxDamage).**
+Sonde re-armee AVANT la nav (pour capter le fire de CREATION mult-90 attendu) : extraDmg fire **9x, TOUS
+mult=180 -> 599, TOUS PREDICTION ; 0 CREATION, 0 COMBAT, 0 a mult 90**. En plus, l'effet resout deja au 1er
+decisionView AVANT qu'orksNob bouge -> il est **pre-cree (dans la seed)**, avant tout arm. => **il n'existe
+AUCUN fire mult-90** (ni creation, ni combat, ni prediction). Donc **le combat n'obtient PAS son +300 via
+`GetVariableForLevel(90)`** ; le "90 rarity" (round(333x0.9)=300) est un FIT du ratio `300=599/2` (et `90=180/2`),
+PAS une valeur mesuree -> **REFUTE**. Le combat n'utilise NI GetVariableForLevel NI `DamageModifiers.Add`
+(canal prediction-only, #69) pour cet additif. **NE PAS coder un fix "mult 90"** (coincidence-fit, cf. CLAUDE.md).
+HYPOTHESE SURVIVANTE **P3** (a confirmer, non fittee) : l'additif SmashaEad = **ExtraMaxDamage (canal MAX seul)**
+et le chemin mesure prend le **midpoint** (`GetBaseDamageFix64` = {base-spread, base+spread+ExtraMaxDamage} ;
+`HitDamage.GetDamage` avgFlag=midpoint) -> `base + 599/2 = base+300` CONSTANT ; le PORT ajoute 599 A PLAT
+(min ET max, #69) -> +599. TEST DECISIF qui SEPARE P3 : rejouer avec une unite/arme a **spread (min!=max)** OU
+hooker le canal additif COMBAT reel (service interface-dispatche dans `ExecuteHit`, PAS DamageModifiers) : si
+ExtraMaxDamage, l'ecart off-live serait ASYMETRIQUE (plus grand cote MIN). NON fait. **#68 = mecanisme combat
+encore OUVERT** (le "90" et le "/2 downstream" tous deux refutes ; P3 = piste, pas un fait).
+
+**MAJ 2 (probe CREATION #75b, 2026-07-09) — extraDmg est un construit PREDICTION-ONLY ; le +300 combat vient d'AILLEURS.**
+SmashaEad est cree SUR LE MOVE (PAS pre-seede) : absent au debut (`[BeastSlayer_ExtraDmg, BeastSlayer_ExtraBlock]`),
+present apres qu'orksNob bouge 4 hexes. MAIS la creation fire **0 GetVariableForLevel** (`total varLevelDumps=0` —
+RIEN, pas juste extraDmg). Combine avec #75a (combat = 0 fires) : **extraDmg (599) n'est resolu QUE sur le chemin
+PREDICTION** (mult 180). Creation = 0, combat = 0. => **le +300 combat ne vient PAS du `ForAddition` extraDmg via
+un resolveur nomme** (`GetVariableForLevel`, `DamageBonusForAttack`, `DamageModifiers.Add` — tous prediction-side).
+Le `extraDmg x 180 = 599` que le PORT applique en combat est un CONSTRUIT PREDICTION-ONLY ; le vrai +300 combat vient
+d'un canal DISTINCT encore non localise (service interface-dispatche dans `ExecuteHit`). **La premise "additif extraDmg
+en combat" est FAUSSE.** Localiser le vrai +300 = RE profonde du service opaque d'`ExecuteHit` (dig couteux pour UN
+effet faible valeur). **RECO : PARK #68** avec cet etat (le port sur-applique un construit prediction-only en combat ;
+fix fidele impossible sans localiser le mecanisme combat reel). #71 (gate prediction display) reste correct et couvre
+le chemin AI-pertinent ; le residu = +299/coup replay-diff combat sur ce seul effet, sans impact decision.
+
+**MAJ 3 (dig profond ExecuteHit, 7 sondes + RE complete, 2026-07-09) — TOUS les canaux nommes/interrogeables ELIMINES.**
+RE lue integralement du pipeline combat + sondes backtrace :
+- `AttackDamageOperation.Execute/ExecuteHits/ExecuteHit/GetHitDamage` : `HitDamage.GetDamage` combat = **{2411,2411} base pur** (0 additif dans la plage). Le degat final = service INTERFACE-dispatche (`FUN_1800267c0` slot 0x42 de l'interface `DAT_1831d3468` sur la BattleQuery, consommant les `AbilityEntities` batis par les slots 4/8/0xb/10 de `DAT_183287ef8`).
+- `DamageCalculations.CalculateBaseDamageWithModifiers @1810021c0` (combat) = `clamp(Round(base x mult))`, **PAS d'additif**.
+- `DamageModifiers.Add @181005f10` (additif `@+0x10 += FromInt(DamageBonus)`) = appele SEULEMENT par `CalculateBaseDamageWithAllModifiers` (PREDICTION).
+- `ApplyCappedModifiers @181000020` = etage **%-mult** (`v x chaque pct, clamp`), pas l'additif.
+- `ApplyTraitDamageModifiers @180e5a3e0` = caps DEFENSEUR (trait 0x1c immunite, 0x3f1=1009 can't-die), pas l'additif.
+- **Sondes backtrace** : `varForLevel` extraDmg = 3 fires TOUS mult180->599 PREDICTION ; `dmgBonus` SmashaEad = PREDICTION (frames DamagePrediction/MakeDamagePredictions) ; **creation = 0 fires** ; **combat = 0 fires** de tous ces resolveurs.
+- **`statModSources(orksNob)` = `mods: {}` VIDE** : SmashaEad (effectId 97, effectType 1319, source=self 80, level 1) n'ajoute **AUCUNE stat-mod**.
+=> **SmashaEad ne contribue au combat via AUCUN canal hookable/interrogeable** (ni effect-bonus, ni additif, ni stat-mod). Or live=off_sans+300 et retirer SmashaEad du port fait passer off SOUS live (-300, teste, reverti). **PARADOXE** : soit (i) SmashaEad applique +300 via le SERVICE OPAQUE d'ExecuteHit qui lit une valeur PRE-BAKEE sur l'effet (~300) sans re-resoudre (coherent avec 0 fire partout), soit (ii) le +300 live n'est PAS SmashaEad et le `off_sans` du port a un gap AILLEURS (SmashaEad +599 combat = spurious). **NON TRANCHE.**
+**PROCHAIN PAS (2 options, lourdes)** : (a) resolution VTABLE LIVE du service opaque (hook `FUN_1800267c0` filtre slot 0x42 -> walk vtable -> adresse concrete -> decompile -> trouver le champ +300) ; (b) mesure LIVE A/B combat WITH vs WITHOUT SmashaEad (orksNob attaque sans avoir bouge >=2 hexes, puis apres, meme cible) pour CONFIRMER que SmashaEad contribue +300 en combat (vs off_sans buggy). (b) tranche i-vs-ii ; (a) nomme le canal. **RECO : PARK** (1 effet faible valeur, mur architectural il2cpp interface-dispatch ; #71 couvre le chemin AI). Sondes : `_probe75{,b,c}_*_live.py`.
+
+**MAJ 4 (VTABLE DIG, canal TROUVE, 2026-07-09) — le +300 est dans le calcul de degat COMBAT (AttackHit/board-node), PAS le canal prediction.**
+Resolution vtable live (`FUN_1800267c0` slot 0x42 -> walk il2cpp) + trace complete :
+`AttackDamageOperation.ExecuteHit` -> `OperationProcessor.DealDamage @180e074c0` -> `DealDamageOperation.Execute @180e65d20`
+-> `DamagePrediction.CalculateDamageOperation @18102dc30` (calcul REEL : soustrait armure/block/crit/shield/overkill).
+**MESURE LIVE (hook `CalculateDamageOperation` in/out) : in/out = [(1540,1540),(1738,1738),(1526,1526)]** =
+EXACTEMENT les valeurs LIVE per-coup, et **in == out**. => le degat qui ARRIVE a CalculateDamageOperation est
+**deja 1540 = base 2411 - armure + 300** (armure ET +300 appliques EN AMONT, dans le calcul de degat de
+`ExecuteHit` via le board-node de l'attaquant, interface `DAT_183287ef8` slot 0xb) ; DealDamage/CalculateDamageOperation
+ne font que le passer (shield/overkill). **=> LE CANAL DU +300 = le chemin de degat COMBAT AttackHit/board-node**
+(valeur per-coup entierement calculee), **PAS** le `ForAddition`/`DamageModifiers` (prediction-only, 599).
+**GROUND TRUTH : degat combat live per-coup = 1540.** Le PORT calcule **1839** (`off_sans 1240 + ForAddition 599`)
+-> **sur-applique de 299**. **Le modele du port "SmashaEad = additif ForAddition +599 post-percage en combat" est
+STRUCTURELLEMENT FAUX** : le combat n'utilise PAS ce canal. **Micro-suivis restants** : (1) resoudre le board-node
+slot 0xb (methode-feuille qui produit le +300) ; (2) A/B live WITH/WITHOUT SmashaEad sur l'ENTRANT CalculateDamageOperation
+(1540 vs ?) pour confirmer que le +300 EST SmashaEad (vs off_sans buggy). Sondes : `_probe75_*` + hooks TEMP
+modifier-observe (dispatch42 vtable-resolve + calcDmgOp in/out) — A RETIRER avant commit. VA cles : DealDamage
+@180e074c0, DealDamageOperation.Execute @180e65d20, CalculateDamageOperation @18102dc30.
+
+**MAJ 5 (LEAF NOMME, offline, 2026-07-09) — LE COMBAT REJOUE LA PREDICTION (CACHEE). C'est LE resultat cle.**
+Slot map de l'interface `DAT_183287ef8` (= `IDamagePrediction`, lue via les forwarders `CachedDamagePrediction$$`) :
+slot 0=get_IgnoreDamageSpread, 3=PredictNormalAttack (CACHE dans un Dict), **4=PredictAttack**, 6=CalculateAbilityDamage,
+7=CalculateDirectDamage, 8=RandomlyResolveMinMaxDamage, 0xa=RollCritical, 0xb=CalculateCriticalDamage,
+0xc=CalculateDamageOperation, 0xd=GetAttackHits, 0xe=GetDefaultAttackHits, 0xf=GetKnockback.
+`ExecuteHit` dispatche les slots **4/8/0xa/0xb** sur le service : **slot 4 = `DamagePrediction.PredictAttack`**
+calcule le resultat de degat par-coup (`local_498`), puis roll (8)/crit (0xa/0xb). => **le COMBAT calcule le degat
+par-coup en appelant `PredictAttack` (la MEME machinerie que la prediction), via le decorateur
+`CachedDamagePrediction`.** D'ou : (1) combat = 0 fire GetVariableForLevel/DamageBonusForAttack (il LIT le CACHE
+peuple pendant la phase de prediction de l'IA, il ne recalcule pas) ; (2) le degat combat per-coup (1540) EST la
+prediction. **=> STRUCTURE : le combat natif NE calcule PAS le degat separement ; il REJOUE la prediction (cachee).**
+Le PORT, lui, a un chemin COMBAT SEPARE (base + ForAddition 599) distinct de son chemin PREDICTION -> **c'est le
+fork structurel** (viole "structure offline == structure native"). **FIX FIDELE = faire pointer le degat COMBAT du
+runner sur sa PROPRE prediction (PredictAttack) au lieu d'un modele additif separe** ; alors SmashaEad (deja gate
+hors prediction display par #71) sera coherent des 2 cotes automatiquement. Le "+300 vs +599" disparait car il n'y
+a plus 2 chemins qui divergent. C'est un refactor structurel (aligner combat sur prediction), PAS un capteur de valeur.
+VA : PredictAttack forwarder slot 4 @CachedDamagePrediction.PredictAttack 180e2f720 ; concret DamagePrediction.PredictAttack.
+
+**MAJ 6 (RE CLOSE definitive, offline decompile, 2026-07-09) — le +300 = MULTIPLIER RARITY (+0x2c=90), pas +0x24=180. Contradiction du doc TRANCHEE.**
+Lecture INTEGRALE de `UnitConfigUtil.GetAbilityVariablesMultiplierPercentageForProgressionIndex @181696230` :
+```
+entry = unitConfig.progression[progressionIndex]     # +0x80 (ou +0x88 si MoW)
+if (variable IN rarity-affected-list for this ability):   # local_res8+0x88 List.Contains(variable)
+    return entry + 0x2c      # multiplier RARITY
+else:
+    return entry + 0x24      # multiplier NORMAL
+```
+=> DEUX multipliers par entree de progression. Pour orksNob : `+0x24`=180 (normal), `+0x2c`=90 (rarity).
+SmashaEad `extraDmg` EST rarity-flaggee (dans `variablesAffectedByRarityBonus`) => resolue avec `+0x2c`=90
+=> additif = base(333) x 90/100 = **300**. Pour u90 PowerTrip : `+0x2c`=`+0x24`=180 (pas de divergence) =>
+c'est le cas qui **separe** l'hypothese et la CONFIRME (magnitude x180 y matche parce que +0x2c=180 la).
+`ConfigAmount.GetAbilityState @180f175a0` : 1re branche teste `Nullable.HasValue(ConfigAmount+0x20)` (Level
+baké a la creation de l'effet) ; si present -> le renvoie DIRECTEMENT (valeur rarity-resolue cachee). C'est ce
+Level baké (mult 90) que le COMBAT rejoue via PredictAttack (MAJ 5). => **le +300 combat = mult rarity 90, LU
+dans le decompile, PAS un fit de scalaire** (300=333x90/100 est la CONSEQUENCE du branchement lu, pas un fit).
+
+**CONTRADICTION DU DOC RESOLUE** : la section « MESURES DEFINITIVES / CORRECTION #75 » (additif=599 des 2 cotes)
+mesurait le resolveur `DamageBonusForAttack` dans le contexte PREDICTION-DISPLAY (mult normal 180) — que #71 gate
+de toute facon. Le COMBAT utilise le Level baké (mult rarity 90 -> 300). La section « (HISTORIQUE, REFUTE) » avait
+donc RAISON sur le fond (mult 90) ; sa « refutation » conflatait les deux chemins. Verdict final = mult rarity 90.
+
+**FORK DU PORT (localise) : `engine/entities/effects/magnitude.py::ability_var`** applique UN SEUL `multiplier_pct`
+(= `abilityVariablesMultiplier` de l'unite = `+0x24`=180 capte dans le snapshot) aux variables rarity-flaggees.
+Or le natif utilise `+0x2c` (rarity) pour CES variables. => le port doit resoudre les variables rarity-flaggees
+avec le multiplier RARITY (`+0x2c`), pas le normal (`+0x24`). **Le port ne capte AUJOURD'HUI que `+0x24`**
+(`uc["abilityVariablesMultiplier"]`, snapshot.py) ; le `+0x2c` doit etre expose offline (le jeu l'a : cf.
+`UnitStats_{Active,Triggered}Ability_VariableMultiplierPercentage` dans rl_collect_batch). **FIX = (1) capturer le
+multiplier RARITY (+0x2c) par unite dans le snapshot (a cote du normal +0x24) ; (2) `ability_var` selectionne
++0x2c si `var_key IN variablesAffectedByRarityBonus`, +0x24 sinon (mirror exact de @181696230).** Non fait ; non commit.
+Impact GENERAL (pas juste SmashaEad) : toute unite dont `+0x2c != +0x24` sur une variable rarity-flaggee diverge.
+
+**MAJ 6b (path OFFLINE ecarte, 2026-07-09) — le multiplier de resolution N'EST PAS derivable de gameconfig statique ; « 90 » = un FIT non confirme.**
+Chaine de resolution LUE : `ConfigAmount.Calculate @180f171c0` -> `GetAbilityState` (renvoie `Level{level,multiplier}`)
+-> `AbilityConfiguration.GetVariableForLevel(config, varKey, Level)`. Le multiplier applique = celui du `Level`
+(baké dans le ConfigAmount de l'effet), resolu par `@181696230` (+0x2c rarity / +0x24 normal), valeur RUNTIME de la
+progression du unit-model (`param_1+0x80[idx]`). **Gameconfig statique a `units.abilityPowerModifiers.<ability>.baseMultiplier`
+(SmashaEad=85, PowerTrip=100, seule cle `baseMultiplier`) MAIS ce N'EST PAS le multiplier de resolution des variables** :
+PREUVE = u90 PowerTrip `armorIgnored` resout ×180 (validé live 277×180/100=499) alors que
+`abilityPowerModifiers.PowerTrip.baseMultiplier`=100 (donnerait 277) -> le multiplier utilise = `abilityVariablesMultiplier`
+(live @0x74=180), PAS abilityPowerModifiers. Donc **path (c) [derive offline depuis gameconfig] est MORT**. Et le
+`abilityVariablesMultiplier` rarity (+0x2c) n'est PAS dans gameconfig statique (valeur meta/progression runtime).
+**Le « 90 » (300=333×90/100) est un FIT** ; 85 (abilityPowerModifiers) donne 283≠300 ; aucune valeur statique ne
+reconcilie proprement. => la divergence #68 combat depend de la valeur RUNTIME du rarity mult (+0x2c) d'orksNob, que
+SEULE une lecture LIVE tranche (l'unique usage live legitime : confirmer une valeur runtime que le decompile ne resout
+pas statiquement). Fix = capturer live soit (a) la magnitude BAKEE resolue de l'effet, soit (b) le +0x2c par unite.
+NE PAS shipper un fit (90). Game off-menu -> mesure requiert warmup.
+
+**MAJ 7 (MESURE LIVE DEFINITIVE, 2026-07-09, probe _probe75 session 43) — SUPERSEDE MAJ 6b : le « 90 » EST REEL (baké dans l'effet), combat=300 CONFIRME. Mon read UnitConfig 180/100 l'a manque car le 90 est sur la PROGRESSION, pas UnitConfiguration.**
+Drive qui marche (endturn pour avancer les tours, attaque via `kind:ability` id normale ; PAS aiturn). Mesures :
+- `extraDmg` (id 8) : **3 fires, TOUTES class=PREDICTION, mult=180, result=599** (re-resolution `GetVariableForLevel`
+  avec `UnitConfiguration.abilityVariablesMultiplier`=180). 0 fire COMBAT, 0 fire CREATION.
+- `dmgBonus` SmashaEad `retWords[12]` = **599** (class MIXED).
+- **`CalculateDamageOperation` in/out par coup = [(1540,1540),(1738,1738),(1526,1526)]** = DEGAT COMBAT REEL.
+  `1540 = off_sans(1240) + 300` => **le combat applique +300 CONSTANT par coup, PAS +599.**
+- `dispatch42` slot 0x42 -> `OperationProcessor.DealDamage @180e074c0` (confirme le chemin combat).
+=> **RECONCILIATION COMPLETE ET MESUREE** : la PREDICTION re-resout l'additif a 599 (mult 180) ; le COMBAT applique
+300 (il LIT une valeur bakee, 0 re-resolution). `300 = 333 x 90/100` : le **90 = mult rarity** (`@181696230` `+0x2c`
+sur `progression[idx]` du unit-model, baké dans le `ConfigAmount+0x20` Level de l'effet A SA CREATION). Le **90 N'EST
+PAS sur UnitConfiguration** (@0x74=180 normal, @0x78=100 tertiary) — c'est pourquoi ma MAJ 6b (read live 180/100 ->
+"no 90, port correct") ETAIT FAUSSE : j'ai lu le mauvais objet. La section « (HISTORIQUE, REFUTE) » du doc (mult 90
+baké dans ConfigAmount Level) avait RAISON ; la « MESURE DEFINITIVE 599 des 2 cotes » mesurait la RE-RESOLUTION
+prediction (mult 180), gatée hors display par #71.
+**=> BUG PORT CONFIRME (mesure) : `magnitude.ability_var("SmashaEad","extraDmg", mult=180)` -> 599 applique en combat
+(`operations/damage.py` via `build_attacker_modifiers_from_effects`) ; le vrai combat = 300 (mult rarity 90 baké).
+Sur-application +299/coup. FIX = path (a) : capturer la valeur bakée de l'effet (additif 300 OU mult 90 via
+`EffectComponent.AbilityState@0x18` -> Level.multiplier) dans le snapshot d'effet, et faire consommer CETTE valeur
+par le port pour les variables rarity-flaggees d'effets triggered (SmashaEad), au lieu de re-resoudre a mult 180.**
+Note MAJ 5 nuancee : le combat ne « rejoue » pas la re-resolution prediction (sinon 599) ; il lit le BAKE (300).
+
+**MAJ 7b (CORRECTION de MAJ 7 : « mult 90 » = RED HERRING ; l'additif = 599, le combat le /2 DOWNSTREAM, 2026-07-09).**
+Le probe montre `dmgBonus SmashaEad retWords[12] = 599` (l'additif RESOLU par `BaseEffect.DamageBonusForAttack`) ET
+`extraDmg` re-resout 599 (mult 180). **Si le combat resolvait a mult 90, le resolveur rendrait 300 — il rend 599.**
+Donc l'additif SE RESOUT bien a **599 (mult 180)**, et le **300** que le combat applique = **599/2 via un /2 DOWNSTREAM**
+dans le build de la HitDamage combat (`Execute`/`ExecuteHits`/`GetBaseDamageFix64`/`CalculateBaseDamageWithAllModifiers`),
+PAS une re-resolution a mult 90. Le « 90 » est un RED HERRING : `333x90/100=300` coincide numeriquement avec `599/2=300`,
+indistinguables par la VALEUR seule (piege classique fit-de-scalaire). => **le locus exact du /2 (ou 599 devient 300 dans
+le build combat) reste NON LU.** Prochain pas fidele = DECOMPOSITION PAR ETAGE (`tools/damage_decomp.py` + modifier-observe
+par-etage) sur le pipeline HitDamage combat pour localiser l'etage ou l'additif passe de 599 a 300 (candidats : additif
+route en ExtraMaxDamage canal MAX -> mais REFUTE si la contribution est +300 CONSTANT par coup [mesure : off_sans varie
+1240/1438/1226, delta constant +300] -> ce n'est PAS un canal-max-midpoint qui varierait ; donc /2 FLAT en amont du roll).
+Le fix offline depend de CE locus (lire d'abord, ne pas fitter un /2). #75 reste OUVERT sur ce point precis.
+
+**MAJ 7c (DECOMPOSITION PAR ETAGE, outil damage_decomp, 2026-07-09) — ApplyCappedModifiers ECARTE ; /2 toujours non localise.**
+`test_damage_decomp_live` (orksNob->bloodIntercessor) imprime la valeur PAR ETAGE :
+- `extraDmg` : mult=180 result=599 (x3) ; additif attaquant agrege 599 ; par-source `{SmashaEadEffect: 599}`.
+- **`HitDamage.GetDamage` COMBAT per-coup = {min:2411, max:2411, result:2411}** (base pure = stat Attack, ZERO additif, ZERO spread a ce hook).
+- per-hit off=[1839,2037,1825] (port base+599) ; live=[1540,1738,1526] ; **delta constant +299**.
+- `applyCapped` fires=12 MAIS `percentsX1000` (liste %-mult attaquant ET defenseur) = **VIDE** -> `ApplyCappedModifiers`
+  (`value=Round(value x mod)` clampe, boucle sur la liste) est un **NO-OP** ici -> **ECARTE comme locus du /2**.
+- defender mods : additive=0 pierce=0 pen=0 percents=[] (rien cote defense).
+=> **VERDICT OUTIL** : etage divergent = ADDITIF (contribue 599) transforme AVAL en +299 par le build HitDamage combat ;
+locus exact du /2 **NON LU** (ni ApplyCappedModifiers=liste vide, ni mult-90=additif reellement 599). Candidats restants
+NON hookes : `GetHitDamage @180e61730`, `Execute @180e60c70`/`ExecuteHits @180e607b0` (build de la plage combat),
+`GetBaseDamageFix64` chemin combat (additif route en ExtraMaxDamage ? mais delta CONSTANT +299 sur rolls varies refute
+un canal-max-midpoint). **ETAT #75 : mecanisme entierement mesure, /2 non localise malgre decompose-par-etage ; dernier
+pas = hooker le build HitDamage combat (GetHitDamage/ExecuteHits) pour voir a quel etage 599 devient ~300. Effort
+disproportionne pour 1 effet low-value -> candidat PARK avec mecanisme documente.**
+
+**MAJ 8 (VERDICT re-expert worktree, RE decompile, 2026-07-09) — additif = Addition PLAT (pas ExtraMaxDamage) ; /2 dans slot 0x42 runtime ; le ½ est DEDUIT, PAS lu -> 2e cas separateur requis avant fix.**
+PROUVE (VAs) : (1) build de la HitDamage combat = `AttackDamageBehaviour.GetDamage @180fbb250` (min=slot2, max=slot3
+d'une interface formula) -> l'additif d'effet N'ENTRE PAS dans cette range (coherent : HitDamage.GetDamage combat=2411
+base pure). (2) `HitDamage.GetDamage @181007bf0` : Min==Max->Min ; `param_3!=0 -> (Min+Max)/2` MIDPOINT deterministe
+(flag `FUN_180002560(0,DAT_183287ef8)`) ; sinon rng.Next(Min,Max+1). (3) additif SmashaEad = `EffectBonus.ForAddition
+@180f406e0` = **scalaire Addition PLAT** (param_1[2]=value unique) -> **hypothese ExtraMaxDamage canal-max REFUTEE**
+(le canal ExtraMaxDamage de GetBaseDamageFix64 param_5 est un FromInt distinct stat 0x19, NON alimente par cet effet).
+(4) `DamageModifiers.Add @181005f10` additif plat `+0x10 += FromInt(value)`, pas de /2. (5) `ApplyCappedModifiers`
+no-op confirme (que le %-list). (6) **prediction et combat = pipelines DISJOINTS** (xref : `GetBaseDamageFix64`/
+`CalculateBaseDamageWithAllModifiers`/`CalculateMin-MaxDamage` appeles UNIQUEMENT par PredictAttackRaw ; combat ne les
+appelle pas). La divergence pred(599)/combat(300) est INTENTIONNELLE (2 pipelines), PAS un bug de prediction.
+NON RESOLU statiquement : le locus exact du /2 = **slot 0x42 de `DAT_1831d3468`** dispatche dans ExecuteHit
+(`FUN_1800267c0(&local_568,0x42,DAT_1831d3468,BattleQuery,...)` -> amount@+0x30) — dispatch d'interface resolu RUNTIME,
+tokens metadata non resolubles par read_bytes. 2 hypotheses residuelles pour le ½ : **(H-mid)** slot 0x42 construit
+`[roll, roll+additif]` et renvoie le MIDPOINT = roll+round(599/2)=roll+300 (le PLUS compatible : +300 constant PLAT
+sur rolls varies, independant du roll) ; **(H-half)** /2 flat litteral. **DEPARTAGE = 1 mesure LIVE sur un 2e cas
+SEPARATEUR** (autre effet ForAddition d'ampleur A != 599 : autre level SmashaEad OU BeaconOfRage/BioBarrage/
+EnmityForTheUnworthy_ExtraDamage/... -> si delta combat = round(A/2) le ½ est UNIVERSEL sur l'additif attaquant combat ;
+si delta = A le 599 avait une autre cause). **NE PAS FITTER ½ sur le seul cas 599.** FIX (apres confirmation) = COMBAT
+SEUL dans `operations/damage.py` : EXTRAIRE l'additif attaquant (`mods.additive`) de `apply_pierce_and_modifiers`/
+`apply_all_modifiers` (qui reste le chemin PREDICTION, additif plein +599 -> NE PAS toucher, #70/#71 valides) et
+l'appliquer PAR COUP apres le roll via un helper combat dedie (midpoint ou /2 selon H-mid/H-half). IMPACT GENERAL :
+si ½ universel, TOUS les effets ForAddition attaquants sont sur-evalues 2x en combat par le port -> le fix les corrige
+tous (a VERIFIER sur >=2 effets). Point faible n1 a attaquer par le validator : le ½ non-lu (fit-risk).
+
+**FIX (ANCIENNES options — SUPERSEDEES par MAJ 5 : le vrai fix = aligner combat sur prediction, pas capturer une valeur)** : le runner seed les effets depuis `decisionView.effects`. Options :
+(a) exposer la magnitude BAKEE de l'effet (lire `ConfigAmount+0x10` cache OU `ConfigAmount+0x20` Level.mult=90)
+dans le snapshot d'effet -> le port l'utilise au lieu de recalculer ; (b) capturer par-ability le multiplier
+RARITY (`@181696230 +0x2c`) + flag `variablesAffectedByRarityBonus` -> le port choisit 90 vs 180 par variable.
+(a) = plus simple/direct (lit la valeur reelle) ; (b) = plus general (rejoue la logique). NON fait ; non commit.
+
+### MESURES DEFINITIVES (outil damage_decomp, 2026-07-09) — l'additif=599 des 2 cotes, le COMBAT n'en applique que 300 ; la /2 est DOWNSTREAM dans ExecuteHit
+
+**Tout mesure via `tools/damage_decomp` (modifier-observe etendu) sur orksNob->bloodIntercessor :**
+- `extraDmg` resout a **mult=180 -> 599** (GetVariableForLevel, 3x, chemin PREDICTION). PAS 90. => l'hypothese
+  "multiplier 90/rarity" est REFUTEE PAR MESURE DIRECTE (3e refutation ; cf. lecon fit-de-scalaire).
+- Additif attaquant (SmashaEad `DamageBonusForAttack` retWords[6]=1246 type, retWords[12]=**599**). Le PORT
+  calcule 599 AUSSI -> la VALEUR matche des 2 cotes.
+- `HitDamage.GetDamage` combat = **{min:2411, max:2411} -> 2411** (base = stat Attack, min==max, PAS de roll
+  ici ; pierce/armure/spread/additif sont AVAL).
+- DEFENDER DamageModifiers : additive=0, pierce=0, penetration=0, **%-mult list @0x18 = VIDE**. ATTACKER :
+  additive=599, %-mult VIDE. => la /2 n'est PAS un modifier attaquant/defenseur capture.
+- COMBAT applique **+300 CONSTANT** (off_sans+300=live ; test RNG-aligned PASSE -> base rolls identiques,
+  seul l'additif differe). `300 = 599/2` (intuition user "degats/2").
+=> **La /2 (599->300) est DOWNSTREAM dans `AttackDamageOperation.ExecuteHit @180e5eff0`** (non encore hooke) :
+candidats = `GetBonusDamage`, `CritDamageInfo`, **`ApplyCappedModifiers`** (fire 12x, cote defense/cap),
+`IsAttackMaxOutDamage`. `ExecuteHit` recoit la HitDamage {min,max} DEJA construite par `Execute`/`ExecuteHits`
+en AMONT -> l'additif y est folde ; c'est LA (build de la HitDamage combat) que se trouve la /2. NB : le combat
+n'appelle PAS `GetVariableForLevel`/`DamageBonusForAttack`/`GetBaseDamageWithFixedPiercedArmor` (0 fire combat ;
+tous les fires = les 3 predictions) -> il resout l'additif par un AUTRE chemin non hooke.
+
+**HINT USER (2026-07-09) : "creuse cote defense"** — mais additive/pierce/pen/%-mult defenseur = 0/vide dans
+les mods captures. Candidat defense restant NON hooke : `ApplyCappedModifiers` (cap per-coup cote defenseur).
+bloodIntercessor (Mataneo, Uncommon) : traits Hero/TeleportStrike/Flying/RapidAssault, PAS de reduction-degat
+evidente. A ELUCIDER : quelle mecanique defensive precise (armure appliquee a l'additif ? cap ? profil de
+degat ?) -> hooker `ApplyCappedModifiers`/le build HitDamage combat (Execute) au prochain passage.
+
+**ETAT OUTIL (livre, non commite)** : `scripts/python/tools/damage_decomp.py` + demo
+`tests/engine/runner/test_damage_decomp_live.py` + extensions `modifier-observe.ts` (retWords par-source,
+varForLevel, hitDmgGet, percentsX1000). Regle "decompose d'abord" ajoutee a CLAUDE.md + memory
+`feedback_damage_decomposition_measure_stage`. La /2 combat = SEULE inconnue restante de #68.
+
+### CORRECTION #75 (OUTIL DE DECOMPOSITION, 2026-07-09) — l'additif VAUT 599 des 2 cotes ; c'est le COMBAT qui l'applique de moitie
+
+**MESURE DIRECTE par `tools/damage_decomp` (attribution par-source via `BaseEffect.DamageBonusForAttack`
+retWords) : SmashaEad contribue un additif de `599` (retWords[6]=1246=type SmashaEad, retWords[12]=599).**
+Le PORT calcule 599 AUSSI. => **la VALEUR de l'additif (599) MATCHE des deux cotes** ; le port n'a PAS un
+mult/valeur faux. Or l'ecart FINAL combat = +299 constant (off applique +599 a plat, live ~+300). Donc :
+=> **la divergence #68 = un ETAGE AVAL (build de la HitDamage combat) qui n'applique QUE ~la moitie de
+l'additif 599** (== l'intuition user « degats/2 », CONFIRMEE par la mesure). PISTE (a RE pour clore) :
+`GetBaseDamageFix64` = `{base-spread, base+spread+ExtraMaxDamage}` -> si l'additif SmashaEad est un
+**ExtraMaxDamage** (ajoute au MAX seul, pas a plat), alors le degat par-coup n'en reflete que ~la moitie
+(effet midpoint/plage), tandis que le port `_run_hits` l'ajoute A PLAT (min ET max) -> sur-applique ~2x.
+A CLORE : RE `AttackDamageOperation.ExecuteHit @180e5eff0` / la construction de la HitDamage combat pour
+voir si 599 = ExtraMaxDamage (canal MAX) vs additif plat, et aligner le port. **TOUTES les hypotheses
+"mult 90" / "rarity mult" / "300 resolu" ci-dessous sont REFUTEES par cette mesure (l'additif = 599, pas
+300 ; il n'y a pas de mult 90).** Lecon : l'outil de decompo l'a montre en 1 run ; le fit-de-scalaire a
+coute ~5 reinjects (cf. CLAUDE.md "Divergence de degat = DECOMPOSITION PAR ETAGE").
+
+### (HISTORIQUE, REFUTE) CONCLUSION #75 — c'est la VALEUR resolue (300), pas un multiplier capturable
+
+**Diagnostic FINAL (mesure par etage, pas fit de scalaire) :**
+- `extraDmg[49]` = **333** (gameconfig), extraDmg in `variablesAffectedByRarityBonus`.
+- `AbilityState.Level.multiplier` = **180** sur l'instance ACTIVE **ET** l'instance TRIGGERED SmashaEad
+  (lu live : triggered instance Level words `{level=50, multiplier=180, rarity=0}`). Donc PAS 90.
+- `UnitConfiguration` : AUCUN offset 0x40..0xE0 ne contient 90 (probe live). Donc 90 n'est PAS un champ unite.
+- `DamageModifiers.Add @181005f10` ajoute l'additif **A PLAT** (`additive@+0x10 += FromInt(DamageBonus)`,
+  AUCUN /2) ; delta per-coup live constant **+300**. => **l'additif RESOLU que le jeu applique = 300**,
+  pas 599. `300 = round(333 x 90/100)`.
+=> Le multiplier EFFECTIF a la resolution = **90**, MAIS il n'est ni sur UnitConfig, ni sur le Level de
+l'instance d'ability (180). Il est **bake dans le `ConfigAmount` PROPRE de l'effet** au moment de sa creation
+(`@181696230` renvoie le rarity `+0x2c`=90 pour orksNob quand la variable est rarity-flagged ; `+0x24`=180
+sinon). Pour u90 PowerTrip, `+0x2c`=`+0x24`=180 -> pas de divergence (c'est pourquoi magnitude.py x180 y matche).
+Le rarity multiplier est donc PAR-UNITE (orksNob 90 vs u90 180), distinct du normal (180), et vit dans le
+ConfigAmount de l'effet.
+
+**Statut : #68/#75 PARKED (xfail-tracked).** Le port sur-applique (+299/coup) car `magnitude.ability_var`
+scale les vars rarity-flagged par le multiplier NORMAL (`abilityVariablesMultiplier`=180) au lieu du rarity
+(90). Le fix OFFLINE est trivial (utiliser 90) mais la CAPTURE fidele du 90 est profonde (lire le Level cache
+du ConfigAmount de l'effet, ou porter le calcul rarity `@181696230 +0x2c` — non fait). Faible valeur (un
+effet), donc parked. Outil a construire : un DIFF DE DECOMPOSITION (valeur par etage off vs live) pour
+localiser mecaniquement l'etage divergent (ici : additif off=599 vs live=300) au lieu de deviner le parametre.
+
+### (HISTORIQUE) REFUTATION du plan 5 (LIVE, 2026-07-09) — `GetAbilityState(unit,1246)` rend 180, PAS 90
+
+Le plan 5 a ete IMPLEMENTE + teste live (frida `game/ability-state-multiplier.ts` : `invokeMethod(GetAbilityState
+@180eced70, [unitPtr, ptr(1246)])`, diag boxe). Resultat mesure (orksNob, abilityType=1246) : boxe words @[0x10,0x14,..]
+= **[level=50, multiplier=180, 0, 0]**. => **le multiplier rendu = 180, pas 90.**
+
+CAUSE (RE-relue) : `@180eced70` fait d'abord `TriggeredAbility.GetActiveAbilityUsedForConfig(1246)` ; pour SmashaEad
+ca rend l'ACTIVE (Tanksmasha) -> il RECURSE dans l'overload actif `@180ecea30` et rend le `Level.multiplier` de
+l'**ACTIVE (180)**, pas celui de la triggered. Donc `UnitExtensions.GetAbilityState(unit, triggeredType)` N'EST PAS
+la resolution que fait le combat pour l'additif SmashaEad.
+
+VRAI locus du 90 (RE `ConfigAmount.GetAbilityState @180f175a0`, relue) : la 1re branche teste `Nullable.HasValue`
+sur **`ConfigAmount+0x20`** (un `Level` CACHE sur le ConfigAmount de l'effet) ; si present -> le renvoie DIRECTEMENT
+(sans passer par GetActiveAbilityUsedForConfig). Ce Level cache est BAKE a la creation de l'EffectBonus/ConfigAmount
+par `SmashaEadAbility.CreateEffectDamageBonusForAttack` avec le multiplier PROPRE de SmashaEad (90, le `+0x2c` rarity
+de `@181696230`). => **le 90 vit dans le ConfigAmount de l'EFFET (Level cache @+0x20), atteignable par
+effet -> EffectComponent -> EffectBonus -> ConfigAmount -> Level.multiplier**, PAS par une requete d'ability au niveau
+unite. Capture fidele = lecture INTERNE de l'effet (fiddly), ou lecture directe de l'instance triggered (a verifier :
+donne-t-elle 90 ou 180 ?). #75 RESTE OUVERT : le plan 5 (simple) est refute ; la capture fidele demande soit la
+lecture du Level cache du ConfigAmount de l'effet, soit un chemin encore a RE. Le fix OFFLINE reste trivial (mettre
+mult=90 -> port==live) ; SEULE la SOURCE fidele du 90 manque.
+
 ---
 
 **(historique) SUR-PREDICTION (mesure DETERMINISTE, #71)** : via `Scene.from_state` (aiPredict, aucun roll RNG),

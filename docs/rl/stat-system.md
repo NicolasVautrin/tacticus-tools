@@ -284,8 +284,36 @@ porter le canal aux StatModifier DYNAMIQUES concrets (cartographie ci-dessous, R
 - **StatType = PAS dans l'override d'amount** : `AStatModifierEffect.GetStatModificationStat @180f0a890` (seule
   impl, aucun override) mappe le descripteur `AbilityOrEffect` (stocke au ctor base `@180f09280`, champ
   `Nullable<AbilityOrEffect>` @+0x14) -> `StatType` via un **dict statique `DAT_1831b92c8`** (valeur @+0x10).
-  -> pour figer les StatType exacts, DECODER ce dict (TODO ; pour RitesOfBattle StatType=Attack deja confirme
+  -> pour figer les StatType exacts, SOURCE = un champ de CONFIG lu au build (RESOLU 2026-07-08, cf. sous-section "StatType source" ci-dessous) ; RitesOfBattle StatType=Attack confirme
   live #49). Champs d'instance communs : `+0x48`=DSLFactory, `+0x60`=AbilityConfiguration, `+0x50`=contexte.
+
+### StatType source = champ de CONFIG au build (RESOLU 2026-07-08, VAs lues)
+
+Question item-2 ("decoder le dict AbilityOrEffect->StatType @180f0a890") tranchee par lecture :
+le StatType d'un stat-mod N'EST PAS a decoder depuis le binaire ; c'est un CHAMP DE CONFIG lu au
+build de l'effet.
+
+- `DAT_1831b92c8` = Dictionary IL2CPP **metadata-populated** : les 18 xrefs sont TOUS des READ
+  (lookups via `FUN_180007ae0`), AUCUN site d'ecriture / `.cctor Add` -> contenu issu de la
+  metadata IL2CPP (init paresseuse `FUN_1801f2030(&DAT_1831b92c8)`), **non decodable statiquement**.
+  Dans les builders, l'acces au dict sert la resolution du TYPE de composant (allocation blueprint),
+  PAS la valeur du StatType.
+- Build de l'effet : `AddStatModifierEffectBehaviour$$StatModifierBuilder @180fb7680` (et le lambda
+  `<>c__DisplayClass11_1$$<Execute>b__0 @180fd9180`, invoque par delegate -> xrefs DATA) ecrit les
+  champs de l'EffectComponent DEPUIS la config capturee (`ctx = *(param_1+0x18)`,
+  `configDesc = *(ctx+0x10)`) :
+    - `effect+0x10` = **StatType** = `*(configDesc + 0x6c)`
+    - `effect+0x14` = descripteur `AbilityOrEffect` = `param_1+0x10`
+    - `effect+0x1c`/`+0x1d` = flags (hidden...) = `configDesc+0x50`/`+0x80`
+    - `effect+0x18..+0x38` = **DSL magnitude** (5 champs) = `ctx+0x18/+0x20/+0x28/+0x30/+0x38`
+  Donc `StatType` = un NOMBRE de config (`config+0x6c`) fige au build, comme le jeu ; la magnitude
+  (arbre DSL `ConfigVar`/`EffectSource`) = les 5 champs `ctx+0x18..` (miroir Pattern A/B).
+
+=> **Port offline** : sourcer le StatType de chaque stat-mod dynamique depuis **gameconfig** (le
+   champ stat-modifie declare par l'ability/effet), PAS via un decode du dict binaire. La
+   correlation `varType->StatType` (0x1b=Armor, 0x14/15=Block, 0x41=Crit, 8/9=Damage) reste un
+   raccourci de lecture, mais l'AUTORITE est la config (`config+0x6c`). RitesOfBattle=Attack et
+   StandVigil=Armor (deja portes) sont coherents avec ce chemin.
 
 ### Deux patterns de magnitude (PROUVE)
 - **PATTERN A** (~14 sous-classes) = arbre DSL `ConfigVar(configId, EffectSource(Get(target)), varType)` eval
@@ -331,7 +359,7 @@ porter le canal aux StatModifier DYNAMIQUES concrets (cartographie ci-dessous, R
   (configId,varType) par sous-classe (VAs) ; RitesOfBattle aura r1 ; ContagionsOfNurgle override direct ;
   Pattern B lecture GetStat+scaling ; PathOfCommand If(IsSameFaction).
 - HYPOTHESE (a fermer) : (1) mapping `configId -> var_key camelCase -> valeur` = gameconfig, cas par cas ;
-  (2) enum exact `varType`/`StatType` (dict @180f0a890 non decode ; correlation observee 0x1b=Armor, 0x14/0x15=Block,
+  (2) enum exact `varType` (StatType RESOLU = champ config `config+0x6c`, cf. sous-section "StatType source" ; correlation varType observee 0x1b=Armor, 0x14/0x15=Block,
   0x41=Crit, 8/9=Damage) ; (3) `statType=5/6` Pattern B ; (4) porteurs gameconfig (colonne Porteur) ;
   (5) branche `+0x490` vs `+0x498` du generique.
 
@@ -354,5 +382,7 @@ porter le canal aux StatModifier DYNAMIQUES concrets (cartographie ci-dessous, R
 
 ### Ordre de port suivant (recommande)
 1. Canal AURA-CRIT (debloque PathOfCommand ExtraCrit + futurs crit-auras).
-2. Decoder le dict `AbilityOrEffect->StatType` (@180f0a890) pour figer les StatType (retirer l'hypothese).
+2. [RESOLU 2026-07-08] StatType = champ de CONFIG au build (`config+0x6c`) ; le dict `DAT_1831b92c8`
+   est metadata-populated (NON decodable statiquement). -> sourcer le StatType depuis gameconfig
+   (cf. sous-section "StatType source"). Plus de decode binaire a faire.
 3. Generique `DynamicStatModifierEffect` (couvre beaucoup de stat-mods config-driven) une fois (1)+(2) surs.
