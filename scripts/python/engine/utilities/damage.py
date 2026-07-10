@@ -96,19 +96,33 @@ class KillUnitUtility(BaseUtility):
 
 class OverkillUnitUtility(BaseUtility):
     """`OverkillUnitUtility` (@1810d0200, TypeDefIndex 12129 ; UtilityType.OverkillUnit=37) ; @1810e1ed0 :
-    ADDITIONNÉ (natif). WillBeOverkill = le dégât MIN dépasse STRICTEMENT les PV (kill garanti avec
-    gaspillage) -> DefinitelyOverkill ; MightBeOverkill = dégât MAX dépasse strictement -> PossibleOverkill."""
+    `WillBeOverkill` @18102ba40 (borne MIN) -> DefinitelyOverkill(40) ; sinon `MightBeOverkill` @18102b940
+    (borne MAX) -> PossibleOverkill(15). Les deux = `DamagePrediction.IsOverkill @181032db0` : le dégât est
+    un KILL **et** l'over-shoot `(dmg − hp)/hp × 100 >= overkillDmgPctOfHealth` (=100 => dmg >= 2×hp), OU
+    `ForceOverkill@0xB2` + dmg>=hp. ⚠ #84 : le natif lit le dégât santé **BRUT** (@0x24/@0x28, NON capé par
+    HP) — le port historique lisait `AccurateHealthDamage` CAPÉ à HP (`min(dmg,hp) > hp` = TOUJOURS FAUX)
+    -> `OverkillUnit` INERTE pour toute attaque. Réactivé via `raw_health_damage` + `is_overkill` (l'over-shoot
+    est déjà porté pour le cap Resilient, `trait_damage_limits.is_overkill`)."""
     UTILITY_TYPE = 37
 
     def evaluate(self, pred, target_max_hp, wt) -> float:
         if not pred:
             return 0.0
+        from ..services.trait_damage_limits import is_overkill, _overkill_threshold_pct
         hp = pred.get("hpBefore") or 0
-        dmin = pred.get("healthDmgMin") or 0
-        dmax = pred.get("healthDmgMax") or 0
-        if dmin > hp:
+        if hp <= 0:
+            return 0.0
+        # raw* = dégât santé NON capé par HP (mirror @0x24/@0x28). Fallback capped (INERTE, ancien comportement)
+        # si un caller (runner/move) ne fournit pas encore les champs raw -> pas de régression sur ces chemins.
+        raw_min = pred.get("rawHealthDmgMin")
+        raw_max = pred.get("rawHealthDmgMax")
+        if raw_min is None or raw_max is None:
+            raw_min, raw_max = pred.get("healthDmgMin") or 0, pred.get("healthDmgMax") or 0
+        thr = _overkill_threshold_pct()
+        allow = 1 if pred.get("forceOverkill") else 0
+        if is_overkill(hp, raw_min, default_flag=0, allow_flag=allow, suppress=0, cond=1, threshold_pct=thr):
             return wt.overkill(definite=True)     # WillBeOverkill -> DefinitelyOverkill (40)
-        if dmax > hp:
+        if is_overkill(hp, raw_max, default_flag=0, allow_flag=allow, suppress=0, cond=1, threshold_pct=thr):
             return wt.overkill(definite=False)    # MightBeOverkill -> PossibleOverkill (15)
         return 0.0
 

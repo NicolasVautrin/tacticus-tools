@@ -43,21 +43,28 @@ TRAIT_PIERCE_1016 = 0x3f8      # 1016 — attaquant : bonus perçage LasCannon
 @dataclass
 class DamagePredictionResult:
     """struct DamagePredictionResult (dump.cs TypeDefIndex 11757, offsets STRUCT) :
-      CurrentHealth@0 · CurrentArmor@4 · CurrentShield@8 · AccurateHealthDamage(MinMax)@0x58
-      (Min@+8=0x60, Max@+0xc=0x64) · AccurateArmorDamage@0x68 · AccurateShieldDamage@0x78
-      · TotalDamage@0x88 · LimitedByMinHp@0xB0 · MightCrit@0xB1 · ForceOverkill@0xB2 ·
-      AppliedHits@0xBC.
+      CurrentHealth@0 · CurrentArmor@4 · CurrentShield@8 · healthDmg(RAW min@0x24/max@0x28,
+      NON capé par HP — utilisé par get_WillBeKill @18102bef0 / WillBeOverkill @18102ba40) ·
+      AccurateHealthDamage(MinMax)@0x58 (Min@+8=0x60, Max@+0xc=0x64, CAPÉ par HP santé restante)
+      · AccurateArmorDamage@0x68 · AccurateShieldDamage@0x78 · TotalDamage@0x88 · LimitedByMinHp@0xB0
+      · MightCrit@0xB1 · ForceOverkill@0xB2 · AppliedHits@0xBC.
     SPLIT santé/bouclier (PredictAttackRaw, call-sites VA 0x181034caa/0x181034ce7) :
       shieldDmg = CalculateDamageBlockedByShield @181002850 = Min(dmg, shieldRestant) PAR BORNE ;
-      healthDmg = dmg − shieldDmg. Le bouclier absorbe le dégât FINAL (post-armure/modifiers)."""
+      healthDmg = dmg − shieldDmg. Le bouclier absorbe le dégât FINAL (post-armure/modifiers).
+    ⚠ DEUX représentations du dégât santé (le natif les DISTINGUE) : `raw_health_damage` (@0x24/@0x28,
+      NON capé par la santé restante) sert le test de KILL/OVERKILL (l'écrasement `min(dmg,HP)` détruirait
+      l'info d'over-shoot) ; `accurate_health_damage` (@0x58, CAPÉ) sert `DamageDealt` (satu à HP). Le port
+      historique les confondait (une seule valeur capée) -> `OverkillUnit` INERTE (#84)."""
     current_health: int = 0
     armor: int = 0
     shield: int = 0
     accurate_health_damage: MinMaxDamage = field(default_factory=MinMaxDamage)
+    raw_health_damage: MinMaxDamage = field(default_factory=MinMaxDamage)   # @0x24/@0x28 NON capé HP (kill/overkill)
     accurate_shield_damage: MinMaxDamage = field(default_factory=MinMaxDamage)
     total_damage: MinMaxDamage = field(default_factory=MinMaxDamage)
     limited_by_min_hp: bool = False
     might_crit: bool = False
+    force_overkill: bool = False   # ForceOverkill @0xB2 (trait force-overkill ; défaut False, non porté baseline)
     applied_hits: int = 0
 
     def default_block_scenario(self) -> "BlockScenario":
@@ -75,6 +82,12 @@ class DamagePredictionResult:
                          cap=self.accurate_health_damage.cap)
         h.apply_cap()
         self.accurate_health_damage = h
+        # raw @0x24/@0x28 : somme NON capée par HP (l'over-shoot cumulé des coups = base du flag overkill)
+        rh = MinMaxDamage(min=self.raw_health_damage.min + other.raw_health_damage.min,
+                          max=self.raw_health_damage.max + other.raw_health_damage.max,
+                          cap=self.raw_health_damage.cap)
+        rh.apply_cap()
+        self.raw_health_damage = rh
         s = MinMaxDamage(min=self.accurate_shield_damage.min + other.accurate_shield_damage.min,
                          max=self.accurate_shield_damage.max + other.accurate_shield_damage.max,
                          cap=self.accurate_shield_damage.cap)
@@ -285,6 +298,8 @@ def predict_attack_raw(
     health = calculate_damage_prediction_scenario(
         MinMaxDamage(min=lo, max=hi), prev_hits=0, profile_type=profile_type,
         reduction_min=reduction_min, reduction_max=reduction_max)
+    # RAW @0x24/@0x28 : dégât santé AVANT le cap de santé-restante (over-shoot préservé pour kill/overkill).
+    raw_health = MinMaxDamage(min=health.min, max=health.max, cap=health.cap)
     if target_current_health > 0:
         # overkill PER-COUP : la santé de CE coup <= HP RESTANT (HP courant − cumul prev). La somme sur les
         # coups = min(Σ, HP) — équivalent à l'ancien cap-sur-agrégat, mais fidèle à la déplétion native.
@@ -293,7 +308,8 @@ def predict_attack_raw(
                               cap=health.cap)
     return DamagePredictionResult(
         current_health=target_current_health, armor=armor, shield=target_shield,
-        accurate_health_damage=health, accurate_shield_damage=MinMaxDamage(min=blk_lo, max=blk_hi),
+        accurate_health_damage=health, raw_health_damage=raw_health,
+        accurate_shield_damage=MinMaxDamage(min=blk_lo, max=blk_hi),
         total_damage=MinMaxDamage(min=blk_lo + health.min, max=blk_hi + health.max),
         applied_hits=1, might_crit=might_crit)
 

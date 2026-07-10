@@ -1065,6 +1065,9 @@ def _finaljustice_target(state: State, owner_id: int) -> Optional[int]:
         eff_min = max(0, dmin - shield)
         eff_max = max(0, dmax - shield)
         pred = {"healthDmgMin": eff_min, "healthDmgMax": eff_max,
+                # rawHealthDmg* = plage NON capée (mirror @0x24/@0x28) : `OverkillUnit` faithful via over-shoot
+                # (dmg >= 2*PV), comme `SortUnitsByDamageUtility` natif — ici eff_* SONT déjà bruts (#84).
+                "rawHealthDmgMin": eff_min, "rawHealthDmgMax": eff_max,
                 "hpBefore": hp, "shieldBefore": shield,
                 "killSure": hp > 0 and eff_min >= hp,      # WillBeKill (dmg min ≥ PV)
                 "kill": hp > 0 and eff_max >= hp}          # MightBeKill (dmg max ≥ PV)

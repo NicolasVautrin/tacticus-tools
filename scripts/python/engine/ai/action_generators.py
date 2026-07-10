@@ -33,17 +33,20 @@ pas par l'utilité -> preuve que le tier domine l'argmax (cf. noncomparable.py).
 from __future__ import annotations
 
 import sys
+import math
 
 import hexgeo
 import gameconfig as gc
 from engine import move
+from engine import battle_query as bq          # is_adjacent (élévation-gaté) — cibles heal SpiritLeech (#84)
 from engine.playbook import noncomparable as playbooks
 from engine.playbook import get_playbook_or_default, tile_utility
 from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK, HEAL_PLAYBOOK
 from engine.playbook.bespoke_heals import BESPOKE_SELFCAST   # #82 : BloodChalice/MomentShackle self-cast
 from engine.predict import (repair_utility,            # RepairedAmountUtility (analogue non-custom du soin)
                             predict_heal_effective, heal_amount_config,   # magnitude soin OFFLINE (#79)
-                            predict_repair_effective, repair_amount_config)  # magnitude repair OFFLINE (#83)
+                            predict_repair_effective, repair_amount_config,  # magnitude repair OFFLINE (#83)
+                            heal_utility)             # HealUtility — terme lifesteal SpiritLeech (#84)
 from engine.entities.stats import StatType, StatPart   # Attack INITIALE de la cible (magnitude #85)
 from engine.entities.effects.magnitude import ability_var   # maxDmg/dmgPct GalvanicField (#85)
 from engine.ai.bucket import Action, Bucket
@@ -58,6 +61,8 @@ from engine.ai.bucket import Action, Bucket
 # exclu ; 82/84 = IDs inexistants dans l'enum, retires -- validateur.)
 _COMPARABLE_REPAIR_IDS: "frozenset[int]" = frozenset({28})
 _GALVANIC_REPAIR_ID = 1119   # Repair_GalvanicField (bespoke Comparable, admecManipulus/Loki) — #85
+_SPIRITLEECH_ID = 1104       # SpiritLeech (tyranNeurothrope/Loki) — attaque psychique per-ennemi + lifesteal (#84)
+_SPIRITLEECH_HEAL_FACTION = "Tyranids"   # GetHealTargets @18120a1e0 : faction 0xc (self + amis Tyranids adjacents)
 
 
 _FACTION_CACHE: dict = {}
@@ -155,8 +160,15 @@ class ComparableAbilityGenerator(ActionGenerator):
                 if cand is None:
                     continue
                 u_full = cand["u_full"]
+                u_val = cand["u"]
+                if ab == _SPIRITLEECH_ID:
+                    # #84 : SpiritLeech (Comparable) SOMME un terme LIFESTEAL (Σ HealUtility sur self + amis
+                    # Tyranids adjacents à `tile`) au dégât dans `CalculateActionUtility`. Position-dépendant.
+                    ls = self._spiritleech_lifesteal_util(ctx, tile, cand["pred"])
+                    u_full += ls
+                    u_val += ls
                 if pair_best is None or u_full > pair_best[0]:
-                    pair_best = (u_full, cand["u"], cand["pred"], cand["aoe"], tile, cand["bk"])
+                    pair_best = (u_full, u_val, cand["pred"], cand["aoe"], tile, cand["bk"])
             if pair_best is None:
                 continue
             u_full, u, pred, aoe, tile, bk = pair_best
@@ -180,6 +192,57 @@ class ComparableAbilityGenerator(ActionGenerator):
                        for ev in (plan.get("evals") or []) if ev.get("rankCount")]
             print(f"    [dbg u{ctx.uid}] NATIVE ranked(ab,tgt,dMin,dMax,opt)={nat_dbg}", file=sys.stderr)
         return best
+
+    def _spiritleech_lifesteal_util(self, ctx, tile_T, cand_pred) -> float:
+        """Terme LIFESTEAL de `SpiritLeechPlaybook.MakeHealPredictions @18115d7a0` (Comparable id 1104,
+        tyranNeurothrope/Loki) → `GenerateHealPredictions` → Σ `CalculateUtilityFromHealEvent`, SOMMÉ au
+        dégât (+ effet Pinned=0, inerte ce build) par `CalculateActionUtility @181406ee0`.
+
+        - lifesteal = `GetHealAmountForPrediction @181209fa0` = `ceil(degat_predit × hpToHealPct/100)`
+          (`GetHealAmountFromDamageAmount @18120a160` = `PercentageOf(dmg, ConfigVar 0x4b, roundUp=1)`).
+          `hpToHealPct` ∈ [40..60] au niveau ACTIF du caster (PAS rarity-scaled). `degat_predit` = dégât
+          santé+bouclier prédit sur la cible d'attaque (avg des bornes BRUTES @0x24/@0x28 + bouclier).
+        - cibles = `GetHealTargets @18120a1e0` = SELF ∪ (amis ADJACENTS à `tile_T`, faction Tyranids(0xc)).
+        - Σ par cible : eff = `PredictHeal` = min(lifesteal, PV manquants) ; `HealUtility` = eff/(maxHP+1)×100
+          (is_friend=True). Position-dépendant (adjacence des alliés à la tuile de cast `tile_T`)."""
+        me = ctx.me
+        if me is None or not cand_pred:
+            return 0.0
+        # degat predit (avg des bornes BRUTES health @0x24/@0x28 + bouclier) sur la cible d'attaque
+        dmg = ((cand_pred.get("rawHealthDmgMin") or 0) + (cand_pred.get("rawHealthDmgMax") or 0)) / 2.0 \
+            + ((cand_pred.get("shieldDmgMin") or 0) + (cand_pred.get("shieldDmgMax") or 0)) / 2.0
+        if dmg <= 0:
+            return 0.0
+        hc = ctx.heal_config(ctx.uid)
+        pct = ability_var("SpiritLeech", "hpToHealPct", hc["active"], multiplier_pct=hc["multiplier"]) or 0
+        lifesteal = math.ceil(dmg * pct / 100.0)
+        if lifesteal <= 0:
+            return 0.0
+        # cibles de soin : SELF + amis Tyranids ADJACENTS à la tuile de cast (GetHealTargets)
+        team = me.get("team")
+        heal_ids = {ctx.uid}
+        for u in ctx.units:
+            if u.get("id") == ctx.uid or u.get("team") != team or not u.get("alive"):
+                continue
+            if _faction(u.get("visualId")) != _SPIRITLEECH_HEAL_FACTION:
+                continue
+            p = u.get("pos")
+            if p and p.get("col") is not None and bq.is_adjacent(tile_T, (p["col"], p["row"]), ctx.elev_by_pos):
+                heal_ids.add(u.get("id"))
+        obs_by_sq = {u.get("squadId"): u for u in ctx.obs_units}
+        total = 0.0
+        for hid in heal_ids:
+            ob = obs_by_sq.get(hid) or {}
+            hp_max = int(ob.get("hpMax") or 0)
+            hp_cur = int(ob.get("hp") or 0)
+            if hp_max <= 0:
+                continue
+            eff = min(lifesteal, max(0, hp_max - hp_cur))   # PredictHeal = min(healAmount, manquant)
+            total += heal_utility(eff, hp_max, is_friend=True, is_boss=False)
+        if ctx.debug:
+            print(f"    [dbg spiritleech u{ctx.uid}@{tile_T}] dmg={dmg:.0f} pct={pct} lifesteal={lifesteal} "
+                  f"healTargets={sorted(heal_ids)} lifestealU={total:.3f}", file=sys.stderr)
+        return total
 
     def _heal_candidates(self, ctx) -> list:
         """Sweep soin (tile-swept) via `HealPlaybook` -> liste {target, ability, to, pred, full}.

@@ -38,13 +38,17 @@ class ProbableDamageEvent:
         """Champs consommés par le composite Damage (`UtilityAttackCase.ForDamagePrediction @181104fb0`
         → poids `Utilities` case 0x22) : santé min/max (cap PV), split bouclier (AccurateShieldDamage@0x78),
         kill/killSure. Mirror de la lecture native des bornes depuis le `DamagePredictionResult`
-        (= l'ancien `predict_validate._event_from_dp`)."""
+        (= l'ancien `predict_validate._event_from_dp`).
+        `rawHealthDmg*` = dégât santé NON capé par HP (@0x24/@0x28) → over-shoot pour `OverkillUnit`
+        (`WillBeOverkill`/`MightBeOverkill` via `IsOverkill`, #84). `forceOverkill` = @0xB2."""
         dp = self.prediction
         r = dp.accurate_health_damage
+        rr = dp.raw_health_damage
         s = dp.accurate_shield_damage
         hp = dp.current_health
         return {"hpBefore": hp, "shieldBefore": dp.shield,
                 "healthDmgMin": min(r.min, hp), "healthDmgMax": min(r.max, hp),
+                "rawHealthDmgMin": rr.min, "rawHealthDmgMax": rr.max, "forceOverkill": dp.force_overkill,
                 "shieldDmgMin": s.min, "shieldDmgMax": s.max,
                 "limitedByMinHp": dp.limited_by_min_hp, "appliedHits": dp.applied_hits,
                 "kill": r.max >= hp, "killSure": r.min >= hp}

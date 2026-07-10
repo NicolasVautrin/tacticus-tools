@@ -72,6 +72,59 @@ def ability(aid: str) -> dict | None:
     return None if a is None else {"id": aid, **a}
 
 
+# --- AbilityType enum (name <-> id numérique) ----------------------------------------------------
+# Le gameconfig ne porte PAS l'id numérique d'une ability : `ability(name)` n'a que
+# `attackRangeType/constants/variables/upgrades`, keyé par NOM. L'id numérique — celui que le RUNNER
+# attend (`--ability`, `attackPlans.abilityId` ; ex. 1104=SpiritLeech, 1175=BloodChalice, 28=Repair) —
+# vient de l'enum `ActiveAbilityType`, dumpé côté hooks dans `frida/hooks/data/ability-names.ts`. On le
+# MIRROR ici pour que la recon offline résolve name<->id SANS hardcode (piège répété : #82/#84/#85 ont
+# codé 1175/1104/1119 en dur faute d'un résolveur). Source unique = ce .ts (régénéré au changement de build).
+_REPO = Path(__file__).resolve().parents[2]        # scripts/python/gameconfig.py -> racine repo
+_ABILITY_NAMES_TS = _REPO / "frida" / "hooks" / "data" / "ability-names.ts"
+
+
+@functools.lru_cache(maxsize=1)
+def _ability_type_enum() -> dict:
+    """Parse `ability-names.ts` (ActiveAbilityType) -> {"by_id": {int: name}, "by_name": {name: int}}.
+    Vide si le fichier manque (recon dégradée : noms sans id, jamais un crash)."""
+    by_id: dict[int, str] = {}
+    try:
+        txt = _ABILITY_NAMES_TS.read_text(encoding="utf-8")
+    except OSError:
+        return {"by_id": {}, "by_name": {}}
+    for m in re.finditer(r'(\d+)\s*:\s*"([^"]+)"', txt):
+        by_id[int(m.group(1))] = m.group(2)
+    return {"by_id": by_id, "by_name": {name: aid for aid, name in by_id.items()}}
+
+
+def ability_id(name: str) -> int | None:
+    """id numérique `ActiveAbilityType` d'une ability par NOM (ex. `'SpiritLeech'` -> 1104). C'est l'id
+    que le RUNNER attend (`--ability`, `attackPlans.abilityId`). None si inconnu (passif hors-enum actif,
+    ou enum absente). Évite de hardcoder un id — cf. `unit_abilities`."""
+    return _ability_type_enum()["by_name"].get(name)
+
+
+def ability_name(aid: int) -> str | None:
+    """Nom d'une ability par id numérique `ActiveAbilityType` (ex. 1104 -> `'SpiritLeech'`). None si inconnu."""
+    return _ability_type_enum()["by_id"].get(int(aid))
+
+
+def unit_abilities(uid: str) -> dict:
+    """DÉCOUVERTE FIABLE des actifs/passifs d'une unité -> `{"active": [{name, id}], "passive": [{name, id}]}`.
+
+    ⚠ NE PAS lire `unit(uid)["abilities"]` (ni `.get("abilities")`) : ce champ est **vide/None** pour la
+    quasi-totalité des héros — c'est un champ legacy, PAS les actifs/passifs. Les VRAIS actifs/passifs
+    sont dans `activeAbilities` / `passiveAbilities` (des NOMS). `id` = l'id numérique `ActiveAbilityType`
+    (via `ability_id`) — celui que le RUNNER attend ; None pour un passif (hors enum actif). Utiliser CETTE
+    fonction (ou `card_unit`/`--unit` pour le texte + mécanique i2) pour ne plus hardcoder un id — piège
+    répété (#82 BloodChalice=1175, #84 SpiritLeech=1104, #85 Repair_GalvanicField=1119)."""
+    u = unit(uid) or {}
+    def _ents(names):
+        return [{"name": n, "id": ability_id(n)} for n in (names or [])]
+    return {"active": _ents(u.get("activeAbilities")),
+            "passive": _ents(u.get("passiveAbilities"))}
+
+
 def damage_profile(name: str) -> dict | None:
     return _index()["damageProfiles"].get(name)
 
@@ -270,7 +323,9 @@ def card_unit(query: str) -> str:
         td = trait_description(tid)
         lines.append(f"  [trait] {tid}" + (f" — « {td} »" if td else ""))
     for aid in (u.get("activeAbilities") or []):
-        lines.append("  [active]  " + card_ability(aid))
+        _num = ability_id(aid)
+        _tag = f"[active id={_num}]" if _num is not None else "[active]"
+        lines.append(f"  {_tag}  " + card_ability(aid))
     for aid in (u.get("passiveAbilities") or []):
         lines.append("  [passive] " + card_ability(aid))
     return "\n".join(lines)

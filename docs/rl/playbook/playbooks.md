@@ -489,3 +489,43 @@ métadonnée** (string/type/méthode/champ) est résoluble via `stringliteral.js
   **SEUL vrai prérequis live restant** pour le port complet (cf. [`prediction.md`](prediction.md)).
 - **Bucket-tree par-catégorie** : la clé d'ordre inter-type (summon/heal/move/attack) n'est **pas
   encore RE** ; suivi dans [`architecture.md`](architecture.md).
+
+## MAJ #84 (2026-07-10) — SpiritLeech lifesteal : le vrai gap = `OverkillUnit` MORT (pas le lifesteal)
+
+**Question de la tâche** : « pourquoi le natif GARDE la normale malgré un self blessé + lifesteal ? »
+**Réponse RE** (décompilé = vérité) : `CalculateActionUtility @181406ee0` est ADDITIF —
+`DamageDealt + KillUnit + OverkillUnit + Σheal + effet`. Sur une cible **bas-PV que les deux tuent**,
+`DamageDealt`+`DefinitelyKill` sont ÉGAUX ; le SEUL terme dégât qui diffère = **`OverkillUnit`** : la
+normale (gros marteau) sur-tue davantage → `DefinitelyOverkill(+40)` vs SpiritLeech (psy faible)
+`PossibleOverkill(+15)`/0 → +25 qui dépasse le lifesteal (~2.81) → le natif garde la normale.
+
+**Bug latent trouvé** : le port `OverkillUnitUtility` lisait `AccurateHealthDamage` **CAPÉ à HP**
+(`min(dmg,hp) > hp` = TOUJOURS faux) → util **globalement INERTE** pour TOUTE attaque. Le natif lit
+`WillBeOverkill @18102ba40`/`MightBeOverkill` = `IsOverkill @181032db0` sur le dégât **BRUT** (over-shoot
+`(dmg−hp)/hp×100 >= overkillDmgPctOfHealth(100)` ⇒ `dmg >= 2×hp`). **Fix** : `DamagePredictionResult`
+porte désormais `raw_health_damage` (@0x24/@0x28, NON capé) distinct de `accurate_health_damage` (@0x58,
+capé) ; `OverkillUnit` utilise le brut via `is_overkill` (over-shoot déjà porté pour le cap Resilient).
+
+**Lifesteal SpiritLeech porté fidèlement** (`SpiritLeechPlaybook.MakeHealPredictions @18115d7a0`) :
+`lifesteal = ceil(dégât × hpToHealPct/100)` (var 0x4b ∈ [40..60], PAS rarity) sur `GetHealTargets
+@18120a1e0` = **self + Tyranids adjacents** → `Σ CalculateUtilityFromHealEvent`. Sommé au dégât dans
+`_best_attack` (id 1104). i2 confirme : « heals itself and friendly Tyranids adjacent to it for 60% of
+the total damage dealt ».
+
+**Validé LIVE** (Neuro BLESSÉ à 5805/8533 via **BloodChalice** de Nicodemus même-team — « set to 50%
+Health » — sans contact ennemi) : vs orksNob (10040 PV, NON tuable → pas de kill/overkill),
+`lifestealU=18.23` fait passer SpiritLeech (44.0) devant la normale (26.6) → **port ET natif castent
+SpiritLeech = MATCH**. Sans le lifesteal, SpiritLeech=25.8 < 26.6 → miss. Les deux régimes (cible bas-PV
+→ overkill garde la normale ; cible haute-PV + self blessé → lifesteal prend SpiritLeech) collent au
+natif. **Non-régression** : miss-sets IDENTIQUES vs baseline sur seeds 777/31337/909/202.
+
+**Harnais durci — découverte Actif/Passif** (`gameconfig.py`) : `unit(uid)["abilities"]` est **VIDE/None**
+(champ legacy) — les vrais actifs/passifs sont `activeAbilities`/`passiveAbilities` (des NOMS). Ajout de
+`ability_id(name)`/`ability_name(id)` (mirroir de l'enum `ActiveAbilityType` depuis
+`frida/hooks/data/ability-names.ts`) + `unit_abilities(uid)` → `{active/passive: [{name, id}]}`, et
+`card_unit`/`--unit` affiche `[active id=1104]`. **Fin du hardcode d'id** (piège répété #82/#84/#85).
+
+**Gaps SÉPARÉS révélés** (ni lifesteal ni overkill — tâches #86/#87) : (a) SpiritLeech SOUS-prédit le
+dégât (3110 vs natif 3221) — passif **Neuroparasite** (+1237 psy/niveau) non porté ; (b) tie-break
+normale-vs-spéciale (natif garde la spéciale 1104 au tie sur seed 202 step-11, la normale sur seed 777
+step-9) ; (c) le moteur ne score AUCUNE attaque du Neuro dans certains runners (`attack_cands=[]`).
