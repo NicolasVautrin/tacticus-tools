@@ -144,13 +144,18 @@ class BaseEffect:
         return None
 
     def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
-                                                damage_profile: str | None = None) -> EffectBonus | None:
+                                                damage_profile: str | None = None,
+                                                attacker_ctx: Mapping | None = None) -> EffectBonus | None:
         """`<Effect>.CreateEffectDamageMalusForDefense` — contribution DÉFENSEUR (l'effet est sur la CIBLE,
-        réduit le dégât reçu). Symétrique de `create_effect_damage_bonus_for_attack`. `is_melee` = nature
+        MODIFIE le dégât reçu). Symétrique de `create_effect_damage_bonus_for_attack`. `is_melee` = nature
         du coup (certains malus sont gated `IsMeleeAttack`, ex. Terrifying_ExtraDefense) ; `damage_profile`
         = NOM du profil de dégât de l'attaque (certains malus sont gated `DamageProfileIs`, ex.
-        TerminatorArmour réduit SAUF Psychic/DirectDamage). Renvoie un `EffectBonus`
-        (typiquement `PercentDecrease` de valeur `ConfigVar(key)`, gated par une condition d'effet) ou None.
+        TerminatorArmour réduit SAUF Psychic/DirectDamage). `attacker_ctx` = contexte de l'ATTAQUANT (source
+        du coup) `{id, ability_level, multiplier}` — pour les malus gated sur l'IDENTITÉ de l'attaquant
+        (ex. Neuroparasite : `AreEqual(BondedEntity, damageSource)` = seul LE Neurothrope qui a infecté
+        bénéficie du +dégât ; sa magnitude `ConfigVar(source ability state)` s'indexe sur SON niveau/mult).
+        Renvoie un `EffectBonus` (`PercentDecrease` de réduction OU `ForAddition` positif type Neuroparasite,
+        gated par une condition d'effet) ou None.
 
         RE : `CalculateDefenderModifiersForPrediction` @181002c30 itère les effets de la cible et appelle
         cette méthode (interface effet, slot 0x1a) sur chacun → accumule un `DamageModifiers` (%-list).

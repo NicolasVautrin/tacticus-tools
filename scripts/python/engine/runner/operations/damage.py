@@ -271,7 +271,8 @@ class AttackDamageOperation:
         # de la prédiction. #59 suite : les chemins ABILITY (execute_ability_attack/execute_normal_like)
         # câblent DÉSORMAIS ces gates aussi (params damage_profile/is_melee threadés par tous leurs callers).
         def_mods, _def_active = defender_modifiers(state, target_id, thc.hp,
-                                                   is_melee=not _ranged, damage_profile=_profile)
+                                                   is_melee=not _ranged, damage_profile=_profile,
+                                                   attacker_id=attacker_id)
         # BLOCK (cible) = base (scalaire GetStat 7/8) + sources d'effet (ex. BeastSlayer) — helper PARTAGE
         # par les 3 vecteurs (normale/ability/splash), mirror du `GetMultiValueStat(7)`/CalculateBlockChances
         # @181002350 unique du natif. Besoin des effets actifs de la cible -> apres defender_modifiers.
@@ -456,7 +457,8 @@ class AttackDamageOperation:
         # IsMeleeAttack ; TerminatorArmour DamageProfileIs). None (caller non mis à jour) = comportement
         # historique (gates non appliqués) — INERTE pour une cible sans effet de défense gaté.
         def_mods, _da = defender_modifiers(state, target_id, thc.hp,
-                                           is_melee=is_melee, damage_profile=damage_profile)
+                                           is_melee=is_melee, damage_profile=damage_profile,
+                                           attacker_id=attacker_id)
         # BLOCK (cible) = base (GetStat 7/8) + sources d'effet (BeastSlayer...) via le helper PARTAGE
         # `_block_sources` (mirror du GetMultiValueStat(7)/CalculateBlockChances@181002350 unique du natif).
         block_sources = AttackDamageOperation._block_sources(tsc, _da, armor)
@@ -519,7 +521,8 @@ class AttackDamageOperation:
         # #59 suite : threade is_melee + profil -> malus DÉFENSEUR gatés (cf. execute_ability_attack).
         # None (caller non mis à jour) = comportement historique — INERTE sans effet de défense gaté.
         def_mods, _da = defender_modifiers(state, target_id, thc.hp,
-                                           is_melee=is_melee, damage_profile=damage_profile)
+                                           is_melee=is_melee, damage_profile=damage_profile,
+                                           attacker_id=attacker_id)
         # BLOCK (cible) = base (GetStat 7/8) + sources d'effet (BeastSlayer...) via le helper PARTAGE
         # `_block_sources` (mirror du GetMultiValueStat(7)/CalculateBlockChances@181002350 unique du natif).
         block_sources = AttackDamageOperation._block_sources(tsc, _da, armor)

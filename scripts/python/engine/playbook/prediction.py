@@ -116,9 +116,28 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     if eb is not None:
         add_modifier(mods, eb)
     tgt_effects = scene.effects(tgt_id)
-    def_mods = build_defender_modifiers_from_effects(tgt_effects, is_melee, damage_profile)
+    # attacker_ctx : identité + niveau/mult du Neurothrope SOURCE (gate + magnitude Neuroparasite). L'attaquant
+    # ETANT le source (AreEqual), extraDmg s'indexe sur SON ablvl x SON multiplier.
+    att_ctx = {"id": att_id, "ability_level": scene.ablvl_by_id.get(att_id), "multiplier": scene.mult(att_id)}
+    def_mods = build_defender_modifiers_from_effects(tgt_effects, is_melee, damage_profile, attacker_ctx=att_ctx)
     for mult, cap in def_mods.pct_list:
         mods.pct_list.append((mult, cap))
+    # ADDITIF défenseur (ForAddition, ex. Neuroparasite +extraDmg x niveau) — le %-list SEUL était fusionné,
+    # l'additif défenseur était DROPPE. PLACEMENT (confirmé LIVE, 2 séparateurs #88, Neurothrope->orksRuntherd
+    # VANILLA) : le natif applique cet additif AVANT le %-list attaquant, donc SCALÉ par le produit des %-mods
+    # (RangedSpecialist ON M=1.33 -> +2256 ; OFF M=1 -> +1696, EXACT sur les 2). `(base+A)*M = base*M + A*M` :
+    # comme `apply_all_modifiers` applique l'additif APRÈS le %-list (ordre porté §17.7, combat bit-exact), on
+    # PRE-SCALE l'additif défenseur par M = produit des mults de `mods.pct_list` (attaquant + positionnel +
+    # défenseur, TOUS déjà fusionnés ici). Équivalent algébrique EXACT (caps ignorés : RangedSpecialist sans cap).
+    # Sémantique : "damage DEALT by the Neurothrope is increased" = dégât ATTAQUANT -> scalé par ses %-mults.
+    # ⚠ ISOLÉ au def additive (Neuroparasite = seul consommateur) ; l'additif ATTAQUANT (SmashaEad) reste
+    # après-%list (#70/#75, séparateur attaquant non encore mesuré). Combat : def additive=0 (parasite non
+    # matérialisé par le runner) -> inerte.
+    if def_mods.additive:
+        _m = 1.0
+        for _mult, _cap in mods.pct_list:
+            _m *= _mult
+        mods.additive += def_mods.additive * _m
 
 
 def _target_damage_limits(scene, tgt_id):

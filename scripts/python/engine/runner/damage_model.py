@@ -90,7 +90,8 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
 
 
 def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
-                       is_melee: Optional[bool] = None, damage_profile: Optional[str] = None):
+                       is_melee: Optional[bool] = None, damage_profile: Optional[str] = None,
+                       attacker_id: Optional[int] = None):
     """`DamageModifiers` de réduction du DÉFENSEUR (cible) depuis ses EFFETS actifs (symétrique attaquant ;
     `CalculateDefenderModifiersForPrediction`). Renvoie (mods, active_effects). None-safe (mods vide → no-op).
 
@@ -98,10 +99,15 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
     `IsMeleeAttack` (ex. Terrifying_ExtraDefense : `if not is_melee: return None`) et `DamageProfileIs`
     (ex. TerminatorArmour : PAS de réduction si profil ∈ Psychic/DirectDamage). None (défaut, ex. chemins
     ability non encore câblés) = comportement historique (les malus gatés IsMeleeAttack ne s'appliquent pas ;
-    TerminatorArmour s'applique quel que soit le profil) — INERTE pour une cible sans effet de défense gaté."""
+    TerminatorArmour s'applique quel que soit le profil) — INERTE pour une cible sans effet de défense gaté.
+    `attacker_id` = identité du coup, propagée aux malus gated sur l'attaquant (ex. Neuroparasite : bonus
+    RESERVE au Neurothrope source). ⚠ Le niveau/mult SOURCE (magnitude Neuroparasite) N'EST PAS résolu ici
+    (le runner ne matérialise pas encore le parasite -> ability_level absent -> Neuroparasite INERTE en combat,
+    cf. tâche runner-side ; la contribution PREDICTION est complète)."""
     active = (state.effects.active_effects(unit_id, {"hp": hp})
               if state.effects is not None else [])
-    return build_defender_modifiers_from_effects(active, is_melee, damage_profile), active
+    att_ctx = {"id": attacker_id} if attacker_id is not None else None
+    return build_defender_modifiers_from_effects(active, is_melee, damage_profile, attacker_ctx=att_ctx), active
 
 
 def apply_elevation_bonus(state: State, mods, attacker_id: int, target_id: int) -> None:

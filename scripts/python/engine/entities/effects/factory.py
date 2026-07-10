@@ -20,6 +20,7 @@ from .loki import (
     BeastSlayerExtraDmgEffect,
     BeastSlayerExtraBlockEffect,
     MasterAnnihilatorAdditionalHitEffect,
+    NeuroparasiteEffect,
     ParryEffect,
     PathOfCommandExtraDmgEffect,
     RangedSpecialistEffect,
@@ -72,6 +73,11 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "Pinned": PinnedEffect,             # 1065 (UI « Suppressed ») — stat-mod Movement (matérialisé seul)
     "Terrifying_ExtraDefense": TerrifyingExtraDefenseEffect,  # -30% dégât MÊLÉE reçu (defender, gated melee)
     "TerminatorArmour_ReduceDmg": TerminatorArmourReduceDmgEffect,  # -75% dégât reçu SAUF Psychic/DirectDamage (defender, gated profil)
+    # Neuroparasite (passif Neurothrope ; EffectType CAPTE = 1218 'Neuroparasite', name-route ; ctor 0x49f=1183
+    # = AbilityOrEffect, distinct) : ADDITIF +extraDmg[nivSource]xniveau_parasite au degat PSYCHIQUE recu DE CE
+    # Neurothrope (defender, ForAddition gated Psychic + AreEqual(source)). Magnitude+gating+PLACEMENT (scale
+    # x%-list, avant-%list) VALIDES LIVE BIT-EXACT #86/#88 (2 separateurs RS on/off ; L1 port==natif 4392-5461).
+    "Neuroparasite": NeuroparasiteEffect,
     # Debuffs FightingRetreat (Darkstrider) — posés sur les ENNEMIS adjacents, s'appliquent aux
     # ATTAQUES du porteur : -dmgReduction PLAT + -1 coup (plancher 1), 1 round (rem=2 capté).
     "FightingRetreatDmgReduction": FightingRetreatDmgReductionEffect,

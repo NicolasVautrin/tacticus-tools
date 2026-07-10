@@ -298,7 +298,8 @@ class TerrifyingExtraDefenseEffect(BaseEffect):
     ⇒ malus défenseur `PercentDecrease(30)` gated `IsMeleeAttack` (no-op sur attaque ranged / contexte inconnu)."""
 
     def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
-                                                damage_profile: str | None = None) -> EffectBonus | None:
+                                                damage_profile: str | None = None,
+                                                attacker_ctx: Mapping | None = None) -> EffectBonus | None:
         if not is_melee:                         # gated IsMeleeAttack
             return None
         return for_percent_decrease(False, 30)   # owner_is_caster=False (l'effet est sur le défenseur)
@@ -333,13 +334,76 @@ class TerminatorArmourReduceDmgEffect(BaseEffect):
     même attaquant → ratio 0.25 = -75%)."""
 
     def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
-                                                damage_profile: str | None = None) -> EffectBonus | None:
+                                                damage_profile: str | None = None,
+                                                attacker_ctx: Mapping | None = None) -> EffectBonus | None:
         red = trait_var("TerminatorArmour", "terminatorArmourDmgReduction")   # -75 (magnitude 75)
         if not red:
             return None
         if damage_profile and damage_profile in _terminator_excluded_profiles():
             return None                                     # profil perçant (Psychic/DirectDamage) → pas de réduction
         return for_percent_decrease(False, abs(int(red)))   # owner=défenseur (l'effet est sur la cible)
+
+
+class NeuroparasiteEffect(BaseEffect):
+    """`NeuroparasiteEffect.CreateEffectDamageMalusForDefense @180f5b840` (passif du Neurothrope
+    `Neuroparasite`, EffectType 0x49f=1183, base `ABondEffect` = lien cible<->Neurothrope infecteur).
+    Malgré le nom « MalusForDefense », c'est un ADDITIF **POSITIF** au dégât PSYCHIQUE reçu (le porteur =
+    une faiblesse infligée) :
+      `EffectBonus.ForAddition(OwnerIsTarget & AreEqual(BondedEntity, damageSource) & DamageProfileIs(0xd),
+                               Multiply(ConfigVar(8=extraDmg, sourceAbilityState), EffectLevel))`
+    = **+extraDmg[niveauSource] × niveau_de_parasite** au dégât psychique de LE Neurothrope qui a infecté la
+    cible. i2 : « Psychic Damage dealt by the Neurothrope is increased by +1237 Damage for each level of a
+    Neuroparasite on the target » (`extraDmg[L65]=1237` ; max 15 niveaux via `GetMaximumLevel @180f5bdc0`).
+
+    Gates natifs (@180f5b840) :
+      - `DamageProfileIs(0xd=Psychic)` -> uniquement le dégât PSYCHIQUE (`damage_profile == "Psychic"`).
+      - `AreEqual(BondedEntity, damageSource)` -> uniquement les attaques de CE Neurothrope (l'effet `source`
+        = le Neurothrope infecteur). `attacker_ctx["id"]` threadé par le builder : si connu et != source ->
+        pas de bonus (un AUTRE psyker n'en profite pas).
+      - `EffectLevel` = niveau de STACK du parasite sur la cible (`self.level`, capté decisionView.effects[].level).
+
+    Magnitude `ConfigVar(8=extraDmg)` = INDEXÉE par le niveau de l'ability Neuroparasite du Neurothrope SOURCE
+    (`GetAbilityState(effect)`), × SON multiplier (`extraDmg` in `variablesAffectedByRarityBonus`). L'attaquant
+    ÉTANT le source (gate AreEqual), le builder passe `attacker_ctx["ability_level"]/["multiplier"]` = ceux du
+    Neurothrope (`scene.ablvl_by_id`/`scene.mult`). Source inconnu (`ability_level` None : chemin combat runner
+    qui ne matérialise pas encore le parasite) -> pas de bonus (dégradation fidèle, PAS un extraDmg[0] mal-indexé).
+
+    VALIDÉ LIVE (#86, Neurothrope vs orksRuntherd VANILLA, parasite lvl0->1, aiPredict oracle) :
+      - L'effet est bien MATÉRIALISÉ côté cible (EffectType capté = **1218** `Neuroparasite` ; le ctor 0x49f=1183
+        est l'`AbilityOrEffect`, distinct — le routage factory se fait par NOM, ok).
+      - MAGNITUDE `extraDmg[50]=942 × mult(1.8) = 1696` EXACTE = per-level natif AVANT le %-list attaquant
+        (confirme le MULTIPLIER = mult UNITÉ, comme PowerTrip ; lève l'incertitude #75 pour ce passif).
+      - PLACEMENT = AVANT le %-list attaquant (scalé ×%-mods), TRANCHÉ par 2 SÉPARATEURS (#88, RÉSOLU) :
+        RangedSpecialist ON (M=1.33) -> Δ per-level=2256 ; OFF (Neuro démarre adjacent, M=1) -> Δ=1696
+        (L1'=(3302,4106) EXACT, réfute l'hypothèse "flat 2256"). `(base+1696)×M` EXACT sur les 2 régimes.
+    Le placement est câblé dans `prediction.py _add_positional_and_defender_mods` : l'additif défenseur est
+    PRE-SCALÉ par le produit des %-mods avant merge dans `mods.additive` (= équivalent algébrique de avant-%list,
+    `(base+A)×M = base×M + A×M`, l'`apply_all_modifiers` porté appliquant l'additif après le %-list §17.7).
+    Sémantique : "damage DEALT by the Neurothrope is increased" = dégât ATTAQUANT -> scalé par ses %-mults.
+    VALIDÉ port==natif BIT-EXACT (L0 (2136,3205), L1 (4392,5461)). ⚠ ISOLÉ au def additive (Neuroparasite = seul
+    consommateur) ; le placement de l'additif ATTAQUANT (SmashaEad) reste après-%list (#70/#75, séparateur att
+    non mesuré). Combat : parasite non matérialisé par le runner -> def additive=0 -> inerte."""
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                                damage_profile: str | None = None,
+                                                attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        if (damage_profile or "") != "Psychic":       # DamageProfileIs(0xd=Psychic)
+            return None
+        ac = attacker_ctx or {}
+        aid = ac.get("id")
+        if aid is not None and self.source is not None and aid != self.source:
+            return None                               # AreEqual(BondedEntity, damageSource) : autre attaquant
+        lvl = int(self.level or 0)                    # EffectLevel = niveau de parasite sur la cible
+        if lvl <= 0:
+            return None
+        src_lvl = ac.get("ability_level")             # niveau de l'ability Neuroparasite du Neurothrope SOURCE
+        if src_lvl is None:
+            return None                               # source non résolu -> pas d'indexation extraDmg fidèle
+        per = ability_var("Neuroparasite", "extraDmg", src_lvl,
+                          multiplier_pct=ac.get("multiplier") or 100)
+        if not per:
+            return None
+        return for_addition(False, int(per) * lvl)    # owner=cible (défenseur) ; additif POSITIF au dégât reçu
 
 
 class FightingRetreatDmgReductionEffect(BaseEffect):
