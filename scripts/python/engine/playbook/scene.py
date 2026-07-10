@@ -167,9 +167,20 @@ def build_predictor(rpc, rid):
             mult_by_id[eid] = int(uc["abilityVariablesMultiplier"])
             if uc.get("passiveAbilityLevel"):
                 ablvl_by_id[eid] = int(uc["passiveAbilityLevel"])
-        if not (u.get("normalAttack") or {}).get("error"):
-            ctx_by_id[eid] = UnitContext.from_snapshot(u, GC.unit(vis_by_id.get(eid) or ""),
-                                                       snap.get("statTypes"))
+        # #87 : NE PAS dropper le ctx sur `normalAttack.error`. `readNormalAttack` (frida rpc-view.ts)
+        # renvoie error="aucune cible atteignable au deploiement (base non capturable)" quand aucun
+        # ennemi n'est a portee de l'attaque normale DEPUIS LA POSITION COURANTE (il ne teste PAS les
+        # move-tiles). Or le natif score les attaques depuis les tuiles de MOUVEMENT -> une unite peut
+        # avoir des attaques rankees (attackPlans/decisionView non vide) alors que sa base normale est
+        # "non capturable" au deploiement. Dropper le ctx -> scene.ctx()=None -> make_normal_attack_
+        # predictions renvoie None -> AUCUNE attaque scoree (normale ET specials via _PREDICT_VIA_
+        # NORMAL_ATTACK), d'ou attack_cands=[] malgre NATIVE ranked non-vide. `from_snapshot` degrade
+        # deja proprement sur na.error (nh=1, min/max=0) ; la base reelle = get_stat(ATTACK, INITIAL)
+        # (position-independante) et l'arme est re-resolue par adjacence (select_weapon_pierce). Le port
+        # ne score de toute facon QUE les abilities deja rankees par le natif (_best_attack itere
+        # plan.evals) -> aucun risque d'attaque fantome. Build INCONDITIONNEL.
+        ctx_by_id[eid] = UnitContext.from_snapshot(u, GC.unit(vis_by_id.get(eid) or ""),
+                                                   snap.get("statTypes"))
     return {"ctx_by_id": ctx_by_id, "armor_by_id": armor_by_id, "shield_by_id": shield_by_id,
             "mult_by_id": mult_by_id, "ablvl_by_id": ablvl_by_id, "vis_by_id": vis_by_id,
             "elev_by_pos": build_elev_by_pos(rpc, rid)}

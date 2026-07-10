@@ -1063,6 +1063,70 @@ DÉFENSEUR par-cible. **MAJ** : pour u86, le 752 = 501×1.5 (ÉLÉVATION depuis 
 La chaîne soin est **entièrement RE'd et offline-calculable** (manque #1 / [`status.md`](status.md) §3.1
 débloqué côté heal). Tout est dans `engine/predict.py` (PARTIE 3), porté 1:1.
 
+---
+
+## 10. VERDICT RE (2026-07-11, agent re-expert worktree) — `PredictAttackRaw @181032fb0` lu intégralement : Q1/Q2/Q3
+
+Scratch de travail : `.../scratchpad/predictattackraw.c` (3037 l.). Chaîne native mirrorée :
+```
+GetMultiHitAttackPrediction @181066080 -> get_multi_hit_attack_prediction  (boucle xhits + prev + Add)
+  \ GetAttackPrediction @18105e090   (dispatch vtable ability, litteral hits=1)
+     \ PredictAttack @181036ab0 (box request) -> PredictAttackRaw @181032fb0 -> predict_attack_raw (UN coup)
+        - base : GetValueOrDefault(param_3+0x58) [L1483] + override nullable idx0xd [L1500] + max(0) [L1491]
+                 -> flag@+0x6a==0 ? min=max=d [L1548] : GetBaseDamageFix64 @181030ba0 [L1642]
+        - additif : base_int + Addition(+0x10 mods#1[idx0xd]) + Addition(+0x10 mods#2[idx0xe]) [L1940/L2062, PRE-percage]
+                 -> CalculateBaseDamageWithAllModifiers @18102d3f0 (ne lit PAS Addition@+0x10, acquis #75)
+        - scenarios : CalculateDamagePredictionScenario @18102ed00 [L2476/L2566]
+  \ DamagePredictionResult.Add @18102a710 (Somme champ-par-champ + ApplyCap)
+```
+
+### Q2 — Agregat multi-coups : CONFIRME (port fidele, AUCUN changement)
+Le xhits est HORS de PredictAttackRaw. `GetMultiHitAttackPrediction @181066080` : coup 1 prev zero-init ;
+boucle `hits-1` fois avec `get_DefaultBlockScenario` cumule -> `Nullable<>` -> prev ; `Add` a chaque iter.
+`GetAttackPrediction @18105e090` dispatch vtable avec **litteral hits=1** (PredictAttackRaw = UN coup).
+`Add @18102a710` = somme champ-par-champ + ApplyCap : `AccurateHealthDamage@0x58 = Sigma per-coup`,
+`AppliedHits@0xBC` accumule. Confiance HAUTE, entierement lu.
+
+### Q3 — Additif (Addition@+0x10) en PREDICTION : PRE-percage (comme le combat #75) — ACTIONNABLE
+Les 2 appels CBDWAM (MIN L1940, MAX L2062) recoivent `param_2 = base + Addition(mods#1@+0x10) + Addition(mods#2@+0x10)`.
+`Addition = puVar34[2] = champ +0x10` des 2 structs DamageModifiers (idx 0xd L1473, idx 0xe L1796).
+CBDWAM @18102d3f0 ne consomme QUE l'int base + Override/Multiplier (idx 0x10/0x11), **jamais Addition@+0x10**
+(acquis #75 confirme mot pour mot). AUCUN re-add d'additif apres CBDWAM (resultat -> ApplyTraitDamageLimits
+-> CDS). => **Le natif place l'additif PRE-percage en prediction, identique au combat.**
+- **Port** : BASCULER le defaut du chemin prediction a `attacker_additive_pre=True` (branche deja presente
+  L245-252 de damage_prediction.py : `d = round(d + mods.additive)` avant `get_damage_with_piercing`, puis
+  `apply_capped_modifiers` SEUL). Aujourd'hui la prediction est en POST-percage (`False`).
+- **Reconciliation #88** (Neuroparasite -582, pierce 100) : additif pre-percage avec pierce 100 -> survit
+  entier dans la base (pas d'armure) = comportement natif. Coherent.
+- **RISQUE regression** : #49/#64 etaient "valides" en POST-percage. La bascule change leurs bornes SSI
+  l'ability porte un additif != 0 ET pierce<100/armure>0. Re-confronter #49/#64/#88 apres bascule (validator,
+  `damage_decomp.py`, decompo PAR ETAGE). Le natif est sans ambiguite ; toute regression = capture
+  additif/pierce erronee, PAS le placement. HYPOTHESE mineure sans impact : mods#1(idx0xd)=attaquant vs
+  mods#2(idx0xe)=defenseur additives (les 2 Additions sont sommees identiquement min/max -> le port qui
+  additionne `mods.additive` total est correct).
+
+### Q1 — Chemin "special"/predefinedRange : le facteur `2.2` est une INVENTION (a retirer)
+Le natif ne produit JAMAIS `(ceil(0.8*d/hits), ceil(2.2*d/hits))`. La base `dmgMM` (local_938) d'UN coup :
+1. `d = Nullable<int>.GetValueOrDefault(param_3+0x58)` [@1810348dd] = **scalaire de damage PAR COUP** (0 si absent).
+2. Optionnel : `Nullable<Fix64>` idx 0xd [L1473] -> si HasValue, **ecrase** d (`op_Explicit` L1500-1512).
+3. `d = max(0, d)` [L1491].
+4. Selon un **byte flag @param_3+0x6a** (`(char)(param_3[0xd] >> 0x10)`, teste L1547) :
+   - **flag == 0** -> `dmgMM.min = dmgMM.max = FromInt(d)` [L1548-1564] : **range DEGENERE, min==max==d, PAS de spread**.
+   - **flag != 0** -> `GetBaseDamageFix64(d, ...)` [L1642] : **spread standard ±20% + ExtraMaxDamage** (chemin normal).
+`GetBaseDamageFix64 @181030ba0` (lu) : min=f8(weapon,d) slot8, max=f9(weapon,d)+FromInt(ExtraMaxDamage) slot9.
+Ni 0.8 ni 2.2 nulle part. Le "predefinedRange" +0x58 = **Nullable<int> SCALAIRE (pas {min,max})** ; le range
+{min,max} est CONSTRUIT en aval par l'un des 2 chemins. Setter : `<Ability>Playbook.MakeDamagePredictions` ->
+`GenerateMultiHitAttackPredictions @181409da0` construit le request (ex. `PlasmaCannonPlaybook @181150b10`
+pose damageFormula/hits/Nullable<int> + un `param_10` fraction-provider AoE-falloff).
+- **Port** : SUPPRIMER le `(0.8/2.2)` (L376-379 damage_prediction.py). Remplacer par un gate `ignore_spread`
+  (byte @+0x6a) : `ignore_spread -> MinMaxDamage(d,d)` sinon `get_base_damage_fix64(d, extra_max, spread, is_max_out)`.
+- **HYPOTHESES a confirmer LIVE avant de porter** (n'affectent pas "2.2 est faux") : (1) semantique exacte du
+  flag @+0x6a (nom plausible `IgnoreDamageSpread`, `CachedDamagePrediction$$get_IgnoreDamageSpread @180e304a0`
+  lit +0x10 ; PAS relie bit-a-bit au byte +0x6a) ; (2) +0x58 stocke le damage TOTAL (a /hits) ou DEJA par-coup.
+  Trancher via `damage_decomp.py` sur une special a range fixe (PlasmaCannon/BasiliskBarrage/HellfireShells) :
+  lire `dmgMM` per-coup, comparer a d et d/hits, NE PAS fitter. Enumeration complete des abilities posant le
+  flag no-spread = tache de fidelite ouverte.
+
 | Étape native | VA | Formule |
 |---|---|---|
 | `HealAbility.HealAmount` | `@180e345b0` | `healAmount = StatAmount(weapon) × max(WeaponHighestHits, 1)` |
