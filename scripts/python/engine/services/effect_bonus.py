@@ -56,6 +56,16 @@ def for_subtraction(owner_is_caster: bool, value: int) -> EffectBonus:
     return EffectBonus("Subtraction", value, owner_is_caster)
 
 
+# Réduction DYNAMIQUE CAPÉE : `ForSubtraction(Min(PercentageOf(CurrentDamage, pct), cap))` — soustrait
+# `min(pct% × dégât_courant, cap)` du dégât REÇU. `value` = pct, `cap` = plafond ABSOLU de la réduction
+# (≠ la sémantique `cap` de CappedEffectBonus qui plafonne le RÉSULTAT). Ex. GuardianOrganism_DamageReduction
+# @180f4c630 : pct=ConfigVar(0x46=dmgReductionPct), cap=ConfigVar(0x12=dmgReduction). Appliqué APRÈS le
+# %-list + additif (CurrentDamage = dégât post-mods), cf. `apply_all_modifiers`. `cap=None` = non plafonné.
+def for_percent_subtraction_capped(owner_is_caster: bool, pct: int,
+                                   cap: int | None = None) -> EffectBonus:
+    return EffectBonus("PercentSubtractionCapped", pct, owner_is_caster, cap)
+
+
 # EffectBonus.ForPiercing @180f40890 — bonus de PERÇAGE (axe armure, pas le scalaire dégât).
 # Alimente le champ pierce-extra du DamageModifiers (struct @0x20) sommé dans
 # CalculateBaseDamageWithAllModifiers @18102d3f0 → pierce_eff = clamp(pierce + extra, 0, 100).

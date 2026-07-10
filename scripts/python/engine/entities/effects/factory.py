@@ -14,6 +14,7 @@ from .loki import (
     BigTargetAdjacentEffect,
     FightingRetreatDmgReductionEffect,
     FightingRetreatHitReductionEffect,
+    GuardianOrganismDamageReductionEffect,
     HeavyWeaponExtraDmgEffect,
     KanOpenerEffect,
     LightCoverEffect,
@@ -73,6 +74,9 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "Pinned": PinnedEffect,             # 1065 (UI « Suppressed ») — stat-mod Movement (matérialisé seul)
     "Terrifying_ExtraDefense": TerrifyingExtraDefenseEffect,  # -30% dégât MÊLÉE reçu (defender, gated melee)
     "TerminatorArmour_ReduceDmg": TerminatorArmourReduceDmgEffect,  # -75% dégât reçu SAUF Psychic/DirectDamage (defender, gated profil)
+    # GuardianOrganism (tanks Tyranides) : reduit le degat recu de min(dmgReductionPct%(25-33) x dmg,
+    # dmgReduction_cap x mult) = PercentSubtractionCapped (dynamique+capee) ; aura self+adjacents. #89.
+    "GuardianOrganism_DamageReduction": GuardianOrganismDamageReductionEffect,
     # Neuroparasite (passif Neurothrope ; EffectType CAPTE = 1218 'Neuroparasite', name-route ; ctor 0x49f=1183
     # = AbilityOrEffect, distinct) : ADDITIF +extraDmg[nivSource]xniveau_parasite au degat PSYCHIQUE recu DE CE
     # Neurothrope (defender, ForAddition gated Psychic + AreEqual(source)). Magnitude+gating+PLACEMENT (scale

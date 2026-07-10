@@ -59,6 +59,10 @@ class DamageModifiers:
     extra_pierce: int = 0          # @0x20 : pierce_eff = clamp(pierce + extra_pierce, 0, 100)
     armor_penetration: int = 0     # @0x28 : armor_eff = max(FixedArmor − armor_penetration, 0)
     ignore_armor: bool = False     # ignore-armure totale → armor_eff = 0 (pénétration ≥ armure)
+    # Réductions DYNAMIQUES CAPÉES (défenseur, ex. GuardianOrganism) : liste de (pct, cap) — soustrait
+    # `min(pct% × dégât_courant, cap)` du dégât APRÈS %-list+additif (CurrentDamage). Distinct du %-list
+    # (multiplicatif) : c'est une ForSubtraction dont le montant dépend du dégât courant, plafonné.
+    capped_reductions: list[tuple[int, int | None]] = field(default_factory=list)
 
     @classmethod
     def empty(cls) -> "DamageModifiers":
@@ -94,6 +98,8 @@ def add_modifier(acc: DamageModifiers, eb: EffectBonus) -> None:
         acc.armor_penetration += eb.value       # axe armure (@0x28)
     elif eb.kind == "IgnoreArmor":
         acc.ignore_armor = True                 # ignore-armure totale → armor_eff = 0
+    elif eb.kind == "PercentSubtractionCapped":
+        acc.capped_reductions.append((eb.value, eb.cap))   # −min(pct%×dmg, cap), appliqué post-mods
     acc.details.append(eb)
 
 
@@ -120,6 +126,17 @@ def apply_all_modifiers(value: int, mods: DamageModifiers) -> int:
     v = apply_capped_modifiers(value, mods)
     if mods.additive:
         v = round(v + mods.additive)
+    # Réductions DYNAMIQUES CAPÉES (défenseur, ex. GuardianOrganism_DamageReduction @180f4c630) :
+    # `ForSubtraction(Min(PercentageOf(CurrentDamage, pct), cap))`. CHEMIN COMBAT (valeur TIRÉE unique) :
+    # CurrentDamage = `value` (le dégât courant post %-list+additif) -> réduction per-valeur (correct pour un
+    # coup réel). ⚠ La PRÉDICTION (min/max) n'appelle PAS ceci per-borne : `predict_attack_raw` STRIPPE
+    # capped_reductions puis applique le scalaire FLAT (D=centre=(lo+hi)/2) aux 2 bornes (natif = défender-mod
+    # PRÉ-évalué @18102d3f0, cf. #89). Vide (défaut) -> no-op (chemins existants BIT-EXACT inchangés).
+    for _pct, _cap in mods.capped_reductions:
+        _red = round(v * _pct / 100.0)
+        if _cap is not None:
+            _red = min(_red, _cap)
+        v = v - _red
     return max(0, v)
 
 

@@ -138,6 +138,10 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
         for _mult, _cap in mods.pct_list:
             _m *= _mult
         mods.additive += def_mods.additive * _m
+    # Réductions DYNAMIQUES CAPÉES défenseur (GuardianOrganism -min(pct%×dmg, cap)) — appliquées post-mods
+    # dans apply_all_modifiers (CurrentDamage). Le %-list SEUL était fusionné (comme l'additif, cf. #86a).
+    if def_mods.capped_reductions:
+        mods.capped_reductions.extend(def_mods.capped_reductions)
 
 
 def _target_damage_limits(scene, tgt_id):

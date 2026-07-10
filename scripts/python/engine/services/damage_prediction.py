@@ -263,7 +263,17 @@ def predict_attack_raw(
     # @18102d3f0` applique l'additif @+0x10 sur la base D'UN COUP ; `GetMultiHitAttackPrediction @181066080`
     # appelle `PredictAttackRaw` PAR COUP + `Add`, SANS additif post-boucle). L'ancien strip + application
     # UNE FOIS sur l'agrégat = artefact pré-refactor #51 (loop deplacee hors de PredictAttackRaw).
+    # GuardianOrganism (PercentSubtractionCapped, défenseur) : la réduction = un `ForSubtraction` dont le
+    # montant `Min(PercentageOf(CurrentDamage, pct), cap)` est PRÉ-ÉVALUÉ EN SCALAIRE (natif : `Calculate
+    # BaseDamageWithAllModifiers @18102d3f0` reçoit le défender-mod DÉJÀ évalué -> MÊME valeur pour min ET max
+    # = FLAT, PAS re-évalué per-borne). `CurrentDamage` = la BASE (centre) du dégât post-perçage/mods, donc
+    # D=(lo+hi)/2 ; CONFIRMÉ LIVE 2 cas (Kharn->TyrantGuard D6280 -> flat min(33%*D,cap2619)=2072 => 2952/5464 ;
+    # #86a D2670 -> flat min(33%*D,cap)=881 => .../2324). On STRIPPE donc capped_reductions du chemin PER-BORNE
+    # (apply_all_modifiers = per-VALEUR, correct pour le COMBAT) et on soustrait le scalaire FLAT après (bornes).
     mods_pct = mods
+    _capped = list(mods.capped_reductions) if mods else []
+    if _capped:
+        mods_pct = replace(mods, capped_reductions=[])
     if target_shield > 0:
         # split bouclier PER-COUP sur le bouclier RESTANT (déplété par prev) : Min(base, rem_shield)
         blk_lo = min(mm.min, max(0, target_shield - prev.shield_min))
@@ -274,6 +284,17 @@ def predict_attack_raw(
         rem_lo, rem_hi = mm.min, mm.max
     lo = apply_pierce_and_modifiers(rem_lo, pierce_pct, armor, mods_pct, hit_mult) if rem_lo else 0
     hi = apply_pierce_and_modifiers(rem_hi, pierce_pct, armor, mods_pct, hit_mult) if rem_hi else 0
+    # Réduction DÉFENSEUR capée FLAT (GuardianOrganism) : scalaire = min(pct% × D, cap) avec D=(lo+hi)/2 =
+    # CurrentDamage (base/centre du dégât, pré-GO), soustrait des DEUX bornes (mirror pré-évalué natif @18102d3f0).
+    # AVANT target_limits (ordre natif : CalculateBaseDamageWithAllModifiers -> ApplyTraitDamageLimitsToDamage).
+    if _capped and (lo or hi):
+        _dcur = (lo + hi) / 2.0
+        for _pct, _cap in _capped:
+            _flat = round(_dcur * _pct / 100.0)
+            if _cap is not None:
+                _flat = min(_flat, _cap)
+            lo = max(0, lo - _flat)
+            hi = max(0, hi - _flat)
     if target_limits:
         # ApplyTraitDamageLimitsToDamage @18102c650 — cape le dégât per-bout APRÈS modifiers, AVANT le
         # scénario (ordre natif). Appliqué aux 2 bornes (le natif appelle chaque Apply 2× : min puis max).

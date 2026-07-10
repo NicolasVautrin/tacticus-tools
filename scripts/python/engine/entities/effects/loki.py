@@ -9,7 +9,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from ...services.effect_bonus import (EffectBonus, for_addition,
-                                      for_percent_decrease, for_percent_increase)
+                                      for_percent_decrease, for_percent_increase,
+                                      for_percent_subtraction_capped)
 from .base import BaseEffect, SubEffectSpec, SAME_TURNS
 from .magnitude import ability_var, global_value, trait_var
 from ...services.damage_combat import BlockSource
@@ -342,6 +343,34 @@ class TerminatorArmourReduceDmgEffect(BaseEffect):
         if damage_profile and damage_profile in _terminator_excluded_profiles():
             return None                                     # profil perçant (Psychic/DirectDamage) → pas de réduction
         return for_percent_decrease(False, abs(int(red)))   # owner=défenseur (l'effet est sur la cible)
+
+
+class GuardianOrganismDamageReductionEffect(BaseEffect):
+    """`GuardianOrganism_DamageReductionEffect.CreateEffectDamageMalusForDefense @180f4c630` (trait
+    GuardianOrganism, tanks Tyranides ex. tyranTyrantGuard) : réduit le dégât REÇU par son porteur de
+    `min(dmgReductionPct% × CurrentDamage, dmgReduction[cap] × mult)` — `EffectBonus.ForSubtraction(
+    OwnerIsTarget, Min(PercentageOf(CurrentDamage, ConfigVar(0x46)), ConfigVar(0x12)))`. Réduction
+    DYNAMIQUE (fraction du dégât courant) + CAPÉE absolue -> kind `PercentSubtractionCapped` (≠ un simple
+    PercentDecrease : le cap plafonne le MONTANT soustrait, pas le %).
+      - pct = ConfigVar(0x46) = `dmgReductionPct` [25..33 par niveau, NON rarity-scaled].
+      - cap = ConfigVar(0x12) = `dmgReduction` [20..1455, rarity-scaled × mult].
+    AURA (`CreateTargetSelector @180f4c890` = Self + `AdjacentFriends(range 1)`) : l'effet se MATÉRIALISE
+    sur chaque bénéficiaire (self + amis ring-1) -> capté dans SA liste (source = le porteur GuardianOrganism).
+    Côté port l'effet est DÉJÀ sur le défenseur (comme Terrifying/Terminator) : `self.ability_level`/
+    `self.ability_variables_multiplier` = ceux du porteur = le DÉFENSEUR (EffectsState.seed les propage) ->
+    niveau/mult CORRECTS sans threading. Aucun gate profil/mêlée/attaquant (OwnerIsTarget seul).
+    Symptôme non-porté (probe #86a) : port sur-prédit dégât->TyrantGuard (off 3205 vs natif 2324)."""
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                                damage_profile: str | None = None,
+                                                attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        pct = ability_var("GuardianOrganism", "dmgReductionPct", lvl)   # ConfigVar 0x46 (non scalé)
+        if not pct:
+            return None
+        cap = ability_var("GuardianOrganism", "dmgReduction", lvl,      # ConfigVar 0x12 (rarity-scalé)
+                          multiplier_pct=self.ability_variables_multiplier)
+        return for_percent_subtraction_capped(False, int(pct), int(cap) if cap else None)
 
 
 class NeuroparasiteEffect(BaseEffect):
