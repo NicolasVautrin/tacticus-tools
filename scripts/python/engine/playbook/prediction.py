@@ -309,13 +309,22 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
         target_limits=_target_damage_limits(scene, tgt))
 
 
-# Abilities dont le `PredictAttack` (slot +0x27) est HÉRITÉ de `ALoki_NormalAttackAbility.PredictAttack
-# @1811afa50` : leur prédiction de dégât SANTÉ passe par `FindAttackWeapon` -> `GetAttackHitPrediction`
-# (= base `GetStat(Attack, Current)` + arme, comme l'attaque NORMALE), et N'UTILISE PAS le config
-# minDmg/maxDmg (celui-ci sert le bouclier/combat). Confirmé LIVE : native SpiritLeech(1104) == native
-# normale(69) EXACT (2136-3205, base Attack ~2670 ≠ config-avg 2593). Donc on route leur event de dégât
-# principal vers `make_normal_attack_predictions` (mêmes base/hits/mods/auras que la normale). #90.
-# (SpiritLeech confirmé ; d'autres Loki normal-attack-like peuvent s'ajouter après RE de leur vtable +0x27.)
+# Abilities dont la PRÉDICTION de dégât SANTÉ est Attack-based (== l'attaque NORMALE), PAS le config
+# minDmg/maxDmg. Chemin natif (RE #92) : `SpiritLeechPlaybook.MakeDamagePredictions @18115d490` calcule
+# `GetAttackDamage @181209dd0` (config) MAIS le passe à `GenerateMultiHitAttackPredictions @181409da0`,
+# qui invoque le slot virtuel +0x27 (`PredictAttack`) — lequel RECALCULE Attack-based (`FindAttackWeapon`
+# @1811aeb80 -> `GetAttackHitPrediction @1811af4e0` = `GetStat(Attack,Current)`+arme), ignorant le config.
+# PROUVÉ par le calcul : config-avg-scaled 2593 / config-max 2992 ≠ base live 2670 / dmax live 3205 (==
+# native normale(69) EXACT). Le `GetAttackDamage` config alimente le HEAL (`GetHealAmountForPrediction`)
+# + le COMBAT réel (`ExecuteBehaviour`), PAS ce preview. On route donc l'event de dégât principal vers
+# `make_normal_attack_predictions` (mirror du slot 0x27 Attack-based : base/hits/mods/auras = la normale).
+# HYPOTHÈSE (non lisible statiquement, #92) : le slot 0x27 HÉRITE de `ALoki_NormalAttackAbility.PredictAttack
+# @1811afa50` — le ctor `SpiritLeechAbility @18120a350` appelle `AActiveAbility.ctor` direct et SpiritLeech
+# est absent des sous-classes ALoki ; SEUL le COMPORTEMENT Attack-based est prouvé (calcul config vs mesure),
+# pas le mécanisme d'héritage vtable runtime. SET COMPLET (#92, PLUS "possiblement incomplet") : les 4 SEULS
+# overrides de `GetAttackDamage` du binaire audités — SpiritLeech (1104) = SEUL special à id gameconfig dont
+# le dégât PRÉDIT diverge de son config ; ExemplarOfHate (1140) = config (pas de divergence) ; PsykerExtraAttack
+# = absent de l'enum ACTIVE_ABILITY_TYPE ; ElectroShock_NormalAttack (1178) = variante normale (kind==normal).
 _PREDICT_VIA_NORMAL_ATTACK = frozenset({"SpiritLeech"})
 
 
