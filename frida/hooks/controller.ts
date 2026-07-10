@@ -40,7 +40,11 @@ import * as moveOptions from "./features/move-options.js";
 import * as winnerCapture from "./features/winner-capture.js";
 import * as messageTrace from "./features/message-trace.js";
 import * as aiStep from "./features/ai-step/index.js";
-import * as modifierObserve from "./features/modifier-observe.js";
+// #75 (2026-07-10) : modifier-observe DESACTIVE du build. C'est un hook TEMP qui fait des
+// Interceptor.replace sur des chemins de degat ULTRA-CHAUDS (160k+ fires) -> risque de crash
+// du jeu sous churn reinject/warmup (cf. incident 2026-07-10). Fichier conserve sur disque ;
+// re-activer = decommenter cet import + remettre `modifierObserve` dans le register ci-dessous.
+// import * as modifierObserve from "./features/modifier-observe.js";
 import * as abilityPrefs from "./features/ability-prefs.js";
 import * as scorerDamageTrace from "./features/scorer-damage-trace.js";
 import * as triggerTrace from "./features/trigger-trace.js";
@@ -367,7 +371,7 @@ export function wireRpc(ctx: Ctx): void {
      uiNav, warmupSingletons, battleConfig, observe, dumpBoards, boardTrace,
      dumpPvpBoards, normalizeBc, crashTrap, initTrace,
      // messageTrace AVANT moveOptions — il set scoringRunnerId/applySeq.
-     messageTrace, moveOptions, winnerCapture, aiStep, modifierObserve, abilityPrefs,
+     messageTrace, moveOptions, winnerCapture, aiStep, abilityPrefs,   // modifierObserve DESACTIVE (#75)
      scorerDamageTrace, triggerTrace]
         .forEach((f) => f.register(ctx));
 }

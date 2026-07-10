@@ -151,8 +151,13 @@ export async function runScript(opts: RunScriptOpts): Promise<RunSession> {
     // findClass + Interceptor.attach) before returning, so the first
     // RPC after inject doesn't sit pending during boot. The agent
     // signals completion via send({t:"agent_ready"}) at the very end
-    // of main.ts. Falls back to a 15s safety timeout in case an
+    // of main.ts. Falls back to a safety timeout in case an
     // unrelated send precedes ours and the listener races.
+    // The fallback is generous (the bundle keeps growing — ~890 KB / dozens of
+    // Interceptor.attach at boot — and can take >15s to emit agent_ready); a
+    // premature fallback marks the session "ready" before the agent truly is,
+    // making the first RPCs race the boot. Prefer waiting for the real signal.
+    const AGENT_READY_TIMEOUT_MS = 45000;
     const readyPromise = new Promise<void>((resolve) => {
         const onReady = (msg: frida.Message): void => {
             if (msg.type === "send" &&
@@ -166,7 +171,7 @@ export async function runScript(opts: RunScriptOpts): Promise<RunSession> {
     await fridaScript.load();
     await Promise.race([
         readyPromise,
-        new Promise<void>((resolve) => setTimeout(resolve, 15000)),
+        new Promise<void>((resolve) => setTimeout(resolve, AGENT_READY_TIMEOUT_MS)),
     ]);
 
     // Liveness gate: re-attaching to a PID left wedged by a prior agent can
@@ -174,7 +179,7 @@ export async function runScript(opts: RunScriptOpts): Promise<RunSession> {
     // Without this check runScript would still hand back a session marked
     // "running" — a phantom that fails every RPC with "Script is destroyed".
     // `isDestroyed` is the one unambiguous failure signal at this point: a
-    // mere ready-timeout is expected (the 15s race above is a deliberate
+    // mere ready-timeout is expected (the race above is a deliberate
     // fallback), so we must NOT fail on that alone.
     if (isScriptDestroyed(fridaScript)) {
         session.status = "error";
