@@ -23,7 +23,7 @@ from dataclasses import dataclass, field, replace
 from .min_max_damage import MinMaxDamage
 from .damage_calculations import spread_to_min_max
 from .static_battle_rules import get_damage_with_piercing, get_piercing_ratio
-from .damage_modifiers import DamageModifiers, apply_all_modifiers
+from .damage_modifiers import DamageModifiers, apply_all_modifiers, capped_reduction_flat
 from .trait_damage_limits import apply_trait_damage_limits_to_damage, compute_prediction_overkill
 
 # StatType (dump.cs @863349)
@@ -284,17 +284,14 @@ def predict_attack_raw(
         rem_lo, rem_hi = mm.min, mm.max
     lo = apply_pierce_and_modifiers(rem_lo, pierce_pct, armor, mods_pct, hit_mult) if rem_lo else 0
     hi = apply_pierce_and_modifiers(rem_hi, pierce_pct, armor, mods_pct, hit_mult) if rem_hi else 0
-    # Réduction DÉFENSEUR capée FLAT (GuardianOrganism) : scalaire = min(pct% × D, cap) avec D=(lo+hi)/2 =
-    # CurrentDamage (base/centre du dégât, pré-GO), soustrait des DEUX bornes (mirror pré-évalué natif @18102d3f0).
-    # AVANT target_limits (ordre natif : CalculateBaseDamageWithAllModifiers -> ApplyTraitDamageLimitsToDamage).
+    # Réduction DÉFENSEUR capée FLAT (GuardianOrganism) : scalaire = min(trunc(pct% × D), cap) avec D=(lo+hi)/2 =
+    # CurrentDamage (base/centre du dégât, pré-GO), soustrait des DEUX bornes (mirror pré-évalué natif @18102d3f0 ;
+    # HELPER PARTAGÉ avec le COMBAT `capped_reduction_flat` = MÊME formule + troncature Fix64, confirmée bit-exact
+    # #91). AVANT target_limits (ordre natif : CalculateBaseDamageWithAllModifiers -> ApplyTraitDamageLimitsToDamage).
     if _capped and (lo or hi):
-        _dcur = (lo + hi) / 2.0
-        for _pct, _cap in _capped:
-            _flat = round(_dcur * _pct / 100.0)
-            if _cap is not None:
-                _flat = min(_flat, _cap)
-            lo = max(0, lo - _flat)
-            hi = max(0, hi - _flat)
+        _flat = capped_reduction_flat((lo + hi) / 2.0, _capped)
+        lo = max(0, lo - _flat)
+        hi = max(0, hi - _flat)
     if target_limits:
         # ApplyTraitDamageLimitsToDamage @18102c650 — cape le dégât per-bout APRÈS modifiers, AVANT le
         # scénario (ordre natif). Appliqué aux 2 bornes (le natif appelle chaque Apply 2× : min puis max).

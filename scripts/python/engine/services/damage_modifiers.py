@@ -126,18 +126,31 @@ def apply_all_modifiers(value: int, mods: DamageModifiers) -> int:
     v = apply_capped_modifiers(value, mods)
     if mods.additive:
         v = round(v + mods.additive)
-    # Réductions DYNAMIQUES CAPÉES (défenseur, ex. GuardianOrganism_DamageReduction @180f4c630) :
-    # `ForSubtraction(Min(PercentageOf(CurrentDamage, pct), cap))`. CHEMIN COMBAT (valeur TIRÉE unique) :
-    # CurrentDamage = `value` (le dégât courant post %-list+additif) -> réduction per-valeur (correct pour un
-    # coup réel). ⚠ La PRÉDICTION (min/max) n'appelle PAS ceci per-borne : `predict_attack_raw` STRIPPE
-    # capped_reductions puis applique le scalaire FLAT (D=centre=(lo+hi)/2) aux 2 bornes (natif = défender-mod
-    # PRÉ-évalué @18102d3f0, cf. #89). Vide (défaut) -> no-op (chemins existants BIT-EXACT inchangés).
-    for _pct, _cap in mods.capped_reductions:
-        _red = round(v * _pct / 100.0)
-        if _cap is not None:
-            _red = min(_red, _cap)
-        v = v - _red
+    # ⚠ Les réductions DYNAMIQUES CAPÉES du DÉFENSEUR (GuardianOrganism) ne sont PLUS appliquées ici :
+    # `CurrentDamage` du natif = la valeur UNIQUE post-mods (le dégât TIRÉ), donc en COMBAT la soustraction
+    # se fait PAR VALEUR TIRÉE (cf. `apply_capped_reductions`, appelé dans `_run_hits` APRÈS le tirage), PAS
+    # sur les bornes min/max (les appliquer per-borne = 33%×min ≠ 33%×max rétrécit la plage de roll -> désync
+    # RNG, #91). La PRÉDICTION (min/max) les STRIPPE aussi (`predict_attack_raw`) et applique un FLAT (D=centre).
     return max(0, v)
+
+
+def capped_reduction_flat(reference: int, capped_reductions) -> int:
+    """Montant FLAT total de réduction CAPÉE du DÉFENSEUR (ex. GuardianOrganism_DamageReduction @180f4c630 :
+    `ForSubtraction(Min(PercentageOf(CurrentDamage, pct), cap))`). Le natif PRÉ-ÉVALUE le défender-mod en
+    SCALAIRE UNIQUE (`CalculateBaseDamageWithAllModifiers @18102d3f0` reçoit min ET max le MÊME montant) où
+    `CurrentDamage` = D = le CENTRE du dégât post-perçage/mods (= (lo+hi)/2 des bornes réduites) — CONFIRMÉ LIVE
+    (#91 : Tyrant Guard, D≈centre -> flat≈178 soustrait IDENTIQUE à chaque coup, PAS 33%×valeur-tirée). Ce flat
+    est le MÊME pour tous les coups d'un même type (non-crit/crit) et se soustrait de chaque valeur tirée.
+    `reference` = D (le centre, possiblement fractionnaire .5) ; `PercentageOf` en Fix64 TRONQUE (confirmé LIVE
+    #91 : D->flat=177=floor, PAS 178=round). = Sum min(trunc(pct%×reference), cap). Liste vide -> 0 (combat
+    sans réduction capée = BIT-EXACT inchangé)."""
+    flat = 0
+    for _pct, _cap in capped_reductions:
+        _r = int(reference * _pct / 100.0)          # Fix64 : troncature (PAS round)
+        if _cap is not None:
+            _r = min(_r, _cap)
+        flat += _r
+    return flat
 
 
 def build_attacker_modifiers(effect_bonuses: list[EffectBonus | None]) -> DamageModifiers:

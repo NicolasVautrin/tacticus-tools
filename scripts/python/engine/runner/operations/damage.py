@@ -63,7 +63,7 @@ from ...services.damage_calculations import spread_to_min_max
 from ...services.damage_prediction import get_base_damage_fix64, apply_pierce_and_modifiers
 from ...services.damage_combat import (calculate_damage_operation, Damage, could_crit,
                                        roll_critical, BlockSource)
-from ...services.damage_modifiers import apply_all_modifiers
+from ...services.damage_modifiers import apply_all_modifiers, capped_reduction_flat
 from ...services.battle_query import are_tiles_adjacent
 from ...services.attack_hits_formula import attack_hits_with_modifiers
 from ...entities.stats import StatType
@@ -319,7 +319,8 @@ class AttackDamageOperation:
                                         (tp.col, tp.row) if tp is not None else None, state.board)
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources, shield=shield_total,
-                                            bonus_hit_chance=_gsi)
+                                            bonus_hit_chance=_gsi,
+                                            capped_reductions=def_mods.capped_reductions)
         AttackDamageOperation._deplete_shield(shc, r)
         death = None
         if thc.hp is not None:
@@ -339,7 +340,7 @@ class AttackDamageOperation:
     def _run_hits(rng: IntBasedMersenneTwister, hit_nc: "HitDamage", hit_cr: "HitDamage",
                   crit_chance: int, crit_enabled: bool, hits: int, block_sources,
                   shield: int = 0, armor_pool: int = 0, armor_pct: int = 0, post_roll=None,
-                  bonus_hit_chance: Optional[int] = None) -> dict:
+                  bonus_hit_chance: Optional[int] = None, capped_reductions=None) -> dict:
         """Boucle PAR COUP partagée (attaque normale ET ability) : pour chaque coup, crit-roll D'ABORD
         (1 tirage NextBool si cc>=1, sinon 0) PUIS tirage dans `hit_cr`/`hit_nc`, PUIS split combat
         (bouclier/armure-pool/block, `calculate_damage_operation`). Ordre RNG crit->spread->block confirmé.
@@ -367,6 +368,13 @@ class AttackDamageOperation:
         rolls: list[int] = []
         per_hit: list[int] = []
         failed_block: set = set()          # ids de sources de block AYANT ECHOUE (accumule ENTRE coups, #72)
+        # #91 : réduction CAPÉE défenseur (GuardianOrganism) = scalaire FLAT pré-évalué (natif @18102d3f0) où
+        # D = CurrentDamage = CENTRE des bornes réduites (post pierce/armure/%-mods) -> soustrait IDENTIQUE à
+        # chaque coup, PAS 33%×valeur-tirée (confirmé LIVE #91). Un flat par type de coup (non-crit/crit).
+        _capped_flat_nc = capped_reduction_flat((hit_nc.min + hit_nc.max) / 2.0, capped_reductions) \
+            if capped_reductions else 0
+        _capped_flat_cr = capped_reduction_flat((hit_cr.min + hit_cr.max) / 2.0, capped_reductions) \
+            if capped_reductions else 0
 
         def _one_hit(idx: int) -> bool:
             """Un coup complet crit->spread->block + le roll Maybe GetStuckIn si `idx` impair. Renvoie True
@@ -379,6 +387,8 @@ class AttackDamageOperation:
             roll = hd.get_damage(rng)
             if post_roll is not None:
                 roll = post_roll(roll)        # ability : réduction APRÈS le tirage (roll-then-reduce)
+            if capped_reductions:             # #91 : réduction CAPÉE défenseur (GuardianOrganism) = scalaire FLAT
+                roll = max(0, roll - (_capped_flat_cr if crit else _capped_flat_nc))  # (D=centre bornes, PAS 33%×roll)
             rolls.append(roll)
             # #72 : mirror `CalculateBlockChances(param_4=failedList)` @181002350 -> une source de block
             # AYANT ECHOUE a un coup precedent est EXCLUE des coups suivants (Contains(failedList, id)) ;
@@ -479,7 +489,8 @@ class AttackDamageOperation:
         shc, shield_total = AttackDamageOperation._target_shield(tgt)      # bouclier shield-first
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources, shield=shield_total,
-                                            post_roll=_reduce)
+                                            post_roll=_reduce,
+                                            capped_reductions=def_mods.capped_reductions)
         AttackDamageOperation._deplete_shield(shc, r)
         if thc.hp is not None:
             hp_before = thc.hp
@@ -540,7 +551,8 @@ class AttackDamageOperation:
         shc, shield_total = AttackDamageOperation._target_shield(tgt)      # bouclier shield-first
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources,
-                                            shield=shield_total)   # post_roll=None (reduce-then-roll)
+                                            shield=shield_total,   # post_roll=None (reduce-then-roll)
+                                            capped_reductions=def_mods.capped_reductions)
         AttackDamageOperation._deplete_shield(shc, r)
         if thc.hp is not None:
             hp_before = thc.hp
