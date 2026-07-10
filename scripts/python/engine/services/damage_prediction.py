@@ -23,7 +23,9 @@ from dataclasses import dataclass, field, replace
 from .min_max_damage import MinMaxDamage
 from .damage_calculations import spread_to_min_max
 from .static_battle_rules import get_damage_with_piercing, get_piercing_ratio
-from .damage_modifiers import DamageModifiers, apply_all_modifiers, capped_reduction_flat
+from .damage_modifiers import (
+    DamageModifiers, apply_all_modifiers, apply_capped_modifiers, capped_reduction_flat,
+)
 from .trait_damage_limits import apply_trait_damage_limits_to_damage, compute_prediction_overkill
 
 # StatType (dump.cs @863349)
@@ -213,7 +215,8 @@ def get_base_damage_fix64(base: int, extra_max: int = 0, spread_pct: int = 20,
 
 
 def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0,
-                               mods: DamageModifiers | None = None, hit_mult: int = 1) -> int:
+                               mods: DamageModifiers | None = None, hit_mult: int = 1,
+                               attacker_additive_pre: bool = False) -> int:
     """BASE COMMUNE prédiction↔combat — réduction d'UNE valeur de dégât (= étape 3+3b de
     `predict_attack_raw`, cf. `CalculateBaseDamageWithAllModifiers` @18102d3f0) :
         pierce_eff = clamp(0,100, pierce + mods.extra_pierce)
@@ -222,16 +225,33 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
         d = ApplyAllModifiers(d, mods)        # ×bonus post-perçage §17.7
     La PRÉDICTION l'applique à ses 2 bornes (min,max) ; le COMBAT à la valeur TIRÉE → mêmes
     dégâts par construction. (Le scénario bouclier/réduction/overkill reste au niveau range,
-    cf. calculate_damage_prediction_scenario.)"""
+    cf. calculate_damage_prediction_scenario.)
+
+    `attacker_additive_pre` (#75/#68, case-68 MAJ 13) : en COMBAT l'additif ForAddition ATTAQUANT
+    (mods.additive) s'ajoute au dégât AVANT perçage/armure — le caller combat de
+    `CalculateAbilityDamage @18102cb50` passe un dégât DÉJÀ additivé, et
+    `CalculateBaseDamageWithAllModifiers @18102d3f0` NE consomme PAS `DamageModifiers.Addition@+0x10`
+    (LU : seuls Piercing@+0x20 et IgnoreArmor@+0x28 y entrent, puis %-list slot 0x11 / Multiplier
+    slot 0x10 / Override@+0x0). Reconstruit BIT-EXACT 3/3 (orksNob SmashaEad additif 599, pierce 50,
+    armure cible 2208 : bornes (base±spread)+599 → GDWP → live [1540,1738,1526] à l'unité).
+      True  = placement COMBAT (pré-perçage ; %-list ensuite ; PAS de re-add post) ;
+      False = chemin PRÉDICTION historique (post-perçage — placement natif pred non encore lu,
+              comportement validé #49/#64/#88 conservé)."""
     pierce_eff, armor_eff = pierce_pct, armor
     if mods is not None:
         pierce_eff = max(0, min(100, pierce_pct + mods.extra_pierce))
         armor_eff = 0 if mods.ignore_armor else max(0, armor - mods.armor_penetration)
     d = value
+    if mods is not None and attacker_additive_pre and mods.additive:
+        d = round(d + mods.additive)       # additif au dégât AVANT perçage (COMBAT, MAJ 13)
     for _ in range(max(1, hit_mult)):
         d = get_damage_with_piercing(d, pierce_eff, armor_eff)
     if mods is not None:
-        d = apply_all_modifiers(d, mods)   # %-list PUIS additif (@+0x10) — APRES percage (§17.7)
+        if attacker_additive_pre:
+            # additif déjà dans la base → %-list SEUL (ApplyCappedModifiers @181000020) + plancher 0
+            d = max(0, apply_capped_modifiers(d, mods))
+        else:
+            d = apply_all_modifiers(d, mods)   # %-list PUIS additif (@+0x10) — APRES percage (§17.7)
     return d
 
 

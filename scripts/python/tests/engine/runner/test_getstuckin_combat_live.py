@@ -201,14 +201,12 @@ def test_getstuckin_hitcount_and_rng_aligned(gsi_combat):
         f"ecart off-live NON constant {sorted(deltas)} -> DESYNC RNG (tirage Maybe GetStuckIn mal positionne)")
 
 
-@pytest.mark.xfail(reason="#68 : MAGNITUDE additif SmashaEad combat ~2x trop grande (port ~+599/coup vs live "
-                          "~+300/coup, POST-reduction constant) ; PRESENCE correcte. GetStuckIn (compte+RNG) "
-                          "valide separement par test_getstuckin_hitcount_and_rng_aligned",
-                   strict=False)
 def test_getstuckin_combat_absolute_bit_exact(gsi_combat):
-    """Bit-exact ABSOLU (off_ph == live_ph + PV egaux). RED tant que #68 (MAGNITUDE additif SmashaEad combat)
-    n'est pas corrige : off = live + offset CONSTANT (~+300/coup : port applique ~599, live ~300 -> ~2x trop).
-    xpass quand la valeur extraDmg/multiplier/niveau de SmashaEad sera corrigee."""
+    """Bit-exact ABSOLU (off_ph == live_ph + PV egaux). VERT depuis #75/#68 (case-68 MAJ 13) : l'additif
+    ForAddition ATTAQUANT s'applique au degat AVANT percage/armure en COMBAT (attacker_additive_pre=True :
+    bornes (base+-spread)+additif -> GetDamageWithPiercing -> %-list), PAS en +flat post-percage. La
+    magnitude 599 (extraDmg[49]=333 x mult 180) etait CORRECTE ; c'etait le PLACEMENT qui sur-comptait
+    la fraction non-percante (offset constant +299 avec pierce 50 vs armure 2208)."""
     c = gsi_combat
     if c["did_evade"]:
         pytest.skip("coup avec evade live")

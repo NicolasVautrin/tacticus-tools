@@ -361,6 +361,210 @@ l'appliquer PAR COUP apres le roll via un helper combat dedie (midpoint ou /2 se
 si ½ universel, TOUS les effets ForAddition attaquants sont sur-evalues 2x en combat par le port -> le fix les corrige
 tous (a VERIFIER sur >=2 effets). Point faible n1 a attaquer par le validator : le ½ non-lu (fit-risk).
 
+**MAJ 9 (2026-07-10, session post-incident) — separateur --rank ECARTE (mesure) ; re-expert dispatche sur le READ du multiplier BAKE.**
+- **Baseline RE-CONFIRME live** (session 3, `test_getstuckin_combat_live.py`) : live=[1540,1738,1526] port off=[1839,2037,1825]
+  base=2411 offset **+299 CONSTANT** ; port additif=**599** (mult 180, al=50, extraDmg[49]=333) ; live additif=**300**. Identique aux mesures anterieures.
+- **SEPARATEUR --rank ECARTE (mesure directe, `_probe75_ranksep_live.py`)** : rank-sweep orksNob rangs [17,13,9,5,2].
+  `N` (=`abilityVariablesMultiplier` @0x74) reste **180** ET le port additif reste **599** a TOUS les rangs =>
+  **`--rank` ne change PAS le multiplier de variable d'ability** (il est fixe par la rarete/roster de la seed BC, pas par le
+  rang de build). Aux rangs bas l'offset off-live devient NON-constant (la BASE elle-meme diverge off/live pour des raisons
+  hors-SmashaEad) -> lever inutilisable. => **impossible d'obtenir un orksNob a T != N/2 via le build** ; le rank-sweep NE PEUT PAS
+  separer (R) de (H). (Ne pas re-tenter ce lever.)
+- **DECISIF RESTANT = read DIRECT du multiplier BAKE de l'effet** (90 -> (R) mult rarity/kind par-unite bake ; 180 -> (H) additif 599
+  /2 aval). Les events de l'attaque n'exposent PAS le mult triggered (probe : `mult_tags` vide). **Re-expert dispatche** (worktree,
+  decompile-only) : (a) le decompile peut-il trancher R/H sans live (chemin combat = dispatch interface slot 0x42 runtime, peut-etre
+  non resoluble statiquement) ; (b) recette de read exacte (offsets `EffectComponent` -> Level.multiplier bake, candidats +0x18
+  AbilityState / EffectBonus->ConfigAmount+0x20/+0x10) pour un hook read-only. **Fix selon verdict** : (R) => capter le mult bake
+  par-effet des triggered ; (H) => combat applique l'additif attaquant a MOITIE (impact GENERAL : tous les additifs attaquants).
+
+**MAJ 10 (2026-07-10, VERDICT FERME : (R) CONFIRMEE, (H) REFUTEE PAR LE DECOMPILE).**
+- **Re-expert (decompile, VAs)** : **(H) REFUTEE** — AUCUN `/2` en aval. `CalculateBaseDamageWithAllModifiers
+  @18102d3f0` recoit l'additif DEJA RESOLU (`add = attacker.add + defender.add`) et l'ADDITIONNE tel quel ;
+  combat et prediction empruntent le MEME `PredictAttack` (`CachedDamagePrediction.PredictAttack @180e2f720`
+  slot 4 = simple forwarder). La divergence 599(pred)/300(combat) vient du CONTEXTE de resolution (effet
+  attache ou non), PAS d'un /2. Le multiplier est resolu DYNAMIQUEMENT via un provider lazy
+  (`AbilityStateFromEffect @180de5e60`), JAMAIS bake numeriquement (`ConfigAmount+0x20` prouve VIDE).
+- **(R) fermee par COMBINAISON** : (H)-refutee (pas de /2) + additif combat MESURE **+300 constant** +
+  `extraDmg[49]=333` (gameconfig) => mult combat = 300x100/333 = **90** (le triggered's own RARITY mult ;
+  extraDmg rarity-flaggee => `+0x2c`=90 via `@181696230`). Le `90=180/2` d'orksNob etait une COINCIDENCE.
+- **Read live (`dumpEffectBaked` / `_probe75_baked_read.py`, session 4)** : l'entite-effet SmashaEad
+  (1319, owner 80) ne porte QU'UN `EffectComponent` (pas de composant AbilityState separe ; `+0x28=1246`=id
+  triggered source ; `+0x68=1`=rounds). **Le multiplier N'EST PAS un champ stocke sur l'effet** -> coherent
+  avec "resolu dynamiquement". Donc la source fidele du 90 = le mult TRIGGERED de l'unite, PAS un read d'effet.
+- **FIX (R), non-/2** : le port applique le mult ACTIF (180, `abilityVariablesMultiplier` @0x74) a TOUS les
+  effets ; pour un effet source d'une ability **TRIGGERED** (SmashaEad), il faut le mult **TRIGGERED**
+  (90 = `UnitStats_TriggeredAbility_VariableMultiplierPercentage`). Pieces : (1) snapshot expose le mult
+  triggered par-unite ; (2) `BaseEffect.triggered_ability_variables_multiplier` ; (3) `SmashaEadExtraDamageEffect`
+  (+ effets triggered-sourced) l'utilisent. PAS un /2 universel (=H, refutee). xpass attendu :
+  `test_getstuckin_combat_absolute_bit_exact`.
+
+**MAJ 11 (2026-07-10, read DECISIF : triggered-ability mult = 180, PAS 90 -> fix "capter le mult triggered" INVALIDE ; mecanisme REOUVERT).**
+- **`dumpTriggeredMult(orksNob)`** (walk `TriggeredAbilityComponent+0x18` -> collection -> 3 instances triggered ;
+  walk VALIDE : `level@0x20=50` correct, `SetAbilityVariableMultiplierPercentageForAll @180fab570` ecrit bien
+  `+0x24`) : les 3 abilities TRIGGERED d'orksNob (dont SmashaEad 1246) portent `Level {level@0x20=50,
+  multiplier@0x24=`**`180`**`}`, `rarity@0x28=0`. => **le mult de variable des abilities TRIGGERED = 180 (= l'actif),
+  PAS 90. Il n'existe AUCUN "90" stocke sur l'ability triggered.**
+- => **le FIX planifie (exposer `triggeredAbilityVariablesMultiplier`=90 par-unite) est INVALIDE.** La confiance
+  85% (R) du re-expert reposait sur "le composant effet/ability stocke 90" — **REFUTEE par mesure directe** (le
+  point faible que le re-expert avait lui-meme flagge : "si le read montre 180, mon modele est faux").
+- **Mecanisme du +300 REOUVERT.** La (H)-refutation du re-expert portait sur le pipeline PREDICTION
+  (`CalculateBaseDamageWithAllModifiers @18102d3f0` = 599, pas de /2). Le pipeline COMBAT est DISJOINT (MAJ 8)
+  et lit un CACHE (`CachedDamagePrediction`, 0 fire `GetVariableForLevel` en combat). D'ou vient le 300 dans le
+  cache ? NON localise : NI l'ability-state Level (=180 MESURE), NI une re-resolution combat (0 fire), NI un /2
+  dans le pipeline prediction (refute). Candidats survivants TOUJOURS INSEPARABLES pour orksNob (90=180/2) :
+  (A) /2 dans le pipeline COMBAT disjoint (slot 0x42 runtime, non trace) ; (B) mult rarity `progression+0x2c`
+  applique a la POPULATION du cache (source du 90 = progression unit-model, PAS l'ability instance).
+- **ETAT** : 11 MAJs + re-expert + reads directs -> le +300 combat reste non cleanement localise ; le seul dig
+  restant = vtable slot 0x42 runtime (`DAT_1831d3468`) du pipeline combat cache (cout eleve). Effort
+  DISPROPORTIONNE : 1 effet, **ZERO impact decision AI** (#71 gate le chemin AI ; residu = +299/coup replay-diff
+  combat seul). **RECO FORTE : PARK** avec ce corpus. Hooks read-only (`effect-baked-dump.ts` :
+  dumpEffectBaked/dumpTriggeredMult) + probes `_probe75_*` = A RETIRER au park.
+
+**MAJ 12 (2026-07-10, MECANISME RESOLU — 2e re-expert : (R) confirme, (H) refutee STRUCTURELLEMENT ; additif combat = 300 = extraDmg x rarity-mult(90) BAKE a la creation ; 90 = meta progression+0x2c, HORS gameconfig).**
+- **(H) REFUTEE STRUCTURELLEMENT** (2e re-expert, xrefs VERIFIES) : AUCUN `/2` dans le decompile combat.
+  `MinMaxDamage.Avg @181052470` (seul midpoint) = xrefs EXCLUSIVEMENT AI/prediction, JAMAIS
+  `ExecuteHit`/`CalculateDamageOperation`/`DealDamage`. `RandomlyResolveMinMaxDamage @181038600` = roll
+  uniforme. `CalculateDamageOperation @18102dc30` recoit un degat DEJA scalaire (1540), 0 `/2`. Additif
+  PLAT (min ET max), PAS ExtraMaxDamage (canal max = `FromInt` distinct non alimente). Combat+prediction
+  PARTAGENT range (`PredictAttackRaw`) + modifiers (`CalculateAttackerModifiersForPrediction`), PAS de flag
+  `is_prediction`. => **impossibilite structurelle d'un `/2` combat.**
+- **=> (R) SEUL SURVIVANT** : l'additif combat VAUT reellement 300 (rarity-mult 90). Le combat LIT une
+  valeur BAKEE (0 fire `GetVariableForLevel`) ; la prediction-display RE-resout a 180->599 (gatee hors
+  display par #71). `90=180/2` = COINCIDENCE numerique, PAS un `/2`.
+- **SOURCE du 90 (RE `@181696230` LUE)** : `UnitConfigUtil.GetAbilityVariablesMultiplierPercentageForProgressionIndex`
+  (**META**, `IdunMetaLogic.UserProgress`) : `config+0x80[progIdx]` (units) / `+0x88` (MoW) = entree progression ;
+  renvoie `+0x2c` (RARITY) SSI la variable in `variablesAffectedByRarityBonus` (extraDmg L'EST), sinon `+0x24`
+  (NORMAL=180). orksNob : +0x24=180, +0x2c=90. Applique a la **CREATION de l'effet** (bake le ConfigAmount) ;
+  le combat lit ce bake. Coherent avec MAJ 11 (instance ability battle=180 : le 90 n'est PAS sur l'instance,
+  c'est la META progression).
+- **PowerTrip.armorIgnored (rarity-flaggee, ACTIVE) = x180 (valide) : NON contredit** — resolu FRESH via le
+  Level instance (180) dans `CalculateAttackerModifiers`, PAS bake via un ConfigAmount d'effet. => la regle
+  n'est PAS "rarity-flaggee -> 90" universel ; c'est **"additif d'EFFET bake a la creation -> rarity-mult ;
+  resolution FRESH -> normal-mult"**. Distinction CLE du fix (ne pas x90 PowerTrip).
+- **90 HORS gameconfig (RE-confirme)** : orksNob gameconfig = `powerMultiplier=98`, `BaseRarity=Epic` ; AUCUN
+  champ rarity-mult. Le `+0x2c` est META/progression RUNTIME (MAJ 6b re-confirme) => **fix = CAPTURE live**
+  (meta `progression+0x2c` OU valeur bakee de l'effet), PAS derivable offline.
+- **FIX (recette)** : capturer le rarity-mult par-unite (90) et l'appliquer dans `magnitude.ability_var` aux
+  variables rarity-flaggees des effets BAKE-a-la-creation (triggered-sourced type SmashaEad), en laissant 180
+  pour les resolutions FRESH (PowerTrip). Capture = read meta `progression+0x2c` (acces config meta depuis le
+  runner = RE additionnelle) OU la valeur bakee de l'effet (`ConfigAmount+0x10`).
+- **ETAT : mecanisme RESOLU + documente. Implementation = DERNIERE MILE AWKWARD** (capture d'une valeur META
+  runtime hors gameconfig, pour 1 effet a ZERO impact decision AI). Le mystere des 11 MAJ est TRANCHE : (R),
+  pas de `/2`. Hooks read-only (`effect-baked-dump`) + probes `_probe75_*` = a retirer.
+
+**MAJ 13 (2026-07-10 soir, VRAI MECANISME LU + RECONSTRUIT BIT-EXACT 3/3 — MAJ 12 ((R) mult-90) REFUTEE
+PAR MESURES DIRECTES ; l'additif ForAddition d'un effet attaquant est applique en COMBAT au degat ROULE,
+AVANT percage/armure : `live = Round_half_even(GetDamageWithPiercing(roll + 599, 50, armor=2208))` =
+1540/1738/1526 EXACTS sur les 3 coups. Le port l'applique POST-percage (+599 plat) -> sur-compte de la
+fraction non-percante. Le "x90" de MAJ 10-12 = coincidence numerique (599x50% ~= 300).**
+
+- **3 REFUTATIONS PAR LECTURE DIRECTE (session du soir, RPCs read-only frais)** :
+  1. `effectAbilityStates` (nouveau RPC, walk `EffectComponent.AbilityStateReference@0x18`, dump gqfc5mff6c
+     TypeDefIndex 24412/24402) : l'effet SmashaEad live (id 97, owner 80) porte
+     `{Owner:80, AbilityType:[0,0,1,1246], Nullable<AbilityState>: VIDE}` -> **RIEN n'est bake a la creation**
+     (MAJ 12 "bake au ConfigAmount" = faux ; la resolution est LAZY depuis (owner, type)).
+  2. `unitAbilityStates` (nouveau RPC) : TOUTES les instances d'ability d'orksNob (actives 1152/69 +
+     triggered 1246/1234/1518) = `{level:50, mult:180}`, override VIDE -> **aucun 90 nulle part dans l'etat**.
+  3. `varTrace` (hook TEMP one-shot arme a la demande sur `TryGetVariableArrayForLevel @181577510`, l'unique
+     impl concrete) : pendant l'ATTAQUE combat, extraDmg(8) resout **3x avec {level:50, mult:180} -> 599 par
+     coup**. La mesure historique "0 fire GetVariableForLevel en combat" hookait un autre overload -> FAUSSE.
+     => le combat RESOUT bien 599 ; il ne l'applique juste PAS en +degat plat.
+- **`abilityConfigProbe` (nouveau RPC, invoke natif)** : la config battle de 1246 (via
+  `AbilitiesDatabase.GetConfig(TriggeredAbilityType) @180fdb2c0` -> `AbilitiesConfiguration.GetPassive
+  @181575ab0`, pur lookup registre) = la MEME table que gameconfig (`extraDmg[49]=333`, `[64]=437`,
+  rarityFlagged=[8]) ; `GetVariableForLevel(extraDmg, {50,180})=599`, `{50,100}=333`, `{50,90}=300` ->
+  formule confirmee `round_fix64(table[level-1] x mult/100)` (Fix64.Round, 299.7->300, 599.4->599).
+- **PIPELINE PARTAGE LU (les VAs qui ferment le dossier)** :
+  - `CalculateBaseDamageWithAllModifiers @18102d3f0` (callers : `CalculateAbilityDamage @18102cb50` = COMBAT
+    par-coup + `PredictAttackRaw` x2 = PREDICTION) : lit `DamageModifiers.Piercing@+0x20` att+def (-> args
+    pierce), **`DamageModifiers.IgnoreArmor@+0x28` att+def -> sommes -> arg `add` de
+    GetBaseDamageWithFixedPiercedArmor**, puis slot 0x11 `ApplyCappedModifiers @181000020` (%-list SEUL,
+    clamp(Round(v x mult), +/-cap)) par cote, puis slot 0x10 `CalculateBaseDamageWithModifiers` (x Multiplier
+    @+0x30) par cote, puis `Override@+0x0` (remplace). **`Addition@+0x10` N'EST PAS consommee ici.**
+  - `GetBaseDamageWithFixedPiercedArmor @181030d10` : pierceTotal = clamp(profilePierce(GetPiercingRatio) +
+    stats att 26/21-22 + Piercing att + Piercing def, <=100) ; **`armor = Max(GetStat(def, 16=FixedArmor) -
+    (int)add, 0)`** ; d = GetDamageWithPiercing(d, pierceTotal, armor) [x2 si trait 0x3f5 def ; x3 cas
+    triggered 0x4b6]. **L'arg `add` (= IgnoreArmor somme) REDUIT L'ARMURE, plancher 0.**
+  - `CalculateAbilityDamage @18102cb50` (COMBAT par-coup) : shieldAbs=Min(dmg,shield) ; mods = **slot 0xf
+    de IDamageCalculations = `CalculateDefenderModifiersForPrediction(state, entities)` 2-args @181002a70**
+    (delegue au 3-args @181002c30 avec la liste des effets ACTIFS state-wide) ; CBDWAM(dmg-shieldAbs, ...,
+    modsA=VIDE, modsB=ce builder) ; puis `result += modsB.Addition` (plat, par coup) ; Max(0) ;
+    ApplyTraitDamageLimits ; re-ajout shieldAbs.
+  - **Builder 3-args @181002c30** : stat-mods defenseur (negate) en %-mult ; boucle sur TOUS les
+    EffectWithTarget actifs x leurs cibles : slot 0x1a (effet) -> Nullable<DamageBonus> -> ajoute a la liste
+    + **`IgnoreArmor += DamageBonus+0x38`** + `Override = DamageBonus+0x40` ; slot 0x1b -> 2e famille ->
+    liste ; slot 0x19 -> `Piercing += valeur` ; puis pour chaque DamageBonus de la liste :
+    `DamageModifiers.Add @181005f10` (bonus+0x28 -> Addition@+0x10 ; +0x30 -> soustraction ; +0x48/+0x50 ->
+    %-list {mult 1+round(pct)/100, cap}). `IDamageCalculations` : slot 13/14/15 = builders, 16 =
+    CalculateBaseDamageWithModifiers, 17 = ApplyCappedModifiers (interface TypeDefIndex 11732).
+  - Struct `DamageModifiers` (TypeDefIndex 11734) : Override@0x0, Addition@0x10, CappedModifiers@0x18,
+    Piercing@0x20, IgnoreArmor@0x28, Multiplier@0x30, DamageBonusesForInfo@0x38.
+- **ARITHMETIQUE DISCRIMINANTE — RECONSTRUCTION BIT-EXACT 3/3 (mesures combatSnapshot : bloodIntercessor
+  entityId 78 FixedArmor=2208, orksNob 80 attack=2411)** :
+  - Port off=[1839,2037,1825] = GDWP(roll,50,2208)+599 -> rolls = [2480,2876,2452] (branche PIERCE : roll/2 >
+    roll-2208), donc GDWP baseline = [1240,1438,1226] (valeurs .0, aucune ambiguite d'arrondi).
+  - **Modele PRE-PERCAGE : live = GDWP(roll+599, 50, 2208) = pierce((roll+599)x0.5) = [1539.5, 1737.5,
+    1525.5] -> Fix64.Round half-to-even -> [1540, 1738, 1526] = LES 3 VALEURS LIVE EXACTES.** ✓✓✓
+  - Modele "IgnoreArmor" (armure-599) REFUTE : branche pierce dominante -> armor' sans effet -> live=1240 ✗.
+    (Ma 1re deduction "armor=300 neutralisee" etait fausse — fondee sur une armure supposee, la mesure
+    combatSnapshot l'a tuee. L'arg `add` de GetBaseDamageWithFixedPiercedArmor = le canal IgnoreArmor@+0x28
+    (PowerTrip.armorIgnored), PAS celui de SmashaEad.)
+  - `GetDamageWithPiercing @1815598b0` (LU) : ENTIEREMENT Fix64 — pierced = damage x (pct/100) SANS
+    troncature interne ; result = max(0, damage - armor, pierced) en Fix64 ; la conversion int finale
+    (aval, chaine CalculateAbilityDamage/op) arrondit HALF-TO-EVEN (1539.5->1540, 1737.5->1738,
+    1525.5->1526 — 3/3, = Fix64.Round de FixMath.NET). ⚠ le port `get_damage_with_piercing` fait `//`
+    (floor) — indiscernable sur les valeurs .0 des tests passes, FAUX sur les .5 -> a aligner.
+  - L'additif entre en INT (599 = GetVariableForLevel deja Fix64.Round-e), ajoute au ROLL (largeur de plage
+    inchangee -> le test RNG-aligned passait) AVANT GetDamageWithPiercing, dans le caller combat de
+    CalculateAbilityDamage (ExecuteHits / op slot-0x42 : le param damage arrive DEJA additive).
+  - Le "x90" de MAJ 10-12 = coincidence numerique (599 x 50% pierce = 299.5~=300 ~= 333x0.9). Les 3
+    verdicts re-expert successifs (mult-90 bake / meta progression+0x2c / mythicAbilityStatMultiplierPct)
+    sont tous REFUTES par lectures directes ; `heroProgressionSteps.mythicAbilityStatMultiplierPct@+0x2c`
+    (UnitsConfigDto @0x80, dump 16438/16445) et le mapping `GetActiveAbilityUsedForConfig @1815808e0`
+    (dict statique ; 1246 n'y est PAS, seulement dans le HashSet `ShouldBeSimulated`@+0x68) documentes au
+    passage comme vocabulaire.
+  - **Reconciliation #88 (Neuroparasite -582, additif PLAT scale par %-mods)** : COMPATIBLE — pre-percage
+    implique aussi pre-%-list ; avec pierce=100 (Psychic) l'additif passe entier -> indiscernable d'un flat
+    scale. #88 et #75 = LE MEME placement natif (pre-percage), observe sous deux pierce differents.
+- **CHAINE DE RESOLUTION LAZY (lue, pour reference)** : `SmashaEadEffect.CreateEffectDamageBonusForAttack
+  @180f6bee0` = `EffectBonus.ForAddition(OwnerIsCaster & IsNormalAttack, ConfigVar(8=extraDmg,
+  GetAbilityState, effect.Config@0x60), ctx)` ; `BaseEffect.GetAbilityState @180f11780` ->
+  `DSLFactory.AbilityStateFromEffect @180de5e60` (selecteur `<Effect>@factory+0x150`) ; eval :
+  `ConfigAmount.GetAbilityState @180f175a0` (provider -> `BattleQuery.GetAbilityState @18105a7b0` : ref
+  vide -> owner entity -> `UnitExtensions.GetAbilityState @180eced70` : mapping actif? sinon
+  `TriggeredAbilityComponent.TryGetAbility` -> instance {50,180}) ; `ConfigAmount.Calculate @180f171c0` ->
+  `GetVariableForLevel @181576fb0` -> `TryGetVariableArrayForLevel @181577510` (Split(','), Int32.TryParse,
+  mult SSI var dans `_variablesAffectedByRarityBonus`@config+0x28, Fix64.Round). Les multipliers d'instance
+  sont poses au SETUP par `UnitExtensions.ApplyStatModifier @180ecd0e0` (case 14 = mult triggered via
+  `SetAbilityVariableMultiplierPercentageForAll @180fab570`, case 19 = mult actives, overrides kind 7/8).
+- **QUESTIONS RESIDUELLES (2 lectures, non bloquantes pour le fix)** : (a) le call-site combat EXACT qui
+  ajoute mods.Addition au roll avant CalculateAbilityDamage (ExecuteHits / op slot-0x42 `DAT_1831d3468` —
+  gshared, l'empirie 3/3 le contraint totalement) ; (b) le point exact du Fix64.Round final (aval de
+  CalculateAbilityDamage, half-to-even 3/3).
+- **FIX PORT (recette REELLE, bit-exact-contrainte)** : dans le COMBAT runner, l'additif ForAddition des
+  effets ATTAQUANTS (DamageBonusForAttack) s'ajoute au DEGAT ROULE AVANT
+  `get_base_damage_with_fixed_pierced_armor` (roll + additive -> pierce/armure), PAS apres (flat
+  post-percage comme aujourd'hui). Et `get_damage_with_piercing`/la conversion finale doit arrondir
+  HALF-TO-EVEN (Fix64.Round), pas floor (`//`) — indiscernable sur .0, decisif sur .5. La PREDICTION garde
+  son chemin actuel (Addition flat once-per-attack = le natif prediction, #70/#71 ; la pred NATIVE diverge
+  du combat natif ici — c'est un predOptimistic-like assume). Test juge :
+  `test_getstuckin_combat_absolute_bit_exact` (xfail -> xpass attendu) + regression #88 (Neuroparasite)
+  + slice damage ciblee (bit-exact .0 preserves).
+- **Outils AJOUTES (bundle, non commit)** : RPCs read-only `effectAbilityStates` / `unitAbilityStates` /
+  `abilityConfigProbe` (+ helper `readEffectAbilityStateRaw` dans game/effects.ts) + hook TEMP arme a la
+  demande `varTraceInstall`/`varTraceRead`/`varTraceRemove` (rpc-view.ts). A conserver (diagnostics
+  generiques utiles), varTrace JAMAIS auto-arme.
+- **FIX IMPLEMENTE + VALIDE (2026-07-11 00h)** : `apply_pierce_and_modifiers(...,
+  attacker_additive_pre=True)` (damage_prediction.py — additif au degat AVANT la boucle GDWP, puis
+  %-list SEUL via ApplyCappedModifiers) + les 3 call-sites COMBAT du runner
+  (runner/operations/damage.py : attaque normale `_reduced_bounds`, ability `_reduce`, normal-like
+  `_reduced`) passent True ; PREDICTION inchangee (False, defaut). RESULTAT :
+  `test_getstuckin_combat_absolute_bit_exact` **XPASS (off_ph == live_ph au coup pres + PV egaux)** —
+  xfail retire ; gardes slice DAMAGE 11/11 verts (roll x2, armored, attack x2, ability, crit x2,
+  block x2, splash). L'arrondi half-even du GDWP final n'a PAS eu besoin de changer (le modele
+  reduce-then-roll donne des bornes .0 sur ce cas ; `//` conserve — vigilance future sur bornes
+  impaires, cf. QUESTIONS RESIDUELLES).
+
 **FIX (ANCIENNES options — SUPERSEDEES par MAJ 5 : le vrai fix = aligner combat sur prediction, pas capturer une valeur)** : le runner seed les effets depuis `decisionView.effects`. Options :
 (a) exposer la magnitude BAKEE de l'effet (lire `ConfigAmount+0x10` cache OU `ConfigAmount+0x20` Level.mult=90)
 dans le snapshot d'effet -> le port l'utilise au lieu de recalculer ; (b) capturer par-ability le multiplier

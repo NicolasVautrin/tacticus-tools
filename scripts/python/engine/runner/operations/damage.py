@@ -300,9 +300,15 @@ class AttackDamageOperation:
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(ctx, active)
 
         def _reduced_bounds(eff_attack: int) -> "HitDamage":
+            # #75 (case-68 MAJ 13) : additif ForAddition ATTAQUANT = PRÉ-perçage en COMBAT
+            # (attacker_additive_pre=True : bornes (base±spread)+additif → GDWP → %-list ; le natif
+            # passe à CalculateAbilityDamage @18102cb50 un dégât DÉJÀ additivé, CBDWAM @18102d3f0 ne
+            # consomme pas Addition@+0x10). Bit-exact 3/3 orksNob SmashaEad (599, pierce 50, armure 2208).
             mm = get_base_damage_fix64(eff_attack, spread_pct=spread_pct)
-            lo = apply_all_modifiers(apply_pierce_and_modifiers(mm.min, pierce, armor, mods), def_mods)
-            hi = apply_all_modifiers(apply_pierce_and_modifiers(mm.max, pierce, armor, mods), def_mods)
+            lo = apply_all_modifiers(apply_pierce_and_modifiers(
+                mm.min, pierce, armor, mods, attacker_additive_pre=True), def_mods)
+            hi = apply_all_modifiers(apply_pierce_and_modifiers(
+                mm.max, pierce, armor, mods, attacker_additive_pre=True), def_mods)
             return HitDamage(lo, hi)
 
         hit_nc = _reduced_bounds(ctx.stat(StatType.ATTACK))               # plage NON-crit par coup
@@ -475,8 +481,11 @@ class AttackDamageOperation:
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(ctx, active)
 
         def _reduce(value: int) -> int:
+            # #75 (case-68 MAJ 13) : additif ForAddition ATTAQUANT = PRÉ-perçage en COMBAT (idem
+            # attaque normale — même pipeline natif CalculateAbilityDamage/CBDWAM par coup).
             return apply_all_modifiers(
-                apply_pierce_and_modifiers(value, profile_pierce, armor, mods), def_mods)
+                apply_pierce_and_modifiers(value, profile_pierce, armor, mods,
+                                           attacker_additive_pre=True), def_mods)
 
         # ABILITY = roll-then-reduce : on tire dans les bornes BRUTES config (RandomAmount(min,max)) PUIS
         # on réduit (perçage/armure/mods) via `post_roll`. (≠ attaque normale reduce-then-roll.) Confirmé
@@ -540,9 +549,12 @@ class AttackDamageOperation:
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(ctx, active)
 
         def _reduced(eff_base: int) -> "HitDamage":
+            # #75 (case-68 MAJ 13) : additif ForAddition ATTAQUANT = PRÉ-perçage en COMBAT.
             mm = get_base_damage_fix64(eff_base, spread_pct=spread_pct)
-            lo = apply_all_modifiers(apply_pierce_and_modifiers(mm.min, profile_pierce, armor, mods), def_mods)
-            hi = apply_all_modifiers(apply_pierce_and_modifiers(mm.max, profile_pierce, armor, mods), def_mods)
+            lo = apply_all_modifiers(apply_pierce_and_modifiers(
+                mm.min, profile_pierce, armor, mods, attacker_additive_pre=True), def_mods)
+            hi = apply_all_modifiers(apply_pierce_and_modifiers(
+                mm.max, profile_pierce, armor, mods, attacker_additive_pre=True), def_mods)
             return HitDamage(lo, hi)
 
         hit_nc = _reduced(base)

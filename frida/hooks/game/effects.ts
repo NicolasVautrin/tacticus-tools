@@ -91,6 +91,46 @@ function readEffect(effEntityPtr: NativePointer): Decoded | null {
     return { name, effectType, remaining, level, source, active, removed };
 }
 
+// AbilityStateReference (struct inline, EffectComponent.AbilityState @0x18, dump gqfc5mff6c
+// TypeDefIndex 24412) : Owner(BEntityId)@+0x00 · Ability(AbilityType, 0x10 o)@+0x04 ·
+// Nullable<AbilityState>@+0x14 où AbilityState = {Level(int)@0, VariableMultiplierPercentage@4,
+// TempData.Counter@8} (TypeDefIndex 24402). C'est le state BAKÉ à la création de l'effet que
+// `BaseEffect.GetAbilityState @180f11780` (via `DSLFactory.AbilityStateFromEffect @180de5e60`,
+// sélecteur <Effect>@factory+0x150) expose aux nœuds ConfigVar — la source du multiplier COMBAT
+// d'un additif d'effet (#68/#75 : SmashaEad combat=300 vs prédiction 599). On dumpe la zone en
+// ints BRUTS (le layout Nullable<T> il2cpp hasValue-first/value-first se décode côté client).
+const abilityStateOff = effectComponentClass
+    ? (getFieldOffset(effectComponentClass, "AbilityState") || 0x18) : 0x18;
+
+/** Raw dump of an EffectEntity's AbilityStateReference (10 ints from comp+abilityStateOff)
+ * + identity fields (EffectType/source/owner) resolved by name like readEffect. */
+export function readEffectAbilityStateRaw(effEntityPtr: NativePointer): {
+    stateRaw: number[]; effectType: number | null; name: string | null;
+    source: number | null; active: boolean;
+} | null {
+    if (!effectComponentClass) return null;
+    let ec: NativePointer | null = null;
+    forEachComponent(effEntityPtr, (comp, klass) => {
+        if (klass.equals(effectComponentClass)) ec = comp;
+    });
+    if (!ec) return null;
+    const c = ec as NativePointer;
+    const base = c.add(abilityStateOff);
+    const stateRaw: number[] = [];
+    for (let i = 0; i < 10; i++) {
+        try { stateRaw.push(base.add(i * 4).readS32()); } catch { break; }
+    }
+    let effectType: number | null = null;
+    let source: number | null = null;
+    let active = true;
+    try { effectType = c.add(EC.effectType).readS32(); } catch { /* */ }
+    try { source = c.add(EC.sourceUnitId).readS32(); } catch { /* */ }
+    try { active = c.add(EC.isActive).readU8() !== 0; } catch { /* */ }
+    const name = (effectType !== null)
+        ? (EFFECT_TYPE_NAMES[effectType] ?? null) : null;
+    return { stateRaw, effectType, name, source, active };
+}
+
 /** Index every Effect entity (Type=3) → its decoded EffectComponent. One pass. */
 function indexEffects(statePtr: NativePointer): Map<number, Decoded> {
     const m = new Map<number, Decoded>();
