@@ -542,6 +542,32 @@ case-study** si pertinent.
 - Complète « persist findings durably » : la tâche = le tracker actionnable ; le doc case-study =
   le détail RE. Les deux, pas l'un OU l'autre.
 
+## DÉCIDER ≠ EXÉCUTER — deux chemins/registres SÉPARÉS, le no-op combat est SILENCIEUX
+
+**Porter/valider le côté DÉCISION d'un mécanisme (prédiction, scoring, playbook — « faut-il caster X ?
+quel dégât PRÉDIT ? quelle cible ? ») ne garantit EN RIEN qu'il est reproduit côté EXÉCUTION (le runner
+qui APPLIQUE l'action choisie et mute l'état).** Ce sont **deux chemins distincts, à registres distincts** :
+`engine/playbook` + `engine/services` (prédiction/décision) vs `engine/runner` + `AbilityHandler.
+ABILITY_CLASSES` + `operations/*` (exécution combat). Confirmer l'un NE couvre PAS l'autre.
+
+- **Le runner combat NO-OP SILENCIEUSEMENT toute ability non enregistrée** : `AbilityHandler.
+  visit_ActiveAbilityMessage` fait `ported:False ; return` (0 dégât, 0 effet, AUCUNE erreur) pour tout
+  `ActiveAbilityType` absent de `ABILITY_CLASSES` (~11 abilities enregistrées). La divergence d'état qui
+  s'ensuit est INVISIBLE → attribuée à tort au bruit RNG ou à un autre mécanisme. **Faute déjà commise** :
+  SpiritLeech (1104) lourdement travaillé côté DÉCISION (#84/#86/#90 : lifesteal-util, snowball, prédiction
+  Attack-based) mais JAMAIS exécuté en combat — no-op muet non détecté jusqu'à #93.
+- **Doctrine** :
+  1. **Jamais conclure « X est porté/géré » sans préciser QUEL côté** (décision vs exécution) est couvert.
+     Si un seul côté est fait, **TÂCHER l'autre** (port-gap → `TaskCreate`).
+  2. **Rendre le no-op combat VISIBLE** (flag `AbilityHandler.unported` qui accumule les casts tombés sur
+     no-op) et l'**ASSERTER** dans tout test d'exécution d'ability (`assert last["ported"] is True`) — un
+     cast qui tombe sur no-op doit **ÉCHOUER LOUD**, pas passer en silence.
+  3. Un replay-diff / self-play qui « colle » **sans forcer l'exécution** du mécanisme ne prouve RIEN sur
+     l'exécution : la décision peut choisir X pendant que le runner l'ignore.
+- **Pourquoi** : la fidélité « le moteur reproduit le jeu » a DEUX faces — **décider** comme l'IA native +
+  **exécuter** comme le moteur natif. Valider une seule face en croyant couvrir les deux = un angle mort
+  SILENCIEUX qui corrompt le dataset RL / le replay sans le moindre signal (pas d'erreur, pas de test rouge).
+
 ## Ne jamais
 
 - **Utiliser `--reload`/hot-reload côté host** : casse les sessions Frida

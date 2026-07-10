@@ -14,7 +14,8 @@ from ..state import State
 from .base import ActiveAbility
 from .loki import (ThunderousAssaultAbility, GravitonRifleAbility, ScarabHiveAbility,
                    ScarabSummonAbility, GetEmRuntzAbility, CrushingClawsAbility, ValkyrieStrikeAbility,
-                   PlasmaGrenadeAbility, StikkbombAbility, FragstormAbility, ScythingTalonsAbility)
+                   PlasmaGrenadeAbility, StikkbombAbility, FragstormAbility, ScythingTalonsAbility,
+                   SpiritLeechAbility)
 
 # Registre ActiveAbilityType (int) -> classe d'ability portée. À ÉTENDRE au roster.
 ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
@@ -29,20 +30,27 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     StikkbombAbility.ABILITY_TYPE: StikkbombAbility,                   # 1051 (splash Blast adjacent-cible)
     FragstormAbility.ABILITY_TYPE: FragstormAbility,                   # 1078 (splash Blast pick-random <=4)
     ScythingTalonsAbility.ABILITY_TYPE: ScythingTalonsAbility,         # 1065 (splash Bio adjacent-both)
+    SpiritLeechAbility.ABILITY_TYPE: SpiritLeechAbility,               # 1104 (Neurothrope : attaque Psychic config + Suppress ; lifesteal #94)
 }
 
 
 class AbilityHandler:
     """Visiteur des `ActiveAbilityMessage` (mirror du handler natif lançant `AActiveAbility.Execute`)."""
-    __slots__ = ("state", "last")
+    __slots__ = ("state", "last", "unported")
 
     def __init__(self, state: State):
         self.state = state
         self.last: Optional[dict] = None     # diagnostic du dernier cast
+        # DURCISSEMENT HARNAIS (leçon SpiritLeech #93) : ActiveAbilityType tombés sur no-op (registry combat
+        # incomplet) ACCUMULÉS ici — un cast d'ability non portée ne DEAL/POSE rien mais ne lève AUCUNE erreur.
+        # Sans cette trace, la divergence est SILENCIEUSE (attribuée à tort au bruit). Le harnais replay-diff /
+        # self-play doit LIRE `unported` (et un test qui FORCE une ability assert `last["ported"] is True`).
+        self.unported: set[int] = set()
 
     def visit_ActiveAbilityMessage(self, msg) -> None:
         klass = ABILITY_CLASSES.get(int(msg.ability_type))
         if klass is None:
+            self.unported.add(int(msg.ability_type))   # #93/#95 : rend le no-op VISIBLE (plus muet)
             self.last = {"ability_type": msg.ability_type, "ported": False}
             return                            # ability non portée → no-op (présent ≠ exécuté)
         diag = klass().execute_behaviour(self.state, msg.caster_id, msg.target_id) or {}

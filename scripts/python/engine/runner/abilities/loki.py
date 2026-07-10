@@ -403,6 +403,58 @@ class CrushingClawsAbility(ActiveAbility):
                 "main_attack": main, "splash": splash}
 
 
+class SpiritLeechAbility(ActiveAbility):
+    """`SpiritLeechAbility.ExecuteBehaviour @181209900` (id 1104, tyranNeurothrope).
+
+    Sequence native (`&`/`+` = compositions de behaviour) :
+        AttackWithAbilityDamage(target, GetAttackDamage(combat), profile=Psychic, nrOfHits=const 0x2f=1)  # attaque
+      & AddEffect(0x429=1065 Pinned, target)                                     # « Suppressed » cible
+      & Heal(Friends(self) + AdjacentUnits(self,1) faction Tyranids,
+             PercentageOf(LastAttackDamageMade, hpToHealPct=ConfigVar 0x4b=60%))  # lifesteal  [DIFFERE, tache #94]
+
+    `GetAttackDamage @181209dd0` COMBAT (param_3=0) = `RandomAmount(minDmg, maxDmg)` [+ extraDmg (ConfigVar 8)
+    SI la cible est DEJA Pinned/Suppressed (0x429) : `ConditionalAmount(NOT HasEffect(Pinned), base, base+extraDmg)`].
+    Profil Psychic, ranged (range 3, nrOfHits=1). ⚠ COMBAT = CONFIG-based (config-avg×mult180 = 2593), != la
+    PREDICTION Attack-based (~2670, slot 0x27 ; cf. playbook/prediction.py `_PREDICT_VIA_NORMAL_ATTACK`) —
+    DIVERGENCE NATIVE preview/combat (verdict #92).
+
+    Porte : attaque (config + bonus Suppressed) + Pinned cible. Le LIFESTEAL (3e behaviour) est DIFFERE
+    (tache #94 : necessite un HealOperation combat)."""
+    __slots__ = ()
+    ABILITY_TYPE = 1104
+    ABILITY_ID = "SpiritLeech"
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        # [attaque] RandomAmount(minDmg/maxDmg[level], profil Psychic, nrOfHits=1). Mute les PV cible.
+        bmin, bmax, pierce, hits = ability_attack_params(
+            state, caster_id, self.ABILITY_ID, "Psychic", ranged=True)
+        # [bonus Suppressed] + extraDmg (ConfigVar 8) SI la cible est DEJA Pinned (0x429) au moment de l'attaque
+        # (ConditionalAmount(NOT HasEffect(Pinned), base, base+extraDmg)) : flat sur les 2 bornes, AVANT le tirage.
+        suppressed = state.effects is not None and state.effects.has_effect(target_id, effect_type=PINNED)
+        if suppressed:
+            from ...entities.effects.magnitude import ability_var
+            sc = state.get_entity(caster_id)
+            sc = sc.get_component(StatsComponent) if sc is not None else None
+            ctx = sc.ctx if sc is not None else None
+            level = ctx.active_ability_level if ctx is not None else 0
+            mult = ctx.ability_variables_multiplier if ctx is not None else 100
+            extra = int(ability_var(self.ABILITY_ID, "extraDmg", level, multiplier_pct=mult) or 0)
+            bmin += extra
+            bmax += extra
+        main = AttackDamageOperation.execute_ability_attack(
+            state, caster_id, target_id, bmin, bmax, pierce, hits,
+            damage_profile="Psychic", is_melee=False)
+        # [Suppressed cible] AddEffect(1065 Pinned) — duree = DefaultAmountOfRounds(1065)=1.
+        AddEffectOperation.execute(state, source=caster_id, target=target_id, effect_type=PINNED,
+                                   name="Pinned")
+        # [lifesteal] Heal(self + Tyranids adjacents, dmg × hpToHealPct 60%) — DIFFERE (tache #94, HealOperation).
+        return {"ability": "SpiritLeech", "caster": caster_id, "target": target_id,
+                "main_attack": main, "suppressed_bonus": suppressed}
+
+
 class ValkyrieStrikeAbility(ActiveAbility):
     """`ValkyrieStrikeAbility.ExecuteBehaviour` @181229e40 (id 1018, astraSmnVoxcaster).
 
