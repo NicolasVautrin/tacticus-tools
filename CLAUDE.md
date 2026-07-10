@@ -364,6 +364,32 @@ d'inventer un nom ou une structure quand une contrepartie native existe.**
   invérifiable contre le décompilé, non-évolutif, et fait perdre du temps en corrections. Le nom
   natif + la VA sont la preuve de fidélité.
 
+#### RÈGLE — tout GATE par nom/id/effet doit être JUSTIFIÉ contre le natif (pas un raccourci qui cache un chemin générique)
+
+**Tout branchement conditionné par un nom (ability/effet/playbook/unité) ou un id — `if ability_name == "X"`,
+`if id == N`, `X in {_SET}`, `"X" in name` — doit correspondre à une DISTINCTION RÉELLE du natif (une
+classe / un id / un enum bespoke côté jeu), commentée avec sa preuve (VA / classe / enum). JAMAIS un
+raccourci qui court-circuite un mécanisme GÉNÉRIQUE natif qu'on aurait loupé.**
+
+- **Miroir du dispatch natif** : per-ability → 1 classe native ⇒ registre par **id** ; per-effet → 1 classe
+  native ⇒ **factory par nom** ; condition de trait/profil/faction ⇒ gate `HasTrait`/`DamageProfileIs`/
+  `IsSameFaction` (par enum/trait, PAS par nom d'unité). Si le natif a UNE fonction générique (ex.
+  `RepairPlaybook @181187c00`, `CalculateBaseDamageWithAllModifiers @18102d3f0`), le port passe par CE
+  générique — il ne hardcode pas les cas un par un.
+- **INTERDIT le substring de nom** (`"Repair" in name`, `"Heal" in name`) comme DISCRIMINANT : il
+  false-matche (ex. `NanoscarabRepairProtocols` capté par `"Repair"`, mauvais routage) — utiliser l'**id /
+  enum exact**. (Le substring reste OK pour une NORMALISATION de clé documentée, ex. `Heal_<Passive>` → clé
+  config gameconfig, ce n'est PAS un gate.)
+- **Gate hardcodé INÉVITABLE** (distinction native NON dérivable offline — ex. héritage de `PredictAttack`
+  via la vtable +0x27, cf. `_PREDICT_VIA_NORMAL_ATTACK={SpiritLeech}` #90) : (a) commenter la **raison + le
+  mécanisme natif + VA** ; (b) le marquer **possiblement INCOMPLET** ; (c) créer une **tâche** pour énumérer
+  l'ensemble complet par RE (ex. #92). Ne jamais laisser un tel hardcode silencieux se faire passer pour
+  générique/complet.
+- **Pourquoi** : un gate par nom non justifié = l'anti-pattern « inventer au lieu de mirrorer » appliqué au
+  CONTRÔLE DE FLUX — il fork le port loin de la structure native, casse la généralisation (un cas non listé
+  est traité à tort), et devient invérifiable contre le décompilé. Chaque gate doit se lire comme « le natif
+  distingue ce cas ICI (classe/id/enum @VA), donc moi aussi » — sinon c'est un chemin générique loupé.
+
 ## Divergence de dégât off↔live = DÉCOMPOSITION PAR ÉTAGE (outil), JAMAIS fit de scalaire
 
 **PREMIER RÉFLEXE, INCONDITIONNEL : dès qu'une valeur de dégât diverge offline↔live** (replay-diff,
