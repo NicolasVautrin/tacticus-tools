@@ -13,6 +13,7 @@ from typing import Optional, TYPE_CHECKING
 from .base import ActiveAbility, turns_from_rounds, ability_attack_params
 from ..operations.effects import AddEffectOperation
 from ..operations.damage import AttackDamageOperation
+from ..operations.heal import HealUnitOperation
 from ..operations.spawn import SpawnUnitOperation
 from ..components import StatsComponent, OwnerComponent, PositionComponent, UnitComponent
 from ...entities.stats import StatType
@@ -308,6 +309,45 @@ def _adjacent_enemies_of(state: "State", caster_id: int, target_id: int) -> list
     return sorted(out)
 
 
+def _adjacent_tyranid_allies(state: "State", self_id: int) -> list[int]:
+    """Volet ADJACENT de `SpiritLeechAbility.GetHealTargets @18120a1e0` :
+    `UnitsFromFaction(Friends(self, AdjacentUnits(self, range=1)), faction 0xc=12=Tyranids)` = amis
+    (MEME team) VIVANTS de `self_id`, ADJACENTS (hex range 1, `board.neighbours`), de faction Tyranids.
+    (`self` est ajoute SEPAREMENT par l'appelant via `op_Addition(Self, ...)`, sans gate faction.)
+    Reutilise `_faction` (resolution FactionId gameconfig deja portee cote decision, PAS de fork).
+    Sans board -> [] (no-op fidele). Ordre deterministe (tie-break id)."""
+    from ...ai.action_generators import _faction
+    board = state.board
+    e = state.get_entity(self_id)
+    if board is None or e is None:
+        return []
+    pc = e.get_component(PositionComponent)
+    oc = e.get_component(OwnerComponent)
+    if pc is None or oc is None:
+        return []
+    tile = board.id_at(pc.col, pc.row)
+    if tile is None:
+        return []
+    neigh = set(board.neighbours(tile))
+    out: list[int] = []
+    for eid, o in state.entities.items():
+        if eid == self_id:
+            continue
+        ooc = o.get_component(OwnerComponent)
+        ouc = o.get_component(UnitComponent)
+        opc = o.get_component(PositionComponent)
+        if ooc is None or opc is None or ooc.team != oc.team:     # amis (meme team) uniquement
+            continue
+        if ouc is not None and not ouc.alive:                     # vivants
+            continue
+        if board.id_at(opc.col, opc.row) not in neigh:            # adjacent (hex range 1)
+            continue
+        if ouc is None or _faction(ouc.visual_id) != "Tyranids":  # faction 0xc=12=Tyranids
+            continue
+        out.append(eid)
+    return sorted(out)
+
+
 def _pick_randomly_n(state: "State", items: list, n: int) -> list:
     """`PickRandomly(items, n)` — n éléments DISTINCTS (extension de `_pick_randomly` spawn.py à n). len<=n
     → tous (le natif ne roll pas quand le set tient). Sinon tire n index SANS REMISE via `next_internal`
@@ -450,9 +490,32 @@ class SpiritLeechAbility(ActiveAbility):
         # [Suppressed cible] AddEffect(1065 Pinned) — duree = DefaultAmountOfRounds(1065)=1.
         AddEffectOperation.execute(state, source=caster_id, target=target_id, effect_type=PINNED,
                                    name="Pinned")
-        # [lifesteal] Heal(self + Tyranids adjacents, dmg × hpToHealPct 60%) — DIFFERE (tache #94, HealOperation).
+        # [lifesteal] Heal(GetHealTargets, GetHealAmountForExecution) — porte via HealUnitOperation (#94).
+        #   cibles `GetHealTargets @18120a1e0` = op_Addition(Self, UnitsFromFaction(Friends(Self,
+        #     AdjacentUnits(Self,1)), faction 0xc=12=Tyranids)) = SELF + amis Tyranids adjacents (range 1).
+        #   montant `GetHealAmountForExecution @181209f00` = PercentageOf(LastAttackDamageMade,
+        #     ConfigVar 0x4b=hpToHealPct) = trunc(dmg x hpToHealPct/100). hpToHealPct HORS
+        #     variablesAffectedByRarityBonus -> valeur brute par niveau (multiplier 100), [40..60].
+        # LastAttackDamageMade approxime par le degat SANTE de l'attaque (main["total"]) — point de
+        # validation live. No-op si l'attaque n'a pas eu lieu (rng non cale : replay effet-seul).
+        heals: list[dict] = []
+        heal_amount = 0
+        if main is not None:
+            from ...entities.effects.magnitude import ability_var
+            dmg = int(main.get("total") or 0)
+            hsc = state.get_entity(caster_id)
+            hsc = hsc.get_component(StatsComponent) if hsc is not None else None
+            hctx = hsc.ctx if hsc is not None else None
+            hlvl = hctx.active_ability_level if hctx is not None else 0
+            pct = int(ability_var(self.ABILITY_ID, "hpToHealPct", hlvl, multiplier_pct=100) or 0)
+            heal_amount = int(dmg * pct / 100)                    # PercentageOf = troncature Fix64
+            if heal_amount > 0:
+                for t in [caster_id] + _adjacent_tyranid_allies(state, caster_id):
+                    healed = HealUnitOperation.execute(state, t, heal_amount, source_id=caster_id)
+                    heals.append({"target": t, "healed": healed})
         return {"ability": "SpiritLeech", "caster": caster_id, "target": target_id,
-                "main_attack": main, "suppressed_bonus": suppressed}
+                "main_attack": main, "suppressed_bonus": suppressed,
+                "heal_amount": heal_amount, "heals": heals}
 
 
 class ValkyrieStrikeAbility(ActiveAbility):

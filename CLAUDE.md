@@ -270,6 +270,37 @@ c'est quasi toujours que **le serveur n'est pas lancé** → le démarrer puis `
 Le `<HASH>` change → refaire le pipeline (dump Il2CppDumper v39 → import/analyse
 Ghidra → apply IL2CPP names) puis pointer `-Project` sur le nouveau `.gpr`.
 
+## RECON D'ABORD : lire le KIT COMPLET de l'unité AVANT toute RE / probe / ghidra
+
+**Le tout PREMIER geste face à un mécanisme lié à une unité (divergence de dégât, effet non porté,
+formule d'ability, scoring d'une attaque…) = lire le KIT COMPLET de l'unité concernée** —
+`gameconfig.py <unit>` (traits + actives + **passives** décodés, avec les nombres) **ET** le texte
+de règles i2 — **AVANT** de poser un hook, lancer un probe live, décompiler dans ghidra, ou écrire
+une ligne de port. La recon oriente TOUTE l'enquête : sans elle, on RE à l'aveugle le mauvais
+mécanisme.
+
+- **Comment** : `python gameconfig.py <unit>` (kit complet : traits + `[active]` + `[passive]`),
+  puis `--ability <name>` / `--trait <name>` pour les tableaux par-niveau + flags
+  (`variablesAffectedByRarityBonus`), et le **texte i2** (`--ability`/`--trait` le rend). Croiser
+  avec `unit_map.py` si on cherche une unité qui porte un mécanisme donné. Ordre : **gameconfig →
+  i2 → (seulement alors) ghidra/probe**.
+- **Ce que SEUL le kit révèle** (invisible côté effets capturés / decisionView) :
+  - **passif vs actif** : un **passif** est indexé par SON niveau/canal propre, PAS forcément
+    l'`activeAbilityLevel` de l'ability active — et sa magnitude peut ne PAS être rarity-scalée.
+    (Ex. **SmashaEad = PASSIF** « +437 Damage » ; le confondre avec l'active fausse level+multiplier.)
+  - **conditionnels / triggers / snowball** : n'existent QUE dans le **texte i2**
+    (« for every 2 hits… », « increased by 73 per hex traversed », « until start of next turn »).
+  - **mécaniques de trait transitoires** (ex. GetStuckIn coups bonus, BeastSlayer) qui ne
+    remontent JAMAIS comme un effet nommé (`decisionView.effects` est aveugle).
+- **Pourquoi** : faute déjà commise (cette session #75 : sauté sur `statModSources` + décompilé
+  combat de SmashaEad **avant** de lire que c'est un **passif** — la lecture du kit a montré que
+  599/437/300 ne se réconcilient PAS par level/mult, ce que le décompilé seul ne disait pas ; #47
+  GetStuckIn +2 coups manqué en ne lisant que les effets capturés). Un mécanisme PAR-UNITÉ ne peut
+  pas être RE correctement sans savoir QUEL trait / active / passif le porte. La recon coûte ~1
+  commande ; la sauter coûte des heures de RE mal ciblée. (Doctrine déjà en mémoire
+  `feedback_recon_units_first` + `feedback_recon_full_kit_not_captured_effects` — ici rendue
+  **inconditionnelle et projet-level**.)
+
 ## Compréhension des mécanismes = RE ghidra fidèle, PAS d'expérience
 
 Pour comprendre un mécanisme du jeu (formule de dégât, prédiction, scoring IA, etc.), la

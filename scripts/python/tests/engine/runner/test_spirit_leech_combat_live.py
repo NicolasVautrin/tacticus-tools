@@ -163,6 +163,24 @@ def test_spirit_leech_combat_damage_bit_exact(live_session, rpc, build_runner):
     # VALIDATION du port SpiritLeech = le DEGAT (per-coup, bit-exact) + Pinned + execution reelle (ported).
     assert off_ph == live_ph, f"per-coup SpiritLeech offline {off_ph} != live {live_ph} (combat config-based)"
     assert off_pinned, "la cible ne porte pas Pinned(0x429) apres SpiritLeech (AddEffect non materialise)"
+
+    # #94 LIFESTEAL : GetHealAmountForExecution @181209f00 = trunc(LastAttackDamageMade x hpToHealPct/100)
+    # (hpToHealPct HORS variablesAffectedByRarityBonus -> mult 100). Le degat est valide (off_ph==live_ph)
+    # -> le montant heal est ancre au degat LIVE. GetHealTargets @18120a1e0 inclut TOUJOURS le caster (Self).
+    from engine.entities.effects.magnitude import ability_var
+    csc = state.get_entity(att).get_component(StatsComponent)
+    hlvl = csc.ctx.active_ability_level
+    pct = int(ability_var("SpiritLeech", "hpToHealPct", hlvl, multiplier_pct=100) or 0)
+    exp_heal = int(sum(live_ph) * pct / 100)                    # PercentageOf = troncature Fix64
+    heal_amount = last.get("heal_amount")
+    heals = last.get("heals") or []
+    print(f"[SPIRITLEECH heal] hpToHealPct={pct} dmg={sum(live_ph)} -> heal_amount={heal_amount} "
+          f"(attendu {exp_heal}) heals={heals}")
+    assert heal_amount == exp_heal, (
+        f"heal_amount {heal_amount} != trunc(dmg {sum(live_ph)} x {pct}%/100)={exp_heal}")
+    if heal_amount > 0:
+        assert any(h.get("target") == att for h in heals), (
+            f"le CASTER (Self, op_Addition(Self, ...)) n'est pas une cible du heal: {heals}")
     # PV cible ABSOLU = CONFONDU par des mecanismes CIBLE separes (necroOverlord a LivingMetal = heal Necron
     # par tour) + derive multi-tours de l'approche -> hors perimetre du port SpiritLeech. Le per-coup bit-exact
     # (== live_ph) EST la validation du degat inflige ; le heal cible est un autre axe (non porte). Informatif :
