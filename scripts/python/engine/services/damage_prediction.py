@@ -234,9 +234,10 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
     (LU : seuls Piercing@+0x20 et IgnoreArmor@+0x28 y entrent, puis %-list slot 0x11 / Multiplier
     slot 0x10 / Override@+0x0). Reconstruit BIT-EXACT 3/3 (orksNob SmashaEad additif 599, pierce 50,
     armure cible 2208 : bornes (base±spread)+599 → GDWP → live [1540,1738,1526] à l'unité).
-      True  = placement COMBAT (pré-perçage ; %-list ensuite ; PAS de re-add post) ;
-      False = chemin PRÉDICTION historique (post-perçage — placement natif pred non encore lu,
-              comportement validé #49/#64/#88 conservé)."""
+      True  = placement natif COMBAT (#75) ET PRÉDICTION (#70/Q3) : pré-perçage ; l'additif traverse
+              perçage PUIS %-list -> scalé ×%-mod (cohérent #88) ; PAS de re-add post ;
+      False = chemin legacy post-perçage (additif après %-list, NON scalé) — plus utilisé par le port
+              (prédiction basculée True au #70/Q3 : verdict RE PredictAttackRaw @181032fb0, prediction.md §10)."""
     pierce_eff, armor_eff = pierce_pct, armor
     if mods is not None:
         pierce_eff = max(0, min(100, pierce_pct + mods.extra_pierce))
@@ -279,10 +280,12 @@ def predict_attack_raw(
     (previousHitsPrediction) de CDS, qui est le bonus crit INTRA-coup (verdict RE @181035dce)."""
     mm = predefined if predefined is not None \
         else get_base_damage_fix64(initial_damage, extra_max, spread_pct)
-    # #70 : additif plat NON strippé -> appliqué PAR COUP ici (mirror natif : `CalculateBaseDamageWithAllModifiers
-    # @18102d3f0` applique l'additif @+0x10 sur la base D'UN COUP ; `GetMultiHitAttackPrediction @181066080`
-    # appelle `PredictAttackRaw` PAR COUP + `Add`, SANS additif post-boucle). L'ancien strip + application
-    # UNE FOIS sur l'agrégat = artefact pré-refactor #51 (loop deplacee hors de PredictAttackRaw).
+    # #70/Q3 : additif plat NON strippé -> appliqué PAR COUP en PRÉ-perçage (attacker_additive_pre=True aux
+    # call-sites lo/hi ci-dessous). Verdict RE (PredictAttackRaw @181032fb0, prediction.md §10) : le natif
+    # ajoute l'additif @+0x10 à la base int AVANT `CalculateBaseDamageWithAllModifiers @18102d3f0` (L1940/L2062) ;
+    # CBDWAM NE consomme PAS Addition (acquis #75) -> l'additif traverse perçage PUIS %-list (scalé ×%-mod #88).
+    # `GetMultiHitAttackPrediction @181066080` appelle `PredictAttackRaw` PAR COUP + `Add`, SANS additif
+    # post-boucle. L'ancien strip + application UNE FOIS sur l'agrégat = artefact pré-refactor #51.
     # GuardianOrganism (PercentSubtractionCapped, défenseur) : la réduction = un `ForSubtraction` dont le
     # montant `Min(PercentageOf(CurrentDamage, pct), cap)` est PRÉ-ÉVALUÉ EN SCALAIRE (natif : `Calculate
     # BaseDamageWithAllModifiers @18102d3f0` reçoit le défender-mod DÉJÀ évalué -> MÊME valeur pour min ET max
@@ -302,8 +305,10 @@ def predict_attack_raw(
     else:
         blk_lo = blk_hi = 0
         rem_lo, rem_hi = mm.min, mm.max
-    lo = apply_pierce_and_modifiers(rem_lo, pierce_pct, armor, mods_pct, hit_mult) if rem_lo else 0
-    hi = apply_pierce_and_modifiers(rem_hi, pierce_pct, armor, mods_pct, hit_mult) if rem_hi else 0
+    lo = apply_pierce_and_modifiers(rem_lo, pierce_pct, armor, mods_pct, hit_mult,
+                                    attacker_additive_pre=True) if rem_lo else 0
+    hi = apply_pierce_and_modifiers(rem_hi, pierce_pct, armor, mods_pct, hit_mult,
+                                    attacker_additive_pre=True) if rem_hi else 0
     # Réduction DÉFENSEUR capée FLAT (GuardianOrganism) : scalaire = min(trunc(pct% × D), cap) avec D=(lo+hi)/2 =
     # CurrentDamage (base/centre du dégât, pré-GO), soustrait des DEUX bornes (mirror pré-évalué natif @18102d3f0 ;
     # HELPER PARTAGÉ avec le COMBAT `capped_reduction_flat` = MÊME formule + troncature Fix64, confirmée bit-exact
