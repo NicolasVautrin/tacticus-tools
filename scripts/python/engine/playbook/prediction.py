@@ -309,11 +309,25 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
         target_limits=_target_damage_limits(scene, tgt))
 
 
+# Abilities dont le `PredictAttack` (slot +0x27) est HÉRITÉ de `ALoki_NormalAttackAbility.PredictAttack
+# @1811afa50` : leur prédiction de dégât SANTÉ passe par `FindAttackWeapon` -> `GetAttackHitPrediction`
+# (= base `GetStat(Attack, Current)` + arme, comme l'attaque NORMALE), et N'UTILISE PAS le config
+# minDmg/maxDmg (celui-ci sert le bouclier/combat). Confirmé LIVE : native SpiritLeech(1104) == native
+# normale(69) EXACT (2136-3205, base Attack ~2670 ≠ config-avg 2593). Donc on route leur event de dégât
+# principal vers `make_normal_attack_predictions` (mêmes base/hits/mods/auras que la normale). #90.
+# (SpiritLeech confirmé ; d'autres Loki normal-attack-like peuvent s'ajouter après RE de leur vtable +0x27.)
+_PREDICT_VIA_NORMAL_ATTACK = frozenset({"SpiritLeech"})
+
+
 def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_name, attack_pos=None):
     """`<Ability>Playbook.MakeDamagePredictions` : LISTE de `ProbableDamageEvent` = cible PRINCIPALE + AoE
     (`GetSurroundingUnits`/`GetOtherTargets`) + event SELF négatif (coût PV). `[]` si non-attaque."""
     if not makes_damage_predictions(ability_name):
         return []
+    # PredictAttack hérité de la normale (SpiritLeech) -> dégât santé = prédiction d'attaque NORMALE (#90).
+    if ability_name in _PREDICT_VIA_NORMAL_ATTACK:
+        ev = make_normal_attack_predictions(scene, caster_id, main_tgt_id, attack_pos)
+        return [ev] if ev is not None else []
     dp = generate_multi_hit_attack_prediction(scene, caster_id, main_tgt_id, ability_id, ability_name,
                                               attack_pos=attack_pos)
     if dp is None:
