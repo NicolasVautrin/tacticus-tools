@@ -126,6 +126,46 @@ interface ValueDump {
     ts: number;
 }
 
+// ── VAR-FOR-LEVEL DUMP — the ability-variable resolution (#68) ────────────────────────────────
+// `AbilityConfiguration.GetVariableForLevel(config, variableId, Level, ...)` resolves an ability variable
+// (e.g. SmashaEad.extraDmg id 8) for a given Level {level@0, multiplier@4}. TryGetVariableArrayForLevel
+// applies `round(base * (Level+4)/100)` iff the var is rarity-flagged. MEASURING (variableId, level, mult,
+// result) here tells us the ACTUAL multiplier the game applies per resolution — combat vs prediction — so we
+// stop INFERRING (#68: is combat mult 90 vs prediction 180?). args: [0]=config, [1]=variableId, [2]=&Level.
+const VARLEVEL_TARGET: Target = {
+    ns: "IdunBattle.Configuration", cls: "AbilityConfiguration",
+    method: "GetVariableForLevel", tag: "varForLevel",
+};
+const MAX_VARLEVEL_DUMPS = 120;
+interface VarLevelDump {
+    idx: number;
+    variableId: number;
+    level: number;
+    mult: number;      // Level+4 — the multiplier the game applies (100=none, 180=normal, 90=rarity?)
+    result: number;    // resolved variable value (int part)
+    ts: number;
+    topRva?: number;   // #68 : backtrace to CLASSIFY the fire — a COMBAT resolution (via
+    frames?: string[]; // AttackDamageOperation/ExecuteHit) vs a PREDICTION one (PredictAttackRaw).
+}
+
+// ── HIT-DAMAGE DUMP — the combat per-hit range {min,max} + roll (#68) ─────────────────────────
+// `HitDamage.GetDamage(HitDamage{min@0,max@4}, rng, avgFlag)` : avgFlag!=0 -> (min+max)/2 ; else rolls in
+// [min,max]. This is the COMBAT per-hit core (fires in combat). Reading min/max shows how the additive is
+// FOLDED into the range: additive flat -> both min+max shift ; ExtraMaxDamage -> only max shifts (then a
+// midpoint/roll reflects ~half). This is the last read to pin the #68 combat /2. args: [0]=&HitDamage,[2]=avgFlag.
+const HITDMG_TARGET: Target = {
+    ns: "IdunBattle.Core", cls: "HitDamage", method: "GetDamage", tag: "hitDmgGet",
+};
+const MAX_HITDMG_DUMPS = 60;
+interface HitDmgDump {
+    idx: number;
+    min: number;
+    max: number;
+    avgFlag: number;   // param_3 : 0=roll, else midpoint
+    result: number;
+    ts: number;
+}
+
 // ── MODS DUMP — DamageModifiers struct fields per builder (attacker vs defender) ──────────────
 // To SOURCE the 499 penetration: each builder fills its output DamageModifiers (args[0]) — field
 // @0x10=additive(Fix64), @0x20=pierce-extra(Fix64), @0x28=penetration(Fix64). Reading both builders'
@@ -148,6 +188,7 @@ interface ModsDump {
     additive: { i: number; raw: string };
     pierce: { i: number; raw: string };       // @0x20
     penetration: { i: number; raw: string };  // @0x28
+    percentsX1000?: number[];                 // @0x18 List<Fix64> x1000 (500 = 0.5x reduction)
     ts: number;
 }
 
@@ -191,6 +232,10 @@ interface BonusDump {
     topRva: number;
     /** frames as `rva:0x...` / `abs:0x...` — add 0x180000000 to each rva for ghidra. */
     frames: string[];
+    /** #v2 combat capture — RETURN struct words (raw s32 @0x0..0x60) of the per-effect DamageBonus/HitsBonus
+     * dispatcher (struct-return via args[0]). Read onLeave so we MEASURE each effect's contributed value +
+     * its offset (SmashaEad additive etc.) instead of guessing the struct layout. */
+    retWords: number[] | null;
     ts: number;
 }
 
@@ -212,10 +257,40 @@ const state = {
     missing: [] as string[],
     captures: [] as Capture[],
     valueDumps: [] as ValueDump[],
+    varLevelDumps: [] as VarLevelDump[],
+    hitDmgDumps: [] as HitDmgDump[],
     modsDumps: [] as ModsDump[],
     bonusDumps: [] as BonusDump[],
     bonusSeen: new Set<string>(),
+    dispatchDumps: [] as DispatchDump[],   // #68 TEMP : resolve the opaque ExecuteHit final-damage service
+    dispatchSeen: new Set<string>(),
+    calcDmgDumps: [] as CalcDmgDump[],     // #68 TEMP : incoming vs outgoing damage in CalculateDamageOperation
+    critCtorDumps: [] as CritCtorDump[],   // #68 TEMP : CritDamageInfo..ctor callers (name the +300 leaf)
+    critCtorSeen: new Set<number>(),
 };
+
+// #68 TEMP DIAGNOSTIC (a retirer avant commit) : le degat combat final est calcule par un service
+// INTERFACE-dispatche (`FUN_1800267c0(out, slot, iface, obj, ...)` @180026 7c0). On resout la methode
+// concrete en repliquant le walk vtable il2cpp du decompile : klass=*obj ; table interfaces @klass+0xb0
+// (count @+0x12e) ; vid = klass+0x138 + (ifaceOffset+slot)*0x10 ; methodPtr = *vid. On enregistre le RVA
+// (methodPtr-il2cppBase) + le nom de classe pour le decompiler. Filtre slot==0x42 (le dispatch final).
+interface DispatchDump {
+    slot: number; rva: string; cls: string | null; topRva: number; ts: number;
+}
+// #68 TEMP : `DamagePrediction.CalculateDamageOperation(out, p2, p3, p4, msg)` @18102dc30 = le calcul
+// combat de degat REEL (soustrait armure/block/crit sur le degat ENTRANT du message). On lit le degat
+// ENTRANT (msg[0] = AttackHit) et le degat SORTANT (out[+4]) par coup -> si entrant = base+~300, le +300
+// est un BONUS PRE-ARMURE dans l'AttackHit (amont ExecuteHit), PAS l'additif ForAddition (599, prediction).
+interface CalcDmgDump { incoming: number; outgoing: number; ts: number; }
+// #68 TEMP : le leaf qui produit le +300 (ExecuteHit board-node slot 0xb) construit un CritDamageInfo.
+// Hooker `CritDamageInfo..ctor @180fff850` + backtrace -> le frame appelant = ce leaf. On lit aussi le
+// damage arg (arg1) pour voir si le +300/1540 y transite. Dedup par topRva.
+interface CritCtorDump { damage: number; topRva: number; frames: string[]; ts: number; }
+const CRIT_CTOR_RVA = 0x180fff850 - 0x180000000;   // IdunBattle.Core.Services.CritDamageInfo$$.ctor
+// FUN_1800267c0 @ ghidra 0x1800267c0 -> RVA (VA - image base). Helper NON nomme (pas de MethodInfo) ->
+// resolution par RVA (exception diag documentee : feedback_rva_transcription_from_va). TEMP.
+const DISPATCH_HELPER_RVA = 0x1800267c0 - 0x180000000;
+const DISPATCH_SLOT_FILTER = 0x42;
 
 function installOnce(): {
     ok: boolean; hooked: string[]; missing: string[];
@@ -303,6 +378,155 @@ function installOnce(): {
             + (e as Error).message + ")");
     }
 
+    // #68 var-for-level dump : the ACTUAL multiplier applied to each ability variable resolution.
+    try {
+        const vk = findClassAnywhere(VARLEVEL_TARGET.ns, VARLEVEL_TARGET.cls);
+        const vm = vk ? findMethod(vk, VARLEVEL_TARGET.method) : null;
+        if (!vm || vm.ptr.isNull()) {
+            missing.push(`${VARLEVEL_TARGET.cls}.${VARLEVEL_TARGET.method} (var-level method not found)`);
+        } else {
+            state.fires[VARLEVEL_TARGET.tag] = 0;
+            state.listeners.push(Interceptor.attach(vm.ptr, {
+                // args: [0]=config, [1]=variableId (enum int), [2]=&Level {level@0, multiplier@4}.
+                onEnter(this: InvocationContext & { _v?: VarLevelDump }, args: InvocationArguments) {
+                    state.fires[VARLEVEL_TARGET.tag] = (state.fires[VARLEVEL_TARGET.tag] ?? 0) + 1;
+                    if (state.varLevelDumps.length >= MAX_VARLEVEL_DUMPS) return;
+                    let variableId = -1; let level = -1; let mult = -1;
+                    try { variableId = args[1].toInt32(); } catch { /* */ }
+                    try { level = args[2].readS32(); mult = args[2].add(4).readS32(); } catch { /* */ }
+                    this._v = { idx: state.varLevelDumps.length, variableId, level, mult, result: NaN,
+                                ts: Date.now() };
+                    // #68 : the mult (90 vs 180) alone can't tell WHICH pipeline resolved this var.
+                    // Backtrace it so offline we classify combat-vs-prediction by the caller chain.
+                    try {
+                        const { topRva, frames } = captureStack(this.context);
+                        this._v.topRva = topRva; this._v.frames = frames;
+                    } catch { /* */ }
+                },
+                onLeave(this: InvocationContext & { _v?: VarLevelDump }, retval) {
+                    if (!this._v) return;
+                    try { this._v.result = retval.toInt32(); } catch { /* */ }
+                    state.varLevelDumps.push(this._v);
+                },
+            }));
+            hooked.push(`${VARLEVEL_TARGET.cls}.${VARLEVEL_TARGET.method} @ ${vm.ptr} [var-level dump]`);
+        }
+    } catch (e) {
+        missing.push(`${VARLEVEL_TARGET.cls}.${VARLEVEL_TARGET.method} (var-level attach: `
+            + (e as Error).message + ")");
+    }
+
+    // #68 hit-damage range dump : combat per-hit {min,max} to see how the additive folds into the range.
+    try {
+        const hk = findClassAnywhere(HITDMG_TARGET.ns, HITDMG_TARGET.cls);
+        const hm = hk ? findMethod(hk, HITDMG_TARGET.method) : null;
+        if (!hm || hm.ptr.isNull()) {
+            missing.push(`${HITDMG_TARGET.cls}.${HITDMG_TARGET.method} (hit-dmg method not found)`);
+        } else {
+            state.fires[HITDMG_TARGET.tag] = 0;
+            state.listeners.push(Interceptor.attach(hm.ptr, {
+                onEnter(this: InvocationContext & { _h?: HitDmgDump }, args: InvocationArguments) {
+                    state.fires[HITDMG_TARGET.tag] = (state.fires[HITDMG_TARGET.tag] ?? 0) + 1;
+                    if (state.hitDmgDumps.length >= MAX_HITDMG_DUMPS) return;
+                    let min = -1; let max = -1; let avgFlag = -1;
+                    try { min = args[0].readS32(); max = args[0].add(4).readS32(); } catch { /* */ }
+                    try { avgFlag = args[2].toInt32() & 0xff; } catch { /* */ }
+                    this._h = { idx: state.hitDmgDumps.length, min, max, avgFlag, result: NaN,
+                                ts: Date.now() };
+                },
+                onLeave(this: InvocationContext & { _h?: HitDmgDump }, retval) {
+                    if (!this._h) return;
+                    try { this._h.result = retval.toInt32(); } catch { /* */ }
+                    state.hitDmgDumps.push(this._h);
+                },
+            }));
+            hooked.push(`${HITDMG_TARGET.cls}.${HITDMG_TARGET.method} @ ${hm.ptr} [hit-dmg dump]`);
+        }
+    } catch (e) {
+        missing.push(`${HITDMG_TARGET.cls}.${HITDMG_TARGET.method} (hit-dmg attach: `
+            + (e as Error).message + ")");
+    }
+
+    // #68 TEMP : resolve the opaque final-damage interface method (slot 0x42) dispatched from ExecuteHit.
+    try {
+        const helper = il2cppBase.add(DISPATCH_HELPER_RVA);
+        state.fires["dispatch42"] = 0;
+        state.listeners.push(Interceptor.attach(helper, {
+            // FUN_1800267c0(out, slot, iface, obj, p5, p6, entities) : args[1]=slot, args[2]=iface, args[3]=obj.
+            onEnter(this: InvocationContext, args: InvocationArguments) {
+                let slot = -1;
+                try { slot = args[1].toInt32(); } catch { return; }
+                if (slot !== DISPATCH_SLOT_FILTER) return;
+                state.fires["dispatch42"] = (state.fires["dispatch42"] ?? 0) + 1;
+                if (state.dispatchDumps.length >= 24) return;
+                try {
+                    const iface = args[2];
+                    const obj = args[3];
+                    if (obj.isNull()) return;
+                    const klass = obj.readPointer();
+                    if (klass.isNull()) return;
+                    const ifaceCount = klass.add(0x12e).readU16();
+                    const ifaceTable = klass.add(0xb0).readPointer();
+                    let ifaceOffset = -1;
+                    for (let i = 0; i < ifaceCount; i++) {
+                        const entry = ifaceTable.add(i * 0x10);
+                        if (entry.readPointer().equals(iface)) {
+                            ifaceOffset = entry.add(8).readS32(); break;
+                        }
+                    }
+                    if (ifaceOffset < 0) return;
+                    const vid = klass.add(0x138 + (ifaceOffset + slot) * 0x10);
+                    const methodPtr = vid.readPointer();
+                    if (methodPtr.isNull()) return;
+                    const rva = "0x" + methodPtr.sub(il2cppBase).toString(16);
+                    let cls: string | null = null;
+                    try { cls = s(class_get_name(klass) as NativePointer); } catch { /* */ }
+                    const key = cls + "|" + rva;
+                    if (state.dispatchSeen.has(key)) return;
+                    state.dispatchSeen.add(key);
+                    const { topRva } = captureStack(this.context);
+                    state.dispatchDumps.push({ slot, rva, cls, topRva, ts: Date.now() });
+                } catch { /* */ }
+            },
+        }));
+        hooked.push(`FUN_1800267c0 @ ${helper} [dispatch-42 vtable resolve]`);
+    } catch (e) {
+        missing.push(`FUN_1800267c0 (dispatch attach: ${(e as Error).message})`);
+    }
+
+    // #68 : hook CritDamageInfo..ctor RETIRE — Thread.backtrace sur ce ctor (chemin de degat TRES chaud,
+    // fire a chaque prediction) suspend les threads -> freeze -> UnityFreezeDetector tue le jeu pendant le
+    // warmup (anti-pattern CLAUDE.md). Nommer le leaf ExecuteHit slot 0xb = via un chemin SANS backtrace-hot.
+
+    // #68 TEMP : CalculateDamageOperation — incoming AttackHit damage (msg[0]) vs outgoing (out[+4]).
+    try {
+        const ck = findClassAnywhere("IdunBattle.Core.Services", "DamagePrediction");
+        const cm = ck ? findMethod(ck, "CalculateDamageOperation") : null;
+        if (!cm || cm.ptr.isNull()) {
+            missing.push("DamagePrediction.CalculateDamageOperation (calc-dmg method not found)");
+        } else {
+            state.fires["calcDmgOp"] = 0;
+            state.listeners.push(Interceptor.attach(cm.ptr, {
+                // (out, p2, p3, p4, msg) : args[0]=out, args[4]=msg ; msg[0] low32 = incoming damage.
+                onEnter(this: InvocationContext & { _o?: NativePointer; _in?: number },
+                        args: InvocationArguments) {
+                    state.fires["calcDmgOp"] = (state.fires["calcDmgOp"] ?? 0) + 1;
+                    this._o = args[0];
+                    try { this._in = args[4].readS32(); } catch { this._in = -1; }
+                },
+                onLeave(this: InvocationContext & { _o?: NativePointer; _in?: number }) {
+                    if (state.calcDmgDumps.length >= 30) return;
+                    let outgoing = -1;
+                    try { if (this._o) outgoing = this._o.add(4).readS32(); } catch { /* */ }
+                    state.calcDmgDumps.push({ incoming: this._in ?? -1, outgoing, ts: Date.now() });
+                },
+            }));
+            hooked.push(`DamagePrediction.CalculateDamageOperation @ ${cm.ptr} [calc-dmg in/out]`);
+        }
+    } catch (e) {
+        missing.push(`DamagePrediction.CalculateDamageOperation (calc-dmg attach: ${(e as Error).message})`);
+    }
+
     // Per-builder DamageModifiers struct dump (attacker vs defender → source the penetration).
     for (const mt of MODS_DUMP_TARGETS) {
         try {
@@ -322,12 +546,30 @@ function installOnce(): {
                     if (!this._p1 || this._p1.isNull()) return;
                     if (state.modsDumps.length >= MAX_MODS_DUMPS) return;
                     const p1 = this._p1;
+                    // #68 defense: read the %-MULTIPLIER list @0x18 (List<Fix64>) — a defender x0.5 reduction
+                    // lives here (NOT in additive@0x10). Fix64 value = raw/2^32 ; emit approx float x1000.
+                    const percents: number[] = [];
+                    try {
+                        const list = p1.add(0x18).readPointer();
+                        if (!list.isNull()) {
+                            const size = list.add(0x18).readS32();
+                            const items = list.add(0x10).readPointer();
+                            const n = Math.max(0, Math.min(size, 8));
+                            for (let i = 0; i < n; i++) {
+                                // Fix64 = Q31.32 ; value = hi + lo/2^32. Emit x1000 (500 = 0.5x, 1000 = 1.0x).
+                                const lo = items.add(0x20 + i * 8).readU32();
+                                const hi = items.add(0x20 + i * 8 + 4).readS32();
+                                percents.push(Math.round((hi + lo / 4294967296) * 1000));
+                            }
+                        }
+                    } catch { /* */ }
                     try {
                         state.modsDumps.push({
                             idx: state.modsDumps.length, side,
                             additive: fix64(p1.add(0x10).readPointer()),
                             pierce: fix64(p1.add(0x20).readPointer()),
                             penetration: fix64(p1.add(0x28).readPointer()),
+                            percentsX1000: percents,
                             ts: Date.now(),
                         });
                     } catch { /* */ }
@@ -352,8 +594,12 @@ function installOnce(): {
             state.fires[bt.tag] = 0;
             const tag = bt.tag;
             const thisIdx = bt.thisArgIdx;
+            // The dmg/hits dispatchers are struct-returns: args[0] = sret out ptr (this = args[1]).
+            // Execute (addBonusHitsExec) returns void -> no return struct to read.
+            const hasRet = tag === "dmgBonus" || tag === "hitsBonus";
             state.listeners.push(Interceptor.attach(bm.ptr, {
-                onEnter(this: InvocationContext, args: InvocationArguments) {
+                onEnter(this: InvocationContext & { _dump?: BonusDump; _out?: NativePointer },
+                        args: InvocationArguments) {
                     state.fires[tag] = (state.fires[tag] ?? 0) + 1;
                     if (state.bonusDumps.length >= MAX_BONUS_DUMPS) return;
                     let srcClass: string | null = null;
@@ -370,13 +616,24 @@ function installOnce(): {
                     if (state.bonusSeen.has(key)) return;
                     state.bonusSeen.add(key);
                     const { topRva, frames } = captureStack(this.context);
-                    state.bonusDumps.push({
+                    const dump: BonusDump = {
                         idx: state.bonusDumps.length, tag, srcClass,
-                        topRva, frames, ts: Date.now(),
-                    });
+                        topRva, frames, retWords: null, ts: Date.now(),
+                    };
+                    state.bonusDumps.push(dump);
+                    // #v2 : stash the sret out ptr to MEASURE this effect's contributed value onLeave.
+                    if (hasRet) { this._dump = dump; this._out = args[0]; }
                     log(`[modifier-observe] ${tag} src=${srcClass ?? "?"} `
                         + `top=rva:0x${topRva.toString(16)} (ghidra 0x`
                         + (0x180000000 + topRva).toString(16) + ")");
+                },
+                onLeave(this: InvocationContext & { _dump?: BonusDump; _out?: NativePointer }) {
+                    if (!this._dump || !this._out || this._out.isNull()) return;
+                    const words: number[] = [];
+                    for (let o = 0; o <= 0x60; o += 4) {
+                        try { words.push(this._out.add(o).readS32()); } catch { words.push(-999999); }
+                    }
+                    this._dump.retWords = words;
                 },
             }));
             hooked.push(`${bt.cls}.${bt.method} @ ${bm.ptr} [bonus-dump ${tag}]`);
@@ -414,17 +671,29 @@ export function register(ctx: Ctx): void {
         fires: { ...state.fires },
         captures: state.captures.map((c) => ({ ...c })),
         valueDumps: state.valueDumps.map((v) => ({ ...v })),
+        varLevelDumps: state.varLevelDumps.map((v) => ({ ...v })),
+        hitDmgDumps: state.hitDmgDumps.map((v) => ({ ...v })),
         modsDumps: state.modsDumps.map((v) => ({ ...v })),
         bonusDumps: state.bonusDumps.map((v) => ({ ...v })),
+        dispatchDumps: state.dispatchDumps.map((v) => ({ ...v })),
+        calcDmgDumps: state.calcDmgDumps.map((v) => ({ ...v })),
+        critCtorDumps: state.critCtorDumps.map((v) => ({ ...v })),
     });
 
     ctx.rpc.modifierObserveReset = (): unknown => {
         for (const k of Object.keys(state.fires)) state.fires[k] = 0;
         state.captures = [];
         state.valueDumps = [];
+        state.varLevelDumps = [];
+        state.hitDmgDumps = [];
         state.modsDumps = [];
         state.bonusDumps = [];
         state.bonusSeen.clear();
+        state.dispatchDumps = [];
+        state.dispatchSeen.clear();
+        state.calcDmgDumps = [];
+        state.critCtorDumps = [];
+        state.critCtorSeen.clear();
         return { ok: true };
     };
 }
