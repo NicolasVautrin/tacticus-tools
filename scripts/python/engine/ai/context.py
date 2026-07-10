@@ -55,7 +55,7 @@ class AiDecisionContext:
     hpmax_by_id: dict                 # {squadId: hpMax} (observeBattle) — coût PV / composite Damage
     obs_units: list                   # observeBattle.units bruts (réutilisés par le heal : hpMax+hp)
     ab_name_by_id: dict               # {abilityId: name} des abilities de l'unité active
-    normal_ids: set                   # ids d'attaque NORMALE de l'unité (name « *NormalAttack »)
+    normal_ids: set                   # ids d'attaque NORMALE de l'unité (champ decisionView `kind == "normal"`)
 
     # --- Métadonnées de tuile (Tile(7) + porte d'adjacence + MinDist chemin) ---
     elev_by_pos: dict                 # {(col,row): elevation}
@@ -147,7 +147,7 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     hp_cur_by_id = {u.get("id"): u.get("hp") for u in units}
     ab_name_by_id = {x.get("id"): x.get("name") for x in ((me or {}).get("abilities") or [])}
     normal_ids = {a.get("id") for a in ((me or {}).get("abilities") or [])
-                  if "NormalAttack" in (a.get("name") or "")}
+                  if a.get("kind") == "normal"}
 
     # maxHP par cible (combinedMax du composite Damage) — observeBattle 1×/décision (réutilisé heal).
     obs = rpc("observeBattle", {"runnerId": rid}, 40)

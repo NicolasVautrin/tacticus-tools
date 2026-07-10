@@ -205,8 +205,12 @@ def _pathdist_to_enemies(state, uid: int, my_team: int, enemy_positions: list) -
 # --- Classification d'ability (SLICE 2) — mirror TargetingQuery.GetRange @1810bd670 + le TargetsSelector DSL
 #     par-ability (kind non-gameconfig -> derive de la SIGNATURE des constants, exact pour attack/heal/repair/
 #     summon, heuristique self pour le residuel). Portee = constants.range sinon attackRangeType sinon arme. ----
-HEAL_ABILITY_IDS = frozenset({18, 1167, 1212})       # Heal / Heal_TwistedScience / HealingBalms_Heal
-REPAIR_ABILITY_IDS = frozenset({28, 1119})           # Repair (+ variante)
+# Enums d'ability heal/repair dont `GC.ability` = template de base a CONFIG VIDE : le signal generique
+# (`hpToHeal`/`hpToRepair`, cf. `_has_heal_magnitude`) ne peut pas les capter -> gate par ID = l'enum
+# d'ability natif `ActiveAbilityType` (une distinction REELLE du jeu, doctrine gate-justifie). Tous les
+# autres heals/repairs (dont la config PORTE `hpToHeal`/`hpToRepair`) passent par le chemin generique.
+HEAL_ABILITY_IDS = frozenset({8, 18, 1167, 1212})    # MassHeal / Heal / Heal_TwistedScience / HealingBalms_Heal
+REPAIR_ABILITY_IDS = frozenset({28, 82, 84, 1119})   # Repair / MechRepair / BattleTinkererRepair / Repair_GalvanicField
 
 
 def _resolve_ability(ability_id: int):
@@ -214,6 +218,17 @@ def _resolve_ability(ability_id: int):
     import enum_maps as EM
     name = EM.ACTIVE_ABILITY_TYPE.get(int(ability_id))
     return (name or ""), (GC.ability(name) if name else None) or {}
+
+
+def _has_heal_magnitude(cfg: dict) -> bool:
+    """Signal HEAL generique : presence de l'operande `hpToHeal` du `TargetsSelector` natif (magnitude de
+    soin lue par la formule de heal). Remplace le substring de nom (doctrine : gate justifie contre le natif)."""
+    return any(k.startswith("hpToHeal") for k in (cfg.get("variables") or {}))
+
+
+def _has_repair_magnitude(cfg: dict) -> bool:
+    """Signal REPAIR generique : presence de l'operande `hpToRepair` (magnitude de reparation)."""
+    return any(k.startswith("hpToRepair") for k in (cfg.get("variables") or {}))
 
 
 def _is_attack_ability(ability_id: int, cfg: dict) -> bool:
@@ -243,9 +258,9 @@ def _ability_kind(ability_id: int, name: str, cfg: dict) -> str:
     c = cfg.get("constants") or {}
     if _is_attack_ability(ability_id, cfg):
         return "enemy"
-    if int(ability_id) in HEAL_ABILITY_IDS or "Heal" in (name or ""):
+    if int(ability_id) in HEAL_ABILITY_IDS or _has_heal_magnitude(cfg):
         return "ally"
-    if int(ability_id) in REPAIR_ABILITY_IDS or "Repair" in (name or ""):
+    if int(ability_id) in REPAIR_ABILITY_IDS or _has_repair_magnitude(cfg):
         return "machine"
     if c.get("unitId") and not c.get("damageProfile"):
         return "tile"
