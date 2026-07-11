@@ -17,6 +17,10 @@ import {
 } from "./internals.js";
 import type { AbilityInfo } from "./internals.js";
 import { readEffectsByUnit } from "../../game/effects.js";
+import {
+    decodeDamageEvents, loadPlaybook, makeDamagePredictions,
+    resolvePlaybookDatabase, unitPositionAtTile,
+} from "./playbook-predict.js";
 
 export interface RankedTile {
     col: number; row: number;
@@ -47,6 +51,7 @@ export interface UnitAttackPlan {
  *  CONCRÈTES (NormalAttackType + actives) + ajoute la tile courante au set
  *  candidat. NE MUTE PAS le MatchState (seul un IOrderedSet transient est muté). */
 export function computeAttackPlans(
+    runner: NativePointer,
     statePtr: NativePointer, movementQuery: NativePointer,
     attackQuery: NativePointer, getBestMi: { info: NativePointer },
     dpq: NativePointer,
@@ -68,8 +73,10 @@ export function computeAttackPlans(
     }
     const myUnits: Array<{ id: number; ptr: NativePointer }> = [];
     const enemies: Array<{ id: number; ptr: NativePointer }> = [];
+    const idByPtr = new Map<string, number>();
     forEachEntity(statePtr, (e, id, ty) => {
         if (ty !== EntityType.Unit) return;
+        idByPtr.set(e.toString(), id);
         if (!invokeBool(isAliveMi, [e, statePtr])) return;
         const ctrl = invokeBool(isCtrlByCurMi, [e, statePtr]);
         if (ctrl) {
@@ -107,11 +114,39 @@ export function computeAttackPlans(
     let setResolved = false;
     let removeWorks: boolean | null = null;
     const units: UnitAttackPlan[] = [];
-    // DamagePrediction (best-effort) : GetAllPredictions(unit, tile, ability)
-    // → dict.get_Item(target) → struct (boxed+0x10). dpq résolu par le caller.
+    // DamagePrediction : GetAllPredictions(unit, tile, ability) → dict.get_Item(target)
+    // → struct (boxed+0x10). = le PREVIEW decisionView (Attack-based quel que soit
+    // l'abilityType) → FALLBACK seulement (#103). Le dégât AFFICHÉ passe d'abord par
+    // l'ORACLE PLAYBOOK per-ability (MakeDamagePredictions), correct pour les spéciales
+    // CONFIG-based (PlasmaCannon…) que GetAllPredictions sous-/zéro-value.
     const predMi = dpq.isNull() ? null
         : findMethodByParamCount(dpq.readPointer(), "GetAllPredictions", 3);
     let predItemMi: { info: NativePointer; ptr: NativePointer } | null = null;
+    // Oracle playbook (#102/#103) : PlaybookDatabase résolue UNE fois, playbooks cachés
+    // par ability id ; UnitPosition construite sur la tuile candidate `best` (GetUnitPositionAtTile).
+    const dbHit = resolvePlaybookDatabase(runner);
+    const playbookDb = dbHit ? dbHit.db : ptr(0);
+    const playbookCache = new Map<number, NativePointer>();
+    const getPlaybook = (abilityId: number): NativePointer => {
+        if (playbookDb.isNull()) return ptr(0);
+        let pb = playbookCache.get(abilityId);
+        if (pb === undefined) { pb = loadPlaybook(playbookDb, abilityId); playbookCache.set(abilityId, pb); }
+        return pb;
+    };
+    // Remplit une RankedTile depuis un tuple {hp, dmgMin/Max, willKill, mightKill, mightCrit}
+    // (source playbook OU preview) : dmg affiché + K!/K? via les seuils de mort EFFECTIFS
+    // (post floor-Resilient + overkill), PAS dmgMin/Max brut. predOptimistic dégrade K!→K?
+    // si la cible porte un dmg-reducer trigger-based non simulé (TF04).
+    const applyDmg = (
+        entry: RankedTile, hp: number, dmgMin: number, dmgMax: number,
+        willKill: number, mightKill: number, mightCrit: boolean, hasReducer: boolean,
+    ): void => {
+        entry.dmgMin = dmgMin; entry.dmgMax = dmgMax;
+        entry.killSure = hp <= willKill;
+        entry.kill = hp <= mightKill;
+        entry.mightCrit = mightCrit;
+        if (hasReducer) { entry.predOptimistic = true; entry.killSure = false; }
+    };
 
     for (const u of myUnits) {
         const abilities = (manualAbility !== null)
@@ -162,8 +197,37 @@ export function computeAttackPlans(
                         if (best.isNull()) break;
                         const coord = readTileCoord(best);
                         const entry: RankedTile = { col: coord.col, row: coord.row };
-                        // Prédiction de dégâts en atterrissant sur `best` contre tgt.
-                        if (predMi && !dpq.isNull()) {
+                        // Dégât affiché en atterrissant sur `best` contre tgt. Pour les
+                        // ACTIVES/granted (candidates config-based) : l'ORACLE PLAYBOOK
+                        // per-ability (#103 — MakeDamagePredictions depuis la tuile candidate),
+                        // correct pour PlasmaCannon/SpiritLeech… L'attaque NORMALE reste sur
+                        // GetAllPredictions : c'est son PREVIEW NATIF authoritatif (== le
+                        // playbook, validé NEW==OLD sur id 69) et bien moins cher → on évite
+                        // ~half des invokes MakeDamagePredictions. Distinction STRUCTURELLE
+                        // normal-vs-active, PAS un gate nom/id (#99).
+                        let filled = false;
+                        if (ab.kind !== "normal") {
+                            const pb = getPlaybook(ab.id);
+                            if (!pb.isNull()) {
+                                const posPtr = unitPositionAtTile(u.ptr, best, statePtr);
+                                if (posPtr) {
+                                    const mk = makeDamagePredictions(pb, u.ptr, posPtr, tgt.ptr,
+                                        ab.level ?? 0, ab.multiplier ?? 100);
+                                    const ev = decodeDamageEvents(mk.list, idByPtr)
+                                        .events.find((e) => e.targetId === tgt.id);
+                                    if (ev) {
+                                        applyDmg(entry, ev.hpBefore, ev.healthDmgMin,
+                                            ev.healthDmgMax, ev.willKillDmg, ev.mightKillDmg,
+                                            ev.mightCrit !== 0, tgtHasReducer);
+                                        filled = true;
+                                    }
+                                }
+                            }
+                        }
+                        // GetAllPredictions (preview) : chemin normal de l'attaque NORMALE,
+                        // + fallback si le playbook d'une active ne résout pas / ne rend pas
+                        // d'event pour cette cible.
+                        if (!filled && predMi && !dpq.isNull()) {
                             try {
                                 const dict = invokeMethod(predMi.info, dpq,
                                     [u.ptr, best, abilBuf]);
@@ -177,30 +241,14 @@ export function computeAttackPlans(
                                             predItemMi.info, dict, [tgt.ptr]);
                                         if (!boxed.isNull()) {
                                             const bb = boxed.add(0x10);
-                                            const hp = bb.readS32();
-                                            // dmgMin/Max = AccurateHealthDamage MITIGÉ
-                                            // (post armure/shield/effets) — pour l'affichage.
-                                            entry.dmgMin = bb.add(0x60).readS32();
-                                            entry.dmgMax = bb.add(0x64).readS32();
-                                            // kill/killSure : NE PAS dériver de dmgMin/Max@0x60/0x64
-                                            // (= AccurateHealthDamage brut → sur-claime un K! sur un
-                                            // Resilient, cf. TF04 / seed 80085 Aesoth→Lucien). Le moteur
-                                            // expose les seuils de mort EFFECTIFS (post floor-Resilient
-                                            // + overkill) : get_WillBeKill = hp<=dmg@0x24 (garanti) ;
-                                            // get_MightBeKill = hp<=dmg@0x28 (possible). On lit ces champs.
-                                            const willKillDmg = bb.add(0x24).readS32();
-                                            const mightKillDmg = bb.add(0x28).readS32();
-                                            entry.killSure = hp <= willKillDmg;
-                                            entry.kill = hp <= mightKillDmg;
-                                            entry.mightCrit = bb.add(0xb1).readU8() !== 0;
-                                            // Target has a trigger-based dmg-
-                                            // reduction effect the prediction
-                                            // ignores → predicted dmg/K! is
-                                            // optimistic; degrade K!→K?. TF04.
-                                            if (tgtHasReducer) {
-                                                entry.predOptimistic = true;
-                                                entry.killSure = false;
-                                            }
+                                            // dmgMin/Max = AccurateHealthDamage MITIGÉ ; kill/killSure
+                                            // via les seuils de mort EFFECTIFS get_WillBeKill@0x24 /
+                                            // get_MightBeKill@0x28 (PAS dmgMin/Max brut — sur-claime
+                                            // K! sur un Resilient, cf. TF04).
+                                            applyDmg(entry, bb.readS32(),
+                                                bb.add(0x60).readS32(), bb.add(0x64).readS32(),
+                                                bb.add(0x24).readS32(), bb.add(0x28).readS32(),
+                                                bb.add(0xb1).readU8() !== 0, tgtHasReducer);
                                         }
                                     }
                                 }
@@ -407,6 +455,7 @@ export interface UnitExposure {
  *  sur ce build — cf. oracle.py). NE MUTE PAS le MatchState (seuls des IOrderedSet
  *  transients sont touchés). Sur-approx assumée (faux positifs = à déclarer). */
 export function computeExposure(
+    runner: NativePointer,
     statePtr: NativePointer, movementQuery: NativePointer,
     attackQuery: NativePointer, getBestMi: { info: NativePointer },
     dpq: NativePointer,
@@ -438,8 +487,10 @@ export function computeExposure(
 
     const myUnits: Array<{ id: number; ptr: NativePointer }> = [];
     const enemies: Array<{ id: number; ptr: NativePointer }> = [];
+    const idByPtr = new Map<string, number>();
     forEachEntity(statePtr, (e, id, ty) => {
         if (ty !== EntityType.Unit) return;
+        idByPtr.set(e.toString(), id);
         if (!invokeBool(isAliveMi, [e, statePtr])) return;
         const ctrl = invokeBool(isCtrlByCurMi, [e, statePtr]);
         // VICTIMES = courant (live, mon tour) OU hors-tour (clone post-endturn) ;
@@ -463,6 +514,18 @@ export function computeExposure(
     let predItemMi: { info: NativePointer; ptr: NativePointer } | null = null;
     let addMi: { info: NativePointer; ptr: NativePointer } | null = null;
     let addResolved = false;
+    // Oracle playbook (#103) : menace ennemie affichée via MakeDamagePredictions per-ability
+    // (correct pour les spéciales config-based), fallback GetAllPredictions. db résolue 1x,
+    // playbooks cachés par ability id.
+    const dbHit = resolvePlaybookDatabase(runner);
+    const playbookDb = dbHit ? dbHit.db : ptr(0);
+    const playbookCache = new Map<number, NativePointer>();
+    const getPlaybook = (abilityId: number): NativePointer => {
+        if (playbookDb.isNull()) return ptr(0);
+        let pb = playbookCache.get(abilityId);
+        if (pb === undefined) { pb = loadPlaybook(playbookDb, abilityId); playbookCache.set(abilityId, pb); }
+        return pb;
+    };
 
     // Movable set de chaque ennemi : calculé UNE fois (GetBestTileToAttackFrom ne
     // mute pas le set → réutilisable pour tous mes U et toutes les abilities). On
@@ -507,7 +570,25 @@ export function computeExposure(
                     } catch (e) { err = (e as Error).message; continue; }
                     if (tile.isNull()) continue; // E ne peut pas atteindre/frapper U
                     let dmgMin = 0; let dmgMax = 0;
-                    if (predMi && !dpq.isNull()) {
+                    // Menace E→U : ACTIVES/granted par l'ORACLE PLAYBOOK per-ability (#103,
+                    // depuis `tile`) ; attaque NORMALE par GetAllPredictions (preview natif
+                    // authoritatif + moins cher). Distinction structurelle, pas un gate.
+                    let filled = false;
+                    if (ab.kind !== "normal") {
+                        const pb = getPlaybook(ab.id);
+                        if (!pb.isNull()) {
+                            const posPtr = unitPositionAtTile(E.ptr, tile, statePtr);
+                            if (posPtr) {
+                                const mk = makeDamagePredictions(pb, E.ptr, posPtr, U.ptr,
+                                    ab.level ?? 0, ab.multiplier ?? 100);
+                                const ev = decodeDamageEvents(mk.list, idByPtr)
+                                    .events.find((e) => e.targetId === U.id);
+                                if (ev) { dmgMin = ev.healthDmgMin; dmgMax = ev.healthDmgMax; filled = true; }
+                            }
+                        }
+                    }
+                    // GetAllPredictions : attaque NORMALE + fallback active non résolue.
+                    if (!filled && predMi && !dpq.isNull()) {
                         try {
                             const dict = invokeMethod(predMi.info, dpq,
                                 [E.ptr, tile, abilBuf]);

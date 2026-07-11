@@ -4,7 +4,7 @@
  *  INCHANGEE (memes noms ctx.rpc.*), agregee par registerView (rpc-view.ts). */
 import {
     class_get_name, class_get_namespace, findClass, findClassAnywhere, findMethod,
-    findMethodByParamClasses, findMethodByParamCount, getFieldOffset, readIl2cppString, s,
+    findMethodByParamCount, readIl2cppString, s,
 } from "../../il2cpp/helpers.js";
 import { invokeMethod } from "../../il2cpp/invoke.js";
 import { gcRoot } from "../../il2cpp/gc-root.js";
@@ -27,7 +27,7 @@ import {
     ActionResult, ActionSpec, activeAbilityMsgClass, applyOneAction,
     attackQueryOff, battleInServicesOff, dpqInServicesOff, entityServicesClass,
     extractTiles, extractTilePtrs,
-    entityExtClass, finishUnitTurnMsgClass, getMovableTilesMi, getTilesMi, getUnitMainTile,
+    finishUnitTurnMsgClass, getMovableTilesMi, getTilesMi, getUnitMainTile,
     invokeBool, isAliveMi, isCtrlByCurMi, LIST_SIZE, moveUnitMsgClass, movementQueryOff,
     mowAbilityTypes, readTileCoord, resolveDpq, servicesOff, summarize, unitAbilityTypes,
     unitExtClass,
@@ -37,6 +37,10 @@ import {
     classFieldsDump, computeAttackPlans, computeDangerZone, computeExposure,
     projectMowsFull, projectUnitsFull,
 } from "./projection.js";
+import {
+    classNameAt, decodeDamageEvents, loadPlaybook, makeDamagePredictions,
+    resolvePlaybookDatabase, unitPositionCurrent,
+} from "./playbook-predict.js";
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function registerViewPredict(ctx: Ctx): void {
@@ -282,78 +286,21 @@ export function registerViewPredict(ctx: Ctx): void {
             return { ok: false, error: "stage " + (status.stageName ?? status.stage) };
         }
 
-        // 1. PlaybookDatabase : scan des champs pointeurs des racines candidates (match par nom).
-        const classNameAt = (p: NativePointer): string | null => {
-            try {
-                const k = p.readPointer();
-                if (k.isNull()) return null;
-                return s(class_get_name(k) as NativePointer);
-            } catch { return null; }
-        };
-        const scanForClass = (
-            obj: NativePointer, want: string, maxOff: number,
-        ): { p: NativePointer; off: number } | null => {
-            if (obj.isNull()) return null;
-            for (let off = 0x10; off < maxOff; off += 8) {
-                try {
-                    const p = obj.add(off).readPointer();
-                    if (p.isNull()) continue;
-                    if (classNameAt(p) === want) return { p, off };
-                } catch { break; }
-            }
-            return null;
-        };
-        const aiControl = runner.add(runnerOff.aiControl).readPointer();
-        const services = servicesOff >= 0 ? runner.add(servicesOff).readPointer() : ptr(0);
-        const roots: Array<[string, NativePointer, number]> = [
-            ["runner", runner, 0x300], ["aiControl", aiControl, 0x200],
-            ["services", services, 0x200],
-        ];
-        let db: NativePointer = ptr(0); let dbSrc = "none";
-        for (const [name, obj, max] of roots) {
-            const hit = scanForClass(obj, "PlaybookDatabase", max);
-            if (hit) { db = hit.p; dbSrc = name + "+0x" + hit.off.toString(16); break; }
-        }
-        // Fallback 2-niveaux : PlaybookDatabase peut vivre dans un objet intermédiaire (tactic/AI ctx).
-        if (db.isNull() && !aiControl.isNull()) {
-            for (let off = 0x10; off < 0x150 && db.isNull(); off += 8) {
-                try {
-                    const mid = aiControl.add(off).readPointer();
-                    if (mid.isNull() || classNameAt(mid) === null) continue;
-                    const hit = scanForClass(mid, "PlaybookDatabase", 0x150);
-                    if (hit) {
-                        db = hit.p;
-                        dbSrc = "aiControl+0x" + off.toString(16) + "->+0x" + hit.off.toString(16);
-                    }
-                } catch { /* */ }
-            }
-        }
-        if (db.isNull()) {
+        // 1. PlaybookDatabase (scan par nom, aucun RVA — cf. playbook-predict.ts).
+        const dbHit = resolvePlaybookDatabase(runner);
+        if (!dbHit) {
             return { ok: false, error: "PlaybookDatabase introuvable (scan runner/aiControl/"
                 + "services 1-2 niveaux) — élargir le scan" };
         }
+        const { db, dbSrc } = dbHit;
 
-        // 2. LoadPlaybook — 3 registres PARALLÈLES par TYPE de clé (dump PlaybookDatabase 12101) :
-        //    ActiveAbilityType  → LoadPlaybook(ability, bool fallbackToDefault) @1810e0090
-        //                         (dicts _playbookBuilders@0x68/_loadedPlaybooks@0x70 ; fallback
-        //                         _defaultPlaybookBuilder@0x80 = Func<ActiveAbilityType,IPlaybook>
-        //                         → couvre l'attaque NORMALE et toute ability sans playbook bespoke)
-        //    TriggeredAbilityType → @1810dfd10 (+0x88/+0x90) ; UnitSpecificBehaviourType → @1810dfed0
-        //    (+0xa8/+0xb0 — PIÈGE mesuré : un findMethodByParamCount(1) aveugle matche CELUI-LÀ,
-        //    1150 y résout UnbridledCarnagePlaybook). Désambiguïsation par TYPE du 1er param.
-        const dbClass = db.readPointer();
-        const loadMi = findMethodByParamClasses(dbClass, "LoadPlaybook", ["ActiveAbilityType", null]);
-        if (!loadMi) {
-            return { ok: false, error: "LoadPlaybook(ActiveAbilityType, bool) non résolu sur "
-                + classNameAt(db) };
-        }
-        const abilBuf = Memory.alloc(4); abilBuf.writeS32(body.abilityType | 0);
-        const fallbackBuf = Memory.alloc(1); fallbackBuf.writeU8(1);   // fallbackToDefault = true
-        let playbook: NativePointer;
-        try { playbook = invokeMethod(loadMi.info, db, [abilBuf, fallbackBuf]); }
-        catch (e) { return { ok: false, error: "LoadPlaybook threw: " + (e as Error).message }; }
+        // 2. LoadPlaybook(ActiveAbilityType, fallbackToDefault=true) — désambiguïse les 3
+        //    overloads homonymes par TYPE de param (cf. playbook-predict.ts).
+        const playbook = loadPlaybook(db, body.abilityType);
         if (playbook.isNull()) {
-            return { ok: false, dbSrc, error: "pas de playbook pour ability " + body.abilityType };
+            return { ok: false, dbSrc,
+                error: "pas de playbook pour ability " + body.abilityType
+                    + " (LoadPlaybook non résolu / null)" };
         }
         const playbookClass = classNameAt(playbook);
 
@@ -368,15 +315,10 @@ export function registerViewPredict(ctx: Ctx): void {
         });
         if (unit.isNull()) return { ok: false, error: "unit " + body.unitId + " not found" };
         if (target.isNull()) return { ok: false, error: "target " + body.targetId + " not found" };
-        const getUnitPosMi = entityExtClass
-            ? findMethodByParamCount(entityExtClass, "GetUnitPosition", 2) : null;
-        if (!getUnitPosMi) return { ok: false, error: "GetUnitPosition(2) non résolu" };
-        let posPtr: NativePointer;
-        try {
-            const pos = invokeMethod(getUnitPosMi.info, null, [unit, statePtr]);
-            if (pos.isNull()) return { ok: false, error: "GetUnitPosition null" };
-            posPtr = pos.add(0x10);                       // struct UnitPosition (8o) déboxé
-        } catch (e) { return { ok: false, error: "GetUnitPosition: " + (e as Error).message }; }
+        // Tuile COURANTE (ce RPC ne prédit pas depuis une tuile candidate — bouger l'unité
+        // pour tester une position ; l'affichage decisionView route par tuile via projection.ts).
+        const posPtr = unitPositionCurrent(unit, statePtr);
+        if (!posPtr) return { ok: false, error: "GetUnitPosition non résolu / null" };
 
         // AbilityState per-ability : override body > capteur #100 > défaut flaggé.
         let lvl = body.level; let mult = body.multiplier; let stSrc = "body";
@@ -388,111 +330,24 @@ export function registerViewPredict(ctx: Ctx): void {
                 lvl = 0; mult = mult ?? 100; stSrc = "default(0,100) — entrée ActiveAbility absente";
             }
         }
-        const stateBuf = Memory.alloc(12);
-        stateBuf.writeS32(lvl as number);
-        stateBuf.add(4).writeS32((mult ?? 100) as number);
-        stateBuf.add(8).writeS32(0);
-
-        // 3. MakeDamagePredictions — override résolu sur la classe CONCRÈTE (walk parents),
-        //    arité 4 (…, AbilityState*) d'abord (signature du slot +0x358), 3 en secours.
-        const pbCls = playbook.readPointer();
-        let makeMi = findMethodByParamCount(pbCls, "MakeDamagePredictions", 4);
-        let makeArgs: NativePointer[] = [unit, posPtr, target, stateBuf];
-        if (!makeMi) {
-            makeMi = findMethodByParamCount(pbCls, "MakeDamagePredictions", 3);
-            makeArgs = [unit, posPtr, target];
-        }
-        if (!makeMi) {
-            return { ok: false, dbSrc, playbookClass,
-                error: "MakeDamagePredictions(3|4) non résolu sur " + playbookClass };
-        }
+        // 3. MakeDamagePredictions (tuile courante) + décodage List/array/yield — cf.
+        //    playbook-predict.ts (helper partagé avec l'affichage decisionView).
         const before = summarize(statePtr);
-        let list: NativePointer;
-        try { list = invokeMethod(makeMi.info, playbook, makeArgs); }
-        catch (e) {
-            return { ok: false, dbSrc, playbookClass,
-                error: "MakeDamagePredictions threw: " + (e as Error).message };
-        }
-        // Lecture d'UN ProbableDamageEvent (struct 0xd8, ctor @181135500) à l'adresse `ev` :
-        // +0x00 = référence IEntity cible (pointeur 8 o — un readS32 y lit du garbage) → résolue
-        // en unitId via la map ; l'AttackHitPrediction copiée commence à +0x08.
-        const readEvent = (ev: NativePointer): Record<string, unknown> => {
-            const fx = (off: number): number =>
-                ev.add(off).readS64().toNumber() / 4294967296;   // Fix64 Q32.32
-            return {
-                targetId: idByPtr.get(ev.readPointer().toString()) ?? null,
-                hpBefore: ev.add(0x08).readS32(),
-                armorBefore: ev.add(0x0c).readS32(),
-                shieldBefore: ev.add(0x10).readS32(),
-                healthDmgMin: ev.add(0x68).readS32(),
-                healthDmgMax: ev.add(0x6c).readS32(),
-                totalDmgMin: ev.add(0x98).readS32(),
-                totalDmgMax: ev.add(0x9c).readS32(),
-                mightCrit: ev.add(0xb9).readU8(),
-                appliedHits: ev.add(0xc4).readS32(),
-                probability: fx(0xc8), probMult: fx(0xd0),
-            };
-        };
-        const events: Array<Record<string, unknown>> = [];
-        let count = -1;
-        let retClass: string | null = null;
-        if (!list.isNull()) {
-            retClass = classNameAt(list);
-            try {
-                const STRIDE = 0xd8;                       // sizeof(ProbableDamageEvent)
-                if (retClass === "List`1") {
-                    // Retour CONCRET List<ProbableDamageEvent> (ex. PlasmaCannonPlaybook @181150b10).
-                    const items = list.add(0x10).readPointer();
-                    count = list.add(0x18).readS32();
-                    if (!items.isNull() && count > 0 && count < 64) {
-                        for (let i = 0; i < count; i++) {
-                            events.push(readEvent(items.add(0x20 + i * STRIDE)));
-                        }
-                    }
-                } else if (retClass !== null && retClass.endsWith("[]")) {
-                    // Retour ARRAY managé ProbableDamageEvent[] (ex. Loki_NormalAttackPlaybook) :
-                    // max_length @+0x18, éléments value-type INLINE dès +0x20.
-                    count = list.add(0x18).readS32();
-                    if (count > 0 && count < 64) {
-                        for (let i = 0; i < count; i++) {
-                            events.push(readEvent(list.add(0x20 + i * STRIDE)));
-                        }
-                    }
-                } else {
-                    // Retour YIELD (machine d'état `<MakeDamagePredictions>d__N`, ex.
-                    // NormalAttackPlaybook<T> @18149eeb0) : IEnumerable ET IEnumerator. On mirror
-                    // GetEnumerator (state -2 → 0, retourne this) en posant `<>1__state` = 0, puis
-                    // MoveNext() + lecture du struct INLINE `<>2__current` (offsets par NOM).
-                    const iterCls = list.readPointer();
-                    const stateOff = getFieldOffset(iterCls, "<>1__state");
-                    const curOff = getFieldOffset(iterCls, "<>2__current");
-                    const moveMi = findMethodByParamCount(iterCls, "MoveNext", 0);
-                    if (stateOff < 0 || curOff < 0 || !moveMi) {
-                        return { ok: false, dbSrc, playbookClass, retClass,
-                            error: "retour ni List`1 ni yield-machine décodable (" + retClass + ")" };
-                    }
-                    list.add(stateOff).writeS32(0);        // GetEnumerator: -2 (as-enumerable) → 0
-                    count = 0;
-                    for (let i = 0; i < 64; i++) {
-                        const more = invokeMethod(moveMi.info, list, null);
-                        if (more.isNull() || more.add(0x10).readU8() === 0) break;
-                        events.push(readEvent(list.add(curOff)));
-                        count++;
-                    }
-                }
-            } catch (e) {
-                return { ok: false, dbSrc, playbookClass, retClass, count,
-                    error: "lecture events: " + (e as Error).message };
-            }
-        }
+        const mk = makeDamagePredictions(
+            playbook, unit, posPtr, target, lvl as number, (mult ?? 100) as number);
+        const dec = decodeDamageEvents(mk.list, idByPtr);
         const after = summarize(statePtr);
+        if (dec.error) {
+            return { ok: false, dbSrc, playbookClass, retClass: mk.retClass,
+                count: dec.count, error: dec.error };
+        }
         return {
-            ok: true, runner: label, dbSrc, playbookClass, retClass,
-            makeArity: makeArgs.length,
+            ok: true, runner: label, dbSrc, playbookClass, retClass: mk.retClass,
+            makeArity: mk.makeArity,
             unitId: body.unitId, targetId: body.targetId,
             ability: body.abilityType, abilityName: abilityName(body.abilityType),
             abilityState: { level: lvl, multiplier: mult, source: stSrc },
-            listNull: list.isNull(), count, events,
+            listNull: mk.list.isNull(), count: dec.count, events: dec.events,
             mutated: before.sig !== after.sig,
         };
     });

@@ -85,6 +85,11 @@ Read-only sauf `applyAction` (`mutated=false` attendu). Cœur oracle + harnais m
 - **`decisionView({ runnerId, maxRank?=6, allAbilities?=false })`** — vue
   décision-ready : méta + units (pos/HP/team/alive/hasAction/ranged/abilities) +
   `toActivate` + `attackPlans` rankés + `dangerZone` + `roundCap` + `effects` live.
+  Dégât `attackPlans` (#103) : les ACTIVES/granted passent par l'ORACLE PLAYBOOK
+  per-ability (`MakeDamagePredictions`, cf. `playbook-predict.ts`) → correct pour les
+  spéciales CONFIG-based (PlasmaCannon/SpiritLeech…) que `GetAllPredictions` sous-/
+  zéro-value ; l'attaque NORMALE reste sur `GetAllPredictions` (son preview natif
+  authoritatif, ~4× moins cher). K!/K? via seuils willKill/mightKill (post floor-Resilient).
 - **`combatSnapshot({ runnerId })`** — stats de combat RÉSOLUES par unité
   (`GetStat`) ; seed one-shot du prédicteur offline.
 - **`tileMeta({ runnerId })`** — élévation + terrain + effets par tuile.
@@ -111,6 +116,7 @@ Read-only sauf `applyAction` (`mutated=false` attendu). Cœur oracle + harnais m
   Depuis la tuile COURANTE (bouger l'unité pour une autre position). Read-only.
 - **`exposureView({ runnerId, unitId?, allAbilities?=true })`** — move-guard
   (inverse d'attackPlans) : dégât ennemi entrant au prochain tour + flag `exposed`.
+  Même routing dégât que attackPlans (#103 : actives→playbook, normale→preview).
 - **`applyAction({ runnerId, action | actions[] })`** — applique mon coup
   (`ApplyAiMessage`), snapshot avant/après. `action` = `{kind:"move",unitId,to|feet}`
   | `{kind:"ability",casterId,targetId,abilityType}` | `{kind:"finish",unitId}`.

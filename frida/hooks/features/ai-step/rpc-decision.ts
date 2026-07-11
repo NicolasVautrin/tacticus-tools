@@ -98,7 +98,7 @@ export function registerViewDecision(ctx: Ctx): void {
             ...mows.filter((m) => m.ctrl && m.alive && m.hasAction).map((m) => m.casterId),
         ];
         const plans = computeAttackPlans(
-            statePtr, movementQuery, attackQuery, getBestMi, resolveDpq(runner),
+            runner, statePtr, movementQuery, attackQuery, getBestMi, resolveDpq(runner),
             { allAbilities, maxRank });
         const danger = computeDangerZone(statePtr, movementQuery, attackQuery);
         // Effets actifs par unité — lus depuis la liste native du jeu
@@ -181,7 +181,7 @@ export function registerViewDecision(ctx: Ctx): void {
         // exposed) est calculée côté Python via oracle.geometric_danger_zone (le
         // RPC dangerZone natif renvoie 0 sur ce build — cf. oracle.py).
         const exp = computeExposure(
-            statePtr, movementQuery, attackQuery, getBestMi, resolveDpq(runner),
+            runner, statePtr, movementQuery, attackQuery, getBestMi, resolveDpq(runner),
             { unitId: body?.unitId, allAbilities: body?.allAbilities,
               victimsOffTurn: body?.victimsOffTurn });
         const after = summarize(statePtr);
