@@ -64,6 +64,8 @@ class AiDecisionContext:
     pathdist_by_pos: dict             # {(col,row): pathDist} (MinDist fidèle, distance de CHEMIN)
     tile_id_by_pos: dict              # {(col,row): tileEntityId} (boardGraph) — cible d'une self-cast
     #                                   AoE = MainTile-id du caster (GenerateAction(this,pos,MainTile,util))
+    neigh_by_pos: dict                # {(col,row): [voisins ordre natif GetAdjacentTiles]} (boardGraph) —
+    #                                   cible EXACTE de Gauntlets = 1er ennemi ring-1 en ordre inversé (#117)
 
     debug: bool = False
 
@@ -113,8 +115,21 @@ class AiDecisionContext:
             unit_id, {"active": 0, "passive": 0, "multiplier": 100})
 
 
-_BOARD_TILE_IDS_CACHE: dict = {}   # {rid: {(col,row): tileEntityId}} — board statique, 1 fetch/rid
+_BOARD_GRAPH_CACHE: dict = {}      # {rid: tiles list} — boardGraph brut, 1 fetch/rid (partagé)
+_BOARD_TILE_IDS_CACHE: dict = {}   # {rid: {(col,row): tileEntityId}} — board statique, dérivé
+_BOARD_NEIGH_CACHE: dict = {}      # {rid: {(col,row): [voisins ordre natif]}} — dérivé
 _ACTIVE_LEVEL_CACHE: dict = {}     # {rid: {unitId: {active,passive,multiplier}}} — combatSnapshot, 1 fetch/rid
+
+
+def _board_graph_tiles(rpc: Callable[..., dict], rid: int) -> list:
+    """Liste brute des tuiles `boardGraph` (board STATIQUE -> caché par rid ; 1 fetch partagé entre
+    `_board_tile_ids` et `_board_neighbours`)."""
+    t = _BOARD_GRAPH_CACHE.get(rid)
+    if t is None:
+        bg = rpc("boardGraph", {"runnerId": rid}, 60) or {}
+        t = bg.get("tiles") or []
+        _BOARD_GRAPH_CACHE[rid] = t
+    return t
 
 
 def _board_tile_ids(rpc: Callable[..., dict], rid: int) -> dict:
@@ -123,9 +138,24 @@ def _board_tile_ids(rpc: Callable[..., dict], rid: int) -> dict:
     encode comme cible d'une self-cast AoE (MainTile). `tileMeta` ne porte pas l'id -> boardGraph."""
     m = _BOARD_TILE_IDS_CACHE.get(rid)
     if m is None:
-        bg = rpc("boardGraph", {"runnerId": rid}, 60) or {}
-        m = {(t.get("col"), t.get("row")): t.get("id") for t in (bg.get("tiles") or [])}
+        m = {(t.get("col"), t.get("row")): t.get("id") for t in _board_graph_tiles(rpc, rid)}
         _BOARD_TILE_IDS_CACHE[rid] = m
+    return m
+
+
+def _board_neighbours(rpc: Callable[..., dict], rid: int) -> dict:
+    """{(col,row): [voisins (col,row) dans l'ORDRE natif `GetAdjacentTiles`]} depuis `boardGraph`
+    (`neighbours` = liste d'IDs de tuile -> résolus en positions). L'ordre natif est PRÉSERVÉ (le
+    consommateur `gauntlets_target` gère l'inversion `SortReverseSelector`). Board statique -> caché.
+    Sert à la CIBLE exacte de Gauntlets (#117 : 1er ennemi ring-1 en ordre voisins inversé)."""
+    m = _BOARD_NEIGH_CACHE.get(rid)
+    if m is None:
+        tiles = _board_graph_tiles(rpc, rid)
+        id2pos = {t.get("id"): (t.get("col"), t.get("row")) for t in tiles}
+        m = {(t.get("col"), t.get("row")):
+             [id2pos[n] for n in (t.get("neighbours") or []) if n in id2pos]
+             for t in tiles}
+        _BOARD_NEIGH_CACHE[rid] = m
     return m
 
 
@@ -171,6 +201,7 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     # {(col,row): tileEntityId} — board STATIQUE (caché par rid). Cible native d'une self-cast AoE
     # = MainTile-id du caster (mesuré CombatRestoratives : tgt=22 = id de la tuile du caster).
     tile_id_by_pos = _board_tile_ids(rpc, rid)
+    neigh_by_pos = _board_neighbours(rpc, rid)   # voisins ordre natif -> cible exacte Gauntlets (#117)
 
     origin = (me["pos"]["col"], me["pos"]["row"]) if me and me.get("pos") else None
     move_tiles = (mov_by_unit.get(uid) or {}).get("tiles") or []
@@ -198,4 +229,4 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
         ab_name_by_id=ab_name_by_id, normal_ids=normal_ids,
         elev_by_pos=elev_by_pos, is_temporary_by_pos=is_temporary_by_pos,
         effects_by_pos=effects_by_pos, pathdist_by_pos=pathdist_by_pos,
-        tile_id_by_pos=tile_id_by_pos, debug=debug)
+        tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos, debug=debug)

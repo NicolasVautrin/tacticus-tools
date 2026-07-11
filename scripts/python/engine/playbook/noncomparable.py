@@ -124,6 +124,10 @@ class NCContext:
     plan: dict                     # plan natif (evals rankes) — abilities d'ATTAQUE
     hp_cur_by_id: dict             # PV courants par id cible (GetStat 5 = Health ; Vexilla)
     ability_targets: object = None # callable(uid, ability_id) -> dict RPC abilityTargets (summon)
+    enemies: list = field(default_factory=list)    # unités ennemies {id, pos} (MÊME ordre que `epos`) :
+    #                                emettre la CIBLE de l'arc pour Gauntlets (#117)
+    neigh_by_pos: dict = field(default_factory=dict)  # {(col,row): [voisins ordre natif]} (boardGraph) :
+    #                                cible EXACTE Gauntlets = 1er ennemi ring-1 en ordre voisins inversé (#117)
     obs_units: list = field(default_factory=list)  # observeBattle.units (isDead/teamId/visualId/pos) :
     #                                SOURCE DES MORTS pour RitesOfRestoration (decisionView garde les
     #                                depouilles -> observeBattle.isDead, cf. project_decisionview_keeps_dead)
@@ -857,9 +861,20 @@ class GauntletsOfUltramarPlaybook(NonComparablePlaybook):
       gate BINDANT est `best >= min(3, #ennemis totaux)` VS l'arc atteignable.
     - ctor @18113edc0 = `NonComparablePlaybook(1000)` : 1er arg = ABILITY_ID (PAS priorité) ; aucun
       `get_Priority` override -> PRIORITY=0 (défaut). [#115 : 1er arg ctor = ability_id, confirmé ici.]
-    - Cible native = MainTile (AoE self-centrée) -> target=None (comme AberrantHypermorph/NovaShield).
+    - POSITION (#117) : sweep ORIGINE D'ABORD (`_sweep_origin_first`) + remplacement STRICT `>`
+      (Bucket.AddAction keep-first @1813fbcc0, NullPosition toujours évaluée) => à ÉGALITÉ d'arc le caster
+      CASTE EN PLACE (origine), ne BOUGE que sur gain STRICT. Mirror #76/#80. VALIDÉ LIVE (natif (3,5)=(4,5)
+      arc 5 -> caste @origine (3,5), pas le move tile).
+    - CIBLE EXACTE (#117) : le natif boucle sur `GetEligibleTargetsSelectable(caster, MainTile)` et
+      `GenerateAction(position, eligible_target, Fix64(count))` (local_1a8 = eligible target, un ENNEMI ;
+      1 action/eligible target, MÊME utilité -> bucket keep-first). L'énumération est INVERSÉE
+      (`DSLFactory.Tiles`=`SortReverseSelector @180dfdc60`) => cible = 1er ennemi ring-1 dans l'ordre
+      `boardGraph.neighbours` (GetAdjacentTiles natif) **INVERSÉ**, sinon ring-2 (`bq.gauntlets_target`).
+      VALIDÉ LIVE BIT-EXACT (#117 : natif tgt=118 = ultraCalgar @(3,5) ring-1 [80,114,78,118]_fwd inversé).
+      PAS la MainTile ni None.
     v1 FLAG : `Unobscured` (LoS ring2) passe-tout (donnée LoS absente offline) -> peut sur-compter ring-2 ;
-    l'arc ring2 n'applique PAS la porte d'élévation (SurroundingEnemies != IterateAdjacentTiles)."""
+    l'arc ring2 n'applique PAS la porte d'élévation (SurroundingEnemies != IterateAdjacentTiles) ; ordre
+    EXACT ring-2 (cible) non validé (fallback dernier) -- ring-1 = cas commun validé."""
     ABILITY_ID = 1000
     MIN_UTILITY = 1.0     # plancher structurel (>=1 ennemi éligible) ; vrai gate = min(3, #ennemis totaux)
     PRIORITY = 0
@@ -868,9 +883,13 @@ class GauntletsOfUltramarPlaybook(NonComparablePlaybook):
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         floor = min(self._CAP, len(ctx.epos or []))   # Min(3, #ennemis TOTAUX) = seed du bucket natif
         best_t, best_u = None, None
-        for T in ctx.reach_nc:   # positions candidates (tuiles de move puis origine)
+        # ORIGINE D'ABORD + remplacement STRICT `>` (Bucket.AddAction keep-first @1813fbcc0, NullPosition
+        # toujours evaluee) -> le caster CASTE EN PLACE a egalite d'arc, ne BOUGE que sur gain STRICT
+        # (#117 : natif (3,5)=(4,5) arc 5 -> caste @origine (3,5) ; le port balayait reach_nc=[moves,origine]
+        # -> gardait un move au tie -> best_t faux -> cible fausse car cible suit best_t). Mirror #76/#80.
+        for T in _sweep_origin_first(ctx):
             u_ = float(min(self._CAP, bq.count_enemies_in_arc(T, ctx.epos, ctx.elev_by_pos)))
-            if best_u is None or u_ > best_u:    # strict > : 1er max garde (ordre reach_nc)
+            if best_u is None or u_ > best_u:    # strict > : origine gagne le tie (elle est en tete)
                 best_t, best_u = T, u_
         if ctx.debug:
             import sys
@@ -878,7 +897,11 @@ class GauntletsOfUltramarPlaybook(NonComparablePlaybook):
                   file=sys.stderr)
         if best_u is None or best_u < max(self.MIN_UTILITY, float(floor)):   # bucket gate: util >= Min(3,total)
             return []
-        return [{"target": None, "ability": self.ABILITY_ID,
+        # CIBLE = eligible target EXACT du natif (GenerateAction(pos, eligible_target, util) @18113e5a0) =
+        # 1er ennemi ring-1 dans l'ordre voisins natif INVERSÉ (SortReverse + bucket keep-first), sinon
+        # ring-2. VALIDÉ LIVE #117 (natif tgt=118). Fallback ordre-arc si neigh_by_pos absent (offline pur).
+        target = bq.gauntlets_target(best_t, ctx.enemies, ctx.neigh_by_pos, ctx.elev_by_pos)
+        return [{"target": target, "ability": self.ABILITY_ID,
                  "to": (best_t if best_t != ctx.origin else None), "pred": best_u}]
 
 
