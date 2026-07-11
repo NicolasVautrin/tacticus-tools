@@ -91,7 +91,7 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
 
 def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
                        is_melee: Optional[bool] = None, damage_profile: Optional[str] = None,
-                       attacker_id: Optional[int] = None):
+                       attacker_id: Optional[int] = None, is_normal_attack: Optional[bool] = None):
     """`DamageModifiers` de réduction du DÉFENSEUR (cible) depuis ses EFFETS actifs (symétrique attaquant ;
     `CalculateDefenderModifiersForPrediction`). Renvoie (mods, active_effects). None-safe (mods vide → no-op).
 
@@ -103,10 +103,16 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
     `attacker_id` = identité du coup, propagée aux malus gated sur l'attaquant (ex. Neuroparasite : bonus
     RESERVE au Neurothrope source). ⚠ Le niveau/mult SOURCE (magnitude Neuroparasite) N'EST PAS résolu ici
     (le runner ne matérialise pas encore le parasite -> ability_level absent -> Neuroparasite INERTE en combat,
-    cf. tâche runner-side ; la contribution PREDICTION est complète)."""
+    cf. tâche runner-side ; la contribution PREDICTION est complète).
+    `is_normal_attack` (#112) = nature du VECTEUR : True=attaque normale, False=spéciale config-based. Threadé
+    dans l'att_ctx -> gate `IsNormalAttack` des malus défenseur (ex. MartialKatah_DmgReduction -20% #105 :
+    réduit UNIQUEMENT les attaques normales reçues par son porteur, no-op sur les spéciales). Symétrique de la
+    prédiction (`_add_positional_and_defender_mods`). None (caller historique) => ctx sans flag => gate no-op."""
     active = (state.effects.active_effects(unit_id, {"hp": hp})
               if state.effects is not None else [])
-    att_ctx = {"id": attacker_id} if attacker_id is not None else None
+    att_ctx = None
+    if attacker_id is not None or is_normal_attack is not None:
+        att_ctx = {"id": attacker_id, "is_normal_attack": is_normal_attack}
     return build_defender_modifiers_from_effects(active, is_melee, damage_profile, attacker_ctx=att_ctx), active
 
 
