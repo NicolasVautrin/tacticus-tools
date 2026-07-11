@@ -9,9 +9,12 @@ Ordre natif (RE confirmé, cf. action_generators.py) : le flag `slot1` sépare N
 -> `dict[get_Priority]` de Comparable (slot1=TRUE, attaque normale incluse) -> OrderedSet `special`.
 `GetDefaultActiveAbilityActionGenerators @1810ed0c0` construit :
   `[ NC(1000), NC(100), NC(0), NC(-100), NC(-1000), Comparable(special), Movement ]`.
-Notre port MIRRORE cet ordre exact. Sur seed777 toutes les NonComparable portées = priorité 0 -> seul
-`NC(0)` tire côté NC ; les 5 tiers sont présents structurellement (l'ordre inter-tier NC n'est pas
-exercé tant qu'aucune NonComparable de priorité != 0 n'est portée)."""
+Notre port MIRRORE cet ordre exact. #115 (RE gqfc5mff6c) : AUCUN playbook n'override `get_Priority`
+(interface slot-0, dispatch `FUN_180002560(0,...)` @1810ed540) -> les 15 NonComparable portées
+partagent TOUTES le tier de base = 0 -> seul `NC(0)` tire côté NC. Les 5 tiers restent présents
+structurellement (mirror du natif), mais l'ordre inter-tier NC n'est jamais exercé (un seul tier peuplé) ;
+à l'intérieur de `NC(0)`, deux NonComparable d'une même unité se départagent par UTILITÉ (argmax
+`choose_action`), PAS par un tier fabriqué (l'ancien NovaBoost=1000/NovaShield=-1000 = @1807D66A0 stale)."""
 from __future__ import annotations
 
 from engine.ai.action_generators import (

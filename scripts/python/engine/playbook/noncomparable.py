@@ -8,9 +8,16 @@ par un mecanisme generique (registre de classes + driver commun). Structure FIDE
     son playbook dans `dict[get_Priority]` ; `GetDefaultActiveAbilityActionGenerators @1810ed0c0`
     cree UN generator par tier [1000,100,0,-100,-1000] ; le tactic prend le PREMIER generator
     non-vide -> une NC qui passe son MIN_UTILITY prime sur toute Comparable, ET une NC de tier
-    superieur prime sur une NC de tier inferieur PAR L'ORDRE (pas l'utilite). PRIORITY par classe
-    (get_Priority, litteral compile-time slot0 interface) : les 4 attaques/buffs portees = 0 ;
-    NovaBoost=1000, NovaShield=-1000 (exercent l'ordre inter-tier).
+    superieur prime sur une NC de tier inferieur PAR L'ORDRE (pas l'utilite). get_Priority = slot-0
+    de l'interface DAT_1831d4f88 (dispatch runtime FUN_180002560(0, interface, playbook)). #115 (RE
+    gqfc5mff6c) : AUCUN playbook n'override ce getter (search_symbols get_Priority / Playbook.*Priority
+    / Playbook$$get_ / IsComparable = 0 hit Playbook ; ni BasePlaybook, ni NonComparablePlaybook<T>,
+    ni ComparablePlaybook<T> ne le nomment -> il vit UNE fois sur le parent partage, jamais surcharge
+    par-leaf). => TOUTES les NonComparable partagent le MEME get_Priority de base = 0 (les 15 portees
+    inclus NovaBoost/NovaShield). L'ancien NovaBoost=1000/NovaShield=-1000 venait d'un @1807D66A0
+    (`mov eax,0x3E8`) stale/mal-attribue qui NE RESOUT PLUS dans ce build -> supprime. Consequence :
+    l'ordre inter-tier NC n'est PAS exerce (un seul tier 0 peuple) ; a l'interieur du tier 0, deux NC
+    d'une meme unite se departagent par UTILITE (choose_action argmax), pas par un tier fabrique.
   - Le generator `ActiveAbilityActionGenerator.<GenerateActions>d__7.MoveNext @18119a3f0` BALAIE
     les positions candidates du caster (tuiles de move) et appelle par position
     `<Playbook>.EvaluateNonComparable(this, ctx, position)` : celui-ci cree un Bucket (MIN_UTILITY
@@ -300,7 +307,9 @@ class AberrantHypermorphPlaybook(NonComparablePlaybook):
 class NovaBoostPlaybook(NonComparablePlaybook):
     """`NovaBoostPlaybook.EvaluateNonComparable @18114ee60` : util = `Fix64.FromInt(1)` CONSTANTE par
     cible éligible (self ; marque les hex adjacents au caster). cctor @18114f1e0 : MIN_UTILITY=1.
-    ctor @18114f250 (id 0x4a8=1192). Tier get_Priority=**1000** (validateur : `@1807D66A0` = `mov eax,0x3E8`).
+    ctor @18114f250 (id 0x4a8=1192 = 1er arg = ABILITY_ID, PAS priorite). Tier get_Priority=**0** (#115 :
+    aucun override get_Priority -> defaut base NonComparable=0 ; l'ancien 1000 venait d'un @1807D66A0
+    `mov eax,0x3E8` stale/mal-attribue qui ne resout plus dans gqfc5mff6c).
 
     STATUT : DECOMPILE-PROVEN, **ARENE-INAGREABLE** (Riptide non spawnable au rank 17 -> pas de test
     d'agreement live ; le mecanisme repose sur le decompile, tiers tranches a l'octet par le validateur).
@@ -320,7 +329,7 @@ class NovaBoostPlaybook(NonComparablePlaybook):
       vide -> le natif n'émet rien) est modélisé ci-dessous."""
     ABILITY_ID = 1192
     MIN_UTILITY = 1.0
-    PRIORITY = 1000
+    PRIORITY = 0          # #115 : get_Priority de base (aucun override) = 0, PAS 1000 (source @1807D66A0 stale)
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         if not self._has_eligible_target(ctx):
@@ -347,7 +356,8 @@ class NovaBoostPlaybook(NonComparablePlaybook):
 
 
 class NovaShieldPlaybook(NonComparablePlaybook):
-    """`NovaShieldPlaybook.EvaluateNonComparable @18114f9d0` (tier get_Priority=**-1000**, id 0x4aa=1194).
+    """`NovaShieldPlaybook.EvaluateNonComparable @18114f9d0` (tier get_Priority=**0** — #115 : aucun
+    override get_Priority, defaut base NonComparable ; l'ancien -1000 = @1807D66A0 stale ; id 0x4aa=1194).
     cctor @1811502c0 : MIN_UTILITY=1. Marque un hex CENTRE + son ring-1 (hors trench), dégât AoE différé.
     Par (casterPos ∈ reach, center ∈ cibles-éligibles) :
         marked(center) = {center} ∪ neighbors(center) \\ trench          # GetMarkedTiles @1811f83c0
@@ -369,7 +379,7 @@ class NovaShieldPlaybook(NonComparablePlaybook):
     BC non confirmé, arene-inagreable)."""
     ABILITY_ID = 1194
     MIN_UTILITY = 1.0
-    PRIORITY = -1000
+    PRIORITY = 0          # #115 : get_Priority de base (aucun override) = 0, PAS -1000 (source @1807D66A0 stale)
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         centers = self._eligible_mark_centers(ctx)
@@ -431,7 +441,7 @@ class RitesOfRestorationPlaybook(NonComparablePlaybook):
       `Healable(owner + AdjacentFriends(owner,1))` = self (non-Mecanique) + amis adjacents non-Mecaniques).
       MIN_UTILITY=1 (Bucket du cctor). Sweep reach_nc (adjacence -> depend de la position -> le caster va
       la ou il soigne le plus).
-    PRIORITY=0 ASSUME (get_Priority non RE ; a confirmer si l'inter-tier est exerce)."""
+    PRIORITY=0 CONFIRME (#115 : aucun playbook n'override get_Priority -> defaut base NonComparable=0)."""
     ABILITY_ID = 1039
     MIN_UTILITY = 1.0
     PRIORITY = 0
@@ -508,7 +518,7 @@ class CombatRestorativesPlaybook(NonComparablePlaybook):
       montant `hpToHeal` (magnitude != utilite dans ce regime NonComparable). Un allie plein -> 0.
     - MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (cctor @1811265c0). Sweep reach_nc (le caster
       va la ou la somme des fractions manquantes adjacentes est max), argmax STRICT.
-    PRIORITY=0 ASSUME (get_Priority non RE ; a confirmer si l'inter-tier est exerce)."""
+    PRIORITY=0 CONFIRME (#115 : aucun playbook n'override get_Priority -> defaut base NonComparable=0)."""
     ABILITY_ID = 1002
     MIN_UTILITY = 0.9      # cctor @1811265c0 : Fix64.FromIntFraction(9,10)
     PRIORITY = 0
@@ -572,7 +582,7 @@ class DefendTheDivineWorkPlaybook(NonComparablePlaybook):
       normalAttack).usable ET fromHereCount>0` (`fromHere` = GetValidTargets à position FIXE) — calculé 1x
       par cible (position-indép du sweep). `ability_targets` absent -> +0.5 omis (borne inf, pré-#77).
     - MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (cctor @18112c070). Sweep reach_nc, argmax STRICT.
-    PRIORITY=0 ASSUME (get_Priority non RE)."""
+    PRIORITY=0 CONFIRME (#115 : aucun override get_Priority)."""
     ABILITY_ID = 1117
     MIN_UTILITY = 0.9      # cctor @18112c070 : Fix64.FromIntFraction(9,10)
     PRIORITY = 0
@@ -625,7 +635,7 @@ class RevitalizingMalignancyPlaybook(NonComparablePlaybook):
       non-Mecanique (`Healable`). (Chaos ne soigne pas les Imperials ni les machines.)
     - util(T) = `Σ (1 - RemainingPercentage_health @180f9be60)` sur ces cibles (= Σ missing/max). Meme
       formule que CombatRestoratives. MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (cctor @181156d30).
-      Sweep reach_nc, argmax STRICT ; self-cast (MainTile-id). PRIORITY=0 ASSUME."""
+      Sweep reach_nc, argmax STRICT ; self-cast (MainTile-id). PRIORITY=0 CONFIRME (#115)."""
     ABILITY_ID = 1037
     MIN_UTILITY = 0.9      # cctor @181156d30 : Fix64.FromIntFraction(9,10)
     PRIORITY = 0
@@ -685,7 +695,7 @@ class InspiredToGreatnessPlaybook(NonComparablePlaybook):
       `Fix64.FromInt(Level.ToZeroBasedIndex(AbilityState.Level))` = NIVEAU zero-based de cette ability.
       Les allies dont l'active est PRETE (usable) NE contribuent PAS. `Bucket.AddAction` argmax STRICT ->
       l'IA refresh l'ability EN COOLDOWN de plus HAUT NIVEAU.
-    - MIN_UTILITY=0 (ctor `NonComparablePlaybook(0x43a)` @181146090, SANS min explicite). PRIORITY=0 ASSUME.
+    - MIN_UTILITY=0 (ctor `NonComparablePlaybook(0x43a)` @181146090, SANS min explicite). PRIORITY=0 CONFIRME (#115).
     - Data offline : eligibilite = `abilityTargets` (jeu) ; cooldown = entree active de `dv.units[ally]
       .abilities` (`usable`) ; niveau = `combatSnapshot.unitConfig.activeAbilityLevel` (cfg+0xb8 ;
       `GetStat(18)`=null en snapshot -> via unitConfig). Le level ne departage QUE plusieurs allies en

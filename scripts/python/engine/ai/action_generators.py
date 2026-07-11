@@ -25,10 +25,14 @@ chacun déléguant sa prédiction à `engine.playbook.prediction` (modèle objet
 argmax d'utilité faisable (`Bucket` `default`), seuil par-playbook comme gate.
 
 NB : sur seed777, les 4 NonComparable présentes (BloodyFury/Vexilla/FightingRetreat/AberrantHypermorph)
-sont priorité 0 -> seul le générateur #3 (dict[0]) tire côté NC. L'ORDRE inter-tier est exercé par
-NovaBoost (tier **1000**) vs NovaShield (tier **-1000**), portées pour tauBossRiptide (roster crafté) :
-NovaBoost (util=1) prime sur NovaShield (util>=100) PAR L'ORDRE DES GÉNÉRATEURS (tier 1000 avant -1000),
-pas par l'utilité -> preuve que le tier domine l'argmax (cf. noncomparable.py).
+sont priorité 0 -> seul le générateur #3 (dict[0]) tire côté NC. #115 (RE gqfc5mff6c) : AUCUN playbook
+n'override `get_Priority` (slot-0 de l'interface, dispatch `FUN_180002560(0, interface, playbook)` ;
+search_symbols get_Priority/Playbook.*Priority/IsComparable = 0 hit Playbook -> le getter vit UNE fois
+sur le parent partagé, jamais surchargé par-leaf) -> les 15 NonComparable portées partagent TOUTES le
+tier de base = 0. L'ORDRE inter-tier N'EST DONC JAMAIS exercé (un seul tier peuplé) ; l'ancien
+NovaBoost=1000/NovaShield=-1000 venait d'un @1807D66A0 (`mov eax,0x3E8`) stale/mal-attribué qui NE RÉSOUT
+PLUS dans ce build -> corrigé à 0. Deux NonComparable d'une même unité se départagent alors par UTILITÉ
+(argmax intra-tier `choose_action`), pas par un tier fabriqué.
 """
 from __future__ import annotations
 
