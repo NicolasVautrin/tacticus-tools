@@ -1,0 +1,641 @@
+/** RPCs SNAPSHOT stats/config/effets : combatSnapshot (capteur #100 abilityStates),
+ *  statModSources, effectAbilityStates, unitAbilityStates, abilityConfigProbe, varTrace*.
+ *  Scinde de rpc-view.ts (2026-07-11, >2300 l. — seuil ~1000 l.) ; l'API RPC est
+ *  INCHANGEE (memes noms ctx.rpc.*), agregee par registerView (rpc-view.ts). */
+import {
+    class_get_name, class_get_namespace, findClass, findClassAnywhere, findMethod,
+    findMethodByParamClasses, findMethodByParamCount, getFieldOffset, readIl2cppString, s,
+} from "../../il2cpp/helpers.js";
+import { invokeMethod } from "../../il2cpp/invoke.js";
+import { gcRoot } from "../../il2cpp/gc-root.js";
+import { runnerClass, runnerOff } from "../../game/runner.js";
+import { getRunner } from "../../game/runner-registry.js";
+import { setTraceOrigin } from "../../game/trace-origin.js";
+import {
+    EntityType, forEachComponent, forEachEntity, projectMatchState,
+    readBattleStatus, unitFootComponentClass,
+} from "../../game/match-state.js";
+import {
+    readEffectsByUnit, readEffectsByTile, readRoundCapClock, readEffectAbilityStateRaw,
+} from "../../game/effects.js";
+import { state } from "../../game/state.js";
+import { queueOnMainThread } from "../../runtime/queue.js";
+import { abilityName } from "../../data/ability-names.js";
+import { TARGETING_RULE_BITS } from "../../data/targeting-rule-names.js";
+import { Ctx } from "../../controller.js";
+import {
+    ActionResult, ActionSpec, activeAbilityMsgClass, applyOneAction,
+    attackQueryOff, battleInServicesOff, dpqInServicesOff, entityServicesClass,
+    extractTiles, extractTilePtrs,
+    entityExtClass, finishUnitTurnMsgClass, getMovableTilesMi, getTilesMi, getUnitMainTile,
+    invokeBool, isAliveMi, isCtrlByCurMi, LIST_SIZE, moveUnitMsgClass, movementQueryOff,
+    mowAbilityTypes, readTileCoord, resolveDpq, servicesOff, summarize, unitAbilityTypes,
+    unitExtClass,
+} from "./internals.js";
+import { applyAiMsgMi } from "../../game/ai-control.js";
+import {
+    classFieldsDump, computeAttackPlans, computeDangerZone, computeExposure,
+    projectMowsFull, projectUnitsFull,
+} from "./projection.js";
+
+// --- Snapshot one-shot des stats de combat résolues (prédiction 100% offline, doc §16) ---
+// `UnitExtensions.GetStat(actor, StatType, StatPart, Nullable<BEntityId>)` (static 4-args
+// @180ed3cb0) → valeur résolue (boxée int @+0x10). StatPart.Current=0 = valeur courante.
+// StatType (enum): Attack=0 Movement=1 Defense=3 Health=5 BlockChance=7 BlockDamage=8
+// CriticalChance=9 CriticalDamage=10 FixedArmor=16 ExtraHits=17 ExtraPierceMelee=21
+// ExtraPierceRanged=22 ExtraMaxDamage=25 ExtraPierce=26. Faction/class/profil/traits = gameconfig ;
+// effets = decisionView. C'est le SEUL accès live (one-shot au chargement BC) du prédicteur offline.
+const getStatMi = unitExtClass ? findMethodByParamCount(unitExtClass, "GetStat", 4) : null;
+// StatType ids (enum) partagés par `combatSnapshot` + `statModSources` — source unique
+// (évite la divergence si on ajoute un stat d'un côté seulement, cf. discipline « check own port »).
+const COMBAT_STAT_IDS: Record<string, number> = {
+    attack: 0, movement: 1, defense: 3, health: 5, blockChance: 7,
+    blockDamage: 8, critChance: 9, critDamage: 10, fixedArmor: 16,
+    extraHits: 17, activeAbilityLevel: 18, numberOfMembers: 20,
+    extraPierceMelee: 21, extraPierceRanged: 22, extraHitsMelee: 23,
+    extraMaxDamage: 25, extraPierce: 26,
+};
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function registerViewSnapshot(ctx: Ctx): void {
+    /** SNAPSHOT one-shot des STATS DE COMBAT RÉSOLUES par unité (prédiction 100% offline,
+     *  doc §16). Lit `UnitExtensions.GetStat(entity, StatType)` pour chaque stat combat-
+     *  pertinente. C'est le SEUL accès live du prédicteur offline (à appeler une fois au
+     *  chargement de la BattleConfig) ; faction/class/profil/traits viennent de gameconfig,
+     *  effets de decisionView. Read-only. body: { runnerId } */
+    ctx.rpc.combatSnapshot = (
+        body?: { runnerId?: number },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        let runner: NativePointer; let label: string;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);   // attribution des traces (cf. game/trace-origin.ts)
+            label = "build#" + body.runnerId;
+        } else if (state.liveRunner) {
+            runner = state.liveRunner; label = "live";
+        } else { return { ok: false, error: "no runner — pass runnerId" }; }
+        if (runner.isNull()) return { ok: false, error: label + " runner null" };
+        if (!getStatMi) return { ok: false, error: "UnitExtensions.GetStat(4) non résolu" };
+        const statePtr = runner.add(runnerOff.state).readPointer();
+        if (statePtr.isNull()) return { ok: false, error: "state null" };
+
+        const STAT_IDS = COMBAT_STAT_IDS;
+        const idBufs: Record<string, NativePointer> = {};
+        for (const k of Object.keys(STAT_IDS)) {
+            const buf = Memory.alloc(4); buf.writeS32(STAT_IDS[k]); idBufs[k] = buf;
+        }
+        const partBuf = Memory.alloc(4); partBuf.writeS32(0);        // StatPart.Current
+        const partBufInit = Memory.alloc(4); partBufInit.writeS32(3); // StatPart.Initial (=base)
+        // Nullable<BEntityId> = null (HasValue=false) : struct zéroé (taille large par sûreté).
+        const nullId = Memory.alloc(16); for (let i = 0; i < 16; i += 4) nullId.add(i).writeS32(0);
+        const getStatP = (e: NativePointer, k: string, pb: NativePointer): number | null => {
+            try {
+                const r = invokeMethod(getStatMi!.info, null, [e, idBufs[k], pb, nullId]);
+                return r.isNull() ? null : r.add(0x10).readS32();
+            } catch { return null; }
+        };
+        const getStat = (e: NativePointer, k: string): number | null => getStatP(e, k, partBuf);
+
+        // DÉGÂT D'ARME de l'attaque normale (one-shot) : le dégât/hits ne sont PAS des StatType
+        // unité (la stat Attack agrégée ≠ dégât d'arme résolu). On capture la PRÉDICTION native
+        // de l'attaque normale par paire via `CachedDamagePredictionQuery.GetNormalAttackPrediction
+        // (attacker, target, attackerPosition)` (slot 13) — contrairement à `GetAllPredictions`,
+        // CE chemin ne filtre PAS par portée (cible explicite) → capturable à froid au déploiement.
+        // Le dégât de BASE est indépendant de la cible (cf. mesures) sauf effets de réduction sur la
+        // cible → on prend le MAX sur plusieurs cibles ennemies = base NON réduite.
+        //   UnitPosition (dump.cs @385083) = struct 8o {IList Tiles} ; obtenue via
+        //   UnitExtensions.GetUnitPosition(unit, state). DamagePredictionResult : AccurateHealthDamage
+        //   Min@0x60/Max@0x64 ; TotalDamage Min@0x90/Max@0x94 ; AppliedHits@0xBC ; MightCrit@0xB1.
+        const dpq = resolveDpq(runner);
+        const getNormPredMi = dpq.isNull() ? null
+            : findMethodByParamCount(dpq.readPointer(), "GetNormalAttackPrediction", 3);
+        const getUnitPosMi = entityExtClass
+            ? findMethodByParamCount(entityExtClass, "GetUnitPosition", 2) : null;
+        // toutes les unités vivantes (servent de cibles de référence pour la prédiction)
+        const allUnits: Array<{ e: NativePointer; id: number }> = [];
+        forEachEntity(statePtr, (e, id, ty) => {
+            if (ty === EntityType.Unit && invokeBool(isAliveMi, [e, statePtr])) {
+                allUnits.push({ e, id });
+            }
+        });
+        // DÉGÂT DE BASE de l'attaque normale (one-shot, iso-AI) via `GetNormalAttackPrediction
+        // (attacker, target, pos)`. Ce chemin calcule pour les cibles ATTEIGNABLES (0 sinon) ; au
+        // déploiement seuls les alliés sont adjacents → ils donnent la base (le dégât de base EST
+        // indépendant de la cible, cf. mesures, sauf armes Blast/multi-membres). On retient donc
+        // la meilleure entrée NON NULLE = dégât de base d'arme. Les réductions par cible sont
+        // appliquées offline (decisionView.effects) ; le détail par cible (Blast) = amélioration.
+        const readNormalAttack = (attacker: NativePointer): Record<string, unknown> => {
+            if (dpq.isNull()) return { error: "dpq null" };
+            if (!getNormPredMi) return { error: "GetNormalAttackPrediction(3) non résolu sur "
+                + s(class_get_name(dpq.readPointer()) as NativePointer) };
+            if (!getUnitPosMi) return { error: "GetUnitPosition(2) non résolu" };
+            let posPtr: NativePointer;
+            try {
+                const pos = invokeMethod(getUnitPosMi.info, null, [attacker, statePtr]);
+                if (pos.isNull()) return { error: "GetUnitPosition null" };
+                posPtr = pos.add(0x10);                              // struct UnitPosition (8o)
+            } catch (err) { return { error: "GetUnitPosition: " + (err as Error).message }; }
+            let best: Record<string, unknown> | null = null;
+            let reachable = 0;
+            for (const t of allUnits) {
+                if (t.e.equals(attacker)) continue;
+                let boxed: NativePointer;
+                try { boxed = invokeMethod(getNormPredMi.info, dpq, [attacker, t.e, posPtr]); }
+                catch { continue; }
+                if (boxed.isNull()) continue;
+                const b = boxed.add(0x10);
+                const hMax = b.add(0x64).readS32();
+                if (hMax <= 0) continue;                             // cible non atteignable → 0
+                reachable++;
+                if (best === null || hMax > (best.maxDmg as number)) {
+                    best = {
+                        minDmg: b.add(0x60).readS32(), maxDmg: hMax,
+                        hits: b.add(0xbc).readS32(), mightCrit: b.add(0xb1).readU8(),
+                        vsTarget: t.id,
+                    };
+                }
+            }
+            if (best) { best.reachable = reachable; return best; }
+            return { error: "aucune cible atteignable au déploiement (base non capturable)" };
+        };
+
+        // --- multiplier d'ability-variable PAR ENTITÉ (UnitConfiguration via BattleQuery.GetUnitConfig) ---
+        // `AbilityVariablesMultiplierPercentage` (UnitConfiguration@0x74, dérivé progression) scale les
+        // variables d'ability « rareté » (ex. PowerTrip.armorIgnored §17.21). PAS porté sur l'entité ; on
+        // remonte via le registre `BattleQuery.GetUnitConfig(unitId)` (EntityServices.<Battle>@battleInServices).
+        // Clé = la VisualId (string managée) de l'unité (UnitComponent.VisualId@0x20 ; Id==VisualId). Offsets
+        // UnitConfiguration (dump gqfc5mff6c) : mult@0x74, tertiaryMult@0x78, Level@0x7C, ActiveAbilityLevel
+        // @0xB8, PassiveAbilityLevel@0xBC (struct Level = int). Per-entité (≠ BC offline par visualId).
+        const battleQ = (servicesOff >= 0 && battleInServicesOff >= 0)
+            ? (() => {
+                const sv = runner.add(servicesOff).readPointer();
+                return sv.isNull() ? ptr(0) : sv.add(battleInServicesOff).readPointer();
+            })() : ptr(0);
+        const getUnitConfigMi = (!battleQ.isNull())
+            ? findMethodByParamCount(battleQ.readPointer(), "GetUnitConfig", 1) : null;
+        const unitCompClass = findClassAnywhere("IdunBattle.Entities.Components", "UnitComponent");
+        const VISUALID_OFF = 0x20;     // (Base)UnitComponent.VisualId (System.String)
+        const UCFG = { mult: 0x74, tertMult: 0x78, level: 0x7c, activeLvl: 0xb8, passiveLvl: 0xbc };
+        const readUnitConfig = (e: NativePointer): Record<string, unknown> => {
+            if (!getUnitConfigMi) return { error: "GetUnitConfig(1) non résolu" };
+            if (!unitCompClass) return { error: "UnitComponent non résolu" };
+            let vidPtr: NativePointer | null = null;
+            forEachComponent(e, (comp, klass) => {
+                if (vidPtr === null && klass.equals(unitCompClass)) {
+                    const p = comp.add(VISUALID_OFF).readPointer();
+                    if (!p.isNull()) vidPtr = p;
+                }
+            });
+            if (!vidPtr) return { error: "visualId introuvable" };
+            let cfg: NativePointer;
+            try { cfg = invokeMethod(getUnitConfigMi.info, battleQ, [vidPtr]); }
+            catch (err) { return { error: "GetUnitConfig: " + (err as Error).message }; }
+            if (cfg.isNull()) return { error: "config null" };
+            return {
+                visualId: readIl2cppString(vidPtr),
+                abilityVariablesMultiplier: cfg.add(UCFG.mult).readS32(),
+                tertiaryAbilityVariablesMultiplier: cfg.add(UCFG.tertMult).readS32(),
+                level: cfg.add(UCFG.level).readS32(),
+                activeAbilityLevel: cfg.add(UCFG.activeLvl).readS32(),
+                passiveAbilityLevel: cfg.add(UCFG.passiveLvl).readS32(),
+            };
+        };
+
+        // BOUCLIERS (ShieldComponent @180fa8770) : liste d'instances @+0x10 (List<ShieldInstance>,
+        // _items@+0x10/_size@+0x18 ; éléments = pointeurs, data array @+0x20). ShieldInstance :
+        // id@+0x10, amount@+0x30, remaining Nullable<int>@+0x3c (None=permanent). Layout du Nullable
+        // incertain → on émet remainingRaw=[s32@0x3c, s32@0x40] pour trancher en validation, + une
+        // estimation `remaining` (convention .NET {hasValue@0, value@4} : has=byte@0x3c, val=s32@0x40).
+        const shieldCompClass = findClassAnywhere("IdunBattle.Entities.Components", "ShieldComponent");
+        const SH = { id: 0x10, amount: 0x30, rem0: 0x3c, rem1: 0x40 };
+        const readShields = (e: NativePointer): Array<Record<string, unknown>> => {
+            if (!shieldCompClass) return [];
+            let comp: NativePointer | null = null;
+            forEachComponent(e, (c, klass) => {
+                if (comp === null && klass.equals(shieldCompClass)) comp = c;
+            });
+            if (comp === null) return [];
+            const list = (comp as NativePointer).add(0x10).readPointer();
+            if (list.isNull()) return [];
+            const items = list.add(0x10).readPointer();
+            const size = list.add(0x18).readS32();
+            if (items.isNull() || size <= 0 || size > 64) return [];
+            const out: Array<Record<string, unknown>> = [];
+            for (let i = 0; i < size; i++) {
+                const inst = items.add(0x20 + i * 8).readPointer();
+                if (inst.isNull()) continue;
+                const w0 = inst.add(SH.rem0).readS32();
+                const w1 = inst.add(SH.rem1).readS32();
+                const has = inst.add(SH.rem0).readU8();   // convention .NET hasValue@+0
+                out.push({
+                    id: inst.add(SH.id).readS32(),
+                    amount: inst.add(SH.amount).readS32(),
+                    remaining: has ? w1 : null,
+                    remainingRaw: [w0, w1],
+                });
+            }
+            return out;
+        };
+
+        const units: Array<Record<string, unknown>> = [];
+        for (const { e, id } of allUnits) {
+            const stats: Record<string, number | null> = {};
+            // AXE STAT-MODIFICATION (§7bis prediction.md) : delta Current-Initial par StatType.
+            // `CalculateModifiersFromStatModifications` @181004380 ne s'active QUE si CurrentValue !=
+            // BaseValue → un delta non-nul = présence de modifications de stat (source des modifiers de
+            // dégât par-cible non exposés comme effets nommés, ex. le +50% sur worldTerminator). Emis
+            // pour NOMMER le modifier par capture (INPUT), pas pour deviner.
+            const statDelta: Record<string, number> = {};
+            for (const k of Object.keys(STAT_IDS)) {
+                stats[k] = getStat(e, k);
+                const init = getStatP(e, k, partBufInit);
+                if (init !== null && stats[k] !== null && stats[k] !== init) {
+                    statDelta[k] = (stats[k] as number) - init;
+                }
+            }
+            // AbilityState PER-ABILITY (#100) : {level, multiplier} de chaque entrée ActiveAbility
+            // (_abilityState @0x4c, Override @0x58 prime — cf. internals.readAbilityState). C'est le
+            // couple que le natif passe au playbook (5e arg MakeDamagePredictions) et qui indexe les
+            // variables config (TryGetVariableArrayForLevel @181577510) — le global unitConfig
+            // (activeAbilityLevel×abilityVariablesMultiplier) est un AUTRE canal (u80 : 65×120 vs 50×180).
+            const abilityStates = unitAbilityTypes(e, true)
+                .filter((a) => a.level !== undefined)
+                .map((a) => ({ id: a.id, name: a.name, kind: a.kind,
+                    level: a.level, multiplier: a.multiplier }));
+            units.push({
+                entityId: id, ctrl: invokeBool(isCtrlByCurMi, [e, statePtr]),
+                stats, statDelta, normalAttack: readNormalAttack(e), unitConfig: readUnitConfig(e),
+                shields: readShields(e), abilityStates,
+            });
+        }
+        return { ok: true, runner: label, statTypes: STAT_IDS, units };
+    });
+
+    /** PER-SOURCE STAT-MODIFICATION breakdown — la sonde DÉFINITIVE pour SOURCER un
+     *  `statDelta` opaque : « le +1298 Attack sur u92 vient de QUELLE entité ? »
+     *  devient une LECTURE au lieu d'une triangulation (base↔tuile + recon allié +
+     *  gameconfig). Chemin natif VÉRIFIÉ (décompilé) :
+     *    `UnitExtensions.GetStat(entity, statType, StatPart=5, Nullable<BEntityId> src)`
+     *    → `StatComponent.GetStatPart @180fa8bb0` case 5/9 :
+     *        • src.HasValue=false → `*(int*)(comp+0x10)` = TOTAL Σ des modifications
+     *        • src.HasValue=true  → `ValueModification.GetModificationFromEntity(
+     *            comp+0x10, srcId) @180fadf10` → Dict<BEntityId,Modifier> keyé par
+     *          l'ENTITÉ SOURCE du buff → contribution de CETTE source.
+     *  On lit le total (part 5, src null) par stat ; si non-nul, on SCANNE toutes les
+     *  entités comme sources candidates (BEntityId = `forEachEntity` id) et on garde
+     *  les contributions non-nulles. `residual = total - Σ(sources)` : 0 = tout
+     *  attribué à des entités (cas aura d'allié / self-buff) ; non-nul = une source
+     *  non-entité (modif SETUP `ModifyUnit*` / système) → à investiguer, pas deviner.
+     *  Ne matérialise QUE ce qui est présent dans la ValueModification À CET INSTANT
+     *  (une aura d'adjacence n'y est que si l'unité est actuellement adjacente au
+     *  porteur — cf. #49 : re-évaluée par candidat en prédiction). Read-only, one-shot.
+     *  body: { runnerId?, unitId?, stats?: string[], minAbs?=1 } */
+    ctx.rpc.statModSources = (
+        body?: {
+            runnerId?: number; unitId?: number; stats?: string[]; minAbs?: number;
+        },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        let runner: NativePointer; let label: string;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);
+            label = "build#" + body.runnerId;
+        } else if (state.liveRunner) {
+            runner = state.liveRunner; label = "live";
+        } else { return { ok: false, error: "no runner — pass runnerId" }; }
+        if (runner.isNull()) return { ok: false, error: label + " runner null" };
+        if (!getStatMi) return { ok: false, error: "UnitExtensions.GetStat(4) non résolu" };
+        const statePtr = runner.add(runnerOff.state).readPointer();
+        if (statePtr.isNull()) return { ok: false, error: "state null" };
+
+        const requested = (Array.isArray(body?.stats) && body!.stats!.length)
+            ? body!.stats!.filter((k) => k in COMBAT_STAT_IDS)
+            : Object.keys(COMBAT_STAT_IDS);
+        const minAbs = typeof body?.minAbs === "number"
+            ? Math.abs(body.minAbs) : 1;
+
+        const idBufs: Record<string, NativePointer> = {};
+        for (const k of requested) {
+            const buf = Memory.alloc(4); buf.writeS32(COMBAT_STAT_IDS[k]); idBufs[k] = buf;
+        }
+        const partBuf5 = Memory.alloc(4); partBuf5.writeS32(5);   // StatPart = branche modification
+        // Nullable<BEntityId> — layout Mono : hasValue byte @+0, value(int32 BEntityId) @+4.
+        const nullSrc = Memory.alloc(16); for (let i = 0; i < 16; i += 4) nullSrc.add(i).writeS32(0);
+        const srcBuf = Memory.alloc(16); for (let i = 0; i < 16; i += 4) srcBuf.add(i).writeS32(0);
+        srcBuf.writeU8(1);   // HasValue = true (réécrit srcBuf+4 = value à chaque source)
+        // GetStat(4-arg) rend un int BOXÉ → valeur signée @+0x10 (idem combatSnapshot).
+        const getMod = (e: NativePointer, k: string, src: NativePointer): number => {
+            try {
+                const r = invokeMethod(getStatMi!.info, null, [e, idBufs[k], partBuf5, src]);
+                return r.isNull() ? 0 : r.add(0x10).readS32();
+            } catch { return 0; }
+        };
+
+        // Toutes les entités = sources candidates ; unités vivantes (filtrées par unitId) = cibles.
+        const allEntities: Array<{ e: NativePointer; id: number; isUnit: boolean }> = [];
+        const targetUnits: Array<{ e: NativePointer; id: number }> = [];
+        forEachEntity(statePtr, (e, id, ty) => {
+            const isUnit = ty === EntityType.Unit;
+            allEntities.push({ e, id, isUnit });
+            if (isUnit && (body?.unitId === undefined || id === body.unitId)
+                && invokeBool(isAliveMi, [e, statePtr])) {
+                targetUnits.push({ e, id });
+            }
+        });
+
+        const units: Array<Record<string, unknown>> = [];
+        for (const { e, id } of targetUnits) {
+            const mods: Record<string, unknown> = {};
+            for (const k of requested) {
+                const total = getMod(e, k, nullSrc);
+                if (Math.abs(total) < minAbs) continue;          // pas de modification → skip le scan
+                const bySource: Array<Record<string, unknown>> = [];
+                for (const src of allEntities) {
+                    srcBuf.add(4).writeS32(src.id);              // value = BEntityId de la source
+                    const amount = getMod(e, k, srcBuf);
+                    if (amount !== 0) {
+                        bySource.push({
+                            source: src.id, amount,
+                            self: src.id === id, sourceIsUnit: src.isUnit,
+                        });
+                    }
+                }
+                const attributed = bySource.reduce(
+                    (a, b) => a + (b.amount as number), 0);
+                mods[k] = { total, residual: total - attributed, bySource };
+            }
+            units.push({
+                entityId: id, ctrl: invokeBool(isCtrlByCurMi, [e, statePtr]), mods,
+            });
+        }
+        return { ok: true, runner: label, statTypes: COMBAT_STAT_IDS, units };
+    });
+
+    /** ABILITY-STATE BAKÉ des entités-effets (#68/#75) — lit, par effet, le struct
+     *  `EffectComponent.AbilityStateReference` (@0x18) : {Owner, AbilityType, Nullable<AbilityState
+     *  {Level, VariableMultiplierPercentage}>}. C'est CE state que `BaseEffect.GetAbilityState
+     *  @180f11780` expose aux nœuds `ConfigVar` du bonus combat (`CreateEffectDamageBonusForAttack
+     *  @180f6bee0`) — la mesure DIRECTE du multiplier combat d'un additif d'effet (SmashaEad :
+     *  attendu ≠ 180 pour expliquer +300 vs prédiction 599). Read-only, one-shot, aucun Interceptor.
+     *  body: { runnerId?, effectType? } */
+    ctx.rpc.effectAbilityStates = (
+        body?: { runnerId?: number; effectType?: number },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        let runner: NativePointer; let label: string;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);
+            label = "build#" + body.runnerId;
+        } else if (state.liveRunner) {
+            runner = state.liveRunner; label = "live";
+        } else { return { ok: false, error: "no runner — pass runnerId" }; }
+        if (runner.isNull()) return { ok: false, error: label + " runner null" };
+        const statePtr = runner.add(runnerOff.state).readPointer();
+        if (statePtr.isNull()) return { ok: false, error: "state null" };
+        const effects: Array<Record<string, unknown>> = [];
+        forEachEntity(statePtr, (e, id, ty) => {
+            if (ty !== EntityType.Effect) return;
+            const info = readEffectAbilityStateRaw(e);
+            if (info === null) return;
+            if (typeof body?.effectType === "number"
+                && info.effectType !== body.effectType) return;
+            effects.push({ effectId: id, ...info });
+        });
+        return { ok: true, runner: label, effects };
+    });
+
+    /** ABILITY-STATE des INSTANCES d'ability par unité (#68/#75) — dump brut des
+     *  `ActiveAbility` (ActiveAbilityComponent.Abilities@0x20, dump gqfc5mff6c TypeDefIndex
+     *  11390 : AbilityName@0x44, _abilityState{Level@0x4C, VariableMultiplierPercentage@0x50,
+     *  Counter@0x54}, OverrideAbilityState(Nullable)@0x58) et des `TriggeredAbility`
+     *  (TriggeredAbilityComponent+0x18, instance : Level{level@0x20, mult@0x24}, +0x28).
+     *  Résolution du state combat d'un effet triggered-sourced (`UnitExtensions.GetAbilityState
+     *  @180eced70` : mapping statique triggered→active `GetActiveAbilityUsedForConfig @1815808e0`
+     *  PUIS `ActiveAbility.get_AbilityState @180f8fc40` = override ?? _abilityState).
+     *  Read-only, one-shot. body: { runnerId?, unitId? } */
+    ctx.rpc.unitAbilityStates = (
+        body?: { runnerId?: number; unitId?: number },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        let runner: NativePointer; let label: string;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);
+            label = "build#" + body.runnerId;
+        } else if (state.liveRunner) {
+            runner = state.liveRunner; label = "live";
+        } else { return { ok: false, error: "no runner — pass runnerId" }; }
+        if (runner.isNull()) return { ok: false, error: label + " runner null" };
+        const statePtr = runner.add(runnerOff.state).readPointer();
+        if (statePtr.isNull()) return { ok: false, error: "state null" };
+        const aacClass = findClassAnywhere("IdunBattle.Entities.Components", "ActiveAbilityComponent");
+        const tacClass = findClassAnywhere("IdunBattle.Entities.Components", "TriggeredAbilityComponent");
+        const aaClass = findClassAnywhere("IdunBattle.Entities.Components", "ActiveAbility");
+        if (!aacClass) return { ok: false, error: "ActiveAbilityComponent non résolu" };
+        const AAC_ABILITIES = getFieldOffset(aacClass, "Abilities") || 0x20;
+        const AA = {
+            name: aaClass ? (getFieldOffset(aaClass, "AbilityName") || 0x44) : 0x44,
+            state: aaClass ? (getFieldOffset(aaClass, "_abilityState") || 0x4c) : 0x4c,
+            override: aaClass ? (getFieldOffset(aaClass, "OverrideAbilityState") || 0x58) : 0x58,
+        };
+        // KeyedCollection/Collection<T> : IList items @0x10 → List {items@0x10, size@0x18, éléments
+        // ref 8 o dès 0x20} (même walk que statModSources SH / MAJ 11 dumpTriggeredMult, validé).
+        const readInstList = (collection: NativePointer): NativePointer[] => {
+            const out: NativePointer[] = [];
+            try {
+                const list = collection.add(0x10).readPointer();
+                if (list.isNull()) return out;
+                const items = list.add(0x10).readPointer();
+                const size = list.add(0x18).readS32();
+                if (items.isNull() || size <= 0 || size > 64) return out;
+                for (let i = 0; i < size; i++) {
+                    const inst = items.add(0x20 + i * 8).readPointer();
+                    if (!inst.isNull()) out.push(inst);
+                }
+            } catch { /* walk partiel */ }
+            return out;
+        };
+        const units: Array<Record<string, unknown>> = [];
+        forEachEntity(statePtr, (e, id, ty) => {
+            if (ty !== EntityType.Unit && ty !== EntityType.Machine) return;
+            if (body?.unitId !== undefined && id !== body.unitId) return;
+            const actives: Array<Record<string, unknown>> = [];
+            const triggered: Array<Record<string, unknown>> = [];
+            forEachComponent(e, (comp, klass) => {
+                if (aacClass && klass.equals(aacClass)) {
+                    try {
+                        const coll = comp.add(AAC_ABILITIES).readPointer();
+                        if (!coll.isNull()) {
+                            for (const inst of readInstList(coll)) {
+                                const ov: number[] = [];
+                                for (let i = 0; i < 4; i++) {
+                                    try { ov.push(inst.add(AA.override + i * 4).readS32()); }
+                                    catch { break; }
+                                }
+                                actives.push({
+                                    type: inst.add(AA.name).readS32(),
+                                    level: inst.add(AA.state).readS32(),
+                                    mult: inst.add(AA.state + 4).readS32(),
+                                    counter: inst.add(AA.state + 8).readS32(),
+                                    overrideRaw: ov,
+                                });
+                            }
+                        }
+                    } catch { /* composant illisible */ }
+                }
+                if (tacClass && klass.equals(tacClass)) {
+                    try {
+                        const coll = comp.add(0x18).readPointer();
+                        if (!coll.isNull()) {
+                            for (const inst of readInstList(coll)) {
+                                const raw: number[] = [];
+                                for (let i = 0; i < 12; i++) {
+                                    try { raw.push(inst.add(0x10 + i * 4).readS32()); }
+                                    catch { break; }
+                                }
+                                triggered.push({
+                                    level: inst.add(0x20).readS32(),
+                                    mult: inst.add(0x24).readS32(),
+                                    raw,
+                                });
+                            }
+                        }
+                    } catch { /* composant illisible */ }
+                }
+            });
+            if (actives.length || triggered.length) {
+                units.push({ entityId: id, actives, triggered });
+            }
+        });
+        return { ok: true, runner: label, units };
+    });
+
+    /** PROBE de la config d'ability RÉELLEMENT enregistrée côté battle (#68/#75) —
+     *  invoque `AbilitiesDatabase.GetConfig(<kind> id)` (registre du runner, via
+     *  `EntityServices.<Abilities>@0x40`) puis `AbilityConfiguration.GetVariableForLevel
+     *  @181576fb0` (varType, AbilityState{level,mult,counter}, dontThrow) sur une grille
+     *  (level, mult) → la VALEUR exacte que le combat résout (formule native
+     *  `round_fix64(table[level-1] x mult/100)` si var rarity-flaggée, cf.
+     *  `TryGetVariableArrayForLevel @181577510`). Dump aussi la liste rarity-flag
+     *  (config+0x28) + la klass concrète du config. Read-only (invokes purs).
+     *  body: { runnerId?, id, kind: "triggered"|"active", varType?=8, grid?=[[lvl,mult],…] } */
+    ctx.rpc.abilityConfigProbe = (
+        body?: {
+            runnerId?: number; id?: number; kind?: string; varType?: number;
+            grid?: Array<[number, number]>;
+        },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        if (typeof body?.id !== "number") return { ok: false, error: "id requis" };
+        let runner: NativePointer;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+        } else if (state.liveRunner) {
+            runner = state.liveRunner;
+        } else { return { ok: false, error: "no runner — pass runnerId" }; }
+        if (servicesOff < 0) return { ok: false, error: "servicesOff non résolu" };
+        const services = runner.add(servicesOff).readPointer();
+        if (services.isNull()) return { ok: false, error: "services null" };
+        const abilitiesOff = entityServicesClass
+            ? (getFieldOffset(entityServicesClass, "<Abilities>k__BackingField") || 0x40) : 0x40;
+        const db = services.add(abilitiesOff).readPointer();
+        if (db.isNull()) return { ok: false, error: "AbilitiesDatabase null" };
+        const dbKlass = db.readPointer();
+        const paramClass = body.kind === "active" ? "ActiveAbilityType" : "TriggeredAbilityType";
+        const getConfigMi = findMethodByParamClasses(dbKlass, "GetConfig", [paramClass]);
+        if (!getConfigMi) return { ok: false, error: `GetConfig(${paramClass}) non résolu` };
+        const idBuf = Memory.alloc(4); idBuf.writeS32(body.id);
+        let cfg: NativePointer;
+        try { cfg = invokeMethod(getConfigMi.info, db, [idBuf]); }
+        catch (e) { return { ok: false, error: "GetConfig: " + (e as Error).message }; }
+        if (cfg.isNull()) return { ok: false, error: "config null" };
+        const cfgKlass = cfg.readPointer();
+        const cfgClassName = s(class_get_name(cfgKlass) as NativePointer);
+        // GetVariableForLevel(AbilityVariableType, AbilityState, bool) — 3 params.
+        const gvflMi = findMethodByParamCount(cfgKlass, "GetVariableForLevel", 3);
+        if (!gvflMi) return { ok: false, error: "GetVariableForLevel(3) non résolu", cfgClassName };
+        const varType = typeof body.varType === "number" ? body.varType : 8; // extraDmg=8
+        const varBuf = Memory.alloc(4); varBuf.writeS32(varType);
+        const noThrow = Memory.alloc(4); noThrow.writeU8(1);
+        const stateBuf = Memory.alloc(12);
+        const grid: Array<[number, number]> = (body.grid && body.grid.length)
+            ? body.grid
+            : [[50, 180], [50, 100], [50, 90], [49, 180], [65, 100], [64, 100], [1, 180]];
+        const values: Array<Record<string, unknown>> = [];
+        for (const [lvl, mult] of grid) {
+            stateBuf.writeS32(lvl); stateBuf.add(4).writeS32(mult); stateBuf.add(8).writeS32(0);
+            let v: number | null = null; let err: string | null = null;
+            try {
+                const r = invokeMethod(gvflMi.info, cfg, [varBuf, stateBuf, noThrow]);
+                v = r.isNull() ? null : r.add(0x10).readS32();
+            } catch (e) { err = (e as Error).message; }
+            values.push({ level: lvl, mult, value: v, ...(err ? { err } : {}) });
+        }
+        // Liste rarity-flag (`_variablesAffectedByRarityBonus`, config+0x28 d'après
+        // TryGetVariableArrayForLevel @181577510) : List<AbilityVariableType> (ints).
+        const rarityFlagged: number[] = [];
+        try {
+            const list = cfg.add(0x28).readPointer();
+            if (!list.isNull()) {
+                const items = list.add(0x10).readPointer();
+                const size = list.add(0x18).readS32();
+                if (!items.isNull() && size > 0 && size <= 64) {
+                    for (let i = 0; i < size; i++) rarityFlagged.push(items.add(0x20 + i * 4).readS32());
+                }
+            }
+        } catch { /* liste illisible */ }
+        return { ok: true, cfgClassName, id: body.id, kind: paramClass, varType, values, rarityFlagged };
+    });
+
+    // --- TRACE one-shot de la résolution de variable d'ability (#68/#75) ---
+    // Interceptor.attach TEMPORAIRE sur `AbilityConfiguration.TryGetVariableArrayForLevel
+    // @181577510` (unique impl concrète, résolue par NOM — basse fréquence : quelques fires
+    // par résolution d'ability, PAS un hot path). But : lire le state {level, mult} EXACT
+    // passé par le COMBAT pour extraDmg (=8) — donnée runtime que le décompilé ne peut pas
+    // donner (tous les states statiquement lisibles = {50,180} mais le combat produit la
+    // valeur de {50,90}). ARM ON-DEMAND uniquement (jamais auto-armé — leçon modifier-observe),
+    // à retirer via varTraceRemove sitôt la mesure faite.
+    let varTraceListener: InvocationListener | null = null;
+    const varTraceBuf: Array<Record<string, number>> = [];
+    ctx.rpc.varTraceInstall = (): Promise<unknown> => queueOnMainThread(() => {
+        if (varTraceListener) return { ok: true, already: true };
+        const cfgClass = findClassAnywhere("IdunBattle.Configuration", "AbilityConfiguration");
+        if (!cfgClass) return { ok: false, error: "AbilityConfiguration non résolu" };
+        const mi = findMethodByParamCount(cfgClass, "TryGetVariableArrayForLevel", 3);
+        if (!mi || mi.ptr.isNull()) return { ok: false, error: "TryGetVariableArrayForLevel non résolu" };
+        varTraceListener = Interceptor.attach(mi.ptr, {
+            onEnter(args) {
+                if (varTraceBuf.length >= 500) return;
+                try {
+                    const st = args[2];
+                    varTraceBuf.push({
+                        varType: args[1].toInt32(),
+                        level: st.readS32(),
+                        mult: st.add(4).readS32(),
+                        counter: st.add(8).readS32(),
+                    });
+                } catch { /* frame illisible */ }
+            },
+        });
+        return { ok: true, installed: true };
+    });
+    ctx.rpc.varTraceRead = (
+        body?: { reset?: boolean; varType?: number },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        const entries = (typeof body?.varType === "number")
+            ? varTraceBuf.filter((e) => e.varType === body.varType)
+            : varTraceBuf.slice();
+        const out = { ok: true, count: varTraceBuf.length, entries };
+        if (body?.reset) varTraceBuf.length = 0;
+        return out;
+    });
+    ctx.rpc.varTraceRemove = (): Promise<unknown> => queueOnMainThread(() => {
+        if (varTraceListener) { varTraceListener.detach(); varTraceListener = null; }
+        varTraceBuf.length = 0;
+        return { ok: true };
+    });
+
+}

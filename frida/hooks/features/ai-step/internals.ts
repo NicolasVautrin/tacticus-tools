@@ -126,16 +126,30 @@ export const abAmmoCostOff = componentsActiveAbilityClass
     ? getFieldOffset(componentsActiveAbilityClass, "AmmoCost") : -1;
 export const abHasAmmoOff = componentsActiveAbilityClass
     ? getFieldOffset(componentsActiveAbilityClass, "HasEnoughAmmo") : -1;
+// AbilityState PER-ABILITY (#100) : chaque entrée `ActiveAbility` porte SON couple
+// {Level@+0, VariableMultiplierPercentage@+4} (struct AbilityState 12 o, dump TypeDefIndex 24402)
+// — c'est CE niveau que le natif passe au playbook (MakeDamagePredictions 5e arg) et que
+// `TryGetVariableArrayForLevel @181577510` consomme (idx = Level.ToZeroBasedIndex clampé table ;
+// × mult/100 si var ∈ variablesAffectedByRarityBonus). PAS le canal global unitConfig
+// (activeAbilityLevel × abilityVariablesMultiplier) : mesuré u80 PlasmaCannon natif =
+// maxDmg[65]×120 = 1396 vs global 50×180 = 1594 (faux). Mirror `get_AbilityState @180f8fc40` :
+// OverrideAbilityState (Nullable<AbilityState> @0x58, hasValue @+0xc) PRIME sur _abilityState @0x4c.
+export const abStateOff = componentsActiveAbilityClass
+    ? getFieldOffset(componentsActiveAbilityClass, "_abilityState") : -1;
+export const abOverrideStateOff = componentsActiveAbilityClass
+    ? getFieldOffset(componentsActiveAbilityClass, "OverrideAbilityState") : -1;
 
 /** Lit l'état castable d'un objet components.ActiveAbility (élément de GetActives).
  *  `cooldown`=null si Nullable sans valeur (= prêt). Tous champs best-effort. */
 export function readAbilityState(ab: NativePointer): {
     usable?: boolean; cooldown?: number | null; disabled?: boolean;
     ammoCost?: number | null; hasAmmo?: boolean;
+    level?: number; multiplier?: number;
 } {
     const st: {
         usable?: boolean; cooldown?: number | null; disabled?: boolean;
         ammoCost?: number | null; hasAmmo?: boolean;
+        level?: number; multiplier?: number;
     } = {};
     try {
         if (abCanUseOff >= 0) st.usable = ab.add(abCanUseOff).readU8() !== 0;
@@ -149,6 +163,15 @@ export function readAbilityState(ab: NativePointer): {
             st.ammoCost = has ? ab.add(abAmmoCostOff).readS32() : null;
         }
         if (abHasAmmoOff >= 0) st.hasAmmo = ab.add(abHasAmmoOff).readU8() !== 0;
+        // niveau/mult PER-ABILITY (#100) — mirror get_AbilityState @180f8fc40 (Override prime).
+        let stOff = -1;
+        if (abOverrideStateOff >= 0 && ab.add(abOverrideStateOff + 0xc).readU8() !== 0) {
+            stOff = abOverrideStateOff;
+        } else if (abStateOff >= 0) stOff = abStateOff;
+        if (stOff >= 0) {
+            st.level = ab.add(stOff).readS32();          // AbilityState.Level @+0 (Idun.Shared.Level = int)
+            st.multiplier = ab.add(stOff + 4).readS32(); // .VariableMultiplierPercentage @+4
+        }
     } catch { /* */ }
     return st;
 }
@@ -952,6 +975,9 @@ export interface AbilityInfo {
     // disabled ; ammoCost (null=pas de coût) ; hasAmmo.
     usable?: boolean; cooldown?: number | null; disabled?: boolean;
     ammoCost?: number | null; hasAmmo?: boolean;
+    // niveau/mult PER-ABILITY (AbilityState @0x4c, capteur #100) — indexent les variables
+    // config (maxDmg/nrOfHits/…) de CETTE ability, ≠ canal global unitConfig.
+    level?: number; multiplier?: number;
 }
 export function unitAbilityTypes(
     unit: NativePointer, includeActives: boolean,
@@ -979,7 +1005,14 @@ export function unitAbilityTypes(
                             .add(ARRAY_FIRST + i * Process.pointerSize).readPointer();
                         if (ab.isNull()) continue;
                         const t = ab.add(abilityNameOff).readS32();
-                        if (t !== 0 && !out.some((e) => e.id === t)) {
+                        if (t === 0) continue;
+                        const dup = out.find((e) => e.id === t);
+                        if (dup) {
+                            // id déjà émis (l'attaque NORMALE, poussée depuis NormalAttackType sans
+                            // objet ActiveAbility) → MERGER l'état live + AbilityState (#100) au lieu
+                            // de le perdre par dedup.
+                            Object.assign(dup, readAbilityState(ab));
+                        } else {
                             // état LIVE (cooldown/munitions/disabled) lu sur l'objet
                             // ActiveAbility — l'info que gameconfig ne peut pas donner.
                             out.push({
