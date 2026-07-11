@@ -30,7 +30,8 @@
  *  ⚠ Certains playbooks (heal/repair) rendent des Probable{Heal,Effect}Event : ce module
  *  ne décode que les DamageEvent (l'appelant passe une ability d'ATTAQUE). */
 import {
-    class_get_name, findMethodByParamClasses, findMethodByParamCount, getFieldOffset, s,
+    class_get_name, findMethodByNameSuffix, findMethodByParamClasses,
+    findMethodByParamCount, getFieldOffset, s,
 } from "../../il2cpp/helpers.js";
 import { invokeMethod } from "../../il2cpp/invoke.js";
 import { runnerOff } from "../../game/runner.js";
@@ -233,23 +234,39 @@ export function decodeDamageEvents(
             }
             return { events, count, retClass };
         }
-        // Retour YIELD : IEnumerable ET IEnumerator. GetEnumerator (state -2 → 0,
-        // retourne this) mirroré en posant `<>1__state`=0, puis MoveNext + lecture
-        // du struct INLINE `<>2__current` (offsets par NOM).
-        const iterCls = list.readPointer();
-        const stateOff = getFieldOffset(iterCls, "<>1__state");
-        const curOff = getFieldOffset(iterCls, "<>2__current");
-        const moveMi = findMethodByParamCount(iterCls, "MoveNext", 0);
-        if (stateOff < 0 || curOff < 0 || !moveMi) {
+        // Retour YIELD : machine d'état `<MakeDamagePredictions>d__N` (IEnumerable
+        // ET IEnumerator de ProbableDamageEvent). On CALL le GetEnumerator NATIF au
+        // lieu de forcer `<>1__state`=0 à la main : GetEnumerator (state -2 → 0)
+        // COPIE aussi les paramètres capturés `<>3__caster/target/pos/state` vers les
+        // champs de TRAVAIL que MoveNext lit (RE @18117d570 : bloc LAB `this+0x118 =
+        // this+0x120` …). Sans cette copie, MoveNext déréférence des champs nuls →
+        // il2cpp "system error". GetEnumerator est une impl EXPLICITE d'interface
+        // (nom qualifié `…IEnumerable<ProbableDamageEvent>.GetEnumerator`) → résolue
+        // par suffixe. Retourne `this` (même thread, fast-path) ou un clone initialisé.
+        const getEnumMi = findMethodByNameSuffix(list.readPointer(), "GetEnumerator", 0);
+        if (!getEnumMi) {
             return { events, count: -1, retClass,
-                error: "retour ni List`1 ni array ni yield-machine décodable (" + retClass + ")" };
+                error: "yield-machine sans GetEnumerator(0) (" + retClass + ")" };
         }
-        list.add(stateOff).writeS32(0);
+        let en: NativePointer;
+        try { en = invokeMethod(getEnumMi.info, list, null); }
+        catch (e) {
+            return { events, count: -1, retClass,
+                error: "GetEnumerator threw: " + (e as Error).message };
+        }
+        if (en.isNull()) return { events, count: -1, retClass, error: "GetEnumerator null" };
+        const enCls = en.readPointer();
+        const curOff = getFieldOffset(enCls, "<>2__current");
+        const moveMi = findMethodByParamCount(enCls, "MoveNext", 0);
+        if (curOff < 0 || !moveMi) {
+            return { events, count: -1, retClass,
+                error: "yield-machine: <>2__current/MoveNext non résolus (" + retClass + ")" };
+        }
         let count = 0;
         for (let i = 0; i < 64; i++) {
-            const more = invokeMethod(moveMi.info, list, null);
+            const more = invokeMethod(moveMi.info, en, null);   // bool boxé → valeur @+0x10
             if (more.isNull() || more.add(0x10).readU8() === 0) break;
-            events.push(readDamageEvent(list.add(curOff), idByPtr));
+            events.push(readDamageEvent(en.add(curOff), idByPtr));
             count++;
         }
         return { events, count, retClass };

@@ -298,6 +298,34 @@ export function findMethodByParamCount(
     return null;
 }
 
+/** Find a method by BASE name (+ exact param count), matching either the plain
+ *  name OR an explicit-interface-qualified name `Namespace.IFace<T>.<base>` — whose
+ *  il2cpp `method_get_name` is the fully-qualified string that findMethod's exact
+ *  match misses. ex. le `System.Collections.Generic.IEnumerable<ProbableDamageEvent>
+ *  .GetEnumerator` d'une machine d'état yield `<M>d__N`. Walk la chaîne d'héritage. */
+export function findMethodByNameSuffix(
+    klass: NativePointer, base: string, paramCount: number,
+): MethodRef | null {
+    const dotted = "." + base;
+    let k = klass;
+    while (!k.isNull()) {
+        const it = Memory.alloc(Process.pointerSize);
+        it.writePointer(ptr(0));
+        let m: NativePointer;
+        while (!(m = class_get_methods(k, it) as NativePointer).isNull()) {
+            const nm = s(method_get_name(m) as NativePointer);
+            if (nm !== base && !nm.endsWith(dotted)) continue;
+            try {
+                if ((method_get_param_count(m) as number) === paramCount) {
+                    return { info: m, ptr: methodEntry(m) };
+                }
+            } catch { /* skip */ }
+        }
+        k = class_get_parent(k) as NativePointer;
+    }
+    return null;
+}
+
 // --- Field offset resolution (cached, walks inheritance chain) ---
 
 const fieldOffsetCache: Record<string, number> = {};
