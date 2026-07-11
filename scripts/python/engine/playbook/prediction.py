@@ -276,10 +276,18 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
 
 
 def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_name, attack_pos=None,
-                                         base_bonus: int = 0):
+                                         base_bonus: int = 0, base_override=None,
+                                         hits_override=None, profile_override=None):
     """Per-cible de `ComparablePlaybook.GenerateMultiHitAttackPredictions @181409da0` : `DamagePredictionResult`
     d'UNE cible via le `(damage, hits, profile, pierce)` PROPRE de l'ability (`<Ability>.PredictAttack`,
-    slot +0x27). None si non-attaque."""
+    slot +0x27). None si non-attaque.
+
+    `base_override`/`hits_override`/`profile_override` (défaut None = comportement inchangé) : substituent
+    la base/hits/profil lus de l'ability. Requis par l'utilité de DÉCISION NonComparable de HammerOfWrath
+    (#114), dont `CalculateUtilityFromDamageEvent` @1814aa3d0/@1814aa6d0 appelle `PredictAttack(0x27)` avec
+    `damage=GetMinDamage`(var12) + `hits=GetHits`(const47) [primary] / `GetMinDamage2`(var54)+
+    `GetHitsToBonusTarget`(const50)+profil2 [secondary] au lieu de avg(minDmg,maxDmg)/hits config. Le RESTE
+    du pipeline (spread ±20%, pierce, armure, mods attaquant/positionnels, bouclier per-coup) est identique."""
     ctx = scene.ctx(uid)
     if ctx is None:
         return None
@@ -303,7 +311,7 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
     # 1396 se décomposait AUSSI en maxDmg[65]×1.2 (sous-détermination du dégât final). Le couple
     # (level, mult) = AbilityState PER-ABILITY (capteur, fallback global via ab.level/ab.multiplier).
     lvl = ab.level
-    base = ab.get_damage()
+    base = ab.get_damage() if base_override is None else float(base_override)   # HammerOfWrath: GetMinDamage
     if base <= 0:
         return None
     # #108 GetCorrectDamage : clause conditionnelle sur le NB de cibles AJOUTÉE À LA BASE avant spread/mods
@@ -312,8 +320,8 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
     base += int(base_bonus or 0)
     a = GC.ability(ability_name) or {}
     is_melee = (a.get("attackRangeType") or "").lower() == "melee"
-    hits = max(1, ab.get_special_hits(is_melee))
-    profile_name = ab.get_damage_profile()
+    hits = max(1, ab.get_special_hits(is_melee) if hits_override is None else int(hits_override))
+    profile_name = ab.get_damage_profile() if profile_override is None else profile_override
     profile_idx = _PROFILE_INDEX.get(profile_name, 0)
     dp = GC.damage_profile(profile_name) or {}
     dir_pierce = ctx.extra_pierce_melee if is_melee else ctx.extra_pierce_ranged

@@ -139,6 +139,9 @@ class NCContext:
     #                            etat cooldown des allies pour InspiredToGreatness (GetActive usable)
     cast_from_tiles: object = None   # callable(uid, target_id, ability_id) -> {currentValid, moveTiles} :
     #                            positionnement move-to-reach des NC ally-targeted (#81)
+    scene: object = None           # engine.playbook.Scene (predictor+sctx) — HammerOfWrath (#114) score
+    #                            son utilité de décision via Σ CalculateUtilityFromDamageEvent (prédiction
+    #                            dégât INTERNE, bypass du gate d'affichage #109) sur cible + adjacents.
     debug: bool = False
 
 
@@ -836,6 +839,49 @@ class GetEmRuntzPlaybook(NonComparablePlaybook):
         return [{"target": None, "ability": self.ABILITY_ID, "to": None, "pred": float(num)}]
 
 
+class GauntletsOfUltramarPlaybook(NonComparablePlaybook):
+    """`GauntletsOfUltramarPlaybook.EvaluateNonComparable @18113e5a0` (id 0x3e8=1000, ultraCalgar). AoE
+    dégât sur l'arc (ring1+ring2) — mais NonComparable : l'utilité est une heuristique de COMPTE d'ennemis
+    à portée (aucun `ProbableDamageEvent` -> exclu de la prédiction de dégât, cf. #109). Le caster BOUGE
+    vers la tuile qui maximise le nombre d'ennemis touchés.
+
+    - utilité(T) = `SelectUniqueUnits(GetAllTargetsSelector(caster@T), 3).Count` = # ennemis DISTINCTS dans
+      l'arc(dist<=2) depuis T, PLAFONNÉ à 3. `GetAllTargetsSelector @1811e2090` = ring1 (`Enemies(
+      AdjacentTiles)`, élévation-gaté) + ring2 (`Unobscured(SurroundingEnemies(r=2) - Adjacent)`, dist-2).
+      `GenerateAction(MainTile(T), Fix64(count))` + `Bucket.AddAction`.
+    - MIN_UTILITY (bucket, DYNAMIQUE) = `Min(Fix64(3), Fix64(#ennemis TOTAUX du caster))` : la const 3 vient
+      du cctor @18113ed50 ; le compte vient de `Enemies(query, Entity(caster), AllTiles=*(query+0x80), 2)`
+      -> `UnitsByTeamSelector` board-WIDE (PAS l'arc) @180deedd0. => Gauntlets ne caste QUE s'il peut
+      atteindre `min(3, #ennemis restants)` ennemis dans son arc (sinon il attend d'en avoir assez à portée).
+      util(origine) == floor par construction (les deux plafonnés à 3) -> best>=floor toujours vrai ; le
+      gate BINDANT est `best >= min(3, #ennemis totaux)` VS l'arc atteignable.
+    - ctor @18113edc0 = `NonComparablePlaybook(1000)` : 1er arg = ABILITY_ID (PAS priorité) ; aucun
+      `get_Priority` override -> PRIORITY=0 (défaut). [#115 : 1er arg ctor = ability_id, confirmé ici.]
+    - Cible native = MainTile (AoE self-centrée) -> target=None (comme AberrantHypermorph/NovaShield).
+    v1 FLAG : `Unobscured` (LoS ring2) passe-tout (donnée LoS absente offline) -> peut sur-compter ring-2 ;
+    l'arc ring2 n'applique PAS la porte d'élévation (SurroundingEnemies != IterateAdjacentTiles)."""
+    ABILITY_ID = 1000
+    MIN_UTILITY = 1.0     # plancher structurel (>=1 ennemi éligible) ; vrai gate = min(3, #ennemis totaux)
+    PRIORITY = 0
+    _CAP = 3              # SelectUniqueUnits(3) : l'ability touche au plus 3 unités -> utilité plafonnée à 3
+
+    def generate_candidates(self, ctx: NCContext) -> list[dict]:
+        floor = min(self._CAP, len(ctx.epos or []))   # Min(3, #ennemis TOTAUX) = seed du bucket natif
+        best_t, best_u = None, None
+        for T in ctx.reach_nc:   # positions candidates (tuiles de move puis origine)
+            u_ = float(min(self._CAP, bq.count_enemies_in_arc(T, ctx.epos, ctx.elev_by_pos)))
+            if best_u is None or u_ > best_u:    # strict > : 1er max garde (ordre reach_nc)
+                best_t, best_u = T, u_
+        if ctx.debug:
+            import sys
+            print(f"    [dbg NC u{ctx.uid}] Gauntlets floor(min3,total)={floor} best={best_t} u={best_u}",
+                  file=sys.stderr)
+        if best_u is None or best_u < max(self.MIN_UTILITY, float(floor)):   # bucket gate: util >= Min(3,total)
+            return []
+        return [{"target": None, "ability": self.ABILITY_ID,
+                 "to": (best_t if best_t != ctx.origin else None), "pred": best_u}]
+
+
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
 PLAYBOOKS: dict[int, NonComparablePlaybook] = {
     pb.ABILITY_ID: pb for pb in (
@@ -852,6 +898,7 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         InspiredToGreatnessPlaybook(),
         ScarabSummonPlaybook(),
         GetEmRuntzPlaybook(),
+        GauntletsOfUltramarPlaybook(),
     )
 }
 

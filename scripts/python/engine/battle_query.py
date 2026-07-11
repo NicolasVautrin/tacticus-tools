@@ -40,3 +40,23 @@ def count_adjacent(tile: tuple, positions: list, elev_by_pos: dict | None = None
     """`GetAdjacentEnemies/Friends(tile).Count` — nombre d'unités de `positions` sur une tuile
     ADJACENTE à `tile`, filtrées par la porte d'élévation native (cf. `is_adjacent`)."""
     return sum(1 for p in (positions or []) if is_adjacent(tile, p, elev_by_pos))
+
+
+def count_enemies_in_arc(tile: tuple, positions: list, elev_by_pos: dict | None = None) -> int:
+    """`GauntletsOfUltramarAbility.GetAllTargetsSelector @1811e2090` — nombre d'unités de `positions`
+    (ennemis) dans l'ARC de `tile` = ring-1 UNION ring-2. Le sélecteur natif est la somme
+    (`TargetsSelector.op_Addition`) de deux sous-sélecteurs :
+      - `GetAdjacentTargetsSelector @1811e2010` = `Unique(Enemies(AdjacentTiles(tile)))` -> ring-1
+        (distance hex 1), PORTE d'élévation `|Δelev| < 2` d'`IterateAdjacentTiles` (cf. `is_adjacent`).
+      - `GetSurroundingTargetsSelector @1811e20d0` = `Unobscured(SurroundingEnemies(tile, r=2) - Adjacent)`
+        = ring-2 STRICT (distance hex EXACTEMENT 2), filtré `Unobscured` (LoS / practicabilité terrain).
+    `Unobscured` n'est PAS modélisable offline (pas de donnée LoS) -> PASSE-TOUT v1 (borne SUP sur ring-2 :
+    peut sur-compter un ennemi masqué par un obstacle). Chaque unité occupe une tuile distincte -> le compte
+    de positions EST déjà unique. Le plafond `SelectUniqueUnits(3)` est appliqué par l'appelant (playbook)."""
+    n = 0
+    for p in (positions or []):
+        if is_adjacent(tile, p, elev_by_pos):                             # ring-1 (dist 1, élévation-gaté)
+            n += 1
+        elif hexgeo.distance((tile[0], tile[1]), (p[0], p[1])) == 2:      # ring-2 (dist 2, Unobscured passe-tout)
+            n += 1
+    return n
