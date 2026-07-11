@@ -26,15 +26,16 @@ class GetStuckInTrait(BaseTrait):
     Ajoute **+1 coup par coup d'index IMPAIR** = `+floor(hits/2)` (hits = série APRÈS PowerTrip, AVANT
     GetStuckIn). ⚠ N'est PAS ×2 (l'ancien doubling était faux : pour base impair il sur-comptait).
 
-    **`Maybe(chance)` en PRÉDICTION : compté SSI chance == 100.** GROUND TRUTH step-13 seed777 (trace
-    AllMods @18102d3f0, 28 paires (tuile,cible), u90 full-HP) : chance 30% (1 ami adjacent à la cible)
-    → le groupe de coups bonus n'est JAMAIS compté (4 hits partout, y compris mêlée dist 1 — la
-    prédiction native donne exactement arme 3 + PowerTrip 1). L'entrée bonus-hits est évaluée en
-    Nullable inclus/exclu (AdditionalHitsFromEffects.GetAdditionalHitsFromEffectsInternal @180e59150,
-    flag prediction) — PAS de pondération fractionnaire. Chance = `GetBonusHitChance` @180f83460 =
-    `If(orks_adj>=2 OU amis_adj>=4, chance_2=100, chance=30)` (gameconfig GetStuckIn). ⚠ La branche
-    100% = hypothèse cohérente (l'ancienne observation « 6 hits à 30% » datait d'AVANT le fix de
-    parité hexgeo → lecture d'adjacence suspecte, SUPERSÉDÉE) ; à confirmer sur un cas live chance_2.
+    **`Maybe(chance)` en PRÉDICTION : compté SSI chance == 100** (RESTAURÉ #98). GROUND TRUTH step-13
+    seed777 (trace AllMods @18102d3f0, 28 paires (tuile,cible), u90 full-HP) : chance 30% (1 ami adjacent
+    à la cible) → le groupe de coups bonus n'est JAMAIS compté (4 hits partout — la prédiction native
+    donne exactement arme 3 + PowerTrip 1). L'entrée bonus-hits est évaluée en Nullable inclus/exclu
+    (AdditionalHitsFromEffects.GetAdditionalHitsFromEffectsInternal @180e59150, flag prediction) — PAS
+    de pondération fractionnaire. Chance = `GetBonusHitChance` @180f83460 = `If(orks_adj>=2 OU
+    amis_adj>=4, chance_2=100, chance=30)` (gameconfig GetStuckIn). ⚠ L'épisode « fold inconditionnel »
+    (l'observation u90→u86 « ×1.50 uniforme 4→6 » qui avait supersédé ce gate) était une MISATTRIBUTION :
+    ce ×1.5 = le bonus d'ÉLÉVATION de la tuile de plan (5,4) elev3 > cible elev2 (#98) — 6 = 4×1.5,
+    compensation exacte démasquée en portant l'élévation en prédiction (cf. as_attacker_bonus_hits).
 
     **Ce fold est PRÉDICTION-ONLY** (verdict validateur cluster, BITE 2) : `attack_hits_with_modifiers` ne
     l'invoque que si `include_bonus_hit_behaviours=True` (prédiction). En COMBAT le natif applique GetStuckIn
@@ -56,15 +57,39 @@ class GetStuckInTrait(BaseTrait):
             return 0
         if _cheby(apos, tpos) > 2:                # !(MinDistance>2) = cible à <=2 hex (trigger structurel)
             return 0
-        # Maybe(chance) EN PRÉDICTION = INCLUS INCONDITIONNELLEMENT (la chance 30/100 ne pilote QUE le
-        # roll RNG d'exécution, pas la prédiction de dégât de l'IA). GROUND TRUTH seed777 u90(Snappawrecka)
-        # ->u86 RANGED (chance=30 : 1 seul ami adjacent à u86, chance_2 hors d'atteinte) : natif = 6 coups
-        # DÉTERMINISTES (oracle/offline = x1.50 uniforme sur min ET max = 4->6). Le gate `chance==100`
-        # précédent était FAUX (issu de l'observation step-13 "exclure à 30%", SUPERSÉDÉE — raisonnement
-        # d'adjacence pré-fix parité hexgeo, cf. [[project_hexgeo_parity_fix]]). La condition orks>=2/
-        # amis>=4 (GetBonusHitChance @180f83460) n'affecte donc PAS la prédiction → on ne l'évalue plus ici.
+        # Maybe(chance) EN PRÉDICTION : compté SSI `GetBonusHitChance == 100` (branche chance_2 :
+        # orks_adj >= 2 OU amis_adj >= 4 autour de la CIBLE, @180f83460). C'est le verdict ORIGINEL du
+        # step-13 (« chance 30% -> jamais compté, 4 hits partout »), RESTAURÉ #98 : l'observation qui
+        # l'avait « supersédé » (u90 Snappawrecka -> u86 ranged, oracle x1.50 uniforme 4->6 interprété
+        # comme fold-a-30%) était une MISATTRIBUTION — le x1.50 était le BONUS D'ÉLÉVATION de la tuile
+        # de plan (5,4) elev3 > cible elev2 (builder @181000590, inliné, cf. prediction.md MAJ #98) :
+        # oracle plat (3,5) = [1364,5060] = 4 coups EXACTS (341/1265 per-coup), (5,4) = x1.5 EXACT.
+        # Le fold inconditionnel + pas-d'élévation se compensaient EXACTEMENT (6 = 4 x 1.5) — bug
+        # compensatoire classique, démasqué en portant l'élévation.
         base_hits = int(c.get("base_hits") or 0)  # hits APRÈS PowerTrip, AVANT GetStuckIn
         if base_hits <= 0:
+            return 0
+        # GetBonusHitChance @180f83460 : AdjacentUnits(target, ring 1) -> UnitsFromFaction(Orks=5) >= 2
+        # OU Friends(caster) >= 4 -> chance_2 (=100) ; sinon chance (=30). Adjacence HEX (hexgeo, parité
+        # validée vs boardGraph) ; l'attaquant est compté à sa tuile d'ATTAQUE (attack_pos).
+        import hexgeo
+        att_id, tgt_id = c.get("att_id"), c.get("tgt_id")
+        team_by_id = c.get("team_by_id") or {}
+        faction_by_id = c.get("faction_by_id") or {}
+        att_team = team_by_id.get(att_id)
+        orks_adj = 0
+        friends_adj = 0
+        for uid, pos in (c.get("pos_by_id") or {}).items():
+            if uid == tgt_id or pos is None:
+                continue
+            p = apos if uid == att_id else pos    # le caster évalué à sa tuile d'attaque
+            if hexgeo.distance(tuple(p), tuple(tpos)) != 1:
+                continue
+            if att_team is not None and team_by_id.get(uid) == att_team:
+                friends_adj += 1
+                if (faction_by_id.get(uid) or "") == "Orks":
+                    orks_adj += 1
+        if orks_adj < 2 and friends_adj < 4:      # chance = 30 -> Nullable EXCLU de la prédiction
             return 0
         return base_hits // 2                     # +1 coup par coup d'index impair = floor(hits/2)
 

@@ -105,15 +105,22 @@ def add_modifier(acc: DamageModifiers, eb: EffectBonus) -> None:
 
 def apply_capped_modifiers(value: int, mods: DamageModifiers) -> int:
     """DamageCalculations.ApplyCappedModifiers @181000020 — réducteur du `%-list` :
-        POUR CHAQUE (mult, cap) : value = clamp(round(value × mult), −cap, +cap).
-    (Le `%-list` SEUL est appliqué ici, fidèle au natif. L'`additif` plat est appliqué à part —
-    cf. apply_all_modifiers.)"""
-    v = value
+        POUR CHAQUE (mult, cap) : value = value × mult   [Fix64, PAS d'arrondi int intermédiaire]
+                                  si cap : value = clamp(round(value), −cap, +cap)
+        retour : round(value)   [conversion int UNIQUE en fin de chaîne]
+    ⚠ COMPOSITION SANS ARRONDI INTERMÉDIAIRE (#98, MESURÉ live) : le natif compose les entrées %-list
+    en Fix64 (fractionnaire) et ne matérialise l'int qu'UNE fois — un arrondi PAR entrée divergeait de
+    ±1/coup dès 2 mults (u80 darkaTerminator, CrushingStrike×Élévation = ×1.5×1.5 : bouts natifs per-coup
+    3980/5969 = round(1769×2.25)/round(2653×2.25) ; round-par-entrée donnait 3981/5970). Une entrée
+    CAPÉE matérialise (clamp sur int) à sa position — sans consommateur actuel (les pct portés sont tous
+    cap=None) ; mono-mult : round(v×m) STRICTEMENT inchangé (tous les cas validés ×1.25/×1.33/×0.7/×0.25
+    préservés bit-exact). L'`additif` plat est appliqué à part — cf. apply_all_modifiers."""
+    v = float(value)
     for mult, cap in mods.pct_list:
-        v = round(v * mult)
+        v = v * mult
         if cap is not None:
-            v = max(-cap, min(cap, v))
-    return v
+            v = float(max(-cap, min(cap, round(v))))
+    return round(v)
 
 
 def apply_all_modifiers(value: int, mods: DamageModifiers) -> int:

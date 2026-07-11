@@ -17,7 +17,6 @@ STRUCTURE (calquée 1:1 sur le natif — le `×hits` N'est PAS dans PredictAttac
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field, replace
 
 from .min_max_damage import MinMaxDamage
@@ -362,8 +361,8 @@ def get_multi_hit_attack_prediction(
         profile_type: int = 0, armor: int = 0, pierce_pct: int = 100, extra_max: int = 0,
         mods: DamageModifiers | None = None, hit_mult: int = 1,
         reduction_min: int = 0, reduction_max: int = 0, spread_pct: int = 20,
-        target_shield: int = 0, might_crit: bool = False, target_limits: dict | None = None,
-        damage: int | None = None) -> DamagePredictionResult:
+        target_shield: int = 0, might_crit: bool = False,
+        target_limits: dict | None = None) -> DamagePredictionResult:
     """`BattleQuery.GetMultiHitAttackPrediction` @181066080 — LA boucle multi-coups (le `×hits` est ICI, PAS
     dans PredictAttackRaw) :
         result = predict_attack_raw(coup 1, prev=vide)
@@ -373,15 +372,13 @@ def get_multi_hit_attack_prediction(
     @18102a710 somme les Accurate*. L'ADDITIF plat (ForAddition, ex. −582) s'applique PAR COUP dans
     `predict_attack_raw` (mirror natif ; PAS une fois sur l'agrégat — #70).
 
-    Base par coup : NORMALE = `GetBaseDamageFix64(initial_damage)` (spread de la stat Attack) ; SPÉCIALE
-    (`damage` fourni = `GetDamage` int de l'ability) = plage reconstruite `(ceil(0.8·d/hits), ceil(2.2·d/hits))`.
-    ⚠ Le facteur 2.2 reste EMPIRIQUE (origine structurelle non lue — cf. #49) ; TODO : porter le
-    predefinedRange minDmg/maxDmg réel de l'ability (nullable natif @param_3+0x58)."""
+    Base par coup = `GetBaseDamageFix64(initial_damage)` = `{0.8·base, 1.2·base+extraMax}` (±20%, RE
+    @181030ba0 slots 8/9 = 0.8/1.2). `initial_damage` = stat Attack (NORMALE) OU `GetDamage` avg(minDmg,maxDmg)
+    scalé rareté (SPÉCIALE générique). ⚠ L'ancien chemin `damage=`/plage empirique `(0.8·d/hits, 2.2·d/hits)`
+    est SUPPRIMÉ : RE PredictAttackRaw @181032fb0 = base 1 SEUL int -> GetBaseDamageFix64 ±20% (OU flat via
+    byte @param_3+0x6a), aucun facteur 2.2, aucune paire {minDmg,maxDmg}. Les specials Attack-based
+    (PlasmaCannon/SpiritLeech) ne passent PAS ici (routés via _PREDICT_VIA_NORMAL_ATTACK)."""
     hits = max(1, hits)
-    predefined = None
-    if damage is not None:
-        d_hit = damage / hits
-        predefined = MinMaxDamage(min=math.ceil(0.8 * d_hit), max=math.ceil(2.2 * d_hit))
 
     def _hit(prev: "BlockScenario") -> DamagePredictionResult:
         return predict_attack_raw(
@@ -389,7 +386,7 @@ def get_multi_hit_attack_prediction(
             extra_max=extra_max, mods=mods, hit_mult=hit_mult, reduction_min=reduction_min,
             reduction_max=reduction_max, spread_pct=spread_pct,
             target_current_health=target_current_health, target_shield=target_shield,
-            target_limits=target_limits, predefined=predefined, might_crit=might_crit)
+            target_limits=target_limits, might_crit=might_crit)
 
     result = _hit(BlockScenario())                          # coup 1 : prev vide → ressources pleines
     for _i in range(1, hits):

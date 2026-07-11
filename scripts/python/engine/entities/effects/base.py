@@ -77,7 +77,8 @@ class BaseEffect:
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
                                               has_moved: bool | None = None,
                                               target_traits: "frozenset[str] | None" = None,
-                                              is_prediction: bool = False) -> EffectBonus | None:
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True) -> EffectBonus | None:
         """`<Effect>.CreateEffectDamageBonusForAttack` — contribution au scalaire dégât (additif/percent).
         `target_traits` = noms de traits gameconfig de la CIBLE (mirror `HasTrait(target,…)` natif) pour
         les bonus target-conditionnels (ex. BeastSlayer vs BigTarget/Vehicle) ; None = cible inconnue.
@@ -85,7 +86,9 @@ class BaseEffect:
         RangedSpecialist). `has_moved` = la position d'attaque diffère de la position COURANTE (candidat
         avec déplacement) : effets gated no-move (`!HasFlag(HasMoved=0)`, ex. HeavyWeapon @180f4f030 —
         GROUND TRUTH step-23 : les tuiles ranged AVEC déplacement de u78 collent SANS ×1.25 ; step-11 :
-        « ×1.25 selon tuile »). None = contexte inconnu."""
+        « ×1.25 selon tuile »). `is_normal_attack` = mirror du nœud DSL `IsNormalAttack` (attaque normale
+        vs spéciale — gate de CrushingStrike @180f3ad90 ; True par défaut : les call-sites normale ne le
+        passent pas). None = contexte inconnu."""
         return None
 
     def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True) -> EffectBonus | None:

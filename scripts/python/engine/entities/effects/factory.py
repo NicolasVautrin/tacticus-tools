@@ -12,6 +12,7 @@ from .base import BaseEffect
 from .loki import (
     ActOfFaithBuffEffect,
     BigTargetAdjacentEffect,
+    CrushingStrikeEffect,
     FightingRetreatDmgReductionEffect,
     FightingRetreatHitReductionEffect,
     GuardianOrganismDamageReductionEffect,
@@ -56,6 +57,10 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "StandVigil_ExtraArmor": StandVigilExtraArmorEffect,
     "RangedSpecialist": RangedSpecialistEffect,  # +33% dégât RANGED (trait, actif si pas parti adjacent)
     "HeavyWeapon_ExtraDmg": HeavyWeaponExtraDmgEffect,   # +25% dégât RANGED (trait HeavyWeapon→Overwatch)
+    # CrushingStrike (trait Terminators, effet 0x4a2=1186, nom capté = 'CrushingStrike') : +50% dégât
+    # MÊLÉE NORMALE si pas bougé (@180f3ad90 ForPercentIncrease gated OwnerIsCaster & IsNormalAttack &
+    # IsMeleeAttack ; ActiveCondition NOT HasMoved @180f3ad50). #98.
+    "CrushingStrike": CrushingStrikeEffect,
     # SmashaEad (orksNob "Tanksmasha") : +extraDmg[level]×mult FLAT au dégât des attaques NORMALES
     # (effet posé quand le porteur a traversé ≥2 hexes ce tour ; @180f6bee0 ForAddition). #68.
     "SmashaEad": SmashaEadExtraDamageEffect,

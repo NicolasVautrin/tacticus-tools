@@ -26,10 +26,12 @@ from engine.entities.effects import (
     hits_bonus_from_effects, hits_malus_from_defender_effects)
 from engine.entities.traits import attacker_bonus_hits
 from engine.entities.stats import StatType, StatPart
-from engine.services.damage_prediction import get_attack_prediction, get_multi_hit_attack_prediction
+from engine.services.damage_prediction import get_attack_prediction
 from engine.services.min_max_damage import MinMaxDamage
 from engine.services.damage_modifiers import (
-    add_modifier, calculate_ranged_in_melee_reduction, calculate_trench_reduction)
+    ELEVATION_BONUS_PCT, EFFECT_NO_ELEVATION, add_modifier,
+    calculate_elevation_bonus_modifier, calculate_ranged_in_melee_reduction,
+    calculate_trench_reduction)
 from engine.services.battle_query import select_weapon_pierce, are_tiles_adjacent
 from engine.services.attack_hits_formula import attack_hits_with_modifiers
 from engine.playbook.probable_damage_event import ProbableDamageEvent
@@ -38,10 +40,12 @@ import json as _json
 _DMG_CFG: dict = _json.loads(_weights.DEFAULT_BC.read_text(encoding="utf-8")).get("Damage", {}) \
     if _weights.DEFAULT_BC.exists() else {}
 # Feuilles positionnelles de CalculateAttackerModifiersForPrediction @181000590 (PAS des effets) :
-# ELEVATION (ELEVATION_BONUS_PCT/EFFECT_NO_ELEVATION) = modificateur COMBAT reel (melee ET ranged) applique
-# par `runner/damage_model.apply_elevation_bonus` ; le PREVIEW de prediction de l'IA (GetAllPredictions) ne le
-# calcule PAS (ground truth aiPredict) -> ces constantes ne sont plus importees ici (cf.
-# `_add_positional_and_defender_mods`). RangedInMelee/defenseur, EUX, sont dans le preview (10/11).
+# ELEVATION : le builder PREDICTION @181000590 l'INCLUT, INLINEE (read-L1161-1192 : gate !HasEffect(0x423)
+# attaquant ET cible + GetMainTile(cible) + `target.elev < attackTile.elev` -> +config.ElevationBonus) —
+# AUCUN appel a la feuille @181003ea0 (inlining), d'ou le faux verdict xref #67 « pas d'elevation en
+# prediction » (REFUTE #98 : aiPredict u80 (6,6) elev2>1 = x2.25 = CrushingStrike(1.5) x Elevation(1.5) ;
+# tuile candidate (5,7) elev egale = x1.0 EXACT -> evaluee a la TUILE CANDIDATE). Cf.
+# `_add_positional_and_defender_mods`. RangedInMelee/defenseur aussi dans le preview (10/11).
 # RANGED_IN_MELEE_PCT / TRENCH_PCT (ci-dessous) : config native = pourcentage NEGATIF (ReductionPercentage
 # =-50) ; le port passe la MAGNITUDE a calculate_*_reduction (kind PercentDecrease -> add_modifier flippe le
 # signe -> x0.5). Cf.
@@ -95,18 +99,29 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
         Scene → non applicable tant que la donnée tuile-trench n'est pas exposée (structurellement présent,
         no-op ici : `target_on_trench=False`).
       • DÉFENSEUR (`CalculateDefenderModifiersForPrediction` : effets de la CIBLE réduisant le dégât reçu)."""
-    # ELEVATION : PAS appliquee dans le PREVIEW de prediction de l'IA. L'elevation EST un modificateur de
-    # COMBAT reel (ground truth jeu : bonus surplomb +50%, MELEE **et** RANGED) -> applique par le combat
-    # (`runner/damage_model.apply_elevation_bonus`, positions REELLES, inchange). MAIS le preview de degat que
-    # l'IA calcule pour classer ses moves (`BattleQuery/DamagePrediction.GetAllPredictions`, = l'oracle
-    # decisionView) NE le calcule PAS. GROUND TRUTH LIVE (aiPredict = GetAllPredictions direct) : dmg u90->u86
-    # IDENTIQUE a la tuile candidate ELEVEE (5,4 elev3) ET a la tuile courante (3,2 elev2) -> insensible a
-    # l'elevation ; et u88 (tuile courante (4,4) elev2 > cible (6,7) elev1) n'a AUCUN bonus dans decisionView.
-    # (Le preview INCLUT en revanche RangedInMelee + defenseur ci-dessous : les 10/11 collent avec.) Le builder
-    # `CalculateAttackerModifiersForPrediction @181000590` (feuille elevation @181003ea0) est un MISNOMER = mods
-    # de COMBAT, pas ce que consomme le preview IA (#58 "verdict RE cluster : misnomer ForPrediction"). Le port
-    # l'ajoutait a tort ici -> sur-predisait u90 (candidate elevee, ranged) x1.5 ; corrige l'hypothese
-    # "per-tuile candidate" de #58 (qui ne tenait que sur les cas SANS elevation au-dessus de la cible).
+    # ELEVATION (#98 — RENVERSE le verdict #67 « pas d'elevation en prediction ») : le builder PREDICTION
+    # @181000590 (qui FIRE bien 33x par tour de decision, mesure modifier-observe) l'applique INLINEE
+    # (read-L1161-1192, aucun appel a @181003ea0 -> le xref-check #67 ne pouvait pas la voir) :
+    #   if attackTile && !HasEffect(att,0x423) && !HasEffect(tgt,0x423) && GetMainTile(tgt):
+    #       if tgt.elev < attackTile.elev : bonus = Nullable(config.ElevationBonus)   # -> Add (%-list)
+    # Evaluee a la TUILE CANDIDATE `attack_pos` (mirror local_588) vs la tuile REELLE de la cible.
+    # GROUND TRUTH #98 (u80 darkaTerminator seed777 r1) : aiPredict (6,6) elev2>1 not-moved = x2.25
+    # = CrushingStrike(1.5) x Elevation(1.5) EXACT ([11940,17907] = port x2.25) ; candidates (5,7)/(5,6)/
+    # (6,8) elev1=1 = x1.0 EXACT. Les contre-cas historiques #67 (u90 : dmg identique tuiles elev2/elev3 ;
+    # u88 : elev2>1 sans bonus) sont a re-verifier avec la methode artefact-aware (#96 : le cache aiPredict
+    # collisionne par (unit,cible,tuile) et peut servir une valeur d'une autre ability/etat) — anomalies
+    # tracees dans docs/rl/playbook/prediction.md, PAS une raison de forker le port du builder lu.
+    if scene.elev_by_pos and attack_pos and t_pos:
+        a_elev = scene.elev_by_pos.get(tuple(attack_pos))
+        t_elev = scene.elev_by_pos.get(tuple(t_pos))
+        if a_elev is not None and t_elev is not None:
+            att_effects_ = scene.effects(att_id)
+            tgt_effects_ = scene.effects(tgt_id)
+            no_elev = any(e.effect_type == EFFECT_NO_ELEVATION for e in att_effects_) \
+                or any(e.effect_type == EFFECT_NO_ELEVATION for e in tgt_effects_)
+            eb = calculate_elevation_bonus_modifier(a_elev, t_elev, ELEVATION_BONUS_PCT, no_elev)
+            if eb is not None:
+                add_modifier(mods, eb)
     is_ranged = not is_melee
     if is_ranged and _should_apply_ranged_in_melee(scene, att_id, attack_pos):     # trait 0xb + adjacence
         eb = calculate_ranged_in_melee_reduction(True, RANGED_IN_MELEE_PCT)
@@ -233,7 +248,9 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # base weapon+ExtraHits+effets, +GetStuckIn/traits, +malus defenseur (LightCover/Parry) + auras (BigTarget).
     board = {"att_id": att_id, "tgt_id": tgt_id, "attack_pos": attack_pos, "t_pos": t_pos,
              "tgt_team": scene.team(tgt_id), "is_melee": is_melee,
-             "pos_by_id": scene.pos_by_id, "team_by_id": scene.team_by_id}   # pas de faction_of/visual_id (mort)
+             "pos_by_id": scene.pos_by_id, "team_by_id": scene.team_by_id,
+             # faction par unité — gate GetBonusHitChance de GetStuckIn (orks_adj>=2, @180f83460, #98)
+             "faction_by_id": {uid: scene.faction(uid) for uid in scene.pos_by_id}}
     tgt_effects = scene.effects(tgt_id)
     aura_sources = [(uid, scene.pos(uid), scene.team(uid), scene.effects(uid))
                     for uid in scene.pos_by_id if uid != tgt_id]
@@ -266,13 +283,22 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
     if cfg is None or not (cfg.has_variable("minDmg") or cfg.has_variable("maxDmg")):
         return None
     ab = active_ability_for(ability_name, ability_id, ctx, cfg)
-    base = ab.get_damage()
+    # Base de la PRÉDICTION spéciale = `predefinedRange` du request PredictAttackRaw @181032fb0 =
+    # Nullable<int> SCALAIRE = var d'ability **maxDmg** (id 0xd) au niveau actif (RE Étape-0 #52), PAS
+    # l'avg(min,max) (`get_damage`) : MESURÉ #96/#98 (PlasmaCannon u80, dumps GetBaseDamageWithFixed
+    # PiercedArmor pendant le remplissage du cache) bouts per-coup 1117/1675 = (maxDmg[65]=1164 ×
+    # mult 1.2 = 1396) ± 20% EXACT — `minDmg` est IGNORÉ par le preview. Fallback dmg/baseDmg pour les
+    # abilities sans min/max (inchangé).
+    lvl = ctx.active_ability_level
+    base = cfg.get_variable_for_level("maxDmg", lvl, 0) \
+        or cfg.get_variable_for_level("dmg", lvl, 0) \
+        or cfg.get_variable_for_level("baseDmg", lvl, 0)
     if base <= 0:
         return None
     a = GC.ability(ability_name) or {}
     affected = set(a.get("variablesAffectedByRarityBonus") or [])   # rarity mult (AbilityVariablesMultiplier)
     mult = scene.mult(uid)
-    if mult and mult != 100 and ({"minDmg", "maxDmg"} & affected):
+    if mult and mult != 100 and ({"maxDmg", "dmg", "baseDmg"} & affected):
         base = (base * mult) // 100
     is_melee = (a.get("attackRangeType") or "").lower() == "melee"
     hits = max(1, ab.get_special_hits(is_melee))
@@ -281,31 +307,25 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
     dp = GC.damage_profile(profile_name) or {}
     dir_pierce = ctx.extra_pierce_melee if is_melee else ctx.extra_pierce_ranged
     pierce = max(0, min(100, int(dp.get("PiercingRatio") or 0) + ctx.extra_pierce + dir_pierce))
-    mods = calculate_attacker_modifiers_for_prediction(scene.effects(uid), is_normal_attack=False)
+    # Mods attaquant : MÊME builder @181000590 que la normale (le natif ne distingue pas par ability) —
+    # threader la nature du coup + le flag has-moved de la tuile candidate (gates IsRangedAttack /
+    # NOT HasMoved des effets, ex. HeavyWeapon +25% ranged not-moved s'applique aux spéciales ranged).
+    _hm = (attack_pos != scene.pos(uid)) if attack_pos else None
+    mods = calculate_attacker_modifiers_for_prediction(scene.effects(uid), is_ranged=not is_melee,
+                                                       has_moved=_hm, is_normal_attack=False)
     t_pos = scene.pos(tgt)
     _add_positional_and_defender_mods(mods, scene, uid, tgt, is_melee, attack_pos, t_pos,
                                       damage_profile=profile_name)
     tgt_shield = scene.shield(tgt)
-    d_multi = ab.get_multi_hit_damage()      # GetDamage int par-ability (slot virtuel)
-    if d_multi and mult and mult != 100 and ("minDmg" in affected):
-        d_multi = (d_multi * mult) // 100
-    if d_multi:
-        return get_multi_hit_attack_prediction(
-            target_current_health=scene.hp(tgt) or 0, damage=d_multi, hits=hits,
-            profile_type=profile_idx, pierce_pct=pierce, armor=scene.armor(tgt),
-            mods=mods, target_shield=tgt_shield, target_limits=_target_damage_limits(scene, tgt))
-    shield_raw = None
-    if tgt_shield > 0:
-        d_shield = ab.config.get_variable_for_level("minDmg", ab.caster.active_ability_level, 0) \
-            if ab.config else 0
-        if d_shield and mult and mult != 100 and ("minDmg" in affected):
-            d_shield = (d_shield * mult) // 100
-        if d_shield > 0:
-            shield_raw = MinMaxDamage(min=round(d_shield * hits * 0.8), max=round(d_shield * hits * 1.2))
+    # Base spéciale = `base` (avg(minDmg,maxDmg) scalé rareté) route par le MÊME chemin que la normale
+    # (GetBaseDamageFix64 ±20% dans predict_attack_raw). L'ancien chemin `get_multi_hit_attack_prediction(
+    # damage=...)` (plage empirique 0.8/2.2·d/hits) était FAUX (RE PredictAttackRaw @181032fb0 : base = 1 int
+    # -> ±20% [0.8/1.2], aucun 2.2) -> SUPPRIMÉ. Les specials Attack-based (PlasmaCannon/SpiritLeech) ne
+    # passent PAS ici (routés via _PREDICT_VIA_NORMAL_ATTACK). Le bouclier est déplété PAR COUP (prev).
     return get_attack_prediction(
         target_current_health=scene.hp(tgt) or 0, initial_damage=base, hits=hits,
         profile_type=profile_idx, pierce_pct=pierce, armor=scene.armor(tgt),
-        mods=mods, target_shield=tgt_shield, shield_raw=shield_raw,
+        mods=mods, target_shield=tgt_shield,
         target_limits=_target_damage_limits(scene, tgt))
 
 
@@ -325,6 +345,20 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
 # overrides de `GetAttackDamage` du binaire audités — SpiritLeech (1104) = SEUL special à id gameconfig dont
 # le dégât PRÉDIT diverge de son config ; ExemplarOfHate (1140) = config (pas de divergence) ; PsykerExtraAttack
 # = absent de l'enum ACTIVE_ABILITY_TYPE ; ElectroShock_NormalAttack (1178) = variante normale (kind==normal).
+# Specials dont la PRÉDICTION de dégât santé est Attack-based (slot vtable PredictAttack 0x27 hérité de
+# ALoki_NormalAttackAbility.PredictAttack @1811afa50 -> RECALCULE via l'arme/GetStat(Attack), config IGNORÉ).
+# ⚠⚠ PIÈGE MÉTHODOLOGIQUE (#96 REVERTÉ, 2026-07-11) : la « preuve » `aiPredict(special) == aiPredict(
+# normale id69) bit-exact` est INVALIDE — `DamagePredictionQuery.GetAllPredictions(unit, tile, ability)
+# @181090f50` (ce que le RPC aiPredict invoque, cache OU fresh : vérifié IDENTIQUE via aiPredict
+# fresh:true sur la query interne) est le PREVIEW decisionView, dont le DÉGÂT est Attack-based quel que
+# soit l'abilityType passé — ce N'est PAS le dégât per-ability du PLAYBOOK de décision. La vérité
+# playbook (ce que ce module mirror) = les évaluations FRAÎCHES du tour de décision IA, captées
+# modifier-observe : PlasmaCannon y est CONFIG-based (bouts per-coup 1117/1675 = maxDmg[65]=1164 ×
+# mult 1.2 = 1396 ± 20% ; ×mods ranged 1.875 = HeavyWeapon×Élévation dans predCalcDumps). PlasmaCannon
+# RETIRÉ du set. Preuve exigée pour tout ajout = per-bout FRAIS (dumps GetBaseDamageWithFixedPiercedArmor
+# + predCalcDumps pendant le tour de décision), JAMAIS une égalité aiPredict. SpiritLeech (#90) reste
+# routé sur la foi du RE de SA chaîne playbook (#92 : SpiritLeechPlaybook @18115d490 → slot 0x27) —
+# re-vérification artefact-aware = #101 (avec l'énumération vtable slot 0x27 #99).
 _PREDICT_VIA_NORMAL_ATTACK = frozenset({"SpiritLeech"})
 
 
@@ -333,15 +367,28 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
     (`GetSurroundingUnits`/`GetOtherTargets`) + event SELF négatif (coût PV). `[]` si non-attaque."""
     if not makes_damage_predictions(ability_name):
         return []
-    # PredictAttack hérité de la normale (SpiritLeech) -> dégât santé = prédiction d'attaque NORMALE (#90).
-    if ability_name in _PREDICT_VIA_NORMAL_ATTACK:
-        ev = make_normal_attack_predictions(scene, caster_id, main_tgt_id, attack_pos)
-        return [ev] if ev is not None else []
-    dp = generate_multi_hit_attack_prediction(scene, caster_id, main_tgt_id, ability_id, ability_name,
-                                              attack_pos=attack_pos)
-    if dp is None:
+    # PredictAttack HÉRITÉ de la normale (slot vtable 0x27 -> ALoki_NormalAttackAbility.PredictAttack) :
+    # dégât santé = prédiction d'attaque NORMALE (Attack-based), le config minDmg/maxDmg est IGNORÉ.
+    # SpiritLeech (#90) seul — PlasmaCannon RETIRÉ (#96 reverté : artefact de collision du cache aiPredict,
+    # cf. le commentaire du set). Le batch principal ET les batches SECONDAIRES (AoE) passent tous par slot
+    # 0x27 dans `<Ability>Playbook.MakeDamagePredictions` (PlasmaCannonPlaybook @181150b10 : main +
+    # UnitsDirectlyBehind, les 2 via GenerateMultiHitAttackPredictions) -> routage PAR CIBLE homogène.
+    via_normal = ability_name in _PREDICT_VIA_NORMAL_ATTACK
+
+    def _event(tid, prob1=1.0):
+        if via_normal:
+            ev = make_normal_attack_predictions(scene, caster_id, tid, attack_pos)
+            if ev is not None and prob1 != 1.0:
+                ev.probability1 = prob1
+            return ev
+        dp = generate_multi_hit_attack_prediction(scene, caster_id, tid, ability_id, ability_name,
+                                                  attack_pos=attack_pos)
+        return ProbableDamageEvent(target=tid, prediction=dp, probability1=prob1) if dp is not None else None
+
+    main = _event(main_tgt_id)
+    if main is None:
         return []
-    events = [ProbableDamageEvent(target=main_tgt_id, prediction=dp)]
+    events = [main]
     ctx0 = scene.ctx(caster_id)
     cfg = AbilityConfiguration.from_gameconfig(ability_name, GC.ability(ability_name))
     if ctx0 is None or cfg is None:
@@ -358,11 +405,9 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
     maxsec = ab.get_max_secondary_targets()
     prob1 = (min(1.0, maxsec / len(aoe)) if (maxsec is not None and aoe) else 1.0)
     for t in aoe:
-        tid = t.get("id")
-        adp = generate_multi_hit_attack_prediction(scene, caster_id, tid, ability_id, ability_name,
-                                                   attack_pos=attack_pos)
-        if adp is not None:
-            events.append(ProbableDamageEvent(target=tid, prediction=adp, probability1=prob1))
+        aev = _event(t.get("id"), prob1)
+        if aev is not None:
+            events.append(aev)
     # Event SELF négatif — coût en PV (`ability.GetHealthToLose`), utilité NÉGÉE (friendly).
     hp_c = scene.hp(caster_id) or 0
     max_c = scene.hpmax(caster_id) or hp_c

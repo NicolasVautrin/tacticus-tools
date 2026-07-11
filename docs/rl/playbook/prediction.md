@@ -1127,6 +1127,54 @@ pose damageFormula/hits/Nullable<int> + un `param_10` fraction-provider AoE-fall
   lire `dmgMM` per-coup, comparer a d et d/hits, NE PAS fitter. Enumeration complete des abilities posant le
   flag no-spread = tache de fidelite ouverte.
 
+#### MAJ #96 REVERTÉ + #98 RÉSOLU (2026-07-11) — le piège aiPredict, CrushingStrike×Élévation, composition %-list
+
+**⚠⚠ #96 REVERTÉ — la « preuve bit-exacte » `aiPredict(1150) == aiPredict(69) == [11940,17907]` était un
+ARTEFACT DE MESURE, pas un mécanisme.** Élucidation (session Fable) :
+- `aiPredict` invoque `DamagePredictionQuery.GetAllPredictions(unit, tile, ability) @181090f50` (via le wrapper
+  `CachedDamagePredictionQuery @180e2d990`, clé = {unitId, tileId, abilityType} — l'ability EST dans la clé, le
+  cache n'était PAS le coupable). Vérifié avec le nouveau `aiPredict {fresh:true}` (query interne @+0x10, sans
+  cache) : PlasmaCannon fresh == normale fresh == `[11940,17907]`. **C'est la SÉMANTIQUE de GetAllPredictions :
+  un PREVIEW decisionView dont le dégât est Attack-based quel que soit l'abilityType — PAS le dégât per-ability
+  du PLAYBOOK de décision.** Toute « preuve » par égalité aiPredict(special)==aiPredict(normale) est invalide.
+- **La vérité PLAYBOOK** (ce que le port mirror) = les évaluations FRAÎCHES du tour de décision IA, captées
+  modifier-observe PENDANT le remplissage du cache (`aiPlayByUnit` observé) : PlasmaCannon y est **CONFIG-based**
+  — bouts per-coup `1117/1675` = `maxDmg[65]=1164 × mult 120% = 1396 ± 20%` (`minDmg` IGNORÉ : base =
+  `predefinedRange` SCALAIRE = var maxDmg id 0xd, RE Étape-0 #52), ×mods ranged `×1.875 = HeavyWeapon(1.25) ×
+  Élévation(1.5)` visibles dans `predCalcDumps`. → PlasmaCannon **retiré** de `_PREDICT_VIA_NORMAL_ATTACK` ;
+  base spéciale du port = maxDmg (plus l'avg). SpiritLeech reste routé (RE de SA chaîne playbook #92, indépendant
+  d'aiPredict) — re-vérification artefact-aware = #101. GAP restant : niveau/mult PER-ABILITY de la base spéciale
+  (snapshot lvl50×180 vs natif maxDmg[65]×120) = **#100**.
+- **GARDÉ de #96** : suppression du chemin mort 0.8/2.2 (`get_multi_hit_attack_prediction(damage=...)` /
+  `predefined` / `shield_raw`) — le 2.2 n'existe pas dans le natif (RE PredictAttackRaw).
+
+**#98 RÉSOLU BIT-EXACT** (port `[11940,17907]` == natif, u80 darkaTerminator→u78 seed777 r1 depuis (6,6) ;
+tuiles déplacées `[5307,7959]` == natif) : le ×2.25 = **CrushingStrike(+50%) × ÉlévationBonus(+50%)**, composition
+%-list **multiplicative sans arrondi intermédiaire**. Trois fixes moteur :
+1. **CrushingStrikeEffect porté** (`entities/effects/loki.py`, effet 0x4a2=1186) : `ForPercentIncrease(
+   OwnerIsCaster & IsNormalAttack & IsMeleeAttack, crushingStrikeExtraDmgPct=50)` @180f3ad90 (constante PLATE
+   `GetNumberConstant` idx 0xf, non rarity-scalée) + ActiveCondition not-moved @180f3ad50. `is_normal_attack`
+   threadé dans `create_effect_damage_bonus_for_attack` (le gate IsNormalAttack exclut les spéciales mêlée).
+2. **Élévation RÉACTIVÉE en prédiction** (`_add_positional_and_defender_mods`) : le verdict #67 « pas d'élévation
+   en préd » est **RÉFUTÉ PAR LECTURE** du builder `CalculateAttackerModifiersForPrediction @181000590`
+   (read-L1161-1192) : l'élévation y est **INLINÉE** (gate `!HasEffect(0x423)` att+cible, `GetMainTile(cible)`,
+   `tgt.elev < attackTile.elev` → +config.ElevationBonus) — AUCUN appel à la feuille @181003ea0, d'où le
+   xref-check #67 aveugle. Évaluée à la **TUILE CANDIDATE** (mesuré : (6,6) elev2>1 ×1.5 ; (5,7) elev égale ×1.0
+   exact). Le builder FIRE bien en prédiction (33×/tour de décision, compteur `attackerMods`) — le « misnomer
+   ForPrediction » de #58 est aussi réfuté. Anomalies historiques u88/u90 (#67) à re-vérifier artefact-aware.
+3. **`apply_capped_modifiers` : composition sans arrondi int intermédiaire** (`services/damage_modifiers.py`) :
+   le natif compose les entrées %-list en Fix64 et ne matérialise l'int qu'une fois — round-par-entrée divergeait
+   de ±1/coup dès 2 mults (bouts natifs `3980/5969` = `round(1769×2.25)/round(2653×2.25)` ; par-entrée donnait
+   `3981/5970`). Mono-mult strictement inchangé (tous les cas validés préservés).
+
+**MÉTHODE (harnais — reproduire pour tout écart de prédiction)** : (1) recon kit complet (`gameconfig.py <unit>`) ;
+(2) lire le builder @181000590 (les gates) ; (3) `modifierObserveInstall` → `modifierObserveReset` →
+`aiPlayByUnit` (tour de décision OBSERVÉ = la seule fenêtre fiable) → `modifierObserveStatus` : `multDumps`
+(chaque multiplicateur composé, ×1000), `predCalcDumps` (in→out per-bout = le ×k par étage), `valueDumps`
+(bouts post-perçage, ring 200), `varLevelDumps` (variables d'ability niveau×mult) ; (4) tuiles candidates
+séparatrices ((6,6) not-moved+élévation vs (5,7) moved+plate) ; (5) `aiPredict {fresh:true}` + `queryClass`
+pour dissiper les doutes de cache — en gardant à l'esprit que GetAllPredictions ≠ oracle playbook.
+
 | Étape native | VA | Formule |
 |---|---|---|
 | `HealAbility.HealAmount` | `@180e345b0` | `healAmount = StatAmount(weapon) × max(WeaponHighestHits, 1)` |

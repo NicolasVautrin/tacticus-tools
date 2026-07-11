@@ -30,6 +30,7 @@ from ...services.effect_bonus import for_armor_penetration
 from .base import BaseEffect, SubEffectSpec, SAME_TURNS
 from .factory import EFFECT_CLASSES, EffectFactory
 from .loki import (
+    CrushingStrikeEffect,
     KanOpenerEffect,
     PowerTripFullHealthEffect,
     PowerTripIgnoreArmorEffect,
@@ -39,7 +40,7 @@ from .loki import (
 
 __all__ = [
     "BaseEffect", "SubEffectSpec", "SAME_TURNS", "EffectFactory", "EFFECT_CLASSES",
-    "RapidAssaultExtraDamageEffect", "PowerTripFullHealthEffect",
+    "CrushingStrikeEffect", "RapidAssaultExtraDamageEffect", "PowerTripFullHealthEffect",
     "PowerTripIgnoreArmorEffect", "KanOpenerEffect", "StunnedEffect",
     "build_attacker_modifiers_from_effects", "calculate_attacker_modifiers_for_prediction",
     "build_defender_modifiers_from_effects",
@@ -68,7 +69,8 @@ def _attacker_effect_bonuses(effects, is_ranged: bool | None, is_normal_attack: 
     bonuses = []
     for e in _as_effects(effects):
         db = e.create_effect_damage_bonus_for_attack(is_ranged, has_moved, target_traits=target_traits,
-                                                     is_prediction=is_prediction)
+                                                     is_prediction=is_prediction,
+                                                     is_normal_attack=is_normal_attack)
         if db is not None:
             bonuses.append(db)
         pen = e.get_armor_penetration(is_normal_attack)
