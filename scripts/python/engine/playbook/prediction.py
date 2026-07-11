@@ -450,6 +450,61 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
     return events
 
 
+_HAMMER_ABILITY_NAME = "HammerOfWrath"
+_HAMMER_MAX_SECONDARY = 3   # SelectUniqueUnits(GetAdjacentTargets, 3)
+
+
+def make_hammer_wrath_events(scene, caster_id, target_id, attack_pos):
+    """Events dégât INTERNES de HammerOfWrath (id 1153) pour scorer son utilité de DÉCISION NonComparable
+    (`HammerOfWrathPlaybook.EvaluateNonComparable @181141680`), depuis `attack_pos` (tuile où le caster
+    charge). Bypass du gate d'affichage #109 (Hammer n'émet AUCUN ProbableDamageEvent affiché ; le dégât est
+    consommé EN INTERNE par l'utilité). Chaque event = `PredictAttack(0x27)` avec les `(damage, hits, profile)`
+    PROPRES de Hammer (config gqfc5mff6c vérifiée) :
+      - PRIMARY (cible) : base=`minDmg` (AbilityVariableType 12, GetMinDamage @1811e6660), hits=`nrOfHits`
+        (AbilityConstantType 47, ArmoriumCherubAbility.GetHits @180fb16c0 = 2), profil=`damageProfile` (Power).
+      - SECONDARY (chaque ennemi adjacent à la cible, `GetAdjacentTargets @1811e6150` =
+        `Enemies(AdjacentUnits(TARGET, r=1))`, plafond `SelectUniqueUnits(3)`) : base=`minDmg_2` (var 54,
+        GetMinDamage2 @1811e6610), hits=`nrOfHits_2` (const 50, BringerOfDespair.GetHitsToBonusTarget = 1),
+        profil=`damageProfile_2` (Physical).
+    Le reste du pipeline (spread ±20%, pierce, armure, mods attaquant/positionnels, bouclier) est identique au
+    chemin normal via `generate_multi_hit_attack_prediction` (base/hits/profile override). `[]` si indisponible."""
+    import hexgeo
+    ctx0 = scene.ctx(caster_id)
+    cfg = AbilityConfiguration.from_gameconfig(_HAMMER_ABILITY_NAME, GC.ability(_HAMMER_ABILITY_NAME))
+    if ctx0 is None or cfg is None:
+        return []
+    ab = active_ability_for(_HAMMER_ABILITY_NAME, 1153, ctx0, cfg,
+                            ability_state=scene.ability_state(caster_id, 1153))
+    lvl, mult = ab.level, ab.multiplier
+    minv = cfg.get_variable_for_level("minDmg", lvl, 0, mult)         # var 12 (GetMinDamage)
+    minv2 = cfg.get_variable_for_level("minDmg_2", lvl, 0, mult)      # var 54 (GetMinDamage2)
+    consts = cfg.constants or {}
+    hits1 = max(1, int(consts.get("nrOfHits") or 1))                  # const 47 (GetHits = 2)
+    hits2 = max(1, int(consts.get("nrOfHits_2") or 1))               # const 50 (GetHitsToBonusTarget = 1)
+    prof1 = consts.get("damageProfile")                              # Power
+    prof2 = consts.get("damageProfile_2")                            # Physical
+    dp = generate_multi_hit_attack_prediction(scene, caster_id, target_id, 1153, _HAMMER_ABILITY_NAME,
+                                              attack_pos=attack_pos, base_override=minv,
+                                              hits_override=hits1, profile_override=prof1)
+    if dp is None:
+        return []
+    events = [ProbableDamageEvent(target=target_id, prediction=dp)]
+    # SECONDARIES : Enemies(du caster) adjacents à la CIBLE (hex dist 1), plafond 3.
+    caster_team = scene.team(caster_id)
+    t_pos = scene.pos(target_id)
+    if t_pos is not None:
+        adj = [u for u in scene.pos_by_id
+               if u != target_id and scene.team(u) != caster_team
+               and scene.pos(u) is not None and hexgeo.distance(scene.pos(u), t_pos) == 1]
+        for sid in adj[:_HAMMER_MAX_SECONDARY]:
+            sdp = generate_multi_hit_attack_prediction(scene, caster_id, sid, 1153, _HAMMER_ABILITY_NAME,
+                                                      attack_pos=attack_pos, base_override=minv2,
+                                                      hits_override=hits2, profile_override=prof2)
+            if sdp is not None:
+                events.append(ProbableDamageEvent(target=sid, prediction=sdp))
+    return events
+
+
 def _self_damage_prediction(hp_c: int, hl: int):
     """`DamagePredictionResult` du coût self (santé perdue `hl`, pas de bouclier, appliedHits=0)."""
     from engine.services.damage_prediction import DamagePredictionResult

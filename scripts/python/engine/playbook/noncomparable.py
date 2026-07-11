@@ -882,6 +882,80 @@ class GauntletsOfUltramarPlaybook(NonComparablePlaybook):
                  "to": (best_t if best_t != ctx.origin else None), "pred": best_u}]
 
 
+def _enemy_killed_by_normal_attack(ctx: NCContext) -> bool:
+    """`BasePlaybook.EnemyCouldBeKilledWithNormalAttack(killSure=1) @18111dae0` : l'attaque NORMALE du
+    caster WillBeKill (dmgMin >= PV) un ennemi atteignable ? (`GetAllNormalAttackTargets` -> PredictAttack
+    (0x21) -> get_WillBeKill). Porté via le plan : evals de l'attaque NORMALE, une cible rankée sure-kill
+    (`dmgMin >= hp_cur`). Sert le gate ShouldEvaluate @181142320 de Hammer (`!EnemyCouldBeKilled...`)."""
+    me = next((u for u in (ctx.units or []) if u.get("id") == ctx.uid), None)
+    if me is None:
+        return False
+    normal_ids = {a.get("id") for a in (me.get("abilities") or []) if a.get("kind") == "normal"}
+    if not normal_ids:
+        return False
+    for ev in (ctx.plan.get("evals") or []):
+        if ev.get("abilityId") not in normal_ids:
+            continue
+        hp = ctx.hp_cur_by_id.get(ev.get("targetId"))
+        if hp is None:
+            continue
+        for rk in (ev.get("ranked") or []):
+            dmin = rk.get("dmgMin")
+            if dmin is not None and dmin >= hp:      # WillBeKill (sure-kill : dmgMin >= PV courants)
+                return True
+    return False
+
+
+class HammerOfWrathPlaybook(_PlanTargetPlaybook):
+    """`HammerOfWrathPlaybook.EvaluateNonComparable @181141680` (id 0x481=1153, bloodIntercessor). Charge
+    NonComparable : utilité de DÉCISION = Σ dégât INTERNE (cible + adjacents) + bonus trait, SANS émettre de
+    ProbableDamageEvent affiché (dégât exclu de la prédiction #109). Le caster CHARGE la cible (move + attaque).
+
+    - utilité(cible) = `+100·HasTrait(cible, 0x3eb=1003=Overwatch)` + `CalcUtilFromDamageEvent(PRIMARY)`
+      + `Σ_{adj ∈ SelectUniqueUnits(GetAdjacentTargets,3)} CalcUtilFromDamageEvent(SECONDARY)` + `5·CanAddUnit`
+      (OMIS v1). Chemin dégât = `make_hammer_wrath_events` (primary minDmg/nrOfHits/Power ; secondary
+      minDmg_2/nrOfHits_2/Physical sur ennemis adjacents à la cible), Σ `calculate_utility_from_damage_event`.
+    - MIN_UTILITY=1 (cctor @181142340) ; ctor @1811423b0 = `NonComparablePlaybook(0x481)` -> 1er arg =
+      ability_id, PRIORITY=0 (cf. #115). GenerateAction(position, cible, util) + AddAction (argmax via base).
+    - ShouldEvaluate @181142320 = `!EnemyCouldBeKilledWithNormalAttack(killSure)` : le natif N'ÉVALUE PAS
+      Hammer si l'attaque normale du caster sure-kill déjà un ennemi (économise la charge). Porté ci-dessous.
+    - Trait 1003 = `Overwatch` (enum UnitTrait, dump.cs gqfc5mff6c:863979 ; PAS BigTarget=1017).
+    v1 FLAG : `+5·CanAddUnit` OMIS (nécessite énumération de tuiles displacement — auto-task). Éligibilité +
+    tuile de charge = plan natif (evals rankées 1153), comme BloodyFury/Vexilla (_PlanTargetPlaybook)."""
+    ABILITY_ID = 1153
+    MIN_UTILITY = 1.0     # cctor @181142340 = Fix64(1)
+    PRIORITY = 0
+    _OVERWATCH = "Overwatch"   # trait 0x3eb=1003 (enum UnitTrait) -> +100 sur une cible en Overwatch
+
+    def generate_candidates(self, ctx: NCContext) -> list[dict]:
+        if _enemy_killed_by_normal_attack(ctx):   # ShouldEvaluate=false -> le natif n'évalue pas Hammer
+            if ctx.debug:
+                import sys
+                print(f"    [dbg NC u{ctx.uid}] Hammer SKIP (normal sure-kill)", file=sys.stderr)
+            return []
+        return super().generate_candidates(ctx)
+
+    def evaluate_non_comparable(self, tile, target, ctx):
+        if tile is None or ctx.scene is None:
+            return None
+        from engine.playbook.prediction import make_hammer_wrath_events
+        from engine.playbook.probable_damage_event import calculate_utility_from_damage_event
+        events = make_hammer_wrath_events(ctx.scene, ctx.uid, target, tile)
+        if not events:
+            return None
+        u = sum(calculate_utility_from_damage_event(ev, ctx.wt, ctx.scene.hpmax(ev.target))
+                for ev in events)
+        # +100 si la CIBLE a le trait Overwatch (HasTrait(target, 0x3eb) @181141680).
+        vis = next((x.get("visualId") for x in (ctx.obs_units or []) if x.get("squadId") == target), None)
+        if self._OVERWATCH in _traits(vis):
+            u += 100.0
+        if ctx.debug:
+            import sys
+            print(f"    [dbg NC u{ctx.uid}] Hammer tgt={target} tile={tile} events={len(events)} u={u:.1f}",
+                  file=sys.stderr)
+        return u
+
+
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
 PLAYBOOKS: dict[int, NonComparablePlaybook] = {
     pb.ABILITY_ID: pb for pb in (
@@ -899,6 +973,7 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         ScarabSummonPlaybook(),
         GetEmRuntzPlaybook(),
         GauntletsOfUltramarPlaybook(),
+        HammerOfWrathPlaybook(),
     )
 }
 
