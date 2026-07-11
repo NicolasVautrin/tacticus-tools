@@ -377,6 +377,17 @@ _NONCOMPARABLE_ABILITIES: "frozenset[str]" = frozenset({
     "RitesOfRestoration",  # RitesOfRestorationPlaybook : NonComparablePlaybook @181157a60 (soin AoE +
                          # résurrection, id 1039) ; utilité = 1 + Count(healTargets), résurrection-gated.
                          # PAS de prédiction de dégât (porté dans engine.playbook.noncomparable).
+    "GauntletsOfUltramar",  # GauntletsOfUltramarPlaybook : NonComparablePlaybook ; EvaluateNonComparable
+                         # @18113e5a0 = Min(base, #ennemis dans l'arc GetAllTargetsSelector→SelectUniqueUnits(3)),
+                         # heuristique de COMPTE — AUCUN CalculateUtilityFromDamageEvent, AUCUN ProbableDamageEvent.
+                         # (#109 : le port fabriquait un dégât depuis minDmg/maxDmg → faux positif vs oracle null.)
+    "HammerOfWrath",     # HammerOfWrathPlaybook : NonComparablePlaybook ; EvaluateNonComparable @181141680 ;
+                         # ShouldEvaluate @181142320 = !EnemyWillBeKilledWithNormalAttack. L'utilité de DÉCISION
+                         # utilise le dégât EN INTERNE (Σ CalculateUtilityFromDamageEvent(GetMinDamage/Profile/Hits)
+                         # cible+adjacents + HasTrait(0x3eb)→+100 + CanAddUnit→+5), MAIS le playbook reste
+                         # NonComparable → N'ÉMET AUCUN ProbableDamageEvent (MakeDamagePredictions=null, oracle
+                         # disp=[0,0]). Le port doit donc EXCLURE l'event de dégât affiché (#109). ⚠ Une utilité de
+                         # décision fidèle (NC) reste à porter dans engine.playbook.noncomparable si besoin décision.
 })
 
 
