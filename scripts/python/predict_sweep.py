@@ -116,6 +116,38 @@ def classify(eng, live):
     return "MAJOR"
 
 
+def hit_aura_hint(units, att_id, att_pos, att_team):
+    """INDICE DE CAUSE pour un ecart de COUPS (liveHits != engHits) : liste les ALLIES a portee
+    (hex<=2) porteurs d'une ability a variable `extraHits` -> aura de coups PROBABLE non portee
+    (ex. AstartesBanner range2 extraHits1 sur templAncient). Ces auras sont INVISIBLES dans
+    decisionView.effects (posees source-side, pas comme EffectComponent sur le beneficiaire) et
+    absentes du stat ExtraHits capte -> le harnais ne peut pas les seeder, mais il peut POINTER le
+    porteur probable. Indice heuristique (pas une preuve) : oriente la RE. `att_pos`=(col,row)."""
+    import hexgeo
+    hints = []
+    for u in units:
+        p = u.get("pos")
+        if not p or u.get("team") != att_team or u.get("id") == att_id:
+            continue
+        d = hexgeo.distance(att_pos, (p["col"], p["row"])) if att_pos else None
+        if d is None or d > 2:
+            continue
+        vis = u.get("visualId")
+        try:
+            abils = GC.unit_abilities(vis)
+        except Exception:
+            continue
+        for kind in ("passive", "active"):
+            for ent in (abils.get(kind) or []):
+                a = GC.ability(ent.get("name")) or {}
+                v = {**(a.get("constants") or {}), **(a.get("variables") or {})}
+                eh = v.get("extraHits")
+                if eh and str(eh) not in ("0", "0.0"):
+                    hints.append("u%s(%s)@hex%s %s:%s extraHits=%s range=%s"
+                                 % (u.get("id"), vis, d, kind, ent.get("name"), eh, v.get("range")))
+    return hints
+
+
 def build_rows(sid, rid, my_team, max_turns, topk):
     """Drive au contact puis balaye les triples (att, ability degat, cible ranked) -> rows classees."""
     rpc_b = lambda m, b, t: rpc(sid, m, b, t)
@@ -164,6 +196,7 @@ def build_rows(sid, rid, my_team, max_turns, topk):
     units = dec.get("units") or []
     kind_by = {}                                   # (att, ability_id) -> kind
     vis_by = {u.get("id"): u.get("visualId") for u in units}
+    team_by = {u.get("id"): u.get("team") for u in units}
     for u in units:
         for ab in (u.get("abilities") or []):
             kind_by[(u.get("id"), ab.get("id"))] = ab.get("kind")
@@ -191,6 +224,11 @@ def build_rows(sid, rid, my_team, max_turns, topk):
             live = live_main_event(sid, rid, att, tgt, aid)
             eng = engine_main_event(scene, att, tgt, aid, aname, kind, cur_tile)
             st = classify(eng, live)
+            # INDICE aura de coups : ecart liveHits vs engHits -> pointe un porteur extraHits a portee.
+            hint = None
+            if (live.get("hits") is not None and eng.get("hits") is not None
+                    and live["hits"] != eng["hits"]):
+                hint = hit_aura_hint(units, att, cur_tile, team_by.get(att)) or None
             rows.append({
                 "att": att, "attVis": vis_by.get(att), "tgt": tgt, "tgtVis": vis_by.get(tgt),
                 "ability": aname, "abilityId": aid, "kind": kind,
@@ -201,7 +239,7 @@ def build_rows(sid, rid, my_team, max_turns, topk):
                 "liveHits": live.get("hits"), "engHits": eng.get("hits"),
                 "liveErr": live.get("err"), "engErr": eng.get("err"),
                 "displayDmg": (r0.get("dmgMin"), r0.get("dmgMax")),   # decisionView best-tile (routage #103)
-                "status": st,
+                "status": st, "hitAuraHint": hint,
             })
     return rows, None
 
@@ -219,6 +257,8 @@ def _fmt_row(r):
         tail = " liveErr=%s" % r["liveErr"]
     elif r["engErr"]:
         tail = " engErr=%s" % r["engErr"]
+    if r.get("hitAuraHint"):
+        tail += " | AURA-COUPS? " + "; ".join(r["hitAuraHint"])
     return ("[%s] u%s(%s)->u%s(%s) live=%s eng=%s disp=%s hits(l/e)=%s/%s%s"
             % (r.get("seed"), r["att"], r["attVis"], r["tgt"], r["tgtVis"], pr(r["live"]), pr(r["eng"]),
                pr(r["displayDmg"]), r["liveHits"], r["engHits"], tail))
