@@ -275,7 +275,8 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     return ev
 
 
-def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_name, attack_pos=None):
+def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_name, attack_pos=None,
+                                         base_bonus: int = 0):
     """Per-cible de `ComparablePlaybook.GenerateMultiHitAttackPredictions @181409da0` : `DamagePredictionResult`
     d'UNE cible via le `(damage, hits, profile, pierce)` PROPRE de l'ability (`<Ability>.PredictAttack`,
     slot +0x27). None si non-attaque."""
@@ -305,6 +306,10 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
     base = ab.get_damage()
     if base <= 0:
         return None
+    # #108 GetCorrectDamage : clause conditionnelle sur le NB de cibles AJOUTÉE À LA BASE avant spread/mods
+    # (ex. MurderousSwing single-enemy +extraDmg). `base_bonus` fourni par `make_damage_predictions` (qui
+    # connaît le compte AoE) ; 0 pour toutes les abilities sans clause (get_correct_damage identité).
+    base += int(base_bonus or 0)
     a = GC.ability(ability_name) or {}
     is_melee = (a.get("attackRangeType") or "").lower() == "melee"
     hits = max(1, ab.get_special_hits(is_melee))
@@ -380,6 +385,29 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
     # 0x27 dans `<Ability>Playbook.MakeDamagePredictions` (PlasmaCannonPlaybook @181150b10 : main +
     # UnitsDirectlyBehind, les 2 via GenerateMultiHitAttackPredictions) -> routage PAR CIBLE homogène.
     via_normal = ability_name in _PREDICT_VIA_NORMAL_ATTACK
+    # ab/cfg/aoe construits ICI (AVANT le main event) car le compte AoE TOTAL (nrEnemies = 1 + secondaires)
+    # est requis pour la clause `GetCorrectDamage` (MurderousSwing : +extraDmg AJOUTÉ À LA BASE si UN seul
+    # ennemi touché, #108). `base_bonus` = delta de base, 0 pour toute ability sans clause (get_correct_damage
+    # = identité) -> aucun autre chemin affecté. Le natif calcule `nrEnemies=Count(targets)` de même AVANT
+    # d'appeler GetCorrectDamage puis GenerateMultiHitAttackPredictions par cible (MakeDamagePredictions).
+    ctx0 = scene.ctx(caster_id)
+    cfg = AbilityConfiguration.from_gameconfig(ability_name, GC.ability(ability_name))
+    ab = active_ability_for(ability_name, ability_id, ctx0, cfg,
+                            ability_state=scene.ability_state(caster_id, ability_id)) \
+        if (ctx0 is not None and cfg is not None) else None
+    aoe = []
+    if ab is not None:
+        by_id = {u.get("id"): u for u in scene.units}
+        dctx = dsl.DslContext(units=scene.units, caster=by_id.get(caster_id),
+                              target=by_id.get(main_tgt_id), config=cfg, ability_level=ab.level,
+                              times_attacked=getattr(ctx0, "times_attacked", 0) or 0,
+                              caster_pos=attack_pos, elev_by_pos=scene.elev_by_pos)
+        aoe = [t for t in ab.get_aoe_targets(dctx)
+               if t.get("id") is not None and t.get("id") != main_tgt_id]
+    base_bonus = 0
+    if ab is not None:                               # GetCorrectDamage(base, nrEnemies) - base (>= 0)
+        _b = ab.get_damage()
+        base_bonus = max(0, ab.get_correct_damage(_b, 1 + len(aoe)) - _b)
 
     def _event(tid, prob1=1.0):
         if via_normal:
@@ -388,26 +416,15 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
                 ev.probability1 = prob1
             return ev
         dp = generate_multi_hit_attack_prediction(scene, caster_id, tid, ability_id, ability_name,
-                                                  attack_pos=attack_pos)
+                                                  attack_pos=attack_pos, base_bonus=base_bonus)
         return ProbableDamageEvent(target=tid, prediction=dp, probability1=prob1) if dp is not None else None
 
     main = _event(main_tgt_id)
     if main is None:
         return []
     events = [main]
-    ctx0 = scene.ctx(caster_id)
-    cfg = AbilityConfiguration.from_gameconfig(ability_name, GC.ability(ability_name))
-    if ctx0 is None or cfg is None:
+    if ab is None:
         return events
-    ab = active_ability_for(ability_name, ability_id, ctx0, cfg,
-                            ability_state=scene.ability_state(caster_id, ability_id))
-    by_id = {u.get("id"): u for u in scene.units}
-    dctx = dsl.DslContext(units=scene.units, caster=by_id.get(caster_id), target=by_id.get(main_tgt_id),
-                          config=cfg, ability_level=ab.level,
-                          times_attacked=getattr(ctx0, "times_attacked", 0) or 0,
-                          caster_pos=attack_pos, elev_by_pos=scene.elev_by_pos)
-    aoe = [t for t in ab.get_aoe_targets(dctx)
-           if t.get("id") is not None and t.get("id") != main_tgt_id]
     # Plafond secondaire (`GetMaxSecondaryTargets`) -> poids batch `min(1, max/n)` = probability1.
     maxsec = ab.get_max_secondary_targets()
     prob1 = (min(1.0, maxsec / len(aoe)) if (maxsec is not None and aoe) else 1.0)

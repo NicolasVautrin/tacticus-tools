@@ -118,6 +118,13 @@ class AActiveAbility:
                 or self.config.get_variable_for_level("baseDmg", lvl, 0, mult)
         return 0
 
+    def get_correct_damage(self, base: int, nr_enemies: int) -> int:
+        """`<Ability>.GetCorrectDamage` — DÉFAUT = base seule (`GetMultipleUnitsDamage` générique : aucune
+        clause conditionnelle sur le NB de cibles). Override par-ability pour les clauses gatées sur le
+        nombre d'ennemis touchés (ex. MurderousSwing : +extraDmg si UN seul ennemi). `nr_enemies` = total
+        des cibles AoE (principale + secondaires)."""
+        return base
+
     def get_pierce(self) -> int:
         """pierceRatio (0..100). Défaut 100 = perçage neutre (pas de réduction armure) ; l'attaque
         normale surcharge avec le profil d'arme. (Abilities spéciales : profil config = TODO.)"""
@@ -345,11 +352,29 @@ class DakkaDakkaDakkaAbility(AActiveAbility):
         return (int(max_hp) * int(pct)) // 100 if pct else None
 
 
+class MurderousSwingAbility(AActiveAbility):
+    """`MurderousSwingAbility` (Tarvakh worldExecutions, id 1137). `GetCorrectDamage @1811c2c10` =
+    `If(AmountIsGreater(nrEnemies, Direct(1)), GetMultipleUnitsDamage=base, GetSingleUnitDamage=
+    Sum(base, Direct(GetVariableForLevel(8=extraDmg))))` (`@1811c2de0`/`@1811c2da0`). Le `+extraDmg`
+    (i2 « +1746 Damage si un seul ennemi ») est AJOUTÉ À LA BASE, AVANT le spread ±20% + les mods
+    (`predict_attack_raw`/`GetBaseDamageFix64`) → il scale min ET max PROPORTIONNELLEMENT
+    (`extraDmg / avg(minDmg,maxDmg) ≈ 0.60` à tous les niveaux → ratio ×1.60), ce N'EST donc NI un
+    additif à delta constant NI un %-mod (diagnostic #108 : oracle/moteur = ×1.601 UNIFORME min&max,
+    RapidAssault +25% déjà appliqué des deux côtés). `extraDmg` scalé `(level, mult)` comme minDmg/maxDmg."""
+
+    def get_correct_damage(self, base: int, nr_enemies: int) -> int:
+        if nr_enemies != 1 or self.config is None:   # >1 ennemi -> GetMultipleUnitsDamage = base seule
+            return base
+        extra = self.config.get_variable_for_level("extraDmg", self.level, 0, self.multiplier)
+        return base + int(extra or 0)                # GetSingleUnitDamage = base + extraDmg (key 8)
+
+
 _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
     "HarvesterOfSouls": HarvesterOfSoulsAbility,
     "BloodyFury": BloodyFuryAbility,
     "PlasmaCannon": PlasmaCannonAbility,
     "DakkaDakkaDakka": DakkaDakkaDakkaAbility,
+    "MurderousSwing": MurderousSwingAbility,
 }
 
 
