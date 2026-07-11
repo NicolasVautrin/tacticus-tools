@@ -32,13 +32,45 @@ _PROFILE_BY_INDEX = {
 
 class AActiveAbility:
     """Base ability active. `ability_type` = ActiveAbilityType ; `config` = AbilityConfiguration
-    (None pour l'attaque normale générique) ; `caster` = UnitContext de l'attaquant."""
+    (None pour l'attaque normale générique) ; `caster` = UnitContext de l'attaquant ;
+    `ability_state` = AbilityState PER-ABILITY {level, multiplier} (cf. propriété `level`)."""
 
     def __init__(self, ability_type: int, caster: UnitContext,
-                 config: AbilityConfiguration | None = None):
+                 config: AbilityConfiguration | None = None,
+                 ability_state: dict | None = None):
         self.ability_type = ability_type
         self.caster = caster
         self.config = config
+        # AbilityState PER-ABILITY (#100) — mirror du natif : chaque AActiveAbility est construite
+        # avec SON couple {Level, VariableMultiplierPercentage} (entrée ActiveAbilityComponent,
+        # _abilityState @0x4c ; capteur combatSnapshot.abilityStates). C'est CE niveau qui indexe
+        # TOUTES les variables config (TryGetVariableArrayForLevel @181577510), PAS le canal global
+        # unitConfig.activeAbilityLevel (mesuré u80 PlasmaCannon : natif maxDmg[65]x120 = 1396 vs
+        # global 50x180 = 1594). None/{} => fallback global (runners sans capteur, offline).
+        self.ability_state = ability_state or {}
+
+    @property
+    def level(self) -> int:
+        """Niveau PER-ABILITY (AbilityState.Level) ; fallback = canal global activeAbilityLevel."""
+        lv = self.ability_state.get("level")
+        return int(lv) if lv else self.caster.active_ability_level
+
+    @property
+    def variable_multiplier(self) -> int | None:
+        """VariableMultiplierPercentage PER-ABILITY (AbilityState @+4) ; None si non capté
+        (l'appelant retombe alors sur le mult global de rareté `scene.mult`)."""
+        m = self.ability_state.get("multiplier")
+        return int(m) if m is not None else None
+
+    @property
+    def multiplier(self) -> int:
+        """Multiplier EFFECTIF pour `GetVariableForLevel` : per-ability (capteur #100) sinon le
+        canal global de rareté du porteur (`unitConfig.abilityVariablesMultiplier` — même valeur
+        que `scene.mult`)."""
+        m = self.ability_state.get("multiplier")
+        if m is None:
+            m = self.caster.ability_variables_multiplier or 100
+        return int(m)
 
     # AActiveAbility.GetDamageProfile (@180fb11e0) : profil de dégât de l'ability.
     def get_damage_profile(self) -> str:
@@ -63,20 +95,27 @@ class AActiveAbility:
     # GetHits : nombre de coups (base config + ExtraHits / ExtraHitsMelee).
     def get_hits(self) -> int:
         base = self.config.get_variable_for_level(
-            "nrOfHits", self.caster.active_ability_level, 1) if self.config else 1
+            "nrOfHits", self.level, 1) if self.config else 1
         return get_default_attack_hits(base, self.caster.stat(StatType.EXTRA_HITS),
                                        self.caster.extra_hits_melee, self.caster.is_melee)
 
     # GetDamage : base de dégât (single, pré-spread) — défaut générique (special : min/max config).
+    # Mirror `AActiveAbility.MinMaxDamage @180fb2dc0` (avgFlag=true, chemin PRÉDICTION) :
+    # Half(Sum(GetVariableForLevel(minDmg 0xc), GetVariableForLevel(maxDmg 0xd))), chaque var
+    # scalée ×mult/100 + Fix64.Round DANS GetVariableForLevel (TryGetVariableArrayForLevel
+    # @181577510, gate variablesAffectedByRarityBonus). DÉCOMPOSÉ PAR ÉTAGE #100 (varLevelDumps,
+    # u80 PlasmaCannon (50,180)) : minDmg 665→1197 + maxDmg 886→1595 → avg 1396 ; bouts prédiction
+    # [1117,1675] = ±20% EXACT. ⚠ Le « base = maxDmg seul » (#96) est RÉFUTÉ par cette lecture —
+    # le 1396 se décomposait AUSSI en maxDmg[65]×1.2 (sous-détermination), d'où le faux verdict.
     def get_damage(self) -> int:
         if self.config is not None:
-            lvl = self.caster.active_ability_level
-            mn = self.config.get_variable_for_level("minDmg", lvl, 0)
-            mx = self.config.get_variable_for_level("maxDmg", lvl, 0)
+            lvl, mult = self.level, self.multiplier
+            mn = self.config.get_variable_for_level("minDmg", lvl, 0, mult)
+            mx = self.config.get_variable_for_level("maxDmg", lvl, 0, mult)
             if mn or mx:
-                return (mn + mx) // 2
-            return self.config.get_variable_for_level("dmg", lvl, 0) \
-                or self.config.get_variable_for_level("baseDmg", lvl, 0)
+                return (mn + mx) // 2   # Half (Fix64) — somme impaire : x.5 tronqué (cas non observé)
+            return self.config.get_variable_for_level("dmg", lvl, 0, mult) \
+                or self.config.get_variable_for_level("baseDmg", lvl, 0, mult)
         return 0
 
     def get_pierce(self) -> int:
@@ -91,7 +130,7 @@ class AActiveAbility:
         abilities à formule de coups PROPRE (DSL : snowball/flag/…) surchargent — mirror des sous-classes
         `AActiveAbility` natives (ex. `BloodyFuryAbility.GetNumTotalHits`, `HarvesterOfSoulsAbility.GetHits`)."""
         base = self.config.get_variable_for_level(
-            "nrOfHits", self.caster.active_ability_level, 1) if self.config else 1
+            "nrOfHits", self.level, 1) if self.config else 1
         return get_default_attack_hits(base, self.caster.stat(StatType.EXTRA_HITS),
                                        self.caster.extra_hits_melee, is_melee)
 
@@ -120,7 +159,7 @@ class AActiveAbility:
     def get_damage_min_max_raw(self) -> MinMaxDamage:
         """min/max EXPLICITES de la config (special) — avant scenario. Pour les abilities dont
         gameconfig donne directement min/max (pas de spread symétrique)."""
-        lvl = self.caster.active_ability_level
+        lvl = self.level
         if self.config is not None:
             return MinMaxDamage(min=self.config.get_variable_for_level("minDmg", lvl, 0),
                                 max=self.config.get_variable_for_level("maxDmg", lvl, 0))
@@ -170,10 +209,11 @@ class NormalAttackAbility(AActiveAbility):
 
 
 def _hits_ctx(ability) -> dsl.DslContext:
-    """`DslContext` pour un arbre de coups (numérique) : config + niveau + compteur runtime + flags."""
+    """`DslContext` pour un arbre de coups (numérique) : config + niveau + compteur runtime + flags.
+    Niveau = PER-ABILITY (`ability.level`, AbilityState #100), fallback global géré par la propriété."""
     return dsl.DslContext(
         config=ability.config,
-        ability_level=ability.caster.active_ability_level,
+        ability_level=ability.level,
         times_attacked=getattr(ability.caster, "times_attacked", 0) or 0,
     )
 
@@ -267,11 +307,11 @@ class PlasmaCannonAbility(AActiveAbility):
     def get_max_secondary_targets(self) -> int | None:
         return 2   # GetMaxSecondaryTargets @18039E710
 
-    # PAS de get_multi_hit_damage : la PRÉDICTION de dégât de PlasmaCannon est Attack-based (PredictAttack
-    # slot 0x27 hérité, config minDmg/maxDmg IGNORÉ) -> routée via `_PREDICT_VIA_NORMAL_ATTACK` dans
-    # prediction.py (#96, prouvé bit-exact aiPredict PlasmaCannon == normale id69 [11940,17907]x3).
-    # L'ancien override (minDmg -> chemin empirique 0.8/2.2 de get_multi_hit_attack_prediction) était FAUX :
-    # RE PredictAttackRaw @181032fb0 = base 1 seul int -> GetBaseDamageFix64 ±20% (0.8/1.2), aucun 2.2.
+    # Dégât : CONFIG-based via le générique `get_damage()` = MinMaxDamage avg (#96 REVERTÉ puis
+    # affiné #100) — la « preuve Attack-based » aiPredict==normale était un artefact (GetAllPredictions
+    # = preview) et le « base = maxDmg seul » intermédiaire est réfuté par varLevelDumps (min 1197 +
+    # max 1595 → avg 1396). VALIDÉ BIT-EXACT vs l'oracle direct `aiPlaybookPredict(1150)` (#102) :
+    # port [6282,9423]x3 == natif (u80 (50,180), bouts 1117/1675 ±20%, mods 1.875).
 
 
 # Registre nom d'ability → sous-classe à formule de coups propre. À ÉTENDRE au fil du portage.
@@ -300,7 +340,7 @@ class DakkaDakkaDakkaAbility(AActiveAbility):
         return self._HITS.evaluate(_hits_ctx(self))
 
     def get_health_to_lose(self, max_hp: int) -> int | None:
-        pct = self.config.get_variable_for_level("healthPct", self.caster.active_ability_level, 0) \
+        pct = self.config.get_variable_for_level("healthPct", self.level, 0) \
             if self.config else 0
         return (int(max_hp) * int(pct)) // 100 if pct else None
 
@@ -349,8 +389,11 @@ def makes_damage_predictions(ability_name: str | None) -> bool:
 
 
 def active_ability_for(ability_name: str | None, ability_type: int, caster: UnitContext,
-                       config: AbilityConfiguration | None) -> AActiveAbility:
+                       config: AbilityConfiguration | None,
+                       ability_state: dict | None = None) -> AActiveAbility:
     """Fabrique l'`AActiveAbility` de la bonne sous-classe (formule de coups PROPRE si portée, sinon
-    base générique). Mirror du dispatch natif `ActiveAbilityType → classe d'ability`."""
+    base générique). Mirror du dispatch natif `ActiveAbilityType → classe d'ability`.
+    `ability_state` = AbilityState PER-ABILITY {level, multiplier} (capteur #100) — comme le natif
+    construit chaque ability avec SON niveau."""
     klass = _SPECIAL_ABILITY_CLASSES.get(ability_name or "", AActiveAbility)
-    return klass(ability_type, caster, config)
+    return klass(ability_type, caster, config, ability_state=ability_state)

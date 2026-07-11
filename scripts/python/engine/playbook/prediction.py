@@ -282,24 +282,27 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
     cfg = AbilityConfiguration.from_gameconfig(ability_name, GC.ability(ability_name))
     if cfg is None or not (cfg.has_variable("minDmg") or cfg.has_variable("maxDmg")):
         return None
-    ab = active_ability_for(ability_name, ability_id, ctx, cfg)
-    # Base de la PRÉDICTION spéciale = `predefinedRange` du request PredictAttackRaw @181032fb0 =
-    # Nullable<int> SCALAIRE = var d'ability **maxDmg** (id 0xd) au niveau actif (RE Étape-0 #52), PAS
-    # l'avg(min,max) (`get_damage`) : MESURÉ #96/#98 (PlasmaCannon u80, dumps GetBaseDamageWithFixed
-    # PiercedArmor pendant le remplissage du cache) bouts per-coup 1117/1675 = (maxDmg[65]=1164 ×
-    # mult 1.2 = 1396) ± 20% EXACT — `minDmg` est IGNORÉ par le preview. Fallback dmg/baseDmg pour les
-    # abilities sans min/max (inchangé).
-    lvl = ctx.active_ability_level
-    base = cfg.get_variable_for_level("maxDmg", lvl, 0) \
-        or cfg.get_variable_for_level("dmg", lvl, 0) \
-        or cfg.get_variable_for_level("baseDmg", lvl, 0)
+    # AbilityState PER-ABILITY (#100) : le natif indexe les variables config par le couple
+    # {Level, VariableMultiplierPercentage} PROPRE de l'ability (entrée ActiveAbilityComponent
+    # ._abilityState @0x4c, forwardé au playbook en 5e arg de MakeDamagePredictions) — consommé par
+    # TryGetVariableArrayForLevel @181577510 (idx = Level.ToZeroBasedIndex clampé ; × mult/100 si
+    # var ∈ variablesAffectedByRarityBonus). Le canal global (ctx.active_ability_level ×
+    # scene.mult) est un AUTRE couple (mesuré u80 PlasmaCannon : per-ability 65×120 → 1396 vs
+    # global 50×180 → 1594, faux) → capteur combatSnapshot.abilityStates, fallback global.
+    st = scene.ability_state(uid, ability_id)
+    ab = active_ability_for(ability_name, ability_id, ctx, cfg, ability_state=st)
+    # Base de la PRÉDICTION spéciale = `GetDamageFormula` du playbook (PlasmaCannonPlaybook
+    # @181150b10) = `AActiveAbility.MinMaxDamage @180fb2dc0` (avgFlag) = **avg(minDmg, maxDmg)**
+    # scalés per-entrée ×mult/100 (ab.get_damage, DÉCOMPOSÉ PAR ÉTAGE #100 : varLevelDumps
+    # min 1197 + max 1595 → avg 1396 ; bouts prédiction [1117,1675] = ±20% EXACT ; ×mods 1.875
+    # → per-coup [2094,3141] == aiPlaybookPredict). Le « base = maxDmg seul » (#96) est RÉFUTÉ —
+    # 1396 se décomposait AUSSI en maxDmg[65]×1.2 (sous-détermination du dégât final). Le couple
+    # (level, mult) = AbilityState PER-ABILITY (capteur, fallback global via ab.level/ab.multiplier).
+    lvl = ab.level
+    base = ab.get_damage()
     if base <= 0:
         return None
     a = GC.ability(ability_name) or {}
-    affected = set(a.get("variablesAffectedByRarityBonus") or [])   # rarity mult (AbilityVariablesMultiplier)
-    mult = scene.mult(uid)
-    if mult and mult != 100 and ({"maxDmg", "dmg", "baseDmg"} & affected):
-        base = (base * mult) // 100
     is_melee = (a.get("attackRangeType") or "").lower() == "melee"
     hits = max(1, ab.get_special_hits(is_melee))
     profile_name = ab.get_damage_profile()
@@ -393,10 +396,11 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
     cfg = AbilityConfiguration.from_gameconfig(ability_name, GC.ability(ability_name))
     if ctx0 is None or cfg is None:
         return events
-    ab = active_ability_for(ability_name, ability_id, ctx0, cfg)
+    ab = active_ability_for(ability_name, ability_id, ctx0, cfg,
+                            ability_state=scene.ability_state(caster_id, ability_id))
     by_id = {u.get("id"): u for u in scene.units}
     dctx = dsl.DslContext(units=scene.units, caster=by_id.get(caster_id), target=by_id.get(main_tgt_id),
-                          config=cfg, ability_level=ctx0.active_ability_level,
+                          config=cfg, ability_level=ab.level,
                           times_attacked=getattr(ctx0, "times_attacked", 0) or 0,
                           caster_pos=attack_pos, elev_by_pos=scene.elev_by_pos)
     aoe = [t for t in ab.get_aoe_targets(dctx)

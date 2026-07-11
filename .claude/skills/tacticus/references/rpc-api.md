@@ -101,8 +101,14 @@ Read-only sauf `applyAction` (`mutated=false` attendu). Cœur oracle + harnais m
   `fromHere` = sans bouger. Absent des deux ⇒ no-op certain.
 - **`abilityReason({ runnerId, casterId, abilityType, targetId? })`** — raison
   structurée d'un cast invalide (flags `TargetingRule` en noms).
-- **`aiPredict({ runnerId, unitId, targetId, abilityType?, col?, row? })`** —
-  prédiction de dégât (`GetAllPredictions`) pour un (unit,target) depuis une tuile.
+- **`aiPredict({ runnerId, unitId, targetId, abilityType?, col?, row?, fresh? })`** —
+  PREVIEW de dégât decisionView (`GetAllPredictions`). ⚠ Attack-based quel que soit
+  l'abilityType — PAS l'oracle du dégât per-ability du playbook (utiliser aiPlaybookPredict).
+- **`aiPlaybookPredict({ runnerId, unitId, targetId, abilityType, level?, multiplier? })`** —
+  ORACLE DIRECT du playbook per-ability : invoque `<Ability>Playbook.MakeDamagePredictions`
+  natif → liste `ProbableDamageEvent` (target, healthDmg min/max, appliedHits, probability).
+  `level`/`multiplier` overrident le capteur AbilityState (test d'hypothèse de niveau).
+  Depuis la tuile COURANTE (bouger l'unité pour une autre position). Read-only.
 - **`exposureView({ runnerId, unitId?, allAbilities?=true })`** — move-guard
   (inverse d'attackPlans) : dégât ennemi entrant au prochain tour + flag `exposed`.
 - **`applyAction({ runnerId, action | actions[] })`** — applique mon coup

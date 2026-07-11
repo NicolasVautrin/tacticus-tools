@@ -34,6 +34,11 @@ class Scene:
     elev_by_pos: dict | None = None                    # {(col,row): elevation} (tileMeta)
     board: object | None = None                        # Board (voisins natifs, adjacence hex) — cf.
     #                                                    # engine.entities.pathfinding.board ; None → evenq
+    # AbilityState PER-ABILITY (#100) : {uid: {abilityId: {"level","multiplier"}}} — capteur
+    # combatSnapshot.abilityStates (entrée ActiveAbility._abilityState @0x4c). C'est le couple que
+    # le natif passe au playbook et qui indexe les variables config (TryGetVariableArrayForLevel
+    # @181577510) ; le canal global (mult_by_id/activeAbilityLevel) est un fallback.
+    abstate_by_id: dict = field(default_factory=dict)
 
     @classmethod
     def from_state(cls, state) -> "Scene":
@@ -110,7 +115,8 @@ class Scene:
             pos_by_id=sctx.get("pos_by_id") or {}, team_by_id=sctx.get("team_by_id") or {},
             eff_state=sctx.get("eff_state"), hpmax_by_id=sctx.get("hpmax_by_id") or {},
             elev_by_pos=elev_by_pos if elev_by_pos is not None else predictor.get("elev_by_pos"),
-            board=board if board is not None else predictor.get("board"))
+            board=board if board is not None else predictor.get("board"),
+            abstate_by_id=predictor.get("abstate_by_id") or {})
 
     # ── Accesseurs (mirror des lectures dict de PV) ────────────────────────────────────────────────
     def ctx(self, uid):
@@ -145,6 +151,11 @@ class Scene:
         c = self.ctx_by_id.get(uid)
         return c.faction if c is not None else None
 
+    def ability_state(self, uid, ability_id) -> dict | None:
+        """AbilityState PER-ABILITY {level, multiplier} (capteur #100) ; None si non capturé
+        (offline `from_state`, ou entrée absente) → l'appelant retombe sur le canal global."""
+        return (self.abstate_by_id.get(uid) or {}).get(ability_id)
+
 
 # ── SEAM live-feed (RPC) — tables cold + état par-pas. `rpc(method, body, timeout) -> result dict`. ──
 def build_predictor(rpc, rid):
@@ -156,6 +167,7 @@ def build_predictor(rpc, rid):
     dv0 = rpc("decisionView", {"runnerId": rid, "maxRank": 1}, 60)
     vis_by_id = {u["id"]: u.get("visualId") for u in (dv0.get("units") or [])}
     ctx_by_id, armor_by_id, mult_by_id, ablvl_by_id, shield_by_id = {}, {}, {}, {}, {}
+    abstate_by_id = {}
     for u in (snap.get("units") or []):
         eid = u["entityId"]
         u["visualId"] = vis_by_id.get(eid)
@@ -167,6 +179,12 @@ def build_predictor(rpc, rid):
             mult_by_id[eid] = int(uc["abilityVariablesMultiplier"])
             if uc.get("passiveAbilityLevel"):
                 ablvl_by_id[eid] = int(uc["passiveAbilityLevel"])
+        # AbilityState PER-ABILITY (#100) — capteur combatSnapshot.abilityStates (entrée
+        # ActiveAbility._abilityState @0x4c) : {abilityId: {level, multiplier}}.
+        sts = {int(a["id"]): {"level": a.get("level"), "multiplier": a.get("multiplier")}
+               for a in (u.get("abilityStates") or []) if a.get("id") is not None}
+        if sts:
+            abstate_by_id[eid] = sts
         # #87 : NE PAS dropper le ctx sur `normalAttack.error`. `readNormalAttack` (frida rpc-view.ts)
         # renvoie error="aucune cible atteignable au deploiement (base non capturable)" quand aucun
         # ennemi n'est a portee de l'attaque normale DEPUIS LA POSITION COURANTE (il ne teste PAS les
@@ -183,7 +201,7 @@ def build_predictor(rpc, rid):
                                                    snap.get("statTypes"))
     return {"ctx_by_id": ctx_by_id, "armor_by_id": armor_by_id, "shield_by_id": shield_by_id,
             "mult_by_id": mult_by_id, "ablvl_by_id": ablvl_by_id, "vis_by_id": vis_by_id,
-            "elev_by_pos": build_elev_by_pos(rpc, rid)}
+            "abstate_by_id": abstate_by_id, "elev_by_pos": build_elev_by_pos(rpc, rid)}
 
 
 def build_elev_by_pos(rpc, rid):

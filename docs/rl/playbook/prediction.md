@@ -1139,12 +1139,12 @@ ARTEFACT DE MESURE, pas un mécanisme.** Élucidation (session Fable) :
   du PLAYBOOK de décision.** Toute « preuve » par égalité aiPredict(special)==aiPredict(normale) est invalide.
 - **La vérité PLAYBOOK** (ce que le port mirror) = les évaluations FRAÎCHES du tour de décision IA, captées
   modifier-observe PENDANT le remplissage du cache (`aiPlayByUnit` observé) : PlasmaCannon y est **CONFIG-based**
-  — bouts per-coup `1117/1675` = `maxDmg[65]=1164 × mult 120% = 1396 ± 20%` (`minDmg` IGNORÉ : base =
-  `predefinedRange` SCALAIRE = var maxDmg id 0xd, RE Étape-0 #52), ×mods ranged `×1.875 = HeavyWeapon(1.25) ×
-  Élévation(1.5)` visibles dans `predCalcDumps`. → PlasmaCannon **retiré** de `_PREDICT_VIA_NORMAL_ATTACK` ;
-  base spéciale du port = maxDmg (plus l'avg). SpiritLeech reste routé (RE de SA chaîne playbook #92, indépendant
-  d'aiPredict) — re-vérification artefact-aware = #101. GAP restant : niveau/mult PER-ABILITY de la base spéciale
-  (snapshot lvl50×180 vs natif maxDmg[65]×120) = **#100**.
+  — bouts per-coup `1117/1675` = base 1396 ± 20%, ×mods ranged `×1.875 = HeavyWeapon(1.25) × Élévation(1.5)`
+  visibles dans `predCalcDumps`. → PlasmaCannon **retiré** de `_PREDICT_VIA_NORMAL_ATTACK` ; SpiritLeech reste
+  routé (RE de SA chaîne playbook #92, indépendant d'aiPredict) — re-vérification artefact-aware = #101.
+  ⚠ **SUPERSÉDÉ par la MAJ #100/#102 ci-dessous** : la décomposition « 1396 = maxDmg[65]×120, minDmg IGNORÉ,
+  base = maxDmg seul » était une MIS-ATTRIBUTION (1396 se décompose des deux façons — sous-détermination du
+  dégât final). La vérité LUE PAR ÉTAGE (varLevelDumps) : base = **avg(minDmg, maxDmg)** scalés (50,180).
 - **GARDÉ de #96** : suppression du chemin mort 0.8/2.2 (`get_multi_hit_attack_prediction(damage=...)` /
   `predefined` / `shield_raw`) — le 2.2 n'existe pas dans le natif (RE PredictAttackRaw).
 
@@ -1167,13 +1167,74 @@ tuiles déplacées `[5307,7959]` == natif) : le ×2.25 = **CrushingStrike(+50%) 
    de ±1/coup dès 2 mults (bouts natifs `3980/5969` = `round(1769×2.25)/round(2653×2.25)` ; par-entrée donnait
    `3981/5970`). Mono-mult strictement inchangé (tous les cas validés préservés).
 
-**MÉTHODE (harnais — reproduire pour tout écart de prédiction)** : (1) recon kit complet (`gameconfig.py <unit>`) ;
+#### MAJ #100 + #102 (2026-07-11) — capteur AbilityState PER-ABILITY + oracle DIRECT du playbook
+
+**#102 — RPC `aiPlaybookPredict` : l'oracle DIRECT du dégât per-ability du playbook** (le chaînon manquant du
+harnais, cf. le piège aiPredict ci-dessus). Invoque le `<Ability>Playbook.MakeDamagePredictions` NATIF sur un
+runner et rend la liste des `ProbableDamageEvent`. Chaîne RE mirrorée (résolution runtime par NOM, aucun RVA) :
+- **Registry** `PlaybookDatabase.LoadPlaybook(ActiveAbilityType, bool fallbackToDefault) @1810e0090` (dicts
+  `_playbookBuilders@0x68` / `_loadedPlaybooks@0x70`, fallback `_defaultPlaybookBuilder@0x80` → couvre l'attaque
+  normale + toute ability sans playbook bespoke). ⚠ **2 homonymes à AUTRE key-space** (Triggered @1810dfd10 ;
+  UnitSpecificBehaviour @1810dfed0) : un `findMethodByParamCount(1)` aveugle matche le 3ᵉ → 1150 y résout
+  `UnbridledCarnagePlaybook` (faux). Désambiguïser par TYPE du 1er param. Instance PlaybookDatabase posée par
+  `IdunRunner.Initialize @180e35400` → résolue par SCAN de champs (trouvée `runner+0x128`).
+- **`MakeDamagePredictions(IEntity caster, UnitPosition casterPosition, IEntity target, AbilityState abilityState)`**
+  (slot vtable 34, dump 12101) : le 5ᵉ arg = l'AbilityState {level, mult}. Le playbook monte son AbilityEntities
+  en interne (pas de struct 34-params à fabriquer). `UnitPosition` = `EntityExtensions.GetUnitPosition(unit, state)`
+  (tuile COURANTE). **SÉPARATEUR prouvé** : varier le 5ᵉ arg change le dégât ((50,180)→[6282,9423] ; (65,120)→
+  [5502,8247] ; (1,100)→[63,96]) → le playbook consomme BIEN l'AbilityState passé.
+- **Retour polymorphe** décodé par classe : `List\`1` (PlasmaCannon), `ProbableDamageEvent[]` array managé
+  (Loki_NormalAttack), ou yield-machine `<MakeDamagePredictions>d__N`. Struct `ProbableDamageEvent` 0xd8 :
+  target(ref)@0, AttackHitPrediction copié@0x08 (healthDmg min@0x68/max@0x6c), proba(Fix64)@0xc8.
+  Read-only vérifié (`mutated:false`).
+
+**#100 — base spéciale = AbilityState PER-ABILITY, décomposée PAR ÉTAGE** (jamais fittée). Le capteur
+`combatSnapshot.abilityStates` lit l'entrée `ActiveAbilityComponent` de chaque ability = son couple
+`{Level, VariableMultiplierPercentage}` PROPRE (`_abilityState @0x4c`, `get_AbilityState @180f8fc40` : Override
+`@0x58` prime). C'est CE couple que `MakeDamagePredictions` reçoit et que `TryGetVariableArrayForLevel @181577510`
+consomme (idx = `Level.ToZeroBasedIndex` clampé ; **`Fix64.Round(v × mult/100)` par entrée** si var ∈
+`variablesAffectedByRarityBonus`). **DÉCOMPOSITION LUE** (`varLevelDumps`, u80 PlasmaCannon (50,180)) :
+`minDmg id0xc : 665→1197` + `maxDmg id0xd : 886→1595` → **base = avg = 1396** (PAS maxDmg seul : le 1396 se
+décomposait aussi en `maxDmg[65]×1.2`, d'où la mis-attribution #96). Port : `AActiveAbility.get_damage` =
+`(minDmg' + maxDmg')//2` scalés per-entrée via `GetVariableForLevel(..., multiplier=ab.multiplier)` ; le couple
+`(level, mult)` vient du capteur (`scene.ability_state`), fallback canal global. **VALIDÉ BIT-EXACT** vs
+`aiPlaybookPredict(1150)` : port `[6282,9423]×3` == natif ; `test_playbook_live` **3/3 vert** (le miss step-9
+u78-spéciale-1067 disparu). Le level du 5ᵉ arg est capté, pas deviné.
+
+**MÉTHODE (harnais — reproduire pour tout écart de prédiction)** : (0) **oracle direct** : `aiPlaybookPredict
+{runnerId, unitId, targetId, abilityType}` = le dégât per-ability du playbook (≠ aiPredict = preview) ; varier
+`{level, multiplier}` SÉPARE les hypothèses de niveau ; (1) recon kit complet (`gameconfig.py <unit>`) ;
 (2) lire le builder @181000590 (les gates) ; (3) `modifierObserveInstall` → `modifierObserveReset` →
 `aiPlayByUnit` (tour de décision OBSERVÉ = la seule fenêtre fiable) → `modifierObserveStatus` : `multDumps`
 (chaque multiplicateur composé, ×1000), `predCalcDumps` (in→out per-bout = le ×k par étage), `valueDumps`
 (bouts post-perçage, ring 200), `varLevelDumps` (variables d'ability niveau×mult) ; (4) tuiles candidates
 séparatrices ((6,6) not-moved+élévation vs (5,7) moved+plate) ; (5) `aiPredict {fresh:true}` + `queryClass`
 pour dissiper les doutes de cache — en gardant à l'esprit que GetAllPredictions ≠ oracle playbook.
+
+#### MAJ #100 + #102 RÉSOLUS (2026-07-11) — oracle DIRECT `aiPlaybookPredict` + base spéciale = avg per-ability
+
+**#102 — RPC `aiPlaybookPredict {runnerId, unitId, targetId, abilityType, level?, multiplier?}`**
+(`frida/hooks/features/ai-step/rpc-predict.ts`) = l'ORACLE DIRECT du dégât per-ability du playbook qui
+manquait au harnais (le chaînon dont l'absence a produit les faux verdicts #96/#67). Chaîne native invoquée :
+- `PlaybookDatabase.LoadPlaybook(ActiveAbilityType, bool fallbackToDefault) @1810e0090` — registre
+  `_playbookBuilders@0x68`/`_loadedPlaybooks@0x70`, fallback `_defaultPlaybookBuilder@0x80` (couvre l'attaque
+  NORMALE). ⚠ 2 overloads homonymes à AUTRE key-space (Triggered `@1810dfd10` +0x88/+0x90 ;
+  UnitSpecificBehaviour `@1810dfed0` +0xa8/+0xb0 — un match aveugle par arité tombe sur CE dernier :
+  1150 y résout `UnbridledCarnagePlaybook`). Instance PlaybookDatabase = scan des champs du runner
+  (trouvée `runner+0x128`).
+- `playbook.MakeDamagePredictions(IEntity caster, UnitPosition, IEntity target, AbilityState) ` (slot 34,
+  signature dump) — le playbook monte son AbilityEntities EN INTERNE (pas de struct 34-params à fabriquer).
+  `AbilityState` = {level, multiplierPct} 12 o — le 5ᵉ arg NOURRIT la formule (prouvé par overrides body :
+  (50,180)→[6282,9423], (65,120)→[5502,8247], (1,100)→[63,96]).
+- Retour = `IEnumerable<ProbableDamageEvent>` (struct 0xd8 : IEntity cible@+0, AttackHitPrediction@+0x8,
+  probability Fix64@+0xc8) sous TROIS formes concrètes décodées : `List`1`, `ProbableDamageEvent[]`,
+  machine yield `d__` (state→0 + MoveNext + `<>2__current`). Read-only vérifié (`mutated:false`).
+
+**#100 — capteur AbilityState per-ability + base spéciale corrigée**, décomposé PAR ÉTAGE (varLevelDumps
+pendant `aiPlaybookPredict(1150)`, u80 darkaTerminator seed777 hp-target 50000) :
+- `varLevelDumps` : `minDmg(50,180) → 1197` ET `maxDmg(50,180) → 1595` — le natif lit LES DEUX, au couple
+  `AbilityState {Level@0x4c, VariableMultiplierPercentage@0x50}` de l'entrée `ActiveAbilityComponent`
+  (capteur : `combatSnapshot.abilityStates`, mirror `get_AbilityState @
 
 | Étape native | VA | Formule |
 |---|---|---|
