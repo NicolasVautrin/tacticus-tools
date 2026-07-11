@@ -340,6 +340,31 @@ class TerrifyingExtraDefenseEffect(BaseEffect):
         return for_percent_decrease(False, 30)   # owner_is_caster=False (l'effet est sur le défenseur)
 
 
+class MartialKatahDmgReductionEffect(BaseEffect):
+    """`MartialKatah_DmgReductionEffect.CreateDamageModifier @180f58b30` (trait MartialKatah, Custodes
+    ex. custoTrajann / custoVexilusPraetor) : réduit le dégât des ATTAQUES NORMALES reçues par son PORTEUR.
+    Trigger natif = `OwnerIsTarget & IsNormalAttack` (DSLFactory.get_OwnerIsTarget & IsNormalAttack, op&) ;
+    valeur = `ConfigConst(0x72)` = `martialKatahDmgReductionPct` (=20) ; kind `EffectBonus.ForPercentDecrease`.
+    ⇒ malus défenseur `PercentDecrease(20)` GATÉ `IsNormalAttack` (no-op sur les spéciales config-based).
+    i2 : « Normal attacks against this unit deal -{dmgReductionPct}% Damage. » (le +extraDmgPct% vs Summons
+    est l'effet SÉPARÉ MartialKatah_DmgBonus, canal attaquant.)
+
+    Gate `IsNormalAttack` : lu via `attacker_ctx["is_normal_attack"]` (threadé par la PRÉDICTION —
+    make_normal_attack_predictions=True, generate_multi_hit_attack_prediction=False). Absent (combat runner,
+    att_ctx sans le flag) → None = INERTE (port PRÉDICTION-first, cf. GuardianOrganism #89/#91). L'effet est
+    sur le DÉFENSEUR → `owner_is_caster=False`."""
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                                damage_profile: str | None = None,
+                                                attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        if not (attacker_ctx and attacker_ctx.get("is_normal_attack")):   # gated IsNormalAttack
+            return None
+        red = trait_var("MartialKatah", "martialKatahDmgReductionPct")     # ConfigConst 0x72 (=20)
+        if not red:
+            return None
+        return for_percent_decrease(False, abs(int(red)))   # owner=défenseur (l'effet est sur la cible)
+
+
 _TERMINATOR_EXCLUDED: "frozenset[str] | None" = None
 
 

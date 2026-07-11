@@ -19,6 +19,7 @@ from .loki import (
     HeavyWeaponExtraDmgEffect,
     KanOpenerEffect,
     LightCoverEffect,
+    MartialKatahDmgReductionEffect,
     BeastSlayerExtraDmgEffect,
     BeastSlayerExtraBlockEffect,
     MasterAnnihilatorAdditionalHitEffect,
@@ -82,6 +83,10 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # GuardianOrganism (tanks Tyranides) : reduit le degat recu de min(dmgReductionPct%(25-33) x dmg,
     # dmgReduction_cap x mult) = PercentSubtractionCapped (dynamique+capee) ; aura self+adjacents. #89.
     "GuardianOrganism_DamageReduction": GuardianOrganismDamageReductionEffect,
+    # MartialKatah (Custodes ex. custoTrajann/custoVexilusPraetor) : -20% degat des ATTAQUES NORMALES
+    # recues (defender, gated IsNormalAttack ; @180f58b30 ForPercentDecrease ConfigConst 0x72=
+    # martialKatahDmgReductionPct). Le DmgBonus (+100% vs Summons) reste no-op (canal attaquant, hors gap). #105.
+    "MartialKatah_DmgReduction": MartialKatahDmgReductionEffect,
     # Neuroparasite (passif Neurothrope ; EffectType CAPTE = 1218 'Neuroparasite', name-route ; ctor 0x49f=1183
     # = AbilityOrEffect, distinct) : ADDITIF +extraDmg[nivSource]xniveau_parasite au degat PSYCHIQUE recu DE CE
     # Neurothrope (defender, ForAddition gated Psychic + AreEqual(source)). Magnitude+gating+PLACEMENT (scale

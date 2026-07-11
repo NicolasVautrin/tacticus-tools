@@ -89,7 +89,7 @@ def _should_apply_ranged_in_melee(scene, att_id, attack_pos) -> bool:
 
 
 def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, attack_pos, t_pos,
-                                      damage_profile=None):
+                                      damage_profile=None, is_normal_attack: bool = True):
     """Ajoute au `mods` les feuilles NON-effet du builder natif `CalculateAttackerModifiersForPrediction`
     @181000590 (positionnelles, géométrie) + les modifiers DÉFENSEUR. Le pipeline natif
     `CalculateDamagePredictionScenario` les applique à TOUT dégât (normal ET spécial) APRÈS perçage/armure.
@@ -133,7 +133,10 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     tgt_effects = scene.effects(tgt_id)
     # attacker_ctx : identité + niveau/mult du Neurothrope SOURCE (gate + magnitude Neuroparasite). L'attaquant
     # ETANT le source (AreEqual), extraDmg s'indexe sur SON ablvl x SON multiplier.
-    att_ctx = {"id": att_id, "ability_level": scene.ablvl_by_id.get(att_id), "multiplier": scene.mult(att_id)}
+    # `is_normal_attack` propagé au gate `IsNormalAttack` des malus défenseur (ex. MartialKatah -20% #105 :
+    # réduit UNIQUEMENT les attaques normales, no-op sur les spéciales config-based).
+    att_ctx = {"id": att_id, "ability_level": scene.ablvl_by_id.get(att_id), "multiplier": scene.mult(att_id),
+               "is_normal_attack": is_normal_attack}
     def_mods = build_defender_modifiers_from_effects(tgt_effects, is_melee, damage_profile, attacker_ctx=att_ctx)
     for mult, cap in def_mods.pct_list:
         mods.pct_list.append((mult, cap))
@@ -318,7 +321,7 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
                                                        has_moved=_hm, is_normal_attack=False)
     t_pos = scene.pos(tgt)
     _add_positional_and_defender_mods(mods, scene, uid, tgt, is_melee, attack_pos, t_pos,
-                                      damage_profile=profile_name)
+                                      damage_profile=profile_name, is_normal_attack=False)
     tgt_shield = scene.shield(tgt)
     # Base spéciale = `base` (avg(minDmg,maxDmg) scalé rareté) route par le MÊME chemin que la normale
     # (GetBaseDamageFix64 ±20% dans predict_attack_raw). L'ancien chemin `get_multi_hit_attack_prediction(
