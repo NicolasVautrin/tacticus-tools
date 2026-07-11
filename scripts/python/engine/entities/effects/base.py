@@ -115,6 +115,14 @@ class BaseEffect:
         fourni par l'agrégateur `aura_hits_malus_for_defense`. Défaut None = pas d'aura."""
         return None
 
+    def create_aura_hits_bonus_for_attack(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        """Contribution AURA à l'axe COUPS côté ATTAQUANT : l'effet est possédé par un ALLIÉ de l'attaquant
+        et lui projette un BONUS de coups selon la géométrie (natif : `CreateTargetSelector` = SurroundingFriends,
+        ex. `AstartesBanner_AdditionalHitsEffect` @180f323b0 = +extraHits mêlée aux alliés dans le rayon 2 du
+        porteur, exclut self). `ctx` = {owner_id/pos/team, att_id/att_pos/att_team, is_melee} fourni par
+        l'agrégateur `aura_hits_bonus_for_attack`. Défaut None = pas d'aura. SYMÉTRIQUE du malus défenseur."""
+        return None
+
     def create_aura_attack_bonus(self, ctx: Mapping | None = None) -> "int | None":
         """Contribution AURA à la BASE (stat Attack) : effet stat-mod possédé par un ALLIÉ du porteur qui
         buffe le dégât de base de l'attaquant quand il est à portée (natif : `DynamicStatModifierEffect` à

@@ -38,7 +38,7 @@ donc partage sans reserve avec la prediction).
 from __future__ import annotations
 
 from ..entities.effects import (hits_bonus_from_effects, hits_malus_from_defender_effects,
-                                 aura_hits_malus_for_defense)
+                                 aura_hits_malus_for_defense, aura_hits_bonus_for_attack)
 from ..entities.traits import attacker_bonus_hits
 from .damage_prediction import get_default_attack_hits
 
@@ -64,7 +64,13 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
     # override `as_attacker_bonus_hits` -> gater `attacker_bonus_hits` ne perd que GetStuckIn (cf. entete BITE 2).
     bonus_hits = attacker_bonus_hits(trait_objects, board) if include_bonus_hit_behaviours else 0
     hits = hits_pre + bonus_hits
+    # AURA COUPS côté ATTAQUANT (AstartesBanner @180f323b0 : +extraHits mêlée si un allié porteur est dans
+    # le rayon 2) — SYMÉTRIQUE de l'aura défenseur. ctx att-centrique dérivé de `board`.
+    att_ctx = {"att_id": board.get("att_id"), "att_pos": board.get("attack_pos"),
+               "att_team": (board.get("team_by_id") or {}).get(board.get("att_id")),
+               "is_melee": is_melee}
     hits = max(1, hits
                + hits_malus_from_defender_effects(target_effects, is_melee, damage_profile)
-               + aura_hits_malus_for_defense(aura_sources, board))
+               + aura_hits_malus_for_defense(aura_sources, board)
+               + aura_hits_bonus_for_attack(aura_sources, att_ctx))
     return hits

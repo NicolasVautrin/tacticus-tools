@@ -45,6 +45,7 @@ __all__ = [
     "build_attacker_modifiers_from_effects", "calculate_attacker_modifiers_for_prediction",
     "build_defender_modifiers_from_effects",
     "hits_bonus_from_effects", "hits_malus_from_defender_effects", "aura_hits_malus_for_defense",
+    "aura_hits_bonus_for_attack",
     "crit_chance_bonus_from_effects", "crit_damage_bonus_from_effects",
     "apply_effect_stat_modifications", "stat_modifications_by_source",
 ]
@@ -207,6 +208,26 @@ def aura_hits_malus_for_defense(units_effects, ctx) -> int:
                 "owner_team": owner_team}
         for e in _as_effects(effects):
             hb = e.create_aura_hits_malus_for_defense(octx)
+            if hb is None:
+                continue
+            if hb.kind == "Addition":
+                total += hb.value
+            elif hb.kind == "Subtraction":
+                total -= hb.value
+    return total
+
+
+def aura_hits_bonus_for_attack(units_effects, ctx) -> int:
+    """Σ des bonus de COUPS projetés sur l'ATTAQUANT par des effets AURA possédés par ses ALLIÉS à portée
+    (`create_aura_hits_bonus_for_attack`, ex. AstartesBannerExtraHitEffect @180f323b0 : +extraHits mêlée aux
+    alliés dans le rayon 2 du porteur, exclut self). SYMÉTRIQUE de `aura_hits_malus_for_defense` (défenseur).
+    `units_effects` = itérable de (owner_id, owner_pos, owner_team, effets du porteur) ; `ctx` = {att_id,
+    att_pos, att_team, is_melee}. Retour >= 0 (à ADDITIONNER aux hits)."""
+    total = 0
+    for owner_id, owner_pos, owner_team, effects in (units_effects or []):
+        octx = {**(ctx or {}), "owner_id": owner_id, "owner_pos": owner_pos, "owner_team": owner_team}
+        for e in _as_effects(effects):
+            hb = e.create_aura_hits_bonus_for_attack(octx)
             if hb is None:
                 continue
             if hb.kind == "Addition":

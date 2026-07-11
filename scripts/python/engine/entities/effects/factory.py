@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from .base import BaseEffect
 from .loki import (
     ActOfFaithBuffEffect,
+    AstartesBannerExtraHitEffect,
     BigTargetAdjacentEffect,
     CrushingStrikeEffect,
     FightingRetreatDmgReductionEffect,
@@ -100,6 +101,10 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "Parry_ReduceHits": ParryEffect,    # trait Parry : -1 coup MÊLÉE reçu, plancher 1
     "MasterAnnihilator_extraHit": MasterAnnihilatorAdditionalHitEffect,  # debuff Vitruvius : +1 coup reçu (non-Psychic)
     "BigTarget_AdjacentEffect": BigTargetAdjacentEffect,  # aura : -1 coup ranged aux alliés ring-1 du porteur
+    # AstartesBanner (porte-banniere Astartes ex. templAncient) : AURA +extraHits(=1) coup MELEE aux ALLIES
+    # dans le rayon 2 du porteur (l'effet vit sur LE PORTEUR, comme BigTarget ; @180f323b0 ForAddition
+    # OwnerIsCaster&IsMeleeAttack ConfigVar 0xd, selector SurroundingFriends range ConfigConst 0x16=2). #107.
+    "AstartesBanner_ExtraHit": AstartesBannerExtraHitEffect,
     "ShadowInTheWarp_LessDmg_Effect": ShadowInTheWarpLessDmgEffect,  # aura : -25% degat PSYCHIQUE aux ennemis a portee
     # KanOpener : nom d'EffectType à confirmer avant inscription.
 }

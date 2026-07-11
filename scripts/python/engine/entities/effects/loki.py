@@ -611,6 +611,40 @@ class BigTargetAdjacentEffect(BaseEffect):
         return for_addition(True, -1)       # Direct(-1) @180f33ac0
 
 
+class AstartesBannerExtraHitEffect(BaseEffect):
+    """`AstartesBanner_AdditionalHitsEffect` (effet capté "AstartesBanner_ExtraHit", passif AstartesBanner
+    ex. templAncient) — AURA +coups : les ALLIÉS dans le rayon 2 du porteur marquent +extraHits coups avec
+    leurs attaques MÊLÉE (i2 : « Other friendly units within 2 hexes score an additional hit with their melee
+    attacks. This additional hit can deal a maximum of 5456 Damage »). L'effet est POSSÉDÉ par le PORTEUR
+    (capté dans SA liste d'effets, comme BigTarget) ; bénéficiaires = SurroundingFriends (exclut self).
+    - hits `CreateAdditionalHits @180f323b0` : `ForAddition(OwnerIsCaster & IsMeleeAttack, ConfigVar(0xd=
+      extraHits, sourceAbilityState))` + cap dégât 5456 sur le coup ajouté (FirstHitInCurrentAttackDamageRange
+      + max). ⚠ CAP 5456 du coup ajouté NON porté (refine : ne mord que si dégât/coup > 5456 ; le +1 coup
+      COUNT est l'effet principal, GROUND TRUTH ultraApothecary 1->2 @seed999 via AstartesBanner de templAncient).
+    - cible `CreateTargetSelector @180f325f0` : `SurroundingFriends(range=ConfigConst 0x16=2, exclut self)`.
+    Canal AURA côté SOURCE (`create_aura_hits_bonus_for_attack`, agrégé par `aura_hits_bonus_for_attack`),
+    SYMÉTRIQUE de BigTarget (défenseur). Magnitude `extraHits` indexée sur le niveau d'ability du PORTEUR
+    (`GetAbilityState` -> `self.ability_level`). Ctx aura = {owner_id/pos/team, att_id/att_pos/att_team, is_melee}."""
+
+    def create_aura_hits_bonus_for_attack(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        c = ctx or {}
+        if not c.get("is_melee"):                          # IsMeleeAttack
+            return None
+        if c.get("att_id") == c.get("owner_id"):           # SurroundingFriends exclut le porteur (self)
+            return None
+        if c.get("owner_team") is None or c.get("owner_team") != c.get("att_team"):
+            return None                                    # bénéficiaires = ALLIÉS du porteur
+        op, ap = c.get("owner_pos"), c.get("att_pos")
+        if not op or not ap:
+            return None
+        import hexgeo
+        rng = ability_var("AstartesBanner", "range", is_constant=True)   # ConfigConst 0x16 (=2)
+        if hexgeo.distance(op, ap) > int(rng if rng else 2):             # SurroundingFriends(range)
+            return None
+        n = ability_var("AstartesBanner", "extraHits", is_constant=True)  # constante extraHits (=1)
+        return for_addition(True, int(n)) if n else None
+
+
 class ShadowInTheWarpLessDmgEffect(BaseEffect):
     """`ShadowInTheWarp_LessDmg_Effect` (effet 1053=0x41d) — AURA de RÉDUCTION du dégât PSYCHIQUE. L'effet
     vit sur le PORTEUR (trait ShadowInTheWarp, ex. tyranSmnWarrior) et se PROJETTE sur les ENNEMIS
