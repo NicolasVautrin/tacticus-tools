@@ -529,3 +529,53 @@ natif. **Non-régression** : miss-sets IDENTIQUES vs baseline sur seeds 777/3133
 dégât (3110 vs natif 3221) — passif **Neuroparasite** (+1237 psy/niveau) non porté ; (b) tie-break
 normale-vs-spéciale (natif garde la spéciale 1104 au tie sur seed 202 step-11, la normale sur seed 777
 step-9) ; (c) le moteur ne score AUCUNE attaque du Neuro dans certains runners (`attack_cands=[]`).
+
+## MAJ #116 (2026-07-12) — HammerOfWrath `+5·CanAddUnit` : le terme de déplacement (slot-78 résolu)
+
+`HammerOfWrathPlaybook.EvaluateNonComparable @181141680` (id 1153, bloodIntercessor) ajoute, après
+`Σ CalcUtilFromDamageEvent(primary+secondary)` + `100·HasTrait(Overwatch)`, un terme
+**`+5 · Σ_{n ∈ GetAdjacentTiles(cible)} CanAddUnit(n)`** — OMIS en v1 (#114). Porté ici.
+
+**RE — résolution du sélecteur (re-expert, décompilé = vérité, build gqfc5mff6c).** Le bloc de queue fait
+`tiles = FUN_18000d7d0(0x4e=78, DAT_18327ff80, query=playbook+0x28, target=local_508, …)` = **slot 78 de
+l'interface `IBattleQuery`** (invocateur d'interface générique). Slot 78 = **`BattleQuery.GetAdjacentTiles
+(unit, b,b,b) @18105b660`** (ring-1 hex, voisins `boardGraph.neighbours` via `IterateAdjacentTiles` — la
+MÊME famille dont #45 a porté la porte `|Δelev|<2`).
+- **Preuve du slot 78** (PAS de devinette) : `MovementQuery.IsAdjacent @18109c470` appelle
+  `FUN_18000d7d0(0x4e, DAT_18327ff80, this._query, unit, 0, 1, 1)` puis `Contains(ring1, tile)` — i.e.
+  « les tuiles adjacentes de `unit`, `tile` en fait-il partie ? ». Corroboré par le slot-map explicite du
+  décorateur `RecordedSimulationRequestsBattleQuery` (0x50=GetAdjacentTiles-b__0, 0x53=GetTilesBehind…).
+- **`GetTilesBehind @18106a150` RÉFUTÉ** comme slot-78 : il prend DEUX unités (`param_2,param_3` →
+  `CubeCoordinate.DirectionTo(A,B)`), or l'appel Hammer ne passe qu'UNE unité (`local_508`) + bools. C'est
+  le slot 0x53, pas 0x4e.
+
+**RE — prédicat `TileExtensions.CanAddUnit @180ec4c60`** (args du call : `arg3=1, arg4=0, arg5=false`) se
+réduit à : tuile de board réelle **placeable** (walkable, non-wall) ET **VIDE** (`TileContentComponent
+.IsEmpty @180fa9ed0`). `arg2 = playbook+0x20` = l'aiPlayer (qui place). Sens du terme : **biais du natif
+vers les cibles entourées d'ESPACE LIBRE** (place pour le knock-back de la charge). Le terme dépend de la
+CIBLE (pas de la tuile de charge) → il influe l'**argmax de cible** (pas cosmétique).
+
+**Port** (homonymes natifs + VA citées) :
+- `engine/battle_query.py` : `can_add_unit(pos, walkable_by_pos, occupied)` (= `CanAddUnit @180ec4c60`) +
+  `adjacent_addable_count(tile, neigh_by_pos, walkable_by_pos, occupied, elev)` (= `GetAdjacentTiles`
+  slot 0x4e filtré, porte `|Δelev|<2` réutilisée de #45).
+- `engine/playbook/noncomparable.py` : `HammerOfWrathPlaybook._displacement_bonus` = `5 ·
+  adjacent_addable_count(cible.tile)`, wiré dans `evaluate_non_comparable`. Occupation LIVE = `epos ∪ fpos
+  ∪ origine` (FRAÎCHE — PAS le `occupantUnitId` du boardGraph caché = périmé).
+- `engine/ai/context.py` + `action_generators.py` : plumbing `walkable_by_pos` (boardGraph
+  `walkable`/`IsWalkableTile`, seule donnée offline manquante ; `boardGraph` l'émet déjà — **aucun RPC/
+  reinject requis**).
+
+**Validation** : offline unit-tests VERTS (porte élévation, walkable, occupation, `disp=5×count`, cible
+introuvable→0). **Live non-régression** (seed 114010, bloodIntercessor Hammer-carrier, 26 pas) : Gauntlets
+step-9 `(1000,tgt=118)` toujours **MATCH** (#117 intact), miss-set = gap summon-attack préexistant (grots
+u114/u118/u123), PAS ce changement. **⚠ Le terme `+5` lui-même reste NON exercé** dans la trajectoire
+naturelle (bloodIntercessor ne caste pas Hammer, il bouge) → exercice = **positions drivées** (comme #114),
+délégué au validator adversarial.
+
+**FLAGS / limitations** (dans `can_add_unit`) : (a) co-location trait `0x1b` (arg3=1 admet un occupant
+pass-through) → tuile occupée = fail (borne INF, corner négligeable) ; (b) tuiles walkable-mais-réservées
+(`tile[4]+0x40`/`+0x2c` runtime) non modélisées si `walkable` ne les folds pas (HYPOTHÈSE : `walkable==
+false` couvre `+0x40`) ; (c) porte d'élévation de l'itérateur natif (3 bools) non bit-décodée — `CanAddUnit`
+re-filtre, donc seul un voisin *droppé par l'itérateur avant CanAddUnit* pour élévation sur-compterait
+(mitigé par la porte `|Δelev|<2` appliquée côté port).

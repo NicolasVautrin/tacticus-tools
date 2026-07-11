@@ -66,6 +66,9 @@ class AiDecisionContext:
     #                                   AoE = MainTile-id du caster (GenerateAction(this,pos,MainTile,util))
     neigh_by_pos: dict                # {(col,row): [voisins ordre natif GetAdjacentTiles]} (boardGraph) —
     #                                   cible EXACTE de Gauntlets = 1er ennemi ring-1 en ordre inversé (#117)
+    walkable_by_pos: dict             # {(col,row): walkable} (boardGraph, statique) — gate STATIQUE de
+    #                                   placement (TileExtensions.CanAddUnit) ; l'occupation DYNAMIQUE se
+    #                                   lit via epos/fpos/origine (frais), PAS le occupantUnitId caché (#116)
 
     debug: bool = False
 
@@ -118,6 +121,7 @@ class AiDecisionContext:
 _BOARD_GRAPH_CACHE: dict = {}      # {rid: tiles list} — boardGraph brut, 1 fetch/rid (partagé)
 _BOARD_TILE_IDS_CACHE: dict = {}   # {rid: {(col,row): tileEntityId}} — board statique, dérivé
 _BOARD_NEIGH_CACHE: dict = {}      # {rid: {(col,row): [voisins ordre natif]}} — dérivé
+_BOARD_WALKABLE_CACHE: dict = {}   # {rid: {(col,row): walkable}} — board statique, dérivé (#116)
 _ACTIVE_LEVEL_CACHE: dict = {}     # {rid: {unitId: {active,passive,multiplier}}} — combatSnapshot, 1 fetch/rid
 
 
@@ -156,6 +160,20 @@ def _board_neighbours(rpc: Callable[..., dict], rid: int) -> dict:
              [id2pos[n] for n in (t.get("neighbours") or []) if n in id2pos]
              for t in tiles}
         _BOARD_NEIGH_CACHE[rid] = m
+    return m
+
+
+def _board_walkable(rpc: Callable[..., dict], rid: int) -> dict:
+    """{(col,row): bool walkable} depuis `boardGraph` (`BattleQuery.IsWalkableTile` = `TileExtensions
+    .IsWalkable`, cf. rpc-board.ts) — board STATIQUE (murs / terrain infranchissable), caché par rid.
+    Gate STATIQUE de placement (`TileExtensions.CanAddUnit`) : une tuile non-walkable ne peut jamais
+    accueillir d'unité. L'OCCUPATION dynamique se lit séparément (epos/fpos/origine frais), PAS via le
+    `occupantUnitId` du boardGraph caché (il serait périmé — le board est caché, l'occupation change)."""
+    m = _BOARD_WALKABLE_CACHE.get(rid)
+    if m is None:
+        m = {(t.get("col"), t.get("row")): bool(t.get("walkable"))
+             for t in _board_graph_tiles(rpc, rid)}
+        _BOARD_WALKABLE_CACHE[rid] = m
     return m
 
 
@@ -202,6 +220,7 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     # = MainTile-id du caster (mesuré CombatRestoratives : tgt=22 = id de la tuile du caster).
     tile_id_by_pos = _board_tile_ids(rpc, rid)
     neigh_by_pos = _board_neighbours(rpc, rid)   # voisins ordre natif -> cible exacte Gauntlets (#117)
+    walkable_by_pos = _board_walkable(rpc, rid)  # gate statique de placement CanAddUnit (#116)
 
     origin = (me["pos"]["col"], me["pos"]["row"]) if me and me.get("pos") else None
     move_tiles = (mov_by_unit.get(uid) or {}).get("tiles") or []
@@ -229,4 +248,5 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
         ab_name_by_id=ab_name_by_id, normal_ids=normal_ids,
         elev_by_pos=elev_by_pos, is_temporary_by_pos=is_temporary_by_pos,
         effects_by_pos=effects_by_pos, pathdist_by_pos=pathdist_by_pos,
-        tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos, debug=debug)
+        tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos,
+        walkable_by_pos=walkable_by_pos, debug=debug)

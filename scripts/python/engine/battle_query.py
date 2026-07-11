@@ -77,6 +77,45 @@ def enemies_in_arc(tile: tuple, enemies: list, elev_by_pos: dict | None = None) 
     return out
 
 
+def can_add_unit(pos: tuple, walkable_by_pos: dict | None = None,
+                 occupied: set | None = None) -> bool:
+    """`TileExtensions.CanAddUnit @180ec4c60` (prédicat OFFLINE, args du call Hammer arg3=1/arg4=0/arg5=false).
+
+    Le natif (décodé re-expert #116) réduit, pour ces args, à : la tuile est une tuile de board RÉELLE
+    placeable (walkable, non-wall) ET VIDE (`TileContentComponent.IsEmpty @180fa9ed0` = pas de contenu
+    unité). Offline : `walkable_by_pos[pos]` (= `BattleQuery.IsWalkableTile` = `TileExtensions.IsWalkable`,
+    qui folds déjà isWall, cf. rpc-board.ts) ET `pos ∉ occupied` (occupation LIVE = TOUTES les unités
+    vivantes, lue FRAÎCHE via epos/fpos/origine — PAS le `occupantUnitId` du boardGraph caché = périmé).
+    LIMITATION v1 (flaggée par le verdict) : (a) co-location trait 0x1b — arg3=1 admet un occupant
+    trait-27 pass-through -> ici une tuile occupée = fail (borne INF, corner négligeable) ; (b) les flags
+    runtime `tile[4]+0x40` (bloqué) / `+0x2c` (réservé) ne sont modélisés QUE si `walkable` les folds
+    (HYPOTHÈSE : `walkable==false` couvre `+0x40` ; une tuile walkable-mais-réservée serait sur-comptée)."""
+    if occupied is not None and (pos[0], pos[1]) in occupied:
+        return False
+    if not walkable_by_pos:
+        return True   # pas de donnée board (fallback pré-plumbing) -> permissif (borne SUP)
+    return bool(walkable_by_pos.get((pos[0], pos[1]), False))   # tuile absente = hors-board -> non placeable
+
+
+def adjacent_addable_count(tile: tuple, neigh_by_pos: dict | None,
+                           walkable_by_pos: dict | None, occupied: set | None,
+                           elev_by_pos: dict | None = None) -> int:
+    """`|{ n ∈ GetAdjacentTiles(unit@tile) : CanAddUnit(n) }|` — nombre de voisins ring-1 de `tile` où
+    une unité peut être placée. `GetAdjacentTiles` = IBattleQuery slot 0x4e (@18105b660 ; prouvé
+    re-expert #116 via `MovementQuery.IsAdjacent @18109c470` + le slot-map du décorateur
+    RecordedSimulationRequestsBattleQuery) -> `IterateAdjacentTiles` -> voisins `boardGraph.neighbours`
+    avec la MÊME porte d'élévation `|Δelev| < 2` que `is_adjacent` (#45). Filtre chaque voisin par
+    `can_add_unit`. Utilisé par `HammerOfWrathPlaybook` (+5/voisin, #116). Sans `neigh_by_pos` (offline
+    pur) : fallback `hexgeo.neighbors` (dist-1, même porte d'élévation via `is_adjacent`)."""
+    tkey = (tile[0], tile[1])
+    neigh = (neigh_by_pos or {}).get(tkey)
+    if neigh is None:
+        neigh = list(hexgeo.neighbors(tile[0], tile[1]))   # fallback (ordre non natif, mais compte identique)
+    return sum(1 for p in neigh
+               if is_adjacent(tile, p, elev_by_pos)          # porte |Δelev|<2 (IterateAdjacentTiles, #45)
+               and can_add_unit(p, walkable_by_pos, occupied))
+
+
 def gauntlets_target(tile: tuple, enemies: list, neigh_by_pos: dict | None = None,
                      elev_by_pos: dict | None = None):
     """Id de la CIBLE émise par `GauntletsOfUltramarPlaybook.EvaluateNonComparable @18113e5a0`.

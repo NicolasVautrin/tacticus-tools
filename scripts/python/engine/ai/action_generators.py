@@ -115,6 +115,7 @@ class NonComparableGenerator(ActionGenerator):
             uid=ctx.uid, origin=ctx.origin, reach_nc=ctx.reach_nc, epos=ctx.epos, fpos=ctx.fpos,
             enemies=ctx.enemies,   # id+pos (meme ordre que epos) -> cible Gauntlets (#117)
             neigh_by_pos=ctx.neigh_by_pos,   # voisins ordre natif -> cible EXACTE Gauntlets (#117)
+            walkable_by_pos=ctx.walkable_by_pos,   # gate statique placement CanAddUnit (HammerOfWrath #116)
             plan=ctx.plans.get(ctx.uid) or {}, hp_cur_by_id=ctx.hp_cur_by_id,
             elev_by_pos=ctx.elev_by_pos, ability_targets=ctx.ability_targets,
             wt=ctx.wt, is_temporary_by_pos=ctx.is_temporary_by_pos,
