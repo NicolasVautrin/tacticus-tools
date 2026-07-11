@@ -447,6 +447,18 @@ l'étage divergent. NE JAMAIS fitter un scalaire (×0.9 ? /2 ? mult 90 ?) sur le
 - **Un « facteur qui colle » sur UN cas = HYPOTHÈSE, pas un fait** : trouver un 2ᵉ cas qui SÉPARE les
   candidats avant de committer (ex. u90 PowerTrip ×180 sans /2 réfute un /2 universel en une ligne). Si une
   mesure DIRECTE contredit l'hypothèse (Level.mult=180 ≠ 90) → **RE-DÉRIVER**, pas patcher l'hypothèse.
+- **Côté PRÉDICTION (#96/#98) — deux pièges + la fenêtre de mesure fiable** :
+  1. **`aiPredict` (= `DamagePredictionQuery.GetAllPredictions`) N'EST PAS l'oracle du dégât per-ability du
+     playbook** : c'est le preview decisionView, Attack-based quel que soit l'abilityType (vérifié cache ET
+     `fresh:true`). Une égalité `aiPredict(special)==aiPredict(normale)` ne prouve RIEN (faux verdict #96,
+     PlasmaCannon routé Attack-based à tort). Tuile d'attaque invalide → fallback
+     `GetPredictionForTargetsUnreachableFromSelectionTile` (valeur d'une AUTRE tuile).
+  2. **La fenêtre fiable = le tour de décision IA OBSERVÉ** : `modifierObserveInstall` → `Reset` →
+     `aiPlayByUnit` → `modifierObserveStatus`. Étages prédiction : `multDumps` (chaque multiplicateur
+     composé ×1000 + topRva — LA décomposition du ×k), `predCalcDumps` (in→out per-bout,
+     `DamagePrediction.CalculateBaseDamageWithAllModifiers`), `valueDumps` (bouts post-perçage, ring 200),
+     `varLevelDumps` (variables d'ability niveau×mult). Tuiles candidates SÉPARATRICES (not-moved+élévation
+     vs moved+plate) pour isoler les gates. Cas d'école complet : prediction.md « MAJ #96 REVERTÉ + #98 RÉSOLU ».
 - Détail : `docs/rl/case-68-orksnob-attacker-effects.md` + memory `feedback_damage_decomposition_measure_stage`.
 
 ## Sorties console Python — ASCII only (Windows cp1252)
@@ -553,6 +565,24 @@ suite `tests/engine/` — **beaucoup trop lourd**.
     pas (ex. un port) dépend du **VERDICT** de l'agent (une réponse RE encore inconnue), j'attends
     ce verdict — pas parce que « fichiers/session partagés » (faux), mais parce que coder à
     l'aveugle = deviner. Distinguer cette vraie dépendance de la fausse contrainte d'isolation.
+
+- **Reprendre un agent background STOPPÉ / perdu = `SendMessage(to: <agentId>)`, PAS un nouvel appel
+  `Agent` (qui repart de ZÉRO) ni un synthétiseur du transcript.** L'outil `Agent` n'a AUCUN `--resume` :
+  un nouvel `Agent` démarre toujours frais. SEUL `SendMessage(to: <agentId>)` continue un agent déjà
+  lancé — il recharge son **transcript** (= la conversation JSONL de l'agent sur disque,
+  `…/tasks/<agentId>.output` : prompt + tours assistant + `tool_use`/`tool_result`) puis y ajoute mon
+  message. C'est le VRAI équivalent de `--resume`.
+  - Agent **terminé** ou stoppé **proprement** (`TaskStop`) → transcript flushé → resume **AVEC contexte
+    intact**. Cas normal.
+  - **Exit BRUTAL du process Claude Code parent** (crash / Ctrl-C sur la session / terminal fermé) pendant
+    que l'agent tourne → buffer jamais flushé → transcript **0 octet**, contexte perdu → le `SendMessage`
+    « reprend » mais **À VIDE** → je dois **RÉ-INJECTER tout le contexte de la tâche** dans le message de
+    reprise. (Vécu : re-expert perdu à une interruption, `.output` 0 octet ; reprise `SendMessage` +
+    ré-injection manuelle du contexte technique → OK, verdict rendu end-to-end.) NB : un `TaskStop` **propre**
+    ≠ perte de transcript (il le préserve) ; seul l'exit brutal du parent le perd.
+  - Ne JAMAIS lire le transcript moi-même (conversation entière de l'agent = déborde MON contexte) ; pour
+    récupérer le partiel d'un agent mort, **déléguer la SYNTHÈSE** à un sous-agent qui le lit en chunks
+    (offset/limit) et me rend ~15-30 lignes.
 
 ## Manques de portage = tâches (automatique)
 

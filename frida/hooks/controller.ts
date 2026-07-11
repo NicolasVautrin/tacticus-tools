@@ -40,11 +40,12 @@ import * as moveOptions from "./features/move-options.js";
 import * as winnerCapture from "./features/winner-capture.js";
 import * as messageTrace from "./features/message-trace.js";
 import * as aiStep from "./features/ai-step/index.js";
-// #75 (2026-07-10) : modifier-observe DESACTIVE du build. C'est un hook TEMP qui fait des
-// Interceptor.replace sur des chemins de degat ULTRA-CHAUDS (160k+ fires) -> risque de crash
-// du jeu sous churn reinject/warmup (cf. incident 2026-07-10). Fichier conserve sur disque ;
-// re-activer = decommenter cet import + remettre `modifierObserve` dans le register ci-dessous.
-// import * as modifierObserve from "./features/modifier-observe.js";
+// modifier-observe = diagnostic PERMANENT on-demand (decompo par etage prediction+combat — l'outil
+// doctrine « divergence de degat = decomposition, jamais fit », promu au build standard par #98).
+// Le register N'ARME AUCUN hook (auto-arm neutralise depuis l'incident 2026-07-10 : Interceptor sur
+// chemins de degat ultra-chauds pendant le churn reinject/warmup = crash) — il n'expose que les RPC
+// modifierObserveInstall/Status/Reset ; l'armement est on-demand, sur etat STABLE (post-warmup).
+import * as modifierObserve from "./features/modifier-observe.js";
 import * as abilityPrefs from "./features/ability-prefs.js";
 import * as scorerDamageTrace from "./features/scorer-damage-trace.js";
 import * as triggerTrace from "./features/trigger-trace.js";
@@ -371,7 +372,7 @@ export function wireRpc(ctx: Ctx): void {
      uiNav, warmupSingletons, battleConfig, observe, dumpBoards, boardTrace,
      dumpPvpBoards, normalizeBc, crashTrap, initTrace,
      // messageTrace AVANT moveOptions — il set scoringRunnerId/applySeq.
-     messageTrace, moveOptions, winnerCapture, aiStep, abilityPrefs,   // modifierObserve DESACTIVE (#75)
+     messageTrace, moveOptions, winnerCapture, aiStep, abilityPrefs, modifierObserve,   // modifierObserve = diag on-demand (jamais auto-arme)
      scorerDamageTrace, triggerTrace]
         .forEach((f) => f.register(ctx));
 }

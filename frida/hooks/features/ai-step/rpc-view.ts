@@ -2030,11 +2030,24 @@ export function registerView(ctx: Ctx): void {
      *  IDictionary<IEntity, DamagePredictionResult>, puis `dict.get_Item(target)`
      *  → struct boxée lue à +0x10. Read-only. Valide la chaîne d'invoke avant
      *  d'intégrer la prédiction aux attackPlans.
-     *  body: { runnerId, unitId, targetId, abilityType?, col?, row? } */
+     *
+     *  ⚠⚠ PIÈGES DE MESURE (#96/#98, 2026-07-11) — À LIRE avant d'utiliser ce RPC comme ORACLE :
+     *  1. `GetAllPredictions` = le PREVIEW decisionView (dégât Attack-based/normal), PAS le dégât
+     *     per-ability du PLAYBOOK de décision (`<Ability>Playbook.MakeDamagePredictions`, ex.
+     *     PlasmaCannon config-based maxDmg±20%). aiPredict(special) == aiPredict(normale) ne prouve
+     *     RIEN sur le playbook (faux verdict #96). Oracle playbook = dumps per-bout modifier-observe
+     *     (GetBaseDamageWithFixedPiercedArmor) captés PENDANT le tour de décision IA.
+     *  2. L'instance résolue par défaut = `CachedDamagePredictionQuery @180e2d990` (clé
+     *     {unitId, tileId, abilityType} — l'ability EST dans la clé) : une valeur peut être STALE
+     *     (état antérieur du tour). `fresh: true` court-circuite le cache (query interne @+0x10).
+     *  3. Tuile d'attaque INVALIDE (ex. mêlée non adjacente) → le natif sert le fallback
+     *     `GetPredictionForTargetsUnreachableFromSelectionTile @1810935c0` (prédiction depuis une
+     *     autre tuile) — ne PAS interpréter comme la prédiction de cette tuile.
+     *  body: { runnerId, unitId, targetId, abilityType?, col?, row?, fresh? } */
     ctx.rpc.aiPredict = (
         body?: {
             runnerId?: number; unitId?: number; targetId?: number;
-            abilityType?: number; col?: number; row?: number;
+            abilityType?: number; col?: number; row?: number; fresh?: boolean;
         },
     ): Promise<unknown> => queueOnMainThread(() => {
         let runner: NativePointer; let label: string;
@@ -2080,6 +2093,25 @@ export function registerView(ctx: Ctx): void {
             return { ok: false, error: "GetAllPredictions(3) introuvable (servicesOff="
                 + servicesOff + ", dpqInServices=" + dpqInServicesOff
                 + ", cands=" + dpqCands.map((c) => c.src).join(",") + ")" };
+        }
+        let queryClass: string | null = null;
+        try { queryClass = s(class_get_name(dpq.readPointer()) as NativePointer); } catch { /* */ }
+        // `fresh: true` : bypass du cache — l'instance par défaut est `CachedDamagePredictionQuery`
+        // (clé {unit,tile,ability}, valeurs potentiellement STALE) ; sa query INTERNE (le vrai
+        // `DamagePredictionQuery`) est le champ @+0x10 (décompilé @180e2d990 : `plVar1 = *(this+0x10)`,
+        // dispatché sur cache-miss). On invoque directement l'interne → recompute garanti.
+        if (body?.fresh && queryClass && queryClass.indexOf("Cached") >= 0) {
+            try {
+                const inner = dpq.add(0x10).readPointer();
+                if (!inner.isNull()) {
+                    const mi = findMethodByParamCount(inner.readPointer(), "GetAllPredictions", 3);
+                    if (mi) {
+                        dpq = inner; getAllPredMi = mi; dpqSrc += "->inner(fresh)";
+                        try { queryClass = s(class_get_name(inner.readPointer()) as NativePointer); }
+                        catch { /* */ }
+                    }
+                }
+            } catch { /* fallback : instance cachée */ }
         }
 
         let unit = ptr(0); let target = ptr(0);
@@ -2167,7 +2199,7 @@ export function registerView(ctx: Ctx): void {
         }
         const after = summarize(statePtr);
         return {
-            ok: true, runner: label, dpqSrc,
+            ok: true, runner: label, dpqSrc, queryClass,
             unitId: body?.unitId, targetId: body?.targetId,
             ability, abilityName: abilityName(ability), tile: readTileCoord(tile),
             dictNull: dict.isNull(), dictCount, pred,

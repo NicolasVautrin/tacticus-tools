@@ -1,5 +1,16 @@
-// Modifier-layer observation — ONE-SHOT diagnostic to crack the static-RE
-// wall on the damage MODIFIER chain.
+// Modifier-layer observation — diagnostic PERMANENT on-demand de la chaîne de
+// dégât (prédiction ET combat), JAMAIS auto-armé (voir register()). C'est
+// l'outil de DÉCOMPOSITION PAR ÉTAGE côté prédiction (doctrine CLAUDE.md
+// « divergence de dégât = décomposition, jamais fit de scalaire ») :
+//   armer (modifierObserveInstall) → reset → déclencher le calcul natif
+//   (aiPlayByUnit = le tour de décision IA remplit le cache de prédiction EN
+//   ÉTANT observé — c'est LA fenêtre de mesure fiable, cf. #96/#98 : aiPredict
+//   seul sert le cache/le preview, pas le playbook) → modifierObserveStatus.
+// Étages exposés : baseDmgPierced (bouts per-coup post-perçage) · multDumps
+// (chaque multiplicateur composé — la décomposition du ×k) · predCalcDumps
+// (application des mods côté prédiction) · calcDmgDumps (côté combat) ·
+// bonusDumps (attribution par effet) · varLevelDumps (résolution des variables
+// d'ability niveau×mult) · hitDmgDumps (roll combat par coup).
 //
 // Context: `DamageCalculations.CalculateAttackerModifiersForPrediction`,
 // `CalculateDefenderModifiersForPrediction`, `ApplyCappedModifiers` and the
@@ -29,7 +40,7 @@
 
 import { Ctx } from "../controller.js";
 import {
-    class_get_name, findClassAnywhere, findMethod, il2cppBase, s,
+    class_get_name, findClassAnywhere, findMethod, findMethodByParamCount, il2cppBase, s,
 } from "../il2cpp/helpers.js";
 import { captureStack } from "../ai-toolkit/stack-capture.js";
 import { log } from "../runtime/diag.js";
@@ -105,7 +116,16 @@ const DUMP_TARGET: Target = {
     ns: "IdunBattle.Core.Services", cls: "DamagePrediction",
     method: "GetBaseDamageWithFixedPiercedArmor", tag: "baseDmgPierced",
 };
-const MAX_VALUE_DUMPS = 40;
+// #98 : 40 (first-N) perdait la queue d'un tour de décision complet (33 prédictions × 2 bouts = 66
+// fires : les normales évaluées en dernier étaient DROPPÉES → « je ne vois que les plasma »). Ring
+// buffer (garde les DERNIERS) + cap large : un tour de décision entier tient.
+const MAX_VALUE_DUMPS = 200;
+
+/** Ring push : garde les `cap` DERNIERS éléments (les buffers first-N perdaient la fin du tour). */
+function pushRing<T>(arr: T[], v: T, cap: number): void {
+    arr.push(v);
+    if (arr.length > cap) arr.shift();
+}
 
 /** FixMath.NET Fix64 = Q31.32 (64-bit, 32 fractional bits) → integer part = raw >> 32.
  * Damage values are positive so the logical shift is fine. Returns the int part
@@ -192,6 +212,34 @@ interface ModsDump {
     ts: number;
 }
 
+// ── MULT DUMP — chaque multiplicateur composé dans la DamageModifiers (#98) ──────────────────
+// `DamageCalculations.GetMultiplierFromDamageBonus @181005210` convertit UNE contribution (effet
+// OU feuille positionnelle élévation/RangedInMelee/trench) en multiplicateur Fix64 (1 ± pct/100)
+// juste avant `DamageModifiers.Add`. Struct-return via args[0] (16 o : Fix64 mult @0). Dumper
+// multX1000 + topRva = LA décomposition « quels multiplicateurs composent le ×k » (#98 : ×2.25 =
+// [1500, 1500] = CrushingStrike × Élévation) — ce que ni modsDumps (struct composée, offsets
+// fragiles) ni bonusDumps (retWords ambigus) ne donnaient. Ring buffer (garde les derniers).
+interface MultDump {
+    idx: number;
+    /** Fix64 multiplicateur ×1000 (quad 1 du struct retour — layout MESURÉ #98 : quad0 = flag/pad,
+     * quad1 = Fix64 mult). 1500 = ×1.5 ; 1250 = ×1.25 ; 0 = Nullable vide (contribution nulle). */
+    multX1000: number;
+    q0X1000?: number;     // quad 0 (flag/pad — gardé pour sanity)
+    topRva: number;       // frame appelant (ghidra = +0x180000000) : boucle effets vs feuille positionnelle
+    ts: number;
+}
+const MAX_MULT_DUMPS = 160;
+
+// ── PRED-CALC DUMP — l'application des mods côté PRÉDICTION (#98) ────────────────────────────
+// `DamagePrediction.CalculateBaseDamageWithAllModifiers` (appelée par PredictAttackRaw @181032fb0
+// L1940/L2062, une par bout min/max) = l'étage où le ×mods s'applique au bout per-coup EN
+// PRÉDICTION. L'ancien hook calcDmgOp ne couvrait que le COMBAT (CalculateDamageOperation) →
+// l'étage prédiction était un ANGLE MORT (#98 : « modsDumps vides mais ×2.25 au final » restait
+// invisible). in = args[1] (bout int, post-perçage) ; out = retval (int ET vue Fix64 — prendre
+// celle qui est cohérente avec in×mult).
+interface PredCalcDump { idx: number; incoming: number; outInt: number; outFix: number; ts: number; }
+const MAX_PREDCALC_DUMPS = 160;
+
 // ── BONUS DUMP — per-source attribution via the BASE dispatchers + stacktrace ────────────────
 // User's idea: hook the modifier *construction* point with a backtrace so every bonus is
 // attributed to its SOURCE (which effect / which path created it). The two prediction-time
@@ -260,6 +308,8 @@ const state = {
     varLevelDumps: [] as VarLevelDump[],
     hitDmgDumps: [] as HitDmgDump[],
     modsDumps: [] as ModsDump[],
+    multDumps: [] as MultDump[],           // #98 : chaque multiplicateur composé (décomposition ×k)
+    predCalcDumps: [] as PredCalcDump[],   // #98 : application des mods côté PRÉDICTION (per-bout)
     bonusDumps: [] as BonusDump[],
     bonusSeen: new Set<string>(),
     dispatchDumps: [] as DispatchDump[],   // #68 TEMP : resolve the opaque ExecuteHit final-damage service
@@ -349,11 +399,10 @@ function installOnce(): {
                 // [4]=attacker, [5]=target, [6]=profile, [7]=p8, [8]=p9, [9]=penetration.
                 onEnter(this: InvocationContext & { _vd?: ValueDump },
                         args: InvocationArguments) {
-                    state.fires[DUMP_TARGET.tag] =
-                        (state.fires[DUMP_TARGET.tag] ?? 0) + 1;
-                    if (state.valueDumps.length >= MAX_VALUE_DUMPS) return;
+                    const n = (state.fires[DUMP_TARGET.tag] =
+                        (state.fires[DUMP_TARGET.tag] ?? 0) + 1);
                     this._vd = {
-                        idx: state.valueDumps.length,
+                        idx: n - 1,
                         baseIn: fix64(args[1]),
                         pierceA: fix64(args[2]),
                         pierceB: fix64(args[3]),
@@ -364,7 +413,7 @@ function installOnce(): {
                 onLeave(this: InvocationContext & { _vd?: ValueDump }, retval) {
                     if (!this._vd) return;
                     this._vd.result = fix64(retval);
-                    state.valueDumps.push(this._vd);
+                    pushRing(state.valueDumps, this._vd, MAX_VALUE_DUMPS);
                 },
             }));
             const ghidra = 0x180000000 + dm.ptr.sub(il2cppBase).toInt32();
@@ -582,6 +631,89 @@ function installOnce(): {
         }
     }
 
+    // #98 : chaque multiplicateur composé — GetMultiplierFromDamageBonus (2 OVERLOADS natifs :
+    // @181005210 refcount 10 + @1810053e0 refcount 3 — hooker LES DEUX, le builder peut appeler
+    // l'un ou l'autre). Struct-return 16 o via hidden pointer (RAX = ptr, l'appelant lit 2 quads) ;
+    // le quad porteur du Fix64 n'est pas tranché statiquement -> dumper LES DEUX (q0/q1, ×1000).
+    // topRva attribue la contribution (boucle effets vs feuille positionnelle).
+    try {
+        const gk = findClassAnywhere("IdunBattle.Core.Services", "DamageCalculations");
+        const seenPtrs: string[] = [];
+        const cands: Array<{ info: NativePointer; ptr: NativePointer }> = [];
+        for (const pc of [1, 2, 3]) {
+            const mi = gk ? findMethodByParamCount(gk, "GetMultiplierFromDamageBonus", pc) : null;
+            if (mi && !mi.ptr.isNull() && seenPtrs.indexOf(mi.ptr.toString()) < 0) {
+                seenPtrs.push(mi.ptr.toString());
+                cands.push(mi);
+            }
+        }
+        if (!cands.length) {
+            missing.push("DamageCalculations.GetMultiplierFromDamageBonus (mult-dump method not found)");
+        } else {
+            state.fires["multFromBonus"] = 0;
+            for (const gm of cands) {
+                state.listeners.push(Interceptor.attach(gm.ptr, {
+                    onEnter(this: InvocationContext & { _rva?: number; _out?: NativePointer },
+                            args: InvocationArguments) {
+                        state.fires["multFromBonus"] = (state.fires["multFromBonus"] ?? 0) + 1;
+                        this._out = args[0];
+                        try { this._rva = captureStack(this.context).topRva; } catch { this._rva = -1; }
+                    },
+                    onLeave(this: InvocationContext & { _rva?: number; _out?: NativePointer }, retval) {
+                        const src = (retval && !retval.isNull()) ? retval : this._out;
+                        if (!src || src.isNull()) return;
+                        const rd = (off: number): number => {
+                            try {
+                                const lo = src.add(off).readU32();
+                                const hi = src.add(off + 4).readS32();
+                                return Math.round((hi + lo / 4294967296) * 1000);
+                            } catch { return NaN; }
+                        };
+                        // layout MESURÉ (#98) : quad 0 = flag/pad (0), quad 1 = Fix64 multiplicateur.
+                        pushRing(state.multDumps, {
+                            idx: (state.fires["multFromBonus"] ?? 1) - 1,
+                            multX1000: rd(8), q0X1000: rd(0),
+                            topRva: this._rva ?? -1, ts: Date.now(),
+                        }, MAX_MULT_DUMPS);
+                    },
+                }));
+                hooked.push(`DamageCalculations.GetMultiplierFromDamageBonus @ ${gm.ptr} [mult-dump]`);
+            }
+        }
+    } catch (e) {
+        missing.push("GetMultiplierFromDamageBonus (mult-dump attach: " + (e as Error).message + ")");
+    }
+
+    // #98 : application des mods côté PRÉDICTION (une par bout, PredictAttackRaw L1940/L2062).
+    try {
+        const pk = findClassAnywhere("IdunBattle.Core.Services", "DamagePrediction");
+        const pm = pk ? findMethod(pk, "CalculateBaseDamageWithAllModifiers") : null;
+        if (!pm || pm.ptr.isNull()) {
+            missing.push("DamagePrediction.CalculateBaseDamageWithAllModifiers (pred-calc method not found)");
+        } else {
+            state.fires["predCalcDmg"] = 0;
+            state.listeners.push(Interceptor.attach(pm.ptr, {
+                onEnter(this: InvocationContext & { _in?: number }, args: InvocationArguments) {
+                    state.fires["predCalcDmg"] = (state.fires["predCalcDmg"] ?? 0) + 1;
+                    try { this._in = args[1].toInt32(); } catch { this._in = -1; }
+                },
+                onLeave(this: InvocationContext & { _in?: number }, retval) {
+                    let outInt = NaN; let outFix = NaN;
+                    try { outInt = retval.toInt32(); } catch { /* */ }
+                    try { outFix = retval.shr(32).toInt32(); } catch { /* */ }
+                    pushRing(state.predCalcDumps, {
+                        idx: (state.fires["predCalcDmg"] ?? 1) - 1,
+                        incoming: this._in ?? -1, outInt, outFix, ts: Date.now(),
+                    }, MAX_PREDCALC_DUMPS);
+                },
+            }));
+            hooked.push(`DamagePrediction.CalculateBaseDamageWithAllModifiers @ ${pm.ptr} [pred-calc in/out]`);
+        }
+    } catch (e) {
+        missing.push("DamagePrediction.CalculateBaseDamageWithAllModifiers (pred-calc attach: "
+            + (e as Error).message + ")");
+    }
+
     // Per-source bonus attribution (base dispatchers + execution behaviour) + backtrace.
     for (const bt of BONUS_TARGETS) {
         try {
@@ -652,13 +784,11 @@ function installOnce(): {
 }
 
 export function register(ctx: Ctx): void {
-    // Best-effort auto-arm at register. Battle classes are usually NOT yet
-    // resolvable at script load, so this typically no-ops with everything in
-    // `missing`; the scenario driver re-arms via modifierObserveInstall after
-    // warmup. Wrapped so a failure never breaks module load.
-    try { installOnce(); } catch (e) {
-        log("[modifier-observe] auto-arm skipped: " + (e as Error).message);
-    }
+    // #98 : auto-arm au register NEUTRALISE. `installOnce()` fait des Interceptor.replace sur des
+    // chemins de degat ULTRA-CHAUDS -> crash du jeu sous churn reinject/warmup s'il s'arme au mauvais
+    // moment (incident 2026-07-10, cause du disable #75). On N'ARME QUE on-demand via
+    // modifierObserveInstall (queueOnMainThread), sur un etat STABLE (post-warmup, hors churn). Le
+    // register n'expose plus que les RPC ci-dessous.
 
     ctx.rpc.modifierObserveInstall = (): Promise<unknown> =>
         queueOnMainThread(() => installOnce());
@@ -674,6 +804,8 @@ export function register(ctx: Ctx): void {
         varLevelDumps: state.varLevelDumps.map((v) => ({ ...v })),
         hitDmgDumps: state.hitDmgDumps.map((v) => ({ ...v })),
         modsDumps: state.modsDumps.map((v) => ({ ...v })),
+        multDumps: state.multDumps.map((v) => ({ ...v })),
+        predCalcDumps: state.predCalcDumps.map((v) => ({ ...v })),
         bonusDumps: state.bonusDumps.map((v) => ({ ...v })),
         dispatchDumps: state.dispatchDumps.map((v) => ({ ...v })),
         calcDmgDumps: state.calcDmgDumps.map((v) => ({ ...v })),
@@ -687,6 +819,8 @@ export function register(ctx: Ctx): void {
         state.varLevelDumps = [];
         state.hitDmgDumps = [];
         state.modsDumps = [];
+        state.multDumps = [];
+        state.predCalcDumps = [];
         state.bonusDumps = [];
         state.bonusSeen.clear();
         state.dispatchDumps = [];
