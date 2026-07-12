@@ -481,7 +481,7 @@ class NightshroudDmgReductionEffect(BaseEffect):
                           multiplier_pct=self.ability_variables_multiplier)
         if not red:
             return None
-        return for_subtraction(False, abs(int(red)))   # owner=défenseur (effet sur la cible) ; plat POST-%-list
+        return for_subtraction(False, abs(int(red)))   # owner=défenseur (effet sur la cible) ; plat PRÉ-perçage (#120)
 
 
 class NeuroparasiteEffect(BaseEffect):

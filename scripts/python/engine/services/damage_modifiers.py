@@ -99,7 +99,7 @@ def add_modifier(acc: DamageModifiers, eb: EffectBonus) -> None:
         if eb.owner_is_caster:
             acc.additive -= eb.value            # ATTAQUANT : base pré-perçage (stat-debuff #49/#64)
         else:
-            acc.flat_reductions.append(eb.value)  # DÉFENSEUR : plat POST-%-list (Nightshroud @180f5bff0)
+            acc.flat_reductions.append(eb.value)  # DÉFENSEUR : plat PRÉ-perçage (Nightshroud @180f5bff0, cf. flat_reductions)
     elif eb.kind in ("PercentIncrease", "PercentDecrease"):
         pct = eb.value if eb.kind == "PercentIncrease" else -eb.value
         acc.pct_list.append((get_multiplier_from_damage_bonus(pct), eb.cap))

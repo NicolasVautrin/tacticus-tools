@@ -197,6 +197,20 @@ class AttackDamageOperation:
         return cc, cd, could_crit(cc, cd)
 
     @staticmethod
+    def _apply_defender_flat_reductions(mods, def_mods) -> None:
+        """#120 : additif DÉFENSEUR plat PRÉ-perçage (Nightshroud_DmgReduction @180f5bff0 =
+        `ForSubtraction(OwnerIsTarget, ConfigVar 0x12=dmgReduction×mult)`) fusionné dans le slot additif
+        @+0x10 — le MÊME que l'additif ATTAQUANT #75. `CalculateBaseDamageWithAllModifiers @18102d3f0` ne
+        consomme @+0x10 qu'UNE fois, AVANT perçage. Mirror EXACT du merge PRÉDICTION
+        (`_add_positional_and_defender_mods`, prediction.py:172) : on SOUSTRAIT de `mods.additive`
+        (l'accumulateur ATTAQUANT, consommé pré-perçage via `attacker_additive_pre=True`) → la réduction
+        est DILUÉE par perçage/armure PUIS scalée ×%-list UNE fois, comme l'additif #75. SANS pré-scale ×M
+        (≠ ForAddition Neuroparasite, qui compense le placement post-%-list). Canal SÉPARÉ de `def_mods.additive`
+        (appliqué à part par `apply_all_modifiers`) → aucune double-application. Vide → no-op (rétro-compat)."""
+        if def_mods.flat_reductions:
+            mods.additive -= sum(def_mods.flat_reductions)
+
+    @staticmethod
     def execute(state: State, attacker_id: int, target_id: int,
                 spread_pct: int = 20) -> Optional[dict]:
         """Résolution d'une attaque normale (mirror Execute→ExecuteHits→ExecuteHit) depuis
@@ -298,6 +312,8 @@ class AttackDamageOperation:
         # GetCritChanceBonusFromEffects/GetCritDamageBonusFromEffects (PAS dans GetStat → sommée ici
         # depuis les effets ACTIFS de l'attaquant). Mirror exact de RollCritical/CalculateCriticalDamage.
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(ctx, active)
+        # #120 : réduction PLATE défenseur (Nightshroud) fusionnée dans l'additif pré-perçage (mirror prédiction).
+        AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
 
         def _reduced_bounds(eff_attack: int) -> "HitDamage":
             # #75 (case-68 MAJ 13) : additif ForAddition ATTAQUANT = PRÉ-perçage en COMBAT
@@ -479,6 +495,8 @@ class AttackDamageOperation:
         # `_block_sources` (mirror du GetMultiValueStat(7)/CalculateBlockChances@181002350 unique du natif).
         block_sources = AttackDamageOperation._block_sources(tsc, _da, armor)
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(ctx, active)
+        # #120 : réduction PLATE défenseur (Nightshroud, ungated -> spéciales aussi) fusionnée pré-perçage.
+        AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
 
         def _reduce(value: int) -> int:
             # #75 (case-68 MAJ 13) : additif ForAddition ATTAQUANT = PRÉ-perçage en COMBAT (idem
@@ -547,6 +565,8 @@ class AttackDamageOperation:
         # `_block_sources` (mirror du GetMultiValueStat(7)/CalculateBlockChances@181002350 unique du natif).
         block_sources = AttackDamageOperation._block_sources(tsc, _da, armor)
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(ctx, active)
+        # #120 : réduction PLATE défenseur (Nightshroud, ungated -> splash/normal-like aussi) fusionnée pré-perçage.
+        AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
 
         def _reduced(eff_base: int) -> "HitDamage":
             # #75 (case-68 MAJ 13) : additif ForAddition ATTAQUANT = PRÉ-perçage en COMBAT.
