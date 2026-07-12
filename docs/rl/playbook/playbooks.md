@@ -569,13 +569,22 @@ CIBLE (pas de la tuile de charge) → il influe l'**argmax de cible** (pas cosm�
 **Validation** : offline unit-tests VERTS (porte élévation, walkable, occupation, `disp=5×count`, cible
 introuvable→0). **Live non-régression** (seed 114010, bloodIntercessor Hammer-carrier, 26 pas) : Gauntlets
 step-9 `(1000,tgt=118)` toujours **MATCH** (#117 intact), miss-set = gap summon-attack préexistant (grots
-u114/u118/u123), PAS ce changement. **⚠ Le terme `+5` lui-même reste NON exercé** dans la trajectoire
-naturelle (bloodIntercessor ne caste pas Hammer, il bouge) → exercice = **positions drivées** (comme #114),
-délégué au validator adversarial.
+u114/u118/u123), PAS ce changement.
+
+**Validator FEU VERT COMMIT** (adversarial, worktree sur `5ac53ca`) — le terme `+5` **EXERCÉ LIVE** via
+positions drivées (le RE l'avait laissé non exercé) : runner 85 (4 candidats Hammer, `disp` par cible
+78=10/82=25/84=30/86=10, compté voisin-par-voisin vs board) → natif `u88→Hammer(1153)→target=84`, engine
+`target=84` **MATCH ability+cible** ; runner 87 (2 orksNob, disp 80=20/78=15) → natif+engine `target=80`
+**MATCH**. Occupation `epos∪fpos∪origine` == toutes unités vivantes (0 manquant/extra). **Over-count
+élévation RÉFUTÉ** : `boardGraph.neighbours` natif pré-exclut déjà les arêtes dElev≥2 (20 confirmées sur pvp)
+→ le port itère cette liste → ni sur- ni sous-compte (la porte `|Δelev|<2` re-appliquée = redondance sûre).
+Non-régression : diff confinée à `HammerOfWrathPlaybook` + helpers additifs ; autres NC intacts.
 
 **FLAGS / limitations** (dans `can_add_unit`) : (a) co-location trait `0x1b` (arg3=1 admet un occupant
 pass-through) → tuile occupée = fail (borne INF, corner négligeable) ; (b) tuiles walkable-mais-réservées
 (`tile[4]+0x40`/`+0x2c` runtime) non modélisées si `walkable` ne les folds pas (HYPOTHÈSE : `walkable==
-false` couvre `+0x40`) ; (c) porte d'élévation de l'itérateur natif (3 bools) non bit-décodée — `CanAddUnit`
-re-filtre, donc seul un voisin *droppé par l'itérateur avant CanAddUnit* pour élévation sur-compterait
-(mitigé par la porte `|Δelev|<2` appliquée côté port).
+false` couvre `+0x40`) ; (c) **IsTemporary** de l'itérateur natif `GetAdjacentTiles` non re-testé (tuile
+temporaire ACTIVE barrière/glace walkable+vide → sur-comptée) — non modélisé car les 3 bools de l'itérateur
+ne sont pas bit-décodés + 0 tuile temporaire sur boards validés (no-op pratique) ; `is_temporary_by_pos`
+dispo dans le NCContext → **suivi tâche #118**. [L'ancien flag « over-count élévation » est RÉFUTÉ par le
+validator, cf. ci-dessus.]

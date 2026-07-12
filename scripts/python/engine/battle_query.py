@@ -86,10 +86,14 @@ def can_add_unit(pos: tuple, walkable_by_pos: dict | None = None,
     unité). Offline : `walkable_by_pos[pos]` (= `BattleQuery.IsWalkableTile` = `TileExtensions.IsWalkable`,
     qui folds déjà isWall, cf. rpc-board.ts) ET `pos ∉ occupied` (occupation LIVE = TOUTES les unités
     vivantes, lue FRAÎCHE via epos/fpos/origine — PAS le `occupantUnitId` du boardGraph caché = périmé).
-    LIMITATION v1 (flaggée par le verdict) : (a) co-location trait 0x1b — arg3=1 admet un occupant
-    trait-27 pass-through -> ici une tuile occupée = fail (borne INF, corner négligeable) ; (b) les flags
-    runtime `tile[4]+0x40` (bloqué) / `+0x2c` (réservé) ne sont modélisés QUE si `walkable` les folds
-    (HYPOTHÈSE : `walkable==false` couvre `+0x40` ; une tuile walkable-mais-réservée serait sur-comptée)."""
+    LIMITATION v1 (flaggée par verdict RE + validator FEU VERT) : (a) co-location trait 0x1b — arg3=1
+    admet un occupant trait-27 pass-through -> ici une tuile occupée = fail (borne INF, corner négligeable) ;
+    (b) les flags runtime `tile[4]+0x40` (bloqué) / `+0x2c` (réservé) ne sont modélisés QUE si `walkable`
+    les folds (HYPOTHÈSE : `walkable==false` couvre `+0x40` ; une tuile walkable-mais-réservée serait
+    sur-comptée) ; (c) le filtre IsTemporary de l'itérateur natif `GetAdjacentTiles` n'est PAS re-testé
+    (une tuile temporaire ACTIVE barrière/glace walkable+vide serait sur-comptée) — non modélisé car les
+    3 bools de l'itérateur ne sont pas bit-décodés + 0 tuile temporaire sur les boards validés (no-op
+    pratique) ; `is_temporary_by_pos` dispo dans le NCContext (suivi tâche #118)."""
     if occupied is not None and (pos[0], pos[1]) in occupied:
         return False
     if not walkable_by_pos:
