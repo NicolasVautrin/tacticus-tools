@@ -76,6 +76,7 @@ from ..damage_model import (select_weapon, select_weapon_pierce, attacker_modifi
                             target_trait_names, getstuckin_combat_chance)
 from ...entities.effects import (hits_bonus_from_effects, crit_chance_bonus_from_effects,
                                  crit_damage_bonus_from_effects, defender_effect_block_sources)
+from ...entities.effects.loki import LIGHT_COVER_TILE_ID
 
 
 class HitDamage:
@@ -263,13 +264,21 @@ class AttackDamageOperation:
         if ap is not None and tp is not None:
             _board, _auras, _tgt_eff = build_hits_board(
                 state, attacker_id, target_id, (ap.col, ap.row), (tp.col, tp.row), is_melee=not _ranged)
+            # A3 (#113) : gate compute-time LightCover -- `AreEqual(coverPatch, target)` @180f556b0 = la CIBLE
+            # est-elle sur SA tuile de cover (DryBush) ? state.board porte le terrain (tileDefId, capteur
+            # boardGraph #124). Terrain INCONNU (board None / build sans tileDefId) -> None = applique-sur-
+            # presence (retro-compat). Empeche un LightCover PERIME (cible ayant quitte la tuile, effet non
+            # encore retire faute de B1) de sur-reduire les coups en runner-sim multi-step.
+            _t_terrain = state.board.terrain_at(tp.col, tp.row) if state.board is not None else None
+            _on_cover = (_t_terrain == LIGHT_COVER_TILE_ID) if _t_terrain is not None else None
             hits = attack_hits_with_modifiers(
                 weapon_hits=whits, extra_hits=ctx.stat(StatType.EXTRA_HITS),
                 extra_hits_melee=ctx.extra_hits_melee,
                 attacker_effects=active, trait_objects=ctx.trait_objects(),
                 target_effects=_tgt_eff, aura_sources=_auras, board=_board,
                 is_melee=not _ranged, damage_profile=_profile,
-                include_bonus_hit_behaviours=False)  # combat: GetStuckIn = behaviour chance-gate non porte (BITE 2)
+                include_bonus_hit_behaviours=False,  # combat: GetStuckIn = behaviour chance-gate non porte (BITE 2)
+                defender_on_cover=_on_cover)
         else:                                     # positions manquantes -> base seule (pas de GetStuckIn/aura)
             hits = max(1, whits + ctx.stat(StatType.EXTRA_HITS) + hits_bonus_from_effects(active))
         tsc = tgt.get_component(StatsComponent)

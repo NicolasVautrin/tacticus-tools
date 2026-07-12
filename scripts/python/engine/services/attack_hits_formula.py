@@ -46,7 +46,8 @@ from .damage_prediction import get_default_attack_hits
 def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_melee: int,
                                attacker_effects, trait_objects, target_effects, aura_sources,
                                board: dict, is_melee: bool | None, damage_profile: str | None,
-                               include_bonus_hit_behaviours: bool = False) -> int:
+                               include_bonus_hit_behaviours: bool = False,
+                               defender_on_cover: bool | None = None) -> int:
     """`AttackHitsWithModifiersFormula.Calculate @180f0bf50` : nb de coups d'une attaque normale. `board` =
     {att_id, tgt_id, attack_pos, t_pos, tgt_team, is_melee, pos_by_id, team_by_id} (base_hits pose ici) ;
     `aura_sources` = [(owner_id, pos, team, effets)] des unites != cible. Ordre = base (APRES PowerTrip) ->
@@ -69,8 +70,12 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
     att_ctx = {"att_id": board.get("att_id"), "att_pos": board.get("attack_pos"),
                "att_team": (board.get("team_by_id") or {}).get(board.get("att_id")),
                "is_melee": is_melee}
+    # (3) malus défenseur : LightCover -2 ranged / Parry -1 mêlée / MasterAnnihilator +1. Le gate
+    # compute-time `defender_on_cover` (A3, #113) empêche LightCover de sur-appliquer un effet périmé en
+    # runner-sim (cible ayant quitté sa tuile de cover) ; None (prédiction) = applique-sur-présence.
     hits = max(1, hits
-               + hits_malus_from_defender_effects(target_effects, is_melee, damage_profile)
+               + hits_malus_from_defender_effects(target_effects, is_melee, damage_profile,
+                                                  defender_on_cover=defender_on_cover)
                + aura_hits_malus_for_defense(aura_sources, board)
                + aura_hits_bonus_for_attack(aura_sources, att_ctx))
     return hits

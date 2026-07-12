@@ -580,21 +580,42 @@ class FightingRetreatHitReductionEffect(BaseEffect):
         return for_addition(True, -int(n)) if n else None
 
 
+# TileId (terrain BC) qui HÉBERGE la LightCoverAbility (Abilities.Tiles.Loki @1811c14e0) : les tuiles de
+# couverture = DryBush. Source : empirique live (gqfc5mff6c) — une unité posée sur une tuile DryBush porte
+# l'effet 'LightCover', absente ailleurs ; + `UnitsThatNeedEffect @1811c1830` = Units(coverPatch@0x148) =
+# unités SUR la tuile porteuse de l'ability. Utilisé par le COMBAT pour le gate `AreEqual(coverPatch, target)`
+# (@180f556b0) = "la cible est sur SA tuile de cover". Pas un hardcode de debug : mapping terrain->ability.
+LIGHT_COVER_TILE_ID = "DryBush"
+
+
 class LightCoverEffect(BaseEffect):
     """`LightCoverEffect` — couverture légère (effet de TUILE posé par `LightCoverAbility`
     Abilities.Tiles.Loki, `UnitsThatNeedEffect` @1811c1830 = unités SUR les tuiles de couverture).
     - hits @180f556b0 : `EffectBonus.ForAdditionWithMinimum(OwnerIsTarget(tuiles égales) &
       !IsMeleeAttack, -ConfigConst(0x2c=hitsReduction), min=Direct(1))` = **-hitsReduction coups
-      sur les attaques NON-mêlée reçues par le porteur, plancher 1**.
+      sur les attaques NON-mêlée reçues par le porteur, plancher 1**. Le trigger `OwnerIsTarget(tuiles
+      égales)` = `AreEqual(Tiles(coverPatch@0x148), Tiles(target@0x178))` = **la cible se tient sur LA
+      tuile de cover** à laquelle l'effet est lié (approx. fidèle du port : la cible est sur UNE tuile
+      DryBush, cf. `defender_on_cover`).
     MAGNITUDE : `globalValues.lightCoverHitReduction` = 2 (LightCoverAbility = ability de TUILE,
     absente de `units.abilities` — sa config vit dans les valeurs globales).
     GROUND TRUTH step-13 seed777 (trace AllMods, u90→u84 porteur LightCover) : ranged 4→2 coups
-    partout, mêlée dist 1 → 4 coups (gate !IsMeleeAttack) — natif dMin/dMax reproduits exacts."""
+    partout, mêlée dist 1 → 4 coups (gate !IsMeleeAttack) — natif dMin/dMax reproduits exacts.
+
+    ⚠ GATE compute-time `defender_on_cover` (A3, #113) : le natif RE-vérifie `AreEqual(coverPatch, target)`
+    À CHAQUE calcul d'attaque — l'effet ne réduit PAS si la cible a quitté la tuile de cover. En PRÉDICTION
+    (single-step, cible immobile) la présence de l'effet (IsActive live) ⟺ sur-cover → gate no-op (on passe
+    `defender_on_cover=None` = "inconnu" → applique sur présence). En RUNNER-SIM (multi-step) l'effet peut
+    PERSISTER après un move hors-cover (tant que B1 ne le retire pas) → le COMBAT passe
+    `defender_on_cover = (terrain de la cible == DryBush)` pour ne PAS sur-appliquer un effet périmé."""
 
     def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
-                                             damage_profile: str | None = None) -> EffectBonus | None:
+                                             damage_profile: str | None = None,
+                                             defender_on_cover: bool | None = None) -> EffectBonus | None:
         if is_melee:                        # trigger natif = !IsMeleeAttack (@180f556b0)
             return None
+        if defender_on_cover is False:      # AreEqual(coverPatch, target) FAUX : cible hors tuile de cover
+            return None                     # (None = inconnu -> on applique sur présence, cas prédiction)
         n = global_value("lightCoverHitReduction")   # miroir du ConfigConst 0x2c (=2)
         return for_addition(True, -int(n)) if n else None
 
@@ -609,7 +630,8 @@ class ParryEffect(BaseEffect):
     vs ranged = 5 (base 3 + PowerTrip 1 + MasterAnnihilator 1) — natif reproduit exact."""
 
     def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
-                                             damage_profile: str | None = None) -> EffectBonus | None:
+                                             damage_profile: str | None = None,
+                                             defender_on_cover: bool | None = None) -> EffectBonus | None:
         if not is_melee:                    # trigger natif = IsMeleeAttack (@180f5d860)
             return None
         n = trait_var("Parry", "parryHitReduction")  # miroir du ConfigConst 0x2c (=1)
@@ -630,7 +652,8 @@ class MasterAnnihilatorAdditionalHitEffect(BaseEffect):
     les cibles non marquées (88/96)."""
 
     def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
-                                             damage_profile: str | None = None) -> EffectBonus | None:
+                                             damage_profile: str | None = None,
+                                             defender_on_cover: bool | None = None) -> EffectBonus | None:
         if damage_profile == "Psychic":     # !AreEqual(profil, 0xd=Psychic) (@180f58d50)
             return None
         n = ability_var("MasterAnnihilator", "nrOfHits", is_constant=True)   # ConfigConst 0x2f (=1)

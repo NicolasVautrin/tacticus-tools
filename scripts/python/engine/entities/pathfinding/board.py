@@ -82,3 +82,20 @@ class Board:
     def coord(self, tid: int) -> tuple[int, int]:
         t = self.by_id[tid]
         return (t["col"], t["row"])
+
+    # --- terrain (tileDefId, capteur boardGraph #124) ---
+    def tile_def_id(self, tid: int) -> str | None:
+        """Terrain de la tuile (`TileId` de la BC : Grass/DryBush/Trench/FirstAid/...), ou None si non
+        capte (boardGraph d'un build ANTERIEUR au capteur tileDefId). Base des effets de tuile
+        (LightCover=DryBush, Trench, ...) — cf. docs/rl/terrain-effects.md."""
+        return self.by_id.get(tid, {}).get("tileDefId")
+
+    def terrain_at(self, col: int, row: int) -> str | None:
+        t = self.by_coord.get((col, row))
+        return t.get("tileDefId") if t else None
+
+    def coords_with_terrain(self, tile_id: str) -> set[tuple[int, int]]:
+        """Ensemble des (col,row) portant ce terrain (ex. 'DryBush' = tuiles cover LightCover ;
+        'Trench'). Vide si le terrain n'est pas capte. Base des gates compute-time des effets de tuile."""
+        return {(t["col"], t["row"]) for t in self.by_id.values()
+                if t.get("tileDefId") == tile_id}

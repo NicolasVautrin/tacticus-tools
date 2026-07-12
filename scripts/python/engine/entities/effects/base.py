@@ -96,7 +96,8 @@ class BaseEffect:
         return None
 
     def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
-                                             damage_profile: str | None = None) -> EffectBonus | None:
+                                             damage_profile: str | None = None,
+                                             defender_on_cover: bool | None = None) -> EffectBonus | None:
         """Contribution DÉFENSEUR à l'axe COUPS (l'effet est sur la CIBLE, modifie les coups reçus).
         Natif : même canal `CreateEffectHitsBonusForAttack` mais trigger `OwnerIsTarget` (ex.
         `LightCoverEffect.CreateEffectHitsBonusForAttack` @180f556b0 = `ForAdditionWithMinimum(
@@ -104,7 +105,10 @@ class BaseEffect:
         `ParryEffect` @180f5d860 idem gated `IsMeleeAttack` ; `MasterAnnihilator_AdditionalHitEffect`
         @180f58d50 = +nrOfHits gated `!DamageProfileIs(Psychic)`) — le port eager sépare
         attaquant/défenseur, symétrique de `create_effect_damage_malus_for_defense`. `damage_profile` =
-        NOM du profil de l'attaque (gate Psychic). Plancher min=1 chez le consommateur. Défaut None."""
+        NOM du profil de l'attaque (gate Psychic). `defender_on_cover` = gate compute-time des effets de
+        TUILE (LightCover) : True=cible sur sa tuile de cover, False=hors-cover (effet périmé, ne s'applique
+        pas), None=inconnu (applique sur présence — cas prédiction, cible immobile). Plancher min=1 chez le
+        consommateur. Défaut None."""
         return None
 
     def create_aura_hits_malus_for_defense(self, ctx: Mapping | None = None) -> EffectBonus | None:

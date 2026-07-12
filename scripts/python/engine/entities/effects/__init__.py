@@ -178,15 +178,18 @@ def hits_bonus_from_effects(effects, is_normal_attack: bool = True) -> int:
 
 
 def hits_malus_from_defender_effects(effects, is_melee: bool | None = None,
-                                     damage_profile: str | None = None) -> int:
+                                     damage_profile: str | None = None,
+                                     defender_on_cover: bool | None = None) -> int:
     """Σ des modifications de COUPS des effets actifs de la CIBLE (`create_effect_hits_malus_for_defense`,
     ex. LightCover @180f556b0 : -2 ranged ; Parry @180f5d860 : -1 mêlée ; MasterAnnihilator
     @180f58d50 : +1 non-Psychic). Natif = même canal `CreateEffectHitsBonusForAttack` trigger
     `OwnerIsTarget` ; plancher min=1 appliqué chez le consommateur (`max(1, …)`).
+    `defender_on_cover` = gate compute-time des effets de TUILE (LightCover `AreEqual(coverPatch,target)`,
+    #113) : None=applique-sur-présence (prédiction), True/False=cible sur/hors sa tuile de cover (combat).
     Retour signé (à ADDITIONNER aux hits)."""
     total = 0
     for e in _as_effects(effects):
-        hb = e.create_effect_hits_malus_for_defense(is_melee, damage_profile)
+        hb = e.create_effect_hits_malus_for_defense(is_melee, damage_profile, defender_on_cover)
         if hb is None:
             continue
         if hb.kind == "Addition":

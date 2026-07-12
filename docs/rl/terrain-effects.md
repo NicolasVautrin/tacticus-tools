@@ -79,6 +79,40 @@ Types : `AbsoluteStatBoostType` / `PctBasedStatBoostType` (`AddPctBasedBoost @18
 (`EvaluateAttackInSteps @1810f14c0`, `EvaluateMovementInSteps @1810fd130`). En prediction : les boosts
 ramasses sont deja captes (statDelta/shields). En runner-sim : le pickup-on-move n'est pas modelise.
 
+### 3bis. Placement des power-ups dans la BC (ou vivent-ils sur le board)
+
+Scan des 782 dumps `data/boards/**` (probe_powerup_detail.py) : les power-ups ne sont PAS un `TileId`
+terrain (les tuiles ne portent que Rotation/TileId/Elevation/RoomID/ForceUnplayable). Ils sont places
+par le **spawn-point-set** :
+
+    board.SpawnPointSets[i].GameModeTiles[].PowerUpUnits[] = { "UnitId": "<powup...>", "Position": {Column, Row} }
+
+(a cote de `Player0/1SummonTiles`, `TerritoryTiles`, `SyncPvpRuleset`, `Mode`). Chaque power-up = une
+UNITE neutre posee sur une tuile (ramassee en marchant dessus, cf. §3). **36 boards distincts** en portent,
+TOUS du mode Sync-PvP (familles `SyncPvp_*` + `Infested_SyncPvp_*`, + le campagne `C2_31`) ; aucun board
+d'arene/campagne standard. 5 types de `UnitId` :
+
+| UnitId | effet | occurrences |
+|---|---|---|
+| `powupDamage` | boost degat | 65 |
+| `powupMeleeHits` | +coups melee | 60 |
+| `powupArmor` | boost armure | 59 |
+| `powupHealth` | soin/PV | 57 |
+| `powupHits` | +coups (ranged) | 41 |
+
+Boards les plus riches (validation B2) : **`SyncPvp_Arctic_01`** (20 power-ups = 5 types x4),
+`SyncPvp_Desert_01` (15 = 5x3), puis ~10 chacun (`SyncPvp_Arctic_06` — qui porte AUSSI la Trench —,
+`SyncPvp_Temperate_02/03`, `SyncPvp_Desert_04/05`, ...).
+
+**CONSTAT B2 (live, verifie 2026-07-12)** : `rl_duel build --board SyncPvp_Arctic_01` N'INSTANCIE PAS les
+power-ups. Le runner construit a `units=2` (les 2 rosters), 3 players (team1/team2/Environment) mais
+l'Environment porte **zero unite** ; aucune entite type-1 `powup*` ; `boardGraph.occupantUnitId` = seulement
+les 2 combattants. => le spawn des `GameModeTiles.PowerUpUnits` appartient a la logique d'INIT du mode
+Sync-PvP, court-circuitee par le chemin de build generique du runner. **Consequence** : B2 n'est PAS
+atteignable en montant simplement une seed board — il faut d'abord un pas de SPAWN explicite (porter le
+spawn natif des power-up units depuis `GameModeTiles.PowerUpUnits` via `AddUnitOperation`, cf. le spawn de
+summon #33/#65) AVANT de pouvoir porter le pickup-on-move. B2 est donc plus gros que "juste le pickup".
+
 ## 4. Positionnels non-terrain (rappel, deja portes #58/#61)
 Elevation `CalculateElevationBonusModifier @181003ea0` (+50% surplomb, porte). RangedInMelee
 `@181004700` / `ShouldApplyRangedInMelee @181005810` (-50% ranged adjacent ennemi, porte).
@@ -86,7 +120,7 @@ Elevation `CalculateElevationBonusModifier @181003ea0` (+50% surplomb, porte). R
 ## 5. Plan (slices)
 
 **A. Gaps PREDICTION (petit, validable maintenant)**
-- A1. Trench : le natif a UNE seule fonction `CalculateTrenchReduction @181004830` gatee sur
+- A1. **[DONE `d9d0e6c`]** Trench : le natif a UNE seule fonction `CalculateTrenchReduction @181004830` gatee sur
   `HasEffect(target, 0x423=TrenchEffect)`. Le port a son homonyme `calculate_trench_reduction(
   target_on_trench, pct)` mais l'appelle avec `target_on_trench=False` CODE EN DUR (prediction.py:130).
   FIX (PAS de nouvelle classe = pas de duplication) : gater `target_on_trench` sur "la cible a un effet
@@ -95,12 +129,26 @@ Elevation `CalculateElevationBonusModifier @181003ea0` (+50% surplomb, porte). R
   vide). NB `calculate_trench_reduction` owner_is_caster=True (attaquant) = maths identiques a -50% defender.
   Valider SyncPvp_Arctic_06 (u84 sur Trench, necroDestroyer 6 ranged -> oracle -50% vs offline).
 - A2. ShrubBonusDefense : RE + wirer si non capte.
-- A3. LightCover : gate compute-time fidele (`AreEqual(coverPatch,target)`) — necessite tileDefId.
+- A3. **[DONE — non commite]** LightCover : gate compute-time fidele. Le natif
+  `LightCoverEffect.CreateEffectHitsBonusForAttack @180f556b0` RE-verifie a CHAQUE attaque
+  `AreEqual(Tiles(coverPatch@0x148), Tiles(target@0x178)) & !IsMeleeAttack` -> -ConfigConst(0x2c), min 1.
+  Le port ne gardait que `!IsMeleeAttack` + la PRESENCE de l'effet (correct en prediction : cible immobile,
+  presence IsActive live <=> sur-cover). En RUNNER-SIM l'effet peut PERSISTER apres un move hors-cover
+  (faute de B1). FIX : threader `defender_on_cover` (= terrain de la cible == DryBush, via `state.board`
+  #124) dans la formule partagee `attack_hits_with_modifiers` -> `hits_malus_from_defender_effects` ->
+  `LightCoverEffect.create_effect_hits_malus_for_defense` ; `False`=hors-cover (drop), `None`=inconnu
+  (applique-sur-presence = prediction inchangee). Combat (`AttackDamageOperation.execute`) calcule le gate ;
+  prediction laisse None. DryBush = TileId hote de LightCoverAbility (empirique live + `UnitsThatNeedEffect
+  @1811c1830 = Units(coverPatch@0x148)`). VALIDE LIVE (SyncPvp_Arctic_06) : cible sur DryBush -> 3 ranged
+  hits chutent a 1 (-2) ; DEPLACEE sur Grass, effet CONSERVE -> 3 hits (gate, pas retrait). Regression
+  getstuckin combat bit-exact + predict 2/2 verts. Test : `tests/engine/runner/test_lightcover_gate_live.py`.
 - A4. DryBushFireSpread : DoT (RE + port si pertinent combat).
 
 **B. Runner-sim tile-triggers (grand)**
-- B0. INFRA : `tileDefId` dans `boardGraph` (+isTemporary) ; `Board` (pathfinding) capte terrain ->
-  `cover_hexes()`/`trench_hexes()`/... ; scene expose. [prerequis de A3 + tout B]
+- B0. **[DONE — non commite, valide live]** INFRA : `tileDefId` (+`isTemporary`) dans `boardGraph`
+  (rpc-board.ts) ; `Board` (pathfinding) accessors `tile_def_id`/`terrain_at`/`coords_with_terrain`. Valide
+  live 63/63 tuiles sur SyncPvp_Arctic_06 (Trench 13/DryBush 7/Block 6/Swamp 2/Grass 35). [prerequis de A3
+  + tout B ; consomme par le gate LightCover A3 via `state.board.terrain_at`]
 - B1. LightCover/Trench/Shrub : add/remove effet on enter/leave terrain (MoveUnitOperation).
 - B2. Power-up pickup on-move (APowerUpAbility -> stat boost / armor / shield / bomb).
 - B3. FirstAid heal-on-tile (turn/step trigger).

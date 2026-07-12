@@ -435,6 +435,10 @@ export function registerViewBoard(ctx: Ctx): void {
             }
             return {
                 id: t.id, col: t.col, row: t.row, elevation: t.elevation,
+                // tileDefId = terrain (TileId de la BC : Grass/DryBush/Trench/FirstAid/...) — source des
+                // effets de tuile (LightCover=DryBush, Trench, ...) pour le moteur (docs/rl/terrain-effects.md).
+                // isTemporary = tuile temporaire (HulkDoor, tuiles posees en combat).
+                tileDefId: t.tileDefId ?? null, isTemporary: t.isTemporary ?? false,
                 isWall: t.isWall, walkable, neighbours,
                 occupantUnitId: occByTile.get(t.id) ?? null,
             };
