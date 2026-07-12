@@ -105,6 +105,98 @@ class SmashaEadExtraDamageEffect(BaseEffect):
         return for_percent_decrease(False, abs(int(red)))   # owner=defenseur (l'effet est sur la cible)
 
 
+class DecoysAndMisdirectionExtraDamageEffect(BaseEffect):
+    """`DecoysAndMisdirection_ExtraDamageEffect.CreateEffectDamageBonusForAttack @180f3e340` (Genestealer
+    Cults ability DecoysAndMisdirection 0x518=1304, effet 0x563=1379 "DecoysAndMisdirection_ExtraDamage") :
+    `EffectBonus.ForAddition(OwnerIsCaster, ConfigVar(8=extraDmg, EffectSource))` = +`extraDmg[level]` x
+    multiplier au degat de TOUTES les attaques du porteur (l'ami buffe) -- FLAT additif, meme canal
+    `additive @+0x10` que SmashaEad (DamageModifiers.Add @181005f10, applique POST-percage par
+    CalculateBaseDamageWithAllModifiers @18102d3f0).
+
+    Pose sur un ami quand un decoy est spawn a cote de lui / quand un ami se deplace sur un decoy (i2 :
+    « it deals +582 Damage until the end of its turn »). ctor @180f3e4a0 : EffectSource = AbilityOrEffect
+    0x518 (DecoysAndMisdirection) -> extraDmg indexe sur le niveau de CETTE ability du SOURCE (genesPrimus).
+
+    DIFFERENCE cle vs SmashaEad (#71) : le gate natif est `get_OwnerIsCaster` SEUL (@180f3e340 decompile :
+    AUCUN noeud IsNormalAttack ni IsMeleeAttack). OwnerIsCaster est TRUE des que le porteur attaque (ce
+    chemin n'est appele QUE pour les attaques du porteur) -> l'additif s'applique en PREDICTION comme en
+    COMBAT (contrairement a SmashaEad dont IsNormalAttack evalue FALSE en display-prediction, #71).
+    Comportement = Neuroparasite (#88, additif present dans decisionView).
+
+    extraDmg in variablesAffectedByRarityBonus (=[minDmg,maxDmg,extraDmg]) -> scale x multiplier de l'unite.
+    ⚠ Validator traps (spec #134) : (1) multiplier GLOBAL de l'unite vs per-ability du passif (cf. bug
+    #68/#75 SmashaEad ; ici passif 1304, per-ability non capte -> defaut global self.ability_variables_
+    multiplier, a valider live) ; (3) niveau/multiplier = ceux du SOURCE (genesPrimus), pas du buffe (comme
+    RitesOfBattle aura). extraDmg[L1..65]=[8..582]. VALIDATION live PENDING (build genesPrimus -> Decoy ->
+    ami buffe attaque -> aiPredict/decisionView additif +extraDmg)."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True) -> EffectBonus | None:
+        # Gate natif = OwnerIsCaster SEUL (@180f3e340) : aucun re-gate is_ranged/is_normal/is_prediction.
+        # Ce chemin n'est appele que pour les attaques du porteur -> OwnerIsCaster implicitement TRUE.
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        amt = ability_var("DecoysAndMisdirection", "extraDmg", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
+        # ForAddition -> canal `additive @+0x10` applique POST-percage (DamageModifiers.Add @181005f10).
+        return for_addition(True, amt) if amt is not None else None
+
+
+class AnvilShieldAdditionalBlockEffect(BaseEffect):
+    """`AnvilShield_AdditionalBlock` (effet 0x4b2=1202, StaticStatModifierEffect) — buff BLOCK_DAMAGE
+    self de Arjac (spaceRockfist) quand il BLOQUE. Pose par `AnvilShieldAbility_ApplyAdditionalBlockAnd
+    BlockChance.CreateBehaviour @180e16340` : `AddStaticStatModifierEffect(0x4b2, statType 8=BLOCK_DAMAGE,
+    GetVariableForLevel(0x14))` (2e effet de la meme behaviour = 0x4b0=1200 BlockChanceBelowHealthCap,
+    stat 7=BLOCK_CHANCE / var blockChance, gate sante -> NON porte ici, ambiguite abs-vs-% du cap).
+
+    Magnitude = ability_var AnvilShield `blockDmg` (idx enum 0x14 <-> stat 8 BLOCK_DAMAGE ; blockDmg in
+    variablesAffectedByRarityBonus -> scale x multiplier de l'unite). blockDmg[L1..65]=[10..728]. Effet
+    INCONDITIONNEL (pas d'ActiveCondition). AnvilShield = ability ACTIVE -> index activeAbilityLevel
+    (fallback passif/stack). EffectSource = AbilityOrEffect 0x493 (=AnvilShield, ability enum).
+
+    ⚠ Pose par le vecteur ON-BLOCK (materialisation d'effet on-block, NON porte) -> INERTE tant que non
+    materialise (fidelite-safe : « present != applique ») ; une fois present sur Arjac (seed live / vecteur),
+    le stat-layer applique +blockDmg a la stat BLOCK_DAMAGE (stat 8, lue par CalculateBlockChances #30).
+    Validation live possible via un scenario BLOCK (Arjac bloque -> statModSources stat 8), cf. BeastSlayer #72."""
+
+    def get_stat_modification_stat(self) -> int | None:
+        return 8                                     # StatType.BLOCK_DAMAGE
+
+    def get_stat_modification_amount(self) -> int | None:
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        return ability_var("AnvilShield", "blockDmg", lvl,
+                           multiplier_pct=self.ability_variables_multiplier)
+
+
+class ContaminatedUnitEffect(BaseEffect):
+    """`Contaminated_Unit` (effet 0x4dd=1245, `ContaminatedStatModifierEffect`, ctor @180f3a560 =
+    ADynamicStatModifierEffect FixedArmor) — SOUS-effet pose sur une UNITE occupant/entrant une tuile
+    `Contaminated` (0x4dc), 1 round. Debuff dynamique de la stat FixedArmor (=16).
+
+    Le NATIF calcule le montant a l'apply (`ADynamicStatModifierEffect.GetStatModificationAmount @180f090f0`
+    -> `GetDynamicStatModificationAmount @180f3a460` = -X% du FixedArmor courant) et l'applique via ChangeStat.
+    Cote port : le vecteur tile-effect (#128, `ContaminatedTileEffect`) calcule le delta a l'apply et le stocke
+    dans `self.value` -> `get_stat_modification_amount` renvoie `self.value`.
+
+    >>> MAGNITUDE (X%) NON RESOLUE (#132 CAVEAT) : la source du -X% n'est PAS dans gameconfig
+    (`contaminatedArmorReductionPct` absent des globalValues) ; @180f3a460 la lit via un appel d'interface
+    (slot 0xbe arg 6) -> NE PAS hardcoder 30. Tant que X n'est pas mesure live, le vecteur pose l'effet avec
+    `value=None` -> ce debuff est PRESENT (valide le VECTEUR enter/tick) mais N'ALTERE PAS encore la stat
+    (fidelite-safe « present != applique »). La magnitude = tache #132 (mesure live du drop d'armure)."""
+
+    def get_stat_modification_stat(self) -> int | None:
+        return 16                                    # StatType.FIXED_ARMOR
+
+    def get_stat_modification_amount(self) -> int | None:
+        # Delta calcule a l'apply par le vecteur (= -round(FixedArmor_courant * X/100)) et stocke dans value.
+        # None tant que X non resolu (#132) -> aucune contribution stat (mais l'effet reste PRESENT).
+        return self.value
+
+
 class RitesOfBattleExtraDmgEffect(BaseEffect):
     """`RitesOfBattleExtraDmgEffect` (Effects.Loki) — AURA stat-mod +dégât de Calgar (2 EffectTypes
     permanents sur le porteur : Basic `...ExtraDmgBasic` 1002 / Imperial `...ExtraDmgImperial` 1003).

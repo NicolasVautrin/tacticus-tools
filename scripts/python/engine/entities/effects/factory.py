@@ -11,9 +11,12 @@ from collections.abc import Mapping
 from .base import BaseEffect
 from .loki import (
     ActOfFaithBuffEffect,
+    AnvilShieldAdditionalBlockEffect,
     AstartesBannerExtraHitEffect,
+    ContaminatedUnitEffect,
     BigTargetAdjacentEffect,
     CrushingStrikeEffect,
+    DecoysAndMisdirectionExtraDamageEffect,
     FightingRetreatDmgReductionEffect,
     FightingRetreatHitReductionEffect,
     GuardianOrganismDamageReductionEffect,
@@ -111,6 +114,22 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # OwnerIsCaster&IsMeleeAttack ConfigVar 0xd, selector SurroundingFriends range ConfigConst 0x16=2). #107.
     "AstartesBanner_ExtraHit": AstartesBannerExtraHitEffect,
     "ShadowInTheWarp_LessDmg_Effect": ShadowInTheWarpLessDmgEffect,  # aura : -25% degat PSYCHIQUE aux ennemis a portee
+    # DecoysAndMisdirection (Genestealer Cults ex. genesPrimus/genesMagus/genesKelermorph) : +extraDmg
+    # FLAT additif a TOUTES les attaques de l'ami buffe (pose quand un decoy est spawn a cote / qu'un ami
+    # marche sur un decoy). Gate OwnerIsCaster SEUL (@180f3e340 -> applique en prediction+combat, cf.
+    # Neuroparasite). extraDmg[L65]=582 rarity-scale x mult. EffectType capte 1379. #134 (spawn+retaliation
+    # Blast NON encore portes -- seul l'effet ExtraDamage l'est ici). Nom capte = effect-type-names.ts:502.
+    "DecoysAndMisdirection_ExtraDamage": DecoysAndMisdirectionExtraDamageEffect,
+    # AnvilShield (Arjac spaceRockfist) : buff BLOCK_DAMAGE self quand il BLOQUE (0x4b2=1202,
+    # AddStaticStatModifierEffect stat 8, var blockDmg[L65]=728 rarity-scale ; @180e16340). INCONDITIONNEL.
+    # Le 2e effet de la behaviour (0x4b0=1200 BlockChanceBelowHealthCap, stat 7=BLOCK_CHANCE/blockChance) N'EST
+    # PAS inscrit (gate sante abs-vs-% non tranche) ; 1201 FrozenAttackerAdvantage (dynamique) non plus. #133.
+    "AnvilShield_AdditionalBlock": AnvilShieldAdditionalBlockEffect,
+    # Contaminated_Unit (0x4dd=1245) : sous-effet -X% FixedArmor pose sur une unite occupant/entrant une
+    # tuile contaminee (0x4dc). Debuff stat FixedArmor (=16) ; magnitude X NON resolue (#132) -> value=None
+    # tant que non mesure live (present mais inerte-stat). Pose par le vecteur tile-effect ContaminatedTileEffect
+    # (#128, triggers.py). Nom capte = effect-type-names.ts:368.
+    "Contaminated_Unit": ContaminatedUnitEffect,
     # KanOpener : nom d'EffectType à confirmer avant inscription.
 }
 
