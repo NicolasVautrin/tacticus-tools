@@ -37,7 +37,7 @@ from typing import Optional
 from ..state import State
 from ..components import OwnerComponent, UnitComponent, ShieldComponent, StatsComponent
 from ...entities.stats import StatType
-from .triggers import start_turn_triggers
+from .triggers import start_turn_triggers, tile_tick_triggers
 
 
 def _active_players(state: State) -> list[int]:
@@ -131,9 +131,12 @@ class StartTurnOperation:
         # #60 has_moved : nouveau tour d'equipe -> reset des flags "a bouge ce tour" (mirror RemoveTurnFlags
         # natif). Chaque unite qui bouge ce tour re-marquera son id via MoveUnitOperation.
         state.moved_this_turn.clear()
+        # #128 tile-effects ROUND-TICK : StartTurn emet On(0x12) (Contaminated re-apply) + On(0x14) (Fire DoT
+        # + DryBush spread) AVANT le turn-start On(0x16) (ordre StartTurn 0x12/0x14/0x16 ; HYPOTHESE a valider).
+        tile_ticks = tile_tick_triggers(state)
         out = start_turn_triggers(state, player)
         from .summon_ai import run_ai_control_pass         # lazy : evite le cycle turnflow<->summon_ai
-        out = out + run_ai_control_pass(state, player)
+        out = tile_ticks + out + run_ai_control_pass(state, player)
         return out
 
 

@@ -42,6 +42,22 @@ TRIGGER_DEATH = 1               # 1  — MORT (OnDeathEvent eventId=1 ; OnPreDea
 TRIGGER_TURN_START = 0x16       # 22 — DÉBUT DE TOUR. `StartTurnOperation.Execute`@180ea3fb0 émet une
                                 #      séquence d'events 0x12/0x13/0x14/0x15/0x16 ; `On(0x16)` = le
                                 #      trigger turn-start (ex. TheBetrayer_TakeTurnAbility.CreateTrigger).
+# --- TILE-EFFECTS : ROUND-TICK (mêmes émetteurs StartTurn 0x12/0x14 ; RE #128, verdict re-expert) ---
+TRIGGER_TILE_TICK_12 = 0x12     # 18 — tick de tour : Contaminated re-apply (`On(0x12)` @180f3a1d0).
+TRIGGER_TILE_TICK_14 = 0x14     # 20 — tick de tour : Fire DoT + DryBush spread (`On(0x14)` @18121e390/
+                                #      @1811bf730). Émis par StartTurn AVANT 0x16 (ordre = HYPOTHÈSE à valider).
+
+# --- Contaminated (tile-effect, RE #132/#128) : enter-tile + tick posent le sous-effet -X% armure --------
+CONTAMINATED_TILE = 0x4dc       # 1244 "Contaminated" — effet de TUILE (posé par attaque Toxic, OnToxicDamage).
+CONTAMINATED_UNIT = 0x4dd       # 1245 "Contaminated_Unit" — sous-effet -X% FixedArmor posé sur l'unité.
+CONTAMINATED_IMMUNE_TRAIT = 2027  # 0x7eb — immunité (`EntityIsImmuneToEffect`@180f3a400 = HasTrait(2027) OR
+                                #      IsMechanical). Nom gameconfig du trait 2027 NON résolu → gate best-effort.
+
+# --- Fire (tile-effect DoT, RE #127/#128) : turn-start DoT 20% PV initiale ------------------------------
+FIRE_TILE = 5                   # "Fire" — effet de TUILE (posé par attaque Flame, `OnFireDamageAbility`@1811c3a60).
+FIRE_DMG_PCT_KEY = "fireDmgPct"  # globalValues=20 (`ConfigConst 0x12`) : % de la PV INITIALE (max) infligé/tour.
+# Immunité feu = `UnitsWithoutTraits([0x1b=27, 0x19=25])` (@18121e040) : noms gameconfig de CES traits (enum
+# TRAIT, ≠ enum EFFECT où 25/27=Taunted_*) NON résolus → gate d'immunité NON porté (flaggé, cf. FireTileDoT).
 
 # --- TheBetrayer (worldKharn, passiveAbility) -----------------------------------------------------
 THEBETRAYER_EFFECT = 0x4f3      # 1267 — effet « rage » de TheBetrayer (gate de TakeTurn ; gagné au kill).
@@ -220,6 +236,139 @@ class OverwatchAutoAttack(EffectTrigger):
         res = AttackDamageOperation.execute(state, self.owner_id, ev.actor_id, 20)  # attaque NORMALE
         return {"effect": "Overwatch_AutoAttack", "attacker": self.owner_id,
                 "target": ev.actor_id, "result": res}
+
+
+# --- TILE-EFFECTS : effet-trigger porté par une TUILE (owner_id = id d'entité-tile) -----------------
+def _is_immune_to_contaminated(state: State, unit_id: int) -> bool:
+    """`EntityIsImmuneToEffect`@180f3a400 (Contaminated) = `HasTrait(0x7eb=2027) OR IsMechanical`. Le nom
+    gameconfig du trait 2027 n'est pas résolu → gate BEST-EFFORT sur un marqueur `Mechanical` dans les traits
+    captés (la plupart des immunisés = véhicules/mécas). ⚠ Sous-gate possible (flaggé) : à durcir quand le
+    nom du trait 2027 / la propriété IsMechanical seront exposés par la capture ECS."""
+    e = state.get_entity(unit_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    traits = (sc.ctx.traits if (sc is not None and getattr(sc, "ctx", None) is not None) else None) or []
+    return any(str(t) == "Mechanical" for t in traits)
+
+
+class TileEffectTrigger(EffectTrigger):
+    """Effet-trigger porté par une TUILE (`owner_id` = id d'entité-tile ; boardGraph `t.id` = entity id,
+    disjoint des ids d'unité → clé `EffectsState.by_unit` valide). Mirror natif : une tuile = entité à
+    `EffectsOwnedComponent` portant l'effet + ses triggers (ex.
+    `ContaminatedEffect.CreateHandleTriggerAbilitiesInternal`@180f3a1d0). `owner_is_tile` fait bypasser les
+    gates unit-entity/alive de `evaluate_trigger_operation` (une tuile n'est PAS dans `state.entities`).
+    `event_ids` (au lieu d'un `event_id` unique) : un tile-effect écoute souvent PLUSIEURS events (enter
+    `On(4)` + tick `On(0x12)`/`On(0x14)`)."""
+    owner_is_tile = True
+    event_ids: tuple = ()
+
+    def _tile_coord(self, state: State):
+        b = getattr(state, "board", None)
+        if b is None:
+            return None
+        try:
+            return b.coord(self.owner_id)
+        except Exception:
+            return None
+
+    def _unit_on_tile(self, state: State) -> Optional[int]:
+        """id de l'unité VIVANTE occupant ma tuile (positions exclusives → <=1). None si vide."""
+        co = self._tile_coord(state)
+        if co is None:
+            return None
+        for uid, e in state.entities.items():
+            pc = e.get_component(PositionComponent)
+            if pc is None or (pc.col, pc.row) != co:
+                continue
+            uc = e.get_component(UnitComponent)
+            if uc is not None and not uc.alive:
+                continue
+            return int(uid)
+        return None
+
+
+class ContaminatedTileEffect(TileEffectTrigger):
+    """`ContaminatedEffect.CreateHandleTriggerAbilitiesInternal`@180f3a1d0 (effet de tuile 0x4dc) — pose le
+    sous-effet `Contaminated_Unit` (0x4dd, -X% FixedArmor, 1 round) sur l'unité qui ENTRE (`On(4)` &
+    `AreEqual(triggeringTile, effectTile)`) ou qui OCCUPE au tick de tour (`On(0x12)`) la tuile contaminée,
+    sauf si déjà présent (`!HasEffect(0x4dd)`) ou immune (trait 2027 / Mechanical @180f3a400). Enter+tick
+    partagent le behaviour (appliquer à la cible) → `event_ids=(4, 0x12)`.
+    ⚠ MAGNITUDE (X%) NON RÉSOLUE (#132) → l'effet est posé avec `value=None` (PRÉSENT mais inerte-stat)."""
+    effect_type = CONTAMINATED_TILE
+    event_ids = (TRIGGER_AFTER_MOVE, TRIGGER_TILE_TICK_12)
+
+    def _target_unit(self, state: State, ev: "TriggerEvent") -> Optional[int]:
+        occ = self._unit_on_tile(state)
+        if occ is None:
+            return None
+        if ev.event_id == TRIGGER_AFTER_MOVE:
+            # ENTER : gate `AreEqual(triggeringTile, effectTile)` = le MOVER doit être sur MA tuile (pas un
+            # occupant d'une autre tuile contaminée qui se déclencherait à chaque move ailleurs).
+            return occ if occ == ev.actor_id else None
+        return occ                                        # TICK : occupant courant
+
+    def matches(self, state: State, ev: "TriggerEvent") -> bool:
+        return self._target_unit(state, ev) is not None
+
+    def execute_behaviour(self, state: State, ev: "TriggerEvent") -> Optional[dict]:
+        uid = self._target_unit(state, ev)
+        if uid is None or state.effects is None:
+            return None
+        if state.effects.has_effect(uid, effect_type=CONTAMINATED_UNIT):
+            return None                                   # !HasEffect(0x4dd) : pas de re-pose
+        if _is_immune_to_contaminated(state, uid):        # trait 2027 / Mechanical
+            return None
+        from .effects import AddEffectOperation            # lazy : évite le cycle triggers<->effects
+        eff = AddEffectOperation.execute(
+            state, source=self.owner_id, target=uid, effect_type=CONTAMINATED_UNIT,
+            name="Contaminated_Unit", duration_override=1, value=None)  # value=None : magnitude #132
+        if eff is None:
+            return None
+        return {"tile_effect": "Contaminated", "tile": self.owner_id, "unit": uid,
+                "applied": "Contaminated_Unit", "on_event": ev.event_id}
+
+
+class FireTileDoT(TileEffectTrigger):
+    """`EnvFireTileAbility` (CreateTrigger @18121e390 = `On(0x14) & Count(EntitiesWithAnyEffect(5))>0` ;
+    CreateBehaviour @18121e040) — DoT de la tuile en feu (`FireEffect` type 5, ctor @180f43f40). Au tick de
+    tour (`On(0x14)`), l'unite qui DEMARRE son tour sur une tuile en feu subit `PercentageOf(StatAmount(
+    Health, part2=Initial), fireDmgPct=20)` = 20% de sa PV INITIALE (max).
+
+    i2 `Keywords/EffectFire` : « Units starting their turn on a Fire hex take 20% of their initial Health ».
+    => degat FORFAITAIRE (fraction de PV), ARMOR-INDEPENDANT : le net subi = 20% max HP (ni le profil Flame
+    ni le `Direct(3)` du natif ne changent ce net -- i2 borne le resultat a 20% de la PV initiale). fireDmgPct
+    tire de globalValues (NON hardcode). Decay 2 rounds (`DefaultAmountOfRounds(5)=2`, deja dans _DEFAULT_ROUNDS
+    -> tick de duree via on_turn_end). Mort routee par `_fire_death_if_killed` (source = la tuile).
+
+    >>> GATE IMMUNITE feu (`UnitsWithoutTraits([0x1b=27, 0x19=25])`) NON porte : noms gameconfig de ces traits
+    non resolus -> le DoT s'applique a TOUT occupant (sur-application possible aux unites reellement immunes ;
+    flagge, a durcir + confirmer live quand 27/25 seront mappes)."""
+    effect_type = FIRE_TILE
+    event_ids = (TRIGGER_TILE_TICK_14,)
+
+    def matches(self, state: State, ev: "TriggerEvent") -> bool:
+        return self._unit_on_tile(state) is not None
+
+    def execute_behaviour(self, state: State, ev: "TriggerEvent") -> Optional[dict]:
+        import gameconfig as GC
+        uid = self._unit_on_tile(state)
+        if uid is None:
+            return None
+        # TODO gate immunite feu (traits 27/25 non resolus) -> applique a tout occupant.
+        e = state.get_entity(uid)
+        thc = e.get_component(HealthComponent) if e is not None else None
+        if thc is None or thc.hp is None or thc.hp_max is None:
+            return None
+        pct = GC.global_value(FIRE_DMG_PCT_KEY)            # fireDmgPct=20 (globalValues, non hardcode)
+        if not pct:
+            return None
+        dmg = round(int(thc.hp_max) * int(pct) / 100)      # 20% de la PV INITIALE (max) -- FORFAITAIRE (i2)
+        if dmg <= 0:
+            return None
+        hp_before = thc.hp
+        thc.hp = max(0, thc.hp - dmg)
+        AttackDamageOperation._fire_death_if_killed(state, uid, self.owner_id, hp_before, thc.hp, e, damage=dmg)
+        return {"tile_effect": "Fire", "tile": self.owner_id, "unit": uid, "dot": dmg,
+                "hp_before": hp_before, "hp_after": thc.hp, "on_event": ev.event_id}
 
 
 class ActOfFaithAccumulateAbility(TriggeredAbility):
@@ -414,6 +563,8 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
 # --- Registre : effectType → effet-trigger ---------------------------------------------------------
 EFFECT_TRIGGERS: dict[int, type[EffectTrigger]] = {
     OVERWATCH_AUTO_ATTACK: OverwatchAutoAttack,
+    CONTAMINATED_TILE: ContaminatedTileEffect,   # tile-effect : enter(4)+tick(0x12) -> pose Contaminated_Unit
+    FIRE_TILE: FireTileDoT,                       # tile-effect : tick(0x14) -> DoT 20% PV initiale a l'occupant
 }
 
 
@@ -468,14 +619,18 @@ def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
     out: list[dict] = []
     registry = collect_triggered_abilities(state) + collect_effect_triggers(state)
     for entry in registry:
-        if entry.event_id != ev.event_id:
+        # Un tile-effect écoute souvent PLUSIEURS events (`event_ids`) ; sinon `event_id` unique.
+        if entry.event_id != ev.event_id and ev.event_id not in getattr(entry, "event_ids", ()):
             continue
-        owner = state.get_entity(entry.owner_id)
-        if owner is None:
-            continue
-        uc = owner.get_component(UnitComponent)            # CanGet*Trigger : owner unit vivant
-        if uc is not None and not uc.alive and not getattr(entry, "fire_on_death", False):
-            continue                                       # sauf ability fire-on-death (ex. FinalJustice)
+        if getattr(entry, "owner_is_tile", False):
+            pass                                           # owner = TUILE : pas de gate unit-entity/alive
+        else:
+            owner = state.get_entity(entry.owner_id)
+            if owner is None:
+                continue
+            uc = owner.get_component(UnitComponent)        # CanGet*Trigger : owner unit vivant
+            if uc is not None and not uc.alive and not getattr(entry, "fire_on_death", False):
+                continue                                   # sauf ability fire-on-death (ex. FinalJustice)
         # (IsTriggersDisabled + cap GetTimesTriggeredThisPhase<51 : pas d'état offline → non gardés ici.)
         if not entry.matches(state, ev):
             continue
@@ -519,6 +674,19 @@ def after_move_triggers(state: State, mover_id: int) -> list[dict]:
     effet-triggers after-move (ex. Overwatch). No-op si aucun trigger ne matche (ou pas de board/rng)."""
     ev = TriggerEvent(TRIGGER_AFTER_MOVE, mover_id, mover_id, ranged=False, profile=None)
     return evaluate_trigger_operation(state, ev)
+
+
+def tile_tick_triggers(state: State) -> list[dict]:
+    """Vecteur ROUND-TICK des tile-effects (#128) : `StartTurnOperation.Execute`@180ea3fb0 émet la séquence
+    0x12/0x13/0x14/... → ici on tire `On(0x12)` (Contaminated re-apply @180f3a1d0) puis `On(0x14)` (Fire DoT
+    + DryBush spread @18121e390/@1811bf730). Chaque tile-effect trigger (owner=tuile) matche sur l'occupant
+    de SA tuile. Ordre 0x12 puis 0x14, AVANT le turn-start `On(0x16)` (ordre exact = HYPOTHÈSE à valider,
+    cf. verdict RE #128). No-op si aucun tile-effect actif."""
+    out: list[dict] = []
+    for eid in (TRIGGER_TILE_TICK_12, TRIGGER_TILE_TICK_14):
+        ev = TriggerEvent(eid, -1, -1, ranged=False, profile=None)
+        out += evaluate_trigger_operation(state, ev)
+    return out
 
 
 def after_death_triggers(state: State, dying_id: int, killer_id: Optional[int],

@@ -157,3 +157,66 @@ Elevation `CalculateElevationBonusModifier @181003ea0` (+50% surplomb, porte). R
 
 Validation : chaque slice confronte offline vs live sur un board portant le terrain (cf. 1).
 Prerequis live : warmup apres chaque (re)inject.
+
+## 6. Effets de tuile DYNAMIQUES (poses en COMBAT par unit/MoW) — famille decoy/fire/ice/poison
+
+Distincts du terrain STATIQUE (§2, baked dans TileId) : ces effets sont materialises PENDANT le combat
+(AddEffect sur `Tiles(target)`) par une ability, puis appliques aux UNITES qui occupent/entrent/demarrent
+un tour sur la tuile. RE 2026-07-12 (4 familles, VAs citees). **Dependance commune** : tous ont besoin du
+VECTEUR tile/step-trigger du runner (enter-tile On(4) / round-tick On(0x12) / turn-start-on-tile) pour etre
+valides OFFLINE end-to-end -> #128 (B1) est l'UNLOCK partage. Les CLASSES d'effet (magnitudes) sont portables
+decompile-first independamment ; leur PLACEMENT est gate sur #128.
+
+### 6.1 CONTAMINATED (Toxic) — #132 — debuff -X% ARMURE (PAS un DoT)
+Effet tuile 0x4dc=1244 "Contaminated" (0 degat/tour) ; sous-effet 0x4dd=1245 "Contaminated_Unit"
+(ContaminatedStatModifierEffect, ADynamicStatModifierEffect FixedArmor, ctor @180f3a560) = -X% FixedArmor
+DYNAMIQUE sur l'unite, 1 round. Placement : `OnToxicDamageAbility @1811c3c00` (If IsFirstHitInSeries &
+Maybe(toxicDamageContaminationChance=25%) -> AddEffect(0x4dc, Tiles(target))) ;
+`ContaminatedEffect.CreateHandleTriggerAbilitiesInternal @180f3a1d0` = On(0x12 round-tick)/On(4 enter-tile)
+gate !HasEffect(0x4dd) -> re-applique 0x4dd. Immunite `EntityIsImmuneToEffect @180f3a400` = HasTrait(0x7eb=
+2027) OU IsMechanical. Carriers jouables : deathPutrifier/tyranParasite/admecMarshall/genesBiophagus/
+admecDominus. **CAVEAT MAGNITUDE (non resolu)** : `GetDynamicStatModificationAmount @180f3a460` lit le pct via
+un appel d'INTERFACE (slot 0xbe sur objet @effect+0x50, arg=6) puis NEGATE. Le nom "contaminatedArmorReduction
+Pct=30" de la 1re spec N'EST PAS dans gameconfig (`global_value`->None ; trait Toxic variables={}). NE PAS
+hardcoder 30 -> resoudre la vraie source (@180f3a460 + base @180f090f0 : quel stat-part) AVANT le port. Bug
+incident corrige+commite (9e9a64c) : `_DEFAULT_ROUNDS[0x4dc]`=2 (etait 1, natif @181559ff0=2).
+
+### 6.2 FIRE (DryBush en feu) — #127 — DoT turn-start
+FireEffect (EffectType 5) : DoT debut de tour = ~20% initial HP (`fireDmgPct=20`), decay 2 rounds
+(_DEFAULT_ROUNDS[5]=2), spread 10% aux DryBush adjacents (`dryBushFireSpreadProbability=10`,
+`DryBushFireSpreadAbility @1811bf5c0`). Carriers : adeptCanoness(BrazierOfHolyFire)/thousAhriman/eldarRanger.
+Le runner EndTurn ne fait AUCUN DoT -> gap. Vecteur turn-start-on-fire-tile = #128.
+
+### 6.3 ICE — #133 — Arjac AnvilShield on-block (RE approfondie 2026-07-12)
+`spaceRockfist` (Arjac) active AnvilShield (ability enum 0x493=1171 ; vars blockChance[15..20], blockDmg
+[10..728 rarity], const healthPct=35). Sur un BLOCK, 4 sous-behaviours (`Triggered.Loki.AnvilShieldAbility_*`) :
+- **ApplyAdditionalBlockAndBlockChance @180e16340** : 2 StaticStatModifierEffects self sur Arjac ->
+  `0x4b2=1202 AnvilShield_AdditionalBlock` (stat 8 BLOCK_DAMAGE, blockDmg, INCONDITIONNEL) **[PORTE — leaf
+  loki.py + factory, L65=728]** ; `0x4b0=1200 AnvilShield_BlockChanceBelowHealthCap` (stat 7 BLOCK_CHANCE,
+  blockChance, gate `CreateActiveCondition @180f31c50` health <= healthPct) **[NON porte : ambiguite abs-vs-%
+  du cap]**.
+- **ApplyIce @180e16480** : pose ICE (dynamic 0x11) sur la TUILE de l'attaquant (!= static BrokenIce 0x12 #131,
+  != Freeze-coroutine view-only `AnvilShieldEffectVisual`). Placement tuile = **vecteur #128**.
+- **ApplyStun @180e16590** : Stun (0x48a) sur l'attaquant (`StunnedEffect` deja porte).
+- **FrozenAttackerAdvantage @180e16840** : effet dynamique `0x4b1=1201` (ctor @180f31e50, CreateTargetTrigger
+  @180f31dc0 = `On(0xe) & AreEqual(target, EffectSource)`) = advantage contre l'attaquant gele **[NON porte]**.
+Carrier jouable (Arjac). 1202 validable via scenario BLOCK live (statModSources stat 8), cf. BeastSlayer #72.
+
+### 6.4 DECOY — #134 — genesPrimus DecoysAndMisdirection
+Actif `CultDemagogue` (1179, i2 gameconfig 2026-07-12) : « Targets an enemy within 2 hexes and places decoys
+on up to 8 random free hexes within 2 hexes around the target ; then summons Neophyte Hybrids on half of the
+decoys... » -> le cast EXIGE un ENNEMI <=2 hexes. Passif `DecoysAndMisdirection` (1304) : (a) spawn genesSmnDecoy
+(BuffFriends @180e1fe30) + AddEffect(1390 JustSummoned) ; (b) DamageEnemies @180e20190 = Blast(0x12) par decoy
+mort (GetValidDeadDecoys @180e13550) — death-trigger mirror FinalJustice ; (c) effet 0x563=1379.
+
+**PORTE (2026-07-12, decompile-faithful, NON commite)** : classe `DecoysAndMisdirectionExtraDamageEffect`
+(loki.py) + registree "DecoysAndMisdirection_ExtraDamage" (effect-type-names.ts:502). Natif
+`CreateEffectDamageBonusForAttack @180f3e340` relu = `ForAddition(get_OwnerIsCaster, ConfigVar(8=extraDmg,
+EffectSource ability 0x518=1304))` ; ctor @180f3e4a0 = AbilityOrEffect 0x518. Gate **OwnerIsCaster SEUL** (PAS
+d'IsNormalAttack) -> additif +extraDmg a TOUTES les attaques de l'ami buffe, en PREDICTION + COMBAT (cf.
+Neuroparasite ; contraste SmashaEad #71 qui se gate hors-prediction via IsNormalAttack). Magnitude decompile +
+gameconfig (extraDmg[L1..65]=[8..582], rarity-affected) + i2 (« +582 Damage ») ; canal additif POST-percage =
+celui deja bit-exact #75/#88. Offline : emet +582 aux 2 chemins. GAP restant : spawn-op + placement 1379
+(on-move-onto-decoy = trigger tile-step #128) + Blast retaliation + JustSummoned. VALIDATION live gatee (placer
+1379 exige le vecteur spawn/on-move, non porte). Traps : multiplier global vs per-ability passif (#68/#75) ;
+niveau/mult = du SOURCE genesPrimus (comme RitesOfBattle aura).
