@@ -15,7 +15,7 @@ from .base import ActiveAbility
 from .loki import (ThunderousAssaultAbility, GravitonRifleAbility, ScarabHiveAbility,
                    ScarabSummonAbility, GetEmRuntzAbility, CrushingClawsAbility, ValkyrieStrikeAbility,
                    PlasmaGrenadeAbility, StikkbombAbility, FragstormAbility, ScythingTalonsAbility,
-                   SpiritLeechAbility)
+                   SpiritLeechAbility, ArmoriumCherubAbility)
 
 # Registre ActiveAbilityType (int) -> classe d'ability portée. À ÉTENDRE au roster.
 ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
@@ -31,6 +31,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     FragstormAbility.ABILITY_TYPE: FragstormAbility,                   # 1078 (splash Blast pick-random <=4)
     ScythingTalonsAbility.ABILITY_TYPE: ScythingTalonsAbility,         # 1065 (splash Bio adjacent-both)
     SpiritLeechAbility.ABILITY_TYPE: SpiritLeechAbility,               # 1104 (Neurothrope : attaque Psychic config + Suppress ; lifesteal #94)
+    ArmoriumCherubAbility.ABILITY_TYPE: ArmoriumCherubAbility,         # 1014 (Vindicta : 4x Flame ranged + feu + passif FireOfAbsolution)
 }
 
 

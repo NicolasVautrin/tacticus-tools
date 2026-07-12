@@ -79,6 +79,38 @@ class ThunderousAssaultAbility(ActiveAbility):
         return {"attack": atk}
 
 
+class ArmoriumCherubAbility(ActiveAbility):
+    """`ArmoriumCherubAbility.ExecuteBehaviour` (id 1014, adeptRetributor «Vindicta»).
+
+    Actif RANGED : `AttackWithAttackDamage(target, MinMaxDamage(minDmg/maxDmg[level]), Flame, nrOfHits=const
+    0x2f=4)` (range 2). Profil Flame (`OnFire`) → POSE du feu sur la tuile-cible via le vecteur after-hit
+    d'ability (`execute_ability_attack` → `_on_fire_damage_ability`, #136). i2 « Using Armorium Cherub does
+    not end Vindicta's turn » = turn-flow (ne consomme pas le tour) — NON modélisé ici (concern turn-order).
+
+    En + : le passif `FireOfAbsolution` réagit à CETTE attaque ranged (splash 3x Flame sur les ennemis
+    adjacents à la cible + 30% ignite/hex) — mirroir du natif où le passif se déclenche sur toute attaque
+    ranged de l'unité. Cf. `_fire_of_absolution_after_attack`."""
+    __slots__ = ()
+    ABILITY_TYPE = 1014
+    ABILITY_ID = "ArmoriumCherub"
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        # [attaque] 4x Flame (minDmg/maxDmg[level], range 2, nrOfHits=const 0x2f=4). Feu posé sur la cible (#136).
+        bmin, bmax, pierce, hits = ability_attack_params(
+            state, caster_id, self.ABILITY_ID, "Flame", ranged=True)
+        main = AttackDamageOperation.execute_ability_attack(
+            state, caster_id, target_id, bmin, bmax, pierce, hits,
+            damage_profile="Flame", is_melee=False)
+        # [passif] FireOfAbsolution sur cette attaque RANGED : splash 3x Flame adjacents + 30% ignite/hex.
+        from ..operations.triggers import _fire_of_absolution_after_attack
+        passive = _fire_of_absolution_after_attack(state, caster_id, target_id, ranged=True)
+        return {"ability": "ArmoriumCherub", "caster": caster_id, "target": target_id,
+                "main_attack": main, "fire_of_absolution": passive}
+
+
 class ScarabHiveAbility(ActiveAbility):
     """`ScarabHiveAbility.ExecuteBehaviour` @181204cb0 (id 1007, necroSpyder — le SUMMONER).
 

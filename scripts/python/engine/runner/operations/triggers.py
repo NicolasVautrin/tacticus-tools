@@ -724,6 +724,73 @@ def _on_fire_damage_ability(state: State, attacker_id: int, target_id: int,
              "on": target_id, "placement": "OnFireDamage"}]
 
 
+FIRE_OF_ABSOLUTION_IGNITE_CHANCE = 30   # `GetNumberConstant(0x2a=42=chance)` — 30%/hex adjacent (Maybe)
+
+
+def _fire_of_absolution_after_attack(state: State, attacker_id: int, target_id: int,
+                                     ranged: bool) -> list[dict]:
+    """Passif `FireOfAbsolution` (adeptRetributor «Vindicta») — `FireOfAbsolutionAbility.CreateBehaviour`
+    @18121f380. i2 : « When performing a ranged attack, also deals 3x Flame Damage to all units adjacent to
+    the target. Has a 30% chance of setting each adjacent hex on Fire as well. »
+
+    Behaviour natif (`&` = op_BitwiseAnd, gauche->droite) :
+        Inform(0xb3, target)
+      & AttackWithAttackDamage(caster, targets = AdjacentUnits(target, kind=3) − caster − target,
+                               Direct(dmg = GetVariableForLevel 0xb), Flame, nrOfHits = GetNumberConstant 0x2f = 3)
+      & Maybe(SetOnFire, AdjacentTiles(target), chance = GetNumberConstant 0x2a = 30)
+
+    `AdjacentUnits(…, kind=3)` = ennemis du caster (cf. StikkbombAbility « team-param 3 → ennemis ») → les
+    ennemis adjacents à la CIBLE, hors caster/cible = `_adjacent_enemies_of`. `Direct(dmg)` = valeur FIXE (pas
+    de spread ; min==max) routée par perçage/armure/mods + crit/block du pipeline d'attaque (≠ le DoT de tuile,
+    tick sans contexte-attaquant). Chaque coup splash (Flame=OnFire) POSE du feu sur la tuile de la cible splash
+    (via `execute_ability_attack`, #136). Le `Maybe` pose du feu même sur un hex VIDE (30%/hex).
+
+    Se déclenche sur TOUTE attaque RANGED de l'unité (arme normale 4x Flame OU actif ArmoriumCherub) → appelé
+    depuis `after_hit_normal_attack` (ranged) ET `ArmoriumCherubAbility.execute_behaviour`.
+
+    ⚠ GAP RNG (flaggé, à valider live — cf. #136) : (a) le TIMING exact du passif vs les coups de l'attaque
+    primaire (porté post-attaque ; pas de `CreateTrigger` distinct dumpé pour ce passif) ; (b) l'ordre des
+    tirages `Maybe` (1 `next_bool(30)` par tuile adjacente, APRÈS le splash comme le `&` gauche->droite). Le
+    feu sur hex VIDE (stochastique) n'est donc PAS reproductible bit-exact ; splash + feu sur adjacents
+    OCCUPÉS = déterministe."""
+    if not ranged or state.board is None or state.effects is None or state.rng is None:
+        return []
+    import gameconfig as GC
+    e = state.get_entity(attacker_id)
+    uc = e.get_component(UnitComponent) if e is not None else None
+    if uc is None or "FireOfAbsolution" not in ((GC.unit(uc.visual_id) or {}).get("passiveAbilities") or []):
+        return []
+    # [dmg] Direct(dmg) : `dmg` = GetVariableForLevel(0xb) scalé rareté ; min==max (pas de spread). hits=3.
+    from ..abilities.base import ability_attack_params
+    dmg, _dmg_max, pierce, hits = ability_attack_params(
+        state, attacker_id, "FireOfAbsolution", "Flame", ranged=True, min_key="dmg", max_key="dmg")
+    # [splash] AttackWithAttackDamage sur les ennemis adjacents à la CIBLE (kind=3=ennemis) − caster − target.
+    from ..abilities.loki import _adjacent_enemies_of
+    splash: list[dict] = []
+    for sid in _adjacent_enemies_of(state, attacker_id, target_id):
+        satk = AttackDamageOperation.execute_ability_attack(
+            state, attacker_id, sid, dmg, dmg, pierce, hits,
+            damage_profile="Flame", is_melee=False)     # Direct → pierce/armure + crit/block ; feu posé (#136)
+        splash.append({"target": sid, "attack": satk})
+    # [ignite] Maybe(SetOnFire, AdjacentTiles(target), 30%) : 1 next_bool(30) par tuile adjacente (occupée OU
+    # vide), APRÈS le splash. AddEffect idempotent (no-op si déjà en feu). RNG order = GAP flaggé (cf. docstring).
+    from .effects import AddEffectOperation
+    tp = state.get_entity(target_id)
+    tpc = tp.get_component(PositionComponent) if tp is not None else None
+    ttile = state.board.id_at(tpc.col, tpc.row) if tpc is not None else None
+    ignited: list[int] = []
+    if ttile is not None:
+        for ntile in state.board.neighbours(ttile):      # AdjacentTiles(target) = voisins hex valides du board
+            if state.rng.next_bool(FIRE_OF_ABSOLUTION_IGNITE_CHANCE):
+                if AddEffectOperation.execute(state, source=attacker_id, target=ntile,
+                                              effect_type=FIRE_TILE, name="Fire") is not None:
+                    ignited.append(ntile)
+    if not splash and not ignited:
+        return []
+    return [{"passive": "FireOfAbsolution", "by": attacker_id, "on": target_id,
+             "splash": splash, "ignited_tiles": ignited}]
+
+
 def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
                             ranged: bool, profile: Optional[str], is_crit: bool = False) -> list[dict]:
     """Vecteur after-hit (mirror `EvaluateAfterHitTriggers` → dispatch generique). Construit l'événement
@@ -735,6 +802,7 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
                       ranged=ranged, profile=profile, is_crit=is_crit)
     out = evaluate_trigger_operation(state, ev)
     out = out + _on_fire_damage_ability(state, attacker_id, target_id, profile)  # OnFireDamageAbility @1811c3a60
+    out = out + _fire_of_absolution_after_attack(state, attacker_id, target_id, ranged)  # passif @18121f380 (Vindicta)
     return out + _squighound_after_attack(state, attacker_id, target_id)
 
 

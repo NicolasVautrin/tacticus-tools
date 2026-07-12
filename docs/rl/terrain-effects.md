@@ -190,9 +190,9 @@ Le runner EndTurn ne fait AUCUN DoT -> gap. Vecteur turn-start-on-fire-tile = #1
 **CONFRONTATION LIVE (2026-07-12, runner adeptRetributor flamer Flame -> blackHaarken) — 3 DIVERGENCES du port :**
 - (1) PLACEMENT **confirme** : l'attaque Flame pose bien `FireEffect(type 5)` sur la/les tuile(s) cible (lu via
   `tileMeta.tiles[].effects`). Direction du port OK.
-- (2) **AoE MULTI-TUILE** (port FAUX) : le flamer (arme AoE) pose le feu sur **TOUTES ses tuiles d'AoE** (5 tuiles
-  observees : (5,7)(5,8)(6,6)(6,7)(6,8)), PAS seulement la tuile du target. `_on_fire_damage_ability` ne pose que
-  sur 1 tuile -> SOUS-pose pour les armes AoE. `Tiles(cible+0x178)` doit rendre l'empreinte AoE, pas 1 tuile.
+- (2) **AoE MULTI-TUILE** — **RESOLU (§6.6, 2026-07-13)** : PAS une arme AoE. Le multi-tuile (5 tuiles observees)
+  vient du **passif `FireOfAbsolution`** de Vindicta (splash 3x Flame sur ennemis adjacents + 30% ignite/hex vide).
+  Le port generique OnFire (1 tuile-cible) est CORRECT ; le passif est un trait a part, porte separement (§6.6).
 - (3) **MAGNITUDE DoT (port FAUX)** : mesure live = **477** sur blackHaarken (maxHP 9539). Le port applique un
   forfait plat 20% max = **1908**. Or **477 = 1908 x 0.25** EXACTEMENT = base(20% max) x PiercingRatio(Flame=25%).
   => le DoT N'EST PAS armor-independant : c'est une attaque profil **Flame** (`AttackWithAbilityDamage(..., Flame,
@@ -286,3 +286,45 @@ TOXIC = plus dur : le runner emet after-hit 1x/ATTAQUE (agrege), pas per-coup ->
 sans index de coup propage ; + `Maybe(25%)` = RNG a ordonner (risque de desync du stream si mal place). PIEGES
 validator : (1) granularite per-coup vs per-attaque (Toxic 1er-coup) ; (2) proba 25% RNG (source globalValues, ne
 pas hardcoder) ; (3) tuile-cible unique (pas ring), a confirmer live ; (4) anti-boucle NOT(TriggeringEffectIs).
+
+### 6.6 FireOfAbsolution (passif Vindicta) + ArmoriumCherub (actif 1014) — PORTE + VALIDE LIVE (2026-07-13)
+
+L'« AoE multi-tuile » du §6.2 (2) n'etait PAS une arme AoE : c'est le **passif `FireOfAbsolution`**
+d'adeptRetributor «Vindicta» (specifique a CETTE unite). Le port generique OnFire (1 tuile-cible) reste CORRECT ;
+le multi-tuile vient d'un trait a part.
+
+**Mecanisme natif** (`FireOfAbsolutionAbility.CreateBehaviour @18121f380`, decompile relu 1:1) :
+`Inform(0xb3,target) & AttackWithAttackDamage(caster, AdjacentUnits(target,kind=3) - caster - target,
+Direct(dmg=GetVariableForLevel 0xb), Flame, nrOfHits=GetNumberConstant 0x2f=3) & Maybe(SetOnFire,
+AdjacentTiles(target), chance=GetNumberConstant 0x2a=30)`.
+- `AdjacentUnits(kind=3)` = ennemis du caster (cf. StikkbombAbility « team-param 3 -> ennemis »).
+- `Direct(dmg)` = valeur FIXE (min==max, PAS de spread), routee par percage/armure + crit/block du pipeline
+  d'attaque (contexte-attaquant present, contrairement au DoT de tuile §6.2 qui n'a pas de crit). dmg = var 'dmg'.
+- Le multi-tuile feu = BYPRODUIT : chaque coup Flame (trait OnFire) pose du feu sur la tuile de la cible splash ;
+  + `Maybe(30%)` allume chaque hex adjacent VIDE (stochastique).
+- Se declenche sur TOUTE attaque RANGED de l'unite (arme normale 4x Flame OU actif ArmoriumCherub).
+
+**Actif `ArmoriumCherub` (1014, `ExecuteBehaviour @1811b4000`)** = 4x Flame ranged range 2 (minDmg/maxDmg[level],
+nrOfHits=4). Attaque ranged => declenche AUSSI le passif (splash + ignite) = collateral.
+
+**PORTE** :
+- `_on_fire_damage_ability` cable dans `execute_ability_attack` (damage.py) : les attaques d'ABILITY posent enfin
+  le feu (le vecteur after-hit n'etait cable que pour l'attaque normale) -> ferme le gap generique #136.
+- `_fire_of_absolution_after_attack` (triggers.py) : gate passif (gameconfig passiveAbilities + ranged) ; splash
+  `_adjacent_enemies_of` via execute_ability_attack (Direct = min==max=dmg) ; ignite `next_bool(30)` par voisin
+  (RNG order flagge). Cable dans `after_hit_normal_attack` + `ArmoriumCherubAbility.execute_behaviour` (loki.py,
+  registre 1014).
+
+**VALIDATION LIVE (RID 8, seed 777)** :
+- Attaque NORMALE : feu sur cible + 2 ennemis adjacents + 1 hex vide (30%), splash **1497** sur chaque adjacent =
+  dmg 1996 x plancher percage 25% x3. Le port calcule 1996 -> 499/coup x3 = **1497 = BIT-EXACT**.
+- Actif ArmoriumCherub : cast ok, MEME empreinte, splash **1872** sur les 2 adjacents (identiques = Direct).
+  1872 = (1996 + ~500 crit-dmg ActOfFaith) x 25% x3 : le splash a CRIT -> confirme LIVE qu'**ActOfFaith (crit
+  chance+dmg) s'applique a l'AoE** (ctx partage via `_crit_params`, 3 vecteurs). Le collateral de l'ACTIF est reel.
+
+**GAPS ouverts** :
+- **#138** : le reset ActOfFaith (au crit du porteur) ne fire que via le vecteur after-hit NORMAL -> un crit SUR le
+  splash/actif ne reset PAS les stacks offline (le natif si). Bonus crit-chance/dmg + accumulation-sur-kill = OK.
+- **#139** : « ArmoriumCherub does not end Vindicta's turn » (turn-flow) NON porte offline (`execute_behaviour` ne
+  gere aucune turn-flow ; flag natif hardcode via `EvaluateAbilities(0x4b=75)` dans ExecuteBehaviour, pas config).
+- Ignite 30% + timing exact du passif vs coups primaires = RNG order non calibre bit-exact (flagge in-code).

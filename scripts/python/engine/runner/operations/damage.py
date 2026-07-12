@@ -533,8 +533,15 @@ class AttackDamageOperation:
             thc.hp = max(0, thc.hp - r["total"])
             AttackDamageOperation._fire_death_if_killed(
                 state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=r["total"])
+        # POSE DE FEU (OnFireDamageAbility) — `EvaluateAfterHitTriggers @180e25fc0` tourne après CHAQUE coup
+        # d'attaque, NORMALE **et** ability. Le port ne câblait ce vecteur que pour l'attaque normale
+        # (DamageHandler) ; ici on porte la pose on-hit des tile-effects de profil pour les attaques
+        # d'ABILITY à profil OnFire (ArmoriumCherub, splash FireOfAbsolution, BrazierOfHolyFire…). #136.
+        # Idempotent (no-op si la tuile brûle déjà) → une pose post-attaque == per-coup pour le feu.
+        from .triggers import _on_fire_damage_ability          # lazy : évite le cycle damage<->triggers
+        fire = _on_fire_damage_ability(state, attacker_id, target_id, damage_profile)
         return {"hits": hits, "total": r["total"], "base_min": base_min, "base_max": base_max,
-                "pierce": profile_pierce, "armor": armor,
+                "pierce": profile_pierce, "armor": armor, "fire": fire,
                 "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,
                 "did_crit": r["did_crit"], "did_block": r["did_block"], "did_evade": r["did_evade"],
                 "crits": r["crits"], "rolls": r["rolls"], "per_hit": r["per_hit"]}
