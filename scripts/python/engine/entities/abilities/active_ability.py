@@ -396,12 +396,33 @@ class MurderousSwingAbility(AActiveAbility):
         return max(1, int(n_targets))                # boucle EXTERNE sur le set AoE -> count² (#108)
 
 
+class ExecutionerAbility(AActiveAbility):
+    """`ExecutionerAbility` (eldarFarseer « Eldryon », id 1066). `GetHits @1811da4a0` =
+    `DSLFactory.RoundsStarted` (@180dfa6c0 -> `RoundsStartedFormula.Calculate @180f223e0`) =
+    Σ `UnitComponent.turnsStarted@+0x58` sur les units-in-scope (= le CASTER) = nb de rounds STARTED
+    (i2 : « takes 582-2183 Psychic Damage FOR EACH ROUND THAT HAS STARTED »). `ExecutionerPlaybook.
+    GeneratePredictions @181130150` passe N=GetHits comme compte multi-coups à `GenerateMultiHit
+    AttackPredictions` -> UN event agrégé par cible, appliedHits=N, dégât = N x base. CONFIRME LIVE
+    (#122, probe_122_rounds.py) : aiPlaybookPredict appliedHits 3->8 (+1/round-cycle) ; le port rendait
+    appliedHits=1 (config nrOfHits) -> sous-compte xN. Off-by-one : StartTurn incrémente AVANT que
+    l'ability agisse -> round 1 = 1 coup (jamais 0). `turnsStarted` = stat 12 (`GetStat(unit,0xc)`,
+    `UnitTurnsStartedFormula.Calculate @180f2d6c0`, capté par combatSnapshot). Eldryon = unité lineup
+    (jamais late-spawn) -> caster.turnsStarted == numéro de round (le verdict re-expert note un scope
+    caster-only : lire le compteur du CASTER, PAS un round global — fidèle même pour un caster spawné
+    tardivement). Single-target : AUCUN override d'events (le multi-hit loop rend 1 event/cible)."""
+
+    def get_special_hits(self, is_melee: bool) -> int:
+        n = self.caster.stat(StatType.TURNS_STARTED)
+        return max(1, int(n or 0))     # rounds started (>=1 en bataille ; fallback 1 si non capté)
+
+
 _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
     "HarvesterOfSouls": HarvesterOfSoulsAbility,
     "BloodyFury": BloodyFuryAbility,
     "PlasmaCannon": PlasmaCannonAbility,
     "DakkaDakkaDakka": DakkaDakkaDakkaAbility,
     "MurderousSwing": MurderousSwingAbility,
+    "Executioner": ExecutionerAbility,
 }
 
 

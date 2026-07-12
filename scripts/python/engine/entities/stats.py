@@ -26,6 +26,9 @@ class StatType(IntEnum):
     BLOCK_DAMAGE = 8
     CRIT_CHANCE = 9
     CRIT_DAMAGE = 10
+    TURNS_STARTED = 12      # 0xc — compteur per-unit `UnitComponent.turnsStarted@+0x58` (incr. StartTurn) ;
+                            # exposé via `UnitTurnsStartedFormula.Calculate @180f2d6c0` = `GetStat(unit,0xc)`.
+                            # Base des hits Executioner (RoundsStarted). Capté par combatSnapshot (#122).
     FIXED_ARMOR = 16        # 0x10
     EXTRA_HITS = 17         # 0x11
 

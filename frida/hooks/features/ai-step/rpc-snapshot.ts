@@ -50,7 +50,11 @@ const getStatMi = unitExtClass ? findMethodByParamCount(unitExtClass, "GetStat",
 // (évite la divergence si on ajoute un stat d'un côté seulement, cf. discipline « check own port »).
 const COMBAT_STAT_IDS: Record<string, number> = {
     attack: 0, movement: 1, defense: 3, health: 5, blockChance: 7,
-    blockDamage: 8, critChance: 9, critDamage: 10, fixedArmor: 16,
+    blockDamage: 8, critChance: 9, critDamage: 10,
+    turnsStarted: 12,   // #122 : UnitComponent.turnsStarted@+0x58 (incr. StartTurn) = rounds started ;
+                        // GetStat(unit,0xc) = UnitTurnsStartedFormula.Calculate @180f2d6c0. Base des
+                        // hits Executioner (RoundsStarted).
+    fixedArmor: 16,
     extraHits: 17, activeAbilityLevel: 18, numberOfMembers: 20,
     extraPierceMelee: 21, extraPierceRanged: 22, extraHitsMelee: 23,
     extraMaxDamage: 25, extraPierce: 26,
