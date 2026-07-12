@@ -638,4 +638,54 @@ export function registerViewSnapshot(ctx: Ctx): void {
         return { ok: true };
     });
 
+    /** ATTACK-HISTORY par unité (`ActorStatisticsComponent` @180f92980) — capteur des compteurs
+     *  runtime de combat, dont `TotalTurnsWithAttacksMade` que le natif consomme pour le buff
+     *  MartialInspiration (#106 : `+33% Damage` par tour où l'unité a attaqué cette bataille ; base
+     *  prédiction 1-coup = `var12 · (100 + 33·count)/100`). Compteur PER-UNIT non exposé ailleurs
+     *  (ni decisionView ni combatSnapshot). Offsets CONFIRMÉS par TROIS lectures indépendantes du
+     *  décompilé : `TotalAttacksMadeFormula.Calculate @180f25b90` lit `*(comp+0x20)` ;
+     *  `TotalTurnsWithAttacksMadeFormula.Calculate @180f26780` lit `*(comp+0x30)` ; `RegisterAttackMade
+     *  @180f91b50` incrémente `+0x20` à CHAQUE attaque et `+0x30` UNE fois/tour (gate « déjà attaqué ce
+     *  tour » @+0x40). Classe résolue par NOM (findClassAnywhere) ; offset par `getFieldOffset` avec
+     *  fallback décompilé. Read-only, one-shot, aucun Interceptor. body: { runnerId?, unitId? } */
+    ctx.rpc.actorStats = (
+        body?: { runnerId?: number; unitId?: number },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        let runner: NativePointer; let label: string;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);
+            label = "build#" + body.runnerId;
+        } else if (state.liveRunner) {
+            runner = state.liveRunner; label = "live";
+        } else { return { ok: false, error: "no runner — pass runnerId" }; }
+        if (runner.isNull()) return { ok: false, error: label + " runner null" };
+        const statePtr = runner.add(runnerOff.state).readPointer();
+        if (statePtr.isNull()) return { ok: false, error: "state null" };
+        const asClass = findClassAnywhere("IdunBattle.Entities.Components", "ActorStatisticsComponent");
+        if (!asClass) return { ok: false, error: "ActorStatisticsComponent non résolu" };
+        // Offsets int32 sur le composant (décompilé, 3 confirmations). getFieldOffset par nom si le dump
+        // le porte, sinon le fallback (offsets non-nuls -> `||` sûr, comme le reste du module).
+        const OFF_TOTAL = getFieldOffset(asClass, "TotalAttacksMade") || 0x20;
+        const OFF_TURNS = getFieldOffset(asClass, "TotalTurnsWithAttacksMade") || 0x30;
+        const units: Array<Record<string, unknown>> = [];
+        forEachEntity(statePtr, (e, id, ty) => {
+            if (ty !== EntityType.Unit && ty !== EntityType.Machine) return;
+            if (body?.unitId !== undefined && id !== body.unitId) return;
+            let comp: NativePointer | null = null;
+            forEachComponent(e, (c, klass) => {
+                if (comp === null && klass.equals(asClass)) comp = c;
+            });
+            if (comp === null) return;
+            const cp = comp as NativePointer;
+            units.push({
+                entityId: id,
+                totalAttacksMade: cp.add(OFF_TOTAL).readS32(),
+                totalTurnsWithAttacksMade: cp.add(OFF_TURNS).readS32(),
+            });
+        });
+        return { ok: true, runner: label, units };
+    });
+
 }
