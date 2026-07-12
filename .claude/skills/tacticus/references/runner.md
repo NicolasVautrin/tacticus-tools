@@ -44,12 +44,50 @@ ne dispose QUE le runner enregistré dans CE fichier (les frères sont intouché
 - **Caractériser STATIQUEMENT** (offline, sans live) via `board.py` : parse `BC.Board.Tiles[].{TileId,
   Elevation, ForceUnplayable}` + `SpawnPointSets` → élévation, terrain, jouabilité, spawns, LOS. Les
   boards dumpés (par `dumpPvpAndSyncBoards`) sont dans `data/boards/{pvp,syncPvp,global}/<id>.json`
-  (`{id, kind, spawnPointsSet, board}`). → filtrer le pool pour l'id qui remplit la condition
-  (ex. **surplomb = tous les pvp** ; **trench** = `C3_46/C3_47/C3_59/MC3_40` ; **block-dense** =
-  `C3_06/C3_31` ; **MoW** = tous les pvp).
+  (`{id, kind, spawnPointsSet, board}`).
 - **Injecter le board choisi** : `rl_duel build --board <id>` (id fixe, swap à la normalisation) ou
   `--board-pool <kind>` (aléatoire seedé, filtré aux boards avec assez de spawns/côté + MoW-capable si
   un MoW est en jeu). Mutuellement exclusifs.
+
+### 2bis. TROUVER un board qui porte un terrain donné (recette générale)
+
+Ne PAS deviner ni hardcoder une liste d'ids : **énumérer les 779 dumps + compter le terrain** avec
+`board.py`. C'est LA façon de débloquer une validation de mécanique board-dépendante (couverture, trench,
+LOS, eau…) — l'ancien blocage « aucun seed n'a de cover » venait de n'avoir jamais scanné le pool.
+
+```python
+# depuis scripts/python ; python (pas py) ; ASCII only
+import json; from pathlib import Path
+import board as B, rl_collect_batch as R
+WANT = "DryBush"          # <- le TileId cherche (cf. inventaire ci-dessous)
+rows = []
+for kind in ("pvp", "syncPvp", "global"):
+    d = R.BOARDS_DIR / kind
+    for p in sorted(d.glob("*.json")) if d.exists() else []:
+        dump = json.loads(p.read_text(encoding="utf-8"))
+        bd = B.Board({"Board": dump["board"], "SpawnPointSetIndex": dump.get("spawnPointsSet", 0)})
+        n = bd.terrain_counts().get(WANT, 0)
+        if n: rows.append((dump["id"], kind, n))
+for r in sorted(rows, key=lambda x: -x[2])[:8]: print("id=%-10s kind=%-7s %s=%d" % (r[0], r[1], WANT, r[2]))
+# puis: rl_duel build --board <id>   (board.py <bc.json> pour la carte ASCII + spawns)
+```
+
+**Inventaire terrain (scan des 779 dumps, build `gqfc5mff6c`)** — `TileId` → nb de boards qui en portent :
+`Grass`(779), `Block`(662, LOS/bloque l'entree), `Swamp`(461, malus mvt), **`DryBush`(455)**,
+`Water`(307), `Bridge`(287), **`Trench`(77)**, `BrokenIce`(40), `FirstAid`(25), `HulkWall`(17),
+`HulkDoor`(15). Le terrain vit dans le `TileId` de la BC — **pas besoin d'un RPC tile-ability** pour le
+lire (il est aussi projete live via `projectTile.tileDefId`, cf. `match-state.ts`).
+
+**Mapping terrain → mécanique** (confirmé) : **`DryBush` = LightCover** (couverture legere : l'unite SUR
+la tuile recoit **-2 coups des attaques ranged multi-hit, min 1** ; effet 1013 pose par `LightCoverAbility`
+de tuile, gate compute-time = cible ACTUELLEMENT sur tuile cover) ; **`Trench` = modificateur de DEGAT
+positionnel** (`CalculateAttackerModifiersForPrediction @181000590`, famille RangedInMelee, cf. #61 —
+PAS un reducteur de coups). Les autres (`Water`/`Bridge` = LOS/mvt, `BrokenIce`, `FirstAid`, `HulkWall`/
+`HulkDoor`) : mecanique par gameconfig/RE au besoin.
+
+**Boards riches pour VALIDER** (dérivés du scan, pas hardcodés) : couverture — `C4_09`(pvp, 17 DryBush),
+`C1_25`(pvp, 15) ; trench — `C2_19`(global, 17), `C2_20`(13) ; **les DEUX à la fois** —
+`SyncPvp_Arctic_06`(DryBush 7 + Trench 13). L'arène par défaut `MC1_67` a déjà 3 DryBush + 4 Swamp.
 
 ## 3. Discipline runner — SYSTÉMATIQUE, sans condition
 

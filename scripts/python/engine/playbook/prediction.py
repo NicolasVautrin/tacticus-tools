@@ -53,6 +53,11 @@ _DMG_CFG: dict = _json.loads(_weights.DEFAULT_BC.read_text(encoding="utf-8")).ge
 # GetMultiplierFromDamageBonus @181005210 (value<1 -> 1-|value|/100), decompile confirme x0.5.
 RANGED_IN_MELEE_PCT: int = abs(int(_DMG_CFG.get("RangedInMeleeReductionPercentage", -50)))  # @181004700
 TRENCH_PCT: int = abs(int(_DMG_CFG.get("TrenchReductionPercentage", -50)))                  # @181004830
+# Profils de degat qui IGNORENT la reduction Trench (`IgnoreTrenchReduction @181559b70` =
+# `List.Contains(staticList, profile)`). La liste native est un config STATIQUE hors section Damage de la
+# BC (aucune cle ici) -> defaut VIDE (aucun profil exempte) tant qu'elle n'est pas RE'd/exposee. A raffiner
+# si un cas live montre une NON-reduction sur-trench pour un profil donne (#125).
+_TRENCH_IGNORED_PROFILES: "frozenset[str]" = frozenset()
 _PROFILE_INDEX = {name: idx for idx, name in _PROFILE_BY_INDEX.items()}
 
 
@@ -127,10 +132,17 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
         eb = calculate_ranged_in_melee_reduction(True, RANGED_IN_MELEE_PCT)
         if eb is not None:
             add_modifier(mods, eb)
-    eb = calculate_trench_reduction(False, TRENCH_PCT)      # target_on_trench=False (data non capturée)
+    tgt_effects = scene.effects(tgt_id)
+    # Trench (CalculateTrenchReduction @181004830) : -TrenchReductionPercentage% (=-50) SI la cible porte
+    # l'effet Trench (natif HasEffect(target,0x423) ; effet de TUILE pose par TrenchAbility @1811c8e30,
+    # IsActive => cible sur/adjacente a une tuile Trench — confirme live SyncPvp_Arctic_06 u84 : 'Trench'
+    # present sur-trench, DROP hors-trench) ET profil non-exempte (IgnoreTrenchReduction @181559b70, defaut
+    # vide #125). calculate_trench_reduction owner_is_caster=True = maths identiques a un -50% defenseur.
+    target_on_trench = (any(getattr(e, "name", None) == "Trench" for e in tgt_effects)
+                        and (not damage_profile or damage_profile not in _TRENCH_IGNORED_PROFILES))
+    eb = calculate_trench_reduction(target_on_trench, TRENCH_PCT)
     if eb is not None:
         add_modifier(mods, eb)
-    tgt_effects = scene.effects(tgt_id)
     # attacker_ctx : identité + niveau/mult du Neurothrope SOURCE (gate + magnitude Neuroparasite). L'attaquant
     # ETANT le source (AreEqual), extraDmg s'indexe sur SON ablvl x SON multiplier.
     # `is_normal_attack` propagé au gate `IsNormalAttack` des malus défenseur (ex. MartialKatah -20% #105 :
