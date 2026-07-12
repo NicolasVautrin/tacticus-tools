@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ...services.effect_bonus import (EffectBonus, for_addition,
+from ...services.effect_bonus import (EffectBonus, for_addition, for_subtraction,
                                       for_percent_decrease, for_percent_increase,
                                       for_percent_subtraction_capped)
 from .base import BaseEffect, SubEffectSpec, SAME_TURNS
@@ -451,6 +451,37 @@ class GuardianOrganismDamageReductionEffect(BaseEffect):
         cap = ability_var("GuardianOrganism", "dmgReduction", lvl,      # ConfigVar 0x12 (rarity-scalé)
                           multiplier_pct=self.ability_variables_multiplier)
         return for_percent_subtraction_capped(False, int(pct), int(cap) if cap else None)
+
+
+class NightshroudDmgReductionEffect(BaseEffect):
+    """`Nightshroud_DmgReduction_Effect.CreateDamageDefenseModifier @180f5bff0` (ability Nightshroud de
+    Sibyll Devine `astraPrimarisPsy`, base `ADamageDefenseModifierAbilityEffect(0x416)` = ctor @180f5c190) :
+    réduit d'un montant PLAT le dégât REÇU par son porteur — `EffectBonus.ForSubtraction(OwnerIsTarget,
+    ConfigVar(0x12)=dmgReduction × mult)`. i2 : « All friendly units starting their turn adjacent to Sibyll
+    Devine gain Infiltrate for that turn and take -{dmgReduction} Damage from each hit in their and the next
+    enemy turn. » (le grant Infiltrate + la durée their+next-enemy-turn = cycle de vie de l'effet ; le
+    ForSubtraction est le SEUL terme de dégât).
+      - montant = ConfigVar(0x12) = `dmgReduction` [5..364 par niveau, RARITY-SCALÉ : dmgReduction ∈
+        variablesAffectedByRarityBonus] × `mult` (= `*(effet+0x60)`) = niveau/mult du porteur = le DÉFENSEUR
+        (EffectsState.seed les propage sur chaque allié ring-1 de Sibyll, comme l'AURA GuardianOrganism #89).
+    AUCUN gate (OwnerIsTarget SEUL -> s'applique mêlée ET ranged, normale ET spéciale, tout profil de dégât ;
+    ≠ le percent-decrease gaté de Terrifying/MartialKatah). PER-COUP : « -X Damage from EACH hit » -> additif
+    DÉFENSEUR @+0x10 soustrait de la BASE **PRÉ-perçage** (comme l'additif attaquant #75), donc DILUÉ par
+    perçage/armure PUIS scalé ×%-list -> son effet SANTÉ ≪ la valeur config. Canal `flat_reductions` (fusionné
+    dans `mods.additive` au merge prediction, SANS le pré-scale ×M de Neuroparasite). MESURÉ LIVE (#111,
+    ArmoriumCherub u92->custoTrajann adjacent à Sibyll, varTrace {lvl50,mult180}) : valeur config **499** ;
+    dilué par le facteur perçage/armure (~0.31) -> ~155/coup de dégât SANTÉ = oracle [1620,2744] (le "155"
+    n'est PAS la config mais 499 traversant l'armure). Port sans NS = [2240,3364] (sur-préd +620 agg)."""
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                                damage_profile: str | None = None,
+                                                attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        red = ability_var("Nightshroud", "dmgReduction", lvl,          # ConfigVar 0x12 (rarity-scalé × mult)
+                          multiplier_pct=self.ability_variables_multiplier)
+        if not red:
+            return None
+        return for_subtraction(False, abs(int(red)))   # owner=défenseur (effet sur la cible) ; plat POST-%-list
 
 
 class NeuroparasiteEffect(BaseEffect):

@@ -304,10 +304,13 @@ def predict_attack_raw(
     else:
         blk_lo = blk_hi = 0
         rem_lo, rem_hi = mm.min, mm.max
-    lo = apply_pierce_and_modifiers(rem_lo, pierce_pct, armor, mods_pct, hit_mult,
-                                    attacker_additive_pre=True) if rem_lo else 0
-    hi = apply_pierce_and_modifiers(rem_hi, pierce_pct, armor, mods_pct, hit_mult,
-                                    attacker_additive_pre=True) if rem_hi else 0
+    # PRÉDICTION : conversion int finale = **Round** (le natif matérialise la borne prédite via Round ;
+    # ≠ COMBAT op_Explicit=troncature). apply_pierce_and_modifiers/apply_capped_modifiers renvoient le
+    # Fix64 fractionnaire (perçage non tronqué #111) -> on arrondit ICI, une seule fois par borne.
+    lo = round(apply_pierce_and_modifiers(rem_lo, pierce_pct, armor, mods_pct, hit_mult,
+                                          attacker_additive_pre=True)) if rem_lo else 0
+    hi = round(apply_pierce_and_modifiers(rem_hi, pierce_pct, armor, mods_pct, hit_mult,
+                                          attacker_additive_pre=True)) if rem_hi else 0
     # Réduction DÉFENSEUR capée FLAT (GuardianOrganism) : scalaire = min(trunc(pct% × D), cap) avec D=(lo+hi)/2 =
     # CurrentDamage (base/centre du dégât, pré-GO), soustrait des DEUX bornes (mirror pré-évalué natif @18102d3f0 ;
     # HELPER PARTAGÉ avec le COMBAT `capped_reduction_flat` = MÊME formule + troncature Fix64, confirmée bit-exact

@@ -25,16 +25,22 @@ def get_piercing_ratio(profile_piercing_ratio: int, profile_has_trait3: bool,
     return max(0, min(100, p))
 
 
-def get_damage_with_piercing(damage: int, pierce_pct: int, armor: int) -> int:
+def get_damage_with_piercing(damage: float, pierce_pct: int, armor: int) -> float:
     """StaticBattleRules.Damage.GetDamageWithPiercing (@1815598b0) — LE cœur armure/perçage.
 
         pierced     = damage × pierce%/100        # fraction qui IGNORE l'armure
         after_armor = max(0, damage − armor)
         return max(after_armor, pierced)          # le perçage est un PLANCHER
 
-    (Fix64 en interne ; troncature à la sortie. `damage`/`armor`/résultat = ints de dégât.)
-    """
-    pierced = damage * pierce_pct // 100
+    ⚠ RENVOIE UN Fix64 (FRACTIONNAIRE) — le natif décompilé NE tronque PAS ici : `pierced =
+    Fix64.Multiply(damage, pierce/100)` garde le fractionnaire, et le résultat reste Fix64 (aucun
+    `op_Explicit`/`Round` en sortie). L'arrondi/troncature UNIQUE se fait EN AVAL : `%-list`
+    (`ApplyCappedModifiers @181000020` = `Fix64.Round` PAR ENTRÉE ; liste vide -> valeur inchangée) puis
+    la conversion int finale (prédiction: Round ; COMBAT `CalculateAbilityDamage @18102cb50`: op_Explicit
+    = TRONCATURE). Flooré ici, le fractionnaire du perçage était perdu AVANT le %-list -> ±1/coup dès qu'un
+    %-mod suit un perçage fractionnaire (#111 Nightshroud borne max : 548.x floor->548 ×1.25=685 vs
+    fractionnaire 548.x×1.25=686). `damage` peut être fractionnaire (coups chaînés hit_mult>1)."""
+    pierced = damage * pierce_pct / 100.0
     after_armor = damage - armor
     if after_armor < 0:
         after_armor = 0

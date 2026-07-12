@@ -25,6 +25,7 @@ from .loki import (
     BeastSlayerExtraBlockEffect,
     MasterAnnihilatorAdditionalHitEffect,
     NeuroparasiteEffect,
+    NightshroudDmgReductionEffect,
     ParryEffect,
     PathOfCommandExtraDmgEffect,
     RangedSpecialistEffect,
@@ -84,6 +85,10 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # GuardianOrganism (tanks Tyranides) : reduit le degat recu de min(dmgReductionPct%(25-33) x dmg,
     # dmgReduction_cap x mult) = PercentSubtractionCapped (dynamique+capee) ; aura self+adjacents. #89.
     "GuardianOrganism_DamageReduction": GuardianOrganismDamageReductionEffect,
+    # Nightshroud (Sibyll Devine astraPrimarisPsy) : aura -dmgReduction Damage "from each hit" aux allies
+    # ring-1 en debut de tour (defender, ForSubtraction @180f5bff0 ; SANS gate) = additif defenseur @+0x10
+    # PRE-percage (config 499 dilue par armure -> ~155 sante). #111.
+    "Nightshroud_DmgReduction": NightshroudDmgReductionEffect,
     # MartialKatah (Custodes ex. custoTrajann/custoVexilusPraetor) : -20% degat des ATTAQUES NORMALES
     # recues (defender, gated IsNormalAttack ; @180f58b30 ForPercentDecrease ConfigConst 0x72=
     # martialKatahDmgReductionPct). Le DmgBonus (+100% vs Summons) reste no-op (canal attaquant, hors gap). #105.

@@ -160,6 +160,17 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     # dans apply_all_modifiers (CurrentDamage). Le %-list SEUL était fusionné (comme l'additif, cf. #86a).
     if def_mods.capped_reductions:
         mods.capped_reductions.extend(def_mods.capped_reductions)
+    # Réductions PLATES CONSTANTES défenseur (Nightshroud_DmgReduction ForSubtraction = ConfigVar(0x12)=
+    # dmgReduction×mult, ex. 499 @{lvl50,mult180}) — additif DÉFENSEUR sur le slot @+0x10 : soustrait de la
+    # BASE **PRÉ-perçage** (comme l'additif attaquant #75), donc DILUÉ par perçage/armure PUIS scalé ×%-list
+    # UNE fois (mirror CBDWAM @18102d3f0 : le natif ajoute l'additif @+0x10 à la base int AVANT Calculate
+    # BaseDamageWithAllModifiers, CBDWAM ne le re-consomme pas). CONFIRMÉ LIVE : le config 499 dilué par le
+    # facteur perçage/armure (~0.31 vs custoTrajann) -> ~155/coup de dégât santé = oracle [1620,2744] (le
+    # residu apparent "155" N'EST PAS la valeur config mais 499 traversant l'armure). PAS de pré-scale ×M
+    # (≠ l'additif Neuroparasite ci-dessus qui compense le placement post-%-list du COMBAT) : le chemin
+    # attacker_additive_pre scale déjà ×%-list une fois.
+    if def_mods.flat_reductions:
+        mods.additive -= sum(def_mods.flat_reductions)
 
 
 def _target_damage_limits(scene, tgt_id):

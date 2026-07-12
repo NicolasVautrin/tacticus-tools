@@ -63,6 +63,14 @@ class DamageModifiers:
     # `min(pct% × dégât_courant, cap)` du dégât APRÈS %-list+additif (CurrentDamage). Distinct du %-list
     # (multiplicatif) : c'est une ForSubtraction dont le montant dépend du dégât courant, plafonné.
     capped_reductions: list[tuple[int, int | None]] = field(default_factory=list)
+    # Additifs DÉFENSEUR de SOUSTRACTION (ex. Nightshroud_DmgReduction @180f5bff0 : `ForSubtraction(
+    # OwnerIsTarget, ConfigVar(0x12)=dmgReduction×mult)`, valeur config ex. 499 @{lvl50,mult180}). C'est le
+    # slot additif @+0x10 côté DÉFENSEUR : le natif l'ajoute à la BASE **PRÉ-perçage** (comme l'additif
+    # ATTAQUANT #75 ; `CalculateBaseDamageWithAllModifiers @18102d3f0` NE re-consomme PAS @+0x10) -> DILUÉ
+    # par perçage/armure PUIS scalé ×%-list. On garde ces montants dans un canal SÉPARÉ de `additive`
+    # (l'additif attaquant) pour les fusionner SANS le pré-scale ×M spécifique au ForAddition défenseur
+    # Neuroparasite (cf. prediction.py) : ils sont soustraits de `additive` au merge, appliqués pré-perçage.
+    flat_reductions: list[int] = field(default_factory=list)
 
     @classmethod
     def empty(cls) -> "DamageModifiers":
@@ -88,7 +96,10 @@ def add_modifier(acc: DamageModifiers, eb: EffectBonus) -> None:
     if eb.kind == "Addition":
         acc.additive += eb.value
     elif eb.kind == "Subtraction":
-        acc.additive -= eb.value
+        if eb.owner_is_caster:
+            acc.additive -= eb.value            # ATTAQUANT : base pré-perçage (stat-debuff #49/#64)
+        else:
+            acc.flat_reductions.append(eb.value)  # DÉFENSEUR : plat POST-%-list (Nightshroud @180f5bff0)
     elif eb.kind in ("PercentIncrease", "PercentDecrease"):
         pct = eb.value if eb.kind == "PercentIncrease" else -eb.value
         acc.pct_list.append((get_multiplier_from_damage_bonus(pct), eb.cap))
@@ -114,13 +125,25 @@ def apply_capped_modifiers(value: int, mods: DamageModifiers) -> int:
     3980/5969 = round(1769×2.25)/round(2653×2.25) ; round-par-entrée donnait 3981/5970). Une entrée
     CAPÉE matérialise (clamp sur int) à sa position — sans consommateur actuel (les pct portés sont tous
     cap=None) ; mono-mult : round(v×m) STRICTEMENT inchangé (tous les cas validés ×1.25/×1.33/×0.7/×0.25
-    préservés bit-exact). L'`additif` plat est appliqué à part — cf. apply_all_modifiers."""
+    préservés bit-exact). L'`additif` plat est appliqué à part — cf. apply_all_modifiers.
+
+    ⚠ CONVERSION int DÉFÉRÉE AU CALLER : `ApplyCappedModifiers @181000020` renvoie un **Fix64** ; liste %-list
+    VIDE -> valeur **INCHANGÉE (fractionnaire)** — l'arrondi/troncature UNIQUE est fait par l'appelant
+    (prédiction: Round ; COMBAT: op_Explicit=troncature, cf. `apply_all_modifiers`/`CalculateAbilityDamage`
+    @18102cb50). C'est nécessaire depuis que `get_damage_with_piercing` renvoie le fractionnaire du perçage
+    (#111) : floorer/arrondir ici perdrait le fractionnaire AVANT le point de conversion natif. Liste NON
+    vide -> on matérialise l'int UNE fois (round, #98 : compose sans arrondi intermédiaire)."""
     v = float(value)
+    if not mods.pct_list:
+        return v                      # %-list VIDE -> Fix64 INCHANGÉ (@181000020 ne touche pas la valeur) ;
+                                      # la conversion int est faite au caller (prédiction Round / COMBAT
+                                      # op_Explicit troncature) — nécessaire depuis le perçage fractionnaire #111.
     for mult, cap in mods.pct_list:
         v = v * mult
         if cap is not None:
             v = float(max(-cap, min(cap, round(v))))
-    return round(v)
+    return round(v)                   # %-list NON vide -> matérialise l'int UNE fois (round, #98 : compose
+                                      # sans arrondi intermédiaire) ; la troncature/round finale du caller = no-op.
 
 
 def apply_all_modifiers(value: int, mods: DamageModifiers) -> int:
@@ -132,7 +155,11 @@ def apply_all_modifiers(value: int, mods: DamageModifiers) -> int:
     boucle d'events) — cette fonction combinée reste pour le chemin COMBAT (valeur tirée)."""
     v = apply_capped_modifiers(value, mods)
     if mods.additive:
-        v = round(v + mods.additive)
+        v = v + mods.additive
+    # COMBAT : conversion int finale = TRONCATURE (`op_Explicit`, `CalculateAbilityDamage @18102cb50`),
+    # PAS round. `apply_capped_modifiers` a déjà matérialisé l'int si %-list non vide (troncature = no-op) ;
+    # %-list vide -> `v` reste le fractionnaire du perçage -> troncature = floor natif du dégât tiré.
+    v = int(v)
     # ⚠ Les réductions DYNAMIQUES CAPÉES du DÉFENSEUR (GuardianOrganism) ne sont PLUS appliquées ici :
     # `CurrentDamage` du natif = la valeur UNIQUE post-mods (le dégât TIRÉ), donc en COMBAT la soustraction
     # se fait PAR VALEUR TIRÉE (cf. `apply_capped_reductions`, appelé dans `_run_hits` APRÈS le tirage), PAS
