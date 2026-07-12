@@ -51,8 +51,10 @@ from ...entities.effects import BaseEffect, EffectFactory, SAME_TURNS
 # alors venir d'un override, sinon fallback 1 dans Execute).
 _DEFAULT_ROUNDS: dict[int, int] = {
     0x4f: 3,                                  # 79
-    0x429: 1, 0x48a: 1, 0x4dc: 1,             # 1065 / 1162 / 1244
-    0x05: 2, 0x11: 2, 0x12: 2, 0x3a: 2, 0x5c4: 2,  # 5 / 17 / 18 / 58 / 1476
+    0x429: 1, 0x48a: 1,                       # 1065 / 1162
+    # 0x4dc=1244 Contaminated : le switch natif @181559ff0 renvoie 2 pour 0x4dc (verifie : 0x4dc>=0x42a &
+    # !=0x48a & ==0x4dc -> LAB local_res8=2), PAS 1 (bug de transcription corrige 2026-07-12, cf. #132).
+    0x05: 2, 0x11: 2, 0x12: 2, 0x3a: 2, 0x4dc: 2, 0x5c4: 2,  # 5 / 17 / 18 / 58 / 1244 / 1476
 }
 
 
