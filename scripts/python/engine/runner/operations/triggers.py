@@ -56,8 +56,12 @@ CONTAMINATED_IMMUNE_TRAIT = 2027  # 0x7eb — immunité (`EntityIsImmuneToEffect
 # --- Fire (tile-effect DoT, RE #127/#128) : turn-start DoT 20% PV initiale ------------------------------
 FIRE_TILE = 5                   # "Fire" — effet de TUILE (posé par attaque Flame, `OnFireDamageAbility`@1811c3a60).
 FIRE_DMG_PCT_KEY = "fireDmgPct"  # globalValues=20 (`ConfigConst 0x12`) : % de la PV INITIALE (max) infligé/tour.
-# Immunité feu = `UnitsWithoutTraits([0x1b=27, 0x19=25])` (@18121e040) : noms gameconfig de CES traits (enum
-# TRAIT, ≠ enum EFFECT où 25/27=Taunted_*) NON résolus → gate d'immunité NON porté (flaggé, cf. FireTileDoT).
+# Immunité feu = `UnitsWithoutTraits([0x1b=27, 0x19=25])` (@18121e040) = enum UnitTrait (dump.cs gqfc5mff6c) :
+#   0x1b=27=Steppable (tokens marchables : decoys/mines), 0x19=25=Immune. Le DoT EXCLUT ces deux traits (enum
+#   TRAIT, ≠ enum EFFECT où 25/27=Taunted_*). `ctx.traits` = NOMS gameconfig (unit_context.py:191) → gate par nom.
+TRAIT_STEPPABLE = "Steppable"    # UnitTrait 0x1b=27 (dump.cs) — nom gameconfig
+TRAIT_IMMUNE = "Immune"          # UnitTrait 0x19=25 (dump.cs) — nom gameconfig
+FIRE_IMMUNE_TRAITS = (TRAIT_STEPPABLE, TRAIT_IMMUNE)
 
 # --- TheBetrayer (worldKharn, passiveAbility) -----------------------------------------------------
 THEBETRAYER_EFFECT = 0x4f3      # 1267 — effet « rage » de TheBetrayer (gate de TakeTurn ; gagné au kill).
@@ -85,7 +89,9 @@ CHAOS_FACTIONS = frozenset({
     "BlackLegion", "DeathGuard", "ThousandSons", "WorldEaters", "EmperorsChildren",
 })
 ARCANESHIELD_RANGE = 2          # `ArcaneShield.constants.range` = 2 (rayon de l'ami ciblé)
-ARCANESHIELD_TRAIT_EXCLUDE = 0x1b  # 27 — `UnitsWithoutTrait(0x1b)` : exclus du ciblage
+ARCANESHIELD_TRAIT_EXCLUDE = TRAIT_STEPPABLE  # `UnitsWithoutTrait(0x1b=27=Steppable)` : exclus du ciblage.
+# ⚠ FIX #135 : etait `0x1b` (int) compare a `ctx.traits` (NOMS gameconfig) -> `27 in [strings]` toujours False
+#   (gate mort : les allies Steppable/tokens etaient ciblables a tort). Compare desormais par NOM (Steppable).
 
 PSYKER_OWNER_SUPPRESS = 1191    # 0x4a7 effet sur l'owner qui supprime le splash psyker
 PSYKER_TARGET_SUPPRESS = 1533   # 0x5fd effet sur la cible qui supprime le splash psyker
@@ -239,15 +245,28 @@ class OverwatchAutoAttack(EffectTrigger):
 
 
 # --- TILE-EFFECTS : effet-trigger porté par une TUILE (owner_id = id d'entité-tile) -----------------
+def _unit_trait_names(state: State, unit_id: int) -> list:
+    """Noms de traits gameconfig de l'unité (`StatsComponent.ctx.traits` = NOMS, cf. unit_context.py:191).
+    [] si l'entité / le ctx / les traits sont absents."""
+    e = state.get_entity(unit_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    return (sc.ctx.traits if (sc is not None and getattr(sc, "ctx", None) is not None) else None) or []
+
+
 def _is_immune_to_contaminated(state: State, unit_id: int) -> bool:
     """`EntityIsImmuneToEffect`@180f3a400 (Contaminated) = `HasTrait(0x7eb=2027) OR IsMechanical`. Le nom
     gameconfig du trait 2027 n'est pas résolu → gate BEST-EFFORT sur un marqueur `Mechanical` dans les traits
     captés (la plupart des immunisés = véhicules/mécas). ⚠ Sous-gate possible (flaggé) : à durcir quand le
     nom du trait 2027 / la propriété IsMechanical seront exposés par la capture ECS."""
-    e = state.get_entity(unit_id)
-    sc = e.get_component(StatsComponent) if e is not None else None
-    traits = (sc.ctx.traits if (sc is not None and getattr(sc, "ctx", None) is not None) else None) or []
-    return any(str(t) == "Mechanical" for t in traits)
+    return any(str(t) == "Mechanical" for t in _unit_trait_names(state, unit_id))
+
+
+def _is_immune_to_fire(state: State, unit_id: int) -> bool:
+    """`EnvFireTileAbility.CreateBehaviour`@18121e040 : `Foreach(UnitsWithoutTraits([0x1b=27=Steppable,
+    0x19=25=Immune]) & Units(EntitiesWithAnyEffect(5)), ...)`. Le DoT feu EXCLUT donc les unités portant
+    `Steppable` (tokens marchables : decoys/mines) OU `Immune`. Résolution enum UnitTrait dump.cs (gqfc5mff6c)."""
+    names = _unit_trait_names(state, unit_id)
+    return any(str(t) in FIRE_IMMUNE_TRAITS for t in names)
 
 
 class TileEffectTrigger(EffectTrigger):
@@ -333,15 +352,17 @@ class FireTileDoT(TileEffectTrigger):
     tour (`On(0x14)`), l'unite qui DEMARRE son tour sur une tuile en feu subit `PercentageOf(StatAmount(
     Health, part2=Initial), fireDmgPct=20)` = 20% de sa PV INITIALE (max).
 
-    i2 `Keywords/EffectFire` : « Units starting their turn on a Fire hex take 20% of their initial Health ».
-    => degat FORFAITAIRE (fraction de PV), ARMOR-INDEPENDANT : le net subi = 20% max HP (ni le profil Flame
-    ni le `Direct(3)` du natif ne changent ce net -- i2 borne le resultat a 20% de la PV initiale). fireDmgPct
-    tire de globalValues (NON hardcode). Decay 2 rounds (`DefaultAmountOfRounds(5)=2`, deja dans _DEFAULT_ROUNDS
-    -> tick de duree via on_turn_end). Mort routee par `_fire_death_if_killed` (source = la tuile).
+    i2 `Keywords/EffectFire` : « Units starting their turn on a Fire hex take 20% of their initial Health » =
+    la BASE (20% PV max), PAS le net. Le natif `AttackWithAbilityDamage(base, profil Flame, Direct(3))` route la
+    base par le PERCAGE/ARMURE (CONFIRME LIVE 2026-07-12 : blackHaarken net 477 = base 1908 x PiercingRatio(Flame)
+    25%, l'armure absorbant le non-perce). Donc DoT = `apply_pierce_and_modifiers(20%max, Flame pierce, armure
+    cible)` -- SUR-applique si on prend le forfait plat (bug corrige). Direct(3) = pas de crit/block/spread.
+    fireDmgPct tire de globalValues (NON hardcode). Decay via on_turn_end (⚠ duree : live remaining=3-4 vs
+    _DEFAULT_ROUNDS[5]=2, a re-verifier -- cf. #127/#136). Mort routee par `_fire_death_if_killed` (source = tuile).
 
-    >>> GATE IMMUNITE feu (`UnitsWithoutTraits([0x1b=27, 0x19=25])`) NON porte : noms gameconfig de ces traits
-    non resolus -> le DoT s'applique a TOUT occupant (sur-application possible aux unites reellement immunes ;
-    flagge, a durcir + confirmer live quand 27/25 seront mappes)."""
+    GATE IMMUNITE feu (`UnitsWithoutTraits([0x1b=27=Steppable, 0x19=25=Immune])` @18121e040) PORTE :
+    le DoT EXCLUT les occupants portant `Steppable` (tokens marchables) ou `Immune` (cf. _is_immune_to_fire).
+    Reste a confirmer LIVE (build carrier -> Fire -> occupant immune vs non-immune)."""
     effect_type = FIRE_TILE
     event_ids = (TRIGGER_TILE_TICK_14,)
 
@@ -353,7 +374,8 @@ class FireTileDoT(TileEffectTrigger):
         uid = self._unit_on_tile(state)
         if uid is None:
             return None
-        # TODO gate immunite feu (traits 27/25 non resolus) -> applique a tout occupant.
+        if _is_immune_to_fire(state, uid):               # UnitsWithoutTraits([Steppable=27, Immune=25]) @18121e040
+            return None
         e = state.get_entity(uid)
         thc = e.get_component(HealthComponent) if e is not None else None
         if thc is None or thc.hp is None or thc.hp_max is None:
@@ -361,7 +383,17 @@ class FireTileDoT(TileEffectTrigger):
         pct = GC.global_value(FIRE_DMG_PCT_KEY)            # fireDmgPct=20 (globalValues, non hardcode)
         if not pct:
             return None
-        dmg = round(int(thc.hp_max) * int(pct) / 100)      # 20% de la PV INITIALE (max) -- FORFAITAIRE (i2)
+        # BASE = 20% de la PV INITIALE (max). Le DoT natif = `AttackWithAbilityDamage(base, profil Flame,
+        # Direct(3))` -> la base PASSE PAR LE PERCAGE/ARMURE comme une attaque normale (CONFIRME LIVE : blackHaarken
+        # net 477 = base 1908 x PiercingRatio(Flame)=25%, l'armure absorbant le non-perce). PAS un forfait
+        # armor-independant (l'i2 « 20% of initial Health » = la BASE, pas le net). Direct(3) = pas de crit/block/
+        # spread -> reduction pierce+armure seule (`apply_pierce_and_modifiers` mods=None).
+        from ...services.damage_prediction import apply_pierce_and_modifiers    # lazy : evite le cycle
+        base = round(int(thc.hp_max) * int(pct) / 100)
+        pierce = int((GC.damage_profile("Flame") or {}).get("PiercingRatio") or 0)   # Flame = 25 (gameconfig)
+        tsc = e.get_component(StatsComponent)
+        armor = int(tsc.ctx.stat(StatType.FIXED_ARMOR)) if tsc is not None else 0
+        dmg = int(round(apply_pierce_and_modifiers(base, pierce_pct=pierce, armor=armor, mods=None)))
         if dmg <= 0:
             return None
         hp_before = thc.hp
@@ -656,15 +688,53 @@ def _squighound_after_attack(state: State, attacker_id: int, target_id: int) -> 
     return [{"squighound": attacker_id, "spawned": spawned}] if spawned else []
 
 
+def _on_fire_damage_ability(state: State, attacker_id: int, target_id: int,
+                            profile: Optional[str]) -> list[dict]:
+    """`OnFireDamageAbility` (Damage.Loki) — pose du FEU on-hit. Trigger @1811c3ae0 =
+    `On(0x10) & DamageProfileHasTrait(1=OnFire) & NOT(TriggeringEffectIs(5))` ; Behaviour @1811c3a60 =
+    `AddEffect(5=FireEffect, Tiles(cible+0x178))` INCONDITIONNEL. => si l'arme du coup porte le trait de
+    profil `OnFire` (gameconfig `damage_profile[...]['Traits']`), pose FireEffect(type 5) sur la tuile
+    OCCUPEE COURANTE de la cible (`Tiles`=tuile-cible, PAS un ring). RNG-free.
+
+    Anti-boucle : `AddEffectOperation` no-op si la tuile brule deja (== porte native `already-present`
+    d'AddEffect) ; le `NOT(TriggeringEffectIs(5))` du trigger est structurellement satisfait ici (on est dans
+    le vecteur ATTAQUE, pas un tick de feu -> `FireTileDoT` inflige son DoT en direct, sans repasser par ce
+    vecteur, donc jamais de re-pose en cascade). Emetteur natif = `EvaluateAfterHitTriggers @180e25fc0`,
+    per-coup, MEME site que l'after-hit 0x26. NB : attaque NORMALE uniquement — la pose par ABILITY
+    (BrazierOfHolyFire) passe par AbilityDamageOperation, non cable dans ce vecteur -> gap (#136 suivi)."""
+    if not profile or state.effects is None or getattr(state, "board", None) is None:
+        return []
+    import gameconfig as GC
+    traits = (GC.damage_profile(profile) or {}).get("Traits") or []
+    if "OnFire" not in traits:                           # DamageProfileHasTrait(1=OnFire)
+        return []
+    te = state.get_entity(target_id)
+    pc = te.get_component(PositionComponent) if te is not None else None
+    if pc is None:
+        return []
+    tile_id = state.board.id_at(pc.col, pc.row)          # Tiles(cible+0x178) = tuile occupee courante
+    if tile_id is None:
+        return []
+    from .effects import AddEffectOperation               # lazy : evite le cycle triggers<->effects
+    eff = AddEffectOperation.execute(state, source=attacker_id, target=tile_id,
+                                     effect_type=FIRE_TILE, name="Fire")   # duree = _DEFAULT_ROUNDS[5]=2
+    if eff is None:                                       # tuile deja en feu -> no-op (anti-boucle AddEffect)
+        return []
+    return [{"tile_effect": "Fire", "placed_on_tile": tile_id, "by": attacker_id,
+             "on": target_id, "placement": "OnFireDamage"}]
+
+
 def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
                             ranged: bool, profile: Optional[str], is_crit: bool = False) -> list[dict]:
     """Vecteur after-hit (mirror `EvaluateAfterHitTriggers` → dispatch generique). Construit l'événement
     `On(0x26)` {acteur=attaquant, cible, ranged, profil, isCrit} et lance `evaluate_trigger_operation`.
-    `ranged`/`profile` = nature du coup primaire. Ajoute le passif `SquigHound` (spawn de grot après attaque).
-    No-op si aucun trigger ne matche."""
+    `ranged`/`profile` = nature du coup primaire. Ajoute le passif `SquigHound` (spawn de grot après attaque)
+    + la POSE on-hit des tile-effects de profil (`OnFireDamageAbility` : feu sur tuile-cible). No-op si rien
+    ne matche."""
     ev = TriggerEvent(TRIGGER_AFTER_HIT, attacker_id, target_id,
                       ranged=ranged, profile=profile, is_crit=is_crit)
     out = evaluate_trigger_operation(state, ev)
+    out = out + _on_fire_damage_ability(state, attacker_id, target_id, profile)  # OnFireDamageAbility @1811c3a60
     return out + _squighound_after_attack(state, attacker_id, target_id)
 
 

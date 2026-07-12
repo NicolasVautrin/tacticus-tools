@@ -187,6 +187,34 @@ FireEffect (EffectType 5) : DoT debut de tour = ~20% initial HP (`fireDmgPct=20`
 `DryBushFireSpreadAbility @1811bf5c0`). Carriers : adeptCanoness(BrazierOfHolyFire)/thousAhriman/eldarRanger.
 Le runner EndTurn ne fait AUCUN DoT -> gap. Vecteur turn-start-on-fire-tile = #128.
 
+**CONFRONTATION LIVE (2026-07-12, runner adeptRetributor flamer Flame -> blackHaarken) — 3 DIVERGENCES du port :**
+- (1) PLACEMENT **confirme** : l'attaque Flame pose bien `FireEffect(type 5)` sur la/les tuile(s) cible (lu via
+  `tileMeta.tiles[].effects`). Direction du port OK.
+- (2) **AoE MULTI-TUILE** (port FAUX) : le flamer (arme AoE) pose le feu sur **TOUTES ses tuiles d'AoE** (5 tuiles
+  observees : (5,7)(5,8)(6,6)(6,7)(6,8)), PAS seulement la tuile du target. `_on_fire_damage_ability` ne pose que
+  sur 1 tuile -> SOUS-pose pour les armes AoE. `Tiles(cible+0x178)` doit rendre l'empreinte AoE, pas 1 tuile.
+- (3) **MAGNITUDE DoT (port FAUX)** : mesure live = **477** sur blackHaarken (maxHP 9539). Le port applique un
+  forfait plat 20% max = **1908**. Or **477 = 1908 x 0.25** EXACTEMENT = base(20% max) x PiercingRatio(Flame=25%).
+  => le DoT N'EST PAS armor-independant : c'est une attaque profil **Flame** (`AttackWithAbilityDamage(..., Flame,
+  Direct(3))`) qui PASSE PAR LE PIPELINE PERCAGE/ARMURE normal (PiercingRatio 25% perce, le reste absorbe par
+  l'armure de la cible ; blackHaarken tres blinde -> 75% non-perce entierement bloque -> net = 25% de la base).
+  L'i2 « 20% of initial Health » decrit la BASE, pas le net. Le port doit router la base 20%-max via
+  `apply_pierce_and_modifiers` (Flame, armure cible), PAS un `hp -= 20%*max` plat. SUR-applique jusqu'a ~4x.
+- (4) **DUREE** : `tileMeta` montre `remaining=3` (puis 4) a la pose, le port utilise `_DEFAULT_ROUNDS[5]=2`.
+  Off-by-one ou mauvais defaut a re-verifier (DefaultAmountOfRounds(5) @181559ff0 vs la duree reellement passee
+  par `AddEffect(5,...)`).
+
+Bilan : l'offline « 23/23 » validait le port contre une SPEC (mon interpretation i2), pas contre le natif. Live
+REFUTE la magnitude (armor-routing), l'AoE et la duree. Placement = seul point confirme. -> #127/#136 a corriger.
+
+**GATE IMMUNITE FEU — RESOLU (2026-07-12, dump.cs gqfc5mff6c)** : `EnvFireTileAbility.CreateBehaviour
+@18121e040` = `Foreach(UnitsWithoutTraits([0x1b=27, 0x19=25]) & Units(EntitiesWithAnyEffect(5)), AttackWith
+AbilityDamage(...))`. Les 2 trait-ids sont l'enum **UnitTrait** (PAS l'enum EFFECT ou 25/27=Taunted_*) :
+`0x1b=27=Steppable` (tokens marchables : decoys/mines), `0x19=25=Immune`. Le DoT EXCLUT donc tout occupant
+portant Steppable OU Immune. **PORTE** (`FireTileDoT` gate `_is_immune_to_fire`, `ctx.traits`=noms gameconfig
+cf. unit_context.py:191) + offline-valide (test_tile_vector J/J2/J3). NB : l'i2 « excluding Flying and
+Unstoppable » concerne l'arret-MOUVEMENT (« entering a Fire hex ends movement »), pas ce gate de DAMAGE.
+
 ### 6.3 ICE — #133 — Arjac AnvilShield on-block (RE approfondie 2026-07-12)
 `spaceRockfist` (Arjac) active AnvilShield (ability enum 0x493=1171 ; vars blockChance[15..20], blockDmg
 [10..728 rarity], const healthPct=35). Sur un BLOCK, 4 sous-behaviours (`Triggered.Loki.AnvilShieldAbility_*`) :
@@ -220,3 +248,41 @@ celui deja bit-exact #75/#88. Offline : emet +582 aux 2 chemins. GAP restant : s
 (on-move-onto-decoy = trigger tile-step #128) + Blast retaliation + JustSummoned. VALIDATION live gatee (placer
 1379 exige le vecteur spawn/on-move, non porte). Traps : multiplier global vs per-ability passif (#68/#75) ;
 niveau/mult = du SOURCE genesPrimus (comme RitesOfBattle aura).
+
+### 6.5 PLACEMENT on-hit (vecteur commun Fire/Contaminated) — RESOLU (agent RE, 2026-07-12)
+
+Comment un tile-effect dynamique se POSE en combat. Verdict re-expert (decompile-prouve, build gqfc5mff6c) :
+
+**Emetteur = `ADamageOperation.EvaluateAfterHitTriggers @180e25fc0`**, appele PER-COUP en fin de resolution
+de chaque hit par les 3 `ExecuteHit` (`AttackDamageOperation @180e5eff0`, `AbilityDamageOperation @180e29d50`,
+`MachineDamageOperation @180e785b9`). Enfile 2 ops via `IOperationsBuffer` (slots 0x3d conditionnel / 8 incond.)
+-> `OperationProcessor.EvaluateAbilities @180e07a60` -> `EvaluateTriggerOperation.Execute @180e6fac0` -> construit
+un `BattleEvent(eventId, abilityEntities)` -> `ExecuteInternal @180e6ef40` matche le registre de triggers. Le
+payload porte attaquant, cible, **GetTiles(cible) et GetTiles(attaquant)** (les tuiles), le DamageProfile, isCrit.
+DEUX events emis ici : **0x10** (gate sur le flag « landed », param_6) et **0x26** (after-hit inconditionnel,
+deja emis par le runner). RESERVE non tranchee a l'octet (couche gshared IOperationsBuffer) : la correspondance
+formelle slot(0x3d/8)->eventId(0x10/0x26) ; HYPOTHESE 0x10=landed / 0x26=inconditionnel. **Non bloquant pour le
+port : 0x10 et 0x26 sont au MEME site** (`after_hit_normal_attack`).
+
+**`OnFireDamageAbility`** (Damage.Loki) : Trigger @1811c3ae0 = `On(0x10) & DamageProfileHasTrait(1=OnFire) &
+NOT(TriggeringEffectIs(5))` ; Behaviour @1811c3a60 = `AddEffect(5=FireEffect, Tiles(cible+0x178))` INCONDITIONNEL.
+`Tiles(0x178)` = `DSLFactory.Tiles @180dfdc60` sur la tuile CIBLE = **tuile occupee courante de la cible** (PAS un
+ring AoE ; wrappe en SortReverseSelector sans expansion). Anti-boucle = le NOT(TriggeringEffectIs(5)) empeche le
+DoT du feu de reposer du feu. **RNG-FREE** (pose inconditionnelle).
+
+**`OnToxicDamageAbility`** (Damage.Loki) : Trigger @1811c3d20 = `On(0x10) & DamageProfileHasTrait(4=OnToxic) &
+NOT(TriggeringEffectIs(0x4dc))` ; Behaviour @1811c3c00 = `If(IsFirstHitInSeries() & Maybe(ConfigConst 0x2a),
+AddEffect(0x4dc=Contaminated, Tiles(cible+0x178)))`. CONDITIONNEL : (a) **1er coup de la salve** (`get_IsFirstHit`
+@180fa0c00), (b) **proba** `Maybe(toxicDamageContaminationChance=25%)` (globalValues) -> **consomme du RNG**.
+
+**Gate offline (par NOM, sans ids)** : `DamageProfile.HasTrait @18157c2d0` = `List.Contains(profile.Traits, id)`.
+Les 6 traits de profil natifs <-> gameconfig : id1=OnFire=Flame, id4=OnToxic=Toxic(PiercingRatio 70), + Blast
+(HitsMultipleMembers), Las (LasCannon), Psychic (NoBlocking), Melta (OnMelta). => lire
+`gameconfig.damage_profile(<profil arme attaquante>)['Traits']` et tester `'OnFire'`/`'OnToxic'`.
+
+**Point d'insertion runner** = `triggers.py` `after_hit_normal_attack` (event 0x26 deja porte, MEME site que 0x10).
+FIRE = portable proprement (inconditionnel, RNG-free, per-attaque suffit car anti-boucle rend les repeats no-op).
+TOXIC = plus dur : le runner emet after-hit 1x/ATTAQUE (agrege), pas per-coup -> `IsFirstHitInSeries` non fidele
+sans index de coup propage ; + `Maybe(25%)` = RNG a ordonner (risque de desync du stream si mal place). PIEGES
+validator : (1) granularite per-coup vs per-attaque (Toxic 1er-coup) ; (2) proba 25% RNG (source globalValues, ne
+pas hardcoder) ; (3) tuile-cible unique (pas ring), a confirmer live ; (4) anti-boucle NOT(TriggeringEffectIs).
