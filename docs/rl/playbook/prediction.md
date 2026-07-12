@@ -1104,6 +1104,17 @@ CBDWAM @18102d3f0 ne consomme QUE l'int base + Override/Multiplier (idx 0x10/0x1
   additif/pierce erronee, PAS le placement. HYPOTHESE mineure sans impact : mods#1(idx0xd)=attaquant vs
   mods#2(idx0xe)=defenseur additives (les 2 Additions sont sommees identiquement min/max -> le port qui
   additionne `mods.additive` total est correct).
+- **#121 (CONFIRME LIVE 2026-07-12) — retrait du DOUBLE-SCALING de l'additif DEFENSEUR (Neuroparasite)** :
+  la bascule Q3 (`attacker_additive_pre=True`, effective #70/#111) a rendu OBSOLETE le pre-scale x M que
+  `_add_positional_and_defender_mods` (prediction.py) appliquait a l'additif defenseur pour COMPENSER
+  l'ancien placement POST-%-list de `apply_all_modifiers` (additif apres %-list, non scale). Une fois la
+  prediction en pre-percage (additif ajoute a la base PUIS %-list re-applique), le pre-scale devenait un
+  DOUBLE-comptage : `A*M^2` au lieu de `A*M`. Mesure live (Neurothrope u82 normale Psychic -> custoTrajann
+  level 1, A=1696 M=1.064) : baseline level 0 ORACLE==PORT (1709,2564) ; infected ORACLE contribution
+  = 1804 = A*M, PORT pre-fix = 1920 = A*M^2 (+116). FIX = ajouter l'additif defenseur BRUT (SANS pre-scale) :
+  le chemin attacker_additive_pre le scale x M UNE fois -> PORT==ORACLE (3513,4369) bit-exact aux 2 niveaux.
+  Reproduit les 2 separateurs #88 (M=1.33 -> A*M=2256 ; M=1 -> 1696). Combat inerte (def additive=0, parasite
+  non materialise). L'additif ATTAQUANT (#75, SmashaEad) etait deja BRUT -> non concerne.
 
 ### Q1 — Chemin "special"/predefinedRange : le facteur `2.2` est une INVENTION (a retirer)
 Le natif ne produit JAMAIS `(ceil(0.8*d/hits), ceil(2.2*d/hits))`. La base `dmgMM` (local_938) d'UN coup :

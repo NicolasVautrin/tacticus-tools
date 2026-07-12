@@ -141,21 +141,20 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     for mult, cap in def_mods.pct_list:
         mods.pct_list.append((mult, cap))
     # ADDITIF défenseur (ForAddition, ex. Neuroparasite +extraDmg x niveau) — le %-list SEUL était fusionné,
-    # l'additif défenseur était DROPPE. PLACEMENT (confirmé LIVE, 2 séparateurs #88, Neurothrope->orksRuntherd
-    # VANILLA) : le natif applique cet additif AVANT le %-list attaquant, donc SCALÉ par le produit des %-mods
-    # (RangedSpecialist ON M=1.33 -> +2256 ; OFF M=1 -> +1696, EXACT sur les 2). `(base+A)*M = base*M + A*M` :
-    # comme `apply_all_modifiers` applique l'additif APRÈS le %-list (ordre porté §17.7, combat bit-exact), on
-    # PRE-SCALE l'additif défenseur par M = produit des mults de `mods.pct_list` (attaquant + positionnel +
-    # défenseur, TOUS déjà fusionnés ici). Équivalent algébrique EXACT (caps ignorés : RangedSpecialist sans cap).
-    # Sémantique : "damage DEALT by the Neurothrope is increased" = dégât ATTAQUANT -> scalé par ses %-mults.
-    # ⚠ ISOLÉ au def additive (Neuroparasite = seul consommateur) ; l'additif ATTAQUANT (SmashaEad) reste
-    # après-%list (#70/#75, séparateur attaquant non encore mesuré). Combat : def additive=0 (parasite non
-    # matérialisé par le runner) -> inerte.
+    # l'additif défenseur était DROPPE. PLACEMENT = MÊME slot @+0x10 que l'additif ATTAQUANT #75 : ajouté à la
+    # base PRÉ-perçage, puis traverse perçage et est scalé ×%-list UNE fois (le natif ajoute l'additif @+0x10
+    # à la base int AVANT `CalculateBaseDamageWithAllModifiers @18102d3f0`, qui NE re-consomme PAS @+0x10 —
+    # cf. `attacker_additive_pre=True` dans `predict_attack_raw`/`calculate_damage_prediction_scenario`). Donc
+    # on AJOUTE l'additif BRUT (SANS pré-scale) : le chemin attacker_additive_pre applique déjà le %-list ×M.
+    # #121 (CONFIRMÉ LIVE 2026-07-12, Neurothrope u82 -> custoTrajann level 1, A=1696 M=1.064) : ORACLE
+    # contribution = 1804 = A*M (natif single-scale) ; le pré-scale ×M produisait A*M^2 = 1920 (port sur-préd
+    # +116) -> RETIRÉ. Reproduit les 2 séparateurs #88 (RangedSpecialist ON M=1.33 -> A*M=2256 ; OFF M=1 ->
+    # 1696) : l'ancien pré-scale ×M compensait le PLACEMENT POST-%-list de `apply_all_modifiers` (additif après
+    # %-list, non scalé) ; #70/#111 a basculé la prédiction sur attacker_additive_pre (additif pré-perçage,
+    # %-list re-appliqué) -> le pré-scale devint un DOUBLE-comptage. ≠ flat_reductions (Nightshroud ci-dessous,
+    # #120) qui n'est PAS pré-scalé non plus. Combat : def additive=0 (parasite non matérialisé) -> inerte.
     if def_mods.additive:
-        _m = 1.0
-        for _mult, _cap in mods.pct_list:
-            _m *= _mult
-        mods.additive += def_mods.additive * _m
+        mods.additive += def_mods.additive
     # Réductions DYNAMIQUES CAPÉES défenseur (GuardianOrganism -min(pct%×dmg, cap)) — appliquées post-mods
     # dans apply_all_modifiers (CurrentDamage). Le %-list SEUL était fusionné (comme l'additif, cf. #86a).
     if def_mods.capped_reductions:
