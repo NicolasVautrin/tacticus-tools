@@ -148,6 +148,16 @@ class AActiveAbility:
         leur `GetSurroundingUnits`/`GetOtherTargets`. `ctx.target` = cible principale (exclue du set)."""
         return []
 
+    def get_prediction_set_repeat(self, n_targets: int) -> int:
+        """Nombre de fois que `MakeDamagePredictions` RÉ-ÉMET la liste d'events de dégât (= la BOUCLE
+        EXTERNE du playbook natif sur le set de cibles). DÉFAUT = 1 (émission LINÉAIRE : 1 event/cible).
+        Override par-ability pour les playbooks à DOUBLE boucle sur le MÊME set : ex. MurderousSwing
+        (`MurderousSwingPlaybook.MakeDamagePredictions @181134600` boucle sur `AdjacentEnemies(caster)`
+        ET `GenerateMultiHitAttackPredictions @181409da0` re-boucle sur ce MÊME set) -> **count² events**,
+        chaque cible apparaît `count` fois. Confirmé LIVE (#108 : K=1->1, K=2->4, K=3->9, perTarget=K).
+        `n_targets` = taille du set AoE (= `1 + len(aoe)`, mirror du `Enumerable.Count(set)` natif)."""
+        return 1
+
     def get_max_secondary_targets(self) -> int | None:
         """Plafond de cibles SECONDAIRES (`ability.GetMaxSecondaryTargets`, ex. PlasmaCannon
         `@18039E710 return 2`). Le playbook pondère alors le 2ᵉ batch par `min(1, max/n)`
@@ -360,13 +370,30 @@ class MurderousSwingAbility(AActiveAbility):
     (`predict_attack_raw`/`GetBaseDamageFix64`) → il scale min ET max PROPORTIONNELLEMENT
     (`extraDmg / avg(minDmg,maxDmg) ≈ 0.60` à tous les niveaux → ratio ×1.60), ce N'EST donc NI un
     additif à delta constant NI un %-mod (diagnostic #108 : oracle/moteur = ×1.601 UNIFORME min&max,
-    RapidAssault +25% déjà appliqué des deux côtés). `extraDmg` scalé `(level, mult)` comme minDmg/maxDmg."""
+    RapidAssault +25% déjà appliqué des deux côtés). `extraDmg` scalé `(level, mult)` comme minDmg/maxDmg.
+
+    AoE mêlée SELF-centrée : `MakeDamagePredictions @181134600` construit le set `AdjacentEnemies(caster)`
+    (`nrEnemies = Count(set)` -> GetCorrectDamage) PUIS boucle DEUX fois dessus (externe = MakeDamage
+    Predictions ; interne = `GenerateMultiHitAttackPredictions @181409da0`) -> **count² events**, chaque
+    ennemi adjacent apparaît `count` fois (CONFIRMÉ LIVE #108 : K=1->1, K=2->4, K=3->9). `get_aoe_targets`
+    = le set (moins la cible principale, filtrée par make_damage_predictions) ; `get_prediction_set_repeat`
+    = `count` -> réplique la liste d'events count fois (mirror de la boucle externe)."""
+
+    _AOE = dsl.Damageable(dsl.AdjacentEnemies(dsl.CasterTile(), dsl.Const(1)))
 
     def get_correct_damage(self, base: int, nr_enemies: int) -> int:
         if nr_enemies != 1 or self.config is None:   # >1 ennemi -> GetMultipleUnitsDamage = base seule
             return base
         extra = self.config.get_variable_for_level("extraDmg", self.level, 0, self.multiplier)
         return base + int(extra or 0)                # GetSingleUnitDamage = base + extraDmg (key 8)
+
+    def get_aoe_targets(self, ctx):
+        # mirror set natif `AdjacentEnemies(caster@0x160, 1, 3)` ; make_damage_predictions retire la
+        # cible principale (main_tgt_id) -> `nrEnemies = 1 + len(aoe)` = Count(set) natif.
+        return self._AOE.evaluate(ctx)
+
+    def get_prediction_set_repeat(self, n_targets: int) -> int:
+        return max(1, int(n_targets))                # boucle EXTERNE sur le set AoE -> count² (#108)
 
 
 _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {

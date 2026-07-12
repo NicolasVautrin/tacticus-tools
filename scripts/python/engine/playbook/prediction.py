@@ -488,6 +488,15 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
         aev = _event(t.get("id"), prob1)
         if aev is not None:
             events.append(aev)
+    # #108 count² : les abilities AoE SELF-centrées (MurderousSwing) RÉ-ÉMETTENT la liste d'events de dégât
+    # `count` fois — le playbook natif boucle sur le set `AdjacentEnemies(caster)` (EXTERNE) ET
+    # `GenerateMultiHitAttackPredictions` re-boucle sur ce MÊME set (INTERNE) -> count² events, chaque cible
+    # `count` fois (CONFIRMÉ LIVE : K=1->1, K=2->4, K=3->9). `get_prediction_set_repeat` = count (= 1+len(aoe),
+    # taille du set) pour ces abilities, 1 sinon (linéaire INCHANGÉ pour toutes les autres). Ordre = blocs
+    # [main,aoe...] répétés (mirror boucle externe). Refs partagées OK (util Σ read-only). AVANT l'event SELF.
+    rep = ab.get_prediction_set_repeat(1 + len(aoe))
+    if rep > 1:
+        events = events * rep
     # Event SELF négatif — coût en PV (`ability.GetHealthToLose`), utilité NÉGÉE (friendly).
     hp_c = scene.hp(caster_id) or 0
     max_c = scene.hpmax(caster_id) or hp_c
