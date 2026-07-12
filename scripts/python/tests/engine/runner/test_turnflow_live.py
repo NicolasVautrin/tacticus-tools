@@ -23,6 +23,8 @@ import pytest
 from engine.runner.snapshot import load_state
 from engine.runner.runner import Runner
 from engine.runner.messages import EndTurnMessage
+from engine.runner.components import StatsComponent
+from engine.entities.stats import StatType
 
 # 2 equipes necron (pas de passive turn-start type TheBetrayer) -> flip propre, pas d'auto-action.
 BUILD = ["--roster", "1", "--p-units", "necroWarden,necroOverlord",
@@ -96,3 +98,74 @@ def test_turnflow_endturn_live(live_session, rpc, build_runner):
                 f"tick effet u{uid}/{et}: offline remaining {off_rem} != live {live_rem}"
             checked += 1
     print(f"[TURNFLOW] effets a duree confrontes (survivants) = {checked} (sur {len(eff0)} en S)")
+
+
+def _turns_started(snap: dict) -> dict:
+    """{entityId (== id d'unite): turnsStarted} depuis combatSnapshot (stat 12, capteur #122)."""
+    out: dict[int, int] = {}
+    for u in (snap.get("units") or []):
+        eid = u.get("entityId")
+        ts = (u.get("stats") or {}).get("turnsStarted")
+        if eid is not None and ts is not None:
+            out[int(eid)] = int(ts)
+    return out
+
+
+def _offline_turns_started(state) -> dict:
+    """{id d'unite: stat 12 offline} lu depuis `StatsComponent.ctx` de chaque entite du runner Python."""
+    out: dict[int, int] = {}
+    for eid, e in state.entities.items():
+        sc = e.get_component(StatsComponent)
+        if sc is not None and sc.ctx is not None:
+            out[int(eid)] = int(sc.ctx.stat(StatType.TURNS_STARTED))
+    return out
+
+
+def test_turnflow_turnsstarted_live(live_session, rpc, build_runner):
+    """#123 : `StartTurnOperation` bumpe le compteur PER-UNITE `turnsStarted` (stat 12,
+    UnitComponent+0x58) de chaque unite du joueur qui commence son tour. Confronte le stat 12
+    OFFLINE (runner Python apres EndTurnMessage) a un combatSnapshot LIVE FRAIS pris apres le MEME
+    endturn (agreement NON-circulaire : le natif est la verite du compteur). ASCII only."""
+    rid = build_runner("777", extra=BUILD)["rid"]
+
+    # capture S (avant endturn) : decisionView + observeBattle + combatSnapshot (turnsStarted).
+    dec = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
+    ob = rpc("observeBattle", {"runnerId": rid}, 60)
+    snap0 = rpc("combatSnapshot", {"runnerId": rid}, 90)
+    cur0 = dec.get("currentPlayer")
+    ts0 = _turns_started(snap0)
+    if cur0 is None or not ts0:
+        pytest.skip("currentPlayer/turnsStarted absent de S (capteur stat 12 non present ?)")
+
+    # LIVE : fin du tour courant -> flip + StartTurn du joueur suivant, puis combatSnapshot FRAIS.
+    rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}, "captureEvents": True}, 90)
+    dec1 = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
+    snap1 = rpc("combatSnapshot", {"runnerId": rid}, 90)
+    cur_live = dec1.get("currentPlayer")
+    ts1 = _turns_started(snap1)
+
+    # OFFLINE : load S + EndTurnMessage via le runner Python (=> StartTurnOperation._bump_turns_started).
+    state = load_state(dec, ob, snap0)
+    runner = Runner(state).install_default_handlers()
+    runner.apply(EndTurnMessage(advance=True))
+    ts_off = _offline_turns_started(state)
+
+    # 1. le scenario a bien exerce le flip (sinon StartTurn du joueur suivant ne tourne pas).
+    assert cur_live is not None and cur_live != cur0, \
+        f"live n'a pas flip le joueur (cur0={cur0}, live={cur_live})"
+
+    # 2. le bump s'est produit LIVE sur >=1 unite (garantit que le test exerce l'increment).
+    bumped_live = [uid for uid, v in ts1.items() if v != ts0.get(uid)]
+    assert bumped_live, f"aucune unite n'a incremente turnsStarted live (ts0={ts0} ts1={ts1})"
+    for uid in bumped_live:
+        assert ts1[uid] == ts0.get(uid, 0) + 1, \
+            f"u{uid} turnsStarted live {ts0.get(uid)}->{ts1[uid]} (attendu +1)"
+
+    # 3. AGREEMENT : pour chaque unite commune, stat 12 OFFLINE == stat 12 LIVE FRAIS apres endturn.
+    common = sorted(set(ts_off) & set(ts1))
+    assert common, "aucune unite commune offline/live pour confronter turnsStarted"
+    diffs = [f"u{uid}: offline {ts_off[uid]} != live {ts1[uid]}"
+             for uid in common if ts_off[uid] != ts1[uid]]
+    print(f"\n[TURNSTARTED] cur0={cur0} live_next={cur_live} | bumped_live={bumped_live} | "
+          f"confrontes={len(common)}")
+    assert not diffs, "stat 12 offline != live apres StartTurn:\n  " + "\n  ".join(diffs)

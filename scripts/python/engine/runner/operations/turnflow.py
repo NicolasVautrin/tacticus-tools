@@ -20,7 +20,9 @@ durees d'effet, triggers de debut de tour) :
   * RemoveOneTurnOnShields @180e6c4e0 -> `ShieldComponent.remove_one_turn` (decay d'1 tour des boucliers
                        a duree de TOUTES les unites ; retire les instances a 0).
   * ChangeTurn      -> `find_next_player` (prochain joueur cyclique actif).
-  * StartTurn       -> incremente `state.turn_counts[player]` + `start_turn_triggers(player)`.
+  * StartTurn       -> incremente `state.turn_counts[player]` (compteur GLOBAL, TurnComponent+0x38) +
+                       `turnsStarted@+0x58 += 1` PER-UNITE du joueur courant (stat 12, `_bump_turns_started`,
+                       mig #123) + `start_turn_triggers(player)`.
 
 DEFERE (etat NON suivi offline -> TODO, en miroir documente) :
   * `DecreaseAbilityCooldowns` (le runner ne suit pas de compteur de cooldown d'ability offline) ;
@@ -33,7 +35,8 @@ from __future__ import annotations
 from typing import Optional
 
 from ..state import State
-from ..components import OwnerComponent, UnitComponent, ShieldComponent
+from ..components import OwnerComponent, UnitComponent, ShieldComponent, StatsComponent
+from ...entities.stats import StatType
 from .triggers import start_turn_triggers
 
 
@@ -85,11 +88,35 @@ class ChangeTurnOperation:
         return nxt
 
 
+def _bump_turns_started(state: State, player: int) -> None:
+    """Mirror de la boucle interne de `StartTurnOperation.Execute @180ea3fb0` : pour CHAQUE unite VIVANTE
+    du joueur courant (`PlayerComponent.GetCurrentlyOwnedUnitIds`), `turnsStarted@+0x58 += 1` (compteur
+    PER-UNITE, stat 12 = `GetStat(unit, 0xc)` = `UnitTurnsStartedFormula.Calculate @180f2d6c0`). Base des
+    hits Executioner (`RoundsStarted`, cf. #122) et de tout consommateur de `GetStat(unit, 0xc)`. DISTINCT
+    du compteur GLOBAL `state.turn_counts` (TurnComponent+0x38, `GetAmountOfTurnsStartedByCurrentPlayer`).
+    Off-by-one voulu : incr AVANT que les unites agissent -> a leur 1er tour le compteur vaut deja 1 (jamais
+    0). No-op sur une unite sans `StatsComponent` (rien a bumper ; ex. capture partielle) — `increment_base`
+    seede un compteur a 0 puis +1 si le stat n'etait pas capte."""
+    for e in state.entities.values():
+        oc = e.get_component(OwnerComponent)
+        if oc is None or oc.player != player:
+            continue
+        uc = e.get_component(UnitComponent)
+        if uc is not None and not uc.alive:
+            continue
+        sc = e.get_component(StatsComponent)
+        if sc is None or sc.ctx is None:
+            continue
+        sc.ctx.stats.increment_base(StatType.TURNS_STARTED, 1)
+
+
 class StartTurnOperation:
     """`StartTurnOperation.Execute` @180ea3fb0 (squelette fidele) : incremente le compteur de tours du
-    joueur (TurnComponent.turnsStarted, dict @+0x38) puis emet la sequence d'events 0x12..0x16 ; ici on
-    tire le vecteur turn-start `On(0x16)` deja porte (`start_turn_triggers` -> ex. TheBetrayer auto-tour).
-    Les resets per-unite natifs (ActorStatistics/UnitFlags) ne sont pas suivis offline (cf. en-tete).
+    joueur (compteur GLOBAL `TurnComponent.turnsStarted`, dict @+0x38) ET le compteur PER-UNITE
+    `turnsStarted@+0x58` de chaque unite du joueur courant (stat 12, `_bump_turns_started`, mig #123) puis
+    emet la sequence d'events 0x12..0x16 ; ici on tire le vecteur turn-start `On(0x16)` deja porte
+    (`start_turn_triggers` -> ex. TheBetrayer auto-tour). Les resets per-unite natifs (ActorStatistics/
+    UnitFlags) ne sont pas suivis offline (cf. en-tete).
 
     APRES les triggers turn-start : passe AI-control (`run_ai_control_pass`) — joue les summons
     (`ai_controlled`) de la team courante via le playbook complet AVANT que le controleur agisse. Mirror de
@@ -100,6 +127,7 @@ class StartTurnOperation:
     @staticmethod
     def execute(state: State, player: int) -> list[dict]:
         state.turn_counts[player] = state.turn_counts.get(player, 0) + 1
+        _bump_turns_started(state, player)     # #123 : turnsStarted PER-UNITE (stat 12) += 1 (joueur courant)
         # #60 has_moved : nouveau tour d'equipe -> reset des flags "a bouge ce tour" (mirror RemoveTurnFlags
         # natif). Chaque unite qui bouge ce tour re-marquera son id via MoveUnitOperation.
         state.moved_this_turn.clear()

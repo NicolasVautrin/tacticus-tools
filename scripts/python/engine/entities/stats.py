@@ -269,6 +269,25 @@ class UnitStats:
         if comp is not None:
             comp.modification.reverse_modification(source)
 
+    def increment_base(self, stat_type: int, by: int = 1, base_if_absent: int = 0) -> None:
+        """Incrémente la valeur de BASE (Initial) d'un stat-compteur BRUT. Mirror du bump inline de
+        `StartTurnOperation.Execute @180ea3fb0` : `*(int*)(unitComp+0x58) += 1` par unité du joueur
+        courant (compteur PER-UNIT `turnsStarted`, stat 12 = `GetStat(unit, 0xc)`). Le natif écrit le
+        CHAMP BRUT du compteur (PAS une `ValueModification`) → on bump l'`initial` du `StatComponent`,
+        pas sa modification. Seede un `StatComponent(base_if_absent)` si le stat est absent (summon frais /
+        capture sans le stat → base 0). Réservé aux compteurs SANS stat-modification (le clamp par-stat
+        s'applique à la lecture via `get_current_value`)."""
+        idx = int(stat_type)
+        comp = self.components.get(idx)
+        if comp is None:
+            comp = StatComponent(initial=int(base_if_absent), min_value=0,
+                                 max_value=STAT_CLAMP_MAX.get(idx))
+            self.components[idx] = comp
+        if not isinstance(comp, StatComponent):
+            raise TypeError(f"increment_base: stat {idx} n'est pas un StatComponent brut "
+                            f"({type(comp).__name__})")
+        comp.initial += int(by)
+
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 # Seeding depuis la capture live (combatSnapshot)

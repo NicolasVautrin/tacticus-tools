@@ -70,9 +70,28 @@ Port == oracle BIT-EXACT sur le compte de coups à chaque round (avant : applied
 - PRÉDICTION : PERSONNE (le port ne le maintient pas). Lu LIVE via `combatSnapshot` (capteur stat 12),
   figé par scène -> re-capturer (nouveau `build_predictor`) = valeur fraîche. La staleness du 1er run
   (probe réutilisant 1 snapshot figé round 9) = artefact de probe, PAS un bug port.
-- RUNNER offline : `state.turn_counts[player]` (GLOBAL `TurnComponent+0x38`) bumpé par le StartTurnOperation
-  porté, MAIS le stat-12 PER-UNIT (`UnitComponent+0x58`) N'EST PAS bumpé -> Executioner périmé en sim
-  multi-round. GAP filé **#123**.
+- RUNNER offline : **RÉSOLU #123** (2026-07-12). Le `StartTurnOperation` porté bumpe MAINTENANT le stat-12
+  PER-UNIT (`UnitComponent+0x58`) de chaque unité VIVANTE du joueur courant, en plus du compteur GLOBAL
+  `state.turn_counts` (`TurnComponent+0x38`). Mirror fidèle de la boucle interne de `StartTurnOperation.
+  Execute @180ea3fb0` (`*(int*)(unitComp+0x58) += 1` sur `PlayerComponent.GetCurrentlyOwnedUnitIds`,
+  décompilé relu). Détail #123 ci-dessous.
+
+## #123 — Runner offline : bump per-unit turnsStarted (RÉSOLU 2026-07-12)
+GAP découvert au port #122 : le runner offline avançait `state.turn_counts` (global) mais pas le stat-12
+per-unit -> tout consommateur de `GetStat(unit, 0xc)` en sim multi-round (Executioner) lisait la valeur
+seedée (périmée). Décompilé `StartTurnOperation.Execute @180ea3fb0` relu (re-dérivation post-compact) :
+dans la boucle sur `PlayerComponent.GetCurrentlyOwnedUnitIds(joueurCourant)`, `*(int*)(unitComp+0x58) += 1`
+par unité. Port (2 fichiers, mirror 1:1) :
+- `engine/entities/stats.py` : `UnitStats.increment_base(stat_type, by=1)` — bump l'`initial` du
+  `StatComponent` (compteur BRUT, PAS une ValueModification ; seede à 0 si absent).
+- `engine/runner/operations/turnflow.py` : `_bump_turns_started(state, player)` (boucle unités vivantes
+  du joueur courant -> `ctx.stats.increment_base(TURNS_STARTED, 1)`), appelé par `StartTurnOperation.execute`
+  juste après le bump global.
+
+VALIDÉ LIVE (`tests/engine/runner/test_turnflow_live.py::test_turnflow_turnsstarted_live`, 3/3 vert avec le
+guard `test_getstat_live`) : stat-12 OFFLINE (runner Python après `EndTurnMessage`) == stat-12 LIVE d'un
+`combatSnapshot` FRAIS pris après le MÊME endturn, sur toutes les unités communes (agreement non-circulaire) ;
+le bump `+1` sur les unités du joueur entrant est exercé et confirmé (`ts1 == ts0 + 1`).
 
 ## Fichiers
 - `scripts/python/engine/entities/abilities/active_ability.py` (ExecutionerAbility + registre).
