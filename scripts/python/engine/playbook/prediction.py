@@ -381,6 +381,37 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
 _PREDICT_VIA_NORMAL_ATTACK = frozenset({"SpiritLeech"})
 
 
+# ── Overrides d'ENTREE per-ability — mirror des `<Ability>Playbook.MakeDamagePredictions` qui SURCHARGENT
+#    la base/hits generiques. Le natif dispatche par type d'ability (registre playbook / vtable) ; le port,
+#    qui collapse tous les playbooks dans `make_damage_predictions`, dispatche par id via ce registre. Chaque
+#    handler = HOMONYME du playbook natif + VA ; rend un dict `{base_override?, hits_override?, profile_override?}`
+#    (kwargs de `generate_multi_hit_attack_prediction`) ou `{}`. La methode generique reste GENERIQUE : aucune
+#    logique ability-specifique inline (ajouter une ability divergente = un handler + une entree registre).
+def _martial_inspiration_inputs(scene, caster_id, ab, cfg) -> dict:
+    """`MartialInspirationPlaybook.MakeDamagePredictions` (yield machine `<MakeDamagePredictions>d__2.MoveNext`
+    @181162c90 ; Kariyan/custoBladeChampion, ability 1191) — SURCHARGE la base/hits generiques (#106) :
+    emet UN coup (hits=1 literal `*(puVar25+0x40)=1`) de base `round(var12 * buff)`, PAS `avg(minDmg,maxDmg)`
+    sur `nrOfHits=3` config (d'ou l'ancienne sur-pred x3.3).
+        var12 = minDmg (id 0xc, GetVariableForLevel, rarity-scaled) ; var10 = extraDmgPct (id 0xa, +33%/tour
+        CAP, NON rarity-scaled -> mult no-op) ; buff = (var10*count + 100)/100 ; count = TotalAttacksMade
+        (+0x20, capteur actorStats -- PAS TotalTurnsWithAttacksMade +0x30 qu'utilise le COMBAT GetBuffPct :
+        divergence prediction<->combat portee telle quelle). count=0 debut de bataille -> buff=1 -> base=minDmg.
+    slot0x10 = `DamageCalculations.CalculateBaseDamageWithModifiers @1810021c0` = `round(a*b)`. Le RESTE (x1.875
+    = DamageModifiers.Multiplier attaquant ; spread +/-20% ; pierce/armure) = pipeline STANDARD en aval."""
+    lvl, mult = ab.level, ab.multiplier
+    minv = cfg.get_variable_for_level("minDmg", lvl, 0, mult)          # var12 (rarity-scaled)
+    extra = cfg.get_variable_for_level("extraDmgPct", lvl, 0, mult)    # var10 (NON rarity -> mult no-op)
+    count = scene.total_attacks_made(caster_id)                        # TotalAttacksMade (+0x20)
+    buff = (extra * count + 100) / 100.0
+    return {"base_override": round(minv * buff), "hits_override": 1}
+
+
+# {ability_id: handler(scene, caster_id, ab, cfg) -> {base/hits/profile_override}}. Mirror du dispatch
+# playbook natif (par type d'ability). HammerOfWrath (1153) a son propre chemin (make_hammer_wrath_events,
+# NonComparable) ; ici = les playbooks Comparable qui surchargent juste les INPUTS de GenerateMultiHit.
+_MAKE_DMG_INPUT_OVERRIDES = {1191: _martial_inspiration_inputs}
+
+
 def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_name, attack_pos=None):
     """`<Ability>Playbook.MakeDamagePredictions` : LISTE de `ProbableDamageEvent` = cible PRINCIPALE + AoE
     (`GetSurroundingUnits`/`GetOtherTargets`) + event SELF négatif (coût PV). `[]` si non-attaque."""
@@ -417,6 +448,12 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
         _b = ab.get_damage()
         base_bonus = max(0, ab.get_correct_damage(_b, 1 + len(aoe)) - _b)
 
+    # Dispatch per-ability (mirror du registre playbook natif) : un handler ability-specifique fournit ses
+    # overrides d'ENTREE (base/hits/profile) ; sinon `{}` -> chemin generique config inchange. La logique
+    # ability-specifique vit dans son handler HOMONYME (cf. `_MAKE_DMG_INPUT_OVERRIDES`), jamais inline ici.
+    _ovr_fn = _MAKE_DMG_INPUT_OVERRIDES.get(ability_id)
+    overrides = _ovr_fn(scene, caster_id, ab, cfg) if (_ovr_fn and ab is not None and cfg is not None) else {}
+
     def _event(tid, prob1=1.0):
         if via_normal:
             ev = make_normal_attack_predictions(scene, caster_id, tid, attack_pos)
@@ -424,7 +461,7 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
                 ev.probability1 = prob1
             return ev
         dp = generate_multi_hit_attack_prediction(scene, caster_id, tid, ability_id, ability_name,
-                                                  attack_pos=attack_pos, base_bonus=base_bonus)
+                                                  attack_pos=attack_pos, base_bonus=base_bonus, **overrides)
         return ProbableDamageEvent(target=tid, prediction=dp, probability1=prob1) if dp is not None else None
 
     main = _event(main_tgt_id)

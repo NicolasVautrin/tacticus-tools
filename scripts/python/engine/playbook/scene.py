@@ -39,6 +39,10 @@ class Scene:
     # le natif passe au playbook et qui indexe les variables config (TryGetVariableArrayForLevel
     # @181577510) ; le canal global (mult_by_id/activeAbilityLevel) est un fallback.
     abstate_by_id: dict = field(default_factory=dict)
+    # TotalAttacksMade PER-UNITE (#106) : {uid: totalAttacksMade} — capteur actorStats
+    # (ActorStatisticsComponent +0x20). Indexe le buff MartialInspiration (+33%/tour). Defaut {}
+    # -> count=0 (debut de bataille / from_state offline) si non capte.
+    actorstats_by_id: dict = field(default_factory=dict)
 
     @classmethod
     def from_state(cls, state) -> "Scene":
@@ -116,7 +120,8 @@ class Scene:
             eff_state=sctx.get("eff_state"), hpmax_by_id=sctx.get("hpmax_by_id") or {},
             elev_by_pos=elev_by_pos if elev_by_pos is not None else predictor.get("elev_by_pos"),
             board=board if board is not None else predictor.get("board"),
-            abstate_by_id=predictor.get("abstate_by_id") or {})
+            abstate_by_id=predictor.get("abstate_by_id") or {},
+            actorstats_by_id=predictor.get("actorstats_by_id") or {})
 
     # ── Accesseurs (mirror des lectures dict de PV) ────────────────────────────────────────────────
     def ctx(self, uid):
@@ -155,6 +160,12 @@ class Scene:
         """AbilityState PER-ABILITY {level, multiplier} (capteur #100) ; None si non capturé
         (offline `from_state`, ou entrée absente) → l'appelant retombe sur le canal global."""
         return (self.abstate_by_id.get(uid) or {}).get(ability_id)
+
+    def total_attacks_made(self, uid) -> int:
+        """`ActorStatisticsComponent.TotalAttacksMade` (+0x20, capteur actorStats) — nb d'attaques
+        de l'unité CETTE BATAILLE. Indexe le buff MartialInspiration (+33%/tour, #106). 0 si non
+        capté (from_state offline / début de bataille)."""
+        return int((self.actorstats_by_id or {}).get(uid, 0) or 0)
 
 
 # ── SEAM live-feed (RPC) — tables cold + état par-pas. `rpc(method, body, timeout) -> result dict`. ──
@@ -199,9 +210,20 @@ def build_predictor(rpc, rid):
         # plan.evals) -> aucun risque d'attaque fantome. Build INCONDITIONNEL.
         ctx_by_id[eid] = UnitContext.from_snapshot(u, GC.unit(vis_by_id.get(eid) or ""),
                                                    snap.get("statTypes"))
+    # TotalAttacksMade PER-UNITE (#106) — capteur actorStats (ActorStatisticsComponent +0x20). Capture
+    # au BUILD (point-in-time) : correct pour une prediction ponctuelle (count=0 au debut de bataille) ;
+    # un refresh PAR-PAS (cf. refresh_shields) serait requis pour un compteur qui evolue mid-bataille
+    # (count>0) -> suivi #106. Degrade proprement a {} (count=0) si le RPC manque/echoue.
+    try:
+        _ast = rpc("actorStats", {"runnerId": rid}, 40)
+    except Exception:
+        _ast = None
+    actorstats_by_id = {u["entityId"]: int(u.get("totalAttacksMade") or 0)
+                        for u in ((_ast or {}).get("units") or []) if u.get("entityId") is not None}
     return {"ctx_by_id": ctx_by_id, "armor_by_id": armor_by_id, "shield_by_id": shield_by_id,
             "mult_by_id": mult_by_id, "ablvl_by_id": ablvl_by_id, "vis_by_id": vis_by_id,
-            "abstate_by_id": abstate_by_id, "elev_by_pos": build_elev_by_pos(rpc, rid)}
+            "abstate_by_id": abstate_by_id, "actorstats_by_id": actorstats_by_id,
+            "elev_by_pos": build_elev_by_pos(rpc, rid)}
 
 
 def build_elev_by_pos(rpc, rid):
