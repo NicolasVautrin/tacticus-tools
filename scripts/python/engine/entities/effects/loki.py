@@ -54,7 +54,7 @@ class SmashaEadExtraDamageEffect(BaseEffect):
     tant que l'effet est actif -> pas de re-gate ici). `extraDmg` in variablesAffectedByRarityBonus ->
     scale par le multiplier de l'unite. i2 : "+437 Damage" (au niveau/mult affiche). ability ACTIVE ->
     indexe activeAbilityLevel. (L'effet porte AUSSI -dmgReductionPct au degat RECU via
-    `CreateEffectDamageMalusForDefense @180f6c060` = cote DEFENSE, non porte ici : #68 = l'attaque.)"""
+    `CreateEffectDamageMalusForDefense @180f6c060` = cote DEFENSE, PORTE #119 ci-dessous.)"""
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
                                               has_moved: bool | None = None,
@@ -82,6 +82,27 @@ class SmashaEadExtraDamageEffect(BaseEffect):
                           multiplier_pct=self.ability_variables_multiplier)
         # ForAddition -> canal `additive @+0x10` applique POST-percage (DamageModifiers.Add @181005f10).
         return for_addition(True, amt) if amt is not None else None
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                               damage_profile: str | None = None,
+                                               attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        """`SmashaEadEffect.CreateEffectDamageMalusForDefense @180f6c060` (cote DEFENSE, #119) :
+        `EffectBonus.ForPercentDecrease(OwnerIsTarget, ConfigVar 0x46=dmgReductionPct)` — l'effet REDUIT le
+        degat RECU par son porteur de `dmgReductionPct`% (i2 « takes -33% Damage » tant que l'effet actif =
+        le porteur a traverse >=2 hexes ; la CONDITION est deja bakee dans la materialisation de l'effet ->
+        pas de re-gate ici). Gate natif = `OwnerIsTarget` SEUL (decompile @180f6c060) -> AUCUN gate
+        melee/normal : s'applique a TOUTE attaque recue. `dmgReductionPct` NON rarity-affected (BC
+        `VariablesAffectedByUnitRarityMultiplier=[extraDmg]`) -> multiplier no-op (pas de bug #68 cote defense).
+        #119 : reconstruit BIT-EXACT offline (Kariyan->orksNob : RapidAssault x1.25 + DEF -33% = oracle
+        [1002,1745] EXACT ; sans ce malus le port sur-predisait x1.49). Meme ConfigVar 0x46 que GuardianOrganism
+        (#89), mais ici un ForPercentDecrease PLAT (pas un PercentSubtractionCapped)."""
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        red = ability_var("SmashaEad", "dmgReductionPct", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
+        if not red:
+            return None
+        return for_percent_decrease(False, abs(int(red)))   # owner=defenseur (l'effet est sur la cible)
 
 
 class RitesOfBattleExtraDmgEffect(BaseEffect):
