@@ -463,6 +463,30 @@ def _crushing_claws_inputs(scene, caster_id, ab, cfg) -> dict:
 _MAKE_DMG_INPUT_OVERRIDES = {1191: _martial_inspiration_inputs, 1105: _crushing_claws_inputs}
 
 
+# Override de PROFIL DE PREDICTION par-ability (audit #165) — mirror du `param_8`
+# (`Nullable<DamageProfile>`) que le `<Ability>Playbook.MakeDamagePredictions` bespoke passe a
+# `GenerateMultiHitAttackPredictions @181409da0`. Le port derive par defaut le profil de
+# `ab.get_damage_profile()` (damageProfile config, sinon arme ranged-first) ; ces playbooks passent
+# EXPLICITEMENT un autre profil (ou `null` = profil `None`, enum -1 -> pierce 0, armure PLEINE). Sans
+# override, le port applique le PiercingRatio du profil derive -> sur/sous-prediction vs le natif.
+# {ability_id: nom de profil passe par le playbook natif}. "None" = param_8 null (pierce 0). VA = playbook.
+# CrushingClaws (1105) reste dans _crushing_claws_inputs (case-164, bit-exact live). Les autres candidats de
+# l'audit #165 (param_8=null confirme par decompile) NE sont retenus QUE s'ils sont VALIDES LIVE OK sur cible
+# blindee (ultraTitus armure 2312) : le seul override pierce ne corrige que les abilities dont le pierce est le
+# SEUL gap. La confrontation live a montre que la majorite des candidats null ont un gap PLUS PROFOND (hits/base)
+# que l'override ne touche pas -> NON retenus (taches dediees). Cf. docs/rl/case-165-playbook-param8-profile.md.
+_PLAYBOOK_PROFILE_OVERRIDE = {
+    1020: "None",     # HeraldOfTheApocalypse @181144390 (blackHaarken ; null ; Piercing 80) — VALIDE LIVE OK
+    1062: "None",     # SanctorumMissile @1811582c0 (adeptMorvenn ; null, main+bonus ; Blast 15) — VALIDE LIVE OK
+    # --- CANDIDATS audit #165 NON retenus (param_8=null confirme, mais NON validables par le seul override pierce) :
+    # 1006 MultiThreatEliminator (necroDestroyer) : gap HITS (oracle 6 vs moteur 1) + base -> ENG_ZERO  [#167]
+    # 1017 FragBomb (astraBullgryn)              : base moteur=0 -> ENG_ZERO (hits 6/6 OK, pierce hors-sujet)  [#168]
+    # 1066 Executioner (eldarFarseer)            : gap HITS 7 vs 1 dominant (Nullable(Psychic) mineur)  [#166]
+    # 1100 SorcerousFacade / 1148 DaemonicOrdnance / 1147 HadesAutocannons / 1008 HarbingerOfDestruction /
+    # 1080 HellfireShells / 1027 PsychicMaelstrom : NON CONFRONTES (carrier non buildable / non-firing / build KO)  [#169]
+}
+
+
 def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_name, attack_pos=None):
     """`<Ability>Playbook.MakeDamagePredictions` : LISTE de `ProbableDamageEvent` = cible PRINCIPALE + AoE
     (`GetSurroundingUnits`/`GetOtherTargets`) + event SELF négatif (coût PV). `[]` si non-attaque."""
@@ -505,6 +529,10 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
     # ability-specifique vit dans son handler HOMONYME (cf. `_MAKE_DMG_INPUT_OVERRIDES`), jamais inline ici.
     _ovr_fn = _MAKE_DMG_INPUT_OVERRIDES.get(ability_id)
     overrides = _ovr_fn(scene, caster_id, ab, cfg) if (_ovr_fn and ab is not None and cfg is not None) else {}
+    # Profil de prediction par-ability (audit #165) : le playbook natif passe un param_8 explicite (ou null).
+    _prof_ovr = _PLAYBOOK_PROFILE_OVERRIDE.get(ability_id)
+    if _prof_ovr is not None and "profile_override" not in overrides:
+        overrides = {**overrides, "profile_override": _prof_ovr}
 
     def _event(tid, prob1=1.0):
         if via_normal:
