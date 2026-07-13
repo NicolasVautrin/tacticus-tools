@@ -314,6 +314,20 @@ def predict_attack_raw(
         _flat = capped_reduction_flat((lo + hi) / 2.0, _capped)
         lo = max(0, lo - _flat)
         hi = max(0, hi - _flat)
+    # #170 PLANCHER PRÉDICTION 1-dégât-de-santé PAR COUP — `PredictAttackRaw` fait `MinMaxDamageFix64.MathMax(
+    # &dmg, Fix64.One) @0x181035682` (`MathMax @181052130` remonte min ET max à 1) APRÈS CalculateBaseDamage
+    # WithAllModifiers/ApplyCap (perçage+armure+%-mods+défenseur), AVANT ApplyTraitDamageLimitsToDamage. Valeur =
+    # littéral 1 (Fix64 static+0x20 ; ≠ le +0x28=Zero que planche get_damage_with_piercing). ⚠ PRÉDICTION SEULE :
+    # le COMBAT `CalculateAbilityDamage @18102cb50` planche à 0 (`Fix64.Max(base, 0)`) — NE PAS toucher
+    # `get_damage_with_piercing` (partagé combat). GATE natif = le coup CONNECTE et n'est PAS entièrement absorbé
+    # par le BOUCLIER (Nullable bouclier sans valeur) : on le mappe sur `rem>0` (base non entièrement shield-
+    # bloquée : rem_lo/rem_hi = mm − blk). Un coup absorbé par l'ARMURE (rem>0, lo=0) → 1 ; entièrement absorbé
+    # par le BOUCLIER (rem=0 → lo=0) → reste 0. Sur cible non blindée le degât > 1 → max(·,1) no-op (n'affecte
+    # QUE le cas pierce-0/armure-lourde). Verdict RE #170 + docs/rl/case-166-168-...md.
+    if rem_lo:
+        lo = max(lo, 1)
+    if rem_hi:
+        hi = max(hi, 1)
     if target_limits:
         # ApplyTraitDamageLimitsToDamage @18102c650 — cape le dégât per-bout APRÈS modifiers, AVANT le
         # scénario (ordre natif). Appliqué aux 2 bornes (le natif appelle chaque Apply 2× : min puis max).

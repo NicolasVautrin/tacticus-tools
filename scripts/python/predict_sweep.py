@@ -169,9 +169,6 @@ def hit_aura_hint(units, att_id, att_pos, att_team):
 def build_rows(sid, rid, my_team, max_turns, topk):
     """Drive au contact puis balaye les triples (att, ability degat, cible ranked) -> rows classees."""
     rpc_b = lambda m, b, t: rpc(sid, m, b, t)
-    predictor = SC.build_predictor(rpc_b, rid)
-    if predictor is None:
-        return None, "combatSnapshot KO (build_predictor None)"
     dec = PS._drive_into_range(sid, rid, my_team, max_turns)
     if dec.get("stageName") != "Running":
         return None, "bataille non-Running (stage=%s)" % dec.get("stageName")
@@ -208,6 +205,14 @@ def build_rows(sid, rid, my_team, max_turns, topk):
                      if (ev.get("ranked") or []) and (ev["ranked"][0].get("dmgMax") is not None))
     print("[sweep] post-move dec: currentPlayer=%s attackPlans=%d dmg-evals=%d"
           % (dec.get("currentPlayer"), len(_aps), _dmg_evals))
+    # #166 : build_predictor APRES le drive+cycle (PAS avant) -> les stats DYNAMIQUES seedees dans le ctx
+    # (turnsStarted stat 12 ; actorStats totalAttacksMade) sont COURANTES au moment de la comparaison. Un
+    # predicteur construit a t=0 fige turnsStarted~0 -> ExecutionerAbility.get_special_hits (=RoundsStarted)
+    # rendait 1 coup vs l'oracle live (round courant) : faux ecart de MESURE, pas un gap de port (un fresh
+    # build_predictor capture turnsStarted correctement, prouve probe166 : eldarFarseer stat 12 = 8).
+    predictor = SC.build_predictor(rpc_b, rid)
+    if predictor is None:
+        return None, "combatSnapshot KO (build_predictor None)"
     sctx = SC.step_context(predictor, dec)
     scene = Scene.from_predictor_sctx(predictor, sctx, None)
     pos_by_id = sctx["pos_by_id"]

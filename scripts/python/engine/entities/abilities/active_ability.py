@@ -410,6 +410,21 @@ class ExecutionerAbility(AActiveAbility):
         return max(1, int(n or 0))     # rounds started (>=1 en bataille ; fallback 1 si non capté)
 
 
+class MultiThreatEliminatorAbility(AActiveAbility):
+    """`MultiThreatEliminatorAbility` (necroDestroyer « Destroyer », id 1006). La PRÉDICTION
+    (`MultiThreatEliminatorPlaybook.MakeDamagePredictions @18114d530`) passe un nombre de coups
+    CONSTANT = **6**, lu du champ STATIQUE de la classe (`cctor @1811f5cb0` : `**(class+0xb8) = 6`) —
+    PAS de la config : l'ability n'a AUCUN `nrOfHits` (seulement `extraHit=1`, consommé par le COMBAT
+    `GetExtraHits @1811f5b60` / `GetNextHitTargetSelector`, hors prédiction). base = `ArcScourgeAbility.
+    GetDamage @1811b3800` = `AActiveAbility.MinMaxDamageAverage` = avg(minDmg,maxDmg) (le générique
+    `get_damage`). Le playbook passe `param_8 = null` (Nullable vide) → profil `None` (pierce 0, armure
+    PLEINE) via `_PLAYBOOK_PROFILE_OVERRIDE[1006]`. VALIDÉ LIVE (u81→ultraTitus armure 2312) : 6 coups
+    plancher 1 (base 1309 < armure) = oracle [6,6]. Le générique rendait 1 coup (config nrOfHits absent)."""
+
+    def get_special_hits(self, is_melee: bool) -> int:
+        return 6     # MultiThreatEliminatorAbility.cctor @1811f5cb0 : champ statique hits = 6 (constante native)
+
+
 _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
     "HarvesterOfSouls": HarvesterOfSoulsAbility,
     "BloodyFury": BloodyFuryAbility,
@@ -417,6 +432,7 @@ _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
     "DakkaDakkaDakka": DakkaDakkaDakkaAbility,
     "MurderousSwing": MurderousSwingAbility,
     "Executioner": ExecutionerAbility,
+    "MultiThreatEliminator": MultiThreatEliminatorAbility,
 }
 
 

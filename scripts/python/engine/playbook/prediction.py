@@ -478,12 +478,12 @@ _MAKE_DMG_INPUT_OVERRIDES = {1191: _martial_inspiration_inputs, 1105: _crushing_
 _PLAYBOOK_PROFILE_OVERRIDE = {
     1020: "None",     # HeraldOfTheApocalypse @181144390 (blackHaarken ; null ; Piercing 80) — VALIDE LIVE OK
     1062: "None",     # SanctorumMissile @1811582c0 (adeptMorvenn ; null, main+bonus ; Blast 15) — VALIDE LIVE OK
-    # --- CANDIDATS audit #165 NON retenus (param_8=null confirme, mais NON validables par le seul override pierce) :
-    # 1006 MultiThreatEliminator (necroDestroyer) : gap HITS (oracle 6 vs moteur 1) + base -> ENG_ZERO  [#167]
-    # 1017 FragBomb (astraBullgryn)              : base moteur=0 -> ENG_ZERO (hits 6/6 OK, pierce hors-sujet)  [#168]
-    # 1066 Executioner (eldarFarseer)            : gap HITS 7 vs 1 dominant (Nullable(Psychic) mineur)  [#166]
+    1017: "None",     # FragBomb @18113c9a0 (astraBullgryn ; null ; Blast 15) — hits config 6 OK, pierce SEUL gap. VALIDE LIVE [6,6] [#168]
+    1006: "None",     # MultiThreatEliminator @18114d530 (necroDestroyer ; null ; Gauss 60) — + hits static 6 (subclass). VALIDE LIVE [6,6] [#167]
+    1066: "Psychic",  # Executioner GeneratePredictions @181130150 (eldarFarseer ; Nullable(0xd=13=Psychic, pierce 100)) — hits=RoundsStarted (subclass) [#166]
+    # --- CANDIDATS audit #165 param_8=null NON CONFRONTES (carrier non buildable / non-firing / build KO)  [#169] :
     # 1100 SorcerousFacade / 1148 DaemonicOrdnance / 1147 HadesAutocannons / 1008 HarbingerOfDestruction /
-    # 1080 HellfireShells / 1027 PsychicMaelstrom : NON CONFRONTES (carrier non buildable / non-firing / build KO)  [#169]
+    # 1080 HellfireShells / 1027 PsychicMaelstrom.
 }
 
 
