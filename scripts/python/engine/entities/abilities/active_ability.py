@@ -208,9 +208,9 @@ class NormalAttackAbility(AActiveAbility):
         dir_pierce = (self.caster.extra_pierce_ranged if self.caster.normal_ranged
                       else self.caster.extra_pierce_melee)
         return get_attack_piercing_damage_ratio(
-            self.caster.normal_profile_pierce, profile_has_trait3=False,
+            self.caster.normal_profile_pierce, profile_has_lascannon=False,
             attacker_extra_pierce=self.caster.extra_pierce, attacker_extra_pierce_dir=dir_pierce,
-            attacker_has_trait_1001_or_1016=False)
+            attacker_has_heavy_weapon_or_emplacement=False)
 
     def get_damage_min_max_raw(self) -> MinMaxDamage:
         """min/max captés directement (prédiction native vs allié-déploiement — référence de capture)."""

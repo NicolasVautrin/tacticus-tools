@@ -118,18 +118,20 @@ def get_default_attack_hits(base_hits: int, extra_hits: int,
     return max(h, 0)
 
 
-def get_attack_piercing_damage_ratio(profile_piercing_ratio: int, profile_has_trait3: bool,
+def get_attack_piercing_damage_ratio(profile_piercing_ratio: int, profile_has_lascannon: bool,
                                      attacker_extra_pierce: int, attacker_extra_pierce_dir: int,
-                                     attacker_has_trait_1001_or_1016: bool,
+                                     attacker_has_heavy_weapon_or_emplacement: bool,
                                      extra_pierce_min: int = 0, extra_pierce_max: int = 0,
                                      lascannon_bonus: int = 0) -> int:
     """DamagePrediction.GetAttackPiercingDamageRatio (@181030a20) :
         base = GetPiercingRatio(profile, attackerTraits)
         total = clamp(0,100, base + ExtraPierce(26) + ExtraPierce{Melee21|Ranged22}
                               + extra_pierce_min + extra_pierce_max)
-    (`extra_pierce_min/max` = bonus de perçage d'EFFET, params Fix64→int ; 0 en baseline.)"""
-    base = get_piercing_ratio(profile_piercing_ratio, profile_has_trait3,
-                              attacker_has_trait_1001_or_1016, lascannon_bonus)
+    (`extra_pierce_min/max` = bonus de perçage d'EFFET, params Fix64→int ; 0 en baseline.
+     `profile_has_lascannon` = `DamageProfile.HasTrait(DamageTrait.LasCannon)` ; `attacker_has_heavy_weapon_or_emplacement`
+     = `HasTrait(attacker, UnitTrait.HeavyWeapon|Emplacement)` — cf. entities/damage_trait.py + entities/traits/unit_trait.py.)"""
+    base = get_piercing_ratio(profile_piercing_ratio, profile_has_lascannon,
+                              attacker_has_heavy_weapon_or_emplacement, lascannon_bonus)
     total = (base + attacker_extra_pierce + attacker_extra_pierce_dir
              + extra_pierce_min + extra_pierce_max)
     return max(0, min(100, total))

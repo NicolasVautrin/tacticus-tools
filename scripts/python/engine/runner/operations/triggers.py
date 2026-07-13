@@ -32,6 +32,7 @@ from typing import Optional
 from ..state import State
 from ...entities.stats import StatType
 from ...entities.traits import UnitTrait, has_any_trait, has_trait
+from ...entities.damage_trait import DamageTrait
 from ...dsl.event_trigger_type import EventTriggerType
 from ..components import (StatsComponent, OwnerComponent, PositionComponent, UnitComponent,
                          HealthComponent, ShieldComponent, TriggeredAbilityComponent)
@@ -756,7 +757,7 @@ def _on_fire_damage_ability(state: State, attacker_id: int, target_id: int,
         return []
     import gameconfig as GC
     traits = (GC.damage_profile(profile) or {}).get("Traits") or []
-    if "OnFire" not in traits:                           # DamageProfileHasTrait(1=OnFire)
+    if DamageTrait.OnFire.name not in traits:            # DamageProfileHasTrait(DamageTrait.OnFire=1)
         return []
     te = state.get_entity(target_id)
     pc = te.get_component(PositionComponent) if te is not None else None

@@ -5,15 +5,18 @@ par un `DamageProfile` (arme / attaque), DISTINCTS des `UnitTrait` (traits d'uni
 cf. entities/traits/unit_trait.py). Teste via `DamageProfile.HasTrait(DamageTrait)`.
 
 Le port referencait ces traits en ints bruts (`profile_has_trait3`, `PROFILE_TRAIT_HITS_MULTIPLE_MEMBERS
-= 2`, `DamageProfileHasTrait(1)`...) -> cet enum est la source unique id<->nom (meme demarche que
-`UnitTrait` #146 / `EventTriggerType` #155).
+= 2`, `"OnFire" in Traits`...) -> #156 : cet enum est desormais la source unique id<->nom (meme demarche
+que `UnitTrait` #146 / `EventTriggerType` #155). Les `DamageProfile.Traits` gameconfig sont des NOMS de
+chaine -> les checks se font name-based (`DamageTrait.X.name in Traits`), pas via des int bruts.
 
-Usages dans le port :
-  - NoBlocking (0)          : `PredictAttackRaw` skip la boucle multi-outcome (outcome unique).
-  - OnFire (1)              : `OnFireDamageAbility` pose du feu on-hit (trigger `DamageProfileHasTrait(1)`).
-  - HitsMultipleMembers (2) : "Blast" -> `ApplyGroupUnitDamageLimit` SKIP le member-cap (trait_damage_limits).
-  - LasCannon (3)           : bonus de percage si l'attaquant a HeavyWeapon(1001)/Emplacement(1016)
-                              (`profile_has_trait3` dans get_piercing_ratio / static_battle_rules).
+Usages dans le port (post-#156) :
+  - NoBlocking (0)          : `PredictAttackRaw` skip la boucle multi-outcome (outcome unique) — non wire.
+  - OnFire (1)              : `OnFireDamageAbility` pose du feu on-hit (`DamageTrait.OnFire.name in Traits`, triggers.py).
+  - HitsMultipleMembers (2) : "Blast" -> `ApplyGroupUnitDamageLimit` SKIP le member-cap (bool
+                              `profile_has_hits_multiple_members`, trait_damage_limits ; moot tant que member_count=1).
+  - LasCannon (3)           : bonus de percage si l'attaquant a `UnitTrait.HeavyWeapon` (1001) /
+                              `UnitTrait.Emplacement` (1016) — bool `profile_has_lascannon` dans
+                              get_piercing_ratio / static_battle_rules (non wire, defaut False).
   - OnToxic (4)             : attaque Toxic -> pose Contaminated (OnToxicDamageAbility, #137).
   - OnMelta (5)             : attaque Melta.
 """

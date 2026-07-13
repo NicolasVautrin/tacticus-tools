@@ -15,11 +15,12 @@ from __future__ import annotations
 
 import math
 
-from ..entities.damage_trait import DamageTrait
-
-# Ability ids (hex natifs). #157 : TRAIT_RESILIENT=1009 / TRAIT_IMPERVIOUS=28 (morts) retirés — la logique
+# Ability/trait ids (hex natifs). #157 : TRAIT_RESILIENT=1009 / TRAIT_IMPERVIOUS=28 (morts) retirés — la logique
 # gate par bool name-based (target_has_resilient/impervious) ; ids dans `entities.traits.UnitTrait` (#146).
-PROFILE_TRAIT_HITS_MULTIPLE_MEMBERS = int(DamageTrait.HitsMultipleMembers)  # 2 (Blast) : skip member-cap
+# #156 : le member-cap gate par le bool `profile_has_hits_multiple_members` (= `DamageTrait.HitsMultipleMembers`,
+# entities/damage_trait.py). Quand il sera wiré, le calculer name-based sur gameconfig comme OnFire :
+# `DamageTrait.HitsMultipleMembers.name in damage_profile(profile)["Traits"]` (Traits = liste de NOMS). Aucune
+# constante int-brute ici (l'ex-`PROFILE_TRAIT_HITS_MULTIPLE_MEMBERS = int(...)` était morte + mauvais format → retirée).
 ABILITY_BOSS_END_FIGHT_UNDEFEATED = 0x5d4  # 1492 (triggered) — cap boss "invaincu jusqu'a fin du fight"
 BOSS_CAP_CONSTANT_INDEX = 0x12    # 18 — GetNumberConstant de l'ability 1492
 
