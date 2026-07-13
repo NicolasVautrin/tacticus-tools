@@ -452,8 +452,17 @@ class ActOfFaithResetAbility(TriggeredAbility):
     natif `On(9,1)` (post-attaque) est ici mappé sur le vecteur **after-hit** (`On(0x26)`) qui, dans notre
     modèle, fire 1×/AttackUnitMessage avec `is_crit` agrégé (même timing : après l'attaque du porteur).
     `OwnerIsCaster` = owner est l'attaquant (`actor_id`). Behaviour@181219eb0 = `RemoveEffect(0x3f9)` →
-    retire TOUS les stacks et revert leur ChangeStat (soustrait les deltas stockés). ⚠ ne couvre que les
-    attaques NORMALES (le vecteur after-hit n'est pas fired pour les abilities/overwatch ici)."""
+    retire TOUS les stacks et revert leur ChangeStat (soustrait les deltas stockés). Câblé sur DEUX
+    vecteurs after-hit : attaque NORMALE (`after_hit_normal_attack`, via `DamageHandler`) ET attaques
+    d'ABILITY/SPLASH (`after_hit_ability_attack`, depuis `execute_ability_attack`/`execute_normal_like`,
+    #138) → un crit porté par une Battle Sister via ArmoriumCherub ou un coup de splash (AoE
+    FireOfAbsolution) reset désormais ses stacks (idempotent : `HasEffect` garde le no-op après le 1er).
+    ⚠ Approximation PARTAGÉE avec le vecteur normal (pré-existante) : reset AGRÉGÉ (1×/attaque, `is_crit`
+    agrégé) et non per-coup — le natif reset per-coup, donc si le coup i d'une attaque multi-coups crit,
+    les coups i+1.. perdraient le buff ; ici tous les coups d'UNE même sous-attaque utilisent les params
+    crit d'avant-reset. Le reset per-CIBLE de splash est en revanche fidèle (chaque cible = un
+    `execute_ability_attack` distinct qui relit GetStat post-reset). overwatch = non couvert (pas de
+    vecteur after-hit dédié)."""
     event_id = TRIGGER_AFTER_HIT
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
@@ -804,6 +813,31 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
     out = out + _on_fire_damage_ability(state, attacker_id, target_id, profile)  # OnFireDamageAbility @1811c3a60
     out = out + _fire_of_absolution_after_attack(state, attacker_id, target_id, ranged)  # passif @18121f380 (Vindicta)
     return out + _squighound_after_attack(state, attacker_id, target_id)
+
+
+def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
+                             is_crit: bool) -> list[dict]:
+    """Vecteur after-hit d'une attaque d'ABILITY ou de SPLASH (mirror `EvaluateAfterHitTriggers`
+    @180e25fc0 → dispatch générique). `EvaluateAfterHitTriggers` est porté par `ADamageOperation`, donc
+    PARTAGÉ par l'attaque normale ET les attaques d'ability : le natif dispatche l'événement `WasCrit`
+    per-coup pour TOUTE attaque (branche `param_6 != 0` → event 0x3d).
+
+    Le port ne câblait le dispatch générique (`evaluate_trigger_operation`) que pour l'attaque NORMALE
+    (`after_hit_normal_attack`, via le `DamageHandler`). Les attaques d'ability/splash
+    (`execute_ability_attack` / `execute_normal_like`) ne le lançaient PAS → un crit porté par une Battle
+    Sister via une ability (ArmoriumCherub, actif 1014) ou un coup de splash (AoE FireOfAbsolution) NE
+    resettait PAS ses stacks ActOfFaith (#138). On lance ICI le dispatch après une attaque d'ability/splash.
+
+    ⚠ RÉ-ENTRANCE : `ranged=False` (profil None) est INTENTIONNEL — cela n'arme PAS le SEUL after-hit
+    trigger GÉNÉRATEUR d'attaque, le splash Psyker (`PsykerExtraAttackAbility`, gaté `IsRangedAttack &
+    DamageProfileIs(Psychic)`), qui re-lancerait `execute_normal_like` → récursion non bornée. Le natif
+    borne cette ré-entrance via le cap phase-triggers (`GetTimesTriggeredThisPhase<51`) NON porté offline
+    (cf. `evaluate_trigger_operation`). Le reset ActOfFaith (idempotent, sans cascade d'attaque) fire
+    normalement. Porter le vecteur COMPLET (Psyker inclus) pour les abilities exigerait d'abord ce cap
+    phase-triggers → tâche de suivi #140. No-op si l'attaque n'a pas crit / aucun trigger ne matche."""
+    ev = TriggerEvent(TRIGGER_AFTER_HIT, attacker_id, target_id,
+                      ranged=False, profile=None, is_crit=is_crit)
+    return evaluate_trigger_operation(state, ev)
 
 
 def after_move_triggers(state: State, mover_id: int) -> list[dict]:

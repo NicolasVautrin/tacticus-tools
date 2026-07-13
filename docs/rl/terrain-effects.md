@@ -322,9 +322,17 @@ nrOfHits=4). Attaque ranged => declenche AUSSI le passif (splash + ignite) = col
   1872 = (1996 + ~500 crit-dmg ActOfFaith) x 25% x3 : le splash a CRIT -> confirme LIVE qu'**ActOfFaith (crit
   chance+dmg) s'applique a l'AoE** (ctx partage via `_crit_params`, 3 vecteurs). Le collateral de l'ACTIF est reel.
 
-**GAPS ouverts** :
-- **#138** : le reset ActOfFaith (au crit du porteur) ne fire que via le vecteur after-hit NORMAL -> un crit SUR le
-  splash/actif ne reset PAS les stacks offline (le natif si). Bonus crit-chance/dmg + accumulation-sur-kill = OK.
+**GAPS** :
+- **#138 RESOLU** : le reset ActOfFaith fire desormais AUSSI au crit d'une ability/splash. RE : `EvaluateAfterHitTriggers`
+  @180e25fc0 est porte par `ADamageOperation` -> PARTAGE par l'attaque normale ET les attaques d'ability (dispatch
+  `WasCrit`, branche `param_6 != 0` -> event 0x3d). Le port ne cablait le vecteur generique (`evaluate_trigger_operation`)
+  que pour l'attaque normale ; `execute_ability_attack`/`execute_normal_like` appellent maintenant `after_hit_ability_attack`
+  (triggers.py). VALIDE : moteur reset ActOfFaith au crit d'une ability (`test_act_of_faith_ability_reset_live` :
+  accumulate-from-0 -> crit ability -> crit revient a la base) + `execute_ability_attack`/psyker-splash restent bit-exact
+  (aucune regression, pas de recursion Psyker : `ranged=False` = guard). Reset per-CIBLE de splash = fidele (chaque cible
+  = un `execute_ability_attack` distinct qui relit GetStat post-reset). Approximations restantes (#140) : reset AGREGE
+  1x/sous-attaque (non per-coup, meme approx que le vecteur normal) ; vecteur COMPLET (Psyker) pour abilities exige d'abord
+  le cap phase-triggers natif ; overwatch non couvert.
 - **#139** : « ArmoriumCherub does not end Vindicta's turn » (turn-flow) NON porte offline (`execute_behaviour` ne
-  gere aucune turn-flow ; flag natif hardcode via `EvaluateAbilities(0x4b=75)` dans ExecuteBehaviour, pas config).
+  gere aucune turn-flow ; flag CODE-DERIVED via `SetsEndTurnFlags` DSL, PAS config). No-op pour le replay-diff actuel.
 - Ignite 30% + timing exact du passif vs coups primaires = RNG order non calibre bit-exact (flagge in-code).

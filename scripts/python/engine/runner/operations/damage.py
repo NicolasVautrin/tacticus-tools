@@ -538,10 +538,14 @@ class AttackDamageOperation:
         # (DamageHandler) ; ici on porte la pose on-hit des tile-effects de profil pour les attaques
         # d'ABILITY à profil OnFire (ArmoriumCherub, splash FireOfAbsolution, BrazierOfHolyFire…). #136.
         # Idempotent (no-op si la tuile brûle déjà) → une pose post-attaque == per-coup pour le feu.
-        from .triggers import _on_fire_damage_ability          # lazy : évite le cycle damage<->triggers
+        from .triggers import _on_fire_damage_ability, after_hit_ability_attack  # lazy : cycle damage<->triggers
         fire = _on_fire_damage_ability(state, attacker_id, target_id, damage_profile)
+        # VECTEUR AFTER-HIT (ability/splash) : dispatch générique — porte le reset ActOfFaith au crit
+        # d'une ability (ArmoriumCherub) ou d'un coup de splash (AoE FireOfAbsolution), que le port ne
+        # câblait que pour l'attaque normale (#138). cf. after_hit_ability_attack (ranged=False = guard Psyker).
+        after_hit = after_hit_ability_attack(state, attacker_id, target_id, r["did_crit"])
         return {"hits": hits, "total": r["total"], "base_min": base_min, "base_max": base_max,
-                "pierce": profile_pierce, "armor": armor, "fire": fire,
+                "pierce": profile_pierce, "armor": armor, "fire": fire, "after_hit": after_hit,
                 "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,
                 "did_crit": r["did_crit"], "did_block": r["did_block"], "did_evade": r["did_evade"],
                 "crits": r["crits"], "rolls": r["rolls"], "per_hit": r["per_hit"]}
@@ -607,8 +611,12 @@ class AttackDamageOperation:
             thc.hp = max(0, thc.hp - r["total"])
             AttackDamageOperation._fire_death_if_killed(
                 state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=r["total"])
+        # VECTEUR AFTER-HIT (splash StatAmount) : idem execute_ability_attack — reset ActOfFaith au crit (#138).
+        from .triggers import after_hit_ability_attack
+        after_hit = after_hit_ability_attack(state, attacker_id, target_id, r["did_crit"])
         return {"hits": hits, "total": r["total"], "base": base, "pierce": profile_pierce,
-                "armor": armor, "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,
+                "armor": armor, "after_hit": after_hit,
+                "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,
                 "did_crit": r["did_crit"], "did_block": r["did_block"], "did_evade": r["did_evade"],
                 "crits": r["crits"], "rolls": r["rolls"], "per_hit": r["per_hit"]}
 
