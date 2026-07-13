@@ -145,6 +145,16 @@ ou une structure quand une contrepartie native existe.**
   de service côté port = une divergence STRUCTURELLE du natif (le natif a 1 service, le port en a
   fait N) — à réconcilier, pas à contourner. (Mémoires `feedback_no_invented_modules_no_defensive_getattr`,
   `feedback_check_own_port_before_re`.)
+- **Une mécanique/primitive rencontrée une 2ᵉ FOIS = SIGNAL de factoriser, PAS de la re-porter ad-hoc.**
+  Le jeu factorise presque toujours via UN primitive nommé (souvent un sélecteur `DSLFactory`) — que le
+  port a **souvent DÉJÀ** (`engine/dsl/selectors.py`, `nodes.py`) mais que les abilities court-circuitent
+  avec un check inline. Au 2ᵉ site, S'ARRÊTER et router les deux par le primitive partagé + UNE table
+  d'enum. Vécu (feedback user) : `UnitsWithoutTrait(0x1b=Steppable)` (natif `DSLFactory.UnitsWithoutTrait
+  @180e01040`) porté 2× à la main (`ArcaneShield` triggers.py + `GetEmRuntz` spawn.py) via `"Steppable" in
+  ctx.traits`, avec le mapping `UnitTrait` id→nom épars (`TRAIT_STEPPABLE`, `# 0x_ non mappé`, `0xd inconnu`,
+  `0x1a=Imperial`) — au lieu d'UNE table `UnitTrait` (enum dump.cs) + un helper `has_trait`/`units_without_trait`.
+  ⚠ piège : `UnitTrait` et `EffectType` sont deux enums DISTINCTS de même valeur (27 = Steppable vs Taunted)
+  → nommer lève l'ambiguïté que l'int cache. (Mémoire `feedback_check_own_port_before_re`.)
 - **DSL du jeu = arbre d'expression LAZY** (`DSLFactory`/`TargetsSelector` : `Sum`/`Min`/`If`/
   `SurroundingUnits`/… sont des NŒUDS, car leurs opérandes sont des sous-formules runtime type
   `TotalTimesAttacked`). On le mirroir par un **moteur de nœuds** (`engine/dsl/nodes.py`,
