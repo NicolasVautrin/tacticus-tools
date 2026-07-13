@@ -52,6 +52,7 @@ from engine.predict import (repair_utility,            # RepairedAmountUtility (
                             predict_repair_effective, repair_amount_config,  # magnitude repair OFFLINE (#83)
                             heal_utility)             # HealUtility — terme lifesteal SpiritLeech (#84)
 from engine.entities.stats import StatType, StatPart   # Attack INITIALE de la cible (magnitude #85)
+from engine.entities.effect_type import EffectType     # #158 : ids d'effet -> enum natif
 from engine.entities.effects.magnitude import ability_var   # maxDmg/dmgPct GalvanicField (#85)
 from engine.ai.bucket import Action, Bucket
 
@@ -292,7 +293,7 @@ class ComparableAbilityGenerator(ActionGenerator):
                 # liste sérialisée `unit["effects"]` de decisionView. Les deux chemins (live/offline) portent
                 # cet état via `ctx.scene.eff_state`. Scene absente -> pas d'exclusion (no-op fidèle).
                 _eff = getattr(getattr(ctx, "scene", None), "eff_state", None)
-                if _eff is not None and _eff.has_effect(tg, effect_type=1355):
+                if _eff is not None and _eff.has_effect(tg, effect_type=int(EffectType.TwistedScience_ExtraHp)):
                     continue  # cible déjà buffée (TwistedScience_ExtraHp) -> ignorée (inconditionnel)
                 ob = hpmax_by_sq.get(tg) or {}
                 hp_max = int(ob.get("hpMax") or 0)

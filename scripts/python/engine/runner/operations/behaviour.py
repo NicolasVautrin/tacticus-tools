@@ -29,8 +29,9 @@ from typing import Optional
 from ..components import OwnerComponent, PositionComponent, UnitComponent, UnitFlagsComponent
 from .triggers import TriggeredAbility, _unit_tile, _hex_dist
 from ...dsl.event_trigger_type import EventTriggerType
+from ...entities.effect_type import EffectType
 
-IGNORE_BATTLE_FATIGUE = 0x437    # 1079 IgnoreBattleFatigue (immunite ; posee p.ex. par SquigHound 1078)
+IGNORE_BATTLE_FATIGUE = int(EffectType.IgnoreBattleFatigue)  # 1079 (immunite ; posee p.ex. par SquigHound 1078) #158
 BATTLE_FATIGUE_ADJ = 2           # IsAdjacent(self, dying, 2) — rayon de l'allie mourant
 
 

@@ -33,6 +33,7 @@ from ..state import State
 from ...entities.stats import StatType
 from ...entities.traits import UnitTrait, has_any_trait, has_trait
 from ...entities.damage_trait import DamageTrait
+from ...entities.effect_type import EffectType
 from ...dsl.event_trigger_type import EventTriggerType
 from ..components import (StatsComponent, OwnerComponent, PositionComponent, UnitComponent,
                          HealthComponent, ShieldComponent, TriggeredAbilityComponent)
@@ -57,13 +58,13 @@ PHASE_TRIGGER_CAP = 0x33         # 51 — `EvaluateAbilityTrigger`@180e6d650 : G
 # l'ancien mislabel "after-crit" de 0x3d (valeur = UnitBlocked, non consommée par le port).
 
 # --- Contaminated (tile-effect, RE #132/#128) : enter-tile + tick posent le sous-effet -X% armure --------
-CONTAMINATED_TILE = 0x4dc       # 1244 "Contaminated" — effet de TUILE (posé par attaque Toxic, OnToxicDamage).
-CONTAMINATED_UNIT = 0x4dd       # 1245 "Contaminated_Unit" — sous-effet -X% FixedArmor posé sur l'unité.
-CONTAMINATED_IMMUNE_TRAIT = 2027  # 0x7eb — immunité (`EntityIsImmuneToEffect`@180f3a400 = HasTrait(2027) OR
-                                #      IsMechanical). Nom gameconfig du trait 2027 NON résolu → gate best-effort.
+CONTAMINATED_TILE = int(EffectType.Contaminated)        # 1244 — effet de TUILE (posé par attaque Toxic, OnToxicDamage).
+CONTAMINATED_UNIT = int(EffectType.Contaminated_Unit)   # 1245 — sous-effet -X% FixedArmor posé sur l'unité.
+# #158 : ex-`CONTAMINATED_IMMUNE_TRAIT = 2027` (mort depuis #154 : l'immunité gate via
+# `has_any_trait(names, (UnitTrait.ContagionsOfNurgle, UnitTrait.Mechanical))`) retiré. 2027 = UnitTrait.ContagionsOfNurgle.
 
 # --- Fire (tile-effect DoT, RE #127/#128) : turn-start DoT 20% PV initiale ------------------------------
-FIRE_TILE = 5                   # "Fire" — effet de TUILE (posé par attaque Flame, `OnFireDamageAbility`@1811c3a60).
+FIRE_TILE = int(EffectType.Fire)  # 5 — effet de TUILE (posé par attaque Flame, `OnFireDamageAbility`@1811c3a60).
 FIRE_DMG_PCT_KEY = "fireDmgPct"  # globalValues=20 (`ConfigConst 0x12`) : % de la PV INITIALE (max) infligé/tour.
 # Immunité feu = `UnitsWithoutTraits([0x1b=27=Steppable, 0x19=25=Immune])` (@18121e040) : le DoT EXCLUT ces
 #   deux traits (enum TRAIT, ≠ enum EFFECT où 25/27=Taunted_*). Mapping id<->nom centralisé dans
@@ -71,7 +72,7 @@ FIRE_DMG_PCT_KEY = "fireDmgPct"  # globalValues=20 (`ConfigConst 0x12`) : % de l
 FIRE_IMMUNE_TRAITS = (UnitTrait.Steppable, UnitTrait.Immune)
 
 # --- TheBetrayer (worldKharn, passiveAbility) -----------------------------------------------------
-THEBETRAYER_EFFECT = 0x4f3      # 1267 — effet « rage » de TheBetrayer (gate de TakeTurn ; gagné au kill).
+THEBETRAYER_EFFECT = int(EffectType.TheBetrayer)  # 1267 — effet « rage » de TheBetrayer (gate de TakeTurn ; gagné au kill).
 THEBETRAYER_RANGE = 2           # `TheBetrayer.variables.range` = 2 (GetVariableForLevel(0x53)) — move max.
 THEBETRAYER_PROFILE = "Eviscerate"  # `TheBetrayer.constants.damageProfile` (attaque 4 coups Eviscerate).
 
@@ -79,7 +80,8 @@ THEBETRAYER_PROFILE = "Eviscerate"  # `TheBetrayer.constants.damageProfile` (att
 OVERKILL_PCT_KEY = "overkillDmgPctOfHealth"  # globalValues = 100 → overkill ssi dmg-PV >= 100%*PV (dmg>=2*PV)
 
 # --- ActOfFaith (Adepta Sororitas) ---------------------------------------------------------------
-ACTOFFAITH_EFFECT = 1017        # 0x3f9 — ActOfFaith_Effect (ActOfFaithBuffEffect, buff crit empilable)
+ACTOFFAITH_EFFECT = int(EffectType.ActOfFaith_Effect)  # 1017 — ActOfFaithBuffEffect, buff crit empilable
+#   (ATTENTION #158 : 1017 = EffectType.ActOfFaith_Effect ICI, PAS UnitTrait.BigTarget=1017 — contexte = effet)
 # Grand-alliance « Imperial » = trait 0x1a=26 (`GrandAlliance.GetTrait`@1815647a0 → 0x1a si "Imperial").
 # Le natif teste `HasTrait(unit, 26)` ; offline = appartenance de `FactionId` au groupe Imperial. Les 10
 # factions impériales des 22 du jeu (Chaos: BlackLegion/DeathGuard/ThousandSons/WorldEaters/EmperorsChildren ;
@@ -101,14 +103,15 @@ ARCANESHIELD_TRAIT_EXCLUDE = UnitTrait.Steppable  # `UnitsWithoutTrait(0x1b=27=S
 #   (gate mort : les allies Steppable/tokens etaient ciblables a tort). Gate desormais via `has_trait` (#146 :
 #   mapping id<->nom centralise dans UnitTrait -> plus de comparaison int-vs-str possible).
 
-PSYKER_OWNER_SUPPRESS = 1191    # 0x4a7 effet sur l'owner qui supprime le splash psyker
-PSYKER_TARGET_SUPPRESS = 1533   # 0x5fd effet sur la cible qui supprime le splash psyker
+PSYKER_OWNER_SUPPRESS = int(EffectType.HuntersBeyondDeathPsykerSuppression)   # 1191 — effet owner qui supprime le splash psyker
+PSYKER_TARGET_SUPPRESS = int(EffectType.WatchedOver_PsykerSuppression)        # 1533 — effet cible qui supprime le splash psyker
 PSYCHIC_PROFILE = "Psychic"
 
 # --- Overwatch (effet-trigger after-move) ---------------------------------------------------------
-OVERWATCH_AUTO_ATTACK = 1009    # Overwatch_AutoAttack — effectType de l'effet porteur du trigger
-OVERWATCH_TARGET_IMMUNE = 0x418  # 1048 — mover immunisé (Overwatch_AutoAttackEffect.AdditionalTriggers : NOT)
-OVERWATCH_SOURCE_DISABLE = 0x429 # 1065 — overwatch désactivé sur l'overwatcher (AdditionalActivateTrigger : NOT)
+OVERWATCH_AUTO_ATTACK = int(EffectType.Overwatch_AutoAttack)   # 1009 — effectType de l'effet porteur du trigger
+#   (ATTENTION #158 : 1009 = EffectType.Overwatch_AutoAttack ICI, PAS UnitTrait.Resilient=1009 — contexte = effet)
+OVERWATCH_TARGET_IMMUNE = int(EffectType.Infiltrate)  # 1048 — mover immunisé (Overwatch_AutoAttackEffect.AdditionalTriggers : NOT)
+OVERWATCH_SOURCE_DISABLE = int(EffectType.Pinned)     # 1065 — overwatch désactivé sur l'overwatcher (AdditionalActivateTrigger : NOT)
 
 
 class TriggerEvent:

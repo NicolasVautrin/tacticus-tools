@@ -11,14 +11,15 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 from ..components import HealthComponent
+from ...entities.effect_type import EffectType
 
 if TYPE_CHECKING:
     from ..state import State
 
-# EffectType.Cursed (79 = 0x4f) — GATE heal-block. `HealUnitOperation$$Execute @180e733d0` fait
-# `EntityExtensions.HasEffect(target, 0x4f)` : si l'effet est present, le montant de soin est force
-# a 0 (branche `if ((char)param_6 == '\0') healAmount = computed;` sinon healAmount reste 0).
-CURSED = 0x4f
+# EffectType.Cursed (79) — GATE heal-block. `HealUnitOperation$$Execute @180e733d0` fait
+# `EntityExtensions.HasEffect(target, Cursed)` : si l'effet est present, le montant de soin est force
+# a 0 (branche `if ((char)param_6 == '\0') healAmount = computed;` sinon healAmount reste 0). #158.
+CURSED = int(EffectType.Cursed)
 
 
 class HealUnitOperation:

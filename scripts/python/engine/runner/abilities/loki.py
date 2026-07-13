@@ -17,14 +17,16 @@ from ..operations.heal import HealUnitOperation
 from ..operations.spawn import SpawnUnitOperation
 from ..components import StatsComponent, OwnerComponent, PositionComponent, UnitComponent
 from ...entities.stats import StatType
+from ...entities.effect_type import EffectType
 
 if TYPE_CHECKING:
     from ..state import State
 
-STUNNED = 0x48a          # 1162 EffectType.Stunned (effet COMPOSITE → enfants 1165/1166/1167)
-TAUNTED = 0x1b           # 27 EffectType.Taunted_OnlySpecificTargets (COMPOSITE → 25/26/1237 ; bond)
-PINNED = 0x429           # 1065 EffectType.Pinned (UI « Suppressed ») — stat-mod Movement
-VALKYRIE_STRIKE = 0x3fe  # 1022 EffectType.ValkyrieStrike_Effect (airstrike DIFFÉRÉ, fire au tour suivant)
+# #158 : ids d'effet -> enum natif EffectType (attention same-hex : 27 = EffectType.Taunted_* ICI, PAS UnitTrait.Steppable).
+STUNNED = int(EffectType.Stunned)                       # 1162 — effet COMPOSITE -> enfants 1165/1166/1167
+TAUNTED = int(EffectType.Taunted_OnlySpecificTargets)   # 27 — COMPOSITE -> 25/26/1237 ; bond
+PINNED = int(EffectType.Pinned)                         # 1065 — UI « Suppressed » — stat-mod Movement
+VALKYRIE_STRIKE = int(EffectType.ValkyrieStrike_Effect)  # 1022 — airstrike DIFFÉRÉ, fire au tour suivant
 
 
 def _summon_on_appearance_attack(state: "State", summon_id: int, target_id: int,

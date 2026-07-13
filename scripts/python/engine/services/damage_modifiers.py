@@ -43,7 +43,8 @@ from .. import weights as _weights
 _DMG_CFG: dict = _json.loads(_weights.DEFAULT_BC.read_text(encoding="utf-8")).get("Damage", {}) \
     if _weights.DEFAULT_BC.exists() else {}
 ELEVATION_BONUS_PCT: int = int(_DMG_CFG.get("ElevationBonus", 50))   # CalculateElevationBonusModifier @181003ea0
-EFFECT_NO_ELEVATION: int = 0x423   # effectType gate (0x423) : elevation coupee si attaquant OU cible le porte
+# EFFECT_NO_ELEVATION (= int(EffectType.Trench), 1059) est défini EN BAS de module : l'import `entities.effect_type`
+# déclenche `entities/__init__` -> effects -> re-import de CE module (cycle) ; le placer après les défs le rompt (#158).
 
 
 @dataclass
@@ -265,3 +266,9 @@ def calculate_trench_reduction(
     if target_on_trench_adjacent:
         return EffectBonus("PercentDecrease", trench_reduction_pct, owner_is_caster=True)
     return None
+
+
+# --- Import différé (bas de module) : rompt le cycle entities/__init__ -> effects -> services.damage_modifiers.
+# Placé APRÈS DamageModifiers/apply_all_modifiers pour que la back-edge `effects/__init__` les trouve définies (#158).
+from ..entities.effect_type import EffectType  # noqa: E402
+EFFECT_NO_ELEVATION: int = int(EffectType.Trench)   # 1059 — effectType gate : elevation coupee si attaquant OU cible porte Trench

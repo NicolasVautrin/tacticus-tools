@@ -34,6 +34,7 @@ from ..state import State
 from ..components import (StatsComponent, OwnerComponent, PositionComponent,
                           HealthComponent, UnitComponent)
 from ...entities.traits import UnitTrait, has_trait
+from ...entities.effect_type import EffectType
 
 
 def build_summon_context(entity_id: int, visual_id: str, summon_ability: str,
@@ -170,7 +171,7 @@ def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
     return e.id
 
 
-IGNORE_BATTLE_FATIGUE = 0x437    # 1079 — status IgnoreBattleFatigue vérifié par BattleFatigueAbility (behaviour.py)
+IGNORE_BATTLE_FATIGUE = int(EffectType.IgnoreBattleFatigue)  # 1079 — vérifié par BattleFatigueAbility (behaviour.py, meme const, #158)
 
 
 def _team_has_squighound(state: State, team) -> bool:
@@ -255,7 +256,7 @@ def _seed_derived_ability_owner_effects(state: State, unit_id: int, traits, mult
     return added
 
 
-TELEPORT_STRIKE_TELEPORTING_IN = 1035    # AbilityOrEffect.TeleportStrike_TeleportingIn (0x40b) — etat deep-strike
+TELEPORT_STRIKE_TELEPORTING_IN = int(EffectType.TeleportStrike_TeleportingIn)  # 1035 — etat deep-strike (#158 ; 1035=effet, PAS UnitTrait.CloseCombatWeakness)
 
 
 def _seed_ability_owner_effects(state: State, unit_id: int, vid: str, mult: int) -> list:
