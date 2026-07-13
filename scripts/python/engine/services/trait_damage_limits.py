@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import math
 
+from ..entities.damage_trait import DamageTrait
+
 # Trait / ability ids (hex natifs)
 TRAIT_RESILIENT = 0x3f1           # 1009
 TRAIT_IMPERVIOUS = 0x1c           # 28
-PROFILE_TRAIT_HITS_MULTIPLE_MEMBERS = 2   # DamageProfile.HasTrait(2) — Blast : skip member-cap
+PROFILE_TRAIT_HITS_MULTIPLE_MEMBERS = int(DamageTrait.HitsMultipleMembers)  # 2 (Blast) : skip member-cap
 ABILITY_BOSS_END_FIGHT_UNDEFEATED = 0x5d4  # 1492 (triggered) — cap boss "invaincu jusqu'a fin du fight"
 BOSS_CAP_CONSTANT_INDEX = 0x12    # 18 — GetNumberConstant de l'ability 1492
 
