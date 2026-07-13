@@ -2,9 +2,12 @@
 
 Source = RPC `boardGraph` (capture LIVE, approche A). Par tuile :
     {id, col, row, elevation, walkable, isWall, neighbours:[id...]}
-où `neighbours` = voisins NATIFS dirigés (BattleQuery.GetAdjacentTiles(tile,
-true,true,true) — le set complet avant filtre, cf. GetFreeAdjacentTiles
-@181061650). Le board est capté une seule fois par bataille (statique).
+où `neighbours` = voisins NATIFS via `BattleQuery.GetAdjacentTiles(tile,
+false,false,true)` = graphe géométrique COMPLET (#148 : param3=requireEmptyOrSteppable=0
+inclut les occupées, param4=requireWalkable=0 inclut les murs, param5=allowTemporary=1 ;
+mapping via les CTORs des itérateurs @181070df0/@1810acae0). L'ANCIEN `(true,true,true)` —
+flags de `GetFreeAdjacentTiles @181061650` (tuiles LIBRES) — EXCLUAIT les occupées + murs
+(bug #148 : graphe amputé). Le board est capté une seule fois par bataille (statique).
 
 Trois modes d'adjacence (la vérité-terrain `aiMovableTiles` tranche lequel est
 fidèle) :
