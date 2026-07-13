@@ -25,6 +25,7 @@ from engine.entities.effects import (
     calculate_attacker_modifiers_for_prediction, build_defender_modifiers_from_effects,
     hits_bonus_from_effects, hits_malus_from_defender_effects)
 from engine.entities.traits import attacker_bonus_hits
+from engine.entities.traits.unit_trait import UnitTrait
 from engine.entities.stats import StatType, StatPart
 from engine.services.damage_prediction import get_attack_prediction
 from engine.services.min_max_damage import MinMaxDamage
@@ -69,11 +70,24 @@ def _weapon_pierce(scene, att_id, is_adjacent):
 
 
 def _should_apply_ranged_in_melee(scene, att_id, attack_pos) -> bool:
-    """`ShouldApplyRangedInMelee @181005810` : depuis `attack_pos`, existe-t-il un ENNEMI melee-able
-    ADJACENT ? (any-enemy, PAS seulement la cible — le natif boucle sur les tuiles adjacentes de
-    l'attaquant). Filtres : ennemi (team != attaquant) + vivant + `CanMeleeAttackOverElevationDifference`
-    (|Δelev|<2). Adjacence HEX via le service PARTAGÉ `are_tiles_adjacent` (board natif si dispo).
-    Le gate trait 0xb (ranged) est vérifié par l'appelant (`is_ranged`)."""
+    """`ShouldApplyRangedInMelee @181005810` : le natif gate la réduction RangedInMelee sur
+    `HasTrait(ATTAQUANT, UnitTrait.Ranged=0xb=11)` (param_4=0 dans le chemin prédiction
+    `CalculateRangedInMeleeReduction @181004700`) — PAS sur le `is_ranged` de l'ability. Or ce trait
+    n'est porté par AUCUNE unité : absent de gameconfig (0 unité) ET de la BC `Units[].Traits` — c'est un
+    trait RUNTIME jamais assigné en pratique (`IsRanged @180ed8f00` = HasTrait(0xb) OR HasRangedWeapon se
+    réduit donc à HasRangedWeapon, la branche trait étant morte). CONSÉQUENCE : le natif N'APPLIQUE JAMAIS
+    RangedInMelee en prédiction. On mirror le gate EXACT (HasTrait), donc sans le trait Ranged -> False.
+    L'ancien gate `is_ranged` de l'appelant SUR-appliquait la ×0.5 aux casters HYBRIDES tirant une ability
+    ranged en mêlée (#161 : Neurothrope/SpiritLeech = ×2 faux). Si un jour une unité porte le trait Ranged,
+    la suite (ennemi mêlée-able adjacent) s'active fidèlement.
+
+    Suite (native, quand HasTrait) : depuis `attack_pos`, existe-t-il un ENNEMI mêlée-able ADJACENT ?
+    (any-enemy, boucle sur les tuiles adjacentes) — ennemi (team != attaquant) + vivant +
+    `CanMeleeAttackOverElevationDifference` (|Δelev|<2). Adjacence HEX via `are_tiles_adjacent`."""
+    ctx = scene.ctx(att_id)
+    traits = getattr(ctx, "traits", None) or ()
+    if UnitTrait.Ranged.name not in traits:        # HasTrait(attaquant, 0xb) — absent partout => inerte (#161)
+        return False
     if attack_pos is None:
         return False
     att_team = scene.team(att_id)
@@ -436,12 +450,13 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
     (`GetSurroundingUnits`/`GetOtherTargets`) + event SELF négatif (coût PV). `[]` si non-attaque."""
     if not makes_damage_predictions(ability_name):
         return []
-    # PredictAttack HÉRITÉ de la normale (slot vtable 0x27 -> ALoki_NormalAttackAbility.PredictAttack) :
-    # dégât santé = prédiction d'attaque NORMALE (Attack-based), le config minDmg/maxDmg est IGNORÉ.
-    # SpiritLeech (#90) seul — PlasmaCannon RETIRÉ (#96 reverté : artefact de collision du cache aiPredict,
-    # cf. le commentaire du set). Le batch principal ET les batches SECONDAIRES (AoE) passent tous par slot
-    # 0x27 dans `<Ability>Playbook.MakeDamagePredictions` (PlasmaCannonPlaybook @181150b10 : main +
-    # UnitsDirectlyBehind, les 2 via GenerateMultiHitAttackPredictions) -> routage PAR CIBLE homogène.
+    # #99 REFRAMING (case-99) : les specials ne sont PAS Attack-based. L'hypothèse historique
+    # « SpiritLeech hérite ALoki_NormalAttackAbility.PredictAttack (slot vtable 0x27) » est RÉFUTÉE — les
+    # 5 specials audités résolvent `PredictAttack` vers le STUB ABSTRAIT `AActiveAbility.PredictAttack
+    # @180fb2f20` (qui THROW). Le vrai chemin = `<Special>Playbook.MakeDamagePredictions` ->
+    # `GenerateMultiHitAttackPredictions(base = ability.GetAttackDamage() = CONFIG minmax)`. Donc
+    # `_PREDICT_VIA_NORMAL_ATTACK` est VIDE (via_normal toujours False) ; la branche est conservée morte
+    # au cas où un special s'avérerait un jour réellement Attack-based.
     via_normal = ability_name in _PREDICT_VIA_NORMAL_ATTACK
     # ab/cfg/aoe construits ICI (AVANT le main event) car le compte AoE TOTAL (nrEnemies = 1 + secondaires)
     # est requis pour la clause `GetCorrectDamage` (MurderousSwing : +extraDmg AJOUTÉ À LA BASE si UN seul
