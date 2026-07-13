@@ -214,9 +214,11 @@ runner isolé depuis une **seed BC sur disque** via `rl_duel build`, déployé e
 Rappel minimal :
 - `warmupGameSingletons({ force: true })` d'abord (autonome), après chaque (re)inject, AVANT
   tout build/RPC — sinon crash `0x2c`.
-- `python rl_duel.py build --seed <s> --state-file <propre> [--p-units/--a-units, --board, ...]`
-  puis `view/act/play` ou `engine_validate.py --runner <id>`. Discipline : state-file propre,
-  `--runner` explicite, dispose tes runners (coexistence, cap MAX_RUNNERS=10).
+- `python rl_duel.py build --seed <s> --board <id> --state-file <propre> [--p-units/--a-units, ...]`
+  puis `view/act/play` ou `engine_validate.py --runner <id>`. **`--board` OBLIGATOIRE** (ex. MC1_67 ;
+  cf. runner.md). Si `data/boards/` ou `data/seed-bc.json` manquent (purge de `data/`) → `python
+  dump_boards.py` régénère. Discipline : state-file propre, `--runner` explicite, dispose tes runners
+  (coexistence, cap MAX_RUNNERS=10).
 
 **Offsets validés (Tacticus 1.39.40)** :
 ```

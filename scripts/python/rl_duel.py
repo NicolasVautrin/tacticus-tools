@@ -232,6 +232,14 @@ def cmd_build(sid: int, a) -> int:
     if getattr(a, "board", None) and getattr(a, "board_pool", None):
         print("[error] --board et --board-pool sont mutuellement exclusifs", file=sys.stderr)
         return 2
+    # Board OBLIGATOIRE (sauf --list-pool) : le seed BC est un skeleton dont le board
+    # par defaut (capture live) n'a pas de spawns 5v5 fiables -> il FAUT choisir un board
+    # dumpe (cf. #159). `python dump_boards.py` regenere data/boards/ ; ids via board.py.
+    if not a.list_pool and not getattr(a, "board", None) and not getattr(a, "board_pool", None):
+        print("[error] choisis un board : --board <id> (ex. MC1_67, C4_09) ou "
+              "--board-pool <pvp|syncPvp|global>. Voir data/boards/ (dump_boards.py) "
+              "et board.py pour les ids/terrains.", file=sys.stderr)
+        return 2
     fixed_board_dump = None
     if getattr(a, "board", None):
         try:

@@ -81,16 +81,22 @@ def build_runner(host, live_session):
     l'utilisateur n'est jamais nuké. Chaque runner créé par les tests est
     libéré via `disposeRunner` au teardown → aucun orphelin, le cap respire.
 
-    Renvoie `build(seed="777", extra=None) -> {"rid": int, "my_team": int}`. Le seed n'est
-    qu'un générateur de bataille, hors critère (l'invariant testé tient pour toute bataille).
-    `extra` = args `rl_duel build` supplémentaires (ex. 1v1 minimal + `--crit` pour la slice
-    crit) ; None = build par défaut (roster complet)."""
+    Renvoie `build(seed="777", extra=None, board="MC1_67") -> {"rid": int, "my_team": int}`.
+    Le seed n'est qu'un générateur de bataille, hors critère (l'invariant testé tient pour
+    toute bataille). Un `--board` est OBLIGATOIRE depuis #159 (le seed BC est un skeleton dont
+    le board par défaut n'a pas de spawns 5v5) : défaut `MC1_67` (arène), régénéré par
+    `dump_boards.py`. `extra` = args `rl_duel build` supplémentaires (ex. 1v1 minimal + `--crit`
+    pour la slice crit) ; si `extra` fournit déjà `--board`/`--board-pool`, le défaut est omis."""
     created: list[int] = []
 
-    def _build(seed: str = "777", extra: list[str] | None = None) -> dict:
+    def _build(seed: str = "777", extra: list[str] | None = None,
+               board: str = "MC1_67") -> dict:
+        extra = list(extra or [])
+        board_args = [] if any(x in ("--board", "--board-pool") for x in extra) \
+            else ["--board", board]
         proc = subprocess.run(
             [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
-             "--state-file", str(STATE), *(extra or [])],
+             "--state-file", str(STATE), *board_args, *extra],
             cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8",
             errors="replace")
         if not STATE.exists():

@@ -26,7 +26,8 @@ from pathlib import Path
 IMAGE_BASE = 0x180000000
 _REPO = Path(__file__).resolve().parents[2]
 _DUMPS = _REPO / "data" / "dumps"
-_BC = _REPO / "data" / "arena-battle-config-newtonsoft.json"
+# seed BC template (data/ gitignore, per-hash) — regenere par `dump_boards.py` (#159).
+_BC = _REPO / "data" / "seed-bc.json"
 
 
 def _current_hash() -> str | None:

@@ -15,12 +15,23 @@ bâtir un runner « depuis l'état qu'il a capturé » — un runner se construi
 
 ## 1. Construire un runner — `rl_duel build`
 
-**Seule voie.** Construit un runner ISOLÉ depuis la **seed BC sur disque**, le **déploie**
-(`initAndStart`), et rend des units observables. C'est ce qu'utilisent la conftest (`build_runner`) et
-les agents.
+**Seule voie.** Construit un runner ISOLÉ depuis la **seed BC sur disque** + un **board dumpé**, le
+**déploie** (`initAndStart`), et rend des units observables. C'est ce qu'utilisent la conftest
+(`build_runner`) et les agents.
+
+> **⚠ ARTEFACTS LIVE À RÉGÉNÉRER (per-hash, PURGEABLES — cf. #159).** Le harnais lit DEUX artefacts sous
+> `data/` (entièrement **gitignore** → JAMAIS versionnés, effacés par tout ménage de `data/` : `git clean
+> -fdx`, nettoyage disque) :
+> - `data/seed-bc.json` — le **seed BC template** (skeleton Players/Utilities/mode), lu par `_load_seed_bc`.
+> - `data/boards/{pvp,syncPvp,global}/<id>.json` — les **~800 board dumps**, lus par `_load_board_dump`.
+>
+> S'ils manquent, `rl_duel build` échoue **franchement** (erreur actionnable, plus de skip vert silencieux).
+> **Régénère-les en UNE commande** (session warmée) : `python dump_boards.py` (capture live via
+> `dumpBattleConfig` + `dumpPvpAndSyncBoards`). **À REFAIRE au changement de hash du build.**
 
 ```bash
-python rl_duel.py build --seed <s> --state-file <fichier propre> [options]
+python dump_boards.py                                    # (re)génère seed-bc.json + data/boards/ (une fois par hash)
+python rl_duel.py build --seed <s> --board <id> --state-file <fichier propre> [options]
 ```
 
 Options utiles (build) :
@@ -29,7 +40,8 @@ Options utiles (build) :
   Les ids doivent être dans le **pool spawnable** du rank (`--list-pool` pour le voir). Team 1 est
   placée aux spawn points du board dans l'ordre → positions déterministes.
 - `--rank R` (défaut 17) : niveau/pool (`_load_unspawnable` filtre les ids qui throw au spawn).
-- `--board <id>` / `--board-pool <pvp|syncPvp|global>` : **choix du board** (cf. §2).
+- `--board <id>` / `--board-pool <pvp|syncPvp|global>` : **choix du board — OBLIGATOIRE** (le seed BC est
+  un skeleton dont le board par défaut n'a pas de spawns 5v5 fiables ; build sans board = refus). Cf. §2.
 - `--p-mow/--a-mow/--mow` : Machines of War. `--crit/--crit-target/--block-target/--hp-target` :
   restaurent des stats de combat sur les templates (crit/block/kill déterministe).
 
@@ -44,7 +56,8 @@ ne dispose QUE le runner enregistré dans CE fichier (les frères sont intouché
 - **Caractériser STATIQUEMENT** (offline, sans live) via `board.py` : parse `BC.Board.Tiles[].{TileId,
   Elevation, ForceUnplayable}` + `SpawnPointSets` → élévation, terrain, jouabilité, spawns, LOS. Les
   boards dumpés (par `dumpPvpAndSyncBoards`) sont dans `data/boards/{pvp,syncPvp,global}/<id>.json`
-  (`{id, kind, spawnPointsSet, board}`).
+  (`{id, kind, spawnPointsSet, board}`). **Absents ? → `python dump_boards.py` les régénère** (cf. §1,
+  artefacts per-hash purgeables).
 - **Injecter le board choisi** : `rl_duel build --board <id>` (id fixe, swap à la normalisation) ou
   `--board-pool <kind>` (aléatoire seedé, filtré aux boards avec assez de spawns/côté + MoW-capable si
   un MoW est en jeu). Mutuellement exclusifs.

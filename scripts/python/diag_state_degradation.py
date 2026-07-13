@@ -26,7 +26,7 @@ from pathlib import Path
 
 HOST = "http://127.0.0.1:8765"
 ROOT = Path(__file__).resolve().parents[2]
-ARENA = ROOT / "data" / "arena-battle-config-newtonsoft.json"
+ARENA = ROOT / "data" / "seed-bc.json"
 PLAYER_ID_HUMAN, PLAYER_ID_AI = 11, 12
 SAFE_AI = ["ultraTigurius", "bloodDante", "eldarFarseer", "custoTrajann", "thousAhriman"]
 SAFE_P  = ["orksWarboss", "templHelbrecht", "tauShadowsun", "necroOverlord", "adeptCanoness"]

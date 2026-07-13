@@ -77,7 +77,11 @@ HOST = "http://127.0.0.1:8765"
 ROOT = Path(__file__).resolve().parents[2]
 TRACES_DIR = ROOT / "frida" / "data" / "ai-traces"
 SUMMARIES_DIR = ROOT / "frida" / "data" / "rl-batches"
-ARENA_SEED_BC = ROOT / "data" / "arena-battle-config-newtonsoft.json"
+# Seed BC template (skeleton Players/Utilities/mode) + board dumps. TOUS DEUX
+# sous data/ (gitignore) = artefacts LOCAUX per-hash, PURGES par tout menage de
+# data/ (git clean -fdx, ...). Regeneres en une commande : `python dump_boards.py`
+# (cf. #159). NE PAS hardcoder un fallback : absent => erreur actionnable.
+SEED_BC = ROOT / "data" / "seed-bc.json"
 BOARDS_DIR = ROOT / "data" / "boards"
 
 # PlayerIds lus de Player.Players du seed
@@ -819,9 +823,11 @@ def _dir_size_bytes(p: Path) -> int:
 # ---- BC + pool setup ---------------------------------------------------- #
 
 def _load_seed_bc() -> dict:
-    if not ARENA_SEED_BC.exists():
-        raise RuntimeError(f"seed BC not found: {ARENA_SEED_BC}")
-    return json.loads(ARENA_SEED_BC.read_text(encoding="utf-8"))
+    if not SEED_BC.exists():
+        raise RuntimeError(
+            f"seed BC absent: {SEED_BC} — artefact live per-hash purge de data/. "
+            f"Regenere-le : `python dump_boards.py` (capture live via dumpBattleConfig).")
+    return json.loads(SEED_BC.read_text(encoding="utf-8"))
 
 
 def _load_unspawnable(rank: int) -> tuple[set[str], set[str]]:
@@ -1281,6 +1287,13 @@ def main(argv: list[str]) -> int:
     if args_ns.board and args_ns.board_pool:
         print("[error] --board and --board-pool are mutually exclusive",
               file=sys.stderr)
+        return 2
+    # Board REQUIRED (cf. #159) : the seed BC skeleton's default board (live
+    # capture) has no reliable 5v5 spawns -> a dumped board must be chosen.
+    if not args_ns.board and not args_ns.board_pool:
+        print("[error] choose a board: --board <id> (e.g. MC1_67, C4_09) or "
+              "--board-pool <pvp|syncPvp|global>. Regenerate data/boards/ via "
+              "`python dump_boards.py`.", file=sys.stderr)
         return 2
     board_dump: dict | None = None
     board_pool: list[dict] = []

@@ -1,7 +1,7 @@
 """
 Generate Java classes (records + enums) mirroring IdunBattle.Configuration.BattleConfiguration
 from the il2cpp_full.json dump, targeting the JSON shape of
-data/arena-battle-config-newtonsoft.json.
+data/seed-bc.json (seed BC template; regenere par dump_boards.py, cf. #159).
 
 - Walks the type graph starting from BattleConfiguration
 - Emits Java records for classes (regular + value types with >=1 field)

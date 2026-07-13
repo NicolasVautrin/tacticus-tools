@@ -12,7 +12,8 @@ from pathlib import Path
 
 # scripts/python/engine/weights.py -> parents: [0]=engine [1]=python [2]=scripts [3]=repo
 _REPO = Path(__file__).resolve().parents[3]
-DEFAULT_BC = _REPO / "data" / "arena-battle-config-newtonsoft.json"
+# seed BC template (data/ gitignore, per-hash) — regenere par `dump_boards.py` (#159).
+DEFAULT_BC = _REPO / "data" / "seed-bc.json"
 
 
 class Weights:

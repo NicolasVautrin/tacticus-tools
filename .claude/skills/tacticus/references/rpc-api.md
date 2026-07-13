@@ -146,7 +146,10 @@ Read-only sauf `applyAction` (`mutated=false` attendu). Cœur oracle + harnais m
   (`setBattleConfigPatch`/`…GameMode`/`…RuleSet`/`applyBattleConfigPatchNow`/
   `clearBattleConfigPatch`/`getBattleConfigPatchStatus`).
 - **Boards** : `dumpAllBoards`, `dumpPvpAndSyncBoards` (`dump-boards.ts`,
-  `dump-pvp-boards.ts`).
+  `dump-pvp-boards.ts`). **Persistés sur disque** (`data/boards/{kind}/<id>.json`) par
+  `scripts/python/dump_boards.py` — qui capture AUSSI le seed BC (`dumpBattleConfig` →
+  `data/seed-bc.json`). Artefacts per-hash, purgeables ; régénère via `python dump_boards.py`
+  (cf. runner.md §1, #159).
 - **MachinesOfWar** (`mow-builder.ts`) : `buildMachinesOfWarConfig`,
   `dumpMachinesOfWarCatalog`, `machinesOfWarBuilderStatus`, `dumpLiveEvent*`,
   `dumpMoWProgressionState` (hors-sujet MoW arena PvP : cf. `project_mow_deploy_gate`).

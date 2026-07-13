@@ -3,7 +3,7 @@ import json, urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-base = (ROOT / "data" / "arena-battle-config-newtonsoft.json").read_text(encoding="utf-8")
+base = (ROOT / "data" / "seed-bc.json").read_text(encoding="utf-8")
 
 body = {
     "method": "buildNormalizedBC",

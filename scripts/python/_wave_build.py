@@ -12,7 +12,7 @@ import rl_duel as RD
 from rl_collect_batch import (
     _load_seed_bc, _load_unspawnable, _normalize_and_extract_pool,
     _spawn_points_by_twpi, _patch_predefined_units, _patch_predefined_machines,
-    _rpc, PLAYER_ID_HUMAN,
+    _load_board_dump, _rpc, PLAYER_ID_HUMAN,
 )
 
 try:
@@ -28,6 +28,8 @@ def main() -> int:
     ap.add_argument("--rank", type=int, default=17)
     ap.add_argument("--roster", type=int, default=5)
     ap.add_argument("--state-file", required=True)
+    ap.add_argument("--board", default="MC1_67",
+                    help="board dumpe a swapper (defaut arene MC1_67, spawns 5v5) — cf. #159")
     ap.add_argument("--mow", action="store_true")
     a = ap.parse_args()
 
@@ -35,7 +37,9 @@ def main() -> int:
     RD.STATE = Path(a.state_file)
 
     seed_bc = _load_seed_bc()
-    template_bc, pool, pool_mow = _normalize_and_extract_pool(sid, seed_bc, a.rank)
+    board_dump = _load_board_dump(a.board)
+    template_bc, pool, pool_mow = _normalize_and_extract_pool(
+        sid, seed_bc, a.rank, board_dump=board_dump)
     bad_u, bad_mow = _load_unspawnable(a.rank)
     pool = [u for u in pool if u not in bad_u]
     pool_mow = [u for u in pool_mow if u not in bad_mow]

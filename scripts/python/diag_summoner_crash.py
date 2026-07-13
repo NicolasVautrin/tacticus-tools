@@ -41,7 +41,7 @@ from pathlib import Path
 HOST = "http://127.0.0.1:8765"
 ROOT = Path(__file__).resolve().parents[2]
 TRACES_DIR = ROOT / "frida" / "data" / "ai-traces"
-ARENA_SEED_BC = ROOT / "data" / "arena-battle-config-newtonsoft.json"
+ARENA_SEED_BC = ROOT / "data" / "seed-bc.json"
 
 PLAYER_ID_HUMAN = 11
 PLAYER_ID_AI = 12

@@ -10,7 +10,7 @@ ForceUnplayable,...}, SpawnPointSets}. Décodage TeamWithPlayerIndex (TWPI)
 aligné sur frida/public/src/board.js.
 
 Usage :
-    python scripts/python/board.py            # valide sur la BC arène
+    python scripts/python/board.py            # valide sur le seed BC (data/seed-bc.json)
 """
 from __future__ import annotations
 
@@ -23,7 +23,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hexgeo  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
-ARENA_BC = ROOT / "data" / "arena-battle-config-newtonsoft.json"
+# seed BC template (data/ gitignore, per-hash) — regenere par `dump_boards.py` (#159).
+SEED_BC = ROOT / "data" / "seed-bc.json"
 
 # TeamWithPlayerIndex -> (teamId, playerIdx). Cf. board.js / TeamPlayerIdExtensions.Unfold.
 _TWPI = {
@@ -150,15 +151,16 @@ class Board:
         return "\n".join(lines) + "\n" + legend
 
 
-def from_arena() -> Board:
-    return Board(json.loads(ARENA_BC.read_text(encoding="utf-8")))
+def from_seed() -> Board:
+    return Board(json.loads(SEED_BC.read_text(encoding="utf-8")))
 
 
 def _validate() -> int:
-    if not ARENA_BC.exists():
-        print(f"[error] BC arène introuvable: {ARENA_BC}", file=sys.stderr)
+    if not SEED_BC.exists():
+        print(f"[error] seed BC introuvable: {SEED_BC} — regenere via "
+              f"`python dump_boards.py`.", file=sys.stderr)
         return 2
-    bd = from_arena()
+    bd = from_seed()
     print(f"[board] id={bd.board_id} dims={bd.width}x{bd.height} "
           f"tiles={len(bd.tiles)} jouables={len(bd.playable_tiles())}")
     print(f"[terrain] {dict(bd.terrain_counts())}")

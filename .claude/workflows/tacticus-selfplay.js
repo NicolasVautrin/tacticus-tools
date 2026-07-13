@@ -171,7 +171,7 @@ const SIDES = {
 
 function setupPrompt(m) {
   const aiCsv = m.aiUnits ? m.aiUnits.map((u) => String(u).split(':')[0]).join(',') : null
-  const buildCmd = `python scripts/python/rl_duel.py build --seed ${m.seed} --state-file data/_sp_${m.seed}_A.json${aiCsv ? ` --a-units ${aiCsv}` : ''}`
+  const buildCmd = `python scripts/python/rl_duel.py build --seed ${m.seed} --board MC1_67 --state-file data/_sp_${m.seed}_A.json${aiCsv ? ` --a-units ${aiCsv}` : ''}`
   return `Tu es l'agent SETUP d'UN match self-play Tacticus (seed ${m.seed}). cwd = racine du repo.
    PRECONDITION: session Frida (id=${sessionId}) DEJA warmee par l'orchestrateur -> NE lance JAMAIS warmupGameSingletons, NE navigue PAS l'UI.
    ⚠ INVARIANT (matchs concurrents) : la coexistence est le DÉFAUT côté hooks — un build ne détruit JAMAIS les runners frères, mais un cap dur (MAX_RUNNERS=10) fait REFUSER le build si l'atelier est plein. DONC : lance EXCLUSIVEMENT la commande build ci-dessous (son --state-file DÉDIÉ garantit que le retry remplace TON runner, pas un frère), JAMAIS un build ad-hoc avec un autre state-file, et NE lance JAMAIS \`dispose\` (réservé au teardown). Si le build échoue avec "runner cap reached" -> renvoie {ok:false, error:"cap runners atteint"} (l'orchestrateur/cleanup arbitre, ce n'est PAS à toi de disposer). Si tu dois ré-essayer, relance EXACTEMENT la même commande.

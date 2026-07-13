@@ -63,12 +63,12 @@ les joue via `act` exactement comme les miennes, ou je laisse l'IA jouer (`aitur
 ## 2. Monter la battle
 
 ```bash
-# rosters ALÉATOIRES (déterministe par --seed)
+# rosters ALÉATOIRES (déterministe par --seed). --board OBLIGATOIRE (cf. runner.md).
 PYTHONIOENCODING=utf-8 python scripts/python/rl_duel.py build \
-  --seed 777 --rank 17 --roster 5 [--advance K] [--maxpump 2000]
+  --seed 777 --board MC1_67 --rank 17 --roster 5 [--advance K] [--maxpump 2000]
 
 # rosters CHOISIS (+ MoW optionnels)
-PYTHONIOENCODING=utf-8 python scripts/python/rl_duel.py build --rank 17 \
+PYTHONIOENCODING=utf-8 python scripts/python/rl_duel.py build --rank 17 --board MC1_67 \
   --p-units custoTrajann,custoVexilusPraetor,adeptMorvenn,bloodMephiston,astraYarrick \
   --a-units worldKharn,deathBlightbringer,blackAbaddon,worldJakhal,deathPutrifier \
   --p-mow ultraDreadnought --a-mow blackForgefiend

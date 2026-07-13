@@ -66,9 +66,10 @@ edition, hooks de mesure existants) est libre.
 Tu ne t'auto-felicites pas. Apres le fix :
 - rejoue les tests CIBLES de la tranche + tout test/verdict que ton fix pourrait CASSER
   (surtout ceux qu'il inverse) ;
-- CRAFT des scenarios de generalisation (unit_map + `rl_duel build`, board choisi) qui
-  pourraient exposer un sur-ajustement ou un bug compensatoire — pas juste re-confirmer ton
-  seed ;
+- CRAFT des scenarios de generalisation (unit_map + `rl_duel build`, board choisi via `--board <id>`
+  OBLIGATOIRE, ex. MC1_67) qui pourraient exposer un sur-ajustement ou un bug compensatoire — pas
+  juste re-confirmer ton seed ; si `data/boards/` ou `data/seed-bc.json` manquent (purge de `data/`),
+  `python dump_boards.py` les regenere (cf. runner.md) ;
 - liste explicitement ce qui n'est PAS couvert.
 Discipline runner (source unique = `.claude/skills/tacticus/references/runner.md`) : warmup
 `warmupGameSingletons({force:true})` si la session parait froide (tu ne peux PAS reinjecter,

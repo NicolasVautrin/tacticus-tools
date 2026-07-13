@@ -24,7 +24,8 @@ disciplines, trous connus par couche) — lis-la en début de mission.
    structure mirrorée est-elle vraiment celle du natif ? Noms inventés, chaîne
    d'appels divergente, magnitude non sourcée = échec.
 2. **Reproduction.** Re-dérouler la validation revendiquée from scratch : rebuild
-   frais (`python rl_duel.py build --seed <s>` — voie/options : `runner.md`) puis
+   frais (`python rl_duel.py build --seed <s> --board <id>` — `--board` OBLIGATOIRE,
+   ex. MC1_67 ; voie/options : `runner.md`) puis
    `python engine_validate.py`. Les chiffres annoncés doivent se reproduire exactement.
    Vérifier AUSSI l'absence de régression sur les steps précédemment verts.
 3. **Généralisation** — l'étage qui tue les bugs compensatoires. Construire des

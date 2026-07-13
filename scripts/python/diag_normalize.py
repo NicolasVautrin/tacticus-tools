@@ -25,7 +25,7 @@ from pathlib import Path
 
 HOST = "http://127.0.0.1:8765"
 ROOT = Path(__file__).resolve().parents[2]
-ARENA_SEED_BC = ROOT / "data" / "arena-battle-config-newtonsoft.json"
+ARENA_SEED_BC = ROOT / "data" / "seed-bc.json"
 
 SAMPLE_ROSTER = [
     "ultraTigurius", "necroPlasmancer", "adeptRetributor",
