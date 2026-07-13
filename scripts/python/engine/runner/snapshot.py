@@ -25,6 +25,7 @@ from .state import State
 from .components import (
     UnitComponent, OwnerComponent, PositionComponent, HealthComponent,
     EffectsOwnedComponent, StatsComponent, ShieldComponent, ShieldInstance,
+    TriggeredAbilityComponent,
 )
 
 
@@ -60,6 +61,9 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None) -
         e = state.add_entity(uid)
         e.add_component(UnitComponent(visual_id=u.get("visualId"), alive=bool(u.get("alive"))))
         e.add_component(OwnerComponent(team=u.get("team"), player=u.get("owner")))
+        # #140 : registre par-unité des compteurs phase-triggers (cap <51). Vide ici ; peuplé
+        # paresseusement (try_add idempotent) au 1er passage du gate (evaluate_trigger_operation).
+        e.add_component(TriggeredAbilityComponent())
         p = u.get("pos") or {}
         if p.get("col") is not None:
             e.add_component(PositionComponent(col=p["col"], row=p["row"]))

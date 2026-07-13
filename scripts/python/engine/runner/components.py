@@ -8,7 +8,7 @@ les ÉCRIRA (tranche move/damage/effects) ; ici on porte la sémantique des cham
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Dict, Hashable, List, Optional
 
 from .state import Component
 
@@ -235,3 +235,76 @@ class StatsComponent(Component):
 
     def __init__(self, ctx: "UnitContext"):
         self.ctx = ctx
+
+
+class TriggeredAbilityState:
+    """Une entrée du `TriggeredAbilityComponent` (une ability/trigger de l'unité). Offsets natifs
+    (RE `TriggeredAbilityComponent.MarkAsTriggered`@180fab0e0 / `GetTimesTriggeredThisPhase`@180faafc0) :
+    `has_triggered`@+0x2c (bool, `HasBeenTriggered`), `total`@+0x30 (compteur cumulé toutes phases),
+    `times_this_phase`@+0x34 (compteur de la phase courante ; lu par le cap `<51`, remis à 0 par
+    `ResetPhase`). (Le natif porte aussi la clé/config-id @+0x10.. et le niveau @+0x38 ; ici on ne modèle
+    que les 3 compteurs — le seul état lu par le gate de trigger.)"""
+    __slots__ = ("has_triggered", "total", "times_this_phase")
+
+    def __init__(self):
+        self.has_triggered = False
+        self.total = 0
+        self.times_this_phase = 0
+
+
+class TriggeredAbilityComponent(Component):
+    """`IdunBattle.Entities.Components.TriggeredAbilityComponent` @180faba40 — registre par-unité des
+    ability-triggers, avec leur compteur de déclenchements. Native = `KeyedCollection` @+0x18 indexée par
+    l'ability-type (config-id) ; chaque entrée porte `has_triggered`/`total`/`times_this_phase`
+    (cf. `TriggeredAbilityState`).
+
+    RÔLE : le natif GATE chaque déclenchement de trigger à `GetTimesTriggeredThisPhase(key) < 0x33`
+    (=51) dans `EvaluateTriggerOperation.EvaluateAbilityTrigger` @180e6d650 (cap anti-emballement d'une
+    PHASE = une activation d'unité) ; `MarkAsTriggered` incrémente au fire ; `ResetPhase` (via
+    `EndPhaseOperation.ResetEntityPhase` @180e6a210, à la fin de chaque activation) remet
+    `times_this_phase` à 0 (PAS `total`). Sans ce cap, une chaîne de triggers générateurs d'attaque
+    (splash Psyker qui re-déclenche le splash Psyker via le vecteur after-hit) récurserait sans borne.
+
+    Peuplé au build de l'unité pour CHAQUE ability (natif `UnitFactory.Add*Abilities` → `TryAdd`
+    @180fab7a0). Offline : clé = un identifiant stable d'ability-type (cf. Slice 2). Population +
+    gate + reset = slices #142/#143/#144."""
+    __slots__ = ("entries",)
+
+    def __init__(self, entries: Optional[Dict[Hashable, "TriggeredAbilityState"]] = None):
+        self.entries: Dict[Hashable, TriggeredAbilityState] = entries if entries is not None else {}
+
+    def try_add(self, key: Hashable) -> bool:
+        """`TryAdd` @180fab7a0 : enregistre l'ability `key` si absente (compteurs à 0). No-op (renvoie
+        False) si déjà présente ; True si ajoutée."""
+        if key in self.entries:
+            return False
+        self.entries[key] = TriggeredAbilityState()
+        return True
+
+    def get_times_triggered_this_phase(self, key: Hashable) -> int:
+        """`GetTimesTriggeredThisPhase` @180faafc0 : compteur de la phase courante pour `key` ; **0 si
+        la clé est absente** (TryGetValue échoue → 0)."""
+        e = self.entries.get(key)
+        return e.times_this_phase if e is not None else 0
+
+    def mark_as_triggered(self, key: Hashable) -> None:
+        """`MarkAsTriggered` @180fab0e0 : `has_triggered=True`, `total += 1`, `times_this_phase += 1`.
+        **No-op si la clé est absente** (le natif TryGetValue échoue et `return`)."""
+        e = self.entries.get(key)
+        if e is None:
+            return
+        e.has_triggered = True
+        e.total += 1
+        e.times_this_phase += 1
+
+    def has_been_triggered(self, key: Hashable) -> bool:
+        """`HasBeenTriggered` @180fab050 : True si l'ability a déjà été déclenchée (any phase). False si
+        clé absente."""
+        e = self.entries.get(key)
+        return bool(e.has_triggered) if e is not None else False
+
+    def reset_phase(self) -> None:
+        """`ResetPhase` @180fab1e0 : remet `times_this_phase` à 0 pour TOUTES les entrées (le `total` et
+        `has_triggered` sont conservés). Appelé au boundary d'activation (`EndPhaseOperation`)."""
+        for e in self.entries.values():
+            e.times_this_phase = 0

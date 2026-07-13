@@ -631,6 +631,40 @@ offline depuis le `UnitContext`/`StatsComponent` du State au lieu de `combatSnap
   exact de `visit_AttackUnitMessage`). Ordre = id (PickNextUnit = raffinement).
 - Wiré dans `StartTurnOperation.execute` APRÈS `start_turn_triggers`. No-op si la team n'a aucun summon
   (aucune régression turn-flow).
+
+## Cap phase-triggers + vecteur after-hit COMPLET pour abilities (#138 + #140) — build gqfc5mff6c
+
+**#138 (reset ActOfFaith au crit d'ability/splash) :** `EvaluateAfterHitTriggers @180e25fc0` est porté par
+`ADamageOperation` → PARTAGÉ par l'attaque normale ET les attaques d'ability (dispatch `WasCrit`, branche
+`param_6 != 0` → event `0x3d`). Le port ne câblait `evaluate_trigger_operation` que pour l'attaque normale
+(`after_hit_normal_attack`) ; `execute_ability_attack`/`execute_normal_like` appellent désormais
+`after_hit_ability_attack` → le reset ActOfFaith fire au crit d'une ability (ArmoriumCherub) ou d'un coup
+de splash (AoE FireOfAbsolution). Validé : `test_act_of_faith_ability_reset_live` (accumulate-from-0 → crit
+ability → crit revient à la base). Committé `d2d0d48`.
+
+**#140 (cap phase-triggers + vecteur COMPLET) :** RE du cap natif :
+- `EvaluateTriggerOperation.EvaluateAbilityTrigger @180e6d650` GATE chaque ability-trigger à
+  `GetTimesTriggeredThisPhase(key) < 0x33` (=51), `MarkAsTriggered` au fire.
+- `TriggeredAbilityComponent @180faba40` = KeyedCollection par ability-type : `has_triggered@+0x2c`,
+  `total@+0x30`, `times_this_phase@+0x34`. Peuplé au build (`TryAdd`, chaque ability via `UnitFactory.Add*`).
+- `ResetPhase @180fab1e0` (zéro `+0x34`) via `EndPhaseOperation.ResetEntityPhase @180e6a210` = fin
+  d'ACTIVATION (`OperationProcessor.EndPhase`, séparé de `FinishUnitTurnOperation`).
+- **Psyker Smite CHAINE par design** : `PsykerExtraAttackAbility.CreateTrigger @181224420` = `On(0x26) &
+  OwnerIsActor & IsRangedAttack & DamageProfileIs(Psychic) & NOT(actor 0x4a7=1191 OR target 0x5fd=1533)`,
+  et `CreateBehaviour @1812241b0` (un `AttackWithAttackDamage` psychique) N'AJOUTE AUCUNE suppression → le
+  splash (attaque psychique ranged) re-déclenche Smite sur un ennemi adjacent ; le SEUL bornage est le cap 51.
+  (1191/1533 = suppressions EXTERNES, ex. HuntersBeyondDeath, pas auto-posées.)
+
+Port offline (mirror) : `TriggeredAbilityComponent` (`components.py`) attaché à chaque unité
+(`snapshot.load_state`) ; gate `<0x33` + `mark_as_triggered` sur les `TriggeredAbility` dans
+`evaluate_trigger_operation` (clé = type de trigger) ; `State.reset_trigger_phases()` mappé sur chaque
+ACTION top-level (`Runner.apply`) — proxy du per-activation natif (plus fin mais strictement sûr, compteurs
+<< 51, borne la récursion DANS une cascade car reset AVANT la cascade). `after_hit_ability_attack` passe
+le VRAI `ranged`/`profile` → vecteur COMPLET : un Psyker qui caste un special psychique déclenche Smite, et
+le splash chaine (borné par le cap). VALIDÉ : cap semantics (`test_triggered_ability_component`, 6/6) ;
+non-régression 5 tests live bit-exact (psyker_splash / damage_ability / act_of_faith ×3) ; terminaison OK.
+⏳ **#145** : confront LIVE multi-splash (chain) en géométrie contrôlée non fait (probe = cluster dispersé) —
+le chain est RE-fondé + replay-diff-gardé mais pas encore live-multi-confirmé.
 - **Smoke offline (board ligne, Cadien summon col 0 + ennemi col 5) : le Cadien MOVE (0,0)->(3,0) pour mettre
   son Las à portée (dist 2) puis ATTAQUE (2 coups, ranged) — décision full-playbook cohérente.**
 

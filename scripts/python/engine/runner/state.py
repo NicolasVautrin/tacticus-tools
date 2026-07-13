@@ -115,3 +115,14 @@ class State:
             c = e.get_component(comp_type)
             if c is not None:
                 yield e, c  # type: ignore[misc]
+
+    def reset_trigger_phases(self) -> None:
+        """#140 : `ResetPhase` de tous les `TriggeredAbilityComponent` (remet `times_this_phase` à 0). Le
+        natif l'appelle à `EndPhaseOperation` (fin d'ACTIVATION, via `OperationProcessor`) ; le runner offline
+        n'a pas d'OperationProcessor → on mappe le boundary sur chaque ACTION top-level appliquée (`Runner.apply`).
+        Plus fin que le per-activation natif mais STRICTEMENT SÛR (ne bloque jamais un trigger légitime) et
+        inobservable (les compteurs restent << 51/activation) ; borne l'auto-récursion des triggers
+        générateurs d'attaque DANS une même cascade d'action (le reset est AVANT la cascade, pas dedans)."""
+        from .components import TriggeredAbilityComponent      # lazy : évite le cycle state<->components
+        for _e, comp in self.with_component(TriggeredAbilityComponent):
+            comp.reset_phase()

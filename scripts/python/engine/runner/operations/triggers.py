@@ -30,8 +30,14 @@ from typing import Optional
 from ..state import State
 from ...entities.stats import StatType
 from ..components import (StatsComponent, OwnerComponent, PositionComponent, UnitComponent,
-                         HealthComponent, ShieldComponent)
+                         HealthComponent, ShieldComponent, TriggeredAbilityComponent)
 from .damage import AttackDamageOperation
+
+# --- Cap phase-triggers (#140) --------------------------------------------------------------------
+PHASE_TRIGGER_CAP = 0x33         # 51 — `EvaluateAbilityTrigger`@180e6d650 : GetTimesTriggeredThisPhase < 0x33.
+                                 # Borne l'auto-récursion des ability-triggers générateurs d'attaque (splash
+                                 # Psyker qui re-déclenche le splash Psyker via le vecteur after-hit) que le
+                                 # natif borne à 51 par PHASE (= une activation ; ResetPhase à EndPhaseOperation).
 
 # --- Event ids de trigger (DSLFactory.On(x)) ------------------------------------------------------
 TRIGGER_AFTER_HIT = 0x26        # 38 — après une attaque/coup (EvaluateAfterHitTriggers, message 8)
@@ -672,13 +678,38 @@ def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
             uc = owner.get_component(UnitComponent)        # CanGet*Trigger : owner unit vivant
             if uc is not None and not uc.alive and not getattr(entry, "fire_on_death", False):
                 continue                                   # sauf ability fire-on-death (ex. FinalJustice)
-        # (IsTriggersDisabled + cap GetTimesTriggeredThisPhase<51 : pas d'état offline → non gardés ici.)
         if not entry.matches(state, ev):
             continue
+        # #140 : CAP phase-triggers (mirror EvaluateAbilityTrigger@180e6d650 : GetTimesTriggeredThisPhase
+        # < 0x33). S'applique aux ability-triggers (TriggeredAbility) — les effet-triggers passent par
+        # EvaluateEffectTrigger (sans ce cap). Borne l'auto-récursion (splash Psyker qui re-déclenche le
+        # splash Psyker via le vecteur after-hit). Clé = type d'ability-trigger (1 par trait-trigger).
+        # `mark_as_triggered` AVANT le behaviour → la récursion voit le compteur incrémenté.
+        if isinstance(entry, TriggeredAbility) and not getattr(entry, "owner_is_tile", False):
+            tac = _trigger_phase_component(state, entry.owner_id)
+            if tac is not None:
+                pkey = type(entry).__name__
+                tac.try_add(pkey)                                       # peuplement paresseux (idempotent)
+                if tac.get_times_triggered_this_phase(pkey) >= PHASE_TRIGGER_CAP:
+                    continue                                           # cap atteint cette phase → skip
+                tac.mark_as_triggered(pkey)
         r = entry.execute_behaviour(state, ev)
         if r is not None:
             out.append(r)
     return out
+
+
+def _trigger_phase_component(state: State, owner_id: int) -> Optional[TriggeredAbilityComponent]:
+    """Get-or-create le `TriggeredAbilityComponent` de l'unité `owner_id` (mirror du composant natif ;
+    absent d'une unité spawnée avant #140 → créé paresseusement). None si l'entité n'existe pas."""
+    e = state.get_entity(owner_id)
+    if e is None:
+        return None
+    c = e.get_component(TriggeredAbilityComponent)
+    if c is None:
+        c = TriggeredAbilityComponent()
+        e.add_component(c)
+    return c
 
 
 def _squighound_after_attack(state: State, attacker_id: int, target_id: int) -> list[dict]:
@@ -816,27 +847,25 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
 
 
 def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
-                             is_crit: bool) -> list[dict]:
+                             is_crit: bool, ranged: bool = False,
+                             profile: Optional[str] = None) -> list[dict]:
     """Vecteur after-hit d'une attaque d'ABILITY ou de SPLASH (mirror `EvaluateAfterHitTriggers`
     @180e25fc0 → dispatch générique). `EvaluateAfterHitTriggers` est porté par `ADamageOperation`, donc
     PARTAGÉ par l'attaque normale ET les attaques d'ability : le natif dispatche l'événement `WasCrit`
     per-coup pour TOUTE attaque (branche `param_6 != 0` → event 0x3d).
 
     Le port ne câblait le dispatch générique (`evaluate_trigger_operation`) que pour l'attaque NORMALE
-    (`after_hit_normal_attack`, via le `DamageHandler`). Les attaques d'ability/splash
-    (`execute_ability_attack` / `execute_normal_like`) ne le lançaient PAS → un crit porté par une Battle
-    Sister via une ability (ArmoriumCherub, actif 1014) ou un coup de splash (AoE FireOfAbsolution) NE
-    resettait PAS ses stacks ActOfFaith (#138). On lance ICI le dispatch après une attaque d'ability/splash.
-
-    ⚠ RÉ-ENTRANCE : `ranged=False` (profil None) est INTENTIONNEL — cela n'arme PAS le SEUL after-hit
-    trigger GÉNÉRATEUR d'attaque, le splash Psyker (`PsykerExtraAttackAbility`, gaté `IsRangedAttack &
-    DamageProfileIs(Psychic)`), qui re-lancerait `execute_normal_like` → récursion non bornée. Le natif
-    borne cette ré-entrance via le cap phase-triggers (`GetTimesTriggeredThisPhase<51`) NON porté offline
-    (cf. `evaluate_trigger_operation`). Le reset ActOfFaith (idempotent, sans cascade d'attaque) fire
-    normalement. Porter le vecteur COMPLET (Psyker inclus) pour les abilities exigerait d'abord ce cap
-    phase-triggers → tâche de suivi #140. No-op si l'attaque n'a pas crit / aucun trigger ne matche."""
+    (`after_hit_normal_attack`, via le `DamageHandler`) — les attaques d'ability/splash
+    (`execute_ability_attack`/`execute_normal_like`) ne le lançaient PAS. #138 a câblé ce vecteur (reset
+    ActOfFaith au crit d'ability/splash). #140 passe désormais le VRAI `ranged`/`profile` de l'attaque
+    → vecteur COMPLET : le splash Psyker (`PsykerExtraAttackAbility`, gaté `IsRangedAttack &
+    DamageProfileIs(Psychic)`) fire aussi sur les abilities/splash psychiques (un Psyker qui caste un
+    special psychique déclenche Smite ; le splash lui-même — attaque psychique ranged — re-déclenche
+    Smite sur un ennemi adjacent → CHAIN, tel le natif : `CreateBehaviour` n'ajoute AUCUNE suppression,
+    seul le cap `<51/phase` borne). Cette ré-entrance est bornée par le cap phase-triggers porté en #140
+    (cf. `evaluate_trigger_operation` + `TriggeredAbilityComponent`). No-op si aucun trigger ne matche."""
     ev = TriggerEvent(TRIGGER_AFTER_HIT, attacker_id, target_id,
-                      ranged=False, profile=None, is_crit=is_crit)
+                      ranged=ranged, profile=profile, is_crit=is_crit)
     return evaluate_trigger_operation(state, ev)
 
 

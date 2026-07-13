@@ -61,6 +61,11 @@ class Runner:
         cur = self.state.current_player_id           # GetCurrentPlayerId(state)
         if self.should_block(msg, cur) or self.should_reject(msg):
             return                                   # message bloqué/rejeté = no-op
+        # #140 : boundary de phase-triggers (mirror EndPhaseOperation.ResetEntityPhase). Le natif reset les
+        # compteurs par ACTIVATION ; offline (pas d'OperationProcessor) on le mappe sur chaque ACTION
+        # top-level. `apply` n'est PAS ré-entrant dans le port (la cascade = appels directs, pas des re-apply)
+        # → le reset ici est TOUJOURS avant la cascade, jamais dedans (ne casse pas la borne de récursion).
+        self.state.reset_trigger_phases()
         for h in self.pre_handlers:                  # PRE @0x80
             msg.accept(h)
         self.recorder.append(msg)                    # record @0xb8
