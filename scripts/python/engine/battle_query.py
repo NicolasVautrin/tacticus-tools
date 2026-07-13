@@ -90,10 +90,16 @@ def can_add_unit(pos: tuple, walkable_by_pos: dict | None = None,
     admet un occupant trait-27 pass-through -> ici une tuile occupée = fail (borne INF, corner négligeable) ;
     (b) les flags runtime `tile[4]+0x40` (bloqué) / `+0x2c` (réservé) ne sont modélisés QUE si `walkable`
     les folds (HYPOTHÈSE : `walkable==false` couvre `+0x40` ; une tuile walkable-mais-réservée serait
-    sur-comptée) ; (c) le filtre IsTemporary de l'itérateur natif `GetAdjacentTiles` n'est PAS re-testé
-    (une tuile temporaire ACTIVE barrière/glace walkable+vide serait sur-comptée) — non modélisé car les
-    3 bools de l'itérateur ne sont pas bit-décodés + 0 tuile temporaire sur les boards validés (no-op
-    pratique) ; `is_temporary_by_pos` dispo dans le NCContext (suivi tâche #118)."""
+    sur-comptée) ; (c) le filtre IsTemporary de l'itérateur natif `GetAdjacentTiles` n'est PAS appliqué
+    dans le call Hammer — RE #118 RÉSOLU (non-issue) : le call slot-78 passe
+    `GetAdjacentTiles(unit, 1, 1, 1)` (@181141680) [RE ctors #148 : param3=requireEmptyOrSteppable,
+    param4=requireWalkable, param5=allowTemporary (polarite inversee : 1=inclure)] ;
+    les 3 bools transitent `<IterateAdjacentTiles>d__94 @1810ad490` (+0x40/+0x42/+0x44) ->
+    `TileQuery.<>d__8 @1810acef0`. Le gate temporary y est `(field != 0) || !IsTemporary(tile)`, alimenté
+    par param5=allowTemporary : param5=1 -> court-circuite VRAI -> tuiles temporaires ACTIVES INCLUSES par le
+    natif (comme par le port -> aucune exclusion à ajouter). (Le call jumeau `MovementQuery.IsAdjacent` passe
+    (0,1,1) = param3=0 inclut les occupées + param5=1 inclut les temporaires : occupance-independant, adapté à
+    un test d'adjacence.) `is_temporary_by_pos` reste hors de ce chemin (légitimement utilisé ailleurs : TemporaryTileUtility)."""
     if occupied is not None and (pos[0], pos[1]) in occupied:
         return False
     if not walkable_by_pos:
@@ -109,7 +115,12 @@ def adjacent_addable_count(tile: tuple, neigh_by_pos: dict | None,
     re-expert #116 via `MovementQuery.IsAdjacent @18109c470` + le slot-map du décorateur
     RecordedSimulationRequestsBattleQuery) -> `IterateAdjacentTiles` -> voisins `boardGraph.neighbours`
     avec la MÊME porte d'élévation `|Δelev| < 2` que `is_adjacent` (#45). Filtre chaque voisin par
-    `can_add_unit`. Utilisé par `HammerOfWrathPlaybook` (+5/voisin, #116). Sans `neigh_by_pos` (offline
+    `can_add_unit`. Utilisé par `HammerOfWrathPlaybook` (+5/voisin, #116). Le call Hammer passe `(1,1,1)` =
+    param3=requireEmptyOrSteppable, param4=requireWalkable, param5=allowTemporary (mapping RE via les CTORs
+    des itérateurs #148 ; TileQuery inverse l'ordre des champs). Effet : temporaires INCLUS (param5=1, cf.
+    `can_add_unit` flag c) ; requireWalkable + requireEmptyOrSteppable subsumés par `can_add_unit` (walkable +
+    empty ; empty ⊂ emptyOrSteppable -> l'intersection GetAdjacent ∩ CanAddUnit = {walkable, empty} = ce que le
+    port compte -> agree). Sans `neigh_by_pos` (offline
     pur) : fallback `hexgeo.neighbors` (dist-1, même porte d'élévation via `is_adjacent`)."""
     tkey = (tile[0], tile[1])
     neigh = (neigh_by_pos or {}).get(tkey)

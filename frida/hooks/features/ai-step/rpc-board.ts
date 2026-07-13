@@ -334,11 +334,25 @@ export function registerViewBoard(ctx: Ctx): void {
      *  WalkPathfinder natif). `tileMeta` ne donne que col/row/élévation/isWall ;
      *  ici on AJOUTE :
      *   - `neighbours` : voisins NATIFS via `BattleQuery.GetAdjacentTiles(tile,
-     *     true,true,true)` — le set COMPLET non filtré (cf. `GetFreeAdjacentTiles`
-     *     @181061650 qui appelle exactement ces flags puis filtre). L'adjacence
-     *     du board est géométrique (les murs sont des PROPRIÉTÉS de tuile filtrées
-     *     par IsWalkable, PAS des arêtes manquantes — cf. WalkPathfinder
-     *     .IsValidPathNode @180f2ee50).
+     *     param3=false, param4=false, param5=true)` = le set géométrique COMPLET
+     *     (seule la porte `|dElev|<2` de `TileQuery.<>d__8 @1810acef0`,
+     *     INCONDITIONNELLE, s'applique). RE #148 (via les CTORs des itérateurs, pas
+     *     seulement MoveNext) : `BattleQuery.IterateAdjacentTiles @181070df0` range
+     *     param3/4/5 en ASCENDANT (+0x41/+0x43/+0x45) mais `TileQuery
+     *     .IterateAdjacentTiles @1810acae0` les range en INVERSE (param3->+0x45,
+     *     param5->+0x41). `d__8.MoveNext` lit ascendant = (IsTemporary, IsWalkable,
+     *     IsEmptyOrSteppable). Net -> mapping RÉEL : **param3=requireEmptyOrSteppable
+     *     (occupance), param4=requireWalkable (murs), param5=allowTemporary**
+     *     (polarité inversée : 1=inclure). L'ANCIEN `(true,true,true)` — copié à tort
+     *     de `GetFreeAdjacentTiles @181061650` (tuiles LIBRES) — EXCLUAIT les tuiles
+     *     OCCUPÉES (param3=requireEmptyOrSteppable=1) ET les murs (param4=1), gelant
+     *     l'occupance de CAPTURE dans un graphe censé STATIQUE (2 unités voisines
+     *     mutuellement absentes de leurs neighbours). Le complet = param3=0 (inclure
+     *     occupées) + param4=0 (inclure murs) + param5=1 (inclure temporaires).
+     *     Murs + occupants = PROPRIÉTÉS de tuile (`walkable` ci-dessous /
+     *     `occupantUnitId` / positions live), filtrées PAR LE CONSOMMATEUR
+     *     (WalkPathfinder.IsValidPathNode @180f2ee50 -> `is_valid_path_node` côté
+     *     port), PAS des arêtes manquantes.
      *   - `walkable` : `BattleQuery.IsWalkableTile(tile)` = le `TileExtensions
      *     .IsWalkable` consommé par IsValidPathNode (≠ isWall TileComponent ; on
      *     garde les deux pour recoupement).
@@ -412,6 +426,7 @@ export function registerViewBoard(ctx: Ctx): void {
         }
 
         const bTrue = Memory.alloc(1); bTrue.writeU8(1);
+        const bFalse = Memory.alloc(1); bFalse.writeU8(0);
         let adjCalls = 0; let adjFails = 0; let walkFails = 0;
         const tiles = projTiles.map((t) => {
             const e = ptrById.get(t.id);
@@ -419,7 +434,10 @@ export function registerViewBoard(ctx: Ctx): void {
             let walkable: boolean | null = null;
             if (e && !e.isNull()) {
                 try {
-                    const os = invokeMethod(getAdjMi.info, battleQ, [e, bTrue, bTrue, bTrue]);
+                    // #148 : (param3=requireEmptyOrSteppable=0, param4=requireWalkable=0,
+                    // param5=allowTemporary=1) = graphe géométrique COMPLET (occupance/walkable
+                    // dérivés dynamiquement côté moteur). Mapping via ctors @181070df0/@1810acae0.
+                    const os = invokeMethod(getAdjMi.info, battleQ, [e, bFalse, bFalse, bTrue]);
                     adjCalls++;
                     for (const n of extractTilePtrs(os)) {
                         const nid = idByCoord.get(n.col + "," + n.row);

@@ -583,8 +583,31 @@ Non-régression : diff confinée à `HammerOfWrathPlaybook` + helpers additifs ;
 **FLAGS / limitations** (dans `can_add_unit`) : (a) co-location trait `0x1b` (arg3=1 admet un occupant
 pass-through) → tuile occupée = fail (borne INF, corner négligeable) ; (b) tuiles walkable-mais-réservées
 (`tile[4]+0x40`/`+0x2c` runtime) non modélisées si `walkable` ne les folds pas (HYPOTHÈSE : `walkable==
-false` couvre `+0x40`) ; (c) **IsTemporary** de l'itérateur natif `GetAdjacentTiles` non re-testé (tuile
-temporaire ACTIVE barrière/glace walkable+vide → sur-comptée) — non modélisé car les 3 bools de l'itérateur
-ne sont pas bit-décodés + 0 tuile temporaire sur boards validés (no-op pratique) ; `is_temporary_by_pos`
-dispo dans le NCContext → **suivi tâche #118**. [L'ancien flag « over-count élévation » est RÉFUTÉ par le
+false` couvre `+0x40`) ; (c) **IsTemporary** de l'itérateur natif `GetAdjacentTiles` : **RÉSOLU #118 —
+non-issue** (voir MAJ #118 ci-dessous). [L'ancien flag « over-count élévation » est RÉFUTÉ par le
 validator, cf. ci-dessus.]
+
+### MAJ #118 (2026-07-13, CORRIGÉE #148) — mapping des 3 bools de `GetAdjacentTiles` (via les CTORs)
+
+Suivi de #116 flag (c). Question : le filtre `IsTemporary` exclut-il les tuiles temporaires ACTIVES du
+`+5·CanAddUnit` (auquel cas le port les sur-compterait) ? **RE (décompilé = vérité, build gqfc5mff6c).**
+
+> ⚠️ **CORRECTION #148** : la 1re passe (lue sur le seul `MoveNext`) avait le mapping À L'ENVERS
+> (param3=allowTemporary / param5=requireEmptyOrSteppable). Les **CTORs** des itérateurs le tranchent :
+> `BattleQuery.IterateAdjacentTiles @181070df0` range param3/4/5 en ASCENDANT (`+0x41/+0x43/+0x45`) mais
+> `TileQuery.IterateAdjacentTiles @1810acae0` les range en **INVERSE** (param3→`+0x45`, param5→`+0x41`).
+> `d__8.MoveNext @1810acef0` lit ascendant = (IsTemporary, IsWalkable, IsEmptyOrSteppable). Net :
+
+- **Mapping RÉEL** : **param3 = requireEmptyOrSteppable** (occupance), **param4 = requireWalkable** (murs),
+  **param5 = allowTemporary** (polarité inversée : `(field != 0) || !IsTemporary` → 1=inclure).
+- Le call Hammer `HammerOfWrathPlaybook.EvaluateNonComparable @181141680` passe `(1,1,1)` = requiert
+  emptyOrSteppable + requiert walkable + **INCLUT temporaires** (param5=1).
+- Le call jumeau `MovementQuery.IsAdjacent` passe `(0,1,1)` = param3=0 (inclut occupées) + param4=1
+  (walkable) + param5=1 (inclut temporaires) → occupance-indépendant, adapté à un test d'adjacence.
+
+**Conclusion #118 : NO-OP** (inchangée). Le natif INCLUT les tuiles temporaires au site Hammer (param5=1),
+comme le port (`can_add_unit` ne teste pas IsTemporary) → aucune exclusion à ajouter. `requireWalkable=1`
+/ `requireEmptyOrSteppable=1` subsumés par `CanAddUnit` (walkable + empty ; empty ⊂ emptyOrSteppable →
+intersection = {walkable, empty} = ce que le port compte). **Ce mapping corrigé est ce qui a débloqué #148**
+(la capture `boardGraph` passait `(1,1,1)` = requireEmptyOrSteppable=1 → excluait les tuiles OCCUPÉES ;
+le complet = `(0,0,1)`). Port `can_add_unit`/`adjacent_addable_count` inchangé, docstrings corrigées.
