@@ -78,9 +78,18 @@ GetStat(Attack). Le "2670 mesure" = artefact preview, pas la base playbook.
 
 **Aucun** `<X>Playbook$$MakeDamagePredictions` n'existe pour ces 3 (verifie par recherche de symboles) :
 leur `MakeDamagePredictions` herite de la base qui renvoie une liste vide/null -> `aiPlaybookPredict` rend
-`count=-1` (l'oracle direct ne peut PAS les mesurer). Ce n'est PAS un signe "Attack-based" : c'est un trou de
-COUVERTURE de l'oracle. Fix cote oracle : fallback `aiPlaybookPredict -> GetAllPredictions` quand le playbook
-est null, OU marquer ces abilities "non mesurables par le playbook direct".
+`ok:true, count=-1, listNull:true` (l'oracle direct ne peut PAS les mesurer). Ce n'est PAS un signe
+"Attack-based" : c'est un trou de COUVERTURE de l'oracle.
+
+**FIX APPLIQUE (sweep-side, PAS hook-side)** : `predict_sweep.classify` collapsait `ok:false` (vrai echec RPC)
+ET `ok:true, count=-1` (playbook null) dans le meme bucket `ORACLE_FAIL` (22 rows de bruit). On distingue :
+`live_main_event` flag `empty` quand `ok:true & count==-1/listNull` -> nouveau statut **`ORACLE_EMPTY`**
+(inmesurable par playbook direct, categorie ATTENDUE), reserve `ORACLE_FAIL` aux vrais echecs (`ok:false`).
+On **NE fallback PAS** sur `GetAllPredictions` : ce preview est l'ARTEFACT Attack-based (cf. TL;DR) ;
+l'injecter dans l'oracle contaminerait la verite playbook pur (#102/#103) et fabriquerait de faux
+agreements/gaps. Le hook `aiPlaybookPredict` reste CORRECT (il rend fidelement null = la verite). Marquer
+"inmesurable" est la bonne des deux options du plan initial ; si on RE un jour le vrai degat de
+Doombolt/JakhalStimms (playbook-null mais preview != 0), on upgrade l'ORACLE_EMPTY en mesure reelle.
 
 ## Consequences (port)
 

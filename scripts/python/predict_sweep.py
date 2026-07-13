@@ -70,7 +70,15 @@ def engine_main_event(scene, att, tgt, ability_id, ability_name, kind, cur_tile)
 
 
 def live_main_event(sid, rid, att, tgt, ability_id):
-    """(min, max, hits, crit) de l'event cible PRINCIPALE cote ORACLE (aiPlaybookPredict), ou dict {err}."""
+    """(min, max, hits, crit) de l'event cible PRINCIPALE cote ORACLE (aiPlaybookPredict), ou dict {err}.
+
+    Distingue l'ECHEC RPC (ok:false) du playbook VIDE (#110) : quand `ok:true` mais `count==-1`
+    (listNull), le `<Ability>Playbook.MakeDamagePredictions` NATIF a rendu null -- ces specials
+    (Doombolt/JakhalStimms/GauntletsOfUltramar) n'ont PAS de playbook de degat bespoke, donc
+    l'oracle DIRECT ne peut pas les mesurer. Ce N'EST PAS un echec RPC ni un trou de port moteur :
+    on le flag `empty` -> classe ORACLE_EMPTY (attendu), pas ORACLE_FAIL (bruit). On ne fallback
+    PAS sur GetAllPredictions (preview Attack-based = ARTEFACT, cf. case-99) : contaminerait
+    l'oracle playbook pur ; l'ability reste inmesurable par le playbook direct, tag honnete."""
     r = rpc(sid, "aiPlaybookPredict",
             {"runnerId": rid, "unitId": att, "targetId": tgt, "abilityType": ability_id}, 60)
     if not r or not r.get("ok"):
@@ -78,7 +86,12 @@ def live_main_event(sid, rid, att, tgt, ability_id):
     evs = r.get("events") or []
     main = next((e for e in evs if e.get("targetId") == tgt), None)
     if main is None:
+        # ok:true sans event cible. count==-1 (listNull) = playbook rend null = pas de prediction
+        # de degat directe (#110, playbook-none) ; count>=0 = playbook a des events mais aucun pour
+        # CETTE cible (artefact positionnel/cible, distinct du playbook-none).
+        empty = (r.get("count") == -1) or bool(r.get("listNull"))
         return {"err": "no main event (count=%s)" % r.get("count"),
+                "empty": empty, "count": r.get("count"), "listNull": r.get("listNull"),
                 "retClass": r.get("retClass"), "playbook": r.get("playbookClass")}
     return {"min": int(main.get("healthDmgMin") or 0), "max": int(main.get("healthDmgMax") or 0),
             "hits": int(main.get("appliedHits") or 0), "crit": bool(main.get("mightCrit")),
@@ -93,13 +106,18 @@ def classify(eng, live):
     NON_DAMAGE   : les DEUX cotes ne produisent aucun event de degat pour cette cible (buff/self/
       ally-targeted mal ranke par decisionView) -> hors scope degat.
     ENG_NONE     : le NATIF predit du degat mais le moteur n'en produit AUCUN (vrai trou de port).
-    ORACLE_FAIL  : le RPC oracle a echoue / decode -1 la ou le moteur produit une valeur.
+    ORACLE_EMPTY : le playbook NATIF rend null (count=-1) -- ability sans <Ability>Playbook de degat
+      bespoke (Doombolt/JakhalStimms/Gauntlets #110) : oracle DIRECT inmesurable. Ni un echec RPC,
+      ni un trou de port moteur -> categorie ATTENDUE (pas du bruit ORACLE_FAIL).
+    ORACLE_FAIL  : le RPC oracle a VRAIMENT echoue (ok:false / throw) la ou le moteur produit une valeur.
     ENG_ZERO     : moteur predit 0 la ou le natif predit du degat. OK/MINOR/MAJOR = ecart chiffre."""
     live_ok = "err" not in live
     eng_ok = "err" not in eng
     if live_ok and live["min"] == 0 and live["max"] == 0:
         return "OUT_OF_RANGE"
     if not live_ok:
+        if live.get("empty"):                      # playbook natif null -> inmesurable (#110), pas un echec
+            return "ORACLE_EMPTY"
         return "NON_DAMAGE" if not eng_ok else "ORACLE_FAIL"
     if not eng_ok:
         return "ENG_NONE"                          # natif predit du degat, moteur rien -> trou de port
@@ -246,7 +264,7 @@ def build_rows(sid, rid, my_team, max_turns, topk):
 
 # ── Reporting (buckets prioritaires) ─────────────────────────────────────────────────────────────
 _ORDER = ["MAJOR", "ENG_ZERO", "ENG_NONE", "MINOR", "ORACLE_FAIL", "OK",
-          "OUT_OF_RANGE", "NON_DAMAGE"]
+          "ORACLE_EMPTY", "OUT_OF_RANGE", "NON_DAMAGE"]
 
 
 def _fmt_row(r):
