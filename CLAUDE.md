@@ -393,6 +393,24 @@ suite `tests/engine/` — **beaucoup trop lourd**.
     récupérer le partiel d'un agent mort, **déléguer la SYNTHÈSE** à un sous-agent qui le lit en chunks
     (offset/limit) et me rend ~15-30 lignes.
 
+## fable-solver + solving-playbook (cas durs)
+
+Pour un cas DUR qui a résisté (divergence non localisée, verdicts contradictoires, flip-flop),
+déléguer à l'agent **`fable-solver`** (modèle fable, worktree isolé, `.claude/agents/fable-solver.md`).
+Il résout end-to-end et **LIVRE PAR PULL REQUEST** :
+
+- Il commit son fix + son entrée `docs/rl/solving-playbook.md` sur sa branche worktree, `git push
+  origin HEAD` + `gh pr create`, et reporte l'URL. **Filet** : si le push/gh échoue (creds/env), il
+  laisse tout committé sur sa branche → **je pousse + ouvre la PR à sa place**.
+- **Moi** : je RELIS la PR + RE-VALIDE (checkout branche, tests CIBLÉS de la tranche) + **merge**.
+  Le merge sur `master` reste MON geste, **sur ton accord** — jamais l'agent. Après merge :
+  je supprime la branche (`git push origin --delete <branche>` + `git worktree prune`).
+- **`docs/rl/solving-playbook.md` = base des techniques de résolution de cas durs, écrite
+  EXCLUSIVEMENT par `fable-solver`** (une entrée par cas). Je ne l'édite JAMAIS. Son contenu est
+  **`!include` dans ce CLAUDE.md** (section « Documentation détaillée ») → chargé en contexte chaque
+  session : je tente de résoudre un cas dur SEUL avec ces techniques AVANT de déléguer. But : à terme,
+  de moins en moins besoin de l'agent.
+
 ## Ne jamais
 
 - **Utiliser `--reload`/hot-reload côté host** : casse les sessions Frida
@@ -426,6 +444,10 @@ validation des DEUX faces (décider ≠ exécuter) — vit dans le skill `tactic
 !include .claude/skills/tacticus/references/hooks.md
 !include .claude/skills/tacticus/references/rpc-api.md
 !include .claude/skills/tacticus/references/runner.md
+
+<!-- Techniques de résolution de cas durs, écrites EXCLUSIVEMENT par fable-solver (cf. section
+     « fable-solver + solving-playbook ») — incluses pour tenter de résoudre SEUL avant de déléguer. -->
+!include docs/rl/solving-playbook.md
 
 <!-- TODO références à (ré)écrire contre le code actuel (les drafts d'avril
      dans .claude/worktrees/agent-a0e45617/ sont périmés) : frida-host.md,

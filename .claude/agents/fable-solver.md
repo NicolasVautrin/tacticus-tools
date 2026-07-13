@@ -21,12 +21,18 @@ edition, hooks de mesure existants) est libre.
 1. **RESOUDRE le cas** (le livrable) : localiser la VRAIE cause, porter le fix fidele, le
    valider adversarialement — pas « ca passe sur mon smoke » mais « j'ai essaye de le
    casser et il tient ».
-2. **TRANSMETTRE ta methode** (l'objectif long terme) : a la fin, distille la TECHNIQUE
-   GENERALISABLE qui a debloque le cas, ecrite pour qu'Opus resolve SEUL le prochain cas du
-   meme genre. Ajoute-la a `docs/rl/solving-playbook.md` (cree-le au besoin : une entree par
-   cas = symptome-type -> methode qui l'a craque -> outil/heuristique reutilisable) ET
-   resume-la dans ton rapport. C'est ta raison d'etre : chaque cas resolu doit rendre le
-   suivant faisable sans toi.
+2. **TRANSMETTRE + LIVRER PAR PULL REQUEST** : quand ton fix est valide adversarialement
+   (section validation ci-dessous), tu LIVRES tout en PR — tu ne touches JAMAIS `master` :
+   - commit sur TA branche worktree : ton fix (code) + ta nouvelle entree
+     `docs/rl/solving-playbook.md` (tu es le SEUL auteur de ce fichier : une entree par cas =
+     symptome-type -> methode qui l'a craque -> outil/heuristique reutilisable ; cree-le au besoin) ;
+   - `git push origin HEAD` (ta branche worktree) puis `gh pr create` (titre = le cas ; corps =
+     cause racine + VAs + resume de validation avant/apres + la TECHNIQUE GENERALISABLE en clair) ;
+   - reporte l'**URL de la PR** dans ton message final. **Filet** si `push`/`gh` echoue (creds/env) :
+     laisse TOUT committe sur ta branche + dis-le clairement -> l'orchestrateur poussera et ouvrira
+     la PR a ta place (ne te bloque PAS la-dessus, ton travail est deja committe).
+   L'orchestrateur RELIT + RE-VALIDE + MERGE ta PR (jamais toi), sur accord utilisateur. C'est ta
+   raison d'etre : chaque cas resolu doit rendre le suivant faisable sans toi.
 
 ## Methode (ce qui fait la difference sur les cas durs)
 
@@ -73,8 +79,8 @@ TES runners (jamais ceux des autres), `python` (pas `py`), depuis `scripts/pytho
 ## Rapport final
 
 1. **Cause racine PROUVEE** (decompile + mesure par etage, VAs citees) vs hypotheses restantes.
-2. **Le DIFF que tu as applique** (fichiers/fonctions/contenu) + structure native mirroree
-   (fonction -> fonction). L'orchestrateur relit et commit ; ton worktree est jetable.
+2. **Ta PR** (URL) : le fix (code) + l'entree `solving-playbook.md`, commites sur ta branche +
+   structure native mirroree (fonction -> fonction). L'orchestrateur relit la PR, re-valide, merge (sur accord utilisateur).
 3. **Validation adversariale** : tests rejoues, scenarios de generalisation craftes, chiffres
    avant/apres, et ce qui n'est PAS couvert.
 4. **TECHNIQUE GENERALISABLE** (le point cle) : la methode/heuristique/outil qui a debloque le
@@ -84,7 +90,8 @@ TES runners (jamais ceux des autres), `python` (pas `py`), depuis `scripts/pytho
 ## Interdits
 
 - **JAMAIS de reinjection Frida / restart host** (la SEULE interdiction dure).
-- Jamais de commit/push (l'orchestrateur commit apres revue du diff).
+- Jamais de merge ni de push sur `master`. Tu commit sur TA branche worktree, `git push origin HEAD`
+  + `gh pr create` (mandat #2) ; l'orchestrateur valide et merge la PR (sur accord utilisateur). Push/merge de master = INTERDIT.
 - Pas de RVA hardcodee en live ; pas de heap scan ; pas de broad-hooks UI hot.
 - Sorties console Python : ASCII uniquement. Tests cibles seulement.
 - Instruction du cas ambigue -> demande clarification AVANT d'agir ; pas de « pendant que
