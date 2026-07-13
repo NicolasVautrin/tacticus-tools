@@ -382,28 +382,22 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
 # native normale(69) EXACT). Le `GetAttackDamage` config alimente le HEAL (`GetHealAmountForPrediction`)
 # + le COMBAT réel (`ExecuteBehaviour`), PAS ce preview. On route donc l'event de dégât principal vers
 # `make_normal_attack_predictions` (mirror du slot 0x27 Attack-based : base/hits/mods/auras = la normale).
-# HYPOTHÈSE (non lisible statiquement, #92) : le slot 0x27 HÉRITE de `ALoki_NormalAttackAbility.PredictAttack
-# @1811afa50` — le ctor `SpiritLeechAbility @18120a350` appelle `AActiveAbility.ctor` direct et SpiritLeech
-# est absent des sous-classes ALoki ; SEUL le COMPORTEMENT Attack-based est prouvé (calcul config vs mesure),
-# pas le mécanisme d'héritage vtable runtime. SET COMPLET (#92, PLUS "possiblement incomplet") : les 4 SEULS
-# overrides de `GetAttackDamage` du binaire audités — SpiritLeech (1104) = SEUL special à id gameconfig dont
-# le dégât PRÉDIT diverge de son config ; ExemplarOfHate (1140) = config (pas de divergence) ; PsykerExtraAttack
-# = absent de l'enum ACTIVE_ABILITY_TYPE ; ElectroShock_NormalAttack (1178) = variante normale (kind==normal).
-# Specials dont la PRÉDICTION de dégât santé est Attack-based (slot vtable PredictAttack 0x27 hérité de
-# ALoki_NormalAttackAbility.PredictAttack @1811afa50 -> RECALCULE via l'arme/GetStat(Attack), config IGNORÉ).
-# ⚠⚠ PIÈGE MÉTHODOLOGIQUE (#96 REVERTÉ, 2026-07-11) : la « preuve » `aiPredict(special) == aiPredict(
-# normale id69) bit-exact` est INVALIDE — `DamagePredictionQuery.GetAllPredictions(unit, tile, ability)
-# @181090f50` (ce que le RPC aiPredict invoque, cache OU fresh : vérifié IDENTIQUE via aiPredict
-# fresh:true sur la query interne) est le PREVIEW decisionView, dont le DÉGÂT est Attack-based quel que
-# soit l'abilityType passé — ce N'est PAS le dégât per-ability du PLAYBOOK de décision. La vérité
-# playbook (ce que ce module mirror) = les évaluations FRAÎCHES du tour de décision IA, captées
-# modifier-observe : PlasmaCannon y est CONFIG-based (bouts per-coup 1117/1675 = maxDmg[65]=1164 ×
-# mult 1.2 = 1396 ± 20% ; ×mods ranged 1.875 = HeavyWeapon×Élévation dans predCalcDumps). PlasmaCannon
-# RETIRÉ du set. Preuve exigée pour tout ajout = per-bout FRAIS (dumps GetBaseDamageWithFixedPiercedArmor
-# + predCalcDumps pendant le tour de décision), JAMAIS une égalité aiPredict. SpiritLeech (#90) reste
-# routé sur la foi du RE de SA chaîne playbook (#92 : SpiritLeechPlaybook @18115d490 → slot 0x27) —
-# re-vérification artefact-aware = #101 (avec l'énumération vtable slot 0x27 #99).
-_PREDICT_VIA_NORMAL_ATTACK = frozenset({"SpiritLeech"})
+# ── Specials "Attack-based" : IL N'Y EN A AUCUN — set VIDE (reframing #99/#101a, decompile + live ;
+#    detail : docs/rl/case-99-specials-attackbased-reframe.md). Prouvé ARTEFACT-FREE via le RPC
+#    `resolveVtableSlot` (slot vtable PredictAttack = byte 0x328) : les 5 specials audités (SpiritLeech,
+#    PlasmaCannon, Doombolt, JakhalStimms, GauntletsOfUltramar) résolvent tous PredictAttack vers le STUB
+#    ABSTRAIT QUI THROW `AActiveAbility.PredictAttack @180fb2f20` — AUCUN n'hérite
+#    `ALoki_NormalAttackAbility.PredictAttack @1811afa50` (Attack-based). L'HYPOTHÈSE #92 « SpiritLeech
+#    hérite ALoki » (jamais lue au binaire) est RÉFUTÉE. Le vrai chemin de prédiction = chaque
+#    `<Special>Playbook.MakeDamagePredictions → ComparablePlaybook.GenerateMultiHit(base = ability.GetAttackDamage(),
+#    hits, profile)` ; `base` = CONFIG (`MinMaxDamage`) pour tous — `SpiritLeechAbility.GetAttackDamage @181209dd0`
+#    = DSL `ConditionalAmount(¬HasEffect(Suppressed=1065), MinMaxDamage, +ConfigVar(8)=+1601)`, config.
+# ⚠ Le "== normale 2670 bit-exact" historique (#90/#92) était l'ARTEFACT du preview
+#    `GetAllPredictions @181090f50` (Attack-based quel que soit l'abilityType — piège #96/#101a) — CONFIRMÉ LIVE
+#    (predict_sweep Neurothrope) : `aiPlaybookPredict(SpiritLeech)=[2074,3112]` (config) ≠ `disp`/artefact
+#    `GetAllPredictions=[3111,4668]`. ⇒ SpiritLeech RETIRÉ ; tout special passe par le chemin CONFIG générique.
+#    (PlasmaCannon avait déjà été retiré au #96.) La vérité per-ability = `aiPlaybookPredict` (#102), JAMAIS aiPredict.
+_PREDICT_VIA_NORMAL_ATTACK = frozenset()
 
 
 # ── Overrides d'ENTREE per-ability — mirror des `<Ability>Playbook.MakeDamagePredictions` qui SURCHARGENT
