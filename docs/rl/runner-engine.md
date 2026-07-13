@@ -682,6 +682,35 @@ Bug corrigé en cours de route : `ranged` était hardcodé `(is_melee is False)`
 - **Smoke offline (board ligne, Cadien summon col 0 + ennemi col 5) : le Cadien MOVE (0,0)->(3,0) pour mettre
   son Las à portée (dist 2) puis ATTAQUE (2 coups, ranged) — décision full-playbook cohérente.**
 
+### CORRECTION #147 — le splash Psyker NE CHAINE PAS (le « chain by design » de #140 était FAUX)
+
+**Verdict RE #150 (agent, PROUVÉ ghidra gqfc5mff6c) — EVENT-MAPPING (la source du bug #140) :** l'ancien port
+CONFLATAIT deux events NATIFS DISTINCTS sous une seule constante `0x26` (commentaire faux « message 8 ») :
+
+- **`On(0x26)` = NormalAttack.** `DSLFactory.OnNormalAttackOrSmite @180df7c70` = `On(0x26) OR (On(9)=ability-attack
+  AND HasUsedActiveAbility(Smite 0x3f5))`. L'event `0x26` est émis **UNE fois par ATTAQUE NORMALE** (per-attack),
+  sur le chemin attaque-normale **UNIQUEMENT** — jamais par une attaque d'ability/splash.
+- **After-hit = `On(8)` (+`On(0x3d)` si crit).** `ADamageOperation.EvaluateAfterHitTriggers @180e25fc0` dispatche
+  `FUN_180026490(...,8,...)` après CHAQUE coup (always) et `...,0x3d,...` si crit (`param_6!=0`). **Jamais `0x26`.**
+  Partagé par l'attaque normale ET l'ability (porté par `ADamageOperation`).
+- **Le splash** emprunte `AbilityDamageOperation.ExecuteHit @180e29d50` → émet `{6, 8, 0x3d}` — **jamais `0x26`**
+  (le primary normal `AttackDamageOperation.ExecuteHit @180e5eff0` émet `{6,7,8,0x3d}` + le `0x26` émis plus haut).
+
+⇒ **Le splash ne re-satisfait JAMAIS la souscription `On(0x26)` du Psyker → PAS de chain. STRUCTUREL** (le splash
+n'emprunte pas l'émetteur NormalAttack), pas un flag anti-réentrance. Conforme au live (1 seul splash — l'agent
+Fable l'a prouvé, `probe145_chain_v3`). Le « chain by design » de #140 (ci-dessus) était un **artefact de la
+conflation** : le port faisait re-fire Psyker via le vecteur `after_hit_ability_attack` du splash.
+
+**FIX (`triggers.py`) :** constantes séparées `TRIGGER_NORMAL_ATTACK=0x26` / `TRIGGER_AFTER_HIT=8` /
+`TRIGGER_AFTER_CRIT=0x3d`. **Psyker** écoute `NORMAL_ATTACK(0x26)` → `after_hit_normal_attack` dispatche 0x26
+(Psyker, per-attaque) **ET** 8 (after-hit) ; **`after_hit_ability_attack` ne dispatche QUE 8** → Psyker n'y matche
+plus. **Reset ActOfFaith** reste sur `AFTER_HIT(8)` (gate `is_crit`) → fire toujours au crit des deux chemins
+(comportement #138 préservé). Le cap 51 (`TriggeredAbilityComponent`) devient un **garde-fou générique** (jamais
+atteint par Psyker). VALIDÉ : (a) structurel (0x26 != 8 → skip) ; (b) 6 gardes live (psyker_splash 1/1,
+act_of_faith reset 2/2, damage_ability+crit 3/3) ; (c) **probe offline chain-prone** (4 ennemis en ligne, Psyker
+ranged) = **1 splash** (était 51). ⚠ **Follow-up fidélité** : le natif reset = `On(9)`=ability-attack, or le
+mapping sur `On(8)` fire AUSSI au crit d'attaque NORMALE (pré-existant, non régressé) — à re-vérifier vs live.
+
 **VALIDÉ LIVE (bridge-equivalence, seed 777) :** `calculate_next_action(build_from_state(state,uid))` ==
 `engine_decide(...)` (RPC-fed) sur un runner live — MÊME moteur, entrée reconstruite du State ⇒ tout écart =
 infidélité du bridge. Résultat sur les unités de la team courante : **SLICE-1 (move) 3/3 EXACT** (u88/u90/u94,

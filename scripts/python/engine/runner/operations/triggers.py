@@ -11,7 +11,9 @@ entrée → (ability-trigger) `CanGetAbilityTrigger`@180e6cf60 + `EvaluateAbilit
 - Par entrée (`EvaluateAbilityOrEffectTrigger`/`CanGetAbilityTrigger`) : gates owner = `IsUnit` & VIVANT
   (sauf ability fire-on-death) & `!IsTriggersDisabled` ; cap `GetTimesTriggeredThisPhase < 0x33` (51/phase).
 - Condition (`CreateTrigger`) : `On(eventId) & ...` évaluée contre l'`AbilityEntities` (attaquant/cible/
-  tuiles/dégât/isCrit). after-hit = `On(0x26)`.
+  tuiles/dégât/isCrit). ⚠ events NATIFS DISTINCTS (verdict RE #147) : `On(0x26)`=NormalAttack (per-attaque,
+  chemin normal only ; ex. Psyker) vs after-hit `On(8)`/`On(0x3d)` (`EvaluateAfterHitTriggers @180e25fc0`,
+  per-coup, chemins normal ET ability ; ex. reset ActOfFaith). Ne PAS les conflater (bug #140 → chain Psyker).
 - Behaviour (`EvaluateAbilityTrigger` → PossibleTargets + CreateBehaviour) : exécute l'extra-attaque/effet.
 
 Première entrée concrète portée = **Psyker** (`PsykerExtraAttackAbility` @1812241b0..) — splash « Smite » :
@@ -35,12 +37,29 @@ from .damage import AttackDamageOperation
 
 # --- Cap phase-triggers (#140) --------------------------------------------------------------------
 PHASE_TRIGGER_CAP = 0x33         # 51 — `EvaluateAbilityTrigger`@180e6d650 : GetTimesTriggeredThisPhase < 0x33.
-                                 # Borne l'auto-récursion des ability-triggers générateurs d'attaque (splash
-                                 # Psyker qui re-déclenche le splash Psyker via le vecteur after-hit) que le
-                                 # natif borne à 51 par PHASE (= une activation ; ResetPhase à EndPhaseOperation).
+                                 # Borne native (par PHASE = une activation ; ResetPhase à EndPhaseOperation) de
+                                 # la ré-entrance d'un ability-trigger générateur d'attaque. GARDE-FOU générique :
+                                 # depuis le fix #147, Psyker ne s'auto-déclenche plus (splash = after-hit `On(8)`,
+                                 # PAS NormalAttack `On(0x26)`) → le cap n'est plus atteint par Psyker, mais reste
+                                 # porté fidèlement (borne toute future ability-trigger récursive).
 
 # --- Event ids de trigger (DSLFactory.On(x)) ------------------------------------------------------
-TRIGGER_AFTER_HIT = 0x26        # 38 — après une attaque/coup (EvaluateAfterHitTriggers, message 8)
+# EVENT-MAPPING RE (#147, verdict agent #150) : `On(0x26)` (NormalAttack) et le vecteur after-hit
+# `ADamageOperation.EvaluateAfterHitTriggers @180e25fc0` (message 8, +0x3d si crit) sont des events NATIFS
+# DISTINCTS. L'ancien port les conflatait sous UNE constante 0x26 (commentaire faux « message 8 ») → le
+# splash (chemin `AbilityDamageOperation.ExecuteHit @180e29d50`, events {6,8,0x3d}, JAMAIS 0x26) re-satisfaisait
+# Psyker `On(0x26)` → chain 51× (borné par le cap phase). Corrigé : Psyker écoute NormalAttack ; le splash
+# n'émet que l'after-hit → ne re-déclenche PAS Psyker (structurel, conforme au live : 1 seul splash).
+TRIGGER_NORMAL_ATTACK = 0x26    # 38 — attaque NORMALE effectuée. `DSLFactory.OnNormalAttackOrSmite @180df7c70`
+                                #      = On(0x26) OR (On(9)=ability-attack AND HasUsedActiveAbility(Smite 0x3f5)).
+                                #      Émis UNE fois par ATTAQUE (per-attack), chemin normal-attack UNIQUEMENT
+                                #      (pas les attaques d'ability/splash). Écoute : Psyker (splash Smite).
+TRIGGER_AFTER_HIT = 8           # 8  — after-HIT. `EvaluateAfterHitTriggers @180e25fc0` dispatche message 8
+                                #      après CHAQUE coup (FUN_180026490(...,8,...)), attaque NORMALE ET
+                                #      ability/splash (partagé par `ADamageOperation`). Écoute : reset ActOfFaith.
+TRIGGER_AFTER_CRIT = 0x3d       # 61 — after-CRIT. `EvaluateAfterHitTriggers` branche `param_6!=0` : dispatche
+                                #      0x3d si le coup crit (mêmes deux chemins que 8). Non écouté pour l'instant
+                                #      (le reset gate `is_crit` sur le vecteur after-hit 8).
 TRIGGER_AFTER_MOVE = 4          # 4  — après un déplacement (EvaluateAfterMoveTriggers, message 4 ;
                                 #      RangedAutoAttackEffect.CreateTargetTrigger = On(4))
 TRIGGER_DEATH = 1               # 1  — MORT (OnDeathEvent eventId=1 ; OnPreDeath/OnDeath @180df7ad0).
@@ -152,8 +171,11 @@ class TriggeredAbility:
 
 
 class PsykerExtraAttackAbility(TriggeredAbility):
-    """Splash « Smite » du trait Psyker (`PsykerExtraAttackAbility`, @1812241b0..)."""
-    event_id = TRIGGER_AFTER_HIT
+    """Splash « Smite » du trait Psyker (`PsykerExtraAttackAbility`, @1812241b0..).
+    Trigger `On(0x26)=NormalAttack` (@181224420) → fire UNIQUEMENT sur le vecteur attaque-NORMALE
+    (`after_hit_normal_attack`), JAMAIS sur le splash/ability (chemin `AbilityDamageOperation`, events {6,8,0x3d}
+    sans 0x26) → pas de chain (verdict RE #147/#150)."""
+    event_id = TRIGGER_NORMAL_ATTACK
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         # CreateTrigger@181224420 : OwnerIsActor & IsRangedAttack & DamageProfileIs(Psychic) & NON suppressé.
@@ -454,9 +476,13 @@ class ActOfFaithResetAbility(TriggeredAbility):
     """`ActOfFaith_RemoveEffectAbility` (@181219f90 CreateTrigger / @181219eb0 CreateBehaviour) — RESET du
     buff au crit du porteur.
 
-    CreateTrigger@181219f90 = `On(9,1) & OwnerIsCaster & WasCrit & HasEffect(owner,0x3f9)` — l'événement
-    natif `On(9,1)` (post-attaque) est ici mappé sur le vecteur **after-hit** (`On(0x26)`) qui, dans notre
-    modèle, fire 1×/AttackUnitMessage avec `is_crit` agrégé (même timing : après l'attaque du porteur).
+    CreateTrigger@181219f90 = `On(9,1) & OwnerIsCaster & WasCrit & HasEffect(owner,0x3f9)`. L'événement natif
+    `On(9)` = attaque d'ABILITY (`OnNormalAttackOrSmite @180df7c70` : On(9)=ability-attack vs On(0x26)=normal) ;
+    il est ici mappé sur le vecteur **after-hit `On(8)`** (`EvaluateAfterHitTriggers @180e25fc0`, dispatché par
+    les DEUX chemins normal+ability), gaté par `is_crit` — fire 1×/AttackUnitMessage avec `is_crit` agrégé
+    (même timing : après l'attaque du porteur). ⚠ FIDÉLITÉ (#147 caveat, follow-up) : le natif `On(9)` cible
+    les crits d'ABILITY seulement, or ce mapping fire AUSSI sur un crit d'attaque NORMALE ; comportement
+    PRÉSERVÉ (pré-existant, non régressé par le fix Psyker) mais à re-vérifier vs live.
     `OwnerIsCaster` = owner est l'attaquant (`actor_id`). Behaviour@181219eb0 = `RemoveEffect(0x3f9)` →
     retire TOUS les stacks et revert leur ChangeStat (soustrait les deltas stockés). Câblé sur DEUX
     vecteurs after-hit : attaque NORMALE (`after_hit_normal_attack`, via `DamageHandler`) ET attaques
@@ -740,7 +766,7 @@ def _on_fire_damage_ability(state: State, attacker_id: int, target_id: int,
     d'AddEffect) ; le `NOT(TriggeringEffectIs(5))` du trigger est structurellement satisfait ici (on est dans
     le vecteur ATTAQUE, pas un tick de feu -> `FireTileDoT` inflige son DoT en direct, sans repasser par ce
     vecteur, donc jamais de re-pose en cascade). Emetteur natif = `EvaluateAfterHitTriggers @180e25fc0`,
-    per-coup, MEME site que l'after-hit 0x26. NB : attaque NORMALE uniquement — la pose par ABILITY
+    per-coup (message after-hit `On(8)`, PAS NormalAttack 0x26). NB : attaque NORMALE uniquement — la pose par ABILITY
     (BrazierOfHolyFire) passe par AbilityDamageOperation, non cable dans ce vecteur -> gap (#136 suivi)."""
     if not profile or state.effects is None or getattr(state, "board", None) is None:
         return []
@@ -833,14 +859,18 @@ def _fire_of_absolution_after_attack(state: State, attacker_id: int, target_id: 
 
 def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
                             ranged: bool, profile: Optional[str], is_crit: bool = False) -> list[dict]:
-    """Vecteur after-hit (mirror `EvaluateAfterHitTriggers` → dispatch generique). Construit l'événement
-    `On(0x26)` {acteur=attaquant, cible, ranged, profil, isCrit} et lance `evaluate_trigger_operation`.
-    `ranged`/`profile` = nature du coup primaire. Ajoute le passif `SquigHound` (spawn de grot après attaque)
-    + la POSE on-hit des tile-effects de profil (`OnFireDamageAbility` : feu sur tuile-cible). No-op si rien
-    ne matche."""
-    ev = TriggerEvent(TRIGGER_AFTER_HIT, attacker_id, target_id,
-                      ranged=ranged, profile=profile, is_crit=is_crit)
-    out = evaluate_trigger_operation(state, ev)
+    """Vecteur attaque NORMALE. Le natif émet DEUX events distincts (verdict RE #147) : `On(0x26)`=NormalAttack
+    (per-ATTAQUE, chemin normal only) ET l'after-hit `On(8)` (message 8 de `EvaluateAfterHitTriggers`). On
+    dispatche les deux : `NormalAttack` déclenche Psyker (splash Smite) ; `after-hit(8)` déclenche le reset
+    ActOfFaith (gate is_crit). `ranged`/`profile` = nature du coup primaire. Ajoute le passif `SquigHound`
+    (spawn de grot après attaque) + la POSE on-hit des tile-effects de profil (`OnFireDamageAbility`). No-op
+    si rien ne matche."""
+    ev_na = TriggerEvent(TRIGGER_NORMAL_ATTACK, attacker_id, target_id,
+                         ranged=ranged, profile=profile, is_crit=is_crit)
+    out = evaluate_trigger_operation(state, ev_na)              # On(0x26) : Psyker (per-attaque)
+    ev_ah = TriggerEvent(TRIGGER_AFTER_HIT, attacker_id, target_id,
+                         ranged=ranged, profile=profile, is_crit=is_crit)
+    out = out + evaluate_trigger_operation(state, ev_ah)        # On(8) after-hit : reset ActOfFaith (crit)
     out = out + _on_fire_damage_ability(state, attacker_id, target_id, profile)  # OnFireDamageAbility @1811c3a60
     out = out + _fire_of_absolution_after_attack(state, attacker_id, target_id, ranged)  # passif @18121f380 (Vindicta)
     return out + _squighound_after_attack(state, attacker_id, target_id)
@@ -870,19 +900,16 @@ def _is_ranged_position(state: State, attacker_id: int, target_id: int) -> bool:
 
 def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
                              is_crit: bool, profile: Optional[str] = None) -> list[dict]:
-    """Vecteur after-hit d'une attaque d'ABILITY ou de SPLASH (mirror `EvaluateAfterHitTriggers`
-    @180e25fc0 → dispatch générique). `EvaluateAfterHitTriggers` est porté par `ADamageOperation`, donc
-    PARTAGÉ par l'attaque normale ET les attaques d'ability : le natif dispatche l'événement `WasCrit`
-    per-coup pour TOUTE attaque (branche `param_6 != 0` → event 0x3d).
-
-    #138 a câblé ce vecteur (reset ActOfFaith au crit d'ability/splash). #140 le rend COMPLET : le splash
-    Psyker (`PsykerExtraAttackAbility`, gaté `IsRangedAttack & DamageProfileIs(Psychic)`) fire aussi sur
-    les abilities/splash psychiques. ⚠ `ranged` = **POSITION-based** (`_is_ranged_position`, mirror
-    `DSLFactory.IsRangedAttack` = distance caster↔cible, PAS le type d'arme) : un splash sur un ennemi
-    ADJACENT au caster est MÊLÉE → ne re-déclenche PAS Smite. Le CHAIN Psyker n'a donc lieu que si le
-    caster est à distance RANGED du splash-target (tel le natif ; `CreateBehaviour` n'ajoute aucune
-    suppression, seul le cap `<51/phase` — `TriggeredAbilityComponent` — borne la ré-entrance). No-op si
-    aucun trigger ne matche."""
+    """Vecteur after-hit d'une attaque d'ABILITY ou de SPLASH. Mirror `EvaluateAfterHitTriggers @180e25fc0`,
+    porté par `ADamageOperation` donc PARTAGÉ par l'attaque normale ET les attaques d'ability : dispatche le
+    message **after-hit `On(8)`** (branche crit `param_6!=0` = `On(0x3d)`, non écouté ici). ⚠ Ce vecteur
+    NE dispatche PAS `NormalAttack(0x26)` : le splash emprunte `AbilityDamageOperation.ExecuteHit @180e29d50`
+    (events {6,8,0x3d}, JAMAIS 0x26) → **Psyker `On(0x26)` ne re-fire PAS ici = pas de chain** (verdict RE
+    #147/#150 ; corrige la sur-propagation de #140). Consommateur actif : reset ActOfFaith (#138, `On(8)` +
+    gate `is_crit`) au crit d'ability/splash (ArmoriumCherub, splash FireOfAbsolution). `ranged` (position-based,
+    `_is_ranged_position` = mirror `DSLFactory.IsRangedAttack`) reste porté par l'événement pour fidélité (aucun
+    consommateur `On(8)` ne le lit aujourd'hui). Le cap `<51/phase` (`TriggeredAbilityComponent`) reste un
+    garde-fou générique fidèle au natif (`EvaluateAbilityTrigger @180e6d650`). No-op si aucun trigger ne matche."""
     ranged = _is_ranged_position(state, attacker_id, target_id)
     ev = TriggerEvent(TRIGGER_AFTER_HIT, attacker_id, target_id,
                       ranged=ranged, profile=profile, is_crit=is_crit)
