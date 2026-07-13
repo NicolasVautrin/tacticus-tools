@@ -26,7 +26,7 @@ EFFECT_UTILITY_PREFIX = "Unit_on_"   # AddedEffectUtility String.Concat(prefix, 
 class AddedEffectUtility(BaseUtility):
     """`IdunBattle.AI.Utilities.AddedEffectUtility` (ctor @1810ee410 ; UtilityType.AddedTileEffects=45).
     Corps dans `evaluate` (= `<EvaluateAttackInSteps>d__.MoveNext`, body @1810f6e70)."""
-    UTILITY_TYPE = 45   # UtilityType.AddedTileEffects (categorie de poids BC lue par cette utilite)
+    UTILITY_TYPE = int(UtilityType.AddedTileEffects)  # 45
 
     def evaluate(self, effect_name: str, target_has_effect: bool, is_friend: bool, weights: dict) -> float:
         if target_has_effect:

@@ -22,7 +22,7 @@ W_HEAL = 100   # HealUtility.cctor @1810cfd10 : Fix64.FromInt(100)
 class HealUtility(BaseUtility):
     """`IdunBattle.AI.Utilities.HealUtility` (ctor @1810cfd80 ; UtilityType.Heal=44). Corps dans
     `evaluate` (= `<EvaluateAttackInSteps>d__.MoveNext`, body @1810e16f0)."""
-    UTILITY_TYPE = 44   # UtilityType.Heal
+    UTILITY_TYPE = int(UtilityType.Heal)  # 44
 
     def get_unit_utility_modifier(self, is_boss: bool) -> float:
         """`HealUtility.GetUnitUtilityModifier @1810cfc80` : `bossMod = 2` si la cible est un BOSS,

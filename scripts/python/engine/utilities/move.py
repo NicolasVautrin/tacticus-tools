@@ -30,7 +30,7 @@ from .utility_type import UtilityType
 class MinDistanceToClosestEnemyUtility(BaseUtility):
     """`IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility` (ctor @1810f0810 ;
     UtilityType.MinDistanceToClosestEnemy=16). Feuille du composite UnitMovement(6)."""
-    UTILITY_TYPE = 16   # UtilityType.MinDistanceToClosestEnemy
+    UTILITY_TYPE = int(UtilityType.MinDistanceToClosestEnemy)  # 16
 
     def get_min_distance_to_enemy(self, pos, enemy_positions, pathdist_by_pos=None) -> int:
         """`MinDistanceToClosestEnemyUtility.GetMinDistanceToEnemy @1810f04a0` : MIN sur les ennemis

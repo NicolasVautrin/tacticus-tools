@@ -18,6 +18,7 @@ from ..operations.spawn import SpawnUnitOperation
 from ..components import StatsComponent, OwnerComponent, PositionComponent, UnitComponent
 from ...entities.stats import StatType
 from ...entities.effect_type import EffectType
+from ...entities.active_ability_type import ActiveAbilityType  # #158 : ABILITY_TYPE -> enum (module = abilities ACTIVES)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -59,7 +60,7 @@ class ThunderousAssaultAbility(ActiveAbility):
       & KillDeadUnits & MoveUnit(caster -> hex libéré)         # [déplacement — TODO]
     VALIDÉ live : pose Stunned(1162, rem=1) + enfants 1165/1166/1167 sur la cible (cf. test_effect_stun_live)."""
     __slots__ = ()
-    ABILITY_TYPE = 1043
+    ABILITY_TYPE = int(ActiveAbilityType.ThunderousAssault)  # 1043
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -93,7 +94,7 @@ class ArmoriumCherubAbility(ActiveAbility):
     adjacents à la cible + 30% ignite/hex) — mirroir du natif où le passif se déclenche sur toute attaque
     ranged de l'unité. Cf. `_fire_of_absolution_after_attack`."""
     __slots__ = ()
-    ABILITY_TYPE = 1014
+    ABILITY_TYPE = int(ActiveAbilityType.ArmoriumCherub)  # 1014
     ABILITY_ID = "ArmoriumCherub"
 
     def execute_behaviour(self, state: "State", caster_id: int,
@@ -133,7 +134,7 @@ class ScarabHiveAbility(ActiveAbility):
     PerformAIAttack). NON encore porté (cf. commentaire GAP plus bas). Ne PAS confondre les deux (même
     unitId necroSmnSwarm, mais summoner-scaled vs clone-du-parent)."""
     __slots__ = ()
-    ABILITY_TYPE = 1007
+    ABILITY_TYPE = int(ActiveAbilityType.ScarabHive)  # 1007
     SUMMON_ABILITY = "ScarabHive"     # clé gameconfig (constants.unitId/unitDamageProfile + summon* variables)
     COUNT = 2                         # nb d'invocations (arg .ctor ; le count GÉNÉRAL est par-ability)
 
@@ -202,7 +203,7 @@ class ScarabSummonAbility(ActiveAbility):
     Chance gameconfig = 50 ; playbook `ScarabSummonPlaybook`. GAP : cap de duplication
     (`UnitDuplicationLimitSelector`/`LimitUnitDuplications`) non porté (récurrence non bornée offline)."""
     __slots__ = ()
-    ABILITY_TYPE = 1047
+    ABILITY_TYPE = int(ActiveAbilityType.ScarabSummon)  # 1047
     SUMMON_ABILITY = "ScarabSummon"     # clé gameconfig (constants.unitId = necroSmnSwarm)
     COUNT = 1
 
@@ -240,7 +241,7 @@ class GetEmRuntzAbility(ActiveAbility):
     attaque sur l'ennemi le plus proche (rng requis) ; le Taunt(1t) des ennemis touchés
     (`TauntWithNewChildrenWhoDidDamage @1811e27a0`) = FLAGGÉ non porté (secondaire)."""
     __slots__ = ()
-    ABILITY_TYPE = 1045
+    ABILITY_TYPE = int(ActiveAbilityType.GetEmRuntz)  # 1045
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -436,7 +437,7 @@ class CrushingClawsAbility(ActiveAbility):
     1 hex) est différé (cf. ThunderousAssault) ; l'exclusion **trait 0xd** du splash est différée (enum
     inconnu). Effets posés sur la cible SANS gate IsAlive (comme le natif) ; splash gated alive."""
     __slots__ = ()
-    ABILITY_TYPE = 1105
+    ABILITY_TYPE = int(ActiveAbilityType.CrushingClaws)  # 1105
     ABILITY_ID = "CrushingClaws"
 
     def execute_behaviour(self, state: "State", caster_id: int,
@@ -495,7 +496,7 @@ class SpiritLeechAbility(ActiveAbility):
     Porte : attaque (config + bonus Suppressed) + Pinned cible. Le LIFESTEAL (3e behaviour) est DIFFERE
     (tache #94 : necessite un HealOperation combat)."""
     __slots__ = ()
-    ABILITY_TYPE = 1104
+    ABILITY_TYPE = int(ActiveAbilityType.SpiritLeech)  # 1104
     ABILITY_ID = "SpiritLeech"
 
     def execute_behaviour(self, state: "State", caster_id: int,
@@ -566,7 +567,7 @@ class ValkyrieStrikeAbility(ActiveAbility):
     l'effet différé (fidèle). L'airstrike différé lui-même (fire du 1022 → dégât) = sa propre tranche
     pending-effect (TODO)."""
     __slots__ = ()
-    ABILITY_TYPE = 1018
+    ABILITY_TYPE = int(ActiveAbilityType.ValkyrieStrike)  # 1018
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -587,7 +588,7 @@ class PlasmaGrenadeAbility(ActiveAbility):
     MinMaxDamage, Plasma, nrOfHits_2=1)`. Splash = ennemis adjacents (hex) à la CIBLE (`_adjacent_enemies_of`),
     plage de dégât PARTAGÉE (seul le nb de hits change). Ranged (range 2)."""
     __slots__ = ()
-    ABILITY_TYPE = 1098
+    ABILITY_TYPE = int(ActiveAbilityType.PlasmaGrenade)  # 1098
     ABILITY_ID = "PlasmaGrenade"
 
     def execute_behaviour(self, state: "State", caster_id: int,
@@ -608,7 +609,7 @@ class StikkbombAbility(ActiveAbility):
     AttackWithAttackDamage(actor, s, MÊME MinMaxDamage, Blast, nrOfHits_2=1))` (l'`AtomicGroup` = no-op
     offline). Splash = `_adjacent_enemies_of`, plage PARTAGÉE. Profil Blast, ranged (range 2)."""
     __slots__ = ()
-    ABILITY_TYPE = 1051
+    ABILITY_TYPE = int(ActiveAbilityType.Stikkbomb)  # 1051
     ABILITY_ID = "Stikkbomb"
 
     def execute_behaviour(self, state: "State", caster_id: int,
@@ -630,7 +631,7 @@ class FragstormAbility(ActiveAbility):
     adjacents à la cible, PICK-RANDOM (`_pick_randomly_n`), plage PARTAGÉE. ⚠ GAP : coût/ordre RNG du pick
     non calibré (désync possible de `state.rng` si >4 candidats) ; ≤4 candidats → tous, sans RNG."""
     __slots__ = ()
-    ABILITY_TYPE = 1078
+    ABILITY_TYPE = int(ActiveAbilityType.Fragstorm)  # 1078
     ABILITY_ID = "Fragstorm"
     N_TARGETS = 4        # constants.nrOfTargets (borne du PickRandomly splash)
 
@@ -657,7 +658,7 @@ class ScythingTalonsAbility(ActiveAbility):
     CrushingClaws, NON mappé offline — pas de map TRAIT dans enum_maps). On porte les hits de BASE (3/2,
     jamais de sur-compte) ; le doublement s'ajoutera une fois le trait 2 identifié (via `target` gameconfig)."""
     __slots__ = ()
-    ABILITY_TYPE = 1065
+    ABILITY_TYPE = int(ActiveAbilityType.ScythingTalons)  # 1065
     ABILITY_ID = "ScythingTalons"
 
     def execute_behaviour(self, state: "State", caster_id: int,
@@ -679,7 +680,7 @@ class GravitonRifleAbility(ActiveAbility):
     MÊME pattern AddEffect que ThunderousAssault. ⚠ votanIronmaster N'EST PAS dans le pool du runner
     (non spawnable) → cette ability n'est PAS validée live ; portée pour documenter le pattern partagé."""
     __slots__ = ()
-    ABILITY_TYPE = 1206
+    ABILITY_TYPE = int(ActiveAbilityType.GravitonRifle)  # 1206
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

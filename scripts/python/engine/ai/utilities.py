@@ -40,7 +40,7 @@ class DislikeStartingTilesUtility(BaseUtility):
     (_WEIGHT=0) neutralise ce tie-breaker
     -> biais du port a RESTER sur place au lieu de bouger (couple au trou#6 R1 : origine evaluee en dernier
     cote natif). A confirmer live : si le poids BC DislikeStartingTiles est != 0, cabler `_WEIGHT`."""
-    UTILITY_TYPE = 27
+    UTILITY_TYPE = int(UtilityType.DislikeStartingTilesUtility)  # 27
 
     def evaluate(self, ctx, pos) -> float:
         _WEIGHT = 0.0  # TODO cabler BaseUtility.GetUtilityValue(query, DislikeStartingTiles) [poids BC] (R2)

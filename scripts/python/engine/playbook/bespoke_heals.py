@@ -18,6 +18,7 @@ from __future__ import annotations
 import gameconfig as _gc
 from engine import battle_query as bq
 from engine.predict import heal_amount_config, predict_heal_effective, heal_utility
+from engine.entities.active_ability_type import ActiveAbilityType  # #158 : ABILITY_ID -> enum (abilities ACTIVES, cat W_KEY=ActiveAbilities)
 
 _TRAITS_CACHE: dict = {}
 
@@ -48,7 +49,7 @@ class BloodChalicePlaybook:
     - MIN_UTILITY = `Fix64.FromInt(1)` = 1 (cctor @181122b10) -> gate `count>=1` (1×50=50>1).
     - `ShouldExecute @1811228b0` : `Σ(seuil − PV%)` sur amis non-méca > 0 (>=1 ami sous le seuil)."""
 
-    ABILITY_ID = 1175
+    ABILITY_ID = int(ActiveAbilityType.BloodChalice)  # 1175
     W_KEY = "BloodChalice_AdjacentDamagedNonMechanicalFriend"   # cat ActiveAbilities
     MIN_UTILITY = 1.0
 
@@ -107,7 +108,7 @@ class MomentShacklePlaybook:
       W = `Utilities.Default.ActiveAbilities.MomentShackle_AdjacentEnemy` = 25.
     - MIN_UTILITY = `Fix64.FromInt(1)` = 1 (cctor @18114c960). Position-swept, origine-préférée (#76)."""
 
-    ABILITY_ID = 1184
+    ABILITY_ID = int(ActiveAbilityType.MomentShackle)  # 1184
     W_KEY = "MomentShackle_AdjacentEnemy"   # cat ActiveAbilities
     MIN_UTILITY = 1.0
 

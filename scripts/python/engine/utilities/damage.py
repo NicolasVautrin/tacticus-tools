@@ -43,7 +43,7 @@ class DamageUtility(BaseUtility):
     """`DamageUtility` (@1810cf370, TypeDefIndex 12112 ; UtilityType.DamageDealt=35) — le LEAF DamageDealt
     (le NOM natif de la classe est `DamageUtility`, PAS `DamageDealtUtility`). Corps = `<EvaluateAttackInSteps>
     d__2.MoveNext @1810e2280`. `GetHealthDamage`/`GetShieldDamage` = méthodes natives (VA citées)."""
-    UTILITY_TYPE = 35
+    UTILITY_TYPE = int(UtilityType.DamageDealt)  # 35
 
     def get_health_damage(self, pred) -> float:
         """`DamageUtility.GetHealthDamage @1810cec60` : Avg(AccurateHealthDamage@0x58) ; si
@@ -82,7 +82,7 @@ class KillUnitUtility(BaseUtility):
     """`KillUnitUtility` (@1810cff10, TypeDefIndex 12124 ; UtilityType.KillUnit=36) ; @1810e1a90 :
     DefinitelyKill si WillBeKill (killSure), sinon PossibleKill si MightBeKill (kill). 0 sinon.
     (Steppable/friendly-fire non gérés : le moteur ne cible que des ennemis vivants.)"""
-    UTILITY_TYPE = 36
+    UTILITY_TYPE = int(UtilityType.KillUnit)  # 36
 
     def evaluate(self, pred, target_max_hp, wt) -> float:
         if not pred:
@@ -103,7 +103,7 @@ class OverkillUnitUtility(BaseUtility):
     HP) — le port historique lisait `AccurateHealthDamage` CAPÉ à HP (`min(dmg,hp) > hp` = TOUJOURS FAUX)
     -> `OverkillUnit` INERTE pour toute attaque. Réactivé via `raw_health_damage` + `is_overkill` (l'over-shoot
     est déjà porté pour le cap Resilient, `trait_damage_limits.is_overkill`)."""
-    UTILITY_TYPE = 37
+    UTILITY_TYPE = int(UtilityType.OverkillUnit)  # 37
 
     def evaluate(self, pred, target_max_hp, wt) -> float:
         if not pred:

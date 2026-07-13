@@ -47,6 +47,7 @@ import gameconfig as _gc
 from engine import battle_query as bq
 from engine.ai.utilities import get_movement_utility   # IdunBattle.AI.Utilities : GetMovementUtility
 from engine.utilities.utility_type import UtilityType
+from engine.entities.active_ability_type import ActiveAbilityType  # #158 : ABILITY_ID -> enum (playbooks ACTIFS, nom classe == membre Active)
 
 
 _CFG_CACHE: dict = {}
@@ -207,7 +208,7 @@ class _PlanTargetPlaybook(NonComparablePlaybook):
 class BloodyFuryPlaybook(_PlanTargetPlaybook):
     """BloodyFuryPlaybook.EvaluateNonComparable @181122be0 = 1 + (#ennemis adjacents a la tuile
     d'attaque) x ADJACENT_ENEMIES_UTILITY. cctor @181123340 : MIN_UTILITY=1, ADJACENT=10."""
-    ABILITY_ID = 1129
+    ABILITY_ID = int(ActiveAbilityType.BloodyFury)  # 1129
     MIN_UTILITY = 1.0
     _ADJACENT_ENEMIES_UTILITY = 10   # cctor @181123340
 
@@ -221,7 +222,7 @@ class BloodyFuryPlaybook(_PlanTargetPlaybook):
 class VexillaMagnificaPlaybook(_PlanTargetPlaybook):
     """VexillaMagnificaPlaybook.EvaluateNonComparable @18117f6f0 = FromInt(GetStat(cible,5=Health))
     -> PV courants de la cible. cctor @18117fa30 : MIN_UTILITY=1. [filtre HasEffect 0x48a : TODO]."""
-    ABILITY_ID = 1183
+    ABILITY_ID = int(ActiveAbilityType.VexillaMagnifica)  # 1183
     MIN_UTILITY = 1.0
 
     def evaluate_non_comparable(self, tile, target, ctx):
@@ -233,7 +234,7 @@ class FightingRetreatPlaybook(NonComparablePlaybook):
     """FightingRetreatPlaybook.EvaluateNonComparable @181131ff0 : u = |ennemis adj a la tuile| +
     (si >0) |allies adj a la tuile - self|, balaye sur les tuiles atteignables (origine EN TETE) ;
     cible = SELF. cctor @1811323b0 : MIN_UTILITY=2."""
-    ABILITY_ID = 1081
+    ABILITY_ID = int(ActiveAbilityType.FightingRetreat)  # 1081
     MIN_UTILITY = 2.0
 
     def evaluate_non_comparable(self, tile, ctx):
@@ -271,7 +272,7 @@ class AberrantHypermorphPlaybook(NonComparablePlaybook):
     NB abilityTargets.targets = UNION des spawns sur TOUTES les tuiles de move
     (GetAllValidTargetsFromAllPossibleMovementTiles, dist 0-4 de l'origine) — le filtre
     distance(T,ST)==1 reconstitue le per-tuile."""
-    ABILITY_ID = 1166
+    ABILITY_ID = int(ActiveAbilityType.AberrantHypermorph)  # 1166
     MIN_UTILITY = 1.0
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
@@ -329,7 +330,7 @@ class NovaBoostPlaybook(NonComparablePlaybook):
       (précondition Nova, prob. charge, + base) NON modélisé -> on s'appuie sur le filtre driver
       `usable is False` (supposé encoder la précondition). L'eligible-empty (`GetEligibleTargetsSelectable`
       vide -> le natif n'émet rien) est modélisé ci-dessous."""
-    ABILITY_ID = 1192
+    ABILITY_ID = int(ActiveAbilityType.NovaBoost)  # 1192
     MIN_UTILITY = 1.0
     PRIORITY = 0          # #115 : get_Priority de base (aucun override) = 0, PAS 1000 (source @1807D66A0 stale)
 
@@ -379,7 +380,7 @@ class NovaShieldPlaybook(NonComparablePlaybook):
     `HasValidTargets` derriere dispatch d'interface ; la classe TILE-target n'a PAS de confirmation live comme
     la classe self-target #76 -> ne PAS asserter fermement.] R2 : `DislikeStartingTilesUtility` no-op (poids
     BC non confirmé, arene-inagreable)."""
-    ABILITY_ID = 1194
+    ABILITY_ID = int(ActiveAbilityType.NovaShield)  # 1194
     MIN_UTILITY = 1.0
     PRIORITY = 0          # #115 : get_Priority de base (aucun override) = 0, PAS -1000 (source @1807D66A0 stale)
 
@@ -444,7 +445,7 @@ class RitesOfRestorationPlaybook(NonComparablePlaybook):
       MIN_UTILITY=1 (Bucket du cctor). Sweep reach_nc (adjacence -> depend de la position -> le caster va
       la ou il soigne le plus).
     PRIORITY=0 CONFIRME (#115 : aucun playbook n'override get_Priority -> defaut base NonComparable=0)."""
-    ABILITY_ID = 1039
+    ABILITY_ID = int(ActiveAbilityType.RitesOfRestoration)  # 1039
     MIN_UTILITY = 1.0
     PRIORITY = 0
 
@@ -521,7 +522,7 @@ class CombatRestorativesPlaybook(NonComparablePlaybook):
     - MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (cctor @1811265c0). Sweep reach_nc (le caster
       va la ou la somme des fractions manquantes adjacentes est max), argmax STRICT.
     PRIORITY=0 CONFIRME (#115 : aucun playbook n'override get_Priority -> defaut base NonComparable=0)."""
-    ABILITY_ID = 1002
+    ABILITY_ID = int(ActiveAbilityType.CombatRestoratives)  # 1002
     MIN_UTILITY = 0.9      # cctor @1811265c0 : Fix64.FromIntFraction(9,10)
     PRIORITY = 0
 
@@ -585,7 +586,7 @@ class DefendTheDivineWorkPlaybook(NonComparablePlaybook):
       par cible (position-indép du sweep). `ability_targets` absent -> +0.5 omis (borne inf, pré-#77).
     - MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (cctor @18112c070). Sweep reach_nc, argmax STRICT.
     PRIORITY=0 CONFIRME (#115 : aucun override get_Priority)."""
-    ABILITY_ID = 1117
+    ABILITY_ID = int(ActiveAbilityType.DefendTheDivineWork)  # 1117
     MIN_UTILITY = 0.9      # cctor @18112c070 : Fix64.FromIntFraction(9,10)
     PRIORITY = 0
 
@@ -638,7 +639,7 @@ class RevitalizingMalignancyPlaybook(NonComparablePlaybook):
     - util(T) = `Σ (1 - RemainingPercentage_health @180f9be60)` sur ces cibles (= Σ missing/max). Meme
       formule que CombatRestoratives. MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (cctor @181156d30).
       Sweep reach_nc, argmax STRICT ; self-cast (MainTile-id). PRIORITY=0 CONFIRME (#115)."""
-    ABILITY_ID = 1037
+    ABILITY_ID = int(ActiveAbilityType.RevitalizingMalignancy)  # 1037
     MIN_UTILITY = 0.9      # cctor @181156d30 : Fix64.FromIntFraction(9,10)
     PRIORITY = 0
 
@@ -711,7 +712,7 @@ class InspiredToGreatnessPlaybook(NonComparablePlaybook):
       (origine castable) emet to=None par origine-preference #76 (self-cast confirme) ; NON separement crafte
       pour l'ally-target (le generateur keep-first-move-first pourrait BOUGER si des tuiles de move sont aussi
       legales -> a confirmer si un craft origine-castable apparait)."""
-    ABILITY_ID = 1082
+    ABILITY_ID = int(ActiveAbilityType.InspiredToGreatness)  # 1082
     MIN_UTILITY = 0.0     # ctor NonComparablePlaybook(0x43a) sans min -> 0
     PRIORITY = 0
 
@@ -792,7 +793,7 @@ class ScarabSummonPlaybook(NonComparablePlaybook):
     GAP : `GetUseProbability @181159220` (1.0 ou 1/2 selon un compteur runtime = `chance:50` gameconfig) =
     gate RNG NON modélisé offline -> le port décide TOUJOURS de se dédoubler dès qu'une tuile ring-1 est
     libre (le natif ~50%). Idem cap de duplication (`UnitDuplicationLimitSelector`) non porté."""
-    ABILITY_ID = 1047
+    ABILITY_ID = int(ActiveAbilityType.ScarabSummon)  # 1047
     MIN_UTILITY = 1.0
     _UTILITY = 1.5   # Fix64.FromIntFraction(3,2) — CONSTANTE par cible éligible
 
@@ -820,7 +821,7 @@ class GetEmRuntzPlaybook(NonComparablePlaybook):
     `GetStat(Health, part1=%)` -> <=49 => 1 ; 49<..<75 => 2 ; >=75 => 3). L'IA caste si `numTiles >= minSummons` ;
     utilité = `numTiles`. cctor @18113f250 : base 1. get_Priority = 0 (défaut). NonComparable = évaluée AVANT
     l'attaque. Le caster NE bouge PAS (spawn autour de sa position actuelle)."""
-    ABILITY_ID = 1045
+    ABILITY_ID = int(ActiveAbilityType.GetEmRuntz)  # 1045
     MIN_UTILITY = 1.0      # plancher structurel ; le vrai gate = minSummons dynamique (generate_candidates)
 
     def _min_summons(self, ctx: NCContext) -> int:
@@ -887,7 +888,7 @@ class GauntletsOfUltramarPlaybook(NonComparablePlaybook):
     v1 FLAG : `Unobscured` (LoS ring2) passe-tout (donnée LoS absente offline) -> peut sur-compter ring-2 ;
     l'arc ring2 n'applique PAS la porte d'élévation (SurroundingEnemies != IterateAdjacentTiles) ; ordre
     EXACT ring-2 (cible) non validé (fallback dernier) -- ring-1 = cas commun validé."""
-    ABILITY_ID = 1000
+    ABILITY_ID = int(ActiveAbilityType.GauntletsOfUltramar)  # 1000
     MIN_UTILITY = 1.0     # plancher structurel (>=1 ennemi éligible) ; vrai gate = min(3, #ennemis totaux)
     PRIORITY = 0
     _CAP = 3              # SelectUniqueUnits(3) : l'ability touche au plus 3 unités -> utilité plafonnée à 3
@@ -965,7 +966,7 @@ class HammerOfWrathPlaybook(_PlanTargetPlaybook):
       Hammer si l'attaque normale du caster sure-kill déjà un ennemi (économise la charge). Porté ci-dessous.
     - Trait 1003 = `Overwatch` (enum UnitTrait, dump.cs gqfc5mff6c:863979 ; PAS BigTarget=1017).
     Éligibilité + tuile de charge = plan natif (evals rankées 1153), comme BloodyFury/Vexilla (_PlanTargetPlaybook)."""
-    ABILITY_ID = 1153
+    ABILITY_ID = int(ActiveAbilityType.HammerOfWrath)  # 1153
     MIN_UTILITY = 1.0     # cctor @181142340 = Fix64(1)
     PRIORITY = 0
     _OVERWATCH = "Overwatch"   # trait 0x3eb=1003 (enum UnitTrait) -> +100 sur une cible en Overwatch
