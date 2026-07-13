@@ -561,10 +561,24 @@ config, pas un simple scalaire.
 > `Caster.ATTACK` (StatType 0), `negatesDamage=0` (ré-ajout +) ; **défenseur** `@181002c30` fetch
 > `Target.DEFENSE` (StatType 3, `local_288=AbilityEntities.Target`), `negatesDamage=1` (négation −). ⇒ gate
 > **GÉNÉRIQUE** « la cible a-t-elle un stat-mod de DEFENSE actif ? » — Terrifying n'est qu'UNE source. **PAS de
-> hardcode Terrifying** (un fix hardcodé a été reverté). ⚠ **SOUS-DÉTERMINATION OUVERTE** : le back-solve disait
-> « négation du mod d'ATTAQUE de l'ATTAQUANT (+1298 u92) », la lecture dit « négation du mod de DEFENSE de la
-> CIBLE » — deux mécanismes qui coïncident sur le seul cas u82. À RECONCILIER avant port (lire l'aval
-> `GetMultiplierFromDamageBonus` + un confront discriminant) : tâche #152.
+> hardcode Terrifying** (un fix hardcodé a été reverté).
+>
+> **⚑ SOUS-DÉTERMINATION CLOSE (2026-07-13, MESURE LIVE `statModSources` post-drive seed 31337)** : **u92 a
+> bien un stat-mod d'ATTAQUE +1298** (`source 123`, `sourceIsUnit=false` = entité-effet = l'aura) → base=4309
+> RÉEL ; **les cibles u82/u84/u86 n'ont AUCUN stat-mod de Defense** (`mods={}`). ⇒ le +1298 est le mod
+> **d'ATTAQUE de l'ATTAQUANT** (aura, déjà géré par `base=INITIAL + aura_attack_bonus_from_allies` #67), PAS un
+> debuff DÉFENSE cible. Le chemin natif défenseur-stat-mod (`CalculateDefenderModifiersForPrediction` négate
+> `Target.DEFENSE`) est RÉEL mais **sans cas offline qui fire** → déféré (gate documenté, rien à porter). Le
+> malus défenseur % (Terrifying) est déjà porté (`TerrifyingExtraDefenseEffect`, **seed-777 predict_live VERT**).
+> **#152 (scope framed : défenseur Terrifying + base positionnelle) = RÉSOLU/porté.**
+>
+> **MAIS la mesure a surfacé un RÉSIDU BROAD** (≠ #152) : seed-31337 predict_live ROUGE 4/8 — u92 (base 4309
+> aura) sur-prédit **min ET max** vs TOUTES les cibles blindées (u96 base 3011 matche EXACT → le résidu
+> n'apparaît qu'en **haute base × armure × multi-coups**). C'est le **régime blindé per-coup de #49** amplifié
+> post-#67, PAS un modif défenseur manqué (ratios non-constants 0.31/0.63/0.89). Détail + table : `docs/rl/
+> case-49-min-armored-regime.md` §MAJ 2026-07-13. Diagnostic propre = re-expert + `scorerDamageTrace` /
+> hook `Calculate*ModifiersForPrediction` return + `CalculateBaseDamageWithAllModifiers` per-coup. **NE PAS
+> fitter.** Tâche dédiée (distincte de #152).
 
 7. **VERDICT AGENT re-expert (2026-07-04, `PredictAttackRaw @181032fb0` LU intégralement) — réduction PRÉ-SPREAD
    dans `local_9a8`, PAS un scaling inline.** Base pré-spread = `local_9a8` (lignes ~1483-1512) =

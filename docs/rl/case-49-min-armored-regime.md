@@ -5,6 +5,45 @@ seeds FRAIS via `test_predict_live` (PREDICT_SEED) ont RE-EXPOSE un residu que l
 seed-777 + overkill 3/3 ne montraient pas. **#49 etait marque completed : son cote MIN ne
 l'est PAS.** GREP ce fichier avant de re-investiguer #49.
 
+## MAJ 2026-07-13 (#152 reconciliation, MESURE LIVE) : sous-determination CLOSE + le residu est BROAD (pas defenseur)
+
+Mesure decisive `statModSources` LIVE **post-drive** (seed 31337, runner 42, probe jetable rejouant
+`build_samples` puis interrogeant le MEME rid a l'etat post-drive) :
+
+- **u92 (attaquant) : Attack mod = +1298** (`source 123`, `amount 1298`, `sourceIsUnit=false` = entite-EFFET
+  = l'aura). => **base offline=4309 (3011+1298) est REEL** (aura d'attaque bakee live), l'offline ne
+  sur-applique PAS. Le fix #67 (re-ajout aura a la position reelle) est CORRECT.
+- **u82/u84/u86 (cibles) : AUCUN stat-mod de Defense** (`mods={}`).
+
+=> **Sous-determination #152 CLOSE** : le +1298 = **stat-mod d'ATTAQUE de l'ATTAQUANT** (aura), PAS un
+debuff DEFENSE cible. Le back-solve historique (attaque attaquant) avait raison sur le STAT ; le
+static-read Fable (negation defense cible) decrit un chemin natif REEL
+(`CalculateDefenderModifiersForPrediction` -> `CalculateModifiersFromStatModifications` negate) mais
+**sans cas offline qui fire** (aucune cible n'a de mod Defense ici ; idem probe statDelta 78/82). Le port
+gere l'attaquant via `base=INITIAL + aura_attack_bonus_from_allies` (#67), et le malus defenseur %
+(Terrifying) via `TerrifyingExtraDefenseEffect` (**seed-777 predict_live = VERT**). Rien a porter cote
+defenseur-stat-mod tant qu'aucun cas ne fire (defere, gate documente).
+
+- **MAIS la mesure a surface un RESIDU BROAD** : seed-31337 predict_live = **ROUGE 4/8**. u92 (base 4309
+  aura) sur-predit vs TOUTES les cibles blindees, **min ET max** (pas juste le min) :
+  | u92 -> cible | oracle | offline | ratio max |
+  |---|---|---|---|
+  | u80 custoBladeChampion (mods [1.25,0.8]) | (858, 2109) | (1611, 6783) | 0.31 |
+  | u82 bloodMephiston | (1503, 6018) | (5397, 9537) | 0.63 |
+  | u84 eldarAutarch | (2634, 7149) | (6525, 8034) | 0.89 |
+  | u86 astraPrimarisPsy (mods [1.25,1.5]) | (2256, 5522) | (5522, 5522) cap | — |
+  Contre-preuve que ce N'EST PAS un modif defenseur manque : u96 (base 3011, PAS d'aura) matche EXACT
+  vs u80/u82/u84 (`(2409,3613)==(2409,3613)`). **Le residu apparait UNIQUEMENT quand base=4309** (haute
+  base) x armure x multi-coups (u92 = 3 coups RapidAssault). C'est le **regime blinde per-coup de #49**
+  amplifie par la haute base post-#67 : l'application armure/perce PAR COUP diverge du natif quand
+  base est haute (ratios non-constants 0.31/0.63/0.89 => pas UN multiplicateur, un mecanisme de regime).
+- **NE PAS fitter** (ratios non-constants = piege correlation). Diagnostic propre = re-expert +
+  `scorerDamageTrace` (`ProbableDamageEvent.ctor`) / hook `Calculate{Attacker,Defender}Modifiers
+  ForPrediction` return[0] pour lire les modifiers natifs PAR CIBLE, + `CalculateBaseDamageWithAll
+  Modifiers @18102d3f0` / `GetBaseDamageWithFixedPiercedArmor @181030d10` per-coup en haute base.
+  Tache dediee. **Distinct de #152** (dont le scope framed — defenseur Terrifying + base positionnelle
+  — est RESOLU/porte).
+
 ## RESOLU 2026-07-09 (#67) : l'AURA etait evaluee a la TUILE CANDIDATE au lieu de la POSITION REELLE
 
 **Le gap DOMINANT "aura sous-appliquee sur ~24/28 tuiles" est FERME** (verdict re-expert acf1a624 + fix + validation).
