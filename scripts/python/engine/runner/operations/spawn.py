@@ -33,6 +33,7 @@ from typing import Optional
 from ..state import State
 from ..components import (StatsComponent, OwnerComponent, PositionComponent,
                           HealthComponent, UnitComponent)
+from ...entities.traits import UnitTrait, has_trait
 
 
 def build_summon_context(entity_id: int, visual_id: str, summon_ability: str,
@@ -483,9 +484,10 @@ class SpawnUnitOperation:
             if uc is not None and not uc.alive:
                 continue
             # `Enemies − trait0x1b` : exclut les ennemis Steppable (UnitTrait 0x1b=27, tokens marchables
-            # decoys/mines — dump.cs) du comptage d'adjacence. Meme mapping/fix que ArcaneShield (#135).
+            # decoys/mines) du comptage d'adjacence. Gate via `has_trait` (#146 : mapping id<->nom centralisé
+            # dans UnitTrait ; même fix int-vs-str que ArcaneShield #135).
             esc = e.get_component(StatsComponent)
-            if esc is not None and "Steppable" in (esc.ctx.traits or []):
+            if esc is not None and has_trait(esc.ctx.traits, UnitTrait.Steppable):
                 continue
             et = board.id_at(pc.col, pc.row)
             if et is not None:

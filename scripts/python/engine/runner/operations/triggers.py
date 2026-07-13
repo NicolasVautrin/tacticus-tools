@@ -31,6 +31,7 @@ from typing import Optional
 
 from ..state import State
 from ...entities.stats import StatType
+from ...entities.traits import UnitTrait, has_any_trait, has_trait
 from ..components import (StatsComponent, OwnerComponent, PositionComponent, UnitComponent,
                          HealthComponent, ShieldComponent, TriggeredAbilityComponent)
 from .damage import AttackDamageOperation
@@ -81,12 +82,10 @@ CONTAMINATED_IMMUNE_TRAIT = 2027  # 0x7eb — immunité (`EntityIsImmuneToEffect
 # --- Fire (tile-effect DoT, RE #127/#128) : turn-start DoT 20% PV initiale ------------------------------
 FIRE_TILE = 5                   # "Fire" — effet de TUILE (posé par attaque Flame, `OnFireDamageAbility`@1811c3a60).
 FIRE_DMG_PCT_KEY = "fireDmgPct"  # globalValues=20 (`ConfigConst 0x12`) : % de la PV INITIALE (max) infligé/tour.
-# Immunité feu = `UnitsWithoutTraits([0x1b=27, 0x19=25])` (@18121e040) = enum UnitTrait (dump.cs gqfc5mff6c) :
-#   0x1b=27=Steppable (tokens marchables : decoys/mines), 0x19=25=Immune. Le DoT EXCLUT ces deux traits (enum
-#   TRAIT, ≠ enum EFFECT où 25/27=Taunted_*). `ctx.traits` = NOMS gameconfig (unit_context.py:191) → gate par nom.
-TRAIT_STEPPABLE = "Steppable"    # UnitTrait 0x1b=27 (dump.cs) — nom gameconfig
-TRAIT_IMMUNE = "Immune"          # UnitTrait 0x19=25 (dump.cs) — nom gameconfig
-FIRE_IMMUNE_TRAITS = (TRAIT_STEPPABLE, TRAIT_IMMUNE)
+# Immunité feu = `UnitsWithoutTraits([0x1b=27=Steppable, 0x19=25=Immune])` (@18121e040) : le DoT EXCLUT ces
+#   deux traits (enum TRAIT, ≠ enum EFFECT où 25/27=Taunted_*). Mapping id<->nom centralisé dans
+#   `entities.traits.UnitTrait` (#146) ; `ctx.traits` = NOMS gameconfig (unit_context.py:191) → gate par nom.
+FIRE_IMMUNE_TRAITS = (UnitTrait.Steppable, UnitTrait.Immune)
 
 # --- TheBetrayer (worldKharn, passiveAbility) -----------------------------------------------------
 THEBETRAYER_EFFECT = 0x4f3      # 1267 — effet « rage » de TheBetrayer (gate de TakeTurn ; gagné au kill).
@@ -114,9 +113,10 @@ CHAOS_FACTIONS = frozenset({
     "BlackLegion", "DeathGuard", "ThousandSons", "WorldEaters", "EmperorsChildren",
 })
 ARCANESHIELD_RANGE = 2          # `ArcaneShield.constants.range` = 2 (rayon de l'ami ciblé)
-ARCANESHIELD_TRAIT_EXCLUDE = TRAIT_STEPPABLE  # `UnitsWithoutTrait(0x1b=27=Steppable)` : exclus du ciblage.
+ARCANESHIELD_TRAIT_EXCLUDE = UnitTrait.Steppable  # `UnitsWithoutTrait(0x1b=27=Steppable)` : exclus du ciblage.
 # ⚠ FIX #135 : etait `0x1b` (int) compare a `ctx.traits` (NOMS gameconfig) -> `27 in [strings]` toujours False
-#   (gate mort : les allies Steppable/tokens etaient ciblables a tort). Compare desormais par NOM (Steppable).
+#   (gate mort : les allies Steppable/tokens etaient ciblables a tort). Gate desormais via `has_trait` (#146 :
+#   mapping id<->nom centralise dans UnitTrait -> plus de comparaison int-vs-str possible).
 
 PSYKER_OWNER_SUPPRESS = 1191    # 0x4a7 effet sur l'owner qui supprime le splash psyker
 PSYKER_TARGET_SUPPRESS = 1533   # 0x5fd effet sur la cible qui supprime le splash psyker
@@ -282,11 +282,12 @@ def _unit_trait_names(state: State, unit_id: int) -> list:
 
 
 def _is_immune_to_contaminated(state: State, unit_id: int) -> bool:
-    """`EntityIsImmuneToEffect`@180f3a400 (Contaminated) = `HasTrait(0x7eb=2027) OR IsMechanical`. Le nom
-    gameconfig du trait 2027 n'est pas résolu → gate BEST-EFFORT sur un marqueur `Mechanical` dans les traits
-    captés (la plupart des immunisés = véhicules/mécas). ⚠ Sous-gate possible (flaggé) : à durcir quand le
-    nom du trait 2027 / la propriété IsMechanical seront exposés par la capture ECS."""
-    return any(str(t) == "Mechanical" for t in _unit_trait_names(state, unit_id))
+    """`EntityIsImmuneToEffect`@180f3a400 (Contaminated) = `HasTrait(0x7eb=2027) OR IsMechanical`. Le trait
+    0x7eb=2027 = `ContagionsOfNurgle` (résolu via `UnitTrait` #146). Gate porté = marqueur `Mechanical` seul
+    (BEST-EFFORT) : ⚠ SOUS-GATE tant que `ContagionsOfNurgle` n'est pas ajouté (les porteurs Nurgle non-mécas
+    ne sont pas encore immunisés) — durcissement `has_trait(names, ContagionsOfNurgle)` = tâche dédiée
+    (changement de comportement, à valider live avec un carrier Nurgle)."""
+    return has_trait(_unit_trait_names(state, unit_id), UnitTrait.Mechanical)
 
 
 def _is_immune_to_fire(state: State, unit_id: int) -> bool:
@@ -294,7 +295,7 @@ def _is_immune_to_fire(state: State, unit_id: int) -> bool:
     0x19=25=Immune]) & Units(EntitiesWithAnyEffect(5)), ...)`. Le DoT feu EXCLUT donc les unités portant
     `Steppable` (tokens marchables : decoys/mines) OU `Immune`. Résolution enum UnitTrait dump.cs (gqfc5mff6c)."""
     names = _unit_trait_names(state, unit_id)
-    return any(str(t) in FIRE_IMMUNE_TRAITS for t in names)
+    return has_any_trait(names, FIRE_IMMUNE_TRAITS)
 
 
 class TileEffectTrigger(EffectTrigger):
@@ -1518,7 +1519,7 @@ def _arcaneshield_target(state: State, owner_id: int) -> int:
         if u is not None and not u.alive:
             continue
         sc = e.get_component(StatsComponent)
-        if sc is not None and ARCANESHIELD_TRAIT_EXCLUDE in (sc.ctx.traits or []):  # UnitsWithoutTrait(0x1b)
+        if sc is not None and has_trait(sc.ctx.traits, ARCANESHIELD_TRAIT_EXCLUDE):  # UnitsWithoutTrait(0x1b)
             continue
         t = _unit_tile(state, board, eid)
         if t is None:
