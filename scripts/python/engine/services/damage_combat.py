@@ -26,12 +26,10 @@ if TYPE_CHECKING:                       # type-hint seul (évite l'import circul
 # StatType (UnitExtensions.GetStat) — confirmés au décompilé des feuilles :
 STAT_HEALTH = 4            # GetStat(.,4) — santé (utilisé par ApplyCritDamage trait exécution)
 STAT_ARMOR = 5             # GetStat(.,5) — armure (pool / exécution)
-STAT_CRIT_CHANCE = 9       # GetStat(.,9) — chance de crit (%)
-STAT_CRIT_DAMAGE = 10      # GetStat(.,10) — dégât de crit (%)
-STAT_EVASION = 0xF         # GetStat(.,15) — chance d'esquive (%)
-STAT_BLOCK_MULTI = 7       # GetMultiValueStat(.,7) — sources de block (chance→amount)
-
-TRAIT_CRIT_EXECUTE = 0x1C  # 28 — ApplyCritDamage : crit = exécution (renvoie le pool total)
+# StatType/GetStat ids : utiliser l'enum `entities.stats.StatType` (complet #157). Les constantes STAT_* hex
+# mortes (crit/evasion/block : ces valeurs sont passees en params) ont ete retirees.
+# #157 : TRAIT_CRIT_EXECUTE=0x1c (mort) retiré — `apply_crit_damage` gate par le bool `has_execute_trait`
+# (le natif `HasTrait(target, 28=UnitTrait.Impervious)` est calculé par l'appelant).
 
 
 @dataclass

@@ -113,11 +113,7 @@ def predict_normal_attack(weapon: WeaponBase, target_hp: int,
 # PARTIE 2 — couche RÉSOLUTION réelle (RE) — base d'amélioration, NON utilisée par l'iso-AI
 # ═══════════════════════════════════════════════════════════════════════════════════════
 
-# StatType (dump.cs @863349) — ids de la résolution.
-STAT_FIXED_ARMOR = 16
-STAT_EXTRA_PIERCE = 26
-STAT_EXTRA_PIERCE_MELEE = 21
-STAT_EXTRA_PIERCE_RANGED = 22
+# StatType ids : utiliser l'enum `entities.stats.StatType` (complet #157) — constantes STAT_* mortes retirees.
 
 
 @dataclass

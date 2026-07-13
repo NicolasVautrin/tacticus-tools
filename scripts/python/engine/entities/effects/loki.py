@@ -387,15 +387,16 @@ class RangedSpecialistEffect(BaseEffect):
         return for_percent_increase(True, pct) if pct is not None else None
 
 
-# Traits cible gatant BeastSlayer_ExtraDmg (natif `HasTrait(target, X)`) : BigTarget=0x405=1029,
-# Vehicle=0x3f9=1017. Noms gameconfig confirmes (unit_map find --trait BigTarget/Vehicle).
+# Traits cible gatant BeastSlayer_ExtraDmg (natif `HasTrait(target, X)`) : UnitTrait.BigTarget=1017(0x3f9),
+# UnitTrait.Vehicle=1029(0x405) (dump.cs #146 ; l'ancien commentaire INVERSAIT les hex). Code gate par NOM,
+# noms gameconfig confirmes (unit_map find --trait BigTarget/Vehicle).
 _BEAST_SLAYER_TARGET_TRAITS = frozenset({"BigTarget", "Vehicle"})
 
 
 class BeastSlayerExtraDmgEffect(BaseEffect):
     """`BeastSlayer_ExtraDmgEffect.CreateDamageModifier @180f336c0` (trait BeastSlayer, effet
     `BeastSlayer_ExtraDmg`) : `ForPercentIncrease(ConfigConst 0xf = beastSlayerExtraDmgPct=20)` gate
-    `OwnerIsCaster & IsMeleeAttack & (HasTrait(target, 0x405=BigTarget) | HasTrait(target, 0x3f9=Vehicle))`.
+    `OwnerIsCaster & IsMeleeAttack & (HasTrait(target, BigTarget=1017) | HasTrait(target, Vehicle=1029))`.
     => +20% de degat MELEE vs Big Targets / Vehicles (i2). Variable de TRAIT -> globale, NON scalee.
     `target_traits` = noms de traits de la CIBLE ; None (contexte sans cible : prediction generique,
     trigger, ability/splash melee) -> pas de bonus (cible inconnue -> "present != applique").

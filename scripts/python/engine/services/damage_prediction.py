@@ -27,18 +27,11 @@ from .damage_modifiers import (
 )
 from .trait_damage_limits import apply_trait_damage_limits_to_damage, compute_prediction_overkill
 
-# StatType (dump.cs @863349)
-STAT_FIXED_ARMOR = 0x10        # 16
-STAT_EXTRA_HITS = 0x11         # 17
-STAT_EXTRA_PIERCE_MELEE = 0x15  # 21
-STAT_EXTRA_PIERCE_RANGED = 0x16  # 22
-STAT_EXTRA_HITS_MELEE = 0x17   # 23
-STAT_EXTRA_PIERCE = 0x1a       # 26
-
-# Traits référencés par la chaîne perçage/dégât (à confirmer noms exacts) :
-TRAIT_HIT_TWICE = 0x3f5        # 1013 — cible : applique GetDamageWithPiercing 2× (cf. @181030d10)
-TRAIT_PIERCE_1001 = 0x3e9      # 1001 — attaquant : bonus perçage LasCannon
-TRAIT_PIERCE_1016 = 0x3f8      # 1016 — attaquant : bonus perçage LasCannon
+# StatType ids : utiliser l'enum `entities.stats.StatType` (complet #157). Les constantes STAT_* hex
+# eparses (mortes) ont ete retirees.
+# #157 : constantes de trait id-brut MORTES retirées (TRAIT_HIT_TWICE=1013, TRAIT_PIERCE_1001=1001=HeavyWeapon,
+# TRAIT_PIERCE_1016=1016=Emplacement) — la chaîne perçage/dégât gate par bool name-based ; les ids vivent
+# désormais dans `entities.traits.UnitTrait` (#146).
 
 
 @dataclass
@@ -151,7 +144,7 @@ def get_base_damage_with_fixed_pierced_armor(
         d = damage
         repeat hit_multiplier fois : d = GetDamageWithPiercing(d, pierce_pct, armor_eff)
         return d
-    hit_multiplier : 1 normalement ; 2 si la cible a le trait 1013 (TRAIT_HIT_TWICE) (et flag off) ;
+    hit_multiplier : 1 normalement ; 2 si la cible a le trait 1013 (UnitTrait, cf. #146) (et flag off) ;
     3 dans un cas d'ability triggered spéciale (0x4b6 + GetVariableForLevel 0x51) — non porté ici.
     (RÉSOLUTION armure/perçage. La prédiction IA pré-armure → l'orchestrateur passe armor=0.)"""
     armor_eff = max(target_fixed_armor - armor_penetration, 0)

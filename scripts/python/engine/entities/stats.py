@@ -15,32 +15,55 @@ from typing import Dict, Optional
 
 
 class StatType(IntEnum):
-    """StatType natif (index du `switch` de `GetStatComponent @180ed20c0` /
-    `GetStatOverride @180ed2800` + `STAT_IDS` du RPC combatSnapshot). Seuls les index nommés
-    ici sont confirmés ; les autres existent (2, 4, 6, 11-15, 18+) mais restent à mapper."""
+    """`StatType` natif — mirror COMPLET (dump.cs TypeDefIndex 24354 ; index du `switch` de
+    `GetStatComponent @180ed20c0` / `GetStatOverride @180ed2800` + `STAT_IDS` du RPC combatSnapshot).
+    Convention port = UPPER_CASE (le natif est PascalCase). #157 : complété 15/18-26 (avant : trous
+    comblés par des constantes hex mortes STAT_EXTRA_* éparses, retirées)."""
     ATTACK = 0
     MOVEMENT = 1
+    RANGE = 2              # [Obsolete] Idun Concept
     DEFENSE = 3
+    ARMOR = 4             # [Obsolete] Idun Concept
     HEALTH = 5              # « fill-up » (FillUpStatComponent)
+    SHIELD = 6            # [Obsolete] Old shield system
     BLOCK_CHANCE = 7
     BLOCK_DAMAGE = 8
     CRIT_CHANCE = 9
     CRIT_DAMAGE = 10
+    UNUSED_1 = 11
     TURNS_STARTED = 12      # 0xc — compteur per-unit `UnitComponent.turnsStarted@+0x58` (incr. StartTurn) ;
                             # exposé via `UnitTurnsStartedFormula.Calculate @180f2d6c0` = `GetStat(unit,0xc)`.
                             # Base des hits Executioner (RoundsStarted). Capté par combatSnapshot (#122).
+    PASSIVE_ABILITY_LEVEL = 13
+    PASSIVE_ABILITY_VARIABLE_MULTIPLIER_PERCENTAGE = 14
+    EVASION_CHANCE = 15   # [Obsolete] Idun Concept
     FIXED_ARMOR = 16        # 0x10
     EXTRA_HITS = 17         # 0x11
+    ACTIVE_ABILITY_LEVEL = 18
+    ACTIVE_ABILITY_VARIABLE_MULTIPLIER_PERCENTAGE = 19
+    NUMBER_OF_MEMBERS = 20
+    EXTRA_PIERCE_MELEE = 21    # 0x15
+    EXTRA_PIERCE_RANGED = 22   # 0x16
+    EXTRA_HITS_MELEE = 23      # 0x17
+    EXTRA_RANGE = 24
+    EXTRA_MAX_DAMAGE = 25
+    EXTRA_PIERCE = 26          # 0x1a
 
 
 class StatPart(IntEnum):
-    """StatPart natif (`StatComponent.GetStatPart @180fa8bb0`). Current=0 = valeur résolue
-    (Initial + Σmods), Initial=3 = base pré-modifications, 5/9 = total des modifications,
-    7 = override."""
+    """`StatPart` natif — mirror COMPLET (dump.cs TypeDefIndex 24355 ; `StatComponent.GetStatPart
+    @180fa8bb0`). CURRENT=0 = résolu (Initial+Σmods) ; INITIAL=3 = base ; MODIFICATION=5 = total des
+    mods ; OVERRIDE=7."""
     CURRENT = 0
+    CURRENT_PCT = 1
+    MAXIMUM = 2
     INITIAL = 3
+    MISSING = 4
     MODIFICATION = 5
+    RESET_MODIFICATION = 6
     OVERRIDE = 7
+    REMOVE_OVERRIDE = 8
+    MULTIPLIER_MODIFICATION = 9
 
 
 class ValueModification:
