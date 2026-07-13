@@ -549,6 +549,23 @@ config, pas un simple scalaire.
    pour trouver ce qui rend `scenario.damage` **tile-dépendant** (4309 vs 3011) — feuille positionnelle inconnue,
    probablement un état/flag de tuile non capturé (LOS/cover/tile-flag ? à identifier au décompilé, PAS deviner).
    Le hook `scorerBonusTraceDump` n'a pas aidé (casterTile=(-1,-1), stack non symbolisée).
+> **⚠ CORRECTION #152 (2026-07-13) — TOUTE cette enquête « base 4309→3011 tile-dépendante » est une MAUVAISE
+> ATTRIBUTION.** Le 3011-vs-4309 n'est PAS positionnel/tile-dépendant : il est **PER-CIBLE** (le même attaquant
+> à 2 tuiles différentes contre la MÊME cible donne 4309 partout ; StatPart `0=Current` via `GetStatPart
+> @180fa8bb0` est lu correct — **aucun bug StatPart ni positionnel**). Les items 7-13 ci-dessous (chasse au
+> « terme positionnel dans PredictAttackRaw ») cherchaient un mécanisme INEXISTANT.
+>
+> **MÉCANISME LU (dump.cs, statique pur — SKILL §1.2)** : la prédiction reconstruit les damage-modifiers
+> symétriquement via `CalculateModifiersFromStatModifications(stat, negatesDamage, state) @181004380` (si
+> `Current!=Initial`, négue chaque mod per-source si `negatesDamage`) : **attaquant** `@181000590` fetch
+> `Caster.ATTACK` (StatType 0), `negatesDamage=0` (ré-ajout +) ; **défenseur** `@181002c30` fetch
+> `Target.DEFENSE` (StatType 3, `local_288=AbilityEntities.Target`), `negatesDamage=1` (négation −). ⇒ gate
+> **GÉNÉRIQUE** « la cible a-t-elle un stat-mod de DEFENSE actif ? » — Terrifying n'est qu'UNE source. **PAS de
+> hardcode Terrifying** (un fix hardcodé a été reverté). ⚠ **SOUS-DÉTERMINATION OUVERTE** : le back-solve disait
+> « négation du mod d'ATTAQUE de l'ATTAQUANT (+1298 u92) », la lecture dit « négation du mod de DEFENSE de la
+> CIBLE » — deux mécanismes qui coïncident sur le seul cas u82. À RECONCILIER avant port (lire l'aval
+> `GetMultiplierFromDamageBonus` + un confront discriminant) : tâche #152.
+
 7. **VERDICT AGENT re-expert (2026-07-04, `PredictAttackRaw @181032fb0` LU intégralement) — réduction PRÉ-SPREAD
    dans `local_9a8`, PAS un scaling inline.** Base pré-spread = `local_9a8` (lignes ~1483-1512) =
    `GetValueOrDefault(context[+0x58])` (Nullable) avec **override optionnel** `profileMethod_0xd`

@@ -111,6 +111,134 @@ pas lancer une bataille générique/aléatoire puis se battre contre ses dynamiq
   de valider « les summons agissent-ils par tour ? » ; la cause était le setup, pas le mécanisme).
   (Mémoires `feedback_adapt_teams_to_validation_objective`, `feedback_drive_positions_dont_blame_geometry`.)
 
+### 1.2 Méthodes natives DIFFICILES — procédure d'escalade (fonction géante, aliasing, gshared)
+
+Quand la lecture statique d'une fonction devient un marécage — décompilé de dizaines de milliers
+de caractères, register-aliasing, indirections gshared (`DAT_18xxxxxxx`, dispatch d'interface,
+rgctx) — on n'ABANDONNE PAS et on ne DEVINE PAS : on suit l'escalade ci-dessous. « Trop gros »
+n'est JAMAIS une raison d'arrêter une RE ; le coût-token d'une lecture ciblée est négligeable
+devant un port faux + sa re-dérivation. **Fil rouge : gap prédiction #152** — mécanisme générique
+`CalculateDefenderModifiersForPrediction @181002c30` → 1ʳᵉ op `CalculateModifiersFromStatModifications
+@181004380` (si `Current != Initial`, itère `get_Modifications` et NÈGUE chaque montant per-source),
+symétrique de l'attaquant `CalculateAttackerModifiersForPrediction @181000590` (~55K chars). Deux
+échecs de méthode y ont été commis (abandon sur la taille ; gate deviné) — cette procédure les
+interdit. L'inconnue finale (« quelle entité / quel stat derrière l'interface ? ») a été résolue en
+STATIQUE PUR par l'étape C.3, sans hook.
+
+#### A. Décompilé surdimensionné (> ~25K tokens) = un FICHIER à parser, pas un mur
+
+1. **Comportement de l'outil** : au-delà de ~25K tokens, `mcp__ghidra__decompile_function` REFUSE
+   l'inline et SAUVE la réponse JSON complète dans un fichier — le chemin est dans le message
+   d'erreur (`...\tool-results\mcp-ghidra-decompile_function-<ts>.txt`). Ce n'est PAS un échec :
+   le décompilé complet est là, structuré (`{result: [{name, code, signature, ...}]}`).
+2. **Exploitation = parsing ciblé, jamais lecture linéaire** (le fichier est UNE ligne JSON géante :
+   ni `Read` brut, ni « je lis tout ») :
+   ```
+   python -c "
+   import json
+   d = json.load(open(r'<chemin tool-results>.txt', encoding='utf-8'))
+   code = d['result'][0]['code']; lines = code.split(chr(10))
+   print('TOTAL', len(lines), '|', d['result'][0]['signature'])
+   for i, l in enumerate(lines):
+       if '<PrimitiveSuspecte>' in l or 'DAT_<token>' in l:
+           print('%5d: %s' % (i, l.rstrip()))
+   "
+   ```
+   puis extraire des FENÊTRES de contexte (`for i in range(a,b): print(lines[i])`) autour des hits.
+   Sorties console : ASCII only (cf. CLAUDE.md).
+3. **Vécu #152** : @181000590 = 55K chars, 1395 lignes → l'enquête complète a tenu en ~15 lignes
+   greppées + 2 fenêtres (~120 lignes lues au total). L'abandon initial (« 55K c'est trop ») avait
+   bloqué la RE pour rien.
+
+#### B. Naviguer une fonction géante : call-sites + JUMEAU symétrique
+
+1. **Points d'ancrage** (on ne lit JAMAIS une géante du début à la fin) :
+   - les **call-sites des primitives NOMMÉES** suspectes (le grep §A) ;
+   - les **flags littéraux** aux call-sites (`..., 1, ...` vs `..., 0, ...` — ex. `negatesDamage`) ;
+   - les **tokens `DAT_18xxxxxxx`** (metadata il2cpp lazy-init — cf. C.2) ;
+   - les **boucles de copie inline** (`do{...}while(lVar!=0)` memcpy unrollé) : elles donnent la
+     TAILLE de la struct copiée et sa destination locale (`param_4` → `&local_298`) — c'est la BASE
+     pour traduire toute variable aliasée en offset de champ (`local_288` = `local_298+0x10`).
+2. **Technique du jumeau** : quand une fonction a un SYMÉTRIQUE (attaquant/défenseur,
+   gagnant/perdant, surcharges à Slot voisins dans dump.cs), **diff des DEUX call-sites de la même
+   primitive** — ça isole le mécanisme sans lire les deux fonctions en entier.
+3. **Vécu #152** (diff obtenu en ~15 lignes greppées de chaque côté) :
+
+   | | Attaquant `@181000590` (l.611) | Défenseur `@181002c30` |
+   |---|---|---|
+   | Entité fetchée | `plStack_290` = struct+0x8 = **`entities.Caster`** | `local_288` = struct+0x10 = **`entities.Target`** |
+   | StatComponent | couple `DAT_18325bda0/DAT_18328b048` = case **0** de `GetStatComponent` = **Attack** | couple `DAT_1831fb970/DAT_1831b6fc8` = case **3** = **Defense** |
+   | `negatesDamage` | `0` → montants tels quels | `1` → montants **NÉGUÉS** |
+
+   La structure asymétrique add/negate est PROUVÉE sans avoir lu 2×1400 lignes.
+
+#### C. Échelle d'escalade pour un primitif NON RÉSOLU
+
+Cibles typiques : slot d'interface virtuel, token `DAT_` (classe il2cpp ou MethodInfo), offset de
+champ d'une struct par valeur. Dans l'ordre, chaque étape est bon marché :
+
+1. **Le jumeau / les variantes** (cf. §B.2) — surcharges, Slot voisins, la version courte d'une
+   paire (le défenseur @181002c30 se lit inline là où l'attaquant @181000590 déborde).
+2. **Résoudre un token `DAT_`** : `mcp__ghidra__list_xrefs` sur le token → chercher une **PETITE
+   fonction NOMMÉE** qui utilise le MÊME token dans un contexte discriminant, et la lire.
+   Vécu #152 : xrefs de `DAT_1831b6fc8` → `UnitExtensions$$GetStatComponent @180ed20c0` (petite,
+   un `switch(statType)`) → le token n'apparaît QUE dans `case 3` ⇒ c'est le composant du
+   StatType 3 ; l'enum `StatType` (dump.cs) donne `Defense = 3`. Patterns à connaître :
+   - `FUN_1801f2030(&DAT_...)` en tête de fonction = **lazy-init metadata** — l'ORDRE du bloc ne
+     dit RIEN, c'est l'USAGE du token dans le corps qui l'identifie ;
+   - `*(DAT+0x20)` = classe déclarante d'un MethodInfo, `*(ushort*)(DAT+0x50)` = slot → la boucle
+     qui compare `interfaceOffsets` puis indexe la vtable = **dispatch d'appel d'interface** ;
+   - `*(int*)(KLASS+0xe4)==0 → il2cpp_runtime_class_init` = classe ; `*(KLASS+0xb8)` = static fields.
+3. **Résoudre une signature / un offset de champ = le dump.cs Il2CppDumper du MÊME hash**
+   (`data/dumps/<HASH>/dump.cs` — vérifier `HASH` == build du projet ghidra, cf. CLAUDE.md).
+   Il donne (a) la **signature C# exacte** (nombre/type/rôle des params, méthode d'instance vs
+   static, surcharges départagées par VA/Slot) et (b) le **layout complet des structs avec
+   offsets**. Vécu #152 — c'est CETTE étape qui a tout tranché : signature
+   `CalculateDefenderModifiersForPrediction(IMatchState, AbilityEntities, List<EffectWithTarget>)`
+   ⇒ la struct copiée = `AbilityEntities` ; son layout ⇒ `+0x8 Caster`, `+0x10 Target` ⇒
+   `local_288` = **la CIBLE** ; et `CalculateModifiersFromStatModifications(StatComponent stat,
+   bool negatesDamage, IMatchState)` nomme le flag. Le hook de mesure prévu est devenu inutile.
+4. **BORNE explicite, puis MESURER.** L'effort statique est BORNÉ : si après (1)-(3) — ordre de
+   grandeur 3 à 5 lectures ciblées, PAS des heures — l'inconnue reste ouverte, on bascule sur la
+   mesure (§D). **Critère net de bascule** : on MESURE quand l'inconnue restante est une
+   **IDENTITÉ / VALEUR RUNTIME** (quelle entité concrète arrive ici ? quel contenu a ce dict ?
+   quel état fait diverger deux cibles ?) derrière ≥ 2 indirections non résolues (interface +
+   rgctx) dans une fonction aliasée. On ne mesure JAMAIS une **FORMULE / STRUCTURE** — ça, ça se
+   LIT (§1) ; et on ne « finit » JAMAIS par un gate deviné (§E).
+
+#### D. Le hook de MESURE (statique épuisé)
+
+1. **Quoi capter** : les **ARGS + le RETOUR de la PRIMITIVE** (pas de la géante) — ex. #152 :
+   l'entité propriétaire du StatComponent, le StatType, Current vs Initial, la liste de modifiers
+   retournée par `CalculateModifiersFromStatModifications`.
+2. **Sur un CONFRONT DISCRIMINANT** : le cas-qui-diffère VS le cas-qui-ne-diffère-pas (u82
+   Terrifying vs u86), UN seul facteur variable (même attaquant, même tuile — cf. §1.1 crafter le
+   setup). Le retour tranche le gate générique : la primitive fire-t-elle AUSSI pour u86 ? sur
+   quel stat ? avec quels montants ? → l'identité runtime est lue, pas devinée.
+3. **Sécurité (non négociable)** : JAMAIS de (re)inject/restart host pendant qu'un agent worktree
+   tourne ; warmup `force:true` après CHAQUE reinject avant tout RPC/probe ; hook diagnostic
+   **auto-armé** au register ; **résolution runtime par nom** (`findClassAnywhere`/`findMethod`),
+   jamais de RVA hardcodée — si un point d'entrée n'est résolvable que par adresse (diagnostic),
+   stocker la **VA ghidra complète** et calculer `va - 0x180000000` dans le code, et sanity-checker
+   le batch contre un hook contrôle connu-qui-fire (cf. CLAUDE.md + mémoire
+   `feedback_rva_transcription_from_va`).
+
+#### E. ⛔ ANTI-PATTERN — le gate deviné après back-solve
+
+> **Un back-solve numérique EXACT sur UN cas ne licencie PAS d'inventer le GATE.**
+> « Signature numérique connue + gate non lu = HYPOTHÈSE, pas un port. » Options légitimes :
+> (a) finir la lecture statique (échelle §C), (b) mesurer (§D), (c) déférer — `TaskCreate` +
+> doc case-study — JAMAIS enshriner un gate deviné (string/effet hardcodé). Cf. §2.1 : tout gate
+> doit se lire « le natif distingue ce cas ICI (classe/id/enum @VA), donc moi aussi ».
+>
+> Vécu #152 : le gate candidat « `if target has effect "Terrifying_ExtraDefense" → base=Initial` »
+> a failli être hardcodé alors que le back-solve était exact. La lecture (C.2+C.3) a montré un
+> mécanisme 100% générique — « la CIBLE a-t-elle un stat-mod de **Defense** actif
+> (`Current != Initial`) ? » — où Terrifying n'est qu'UNE source possible parmi toutes. Le gate
+> hardcodé aurait été faux sur toute autre source de mod de Defense, et invérifiable contre le
+> natif. Un back-solve sur UN cas ne distingue pas deux mécanismes qui produisent le même chiffre
+> sur CE cas (sous-détermination — même leçon que §3 pour les scalaires).
+
 ---
 
 ## 2. PORTAGE — mirror la STRUCTURE native, ne jamais inventer
@@ -353,6 +481,10 @@ Catalogue RPC complet : `references/rpc-api.md`. Lancement runner : `references/
 
 - ❌ Empiler des hooks pour re-découvrir en tâtonnant une formule LISIBLE dans le décompilé → STOP,
   `search_symbols_by_name` + lire.
+- ❌ Abandonner une RE parce que le décompilé est « trop gros » (refus inline de l'outil) → parser
+  le fichier tool-results sauvé, grep les call-sites + fenêtres (§1.2 A/B).
+- ❌ Hardcoder un gate parce qu'un back-solve numérique colle sur UN cas → « signature numérique
+  connue + gate non lu = HYPOTHÈSE » : lire (§1.2 C), mesurer (§1.2 D) ou déférer — jamais deviner.
 - ❌ Fitter un scalaire (×0.9, /2, mult 90) sur le dégât FINAL → décomposer par étage (`damage_decomp`).
 - ❌ Inventer un nom / une structure / un NOUVEAU module Python quand un natif existe → partir de la
   fonction native NOMMÉE + citer la VA.
