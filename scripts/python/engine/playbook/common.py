@@ -19,6 +19,7 @@ from __future__ import annotations
 from . import prediction
 from .base import ComparablePlaybook, register
 from ..predict import heal_utility
+from ..entities.active_ability_type import ActiveAbilityType
 
 
 class NormalAttackPlaybook(ComparablePlaybook):
@@ -52,7 +53,7 @@ class HealPlaybook(ComparablePlaybook):
     `HealUtility` (heal_utility = (missing/(maxHP+1))×100×friendSign×bossMod). Gate `ShouldExecute
     @181184b30` : pred > 0 (self-heal permis). L'énumération cibles/tuiles reste au générateur ;
     `score` = le terme d'utilité par cible."""
-    ability_id = 0x12  # 18
+    ability_id = int(ActiveAbilityType.Heal)  # 18 (#158)
 
     def score(self, effective_heal, hp_max, is_friend, is_twisted, target_faction):
         """Utilité de soin d'une cible, ou None si `pred <= 0` (gate `ShouldExecute`). `effective_heal` =
@@ -68,7 +69,7 @@ class HealPlaybook(ComparablePlaybook):
 class RepairPlaybook(ComparablePlaybook):
     """Repair (tag 28) — DORMANT : la prédiction repair est non-dégât (idx 0x29), pas encore portée ;
     aucune ability repair dans les batailles testées. `make_damage_predictions` -> None (pas d'attaque)."""
-    ability_id = 0x1c  # 28
+    ability_id = int(ActiveAbilityType.Repair)  # 28 (#158)
 
     def make_damage_predictions(self, ctx, caster_tile, target, ability_id):
         return None

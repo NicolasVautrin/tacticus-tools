@@ -20,9 +20,10 @@ from __future__ import annotations
 
 from ..weights import Weights
 from .base import BasePlaybook
+from ..entities.triggered_ability_type import TriggeredAbilityType
 
-# Ids RE'd (hex/déc) — pour le plumbing de la metadata.
-ABILITY_ID = 0x460          # 1120 (TriggeredAbilityType.SaviorProtocols — enum a cabler #158 slice B)
+# Ids RE'd — pour le plumbing de la metadata.
+ABILITY_ID = int(TriggeredAbilityType.SaviorProtocols)  # 1120 (base = TriggeredAbilityPlaybook) #158
 # #158 : ex-`MARKER_EFFECT_ID = 0x462` (mort : playbook DORMANT recoit `target_has_marker` dans son case)
 # retire. 1122 = EffectType.Markerlight (cf. docstring).
 FACTION_GATE = 9            # T'au-style (HasFaction(9))

@@ -21,8 +21,9 @@ import math
 # entities/damage_trait.py). Quand il sera wiré, le calculer name-based sur gameconfig comme OnFire :
 # `DamageTrait.HitsMultipleMembers.name in damage_profile(profile)["Traits"]` (Traits = liste de NOMS). Aucune
 # constante int-brute ici (l'ex-`PROFILE_TRAIT_HITS_MULTIPLE_MEMBERS = int(...)` était morte + mauvais format → retirée).
-ABILITY_BOSS_END_FIGHT_UNDEFEATED = 0x5d4  # 1492 (triggered) — cap boss "invaincu jusqu'a fin du fight"
-BOSS_CAP_CONSTANT_INDEX = 0x12    # 18 — GetNumberConstant de l'ability 1492
+# #158 : ex-`ABILITY_BOSS_END_FIGHT_UNDEFEATED = 0x5d4` (= TriggeredAbilityType.BossEndFightUndefeated, 1492) et
+# `BOSS_CAP_CONSTANT_INDEX = 0x12` (index GetNumberConstant) retirés — morts (le cap boss gate par les params
+# `target_has_boss_cap` / `boss_cap_const` de `apply_trait_damage_limits_to_damage`, jamais ces constantes).
 
 
 def get_group_unit_max_health_with_remaining_members(total_hp: int, member_count: int,

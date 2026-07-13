@@ -19,8 +19,9 @@ from typing import Optional
 
 from ..state import State
 from ..components import UnitComponent, OwnerComponent, PositionComponent
+from ...entities.active_ability_type import ActiveAbilityType
 
-NORMAL_ATTACK_ID = 17    # ActiveAbilityType.NormalAttack — id synthetique du bridge (cf. state_bridge)
+NORMAL_ATTACK_ID = int(ActiveAbilityType.NormalAttack)   # 17 — id synthetique du bridge (cf. state_bridge) #158
 
 
 def collect_ai_controlled(state: State, player: int) -> list:

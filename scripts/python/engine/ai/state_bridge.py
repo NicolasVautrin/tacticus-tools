@@ -44,8 +44,9 @@ from engine.entities.pathfinding.fly_pathfinder import (
     is_like_flying, get_movable_positions as fly_get_movable_positions,
     is_valid_path_node as fly_is_valid_path_node)
 from engine.entities.effect_type import EffectType
+from engine.entities.active_ability_type import ActiveAbilityType
 
-NORMAL_ATTACK_ID = 17    # ActiveAbilityType.NormalAttack (id synthetique offline ; cf. en-tete)
+NORMAL_ATTACK_ID = int(ActiveAbilityType.NormalAttack)   # 17 (id synthetique offline ; cf. en-tete) #158
 TELEPORT_STRIKE_TELEPORTING_IN = int(EffectType.TeleportStrike_TeleportingIn)  # 1035 — effet deep-strike -> unite NON-CIBLABLE (#158)
 
 
