@@ -439,10 +439,28 @@ def _martial_inspiration_inputs(scene, caster_id, ab, cfg) -> dict:
     return {"base_override": round(minv * buff), "hits_override": 1}
 
 
+def _crushing_claws_inputs(scene, caster_id, ab, cfg) -> dict:
+    """`CrushingClawsPlaybook.MakeDamagePredictions @1811274b0` (tyranTyrantGuard, ability 1105) — la
+    PRÉDICTION ignore le `damageProfile` de l'ability : le playbook passe **`param_8 = null`**
+    (`Nullable<DamageProfile>` sans valeur) à `GenerateMultiHitAttackPredictions @181409da0`, pour la cible
+    principale ET chaque splash (les DEUX appels natifs passent 0). Le profil de prédiction vient de CE
+    param_8 (choix du playbook), PAS de `ability.damageProfile` -> null = profil `None` (enum -1) -> **pierce 0**
+    (l'armure s'applique PLEINE), au lieu du `Piercing{PiercingRatio:80}` de l'ability. C'est un quirk NATIF
+    (le playbook « oublie » de passer le profil) : l'IA SOUS-évalue CrushingClaws face à une cible blindée.
+        Contraste `HarvesterOfSoulsPlaybook @1811428b0` : passe `Nullable(0x13=19=HeavyRound)` -> pierce 55
+        (le port le retrouve via `ab.get_damage_profile()`, d'où sa justesse générique).
+    PROUVÉ LIVE (2 niveaux d'armure, base avg 1746 = (minDmg1496+maxDmg1996)/2, pierce 0) :
+      - cible armure 2312 : base±20% [1397,2095] − 2312 < 0 -> plancher 1/coup -> main [2,2] / splash [1,1] EXACT.
+      - cible armure 1003 : [1397−1003, 2095−1003] = [394,1092]/coup -> main(2c) [788,2184] / splash(1c) [394,1092] EXACT.
+    Le port appliquait `dp.PiercingRatio=80` -> [2236,3352] (sur-prédiction). Fix = mirror param_8=null =
+    profil `None` (pierce 0, profile_idx -1). Cf. docs/rl/case-164-crushingclaws-pierce.md."""
+    return {"profile_override": "None"}
+
+
 # {ability_id: handler(scene, caster_id, ab, cfg) -> {base/hits/profile_override}}. Mirror du dispatch
 # playbook natif (par type d'ability). HammerOfWrath (1153) a son propre chemin (make_hammer_wrath_events,
 # NonComparable) ; ici = les playbooks Comparable qui surchargent juste les INPUTS de GenerateMultiHit.
-_MAKE_DMG_INPUT_OVERRIDES = {1191: _martial_inspiration_inputs}
+_MAKE_DMG_INPUT_OVERRIDES = {1191: _martial_inspiration_inputs, 1105: _crushing_claws_inputs}
 
 
 def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_name, attack_pos=None):

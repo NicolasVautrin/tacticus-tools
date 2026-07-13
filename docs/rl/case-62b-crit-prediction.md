@@ -53,6 +53,11 @@ Confirmer mightCrit=0 + ratio 1.0 sur d'autres porteurs (WarHowl 36%, EuphoricSt
 `HarvesterOfSouls` (1067) : oracle [3702,5553]h3 vs moteur [1851,2778]h3 (x2.000, meme level/mult/hits,
 mightCrit=0 -> PAS du crit). Cause identifiee : `HarvesterOfSoulsPlaybook.MakeDamagePredictions
 @1811428b0` alimente la base via l'OVERRIDE `ArcScourgeAbility.GetDamage`, pas l'`avg(minDmg,maxDmg)
-xmult` generique. -> ajouter dans `_MAKE_DMG_INPUT_OVERRIDES` (prediction.py) comme `base_override`
-mirrorant `ArcScourgeAbility.GetDamage`. NB : le facteur x2.000 est a CONFRONTER avec le bug
-RangedInMelee (#161, meme x2.0 sur SpiritLeech) au cas ou le caster serait un hybride ranged adjacent.
+xmult` generique. NB initial : x2.000 a CONFRONTER avec le bug RangedInMelee (#161).
+
+**RESOLU (#163, 2026-07-13) : c'ETAIT le bug RangedInMelee (#161), PAS un base override.** Maugan Ra est
+un caster HYBRIDE ranged (5hmp40/6hR3p55, sans le trait Ranged=11) tirant HarvesterOfSouls (ranged) en
+melee -> le port appliquait x0.5 a tort. Apres le fix #161, HarvesterOfSouls = BIT-EXACT (predict_sweep
+OK, meme roster Maugan Ra vs ultraTitus). L'override ArcScourgeAbility.GetDamage n'est PAS necessaire (la
+base generique matche l'oracle). La RE ArcScourge etait un red herring (ou ArcScourge.GetDamage ==
+generique). #163 clos.
