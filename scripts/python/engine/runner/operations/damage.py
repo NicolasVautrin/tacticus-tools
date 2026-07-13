@@ -541,10 +541,10 @@ class AttackDamageOperation:
         from .triggers import _on_fire_damage_ability, after_hit_ability_attack  # lazy : cycle damage<->triggers
         fire = _on_fire_damage_ability(state, attacker_id, target_id, damage_profile)
         # VECTEUR AFTER-HIT (ability/splash) : dispatch générique — reset ActOfFaith au crit (#138) + tout
-        # after-hit trigger armé par le VRAI ranged/profile (#140 : splash Psyker sur ability/splash
-        # psychique, chain borné par le cap phase-triggers). ranged = attaque non-mêlée (is_melee False).
+        # after-hit trigger (#140 : splash Psyker sur ability/splash psychique, chain borné par le cap).
+        # `ranged` = POSITION-based (calculé dans after_hit_ability_attack, mirror IsRangedAttack).
         after_hit = after_hit_ability_attack(state, attacker_id, target_id, r["did_crit"],
-                                             ranged=(is_melee is False), profile=damage_profile)
+                                             profile=damage_profile)
         return {"hits": hits, "total": r["total"], "base_min": base_min, "base_max": base_max,
                 "pierce": profile_pierce, "armor": armor, "fire": fire, "after_hit": after_hit,
                 "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,
@@ -613,10 +613,10 @@ class AttackDamageOperation:
             AttackDamageOperation._fire_death_if_killed(
                 state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=r["total"])
         # VECTEUR AFTER-HIT (splash StatAmount) : idem execute_ability_attack — reset ActOfFaith au crit
-        # (#138) + vecteur complet avec vrai ranged/profile (#140, ex. splash Psyker psychique → chain borné).
+        # (#138) + vecteur complet (#140). `ranged` = POSITION-based (mirror IsRangedAttack), calculé dedans.
         from .triggers import after_hit_ability_attack
         after_hit = after_hit_ability_attack(state, attacker_id, target_id, r["did_crit"],
-                                             ranged=(is_melee is False), profile=damage_profile)
+                                             profile=damage_profile)
         return {"hits": hits, "total": r["total"], "base": base, "pierce": profile_pierce,
                 "armor": armor, "after_hit": after_hit,
                 "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,

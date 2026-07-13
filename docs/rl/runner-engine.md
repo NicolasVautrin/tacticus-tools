@@ -655,16 +655,30 @@ ability → crit revient à la base). Committé `d2d0d48`.
   splash (attaque psychique ranged) re-déclenche Smite sur un ennemi adjacent ; le SEUL bornage est le cap 51.
   (1191/1533 = suppressions EXTERNES, ex. HuntersBeyondDeath, pas auto-posées.)
 
+- **`IsRangedAttack` est POSITION-based** (`DSLFactory.IsRangedAttack @180df4d90` → `IsRangedAttackAbilityTrigger`
+  @180fa36c0 calcule caster+cible positions via `IsRangedPosition @180df4f60`) : une attaque est RANGED ssi le
+  caster N'EST PAS adjacent à la cible — **PAS le type d'arme/profil**. Un splash psychique sur un ennemi
+  ADJACENT au caster est MÊLÉE → **ne re-déclenche PAS Smite**. Le chain Psyker n'existe donc que si le caster
+  reste à distance RANGED de chaque splash-target.
+
 Port offline (mirror) : `TriggeredAbilityComponent` (`components.py`) attaché à chaque unité
 (`snapshot.load_state`) ; gate `<0x33` + `mark_as_triggered` sur les `TriggeredAbility` dans
 `evaluate_trigger_operation` (clé = type de trigger) ; `State.reset_trigger_phases()` mappé sur chaque
-ACTION top-level (`Runner.apply`) — proxy du per-activation natif (plus fin mais strictement sûr, compteurs
-<< 51, borne la récursion DANS une cascade car reset AVANT la cascade). `after_hit_ability_attack` passe
-le VRAI `ranged`/`profile` → vecteur COMPLET : un Psyker qui caste un special psychique déclenche Smite, et
-le splash chaine (borné par le cap). VALIDÉ : cap semantics (`test_triggered_ability_component`, 6/6) ;
-non-régression 5 tests live bit-exact (psyker_splash / damage_ability / act_of_faith ×3) ; terminaison OK.
-⏳ **#145** : confront LIVE multi-splash (chain) en géométrie contrôlée non fait (probe = cluster dispersé) —
-le chain est RE-fondé + replay-diff-gardé mais pas encore live-multi-confirmé.
+ACTION top-level (`Runner.apply`). `after_hit_ability_attack` calcule `ranged` **POSITION-based**
+(`_is_ranged_position` = caster non-adjacent à la cible, mirror `IsRangedAttack`) — le Smite ne re-déclenche
+que si position-ranged. VALIDÉ : cap semantics (`test_triggered_ability_component`, 6/6) ; non-régression
+5 tests live bit-exact (psyker_splash / damage_ability / act_of_faith ×3) ; terminaison OK.
+
+⚠ **CHAIN NON CONFIRMÉ LIVE (#145) — limitation tooling** : impossible de produire un confront LIVE du chain
+multi-splash. Chaque géométrie contrôlée (2 ennemis tanky mutuellement adjacents, psyker à evenq-d=2) est
+CONTAMINÉE par l'écart **evenq vs adjacence native `boardGraph`** : le JEU fait l'attaque primaire en MÊLÉE
+(0 splash), alors que le port (evenq-d=2) la fait RANGED → splash + chain 51×. La divergence observée est
+l'écart d'adjacence sur la PRIMAIRE (pré-existant, cf. test_psyker_splash), pas la logique de chain. Le chain
+reste **RE-fondé** (IsRangedAttack position-based + pas de suppression + cap 51) + **replay-diff-gardé** (une
+sur-splash serait attrapée) mais **pas live-confirmé**. Risque résiduel = un mismatch d'adjacence en
+replay-diff réel pourrait faire chainer le port là où le natif ne chaine pas (auto-corrigé par replay-diff).
+Bug corrigé en cours de route : `ranged` était hardcodé `(is_melee is False)` (always-ranged → over-chain
+51× partout) → remplacé par le calcul position-based.
 - **Smoke offline (board ligne, Cadien summon col 0 + ennemi col 5) : le Cadien MOVE (0,0)->(3,0) pour mettre
   son Las à portée (dist 2) puis ATTAQUE (2 coups, ranged) — décision full-playbook cohérente.**
 

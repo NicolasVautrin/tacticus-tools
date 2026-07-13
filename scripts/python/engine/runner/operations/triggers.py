@@ -846,24 +846,44 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
     return out + _squighound_after_attack(state, attacker_id, target_id)
 
 
+def _is_ranged_position(state: State, attacker_id: int, target_id: int) -> bool:
+    """Mirror `DSLFactory.IsRangedAttack @180df4d90` (= `IsRangedAttackAbilityTrigger` @180fa36c0, qui
+    calcule les POSITIONS caster/cible via `IsRangedPosition @180df4f60`) : une attaque est RANGED ssi le
+    caster N'EST PAS adjacent (mêlée) à la cible — **POSITION-based, PAS le type d'arme/profil**. Donc un
+    splash psychique porté sur un ennemi ADJACENT au caster est MÊLÉE → ne re-déclenche PAS Smite (pas de
+    chain). Non-adjacent (dist > 1) = ranged. Fallback False (mêlée = conservateur, pas de re-trigger) si
+    board/positions absents. Adjacence = `board.neighbours` (evenq, l'adjacence fidèle du port)."""
+    if state.board is None:
+        return False
+    a = state.get_entity(attacker_id)
+    t = state.get_entity(target_id)
+    ap = a.get_component(PositionComponent) if a is not None else None
+    tp = t.get_component(PositionComponent) if t is not None else None
+    if ap is None or tp is None:
+        return False
+    atile = state.board.id_at(ap.col, ap.row)
+    ttile = state.board.id_at(tp.col, tp.row)
+    if atile is None or ttile is None:
+        return False
+    return ttile not in set(state.board.neighbours(atile))     # non-adjacent = RANGED
+
+
 def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
-                             is_crit: bool, ranged: bool = False,
-                             profile: Optional[str] = None) -> list[dict]:
+                             is_crit: bool, profile: Optional[str] = None) -> list[dict]:
     """Vecteur after-hit d'une attaque d'ABILITY ou de SPLASH (mirror `EvaluateAfterHitTriggers`
     @180e25fc0 → dispatch générique). `EvaluateAfterHitTriggers` est porté par `ADamageOperation`, donc
     PARTAGÉ par l'attaque normale ET les attaques d'ability : le natif dispatche l'événement `WasCrit`
     per-coup pour TOUTE attaque (branche `param_6 != 0` → event 0x3d).
 
-    Le port ne câblait le dispatch générique (`evaluate_trigger_operation`) que pour l'attaque NORMALE
-    (`after_hit_normal_attack`, via le `DamageHandler`) — les attaques d'ability/splash
-    (`execute_ability_attack`/`execute_normal_like`) ne le lançaient PAS. #138 a câblé ce vecteur (reset
-    ActOfFaith au crit d'ability/splash). #140 passe désormais le VRAI `ranged`/`profile` de l'attaque
-    → vecteur COMPLET : le splash Psyker (`PsykerExtraAttackAbility`, gaté `IsRangedAttack &
-    DamageProfileIs(Psychic)`) fire aussi sur les abilities/splash psychiques (un Psyker qui caste un
-    special psychique déclenche Smite ; le splash lui-même — attaque psychique ranged — re-déclenche
-    Smite sur un ennemi adjacent → CHAIN, tel le natif : `CreateBehaviour` n'ajoute AUCUNE suppression,
-    seul le cap `<51/phase` borne). Cette ré-entrance est bornée par le cap phase-triggers porté en #140
-    (cf. `evaluate_trigger_operation` + `TriggeredAbilityComponent`). No-op si aucun trigger ne matche."""
+    #138 a câblé ce vecteur (reset ActOfFaith au crit d'ability/splash). #140 le rend COMPLET : le splash
+    Psyker (`PsykerExtraAttackAbility`, gaté `IsRangedAttack & DamageProfileIs(Psychic)`) fire aussi sur
+    les abilities/splash psychiques. ⚠ `ranged` = **POSITION-based** (`_is_ranged_position`, mirror
+    `DSLFactory.IsRangedAttack` = distance caster↔cible, PAS le type d'arme) : un splash sur un ennemi
+    ADJACENT au caster est MÊLÉE → ne re-déclenche PAS Smite. Le CHAIN Psyker n'a donc lieu que si le
+    caster est à distance RANGED du splash-target (tel le natif ; `CreateBehaviour` n'ajoute aucune
+    suppression, seul le cap `<51/phase` — `TriggeredAbilityComponent` — borne la ré-entrance). No-op si
+    aucun trigger ne matche."""
+    ranged = _is_ranged_position(state, attacker_id, target_id)
     ev = TriggerEvent(TRIGGER_AFTER_HIT, attacker_id, target_id,
                       ranged=ranged, profile=profile, is_crit=is_crit)
     return evaluate_trigger_operation(state, ev)
