@@ -57,3 +57,34 @@ reste (base+hits) matche deja l'oracle (cas CrushingClaws / Herald / Sanctorum).
 
 NB decouvert au passage (HORS #165) : `RighteousRepugnance_NormalAttack` (adeptMorvenn) sur-predit aussi
 (hits 5 vs 2 cote moteur) — gap d'attaque NORMALE distinct, a tracer separement si adeptMorvenn est joue.
+
+## #169 — resolution des 6 candidats NON confrontes (RE deep-read + live)
+
+Les 6 candidats "non confrontes" du tableau ci-dessus ont ete tranches par un DEEP-READ RE (re-expert : chaque
+`<Ability>Playbook.MakeDamagePredictions` + sa chaine, VAs citees) + confrontation live (sweep vs `ultraTitus`
+armure 2312, board MC1_67). **Un seul est un override pierce valide ; les 5 autres NE le sont PAS.**
+
+**Clarification de signature (corrige l'audit) :** `ComparablePlaybook.GenerateMultiHitAttackPredictions @181409da0`
+= `(this, p2, p3, target, dslEntity, base, hits, param_8=DamageProfile(Nullable), param_9=&weight(Nullable<Fix64>),
+0, typeinfo)`. Le `param_8` = PROFIL ; le `param_9` = POIDS Fix64 de la tranche. Le caveat d'arite de #169 sur
+PsychicMaelstrom (« null sur l'appel #1 seulement ») confondait param_8 et param_9.
+
+| ability (id) | carrier | param_8 | base (RE) | live | verdict #169 |
+|---|---|---|---|---|---|
+| **HarbingerOfDestruction (1008)** | necroPlasmancer | **null**@1811425bc | avg@18114252c (OK) ; hits=ArmoriumCherub.GetHits@18114255e (OK) | NON confrontable (carrier = `UNSPAWNABLE_FALLBACK` ; autres = NPC) | **RETENU `"None"`** sur PREUVE decompile (pierce-SEUL gap, structure IDENTIQUE aux 1020/1062 valides live ; deep-read RE exclut tout gap base/hits). Flag : non live-confronte. |
+| PsychicMaelstrom (1027) | astraPrimarisPsy | **Nullable(BasiliskBarrage.GetDamageProfile)** EXPLICITE @181153c50 (PAS null) | avg@181153c1e | **OK bit-exact [2792,4188]** | PAS un candidat null (mis-audit) ; live OK -> **AUCUN override**. |
+| SorcerousFacade (1100) | thousTzaangor | null@18115c1a0 | **Half(Sum(var0xc,var0xd)) DSL @18115bf7c != avg** | pas de fire (SelectFirst=0) | gap BASE -> **tache #171** (pas override). |
+| DaemonicOrdnance (1148) | blackForgefiend (MoW) | null@181128fea | **DaemonicOrdnanceAbility.GetDamage getter dedie != avg** | build non-Running (MoW) | gap BASE -> **tache #172**. |
+| HadesAutocannons (1147) | blackForgefiend (MoW) | null@181140d4a | **LightOfSanguiniusAbility.GetDamage getter dedie != avg** | build non-Running (MoW) | gap BASE -> **tache #172**. |
+| HellfireShells (1080) | NPC/summon only | null | **Direct(var0xc) DSL != avg + hits trait-cond (HasTrait 0x3f9)** | non buildable (NPC) | gap BASE+HITS -> **tache #173** (basse prio). |
+
+**Fix retenu #169 :** `_PLAYBOOK_PROFILE_OVERRIDE[1008] = "None"` (unique ajout ; garde predict_live 2/2 PASS).
+Les 5 autres : documentes en commentaire dans `prediction.py` + taches dediees #171/#172/#173.
+
+**Lecon #169 (renforce celle de #165) :** un audit param_8=null donne des candidats ; un DEEP-READ de la base/hits
+(pas juste le param_8) + la confrontation live tranchent. Ici le deep-read RE a (a) INVALIDE 1 candidat (PsychicMaelstrom
+= profil explicite, mis-audit d'arite), (b) revele que 4/6 ont une BASE non-avg (formules DSL Half(Sum), getters dedies,
+Direct(var)) que l'override pierce ne touche pas, (c) confirme 1 seul pierce-SEUL (Harbinger). Quand la base est
+prouvee=avg ET hits=config par lecture (pas suppose), l'override "None" est legitime meme sans live si le carrier est
+structurellement non confrontable (`UNSPAWNABLE_FALLBACK`) — la regle "confronter live" garde contre les gaps base/hits
+CACHES, ecartes ici par le deep-read.

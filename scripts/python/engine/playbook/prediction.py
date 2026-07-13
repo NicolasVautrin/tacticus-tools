@@ -481,9 +481,17 @@ _PLAYBOOK_PROFILE_OVERRIDE = {
     1017: "None",     # FragBomb @18113c9a0 (astraBullgryn ; null ; Blast 15) — hits config 6 OK, pierce SEUL gap. VALIDE LIVE [6,6] [#168]
     1006: "None",     # MultiThreatEliminator @18114d530 (necroDestroyer ; null ; Gauss 60) — + hits static 6 (subclass). VALIDE LIVE [6,6] [#167]
     1066: "Psychic",  # Executioner GeneratePredictions @181130150 (eldarFarseer ; Nullable(0xd=13=Psychic, pierce 100)) — hits=RoundsStarted (subclass) [#166]
-    # --- CANDIDATS audit #165 param_8=null NON CONFRONTES (carrier non buildable / non-firing / build KO)  [#169] :
-    # 1100 SorcerousFacade / 1148 DaemonicOrdnance / 1147 HadesAutocannons / 1008 HarbingerOfDestruction /
-    # 1080 HellfireShells / 1027 PsychicMaelstrom.
+    1008: "None",     # HarbingerOfDestruction @1811423f0 (necroPlasmancer ; null@1811425bc ; ability DirectDamage pierce 100) [#169]
+    #   RE PROUVE pierce-SEUL gap : base=ArcScourge.GetDamage=avg@18114252c OK, hits=ArmoriumCherub.GetHits config@18114255e OK.
+    #   NON confronte live (necroPlasmancer = UNSPAWNABLE_FALLBACK ; autres carriers = NPC necroBoss*). Retenu sur preuve
+    #   decompile (structure IDENTIQUE aux 1020/1062 valides live) — le deep-read RE a explicitement exclu tout gap base/hits.
+    # --- audit #165 param_8=null : les 5 AUTRES candidats NE sont PAS des overrides pierce (confronte #169) :
+    #   1027 PsychicMaelstrom @181153b50 : param_8 = Nullable(BasiliskBarrage.GetDamageProfile) EXPLICITE (PAS null ; l'audit
+    #     d'arite confondait param_8=profil et param_9=poids Fix64). Live OK bit-exact [2792,4188] (astraPrimarisPsy). AUCUN override.
+    #   1100 SorcerousFacade @18115bb90 : base=Half(Sum(var0xc,var0xd)) DSL != avg -> gap BASE (tache dediee).
+    #   1148 DaemonicOrdnance @181128bc0 + 1147 HadesAutocannons @181140a60 : base=getter dedie (Daemonic/LightOfSanguinius.GetDamage)
+    #     != avg -> gap BASE ; carrier blackForgefiend = MoW non buildable via --p-units (build non-Running) (tache dediee).
+    #   1080 HellfireShells @181143a00 : base=Direct(var0xc) + hits trait-conditionnel -> gap BASE+HITS ; carrier NPC/summon (tache dediee).
 }
 
 
