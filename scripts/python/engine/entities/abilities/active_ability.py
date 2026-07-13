@@ -20,14 +20,8 @@ from .ability_configuration import AbilityConfiguration
 from ...services.damage_prediction import get_default_attack_hits
 from ...services.min_max_damage import MinMaxDamage
 from ... import dsl
-
-# DamageProfileType index → nom (dump.cs @863303)
-_PROFILE_BY_INDEX = {
-    -1: "None", 0: "Physical", 1: "Projectile", 3: "Flame", 4: "Bolter", 5: "Particle",
-    6: "Acid", 7: "Plasma", 8: "Melta", 10: "Gauss", 11: "Enmitic", 13: "Psychic",
-    14: "Power", 15: "DirectDamage", 16: "Energy", 17: "Chain", 18: "Blast", 19: "HeavyRound",
-    20: "Piercing", 21: "Las", 22: "Bio", 23: "Pulse", 24: "Toxic", 25: "Eviscerate",
-}
+# #158 : table `DamageProfileType index -> nom` DERIVEE de l'enum (source unique, ex-copie transcrite retiree).
+from ..damage_profile_type import PROFILE_NAME_BY_INDEX as _PROFILE_BY_INDEX  # re-exporte (prediction.py l'importe d'ici)
 
 
 class AActiveAbility:

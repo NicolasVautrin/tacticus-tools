@@ -43,13 +43,8 @@ from .utilities.heal import HEAL_UTILITY
 from .utilities.repair import REPAIR_UTILITY
 from .utilities.effect import ADDED_EFFECT_UTILITY, EFFECT_UTILITY_PREFIX  # noqa: F401 (re-export)
 
-# DamageProfileType (dump.cs @863303) — index enum → nom de profil BC.
-DAMAGE_PROFILE_BY_INDEX: dict[int, str] = {
-    -1: "None", 0: "Physical", 1: "Projectile", 3: "Flame", 4: "Bolter", 5: "Particle",
-    6: "Acid", 7: "Plasma", 8: "Melta", 10: "Gauss", 11: "Enmitic", 13: "Psychic",
-    14: "Power", 15: "DirectDamage", 16: "Energy", 17: "Chain", 18: "Blast", 19: "HeavyRound",
-    20: "Piercing", 21: "Las", 22: "Bio", 23: "Pulse", 24: "Toxic", 25: "Eviscerate",
-}
+# #158 : ex-`DAMAGE_PROFILE_BY_INDEX` (copie MORTE, 0 usage, de la table DamageProfileType) retiree.
+# La table index->nom vit desormais dans `entities.damage_profile_type.PROFILE_NAME_BY_INDEX` (derivee de l'enum).
 
 
 # ═══════════════════════════════════════════════════════════════════════════════════════
