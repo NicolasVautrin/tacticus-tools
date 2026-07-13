@@ -451,7 +451,8 @@ class SpawnUnitOperation:
         Chaque grot porte `active_ability_level = casterLevel` (via `build_summon_context`) → **lève le GAP
         PileIn** (le grot pourra résoudre `ability_var(PileIn, ..., casterLevel)`). On-appearance
         `PerformAIAttackFromCurrentPosition` + Taunt(1t) des ennemis touchés = FLAGGÉ non porté (secondaire).
-        ⚠ exclusion `UnitsWithoutTrait(0x1b)` non portée (enum trait 0x1b non mappé) → tous les ennemis comptés."""
+        Exclusion `UnitsWithoutTrait(0x1b=27=Steppable)` PORTÉE (#135, même mapping que ArcaneShield) : les
+        ennemis Steppable (tokens marchables decoys/mines) ne comptent pas dans l'adjacence de spawn."""
         caster = state.get_entity(caster_id)
         board = state.board
         if caster is None or board is None:
@@ -480,6 +481,11 @@ class SpawnUnitOperation:
             if oc is None or pc is None or oc.team == coc.team:
                 continue
             if uc is not None and not uc.alive:
+                continue
+            # `Enemies − trait0x1b` : exclut les ennemis Steppable (UnitTrait 0x1b=27, tokens marchables
+            # decoys/mines — dump.cs) du comptage d'adjacence. Meme mapping/fix que ArcaneShield (#135).
+            esc = e.get_component(StatsComponent)
+            if esc is not None and "Steppable" in (esc.ctx.traits or []):
                 continue
             et = board.id_at(pc.col, pc.row)
             if et is not None:
