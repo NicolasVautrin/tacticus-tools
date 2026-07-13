@@ -232,24 +232,27 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     _tgt_traits = frozenset((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits") or [])
     mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm,
                                                        target_traits=_tgt_traits)
-    # #49/#67 : base de l'attaque NORMALE en PREDICTION = `GetStat(Attack, Current)` (GetAttackHitPrediction
-    # @1811af4e0 lit part0=Current SANS position ; Current=Initial+Sigma mods actifs BAKES). On part de
-    # INITIAL (bare, exclut TOUTE modification captee dans le snapshot -> pas de double-compte) puis on
-    # re-ajoute les AURAS stat-mod d'allies adjacents (RitesOfBattle @181225340) evaluees a la POSITION
-    # REELLE de l'attaquant (cf. bloc ci-dessous, #67 : bakees a la vraie position, IDENTIQUES sur toutes
-    # les tuiles candidates -- le 24/28 de #49 = elevation/arme, PAS une re-eval d'aura). NB : le residu
-    # `+400` (autre aura non identifiee) n'est PAS couvert ici.
+    # #49/#153 : base de l'attaque NORMALE en PREDICTION DISPLAY = Initial + auras stat-mod re-evaluees
+    # a la TUILE CANDIDATE. On part de INITIAL (bare, exclut TOUTE modification captee dans le snapshot
+    # -> pas de double-compte) puis on re-ajoute les AURAS stat-mod d'allies (RitesOfBattle @181225340,
+    # PathOfCommand @181110f10) evaluees a `attack_pos` (tuile candidate ; None -> position reelle).
+    # NB : le residu `+400` (autre aura non identifiee) n'est PAS couvert ici.
     _ap = attack_pos or scene.pos(att_id)
-    # #67 (re-expert) : l'aura d'ATTAQUE-STAT (RitesOfBattle/PathOfCommand) est un DynamicStatModifierEffect
-    # bake dans le StatComponent du beneficiaire, refresh EVENT-DRIVEN (@180f09220), PAS re-teste par GetStat.
-    # GetAttackHitPrediction @1811af4e0 lit GetStat(Attack, Current) SANS position -> la valeur bakee a la
-    # position REELLE de l'attaquant s'applique IDENTIQUEMENT a toutes les tuiles candidates. On evalue donc
-    # l'aura a `scene.pos(att_id)` (position reelle), JAMAIS a `attack_pos` (tuile candidate = l'ancien bug #67).
-    _att_real = scene.pos(att_id)
+    # #153 (tranche le flip-flop #45/#58/#67) : la chaine display threade la position candidate de bout
+    # en bout — `DamagePredictionQuery.GetAllPredictions @181090f50` construit `UnitPosition(tuile de
+    # selection)` et la passe au service ; `DamagePrediction.PredictNormalAttack @181037cd0` en tire
+    # `get_MainTile` et la pose comme CasterTile dans `AbilityEntities.ctor`. Les auras d'attaque-stat
+    # sont donc re-evaluees PAR TUILE CANDIDATE (PAS la valeur bakee a la position reelle). MESURE
+    # discriminante seed-31337 (1 decisionView, attaquant reel FIXE adjacent au porteur, seule la tuile
+    # varie) : u92 out-ring 12/12 = base Initial (aura PERDUE malgre le stat-mod +1298 present live) ;
+    # u96 (reel LOIN du porteur, aucun stat-mod) sur tuile in-ring = base Initial+aura (aura GAGNEE).
+    # L'ancien verdict #67 (« aura bakee a la position reelle, GetStat sans position ») etait un artefact :
+    # son test etait circulaire (port-vs-port) et son unique GetStat de GetAttackHitPrediction @1811af4e0
+    # lit en realite `GetStat(AbilityEntities.Target@+0x10, Health=5, Current)` (HP cible), pas un Attack.
     _att_gu = GC.unit(scene.vis_by_id.get(att_id)) or {}
     att_grand = _att_gu.get("GrandAllianceId")           # gate RitesOfBattle (Imperial)
     att_faction = _att_gu.get("FactionId")               # gate PathOfCommand (IsSameFaction = FactionId)
-    aura_ctx = {"att_id": att_id, "att_pos": _att_real, "att_team": scene.team(att_id),
+    aura_ctx = {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
                 "att_grand_alliance": att_grand, "att_faction": att_faction, "board": scene.board}
     carriers = [(uid, scene.pos(uid), scene.team(uid), scene.mult(uid), scene.ablvl_by_id.get(uid),
                  (GC.unit(scene.vis_by_id.get(uid)) or {}).get("GrandAllianceId"),   # owner grande-alliance

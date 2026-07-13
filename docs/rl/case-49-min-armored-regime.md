@@ -5,7 +5,35 @@ seeds FRAIS via `test_predict_live` (PREDICT_SEED) ont RE-EXPOSE un residu que l
 seed-777 + overkill 3/3 ne montraient pas. **#49 etait marque completed : son cote MIN ne
 l'est PAS.** GREP ce fichier avant de re-investiguer #49.
 
-## MAJ 2026-07-13 (#152 reconciliation, MESURE LIVE) : sous-determination CLOSE + le residu est BROAD (pas defenseur)
+## MAJ 2026-07-13 bis (#153, TRANCHE) : le "residu broad" ETAIT l'aura-position — regime blinde per-coup REFUTE
+
+**La section "MAJ 2026-07-13" ci-dessous se trompe sur le residu** (sa mesure statModSources reste
+valide) : le "regime blinde per-coup" n'existe pas. Mesure discriminante #153 (UN decisionView
+seed-31337 runner 50, attaquant reel u92 FIXE en (5,5) hex-adjacent a Calgar (4,4), stat-mod +1298
+verifie present, SEULE la tuile candidate varie via `attackPlans[].evals[].ranked[]` per-tuile) :
+
+- u92 tuiles candidates **out-ring** de Calgar (12 lignes clean) : oracle == offline avec base
+  **Initial (3011)** -> 12/12 EXACT ; base 4309 (hypothese #67) -> 0/12.
+- u92 tuiles **in-ring** (2) : 4309 EXACT (les 2 hypotheses coincident la).
+- **Converse** : u96 (reel en (3,7), LOIN de Calgar, AUCUN stat-mod attack) sur tuile candidate
+  (4,5) in-ring -> oracle (3127,4691) = base **3909 = 3011 + 898** (RitesOfBattle Basic
+  non-Imperial) : l'aura est GAGNEE per-tuile. Total : **29/29 clean** expliques par
+  "aura re-evaluee a la TUILE CANDIDATE" ; les ratios "non-constants" 0.31/0.63/0.89 de la
+  section ci-dessous etaient juste base-4309-offline vs base-3011-oracle a travers armure/cap.
+- **Decompile** : la chaine display threade la UnitPosition candidate de bout en bout
+  (`GetAllPredictions @181090f50` construit `UnitPosition(tuile de selection)` ->
+  `DamagePrediction.PredictNormalAttack @181037cd0` : CasterTile = tuile candidate dans
+  `AbilityEntities.ctor`). L'unique GetStat de `GetAttackHitPrediction @1811af4e0` lit
+  `GetStat(AbilityEntities.Target@+0x10, Health=5, Current)` (HP de la CIBLE) — les DEUX verdicts
+  anterieurs (#67 "GetStat(Attack) sans position" et #153-draft "GetStat(Attack) du contexte
+  tuile") citaient mal cette fonction.
+- **Fix** : `make_normal_attack_predictions` evalue l'aura a `attack_pos or scene.pos(att_id)`
+  (tuile candidate, fallback position reelle). Le verdict #67 etait un artefact : son test
+  `test_aura_position_live.py` etait CIRCULAIRE (il mesurait la base du PORT via
+  `prediction.make_normal_attack_predictions`, jamais l'oracle natif) — reecrit non-circulaire
+  (oracle = ranked per-tuile natif).
+
+## (SUPERSEDEE par #153 ci-dessus) MAJ 2026-07-13 (#152 reconciliation, MESURE LIVE) : sous-determination CLOSE + le residu est BROAD (pas defenseur)
 
 Mesure decisive `statModSources` LIVE **post-drive** (seed 31337, runner 42, probe jetable rejouant
 `build_samples` puis interrogeant le MEME rid a l'etat post-drive) :
@@ -44,9 +72,18 @@ defenseur-stat-mod tant qu'aucun cas ne fire (defere, gate documente).
   Tache dediee. **Distinct de #152** (dont le scope framed — defenseur Terrifying + base positionnelle
   — est RESOLU/porte).
 
-## RESOLU 2026-07-09 (#67) : l'AURA etait evaluee a la TUILE CANDIDATE au lieu de la POSITION REELLE
+## (REFUTE par #153 — le fix #67 etait un ANTI-FIX) RESOLU 2026-07-09 (#67) : l'AURA etait evaluee a la TUILE CANDIDATE au lieu de la POSITION REELLE
 
-**Le gap DOMINANT "aura sous-appliquee sur ~24/28 tuiles" est FERME** (verdict re-expert acf1a624 + fix + validation).
+**⚠ #153 (MAJ 2026-07-13 bis ci-dessus) REFUTE ce verdict : le MODELE per-tuile-candidate (l'etat
+AVANT #67) etait le bon ; #67 l'a inverse sur des mesures non isolees et a introduit la regression
+que #153 corrige.** (Les mismatches #49 de l'epoque avaient d'autres confounds — parite hexgeo
+fixee 07-02, selection d'arme cheby-vs-hex, elevation #98 — pas re-derives ici.) Les points faux
+ci-dessous : (a) le "RE decompile" — GetAttackHitPrediction @1811af4e0 ne lit PAS GetStat(Attack)
+(il lit GetStat(Target, Health=5)) et la prediction display "deplace" bien l'attaquant pour la
+BASE (UnitPosition candidate threadee, cf. #153) ; (b) la "validation" — test circulaire
+port-vs-port. Section conservee pour trace du flip-flop.
+
+**(archive #67)** Le gap DOMINANT "aura sous-appliquee sur ~24/28 tuiles" etait attribue ainsi (verdict re-expert acf1a624 + fix + validation) :
 
 - **Root cause** : `make_normal_attack_predictions` (prediction.py) evaluait l'aura d'attaque-stat
   (RitesOfBattle @181225340 / PathOfCommand) a la **tuile candidate** `attack_pos` -> l'aura n'etait

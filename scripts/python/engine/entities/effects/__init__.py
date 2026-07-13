@@ -247,9 +247,13 @@ def aura_attack_bonus_from_allies(carriers, ctx) -> int:
     +extraDmg(/_2 si même FACTION) aux alliés dans un rayon 2). `carriers` = itérable de (owner_id, owner_pos,
     owner_team, owner_mult, owner_level, owner_grand_alliance, owner_faction, effets du porteur) ; `ctx` =
     {att_id, att_pos, att_team, att_grand_alliance, att_faction, board}. Modélisé CÔTÉ SOURCE, évalué à la
-    position passée dans `att_pos`. #67 : l'appelant prédiction passe la position RÉELLE de l'attaquant (aura
-    stat-mod bakée event-driven, GetStat Current SANS position -> IDENTIQUE sur toutes les tuiles candidates),
-    JAMAIS la tuile candidate. Retour >= 0 (à AJOUTER à `GetStat(Attack, INITIAL)`).
+    position passée dans `att_pos`. #153 (REFUTE l'ancien verdict #67 « position réelle jamais tuile
+    candidate ») : en PRÉDICTION DISPLAY l'appelant passe la TUILE CANDIDATE (`attack_pos`, fallback
+    position réelle) — la chaîne native threade la UnitPosition candidate de bout en bout
+    (`GetAllPredictions @181090f50` -> `DamagePrediction.PredictNormalAttack @181037cd0` : CasterTile =
+    tuile candidate dans `AbilityEntities.ctor`) et ré-évalue l'aura PAR TUILE (mesure discriminante
+    seed-31337 : aura PERDUE out-ring malgré le stat-mod +1298 baké live, GAGNÉE in-ring pour un
+    attaquant réel hors portée du porteur). Retour >= 0 (à AJOUTER à `GetStat(Attack, INITIAL)`).
     NB gates DIFFÉRENTS : RitesOfBattle=grande-alliance (Imperial), PathOfCommand=faction (IsSameFaction)."""
     total = 0
     for owner_id, owner_pos, owner_team, owner_mult, owner_level, owner_ga, owner_faction, effects \
