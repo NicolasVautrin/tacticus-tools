@@ -32,6 +32,7 @@ from typing import Optional
 from ..state import State
 from ...entities.stats import StatType
 from ...entities.traits import UnitTrait, has_any_trait, has_trait
+from ...dsl.event_trigger_type import EventTriggerType
 from ..components import (StatsComponent, OwnerComponent, PositionComponent, UnitComponent,
                          HealthComponent, ShieldComponent, TriggeredAbilityComponent)
 from .damage import AttackDamageOperation
@@ -44,42 +45,15 @@ PHASE_TRIGGER_CAP = 0x33         # 51 — `EvaluateAbilityTrigger`@180e6d650 : G
                                  # PAS NormalAttack `On(0x26)`) → le cap n'est plus atteint par Psyker, mais reste
                                  # porté fidèlement (borne toute future ability-trigger récursive).
 
-# --- Event ids de trigger (DSLFactory.On(x)) ------------------------------------------------------
-# EVENT-MAPPING RE (#147, verdict agent #150) : `On(0x26)` (NormalAttack) et le vecteur after-hit
-# `ADamageOperation.EvaluateAfterHitTriggers @180e25fc0` (message 8, +0x3d si crit) sont des events NATIFS
-# DISTINCTS. L'ancien port les conflatait sous UNE constante 0x26 (commentaire faux « message 8 ») → le
-# splash (chemin `AbilityDamageOperation.ExecuteHit @180e29d50`, events {6,8,0x3d}, JAMAIS 0x26) re-satisfaisait
-# Psyker `On(0x26)` → chain 51× (borné par le cap phase). Corrigé : Psyker écoute NormalAttack ; le splash
-# n'émet que l'after-hit → ne re-déclenche PAS Psyker (structurel, conforme au live : 1 seul splash).
-TRIGGER_NORMAL_ATTACK = 0x26    # 38 — attaque NORMALE effectuée. `DSLFactory.OnNormalAttackOrSmite @180df7c70`
-                                #      = On(0x26) OR (On(9)=ability-attack AND HasUsedActiveAbility(Smite 0x3f5)).
-                                #      Émis UNE fois par ATTAQUE (per-attack), chemin normal-attack UNIQUEMENT
-                                #      (pas les attaques d'ability/splash). Écoute : Psyker (splash Smite).
-TRIGGER_ABILITY_ATTACK = 9      # 9  — attaque d'ABILITY effectuée. `DSLFactory.On(9)` (cf. OnNormalAttackOrSmite
-                                #      @180df7c70 : On(9)=ability-attack, DISTINCT de On(0x26)=normal — confirmé
-                                #      décompilé). Émis UNE fois par ATTAQUE (per-attack), chemin ABILITY/splash/
-                                #      normal-like UNIQUEMENT (is_normal_attack=False), JAMAIS l'attaque normale.
-                                #      Écoute : reset ActOfFaith (@181219f90 = On(9) & OwnerIsCaster & WasCrit
-                                #      & HasEffect(0x3f9)) — #151 : réparé le mapping infidèle sur after-hit(8).
-TRIGGER_AFTER_HIT = 8           # 8  — after-HIT. `EvaluateAfterHitTriggers @180e25fc0` dispatche message 8
-                                #      après CHAQUE coup (FUN_180026490(...,8,...)), attaque NORMALE ET
-                                #      ability/splash (partagé par `ADamageOperation`). Aucun consommateur actif
-                                #      (le reset ActOfFaith est passé sur On(9) ability-only, #151) ; vecteur
-                                #      natif conservé pour fidélité (futurs after-hit triggers).
-TRIGGER_AFTER_CRIT = 0x3d       # 61 — after-CRIT. `EvaluateAfterHitTriggers` branche `param_6!=0` : dispatche
-                                #      0x3d si le coup crit (mêmes deux chemins que 8). Non écouté pour l'instant
-                                #      (le reset gate `is_crit` sur l'événement ability-attack On(9)).
-TRIGGER_AFTER_MOVE = 4          # 4  — après un déplacement (EvaluateAfterMoveTriggers, message 4 ;
-                                #      RangedAutoAttackEffect.CreateTargetTrigger = On(4))
-TRIGGER_DEATH = 1               # 1  — MORT (OnDeathEvent eventId=1 ; OnPreDeath/OnDeath @180df7ad0).
-                                #      AbilityEntities : slot 0x158=killer, 0x178=dying.
-TRIGGER_TURN_START = 0x16       # 22 — DÉBUT DE TOUR. `StartTurnOperation.Execute`@180ea3fb0 émet une
-                                #      séquence d'events 0x12/0x13/0x14/0x15/0x16 ; `On(0x16)` = le
-                                #      trigger turn-start (ex. TheBetrayer_TakeTurnAbility.CreateTrigger).
-# --- TILE-EFFECTS : ROUND-TICK (mêmes émetteurs StartTurn 0x12/0x14 ; RE #128, verdict re-expert) ---
-TRIGGER_TILE_TICK_12 = 0x12     # 18 — tick de tour : Contaminated re-apply (`On(0x12)` @180f3a1d0).
-TRIGGER_TILE_TICK_14 = 0x14     # 20 — tick de tour : Fire DoT + DryBush spread (`On(0x14)` @18121e390/
-                                #      @1811bf730). Émis par StartTurn AVANT 0x16 (ordre = HYPOTHÈSE à valider).
+# --- Event ids de trigger : enum natif `EventTriggerType` (dsl/event_trigger_type.py, #155) -------
+# EVENT-MAPPING RE (#147, verdict agent #150) : `On(NormalAttack=38)` et le vecteur after-hit
+# `ADamageOperation.EvaluateAfterHitTriggers @180e25fc0` (dispatche `AttackHit=8` TOUJOURS + `UnitBlocked=61`
+# (0x3d) sur la branche `param_6`) sont des events NATIFS DISTINCTS. L'ancien port les conflatait sous une
+# constante 0x26 → le splash (`AbilityDamageOperation.ExecuteHit @180e29d50`, events {6,8,0x3d}, JAMAIS
+# NormalAttack) re-satisfaisait Psyker `On(NormalAttack)` → chain 51×. Corrigé (#147) : Psyker écoute
+# `NormalAttack` ; le reset ActOfFaith écoute `Attack=9` (attaque d'ability, #151). Les membres consommés
+# + leurs VAs/sémantique sont annotés dans `dsl/event_trigger_type.py`. NB : `UnitBlocked=61` corrige
+# l'ancien mislabel "after-crit" de 0x3d (valeur = UnitBlocked, non consommée par le port).
 
 # --- Contaminated (tile-effect, RE #132/#128) : enter-tile + tick posent le sous-effet -X% armure --------
 CONTAMINATED_TILE = 0x4dc       # 1244 "Contaminated" — effet de TUILE (posé par attaque Toxic, OnToxicDamage).
@@ -183,7 +157,7 @@ class PsykerExtraAttackAbility(TriggeredAbility):
     Trigger `On(0x26)=NormalAttack` (@181224420) → fire UNIQUEMENT sur le vecteur attaque-NORMALE
     (`after_hit_normal_attack`), JAMAIS sur le splash/ability (chemin `AbilityDamageOperation`, events {6,8,0x3d}
     sans 0x26) → pas de chain (verdict RE #147/#150)."""
-    event_id = TRIGGER_NORMAL_ATTACK
+    event_id = EventTriggerType.NormalAttack
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         # CreateTrigger@181224420 : OwnerIsActor & IsRangedAttack & DamageProfileIs(Psychic) & NON suppressé.
@@ -251,7 +225,7 @@ class OverwatchAutoAttack(EffectTrigger):
     AdditionalActivateTrigger : `NOT overwatcher a 0x429`). Behaviour `GetAttackBehaviour`@180f5d3e0 =
     `UseActiveAbility(NormalAttack)` sur le mover ⇒ **attaque NORMALE** de l'overwatcher (chemin
     `AttackDamageOperation.execute`, déjà bit-exact)."""
-    event_id = TRIGGER_AFTER_MOVE
+    event_id = EventTriggerType.UnitAfterMove
     effect_type = OVERWATCH_AUTO_ATTACK
 
     def matches(self, state: State, ev: "TriggerEvent") -> bool:
@@ -350,13 +324,13 @@ class ContaminatedTileEffect(TileEffectTrigger):
     partagent le behaviour (appliquer à la cible) → `event_ids=(4, 0x12)`.
     ⚠ MAGNITUDE (X%) NON RÉSOLUE (#132) → l'effet est posé avec `value=None` (PRÉSENT mais inerte-stat)."""
     effect_type = CONTAMINATED_TILE
-    event_ids = (TRIGGER_AFTER_MOVE, TRIGGER_TILE_TICK_12)
+    event_ids = (EventTriggerType.UnitAfterMove, EventTriggerType.TurnStart_EffectActivation)
 
     def _target_unit(self, state: State, ev: "TriggerEvent") -> Optional[int]:
         occ = self._unit_on_tile(state)
         if occ is None:
             return None
-        if ev.event_id == TRIGGER_AFTER_MOVE:
+        if ev.event_id == EventTriggerType.UnitAfterMove:
             # ENTER : gate `AreEqual(triggeringTile, effectTile)` = le MOVER doit être sur MA tuile (pas un
             # occupant d'une autre tuile contaminée qui se déclencherait à chaque move ailleurs).
             return occ if occ == ev.actor_id else None
@@ -401,7 +375,7 @@ class FireTileDoT(TileEffectTrigger):
     le DoT EXCLUT les occupants portant `Steppable` (tokens marchables) ou `Immune` (cf. _is_immune_to_fire).
     Reste a confirmer LIVE (build carrier -> Fire -> occupant immune vs non-immune)."""
     effect_type = FIRE_TILE
-    event_ids = (TRIGGER_TILE_TICK_14,)
+    event_ids = (EventTriggerType.TurnStart_EnvironmentEffects,)
 
     def matches(self, state: State, ev: "TriggerEvent") -> bool:
         return self._unit_on_tile(state) is not None
@@ -451,7 +425,7 @@ class ActOfFaithAccumulateAbility(TriggeredAbility):
     porteur (la branche conditionnelle interne mêlée/normalAttack module un cas particulier de l'auteur ;
     le NET pour la prédiction de crit = +1 stack par déclenchement). i2 : « +X% Crit Chance et +Y% Crit
     Damage chaque fois qu'un allié Imperial meurt ou tue un ennemi »."""
-    event_id = TRIGGER_DEATH
+    event_id = EventTriggerType.PreUnitDeath
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         owner = state.get_entity(self.owner_id)
@@ -487,7 +461,7 @@ class ActOfFaithResetAbility(TriggeredAbility):
 
     CreateTrigger@181219f90 = `On(9,1) & OwnerIsCaster & WasCrit & HasEffect(owner,0x3f9)` (confirmé décompilé).
     L'événement natif `On(9)` = attaque d'ABILITY (`OnNormalAttackOrSmite @180df7c70` : On(9)=ability-attack vs
-    On(0x26)=normal). #151 (FIX) : le reset écoute désormais l'événement `On(9)` (`TRIGGER_ABILITY_ATTACK`,
+    On(0x26)=normal). #151 (FIX) : le reset écoute désormais l'événement `On(9)` (`EventTriggerType.Attack`,
     dispatché par `after_hit_ability_attack` = voie ABILITY/splash/normal-like UNIQUEMENT), gaté par `is_crit`
     — fire 1×/attaque d'ability avec `is_crit` agrégé (même timing : après l'attaque du porteur). Il N'écoute
     PLUS le vecteur after-hit `On(8)` (partagé par les DEUX chemins) → **plus de reset sur un crit d'attaque
@@ -503,7 +477,7 @@ class ActOfFaithResetAbility(TriggeredAbility):
     le buff ; ici tous les coups d'UNE même sous-attaque utilisent les params crit d'avant-reset. Le reset
     per-CIBLE de splash est en revanche fidèle (chaque cible = un `execute_ability_attack` distinct qui relit
     GetStat post-reset). overwatch = non couvert (pas de vecteur ability-attack dédié)."""
-    event_id = TRIGGER_ABILITY_ATTACK
+    event_id = EventTriggerType.Attack
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         if self.owner_id != ev.actor_id:                         # OwnerIsCaster
@@ -527,7 +501,7 @@ class TheBetrayerAddEffectAbility(TriggeredAbility):
     de la mort (= le tueur, slot 0x158=killer) et n'a pas déjà la rage. Behaviour = `AddEffect(0x4f3)` sur
     lui-même. ⇒ après que Kharn tue une unité, il gagne la rage qui déclenche son auto-tour (cf. TakeTurn).
     Vérité-terrain : pas d'auto-action AVANT le 1er kill (0x4f3 absent), auto-action APRÈS (cf. recon)."""
-    event_id = TRIGGER_DEATH
+    event_id = EventTriggerType.PreUnitDeath
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         if ev.killer_id != self.owner_id:                        # OwnerIsActor (= killer)
@@ -551,7 +525,7 @@ class TheBetrayerTakeTurnAbility(TriggeredAbility):
     (≤ `range`=2, meilleure tuile adjacente par MinPathLength), puis l'ATTAQUE si adjacent (4 coups
     Eviscerate, `GetDamageBehaviour`). ⇒ Kharn « charge et frappe » l'unité la plus proche, amie ou
     ennemie, à chaque début de tour tant qu'il a la rage."""
-    event_id = TRIGGER_TURN_START
+    event_id = EventTriggerType.TurnStart_Actions
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         owner = state.get_entity(self.owner_id)
@@ -579,7 +553,7 @@ class FinalJusticeAbility(TriggeredAbility):
     TargetIsOverkilled`. ⇒ en mourant, Kharn porte UNE attaque normale sur l'ennemi le plus rentable —
     SAUF si le coup fatal l'a OVERKILL (dmg >= 2*PV ; cf. `is_overkill`). `fire_on_death` car l'owner est
     déjà `alive=False` au moment du dispatch MORT (bypass du gate vivant, comme `CanGetAbilityTrigger`)."""
-    event_id = TRIGGER_DEATH
+    event_id = EventTriggerType.PreUnitDeath
     fire_on_death = True
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
@@ -608,7 +582,7 @@ class ArcaneShieldAbility(TriggeredAbility):
     courant). Le cas « fin de tour sans déplacement » n'est pas couvert (raffinement = vecteur 0x1c propre
     avec la boucle d'activation). La sélection multi-amis (priorité faction) est portée mais validée
     seulement sur le cas SOLO (target = soi). Behaviour/cible = `_arcaneshield_grant`/`_arcaneshield_target`."""
-    event_id = TRIGGER_AFTER_MOVE
+    event_id = EventTriggerType.UnitAfterMove
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         if ev.actor_id != self.owner_id:                 # OwnerIsActor : l'owner vient de bouger
@@ -874,10 +848,10 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
     NE fire PLUS sur un crit d'attaque normale). `ranged`/`profile` = nature du coup primaire. Ajoute le passif
     `SquigHound` (spawn de grot après attaque) + la POSE on-hit des tile-effects de profil (`OnFireDamageAbility`).
     No-op si rien ne matche."""
-    ev_na = TriggerEvent(TRIGGER_NORMAL_ATTACK, attacker_id, target_id,
+    ev_na = TriggerEvent(EventTriggerType.NormalAttack, attacker_id, target_id,
                          ranged=ranged, profile=profile, is_crit=is_crit)
     out = evaluate_trigger_operation(state, ev_na)              # On(0x26) : Psyker (per-attaque)
-    ev_ah = TriggerEvent(TRIGGER_AFTER_HIT, attacker_id, target_id,
+    ev_ah = TriggerEvent(EventTriggerType.AttackHit, attacker_id, target_id,
                          ranged=ranged, profile=profile, is_crit=is_crit)
     out = out + evaluate_trigger_operation(state, ev_ah)        # On(8) after-hit (vecteur natif ; sans conso #151)
     out = out + _on_fire_damage_ability(state, attacker_id, target_id, profile)  # OnFireDamageAbility @1811c3a60
@@ -923,12 +897,12 @@ def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
     # On(9) ability-attack (per-attaque) : reset ActOfFaith au crit (@181219f90 = On(9) & OwnerIsCaster &
     # WasCrit & HasEffect(0x3f9)). #151 : ROUTE le reset ICI (voie ability/splash/normal-like = is_normal_attack
     # =False) au lieu de after-hit(8) partagé avec la NORMALE -> plus de reset sur un crit d'attaque normale.
-    ev_aa = TriggerEvent(TRIGGER_ABILITY_ATTACK, attacker_id, target_id,
+    ev_aa = TriggerEvent(EventTriggerType.Attack, attacker_id, target_id,
                          ranged=ranged, profile=profile, is_crit=is_crit)
     out = evaluate_trigger_operation(state, ev_aa)
     # On(8) after-hit (vecteur natif per-coup, EvaluateAfterHitTriggers) : conservé pour fidélité ; aucun
     # consommateur actif depuis #151 (le reset a migré sur On(9)).
-    ev_ah = TriggerEvent(TRIGGER_AFTER_HIT, attacker_id, target_id,
+    ev_ah = TriggerEvent(EventTriggerType.AttackHit, attacker_id, target_id,
                          ranged=ranged, profile=profile, is_crit=is_crit)
     return out + evaluate_trigger_operation(state, ev_ah)
 
@@ -937,7 +911,7 @@ def after_move_triggers(state: State, mover_id: int) -> list[dict]:
     """Vecteur after-move (mirror `MoveUnitOperation.EvaluateAfterMoveTriggers`@180e79770 → dispatch).
     Construit l'événement `On(4)` {acteur=mover} et lance `evaluate_trigger_operation`. Déclenche les
     effet-triggers after-move (ex. Overwatch). No-op si aucun trigger ne matche (ou pas de board/rng)."""
-    ev = TriggerEvent(TRIGGER_AFTER_MOVE, mover_id, mover_id, ranged=False, profile=None)
+    ev = TriggerEvent(EventTriggerType.UnitAfterMove, mover_id, mover_id, ranged=False, profile=None)
     return evaluate_trigger_operation(state, ev)
 
 
@@ -948,7 +922,7 @@ def tile_tick_triggers(state: State) -> list[dict]:
     de SA tuile. Ordre 0x12 puis 0x14, AVANT le turn-start `On(0x16)` (ordre exact = HYPOTHÈSE à valider,
     cf. verdict RE #128). No-op si aucun tile-effect actif."""
     out: list[dict] = []
-    for eid in (TRIGGER_TILE_TICK_12, TRIGGER_TILE_TICK_14):
+    for eid in (EventTriggerType.TurnStart_EffectActivation, EventTriggerType.TurnStart_EnvironmentEffects):
         ev = TriggerEvent(eid, -1, -1, ranged=False, profile=None)
         out += evaluate_trigger_operation(state, ev)
     return out
@@ -961,7 +935,7 @@ def after_death_triggers(state: State, dying_id: int, killer_id: Optional[int],
     ActOfFaith (allié Imperial qui meurt ou tue) + FinalJustice (l'unité mourante riposte, sauf overkill).
     `actor_id`/`target_id` reflètent killer/dying pour le dispatch générique. No-op si aucun trigger ne
     matche."""
-    ev = TriggerEvent(TRIGGER_DEATH,
+    ev = TriggerEvent(EventTriggerType.PreUnitDeath,
                       killer_id if killer_id is not None else dying_id, dying_id,
                       ranged=False, profile=None, killer_id=killer_id, dying_id=dying_id,
                       overkill=overkill)
@@ -986,7 +960,7 @@ def start_turn_triggers(state: State, player_id: int) -> list[dict]:
     les auto-tours forcés du player courant (ex. TheBetrayer de worldKharn : move+attaque). `actor`/`target`
     = -1 (pas d'acteur unique ; chaque trigger filtre sur `ev.player_id` == son owner). No-op si aucun
     trigger turn-start ne matche (ou pas de board/rng pour le move+attaque)."""
-    ev = TriggerEvent(TRIGGER_TURN_START, -1, -1, ranged=False, profile=None, player_id=player_id)
+    ev = TriggerEvent(EventTriggerType.TurnStart_Actions, -1, -1, ranged=False, profile=None, player_id=player_id)
     return evaluate_trigger_operation(state, ev)
 
 

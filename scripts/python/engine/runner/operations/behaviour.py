@@ -27,7 +27,8 @@ from __future__ import annotations
 from typing import Optional
 
 from ..components import OwnerComponent, PositionComponent, UnitComponent, UnitFlagsComponent
-from .triggers import TriggeredAbility, TRIGGER_DEATH, _unit_tile, _hex_dist
+from .triggers import TriggeredAbility, _unit_tile, _hex_dist
+from ...dsl.event_trigger_type import EventTriggerType
 
 IGNORE_BATTLE_FATIGUE = 0x437    # 1079 IgnoreBattleFatigue (immunite ; posee p.ex. par SquigHound 1078)
 BATTLE_FATIGUE_ADJ = 2           # IsAdjacent(self, dying, 2) — rayon de l'allie mourant
@@ -102,7 +103,7 @@ class BattleFatigueAbility(TriggeredAbility):
     """Trait `BattleFatigue` (cf. en-tete module). Trigger MORT : un ALLIE adjacent (<=2) meurt et self
     n'est pas immunise (1079) -> eligible a la fuite. Behaviour = `FleeOperation` (gate `Maybe(fleeChance)`
     documente). Gate par le trait via `BEHAVIOUR_TRAIT_TRIGGERS` (mirror Psyker/FinalJustice/ActOfFaith)."""
-    event_id = TRIGGER_DEATH
+    event_id = EventTriggerType.PreUnitDeath
 
     def matches(self, state, ev) -> bool:
         if ev.dying_id is None or ev.dying_id == self.owner_id:
