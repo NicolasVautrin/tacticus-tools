@@ -55,12 +55,20 @@ TRIGGER_NORMAL_ATTACK = 0x26    # 38 — attaque NORMALE effectuée. `DSLFactory
                                 #      = On(0x26) OR (On(9)=ability-attack AND HasUsedActiveAbility(Smite 0x3f5)).
                                 #      Émis UNE fois par ATTAQUE (per-attack), chemin normal-attack UNIQUEMENT
                                 #      (pas les attaques d'ability/splash). Écoute : Psyker (splash Smite).
+TRIGGER_ABILITY_ATTACK = 9      # 9  — attaque d'ABILITY effectuée. `DSLFactory.On(9)` (cf. OnNormalAttackOrSmite
+                                #      @180df7c70 : On(9)=ability-attack, DISTINCT de On(0x26)=normal — confirmé
+                                #      décompilé). Émis UNE fois par ATTAQUE (per-attack), chemin ABILITY/splash/
+                                #      normal-like UNIQUEMENT (is_normal_attack=False), JAMAIS l'attaque normale.
+                                #      Écoute : reset ActOfFaith (@181219f90 = On(9) & OwnerIsCaster & WasCrit
+                                #      & HasEffect(0x3f9)) — #151 : réparé le mapping infidèle sur after-hit(8).
 TRIGGER_AFTER_HIT = 8           # 8  — after-HIT. `EvaluateAfterHitTriggers @180e25fc0` dispatche message 8
                                 #      après CHAQUE coup (FUN_180026490(...,8,...)), attaque NORMALE ET
-                                #      ability/splash (partagé par `ADamageOperation`). Écoute : reset ActOfFaith.
+                                #      ability/splash (partagé par `ADamageOperation`). Aucun consommateur actif
+                                #      (le reset ActOfFaith est passé sur On(9) ability-only, #151) ; vecteur
+                                #      natif conservé pour fidélité (futurs after-hit triggers).
 TRIGGER_AFTER_CRIT = 0x3d       # 61 — after-CRIT. `EvaluateAfterHitTriggers` branche `param_6!=0` : dispatche
                                 #      0x3d si le coup crit (mêmes deux chemins que 8). Non écouté pour l'instant
-                                #      (le reset gate `is_crit` sur le vecteur after-hit 8).
+                                #      (le reset gate `is_crit` sur l'événement ability-attack On(9)).
 TRIGGER_AFTER_MOVE = 4          # 4  — après un déplacement (EvaluateAfterMoveTriggers, message 4 ;
                                 #      RangedAutoAttackEffect.CreateTargetTrigger = On(4))
 TRIGGER_DEATH = 1               # 1  — MORT (OnDeathEvent eventId=1 ; OnPreDeath/OnDeath @180df7ad0).
@@ -477,26 +485,25 @@ class ActOfFaithResetAbility(TriggeredAbility):
     """`ActOfFaith_RemoveEffectAbility` (@181219f90 CreateTrigger / @181219eb0 CreateBehaviour) — RESET du
     buff au crit du porteur.
 
-    CreateTrigger@181219f90 = `On(9,1) & OwnerIsCaster & WasCrit & HasEffect(owner,0x3f9)`. L'événement natif
-    `On(9)` = attaque d'ABILITY (`OnNormalAttackOrSmite @180df7c70` : On(9)=ability-attack vs On(0x26)=normal) ;
-    il est ici mappé sur le vecteur **after-hit `On(8)`** (`EvaluateAfterHitTriggers @180e25fc0`, dispatché par
-    les DEUX chemins normal+ability), gaté par `is_crit` — fire 1×/AttackUnitMessage avec `is_crit` agrégé
-    (même timing : après l'attaque du porteur). ⚠ FIDÉLITÉ (#147 caveat, follow-up) : le natif `On(9)` cible
-    les crits d'ABILITY seulement, or ce mapping fire AUSSI sur un crit d'attaque NORMALE ; comportement
-    PRÉSERVÉ (pré-existant, non régressé par le fix Psyker) mais à re-vérifier vs live.
+    CreateTrigger@181219f90 = `On(9,1) & OwnerIsCaster & WasCrit & HasEffect(owner,0x3f9)` (confirmé décompilé).
+    L'événement natif `On(9)` = attaque d'ABILITY (`OnNormalAttackOrSmite @180df7c70` : On(9)=ability-attack vs
+    On(0x26)=normal). #151 (FIX) : le reset écoute désormais l'événement `On(9)` (`TRIGGER_ABILITY_ATTACK`,
+    dispatché par `after_hit_ability_attack` = voie ABILITY/splash/normal-like UNIQUEMENT), gaté par `is_crit`
+    — fire 1×/attaque d'ability avec `is_crit` agrégé (même timing : après l'attaque du porteur). Il N'écoute
+    PLUS le vecteur after-hit `On(8)` (partagé par les DEUX chemins) → **plus de reset sur un crit d'attaque
+    NORMALE** (l'ancien mapping On(8) était infidèle, caveat #147 résolu).
     `OwnerIsCaster` = owner est l'attaquant (`actor_id`). Behaviour@181219eb0 = `RemoveEffect(0x3f9)` →
-    retire TOUS les stacks et revert leur ChangeStat (soustrait les deltas stockés). Câblé sur DEUX
-    vecteurs after-hit : attaque NORMALE (`after_hit_normal_attack`, via `DamageHandler`) ET attaques
-    d'ABILITY/SPLASH (`after_hit_ability_attack`, depuis `execute_ability_attack`/`execute_normal_like`,
-    #138) → un crit porté par une Battle Sister via ArmoriumCherub ou un coup de splash (AoE
-    FireOfAbsolution) reset désormais ses stacks (idempotent : `HasEffect` garde le no-op après le 1er).
-    ⚠ Approximation PARTAGÉE avec le vecteur normal (pré-existante) : reset AGRÉGÉ (1×/attaque, `is_crit`
-    agrégé) et non per-coup — le natif reset per-coup, donc si le coup i d'une attaque multi-coups crit,
-    les coups i+1.. perdraient le buff ; ici tous les coups d'UNE même sous-attaque utilisent les params
-    crit d'avant-reset. Le reset per-CIBLE de splash est en revanche fidèle (chaque cible = un
-    `execute_ability_attack` distinct qui relit GetStat post-reset). overwatch = non couvert (pas de
-    vecteur after-hit dédié)."""
-    event_id = TRIGGER_AFTER_HIT
+    retire TOUS les stacks et revert leur ChangeStat (soustrait les deltas stockés). Câblé sur le SEUL
+    vecteur ability `after_hit_ability_attack` (depuis `execute_ability_attack`/`execute_normal_like`, #138)
+    → un crit d'ABILITY porté par une Battle Sister (ArmoriumCherub) ou un coup de splash (AoE
+    FireOfAbsolution) reset ses stacks (idempotent : `HasEffect` garde le no-op après le 1er) ; un crit
+    d'attaque NORMALE ne reset PLUS (On(9) ability-only, #151).
+    ⚠ Approximation (pré-existante) : reset AGRÉGÉ (1×/attaque d'ability, `is_crit` agrégé) et non per-coup
+    — le natif reset per-coup, donc si le coup i d'une attaque multi-coups crit, les coups i+1.. perdraient
+    le buff ; ici tous les coups d'UNE même sous-attaque utilisent les params crit d'avant-reset. Le reset
+    per-CIBLE de splash est en revanche fidèle (chaque cible = un `execute_ability_attack` distinct qui relit
+    GetStat post-reset). overwatch = non couvert (pas de vecteur ability-attack dédié)."""
+    event_id = TRIGGER_ABILITY_ATTACK
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         if self.owner_id != ev.actor_id:                         # OwnerIsCaster
@@ -862,16 +869,17 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
                             ranged: bool, profile: Optional[str], is_crit: bool = False) -> list[dict]:
     """Vecteur attaque NORMALE. Le natif émet DEUX events distincts (verdict RE #147) : `On(0x26)`=NormalAttack
     (per-ATTAQUE, chemin normal only) ET l'after-hit `On(8)` (message 8 de `EvaluateAfterHitTriggers`). On
-    dispatche les deux : `NormalAttack` déclenche Psyker (splash Smite) ; `after-hit(8)` déclenche le reset
-    ActOfFaith (gate is_crit). `ranged`/`profile` = nature du coup primaire. Ajoute le passif `SquigHound`
-    (spawn de grot après attaque) + la POSE on-hit des tile-effects de profil (`OnFireDamageAbility`). No-op
-    si rien ne matche."""
+    dispatche les deux : `NormalAttack` déclenche Psyker (splash Smite) ; `after-hit(8)` = vecteur natif
+    conservé (aucun consommateur actif depuis #151 — le reset ActOfFaith a migré sur On(9) ability-only, donc
+    NE fire PLUS sur un crit d'attaque normale). `ranged`/`profile` = nature du coup primaire. Ajoute le passif
+    `SquigHound` (spawn de grot après attaque) + la POSE on-hit des tile-effects de profil (`OnFireDamageAbility`).
+    No-op si rien ne matche."""
     ev_na = TriggerEvent(TRIGGER_NORMAL_ATTACK, attacker_id, target_id,
                          ranged=ranged, profile=profile, is_crit=is_crit)
     out = evaluate_trigger_operation(state, ev_na)              # On(0x26) : Psyker (per-attaque)
     ev_ah = TriggerEvent(TRIGGER_AFTER_HIT, attacker_id, target_id,
                          ranged=ranged, profile=profile, is_crit=is_crit)
-    out = out + evaluate_trigger_operation(state, ev_ah)        # On(8) after-hit : reset ActOfFaith (crit)
+    out = out + evaluate_trigger_operation(state, ev_ah)        # On(8) after-hit (vecteur natif ; sans conso #151)
     out = out + _on_fire_damage_ability(state, attacker_id, target_id, profile)  # OnFireDamageAbility @1811c3a60
     out = out + _fire_of_absolution_after_attack(state, attacker_id, target_id, ranged)  # passif @18121f380 (Vindicta)
     return out + _squighound_after_attack(state, attacker_id, target_id)
@@ -912,9 +920,17 @@ def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
     consommateur `On(8)` ne le lit aujourd'hui). Le cap `<51/phase` (`TriggeredAbilityComponent`) reste un
     garde-fou générique fidèle au natif (`EvaluateAbilityTrigger @180e6d650`). No-op si aucun trigger ne matche."""
     ranged = _is_ranged_position(state, attacker_id, target_id)
-    ev = TriggerEvent(TRIGGER_AFTER_HIT, attacker_id, target_id,
-                      ranged=ranged, profile=profile, is_crit=is_crit)
-    return evaluate_trigger_operation(state, ev)
+    # On(9) ability-attack (per-attaque) : reset ActOfFaith au crit (@181219f90 = On(9) & OwnerIsCaster &
+    # WasCrit & HasEffect(0x3f9)). #151 : ROUTE le reset ICI (voie ability/splash/normal-like = is_normal_attack
+    # =False) au lieu de after-hit(8) partagé avec la NORMALE -> plus de reset sur un crit d'attaque normale.
+    ev_aa = TriggerEvent(TRIGGER_ABILITY_ATTACK, attacker_id, target_id,
+                         ranged=ranged, profile=profile, is_crit=is_crit)
+    out = evaluate_trigger_operation(state, ev_aa)
+    # On(8) after-hit (vecteur natif per-coup, EvaluateAfterHitTriggers) : conservé pour fidélité ; aucun
+    # consommateur actif depuis #151 (le reset a migré sur On(9)).
+    ev_ah = TriggerEvent(TRIGGER_AFTER_HIT, attacker_id, target_id,
+                         ranged=ranged, profile=profile, is_crit=is_crit)
+    return out + evaluate_trigger_operation(state, ev_ah)
 
 
 def after_move_triggers(state: State, mover_id: int) -> list[dict]:
