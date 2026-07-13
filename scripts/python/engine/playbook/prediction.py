@@ -411,7 +411,18 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
 #    (predict_sweep Neurothrope) : `aiPlaybookPredict(SpiritLeech)=[2074,3112]` (config) ≠ `disp`/artefact
 #    `GetAllPredictions=[3111,4668]`. ⇒ SpiritLeech RETIRÉ ; tout special passe par le chemin CONFIG générique.
 #    (PlasmaCannon avait déjà été retiré au #96.) La vérité per-ability = `aiPlaybookPredict` (#102), JAMAIS aiPredict.
-_PREDICT_VIA_NORMAL_ATTACK = frozenset()
+# #171 — SorcerousFacade (1100, thousTzaangor) EST un membre LEGITIME (distinct des specials #99 ci-dessus).
+#    Son `SorcerousFacadePlaybook.MakeDamagePredictions @18115bb90` construit pour la cible ENNEMIE
+#    (`TargetsSelector.SelectFirst @18115bcf0`) un EVENT #1 = ATTAQUE NORMALE du caster, via l'interface
+#    `DAT_18327ff80` slot 0x21 @~18115bd60 — le MEME mecanisme que `NormalAttackPlaybook.MakeDamagePredictions
+#    @18149eeb0` (= "profil d'attaque normale du caster vs target"). PUIS un event #2 secondaire
+#    `GenerateMultiHit(base=Half(Sum(minDmg,maxDmg)) config, profile=null)` = [1197,1795] (AddRange) que
+#    l'ORACLE ne remonte PAS (dedup aval + regle : l'ennemi ne subit QUE l'attaque normale declenchee ; le
+#    728-1455 Psychic est un BUFF pour les futures attaques normales). L'event ennemi expose par
+#    aiPlaybookPredict = l'attaque normale -> [1623,3591] bit-exact live (probe171, side-by-side vs id 69).
+#    Ce N'EST PAS le cas #92 refute (heritage vtable PredictAttack Attack-based) : ici le playbook EMET
+#    explicitement une prediction d'attaque normale. Cf. docs/rl/case-171-sorcerousfacade-normal-attack.md.
+_PREDICT_VIA_NORMAL_ATTACK = frozenset({"SorcerousFacade"})
 
 
 # ── Overrides d'ENTREE per-ability — mirror des `<Ability>Playbook.MakeDamagePredictions` qui SURCHARGENT
