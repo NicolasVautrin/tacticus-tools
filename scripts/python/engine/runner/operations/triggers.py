@@ -264,12 +264,14 @@ def _unit_trait_names(state: State, unit_id: int) -> list:
 
 
 def _is_immune_to_contaminated(state: State, unit_id: int) -> bool:
-    """`EntityIsImmuneToEffect`@180f3a400 (Contaminated) = `HasTrait(0x7eb=2027) OR IsMechanical`. Le trait
-    0x7eb=2027 = `ContagionsOfNurgle` (résolu via `UnitTrait` #146). Gate porté = marqueur `Mechanical` seul
-    (BEST-EFFORT) : ⚠ SOUS-GATE tant que `ContagionsOfNurgle` n'est pas ajouté (les porteurs Nurgle non-mécas
-    ne sont pas encore immunisés) — durcissement `has_trait(names, ContagionsOfNurgle)` = tâche dédiée
-    (changement de comportement, à valider live avec un carrier Nurgle)."""
-    return has_trait(_unit_trait_names(state, unit_id), UnitTrait.Mechanical)
+    """`ContaminatedEffect.EntityIsImmuneToEffect @180f3a400` (décompilé) = `HasTrait(0x7eb=2027=
+    ContagionsOfNurgle) OR IsMechanical(unit) OR BaseEffect.EntityIsImmuneToEffect(...)`. #154 : porte les
+    DEUX premières branches — `ContagionsOfNurgle` (trait, `UnitTrait` #146) ajouté au gate, + `Mechanical`
+    (APPROXIMATION trait de la propriété native `UnitExtensions.IsMechanical` — best-effort pré-existant, la
+    propriété peut couvrir plus que le seul trait Mechanical). Non porté (sous-gate résiduel documenté) : la
+    3e branche `BaseEffect.EntityIsImmuneToEffect` (immunité générique d'effet, input offline non capté)."""
+    return has_any_trait(_unit_trait_names(state, unit_id),
+                         (UnitTrait.ContagionsOfNurgle, UnitTrait.Mechanical))
 
 
 def _is_immune_to_fire(state: State, unit_id: int) -> bool:
