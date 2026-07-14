@@ -218,14 +218,20 @@ Le runner EndTurn ne fait AUCUN DoT -> gap. Vecteur turn-start-on-fire-tile = #1
   l'armure de la cible ; blackHaarken tres blinde -> 75% non-perce entierement bloque -> net = 25% de la base).
   L'i2 « 20% of initial Health » decrit la BASE, pas le net. Le port doit router la base 20%-max via
   `apply_pierce_and_modifiers` (Flame, armure cible), PAS un `hp -= 20%*max` plat. SUR-applique jusqu'a ~4x.
-- (4) **DUREE** — **RE-RESOLU (#127, 2026-07-14 : decompile=verite)** : `DefaultAmountOfRounds(5) @181559ff0`
-  renvoie **2** (switch decompile lu : {5,17,18,58,1244,1476}->2, 79->3, {1065,1162}->1, sinon null), et
-  `OnFireDamageAbility.CreateBehaviour @1811c3a60` = `AddEffect(5, abilityStateRef, Tiles(target), 0, 0)` PASSE
-  **aucun override** de duree. Donc `_DEFAULT_ROUNDS[5]=2` est **FIDELE** (bit-exact). Le `remaining=3-4` observe
-  2026-07-12 etait sur **Vindicta** (adeptRetributor) dont le passif `FireOfAbsolution` RE-allume les tuiles (30%/
-  hex a chaque attaque) -> artefact de RE-ignition/mesure, PAS un bug de defaut. RESTE (mineur, non bloquant) :
-  une confrontation single-pose CLEAN (carrier non-Vindicta, 1 seule pose, observer `remaining` sur les ticks)
-  pour expliquer la SEMANTIQUE de `tileMeta.remaining` ; le defaut 2 n'est pas a toucher.
+- (4) **DUREE** — **RE-RESOLU (#127) puis CORRIGE (2026-07-14, confrontation MoW propre)** : `DefaultAmountOf
+  Rounds(5) @181559ff0` = **2 ROUNDS** (switch decompile : {5,17,18,58,1244,1476}->2, 79->3, {1065,1162}->1,
+  sinon null) ; `OnFireDamageAbility @1811c3a60` = `AddEffect(5, ..., 0, 0)` sans override -> le count NATIF est
+  bien 2 rounds. ⚠ Mon explication precedente « remaining=3-4 = artefact de RE-ignition Vindicta » etait **FAUSSE**.
+  Confrontation PROPRE (MoW blackForgefiend, `DaemonicOrdnance` -> cascade `Effect_Refresh «Fire» Effect_Remaining
+  Turns=4`, source EnvFireTileDamage=24, ZERO Vindicta) : le natif stocke la duree en **TURNS** = `TurnsFromRounds
+  (DefaultAmountOfRounds)` = 2 rounds x turns_per_round (2 equipes -> **4 turns**). Le `3-4` Vindicta etait la MEME
+  chose (4 turns, moins 1 selon le round observe), pas une re-ignition. **GAP PORT** : `AddEffectOperation.execute`
+  stocke `remaining = DefaultAmountOfRounds(5) = 2` SANS conversion rounds->turns, et `RefreshEffects` (EndTurn)
+  decremente PAR TURN (turnflow.py:155 itere `by_unit` tuiles incluses) -> le feu du port dure **2 turns ~= 1 round**
+  au lieu de 2 rounds = **sous-duree ~2x**. C'est l'approximation SYSTEMIQUE `turns_per_round=1` (accessors.py
+  `TurnsFromRounds` defaut identite ; « vraie valeur = nb d'equipes vivantes, a capter live ») -> touche TOUS les
+  effets a duree-round (feu/stun/taunt/contaminated), PAS specifique au feu. `_DEFAULT_ROUNDS[5]=2` (rounds) reste
+  le bon count natif ; le fix = modeliser `turns_per_round` a la pose (tache dediee), pas un hack feu-only.
 
 Bilan : l'offline « 23/23 » validait le port contre une SPEC (mon interpretation i2), pas contre le natif. Live
 REFUTE la magnitude (armor-routing), l'AoE et la duree. Placement = seul point confirme. -> #127/#136 a corriger.

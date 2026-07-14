@@ -400,8 +400,12 @@ class FireTileDoT(TileEffectTrigger):
     base par le PERCAGE/ARMURE (CONFIRME LIVE 2026-07-12 : blackHaarken net 477 = base 1908 x PiercingRatio(Flame)
     25%, l'armure absorbant le non-perce). Donc DoT = `apply_pierce_and_modifiers(20%max, Flame pierce, armure
     cible)` -- SUR-applique si on prend le forfait plat (bug corrige). Direct(3) = pas de crit/block/spread.
-    fireDmgPct tire de globalValues (NON hardcode). Decay via on_turn_end (⚠ duree : live remaining=3-4 vs
-    _DEFAULT_ROUNDS[5]=2, a re-verifier -- cf. #127/#136). Mort routee par `_fire_death_if_killed` (source = tuile).
+    fireDmgPct tire de globalValues (NON hardcode). Decay via on_turn_end. ⚠ DUREE (RE-corrige 2026-07-14) :
+    `DefaultAmountOfRounds(5)` = 2 ROUNDS ; le natif stocke `TurnsFromRounds(2)` = 2 x turns_per_round TURNS
+    (confrontation MoW propre : `Effect_RemainingTurns=4` en 2 equipes). Le port stocke `remaining=2` (rounds,
+    SANS conversion) et decremente PAR TURN -> feu ~2x trop court = approximation SYSTEMIQUE `turns_per_round=1`
+    (accessors.TurnsFromRounds ; touche TOUS les effets round -> tache dediee, PAS un hack feu). Mort routee par
+    `_fire_death_if_killed` (source = tuile).
 
     GATE IMMUNITE feu (`UnitsWithoutTraits([0x1b=27=Steppable, 0x19=25=Immune])` @18121e040) PORTE :
     le DoT EXCLUT les occupants portant `Steppable` (tokens marchables) ou `Immune` (cf. _is_immune_to_fire).
