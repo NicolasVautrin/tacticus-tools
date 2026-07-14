@@ -61,7 +61,23 @@ CODE EN DUR (prediction.py) -> jamais applique. Fix = materialiser `TrenchEffect
 brancher sur presence effet (mirror LightCover), gate `IgnoreTrenchReduction`.
 
 ### ShrubBonusDefense — a RE/verifier (1811c4e10) : +defense sur shrub. Capte comme statDelta ? ou effet ?
-### DryBushFireSpread — a RE (1811bf5c0) : DoT quand DryBush prend feu (propagation).
+### DryBushFireSpread — **PORTE (#127, 2026-07-14)** : propagation du feu entre tuiles DryBush.
+Ability portee PAR LA TUILE DryBush (chaque DryBush la porte). RE decompile (build gqfc5mff6c) :
+- `CreateTrigger @1811bf730` = `On(0x14=env-tick) & HasEffect(self@0x148, FireEffect=5)` -> une tuile DryBush
+  ne propage QUE quand elle est elle-meme en feu.
+- `CreateBehaviour @1811bf5c0` = `Maybe(SetOnFire, AdjacentTiles(self@0x148) &
+  TilesWithTriggeredAbility(0x39=DryBushFireSpread=57) & EntitiesWithoutEffects(Fire=5),
+  chance=GetNumberConstant(config,0x25))`. Le filtre `TriggeredAbility 0x39=57` (enum `TriggeredAbilityType`)
+  <=> tuile DryBush (seules les DryBush portent cette ability) -> proxy fidele `tile_def_id == 'DryBush'` (aucun
+  autre TileId ne la porte sur gqfc5mff6c ; pas de terrain TallGrass dans l'inventaire §1). `chance` = le
+  number-constant 0x25 du tile-ability = globalValue `dryBushFireSpreadProbability` = **10** (%).
+- Pose = `AddEffect(FireEffect=5)` sur la voisine, duree = `DefaultAmountOfRounds(5)` = **2** (aucun override).
+PORT : `engine/runner/operations/triggers.py::dry_bush_fire_spread` (appele par `tile_tick_triggers` APRES le
+DoT `On(0x14)`). SNAPSHOT des tuiles-source en debut de tick -> pas de cascade meme-tick (le trigger natif gate
+`HasEffect(self,5)` a l'instant du dispatch). 1 `next_bool(10)` par voisine DryBush-sans-feu (`Maybe` per-cible,
+MEME motif que `FireOfAbsolution`). Valide OFFLINE (logic test : spread->DryBush, skip Grass, snapshot, roll-fail).
+⚠ RNG stochastique (10%) -> confrontation LIVE = STRUCTURELLE uniquement (non bit-exact, comme le ignite empty-hex
+de FireOfAbsolution) ; PENDING.
 ### FirstAid — heal (`FirstAidHealAbility @1811c0490`, `FirstAidHealEffect` .ctor @180f44360,
 CreateTargetSelector @180f3ca70, CreateTargetTrigger @180f44250) : heal les unites sur la tuile.
 ### Thorns/BrokenIce/Swamp — mouvement (Thorns @1811c8d70 ; BrokenIceBlockerEffect Apply @180f36c20 /
@@ -153,7 +169,9 @@ Elevation `CalculateElevationBonusModifier @181003ea0` (+50% surplomb, porte). R
 - B2. Power-up pickup on-move (APowerUpAbility -> stat boost / armor / shield / bomb).
 - B3. FirstAid heal-on-tile (turn/step trigger).
 - B4. Thorns/Swamp/BrokenIce : blocage mouvement (pathfinding).
-- B5. DryBush fire-spread (DoT propagation).
+- B5. **[DONE #127, 2026-07-14 — offline]** DryBush fire-spread : `dry_bush_fire_spread` au tick `On(0x14)`
+  (cf. §2 `DryBushFireSpread`). Propagation feu DryBush->DryBush adjacent, `next_bool(dryBushFireSpreadProbability
+  =10)` par voisine, snapshot source. Validation LIVE structurelle PENDING (stochastique).
 
 Validation : chaque slice confronte offline vs live sur un board portant le terrain (cf. 1).
 Prerequis live : warmup apres chaque (re)inject.
@@ -200,9 +218,14 @@ Le runner EndTurn ne fait AUCUN DoT -> gap. Vecteur turn-start-on-fire-tile = #1
   l'armure de la cible ; blackHaarken tres blinde -> 75% non-perce entierement bloque -> net = 25% de la base).
   L'i2 « 20% of initial Health » decrit la BASE, pas le net. Le port doit router la base 20%-max via
   `apply_pierce_and_modifiers` (Flame, armure cible), PAS un `hp -= 20%*max` plat. SUR-applique jusqu'a ~4x.
-- (4) **DUREE** : `tileMeta` montre `remaining=3` (puis 4) a la pose, le port utilise `_DEFAULT_ROUNDS[5]=2`.
-  Off-by-one ou mauvais defaut a re-verifier (DefaultAmountOfRounds(5) @181559ff0 vs la duree reellement passee
-  par `AddEffect(5,...)`).
+- (4) **DUREE** — **RE-RESOLU (#127, 2026-07-14 : decompile=verite)** : `DefaultAmountOfRounds(5) @181559ff0`
+  renvoie **2** (switch decompile lu : {5,17,18,58,1244,1476}->2, 79->3, {1065,1162}->1, sinon null), et
+  `OnFireDamageAbility.CreateBehaviour @1811c3a60` = `AddEffect(5, abilityStateRef, Tiles(target), 0, 0)` PASSE
+  **aucun override** de duree. Donc `_DEFAULT_ROUNDS[5]=2` est **FIDELE** (bit-exact). Le `remaining=3-4` observe
+  2026-07-12 etait sur **Vindicta** (adeptRetributor) dont le passif `FireOfAbsolution` RE-allume les tuiles (30%/
+  hex a chaque attaque) -> artefact de RE-ignition/mesure, PAS un bug de defaut. RESTE (mineur, non bloquant) :
+  une confrontation single-pose CLEAN (carrier non-Vindicta, 1 seule pose, observer `remaining` sur les ticks)
+  pour expliquer la SEMANTIQUE de `tileMeta.remaining` ; le defaut 2 n'est pas a toucher.
 
 Bilan : l'offline « 23/23 » validait le port contre une SPEC (mon interpretation i2), pas contre le natif. Live
 REFUTE la magnitude (armor-routing), l'AoE et la duree. Placement = seul point confirme. -> #127/#136 a corriger.

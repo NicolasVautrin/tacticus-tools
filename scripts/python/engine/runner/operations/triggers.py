@@ -66,6 +66,11 @@ CONTAMINATED_UNIT = int(EffectType.Contaminated_Unit)   # 1245 — sous-effet -X
 # --- Fire (tile-effect DoT, RE #127/#128) : turn-start DoT 20% PV initiale ------------------------------
 FIRE_TILE = int(EffectType.Fire)  # 5 — effet de TUILE (posé par attaque Flame, `OnFireDamageAbility`@1811c3a60).
 FIRE_DMG_PCT_KEY = "fireDmgPct"  # globalValues=20 (`ConfigConst 0x12`) : % de la PV INITIALE (max) infligé/tour.
+# Propagation DryBush->DryBush (RE #127, `DryBushFireSpreadAbility`@1811bf5c0/@1811bf730). La proba est le
+# `GetNumberConstant(config,0x25)` du tile-ability = globalValue `dryBushFireSpreadProbability` (=10, PAS hardcodé).
+DRYBUSH_FIRE_SPREAD_PCT_KEY = "dryBushFireSpreadProbability"  # globalValues=10 : proba/tick d'allumer une voisine DryBush.
+DRYBUSH_TERRAIN = "DryBush"       # TileId du terrain DryBush ; seules ces tuiles portent `DryBushFireSpreadAbility`
+#   (le filtre natif `TilesWithTriggeredAbility(0x39=DryBushFireSpread=57)` <=> `tile_def_id == 'DryBush'`).
 # Immunité feu = `UnitsWithoutTraits([0x1b=27=Steppable, 0x19=25=Immune])` (@18121e040) : le DoT EXCLUT ces
 #   deux traits (enum TRAIT, ≠ enum EFFECT où 25/27=Taunted_*). Mapping id<->nom centralisé dans
 #   `entities.traits.UnitTrait` (#146) ; `ctx.traits` = NOMS gameconfig (unit_context.py:191) → gate par nom.
@@ -921,16 +926,70 @@ def after_move_triggers(state: State, mover_id: int) -> list[dict]:
     return evaluate_trigger_operation(state, ev)
 
 
+def dry_bush_fire_spread(state: State) -> list[dict]:
+    """`DryBushFireSpreadAbility` (CreateTrigger @1811bf730 = `On(0x14) & HasEffect(self@0x148, Fire=5)` ;
+    CreateBehaviour @1811bf5c0) — PROPAGATION du feu entre tuiles DryBush au tick d'environnement (`On(0x14)`).
+    Chaque tuile DryBush EN FEU tente d'allumer ses voisines DryBush intactes :
+
+        Maybe(SetOnFire,
+              AdjacentTiles(self@0x148) & TilesWithTriggeredAbility(0x39=DryBushFireSpread=57)
+                                        & EntitiesWithoutEffects(Fire=5),
+              chance = GetNumberConstant(config, 0x25) = globalValues `dryBushFireSpreadProbability` = 10)
+
+    - SOURCE = tuile DryBush en feu. Seules les tuiles DryBush portent `DryBushFireSpreadAbility` (le trigger
+      gate `HasEffect(self,5)`) → une tuile NON-DryBush en feu (ex. Grass allumée par `OnFireDamageAbility`) ne
+      propage PAS. Le filtre cible natif `TilesWithTriggeredAbility(0x39)` <=> `tile_def_id == 'DryBush'`.
+    - TARGET = voisine hex DryBush SANS `FireEffect` (idempotence via `AddEffectOperation`, no-op si déjà en feu).
+    - 1 `next_bool(10)` par voisine (`Maybe` per-cible, MÊME motif que `FireOfAbsolution`). Durée du feu posé =
+      `DefaultAmountOfRounds(5)`=2 (aucun override natif à la pose, cf. `OnFireDamageAbility`@1811c3a60).
+
+    SNAPSHOT : l'ensemble des tuiles en feu est figé en début de tick → une tuile allumée CE tick ne propage
+    pas à son tour le MÊME tick (le trigger natif gate `HasEffect(self,5)` à l'instant du dispatch). ⚠ GAP RNG
+    (flaggé, comme `FireOfAbsolution`) : l'ORDRE des tirages `next_bool` (par tuile-source puis par voisine) et
+    vs les autres consommateurs RNG du tick 0x14 n'est PAS calibré bit-exact → la propagation est stochastique,
+    non reproductible coup-pour-coup. No-op si pas de board/effects/rng ou aucune tuile DryBush en feu."""
+    if state.board is None or state.effects is None or state.rng is None:
+        return []
+    import gameconfig as GC
+    prob = int(GC.global_value(DRYBUSH_FIRE_SPREAD_PCT_KEY) or 0)   # dryBushFireSpreadProbability = 10 (non hardcodé)
+    if prob <= 0:
+        return []
+    # SNAPSHOT source : tuiles DryBush actuellement en feu (seules les DryBush portent l'ability de propagation).
+    burning = [tid for tid, t in state.board.by_id.items()
+               if t.get("tileDefId") == DRYBUSH_TERRAIN
+               and state.effects.has_effect(tid, effect_type=FIRE_TILE)]
+    if not burning:
+        return []
+    from .effects import AddEffectOperation                # lazy : évite le cycle triggers<->effects
+    out: list[dict] = []
+    for tid in burning:
+        for nid in state.board.neighbours(tid):            # AdjacentTiles(self) = voisins hex du board (géométrie)
+            if state.board.tile_def_id(nid) != DRYBUSH_TERRAIN:       # TilesWithTriggeredAbility(DryBushFireSpread=57)
+                continue
+            if state.effects.has_effect(nid, effect_type=FIRE_TILE):  # EntitiesWithoutEffects(Fire=5) : déjà en feu → skip
+                continue
+            if not state.rng.next_bool(prob):              # Maybe(chance=dryBushFireSpreadProbability)
+                continue
+            if AddEffectOperation.execute(state, source=tid, target=nid,
+                                          effect_type=FIRE_TILE, name="Fire") is not None:  # durée _DEFAULT_ROUNDS[5]=2
+                out.append({"tile_effect": "Fire", "spread_to_tile": nid, "from_tile": tid,
+                            "placement": "DryBushFireSpread"})
+    return out
+
+
 def tile_tick_triggers(state: State) -> list[dict]:
     """Vecteur ROUND-TICK des tile-effects (#128) : `StartTurnOperation.Execute`@180ea3fb0 émet la séquence
     0x12/0x13/0x14/... → ici on tire `On(0x12)` (Contaminated re-apply @180f3a1d0) puis `On(0x14)` (Fire DoT
-    + DryBush spread @18121e390/@1811bf730). Chaque tile-effect trigger (owner=tuile) matche sur l'occupant
+    @18121e390 + DryBush spread @1811bf730). Chaque tile-effect trigger (owner=tuile) matche sur l'occupant
     de SA tuile. Ordre 0x12 puis 0x14, AVANT le turn-start `On(0x16)` (ordre exact = HYPOTHÈSE à valider,
-    cf. verdict RE #128). No-op si aucun tile-effect actif."""
+    cf. verdict RE #128). La PROPAGATION DryBush (`dry_bush_fire_spread`) tourne APRÈS le DoT `On(0x14)` : le
+    DoT frappe les occupants des tuiles en feu AU DÉBUT du tick, puis la propagation allume les voisines pour
+    le tick SUIVANT (snapshot source → pas de cascade même-tick). No-op si aucun tile-effect actif."""
     out: list[dict] = []
     for eid in (EventTriggerType.TurnStart_EffectActivation, EventTriggerType.TurnStart_EnvironmentEffects):
         ev = TriggerEvent(eid, -1, -1, ranged=False, profile=None)
         out += evaluate_trigger_operation(state, ev)
+    out += dry_bush_fire_spread(state)    # `DryBushFireSpreadAbility` On(0x14) : feu DryBush -> DryBush adjacent (10%)
     return out
 
 
