@@ -62,6 +62,16 @@ CONTAMINATED_TILE = int(EffectType.Contaminated)        # 1244 — effet de TUIL
 CONTAMINATED_UNIT = int(EffectType.Contaminated_Unit)   # 1245 — sous-effet -X% FixedArmor posé sur l'unité.
 # #158 : ex-`CONTAMINATED_IMMUNE_TRAIT = 2027` (mort depuis #154 : l'immunité gate via
 # `has_any_trait(names, (UnitTrait.ContagionsOfNurgle, UnitTrait.Mechanical))`) retiré. 2027 = UnitTrait.ContagionsOfNurgle.
+# Magnitude Contaminated_Unit (#132, RE re-expert 2026-07-14) : `ContaminatedStatModifierEffect.GetDynamicStat
+# ModificationAmount @180f3a460` = `-BattleQuery.GetEffectConfig(EffectType=6)` ; `BattleQuery.GetEffectConfig
+# @1810610b0` lit `BattleConfiguration.Effect[+0x28]` = **`ContaminatedArmorReductionPct`** (=30). => le sous-effet
+# reduit le FixedArmor cible de -30 %. Source = section `Effect` de la BC (seed-bc.json), lue ICI (PAS un hardcode ;
+# defaut 30 = miroir de la valeur BC connue, comme `_DMG_CFG.get('TrenchReductionPercentage', -50)` en prediction).
+import json as _json_cfg
+from ... import weights as _weights_cfg
+_EFF_CFG: dict = (_json_cfg.loads(_weights_cfg.DEFAULT_BC.read_text(encoding="utf-8")).get("Effect", {})
+                  if _weights_cfg.DEFAULT_BC.exists() else {})
+CONTAMINATED_ARMOR_REDUCTION_PCT: int = int(_EFF_CFG.get("ContaminatedArmorReductionPct", 30))
 
 # --- Fire (tile-effect DoT, RE #127/#128) : turn-start DoT 20% PV initiale ------------------------------
 FIRE_TILE = int(EffectType.Fire)  # 5 — effet de TUILE (posé par attaque Flame, `OnFireDamageAbility`@1811c3a60).
@@ -358,14 +368,25 @@ class ContaminatedTileEffect(TileEffectTrigger):
             return None                                   # !HasEffect(0x4dd) : pas de re-pose
         if _is_immune_to_contaminated(state, uid):        # trait 2027 / Mechanical
             return None
+        # MAGNITUDE #132 (RE @180f3a460 = -GetEffectConfig(6) = -ContaminatedArmorReductionPct%, cf. constante) :
+        # le sous-effet reduit le FixedArmor de -30 %. Le stat-layer applique `get_stat_modification_amount` en
+        # ADDITIF -> on materialise le -X% en DELTA PLAT pre-calcule = -round(FixedArmor * pct/100). Lu AVANT la
+        # pose (gate has_effect -> pas de recursion). `value=None` si stats absentes = present mais stat-inerte.
+        val: Optional[int] = None
+        te = state.get_entity(uid)
+        tsc = te.get_component(StatsComponent) if te is not None else None
+        if tsc is not None and CONTAMINATED_ARMOR_REDUCTION_PCT > 0:
+            armor = int(tsc.ctx.stat(StatType.FIXED_ARMOR))
+            if armor > 0:
+                val = -round(armor * CONTAMINATED_ARMOR_REDUCTION_PCT / 100)
         from .effects import AddEffectOperation            # lazy : évite le cycle triggers<->effects
         eff = AddEffectOperation.execute(
             state, source=self.owner_id, target=uid, effect_type=CONTAMINATED_UNIT,
-            name="Contaminated_Unit", duration_override=1, value=None)  # value=None : magnitude #132
+            name="Contaminated_Unit", duration_override=1, value=val)  # #132 : -pct% FixedArmor (BC Effect config)
         if eff is None:
             return None
         return {"tile_effect": "Contaminated", "tile": self.owner_id, "unit": uid,
-                "applied": "Contaminated_Unit", "on_event": ev.event_id}
+                "applied": "Contaminated_Unit", "armor_delta": val, "on_event": ev.event_id}
 
 
 class FireTileDoT(TileEffectTrigger):

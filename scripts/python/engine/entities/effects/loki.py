@@ -182,11 +182,16 @@ class ContaminatedUnitEffect(BaseEffect):
     Cote port : le vecteur tile-effect (#128, `ContaminatedTileEffect`) calcule le delta a l'apply et le stocke
     dans `self.value` -> `get_stat_modification_amount` renvoie `self.value`.
 
-    >>> MAGNITUDE (X%) NON RESOLUE (#132 CAVEAT) : la source du -X% n'est PAS dans gameconfig
-    (`contaminatedArmorReductionPct` absent des globalValues) ; @180f3a460 la lit via un appel d'interface
-    (slot 0xbe arg 6) -> NE PAS hardcoder 30. Tant que X n'est pas mesure live, le vecteur pose l'effet avec
-    `value=None` -> ce debuff est PRESENT (valide le VECTEUR enter/tick) mais N'ALTERE PAS encore la stat
-    (fidelite-safe « present != applique »). La magnitude = tache #132 (mesure live du drop d'armure)."""
+    >>> MAGNITUDE (#132 RESOLUE 2026-07-14, RE re-expert decompile) : `GetDynamicStatModificationAmount
+    @180f3a460` = `-BattleQuery.GetEffectConfig(EffectType=6)` (interface IBattleQuery slot 0xbe, arg 6 =
+    EffectType litteral). `BattleQuery.GetEffectConfig @1810610b0` = lookup `Dict<EffectType,int>@+0xd0`
+    peuple par `InitEffectConfig @18106e9c0` depuis `BattleConfiguration.Effect` ; l'entree EffectType=6
+    (offset +0x28) = **`ContaminatedArmorReductionPct` = 30**. => -30 % du FixedArmor cible. Source = section
+    `Effect` de la BC (lue, PAS hardcodee) ; le vecteur `ContaminatedTileEffect` pre-calcule le DELTA PLAT
+    `value = -round(FixedArmor * 30/100)` a la pose (le stat-layer l'applique en additif). ⚠ MODE % infere
+    du nom `...Pct` + magnitude (le -30 flat serait negligeable) ; le modKind exact du chemin ChangeStat
+    partage (flat vs percent) et le %-de-base-vs-courant restent a CONFIRMER live (drop d'armure via
+    statModSources sur un occupant contamine)."""
 
     def get_stat_modification_stat(self) -> int | None:
         return 16                                    # StatType.FIXED_ARMOR
