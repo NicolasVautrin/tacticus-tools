@@ -1,0 +1,66 @@
+# Case #172 — Harnais oracle MoW (aiPlaybookPredict caster Machine) + les abilities MoW sont TOUTES conditionnelles
+
+**Statut** : harnais oracle MoW BATI + committe (aiPlaybookPredict resout les casters EntityType.Machine).
+Port des overrides + confrontation live DEFERES (voir "Reste"). Confronte live gqfc5mff6c, board MC1_67.
+
+## Correction de premisse #172 (RE re-expert, PROUVE)
+
+La tache disait "base = getter dedie != avg". FAUX. `DaemonicOrdnanceAbility.GetDamage @1811cfbb0` ET
+`LightOfSanguiniusAbility.GetDamage @1811b2010` (HadesAutocannons ; VA du prompt 181140b1c inexistante) sont des
+wrappers TRIVIAUX de `AActiveAbility.MinMaxDamage @180fb2dc0` = **avg(minDmg 0xc, maxDmg 0xd) scale par level = LE
+GENERIQUE**. hits = `ArmoriumCherubAbility.GetHits` (config). param_8 = null. => STRUCTURELLEMENT pierce-only
+candidates, IDENTIQUE a HarbingerOfDestruction #169 (base+hits generiques, seul gap = profil None/pierce 0).
+
+Les 2 playbooks MoW sont enregistres dans la MEME `PlaybookDatabase` que les units (`InitializePlaybookBuilders`
+b__31_150/149) ; le scorer `CalculateUtilityFromPredictions @181407890` slot vtable +0x358 est GENERIQUE (aucun test
+EntityType). Donc `LoadPlaybook(1148/1147)` + `MakeDamagePredictions` marchent tels quels pour un caster MoW.
+
+## Harnais oracle MoW (committe) — `frida/hooks/features/ai-step/rpc-predict.ts`
+
+`aiPlaybookPredict` ne resolvait le caster que parmi `EntityType.Unit` -> "unit not found" pour un MoW (le caster
+MoW = `EntityType.Machine`, vit dans `decisionView.mows`, PAS `.units`). FIX :
+- resoudre le caster parmi `EntityType.Unit` OU `EntityType.Machine` (+ idByPtr des deux) ;
+- UnitPosition : un MoW est OFF-BOARD (GetUnitPosition rend une UnitPosition vide) -> fallback sur la UnitPosition de
+  la CIBLE (le bombard MoW s'aime sur une tuile ; les selectors MoW n'utilisent pas la position du caster, RE #172).
+
+Prouve fonctionnel : le caster MoW resout, `LoadPlaybook` charge `DaemonicOrdnancePlaybook`/... , `MakeDamagePredictions`
+tourne SANS erreur. (Build via `rl_duel build --p-mow <mow>` + un `--p-units` regular companion ; le MoW deploie et
+apparait dans `decisionView.mows` avec casterId=machineId.)
+
+## Decouverte : TOUTES les abilities MoW sont STATE-CONDITIONNELLES (fresh prediction = 0/-1 PAR DESIGN)
+
+Confronte les 6 abilities des 3 MoW buildables (blackForgefiend, tauBroadside, ultraDreadnought) vs ultraTitus.
+AUCUNE ne rend un event de degat en etat FRAIS — chacune gate son degat sur un etat prealable (lu dans la DESCRIPTION
+i2, recon AVANT de prober — lecon : lire le kit d'abord) :
+
+| ability (id) | MoW | condition de declenchement (desc i2) | fresh |
+|---|---|---|---|
+| DaemonicOrdnance (1148) | blackForgefiend | ennemi sur une tuile DEJA EN FEU (1er cast pose le feu) | count=0 |
+| HadesAutocannons (1147) | blackForgefiend | cible = un SUMMON ennemi (ultraTitus n'en est pas un) | count=0 |
+| HeavyRailRifle (1160) | tauBroadside | PENDING (tire au debut du prochain tour) | count=-1 |
+| TwinSmartMissileSystem (1161) | tauBroadside | ennemi porteur d'un MARKERLIGHT (1er cast marque) | count=-1 |
+| DutyEternal (1158) | ultraDreadnought | SUMMON (invoque Galatian 14550 HP) — pas de degat | count=-1 |
+| MacroPlasmaIncinerator (1159) | ultraDreadnought | MINE : degat quand un ennemi FINIT son move dans la zone marquee | count=-1 |
+
+count=0 = liste vide (selector 0 cible) ; count=-1 = `MakeDamagePredictions` rend null (listNull, cf. #110 : pas de
+prediction de degat immediate). Les DEUX sont le comportement CORRECT du natif : le degat MoW est deferre/triggered.
+Le harnais fonctionne ; il n'y a rien a "reparer" cote caster-resolution.
+
+## Reste (DEFERE — gros chantiers, valeur marginale faible car reponse RE connue)
+
+Pour une confrontation LIVE d'un degat MoW il faut, PAR ability, monter l'etat declencheur :
+- DaemonicOrdnance : poser le feu (caster une 1re fois) puis re-predire sur la tuile en feu avec un ennemi dessus.
+- HadesAutocannons : un SUMMON ennemi a portee (summoner adverse).
+- MacroPlasma : un ennemi qui finit son move dans la zone marquee. Etc.
+ET l'ENGINE ne predit pas encore un MoW (combatSnapshot/Scene ne capturent pas `EntityType.Machine` -> pas de ctx MoW
+cote moteur). Donc confrontation complete = trigger-state sim PAR ability + engine MoW-scene.
+
+Overrides `_PLAYBOOK_PROFILE_OVERRIDE[1148/1147]="None"` NON ajoutes : l'engine n'exerce jamais ces predictions (MoW
+hors scene) -> ce serait du code mort. A ajouter QUAND l'engine predira les MoW (chantier separe). La reponse port
+(pierce-only, base=avg) est RE-prouvee et documentee ici pour ce moment-la.
+
+## Lecon
+
+RECON LA DESCRIPTION (kit i2) AVANT de prober une ability inconnue. Prober blblackForgefiend a l'aveugle a fait croire
+a un "harnais casse" (count=0) alors que la description dit exactement pourquoi (feu / summon requis). Les abilities MoW sont
+un cas a part : toutes conditionnelles/2-phases -> jamais confrontables en etat frais sans monter le declencheur.

@@ -305,20 +305,33 @@ export function registerViewPredict(ctx: Ctx): void {
         const playbookClass = classNameAt(playbook);
 
         // Entités + tuile courante (+ map ptr→id pour résoudre le target des events).
-        let unit = ptr(0); let target = ptr(0);
+        // Le CASTER peut être une UNITÉ ou une MACHINE OF WAR (MoW off-board, #172) : les 2 playbooks
+        // MoW (DaemonicOrdnance 1148 / HadesAutocannons 1147) sont dans la MÊME PlaybookDatabase que
+        // les units (RE #172, InitializePlaybookBuilders b__31_150/149) et le scorer slot +0x358 est
+        // GÉNÉRIQUE (aucun test EntityType) → LoadPlaybook + MakeDamagePredictions marchent tels quels ;
+        // il suffit d'accepter EntityType.Machine pour résoudre le caster. Les CIBLES restent des unités.
+        let unit = ptr(0); let target = ptr(0); let casterIsMachine = false;
         const idByPtr = new Map<string, number>();
         forEachEntity(statePtr, (e, id, ty) => {
-            if (ty !== EntityType.Unit) return;
-            idByPtr.set(e.toString(), id);
-            if (id === body.unitId) unit = e;
-            if (id === body.targetId) target = e;
+            if (ty === EntityType.Unit || ty === EntityType.Machine) {
+                idByPtr.set(e.toString(), id);
+                if (id === body.unitId) { unit = e; casterIsMachine = ty === EntityType.Machine; }
+            }
+            if (ty === EntityType.Unit && id === body.targetId) target = e;
         });
-        if (unit.isNull()) return { ok: false, error: "unit " + body.unitId + " not found" };
+        if (unit.isNull()) {
+            return { ok: false, error: "unit " + body.unitId + " not found (unit/machine)" };
+        }
         if (target.isNull()) return { ok: false, error: "target " + body.targetId + " not found" };
-        // Tuile COURANTE (ce RPC ne prédit pas depuis une tuile candidate — bouger l'unité
-        // pour tester une position ; l'affichage decisionView route par tuile via projection.ts).
-        const posPtr = unitPositionCurrent(unit, statePtr);
-        if (!posPtr) return { ok: false, error: "GetUnitPosition non résolu / null" };
+        // UnitPosition (point de calcul). Pour une UNITÉ = sa tuile courante. Pour un MoW (off-board),
+        // GetUnitPosition rend une UnitPosition VIDE (Tiles=[]) → le bombard `GetTargetAreaTiles` part
+        // de rien → 0 cible. Le bombard MoW s'AIME sur une tuile : pour la confrontation on passe la
+        // UnitPosition de la CIBLE comme point de visée (le selector monte la zone autour). (RE #172)
+        let posPtr = casterIsMachine
+            ? unitPositionCurrent(target, statePtr)
+            : unitPositionCurrent(unit, statePtr);
+        if (!posPtr) posPtr = unitPositionCurrent(unit, statePtr);
+        if (!posPtr) return { ok: false, error: "GetUnitPosition null (caster/cible)" };
 
         // AbilityState per-ability : override body > capteur #100 > défaut flaggé.
         let lvl = body.level; let mult = body.multiplier; let stSrc = "body";
