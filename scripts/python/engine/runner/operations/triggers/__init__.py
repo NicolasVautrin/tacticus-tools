@@ -1,0 +1,32 @@
+"""Package trigger du runner — re-export de l'API publique (les imports `from .triggers import X`
+des autres modules restent INCHANGÉS : le package s'importe comme l'ancien module `triggers.py`).
+
+Découpage fidèle au namespace natif :
+- `base.py`             — FRAMEWORK (`AbilityTrigger`/`EffectTrigger` + abstraction TUILE) + sélecteurs DSL.
+- `dispatch.py`         — `IdunBattle.Operations.EvaluateTriggerOperation` (registres + collect + vecteurs).
+- `loki.py`             — `Abilities.{Active,Triggered,Damage}.Loki.*` (Psyker, ActOfFaith, TheBetrayer,
+                          FinalJustice, ArcaneShield, EnvFireTile, FireOfAbsolution, OnFireDamage).
+- `tiles.py`            — `Abilities.Tiles.*` (DryBushFireSpread, FirstAidHeal).
+- `effect_triggers.py`  — `Entities.Effects.*` (Contaminated, Overwatch).
+"""
+from .base import (TriggerEvent, TriggeredAbility, EffectTrigger, TileEffectTrigger,
+                   PHASE_TRIGGER_CAP, _unit_tile, _hex_dist)
+from .dispatch import (
+    TRAIT_TRIGGERS, ABILITY_TRIGGERS, EFFECT_TRIGGERS,
+    collect_triggered_abilities, collect_effect_triggers, evaluate_trigger_operation,
+    after_death_triggers, is_overkill, start_turn_triggers, tile_tick_triggers,
+    after_hit_normal_attack, after_hit_ability_attack, after_move_triggers,
+    end_turn_summon_triggers,
+)
+from .loki import _fire_of_absolution_after_attack, _on_fire_damage_ability
+
+__all__ = [
+    "TriggerEvent", "TriggeredAbility", "EffectTrigger", "TileEffectTrigger", "PHASE_TRIGGER_CAP",
+    "_unit_tile", "_hex_dist",
+    "TRAIT_TRIGGERS", "ABILITY_TRIGGERS", "EFFECT_TRIGGERS",
+    "collect_triggered_abilities", "collect_effect_triggers", "evaluate_trigger_operation",
+    "after_death_triggers", "is_overkill", "start_turn_triggers", "tile_tick_triggers",
+    "after_hit_normal_attack", "after_hit_ability_attack", "after_move_triggers",
+    "end_turn_summon_triggers",
+    "_fire_of_absolution_after_attack", "_on_fire_damage_ability",
+]
