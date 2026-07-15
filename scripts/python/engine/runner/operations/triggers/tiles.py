@@ -5,6 +5,9 @@ par le TERRAIN (tile-def), pas par une unité. 1 fonction par ability native (VA
 from __future__ import annotations
 
 from ...state import State
+from ...components import (PositionComponent, UnitComponent, OwnerComponent, StatsComponent,
+                          HealthComponent)
+from ....entities.traits import UnitTrait, has_trait
 from .loki import FIRE_TILE
 
 # Propagation DryBush->DryBush (RE #127, `DryBushFireSpreadAbility`@1811bf5c0/@1811bf730). La proba est le
@@ -62,4 +65,69 @@ def dry_bush_fire_spread(state: State) -> list[dict]:
                                           effect_type=FIRE_TILE, name="Fire") is not None:  # durée _DEFAULT_ROUNDS[5]=2
                 out.append({"tile_effect": "Fire", "spread_to_tile": nid, "from_tile": tid,
                             "placement": "DryBushFireSpread"})
+    return out
+
+
+# firstAidRecovery = GetNumberConstant(FirstAidHeal.config, 0x13) mirroté à la globalValue NOMMÉE (=35), MÊME
+# pattern que fireDmgPct=GetNumberConstant(0x12) : l'ordre JSON des globalValues NE mappe PAS l'enum NumberConstant
+# (vérifié), la résolution se fait par NOM. Confirmé LIVE (heal observé = 35 % maxHP).
+FIRSTAID_RECOVERY_KEY = "firstAidRecovery"   # % de la maxHP soigné au début du tour sur une tuile FirstAid.
+FIRSTAID_HEAL_EXCLUDE_TRAIT = UnitTrait.Immune   # `UnitsWithoutTrait(0x19=25=Immune)` : exclut les immunisés au heal.
+
+
+def first_aid_heal(state: State, player_id: int) -> list[dict]:
+    """`FirstAidHealAbility` (Abilities.Tiles, CreateBehaviour @1811c0490 = `AddEffect(tile, 10=FirstAidHealEffect)`)
+    + `FirstAidHealEffect` : trigger `CreateTargetTrigger @180f44250` = `On(0x13) & IsTurnOf(Units(units-on-tile))` ;
+    behaviour `CreateTargetTriggerBehaviour @180f44090` (LU) = `Heal(tiles, targets, amount)` avec
+    `amount = PercentageOf(StatAmount(target, Health=5, Initial=2)=maxHP, Direct(GetNumberConstant(config,0x13)=
+    firstAidRecovery%))` et `targets = Tiles(UnitsWithoutTrait(Units(tile), 0x19=25=Immune)) & targetSelector@0x88`.
+
+    Au DÉBUT DU TOUR du `player_id` (event 0x13 émis par `StartTurnOperation.Execute @180ea3fb0`), chaque unité
+    VIVANTE du player posée sur une tuile FirstAid (hors trait Immune=25) est soignée de `firstAidRecovery`% (=35,
+    globalValue) de sa maxHP. Le soin passe par `HealUnitOperation` (clamp maxHP + gate Cursed). `IsTurnOf` =
+    l'occupant appartient au player courant (l'ennemi debout sur une tuile FirstAid n'est PAS soigné à MON tour).
+    Tuiles FirstAid = terrain STATIQUE (`board.coords_with_terrain('FirstAid')`, `tileDefId`). No-op sans board /
+    healPct / occupant. Reste à confirmer LIVE (board FirstAid + unité du player dessus au StartTurn -> heal 35%)."""
+    board = getattr(state, "board", None)
+    if board is None:
+        return []
+    coords = board.coords_with_terrain("FirstAid")
+    if not coords:
+        return []
+    import gameconfig as GC
+    healpct = int(GC.global_value(FIRSTAID_RECOVERY_KEY) or 0)   # 35 : GetNumberConstant(FirstAidHeal, 0x13)
+    if healpct <= 0:
+        return []
+    from ..heal import HealUnitOperation                         # lazy : primitive de soin runner (#94)
+    out: list[dict] = []
+    for (col, row) in coords:
+        # occupant VIVANT de la tuile appartenant au player courant (`IsTurnOf(units-on-tile)`).
+        uid = None
+        for eid, e in state.entities.items():
+            pc = e.get_component(PositionComponent)
+            if pc is None or (pc.col, pc.row) != (col, row):
+                continue
+            uc = e.get_component(UnitComponent)
+            if uc is not None and not uc.alive:
+                continue
+            oc = e.get_component(OwnerComponent)
+            if oc is None or oc.player != int(player_id):       # IsTurnOf : unité du player courant seulement
+                continue
+            uid = int(eid)
+            break
+        if uid is None:
+            continue
+        e = state.get_entity(uid)
+        sc = e.get_component(StatsComponent) if e is not None else None
+        if sc is not None and has_trait(sc.ctx.traits, FIRSTAID_HEAL_EXCLUDE_TRAIT):  # UnitsWithoutTrait(0x19=Immune)
+            continue
+        thc = e.get_component(HealthComponent) if e is not None else None
+        if thc is None or thc.hp_max is None:
+            continue
+        amount = round(int(thc.hp_max) * healpct / 100)         # PercentageOf(maxHP, firstAidRecovery%)
+        tile_id = board.id_at(col, row)                          # source = la tuile FirstAid
+        healed = HealUnitOperation.execute(state, uid, amount, source_id=tile_id)
+        if healed > 0:
+            out.append({"tile_effect": "FirstAid", "tile": tile_id, "unit": uid,
+                        "heal": healed, "pct": healpct, "on_event": 0x13})
     return out

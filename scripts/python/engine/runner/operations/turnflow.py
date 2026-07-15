@@ -37,7 +37,7 @@ from typing import Optional
 from ..state import State
 from ..components import OwnerComponent, UnitComponent, ShieldComponent, StatsComponent
 from ...entities.stats import StatType
-from .triggers import start_turn_triggers, tile_tick_triggers
+from .triggers import start_turn_triggers, tile_tick_triggers, first_aid_heal
 
 
 def _active_players(state: State) -> list[int]:
@@ -135,12 +135,13 @@ class StartTurnOperation:
         # (VERIFIE @180ea3fb0 : 5 emissions FUN_180026490(...,0x12/0x13/0x14/0x15/0x16) en fin d'Execute ;
         # l'ancien "0x12/0x14/0x16" etait INCOMPLET). Mapping effets : 0x12 = Contaminated re-apply ; 0x13 =
         # FirstAid heal-on-tile (#130 : On(0x13) & IsTurnOf(units-on-tile)) ; 0x14 = Fire DoT + DryBush spread ;
-        # 0x15 = (role a mapper) ; 0x16 = turn-start (start_turn_triggers). Le port ne tire ici que tile_tick
-        # (0x12/0x14) + On(0x16) ; 0x13 (FirstAid) et 0x15 PAS ENCORE branches (0x13 bloque sur HealOperation, #130/#94).
+        # 0x15 = (role a mapper) ; 0x16 = turn-start (start_turn_triggers). Le port tire tile_tick (0x12/0x14) +
+        # FirstAid (0x13, PLAYER courant via IsTurnOf) + On(0x16). 0x15 PAS ENCORE branche (role non mappe).
         tile_ticks = tile_tick_triggers(state)
+        first_aid = first_aid_heal(state, player)          # #130 : On(0x13) heal-on-tile des unites du player courant
         out = start_turn_triggers(state, player)
         from .summon_ai import run_ai_control_pass         # lazy : evite le cycle turnflow<->summon_ai
-        out = tile_ticks + out + run_ai_control_pass(state, player)
+        out = tile_ticks + first_aid + out + run_ai_control_pass(state, player)
         return out
 
 

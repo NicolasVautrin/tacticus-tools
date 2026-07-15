@@ -19,6 +19,7 @@ from .dispatch import (
     end_turn_summon_triggers,
 )
 from .loki import _fire_of_absolution_after_attack, _on_fire_damage_ability
+from .tiles import first_aid_heal, dry_bush_fire_spread
 
 __all__ = [
     "TriggerEvent", "TriggeredAbility", "EffectTrigger", "TileEffectTrigger", "PHASE_TRIGGER_CAP",
