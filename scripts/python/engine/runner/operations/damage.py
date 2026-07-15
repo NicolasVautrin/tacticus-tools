@@ -77,6 +77,7 @@ from ..damage_model import (select_weapon, select_weapon_pierce, attacker_modifi
 from ...entities.effects import (hits_bonus_from_effects, crit_chance_bonus_from_effects,
                                  crit_damage_bonus_from_effects, defender_effect_block_sources)
 from ...entities.effects.loki import LIGHT_COVER_TILE_ID
+from ...entities.traits import target_hit_multiplier
 
 
 class HitDamage:
@@ -324,20 +325,26 @@ class AttackDamageOperation:
         # #120 : réduction PLATE défenseur (Nightshroud) fusionnée dans l'additif pré-perçage (mirror prédiction).
         AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
 
-        def _reduced_bounds(eff_attack: int) -> "HitDamage":
+        def _reduced_bounds(eff_attack: int, hit_mult: int = 1) -> "HitDamage":
             # #75 (case-68 MAJ 13) : additif ForAddition ATTAQUANT = PRÉ-perçage en COMBAT
             # (attacker_additive_pre=True : bornes (base±spread)+additif → GDWP → %-list ; le natif
             # passe à CalculateAbilityDamage @18102cb50 un dégât DÉJÀ additivé, CBDWAM @18102d3f0 ne
             # consomme pas Addition@+0x10). Bit-exact 3/3 orksNob SmashaEad (599, pierce 50, armure 2208).
             mm = get_base_damage_fix64(eff_attack, spread_pct=spread_pct)
             lo = apply_all_modifiers(apply_pierce_and_modifiers(
-                mm.min, pierce, armor, mods, attacker_additive_pre=True), def_mods)
+                mm.min, pierce, armor, mods, hit_mult=hit_mult, attacker_additive_pre=True), def_mods)
             hi = apply_all_modifiers(apply_pierce_and_modifiers(
-                mm.max, pierce, armor, mods, attacker_additive_pre=True), def_mods)
+                mm.max, pierce, armor, mods, hit_mult=hit_mult, attacker_additive_pre=True), def_mods)
             return HitDamage(lo, hi)
 
-        hit_nc = _reduced_bounds(ctx.stat(StatType.ATTACK))               # plage NON-crit par coup
-        hit_cr = _reduced_bounds(ctx.stat(StatType.ATTACK) + crit_damage) if crit_enabled else hit_nc
+        # MkXGravis (trait CIBLE 0x3f5=1013) : les dégâts entrants traversent l'armure 2× SAUF au crit
+        # (i2 « Does not apply to Crits ») → hit_mult=2 sur la plage NON-crit, =1 (défaut) sur la plage
+        # crit. Mirror `GetBaseDamageWithFixedPiercedArmor @181030d10` (HasTrait(0x3f5) && !isCrit) dans
+        # le chemin COMBAT `CalculateAbilityDamage @18102cb50` → `CalculateBaseDamageWithAllModifiers
+        # @18102d3f0` (décompile-confirmé, #180). No-op (=1) hors cible hit-twice.
+        _tgt_hit_mult = target_hit_multiplier(tsc.ctx.trait_objects()) if tsc is not None else 1
+        hit_nc = _reduced_bounds(ctx.stat(StatType.ATTACK), hit_mult=_tgt_hit_mult)   # NON-crit → double-armure MkXGravis
+        hit_cr = _reduced_bounds(ctx.stat(StatType.ATTACK) + crit_damage) if crit_enabled else hit_nc  # crit: hit_mult=1 (exempt)
         clean_min = hit_nc.min * hits          # référence affichée = plage non-crit (× hits)
         clean_max = hit_nc.max * hits
         # BOUCLIER cible : absorbe le coup réduit AVANT les PV (CalculateDamageOperation shield-first) ;
@@ -506,13 +513,19 @@ class AttackDamageOperation:
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(ctx, active)
         # #120 : réduction PLATE défenseur (Nightshroud, ungated -> spéciales aussi) fusionnée pré-perçage.
         AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
+        # MkXGravis (trait CIBLE 0x3f5) : armure traversée 2× aussi pour les spéciales (CBDWAM @18102d3f0
+        # partagé quel que soit l'ability, #180). ⚠ Le crit ability est une HYPOTHÈSE non validée (cc=0 non
+        # exercé, cf. hit_cr ci-dessous) → `_reduce` (post_roll) ne connaît pas le flag crit du coup, donc le
+        # hit_mult s'applique à TOUS les rolls sans exemption crit ici ; quand le crit ability sera RE'd,
+        # exempter le crit (param_8==1). No-op (=1) hors cible hit-twice.
+        _tgt_hit_mult = target_hit_multiplier(tsc.ctx.trait_objects()) if tsc is not None else 1
 
         def _reduce(value: int) -> int:
             # #75 (case-68 MAJ 13) : additif ForAddition ATTAQUANT = PRÉ-perçage en COMBAT (idem
             # attaque normale — même pipeline natif CalculateAbilityDamage/CBDWAM par coup).
             return apply_all_modifiers(
                 apply_pierce_and_modifiers(value, profile_pierce, armor, mods,
-                                           attacker_additive_pre=True), def_mods)
+                                           hit_mult=_tgt_hit_mult, attacker_additive_pre=True), def_mods)
 
         # ABILITY = roll-then-reduce : on tire dans les bornes BRUTES config (RandomAmount(min,max)) PUIS
         # on réduit (perçage/armure/mods) via `post_roll`. (≠ attaque normale reduce-then-roll.) Confirmé
