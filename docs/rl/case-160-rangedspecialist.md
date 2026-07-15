@@ -103,3 +103,42 @@ applique le +33% comme l'oracle. Le harnais `predict_sweep.build_rows` cycle dej
 - Generalisation multi-hit : rejouer sur **tauDarkstrider** (carrier RangedSpecialist ranged
   multi-hit 4hR2p20) -> verifier que le +33% s'applique par-coup apres le hits-count. Regime
   overwatch (branche TriggeringAbilityIs(0x434)=1076) non teste live.
+
+## #162 — Resolution (2026-07-15) : multi-hit + overwatch = AUCUN gap, aucun edit moteur
+
+Les 2 items "hors scope" ci-dessus resolus (re-expert a007854e, decompile + live).
+
+### Multi-hit (tauDarkstrider) — DEJA CORRECT (bit-exact live)
+Runner isole (build gqfc5mff6c, board MC1_67, `tauDarkstrider,tyranTyrantGuard` vs `orksNob,orksNob`),
+Darkstrider @(2,3) ranged 4hR2p20 -> u79 @(4,4), RangedSpecialist ACTIF (start non-adjacent) :
+
+| Cote | min | max | hits |
+|---|---|---|---|
+| ENGINE `make_normal_attack_predictions` | 2680 | 8048 | 4 |
+| ORACLE `aiPlaybookPredict(81,79,69)` | 2676 | 8044 | 4 |
+
+BIT-EXACT (<=4, arrondi Fix64 /100). mods = [1.33 RangedSpecialist, 1.5 StructuralAnalyser, 0.67 def], base=2510.
+Le +33% scale PAR-COUP (discrimine : 1.33 une-fois-sur-base donnerait [4676,10044], diverge). Structure native
+`GetMultiHitAttackPrediction @181066080` boucle `PredictAttackRaw @181032fb0` ; chaque coup applique la %-list
+via `ApplyAllModifiers`. Port (`get_multi_hit_attack_prediction` -> `predict_attack_raw(mods)`) correct PAR
+CONSTRUCTION (identique au mono-hit #160 ; le hits-count n'intervient pas dans le placement du %-mod).
+
+### Overwatch — condition RE'd @180f67520, fidele des DEUX cotes
+```
+cond = ((OwnerIsCaster & IsRangedAttack) & !TriggeringAbilityIs(0x434))                            # tir normal
+     | ((TriggeringAbilityIs(0x434) & IsRangedAttack) & AreEqual(self@0x148, Parent(self@0x160)))  # OVERWATCH
+```
+0x434=1076 = id de l'auto-attaque overwatch ; branche 2 = gate d'OWNERSHIP (pas de cible). Net : **+33% sur
+TOUTE attaque ranged du porteur, normale OU tir d'overwatch.**
+- **Combat (runner) : DEJA CORRECT.** L'overwatch = `OverwatchAutoAttack` (effect_triggers.py:53) ->
+  `AttackDamageOperation` (attaque normale) qui collecte les effets actifs -> RangedSpecialist +33% applique au
+  tir ranged. Ne PAS gater sur `TriggeringAbilityIs` cote effet est fidele au resultat net.
+- **Prediction : l'overwatch n'est PAS predit — FAITHFUL, pas un gap.** Aucune fonction native de prediction
+  d'overwatch (`<Ability>Playbook.MakeDamagePredictions` overwatch = 0) ; l'overwatch est un effet-trigger
+  COMBAT, jamais un evenement de prediction du playbook. L'IA native ne l'anticipe pas (cf. blind-spot overwatch).
+  Le moteur qui ne le predit pas MIRROIRE le natif.
+
+### Couverture manquante (non-bloquante)
+Aucun des 16 carriers RangedSpecialist n'a le trait Overwatch -> le +33% sur le tir d'overwatch est prouve par
+LECTURE du chemin combat (reutilise l'attaque normale), pas par mesure live directe (verrou = roster contrive,
+faible valeur, non fait). Branche 2 `AreEqual` (6 overloads) lue comme ownership par structure, non confirmee au bit.
