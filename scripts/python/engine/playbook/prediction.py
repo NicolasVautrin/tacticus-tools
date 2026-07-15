@@ -23,7 +23,7 @@ from engine.entities.effects import (
     aura_attack_bonus_from_allies, aura_hits_malus_for_defense,
     aura_attack_damage_malus_from_enemies,
     calculate_attacker_modifiers_for_prediction, build_defender_modifiers_from_effects,
-    hits_bonus_from_effects, hits_malus_from_defender_effects)
+    hits_bonus_from_effects, hits_malus_from_defender_effects, additional_hit_groups)
 from engine.entities.traits import attacker_bonus_hits, target_hit_multiplier, TraitFactory
 from engine.entities.traits.unit_trait import UnitTrait
 from engine.entities.stats import StatType, StatPart
@@ -305,10 +305,23 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # MkXGravis (trait CIBLE 0x3f5) : l'armure est traversée 2× → hit_mult=2 dans predict_attack_raw
     # (GetBaseDamageWithFixedPiercedArmor @181030d10). No-op (=1) pour toute cible sans trait hit-twice.
     tgt_hit_mult = target_hit_multiplier(TraitFactory.create_many(_tgt_traits))
+    # #179 : coups additionnels HETEROGENES (SquigHound_AdditionalHits) — dégât/profil PROPRE, prev-threadés
+    # APRES les coups d'arme (overkill continu). Chaque groupe : `count` coups [min,max] (predefined, sans
+    # spread ±20% = RandomAmount natif) au profil propre (pierce = PiercingRatio du profil + extra_pierce
+    # attaquant) ; MEME armure/hp/bouclier/hit_mult(MkXGravis) que la cible ; mods attaquant NON appliqués
+    # (dégât PROPRE de l'effet). Mirror `EffectAdditionalHits.Create @180f405b0`. [] hors carrier concerné.
+    _extra_groups = []
+    for _g in additional_hit_groups(att_effects):
+        _dp = GC.damage_profile(_g["profile"]) or {}
+        _gp = max(0, min(100, int(_dp.get("PiercingRatio") or 0) + ctx.extra_pierce))
+        _extra_groups.append({
+            "count": _g["count"], "predefined": MinMaxDamage(min=_g["min"], max=_g["max"]),
+            "pierce_pct": _gp, "profile_type": _PROFILE_INDEX.get(_g["profile"], 0)})
     res = get_attack_prediction(
         target_current_health=scene.hp(tgt_id) or 0, initial_damage=attack_base, hits=hits,
         profile_type=0, pierce_pct=pierce, armor=scene.armor(tgt_id), mods=mods, hit_mult=tgt_hit_mult,
-        target_shield=scene.shield(tgt_id), target_limits=_target_damage_limits(scene, tgt_id))
+        target_shield=scene.shield(tgt_id), target_limits=_target_damage_limits(scene, tgt_id),
+        extra_groups=_extra_groups)
     ev = ProbableDamageEvent(target=tgt_id, prediction=res)
     if meta:
         return ev, {"base": attack_base, "pierce": pierce, "armor": scene.armor(tgt_id), "hits": hits,

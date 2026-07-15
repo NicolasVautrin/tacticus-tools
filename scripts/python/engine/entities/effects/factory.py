@@ -40,6 +40,7 @@ from .loki import (
     RitesOfBattleExtraDmgEffect,
     ShadowInTheWarpLessDmgEffect,
     SmashaEadExtraDamageEffect,
+    SquigHoundAdditionalHitsEffect,
     StandVigilExtraArmorEffect,
     StunnedEffect,
     TauntedEffect,
@@ -50,6 +51,7 @@ from .loki import (
 # Registre nom d'EffectType (`decisionView.effects[].name`) → classe d'effet. À ÉTENDRE au roster.
 EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "RapidAssault_ExtraDamage": RapidAssaultExtraDamageEffect,
+    "SquigHound_AdditionalHits": SquigHoundAdditionalHitsEffect,   # #179 : 2 coups hetero [minDmg,maxDmg] Physical
     # AURA +dégât (Attack) du SOURCE Calgar (RitesOfBattleAbility @181225340) : 2 effets permanents
     # mutuellement exclusifs par trait Imperial (26). Noms captés EXACTS = ...Basic (1002) / ...Imperial
     # (1003) ; la classe lit le variant via self.name (endswith Imperial). Modélisée SOURCE-side

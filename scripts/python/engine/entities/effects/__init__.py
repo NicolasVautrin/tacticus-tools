@@ -35,17 +35,18 @@ from .loki import (
     PowerTripFullHealthEffect,
     PowerTripIgnoreArmorEffect,
     RapidAssaultExtraDamageEffect,
+    SquigHoundAdditionalHitsEffect,
     StunnedEffect,
 )
 
 __all__ = [
     "BaseEffect", "SubEffectSpec", "SAME_TURNS", "EffectFactory", "EFFECT_CLASSES",
     "CrushingStrikeEffect", "RapidAssaultExtraDamageEffect", "PowerTripFullHealthEffect",
-    "PowerTripIgnoreArmorEffect", "KanOpenerEffect", "StunnedEffect",
+    "PowerTripIgnoreArmorEffect", "KanOpenerEffect", "StunnedEffect", "SquigHoundAdditionalHitsEffect",
     "build_attacker_modifiers_from_effects", "calculate_attacker_modifiers_for_prediction",
     "build_defender_modifiers_from_effects",
     "hits_bonus_from_effects", "hits_malus_from_defender_effects", "aura_hits_malus_for_defense",
-    "aura_hits_bonus_for_attack",
+    "aura_hits_bonus_for_attack", "additional_hit_groups",
     "crit_chance_bonus_from_effects", "crit_damage_bonus_from_effects",
     "apply_effect_stat_modifications", "stat_modifications_by_source",
 ]
@@ -175,6 +176,20 @@ def hits_bonus_from_effects(effects, is_normal_attack: bool = True) -> int:
         elif hb.kind == "Subtraction":
             total -= hb.value
     return total
+
+
+def additional_hit_groups(effects, ctx: Mapping | None = None) -> list:
+    """Concatène les groupes de COUPS ADDITIONNELS HETEROGENES déclarés par les effets ACTIFS de
+    l'attaquant (`additional_hit_groups`, ex. SquigHound_AdditionalHits : 2 coups [minDmg,maxDmg]
+    profil Physical). Chaque groupe `{count, min, max, profile}` = des coups à dégât/profil PROPRE à
+    matérialiser APRES les coups d'arme (prev-threadés). Mirror EffectAdditionalHits.Create @180f405b0.
+    Retour [] si aucun effet n'en déclare (no-op strict → prédiction inchangée hors carrier concerné)."""
+    out: list = []
+    for e in _as_effects(effects):
+        g = e.additional_hit_groups(ctx)
+        if g:
+            out.extend(g)
+    return out
 
 
 def hits_malus_from_defender_effects(effects, is_melee: bool | None = None,

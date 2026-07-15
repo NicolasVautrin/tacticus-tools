@@ -199,6 +199,15 @@ class BaseEffect:
         porteur ne bénéficie PAS des 499 de pénétration, per-coup natif 404/728 vs 78 = armure pleine)."""
         return None
 
+    def additional_hit_groups(self, ctx: Mapping | None = None) -> "list[dict] | None":
+        """`<Effect>.CreateAdditionalHits` (`EffectAdditionalHits.Create @180f405b0`) — coups ADDITIONNELS
+        HETEROGENES a degat/profil PROPRE ajoutes a l'attaque du porteur (gate natif `OwnerIsCaster`).
+        Renvoie une liste de groupes `{count, min, max, profile}` : `count` coups de degat [min,max]
+        (RandomAmount = plage directe, PAS le spread ±20% de l'arme) au `profile` propre, a materialiser
+        APRES les coups d'arme dans la MEME chaine prev-threadee (overkill continu). Defaut None = pas de
+        coups additionnels. Ex. `SquigHound_AdditionalHits` = 2 coups [minDmg,maxDmg] profil Physical."""
+        return None
+
     # ── stat-modification (famille AStatModifierEffect) ─────────────────────────────────────────────
     def get_stat_modification_stat(self) -> "int | None":
         """`AStatModifierEffect.GetStatModificationStat @180f0a890` — le **StatType** que CET effet

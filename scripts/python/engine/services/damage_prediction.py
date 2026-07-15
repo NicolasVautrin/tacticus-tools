@@ -374,7 +374,8 @@ def get_multi_hit_attack_prediction(
         mods: DamageModifiers | None = None, hit_mult: int = 1,
         reduction_min: int = 0, reduction_max: int = 0, spread_pct: int = 20,
         target_shield: int = 0, might_crit: bool = False,
-        target_limits: dict | None = None) -> DamagePredictionResult:
+        target_limits: dict | None = None,
+        extra_groups: "list[dict] | None" = None) -> DamagePredictionResult:
     """`BattleQuery.GetMultiHitAttackPrediction` @181066080 — LA boucle multi-coups (le `×hits` est ICI, PAS
     dans PredictAttackRaw) :
         result = predict_attack_raw(coup 1, prev=vide)
@@ -403,6 +404,23 @@ def get_multi_hit_attack_prediction(
     result = _hit(BlockScenario())                          # coup 1 : prev vide → ressources pleines
     for _i in range(1, hits):
         result.add(_hit(result.default_block_scenario()))   # coup i : prev = cumul → ressources restantes
+    # #179 : coups ADDITIONNELS HETEROGENES (EffectAdditionalHits, ex. SquigHound_AdditionalHits) — degat
+    # [min,max] PROPRE (predefined -> pas de spread ±20%, RandomAmount natif) + pierce/profil PROPRES, mais
+    # MEME cible (armure/hp/bouclier/hit_mult). Continuent la MEME chaine `prev` (result.default_block_
+    # scenario()) APRES les coups d'arme -> deplete bouclier/HP restant = overkill CONTINU fidele (le natif
+    # les ajoute au meme DamagePredictionResult). Mirror EffectAdditionalHits.Create @180f405b0.
+    for _grp in (extra_groups or []):
+        _pre = _grp["predefined"]
+
+        def _ghit(prev: "BlockScenario", _pre=_pre, _gp=_grp.get("pierce_pct", pierce_pct),
+                  _gpt=_grp.get("profile_type", profile_type), _gm=_grp.get("mods")) -> DamagePredictionResult:
+            return predict_attack_raw(
+                prev, 0, profile_type=_gpt, armor=armor, pierce_pct=_gp, mods=_gm, hit_mult=hit_mult,
+                reduction_min=reduction_min, reduction_max=reduction_max, spread_pct=spread_pct,
+                target_current_health=target_current_health, target_shield=target_shield,
+                target_limits=target_limits, predefined=_pre, might_crit=might_crit)
+        for _j in range(max(0, int(_grp.get("count", 0)))):
+            result.add(_ghit(result.default_block_scenario()))
     # #70 : l'additif plat (ForAddition) est appliqué PAR COUP dans `predict_attack_raw` (via `mods` non
     # strippé) -> mirror natif (Σ des events per-coup, chacun avec l'additif). PLUS d'application UNE FOIS
     # sur l'agrégat (ancien bloc = artefact pré-refactor #51 ; SANS contrepartie native, cf. prediction.md §4).
@@ -415,7 +433,8 @@ def get_attack_prediction(
         mods: DamageModifiers | None = None, hit_mult: int = 1,
         reduction_min: int = 0, reduction_max: int = 0, spread_pct: int = 20,
         might_crit: bool = False, target_shield: int = 0, target_limits: dict | None = None,
-        shield_raw: MinMaxDamage | None = None) -> DamagePredictionResult:
+        shield_raw: MinMaxDamage | None = None,
+        extra_groups: "list[dict] | None" = None) -> DamagePredictionResult:
     """`BattleQuery.GetNormalAttackPrediction` / `GetAttackPrediction` (slot 14) — entrée attaque NORMALE
     (whole-attack). Le natif route TOUTE attaque multi-coups par `GetMultiHitAttackPrediction` (boucle
     `PredictAttackRaw` par coup + `prev` déplété + `Add`) : on DÉLÈGUE donc à `get_multi_hit_attack_prediction`.
@@ -432,4 +451,4 @@ def get_attack_prediction(
         profile_type=profile_type, armor=armor, pierce_pct=pierce_pct, extra_max=extra_max,
         mods=mods, hit_mult=hit_mult, reduction_min=reduction_min, reduction_max=reduction_max,
         spread_pct=spread_pct, target_shield=target_shield, might_crit=might_crit,
-        target_limits=target_limits)
+        target_limits=target_limits, extra_groups=extra_groups)

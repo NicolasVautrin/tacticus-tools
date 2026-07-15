@@ -37,6 +37,37 @@ class RapidAssaultExtraDamageEffect(BaseEffect):
         return True
 
 
+class SquigHoundAdditionalHitsEffect(BaseEffect):
+    """`SquigHound_AdditionalHitsEffect` (effet 0x50c=1292, orksRuntherd) — ajoute des coups HETEROGENES
+    a l'attaque du porteur : `nrOfHits` coups a degat PROPRE [minDmg,maxDmg] (vars 0xc/0xd de l'ability
+    SquigHound, ctor AbilityOrEffect 0x43a=1082) et profil PROPRE (`damageProfile`). Gate = OwnerIsCaster.
+
+    Natif : `SquigHound_AdditionalHitsEffect.CreateAdditionalHits @180f6d000` -> `EffectAdditionalHits.Create
+    @180f405b0` {condition=OwnerIsCaster, minDmg=GetMinMaxDamage(effect,idx0)=RandomAmount(ConfigVar(0xc),
+    ConfigVar(0xd)), count=GetNumberConstant(0x2f=nrOfHits), damageProfile=GetDamageProfile(config).Value,
+    maxDmg=GetMinMaxDamage(effect,idx1)}. `GetMinMaxDamage @180f11cc0` (overload 2-arg @180f11da0) indexe
+    les vars sur l'`AbilityStateFromEffect` (= le niveau de l'ability source sur l'unite, `ability_level`).
+    minDmg/maxDmg in `variablesAffectedByRarityBonus` -> x multiplier. Les coups squig ont leur perce/profil
+    propres et sont prev-threades APRES les coups d'arme (overkill continu) -> chemin `extra_groups` de
+    `get_multi_hit_attack_prediction`. VALIDE live seed 500 (u87 orksRuntherd L50 mult200 :
+    [minDmg50,maxDmg50]=[1330,1994]x2 = [2660,3988] par coup squig, count=2, profil Physical pierce 1)."""
+
+    def additional_hit_groups(self, ctx: "Mapping | None" = None) -> "list[dict] | None":
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        mn = ability_var("SquigHound", "minDmg", lvl, multiplier_pct=self.ability_variables_multiplier)
+        mx = ability_var("SquigHound", "maxDmg", lvl, multiplier_pct=self.ability_variables_multiplier)
+        count = ability_var("SquigHound", "nrOfHits", is_constant=True)  # numberConstant 0x2f
+        if mn is None or mx is None or not count or count <= 0:
+            return None
+        try:
+            import gameconfig as _GC
+            profile = ((_GC.ability("SquigHound") or {}).get("constants") or {}).get("damageProfile") \
+                or "Physical"
+        except Exception:
+            profile = "Physical"
+        return [{"count": int(count), "min": int(mn), "max": int(mx), "profile": profile}]
+
+
 class SmashaEadExtraDamageEffect(BaseEffect):
     """`SmashaEadEffect.CreateEffectDamageBonusForAttack @180f6bee0` (orksNob "Tanksmasha", ability
     SmashaEad, EffectType "SmashaEad") : `EffectBonus.ForAddition(OwnerIsCaster & IsNormalAttack,
