@@ -5,15 +5,16 @@ calcul tant qu'il n'est pas porté). Registre extensible au fil du portage du ro
 from __future__ import annotations
 
 from .base import BaseTrait
-from .combat import GetStuckInTrait, ImperviousTrait, ResilientTrait
+from .combat import GetStuckInTrait, ImperviousTrait, MkXGravisTrait, ResilientTrait
 
 # Registre nom de trait gameconfig (`gameconfig.unit(id).traits`) → classe. À ÉTENDRE (HeavyWeapon,
-# TerminatorArmour, Parry, BigTarget, hit-twice, lasCannon-pierce, ignore-armure…) en RE'ant chaque
+# TerminatorArmour, Parry, BigTarget, lasCannon-pierce, ignore-armure…) en RE'ant chaque
 # point du contrat §17.17.
 TRAIT_CLASSES: dict[str, type[BaseTrait]] = {
     "GetStuckIn": GetStuckInTrait,
     "Resilient": ResilientTrait,
     "Impervious": ImperviousTrait,
+    "MkXGravis": MkXGravisTrait,   # #178 : cible frappée 2× à travers l'armure (hit_mult=2)
 }
 
 

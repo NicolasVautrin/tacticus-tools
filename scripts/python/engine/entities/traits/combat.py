@@ -112,3 +112,21 @@ class ImperviousTrait(BaseTrait):
     identifier). Comme Resilient : structure native = service, on ne duplique PAS la formule dans la classe OO."""
 
     # as_target_damage_cap : no-op (hérité). Cap dans services.trait_damage_limits (fidèle au natif).
+
+
+class MkXGravisTrait(BaseTrait):
+    """`MkXGravis` (trait 0x3f5 = 1013, `UnitTrait`, cf. #146) — côté CIBLE : les dégâts entrants
+    TRAVERSENT L'ARMURE UNE 2ᵉ FOIS (i2 : « Any incoming Damage has to go through Armour a second time.
+    Does not apply to Crits »). Lu DIRECTEMENT dans `DamagePrediction.GetBaseDamageWithFixedPiercedArmor
+    @181030d10` : `HasTrait(cible, 0x3f5) && param_8(isCrit)==0` → `hit_multiplier=2` → la boucle
+    `GetDamageWithPiercing(d, pierce, armor)` s'exécute 2× (armure appliquée deux fois). Ce helper est dans
+    le chemin de PRÉDICTION IA (`CalculateBaseDamageWithAllModifiers @18102d3f0` ← `PredictAttackRaw
+    @181032fb0`) ET de combat (`CalculateAbilityDamage @18102cb50`).
+
+    ⚠ NON appliqué sur CRIT (param_8==1). La prédiction du port ne modélise PAS de branche crit séparée
+    (le crit est exclu du dégât rapporté, #62b) → défaut non-crit = multiplicateur 2, exactement ce que
+    l'oracle rapporte. VALIDÉ bit-exact #178 : u91→u79/ultraInceptorSgt (seed 500), hit_mult=2 → oracle
+    (678,1254) EXACT sur min ET max. Si un jour la prédiction modélise le crit, gater via `ctx`."""
+
+    def as_target_hit_multiplier(self, ctx: Mapping | None = None) -> int:
+        return 2

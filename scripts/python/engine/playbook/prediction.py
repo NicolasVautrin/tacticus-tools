@@ -24,7 +24,7 @@ from engine.entities.effects import (
     aura_attack_damage_malus_from_enemies,
     calculate_attacker_modifiers_for_prediction, build_defender_modifiers_from_effects,
     hits_bonus_from_effects, hits_malus_from_defender_effects)
-from engine.entities.traits import attacker_bonus_hits
+from engine.entities.traits import attacker_bonus_hits, target_hit_multiplier, TraitFactory
 from engine.entities.traits.unit_trait import UnitTrait
 from engine.entities.stats import StatType, StatPart
 from engine.services.damage_prediction import get_attack_prediction
@@ -302,9 +302,12 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                                       target_effects=tgt_effects, aura_sources=aura_sources, board=board,
                                       is_melee=is_melee, damage_profile=prof_name,
                                       include_bonus_hit_behaviours=True)  # prediction folde GetStuckIn (deterministe)
+    # MkXGravis (trait CIBLE 0x3f5) : l'armure est traversée 2× → hit_mult=2 dans predict_attack_raw
+    # (GetBaseDamageWithFixedPiercedArmor @181030d10). No-op (=1) pour toute cible sans trait hit-twice.
+    tgt_hit_mult = target_hit_multiplier(TraitFactory.create_many(_tgt_traits))
     res = get_attack_prediction(
         target_current_health=scene.hp(tgt_id) or 0, initial_damage=attack_base, hits=hits,
-        profile_type=0, pierce_pct=pierce, armor=scene.armor(tgt_id), mods=mods,
+        profile_type=0, pierce_pct=pierce, armor=scene.armor(tgt_id), mods=mods, hit_mult=tgt_hit_mult,
         target_shield=scene.shield(tgt_id), target_limits=_target_damage_limits(scene, tgt_id))
     ev = ProbableDamageEvent(target=tgt_id, prediction=res)
     if meta:
@@ -380,10 +383,14 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
     # damage=...)` (plage empirique 0.8/2.2·d/hits) était FAUX (RE PredictAttackRaw @181032fb0 : base = 1 int
     # -> ±20% [0.8/1.2], aucun 2.2) -> SUPPRIMÉ. Les specials Attack-based (PlasmaCannon/SpiritLeech) ne
     # passent PAS ici (routés via _PREDICT_VIA_NORMAL_ATTACK). Le bouclier est déplété PAR COUP (prev).
+    # MkXGravis (trait CIBLE 0x3f5) : armure traversée 2× aussi pour les spéciales (CalculateBaseDamage
+    # WithAllModifiers appelé quel que soit l'ability). No-op (=1) si la cible n'a pas le trait hit-twice.
+    tgt_hit_mult = target_hit_multiplier(
+        TraitFactory.create_many((GC.unit(scene.vis_by_id.get(tgt)) or {}).get("traits")))
     return get_attack_prediction(
         target_current_health=scene.hp(tgt) or 0, initial_damage=base, hits=hits,
         profile_type=profile_idx, pierce_pct=pierce, armor=scene.armor(tgt),
-        mods=mods, target_shield=tgt_shield,
+        mods=mods, target_shield=tgt_shield, hit_mult=tgt_hit_mult,
         target_limits=_target_damage_limits(scene, tgt))
 
 
