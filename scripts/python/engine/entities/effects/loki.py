@@ -105,6 +105,50 @@ class SmashaEadExtraDamageEffect(BaseEffect):
         return for_percent_decrease(False, abs(int(red)))   # owner=defenseur (l'effet est sur la cible)
 
 
+class FeederTendrilsExtraDamageEffect(BaseEffect):
+    """`FeederTendrils_ExtraDamageEffect.CreateEffectDamageBonusForAttack @180f48ea0` (Deathleaper,
+    effet 0x4ad=1197 ; ctor @180f49050 = `ABondEffect(AbilityOrEffect 0x4ad)`). JUMEAU BIT-A-BIT de
+    `SmashaEadExtraDamageEffect @180f6bee0` avec UN gate `IsCharging` en plus :
+    `EffectBonus.ForAddition(OwnerIsCaster & IsNormalAttack & IsCharging, ConfigVar(8=extraDmg, EffectSource))`.
+
+    - MAGNITUDE = `ability_var("FeederTendrils", "extraDmg", level) x multiplier` (`ConfigVar` var index 8 =
+      `extraDmg`, seule var dmg de FeederTendrils, dans `variablesAffectedByRarityBonus` ; extraDmg[L1]=10,
+      [L50]=554, [L65]=728 = le « +728 Damage » i2). Multiplier = le GLOBAL de l'unite (`self.ability_variables_
+      multiplier`, UnitConfig+0x74), PAS le per-ability #68 : `FeederTendrils_NormalAttack` (1120) EST l'attaque
+      NORMALE de l'unite (pas une triggered) -> le multiplier standard s'applique. Aucun scaling par AbilityState
+      (`GetAbilityState @180f11780` ne sert qu'a indexer `level` dans `GetVariableForLevel`).
+    - PLACEMENT = additif attaquant PRE-percage per-coup (canal `attacker_additive_pre`, MEME que SmashaEad #75 :
+      `ForAddition` -> `DamageModifiers.Add @181005f10`, applique par bout dans `GetDamageWithPiercing`). RE-valide
+      (reconciliation MIN exacte, u87 seed 42, A=554x1.8=997/coup) : u83/u81 delta=3x997=2991 EXACT ; u85 min=
+      3x339=1017 ; u79 min=718~=717 (%-list 0.8). Les MAX u79/u85 qui s'ecartent = caps HP (deja geres par
+      target_limits/overkill du port). Le delta VARIE par cible via le regime percage/armure par bout, PAS via
+      des stacks.
+    - GATE `IsCharging` (`AverageDistanceFormula @180f0c7e0` : l'unite s'est-elle rapprochee de la cible = a-t-elle
+      charge) ET `get_IsMelee` (@1811dd850) -> l'additif n'est ACTIF qu'en attaque MELEE de CHARGE (deplacement au
+      contact). En prediction-display les tuiles d'attaque rankees SONT des tuiles de charge -> gate TRUE (les 4
+      samples portent l'additif). Contrairement a SmashaEad, PAS de `if is_prediction: return None` : ici
+      IsNormalAttack=TRUE (c'est l'attaque normale de l'unite, incluse dans decisionView).
+    ⚠ A confirmer live (validator, quand un slot runner se libere) : niveau/mult reels de u87 (infere L50/mult1.8) ;
+    cas NEGATIF IsCharging (attaque sans deplacement -> additif doit DISPARAITRE) non teste par les 4 samples."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True) -> EffectBonus | None:
+        if is_ranged:                       # IsCharging & get_IsMelee (@1811dd850) -> melee uniquement
+            return None
+        if is_normal_attack is False:       # IsNormalAttack (@180df4690)
+            return None
+        if has_moved is False:              # IsCharging (@180df3210) : charge = deplacement vers la cible
+            return None                     # (has_moved None = inconnu -> applique, cas prediction-display)
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        amt = ability_var("FeederTendrils", "extraDmg", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)  # GLOBAL (pas per-ability #68)
+        return for_addition(True, amt) if amt is not None else None
+
+
 class DecoysAndMisdirectionExtraDamageEffect(BaseEffect):
     """`DecoysAndMisdirection_ExtraDamageEffect.CreateEffectDamageBonusForAttack @180f3e340` (Genestealer
     Cults ability DecoysAndMisdirection 0x518=1304, effet 0x563=1379 "DecoysAndMisdirection_ExtraDamage") :

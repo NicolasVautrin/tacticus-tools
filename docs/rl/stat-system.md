@@ -381,8 +381,21 @@ build de l'effet.
   `extraCritChance[niveau SOURCE]` (NON scale rarete). TODO.
 
 ### Ordre de port suivant (recommande)
-1. Canal AURA-CRIT (debloque PathOfCommand ExtraCrit + futurs crit-auras).
+1. ~~Canal AURA-CRIT~~ **ABANDONNE — CODE MORT (verifie LES DEUX faces, 2026-07-15).** RE confirme :
+   `PathOfCommandExtraCritEffect.GetDynamicStatModificationAmount @18119c5f0` = `ConfigVar(0x458,
+   EffectSource(Get(target)), varType=0x41)` = `extraCritChance[niveau SOURCE]` (effet 0x453 pose avec
+   ExtraDmg 0x458 par `CreateBehaviour @181110f10`, combines op_BitwiseAnd). MAIS un canal aura-crit
+   n'aurait AUCUN consommateur offline : (a) PREDICTION = zero lecture de crit-chance (degat
+   crit-EXCLUSIF, cf. #62b) ; (b) RUNNER = `cc = ctx.stat(CRIT_CHANCE) + crit_chance_bonus_from_effects(
+   attacker_effects)` (damage.py:196) ne lit que les effets PROPRES de l'attaquant (`GetCritChanceBonus
+   FromEffects @181031180`), PAS les auras d'adjacence d'allies ; la crit-chance d'aura est bakee dans
+   Current (capture) sans re-evaluation par tuile. CONTRASTE : l'aura ATTACK a un consommateur
+   (`aura_attack_bonus_from_allies` -> prediction.py:277, re-eval par tuile) car l'attaque folde dans le
+   degat -- le crit non. => NE PAS porter tant qu'aucun consommateur crit-par-tuile n'existe.
 2. [RESOLU 2026-07-08] StatType = champ de CONFIG au build (`config+0x6c`) ; le dict `DAT_1831b92c8`
    est metadata-populated (NON decodable statiquement). -> sourcer le StatType depuis gameconfig
    (cf. sous-section "StatType source"). Plus de decode binaire a faire.
-3. Generique `DynamicStatModifierEffect` (couvre beaucoup de stat-mods config-driven) une fois (1)+(2) surs.
+3. Generique `DynamicStatModifierEffect` (couvre beaucoup de stat-mods config-driven) une fois (2) sur.
+   NB : seuls les stat-mods dont le stat folde dans un consommateur offline valent le port -- ATTACK
+   (aura attaquant, re-eval par tuile) OUI ; CRIT non (cf. item 1) ; ARMURE d'aura cote defenseur = pas
+   de canal de re-evaluation defenseur non plus (armure defenseur = Current capture).

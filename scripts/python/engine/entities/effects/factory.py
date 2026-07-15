@@ -17,6 +17,7 @@ from .loki import (
     BigTargetAdjacentEffect,
     CrushingStrikeEffect,
     DecoysAndMisdirectionExtraDamageEffect,
+    FeederTendrilsExtraDamageEffect,
     FightingRetreatDmgReductionEffect,
     FightingRetreatHitReductionEffect,
     GuardianOrganismDamageReductionEffect,
@@ -70,6 +71,10 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # SmashaEad (orksNob "Tanksmasha") : +extraDmg[level]×mult FLAT au dégât des attaques NORMALES
     # (effet posé quand le porteur a traversé ≥2 hexes ce tour ; @180f6bee0 ForAddition). #68.
     "SmashaEad": SmashaEadExtraDamageEffect,
+    # FeederTendrils (Deathleaper, effet 0x4ad=1197) : jumeau SmashaEad + gate IsCharging (@180f48ea0
+    # ForAddition). +extraDmg[level]xmult FLAT PRE-percage sur l'attaque NORMALE de CHARGE melee ;
+    # multiplier GLOBAL (pas per-ability #68, car c'est l'attaque normale de l'unite). #176.
+    "FeederTendrils_ExtraDamage": FeederTendrilsExtraDamageEffect,
     # BeastSlayer (orksNob/Titus/Farsight/...) : +20% degat MELEE vs BigTarget/Vehicle (trait,
     # target-conditionnel @180f336c0 ForPercentIncrease ; gate is_melee + target_traits). #68.
     "BeastSlayer_ExtraDmg": BeastSlayerExtraDmgEffect,
