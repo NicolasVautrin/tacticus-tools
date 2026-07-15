@@ -320,17 +320,21 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # (GetBaseDamageWithFixedPiercedArmor @181030d10). No-op (=1) pour toute cible sans trait hit-twice.
     tgt_hit_mult = target_hit_multiplier(TraitFactory.create_many(_tgt_traits))
     # #179 : coups additionnels HETEROGENES (SquigHound_AdditionalHits) — dégât/profil PROPRE, prev-threadés
-    # APRES les coups d'arme (overkill continu). Chaque groupe : `count` coups [min,max] (predefined, sans
-    # spread ±20% = RandomAmount natif) au profil propre (pierce = PiercingRatio du profil + extra_pierce
-    # attaquant) ; MEME armure/hp/bouclier/hit_mult(MkXGravis) que la cible ; mods attaquant NON appliqués
-    # (dégât PROPRE de l'effet). Mirror `EffectAdditionalHits.Create @180f405b0`. [] hors carrier concerné.
+    # APRES les coups d'arme (overkill continu). Chaîne native (RE) : `AActiveAbility.AddAdditionalHitsTo-
+    # Prediction @180faff30` -> par coup `get_DefaultBlockScenario(result)` (prev threadé) puis `GetEffect-
+    # AdditionalHitPrediction @180fb1260` -> le MEME delegate PredictAttack (slot 0x26) / `PredictAttackRaw
+    # @181032fb0` que les coups d'arme, avec le CONTEXTE MODIFIERS COURANT. Donc chaque groupe : `count` coups
+    # [min,max] (predefined, sans spread ±20% = RandomAmount natif) au profil propre (pierce = PiercingRatio du
+    # profil + extra_pierce), MEME armure/hp/bouclier/hit_mult(MkXGravis) que la cible, ET `mods` COMPLET — le
+    # coup subit le même pipeline : réductions défenseur plates (Nightshroud_DmgReduction, fusionnées dans
+    # mods.additive) + %-mods/additif attaquant. Mirror `EffectAdditionalHits.Create @180f405b0`. [] hors carrier.
     _extra_groups = []
     for _g in additional_hit_groups(att_effects):
         _dp = GC.damage_profile(_g["profile"]) or {}
         _gp = max(0, min(100, int(_dp.get("PiercingRatio") or 0) + ctx.extra_pierce))
         _extra_groups.append({
             "count": _g["count"], "predefined": MinMaxDamage(min=_g["min"], max=_g["max"]),
-            "pierce_pct": _gp, "profile_type": _PROFILE_INDEX.get(_g["profile"], 0)})
+            "pierce_pct": _gp, "profile_type": _PROFILE_INDEX.get(_g["profile"], 0), "mods": mods})
     res = get_attack_prediction(
         target_current_health=scene.hp(tgt_id) or 0, initial_damage=attack_base, hits=hits,
         profile_type=0, pierce_pct=pierce, armor=scene.armor(tgt_id), mods=mods, hit_mult=tgt_hit_mult,
