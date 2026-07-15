@@ -114,9 +114,9 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     `CalculateDamagePredictionScenario` les applique à TOUT dégât (normal ET spécial) APRÈS perçage/armure.
       • ElevationBonus (`CalculateElevationBonusModifier @181003ea0`, surplomb +50%).
       • RangedInMelee (`CalculateRangedInMeleeReduction @181004700`, ranged adjacent à un ennemi → ×0.5).
-      • Trench (`CalculateTrenchReduction @181004830`) — HYPOTHÈSE : flag `isTrench` NON capturé dans la
-        Scene → non applicable tant que la donnée tuile-trench n'est pas exposée (structurellement présent,
-        no-op ici : `target_on_trench=False`).
+      • Trench (`CalculateTrenchReduction @181004830`, −50%) : réduction PAR DÉFAUT si la cible porte l'effet
+        Trench, SUPPRIMÉE quand l'attaquant est lui-même sur une tuile Trench ET voisin hex de la cible
+        (#177 : polarité tranchée + 3 mesures live ; `board.terrain_at`=#124, résidus CASE3/IndirectFire #182).
       • DÉFENSEUR (`CalculateDefenderModifiersForPrediction` : effets de la CIBLE réduisant le dégât reçu)."""
     # ELEVATION (#98 — RENVERSE le verdict #67 « pas d'elevation en prediction ») : le builder PREDICTION
     # @181000590 (qui FIRE bien 33x par tour de decision, mesure modifier-observe) l'applique INLINEE
@@ -154,6 +154,20 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     # vide #125). calculate_trench_reduction owner_is_caster=True = maths identiques a un -50% defenseur.
     target_on_trench = (any(getattr(e, "name", None) == "Trench" for e in tgt_effects)
                         and (not damage_profile or damage_profile not in _TRENCH_IGNORED_PROFILES))
+    # SKIP-branche native (#177, polarite tranchee + 3 mesures live board C2_19 bloodMephiston u83->u81) :
+    # le decompile applique la reduction PAR DEFAUT (main_gate = cible porte Trench) et ne la SUPPRIME que
+    # dans la sous-branche `IsTrench(attackerTile)==true` -> sur `IsNeighbourOf(attackerTile,tgtTile)` OU
+    # ligne intermediaire toute-Trench (loop1). Mesure : attaquant HORS-Trench non-adjacent -> APPLIQUE
+    # (natif 1002-1506, port correct) ; attaquant SUR-Trench + adjacent -> SKIP (natif 3009-4515, le port
+    # sur-appliquait). On porte le terme ADJACENT (IsNeighbourOf = are_tiles_adjacent, CASE2 mesure, frequent).
+    # Le terme ligne-toute-Trench (CASE3, rare) + le gate main IndirectFire (0x3ed) dependent du delegate
+    # natif @LAB_181004bb9 (2 listes) NON RE'd -> residus tracks #182, restent APPLIQUE (sur-pred legere sur
+    # ces cas rares, AUCUNE regression vs l'etat anterieur). `are_tiles_adjacent`=None (geometrie inconnue) ->
+    # `is True` faux -> on garde la reduction par defaut (conforme "reduction par defaut").
+    if (target_on_trench and attack_pos is not None and scene.board is not None
+            and scene.board.terrain_at(*attack_pos) == "Trench"                     # IsTrench(attackerTile)
+            and are_tiles_adjacent(attack_pos, t_pos, scene.board) is True):        # IsNeighbourOf
+        target_on_trench = False
     eb = calculate_trench_reduction(target_on_trench, TRENCH_PCT)
     if eb is not None:
         add_modifier(mods, eb)
