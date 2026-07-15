@@ -400,12 +400,15 @@ class FireTileDoT(TileEffectTrigger):
     base par le PERCAGE/ARMURE (CONFIRME LIVE 2026-07-12 : blackHaarken net 477 = base 1908 x PiercingRatio(Flame)
     25%, l'armure absorbant le non-perce). Donc DoT = `apply_pierce_and_modifiers(20%max, Flame pierce, armure
     cible)` -- SUR-applique si on prend le forfait plat (bug corrige). Direct(3) = pas de crit/block/spread.
-    fireDmgPct tire de globalValues (NON hardcode). Decay via on_turn_end. ⚠ DUREE (RE-corrige 2026-07-14) :
-    `DefaultAmountOfRounds(5)` = 2 ROUNDS ; le natif stocke `TurnsFromRounds(2)` = 2 x turns_per_round TURNS
-    (confrontation MoW propre : `Effect_RemainingTurns=4` en 2 equipes). Le port stocke `remaining=2` (rounds,
-    SANS conversion) et decremente PAR TURN -> feu ~2x trop court = approximation SYSTEMIQUE `turns_per_round=1`
-    (accessors.TurnsFromRounds ; touche TOUS les effets round -> tache dediee, PAS un hack feu). Mort routee par
-    `_fire_death_if_killed` (source = tuile).
+    fireDmgPct tire de globalValues (NON hardcode). Decay via on_turn_end. DUREE (RE #174 RESOLU 2026-07-14) :
+    `DefaultAmountOfRounds(5)` = 2 ROUNDS ; le natif stocke `ConvertRoundsToTurns(2)` @181058af0 =
+    `count(joueurs du turnOrder, PlayerType != 2) x 2` TURNS (RE : PlayerType@+0x20 = config statique, Env=2
+    exclu -> count = CONSTANTE de bataille). Dans NOS runners 1v1, `count = 1` -- PROUVE par le test committe
+    test_effect_stun_live (Stunned DefaultAmountOfRounds=1 -> convert(1) = live_remaining = 1). count etant
+    constant, TOUT effet round y vaut rounds x 1 : le feu = 2 turns = `remaining=2` du port -> CORRECT (pas de
+    bug). L'ancre `Effect_RemainingTurns=4` venait d'une bataille count=2 (arene MoW), NON simulee par le port.
+    Le ~2x n'est donc LATENT que pour count>=2 (fix futur si valide un jour = `convert_rounds_to_turns(state,
+    rounds)` lisant le turnOrder runtime, cf. #174). Mort routee par `_fire_death_if_killed` (source = tuile).
 
     GATE IMMUNITE feu (`UnitsWithoutTraits([0x1b=27=Steppable, 0x19=25=Immune])` @18121e040) PORTE :
     le DoT EXCLUT les occupants portant `Steppable` (tokens marchables) ou `Immune` (cf. _is_immune_to_fire).

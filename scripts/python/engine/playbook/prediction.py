@@ -500,8 +500,14 @@ _PLAYBOOK_PROFILE_OVERRIDE = {
     #   1027 PsychicMaelstrom @181153b50 : param_8 = Nullable(BasiliskBarrage.GetDamageProfile) EXPLICITE (PAS null ; l'audit
     #     d'arite confondait param_8=profil et param_9=poids Fix64). Live OK bit-exact [2792,4188] (astraPrimarisPsy). AUCUN override.
     #   1100 SorcerousFacade @18115bb90 : base=Half(Sum(var0xc,var0xd)) DSL != avg -> gap BASE (tache dediee).
-    #   1148 DaemonicOrdnance @181128bc0 + 1147 HadesAutocannons @181140a60 : base=getter dedie (Daemonic/LightOfSanguinius.GetDamage)
-    #     != avg -> gap BASE ; carrier blackForgefiend = MoW non buildable via --p-units (build non-Running) (tache dediee).
+    1148: "None",     # DaemonicOrdnance @181128bc0 (blackForgefiend MoW) ; param_8=null -> pierce 0/armure pleine [#172]
+    1147: "None",     # HadesAutocannons @181140a60 (blackForgefiend MoW) ; param_8=null -> pierce 0/armure pleine [#172]
+    #   ^1148/1147 : RE #172 REFUTE l'ancienne hypothese "gap BASE". base = DaemonicOrdnance.GetDamage @1811cfbb0 /
+    #   LightOfSanguinius.GetDamage @1811b2010 = AActiveAbility.MinMaxDamage(avgFlag) @180fb2dc0 = Half(Sum(minDmg 0xc,maxDmg 0xd))
+    #   = avg GENERIQUE (== ab.get_damage) ; hits = ArmoriumCherub.GetHits @180fb16c0 = nrOfHits GENERIQUE. Seul gap = param_8=null.
+    #   param_8 (GenerateMultiHit sig @181409da0) = profil passe a PredictAttack slot 0x27 ; 1147/1148 ont 0 en param_8 ET param_10
+    #   (poids Fix64) -> l'arite qui confondait 1027 (param_8 vs param_10) est ici tranchee. Decompile-proof (base/hits exclus,
+    #   meme standard que 1008) ; carrier MoW -> confront live via aiPlaybookPredict (harnais #172) = gate ideal residuel.
     #   1080 HellfireShells @181143a00 : base=Direct(var0xc) + hits trait-conditionnel -> gap BASE+HITS ; carrier NPC/summon (tache dediee).
 }
 

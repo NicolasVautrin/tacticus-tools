@@ -46,12 +46,16 @@ def ability_attack_params(state: "State", caster_id: int, ability_id: str,
 
 
 def turns_from_rounds(rounds: int) -> int:
-    """`DSLFactory.TurnsFromRounds` @180dfec50 → `TurnsFromRoundsFormula.Calculate` @180f26a50.
+    """`DSLFactory.TurnsFromRounds` @180dfec50 -> `TurnsFromRoundsFormula.Calculate` @180f26a50 =
+    `BattleQuery.ConvertRoundsToTurns` @181058af0 = `count(joueurs du turnOrder, PlayerType != 2) * rounds`
+    (RE #174 : PlayerType@+0x20 = config statique, Environment=2 exclu ; count = CONSTANTE de bataille).
 
-    La formule porte `rounds` (@+0x10) et un calculateur de contexte optionnel (@+0x18) ; si absent,
-    la valeur EST `rounds` (identité). CONFIRMÉ live : Stunned 1 round → RemainingTurns=1 (identité).
-    On porte l'identité ; le calculateur de contexte (ajustement éventuel selon le tour/joueur) reste
-    un raffinement si un cas non-identité apparaît (à confirmer live avant de l'ajouter)."""
+    Le port rend l'IDENTITE (rounds) car dans NOS runners 1v1, `count(non-Env) = 1` -- PROUVE DIRECTEMENT
+    par le test committe test_effect_stun_live (Stunned DefaultAmountOfRounds=1 -> convert(1) = live_remaining
+    = 1, pose mid-turn sans decrement). count etant constant, TOUT effet round y vaut rounds x 1 = rounds :
+    l'identite est CORRECTE pour nos runners (PAS une approximation). Elle ne divergerait QUE dans une bataille
+    a count>=2 (ex. arene MoW ou le feu = convert(2)=4), NON simulee par le port ; si un tel contexte est un
+    jour valide, brancher `convert_rounds_to_turns(state, rounds)` lisant le turnOrder runtime (cf. #174)."""
     return int(rounds)
 
 

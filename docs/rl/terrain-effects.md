@@ -78,10 +78,55 @@ DoT `On(0x14)`). SNAPSHOT des tuiles-source en debut de tick -> pas de cascade m
 MEME motif que `FireOfAbsolution`). Valide OFFLINE (logic test : spread->DryBush, skip Grass, snapshot, roll-fail).
 ⚠ RNG stochastique (10%) -> confrontation LIVE = STRUCTURELLE uniquement (non bit-exact, comme le ignite empty-hex
 de FireOfAbsolution) ; PENDING.
-### FirstAid — heal (`FirstAidHealAbility @1811c0490`, `FirstAidHealEffect` .ctor @180f44360,
-CreateTargetSelector @180f3ca70, CreateTargetTrigger @180f44250) : heal les unites sur la tuile.
-### Thorns/BrokenIce/Swamp — mouvement (Thorns @1811c8d70 ; BrokenIceBlockerEffect Apply @180f36c20 /
-Revert @180f36e10 ; `SwampBlockMovement` desc @1809cdf10 ; `DSLFactory.WalkableAndBrokenIce @180e01e40`).
+### FirstAid — heal (#130) — RE COMPLETE 2026-07-14, PORT bloque sur HealOperation (partage #94)
+
+Une tuile FirstAid porte l'effet `FirstAidHealEffect` (EffectType 10=0xa) : `FirstAidHealAbility.CreateBehaviour
+@1811c0490` = `AddEffect(tile, 0xa, abilityStateRef)`.
+- **Trigger** `FirstAidHealEffect.CreateTargetTrigger @180f44250` = `On(0x13) & IsTurnOf(Units(units-on-tile))`.
+  L'event 0x13 est emis par `StartTurnOperation.Execute @180ea3fb0` (sequence VERIFIEE 0x12->0x13->0x14->0x15->0x16).
+  => fire au DEBUT DU TOUR du joueur, pour chaque unite du joueur COURANT posee sur une tuile FirstAid.
+- **Magnitude** `CreateTargetTriggerBehaviour @180f44090` = `Heal(tiles, targets, amount, HealBehaviourOptions{+0x32=1})`
+  avec `amount = PercentageOf(StatAmount(target, stat=5, part=2)=maxHP, Direct(GetNumberConstant(0x13)=healPct))`
+  = healPct% de la maxHP. `targets = Tiles(UnitsWithoutTrait(Units(units-on-tile), trait=0x19=25))` INTERSECT
+  targetSelector@0x88 (les unites sur la tuile SAUF trait 0x19). `CreateTargetSelector @180f3ca70` = Units(tile).
+
+**PORT (recette)** : B0 OK -- `state.board.coords_with_terrain("FirstAid")` identifie les tuiles (le board
+capte `tileDefId`). A l'event 0x13 de StartTurn (a AJOUTER a StartTurnOperation.execute, entre le tick 0x12 et
+0x14) : pour chaque tuile FirstAid, chaque unite du `player` courant dessus (hors trait 0x19), `heal =
+round(maxHP * healPct/100)` puis appliquer via HealOperation (clamp maxHP + event UnitHealed). healPct =
+config const 0x13 de l'ability "FirstAidHeal" (gameconfig). stat 5/part 2 = maxHP (a confirmer via StatType/StatPart).
+
+**BLOQUEUR** : aucun HealOperation n'existe cote runner (cf. loki.py:497 #94 "necessite un HealOperation combat").
+Le porter (RE `DSLFactory.Heal` + l'operation ECS qui mute HP + emet l'event) est un prealable PARTAGE avec #94.
+Validation live : board avec tuiles FirstAid + une unite du joueur dessus au StartTurn -> observer le heal (25 boards en ont).
+### Thorns/BrokenIce/Swamp — mouvement (#131) — RE COMPLETE 2026-07-14, DEFERE (aucun trigger jouable confirme)
+
+TOUS effet-driven (JAMAIS un blocage statique de terrain ; le static-block est REFUTE live : Swamp
+walkable=TRUE + dans aiMovableTiles, SyncPvp_Arctic_06). Le blocage = pose de `BlockEnteringUnitsTileEffect`
+(.ctor @180f35510, exemption `NotBlockingMovementOfTraits @18155b370`) OU flip du flag walkable (BrokenIce).
+
+- **Thorns** `ThornsBlockMovementAbility.CreateBehaviour @1811c8d70` = `AddBlockEnteringUnitsEffect(0,0)
+  & AddStaticStatModifierEffectToOwner(0xb, part=3, Direct(GetNumberConstant(0x14)))` (block + buff stat 0xb).
+  Gate par son CreateTrigger (non lu ; behaviour lui-meme = pose inconditionnelle du block quand triggere).
+- **BrokenIce** `BrokenIceAbility.CreateTrigger @1811bed90` = fire sur events d'ENTREE d'unite
+  (`On(0x19=25) | On(0x1d=29) | On(0)|On(0x35)`, gates `OwnerIsTargetTile`/`OwnerIsCasterTile`,
+  `!HasTrait(0x1b=27)`, `!TriggeringAbilityIs(0x47f)`). `CreateBehaviour @1811bed00` : si event==0x19 ->
+  `AddBlockEnteringUnitsEffect` (la glace se brise -> bloque) ; sinon `AddEffect(0x12, abilityStateRef)`.
+  `BrokenIceBlockerEffect` Apply @180f36c20 SET tileComp+0x10=1 / Revert @180f36e10=0 -> flip DYNAMIQUE du
+  flag walkable (IsWalkable false). `DSLFactory.WalkableAndBrokenIce @180e01e40` = selecteur combine.
+- **Swamp** `SwampBlockMovement` (PassiveAbilityType 5, desc @1809cdf10) = env-ability du board ; pose
+  `BlockEnteringUnits` SOUS CONDITION (non identifiee) -> ne bloque PAS par defaut (empirique).
+
+**Gate pathfinding natif** : `NodesInNextLevel @180ee28b0` gate l'expansion sur `IsValidContinuePathTile
+@180f2ee30 = GetTileBlockingReasons @180f2e9d0 == 0` (sauf start) : bit 0x1 = effet block-entering,
+bit 0x4 = occupant ennemi. => une tuile block-entering ne peut etre ni TRAVERSEE ni un STOP. Le predicat
+d'arete `IsValidPathNode @180f2ee50` NE regarde PAS l'effet (juste walkable comp+0x10 + elev + !ennemi).
+
+**Port** : `walk_pathfinder.py` est FIDELE pour nos boards (walkable+elev+!ennemi = bits 0x4 + walkable).
+Le SEUL manque = le gate bit-0x1 (`BlockEnteringUnitsTileEffect` sur la tuile), INERTE car aucun board
+courant ne le porte. **Ne PAS porter tant qu'un board/trigger jouable n'est pas confirme** (impossible a
+valider live sinon ; static-block deja refute). Port futur = modeliser l'effet sur les tuiles (+ exemption
+trait via `NotBlockingMovementOfTraits`) et gater l'expansion/stop dans `get_reachable_levels`/`get_movable_positions`.
 
 ## 3. Power-ups (`Abilities.Triggered.Loki.APowerUpAbility` family)
 
@@ -223,15 +268,19 @@ Le runner EndTurn ne fait AUCUN DoT -> gap. Vecteur turn-start-on-fire-tile = #1
   sinon null) ; `OnFireDamageAbility @1811c3a60` = `AddEffect(5, ..., 0, 0)` sans override -> le count NATIF est
   bien 2 rounds. ⚠ Mon explication precedente « remaining=3-4 = artefact de RE-ignition Vindicta » etait **FAUSSE**.
   Confrontation PROPRE (MoW blackForgefiend, `DaemonicOrdnance` -> cascade `Effect_Refresh «Fire» Effect_Remaining
-  Turns=4`, source EnvFireTileDamage=24, ZERO Vindicta) : le natif stocke la duree en **TURNS** = `TurnsFromRounds
-  (DefaultAmountOfRounds)` = 2 rounds x turns_per_round (2 equipes -> **4 turns**). Le `3-4` Vindicta etait la MEME
-  chose (4 turns, moins 1 selon le round observe), pas une re-ignition. **GAP PORT** : `AddEffectOperation.execute`
-  stocke `remaining = DefaultAmountOfRounds(5) = 2` SANS conversion rounds->turns, et `RefreshEffects` (EndTurn)
-  decremente PAR TURN (turnflow.py:155 itere `by_unit` tuiles incluses) -> le feu du port dure **2 turns ~= 1 round**
-  au lieu de 2 rounds = **sous-duree ~2x**. C'est l'approximation SYSTEMIQUE `turns_per_round=1` (accessors.py
-  `TurnsFromRounds` defaut identite ; « vraie valeur = nb d'equipes vivantes, a capter live ») -> touche TOUS les
-  effets a duree-round (feu/stun/taunt/contaminated), PAS specifique au feu. `_DEFAULT_ROUNDS[5]=2` (rounds) reste
-  le bon count natif ; le fix = modeliser `turns_per_round` a la pose (tache dediee), pas un hack feu-only.
+  Turns=4`, source EnvFireTileDamage=24, ZERO Vindicta) : le natif stocke la duree en **TURNS** = `ConvertRounds
+  ToTurns(DefaultAmountOfRounds)`. Le `3-4` Vindicta etait la MEME chose (pas une re-ignition).
+  **#174 RESOLU (RE re-expert 2026-07-14)** : `ConvertRoundsToTurns @181058af0 = count(joueurs du turnOrder,
+  PlayerType != 2) x rounds`. PlayerType@+0x20 = **config STATIQUE** (prouve via `VisualBattleQuery.GetPlayerType
+  ForEntity @1804aecc0` + `AddPlayerOperation @180e4d840` ; Environment=2 exclu) -> `count` = **CONSTANTE de
+  bataille**, PAS un etat de tour. Donc `TurnsFromRounds` n'est PAS un simple ×2 : c'est ×count.
+  **Le port est CORRECT pour nos runners** : dans nos 1v1, `count = 1` -- PROUVE par le test committe
+  `test_effect_stun_live` (Stunned DefaultAmountOfRounds=1 -> convert(1) = live_remaining = 1). count etant
+  constant, TOUT effet round y dure `rounds x 1` -> le feu = 2 turns = `remaining=2` du port = JUSTE (pas de
+  sous-duree). L'ancre `Effect_RemainingTurns=4` etait une bataille **count=2** (arene MoW), que le port NE
+  SIMULE PAS. => `turns_per_round=1` (accessors.py/base.py) est CORRECT pour notre domaine de validation ; le
+  ~2x n'est **LATENT que pour count>=2**. Fix futur (si un jour on valide du count>=2) = `convert_rounds_to_turns
+  (state, rounds)` lisant le turnOrder runtime (capteur requis : dumpEntityComponents ne balaye pas les Player).
 
 Bilan : l'offline « 23/23 » validait le port contre une SPEC (mon interpretation i2), pas contre le natif. Live
 REFUTE la magnitude (armor-routing), l'AoE et la duree. Placement = seul point confirme. -> #127/#136 a corriger.

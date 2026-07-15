@@ -131,8 +131,12 @@ class StartTurnOperation:
         # #60 has_moved : nouveau tour d'equipe -> reset des flags "a bouge ce tour" (mirror RemoveTurnFlags
         # natif). Chaque unite qui bouge ce tour re-marquera son id via MoveUnitOperation.
         state.moved_this_turn.clear()
-        # #128 tile-effects ROUND-TICK : StartTurn emet On(0x12) (Contaminated re-apply) + On(0x14) (Fire DoT
-        # + DryBush spread) AVANT le turn-start On(0x16) (ordre StartTurn 0x12/0x14/0x16 ; HYPOTHESE a valider).
+        # #128 tile-effects ROUND-TICK : StartTurn emet la SEQUENCE d'events 0x12->0x13->0x14->0x15->0x16
+        # (VERIFIE @180ea3fb0 : 5 emissions FUN_180026490(...,0x12/0x13/0x14/0x15/0x16) en fin d'Execute ;
+        # l'ancien "0x12/0x14/0x16" etait INCOMPLET). Mapping effets : 0x12 = Contaminated re-apply ; 0x13 =
+        # FirstAid heal-on-tile (#130 : On(0x13) & IsTurnOf(units-on-tile)) ; 0x14 = Fire DoT + DryBush spread ;
+        # 0x15 = (role a mapper) ; 0x16 = turn-start (start_turn_triggers). Le port ne tire ici que tile_tick
+        # (0x12/0x14) + On(0x16) ; 0x13 (FirstAid) et 0x15 PAS ENCORE branches (0x13 bloque sur HealOperation, #130/#94).
         tile_ticks = tile_tick_triggers(state)
         out = start_turn_triggers(state, player)
         from .summon_ai import run_ai_control_pass         # lazy : evite le cycle turnflow<->summon_ai

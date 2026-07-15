@@ -39,10 +39,11 @@ class TimesRepaired(Node):
 
 class TurnsFromRounds(Node):
     """`DSLFactory.TurnsFromRounds(rounds) @180dfec50` → `TurnsFromRoundsFormula.Calculate @180f26a50`
-    : convertit des ROUNDS en TURNS via une méthode runtime (index 0x1b) dépendant de l'état du round
-    (nb d'équipes/joueurs actifs). NON captable offline → `rounds * ctx.turns_per_round` (défaut 1 =
-    identité, dépendance runtime documentée comme `times_attacked` ; vraie valeur = nb d'équipes
-    vivantes jouant dans le round, à capter live)."""
+    = `BattleQuery.ConvertRoundsToTurns @181058af0` (interface slot 0x1b) = `count(joueurs du turnOrder,
+    PlayerType != 2) * rounds` (RE #174 : PlayerType@+0x20 = config statique, Environment=2 exclu ;
+    count = CONSTANTE de bataille). `rounds * ctx.turns_per_round` avec `turns_per_round = count(non-Env)`.
+    Defaut 1 = CORRECT pour nos runners 1v1 (count=1 PROUVE par test_effect_stun_live : convert(1)=1) ;
+    ne divergerait que dans une bataille count>=2 (non simulee), a capter alors du turnOrder runtime."""
     def __init__(self, rounds: Node):
         self.rounds = rounds
 
