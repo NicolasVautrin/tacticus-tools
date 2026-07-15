@@ -465,7 +465,7 @@ _PREDICT_VIA_NORMAL_ATTACK = frozenset({"SorcerousFacade"})
 #    handler = HOMONYME du playbook natif + VA ; rend un dict `{base_override?, hits_override?, profile_override?}`
 #    (kwargs de `generate_multi_hit_attack_prediction`) ou `{}`. La methode generique reste GENERIQUE : aucune
 #    logique ability-specifique inline (ajouter une ability divergente = un handler + une entree registre).
-def _martial_inspiration_inputs(scene, caster_id, ab, cfg) -> dict:
+def _martial_inspiration_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # target_id ignoré (contrat registre)
     """`MartialInspirationPlaybook.MakeDamagePredictions` (yield machine `<MakeDamagePredictions>d__2.MoveNext`
     @181162c90 ; Kariyan/custoBladeChampion, ability 1191) — SURCHARGE la base/hits generiques (#106) :
     emet UN coup (hits=1 literal `*(puVar25+0x40)=1`) de base `round(var12 * buff)`, PAS `avg(minDmg,maxDmg)`
@@ -484,7 +484,7 @@ def _martial_inspiration_inputs(scene, caster_id, ab, cfg) -> dict:
     return {"base_override": round(minv * buff), "hits_override": 1}
 
 
-def _crushing_claws_inputs(scene, caster_id, ab, cfg) -> dict:
+def _crushing_claws_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # target_id ignoré (contrat registre)
     """`CrushingClawsPlaybook.MakeDamagePredictions @1811274b0` (tyranTyrantGuard, ability 1105) — la
     PRÉDICTION ignore le `damageProfile` de l'ability : le playbook passe **`param_8 = null`**
     (`Nullable<DamageProfile>` sans valeur) à `GenerateMultiHitAttackPredictions @181409da0`, pour la cible
@@ -502,10 +502,33 @@ def _crushing_claws_inputs(scene, caster_id, ab, cfg) -> dict:
     return {"profile_override": "None"}
 
 
-# {ability_id: handler(scene, caster_id, ab, cfg) -> {base/hits/profile_override}}. Mirror du dispatch
+def _hellfire_shells_inputs(scene, caster_id, target_id, ab, cfg) -> dict:
+    """`HellfireShellsPlaybook.MakeDamagePredictions @181143a00` (carrier NPC/summon ultraNpc4Heavy-
+    Intercessor / ultraSmnHeavyIntercessor, ability 1080) — mirror parfait de `CrushingClawsPlaybook
+    @1811274b0` (meme signature, meme appel `GenerateMultiHitAttackPredictions @181409da0`). SURCHARGE :
+      - BASE = `Direct(GetVariableForLevel(0xc=minDmg))` @180dee2a0 = minDmg SEUL (rarity-scaled), PAS
+        l'avg(minDmg,maxDmg) generique (@lvl65 mult100 : minDmg 582 vs avg 727 -> generique sur-pred +145/coup).
+      - HITS = `GetNumberConstant(0x2f=nrOfHits)` + (`HasTrait(target, 0x3f9=BigTarget)` ?
+        `GetNumberConstant(0x2b=extraHit)` : 0) = 2 vs cible normale, 4 vs BigTarget. Litteral (PAS +ExtraHits
+        stat). Trait lu sur la CIBLE (`param_4`). Concorde avec le COMBAT `HellfireShellsAbility.Execute-
+        Behaviour @1811e8030` (meme `If(HasTrait(target,BigTarget), base+bonus, base)`).
+      - PROFIL = param_8 null -> `None` (pierce 0, armure PLEINE), MEME quirk que CrushingClaws #164.
+    NON mesurable live (carrier NPC campagne + summon Environment, non-spawnable via rl_duel build) -> verdict
+    decompile-proof (standard #169 HarbingerOfDestruction). Cf. docs/rl/case-173-hellfire-shells-base-hits.md."""
+    lvl, mult = ab.level, ab.multiplier
+    base = cfg.get_variable_for_level("minDmg", lvl, 0, mult)     # var 0xc = minDmg (Direct), rarity-scaled
+    hits = int((cfg.constants or {}).get("nrOfHits") or 0)        # const 0x2f = nrOfHits
+    tgt_traits = (GC.unit(scene.vis_by_id.get(target_id)) or {}).get("traits") or ()
+    if "BigTarget" in tgt_traits:                                # HasTrait(target, 0x3f9=BigTarget)
+        hits += int((cfg.constants or {}).get("extraHit") or 0)   # const 0x2b = extraHit (+2)
+    return {"base_override": base, "hits_override": hits, "profile_override": "None"}
+
+
+# {ability_id: handler(scene, caster_id, target_id, ab, cfg) -> {base/hits/profile_override}}. Mirror du dispatch
 # playbook natif (par type d'ability). HammerOfWrath (1153) a son propre chemin (make_hammer_wrath_events,
 # NonComparable) ; ici = les playbooks Comparable qui surchargent juste les INPUTS de GenerateMultiHit.
-_MAKE_DMG_INPUT_OVERRIDES = {1191: _martial_inspiration_inputs, 1105: _crushing_claws_inputs}
+_MAKE_DMG_INPUT_OVERRIDES = {1191: _martial_inspiration_inputs, 1105: _crushing_claws_inputs,
+                             1080: _hellfire_shells_inputs}
 
 
 # Override de PROFIL DE PREDICTION par-ability (audit #165) — mirror du `param_8`
@@ -542,7 +565,8 @@ _PLAYBOOK_PROFILE_OVERRIDE = {
     #   param_8 (GenerateMultiHit sig @181409da0) = profil passe a PredictAttack slot 0x27 ; 1147/1148 ont 0 en param_8 ET param_10
     #   (poids Fix64) -> l'arite qui confondait 1027 (param_8 vs param_10) est ici tranchee. Decompile-proof (base/hits exclus,
     #   meme standard que 1008) ; carrier MoW -> confront live via aiPlaybookPredict (harnais #172) = gate ideal residuel.
-    #   1080 HellfireShells @181143a00 : base=Direct(var0xc) + hits trait-conditionnel -> gap BASE+HITS ; carrier NPC/summon (tache dediee).
+    #   1080 HellfireShells @181143a00 : base=Direct(0xc=minDmg SEUL) + hits=nrOfHits(+extraHit si cible BigTarget)
+    #     + param_8=null -> PORTE #173 via _hellfire_shells_inputs (base+hits+profile ensemble). Cf. case-173.
 }
 
 
@@ -587,7 +611,7 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
     # overrides d'ENTREE (base/hits/profile) ; sinon `{}` -> chemin generique config inchange. La logique
     # ability-specifique vit dans son handler HOMONYME (cf. `_MAKE_DMG_INPUT_OVERRIDES`), jamais inline ici.
     _ovr_fn = _MAKE_DMG_INPUT_OVERRIDES.get(ability_id)
-    overrides = _ovr_fn(scene, caster_id, ab, cfg) if (_ovr_fn and ab is not None and cfg is not None) else {}
+    overrides = _ovr_fn(scene, caster_id, main_tgt_id, ab, cfg) if (_ovr_fn and ab is not None and cfg is not None) else {}
     # Profil de prediction par-ability (audit #165) : le playbook natif passe un param_8 explicite (ou null).
     _prof_ovr = _PLAYBOOK_PROFILE_OVERRIDE.get(ability_id)
     if _prof_ovr is not None and "profile_override" not in overrides:
