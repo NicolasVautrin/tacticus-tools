@@ -13,6 +13,7 @@ from .loki import (
     ActOfFaithBuffEffect,
     AnvilShieldAdditionalBlockEffect,
     AstartesBannerExtraHitEffect,
+    BeaconOfRageExtraDamageEffect,
     BlessingsOfKhorneModifiersEffect,
     ContaminatedUnitEffect,
     BigTargetAdjacentEffect,
@@ -138,6 +139,12 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # global, 8) seedé par Scene._seed_battle_counters depuis decisionView.units (#185).
     # EffectType 0x4ee=1262, nom capte = effect-type-names.ts:385.
     "BlessingsOfKhorne": BlessingsOfKhorneModifiersEffect,
+    # BeaconOfRage (passive 1236 d'Azkor worldEightbound) : +extraDmg[ablvl passif] x rage FLAT
+    # additif a TOUTES les attaques du porteur (@180f33130 ForAddition OwnerIsCaster seul) ; rage =
+    # decisionView.effects[].level = min(TotalTimesAttacked, nrOfAttacks=8), cappe a l'ecriture par
+    # le natif (@180e13230). EffectType 0x512=1298 (#189). La variante 0x513=1299 FriendlyExtraDamage
+    # (aura : 50% du bonus aux attaques MELEE des amis adjacents, si >=1 kill) = tache dediee.
+    "BeaconOfRage_ExtraDamage": BeaconOfRageExtraDamageEffect,
     # DecoysAndMisdirection (Genestealer Cults ex. genesPrimus/genesMagus/genesKelermorph) : +extraDmg
     # FLAT additif a TOUTES les attaques de l'ami buffe (pose quand un decoy est spawn a cote / qu'un ami
     # marche sur un decoy). Gate OwnerIsCaster SEUL (@180f3e340 -> applique en prediction+combat, cf.

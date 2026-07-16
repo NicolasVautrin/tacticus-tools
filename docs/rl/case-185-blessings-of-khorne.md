@@ -1,11 +1,12 @@
 # Case #185 — BlessingsOfKhorne (Azkor) dmg% reduction/bonus scaled by melee-defeats
 
-**Status: CAPTURE LIVE + PORT PREDICTION FAITS ; face DEFENSE VALIDEE BIT-EXACT live (N=1).**
-La face ATTACK est portee (meme canal N) mais sa validation est bloquee par un residu FLAT ~+217
-sur l'attaque normale d'Azkor (suspect = un AUTRE effet du kit Azkor non porte, cf. tache dediee) ;
-un 2e residu POSITIONNEL x0.36 (tuile distante iter-4) est aussi ouvert — AUCUN des deux n'est le
-canal BoK (le meme run donne le MATCH exact en DEF au meme N). Carriers = trait 1046 = TOUTE la
-faction World Eaters (11 unites : Azkor worldEightbound, Kharn, Wrask, Macer + bosses LHE).
+**Status: CAPTURE LIVE + PORT PREDICTION FAITS ; DEUX faces VALIDEES BIT-EXACT live (N=1).**
+Le residu FLAT ~+217 qui bloquait la face ATTACK etait **BeaconOfRage** (passive 1236 d'Azkor,
+PAS un canal BoK) — RE + porte #189 (cf. §BeaconOfRage ci-dessous) ; re-confront session 22 :
+ATK engine=(1608,2302) == oracle BIT-EXACT (BoK x1.03 et flat BeaconOfRage composent ensemble).
+Reste OUVERT : le residu POSITIONNEL x0.36 (tuile distante iter-4, scalaire pur, re-mesure
+identique session 22 : oracle=(532,798) = engine x0.360) = tache #190. Carriers = trait 1046 =
+TOUTE la faction World Eaters (11 unites : Azkor worldEightbound, Kharn, Wrask, Macer + bosses LHE).
 
 ## Capture live (#185, hooks — VALIDEE session 21)
 
@@ -41,12 +42,36 @@ Roster : bloodMephiston+custoTrajann vs worldEightbound+worldJakhal+worldTermina
 - Azkor effects captes = `['BlessingsOfKhorne', 'Daemon_ExtraBlock', 'Terrifying_ExtraDefense']`.
 - **N=1, meph→Azkor (Psychic, DEF face) : engine=(2325,3489) == oracle aiPlaybookPredict=(2325,3489)
   — BIT-EXACT.**
-- N=1, Azkor→meph (ATK face) : oracle=(1608,2302) vs engine=(1390,2086) = residu FLAT ~+217
-  (min/max ratios 1.157/1.104 ≠ scalaire → additif) → PAS le canal %-BoK ; suspect = effet kit
-  Azkor non porte (BeaconOfRage 1236 ?) — A MESURER, tache dediee.
+- N=1, Azkor→meph (ATK face) : session 21 oracle=(1608,2302) vs engine=(1390,2086) = residu FLAT
+  ~+217 (min/max ratios 1.157/1.104 ≠ scalaire → additif) → PAS le canal %-BoK. **RESOLU #189 =
+  BeaconOfRage non porte** ; apres port, re-confront session 22 (meme seed/roster, iter-5 N=1
+  rage=1) : **engine=(1608,2302) == oracle=(1608,2302) BIT-EXACT** (et DEF re-MATCH au meme run).
 - iter-4 (positions distantes) meph→Azkor : oracle=(532,798) = engine x0.36 (scalaire pur) —
-  divergence POSITIONNELLE de cette tuile (les 2 cotes avaient le board) — A DECOMPOSER, tache
-  dediee (candidate : couche terrain/CASE3/IndirectFire live sur MC1_67).
+  divergence POSITIONNELLE de cette tuile (les 2 cotes avaient le board), RE-MESUREE IDENTIQUE
+  session 22 (x0.360 exact min et max) — A DECOMPOSER, tache #190 (candidate : couche
+  terrain/CASE3/IndirectFire live sur MC1_67).
+
+## #189 — BeaconOfRage (le residu FLAT, resolu)
+
+`BeaconOfRage_ExtraDamageEffect` (EffectType 0x512=1298, nom capte "BeaconOfRage_ExtraDamage",
+AbilityOrEffect 0x4d4=1236 = la passive BeaconOfRage d'Azkor) :
+- `CreateEffectDamageBonusForAttack @180f33130` : `ForAddition(get_OwnerIsCaster,
+  Multiply(ConfigVar(8=extraDmg, GetAbilityState), EffectLevel(effet)))` — FLAT additif (AUCUN
+  ForPercent*), tous profils, normale ET speciale ; meme canal additif que SmashaEad (#69).
+- Rage = EffectLevel de l'instance = `min(TotalTimesAttacked, nrOfAttacks=8)` —
+  `ABeaconOfRageAbility.GetCurrentSelfEffectLevel @180e12fa0` = `Min(TotalTimesAttacked(unit),
+  ConfigConst(0x59))`, ecrit par `GetUpdateSelfEffectBehaviour @180e13230` (AddEffect(0x512) si
+  absent & level>0, puis SetEffectLevel) → **capte tel quel** dans `decisionView.effects[].level`
+  (Level @0x68, deja dans la capture — port SANS reinject).
+- Magnitude : `extraDmg[abilityLevel passif]` (gameconfig BeaconOfRage.variables, 1→315 sur 65
+  niveaux, HORS variablesAffectedByRarityBonus → pas de scaling multiplier) × rage. i2 : « For
+  each time he was attacked in battle, up to a maximum of 8 times, Azkor deals +315 Damage ».
+- Port : `engine/entities/effects/loki.py::BeaconOfRageExtraDamageEffect` + factory
+  "BeaconOfRage_ExtraDamage". Smoke 11/11 ; live BIT-EXACT (ci-dessus).
+- Variante `BeaconOfRage_FriendlyExtraDamage` (0x513=1299) : 50% du bonus (`PercentageOf(...,
+  0x32=50)` @180f33370) aux attaques MELEE des amis Chaos adjacents (selector @180f335b0), active
+  SSI le porteur a >=1 kill (`GetCurrentFriendEffectLevel @180e12f10 = If(UnitsDefeatedAmount>0,
+  selfLevel, 0)`, behaviour @180e13040 effet 0x513) — NON portee, tache #191.
 
 ## Carrier
 `worldEightbound` (Azkor, lineup) traits = `[Hero, BlessingsOfKhorne, Daemon, Resilient,

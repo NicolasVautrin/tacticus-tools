@@ -1090,6 +1090,50 @@ class BlessingsOfKhorneModifiersEffect(BaseEffect):
         return for_percent_increase(True, abs(int(pct)) * n)
 
 
+class BeaconOfRageExtraDamageEffect(BaseEffect):
+    """`BeaconOfRage_ExtraDamageEffect` (EffectType 0x512=1298, nom capté "BeaconOfRage_ExtraDamage" ;
+    AbilityOrEffect 0x4d4=1236 = BeaconOfRage, passive d'Azkor worldEightbound) — i2 : « For each time
+    he was attacked in battle, up to a maximum of 8 times, Azkor deals +315 Damage » (+315 = extraDmg
+    au niveau max 65). #189.
+
+    - dégât `CreateEffectDamageBonusForAttack @180f33130` : `ForAddition(get_OwnerIsCaster,
+      Multiply(ConfigVar(8=extraDmg, GetAbilityState(effet)), EffectLevel(effet)))` — bonus FLAT
+      additif (AUCUN ForPercent*), trigger OwnerIsCaster SEUL (tous profils, normale ET spéciale) ;
+      même canal additif que SmashaEad (#69 : `DamageModifiers` additif, appliqué par
+      `CalculateBaseDamageWithAllModifiers @18102d3f0`).
+    - niveau de RAGE = `EffectLevel` de l'instance = `min(TotalTimesAttacked, nrOfAttacks=8)` :
+      `ABeaconOfRageAbility.GetCurrentSelfEffectLevel @180e12fa0` = `Min(TotalTimesAttacked(unit),
+      ConfigConst(0x59=nrOfAttacks))`, écrit par `GetUpdateSelfEffectBehaviour @180e13230`
+      (`AddEffect(0x512)` si absent & level>0, puis `SetEffectLevel(0x512, level)`) → arrive tel quel
+      dans decisionView.effects[].level (Level @0x68). PAS de re-calcul offline : le level capté EST
+      la vérité (le cap est appliqué à l'ÉCRITURE par le natif ; TotalTimesAttacked non capté).
+    - magnitude : `extraDmg[abilityLevel]` (variables BeaconOfRage, 1→315 sur 65 niveaux, HORS
+      variablesAffectedByRarityBonus → pas de scaling multiplier) × level. `ability_level` = niveau
+      PASSIF du porteur (Scene ablvl_by_id) ; niveau inconnu → inerte (dégradation fidèle).
+
+    La variante `BeaconOfRage_FriendlyExtraDamage` (0x513=1299 : 50% du bonus, attaques MÊLÉE des
+    amis Chaos adjacents, gate `OwnerIsCaster & IsMeleeAttack`, `PercentageOf(..., 50) @180f33370`,
+    active SSI le porteur a ≥1 kill — `GetCurrentFriendEffectLevel @180e12f10 = If(UnitsDefeated-
+    Amount>0, selfLevel, 0)`) = effet-aura SÉPARÉ, non porté ici (tâche dédiée)."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True) -> EffectBonus | None:
+        # trigger natif @180f33130 = get_OwnerIsCaster SEUL — tous profils, normale ET spéciale.
+        rage = self.level                              # EffectLevel (stack), déjà cappé à l'écriture
+        if not rage or int(rage) <= 0:
+            return None
+        if self.ability_level is None:                 # ConfigVar sans AbilityState → pas de magnitude
+            return None
+        per = ability_var("BeaconOfRage", "extraDmg", self.ability_level,
+                          multiplier_pct=self.ability_variables_multiplier)
+        if not per:
+            return None
+        return for_addition(True, int(per) * int(rage))
+
+
 class PowerTripFullHealthEffect(BaseEffect):
     """`PowerTrip_FullHealthEffect` — axe COUPS (hits), actif SSI PV pleins.
     - hits @180f64cf0 : `ForAddition(ConfigConst key 0x2b)` = constante `extraHit` de l'ability PowerTrip (=1).
