@@ -47,6 +47,7 @@ __all__ = [
     "build_defender_modifiers_from_effects",
     "hits_bonus_from_effects", "hits_malus_from_defender_effects", "aura_hits_malus_for_defense",
     "aura_hits_bonus_for_attack", "additional_hit_groups", "aura_defense_damage_malus_from_units",
+    "aura_attack_damage_bonus_from_allies",
     "crit_chance_bonus_from_effects", "crit_damage_bonus_from_effects",
     "apply_effect_stat_modifications", "stat_modifications_by_source",
 ]
@@ -320,6 +321,26 @@ def aura_attack_damage_malus_from_enemies(carriers, ctx) -> list:
         octx = {**(ctx or {}), "owner_id": c[0], "owner_pos": c[1], "owner_team": c[2]}
         for e in _as_effects(c[-1]):
             eb = e.create_aura_attack_damage_malus_for_enemy(octx)
+            if eb is not None:
+                out.append(eb)
+    return out
+
+
+def aura_attack_damage_bonus_from_allies(carriers, ctx) -> list:
+    """Liste des bonus de DÉGÂT projetés sur l'ATTAQUANT par les auras d'effet possédées par ses ALLIÉS à
+    portée (`create_aura_attack_damage_bonus_for_ally`, ex. `BeaconOfRage_FriendlyExtraDamageEffect`
+    @180f33370 : +50% du bonus rage FLAT aux attaques MÊLÉE des amis Chaos adjacents d'Azkor, #191).
+    SYMÉTRIQUE ALLIÉ de `aura_attack_damage_malus_from_enemies`. `carriers` = itérable (owner_id,
+    owner_pos, owner_team, ..., effets du porteur) ; `ctx` = {att_id, att_pos, att_team,
+    att_grand_alliance, is_melee}. Renvoie une liste d'`EffectBonus` (chaque porteur à portée empile son
+    bonus) à intégrer aux modifiers de l'attaquant via `add_modifier`. Chaque `carrier` = tuple dont
+    [0]=owner_id, [1]=owner_pos, [2]=owner_team, [-1]=effets (accepte le 4-tuple comme le 8-tuple
+    `carriers` de la prédiction)."""
+    out = []
+    for c in (carriers or []):
+        octx = {**(ctx or {}), "owner_id": c[0], "owner_pos": c[1], "owner_team": c[2]}
+        for e in _as_effects(c[-1]):
+            eb = e.create_aura_attack_damage_bonus_for_ally(octx)
             if eb is not None:
                 out.append(eb)
     return out

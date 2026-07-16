@@ -22,7 +22,8 @@ from engine.entities.abilities.active_ability import (
 from engine.entities.abilities.ability_configuration import AbilityConfiguration
 from engine.entities.effects import (
     aura_attack_bonus_from_allies, aura_hits_malus_for_defense,
-    aura_attack_damage_malus_from_enemies, aura_defense_damage_malus_from_units,
+    aura_attack_damage_malus_from_enemies, aura_attack_damage_bonus_from_allies,
+    aura_defense_damage_malus_from_units,
     calculate_attacker_modifiers_for_prediction, build_defender_modifiers_from_effects,
     hits_bonus_from_effects, hits_malus_from_defender_effects, additional_hit_groups)
 from engine.entities.traits import attacker_bonus_hits, target_hit_multiplier, TraitFactory
@@ -310,6 +311,15 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     for _eb in aura_attack_damage_malus_from_enemies(
             carriers, {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
                        "damage_profile": prof_name}):
+        add_modifier(mods, _eb)
+    # AURA ALLIEE FLAT-degat projetee sur l'ATTAQUANT : BeaconOfRage_FriendlyExtraDamage (aura hostee sur
+    # Azkor : +50% du bonus rage FLAT aux attaques MELEE des amis Chaos adjacents, #191) — reutilise
+    # `carriers`, gate is_melee + team allie + adjacence + grande-alliance Chaos dans le create_aura_.
+    # Additif -> mods.additive (meme canal que le self BeaconOfRage, deja bit-exact). NB : le self (Azkor
+    # attaque) et l'aura (un ami attaque) portent sur des ATTAQUANTS distincts -> jamais cumules.
+    for _eb in aura_attack_damage_bonus_from_allies(
+            carriers, {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
+                       "att_grand_alliance": att_grand, "is_melee": is_melee}):
         add_modifier(mods, _eb)
     # Nb de coups : cette prediction EST la facade `DamagePrediction.GetAttackHits @18102f240` — elle
     # rassemble les entrees depuis la Scene puis appelle la FORMULE PARTAGEE `attack_hits_with_modifiers`

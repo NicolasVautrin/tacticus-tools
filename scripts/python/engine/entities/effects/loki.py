@@ -1134,6 +1134,67 @@ class BeaconOfRageExtraDamageEffect(BaseEffect):
         return for_addition(True, int(per) * int(rage))
 
 
+class BeaconOfRageFriendlyExtraDamageEffect(BaseEffect):
+    """`BeaconOfRage_FriendlyExtraDamageEffect` (EffectType 0x513=1299, nom capté
+    "BeaconOfRage_FriendlyExtraDamage") — variante AURA de BeaconOfRage (le SELF 0x512=1298 =
+    `BeaconOfRageExtraDamageEffect`). i2 : « 50% of the extra damage from Beacon of Rage is added to the
+    damage of melee attacks of adjacent friendly Chaos units. » #191.
+
+    L'effet vit sur le PORTEUR (Azkor) : `GetUpdateFriendEffectBehaviour @180e13040` fait
+    `AddEffect(0x513, owner@0x148)` + `SetEffectLevel(owner, 0x513, ...)` SUR AZKOR (jamais sur les amis)
+    → capté dans decisionView.effects d'AZKOR, PAS de l'ami. Il se PROJETTE sur ses amis Chaos adjacents
+    (canal AURA côté SOURCE, comme AstartesBanner / DaughterOfTheAbyss).
+
+    - dégât `CreateEffectDamageBonusForAttack @180f33370` : `ForAddition(get_OwnerIsCaster &
+      IsMeleeAttack, PercentageOf(Multiply(ConfigVar(8=extraDmg, GetAbilityState), EffectLevel(effet)),
+      0x32=50, mode 0))` = FLAT additif = **50 % du bonus SELF** (`extraDmg[ablvl Azkor] × rage`), arrondi
+      half-to-even. Trigger : l'AMI attaque (OwnerIsCaster projeté) en MÊLÉE (même canal additif
+      `DamageModifiers.Add` que le self BeaconOfRage / SmashaEad).
+    - cible `CreateTargetSelector @180f335b0` : `UnitsWithTrait(AdjacentFriends(owner@0x148, 1, 3),
+      0x7ea=2026=Chaos, 3)` = amis d'Azkor ring-1 (hex-adjacents) de grande-alliance Chaos.
+    - niveau/présence `GetCurrentFriendEffectLevel @180e12f10` = `If(UnitsDefeatedAmount(Azkor)>0,
+      GetCurrentSelfEffectLevel, 0)` : l'effet n'est AJOUTÉ sur Azkor (behaviour @180e13040 :
+      `If(UnitsDefeatedAmount>0 & !HasEffect(0x513), AddEffect)`) QUE si Azkor a ≥1 kill, avec pour level
+      la même RAGE que le self (`Min(TotalTimesAttacked, 8)`). ⇒ la PRÉSENCE de l'effet dans la capture
+      encode DÉJÀ le gate ≥1-kill + la rage → on lit `self.level` tel quel (comme le self, PAS de recalcul
+      offline de UnitsDefeatedAmount).
+
+    Gate grande-alliance Chaos (trait 2026) = ABSENT de gameconfig.traits → dérivé de GrandAllianceId
+    (`GrandAlliance.GetTrait @1815647a0` : Imperial→26, Xenos→0x3ee, Chaos→0x7ea=2026), comme le gate
+    Imperial de RitesOfBattle. Magnitude `extraDmg` = ability_var BeaconOfRage indexée sur l'ablvl PASSIF
+    d'AZKOR (source), pas de l'ami (l'effet-entité porte l'ablvl d'Azkor). Ctx aura = {owner_id/pos/team,
+    att_id/att_pos/att_team, att_grand_alliance, is_melee}."""
+
+    def create_aura_attack_damage_bonus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        c = ctx or {}
+        if not c.get("is_melee"):                             # IsMeleeAttack @180f33370
+            return None
+        if c.get("att_id") == c.get("owner_id"):              # AdjacentFriends exclut le porteur (self)
+            return None
+        if c.get("owner_team") is None or c.get("owner_team") != c.get("att_team"):
+            return None                                       # AdjacentFriends : bénéficiaire = ALLIÉ d'Azkor
+        if c.get("att_grand_alliance") != "Chaos":            # UnitsWithTrait(0x7ea=2026=Chaos)
+            return None
+        op, ap = c.get("owner_pos"), c.get("att_pos")
+        if not op or not ap:
+            return None
+        import hexgeo
+        if hexgeo.distance(op, ap) > 1:                       # AdjacentFriends(owner, radius 1) = hex-adjacent
+            return None
+        if self.level is None or int(self.level) <= 0:        # rage (EffectLevel) — gate >=1-kill baké à l'écriture
+            return None
+        if self.ability_level is None:                        # ConfigVar sans AbilityState -> pas de magnitude
+            return None
+        per = ability_var("BeaconOfRage", "extraDmg", self.ability_level,
+                          multiplier_pct=self.ability_variables_multiplier)
+        if not per:
+            return None
+        from fractions import Fraction
+        self_bonus = int(per) * int(self.level)               # Multiply(ConfigVar(extraDmg), EffectLevel)
+        friendly = round(Fraction(self_bonus * 50, 100))      # PercentageOf(x, 0x32=50, mode 0 = half-to-even)
+        return for_addition(True, friendly) if friendly else None
+
+
 class OverwhelmingWrathRangeDmgReductionEffect(BaseEffect):
     """`OverwhelmingWrath_RangeDmgReductionEffect` (EffectType 0x515=1301, nom capté
     "OverwhelmingWrath_RangeDmgReduction" ; famille `ADamageDefenseModifierAbilityEffect`, ctor

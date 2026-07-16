@@ -14,6 +14,7 @@ from .loki import (
     AnvilShieldAdditionalBlockEffect,
     AstartesBannerExtraHitEffect,
     BeaconOfRageExtraDamageEffect,
+    BeaconOfRageFriendlyExtraDamageEffect,
     BlessingsOfKhorneModifiersEffect,
     ContaminatedUnitEffect,
     OverwhelmingWrathRangeDmgReductionEffect,
@@ -144,8 +145,11 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # additif a TOUTES les attaques du porteur (@180f33130 ForAddition OwnerIsCaster seul) ; rage =
     # decisionView.effects[].level = min(TotalTimesAttacked, nrOfAttacks=8), cappe a l'ecriture par
     # le natif (@180e13230). EffectType 0x512=1298 (#189). La variante 0x513=1299 FriendlyExtraDamage
-    # (aura : 50% du bonus aux attaques MELEE des amis adjacents, si >=1 kill) = tache dediee.
+    # = aura HOSTEE sur Azkor (@180f33370 PercentageOf(Multiply(ConfigVar extraDmg, EffectLevel), 50)) :
+    # 50% du bonus rage FLAT aux attaques MELEE des amis Chaos adjacents, si Azkor a >=1 kill. Canal aura
+    # cote source create_aura_attack_damage_bonus_for_ally -> mods.additive de l'ami attaquant (#191).
     "BeaconOfRage_ExtraDamage": BeaconOfRageExtraDamageEffect,
+    "BeaconOfRage_FriendlyExtraDamage": BeaconOfRageFriendlyExtraDamageEffect,
     # OverwhelmingWrath (active 1141 d'Azkor) : -dmgReductionPct% (64 des L36) au degat RANGED recu
     # par le porteur jusqu'au debut de son tour suivant (transient rem=1 ; @180f5d6e0 ForPercentDecrease
     # OwnerIsTarget & IsRangedAttack, ConfigVar 0x46). EffectType 0x515=1301 (#190). Le jumeau

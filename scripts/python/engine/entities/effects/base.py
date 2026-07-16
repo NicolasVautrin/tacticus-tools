@@ -145,6 +145,17 @@ class BaseEffect:
         l'agrégateur `aura_attack_damage_malus_from_enemies`. Défaut None = pas d'aura."""
         return None
 
+    def create_aura_attack_damage_bonus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        """Contribution AURA DÉGÂT projetée sur un ALLIÉ ATTAQUANT à portée (l'effet est possédé par une
+        unité et BONIFIE le dégât que ses ALLIÉS environnants INFLIGENT — natif : effet à
+        `CreateEffectDamageBonusForAttack(OwnerIsCaster & ...)` + `CreateTargetSelector` = `AdjacentFriends
+        + UnitsWithTrait(...)`, ex. `BeaconOfRage_FriendlyExtraDamageEffect` @180f33370 : +50% du bonus rage
+        FLAT aux attaques MÊLÉE des amis Chaos adjacents d'Azkor, #191). `ctx` = {owner_id/pos/team,
+        att_id/att_pos/att_team, att_grand_alliance, is_melee} fourni par l'agrégateur
+        `aura_attack_damage_bonus_from_allies`. SYMÉTRIQUE ALLIÉ de `create_aura_attack_damage_malus_for_enemy`.
+        Défaut None = pas d'aura."""
+        return None
+
     def create_aura_defense_damage_malus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
         """Contribution AURA %-DÉGÂT projetée sur une CIBLE alliée du porteur à portée (l'effet est possédé
         par une unité et RÉDUIT le dégât que ses ALLIÉS environnants REÇOIVENT — natif : effet EffectWithTarget
