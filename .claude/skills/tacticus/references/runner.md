@@ -112,3 +112,41 @@ PAS un reducteur de coups). Les autres (`Water`/`Bridge` = LOS/mvt, `BrokenIce`,
   (dispose TES runners, jamais ceux des autres).
 - **Dispose tes runners en fin de passe** (`disposeRunner({runnerId})` ; `listRunners` pour vérifier
   l'atelier vide). Exclusifs : traces globales (`scorer*`, `aiUtilityTrace*`…) + ops de session.
+
+## 4. Piloter une bataille PAS-À-PAS (scénario contrôlé, sans l'IA)
+
+Pour reproduire un cas précis (cast d'une ability donnée à une position choisie, confront d'un capteur…),
+on pilote le runner action-par-action. Le runner est un **bac à sable** : **`applyAction` n'applique QU'UNE
+action et ne fait PAS jouer l'IA** (le tour ne passe pas tant qu'on ne le décide pas) — on garde donc la
+main totale sur la géométrie.
+
+**Recette vérifiée (bout-en-bout)** — ex. driver un cast GetEmRuntz d'orksRuntherd à portée d'ennemis :
+
+1. **Warmup** (§0), puis **build** (§1) avec rosters EXPLICITES + board choisi (`--p-units`/`--a-units`
+   depuis le **pool spawnable** — `--list-pool` d'abord ; attention, les **summons** type `orksBoy`/`grot`
+   NE sont PAS dans le pool, ce sont des unités invoquées en combat).
+2. **Recon des actifs** : `abilities --unit <U> [--ability <id>]` → pour chaque ability, `now[..]` (castable
+   **sans bouger**), `+move[..]` (castable **après déplacement** ce tour), `∅` (no-op certain). `moves --unit
+   <U>` = tuiles de déplacement légales (carte ASCII). `view` = carte décision complète.
+3. **Placer** l'unité : `act move --unit <U> --to C,R`. Ré-`abilities` pour confirmer que la cible/le cast
+   voulu passe de `+move` à `now`.
+4. **Armer** le capteur voulu (tracer/probe) via `POST /api/scripts/<sid>/rpc` (body `{method, args, timeout}`)
+   — ex. `dslTraceArm(ns, cls, n)`. Le `sid` = la session `running` (auto-résolue par `rl_duel`, ou
+   `/api/admin/status`).
+5. **Déclencher** l'action ciblée : `act ability --caster <U> --target <T> --ability <id>` (cible ENTITÉ),
+   ou `act ability --caster <U> --to C,R --ability <id>` (cible **hex libre** : summons sur tuile, murs,
+   marquage). La cascade native complète est imprimée (events + spawns + réactions adverses).
+6. **Lire** le capteur (ex. `dslTraceLastCast`), **désarmer** (`dslTraceDisarm`).
+7. **Dispose** (§3).
+
+**Contrôle des DEUX teams** : `applyAction` ne vérifie PAS la propriété du `casterId`/`unitId` — je peux
+donc **piloter les unités adverses aussi** (bouger/attaquer/caster n'importe quelle unité des 2 teams). Le
+flag `ctrl` de la carte ne sert qu'à l'affichage, pas à brider l'action. ⇒ pour monter une géométrie exacte
+(ennemi adjacent, cible à une case précise…), **drive les positions des 2 camps** plutôt que subir les
+spawns (cf. mémoire « drive positions, don't blame geometry »).
+
+**Fin de tour à la demande** : `act endturn` clôt le tour de la **team courante** (bascule à l'autre camp) —
+à déclencher **quand je veux**, pas besoin d'épuiser les activations. `act finish --unit <U>` termine juste
+l'activation d'UNE unité (sans finir le tour). Pour laisser l'IA native jouer un tour complet d'une team à
+la place (au lieu du pilotage manuel), `aiturn`. Combiner librement : pilotage manuel d'un camp + `endturn` +
+`aiturn` de l'autre, dans l'ordre voulu.

@@ -22,8 +22,8 @@ from __future__ import annotations
 
 from ...dsl.base import DslContext, Const, AAmountFormula, TargetsSelector
 from ...dsl.effects import AbilityBehaviour, OperationResult
-from ...entities.behaviours import Seq, Foreach, If
-from ...entities.selectors import get_spawn_tile_selector, Subject
+from ...entities.behaviours import Seq, Foreach, If, AtomicGroup, op_add
+from ...entities.selectors import get_spawn_tile_selector, Subject, Cache
 from ...entities.triggers import AmountIsGreaterThanZero, AmountIsEqual, IsAlive, TriggerAnd
 from ..components import (OwnerComponent, PositionComponent, UnitComponent, StatsComponent,
                           HealthComponent)
@@ -151,27 +151,28 @@ class UnitTurnsStarted(AAmountFormula):
         return int((u or {}).get("_turns_started", 0) or 0)
 
 
-class SpawnUnit(AbilityBehaviour):
-    """Feuille `SpawnUnitBehaviour.Execute @180fd3d80` : spawn UNE unite sur la tuile COURANTE
-    (`entities.subject` = id de tuile, pose par le `Foreach` sur le selecteur), stats
-    `WithStatsFromConfig(summon_ability)`, owner = team+player du caster. Wrapper MINCE au-dessus de
-    l'Operation portee `_spawn_config_grot` (mirror de l'inline de `execute_getemruntz`) : level/mult
-    lus du `StatsComponent` du caster dans `ectx.state`. AJOUTE l'enfant spawne a `entities.children`
-    (accumulateur factory+0x148, relu par `Children`), annote pour le Taunt (`_new_child`/`_turns_started`/
-    `_attacks_made`/`_last_attacked`). Effet PUR (`stop=False`) ; journalise l'op."""
-    __slots__ = ("summon_ability",)
+class Spawn(AbilityBehaviour):
+    """`DSLFactory.Spawn @180dfbd50` -> `SpawnUnitBehaviour.Execute @180fd3d80` : itere son TILE-SELECTEUR
+    EN INTERNE (mirror natif -- le `Spawn` n'est PAS un `Foreach(tiles, SpawnUnit)` externe, il enumere ses
+    tuiles lui-meme) et spawn UNE unite par tuile, stats `WithStatsFromConfig(summon_ability)`, owner =
+    team+player du caster. Wrapper au-dessus de l'Operation portee `_spawn_config_grot` (mirror de l'inline
+    de `execute_getemruntz`) : level/mult lus du `StatsComponent` du caster dans `ectx.state`. Chaque enfant
+    est AJOUTE a `entities.children` (accumulateur factory+0x148, relu par `Children` pour le Taunt), annote
+    pour le Taunt (`_new_child`/`_turns_started`/`_attacks_made`/`_last_attacked`). L'ordre d'enumeration =
+    l'ordre du tile-selecteur (le `Cache` partage) -> `children` en ordre de TUILE (== l'ordre que
+    `PerformAIAttack` reparcourt). Effet PUR (`stop=False`) ; journalise chaque spawn."""
+    __slots__ = ("tile_selector", "summon_ability")
 
-    def __init__(self, summon_ability: str):
-        self.summon_ability = summon_ability
+    def __init__(self, tile_selector: TargetsSelector, summon_ability: str):
+        self.tile_selector, self.summon_ability = tile_selector, summon_ability
 
     def execute(self, entities, ectx):
         import gameconfig as GC
         from ..operations.spawn import _spawn_config_grot
         state = ectx.state
         caster_id = (entities.caster or {}).get("id")
-        tile = entities.subject                       # id de tuile courant (pose par Foreach)
         ce = state.get_entity(caster_id) if (state is not None and caster_id is not None) else None
-        if ce is None or tile is None:
+        if ce is None:
             return OperationResult.ok()
         oc = ce.get_component(OwnerComponent)
         sc = ce.get_component(StatsComponent)
@@ -179,28 +180,34 @@ class SpawnUnit(AbilityBehaviour):
         level = getattr(cctx, "active_ability_level", None)
         mult = int(getattr(cctx, "ability_variables_multiplier", 100) or 100)
         vid = ((GC.ability(self.summon_ability) or {}).get("constants") or {}).get("unitId")
-        gid = _spawn_config_grot(state, vid, tile, self.summon_ability, level, mult,
-                                 oc.team if oc is not None else None,
-                                 oc.player if oc is not None else None)
-        if gid is not None:
-            child = _unit_dict(state, gid) or {"id": gid}
-            child.update({"_new_child": True, "_turns_started": 0, "_attacks_made": 0,
-                          "_last_attacked": None})
-            entities.children.append(child)           # accumulateur factory+0x148 (relu par Children)
-            ectx.emit("SpawnUnit", tile=tile, unit=gid)
+        for tile in (self.tile_selector.evaluate(entities) or []):   # itere les tuiles EN INTERNE (natif)
+            gid = _spawn_config_grot(state, vid, tile, self.summon_ability, level, mult,
+                                     oc.team if oc is not None else None,
+                                     oc.player if oc is not None else None)
+            if gid is not None:
+                child = _unit_dict(state, gid) or {"id": gid}
+                child.update({"_new_child": True, "_turns_started": 0, "_attacks_made": 0,
+                              "_last_attacked": None})
+                entities.children.append(child)       # accumulateur factory+0x148 (relu par Children)
+                ectx.emit("SpawnUnit", tile=tile, unit=gid)
         return OperationResult.ok()
 
 
 class PerformAIAttack(AbilityBehaviour):
-    """`DSLFactory.PerformAIAttackFromCurrentPosition @180df8a10` -> `PerformAIAbilityUnitBehaviour.Execute
-    @180fcb070` : chaque unite du selecteur (le natif reutilise `Cache(GetSpawnTileSelector)` -> les unites
-    SUR les tuiles de spawn = les grots tout juste spawnes) execute une attaque AI depuis SA position
-    COURANTE (sans bouger). Port MINCE : pour chaque enfant (`entities.children`, ORDRE de spawn), attaque
-    l'ennemi le plus proche via l'Operation portee `AttackDamageOperation.execute` (approx du choix AI natif
-    = MEME que l'imperatif `GetEmRuntzAbility.execute_behaviour`, live-valide). Enregistre le resultat sur
-    le dict enfant (`_attacks_made`, `_last_attacked` = dict FRAIS post-attaque) pour les predicats du
-    Taunt. Emet 'PerformAIAttack'. Effet PUR (stop=False)."""
-    __slots__ = ()
+    """`DSLFactory.PerformAIAttackFromCurrentPosition(Cache(GetSpawnTileSelector)) @180df8a10` ->
+    `PerformAIAbilityUnitBehaviour.Execute @180fcb070` : chaque unite SUR les tuiles du SELECTEUR (le natif
+    reutilise le MEME `Cache(GetSpawnTileSelector)` que le `Spawn` -> les grots tout juste spawnes) execute
+    une attaque AI depuis SA position COURANTE (sans bouger). Port : `tile_selector` = le `Cache` PARTAGE
+    (memoise -> memes tuiles PRE-spawn que le Spawn, sinon `CanAddUnit` recalcule les exclurait car
+    occupees) ; on parcourt ses tuiles DANS L'ORDRE, on mappe chacune au grot pose dessus (`entities.children`,
+    populate par le `Spawn` en ORDRE DE TUILE -> l'ordre d'attaque == l'ordre natif == l'ordre RNG), et il
+    attaque l'ennemi le plus proche via `AttackDamageOperation.execute` (approx du choix AI natif = MEME que
+    l'imperatif `GetEmRuntzAbility.execute_behaviour`, live-valide). Annote le dict enfant (`_attacks_made`,
+    `_last_attacked` = dict FRAIS post-attaque) pour les predicats du Taunt. Emet 'PerformAIAttack'. PUR."""
+    __slots__ = ("tile_selector",)
+
+    def __init__(self, tile_selector: TargetsSelector):
+        self.tile_selector = tile_selector
 
     def execute(self, entities, ectx):
         from .loki import _nearest_enemy
@@ -208,11 +215,21 @@ class PerformAIAttack(AbilityBehaviour):
         state = ectx.state
         if state is None:
             return OperationResult.ok()
+        board = getattr(state, "board", None)
+
+        def _child_on_tile(tid):                       # grot pose sur la tuile (via sa pos capturee au spawn)
+            for c in (entities.children or []):
+                p = c.get("pos")
+                if p and board is not None and board.id_at(p["col"], p["row"]) == tid:
+                    return c
+            return None
+
         attacks: list = []
-        for child in (entities.children or []):       # ordre de spawn (= ordre imperatif -> RNG identique)
-            cid = child.get("id")
-            if cid is None:
+        for tid in (self.tile_selector.evaluate(entities) or []):   # tuiles du Cache, ORDRE natif (= spawn)
+            child = _child_on_tile(tid)
+            if child is None:
                 continue
+            cid = child.get("id")
             tgt = _nearest_enemy(state, cid)
             if tgt is None:
                 continue
@@ -255,14 +272,6 @@ class AddBondEffect(AbilityBehaviour):
         return OperationResult.ok()
 
 
-def getemruntz_spawn_tree() -> Foreach:
-    """Sous-arbre SPAWN de `GetEmRuntzAbility.ExecuteBehaviour @1811e2210` (id 1045) =
-    `ExecuteAtomic(Spawn(Cache(GetSpawnTileSelector @1811e26b0), WithStatsFromConfig))`. Le natif `Spawn`
-    itere le tile-selecteur en interne ; on le modelise `Foreach(GetSpawnTileSelector, SpawnUnit)`
-    (equivalent : une unite par tuile). Replay-diff vs l'imperatif `SpawnUnitOperation.execute_getemruntz`."""
-    return Foreach(get_spawn_tile_selector(), SpawnUnit("GetEmRuntz"))
-
-
 def getemruntz_taunt_tree() -> If:
     """Corps `Func<entities,behaviour>` de `TauntWithNewChildrenWhoDidDamage @1811e27a0` (DECOMPILE) pour
     l'enfant COURANT (`Subject()`, pose par le `Foreach(Children)`) :
@@ -282,12 +291,21 @@ def getemruntz_taunt_tree() -> If:
 
 
 def getemruntz_tree() -> Seq:
-    """Arbre COMPLET de `GetEmRuntzAbility.ExecuteBehaviour @1811e2210` (id 1045, mirror 1:1 du DECOMPILE) :
-        ExecuteAtomic(Spawn) ; Execute( PerformAIAttack + Foreach(Children, Taunt) )
-    Ici : `Seq(spawn_tree, Seq(PerformAIAttack, Foreach(Children, taunt)))`. Effets PURS -> le `Seq` ne
-    court-circuite pas (les 3 volets s'executent). Ordre = tous les spawns, PUIS toutes les attaques, PUIS
-    tous les Taunts (NATIF). Replay-diff vs l'imperatif `GetEmRuntzAbility.execute_behaviour`."""
+    """Arbre COMPLET de `GetEmRuntzAbility.ExecuteBehaviour @1811e2210` (id 1045, MIRROR 1:1 du DECOMPILE) :
+        cache = Cache(GetSpawnTileSelector @1811e26b0)             # @180deb0d0 -- PARTAGE Spawn/Attack (memoise)
+        ExecuteAtomic( Spawn(cache) )                             # @180fb0930 inline -> grots materialises
+        Execute( op_Addition( PerformAIAttackFromCurrentPosition(cache),   # les grots (sur les tuiles cache) attaquent
+                              Foreach(Children, Taunt) ) )        # + Taunt de la cible frappee
+    Port : `Seq(AtomicGroup(Spawn(cache)), op_add(PerformAIAttack(cache), Foreach(Children(), taunt)))`.
+    Le `cache` est PARTAGE entre `Spawn` et `PerformAIAttack` (mirror natif : le MEME `Cache(GetSpawnTileSelector)`
+    est passe aux deux nœuds) -> memoise les tuiles LIBRES PRE-spawn (RE #200 : le CacheSelector memoise ;
+    sans ca `PerformAIAttack` relirait `CanAddUnit` post-spawn et exclurait les tuiles occupees par les grots).
+    `AtomicGroup` = inline (RE #201 : `AtomicGroupOperation.Execute` invoque son child sur-le-champ, PAS
+    differe). `op_add`/`Seq` = `CombinedBehaviour` (effets PURS -> pas de court-circuit -> les 3 volets
+    s'executent). Ordre = tous les spawns (inline dans l'AtomicGroup) PUIS toutes les attaques PUIS tous les
+    Taunts (NATIF, prouve RE #200). Replay-diff vs l'imperatif `GetEmRuntzAbility.execute_behaviour`."""
+    cache = Cache(get_spawn_tile_selector())                       # @180deb0d0 -- PARTAGE (memoise pre-spawn)
     return Seq(
-        getemruntz_spawn_tree(),                                   # ExecuteAtomic(Spawn)
-        Seq(PerformAIAttack(),                                     # Execute( PerformAIAttack
-            Foreach(Children(), getemruntz_taunt_tree())))         #          + Foreach(Children, Taunt) )
+        AtomicGroup(Spawn(cache, "GetEmRuntz")),                   # ExecuteAtomic(Spawn(cache)) -- inline
+        op_add(PerformAIAttack(cache),                             # Execute( op_Addition(
+               Foreach(Children(), getemruntz_taunt_tree())))      #   PerformAIAttack(cache), Foreach(Children, Taunt) ))

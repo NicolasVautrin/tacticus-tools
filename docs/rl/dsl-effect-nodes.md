@@ -198,7 +198,10 @@ ExecuteBehaviour(this, entities, out result) :
 ### Port livré (#199) — arbre DSL complet `getemruntz_tree()`
 | Nœud natif (VA) | Port (`dsl_behaviours.py` / DSL lazy) | Statut |
 |---|---|---|
-| `Spawn @180dfbd50` | `Foreach(get_spawn_tile_selector(), SpawnUnit)` | slice-2b pas 2 (committé) |
+| `Spawn @180dfbd50` | `Spawn(cache, "GetEmRuntz")` — nœud dédié, itère son tile-selector EN INTERNE (mirror natif, plus de `Foreach(tiles,SpawnUnit)`) | **mirror #199** |
+| `Cache(GetSpawnTileSelector) @180deb0d0` | `Cache(...)` MÉMOÏSANT (slot unique), **PARTAGÉ** Spawn/PerformAIAttack | **mirror #199** (fix bug pass-through) |
+| `ExecuteAtomic @180fb0930` (AtomicGroup) | `AtomicGroup(Spawn(cache))` — inline (RE #201) | **mirror #199** |
+| `op_Addition @180ffaa70` | `op_add(PerformAIAttack(cache), Foreach(Children, Taunt))` | **mirror #199** |
 | `PerformAIAttackFromCurrentPosition @180df8a10` | `PerformAIAttack` (EffectNode, per-child nearest + AttackDamageOperation) | **#199** |
 | `Children @180debed0` (`AllAliveMachinesSelector`) | `Children` (lit `DslContext.children`, accumulateur factory+0x148) | **#199** |
 | `TotalAttacksMade @180dfe090` / `LastUnitAttackedBy @180df5ee0` / `UnitTurnsStarted @180dff280` | accesseurs runtime (lisent le dict enfant annoté par `PerformAIAttack`) | **#199** |
@@ -210,3 +213,88 @@ synthétique board evenq, orksRuntherd + 2 ennemis HIGH-HP) → grots [23,25], P
 post-attaque, **les 2 ennemis Taunted**. **RESTE (slice-2b final)** : bascule `AbilityHandler` (DSL en place
 de l'impératif) + retrait de `execute_getemruntz`/`GetEmRuntzAbility.execute_behaviour` + **replay-diff
 LIVE** (confront in-game).
+
+## Confront LIVE #199 (2026-07-16) — l'exécution de l'arbre N'EST PAS synchrone dans `ExecuteBehaviour` (finding OUVERT → tâche #200)
+
+**But** : valider le tracer natif `dsl-trace.ts` (RPC `dslTraceArm`/`dslTraceLastCast`/`dslTraceDisarm`,
+gate sur `<ability>.ExecuteBehaviour`) en confrontant l'arbre d'exécution NATIF d'un cast GetEmRuntz réel
+au walk OFFLINE (`trace_offline_getemruntz.py`, 52 nœuds E=11/T=10/S=25/V=6).
+
+**Méthode (reproductible)** :
+1. warmup, `rl_duel build --seed 20260716 --rank 17 --p-units orksRuntherd,orksNob --a-units astraCreed,astraBullgryn --board C1_01`.
+2. `act move --unit 53 --to 1,3` (rapprocher le caster : GetEmRuntz `now:∅` → `now[1]:u53` après déplacement).
+3. `dslTraceArm("IdunBattleLogic.Entities.Abilities.Active.Loki","GetEmRuntzAbility",1)` → `hooks:434` (4 familles), gate = `GetEmRuntzAbility.ExecuteBehaviour`.
+4. `act ability --caster 53 --ability 1045 --target 53` → cast RÉUSSI (2 grots e71/e74 spawnés, `Loki_NormalAttack`, `SwornProtector` adverse e79, **167 events** de cascade).
+5. `dslTraceLastCast` → `capturedTrees:1`.
+
+**Résultat** : l'arbre natif capturé = **1 SEUL nœud** — `IdunBattle.Entities.Selectors.EntitiesSelector`
+(kind S, depth 0). **Aucun** E/T/V, aucun autre S. Vs 52 nœuds offline.
+
+**Ce n'est PAS un artefact du tracer** : les 6 nœuds de l'arbre GetEmRuntz (`CombinedBehaviour`,
+`ForeachBehaviour`, `MaybeBehaviour`, `PerformAIAbilityUnitBehaviour`, `SpawnUnitBehaviour`,
+`AtomicGroupBehaviour`) dérivent TOUS de `IdunBattle.DSL.AbilityBehaviour` (vérifié `il2cpp_classes.tsv`
+lignes 11874/11911/11924/11930/11963/12505) = la base E que le tracer énumère → ils SONT dans les 434 hooks.
+Leur absence de la capture ⇒ **leur `.Execute` s'exécute HORS de la fenêtre synchrone `enter→leave` de
+`ExecuteBehaviour`**. Seule la résolution de cibles (`EntitiesSelector.Select`) tourne en-frame.
+
+**Contradiction avec le « Verdict RE #199 » ci-dessus** (qui décrivait `ExecuteBehaviour` = 2 phases
+synchrones `ExecuteAtomic(Spawn)` puis `Execute(op_Addition(...))`). Le live prouve que ces `.Execute`
+ne tournent PAS dans le frame d'`ExecuteBehaviour`. Deux sous-hypothèses à trancher (RE, tâche #200) :
+- **(b1)** `ExecuteBehaviour` **construit + enfile** l'arbre (appels DSLFactory = ctors de nœuds, PAS les
+  virtuels `.Execute`) comme root-Operation ; le **walk réel est différé** dans le pipeline `IdunRunner.Apply`
+  (cascade FIFO — les 167 events) → pour tracer l'exécution, il faut gater le **point d'entrée différé**, pas
+  `ExecuteBehaviour`.
+- **(b2)** le `ExecuteBehaviour` gaté est l'entrée **résolution-de-cibles / preview** (d'où l'unique
+  `EntitiesSelector.Select`) et l'exécution passe par une **AUTRE** méthode (`ActiveAbilityOperation.ExecuteInternal
+  @180e44ec0` → les `*Behaviour.Execute`) → **on a gaté la mauvaise méthode**.
+
+**Impact** : le walk offline 1-passe synchrone ne reflète pas (encore prouvé) la structure native
+d'EXÉCUTION. **Ne PAS retirer l'impératif `execute_getemruntz`** ni basculer GetEmRuntz sur le DSL tant que
+#200 n'a pas tranché (b1/b2) et re-confronté avec un gate correct. Le port offline reste valide comme
+**modèle de décision** (bit-exact en replay-diff offline) ; c'est la **fidélité du modèle d'EXÉCUTION** vs le
+runtime natif qui est rouverte. Artefacts : `scratchpad/native_tree.json` (capture), `scratchpad/trace_offline_getemruntz.py` (walk offline).
+
+### RÉSOLUTION (RE #200, 2026-07-16) — c'est une LIMITE DU TRACER, pas du modèle. Fix = hooker `DSLFactory`
+
+Décompilé ghidra de la chaîne d'exécution (gqfc5mff6c) :
+- **`GetEmRuntzAbility.ExecuteBehaviour @1811e2210`** = **CONSTRUIT** l'arbre par une séquence d'appels
+  `DSLFactory.X(...)` **directs et synchrones** (`Cache`, `Spawn`, `PerformAIAttackFromCurrentPosition`,
+  `Children`, `Foreach`, `AtomicGroup`, `op_Addition` + `GetSpawnTileSelector`→`CanAddUnit`/`AdjacentTiles`/
+  `Enemies`/`UnitsWithoutTrait`/`Unique`), puis appelle `AActiveAbility.ExecuteAtomic(Spawn)` +
+  `AActiveAbility.Execute(op_Addition)`.
+- **`AActiveAbility.Execute @180fb0c40`** → `FUN_1800291d0` = **dispatch d'interface il2cpp SYNCHRONE** (lit
+  `klass+0xb0` interfaceOffsets, résout le slot, `(*pcVar1)(out,this,entities)` appelle `behaviour.Execute`
+  immédiatement, renvoie `OperationResult`). ⇒ l'op_Addition n'est **pas** différé (réfute b1 pour cette
+  branche).
+- **`AActiveAbility.ExecuteAtomic @180fb0930`** → `DSLFactory.AtomicGroup(factory,0x50,callback,proc)` =
+  construit un AtomicGroup + callback, retourne void ⇒ le **Spawn est planifié/différé** (b1 pour cette branche).
+- **`SpawnUnitBehaviour.Execute @180fd3d80`** = vrai corps concret (pas un thunk).
+
+**Cause de la cécité du tracer** : les `*Behaviour.Execute` sont invoqués soit par **dispatch d'interface /
+gshared** (`FUN_1800291d0` = slot de vtable d'interface), soit **différés** (AtomicGroup). Or le tracer hooke
+`findMethod(k,"Execute")` = **le pointeur concret par-classe**, qui **n'est pas** celui exécuté au runtime
+(slot d'interface / corps gshared) — donc les hooks d'exécution ne fire jamais (sauf l'`EntitiesSelector`
+appelé par un chemin concret direct). **Ni b1 ni b2 « le modèle offline est faux » : le modèle est bon (le
+replay-diff offline validait déjà le comportement), c'est l'INSTRUMENTATION qui est aveugle.**
+
+**Fix = tracer-v2 sur la CONSTRUCTION** (intuition user, validée) : la construction de l'arbre est une
+séquence `DSLFactory.X(...)` **directe, synchrone, en-fenêtre** → hooker les `DSLFactory.*` (+ `op_Addition`/
+`op_BitwiseAnd`, `ExecuteAtomic`), enregistrer le **ret-ptr + arg-ptrs** de chaque appel, et **reconstruire
+l'arbre par matching de pointeurs** (un arg == un ret précédent ⇒ lien parent→enfant). Robuste au dispatch
+interface/gshared/deferral. Donne un confront **structurel** exact (le port bâtit-il le même arbre que le
+natif ?) — au prix de perdre l'ordre d'EXÉCUTION (acceptable : l'exec-order offline est déjà validé en
+replay-diff). ⇒ #200 = écrire ce tracer-v2, rebuild+reinject, re-confronter `getemruntz_tree()`.
+
+### MIRROR STRUCTUREL DU PORT — FAIT (#199, 2026-07-17)
+
+`getemruntz_tree()` réécrit en **mirror 1:1** de l'arbre de construction natif (dérivé du décompilé
+`ExecuteBehaviour`, PAS d'une capture frida) : `Seq(AtomicGroup(Spawn(cache)), op_add(PerformAIAttack(cache),
+Foreach(Children, Taunt)))`, `cache = Cache(GetSpawnTileSelector)` **partagé** Spawn/Attack. Nouveaux nœuds :
+`Spawn` (itère son tile-selector en interne, `dsl_behaviours.py`), `AtomicGroup` (inline, `entities/behaviours.py`),
+et `Cache` **corrigé pour MÉMOÏSER** (`entities/selectors.py` — était un pass-through recompute = bug latent
+masqué : sans mémoïsation, `PerformAIAttack(cache)` relirait `CanAddUnit` post-spawn et exclurait les tuiles
+occupées par les grots → 0 attaque). `PerformAIAttack` rendu **selector-driven** (parcourt les tuiles du Cache
+en ordre, mappe chaque tuile→grot). **Validé replay behavioral bit-identique** (état synthétique orksRuntherd +
+2 ennemis) : grots sur tuiles `[23,25]`, les 2 grots attaquent (2207/2628 dmg), les 2 ennemis Taunted — MÊME
+résultat qu'avant le refactor. **RESTE = la capture FRIDA du natif (#200 tracer-v2 DSLFactory)** pour confronter
+LIVE l'arbre natif à ce mirror (le confront actuel est ANALYTIQUE : décompilé natif == arbre porté).

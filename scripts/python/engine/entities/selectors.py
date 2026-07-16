@@ -439,16 +439,26 @@ class Subject(TargetsSelector):
 
 
 class Cache(TargetsSelector):
-    """`DSLFactory.Cache(source) @180deb0d0` → `CacheSelector.Select @180ee35f0` : mémoïse le résultat du
-    sous-arbre (clé = contexte d'éval complet, portée = instance du nœud, sans invalidation).
-    Sémantiquement TRANSPARENT → pass-through fidèle en VALEUR (on recalcule ; divergence perf assumée,
-    non observable sur les valeurs). Natif = `TargetsSelector` (enveloppe un sélecteur) → on relaie via
-    `.evaluate` (l'alias generique) pour rester transparent quelle que soit la famille de `source`."""
+    """`DSLFactory.Cache(source) @180deb0d0` → `CacheSelector.Select @180ee35f0` : **MÉMOÏSE** le résultat
+    du sous-arbre. Décompilé : 1re éval calcule (`source.evaluate` + `ToList`) et STOCKE dans le slot
+    `+0x28` (mode slot unique, flag `+0x20`==0) ou un dict keyé par le contexte (`+0x30`) ; évals suivantes
+    renvoient le CACHE. **PAS un pass-through** : la mémoïsation est OBSERVABLE quand l'état mute entre deux
+    consommateurs — GetEmRuntz partage `Cache(GetSpawnTileSelector)` entre `Spawn` (capture les tuiles
+    LIBRES PRÉ-spawn) et `PerformAIAttackFromCurrentPosition` (relit ces MÊMES tuiles POST-spawn pour y
+    trouver les grots) ; sans mémoïsation, `CanAddUnit` recalculé exclurait les tuiles désormais occupées
+    → zéro grot trouvé. Portée = l'instance du nœud ; l'arbre étant rebâti par cast (`getemruntz_tree()`),
+    le cache est **par-cast**. Slot unique (suffisant pour GetEmRuntz : même contexte top-level aux deux
+    évals ; la variante dict-keyée par contexte reste à porter si un `Cache` est éval sous un `Foreach`)."""
     def __init__(self, source):
         self.source = source
+        self._has = False
+        self._cached = None
 
     def select(self, ctx):
-        return self.source.evaluate(ctx)
+        if not self._has:                            # slot +0x28 : miss -> calcule + stocke
+            self._cached = self.source.evaluate(ctx)
+            self._has = True
+        return self._cached                          # hit -> renvoie le cache (mémoïsation observable)
 
 
 class Entity(TargetsSelector):

@@ -115,6 +115,43 @@ Entity + table des composants (layout exact) avant de figer le modèle ECS Pytho
   `System_ProcessDeaths`(5), `System_ProcessRemovals`(6), `System_StartTurn`(9),
   `SpawnUnitsOfTurn`(24)/`Wave`(25) — exécutées en post-handlers.
 
+### 1.5bis Le PUMP DSL — `proc = OperationProcessor` (RE #200/#149, re-expert 2026-07-17, VAs prouvées)
+
+Précise le mécanisme exact sous 1.5 (issu du confront live #199 : le tracer d'exécution ne voyait rien
+car l'exécution passe par dispatch d'interface, pas par les méthodes concrètes `*Behaviour.Execute`).
+
+- **`proc`** (threadé dans toute la récursion des behaviours, dernier arg de `*Behaviour.Execute`) =
+  une instance de **`Core.Services.OperationProcessor`** = un **SAC d'Operations pré-allouées** (1 par
+  champ : `+0x70`=AddUnitOp, `+0x2a0`=AdditionalHitsOp, `+0x388`=AtomicGroupOp…). Obtenu via
+  `AOperation.get_Events` @180ffa4a0 dans `ActiveAbilityOperation.ExecuteInternal` @180e44ec0.
+- **Une feuille émet une Operation par appel de slot d'interface SYNCHRONE** (résolu par les helpers de
+  dispatch génériques `FUN_1801e40c0` = slot dans `klass+0xb0`/`+0x138`, puis `FUN_1800291d0`/`180002560`/
+  `180003bd0` = invoke). Ex. `SpawnUnitBehaviour.Execute` @180fd3d80 → `proc.slot+5` = **`OperationProcessor.AddUnit`
+  @180e06f30** → **`AddUnitOperation.Execute()` INLINE**. **Aucune Operation n'est enfilée** : chaque
+  méthode du proc = « configure l'Operation pré-allouée + `.Execute()` tout de suite ».
+  ⇒ **Operations = LIFO inline, PAS de file** (la récursion des behaviours = la pile). **Le port fait DÉJÀ
+  ça** (appels directs aux Operations) → fidèle par construction ; NE PAS ajouter de file d'Operations.
+- **AtomicGroup N'EST PAS différé** : `AActiveAbility.ExecuteAtomic` @180fb0930 → `DSLFactory.AtomicGroup`
+  @180de9490 = `proc.slot+0x7c` = **`OperationProcessor.CreateAtomicGroup` @180e073f0** →
+  **`AtomicGroupOperation.Execute` @180e5e200 INLINE** : ouvre le groupe (`state.BeginAtomic` slot+0x14),
+  **invoque le callback** `AtomicGroupBehaviour.<Execute>b__0` @180fd9390 = exécute le behaviour interne
+  (le Spawn) **ici, synchrone** → les `AddUnit` sont émis maintenant ; ferme ; mini-drain FIFO local au
+  groupe (`state` dequeue slot+10). ⇒ **ordre GetEmRuntz PROUVÉ : `ExecuteAtomic(Spawn)` inline (grots
+  matérialisés) PUIS `Execute(op_Addition(PerformAIAttack, Foreach))`** — les grots existent avant que
+  `PerformAIAttack` itère `Cache(GetSpawnTileSelector)`. Le port `Seq(spawn, Seq(attack, taunt))` respecte
+  cet ordre.
+- **Le SEUL vrai différé du moteur = plan Messages/Events FIFO** : les Operations poussent des Messages
+  dans des files du state (`Queue` de *pending triggered abilities*, collection de *damage events*), drainées
+  en FIFO par **`InputMessageProcessor.RunPhase` @180ebaa80** → `ProcessDamageEvents` @180eba4f0 +
+  `ProcessPendingTriggeredAbilities` @180eba680 (copie Queue→List, **`Queue.Clear`**, puis PAR ITEM FIFO
+  relance `RunPhase`). C'est ce plan que le port **collapse en appels directs** (`Runner.apply` non
+  ré-entrant) → **gap de fidélité pour l'ORDRE des chaînes de triggers / cascades de dégât** (cf. #140/#147 ;
+  neutre pour GetEmRuntz). Voir tâche dédiée.
+- **Points OUVERTS** (re-expert) : (1) `proc` des behaviours == `InputMessageProcessor+0x18` ? (même
+  interface, très probable, non tracé bout-à-bout) ; (2) sémantique fine des slots de state
+  `DAT_1831cbde8` (BeginAtomic/dequeue/pending/damage) lue par usage ; (3) lien `RunPhase` ← `IdunRunner.Apply`
+  @180e34bf0 non re-tracé.
+
 ### 1.6 Triggers (observateur réactif, indexé par event, trié)
 
 `BaseTriggeredAbility` (~573 types = enum `passive_ability_type`) : `CreateTrigger`

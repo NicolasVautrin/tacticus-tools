@@ -106,6 +106,23 @@ class Emit(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class AtomicGroup(AbilityBehaviour):
+    """`DSLFactory.AtomicGroup @180de9490` (`proc.CreateAtomicGroup @180e073f0` → `AtomicGroupOperation.Execute
+    @180e5e200`) : enveloppe un behaviour dans un GROUPE ATOMIQUE. RE #201 (docs/rl/runner-engine.md §1.5bis)
+    a PROUVÉ que le groupe s'exécute **INLINE** (pas différé) : `AtomicGroupOperation.Execute` ouvre le groupe,
+    **invoque le callback (= exécute le child ICI, synchrone)**, ferme, mini-drain local. Le port n'a pas de
+    transaction ECS atomique (les Operations mutent `state` en direct) → le groupe = **pass-through
+    d'exécution** (exécute `child` inline). Le nœud existe pour le MIRROR STRUCTUREL (l'arbre natif de
+    GetEmRuntz = `ExecuteAtomic(Spawn)` = `AtomicGroup(Spawn)`) et pour marquer la frontière de groupe."""
+    __slots__ = ("child",)
+
+    def __init__(self, child: AbilityBehaviour):
+        self.child = child
+
+    def execute(self, entities, ectx):
+        return self.child.execute(entities, ectx)   # inline (RE #201 : AtomicGroup PAS différé)
+
+
 # Alias homonymes des factories natives (lecture des arbres 1:1 : `op_and`/`op_add` = `CombinedBehaviour`).
 def op_and(left: AbilityBehaviour, right: AbilityBehaviour) -> Seq:
     """`AbilityBehaviour.op_BitwiseAnd @180ffaae0` -> `CombinedBehaviour` (cf. `Seq`)."""
