@@ -926,6 +926,104 @@ class ShadowInTheWarpLessDmgEffect(BaseEffect):
         return for_percent_decrease(True, abs(int(red)))      # OwnerIsActor : malus sur l'attaque de l'ennemi
 
 
+class DaughterOfTheAbyssFriendlyDmgReductionPctEffect(BaseEffect):
+    """`DaughterOfTheAbyss_FriendlyDmgReductionPctEffect` (effet 0x58b=1419, passif DaughterOfTheAbyss
+    d'Atlacoya custoAtlacoya) — AURA de RÉDUCTION du dégât PSYCHIQUE REÇU par les AMIS du porteur
+    (i2 : « Psychic Damage dealt to other friendly units within 2 hexes of Atlacoya is reduced by 33% »).
+    L'effet vit sur le PORTEUR (posé par `DaughterOfTheAbyssAbility.CreateBehaviour` @180e1f540 :
+    AddEffect(0x58b) — capté live source=Atlacoya, JAMAIS matérialisé sur les amis) et se PROJETTE sur
+    les cibles à la CALC (boucle state-wide EffectWithTarget × cibles de `CalculateDefenderModifiers-
+    ForPrediction` @181002c30).
+    - dégât `CreateEffectDamageMalusForDefense` @180f3cde0 : `(OwnerIsTarget & DamageProfileIs(0xd=
+      Psychic)) -> -ConfigVar(0x46=dmgReductionPct, abilityState)` (négation via nœud Direct(-1), mirror
+      du jumeau Owner @180f3d070 `Multiply(ConfigVar, factory+0xd8)`).
+    - cibles (selector famille, jumeau symétrique @180f3cd00) : amis du porteur dans le rayon
+      `constants.range` (=2), « OTHER » ⇒ exclut le porteur (qui a SON OwnerDmgReduction).
+    MAGNITUDE : `dmgReductionPct[ablvl]` (25→33, hors variablesAffectedByRarityBonus ⇒ PAS de scaling
+    rareté). GROUND TRUTH #184 (seed 2024 MC1_67) : bloodMephiston (Psychic) → tgts 81/83/85/79 tous à
+    ≤2 hexes d'Atlacoya (6,8) = natif ×0.67 EXACT (2016,3024 = 1003×1.25×[0.8,1.2]×3×0.67), cible ALLIÉE
+    de Mephiston (hors aura) = ×1.0 (3009,4515) ; u91 worldExecutions (profil Power) = bit-exact sans
+    réduction. C'était le ~1.49x du flip-flop #184 (1/0.67), PAS un écart de hit-count."""
+
+    def create_aura_defense_damage_malus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        c = ctx or {}
+        if (c.get("damage_profile") or "") != "Psychic":      # DamageProfileIs(0xd) @180f3cde0
+            return None
+        if c.get("tgt_id") == c.get("owner_id"):              # « OTHER friendly units » : exclut le porteur
+            return None
+        if c.get("owner_team") is None or c.get("owner_team") != c.get("tgt_team"):
+            return None                                       # SurroundingFriends : cible ALLIÉE du porteur
+        op, tp = c.get("owner_pos"), c.get("t_pos")
+        if not op or not tp:
+            return None
+        import hexgeo
+        rng = ability_var("DaughterOfTheAbyss", "range", is_constant=True)   # ConfigConst 0x16 (=2)
+        if hexgeo.distance(op, tp) > int(rng if rng else 2):
+            return None
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        pct = ability_var("DaughterOfTheAbyss", "dmgReductionPct", level=lvl)
+        if not pct:
+            return None
+        return for_percent_decrease(True, abs(int(pct)))      # -33% @L50 (négation Direct(-1) native)
+
+
+class DaughterOfTheAbyssOwnerDmgReductionEffect(BaseEffect):
+    """`DaughterOfTheAbyss_OwnerDmgReductionEffect` (effet 0x58a=1418) — réduction PLATE du dégât
+    PSYCHIQUE reçu par le PORTEUR lui-même (i2 : « Atlacoya takes -1892 Psychic Damage »). L'effet est
+    dans la liste d'effets de la CIBLE quand Atlacoya est visée ⇒ canal défenseur STANDARD.
+    - dégât `CreateEffectDamageMalusForDefense` @180f3d070 : `(OwnerIsTarget & DamageProfileIs(0xd=
+      Psychic)) -> Multiply(ConfigVar(0x12=dmgReduction, abilityState), Direct(-1) factory+0xd8)`
+      = soustraction plate (slot additif défenseur @+0x10, mirror Nightshroud #111/#120).
+    MAGNITUDE : `dmgReduction[ablvl]` ∈ variablesAffectedByRarityBonus ⇒ × multiplier de l'unité.
+    ⚠ NON VALIDÉ LIVE (#184) : structure lue du décompilé (jumeau exact de Nightshroud @180f5bff0,
+    lui validé) mais aucune mesure native vs Atlacoya-cible obtenue (hors plans dans les seeds
+    d'audit + rows toujours predOptimistic via son Parry_ReduceHits) — placement per-hit additif
+    présumé par la famille."""
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                               damage_profile: str | None = None,
+                                               attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        if (damage_profile or "") != "Psychic":               # DamageProfileIs(0xd) @180f3d070
+            return None
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        amt = ability_var("DaughterOfTheAbyss", "dmgReduction", level=lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
+        if not amt:
+            return None
+        # owner=défenseur (effet sur la cible) → flat_reductions PRÉ-perçage (routage Nightshroud #120)
+        return for_subtraction(False, abs(int(amt)))
+
+
+class DaughterOfTheAbyssExtraDamagePctEffect(BaseEffect):
+    """`DaughterOfTheAbyss_ExtraDamagePctEffect` (effet 0x589=1417) — les Psykers ENNEMIS dans le rayon
+    du porteur REÇOIVENT +extraDmgPct% de dégât (i2 : « Enemy Psykers within 2 hexes receive +20%
+    Damage »). Même mécanique state-wide que le jumeau Friendly, polarité inverse :
+    - dégât `CreateEffectDamageBonusForAttack` @180f3cb60 (bonus sur l'attaque CONTRE la cible de l'effet) ;
+    - cibles `CreateTargetSelector` @180f3cd00 : `SurroundingEnemies(owner, ConfigConst 0x16=range) &
+      UnitsWithTrait(0x3ea=Psyker)`.
+    Porté sur le canal aura-défense (le dégât REÇU par la cible augmente) — gate trait CIBLE Psyker via
+    `tgt_traits` (gameconfig). MAGNITUDE : `extraDmgPct[ablvl]` (15→20, hors rarityBonus)."""
+
+    def create_aura_defense_damage_malus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        c = ctx or {}
+        if c.get("owner_team") is None or c.get("owner_team") == c.get("tgt_team"):
+            return None                                       # SurroundingEnemies : cible ENNEMIE du porteur
+        if "Psyker" not in (c.get("tgt_traits") or ()):        # UnitsWithTrait(0x3ea=1002 Psyker)
+            return None
+        op, tp = c.get("owner_pos"), c.get("t_pos")
+        if not op or not tp:
+            return None
+        import hexgeo
+        rng = ability_var("DaughterOfTheAbyss", "range", is_constant=True)   # ConfigConst 0x16 (=2)
+        if hexgeo.distance(op, tp) > int(rng if rng else 2):
+            return None
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        pct = ability_var("DaughterOfTheAbyss", "extraDmgPct", level=lvl)
+        if not pct:
+            return None
+        return for_percent_increase(True, abs(int(pct)))
+
+
 class PowerTripFullHealthEffect(BaseEffect):
     """`PowerTrip_FullHealthEffect` — axe COUPS (hits), actif SSI PV pleins.
     - hits @180f64cf0 : `ForAddition(ConfigConst key 0x2b)` = constante `extraHit` de l'ability PowerTrip (=1).

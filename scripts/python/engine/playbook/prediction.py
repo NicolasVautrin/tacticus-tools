@@ -21,7 +21,7 @@ from engine.entities.abilities.active_ability import (
 from engine.entities.abilities.ability_configuration import AbilityConfiguration
 from engine.entities.effects import (
     aura_attack_bonus_from_allies, aura_hits_malus_for_defense,
-    aura_attack_damage_malus_from_enemies,
+    aura_attack_damage_malus_from_enemies, aura_defense_damage_malus_from_units,
     calculate_attacker_modifiers_for_prediction, build_defender_modifiers_from_effects,
     hits_bonus_from_effects, hits_malus_from_defender_effects, additional_hit_groups)
 from engine.entities.traits import attacker_bonus_hits, target_hit_multiplier, TraitFactory
@@ -193,6 +193,21 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     # attacker_additive_pre scale déjà ×%-list une fois.
     if def_mods.flat_reductions:
         mods.additive -= sum(def_mods.flat_reductions)
+    # AURAS-DÉFENSE state-wide (#184) : effets EffectWithTarget possédés par d'AUTRES unités dont le
+    # TargetSelector projette sur la CIBLE du coup — boucle « TOUS les EffectWithTarget actifs × leurs
+    # cibles » de `CalculateDefenderModifiersForPrediction @181002c30` (cf. case-68), qui ne se réduit PAS
+    # aux effets portés par la cible. Ex. DaughterOfTheAbyss (Atlacoya) : -dmgReductionPct% (33 @L50)
+    # Psychic aux AMIS rayon 2 (racine du ~1.49x bloodMephiston seed 2024 : 1003×1.25×3×0.67 = 2016,3024
+    # natif vs 3006,4515 port) ; +extraDmgPct% aux Psykers ENNEMIS rayon 2. Cibles/positions RÉELLES
+    # (la cible ne bouge pas pendant la prédiction) ; porteurs vivants uniquement.
+    _tgt_traits_names = frozenset((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits") or [])
+    _def_carriers = [(uid, scene.pos(uid), scene.team(uid), scene.effects(uid))
+                     for uid in scene.pos_by_id
+                     if uid != tgt_id and (scene.hp(uid) or 0) > 0]
+    for _eb in aura_defense_damage_malus_from_units(
+            _def_carriers, {"tgt_id": tgt_id, "t_pos": t_pos, "tgt_team": scene.team(tgt_id),
+                            "tgt_traits": _tgt_traits_names, "damage_profile": damage_profile}):
+        add_modifier(mods, _eb)
 
 
 def _target_damage_limits(scene, tgt_id):

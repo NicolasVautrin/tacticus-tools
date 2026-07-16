@@ -16,6 +16,9 @@ from .loki import (
     ContaminatedUnitEffect,
     BigTargetAdjacentEffect,
     CrushingStrikeEffect,
+    DaughterOfTheAbyssExtraDamagePctEffect,
+    DaughterOfTheAbyssFriendlyDmgReductionPctEffect,
+    DaughterOfTheAbyssOwnerDmgReductionEffect,
     DecoysAndMisdirectionExtraDamageEffect,
     FeederTendrilsExtraDamageEffect,
     FightingRetreatDmgReductionEffect,
@@ -121,6 +124,14 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # OwnerIsCaster&IsMeleeAttack ConfigVar 0xd, selector SurroundingFriends range ConfigConst 0x16=2). #107.
     "AstartesBanner_ExtraHit": AstartesBannerExtraHitEffect,
     "ShadowInTheWarp_LessDmg_Effect": ShadowInTheWarpLessDmgEffect,  # aura : -25% degat PSYCHIQUE aux ennemis a portee
+    # DaughterOfTheAbyss (Atlacoya custoAtlacoya, passif range 2) — 3 effets sur le PORTEUR (#184) :
+    # Friendly = -dmgReductionPct% (33 @L50) au degat PSYCHIQUE recu par les AMIS rayon 2 (aura-defense,
+    # boucle state-wide @181002c30 ; racine du ~1.49x bloodMephiston seed 2024) ; Owner = -dmgReduction
+    # plat Psychic sur Atlacoya elle-meme ; ExtraDamagePct = +extraDmgPct% au degat recu par les Psykers
+    # ENNEMIS rayon 2.
+    "DaughterOfTheAbyss_FriendlyDmgReductionPct": DaughterOfTheAbyssFriendlyDmgReductionPctEffect,
+    "DaughterOfTheAbyss_OwnerDmgReduction": DaughterOfTheAbyssOwnerDmgReductionEffect,
+    "DaughterOfTheAbyss_ExtraDamagePct": DaughterOfTheAbyssExtraDamagePctEffect,
     # DecoysAndMisdirection (Genestealer Cults ex. genesPrimus/genesMagus/genesKelermorph) : +extraDmg
     # FLAT additif a TOUTES les attaques de l'ami buffe (pose quand un decoy est spawn a cote / qu'un ami
     # marche sur un decoy). Gate OwnerIsCaster SEUL (@180f3e340 -> applique en prediction+combat, cf.

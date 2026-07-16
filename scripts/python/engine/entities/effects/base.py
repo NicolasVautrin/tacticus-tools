@@ -145,6 +145,20 @@ class BaseEffect:
         l'agrégateur `aura_attack_damage_malus_from_enemies`. Défaut None = pas d'aura."""
         return None
 
+    def create_aura_defense_damage_malus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        """Contribution AURA %-DÉGÂT projetée sur une CIBLE alliée du porteur à portée (l'effet est possédé
+        par une unité et RÉDUIT le dégât que ses ALLIÉS environnants REÇOIVENT — natif : effet EffectWithTarget
+        à `CreateEffectDamageMalusForDefense(OwnerIsTarget & DamageProfileIs(...))` + `CreateTargetSelector` =
+        `SurroundingFriends(range, exclut self)`, évalué state-wide par `CalculateDefenderModifiersForPrediction`
+        @181002c30 (boucle « TOUS les EffectWithTarget actifs × leurs cibles », cf. case-68) — ex.
+        `DaughterOfTheAbyss_FriendlyDmgReductionPctEffect` @180f3cde0 : -dmgReductionPct% Psychic aux amis
+        dans le rayon 2 d'Atlacoya (#184). La même boucle sert aussi les effets qui AUGMENTENT le dégât reçu
+        par les ENNEMIS du porteur à portée (ex. `DaughterOfTheAbyss_ExtraDamagePctEffect` @180f3cb60 :
+        +extraDmgPct% aux Psykers ennemis, selector @180f3cd00 `SurroundingEnemies+UnitsWithTrait(0x3ea)`).
+        `ctx` = {owner_id/pos/team, tgt_id, t_pos, tgt_team, tgt_traits, damage_profile} fourni par
+        l'agrégateur `aura_defense_damage_malus_from_units`. Défaut None = pas d'aura."""
+        return None
+
     def create_effect_crit_chance_bonus_for_attack(self) -> int | None:
         """Bonus de CHANCE de crit (%) — couche calc-time SÉPARÉE de `GetStat(9)`, sommée dans
         `DamagePrediction.GetCritChanceBonusFromEffects`@181031180 puis ajoutée à GetStat(9) dans
