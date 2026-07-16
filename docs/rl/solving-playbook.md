@@ -70,3 +70,65 @@ different (regime blinde per-coup vs position d'aura).
   `test_aura_position_live.py`).
 - **Un fit exact sur un sous-ensemble n'est pas la cause** : #67 collait sur les tuiles in-ring
   (16/29) ; seule la partition complete (29/29 vs 16/29) departage.
+
+
+---
+
+## #139 (2026-07-16) — Mecanisme transversal invisible du port (ability "does not end turn" : Vindicta, Ragnar, ArmoriumCherub 1014)
+
+**Symptome-type** : une MECANIQUE DE FLUX (pas un scalaire) manque au port — certaines abilities
+actives ne consomment pas le tour de l unite alors que le runner offline traite toute action comme
+terminale. Aucune divergence chiffree ne la revele (aucun test damage ne casse) : c est un trou
+STRUCTUREL du turn-flow, decouvrable seulement en auditant le mecanisme natif de bout en bout.
+
+**Methode qui l a craque** :
+
+1. **Chercher le NOM du concept dans les symboles avant tout decompile large** :
+   `search_symbols_by_name("EndTurn")` sort en une passe `ActiveAbilityOperation$$GetSkipEndTurnFlag`
+   @180e47120, `AActiveAbility$$SetsEndTurnFlags` @180fb3150 et l override
+   `ArcScourgeAbility$$SetsEndTurnFlags` @1811b3d40 — le mecanisme complet etait NOMME. Heuristique :
+   les designers nomment les flags d exception (`SkipX`, `SetsXFlags`) ; grep les variantes
+   Skip/Sets/Verify/Finish AVANT de fouiller les gros Execute.
+
+2. **Suivre la chaine poseur -> lecteur, pas seulement le poseur** :
+   ExecuteInternal @180e44ec0 -> GetSkip*Flag @180e47120/@180e46f60 ->
+   AddFlagsAfterAbilityExecution @180e447f0 -> OperationProcessor.FinishUnitTurn @180e081c0 ->
+   FinishUnitTurnOperation @180e72140 (UnitFlags 1+3) ; lecteurs : UnitFlagsComponent.TurnEnded
+   @180fad510 (= Contains(3)) dans VerifyUnitsTurnFinishedOperation.VerifyUnitTurnEnded @180eded20
+   (auto-endturn) et AttackQuery @181054ccc. Sans le cote LECTEUR on ne sait pas ou le port doit
+   honorer le flag.
+
+3. **Piege IL2CPP resolu : les overrides constants sont FOLDES (dedup de bodies identiques).**
+   Ghidra ne montre que 2 symboles `SetsEndTurnFlags` pour 14 classes overrideuses. Le fold-winner
+   `return _dsl.No(+0x118)` @1811b3d40 porte le nom d UNE classe mais 4+ refs vtable ; son sibling
+   `return _dsl.False(+0x100)` @1811b3d20 en porte 27. **L inventaire des overrideuses ne peut PAS
+   venir de ghidra seul** -> croiser 3 sources : (a) dump Il2CppDumper `symbols.json` (liste
+   name-complete des methodes par classe, meme foldees — les RVAs y sont d un autre espace, seuls
+   les NOMS/signatures font foi), (b) offsets des champs (`data/symbols.json fields` : DSLFactory
+   +0xf8=True/+0x100=False/+0x118=No demasque les constantes retournees), (c) tooltips i2_en.json
+   (`grep "not end"`) qui enumerent la famille cote texte AVEC les conditions (FightingRetreat
+   conditionnel adjacence). Un body NON foldé restant (= propre symbole ghidra) signale un override
+   CONDITIONNEL a decompiler (FightingRetreat @1811de7e0 = Direct(!ennemi adjacent)).
+
+4. **Cas discriminant live a UNE variable via l auto-endturn** : runner 1v1 (`rl_duel build
+   --p-units adeptRetributor --a-units necroWarden --board MC1_67`), une seule unite jouable ->
+   VerifyUnitsTurnFinished flippe le joueur DES que son unique unite est turn-finished. Mesure :
+   cast ArmoriumCherub (1014) -> currentPlayer RESTE 3 et l attaque normale reste jouable (elle a
+   ete jouee dans le MEME tour) ; controle : attaque normale (id concret 69) -> flip immediat vers
+   4. Deux observations, une variable (l ability castee), zero interpretation.
+
+**Outils/heuristiques reutilisables** :
+- **Fold-detector** : refcount/DATA-refs anormalement hauts sur un petit body = fold IL2CPP ; le
+  nom du symbole n identifie PAS la classe unique. Inventaire par classe = dump metadata (noms) +
+  layout de la factory (constantes) + i2 (semantique), jamais ghidra seul.
+- **`SetsEndTurnFlags` retourne un IAbilityTrigger (noeud DSL), PAS un bool** : les overrides
+  conditionnels s expriment en arbre evalue avec `AbilityEntities` au moment du cast (aucun
+  parametre caster requis a la construction). Chercher le type de retour dans il2cpp_full.json
+  avant d interpreter le decompile.
+- **Auto-endturn 1v1 = oracle de turn-flow gratuit** : toute question "cette action consomme-t-elle
+  le tour ?" se tranche en 2 casts sur un runner mono-unite (flip vs non-flip de currentPlayer).
+- **`aiMovableTiles` honore les UnitFlags** (`GetMovableTilesFor(unit, ignoreUnitFlags=false)`) :
+  second discriminant dispo sans nouveau hook.
+- **Un port de FLUX doit poser les flags pour les abilities NON portees aussi** (le natif les pose
+  independamment de la behaviour) -> table d overrides par ability_type dans `abilities/base.py`,
+  distincte du registre des behaviours.

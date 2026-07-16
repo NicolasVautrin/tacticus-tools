@@ -202,12 +202,32 @@ class ForcedAttackTargetsComponent(Component):
 
 class UnitFlagsComponent(Component):
     """`IdunBattle.Entities.Components.UnitFlagsComponent` @180fad640 — drapeaux booléens de l'unité
-    (un `OrderedSet<int>` @+0x10 ; `Add`/`Remove`/`Has`/`RemoveTurnFlags`). Flag **9 = « a fui »**
-    (posé par `FleeOperation` ; re-testé `NOT HasFlag(self,9)` par BattleFatigue pour ne pas re-fuir, et
-    bloque toute action ce tour). On porte le set d'ints (sémantique 1:1) ; les flags « de tour »
-    (RemoveTurnFlags en fin de tour) = raffinement quand on portera le reset complet."""
+    (un `OrderedSet<int>` @+0x10 ; `Add`/`Remove`/`Has`/`TurnEnded`/`RemoveTurnFlags`). Valeurs = enum
+    `IdunBattle.Entities.Enum.UnitFlag` (dump symbols.json) ; on porte le set d'ints (sémantique 1:1).
+
+    Flags de TOUR (mission #139 — cycle posé/appliqué/reset, VAs) :
+      • `TURN_FINISHED (3)` : le tour de l'UNITE est fini — posé par `FinishUnitTurnOperation.Execute`
+        @180e72140 (déclenché après une ability qui « termine le tour », cf. abilities/handler.py) ; lu par
+        `UnitFlagsComponent.TurnEnded` @180fad510 (= Contains(3)) via `VerifyUnitsTurnFinishedOperation.
+        VerifyUnitTurnEnded` @180eded20 et `AttackQuery.CanAttackAnyUnitFromAnyTileWithAnyAbility` @181054ccc.
+      • `ACTIVE_ABILITY_USED (2)` : une ability active a été utilisée ce tour — posé par
+        `ActiveAbilityOperation.AddFlagsAfterAbilityExecution` @180e447f0 ; base du trigger DSL
+        `HasOwnersActiveAbilityBeenUsed` (DSLFactory+0x110).
+      • `ARRIVED_AT_FINAL_TILE (1)` : posé avec TURN_FINISHED par FinishUnitTurnOperation.
+      • `NO_ACTION_AVAILABLE (4)` : auto-fin (rien à faire) — posé par `MarkUnitAsNoActionAvailableOperation`
+        @180e78c0c ; ré-ouvert par VerifyUnitTurnEnded (slot 0x77) si l'unité regagne des options.
+      • `FLED (9)` : « a fui » (FleeOperation ; re-testé NOT HasFlag(self,9) par BattleFatigue).
+      • `TURN_FINISHED_FORCED (27 = 0x1b)` : posé par FinishUnitTurnOperation quand `forced` (hors enum du
+        dump — ajout post-dump ; nom descriptif, structure lue @180e72140/@180fad310)."""
     __slots__ = ("flags",)
-    FLED = 9     # UnitFlag « a fui » ce tour
+    MOVED = 0                   # UnitFlag.Moved (posé par UnitExtensions.SetMovedFlag @180ed9890)
+    ARRIVED_AT_FINAL_TILE = 1   # UnitFlag.ArrivedAtFinalTile
+    ACTIVE_ABILITY_USED = 2     # UnitFlag.ActiveAbilityUsed
+    TURN_FINISHED = 3           # UnitFlag.TurnFinished
+    NO_ACTION_AVAILABLE = 4     # UnitFlag.NoActionAvailable
+    FLED = 9                    # UnitFlag.Fled — « a fui » ce tour
+    TELEPORTED = 12             # UnitFlag.Teleported
+    TURN_FINISHED_FORCED = 27   # flag 0x1b (FinishUnitTurnOperation forced=True ; hors enum dump)
 
     def __init__(self, flags=None):
         self.flags = set(int(f) for f in flags) if flags else set()
@@ -220,6 +240,24 @@ class UnitFlagsComponent(Component):
 
     def has(self, flag: int) -> bool:
         return int(flag) in self.flags
+
+    def turn_ended(self) -> bool:
+        """`UnitFlagsComponent.TurnEnded` @180fad510 = Contains(TurnFinished=3). Lu par le turn-flow natif
+        (VerifyUnitTurnEnded @180eded20) et par l'AttackQuery pour exclure les unités finies."""
+        return self.TURN_FINISHED in self.flags
+
+    def remove_turn_flags(self, include_no_action: bool = False, new_activation: bool = True) -> None:
+        """`UnitFlagsComponent.RemoveTurnFlags` @180fad310 : retire TOUJOURS {ActiveAbilityUsed(2),
+        TurnFinished(3), 27} ; + {NoActionAvailable(4)} si `include_no_action` (param_3 natif) ;
+        + {Moved(0), Teleported(12), ArrivedAtFinalTile(1)} si `new_activation` (param_4 natif).
+        `StartTurnOperation.Execute` @180ea3fb0 l'appelle (0, 1) pour chaque unité du joueur entrant."""
+        if new_activation:
+            for f in (self.MOVED, self.TELEPORTED, self.ARRIVED_AT_FINAL_TILE):
+                self.flags.discard(f)
+        if include_no_action:
+            self.flags.discard(self.NO_ACTION_AVAILABLE)
+        for f in (self.ACTIVE_ABILITY_USED, self.TURN_FINISHED, self.TURN_FINISHED_FORCED):
+            self.flags.discard(f)
 
 
 class StatsComponent(Component):

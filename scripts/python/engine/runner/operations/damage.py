@@ -647,3 +647,13 @@ class DamageHandler:
                 self.state, msg.attacker_id, msg.target_id,
                 bool(self.last.get("ranged")), self.last.get("profile"),
                 is_crit=bool(self.last.get("did_crit")))
+        # #139 : l'attaque normale native EST une ActiveAbility (NormalAttack per-unite ; AttackUnitMessage
+        # n'existe pas en natif — c'est la simplification port de l'ActiveAbilityMessage) et traverse la
+        # MEME queue `AddFlagsAfterAbilityExecution` @180e447f0 — base `SetsEndTurnFlags`/
+        # `SetsActiveAbilityUsedFlag` = `_dsl.True` @180fb3150 (aucune classe NormalAttack dans la famille
+        # d'overrides) -> flag ActiveAbilityUsed(2) + FinishUnitTurn (flags 1+3). Bookkeeping observable ;
+        # aucun gate du port ne le lit encore (PickNextUnit/VerifyUnitsTurnFinished = couche non portee).
+        if self.last is not None:
+            from .turnflow import add_flags_after_ability_execution
+            self.last["flags"] = add_flags_after_ability_execution(
+                self.state, int(msg.attacker_id), skip_ability_used=False, skip_end_turn=False)

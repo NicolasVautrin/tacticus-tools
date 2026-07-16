@@ -35,9 +35,64 @@ from __future__ import annotations
 from typing import Optional
 
 from ..state import State
-from ..components import OwnerComponent, UnitComponent, ShieldComponent, StatsComponent
+from ..components import (OwnerComponent, UnitComponent, ShieldComponent, StatsComponent,
+                          UnitFlagsComponent)
 from ...entities.stats import StatType
 from .triggers import start_turn_triggers, tile_tick_triggers, first_aid_heal
+
+
+class FinishUnitTurnOperation:
+    """`IdunBattle.Operations.FinishUnitTurnOperation.Execute` @180e72140 (#139) — clot le tour d'UNE unite :
+      * si `forced` : Add(UnitFlag 27 = TURN_FINISHED_FORCED) ;
+      * Add(ArrivedAtFinalTile=1) — si nouvellement pose et !forced, le natif publie l'event 0x1c ;
+      * Add(TurnFinished=3)       — si nouvellement pose, events 0x29 (+0x2a si !forced) + step Events(0xd) ;
+      * reset du cache de mouvement (MovementComponent@+0x18/+0x10) + slot processor 0x76 (Verify...).
+    OFFLINE on porte la MUTATION (les 3 flags) ; events/steps de stream + verify = couche view/process non
+    suivie (documente). Declencheurs natifs : `OperationProcessor.FinishUnitTurn` @180e081c0 (appele par
+    `ActiveAbilityOperation.AddFlagsAfterAbilityExecution` @180e447f0 quand l'ability TERMINE le tour),
+    `FinishUnitTurnMessage`, et `FinishUnitTurnBehaviour` @180fc5660 (DSL)."""
+    __slots__ = ()
+
+    @staticmethod
+    def execute(state: State, unit_id: int, forced: bool = False) -> dict:
+        e = state.get_entity(unit_id)
+        if e is None:
+            return {"unit": int(unit_id), "found": False}
+        fl = e.get_component(UnitFlagsComponent)
+        if fl is None:
+            fl = e.add_component(UnitFlagsComponent())
+        if forced:
+            fl.add(UnitFlagsComponent.TURN_FINISHED_FORCED)
+        newly_arrived = not fl.has(UnitFlagsComponent.ARRIVED_AT_FINAL_TILE)
+        fl.add(UnitFlagsComponent.ARRIVED_AT_FINAL_TILE)
+        newly_finished = not fl.has(UnitFlagsComponent.TURN_FINISHED)
+        fl.add(UnitFlagsComponent.TURN_FINISHED)
+        return {"unit": int(unit_id), "found": True, "forced": bool(forced),
+                "newly_arrived": newly_arrived, "newly_finished": newly_finished}
+
+
+def add_flags_after_ability_execution(state: State, caster_id: int,
+                                      skip_ability_used: bool, skip_end_turn: bool) -> dict:
+    """`ActiveAbilityOperation.AddFlagsAfterAbilityExecution` @180e447f0 (#139) — queue d'`ExecuteInternal`
+    @180e44ec0 apres TOUTE execution d'ability active (attaque normale incluse : c'est une ability) :
+      * `!skip_ability_used` -> UnitFlags.Add(ActiveAbilityUsed=2) ;
+      * `!skip_end_turn`     -> `OperationProcessor.FinishUnitTurn(caster, false)` @180e081c0
+                                -> `FinishUnitTurnOperation` (flags 1+3).
+    Les deux skips viennent de `GetSkipAbilityUsedFlag` @180e46f60 / `GetSkipEndTurnFlag` @180e47120 =
+    `options.skip*Flag || !ability.Sets*().Evaluate(entities)` (cf. abilities/base.py)."""
+    e = state.get_entity(caster_id)
+    if e is None:
+        return {"caster": int(caster_id), "found": False}
+    out: dict = {"caster": int(caster_id), "found": True,
+                 "ability_used_flag": not skip_ability_used, "turn_finished": not skip_end_turn}
+    if not skip_ability_used:
+        fl = e.get_component(UnitFlagsComponent)
+        if fl is None:
+            fl = e.add_component(UnitFlagsComponent())
+        fl.add(UnitFlagsComponent.ACTIVE_ABILITY_USED)
+    if not skip_end_turn:
+        out["finish"] = FinishUnitTurnOperation.execute(state, caster_id, forced=False)
+    return out
 
 
 def _active_players(state: State) -> list[int]:
@@ -131,6 +186,18 @@ class StartTurnOperation:
         # #60 has_moved : nouveau tour d'equipe -> reset des flags "a bouge ce tour" (mirror RemoveTurnFlags
         # natif). Chaque unite qui bouge ce tour re-marquera son id via MoveUnitOperation.
         state.moved_this_turn.clear()
+        # #139 : reset des UnitFlags de tour du joueur ENTRANT — mirror de la boucle de StartTurnOperation.
+        # Execute @180ea3fb0 : pour chaque unite de `PlayerComponent.CurrentlyOwnedUnitIds`,
+        # `RemoveTurnFlags(includeNoAction=0, newActivation=1)` @180fad310 (retire Moved/Teleported/
+        # ArrivedAtFinalTile + ActiveAbilityUsed/TurnFinished/27 ; NoActionAvailable est CONSERVE — il n'est
+        # leve que par VerifyUnitTurnEnded slot 0x77 quand l'unite regagne des options).
+        for e in state.entities.values():
+            oc = e.get_component(OwnerComponent)
+            if oc is None or oc.player != player:
+                continue
+            fl = e.get_component(UnitFlagsComponent)
+            if fl is not None:
+                fl.remove_turn_flags(include_no_action=False, new_activation=True)
         # #128 tile-effects ROUND-TICK : StartTurn emet la SEQUENCE d'events 0x12->0x13->0x14->0x15->0x16
         # (VERIFIE @180ea3fb0 : 5 emissions FUN_180026490(...,0x12/0x13/0x14/0x15/0x16) en fin d'Execute ;
         # l'ancien "0x12/0x14/0x16" etait INCOMPLET). Mapping effets : 0x12 = Contaminated re-apply ; 0x13 =
@@ -196,8 +263,8 @@ class EndTurnOperation:
 
 
 class TurnFlowHandler:
-    """Visiteur de `EndTurnMessage` (mirror du handler natif lancant `EndTurnOperation`). `last` = dernier
-    resultat (diagnostic/test)."""
+    """Visiteur de `EndTurnMessage` + `FinishUnitTurnMessage` (mirror des handlers natifs lancant
+    `EndTurnOperation` / `FinishUnitTurnOperation`). `last` = dernier resultat (diagnostic/test)."""
     __slots__ = ("state", "last")
 
     def __init__(self, state: State):
@@ -206,3 +273,11 @@ class TurnFlowHandler:
 
     def visit_EndTurnMessage(self, msg) -> None:
         self.last = EndTurnOperation.execute(self.state, advance=getattr(msg, "advance", True))
+
+    def visit_FinishUnitTurnMessage(self, msg) -> None:
+        # #139 : mirror `FinishUnitTurnMessage` -> `OperationProcessor.FinishUnitTurn` @180e081c0.
+        uid = getattr(msg, "unit_id", None)
+        if uid is None:
+            self.last = {"finish_unit_turn": None, "error": "unit_id manquant"}
+            return
+        self.last = FinishUnitTurnOperation.execute(self.state, int(uid), forced=False)

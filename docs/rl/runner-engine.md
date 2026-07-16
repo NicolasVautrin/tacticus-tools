@@ -473,8 +473,41 @@ Chaque tranche = RE ghidra → port 1:1 → test d'agrément vs live (replay-dif
 
    **TF-A déféré** (état non suivi offline) : `DecreaseAbilityCooldowns` @180e6b0c0 (pas de compteur de
    cooldown offline), `ActorStatisticsComponent.ResetThisTurn` (stats per-tour),
-   `ResetAbilitiesThatResetOnTurnEnd` @180e6cb90, resets per-unité `UnitFlags`/position de StartTurn,
+   `ResetAbilitiesThatResetOnTurnEnd` @180e6cb90,
    et **`PickNextUnit`** (ordre intra-tour = décision IA → couche playbook, pas une mutation moteur).
+
+   **TF-B PORTÉ (#139) — flags de tour per-unité + « does not end turn »** (validé live, cas discriminant
+   Vindicta/cherub — cf. `docs/rl/solving-playbook.md` #139) :
+   - **Flags** (`UnitFlagsComponent`, enum `UnitFlag`) : Moved=0, ArrivedAtFinalTile=1,
+     ActiveAbilityUsed=2, TurnFinished=3, NoActionAvailable=4, Fled=9, Teleported=12, forced=27 (0x1b).
+     Lecture `TurnEnded` @180fad510 = Contains(3) ; consommé par `VerifyUnitsTurnFinishedOperation.
+     VerifyUnitTurnEnded` @180eded20 (auto-endturn quand toutes les unités sont finies ; flag 4 ré-ouvert
+     slot 0x77 si l'unité regagne des options) et `AttackQuery.CanAttackAnyUnitFromAnyTileWithAnyAbility`
+     @181054ccc. `MovementQuery.GetMovableTilesFor(unit, ignoreUnitFlags=false, …)` les honore aussi.
+   - **Pose** : queue d'`ActiveAbilityOperation.ExecuteInternal` @180e44ec0 →
+     `GetSkipEndTurnFlag` @180e47120 / `GetSkipAbilityUsedFlag` @180e46f60 (=
+     `options.skip*Flag(+0x49/+0x4b) || !ability.Sets*().Evaluate(entities)`, slots iface 0x17/0x18) →
+     `AddFlagsAfterAbilityExecution` @180e447f0 (flag 2 + `OperationProcessor.FinishUnitTurn` @180e081c0
+     → `FinishUnitTurnOperation.Execute` @180e72140 : flags 1+3, +27 si forced). L'attaque normale EST
+     une ActiveAbility (base True/True) → mêmes flags.
+   - **Source du verdict** : virtuals `AActiveAbility.SetsEndTurnFlags` @180fb3150 /
+     `SetsActiveAbilityUsedFlag` (défaut = `DSLFactory.True`@+0xf8) retournant un `IAbilityTrigger` ;
+     overrides constants foldés IL2CPP (`_dsl.No`@+0x118 / `_dsl.False`@+0x100, fold-winners
+     @1811b3d40/@1811b3d20) + 1 conditionnel lu (`FightingRetreatAbility.SetsActiveAbilityUsedFlag`
+     @1811de7e0 = `Direct(!ennemi adjacent)`). **Famille « does not end turn » (14 abilities)** : 1014
+     ArmoriumCherub (Vindicta) · 1063 FireAndReposition (Calandis) · 1081 FightingRetreat (Darkstrider,
+     conditionnel) · 1106 WarHowl (Ragnar) · 1118 DoctrinaImperatives (Tan Gi'da) · 1121 ItItches
+     (Parasite) · 1127 ArmouredMight_Move · 1131 JakhalStimms (Macer) · 1139 SentinelDirectives (Sy-Gex) ·
+     1173 ArcScourge (Cawl) · 1189 CalibaniteGreatsword (Forcas) · 1198 EuphoricStrikes (Laviscus) ·
+     1202 VigilanceEternal (Tyrith) · 1210 ExemplarOfTheMontka (Farsight) ; + 1077 EarlyWarningOverride
+     (Re'vas) override AbilityUsed SEULEMENT. Tables = `engine/runner/abilities/base.py`.
+   - **Reset** : `StartTurnOperation.Execute` @180ea3fb0 → `RemoveTurnFlags` @180fad310 `(0,1)` par unité
+     du joueur entrant (retire 0/1/2/3/12/27 ; **conserve** NoActionAvailable=4).
+   - **Port** : `turnflow.py` (`FinishUnitTurnOperation`, `add_flags_after_ability_execution`, reset
+     StartTurn, `visit_FinishUnitTurnMessage`) + `abilities/handler.py` (queue de flags pour TOUTE ability,
+     portée ou non) + `damage.py` (attaque normale). Bookkeeping OBSERVABLE, pas encore ENFORCÉ (aucun gate
+     `should_block`/PickNext offline ne le lit — raffinement : brancher la future boucle PickNextUnit
+     et `VerifyUnitsTurnFinished` dessus). Tests : `test_turnflow_endturn_flags.py` (offline pur).
 
    ### 6bis. BOUCLIERS (`ShieldComponent`) — modèle + absorption + décay (RE, port offline-validé)
 
