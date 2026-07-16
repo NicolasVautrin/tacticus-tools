@@ -103,15 +103,18 @@ def calculate_attacker_modifiers_for_prediction(
         has_moved: bool | None = None, attack_stat=None,
         apply_stat_mod_debuff: bool = False, target_traits=None) -> DamageModifiers:
     """`CalculateAttackerModifiersForPrediction @181000590` (slot 0xd) — chemin **PRÉDICTION**, DISTINCT
-    du combat. = la boucle EFFETS partagée (`_attacker_effect_bonuses`) **PLUS** le debuff
+    du combat. = la boucle EFFETS partagée (`_attacker_effect_bonuses`) **PLUS** la conversion
     stat-modifications `CalculateModifiersFromStatModifications` (prédiction-only, xref @181000cac).
 
-    Le debuff ramène la base `Current→Initial` en soustrayant les stat-modifications de l'attaquant
-    (racine du gap #49 : la prédiction retire les buffs stat-baked que le combat garde). SÉPARATION
-    STRUCTURELLE d'abord : le debuff est GATÉ par `apply_stat_mod_debuff` (défaut False → strictement
-    identique à `build_attacker_modifiers_from_effects`, ZÉRO régression). Le FIT ultérieur = passer
-    `attack_stat` (le `StatComponent` Attack de l'attaquant) + la CONDITION exacte de `param_3` (quand
-    négocier selon l'attaque prédite)."""
+    RE #194 (corrige la lecture #49 « debuff Current→Initial ») : la face attaquant native lit
+    l'**AttackComponent** de l'attaquant (cctor @180f95c80) avec negate=**0** et convertit chaque
+    modification en entrée **POURCENT** de la %-list (`1+v/100`, cf. @181004380/@181005210) — PAS un
+    flat-subtract. Son gate d'activation (entité contexte@0x08 nullable + interface slot 3
+    `DAT_1831b7f78`) n'est PAS élucidé, et il est prouvé INERTE sur le chemin normal-attack (#49 :
+    aura Calgar +1298 Attack présente, prédiction bit-exacte SANS cette contribution — +1298% aurait
+    explosé). → RESTE GATÉ par `apply_stat_mod_debuff` (défaut False, aucun call-site ne l'active) ;
+    le câbler exigerait d'abord la RE du gate (tâche dédiée). La face DÉFENSEUR (DefenseComponent,
+    negate=1) est, elle, PORTÉE et validée (#194, prediction.py)."""
     # #71 : chemin PREDICTION -> is_prediction=True. Le noeud DSL IsNormalAttack (trigger SmashaEad
     # @180f6bee0) evalue FALSE ici (verdict re-expert) -> SmashaEad n'entre pas dans la DamageModifiers de
     # prediction (matche le DISPLAY decisionView). Le COMBAT (build_attacker_modifiers_from_effects) garde
@@ -119,7 +122,8 @@ def calculate_attacker_modifiers_for_prediction(
     bonuses = _attacker_effect_bonuses(effects, is_ranged, is_normal_attack, has_moved, target_traits,
                                        is_prediction=True)
     if apply_stat_mod_debuff and attack_stat is not None:
-        bonuses += calculate_modifiers_from_stat_modifications(attack_stat, negate=True)
+        # negate=False : mirror de l'appel natif @181000cac (3e arg = 0, face attaquant NON négée).
+        bonuses += calculate_modifiers_from_stat_modifications(attack_stat, negate=False)
     return build_attacker_modifiers(bonuses)
 
 

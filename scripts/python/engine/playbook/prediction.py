@@ -33,7 +33,8 @@ from engine.services.min_max_damage import MinMaxDamage
 from engine.services.damage_modifiers import (
     ELEVATION_BONUS_PCT, EFFECT_NO_ELEVATION, add_modifier,
     calculate_elevation_bonus_modifier, calculate_ranged_in_melee_reduction,
-    calculate_trench_reduction, TRENCH_PCT, _TRENCH_IGNORED_PROFILES)
+    calculate_trench_reduction, calculate_modifiers_from_stat_modifications,
+    TRENCH_PCT, _TRENCH_IGNORED_PROFILES)
 from engine.services.battle_query import select_weapon_pierce, are_tiles_adjacent
 from engine.services.attack_hits_formula import attack_hits_with_modifiers
 from engine.playbook.probable_damage_event import ProbableDamageEvent
@@ -195,6 +196,15 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     # attacker_additive_pre scale déjà ×%-list une fois.
     if def_mods.flat_reductions:
         mods.additive -= sum(def_mods.flat_reductions)
+    # STAT-MODS DEFENSE de la CIBLE (#194) : `CalculateDefenderModifiersForPrediction @181003066` lit le
+    # DefenseComponent (stat 3) du défenseur et convertit chaque modification en entrée %-list via
+    # `CalculateModifiersFromStatModifications @181004380` (negate=1) foldée `1±v/100`
+    # (`GetMultiplierFromDamageBonus @181005210`). Ex. tuile Thorns/Swamp : modification −50 posée par
+    # `ThornsBlockMovementAbility @1811c8d70` (AddStaticStatModifierEffectToOwner(11, stat 3)) sur les
+    # occupants non-Immune → +50 → ×1.5 (GROUND TRUTH C2_19 jakhal@(2,2) : 1.5020/1.5003 mesuré).
+    # scene.defense_stat = capture combatSnapshot (refresh par-pas) ; None/no-mod → inerte.
+    for _eb in calculate_modifiers_from_stat_modifications(scene.defense_stat(tgt_id), negate=True):
+        add_modifier(mods, _eb)
     # AURAS-DÉFENSE state-wide (#184) : effets EffectWithTarget possédés par d'AUTRES unités dont le
     # TargetSelector projette sur la CIBLE du coup — boucle « TOUS les EffectWithTarget actifs × leurs
     # cibles » de `CalculateDefenderModifiersForPrediction @181002c30` (cf. case-68), qui ne se réduit PAS

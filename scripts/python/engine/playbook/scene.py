@@ -43,6 +43,12 @@ class Scene:
     # (ActorStatisticsComponent +0x20). Indexe le buff MartialInspiration (+33%/tour). Defaut {}
     # -> count=0 (debut de bataille / from_state offline) si non capte.
     actorstats_by_id: dict = field(default_factory=dict)
+    # Stat DEFENSE PER-UNITE (#194) : {uid: StatComponent(stat 3)} — mirror du DefenseComponent natif
+    # (cctor @180f991c0) lu par `CalculateDefenderModifiersForPrediction @181003066` : ses modifications
+    # (ex. tuile Thorns −50) deviennent des entrees %-list (negate=1 → +50 → ×1.5). DYNAMIQUE (la
+    # modification suit l'occupation de tuile) → capture combatSnapshot (defense + statDelta.defense),
+    # refresh par-pas via `refresh_shields`. Defaut {} → axe inerte (defense non modifiee partout).
+    defstat_by_id: dict = field(default_factory=dict)
 
     @classmethod
     def from_state(cls, state) -> "Scene":
@@ -123,7 +129,8 @@ class Scene:
             elev_by_pos=elev_by_pos if elev_by_pos is not None else predictor.get("elev_by_pos"),
             board=board if board is not None else predictor.get("board"),
             abstate_by_id=predictor.get("abstate_by_id") or {},
-            actorstats_by_id=predictor.get("actorstats_by_id") or {})
+            actorstats_by_id=predictor.get("actorstats_by_id") or {},
+            defstat_by_id=predictor.get("defstat_by_id") or {})
         sc._seed_battle_counters()   # #185 BlessingsOfKhorne (melee-defeats -> effets N-scalés)
         return sc
 
@@ -189,6 +196,12 @@ class Scene:
         """AbilityState PER-ABILITY {level, multiplier} (capteur #100) ; None si non capturé
         (offline `from_state`, ou entrée absente) → l'appelant retombe sur le canal global."""
         return (self.abstate_by_id.get(uid) or {}).get(ability_id)
+
+    def defense_stat(self, uid):
+        """`StatComponent` DEFENSE (stat 3) de l'unité — mirror du DefenseComponent natif consommé
+        par la face défenseur de `CalculateModifiersFromStatModifications @181004380` (#194).
+        None si non capturé (from_state offline sans suivi defense, ou unité absente) → axe inerte."""
+        return self.defstat_by_id.get(uid)
 
     def total_attacks_made(self, uid) -> int:
         """`ActorStatisticsComponent.TotalAttacksMade` (+0x20, capteur actorStats) — nb d'attaques
@@ -265,7 +278,10 @@ def build_predictor(rpc, rid):
     return {"ctx_by_id": ctx_by_id, "armor_by_id": armor_by_id, "shield_by_id": shield_by_id,
             "mult_by_id": mult_by_id, "ablvl_by_id": ablvl_by_id, "vis_by_id": vis_by_id,
             "abstate_by_id": abstate_by_id, "actorstats_by_id": actorstats_by_id,
-            "board": board, "elev_by_pos": elev_by_pos}
+            "board": board, "elev_by_pos": elev_by_pos,
+            # #194 : vue DefenseComponent (stat 3 + modifications). Capture au BUILD ; DYNAMIQUE
+            # (suit l'occupation de tuile) -> re-capturee par-pas via refresh_shields.
+            "defstat_by_id": _defense_stats_from_snapshot(snap.get("units"))}
 
 
 def build_board(rpc, rid):
@@ -287,9 +303,31 @@ def build_board(rpc, rid):
     return Board(tiles, adjacency="native_sym")
 
 
+def _defense_stats_from_snapshot(units) -> dict:
+    """{uid: StatComponent(DEFENSE)} depuis un `combatSnapshot` (#194). Reconstruit la vue
+    `DefenseComponent` (stat 3) que la face défenseur de `CalculateModifiersFromStatModifications
+    @181004380` lit : `initial` = defense résolue − statDelta.defense (base, 100 chez les unités
+    mesurées), `modification` = UNE entrée pseudo-source « live » portant le TOTAL des modifications
+    (statDelta). ⚠ Limitation documentée : le natif folde CHAQUE source séparément (produit de
+    (1±vᵢ/100)) ; le capteur statDelta ne donne que le total → exact à 1 source (le cas tuile
+    Thorns/SpiderWeb/DryBush), approximation si ≥2 sources defense simultanées (rare — un
+    `statModSources` par unité donnerait le per-source au prix d'un scan entités par pas)."""
+    from engine.entities.stats import StatComponent, ValueModification
+    out = {}
+    for u in (units or []):
+        stats = u.get("stats") or {}
+        cur = stats.get("defense")
+        if cur is None:
+            continue
+        delta = int((u.get("statDelta") or {}).get("defense") or 0)
+        mod = ValueModification(total=delta, per_source={"live": delta} if delta else {})
+        out[u["entityId"]] = StatComponent(initial=int(cur) - delta, modification=mod)
+    return out
+
+
 def refresh_shields(predictor, rpc, rid):
-    """Rafraîchit l'état DYNAMIQUE (boucliers accordés/consommés + armure débuffée) depuis un
-    `combatSnapshot` FRAIS — appeler 1×/pas comparé. (Ex-`PV.refresh_shields`.)"""
+    """Rafraîchit l'état DYNAMIQUE (boucliers accordés/consommés + armure débuffée + stat DEFENSE
+    modifiée #194) depuis un `combatSnapshot` FRAIS — appeler 1×/pas comparé. (Ex-`PV.refresh_shields`.)"""
     snap = rpc("combatSnapshot", {"runnerId": rid}, 40)
     if not snap.get("ok"):
         return
@@ -300,6 +338,7 @@ def refresh_shields(predictor, rpc, rid):
     predictor["armor_by_id"] = {
         u["entityId"]: int((u.get("stats") or {}).get("fixedArmor") or 0)
         for u in (snap.get("units") or [])}
+    predictor["defstat_by_id"] = _defense_stats_from_snapshot(snap.get("units"))
 
 
 def step_context(predictor, dv):

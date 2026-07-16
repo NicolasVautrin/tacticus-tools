@@ -34,7 +34,7 @@ from __future__ import annotations
 import json as _json
 from dataclasses import dataclass, field
 
-from .effect_bonus import EffectBonus, for_addition, for_subtraction
+from .effect_bonus import EffectBonus
 from .. import weights as _weights
 
 # Config `DamageCalculations` (section Damage de la BattleConfiguration) — le natif la charge via
@@ -212,22 +212,32 @@ def build_attacker_modifiers(effect_bonuses: list[EffectBonus | None]) -> Damage
 def calculate_modifiers_from_stat_modifications(stat_component, negate: bool = False) -> list[EffectBonus]:
     """`DamageCalculations.CalculateModifiersFromStatModifications @181004380` — convertit les
     **modifications per-source** d'un `StatComponent` (le dict `ValueModification`, cf. entities/stats.py)
-    en `EffectBonus` PLATS. `param_3`=`negate` fixe le SIGNE : `True` → `ForSubtraction` (**DEBUFF** :
-    retire la modification), `False` → `ForAddition`. Une contribution par source (KeyValuePair du dict).
-    Garde native `if get_CurrentValue() != Initial(+0x48)` : liste vide si le stat n'a aucune modification.
+    en entrées **POURCENT** de la %-list. RE complète #194 (corrige la lecture FLAT initiale de #49,
+    jamais activée — le gate `apply_stat_mod_debuff` est resté False partout) :
+      • garde native `if get_CurrentValue() != Initial(+0x48)` (base+mods ≠ base) → liste vide sinon ;
+      • pour chaque KeyValuePair (sourceEntity → IModifier) de `StatComponent.get_Modifications()` :
+        `v = IModifier.GetValue()` (montant EFFECTIF, même slot 0 que `GetModificationFromEntity
+        @180fadf10`), **négé** si `param_3`=negate → entrée struct `{cond=1 @0x00, Nullable<int> v @0x20}` ;
+      • le champ @0x20 est le slot POURCENT : le caller folde chaque entrée via
+        `GetMultiplierFromDamageBonus @181005210` (= `1 + v/100`, `v<1 → 1 − (−v)/100`) puis
+        `DamageModifiers.Add` + `List.AddRange(damageModifiers@0x38, entries)` → la %-list, exactement
+        comme un `EffectBonus` d'effet. GROUND TRUTH #194 (C2_19, jakhal sur tuile Thorns) :
+        modification defense = −50 (tile), face DÉFENSEUR negate=1 → +50 → ×1.5 = ratio oracle/engine
+        mesuré 1.5020/1.5003 EXACT.
 
-    ⚠ **PRÉDICTION-ONLY** — appelé UNIQUEMENT par `CalculateAttackerModifiersForPrediction @181000cac`
-    et `CalculateDefenderModifiersForPrediction @181003066` (xref confirmé), JAMAIS par le combat
-    (`CalculateAbilityDamage`/`HitDamage.GetDamage` dealent la base PLEINE = Current). C'est le
-    mécanisme du gap #49 : la PRÉDICTION ramène la base `Current→Initial` en soustrayant les
-    stat-modifications (debuff), le COMBAT garde Current. Duck-typé sur `StatComponent`
+    Faces natives (xref @181004380) : DÉFENSEUR `CalculateDefenderModifiersForPrediction @181003066`
+    = DefenseComponent (stat 3) de la CIBLE, negate=**1** (PORTÉ, #194) ; ATTAQUANT
+    `CalculateAttackerModifiersForPrediction @181000cac` = AttackComponent (stat 0) de l'attaquant,
+    negate=**0**, gated `plStack_290 != null` + interface slot 3 (`DAT_1831b7f78`) — gate NON élucidé
+    et prouvé INERTE sur le chemin normal-attack (#49 bit-exact sans lui) → NON câblé (cf. tâche RE
+    dédiée). ⚠ PRÉDICTION-ONLY (jamais le combat). Duck-typé sur `StatComponent`
     (`.get_current_value()`, `.initial`, `.modification.per_source`)."""
     if stat_component is None:
         return []
     if stat_component.get_current_value() == stat_component.initial:   # aucune modification -> rien
         return []
-    make = for_subtraction if negate else for_addition
-    return [make(True, int(amount))
+    sign = -1 if negate else 1
+    return [EffectBonus("PercentIncrease", sign * int(amount), owner_is_caster=True)
             for amount in stat_component.modification.per_source.values() if amount]
 
 
