@@ -49,6 +49,7 @@ import * as modifierObserve from "./features/modifier-observe.js";
 import * as abilityPrefs from "./features/ability-prefs.js";
 import * as scorerDamageTrace from "./features/scorer-damage-trace.js";
 import * as triggerTrace from "./features/trigger-trace.js";
+import * as dslTrace from "./features/dsl-trace.js";
 
 export interface Ctx {
     rpc: Record<string, (...args: any[]) => unknown>;
@@ -102,6 +103,7 @@ import { inspectInstance } from "./scratch/inspect-instance.js";
 import { checkKlass } from "./scratch/check-klass.js";
 import { dumpMethodInfo } from "./scratch/dump-method-info.js";
 import { checkInvokerExport } from "./scratch/check-invoker.js";
+import { dslNodeProbe, dslLazyProbe } from "./scratch/dsl-node-probe.js";
 import { dumpUnitProgressionDataFields } from "./scratch/dump-unit-prog-data-fields.js";
 import { dumpUnitProgDataNested } from "./scratch/dump-unit-prog-data-nested.js";
 import { testStatic } from "./scratch/test-static.js";
@@ -305,6 +307,8 @@ export function wireRpc(ctx: Ctx): void {
         checkInvokerExport();
         return { ok: true };
     };
+    ctx.rpc.dslNodeProbe = () => dslNodeProbe();
+    ctx.rpc.dslLazyProbe = () => dslLazyProbe();
     ctx.rpc.dumpUnitProgData = () => {
         dumpUnitProgressionDataFields();
         return { ok: true };
@@ -370,6 +374,6 @@ export function wireRpc(ctx: Ctx): void {
      dumpPvpBoards, normalizeBc, crashTrap, initTrace,
      // messageTrace AVANT moveOptions — il set scoringRunnerId/applySeq.
      messageTrace, moveOptions, winnerCapture, aiStep, abilityPrefs, modifierObserve,   // modifierObserve = diag on-demand (jamais auto-arme)
-     scorerDamageTrace, triggerTrace]
+     scorerDamageTrace, triggerTrace, dslTrace]
         .forEach((f) => f.register(ctx));
 }
