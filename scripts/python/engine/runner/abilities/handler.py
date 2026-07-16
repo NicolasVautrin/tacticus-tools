@@ -53,7 +53,32 @@ class AbilityHandler:
         if klass is None:
             self.unported.add(int(msg.ability_type))   # #93/#95 : rend le no-op VISIBLE (plus muet)
             self.last = {"ability_type": msg.ability_type, "ported": False}
-            return                            # ability non portée → no-op (présent ≠ exécuté)
-        diag = klass().execute_behaviour(self.state, msg.caster_id, msg.target_id) or {}
+            # #139 : les FLAGS de tour sont poses par le natif pour TOUTE ability executee, independamment
+            # de sa behaviour -> on les mirror MEME quand la behaviour n'est pas portee (turn-flow fidele).
+            self.last["flags"] = self._add_flags_after_execution(msg)
+            return                            # ability non portée → behaviour no-op (présent ≠ exécuté)
+        ability = klass()
+        diag = ability.execute_behaviour(self.state, msg.caster_id, msg.target_id) or {}
         self.last = {"ability_type": msg.ability_type, "ported": True,
                      "caster": msg.caster_id, "target": msg.target_id, **diag}
+        self.last["flags"] = self._add_flags_after_execution(msg, ability)
+
+    def _add_flags_after_execution(self, msg, ability=None) -> dict:
+        """#139 — queue d'`ActiveAbilityOperation.ExecuteInternal` @180e44ec0 :
+            skipEndTurn     = `GetSkipEndTurnFlag` @180e47120   = !ability.SetsEndTurnFlags().Evaluate(...)
+            skipAbilityUsed = `GetSkipAbilityUsedFlag` @180e46f60 = !ability.SetsActiveAbilityUsedFlag(...)
+            -> `AddFlagsAfterAbilityExecution` @180e447f0 (flag 2 + FinishUnitTurn -> flags 1+3).
+        Les overrides `options.skip*Flag` du message natif (ActiveAbilityOptions+0x49/+0x4b, sous-abilities/
+        derived) ne sont pas transportes par notre ActiveAbilityMessage offline -> defaut false (aucun skip
+        force par le caller), fidele au cast top-level."""
+        from ..operations.turnflow import add_flags_after_ability_execution
+        from .base import sets_end_turn_flags_for, sets_active_ability_used_flag_for
+        caster = int(msg.caster_id)
+        if ability is not None:
+            sets_end = ability.sets_end_turn_flags(self.state, caster)
+            sets_used = ability.sets_active_ability_used_flag(self.state, caster)
+        else:
+            sets_end = sets_end_turn_flags_for(int(msg.ability_type), self.state, caster)
+            sets_used = sets_active_ability_used_flag_for(int(msg.ability_type), self.state, caster)
+        return add_flags_after_ability_execution(
+            self.state, caster, skip_ability_used=not sets_used, skip_end_turn=not sets_end)
