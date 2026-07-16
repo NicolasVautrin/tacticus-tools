@@ -7,7 +7,7 @@ import {
 import { invokeMethod } from "../../il2cpp/invoke.js";
 import { gcRoot } from "../../il2cpp/gc-root.js";
 import {
-    EntityType, forEachEntity, projectMatchState,
+    EntityType, forEachEntity, projectMatchState, readUnitDeathMeta,
 } from "../../game/match-state.js";
 import { abilityName } from "../../data/ability-names.js";
 import {
@@ -280,6 +280,11 @@ export interface FullUnit {
     pos: { col: number; row: number } | null;
     hp: number | null; owner: number | null; team: number | null;
     alive: boolean; ctrl: boolean; hasAction: boolean; ranged: boolean;
+    /** #185 : tué par une attaque de MÊLÉE (`UnitComponent.DefeatedByMeleeAttack`,
+     * le byte-gate du sélecteur natif `UnitsDefeatedByMeleeAttackSelector`) +
+     * tueur (`DeathReason` → `DamageSource.get_KillerId`). Lu sur le SQUAD →
+     * fiable aussi sur les corpses (pas de UnitFoot). false/null sur les vivants. */
+    defeatedByMelee: boolean; killerId: number | null;
     abilities: AbilityInfo[];
 }
 
@@ -292,6 +297,7 @@ export function projectUnitsFull(statePtr: NativePointer, allAbilities: boolean)
     forEachEntity(statePtr, (e, id, ty) => {
         if (ty !== EntityType.Unit) return;
         const b = base.get(id);
+        const death = readUnitDeathMeta(e);   // #185 (corpses inclus — e = squad)
         out.push({
             id, visualId: b?.visualId ?? null, pos: b?.pos ?? null,
             hp: b?.hp ?? null, owner: b?.ownerId ?? null, team: b?.teamId ?? null,
@@ -299,6 +305,7 @@ export function projectUnitsFull(statePtr: NativePointer, allAbilities: boolean)
             ctrl: invokeBool(isCtrlByCurMi, [e, statePtr]),
             hasAction: invokeBool(hasActionLeftMi, [e]),
             ranged: invokeBool(isRangedMi, [e]),
+            defeatedByMelee: death.defeatedByMelee, killerId: death.killerId,
             abilities: unitAbilityTypes(e, allAbilities),
         });
     });

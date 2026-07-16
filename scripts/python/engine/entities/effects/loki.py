@@ -1024,6 +1024,72 @@ class DaughterOfTheAbyssExtraDamagePctEffect(BaseEffect):
         return for_percent_increase(True, abs(int(pct)))
 
 
+class BlessingsOfKhorneModifiersEffect(BaseEffect):
+    """`BlessingsOfKhorne_ModifiersEffect` (EffectType 0x4ee=1262, nom capté "BlessingsOfKhorne" ;
+    config-owner TriggeredAbilityType 0x4c0=1216) — trait BlessingsOfKhorne (1046), TOUTE la faction
+    World Eaters (11 carriers : Azkor worldEightbound, Kharn, Wrask, Macer, + bosses LHE). DEUX
+    value-modifications sur le PORTEUR, toutes deux scalées par le MÊME multiplicateur N (#185) :
+
+    - DÉFENSE `CreateEffectDamageMalusForDefense @180f34c50` : `(OwnerIsTarget & DamageProfileIs(0xd=
+      Psychic)) -> -ConfigConst(0x4c=DmgPctReduction) x N` ⇒ le dégât PSYCHIQUE reçu par le porteur
+      est réduit de `8% x N` (max -64%).
+    - ATTAQUE `CreateEffectDamageBonusForAttack @180f34ae0` : `get_OwnerIsCaster` SEUL (AUCUN filtre
+      profil/normal/spéciale) `-> +ConfigConst(0xf=ExtraDmgPct) x N` ⇒ TOUT le dégât sortant du
+      porteur est augmenté de `3% x N` (max +24%).
+
+    N = `GetMultiplierBasedOnDefeatedInMelee @180f34ea0` = `Min(Count(NormalUnits(UnitsDefeatedBy-
+    MeleeAttack(AllUnits))) [+ TalismanOfRage self-kills], ConfigConst(0x43=MaxDefeatedUnits=8))`.
+    Le compte de base est GLOBAL (unités normales des DEUX camps tuées par une attaque de MÊLÉE,
+    flag `UnitComponent.DefeatedByMeleeAttack @0x178` écrit par `KillUnitOperation @180e76470`,
+    capté #185 dans decisionView.units). La branche self-kills (`ActorHasTriggeredAbility(owner,
+    1460=TalismanOfRage)` → double-compte des kills mêlée du porteur, killer = `DeathReason.KillerId`
+    capté) est INERTE-PAR-ROSTER : AUCUN unit du gameconfig courant ne porte TalismanOfRage
+    (vérifié unit_map) — non codée, à activer si un carrier apparaît (killerId déjà capté).
+
+    `melee_defeats` = compte BRUT (non cappé) seedé par `Scene._seed_battle_counters()` depuis
+    `scene.melee_defeats()` (decisionView.units) ; None (runner offline sans tracking, #185
+    runner-side non porté) → effet INERTE (dégradation fidèle « présent ≠ appliqué »).
+    Constantes gameconfig (trait BlessingsOfKhorne) : DmgPctReduction=8, ExtraDmgPct=3,
+    MaxDefeatedUnits=8 (hors rarityBonus — pas de scaling multiplier)."""
+
+    # Compte BRUT de melee-defeats (seedé par Scene ; None = pas de source -> inerte).
+    melee_defeats: "int | None" = None
+
+    def _n(self) -> int:
+        """`GetMultiplierBasedOnDefeatedInMelee @180f34ea0` : Min(count, MaxDefeatedUnits=8)."""
+        if self.melee_defeats is None:
+            return 0
+        cap = trait_var("BlessingsOfKhorne", "blessingsOfKhorneMaxDefeatedUnits")   # ConfigConst 0x43 (=8)
+        return min(int(self.melee_defeats), int(cap) if cap else 8)
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                               damage_profile: str | None = None,
+                                               attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        if (damage_profile or "") != "Psychic":               # DamageProfileIs(0xd) @180f34c50
+            return None
+        n = self._n()
+        if n <= 0:
+            return None
+        pct = trait_var("BlessingsOfKhorne", "blessingsOfKhorneDmgPctReduction")    # ConfigConst 0x4c (=8)
+        if not pct:
+            return None
+        return for_percent_decrease(False, abs(int(pct)) * n)   # owner=défenseur (effet sur la cible)
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True) -> EffectBonus | None:
+        # trigger natif @180f34ae0 = get_OwnerIsCaster SEUL — tous profils, normale ET spéciale.
+        n = self._n()
+        if n <= 0:
+            return None
+        pct = trait_var("BlessingsOfKhorne", "blessingsOfKhorneExtraDmgPct")        # ConfigConst 0xf (=3)
+        if not pct:
+            return None
+        return for_percent_increase(True, abs(int(pct)) * n)
+
+
 class PowerTripFullHealthEffect(BaseEffect):
     """`PowerTrip_FullHealthEffect` — axe COUPS (hits), actif SSI PV pleins.
     - hits @180f64cf0 : `ForAddition(ConfigConst key 0x2b)` = constante `extraHit` de l'ability PowerTrip (=1).

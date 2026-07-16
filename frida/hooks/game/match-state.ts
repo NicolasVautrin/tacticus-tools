@@ -16,8 +16,9 @@
 //   Stage @ 36 (Int32: 0=Setup, 1=Running, 2=Finished)
 
 import {
-    findClass, findClassAnywhere, findMethod, getFieldOffset,
-    readIl2cppString,
+    field_get_type, findClass, findClassAnywhere, findMethod,
+    getFieldInfo, getFieldOffset, readIl2cppString,
+    type_get_class_or_element_class,
 } from "../il2cpp/helpers.js";
 import { invokeMethod } from "../il2cpp/invoke.js";
 import { serializeToJson } from "../il2cpp/serializer.js";
@@ -366,6 +367,85 @@ export function forEachComponent(
         if (klass.isNull()) continue;
         cb(comp, klass);
     }
+}
+
+// ---- Death metadata (#185 BlessingsOfKhorne) ----
+// `UnitComponent.DefeatedByMeleeAttack` (bool) = LE byte que le sélecteur natif
+// `UnitsDefeatedByMeleeAttackSelector.IsValidUnit @180f00b40` lit en gate primaire
+// (comp+0x178 sur gqfc5mff6c, confirmé par dumpUnitComp live) ; écrit par
+// `KillUnitOperation.Execute @180e76470` (param wasMelee). `UnitComponent.DeathReason`
+// = Nullable<DamageSource> (comp+0x108 live) ; killer = `DamageSource.get_KillerId
+// @180e65a10` (override Nullable<int>@+0xc si non-zéro, sinon id@+0 — on INVOQUE le
+// getter natif plutôt que transcrire ses offsets internes). Offsets composant RÉSOLUS
+// PAR NOM au chargement (getFieldOffset) — zéro hardcode. Nullable<T> layout
+// (convention build validée, cf. COMP_FIELD platformMachineId) : hasValue @+0,
+// value aligné (@+8 pour DamageSource, align 8).
+const ucDefeatedByMeleeOff = unitComponentClass
+    ? getFieldOffset(unitComponentClass, "DefeatedByMeleeAttack") : -1;
+const ucDeathReasonOff = unitComponentClass
+    ? getFieldOffset(unitComponentClass, "DeathReason") : -1;
+const damageSourceClass = findClassAnywhere("IdunBattle.Operations", "DamageSource");
+const getKillerIdMi = damageSourceClass
+    ? findMethod(damageSourceClass, "get_KillerId") : null;
+// Layout INTERNE du Nullable<DamageSource> résolu PAR RÉFLEXION (pas de convention
+// supposée) : field DeathReason → type → classe Nullable`1 → offsets hasValue/value.
+// ⚠ il2cpp_field_get_offset sur un VALUE TYPE renvoie l'offset BOXÉ (header 0x10
+// inclus, cf. il2cpp/project.ts) → soustraire 0x10 pour l'offset inline.
+const drNullableClass = (() => {
+    if (!unitComponentClass) return null;
+    const f = getFieldInfo(unitComponentClass, "DeathReason");
+    if (!f) return null;
+    try {
+        const t = field_get_type(f) as NativePointer;
+        const k = type_get_class_or_element_class(t) as NativePointer;
+        return k.isNull() ? null : k;
+    } catch { return null; }
+})();
+const drHasValueOff = drNullableClass
+    ? getFieldOffset(drNullableClass, "hasValue") - 0x10 : -1;
+const drValueOff = drNullableClass
+    ? getFieldOffset(drNullableClass, "value") - 0x10 : -1;
+// get_KillerId : appel DIRECT de l'entry native (ABI : DamageSource* this,
+// MethodInfo* = 0 — mirror exact du call-site natif `get_KillerId(&local_2b8, 0)`
+// dans UnitKillerSelector.Select @180eff680). PAS runtime_invoke : il UNBOXE
+// (+0x10) l'instance des value-types → un ptr brut serait décalé.
+const getKillerIdFn = getKillerIdMi
+    ? new NativeFunction(getKillerIdMi.ptr, "int32", ["pointer", "pointer"])
+    : null;
+
+export interface UnitDeathMeta {
+    /** Tué par une attaque de MÊLÉE — source du multiplicateur BlessingsOfKhorne
+     * (`GetMultiplierBasedOnDefeatedInMelee @180f34ea0`). */
+    defeatedByMelee: boolean;
+    /** EntityId du tueur (`DamageSource.KillerId`), null si pas mort / inconnu.
+     * Consommé par la branche TalismanOfRage (1460) du multiplicateur. */
+    killerId: number | null;
+}
+
+/** Lit le death-meta du SQUAD (EntityType.Unit) — fiable aussi sur les CORPSES
+ * (le squad garde son UnitComponent après la mort, contrairement au UnitFoot). */
+export function readUnitDeathMeta(entityPtr: NativePointer): UnitDeathMeta {
+    const out: UnitDeathMeta = { defeatedByMelee: false, killerId: null };
+    if (!unitComponentClass) return out;
+    try {
+        forEachComponent(entityPtr, (comp, klass) => {
+            if (!klass.equals(unitComponentClass)) return;
+            if (ucDefeatedByMeleeOff > 0) {
+                out.defeatedByMelee =
+                    comp.add(ucDefeatedByMeleeOff).readU8() !== 0;
+            }
+            if (ucDeathReasonOff > 0 && getKillerIdFn
+                && drHasValueOff >= 0 && drValueOff >= 0
+                && comp.add(ucDeathReasonOff + drHasValueOff).readU8() !== 0) {
+                try {
+                    const kid = getKillerIdFn(
+                        comp.add(ucDeathReasonOff + drValueOff), NULL) as number;
+                    out.killerId = kid > 0 ? kid : null;
+                } catch { /* killerId stays null */ }
+            }
+        });
+    } catch { /* defaults */ }
+    return out;
 }
 
 interface SquadStats {

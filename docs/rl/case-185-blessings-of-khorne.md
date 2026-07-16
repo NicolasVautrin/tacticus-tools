@@ -1,10 +1,52 @@
 # Case #185 — BlessingsOfKhorne (Azkor) dmg% reduction/bonus scaled by melee-defeats
 
-**Status: offline RE COMPLETE + numeric constants read from gameconfig. PORT deferred: the
-scaling count `N` = "normal units defeated by melee this battle" is a battle-history metric the
-engine does not track (prediction path) — same capture blocker as #184, to be batched into the
-NEXT reinject. Carrier = `worldEightbound` (Azkor). Spun off from case-184 (bloodMephiston Psychic
-normal attack was reduced x~0.70 vs Azkor).**
+**Status: CAPTURE LIVE + PORT PREDICTION FAITS ; face DEFENSE VALIDEE BIT-EXACT live (N=1).**
+La face ATTACK est portee (meme canal N) mais sa validation est bloquee par un residu FLAT ~+217
+sur l'attaque normale d'Azkor (suspect = un AUTRE effet du kit Azkor non porte, cf. tache dediee) ;
+un 2e residu POSITIONNEL x0.36 (tuile distante iter-4) est aussi ouvert — AUCUN des deux n'est le
+canal BoK (le meme run donne le MATCH exact en DEF au meme N). Carriers = trait 1046 = TOUTE la
+faction World Eaters (11 unites : Azkor worldEightbound, Kharn, Wrask, Macer + bosses LHE).
+
+## Capture live (#185, hooks — VALIDEE session 21)
+
+- `UnitComponent.DefeatedByMeleeAttack` @+0x178 (dump live gqfc5mff6c ; = le byte-gate du selecteur
+  `UnitsDefeatedByMeleeAttackSelector.IsValidUnit @180f00b40`, ecrit par `KillUnitOperation.Execute
+  @180e76470` param wasMelee) + `UnitComponent.DeathReason` @+0x108 = `Nullable<DamageSource>` →
+  killer via l'ENTRY NATIVE `DamageSource.get_KillerId @180e65a10` (appel direct `(this, 0)`,
+  PAS runtime_invoke qui unboxerait +0x10 ; layout du Nullable resolu PAR REFLEXION champ
+  hasValue/value − 0x10 boxed-header). Surface : `decisionView.units[].defeatedByMelee/killerId`
+  (`match-state.ts::readUnitDeathMeta`, lu sur le SQUAD → fiable sur les corpses).
+- Probe : 6 corpses, polarite coherente (custoTrajann melee kill → True ; blackObliterator/
+  astraPrimarisPsy ranged kills → False), killerId = vrais ids, zero faux-positif vivants,
+  deterministe inter-runs.
+
+## Port prediction (fait)
+
+- `engine/entities/effects/loki.py::BlessingsOfKhorneModifiersEffect` (EffectType 0x4ee=1262, nom
+  capte "BlessingsOfKhorne" — confirme live sur Azkor) : DEF `x(1−0.08·N)` gated Psychic ; ATK
+  `x(1+0.03·N)` OwnerIsCaster seul (tous profils). `N = min(melee_defeats, 8)` dans l'effet
+  (cap = ConfigConst 0x43 du config-owner).
+- `Scene.melee_defeats()` = `Count(NormalUnits(UnitsDefeatedByMeleeAttack(AllUnits)))` : units
+  dv (squads kind-1, `NormalUnits @180df7770 = Units(set, kind=1)`) avec `defeatedByMelee && !alive`
+  (isDead mirror IsValidUnit — une ressuscitee ne compte plus). `_seed_battle_counters()` pousse le
+  compte sur les instances (duck-typing attr `melee_defeats`) dans les DEUX constructeurs.
+- TalismanOfRage (1460, self-kills double-comptes) : INERTE-PAR-ROSTER (0 carrier au gameconfig
+  courant, verifie unit_map) — non code ; killerId DEJA capte pour le jour ou un carrier apparait.
+- Runner offline (`from_state`) : pas de tracking death-cause → N=0 (degradation fidele) ;
+  tracking runner-side = suite possible.
+
+## Validation live (confront, session 21, seed 777 MC1_67)
+
+Roster : bloodMephiston+custoTrajann vs worldEightbound+worldJakhal+worldTerminator ; AI-driven.
+- Azkor effects captes = `['BlessingsOfKhorne', 'Daemon_ExtraBlock', 'Terrifying_ExtraDefense']`.
+- **N=1, meph→Azkor (Psychic, DEF face) : engine=(2325,3489) == oracle aiPlaybookPredict=(2325,3489)
+  — BIT-EXACT.**
+- N=1, Azkor→meph (ATK face) : oracle=(1608,2302) vs engine=(1390,2086) = residu FLAT ~+217
+  (min/max ratios 1.157/1.104 ≠ scalaire → additif) → PAS le canal %-BoK ; suspect = effet kit
+  Azkor non porte (BeaconOfRage 1236 ?) — A MESURER, tache dediee.
+- iter-4 (positions distantes) meph→Azkor : oracle=(532,798) = engine x0.36 (scalaire pur) —
+  divergence POSITIONNELLE de cette tuile (les 2 cotes avaient le board) — A DECOMPOSER, tache
+  dediee (candidate : couche terrain/CASE3/IndirectFire live sur MC1_67).
 
 ## Carrier
 `worldEightbound` (Azkor, lineup) traits = `[Hero, BlessingsOfKhorne, Daemon, Resilient,

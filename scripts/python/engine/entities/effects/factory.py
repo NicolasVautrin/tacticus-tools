@@ -13,6 +13,7 @@ from .loki import (
     ActOfFaithBuffEffect,
     AnvilShieldAdditionalBlockEffect,
     AstartesBannerExtraHitEffect,
+    BlessingsOfKhorneModifiersEffect,
     ContaminatedUnitEffect,
     BigTargetAdjacentEffect,
     CrushingStrikeEffect,
@@ -132,6 +133,11 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "DaughterOfTheAbyss_FriendlyDmgReductionPct": DaughterOfTheAbyssFriendlyDmgReductionPctEffect,
     "DaughterOfTheAbyss_OwnerDmgReduction": DaughterOfTheAbyssOwnerDmgReductionEffect,
     "DaughterOfTheAbyss_ExtraDamagePct": DaughterOfTheAbyssExtraDamagePctEffect,
+    # BlessingsOfKhorne (trait 1046, faction World Eaters — Azkor/Kharn/Wrask/Macer + bosses LHE) :
+    # -8%xN degat PSYCHIQUE recu par le porteur / +3%xN TOUT degat sortant, N=min(melee-defeats
+    # global, 8) seedé par Scene._seed_battle_counters depuis decisionView.units (#185).
+    # EffectType 0x4ee=1262, nom capte = effect-type-names.ts:385.
+    "BlessingsOfKhorne": BlessingsOfKhorneModifiersEffect,
     # DecoysAndMisdirection (Genestealer Cults ex. genesPrimus/genesMagus/genesKelermorph) : +extraDmg
     # FLAT additif a TOUTES les attaques de l'ami buffe (pose quand un decoy est spawn a cote / qu'un ami
     # marche sur un decoy). Gate OwnerIsCaster SEUL (@180f3e340 -> applique en prediction+combat, cf.

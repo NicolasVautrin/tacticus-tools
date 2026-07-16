@@ -200,10 +200,7 @@ export function wireRpc(ctx: Ctx): void {
         dumpUnitProgression();
         return { ok: true };
     };
-    ctx.rpc.dumpUnitComp = () => {
-        dumpUnitComponentFields();
-        return { ok: true };
-    };
+    ctx.rpc.dumpUnitComp = () => dumpUnitComponentFields();
     ctx.rpc.dumpWeapons = () => {
         dumpWeaponsFields();
         return { ok: true };

@@ -100,18 +100,20 @@ class Scene:
             elev_by_pos = {(t.get("col"), t.get("row")): int(t.get("elevation") or 0)
                            for t in board.by_id.values()
                            if t.get("col") is not None and t.get("row") is not None}
-        return cls(
+        sc = cls(
             ctx_by_id=ctx_by_id, armor_by_id=armor_by_id, shield_by_id=shield_by_id,
             mult_by_id=mult_by_id, ablvl_by_id=ablvl_by_id, vis_by_id=vis_by_id,
             units=units, hp_by_id=hp_by_id, pos_by_id=pos_by_id, team_by_id=team_by_id,
             eff_state=getattr(state, "effects", None), hpmax_by_id=hpmax_by_id,
             elev_by_pos=elev_by_pos, board=board)
+        sc._seed_battle_counters()   # #185 (units offline sans defeatedByMelee -> N=0, inerte)
+        return sc
 
     @classmethod
     def from_predictor_sctx(cls, predictor: dict, sctx: dict, elev_by_pos: dict | None = None,
                             board: object | None = None) -> "Scene":
         """Bridge des dicts de l'ancien PV vers l'objet Scene (mêmes données, forme objet)."""
-        return cls(
+        sc = cls(
             ctx_by_id=predictor.get("ctx_by_id") or {}, armor_by_id=predictor.get("armor_by_id") or {},
             shield_by_id=predictor.get("shield_by_id") or {}, mult_by_id=predictor.get("mult_by_id") or {},
             ablvl_by_id=predictor.get("ablvl_by_id") or {}, vis_by_id=predictor.get("vis_by_id") or {},
@@ -122,6 +124,33 @@ class Scene:
             board=board if board is not None else predictor.get("board"),
             abstate_by_id=predictor.get("abstate_by_id") or {},
             actorstats_by_id=predictor.get("actorstats_by_id") or {})
+        sc._seed_battle_counters()   # #185 BlessingsOfKhorne (melee-defeats -> effets N-scalés)
+        return sc
+
+    # ── Compteurs de bataille (#185) ───────────────────────────────────────────────────────────────
+    def melee_defeats(self) -> int:
+        """Compte de base de `GetMultiplierBasedOnDefeatedInMelee @180f34ea0` = `Count(NormalUnits(
+        UnitsDefeatedByMeleeAttack(AllUnits)))` : unités NORMALES (kind-1 — `dv.units` = squads hors
+        MoW par construction, `DSLFactory.NormalUnits @180df7770` = `Units(set, kind=1)`) MORTES
+        tuées par une attaque de MÊLÉE. Flag = `UnitComponent.DefeatedByMeleeAttack @0x178` (écrit
+        par `KillUnitOperation @180e76470`, capté #185 dans decisionView.units) ; `isDead` requis en
+        mirror du sélecteur `IsValidUnit @180f00b40` (une unité RESSUSCITÉE ne compte plus). GLOBAL
+        (les 2 camps, quel que soit le tueur). Units offline (`from_state`) sans le champ -> 0."""
+        return sum(1 for u in (self.units or [])
+                   if u.get("defeatedByMelee") and not u.get("alive"))
+
+    def _seed_battle_counters(self) -> None:
+        """Seed les effets dépendants d'un COMPTEUR DE BATAILLE : pousse `melee_defeats` (compte brut)
+        sur chaque instance d'effet qui déclare l'attribut (BlessingsOfKhorneModifiersEffect #185 —
+        duck-typing, pas d'import loki ici). Scene est reconstruite à chaque pas -> compte courant."""
+        bu = getattr(self.eff_state, "by_unit", None) if self.eff_state is not None else None
+        if not bu:
+            return
+        n = self.melee_defeats()
+        for effs in bu.values():
+            for e in effs:
+                if hasattr(e, "melee_defeats"):
+                    e.melee_defeats = n
 
     # ── Accesseurs (mirror des lectures dict de PV) ────────────────────────────────────────────────
     def ctx(self, uid):
