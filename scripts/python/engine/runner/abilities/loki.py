@@ -232,42 +232,32 @@ class ScarabSummonAbility(ActiveAbility):
 
 class GetEmRuntzAbility(ActiveAbility):
     """`GetEmRuntzAbility.ExecuteBehaviour @1811e2210` (id 1045, orksRuntherd/Snotflogga). Spawn UN grot par
-    hex LIBRE adjacent au caster **ET** adjacent à un ennemi (`GetSpawnTileSelector @1811e26b0`), stats
-    `WithStatsFromConfig(GetEmRuntz)` (4802 PV @lvl65/mult100 ; 7312 @lvl50/mult200). Chaque grot porte
-    `active_ability_level = casterLevel` → **lève le GAP PileIn** (les grots pourront se dédoubler avec des
-    stats correctes). Cf. `SpawnUnitOperation.execute_getemruntz`.
+    hex LIBRE adjacent au caster **ET** adjacent à un ennemi, chaque grot attaque à l'apparition
+    (`PerformAIAttackFromCurrentPosition`) puis Taunte l'ennemi frappé (`TauntWithNewChildrenWhoDidDamage`).
 
-    On-appearance : `PerformAIAttackFromCurrentPosition` (le grot attaque SANS bouger) — ici approximé par une
-    attaque sur l'ennemi le plus proche (rng requis) ; le Taunt(1t) des ennemis touchés
-    (`TauntWithNewChildrenWhoDidDamage @1811e27a0`) = FLAGGÉ non porté (secondaire)."""
+    #149 slice-2b : la behaviour EST désormais l'**arbre DSL** `getemruntz_tree()` (mirror 1:1 du décompilé
+    @1811e2210 : `ExecuteAtomic(Spawn) ; Execute(PerformAIAttack + Foreach(Children, Taunt))`), en
+    remplacement du portage impératif (spawn + on-appearance + Taunt câblés à la main). **PROUVÉ bit-exact**
+    (replay-diff DSL == impératif, cf. docs/rl/dsl-effect-nodes.md « Verdict RE #199 »). L'impératif
+    `SpawnUnitOperation.execute_getemruntz` est retenu comme RÉFÉRENCE pour le replay-diff LIVE (3-way
+    DSL/impératif/live), retrait après confront in-game."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.GetEmRuntz)  # 1045
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
-        spawned = SpawnUnitOperation.execute_getemruntz(state, caster_id)
-        attacks, taunts = [], []
-        if state.rng is not None:                # on-appearance PerformAIAttackFromCurrentPosition
-            for sid in spawned:
-                tgt = _nearest_enemy(state, sid)
-                if tgt is None:
-                    continue
-                r = AttackDamageOperation.execute(state, sid, tgt)
-                if r is None:
-                    continue
-                attacks.append({"summon": sid, "target": tgt, "total": r.get("total")})
-                # [Taunt] `TauntWithNewChildrenWhoDidDamage @1811e27a0` : l'ennemi attaqué par un NOUVEAU grot
-                # qui a fait du dégât (LastUnitAttackedBy & TotalAttacksMade>0 & vivant) est Taunted 1 round
-                # (`AddBondEffect(0x1b=27)` — COMPOSITE 25/26/1237). Bond grot↔ennemi = ciblage IA (playbook).
-                te = state.get_entity(tgt)
-                tuc = te.get_component(UnitComponent) if te is not None else None
-                if tuc is not None and tuc.alive:
-                    AddEffectOperation.execute(state, source=sid, target=tgt, effect_type=TAUNTED,
-                                               name="Taunted_OnlySpecificTargets",
-                                               duration_override=turns_from_rounds(1))
-                    taunts.append(tgt)
-        return {"summon": "orksGrot", "spawned": spawned, "attacks": attacks, "taunted": taunts,
-                "getemruntz": True}
+        # behaviour = arbre DSL (couche effet-nœuds) ; les feuilles émettent les MÊMES Operations que
+        # l'impératif (`AttackDamageOperation`/`AddEffectOperation`/`_spawn_config_grot`) -> même mutation.
+        from .dsl_behaviours import getemruntz_tree, entities_from_state
+        from ...dsl.effect_nodes import ExecutionContext
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        getemruntz_tree().execute(entities_from_state(state, caster_id), ectx)
+        # diag depuis les émissions de l'arbre (mêmes champs que l'ancien retour impératif)
+        spawned = [p["unit"] for n, p in ectx.emitted if n == "SpawnUnit"]
+        attacks = next((p["attacks"] for n, p in ectx.emitted if n == "PerformAIAttack"), [])
+        taunted = [p["target"] for n, p in ectx.emitted if n == "AddBondEffect"]
+        return {"summon": "orksGrot", "spawned": spawned, "attacks": attacks, "taunted": taunted,
+                "getemruntz": True, "dsl": True}
 
 
 def _adjacent_to_both(state: "State", caster_id: int, target_id: int) -> list[int]:

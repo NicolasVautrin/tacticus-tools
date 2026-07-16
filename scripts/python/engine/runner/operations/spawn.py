@@ -445,7 +445,12 @@ class SpawnUnitOperation:
 
     @staticmethod
     def execute_getemruntz(state: State, caster_id: int) -> list:
-        """`GetEmRuntzAbility.ExecuteBehaviour @1811e2210` (id 1045, orksRuntherd/Snotflogga). Spawn UN grot
+        """⚠ SUPERSEDÉ (#149 slice-2b) : le volet SPAWN est désormais porté par l'arbre DSL
+        `getemruntz_tree()` (`abilities/dsl_behaviours.py`) et `GetEmRuntzAbility.execute_behaviour`
+        n'appelle PLUS cette méthode. Retenue comme RÉFÉRENCE impérative pour le replay-diff LIVE
+        (3-way DSL/impératif/live) ; retrait après confront in-game.
+
+        `GetEmRuntzAbility.ExecuteBehaviour @1811e2210` (id 1045, orksRuntherd/Snotflogga). Spawn UN grot
         dans CHAQUE hex LIBRE adjacent au caster **ET** adjacent à un ennemi (`GetSpawnTileSelector @1811e26b0`
         = `CanAddUnit(AdjacentTiles(caster)) & AdjacentTiles(Enemies − trait0x1b)`), stats
         `WithStatsFromConfig(GetEmRuntz)` = `ability_var(GetEmRuntz, summon*, casterLevel, mult)` (4802 PV @lvl65).
