@@ -155,6 +155,42 @@ def apply_elevation_bonus(state: State, mods, attacker_id: int, target_id: int) 
         add_modifier(mods, eb)
 
 
+def apply_trench_reduction(state: State, mods, attacker_id: int, target_id: int,
+                           damage_profile: Optional[str] = None) -> None:
+    """#181 : ajoute au `mods` de l'ATTAQUANT la reduction TRENCH (-TrenchReductionPercentage%, =-50%) — feuille
+    positionnelle du builder PARTAGE `CalculateAttackerModifiersForPrediction @181000590` que le COMBAT applique
+    AUSSI (comme l'elevation : misnomer "ForPrediction", xrefs DATA-only = invoque par delegate pour prediction
+    ET combat ; aucun builder combat separe). MEME fonction nommee `calculate_trench_reduction`
+    (`CalculateTrenchReduction @181004830`) que la prediction — gate cible-porte-Trench + sous-branche
+    IsTrench(attackerTile)+IsNeighbourOf + IndirectFire(0x3ed) — sur les positions REELLES de l'ECS/board.
+    No-op sans board/positions (mods inchange). MEME `TRENCH_PCT`/`_TRENCH_IGNORED_PROFILES` (pas de fork)."""
+    board = state.board          # toujours present (__slots__) ; None tant que le boardGraph n'est pas cale
+    if board is None:
+        return
+    from .components import PositionComponent
+    from ..services.damage_modifiers import (add_modifier, calculate_trench_reduction,
+                                             TRENCH_PCT, _TRENCH_IGNORED_PROFILES)
+    from ..entities.traits.unit_trait import UnitTrait
+    ea, et = state.get_entity(attacker_id), state.get_entity(target_id)
+    pa = ea.get_component(PositionComponent) if ea is not None else None
+    pt = et.get_component(PositionComponent) if et is not None else None
+    if pa is None or pt is None:
+        return
+    hc = et.get_component(HealthComponent) if et is not None else None
+    tgt_eff = (state.effects.active_effects(target_id, {"hp": hc.hp if hc is not None else None})
+               if state.effects is not None else [])
+    target_has_trench = any(getattr(e, "name", None) == "Trench" for e in tgt_eff)   # HasEffect(cible, Trench 0x423)
+    sc = ea.get_component(StatsComponent) if ea is not None else None
+    att_traits = (getattr(sc.ctx, "traits", None) or ()) if sc is not None else ()
+    eb = calculate_trench_reduction(
+        (pa.col, pa.row), (pt.col, pt.row), target_has_trench,
+        UnitTrait.IndirectFire.name in att_traits,                              # HasTrait(att, IndirectFire 0x3ed)
+        bool(damage_profile) and damage_profile in _TRENCH_IGNORED_PROFILES,    # IgnoreTrenchReduction
+        board, TRENCH_PCT)
+    if eb is not None:
+        add_modifier(mods, eb)
+
+
 def build_hits_board(state: State, att_id: int, tgt_id: int,
                      attack_pos, t_pos, is_melee: Optional[bool]):
     """Bâtit `(board, aura_sources, target_effects)` pour `attack_hits_with_modifiers` depuis l'ECS

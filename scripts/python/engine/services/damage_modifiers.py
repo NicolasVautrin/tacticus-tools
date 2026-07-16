@@ -43,6 +43,16 @@ from .. import weights as _weights
 _DMG_CFG: dict = _json.loads(_weights.DEFAULT_BC.read_text(encoding="utf-8")).get("Damage", {}) \
     if _weights.DEFAULT_BC.exists() else {}
 ELEVATION_BONUS_PCT: int = int(_DMG_CFG.get("ElevationBonus", 50))   # CalculateElevationBonusModifier @181003ea0
+# TRENCH (CalculateTrenchReduction @181004830) : config native = pourcentage NEGATIF (=-50) -> le port passe
+# la MAGNITUDE a calculate_trench_reduction (kind PercentDecrease -> add_modifier flippe le signe -> x0.5).
+# PREDICTION (playbook) ET COMBAT (runner, #181) l'utilisent -- source unique ICI (pas de fork), comme
+# ELEVATION_BONUS_PCT.
+TRENCH_PCT: int = abs(int(_DMG_CFG.get("TrenchReductionPercentage", -50)))   # @181004830
+# Profils de degat qui IGNORENT la reduction Trench (IgnoreTrenchReduction @181559b70 = List.Contains(
+# staticList, profile)). Liste native = config STATIQUE hors section Damage de la BC (aucune cle ici) ->
+# defaut VIDE (aucun profil exempte) tant que non RE'd/exposee (#125). A raffiner si un cas live montre une
+# NON-reduction sur-trench pour un profil donne.
+_TRENCH_IGNORED_PROFILES: "frozenset[str]" = frozenset()
 # EFFECT_NO_ELEVATION (= int(EffectType.Trench), 1059) est défini EN BAS de module : l'import `entities.effect_type`
 # déclenche `entities/__init__` -> effects -> re-import de CE module (cycle) ; le placer après les défs le rompt (#158).
 

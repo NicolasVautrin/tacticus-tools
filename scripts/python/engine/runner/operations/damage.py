@@ -73,7 +73,7 @@ from ..components import (StatsComponent, HealthComponent, PositionComponent, Un
                          ShieldComponent)
 from ..damage_model import (select_weapon, select_weapon_pierce, attacker_modifiers,
                             defender_modifiers, build_hits_board, apply_elevation_bonus,
-                            target_trait_names, getstuckin_combat_chance)
+                            apply_trench_reduction, target_trait_names, getstuckin_combat_chance)
 from ...entities.effects import (hits_bonus_from_effects, crit_chance_bonus_from_effects,
                                  crit_damage_bonus_from_effects, defender_effect_block_sources)
 from ...entities.effects.loki import LIGHT_COVER_TILE_ID
@@ -254,6 +254,9 @@ class AttackDamageOperation:
         # prediction (service PARTAGE `calculate_elevation_bonus_modifier` de DamageCalculations ; positions
         # REELLES depuis l'ECS/board).
         apply_elevation_bonus(state, mods, attacker_id, target_id)
+        # #181 : reduction TRENCH (feuille positionnelle soeur de l'elevation dans le meme builder natif) —
+        # -50% si la cible porte l'effet Trench + conditions attaquant-tuile (calculate_trench_reduction).
+        apply_trench_reduction(state, mods, attacker_id, target_id, _profile)
         # Nb de coups : cette execution EST la facade `AttackDamageOperation.GetAttackHits @180e613d0` — elle
         # rassemble les entrees depuis l'ECS puis appelle la FORMULE PARTAGEE `attack_hits_with_modifiers`
         # (`AttackHitsWithModifiersFormula.Calculate @180f0bf50`, MEME formule que la facade prediction) :

@@ -32,7 +32,7 @@ from engine.services.min_max_damage import MinMaxDamage
 from engine.services.damage_modifiers import (
     ELEVATION_BONUS_PCT, EFFECT_NO_ELEVATION, add_modifier,
     calculate_elevation_bonus_modifier, calculate_ranged_in_melee_reduction,
-    calculate_trench_reduction)
+    calculate_trench_reduction, TRENCH_PCT, _TRENCH_IGNORED_PROFILES)
 from engine.services.battle_query import select_weapon_pierce, are_tiles_adjacent
 from engine.services.attack_hits_formula import attack_hits_with_modifiers
 from engine.playbook.probable_damage_event import ProbableDamageEvent
@@ -47,18 +47,12 @@ _DMG_CFG: dict = _json.loads(_weights.DEFAULT_BC.read_text(encoding="utf-8")).ge
 # prediction » (REFUTE #98 : aiPredict u80 (6,6) elev2>1 = x2.25 = CrushingStrike(1.5) x Elevation(1.5) ;
 # tuile candidate (5,7) elev egale = x1.0 EXACT -> evaluee a la TUILE CANDIDATE). Cf.
 # `_add_positional_and_defender_mods`. RangedInMelee/defenseur aussi dans le preview (10/11).
-# RANGED_IN_MELEE_PCT / TRENCH_PCT (ci-dessous) : config native = pourcentage NEGATIF (ReductionPercentage
-# =-50) ; le port passe la MAGNITUDE a calculate_*_reduction (kind PercentDecrease -> add_modifier flippe le
-# signe -> x0.5). Cf.
-# calculate_*_reduction (kind PercentDecrease -> add_modifier flippe le signe -> x0.5). Cf.
-# GetMultiplierFromDamageBonus @181005210 (value<1 -> 1-|value|/100), decompile confirme x0.5.
+# RANGED_IN_MELEE_PCT : config native = pourcentage NEGATIF (ReductionPercentage=-50) ; le port passe la
+# MAGNITUDE a calculate_ranged_in_melee_reduction (kind PercentDecrease -> add_modifier flippe le signe ->
+# x0.5 ; GetMultiplierFromDamageBonus @181005210 value<1 -> 1-|value|/100, decompile confirme). RangedInMelee
+# = PREDICTION-only (trait 0xb jamais assigne, #161). TRENCH_PCT / _TRENCH_IGNORED_PROFILES deplaces en
+# services.damage_modifiers (source unique partagee PREDICTION+COMBAT, #181).
 RANGED_IN_MELEE_PCT: int = abs(int(_DMG_CFG.get("RangedInMeleeReductionPercentage", -50)))  # @181004700
-TRENCH_PCT: int = abs(int(_DMG_CFG.get("TrenchReductionPercentage", -50)))                  # @181004830
-# Profils de degat qui IGNORENT la reduction Trench (`IgnoreTrenchReduction @181559b70` =
-# `List.Contains(staticList, profile)`). La liste native est un config STATIQUE hors section Damage de la
-# BC (aucune cle ici) -> defaut VIDE (aucun profil exempte) tant qu'elle n'est pas RE'd/exposee. A raffiner
-# si un cas live montre une NON-reduction sur-trench pour un profil donne (#125).
-_TRENCH_IGNORED_PROFILES: "frozenset[str]" = frozenset()
 _PROFILE_INDEX = {name: idx for idx, name in _PROFILE_BY_INDEX.items()}
 
 
