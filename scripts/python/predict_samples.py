@@ -4,6 +4,18 @@ Capture des échantillons d'attaque NORMALE à portée et compare la prédiction
 (`engine.playbook.prediction` sur `Scene`) à l'oracle live (dmgMin/dmgMax d'attackPlans). Remplace
 l'ancien `predict_validate` (retiré) : même validation, prédicteur = le modèle objet.
 
+⚠ ORACLE = `decisionView.attackPlans` (dmgMin/dmgMax) = le PREVIEW natif `DamagePredictionQuery.
+GetAllPredictions @181090f50` -> `FUN_18000cdc0`(interface-slot 3 sur l'ability) : chemin GENERIQUE
+« predict-vs-target », Attack-based QUEL QUE SOIT l'abilityType. VALIDE pour une attaque NORMALE
+(preview == prediction reelle). **FAUX pour une SPECIALE config-based** (bespoke `<Ability>Playbook`,
+ex. PsychicMaelstrom 1027, SpiritLeech 1104, ...) si elle rank en tete d'`attackPlans` : le preview
+COLLAPSE min=max (valeur unique) alors que la vraie prediction per-ability `MakeDamagePredictions`
+garde la variance. Le moteur porte le chemin per-ability (config-based) -> il DIVERGE legitimement du
+preview pour ces specials (#179 : PsychicMaelstrom decisionView=(5522,5522) vs moteur=(2507,5522) ==
+`aiPlaybookPredict`=(2505,5522), la VRAIE cible). Pour valider une speciale config-based : utiliser
+`predict_sweep.py` (oracle = `aiPlaybookPredict`, verite per-ability #102), PAS ce harnais.
+Detail : docs/rl/case-179-decisionview-preview-vs-playbook.md.
+
 Consommé par la suite pytest (`tests/engine/test_predict_live.py`, `test_damage_roll_live.py`,
 `test_runner_attack_live.py`) via `build_samples` / `sample_is_clean` / `sample_is_ok`, et en CLI
 (`python predict_samples.py --seed 777`).
