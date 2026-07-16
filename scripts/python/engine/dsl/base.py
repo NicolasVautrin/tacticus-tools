@@ -58,6 +58,12 @@ class DslContext:
     # Élément COURANT lié par un `Filter` (mirror du sélecteur-sujet natif `ability+0x180` =
     # OriginalTarget) — lu par le nœud `Subject` et les prédicats évalués sous un Filter. None hors Filter.
     subject: dict | None = None
+    # ACCUMULATEUR des enfants SPAWNÉS par le behaviour courant (mirror du champ factory natif `+0x148`
+    # que `DSLFactory.Spawn` alimente et que `DSLFactory.Children @180debed0` (= `AllAliveMachinesSelector`)
+    # relit — cf. GetEmRuntz `Foreach(Children, TauntWithNewChildrenWhoDidDamage)`). Liste PARTAGÉE (le
+    # `replace(subject=…)` du `Foreach` la partage par référence) : les feuilles `SpawnUnit` y ajoutent le
+    # dict de l'unité spawnée, `Children` la retourne. Défaut [] ; hors behaviour de spawn = vide.
+    children: list = field(default_factory=list)
     # Facteur de conversion rounds→turns (`TurnsFromRounds`, méthode runtime index 0x1b) : dépend du
     # nb d'équipes/joueurs actifs par round, NON capté offline → défaut 1 (identité, cf. times_attacked).
     turns_per_round: int = 1

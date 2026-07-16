@@ -6,6 +6,18 @@ import hexgeo
 from .base import Node, _pos, _units_of, _is_alive, _same_entity, _c_mod
 
 
+class TriggerAnd(Node):
+    """`AbilityTrigger.op_BitwiseAnd(a, b)` : ET LOGIQUE (court-circuit) de deux prédicats booléens
+    `ShouldTrigger`. ≠ `selectors.And` (intersection de LISTES d'unités, domaine ciblage). Utilisé par
+    `TauntWithNewChildrenWhoDidDamage @1811e27a0` : `(TotalAttacksMade>0 & turnsEq) & IsAlive(lastAttacked)`.
+    `bool(a) and bool(b)` — `b` non évalué si `a` faux (court-circuit natif)."""
+    def __init__(self, a: Node, b: Node):
+        self.a, self.b = a, b
+
+    def evaluate(self, ctx):
+        return bool(self.a.evaluate(ctx)) and bool(self.b.evaluate(ctx))
+
+
 class HasFlag(Node):
     """`DSLFactory.HasFlag(flag)` : `flag ∈ ctx.flags`. Le sens exact du flag (ex. HarvesterOfSouls @+0x160)
     reste à RE ; défaut = absent (branche `flag=false`), confirmé par l'agrément."""

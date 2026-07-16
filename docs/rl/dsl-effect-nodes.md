@@ -149,3 +149,64 @@ possible). **À trancher au build** (le nom `UnitsWithoutTrait` implique un TRAI
 2. `Foreach(Children)` = summons de CE cast uniquement (`factory@+0x148`), PAS tous les summons du board.
 3. Court-circuit `&` : pour 2 effets purs le flag@+0x20 reste 0 (sinon on perd le RIGHT du `op_Addition`).
 4. Wiring on-appearance PerformAIAttack + Taunt-if-did-damage (gap no-op actuel) : replay-diff sans re-trigger fantôme (garde-fou #140).
+
+## Verdict RE #199 — DÉCOMPILE `ExecuteBehaviour @1811e2210` (orchestrateur, gqfc5mff6c) : structure EXACTE
+
+Le décompilé de `GetEmRuntzAbility.ExecuteBehaviour @1811e2210` **corrige la structure de la section 3**
+(qui groupait `op_Addition((Spawn & PerformAIAttack), Foreach)`). La forme RÉELLE = **DEUX phases
+d'exécution séquentielles** (PAS un seul arbre) :
+
+```
+ExecuteBehaviour(this, entities, out result) :
+  1. ExecuteAtomic(this, Spawn(Cache(GetSpawnTileSelector), visualId=GetStringConstant(cfg,0),
+                               stats=WithStatsFromConfig(cfg)), entities, 0x50)   # spawn TOUS les grots
+  2. Execute(out result, this,
+       op_Addition(
+         PerformAIAttackFromCurrentPosition(Cache(GetSpawnTileSelector)),   # les grots (unités SUR les
+                                                                            # tuiles de spawn) attaquent
+         Foreach(Children = Children(factory+0x148), TauntWithNewChildrenWhoDidDamage) ),
+       entities)
+```
+
+- **`ExecuteAtomic(Spawn)` d'abord**, puis **`Execute(PerformAIAttack + Foreach(Taunt))`** — l'ordre net =
+  **tous les spawns → toutes les attaques → tous les Taunts** (le `Spawn` natif itère son tile-selecteur en
+  interne ; PerformAIAttack itère les unités du **même** `Cache(GetSpawnTileSelector)` = les grots spawnés).
+  ⚠ L'impératif `loki.GetEmRuntzAbility.execute_behaviour` **interleave** (attaque grot1 → Taunt grot1 →
+  attaque grot2 …) ; le DSL suit le NATIF (batché). **Équivalent PROUVÉ bit-exact** (replay-diff offline :
+  PV ennemis identiques) car le Taunt ne tire **aucun** RNG.
+- **`TauntWithNewChildrenWhoDidDamage @1811e27a0`** (Func<entities,behaviour>, décompilé) pour l'enfant
+  courant `child` (= subject du Foreach) :
+  ```
+  If( AmountIsGreaterThanZero(TotalAttacksMade(child))            # le grot a fait >=1 attaque
+      & AmountIsEqual(factory+0xb8, UnitTurnsStarted(child))      # enfant NEUF de ce cast (turnsStarted
+      &                                                           #   capturé de l'owner == celui du child)
+      & IsAlive(LastUnitAttackedBy(child)),                       # l'ENNEMI FRAPPÉ est vivant
+      AddBondEffect(0x1b=27 Taunted, stateRef=AbilityStateReference,
+                    source=child, target=LastUnitAttackedBy(child), TurnsFromRounds(1)) )
+  ```
+  **Le gate `IsAlive` porte sur `LastUnitAttackedBy(child)` (l'ennemi), PAS sur `child`** — ce qui **VALIDE
+  l'impératif** (`if target_alive: taunt`). La crainte initiale « native gate child-alive » était une
+  mauvaise lecture de la section 3.
+- **`Children @180debed0` = `AllAliveMachinesSelector`** (tous les summons vivants réf. `factory+0x148`) ; le
+  narrowing « ce cast / neufs » est le prédicat `AmountIsEqual(turnsStarted)`. Port : accumulateur
+  `DslContext.children` (mirror `factory+0x148`), alimenté par les feuilles `SpawnUnit`, scopé à CE cast.
+- **`PerformAIAbilityUnitBehaviour.Execute @180fcb070`** = machinerie AI (itère les unités du selecteur,
+  chacune décide une attaque via ses Func champs @+0x60/0x68/0x78/0x90). Port MINCE = plus-proche-ennemi +
+  `AttackDamageOperation.execute` (approx AI **identique à l'impératif** live-validé ; cible AI-exacte =
+  raffinement live à venir).
+
+### Port livré (#199) — arbre DSL complet `getemruntz_tree()`
+| Nœud natif (VA) | Port (`dsl_behaviours.py` / DSL lazy) | Statut |
+|---|---|---|
+| `Spawn @180dfbd50` | `Foreach(get_spawn_tile_selector(), SpawnUnit)` | slice-2b pas 2 (committé) |
+| `PerformAIAttackFromCurrentPosition @180df8a10` | `PerformAIAttack` (EffectNode, per-child nearest + AttackDamageOperation) | **#199** |
+| `Children @180debed0` (`AllAliveMachinesSelector`) | `Children` (lit `DslContext.children`, accumulateur factory+0x148) | **#199** |
+| `TotalAttacksMade @180dfe090` / `LastUnitAttackedBy @180df5ee0` / `UnitTurnsStarted @180dff280` | accesseurs runtime (lisent le dict enfant annoté par `PerformAIAttack`) | **#199** |
+| `op_BitwiseAnd` (AbilityTrigger, ×2) | `predicates.TriggerAnd` | **#199** |
+| `AddBondEffect(0x1b) @1811e27a0` | `AddBondEffect` (EffectNode → `AddEffectOperation` Taunted 27) | **#199** |
+
+Validé : replay-diff OFFLINE `getemruntz_tree()` == impératif `GetEmRuntzAbility.execute_behaviour` (State
+synthétique board evenq, orksRuntherd + 2 ennemis HIGH-HP) → grots [23,25], PV ennemis identiques
+post-attaque, **les 2 ennemis Taunted**. **RESTE (slice-2b final)** : bascule `AbilityHandler` (DSL en place
+de l'impératif) + retrait de `execute_getemruntz`/`GetEmRuntzAbility.execute_behaviour` + **replay-diff
+LIVE** (confront in-game).
