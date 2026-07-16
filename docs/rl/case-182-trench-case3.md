@@ -1,9 +1,9 @@
 # Case #182 — Trench prediction CASE3 (all-Trench intermediate line) delegate RE'd + ported
 
-**Status: the last Trench-reduction residual is RESOLVED. The CASE3 delegate `@LAB_181004bb9`
-(previously "non-RE'd, conservative fall-through APPLY") is now fully reverse-engineered and ported.
-Offline smoke PASS (5 scenarios). Live confront (C2_19 CASE3 sample) remains as the honest closer,
-deferrable.**
+**Status: RESOLVED + LIVE-CONFIRMED (session 22, driven confront). The CASE3 delegate
+`@LAB_181004bb9` is fully reverse-engineered, ported, offline-smoked (5 scenarios) AND confirmed
+live on C2_19 (see "Live confront" below): CASE3 SKIP 2/2 MATCH, ADJ SKIP MATCH, APPLY (off-trench)
+BIT-EXACT.**
 
 ## What CASE3 is
 `DamageCalculations.CalculateTrenchReduction @181004830` APPLIES the Trench damage reduction by
@@ -78,11 +78,18 @@ its offset<->cube parity is validated vs the native `boardGraph` (hexgeo parity 
 - **Offline smoke PASS** (5 scenarios, pure Python, no live): all-Trench line -> SKIP ; broken line
   (one Grass tile) -> APPLY ; neighbour + on-Trench -> SKIP (IsNeighbourOf) ; off-Trench non-adjacent
   -> APPLY ; IndirectFire non-adjacent -> main-gate None. Confirms the branch logic + regression guards.
-- **Live confront (deferred, honest closer):** the port doc already records a live CASE3 measurement
-  on board C2_19 (bloodMephiston): "ligne-toute-Trench -> SKIP (natif 2006-3010)". Before this port
-  the predictor APPLIED the reduction on that sample (~half) = a mismatch vs native 2006-3010; after
-  it SKIPs = matches. Re-running the C2_19 bloodMephiston prediction sweep with the CASE3 geometry is
-  the remaining live confirmation (needs the same board + positions; not reinject-gated).
+- **Live confront (DONE, session 22 — driven geometry, probes 182/182b):** built C2_19 seed 777
+  (bloodMephiston vs worldJakhal "Macer"), DROVE meph along the Trench corridor (applyAction move +
+  aiPlayByUnit for the enemy), sampled engine vs aiPlaybookPredict at each geometry class:
+  - **CASE3** (meph ON Trench, non-adjacent, hexgeo line all-Trench): 2/2 MATCH — (2,1)->(4,1) and
+    (1,2)->(3,1), oracle=(2006,3010) = NO reduction (native SKIP confirmed; pre-port the engine
+    would have halved -> x2 mismatch).
+  - **ADJ** (meph on Trench, neighbour): MATCH (3009,4515 melee / values consistent).
+  - **APPLY-off** (meph OFF Trench at dist 2, jakhal trench-effected): **BIT-EXACT** (802,1204).
+  - NOGATE sanity: MATCH.
+  Two APPARENT divergences during the sweep (oracle = engine x1.5 when the jakhal stood on the
+  (2,2) Swamp tile) are **NOT Trench**: diagnosed as the unported **Thorns_DefenseReduction TILE
+  effect** (tile stat-mod Defense -X on occupants) -> case #194. Trench layers are fully closed.
 
 ## Anchors (VAs, gqfc5mff6c)
 CalculateTrenchReduction @181004830 (CASE3 at LAB_181004bb9, APPLY at LAB_181004e45) ;
