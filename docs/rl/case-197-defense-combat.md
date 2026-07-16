@@ -6,6 +6,11 @@ fonction native était bolted sur le seul caller prédiction). Fix = consolider 
 partagée `build_defender_modifiers_from_effects` (mirror 1:1 de `CalculateDefenderModifiersForPrediction
 @181002c30`) → prédiction ET combat l'obtiennent PAR CONSTRUCTION. #194 prédiction préservé bit-exact.**
 
+> **Correction terrain (via #198)** : la tuile −50 DEFENSE de C2_19 (2,2) est un tile-def **Swamp**, PAS
+> "Thorns" (aucun board n'a de tileDefId "Thorns" ; marche live `{Grass:0, Trench:0, DryBush:0, Swamp:-50}`).
+> Le −50 et le fold ci-dessous restent CORRECTS (ils lisent la stat DEFENSE, pas le nom du terrain) ; seul le
+> LABEL "Thorns" était faux. Lire « Swamp » partout où ce doc dit « Thorns ». Cf. case-198.
+
 ## Le vrai problème n'était pas « un axe à porter » mais un FORK de port
 Le natif fait ça à UN seul endroit : `CalculateDefenderModifiersForPrediction @181002c30` remplit UN
 accumulateur avec DEUX moitiés (decompile-confirmé) :

@@ -36,7 +36,7 @@ arene `MC1_67` = 3 DryBush. Recette board-finding : skill `runner.md` 2bis.
 | `DryBushAbility` | 1811bf560 | DryBush | (base) | - |
 | `DryBushFireSpreadAbility` | 1811bf5c0 | DryBush en feu | DoT fire spread | **damage** |
 | `FirstAidHealAbility` | 1811c0490 | FirstAid | heal sur tuile | heal |
-| `ThornsBlockMovementAbility` | 1811c8d70 | Thorns | bloque mvt | movement |
+| `ThornsBlockMovementAbility` | 1811c8d70 | **Swamp** | bloque mvt + **−50 DEFENSE** | movement + **damage** |
 | `BrokenIceAbility` | 1811bed00 | BrokenIce | fall-through blocker | movement |
 
 ### LightCover (DryBush) — PORTE (prediction correcte)
@@ -105,9 +105,14 @@ TOUS effet-driven (JAMAIS un blocage statique de terrain ; le static-block est R
 walkable=TRUE + dans aiMovableTiles, SyncPvp_Arctic_06). Le blocage = pose de `BlockEnteringUnitsTileEffect`
 (.ctor @180f35510, exemption `NotBlockingMovementOfTraits @18155b370`) OU flip du flag walkable (BrokenIce).
 
-- **Thorns** `ThornsBlockMovementAbility.CreateBehaviour @1811c8d70` = `AddBlockEnteringUnitsEffect(0,0)
-  & AddStaticStatModifierEffectToOwner(0xb, part=3, Direct(GetNumberConstant(0x14)))` (block + buff stat 0xb).
-  Gate par son CreateTrigger (non lu ; behaviour lui-meme = pose inconditionnelle du block quand triggere).
+- **Thorns/SWAMP** `ThornsBlockMovementAbility.CreateBehaviour @1811c8d70` = `AddBlockEnteringUnitsEffect(0,0)
+  & AddStaticStatModifierEffectToOwner(0xb, stat 3=DEFENSE, Direct(GetNumberConstant(0x14)))` (block +
+  −50 DEFENSE). ⚠ **Le tile-def porteur est SWAMP, PAS "Thorns"** (aucun board n'a de tileDefId "Thorns" ;
+  marche live probe_198_map : `{Grass:0, Trench:0, DryBush:0, Swamp:-50}` ; desc localisée `SwampBlockMovement
+  @1809cdf10`). L'effet `ThornsDefenseReductionEffect` (`CreateTargetSelector @180f47ea0` =
+  `UnitsWithoutTrait(Units(tile), Immune)`). Face combat au LOAD = #197 (fold DEFENSE ×1.5) ; matérialisation
+  DYNAMIQUE enter/leave = **#198 PORTÉ+VALIDÉ** (`tiles.apply_tile_defense_on_move`, cf. case-198). #131
+  (blocage mouvement) reste déféré.
 - **BrokenIce** `BrokenIceAbility.CreateTrigger @1811bed90` = fire sur events d'ENTREE d'unite
   (`On(0x19=25) | On(0x1d=29) | On(0)|On(0x35)`, gates `OwnerIsTargetTile`/`OwnerIsCasterTile`,
   `!HasTrait(0x1b=27)`, `!TriggeringAbilityIs(0x47f)`). `CreateBehaviour @1811bed00` : si event==0x19 ->

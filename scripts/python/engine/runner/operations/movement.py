@@ -31,12 +31,20 @@ class MoveUnitOperation(Operation):
         if e is None:
             return
         pc = e.get_component(PositionComponent)
+        old_pos = (pc.col, pc.row) if pc is not None else None
         if pc is None:
             e.add_component(PositionComponent(self.to[0], self.to[1]))
         else:
             pc.col, pc.row = self.to
         # #60 has_moved : marque l'unite "a bouge ce tour" (gate no-move HeavyWeapon lu en combat).
         state.moved_this_turn.add(self.unit_id)
+        # #198 : materialisation DYNAMIQUE du stat-mod DEFENSE de tuile (Thorns/famille). En quittant/
+        # entrant une tuile a stat-mod DEFENSE, l'occupant non-Immune gagne/perd la modification (mirror
+        # ThornsDefenseReductionEffect apply-on-enter/revert-on-leave). No-op hors terrain a stat-mod /
+        # sans board / Immune. On saute un ajout d'entite (pc None = spawn, pas un move de tuile-a-tuile).
+        if old_pos is not None:
+            from .triggers.tiles import apply_tile_defense_on_move
+            apply_tile_defense_on_move(state, self.unit_id, old_pos, self.to)
         # INCRÉMENT 1b : AddMoveEvent (bus) + EvaluateAfterMoveTriggers (overwatch) ici.
 
 

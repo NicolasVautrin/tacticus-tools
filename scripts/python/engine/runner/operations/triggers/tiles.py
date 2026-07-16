@@ -1,7 +1,8 @@
 """Ability-triggers du namespace natif `IdunBattleLogic.Entities.Abilities.Tiles.*` — abilities portées
 par le TERRAIN (tile-def), pas par une unité. 1 fonction par ability native (VA citée) :
 - `DryBushFireSpreadAbility` — propagation du feu entre tuiles DryBush au tick d'environnement.
-- `FirstAidHealAbility` (#130) — heal-on-tile au début du tour (à porter)."""
+- `FirstAidHealAbility` (#130) — heal-on-tile au début du tour (à porter).
+- `ThornsBlockMovementAbility` (#198) — stat-mod DEFENSE de tuile posé/retiré à l'entrée/sortie."""
 from __future__ import annotations
 
 from ...state import State
@@ -131,3 +132,77 @@ def first_aid_heal(state: State, player_id: int) -> list[dict]:
             out.append({"tile_effect": "FirstAid", "tile": tile_id, "unit": uid,
                         "heal": healed, "pct": healpct, "on_event": 0x13})
     return out
+
+
+# --- Swamp (et famille) : stat-mod DEFENSE de tuile statique (#198) --------------------------------
+# `ThornsBlockMovementAbility.CreateBehaviour @1811c8d70` (nom INTERNE de l'ability ; assignée par la tile-
+# config Unity au tile-def **Swamp**, PAS à un terrain "Thorns" — aucun board n'a de tileDefId "Thorns", et
+# la description localisée est `SwampBlockMovement @1809cdf10`) = `AddBlockEnteringUnitsEffect(#131)` &
+# `AddStaticStatModifierEffectToOwner(0xb, stat 3=DEFENSE, Direct(GetNumberConstant(config, 0x14)))`.
+# L'effet concret `ThornsDefenseReductionEffect` (`CreateTargetSelector @180f47ea0` =
+# `UnitsWithoutTrait(Units(tile,1,3), Immune=25)`) pose la réduction DEFENSE sur l'occupant NON-Immune de
+# la tuile ; #197 en consomme la face combat (fold DEFENSE -> ×1.5). #198 = la matérialisation DYNAMIQUE :
+# gagner/perdre la modification en ENTRANT/SORTANT de la tuile pendant le runner-sim. ⚠ #194/#197 nommaient
+# ce terrain "Thorns" (hypothèse nom-d'ability -> terrain) ; la marche live (probe_198_map) l'a RÉFUTÉ.
+#
+# HARDCODE (source Unity asset, NON dérivable offline) : la constante `GetNumberConstant(config, 0x14)` vit
+# dans une Unity asset config (`IdunUniverse.GetTileConfigurations @1807a7d60`), ABSENTE du gameconfig JSON
+# (vérifié : `GC.ability(...)` = None, aucun globalValue). Valeur + terrain CAPTÉS LIVE par marche multi-
+# terrain (probe_198_map, C2_19) : `{Grass:0, Trench:0, DryBush:0, Swamp:-50}` → seule **Swamp** porte le
+# stat-mod DEFENSE (**−50**), générique au tile-def (jakhal DEFENSE 50 vs base 100). À RE-CAPTURER si les
+# assets tuile changent (spécifique au hash de build, comme les dumps Il2CppDumper). Signe négatif =
+# réduction. La FAMILLE (DryBush/Shrub bonus #126 — mesurés à 0 ici, donc INACTIFS/non-DEFENSE ; SpiderWeb)
+# a des signes/constantes PROPRES : HORS table = no-op fidèle tant qu'un board/scénario ne les mesure pas
+# (ne JAMAIS deviner un signe/valeur ; ajouter une entrée dès qu'une constante est captée live).
+TILE_DEFENSE_STAT_MODS = {"Swamp": -50}   # tile_def_id -> delta DEFENSE (AStaticStatModifierEffect, stat 3)
+TILE_DEFENSE_EXCLUDE_TRAIT = UnitTrait.Immune   # `UnitsWithoutTrait(Units(tile), 0x19=25=Immune)`
+
+
+def tile_defense_mod(terrain: str | None) -> int:
+    """Delta DEFENSE (`AStaticStatModifierEffect` stat 3) qu'une tuile `terrain` pose sur son occupant
+    non-Immune. 0 si le terrain n'a pas de stat-mod DEFENSE connu (mirror : pas de
+    `ThornsDefenseReductionEffect` -> aucune contribution). Seule Swamp est captée (cf. table)."""
+    return TILE_DEFENSE_STAT_MODS.get(terrain or "", 0)
+
+
+def apply_tile_defense_on_move(state: State, unit_id: int,
+                               from_pos: tuple | None, to_pos: tuple) -> dict | None:
+    """#198 — matérialise le stat-mod DEFENSE de tuile à la transition `from_pos`->`to_pos`, mirror
+    apply-on-enter / revert-on-leave de `ThornsDefenseReductionEffect`.
+
+    L'occupant non-Immune d'une tuile à stat-mod DEFENSE (Thorns…) porte `tile_defense_mod(terrain)` sur sa
+    DEFENSE. À la transition, on ajoute au TOTAL DEFENSE la **différence** `tile_defense_mod(to) −
+    tile_defense_mod(from)`. Le −X cuit au LOAD (unité DÉJÀ sur la tuile) vit dans le lump `CAPTURED_SOURCE`
+    de sa `ValueModification` DEFENSE (résidu `seed_unit_stats`) — l'y ajuster maintient l'invariant
+    UNIFORMÉMENT (unité déjà-posée ET unité entrante), sans toucher le seeding partagé prédiction (#197
+    intact) : la face combat/from_state relit `ctx.stats[DEFENSE]` muté. Le fold #197
+    (`calculate_modifiers_from_stat_modifications`) somme les contributions par-source ⇒ un `captured` ajusté
+    reste un unique `EffectBonus` ; retombe à 0 (`reverse_modification`) quand l'unité quitte tout terrain à
+    stat-mod ⇒ le gate `Current==Initial` du fold rend ×1.0. Gate Immune (mirror `UnitsWithoutTrait`).
+    No-op (`None`) sans board / hors terrain à stat-mod (delta nul) / unité Immune / pas de composant DEFENSE."""
+    board = state.board
+    if board is None:
+        return None
+    from ....entities.stats import StatType, CAPTURED_SOURCE
+    from_terr = board.terrain_at(from_pos[0], from_pos[1]) if from_pos is not None else None
+    to_terr = board.terrain_at(to_pos[0], to_pos[1])
+    delta = tile_defense_mod(to_terr) - tile_defense_mod(from_terr)
+    if delta == 0:                                   # transition sans changement de stat-mod DEFENSE
+        return None
+    e = state.get_entity(unit_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    if sc is None or getattr(sc, "ctx", None) is None:
+        return None
+    if has_trait(sc.ctx.traits, TILE_DEFENSE_EXCLUDE_TRAIT):   # `UnitsWithoutTrait(Immune)` : Immune exclu
+        return None
+    comp = sc.ctx.stats.components.get(int(StatType.DEFENSE))
+    if comp is None:
+        return None
+    cur = comp.modification.per_source.get(CAPTURED_SOURCE, 0)
+    new = cur + delta
+    if new == 0:
+        comp.modification.reverse_modification(CAPTURED_SOURCE)   # plus de résidu -> retrait exact
+    else:
+        comp.modification.modify(CAPTURED_SOURCE, new)
+    return {"tile_defense": unit_id, "from": from_terr, "to": to_terr,
+            "delta": delta, "defense_now": comp.get_current_value()}
