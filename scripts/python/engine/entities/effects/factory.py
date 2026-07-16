@@ -16,6 +16,7 @@ from .loki import (
     BeaconOfRageExtraDamageEffect,
     BlessingsOfKhorneModifiersEffect,
     ContaminatedUnitEffect,
+    OverwhelmingWrathRangeDmgReductionEffect,
     BigTargetAdjacentEffect,
     CrushingStrikeEffect,
     DaughterOfTheAbyssExtraDamagePctEffect,
@@ -145,6 +146,11 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # le natif (@180e13230). EffectType 0x512=1298 (#189). La variante 0x513=1299 FriendlyExtraDamage
     # (aura : 50% du bonus aux attaques MELEE des amis adjacents, si >=1 kill) = tache dediee.
     "BeaconOfRage_ExtraDamage": BeaconOfRageExtraDamageEffect,
+    # OverwhelmingWrath (active 1141 d'Azkor) : -dmgReductionPct% (64 des L36) au degat RANGED recu
+    # par le porteur jusqu'au debut de son tour suivant (transient rem=1 ; @180f5d6e0 ForPercentDecrease
+    # OwnerIsTarget & IsRangedAttack, ConfigVar 0x46). EffectType 0x515=1301 (#190). Le jumeau
+    # 0x514=1300 PendingAttack (attaque differee 2x Eviscerate) = hors canal modifier, tache dediee.
+    "OverwhelmingWrath_RangeDmgReduction": OverwhelmingWrathRangeDmgReductionEffect,
     # DecoysAndMisdirection (Genestealer Cults ex. genesPrimus/genesMagus/genesKelermorph) : +extraDmg
     # FLAT additif a TOUTES les attaques de l'ami buffe (pose quand un decoy est spawn a cote / qu'un ami
     # marche sur un decoy). Gate OwnerIsCaster SEUL (@180f3e340 -> applique en prediction+combat, cf.

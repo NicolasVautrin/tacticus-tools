@@ -1134,6 +1134,43 @@ class BeaconOfRageExtraDamageEffect(BaseEffect):
         return for_addition(True, int(per) * int(rage))
 
 
+class OverwhelmingWrathRangeDmgReductionEffect(BaseEffect):
+    """`OverwhelmingWrath_RangeDmgReductionEffect` (EffectType 0x515=1301, nom capté
+    "OverwhelmingWrath_RangeDmgReduction" ; famille `ADamageDefenseModifierAbilityEffect`, ctor
+    @180f5d850 = base(0x475=1141 = OverwhelmingWrath, l'ACTIVE d'Azkor worldEightbound)) — i2 :
+    « Until the beginning of his next turn Azkor Taunts all adjacent enemies and takes -64% Damage
+    from ranged attacks. » Effet TRANSIENT (rem=1 capté), posé par l'ExecuteBehaviour de l'ability
+    (@1811f8bc0), expire au début du tour suivant du porteur. #190.
+
+    - dégât `CreateDamageDefenseModifier @180f5d6e0` : `EffectBonus.ForPercentDecrease(
+      get_OwnerIsTarget & IsRangedAttack, ConfigVar(0x46=dmgReductionPct, GetAbilityState(effet)))`
+      → le dégât des attaques RANGED reçues par le porteur est réduit de `dmgReductionPct`%.
+      Gate RANGED strict (aucun filtre profil/normal) ; contexte inconnu (is_melee=None) → no-op.
+    - MAGNITUDE : `dmgReductionPct[ablvl]` (24→64, plateau à 64 dès L36 ; HORS
+      variablesAffectedByRarityBonus=[minDmg,maxDmg] → multiplier no-op). Ability ACTIVE →
+      active_ability_level, fallback ability_level (seed = passif ; plateau ⇒ écart no-op) / level.
+
+    GROUND TRUTH #190 (seed 777 MC1_67 iter-4, session 22) : meph (1,4) → Azkor (3,4) dist 2
+    (ranged), tout Grass, elev 3=3 — l'hypothèse « positionnelle » de la tâche est RÉFUTÉE par
+    mesure (toggles no-elev/no-board strictement inertes) : oracle=(532,798) = engine ×0.360 EXACT
+    min ET max = 1−0.64 ; à iter-5 (effet expiré) le MÊME couple matche BIT-EXACT → transient,
+    pas positionnel. (L'effet jumeau `OverwhelmingWrath_PendingAttack` 0x514=1300 = l'attaque
+    différée 2× Eviscerate au début du tour suivant — hors canal modifier, non porté ici.)"""
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                               damage_profile: str | None = None,
+                                               attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        if is_melee is not False:                # gated IsRangedAttack @180f5d6e0
+            return None
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        pct = ability_var("OverwhelmingWrath", "dmgReductionPct", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
+        if not pct:
+            return None
+        return for_percent_decrease(False, abs(int(pct)))   # owner=défenseur (l'effet est sur la cible)
+
+
 class PowerTripFullHealthEffect(BaseEffect):
     """`PowerTrip_FullHealthEffect` — axe COUPS (hits), actif SSI PV pleins.
     - hits @180f64cf0 : `ForAddition(ConfigConst key 0x2b)` = constante `extraHit` de l'ability PowerTrip (=1).

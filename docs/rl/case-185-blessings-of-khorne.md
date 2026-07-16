@@ -4,9 +4,14 @@
 Le residu FLAT ~+217 qui bloquait la face ATTACK etait **BeaconOfRage** (passive 1236 d'Azkor,
 PAS un canal BoK) — RE + porte #189 (cf. §BeaconOfRage ci-dessous) ; re-confront session 22 :
 ATK engine=(1608,2302) == oracle BIT-EXACT (BoK x1.03 et flat BeaconOfRage composent ensemble).
-Reste OUVERT : le residu POSITIONNEL x0.36 (tuile distante iter-4, scalaire pur, re-mesure
-identique session 22 : oracle=(532,798) = engine x0.360) = tache #190. Carriers = trait 1046 =
-TOUTE la faction World Eaters (11 unites : Azkor worldEightbound, Kharn, Wrask, Macer + bosses LHE).
+Le residu « POSITIONNEL » x0.36 (iter-4) est AUSSI RESOLU (#190) : ce n'etait PAS du terrain
+(hypothese REFUTEE par mesure — tout Grass, elev egales, toggles no-elev/no-board inertes) mais
+**OverwhelmingWrath_RangeDmgReduction** (1301), l'effet TRANSIENT (rem=1) de l'active d'Azkor :
+-64% au degat RANGED recu (1-0.64 = 0.36 exact) ; expire a son tour suivant, d'ou le MATCH du meme
+couple a iter-5. Porte (loki.py::OverwhelmingWrathRangeDmgReductionEffect) ; re-confront session 22 :
+iter-4 engine=(532,798) == oracle BIT-EXACT, PLUS AUCUNE divergence sur le run. Carriers = trait
+1046 = TOUTE la faction World Eaters (11 unites : Azkor worldEightbound, Kharn, Wrask, Macer +
+bosses LHE).
 
 ## Capture live (#185, hooks — VALIDEE session 21)
 
@@ -46,10 +51,15 @@ Roster : bloodMephiston+custoTrajann vs worldEightbound+worldJakhal+worldTermina
   ~+217 (min/max ratios 1.157/1.104 ≠ scalaire → additif) → PAS le canal %-BoK. **RESOLU #189 =
   BeaconOfRage non porte** ; apres port, re-confront session 22 (meme seed/roster, iter-5 N=1
   rage=1) : **engine=(1608,2302) == oracle=(1608,2302) BIT-EXACT** (et DEF re-MATCH au meme run).
-- iter-4 (positions distantes) meph→Azkor : oracle=(532,798) = engine x0.36 (scalaire pur) —
-  divergence POSITIONNELLE de cette tuile (les 2 cotes avaient le board), RE-MESUREE IDENTIQUE
-  session 22 (x0.360 exact min et max) — A DECOMPOSER, tache #190 (candidate : couche
-  terrain/CASE3/IndirectFire live sur MC1_67).
+- iter-4 (positions distantes) meph→Azkor : oracle=(532,798) = engine x0.36 (scalaire pur).
+  **RESOLU #190 — pas positionnel du tout** : decomposition live (dump geometrie + toggles) =
+  meph (1,4) → Azkor (3,4) dist 2 (ranged), tout Grass, elev 3=3, Trench→None, toggles
+  no-elev/no-board strictement inertes ; le facteur = **OverwhelmingWrath_RangeDmgReduction (1301,
+  rem=1)** sur Azkor : -64% degat RANGED recu (`CreateDamageDefenseModifier @180f5d6e0` =
+  ForPercentDecrease(OwnerIsTarget & IsRangedAttack, ConfigVar(0x46=dmgReductionPct)), famille
+  ADamageDefenseModifierAbilityEffect(0x475=1141), dmgReductionPct 24→64 plateau L36+, hors
+  rarityBonus). Apres port : iter-4 engine=(532,798) == oracle BIT-EXACT, aucune divergence
+  restante sur le run (l'effet jumeau 1300 PendingAttack = attaque differee, tache #193).
 
 ## #189 — BeaconOfRage (le residu FLAT, resolu)
 
