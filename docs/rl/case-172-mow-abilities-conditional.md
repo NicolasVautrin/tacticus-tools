@@ -64,3 +64,27 @@ hors scene) -> ce serait du code mort. A ajouter QUAND l'engine predira les MoW 
 RECON LA DESCRIPTION (kit i2) AVANT de prober une ability inconnue. Prober blblackForgefiend a l'aveugle a fait croire
 a un "harnais casse" (count=0) alors que la description dit exactement pourquoi (feu / summon requis). Les abilities MoW sont
 un cas a part : toutes conditionnelles/2-phases -> jamais confrontables en etat frais sans monter le declencheur.
+
+## Confront re-tente + CLOTURE (2026-07-16)
+
+RE re-confirmee par decompile (spot-check) : `DaemonicOrdnanceAbility.GetDamage @1811cfbb0` ET
+`LightOfSanguiniusAbility.GetDamage @1811b2010` (HadesAutocannons) sont des wrappers TRIVIAUX de
+`AActiveAbility.MinMaxDamage @180fb2dc0`, dont la branche avg = `Half(Sum(GetVariableForLevel(0xc=minDmg),
+GetVariableForLevel(0xd=maxDmg)))` = **avg GENERIQUE** (== `ab.get_damage`). Aucune base bespoke. => la seule
+divergence est bien `param_8=null` -> pierce 0. Override `_PLAYBOOK_PROFILE_OVERRIDE[1148/1147]="None"` (committe
+3cb8f5b) CONFIRME correct.
+
+Confront numerique LIVE re-tente (build `--p-mow blackForgefiend --a-units ultraTitus,worldTerminator,custoTrajann`,
+board MC1_67) : caster MoW resolu via `decisionView.mows[].casterId` (=83, PAS `.id`=75) ; `aiPlaybookPredict(83,
+tgt, 1148)` operationnel mais rend **`count=0, events=[]`** sur les 3 cibles blindees (armure 2312/2813/2510). C'est
+le comportement 2-phase attendu : DaemonicOrdnance ne fait de degat qu'a un ennemi sur une tuile DEJA EN FEU (le 1er
+cast pose le feu) -> prediction FRAICHE vide. (La mention "62 cibles" d'une note de tache = tuiles ciblables du
+selector de mouvement, PAS la prediction de degat.) HadesAutocannons (1147) = `hasAmmo:false` (hors munitions) au
+build -> no-op. Donc la confrontation NUMERIQUE (pierce-0 full-armor) exige de monter l'etat feu (trigger-state sim)
+ET une engine-MoW-scene -> DEUX chantiers deferres (cf. section "Reste").
+
+CLOTURE : le port (override pierce-0, base=avg generique, hits generique) est RE-PROUVE + committe, et STRUCTURELLEMENT
+IDENTIQUE aux 4 candidats param_8=null deja VALIDES LIVE sur ultraTitus blinde (1020 HeraldOfTheApocalypse / 1062
+SanctorumMissile / 1017 FragBomb / 1006 MultiThreatEliminator). Meme base de cloture que le frere #169
+(HarbingerOfDestruction : "retenu sur preuve decompile, carrier non confrontable live"). Confront numerique MoW =
+deferre au chantier engine-MoW-scene + trigger-state sim (ou l'override sera enfin exerce).
