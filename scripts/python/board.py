@@ -42,6 +42,24 @@ _GLYPH = {
 }
 
 
+def _effective_elevation(tile_id: str | None, bc_elevation) -> int:
+    """Élévation EFFECTIVE d'une tuile = celle que le jeu expose (ElevationComponent,
+    `TileExtensions.GetElevation @180ec4fd0`, capté par boardGraph/tileMeta), à partir du
+    champ BC brut (`Board.Tiles[..].Elevation`).
+
+    Règle mesurée (#195, LIVE vs BC sur 6 boards C2_16/17/18/19/20/32) : **Trench = terrain
+    CREUSÉ → élévation effective = champ BC − 1** (uniforme, sans clamp) ; tous les autres
+    TileId (Grass/Swamp/DryBush/Water/Bridge/Block) gardent leur champ BC à l'identique.
+    Ex. Trench BC 0→-1, BC 1→0, BC 2→1. (Le composant ElevationComponent EXISTE et stocke
+    déjà BC−1 : l'hypothèse « composant absent → -1 » est réfutée par C2_16 où Trench=1>0.)
+
+    Le board ENGINE numérique (prédiction #182/#184, adjacence #187) lit boardGraph, qui
+    baked déjà ce -1 → correct (bit-exact). Cette fonction n'aligne QUE le board dérivé du
+    champ BC brut (ce module `board.py`, oracle-card) sur la vérité live."""
+    e = int(bc_elevation or 0)
+    return e - 1 if tile_id == "Trench" else e
+
+
 class Board:
     def __init__(self, bc: dict):
         b = bc.get("Board") or {}
@@ -57,7 +75,7 @@ class Board:
                     continue
                 self.tiles[(c, r)] = {
                     "tileId": t.get("TileId"),
-                    "elevation": t.get("Elevation", 0),
+                    "elevation": _effective_elevation(t.get("TileId"), t.get("Elevation", 0)),
                     "forceUnplayable": bool(t.get("ForceUnplayable")),
                 }
         if not self.height and self.tiles:
