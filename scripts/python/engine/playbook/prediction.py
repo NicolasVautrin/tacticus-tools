@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import gameconfig as GC
 import hexgeo
-from engine import dsl, weights as _weights
+from engine.dsl import nodes as dsl   # facade DSLFactory (construction des noeuds)
+from engine import weights as _weights
 from engine.entities.abilities.active_ability import (
     active_ability_for, makes_damage_predictions, _PROFILE_BY_INDEX)
 from engine.entities.abilities.ability_configuration import AbilityConfiguration

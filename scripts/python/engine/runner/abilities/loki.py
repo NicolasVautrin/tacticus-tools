@@ -249,7 +249,7 @@ class GetEmRuntzAbility(ActiveAbility):
         # behaviour = arbre DSL (couche effet-nœuds) ; les feuilles émettent les MÊMES Operations que
         # l'impératif (`AttackDamageOperation`/`AddEffectOperation`/`_spawn_config_grot`) -> même mutation.
         from .dsl_behaviours import getemruntz_tree, entities_from_state
-        from ...dsl.effect_nodes import ExecutionContext
+        from ...dsl.effects import ExecutionContext
         ectx = ExecutionContext(state=state, rng=state.rng)
         getemruntz_tree().execute(entities_from_state(state, caster_id), ectx)
         # diag depuis les émissions de l'arbre (mêmes champs que l'ancien retour impératif)

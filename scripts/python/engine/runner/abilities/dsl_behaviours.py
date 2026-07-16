@@ -1,7 +1,7 @@
 """Behaviours d'ability portes en ARBRES DSL EXECUTABLES (#149 slice-2b) + feuilles CONCRETES
 (bridge dsl -> runner Operations) + builder `entities_from_state`.
 
-Les combinateurs/EffectNode generiques vivent dans `engine.dsl.effect_nodes` (couche dsl) ; ICI les
+Les combinateurs (`engine.entities.behaviours`) + la base + infra (`engine.dsl.effects`) vivent en amont ; ICI les
 feuilles MINCES qui EMETTENT les Operations DEJA portees (`runner/operations`) et les arbres d'ability
 (mirror `<Ability>.CreateBehaviour`). `entities_from_state` construit le `DslContext` (= l'`entities`
 natif lu par les selecteurs) depuis le `State` runner. cf. docs/rl/dsl-effect-nodes.md.
@@ -20,12 +20,11 @@ attaque+Taunt par grot ; le DSL suit le NATIF, equivalent tant que le Taunt ne t
 """
 from __future__ import annotations
 
-from ...dsl.base import DslContext, Const
-from ...dsl.effect_nodes import EffectNode, OperationResult, Seq, Foreach, If
-from ...dsl.tile_selectors import get_spawn_tile_selector
-from ...dsl.accessors import Subject
-from ...dsl.base import Node
-from ...dsl.predicates import AmountIsGreaterThanZero, AmountIsEqual, IsAlive, TriggerAnd
+from ...dsl.base import DslContext, Const, AAmountFormula, TargetsSelector
+from ...dsl.effects import AbilityBehaviour, OperationResult
+from ...entities.behaviours import Seq, Foreach, If
+from ...entities.selectors import get_spawn_tile_selector, Subject
+from ...entities.triggers import AmountIsGreaterThanZero, AmountIsEqual, IsAlive, TriggerAnd
 from ..components import (OwnerComponent, PositionComponent, UnitComponent, StatsComponent,
                           HealthComponent)
 from .base import turns_from_rounds
@@ -89,7 +88,7 @@ def entities_from_state(state, caster_id: int) -> DslContext:
 #     `PerformAIAttack` annote). Le compteur runtime GENERAL n'est pas capte offline -> defaut sur unite
 #     non-enfant (documente, meme regime que `accessors.TotalTimesAttacked`).
 
-def _resolve_unit(node: Node, ctx) -> dict | None:
+def _resolve_unit(node, ctx) -> dict | None:
     """Evalue `node` (souvent `Subject()`) en UN dict d'unite (dict direct, ou 1er dict d'une liste)."""
     v = node.evaluate(ctx)
     if isinstance(v, dict):
@@ -101,42 +100,42 @@ def _resolve_unit(node: Node, ctx) -> dict | None:
     return None
 
 
-class Children(Node):
+class Children(TargetsSelector):
     """`DSLFactory.Children @180debed0` = `AllAliveMachinesSelector` : les enfants (summons) produits par
     CE cast. Port = l'accumulateur `ctx.children` (mirror factory+0x148) alimente par les feuilles
     `SpawnUnit`. ⚠ Le filtre `AllAlive` du natif est un no-op offline pour l'on-appearance de CE cast
     (les grots survivent a leur propre apparition — ils ne bougent pas -> pas d'overwatch ; l'imperatif
     ne filtre pas non plus les morts). cf. `TauntWithNewChildrenWhoDidDamage`."""
-    def evaluate(self, ctx):
+    def select(self, ctx):
         return list(getattr(ctx, "children", None) or [])
 
 
-class TotalAttacksMade(Node):
+class TotalAttacksMade(AAmountFormula):
     """`DSLFactory.TotalAttacksMade @180dfe090` : nb d'attaques faites par l'unite (compteur runtime). Port
     on-appearance : `PerformAIAttack` pose `_attacks_made` sur le dict enfant (0 si pas d'attaque). Unite
     hors-cast -> 0 (compteur general non capte offline, cf. `accessors.TotalTimesAttacked`)."""
-    def __init__(self, unit: Node):
+    def __init__(self, unit: TargetsSelector):
         self.unit = unit
 
-    def evaluate(self, ctx):
+    def calculate(self, ctx):
         u = _resolve_unit(self.unit, ctx)
         return int((u or {}).get("_attacks_made", 0) or 0)
 
 
-class LastUnitAttackedBy(Node):
+class LastUnitAttackedBy(TargetsSelector):
     """`DSLFactory.LastUnitAttackedBy @180df5ee0` : derniere unite attaquee par l'unite. Port : le dict
     FRAIS (etat POST-attaque, relu de `ectx.state` par `PerformAIAttack`) de la cible frappee -> champ
     `_last_attacked` de l'enfant (None si aucune). Ce dict porte `alive`/`hp` COURANTS -> `IsAlive(
     LastUnitAttackedBy(child))` lit l'etat vivant APRES l'attaque (mirror de la garde live de l'imperatif)."""
-    def __init__(self, unit: Node):
+    def __init__(self, unit: TargetsSelector):
         self.unit = unit
 
-    def evaluate(self, ctx):
+    def select(self, ctx):
         u = _resolve_unit(self.unit, ctx)
         return (u or {}).get("_last_attacked")
 
 
-class UnitTurnsStarted(Node):
+class UnitTurnsStarted(AAmountFormula):
     """`DSLFactory.UnitTurnsStarted @180dff280` : nb de tours entames par l'unite (compteur runtime). Le
     natif compare (via `AmountIsEqual`) le `turnsStarted` de l'owner CAPTURE au cast (`factory+0xb8`) au
     `UnitTurnsStarted(child)` -> ne retient que les enfants NEUFS de CE cast. Offline le compteur n'est pas
@@ -144,15 +143,15 @@ class UnitTurnsStarted(Node):
     nos runners) l'egalite tient EXACTEMENT comme le natif la satisfait pour les enfants neufs. Unite
     hors-cast -> 0. ⚠ Mid-bataille (owner turnsStarted>0) ce couple degrade demanderait les vrais compteurs
     runtime (gap offline documente, meme regime que `times_attacked`/`turns_per_round`)."""
-    def __init__(self, unit: Node):
+    def __init__(self, unit: TargetsSelector):
         self.unit = unit
 
-    def evaluate(self, ctx):
+    def calculate(self, ctx):
         u = _resolve_unit(self.unit, ctx)
         return int((u or {}).get("_turns_started", 0) or 0)
 
 
-class SpawnUnit(EffectNode):
+class SpawnUnit(AbilityBehaviour):
     """Feuille `SpawnUnitBehaviour.Execute @180fd3d80` : spawn UNE unite sur la tuile COURANTE
     (`entities.subject` = id de tuile, pose par le `Foreach` sur le selecteur), stats
     `WithStatsFromConfig(summon_ability)`, owner = team+player du caster. Wrapper MINCE au-dessus de
@@ -192,7 +191,7 @@ class SpawnUnit(EffectNode):
         return OperationResult.ok()
 
 
-class PerformAIAttack(EffectNode):
+class PerformAIAttack(AbilityBehaviour):
     """`DSLFactory.PerformAIAttackFromCurrentPosition @180df8a10` -> `PerformAIAbilityUnitBehaviour.Execute
     @180fcb070` : chaque unite du selecteur (le natif reutilise `Cache(GetSpawnTileSelector)` -> les unites
     SUR les tuiles de spawn = les grots tout juste spawnes) execute une attaque AI depuis SA position
@@ -227,7 +226,7 @@ class PerformAIAttack(EffectNode):
         return OperationResult.ok()
 
 
-class AddBondEffect(EffectNode):
+class AddBondEffect(AbilityBehaviour):
     """`DSLFactory.AddBondEffect(0x1b, stateRef, source, target, ..., TurnsFromRounds(1)) @1811e27a0` : pose
     l'effet BOND `Taunted_OnlySpecificTargets` (0x1b=27, COMPOSITE 25/26/1237) reliant `source` (l'enfant/
     grot) et `target` (`LastUnitAttackedBy` = l'ennemi frappe), duree `TurnsFromRounds(rounds)`. Wrapper
@@ -236,7 +235,7 @@ class AddBondEffect(EffectNode):
     absents. Emet 'AddBondEffect'. Effet PUR (stop=False)."""
     __slots__ = ("effect_type", "name", "source_ref", "target_ref", "duration_rounds")
 
-    def __init__(self, effect_type: int, name: str, source_ref: Node, target_ref: Node,
+    def __init__(self, effect_type: int, name: str, source_ref: TargetsSelector, target_ref: TargetsSelector,
                  duration_rounds: int = 1):
         self.effect_type, self.name = effect_type, name
         self.source_ref, self.target_ref = source_ref, target_ref

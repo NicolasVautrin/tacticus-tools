@@ -19,7 +19,7 @@ from ..stats import StatType
 from .ability_configuration import AbilityConfiguration
 from ...services.damage_prediction import get_default_attack_hits
 from ...services.min_max_damage import MinMaxDamage
-from ... import dsl
+from ...dsl import nodes as dsl   # facade DSLFactory (construction des noeuds)
 # #158 : table `DamageProfileType index -> nom` DERIVEE de l'enum (source unique, ex-copie transcrite retiree).
 from ..damage_profile_type import PROFILE_NAME_BY_INDEX as _PROFILE_BY_INDEX  # re-exporte (prediction.py l'importe d'ici)
 

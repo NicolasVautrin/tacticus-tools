@@ -1,9 +1,17 @@
-"""Socle DSL GENERIQUE - `Node`, `DslContext` et helpers partages (moteur de NOEUDS, mirror 1:1 du
-DSL lazy `DSLFactory`/`TargetsSelector` du jeu).
+"""Socle DSL GENERIQUE - les 4 BASES DE FAMILLE lazy, `DslContext` et helpers partages (moteur de
+NOEUDS, mirror 1:1 du DSL lazy `DSLFactory`/`TargetsSelector` du jeu).
 
-Chaque ability compose un arbre de `Node` evalue par `Node.evaluate(ctx)` contre un `DslContext` (etat de
-bataille). Types de valeur (comme le DSL natif, type) : NUMERIQUE -> int ; CONDITION -> bool ; POSITION ->
-(col,row) ; CIBLAGE -> list[unit]. Unite = dict `{id, team, hp, alive, pos:{col,row}, visualId}`.
+Le DSL natif = 4 familles, bases abstraites de `IdunBattle.DSL`, une methode d'eval chacune (probe
+`dslLazyProbe`) : `AbilityBehaviour.Execute` (EFFETS, kind E, cf. effect_nodes.py), `AbilityTrigger.
+ShouldTrigger` (PREDICATS, kind T), `TargetsSelector.Select` (SELECTEURS, kind S), `AAmountFormula.
+Calculate` (VALEURS, kind V). Ce module porte les 3 bases LAZY (T/S/V, cf. ci-dessous) mirrorees NOM
+POUR NOM ; l'effet (E) vit dans effect_nodes.py. Le natif n'a AUCUNE racine commune au-dessus des 4
+(parents `[base, System.Object]`, interfaces `[]`) -> PAS de `Node` fourre-tout : 4 familles SOEURS.
+
+Chaque ability compose un arbre evalue par la methode de sa famille (`should_trigger`/`select`/`calculate`)
+contre un `DslContext` (etat de bataille). Types de valeur (comme le DSL natif, type) : NUMERIQUE -> int ;
+CONDITION -> bool ; POSITION -> (col,row) ; CIBLAGE -> list[unit]. Unite = dict `{id, team, hp, alive,
+pos:{col,row}, visualId}`.
 
 Ghidra MISLABEL les ctors de noeuds gshared (le ctor de `DSLFactory.Sum @180dfc200` s'affiche
 `HasUsedActiveAbilityThisTurnTrigger$$.ctor`) -> semantique lue via la STRUCTURE (pointeur de classe, args
@@ -21,10 +29,36 @@ from fractions import Fraction
 import hexgeo
 
 
-class Node:
-    """Nœud DSL. `evaluate(ctx)` = valeur résolue contre l'état (int/bool/pos/list selon le nœud)."""
-    def evaluate(self, ctx: DslContext):
+# --- Bases DSL par FAMILLE (mirror 1:1 des bases abstraites natives ; une methode d'eval chacune). La
+# methode NOMMEE COMME LE NATIF est le VRAI point de surcharge de chaque noeud ; `evaluate` reste un
+# ALIAS GENERIQUE qui delegue -> les combinateurs POLY-FAMILLE (`Cache`, `Filter`, arithmetique, `Count`,
+# `_units_of`) evaluent un enfant SANS connaitre sa famille (robustesse : pas de dispatch croise fragile).
+# C'est une convenance de PORT (le natif dispatch par contrat type) documentee, pas une classe native.
+class AAmountFormula:
+    """Base des noeuds VALEUR (numerique -> int). Mirror `IdunBattle.DSL.AAmountFormula.Calculate` (kind V)."""
+    def calculate(self, ctx: DslContext):
         raise NotImplementedError
+
+    def evaluate(self, ctx: DslContext):    # alias generique (cf. en-tete) -> methode native
+        return self.calculate(ctx)
+
+
+class AbilityTrigger:
+    """Base des noeuds PREDICAT (-> bool). Mirror `IdunBattle.DSL.AbilityTrigger.ShouldTrigger` (kind T)."""
+    def should_trigger(self, ctx: DslContext) -> bool:
+        raise NotImplementedError
+
+    def evaluate(self, ctx: DslContext):
+        return self.should_trigger(ctx)
+
+
+class TargetsSelector:
+    """Base des noeuds SELECTEUR (-> list/tuile/entite). Mirror `IdunBattle.DSL.TargetsSelector.Select` (kind S)."""
+    def select(self, ctx: DslContext):
+        raise NotImplementedError
+
+    def evaluate(self, ctx: DslContext):
+        return self.select(ctx)
 
 
 @dataclass
@@ -87,12 +121,12 @@ class DslContext:
     effect: object | None = None
 
 
-class Const(Node):
-    """`DSLFactory.Direct(value)` : constante littérale."""
+class Const(AAmountFormula):
+    """`DSLFactory.Direct(value)` : constante littérale (VALEUR)."""
     def __init__(self, value: int):
         self.value = value
 
-    def evaluate(self, ctx):
+    def calculate(self, ctx):
         return self.value
 
 

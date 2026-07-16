@@ -1,25 +1,13 @@
-"""Socle DSL générique = moteur de NŒUDS (mirror 1:1 du DSL lazy `DSLFactory`/`TargetsSelector` du jeu).
+"""Socle DSL = les 4 BASES de famille (mirror `IdunBattle.DSL`) : `AAmountFormula`/`AbilityTrigger`/
+`TargetsSelector` (LAZY, base.py) + `AbilityBehaviour` + infra walker (`OperationResult`/
+`ExecutionContext`, effects.py). Les NOEUDS CONCRETS vivent dans leur namespace natif
+`entities/{formulas,triggers,selectors,behaviours}` et se construisent via la FACADE `DSLFactory` =
+`dsl/nodes.py` (importee `as dsl` par les abilities/prediction). cf. nodes.py.
 
-Chaque ability compose un arbre `Node` (numérique + runtime + ciblage), évalué par `Node.evaluate(ctx)`
-contre un `DslContext` (état de bataille). cf. nodes.py.
+NB (cycle) : ce `__init__` n'importe QUE base + effects (feuilles, sans dep `entities/`) -> importer
+`engine.dsl.base` depuis `entities/*` ne re-declenche PAS la facade -> pas de cycle d'import.
 """
-from .nodes import (  # noqa: F401
-    Node, DslContext,
-    Const, ConfigConst, Sum, Min, Multiply, Difference, If,
-    Max, Divide, Half, Double, Negative, PercentageOf,
-    TotalTimesAttacked, TimesRepaired, TurnsFromRounds, HasFlag,
-    AreEqual, AmountIsEqual, AmountIsGreater, AmountIsEqualOrGreater,
-    AmountIsGreaterThanZero, AmountIsZero, AmountIsOdd, Modulo,
-    CasterTile, TargetTile, OwnerTile,
-    SurroundingUnits, AdjacentEnemies, Enemies, Damageable, And, Sub, UnitSet,
-    Subject, Count, Filter,
-    UnitsDirectlyBehind,
-    Get, ConfigVar, Cache, StatAmount,
-    OwnerIsTarget, OwnerIsCaster, OwnerIsActor,
-    Friends, Units, Tiles, First, Unique, UnitsWithTrait, UnitsWithoutTrait,
-    AdjacentFriends, SurroundingEnemies, SurroundingFriends,
-    SortByFormula, SortByDistance,
-    HasTrait, HasEffect, HasAnyEffect, IsAlive, IsDead, Alive,
-    IsMeleeAttack, IsRangedAttack, IsNormalAttack, IsAdjacent, IsInRange,
-    Entity, EntityId, Nothing, Null, EffectSource, EffectLevel, EffectFromOwner,
+from .base import (  # noqa: F401
+    AAmountFormula, AbilityTrigger, TargetsSelector, DslContext, Const,
 )
+from .effects import AbilityBehaviour, OperationResult, ExecutionContext  # noqa: F401
