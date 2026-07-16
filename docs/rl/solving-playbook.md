@@ -132,3 +132,66 @@ STRUCTUREL du turn-flow, decouvrable seulement en auditant le mecanisme natif de
 - **Un port de FLUX doit poser les flags pour les abilities NON portees aussi** (le natif les pose
   independamment de la behaviour) -> table d overrides par ability_type dans `abilities/base.py`,
   distincte du registre des behaviours.
+
+
+---
+
+## #184 (2026-07-16) — Ratio uniforme ~1.49x sur l attaque normale d UNE unite (bloodMephiston) : la factorisation du total etait FAUSSE, la cause etait une aura d equipe ENNEMIE non portee
+
+**Symptome-type** : sur-prediction UNIFORME (meme ratio sur toutes les cibles) de l attaque normale
+d UNE seule unite ; le ratio "colle" a une factorisation seduisante (3/2 hits = 1.5 ~ 1.49) qui
+oriente tout le monde vers le mauvais etage (selection d arme) ; le fix nait (current-pos) FIXE le
+cas mais REGRESSE d autres seeds -> flip-flop. Deux "refutations" successives etaient elles-memes
+fausses : la premiere (worldExecutions bit-exact => pas de modifier manquant) testait une unite qui
+ne franchissait pas le GATE (profil Power vs aura Psychic-only) ; la seconde (hit-count 3 vs 2)
+factorisait un scalaire sous-determine.
+
+**Methode qui l a craque** :
+
+1. **Ne JAMAIS accepter une factorisation d un total unique.** 2016,3024 se decompose en
+   2x[806,1210]x1.25 (hits=2) ET en 3x1003x1.25x[0.8,1.2]x0.67 (hits=3, x0.67) — indiscernables
+   sur UNE mesure. Discriminant : le champ `appliedHits` du struct natif (aiPredict/`ranked[]`) +
+   la RELATION min/max (spread +-20% => max/min = 1.5 STRUCTUREL, pas un indice de hits).
+
+2. **Sweep par tuile AVANT de croire une hypothese positionnelle** : `aiPredict {col,row,fresh:true}`
+   sur les 27 tuiles movable en une boucle = carte native complete. Ici : total IDENTIQUE sur ~25
+   tuiles (adjacentes ou pas, Delta-elev 0..3) => la cause est position-INDEPENDANTE => exit toutes
+   les hypotheses adjacence/elevation/arme d un coup. (Meme harnais que #153 ranked[], en plus dense.)
+
+3. **Chercher le facteur par PAIRE (attaquant, cible), pas par attaquant** :
+   `combatSnapshot.normalAttack` (paire vs ALLIE au deploiement) = 3009,4515 SANS le x0.67 ;
+   vs les ennemis = x0.67 partout. Un facteur present vs une equipe et absent vs l autre = effet
+   d EQUIPE (aura defensive), pas un attribut de l attaquant. La pseudo-refutation "l autre
+   attaquant est bit-exact" ne vaut RIEN si son profil de degat ne franchit pas le gate (Power vs
+   Psychic) : refuter un modifier exige un temoin qui FRANCHIT toutes les conditions du modifier.
+
+4. **Identifier le porteur via les effets du ROSTER, pas ceux de la cible** : les cibles ne portaient
+   RIEN ; `decisionView.effects` du porteur (Atlacoya) listait `DaughterOfTheAbyss_FriendlyDmgReductionPct`
+   — nom auto-descriptif. i2 (« Psychic Damage dealt to other friendly units within 2 hexes ... is
+   reduced by 33% ») + gameconfig (`dmgReductionPct[L50]=33`) ont scelle magnitude/portee/gate en
+   une lecture. x0.67 mesure = 33% EXACT.
+
+5. **Le mecanisme d application etait deja RE'd ailleurs** : la boucle state-wide « TOUS les
+   EffectWithTarget actifs x leurs cibles » de `CalculateDefenderModifiersForPrediction @181002c30`
+   etait documentee dans case-68. GREP les case-docs pour le COLLECTEUR avant de re-decompiler :
+   un malus peut atteindre la cible sans jamais figurer dans SA liste d effets (TargetSelector du
+   porteur, ex. SurroundingFriends rayon 2).
+
+**Outils/heuristiques reutilisables** :
+- **Anti-sous-determination** : pour tout ratio "rond" (1.5, 0.67, 0.75), enumerer TOUTES les
+  factorisations compatibles (hits, pct-mods, base alternative) puis choisir la mesure qui les
+  separe (champ appliedHits, sweep par tuile, paire vs allie). Un fit numerique exact sur un cas
+  n est pas la cause (deja le piege de #153).
+- **`combatSnapshot.normalAttack` = temoin hors-aura gratuit** : la paire vs ALLIE au deploiement
+  donne la prediction native SANS les effets d equipe adverse -> isole les modifiers "vs ennemi".
+- **Refutation valide = temoin qui franchit le gate** : avant d ecarter "modifier manquant" parce
+  qu une autre unite est bit-exacte, verifier profil de degat / trait / equipe / portee du temoin
+  contre CHAQUE condition du modifier suspecte.
+- **Auras defense-side** : familles `Create*MalusForDefense` + `CreateTargetSelector` projettent
+  HORS du porteur ; le port les modelise cote SOURCE (canal `create_aura_defense_damage_malus_for_ally`,
+  aggregateur `aura_defense_damage_malus_from_units`, #184) — symetrique de SITW (attaquant) et
+  RitesOfBattle (base). Toute divergence "la cible n a aucun effet qui explique X" doit declencher
+  le reflexe : scanner les effets des AUTRES unites (les 2 equipes).
+- **Latents a ne pas perdre** (documentes case-184, hors perimetre) : `MovementUtil.AreTilesAdjacent
+  @18109d740` = voisinage && |Delta-elevation| < 2 (le port n a pas le gate elevation) ; la selection
+  d arme native retombe sur MELEE hors portee ranged (FindRangedWeapon null -> FindMeleeWeapon).

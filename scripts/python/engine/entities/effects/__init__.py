@@ -46,7 +46,7 @@ __all__ = [
     "build_attacker_modifiers_from_effects", "calculate_attacker_modifiers_for_prediction",
     "build_defender_modifiers_from_effects",
     "hits_bonus_from_effects", "hits_malus_from_defender_effects", "aura_hits_malus_for_defense",
-    "aura_hits_bonus_for_attack", "additional_hit_groups",
+    "aura_hits_bonus_for_attack", "additional_hit_groups", "aura_defense_damage_malus_from_units",
     "crit_chance_bonus_from_effects", "crit_damage_bonus_from_effects",
     "apply_effect_stat_modifications", "stat_modifications_by_source",
 ]
@@ -296,6 +296,27 @@ def aura_attack_damage_malus_from_enemies(carriers, ctx) -> list:
         octx = {**(ctx or {}), "owner_id": c[0], "owner_pos": c[1], "owner_team": c[2]}
         for e in _as_effects(c[-1]):
             eb = e.create_aura_attack_damage_malus_for_enemy(octx)
+            if eb is not None:
+                out.append(eb)
+    return out
+
+
+def aura_defense_damage_malus_from_units(carriers, ctx) -> list:
+    """Liste des modifiers %-DÉGÂT projetés sur la CIBLE d'un coup par les effets EffectWithTarget
+    possédés par d'AUTRES unités (`create_aura_defense_damage_malus_for_ally`) — mirror de la boucle
+    state-wide « TOUS les EffectWithTarget actifs × leurs cibles » de `CalculateDefenderModifiers-
+    ForPrediction` @181002c30 (cf. case-68) pour les effets dont le TargetSelector projette HORS du
+    porteur. Ex. `DaughterOfTheAbyss_FriendlyDmgReductionPctEffect` @180f3cde0 (-dmgReductionPct%
+    Psychic aux amis rayon 2, #184) ; `DaughterOfTheAbyss_ExtraDamagePctEffect` @180f3cb60 (+extraDmgPct%
+    aux Psykers ennemis rayon 2). `carriers` = itérable (owner_id, owner_pos, owner_team, effets du
+    porteur) ; `ctx` = {tgt_id, t_pos, tgt_team, tgt_traits, damage_profile}. Renvoie une liste
+    d'`EffectBonus` à intégrer aux modifiers du coup via `add_modifier`. SYMÉTRIQUE défenseur de
+    `aura_attack_damage_malus_from_enemies` (chaque carrier = tuple [0]=id, [1]=pos, [2]=team, [-1]=effets)."""
+    out = []
+    for c in (carriers or []):
+        octx = {**(ctx or {}), "owner_id": c[0], "owner_pos": c[1], "owner_team": c[2]}
+        for e in _as_effects(c[-1]):
+            eb = e.create_aura_defense_damage_malus_for_ally(octx)
             if eb is not None:
                 out.append(eb)
     return out

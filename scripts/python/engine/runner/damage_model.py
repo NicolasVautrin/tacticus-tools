@@ -30,6 +30,7 @@ from ..services.battle_query import (
     select_weapon_pierce as _bq_select_weapon_pierce,
     are_tiles_adjacent)
 from ..entities.effects import (
+    aura_defense_damage_malus_from_units,
     build_attacker_modifiers_from_effects, build_defender_modifiers_from_effects,
     hits_bonus_from_effects,
 )
@@ -113,7 +114,43 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
     att_ctx = None
     if attacker_id is not None or is_normal_attack is not None:
         att_ctx = {"id": attacker_id, "is_normal_attack": is_normal_attack}
-    return build_defender_modifiers_from_effects(active, is_melee, damage_profile, attacker_ctx=att_ctx), active
+    mods = build_defender_modifiers_from_effects(active, is_melee, damage_profile, attacker_ctx=att_ctx)
+    # AURAS-DÉFENSE state-wide (#184) : effets EffectWithTarget possédés par d'AUTRES unités dont le
+    # TargetSelector projette sur la CIBLE — même boucle « TOUS les EffectWithTarget × leurs cibles »
+    # que la prédiction (`CalculateDefenderModifiersForPrediction @181002c30`, appelée AUSSI par le
+    # COMBAT via `CalculateAbilityDamage @18102cb50` slot 0xf, cf. case-68). Ex. DaughterOfTheAbyss
+    # (Atlacoya) : -dmgReductionPct% Psychic aux amis rayon 2 / +extraDmgPct% aux Psykers ennemis.
+    # Positions/équipes RÉELLES depuis l'ECS ; porteurs vivants uniquement. No-op sans carrier concerné.
+    tp = None
+    te = state.get_entity(unit_id)
+    tpc = te.get_component(PositionComponent) if te is not None else None
+    if tpc is not None:
+        tp = (tpc.col, tpc.row)
+    toc = te.get_component(OwnerComponent) if te is not None else None
+    carriers = []
+    for uid, e in state.entities.items():
+        if uid == unit_id:
+            continue
+        oc = e.get_component(OwnerComponent)
+        pc = e.get_component(PositionComponent)
+        if oc is None or pc is None:
+            continue
+        hc = e.get_component(HealthComponent)
+        if hc is not None and hc.hp is not None and hc.hp <= 0:
+            continue                                        # porteur mort -> aura éteinte
+        ceff = (state.effects.active_effects(uid, {"hp": hc.hp if hc else None})
+                if state.effects is not None else [])
+        if ceff:
+            carriers.append((uid, (pc.col, pc.row), oc.team, ceff))
+    if carriers and tp is not None:
+        from ..services.damage_modifiers import add_modifier
+        for eb in aura_defense_damage_malus_from_units(
+                carriers, {"tgt_id": unit_id, "t_pos": tp,
+                           "tgt_team": toc.team if toc is not None else None,
+                           "tgt_traits": target_trait_names(state, unit_id),
+                           "damage_profile": damage_profile}):
+            add_modifier(mods, eb)
+    return mods, active
 
 
 def apply_elevation_bonus(state: State, mods, attacker_id: int, target_id: int) -> None:
