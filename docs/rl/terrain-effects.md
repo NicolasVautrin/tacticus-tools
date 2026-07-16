@@ -128,6 +128,29 @@ courant ne le porte. **Ne PAS porter tant qu'un board/trigger jouable n'est pas 
 valider live sinon ; static-block deja refute). Port futur = modeliser l'effet sur les tuiles (+ exemption
 trait via `NotBlockingMovementOfTraits`) et gater l'expansion/stop dans `get_reachable_levels`/`get_movable_positions`.
 
+### ICE dynamique (0x11) — #133, MECANIQUE RE'd 2026-07-16 (carrier jouable Arjac + Stormcaller)
+
+⚠ DEUX classes distinctes : `IceTileEffect` (@180310a90 Freeze / @180310b60 Melt / FreezeCoroutine) =
+couche VUE Unity (coroutine, view-only) ; **`IdunBattle.Entities.Effects.IceEffect`** (@180f44bc0 ctor) =
+l'EFFET DE COMBAT (namespace Entities.Effects, comme les autres effets). C'est le second qui compte.
+
+`IceEffect.ctor @180f44bc0` = `ABondEffect(1,0,...)`, EffectType `0x11`, pose
+`NotBlockingMovementOfTraits(0x11)` @+0x488 -> **MECANIQUE 1 = blocage de mouvement** (comme BrokenIce ci-dessus,
+exemption par trait). `IceEffect.CreateEffectDamageBonusForAttack @180f44940` -> **MECANIQUE 2 = bonus de
+degat conditionnel au CRIT** : trigger = `AttackDamageIsCritical` AND `AreEqual(Units(owner,1,3), target)` AND
+`NOT HasTrait(target, Immune=0x19)` ; magnitude = `PercentageOf(StatAmount(owner, CRIT_DAMAGE=10), EffectConfig(5))`.
+(Direction exacte buff/debuff + selecteur `Units(owner,1,3)` = interpretation A TRANCHER, non devinee.)
+
+Placeurs de tuiles ICE : `AnvilShieldAbility_ApplyIce @180e16480` (Arjac spaceRockfist, ON-BLOCK, cf. #133) ET
+`StormcallerAbility.GetAddIceTiles @18120cf70` (2e carrier). Effet lie a l'attaquant gele :
+`AnvilShield_FrozenAttackerAdvantageEffect` (1201, ctor @180f31e50) = `ADynamicStatModifierEffect`,
+EffectSource `0x493` (AnvilShield 1171), `CreateTargetTrigger @180f31dc0` = `On(0xe) & AreEqual(target@0x178,
+EffectSource)` -> avantage DYNAMIQUE contre l'attaquant gele specifique.
+
+**Port : GATE** (rien porte cote ICE) — depend de #128 (vecteur placement tile-effect on-block), #131 (blocage
+mouvement, deja defere faute de board jouable), + le crit-bonus (mecanique 2) + le gate sante de 1200 (ABS-vs-%
+a trancher live) + le dynamique 1201. Seul `1202 AnvilShield_AdditionalBlock` est porte (loki.py, cf. #133).
+
 ## 3. Power-ups (`Abilities.Triggered.Loki.APowerUpAbility` family)
 
 Pickups poses sur des tuiles (`TileExtensions.HasPowerup @180ec5570`, `UnitExtensions.IsPowerUp
