@@ -51,6 +51,10 @@ class DslContext:
     # Élévation par tuile (tileMeta) — consommée par les selectors gated élévation
     # (`TilesOnSameElevationSelector`). None → filtre dégradé no-op (documenté par nœud).
     elev_by_pos: dict | None = None
+    # Graphe de tuiles (`Board`, entities/pathfinding) — consommé par les SÉLECTEURS DE TUILES
+    # (`AdjacentTiles`/`CanAddUnit`, tile_selectors.py) : voisinage natif (`board.neighbours`),
+    # walkable, id_at. None → domaine tile dégradé no-op (documenté par nœud).
+    board: object | None = None
     # Élément COURANT lié par un `Filter` (mirror du sélecteur-sujet natif `ability+0x180` =
     # OriginalTarget) — lu par le nœud `Subject` et les prédicats évalués sous un Filter. None hors Filter.
     subject: dict | None = None
