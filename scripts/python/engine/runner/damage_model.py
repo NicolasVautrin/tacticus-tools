@@ -114,7 +114,17 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
     att_ctx = None
     if attacker_id is not None or is_normal_attack is not None:
         att_ctx = {"id": attacker_id, "is_normal_attack": is_normal_attack}
-    mods = build_defender_modifiers_from_effects(active, is_melee, damage_profile, attacker_ctx=att_ctx)
+    # STAT-MODS DEFENSE de la CIBLE (#197) : moitie DEFENSE de `CalculateDefenderModifiersForPrediction
+    # @181002c30`, portee DANS la fonction PARTAGEE (fin du fork prediction/combat -- cf. son docstring).
+    # Source runner = le `StatComponent` DEFENSE (stat 3) de l'ECS live (`ctx.stats`, delta cuit au load
+    # depuis combatSnapshot + mutable par les operations) -- l'analogue de la DefenseComponent que le natif
+    # relit. Ex. tuile Thorns -50 -> +50 -> x1.5 sur le degat RECU (GROUND TRUTH live #197 : degat reel x1.5).
+    _te = state.get_entity(unit_id)
+    _tsc = _te.get_component(StatsComponent) if _te is not None else None
+    _def_stat = (_tsc.ctx.stats.components.get(int(StatType.DEFENSE))
+                 if _tsc is not None and _tsc.ctx is not None else None)
+    mods = build_defender_modifiers_from_effects(active, is_melee, damage_profile,
+                                                 attacker_ctx=att_ctx, defense_stat=_def_stat)
     # AURAS-DÉFENSE state-wide (#184) : effets EffectWithTarget possédés par d'AUTRES unités dont le
     # TargetSelector projette sur la CIBLE — même boucle « TOUS les EffectWithTarget × leurs cibles »
     # que la prédiction (`CalculateDefenderModifiersForPrediction @181002c30`, appelée AUSSI par le

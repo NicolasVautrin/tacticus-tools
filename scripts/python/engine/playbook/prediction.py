@@ -33,7 +33,7 @@ from engine.services.min_max_damage import MinMaxDamage
 from engine.services.damage_modifiers import (
     ELEVATION_BONUS_PCT, EFFECT_NO_ELEVATION, add_modifier,
     calculate_elevation_bonus_modifier, calculate_ranged_in_melee_reduction,
-    calculate_trench_reduction, calculate_modifiers_from_stat_modifications,
+    calculate_trench_reduction,
     TRENCH_PCT, _TRENCH_IGNORED_PROFILES)
 from engine.services.battle_query import select_weapon_pierce, are_tiles_adjacent
 from engine.services.attack_hits_formula import attack_hits_with_modifiers
@@ -163,7 +163,16 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     # réduit UNIQUEMENT les attaques normales, no-op sur les spéciales config-based).
     att_ctx = {"id": att_id, "ability_level": scene.ablvl_by_id.get(att_id), "multiplier": scene.mult(att_id),
                "is_normal_attack": is_normal_attack}
-    def_mods = build_defender_modifiers_from_effects(tgt_effects, is_melee, damage_profile, attacker_ctx=att_ctx)
+    # STAT-MODS DEFENSE de la CIBLE (#194/#197) : moitié DEFENSE de `CalculateDefenderModifiersForPrediction
+    # @181002c30` (DefenseComponent stat 3 @181003066 → `CalculateModifiersFromStatModifications @181004380`
+    # negate=1 → `1±v/100`). Ex. tuile Thorns −50 → +50 → ×1.5 (GROUND TRUTH C2_19). PORTÉE DANS la fonction
+    # partagée (plus de fold séparé ici) → l'entrée sort via `def_mods.pct_list` et est recopiée ci-dessous,
+    # EXACTEMENT comme avant (composition %-list commutative sans arrondi intermédiaire, #98) : #194 bit-exact
+    # préservé, et le COMBAT/runner l'obtient par la MÊME fonction (fin du fork #197). `scene.defense_stat` =
+    # capture combatSnapshot refreshée par-pas (None/no-mod → inerte).
+    def_mods = build_defender_modifiers_from_effects(tgt_effects, is_melee, damage_profile,
+                                                     attacker_ctx=att_ctx,
+                                                     defense_stat=scene.defense_stat(tgt_id))
     for mult, cap in def_mods.pct_list:
         mods.pct_list.append((mult, cap))
     # ADDITIF défenseur (ForAddition, ex. Neuroparasite +extraDmg x niveau) — le %-list SEUL était fusionné,
@@ -196,15 +205,8 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     # attacker_additive_pre scale déjà ×%-list une fois.
     if def_mods.flat_reductions:
         mods.additive -= sum(def_mods.flat_reductions)
-    # STAT-MODS DEFENSE de la CIBLE (#194) : `CalculateDefenderModifiersForPrediction @181003066` lit le
-    # DefenseComponent (stat 3) du défenseur et convertit chaque modification en entrée %-list via
-    # `CalculateModifiersFromStatModifications @181004380` (negate=1) foldée `1±v/100`
-    # (`GetMultiplierFromDamageBonus @181005210`). Ex. tuile Thorns/Swamp : modification −50 posée par
-    # `ThornsBlockMovementAbility @1811c8d70` (AddStaticStatModifierEffectToOwner(11, stat 3)) sur les
-    # occupants non-Immune → +50 → ×1.5 (GROUND TRUTH C2_19 jakhal@(2,2) : 1.5020/1.5003 mesuré).
-    # scene.defense_stat = capture combatSnapshot (refresh par-pas) ; None/no-mod → inerte.
-    for _eb in calculate_modifiers_from_stat_modifications(scene.defense_stat(tgt_id), negate=True):
-        add_modifier(mods, _eb)
+    # (moitié DEFENSE stat-mods #194/#197 : DÉSORMAIS foldée DANS build_defender_modifiers_from_effects
+    # ci-dessus → transite via def_mods.pct_list, plus de fold séparé ici — fin du fork prédiction/combat.)
     # AURAS-DÉFENSE state-wide (#184) : effets EffectWithTarget possédés par d'AUTRES unités dont le
     # TargetSelector projette sur la CIBLE du coup — boucle « TOUS les EffectWithTarget actifs × leurs
     # cibles » de `CalculateDefenderModifiersForPrediction @181002c30` (cf. case-68), qui ne se réduit PAS

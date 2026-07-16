@@ -23,7 +23,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from ...services.damage_modifiers import (
-    DamageModifiers, build_attacker_modifiers, build_defender_modifiers,
+    DamageModifiers, add_modifier, build_attacker_modifiers, build_defender_modifiers,
     calculate_modifiers_from_stat_modifications,
 )
 from ...services.effect_bonus import for_armor_penetration
@@ -129,26 +129,46 @@ def calculate_attacker_modifiers_for_prediction(
 
 def build_defender_modifiers_from_effects(effects, is_melee: bool | None = None,
                                           damage_profile: str | None = None,
-                                          attacker_ctx: Mapping | None = None) -> DamageModifiers:
-    """`CalculateDefenderModifiersForPrediction` @181002c30 — DamageModifiers depuis les effets de la CIBLE
-    (MODIFICATION du dégât reçu). Agrège `create_effect_damage_malus_for_defense` (slot 0x1a). Symétrique de
-    `build_attacker_modifiers_from_effects`. Effets déjà filtrés actifs (EffectsState.active_effects).
+                                          attacker_ctx: Mapping | None = None,
+                                          defense_stat=None) -> DamageModifiers:
+    """`CalculateDefenderModifiersForPrediction` @181002c30 — DamageModifiers de la CIBLE (MODIFICATION du
+    dégât reçu). Mirror COMPLET des DEUX moitiés du natif dans le MÊME accumulateur, dans l'ordre natif :
+      1. **fold du stat-mod DEFENSE** (`defense_stat`, la 1re moitié @181003037→@181004380, negate=1) ;
+      2. **boucle des effets** défenseur (`create_effect_damage_malus_for_defense`, slot 0x1a/0x1b/0x19).
+    Symétrique de `build_attacker_modifiers_from_effects`. Effets déjà filtrés actifs (EffectsState.active_effects).
+
+    ⚠ NE PAS forker la moitié DEFENSE hors d'ici : elle vivait dans le seul caller prédiction (#194) → le
+    COMBAT/runner la ratait (#197, gap = ce fork). Les DEUX callers (prediction.py `_add_positional_and_
+    defender_mods`, runner `damage_model.defender_modifiers`) passent DÉSORMAIS `defense_stat` → l'axe est
+    partagé PAR CONSTRUCTION (comme le natif). La SOURCE de `defense_stat` diffère par nécessité (prédiction :
+    `scene.defense_stat`, refresh par-pas car ctx COLD ; runner : `ctx.stats` DEFENSE de l'ECS live) — ce n'est
+    PAS un fork du code (le fold est ICI), juste deux entrées vers la même DefenseComponent que le natif relit.
+
     `is_melee` = nature du coup (propagée aux malus gated `IsMeleeAttack`, ex. Terrifying_ExtraDefense) ;
     `damage_profile` = NOM du profil de dégât de l'attaque (propagé aux malus gated `DamageProfileIs`, ex.
     TerminatorArmour -75% SAUF Psychic/DirectDamage) ; `attacker_ctx` = `{id, ability_level, multiplier}` de
     l'ATTAQUANT (propagé aux malus gated sur l'identité de l'attaquant, ex. Neuroparasite : `AreEqual(
-    BondedEntity, damageSource)` + magnitude indexée sur le niveau/mult du Neurothrope SOURCE).
+    BondedEntity, damageSource)` + magnitude indexée sur le niveau/mult du Neurothrope SOURCE) ;
+    `defense_stat` = `StatComponent` DEFENSE (stat 3) de la CIBLE (ses modifications, ex. tuile Thorns −50 →
+    +50 → ×1.5) ; None/no-mod → moitié DEFENSE no-op (rétro-compat).
     ⚠ Couvre la famille `ADamageDefenseModifierAbilityEffect` (EffectBonus PercentDecrease ConfigVar gated) +
-    Terrifying_ExtraDefense + TerminatorArmour_ReduceDmg (réductions %) + Neuroparasite (ForAddition POSITIF) ;
-    les réductions par STAT (Defense), par COUPS (Parry_ReduceHits) ou par TRIGGER (predOptimistic) sont des
-    axes SÉPARÉS (cf. docs/rl/runner-engine.md §1.8). Le résultat porte `additive` (Neuroparasite) ET `pct_list`
-    (réductions) — l'appelant DOIT fusionner LES DEUX (cf. prediction.py : additif défenseur longtemps oublié)."""
+    Terrifying_ExtraDefense + TerminatorArmour_ReduceDmg (réductions %) + Neuroparasite (ForAddition POSITIF) +
+    stat-mods DEFENSE (Thorns/SpiderWeb/DryBush/Shrub) ; les réductions par COUPS (Parry_ReduceHits) ou par
+    TRIGGER (predOptimistic) sont des axes SÉPARÉS (cf. docs/rl/runner-engine.md §1.8). Le résultat porte
+    `additive` (Neuroparasite) ET `pct_list` (réductions + DEFENSE) — l'appelant DOIT fusionner LES DEUX
+    (cf. prediction.py : additif défenseur longtemps oublié)."""
     maluses = []
     for e in _as_effects(effects):
         mb = e.create_effect_damage_malus_for_defense(is_melee, damage_profile, attacker_ctx)
         if mb is not None:
             maluses.append(mb)
-    return build_defender_modifiers(maluses)
+    acc = build_defender_modifiers(maluses)
+    # Moitié DEFENSE (1re du natif) : chaque modification du DefenseComponent → entrée %-list `1±v/100`
+    # via `CalculateModifiersFromStatModifications @181004380` (negate=1). GROUND TRUTH #194/#197 (C2_19,
+    # tuile Thorns −50 → ×1.5 en prédiction ET en combat réel, mesuré live). No-op si defense_stat None/no-mod.
+    for eb in calculate_modifiers_from_stat_modifications(defense_stat, negate=True):
+        add_modifier(acc, eb)
+    return acc
 
 
 def defender_effect_block_sources(effects, defender_fixed_armor: int = 0) -> list:

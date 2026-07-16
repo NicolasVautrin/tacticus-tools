@@ -226,11 +226,15 @@ def calculate_modifiers_from_stat_modifications(stat_component, negate: bool = F
         mesuré 1.5020/1.5003 EXACT.
 
     Faces natives (xref @181004380) : DÉFENSEUR `CalculateDefenderModifiersForPrediction @181003066`
-    = DefenseComponent (stat 3) de la CIBLE, negate=**1** (PORTÉ, #194) ; ATTAQUANT
+    = DefenseComponent (stat 3) de la CIBLE, negate=**1** (PORTÉ, #194/#197) ; ATTAQUANT
     `CalculateAttackerModifiersForPrediction @181000cac` = AttackComponent (stat 0) de l'attaquant,
     negate=**0**, gated `plStack_290 != null` + interface slot 3 (`DAT_1831b7f78`) — gate NON élucidé
     et prouvé INERTE sur le chemin normal-attack (#49 bit-exact sans lui) → NON câblé (cf. tâche RE
-    dédiée). ⚠ PRÉDICTION-ONLY (jamais le combat). Duck-typé sur `StatComponent`
+    dédiée). ⚠ Les 2 xref @181004380 sont les builders nommés « ForPrediction », mais ceux-ci sont
+    PARTAGÉS prédiction+combat (misnomer — invoqués par delegate via `CalculateAbilityDamage @18102cb50`
+    slot 0xf), donc le fold DÉFENSEUR s'applique AUSSI au COMBAT réel (MESURÉ LIVE #197 : dégât réel sur
+    occupant Thorns = ×1.5, impossible sous ×1.0). Foldé pour les DEUX faces DANS
+    `build_defender_modifiers_from_effects` (fin du fork). Duck-typé sur `StatComponent`
     (`.get_current_value()`, `.initial`, `.modification.per_source`)."""
     if stat_component is None:
         return []

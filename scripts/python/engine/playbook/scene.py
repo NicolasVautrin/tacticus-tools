@@ -65,6 +65,8 @@ class Scene:
                                          EffectsOwnedComponent)
         ctx_by_id, armor_by_id, shield_by_id, mult_by_id, ablvl_by_id, vis_by_id = {}, {}, {}, {}, {}, {}
         hp_by_id, hpmax_by_id, pos_by_id, team_by_id = {}, {}, {}, {}
+        defstat_by_id = {}
+        from engine.entities.stats import StatType as _ST     # #197 : DEFENSE (stat 3) du ctx ECS
         units: list = []
         for eid, e in state.entities.items():
             uc = e.get_component(UnitComponent)
@@ -84,6 +86,12 @@ class Scene:
                 armor_by_id[eid] = int(ctx.fixed_armor)
                 mult_by_id[eid] = int(ctx.ability_variables_multiplier or 100)
                 ablvl_by_id[eid] = int(ctx.passive_ability_level or 0)
+                # #197 : StatComponent DEFENSE (stat 3) de l'ECS live -> la prédiction OFFLINE (from_state)
+                # folde le stat-mod defense (Thorns ×1.5) comme le COMBAT runner, MEME source (ctx.stats)
+                # -> décision offline et combat cohérents. None si le stat n'est pas seedé (axe inerte).
+                _ds = ctx.stats.components.get(int(_ST.DEFENSE)) if ctx.stats is not None else None
+                if _ds is not None:
+                    defstat_by_id[eid] = _ds
             shield_by_id[eid] = shc.get_total_shield() if shc is not None else 0
             vis_by_id[eid] = vis
             if hc is not None:
@@ -111,7 +119,7 @@ class Scene:
             mult_by_id=mult_by_id, ablvl_by_id=ablvl_by_id, vis_by_id=vis_by_id,
             units=units, hp_by_id=hp_by_id, pos_by_id=pos_by_id, team_by_id=team_by_id,
             eff_state=getattr(state, "effects", None), hpmax_by_id=hpmax_by_id,
-            elev_by_pos=elev_by_pos, board=board)
+            elev_by_pos=elev_by_pos, board=board, defstat_by_id=defstat_by_id)
         sc._seed_battle_counters()   # #185 (units offline sans defeatedByMelee -> N=0, inerte)
         return sc
 
