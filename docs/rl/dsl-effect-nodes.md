@@ -78,3 +78,74 @@ main » disparaît.
 Chaque behaviour migré = l'**arbre EXACT du décompilé** (VA citées en commentaire), **replay-diff bit-exact**
 vs l'impératif qu'il remplace ET vs live. **Zéro régression**. Migration incrémentale : le runner impératif
 reste la référence jusqu'à ce que chaque behaviour DSL soit validé.
+
+## Verdict RE #149 slice-2 (re-expert, PROUVÉ ghidra gqfc5mff6c) — WALKER + combinateurs + arbre GetEmRuntz
+
+### 1. Contrat du walker (partagé, PROUVÉ)
+Le behaviour n'est PAS exécuté par `ActiveAbilityOperation.ExecuteInternal @180e44ec0` (celle-ci = orchestrateur
+d'ability : validité caster/cible, `GetAbilityEntities`, flags fin de tour). L'`Execute` de chaque `*Behaviour`
+est un **virtuel** (`GetEmRuntzAbility.ExecuteBehaviour @1811e2210` n'a que des xrefs DATA = slots method-table).
+Contrat lu sur `CombinedBehaviour.Execute @180ffe730`, `ForeachBehaviour.Execute @180fc6210`, etc. :
+```
+OperationResult Execute(this, AbilityEntities entities /*0x50 octets, by-value*/, IProcessor* proc)
+```
+- **`entities`** = le CONTEXTE lu par tous les nœuds (caster/owner/actor, target, casterPosition, abilityType,
+  level, subject courant) = homologue exact de `DslContext`. Reconstruit par `Foreach` avec `subject`=cible
+  courante (`DSLFactory.Entity(factory, target)`).
+- **`proc` (`IProcessor*`, classe `DAT_1831d3468`)** = LE COLLECTEUR d'Operations, threadé identiquement à
+  travers TOUTE la récursion. Chaque feuille émet son Operation via un slot vtable de `proc` (ex.
+  `SpawnUnitBehaviour @180fd3d80` : slot +5). ⇒ **notre `ExecutionContext` = ce `proc`** (state + rng + bus).
+- **Retour `OperationResult`** : byte @+0x20 = flag succès/**court-circuit** ; combiné en remontant
+  (`OperationResult.Combine`). Les Operations enfilées sont appliquées via `IdunRunner.Apply @180e34bf0`
+  (cascade LIFO inline / FIFO deferred, DÉJÀ portée).
+- **LAZY vs EFFET = split STRUCTUREL** : `TargetsSelector`/valeurs (`AdjacentTiles`, `Enemies`,
+  `LastUnitAttackedBy`, `TotalAttacksMade`) = nœuds `evaluate → valeur/liste` (DSL lazy actuel). Les
+  `*Behaviour` (`Spawn`, `Foreach`, `Maybe`, `Combined`, `PerformAIAbility`, `AddBondEffect`) =
+  `execute → OperationResult + Operations émises`. Un `Foreach`/`Maybe` **appelle** un selector lazy pour ses
+  cibles puis exécute son child à effet.
+
+### 2. Combinateurs (PROUVÉ)
+| Combinateur | Factory → classe | Execute (VA) | Sémantique |
+|---|---|---|---|
+| `&` op_BitwiseAnd | `@180ffaae0` → `CombinedBehaviour` (left@0x50 right@0x58) | `@180ffe730` | séquence gauche→droite, **court-circuit** : exec left, `Combine` ; `if result.byte@+0x20 == 0` → exec right, sinon STOP. 2 effets purs → flag 0 → les deux s'exécutent. |
+| `+` op_Addition | `@180ffaa70` → `CombinedBehaviour` (même layout) | (même classe) | identique structurellement à `&`. GetEmRuntz joint `(Spawn & PerformAIAttack)` et `Foreach(Taunt)` via `op_Addition @1811e2210`. |
+| `Maybe(chance)` | `DSLFactory.Maybe @180df6470` → `MaybeBehaviour` (ctor `@180fca430`) | `@180fc9dc0` | **UN** `next_bool(chance)` AVANT le child ; child exécuté ssi vrai. Variante Foreach = 1 tirage PAR cible. |
+| `Foreach(sel, body)` | `DSLFactory.Foreach @180defcd0` → `ForeachBehaviour` (ctor `@180fc69c0`) | `@180fc6210` | évalue selector@0x58 → IEnumerable, itère dans l'**ordre du sélecteur** (pas de tri) ; par cible reconstruit `entities` (subject=cible) puis bodyFunc → sous-behaviour Execute. |
+
+### 3. Arbre GetEmRuntz (`ExecuteBehaviour @1811e2210`, id 1045 orksRuntherd — PROUVÉ, mirror 1:1)
+```
+op_Addition (@1811e2210 = CombinedBehaviour séquence)
+├─ LEFT : Spawn & PerformAIAttack           (ExecuteAtomic @180fb0930 → AtomicGroup)
+│  ├─ Spawn (@180dfbd50)
+│  │    tileSelector = Cache(GetSpawnTileSelector)          # DSLFactory.Cache @180deb0d0
+│  │    visualId     = AbilityConfiguration.GetStringConstant(cfg@+0x60, 0)
+│  │    stats        = SpawnUnitOptions.WithStatsFromConfig(cfg@+0x60)
+│  │  → SpawnUnitBehaviour.Execute @180fd3d80
+│  └─ PerformAIAttackFromCurrentPosition (@180df8a10) → PerformAIAbilityUnitBehaviour   # on-appearance
+└─ RIGHT : Foreach(Children, TauntWithNewChildrenWhoDidDamage)
+   ├─ selector = Children(factory@+0x148)                   # DSLFactory.Children @180debed0 = summons de CE cast
+   └─ body = TauntWithNewChildrenWhoDidDamage (@1811e27a0), Func<entities,behaviour> :
+        If( AmountIsGreaterThanZero(TotalAttacksMade(child))
+            & AmountIsEqual(child.abilityLevel, UnitTurnsStarted(child)) & IsAlive(child),
+            AddBondEffect(0x1b=27, source=child, target=LastUnitAttackedBy(child), duration=TurnsFromRounds(1)) )
+
+GetSpawnTileSelector (@1811e26b0, lazy) =
+   op_BitwiseAnd( CanAddUnit(AdjacentTiles(caster@+0x168)),
+                  Unique(AdjacentTiles( UnitsWithoutTrait(Enemies(caster,0x80,3), 0x1b) )) )
+```
+⚠ `UnitsWithoutTrait(Enemies, 0x1b)` : le port impératif (`spawn.py:487`) le lit comme exclusion du TRAIT
+`Steppable`(=0x1b=27, tokens marchables) ; le re-expert a noté 0x1b comme l'effet Bond/Taunt (conflation
+possible). **À trancher au build** (le nom `UnitsWithoutTrait` implique un TRAIT ; garder le mapping #146/#158).
+
+### 4. Mapping nœud→Operation (feuilles, PROUVÉ)
+| Feuille (VA) | Operation native | Port existant | État |
+|---|---|---|---|
+| Spawn/SpawnUnitBehaviour `@180fd3d80` | AddUnitOperation (slot +5) + TriggerSpawnedUnitBehaviours | `spawn.py SpawnUnitOperation.execute_getemruntz` / `_spawn_config_grot` | **spawn PORTÉ** |
+| PerformAIAttackFromCurrentPosition `@180df8a10` | AttackDamageOperation (chemin dégât normal, event-map #150) | `damage.py AttackDamageOperation` | Operation existe ; **wiring on-appearance no-op** (`spawn.py:455`) |
+| AddBondEffect(0x1b=27) `@1811e27a0` | AddEffectOperation (source=child, target=lastAttacked, 1t) | `effects.py AddEffectOperation.execute` | Operation existe ; **wiring Taunt-on-hit no-op** |
+
+### 5. Priorités validator (flaggées re-expert)
+1. Ordre RNG du `Maybe` (1 `next_bool` avant child) — valider bit-exact sur une ability à Maybe (FireOfAbsolution).
+2. `Foreach(Children)` = summons de CE cast uniquement (`factory@+0x148`), PAS tous les summons du board.
+3. Court-circuit `&` : pour 2 effets purs le flag@+0x20 reste 0 (sinon on perd le RIGHT du `op_Addition`).
+4. Wiring on-appearance PerformAIAttack + Taunt-if-did-damage (gap no-op actuel) : replay-diff sans re-trigger fantôme (garde-fou #140).
