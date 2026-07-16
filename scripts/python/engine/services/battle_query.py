@@ -59,35 +59,51 @@ def _find_by_hits(cands: list, prefer_hits) -> dict:
     return cands[0]
 
 
-def get_attack_weapon_for_default_normal_attack(visual_id, is_adjacent: bool, prefer_hits=None):
-    """`GetAttackWeaponForDefaultNormalAttack` (distance-aware). Renvoie `(weapon_dict|None, is_ranged)`.
-    `is_adjacent` = cible en mêlée (`AreUnitsInMelee`/`AreTilesAdjacent` = **adjacence HEX**, PAS
-    Chebyshev). Fallback : ranged si dispo à distance (ou position inconnue), sinon mêlée/1re arme."""
+def get_attack_weapon_for_default_normal_attack(visual_id, is_adjacent: bool, prefer_hits=None, dist=None):
+    """`GetAttackWeaponForDefaultNormalAttack @18105ea60` (distance-aware). Renvoie
+    `(weapon_dict|None, is_ranged)`. `is_adjacent` = cible en mêlée (`AreUnitsInMelee`/`AreTilesAdjacent`
+    = **adjacence HEX** élévation-gatée, PAS Chebyshev) -> branche mêlée. Sinon branche ranged
+    (`FindRangedWeapon @181059ae0`).
+
+    PORTE DE PORTÉE ranged (#188) : `FindRangedWeapon @181059ae0` n'inclut une arme ranged QUE si
+    `dist <= weapon.Range + rangeStatBonus` (`param_5 <= local_88[0] + iVar6`, iVar6 =
+    `StatComponent.get_CurrentValue` du stat de portée `DAT_1831b8008` = **0 sur tous les units connus**,
+    cf. sweep case-184 §gaps#2 : boundary exactement à Range). Si AUCUNE ranged en portée, le natif
+    renvoie null -> le jeu retombe sur l'arme MÊLÉE (mesuré : mêlée à `dist > Range`). `dist` = distance
+    HEX attaquant->cible (int) ; fourni -> porte appliquée, `None` -> comportement legacy (pas de porte).
+    IMPACT NUL sur les tuiles d'attaque LÉGALES (cible toujours en portée de l'arme choisie) : la porte
+    ne mord que les prédictions HORS-PORTÉE (que l'IA n'émet jamais) -> zéro régression. rangeStatBonus
+    omis (=0) : à réintroduire si un unit à stat de portée positif apparaît (`DAT_1831b8008`)."""
     gu = GC.unit(visual_id or "") or {}
     weapons = gu.get("weapons") or []
     if not weapons:
         return None, False
     melee = [w for w in weapons if not w.get("Range")]
     ranged = [w for w in weapons if w.get("Range")]
-    if is_adjacent and melee:          # FindMeleeWeapon
+    if is_adjacent and melee:          # AreUnitsInMelee -> FindMeleeWeapon
         cand = melee
-    elif ranged:                       # FindRangedWeapon (à distance, ou position inconnue)
-        cand = ranged
+    elif ranged:                       # FindRangedWeapon @181059ae0
+        if dist is not None:           # porte de portée : ranged en portée, sinon fallback mêlée
+            in_range = [w for w in ranged if dist <= int(w.get("Range") or 0)]
+            cand = in_range or melee or ranged   # hors portée + mêlée dispo -> mêlée (null natif)
+        else:                          # dist inconnu -> legacy (ranged dès non-adjacent)
+            cand = ranged
     else:                              # fallback : mêlée si pas de ranged
         cand = melee or weapons
     w = _find_by_hits(cand, prefer_hits)
     return w, bool(w.get("Range"))
 
 
-def select_weapon_pierce(ctx, is_adjacent):
+def select_weapon_pierce(ctx, is_adjacent, dist=None):
     """SÉLECTION D'ARME + PERÇAGE — service PARTAGÉ prédiction↔runner (foyer natif `BattleQuery`).
-    `GetAttackWeaponForDefaultNormalAttack` (arme mêlée/ranged par adjacence HEX) + `GetAttackPiercing-
-    DamageRatio @181030a20` (profil.PiercingRatio + ExtraPierce(26) + ExtraPierce{Melee21|Ranged22}).
-    UN seul port : prédiction (`prediction._weapon_pierce`) ET combat (`damage_model.select_weapon_pierce`)
-    l'appellent (un service natif appelé par N chemins = UNE fonction). `ctx` = UnitContext (les 2 en ont
-    un). Renvoie `(pierce, is_ranged, weapon_hits, profile_name)`."""
+    `GetAttackWeaponForDefaultNormalAttack` (arme mêlée/ranged par adjacence HEX + porte de portée
+    ranged `dist`, cf. #188) + `GetAttackPiercingDamageRatio @181030a20` (profil.PiercingRatio +
+    ExtraPierce(26) + ExtraPierce{Melee21|Ranged22}). UN seul port : prédiction (`prediction._weapon_pierce`)
+    ET combat (`damage_model.select_weapon_pierce`) l'appellent (un service natif appelé par N chemins =
+    UNE fonction). `ctx` = UnitContext (les 2 en ont un). `dist` = distance HEX attaquant->cible (porte
+    ranged ; `None` = legacy). Renvoie `(pierce, is_ranged, weapon_hits, profile_name)`."""
     w, is_ranged = get_attack_weapon_for_default_normal_attack(
-        ctx.visual_id, is_adjacent, prefer_hits=ctx.normal_hits)
+        ctx.visual_id, is_adjacent, prefer_hits=ctx.normal_hits, dist=dist)
     if w is None:
         return 100, False, 1, None
     dp = GC.damage_profile(w.get("DamageProfile")) or {}

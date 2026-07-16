@@ -15,6 +15,7 @@ défenseur/élévation/bouclier). Ce module porte la couche playbook + assemble 
 from __future__ import annotations
 
 import gameconfig as GC
+import hexgeo
 from engine import dsl, weights as _weights
 from engine.entities.abilities.active_ability import (
     active_ability_for, makes_damage_predictions, _PROFILE_BY_INDEX)
@@ -56,11 +57,12 @@ RANGED_IN_MELEE_PCT: int = abs(int(_DMG_CFG.get("RangedInMeleeReductionPercentag
 _PROFILE_INDEX = {name: idx for idx, name in _PROFILE_BY_INDEX.items()}
 
 
-def _weapon_pierce(scene, att_id, is_adjacent):
+def _weapon_pierce(scene, att_id, is_adjacent, dist=None):
     """Arme + perçage de l'attaque normale — DÉLÈGUE au service PARTAGÉ `battle_query.select_weapon_pierce`
-    (MÊME port que le combat/runner ; `is_adjacent` = adjacence HEX native, cf.
-    `make_normal_attack_predictions`). Renvoie `(pierce, is_ranged, weapon_hits, profile_name)`."""
-    return select_weapon_pierce(scene.ctx(att_id), is_adjacent)
+    (MÊME port que le combat/runner ; `is_adjacent` = adjacence HEX native, `dist` = distance HEX pour la
+    porte de portée ranged #188, cf. `make_normal_attack_predictions`). Renvoie
+    `(pierce, is_ranged, weapon_hits, profile_name)`."""
+    return select_weapon_pierce(scene.ctx(att_id), is_adjacent, dist)
 
 
 def _should_apply_ranged_in_melee(scene, att_id, attack_pos) -> bool:
@@ -248,7 +250,8 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # 3x Blast) bascule mêlée UNIQUEMENT sur une tuile hex-adjacente ; les tuiles cheby=1 mais hex=2
     # (ex. (5,5)->(6,6)) restent ranged. `scene.board` (si fourni) = voisins natifs, sinon evenq.
     is_adjacent = are_tiles_adjacent(attack_pos, t_pos, scene.board)
-    pierce, _ranged, whits, prof_name = _weapon_pierce(scene, att_id, is_adjacent)
+    _dist = hexgeo.distance(attack_pos, t_pos) if (attack_pos and t_pos) else None   # porte portée ranged #188
+    pierce, _ranged, whits, prof_name = _weapon_pierce(scene, att_id, is_adjacent, _dist)
     is_melee = not _ranged
     _hm = (attack_pos != scene.pos(att_id)) if attack_pos else None
     # PRÉDICTION (slot 0xd) — branche distincte du combat (runner). Le debuff stat-modifications

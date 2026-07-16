@@ -49,7 +49,7 @@ def select_weapon(ctx, dist: Optional[int]):
     la prédiction). `dist` = distance hex du runner (1=adjacent via `board.neighbours`, 2=tir) → is_adjacent.
     Renvoie le dict d'arme gameconfig (ou None)."""
     w, _ranged = get_attack_weapon_for_default_normal_attack(
-        ctx.visual_id, is_adjacent=(dist is not None and dist <= 1), prefer_hits=ctx.normal_hits)
+        ctx.visual_id, is_adjacent=(dist is not None and dist <= 1), prefer_hits=ctx.normal_hits, dist=dist)
     return w
 
 
@@ -57,7 +57,7 @@ def select_weapon_pierce(ctx, dist: Optional[int]) -> Tuple[int, bool, int]:
     """Arme + perçage par PORTÉE — DÉLÈGUE au service PARTAGÉ `battle_query.select_weapon_pierce`
     (un service natif = UN port, prédiction ET combat l'appellent). `dist` hex (1=adjacent) → is_adjacent.
     Renvoie `(pierce, is_ranged, whits)` (le profil est fourni séparément par `select_weapon`)."""
-    pierce, is_ranged, whits, _prof = _bq_select_weapon_pierce(ctx, dist is not None and dist <= 1)
+    pierce, is_ranged, whits, _prof = _bq_select_weapon_pierce(ctx, dist is not None and dist <= 1, dist)
     return pierce, is_ranged, whits
 
 
