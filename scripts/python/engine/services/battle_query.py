@@ -21,18 +21,34 @@ import hexgeo
 
 
 def are_tiles_adjacent(a_pos, t_pos, board=None):
-    """`BattleQuery.AreTilesAdjacent` / `AreUnitsInMelee` — ADJACENCE HEX (PAS Chebyshev), service
-    PARTAGÉ prédiction↔runner. `board` fourni (runner `state.board`, ou `Scene.board`) → voisins NATIFS
-    (`board.neighbours`, ground-truth capturé) ; sinon géométrie **evenq** (= le mode d'adjacence combat
-    du runner, cf. `damage.py`), via `hexgeo.distance==1` (parité evenq validée vs boardGraph). Renvoie
-    `True`/`False`, ou `None` si une position est inconnue (→ l'appelant retombe sur ranged)."""
+    """`MovementUtil.AreTilesAdjacent @18109d740` / `AreUnitsInMelee` — ADJACENCE HEX (PAS Chebyshev),
+    service PARTAGÉ prédiction↔runner. Le natif folde DEUX conditions dans la primitive :
+    `return (|Δelev| < 2) & (A==B || ConnectivityComponent.IsNeighbour(A, B))` — l'adjacence hex ET une
+    PORTE d'élévation (deux tuiles voisines séparées de ≥2 crans d'élévation ne sont PAS adjacentes ;
+    élévation = `tileMeta.elevation`, lue via `FUN_180007ae0(...)→[+0x18]`). Le port réplique les deux.
+
+    `board` fourni (runner `state.board`, ou `Scene.board`) → voisins NATIFS (`board.neighbours`,
+    ground-truth capturé) + élévation par tuile (`by_id[tid]["elevation"]`, capteur boardGraph) ; sinon
+    géométrie **evenq** (= le mode d'adjacence combat du runner, cf. `damage.py`), via `hexgeo.distance==1`
+    (parité evenq validée vs boardGraph) SANS porte d'élévation (aucune info dispo → dégradation sûre =
+    adjacence hex pure, comme le playbook `is_adjacent` sans `elev_by_pos`). Sur un board PLAT
+    (Δelev=0<2 partout) la porte ne mord jamais → aucune régression ; elle ne discrimine que les boards
+    à élévation. Renvoie `True`/`False`, ou `None` si une position est inconnue (→ ranged)."""
     if a_pos is None or t_pos is None:
         return None
     if board is not None:
         a_tile = board.id_at(a_pos[0], a_pos[1])
         t_tile = board.id_at(t_pos[0], t_pos[1])
         if a_tile is not None and t_tile is not None:
-            return t_tile in board.neighbours(a_tile)
+            neighbour = (a_tile == t_tile) or (t_tile in board.neighbours(a_tile))  # A==B || IsNeighbour
+            if not neighbour:
+                return False
+            # AreTilesAdjacent @18109d740 : porte d'élévation |Δelev| < 2, foldée dans la primitive.
+            ae = board.by_id.get(a_tile, {}).get("elevation")
+            te = board.by_id.get(t_tile, {}).get("elevation")
+            if ae is not None and te is not None:
+                return abs(int(ae) - int(te)) < 2
+            return True    # élévation non captée (board ancien) → dégradation sûre (adjacence hex pure)
     return hexgeo.distance(a_pos, t_pos) == 1
 
 
