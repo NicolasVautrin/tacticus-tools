@@ -290,8 +290,9 @@ def calculate_trench_reduction(
     MAIN GATE : attackerTile present ET cible porte Trench ET profil non-exempte ET
                 ( attaquant !IndirectFire  OU  (tuile cible && IsAdjacentTo(attackerTile, tuileCible)) ).
     SOUS-BRANCHE IsTrench(attackerTile) : SUPPRIME la reduction si l'attaquant est SUR une tuile Trench ET
-                voisin direct de la cible (IsNeighbourOf) -- OU ligne intermediaire toute-Trench (delegate
-                @LAB_181004bb9, 2 listes, NON RE'd -> CASE3 residu #182 : fall-through APPLY, conservateur).
+                voisin direct de la cible (IsNeighbourOf) -- OU ligne attackerTile->cible INTEGRALEMENT
+                Trench (CASE3 #182 : delegate @LAB_181004bb9 = MovementQuery.GetLinesBetweenTiles, RE'd et
+                porte via hexgeo.line ; seule la ligne flag-0 decide, cf. docs/rl/case-182-trench-case3.md).
     Mesures live (board C2_19 bloodMephiston) : HORS-Trench non-adjacent -> APPLIQUE (natif 1002-1506) ;
     SUR-Trench + adjacent -> SKIP (natif 3009-4515) ; ligne-toute-Trench -> SKIP (natif 2006-3010, CASE3)."""
     from .battle_query import are_tiles_adjacent
@@ -312,7 +313,22 @@ def calculate_trench_reduction(
             return None                                              # natif GetMainTile==0 -> return empty
         if are_tiles_adjacent(attacker_tile, target_tile, board) is True:    # IsNeighbourOf -> supprime
             return None
-        # CASE3 (ligne intermediaire toute-Trench, delegate @LAB_181004bb9) non porte (#182) -> APPLY
+        # CASE3 (#182, delegate @LAB_181004bb9 RE'd) : le natif appelle MovementQuery.GetLinesBetweenTiles
+        # @181099cb0 -> MovementUtil.DrawLineBetweenCoordinates @18109dc00/@18109ded0 (linedraw cube-lerp,
+        # endpoints INCLUS) pour tracer DEUX lignes attackerTile->targetMainTile (flag 0/1 = nudge epsilon
+        # de tie-break). SEULE la ligne flag-0 (line_A) decide : SUPPRIME la reduction ssi line_A est
+        # INTEGRALEMENT Trench. La ligne flag-1 est enumeree par le natif mais son resultat n'affecte JAMAIS
+        # la sortie (ses deux issues -- MoveNext-false OU tuile non-Trench -- menent toutes deux a APPLY
+        # @LAB_181004e45). hexgeo.line = meme algo Red Blob (cube-lerp + cube_round) ; le nudge epsilon
+        # flag-0 n'est PAS reproduit -> tie-break potentiellement different sur une geometrie AMBIGUE (ligne
+        # pile entre deux hex), mais un vrai couloir tout-Trench reste robuste. Une tuile de la ligne
+        # hors-plateau (terrain_at=None) -> pas "Trench" -> APPLY (conservateur). cf.
+        # docs/rl/case-182-trench-case3.md.
+        import hexgeo
+        line_a = hexgeo.line(attacker_tile, target_tile)             # flag-0 line, attacker->target inclus
+        if line_a and all(board.terrain_at(c, r) == "Trench" for (c, r) in line_a):
+            return None                                              # line_A tout-Trench -> SKIP
+        # sinon APPLY (fall-through)
     # (3) APPLY : -TrenchReductionPercentage%
     return EffectBonus("PercentDecrease", trench_reduction_pct, owner_is_caster=True)
 
