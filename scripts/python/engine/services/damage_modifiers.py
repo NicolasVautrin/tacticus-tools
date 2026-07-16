@@ -260,12 +260,51 @@ def calculate_ranged_in_melee_reduction(
 
 
 def calculate_trench_reduction(
-        target_on_trench_adjacent: bool, trench_reduction_pct: int) -> EffectBonus | None:
-    """CalculateTrenchReduction @181004830 : cible sur tuile trench + conditions d'adjacence →
-    −TrenchReduction (config). `target_on_trench_adjacent` = conditions résolues en amont."""
-    if target_on_trench_adjacent:
-        return EffectBonus("PercentDecrease", trench_reduction_pct, owner_is_caster=True)
-    return None
+        attacker_tile, target_tile, target_has_trench_effect: bool,
+        attacker_has_indirect_fire: bool, profile_ignored: bool, board,
+        trench_reduction_pct: int) -> EffectBonus | None:
+    """CalculateTrenchReduction @181004830 — mirror COMPLET (gate + apply MONOLITHIQUE, comme le natif).
+
+    Le natif APPLIQUE la reduction PAR DEFAUT (main gate franchi) et ne la SUPPRIME que dans la sous-branche
+    IsTrench(attackerTile). Params = handles offline des Tile objects natifs (#183 : le natif ne passe pas de
+    "board", chaque Tile PORTE terrain + voisins) :
+      - attacker_tile / target_tile : (col,row) | None. attackerTile = tuile candidate (param_4) ;
+        target_tile = GetMainTile(world, cible) = la tuile de la cible.
+      - target_has_trench_effect    : HasEffect(cible, EffectType.Trench 0x423) — effet de tuile (cible sur/
+        adjacente a une tuile Trench, pose par TrenchAbility @1811c8e30 ; confirme live Arctic_06 u84).
+      - attacker_has_indirect_fire  : HasTrait(attaquant, UnitTrait.IndirectFire 0x3ed).
+      - profile_ignored             : StaticBattleRules.IgnoreTrenchReduction(profile) @181559b70 (defaut vide #125).
+      - board                       : graphe de tuiles (#183). IsTrench(attackerTile) = board.terrain_at ;
+        IsNeighbourOf/IsAdjacentTo = are_tiles_adjacent (voisins natifs `native_sym`).
+
+    MAIN GATE : attackerTile present ET cible porte Trench ET profil non-exempte ET
+                ( attaquant !IndirectFire  OU  (tuile cible && IsAdjacentTo(attackerTile, tuileCible)) ).
+    SOUS-BRANCHE IsTrench(attackerTile) : SUPPRIME la reduction si l'attaquant est SUR une tuile Trench ET
+                voisin direct de la cible (IsNeighbourOf) -- OU ligne intermediaire toute-Trench (delegate
+                @LAB_181004bb9, 2 listes, NON RE'd -> CASE3 residu #182 : fall-through APPLY, conservateur).
+    Mesures live (board C2_19 bloodMephiston) : HORS-Trench non-adjacent -> APPLIQUE (natif 1002-1506) ;
+    SUR-Trench + adjacent -> SKIP (natif 3009-4515) ; ligne-toute-Trench -> SKIP (natif 2006-3010, CASE3)."""
+    from .battle_query import are_tiles_adjacent
+    # (0) profil exempte (IgnoreTrenchReduction) -> aucune reduction
+    if profile_ignored:
+        return None
+    # (1) MAIN GATE : attackerTile + cible-Trench requis ; IndirectFire -> uniquement si adjacent
+    if attacker_tile is None or not target_has_trench_effect:
+        return None
+    if attacker_has_indirect_fire:
+        if target_tile is None or are_tiles_adjacent(attacker_tile, target_tile, board) is not True:
+            return None
+    # (2) SOUS-BRANCHE IsTrench(attackerTile). board threade en pratique (#183) ; board=None = etat degrade
+    #     (RPC boardGraph KO) ou IsTrench est inevaluable -> sous-branche inerte -> APPLY (defaut main-gate),
+    #     PAS un skip silencieux du gate (le board EST cense etre present).
+    if board is not None and board.terrain_at(*attacker_tile) == "Trench":   # IsTrench(attackerTile)
+        if target_tile is None:
+            return None                                              # natif GetMainTile==0 -> return empty
+        if are_tiles_adjacent(attacker_tile, target_tile, board) is True:    # IsNeighbourOf -> supprime
+            return None
+        # CASE3 (ligne intermediaire toute-Trench, delegate @LAB_181004bb9) non porte (#182) -> APPLY
+    # (3) APPLY : -TrenchReductionPercentage%
+    return EffectBonus("PercentDecrease", trench_reduction_pct, owner_is_caster=True)
 
 
 # --- Import différé (bas de module) : rompt le cycle entities/__init__ -> effects -> services.damage_modifiers.

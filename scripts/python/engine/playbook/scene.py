@@ -220,17 +220,34 @@ def build_predictor(rpc, rid):
         _ast = None
     actorstats_by_id = {u["entityId"]: int(u.get("totalAttacksMade") or 0)
                         for u in ((_ast or {}).get("units") or []) if u.get("entityId") is not None}
+    # BOARD STATIQUE (#183) : mirror offline des Tile objects natifs. Le natif ne passe PAS de "board" a la
+    # prediction -- l'attackerTile (tuile candidate, `local_588` de CalculateAttackerModifiersForPrediction
+    # @181000590) PORTE lui-meme son terrain (tileDefId -> IsTrench @180ec6f80 = IsTileWithId) et son graphe
+    # de voisins STOCKE (ConnectivityComponent.IsNeighbour, consulte par IsNeighbourOf @180ec6030 ET par
+    # MovementUtil.AreTilesAdjacent @18109d740 = (|rowD|<2) & IsNeighbour). Le Board `native_sym` reproduit
+    # ce graphe (capture GetAdjacentTiles(false,false,true) = topologie complete #148) + le terrain. Point de
+    # couture = build_predictor (tables statiques cold 1x/runner = l'analogue du graphe de tuiles natif bati
+    # une fois au battle-init). Threade dans le dict -> from_predictor_sctx le lit en fallback pour les 3
+    # call-sites (context live, predict_samples, predict_sweep). ELEVATION derivee du MEME board (source
+    # unique, un seul fetch boardGraph), comme Scene.from_state.
+    board = build_board(rpc, rid)
+    elev_by_pos = ({(t["col"], t["row"]): int(t.get("elevation") or 0) for t in board.by_id.values()}
+                   if board is not None else None)
     return {"ctx_by_id": ctx_by_id, "armor_by_id": armor_by_id, "shield_by_id": shield_by_id,
             "mult_by_id": mult_by_id, "ablvl_by_id": ablvl_by_id, "vis_by_id": vis_by_id,
             "abstate_by_id": abstate_by_id, "actorstats_by_id": actorstats_by_id,
-            "elev_by_pos": build_elev_by_pos(rpc, rid)}
+            "board": board, "elev_by_pos": elev_by_pos}
 
 
-def build_elev_by_pos(rpc, rid):
-    """`elev_by_pos` {(col,row): elevation} depuis le RPC `boardGraph` (graphe STATIQUE, 1x/runner).
-    Alimente la couche ELEVATION de la prediction (`CalculateElevationBonusModifier @181003ea0`, cf.
-    `_add_positional_and_defender_mods` : +ElevationBonus si la tuile attaquant > tuile cible). None si
-    `boardGraph` KO -> l'elevation redevient no-op (pas de crash ; ancien comportement)."""
+def build_board(rpc, rid):
+    """Board STATIQUE (graphe de connectivite + terrain) depuis le RPC `boardGraph` (STATIQUE, 1x/runner).
+    Mirror offline des Tile objects natifs : `native_sym` = graphe complet symetrise (capture
+    `GetAdjacentTiles(false,false,true)`, #148) = `ConnectivityComponent.IsNeighbour` ; `terrain_at`=tileDefId
+    = `IsTrench`/`IsTileWithId`. Alimente les gates POSITIONNELS de la prediction : reduction Trench
+    (CalculateTrenchReduction @181004830, sous-branche IsTrench(attackerTile)+IsNeighbourOf) + adjacence
+    (select_weapon melee/ranged) + elevation. None si `boardGraph` KO -> gates positionnels no-op (etat
+    anterieur, pas de crash)."""
+    from engine.entities.pathfinding.board import Board
     try:
         bg = rpc("boardGraph", {"runnerId": rid}, 60)
     except Exception:
@@ -238,12 +255,7 @@ def build_elev_by_pos(rpc, rid):
     tiles = (bg or {}).get("tiles") if isinstance(bg, dict) else None
     if not tiles:
         return None
-    out = {}
-    for t in tiles:
-        c, r = t.get("col"), t.get("row")
-        if c is not None and r is not None:
-            out[(c, r)] = int(t.get("elevation") or 0)
-    return out or None
+    return Board(tiles, adjacency="native_sym")
 
 
 def refresh_shields(predictor, rpc, rid):

@@ -147,28 +147,17 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
         if eb is not None:
             add_modifier(mods, eb)
     tgt_effects = scene.effects(tgt_id)
-    # Trench (CalculateTrenchReduction @181004830) : -TrenchReductionPercentage% (=-50) SI la cible porte
-    # l'effet Trench (natif HasEffect(target,0x423) ; effet de TUILE pose par TrenchAbility @1811c8e30,
-    # IsActive => cible sur/adjacente a une tuile Trench — confirme live SyncPvp_Arctic_06 u84 : 'Trench'
-    # present sur-trench, DROP hors-trench) ET profil non-exempte (IgnoreTrenchReduction @181559b70, defaut
-    # vide #125). calculate_trench_reduction owner_is_caster=True = maths identiques a un -50% defenseur.
-    target_on_trench = (any(getattr(e, "name", None) == "Trench" for e in tgt_effects)
-                        and (not damage_profile or damage_profile not in _TRENCH_IGNORED_PROFILES))
-    # SKIP-branche native (#177, polarite tranchee + 3 mesures live board C2_19 bloodMephiston u83->u81) :
-    # le decompile applique la reduction PAR DEFAUT (main_gate = cible porte Trench) et ne la SUPPRIME que
-    # dans la sous-branche `IsTrench(attackerTile)==true` -> sur `IsNeighbourOf(attackerTile,tgtTile)` OU
-    # ligne intermediaire toute-Trench (loop1). Mesure : attaquant HORS-Trench non-adjacent -> APPLIQUE
-    # (natif 1002-1506, port correct) ; attaquant SUR-Trench + adjacent -> SKIP (natif 3009-4515, le port
-    # sur-appliquait). On porte le terme ADJACENT (IsNeighbourOf = are_tiles_adjacent, CASE2 mesure, frequent).
-    # Le terme ligne-toute-Trench (CASE3, rare) + le gate main IndirectFire (0x3ed) dependent du delegate
-    # natif @LAB_181004bb9 (2 listes) NON RE'd -> residus tracks #182, restent APPLIQUE (sur-pred legere sur
-    # ces cas rares, AUCUNE regression vs l'etat anterieur). `are_tiles_adjacent`=None (geometrie inconnue) ->
-    # `is True` faux -> on garde la reduction par defaut (conforme "reduction par defaut").
-    if (target_on_trench and attack_pos is not None and scene.board is not None
-            and scene.board.terrain_at(*attack_pos) == "Trench"                     # IsTrench(attackerTile)
-            and are_tiles_adjacent(attack_pos, t_pos, scene.board) is True):        # IsNeighbourOf
-        target_on_trench = False
-    eb = calculate_trench_reduction(target_on_trench, TRENCH_PCT)
+    # Trench (CalculateTrenchReduction @181004830) : gate COMPLET dans la fonction nommee (main gate +
+    # sous-branche IsTrench(attackerTile), #177 polarite tranchee + 3 mesures live board C2_19). attackerTile
+    # = attack_pos, tuile cible = t_pos (GetMainTile(cible)=sa position), board threade (#183 : plus latent).
+    # Gate IndirectFire(0x3ed) PORTE ; seul residu = CASE3 ligne-toute-Trench (delegate @LAB_181004bb9 non-RE'd, #182).
+    att_ctx_traits = getattr(scene.ctx(att_id), "traits", None) or ()
+    eb = calculate_trench_reduction(
+        attack_pos, t_pos,
+        any(getattr(e, "name", None) == "Trench" for e in tgt_effects),        # HasEffect(cible, Trench 0x423)
+        UnitTrait.IndirectFire.name in att_ctx_traits,                         # HasTrait(att, IndirectFire 0x3ed)
+        bool(damage_profile) and damage_profile in _TRENCH_IGNORED_PROFILES,   # IgnoreTrenchReduction
+        scene.board, TRENCH_PCT)
     if eb is not None:
         add_modifier(mods, eb)
     # attacker_ctx : identité + niveau/mult du Neurothrope SOURCE (gate + magnitude Neuroparasite). L'attaquant
