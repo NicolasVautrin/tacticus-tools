@@ -601,12 +601,35 @@ def _apply_act_of_faith_stack(state: State, owner_id: int) -> Optional[dict]:
             "crit_chance": ctx.stat(StatType.CRIT_CHANCE), "crit_damage": ctx.stat(StatType.CRIT_DAMAGE)}
 
 
+def act_of_faith_reset_tree(effect_type: int):
+    """Arbre de `ActOfFaith_RemoveEffectAbility.CreateBehaviour @181219eb0` (MIRROR 1:1 du DECOMPILE) :
+        RemoveEffect( target = Self@0x148, effectType = Nullable(0x3f9=1017) )
+    Port : `RemoveEffect(ACTOFFAITH_EFFECT, Caster())` (Owner==Caster pour un triggered). Retire TOUS les
+    stacks ActOfFaith du porteur et revert leur ChangeStat (crit-chance + crit-damage, `reverted_stats()`) --
+    MEME Operation de revert par-source (`revert_change_stat`) que l'ancien `_reset_act_of_faith` -> bit-exact
+    BY CONSTRUCTION. `effect_type` passe par l'appelant (constante `ACTOFFAITH_EFFECT`) pour eviter le
+    couplage d'import.
+
+    ⚠ BODY GSHARED : @181219eb0 est un corps `Il2CppFullySharedGenericStruct` (param_3 = token de type). La
+    branche `param_3==0x20` = `RemoveEffect(Self, 0x3f9)` = LE behaviour retenu (nom `RemoveEffectAbility` +
+    port validé #151) ; la branche `!=0x20` = `TriggerAbilityDelayed(Self, 0x3fa=1018, 3, 0)` est ECARTEE
+    (cross-instantiation gshared : cf. l'accumulate @181219a70 qui a `Nothing` en `==0x20` et le RÉEL en
+    `!=0x20` -- assignations OPPOSEES entre les deux methodes -> on retient RemoveEffect(0x3f9), le natif que
+    le port fait deja et que #151 a validé)."""
+    from ...abilities.behaviours import RemoveEffect
+    from ....entities.selectors import Caster
+    return RemoveEffect(effect_type, Caster())
+
+
 def _reset_act_of_faith(state: State, owner_id: int) -> Optional[dict]:
-    """`ActOfFaith_RemoveEffectAbility` behaviour = `RemoveEffect(0x3f9)` tous stacks : retire chaque
-    ActOfFaithBuffEffect du porteur et revert son ChangeStat (soustrait les deltas stockés ; la somme des
-    deltas annule exactement l'accumulation compound, quel que soit l'ordre). No-op si pas d'effets."""
+    """`ActOfFaith_RemoveEffectAbility` behaviour = arbre DSL `act_of_faith_reset_tree()` (mirror
+    `RemoveEffect(0x3f9, Self)` @181219eb0) : retire chaque ActOfFaithBuffEffect du porteur et revert son
+    ChangeStat (soustrait par-source ; la somme annule exactement l'accumulation compound, quel que soit
+    l'ordre). No-op si pas d'effets. Le gate `matches` (On(9) ability-only & WasCrit & HasEffect) reste
+    upstream (hors CreateBehaviour). Le report (cc_back/cd_back/removed) est reconstruit autour de l'arbre."""
     from ....entities.stats import StatType
-    from ..stat_ops import revert_change_stat
+    from ...abilities.behaviours import entities_from_state
+    from ....dsl.effects import ExecutionContext
     owner = state.get_entity(owner_id)
     sc = owner.get_component(StatsComponent) if owner is not None else None
     if sc is None or state.effects is None:
@@ -614,19 +637,12 @@ def _reset_act_of_faith(state: State, owner_id: int) -> Optional[dict]:
     ctx = sc.ctx
     cc_before = ctx.stat(StatType.CRIT_CHANCE)
     cd_before = ctx.stat(StatType.CRIT_DAMAGE)
-    removed = 0
-    for e in state.effects.by_unit.get(int(owner_id), []):
-        if e.consumed or e.effect_type != ACTOFFAITH_EFFECT:
-            continue
-        # revert par SOURCE (ReverseModification) : la valeur se re-clampe au read, sans delta stocké.
-        # ⚠ un stack SEEDÉ (materialisé depuis la capture) n'a pas de source (dans le résidu opaque) →
-        # non reverté (limitation préexistante : le reset de stacks seedés ne re-baisse pas la stat).
-        src = getattr(e, "stat_mod_source", None)
-        if src is not None:
-            revert_change_stat(state, owner_id, StatType.CRIT_CHANCE, src)
-            revert_change_stat(state, owner_id, StatType.CRIT_DAMAGE, src)
-        e.consumed = True
-        removed += 1
+    # behaviour = arbre DSL RemoveEffect(0x3f9, Caster()) ; la feuille itere les stacks du porteur et
+    # revert_change_stat(CRIT_CHANCE/CRIT_DAMAGE, stat_mod_source) par stack -> == l'ancien corps (bit-exact).
+    ectx = ExecutionContext(state=state)
+    act_of_faith_reset_tree(ACTOFFAITH_EFFECT).execute(
+        entities_from_state(state, owner_id, None), ectx)
+    removed = sum(p["removed"] for n, p in ectx.emitted if n == "RemoveEffect")
     return {"trait": "ActOfFaith", "owner": owner_id, "removed": removed,
             "cc_back": cc_before - ctx.stat(StatType.CRIT_CHANCE),
             "cd_back": cd_before - ctx.stat(StatType.CRIT_DAMAGE),

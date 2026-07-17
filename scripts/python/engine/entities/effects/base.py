@@ -249,6 +249,14 @@ class BaseEffect:
         override les deux (StatType + magnitude, typiquement depuis sa config d'ability)."""
         return None
 
+    def reverted_stats(self) -> "list":
+        """StatTypes que `<Effect>.RevertInternal` annule quand l'effet est RETIRÉ (mirror des `ChangeStat`
+        posés par `ApplyModification`, reverté par-source via la clé `stat_mod_source`). C'est la part DATA
+        (côté `entities/`) que la feuille runner `RemoveEffect` lit pour exécuter le revert (`revert_change_stat`,
+        côté `runner/`) — l'interface `get_stat_modification_stat` est SINGULIÈRE et ne couvre pas un effet
+        multi-stat (ex. ActOfFaith = crit-chance ET crit-damage). Défaut `[]` = aucun ChangeStat à annuler."""
+        return []
+
     # ── matérialisation composite ─────────────────────────────────────────────────────────────────
     def sub_effects_on_apply(self) -> list[SubEffectSpec]:
         """`<Effect>.ApplyInternal` — sous-effets (enfants) spawnés quand CET effet est appliqué.

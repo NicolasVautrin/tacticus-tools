@@ -122,7 +122,7 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
 | ~~FireOfAbsolution~~ | `@18121f380` | `Inform & splash & Maybe(ignite)` | — (slice-14 ✅) | ✅ |
 | ~~OnFireDamage~~ | `@1811c3a60` | `AddEffect(Fire, Tiles(target))` | — (slice-15 ✅ : feuille `AddEffect` **généralisée tile-domain** (itère le sélecteur, `(col,row)`→tile id) + fix `Tiles`=`_units_of`) | ✅ |
 | TheBetrayer_AddEffect | `@1811a4a00` | `AddEffect(0x4f3, Self@0x148)` | ⚠ **change de durée** : native route via `AddEffectOperation`→`DefaultAmountOfRounds(0x4f3)=null`→fallback **1 round** ; port impératif actuel = `BaseEffect` PERMANENT → migrer = rage 1 round vs permanent → **validation multi-tour requise** (tâche) | **1→tâche** |
-| ActOfFaith reset | `@181219eb0` | `RemoveEffect(0x3f9, Self@0x148)` | feuille `RemoveEffect` NEUVE (pas de `RemoveEffectOperation` porté ; revert = `_reset_act_of_faith` par-source) + body **gshared** : branche `param_3==0x20`=`RemoveEffect(0x3f9)` ✓ vs `!=0x20`=`TriggerAbilityDelayed(0x3fa)` à écarter (tâche) | **1→tâche** |
+| ~~ActOfFaith reset~~ | `@181219eb0` | `RemoveEffect(0x3f9, Self@0x148)` | — (slice-16 ✅ : feuille `RemoveEffect` NEUVE (runner) + `reverted_stats()` DATA de l'effet ; gshared `param_3==0x20`=`RemoveEffect(0x3f9)` retenu, `!=0x20`=`TriggerAbilityDelayed(0x3fa)` écarté) | ✅ |
 | ActOfFaith accumulate | `@181219a70` | `AddEffect(0x3f9)` | **split** : stat-mod → `ActOfFaithBuffEffect.ApplyModification @180f302f0` (impératif, effet) | **2** |
 | EnvFireTile DoT | `@18121e040` | `Foreach(UnitsWithoutTraits([Steppable,Immune]), AttackWithAbilityDamage(PercentageOf(StatAmount(Health,Initial),20%), Flame, Direct(3)))` | damage-node `StatAmount`/`PercentageOf` (feuille) | **2** |
 | Psyker Smite | `@1812241b0` | `AttackWithAbilityDamage(PickRandomly(AdjDamageableEnemies,1), StatAmount(Attack×psykerExtraDmg%), Psychic, 1)` | damage-node `StatAmount` + sélecteur DSL (#216) | **2** |
@@ -165,10 +165,10 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
 ### Ordre de bataille (tranches E restantes, par tractabilité)
 
 - **Groupe 1 — feuilles qu'on a déjà / triviales** : ~~OnFireDamage~~ ✅ (slice-15 : `AddEffect` généralisée
-  tile-domain `Tiles(Target())` — mirror du NODE natif, PAS `SetOnFire`). **TheBetrayer_AddEffect** +
-  **ActOfFaith reset** SORTENT du « trivial » : la RE slice-15 a révélé une **subtilité de fidélité** pour
-  chacun (durée rage 1 round vs permanent ; feuille `RemoveEffect` neuve + branche gshared) → **tâches
-  dédiées avec validation**, pas un wrap 1-ligne (cf. tableau ci-dessus).
+  tile-domain `Tiles(Target())` — mirror du NODE natif, PAS `SetOnFire`). ~~ActOfFaith reset~~ ✅ (slice-16 :
+  feuille `RemoveEffect` neuve + `reverted_stats()` DATA côté effet ; frontière classification respectée =
+  nœud `RemoveEffect` déclaratif / `revert_change_stat` impératif en dessous). **TheBetrayer_AddEffect**
+  RESTE (subtilité durée rage 1 round vs permanent → validation multi-tour, #219), pas un wrap 1-ligne.
 - **Groupe 2 — 1 damage-node `StatAmount`/`PercentageOf` à ajouter (+ split effet pour ActOfFaith)** : Psyker
   Smite, EnvFireTile DoT, ActOfFaith accumulate.
 - **Groupe 3 — gated sur infra lourde** : TheBetrayer_TakeTurn, FinalJustice, ArcaneShield → dépendent de la

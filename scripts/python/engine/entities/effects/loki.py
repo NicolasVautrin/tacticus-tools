@@ -1330,6 +1330,13 @@ class ActOfFaithBuffEffect(BaseEffect):
     cd_delta: int = 0   # delta crit-damage OBSERVÉ par CE stack (info/report)
     stat_mod_source = None   # clé de source ChangeStat (revert par-source via UnitStats.revert_stat)
 
+    def reverted_stats(self) -> "list":
+        """`ActOfFaithBuffEffect.RevertInternal @180f306e0` annule les DEUX `ChangeStat` de CE stack :
+        crit-chance (Position(9,5)) + crit-damage (Position(10,5)). Ces StatTypes sont lus par la feuille
+        `RemoveEffect` (runner) pour `revert_change_stat(…, stat_mod_source)` par-source."""
+        from ..stats import StatType
+        return [StatType.CRIT_CHANCE, StatType.CRIT_DAMAGE]
+
 
 class KanOpenerEffect(BaseEffect):
     """`KanOpenerEffect` (triggered) — `IgnoreArmor` @180f65100 = `ConfigVar(key 0x40)` = pénétration

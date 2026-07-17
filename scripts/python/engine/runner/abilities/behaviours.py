@@ -518,6 +518,47 @@ class AddEffect(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class RemoveEffect(AbilityBehaviour):
+    """`DSLFactory.RemoveEffect @180df9cc0` -> `RemoveEffectBehaviour.Execute` : retire de la cible TOUS les
+    effets du type `effect_type` (non consommes) et ANNULE leur StatModification (`<Effect>.RevertInternal`).
+    `target` = `target_sel` (ex. `Caster()`/`Self@0x148` pour le reset ActOfFaith @181219eb0). Wrapper au-dessus
+    de l'Operation impurative `revert_change_stat` (mirror exact de l'ancien `_reset_act_of_faith`). No-op si
+    `state.effects`/cible absents. Emet 'RemoveEffect' (removed = nb de stacks retires). Effet PUR (stop=False).
+
+    Frontiere classification (#149) : le NOEUD `RemoveEffect` (declaratif) au-dessus ; `ReverseModification`
+    (revert par-source, impuratif) EN DESSOUS. L'effet DECLARE ses StatTypes revertes (`reverted_stats()`, DATA
+    cote `entities/`) ; la feuille (runner/) EXECUTE le revert (`revert_change_stat`, couche runner) sur chacun,
+    keye par `stat_mod_source`. Un stack SEEDE sans `stat_mod_source` = retire mais non reverte (limitation
+    pre-existante : delta inconnu dans le residu opaque)."""
+    __slots__ = ("effect_type", "target_sel")
+
+    def __init__(self, effect_type: int, target_sel: TargetsSelector):
+        self.effect_type, self.target_sel = int(effect_type), target_sel
+
+    def execute(self, entities, ectx):
+        from ..operations.stat_ops import revert_change_stat
+        state = ectx.state
+        if state is None or state.effects is None:
+            return OperationResult.ok()
+        tu = resolve_unit(self.target_sel, entities)
+        tgt = tu.get("id") if tu else None
+        if tgt is None:
+            return OperationResult.ok()
+        removed = 0
+        for eff in state.effects.by_unit.get(int(tgt), []):
+            if eff.consumed or eff.effect_type != self.effect_type:
+                continue
+            # revert par SOURCE (ReverseModification) : la valeur se re-clampe au read, sans delta stocke.
+            src = getattr(eff, "stat_mod_source", None)
+            if src is not None:
+                for stat in eff.reverted_stats():
+                    revert_change_stat(state, tgt, stat, src)
+            eff.consumed = True
+            removed += 1
+        ectx.emit("RemoveEffect", target=tgt, effect_type=self.effect_type, removed=removed)
+        return OperationResult.ok()
+
+
 class Heal(AbilityBehaviour):
     """`DSLFactory.Heal(source, targets, amount) @...` -> `HealBehaviour.Execute` : soigne CHAQUE unite du
     selecteur `targets_sel` de `amount_fn(entities, ectx)` PV, via l'Operation portee `HealUnitOperation.
