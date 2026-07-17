@@ -28,7 +28,6 @@ def ability_attack_params(state: "State", caster_id: int, ability_id: str,
     le 2ᵉ jeu de clés (`minDmg_2`/`maxDmg_2`/`nrOfHits_2`) + son profil pour le volet secondaire."""
     from ..components import StatsComponent
     from ...entities.effects.magnitude import ability_var
-    import gameconfig as GC
     e = state.get_entity(caster_id)
     sc = e.get_component(StatsComponent) if e is not None else None
     ctx = sc.ctx if sc is not None else None
@@ -37,12 +36,24 @@ def ability_attack_params(state: "State", caster_id: int, ability_id: str,
     bmin = ability_var(ability_id, min_key, level, multiplier_pct=mult) or 0
     bmax = ability_var(ability_id, max_key, level, multiplier_pct=mult) or 0
     hits = ability_var(ability_id, hits_key, is_constant=True) or 1
+    pierce = profile_pierce(ctx, profile_name, ranged)
+    return int(bmin), int(bmax), pierce, int(hits)
+
+
+def profile_pierce(ctx, profile_name: str, ranged: bool = False) -> int:
+    """Perçage effectif d'une attaque = `clamp(0, 100, profil.PiercingRatio + ExtraPierce +
+    ExtraPierce{Melee|Ranged})` (volet perçage commun de `MinMaxDamage`/`AttackWithAttackDamage` :
+    PiercingRatio du profil de dégât + les stats de perçage du caster). Extrait de
+    `ability_attack_params` pour être PARTAGÉ avec le mode `amount` de la feuille
+    `AttackWithAbilityDamage` (dégât-node `StatAmount`/`PercentageOf` — Psyker/Fire), qui n'a pas de
+    bornes d'arme mais route la même base par ce perçage. `ctx` = `UnitContext` du caster (None →
+    perçage = PiercingRatio seul)."""
+    import gameconfig as GC
     dp = GC.damage_profile(profile_name) or {}
     extra = ctx.extra_pierce if ctx is not None else 0
     dir_pierce = ((ctx.extra_pierce_ranged if ranged else ctx.extra_pierce_melee)
                   if ctx is not None else 0)
-    pierce = max(0, min(100, int(dp.get("PiercingRatio") or 0) + extra + dir_pierce))
-    return int(bmin), int(bmax), pierce, int(hits)
+    return max(0, min(100, int(dp.get("PiercingRatio") or 0) + extra + dir_pierce))
 
 
 def turns_from_rounds(rounds: int) -> int:

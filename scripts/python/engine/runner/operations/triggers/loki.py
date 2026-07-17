@@ -81,6 +81,35 @@ def _is_immune_to_fire(state: State, unit_id: int) -> bool:
     return has_any_trait(names, FIRE_IMMUNE_TRAITS)
 
 
+def psyker_smite_tree(pct: int, profile: str):
+    """Arbre de `PsykerExtraAttackAbility.CreateBehaviour @1812241b0` (MIRROR 1:1 du DECOMPILE) :
+        AttackWithAttackDamage(
+            caster     = @0x160,
+            targets    = PickRandomly(Damageable(Enemies(caster, AdjacentUnits(target@0x178, 1, 3))), 1),
+            damageNode = PercentageOf(StatAmount(Self@0x148, statType=0=Attack, variant=0=Current),
+                                      Direct(GetNumberConstant(0xf=psykerExtraDmg))),
+            profile    = Psychic (0xd) )
+    Port : `AttackWithAbilityDamage(Target(), amount=PercentageOf(Direct(pct), StatAmount(Caster(), Attack)),
+    Psychic, ranged, hits=1)`. Le SELECTEUR natif `PickRandomly(Damageable(Enemies(AdjacentUnits)))` est
+    resolu EN AMONT dans `execute_behaviour` (`_adjacent_damageable_enemies` = pool + `_pick_randomly` =
+    tirage RNG id-trie ; DSL-ification du selecteur = #216) et la cible RESOLUE passee via `Target()` — ==
+    le collapse `Units(Cache(First(Nearest(...))))` documente sur la feuille (mono-cible). Le degat-node
+    `PercentageOf(StatAmount(Caster(), Attack), Direct(pct))` (feuilles formule EXISTANTES) fait calculer a la
+    feuille `base = round_fix64(pct * Attack / 100)` (Fix64 = mirror natif `PercentageOf.Calculate` ; l'ancien
+    imperatif `round(float)` etait moins fidele -> ici aligne sur l'oracle) puis router via
+    `execute_normal_like(base, pierce, hits=1, spread_pct=0, Psychic, ranged)` = MEME Operation/pipeline que
+    l'ancien corps (montant mono-valeur -> AUCUNE variance d'arme). Bit-exact BY CONSTRUCTION (meme base, meme
+    pierce via `profile_pierce`, meme rng). `pct`/`profile` passes par l'appelant (`GC.trait("Psyker").
+    variables.psykerExtraDmg` / `PSYCHIC_PROFILE`) pour eviter tout couplage d'import."""
+    from ...abilities.behaviours import AttackWithAbilityDamage
+    from ....entities.formulas import StatAmount, PercentageOf
+    from ....entities.selectors import Caster, Target
+    from ....dsl.base import Const
+    from ....entities.stats import StatType
+    amount = PercentageOf(Const(pct), StatAmount(Caster(), int(StatType.ATTACK)))   # Direct(pct) x StatAmount(Attack)
+    return AttackWithAbilityDamage(Target(), "Psyker", profile, is_melee=False, amount=amount, hits=1)
+
+
 class PsykerExtraAttackAbility(TriggeredAbility):
     """Splash « Smite » du trait Psyker (`PsykerExtraAttackAbility`, @1812241b0..).
     Trigger `On(0x26)=NormalAttack` (@181224420) → fire UNIQUEMENT sur le vecteur attaque-NORMALE
@@ -102,31 +131,31 @@ class PsykerExtraAttackAbility(TriggeredAbility):
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         import gameconfig as GC
-        att = state.get_entity(self.owner_id)
-        sc = att.get_component(StatsComponent) if att is not None else None
-        if sc is None:
-            return None
-        ctx = sc.ctx
-        # CIBLE : ennemis adjacents damageables → PickRandomly(1).
+        # CIBLE : selecteur natif `PickRandomly(Damageable(Enemies(caster, AdjacentUnits(target,1,3))), 1)`
+        # resolu IMPERATIVEMENT (pool `_adjacent_damageable_enemies` + tirage RNG `_pick_randomly` id-trie ;
+        # DSL-ification du selecteur = #216). La cible RESOLUE est passee a l'arbre via `Target()`.
         cands = _adjacent_damageable_enemies(state, self.owner_id, ev.target_id)
         if not cands:
             return None
         picked = _pick_randomly(state, cands)
         if picked is None:
             return None
-        # DÉGÂT = node `StatAmount` (montant FIXE) → PAS de variance d'arme (DamageSpreadPercentage ne
-        # s'applique qu'aux bornes min/max d'arme, pas à un StatAmount) ⇒ spread_pct=0 (plat). Confirmé
-        # LIVE bit-exact : splash = round(Attack×50%) (Psychic pierce 100 → armure ignorée), AUCUN ±20%.
-        # Crit/block sur splash = non vérifié (cc=0 ici).
+        # behaviour = arbre DSL `psyker_smite_tree()` (mirror 1:1 de CreateBehaviour @1812241b0) :
+        # AttackWithAttackDamage(target, PercentageOf(StatAmount(Attack), psykerExtraDmg%), Psychic). La feuille
+        # (mode `amount`) calcule base Fix64 + route `execute_normal_like` -> MEME Operation/args que l'ancien
+        # corps (bit-exact BY CONSTRUCTION). pct source = trait config (== `GetNumberConstant(0xf)` natif, validee).
         pct = int((GC.trait("Psyker") or {}).get("variables", {}).get("psykerExtraDmg") or 0)
-        base = round(ctx.stat(StatType.ATTACK) * pct / 100)
-        dp = GC.damage_profile(PSYCHIC_PROFILE) or {}
-        pierce = max(0, min(100, int(dp.get("PiercingRatio") or 0)
-                            + ctx.extra_pierce + ctx.extra_pierce_ranged))
-        res = AttackDamageOperation.execute_normal_like(state, self.owner_id, picked, base, pierce,
-                                                        hits=1, spread_pct=0,
-                                                        damage_profile=PSYCHIC_PROFILE, is_melee=False)
-        return {"trait": "Psyker", "target": picked, "base": base, "pierce": pierce, "result": res}
+        from ...abilities.behaviours import entities_from_state
+        from ....dsl.effects import ExecutionContext
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        psyker_smite_tree(pct, PSYCHIC_PROFILE).execute(
+            entities_from_state(state, self.owner_id, picked), ectx)
+        hit = next((p for n, p in ectx.emitted if n == "AttackWithAbilityDamage"), None)
+        if hit is None:
+            return None
+        atk = hit.get("attack") or {}
+        return {"trait": "Psyker", "target": picked, "base": atk.get("base"),
+                "pierce": atk.get("pierce"), "result": atk}
 
 
 class FireTileDoT(TileEffectTrigger):

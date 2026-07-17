@@ -125,7 +125,7 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
 | ~~ActOfFaith reset~~ | `@181219eb0` | `RemoveEffect(0x3f9, Self@0x148)` | — (slice-16 ✅ : feuille `RemoveEffect` NEUVE (runner) + `reverted_stats()` DATA de l'effet ; gshared `param_3==0x20`=`RemoveEffect(0x3f9)` retenu, `!=0x20`=`TriggerAbilityDelayed(0x3fa)` écarté) | ✅ |
 | ActOfFaith accumulate | `@181219a70` | `AddEffect(0x3f9)` | **split** : stat-mod → `ActOfFaithBuffEffect.ApplyModification @180f302f0` (impératif, effet) | **2** |
 | EnvFireTile DoT | `@18121e040` | `Foreach(UnitsWithoutTraits([Steppable,Immune]), AttackWithAbilityDamage(PercentageOf(StatAmount(Health,Initial),20%), Flame, Direct(3)))` | damage-node `StatAmount`/`PercentageOf` (feuille) | **2** |
-| Psyker Smite | `@1812241b0` | `AttackWithAbilityDamage(PickRandomly(AdjDamageableEnemies,1), StatAmount(Attack×psykerExtraDmg%), Psychic, 1)` | damage-node `StatAmount` + sélecteur DSL (#216) | **2** |
+| ~~Psyker Smite~~ | `@1812241b0` | `AttackWithAttackDamage(Target(), PercentageOf(StatAmount(Self@0x148,Attack), Direct(psykerExtraDmg)), Psychic, hits=1)` | — (slice-18 ✅ : PRIMITIF damage-node introduit — feuille `AttackWithAbilityDamage` param `amount`/`hits` (mode formule → `execute_normal_like(base, spread=0)`) + wiring `entities_from_state.get_stat` (StatAmount lit la vraie stat via StatsComponent) + helper partagé `profile_pierce`. Sélecteur `PickRandomly(Damageable(Enemies(AdjacentUnits)))` reste impératif → collapse `Target()`, DSL-ification = #216) | ✅ |
 | TheBetrayer_TakeTurn | `@1811a4f70` | `target(GetAttackTarget) → MoveUnit → UseActiveAbility(NormalAttack)` | tranche DÉPLACEMENT (`MoveUnit`) + feuille `UseActiveAbility` + sélecteur `GetAttackTarget` (S) | **3** |
 | FinalJustice | `@18121ed00` | `UseActiveAbility(NormalAttack, SortUnitsByDamageUtility(…))` | feuille `UseActiveAbility` + sélecteur `SortUnitsByDamageUtility` (S) | **3** |
 | ArcaneShield | `@180e16b40` | grant shield → allié AI-choisi | feuille `Grant`/shield + sélecteur AI-target (S) | **3** |
@@ -175,8 +175,32 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
   côté effet, frontière déclaratif/impératif respectée) · ~~TheBetrayer_AddEffect~~ (slice-17 :
   `AddEffect(Caster())`, durée rage 1 tour RE-confirmée @180e48940 — l'ancien permanent était un bug latent).
   Les 3 feuilles concernées (`AddEffect` tile+unit, `RemoveEffect`) sont désormais des primitives réutilisables.
-- **Groupe 2 — 1 damage-node `StatAmount`/`PercentageOf` à ajouter (+ split effet pour ActOfFaith)** : Psyker
-  Smite, EnvFireTile DoT, ActOfFaith accumulate.
+- **Groupe 2 — damage-node `StatAmount`/`PercentageOf` (+ split effet pour ActOfFaith)** : ~~Psyker Smite~~
+  (slice-18 ✅ : PRIMITIF damage-node livré — cf. ci-dessous) · EnvFireTile DoT · ActOfFaith accumulate (restants).
+
+  > **PRIMITIF damage-node (slice-18, RE `@1812241b0` décompile frais)** — 3 pièces réutilisables par
+  > EnvFireTile/ActOfFaith :
+  > 1. **`entities_from_state` wire `get_stat`** : `StatAmount(sel, statType, variant)` lit la VRAIE stat de
+  >    l'unité (id → entité → `StatsComponent.ctx.stats.get_stat(statType, part)`) — sans quoi il dégradait
+  >    vers Health (hp). `variant` natif = `StatPart` (0=Current, 2=Maximum, 3=Initial). C'était LA pièce
+  >    structurelle manquante (le ctx sélecteur = ctx formule, comme l'`AbilityEntities` natif unique).
+  > 2. **feuille `AttackWithAbilityDamage` param `amount`/`hits`** : quand le natif passe un dégât-node
+  >    `Direct(amountFormula)` (au lieu de bornes `MinMaxDamage`), la feuille calcule `base = amount.evaluate`
+  >    (Fix64) et route via `execute_normal_like(base, pierce, hits, spread_pct=0)` — montant mono-valeur =
+  >    AUCUNE variance d'arme. `StatAmount.calculate` normalise son sélecteur via `_units_of` (un ref-unité
+  >    seule `Caster()`/`Self@0x148` → `[dict]` = set de 1 ; même piège que `Tiles`/`Sub`).
+  > 3. **helper partagé `profile_pierce(ctx, profile, ranged)`** (extrait de `ability_attack_params`) : le
+  >    perçage `clamp(0,100, PiercingRatio + ExtraPierce + ExtraPierce{Melee|Ranged})` commun aux deux modes.
+  >
+  > **DEUX factories natives distinctes** (à ne pas confondre) : `DSLFactory.AttackWithAttackDamage @180de9fb0`
+  > (Psyker/ThunderousAssault — chemin attaque-damage reduce/crit/block) vs `DSLFactory.AttackWithAbilityDamage
+  > @180de9c90` (EnvFireTile — `Direct(3)` = dégât DIRECT sans crit/block). ⚠ EnvFireTile (slice-19) route par
+  > un chemin DIRECT (bare `apply_pierce_and_modifiers`, comme son impératif actuel), PAS `execute_normal_like`.
+  > **ActOfFaith accumulate (slice-20)** = plus riche que `AddEffect(0x3f9)` seul : le décompile `@181219a70`
+  > est `op_Addition(AddEffect(0x3f9, Self@0x148), If(<HasTrait(killer,Imperial) & AreFriends & AreEqual(
+  > UnitNormalAttackType(killer),0x49e) & IsMeleeAttack>, Maybe(AddEffect(0x3f9), ConfigVar(0x453))))` — un
+  > 2e stack CONDITIONNEL (kill mêlée par un allié Imperial d'un normal-attack précis), + le split stat-mod →
+  > `ActOfFaithBuffEffect.ApplyModification` (impératif, effet).
 - **Groupe 3 — gated sur infra lourde** : TheBetrayer_TakeTurn, FinalJustice, ArcaneShield → dépendent de la
   tranche **DÉPLACEMENT** (`MoveUnit`/`PushUnit`/`KillDeadUnits`) + feuille `UseActiveAbility` + sélecteurs
   AI-target DSL. À faire APRÈS la tranche DÉPLACEMENT (qui débloque aussi le push de ThunderousAssault/

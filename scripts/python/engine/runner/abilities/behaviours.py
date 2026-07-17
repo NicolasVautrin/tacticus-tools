@@ -89,8 +89,20 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None) -> 
     def _faction_of(unit):
         return _faction((unit or {}).get("visualId"))
 
+    # `ctx.get_stat` (mirror `UnitExtensions.GetStat @180ed30d0`) : le nœud `StatAmount(sel, statType,
+    # variant)` lit la VRAIE stat de l'unité (Attack/Health/…) via son `StatsComponent.ctx.stats` — sans
+    # ce wiring il dégraderait vers Health (hp) via `_default_get_stat`. `variant` = `StatPart` natif
+    # (0=Current, 2=Maximum, 3=Initial) ; `level` ignoré offline (stats non scalées par niveau tierce).
+    # id de l'unité DSL -> entité ECS -> `UnitStats.get_stat(statType, part)`.
+    def _get_stat(unit, stat_type, variant=0, level=None):
+        uid = (unit or {}).get("id")
+        e = state.get_entity(uid) if uid is not None else None
+        sc = e.get_component(StatsComponent) if e is not None else None
+        us = getattr(sc.ctx, "stats", None) if sc is not None else None
+        return us.get_stat(int(stat_type), int(variant)) if us is not None else 0
+
     return DslContext(units=units, caster=caster, target=target, board=state.board,
-                      has_trait=_has_trait, faction_of=_faction_of, children=[])
+                      has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat, children=[])
 
 
 class Spawn(AbilityBehaviour):
@@ -372,16 +384,27 @@ class AttackWithAbilityDamage(AbilityBehaviour):
     `_pick_randomly_n(_adjacent_enemies_of, n)` -> bit-exact, meme pool id-trie/meme pick/meme rng). Defaut None
     = pas de tirage (toutes les cibles). Requiert `multi=True`. ⚠ GAP #215 (RNG-exact) : le natif tire des HEXES
     (tuiles VIDES incluses = coup gaspille) et l'ordre/cout exact du tirage ne sont pas cales ; le port tire des
-    OCCUPANTS (pas de tuile vide) -> divergence possible quand >n tuiles adjacentes candidates."""
+    OCCUPANTS (pas de tuile vide) -> divergence possible quand >n tuiles adjacentes candidates.
+
+    `amount` = FOLD du dégât-node `Direct(amountFormula)` quand le natif passe une **valeur calculée** à
+    `AttackWithAttackDamage` en lieu de bornes d'arme (`MinMaxDamage`) — ex. Psyker
+    `PercentageOf(StatAmount(Self, Attack), psykerExtraDmg%)` @1812241b0. Défaut None = mode bornes
+    (`ability_attack_params`). Quand fourni (un `AAmountFormula`), la feuille calcule `base =
+    amount.evaluate(entities)` (Fix64, mirror natif — `entities` porte `get_stat` pour `StatAmount`) et route
+    via `AttackDamageOperation.execute_normal_like(base, pierce=profile_pierce, hits, spread_pct=0)` (montant
+    MONO-valeur = AUCUNE variance d'arme), même pipeline reduce/crit/block/after-hit que l'attaque normale.
+    `hits` = nb de coups EXPLICITE du dégât-node (défaut 1 en mode `amount` ; en mode bornes, None → `hits`
+    de la config via `ability_attack_params`)."""
     __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key",
-                 "damage_override", "multi", "pick_n")
+                 "damage_override", "multi", "pick_n", "amount", "hits")
 
     def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True,
                  min_key: str = "minDmg", max_key: str = "maxDmg", hits_key: str = "nrOfHits",
-                 damage_override=None, multi: bool = False, pick_n=None):
+                 damage_override=None, multi: bool = False, pick_n=None, amount=None, hits=None):
         self.target_sel, self.ability_id, self.profile, self.is_melee = target_sel, ability_id, profile, is_melee
         self.min_key, self.max_key, self.hits_key = min_key, max_key, hits_key
         self.damage_override, self.multi, self.pick_n = damage_override, multi, pick_n
+        self.amount, self.hits = amount, hits
 
     def execute(self, entities, ectx):
         from ..operations.damage import AttackDamageOperation
@@ -400,14 +423,26 @@ class AttackWithAbilityDamage(AbilityBehaviour):
             targets = [tu] if tu and tu.get("id") is not None else []
         for tu in targets:
             tgt = tu.get("id")
-            bmin, bmax, pierce, hits = ability_attack_params(
-                state, caster, self.ability_id, self.profile, ranged=not self.is_melee,
-                min_key=self.min_key, max_key=self.max_key, hits_key=self.hits_key)
-            if self.damage_override is not None:           # GetAttackDamage surchargee (ex. SpiritLeech +extraDmg)
-                bmin, bmax = self.damage_override(state, caster, tgt, bmin, bmax)
-            atk = AttackDamageOperation.execute_ability_attack(
-                state, caster, tgt, bmin, bmax, pierce, hits,
-                damage_profile=self.profile, is_melee=self.is_melee)
+            if self.amount is not None:                    # degat-node Direct(StatAmount/PercentageOf) (Psyker/Fire)
+                from .base import profile_pierce
+                base = int(self.amount.evaluate(entities))  # Fix64 mirror (entities.get_stat -> StatAmount)
+                ce = state.get_entity(caster)
+                csc = ce.get_component(StatsComponent) if ce is not None else None
+                pierce = profile_pierce(csc.ctx if csc is not None else None, self.profile,
+                                        ranged=not self.is_melee)
+                atk = AttackDamageOperation.execute_normal_like(  # montant mono-valeur -> spread_pct=0
+                    state, caster, tgt, base, pierce,
+                    hits=int(self.hits) if self.hits is not None else 1, spread_pct=0,
+                    damage_profile=self.profile, is_melee=self.is_melee)
+            else:
+                bmin, bmax, pierce, hits = ability_attack_params(
+                    state, caster, self.ability_id, self.profile, ranged=not self.is_melee,
+                    min_key=self.min_key, max_key=self.max_key, hits_key=self.hits_key)
+                if self.damage_override is not None:       # GetAttackDamage surchargee (ex. SpiritLeech +extraDmg)
+                    bmin, bmax = self.damage_override(state, caster, tgt, bmin, bmax)
+                atk = AttackDamageOperation.execute_ability_attack(
+                    state, caster, tgt, bmin, bmax, pierce, hits,
+                    damage_profile=self.profile, is_melee=self.is_melee)
             ectx.emit("AttackWithAbilityDamage", caster=caster, target=tgt,
                       total=(atk or {}).get("total"), attack=atk)
         return OperationResult.ok()

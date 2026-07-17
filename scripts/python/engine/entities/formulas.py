@@ -9,7 +9,7 @@ from __future__ import annotations
 from fractions import Fraction
 
 from ..dsl.base import (AAmountFormula, TargetsSelector, Const, _round_fix64, _effect_field,
-                        _default_get_stat, resolve_unit)
+                        _default_get_stat, resolve_unit, _units_of)
 
 
 class Sum(AAmountFormula):
@@ -239,7 +239,10 @@ class StatAmount(AAmountFormula):
     def calculate(self, ctx):
         gs = ctx.get_stat or _default_get_stat
         lvl = self.level.evaluate(ctx) if self.level is not None else None
-        return sum(gs(u, self.stat_type, self.variant, lvl) for u in self.selector.evaluate(ctx))
+        # `_units_of` normalise le selecteur : un ref-unite SEULE (`Caster()`/`Self@0x148` -> dict) devient
+        # `[dict]` (mirror natif = set de 1) ; sans quoi iterer un dict nu rendrait ses CLES (meme piege que
+        # `Tiles`/`Sub`). Multi -> SOMME des stats (comme le natif `StatAmountFormula.Calculate`).
+        return sum(gs(u, self.stat_type, self.variant, lvl) for u in _units_of(self.selector, ctx))
 
 
 class EntityId(AAmountFormula):
