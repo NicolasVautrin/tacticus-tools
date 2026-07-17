@@ -9,7 +9,7 @@ from __future__ import annotations
 from fractions import Fraction
 
 from ..dsl.base import (AAmountFormula, TargetsSelector, Const, _round_fix64, _effect_field,
-                        _default_get_stat)
+                        _default_get_stat, resolve_unit)
 
 
 class Sum(AAmountFormula):
@@ -158,6 +158,35 @@ class TimesRepaired(AAmountFormula):
     `ctx.times_repaired` (défaut 0 = pré-snowball)."""
     def calculate(self, ctx):
         return getattr(ctx, "times_repaired", 0) or 0
+
+
+class TotalAttacksMade(AAmountFormula):
+    """`DSLFactory.TotalAttacksMade @180dfe090` = `Entities.Formulas.TotalAttacksMadeFormula` (@180f25b90) :
+    nb d'attaques faites par `unit` (compteur runtime). Port on-appearance : la feuille `PerformAIAttack`
+    (`runner/abilities/behaviours.py`) pose `_attacks_made` sur le dict de l'enfant (0 si pas d'attaque).
+    Unité hors-cast → 0 (compteur général non capté offline, même régime que `TotalTimesAttacked`)."""
+    def __init__(self, unit: TargetsSelector):
+        self.unit = unit
+
+    def calculate(self, ctx):
+        u = resolve_unit(self.unit, ctx)
+        return int((u or {}).get("_attacks_made", 0) or 0)
+
+
+class UnitTurnsStarted(AAmountFormula):
+    """`DSLFactory.UnitTurnsStarted @180dff280` = `Entities.Formulas.UnitTurnsStartedFormula` (@180f2d6c0) :
+    nb de tours entamés par `unit` (compteur runtime). Le natif compare (via `AmountIsEqual`) le `turnsStarted`
+    de l'owner CAPTURÉ au cast (`factory+0xb8`) au `UnitTurnsStarted(child)` → ne retient que les enfants NEUFS
+    de CE cast. Offline le compteur n'est pas capté → `_turns_started` de l'enfant (SpawnUnit pose 0) ; couplé
+    à `Const(0)` (owner fraîchement dans nos runners) l'égalité tient EXACTEMENT comme le natif la satisfait
+    pour les enfants neufs. Unité hors-cast → 0. ⚠ Mid-bataille (owner turnsStarted>0) ce couple dégradé
+    demanderait les vrais compteurs runtime (gap offline documenté, même régime que `times_attacked`)."""
+    def __init__(self, unit: TargetsSelector):
+        self.unit = unit
+
+    def calculate(self, ctx):
+        u = resolve_unit(self.unit, ctx)
+        return int((u or {}).get("_turns_started", 0) or 0)
 
 
 class TurnsFromRounds(AAmountFormula):

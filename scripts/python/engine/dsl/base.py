@@ -61,6 +61,20 @@ class TargetsSelector:
         return self.select(ctx)
 
 
+def resolve_unit(node, ctx):
+    """Evalue un noeud (souvent `Subject()`/`Target()`) en UN dict d'unite : dict direct, ou 1er dict d'une
+    liste. Helper PARTAGE (selecteurs `Entities.Selectors`, formules `Entities.Formulas`, feuilles
+    `Entities.Behaviours` runner) -> vit dans la base commune. None si l'eval ne donne aucun dict."""
+    v = node.evaluate(ctx)
+    if isinstance(v, dict):
+        return v
+    if isinstance(v, (list, tuple)):
+        for x in v:
+            if isinstance(x, dict):
+                return x
+    return None
+
+
 @dataclass
 class DslContext:
     """Contexte d'évaluation d'un arbre DSL (l'« état de bataille » que le nœud interroge).

@@ -11,7 +11,8 @@ from dataclasses import replace
 
 import hexgeo
 
-from ..dsl.base import TargetsSelector, Const, _pos, _within, _is_alive, _units_of, _effect_field
+from ..dsl.base import (TargetsSelector, Const, _pos, _within, _is_alive, _units_of, _effect_field,
+                        resolve_unit)
 
 
 class SurroundingUnits(TargetsSelector):
@@ -326,6 +327,29 @@ class AllUnits(TargetsSelector):
                 if bool(u.get("alive", True)) and (u.get("hp") or 0) > 0]
 
 
+class Children(TargetsSelector):
+    """`DSLFactory.Children @180debed0` = `Entities.Selectors.AllAliveMachinesSelector` (@180ee00d0) SCOPÉ
+    aux enfants (summons) produits par CE cast (natif `factory+0x148`). Port = l'accumulateur `ctx.children`
+    (alimenté par la feuille `SpawnUnit`, `runner/abilities/behaviours.py`). ⚠ Le filtre `AllAlive` est un
+    no-op offline pour l'on-appearance de CE cast (les summons survivent à leur apparition). cf.
+    `getemruntz_taunt_tree` (loki.py)."""
+    def select(self, ctx):
+        return list(getattr(ctx, "children", None) or [])
+
+
+class LastUnitAttackedBy(TargetsSelector):
+    """`DSLFactory.LastUnitAttackedBy @180df5ee0` = `Entities.Selectors.LastUnitAttackedBySelector`
+    (@180eed130) : dernière unité attaquée par `unit`. Port : le dict FRAIS (état POST-attaque, relu par la
+    feuille `PerformAIAttack`) de la cible frappée → champ `_last_attacked` de l'unité (None si aucune). Ce
+    dict porte `alive`/`hp` COURANTS → `IsAlive(LastUnitAttackedBy(child))` lit l'état vivant APRÈS l'attaque."""
+    def __init__(self, unit: TargetsSelector):
+        self.unit = unit
+
+    def select(self, ctx):
+        u = resolve_unit(self.unit, ctx)
+        return (u or {}).get("_last_attacked")
+
+
 class AdjacentTiles(TargetsSelector):
     """`DSLFactory.AdjacentTiles(source)` : UNION (BRUTE, avec doublons possibles entre unites -> le
     natif fait suivre d'un `Unique`) des tuiles hex-adjacentes aux unites de `source`, via le
@@ -440,6 +464,15 @@ class Subject(TargetsSelector):
     (None par défaut)."""
     def select(self, ctx):
         return ctx.subject
+
+
+class Target(TargetsSelector):
+    """Cible principale de l'ability (l'UNITÉ, pas sa tuile — cf. `TargetTile`). Mirror du contexte
+    d'entité-cible natif (`AbilityEntities` slot cible = `factory+0x178`) : les behaviours d'ability
+    (`AttackWithAttackDamage`, `AddEffect`) ancrés sur la cible lisent `ctx.target` ici. None si l'ability
+    est sans cible (auto/tuile)."""
+    def select(self, ctx):
+        return ctx.target
 
 
 class Cache(TargetsSelector):

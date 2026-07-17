@@ -5,7 +5,7 @@ Mirror du namespace natif `IdunBattle.Entities.Behaviours` (`CombinedBehaviour`/
 `ForeachBehaviour`/...) : les concrets vivent ici, a cote de leurs freres `entities/{abilities,
 selectors,triggers,formulas,effects}`. La BASE `AbilityBehaviour` + l'infra du walker (`OperationResult`/
 `ExecutionContext`, = `IdunBattle.DSL`) restent dans `dsl/effects.py`. Les feuilles runner concretes
-(`SpawnUnit`/`PerformAIAttack`/`AddBondEffect`) vivent dans `runner/abilities/dsl_behaviours.py` (couplees
+(`SpawnUnit`/`PerformAIAttack`/`AddBondEffect`) vivent dans `runner/abilities/behaviours.py` (couplees
 aux Operations). Construits via la facade `DSLFactory` (`dsl/nodes.py`)."""
 from __future__ import annotations
 
@@ -91,7 +91,7 @@ class If(AbilityBehaviour):
 
 class Emit(AbilityBehaviour):
     """Feuille GENERIQUE emettant UNE Operation : patron des feuilles concretes (`SpawnUnit`,
-    `AddBondEffect`, `PerformAIAttack`, runner/abilities/dsl_behaviours.py) = wrappers MINCES au-dessus
+    `AddBondEffect`, `PerformAIAttack`, runner/abilities/behaviours.py) = wrappers MINCES au-dessus
     des Operations DEJA portees (runner/operations). `fn(entities, ectx) -> payload_dict | None` appelle
     l'Operation portee (mute `ectx.state`/`ectx.bus`) ; `name` = etiquette de l'Operation native
     (journalisee via `ectx.emit` pour le replay-diff). Toujours `stop=False` (effet pur)."""

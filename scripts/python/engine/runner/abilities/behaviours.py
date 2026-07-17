@@ -1,40 +1,37 @@
-"""Behaviours d'ability portes en ARBRES DSL EXECUTABLES (#149 slice-2b) + feuilles CONCRETES
-(bridge dsl -> runner Operations) + builder `entities_from_state`.
+"""FEUILLES d'effet à EFFET du namespace natif `IdunBattle.Entities.Behaviours.*`, RUNNER-COUPLÉES, +
+builder de contexte `entities_from_state` (#149).
 
-Les combinateurs (`engine.entities.behaviours`) + la base + infra (`engine.dsl.effects`) vivent en amont ; ICI les
-feuilles MINCES qui EMETTENT les Operations DEJA portees (`runner/operations`) et les arbres d'ability
-(mirror `<Ability>.CreateBehaviour`). `entities_from_state` construit le `DslContext` (= l'`entities`
-natif lu par les selecteurs) depuis le `State` runner. cf. docs/rl/dsl-effect-nodes.md.
+Contenu = les `*Behaviour` CONCRETS qui MUTENT l'état en émettant une runner Operation déjà portée :
+`Spawn` (`SpawnUnitBehaviour` @180fd5ab0 → `_spawn_config_grot`), `AttackWithAbilityDamage`
+(`AttackBehaviour`/`AttackDamageBehaviour` @180fba0e0 → `AttackDamageOperation.execute_ability_attack`),
+`AddEffect` (`AddEffectBehaviour` @180f947e0 → `AddEffectOperation`), `AddBondEffect`
+(`AddBondEffectBehaviour` → idem), `PerformAIAttack` (`PerformAIAbilityUnitBehaviour` @180fcb940). Couche
+MINCE d'orchestration au-dessus des mutateurs ECS.
 
-MIGRATION cote-a-cote : ces arbres reproduisent, en composant les nœuds natifs partages, ce que les
-`execute_*` imperatifs (`abilities/loki.py`, `operations/spawn.py`) font a la main ; on les valide
-replay-diff (DSL == imperatif == live) AVANT de basculer et retirer l'imperatif.
+Ils vivent ICI (et non dans `entities/behaviours.py` avec les COMBINATEURS purs `Seq`/`Maybe`/`Foreach`/
+`If`/`AtomicGroup`, MÊME namespace natif `Entities.Behaviours`) parce qu'ils sont RUNNER-COUPLÉS (appellent
+des Operations de `runner/`, que `entities/` ne peut importer sans inverser le layering). Le split
+entities/runner = layering, PAS le namespace natif.
 
-Arbre GetEmRuntz (`GetEmRuntzAbility.ExecuteBehaviour @1811e2210`, DECOMPILE gqfc5mff6c) :
-    ExecuteAtomic( Spawn(Cache(GetSpawnTileSelector), WithStatsFromConfig) )     # spawn tous les grots
-    Execute( op_Addition(
-        PerformAIAttackFromCurrentPosition(Cache(GetSpawnTileSelector)),          # les grots attaquent
-        Foreach(Children=AllAliveMachinesSelector, TauntWithNewChildrenWhoDidDamage) ) )   # + Taunt
-Ordre NATIF = TOUS les spawns, PUIS toutes les attaques, PUIS tous les Taunts (l'imperatif interleave
-attaque+Taunt par grot ; le DSL suit le NATIF, equivalent tant que le Taunt ne tire pas de RNG).
+Ce fichier ne contient QUE des `Entities.Behaviours` :
+- Les COMBINATEURS purs → `engine/entities/behaviours.py`.
+- Les SÉLECTEURS/FORMULES (`Children`=`AllAliveMachinesSelector`, `LastUnitAttackedBy`=`LastUnitAttackedBy
+  Selector`, `TotalAttacksMade`/`UnitTurnsStarted`=`*Formula`) → `entities/selectors.py` + `entities/formulas.py`
+  (leur vrai namespace `Entities.Selectors`/`Formulas`).
+- Les ARBRES d'ability SPÉCIFIQUES (`thunderous_assault_tree`/`getemruntz_tree`…) → `abilities/loki.py`
+  (namespace natif `Abilities.Active.Loki`, avec leur classe d'ability).
+
+`entities_from_state` construit le `DslContext` (= l'`entities` natif lu par les sélecteurs) depuis le
+`State` runner. cf. docs/rl/dsl-effect-nodes.md.
 """
 from __future__ import annotations
 
-from ...dsl.base import DslContext, Const, AAmountFormula, TargetsSelector
+from ...dsl.base import DslContext, TargetsSelector, resolve_unit
 from ...dsl.effects import AbilityBehaviour, OperationResult
-from ...entities.behaviours import Seq, Foreach, If, AtomicGroup, op_add
-from ...entities.selectors import get_spawn_tile_selector, Subject, Cache
-from ...entities.triggers import AmountIsGreaterThanZero, AmountIsEqual, IsAlive, TriggerAnd
 from ..components import (OwnerComponent, PositionComponent, UnitComponent, StatsComponent,
                           HealthComponent)
-from .base import turns_from_rounds
+from .base import turns_from_rounds, ability_attack_params
 from ...entities.traits.unit_trait import UnitTrait, has_trait
-from ...entities.effect_type import EffectType
-
-# 0x1b=27 = `EffectType.Taunted_OnlySpecificTargets` (COMPOSITE 25/26/1237) — l'effet BOND pose par
-# `AddBondEffect(0x1b, ...)` du Taunt. (Meme const que `loki.TAUNTED` / CrushingClaws, cf. #158.)
-TAUNTED = int(EffectType.Taunted_OnlySpecificTargets)
-
 
 def _unit_dict(state, eid: int, entity=None) -> dict | None:
     """Dict d'unite {id, team, player, pos, alive, hp, visualId, _traits} lu du `State` runner — la forme
@@ -61,18 +58,22 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
     }
 
 
-def entities_from_state(state, caster_id: int) -> DslContext:
+def entities_from_state(state, caster_id: int, target_id: int | None = None) -> DslContext:
     """Construit l'`AbilityEntities` (= `DslContext`) lu par les selecteurs d'un behaviour, depuis le
-    `State` runner : `units` = dicts (cf. `_unit_dict`), `caster`, `board` (= `state.board`),
+    `State` runner : `units` = dicts (cf. `_unit_dict`), `caster`, `target` (cible principale du cast =
+    `factory+0x178`, lu par `Target()` — None si l'ability est sans cible), `board` (= `state.board`),
     `has_trait(unit, traitId)` (mirror `UnitExtensions.HasFlag`, via l'enum `UnitTrait` + le set de noms
     `ctx.traits`). `children=[]` = accumulateur de spawn FRAIS pour CE cast (mirror factory+0x148)."""
     units: list = []
     caster = None
+    target = None
     for eid, e in state.entities.items():
         u = _unit_dict(state, eid, e)
         units.append(u)
         if eid == caster_id:
             caster = u
+        if target_id is not None and eid == target_id:
+            target = u
 
     def _has_trait(unit, trait_id):
         try:
@@ -81,74 +82,8 @@ def entities_from_state(state, caster_id: int) -> DslContext:
             return False
         return has_trait(unit.get("_traits") or set(), enum)
 
-    return DslContext(units=units, caster=caster, board=state.board, has_trait=_has_trait, children=[])
-
-
-# --- Accesseurs runtime lus par le Taunt (mirror des formules DSLFactory ; lisent le dict enfant que
-#     `PerformAIAttack` annote). Le compteur runtime GENERAL n'est pas capte offline -> defaut sur unite
-#     non-enfant (documente, meme regime que `accessors.TotalTimesAttacked`).
-
-def _resolve_unit(node, ctx) -> dict | None:
-    """Evalue `node` (souvent `Subject()`) en UN dict d'unite (dict direct, ou 1er dict d'une liste)."""
-    v = node.evaluate(ctx)
-    if isinstance(v, dict):
-        return v
-    if isinstance(v, (list, tuple)):
-        for x in v:
-            if isinstance(x, dict):
-                return x
-    return None
-
-
-class Children(TargetsSelector):
-    """`DSLFactory.Children @180debed0` = `AllAliveMachinesSelector` : les enfants (summons) produits par
-    CE cast. Port = l'accumulateur `ctx.children` (mirror factory+0x148) alimente par les feuilles
-    `SpawnUnit`. ⚠ Le filtre `AllAlive` du natif est un no-op offline pour l'on-appearance de CE cast
-    (les grots survivent a leur propre apparition — ils ne bougent pas -> pas d'overwatch ; l'imperatif
-    ne filtre pas non plus les morts). cf. `TauntWithNewChildrenWhoDidDamage`."""
-    def select(self, ctx):
-        return list(getattr(ctx, "children", None) or [])
-
-
-class TotalAttacksMade(AAmountFormula):
-    """`DSLFactory.TotalAttacksMade @180dfe090` : nb d'attaques faites par l'unite (compteur runtime). Port
-    on-appearance : `PerformAIAttack` pose `_attacks_made` sur le dict enfant (0 si pas d'attaque). Unite
-    hors-cast -> 0 (compteur general non capte offline, cf. `accessors.TotalTimesAttacked`)."""
-    def __init__(self, unit: TargetsSelector):
-        self.unit = unit
-
-    def calculate(self, ctx):
-        u = _resolve_unit(self.unit, ctx)
-        return int((u or {}).get("_attacks_made", 0) or 0)
-
-
-class LastUnitAttackedBy(TargetsSelector):
-    """`DSLFactory.LastUnitAttackedBy @180df5ee0` : derniere unite attaquee par l'unite. Port : le dict
-    FRAIS (etat POST-attaque, relu de `ectx.state` par `PerformAIAttack`) de la cible frappee -> champ
-    `_last_attacked` de l'enfant (None si aucune). Ce dict porte `alive`/`hp` COURANTS -> `IsAlive(
-    LastUnitAttackedBy(child))` lit l'etat vivant APRES l'attaque (mirror de la garde live de l'imperatif)."""
-    def __init__(self, unit: TargetsSelector):
-        self.unit = unit
-
-    def select(self, ctx):
-        u = _resolve_unit(self.unit, ctx)
-        return (u or {}).get("_last_attacked")
-
-
-class UnitTurnsStarted(AAmountFormula):
-    """`DSLFactory.UnitTurnsStarted @180dff280` : nb de tours entames par l'unite (compteur runtime). Le
-    natif compare (via `AmountIsEqual`) le `turnsStarted` de l'owner CAPTURE au cast (`factory+0xb8`) au
-    `UnitTurnsStarted(child)` -> ne retient que les enfants NEUFS de CE cast. Offline le compteur n'est pas
-    capte -> `_turns_started` de l'enfant (SpawnUnit pose 0) ; couple a `Const(0)` (owner fraichement dans
-    nos runners) l'egalite tient EXACTEMENT comme le natif la satisfait pour les enfants neufs. Unite
-    hors-cast -> 0. ⚠ Mid-bataille (owner turnsStarted>0) ce couple degrade demanderait les vrais compteurs
-    runtime (gap offline documente, meme regime que `times_attacked`/`turns_per_round`)."""
-    def __init__(self, unit: TargetsSelector):
-        self.unit = unit
-
-    def calculate(self, ctx):
-        u = _resolve_unit(self.unit, ctx)
-        return int((u or {}).get("_turns_started", 0) or 0)
+    return DslContext(units=units, caster=caster, target=target, board=state.board,
+                      has_trait=_has_trait, children=[])
 
 
 class Spawn(AbilityBehaviour):
@@ -260,8 +195,8 @@ class AddBondEffect(AbilityBehaviour):
 
     def execute(self, entities, ectx):
         from ..operations.effects import AddEffectOperation
-        su = _resolve_unit(self.source_ref, entities)
-        tu = _resolve_unit(self.target_ref, entities)
+        su = resolve_unit(self.source_ref, entities)
+        tu = resolve_unit(self.target_ref, entities)
         src = su.get("id") if su else None
         tgt = tu.get("id") if tu else None
         if src is None or tgt is None or ectx.state is None:
@@ -272,41 +207,63 @@ class AddBondEffect(AbilityBehaviour):
         return OperationResult.ok()
 
 
-def getemruntz_taunt_tree() -> If:
-    """Corps `Func<entities,behaviour>` de `TauntWithNewChildrenWhoDidDamage @1811e27a0` (DECOMPILE) pour
-    l'enfant COURANT (`Subject()`, pose par le `Foreach(Children)`) :
-        If( AmountIsGreaterThanZero(TotalAttacksMade(child))            # le grot a attaque
-            & AmountIsEqual(capturedTurns, UnitTurnsStarted(child))     # enfant NEUF de ce cast
-            & IsAlive(LastUnitAttackedBy(child)),                       # l'ennemi frappe est vivant
-            AddBondEffect(0x1b Taunted, source=child, target=LastUnitAttackedBy(child), TurnsFromRounds(1)) )
-    `op_BitwiseAnd` (2x) = `TriggerAnd`. Nœud STATIQUE (lit `Subject()` a l'eval) -> passe en body de
-    `Foreach`. `capturedTurns` = `Const(0)` (owner fraichement, cf. `UnitTurnsStarted`)."""
-    child = Subject()
-    cond = TriggerAnd(
-        TriggerAnd(AmountIsGreaterThanZero(TotalAttacksMade(child)),
-                   AmountIsEqual(Const(0), UnitTurnsStarted(child))),
-        IsAlive(LastUnitAttackedBy(child)))
-    return If(cond, AddBondEffect(TAUNTED, "Taunted_OnlySpecificTargets",
-                                  child, LastUnitAttackedBy(child), 1))
+class AttackWithAbilityDamage(AbilityBehaviour):
+    """`DSLFactory.AttackWithAttackDamage @180de9fb0` -> `AttackDamageBehaviour`+`AttackBehaviour.Execute` :
+    l'attaque d'une ability (bornes `MinMaxDamage(minDmg/maxDmg[level])`, profil `GetDamageProfile`, nb de
+    coups `GetNumberConstant(0x2f)=nrOfHits`) portee sur la cible. Wrapper MINCE au-dessus de l'Operation
+    DEJA bit-exact `AttackDamageOperation.execute_ability_attack` (meme pipeline reduce/crit/block/after-hit
+    que l'imperatif) : `caster` = `ctx.caster`, `target` = `target_sel` (dict d'unite), et
+    `(base_min,base_max,pierce,hits)` via `ability_attack_params(ability_id, profile)` — MEME source que
+    l'imperatif -> bit-exact BY CONSTRUCTION (memes args, meme `state.rng`).
+
+    ⚠ Le ciblage natif complet = `Units(Cache(First(Nearest(Tiles(target_ctx), casterPos))))` : pour une
+    ability MONO-cible melee (ThunderousAssault) il COLLAPSE en la cible du message (`ctx.target`) — que
+    l'IA/caller a deja choisie (== l'imperatif live-valide). La chaine Tiles->Nearest->First->Cache->Units
+    n'est materialisee que si une ability re-derive sa cible (differe). Emet 'AttackWithAbilityDamage'. PUR."""
+    __slots__ = ("target_sel", "ability_id", "profile", "is_melee")
+
+    def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True):
+        self.target_sel, self.ability_id, self.profile, self.is_melee = target_sel, ability_id, profile, is_melee
+
+    def execute(self, entities, ectx):
+        from ..operations.damage import AttackDamageOperation
+        state = ectx.state
+        caster = (entities.caster or {}).get("id")
+        tu = resolve_unit(self.target_sel, entities)
+        tgt = tu.get("id") if tu else None
+        if state is None or caster is None or tgt is None:
+            return OperationResult.ok()
+        bmin, bmax, pierce, hits = ability_attack_params(
+            state, caster, self.ability_id, self.profile, ranged=not self.is_melee)
+        atk = AttackDamageOperation.execute_ability_attack(
+            state, caster, tgt, bmin, bmax, pierce, hits,
+            damage_profile=self.profile, is_melee=self.is_melee)
+        ectx.emit("AttackWithAbilityDamage", caster=caster, target=tgt,
+                  total=(atk or {}).get("total"), attack=atk)
+        return OperationResult.ok()
 
 
-def getemruntz_tree() -> Seq:
-    """Arbre COMPLET de `GetEmRuntzAbility.ExecuteBehaviour @1811e2210` (id 1045, MIRROR 1:1 du DECOMPILE) :
-        cache = Cache(GetSpawnTileSelector @1811e26b0)             # @180deb0d0 -- PARTAGE Spawn/Attack (memoise)
-        ExecuteAtomic( Spawn(cache) )                             # @180fb0930 inline -> grots materialises
-        Execute( op_Addition( PerformAIAttackFromCurrentPosition(cache),   # les grots (sur les tuiles cache) attaquent
-                              Foreach(Children, Taunt) ) )        # + Taunt de la cible frappee
-    Port : `Seq(AtomicGroup(Spawn(cache)), op_add(PerformAIAttack(cache), Foreach(Children(), taunt)))`.
-    Le `cache` est PARTAGE entre `Spawn` et `PerformAIAttack` (mirror natif : le MEME `Cache(GetSpawnTileSelector)`
-    est passe aux deux nœuds) -> memoise les tuiles LIBRES PRE-spawn (RE #200 : le CacheSelector memoise ;
-    sans ca `PerformAIAttack` relirait `CanAddUnit` post-spawn et exclurait les tuiles occupees par les grots).
-    `AtomicGroup` = inline (RE #201 : `AtomicGroupOperation.Execute` invoque son child sur-le-champ, PAS
-    differe). `op_add`/`Seq` = `CombinedBehaviour` (effets PURS -> pas de court-circuit -> les 3 volets
-    s'executent). Ordre = tous les spawns (inline dans l'AtomicGroup) PUIS toutes les attaques PUIS tous les
-    Taunts (NATIF, prouve RE #200). CONFRONTE LIVE (tracer-v2 DSLFactory #200 : arbre natif capture == ce
-    mirror) ; l'imperatif `SpawnUnitOperation.execute_getemruntz` a ete RETIRE (#199)."""
-    cache = Cache(get_spawn_tile_selector())                       # @180deb0d0 -- PARTAGE (memoise pre-spawn)
-    return Seq(
-        AtomicGroup(Spawn(cache, "GetEmRuntz")),                   # ExecuteAtomic(Spawn(cache)) -- inline
-        op_add(PerformAIAttack(cache),                             # Execute( op_Addition(
-               Foreach(Children(), getemruntz_taunt_tree())))      #   PerformAIAttack(cache), Foreach(Children, Taunt) ))
+class AddEffect(AbilityBehaviour):
+    """`DSLFactory.AddEffect @180de6d20` -> `AddEffectBehaviour.Execute` : pose un effet sur la cible, avec
+    `source` = `AbilityStateReference` (= le caster comme source de l'effet), `target` = `target_sel`, duree
+    `TurnsFromRounds(rounds)`. Wrapper MINCE au-dessus de `AddEffectOperation.execute` (mirror exact de
+    l'imperatif). DIFFERE de `AddBondEffect` (qui LIE source+target = deux unites distinctes) : ici la source
+    EST le caster. No-op si caster/target absents. Emet 'AddEffect'. Effet PUR (stop=False)."""
+    __slots__ = ("effect_type", "name", "target_sel", "duration_rounds")
+
+    def __init__(self, effect_type: int, name: str, target_sel: TargetsSelector, duration_rounds: int = 1):
+        self.effect_type, self.name = effect_type, name
+        self.target_sel, self.duration_rounds = target_sel, duration_rounds
+
+    def execute(self, entities, ectx):
+        from ..operations.effects import AddEffectOperation
+        state = ectx.state
+        src = (entities.caster or {}).get("id")               # AbilityStateReference = caster (source)
+        tu = resolve_unit(self.target_sel, entities)
+        tgt = tu.get("id") if tu else None
+        if state is None or src is None or tgt is None:
+            return OperationResult.ok()
+        AddEffectOperation.execute(state, source=src, target=tgt, effect_type=self.effect_type,
+                                   name=self.name, duration_override=turns_from_rounds(self.duration_rounds))
+        ectx.emit("AddEffect", source=src, target=tgt, effect_type=self.effect_type)
+        return OperationResult.ok()

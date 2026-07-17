@@ -338,3 +338,77 @@ Le confront live (#200) étant fait, l'impératif `SpawnUnitOperation.execute_ge
 a été **RETIRÉ** (+ import mort `UnitTrait, has_trait` de `spawn.py`). `GetEmRuntzAbility.execute_behaviour`
 n'exécute plus QUE l'arbre DSL `getemruntz_tree()`. Validé : import OK + replay bit-identique (`[23,25]`,
 2207/2628, taunted `[2,3]`). GetEmRuntz = 1er behaviour combat 100% DSL, live-confirmé fidèle.
+
+## Slice-3 (#203, 2026-07-17) — 2e behaviour DSL : ThunderousAssault + effet-nœuds ATTAQUE/EFFET
+
+**2e behaviour combat migré en arbre DSL** (après GetEmRuntz), et surtout **2 effet-nœuds workhorses** portés
+(débloquent des familles entières) :
+
+- **`AttackWithAbilityDamage`** (`DSLFactory.AttackWithAttackDamage @180de9fb0` → `AttackDamageBehaviour`+
+  `AttackBehaviour.Execute`) : wrapper MINCE au-dessus de l'Operation DÉJÀ bit-exact
+  `AttackDamageOperation.execute_ability_attack`. Débloque **toute la famille attaque d'ability** (refcount
+  natif 113+). `(base_min,base_max,pierce,hits)` via `ability_attack_params(ability_id, profile)` = MÊME
+  source que l'impératif.
+- **`AddEffect`** (`DSLFactory.AddEffect @180de6d20` → `AddEffectBehaviour.Execute`) : wrapper au-dessus de
+  `AddEffectOperation.execute`, `source`=caster (AbilityStateReference), `target`=sélecteur, durée
+  `TurnsFromRounds`. Débloque **tous les applicateurs d'effet** (refcount natif 403, #6 top-missing du
+  catalogue). ≠ `AddBondEffect` (qui LIE deux unités).
+- **`Target()`** (`entities/selectors.py`) : sélecteur d'unité-cible (lit `ctx.target` = `factory+0x178`),
+  frère de `Subject()`. `entities_from_state(state, caster, target_id)` bind désormais `ctx.target`.
+
+**RE — `ThunderousAssaultAbility.ExecuteBehaviour @1812158b0`** (id 1043, DÉCOMPILE gqfc5mff6c) :
+```
+ExecuteAtomic(
+    AttackWithAttackDamage(caster@0x160, Units(Cache(First(Nearest(Tiles(target@0x178), casterPos)))),
+                           MinMaxDamage, GetDamageProfile=Power, hits=GetNumberConstant(0x2f))
+  & AddEffect(0x48a=Stunned=1162, AbilityStateReference, target@0x178, TurnsFromRounds(1))
+  & PushUnit(caster, target) & KillDeadUnits(ForClearDeadUnitsBlockReviveOverkill) & MoveUnit(caster, CanAddUnit) )
+```
+Le ciblage `Units(Cache(First(Nearest(Tiles(target), casterPos))))` COLLAPSE en `ctx.target` pour une ability
+mono-cible mêlée (== la cible du message, que l'IA a choisie = l'impératif live-validé).
+
+**Port** — `thunderous_assault_tree()` (**`loki.py`**, cf. « structure générique vs spécifique » ci-dessous) :
+```
+AtomicGroup( op_and( AttackWithAbilityDamage(Target(), "ThunderousAssault", "Power", melee),
+                     AddEffect(STUNNED, "Stunned", Target(), 1) ) )
+```
+push/kill/move = **tranche DÉPLACEMENT différée** (no-op, exactement comme l'impératif). `op_and`
+(`CombinedBehaviour`) : effets PURS → pas de court-circuit → l'attaque ne coupe pas le stun (qui s'applique
+inconditionnellement après, même si l'attaque tue — live-validé). **Bit-exact BY CONSTRUCTION** : mêmes
+Operations, même ordre, mêmes args, même `state.rng`.
+
+**Validé** : import OK + **2 tests live PASS** (`test_damage_ability_live.py` = dégât d'ability bit-exact vs
+live ; `test_effect_stun_live.py` = pose Stunned 1162 rem=1 + enfants). L'impératif `ThunderousAssault.
+execute_behaviour` (attaque+stun à la main) a été **REMPLACÉ** par l'exécution de l'arbre. `AttackWithAbility
+Damage`/`AddEffect` sont désormais réutilisables pour migrer les autres attaques d'ability (ArmoriumCherub,
+SpiritLeech, CrushingClaws, splashes…).
+
+**Résidu** : confront STRUCTUREL live optionnel (tracer-v2 DSLFactory #200 sur un cast ThunderousAssault) —
+non bloquant ici, le décompilé de `ExecuteBehaviour` étant sans ambiguïté (séquence directe de `DSLFactory.X`)
+et le comportement live bit-exact. La tranche DÉPLACEMENT (`PushUnit`/`KillDeadUnits`/`MoveUnit`) reste à porter
+(commune à plusieurs abilities).
+
+### RÈGLE DE PLACEMENT — générique (nœud) vs spécifique (arbre) = STRUCTURE NATIVE
+
+Correction structurelle (feedback user pendant slice-3) : NE PAS mélanger, dans un même fichier, les **nœuds
+GÉNÉRIQUES réutilisables** et les **arbres d'ability SPÉCIFIQUES**. Le natif les sépare en namespaces distincts
+→ le port doit refléter cette organisation (« structure offline == structure native ») :
+
+Namespace natif RÉEL (table de symboles vérifiée) → **4 emplacements distincts** :
+
+| Native | Rôle | Port |
+|---|---|---|
+| `IdunBattle.Entities.Behaviours.*` (`CombinedBehaviour`, `ForeachBehaviour`, `MaybeBehaviour`, `IfBehaviour`, `AtomicGroupBehaviour`) | COMBINATEURS purs (runner-agnostiques) | `engine/entities/behaviours.py` |
+| `IdunBattle.Entities.Behaviours.*` (`SpawnUnitBehaviour` @180fd5ab0, `AttackBehaviour` @180fba0e0 / `AttackDamageBehaviour` @180fbb6e0, `AddEffectBehaviour` @180f947e0, `AddBondEffectBehaviour`, `PerformAIAbilityUnitBehaviour` @180fcb940) | FEUILLES à effet, GÉNÉRIQUES mais **runner-couplées** (émettent une Operation) | `engine/runner/abilities/behaviours.py` |
+| `IdunBattle.Entities.Selectors.*` (`AllAliveMachinesSelector`=`Children`, `LastUnitAttackedBySelector`) / `Entities.Formulas.*` (`TotalAttacksMadeFormula`, `UnitTurnsStartedFormula`) | SÉLECTEURS / FORMULES (accesseurs runtime) | `engine/entities/selectors.py` + `engine/entities/formulas.py` |
+| `IdunBattle.Entities.Abilities.Active.Loki.<Ability>.ExecuteBehaviour` | ARBRE **SPÉCIFIQUE** à une ability (compose les nœuds ci-dessus) | `engine/runner/abilities/loki.py` (avec sa classe d'ability) |
+
+Slice-3 a d'abord (à tort) mis dans `dsl_behaviours.py` à la fois les feuilles génériques, les accesseurs
+(`Children`/`TotalAttacksMade`…) ET l'arbre spécifique `thunderous_assault_tree`. **Mirror complet appliqué** :
+- les arbres (`thunderous_assault_tree`/`getemruntz_tree`/`getemruntz_taunt_tree`) → `loki.py` ;
+- les accesseurs `Children`/`LastUnitAttackedBy` → `entities/selectors.py`, `TotalAttacksMade`/
+  `UnitTurnsStarted` → `entities/formulas.py` (leur vrai namespace `Entities.Selectors`/`Formulas`) ;
+- le fichier renommé `dsl_behaviours.py` → **`behaviours.py`** (il ne contient plus QUE des
+  `Entities.Behaviours` feuilles, MÊME namespace natif que `entities/behaviours.py`, split par layering) ;
+- helper `resolve_unit` partagé → `dsl/base.py`.
+Toute future migration d'ability suit cette organisation.

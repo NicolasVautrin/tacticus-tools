@@ -19,6 +19,20 @@ from ..components import StatsComponent, OwnerComponent, PositionComponent, Unit
 from ...entities.stats import StatType
 from ...entities.effect_type import EffectType
 from ...entities.active_ability_type import ActiveAbilityType  # #158 : ABILITY_TYPE -> enum (module = abilities ACTIVES)
+# --- Vocabulaire DSL pour bâtir les arbres `<Ability>.ExecuteBehaviour` (#203) : les COMBINATEURS génériques
+#     (`Entities.Behaviours` → entities/behaviours.py), les SÉLECTEURS/FORMULES (`Entities.Selectors`/
+#     `Formulas` → entities/selectors.py + formulas.py), et les FEUILLES runner-couplées (`Entities.Behaviours`
+#     liées aux Operations → runner/abilities/behaviours.py). Les arbres eux-mêmes (SPÉCIFIQUES à chaque
+#     ability) vivent ICI, dans le mirror de `Abilities.Active.Loki`.
+from ...dsl.base import Const
+from ...dsl.effects import ExecutionContext
+from ...entities.behaviours import Seq, Foreach, If, AtomicGroup, op_add, op_and
+from ...entities.selectors import (Cache, Target, Subject, get_spawn_tile_selector, Children,
+                                   LastUnitAttackedBy)
+from ...entities.formulas import TotalAttacksMade, UnitTurnsStarted
+from ...entities.triggers import AmountIsGreaterThanZero, AmountIsEqual, IsAlive, TriggerAnd
+from .behaviours import (Spawn, PerformAIAttack, AddBondEffect, AttackWithAbilityDamage, AddEffect,
+                         entities_from_state)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -28,6 +42,75 @@ STUNNED = int(EffectType.Stunned)                       # 1162 — effet COMPOSI
 TAUNTED = int(EffectType.Taunted_OnlySpecificTargets)   # 27 — COMPOSITE -> 25/26/1237 ; bond
 PINNED = int(EffectType.Pinned)                         # 1065 — UI « Suppressed » — stat-mod Movement
 VALKYRIE_STRIKE = int(EffectType.ValkyrieStrike_Effect)  # 1022 — airstrike DIFFÉRÉ, fire au tour suivant
+
+
+# ==================================================================================================
+# Arbres DSL `<Ability>.ExecuteBehaviour` (namespace natif `Abilities.Active.Loki`) — SPÉCIFIQUES à
+# chaque ability : ils COMPOSENT les nœuds GÉNÉRIQUES (combinateurs `entities/behaviours.py`, feuilles
+# runner-couplées `behaviours.py`, sélecteurs/formules `entities/selectors.py`+`formulas.py`) en l'arbre
+# EXACT du décompilé.
+# (Placés ICI, avec leurs classes d'ability — PAS mélangés aux nœuds génériques réutilisables.)
+# ==================================================================================================
+
+def thunderous_assault_tree() -> AtomicGroup:
+    """Arbre de `ThunderousAssaultAbility.ExecuteBehaviour @1812158b0` (id 1043, templSwordBrother — MIRROR
+    du DECOMPILE) :
+        ExecuteAtomic(
+            AttackWithAttackDamage(caster, Units(Cache(First(Nearest(Tiles(target),casterPos)))),
+                                   MinMaxDamage, profile=Power, hits=GetNumberConstant(0x2f))
+          & AddEffect(0x48a Stunned, AbilityStateReference, target, TurnsFromRounds(1))
+          & PushUnit(caster, target) & KillDeadUnits(...) & MoveUnit(caster, CanAddUnit) )   # DEPLACEMENT
+    Port (attaque & stun ; push/kill/move = tranche DEPLACEMENT differee, no-op comme l'imperatif) :
+        AtomicGroup( op_and( AttackWithAbilityDamage(Target(),"ThunderousAssault","Power",melee),
+                             AddEffect(STUNNED,"Stunned",Target(),1) ) )
+    `op_and` = `op_BitwiseAnd` (`CombinedBehaviour`) : effets PURS (flag@+0x20==0) -> les DEUX s'executent
+    (l'attaque ne court-circuite pas le stun, meme si elle tue la cible — le stun s'applique inconditionnel-
+    lement APRES, comme l'imperatif live-valide). `AtomicGroup` = inline (RE #201). Ordre = attaque PUIS stun
+    (== l'imperatif, meme `state.rng`) -> bit-exact BY CONSTRUCTION. `Target()` = `ctx.target` (cible du
+    message = celle que l'imperatif attaque)."""
+    return AtomicGroup(op_and(
+        AttackWithAbilityDamage(Target(), "ThunderousAssault", "Power", is_melee=True),
+        AddEffect(STUNNED, "Stunned", Target(), 1)))
+
+
+def getemruntz_taunt_tree() -> If:
+    """Corps `Func<entities,behaviour>` de `TauntWithNewChildrenWhoDidDamage @1811e27a0` (DECOMPILE) pour
+    l'enfant COURANT (`Subject()`, pose par le `Foreach(Children)`) :
+        If( AmountIsGreaterThanZero(TotalAttacksMade(child))            # le grot a attaque
+            & AmountIsEqual(capturedTurns, UnitTurnsStarted(child))     # enfant NEUF de ce cast
+            & IsAlive(LastUnitAttackedBy(child)),                       # l'ennemi frappe est vivant
+            AddBondEffect(0x1b Taunted, source=child, target=LastUnitAttackedBy(child), TurnsFromRounds(1)) )
+    `op_BitwiseAnd` (2x) = `TriggerAnd`. Nœud STATIQUE (lit `Subject()` a l'eval) -> passe en body de
+    `Foreach`. `capturedTurns` = `Const(0)` (owner fraichement, cf. `UnitTurnsStarted`)."""
+    child = Subject()
+    cond = TriggerAnd(
+        TriggerAnd(AmountIsGreaterThanZero(TotalAttacksMade(child)),
+                   AmountIsEqual(Const(0), UnitTurnsStarted(child))),
+        IsAlive(LastUnitAttackedBy(child)))
+    return If(cond, AddBondEffect(TAUNTED, "Taunted_OnlySpecificTargets",
+                                  child, LastUnitAttackedBy(child), 1))
+
+
+def getemruntz_tree() -> Seq:
+    """Arbre COMPLET de `GetEmRuntzAbility.ExecuteBehaviour @1811e2210` (id 1045, MIRROR 1:1 du DECOMPILE) :
+        cache = Cache(GetSpawnTileSelector @1811e26b0)             # @180deb0d0 -- PARTAGE Spawn/Attack (memoise)
+        ExecuteAtomic( Spawn(cache) )                             # @180fb0930 inline -> grots materialises
+        Execute( op_Addition( PerformAIAttackFromCurrentPosition(cache),   # les grots (sur les tuiles cache) attaquent
+                              Foreach(Children, Taunt) ) )        # + Taunt de la cible frappee
+    Port : `Seq(AtomicGroup(Spawn(cache)), op_add(PerformAIAttack(cache), Foreach(Children(), taunt)))`.
+    Le `cache` est PARTAGE entre `Spawn` et `PerformAIAttack` (mirror natif : le MEME `Cache(GetSpawnTileSelector)`
+    est passe aux deux nœuds) -> memoise les tuiles LIBRES PRE-spawn (RE #200 : le CacheSelector memoise ;
+    sans ca `PerformAIAttack` relirait `CanAddUnit` post-spawn et exclurait les tuiles occupees par les grots).
+    `AtomicGroup` = inline (RE #201 : `AtomicGroupOperation.Execute` invoque son child sur-le-champ, PAS
+    differe). `op_add`/`Seq` = `CombinedBehaviour` (effets PURS -> pas de court-circuit -> les 3 volets
+    s'executent). Ordre = tous les spawns (inline dans l'AtomicGroup) PUIS toutes les attaques PUIS tous les
+    Taunts (NATIF, prouve RE #200). CONFRONTE LIVE (tracer-v2 DSLFactory #200 : arbre natif capture == ce
+    mirror) ; l'imperatif `SpawnUnitOperation.execute_getemruntz` a ete RETIRE (#199)."""
+    cache = Cache(get_spawn_tile_selector())                       # @180deb0d0 -- PARTAGE (memoise pre-spawn)
+    return Seq(
+        AtomicGroup(Spawn(cache, "GetEmRuntz")),                   # ExecuteAtomic(Spawn(cache)) -- inline
+        op_add(PerformAIAttack(cache),                             # Execute( op_Addition(
+               Foreach(Children(), getemruntz_taunt_tree())))      #   PerformAIAttack(cache), Foreach(Children, Taunt) ))
 
 
 def _summon_on_appearance_attack(state: "State", summon_id: int, target_id: int,
@@ -53,33 +136,29 @@ def _summon_on_appearance_attack(state: "State", summon_id: int, target_id: int,
 class ThunderousAssaultAbility(ActiveAbility):
     """`ThunderousAssaultAbility.ExecuteBehaviour` @1812158b0 (id 1043, templSwordBrother).
 
-    Séquence native (`&` = op_BitwiseAnd) :
-        AttackWithAttackDamage(Nearest enemy, 1x Power)        # [DAMAGE param-ability — TODO]
-      & AddEffect(0x48a Stunned, source=casterStateRef, TurnsFromRounds(1))   # ← PORTÉ ici (vecteur attaque)
-      & PushUnit(target, 1 hex)                                # [déplacement — TODO ; no-op si BigTarget]
-      & KillDeadUnits & MoveUnit(caster -> hex libéré)         # [déplacement — TODO]
-    VALIDÉ live : pose Stunned(1162, rem=1) + enfants 1165/1166/1167 sur la cible (cf. test_effect_stun_live)."""
+    Séquence native (`&` = op_BitwiseAnd), MIGRÉE en ARBRE DSL (#203, `thunderous_assault_tree()`) :
+        AttackWithAttackDamage(caster, Units(Cache(First(Nearest(Tiles(target),casterPos)))),
+                               MinMaxDamage, profile=Power, hits=GetNumberConstant(0x2f))   # ← DSL
+      & AddEffect(0x48a Stunned, source=casterStateRef, TurnsFromRounds(1))                 # ← DSL
+      & PushUnit(target, 1 hex) & KillDeadUnits & MoveUnit(caster -> hex libéré)   # [déplacement — TODO]
+    Le behaviour est l'arbre DSL (`AtomicGroup(op_and(AttackWithAbilityDamage, AddEffect))`) : les feuilles
+    émettent les MÊMES Operations que l'ancien impératif (`execute_ability_attack`/`AddEffectOperation`) →
+    même mutation, même ordre, même `state.rng` (bit-exact BY CONSTRUCTION). push/kill/move = tranche
+    déplacement différée (no-op, comme l'impératif). VALIDÉ live : pose Stunned(1162, rem=1) + enfants
+    1165/1166/1167 sur la cible (cf. test_effect_stun_live)."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.ThunderousAssault)  # 1043
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
-        atk = None
-        if target_id is not None:
-            # [attaque] AttackWithAttackDamage — dégât d'ABILITY (minDmg/maxDmg config[level], profile
-            # Power adjacent, nrOfHits=1). Mute les PV cible (skip si rng non calé : replay effet-seul).
-            bmin, bmax, pierce, hits = ability_attack_params(
-                state, caster_id, "ThunderousAssault", "Power", ranged=False)
-            atk = AttackDamageOperation.execute_ability_attack(
-                state, caster_id, target_id, bmin, bmax, pierce, hits,
-                damage_profile="Power", is_melee=True)
-            # [AddEffect] Stunned 1162, durée = TurnsFromRounds(1 round) :
-            AddEffectOperation.execute(state, source=caster_id, target=target_id,
-                                       effect_type=STUNNED, name="Stunned",
-                                       duration_override=turns_from_rounds(1))
-        # [push/kill/move] PushUnit(target) & KillDeadUnits & MoveUnit(caster) : déplacements/positions.
-        # TODO (tranche déplacement). BigTarget cible => push no-op (cf. RE tyranTyrantGuard).
-        return {"attack": atk}
+        # behaviour = arbre DSL (couche effet-nœuds, #203). Sans cible → tree no-op (Target()=None). Les
+        # feuilles muent `state` via les Operations portées (skip dégât si rng non calé : replay effet-seul).
+        if target_id is None:
+            return {"attack": None, "dsl": True}
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        thunderous_assault_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        atk = next((p["attack"] for n, p in ectx.emitted if n == "AttackWithAbilityDamage"), None)
+        return {"attack": atk, "dsl": True}
 
 
 class ArmoriumCherubAbility(ActiveAbility):
@@ -248,8 +327,6 @@ class GetEmRuntzAbility(ActiveAbility):
                           target_id: Optional[int]) -> Optional[dict]:
         # behaviour = arbre DSL (couche effet-nœuds) ; les feuilles émettent les MÊMES Operations que
         # l'impératif (`AttackDamageOperation`/`AddEffectOperation`/`_spawn_config_grot`) -> même mutation.
-        from .dsl_behaviours import getemruntz_tree, entities_from_state
-        from ...dsl.effects import ExecutionContext
         ectx = ExecutionContext(state=state, rng=state.rng)
         getemruntz_tree().execute(entities_from_state(state, caster_id), ectx)
         # diag depuis les émissions de l'arbre (mêmes champs que l'ancien retour impératif)

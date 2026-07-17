@@ -2,7 +2,7 @@
 + l'infrastructure du walker (`OperationResult`, `ExecutionContext`). Mirror du namespace natif
 `IdunBattle.DSL` — cote LAZY = `dsl/base.py` (3 bases T/S/V) ; les COMBINATEURS/concrets d'effet
 (`Seq`/`Maybe`/`Foreach`/`If`/`Emit`) vivent dans `entities/behaviours.py` (= `IdunBattle.Entities.
-Behaviours`), et les feuilles runner dans `runner/abilities/dsl_behaviours.py`.
+Behaviours`), et les feuilles runner dans `runner/abilities/behaviours.py`.
 
 Contrat du walker natif (lu sur `CombinedBehaviour.Execute @180ffe730`, `ForeachBehaviour.Execute
 @180fc6210`, `MaybeBehaviour.Execute @180fc9dc0`) :
