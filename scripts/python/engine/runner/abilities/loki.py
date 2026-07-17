@@ -29,7 +29,7 @@ from ...dsl.event_trigger_type import EventTriggerType   # #209 : EvaluateAbilit
 from ...entities.behaviours import Seq, Foreach, If, AtomicGroup, op_add, op_and
 from ...entities.selectors import (Cache, Target, Subject, get_spawn_tile_selector, Children,
                                    LastUnitAttackedBy, Caster, CasterTile, TargetTile, AdjacentEnemies,
-                                   AdjacentUnits, And, UnitsWithoutTrait, Union, UnitsFromFaction,
+                                   AdjacentUnits, And, Sub, UnitsWithoutTrait, Union, UnitsFromFaction,
                                    AdjacentFriends, Alive)
 from ...entities.formulas import TotalAttacksMade, UnitTurnsStarted
 from ...entities.triggers import AmountIsGreaterThanZero, AmountIsEqual, IsAlive, TriggerAnd
@@ -251,7 +251,7 @@ def plasma_grenade_tree():
     #202). La plage `RandomAmount(minDmg/maxDmg)` est PARTAGEE main/splash (memes cles config par defaut) ;
     seule la constante de coups differe (nrOfHits vs nrOfHits_2 = 0x2f/0x32). Profil Plasma, ranged (range 2).
     `op_Addition` = effets purs -> les deux volets s'executent ; plain `Execute` (PAS ExecuteAtomic). Bit-exact
-    BY CONSTRUCTION vs l'imperatif `_splash_ability_behaviour` (memes bornes/hits/profil, splash `sorted` par
+    BY CONSTRUCTION vs l'ancien imperatif (memes bornes/hits/profil, splash `sorted` par
     id, meme `state.rng`). L'imperatif `PlasmaGrenadeAbility.execute_behaviour` est REMPLACE par cet arbre."""
     tgt = Target()
     main = AttackWithAbilityDamage(tgt, "PlasmaGrenade", "Plasma", is_melee=False)         # RandomAmount/Plasma/0x2f
@@ -284,8 +284,8 @@ def scything_talons_tree() -> AtomicGroup:
     `op_BitwiseAnd` = `CombinedBehaviour` (effets PURS -> les deux volets s'executent) ; `ExecuteAtomic` ->
     `AtomicGroup` (inline #201 ; le tag `0x57` = id du groupe atomique, PAS un auto-fire de triggered-abilities
     -- `ExecuteAtomic @180fb0930` = `DSLFactory.AtomicGroup`, aucun `EvaluateAbilities` implicite, cf. #209).
-    Ordre = main PUIS splash (== l'imperatif, meme `state.rng`) -> bit-exact BY CONSTRUCTION vs
-    `_splash_ability_behaviour`+`_adjacent_to_both`. L'imperatif `ScythingTalonsAbility.execute_behaviour` est
+    Ordre = main PUIS splash (== l'ancien imperatif, meme `state.rng`) -> bit-exact BY CONSTRUCTION vs
+    l'ancien imperatif (`_adjacent_to_both`). L'imperatif `ScythingTalonsAbility.execute_behaviour` est
     REMPLACE par cet arbre.
     GAP (hors migration, tache #211) : les coups natifs = `ConditionalAmount(HasTrait(target,
     UnitTrait.Summon=2), hits*2, hits)` -> DOUBLENT si la CIBLE est un SUMMON (main 3->6, splash 2->4). Coups
@@ -321,14 +321,59 @@ def stikkbomb_tree() -> AtomicGroup:
     coups differe (nrOfHits 0x2f=2 vs nrOfHits_2 0x32=1). Profil Blast, RANGED (range 2, Indirect Fire).
     `op_Addition` = `CombinedBehaviour` (effets PURS -> les deux volets s'executent) ; `AtomicGroup` = inline
     (#201) ; plain `Execute` (PAS ExecuteAtomic, contraste ScythingTalons). Ordre = main PUIS splash (meme
-    `state.rng`). L'imperatif `StikkbombAbility.execute_behaviour` (`_splash_ability_behaviour`+
-    `_adjacent_enemies_of` = enemies-only, ERRONE) est REMPLACE par cet arbre (et CORRIGE en friendly-fire).
-    `_adjacent_enemies_of`/`_splash_ability_behaviour` restent partages par Fragstorm (non encore migre)."""
+    `state.rng`). L'imperatif `StikkbombAbility.execute_behaviour` (ancien splash `_adjacent_enemies_of` =
+    enemies-only, ERRONE) est REMPLACE par cet arbre (et CORRIGE en friendly-fire). Le passif `FireOfAbsolution`
+    (trigger) porte le MEME correctif friendly-fire via le SELECTEUR DSL `Alive(Sub(Sub(AdjacentUnits(TargetTile()),
+    Caster()), Target()))` (mirror natif `AdjacentUnits(target) − caster − target`, meme bug #213)."""
     tgt = Target()
     main = AttackWithAbilityDamage(tgt, "Stikkbomb", "Blast", is_melee=False)                    # RandomAmount/Blast/0x2f=2
     splash = AttackWithAbilityDamage(Alive(AdjacentUnits(TargetTile())), "Stikkbomb", "Blast",
                                      is_melee=False, hits_key="nrOfHits_2", multi=True)          # MEME plage, friendly-fire, 0x32=1
     return AtomicGroup(op_add(main, splash))
+
+
+def fragstorm_tree() -> AtomicGroup:
+    """Arbre de `FragstormAbility.ExecuteBehaviour @1811e0a00` (id 1078, templSmnAggressor — MIRROR du DECOMPILE) :
+        ExecuteAtomic( op_BitwiseAnd(
+            AttackWithAttackDamage(caster@0x160, target@0x178, RandomAmount(var0xc,var0xd), Blast, nrOfHits=0x2f=4),  # [MAIN]
+            AttackWithAttackDamage(caster@0x160,
+                PickRandomly( op_Subtraction( AdjacentTiles(target),
+                                              Tiles(Friends(caster, AdjacentTiles(target), 3)) ),
+                              nrOfTargets=GetNumberConstant(0x11)=4 ),
+                RandomAmount(MEME), Blast, nrOfHits_2=0x32=2) ) )                                                     # [SPLASH]
+    Le SPLASH natif attaque un SELECTEUR `PickRandomly(<tuiles>, 4)` = jusqu'a 4 HEXES ALEATOIRES adjacents a la
+    cible, EXCLUANT les tuiles occupees par un AMI DU CASTER (`AdjacentTiles(target) − Tiles(Friends(caster))`).
+    i2 concordant : « 2x [dmg] Blast to up to 4 random hexes adjacent to the target, excluding hexes with
+    friendly units on them ». CONTRASTE Stikkbomb (`AdjacentUnits` BRUT = friendly-fire, i2 « units ») : ici le
+    natif SOUSTRAIT explicitement les tuiles amies -> enemies-only (les seuls occupants restants d'un duel).
+
+    Port : SPLASH = `Alive(Sub(AdjacentUnits(TargetTile()), AdjacentFriends(TargetTile())))` = occupants VIVANTS
+    des tuiles adjacentes MOINS les amis-du-caster adjacents = la soustraction de tuiles native RESOLUE aux
+    occupants (== ennemis adjacents pour un duel 2-teams ; `_within` exclut deja la cible dist 0, `AdjacentFriends`
+    retire le caster). Le `PickRandomly(4)` est FOLDE dans la feuille via `pick_n` (tire 4 cibles DANS la
+    resolution du selecteur d'attaque, comme `multi=True` folde l'`OrderBy` ; `state.rng`, == l'imperatif
+    `_pick_randomly_n(_adjacent_enemies_of, 4)`). Plage `RandomAmount(minDmg/maxDmg)` PARTAGEE main/splash (memes
+    cles par defaut) ; seule la constante de coups differe (nrOfHits 0x2f=4 vs nrOfHits_2 0x32=2). Profil Blast,
+    RANGED (range 2). `op_BitwiseAnd` = `CombinedBehaviour` (effets PURS -> les deux volets s'executent) ;
+    `ExecuteAtomic` -> `AtomicGroup` (inline #201, == ScythingTalons, CONTRASTE Stikkbomb plain Execute). Ordre =
+    main PUIS splash (meme `state.rng`). L'imperatif `FragstormAbility.execute_behaviour` (`_pick_randomly_n(
+    _adjacent_enemies_of)` + `_splash_ability_behaviour`) est REMPLACE par cet arbre (bit-exact BY CONSTRUCTION :
+    meme pool id-trie, meme pick, meme rng).
+
+    ⚠ GAP #215 (RNG-exact) : le natif tire des HEXES (tuiles VIDES incluses -> un tirage peut tomber sur une
+    tuile vide = coup gaspille) et l'ORDRE/cout exact du tirage `PickRandomlySelector.Select` ne sont pas cales ;
+    le port tire des OCCUPANTS (id-tries, jamais de tuile vide) -> quand >4 tuiles adjacentes non-amies, les
+    unites touchees ET la conso `state.rng` peuvent differer. Structure fidele (soustraction des amis, cap 4) ;
+    RNG-exact = raffinement flagge."""
+    import gameconfig as GC
+    # nrOfTargets = GetNumberConstant(0x11), lue live du gameconfig ; 4 = valeur config/i2 (« up to 4 ») si absente.
+    n_targets = int(((GC.ability("Fragstorm") or {}).get("constants") or {}).get("nrOfTargets") or 4)
+    tgt = Target()
+    main = AttackWithAbilityDamage(tgt, "Fragstorm", "Blast", is_melee=False)                        # RandomAmount/Blast/0x2f=4
+    splash_sel = Alive(Sub(AdjacentUnits(TargetTile()), AdjacentFriends(TargetTile())))              # AdjacentTiles − Tiles(Friends) -> occupants non-amis
+    splash = AttackWithAbilityDamage(splash_sel, "Fragstorm", "Blast", is_melee=False,
+                                     hits_key="nrOfHits_2", multi=True, pick_n=n_targets)            # MEME plage, PickRandomly(4), 0x32=2
+    return AtomicGroup(op_and(main, splash))
 
 
 def valkyrie_strike_tree() -> AddBondEffect:
@@ -686,10 +731,13 @@ def _adjacent_to_both(state: "State", caster_id: int, target_id: int) -> list[in
 
 
 def _adjacent_enemies_of(state: "State", caster_id: int, target_id: int) -> list[int]:
-    """Splash cible-centré : ennemis VIVANTS du caster adjacents (hex) à la CIBLE, hors cible. Mirror
-    `Enemies(caster, AdjacentUnits(target))` = les ennemis du caster sur `board.neighbours(target tile)`.
+    """Splash cible-centré ENEMIES-ONLY : ennemis VIVANTS du caster adjacents (hex) à la CIBLE, hors cible.
+    Mirror `Enemies(caster, AdjacentUnits(target))` = les ennemis du caster sur `board.neighbours(target tile)`.
     Requiert `state.board` (evenq) ; sans board → [] (no-op fidèle). Ordre déterministe (tie-break id).
-    (Volet splash de PlasmaGrenade/Stikkbomb ; base de tuiles de Fragstorm avant PickRandomly.)"""
+    RÉFÉRENCE IMPÉRATIVE des tests de bit-exactness des arbres DSL enemies-only (`Alive(AdjacentEnemies(
+    TargetTile()))` de PlasmaGrenade == ce set ; ArmoriumCherub scanne dessus) ; plus aucun appelant PRODUCTION
+    (Fragstorm migré ; FireOfAbsolution utilise le sélecteur DSL friendly-fire `AdjacentUnits(target) − caster −
+    target`). Équivaut à `Alive(AdjacentEnemies(TargetTile()))` (DSL) = ce set + le filtre `team != caster`."""
     board = state.board
     caster = state.get_entity(caster_id)
     tgt = state.get_entity(target_id)
@@ -741,7 +789,11 @@ def _splash_ability_behaviour(state: "State", caster_id: int, target_id: int, ab
     """Mécanique partagée B1 (mirror `CrushingClaws` SANS var-séparées) : 1 attaque MAIN sur `target`
     (hits=`nrOfHits`) + 1 volet SPLASH sur `splash_set`, PARTAGEANT la MÊME plage `minDmg/maxDmg` — seul le
     nb de hits diffère (splash = `nrOfHits_2`). ⚠ le splash réutilise minDmg/maxDmg/pierce (PAS
-    minDmg_2/maxDmg_2 : ce pattern var-séparées = CrushingClaws only). Chaque volet = `execute_ability_attack`."""
+    minDmg_2/maxDmg_2 : ce pattern var-séparées = CrushingClaws only). Chaque volet = `execute_ability_attack`.
+
+    RÉFÉRENCE IMPÉRATIVE des tests de bit-exactness des arbres DSL splash (PlasmaGrenade/ScythingTalons tests
+    comparent leur arbre `AttackWithAbilityDamage(multi=True)` à ce retour) : plus AUCUN appelant PRODUCTION
+    (tous les splash migrés en arbres DSL, Fragstorm compris slice-13), conservé pour l'oracle des tests."""
     bmin, bmax, pierce, hits = ability_attack_params(state, caster_id, ability_id, profile, ranged=ranged)
     main = AttackDamageOperation.execute_ability_attack(state, caster_id, target_id, bmin, bmax, pierce, hits,
                                                         damage_profile=profile, is_melee=not ranged)
@@ -888,8 +940,7 @@ class PlasmaGrenadeAbility(ActiveAbility):
     #149 slice-6 : `execute_behaviour` DÉLÈGUE à `plasma_grenade_tree()` (mirror 1:1 du décompilé). Le
     SPLASH est un SEUL `AttackWithAbilityDamage(selecteur-multi)` (== le natif, PAS un `Foreach`) porté via
     le mode `multi=True` de la feuille (`AttackBehaviour.Execute` résout la liste + `OrderBy` par id).
-    L'ancien `_splash_ability_behaviour`/`_adjacent_enemies_of` reste partagé par Stikkbomb/Fragstorm
-    (non encore migrés). Bit-exact BY CONSTRUCTION vs l'impératif (mêmes bornes/hits/profil, splash trié par
+    Bit-exact BY CONSTRUCTION vs l'ancien impératif (mêmes bornes/hits/profil, splash trié par
     id, même `state.rng`)."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.PlasmaGrenade)  # 1098
@@ -948,24 +999,37 @@ class StikkbombAbility(ActiveAbility):
 class FragstormAbility(ActiveAbility):
     """`FragstormAbility.ExecuteBehaviour` @1811e0a00 (id 1078, templSmnAggressor).
 
-    Séquence native : `AttackWithAttackDamage(actor, target, MinMaxDamage, Blast, nrOfHits=4)` +
-    `Foreach(splash = PickRandomly(AdjacentTiles(target) − tuiles alliées, nrOfTargets=4))
-    AttackWithAttackDamage(actor, s, MÊME MinMaxDamage, Blast, nrOfHits_2=2)`. Splash = jusqu'à 4 ennemis
-    adjacents à la cible, PICK-RANDOM (`_pick_randomly_n`), plage PARTAGÉE. ⚠ GAP : coût/ordre RNG du pick
-    non calibré (désync possible de `state.rng` si >4 candidats) ; ≤4 candidats → tous, sans RNG."""
+    #149 slice-13 : la behaviour EST l'**arbre DSL** `fragstorm_tree()` (mirror 1:1 du décompilé @1811e0a00 :
+    `ExecuteAtomic(op_BitwiseAnd(main, splash))` — cf. `fragstorm_tree`), en remplacement du portage impératif
+    (`_pick_randomly_n(_adjacent_enemies_of(...))` + `_splash_ability_behaviour`, désormais supprimé).
+
+    Splash natif = `PickRandomly(AdjacentTiles(target) − Tiles(Friends(caster)), nrOfTargets=4)` = jusqu'à 4
+    HEXES aléatoires adjacents à la cible, EXCLUANT les tuiles à ami-du-caster (i2 « up to 4 random hexes
+    adjacent to the target, excluding hexes with friendly units »). CONTRASTE Stikkbomb (`AdjacentUnits` BRUT =
+    friendly-fire) : Fragstorm SOUSTRAIT explicitement les tuiles amies → enemies-only. Porté =
+    `Alive(Sub(AdjacentUnits(TargetTile()), AdjacentFriends(TargetTile())))` (occupants non-amis) + `pick_n=4`
+    folde le PickRandomly dans la feuille (tire 4 via `state.rng`, == l'impératif → bit-exact). Plage main/splash
+    PARTAGÉE (nrOfHits=4 / nrOfHits_2=2), profil Blast, ranged (range 2). ⚠ GAP #215 (RNG-exact) : le natif tire
+    des HEXES (vides incluses = coup gaspillé) et l'ordre/coût du tirage ne sont pas calés → divergence possible
+    quand >4 tuiles adjacentes non-amies."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.Fragstorm)  # 1078
     ABILITY_ID = "Fragstorm"
-    N_TARGETS = 4        # constants.nrOfTargets (borne du PickRandomly splash)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
             return None
-        splash = _pick_randomly_n(state, _adjacent_enemies_of(state, caster_id, target_id), self.N_TARGETS)
+        # behaviour = arbre DSL (main + splash multi=True/pick_n=4) ; émet les MÊMES Operations
+        # (`AttackDamageOperation.execute_ability_attack`) -> même mutation, diag main/splash.
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        fragstorm_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAbilityDamage"]
+        main = next((p["attack"] for p in atks if p.get("target") == target_id), None)
+        splash = [{"target": p["target"], "attack": p["attack"]}
+                  for p in atks if p.get("target") != target_id]      # cibles splash != cible principale
         return {"ability": "Fragstorm", "caster": caster_id, "target": target_id,
-                **_splash_ability_behaviour(state, caster_id, target_id, self.ABILITY_ID,
-                                            "Blast", ranged=True, splash_set=splash)}
+                "main_attack": main, "splash": splash, "dsl": True}
 
 
 class ScythingTalonsAbility(ActiveAbility):
@@ -980,9 +1044,9 @@ class ScythingTalonsAbility(ActiveAbility):
     #149 slice-8 : `execute_behaviour` DÉLÈGUE à `scything_talons_tree()` (mirror 1:1 du décompilé). Le SPLASH
     est un SEUL `AttackWithAbilityDamage(selecteur-multi)` (== le natif, PAS un `Foreach` -> DIFFERE de
     CrushingClaws) porté via le mode `multi=True` de la feuille (résout la liste + `OrderBy` par id). Bit-exact
-    BY CONSTRUCTION vs l'ancien impératif `_splash_ability_behaviour`+`_adjacent_to_both` (mêmes bornes/hits/
-    profil, splash trié par id, même `state.rng`). `_splash_ability_behaviour`/`_adjacent_to_both` restent
-    partagés par Stikkbomb/Fragstorm (non encore migrés).
+    BY CONSTRUCTION vs l'ancien impératif (`_adjacent_to_both` — mêmes bornes/hits/
+    profil, splash trié par id, même `state.rng`). `_splash_ability_behaviour` a été retiré (slice-13, dernier
+    appelant Fragstorm migré).
 
     ⚠ HITS CONDITIONNELS (GAP, tâche #211, HORS migration) : `condHits = ConditionalAmount(HasTrait(target,
     UnitTrait.Summon=2), nrOfHits×2, nrOfHits)` — les hits DOUBLENT (3→6 main, 2→4 splash) si la CIBLE est un

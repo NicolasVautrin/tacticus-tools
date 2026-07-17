@@ -84,13 +84,16 @@ class And(TargetsSelector):
 
 
 class Sub(TargetsSelector):
-    """`TargetsSelector.op_Subtraction` : a \\ b par id."""
+    """`TargetsSelector.op_Subtraction` : a \\ b par id. Le natif `op_Subtraction` accepte un SELECTEUR **ou
+    une ENTITE** en 2e operande (ex. `AdjacentUnits(target) − caster − target` de FireOfAbsolution
+    @18121f380) : on normalise les DEUX operandes via `_units_of` (un noeud-role `Caster()`/`Target()` ->
+    dict -> `[dict]`), pour soustraire aussi bien une liste qu'une unite seule."""
     def __init__(self, a: TargetsSelector, b: TargetsSelector):
         self.a, self.b = a, b
 
     def select(self, ctx):
-        bset = {u.get("id") for u in self.b.evaluate(ctx)}
-        return [u for u in self.a.evaluate(ctx) if u.get("id") not in bset]
+        bset = {u.get("id") for u in _units_of(self.b, ctx)}
+        return [u for u in _units_of(self.a, ctx) if u.get("id") not in bset]
 
 
 class Union(TargetsSelector):

@@ -425,8 +425,12 @@ def _fire_of_absolution_after_attack(state: State, attacker_id: int, target_id: 
                                Direct(dmg = GetVariableForLevel 0xb), Flame, nrOfHits = GetNumberConstant 0x2f = 3)
       & Maybe(SetOnFire, AdjacentTiles(target), chance = GetNumberConstant 0x2a = 30)
 
-    `AdjacentUnits(…, kind=3)` = ennemis du caster (cf. StikkbombAbility « team-param 3 → ennemis ») → les
-    ennemis adjacents à la CIBLE, hors caster/cible = `_adjacent_enemies_of`. `Direct(dmg)` = valeur FIXE (pas
+    `AdjacentUnits(target,·,3) − caster − target` = TOUTES les unités adjacentes à la CIBLE, hors caster/cible,
+    AUCUN filtre d'équipe (FRIENDLY-FIRE ; porté par le SÉLECTEUR DSL `Alive(Sub(Sub(AdjacentUnits(TargetTile()),
+    Caster()), Target()))`, PAS un helper impératif). ⚠ le `3` = flag `UnitsOnTilesSelector`
+    (occupation), PAS un masque d'équipe (prémisse « kind=3 → ennemis » RÉFUTÉE, cf. Stikkbomb #213 :
+    `AdjacentUnits` BRUT sans wrapper `Enemies(...)`) → alliés du caster adjacents à la cible TOUCHÉS, concordant
+    avec l'i2 ci-dessus (« all units adjacent to the target »). `Direct(dmg)` = valeur FIXE (pas
     de spread ; min==max) routée par perçage/armure/mods + crit/block du pipeline d'attaque (≠ le DoT de tuile,
     tick sans contexte-attaquant). Chaque coup splash (Flame=OnFire) POSE du feu sur la tuile de la cible splash
     (via `execute_ability_attack`, #136). Le `Maybe` pose du feu même sur un hex VIDE (30%/hex).
@@ -450,10 +454,19 @@ def _fire_of_absolution_after_attack(state: State, attacker_id: int, target_id: 
     from ...abilities.base import ability_attack_params
     dmg, _dmg_max, pierce, hits = ability_attack_params(
         state, attacker_id, "FireOfAbsolution", "Flame", ranged=True, min_key="dmg", max_key="dmg")
-    # [splash] AttackWithAttackDamage sur les ennemis adjacents à la CIBLE (kind=3=ennemis) − caster − target.
-    from ...abilities.loki import _adjacent_enemies_of
+    # [splash] cibles = le SELECTEUR DSL natif `AdjacentUnits(target) − caster − target` (mirror 1:1 de
+    # `FireOfAbsolutionAbility.CreateBehaviour @18121f380`, noeuds `AdjacentUnits @180de8320`/`op_Subtraction`) :
+    # AUCUN wrapper `Enemies(...)` -> FRIENDLY-FIRE (allies du caster adjacents INCLUS, #213/i2 « all units adjacent
+    # to the target »). `Alive` = ecarte les cadavres (mirror `Units(AdjacentTiles)`=debout). Evalue via le meme
+    # DslContext que les arbres d'ability (pas de helper imperatif : les selecteurs DSL SONT les mirrors natifs).
+    from ....entities.selectors import AdjacentUnits, Sub, Caster, Target, TargetTile, Alive
+    from ...abilities.behaviours import entities_from_state
+    _splash_sel = Alive(Sub(Sub(AdjacentUnits(TargetTile()), Caster()), Target()))
+    _ents = entities_from_state(state, attacker_id, target_id)
+    # OrderBy(id) natif (== ordre `sorted` de l'ancien imperatif -> conso `state.rng` deterministe).
+    _splash_ids = sorted(u.get("id") for u in _splash_sel.evaluate(_ents) if u.get("id") is not None)
     splash: list[dict] = []
-    for sid in _adjacent_enemies_of(state, attacker_id, target_id):
+    for sid in _splash_ids:
         satk = AttackDamageOperation.execute_ability_attack(
             state, attacker_id, sid, dmg, dmg, pierce, hits,
             damage_profile="Flame", is_melee=False)     # Direct → pierce/armure + crit/block ; feu posé (#136)

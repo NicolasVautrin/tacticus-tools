@@ -363,16 +363,25 @@ class AttackWithAbilityDamage(AbilityBehaviour):
     (= ordre de lecture natif == l'ordre `sorted` de l'imperatif `_splash_ability_behaviour` -> bit-exact),
     une attaque + un `emit` par cible. `multi=False` (defaut) = mono-cible `resolve_unit` (mirror du collapse
     `Units(Cache(First(Nearest(...))))` -> la cible du message) : chemin INCHANGE pour ThunderousAssault/
-    CrushingClaws/SpiritLeech."""
+    CrushingClaws/SpiritLeech.
+
+    `pick_n` = FOLD du `PickRandomly(selecteur, n) @180df8db0` natif quand il ENVELOPPE le selecteur de cibles
+    d'une attaque (SPLASH de Fragstorm @1811e0a00 : `PickRandomly(AdjacentTiles(target) − Tiles(Friends), 4)`).
+    Comme `multi=True` folde l'`OrderBy`, `pick_n` folde le PickRandomly DANS la resolution du selecteur
+    d'attaque : apres `evaluate`+tri par id, on tire `n` cibles via `_pick_randomly_n(state.rng)` (== l'imperatif
+    `_pick_randomly_n(_adjacent_enemies_of, n)` -> bit-exact, meme pool id-trie/meme pick/meme rng). Defaut None
+    = pas de tirage (toutes les cibles). Requiert `multi=True`. ⚠ GAP #215 (RNG-exact) : le natif tire des HEXES
+    (tuiles VIDES incluses = coup gaspille) et l'ordre/cout exact du tirage ne sont pas cales ; le port tire des
+    OCCUPANTS (pas de tuile vide) -> divergence possible quand >n tuiles adjacentes candidates."""
     __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key",
-                 "damage_override", "multi")
+                 "damage_override", "multi", "pick_n")
 
     def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True,
                  min_key: str = "minDmg", max_key: str = "maxDmg", hits_key: str = "nrOfHits",
-                 damage_override=None, multi: bool = False):
+                 damage_override=None, multi: bool = False, pick_n=None):
         self.target_sel, self.ability_id, self.profile, self.is_melee = target_sel, ability_id, profile, is_melee
         self.min_key, self.max_key, self.hits_key = min_key, max_key, hits_key
-        self.damage_override, self.multi = damage_override, multi
+        self.damage_override, self.multi, self.pick_n = damage_override, multi, pick_n
 
     def execute(self, entities, ectx):
         from ..operations.damage import AttackDamageOperation
@@ -383,6 +392,9 @@ class AttackWithAbilityDamage(AbilityBehaviour):
         if self.multi:                                     # AttackBehaviour.Execute : selecteur -> N cibles
             targets = sorted((u for u in _units_of(self.target_sel, entities) if (u or {}).get("id") is not None),
                              key=lambda u: u.get("id"))     # OrderBy (b__5_0) = ordre de lecture == id
+            if self.pick_n is not None:                    # PickRandomly(selecteur, n) folde (state.rng), == imperatif
+                from .loki import _pick_randomly_n
+                targets = _pick_randomly_n(state, targets, int(self.pick_n))
         else:                                              # collapse mono-cible (cible du message)
             tu = resolve_unit(self.target_sel, entities)
             targets = [tu] if tu and tu.get("id") is not None else []
