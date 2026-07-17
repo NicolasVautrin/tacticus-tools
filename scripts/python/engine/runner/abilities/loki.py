@@ -261,6 +261,44 @@ def plasma_grenade_tree():
     return op_add(main, splash)
 
 
+def scything_talons_tree() -> AtomicGroup:
+    """Arbre de `ScythingTalonsAbility.ExecuteBehaviour @1812059f0` (id 1065, tyranSmnWarrior — MIRROR du
+    DECOMPILE) :
+        splash = Unique( Enemies(caster, AdjacentUnits(casterTile,1) & AdjacentUnits(targetTile,1), 3) )
+        ExecuteAtomic( op_BitwiseAnd(
+            AttackWithAttackDamage(caster, target, MinMaxDamage, Bio, condHits1=GetNumberConstant(0x2f)=3),
+            AttackWithAttackDamage(caster, splash,  MinMaxDamage, Bio, condHits2=GetNumberConstant(0x32)=2) ) )
+    Port : `AtomicGroup( op_and( AttackWithAbilityDamage(Target(),"ScythingTalons","Bio",melee),
+                                 AttackWithAbilityDamage(<splash>,"ScythingTalons","Bio",melee,
+                                                         hits_key="nrOfHits_2", multi=True) ) )`.
+    Le SPLASH natif passe un SELECTEUR MULTI-cible directement a UN `AttackWithAttackDamage` (PAS un `Foreach`
+    -> DIFFERE de CrushingClaws) : `AttackBehaviour.Execute @180fb91a0` resout la liste + `OrderBy` (cle
+    par-unite = ordre de lecture) puis attaque chaque cible -> porte via `multi=True` (feuille
+    `AttackWithAbilityDamage`, tri par id = ordre de lecture natif). Selecteur splash =
+    `Alive(And(AdjacentEnemies(CasterTile()), AdjacentEnemies(TargetTile())))` = ennemis du caster adjacents
+    (hex) aux DEUX tuiles (== l'imperatif `_adjacent_to_both`) : le natif `Enemies(A ∩ B)` == `Enemies(A) ∩
+    Enemies(B)` (Enemies DISTRIBUE sur l'intersection) et `Unique` est un no-op (`And` dedup deja par id).
+    `Alive` compense l'inclusion des cadavres offline (mirror du fait que le natif `AdjacentUnits` n'a que les
+    unites DEBOUT = vivantes, convention PlasmaGrenade #202/#148). La plage `MinMaxDamage(minDmg/maxDmg)` est
+    PARTAGEE main/splash ; seule la constante de coups differe (nrOfHits 0x2f=3 vs nrOfHits_2 0x32=2). Profil
+    Bio, MELEE (range 1).
+    `op_BitwiseAnd` = `CombinedBehaviour` (effets PURS -> les deux volets s'executent) ; `ExecuteAtomic` ->
+    `AtomicGroup` (inline #201 ; le tag `0x57` = id du groupe atomique, PAS un auto-fire de triggered-abilities
+    -- `ExecuteAtomic @180fb0930` = `DSLFactory.AtomicGroup`, aucun `EvaluateAbilities` implicite, cf. #209).
+    Ordre = main PUIS splash (== l'imperatif, meme `state.rng`) -> bit-exact BY CONSTRUCTION vs
+    `_splash_ability_behaviour`+`_adjacent_to_both`. L'imperatif `ScythingTalonsAbility.execute_behaviour` est
+    REMPLACE par cet arbre.
+    GAP (hors migration, tache #211) : les coups natifs = `ConditionalAmount(HasTrait(target,
+    UnitTrait.Summon=2), hits*2, hits)` -> DOUBLENT si la CIBLE est un SUMMON (main 3->6, splash 2->4). Coups
+    de BASE portes ici (== l'imperatif, jamais de sur-compte) ; le doublement = tranche behaviour-changing separee."""
+    tgt = Target()
+    main = AttackWithAbilityDamage(tgt, "ScythingTalons", "Bio", is_melee=True)                 # MinMaxDamage/Bio/0x2f=3
+    splash = AttackWithAbilityDamage(
+        Alive(And(AdjacentEnemies(CasterTile(), Const(1)), AdjacentEnemies(TargetTile(), Const(1)))),
+        "ScythingTalons", "Bio", is_melee=True, hits_key="nrOfHits_2", multi=True)              # MEME plage, 0x32=2
+    return AtomicGroup(op_and(main, splash))
+
+
 def getemruntz_taunt_tree() -> If:
     """Corps `Func<entities,behaviour>` de `TauntWithNewChildrenWhoDidDamage @1811e27a0` (DECOMPILE) pour
     l'enfant COURANT (`Subject()`, pose par le `Foreach(Children)`) :
@@ -826,17 +864,25 @@ class FragstormAbility(ActiveAbility):
 
 
 class ScythingTalonsAbility(ActiveAbility):
-    """`ScythingTalonsAbility.ExecuteBehaviour` @1812059f0 (id 1065, tyranSmnWarrior).
+    """`ScythingTalonsAbility.ExecuteBehaviour @1812059f0` (id 1065, tyranSmnWarrior).
 
-    Séquence native : `AttackWithAttackDamage(actor, target, MinMaxDamage, Bio, hits=condHits1)` +
-    `Foreach(splash = AdjacentEnemies(actor) & AdjacentFriends(target) − target)
-    AttackWithAttackDamage(actor, s, MÊME MinMaxDamage, Bio, hits=condHits2)`. Splash = ennemis adjacents à
-    la FOIS au caster ET à la cible (`_adjacent_to_both`, réutilisé de CrushingClaws), plage PARTAGÉE. Melee (Bio).
+    Séquence native (`ExecuteAtomic`, `op_BitwiseAnd`) :
+        AttackWithAttackDamage(actor, target, MinMaxDamage, Bio, hits=condHits1=0x2f=3)          # principale
+      & AttackWithAttackDamage(actor, splash-MULTI, MÊME MinMaxDamage, Bio, hits=condHits2=0x32=2)  # splash
+    Splash = `Unique(Enemies(caster, AdjacentUnits(casterTile,1) & AdjacentUnits(targetTile,1), 3))` = ennemis
+    du caster adjacents à la FOIS au caster ET à la cible (`_adjacent_to_both`), plage PARTAGÉE. Melee (Bio).
 
-    ⚠ HITS CONDITIONNELS (GAP) : `condHits = ConditionalAmount(HasTrait(target, trait enum 2), nrOfHits×2,
-    nrOfHits)` — les hits DOUBLENT (3→6 main, 2→4 splash) si la cible a le trait enum `2` (famille du 0xd
-    CrushingClaws, NON mappé offline — pas de map TRAIT dans enum_maps). On porte les hits de BASE (3/2,
-    jamais de sur-compte) ; le doublement s'ajoutera une fois le trait 2 identifié (via `target` gameconfig)."""
+    #149 slice-8 : `execute_behaviour` DÉLÈGUE à `scything_talons_tree()` (mirror 1:1 du décompilé). Le SPLASH
+    est un SEUL `AttackWithAbilityDamage(selecteur-multi)` (== le natif, PAS un `Foreach` -> DIFFERE de
+    CrushingClaws) porté via le mode `multi=True` de la feuille (résout la liste + `OrderBy` par id). Bit-exact
+    BY CONSTRUCTION vs l'ancien impératif `_splash_ability_behaviour`+`_adjacent_to_both` (mêmes bornes/hits/
+    profil, splash trié par id, même `state.rng`). `_splash_ability_behaviour`/`_adjacent_to_both` restent
+    partagés par Stikkbomb/Fragstorm (non encore migrés).
+
+    ⚠ HITS CONDITIONNELS (GAP, tâche #211, HORS migration) : `condHits = ConditionalAmount(HasTrait(target,
+    UnitTrait.Summon=2), nrOfHits×2, nrOfHits)` — les hits DOUBLENT (3→6 main, 2→4 splash) si la CIBLE est un
+    SUMMON. On porte les hits de BASE (3/2, jamais de sur-compte, == l'impératif) ; le doublement =
+    behaviour-changing (noeud `ConditionalAmount` + feuille hits-formule + validation live)."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.ScythingTalons)  # 1065
     ABILITY_ID = "ScythingTalons"
@@ -845,10 +891,14 @@ class ScythingTalonsAbility(ActiveAbility):
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
             return None
-        splash = _adjacent_to_both(state, caster_id, target_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        scything_talons_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAbilityDamage"]
+        main = next((p["attack"] for p in atks if p.get("target") == target_id), None)
+        splash = [{"target": p["target"], "attack": p["attack"]}
+                  for p in atks if p.get("target") != target_id]      # cibles splash != cible principale
         return {"ability": "ScythingTalons", "caster": caster_id, "target": target_id,
-                **_splash_ability_behaviour(state, caster_id, target_id, self.ABILITY_ID,
-                                            "Bio", ranged=False, splash_set=splash)}
+                "main_attack": main, "splash": splash, "dsl": True}
 
 
 class GravitonRifleAbility(ActiveAbility):

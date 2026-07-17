@@ -615,3 +615,58 @@ Régression : `test_plasma_grenade_splash_live` (multi) + `test_damage_crushingc
 **Restant loki.py impératif** (post slice-7) : ScarabHive/ScarabSummon (Spawn), ValkyrieStrike (dédié), Stikkbomb (RE
 param-3 `AdjacentUnits` d'abord), Fragstorm, ScythingTalons, GravitonRifle ; + tranche transverse DÉPLACEMENT
 (`PushUnit`/`KillDeadUnits`/`MoveUnit`).
+
+
+## Slice-8 (#210, 2026-07-17) — 7e behaviour DSL : ScythingTalons (splash MULTI-cible `_adjacent_to_both`)
+
+**RE — `ScythingTalonsAbility.ExecuteBehaviour @1812059f0`** (id 1065, tyranSmnWarrior, DÉCOMPILE gqfc5mff6c).
+Arbre natif EXACT (`op_BitwiseAnd` = `&`, `ExecuteAtomic`) :
+
+```
+splash = Unique( Enemies(caster, AdjacentUnits(casterTile,1,3) & AdjacentUnits(targetTile,1,3), 3) )
+ExecuteAtomic( AttackWithAttackDamage(caster, target, MinMaxDamage, Bio, condHits1=GetNumberConstant(0x2f)=3)   # [MAIN]
+             & AttackWithAttackDamage(caster, splash,  MinMaxDamage, Bio, condHits2=GetNumberConstant(0x32)=2) )  # [SPLASH]
+```
+
+Structure = **hybride PlasmaGrenade × CrushingClaws** :
+
+1. **Splash = UN SEUL `AttackWithAttackDamage` avec un SÉLECTEUR MULTI-cible** (PAS un `Foreach` → ≠ CrushingClaws) →
+   porté via le mode **`multi=True`** de la feuille `AttackWithAbilityDamage` (résout la liste + `OrderBy` par id =
+   ordre de lecture natif), EXACTEMENT comme PlasmaGrenade (slice-6). Plage `MinMaxDamage(minDmg/maxDmg)` **PARTAGÉE**
+   main/splash ; seule la constante de coups diffère (`nrOfHits` 0x2f=3 vs `nrOfHits_2` 0x32=2).
+2. **Sélecteur splash = `_adjacent_to_both`** (comme CrushingClaws, slice-4) : `Unique(Enemies(caster, AdjUnits(casterTile,1)
+   ∩ AdjUnits(targetTile,1), 3))` = ennemis du caster adjacents aux DEUX tuiles. Porté
+   `Alive(And(AdjacentEnemies(CasterTile()), AdjacentEnemies(TargetTile())))` : `Enemies(A ∩ B) == Enemies(A) ∩ Enemies(B)`
+   (Enemies DISTRIBUE sur l'intersection) et `Unique` est un no-op (`And` dedup déjà par id) ; `Alive` compense
+   l'inclusion des cadavres offline (mirror : le natif `AdjacentUnits` n'a que les unités DEBOUT = vivantes, #202/#148).
+
+**`ExecuteAtomic(behaviour, constants, 0x57)` = `DSLFactory.AtomicGroup(dsl, 0x57, callback)`** (`ExecuteAtomic @180fb0930`
+décompilé : construit un état de coroutine + `AtomicGroup`, PAS d'auto-fire de triggered-abilities). Le `0x57` est l'**id
+du groupe atomique**, inerte offline (`AtomicGroup` = inline #201). ⚠ **ScythingTalons n'a AUCUN nœud `EvaluateAbilities`**
+(≠ ArmoriumCherub #209 dont le passif venait d'un nœud EXPLICITE) → rien à évaluer, migration fidèle sans triggered-abilities.
+
+Porté :
+- **Arbre `scything_talons_tree()`** (`loki.py`) = `AtomicGroup( op_and( AttackWithAbilityDamage(Target(),"ScythingTalons",
+  "Bio",melee), AttackWithAbilityDamage(Alive(And(AdjacentEnemies(CasterTile()),AdjacentEnemies(TargetTile()))),
+  "ScythingTalons","Bio",melee, hits_key="nrOfHits_2", multi=True) ) )`. Aucune nouvelle feuille/sélecteur (100 % réuse
+  slice-4/6). `op_BitwiseAnd` = `CombinedBehaviour` PUR ; ordre main PUIS splash (== l'impératif, même `state.rng`).
+- `ScythingTalonsAbility.execute_behaviour` DÉLÈGUE à l'arbre + split main/splash par target (== PlasmaGrenade). Les helpers
+  `_splash_ability_behaviour`/`_adjacent_to_both` restent partagés par Stikkbomb/Fragstorm (non migrés).
+
+⚠ **GAP HITS CONDITIONNELS (tâche #211, HORS migration)** : les coups natifs = `ConditionalAmount(HasTrait(target,
+UnitTrait.Summon=2), nrOfHits×2, nrOfHits)` → **DOUBLENT si la CIBLE est un SUMMON** (main 3→6, splash 2→4 ; UnitTrait
+value 2 = `Summon`, confirmé). Coups de BASE portés ici (== l'impératif, jamais de sur-compte). Le doublement =
+behaviour-changing : nœud `ConditionalAmount` (n'existe PAS dans engine ; `HasTrait` trigger existe), feuille
+hits-formule, validation live vs cible summon → tranche séparée.
+
+**Validation = REPLAY-DIFF sur état LIVE** (`test_scything_talons_migration_live.py`, session 26). Caster
+`tyranTyrantGuard` (player MELEE buildable) **DRIVÉ dans le cluster ennemi** (maximise le nb d'ennemis adjacents) pour
+exercer un splash `_adjacent_to_both` **NON VIDE** — **PREMIER confront LIVE non-vide** de ce sélecteur (empty en 1v1
+slice-4). L'arbre DSL reproduit BIT-EXACT l'ancien impératif `_splash_ability_behaviour`+`_adjacent_to_both` sur DEUX
+états indépendants seedés identiquement : **même set splash**, **main per-coup**, **splash per-coup** égaux (mesuré :
+caster=85 target=77 → main 3× `[965,1280,827]`, splash victime 81 2× `[835,745]`, DSL == imp). Régression :
+`test_plasma_grenade_splash_live` (multi) + `test_damage_crushingclaws_live` (mono-cible) re-PASS.
+
+**Restant loki.py impératif** (post slice-8) : ScarabHive/ScarabSummon (Spawn), ValkyrieStrike (dédié), Stikkbomb (RE
+param-3 `AdjacentUnits` d'abord), Fragstorm, GravitonRifle (votanIronmaster non-spawnable → non validable live) ; +
+tranche transverse DÉPLACEMENT (`PushUnit`/`KillDeadUnits`/`MoveUnit`).
