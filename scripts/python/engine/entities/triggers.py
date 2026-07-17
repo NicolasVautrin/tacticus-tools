@@ -23,6 +23,18 @@ class TriggerAnd(AbilityTrigger):
         return bool(self.a.evaluate(ctx)) and bool(self.b.evaluate(ctx))
 
 
+class Not(AbilityTrigger):
+    """`AbilityTrigger.op_LogicalNot(a)` : NÉGATION LOGIQUE d'un prédicat (`not a.evaluate`). TheBetrayer
+    (`@1811a4f70`) réutilise le MÊME nœud `IsAdjacent` sous `op_LogicalNot` (gate du move) ET en direct
+    (gate de l'attaque) — deux évals, verdicts DIVERGENTS à travers le move (re-éval LIVE : le move mute
+    la position, cf. docs/rl/dsl-live-context-substrate.md). Le nœud enveloppé est réutilisé, pas dupliqué."""
+    def __init__(self, a: AbilityTrigger):
+        self.a = a
+
+    def should_trigger(self, ctx):
+        return not self.a.evaluate(ctx)
+
+
 class HasFlag(AbilityTrigger):
     """`DSLFactory.HasFlag(flag)` : `flag ∈ ctx.flags`. Le sens exact du flag (ex. HarvesterOfSouls @+0x160)
     reste à RE ; défaut = absent (branche `flag=false`), confirmé par l'agrément."""

@@ -61,10 +61,60 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
     }
 
 
+# Champs MUTABLES d'une unite (re-lus du state a chaque acces par LiveUnit). Les autres (id/team/player/
+# visualId/_traits) sont quasi-statiques -> servis depuis le snapshot seed.
+_LIVE_KEYS = frozenset({"pos", "hp", "alive"})
+
+
+class LiveUnit(dict):
+    """Vue LIVE d'une unite pour le contexte RUNNER (mirror natif : `AbilityEntities` tient une REF
+    d'entite @+0x40, position/PV re-derives A LA LECTURE -- jamais un snapshot ; cf.
+    docs/rl/dsl-live-context-substrate.md, `get_CasterPosition @180fb4f20` / `UnitPosition..ctor @18102a070`).
+
+    Sous-classe `dict` pour rester reconnue par les `isinstance(v, dict)` du DSL (`resolve_unit`/`_units_of`/
+    helpers de `dsl/base.py`) et exposer les champs STATIQUES (id/team/player/visualId/_traits) via le
+    snapshot seed (compat `**`/`.items()`/iteration). Les champs MUTABLES (`_LIVE_KEYS` = pos/hp/alive) sont
+    RE-LUS du `state` a chaque `get`/`[]` -> une re-eval de predicat (ex. `IsAdjacent`) APRES une mutation
+    (Move/degat/mort) voit l'etat COURANT. C'est CE qui permet a UN arbre DSL de rester correct a travers une
+    mutation intra-arbre (Voie A, S-chantier).
+
+    L'override `caster_pos` (mode `AbilityEntities+0x48`, decision balayee AI) reste applique par les
+    SELECTEURS (`ctx.caster_pos or _pos(...)`), PAS ici : LiveUnit rend la position BRUTE live du `state`.
+    Le chemin PREDICTION (`playbook/prediction.py`) construit toujours des dicts FIGES depuis sa scene
+    hypothetique -> il n'utilise PAS LiveUnit (frozen-by-design)."""
+
+    def __init__(self, state, eid: int, entity=None):
+        self._state = state
+        self._eid = eid
+        # Ref d'entite STABLE (les composants mutent en place) = l'homologue de AbilityEntities+0x40.
+        self._entity = entity if entity is not None else state.get_entity(eid)
+        super().__init__(_unit_dict(state, eid, self._entity) or {"id": eid})
+
+    def _live(self, key):
+        d = _unit_dict(self._state, self._eid, self._entity)
+        return (d or {}).get(key)
+
+    def get(self, key, default=None):
+        if key in _LIVE_KEYS:
+            v = self._live(key)
+            return v if v is not None else default
+        return super().get(key, default)
+
+    def __getitem__(self, key):
+        if key in _LIVE_KEYS:
+            v = self._live(key)
+            if v is None:
+                raise KeyError(key)
+            return v
+        return super().__getitem__(key)
+
+
 def entities_from_state(state, caster_id: int, target_id: int | None = None,
                         actor_id: int | None = None) -> DslContext:
     """Construit l'`AbilityEntities` (= `DslContext`) lu par les selecteurs d'un behaviour, depuis le
-    `State` runner : `units` = dicts (cf. `_unit_dict`), `caster` (`factory+0x160`, aussi `Self@0x148`
+    `State` runner : `units` = `LiveUnit` (vues live-by-ref, pos/hp/alive re-lus du `state` a chaque acces
+    -> mirror `AbilityEntities+0x40` ; permet la re-eval de predicat post-mutation, Voie A), `caster`
+    (`factory+0x160`, aussi `Self@0x148`
     pour un triggered Owner==Caster), `target` (cible principale = `factory+0x178`, lu par `Target()` —
     None si l'ability est sans cible ; sur un OnPreDeath = l'unite MOURANTE @0x178), `actor` (`factory+
     0x158` = ACTEUR/TUEUR de l'evenement, lu par `Actor()` — threade sur les behaviours de trigger type
@@ -76,7 +126,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
     target = None
     actor = None
     for eid, e in state.entities.items():
-        u = _unit_dict(state, eid, e)
+        u = LiveUnit(state, eid, e)                   # vue LIVE (pos/hp/alive re-lus a chaque acces)
         units.append(u)
         if eid == caster_id:
             caster = u

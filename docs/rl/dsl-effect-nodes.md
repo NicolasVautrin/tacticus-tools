@@ -304,8 +304,14 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
   > le déclenche PAS) → PRÉSERVÉ ici (zéro régression), à trancher par RE du pipeline move/overwatch. Test NEUF
   > `test_thebetrayer_take_turn_migration_live` (move+attaque via feuilles ; adjacent no-move) ; guard fort =
   > `test_thebetrayer_turnstart_live` (replay-diff LIVE : cible/tuile-move/attaque == natif). 0 régression (5 verts).
-  > **RESTE (S-chantier, hors #149)** : replier CETTE composition en UN arbre DSL (`If`/`&`/`Not` + prédicats
-  > LIVE en nœuds) exige la couche prédicat DSL live-state (le `DslContext` est figé) — axe SÉPARÉ.
+  > **S-chantier (Voie A) IMPLÉMENTÉ (2026-07-18)** : composition repliée en UN arbre DSL unifié (`Seq`/`If`/
+  > `Not` + `IsAdjacent`/`Inform`) sur UN contexte `entities_from_state` dont les unités sont des `LiveUnit`
+  > (pos/hp/alive re-lus du `state` par éval → re-éval live du MÊME nœud `IsAdjacent` à travers le move).
+  > Plus aucun `_is_adjacent_units` impératif. Substrat natif RE prouvé (4×) + détail d'implémentation →
+  > **`docs/rl/dsl-live-context-substrate.md`** (l'`AbilityEntities` tient une RÉF `+0x40`, position re-dérivée
+  > live ; `&` = `CombinedBehaviour.Execute @180ffe730` court-circuit ; `+0x48` = `caster_pos`, sweep AI figé).
+  > Sélecteurs S lourds (cible/tuile) restent COLLAPSÉS ; `after_move` (task #4) préservé via `Emit`. RESTE =
+  > généraliser le live-by-ref à la surface T/S (cas-par-cas). Validé 4/4 (A1 LiveUnit) + 4/4 (A2 arbre).
 
 ## Verdict RE #149 slice-2 (re-expert, PROUVÉ ghidra gqfc5mff6c) — WALKER + combinateurs + arbre GetEmRuntz
 

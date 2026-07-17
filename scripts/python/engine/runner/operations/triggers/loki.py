@@ -22,7 +22,7 @@ from ....entities.damage_trait import DamageTrait
 from ....entities.effect_type import EffectType
 from ....dsl.event_trigger_type import EventTriggerType
 from .base import (TriggeredAbility, TileEffectTrigger, _adjacent_damageable_enemies, _pick_randomly,
-                   _faction_id, _unit_trait_names, _unit_tile, _is_adjacent_units, _hex_dist,
+                   _faction_id, _unit_trait_names, _unit_tile, _hex_dist,
                    _adjacent_enemies)
 
 # --- Psyker (Active.Loki) -------------------------------------------------------------------------
@@ -838,65 +838,87 @@ def _betrayer_stop_tile(state: State, owner_id: int, target_id: int) -> Optional
 
 
 def _betrayer_take_turn(state: State, owner_id: int) -> Optional[dict]:
-    """Behaviour TheBetrayer (`CreateBehaviour @1811a4f70`) — MIGRÉ : les DEUX feuilles E (`MoveUnit`,
-    `AttackWithAttackDamage`) routent désormais par les feuilles DSL (== ThunderousAssault). Arbre natif :
+    """Behaviour TheBetrayer (`CreateBehaviour @1811a4f70`) — replié en UN ARBRE DSL UNIFIÉ (S-chantier
+    Voie A). La composition STRUCTURELLE est désormais des NŒUDS DSL, plus du contrôle impératif :
 
-        If( AmountIsGreaterThanZero(target),
+        If( AmountIsGreaterThanZero(target),                        # <- gate S collapse (voir plus bas)
             Inform(0xbf)
-            & If( NOT IsAdjacent(caster, target, 3), MoveUnit(caster, bestTile, options=NULL) )
-            & If( IsAdjacent(caster, target, 3),     GetDamageBehaviour(target) ) )
+            & If( NOT IsAdjacent(Caster, Target), MoveUnit(Caster, bestTile, options=NULL) )
+            & If(     IsAdjacent(Caster, Target), GetDamageBehaviour(Target) ) )
 
-    Frontière déclaratif/impératif (doctrine slice-18/19) — les sélecteurs/prédicats S restent IMPÉRATIFS,
-    COLLAPSÉS, les feuilles E passent par le DSL :
+    L'arbre partage UN SEUL contexte `entities_from_state` dont les unités sont des `LiveUnit` (Slice A1) :
+    caster/target relisent leur position du `state` À CHAQUE éval. Donc le MÊME nœud `is_adj =
+    IsAdjacent(Caster(), Target())` (réutilisé sous `Not` pour le move-gate ET en direct pour l'attack-gate,
+    == le natif `uVar4`) rend deux verdicts DIVERGENTS à travers le move : `Seq`/`&` exécute le move
+    (mutation) AVANT que l'attack-gate re-teste l'adjacence POST-move. C'est la re-éval LIVE native, sans
+    plus aucun `_is_adjacent_units` impératif (cf. docs/rl/dsl-live-context-substrate.md).
+
+    Frontière déclaratif/impératif (doctrine slice-18/19) — les SÉLECTEURS S lourds restent COLLAPSÉS,
+    fournis à l'arbre comme valeurs concrètes ; SEULE la composition E + les prédicats d'adjacence sont en
+    nœuds :
     - `target` = `Cache(GetAttackTarget(AdjacentTiles(MovableTilesInRange(caster, range))))` -> COLLAPSE
-      `_betrayer_target` (S) fourni comme `Target()`.
+      `_betrayer_target` (S), fourni comme `Target()` via `entities_from_state(..., target)`.
+    - `AmountIsGreaterThanZero(target)` = cardinalité de la cible-sélection = PARTIE de la sélection S
+      collapsée (`_betrayer_target` -> None = liste vide) -> reste le gate impératif `if target is None`
+      (la folder en `Count(Target())` exigerait d'un-collapser la cible en LISTE, contre la doctrine).
     - `bestTile` = `First(SortByFormula(SortTilesByUtility(...), MinPathLength))` -> COLLAPSE
-      `_betrayer_stop_tile` (S pathfinding) injecté via `FixedTiles([bestTile])`.
-    - `AmountIsGreaterThanZero(target)` = gate cible non-nulle -> `if target is None: return`.
-    - `NOT IsAdjacent` / `IsAdjacent` (seuil dist-1) = `_is_adjacent_units` (LIVE), relu AVANT le move
-      (move-gate) et APRÈS (attack-gate) : c'est la RE-ÉVAL LIVE du natif (le move mute la position ->
-      l'attaque re-teste l'adjacence post-move). Reste impératif (prédicat = kind T/S).
+      `_betrayer_stop_tile` (S pathfinding), injecté via `FixedTiles([bestTile])` (calculé une fois au cast,
+      == le bestTile natif). Non utilisé si déjà adjacent (move gated off).
+    - `NOT IsAdjacent` / `IsAdjacent` (seuil dist-1) = nœuds `Not(is_adj)` / `is_adj` (LIVE via LiveUnit).
     - `MoveUnit` options NULLES (`local_a8..local_78` zéro @1811a4f70, == ThunderousAssault) -> feuille
       `MoveUnit` plaine (fidèle) ; `ExecutionContext` sans bus = `EventBus()` jetable (== l'impératif).
     - `GetDamageBehaviour @18119c1e0` = `AttackWithAttackDamage(Self, target, MinMaxDamage,
       GetDamageProfileOrDefault(0x19)=Eviscerate, GetHits)` -> feuille `AttackWithAttackDamage(Target(),
       "TheBetrayer", "Eviscerate", melee)` (BIT-EXACT : mêmes `ability_attack_params` + `execute_ability_attack`).
-    - `Inform(0xbf)` = notif AI/UI = NO-OP observable (cf. feuille `Inform`) -> non modélisée ici.
+    - `Inform(0xbf)` = notif AI/UI = NO-OP observable (feuille `Inform`).
 
-    RESTE (S-chantier, HORS #149 E-scope) : replier CETTE composition en UN seul ARBRE DSL (`If`/`&`/`Not` +
-    `Inform` + prédicats `IsAdjacent`/`AmountIsGreaterThanZero` en NŒUDS) exige que la couche prédicat DSL
-    lise l'état LIVE post-move (le `DslContext` est un snapshot figé) — axe SÉPARÉ (cf. dsl-effect-nodes.md).
-
-    TODO (#149 fidélité, à trancher par RE du pipeline move/overwatch) : l'impératif appelle
-    `after_move_triggers` (overwatch sur le move forcé), mais le nœud `MoveUnit` natif a des OPTIONS NULLES
-    (comme ThunderousAssault, qui NE le déclenche PAS). Préservé ici (ZÉRO régression) le temps de trancher.
+    TODO (#149 fidélité, à trancher par RE du pipeline move/overwatch, task #4) : l'`Emit("BetrayerAfterMove")`
+    appelle `after_move_triggers` (overwatch sur le move forcé, ssi le move est effectif) — ABSENT de l'arbre
+    natif (nœud `MoveUnit` à OPTIONS NULLES, comme ThunderousAssault qui NE le déclenche PAS). Préservé ici
+    (ZÉRO régression), ordonné move -> after_move -> attaque, à RETIRER quand #4 sera tranché.
     No-op si pas de cible / board."""
     from ...abilities.behaviours import AttackWithAttackDamage, MoveUnit, entities_from_state
     from ....dsl.effects import ExecutionContext
     from ....entities.selectors import Caster, Target, FixedTiles
+    from ....entities.behaviours import Seq, If, Inform, Emit
+    from ....entities.triggers import IsAdjacent, Not
     from .dispatch import after_move_triggers            # lazy : évite le cycle loki<->dispatch
 
     target = _betrayer_target(state, owner_id)                      # collapse GetAttackTarget (S)
-    if target is None:                                             # AmountIsGreaterThanZero(target) gate
+    if target is None:                                             # AmountIsGreaterThanZero(target) = gate S
         return {"ability": "TheBetrayer", "owner": owner_id, "target": None}
+    stop = _betrayer_stop_tile(state, owner_id, target)            # collapse bestTile (S pathfinding), une fois
 
+    is_adj = IsAdjacent(Caster(), Target())                        # UN nœud réutilisé (== natif uVar4)
+
+    def _after_move_fn(entities, ectx):
+        mv = next((p for (n, p) in ectx.emitted if n == "MoveUnit"), None)
+        if mv is not None and mv.get("moved"):                     # after-move SSI move effectif (== impératif)
+            return {"result": after_move_triggers(ectx.state, owner_id)}
+        return {}
+
+    # OVER-TRIGGER hors-natif (MoveUnit options nulles @1811a4f70) : `Emit` AfterMove PRÉSERVÉ (task #4,
+    # zéro régression), ordonné move -> after_move -> attaque, à RETIRER quand le pipeline move/overwatch
+    # sera tranché. ABSENT de l'arbre natif -> encapsulé DANS la branche move, pas une feuille native.
+    move_branch = Seq(MoveUnit(Caster(), FixedTiles([stop] if stop is not None else [])),
+                      Emit("BetrayerAfterMove", _after_move_fn))
+
+    # ARBRE UNIFIÉ (mirror @1811a4f70) : Inform & If(NOT is_adj, Move) & If(is_adj, Attack). Contexte LIVE
+    # partagé -> re-éval de `is_adj` post-move (Voie A). `Seq` = `CombinedBehaviour` court-circuit gauche->droite.
+    tree = Seq(Inform(0xbf),
+               Seq(If(Not(is_adj), move_branch),
+                   If(is_adj, AttackWithAttackDamage(Target(), "TheBetrayer", THEBETRAYER_PROFILE,
+                                                     is_melee=True))))
+
+    ectx = ExecutionContext(state=state, rng=state.rng)            # bus = EventBus() jetable (== impératif)
+    tree.execute(entities_from_state(state, owner_id, target), ectx)
+
+    mv = next((p for (n, p) in ectx.emitted if n == "MoveUnit"), None)
     moved = None
-    if not _is_adjacent_units(state, owner_id, target):            # NOT IsAdjacent (pré-move, LIVE)
-        stop = _betrayer_stop_tile(state, owner_id, target)        # collapse bestTile (S pathfinding)
-        if stop is not None:
-            ectx = ExecutionContext(state=state, rng=state.rng)    # bus = EventBus() jetable (== impératif)
-            MoveUnit(Caster(), FixedTiles([stop])).execute(
-                entities_from_state(state, owner_id, target), ectx)
-            mv = next((p for (n, p) in ectx.emitted if n == "MoveUnit"), None)
-            if mv is not None and mv.get("moved"):                 # after-move préservé (cf. TODO fidélité)
-                moved = {"to": mv.get("to"), "after_move": after_move_triggers(state, owner_id)}
-
-    atk = None
-    if _is_adjacent_units(state, owner_id, target):               # IsAdjacent (post-move, RE-ÉVAL LIVE)
-        ectx = ExecutionContext(state=state, rng=state.rng)
-        AttackWithAttackDamage(Target(), "TheBetrayer", THEBETRAYER_PROFILE, is_melee=True).execute(
-            entities_from_state(state, owner_id, target), ectx)
-        atk = next((p for (n, p) in ectx.emitted if n == "AttackWithAttackDamage"), {}).get("attack")
+    if mv is not None and mv.get("moved"):
+        am = next((p for (n, p) in ectx.emitted if n == "BetrayerAfterMove"), {})
+        moved = {"to": mv.get("to"), "after_move": am.get("result")}
+    atk = next((p for (n, p) in ectx.emitted if n == "AttackWithAttackDamage"), {}).get("attack")
 
     return {"ability": "TheBetrayer", "owner": owner_id, "target": target,
             "moved": moved, "attack": atk}
