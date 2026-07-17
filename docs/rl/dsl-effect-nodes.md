@@ -212,23 +212,41 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
   > UnitNormalAttackType(killer),0x49e) & IsMeleeAttack>, Maybe(AddEffect(0x3f9), ConfigVar(0x453))))` — un
   > 2e stack CONDITIONNEL (kill mêlée par un allié Imperial d'un normal-attack précis), + le split stat-mod →
   > `ActOfFaithBuffEffect.ApplyModification` (impératif, effet).
-- **Tranche DÉPLACEMENT — 🟡 EN COURS (slice-21a ✅ : PUSH)** : feuille `PushUnit` (`DSLFactory.PushUnit
-  @180df9540` → `DisplaceUnitBehaviour(type=1)`) → `DisplaceUnitOperation(type=1=FindTileToPush @180e695e0)`
-  PORTÉE (`engine/runner/operations/displace.py`) : pousse la cible d'1 hex à l'opposé du pousseur le long de
-  la ligne hex (mirror `GetTilesBehind @18106a150`, géométrie evenq **parity-safe** via les tables `EVENQ`
-  validées du board — PAS de conversion cube brute), délègue à `MoveUnitOperation` (== le natif : DisplaceUnit
-  émet MoveUnit@0x7e, ne réécrit pas la position). Garde `IsDisplaceable` (mort / `BigTarget`=1017 /
-  `Immovable`=17 → no-op). Câblée dans `thunderous_assault_tree` (push de la cible) + `crushing_claws_splash_tree`
-  (push du splash) — plus en no-op différé. **DÉTERMINISTE** (aucun tirage rng → ne décale pas l'ordre RNG des
-  dégâts). Validé : e2e offline déterministe (cible poussée sur la tuile géométrique prédite,
-  `test_thunderous_assault_push_live.py`) + 0 régression (stun BigTarget no-op + CrushingClaws inchangé).
-  **RESTE (slice-21b)** : distance MULTI-hex (`maxCount` = config global runtime, à confirmer live 1-vs-2 —
-  porté à 1 hex `_PUSH_MAX_DIST=1`), steppable-crush, knockback-DAMAGE (`ApplyKnockbackTo @180e67fc0`, peut
-  tuer → death-triggers), fall-damage d'élévation ; feuilles `MoveUnit(caster)` (suivi dans la tuile libérée
-  via `CanAddUnit`) + `KillDeadUnits` (`DownedUnits` flag 0xf).
-- **Groupe 3 — gated sur infra lourde** : TheBetrayer_TakeTurn, FinalJustice, ArcaneShield → dépendent de la
-  tranche **DÉPLACEMENT** (`MoveUnit`/`PushUnit`/`KillDeadUnits` — `PushUnit` ✅ slice-21a, reste `MoveUnit`/
-  `KillDeadUnits`) + feuille `UseActiveAbility` + sélecteurs AI-target DSL.
+- **Tranche DÉPLACEMENT — ✅ (slice-21a PUSH + slice-21b CHARGE/KillDeadUnits)** : les 3 feuilles de la
+  sous-séquence déplacement de `ThunderousAssault.ExecuteBehaviour @1812158b0` sont portées et câblées dans
+  `thunderous_assault_tree` (arbre `((((attaque & stun) & push) & kill-dead) & move-caster)` = mirror exact du
+  décompile) :
+  - **`PushUnit`** (slice-21a — `DSLFactory.PushUnit @180df9540` → `DisplaceUnitBehaviour(type=1)`) →
+    `DisplaceUnitOperation(type=1=FindTileToPush @180e695e0)` (`engine/runner/operations/displace.py`) : pousse
+    la cible d'1 hex à l'opposé du pousseur le long de la ligne hex (mirror `GetTilesBehind @18106a150`,
+    géométrie evenq **parity-safe** via les tables `EVENQ` validées — PAS de conversion cube brute), délègue à
+    `MoveUnitOperation` (== natif : DisplaceUnit émet MoveUnit@0x7e). Garde `IsDisplaceable` (mort / `BigTarget`
+    =1017 / `Immovable`=17 → no-op). Câblé dans `thunderous_assault_tree` + `crushing_claws_splash_tree`.
+  - **`MoveUnit`** (slice-21b — `DSLFactory.MoveUnit @180df6ae0` → `MoveUnitBehaviour.Execute @180fca4f0`) →
+    `MoveUnitOperation` : le CASTER CHARGE dans la tuile LIBÉRÉE par le push. Dest = `TargetTile()` = tuile
+    **PRE-push** de la cible : le `DslContext` étant un **SNAPSHOT pré-cast** (`entities_from_state` construit
+    une fois), `_pos(ctx.target)` reste la tuile d'origine même après le push → collapse GRATUIT du
+    `Cache(First(Nearest(Tiles(target),casterPos)))` natif (single-tile target). Garde `CanAddUnit` repliée en
+    **LIVE** dans la feuille (mirror `CanAddUnitTileSelector.Select @180ee4230` → `CanAddUnitFromAbility` sur
+    contenu de tuile live — le nœud `CanAddUnit` du port est snapshot-based, faux post-push) : le caster ne suit
+    QUE si le push a libéré la tuile (garde `local_308==0`). Les 5 sélecteurs d'OPTIONS (+0x70..+0x90) sont nuls
+    ici (défauts) → cascade after-move flag-driven (overwatch-charge/steppable) NON déclenchée (flaggé, comme le push).
+  - **`KillDeadUnits`** (slice-21b — `DSLFactory.KillDeadUnits @180df5c60` = `Kill(subject, DownedUnits(units)
+    @180dee790, options) @180df5cb0` → `KillUnitBehaviour.Execute @180fc8b10`) : le natif finalise les DOWNED
+    (flag 0xf) en DIFFÉRÉ. Chez nous la mort est finalisée **INLINE** dans l'attaque (`damage.py:152`
+    `alive=False` + on-death) et les morts sont hors-occupation → mirror STRUCTUREL **no-op** (re-kill =
+    double-fire on-death) ; journalise les downed LIVE. `MoveUnit` trouve la tuile libre via l'occupation live
+    (morts exclus) même si l'attaque a tué la cible → ordre natif respecté sans mutation redondante.
+  - **DÉTERMINISTE** (push/kill/move sans rng → ne décalent pas l'ordre RNG des dégâts). Validé : e2e offline
+    déterministe (cible poussée sur tuile géométrique **ET** caster chargé dans la tuile libérée,
+    `test_thunderous_assault_push_live.py`) + 0 régression (stun BigTarget no-op + CrushingClaws inchangé).
+  - **RESTE (raffinements ≥ slice-21c, flaggés)** : distance MULTI-hex (`maxCount` = config global runtime, à
+    confirmer live 1-vs-2 — porté à 1 hex `_PUSH_MAX_DIST=1`), steppable-crush, knockback-DAMAGE
+    (`ApplyKnockbackTo @180e67fc0`, peut tuer → death-triggers), fall-damage d'élévation, cascade after-move
+    flag-driven du move (overwatch-charge).
+- **Groupe 3 — DÉBLOQUÉ de la dépendance DÉPLACEMENT** : TheBetrayer_TakeTurn, FinalJustice, ArcaneShield →
+  la tranche **DÉPLACEMENT** (`MoveUnit`/`PushUnit`/`KillDeadUnits`) est ✅ ; reste comme prérequis la feuille
+  `UseActiveAbility` + les sélecteurs AI-target DSL.
 
 ## Verdict RE #149 slice-2 (re-expert, PROUVÉ ghidra gqfc5mff6c) — WALKER + combinateurs + arbre GetEmRuntz
 

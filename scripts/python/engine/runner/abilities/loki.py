@@ -37,7 +37,7 @@ from ...entities.traits.unit_trait import UnitTrait
 from ...entities.effects.magnitude import ability_var
 from .behaviours import (Spawn, SpawnSummon, SpawnReplica, PerformAIAttack, AddBondEffect,
                          AttackWithAttackDamage, AddEffect, Heal, EvaluateAbilities, PushUnit,
-                         entities_from_state)
+                         MoveUnit, KillDeadUnits, entities_from_state)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -64,24 +64,38 @@ def thunderous_assault_tree() -> AtomicGroup:
             AttackWithAttackDamage(caster, Units(Cache(First(Nearest(Tiles(target),casterPos)))),
                                    MinMaxDamage, profile=Power, hits=GetNumberConstant(0x2f))
           & AddEffect(0x48a Stunned, AbilityStateReference, target, TurnsFromRounds(1))
-          & PushUnit(caster, target) & KillDeadUnits(...) & MoveUnit(caster, CanAddUnit) )   # DEPLACEMENT
-    Port (attaque & stun & PUSH ; kill/move-caster = tranche DEPLACEMENT differee) :
-        AtomicGroup( op_and( op_and( AttackWithAttackDamage(Target(),"ThunderousAssault","Power",melee),
-                                     AddEffect(STUNNED,"Stunned",Target(),1) ),
-                             PushUnit(Caster(), Target()) ) )
-    `op_and` = `op_BitwiseAnd` (`CombinedBehaviour`) : effets PURS (flag@+0x20==0) -> les DEUX s'executent
-    (l'attaque ne court-circuite pas le stun, meme si elle tue la cible — le stun s'applique inconditionnel-
-    lement APRES, comme l'imperatif live-valide). `AtomicGroup` = inline (RE #201). Ordre = attaque PUIS stun
-    PUIS push (== l'ordre natif, meme `state.rng` — le push est DETERMINISTE, aucun tirage rng -> ne decale pas
-    l'ordre RNG : bit-exactness des degats preservee). `Target()` = `ctx.target` (cible du message = celle que
-    l'imperatif attaque ; pousseur = `Caster()` = +0x160). **slice-21a** : `PushUnit` -> `DisplaceUnitOperation`
-    pousse la cible d'1 hex a l'oppose du caster (no-op si BigTarget/Immovable, cf. cible tyranTyrantGuard du
-    test de stun). `KillDeadUnits(0x1010100)` + `MoveUnit(caster, CanAddUnit)` (le caster suit dans la tuile
-    liberee) = differes (feuilles ulterieures)."""
-    return AtomicGroup(op_and(op_and(
+          & PushUnit(caster, target)
+          & KillDeadUnits(caster, target, ForClearDeadUnitsBlockReviveOverkill)
+          & MoveUnit(caster, CanAddUnit(Cache(First(Nearest(Tiles(target),casterPos)))), <options nuls>) )
+    Port (arbre DEPLACEMENT COMPLET, slice-21b) :
+        AtomicGroup( op_and( op_and( op_and( op_and(
+            AttackWithAttackDamage(Target(),"ThunderousAssault","Power",melee),
+            AddEffect(STUNNED,"Stunned",Target(),1) ),
+            PushUnit(Caster(), Target()) ),
+            KillDeadUnits(Caster(), Target()) ),
+            MoveUnit(Caster(), TargetTile()) ) )
+    `op_and` = `op_BitwiseAnd` (`CombinedBehaviour`) : effets PURS (flag@+0x20==0) -> TOUS les volets
+    s'executent (l'attaque ne court-circuite pas le stun, meme si elle tue la cible — le stun s'applique
+    inconditionnellement APRES, comme l'imperatif live-valide). `AtomicGroup` = inline (RE #201). Ordre natif =
+    attaque -> stun -> push -> kill-dead -> move-caster (== `((((a&b)&c)&d)&e)` du decompile), meme `state.rng`
+    (push/kill/move DETERMINISTES, aucun tirage rng -> n'alterent PAS l'ordre RNG : bit-exactness des degats
+    preservee). `Target()` = `ctx.target` (cible du message) ; `Caster()` = +0x160.
+
+    **slice-21a** : `PushUnit` -> `DisplaceUnitOperation` pousse la cible d'1 hex a l'oppose du caster (no-op
+    si BigTarget/Immovable, cf. cible tyranTyrantGuard du test de stun). **slice-21b** : `KillDeadUnits(Caster,
+    Target)` = `Kill(DownedUnits(target))` -- mort DEJA finalisee INLINE chez nous (damage.py:152) -> mirror
+    structurel NO-OP (pas de double-fire on-death) ; `MoveUnit(Caster, TargetTile())` = le CASTER CHARGE dans la
+    tuile liberee par le push. `TargetTile()` = tuile PRE-push de la cible : `ctx.target` etant un SNAPSHOT
+    pre-cast (dict fige), `_pos(ctx.target)` reste la tuile d'origine meme apres le push -> collapse gratuit du
+    `Cache(First(Nearest(Tiles(target),casterPos)))` natif (single-tile target ; meme collapse que l'attaque).
+    La garde `CanAddUnit` (tuile libre) est LIVE dans la feuille `MoveUnit` (mirror `CanAddUnitFromAbility` sur
+    contenu de tuile live) : le caster ne suit QUE si le push a reussi a liberer la tuile (sinon no-op)."""
+    return AtomicGroup(op_and(op_and(op_and(op_and(
         AttackWithAttackDamage(Target(), "ThunderousAssault", "Power", is_melee=True),
         AddEffect(STUNNED, "Stunned", Target(), 1)),
-        PushUnit(Caster(), Target())))
+        PushUnit(Caster(), Target())),
+        KillDeadUnits(Caster(), Target())),
+        MoveUnit(Caster(), TargetTile())))
 
 
 def armorium_cherub_tree() -> AtomicGroup:

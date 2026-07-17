@@ -1,23 +1,29 @@
-"""TRANCHE DEPLACEMENT (#149 slice-21a) — PUSH de ThunderousAssault (1043) : validation end-to-end.
+"""TRANCHE DEPLACEMENT (#149 slice-21a PUSH + slice-21b CHARGE) — ThunderousAssault (1043) : e2e.
 
 `ThunderousAssaultAbility.ExecuteBehaviour @1812158b0` (id 1043) contient, apres l'attaque + le Stun, une
-sous-sequence DEPLACEMENT : `... & PushUnit(caster, target) & KillDeadUnits & MoveUnit(caster, <hex libere>)`.
-Ce test valide le PUSH (slice-21a) : la feuille `PushUnit` -> `DisplaceUnitOperation(type=1=FindTileToPush
-@180e695e0)` pousse la cible d'un hex A L'OPPOSE du caster, en delegant a `MoveUnitOperation` (mirror natif :
-DisplaceUnit emet MoveUnit@0x7e).
+sous-sequence DEPLACEMENT COMPLETE : `... & PushUnit(caster, target) & KillDeadUnits(caster, target)
+& MoveUnit(caster, CanAddUnit(<tuile PRE-push de la cible>))`. Ce test valide les DEUX volets :
+  - slice-21a PUSH : `PushUnit` -> `DisplaceUnitOperation(type=1=FindTileToPush @180e695e0)` pousse la cible
+    d'un hex A L'OPPOSE du caster (delegue a `MoveUnitOperation`, mirror natif DisplaceUnit emet MoveUnit@0x7e).
+  - slice-21b CHARGE : `MoveUnit(caster, TargetTile())` -> le CASTER CHARGE dans la tuile LIBEREE par le push.
+    `TargetTile()` = tuile PRE-push de la cible (le `DslContext` est un SNAPSHOT pre-cast -> `_pos(ctx.target)`
+    reste la tuile d'origine meme apres le push = collapse gratuit du `Cache(...)` natif). Garde `CanAddUnit`
+    LIVE : le caster ne suit QUE si le push a libere la tuile. `KillDeadUnits` = no-op observable chez nous
+    (mort finalisee inline dans l'attaque) -> non asserte ici (cible survit au cast).
 
 METHODE : DETERMINISTE. On capture un etat REEL (board + stats des unites via `load_state`), puis on place
 caster+cible en CHAMP OUVERT (deux tuiles adjacentes avec une tuile libre derriere la cible) et on rejoue le
-MESSAGE d'ability. On confronte le deplacement de la cible a la geometrie hex predite. On ne DEPEND PAS du
-placement live (dans l'arene MC1_67 l'ennemi campe un coin -> push hors-board impossible ; drive-positions ne
-peut pas l'en sortir car l'IA adverse ne quitte pas son spawn). Le board+stats sont REELS, seules les
-positions sont controlees -> validation robuste de la CHAINE feuille->Operation->geometrie->MoveUnit.
+MESSAGE d'ability. On confronte : (1) la cible poussee sur la tuile geometrique predite (derriere, oppose
+caster) ; (2) le caster charge dans la tuile INITIALE de la cible (liberee). On ne DEPEND PAS du placement
+live (dans l'arene MC1_67 l'ennemi campe un coin -> push hors-board impossible ; l'IA adverse ne quitte pas
+son spawn). Board+stats REELS, seules les positions controlees -> validation robuste de la CHAINE
+feuille->Operation->geometrie->MoveUnit pour push ET charge.
 
 DISTANCE : slice-21a pousse d'1 HEX (`_PUSH_MAX_DIST=1`, cf. displace.py). Le natif `GetTilesBehind
 @18106a150` marche jusqu'a un `maxCount` lu d'un config GLOBAL runtime -> la distance-vs-natif (1 ou 2 hex)
-reste a confirmer LIVE (test separe / observation quand un push firera en bataille) ; ce test valide la
-chaine + la DIRECTION a la distance portee. Le no-op sur trait `BigTarget`/`Immovable` (IsDisplaceable) est
-valide par ailleurs (test_effect_stun_live : cible tyranTyrantGuard=BigTarget, push no-op, stun intact).
+reste a confirmer LIVE ; ce test valide la chaine + la DIRECTION a la distance portee. Le no-op sur trait
+`BigTarget`/`Immovable` (IsDisplaceable) est valide par ailleurs (test_effect_stun_live : cible
+tyranTyrantGuard=BigTarget, push no-op, stun intact).
 
 Invariants harnais : board+stats REELS (capture live), aucune tuile/RVA hardcodee, geometrie parity-safe.
 """
@@ -80,8 +86,9 @@ def _find_open_push_triple(board, occupied):
 
 
 def test_thunderous_assault_push_offline_endtoend(live_session, rpc, build_runner):
-    """ThunderousAssault POUSSE la cible deplacable sur la tuile geometriquement predite (derriere, oppose
-    du caster) : chaine feuille PushUnit -> DisplaceUnitOperation -> MoveUnitOperation -> PositionComponent."""
+    """ThunderousAssault : (1) POUSSE la cible deplacable sur la tuile geometrique predite (derriere, oppose
+    du caster) ; (2) le CASTER CHARGE dans la tuile initiale de la cible (liberee). Chaine feuilles
+    PushUnit + MoveUnit -> DisplaceUnitOperation/MoveUnitOperation -> PositionComponent."""
     rid = build_runner("777", extra=BUILD)["rid"]
     board = _board(rpc, rid)
     if board is None:
@@ -127,3 +134,11 @@ def test_thunderous_assault_push_offline_endtoend(live_session, rpc, build_runne
     assert new_tile == b_tile, (f"push -> @{new_tile} != tuile geometrique attendue @{b_tile} "
                                 f"(direction/geometrie du push)")
     print(f"[PUSH offline e2e] OK : cible poussee @{t_tile} -> @{new_tile} (= derriere, oppose du caster)")
+
+    # slice-21b CHARGE : le caster suit dans la tuile INITIALE de la cible (liberee par le push).
+    caster_tile = _off_tile(state, board, att)
+    assert caster_tile != c_tile, ("le caster n'a PAS charge (feuille MoveUnit no-op / garde CanAddUnit live / "
+                                   f"TargetTile snapshot ?) - reste @{c_tile}")
+    assert caster_tile == t_tile, (f"charge -> @{caster_tile} != tuile INITIALE de la cible @{t_tile} "
+                                   f"(dest MoveUnit = tuile PRE-push liberee)")
+    print(f"[CHARGE offline e2e] OK : caster @{c_tile} -> @{caster_tile} (= tuile initiale de la cible, liberee)")

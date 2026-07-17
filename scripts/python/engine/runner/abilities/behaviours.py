@@ -760,3 +760,108 @@ class PushUnit(AbilityBehaviour):
             ectx.emit("PushUnit", pusher=pusher_id, pushed=u["id"],
                       moved=bool((res or {}).get("moved")), to=(res or {}).get("to"))
         return OperationResult.ok()
+
+
+class MoveUnit(AbilityBehaviour):
+    """`DSLFactory.MoveUnit @180df6ae0` -> `MoveUnitBehaviour.Execute @180fca4f0` : deplace le SUJET
+    (`subject_sel`, +0x50) vers la 1re tuile-destination LIBRE (`dest_tile_sel`, +0x58 = `CanAddUnit(...)`),
+    via l'Operation deja portee `MoveUnitOperation`. 2e volet du DEPLACEMENT de ThunderousAssault : apres le
+    PUSH de la cible, le CASTER CHARGE dans la tuile liberee.
+
+    Args natifs (ThunderousAssault) : `subject_sel` = Caster() (+0x160) ; `dest_tile_sel` =
+    `CanAddUnit(Cache(First(Nearest(Tiles(target), casterPos))))` = la tuile d'ORIGINE de la cible (le MEME
+    `Cache` que l'attaque, MEMOISE avant le push) gated LIBRE.
+
+    FIDELITE du cache -> tuile PRE-push (sans noeud Cache) : `entities_from_state` construit le `DslContext`
+    UNE fois au cast -> `ctx.units`/`ctx.target` sont un SNAPSHOT pre-cast ; le push mute l'ECS LIVE mais PAS
+    les dicts. Donc `dest_tile_sel` = `TargetTile()` (== `_pos(ctx.target)`) rend la tuile PRE-push meme
+    evalue APRES le push -> le snapshot EST le `Cache(Tiles(target))` natif (memoisation gratuite ; meme
+    collapse que l'attaque `Units(Cache(First(Nearest(...))))` -> `Target()`).
+
+    Garde `CanAddUnit` = tuile LIBRE, lue sur l'ETAT LIVE (post-push) -- mirror `CanAddUnitTileSelector.Select
+    @180ee4230` qui teste `TileExtensions.CanAddUnitFromAbility` sur le CONTENU DE TUILE live -- et NON via le
+    noeud `CanAddUnit` du port (snapshot-based : il verrait la cible occuper encore sa tuile pre-push -> faux
+    post-push). Live = walkable ET aucun occupant VIVANT (`_occupied` ; les MORTS ne comptent pas -> quand
+    l'attaque a TUE la cible, sa tuile est deja libre et le caster y entre). La garde `local_308==0` (defaut)
+    de `MoveUnitBehaviour.Execute` (dest vide -> `return` sans move) = ici : push echoue (BigTarget/Immovable/
+    bord) -> cible restee sur sa tuile -> tuile occupee live -> pas de move (le caster ne suit QUE si le push
+    a reussi).
+
+    NON portes (=> slice-21b+, flagges comme le push) : les 5 selecteurs d'OPTIONS (+0x70/+0x78/+0x80/+0x88/
+    +0x90) sont TOUS nuls a ce call-site (defauts natifs) -> aucun flag actif ; la cascade after-move
+    flag-driven (overwatch au CHARGE, kill-steppable pendant le move) n'est PAS declenchee (comme le push,
+    `MoveUnitOperation.execute` direct = position + moved_this_turn + tile-defense, PAS le vecteur after-move
+    du handler de message). DETERMINISTE (aucun tirage rng) -> ne decale pas l'ordre RNG. Emet 'MoveUnit'. PUR."""
+    __slots__ = ("subject_sel", "dest_tile_sel")
+
+    def __init__(self, subject_sel: TargetsSelector, dest_tile_sel: TargetsSelector):
+        self.subject_sel = subject_sel
+        self.dest_tile_sel = dest_tile_sel
+
+    def execute(self, entities, ectx):
+        from ..operations.movement import MoveUnitOperation
+        from ..operations.displace import _occupied      # occupation LIVE (post-mutation), exclut sujet + morts
+        state = ectx.state
+        subject = resolve_unit(self.subject_sel, entities)
+        board = getattr(state, "board", None)
+        if state is None or subject is None or board is None:
+            return OperationResult.ok()
+        sid = subject.get("id")
+        dest = self.dest_tile_sel.evaluate(entities)     # tuile(s) candidate(s) = snapshot PRE-push (le cache)
+        cands = [dest] if (isinstance(dest, tuple) and len(dest) == 2) else list(dest or [])
+        if sid is None:
+            return OperationResult.ok()
+        occ = _occupied(state, sid)                      # CanAddUnit live : occupants VIVANTS (sujet exclu)
+        for pos in cands:
+            if not (isinstance(pos, tuple) and len(pos) == 2):
+                continue
+            tid = board.id_at(pos[0], pos[1])
+            if tid is None or not board.walkable(tid) or pos in occ:   # walkable ET libre (post-push)
+                continue
+            MoveUnitOperation(sid, pos).execute(state, ectx.bus)       # 1re tuile libre -> le caster charge
+            ectx.emit("MoveUnit", subject=sid, moved=True, to=pos)
+            return OperationResult.ok()
+        ectx.emit("MoveUnit", subject=sid, moved=False)  # garde local_308==0 : aucune tuile libre -> pas de move
+        return OperationResult.ok()
+
+
+class KillDeadUnits(AbilityBehaviour):
+    """`DSLFactory.KillDeadUnits @180df5c60` = `Kill(subject, DownedUnits(units_sel), options) @180df5cb0`
+    -> `KillUnitBehaviour.Execute @180fc8b10` : pour chaque unite DOWNED (flag 0xf, via
+    `DownedUnits`=`UnitsWithFlagSelector(units_sel, 0xf, want=1) @180dee790`) NON exemptee (le natif skippe
+    `HasFlag(9|6|0x1a)`), emet une Operation de KILL (finalise la mort : retrait + on-death). Args natifs
+    (ThunderousAssault) : `subject_sel` = Caster() (+0x160), `units_sel` = Target() (+0x178), options =
+    `ForClearDeadUnitsBlockReviveOverkill`.
+
+    Role natif : la mort y est DIFFEREE -- l'attaque « DOWN » la cible (PV<=0, flag 0xf) sans la retirer ; ce
+    KillDeadUnits POST-push finalise le cadavre pour que `MoveUnit` trouve la tuile libre meme quand l'attaque
+    a TUE la cible.
+
+    Chez NOUS : la mort est finalisee INLINE dans l'attaque (`AttackDamageOperation` : `uc.alive=False` +
+    death-triggers, cf. damage.py:152) et les morts ne comptent PAS dans l'occupation (`_occupied`/`CanAddUnit`
+    excluent `not alive`). Donc a ce point une cible tuee est DEJA finalisee (alive=False, hors-occupation,
+    on-death fire) -> ce volet est OBSERVABLEMENT un NO-OP : re-emettre un kill DOUBLE-FIRE les on-death. La
+    feuille MIRROR donc la STRUCTURE (filtre DownedUnits LIVE) SANS re-muter -- elle journalise les downed pour
+    le replay-diff. (Si notre modele de mort passait un jour en DIFFERE, l'Operation de kill viendrait ICI.)
+    `MoveUnit` trouve la tuile libre via l'occupation LIVE (morts exclus) -> l'ordre natif est respecte sans
+    mutation redondante. Filtre DOWNED lu en LIVE (`UnitComponent.alive`) et NON sur le dict snapshot (fige a
+    l'etat PRE-attaque -> alive=True meme pour une cible tuee par l'attaque). PUR."""
+    __slots__ = ("subject_sel", "units_sel")
+
+    def __init__(self, subject_sel: TargetsSelector, units_sel: TargetsSelector):
+        self.subject_sel = subject_sel
+        self.units_sel = units_sel
+
+    def execute(self, entities, ectx):
+        state = ectx.state
+        downed: list = []
+        for u in _units_of(self.units_sel, entities):
+            uid = u.get("id") if isinstance(u, dict) else None
+            if uid is None or state is None:
+                continue
+            e = state.get_entity(uid)
+            uc = e.get_component(UnitComponent) if e is not None else None
+            if uc is not None and not uc.alive:          # DOWNED live (flag 0xf) ; mort deja finalisee inline
+                downed.append(uid)
+        ectx.emit("KillDeadUnits", downed=downed)        # mirror structurel : pas de re-mutation (double-fire)
+        return OperationResult.ok()
