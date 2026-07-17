@@ -33,7 +33,6 @@ from typing import Optional
 from ..state import State
 from ..components import (StatsComponent, OwnerComponent, PositionComponent,
                           HealthComponent, UnitComponent)
-from ...entities.traits import UnitTrait, has_trait
 from ...entities.effect_type import EffectType
 
 
@@ -442,71 +441,6 @@ class SpawnUnitOperation:
         if tinfo is not None:
             e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
         return [e.id]
-
-    @staticmethod
-    def execute_getemruntz(state: State, caster_id: int) -> list:
-        """⚠ SUPERSEDÉ (#149 slice-2b) : le volet SPAWN est désormais porté par l'arbre DSL
-        `getemruntz_tree()` (`abilities/dsl_behaviours.py`) et `GetEmRuntzAbility.execute_behaviour`
-        n'appelle PLUS cette méthode. Retenue comme RÉFÉRENCE impérative pour le replay-diff LIVE
-        (3-way DSL/impératif/live) ; retrait après confront in-game.
-
-        `GetEmRuntzAbility.ExecuteBehaviour @1811e2210` (id 1045, orksRuntherd/Snotflogga). Spawn UN grot
-        dans CHAQUE hex LIBRE adjacent au caster **ET** adjacent à un ennemi (`GetSpawnTileSelector @1811e26b0`
-        = `CanAddUnit(AdjacentTiles(caster)) & AdjacentTiles(Enemies − trait0x1b)`), stats
-        `WithStatsFromConfig(GetEmRuntz)` = `ability_var(GetEmRuntz, summon*, casterLevel, mult)` (4802 PV @lvl65).
-
-        Chaque grot porte `active_ability_level = casterLevel` (via `build_summon_context`) → **lève le GAP
-        PileIn** (le grot pourra résoudre `ability_var(PileIn, ..., casterLevel)`). On-appearance
-        `PerformAIAttackFromCurrentPosition` + Taunt(1t) des ennemis touchés = FLAGGÉ non porté (secondaire).
-        Exclusion `UnitsWithoutTrait(0x1b=27=Steppable)` PORTÉE (#135, même mapping que ArcaneShield) : les
-        ennemis Steppable (tokens marchables decoys/mines) ne comptent pas dans l'adjacence de spawn."""
-        caster = state.get_entity(caster_id)
-        board = state.board
-        if caster is None or board is None:
-            return []
-        coc = caster.get_component(OwnerComponent)
-        csc = caster.get_component(StatsComponent)
-        cpc = caster.get_component(PositionComponent)
-        c_ctx = csc.ctx if csc is not None else None
-        if coc is None or c_ctx is None or cpc is None:
-            return []
-        level = getattr(c_ctx, "active_ability_level", None)
-        mult = int(getattr(c_ctx, "ability_variables_multiplier", 100) or 100)
-        vid = ((__import__("gameconfig").ability("GetEmRuntz") or {}).get("constants") or {}).get("unitId")
-        if vid is None:
-            return []
-        ctile = board.id_at(cpc.col, cpc.row)
-        if ctile is None:
-            return []
-        occupied = _occupied_tiles(state)
-        # tuiles adjacentes à un ennemi VIVANT du caster (Enemies -> AdjacentTiles)
-        enemy_adjacent: set = set()
-        for e in state.entities.values():
-            oc = e.get_component(OwnerComponent)
-            uc = e.get_component(UnitComponent)
-            pc = e.get_component(PositionComponent)
-            if oc is None or pc is None or oc.team == coc.team:
-                continue
-            if uc is not None and not uc.alive:
-                continue
-            # `Enemies − trait0x1b` : exclut les ennemis Steppable (UnitTrait 0x1b=27, tokens marchables
-            # decoys/mines) du comptage d'adjacence. Gate via `has_trait` (#146 : mapping id<->nom centralisé
-            # dans UnitTrait ; même fix int-vs-str que ArcaneShield #135).
-            esc = e.get_component(StatsComponent)
-            if esc is not None and has_trait(esc.ctx.traits, UnitTrait.Steppable):
-                continue
-            et = board.id_at(pc.col, pc.row)
-            if et is not None:
-                enemy_adjacent.update(board.neighbours(et))
-        # spawn tiles = adjacentes-caster LIBRES ∩ adjacentes-ennemi (déterministe : trié)
-        spawn_tiles = [t for t in sorted(board.neighbours(ctile))
-                       if board.walkable(t) and t not in occupied and t in enemy_adjacent]
-        spawned: list = []
-        for t in spawn_tiles:
-            gid = _spawn_config_grot(state, vid, t, "GetEmRuntz", level, mult, coc.team, coc.player)
-            if gid is not None:
-                spawned.append(gid)
-        return spawned
 
     @staticmethod
     def execute_squighound_summon(state: State, caster_id: int, target_id: int) -> list:

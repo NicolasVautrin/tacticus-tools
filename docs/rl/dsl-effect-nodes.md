@@ -298,3 +298,43 @@ en ordre, mappe chaque tuile→grot). **Validé replay behavioral bit-identique*
 2 ennemis) : grots sur tuiles `[23,25]`, les 2 grots attaquent (2207/2628 dmg), les 2 ennemis Taunted — MÊME
 résultat qu'avant le refactor. **RESTE = la capture FRIDA du natif (#200 tracer-v2 DSLFactory)** pour confronter
 LIVE l'arbre natif à ce mirror (le confront actuel est ANALYTIQUE : décompilé natif == arbre porté).
+
+### TRACER-V2 GÉNÉRIQUE + CONFRONT LIVE — FAIT (#200, 2026-07-17)
+
+Tracer-v2 écrit et validé LIVE : `frida/hooks/features/dsl-ctor-trace.ts` (RPC `dslCtorArm`/`dslCtorCasts`/
+`dslCtorDisarm`). **GÉNÉRIQUE** (pas focus GetEmRuntz) : hooke TOUTE la classe `DSLFactory` (768 méthodes,
+overloads inclus) + les opérateurs des 4 bases DSL + les drivers `AActiveAbility.Execute`/`ExecuteAtomic`,
+gaté sur la fenêtre de N'IMPORTE QUEL `<Ability>.ExecuteBehaviour` (230 gates enum, namespace Abilities.*),
+chaque cast tagué par la classe réelle lue sur `this`. Reconstruction offline (`scratchpad/reconstruct_dsltree.py`)
+par **règle d'arête uniforme** : un arg = enfant SSI il égale le `ret` d'un appel antérieur (gère instance-factory
+arg0=factory exclu ET opérateurs statiques 2-nœuds sans cas particulier ; on part des drivers → remonte les
+arêtes = arbre STRUCTUREL pur, le bruit d'exec = query-calls non consommés est filtré).
+
+**Confront LIVE réel** (cast GetEmRuntz piloté sur runner isolé, Snotflogga=orksRuntherd vs 2 astra, ennemi
+amené adjacent via IA) : 3 casts capturés — `GetEmRuntzAbility` (898 appels) + 2× `Loki_NormalAttackAbility`
+(94 chacun, = les grots qui attaquent → **prouve la généricité**, capture d'une AUTRE ability sans config).
+Arbre natif GetEmRuntz reconstruit = **exactement** le mirror porté :
+- stmt1 `ExecuteAtomic`: `Spawn → Cache → op_BitwiseAnd(CanAddUnit(AdjacentTiles), Unique(AdjacentTiles(UnitsWithoutTrait(Enemies))))`
+- stmt2 `Execute`: `op_Addition(PerformAIAttackFromCurrentPosition → Cache[MÊME ret 0x…3240], Foreach(Children))`
+- ✅ **Cache = DAG mémoïsé partagé CONFIRMÉ LIVE** : le même `ret` sous Spawn ET PerformAIAttack.
+- ✅ **Seq(AtomicGroup, op_add) confirmé** : deux statements (ExecuteAtomic puis Execute).
+
+**DISCREPANCE trouvée → FIXÉE #202** : la branche droite native = `UnitsWithoutTrait(Enemies(AllUnits), Steppable)`
+**SANS nœud `Damageable`** ; le port (`selectors.py:515`) insérait un `Damageable(Enemies(...))` spurieux. RE de la
+chaîne : `DSLFactory.AllUnits @180de85f0` → **`AllAliveMachinesSelector @180ee0080`** = le primitif DSL `AllUnits`
+est la variante **ALIVE** (un `AllUnitsSelector` distinct existe pour le set brut, non utilisé). Le port avait
+`AllUnits.select = list(ctx.units)` (tous, morts inclus) → le `Damageable` **compensait** ce non-mirror. FIX
+(zéro blast radius, `AllUnits()` construit UNIQUEMENT dans `get_spawn_tile_selector`) : `AllUnits` filtre désormais
+alive+hp>0 (mirror `AllAliveMachines`), `Damageable` retiré → structure = native. Validé : replay bit-identique
+(grots `[23,25]`) + test discriminant dead-exclusion (mort id exclu de `AllUnits`).
+
+**NUANCE (pas un bug)** : le `Foreach` natif prend un `Func<b__0>` **lazy-per-child** (construit le sous-arbre
+taunt à chaque grot) → invisible comme enfant de `Foreach` dans la capture (apparaît en bruit d'exec) ; le port
+le construit eager (`getemruntz_taunt_tree()`) = équivalent comportemental, modeling différent.
+
+### #199 CLOS — impératif retiré (2026-07-17)
+
+Le confront live (#200) étant fait, l'impératif `SpawnUnitOperation.execute_getemruntz` (65 lignes, superseded)
+a été **RETIRÉ** (+ import mort `UnitTrait, has_trait` de `spawn.py`). `GetEmRuntzAbility.execute_behaviour`
+n'exécute plus QUE l'arbre DSL `getemruntz_tree()`. Validé : import OK + replay bit-identique (`[23,25]`,
+2207/2628, taunted `[2,3]`). GetEmRuntz = 1er behaviour combat 100% DSL, live-confirmé fidèle.

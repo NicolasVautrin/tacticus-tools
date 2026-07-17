@@ -314,12 +314,16 @@ class Caster(TargetsSelector):
 
 
 class AllUnits(TargetsSelector):
-    """Ensemble des unites de bataille (`ctx.units`) — source des filtres `Enemies`/`Friends`/
-    `Damageable` du port (le natif `Enemies(caster, ...)` @180... folde la source implicitement ;
-    cote port `Enemies(inner)` prend un inner -> on lui fournit `AllUnits`). Adaptateur port, pas
-    une classe native distincte."""
+    """`DSLFactory.AllUnits @180de85f0` -> `AllAliveMachinesSelector @180ee0080` : toutes les unites
+    VIVANTES de la bataille. Le primitif DSL `AllUnits` est **la variante ALIVE** (un `AllUnitsSelector`
+    natif distinct existe pour l'ensemble brut, mais `DSLFactory.AllUnits` ne l'utilise PAS). Source des
+    filtres `Enemies`/`Friends` du port (le natif `Enemies(caster, ...)` folde la source ; cote port on
+    fournit `AllUnits` a l'inner). **Le filtre alive est ICI** (mirror de AllAliveMachines), PAS via un
+    noeud `Damageable` en aval -> cf. confront LIVE #200 tracer-v2 + fix #202 (le natif GetSpawnTileSelector
+    n'a AUCUN Damageable ; c'est `AllUnits`=alive qui exclut les morts)."""
     def select(self, ctx):
-        return list(ctx.units)
+        return [u for u in ctx.units
+                if bool(u.get("alive", True)) and (u.get("hp") or 0) > 0]
 
 
 class AdjacentTiles(TargetsSelector):
@@ -503,15 +507,16 @@ class EffectFromOwner(TargetsSelector):
 
 
 def get_spawn_tile_selector() -> TargetsSelector:
-    """`GetEmRuntzAbility.GetSpawnTileSelector @1811e26b0` (mirror 1:1) =
+    """`GetEmRuntzAbility.GetSpawnTileSelector @1811e26b0` (mirror 1:1, confirme LIVE #200 tracer-v2) =
         op_BitwiseAnd( CanAddUnit(AdjacentTiles(caster)),
-                       Unique(AdjacentTiles( UnitsWithoutTrait(Enemies(caster,0x80,3), 0x1b) )) )
+                       Unique(AdjacentTiles( UnitsWithoutTrait(Enemies(AllUnits), 0x1b) )) )
     = ids de tuiles LIBRES (walkable + inoccupees) adjacentes au CASTER **ET** adjacentes a un
     ENNEMI vivant non-`Steppable` (0x1b=27, cf. `UnitTrait.Steppable` #146/#158 ; `UnitsWithoutTrait`
-    = filtre TRAIT). Alive filtre via `Damageable` (mirror de la garde `uc.alive` de l'imperatif
-    `SpawnUnitOperation.execute_getemruntz`). Enemies/UnitsWithoutTrait/Damageable = memes module."""
+    = filtre TRAIT). **AUCUN noeud `Damageable`** : le natif n'en a pas (decompile + capture live
+    tracer-v2 concordent) — l'exclusion des morts est portee par `AllUnits`=`AllAliveMachinesSelector`
+    (#202). Enemies/UnitsWithoutTrait = meme module."""
     from .traits.unit_trait import UnitTrait
     caster_free = CanAddUnit(AdjacentTiles(Caster()))
-    enemies = UnitsWithoutTrait(Damageable(Enemies(AllUnits())), int(UnitTrait.Steppable))
+    enemies = UnitsWithoutTrait(Enemies(AllUnits()), int(UnitTrait.Steppable))
     enemy_adj = TileUnique(AdjacentTiles(enemies))
     return TileIntersect(caster_free, enemy_adj)

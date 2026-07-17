@@ -155,8 +155,8 @@ class Spawn(AbilityBehaviour):
     """`DSLFactory.Spawn @180dfbd50` -> `SpawnUnitBehaviour.Execute @180fd3d80` : itere son TILE-SELECTEUR
     EN INTERNE (mirror natif -- le `Spawn` n'est PAS un `Foreach(tiles, SpawnUnit)` externe, il enumere ses
     tuiles lui-meme) et spawn UNE unite par tuile, stats `WithStatsFromConfig(summon_ability)`, owner =
-    team+player du caster. Wrapper au-dessus de l'Operation portee `_spawn_config_grot` (mirror de l'inline
-    de `execute_getemruntz`) : level/mult lus du `StatsComponent` du caster dans `ectx.state`. Chaque enfant
+    team+player du caster. Wrapper au-dessus de l'Operation portee `_spawn_config_grot` (mirror de l'inline natif
+    `GetEmRuntzAbility.ExecuteBehaviour @1811e2210`) : level/mult lus du `StatsComponent` du caster dans `ectx.state`. Chaque enfant
     est AJOUTE a `entities.children` (accumulateur factory+0x148, relu par `Children` pour le Taunt), annote
     pour le Taunt (`_new_child`/`_turns_started`/`_attacks_made`/`_last_attacked`). L'ordre d'enumeration =
     l'ordre du tile-selecteur (le `Cache` partage) -> `children` en ordre de TUILE (== l'ordre que
@@ -201,8 +201,8 @@ class PerformAIAttack(AbilityBehaviour):
     (memoise -> memes tuiles PRE-spawn que le Spawn, sinon `CanAddUnit` recalcule les exclurait car
     occupees) ; on parcourt ses tuiles DANS L'ORDRE, on mappe chacune au grot pose dessus (`entities.children`,
     populate par le `Spawn` en ORDRE DE TUILE -> l'ordre d'attaque == l'ordre natif == l'ordre RNG), et il
-    attaque l'ennemi le plus proche via `AttackDamageOperation.execute` (approx du choix AI natif = MEME que
-    l'imperatif `GetEmRuntzAbility.execute_behaviour`, live-valide). Annote le dict enfant (`_attacks_made`,
+    attaque l'ennemi le plus proche via `AttackDamageOperation.execute` (approx du choix AI natif,
+    confront live #200 tracer-v2 DSLFactory). Annote le dict enfant (`_attacks_made`,
     `_last_attacked` = dict FRAIS post-attaque) pour les predicats du Taunt. Emet 'PerformAIAttack'. PUR."""
     __slots__ = ("tile_selector",)
 
@@ -303,7 +303,8 @@ def getemruntz_tree() -> Seq:
     `AtomicGroup` = inline (RE #201 : `AtomicGroupOperation.Execute` invoque son child sur-le-champ, PAS
     differe). `op_add`/`Seq` = `CombinedBehaviour` (effets PURS -> pas de court-circuit -> les 3 volets
     s'executent). Ordre = tous les spawns (inline dans l'AtomicGroup) PUIS toutes les attaques PUIS tous les
-    Taunts (NATIF, prouve RE #200). Replay-diff vs l'imperatif `GetEmRuntzAbility.execute_behaviour`."""
+    Taunts (NATIF, prouve RE #200). CONFRONTE LIVE (tracer-v2 DSLFactory #200 : arbre natif capture == ce
+    mirror) ; l'imperatif `SpawnUnitOperation.execute_getemruntz` a ete RETIRE (#199)."""
     cache = Cache(get_spawn_tile_selector())                       # @180deb0d0 -- PARTAGE (memoise pre-spawn)
     return Seq(
         AtomicGroup(Spawn(cache, "GetEmRuntz")),                   # ExecuteAtomic(Spawn(cache)) -- inline

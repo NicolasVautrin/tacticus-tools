@@ -235,12 +235,12 @@ class GetEmRuntzAbility(ActiveAbility):
     hex LIBRE adjacent au caster **ET** adjacent à un ennemi, chaque grot attaque à l'apparition
     (`PerformAIAttackFromCurrentPosition`) puis Taunte l'ennemi frappé (`TauntWithNewChildrenWhoDidDamage`).
 
-    #149 slice-2b : la behaviour EST désormais l'**arbre DSL** `getemruntz_tree()` (mirror 1:1 du décompilé
+    #149 slice-2b : la behaviour EST l'**arbre DSL** `getemruntz_tree()` (mirror 1:1 du décompilé
     @1811e2210 : `ExecuteAtomic(Spawn) ; Execute(PerformAIAttack + Foreach(Children, Taunt))`), en
     remplacement du portage impératif (spawn + on-appearance + Taunt câblés à la main). **PROUVÉ bit-exact**
-    (replay-diff DSL == impératif, cf. docs/rl/dsl-effect-nodes.md « Verdict RE #199 »). L'impératif
-    `SpawnUnitOperation.execute_getemruntz` est retenu comme RÉFÉRENCE pour le replay-diff LIVE (3-way
-    DSL/impératif/live), retrait après confront in-game."""
+    (replay-diff DSL == impératif) puis **CONFRONTÉ LIVE** (tracer-v2 DSLFactory #200 : arbre natif capturé
+    == ce mirror, cf. docs/rl/dsl-effect-nodes.md). L'impératif `SpawnUnitOperation.execute_getemruntz` a été
+    **RETIRÉ** (#199) — la behaviour est le seul arbre DSL."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.GetEmRuntz)  # 1045
 
