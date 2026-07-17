@@ -726,3 +726,37 @@ class SetOnFire(AbilityBehaviour):
                                       effect_type=self.effect_type, name=self.name) is not None:
             ectx.emit("SetOnFire", tile=tile, source=src)
         return OperationResult.ok()
+
+
+class PushUnit(AbilityBehaviour):
+    """`DSLFactory.PushUnit @180df9540` -> `DisplaceUnitBehaviour(type=1).Execute @180fc3ff0` : pousse CHAQUE
+    unite du selecteur `pushed_sel` A L'OPPOSE du `pusher_sel`, via N× `DisplaceUnitOperation(type=1=
+    FindTileToPush @180e695e0)`. Args natifs : `pusher_sel` = +0x58 (le CASTER pour ThunderousAssault/
+    CrushingClaws, PAS la cible), `pushed_sel` = +0x60 (Target() pour ThunderousAssault ; Subject() pour le
+    splash CrushingClaws pose par le Foreach). Wrapper MINCE au-dessus du mutateur `DisplaceUnitOperation`.
+
+    DETERMINISTE : la geometrie du push (FindTileToPush/GetTilesBehind) est PURE (aucun tirage rng) -> inserer
+    `PushUnit` dans un arbre ne DECALE PAS l'ordre RNG (les tests de degat bit-exact restent valides). Effet
+    PUR (stop=False). Itere les poussees triees par id (== ordre de lecture du Foreach natif). Emet 'PushUnit'
+    par unite (payload `moved`/`to` = l'unite a-t-elle REELLEMENT ete deplacee, i.e. deplacable + tuile libre
+    derriere : False si BigTarget/Immovable/mort ou bord/mur/occupee)."""
+    __slots__ = ("pusher_sel", "pushed_sel")
+
+    def __init__(self, pusher_sel: TargetsSelector, pushed_sel: TargetsSelector):
+        self.pusher_sel = pusher_sel
+        self.pushed_sel = pushed_sel
+
+    def execute(self, entities, ectx):
+        from ..operations.displace import DisplaceUnitOperation
+        state = ectx.state
+        pusher = resolve_unit(self.pusher_sel, entities)     # First(+0x58) = le caster
+        if state is None or pusher is None:
+            return OperationResult.ok()
+        pusher_id = pusher.get("id")
+        pushed = [u for u in _units_of(self.pushed_sel, entities)
+                  if isinstance(u, dict) and u.get("id") is not None]
+        for u in sorted(pushed, key=lambda x: x["id"]):      # ordre de lecture = id (mirror Foreach natif)
+            res = DisplaceUnitOperation(pusher_id, u["id"]).execute(state, ectx.bus)
+            ectx.emit("PushUnit", pusher=pusher_id, pushed=u["id"],
+                      moved=bool((res or {}).get("moved")), to=(res or {}).get("to"))
+        return OperationResult.ok()

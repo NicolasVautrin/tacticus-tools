@@ -36,7 +36,8 @@ from ...entities.triggers import AmountIsGreaterThanZero, AmountIsEqual, IsAlive
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.effects.magnitude import ability_var
 from .behaviours import (Spawn, SpawnSummon, SpawnReplica, PerformAIAttack, AddBondEffect,
-                         AttackWithAttackDamage, AddEffect, Heal, EvaluateAbilities, entities_from_state)
+                         AttackWithAttackDamage, AddEffect, Heal, EvaluateAbilities, PushUnit,
+                         entities_from_state)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -64,17 +65,23 @@ def thunderous_assault_tree() -> AtomicGroup:
                                    MinMaxDamage, profile=Power, hits=GetNumberConstant(0x2f))
           & AddEffect(0x48a Stunned, AbilityStateReference, target, TurnsFromRounds(1))
           & PushUnit(caster, target) & KillDeadUnits(...) & MoveUnit(caster, CanAddUnit) )   # DEPLACEMENT
-    Port (attaque & stun ; push/kill/move = tranche DEPLACEMENT differee, no-op comme l'imperatif) :
-        AtomicGroup( op_and( AttackWithAttackDamage(Target(),"ThunderousAssault","Power",melee),
-                             AddEffect(STUNNED,"Stunned",Target(),1) ) )
+    Port (attaque & stun & PUSH ; kill/move-caster = tranche DEPLACEMENT differee) :
+        AtomicGroup( op_and( op_and( AttackWithAttackDamage(Target(),"ThunderousAssault","Power",melee),
+                                     AddEffect(STUNNED,"Stunned",Target(),1) ),
+                             PushUnit(Caster(), Target()) ) )
     `op_and` = `op_BitwiseAnd` (`CombinedBehaviour`) : effets PURS (flag@+0x20==0) -> les DEUX s'executent
     (l'attaque ne court-circuite pas le stun, meme si elle tue la cible — le stun s'applique inconditionnel-
     lement APRES, comme l'imperatif live-valide). `AtomicGroup` = inline (RE #201). Ordre = attaque PUIS stun
-    (== l'imperatif, meme `state.rng`) -> bit-exact BY CONSTRUCTION. `Target()` = `ctx.target` (cible du
-    message = celle que l'imperatif attaque)."""
-    return AtomicGroup(op_and(
+    PUIS push (== l'ordre natif, meme `state.rng` — le push est DETERMINISTE, aucun tirage rng -> ne decale pas
+    l'ordre RNG : bit-exactness des degats preservee). `Target()` = `ctx.target` (cible du message = celle que
+    l'imperatif attaque ; pousseur = `Caster()` = +0x160). **slice-21a** : `PushUnit` -> `DisplaceUnitOperation`
+    pousse la cible d'1 hex a l'oppose du caster (no-op si BigTarget/Immovable, cf. cible tyranTyrantGuard du
+    test de stun). `KillDeadUnits(0x1010100)` + `MoveUnit(caster, CanAddUnit)` (le caster suit dans la tuile
+    liberee) = differes (feuilles ulterieures)."""
+    return AtomicGroup(op_and(op_and(
         AttackWithAttackDamage(Target(), "ThunderousAssault", "Power", is_melee=True),
-        AddEffect(STUNNED, "Stunned", Target(), 1)))
+        AddEffect(STUNNED, "Stunned", Target(), 1)),
+        PushUnit(Caster(), Target())))
 
 
 def armorium_cherub_tree() -> AtomicGroup:
@@ -111,12 +118,15 @@ def crushing_claws_splash_tree() -> Seq:
                                                 GetNumberConstant(0x32)=nrOfHits_2)
     `If(IsAlive(Subject()))` gate le pin ET l'attaque : le natif inclut les morts-adjacents dans le SET et
     les skippe ICI (l'imperatif les pre-excluait via `_adjacent_to_both` -> MEME resultat observable).
-    `PushUnit` = tranche DEPLACEMENT differee (omis, no-op comme ThunderousAssault). `op_add` = `op_Addition`
-    (`CombinedBehaviour`, effets purs -> les deux volets s'executent). Volet secondaire = clés `minDmg_2`/
-    `maxDmg_2`/`nrOfHits_2` (profil Physical)."""
+    **slice-21a** : `PushUnit(Caster(), s)` est PORTE (recul du splash 1 hex a l'oppose du caster), place EN
+    TETE et UNGATED (== le natif : le push precede le pin/attaque et n'est pas gate par IsAlive). `op_add` =
+    `op_Addition` (`CombinedBehaviour`, effets purs -> tous les volets s'executent). Le push est DETERMINISTE
+    (aucun rng) -> n'affecte pas l'ordre RNG du degat. Volet secondaire = clés `minDmg_2`/`maxDmg_2`/
+    `nrOfHits_2` (profil Physical). En 1v1 le SET splash est vide -> ce corps ne s'execute pas (aucun push)."""
     s = Subject()
-    return op_add(
-        If(IsAlive(s), AddEffect(PINNED, "Pinned", s, None)),       # duree DEFAUT (arg natif 0, sans TurnsFromRounds)
+    return op_add(op_add(
+        PushUnit(Caster(), s),                                      # recul du splash (avant pin/attaque, ungated)
+        If(IsAlive(s), AddEffect(PINNED, "Pinned", s, None))),      # duree DEFAUT (arg natif 0, sans TurnsFromRounds)
         If(IsAlive(s), AttackWithAttackDamage(s, "CrushingClaws", "Physical", is_melee=True,
                                                min_key="minDmg_2", max_key="maxDmg_2", hits_key="nrOfHits_2")))
 
@@ -138,9 +148,11 @@ def crushing_claws_tree() -> AtomicGroup:
     (0xd MAPPE UnitTrait.Object #158 ; l'imperatif le SKIPPAIT -> le DSL est PLUS fidele, degrade en no-op
     pour une unite sans le trait). ORDRE natif = taunt, pin, main, foreach (l'imperatif faisait main
     d'abord ; equivalent bit-exact : taunt/pin ne tirent PAS de rng et n'affectent pas le degat principal ->
-    MEME sequence rng). `KillDeadUnits`/`MoveUnit`/`PushUnit` = tranche DEPLACEMENT differee (omis). Duree
-    Pinned = DEFAUT (`duration_rounds=None`). Bit-exact BY CONSTRUCTION (memes Operations/args/state.rng que
-    l'imperatif). L'imperatif `CrushingClawsAbility.execute_behaviour` est REMPLACE par l'execution de l'arbre."""
+    MEME sequence rng). **slice-21a** : `PushUnit(caster, s)` du splash est PORTE (recul 1 hex, dans
+    `crushing_claws_splash_tree`, deterministe -> n'affecte pas l'ordre rng du degat). `KillDeadUnits`/
+    `MoveUnit(caster)` restent differes. Duree Pinned = DEFAUT (`duration_rounds=None`). Bit-exact BY
+    CONSTRUCTION (memes Operations/args/state.rng que l'imperatif). L'imperatif `CrushingClawsAbility.
+    execute_behaviour` est REMPLACE par l'execution de l'arbre."""
     tgt = Target()
     taunt = AddBondEffect(TAUNTED, "Taunted_OnlySpecificTargets", Caster(), tgt, 1)   # AddBondEffect(0x1b)
     pin = AddEffect(PINNED, "Pinned", tgt, None)                                       # AddEffect(0x429), duree DEFAUT
@@ -816,13 +828,14 @@ class CrushingClawsAbility(ActiveAbility):
       & AddBondEffect(0x1b=27 Taunted, TurnsFromRounds(1))         # Taunt cible (COMPOSITE → 25/26/1237)
       & AddEffect(0x429=1065 Pinned, target)                       # « Suppressed » cible (DefaultRounds=1)
       & Foreach(splash = AdjacentEnemies(actor) & (AdjacentFriends(target) − target), UnitsWithoutTrait(0xd)):
-            PushUnit(actor, s)                                     # recul 1 hex  [déplacement — TODO]
+            PushUnit(actor, s)                                     # recul 1 hex  [slice-21a : PORTE]
           + If(alive) AddEffect(0x429 Pinned, s)                   # « Suppressed » splash
           + If(alive) AttackWithAttackDamage(actor, s, MinMaxDamage2, profile2=Physical, nrOfHits=const 0x32=1)
 
     Matérialise (vecteur ATTAQUE, tranche EFFETS) : la CIBLE porte Taunted(27)+enfants 25/26/1237 +
-    Pinned(1065) ; chaque unité splash subit 1× Physique + Pinned(1065). Le **push** (déplacement, recul
-    1 hex) et `KillDeadUnits`/`MoveUnit` = tranche DEPLACEMENT différée (omis, cf. ThunderousAssault).
+    Pinned(1065) ; chaque unité splash subit 1× Physique + Pinned(1065). Le **push** du splash (recul 1 hex
+    à l'opposé du caster) est PORTÉ (slice-21a) ; `KillDeadUnits`/`MoveUnit(caster)` = tranche DEPLACEMENT
+    différée (cf. ThunderousAssault).
 
     #149 slice-4 : `execute_behaviour` DÉLÈGUE à `crushing_claws_tree()` (mirror 1:1 du décompilé +
     lambda `<ExecuteBehaviour>b__0`). L'exclusion **trait 0xd** du splash (`UnitsWithoutTrait(Object=13)`)

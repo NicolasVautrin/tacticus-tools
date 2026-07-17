@@ -212,10 +212,23 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
   > UnitNormalAttackType(killer),0x49e) & IsMeleeAttack>, Maybe(AddEffect(0x3f9), ConfigVar(0x453))))` — un
   > 2e stack CONDITIONNEL (kill mêlée par un allié Imperial d'un normal-attack précis), + le split stat-mod →
   > `ActOfFaithBuffEffect.ApplyModification` (impératif, effet).
+- **Tranche DÉPLACEMENT — 🟡 EN COURS (slice-21a ✅ : PUSH)** : feuille `PushUnit` (`DSLFactory.PushUnit
+  @180df9540` → `DisplaceUnitBehaviour(type=1)`) → `DisplaceUnitOperation(type=1=FindTileToPush @180e695e0)`
+  PORTÉE (`engine/runner/operations/displace.py`) : pousse la cible d'1 hex à l'opposé du pousseur le long de
+  la ligne hex (mirror `GetTilesBehind @18106a150`, géométrie evenq **parity-safe** via les tables `EVENQ`
+  validées du board — PAS de conversion cube brute), délègue à `MoveUnitOperation` (== le natif : DisplaceUnit
+  émet MoveUnit@0x7e, ne réécrit pas la position). Garde `IsDisplaceable` (mort / `BigTarget`=1017 /
+  `Immovable`=17 → no-op). Câblée dans `thunderous_assault_tree` (push de la cible) + `crushing_claws_splash_tree`
+  (push du splash) — plus en no-op différé. **DÉTERMINISTE** (aucun tirage rng → ne décale pas l'ordre RNG des
+  dégâts). Validé : e2e offline déterministe (cible poussée sur la tuile géométrique prédite,
+  `test_thunderous_assault_push_live.py`) + 0 régression (stun BigTarget no-op + CrushingClaws inchangé).
+  **RESTE (slice-21b)** : distance MULTI-hex (`maxCount` = config global runtime, à confirmer live 1-vs-2 —
+  porté à 1 hex `_PUSH_MAX_DIST=1`), steppable-crush, knockback-DAMAGE (`ApplyKnockbackTo @180e67fc0`, peut
+  tuer → death-triggers), fall-damage d'élévation ; feuilles `MoveUnit(caster)` (suivi dans la tuile libérée
+  via `CanAddUnit`) + `KillDeadUnits` (`DownedUnits` flag 0xf).
 - **Groupe 3 — gated sur infra lourde** : TheBetrayer_TakeTurn, FinalJustice, ArcaneShield → dépendent de la
-  tranche **DÉPLACEMENT** (`MoveUnit`/`PushUnit`/`KillDeadUnits`) + feuille `UseActiveAbility` + sélecteurs
-  AI-target DSL. À faire APRÈS la tranche DÉPLACEMENT (qui débloque aussi le push de ThunderousAssault/
-  CrushingClaws — la tranche transverse déjà flaggée dans les slices ci-dessous).
+  tranche **DÉPLACEMENT** (`MoveUnit`/`PushUnit`/`KillDeadUnits` — `PushUnit` ✅ slice-21a, reste `MoveUnit`/
+  `KillDeadUnits`) + feuille `UseActiveAbility` + sélecteurs AI-target DSL.
 
 ## Verdict RE #149 slice-2 (re-expert, PROUVÉ ghidra gqfc5mff6c) — WALKER + combinateurs + arbre GetEmRuntz
 
