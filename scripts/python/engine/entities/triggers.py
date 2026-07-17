@@ -125,6 +125,37 @@ class HasTrait(AbilityTrigger):
         return any(ht(u, self.trait) for u in _units_of(self.unit, ctx))
 
 
+class AreFriends(AbilityTrigger):
+    """`DSLFactory.AreFriends(a, b) @...` : les deux entités sont-elles ALLIÉES (MÊME équipe) ? Mirror du
+    test `_friendly_imperial` impératif du `matches` ActOfFaith (`oc.team == oown.team`, live-validé) —
+    utilisé par le behaviour accumulate @181219a70 (`AreFriends(killer@0x158, owner@0x148)`). Compare
+    l'équipe des unités résolues par les deux sélecteurs (any paire même-équipe) ; None d'un côté → False.
+    [⚠ flags natifs résiduels (args `0`/bool/`0` de la factory : includeSelf/aliveOnly ?) non modélisés —
+    à confirmer à l'agreement ; le NET même-équipe est prouvé par le matches déjà live-validé.]"""
+    def __init__(self, a: AbilityTrigger, b: AbilityTrigger):
+        self.a, self.b = a, b
+
+    def should_trigger(self, ctx):
+        ta = [u.get("team") for u in _units_of(self.a, ctx) if isinstance(u, dict)]
+        tb = [u.get("team") for u in _units_of(self.b, ctx) if isinstance(u, dict)]
+        return any(x is not None and x == y for x in ta for y in tb)
+
+
+class HasGrandAlliance(AbilityTrigger):
+    """Mirror de `HasTrait(unit, grandAllianceTrait)` où le pseudo-trait de GRANDE-ALLIANCE (`GrandAlliance.
+    GetTrait @1815647a0` — Imperial=0x1a=26, Chaos, Xenos…) n'est PAS un trait gameconfig mais DÉRIVÉ de la
+    FACTION. Le port le résout via `ctx.faction_of(unit) ∈ factions` (MÊME dérivation que le `matches`
+    ActOfFaith impératif, live-validé : IMPERIAL_FACTIONS = les 10 factions impériales). `factions` = frozenset
+    de FactionId de la grande-alliance. Utilisé par le behaviour ActOfFaith accumulate @181219a70
+    (`HasTrait(killer@0x158, 0x1a=26=Imperial)`). None d'un côté → False."""
+    def __init__(self, unit: AbilityTrigger, factions):
+        self.unit, self.factions = unit, factions
+
+    def should_trigger(self, ctx):
+        fo = ctx.faction_of or (lambda u: None)
+        return any(fo(u) in self.factions for u in _units_of(self.unit, ctx))
+
+
 class HasEffect(AbilityTrigger):
     """`DSLFactory.HasEffect(unit, effectType[, minLevel]) @180df0fb0` → `HasEffectTrigger @180f9d830` :
     l'unité a un effet du type (>= minLevel, source-flag mode 6 = owned|incoming). `ctx.has_effect`

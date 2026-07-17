@@ -287,7 +287,32 @@ class ActOfFaithAccumulateAbility(TriggeredAbility):
         return _friendly_imperial(ev.killer_id) or _friendly_imperial(ev.dying_id)
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        return _apply_act_of_faith_stack(state, self.owner_id)
+        # behaviour = arbre DSL `act_of_faith_accumulate_tree()` (mirror 1:1 de CreateBehaviour @181219a70) :
+        # AddEffect(0x3f9, Caster()) [+ 2e stack conditionnel RighteousRepugnance, tranche suivante]. La
+        # feuille `AddEffect` declenche `ActOfFaithBuffEffect.ApplyModification` (2 ChangeStat crit) via
+        # `AddEffectOperation` -> MEME mutation que l'ancien `_apply_act_of_faith_stack` (bit-exact BY
+        # CONSTRUCTION : memes constantes 0x30/0x31, meme Ceiling(Initial x pct%), meme source par-stack).
+        # Contexte AbilityEntities : caster/owner = le porteur (Self@0x148 == Caster pour un triggered),
+        # actor = killer@0x158, target = dying@0x178 ; `attack_kind` (IsMeleeAttack du 2e stack) = le coup
+        # fatal etait-il melee (ev.ranged du trigger MORT).
+        from ...abilities.behaviours import entities_from_state
+        from ....dsl.effects import ExecutionContext
+        owner = state.get_entity(self.owner_id)
+        sc = owner.get_component(StatsComponent) if owner is not None else None
+        if sc is None:
+            return None
+        ctx = sc.ctx
+        cc_before = ctx.stat(StatType.CRIT_CHANCE)
+        cd_before = ctx.stat(StatType.CRIT_DAMAGE)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, self.owner_id, ev.dying_id, actor_id=ev.killer_id)
+        entities.attack_kind = "ranged" if ev.ranged else "melee"
+        act_of_faith_accumulate_tree(ACTOFFAITH_EFFECT).execute(entities, ectx)
+        stacks = sum(1 for n, p in ectx.emitted if n == "AddEffect" and p.get("placed"))
+        return {"trait": "ActOfFaith", "owner": self.owner_id, "stacks_added": stacks,
+                "cc_delta": ctx.stat(StatType.CRIT_CHANCE) - cc_before,
+                "cd_delta": ctx.stat(StatType.CRIT_DAMAGE) - cd_before,
+                "crit_chance": ctx.stat(StatType.CRIT_CHANCE), "crit_damage": ctx.stat(StatType.CRIT_DAMAGE)}
 
 
 class ActOfFaithResetAbility(TriggeredAbility):
@@ -594,67 +619,60 @@ def _fire_of_absolution_after_attack(state: State, attacker_id: int, target_id: 
 
 
 # --- ActOfFaith (behaviour) ------------------------------------------------------------------------
-def _act_of_faith_constants() -> tuple[int, int]:
-    """(extraCritChance, extraCritDmgPct) = `gameconfig.globalValues.actOfFaith*` (=10, =25). Source
-    offline des deux `GetNumberConstant(config, 0x30/0x31)` natifs (config BC = miroir de ces globales)."""
-    import gameconfig as GC
-    cc = int(GC.global_value("actOfFaithExtraCritChance") or 0)
-    cd = int(GC.global_value("actOfFaithExtraCritDmgPct") or 0)
-    return cc, cd
+def act_of_faith_accumulate_tree(effect_type: int):
+    """Arbre de `ActOfFaithAbility.CreateBehaviour @181219a70` (MIRROR 1:1 du DECOMPILE ; branche gshared
+    `param_3 != 0x20` — la branche `==0x20` = `Nothing`, cross-instantiation ecartee comme pour le reset
+    @181219eb0) :
+        op_Addition(
+            AddEffect(0x3f9, source=AbilityStateReference, target=Self@0x148),                    # [1] GARANTI
+            If( HasTrait(killer@0x158, Imperial=0x1a) & AreFriends(killer@0x158, owner@0x148)
+                  & AreEqual(UnitNormalAttackType(killer@0x158), RighteousRepugnance_NormalAttack=1182)
+                  & IsMeleeAttack(...),
+                Maybe( AddEffect(0x3f9), chance=ConfigVar(RighteousRepugnance=1107, killer, chance) ) ) )  # [2]
 
+    [1] STACK GARANTI = feuille `AddEffect(ACTOFFAITH_EFFECT, Caster())` (Owner==Caster pour un triggered).
+        La feuille declenche `ActOfFaithBuffEffect.ApplyModification` via `AddEffectOperation` (part DATA
+        `applied_stat_mods` = 2 ChangeStat : crit-chance += extraCritChance, crit-damage += Ceiling(base_
+        Initial x extraCritDmgPct%)) ; l'effet `stacks_stat_mod_on_add` -> une NOUVELLE instance par proc
+        (empilement additif, live-valide 3 stacks +63 plat), revert par-source via la feuille `RemoveEffect`
+        (cf. `_reset_act_of_faith`). MEME frontiere declaratif/imperatif que le reset (feuille au-dessus,
+        Operation/effet en dessous).
 
-def _act_of_faith_cd_amount(ctx, cd_pct: int) -> int:
-    """`Ceiling(GetStat(critDmg, part=3=Initial) × cd_pct%)` = boost crit-dmg d'UN stack. `GetStatPart(3)`
-    @180fa8bb0 = la stat de **BASE** (offset 0x48, SANS modifications) → boost FLAT (≠ compound) calculé
-    sur la crit-dmg hors-ActOfFaith. Confirmé live (3 stacks base 250 → +63 plat à chaque fois).
+    [2] STACK CONDITIONNEL (2e stack PROBA) = `If(<cond>, Maybe(chance, AddEffect(0x3f9, Caster())))` : un 2e
+        stack quand le TUEUR (Actor@0x158) est un allie Imperial dont le normal-attack est RighteousRepugnance_
+        NormalAttack (Morvenn Vahl, seul porteur — passive RighteousRepugnance) ET le coup fatal etait en MELEE.
+        - `cond` = `HasGrandAlliance(killer, Imperial)` [mirror `HasTrait(killer,0x1a=26)` via faction] &
+          `AreFriends(killer, owner)` & `AreEqual(UnitNormalAttackType(killer), RighteousRepugnance_NormalAttack
+          =1182)` & `IsMeleeAttack()` (lit `ctx.attack_kind`, cable depuis `ev.ranged` du trigger MORT).
+        - `chance` = `ConfigVarForEntity("RighteousRepugnance","chance", killer, slot="passive")` = ability_var
+          au NIVEAU PASSIF du killer (40-60% selon niveau, capte offline via `passive_ability_level`) — mirror
+          exact de `ConfigVar(RighteousRepugnance=1107, killer, chance=0x3a=58)`.
+        - `Maybe` exige `ectx.rng` cale (tirage `next_bool(chance)`) ; sinon no-op documente. Le 2e
+          `AddEffect(Caster())` empile un stack de plus (meme feuille -> ApplyModification).
+        Entierement resoluble offline (killer=Morvenn : kit->1182, faction->Imperial, passive_ability_level
+        ->chance) -> LIVE-VALIDATABLE (equipe 2 heroines Sororitas : Morvenn tue en melee, la porteuse
+        ActOfFaith gagne le 2e stack selon le roll).
 
-    Utilise DIRECTEMENT l'`Initial` du système de stats porté (`ctx.get_stat(CRIT_DAMAGE, Initial)`),
-    remplaçant l'ancienne reconstruction « courante − Σ(deltas AoF) » : exact même si la crit-dmg porte
-    d'AUTRES modifications, ET pour les stacks SEEDÉS (delta inconnu) — la base = Initial reste juste.
-    Fallback sur le champ plat si le composant crit-dmg n'est pas seedé (unité sans UnitStats)."""
-    from ....entities.stats import StatType, StatPart
-    if int(StatType.CRIT_DAMAGE) in ctx.stats.components:
-        base_cd = ctx.stats.get_stat(int(StatType.CRIT_DAMAGE), int(StatPart.INITIAL))
-    else:
-        base_cd = int(getattr(ctx, "crit_damage", 0) or 0)
-    return -(-(base_cd * cd_pct) // 100)                 # Ceiling(base_cd × cd_pct%) en entier (0.25 exact)
-
-
-def _apply_act_of_faith_stack(state: State, owner_id: int) -> Optional[dict]:
-    """`ActOfFaithBuffEffect.ApplyModification`@180f302f0 + `AddEffect(0x3f9)` : applique UN stack sur le
-    porteur. Deux `ChangeStat` :
-      - crit-chance += extraCritChance (=10) FLAT, mais la valeur OBSERVABLE (get_CurrentValue clampée)
-        plafonne à 100 → on stocke le delta RÉELLEMENT observé (post-clamp) pour un revert exact ;
-      - crit-damage += Ceiling(BASE_crit_damage × extraCritDmgPct% =25%) FLAT (base hors-ActOfFaith,
-        cf. `_act_of_faith_cd_delta`).
-    Mute `ctx.crit_chance/crit_damage` (= GetStat) et enregistre l'effet avec ses deltas. No-op si stats
-    absentes."""
-    from ....entities.effects.loki import ActOfFaithBuffEffect
-    from ....entities.stats import StatType
-    from ..stat_ops import apply_change_stat
-    owner = state.get_entity(owner_id)
-    sc = owner.get_component(StatsComponent) if owner is not None else None
-    if sc is None:
-        return None
-    ctx = sc.ctx
-    cc_extra, cd_pct = _act_of_faith_constants()
-    cd_amount = _act_of_faith_cd_amount(ctx, cd_pct)      # Ceiling(BASE=Initial × cd_pct%) FLAT
-    # source UNIQUE par stack (indexée par le nombre de stacks actifs) → revert par-source exact
-    stack_n = sum(1 for e in (state.effects.by_unit.get(int(owner_id), []) if state.effects else [])
-                  if (not e.consumed) and e.effect_type == ACTOFFAITH_EFFECT)
-    src = ("ActOfFaith", int(owner_id), stack_n)
-    cc_before = ctx.stat(StatType.CRIT_CHANCE)
-    cd_before = ctx.stat(StatType.CRIT_DAMAGE)
-    apply_change_stat(state, owner_id, StatType.CRIT_CHANCE, src, cc_extra)   # +10, clamp 100 via l'op
-    apply_change_stat(state, owner_id, StatType.CRIT_DAMAGE, src, cd_amount)
-    eff = ActOfFaithBuffEffect(name="ActOfFaith_Effect", effect_type=ACTOFFAITH_EFFECT)
-    eff.stat_mod_source = src
-    eff.cc_delta = ctx.stat(StatType.CRIT_CHANCE) - cc_before       # OBSERVÉ (report)
-    eff.cd_delta = ctx.stat(StatType.CRIT_DAMAGE) - cd_before
-    if state.effects is not None:
-        state.effects.add_effect(owner_id, eff)
-    return {"trait": "ActOfFaith", "owner": owner_id, "cc_delta": eff.cc_delta, "cd_delta": eff.cd_delta,
-            "crit_chance": ctx.stat(StatType.CRIT_CHANCE), "crit_damage": ctx.stat(StatType.CRIT_DAMAGE)}
+    `effect_type` passe par l'appelant (constante `ACTOFFAITH_EFFECT`) pour eviter le couplage d'import."""
+    from ...abilities.behaviours import AddEffect
+    from ....entities.behaviours import op_add, If, Maybe
+    from ....entities.triggers import TriggerAnd, HasGrandAlliance, AreFriends, AreEqual, IsMeleeAttack
+    from ....entities.formulas import UnitNormalAttackType, ConfigVarForEntity
+    from ....entities.selectors import Caster, Actor
+    from ....entities.active_ability_type import ActiveAbilityType
+    from ....dsl.base import Const
+    base = AddEffect(effect_type, "ActOfFaith_Effect", Caster())         # [1] AddEffect(0x3f9, Self@0x148)
+    # [2] cond = HasTrait(killer,Imperial=0x1a) & AreFriends(killer,owner) & AreEqual(UnitNormalAttackType(
+    #            killer), RighteousRepugnance_NormalAttack=1182) & IsMeleeAttack  (op_BitwiseAnd, gauche->droite)
+    cond = TriggerAnd(TriggerAnd(TriggerAnd(
+        HasGrandAlliance(Actor(), IMPERIAL_FACTIONS),                    # HasTrait(killer@0x158, 26=Imperial)
+        AreFriends(Actor(), Caster())),                                  # AreFriends(killer@0x158, owner@0x148)
+        AreEqual(UnitNormalAttackType(Actor()),                         # UnitNormalAttackType(killer) == 1182
+                 Const(int(ActiveAbilityType.RighteousRepugnance_NormalAttack)))),
+        IsMeleeAttack())                                                 # coup fatal en melee (ctx.attack_kind)
+    chance = ConfigVarForEntity("RighteousRepugnance", "chance", Actor(), slot="passive")   # ConfigVar(1107,killer,58)
+    bonus = If(cond, Maybe(chance, AddEffect(effect_type, "ActOfFaith_Effect", Caster())))   # If(cond, Maybe(chance, AddEffect))
+    return op_add(base, bonus)                                           # op_Addition([1] garanti, [2] conditionnel)
 
 
 def act_of_faith_reset_tree(effect_type: int):

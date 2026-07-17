@@ -516,6 +516,15 @@ class Subject(TargetsSelector):
         return ctx.subject
 
 
+class Actor(TargetsSelector):
+    """L'entité ACTOR/KILLER du contexte de trigger (`AbilityEntities` slot `factory+0x158`) : l'ACTEUR
+    de l'événement déclencheur — ex. le TUEUR sur `OnPreDeath` (ActOfFaith accumulate @181219a70 lit
+    `killer@0x158` pour `HasTrait`/`AreFriends`/`UnitNormalAttackType`). Accesseur unit-domain =
+    `ctx.actor` (dict|None) ; None si non threadé (le prédicat au-dessus retombe alors sur False)."""
+    def select(self, ctx):
+        return ctx.actor
+
+
 class Target(TargetsSelector):
     """Cible principale de l'ability (l'UNITÉ, pas sa tuile — cf. `TargetTile`). Mirror du contexte
     d'entité-cible natif (`AbilityEntities` slot cible = `factory+0x178`) : les behaviours d'ability

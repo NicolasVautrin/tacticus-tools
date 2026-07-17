@@ -245,6 +245,67 @@ class StatAmount(AAmountFormula):
         return sum(gs(u, self.stat_type, self.variant, lvl) for u in _units_of(self.selector, ctx))
 
 
+class UnitNormalAttackType(AAmountFormula):
+    """`DSLFactory.UnitNormalAttackType(entitySelector) @180dff150` → value-provider lisant le
+    `ActiveAbilityComponent.NormalAttackType@0x28` de l'unité = son ActiveAbilityType d'attaque normale
+    CONCRET, per-unit (ex. `RighteousRepugnance_NormalAttack`=1182 pour un porteur de RighteousRepugnance).
+    Comparé par `AreEqual(..., AbilityOrEffect)` (ActOfFaith accumulate @181219a70 : killer == 1182 ?).
+
+    ⚠ Le type CONCRET n'est PAS un champ de l'état runner (state_bridge : id synthétique 17, « non dérivable
+    de gameconfig » par le chemin PRÉDICTION). On le RÉSOUT ici depuis le KIT gameconfig de l'unité : une
+    ability qui REDÉFINIT l'attaque normale expose un membre d'enum `<ability>_NormalAttack` (14 tels
+    membres) — pour chaque ability du kit (`unit_abilities(visualId)` active/passive), si
+    `<ability>_NormalAttack` existe dans `ActiveAbilityType`, c'est le normal-attack concret (RighteousRepugnance
+    → 1182). Aucune → None (l'unité garde le normal-attack générique, non égal à un `_NormalAttack` nommé →
+    `AreEqual` False). None si unité/visualId absent."""
+    def __init__(self, selector: TargetsSelector):
+        self.selector = selector
+
+    def calculate(self, ctx):
+        u = resolve_unit(self.selector, ctx)
+        vis = (u or {}).get("visualId")
+        if vis is None:
+            return None
+        import gameconfig as GC
+        from .active_ability_type import ActiveAbilityType
+        names = []
+        for _slot, v in (GC.unit_abilities(vis) or {}).items():
+            if isinstance(v, str):
+                names.append(v)
+            elif isinstance(v, dict):
+                names.append(v.get("name") or v.get("id"))
+            elif isinstance(v, list):
+                names += [(x.get("name") if isinstance(x, dict) else x) for x in v]
+        for nm in names:
+            member = getattr(ActiveAbilityType, f"{nm}_NormalAttack", None) if nm else None
+            if member is not None:
+                return int(member)
+        return None
+
+
+class ConfigVarForEntity(AAmountFormula):
+    """`DSLFactory.ConfigVar(abilityOrEffect, entity, varKey) @180decac0` → `ConfigAmount.Calculate
+    @180f171c0` = `AbilityConfiguration.GetVariableForLevel(varKey, level)` sur la config de l'ability
+    `abilityOrEffect`, au NIVEAU de l'`entity` (unité TIERCE, ≠ caster — cf. `ConfigVar` standard qui lit
+    `ctx.config`/`ctx.ability_level` du caster). ActOfFaith accumulate @181219a70 :
+    `ConfigVar(RighteousRepugnance=1107, killer, chance=0x3a=58)` = la chance% du 2e stack, au niveau
+    RighteousRepugnance (PASSIVE) du killer. Port : `ability_var(ability_name, var_key, niveau)` avec
+    `niveau = ctx.get_ability_level(unit, slot)` (capté offline : `passive_ability_level`/`active_ability_
+    level`). `ability_name`/`var_key`/`slot` passés PAR NOM (ids natifs 1107/58 cités par l'appelant) pour
+    éviter deux reverse-maps d'enum (AbilityOrEffect/AbilityVariableType) pour un unique usage. None → 0."""
+    def __init__(self, ability_name: str, var_key: str, entity_sel: TargetsSelector, slot: str = "passive"):
+        self.ability_name, self.var_key = ability_name, var_key
+        self.entity_sel, self.slot = entity_sel, slot
+
+    def calculate(self, ctx):
+        u = resolve_unit(self.entity_sel, ctx)
+        if u is None:
+            return 0
+        lvl = ctx.get_ability_level(u, self.slot) if ctx.get_ability_level is not None else None
+        from .effects.magnitude import ability_var
+        return int(ability_var(self.ability_name, self.var_key, lvl) or 0)
+
+
 class EntityId(AAmountFormula):
     """`DSLFactory.EntityId(ref) @180def470` : id de l'entité résolue (ou None)."""
     def __init__(self, ref):

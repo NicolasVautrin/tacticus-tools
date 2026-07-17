@@ -42,7 +42,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ..state import State
-from ..components import EffectsOwnedComponent
+from ..components import EffectsOwnedComponent, StatsComponent
 from ...entities.effects import BaseEffect, EffectFactory, SAME_TURNS
 
 
@@ -87,11 +87,6 @@ class AddEffectOperation:
             # Pas d'EffectsState matérialisé (snapshot sans combatSnapshot) → on ne peut pas poser
             # l'effet structuré. Le diff de NOMS (EffectsOwnedComponent) reste possible si présent.
             return None
-        # GATE : déjà-présent (query 0x28 def↔cible) — pas de re-pose d'un même type non consommé.
-        # ⚠ Le refresh de stack (UpdateExistingEffect, durée/level) n'est PAS encore porté : ici un
-        # même-type déjà présent = simple no-op (return None), ce qui suffit au 1er cas (cible propre).
-        if state.effects.has_effect(target, effect_type=effect_type, name=name):
-            return None
         # GATE immunité : IsUnit(target) && HasFlag(target,6). Non sourçable offline (flags d'unité non
         # exposés par l'ECS) → TODO ; structure conservée pour quand les flags seront portés.
         # DURÉE : override (builder) sinon DefaultAmountOfRounds(type) sinon fallback 1 (cf. Execute).
@@ -103,18 +98,58 @@ class AddEffectOperation:
         # NOUVEL effet : entité-effet via le builder natif (PlayerIdGenerator.Next). Côté Python on
         # matérialise l'instance BaseEffect (via la factory, sous-classe 1:1 si portée). Champs =
         # EffectComponent : Type/Duration/SourceUnit/Target/Value/Active (Active implicite = présent).
+        # On la crée AVANT le gate « déjà-présent » pour interroger sa classe (`stacks_stat_mod_on_add`).
         captured = {"name": name or _effect_name(effect_type), "effectType": int(effect_type),
                     "level": None, "remaining": duration, "source": source}
         eff = EffectFactory.create(captured)
         eff.target = target
         eff.value = value
+        # GATE : déjà-présent (query 0x28 def↔cible) — pas de re-pose d'un même type non consommé.
+        # ⚠ Le refresh de stack `UpdateExistingEffect` (RE slice-20 Q3 : gate `IsUpdatable(type)` + match
+        # effectType+SOURCE) n'est PAS porté ; ici un même-type déjà présent = simple no-op (return None) =
+        # refresh-équivalent (mirror suffisant pour les effets UPDATABLE Fire/Pinned/Stunned). EXCEPTION :
+        # un effet `stacks_stat_mod_on_add` (ActOfFaith) applique un stat-mod FRAIS à chaque pose → on SKIP
+        # le no-op et on matérialise une NOUVELLE instance (reproduit l'observable additif live-validé).
+        if not eff.stacks_stat_mod_on_add and state.effects.has_effect(
+                target, effect_type=effect_type, name=name):
+            return None
         # AddNewEffect : enregistrement sur la cible (liste structurée + liste de NOMS diffable).
         state.effects.add_effect(target, eff)
         _register_name(state, target, eff.name)
+        # `AStatModifierEffect.ApplyInternal → ApplyModification` (vtable 0x728, RE slice-20 Q4) : applique
+        # les ChangeStat déclarés par l'effet (part DATA `applied_stat_mods`). Séparé d'`AddNewEffect` (pure
+        # matérialisation ECS) côté natif → séparé ici aussi (frontière déclaratif feuille / impératif op).
+        AddEffectOperation._apply_stat_mods(state, target, eff)
         # Effet COMPOSITE : `<Effect>.ApplyInternal` spawne ses SOUS-effets (enfants) juste après le
         # parent (ex. Stunned 1162 → 1165/1166/1167). Effet-driven : la liste vient de la classe d'effet.
         AddEffectOperation._spawn_sub_effects(state, source, target, eff)
         return eff
+
+    @staticmethod
+    def _apply_stat_mods(state: State, target: int, eff: BaseEffect) -> None:
+        """Mirror `AStatModifierEffect.ApplyInternal → ApplyModification` (vtable 0x728) : EXÉCUTE les
+        `(StatType, montant)` déclarés par l'effet (`applied_stat_mods`, DATA côté `entities/`) via l'op
+        runner `apply_change_stat`, keyés par une source UNIQUE par instance (revert par-source exact via la
+        feuille `RemoveEffect`, symétrique de `reverted_stats()`). No-op si l'effet ne déclare aucun stat-mod
+        (effet non StatModifier) ou si la cible n'a pas de `StatsComponent`. Stocke `stat_mod_source` sur
+        l'effet (clé du revert). La source unique = `(effectType, target, nb de stacks actifs du même type)`
+        → chaque instance revert exactement SON delta."""
+        ent = state.get_entity(target)
+        sc = ent.get_component(StatsComponent) if ent is not None else None
+        if sc is None:
+            return
+        mods = eff.applied_stat_mods(sc.ctx) or []
+        if not mods:
+            return
+        from .stat_ops import apply_change_stat
+        # source unique par instance : indexée par le nb de stacks du même type DÉJÀ actifs (hors `eff`
+        # lui-même, déjà ajouté à la liste) → une clé distincte par stack pour un revert par-source exact.
+        stack_n = sum(1 for e in state.effects.by_unit.get(int(target), [])
+                      if (not e.consumed) and e.effect_type == eff.effect_type and e is not eff)
+        src = (int(eff.effect_type), int(target), stack_n)
+        for stat, amount in mods:
+            apply_change_stat(state, target, int(stat), src, int(amount))
+        eff.stat_mod_source = src
 
     @staticmethod
     def _spawn_sub_effects(state: State, source: Optional[int], target: int,

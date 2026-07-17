@@ -61,15 +61,20 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
     }
 
 
-def entities_from_state(state, caster_id: int, target_id: int | None = None) -> DslContext:
+def entities_from_state(state, caster_id: int, target_id: int | None = None,
+                        actor_id: int | None = None) -> DslContext:
     """Construit l'`AbilityEntities` (= `DslContext`) lu par les selecteurs d'un behaviour, depuis le
-    `State` runner : `units` = dicts (cf. `_unit_dict`), `caster`, `target` (cible principale du cast =
-    `factory+0x178`, lu par `Target()` — None si l'ability est sans cible), `board` (= `state.board`),
-    `has_trait(unit, traitId)` (mirror `UnitExtensions.HasFlag`, via l'enum `UnitTrait` + le set de noms
-    `ctx.traits`). `children=[]` = accumulateur de spawn FRAIS pour CE cast (mirror factory+0x148)."""
+    `State` runner : `units` = dicts (cf. `_unit_dict`), `caster` (`factory+0x160`, aussi `Self@0x148`
+    pour un triggered Owner==Caster), `target` (cible principale = `factory+0x178`, lu par `Target()` —
+    None si l'ability est sans cible ; sur un OnPreDeath = l'unite MOURANTE @0x178), `actor` (`factory+
+    0x158` = ACTEUR/TUEUR de l'evenement, lu par `Actor()` — threade sur les behaviours de trigger type
+    ActOfFaith accumulate ; None sinon), `board` (= `state.board`), `has_trait(unit, traitId)` (mirror
+    `UnitExtensions.HasFlag`, via l'enum `UnitTrait` + le set de noms `ctx.traits`). `children=[]` =
+    accumulateur de spawn FRAIS pour CE cast (mirror factory+0x148)."""
     units: list = []
     caster = None
     target = None
+    actor = None
     for eid, e in state.entities.items():
         u = _unit_dict(state, eid, e)
         units.append(u)
@@ -77,6 +82,8 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None) -> 
             caster = u
         if target_id is not None and eid == target_id:
             target = u
+        if actor_id is not None and eid == actor_id:
+            actor = u
 
     def _has_trait(unit, trait_id):
         try:
@@ -104,8 +111,20 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None) -> 
         us = getattr(sc.ctx, "stats", None) if sc is not None else None
         return us.get_stat(int(stat_type), int(variant)) if us is not None else 0
 
-    return DslContext(units=units, caster=caster, target=target, board=state.board,
-                      has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat, children=[])
+    # `ctx.get_ability_level` (mirror du niveau d'ability lu par `ConfigVar` sur une unité TIERCE) : le nœud
+    # `ConfigVarForEntity(RighteousRepugnance, chance, killer)` lit le niveau PASSIF/ACTIF capté de l'unité
+    # (`StatsComponent.ctx.passive_ability_level`/`active_ability_level`, seedé depuis unitConfig).
+    def _get_ability_level(unit, slot="passive"):
+        uid = (unit or {}).get("id")
+        e = state.get_entity(uid) if uid is not None else None
+        sc = e.get_component(StatsComponent) if e is not None else None
+        if sc is None:
+            return None
+        return getattr(sc.ctx, "active_ability_level" if slot == "active" else "passive_ability_level", None)
+
+    return DslContext(units=units, caster=caster, target=target, actor=actor, board=state.board,
+                      has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat,
+                      get_ability_level=_get_ability_level, children=[])
 
 
 class Spawn(AbilityBehaviour):

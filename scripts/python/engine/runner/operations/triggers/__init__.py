@@ -21,7 +21,7 @@ from .dispatch import (
 from .loki import (
     _fire_of_absolution_after_attack, _on_fire_damage_ability,
     THEBETRAYER_EFFECT, ACTOFFAITH_EFFECT,
-    _add_betrayer_effect, _apply_act_of_faith_stack, _reset_act_of_faith,
+    _add_betrayer_effect, _reset_act_of_faith,
 )
 from .tiles import first_aid_heal, dry_bush_fire_spread
 
@@ -35,5 +35,5 @@ __all__ = [
     "end_turn_summon_triggers",
     "_fire_of_absolution_after_attack", "_on_fire_damage_ability",
     "THEBETRAYER_EFFECT", "ACTOFFAITH_EFFECT",
-    "_add_betrayer_effect", "_apply_act_of_faith_stack", "_reset_act_of_faith",
+    "_add_betrayer_effect", "_reset_act_of_faith",
 ]

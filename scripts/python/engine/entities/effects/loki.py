@@ -1329,6 +1329,36 @@ class ActOfFaithBuffEffect(BaseEffect):
     cc_delta: int = 0   # delta crit-chance OBSERVÉ par CE stack (info/report)
     cd_delta: int = 0   # delta crit-damage OBSERVÉ par CE stack (info/report)
     stat_mod_source = None   # clé de source ChangeStat (revert par-source via UnitStats.revert_stat)
+    # Cet effet applique un stat-mod FRAIS à CHAQUE pose (accumulation) → la feuille `AddEffect` /
+    # `AddEffectOperation` NE doit PAS le no-op sur « déjà présent » (contrairement à Fire/Pinned/Stunned
+    # updatable qui refresh). RE slice-20 (Q3) : `IsUpdatable(1017)`=TRUE par fallback, mais chaque proc
+    # a une source/évènement distinct → le natif STACKE (observable live-validé : 3 stacks +63 plat chacun).
+    # On reproduit l'observable additif via N instances (chacune son `stat_mod_source`), pas via le compteur
+    # `UpdateExistingEffect@0x6c` (source-matching natif non porté — divergence de représentation flaggée
+    # validator, observable IDENTIQUE).
+    stacks_stat_mod_on_add = True
+
+    def applied_stat_mods(self, stats_ctx) -> "list":
+        """`ActOfFaithBuffEffect.ApplyModification @180f302f0` (part DATA côté `entities/`, mirror des DEUX
+        `ChangeStat` — symétrique de `reverted_stats()`). La couche runner (`AddEffectOperation._apply_stat_mods`)
+        EXÉCUTE chaque `(StatType, montant)` via `apply_change_stat`, keyé par une source unique par instance
+        (revert par-source exact via la feuille `RemoveEffect`). Deux stat-mods FLAT de CE stack :
+          - crit-chance (`Position(9,5)`)  += `actOfFaithExtraCritChance` (GetNumberConstant 0x30=48, =10) ;
+            la valeur observable get_CurrentValue plafonne à 100 (clamp fait par `apply_change_stat`) ;
+          - crit-damage (`Position(10,5)`) += `Ceiling(GetStat(critDmg, part=3=Initial) × actOfFaithExtraCritDmgPct
+            (0x31=49, =25)%)` FLAT (base hors-ActOfFaith → boost PLAT, PAS compound ; live : 3 stacks +63 plat).
+        `stats_ctx` = le `StatsComponent.ctx` du porteur (duck-typé : `.stats.components`/`.stats.get_stat`,
+        fallback `.crit_damage` si le composant crit-dmg n'est pas seedé)."""
+        from .magnitude import global_value
+        from ..stats import StatType, StatPart
+        cc = int(global_value("actOfFaithExtraCritChance") or 0)   # GetNumberConstant 0x30 (=10)
+        cd_pct = int(global_value("actOfFaithExtraCritDmgPct") or 0)   # GetNumberConstant 0x31 (=25)
+        if int(StatType.CRIT_DAMAGE) in stats_ctx.stats.components:
+            base_cd = stats_ctx.stats.get_stat(int(StatType.CRIT_DAMAGE), int(StatPart.INITIAL))
+        else:
+            base_cd = int(getattr(stats_ctx, "crit_damage", 0) or 0)
+        cd_amount = -(-(base_cd * cd_pct) // 100)                 # Ceiling(base_cd × cd_pct%) entier (0.25 exact)
+        return [(int(StatType.CRIT_CHANCE), cc), (int(StatType.CRIT_DAMAGE), cd_amount)]
 
     def reverted_stats(self) -> "list":
         """`ActOfFaithBuffEffect.RevertInternal @180f306e0` annule les DEUX `ChangeStat` de CE stack :

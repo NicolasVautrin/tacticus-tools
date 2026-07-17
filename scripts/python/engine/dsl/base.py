@@ -138,6 +138,11 @@ class DslContext:
     # `faction_of(unit)->str|None` défaut None → faction inconnue (UnitsFromFaction rend vide). Fourni par la
     # couche runner (`entities_from_state`) via `_faction(visualId)`.
     faction_of: object | None = None
+    # Niveau d'ability PAR UNITÉ + slot (`ConfigVar` sur une unité TIERCE, ex. la chance RighteousRepugnance
+    # au niveau du killer). `get_ability_level(unit, slot='passive'|'active')->int|None` : lit le
+    # `passive_ability_level`/`active_ability_level` capté (StatsComponent.ctx). Défaut None → niveau inconnu
+    # (le nœud consommateur dégrade sur le défaut d'`ability_var`). Fourni par `entities_from_state`.
+    get_ability_level: object | None = None
 
 
 class Const(AAmountFormula):

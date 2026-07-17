@@ -72,6 +72,21 @@ class BaseEffect:
     # scaling dans la config par-unité ; ici l'effet le porte pour scaler ses variables d'ability
     # affectées (`variablesAffectedByRarityBonus`) via `magnitude.ability_var(multiplier_pct=…)`. §17.21.
     ability_variables_multiplier: int = 100
+    # Empilement : un effet StatModifier qui applique un stat-mod FRAIS à CHAQUE pose (ActOfFaith) le passe
+    # à True → `AddEffectOperation` ne no-op PAS sur « déjà présent » et matérialise une NOUVELLE instance
+    # (revert par-source). Défaut False = comportement historique (un même-type déjà présent → no-op, mirror
+    # du refresh des effets updatable Fire/Pinned/Stunned). §slice-20 (docs/rl/dsl-effect-nodes.md).
+    # ⚠ PAS d'annotation de type (`: bool`) : ce serait un FIELD dataclass dont l'`__init__` écraserait
+    # l'override de sous-classe (ex. `ActOfFaithBuffEffect.stacks_stat_mod_on_add = True`). Attribut de
+    # classe SIMPLE = surchargeable par la MRO (même pattern que `cc_delta`/`stat_mod_source`).
+    stacks_stat_mod_on_add = False
+
+    def applied_stat_mods(self, stats_ctx) -> "list":
+        """`<Effect>.ApplyModification` (part DATA côté `entities/`) — liste des `(StatType, montant)` posés
+        via `ChangeStat` quand l'effet est appliqué. La couche runner (`AddEffectOperation._apply_stat_mods`)
+        les EXÉCUTE (`apply_change_stat`, keyé par source). Symétrique de `reverted_stats()` (que lit
+        `RemoveEffect`). Défaut `[]` = effet sans stat-mod eager (la plupart)."""
+        return []
 
     # ── contributions aux modifiers (None = pas de contribution) ────────────────────────────────────
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
