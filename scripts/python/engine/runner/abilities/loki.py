@@ -35,8 +35,8 @@ from ...entities.formulas import TotalAttacksMade, UnitTurnsStarted
 from ...entities.triggers import AmountIsGreaterThanZero, AmountIsEqual, IsAlive, TriggerAnd
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.effects.magnitude import ability_var
-from .behaviours import (Spawn, PerformAIAttack, AddBondEffect, AttackWithAbilityDamage, AddEffect, Heal,
-                         EvaluateAbilities, entities_from_state)
+from .behaviours import (Spawn, SpawnSummon, PerformAIAttack, AddBondEffect, AttackWithAbilityDamage,
+                         AddEffect, Heal, EvaluateAbilities, entities_from_state)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -320,6 +320,30 @@ def valkyrie_strike_tree() -> AddBondEffect:
     return AddBondEffect(VALKYRIE_STRIKE, "ValkyrieStrike_Effect", Caster(), Target(), None)
 
 
+def scarab_hive_tree() -> SpawnSummon:
+    """Arbre de `ScarabHiveAbility.ExecuteBehaviour @181204cb0` (id 1007, necroSpyder — MIRROR du DECOMPILE) :
+        Execute( Spawn(caster@0x160, tileSel, unitId=necroSmnSwarm,
+                       SpawnUnitOptions.WithStatsFromConfig(config)
+                         .effect       = AddEffect(0x4a3 ScarabHive_OverrideDamageProfile=1187, target@0x178)
+                         .onAppearance = UseNormalAttackIfAble(target@0x178)) )
+    UN SEUL noeud `Spawn` (plain `Execute`, PAS `ExecuteAtomic`) portant DEUX sous-behaviours EMBARQUES dans
+    ses options (+0x10 effet, +0x18 on-appearance) — le count-2, le placement (`First(SortByDistance(CanAddUnit(
+    AdjacentTiles(target)), caster), i)`) et `WithStatsFromConfig` vivent DANS `SpawnUnitBehaviour.Execute
+    @180fd3d80` (GetUnitToSpawn/GetTileIds/GetStatsToOverride), HORS des DSL-selecteurs (`First`=PickAtIndex=1
+    element @180ef02e0 — le count vient des options, pas du selecteur).
+
+    Port = feuille `SpawnSummon` (cf. behaviours.py) qui delegue le SPAWN a l'Operation VALIDEE LIVE-BIT-EXACT
+    `SpawnUnitOperation.execute` (2x necroSmnSwarm team/player du caster, stats `ability_var`, tuiles libres
+    adjacentes a la cible) puis l'ON-APPEARANCE `UseNormalAttackIfAble(target)` = `_summon_on_appearance_attack`
+    (profil override Piercing immediat). L'imperatif `ScarabHiveAbility.execute_behaviour` (spawn + boucle
+    on-appearance cables a la main) est REMPLACE par cet arbre. GAP flagge (tache) : l'effet PERSISTANT 0x4a3
+    (OverrideDamageProfile pour les attaques des TOURS SUIVANTS) n'est ni materialise ni lu par le pipeline
+    d'attaque — l'attaque immediate porte deja le bon profil via `prof`, mais les attaques subsequentes du
+    summon utiliseraient son arme Energy au lieu de Piercing. `count=2` = arg `.ctor AActiveAbility` (== l'ancien
+    `COUNT`) ; `Target()` = `target@0x178`."""
+    return SpawnSummon("ScarabHive", 2, Target())
+
+
 def getemruntz_taunt_tree() -> If:
     """Corps `Func<entities,behaviour>` de `TauntWithNewChildrenWhoDidDamage @1811e27a0` (DECOMPILE) pour
     l'enfant COURANT (`Subject()`, pose par le `Foreach(Children)`) :
@@ -443,47 +467,38 @@ class ArmoriumCherubAbility(ActiveAbility):
 class ScarabHiveAbility(ActiveAbility):
     """`ScarabHiveAbility.ExecuteBehaviour` @181204cb0 (id 1007, necroSpyder — le SUMMONER).
 
-    Séquence native :
-        Spawn(visualId = constants["unitId"] = necroSmnSwarm,
-              tile = First(SortByDistance(CanAddUnit(AdjacentTiles(target@0x178)), self@0x160)), # libre, adj. CIBLE
-              owner+stats = SpawnUnitOptions.WithStatsFromConfig(config),    # team+player caster, stats ability_var
-              effet = AddEffect(0x4a3 = ScarabHive_OverrideDamageProfileEffect),
-              onAppearance = UseNormalAttackIfAble)                          # attaque normale immédiate
-        × COUNT (2, arg du .ctor AActiveAbility)
-    Stats du summon = `ability_var(ScarabHive, summonHp/summonDmg/…, casterActiveAbilityLevel, mult)`.
-    À l'apparition chaque summon attaque la cible avec le profil `unitDamageProfile` (Piercing) en
-    override de son arme Energy (i2). VALIDÉ live : 2× necroSmnSwarm team/player du caster, hp/attack
-    bit-exact (cf. test_summon_spawn_live) ; wiring message + on-appearance (cf. test_summon_trigger_live).
+    #149 slice-10 : la behaviour EST l'**arbre DSL** `scarab_hive_tree()` (mirror 1:1 du décompilé @181204cb0 :
+    un noeud `Spawn` UNIQUE en plain `Execute` portant `WithStatsFromConfig` + AddEffect(0x4a3) + on-appearance
+    `UseNormalAttackIfAble` embarqués — cf. la feuille `SpawnSummon`), en remplacement du portage impératif
+    (spawn + boucle on-appearance câblés à la main). La feuille délègue le SPAWN à l'Operation VALIDÉE
+    LIVE-BIT-EXACT `SpawnUnitOperation.execute` (2× necroSmnSwarm team/player du caster, stats `ability_var`,
+    tuiles libres adjacentes à la cible — le count-2/placement/`WithStatsFromConfig` vivent dans
+    `SpawnUnitBehaviour`, hors DSL-sélecteurs) puis l'on-appearance `UseNormalAttackIfAble(target)` (profil
+    Piercing override immédiat). VALIDÉ live : spawn bit-exact (cf. test_summon_spawn_live, via l'Operation) ;
+    wiring message + on-appearance (cf. test_summon_trigger_live, via cette classe -> l'arbre). GAP flaggé
+    (tâche) : l'effet PERSISTANT 0x4a3 (OverrideDamageProfile des attaques des TOURS SUIVANTS) non matérialisé/lu.
 
     ⚠ DISTINCT de `ScarabSummonAbility` @181205290 (id 1047) = l'auto-DÉDOUBLEMENT porté par le scarab
     SPAWNÉ lui-même (spawn adjacent à SOI, stats clonées du parent via CopyOwner, on-appearance
-    PerformAIAttack). NON encore porté (cf. commentaire GAP plus bas). Ne PAS confondre les deux (même
-    unitId necroSmnSwarm, mais summoner-scaled vs clone-du-parent)."""
+    PerformAIAttack) — encore impératif. Ne PAS confondre les deux (même unitId necroSmnSwarm, mais
+    summoner-scaled vs clone-du-parent)."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.ScarabHive)  # 1007
-    SUMMON_ABILITY = "ScarabHive"     # clé gameconfig (constants.unitId/unitDamageProfile + summon* variables)
-    COUNT = 2                         # nb d'invocations (arg .ctor ; le count GÉNÉRAL est par-ability)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
-        import gameconfig as GC
         if target_id is None:
             return None
-        consts = (GC.ability(self.SUMMON_ABILITY) or {}).get("constants") or {}
-        visual_id = consts.get("unitId")
-        if visual_id is None:
-            return None
-        # [Spawn] CopyOwner + placement adjacent-cible + stats ability_var (cf. SpawnUnitOperation).
-        spawned = SpawnUnitOperation.execute(
-            state, caster_id, target_id, self.SUMMON_ABILITY, visual_id, self.COUNT)
-        # [on-appearance] PerformAIAttack : chaque summon attaque la cible (profil Piercing override).
-        prof = consts.get("unitDamageProfile")
-        attacks = []
-        for sid in spawned:
-            res = _summon_on_appearance_attack(state, sid, target_id, prof)
-            if res is not None:
-                attacks.append({"summon": sid, "total": res.get("total")})
-        return {"summon": visual_id, "spawned": spawned, "attacks": attacks}
+        # behaviour = arbre DSL (feuille SpawnSummon) : émet les MÊMES Operations que l'impératif
+        # (`SpawnUnitOperation.execute` + `_summon_on_appearance_attack`) -> même mutation, même diag.
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        scarab_hive_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        spawned = [p["unit"] for n, p in ectx.emitted if n == "SpawnUnit"]
+        attacks = [{"summon": p["summon"], "total": p["total"]}
+                   for n, p in ectx.emitted if n == "SummonOnAppearance"]
+        import gameconfig as GC
+        visual_id = ((GC.ability("ScarabHive") or {}).get("constants") or {}).get("unitId")
+        return {"summon": visual_id, "spawned": spawned, "attacks": attacks, "dsl": True}
 
 
 def _nearest_enemy(state: "State", unit_id: int) -> Optional[int]:

@@ -185,6 +185,59 @@ class PerformAIAttack(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class SpawnSummon(AbilityBehaviour):
+    """`ScarabHiveAbility.ExecuteBehaviour @181204cb0` = un noeud natif UNIQUE `Execute(Spawn(...))` (plain
+    `AActiveAbility.Execute`, PAS `ExecuteAtomic`) ou `Spawn(caster@0x160, tileSel, unitId, SpawnUnitOptions)`
+    avec `SpawnUnitOptions.WithStatsFromConfig(config)` portant DEUX sous-behaviours EMBARQUES :
+      +0x10 = `AddEffect(0x4a3 = ScarabHive_OverrideDamageProfile = 1187)` sur chaque summon ;
+      +0x18 = `UseNormalAttackIfAble(target@0x178)` = attaque normale immediate (profil override Piercing).
+    `SpawnUnitBehaviour.Execute @180fd3d80` spawn `count` summons -- count-2, placement et
+    `WithStatsFromConfig` vivent DANS SpawnUnitBehaviour (via `GetUnitToSpawn`/`GetTileIds`/`GetStatsToOverride`),
+    HORS des DSL-selecteurs : le tile-selecteur natif `First(SortByDistance(CanAddUnit(AdjacentTiles(target)),
+    caster), i)` = `PickAtIndexSelector` (UN element, @180ef02e0), le `count` vient des options -- puis
+    `TriggerSpawnedUnitBehaviours` fire les 2 sous-behaviours embarques PAR summon.
+
+    Port : delegue le SPAWN a l'Operation VALIDEE LIVE-BIT-EXACT `SpawnUnitOperation.execute` (count/stats
+    `ability_var`/owner `CopyOwner`/placement adjacent-cible ; cf. test_summon_spawn_live) -- on ne re-derive
+    PAS la selection de tuile via des DSL-selecteurs (le count-2 n'est PAS exprimable par `First`=PickAtIndex
+    sans RE de `GetTileIds`/`GetUnitToSpawn`, et sans gain : l'outcome est deja valide). ON-APPEARANCE =
+    `_summon_on_appearance_attack(summon, target, unitDamageProfile)` (mirror `UseNormalAttackIfAble`, profil
+    Piercing en override de l'arme Energy). L'effet PERSISTANT 0x4a3 (OverrideDamageProfile pour les attaques
+    des TOURS SUIVANTS du summon) n'est PAS materialise ici -- le pipeline d'attaque ne le LIT pas encore
+    (gap flagge en tache) ; l'attaque immediate porte deja le profil override via `prof`. Emet
+    'SpawnUnit'/'SummonOnAppearance'. Effet PUR (stop=False)."""
+    __slots__ = ("summon_ability", "count", "target_ref")
+
+    def __init__(self, summon_ability: str, count: int, target_ref: TargetsSelector):
+        self.summon_ability, self.count, self.target_ref = summon_ability, int(count), target_ref
+
+    def execute(self, entities, ectx):
+        import gameconfig as GC
+        from ..operations.spawn import SpawnUnitOperation
+        from .loki import _summon_on_appearance_attack
+        state = ectx.state
+        caster_id = (entities.caster or {}).get("id")
+        tu = resolve_unit(self.target_ref, entities)        # Target()@0x178 -> dict d'unite
+        target_id = tu.get("id") if tu else None
+        if state is None or caster_id is None or target_id is None:
+            return OperationResult.ok()
+        consts = (GC.ability(self.summon_ability) or {}).get("constants") or {}
+        vid = consts.get("unitId")
+        if vid is None:
+            return OperationResult.ok()
+        prof = consts.get("unitDamageProfile")              # profil override de l'attaque on-appearance (Piercing)
+        # [Spawn / WithStatsFromConfig / CopyOwner / placement] -> Operation validee (count/stats/owner/tuiles)
+        spawned = SpawnUnitOperation.execute(state, caster_id, target_id, self.summon_ability, vid, self.count)
+        for sid in spawned:
+            ectx.emit("SpawnUnit", unit=sid)
+        # [on-appearance] UseNormalAttackIfAble : chaque summon attaque la CIBLE (profil override immediat).
+        for sid in spawned:
+            res = _summon_on_appearance_attack(state, sid, target_id, prof)
+            if res is not None:
+                ectx.emit("SummonOnAppearance", summon=sid, total=res.get("total"))
+        return OperationResult.ok()
+
+
 class AddBondEffect(AbilityBehaviour):
     """`DSLFactory.AddBondEffect(0x1b, stateRef, source, target, ..., TurnsFromRounds(1)) @1811e27a0` : pose
     l'effet BOND `Taunted_OnlySpecificTargets` (0x1b=27, COMPOSITE 25/26/1237) reliant `source` (l'enfant/

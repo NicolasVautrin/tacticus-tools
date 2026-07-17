@@ -730,3 +730,49 @@ votanIronmaster devient jouable.*
 on-appearance `UseNormalAttackIfAble` + `AddEffect(0x4a3 OverrideDamageProfile)`), Stikkbomb (**BLOQUÉ** : RE team-filter
 `AdjacentUnits(target,1,3)` — mur gshared, live confront requis, tâche #213), Fragstorm (splash + `PickRandomly` RNG gap) ;
 + tranche transverse DÉPLACEMENT (`PushUnit`/`KillDeadUnits`/`MoveUnit`).
+
+## Slice-10 (#149, 2026-07-17) — 9e behaviour DSL : ScarabHive (nœud unique `Spawn` + on-appearance embarqué)
+
+**RE — `ScarabHiveAbility.ExecuteBehaviour @181204cb0`** (id 1007, necroSpyder, DÉCOMPILE gqfc5mff6c).
+Un noeud `Spawn` **UNIQUE** en plain `Execute` (PAS `ExecuteAtomic`) :
+
+```
+Execute( Spawn(caster@0x160, tileSel, unitId=necroSmnSwarm=GetStringConstant(config,0),
+               SpawnUnitOptions.WithStatsFromConfig(config)          // team+player caster, stats ability_var
+                 .effect       = AddEffect(0x4a3=ScarabHive_OverrideDamageProfile=1187, AbilityState(Parent,this), target@0x178)  // +0x10
+                 .onAppearance = UseNormalAttackIfAble(target@0x178)) )                                                            // +0x18
+```
+
+- **Le count-2, le placement et `WithStatsFromConfig` vivent DANS `SpawnUnitBehaviour.Execute @180fd3d80`**
+  (`GetUnitToSpawn`/`GetTileIds`/`GetStatsToOverride`/`GetAddUnitOptions`), **HORS des DSL-sélecteurs** : le
+  tile-sélecteur natif `Cache(First(SortByDistance(CanAddUnit(AdjacentTiles(target)), caster), i))` finit par
+  `First`=`PickAtIndexSelector.Select @180ef02e0` = **UN seul élément** (`list[index]`) — le count vient des
+  **options**, pas du sélecteur. `TriggerSpawnedUnitBehaviours` fire ensuite les 2 sous-behaviours (effet +
+  on-appearance) **par summon**.
+
+**Port** :
+- **Feuille `SpawnSummon`** (`runner/abilities/behaviours.py`) = mirror du nœud `Spawn` natif (WithStatsFromConfig
+  + effet + on-appearance embarqués). Elle **délègue le SPAWN à l'Operation VALIDÉE LIVE-BIT-EXACT**
+  `SpawnUnitOperation.execute` (2× necroSmnSwarm team/player du caster, stats `ability_var`, tuiles libres
+  adjacentes à la cible — cf. `test_summon_spawn_live`) **plutôt que de re-dériver la sélection de tuile via des
+  DSL-sélecteurs** : le count-2 n'est pas exprimable par `First`=PickAtIndex sans RE de `GetTileIds`/`GetUnitToSpawn`,
+  et sans gain (l'outcome est déjà validé). ON-APPEARANCE = `_summon_on_appearance_attack(summon, target,
+  unitDamageProfile)` (mirror `UseNormalAttackIfAble`, profil Piercing override immédiat).
+- **Arbre `scarab_hive_tree()`** (`loki.py`) = `SpawnSummon("ScarabHive", 2, Target())`. `ScarabHiveAbility.
+  execute_behaviour` DÉLÈGUE à l'arbre (diag `spawned`/`attacks` reconstruit des émissions `SpawnUnit`/
+  `SummonOnAppearance`, + `dsl:True`). L'impératif (spawn + boucle on-appearance câblés à la main) est **REMPLACÉ**.
+
+**GAP flaggé (tâche #214)** : l'effet **PERSISTANT** `0x4a3` (OverrideDamageProfile pour les attaques des TOURS
+SUIVANTS du summon) **n'est ni matérialisé ni lu** par le pipeline d'attaque (aucun reader offline). L'attaque
+IMMÉDIATE porte déjà le bon profil (Piercing via `prof`), mais les attaques subséquentes utiliseraient l'arme
+Energy → confront live requis (le summon garde-t-il l'effet ? ses coups d'après restent-ils Piercing ?) avant de
+matérialiser (ne pas ajouter d'état inerte tant que le reader n'est pas câblé).
+
+**Validation** : `test_scarab_hive_migration_live` (appel direct de la classe → `dsl:True` + 2 spawns owner-du-caster
+adjacents + on-appearance ampute la cible, `sum(attacks)==PV perdus`) ; `test_summon_trigger_live` (wiring
+`ActiveAbilityMessage(1007)` → arbre) + `test_summon_spawn_live` (Operation spawn) re-PASS.
+
+**Restant loki.py impératif** (post slice-10) : ScarabSummon (auto-dédoublement — `CopyOwner` + `PickRandomly` +
+cap-duplication non porté), Stikkbomb (**BLOQUÉ** : RE team-filter `AdjacentUnits(target,1,3)` — mur gshared, live
+confront requis, tâche #213), Fragstorm (splash + `PickRandomly` RNG gap) ; + tranche transverse DÉPLACEMENT
+(`PushUnit`/`KillDeadUnits`/`MoveUnit`).
