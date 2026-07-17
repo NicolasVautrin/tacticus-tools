@@ -441,12 +441,53 @@ class EvaluateAbilities(AbilityBehaviour):
         return OperationResult.ok()
 
 
+def _add_effect_targets(raw):
+    """Normalise la sortie du selecteur-cible d'`AddEffect` en LISTE d'elements a poser (mirror de
+    l'iteration native du selecteur par `AddEffectBehaviour`) : un dict d'unite / une position (col,row)
+    NUE -> `[elem]` ; une liste (d'unites ou de tuiles) -> telle quelle ; None -> `[]`."""
+    if raw is None:
+        return []
+    if isinstance(raw, dict):
+        return [raw]
+    if (isinstance(raw, tuple) and len(raw) == 2
+            and all(isinstance(x, int) and not isinstance(x, bool) for x in raw)):
+        return [raw]                      # position (col,row) NUE (ex. TargetTile / Tiles scalaire)
+    return list(raw)
+
+
+def _add_effect_target_id(elem, state):
+    """Resout UN element du selecteur-cible en id-cible ECS pour `AddEffectOperation` : dict d'unite -> son
+    id (unit-effect) ; position (col,row) -> l'id de TUILE via `board.id_at` (tile-effect, ex. `Tiles(target)`
+    d'OnFireDamage) ; int -> deja un id de tuile (domaine `AdjacentTiles`). None si non resolvable. Mirror du
+    natif `AddEffectBehaviour.Execute` : le selecteur rend des ENTITES ECS (unites OU tuiles)."""
+    if isinstance(elem, dict):
+        return elem.get("id")
+    if isinstance(elem, bool):            # garde: bool est un int en Python
+        return None
+    if isinstance(elem, int):
+        return elem                       # id de tuile deja resolu
+    if (isinstance(elem, (tuple, list)) and len(elem) == 2
+            and all(isinstance(x, int) and not isinstance(x, bool) for x in elem)):
+        board = getattr(state, "board", None)          # position (col,row) -> id de tuile
+        return board.id_at(elem[0], elem[1]) if board is not None else None
+    return None
+
+
 class AddEffect(AbilityBehaviour):
-    """`DSLFactory.AddEffect @180de6d20` -> `AddEffectBehaviour.Execute` : pose un effet sur la cible, avec
-    `source` = `AbilityStateReference` (= le caster comme source de l'effet), `target` = `target_sel`, duree
+    """`DSLFactory.AddEffect @180de6d20` -> `AddEffectBehaviour.Execute` : pose un effet, `source` =
+    `AbilityStateReference` (= le caster), sur CHAQUE cible du selecteur `target_sel`, duree
     `TurnsFromRounds(rounds)`. Wrapper MINCE au-dessus de `AddEffectOperation.execute` (mirror exact de
     l'imperatif). DIFFERE de `AddBondEffect` (qui LIE source+target = deux unites distinctes) : ici la source
-    EST le caster. No-op si caster/target absents. Emet 'AddEffect'. Effet PUR (stop=False).
+    EST le caster. Emet 'AddEffect' par cible (payload `placed` = l'effet a-t-il ete REELLEMENT pose, i.e.
+    `AddEffectOperation` non-None : False si deja present / cible nulle -> laisse l'appelant distinguer la
+    re-pose no-op, cf. OnFireDamage). Effet PUR (stop=False).
+
+    Le natif `AddEffectBehaviour` ITERE son selecteur-cible, qui rend des ENTITES ECS (UNITES ou TUILES) :
+    - unit-domain (`Target()`/`Subject()`) -> effet sur l'unite (Stunned/Pinned de ThunderousAssault/
+      CrushingClaws/SpiritLeech ; selecteurs mono-cible = 1 element -> chemin bit-IDENTIQUE a l'ancien
+      `resolve_unit`) ;
+    - tile-domain (`Tiles(Target())` d'OnFireDamage @1811c3a60) -> effet de TUILE (le selecteur rend la
+      MainTile de la cible ; `_add_effect_target_id` la convertit en id de tuile). MEME `AddEffectOperation`.
 
     `duration_rounds` = nb de rounds (`TurnsFromRounds(rounds)`) ; `None` = duree DEFAUT de l'effet
     (`DefaultAmountOfRounds`, mirror de l'arg natif `0` d'`AddEffect` SANS `TurnsFromRounds` — ex. Pinned de
@@ -461,16 +502,19 @@ class AddEffect(AbilityBehaviour):
         from ..operations.effects import AddEffectOperation
         state = ectx.state
         src = (entities.caster or {}).get("id")               # AbilityStateReference = caster (source)
-        tu = resolve_unit(self.target_sel, entities)
-        tgt = tu.get("id") if tu else None
-        if state is None or src is None or tgt is None:
+        if state is None or src is None:
             return OperationResult.ok()
         # duration_rounds None -> pas d'override = duree DEFAUT (DefaultAmountOfRounds), mirror de l'arg natif
         # `0` d'AddEffect sans TurnsFromRounds (Pinned CrushingClaws) ; sinon TurnsFromRounds(rounds).
         dur = turns_from_rounds(self.duration_rounds) if self.duration_rounds is not None else None
-        AddEffectOperation.execute(state, source=src, target=tgt, effect_type=self.effect_type,
-                                   name=self.name, duration_override=dur)
-        ectx.emit("AddEffect", source=src, target=tgt, effect_type=self.effect_type)
+        for elem in _add_effect_targets(self.target_sel.evaluate(entities)):  # natif : itere le selecteur
+            tgt = _add_effect_target_id(elem, state)          # unit dict->id | (col,row)->tile id | int->tile id
+            if tgt is None:
+                continue
+            eff = AddEffectOperation.execute(state, source=src, target=tgt, effect_type=self.effect_type,
+                                             name=self.name, duration_override=dur)
+            ectx.emit("AddEffect", source=src, target=tgt, effect_type=self.effect_type,
+                      placed=eff is not None)
         return OperationResult.ok()
 
 

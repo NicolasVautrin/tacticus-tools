@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ...state import State
-from ...components import (StatsComponent, OwnerComponent, PositionComponent, UnitComponent,
+from ...components import (StatsComponent, OwnerComponent, UnitComponent,
                           HealthComponent, ShieldComponent)
 from ....entities.stats import StatType
 from ....entities.traits import UnitTrait, has_any_trait, has_trait
@@ -377,39 +377,60 @@ class ArcaneShieldAbility(TriggeredAbility):
 
 
 # --- OnFireDamage (Damage.Loki) : pose du FEU on-hit ----------------------------------------------
+def on_fire_damage_tree(fire_effect_type: int):
+    """Arbre de `OnFireDamageAbility.CreateBehaviour @1811c3a60` (Damage.Loki — MIRROR 1:1 du DECOMPILE) :
+        AddEffect( effectType = 5 (FireEffect),
+                   source     = AbilityStateReference (caster),
+                   target     = Tiles(target@0x178) )                                     # TILE-domain
+    = un noeud DSL UNIQUE `AddEffect` avec selecteur TILE-DOMAIN `Tiles(Target())` (mirror `DSLFactory.Tiles`
+    @180dfdc60 -> `UnitsMainTilesSelector` = la MainTile occupee de la cible). La feuille `AddEffect`
+    (generalisee tile-domain) convertit la position en id de tuile et route vers `AddEffectOperation.execute(
+    target=tile_id, FIRE_TILE, "Fire")` -- MEME Operation/args que l'ancien imperatif -> bit-exact BY
+    CONSTRUCTION (meme mutation, meme gate `already-present` d'AddEffect). Le gate de DECLENCHEMENT
+    (`DamageProfileHasTrait(OnFire)` + `NOT TriggeringEffectIs(5)`, CreateTrigger @1811c3ae0) reste UPSTREAM
+    (hors CreateBehaviour) dans `_on_fire_damage_ability`. RNG-free (AddEffect inconditionnel).
+    `fire_effect_type` = passe par l'appelant (constante `FIRE_TILE`) pour eviter tout couplage d'import."""
+    from ...abilities.behaviours import AddEffect
+    from ....entities.selectors import Tiles, Target
+    return AddEffect(fire_effect_type, "Fire", Tiles(Target()))
+
+
 def _on_fire_damage_ability(state: State, attacker_id: int, target_id: int,
                             profile: Optional[str]) -> list[dict]:
     """`OnFireDamageAbility` (Damage.Loki) — pose du FEU on-hit. Trigger @1811c3ae0 =
     `On(0x10) & DamageProfileHasTrait(1=OnFire) & NOT(TriggeringEffectIs(5))` ; Behaviour @1811c3a60 =
-    `AddEffect(5=FireEffect, Tiles(cible+0x178))` INCONDITIONNEL. => si l'arme du coup porte le trait de
-    profil `OnFire` (gameconfig `damage_profile[...]['Traits']`), pose FireEffect(type 5) sur la tuile
-    OCCUPEE COURANTE de la cible (`Tiles`=tuile-cible, PAS un ring). RNG-free.
+    `AddEffect(5=FireEffect, source, Tiles(cible@0x178))` INCONDITIONNEL (arbre DSL `on_fire_damage_tree()`,
+    mirror 1:1). => si l'arme du coup porte le trait de profil `OnFire` (gameconfig `damage_profile[...][
+    'Traits']`), pose FireEffect(type 5) sur la tuile OCCUPEE COURANTE de la cible (`Tiles`=MainTile de la
+    cible, PAS un ring). RNG-free.
 
     Anti-boucle : `AddEffectOperation` no-op si la tuile brule deja (== porte native `already-present`
     d'AddEffect) ; le `NOT(TriggeringEffectIs(5))` du trigger est structurellement satisfait ici (on est dans
     le vecteur ATTAQUE, pas un tick de feu -> `FireTileDoT` inflige son DoT en direct, sans repasser par ce
     vecteur, donc jamais de re-pose en cascade). Emetteur natif = `EvaluateAfterHitTriggers @180e25fc0`,
-    per-coup (message after-hit `On(8)`, PAS NormalAttack 0x26). NB : attaque NORMALE uniquement — la pose par ABILITY
-    (BrazierOfHolyFire) passe par AbilityDamageOperation, non cable dans ce vecteur -> gap (#136 suivi)."""
+    per-coup (message after-hit `On(8)`, PAS NormalAttack 0x26). NB : attaque NORMALE uniquement — la pose par
+    ABILITY (BrazierOfHolyFire) passe par AbilityDamageOperation, non cable dans ce vecteur -> gap (#136 suivi).
+
+    Le gate ci-dessous (`profile`/`board`/`effects` + `DamageProfileHasTrait(OnFire)`) = la CONDITION DE
+    DECLENCHEMENT (CreateTrigger, hors CreateBehaviour) ; le CreateBehaviour lui-meme = l'arbre delegue."""
     if not profile or state.effects is None or getattr(state, "board", None) is None:
         return []
     import gameconfig as GC
     traits = (GC.damage_profile(profile) or {}).get("Traits") or []
-    if DamageTrait.OnFire.name not in traits:            # DamageProfileHasTrait(DamageTrait.OnFire=1)
+    if DamageTrait.OnFire.name not in traits:            # DamageProfileHasTrait(DamageTrait.OnFire=1) [gate trigger]
         return []
-    te = state.get_entity(target_id)
-    pc = te.get_component(PositionComponent) if te is not None else None
-    if pc is None:
+    # behaviour = arbre DSL `on_fire_damage_tree()` (mirror 1:1 de CreateBehaviour @1811c3a60) :
+    # AddEffect(5=Fire, Tiles(Target())). La feuille route vers AddEffectOperation.execute(target=tile_id,
+    # FIRE_TILE, "Fire") -> MEME Operation/args que l'ancien imperatif (bit-exact BY CONSTRUCTION). `placed`
+    # de l'emit distingue la pose reelle du no-op deja-en-feu (== l'ancien `if eff is not None`).
+    from ...abilities.behaviours import entities_from_state
+    from ....dsl.effects import ExecutionContext
+    ectx = ExecutionContext(state=state, rng=state.rng)
+    on_fire_damage_tree(FIRE_TILE).execute(entities_from_state(state, attacker_id, target_id), ectx)
+    placed = [p["target"] for n, p in ectx.emitted if n == "AddEffect" and p.get("placed")]
+    if not placed:                                       # tuile deja en feu -> no-op (anti-boucle AddEffect)
         return []
-    tile_id = state.board.id_at(pc.col, pc.row)          # Tiles(cible+0x178) = tuile occupee courante
-    if tile_id is None:
-        return []
-    from ..effects import AddEffectOperation               # lazy : evite le cycle triggers<->effects
-    eff = AddEffectOperation.execute(state, source=attacker_id, target=tile_id,
-                                     effect_type=FIRE_TILE, name="Fire")   # duree = _DEFAULT_ROUNDS[5]=2
-    if eff is None:                                       # tuile deja en feu -> no-op (anti-boucle AddEffect)
-        return []
-    return [{"tile_effect": "Fire", "placed_on_tile": tile_id, "by": attacker_id,
+    return [{"tile_effect": "Fire", "placed_on_tile": placed[0], "by": attacker_id,
              "on": target_id, "placement": "OnFireDamage"}]
 
 

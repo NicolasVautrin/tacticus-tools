@@ -217,12 +217,14 @@ class Units(TargetsSelector):
 
 class Tiles(TargetsSelector):
     """`DSLFactory.Tiles(units) @180dfdc60` → `UnitsMainTilesSelector.Select @180f02150` (ctor mislabelé
-    "SortReverse", singleton distinct DAT_183278e98) : unités → leur MainTile. Retour list[position]."""
+    "SortReverse", singleton distinct DAT_183278e98) : unités → leur MainTile. Retour list[position].
+    `units` normalisé par `_units_of` (comme `AdjacentTiles`) : accepte une unité SEULE (dict, ex.
+    `Tiles(Target())` d'OnFireDamage) ou une liste — sans quoi itérer un dict nu rendrait ses CLÉS."""
     def __init__(self, units: TargetsSelector):
         self.units = units
 
     def select(self, ctx):
-        return [p for p in (_pos(u) for u in self.units.evaluate(ctx)) if p is not None]
+        return [p for p in (_pos(u) for u in _units_of(self.units, ctx)) if p is not None]
 
 
 class First(TargetsSelector):

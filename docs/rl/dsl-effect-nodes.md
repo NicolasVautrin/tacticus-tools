@@ -120,9 +120,9 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
 | Behaviour | Natif | Arbre (mirror cible) | Bloqué sur | Groupe |
 |---|---|---|---|---|
 | ~~FireOfAbsolution~~ | `@18121f380` | `Inform & splash & Maybe(ignite)` | — (slice-14 ✅) | ✅ |
-| OnFireDamage | `@1811c3a60` | `AddEffect(Fire, Tiles(target))` | réutilise `SetOnFire` + sélecteur `Tiles(unit)` | **1** |
-| TheBetrayer_AddEffect | `@1811a4a00` | `AddEffect(0x4f3, self)` | feuille `AddEffect(Caster())` (existe) | **1** |
-| ActOfFaith reset | `@181219eb0` | `RemoveEffect(0x3f9)` | petite feuille `RemoveEffect` neuve (revert = `ReverseModification`, impératif) | **1** |
+| ~~OnFireDamage~~ | `@1811c3a60` | `AddEffect(Fire, Tiles(target))` | — (slice-15 ✅ : feuille `AddEffect` **généralisée tile-domain** (itère le sélecteur, `(col,row)`→tile id) + fix `Tiles`=`_units_of`) | ✅ |
+| TheBetrayer_AddEffect | `@1811a4a00` | `AddEffect(0x4f3, Self@0x148)` | ⚠ **change de durée** : native route via `AddEffectOperation`→`DefaultAmountOfRounds(0x4f3)=null`→fallback **1 round** ; port impératif actuel = `BaseEffect` PERMANENT → migrer = rage 1 round vs permanent → **validation multi-tour requise** (tâche) | **1→tâche** |
+| ActOfFaith reset | `@181219eb0` | `RemoveEffect(0x3f9, Self@0x148)` | feuille `RemoveEffect` NEUVE (pas de `RemoveEffectOperation` porté ; revert = `_reset_act_of_faith` par-source) + body **gshared** : branche `param_3==0x20`=`RemoveEffect(0x3f9)` ✓ vs `!=0x20`=`TriggerAbilityDelayed(0x3fa)` à écarter (tâche) | **1→tâche** |
 | ActOfFaith accumulate | `@181219a70` | `AddEffect(0x3f9)` | **split** : stat-mod → `ActOfFaithBuffEffect.ApplyModification @180f302f0` (impératif, effet) | **2** |
 | EnvFireTile DoT | `@18121e040` | `Foreach(UnitsWithoutTraits([Steppable,Immune]), AttackWithAbilityDamage(PercentageOf(StatAmount(Health,Initial),20%), Flame, Direct(3)))` | damage-node `StatAmount`/`PercentageOf` (feuille) | **2** |
 | Psyker Smite | `@1812241b0` | `AttackWithAbilityDamage(PickRandomly(AdjDamageableEnemies,1), StatAmount(Attack×psykerExtraDmg%), Psychic, 1)` | damage-node `StatAmount` + sélecteur DSL (#216) | **2** |
@@ -130,10 +130,22 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
 | FinalJustice | `@18121ed00` | `UseActiveAbility(NormalAttack, SortUnitsByDamageUtility(…))` | feuille `UseActiveAbility` + sélecteur `SortUnitsByDamageUtility` (S) | **3** |
 | ArcaneShield | `@180e16b40` | grant shield → allié AI-choisi | feuille `Grant`/shield + sélecteur AI-target (S) | **3** |
 
-> ⚠ Les VA proviennent des docstrings du port (RE antérieure citée). FireOfAbsolution est décompilé frais
-> (slice-14). Les arbres du **Groupe 3** sont ESQUISSÉS d'après ces docstrings → leur structure EXACTE est à
-> **re-confirmer au décompile au moment de migrer** (ne pas les figer). La CLASSIFICATION (ce sont des
-> `CreateBehaviour` trees gated sur des feuilles lourdes) est, elle, solide.
+> ⚠ Les VA proviennent des docstrings du port (RE antérieure citée). FireOfAbsolution (slice-14),
+> OnFireDamage + TheBetrayer_AddEffect + ActOfFaith accumulate/reset (slice-15 RE) sont décompilés frais. Les
+> arbres du **Groupe 3** sont ESQUISSÉS d'après ces docstrings → leur structure EXACTE est à **re-confirmer au
+> décompile au moment de migrer** (ne pas les figer). La CLASSIFICATION (ce sont des `CreateBehaviour` trees
+> gated sur des feuilles lourdes) est, elle, solide.
+
+> **Map des slots factory `AbilityEntities` (RE slice-15, PROUVÉ décompile)** : `+0x148` = **Self/Owner**
+> (prouvé par ActOfFaith accumulate `AreFriends(killer@0x158, +0x148)` == `_friendly_imperial(killer)`) ;
+> `+0x158` = **killer/actor** ; `+0x160` = **caster** ; `+0x178` = **target**. Un `AddEffect(effet, +0x148)`
+> = effet sur soi → feuille `AddEffect(…, Caster())` (Owner==Caster pour un triggered). `+0x148` sert AUSSI
+> d'accumulateur d'enfants spawnés (`Children`/`Spawn`) selon le behaviour — même slot, rôle contextuel.
+>
+> **`DefaultAmountOfRounds` @181559ff0 (switch 1:1)** : `0x4f`→3 ; `0x429`/`0x48a`→1 ; `5`/`0x11`/`0x12`/
+> `0x3a`/`0x4dc`/`0x5c4`→2 ; **tout le reste → null** (durée alors = override, sinon fallback **1** dans
+> `AddEffectOperation`). ⇒ `0x4f3` (TheBetrayer) et `0x3f9` (ActOfFaith) = **null → fallback 1 round** via
+> l'Operation. Table portée `_DEFAULT_ROUNDS` (operations/effects.py) confirmée exacte.
 
 **RESTENT impératifs (natif ≠ arbre de behaviour) — NE PAS forcer en DSL :**
 - **Operations** appelées par les feuilles : `AttackDamageOperation`, `AddEffectOperation`,
@@ -152,8 +164,11 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
 
 ### Ordre de bataille (tranches E restantes, par tractabilité)
 
-- **Groupe 1 — feuilles qu'on a déjà / triviales (1 slice groupée)** : OnFireDamage (`SetOnFire`+`Tiles`),
-  TheBetrayer_AddEffect (`AddEffect(Caster())`), ActOfFaith reset (`RemoveEffect` neuf). Aucune infra lourde.
+- **Groupe 1 — feuilles qu'on a déjà / triviales** : ~~OnFireDamage~~ ✅ (slice-15 : `AddEffect` généralisée
+  tile-domain `Tiles(Target())` — mirror du NODE natif, PAS `SetOnFire`). **TheBetrayer_AddEffect** +
+  **ActOfFaith reset** SORTENT du « trivial » : la RE slice-15 a révélé une **subtilité de fidélité** pour
+  chacun (durée rage 1 round vs permanent ; feuille `RemoveEffect` neuve + branche gshared) → **tâches
+  dédiées avec validation**, pas un wrap 1-ligne (cf. tableau ci-dessus).
 - **Groupe 2 — 1 damage-node `StatAmount`/`PercentageOf` à ajouter (+ split effet pour ActOfFaith)** : Psyker
   Smite, EnvFireTile DoT, ActOfFaith accumulate.
 - **Groupe 3 — gated sur infra lourde** : TheBetrayer_TakeTurn, FinalJustice, ArcaneShield → dépendent de la
