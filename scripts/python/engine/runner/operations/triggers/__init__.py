@@ -10,7 +10,7 @@ Découpage fidèle au namespace natif :
 - `effect_triggers.py`  — `Entities.Effects.*` (Contaminated, Overwatch).
 """
 from .base import (TriggerEvent, TriggeredAbility, EffectTrigger, TileEffectTrigger,
-                   PHASE_TRIGGER_CAP, _unit_tile, _hex_dist, _adjacent_enemies)
+                   PHASE_TRIGGER_CAP, _unit_tile, _hex_dist, _adjacent_enemies, _is_adjacent_units)
 from .dispatch import (
     TRAIT_TRIGGERS, ABILITY_TRIGGERS, EFFECT_TRIGGERS,
     collect_triggered_abilities, collect_effect_triggers, evaluate_trigger_operation,
@@ -24,12 +24,13 @@ from .loki import (
     _add_betrayer_effect, _reset_act_of_faith,
     _finaljustice_target, _normal_attack_health_range, _damage_utility_weights,
     _arcaneshield_grant, _arcaneshield_target,
+    _betrayer_take_turn, _betrayer_target, _betrayer_stop_tile,
 )
 from .tiles import first_aid_heal, dry_bush_fire_spread
 
 __all__ = [
     "TriggerEvent", "TriggeredAbility", "EffectTrigger", "TileEffectTrigger", "PHASE_TRIGGER_CAP",
-    "_unit_tile", "_hex_dist", "_adjacent_enemies",
+    "_unit_tile", "_hex_dist", "_adjacent_enemies", "_is_adjacent_units",
     "TRAIT_TRIGGERS", "ABILITY_TRIGGERS", "EFFECT_TRIGGERS",
     "collect_triggered_abilities", "collect_effect_triggers", "evaluate_trigger_operation",
     "after_death_triggers", "is_overkill", "start_turn_triggers", "tile_tick_triggers",
@@ -40,4 +41,5 @@ __all__ = [
     "_add_betrayer_effect", "_reset_act_of_faith",
     "_finaljustice_target", "_normal_attack_health_range", "_damage_utility_weights",
     "_arcaneshield_grant", "_arcaneshield_target",
+    "_betrayer_take_turn", "_betrayer_target", "_betrayer_stop_tile",
 ]

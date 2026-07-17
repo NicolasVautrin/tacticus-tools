@@ -495,6 +495,21 @@ class TargetTile(TargetsSelector):
         return _pos(ctx.target)
 
 
+class FixedTiles(TargetsSelector):
+    """Sélecteur de tuile(s) LITTÉRAL(es) — PAS un noeud natif : VÉHICULE DE COLLAPSE (doctrine slice-18/19)
+    présentant à une feuille une tuile déjà résolue IMPÉRATIVEMENT. Analogue tile-domain du collapse
+    `Units(Cache(First(Nearest(...))))` -> `Target()` : quand une chaîne native de sélecteurs de TUILES
+    (ex. TheBetrayer `First(SortByFormula(SortTilesByUtility((AdjacentTiles(target) & movable).Otherwise(
+    movable)), MinPathLength))`) est un sélecteur AI/pathfinding LOURD (kind S), on la calcule hors DSL puis
+    on injecte la/les (col,row) résultante(s) via ce nœud pour alimenter la feuille (`MoveUnit`). Retour =
+    liste de positions (contrat `dest_tile_sel.evaluate` de `MoveUnit`)."""
+    def __init__(self, positions):
+        self.positions = [p for p in positions if isinstance(p, tuple) and len(p) == 2]
+
+    def select(self, ctx):
+        return list(self.positions)
+
+
 class OwnerTile(TargetsSelector):
     """Tuile COURANTE (réelle) de l'owner/caster — position du composant entité, PAS la tuile d'attaque
     balayée. `HarvesterOfSoulsAbility.GetSurroundingUnits @1811e76a0` ancre son `SurroundingUnits(sel@0x160,

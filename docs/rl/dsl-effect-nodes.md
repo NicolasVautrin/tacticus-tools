@@ -244,15 +244,14 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
     confirmer live 1-vs-2 — porté à 1 hex `_PUSH_MAX_DIST=1`), steppable-crush, knockback-DAMAGE
     (`ApplyKnockbackTo @180e67fc0`, peut tuer → death-triggers), fall-damage d'élévation, cascade after-move
     flag-driven du move (overwatch-charge).
-- **Groupe 3 — feuilles E ✅, reste 1 ability bloquée sur les sélecteurs S** : ~~FinalJustice~~ (**slice-22 ✅** :
-  feuille NEUVE `UseActiveAbility` = dispatch récursif d'ability, spécialisée attaque-normale — cf. ci-dessous) ·
-  ~~ArcaneShield~~ (**slice-23 ✅** : feuille NEUVE `CreateShield` — cf. ci-dessous). **RESTE : TheBetrayer_TakeTurn**,
-  gaté non sur une feuille E (ses deux moitiés sont portables : attaque = `GetDamageBehaviour @18119c1e0` =
-  `AttackWithAttackDamage` ✅ ; move = `MoveUnit` ✅) mais sur des **sélecteurs AI/pathfinding LOURDS** (kind S,
-  chevauchent le playbook) `GetAttackTarget`/`MovableTilesInRange`/`SortTilesByUtility`/`MinPathLength`/`Otherwise`/
-  `IsAdjacent`/`Inform`. ⇒ **toutes les feuilles E de #149 sont portées** ; le prochain jalon (TheBetrayer_TakeTurn
-  + raffinements DSL) = **DSL-ifier les sélecteurs AI-target** (S-family) — axe SÉPARÉ de #149 (cf. « Axes SÉPARÉS »
-  ci-dessus), à décider comme chantier propre.
+- **Groupe 3 — ✅ TERMINÉ** : ~~FinalJustice~~ (**slice-22 ✅** : feuille NEUVE `UseActiveAbility` = dispatch
+  récursif d'ability, spécialisée attaque-normale — cf. ci-dessous) · ~~ArcaneShield~~ (**slice-23 ✅** : feuille
+  NEUVE `CreateShield` — cf. ci-dessous) · ~~TheBetrayer_TakeTurn~~ (**slice-24 ✅** : les DEUX feuilles E routées
+  par le DSL, sélecteurs S collapsés — cf. ci-dessous). ⇒ **TOUTES les abilities #149 sont migrées ; toutes les
+  feuilles E sont portées.** Le SEUL reste (hors #149) = replier la composition STRUCTURELLE de TheBetrayer_TakeTurn
+  (`If`/`&`/`Not` + prédicats `IsAdjacent`/`AmountIsGreaterThanZero` en NŒUDS live) en un ARBRE DSL unique — exige
+  que la couche prédicat DSL lise l'état LIVE post-move (le `DslContext` est un snapshot figé) : **axe SÉPARÉ**
+  (S-family / playbook-transverse), à décider comme chantier propre.
 
   > **PRIMITIF `UseActiveAbility` (slice-22, RE `@180fd9930` décompile frais)** — dispatch RÉCURSIF d'ability :
   > `UseActiveAbilityBehaviour.Execute` itère le sélecteur de cibles (+0x58) et pour chaque cible ré-émet une
@@ -281,6 +280,32 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
   > collapse S+V que FinalJustice, doctrine slice-18/19). `_arcaneshield_grant` migré ; bit-exact par construction
   > (même `add_or_update_shield`). Test NEUF `test_arcaneshield_live` (allié in-range → bouclier sur l'allié ;
   > allié mort → fallback soi). 0 régression (3 tests verts).
+
+  > **TheBetrayer_TakeTurn migré (slice-24, RE `@1811a4f70` décompile frais)** — arbre natif RE-confirmé :
+  > `If( AmountIsGreaterThanZero(target), Inform(0xbf) & If(NOT IsAdjacent(caster,target,3), MoveUnit(caster,
+  > bestTile, options=NULL)) & If(IsAdjacent(caster,target,3), GetDamageBehaviour(target)) )`, avec
+  > `target = Cache(GetAttackTarget(AdjacentTiles(MovableTilesInRange(caster,range))))` et `bestTile =
+  > First(SortByFormula(SortTilesByUtility((AdjacentTiles(target) & movable).Otherwise(movable)),
+  > MinPathLength))`. **Les DEUX feuilles E routent désormais par le DSL** (== ThunderousAssault) : move =
+  > `MoveUnit(Caster(), FixedTiles([bestTile]))` ; attaque = `AttackWithAttackDamage(Target(), "TheBetrayer",
+  > "Eviscerate", melee)` (bit-exact : mêmes `ability_attack_params` + `execute_ability_attack`). **Trouvaille
+  > fidélité** : le nœud `MoveUnit` a ses OPTIONS ENTIÈREMENT NULLES (`local_a8..local_78 = 0` @1811a4f70) —
+  > exactement comme ThunderousAssault → feuille `MoveUnit` plaine fidèle. Les sélecteurs/prédicats S restent
+  > IMPÉRATIFS, COLLAPSÉS (doctrine slice-18/19) : `GetAttackTarget` → `_betrayer_target` fourni comme
+  > `Target()` ; la chaîne tuile `First(SortByFormula(SortTilesByUtility(...), MinPathLength))` → `_betrayer_stop_tile`
+  > injecté via le VÉHICULE DE COLLAPSE tile-domain NEUF `FixedTiles` (analogue de `Target()` pour une tuile
+  > pré-résolue) ; `IsAdjacent` (dist-1) = `_is_adjacent_units` relu AVANT/APRÈS le move = la re-éval LIVE
+  > native (le move mute la position → l'attaque re-teste). `Inform(0xbf)` = notif AI/UI = NO-OP observable
+  > (feuille `Inform`) non modélisée. **Refactor** : `_betrayer_move` (fusion tuile+move+after-move) scindé en
+  > `_betrayer_stop_tile` (COLLAPSE S pur) + move-via-feuille ; l'import mort `AttackDamageOperation` (loki.py)
+  > retiré (plus aucun call-site après slices 22/24) ; re-export `_betrayer_take_turn`/`_betrayer_target`/
+  > `_betrayer_stop_tile`/`_is_adjacent_units`. **TODO fidélité (tâche)** : l'impératif appelle `after_move_triggers`
+  > (overwatch sur le move forcé), mais le nœud `MoveUnit` a des OPTIONS NULLES (comme ThunderousAssault, qui ne
+  > le déclenche PAS) → PRÉSERVÉ ici (zéro régression), à trancher par RE du pipeline move/overwatch. Test NEUF
+  > `test_thebetrayer_take_turn_migration_live` (move+attaque via feuilles ; adjacent no-move) ; guard fort =
+  > `test_thebetrayer_turnstart_live` (replay-diff LIVE : cible/tuile-move/attaque == natif). 0 régression (5 verts).
+  > **RESTE (S-chantier, hors #149)** : replier CETTE composition en UN arbre DSL (`If`/`&`/`Not` + prédicats
+  > LIVE en nœuds) exige la couche prédicat DSL live-state (le `DslContext` est figé) — axe SÉPARÉ.
 
 ## Verdict RE #149 slice-2 (re-expert, PROUVÉ ghidra gqfc5mff6c) — WALKER + combinateurs + arbre GetEmRuntz
 
