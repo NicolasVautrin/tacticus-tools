@@ -28,9 +28,11 @@ from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import Seq, Foreach, If, AtomicGroup, op_add, op_and
 from ...entities.selectors import (Cache, Target, Subject, get_spawn_tile_selector, Children,
-                                   LastUnitAttackedBy)
+                                   LastUnitAttackedBy, Caster, CasterTile, TargetTile, AdjacentEnemies,
+                                   And, UnitsWithoutTrait)
 from ...entities.formulas import TotalAttacksMade, UnitTurnsStarted
 from ...entities.triggers import AmountIsGreaterThanZero, AmountIsEqual, IsAlive, TriggerAnd
+from ...entities.traits.unit_trait import UnitTrait
 from .behaviours import (Spawn, PerformAIAttack, AddBondEffect, AttackWithAbilityDamage, AddEffect,
                          entities_from_state)
 
@@ -71,6 +73,57 @@ def thunderous_assault_tree() -> AtomicGroup:
     return AtomicGroup(op_and(
         AttackWithAbilityDamage(Target(), "ThunderousAssault", "Power", is_melee=True),
         AddEffect(STUNNED, "Stunned", Target(), 1)))
+
+
+def crushing_claws_splash_tree() -> Seq:
+    """Corps `Func<entities,behaviour>` du `Foreach` splash = lambda `<ExecuteBehaviour>b__0 @1811e3c60`
+    (DECOMPILE) pour l'unite splash COURANTE (`Subject()`, posee par le `Foreach`) :
+        PushUnit(caster, s)                                          # [DEPLACEMENT differe -> omis]
+        + If(IsAlive(s)) AddEffect(0x429 Pinned, stateRef, s, 0)     # « Suppressed » splash (duree DEFAUT)
+        + If(IsAlive(s)) AttackWithAttackDamage(caster, s, MinMaxDamage2, GetDamageProfile2=Physical,
+                                                GetNumberConstant(0x32)=nrOfHits_2)
+    `If(IsAlive(Subject()))` gate le pin ET l'attaque : le natif inclut les morts-adjacents dans le SET et
+    les skippe ICI (l'imperatif les pre-excluait via `_adjacent_to_both` -> MEME resultat observable).
+    `PushUnit` = tranche DEPLACEMENT differee (omis, no-op comme ThunderousAssault). `op_add` = `op_Addition`
+    (`CombinedBehaviour`, effets purs -> les deux volets s'executent). Volet secondaire = clés `minDmg_2`/
+    `maxDmg_2`/`nrOfHits_2` (profil Physical)."""
+    s = Subject()
+    return op_add(
+        If(IsAlive(s), AddEffect(PINNED, "Pinned", s, None)),       # duree DEFAUT (arg natif 0, sans TurnsFromRounds)
+        If(IsAlive(s), AttackWithAbilityDamage(s, "CrushingClaws", "Physical", is_melee=True,
+                                               min_key="minDmg_2", max_key="maxDmg_2", hits_key="nrOfHits_2")))
+
+
+def crushing_claws_tree() -> AtomicGroup:
+    """Arbre de `CrushingClawsAbility.ExecuteBehaviour @1811cd5e0` (id 1105, tyranTyrantGuard — MIRROR du
+    DECOMPILE + du lambda `<ExecuteBehaviour>b__0 @1811e3c60`) :
+        splash = UnitsWithoutTrait( AdjacentEnemies(caster) & (AdjacentFriends(target) - target), 0xd=Object )
+        ExecuteAtomic(
+            ((  AddBondEffect(0x1b Taunted, caster, target, TurnsFromRounds(1))            # taunt cible
+              + AddEffect(0x429 Pinned, target, DEFAUT) )                                  # « Suppressed » cible
+              + AttackWithAttackDamage(caster, target, MinMaxDamage, Piercing, 0x2f=2) )   # attaque principale
+            + Foreach(splash, crushing_claws_splash_tree) )
+    Port mirror-natif. `AdjacentEnemies(caster) & (AdjacentFriends(target) - target)` = ennemis du caster
+    adjacents aux DEUX (les amis de la cible = ennemis du caster) -> convention ETABLIE Harvester
+    (`AdjacentEnemies(<tile>)` = ennemis-du-caster autour de <tile>, active_ability.py) :
+    `And(AdjacentEnemies(CasterTile()), AdjacentEnemies(TargetTile()))` — chaque centre s'auto-exclut
+    (`_within` d>0), donc target/caster hors splash. `UnitsWithoutTrait(Object=13=0xd)` exclut la scenerie
+    (0xd MAPPE UnitTrait.Object #158 ; l'imperatif le SKIPPAIT -> le DSL est PLUS fidele, degrade en no-op
+    pour une unite sans le trait). ORDRE natif = taunt, pin, main, foreach (l'imperatif faisait main
+    d'abord ; equivalent bit-exact : taunt/pin ne tirent PAS de rng et n'affectent pas le degat principal ->
+    MEME sequence rng). `KillDeadUnits`/`MoveUnit`/`PushUnit` = tranche DEPLACEMENT differee (omis). Duree
+    Pinned = DEFAUT (`duration_rounds=None`). Bit-exact BY CONSTRUCTION (memes Operations/args/state.rng que
+    l'imperatif). L'imperatif `CrushingClawsAbility.execute_behaviour` est REMPLACE par l'execution de l'arbre."""
+    tgt = Target()
+    taunt = AddBondEffect(TAUNTED, "Taunted_OnlySpecificTargets", Caster(), tgt, 1)   # AddBondEffect(0x1b)
+    pin = AddEffect(PINNED, "Pinned", tgt, None)                                       # AddEffect(0x429), duree DEFAUT
+    main = AttackWithAbilityDamage(tgt, "CrushingClaws", "Piercing", is_melee=True)    # MinMaxDamage/Piercing/0x2f=2
+    splash = UnitsWithoutTrait(
+        And(AdjacentEnemies(CasterTile(), Const(1)), AdjacentEnemies(TargetTile(), Const(1))),
+        int(UnitTrait.Object))                                                          # UnitsWithoutTrait(0xd)
+    return AtomicGroup(op_add(
+        op_add(op_add(taunt, pin), main),                                             # ((taunt+pin)+main)
+        Foreach(splash, crushing_claws_splash_tree())))                               # + foreach(splash)
 
 
 def getemruntz_taunt_tree() -> If:
@@ -501,8 +554,12 @@ class CrushingClawsAbility(ActiveAbility):
 
     Matérialise (vecteur ATTAQUE, tranche EFFETS) : la CIBLE porte Taunted(27)+enfants 25/26/1237 +
     Pinned(1065) ; chaque unité splash subit 1× Physique + Pinned(1065). Le **push** (déplacement, recul
-    1 hex) est différé (cf. ThunderousAssault) ; l'exclusion **trait 0xd** du splash est différée (enum
-    inconnu). Effets posés sur la cible SANS gate IsAlive (comme le natif) ; splash gated alive."""
+    1 hex) et `KillDeadUnits`/`MoveUnit` = tranche DEPLACEMENT différée (omis, cf. ThunderousAssault).
+
+    #149 slice-4 : `execute_behaviour` DÉLÈGUE à `crushing_claws_tree()` (mirror 1:1 du décompilé +
+    lambda `<ExecuteBehaviour>b__0`). L'exclusion **trait 0xd** du splash (`UnitsWithoutTrait(Object=13)`)
+    est désormais PORTÉE (0xd mappé `UnitTrait.Object` #158) — plus fidèle que l'ancien impératif qui la
+    skippait. Splash gated `If(IsAlive(s))` (pin + attaque). Bit-exact BY CONSTRUCTION."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.CrushingClaws)  # 1105
     ABILITY_ID = "CrushingClaws"
@@ -511,38 +568,14 @@ class CrushingClawsAbility(ActiveAbility):
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
             return None
-        # [attaque principale] 2× Piercing (minDmg/maxDmg[level], nrOfHits=const 0x2f=2). Mute les PV cible.
-        bmin, bmax, pierce, hits = ability_attack_params(
-            state, caster_id, self.ABILITY_ID, "Piercing", ranged=False)
-        main = AttackDamageOperation.execute_ability_attack(
-            state, caster_id, target_id, bmin, bmax, pierce, hits,
-            damage_profile="Piercing", is_melee=True)
-        # [Taunt] AddBondEffect(27, TurnsFromRounds(1)) — COMPOSITE (enfants 25/26/1237 same-turns).
-        # Bond cible→tauntant (ciblage IA) = concern playbook (TODO) ; source=caster capture la direction.
-        AddEffectOperation.execute(state, source=caster_id, target=target_id, effect_type=TAUNTED,
-                                   name="Taunted_OnlySpecificTargets",
-                                   duration_override=turns_from_rounds(1))
-        # [Suppressed cible] AddEffect(1065 Pinned) — durée = DefaultAmountOfRounds(1065)=1.
-        AddEffectOperation.execute(state, source=caster_id, target=target_id, effect_type=PINNED,
-                                   name="Pinned")
-        # [splash] ennemis adjacents au caster ET à la cible (recul + Suppressed + 1× Physique).
-        bmin2, bmax2, pierce2, hits2 = ability_attack_params(
-            state, caster_id, self.ABILITY_ID, "Physical", ranged=False,
-            min_key="minDmg_2", max_key="maxDmg_2", hits_key="nrOfHits_2")
-        splash: list[dict] = []
-        for sid in _adjacent_to_both(state, caster_id, target_id):
-            # [push] PushUnit(actor, s) recul 1 hex — TODO (tranche déplacement).
-            se = state.get_entity(sid)
-            uc = se.get_component(UnitComponent) if se is not None else None
-            if uc is None or uc.alive:                            # If(alive) AddEffect(Pinned) AVANT l'attaque
-                AddEffectOperation.execute(state, source=caster_id, target=sid, effect_type=PINNED,
-                                           name="Pinned")
-            satk = AttackDamageOperation.execute_ability_attack(
-                state, caster_id, sid, bmin2, bmax2, pierce2, hits2,
-                damage_profile="Physical", is_melee=True)
-            splash.append({"target": sid, "attack": satk})
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        crushing_claws_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAbilityDamage"]
+        main = next((p["attack"] for p in atks if p.get("target") == target_id), None)
+        splash = [{"target": p["target"], "attack": p["attack"]}
+                  for p in atks if p.get("target") != target_id]   # cibles splash != cible principale
         return {"ability": "CrushingClaws", "caster": caster_id, "target": target_id,
-                "main_attack": main, "splash": splash}
+                "main_attack": main, "splash": splash, "dsl": True}
 
 
 class SpiritLeechAbility(ActiveAbility):

@@ -219,11 +219,18 @@ class AttackWithAbilityDamage(AbilityBehaviour):
     ⚠ Le ciblage natif complet = `Units(Cache(First(Nearest(Tiles(target_ctx), casterPos))))` : pour une
     ability MONO-cible melee (ThunderousAssault) il COLLAPSE en la cible du message (`ctx.target`) — que
     l'IA/caller a deja choisie (== l'imperatif live-valide). La chaine Tiles->Nearest->First->Cache->Units
-    n'est materialisee que si une ability re-derive sa cible (differe). Emet 'AttackWithAbilityDamage'. PUR."""
-    __slots__ = ("target_sel", "ability_id", "profile", "is_melee")
+    n'est materialisee que si une ability re-derive sa cible (differe). Emet 'AttackWithAbilityDamage'. PUR.
 
-    def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True):
+    `min_key`/`max_key`/`hits_key` = cles config du volet de degat (defaut `minDmg`/`maxDmg`/`nrOfHits` =
+    `MinMaxDamage`/`GetDamageProfile`/`GetNumberConstant(0x2f)`) ; une ability a DEUX volets (ex. CrushingClaws
+    principal vs splash) passe le 2e jeu (`minDmg_2`/`maxDmg_2`/`nrOfHits_2` = `MinMaxDamage2`/`GetDamageProfile2`
+    /`GetNumberConstant(0x32)`)."""
+    __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key")
+
+    def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True,
+                 min_key: str = "minDmg", max_key: str = "maxDmg", hits_key: str = "nrOfHits"):
         self.target_sel, self.ability_id, self.profile, self.is_melee = target_sel, ability_id, profile, is_melee
+        self.min_key, self.max_key, self.hits_key = min_key, max_key, hits_key
 
     def execute(self, entities, ectx):
         from ..operations.damage import AttackDamageOperation
@@ -234,7 +241,8 @@ class AttackWithAbilityDamage(AbilityBehaviour):
         if state is None or caster is None or tgt is None:
             return OperationResult.ok()
         bmin, bmax, pierce, hits = ability_attack_params(
-            state, caster, self.ability_id, self.profile, ranged=not self.is_melee)
+            state, caster, self.ability_id, self.profile, ranged=not self.is_melee,
+            min_key=self.min_key, max_key=self.max_key, hits_key=self.hits_key)
         atk = AttackDamageOperation.execute_ability_attack(
             state, caster, tgt, bmin, bmax, pierce, hits,
             damage_profile=self.profile, is_melee=self.is_melee)
@@ -248,10 +256,14 @@ class AddEffect(AbilityBehaviour):
     `source` = `AbilityStateReference` (= le caster comme source de l'effet), `target` = `target_sel`, duree
     `TurnsFromRounds(rounds)`. Wrapper MINCE au-dessus de `AddEffectOperation.execute` (mirror exact de
     l'imperatif). DIFFERE de `AddBondEffect` (qui LIE source+target = deux unites distinctes) : ici la source
-    EST le caster. No-op si caster/target absents. Emet 'AddEffect'. Effet PUR (stop=False)."""
+    EST le caster. No-op si caster/target absents. Emet 'AddEffect'. Effet PUR (stop=False).
+
+    `duration_rounds` = nb de rounds (`TurnsFromRounds(rounds)`) ; `None` = duree DEFAUT de l'effet
+    (`DefaultAmountOfRounds`, mirror de l'arg natif `0` d'`AddEffect` SANS `TurnsFromRounds` — ex. Pinned de
+    CrushingClaws) vs explicite (ThunderousAssault Stunned = `TurnsFromRounds(1)`)."""
     __slots__ = ("effect_type", "name", "target_sel", "duration_rounds")
 
-    def __init__(self, effect_type: int, name: str, target_sel: TargetsSelector, duration_rounds: int = 1):
+    def __init__(self, effect_type: int, name: str, target_sel: TargetsSelector, duration_rounds=1):
         self.effect_type, self.name = effect_type, name
         self.target_sel, self.duration_rounds = target_sel, duration_rounds
 
@@ -263,7 +275,10 @@ class AddEffect(AbilityBehaviour):
         tgt = tu.get("id") if tu else None
         if state is None or src is None or tgt is None:
             return OperationResult.ok()
+        # duration_rounds None -> pas d'override = duree DEFAUT (DefaultAmountOfRounds), mirror de l'arg natif
+        # `0` d'AddEffect sans TurnsFromRounds (Pinned CrushingClaws) ; sinon TurnsFromRounds(rounds).
+        dur = turns_from_rounds(self.duration_rounds) if self.duration_rounds is not None else None
         AddEffectOperation.execute(state, source=src, target=tgt, effect_type=self.effect_type,
-                                   name=self.name, duration_override=turns_from_rounds(self.duration_rounds))
+                                   name=self.name, duration_override=dur)
         ectx.emit("AddEffect", source=src, target=tgt, effect_type=self.effect_type)
         return OperationResult.ok()

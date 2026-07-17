@@ -412,3 +412,53 @@ Slice-3 a d'abord (à tort) mis dans `dsl_behaviours.py` à la fois les feuilles
   `Entities.Behaviours` feuilles, MÊME namespace natif que `entities/behaviours.py`, split par layering) ;
 - helper `resolve_unit` partagé → `dsl/base.py`.
 Toute future migration d'ability suit cette organisation.
+
+## Slice-4 (#204, 2026-07-17) — 3e behaviour DSL : CrushingClaws (splash Foreach + sélecteur)
+
+**RE — `CrushingClawsAbility.ExecuteBehaviour @1811cd5e0`** (id 1105, tyranTyrantGuard, DÉCOMPILE gqfc5mff6c)
++ lambda `<ExecuteBehaviour>b__0 @1811e3c60` (corps du `Foreach`). Arbre natif EXACT (`op_Addition` = `+`) :
+
+```
+splash = UnitsWithoutTrait( AdjacentEnemies(caster,r1) & (AdjacentFriends(target,r1) − {target}), 0xd=Object )
+ExecuteAtomic(
+    ((  AddBondEffect(0x1b Taunted, caster, target, TurnsFromRounds(1))          # taunt cible
+      + AddEffect(0x429 Pinned, target, <défaut>) )                              # « Suppressed » cible
+      + AttackWithAttackDamage(caster, target, MinMaxDamage, Piercing, 0x2f=2) ) # attaque principale
+    + Foreach(splash, s => PushUnit(caster,s)                                     # [DÉPLACEMENT différé]
+                        + If(IsAlive s) AddEffect(0x429 Pinned, s, <défaut>)
+                        + If(IsAlive s) AttackWithAttackDamage(caster, s, MinMaxDamage2, Physical, 0x32=1)) )
+```
+
+**Décompile décisif — `DSLFactory.AdjacentEnemies/AdjacentFriends(ctx, center, mode, flag)`** (@180de80c0/@180de81d0)
+= `{Enemies|Friends}(referent=**center**, Units(AdjacentTiles(center)) − center)` : le référent d'amitié est le
+**centre lui-même** (pas le caster). `AdjacentFriends(target)` = **alliés de la cible** ⇒ = ennemis du caster
+(2 équipes). Port = convention ÉTABLIE Harvester (`active_ability.py`) : « ennemis-du-caster autour de `<tile>` »
+= `AdjacentEnemies(<tile>Tile())` (référent caster + centre géométrique `<tile>`). Splash porté =
+`And(AdjacentEnemies(CasterTile()), AdjacentEnemies(TargetTile()))` — chaque centre s'auto-exclut (`_within`
+d>0). `UnitsWithoutTrait(Object=13=0xd)` : **0xd MAPPÉ** `UnitTrait.Object` (#158) → l'exclusion scénerie est
+PORTÉE (l'ancien impératif la SKIPPAIT « enum inconnu » → le DSL est PLUS fidèle, dégrade en no-op sans le trait).
+
+Arbre porté `crushing_claws_tree()` (`loki.py`) = mirror 1:1 (ordre natif **taunt, pin, main, foreach**). Nœuds
+réutilisés (slice-3/#199) + 2 EXTENSIONS mineures de feuilles génériques :
+- `AttackWithAbilityDamage` : + clés config `min_key`/`max_key`/`hits_key` (défaut `minDmg`/`maxDmg`/`nrOfHits` =
+  `MinMaxDamage`/`0x2f` ; splash passe `minDmg_2`/`maxDmg_2`/`nrOfHits_2` = `MinMaxDamage2`/`0x32`).
+- `AddEffect` : `duration_rounds=None` → duree DÉFAUT (`DefaultAmountOfRounds`), mirror de l'arg natif `0` d'`AddEffect`
+  sans `TurnsFromRounds` (Pinned CrushingClaws) vs explicite (Stunned ThunderousAssault = `TurnsFromRounds(1)`).
+
+L'impératif `CrushingClawsAbility.execute_behaviour` (avec `_adjacent_to_both`, encore utilisé par ScythingTalons)
+est REMPLACÉ par l'exécution de l'arbre. **Bit-exact BY CONSTRUCTION** : mêmes Operations/args/`state.rng` ; l'ordre
+natif (effets AVANT le main) est équivalent au main-first de l'impératif — les effets pin/taunt actifs pendant le main
+ne modifient PAS le dégât (PROUVÉ A/B, cf. #205).
+
+**Validation** (`test_damage_crushingclaws_live.py`, session 26) : dégât ARBRE == appel main-only DIRECT (fidélité
+migration bit-exact vs baseline) + Taunted(27 composite)+Pinned(1065) posés **off == live**. En 1v1 le splash
+`And(...)` est vide (seul ennemi = la cible, auto-exclue) → per-coup principal propre.
+
+**#205 (GAP PRÉ-EXISTANT, hors migration)** : le per-coup principal vs LIVE diverge légèrement (ex. off=[1589,1469]
+vs live=[1590,1490] ; base=[1496,1996], pierce=80, armor=1909, 2× Piercing). PROUVÉ indépendant de la migration par
+**A/B** (`cc_ab_probe` : main-only-direct == arbre → l'ancien impératif aurait échoué à l'identique, jamais bit-exact-
+testé avant). Gap = pipeline dégât Piercing/armure haute (arrondi plage réduite ?), pas le DSL. Non asserté exact.
+
+**Résidu** : confront LIVE dédié du SPLASH (géométrie 3-unités : un ennemi adjacent caster+cible) — bit-exact BY
+CONSTRUCTION (mêmes nœuds + sélecteur pattern-Harvester validé), différé. Tranche DÉPLACEMENT (`PushUnit`/`KillDeadUnits`/
+`MoveUnit`) toujours à porter (commune ThunderousAssault/CrushingClaws/…).
