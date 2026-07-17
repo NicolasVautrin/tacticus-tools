@@ -961,13 +961,25 @@ def _finaljustice_target(state: State, owner_id: int) -> Optional[int]:
 
 
 def _finaljustice_attack(state: State, owner_id: int) -> Optional[dict]:
-    """Behaviour FinalJustice (CreateBehaviour@18121ed00) : `UseActiveAbility(NormalAttack, best)` — UNE
-    attaque NORMALE (chemin `AttackDamageOperation.execute`, déjà bit-exact) sur la meilleure cible. No-op
-    si pas de cible. (L'owner est `alive=False` — death-rattle ; l'attaque s'exécute quand même.)"""
+    """Behaviour FinalJustice (CreateBehaviour@18121ed00), MIGRÉ en ARBRE DSL (#149 slice-22) :
+    `UseActiveAbility(Self@0x148, <best>, UnitNormalAttackType)` = UNE attaque NORMALE (chemin
+    `AttackDamageOperation.execute`, déjà bit-exact) sur la meilleure cible normal-attaquable. Le sélecteur
+    AI-target `SortUnitsByDamageUtility(ValidNormalAttackTargets)` (kind S lourd, chevauche le playbook)
+    reste IMPÉRATIF (`_finaljustice_target`) et est COLLAPSÉ en `Target()` (== ThunderousAssault
+    `Units(Cache(First(Nearest(...))))`). Le gate natif `Count(validTargets)>0 AND NOT TargetIsOverkilled`
+    + le nœud `Inform` sont portés dans `matches()` (déjà fidèle). Bit-exact vs l'ancien corps impératif
+    BY CONSTRUCTION : la feuille `UseActiveAbility` appelle le MÊME `AttackDamageOperation.execute(owner,
+    best, 20)`. No-op si pas de cible. (L'owner est `alive=False` — death-rattle ; l'attaque s'exécute
+    quand même.)"""
+    from ...abilities.behaviours import UseActiveAbility, entities_from_state
+    from ....dsl.effects import ExecutionContext
+    from ....entities.selectors import Caster, Target
     target = _finaljustice_target(state, owner_id)
     if target is None:
         return {"trait": "FinalJustice", "owner": owner_id, "target": None}
-    res = AttackDamageOperation.execute(state, owner_id, target, 20)
+    ectx = ExecutionContext(state=state, rng=state.rng)
+    UseActiveAbility(Caster(), Target()).execute(entities_from_state(state, owner_id, target), ectx)
+    res = next((p for (n, p) in ectx.emitted if n == "UseActiveAbility"), {}).get("attack")
     return {"trait": "FinalJustice", "owner": owner_id, "target": target, "attack": res}
 
 

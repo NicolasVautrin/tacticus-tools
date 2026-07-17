@@ -126,8 +126,8 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
 | ~~ActOfFaith accumulate~~ | `@181219a70` | `op_add(AddEffect(0x3f9, Self@0x148), If(<killer Imperial allié + normal-attack RighteousRepugnance_NormalAttack=1182 + kill mêlée>, Maybe(chance, AddEffect(0x3f9))))` | — (slice-20 ✅ : **split** feuille/effet respecté — feuille `AddEffect(Caster())` déclenche `ActOfFaithBuffEffect.ApplyModification @180f302f0` (DATA `applied_stat_mods` côté effet = 2 ChangeStat crit ; symétrique de `reverted_stats()`), exécutée par `AddEffectOperation._apply_stat_mods` (impératif, `apply_change_stat` par-source) ; stacking via flag effet `stacks_stat_mod_on_add` (skip du gate « déjà-présent », 0 régression Fire/Pinned/Stunned). **2e stack conditionnel PORTÉ + live-validé** (Morvenn Vahl) : nœuds NEUFS `UnitNormalAttackType @180dff150` (type concret via kit gameconfig), `ConfigVarForEntity` (mirror `ConfigVar(RighteousRepugnance=1107, killer, chance=0x3a=58) @180decac0` = `ability_var("RighteousRepugnance","chance", passive_ability_level killer)`, 40-60%), `HasGrandAlliance` (mirror `HasTrait(26=Imperial)` via faction), `AreFriends`, sélecteur `Actor()`, `DslContext.get_ability_level`. **RE Q3 (IsUpdatable @18155afe0)** : ActOfFaith 1017 updatable par fallback (`!=0x472`) MAIS stacke (source-matching `UpdateExistingEffect`, non porté) → observable additif reproduit via N instances (flaggé). **RE Q4** : `ApplyModification` PAS dans `AddNewEffect` (pure ECS) mais pipeline `ApplyInternal→vtable 0x728`) | ✅ |
 | ~~EnvFireTile DoT~~ | `@18121e040` | `Foreach(UnitsWithoutTraits([Steppable,Immune]) & Units(EntitiesWithAnyEffect(Fire)), AttackWithAbilityDamage(Tiles, PercentageOf(StatAmount(Health,Max),fireDmgPct), Direct(3), source=Fire))` | — (slice-19 ✅ : feuille DIRECT `AttackWithAbilityDamage` NEUVE (factory `@180de9c90` ≠ `AttackWithAttackDamage @180de9fb0`) → `AttackDamageOperation.execute_direct` (perçage/armure seuls, PAS de crit/block/spread/after-hit) + `PercentageOf(fireDmgPct, StatAmount(Target(),Health,**Max**))`. **RENOMMAGE natif** (« coller au natif ») : l'ancienne classe Python `AttackWithAbilityDamage` (crit/block) → `AttackWithAttackDamage` (65 occ / 4 fichiers), la NEUVE = la vraie DIRECT. `Foreach`/sélecteur restent impératifs (dispatch tuile + `_is_immune_to_fire`, DSL-ification = #216). Bit-exact vs impératif validé (replay-diff, toutes unités)) | ✅ |
 | ~~Psyker Smite~~ | `@1812241b0` | `AttackWithAttackDamage(Target(), PercentageOf(StatAmount(Self@0x148,Attack), Direct(psykerExtraDmg)), Psychic, hits=1)` | — (slice-18 ✅ : PRIMITIF damage-node introduit — feuille `AttackWithAbilityDamage` param `amount`/`hits` (mode formule → `execute_normal_like(base, spread=0)`) + wiring `entities_from_state.get_stat` (StatAmount lit la vraie stat via StatsComponent) + helper partagé `profile_pierce`. Sélecteur `PickRandomly(Damageable(Enemies(AdjacentUnits)))` reste impératif → collapse `Target()`, DSL-ification = #216) | ✅ |
-| TheBetrayer_TakeTurn | `@1811a4f70` | `target(GetAttackTarget) → MoveUnit → UseActiveAbility(NormalAttack)` | tranche DÉPLACEMENT (`MoveUnit`) + feuille `UseActiveAbility` + sélecteur `GetAttackTarget` (S) | **3** |
-| FinalJustice | `@18121ed00` | `UseActiveAbility(NormalAttack, SortUnitsByDamageUtility(…))` | feuille `UseActiveAbility` + sélecteur `SortUnitsByDamageUtility` (S) | **3** |
+| TheBetrayer_TakeTurn | `@1811a4f70` | `If(Amount>0(target), Inform & If(NOT IsAdjacent, MoveUnit(chosenTile)) & If(IsAdjacent, GetDamageBehaviour(target)))` — `target=Cache(GetAttackTarget)`, `chosenTile=First(SortByFormula(SortTilesByUtility(AdjacentTiles(target)&movable .Otherwise movable), MinPathLength, asc))`. **GetDamageBehaviour** `@18119c1e0` = `AttackWithAttackDamage(Self, target, MinMaxDamage, profile 0x19, GetHits)` = feuille DÉJÀ portée (PAS `UseActiveAbility`). `MoveUnit` ✅ (slice-21b, généralise dest_tile_sel). RESTE : sélecteurs AI/pathfinding LOURDS (S) `GetAttackTarget @1811a53a0`, `MovableTilesInRange`, `SortTilesByUtility`, `MinPathLength`, `Otherwise`, `IsAdjacent`, `Inform`, `Direct`, `GetVariableForLevel(0x53)` | **3** |
+| ~~FinalJustice~~ | `@18121ed00` | `Inform & If(Count(validTargets)>0 & NOT TargetIsOverkilled, UseActiveAbility(Self, SortUnitsByDamageUtility(ValidNormalAttackTargets), UnitNormalAttackType))` | — (**slice-22 ✅** : feuille NEUVE `UseActiveAbility` (`@180e015e0` → `UseActiveAbilityBehaviour.Execute @180fd9930` : itère targets → dispatch récursif de l'ability sur chaque cible ; specialisée au dispatch attaque-normale = `AttackDamageOperation.execute`, == le corps impératif validé → bit-exact). AI-target `SortUnitsByDamageUtility` (S lourd) **collapsé** en `Target()` (reste impératif `_finaljustice_target`, doctrine slice-18/19). Gate `Count>0 & NOT overkill` + `Inform` déjà dans `matches()`. `_finaljustice_attack` migré en arbre) | ✅ |
 | ArcaneShield | `@180e16b40` | grant shield → allié AI-choisi | feuille `Grant`/shield + sélecteur AI-target (S) | **3** |
 
 > ⚠ Les VA proviennent des docstrings du port (RE antérieure citée). FireOfAbsolution (slice-14),
@@ -244,9 +244,30 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
     confirmer live 1-vs-2 — porté à 1 hex `_PUSH_MAX_DIST=1`), steppable-crush, knockback-DAMAGE
     (`ApplyKnockbackTo @180e67fc0`, peut tuer → death-triggers), fall-damage d'élévation, cascade after-move
     flag-driven du move (overwatch-charge).
-- **Groupe 3 — DÉBLOQUÉ de la dépendance DÉPLACEMENT** : TheBetrayer_TakeTurn, FinalJustice, ArcaneShield →
-  la tranche **DÉPLACEMENT** (`MoveUnit`/`PushUnit`/`KillDeadUnits`) est ✅ ; reste comme prérequis la feuille
-  `UseActiveAbility` + les sélecteurs AI-target DSL.
+- **Groupe 3 — EN COURS** : ~~FinalJustice~~ (**slice-22 ✅** : feuille NEUVE `UseActiveAbility` = dispatch
+  récursif d'ability, spécialisée attaque-normale — cf. ci-dessous) · TheBetrayer_TakeTurn + ArcaneShield =
+  RESTE. Les DEUX sont gatés sur des **sélecteurs AI/pathfinding LOURDS** (kind S, chevauchent le playbook),
+  PAS sur une feuille manquante : TheBetrayer_TakeTurn a ses deux moitiés portables (attaque =
+  `GetDamageBehaviour @18119c1e0` = `AttackWithAttackDamage` ✅ ; move = `MoveUnit` ✅) mais son choix de
+  cible/tuile exige `GetAttackTarget`/`MovableTilesInRange`/`SortTilesByUtility`/`MinPathLength`/`Otherwise`/
+  `IsAdjacent`/`Inform` (S/pathfinding). ArcaneShield exige une feuille `Grant`/shield + un AI-target (S).
+  ⇒ le prochain jalon Groupe 3 = **DSL-ifier les sélecteurs AI-target** (S-family, task), pas des feuilles E.
+
+  > **PRIMITIF `UseActiveAbility` (slice-22, RE `@180fd9930` décompile frais)** — dispatch RÉCURSIF d'ability :
+  > `UseActiveAbilityBehaviour.Execute` itère le sélecteur de cibles (+0x58) et pour chaque cible ré-émet une
+  > Operation « use-ability » de l'`ability_type` (+0x60) via le collecteur `proc` (fixant `subject`=cible
+  > courante). **Seul usage porté (FinalJustice) = `UnitNormalAttackType`** ⇒ la feuille SPÉCIALISE le dispatch
+  > à l'attaque normale (`AttackDamageOperation.execute`, resolveur ECS déjà bit-exact) = le corps impératif
+  > `_finaljustice_attack` validé. Dispatch d'une ability NON-normale (aucun usage Groupe 3) = flaggé (re-entrer
+  > le pipeline via `visit_ActiveAbilityMessage`). Le sélecteur AI `SortUnitsByDamageUtility(ValidNormalAttack
+  > Targets)` reste IMPÉRATIF (`_finaljustice_target`) **collapsé en `Target()`** (== ThunderousAssault, doctrine
+  > slice-18/19). ⚠ **Correction du sketch** (l'avertissement ⚠ « re-confirmer au décompile » l'avait prédit) :
+  > **TheBetrayer_TakeTurn n'utilise PAS `UseActiveAbility`** mais `GetDamageBehaviour` (= `AttackWithAttackDamage`).
+  > `UseActiveAbility` est propre à FinalJustice.
+  > **Fix connexe (slice-22)** : le split `triggers.py` → package `triggers/` avait laissé 4 helpers privés
+  > (`_adjacent_enemies` base.py ; `_finaljustice_target`/`_normal_attack_health_range`/`_damage_utility_weights`
+  > loki.py) NON re-exportés dans `__init__.py` → `test_finaljustice_live` rouge (avant même le behaviour).
+  > Re-export complété (cohérent avec les autres helpers privés déjà exposés). 0 régression (5 tests verts).
 
 ## Verdict RE #149 slice-2 (re-expert, PROUVÉ ghidra gqfc5mff6c) — WALKER + combinateurs + arbre GetEmRuntz
 

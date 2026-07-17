@@ -865,3 +865,50 @@ class KillDeadUnits(AbilityBehaviour):
                 downed.append(uid)
         ectx.emit("KillDeadUnits", downed=downed)        # mirror structurel : pas de re-mutation (double-fire)
         return OperationResult.ok()
+
+
+class UseActiveAbility(AbilityBehaviour):
+    """`DSLFactory.UseActiveAbility @180e015e0` -> `UseActiveAbilityBehaviour.Execute @180fd9930` : pour
+    CHAQUE cible du selecteur `targets_sel` (+0x58), le SUJET (`subject_sel`, +0x50) UTILISE son ability
+    active `ability_type` (+0x60) -- dispatch RECURSIF de l'ability sur la cible (le natif emet 1 Operation
+    <<use-ability>> par cible via le collecteur `proc`, en fixant `subject`=cible courante dans le ctx).
+
+    Seul usage porte (Groupe 3) : FinalJustice `UseActiveAbility(Self@0x148, SortUnitsByDamageUtility(
+    ValidNormalAttackTargets(...)), UnitNormalAttackType(self))` = en MOURANT, Kharn porte UNE attaque
+    NORMALE sur la meilleure cible. `UnitNormalAttackType` = l'attaque normale du sujet ; chez nous, la
+    dispatcher = `AttackDamageOperation.execute` (resolveur d'attaque normale ECS : selection d'arme par
+    distance, spread, reduce/armure -- DEJA bit-exact). ⇒ la feuille SPECIALISE le dispatch a l'attaque
+    normale (== le corps imperatif `_finaljustice_attack` valide) : `subject`=Caster(), `target`=la cible.
+
+    COLLAPSE du selecteur AI-target (doctrine slice-18/19) : `SortUnitsByDamageUtility(ValidNormalAttack
+    Targets)` = un selecteur AI LOURD (kind S, chevauche le playbook), reste IMPERATIF (`_finaljustice
+    _target`) et resolu AVANT le cast -> passe comme `Target()` (meme collapse que ThunderousAssault
+    `Units(Cache(First(Nearest(...))))` -> la cible du message). DSL-ification du selecteur = tache S-family.
+
+    NON porte / flagge : (1) dispatch d'une ability NON-normale -- aucun usage Groupe 3 ; si un jour une
+    ability `UseActiveAbility(<active non-normale>)` apparait, il faudra re-entrer le pipeline d'ability via
+    le handler (`visit_ActiveAbilityMessage`), pas `AttackDamageOperation.execute` ; (2) les OPTIONS
+    +0x68..+0xac (source AbilityOrEffect, flags) inertes pour une attaque normale. `spread_pct` = variance
+    d'arme du dispatch normal (defaut 20 = defaut de `AttackDamageOperation.execute`). Itere les cibles
+    triees par id (ordre de lecture natif). Emet 'UseActiveAbility' par cible. PUR (non court-circuitant)."""
+    __slots__ = ("subject_sel", "targets_sel", "spread_pct")
+
+    def __init__(self, subject_sel: TargetsSelector, targets_sel: TargetsSelector, spread_pct: int = 20):
+        self.subject_sel = subject_sel
+        self.targets_sel = targets_sel
+        self.spread_pct = int(spread_pct)
+
+    def execute(self, entities, ectx):
+        from ..operations.damage import AttackDamageOperation
+        state = ectx.state
+        subject = resolve_unit(self.subject_sel, entities)
+        if state is None or subject is None:
+            return OperationResult.ok()
+        sid = subject.get("id")
+        targets = [u for u in _units_of(self.targets_sel, entities)
+                   if isinstance(u, dict) and u.get("id") is not None]
+        for tu in sorted(targets, key=lambda x: x["id"]):    # ordre de lecture = id (mirror OrderBy natif)
+            tid = tu["id"]
+            res = AttackDamageOperation.execute(state, sid, tid, self.spread_pct)  # dispatch attaque normale
+            ectx.emit("UseActiveAbility", subject=sid, target=tid, attack=res)
+        return OperationResult.ok()

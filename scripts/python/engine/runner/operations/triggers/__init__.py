@@ -10,7 +10,7 @@ Découpage fidèle au namespace natif :
 - `effect_triggers.py`  — `Entities.Effects.*` (Contaminated, Overwatch).
 """
 from .base import (TriggerEvent, TriggeredAbility, EffectTrigger, TileEffectTrigger,
-                   PHASE_TRIGGER_CAP, _unit_tile, _hex_dist)
+                   PHASE_TRIGGER_CAP, _unit_tile, _hex_dist, _adjacent_enemies)
 from .dispatch import (
     TRAIT_TRIGGERS, ABILITY_TRIGGERS, EFFECT_TRIGGERS,
     collect_triggered_abilities, collect_effect_triggers, evaluate_trigger_operation,
@@ -22,12 +22,13 @@ from .loki import (
     _fire_of_absolution_after_attack, _on_fire_damage_ability,
     THEBETRAYER_EFFECT, ACTOFFAITH_EFFECT,
     _add_betrayer_effect, _reset_act_of_faith,
+    _finaljustice_target, _normal_attack_health_range, _damage_utility_weights,
 )
 from .tiles import first_aid_heal, dry_bush_fire_spread
 
 __all__ = [
     "TriggerEvent", "TriggeredAbility", "EffectTrigger", "TileEffectTrigger", "PHASE_TRIGGER_CAP",
-    "_unit_tile", "_hex_dist",
+    "_unit_tile", "_hex_dist", "_adjacent_enemies",
     "TRAIT_TRIGGERS", "ABILITY_TRIGGERS", "EFFECT_TRIGGERS",
     "collect_triggered_abilities", "collect_effect_triggers", "evaluate_trigger_operation",
     "after_death_triggers", "is_overkill", "start_turn_triggers", "tile_tick_triggers",
@@ -36,4 +37,5 @@ __all__ = [
     "_fire_of_absolution_after_attack", "_on_fire_damage_ability",
     "THEBETRAYER_EFFECT", "ACTOFFAITH_EFFECT",
     "_add_betrayer_effect", "_reset_act_of_faith",
+    "_finaljustice_target", "_normal_attack_health_range", "_damage_utility_weights",
 ]
