@@ -515,3 +515,48 @@ test aligné (Ceiling). Le reste de l'arbre est bit-exact BY CONSTRUCTION vs l'i
 Pinned(0x429) posé + `heal_amount == ceil(dmg×hpToHealPct/100)` + le CASTER (Self) est cible du heal (`op_Addition(Self,…)`).
 Régression : `test_damage_crushingclaws_live` + `test_damage_ability_live` (ThunderousAssault) re-PASS (le `damage_override`
 défaut None laisse le chemin générique intact).
+
+
+## Slice-6 (#208, 2026-07-17) — 5e behaviour DSL : PlasmaGrenade (splash MULTI-cible, feuille `multi=True`)
+
+**RE — `PlasmaGrenadeAbility.ExecuteBehaviour @1811f99e0`** (id 1098, eldarSmnGuardian, DÉCOMPILE gqfc5mff6c). Arbre
+natif EXACT (`op_Addition` = `+`, plain `Execute` — PAS `ExecuteAtomic`) :
+
+```
+Execute( AttackWithAbilityDamage(caster, target,                            RandomAmount(minDmg=var0xc,maxDmg=var0xd), Plasma, nrOfHits=0x2f)     # [MAIN]
+       + AttackWithAbilityDamage(caster, Enemies(caster, AdjacentUnits(target,1)), RandomAmount(MÊME),                       Plasma, nrOfHits_2=0x32) )  # [SPLASH]
+```
+
+Point CLÉ : le **SPLASH est UN SEUL `AttackWithAbilityDamage` dont la cible est un SÉLECTEUR MULTI-unités**
+(`Enemies(caster, AdjacentUnits(target,1))`), **PAS un `Foreach`** (≠ CrushingClaws, dont le splash a une logique
+per-unité push/pin/gate ⇒ Foreach). Le `RandomAmount(minDmg/maxDmg)` (node) est PARTAGÉ main/splash ; seule la constante
+de coups diffère (`nrOfHits`=0x2f vs `nrOfHits_2`=0x32). Profil Plasma, ranged (range 2).
+
+**`AttackBehaviour.Execute @180fb91a0`** (RE) : quand `targets` résout N unités, il **résout la liste**, l'`OrderBy`
+(lambda `<Execute>b__5_0 @180fd9150` = clé scalaire par-unité, vtable +0x158 = ordre de lecture) + `ToList` (si >1), puis
+**attaque CHAQUE cible dans l'ordre**. Même pattern d'itération-interne que `Spawn`/`PerformAIAttack`.
+
+Porté :
+- **Feuille `AttackWithAbilityDamage` + mode `multi=True`** (`runner/abilities/behaviours.py`) : `evaluate` → liste, tri
+  par `id` (= ordre de lecture natif == l'ordre `sorted` de l'impératif `_splash_ability_behaviour` → bit-exact), 1 attaque
+  + 1 `emit` par cible. `multi=False` (défaut) = chemin mono-cible `resolve_unit` INCHANGÉ (ThunderousAssault/CrushingClaws/
+  SpiritLeech) → zéro régression.
+- **Arbre `plasma_grenade_tree()`** (`loki.py`) = `op_add(main, splash)` : `main` = `AttackWithAbilityDamage(Target(),
+  Plasma)` ; `splash` = `AttackWithAbilityDamage(Alive(AdjacentEnemies(TargetTile())), Plasma, hits_key="nrOfHits_2",
+  multi=True)`. Sélecteur splash = `Alive(AdjacentEnemies(TargetTile()))` = ennemis-du-caster VIVANTS adjacents à la CIBLE
+  (`AdjacentEnemies(<tuile>)` = convention Harvester/CrushingClaws, **`_within`/hexgeo** ⇒ board-indépendant, PAS le piège
+  #148 boardGraph occupé ; `Alive` compense l'inclusion des cadavres offline, mirror du `Units(AdjacentTiles)`=debout=vivant
+  natif, cf. `AllUnits`=alive #202). L'impératif `_splash_ability_behaviour`/`_adjacent_enemies_of` RESTE (partagé par
+  Stikkbomb/Fragstorm/ScythingTalons NON migrés).
+
+⚠ **Stikkbomb (1051) ≠ ride gratuit** : son splash natif est `AdjacentUnits(target,1,3)` **sans** wrapper `Enemies`
+(≠ PlasmaGrenade qui a l'`Enemies(self, …)` explicite) → sémantique du param-3 team à RE d'abord (l'impératif assume
+`_adjacent_enemies_of` pour les deux, hypothèse à vérifier). Slice séparée.
+
+**Caster SUMMON-only** : `eldarSmnGuardian` n'est PAS dans le pool runner (comme votanIronmaster/GravitonRifle) → pas de
+cast live direct. **Validation = REPLAY-DIFF sur état LIVE** (`test_plasma_grenade_splash_live.py`, session 26) : l'arbre DSL
+(via `PlasmaGrenadeAbility.execute_behaviour`) reproduit BIT-EXACT l'ancien impératif `_splash_ability_behaviour` —
+**même set splash** (DSL hexgeo == impératif board `native_sym` sur board plat), **main per-coup** (`[562,570]==[562,570]`) +
+**splash per-coup par cible** (`79:[638]`, `81:[544]` identiques), sous le MÊME `state.rng` seedé. Le sélecteur
+`AdjacentEnemies` est par ailleurs CONFRONTÉ LIVE en slice-4 (CrushingClaws). Régression : `test_spirit_leech_combat_live`
++ `test_damage_crushingclaws_live` re-PASS (chemin mono-cible `multi=False` inchangé).

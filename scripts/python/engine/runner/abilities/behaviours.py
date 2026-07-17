@@ -26,7 +26,7 @@ Ce fichier ne contient QUE des `Entities.Behaviours` :
 """
 from __future__ import annotations
 
-from ...dsl.base import DslContext, TargetsSelector, resolve_unit
+from ...dsl.base import DslContext, TargetsSelector, resolve_unit, _units_of
 from ...dsl.effects import AbilityBehaviour, OperationResult
 from ..components import (OwnerComponent, PositionComponent, UnitComponent, StatsComponent,
                           HealthComponent)
@@ -237,35 +237,50 @@ class AttackWithAbilityDamage(AbilityBehaviour):
     `AActiveAbility.GetAttackDamage` SURCHARGE par-ability (le natif passe la node de degat calculee a
     `AttackWithAbilityDamage` — cf. `SpiritLeech.GetAttackDamage @181209dd0` = ConditionalAmount(cible Pinned
     -> +extraDmg)). Defaut None = degat generique `MinMaxDamage` (bornes config brutes) ; sinon le callable
-    ajuste (bmin,bmax) APRES `ability_attack_params`, AVANT le tirage per-coup."""
+    ajuste (bmin,bmax) APRES `ability_attack_params`, AVANT le tirage per-coup.
+
+    `multi` = mode MULTI-CIBLE (`AttackBehaviour.Execute @180fb91a0` : quand le `targets` natif est un
+    SELECTEUR resolvant N unites — le volet SPLASH de PlasmaGrenade/Stikkbomb/... `Enemies(caster,
+    AdjacentUnits(target,1))` — le behaviour resout la LISTE, l'`OrderBy` (b__5_0, cle scalaire par-unite =
+    ordre de lecture) puis attaque CHAQUE cible dans l'ordre). Port : `evaluate` -> liste, tri par `id`
+    (= ordre de lecture natif == l'ordre `sorted` de l'imperatif `_splash_ability_behaviour` -> bit-exact),
+    une attaque + un `emit` par cible. `multi=False` (defaut) = mono-cible `resolve_unit` (mirror du collapse
+    `Units(Cache(First(Nearest(...))))` -> la cible du message) : chemin INCHANGE pour ThunderousAssault/
+    CrushingClaws/SpiritLeech."""
     __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key",
-                 "damage_override")
+                 "damage_override", "multi")
 
     def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True,
                  min_key: str = "minDmg", max_key: str = "maxDmg", hits_key: str = "nrOfHits",
-                 damage_override=None):
+                 damage_override=None, multi: bool = False):
         self.target_sel, self.ability_id, self.profile, self.is_melee = target_sel, ability_id, profile, is_melee
         self.min_key, self.max_key, self.hits_key = min_key, max_key, hits_key
-        self.damage_override = damage_override
+        self.damage_override, self.multi = damage_override, multi
 
     def execute(self, entities, ectx):
         from ..operations.damage import AttackDamageOperation
         state = ectx.state
         caster = (entities.caster or {}).get("id")
-        tu = resolve_unit(self.target_sel, entities)
-        tgt = tu.get("id") if tu else None
-        if state is None or caster is None or tgt is None:
+        if state is None or caster is None:
             return OperationResult.ok()
-        bmin, bmax, pierce, hits = ability_attack_params(
-            state, caster, self.ability_id, self.profile, ranged=not self.is_melee,
-            min_key=self.min_key, max_key=self.max_key, hits_key=self.hits_key)
-        if self.damage_override is not None:               # GetAttackDamage surchargee (ex. SpiritLeech +extraDmg)
-            bmin, bmax = self.damage_override(state, caster, tgt, bmin, bmax)
-        atk = AttackDamageOperation.execute_ability_attack(
-            state, caster, tgt, bmin, bmax, pierce, hits,
-            damage_profile=self.profile, is_melee=self.is_melee)
-        ectx.emit("AttackWithAbilityDamage", caster=caster, target=tgt,
-                  total=(atk or {}).get("total"), attack=atk)
+        if self.multi:                                     # AttackBehaviour.Execute : selecteur -> N cibles
+            targets = sorted((u for u in _units_of(self.target_sel, entities) if (u or {}).get("id") is not None),
+                             key=lambda u: u.get("id"))     # OrderBy (b__5_0) = ordre de lecture == id
+        else:                                              # collapse mono-cible (cible du message)
+            tu = resolve_unit(self.target_sel, entities)
+            targets = [tu] if tu and tu.get("id") is not None else []
+        for tu in targets:
+            tgt = tu.get("id")
+            bmin, bmax, pierce, hits = ability_attack_params(
+                state, caster, self.ability_id, self.profile, ranged=not self.is_melee,
+                min_key=self.min_key, max_key=self.max_key, hits_key=self.hits_key)
+            if self.damage_override is not None:           # GetAttackDamage surchargee (ex. SpiritLeech +extraDmg)
+                bmin, bmax = self.damage_override(state, caster, tgt, bmin, bmax)
+            atk = AttackDamageOperation.execute_ability_attack(
+                state, caster, tgt, bmin, bmax, pierce, hits,
+                damage_profile=self.profile, is_melee=self.is_melee)
+            ectx.emit("AttackWithAbilityDamage", caster=caster, target=tgt,
+                      total=(atk or {}).get("total"), attack=atk)
         return OperationResult.ok()
 
 

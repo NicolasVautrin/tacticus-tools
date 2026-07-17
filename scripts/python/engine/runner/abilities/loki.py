@@ -208,6 +208,33 @@ def spirit_leech_tree() -> Seq:
     return op_add(op_add(attack, pin), heal)                                          # ((A + Pin) + Heal)
 
 
+def plasma_grenade_tree():
+    """Arbre de `PlasmaGrenadeAbility.ExecuteBehaviour @1811f99e0` (id 1098, eldarSmnGuardian — MIRROR du
+    DECOMPILE) :
+        Execute( op_Addition(
+            AttackWithAbilityDamage(caster, target, RandomAmount(minDmg=var0xc, maxDmg=var0xd), Plasma,
+                                    nrOfHits=GetNumberConstant(0x2f)),                        # [MAIN]
+            AttackWithAbilityDamage(caster, Enemies(caster, AdjacentUnits(target,1)), RandomAmount(MEME),
+                                    Plasma, nrOfHits_2=GetNumberConstant(0x32)) ) )           # [SPLASH]
+    Port : `op_add(main, splash)`. Le SPLASH natif passe un SELECTEUR MULTI-cible directement a UN
+    `AttackWithAbilityDamage` (PAS un `Foreach`) -> `AttackBehaviour.Execute @180fb91a0` resout la liste,
+    l'`OrderBy` puis attaque chaque cible : porte via `multi=True` (feuille `AttackWithAbilityDamage`, tri
+    par id = ordre de lecture natif). Selecteur splash = `Alive(AdjacentEnemies(TargetTile()))` = ennemis
+    VIVANTS du caster adjacents (hex) a la CIBLE (`AdjacentEnemies(<tuile>)` = ennemis-du-caster autour de
+    <tuile>, convention Harvester/CrushingClaws ; `Alive` = compense l'inclusion des cadavres offline, mirror
+    du fait que le natif `Units(AdjacentTiles)` n'a que les unites DEBOUT = vivantes, cf. `AllUnits`=alive
+    #202). La plage `RandomAmount(minDmg/maxDmg)` est PARTAGEE main/splash (memes cles config par defaut) ;
+    seule la constante de coups differe (nrOfHits vs nrOfHits_2 = 0x2f/0x32). Profil Plasma, ranged (range 2).
+    `op_Addition` = effets purs -> les deux volets s'executent ; plain `Execute` (PAS ExecuteAtomic). Bit-exact
+    BY CONSTRUCTION vs l'imperatif `_splash_ability_behaviour` (memes bornes/hits/profil, splash `sorted` par
+    id, meme `state.rng`). L'imperatif `PlasmaGrenadeAbility.execute_behaviour` est REMPLACE par cet arbre."""
+    tgt = Target()
+    main = AttackWithAbilityDamage(tgt, "PlasmaGrenade", "Plasma", is_melee=False)         # RandomAmount/Plasma/0x2f
+    splash = AttackWithAbilityDamage(Alive(AdjacentEnemies(TargetTile())), "PlasmaGrenade", "Plasma",
+                                     is_melee=False, hits_key="nrOfHits_2", multi=True)     # MEME plage, 0x32
+    return op_add(main, splash)
+
+
 def getemruntz_taunt_tree() -> If:
     """Corps `Func<entities,behaviour>` de `TauntWithNewChildrenWhoDidDamage @1811e27a0` (DECOMPILE) pour
     l'enfant COURANT (`Subject()`, pose par le `Foreach(Children)`) :
@@ -695,12 +722,21 @@ class ValkyrieStrikeAbility(ActiveAbility):
 
 
 class PlasmaGrenadeAbility(ActiveAbility):
-    """`PlasmaGrenadeAbility.ExecuteBehaviour` @1811f99e0 (id 1098, eldarSmnGuardian).
+    """`PlasmaGrenadeAbility.ExecuteBehaviour @1811f99e0` (id 1098, eldarSmnGuardian).
 
-    Séquence native : `AttackWithAttackDamage(actor, target, MinMaxDamage, Plasma, nrOfHits=2)` +
-    `Foreach(splash = Enemies(caster, AdjacentUnits(target))) AttackWithAttackDamage(actor, s, MÊME
-    MinMaxDamage, Plasma, nrOfHits_2=1)`. Splash = ennemis adjacents (hex) à la CIBLE (`_adjacent_enemies_of`),
-    plage de dégât PARTAGÉE (seul le nb de hits change). Ranged (range 2)."""
+    Séquence native (`+` = op_Addition, plain `Execute`) :
+        AttackWithAbilityDamage(actor, target, RandomAmount(minDmg/maxDmg), Plasma, nrOfHits=0x2f)   # principale
+      + AttackWithAbilityDamage(actor, Enemies(caster, AdjacentUnits(target,1)), MÊME RandomAmount,
+                                Plasma, nrOfHits_2=0x32)                                              # splash multi-cible
+    Splash = ennemis adjacents (hex) à la CIBLE, plage de dégât PARTAGÉE (seul le nb de hits change).
+    Ranged (range 2).
+
+    #149 slice-6 : `execute_behaviour` DÉLÈGUE à `plasma_grenade_tree()` (mirror 1:1 du décompilé). Le
+    SPLASH est un SEUL `AttackWithAbilityDamage(selecteur-multi)` (== le natif, PAS un `Foreach`) porté via
+    le mode `multi=True` de la feuille (`AttackBehaviour.Execute` résout la liste + `OrderBy` par id).
+    L'ancien `_splash_ability_behaviour`/`_adjacent_enemies_of` reste partagé par Stikkbomb/Fragstorm
+    (non encore migrés). Bit-exact BY CONSTRUCTION vs l'impératif (mêmes bornes/hits/profil, splash trié par
+    id, même `state.rng`)."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.PlasmaGrenade)  # 1098
     ABILITY_ID = "PlasmaGrenade"
@@ -709,10 +745,14 @@ class PlasmaGrenadeAbility(ActiveAbility):
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
             return None
-        splash = _adjacent_enemies_of(state, caster_id, target_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        plasma_grenade_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAbilityDamage"]
+        main = next((p["attack"] for p in atks if p.get("target") == target_id), None)
+        splash = [{"target": p["target"], "attack": p["attack"]}
+                  for p in atks if p.get("target") != target_id]      # cibles splash != cible principale
         return {"ability": "PlasmaGrenade", "caster": caster_id, "target": target_id,
-                **_splash_ability_behaviour(state, caster_id, target_id, self.ABILITY_ID,
-                                            "Plasma", ranged=True, splash_set=splash)}
+                "main_attack": main, "splash": splash, "dsl": True}
 
 
 class StikkbombAbility(ActiveAbility):
