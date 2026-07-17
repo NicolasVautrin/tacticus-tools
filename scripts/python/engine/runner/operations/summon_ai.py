@@ -112,8 +112,8 @@ def apply_action(state: State, uid: int, action: dict) -> dict:
 
 def _apply_active_ability(state: State, uid: int, target: Optional[int], ability: int) -> dict:
     """Apply d'une ability ACTIVE décidée (SLICE 2). Ordre : (1) port DÉDIÉ via le `AbilityHandler`
-    (CrushingClaws splash 1105, ScarabHive spawn 1007, ThunderousAssault 1043, GravitonRifle 1206 — sa
-    behaviour propre prime) ; sinon (2) attaque active SANS port dédié -> chemin GÉNÉRIQUE déjà porté
+    (CrushingClaws splash 1105, ScarabHive spawn 1007, ThunderousAssault 1043 — sa behaviour propre
+    prime) ; sinon (2) attaque active SANS port dédié -> chemin GÉNÉRIQUE déjà porté
     `execute_ability_attack` (mirror `AttackWithAttackDamage`), config résolue par `ability_attack_params` ;
     sinon (3) no-op (ability non-attaque non portée -> DÉCISION produite, EXÉCUTION offline manquante)."""
     from ..abilities.handler import AbilityHandler

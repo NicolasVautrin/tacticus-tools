@@ -10,8 +10,8 @@ Le SPLASH natif = UN SEUL `AttackWithAbilityDamage` avec un SELECTEUR MULTI-cibl
 attaque chaque cible. Porte via le mode `multi=True` de la feuille (tri par id = ordre de lecture natif ==
 l'ordre `sorted` de l'imperatif).
 
-Le caster natif (eldarSmnGuardian) est SUMMON-only (hors pool runner) -> PAS de cast live direct (meme cas
-que GravitonRifle : porte pour documenter le pattern, non castable live). On valide la MIGRATION par
+Le caster natif (eldarSmnGuardian) est SUMMON-only (hors pool runner) -> PAS de cast live direct
+(caster-agnostique : la config PlasmaGrenade est GLOBALE, scale par le level du caster). On valide la MIGRATION par
 REPLAY-DIFF sur un etat LIVE captured : l'arbre `plasma_grenade_tree()` (via `PlasmaGrenadeAbility.
 execute_behaviour`) doit reproduire BIT-EXACT l'ancien imperatif `_splash_ability_behaviour` (meme set splash,
 main + splash per-coup) sous le MEME `state.rng` seede. Le selecteur splash `AdjacentEnemies` est deja

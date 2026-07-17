@@ -714,6 +714,19 @@ d'ability) reproduit BIT-EXACT l'ancien impératif sur DEUX états indépendants
 composites), même source, même remaining, même parent**. Vérifie AUSSI le carve-out `None`→défaut (l'arbre passe
 `duration_rounds=None`). Régression : `test_damage_crushingclaws_live` (Taunt `AddBondEffect` `duration=1`) re-PASS.
 
-**Restant loki.py impératif** (post slice-9) : ScarabHive/ScarabSummon (Spawn), Stikkbomb (RE param-3 `AdjacentUnits`
-d'abord), Fragstorm (splash + `PickRandomly` RNG gap), GravitonRifle (votanIronmaster non-spawnable → non validable
-live) ; + tranche transverse DÉPLACEMENT (`PushUnit`/`KillDeadUnits`/`MoveUnit`).
+**GravitonRifle (1206, votanIronmaster) — SUPPRIMÉ** (décision user, post slice-9). Le carrier votanIronmaster
+n'est **pas** dans le pool du runner (non-spawnable) → GravitonRifle ne peut fire dans **aucun** runner → le port
+impératif n'était **jamais confrontable au live** (l'imperatif lui-même invérifiable, indépendamment d'une migration
+DSL). Un port qu'on ne peut pas valider contre l'oracle vivant = code spéculatif : **retiré** (`GravitonRifleAbility`
++ sa registration `ABILITY_CLASSES` + exports). Les mirrors d'enum (`ActiveAbilityType.GravitonRifle=1206`,
+`GravitonRifle_ExtraPierce=1484`, `enum_maps`) **restent** (les enums mirrorent TOUTES les valeurs natives, indépendam-
+ment du portage — convention #158). *Le tree natif (`Execute(op_Addition(AttackWithAttackDamage(target, MinMaxDamage,
+Physical, GetHits=3), AddEffect(0x48a Stunned, TurnsFromRounds(nrOfRounds=1))))` @1811e31a0 reste documenté ici pour
+mémoire ; il se re-porterait trivialement — même pattern que ThunderousAssault, feuilles existantes — SI un jour
+votanIronmaster devient jouable.*
+
+**Restant loki.py impératif** (post slice-9) : ScarabHive/ScarabSummon (Spawn — gros slice : chaîne de sélecteurs
+`AdjacentTiles(target)→CanAddUnit→SortByDistance(caster)→First(N)→Cache` + `SpawnUnitOptions.WithStatsFromConfig` +
+on-appearance `UseNormalAttackIfAble` + `AddEffect(0x4a3 OverrideDamageProfile)`), Stikkbomb (**BLOQUÉ** : RE team-filter
+`AdjacentUnits(target,1,3)` — mur gshared, live confront requis, tâche #213), Fragstorm (splash + `PickRandomly` RNG gap) ;
++ tranche transverse DÉPLACEMENT (`PushUnit`/`KillDeadUnits`/`MoveUnit`).

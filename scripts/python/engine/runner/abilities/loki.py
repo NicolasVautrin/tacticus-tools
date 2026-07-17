@@ -10,8 +10,7 @@ from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
-from .base import ActiveAbility, turns_from_rounds, ability_attack_params
-from ..operations.effects import AddEffectOperation
+from .base import ActiveAbility, ability_attack_params
 from ..operations.damage import AttackDamageOperation
 from ..operations.spawn import SpawnUnitOperation
 from ..components import StatsComponent, OwnerComponent, PositionComponent, UnitComponent
@@ -929,32 +928,3 @@ class ScythingTalonsAbility(ActiveAbility):
                   for p in atks if p.get("target") != target_id]      # cibles splash != cible principale
         return {"ability": "ScythingTalons", "caster": caster_id, "target": target_id,
                 "main_attack": main, "splash": splash, "dsl": True}
-
-
-class GravitonRifleAbility(ActiveAbility):
-    """`GravitonRifleAbility.ExecuteBehaviour` @1811e31a0 (id 1206, votanIronmaster).
-
-    Séquence native (`+` = op_Addition) :
-        AttackWithAttackDamage(target, 3x Physical, +extraPierce vs Gravis/Terminator/Mechanical)  # [TODO]
-      + AddEffect(0x48a Stunned, source=casterStateRef, TurnsFromRounds(GetNumberConstant 0x45 = nrOfRounds=1))
-    MÊME pattern AddEffect que ThunderousAssault. ⚠ votanIronmaster N'EST PAS dans le pool du runner
-    (non spawnable) → cette ability n'est PAS validée live ; portée pour documenter le pattern partagé."""
-    __slots__ = ()
-    ABILITY_TYPE = int(ActiveAbilityType.GravitonRifle)  # 1206
-
-    def execute_behaviour(self, state: "State", caster_id: int,
-                          target_id: Optional[int]) -> Optional[dict]:
-        atk = None
-        if target_id is not None:
-            # [attaque] 3x Physical (range 2). ⚠ extraPierceRatio CONDITIONNEL (+40% vs Gravis/Terminator/
-            # Mechanical) NON modélisé ici (TODO : gate sur le type de cible) ; pierce de base sinon.
-            bmin, bmax, pierce, hits = ability_attack_params(
-                state, caster_id, "GravitonRifle", "Physical", ranged=True)
-            atk = AttackDamageOperation.execute_ability_attack(
-                state, caster_id, target_id, bmin, bmax, pierce, hits,
-                damage_profile="Physical", is_melee=False)
-            # [AddEffect] Stunned 1162, durée = TurnsFromRounds(nrOfRounds=1) :
-            AddEffectOperation.execute(state, source=caster_id, target=target_id,
-                                       effect_type=STUNNED, name="Stunned",
-                                       duration_override=turns_from_rounds(1))
-        return {"attack": atk}

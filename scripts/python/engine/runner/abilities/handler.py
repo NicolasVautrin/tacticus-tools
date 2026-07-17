@@ -12,7 +12,7 @@ from typing import Optional
 
 from ..state import State
 from .base import ActiveAbility
-from .loki import (ThunderousAssaultAbility, GravitonRifleAbility, ScarabHiveAbility,
+from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
                    ScarabSummonAbility, GetEmRuntzAbility, CrushingClawsAbility, ValkyrieStrikeAbility,
                    PlasmaGrenadeAbility, StikkbombAbility, FragstormAbility, ScythingTalonsAbility,
                    SpiritLeechAbility, ArmoriumCherubAbility)
@@ -20,7 +20,6 @@ from .loki import (ThunderousAssaultAbility, GravitonRifleAbility, ScarabHiveAbi
 # Registre ActiveAbilityType (int) -> classe d'ability portée. À ÉTENDRE au roster.
 ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     ThunderousAssaultAbility.ABILITY_TYPE: ThunderousAssaultAbility,   # 1043 (validé live)
-    GravitonRifleAbility.ABILITY_TYPE: GravitonRifleAbility,           # 1206 (pattern documenté)
     ScarabHiveAbility.ABILITY_TYPE: ScarabHiveAbility,                 # 1007 ScarabHive (summoner necroSpyder, validé live)
     ScarabSummonAbility.ABILITY_TYPE: ScarabSummonAbility,             # 1047 ScarabSummon (auto-dédoublement du scarab)
     GetEmRuntzAbility.ABILITY_TYPE: GetEmRuntzAbility,                 # 1045 GetEmRuntz (summoner orksRuntherd -> grots)
