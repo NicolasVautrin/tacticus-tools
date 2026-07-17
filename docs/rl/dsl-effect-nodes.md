@@ -128,7 +128,7 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
 | ~~Psyker Smite~~ | `@1812241b0` | `AttackWithAttackDamage(Target(), PercentageOf(StatAmount(Self@0x148,Attack), Direct(psykerExtraDmg)), Psychic, hits=1)` | — (slice-18 ✅ : PRIMITIF damage-node introduit — feuille `AttackWithAbilityDamage` param `amount`/`hits` (mode formule → `execute_normal_like(base, spread=0)`) + wiring `entities_from_state.get_stat` (StatAmount lit la vraie stat via StatsComponent) + helper partagé `profile_pierce`. Sélecteur `PickRandomly(Damageable(Enemies(AdjacentUnits)))` reste impératif → collapse `Target()`, DSL-ification = #216) | ✅ |
 | TheBetrayer_TakeTurn | `@1811a4f70` | `If(Amount>0(target), Inform & If(NOT IsAdjacent, MoveUnit(chosenTile)) & If(IsAdjacent, GetDamageBehaviour(target)))` — `target=Cache(GetAttackTarget)`, `chosenTile=First(SortByFormula(SortTilesByUtility(AdjacentTiles(target)&movable .Otherwise movable), MinPathLength, asc))`. **GetDamageBehaviour** `@18119c1e0` = `AttackWithAttackDamage(Self, target, MinMaxDamage, profile 0x19, GetHits)` = feuille DÉJÀ portée (PAS `UseActiveAbility`). `MoveUnit` ✅ (slice-21b, généralise dest_tile_sel). RESTE : sélecteurs AI/pathfinding LOURDS (S) `GetAttackTarget @1811a53a0`, `MovableTilesInRange`, `SortTilesByUtility`, `MinPathLength`, `Otherwise`, `IsAdjacent`, `Inform`, `Direct`, `GetVariableForLevel(0x53)` | **3** |
 | ~~FinalJustice~~ | `@18121ed00` | `Inform & If(Count(validTargets)>0 & NOT TargetIsOverkilled, UseActiveAbility(Self, SortUnitsByDamageUtility(ValidNormalAttackTargets), UnitNormalAttackType))` | — (**slice-22 ✅** : feuille NEUVE `UseActiveAbility` (`@180e015e0` → `UseActiveAbilityBehaviour.Execute @180fd9930` : itère targets → dispatch récursif de l'ability sur chaque cible ; specialisée au dispatch attaque-normale = `AttackDamageOperation.execute`, == le corps impératif validé → bit-exact). AI-target `SortUnitsByDamageUtility` (S lourd) **collapsé** en `Target()` (reste impératif `_finaljustice_target`, doctrine slice-18/19). Gate `Count>0 & NOT overkill` + `Inform` déjà dans `matches()`. `_finaljustice_attack` migré en arbre) | ✅ |
-| ArcaneShield | `@180e16b40` | grant shield → allié AI-choisi | feuille `Grant`/shield + sélecteur AI-target (S) | **3** |
+| ~~ArcaneShield~~ | `@180e16b40` | `CreateShield(Cache(First(SortByFormula(Randomize(UnitsWithoutTrait(SurroundingFriends(self,range),0x1b)) .Otherwise self, Sum(dist,faction,chaos,not-self)))), ConfigVar(0x27=shieldHp), self.Id, TurnsFromRounds(1))` | — (**slice-23 ✅** : feuille NEUVE `CreateShield` (`@180ded000` → `CreateShieldBehaviour.Execute @180fc2650` : par cible → `ShieldComponent.add_or_update_shield`, == corps impératif → bit-exact). AI-target LOURD (S : SurroundingFriends→UnitsWithoutTrait→Randomize→SortByFormula→First) **collapsé** en `Target()` (`_arcaneshield_target`) ; montant `ConfigVar(0x27=shieldHp)` (formule V) calculé impérativement (`ability_var`) → scalaire. `_arcaneshield_grant` migré ; test NEUF `test_arcaneshield_live` (allié in-range + fallback soi)) | ✅ |
 
 > ⚠ Les VA proviennent des docstrings du port (RE antérieure citée). FireOfAbsolution (slice-14),
 > OnFireDamage + TheBetrayer_AddEffect + ActOfFaith accumulate/reset (slice-15 RE) sont décompilés frais. Les
@@ -244,14 +244,15 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
     confirmer live 1-vs-2 — porté à 1 hex `_PUSH_MAX_DIST=1`), steppable-crush, knockback-DAMAGE
     (`ApplyKnockbackTo @180e67fc0`, peut tuer → death-triggers), fall-damage d'élévation, cascade after-move
     flag-driven du move (overwatch-charge).
-- **Groupe 3 — EN COURS** : ~~FinalJustice~~ (**slice-22 ✅** : feuille NEUVE `UseActiveAbility` = dispatch
-  récursif d'ability, spécialisée attaque-normale — cf. ci-dessous) · TheBetrayer_TakeTurn + ArcaneShield =
-  RESTE. Les DEUX sont gatés sur des **sélecteurs AI/pathfinding LOURDS** (kind S, chevauchent le playbook),
-  PAS sur une feuille manquante : TheBetrayer_TakeTurn a ses deux moitiés portables (attaque =
-  `GetDamageBehaviour @18119c1e0` = `AttackWithAttackDamage` ✅ ; move = `MoveUnit` ✅) mais son choix de
-  cible/tuile exige `GetAttackTarget`/`MovableTilesInRange`/`SortTilesByUtility`/`MinPathLength`/`Otherwise`/
-  `IsAdjacent`/`Inform` (S/pathfinding). ArcaneShield exige une feuille `Grant`/shield + un AI-target (S).
-  ⇒ le prochain jalon Groupe 3 = **DSL-ifier les sélecteurs AI-target** (S-family, task), pas des feuilles E.
+- **Groupe 3 — feuilles E ✅, reste 1 ability bloquée sur les sélecteurs S** : ~~FinalJustice~~ (**slice-22 ✅** :
+  feuille NEUVE `UseActiveAbility` = dispatch récursif d'ability, spécialisée attaque-normale — cf. ci-dessous) ·
+  ~~ArcaneShield~~ (**slice-23 ✅** : feuille NEUVE `CreateShield` — cf. ci-dessous). **RESTE : TheBetrayer_TakeTurn**,
+  gaté non sur une feuille E (ses deux moitiés sont portables : attaque = `GetDamageBehaviour @18119c1e0` =
+  `AttackWithAttackDamage` ✅ ; move = `MoveUnit` ✅) mais sur des **sélecteurs AI/pathfinding LOURDS** (kind S,
+  chevauchent le playbook) `GetAttackTarget`/`MovableTilesInRange`/`SortTilesByUtility`/`MinPathLength`/`Otherwise`/
+  `IsAdjacent`/`Inform`. ⇒ **toutes les feuilles E de #149 sont portées** ; le prochain jalon (TheBetrayer_TakeTurn
+  + raffinements DSL) = **DSL-ifier les sélecteurs AI-target** (S-family) — axe SÉPARÉ de #149 (cf. « Axes SÉPARÉS »
+  ci-dessus), à décider comme chantier propre.
 
   > **PRIMITIF `UseActiveAbility` (slice-22, RE `@180fd9930` décompile frais)** — dispatch RÉCURSIF d'ability :
   > `UseActiveAbilityBehaviour.Execute` itère le sélecteur de cibles (+0x58) et pour chaque cible ré-émet une
@@ -268,6 +269,18 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
   > (`_adjacent_enemies` base.py ; `_finaljustice_target`/`_normal_attack_health_range`/`_damage_utility_weights`
   > loki.py) NON re-exportés dans `__init__.py` → `test_finaljustice_live` rouge (avant même le behaviour).
   > Re-export complété (cohérent avec les autres helpers privés déjà exposés). 0 régression (5 tests verts).
+
+  > **PRIMITIF `CreateShield` (slice-23, RE `@180fc2650` décompile frais)** — feuille de bouclier :
+  > `CreateShieldBehaviour.Execute` itère le sélecteur de cibles (+0x50), évalue le montant-formule (+0x58) et
+  > pour chaque cible émet une Operation « create-shield » (montant + durée + options) → chez nous
+  > `ShieldComponent.add_or_update_shield(amount, source, remaining)` (cumule same-source/same-durée). Seul usage
+  > (ArcaneShield) : `CreateShield(<AI-target>, ConfigVar(0x27=shieldHp), self.Id, TurnsFromRounds(1))`. Le
+  > sélecteur AI-target (S lourd : `SurroundingFriends → UnitsWithoutTrait(0x1b) → Randomize → SortByFormula(
+  > faction+distance+not-self) → First → Cache`) reste IMPÉRATIF (`_arcaneshield_target`) **collapsé en `Target()`**,
+  > et le montant `ConfigVar(0x27)` (formule V) calculé impérativement (`ability_var`) → SCALAIRE (même double
+  > collapse S+V que FinalJustice, doctrine slice-18/19). `_arcaneshield_grant` migré ; bit-exact par construction
+  > (même `add_or_update_shield`). Test NEUF `test_arcaneshield_live` (allié in-range → bouclier sur l'allié ;
+  > allié mort → fallback soi). 0 régression (3 tests verts).
 
 ## Verdict RE #149 slice-2 (re-expert, PROUVÉ ghidra gqfc5mff6c) — WALKER + combinateurs + arbre GetEmRuntz
 

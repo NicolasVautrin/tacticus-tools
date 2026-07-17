@@ -1026,8 +1026,16 @@ def _arcaneshield_target(state: State, owner_id: int) -> int:
 
 
 def _arcaneshield_grant(state: State, owner_id: int) -> Optional[dict]:
-    """Behaviour ArcaneShield : amount = `shieldHp[passive_level] × mult%`, durée 1 round, sur la cible
-    (`_arcaneshield_target`) → `ShieldComponent.add_or_update_shield`. No-op si stats/amount absents."""
+    """Behaviour ArcaneShield (CreateBehaviour@180e16b40), MIGRÉ en ARBRE DSL (#149 slice-23) :
+    `CreateShield(<best>, ConfigVar(0x27=shieldHp), self.Id, TurnsFromRounds(1))`. Le montant
+    `shieldHp[passive_level] × mult%` (formule V `ConfigVar`) est calculé IMPÉRATIVEMENT (`ability_var`)
+    et passé comme scalaire ; le sélecteur AI-target LOURD (S) reste `_arcaneshield_target`, COLLAPSÉ en
+    `Target()` (== FinalJustice, doctrine slice-18/19). Bit-exact vs l'ancien corps impératif BY
+    CONSTRUCTION : la feuille `CreateShield` appelle le MÊME `ShieldComponent.add_or_update_shield(amount,
+    "ArcaneShield", remaining=1)`. No-op si amount<=0 (stats/config absents)."""
+    from ...abilities.behaviours import CreateShield, entities_from_state
+    from ....dsl.effects import ExecutionContext
+    from ....entities.selectors import Target
     from ....entities.effects.magnitude import ability_var
     owner = state.get_entity(owner_id)
     sc = owner.get_component(StatsComponent) if owner is not None else None
@@ -1039,13 +1047,13 @@ def _arcaneshield_grant(state: State, owner_id: int) -> Optional[dict]:
     if amount <= 0:
         return None
     target = _arcaneshield_target(state, owner_id)
-    te = state.get_entity(target)
-    if te is None:
+    if state.get_entity(target) is None:
         return None
-    shc = te.get_component(ShieldComponent)
-    if shc is None:
-        shc = ShieldComponent()
-        te.add_component(shc)
-    shc.add_or_update_shield(amount, source="ArcaneShield", remaining=1)   # TurnsFromRounds(1)
+    ectx = ExecutionContext(state=state, rng=state.rng)
+    CreateShield(Target(), amount, duration=1, source="ArcaneShield").execute(   # TurnsFromRounds(1)
+        entities_from_state(state, owner_id, target), ectx)
+    p = next((p for (n, p) in ectx.emitted if n == "CreateShield"), None)
+    if p is None:
+        return None
     return {"ability": "ArcaneShield", "owner": owner_id, "target": target, "amount": amount,
-            "remaining": 1, "shield_total": shc.get_total_shield()}
+            "remaining": 1, "shield_total": p.get("shield_total")}

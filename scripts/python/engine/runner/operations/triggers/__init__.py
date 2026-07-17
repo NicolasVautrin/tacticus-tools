@@ -23,6 +23,7 @@ from .loki import (
     THEBETRAYER_EFFECT, ACTOFFAITH_EFFECT,
     _add_betrayer_effect, _reset_act_of_faith,
     _finaljustice_target, _normal_attack_health_range, _damage_utility_weights,
+    _arcaneshield_grant, _arcaneshield_target,
 )
 from .tiles import first_aid_heal, dry_bush_fire_spread
 
@@ -38,4 +39,5 @@ __all__ = [
     "THEBETRAYER_EFFECT", "ACTOFFAITH_EFFECT",
     "_add_betrayer_effect", "_reset_act_of_faith",
     "_finaljustice_target", "_normal_attack_health_range", "_damage_utility_weights",
+    "_arcaneshield_grant", "_arcaneshield_target",
 ]

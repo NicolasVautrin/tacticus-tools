@@ -912,3 +912,56 @@ class UseActiveAbility(AbilityBehaviour):
             res = AttackDamageOperation.execute(state, sid, tid, self.spread_pct)  # dispatch attaque normale
             ectx.emit("UseActiveAbility", subject=sid, target=tid, attack=res)
         return OperationResult.ok()
+
+
+class CreateShield(AbilityBehaviour):
+    """`DSLFactory.CreateShield @180ded000` -> `CreateShieldBehaviour.Execute @180fc2650` : pour CHAQUE cible
+    du selecteur `target_sel` (+0x50), accorde/rafraichit un bouclier de `amount` (formule +0x58, scalaire)
+    duree `duration` rounds via `ShieldComponent.add_or_update_shield` (cumule meme-source/meme-duree, sinon
+    nouvelle instance ; no-op si amount<=0). Options +0x60..+0x88 (2e amount Nullable +0x78, flags) non
+    portees (aucun usage Groupe 3). `source` = `AbilityOrEffect(self.Id)` natif (attribution / stack same-source).
+
+    Seul usage porte (Groupe 3) : ArcaneShield `CreateShield(Cache(First(SortByFormula(Randomize(Units
+    WithoutTrait(SurroundingFriends(self,range),0x1b)) .Otherwise self, Sum(dist,faction,chaos,not-self),
+    asc))), ConfigVar(0x27=shieldHp), self.Id, TurnsFromRounds(1))` = Thaumachus accorde un bouclier 1 round
+    a l'ami prefere (faction > distance > pas-soi) sinon soi. Le selecteur AI-target LOURD (kind S :
+    SurroundingFriends -> UnitsWithoutTrait -> Randomize -> SortByFormula -> First) reste IMPERATIF
+    (`_arcaneshield_target`) et est COLLAPSE en `Target()` ; le montant `ConfigVar(0x27)` (formule V,
+    `shieldHp[level] x mult%`) est calcule IMPERATIVEMENT (`ability_var`) et passe comme SCALAIRE -- meme
+    collapse que FinalJustice (doctrine slice-18/19). DSL-ification du selecteur AI + de la formule ConfigVar
+    = taches S/V (flaggees).
+
+    `amount` = scalaire (int) OU noeud-formule (`.evaluate(entities)`). `duration` = rounds restants
+    (ArcaneShield=1 ; None=permanent). `source` = etiquette de source (stack same-source). Itere les cibles
+    triees par id (ordre de lecture natif). Emet 'CreateShield' par cible. PUR (non court-circuitant)."""
+    __slots__ = ("target_sel", "amount", "duration", "source")
+
+    def __init__(self, target_sel: TargetsSelector, amount, duration=None, source=None):
+        self.target_sel = target_sel
+        self.amount = amount
+        self.duration = duration
+        self.source = source
+
+    def execute(self, entities, ectx):
+        from ..components import ShieldComponent
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        amt = int(self.amount.evaluate(entities)) if hasattr(self.amount, "evaluate") else int(self.amount)
+        if amt <= 0:                                     # no-op (mirror add_or_update_shield amount<=0)
+            return OperationResult.ok()
+        targets = [u for u in _units_of(self.target_sel, entities)
+                   if isinstance(u, dict) and u.get("id") is not None]
+        for tu in sorted(targets, key=lambda x: x["id"]):    # ordre de lecture = id
+            tid = tu["id"]
+            te = state.get_entity(tid)
+            if te is None:
+                continue
+            shc = te.get_component(ShieldComponent)
+            if shc is None:
+                shc = ShieldComponent()
+                te.add_component(shc)
+            shc.add_or_update_shield(amt, source=self.source, remaining=self.duration)
+            ectx.emit("CreateShield", target=tid, amount=amt, remaining=self.duration,
+                      shield_total=shc.get_total_shield())
+        return OperationResult.ok()
