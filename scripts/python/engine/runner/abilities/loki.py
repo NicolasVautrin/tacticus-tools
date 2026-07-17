@@ -13,7 +13,6 @@ from typing import Optional, TYPE_CHECKING
 from .base import ActiveAbility, turns_from_rounds, ability_attack_params
 from ..operations.effects import AddEffectOperation
 from ..operations.damage import AttackDamageOperation
-from ..operations.heal import HealUnitOperation
 from ..operations.spawn import SpawnUnitOperation
 from ..components import StatsComponent, OwnerComponent, PositionComponent, UnitComponent
 from ...entities.stats import StatType
@@ -24,16 +23,19 @@ from ...entities.active_ability_type import ActiveAbilityType  # #158 : ABILITY_
 #     `Formulas` → entities/selectors.py + formulas.py), et les FEUILLES runner-couplées (`Entities.Behaviours`
 #     liées aux Operations → runner/abilities/behaviours.py). Les arbres eux-mêmes (SPÉCIFIQUES à chaque
 #     ability) vivent ICI, dans le mirror de `Abilities.Active.Loki`.
-from ...dsl.base import Const
+from fractions import Fraction
+
+from ...dsl.base import Const, _round_fix64
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import Seq, Foreach, If, AtomicGroup, op_add, op_and
 from ...entities.selectors import (Cache, Target, Subject, get_spawn_tile_selector, Children,
                                    LastUnitAttackedBy, Caster, CasterTile, TargetTile, AdjacentEnemies,
-                                   And, UnitsWithoutTrait)
+                                   And, UnitsWithoutTrait, Union, UnitsFromFaction, AdjacentFriends, Alive)
 from ...entities.formulas import TotalAttacksMade, UnitTurnsStarted
 from ...entities.triggers import AmountIsGreaterThanZero, AmountIsEqual, IsAlive, TriggerAnd
 from ...entities.traits.unit_trait import UnitTrait
-from .behaviours import (Spawn, PerformAIAttack, AddBondEffect, AttackWithAbilityDamage, AddEffect,
+from ...entities.effects.magnitude import ability_var
+from .behaviours import (Spawn, PerformAIAttack, AddBondEffect, AttackWithAbilityDamage, AddEffect, Heal,
                          entities_from_state)
 
 if TYPE_CHECKING:
@@ -124,6 +126,86 @@ def crushing_claws_tree() -> AtomicGroup:
     return AtomicGroup(op_add(
         op_add(op_add(taunt, pin), main),                                             # ((taunt+pin)+main)
         Foreach(splash, crushing_claws_splash_tree())))                               # + foreach(splash)
+
+
+def spirit_leech_get_attack_damage(state, caster_id, target_id, bmin, bmax):
+    """`SpiritLeechAbility.GetAttackDamage @181209dd0` (COMBAT, param_3=0), MIRROR du DECOMPILE :
+        ConditionalAmount( NOT HasEffect(target, Pinned 0x429), MinMaxDamage, MinMaxDamage + extraDmg )
+    = si la cible est DEJA Pinned/« Suppressed » -> base + `extraDmg` (ConfigVar 8) ; sinon base seule.
+    Le bonus est FLAT sur les 2 bornes AVANT le tirage per-coup. `extraDmg` est DANS
+    `variablesAffectedByRarityBonus` -> multiplier = `AbilityVariablesMultiplierPercentage` du caster
+    (contrairement a `hpToHealPct`, brut). Passe en `damage_override` a `AttackWithAbilityDamage` (le natif
+    passe cette node de degat a l'attaque). L'etat Pinned lu est celui d'AVANT le Pin de CE cast (l'attaque
+    s'execute avant l'AddEffect Pinned dans l'arbre)."""
+    eff = state.effects
+    if eff is None or not eff.has_effect(target_id, effect_type=PINNED):
+        return bmin, bmax
+    ce = state.get_entity(caster_id)
+    sc = ce.get_component(StatsComponent) if ce is not None else None
+    ctx = sc.ctx if sc is not None else None
+    level = getattr(ctx, "active_ability_level", 0) if ctx is not None else 0
+    mult = int(getattr(ctx, "ability_variables_multiplier", 100) or 100) if ctx is not None else 100
+    extra = int(ability_var("SpiritLeech", "extraDmg", level, multiplier_pct=mult) or 0)
+    return bmin + extra, bmax + extra
+
+
+def spirit_leech_heal_amount(entities, ectx):
+    """`SpiritLeechAbility.GetHealAmountForExecution @181209f00`, MIRROR du DECOMPILE :
+        PercentageOf( LastAttackDamageMade(self), ConfigVar 0x4b = hpToHealPct )
+    `LastAttackDamageMade` = total (degat SANTE) de la DERNIERE `AttackWithAbilityDamage` emise (lu dans
+    `ectx.emitted` = le seul volet d'attaque de SpiritLeech). `hpToHealPct` est HORS
+    `variablesAffectedByRarityBonus` -> valeur brute par niveau (multiplier 100). `PercentageOf` natif passe
+    `mode=1` = CEILING (`_round_fix64`, node canonique `entities/formulas.py`) : `ceil(total x pct/100)`
+    (== `PercentageOf.Calculate`) — l'ancien imperatif tronquait (`int`), corrige ici au decompile."""
+    total = 0
+    for name, p in ectx.emitted:
+        if name == "AttackWithAbilityDamage":
+            total = int(p.get("total") or 0)                # LastAttackDamageMade (derniere attaque du caster)
+    if total <= 0:
+        return 0
+    caster = (entities.caster or {}).get("id")
+    ce = ectx.state.get_entity(caster) if (ectx.state is not None and caster is not None) else None
+    sc = ce.get_component(StatsComponent) if ce is not None else None
+    level = getattr(sc.ctx, "active_ability_level", 0) if sc is not None else 0
+    pct = int(ability_var("SpiritLeech", "hpToHealPct", level, multiplier_pct=100) or 0)
+    return _round_fix64(Fraction(total * pct, 100), 1)      # PercentageOf(..., mode=1) = Ceiling (Fix64)
+
+
+def spirit_leech_heal_targets() -> Union:
+    """`SpiritLeechAbility.GetHealTargets @18120a1e0`, MIRROR du DECOMPILE :
+        op_Addition( Self, UnitsFromFaction(Friends(self, AdjacentUnits(self,1)), 0xc=Tyranids) )
+    = le CASTER (`Self`, SANS gate faction) UNION les allies VIVANTS de faction Tyranids adjacents (hex 1).
+    Port : `Union(Caster(), UnitsFromFaction(Alive(AdjacentFriends(CasterTile())), "Tyranids"))`.
+    `AdjacentFriends` (referent = caster) = `Friends(self, AdjacentUnits(self,1))` (allies du caster
+    adjacents, self exclu via `_within` d>0) ; `Alive` mirror le filtre `Units`(=sur tuile, vivant) natif ;
+    `UnitsFromFaction` filtre `FactionId=="Tyranids"` (0xc, `Enum.ToString(UnitFaction)`). `CasterTile` =
+    tuile reelle du caster (runner : `caster_pos` None -> position courante = owner)."""
+    return Union(Caster(),
+                 UnitsFromFaction(Alive(AdjacentFriends(CasterTile())), "Tyranids"))
+
+
+def spirit_leech_tree() -> Seq:
+    """Arbre de `SpiritLeechAbility.ExecuteBehaviour @181209900` (id 1104, tyranNeurothrope — MIRROR du
+    DECOMPILE) :
+        Execute( op_Addition( op_Addition( op_Addition(
+            AttackWithAbilityDamage(self, target, GetAttackDamage, Psychic, nrOfHits=0x2f=1),   # [A] attaque
+            SetCache(PercentageOf(LastAttackDamageMade, ConfigVar 0x4b hpToHealPct)) ),          # [heal amt]
+            AddEffect(0x429 Pinned, target, DEFAUT) ),                                           # [Pin] cible
+            Heal(self, GetHealTargets, cachedHealAmount) ) )                                     # [Heal] lifesteal
+    Port (`Seq`/`op_add`) : Attack (degat = `GetAttackDamage` via `damage_override`) -> Pin -> Heal.
+    Le noeud `SetCache` (memoisation du montant de heal) est FOLD dans `spirit_leech_heal_amount` (le `Heal`
+    lit le total de la derniere attaque dans `ectx.emitted` = `LastAttackDamageMade`) : plumbing pur, sans
+    effet observable dans l'executeur eager (meme reduction que `Cache`/#201/#202 — l'ordre A->Pin->Heal
+    rend la MEME valeur : le Pin n'affecte pas le degat DEJA inflige, et le heal cible Self+allies pas la
+    cible). PAS d'`AtomicGroup` (natif = `Execute`, PAS `ExecuteAtomic`). Aucun `KillDeadUnits`/`MoveUnit`
+    dans ce natif. Bit-exact BY CONSTRUCTION (memes Operations/args/`state.rng` que l'imperatif).
+    L'imperatif `SpiritLeechAbility.execute_behaviour` est REMPLACE par l'execution de cet arbre."""
+    tgt = Target()
+    attack = AttackWithAbilityDamage(tgt, "SpiritLeech", "Psychic", is_melee=False,   # ranged (range 3), nrOfHits=0x2f=1
+                                     damage_override=spirit_leech_get_attack_damage)  # GetAttackDamage (+extraDmg si Pinned)
+    pin = AddEffect(PINNED, "Pinned", tgt, None)                                      # AddEffect(0x429), duree DEFAUT
+    heal = Heal(spirit_leech_heal_targets(), spirit_leech_heal_amount)                # lifesteal (Self + Tyranids adj)
+    return op_add(op_add(attack, pin), heal)                                          # ((A + Pin) + Heal)
 
 
 def getemruntz_taunt_tree() -> If:
@@ -464,45 +546,6 @@ def _adjacent_enemies_of(state: "State", caster_id: int, target_id: int) -> list
     return sorted(out)
 
 
-def _adjacent_tyranid_allies(state: "State", self_id: int) -> list[int]:
-    """Volet ADJACENT de `SpiritLeechAbility.GetHealTargets @18120a1e0` :
-    `UnitsFromFaction(Friends(self, AdjacentUnits(self, range=1)), faction 0xc=12=Tyranids)` = amis
-    (MEME team) VIVANTS de `self_id`, ADJACENTS (hex range 1, `board.neighbours`), de faction Tyranids.
-    (`self` est ajoute SEPAREMENT par l'appelant via `op_Addition(Self, ...)`, sans gate faction.)
-    Reutilise `_faction` (resolution FactionId gameconfig deja portee cote decision, PAS de fork).
-    Sans board -> [] (no-op fidele). Ordre deterministe (tie-break id)."""
-    from ...ai.action_generators import _faction
-    board = state.board
-    e = state.get_entity(self_id)
-    if board is None or e is None:
-        return []
-    pc = e.get_component(PositionComponent)
-    oc = e.get_component(OwnerComponent)
-    if pc is None or oc is None:
-        return []
-    tile = board.id_at(pc.col, pc.row)
-    if tile is None:
-        return []
-    neigh = set(board.neighbours(tile))
-    out: list[int] = []
-    for eid, o in state.entities.items():
-        if eid == self_id:
-            continue
-        ooc = o.get_component(OwnerComponent)
-        ouc = o.get_component(UnitComponent)
-        opc = o.get_component(PositionComponent)
-        if ooc is None or opc is None or ooc.team != oc.team:     # amis (meme team) uniquement
-            continue
-        if ouc is not None and not ouc.alive:                     # vivants
-            continue
-        if board.id_at(opc.col, opc.row) not in neigh:            # adjacent (hex range 1)
-            continue
-        if ouc is None or _faction(ouc.visual_id) != "Tyranids":  # faction 0xc=12=Tyranids
-            continue
-        out.append(eid)
-    return sorted(out)
-
-
 def _pick_randomly_n(state: "State", items: list, n: int) -> list:
     """`PickRandomly(items, n)` — n éléments DISTINCTS (extension de `_pick_randomly` spawn.py à n). len<=n
     → tous (le natif ne roll pas quand le set tient). Sinon tire n index SANS REMISE via `next_internal`
@@ -579,22 +622,24 @@ class CrushingClawsAbility(ActiveAbility):
 
 
 class SpiritLeechAbility(ActiveAbility):
-    """`SpiritLeechAbility.ExecuteBehaviour @181209900` (id 1104, tyranNeurothrope).
+    """`SpiritLeechAbility.ExecuteBehaviour @181209900` (id 1104, tyranNeurothrope — MIRROR du DECOMPILE) :
+        Execute( op_Addition( op_Addition( op_Addition(
+            AttackWithAbilityDamage(self, target, GetAttackDamage, Psychic, nrOfHits=0x2f=1),   # attaque
+            SetCache(PercentageOf(LastAttackDamageMade, ConfigVar 0x4b hpToHealPct)) ),          # montant heal
+            AddEffect(0x429 Pinned, target, DEFAUT) ),                                           # « Suppressed » cible
+            Heal(self, GetHealTargets, cachedHealAmount) ) )                                     # lifesteal
 
-    Sequence native (`&`/`+` = compositions de behaviour) :
-        AttackWithAbilityDamage(target, GetAttackDamage(combat), profile=Psychic, nrOfHits=const 0x2f=1)  # attaque
-      & AddEffect(0x429=1065 Pinned, target)                                     # « Suppressed » cible
-      & Heal(Friends(self) + AdjacentUnits(self,1) faction Tyranids,
-             PercentageOf(LastAttackDamageMade, hpToHealPct=ConfigVar 0x4b=60%))  # lifesteal  [DIFFERE, tache #94]
+    `GetAttackDamage @181209dd0` COMBAT (param_3=0) = `ConditionalAmount(NOT HasEffect(target, Pinned),
+    MinMaxDamage, MinMaxDamage + extraDmg)` : bonus a plat SI la cible est DEJA Pinned/Suppressed. Profil
+    Psychic, ranged (range 3, nrOfHits=1). ⚠ COMBAT = CONFIG-based (config-avg×mult180 = 2593), != la
+    PREDICTION Attack-based (~2670, slot 0x27) — DIVERGENCE NATIVE preview/combat (verdict #92).
 
-    `GetAttackDamage @181209dd0` COMBAT (param_3=0) = `RandomAmount(minDmg, maxDmg)` [+ extraDmg (ConfigVar 8)
-    SI la cible est DEJA Pinned/Suppressed (0x429) : `ConditionalAmount(NOT HasEffect(Pinned), base, base+extraDmg)`].
-    Profil Psychic, ranged (range 3, nrOfHits=1). ⚠ COMBAT = CONFIG-based (config-avg×mult180 = 2593), != la
-    PREDICTION Attack-based (~2670, slot 0x27 ; cf. playbook/prediction.py `_PREDICT_VIA_NORMAL_ATTACK`) —
-    DIVERGENCE NATIVE preview/combat (verdict #92).
-
-    Porte : attaque (config + bonus Suppressed) + Pinned cible. Le LIFESTEAL (3e behaviour) est DIFFERE
-    (tache #94 : necessite un HealOperation combat)."""
+    #149 slice-5 : `execute_behaviour` DELEGUE a `spirit_leech_tree()` (mirror 1:1 du decompile). Le degat
+    conditionnel (`GetAttackDamage`) passe via `damage_override` ; le lifesteal (`GetHealTargets @18120a1e0`
+    = Self + Tyranids adjacents ; `GetHealAmountForExecution @181209f00` = PercentageOf(LastAttackDamageMade,
+    hpToHealPct, mode=1=Ceiling)) est porte par la feuille `Heal`. `SetCache`/`Cache` = fold (plumbing pur).
+    Attaque + Pin bit-exact BY CONSTRUCTION vs l'ancien imperatif ; le montant heal est CORRIGE au decompile
+    (Ceiling, l'imperatif tronquait — gap +0/+1 HP)."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.SpiritLeech)  # 1104
     ABILITY_ID = "SpiritLeech"
@@ -603,54 +648,23 @@ class SpiritLeechAbility(ActiveAbility):
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
             return None
-        # [attaque] RandomAmount(minDmg/maxDmg[level], profil Psychic, nrOfHits=1). Mute les PV cible.
-        bmin, bmax, pierce, hits = ability_attack_params(
-            state, caster_id, self.ABILITY_ID, "Psychic", ranged=True)
-        # [bonus Suppressed] + extraDmg (ConfigVar 8) SI la cible est DEJA Pinned (0x429) au moment de l'attaque
-        # (ConditionalAmount(NOT HasEffect(Pinned), base, base+extraDmg)) : flat sur les 2 bornes, AVANT le tirage.
+        # bonus « Suppressed » = la cible est-elle DEJA Pinned AVANT le Pin de ce cast (== l'etat que lit
+        # GetAttackDamage a l'attaque, qui precede l'AddEffect dans l'arbre) — capture pour le diag.
         suppressed = state.effects is not None and state.effects.has_effect(target_id, effect_type=PINNED)
-        if suppressed:
-            from ...entities.effects.magnitude import ability_var
-            sc = state.get_entity(caster_id)
-            sc = sc.get_component(StatsComponent) if sc is not None else None
-            ctx = sc.ctx if sc is not None else None
-            level = ctx.active_ability_level if ctx is not None else 0
-            mult = ctx.ability_variables_multiplier if ctx is not None else 100
-            extra = int(ability_var(self.ABILITY_ID, "extraDmg", level, multiplier_pct=mult) or 0)
-            bmin += extra
-            bmax += extra
-        main = AttackDamageOperation.execute_ability_attack(
-            state, caster_id, target_id, bmin, bmax, pierce, hits,
-            damage_profile="Psychic", is_melee=False)
-        # [Suppressed cible] AddEffect(1065 Pinned) — duree = DefaultAmountOfRounds(1065)=1.
-        AddEffectOperation.execute(state, source=caster_id, target=target_id, effect_type=PINNED,
-                                   name="Pinned")
-        # [lifesteal] Heal(GetHealTargets, GetHealAmountForExecution) — porte via HealUnitOperation (#94).
-        #   cibles `GetHealTargets @18120a1e0` = op_Addition(Self, UnitsFromFaction(Friends(Self,
-        #     AdjacentUnits(Self,1)), faction 0xc=12=Tyranids)) = SELF + amis Tyranids adjacents (range 1).
-        #   montant `GetHealAmountForExecution @181209f00` = PercentageOf(LastAttackDamageMade,
-        #     ConfigVar 0x4b=hpToHealPct) = trunc(dmg x hpToHealPct/100). hpToHealPct HORS
-        #     variablesAffectedByRarityBonus -> valeur brute par niveau (multiplier 100), [40..60].
-        # LastAttackDamageMade approxime par le degat SANTE de l'attaque (main["total"]) — point de
-        # validation live. No-op si l'attaque n'a pas eu lieu (rng non cale : replay effet-seul).
-        heals: list[dict] = []
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        spirit_leech_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        main = None
         heal_amount = 0
-        if main is not None:
-            from ...entities.effects.magnitude import ability_var
-            dmg = int(main.get("total") or 0)
-            hsc = state.get_entity(caster_id)
-            hsc = hsc.get_component(StatsComponent) if hsc is not None else None
-            hctx = hsc.ctx if hsc is not None else None
-            hlvl = hctx.active_ability_level if hctx is not None else 0
-            pct = int(ability_var(self.ABILITY_ID, "hpToHealPct", hlvl, multiplier_pct=100) or 0)
-            heal_amount = int(dmg * pct / 100)                    # PercentageOf = troncature Fix64
-            if heal_amount > 0:
-                for t in [caster_id] + _adjacent_tyranid_allies(state, caster_id):
-                    healed = HealUnitOperation.execute(state, t, heal_amount, source_id=caster_id)
-                    heals.append({"target": t, "healed": healed})
+        heals: list[dict] = []
+        for name, p in ectx.emitted:
+            if name == "AttackWithAbilityDamage":
+                main = p.get("attack")                            # LastAttackDamageMade (le seul volet d'attaque)
+            elif name == "Heal":
+                heal_amount = p.get("amount") or 0
+                heals = p.get("heals") or []
         return {"ability": "SpiritLeech", "caster": caster_id, "target": target_id,
                 "main_attack": main, "suppressed_bonus": suppressed,
-                "heal_amount": heal_amount, "heals": heals}
+                "heal_amount": heal_amount, "heals": heals, "dsl": True}
 
 
 class ValkyrieStrikeAbility(ActiveAbility):

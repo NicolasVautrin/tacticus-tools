@@ -164,14 +164,17 @@ def test_spirit_leech_combat_damage_bit_exact(live_session, rpc, build_runner):
     assert off_ph == live_ph, f"per-coup SpiritLeech offline {off_ph} != live {live_ph} (combat config-based)"
     assert off_pinned, "la cible ne porte pas Pinned(0x429) apres SpiritLeech (AddEffect non materialise)"
 
-    # #94 LIFESTEAL : GetHealAmountForExecution @181209f00 = trunc(LastAttackDamageMade x hpToHealPct/100)
-    # (hpToHealPct HORS variablesAffectedByRarityBonus -> mult 100). Le degat est valide (off_ph==live_ph)
-    # -> le montant heal est ancre au degat LIVE. GetHealTargets @18120a1e0 inclut TOUJOURS le caster (Self).
+    # #94 LIFESTEAL : GetHealAmountForExecution @181209f00 = PercentageOf(LastAttackDamageMade, hpToHealPct,
+    # mode=1=CEILING) (hpToHealPct HORS variablesAffectedByRarityBonus -> mult 100). Le degat est valide
+    # (off_ph==live_ph) -> le montant heal est ancre au degat LIVE. GetHealTargets @18120a1e0 inclut TOUJOURS
+    # le caster (Self). Round-mode natif = 1 = Ceiling (node canonique entities/formulas.py PercentageOf).
     from engine.entities.effects.magnitude import ability_var
+    from engine.dsl.base import _round_fix64
+    from fractions import Fraction
     csc = state.get_entity(att).get_component(StatsComponent)
     hlvl = csc.ctx.active_ability_level
     pct = int(ability_var("SpiritLeech", "hpToHealPct", hlvl, multiplier_pct=100) or 0)
-    exp_heal = int(sum(live_ph) * pct / 100)                    # PercentageOf = troncature Fix64
+    exp_heal = _round_fix64(Fraction(sum(live_ph) * pct, 100), 1)   # PercentageOf mode=1 = Ceiling (Fix64)
     heal_amount = last.get("heal_amount")
     heals = last.get("heals") or []
     print(f"[SPIRITLEECH heal] hpToHealPct={pct} dmg={sum(live_ph)} -> heal_amount={heal_amount} "

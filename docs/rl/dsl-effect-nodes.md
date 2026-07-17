@@ -462,3 +462,56 @@ testé avant). Gap = pipeline dégât Piercing/armure haute (arrondi plage rédu
 **Résidu** : confront LIVE dédié du SPLASH (géométrie 3-unités : un ennemi adjacent caster+cible) — bit-exact BY
 CONSTRUCTION (mêmes nœuds + sélecteur pattern-Harvester validé), différé. Tranche DÉPLACEMENT (`PushUnit`/`KillDeadUnits`/
 `MoveUnit`) toujours à porter (commune ThunderousAssault/CrushingClaws/…).
+
+
+## Slice-5 (#206, 2026-07-17) — 4e behaviour DSL : SpiritLeech (attaque conditionnelle + lifesteal Heal)
+
+**RE — `SpiritLeechAbility.ExecuteBehaviour @181209900`** (id 1104, tyranNeurothrope, DÉCOMPILE gqfc5mff6c). Arbre
+natif EXACT (`op_Addition` = `+`, `Execute` — PAS `ExecuteAtomic`) :
+
+```
+Execute( ((  AttackWithAbilityDamage(self, target, GetAttackDamage, Psychic, nrOfHits=0x2f=1)   # attaque
+           + SetCache(PercentageOf(LastAttackDamageMade, ConfigVar 0x4b hpToHealPct)) )          # montant heal (cache)
+           + AddEffect(0x429 Pinned, target, <défaut>) )                                          # « Suppressed » cible
+           + Heal(self, GetHealTargets, cachedHealAmount) )                                        # lifesteal
+```
+
+- **`GetAttackDamage @181209dd0`** (COMBAT, param_3=0) = `ConditionalAmount( NOT HasEffect(target, Pinned 0x429),
+  MinMaxDamage, MinMaxDamage + extraDmg(ConfigVar 8) )` → si la cible est DÉJÀ Pinned/« Suppressed » ⇒ +`extraDmg`
+  à plat sur les 2 bornes (avant le tirage). `extraDmg` ∈ `variablesAffectedByRarityBonus` → multiplier = celui du
+  caster. Profil Psychic, ranged (range 3). L'état Pinned lu = AVANT le Pin de ce cast (l'attaque précède l'AddEffect).
+- **`GetHealTargets @18120a1e0`** = `op_Addition( Self, UnitsFromFaction(Friends(self, AdjacentUnits(self,1)),
+  0xc=Tyranids) )` = le caster (Self, SANS gate faction) UNION les alliés VIVANTS Tyranids adjacents (hex 1).
+- **`GetHealAmountForExecution @181209f00`** = `PercentageOf(LastAttackDamageMade, ConfigVar 0x4b hpToHealPct, mode=1)`
+  (`LastAttackDamageMade` = total dégât-santé de la dernière attaque ; `mode=1` = **Ceiling**, node canonique
+  `entities/formulas.py`). `hpToHealPct` HORS `variablesAffectedByRarityBonus` → valeur brute (multiplier 100).
+
+Arbre porté `spirit_leech_tree()` (`loki.py`) = mirror 1:1 = `op_add(op_add(Attack, Pin), Heal)`. Nouveaux nœuds :
+- **Feuille `Heal`** (`runner/abilities/behaviours.py`, runner-couplée) → `HealUnitOperation.execute` (mutation PV, cap
+  `hp_max`, gate `Cursed`) ; `amount_fn(entities, ectx)` = mirror `GetHealAmountForExecution` (lit le total de la dernière
+  `AttackWithAbilityDamage` dans `ectx.emitted`). Source = `ctx.caster`. Émet `Heal` (amount + heals).
+- **Sélecteurs `Union` (`op_Addition`) + `UnitsFromFaction`** (`entities/selectors.py`) : `spirit_leech_heal_targets()` =
+  `Union(Caster(), UnitsFromFaction(Alive(AdjacentFriends(CasterTile())), "Tyranids"))`. `AdjacentFriends` (référent
+  caster) = `Friends(self, AdjacentUnits(self,1))` (self exclu `_within` d>0) ; `Alive` mirror le filtre `Units`
+  (=sur tuile, vivant). Faction résolue via un callback ctx `faction_of` (nouveau champ `DslContext`, même pattern que
+  `has_trait`/`get_stat`, fourni par `entities_from_state` via `_faction(visualId)` = `FactionId` gameconfig).
+- **`AttackWithAbilityDamage` + `damage_override`** : callable `(state, caster, target, bmin, bmax) → (bmin, bmax)`
+  mirror d'un `AActiveAbility.GetAttackDamage` SURCHARGÉ (le natif passe la node de dégât calculée à l'attaque).
+  Défaut None = dégât générique `MinMaxDamage` (rétro-compat totale : ThunderousAssault/CrushingClaws inchangés).
+  SpiritLeech passe `spirit_leech_get_attack_damage` (bonus Suppressed).
+
+**`SetCache`/`Cache` FOLD** : le nœud `SetCache` (mémoïse le montant de heal avant le Pin) est plumbing PUR sans effet
+observable dans l'exécuteur eager (même réduction que `Cache`/#201/#202) — l'ordre A→Pin→Heal rend la MÊME valeur (le
+Pin n'affecte pas le dégât déjà infligé ; le heal cible Self+alliés, pas la cible). L'impératif `_adjacent_tyranid_allies`
+est SUPPRIMÉ (remplacé par le sélecteur DSL `spirit_leech_heal_targets()`).
+
+**Round-mode heal CORRIGÉ au décompile** : `PercentageOf` natif passe `mode=1` = **Ceiling** (`_round_fix64`) ; l'ancien
+impératif tronquait (`int()` = floor → gap +0/+1 HP, ex. 1555.8 → ceil 1556 vs trunc 1555). `spirit_leech_heal_amount`
+utilise désormais `_round_fix64(Fraction(total×pct,100), 1)` = mirror exact de `GetHealAmountForExecution` (node canonique
+`entities/formulas.py PercentageOf`). Le dégât étant bit-exact vs live, seul le round-mode changeait ; corrigé + assert du
+test aligné (Ceiling). Le reste de l'arbre est bit-exact BY CONSTRUCTION vs l'impératif.
+
+**Validation** (`test_spirit_leech_combat_live.py`, session 26) : dégât per-coup **off == live** (COMBAT config-based) +
+Pinned(0x429) posé + `heal_amount == ceil(dmg×hpToHealPct/100)` + le CASTER (Self) est cible du heal (`op_Addition(Self,…)`).
+Régression : `test_damage_crushingclaws_live` + `test_damage_ability_live` (ThunderousAssault) re-PASS (le `damage_override`
+défaut None laisse le chemin générique intact).

@@ -77,6 +77,35 @@ class Sub(TargetsSelector):
         return [u for u in self.a.evaluate(ctx) if u.get("id") not in bset]
 
 
+class Union(TargetsSelector):
+    """`TargetsSelector.op_Addition` : UNION (concaténation) de deux sélecteurs d'unités — mirror du
+    `op_Addition(Self, UnitsFromFaction(...))` de `SpiritLeechAbility.GetHealTargets @18120a1e0`. Concatène
+    `a` puis `b`, chaque opérande normalisé en liste (`_units_of` : un dict comme `Caster()` → `[dict]`).
+    Ici les deux volets sont DISJOINTS (le `Self` du 1er volet est exclu de l'anneau adjacent du 2e via
+    `_within` d>0) → concat SANS doublon = fidèle à l'imperatif (`[caster] + adjacents`)."""
+    def __init__(self, a: TargetsSelector, b: TargetsSelector):
+        self.a, self.b = a, b
+
+    def select(self, ctx):
+        return _units_of(self.a, ctx) + _units_of(self.b, ctx)
+
+
+class UnitsFromFaction(TargetsSelector):
+    """`DSLFactory.UnitsFromFaction(source, factionName) @...` : garde les unités de `source` dont la
+    faction gameconfig (`FactionId`) == `faction`. Le natif passe `System.Enum.ToString(UnitFaction)` = le
+    NOM de la faction (ex. `0xc`=12 → `"Tyranids"`). Résolution via `ctx.faction_of` (callback par-unité,
+    même pattern que `has_trait`/`get_stat`, fourni par la couche runner) ; None → faction inconnue → unité
+    écartée. Utilisé par `SpiritLeech.GetHealTargets` (allies Tyranids adjacents)."""
+    def __init__(self, source: TargetsSelector, faction):
+        self.source, self.faction = source, faction
+
+    def select(self, ctx):
+        fo = ctx.faction_of
+        if fo is None:
+            return []
+        return [u for u in self.source.evaluate(ctx) if fo(u) == self.faction]
+
+
 class UnitSet(TargetsSelector):
     """Feuille = un ensemble d'unités explicite (ex. `{mainTarget}` pour la soustraction AoE)."""
     def __init__(self, units: list):

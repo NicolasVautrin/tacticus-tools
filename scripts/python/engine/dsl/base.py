@@ -133,6 +133,11 @@ class DslContext:
     has_effect: object | None = None
     # Effet COURANT (EffectSource/EffectLevel) — n'existe qu'en application d'effet ; défaut None.
     effect: object | None = None
+    # Faction (`FactionId` gameconfig) PAR UNITÉ (mirror `DSLFactory.UnitsFromFaction`, qui compare vs
+    # `Enum.ToString(UnitFaction)` = le NOM de faction) — hors state standard, comme `has_trait`/`get_stat`.
+    # `faction_of(unit)->str|None` défaut None → faction inconnue (UnitsFromFaction rend vide). Fourni par la
+    # couche runner (`entities_from_state`) via `_faction(visualId)`.
+    faction_of: object | None = None
 
 
 class Const(AAmountFormula):

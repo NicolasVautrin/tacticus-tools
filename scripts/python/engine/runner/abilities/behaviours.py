@@ -82,8 +82,15 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None) -> 
             return False
         return has_trait(unit.get("_traits") or set(), enum)
 
+    # `ctx.faction_of` (mirror `UnitsFromFaction`) — FactionId gameconfig par visualId (`_faction` caché).
+    # Lazy import (garde anti-circulaire, comme les Operations importées dans les feuilles).
+    from ...ai.action_generators import _faction
+
+    def _faction_of(unit):
+        return _faction((unit or {}).get("visualId"))
+
     return DslContext(units=units, caster=caster, target=target, board=state.board,
-                      has_trait=_has_trait, children=[])
+                      has_trait=_has_trait, faction_of=_faction_of, children=[])
 
 
 class Spawn(AbilityBehaviour):
@@ -224,13 +231,22 @@ class AttackWithAbilityDamage(AbilityBehaviour):
     `min_key`/`max_key`/`hits_key` = cles config du volet de degat (defaut `minDmg`/`maxDmg`/`nrOfHits` =
     `MinMaxDamage`/`GetDamageProfile`/`GetNumberConstant(0x2f)`) ; une ability a DEUX volets (ex. CrushingClaws
     principal vs splash) passe le 2e jeu (`minDmg_2`/`maxDmg_2`/`nrOfHits_2` = `MinMaxDamage2`/`GetDamageProfile2`
-    /`GetNumberConstant(0x32)`)."""
-    __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key")
+    /`GetNumberConstant(0x32)`).
+
+    `damage_override` = callable `(state, caster, target, bmin, bmax) -> (bmin, bmax)` mirror d'un
+    `AActiveAbility.GetAttackDamage` SURCHARGE par-ability (le natif passe la node de degat calculee a
+    `AttackWithAbilityDamage` — cf. `SpiritLeech.GetAttackDamage @181209dd0` = ConditionalAmount(cible Pinned
+    -> +extraDmg)). Defaut None = degat generique `MinMaxDamage` (bornes config brutes) ; sinon le callable
+    ajuste (bmin,bmax) APRES `ability_attack_params`, AVANT le tirage per-coup."""
+    __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key",
+                 "damage_override")
 
     def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True,
-                 min_key: str = "minDmg", max_key: str = "maxDmg", hits_key: str = "nrOfHits"):
+                 min_key: str = "minDmg", max_key: str = "maxDmg", hits_key: str = "nrOfHits",
+                 damage_override=None):
         self.target_sel, self.ability_id, self.profile, self.is_melee = target_sel, ability_id, profile, is_melee
         self.min_key, self.max_key, self.hits_key = min_key, max_key, hits_key
+        self.damage_override = damage_override
 
     def execute(self, entities, ectx):
         from ..operations.damage import AttackDamageOperation
@@ -243,6 +259,8 @@ class AttackWithAbilityDamage(AbilityBehaviour):
         bmin, bmax, pierce, hits = ability_attack_params(
             state, caster, self.ability_id, self.profile, ranged=not self.is_melee,
             min_key=self.min_key, max_key=self.max_key, hits_key=self.hits_key)
+        if self.damage_override is not None:               # GetAttackDamage surchargee (ex. SpiritLeech +extraDmg)
+            bmin, bmax = self.damage_override(state, caster, tgt, bmin, bmax)
         atk = AttackDamageOperation.execute_ability_attack(
             state, caster, tgt, bmin, bmax, pierce, hits,
             damage_profile=self.profile, is_melee=self.is_melee)
@@ -281,4 +299,35 @@ class AddEffect(AbilityBehaviour):
         AddEffectOperation.execute(state, source=src, target=tgt, effect_type=self.effect_type,
                                    name=self.name, duration_override=dur)
         ectx.emit("AddEffect", source=src, target=tgt, effect_type=self.effect_type)
+        return OperationResult.ok()
+
+
+class Heal(AbilityBehaviour):
+    """`DSLFactory.Heal(source, targets, amount) @...` -> `HealBehaviour.Execute` : soigne CHAQUE unite du
+    selecteur `targets_sel` de `amount_fn(entities, ectx)` PV, via l'Operation portee `HealUnitOperation.
+    execute` (mutation PV, plafond `hp_max`, gate `Cursed`). Wrapper MINCE au-dessus du mutateur ECS (mirror
+    du 3e volet de `SpiritLeech.ExecuteBehaviour` = lifesteal). Le montant est calcule UNE fois par
+    `amount_fn` = FOLD du `SetCache(PercentageOf(LastAttackDamageMade, ...))` natif (le Heal natif lit un
+    montant CACHE derive de la derniere attaque ; l'`amount_fn` nommee (mirror `GetHealAmountForExecution`)
+    le recompute en lisant le total de la derniere `AttackWithAbilityDamage` dans `ectx.emitted`). `source`
+    de soin = `ctx.caster`. No-op si montant <= 0. Emet 'Heal' (amount + heals=[{target, healed}]). PUR."""
+    __slots__ = ("targets_sel", "amount_fn")
+
+    def __init__(self, targets_sel: TargetsSelector, amount_fn):
+        self.targets_sel, self.amount_fn = targets_sel, amount_fn
+
+    def execute(self, entities, ectx):
+        from ..operations.heal import HealUnitOperation
+        state = ectx.state
+        amount = int(self.amount_fn(entities, ectx) or 0)
+        heals: list = []
+        if state is not None and amount > 0:
+            src = (entities.caster or {}).get("id")
+            for u in (self.targets_sel.evaluate(entities) or []):
+                tid = u.get("id") if isinstance(u, dict) else None
+                if tid is None:
+                    continue
+                healed = HealUnitOperation.execute(state, tid, amount, source_id=src)
+                heals.append({"target": tid, "healed": healed})
+        ectx.emit("Heal", amount=amount, heals=heals)
         return OperationResult.ok()
