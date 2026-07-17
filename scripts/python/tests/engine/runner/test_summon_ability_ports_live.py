@@ -157,14 +157,22 @@ def test_plasma_grenade_main_plus_splash(rpc, build_runner):
 
     res = _apply_active_ability(state, caster, target, PLASMA_GRENADE)
     diag = (res or {}).get("diag") or {}
-    splash_ids = sorted(x["target"] for x in (diag.get("splash") or []))
-    print(f"\n[PLASMA] routed={res.get('routed')} hits_main={diag.get('hits_main')} "
-          f"hits_splash={diag.get('hits_splash')} splash={splash_ids} expected={enemies_adj}")
+    # #149 slice-6 : PlasmaGrenade est un arbre DSL -> le diag expose `main_attack`/`splash` (chaque `attack`
+    # porte un scalaire `hits` = nb de coups, cf. AttackDamageOperation.execute_ability_attack), PLUS de champs
+    # scalaires `hits_main`/`hits_splash` (ancien retour imperatif `_splash_ability_behaviour`).
+    main = diag.get("main_attack") or {}
+    splash = diag.get("splash") or []
+    splash_ids = sorted(x["target"] for x in splash)
+    splash_hits = sorted({(x.get("attack") or {}).get("hits") for x in splash})
+    print(f"\n[PLASMA] routed={res.get('routed')} hits_main={main.get('hits')} "
+          f"splash_hits={splash_hits} splash={splash_ids} expected={enemies_adj}")
 
     assert res.get("routed") == "handler", f"1098 non route au handler : {res}"
     assert diag.get("main_attack") is not None, "attaque main absente"
-    assert diag.get("hits_main") == 2, f"hits main {diag.get('hits_main')} != nrOfHits=2"
-    assert diag.get("hits_splash") == 1, f"hits splash {diag.get('hits_splash')} != nrOfHits_2=1"
+    assert main.get("hits") == 2, f"hits main {main.get('hits')} != nrOfHits=2"
+    for x in splash:                                                    # chaque volet splash = nrOfHits_2 = 1
+        h = (x.get("attack") or {}).get("hits")
+        assert h == 1, f"hits splash cible {x.get('target')} = {h} != nrOfHits_2=1"
     assert splash_ids == enemies_adj, \
         f"SET splash {splash_ids} != voisins boardGraph INTER ennemis {enemies_adj}"
     assert len(splash_ids) >= 1, "aucune cible splash (condition non remplie)"
