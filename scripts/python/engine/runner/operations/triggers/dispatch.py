@@ -255,6 +255,25 @@ def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
     return out + evaluate_trigger_operation(state, ev_ah)
 
 
+def evaluate_abilities_for_event(state: State, caster_id: int, target_id: int,
+                                 event: int, ranged: bool) -> list[dict]:
+    """Mirror `EvaluateAbilitiesBehaviour.Execute @180fc48a0` (ctor @180fc4e10, champ +0x50 = `EventTriggerType`)
+    : EVALUE les abilities DÉCLENCHÉES du CASTER pour l'`EventTriggerType` `event`, INLINE dans un behaviour-tree
+    (nœud DSL générique `DSLFactory.EvaluateAbilities @180def5b0`). Callers natifs : NormalAttack
+    `EvaluateAbilities(0x26)`, ArmoriumCherub `EvaluateAbilities(0x4b=AttackInAtomicGroup)`, ArmouredMight/
+    TheQuickening (after-move).
+
+    `AttackInAtomicGroup` (attaque d'ability ATOMIQUE du caster, ex. ArmoriumCherub `ExecuteAtomic`) -> le passif
+    ranged `FireOfAbsolution` (SEUL passif de ce chemin PORTÉ ; les autres after-hit de l'attaque primaire fire
+    déjà DANS l'Operation d'attaque via `after_hit_ability_attack`). Ranged-only (FireOfAbsolution ne fire que
+    sur attaque RANGED). No-op pour tout autre event (rien d'autre porté ici). Extensible : un futur passif
+    keyé sur cet event s'ajoute ici."""
+    out: list[dict] = []
+    if int(event) == int(EventTriggerType.AttackInAtomicGroup):
+        out += _fire_of_absolution_after_attack(state, caster_id, target_id, ranged)
+    return out
+
+
 def after_move_triggers(state: State, mover_id: int) -> list[dict]:
     """Vecteur after-move (mirror `MoveUnitOperation.EvaluateAfterMoveTriggers`@180e79770 → dispatch).
     Construit l'événement `On(4)` {acteur=mover} et lance `evaluate_trigger_operation`. Déclenche les

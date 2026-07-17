@@ -27,6 +27,7 @@ from fractions import Fraction
 
 from ...dsl.base import Const, _round_fix64
 from ...dsl.effects import ExecutionContext
+from ...dsl.event_trigger_type import EventTriggerType   # #209 : EvaluateAbilities(EventTriggerType) node
 from ...entities.behaviours import Seq, Foreach, If, AtomicGroup, op_add, op_and
 from ...entities.selectors import (Cache, Target, Subject, get_spawn_tile_selector, Children,
                                    LastUnitAttackedBy, Caster, CasterTile, TargetTile, AdjacentEnemies,
@@ -36,7 +37,7 @@ from ...entities.triggers import AmountIsGreaterThanZero, AmountIsEqual, IsAlive
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.effects.magnitude import ability_var
 from .behaviours import (Spawn, PerformAIAttack, AddBondEffect, AttackWithAbilityDamage, AddEffect, Heal,
-                         entities_from_state)
+                         EvaluateAbilities, entities_from_state)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -75,6 +76,31 @@ def thunderous_assault_tree() -> AtomicGroup:
     return AtomicGroup(op_and(
         AttackWithAbilityDamage(Target(), "ThunderousAssault", "Power", is_melee=True),
         AddEffect(STUNNED, "Stunned", Target(), 1)))
+
+
+def armorium_cherub_tree() -> AtomicGroup:
+    """Arbre de `ArmoriumCherubAbility.ExecuteBehaviour @1811b4000` (id 1014, adeptRetributor «Vindicta» —
+    MIRROR du DECOMPILE) :
+        ExecuteAtomic(
+            AttackWithAttackDamage(caster, target, MinMaxDamage(minDmg 0xc/maxDmg 0xd), profile=Flame,
+                                   nrOfHits=GetNumberConstant(0x2f)=4)          # 4x Flame ranged, feu posé #136
+          & EvaluateAbilities(0x4b=AttackInAtomicGroup) )                       # -> passif FireOfAbsolution
+    Port : `AtomicGroup( op_and( AttackWithAbilityDamage(Target(),"ArmoriumCherub","Flame",ranged),
+                                 EvaluateAbilities(AttackInAtomicGroup, ranged=True) ) )`.
+    `MinMaxDamage(target,0)` @180fb2dc0 = `RandomAmount(minDmg[0xc],maxDmg[0xd])` = le degat generique de la
+    feuille `AttackWithAbilityDamage` (bit-exact via `ability_attack_params` ; la branche `param_3!=0` =
+    `Half(Sum(Direct,Direct))` = l'avg de PREDICTION #171, hors combat). `EvaluateAbilities(AttackInAtomicGroup)`
+    = nœud DSL natif `EvaluateAbilitiesBehaviour @180fc48a0` qui EVALUE les passifs declenches du caster pour cet
+    event (l'attaque d'ability atomique) -> `FireOfAbsolution` (splash 3x Flame + Maybe ignite ; passif porte
+    `_fire_of_absolution_after_attack`, via `evaluate_abilities_for_event`). NB : NormalAttack passe `0x26`
+    (event distinct, deja route par `after_hit_normal_attack`) ; les autres after-hit de l'attaque PRIMAIRE
+    (feu, reset ActOfFaith) fire deja DANS l'Operation d'attaque -> pas de double-fire.
+    `op_and` = `CombinedBehaviour` (PUR : les DEUX volets s'executent) ; `AtomicGroup` = inline (#201). Ordre =
+    attaque PUIS passif (== l'ancien imperatif, meme `state.rng`) -> bit-exact BY CONSTRUCTION. ArmoriumCherub
+    est range-2 -> `ranged=True` (== le littéral de l'imperatif ; FireOfAbsolution ne fire que sur ranged)."""
+    return AtomicGroup(op_and(
+        AttackWithAbilityDamage(Target(), "ArmoriumCherub", "Flame", is_melee=False),
+        EvaluateAbilities(int(EventTriggerType.AttackInAtomicGroup), ranged=True)))
 
 
 def crushing_claws_splash_tree() -> Seq:
@@ -324,16 +350,21 @@ class ThunderousAssaultAbility(ActiveAbility):
 
 
 class ArmoriumCherubAbility(ActiveAbility):
-    """`ArmoriumCherubAbility.ExecuteBehaviour` (id 1014, adeptRetributor «Vindicta»).
-
-    Actif RANGED : `AttackWithAttackDamage(target, MinMaxDamage(minDmg/maxDmg[level]), Flame, nrOfHits=const
-    0x2f=4)` (range 2). Profil Flame (`OnFire`) → POSE du feu sur la tuile-cible via le vecteur after-hit
+    """`ArmoriumCherubAbility.ExecuteBehaviour @1811b4000` (id 1014, adeptRetributor «Vindicta»), MIGRÉ en
+    ARBRE DSL (#209, `armorium_cherub_tree()`) :
+        ExecuteAtomic(
+            AttackWithAttackDamage(caster, target, MinMaxDamage(minDmg/maxDmg[level]), Flame,
+                                   nrOfHits=GetNumberConstant(0x2f)=4)          # ← DSL (feuille AttackWithAbilityDamage)
+          & EvaluateAbilities(0x4b=AttackInAtomicGroup) )                       # ← DSL (nœud EvaluateAbilities)
+    Actif RANGED (range 2). Profil Flame (`OnFire`) → POSE du feu sur la tuile-cible via le vecteur after-hit
     d'ability (`execute_ability_attack` → `_on_fire_damage_ability`, #136). i2 « Using Armorium Cherub does
     not end Vindicta's turn » = turn-flow (ne consomme pas le tour) — NON modélisé ici (concern turn-order).
 
-    En + : le passif `FireOfAbsolution` réagit à CETTE attaque ranged (splash 3x Flame sur les ennemis
-    adjacents à la cible + 30% ignite/hex) — mirroir du natif où le passif se déclenche sur toute attaque
-    ranged de l'unité. Cf. `_fire_of_absolution_after_attack`."""
+    Le behaviour est l'arbre DSL : la feuille `AttackWithAbilityDamage` émet la MÊME Operation que l'ancien
+    impératif (`execute_ability_attack`, 4x Flame), et le nœud `EvaluateAbilities(AttackInAtomicGroup)` évalue
+    le passif `FireOfAbsolution` (splash 3x Flame adjacents + 30% ignite/hex — `_fire_of_absolution_after_attack`
+    via `evaluate_abilities_for_event`), EXACTEMENT comme l'appel inline de l'impératif → même mutation, même
+    ordre (attaque PUIS passif), même `state.rng` = bit-exact BY CONSTRUCTION."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.ArmoriumCherub)  # 1014
     ABILITY_ID = "ArmoriumCherub"
@@ -342,17 +373,12 @@ class ArmoriumCherubAbility(ActiveAbility):
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
             return None
-        # [attaque] 4x Flame (minDmg/maxDmg[level], range 2, nrOfHits=const 0x2f=4). Feu posé sur la cible (#136).
-        bmin, bmax, pierce, hits = ability_attack_params(
-            state, caster_id, self.ABILITY_ID, "Flame", ranged=True)
-        main = AttackDamageOperation.execute_ability_attack(
-            state, caster_id, target_id, bmin, bmax, pierce, hits,
-            damage_profile="Flame", is_melee=False)
-        # [passif] FireOfAbsolution sur cette attaque RANGED : splash 3x Flame adjacents + 30% ignite/hex.
-        from ..operations.triggers import _fire_of_absolution_after_attack
-        passive = _fire_of_absolution_after_attack(state, caster_id, target_id, ranged=True)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        armorium_cherub_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        main = next((p["attack"] for n, p in ectx.emitted if n == "AttackWithAbilityDamage"), None)
+        passive = next((p["results"] for n, p in ectx.emitted if n == "EvaluateAbilities"), [])
         return {"ability": "ArmoriumCherub", "caster": caster_id, "target": target_id,
-                "main_attack": main, "fire_of_absolution": passive}
+                "main_attack": main, "fire_of_absolution": passive, "dsl": True}
 
 
 class ScarabHiveAbility(ActiveAbility):

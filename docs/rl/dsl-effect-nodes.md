@@ -560,3 +560,58 @@ cast live direct. **Validation = REPLAY-DIFF sur état LIVE** (`test_plasma_gren
 **splash per-coup par cible** (`79:[638]`, `81:[544]` identiques), sous le MÊME `state.rng` seedé. Le sélecteur
 `AdjacentEnemies` est par ailleurs CONFRONTÉ LIVE en slice-4 (CrushingClaws). Régression : `test_spirit_leech_combat_live`
 + `test_damage_crushingclaws_live` re-PASS (chemin mono-cible `multi=False` inchangé).
+
+## Slice-7 (#209, 2026-07-17) — 6e behaviour DSL : ArmoriumCherub (nœud `EvaluateAbilities` = passif inline)
+
+**RE — `ArmoriumCherubAbility.ExecuteBehaviour @1811b4000`** (id 1014, adeptRetributor «Vindicta», DÉCOMPILE gqfc5mff6c).
+Arbre natif EXACT (`op_BitwiseAnd` = `&`, `ExecuteAtomic`) :
+
+```
+ExecuteAtomic( AttackWithAttackDamage(caster, target, MinMaxDamage(minDmg 0xc/maxDmg 0xd), Flame, nrOfHits=GetNumberConstant(0x2f)=4)   # [MAIN] 4x Flame ranged
+             & EvaluateAbilities(0x4b=AttackInAtomicGroup) )                                                                             # [PASSIF] -> FireOfAbsolution
+```
+
+Deux découvertes structurelles :
+
+1. **`AttackWithAttackDamage` (DSLFactory @180dea350) vs `AttackWithAbilityDamage`** : les deux construisent un
+   `AttackBehaviour` au-dessus d'un node de dégât. Pour ArmoriumCherub le node = **`MinMaxDamage(target,0)` @180fb2dc0 =
+   `RandomAmount(minDmg[0xc],maxDmg[0xd])`** — EXACTEMENT le dégât générique que calcule déjà ma feuille
+   `AttackWithAbilityDamage` (via `ability_attack_params`) → **réutilisée telle quelle** (single-target, `multi=False`,
+   bit-exact). La branche `MinMaxDamage(target,1)` = `Half(Sum(Direct(min),Direct(max)))` = l'**avg de PRÉDICTION** (#171),
+   hors combat.
+
+2. **`EvaluateAbilities(0x4b)` = nœud DSL générique** (`EvaluateAbilitiesBehaviour.Execute @180fc48a0`, ctor @180fc4e10
+   champ +0x50 = `EventTriggerType`) : **ÉVALUE les abilities DÉCLENCHÉES du caster pour un `EventTriggerType`**, INLINE
+   dans le tree. `0x4b` = **`EventTriggerType.AttackInAtomicGroup`** (75) — l'attaque d'ability ATOMIQUE du caster ;
+   ≠ NormalAttack qui passe `EvaluateAbilities(0x26)` (event distinct, xrefs : `ALoki_NormalAttackAbility.ExecuteTriggerAbilities`
+   passe 0x26, ArmouredMight/TheQuickening après-move). Pour ArmoriumCherub ce nœud résout le passif **FireOfAbsolution**
+   (`FireOfAbsolutionAbility.CreateBehaviour @18121f380` = `Inform(0xb3,target) & AttackWithAttackDamage(caster,
+   AdjacentUnits(target,0,3)−caster−target, Direct(var0xb), Flame, nrOfHits) & Maybe(30%=const 0x2a, AdjacentTiles(target))`
+   = splash 3x Flame sur les ennemis adjacents à la cible + 30% ignite/hex).
+
+Porté :
+- **Feuille `EvaluateAbilities`** (`runner/abilities/behaviours.py`) : `execute` délègue à `evaluate_abilities_for_event`
+  (couche dispatch), émet `'EvaluateAbilities'` (liste des résultats des passifs). `event`=`EventTriggerType`, `ranged`
+  fourni par l'ability (ArmoriumCherub range-2 → `ranged=True`, == le littéral de l'ancien impératif).
+- **Dispatch `evaluate_abilities_for_event`** (`operations/triggers/dispatch.py`) = mirror `EvaluateAbilitiesBehaviour.Execute` :
+  `AttackInAtomicGroup` → `_fire_of_absolution_after_attack` (SEUL passif de ce chemin porté ; les autres after-hit de
+  l'attaque PRIMAIRE fire déjà DANS l'Operation d'attaque via `after_hit_ability_attack` → **pas de double-fire**).
+  Extensible : un futur passif keyé sur cet event s'ajoute ici.
+- **Arbre `armorium_cherub_tree()`** (`loki.py`) = `AtomicGroup( op_and( AttackWithAbilityDamage(Target(),"ArmoriumCherub",
+  "Flame",ranged), EvaluateAbilities(AttackInAtomicGroup, ranged=True) ) )`. `op_and`=`CombinedBehaviour` PUR (les deux
+  volets s'exécutent) ; `AtomicGroup`=inline (#201). Ordre = attaque PUIS passif (== l'ancien impératif, même `state.rng`).
+
+⚠ **FireOfAbsolution a son PROPRE `CreateBehaviour` tree @18121f380** (splash `Direct(var0xb)` + `Maybe` ignite) : sa
+migration DSL propre (le passif reste porté impérativement `_fire_of_absolution_after_attack`) = **slice séparée**. Note :
+son splash utilise `AdjacentUnits(target,0,3)` — le même **param-3 team** flaggé pour Stikkbomb (à RE avant migration).
+
+**Validation = REPLAY-DIFF sur état LIVE** (`test_armorium_cherub_migration_live.py`, session 26). Caster =
+`adeptRetributor` (**BUILDABLE**, porte FireOfAbsolution + ArmoriumCherub → splash RÉELLEMENT exercé, `assert imp_splash`).
+L'arbre DSL (via `ArmoriumCherubAbility.execute_behaviour`) reproduit BIT-EXACT l'ANCIEN corps impératif (main via
+`execute_ability_attack` + passif via `_fire_of_absolution_after_attack`) sur DEUX états indépendants seedés
+identiquement : **main per-coup**, **set + per-coup de splash**, **tuiles ignitées** (même conso RNG `Maybe`) tous égaux.
+Régression : `test_plasma_grenade_splash_live` (multi) + `test_damage_crushingclaws_live` (mono-cible) re-PASS.
+
+**Restant loki.py impératif** (post slice-7) : ScarabHive/ScarabSummon (Spawn), ValkyrieStrike (dédié), Stikkbomb (RE
+param-3 `AdjacentUnits` d'abord), Fragstorm, ScythingTalons, GravitonRifle ; + tranche transverse DÉPLACEMENT
+(`PushUnit`/`KillDeadUnits`/`MoveUnit`).

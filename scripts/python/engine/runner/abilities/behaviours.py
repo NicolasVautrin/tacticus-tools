@@ -284,6 +284,34 @@ class AttackWithAbilityDamage(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class EvaluateAbilities(AbilityBehaviour):
+    """`DSLFactory.EvaluateAbilities @180def5b0` -> `EvaluateAbilitiesBehaviour.Execute @180fc48a0` (ctor
+    @180fc4e10, champ +0x50 = `EventTriggerType`) : EVALUE les abilities DÉCLENCHÉES du CASTER pour un
+    `EventTriggerType`, INLINE dans un behaviour-tree. Nœud DSL GÉNÉRIQUE du natif (callers : NormalAttack
+    `EvaluateAbilities(0x26)`, ArmoriumCherub `EvaluateAbilities(0x4b=AttackInAtomicGroup)`, ArmouredMight/
+    TheQuickening). Wrapper MINCE au-dessus de la couche dispatch runner (`evaluate_abilities_for_event`) qui
+    rejoue les passifs déclenchés PORTÉS de cet event (AttackInAtomicGroup + attaque ranged -> FireOfAbsolution).
+
+    `event` = `EventTriggerType` (int) ; `ranged` = nature de l'attaque du tree (le natif la dérive de la
+    position — ici fournie par l'ability : ArmoriumCherub est range-2 -> ranged=True, == le `ranged=True`
+    littéral de l'ancien impératif). Émet 'EvaluateAbilities' (la liste de résultats des passifs). PUR."""
+    __slots__ = ("event", "ranged")
+
+    def __init__(self, event: int, ranged: bool = False):
+        self.event, self.ranged = int(event), ranged
+
+    def execute(self, entities, ectx):
+        from ..operations.triggers.dispatch import evaluate_abilities_for_event
+        state = ectx.state
+        caster = (entities.caster or {}).get("id")
+        target = (entities.target or {}).get("id")
+        if state is None or caster is None or target is None:
+            return OperationResult.ok()
+        res = evaluate_abilities_for_event(state, caster, target, self.event, self.ranged) or []
+        ectx.emit("EvaluateAbilities", caster=caster, target=target, results=res)
+        return OperationResult.ok()
+
+
 class AddEffect(AbilityBehaviour):
     """`DSLFactory.AddEffect @180de6d20` -> `AddEffectBehaviour.Execute` : pose un effet sur la cible, avec
     `source` = `AbilityStateReference` (= le caster comme source de l'effet), `target` = `target_sel`, duree
