@@ -79,6 +79,88 @@ Chaque behaviour migré = l'**arbre EXACT du décompilé** (VA citées en commen
 vs l'impératif qu'il remplace ET vs live. **Zéro régression**. Migration incrémentale : le runner impératif
 reste la référence jusqu'à ce que chaque behaviour DSL soit validé.
 
+## Classification : ce qui DOIT être DSL vs ce qui RESTE impératif (roadmap durable)
+
+> Posée 2026-07-17 (checkpoint user : « est-ce qu'on est capable de classifier ce qui peut être impératif et
+> ce qui ne peut pas l'être ? »). **Réponse : oui — le natif dessine lui-même la frontière.** Section de
+> RÉFÉRENCE (pas un log de slice) : à consulter AVANT de migrer tout behaviour/trigger, pour ne pas forcer un
+> arbre là où le natif est impératif, ni laisser impératif ce que le natif exprime en arbre.
+
+### Le critère : « quel est l'ARTEFACT NATIF ? »
+
+Le combat natif a deux mondes nettement séparés :
+
+| Monde | Artefact natif | Nature | Port |
+|---|---|---|---|
+| **Déclaratif** | `CreateBehaviour`/`ExecuteBehaviour` (effets, kind **E**), `CreateTrigger` (prédicats, **T**), sélecteurs (**S**), formules (**V**) | un **arbre de nœuds `DSLFactory`** | **DOIT être un arbre DSL** |
+| **Impératif** | les ~80 `Operation.Execute` (mutateurs ECS), les `Effect.ApplyModification`/`ReverseModification`, le pathfinding, le scheduler de tour, le PRNG, l'Apply pipeline | du **code C# impératif** mutant l'ECS | **RESTE impératif** (mirror fidèle) |
+
+**La frontière = le `.Execute` d'une feuille DSL.** Tout ce qu'un `CreateBehaviour` **compose** (structure de
+l'arbre + sélecteurs/formules/prédicats qu'il référence) est déclaratif → DSL. Tout ce qu'une feuille
+**appelle** (l'Operation) est impératif → reste une Operation. Une feuille (`AttackWithAbilityDamage`,
+`AddEffect`, `SetOnFire`, `MoveUnit`…) est un nœud MINCE **des deux côtés à la fois** : on mirror le nœud,
+l'Operation en-dessous reste impérative.
+
+Donc « peut-il rester impératif ? » se répond mécaniquement :
+- natif = `CreateBehaviour`/`CreateTrigger` (renvoie un arbre) → **non, c'est du DSL** ;
+- natif = `Operation.Execute` / `ApplyModification` / routine moteur → **oui, ça reste impératif**.
+
+### Le piège : un helper qui FUSIONNE ce que le natif SÉPARE
+
+`_apply_act_of_faith_stack` fait *à la fois* le behaviour (`AddEffect(0x3f9)`) *et* le `ApplyModification` de
+l'effet (stat-mod crit `@180f302f0`). Le split fidèle : behaviour = feuille `AddEffect` DSL ; stat-mod =
+`ApplyModification` de l'effet (impératif, dans `entities/effects/`). Migrer sans faire ce split = wrapper un
+mélange non-natif. **Règle : avant de wrapper un helper en DSL, vérifier qu'il ne contient pas déjà
+l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
+
+### Classification concrète — behaviours de trigger/passif `runner/operations/triggers/loki.py`
+
+**Kind E (`CreateBehaviour`) → DOIVENT devenir DSL :**
+
+| Behaviour | Natif | Arbre (mirror cible) | Bloqué sur | Groupe |
+|---|---|---|---|---|
+| ~~FireOfAbsolution~~ | `@18121f380` | `Inform & splash & Maybe(ignite)` | — (slice-14 ✅) | ✅ |
+| OnFireDamage | `@1811c3a60` | `AddEffect(Fire, Tiles(target))` | réutilise `SetOnFire` + sélecteur `Tiles(unit)` | **1** |
+| TheBetrayer_AddEffect | `@1811a4a00` | `AddEffect(0x4f3, self)` | feuille `AddEffect(Caster())` (existe) | **1** |
+| ActOfFaith reset | `@181219eb0` | `RemoveEffect(0x3f9)` | petite feuille `RemoveEffect` neuve (revert = `ReverseModification`, impératif) | **1** |
+| ActOfFaith accumulate | `@181219a70` | `AddEffect(0x3f9)` | **split** : stat-mod → `ActOfFaithBuffEffect.ApplyModification @180f302f0` (impératif, effet) | **2** |
+| EnvFireTile DoT | `@18121e040` | `Foreach(UnitsWithoutTraits([Steppable,Immune]), AttackWithAbilityDamage(PercentageOf(StatAmount(Health,Initial),20%), Flame, Direct(3)))` | damage-node `StatAmount`/`PercentageOf` (feuille) | **2** |
+| Psyker Smite | `@1812241b0` | `AttackWithAbilityDamage(PickRandomly(AdjDamageableEnemies,1), StatAmount(Attack×psykerExtraDmg%), Psychic, 1)` | damage-node `StatAmount` + sélecteur DSL (#216) | **2** |
+| TheBetrayer_TakeTurn | `@1811a4f70` | `target(GetAttackTarget) → MoveUnit → UseActiveAbility(NormalAttack)` | tranche DÉPLACEMENT (`MoveUnit`) + feuille `UseActiveAbility` + sélecteur `GetAttackTarget` (S) | **3** |
+| FinalJustice | `@18121ed00` | `UseActiveAbility(NormalAttack, SortUnitsByDamageUtility(…))` | feuille `UseActiveAbility` + sélecteur `SortUnitsByDamageUtility` (S) | **3** |
+| ArcaneShield | `@180e16b40` | grant shield → allié AI-choisi | feuille `Grant`/shield + sélecteur AI-target (S) | **3** |
+
+> ⚠ Les VA proviennent des docstrings du port (RE antérieure citée). FireOfAbsolution est décompilé frais
+> (slice-14). Les arbres du **Groupe 3** sont ESQUISSÉS d'après ces docstrings → leur structure EXACTE est à
+> **re-confirmer au décompile au moment de migrer** (ne pas les figer). La CLASSIFICATION (ce sont des
+> `CreateBehaviour` trees gated sur des feuilles lourdes) est, elle, solide.
+
+**RESTENT impératifs (natif ≠ arbre de behaviour) — NE PAS forcer en DSL :**
+- **Operations** appelées par les feuilles : `AttackDamageOperation`, `AddEffectOperation`,
+  `apply_change_stat`/`revert_change_stat`, `MoveUnitOperation`, `HealUnitOperation`, `_fire_death_if_killed`…
+  → mutateurs ECS, mirror impératif fidèle. Une feuille DSL les APPELLE.
+- **Méthodes d'effet** : `ActOfFaithBuffEffect.ApplyModification/ReverseModification` (stat-mod crit) —
+  impératif natif, vit dans `entities/effects/`. Déclenché par la feuille `AddEffect`/`RemoveEffect`.
+- **Routines moteur** : pathfinding, scheduler de tour, PRNG, pipeline Apply (gate/pre/record/post), pump FIFO.
+
+**Axes SÉPARÉS (DSL-ifiables mais HORS des slices E de #149)** :
+- **(T) `matches()` = `CreateTrigger`** : le natif EST un arbre prédicat (`OwnerIsActor & IsRangedAttack &
+  DamageProfileIs & NOT(...)`). DSL-ifiable en famille **T**, mais c'est un CHANTIER distinct (#149 cible E).
+- **(S) sélecteurs AI-target** (`_betrayer_target`/`_finaljustice_target`/`_arcaneshield_target`/
+  `_adjacent_damageable_enemies`) = kind **S** natif → devraient être des sélecteurs DSL (#216 en couvre 2 ;
+  les AI-target sont des sélecteurs lourds).
+
+### Ordre de bataille (tranches E restantes, par tractabilité)
+
+- **Groupe 1 — feuilles qu'on a déjà / triviales (1 slice groupée)** : OnFireDamage (`SetOnFire`+`Tiles`),
+  TheBetrayer_AddEffect (`AddEffect(Caster())`), ActOfFaith reset (`RemoveEffect` neuf). Aucune infra lourde.
+- **Groupe 2 — 1 damage-node `StatAmount`/`PercentageOf` à ajouter (+ split effet pour ActOfFaith)** : Psyker
+  Smite, EnvFireTile DoT, ActOfFaith accumulate.
+- **Groupe 3 — gated sur infra lourde** : TheBetrayer_TakeTurn, FinalJustice, ArcaneShield → dépendent de la
+  tranche **DÉPLACEMENT** (`MoveUnit`/`PushUnit`/`KillDeadUnits`) + feuille `UseActiveAbility` + sélecteurs
+  AI-target DSL. À faire APRÈS la tranche DÉPLACEMENT (qui débloque aussi le push de ThunderousAssault/
+  CrushingClaws — la tranche transverse déjà flaggée dans les slices ci-dessous).
+
 ## Verdict RE #149 slice-2 (re-expert, PROUVÉ ghidra gqfc5mff6c) — WALKER + combinateurs + arbre GetEmRuntz
 
 ### 1. Contrat du walker (partagé, PROUVÉ)

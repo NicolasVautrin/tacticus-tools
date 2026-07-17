@@ -106,6 +106,23 @@ class Emit(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class Inform(AbilityBehaviour):
+    """`DSLFactory.Inform(messageType, entityId)` -> `InformBehaviour` : NOTIFIE les listeners d'un message
+    (bus de messages natif). Le runner ne modelise PAS le bus -> NO-OP (aucune mutation d'etat) : l'ancien
+    port de FireOfAbsolution (`Inform(0xb3, EntityId(target))` @18121f380) ne le modelisait pas et etait
+    live-valide (les triggered-abilities fire via `EvaluateAbilities`/les vecteurs after-hit, PAS via un
+    message Inform). Present pour le MIRROR STRUCTUREL de l'arbre (`Inform & splash & Maybe`). La charge utile
+    (`EntityId(target)`) est DROPPEE (sans bus, sans effet observable). Emet 'Inform' (diag). PUR (stop=False)."""
+    __slots__ = ("message_type",)
+
+    def __init__(self, message_type: int):
+        self.message_type = int(message_type)
+
+    def execute(self, entities, ectx):
+        ectx.emit("Inform", message_type=self.message_type)
+        return OperationResult.ok()
+
+
 class AtomicGroup(AbilityBehaviour):
     """`DSLFactory.AtomicGroup @180de9490` (`proc.CreateAtomicGroup @180e073f0` → `AtomicGroupOperation.Execute
     @180e5e200`) : enveloppe un behaviour dans un GROUPE ATOMIQUE. RE #201 (docs/rl/runner-engine.md §1.5bis)

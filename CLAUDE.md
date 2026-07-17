@@ -437,6 +437,22 @@ mirror 1:1 des fonctions natives nommées, décomposition par étage (jamais fit
 validation des DEUX faces (décider ≠ exécuter) — vit dans le skill `tacticus-re-port`
 (invocable via `/tacticus-re-port`), inclus ci-dessous. C'est LA source unique de cette doctrine.
 
+### DSL-effet vs impératif : c'est l'ARTEFACT NATIF qui tranche (#149)
+
+Avant de porter/migrer un behaviour, demander **« quel est l'artefact natif ? »** :
+
+- Natif = `CreateBehaviour`/`ExecuteBehaviour`/`CreateTrigger`, sélecteur ou formule (un **arbre de nœuds
+  `DSLFactory`**, kinds E/T/S/V) → **DOIT être un arbre DSL** ; jamais de logique (ciblage, re-trigger,
+  exclusion de trait) recâblée à la main dans un `execute_*` — elle doit **émerger** des nœuds.
+- Natif = `Operation.Execute` (mutateur ECS), `Effect.ApplyModification`/`ReverseModification`, pathfinding,
+  scheduler, PRNG, pipeline Apply → **RESTE impératif** (mirror fidèle). Une **feuille DSL l'APPELLE**.
+
+**La frontière = le `.Execute` d'une feuille DSL** : au-dessus (structure de l'arbre + sélecteurs/formules) =
+déclaratif → DSL ; en-dessous (l'Operation) = impératif → Operation. **Piège** : un helper qui FUSIONNE le
+behaviour (`AddEffect`) et le `ApplyModification` de l'effet (ex. `_apply_act_of_faith_stack`) — les SÉPARER
+(feuille DSL au-dessus, Operation/effet impératif en-dessous), ne pas wrapper le mélange. Classification par
+ability + roadmap des tranches restantes : **`docs/rl/dsl-effect-nodes.md`** (section « Classification »).
+
 !include .claude/skills/tacticus-re-port/SKILL.md
 
 ## Documentation détaillée

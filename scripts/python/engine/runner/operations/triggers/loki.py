@@ -413,6 +413,50 @@ def _on_fire_damage_ability(state: State, attacker_id: int, target_id: int,
              "on": target_id, "placement": "OnFireDamage"}]
 
 
+def fire_of_absolution_tree(ignite_chance: int, fire_effect_type: int):
+    """Arbre de `FireOfAbsolutionAbility.CreateBehaviour @18121f380` (adeptRetributor «Vindicta», passif
+    `Active.Loki` — MIRROR 1:1 du DECOMPILE) :
+        op_BitwiseAnd( op_BitwiseAnd(
+            Inform(0xb3, EntityId(target)),                                                    # [1] message
+            AttackWithAttackDamage(caster@0x160, AdjacentUnits(target@0x178,0,3) − caster − target,
+                                   Direct(dmg = GetVariableForLevel 0xb), Flame,
+                                   nrOfHits = GetNumberConstant(0x2f)=3) ),                     # [2] splash
+            Maybe( SetOnFire, AdjacentTiles(target), chance = GetNumberConstant(0x2a)=30 ) )    # [3] ignite
+    Port (`op_and`/`Foreach`/`Maybe`) :
+      [1] `Inform(0xb3)` = message natif (notif listeners) -> NO-OP dans le runner (pas de bus de messages ;
+          l'ancien port ne le modelisait pas et etait live-valide). Present pour le MIRROR STRUCTUREL.
+      [2] splash = `AttackWithAbilityDamage(Alive(Sub(Sub(AdjacentUnits(TargetTile()),Caster()),Target())),
+          "FireOfAbsolution","Flame", ranged, min_key=max_key="dmg", multi=True)`. `Direct(dmg)` = min==max
+          (la meme cle config `dmg` en borne min ET max -> valeur FIXE, mirror `Direct(GetVariableForLevel
+          0xb)`). Selecteur = FRIENDLY-FIRE : `AdjacentUnits(target) − caster − target` BRUT, AUCUN wrapper
+          `Enemies` -> allies du caster adjacents INCLUS (#213 ; `Alive` mirror `Units`=unites DEBOUT).
+      [3] ignite = `Foreach(AdjacentTiles(Target()), Maybe(chance, SetOnFire(Fire)))` = le `Maybe(child,
+          selecteur, chance)` natif dans sa variante FOREACH-Maybe (1 `next_bool(30)` par tuile adjacente,
+          cf. convention documentee du noeud `Maybe`) : pour chaque voisine de la cible, tirage puis pose du
+          FEU (`SetOnFire` -> `AddEffectOperation` sur la TUILE). `AdjacentTiles(Target())` = `board.neighbours(
+          tuile-cible)` (MEME ordre que l'ancien imperatif -> MEME conso `state.rng`).
+    Ordre `op_and` gauche->droite = Inform -> splash -> ignite (== l'ancien imperatif) ; effets PURS ->
+    pas de court-circuit (les trois volets s'executent). PAS d'`AtomicGroup` (natif = `CreateBehaviour` plain,
+    PAS `ExecuteAtomic`). Bit-exact BY CONSTRUCTION vs l'ancien corps imperatif (memes Operations/args, meme
+    ordre, meme `state.rng`). `ignite_chance`/`fire_effect_type` = passes par l'appelant (constantes
+    `FIRE_OF_ABSOLUTION_IGNITE_CHANCE`/`FIRE_TILE`) pour eviter tout couplage d'import.
+    ⚠ GAP RNG (flagge, cf. `_fire_of_absolution_after_attack`) : timing du passif vs coups primaires +
+    reproductibilite du feu sur hex VIDE (stochastique)."""
+    from ...abilities.behaviours import AttackWithAbilityDamage, SetOnFire
+    from ....entities.behaviours import Foreach, Maybe, Inform, op_and
+    from ....entities.selectors import (Alive, Sub, AdjacentUnits, TargetTile, Caster, Target,
+                                        AdjacentTiles)
+    tgt = Target()
+    # splash : AdjacentUnits(target) − caster − target (FRIENDLY-FIRE, mirror des 2 op_Subtraction natifs) ;
+    # Direct(dmg) = borne min==max via min_key=max_key="dmg" ; multi=True = selecteur -> N cibles (OrderBy id).
+    splash = AttackWithAbilityDamage(
+        Alive(Sub(Sub(AdjacentUnits(TargetTile()), Caster()), Target())),
+        "FireOfAbsolution", "Flame", is_melee=False, min_key="dmg", max_key="dmg", multi=True)
+    # ignite : Maybe(SetOnFire, AdjacentTiles(target), 30) -> Foreach-Maybe (1 next_bool/tuile, ordre board).
+    ignite = Foreach(AdjacentTiles(tgt), Maybe(ignite_chance, SetOnFire(fire_effect_type, "Fire")))
+    return op_and(op_and(Inform(0xb3), splash), ignite)
+
+
 def _fire_of_absolution_after_attack(state: State, attacker_id: int, target_id: int,
                                      ranged: bool) -> list[dict]:
     """Passif `FireOfAbsolution` (adeptRetributor «Vindicta») — `FireOfAbsolutionAbility.CreateBehaviour`
@@ -450,40 +494,22 @@ def _fire_of_absolution_after_attack(state: State, attacker_id: int, target_id: 
     uc = e.get_component(UnitComponent) if e is not None else None
     if uc is None or "FireOfAbsolution" not in ((GC.unit(uc.visual_id) or {}).get("passiveAbilities") or []):
         return []
-    # [dmg] Direct(dmg) : `dmg` = GetVariableForLevel(0xb) scalé rareté ; min==max (pas de spread). hits=3.
-    from ...abilities.base import ability_attack_params
-    dmg, _dmg_max, pierce, hits = ability_attack_params(
-        state, attacker_id, "FireOfAbsolution", "Flame", ranged=True, min_key="dmg", max_key="dmg")
-    # [splash] cibles = le SELECTEUR DSL natif `AdjacentUnits(target) − caster − target` (mirror 1:1 de
-    # `FireOfAbsolutionAbility.CreateBehaviour @18121f380`, noeuds `AdjacentUnits @180de8320`/`op_Subtraction`) :
-    # AUCUN wrapper `Enemies(...)` -> FRIENDLY-FIRE (allies du caster adjacents INCLUS, #213/i2 « all units adjacent
-    # to the target »). `Alive` = ecarte les cadavres (mirror `Units(AdjacentTiles)`=debout). Evalue via le meme
-    # DslContext que les arbres d'ability (pas de helper imperatif : les selecteurs DSL SONT les mirrors natifs).
-    from ....entities.selectors import AdjacentUnits, Sub, Caster, Target, TargetTile, Alive
+    # behaviour = arbre DSL `fire_of_absolution_tree()` (mirror 1:1 de CreateBehaviour @18121f380) :
+    # Inform(0xb3) & splash(AttackWithAbilityDamage multi, Direct(dmg)) & Foreach(AdjacentTiles, Maybe(30,
+    # SetOnFire)). Les feuilles emettent les MEMES Operations que l'ancien corps imperatif hybride
+    # (`execute_ability_attack` par cible splash + `AddEffectOperation` sur les tuiles ignitees) -> meme
+    # mutation, meme ordre (splash PUIS ignite), meme `state.rng` = bit-exact BY CONSTRUCTION. Le gate ci-dessus
+    # (ranged/board/effects/rng + ownership du passif) reste la CONDITION DE DECLENCHEMENT (hors CreateBehaviour,
+    # upstream de l'arbre). Direct(dmg) : `dmg` = GetVariableForLevel(0xb) scale rarete, min==max (min_key=
+    # max_key="dmg" dans la feuille) ; hits=3, pierce/armure + crit/block du pipeline d'attaque ; feu pose #136.
     from ...abilities.behaviours import entities_from_state
-    _splash_sel = Alive(Sub(Sub(AdjacentUnits(TargetTile()), Caster()), Target()))
-    _ents = entities_from_state(state, attacker_id, target_id)
-    # OrderBy(id) natif (== ordre `sorted` de l'ancien imperatif -> conso `state.rng` deterministe).
-    _splash_ids = sorted(u.get("id") for u in _splash_sel.evaluate(_ents) if u.get("id") is not None)
-    splash: list[dict] = []
-    for sid in _splash_ids:
-        satk = AttackDamageOperation.execute_ability_attack(
-            state, attacker_id, sid, dmg, dmg, pierce, hits,
-            damage_profile="Flame", is_melee=False)     # Direct → pierce/armure + crit/block ; feu posé (#136)
-        splash.append({"target": sid, "attack": satk})
-    # [ignite] Maybe(SetOnFire, AdjacentTiles(target), 30%) : 1 next_bool(30) par tuile adjacente (occupée OU
-    # vide), APRÈS le splash. AddEffect idempotent (no-op si déjà en feu). RNG order = GAP flaggé (cf. docstring).
-    from ..effects import AddEffectOperation
-    tp = state.get_entity(target_id)
-    tpc = tp.get_component(PositionComponent) if tp is not None else None
-    ttile = state.board.id_at(tpc.col, tpc.row) if tpc is not None else None
-    ignited: list[int] = []
-    if ttile is not None:
-        for ntile in state.board.neighbours(ttile):      # AdjacentTiles(target) = voisins hex valides du board
-            if state.rng.next_bool(FIRE_OF_ABSOLUTION_IGNITE_CHANCE):
-                if AddEffectOperation.execute(state, source=attacker_id, target=ntile,
-                                              effect_type=FIRE_TILE, name="Fire") is not None:
-                    ignited.append(ntile)
+    from ....dsl.effects import ExecutionContext
+    ectx = ExecutionContext(state=state, rng=state.rng)
+    fire_of_absolution_tree(FIRE_OF_ABSOLUTION_IGNITE_CHANCE, FIRE_TILE).execute(
+        entities_from_state(state, attacker_id, target_id), ectx)
+    splash = [{"target": p["target"], "attack": p["attack"]}
+              for n, p in ectx.emitted if n == "AttackWithAbilityDamage"]   # id-tries (multi=True OrderBy id)
+    ignited = [p["tile"] for n, p in ectx.emitted if n == "SetOnFire"]      # ordre board.neighbours (Foreach)
     if not splash and not ignited:
         return []
     return [{"passive": "FireOfAbsolution", "by": attacker_id, "on": target_id,

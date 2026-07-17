@@ -503,3 +503,30 @@ class Heal(AbilityBehaviour):
                 heals.append({"target": tid, "healed": healed})
         ectx.emit("Heal", amount=amount, heals=heals)
         return OperationResult.ok()
+
+
+class SetOnFire(AbilityBehaviour):
+    """`FireOfAbsolutionAbility.SetOnFire` (child `Func<entities,behaviour>` du `Maybe` natif @18121f380) ->
+    pose l'effet FEU DE TUILE (`EnvFireTile`) sur la TUILE COURANTE. Le `Maybe(child, AdjacentTiles(target),
+    30)` natif itere ses tuiles et lie la tuile courante en sujet (== `Foreach(tiles, Maybe(30, SetOnFire))`
+    cote port) : `SetOnFire` lit `entities.subject` = l'id de TUILE (int, PAS une unite — le `Foreach`
+    tile-domain y pose l'element courant). Wrapper MINCE au-dessus de `AddEffectOperation.execute` (target =
+    tile id, source = caster). N'emet 'SetOnFire' que si l'effet est REELLEMENT pose (AddEffect non-None :
+    no-op si la tuile est deja en feu — == l'ancien imperatif `if AddEffectOperation.execute(...) is not None`).
+    Effet PUR (stop=False)."""
+    __slots__ = ("effect_type", "name")
+
+    def __init__(self, effect_type: int, name: str = "Fire"):
+        self.effect_type, self.name = int(effect_type), name
+
+    def execute(self, entities, ectx):
+        from ..operations.effects import AddEffectOperation
+        state = ectx.state
+        tile = entities.subject                          # tuile COURANTE (id) posee par le Foreach tile-domain
+        src = (entities.caster or {}).get("id")
+        if state is None or tile is None:
+            return OperationResult.ok()
+        if AddEffectOperation.execute(state, source=src, target=tile,
+                                      effect_type=self.effect_type, name=self.name) is not None:
+            ectx.emit("SetOnFire", tile=tile, source=src)
+        return OperationResult.ok()
