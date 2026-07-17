@@ -191,11 +191,16 @@ class AddBondEffect(AbilityBehaviour):
     grot) et `target` (`LastUnitAttackedBy` = l'ennemi frappe), duree `TurnsFromRounds(rounds)`. Wrapper
     MINCE au-dessus de `AddEffectOperation.execute` (mirror exact de l'imperatif : source=grot, target=
     ennemi). `source_ref`/`target_ref` = Nodes resolus au dict courant -> ids. No-op si source/target
-    absents. Emet 'AddBondEffect'. Effet PUR (stop=False)."""
+    absents. Emet 'AddBondEffect'. Effet PUR (stop=False).
+
+    `duration_rounds` = nb de rounds (`TurnsFromRounds(rounds)`) ; `None` = duree DEFAUT de l'effet
+    (`DefaultAmountOfRounds`, mirror de l'arg natif duree-node ZERO d'`AddBondEffect` SANS `TurnsFromRounds`
+    -- ex. ValkyrieStrike 1022 : arg7 = struct zero-initialise, PAS un `TurnsFromRounds(n)` explicite) vs
+    explicite (CrushingClaws Taunt / GetEmRuntz = `TurnsFromRounds(1)`). MEME semantique None que `AddEffect`."""
     __slots__ = ("effect_type", "name", "source_ref", "target_ref", "duration_rounds")
 
     def __init__(self, effect_type: int, name: str, source_ref: TargetsSelector, target_ref: TargetsSelector,
-                 duration_rounds: int = 1):
+                 duration_rounds=1):
         self.effect_type, self.name = effect_type, name
         self.source_ref, self.target_ref = source_ref, target_ref
         self.duration_rounds = duration_rounds
@@ -208,8 +213,11 @@ class AddBondEffect(AbilityBehaviour):
         tgt = tu.get("id") if tu else None
         if src is None or tgt is None or ectx.state is None:
             return OperationResult.ok()
+        # duration_rounds None -> pas d'override = duree DEFAUT (DefaultAmountOfRounds), mirror de l'arg natif
+        # duree-node ZERO d'AddBondEffect sans TurnsFromRounds (ValkyrieStrike 1022) ; sinon TurnsFromRounds(rounds).
+        dur = turns_from_rounds(self.duration_rounds) if self.duration_rounds is not None else None
         AddEffectOperation.execute(ectx.state, source=src, target=tgt, effect_type=self.effect_type,
-                                   name=self.name, duration_override=turns_from_rounds(self.duration_rounds))
+                                   name=self.name, duration_override=dur)
         ectx.emit("AddBondEffect", source=src, target=tgt, effect_type=self.effect_type)
         return OperationResult.ok()
 

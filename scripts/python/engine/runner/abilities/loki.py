@@ -299,6 +299,28 @@ def scything_talons_tree() -> AtomicGroup:
     return AtomicGroup(op_and(main, splash))
 
 
+def valkyrie_strike_tree() -> AddBondEffect:
+    """Arbre de `ValkyrieStrikeAbility.ExecuteBehaviour @181229e40` (id 1018, astraSmnVoxcaster — MIRROR du
+    DECOMPILE) :
+        Execute( AddBondEffect(0x3fe ValkyrieStrike_Effect, AbilityStateReference, caster@0x160,
+                               target@0x178, caster@0x160, dureeNode=ZERO, 0) )
+    UN SEUL noeud (plain `Execute`, PAS `ExecuteAtomic`) : AUCUNE attaque immediate au cast. Le Blast
+    (constants.damageProfile=Blast, nrOfHits=1) est le PAYLOAD de l'airstrike DIFFERE porte par l'effet 1022
+    (frappe aerienne au tour suivant), HORS `ExecuteBehaviour`.
+    Port : `AddBondEffect(VALKYRIE_STRIKE, "ValkyrieStrike_Effect", Caster(), Target(), None)`. `AddBondEffect`
+    (== le natif, LIE source=caster <-> target : le caster capture la direction du bond, args 0x160 en 4e ET
+    6e position) pose l'effet sur la cible, source=caster. Duree = `None` -> `DefaultAmountOfRounds` de l'effet
+    1022 (mirror du duree-node ZERO natif = arg7 struct zero-initialise, PAS un `TurnsFromRounds(n)` explicite ;
+    ScythingTalons/ThunderousAssault passaient un `TurnsFromRounds` — ValkyrieStrike ne l'a pas). L'`AbilityState
+    Reference` (arg3) est FOLD dans source=caster (== CrushingClaws Taunt / les ports existants). Deterministe
+    (aucun rng consomme) -> bit-exact BY CONSTRUCTION vs l'imperatif `AddEffectOperation.execute(source=caster,
+    target, 1022)` (qui passait AUCUN duration_override). L'imperatif `ValkyrieStrikeAbility.execute_behaviour`
+    est REMPLACE par cet arbre. NB : c'est aussi une CORRECTION de sur-tir (1018 a `constants.damageProfile` ->
+    `_is_attack_ability`=True ; l'enregistrer ici `ported=True` EXCLUT 1018 du chemin generique qui tirerait un
+    Blast IMMEDIAT a tort)."""
+    return AddBondEffect(VALKYRIE_STRIKE, "ValkyrieStrike_Effect", Caster(), Target(), None)
+
+
 def getemruntz_taunt_tree() -> If:
     """Corps `Func<entities,behaviour>` de `TauntWithNewChildrenWhoDidDamage @1811e27a0` (DECOMPILE) pour
     l'enfant COURANT (`Subject()`, pose par le `Foreach(Children)`) :
@@ -759,12 +781,18 @@ class SpiritLeechAbility(ActiveAbility):
 
 
 class ValkyrieStrikeAbility(ActiveAbility):
-    """`ValkyrieStrikeAbility.ExecuteBehaviour` @181229e40 (id 1018, astraSmnVoxcaster).
+    """`ValkyrieStrikeAbility.ExecuteBehaviour` @181229e40 (id 1018, astraSmnVoxcaster), MIGRÉ en ARBRE DSL
+    (#149 slice-9, `valkyrie_strike_tree()`) :
+        Execute( AddBondEffect(0x3fe=1022 ValkyrieStrike_Effect, AbilityStateReference, caster↔target,
+                               dureeNode=ZERO) )                                      # ← DSL (nœud unique)
+    Séquence native = UNIQUEMENT `AddBondEffect(0x3fe=1022, caster↔target, durée ZÉRO → DefaultAmountOfRounds
+    de l'effet 1022)` — AUCUNE attaque immédiate. Le Blast `minDmg/maxDmg` (constants.damageProfile=Blast,
+    nrOfHits=1) est le PAYLOAD de l'airstrike DIFFÉRÉ : l'effet 1022 fire au tour suivant (frappe aérienne),
+    PAS au cast.
 
-    Séquence native = UNIQUEMENT `AddBondEffect(0x3fe=1022 ValkyrieStrike_Effect, caster↔target,
-    DefaultRounds(1022)=0 → fallback 1 round)` — AUCUNE attaque immédiate. Le Blast `minDmg/maxDmg`
-    (constants.damageProfile=Blast, nrOfHits=1) est le PAYLOAD de l'airstrike DIFFÉRÉ : l'effet 1022 fire
-    au tour suivant (frappe aérienne), PAS au cast.
+    Le behaviour est l'arbre DSL (nœud unique `AddBondEffect`) : la feuille émet la MÊME Operation que
+    l'ancien impératif (`AddEffectOperation.execute`, source=caster↔target, effet 1022, SANS duration_override
+    = durée défaut) → même mutation, déterministe (aucun rng) = bit-exact BY CONSTRUCTION.
 
     ⚠ PORT DÉDIÉ = correction d'un SUR-TIR. 1018 a `constants.damageProfile` → `_is_attack_ability` renvoie
     True → le chemin GÉNÉRIQUE de `summon_ai._apply_active_ability` TIRERAIT à tort un Blast IMMÉDIAT. En
@@ -773,16 +801,18 @@ class ValkyrieStrikeAbility(ActiveAbility):
     pending-effect (TODO)."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.ValkyrieStrike)  # 1018
+    ABILITY_ID = "ValkyrieStrike"
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
             return None
-        # [AddBondEffect] 1022 caster↔target (bond : source=caster capture la direction). PAS de dégât immédiat.
-        AddEffectOperation.execute(state, source=caster_id, target=target_id,
-                                   effect_type=VALKYRIE_STRIKE, name="ValkyrieStrike_Effect")
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        valkyrie_strike_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        bond = next((p for n, p in ectx.emitted if n == "AddBondEffect"), None)
         return {"ability": "ValkyrieStrike", "caster": caster_id, "target": target_id,
-                "deferred_effect": VALKYRIE_STRIKE, "immediate_attack": None}
+                "deferred_effect": (bond or {}).get("effect_type", VALKYRIE_STRIKE),
+                "immediate_attack": None, "dsl": True}
 
 
 class PlasmaGrenadeAbility(ActiveAbility):

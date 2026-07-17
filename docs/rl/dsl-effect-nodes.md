@@ -670,3 +670,50 @@ caster=85 target=77 → main 3× `[965,1280,827]`, splash victime 81 2× `[835,7
 **Restant loki.py impératif** (post slice-8) : ScarabHive/ScarabSummon (Spawn), ValkyrieStrike (dédié), Stikkbomb (RE
 param-3 `AdjacentUnits` d'abord), Fragstorm, GravitonRifle (votanIronmaster non-spawnable → non validable live) ; +
 tranche transverse DÉPLACEMENT (`PushUnit`/`KillDeadUnits`/`MoveUnit`).
+
+
+## Slice-9 (#212, 2026-07-17) — 8e behaviour DSL : ValkyrieStrike (nœud unique `AddBondEffect` différé)
+
+**RE — `ValkyrieStrikeAbility.ExecuteBehaviour @181229e40`** (id 1018, astraSmnVoxcaster, DÉCOMPILE gqfc5mff6c).
+Arbre natif EXACT (plain `Execute`, **PAS** `ExecuteAtomic`) = **UN SEUL nœud** :
+
+```
+Execute( AddBondEffect(0x3fe=1022 ValkyrieStrike_Effect, AbilityStateReference,
+                       caster@0x160, target@0x178, caster@0x160, dureeNode=ZERO, 0) )
+```
+
+**AUCUNE attaque immédiate au cast.** Le Blast (`constants.damageProfile=Blast, nrOfHits=1`) est le **PAYLOAD de
+l'airstrike DIFFÉRÉ** porté par l'effet 1022 (frappe aérienne au tour suivant), **hors** `ExecuteBehaviour`.
+
+Point RE clé = **l'arg7 (durée) = struct 32 octets ZÉRO-initialisé** passé par pointeur (`&local_178`), PAS un
+`TurnsFromRounds(n)` (≠ CrushingClaws Taunt / GetEmRuntz qui passent `TurnsFromRounds(1)`). C'est la variante
+**durée-défaut** : la durée effective vient de `DefaultAmountOfRounds(1022)`. Mirroré par `duration_rounds=None`
+côté port — même sémantique que l'arg natif `0` d'`AddEffect` (Pinned de CrushingClaws).
+
+Porté :
+- **Arbre `valkyrie_strike_tree()`** (`loki.py`) = `AddBondEffect(VALKYRIE_STRIKE, "ValkyrieStrike_Effect", Caster(),
+  Target(), None)`. `AddBondEffect` (== le natif, LIE source=caster ↔ target : le caster capture la direction du bond,
+  args 0x160 en 4e ET 6e position) pose l'effet sur la cible, source=caster ; `None` → `DefaultAmountOfRounds`.
+  L'`AbilityStateReference` (arg3) est FOLD dans source=caster (== les ports existants). **Aucun `AtomicGroup`** (natif
+  = `Execute`).
+- **Carve-out feuille `AddBondEffect`** (`behaviours.py`) : gagne le handling `duration_rounds=None` →
+  `duration_override=None` = durée DEFAUT (mirror EXACT de la feuille `AddEffect`, cf. arg7 natif ZÉRO). **`None`-
+  conditionnel** → CrushingClaws/GetEmRuntz (`duration=1`) **inchangés** (`turns_from_rounds(1)`=1). 1-liner
+  décompile-backed (carve-out règle #149).
+- `ValkyrieStrikeAbility.execute_behaviour` DÉLÈGUE à l'arbre (lit l'émission `AddBondEffect` pour le diag). Le PORT
+  DÉDIÉ reste une **correction de sur-tir** (1018 a `constants.damageProfile` → `_is_attack_ability`=True → le chemin
+  générique tirerait un Blast IMMÉDIAT à tort ; l'enregistrer `ported=True` l'EXCLUT du générique).
+
+Déterministe (**aucun rng consommé**) → **bit-exact BY CONSTRUCTION** vs l'ancien impératif
+(`AddEffectOperation.execute(source=caster, target, 1022, SANS duration_override)`).
+
+**Validation = REPLAY-DIFF sur état LIVE** (`test_valkyrie_strike_migration_live.py`, session 26). Carrier natif
+(astraSmnVoxcaster) SUMMON-only ; l'effet 1022 est **GLOBAL** (config par type, pas kit-dérivé) → replay-diff
+**CASTER-AGNOSTIQUE** : couple cross-team vivant quelconque (cible sans 1022 pré-existant), l'arbre DSL (via la classe
+d'ability) reproduit BIT-EXACT l'ancien impératif sur DEUX états indépendants — **même effet 1022 (+ sous-effets
+composites), même source, même remaining, même parent**. Vérifie AUSSI le carve-out `None`→défaut (l'arbre passe
+`duration_rounds=None`). Régression : `test_damage_crushingclaws_live` (Taunt `AddBondEffect` `duration=1`) re-PASS.
+
+**Restant loki.py impératif** (post slice-9) : ScarabHive/ScarabSummon (Spawn), Stikkbomb (RE param-3 `AdjacentUnits`
+d'abord), Fragstorm (splash + `PickRandomly` RNG gap), GravitonRifle (votanIronmaster non-spawnable → non validable
+live) ; + tranche transverse DÉPLACEMENT (`PushUnit`/`KillDeadUnits`/`MoveUnit`).
