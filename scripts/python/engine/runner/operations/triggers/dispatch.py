@@ -116,10 +116,34 @@ def collect_effect_triggers(state: State) -> list[EffectTrigger]:
 
 
 def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
-    """Mirror `EvaluateTriggerOperation.ExecuteInternal` : itère le registre GLOBAL (ability-triggers des
-    traits + effet-triggers des effets actifs), et pour chaque entrée dont l'`event_id` matche l'événement
-    → gates `CanGet*Trigger` (owner VIVANT ; triggers-disabled/cap-phase non portés offline) → condition
-    `matches` → behaviour. Renvoie la liste des résultats (diagnostic)."""
+    """Mirror COLLAPSÉ du PUMP FIFO natif (#201) — `EvaluateTriggerOperation.ExecuteInternal @180e6ef40`
+    (dispatch) + `ProcessPendingTriggeredAbilities @180eba680` (drain) + `RunPhase(0xf) @180ebaa80`
+    (item) + `VerifyDeaths @180ebb0a0` (retrait-des-morts entre items), fondus en UNE boucle.
+
+    Structure native (RE) :
+      1. `ExecuteInternal` : itère le registre GLOBAL `AbilityAndEffectCache` (composant #3 = triggers de
+         CET event) → `EvaluateAbilityOrEffectTrigger` par entrée → **ENFILE** un pending triggered-ability
+         (file #5) — il n'EXÉCUTE PAS inline.
+      2. `ProcessPendingTriggeredAbilities` : **SNAPSHOT** la file #5 dans une List + **`Queue.Clear`**, puis
+         `foreach` item → `RunPhase(0xf, item)`. Chaque `RunPhase` = callback (le behaviour de l'item) PUIS
+         `VerifyDeaths` PUIS `ProcessDamageEvents` PUIS `ProcessPendingTriggeredAbilities` (cascade imbriquée).
+         => les morts causées par l'item N sont RETIRÉES avant l'item N+1.
+
+    Collapse du port (équivalent observable, sans machinerie de file) :
+      - `registry` = liste MATÉRIALISÉE une fois = le SNAPSHOT (mirror du snapshot+Clear : les effets/traits
+        ajoutés PENDANT le drain n'entrent pas dans CE registre).
+      - la boucle draine le snapshot en ordre FIFO ; le **re-appel de `matches` par item** (contre l'état
+        COURANT) = la re-validation de cible du `RunPhase(0xf)` (un item tué par un item antérieur ne matche
+        plus — cf. la leg target-validity `OverwatchAutoAttack.matches`, alive du mover).
+      - les morts sont appliquées **INLINE** par `_fire_death_if_killed` (alive=False + `after_death_triggers`
+        LIFO) DANS `execute_behaviour` = le `VerifyDeaths`-entre-items (la victime est morte avant l'entrée
+        suivante). Équivalent au pump pour la cascade prouvée #201 (overwatch kill-cancel) ; une vraie file
+        pending explicite (ordre snapshot-clear multi-rounds) n'ajoute AUCUN effet observable ici → non portée
+        (blast-radius/ordre RNG) tant qu'aucune divergence ne l'exige.
+
+    Gates par entrée : `event_id` écouté → `CanGet*Trigger` (owner VIVANT sauf fire-on-death ;
+    triggers-disabled non porté) → cap-phase (`<0x33`, ability-triggers) → `matches` → behaviour.
+    Renvoie la liste des résultats (diagnostic)."""
     out: list[dict] = []
     registry = collect_triggered_abilities(state) + collect_effect_triggers(state)
     for entry in registry:

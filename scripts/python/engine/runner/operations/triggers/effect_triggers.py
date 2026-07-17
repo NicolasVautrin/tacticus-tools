@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ...state import State
-from ...components import OwnerComponent, StatsComponent
+from ...components import OwnerComponent, StatsComponent, UnitComponent
 from ....entities.stats import StatType
 from ....entities.traits import UnitTrait, has_any_trait
 from ....entities.effect_type import EffectType
@@ -65,6 +65,20 @@ class OverwatchAutoAttack(EffectTrigger):
         ow = state.get_entity(self.owner_id)
         mv = state.get_entity(mover)
         if ow is None or mv is None:
+            return False
+        # TARGET-VALIDITY = leg de re-validation du PUMP FIFO (#201). Le mover (cible de l'overwatch)
+        # doit etre VIVANT. Natif : les pending triggered-abilities after-move (les 2 overwatch) sont
+        # draines UN PAR UN par `ProcessPendingTriggeredAbilities @180eba680` (snapshot+Clear de la file
+        # #5) ; chaque item = un `RunPhase(0xf) @180ebaa80` qui appelle `VerifyDeaths @180ebb0a0` juste
+        # apres son callback, AVANT l'item suivant. Donc si le 1er overwatch TUE le mover, VerifyDeaths le
+        # retire et le 2e overwatch ne trouve plus de cible : `GetAttackBehaviour @180f5d3e0` =
+        # `UseActiveAbility(NormalAttack)` sur une unite morte = fizzle (les selecteurs DSL de cible operent
+        # sur AllAliveMachines, #202). Le port COLLAPSE ce pump dans `evaluate_trigger_operation` (registre
+        # snapshot + drain par-item re-evaluant `matches` contre l'etat courant + morts appliquees INLINE via
+        # `_fire_death_if_killed` = alive=False) : ce gate est la re-validation de cible du drain. Sans lui,
+        # le 2e overwatch tirait sur le CADAVRE (double-fire = divergence #201 prouvee deterministe + live).
+        mvu = mv.get_component(UnitComponent)
+        if mvu is not None and not mvu.alive:
             return False
         owc = ow.get_component(OwnerComponent)
         mvc = mv.get_component(OwnerComponent)

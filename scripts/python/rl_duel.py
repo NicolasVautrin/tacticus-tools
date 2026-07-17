@@ -347,6 +347,15 @@ def cmd_build(sid: int, a) -> int:
                 u["RemainingHealth"] = a.hp_target
                 u["Armor"] = 0
                 u["FixedArmor"] = 0
+    if getattr(a, "hp_player", None):
+        # Idem --hp-target mais côté JOUEUR : mover fragile (p-unit) pour un kill déterministe quand
+        # l'overwatcher est une a-unit (l'effet Overwatch 1009 se pose côté IA au déploiement).
+        for u in bc.get("Units", []):
+            if u.get("VisualId") in p_set:
+                u["Health"] = a.hp_player
+                u["RemainingHealth"] = a.hp_player
+                u["Armor"] = 0
+                u["FixedArmor"] = 0
 
     if (p_mow or a_mow) and not _board_mow_ok(bc):
         print("[warn] board de la seed BC SANS slot MoW (MachineOfWarPosition) "
@@ -1928,6 +1937,8 @@ def main(argv: list[str]) -> int:
                     help="build: force BlockChance,BlockDamage sur les a-units (ex. '100,500')")
     ap.add_argument("--hp-target", type=int, default=None,
                     help="build: force Health+RemainingHealth des a-units (PV bas = kill déterministe)")
+    ap.add_argument("--hp-player", type=int, default=None,
+                    help="build: idem --hp-target mais pour les p-units (mover fragile côté joueur)")
     ap.add_argument("--roster", type=int, default=5,
                     help="taille de roster pour le tirage ALÉATOIRE "
                          "(ignoré si --p-units/--a-units fournis)")
