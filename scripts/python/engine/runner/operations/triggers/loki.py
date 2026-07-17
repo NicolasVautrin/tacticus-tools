@@ -650,15 +650,40 @@ def _reset_act_of_faith(state: State, owner_id: int) -> Optional[dict]:
 
 
 # --- TheBetrayer (behaviour) -----------------------------------------------------------------------
+def betrayer_add_effect_tree(effect_type: int):
+    """Arbre de `TheBetrayer_AddEffectAbility.CreateBehaviour @1811a4a00` (MIRROR 1:1 du DECOMPILE) :
+        AddEffect( effectType = 0x4f3, source = AbilityStateReference, target = Self@0x148 )
+    Port : `AddEffect(THEBETRAYER_EFFECT, "TheBetrayer_Effect", Caster())` (Owner==Caster pour un triggered).
+    La feuille route vers `AddEffectOperation.execute(target=caster, 0x4f3, "TheBetrayer_Effect")`.
+
+    ⚠ DUREE = 1 TOUR (PAS permanent). RE @180e48940 (`AddEffectOperation.Execute`) : `EffectComponent.Duration
+    @+0x68 = local_588[0]`, et `local_588[0] = 1` quand l'override Nullable est null (cas TheBetrayer :
+    `AddEffect(0x4f3, ..., &zeroed, 0)`) ET `DefaultAmountOfRounds(0x4f3)`=null (switch @181559ff0 n'a pas
+    0x4f3). La rage native dure donc 1 tour, RE-ACCORDEE a chaque kill (trigger OnDeath & killer==owner) ->
+    Kharn auto-joue le tour APRES un kill, PAS indefiniment. L'ancien port (BaseEffect PERMANENT, rem=None)
+    etait une DIVERGENCE LATENTE ; ce mirror l'aligne sur le natif (via AddEffectOperation qui applique deja
+    ce fallback 1). `effect_type` passe par l'appelant (constante `THEBETRAYER_EFFECT`)."""
+    from ...abilities.behaviours import AddEffect
+    from ....entities.selectors import Caster
+    return AddEffect(effect_type, "TheBetrayer_Effect", Caster())
+
+
 def _add_betrayer_effect(state: State, owner_id: int) -> Optional[dict]:
-    """`TheBetrayer_AddEffectAbility` behaviour = `AddEffect(0x4f3)` sur le porteur (marqueur de rage ;
-    aucune StatModification, juste la présence qui gate TakeTurn). No-op si `state.effects` absent."""
-    from ....entities.effects.base import BaseEffect
+    """`TheBetrayer_AddEffectAbility` behaviour = arbre DSL `betrayer_add_effect_tree()` (mirror
+    `AddEffect(0x4f3, Self)` @1811a4a00) : le porteur (Kharn) gagne le marqueur de rage 0x4f3 (aucune
+    StatModification, juste la presence qui gate TakeTurn), DUREE 1 tour (RE @180e48940, cf. tree ; re-accorde
+    a chaque kill). No-op si `state.effects` absent. Le gate `matches` (OnDeath & killer==owner & NOT
+    HasEffect(0x4f3)) reste upstream (hors CreateBehaviour)."""
+    from ...abilities.behaviours import entities_from_state
+    from ....dsl.effects import ExecutionContext
     if state.effects is None:
         return None
-    state.effects.add_effect(owner_id, BaseEffect(name="TheBetrayer_Effect",
-                                                  effect_type=THEBETRAYER_EFFECT))
-    return {"ability": "TheBetrayer", "owner": owner_id, "effect": "added 0x4f3"}
+    ectx = ExecutionContext(state=state)
+    betrayer_add_effect_tree(THEBETRAYER_EFFECT).execute(
+        entities_from_state(state, owner_id, None), ectx)
+    placed = any(p.get("placed") for n, p in ectx.emitted if n == "AddEffect")
+    return {"ability": "TheBetrayer", "owner": owner_id,
+            "effect": "added 0x4f3" if placed else "already present"}
 
 
 def _betrayer_target(state: State, owner_id: int) -> Optional[int]:

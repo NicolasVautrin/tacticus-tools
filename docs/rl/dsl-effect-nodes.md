@@ -121,7 +121,7 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
 |---|---|---|---|---|
 | ~~FireOfAbsolution~~ | `@18121f380` | `Inform & splash & Maybe(ignite)` | — (slice-14 ✅) | ✅ |
 | ~~OnFireDamage~~ | `@1811c3a60` | `AddEffect(Fire, Tiles(target))` | — (slice-15 ✅ : feuille `AddEffect` **généralisée tile-domain** (itère le sélecteur, `(col,row)`→tile id) + fix `Tiles`=`_units_of`) | ✅ |
-| TheBetrayer_AddEffect | `@1811a4a00` | `AddEffect(0x4f3, Self@0x148)` | ⚠ **change de durée** : native route via `AddEffectOperation`→`DefaultAmountOfRounds(0x4f3)=null`→fallback **1 round** ; port impératif actuel = `BaseEffect` PERMANENT → migrer = rage 1 round vs permanent → **validation multi-tour requise** (tâche) | **1→tâche** |
+| ~~TheBetrayer_AddEffect~~ | `@1811a4a00` | `AddEffect(0x4f3, Self@0x148)` | — (slice-17 ✅ : `AddEffect(Caster())` ; durée **1 tour** RE-confirmée @180e48940 (`Duration@+0x68 = local_588[0] = 1` si override ET `DefaultAmountOfRounds(0x4f3)` null), re-accordée à chaque kill — l'ancien `BaseEffect` PERMANENT était un **bug latent** que le mirror corrige) | ✅ |
 | ~~ActOfFaith reset~~ | `@181219eb0` | `RemoveEffect(0x3f9, Self@0x148)` | — (slice-16 ✅ : feuille `RemoveEffect` NEUVE (runner) + `reverted_stats()` DATA de l'effet ; gshared `param_3==0x20`=`RemoveEffect(0x3f9)` retenu, `!=0x20`=`TriggerAbilityDelayed(0x3fa)` écarté) | ✅ |
 | ActOfFaith accumulate | `@181219a70` | `AddEffect(0x3f9)` | **split** : stat-mod → `ActOfFaithBuffEffect.ApplyModification @180f302f0` (impératif, effet) | **2** |
 | EnvFireTile DoT | `@18121e040` | `Foreach(UnitsWithoutTraits([Steppable,Immune]), AttackWithAbilityDamage(PercentageOf(StatAmount(Health,Initial),20%), Flame, Direct(3)))` | damage-node `StatAmount`/`PercentageOf` (feuille) | **2** |
@@ -144,8 +144,14 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
 >
 > **`DefaultAmountOfRounds` @181559ff0 (switch 1:1)** : `0x4f`→3 ; `0x429`/`0x48a`→1 ; `5`/`0x11`/`0x12`/
 > `0x3a`/`0x4dc`/`0x5c4`→2 ; **tout le reste → null** (durée alors = override, sinon fallback **1** dans
-> `AddEffectOperation`). ⇒ `0x4f3` (TheBetrayer) et `0x3f9` (ActOfFaith) = **null → fallback 1 round** via
+> `AddEffectOperation`). ⇒ `0x4f3` (TheBetrayer) et `0x3f9` (ActOfFaith) = **null → fallback 1** via
 > l'Operation. Table portée `_DEFAULT_ROUNDS` (operations/effects.py) confirmée exacte.
+>
+> **Fallback durée confirmé @180e48940 (slice-17)** : dans `AddEffectOperation.Execute`, `EffectComponent.
+> Duration @+0x68 = local_588[0]`, et `local_588[0] = 1` quand l'override Nullable (param_6) n'a pas de valeur.
+> ⇒ un `AddEffect(effet, …, override=null)` sur un effet à `DefaultAmountOfRounds` null pose une durée = **1
+> tour** (PAS permanent, PAS 0). C'est ce que le port `AddEffectOperation` fait déjà — un behaviour migré vers
+> la feuille `AddEffect` hérite donc de cette durée native (ex. TheBetrayer rage 1 tour, re-accordée par kill).
 
 **RESTENT impératifs (natif ≠ arbre de behaviour) — NE PAS forcer en DSL :**
 - **Operations** appelées par les feuilles : `AttackDamageOperation`, `AddEffectOperation`,
@@ -164,11 +170,11 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
 
 ### Ordre de bataille (tranches E restantes, par tractabilité)
 
-- **Groupe 1 — feuilles qu'on a déjà / triviales** : ~~OnFireDamage~~ ✅ (slice-15 : `AddEffect` généralisée
-  tile-domain `Tiles(Target())` — mirror du NODE natif, PAS `SetOnFire`). ~~ActOfFaith reset~~ ✅ (slice-16 :
-  feuille `RemoveEffect` neuve + `reverted_stats()` DATA côté effet ; frontière classification respectée =
-  nœud `RemoveEffect` déclaratif / `revert_change_stat` impératif en dessous). **TheBetrayer_AddEffect**
-  RESTE (subtilité durée rage 1 round vs permanent → validation multi-tour, #219), pas un wrap 1-ligne.
+- **Groupe 1 — ✅ TERMINÉ** : ~~OnFireDamage~~ (slice-15 : `AddEffect` généralisée tile-domain
+  `Tiles(Target())`) · ~~ActOfFaith reset~~ (slice-16 : feuille `RemoveEffect` neuve + `reverted_stats()` DATA
+  côté effet, frontière déclaratif/impératif respectée) · ~~TheBetrayer_AddEffect~~ (slice-17 :
+  `AddEffect(Caster())`, durée rage 1 tour RE-confirmée @180e48940 — l'ancien permanent était un bug latent).
+  Les 3 feuilles concernées (`AddEffect` tile+unit, `RemoveEffect`) sont désormais des primitives réutilisables.
 - **Groupe 2 — 1 damage-node `StatAmount`/`PercentageOf` à ajouter (+ split effet pour ActOfFaith)** : Psyker
   Smite, EnvFireTile DoT, ActOfFaith accumulate.
 - **Groupe 3 — gated sur infra lourde** : TheBetrayer_TakeTurn, FinalJustice, ArcaneShield → dépendent de la
