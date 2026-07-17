@@ -29,7 +29,8 @@ from ...dsl.event_trigger_type import EventTriggerType   # #209 : EvaluateAbilit
 from ...entities.behaviours import Seq, Foreach, If, AtomicGroup, op_add, op_and
 from ...entities.selectors import (Cache, Target, Subject, get_spawn_tile_selector, Children,
                                    LastUnitAttackedBy, Caster, CasterTile, TargetTile, AdjacentEnemies,
-                                   And, UnitsWithoutTrait, Union, UnitsFromFaction, AdjacentFriends, Alive)
+                                   AdjacentUnits, And, UnitsWithoutTrait, Union, UnitsFromFaction,
+                                   AdjacentFriends, Alive)
 from ...entities.formulas import TotalAttacksMade, UnitTurnsStarted
 from ...entities.triggers import AmountIsGreaterThanZero, AmountIsEqual, IsAlive, TriggerAnd
 from ...entities.traits.unit_trait import UnitTrait
@@ -295,6 +296,39 @@ def scything_talons_tree() -> AtomicGroup:
         Alive(And(AdjacentEnemies(CasterTile(), Const(1)), AdjacentEnemies(TargetTile(), Const(1)))),
         "ScythingTalons", "Bio", is_melee=True, hits_key="nrOfHits_2", multi=True)              # MEME plage, 0x32=2
     return AtomicGroup(op_and(main, splash))
+
+
+def stikkbomb_tree() -> AtomicGroup:
+    """Arbre de `StikkbombAbility.ExecuteBehaviour @18120c180` (id 1051, Ork Boy — MIRROR du DECOMPILE) :
+        Execute( AtomicGroup( op_Addition(
+            AttackWithAttackDamage(caster, target, RandomAmount(var0xc,var0xd), Blast, nrOfHits=0x2f=2),  # [MAIN]
+            AttackWithAttackDamage(caster, AdjacentUnits(target,1,3), RandomAmount(MEME), Blast,
+                                   nrOfHits_2=0x32=1) ) ) )                                                # [SPLASH]
+    Le SPLASH natif passe un SELECTEUR MULTI-cible directement a UN `AttackWithAttackDamage` (PAS un `Foreach`)
+    -> `AttackBehaviour.Execute @180fb91a0` resout la liste + `OrderBy` puis attaque chaque cible : porte via
+    `multi=True` (feuille `AttackWithAbilityDamage`, tri par id = ordre de lecture natif).
+
+    ⚠ FRIENDLY-FIRE (fidelite #213, RESOLUE) : le selecteur splash = `AdjacentUnits(target,1,3)` BRUT, SANS
+    wrapper `Enemies(...)` -- DECOMPILE-conclusif (contraste PlasmaGrenade `Enemies(caster, AdjacentUnits(...))`
+    enemies-only et Fragstorm `AdjacentTiles - Tiles(Friends(...))` excl-amis ; `AdjacentUnits`/`Units`/`Enemies`
+    decompiles : le 1/3 = flags `UnitsOnTilesSelector`, PAS un masque d'equipe) ET corrobore par l'i2 (Stikkbomb
+    = « units in hexes adjacent to the target », les 3 autres = « enemy units »/« excluding friendly hexes »).
+    => splash = TOUTES les unites adjacentes a la cible (allies du caster INCLUS), hors cible. Selecteur porte =
+    `Alive(AdjacentUnits(TargetTile()))` (AUCUN filtre team ; `Alive` compense les cadavres offline, mirror du
+    natif `Units(AdjacentTiles)` qui n'a que les unites DEBOUT = vivantes, cf. PlasmaGrenade #202/#148).
+
+    Plage `RandomAmount(minDmg/maxDmg)` PARTAGEE main/splash (memes cles par defaut) ; seule la constante de
+    coups differe (nrOfHits 0x2f=2 vs nrOfHits_2 0x32=1). Profil Blast, RANGED (range 2, Indirect Fire).
+    `op_Addition` = `CombinedBehaviour` (effets PURS -> les deux volets s'executent) ; `AtomicGroup` = inline
+    (#201) ; plain `Execute` (PAS ExecuteAtomic, contraste ScythingTalons). Ordre = main PUIS splash (meme
+    `state.rng`). L'imperatif `StikkbombAbility.execute_behaviour` (`_splash_ability_behaviour`+
+    `_adjacent_enemies_of` = enemies-only, ERRONE) est REMPLACE par cet arbre (et CORRIGE en friendly-fire).
+    `_adjacent_enemies_of`/`_splash_ability_behaviour` restent partages par Fragstorm (non encore migre)."""
+    tgt = Target()
+    main = AttackWithAbilityDamage(tgt, "Stikkbomb", "Blast", is_melee=False)                    # RandomAmount/Blast/0x2f=2
+    splash = AttackWithAbilityDamage(Alive(AdjacentUnits(TargetTile())), "Stikkbomb", "Blast",
+                                     is_melee=False, hits_key="nrOfHits_2", multi=True)          # MEME plage, friendly-fire, 0x32=1
+    return AtomicGroup(op_add(main, splash))
 
 
 def valkyrie_strike_tree() -> AddBondEffect:
@@ -876,12 +910,21 @@ class PlasmaGrenadeAbility(ActiveAbility):
 
 
 class StikkbombAbility(ActiveAbility):
-    """`StikkbombAbility.ExecuteBehaviour` @18120c180 (id 1051, orksOrkBoys).
+    """`StikkbombAbility.ExecuteBehaviour` @18120c180 (id 1051, Ork Boy — orksNpc2OrkBoy/orksOrkBoys).
 
-    Séquence native : `AttackWithAttackDamage(actor, target, MinMaxDamage, Blast, nrOfHits=2)` +
-    `AtomicGroup(Foreach(splash = AdjacentUnits(target), team-param 3 → ennemis du caster)
-    AttackWithAttackDamage(actor, s, MÊME MinMaxDamage, Blast, nrOfHits_2=1))` (l'`AtomicGroup` = no-op
-    offline). Splash = `_adjacent_enemies_of`, plage PARTAGÉE. Profil Blast, ranged (range 2)."""
+    #149 slice-12 : la behaviour EST l'**arbre DSL** `stikkbomb_tree()` (mirror 1:1 du décompilé @18120c180 :
+    `Execute(AtomicGroup(op_Addition(main, splash)))` — cf. `stikkbomb_tree`), en remplacement du portage
+    impératif (`_splash_ability_behaviour`+`_adjacent_enemies_of`).
+
+    ⚠ FIDÉLITÉ CORRIGÉE (#213, RÉSOLUE) : le splash natif = `AdjacentUnits(target,1,3)` BRUT (SANS wrapper
+    `Enemies(...)`) → **FRIENDLY-FIRE** = TOUTES les unités adjacentes à la cible (alliés du caster INCLUS),
+    hors cible. L'ancien port (`_adjacent_enemies_of` = enemies-only) était ERRONÉ. Preuve DOUBLE et concordante :
+    (1) décompile — contraste PlasmaGrenade `Enemies(caster, AdjacentUnits(...))` et Fragstorm
+    `AdjacentTiles − Tiles(Friends(...))`, avec `AdjacentUnits`/`Units`/`Enemies` décompilés (le 1/3 = flags
+    `UnitsOnTilesSelector`, pas un masque d'équipe) ; (2) i2 — Stikkbomb « units in hexes adjacent to the target »
+    vs « enemy units »/« excluding friendly hexes » des 3 autres splash. Le sélecteur porté `Alive(AdjacentUnits(
+    TargetTile()))` n'applique donc AUCUN filtre d'équipe. Plage main/splash PARTAGÉE (nrOfHits=2 / nrOfHits_2=1),
+    profil Blast, ranged (range 2, Indirect Fire)."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.Stikkbomb)  # 1051
     ABILITY_ID = "Stikkbomb"
@@ -890,10 +933,16 @@ class StikkbombAbility(ActiveAbility):
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
             return None
-        splash = _adjacent_enemies_of(state, caster_id, target_id)
+        # behaviour = arbre DSL (feuille AttackWithAbilityDamage x2, splash multi=True friendly-fire) ; émet les
+        # MÊMES Operations (`AttackDamageOperation.execute_ability_attack`) -> même mutation, diag main/splash.
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        stikkbomb_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAbilityDamage"]
+        main = next((p["attack"] for p in atks if p.get("target") == target_id), None)
+        splash = [{"target": p["target"], "attack": p["attack"]}
+                  for p in atks if p.get("target") != target_id]      # cibles splash != cible principale
         return {"ability": "Stikkbomb", "caster": caster_id, "target": target_id,
-                **_splash_ability_behaviour(state, caster_id, target_id, self.ABILITY_ID,
-                                            "Blast", ranged=True, splash_set=splash)}
+                "main_attack": main, "splash": splash, "dsl": True}
 
 
 class FragstormAbility(ActiveAbility):

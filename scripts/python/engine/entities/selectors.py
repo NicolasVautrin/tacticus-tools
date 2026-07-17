@@ -37,6 +37,22 @@ class AdjacentEnemies(TargetsSelector):
         return [u for u in ring if u.get("team") != ct]
 
 
+class AdjacentUnits(TargetsSelector):
+    """`DSLFactory.AdjacentUnits(target, radius, mask) @180de8320` = `Units(AdjacentTiles(target)) - {target}`
+    = TOUTES les unités (AUCUN filtre d'équipe) à distance hex <= radius de `target`, target exclu. ⚠ à la
+    DIFFÉRENCE de `AdjacentEnemies` (filtre team != caster) et de `Enemies(...)` (wrapper `UnitsByTeamSelector`),
+    ce sélecteur ne filtre PAS l'équipe → inclut les ALLIÉS du caster (et le caster) s'ils sont adjacents à la
+    cible = FRIENDLY-FIRE. Le volet SPLASH de Stikkbomb (@18120c180) passe ce sélecteur BRUT (sans wrapper
+    `Enemies(...)`, contraste PlasmaGrenade/ScythingTalons) — corroboré par l'i2 (« units in hexes adjacent »
+    vs « enemy units » des autres). `_within` exclut déjà le centre (target, dist 0). Mirror de `AdjacentEnemies`
+    SANS le filtre team."""
+    def __init__(self, center: TargetsSelector, radius: TargetsSelector | None = None):
+        self.center, self.radius = center, radius or Const(1)
+
+    def select(self, ctx):
+        return _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx))
+
+
 class Enemies(TargetsSelector):
     """`DSLFactory.Enemies` : filtre → équipe != celle du caster."""
     def __init__(self, inner: TargetsSelector):

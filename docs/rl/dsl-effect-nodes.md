@@ -821,3 +821,51 @@ swarm-parent, on-appearance frappe un ennemi, `delta HP == total` après restaur
 **Restant loki.py impératif** (post slice-11) : Stikkbomb (**BLOQUÉ** : RE team-filter `AdjacentUnits(target,1,3)` — mur
 gshared, live confront requis, tâche #213), Fragstorm (splash + `PickRandomly` RNG gap) ; + tranche transverse
 DÉPLACEMENT (`PushUnit`/`KillDeadUnits`/`MoveUnit`).
+
+
+## Slice-12 (#149, 2026-07-17) — 11e behaviour DSL : Stikkbomb (splash MULTI FRIENDLY-FIRE) + fix fidélité #213
+
+**RE — `StikkbombAbility.ExecuteBehaviour @18120c180`** (id 1051, Ork Boy — `orksNpc2OrkBoy` NPC / `orksOrkBoys`
+summon, DÉCOMPILE gqfc5mff6c). `Execute(AtomicGroup(op_Addition(main, splash)))` (plain `Execute`, PAS `ExecuteAtomic`
+— contraste ScythingTalons) :
+
+```
+main   = AttackWithAttackDamage(caster, target,                 RandomAmount(var0xc,var0xd), Blast, nrOfHits=0x2f=2)
+splash = AttackWithAttackDamage(caster, AdjacentUnits(target,1,3), RandomAmount(MÊME),        Blast, nrOfHits_2=0x32=1)
+```
+
+**#213 RÉSOLU (décompile-conclusif — construction, PAS Execute-hooking : même leçon que #200).** Le splash passe
+`AdjacentUnits(target,1,3)` **BRUT**, SANS wrapper de filtre d'équipe → **FRIENDLY-FIRE** (toutes les unités adjacentes
+à la cible, alliés du caster INCLUS). Preuve par comparaison **3-way** des sélecteurs splash + décompile des primitives :
+
+| Ability | sélecteur splash (décompile) | filtre équipe | i2 |
+|---|---|---|---|
+| **Stikkbomb** | `AdjacentUnits(target,1,3)` **brut** | **AUCUN → friendly-fire** | « **units** in hexes adjacent » |
+| PlasmaGrenade | `Enemies(caster, AdjacentUnits(target,1,3))` | enemies-only (`UnitsByTeamSelector`) | « **enemy units** in adjacent hexes » |
+| Fragstorm | `AdjacentTiles(target) − Tiles(Friends(caster,…))`, PickRandomly | exclut amis du caster | « excluding hexes with **friendly units** » |
+| ScythingTalons | `Enemies(caster, AdjacentUnits(cTile)∩AdjacentUnits(tTile))` | enemies-only | « any **enemy units** adjacent » |
+
+`AdjacentUnits @180de8320` = `Units(AdjacentTiles(target),1,3) − target` ; `Units @180e013e0` = `UnitsOnTilesSelector`
+(le `1`/`3` = flags du ctor, **PAS** un masque d'équipe) ; `Enemies @180deedd0` = `UnitsByTeamSelector` (le filtre
+d'équipe). Le différentiel (Plasma wrappe, Fragstorm soustrait, Stikkbomb brut) PROUVE que la couche d'attaque ne
+re-filtre pas les amis → Stikkbomb friendly-fire. **Corroboration i2** : Stikkbomb dit « units » là où les 3 autres
+disent « enemy units »/« friendly units ». L'ancien port (`_adjacent_enemies_of` = enemies-only) était donc **ERRONÉ**.
+
+**Port** :
+- **Sélecteur `AdjacentUnits`** (`entities/selectors.py`) = mirror `DSLFactory.AdjacentUnits` = `AdjacentEnemies` **SANS
+  le filtre team** (`_within(units, targetTile, radius)`, aucun filtre d'équipe → inclut alliés + caster).
+- **Arbre `stikkbomb_tree()`** (`loki.py`) = `AtomicGroup(op_add(main, splash))` : main `AttackWithAbilityDamage(Target())`
+  + splash `AttackWithAbilityDamage(Alive(AdjacentUnits(TargetTile())), multi=True, hits_key="nrOfHits_2")`. Plage
+  RandomAmount PARTAGÉE main/splash, profil Blast, ranged. `StikkbombAbility.execute_behaviour` DÉLÈGUE à l'arbre (diag
+  `main_attack`/`splash` reconstruit des émissions `AttackWithAbilityDamage`, + `dsl:True`) — l'impératif
+  (`_splash_ability_behaviour`+`_adjacent_enemies_of` enemies-only) est **REMPLACÉ ET CORRIGÉ** en friendly-fire.
+  `_adjacent_enemies_of`/`_splash_ability_behaviour` restent partagés par Fragstorm (non migré).
+
+**Validation** : `test_stikkbomb_migration_friendly_fire` (NEW : caster PROXY buildable — le carrier Ork Boy réel étant
+NPC/summon non-buildable, et la friendly-fire étant une propriété du SÉLECTEUR de l'ability, pas du kit du caster —
+DRIVE un allié-du-caster + un ennemi adjacents à la cible → le splash touche LES DEUX = exactement les unités à dist
+hex 1 (AUCUN filtre team), l'allié INCLUS + amputé ; `dsl:True`, main 2 coups, splash 1 coup). `test_plasma_grenade_
+splash_live` (Plasma enemies-only intact) + `test_scything_talons_migration_live` (intact) re-PASS.
+
+**Restant loki.py impératif** (post slice-12) : Fragstorm (splash `AdjacentTiles − Tiles(Friends)` + `PickRandomly`-4 —
+gap d'ordre/coût RNG du pick) ; + tranche transverse DÉPLACEMENT (`PushUnit`/`KillDeadUnits`/`MoveUnit`).
