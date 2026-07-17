@@ -2,9 +2,12 @@
 builder de contexte `entities_from_state` (#149).
 
 Contenu = les `*Behaviour` CONCRETS qui MUTENT l'état en émettant une runner Operation déjà portée :
-`Spawn` (`SpawnUnitBehaviour` @180fd5ab0 → `_spawn_config_grot`), `AttackWithAbilityDamage`
-(`AttackBehaviour`/`AttackDamageBehaviour` @180fba0e0 → `AttackDamageOperation.execute_ability_attack`),
-`AddEffect` (`AddEffectBehaviour` @180f947e0 → `AddEffectOperation`), `AddBondEffect`
+`Spawn` (`SpawnUnitBehaviour` @180fd5ab0 → `_spawn_config_grot`), `AttackWithAttackDamage`
+(`DSLFactory.AttackWithAttackDamage` @180de9fb0 → `AttackDamageOperation.execute_ability_attack`/
+`execute_normal_like` : attaque d'ability crit/block), `AttackWithAbilityDamage`
+(`DSLFactory.AttackWithAbilityDamage` @180de9c90 → `AttackDamageOperation.execute_direct` : dégât DIRECT
+sans crit/block — DoT feu `EnvFireTile`), `AddEffect` (`AddEffectBehaviour` @180f947e0 →
+`AddEffectOperation`), `AddBondEffect`
 (`AddBondEffectBehaviour` → idem), `PerformAIAttack` (`PerformAIAbilityUnitBehaviour` @180fcb940). Couche
 MINCE d'orchestration au-dessus des mutateurs ECS.
 
@@ -343,7 +346,7 @@ class AddBondEffect(AbilityBehaviour):
         return OperationResult.ok()
 
 
-class AttackWithAbilityDamage(AbilityBehaviour):
+class AttackWithAttackDamage(AbilityBehaviour):
     """`DSLFactory.AttackWithAttackDamage @180de9fb0` -> `AttackDamageBehaviour`+`AttackBehaviour.Execute` :
     l'attaque d'une ability (bornes `MinMaxDamage(minDmg/maxDmg[level])`, profil `GetDamageProfile`, nb de
     coups `GetNumberConstant(0x2f)=nrOfHits`) portee sur la cible. Wrapper MINCE au-dessus de l'Operation
@@ -355,7 +358,7 @@ class AttackWithAbilityDamage(AbilityBehaviour):
     ⚠ Le ciblage natif complet = `Units(Cache(First(Nearest(Tiles(target_ctx), casterPos))))` : pour une
     ability MONO-cible melee (ThunderousAssault) il COLLAPSE en la cible du message (`ctx.target`) — que
     l'IA/caller a deja choisie (== l'imperatif live-valide). La chaine Tiles->Nearest->First->Cache->Units
-    n'est materialisee que si une ability re-derive sa cible (differe). Emet 'AttackWithAbilityDamage'. PUR.
+    n'est materialisee que si une ability re-derive sa cible (differe). Emet 'AttackWithAttackDamage'. PUR.
 
     `min_key`/`max_key`/`hits_key` = cles config du volet de degat (defaut `minDmg`/`maxDmg`/`nrOfHits` =
     `MinMaxDamage`/`GetDamageProfile`/`GetNumberConstant(0x2f)`) ; une ability a DEUX volets (ex. CrushingClaws
@@ -364,7 +367,7 @@ class AttackWithAbilityDamage(AbilityBehaviour):
 
     `damage_override` = callable `(state, caster, target, bmin, bmax) -> (bmin, bmax)` mirror d'un
     `AActiveAbility.GetAttackDamage` SURCHARGE par-ability (le natif passe la node de degat calculee a
-    `AttackWithAbilityDamage` — cf. `SpiritLeech.GetAttackDamage @181209dd0` = ConditionalAmount(cible Pinned
+    `AttackWithAttackDamage` — cf. `SpiritLeech.GetAttackDamage @181209dd0` = ConditionalAmount(cible Pinned
     -> +extraDmg)). Defaut None = degat generique `MinMaxDamage` (bornes config brutes) ; sinon le callable
     ajuste (bmin,bmax) APRES `ability_attack_params`, AVANT le tirage per-coup.
 
@@ -443,8 +446,62 @@ class AttackWithAbilityDamage(AbilityBehaviour):
                 atk = AttackDamageOperation.execute_ability_attack(
                     state, caster, tgt, bmin, bmax, pierce, hits,
                     damage_profile=self.profile, is_melee=self.is_melee)
-            ectx.emit("AttackWithAbilityDamage", caster=caster, target=tgt,
+            ectx.emit("AttackWithAttackDamage", caster=caster, target=tgt,
                       total=(atk or {}).get("total"), attack=atk)
+        return OperationResult.ok()
+
+
+class AttackWithAbilityDamage(AbilityBehaviour):
+    """`DSLFactory.AttackWithAbilityDamage @180de9c90` -> `AttackDamageBehaviour` sur un nœud de dégât
+    `Direct(...)` : dégât DIRECT (base = un `AAmountFormula`) porté sur la cible, routé par le SEUL
+    perçage/armure — AUCUN crit / block / bouclier / spread / tirage RNG / after-hit. Factory NATIVE
+    DISTINCTE de `AttackWithAttackDamage @180de9fb0` (l'attaque d'ability crit/block ci-dessus). #149
+    slice-19 : la classe Python homonyme précédente mirrorait en réalité `AttackWithAttackDamage` et a
+    été RENOMMÉE (directive « coller au natif ») — cette classe-ci est la VRAIE `AttackWithAbilityDamage`.
+
+    Seul usage porté = le DoT de tuile `EnvFireTile` (`EnvFireTileAbility.CreateBehaviour @18121e040` :
+    `Foreach(<occupants non-immunes sur tuile en feu>, AttackWithAbilityDamage(Tiles(@0x180), PercentageOf(
+    StatAmount(@0x180, Health=5, Max=2), ConfigConst(fireDmgPct)), Direct(Nullable(3)), source=AbilityOrEffect(
+    Fire=5)))`). Wrapper MINCE au-dessus de `AttackDamageOperation.execute_direct` (= l'ancien corps impératif
+    de `FireTileDoT`) → bit-exact BY CONSTRUCTION (même base, même perçage, même mutation/mort).
+
+    `amount` = le dégât-node `AAmountFormula` (la base ; pour le feu `PercentageOf(fireDmgPct, StatAmount(
+    Target(), Health, Max))` — `entities` porte `get_stat`, la base est calculée Fix64 = mirror natif
+    `PercentageOf.Calculate`). `profile` = profil de perçage (Flame). `is_melee` n'affecte PAS le perçage :
+    la source est une TUILE sans stats ExtraPierce → `profile_pierce(None, profile)` = PiercingRatio brut.
+    `hits` = nb d'applications (défaut 1 = 1 tick, live-validé : net 477 = base 1908 × PiercingRatio Flame
+    25%). `source_ref` = l'entité-source pour l'attribution de mort (défaut None → `entities.caster` = la
+    tuile). Émet 'AttackWithAbilityDamage'. PUR.
+
+    ⚠ `Direct(Nullable(3))` natif : le `3` n'est PAS le nb de coups (live = 1 tick) ; sa sémantique exacte
+    (DamageTrait / tag de source) n'est pas RE'd et reste INERTE pour un dégât DIRECT (rien à taguer : pas de
+    crit/block/after-hit). Non porté (ne change aucun nombre)."""
+    __slots__ = ("target_sel", "profile", "amount", "is_melee", "hits", "source_ref")
+
+    def __init__(self, target_sel: TargetsSelector, profile: str, amount, is_melee: bool = True,
+                 hits: int = 1, source_ref=None):
+        self.target_sel, self.profile, self.amount = target_sel, profile, amount
+        self.is_melee, self.hits, self.source_ref = is_melee, int(hits), source_ref
+
+    def execute(self, entities, ectx):
+        from ..operations.damage import AttackDamageOperation
+        from .base import profile_pierce
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        su = resolve_unit(self.source_ref, entities) if self.source_ref is not None else entities.caster
+        src = (su or {}).get("id")
+        tu = resolve_unit(self.target_sel, entities)
+        tgt = tu.get("id") if tu and tu.get("id") is not None else None
+        if src is None or tgt is None:
+            return OperationResult.ok()
+        base = int(self.amount.evaluate(entities))            # Fix64 mirror (entities.get_stat -> StatAmount)
+        pierce = profile_pierce(None, self.profile, ranged=not self.is_melee)  # source=tuile : PiercingRatio brut
+        atk = None
+        for _ in range(max(1, self.hits)):
+            atk = AttackDamageOperation.execute_direct(state, src, tgt, base, pierce)
+        ectx.emit("AttackWithAbilityDamage", source=src, target=tgt,
+                  total=(atk or {}).get("total"), attack=atk)
         return OperationResult.ok()
 
 
@@ -601,7 +658,7 @@ class Heal(AbilityBehaviour):
     du 3e volet de `SpiritLeech.ExecuteBehaviour` = lifesteal). Le montant est calcule UNE fois par
     `amount_fn` = FOLD du `SetCache(PercentageOf(LastAttackDamageMade, ...))` natif (le Heal natif lit un
     montant CACHE derive de la derniere attaque ; l'`amount_fn` nommee (mirror `GetHealAmountForExecution`)
-    le recompute en lisant le total de la derniere `AttackWithAbilityDamage` dans `ectx.emitted`). `source`
+    le recompute en lisant le total de la derniere `AttackWithAttackDamage` dans `ectx.emitted`). `source`
     de soin = `ctx.caster`. No-op si montant <= 0. Emet 'Heal' (amount + heals=[{target, healed}]). PUR."""
     __slots__ = ("targets_sel", "amount_fn")
 

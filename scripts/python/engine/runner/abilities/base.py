@@ -44,10 +44,11 @@ def profile_pierce(ctx, profile_name: str, ranged: bool = False) -> int:
     """Perçage effectif d'une attaque = `clamp(0, 100, profil.PiercingRatio + ExtraPierce +
     ExtraPierce{Melee|Ranged})` (volet perçage commun de `MinMaxDamage`/`AttackWithAttackDamage` :
     PiercingRatio du profil de dégât + les stats de perçage du caster). Extrait de
-    `ability_attack_params` pour être PARTAGÉ avec le mode `amount` de la feuille
-    `AttackWithAbilityDamage` (dégât-node `StatAmount`/`PercentageOf` — Psyker/Fire), qui n'a pas de
-    bornes d'arme mais route la même base par ce perçage. `ctx` = `UnitContext` du caster (None →
-    perçage = PiercingRatio seul)."""
+    `ability_attack_params` pour être PARTAGÉ par les deux feuilles à dégât-node `StatAmount`/`PercentageOf`
+    (sans bornes d'arme, elles routent leur base par ce perçage) : le mode `amount` de `AttackWithAttackDamage`
+    (Psyker, crit/block) ET la feuille directe `AttackWithAbilityDamage` (DoT feu, sans crit/block — appelée
+    avec `ctx=None`). `ctx` = `UnitContext` du caster (None → perçage = PiercingRatio seul, cas de la tuile
+    en feu qui n'a pas de stats ExtraPierce)."""
     import gameconfig as GC
     dp = GC.damage_profile(profile_name) or {}
     extra = ctx.extra_pierce if ctx is not None else 0

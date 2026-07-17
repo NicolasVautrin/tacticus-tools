@@ -124,7 +124,7 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
 | ~~TheBetrayer_AddEffect~~ | `@1811a4a00` | `AddEffect(0x4f3, Self@0x148)` | — (slice-17 ✅ : `AddEffect(Caster())` ; durée **1 tour** RE-confirmée @180e48940 (`Duration@+0x68 = local_588[0] = 1` si override ET `DefaultAmountOfRounds(0x4f3)` null), re-accordée à chaque kill — l'ancien `BaseEffect` PERMANENT était un **bug latent** que le mirror corrige) | ✅ |
 | ~~ActOfFaith reset~~ | `@181219eb0` | `RemoveEffect(0x3f9, Self@0x148)` | — (slice-16 ✅ : feuille `RemoveEffect` NEUVE (runner) + `reverted_stats()` DATA de l'effet ; gshared `param_3==0x20`=`RemoveEffect(0x3f9)` retenu, `!=0x20`=`TriggerAbilityDelayed(0x3fa)` écarté) | ✅ |
 | ActOfFaith accumulate | `@181219a70` | `AddEffect(0x3f9)` | **split** : stat-mod → `ActOfFaithBuffEffect.ApplyModification @180f302f0` (impératif, effet) | **2** |
-| EnvFireTile DoT | `@18121e040` | `Foreach(UnitsWithoutTraits([Steppable,Immune]), AttackWithAbilityDamage(PercentageOf(StatAmount(Health,Initial),20%), Flame, Direct(3)))` | damage-node `StatAmount`/`PercentageOf` (feuille) | **2** |
+| ~~EnvFireTile DoT~~ | `@18121e040` | `Foreach(UnitsWithoutTraits([Steppable,Immune]) & Units(EntitiesWithAnyEffect(Fire)), AttackWithAbilityDamage(Tiles, PercentageOf(StatAmount(Health,Max),fireDmgPct), Direct(3), source=Fire))` | — (slice-19 ✅ : feuille DIRECT `AttackWithAbilityDamage` NEUVE (factory `@180de9c90` ≠ `AttackWithAttackDamage @180de9fb0`) → `AttackDamageOperation.execute_direct` (perçage/armure seuls, PAS de crit/block/spread/after-hit) + `PercentageOf(fireDmgPct, StatAmount(Target(),Health,**Max**))`. **RENOMMAGE natif** (« coller au natif ») : l'ancienne classe Python `AttackWithAbilityDamage` (crit/block) → `AttackWithAttackDamage` (65 occ / 4 fichiers), la NEUVE = la vraie DIRECT. `Foreach`/sélecteur restent impératifs (dispatch tuile + `_is_immune_to_fire`, DSL-ification = #216). Bit-exact vs impératif validé (replay-diff, toutes unités)) | ✅ |
 | ~~Psyker Smite~~ | `@1812241b0` | `AttackWithAttackDamage(Target(), PercentageOf(StatAmount(Self@0x148,Attack), Direct(psykerExtraDmg)), Psychic, hits=1)` | — (slice-18 ✅ : PRIMITIF damage-node introduit — feuille `AttackWithAbilityDamage` param `amount`/`hits` (mode formule → `execute_normal_like(base, spread=0)`) + wiring `entities_from_state.get_stat` (StatAmount lit la vraie stat via StatsComponent) + helper partagé `profile_pierce`. Sélecteur `PickRandomly(Damageable(Enemies(AdjacentUnits)))` reste impératif → collapse `Target()`, DSL-ification = #216) | ✅ |
 | TheBetrayer_TakeTurn | `@1811a4f70` | `target(GetAttackTarget) → MoveUnit → UseActiveAbility(NormalAttack)` | tranche DÉPLACEMENT (`MoveUnit`) + feuille `UseActiveAbility` + sélecteur `GetAttackTarget` (S) | **3** |
 | FinalJustice | `@18121ed00` | `UseActiveAbility(NormalAttack, SortUnitsByDamageUtility(…))` | feuille `UseActiveAbility` + sélecteur `SortUnitsByDamageUtility` (S) | **3** |
@@ -176,7 +176,8 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
   `AddEffect(Caster())`, durée rage 1 tour RE-confirmée @180e48940 — l'ancien permanent était un bug latent).
   Les 3 feuilles concernées (`AddEffect` tile+unit, `RemoveEffect`) sont désormais des primitives réutilisables.
 - **Groupe 2 — damage-node `StatAmount`/`PercentageOf` (+ split effet pour ActOfFaith)** : ~~Psyker Smite~~
-  (slice-18 ✅ : PRIMITIF damage-node livré — cf. ci-dessous) · EnvFireTile DoT · ActOfFaith accumulate (restants).
+  (slice-18 ✅ : PRIMITIF damage-node livré — cf. ci-dessous) · ~~EnvFireTile DoT~~ (slice-19 ✅ : feuille DIRECT
+  `AttackWithAbilityDamage` NEUVE + `execute_direct` + renommage natif — cf. ci-dessous) · ActOfFaith accumulate (restant).
 
   > **PRIMITIF damage-node (slice-18, RE `@1812241b0` décompile frais)** — 3 pièces réutilisables par
   > EnvFireTile/ActOfFaith :
@@ -194,8 +195,15 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
   >
   > **DEUX factories natives distinctes** (à ne pas confondre) : `DSLFactory.AttackWithAttackDamage @180de9fb0`
   > (Psyker/ThunderousAssault — chemin attaque-damage reduce/crit/block) vs `DSLFactory.AttackWithAbilityDamage
-  > @180de9c90` (EnvFireTile — `Direct(3)` = dégât DIRECT sans crit/block). ⚠ EnvFireTile (slice-19) route par
-  > un chemin DIRECT (bare `apply_pierce_and_modifiers`, comme son impératif actuel), PAS `execute_normal_like`.
+  > @180de9c90` (EnvFireTile — `Direct(3)` = dégât DIRECT sans crit/block). EnvFireTile (slice-19 ✅) route par un
+  > chemin DIRECT — feuille NEUVE `AttackWithAbilityDamage` → `AttackDamageOperation.execute_direct` (bare
+  > `apply_pierce_and_modifiers`, pas de crit/block/spread/after-hit), PAS `execute_normal_like`.
+  >
+  > ⚠ **RENOMMAGE natif (slice-19, « coller au natif »)** : l'ancienne classe Python `AttackWithAbilityDamage`
+  > mirrorait en réalité `AttackWithAttackDamage @180de9fb0` (crit/block) → RENOMMÉE partout (65 occ / 4 fichiers).
+  > La classe `AttackWithAbilityDamage` désigne DÉSORMAIS la vraie factory DIRECT `@180de9c90`. **Les notes de
+  > slices 3–13 ci-dessous emploient l'ANCIEN nom `AttackWithAbilityDamage` pour la feuille crit/block → lire
+  > `AttackWithAttackDamage`.**
   > **ActOfFaith accumulate (slice-20)** = plus riche que `AddEffect(0x3f9)` seul : le décompile `@181219a70`
   > est `op_Addition(AddEffect(0x3f9, Self@0x148), If(<HasTrait(killer,Imperial) & AreFriends & AreEqual(
   > UnitNormalAttackType(killer),0x49e) & IsMeleeAttack>, Maybe(AddEffect(0x3f9), ConfigVar(0x453))))` — un

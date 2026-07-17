@@ -68,6 +68,7 @@ FIRE_DMG_PCT_KEY = "fireDmgPct"  # globalValues=20 (`ConfigConst 0x12`) : % de l
 #   deux traits (enum TRAIT, ≠ enum EFFECT où 25/27=Taunted_*). Mapping id<->nom centralisé dans
 #   `entities.traits.UnitTrait` (#146) ; `ctx.traits` = NOMS gameconfig (unit_context.py:191) → gate par nom.
 FIRE_IMMUNE_TRAITS = (UnitTrait.Steppable, UnitTrait.Immune)
+FIRE_PROFILE = "Flame"  # profil de degat du DoT feu (perçage = Flame.PiercingRatio=25 ; RE + live-valide net 477)
 
 # --- FireOfAbsolution (adeptRetributor «Vindicta», passive, Active.Loki) ---------------------------
 FIRE_OF_ABSOLUTION_IGNITE_CHANCE = 30   # `GetNumberConstant(0x2a=42=chance)` — 30%/hex adjacent (Maybe)
@@ -89,7 +90,7 @@ def psyker_smite_tree(pct: int, profile: str):
             damageNode = PercentageOf(StatAmount(Self@0x148, statType=0=Attack, variant=0=Current),
                                       Direct(GetNumberConstant(0xf=psykerExtraDmg))),
             profile    = Psychic (0xd) )
-    Port : `AttackWithAbilityDamage(Target(), amount=PercentageOf(Direct(pct), StatAmount(Caster(), Attack)),
+    Port : `AttackWithAttackDamage(Target(), amount=PercentageOf(Direct(pct), StatAmount(Caster(), Attack)),
     Psychic, ranged, hits=1)`. Le SELECTEUR natif `PickRandomly(Damageable(Enemies(AdjacentUnits)))` est
     resolu EN AMONT dans `execute_behaviour` (`_adjacent_damageable_enemies` = pool + `_pick_randomly` =
     tirage RNG id-trie ; DSL-ification du selecteur = #216) et la cible RESOLUE passee via `Target()` — ==
@@ -101,13 +102,13 @@ def psyker_smite_tree(pct: int, profile: str):
     l'ancien corps (montant mono-valeur -> AUCUNE variance d'arme). Bit-exact BY CONSTRUCTION (meme base, meme
     pierce via `profile_pierce`, meme rng). `pct`/`profile` passes par l'appelant (`GC.trait("Psyker").
     variables.psykerExtraDmg` / `PSYCHIC_PROFILE`) pour eviter tout couplage d'import."""
-    from ...abilities.behaviours import AttackWithAbilityDamage
+    from ...abilities.behaviours import AttackWithAttackDamage
     from ....entities.formulas import StatAmount, PercentageOf
     from ....entities.selectors import Caster, Target
     from ....dsl.base import Const
     from ....entities.stats import StatType
     amount = PercentageOf(Const(pct), StatAmount(Caster(), int(StatType.ATTACK)))   # Direct(pct) x StatAmount(Attack)
-    return AttackWithAbilityDamage(Target(), "Psyker", profile, is_melee=False, amount=amount, hits=1)
+    return AttackWithAttackDamage(Target(), "Psyker", profile, is_melee=False, amount=amount, hits=1)
 
 
 class PsykerExtraAttackAbility(TriggeredAbility):
@@ -150,7 +151,7 @@ class PsykerExtraAttackAbility(TriggeredAbility):
         ectx = ExecutionContext(state=state, rng=state.rng)
         psyker_smite_tree(pct, PSYCHIC_PROFILE).execute(
             entities_from_state(state, self.owner_id, picked), ectx)
-        hit = next((p for n, p in ectx.emitted if n == "AttackWithAbilityDamage"), None)
+        hit = next((p for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
         if hit is None:
             return None
         atk = hit.get("attack") or {}
@@ -158,30 +159,62 @@ class PsykerExtraAttackAbility(TriggeredAbility):
                 "pierce": atk.get("pierce"), "result": atk}
 
 
+def env_fire_tile_tree(pct: int, profile: str):
+    """Feuille de `EnvFireTileAbility.CreateBehaviour @18121e040` (MIRROR 1:1 du DECOMPILE) :
+        Foreach( UnitsWithoutTraits([Steppable=0x1b, Immune=0x19]) & Units(EntitiesWithAnyEffect(Fire=5)),
+                 AttackWithAbilityDamage(
+                     targets = Tiles(@0x180),
+                     amount  = PercentageOf( StatAmount(@0x180, Health=5, Max=2), ConfigConst(0x12=fireDmgPct) ),
+                     Direct(Nullable(3)),
+                     source  = AbilityOrEffect(Fire=5) ) )
+    `AttackWithAbilityDamage @180de9c90` = factory NATIVE DIRECT (DISTINCTE de `AttackWithAttackDamage @180de9fb0`
+    = Psyker/ThunderousAssault) : degat porte par le SEUL percage/armure, AUCUN crit/block/spread/after-hit.
+    Port : la FEUILLE `AttackWithAbilityDamage(Target(), "Flame", PercentageOf(Const(pct), StatAmount(Target(),
+    Health, Maximum)))`. Le `Foreach(<selecteur>)` natif (occupants NON-immunes sur tuile en feu) est resolu EN
+    AMONT par le dispatch runner (`TileEffectTrigger` par tuile en feu = `EntitiesWithAnyEffect(5)`, `_unit_on_tile`
+    = l'occupant, `_is_immune_to_fire` = le gate `UnitsWithoutTraits([Steppable, Immune])`) — DSL-ification du
+    selecteur deferree (comme le selecteur Psyker, #216). La cible RESOLUE (l'occupant) passe via `Target()` ; sa
+    PV MAX via `StatAmount(Target(), Health, Maximum)`. La feuille (mode DIRECT) calcule `base = round_fix64(pct%
+    * PVmax)` (Fix64 = mirror natif `PercentageOf.Calculate` ; l'ancien imperatif `round(float)` etait moins
+    fidele -> ici aligne sur l'oracle) puis route via `execute_direct(base, pierce=PiercingRatio(Flame)=25)` =
+    MEME Operation/args que l'ancien corps (percage/armure seuls). Bit-exact BY CONSTRUCTION (meme base, meme
+    percage, meme mutation/mort). `source` non passe -> `entities.caster` = la tuile (owner_id) pour l'attribution
+    de mort. `pct`/`profile` passes par l'appelant (`GC.global_value(fireDmgPct)` / `FIRE_PROFILE`) pour eviter
+    tout couplage d'import."""
+    from ...abilities.behaviours import AttackWithAbilityDamage
+    from ....entities.formulas import PercentageOf, StatAmount
+    from ....entities.selectors import Target
+    from ....dsl.base import Const
+    from ....entities.stats import StatType, StatPart
+    amount = PercentageOf(Const(pct), StatAmount(Target(), int(StatType.HEALTH), int(StatPart.MAXIMUM)))
+    return AttackWithAbilityDamage(Target(), profile, amount, is_melee=True, hits=1)
+
+
 class FireTileDoT(TileEffectTrigger):
     """`EnvFireTileAbility` (CreateTrigger @18121e390 = `On(0x14) & Count(EntitiesWithAnyEffect(5))>0` ;
     CreateBehaviour @18121e040) — DoT de la tuile en feu (`FireEffect` type 5, ctor @180f43f40). Au tick de
     tour (`On(0x14)`), l'unite qui DEMARRE son tour sur une tuile en feu subit `PercentageOf(StatAmount(
-    Health, part2=Initial), fireDmgPct=20)` = 20% de sa PV INITIALE (max).
+    Health, variant=2=Maximum), fireDmgPct=20)` = 20% de sa PV MAX, porte en degat DIRECT.
 
-    i2 `Keywords/EffectFire` : « Units starting their turn on a Fire hex take 20% of their initial Health » =
-    la BASE (20% PV max), PAS le net. Le natif `AttackWithAbilityDamage(base, profil Flame, Direct(3))` route la
-    base par le PERCAGE/ARMURE (CONFIRME LIVE 2026-07-12 : blackHaarken net 477 = base 1908 x PiercingRatio(Flame)
-    25%, l'armure absorbant le non-perce). Donc DoT = `apply_pierce_and_modifiers(20%max, Flame pierce, armure
-    cible)` -- SUR-applique si on prend le forfait plat (bug corrige). Direct(3) = pas de crit/block/spread.
-    fireDmgPct tire de globalValues (NON hardcode). Decay via on_turn_end. DUREE (RE #174 RESOLU 2026-07-14) :
-    `DefaultAmountOfRounds(5)` = 2 ROUNDS ; le natif stocke `ConvertRoundsToTurns(2)` @181058af0 =
-    `count(joueurs du turnOrder, PlayerType != 2) x 2` TURNS (RE : PlayerType@+0x20 = config statique, Env=2
-    exclu -> count = CONSTANTE de bataille). Dans NOS runners 1v1, `count = 1` -- PROUVE par le test committe
-    test_effect_stun_live (Stunned DefaultAmountOfRounds=1 -> convert(1) = live_remaining = 1). count etant
-    constant, TOUT effet round y vaut rounds x 1 : le feu = 2 turns = `remaining=2` du port -> CORRECT (pas de
-    bug). L'ancre `Effect_RemainingTurns=4` venait d'une bataille count=2 (arene MoW), NON simulee par le port.
-    Le ~2x n'est donc LATENT que pour count>=2 (fix futur si valide un jour = `convert_rounds_to_turns(state,
-    rounds)` lisant le turnOrder runtime, cf. #174). Mort routee par `_fire_death_if_killed` (source = tuile).
+    behaviour = arbre DSL `env_fire_tile_tree()` (mirror 1:1 de la feuille de CreateBehaviour @18121e040 ;
+    factory `AttackWithAbilityDamage @180de9c90` = DIRECT, DISTINCTE de `AttackWithAttackDamage @180de9fb0` =
+    Psyker/ThunderousAssault). i2 `Keywords/EffectFire` : « Units starting their turn on a Fire hex take 20%
+    of their initial Health » = la BASE (20% PV max), PAS le net. Le natif route la base par le PERCAGE/ARMURE
+    (CONFIRME LIVE 2026-07-12 : blackHaarken net 477 = base 1908 x PiercingRatio(Flame) 25%, l'armure absorbant
+    le non-perce). `Direct(3)` = pas de crit/block/spread. fireDmgPct tire de globalValues (ConfigConst 0x12,
+    NON hardcode). Decay via on_turn_end. Mort routee par `_fire_death_if_killed` (source = la tuile).
 
-    GATE IMMUNITE feu (`UnitsWithoutTraits([0x1b=27=Steppable, 0x19=25=Immune])` @18121e040) PORTE :
-    le DoT EXCLUT les occupants portant `Steppable` (tokens marchables) ou `Immune` (cf. _is_immune_to_fire).
-    Reste a confirmer LIVE (build carrier -> Fire -> occupant immune vs non-immune)."""
+    DUREE (RE #174 RESOLU 2026-07-14) : `DefaultAmountOfRounds(5)` = 2 ROUNDS ; le natif stocke
+    `ConvertRoundsToTurns(2)` @181058af0 = `count(joueurs du turnOrder, PlayerType != 2) x 2` TURNS (RE :
+    PlayerType@+0x20 = config statique, Env=2 exclu -> count = CONSTANTE de bataille). Dans NOS runners 1v1,
+    `count = 1` -- PROUVE par le test committe test_effect_stun_live (Stunned DefaultAmountOfRounds=1 ->
+    convert(1) = live_remaining = 1). count etant constant, le feu = 2 turns = `remaining=2` du port -> CORRECT.
+    L'ancre `Effect_RemainingTurns=4` venait d'une bataille count=2 (arene MoW), NON simulee par le port ; le
+    ~2x n'est LATENT que pour count>=2 (fix futur = `convert_rounds_to_turns(state, rounds)` runtime, cf. #174).
+
+    GATE IMMUNITE feu (`UnitsWithoutTraits([0x1b=27=Steppable, 0x19=25=Immune])` @18121e040) PORTE : le DoT
+    EXCLUT les occupants portant `Steppable` (tokens marchables) ou `Immune` (cf. `_is_immune_to_fire`) —
+    resolu EN AMONT (le `Foreach(<selecteur>)` reste imperatif, DSL-ification deferree comme Psyker, #216)."""
     effect_type = FIRE_TILE
     event_ids = (EventTriggerType.TurnStart_EnvironmentEffects,)
 
@@ -193,33 +226,27 @@ class FireTileDoT(TileEffectTrigger):
         uid = self._unit_on_tile(state)
         if uid is None:
             return None
-        if _is_immune_to_fire(state, uid):               # UnitsWithoutTraits([Steppable=27, Immune=25]) @18121e040
+        if _is_immune_to_fire(state, uid):               # gate UnitsWithoutTraits([Steppable=27, Immune=25]) @18121e040
             return None
-        e = state.get_entity(uid)
-        thc = e.get_component(HealthComponent) if e is not None else None
-        if thc is None or thc.hp is None or thc.hp_max is None:
-            return None
-        pct = GC.global_value(FIRE_DMG_PCT_KEY)            # fireDmgPct=20 (globalValues, non hardcode)
+        pct = GC.global_value(FIRE_DMG_PCT_KEY)           # fireDmgPct=20 (globalValues == ConfigConst 0x12, non hardcode)
         if not pct:
             return None
-        # BASE = 20% de la PV INITIALE (max). Le DoT natif = `AttackWithAbilityDamage(base, profil Flame,
-        # Direct(3))` -> la base PASSE PAR LE PERCAGE/ARMURE comme une attaque normale (CONFIRME LIVE : blackHaarken
-        # net 477 = base 1908 x PiercingRatio(Flame)=25%, l'armure absorbant le non-perce). PAS un forfait
-        # armor-independant (l'i2 « 20% of initial Health » = la BASE, pas le net). Direct(3) = pas de crit/block/
-        # spread -> reduction pierce+armure seule (`apply_pierce_and_modifiers` mods=None).
-        from ....services.damage_prediction import apply_pierce_and_modifiers    # lazy : evite le cycle
-        base = round(int(thc.hp_max) * int(pct) / 100)
-        pierce = int((GC.damage_profile("Flame") or {}).get("PiercingRatio") or 0)   # Flame = 25 (gameconfig)
-        tsc = e.get_component(StatsComponent)
-        armor = int(tsc.ctx.stat(StatType.FIXED_ARMOR)) if tsc is not None else 0
-        dmg = int(round(apply_pierce_and_modifiers(base, pierce_pct=pierce, armor=armor, mods=None)))
-        if dmg <= 0:
+        # behaviour = arbre DSL `env_fire_tile_tree()` (mirror 1:1 de la feuille CreateBehaviour @18121e040) :
+        # AttackWithAbilityDamage(Tiles, PercentageOf(StatAmount(Health,Max), fireDmgPct), Direct(3), source=Fire).
+        # La feuille (mode DIRECT) calcule base Fix64 + route `execute_direct` (percage/armure seuls, pas de crit/
+        # block/spread) -> MEME Operation/args que l'ancien corps imperatif (bit-exact BY CONSTRUCTION). La source
+        # (entities.caster = la tuile owner_id) sert a l'attribution de mort.
+        from ...abilities.behaviours import entities_from_state
+        from ....dsl.effects import ExecutionContext
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        env_fire_tile_tree(int(pct), FIRE_PROFILE).execute(
+            entities_from_state(state, self.owner_id, uid), ectx)
+        hit = next((p for n, p in ectx.emitted if n == "AttackWithAbilityDamage"), None)
+        atk = (hit or {}).get("attack")
+        if not atk or not atk.get("total"):              # dmg <= 0 (execute_direct -> None) : no-op comme l'ancien corps
             return None
-        hp_before = thc.hp
-        thc.hp = max(0, thc.hp - dmg)
-        AttackDamageOperation._fire_death_if_killed(state, uid, self.owner_id, hp_before, thc.hp, e, damage=dmg)
-        return {"tile_effect": "Fire", "tile": self.owner_id, "unit": uid, "dot": dmg,
-                "hp_before": hp_before, "hp_after": thc.hp, "on_event": ev.event_id}
+        return {"tile_effect": "Fire", "tile": self.owner_id, "unit": uid, "dot": atk.get("total"),
+                "hp_before": atk.get("hp_before"), "hp_after": atk.get("hp_after"), "on_event": ev.event_id}
 
 
 class ActOfFaithAccumulateAbility(TriggeredAbility):
@@ -475,7 +502,7 @@ def fire_of_absolution_tree(ignite_chance: int, fire_effect_type: int):
     Port (`op_and`/`Foreach`/`Maybe`) :
       [1] `Inform(0xb3)` = message natif (notif listeners) -> NO-OP dans le runner (pas de bus de messages ;
           l'ancien port ne le modelisait pas et etait live-valide). Present pour le MIRROR STRUCTUREL.
-      [2] splash = `AttackWithAbilityDamage(Alive(Sub(Sub(AdjacentUnits(TargetTile()),Caster()),Target())),
+      [2] splash = `AttackWithAttackDamage(Alive(Sub(Sub(AdjacentUnits(TargetTile()),Caster()),Target())),
           "FireOfAbsolution","Flame", ranged, min_key=max_key="dmg", multi=True)`. `Direct(dmg)` = min==max
           (la meme cle config `dmg` en borne min ET max -> valeur FIXE, mirror `Direct(GetVariableForLevel
           0xb)`). Selecteur = FRIENDLY-FIRE : `AdjacentUnits(target) − caster − target` BRUT, AUCUN wrapper
@@ -492,14 +519,14 @@ def fire_of_absolution_tree(ignite_chance: int, fire_effect_type: int):
     `FIRE_OF_ABSOLUTION_IGNITE_CHANCE`/`FIRE_TILE`) pour eviter tout couplage d'import.
     ⚠ GAP RNG (flagge, cf. `_fire_of_absolution_after_attack`) : timing du passif vs coups primaires +
     reproductibilite du feu sur hex VIDE (stochastique)."""
-    from ...abilities.behaviours import AttackWithAbilityDamage, SetOnFire
+    from ...abilities.behaviours import AttackWithAttackDamage, SetOnFire
     from ....entities.behaviours import Foreach, Maybe, Inform, op_and
     from ....entities.selectors import (Alive, Sub, AdjacentUnits, TargetTile, Caster, Target,
                                         AdjacentTiles)
     tgt = Target()
     # splash : AdjacentUnits(target) − caster − target (FRIENDLY-FIRE, mirror des 2 op_Subtraction natifs) ;
     # Direct(dmg) = borne min==max via min_key=max_key="dmg" ; multi=True = selecteur -> N cibles (OrderBy id).
-    splash = AttackWithAbilityDamage(
+    splash = AttackWithAttackDamage(
         Alive(Sub(Sub(AdjacentUnits(TargetTile()), Caster()), Target())),
         "FireOfAbsolution", "Flame", is_melee=False, min_key="dmg", max_key="dmg", multi=True)
     # ignite : Maybe(SetOnFire, AdjacentTiles(target), 30) -> Foreach-Maybe (1 next_bool/tuile, ordre board).
@@ -545,7 +572,7 @@ def _fire_of_absolution_after_attack(state: State, attacker_id: int, target_id: 
     if uc is None or "FireOfAbsolution" not in ((GC.unit(uc.visual_id) or {}).get("passiveAbilities") or []):
         return []
     # behaviour = arbre DSL `fire_of_absolution_tree()` (mirror 1:1 de CreateBehaviour @18121f380) :
-    # Inform(0xb3) & splash(AttackWithAbilityDamage multi, Direct(dmg)) & Foreach(AdjacentTiles, Maybe(30,
+    # Inform(0xb3) & splash(AttackWithAttackDamage multi, Direct(dmg)) & Foreach(AdjacentTiles, Maybe(30,
     # SetOnFire)). Les feuilles emettent les MEMES Operations que l'ancien corps imperatif hybride
     # (`execute_ability_attack` par cible splash + `AddEffectOperation` sur les tuiles ignitees) -> meme
     # mutation, meme ordre (splash PUIS ignite), meme `state.rng` = bit-exact BY CONSTRUCTION. Le gate ci-dessus
@@ -558,7 +585,7 @@ def _fire_of_absolution_after_attack(state: State, attacker_id: int, target_id: 
     fire_of_absolution_tree(FIRE_OF_ABSOLUTION_IGNITE_CHANCE, FIRE_TILE).execute(
         entities_from_state(state, attacker_id, target_id), ectx)
     splash = [{"target": p["target"], "attack": p["attack"]}
-              for n, p in ectx.emitted if n == "AttackWithAbilityDamage"]   # id-tries (multi=True OrderBy id)
+              for n, p in ectx.emitted if n == "AttackWithAttackDamage"]   # id-tries (multi=True OrderBy id)
     ignited = [p["tile"] for n, p in ectx.emitted if n == "SetOnFire"]      # ordre board.neighbours (Foreach)
     if not splash and not ignited:
         return []

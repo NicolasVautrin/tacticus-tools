@@ -36,7 +36,7 @@ from ...entities.triggers import AmountIsGreaterThanZero, AmountIsEqual, IsAlive
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.effects.magnitude import ability_var
 from .behaviours import (Spawn, SpawnSummon, SpawnReplica, PerformAIAttack, AddBondEffect,
-                         AttackWithAbilityDamage, AddEffect, Heal, EvaluateAbilities, entities_from_state)
+                         AttackWithAttackDamage, AddEffect, Heal, EvaluateAbilities, entities_from_state)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -65,7 +65,7 @@ def thunderous_assault_tree() -> AtomicGroup:
           & AddEffect(0x48a Stunned, AbilityStateReference, target, TurnsFromRounds(1))
           & PushUnit(caster, target) & KillDeadUnits(...) & MoveUnit(caster, CanAddUnit) )   # DEPLACEMENT
     Port (attaque & stun ; push/kill/move = tranche DEPLACEMENT differee, no-op comme l'imperatif) :
-        AtomicGroup( op_and( AttackWithAbilityDamage(Target(),"ThunderousAssault","Power",melee),
+        AtomicGroup( op_and( AttackWithAttackDamage(Target(),"ThunderousAssault","Power",melee),
                              AddEffect(STUNNED,"Stunned",Target(),1) ) )
     `op_and` = `op_BitwiseAnd` (`CombinedBehaviour`) : effets PURS (flag@+0x20==0) -> les DEUX s'executent
     (l'attaque ne court-circuite pas le stun, meme si elle tue la cible — le stun s'applique inconditionnel-
@@ -73,7 +73,7 @@ def thunderous_assault_tree() -> AtomicGroup:
     (== l'imperatif, meme `state.rng`) -> bit-exact BY CONSTRUCTION. `Target()` = `ctx.target` (cible du
     message = celle que l'imperatif attaque)."""
     return AtomicGroup(op_and(
-        AttackWithAbilityDamage(Target(), "ThunderousAssault", "Power", is_melee=True),
+        AttackWithAttackDamage(Target(), "ThunderousAssault", "Power", is_melee=True),
         AddEffect(STUNNED, "Stunned", Target(), 1)))
 
 
@@ -84,10 +84,10 @@ def armorium_cherub_tree() -> AtomicGroup:
             AttackWithAttackDamage(caster, target, MinMaxDamage(minDmg 0xc/maxDmg 0xd), profile=Flame,
                                    nrOfHits=GetNumberConstant(0x2f)=4)          # 4x Flame ranged, feu posé #136
           & EvaluateAbilities(0x4b=AttackInAtomicGroup) )                       # -> passif FireOfAbsolution
-    Port : `AtomicGroup( op_and( AttackWithAbilityDamage(Target(),"ArmoriumCherub","Flame",ranged),
+    Port : `AtomicGroup( op_and( AttackWithAttackDamage(Target(),"ArmoriumCherub","Flame",ranged),
                                  EvaluateAbilities(AttackInAtomicGroup, ranged=True) ) )`.
     `MinMaxDamage(target,0)` @180fb2dc0 = `RandomAmount(minDmg[0xc],maxDmg[0xd])` = le degat generique de la
-    feuille `AttackWithAbilityDamage` (bit-exact via `ability_attack_params` ; la branche `param_3!=0` =
+    feuille `AttackWithAttackDamage` (bit-exact via `ability_attack_params` ; la branche `param_3!=0` =
     `Half(Sum(Direct,Direct))` = l'avg de PREDICTION #171, hors combat). `EvaluateAbilities(AttackInAtomicGroup)`
     = nœud DSL natif `EvaluateAbilitiesBehaviour @180fc48a0` qui EVALUE les passifs declenches du caster pour cet
     event (l'attaque d'ability atomique) -> `FireOfAbsolution` (splash 3x Flame + Maybe ignite ; passif porte
@@ -98,7 +98,7 @@ def armorium_cherub_tree() -> AtomicGroup:
     attaque PUIS passif (== l'ancien imperatif, meme `state.rng`) -> bit-exact BY CONSTRUCTION. ArmoriumCherub
     est range-2 -> `ranged=True` (== le littéral de l'imperatif ; FireOfAbsolution ne fire que sur ranged)."""
     return AtomicGroup(op_and(
-        AttackWithAbilityDamage(Target(), "ArmoriumCherub", "Flame", is_melee=False),
+        AttackWithAttackDamage(Target(), "ArmoriumCherub", "Flame", is_melee=False),
         EvaluateAbilities(int(EventTriggerType.AttackInAtomicGroup), ranged=True)))
 
 
@@ -117,7 +117,7 @@ def crushing_claws_splash_tree() -> Seq:
     s = Subject()
     return op_add(
         If(IsAlive(s), AddEffect(PINNED, "Pinned", s, None)),       # duree DEFAUT (arg natif 0, sans TurnsFromRounds)
-        If(IsAlive(s), AttackWithAbilityDamage(s, "CrushingClaws", "Physical", is_melee=True,
+        If(IsAlive(s), AttackWithAttackDamage(s, "CrushingClaws", "Physical", is_melee=True,
                                                min_key="minDmg_2", max_key="maxDmg_2", hits_key="nrOfHits_2")))
 
 
@@ -144,7 +144,7 @@ def crushing_claws_tree() -> AtomicGroup:
     tgt = Target()
     taunt = AddBondEffect(TAUNTED, "Taunted_OnlySpecificTargets", Caster(), tgt, 1)   # AddBondEffect(0x1b)
     pin = AddEffect(PINNED, "Pinned", tgt, None)                                       # AddEffect(0x429), duree DEFAUT
-    main = AttackWithAbilityDamage(tgt, "CrushingClaws", "Piercing", is_melee=True)    # MinMaxDamage/Piercing/0x2f=2
+    main = AttackWithAttackDamage(tgt, "CrushingClaws", "Piercing", is_melee=True)    # MinMaxDamage/Piercing/0x2f=2
     splash = UnitsWithoutTrait(
         And(AdjacentEnemies(CasterTile(), Const(1)), AdjacentEnemies(TargetTile(), Const(1))),
         int(UnitTrait.Object))                                                          # UnitsWithoutTrait(0xd)
@@ -159,7 +159,7 @@ def spirit_leech_get_attack_damage(state, caster_id, target_id, bmin, bmax):
     = si la cible est DEJA Pinned/« Suppressed » -> base + `extraDmg` (ConfigVar 8) ; sinon base seule.
     Le bonus est FLAT sur les 2 bornes AVANT le tirage per-coup. `extraDmg` est DANS
     `variablesAffectedByRarityBonus` -> multiplier = `AbilityVariablesMultiplierPercentage` du caster
-    (contrairement a `hpToHealPct`, brut). Passe en `damage_override` a `AttackWithAbilityDamage` (le natif
+    (contrairement a `hpToHealPct`, brut). Passe en `damage_override` a `AttackWithAttackDamage` (le natif
     passe cette node de degat a l'attaque). L'etat Pinned lu est celui d'AVANT le Pin de CE cast (l'attaque
     s'execute avant l'AddEffect Pinned dans l'arbre)."""
     eff = state.effects
@@ -177,14 +177,14 @@ def spirit_leech_get_attack_damage(state, caster_id, target_id, bmin, bmax):
 def spirit_leech_heal_amount(entities, ectx):
     """`SpiritLeechAbility.GetHealAmountForExecution @181209f00`, MIRROR du DECOMPILE :
         PercentageOf( LastAttackDamageMade(self), ConfigVar 0x4b = hpToHealPct )
-    `LastAttackDamageMade` = total (degat SANTE) de la DERNIERE `AttackWithAbilityDamage` emise (lu dans
+    `LastAttackDamageMade` = total (degat SANTE) de la DERNIERE `AttackWithAttackDamage` emise (lu dans
     `ectx.emitted` = le seul volet d'attaque de SpiritLeech). `hpToHealPct` est HORS
     `variablesAffectedByRarityBonus` -> valeur brute par niveau (multiplier 100). `PercentageOf` natif passe
     `mode=1` = CEILING (`_round_fix64`, node canonique `entities/formulas.py`) : `ceil(total x pct/100)`
     (== `PercentageOf.Calculate`) — l'ancien imperatif tronquait (`int`), corrige ici au decompile."""
     total = 0
     for name, p in ectx.emitted:
-        if name == "AttackWithAbilityDamage":
+        if name == "AttackWithAttackDamage":
             total = int(p.get("total") or 0)                # LastAttackDamageMade (derniere attaque du caster)
     if total <= 0:
         return 0
@@ -213,7 +213,7 @@ def spirit_leech_tree() -> Seq:
     """Arbre de `SpiritLeechAbility.ExecuteBehaviour @181209900` (id 1104, tyranNeurothrope — MIRROR du
     DECOMPILE) :
         Execute( op_Addition( op_Addition( op_Addition(
-            AttackWithAbilityDamage(self, target, GetAttackDamage, Psychic, nrOfHits=0x2f=1),   # [A] attaque
+            AttackWithAttackDamage(self, target, GetAttackDamage, Psychic, nrOfHits=0x2f=1),   # [A] attaque
             SetCache(PercentageOf(LastAttackDamageMade, ConfigVar 0x4b hpToHealPct)) ),          # [heal amt]
             AddEffect(0x429 Pinned, target, DEFAUT) ),                                           # [Pin] cible
             Heal(self, GetHealTargets, cachedHealAmount) ) )                                     # [Heal] lifesteal
@@ -226,7 +226,7 @@ def spirit_leech_tree() -> Seq:
     dans ce natif. Bit-exact BY CONSTRUCTION (memes Operations/args/`state.rng` que l'imperatif).
     L'imperatif `SpiritLeechAbility.execute_behaviour` est REMPLACE par l'execution de cet arbre."""
     tgt = Target()
-    attack = AttackWithAbilityDamage(tgt, "SpiritLeech", "Psychic", is_melee=False,   # ranged (range 3), nrOfHits=0x2f=1
+    attack = AttackWithAttackDamage(tgt, "SpiritLeech", "Psychic", is_melee=False,   # ranged (range 3), nrOfHits=0x2f=1
                                      damage_override=spirit_leech_get_attack_damage)  # GetAttackDamage (+extraDmg si Pinned)
     pin = AddEffect(PINNED, "Pinned", tgt, None)                                      # AddEffect(0x429), duree DEFAUT
     heal = Heal(spirit_leech_heal_targets(), spirit_leech_heal_amount)                # lifesteal (Self + Tyranids adj)
@@ -237,13 +237,13 @@ def plasma_grenade_tree():
     """Arbre de `PlasmaGrenadeAbility.ExecuteBehaviour @1811f99e0` (id 1098, eldarSmnGuardian — MIRROR du
     DECOMPILE) :
         Execute( op_Addition(
-            AttackWithAbilityDamage(caster, target, RandomAmount(minDmg=var0xc, maxDmg=var0xd), Plasma,
+            AttackWithAttackDamage(caster, target, RandomAmount(minDmg=var0xc, maxDmg=var0xd), Plasma,
                                     nrOfHits=GetNumberConstant(0x2f)),                        # [MAIN]
-            AttackWithAbilityDamage(caster, Enemies(caster, AdjacentUnits(target,1)), RandomAmount(MEME),
+            AttackWithAttackDamage(caster, Enemies(caster, AdjacentUnits(target,1)), RandomAmount(MEME),
                                     Plasma, nrOfHits_2=GetNumberConstant(0x32)) ) )           # [SPLASH]
     Port : `op_add(main, splash)`. Le SPLASH natif passe un SELECTEUR MULTI-cible directement a UN
-    `AttackWithAbilityDamage` (PAS un `Foreach`) -> `AttackBehaviour.Execute @180fb91a0` resout la liste,
-    l'`OrderBy` puis attaque chaque cible : porte via `multi=True` (feuille `AttackWithAbilityDamage`, tri
+    `AttackWithAttackDamage` (PAS un `Foreach`) -> `AttackBehaviour.Execute @180fb91a0` resout la liste,
+    l'`OrderBy` puis attaque chaque cible : porte via `multi=True` (feuille `AttackWithAttackDamage`, tri
     par id = ordre de lecture natif). Selecteur splash = `Alive(AdjacentEnemies(TargetTile()))` = ennemis
     VIVANTS du caster adjacents (hex) a la CIBLE (`AdjacentEnemies(<tuile>)` = ennemis-du-caster autour de
     <tuile>, convention Harvester/CrushingClaws ; `Alive` = compense l'inclusion des cadavres offline, mirror
@@ -254,8 +254,8 @@ def plasma_grenade_tree():
     BY CONSTRUCTION vs l'ancien imperatif (memes bornes/hits/profil, splash `sorted` par
     id, meme `state.rng`). L'imperatif `PlasmaGrenadeAbility.execute_behaviour` est REMPLACE par cet arbre."""
     tgt = Target()
-    main = AttackWithAbilityDamage(tgt, "PlasmaGrenade", "Plasma", is_melee=False)         # RandomAmount/Plasma/0x2f
-    splash = AttackWithAbilityDamage(Alive(AdjacentEnemies(TargetTile())), "PlasmaGrenade", "Plasma",
+    main = AttackWithAttackDamage(tgt, "PlasmaGrenade", "Plasma", is_melee=False)         # RandomAmount/Plasma/0x2f
+    splash = AttackWithAttackDamage(Alive(AdjacentEnemies(TargetTile())), "PlasmaGrenade", "Plasma",
                                      is_melee=False, hits_key="nrOfHits_2", multi=True)     # MEME plage, 0x32
     return op_add(main, splash)
 
@@ -267,13 +267,13 @@ def scything_talons_tree() -> AtomicGroup:
         ExecuteAtomic( op_BitwiseAnd(
             AttackWithAttackDamage(caster, target, MinMaxDamage, Bio, condHits1=GetNumberConstant(0x2f)=3),
             AttackWithAttackDamage(caster, splash,  MinMaxDamage, Bio, condHits2=GetNumberConstant(0x32)=2) ) )
-    Port : `AtomicGroup( op_and( AttackWithAbilityDamage(Target(),"ScythingTalons","Bio",melee),
-                                 AttackWithAbilityDamage(<splash>,"ScythingTalons","Bio",melee,
+    Port : `AtomicGroup( op_and( AttackWithAttackDamage(Target(),"ScythingTalons","Bio",melee),
+                                 AttackWithAttackDamage(<splash>,"ScythingTalons","Bio",melee,
                                                          hits_key="nrOfHits_2", multi=True) ) )`.
     Le SPLASH natif passe un SELECTEUR MULTI-cible directement a UN `AttackWithAttackDamage` (PAS un `Foreach`
     -> DIFFERE de CrushingClaws) : `AttackBehaviour.Execute @180fb91a0` resout la liste + `OrderBy` (cle
     par-unite = ordre de lecture) puis attaque chaque cible -> porte via `multi=True` (feuille
-    `AttackWithAbilityDamage`, tri par id = ordre de lecture natif). Selecteur splash =
+    `AttackWithAttackDamage`, tri par id = ordre de lecture natif). Selecteur splash =
     `Alive(And(AdjacentEnemies(CasterTile()), AdjacentEnemies(TargetTile())))` = ennemis du caster adjacents
     (hex) aux DEUX tuiles (== l'imperatif `_adjacent_to_both`) : le natif `Enemies(A ∩ B)` == `Enemies(A) ∩
     Enemies(B)` (Enemies DISTRIBUE sur l'intersection) et `Unique` est un no-op (`And` dedup deja par id).
@@ -291,8 +291,8 @@ def scything_talons_tree() -> AtomicGroup:
     UnitTrait.Summon=2), hits*2, hits)` -> DOUBLENT si la CIBLE est un SUMMON (main 3->6, splash 2->4). Coups
     de BASE portes ici (== l'imperatif, jamais de sur-compte) ; le doublement = tranche behaviour-changing separee."""
     tgt = Target()
-    main = AttackWithAbilityDamage(tgt, "ScythingTalons", "Bio", is_melee=True)                 # MinMaxDamage/Bio/0x2f=3
-    splash = AttackWithAbilityDamage(
+    main = AttackWithAttackDamage(tgt, "ScythingTalons", "Bio", is_melee=True)                 # MinMaxDamage/Bio/0x2f=3
+    splash = AttackWithAttackDamage(
         Alive(And(AdjacentEnemies(CasterTile(), Const(1)), AdjacentEnemies(TargetTile(), Const(1)))),
         "ScythingTalons", "Bio", is_melee=True, hits_key="nrOfHits_2", multi=True)              # MEME plage, 0x32=2
     return AtomicGroup(op_and(main, splash))
@@ -306,7 +306,7 @@ def stikkbomb_tree() -> AtomicGroup:
                                    nrOfHits_2=0x32=1) ) ) )                                                # [SPLASH]
     Le SPLASH natif passe un SELECTEUR MULTI-cible directement a UN `AttackWithAttackDamage` (PAS un `Foreach`)
     -> `AttackBehaviour.Execute @180fb91a0` resout la liste + `OrderBy` puis attaque chaque cible : porte via
-    `multi=True` (feuille `AttackWithAbilityDamage`, tri par id = ordre de lecture natif).
+    `multi=True` (feuille `AttackWithAttackDamage`, tri par id = ordre de lecture natif).
 
     ⚠ FRIENDLY-FIRE (fidelite #213, RESOLUE) : le selecteur splash = `AdjacentUnits(target,1,3)` BRUT, SANS
     wrapper `Enemies(...)` -- DECOMPILE-conclusif (contraste PlasmaGrenade `Enemies(caster, AdjacentUnits(...))`
@@ -326,8 +326,8 @@ def stikkbomb_tree() -> AtomicGroup:
     (trigger) porte le MEME correctif friendly-fire via le SELECTEUR DSL `Alive(Sub(Sub(AdjacentUnits(TargetTile()),
     Caster()), Target()))` (mirror natif `AdjacentUnits(target) − caster − target`, meme bug #213)."""
     tgt = Target()
-    main = AttackWithAbilityDamage(tgt, "Stikkbomb", "Blast", is_melee=False)                    # RandomAmount/Blast/0x2f=2
-    splash = AttackWithAbilityDamage(Alive(AdjacentUnits(TargetTile())), "Stikkbomb", "Blast",
+    main = AttackWithAttackDamage(tgt, "Stikkbomb", "Blast", is_melee=False)                    # RandomAmount/Blast/0x2f=2
+    splash = AttackWithAttackDamage(Alive(AdjacentUnits(TargetTile())), "Stikkbomb", "Blast",
                                      is_melee=False, hits_key="nrOfHits_2", multi=True)          # MEME plage, friendly-fire, 0x32=1
     return AtomicGroup(op_add(main, splash))
 
@@ -369,9 +369,9 @@ def fragstorm_tree() -> AtomicGroup:
     # nrOfTargets = GetNumberConstant(0x11), lue live du gameconfig ; 4 = valeur config/i2 (« up to 4 ») si absente.
     n_targets = int(((GC.ability("Fragstorm") or {}).get("constants") or {}).get("nrOfTargets") or 4)
     tgt = Target()
-    main = AttackWithAbilityDamage(tgt, "Fragstorm", "Blast", is_melee=False)                        # RandomAmount/Blast/0x2f=4
+    main = AttackWithAttackDamage(tgt, "Fragstorm", "Blast", is_melee=False)                        # RandomAmount/Blast/0x2f=4
     splash_sel = Alive(Sub(AdjacentUnits(TargetTile()), AdjacentFriends(TargetTile())))              # AdjacentTiles − Tiles(Friends) -> occupants non-amis
-    splash = AttackWithAbilityDamage(splash_sel, "Fragstorm", "Blast", is_melee=False,
+    splash = AttackWithAttackDamage(splash_sel, "Fragstorm", "Blast", is_melee=False,
                                      hits_key="nrOfHits_2", multi=True, pick_n=n_targets)            # MEME plage, PickRandomly(4), 0x32=2
     return AtomicGroup(op_and(main, splash))
 
@@ -513,7 +513,7 @@ class ThunderousAssaultAbility(ActiveAbility):
                                MinMaxDamage, profile=Power, hits=GetNumberConstant(0x2f))   # ← DSL
       & AddEffect(0x48a Stunned, source=casterStateRef, TurnsFromRounds(1))                 # ← DSL
       & PushUnit(target, 1 hex) & KillDeadUnits & MoveUnit(caster -> hex libéré)   # [déplacement — TODO]
-    Le behaviour est l'arbre DSL (`AtomicGroup(op_and(AttackWithAbilityDamage, AddEffect))`) : les feuilles
+    Le behaviour est l'arbre DSL (`AtomicGroup(op_and(AttackWithAttackDamage, AddEffect))`) : les feuilles
     émettent les MÊMES Operations que l'ancien impératif (`execute_ability_attack`/`AddEffectOperation`) →
     même mutation, même ordre, même `state.rng` (bit-exact BY CONSTRUCTION). push/kill/move = tranche
     déplacement différée (no-op, comme l'impératif). VALIDÉ live : pose Stunned(1162, rem=1) + enfants
@@ -529,7 +529,7 @@ class ThunderousAssaultAbility(ActiveAbility):
             return {"attack": None, "dsl": True}
         ectx = ExecutionContext(state=state, rng=state.rng)
         thunderous_assault_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
-        atk = next((p["attack"] for n, p in ectx.emitted if n == "AttackWithAbilityDamage"), None)
+        atk = next((p["attack"] for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
         return {"attack": atk, "dsl": True}
 
 
@@ -538,13 +538,13 @@ class ArmoriumCherubAbility(ActiveAbility):
     ARBRE DSL (#209, `armorium_cherub_tree()`) :
         ExecuteAtomic(
             AttackWithAttackDamage(caster, target, MinMaxDamage(minDmg/maxDmg[level]), Flame,
-                                   nrOfHits=GetNumberConstant(0x2f)=4)          # ← DSL (feuille AttackWithAbilityDamage)
+                                   nrOfHits=GetNumberConstant(0x2f)=4)          # ← DSL (feuille AttackWithAttackDamage)
           & EvaluateAbilities(0x4b=AttackInAtomicGroup) )                       # ← DSL (nœud EvaluateAbilities)
     Actif RANGED (range 2). Profil Flame (`OnFire`) → POSE du feu sur la tuile-cible via le vecteur after-hit
     d'ability (`execute_ability_attack` → `_on_fire_damage_ability`, #136). i2 « Using Armorium Cherub does
     not end Vindicta's turn » = turn-flow (ne consomme pas le tour) — NON modélisé ici (concern turn-order).
 
-    Le behaviour est l'arbre DSL : la feuille `AttackWithAbilityDamage` émet la MÊME Operation que l'ancien
+    Le behaviour est l'arbre DSL : la feuille `AttackWithAttackDamage` émet la MÊME Operation que l'ancien
     impératif (`execute_ability_attack`, 4x Flame), et le nœud `EvaluateAbilities(AttackInAtomicGroup)` évalue
     le passif `FireOfAbsolution` (splash 3x Flame adjacents + 30% ignite/hex — `_fire_of_absolution_after_attack`
     via `evaluate_abilities_for_event`), EXACTEMENT comme l'appel inline de l'impératif → même mutation, même
@@ -559,7 +559,7 @@ class ArmoriumCherubAbility(ActiveAbility):
             return None
         ectx = ExecutionContext(state=state, rng=state.rng)
         armorium_cherub_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
-        main = next((p["attack"] for n, p in ectx.emitted if n == "AttackWithAbilityDamage"), None)
+        main = next((p["attack"] for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
         passive = next((p["results"] for n, p in ectx.emitted if n == "EvaluateAbilities"), [])
         return {"ability": "ArmoriumCherub", "caster": caster_id, "target": target_id,
                 "main_attack": main, "fire_of_absolution": passive, "dsl": True}
@@ -792,7 +792,7 @@ def _splash_ability_behaviour(state: "State", caster_id: int, target_id: int, ab
     minDmg_2/maxDmg_2 : ce pattern var-séparées = CrushingClaws only). Chaque volet = `execute_ability_attack`.
 
     RÉFÉRENCE IMPÉRATIVE des tests de bit-exactness des arbres DSL splash (PlasmaGrenade/ScythingTalons tests
-    comparent leur arbre `AttackWithAbilityDamage(multi=True)` à ce retour) : plus AUCUN appelant PRODUCTION
+    comparent leur arbre `AttackWithAttackDamage(multi=True)` à ce retour) : plus AUCUN appelant PRODUCTION
     (tous les splash migrés en arbres DSL, Fragstorm compris slice-13), conservé pour l'oracle des tests."""
     bmin, bmax, pierce, hits = ability_attack_params(state, caster_id, ability_id, profile, ranged=ranged)
     main = AttackDamageOperation.execute_ability_attack(state, caster_id, target_id, bmin, bmax, pierce, hits,
@@ -838,7 +838,7 @@ class CrushingClawsAbility(ActiveAbility):
             return None
         ectx = ExecutionContext(state=state, rng=state.rng)
         crushing_claws_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
-        atks = [p for n, p in ectx.emitted if n == "AttackWithAbilityDamage"]
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
         main = next((p["attack"] for p in atks if p.get("target") == target_id), None)
         splash = [{"target": p["target"], "attack": p["attack"]}
                   for p in atks if p.get("target") != target_id]   # cibles splash != cible principale
@@ -849,7 +849,7 @@ class CrushingClawsAbility(ActiveAbility):
 class SpiritLeechAbility(ActiveAbility):
     """`SpiritLeechAbility.ExecuteBehaviour @181209900` (id 1104, tyranNeurothrope — MIRROR du DECOMPILE) :
         Execute( op_Addition( op_Addition( op_Addition(
-            AttackWithAbilityDamage(self, target, GetAttackDamage, Psychic, nrOfHits=0x2f=1),   # attaque
+            AttackWithAttackDamage(self, target, GetAttackDamage, Psychic, nrOfHits=0x2f=1),   # attaque
             SetCache(PercentageOf(LastAttackDamageMade, ConfigVar 0x4b hpToHealPct)) ),          # montant heal
             AddEffect(0x429 Pinned, target, DEFAUT) ),                                           # « Suppressed » cible
             Heal(self, GetHealTargets, cachedHealAmount) ) )                                     # lifesteal
@@ -882,7 +882,7 @@ class SpiritLeechAbility(ActiveAbility):
         heal_amount = 0
         heals: list[dict] = []
         for name, p in ectx.emitted:
-            if name == "AttackWithAbilityDamage":
+            if name == "AttackWithAttackDamage":
                 main = p.get("attack")                            # LastAttackDamageMade (le seul volet d'attaque)
             elif name == "Heal":
                 heal_amount = p.get("amount") or 0
@@ -931,14 +931,14 @@ class PlasmaGrenadeAbility(ActiveAbility):
     """`PlasmaGrenadeAbility.ExecuteBehaviour @1811f99e0` (id 1098, eldarSmnGuardian).
 
     Séquence native (`+` = op_Addition, plain `Execute`) :
-        AttackWithAbilityDamage(actor, target, RandomAmount(minDmg/maxDmg), Plasma, nrOfHits=0x2f)   # principale
-      + AttackWithAbilityDamage(actor, Enemies(caster, AdjacentUnits(target,1)), MÊME RandomAmount,
+        AttackWithAttackDamage(actor, target, RandomAmount(minDmg/maxDmg), Plasma, nrOfHits=0x2f)   # principale
+      + AttackWithAttackDamage(actor, Enemies(caster, AdjacentUnits(target,1)), MÊME RandomAmount,
                                 Plasma, nrOfHits_2=0x32)                                              # splash multi-cible
     Splash = ennemis adjacents (hex) à la CIBLE, plage de dégât PARTAGÉE (seul le nb de hits change).
     Ranged (range 2).
 
     #149 slice-6 : `execute_behaviour` DÉLÈGUE à `plasma_grenade_tree()` (mirror 1:1 du décompilé). Le
-    SPLASH est un SEUL `AttackWithAbilityDamage(selecteur-multi)` (== le natif, PAS un `Foreach`) porté via
+    SPLASH est un SEUL `AttackWithAttackDamage(selecteur-multi)` (== le natif, PAS un `Foreach`) porté via
     le mode `multi=True` de la feuille (`AttackBehaviour.Execute` résout la liste + `OrderBy` par id).
     Bit-exact BY CONSTRUCTION vs l'ancien impératif (mêmes bornes/hits/profil, splash trié par
     id, même `state.rng`)."""
@@ -952,7 +952,7 @@ class PlasmaGrenadeAbility(ActiveAbility):
             return None
         ectx = ExecutionContext(state=state, rng=state.rng)
         plasma_grenade_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
-        atks = [p for n, p in ectx.emitted if n == "AttackWithAbilityDamage"]
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
         main = next((p["attack"] for p in atks if p.get("target") == target_id), None)
         splash = [{"target": p["target"], "attack": p["attack"]}
                   for p in atks if p.get("target") != target_id]      # cibles splash != cible principale
@@ -984,11 +984,11 @@ class StikkbombAbility(ActiveAbility):
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
             return None
-        # behaviour = arbre DSL (feuille AttackWithAbilityDamage x2, splash multi=True friendly-fire) ; émet les
+        # behaviour = arbre DSL (feuille AttackWithAttackDamage x2, splash multi=True friendly-fire) ; émet les
         # MÊMES Operations (`AttackDamageOperation.execute_ability_attack`) -> même mutation, diag main/splash.
         ectx = ExecutionContext(state=state, rng=state.rng)
         stikkbomb_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
-        atks = [p for n, p in ectx.emitted if n == "AttackWithAbilityDamage"]
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
         main = next((p["attack"] for p in atks if p.get("target") == target_id), None)
         splash = [{"target": p["target"], "attack": p["attack"]}
                   for p in atks if p.get("target") != target_id]      # cibles splash != cible principale
@@ -1024,7 +1024,7 @@ class FragstormAbility(ActiveAbility):
         # (`AttackDamageOperation.execute_ability_attack`) -> même mutation, diag main/splash.
         ectx = ExecutionContext(state=state, rng=state.rng)
         fragstorm_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
-        atks = [p for n, p in ectx.emitted if n == "AttackWithAbilityDamage"]
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
         main = next((p["attack"] for p in atks if p.get("target") == target_id), None)
         splash = [{"target": p["target"], "attack": p["attack"]}
                   for p in atks if p.get("target") != target_id]      # cibles splash != cible principale
@@ -1042,7 +1042,7 @@ class ScythingTalonsAbility(ActiveAbility):
     du caster adjacents à la FOIS au caster ET à la cible (`_adjacent_to_both`), plage PARTAGÉE. Melee (Bio).
 
     #149 slice-8 : `execute_behaviour` DÉLÈGUE à `scything_talons_tree()` (mirror 1:1 du décompilé). Le SPLASH
-    est un SEUL `AttackWithAbilityDamage(selecteur-multi)` (== le natif, PAS un `Foreach` -> DIFFERE de
+    est un SEUL `AttackWithAttackDamage(selecteur-multi)` (== le natif, PAS un `Foreach` -> DIFFERE de
     CrushingClaws) porté via le mode `multi=True` de la feuille (résout la liste + `OrderBy` par id). Bit-exact
     BY CONSTRUCTION vs l'ancien impératif (`_adjacent_to_both` — mêmes bornes/hits/
     profil, splash trié par id, même `state.rng`). `_splash_ability_behaviour` a été retiré (slice-13, dernier
@@ -1062,7 +1062,7 @@ class ScythingTalonsAbility(ActiveAbility):
             return None
         ectx = ExecutionContext(state=state, rng=state.rng)
         scything_talons_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
-        atks = [p for n, p in ectx.emitted if n == "AttackWithAbilityDamage"]
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
         main = next((p["attack"] for p in atks if p.get("target") == target_id), None)
         splash = [{"target": p["target"], "attack": p["attack"]}
                   for p in atks if p.get("target") != target_id]      # cibles splash != cible principale

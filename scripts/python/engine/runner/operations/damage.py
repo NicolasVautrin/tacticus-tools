@@ -639,6 +639,38 @@ class AttackDamageOperation:
                 "did_crit": r["did_crit"], "did_block": r["did_block"], "did_evade": r["did_evade"],
                 "crits": r["crits"], "rolls": r["rolls"], "per_hit": r["per_hit"]}
 
+    @staticmethod
+    def execute_direct(state: State, source_id: int, target_id: int, base: int,
+                       profile_pierce: int) -> Optional[dict]:
+        """Dégât DIRECT d'un nœud `Direct(...)` (mirror `DSLFactory.AttackWithAbilityDamage @180de9c90`
+        + `AttackDamageBehaviour` sur nœud `Direct` — factory DISTINCTE de `AttackWithAttackDamage`
+        @180de9fb0). La `base` (déjà calculée par le dégât-node, ex. `PercentageOf(StatAmount(Health,
+        Max), fireDmgPct)` du DoT feu) est routée par le SEUL perçage/armure (`apply_pierce_and_modifiers`,
+        mods=None) — AUCUN crit / block / bouclier / spread / tirage RNG / after-hit (≠ l'attaque
+        d'ability `execute_ability_attack`/`execute_normal_like`). Utilisé par le DoT de tuile `EnvFireTile`
+        (`EnvFireTileAbility.CreateBehaviour @18121e040`) : occupant non-immune → `PercentageOf(20%, PV max)`
+        percée par le PiercingRatio du profil (Flame=25), l'armure absorbant le non-percé. Mute les PV de la
+        cible + route la mort (`_fire_death_if_killed`, source = la tuile). `<= 0 dmg` → no-op (return None).
+        `source_id` = l'entité-source (tuile) pour l'attribution de mort ; `profile_pierce` = perçage effectif
+        (le caller passe `profile_pierce(None, profile)` = PiercingRatio brut — la tuile n'a pas de stats
+        ExtraPierce)."""
+        tgt = state.get_entity(target_id)
+        thc = tgt.get_component(HealthComponent) if tgt is not None else None
+        if thc is None or thc.hp is None:
+            return None
+        tsc = tgt.get_component(StatsComponent)
+        armor = int(tsc.ctx.stat(StatType.FIXED_ARMOR)) if tsc is not None else 0
+        dmg = int(round(apply_pierce_and_modifiers(int(base), pierce_pct=int(profile_pierce),
+                                                   armor=armor, mods=None)))
+        if dmg <= 0:
+            return None
+        hp_before = thc.hp
+        thc.hp = max(0, thc.hp - dmg)
+        AttackDamageOperation._fire_death_if_killed(
+            state, target_id, source_id, hp_before, thc.hp, tgt, damage=dmg)
+        return {"total": dmg, "base": int(base), "pierce": int(profile_pierce), "armor": armor,
+                "hp_before": hp_before, "hp_after": thc.hp}
+
 
 class DamageHandler:
     """Visiteur des messages d'attaque (mirror du handler natif lançant AttackDamageOperation).
