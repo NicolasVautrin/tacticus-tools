@@ -776,3 +776,48 @@ adjacents + on-appearance ampute la cible, `sum(attacks)==PV perdus`) ; `test_su
 cap-duplication non porté), Stikkbomb (**BLOQUÉ** : RE team-filter `AdjacentUnits(target,1,3)` — mur gshared, live
 confront requis, tâche #213), Fragstorm (splash + `PickRandomly` RNG gap) ; + tranche transverse DÉPLACEMENT
 (`PushUnit`/`KillDeadUnits`/`MoveUnit`).
+
+
+## Slice-11 (#149, 2026-07-17) — 10e behaviour DSL : ScarabSummon (nœud unique `Spawn` clone-du-parent + on-appearance)
+
+**RE — `ScarabSummonAbility.ExecuteBehaviour @181205290`** (id 1047, necroSmnSwarm — auto-DÉDOUBLEMENT, DÉCOMPILE
+gqfc5mff6c). Un noeud `Spawn` **UNIQUE** en plain `Execute` (PAS `ExecuteAtomic`), **DISTINCT** du nœud ScarabHive :
+
+```
+Execute( Spawn(self@0x160,
+               PickRandomly(CanAddUnit(AdjacentTiles(self@0x160)), 1, ..., 0x7fffffff),   // 1 tuile libre adjacente à SOI
+               unitId=necroSmnSwarm=GetStringConstant(config,0),
+               SpawnUnitOptions.CopyOwner(caster)                    // clone owner+stats du PARENT (PAS WithStatsFromConfig)
+                 .onAppearance = PerformAIAttack(1)) )               // +0x18 — le double attaque immédiatement (PAS de +0x10 effet)
+```
+
+- Contrairement à ScarabHive, **PAS de sous-behaviour `+0x10` AddEffect** (ScarabSummon n'a pas l'effet persistant
+  `0x4a3`) : un seul sous-behaviour embarqué, l'on-appearance `PerformAIAttack(1)`. Le count-1, le placement et
+  `CopyOwner @180fd5ba0` (clone owner+stats du parent) vivent **DANS `SpawnUnitBehaviour.Execute @180fd3d80`**, HORS
+  des DSL-sélecteurs (même carve-out que slice-10).
+
+**Port** :
+- **Feuille `SpawnReplica`** (`runner/abilities/behaviours.py`) = mirror du nœud `Spawn` natif (CopyOwner +
+  on-appearance embarqués). Elle **délègue le SPAWN à l'Operation VALIDÉE** `SpawnUnitOperation.execute_self_replica`
+  (`CopyOwner` = clone owner+stats du parent, count-1, tuiles libres adjacentes au caster — cf. `test_summon_spawn_live`)
+  puis l'ON-APPEARANCE `PerformAIAttack(1)` = chaque double attaque l'**ennemi le plus proche** (`_nearest_enemy` +
+  `AttackDamageOperation.execute`, approx du choix AI natif). Roll gated sur `state.rng` (no-op gracieux si non calé,
+  mirror de l'impératif). Émet `SpawnUnit`/`ReplicaOnAppearance`.
+- **Arbre `scarab_summon_tree()`** (`loki.py`) = `SpawnReplica("ScarabSummon", 1)`. `ScarabSummonAbility.
+  execute_behaviour` DÉLÈGUE à l'arbre (diag `spawned`/`attacks` reconstruit des émissions `SpawnUnit`/
+  `ReplicaOnAppearance`, + `dsl:True`, `replica:True` conservé). L'impératif (spawn + boucle on-appearance câblés à la
+  main) est **REMPLACÉ** ; `SUMMON_ABILITY`/`COUNT` retirés de la classe (l'arbre les porte), import module-level
+  `SpawnUnitOperation` retiré de `loki.py` (plus de runtime use là).
+
+**GAP (inchangé)** : le cap de duplication (`UnitDuplicationLimitSelector`/`LimitUnitDuplications`) n'est pas porté →
+récurrence non bornée offline.
+
+**Validation** : `test_scarab_summon_migration_live` (NEW : swarm matérialisé via ScarabHive, puis `ScarabSummonAbility.
+execute_behaviour` sur le swarm → `dsl:True`+`replica:True`, 1 clone `necroSmnSwarm` owner-du-parent adjacent au
+swarm-parent, on-appearance frappe un ennemi, `delta HP == total` après restauration PV pour éviter l'overkill) ;
+`test_scarab_hive_migration_live` (`SpawnSummon` intact) + `test_summon_spawn_live` (Operation) + `test_summon_trigger_live`
+(wiring) re-PASS.
+
+**Restant loki.py impératif** (post slice-11) : Stikkbomb (**BLOQUÉ** : RE team-filter `AdjacentUnits(target,1,3)` — mur
+gshared, live confront requis, tâche #213), Fragstorm (splash + `PickRandomly` RNG gap) ; + tranche transverse
+DÉPLACEMENT (`PushUnit`/`KillDeadUnits`/`MoveUnit`).

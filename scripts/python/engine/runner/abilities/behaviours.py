@@ -238,6 +238,62 @@ class SpawnSummon(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class SpawnReplica(AbilityBehaviour):
+    """`ScarabSummonAbility.ExecuteBehaviour @181205290` (id 1047, necroSmnSwarm -- auto-DEDOUBLEMENT) = un
+    noeud natif UNIQUE `Execute(Spawn(...))` (plain `AActiveAbility.Execute`, PAS `ExecuteAtomic`), DISTINCT
+    du noeud ScarabHive (`SpawnSummon`) : `Spawn(self@0x160, tileSel, unitId=GetStringConstant(config,0)=
+    necroSmnSwarm, SpawnUnitOptions.CopyOwner(caster))` ou les options portent UN sous-behaviour EMBARQUE :
+      +0x18 = `PerformAIAttack(1)` = le double attaque immediatement -- PAS de +0x10 AddEffect (ScarabSummon
+      n'a PAS l'effet persistant 0x4a3 de ScarabHive) ;
+    tile-selecteur natif = `PickRandomly(CanAddUnit(AdjacentTiles(self@0x160)), 1, ..., 0x7fffffff)` (UNE tuile
+    LIBRE adjacente a SOI). `SpawnUnitBehaviour.Execute @180fd3d80` spawn `count` clones -- count/placement/
+    CopyOwner vivent DANS SpawnUnitBehaviour, HORS des DSL-selecteurs -- puis `TriggerSpawnedUnitBehaviours`
+    fire le sous-behaviour on-appearance PAR summon.
+
+    Port : delegue le SPAWN a l'Operation VALIDEE `SpawnUnitOperation.execute_self_replica` (`CopyOwner
+    @180fd5ba0` = clone owner+stats du parent, count-1, tuiles libres adjacentes au caster ; cf.
+    test_summon_spawn_live) -- MEME carve-out que `SpawnSummon` (on ne re-derive PAS le count/placement via
+    des DSL-selecteurs : ils vivent dans SpawnUnitBehaviour et l'outcome est deja valide). ON-APPEARANCE =
+    `PerformAIAttack(1)` : chaque double attaque l'ennemi le plus proche (`_nearest_enemy` +
+    `AttackDamageOperation.execute`, approx du choix AI natif). Le tirage de degat consomme `state.rng` ->
+    no-op gracieux si rng non cale (la SEQUENCE reste fidele, seul le roll est differe au flux runner cale ;
+    mirror de l'ancien impératif). Emet 'SpawnUnit'/'ReplicaOnAppearance'. Effet PUR (stop=False).
+
+    GAP (inchange) : le cap de duplication (`UnitDuplicationLimitSelector`/`LimitUnitDuplications`) n'est pas
+    porte -> recurrence non bornee offline."""
+    __slots__ = ("summon_ability", "count")
+
+    def __init__(self, summon_ability: str, count: int):
+        self.summon_ability, self.count = summon_ability, int(count)
+
+    def execute(self, entities, ectx):
+        import gameconfig as GC
+        from ..operations.spawn import SpawnUnitOperation
+        from ..operations.damage import AttackDamageOperation
+        from .loki import _nearest_enemy
+        state = ectx.state
+        caster_id = (entities.caster or {}).get("id")
+        if state is None or caster_id is None:
+            return OperationResult.ok()
+        vid = ((GC.ability(self.summon_ability) or {}).get("constants") or {}).get("unitId")
+        if vid is None:
+            return OperationResult.ok()
+        # [Spawn / CopyOwner / placement adjacent-self] -> Operation validee (clone owner+stats du parent)
+        spawned = SpawnUnitOperation.execute_self_replica(state, caster_id, vid, self.count)
+        for sid in spawned:
+            ectx.emit("SpawnUnit", unit=sid)
+        # [on-appearance] PerformAIAttack : chaque double attaque l'ennemi le plus proche (roll consomme rng).
+        if state.rng is not None:
+            for sid in spawned:
+                tgt = _nearest_enemy(state, sid)
+                if tgt is None:
+                    continue
+                r = AttackDamageOperation.execute(state, sid, tgt)
+                if r is not None:
+                    ectx.emit("ReplicaOnAppearance", summon=sid, target=tgt, total=r.get("total"))
+        return OperationResult.ok()
+
+
 class AddBondEffect(AbilityBehaviour):
     """`DSLFactory.AddBondEffect(0x1b, stateRef, source, target, ..., TurnsFromRounds(1)) @1811e27a0` : pose
     l'effet BOND `Taunted_OnlySpecificTargets` (0x1b=27, COMPOSITE 25/26/1237) reliant `source` (l'enfant/

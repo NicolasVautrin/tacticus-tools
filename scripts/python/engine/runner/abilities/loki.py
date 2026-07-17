@@ -12,7 +12,6 @@ from typing import Optional, TYPE_CHECKING
 
 from .base import ActiveAbility, ability_attack_params
 from ..operations.damage import AttackDamageOperation
-from ..operations.spawn import SpawnUnitOperation
 from ..components import StatsComponent, OwnerComponent, PositionComponent, UnitComponent
 from ...entities.stats import StatType
 from ...entities.effect_type import EffectType
@@ -35,8 +34,8 @@ from ...entities.formulas import TotalAttacksMade, UnitTurnsStarted
 from ...entities.triggers import AmountIsGreaterThanZero, AmountIsEqual, IsAlive, TriggerAnd
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.effects.magnitude import ability_var
-from .behaviours import (Spawn, SpawnSummon, PerformAIAttack, AddBondEffect, AttackWithAbilityDamage,
-                         AddEffect, Heal, EvaluateAbilities, entities_from_state)
+from .behaviours import (Spawn, SpawnSummon, SpawnReplica, PerformAIAttack, AddBondEffect,
+                         AttackWithAbilityDamage, AddEffect, Heal, EvaluateAbilities, entities_from_state)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -344,6 +343,29 @@ def scarab_hive_tree() -> SpawnSummon:
     return SpawnSummon("ScarabHive", 2, Target())
 
 
+def scarab_summon_tree() -> SpawnReplica:
+    """Arbre de `ScarabSummonAbility.ExecuteBehaviour @181205290` (id 1047, necroSmnSwarm — MIRROR du DECOMPILE) :
+        Execute( Spawn(self@0x160, PickRandomly(CanAddUnit(AdjacentTiles(self@0x160)), 1),
+                       unitId=GetStringConstant(config,0)=necroSmnSwarm,
+                       SpawnUnitOptions.CopyOwner(caster)
+                         .onAppearance = PerformAIAttack(1)) )
+    UN SEUL noeud `Spawn` (plain `Execute`, PAS `ExecuteAtomic`) portant UN sous-behaviour EMBARQUE (+0x18
+    on-appearance) — PAS de +0x10 effet (contrairement a ScarabHive : ScarabSummon n'a pas l'effet persistant
+    0x4a3). Le count-1, le placement (`PickRandomly(CanAddUnit(AdjacentTiles(self)))` = 1 tuile LIBRE adjacente
+    a SOI) et `CopyOwner` (clone owner+stats du parent) vivent DANS `SpawnUnitBehaviour.Execute @180fd3d80`,
+    HORS des DSL-selecteurs.
+
+    Port = feuille `SpawnReplica` (cf. behaviours.py) qui delegue le SPAWN a l'Operation VALIDEE
+    `SpawnUnitOperation.execute_self_replica` (`CopyOwner @180fd5ba0` = clone owner+stats du parent, tuiles
+    libres adjacentes au caster) puis l'ON-APPEARANCE `PerformAIAttack(1)` = chaque double attaque l'ennemi le
+    plus proche (`_nearest_enemy` + `AttackDamageOperation.execute`, approx du choix AI natif). L'imperatif
+    `ScarabSummonAbility.execute_behaviour` (spawn + boucle on-appearance cables a la main) est REMPLACE par cet
+    arbre. DISTINCT de `scarab_hive_tree` (WithStatsFromConfig summoner-scaled + AddEffect(0x4a3) + attaque de
+    la CIBLE ; ici CopyOwner clone-du-parent + attaque AI du double, sans effet). GAP (inchange) : le cap de
+    duplication (`UnitDuplicationLimitSelector`) n'est pas porte — recurrence non bornee offline."""
+    return SpawnReplica("ScarabSummon", 1)
+
+
 def getemruntz_taunt_tree() -> If:
     """Corps `Func<entities,behaviour>` de `TauntWithNewChildrenWhoDidDamage @1811e27a0` (DECOMPILE) pour
     l'enfant COURANT (`Subject()`, pose par le `Foreach(Children)`) :
@@ -532,43 +554,33 @@ def _nearest_enemy(state: "State", unit_id: int) -> Optional[int]:
 class ScarabSummonAbility(ActiveAbility):
     """`ScarabSummonAbility.ExecuteBehaviour @181205290` (id 1047, necroSmnSwarm — auto-DÉDOUBLEMENT).
 
-    Le scarab s'invoque LUI-MÊME (« Summons another Scarab Swarm ... which then immediately takes a turn ») :
-        Spawn(visualId = constants["unitId"] = necroSmnSwarm,
-              tile = PickRandomly(CanAddUnit(AdjacentTiles(self@0x160))),   # libre, adjacent à SOI
-              owner+stats = SpawnUnitOptions.CopyOwner(caster),             # clone du parent (owner + stats)
-              onAppearance = PerformAIAttack(1))                            # le DOUBLE attaque immédiatement
-        × COUNT (1)
-    Stats = CLONE du parent (`CopyOwner @180fd5ba0` copie {Attack,Move,Health,Armor,20} ; le reste = config
-    base necroSmnSwarm = identique au parent) → `SpawnUnitOperation.execute_self_replica`. On-appearance :
-    le double attaque l'ennemi le plus proche (approx de `PerformAIAttack` ; cible AI-exacte = raffinement).
-    Chance gameconfig = 50 ; playbook `ScarabSummonPlaybook`. GAP : cap de duplication
+    #149 slice-11 : la behaviour EST l'**arbre DSL** `scarab_summon_tree()` (mirror 1:1 du décompilé @181205290 :
+    un noeud `Spawn` UNIQUE en plain `Execute` portant `SpawnUnitOptions.CopyOwner(caster)` + un seul
+    sous-behaviour embarqué `+0x18 = PerformAIAttack(1)` on-appearance — cf. la feuille `SpawnReplica`), en
+    remplacement du portage impératif (spawn + boucle on-appearance câblés à la main). La feuille délègue le
+    SPAWN à l'Operation VALIDÉE `SpawnUnitOperation.execute_self_replica` (`CopyOwner @180fd5ba0` = clone
+    owner+stats du parent, count-1, tuiles libres adjacentes à SOI) puis l'on-appearance `PerformAIAttack(1)`
+    (chaque double attaque l'ennemi le plus proche — approx du choix AI natif ; cible AI-exacte = raffinement).
+
+    Chance gameconfig = 50 ; playbook `ScarabSummonPlaybook`. ⚠ DISTINCT de `ScarabHiveAbility` @181204cb0 (id
+    1007, necroSpyder) = spawn summoner-scaled `WithStatsFromConfig` + AddEffect(0x4a3) + attaque de la CIBLE ;
+    ici clone-du-parent `CopyOwner` + attaque AI du double, sans effet. GAP (inchangé) : cap de duplication
     (`UnitDuplicationLimitSelector`/`LimitUnitDuplications`) non porté (récurrence non bornée offline)."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.ScarabSummon)  # 1047
-    SUMMON_ABILITY = "ScarabSummon"     # clé gameconfig (constants.unitId = necroSmnSwarm)
-    COUNT = 1
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
+        # behaviour = arbre DSL (feuille SpawnReplica) : émet les MÊMES Operations que l'impératif
+        # (`SpawnUnitOperation.execute_self_replica` + `AttackDamageOperation.execute`) -> même mutation, même diag.
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        scarab_summon_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        spawned = [p["unit"] for n, p in ectx.emitted if n == "SpawnUnit"]
+        attacks = [{"summon": p["summon"], "target": p["target"], "total": p["total"]}
+                   for n, p in ectx.emitted if n == "ReplicaOnAppearance"]
         import gameconfig as GC
-        consts = (GC.ability(self.SUMMON_ABILITY) or {}).get("constants") or {}
-        visual_id = consts.get("unitId")
-        if visual_id is None:
-            return None
-        # [Spawn] adjacent-à-soi + CopyOwner (clone du parent), cf. SpawnUnitOperation.execute_self_replica.
-        spawned = SpawnUnitOperation.execute_self_replica(state, caster_id, visual_id, self.COUNT)
-        # [on-appearance] PerformAIAttack : chaque double attaque immédiatement l'ennemi le plus proche.
-        # Le dégât consomme `state.rng` (roll) -> no-op gracieux si rng non calé (mirror `_summon_on_
-        # appearance_attack` : la SÉQUENCE reste fidèle, seul le tirage est différé au flux runner calé).
-        attacks = []
-        if state.rng is not None:
-            for sid in spawned:
-                tgt = _nearest_enemy(state, sid)
-                if tgt is not None:
-                    r = AttackDamageOperation.execute(state, sid, tgt)
-                    if r is not None:
-                        attacks.append({"summon": sid, "target": tgt, "total": r.get("total")})
-        return {"summon": visual_id, "spawned": spawned, "attacks": attacks, "replica": True}
+        visual_id = ((GC.ability("ScarabSummon") or {}).get("constants") or {}).get("unitId")
+        return {"summon": visual_id, "spawned": spawned, "attacks": attacks, "replica": True, "dsl": True}
 
 
 class GetEmRuntzAbility(ActiveAbility):
