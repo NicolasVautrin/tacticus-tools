@@ -66,6 +66,7 @@ from .get_em_runtz import GetEmRuntzPlaybook
 from .gauntlets_of_ultramar import GauntletsOfUltramarPlaybook
 from .hammer_of_wrath import HammerOfWrathPlaybook, _enemy_killed_by_normal_attack
 from .heroic_fusillade import HeroicFusilladePlaybook
+from .doctrina_imperatives import DoctrinaImperativesPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -87,6 +88,7 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         GauntletsOfUltramarPlaybook(),
         HammerOfWrathPlaybook(),
         HeroicFusilladePlaybook(),   # #15 (G5, Judh) — util plate=1, gates Hero+ennemi-voisin
+        DoctrinaImperativesPlaybook(),  # S4a (Tan Gi'da) — self-cast toggle, util 100, once-per-turn
     )
 }
 
@@ -145,5 +147,5 @@ __all__ = [
     "RitesOfRestorationPlaybook", "CombatRestorativesPlaybook", "DefendTheDivineWorkPlaybook",
     "RevitalizingMalignancyPlaybook", "InspiredToGreatnessPlaybook", "ScarabSummonPlaybook",
     "GetEmRuntzPlaybook", "GauntletsOfUltramarPlaybook", "HammerOfWrathPlaybook",
-    "HeroicFusilladePlaybook",
+    "HeroicFusilladePlaybook", "DoctrinaImperativesPlaybook",
 ]

@@ -54,6 +54,8 @@ from .loki import (
     TauntedEffect,
     TerminatorArmourReduceDmgEffect,
     TerrifyingExtraDefenseEffect,
+    ProtectorImperativeEffect,
+    ConquerorImperativeEffect,
 )
 
 # Registre nom d'EffectType (`decisionView.effects[].name`) → classe d'effet. À ÉTENDRE au roster.
@@ -72,6 +74,11 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "PathOfCommand_ExtraDmg": PathOfCommandExtraDmgEffect,
     # Stat-mod +armure (FixedArmor) FLAT, SELF-buff extraArmor[level] (résidu 0 validable ; nom à confirmer).
     "StandVigil_ExtraArmor": StandVigilExtraArmorEffect,
+    # DoctrinaImperatives (Tan Gi'da) — toggle @1811d4d20 : Protector = stat-mod +extraArmor sur FixedArmor(16)
+    # (aura self+Mechanical-adjacents ; port SELF, portee = increment B) ; Conqueror = +extraDmg gate
+    # HasNegativeModifier(cible FixedArmor<0) PRESENT-inerte (contribution +dmg = increment C).
+    "ProtectorImperative": ProtectorImperativeEffect,   # 1247
+    "ConquerorImperative": ConquerorImperativeEffect,   # 1248
     "RangedSpecialist": RangedSpecialistEffect,  # +33% dégât RANGED (trait, actif si pas parti adjacent)
     "HeavyWeapon_ExtraDmg": HeavyWeaponExtraDmgEffect,   # +25% dégât RANGED (trait HeavyWeapon→Overwatch)
     # CrushingStrike (trait Terminators, effet 0x4a2=1186, nom capté = 'CrushingStrike') : +50% dégât

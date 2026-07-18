@@ -10,6 +10,7 @@ dans `handler.py`/`abilities/__init__.py`, `from ..abilities.loki import X` dans
 - `splash.py` — attaque + splash multi-cible : CrushingClaws, PlasmaGrenade, Stikkbomb, Fragstorm,
                  ScythingTalons + helpers de ciblage splash (`_pick_randomly_n` = PickRandomly, etc.).
 - `strike.py` — single-target / self : ThunderousAssault, ArmoriumCherub, SpiritLeech, ValkyrieStrike.
+- `imperative.py` — DoctrinaImperatives (Tan Gi'da) : toggle Protector <-> Conqueror (self-cast).
 
 Le vocabulaire DSL generique (combinateurs `entities/behaviours.py`, feuilles runner-couplees
 `../behaviours.py`, selecteurs/formules `entities/`) est IMPORTE par chaque module ; les arbres
@@ -27,6 +28,7 @@ from .strike import (ThunderousAssaultAbility, ArmoriumCherubAbility, SpiritLeec
                      ValkyrieStrikeAbility, thunderous_assault_tree, armorium_cherub_tree,
                      spirit_leech_get_attack_damage, spirit_leech_heal_amount,
                      spirit_leech_heal_targets, spirit_leech_tree, valkyrie_strike_tree)
+from .imperative import DoctrinaImperativesAbility
 
 __all__ = [
     # summon
@@ -43,4 +45,6 @@ __all__ = [
     "ValkyrieStrikeAbility", "thunderous_assault_tree", "armorium_cherub_tree",
     "spirit_leech_get_attack_damage", "spirit_leech_heal_amount",
     "spirit_leech_heal_targets", "spirit_leech_tree", "valkyrie_strike_tree",
+    # imperative
+    "DoctrinaImperativesAbility",
 ]

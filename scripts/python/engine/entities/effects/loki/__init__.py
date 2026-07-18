@@ -10,7 +10,8 @@ import LIGHT_COVER_TILE_ID` dans `operations/damage.py`) restent INCHANGES.
 - `extra_damage.py`     — bonus de dégât ATTAQUANT (`create_effect_damage_bonus_for_attack` / aura attack).
 - `damage_reduction.py` — malus de dégât DÉFENSEUR (`create_effect_damage_malus_for_defense` + auras réduc).
 - `hits.py`             — coups / blocs / pénétration-armure (hits/block/armor-pen).
-- `status.py`           — stat-mods, composites (Stunned/Taunted), HP-floor, modificateurs multi-axes."""
+- `status.py`           — stat-mods, composites (Stunned/Taunted), HP-floor, modificateurs multi-axes.
+- `imperative.py`       — DoctrinaImperatives (Tan Gi'da) : Protector (+FixedArmor) / Conqueror (+dmg gate)."""
 from __future__ import annotations
 
 from .extra_damage import (RapidAssaultExtraDamageEffect, SmashaEadExtraDamageEffect,
@@ -34,6 +35,7 @@ from .hits import (SquigHoundAdditionalHitsEffect, AnvilShieldAdditionalBlockEff
 from .status import (HypersensoryMinimalHealthEffect, ContaminatedUnitEffect, StandVigilExtraArmorEffect,
                      BlessingsOfKhorneModifiersEffect, StunnedEffect, ActOfFaithBuffEffect,
                      TauntedEffect, PinnedEffect)
+from .imperative import ProtectorImperativeEffect, ConquerorImperativeEffect
 
 __all__ = [
     # extra_damage
@@ -57,4 +59,6 @@ __all__ = [
     "HypersensoryMinimalHealthEffect", "ContaminatedUnitEffect", "StandVigilExtraArmorEffect",
     "BlessingsOfKhorneModifiersEffect", "StunnedEffect", "ActOfFaithBuffEffect",
     "TauntedEffect", "PinnedEffect",
+    # imperative
+    "ProtectorImperativeEffect", "ConquerorImperativeEffect",
 ]
