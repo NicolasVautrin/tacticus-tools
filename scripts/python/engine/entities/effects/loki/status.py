@@ -155,7 +155,8 @@ class BlessingsOfKhorneModifiersEffect(BaseEffect):
                                               has_moved: bool | None = None,
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
-                                              is_normal_attack: bool | None = True) -> EffectBonus | None:
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
         # trigger natif @180f34ae0 = get_OwnerIsCaster SEUL — tous profils, normale ET spéciale.
         n = self._n()
         if n <= 0:

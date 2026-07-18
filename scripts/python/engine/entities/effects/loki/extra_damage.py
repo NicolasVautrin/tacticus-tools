@@ -27,7 +27,8 @@ class RapidAssaultExtraDamageEffect(BaseEffect):
                                               has_moved: bool | None = None,
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
-                                              is_normal_attack: bool | None = True) -> EffectBonus | None:
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
         pct = trait_var("RapidAssault", "rapidAssaultExtraDmgPct")
         return for_percent_increase(True, pct) if pct is not None else None
 
@@ -59,7 +60,8 @@ class SmashaEadExtraDamageEffect(BaseEffect):
                                               has_moved: bool | None = None,
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
-                                              is_normal_attack: bool | None = True) -> EffectBonus | None:
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
         # #71 : trigger natif = OwnerIsCaster & IsNormalAttack (@180f6bee0). Le noeud DSL IsNormalAttack
         # (= `IsRegularAttack(ability DECLENCHANTE)` @180f8d260/@181555b40, FALSE si pas d'ability dans le
         # contexte) evalue FALSE dans le contexte PREDICTION DISPLAY (verdict re-expert : additif absent de
@@ -134,7 +136,8 @@ class FeederTendrilsExtraDamageEffect(BaseEffect):
                                               has_moved: bool | None = None,
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
-                                              is_normal_attack: bool | None = True) -> EffectBonus | None:
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
         if is_ranged:                       # IsCharging & get_IsMelee (@1811dd850) -> melee uniquement
             return None
         if is_normal_attack is False:       # IsNormalAttack (@180df4690)
@@ -177,7 +180,8 @@ class DecoysAndMisdirectionExtraDamageEffect(BaseEffect):
                                               has_moved: bool | None = None,
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
-                                              is_normal_attack: bool | None = True) -> EffectBonus | None:
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
         # Gate natif = OwnerIsCaster SEUL (@180f3e340) : aucun re-gate is_ranged/is_normal/is_prediction.
         # Ce chemin n'est appele que pour les attaques du porteur -> OwnerIsCaster implicitement TRUE.
         lvl = (self.active_ability_level if self.active_ability_level is not None
@@ -297,7 +301,8 @@ class CrushingStrikeEffect(BaseEffect):
                                               has_moved: bool | None = None,
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
-                                              is_normal_attack: bool | None = True) -> EffectBonus | None:
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
         if is_ranged:                            # gated IsMeleeAttack (@180f3ad90)
             return None
         if is_normal_attack is False:            # gated IsNormalAttack (spéciale mêlée → pas de bonus)
@@ -321,7 +326,8 @@ class HeavyWeaponExtraDmgEffect(BaseEffect):
                                               has_moved: bool | None = None,
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
-                                              is_normal_attack: bool | None = True) -> EffectBonus | None:
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
         if not is_ranged:                        # gated IsRangedAttack (no-op sur mêlée / contexte inconnu)
             return None
         # Gate NO-MOVE (`!HasFlag(HasMoved=0)` @180f4f030 ; i2 : « When this unit has not moved this
@@ -350,7 +356,8 @@ class RangedSpecialistEffect(BaseEffect):
                                               has_moved: bool | None = None,
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
-                                              is_normal_attack: bool | None = True) -> EffectBonus | None:
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
         if not is_ranged:                        # gated IsRangedAttack (@180f67520)
             return None
         pct = trait_var("RangedSpecialist", "rangedSpecialistDmgPct")
@@ -376,7 +383,8 @@ class BeastSlayerExtraDmgEffect(BaseEffect):
                                               has_moved: bool | None = None,
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
-                                              is_normal_attack: bool | None = True) -> EffectBonus | None:
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
         if is_ranged:                                  # IsMeleeAttack -> melee uniquement
             return None
         if not target_traits or _BEAST_SLAYER_TARGET_TRAITS.isdisjoint(target_traits):
@@ -445,7 +453,8 @@ class BeaconOfRageExtraDamageEffect(BaseEffect):
                                               has_moved: bool | None = None,
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
-                                              is_normal_attack: bool | None = True) -> EffectBonus | None:
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
         # trigger natif @180f33130 = get_OwnerIsCaster SEUL — tous profils, normale ET spéciale.
         rage = self.level                              # EffectLevel (stack), déjà cappé à l'écriture
         if not rage or int(rage) <= 0:

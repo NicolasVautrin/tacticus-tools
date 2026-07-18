@@ -262,7 +262,8 @@ class AttackDamageOperation:
         _profile = _w.get("DamageProfile") if _w else None     # profil du coup (pour vecteurs after-hit)
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, is_ranged=_ranged,
-                                          target_traits=target_trait_names(state, target_id))
+                                          target_traits=target_trait_names(state, target_id),
+                                          target_id=target_id)
         # #58 : feuille positionnelle ELEVATION (+surplomb) ajoutee au `mods` de l'attaquant, comme la
         # prediction (service PARTAGE `calculate_elevation_bonus_modifier` de DamageCalculations ; positions
         # REELLES depuis l'ECS/board).
@@ -516,7 +517,7 @@ class AttackDamageOperation:
             return None
         ctx = sc.ctx
         ahc = att.get_component(HealthComponent)
-        mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None)
+        mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, target_id=target_id)
         tsc = tgt.get_component(StatsComponent)
         armor = defender_fixed_armor(state, target_id)   # FOYER partagé (base GetStat(16) + aura Protector allié)
         # #59 suite : threade is_melee + profil de l'ability -> malus DÉFENSEUR gatés (Terrifying_ExtraDefense
@@ -606,7 +607,7 @@ class AttackDamageOperation:
             return None
         ctx = sc.ctx
         ahc = att.get_component(HealthComponent)
-        mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None)
+        mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, target_id=target_id)
         tsc = tgt.get_component(StatsComponent)
         armor = defender_fixed_armor(state, target_id)   # FOYER partagé (base GetStat(16) + aura Protector allié)
         # #59 suite : threade is_melee + profil -> malus DÉFENSEUR gatés (cf. execute_ability_attack).

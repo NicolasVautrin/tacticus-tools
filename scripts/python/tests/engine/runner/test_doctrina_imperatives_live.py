@@ -351,3 +351,81 @@ def test_doctrina_protector_aura_offline_agreement(live_session, rpc, build_runn
     tan_resolved = defender_fixed_armor(state, tan_id)
     assert tan_resolved == tan_get, \
         f"self double-compte : defender_fixed_armor(tan)={tan_resolved} != GetStat(16) {tan_get}"
+
+
+def test_doctrina_conqueror_extradmg_offline_agreement(live_session, rpc, build_runner):
+    """OFFLINE-AGREEMENT (port S4a incr. C, self face) : apres le toggle vers Conqueror(1248), le porteur
+    gagne +extraDmg FLAT (`create_effect_damage_bonus_for_attack` -> canal additif `DamageModifiers.additive`,
+    @180f39650) UNIQUEMENT contre une cible a ARMURE REDUITE (gate `HasNegativeModifier(cible, {ARMOR=4,
+    FIXED_ARMOR=16})` @180f9db90). On DRIVE un debuff FixedArmor sur la cible (mod per-source <0) pour armer
+    le gate, et on mesure le DELTA d'additif attaquant (cible reduite MOINS cible saine) = `extraDmg[niveau
+    actif] x mult` ; cible SAINE -> AUCUN bonus (gate False). Valide AUSSI le seeding niveau/mult sur l'effet
+    pose par le toggle (`_seed_active_ability_level`), sans quoi la magnitude calc-time serait inerte. Combat
+    et prediction partagent le meme canal (couvert en unite). Doctrine drive-positions/state : synthetise la
+    condition (debuff) plutot que d'attendre une geometrie live."""
+    from engine.runner.snapshot import load_state
+    from engine.runner.components import StatsComponent, HealthComponent
+    from engine.entities.stats import StatType
+    from engine.entities.effects.magnitude import ability_var
+    from engine.runner.abilities.loki import DoctrinaImperativesAbility
+    from engine.runner.damage_model import attacker_modifiers, defender_armor_reduced
+
+    rid = build_runner("777", extra=BUILD)["rid"]
+    dec, tan = _advance_to_my_turn(rpc, rid, TAN_VIS)
+    if tan is None:
+        pytest.skip("Tan Gi'da absent / pas atteint son tour")
+    tan_id = tan["id"]
+    if PROTECTOR not in _effect_ids(tan):
+        pytest.skip("Protector(1247) non actif pre-cast (SetStart) -> toggle non amorcable")
+    enemy = _find(dec, "necroWarden")
+    enemy_id = (enemy or {}).get("id")
+    if enemy_id is None:
+        pytest.skip("cible ennemie (necroWarden) absente")
+
+    dec0 = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
+    ob0 = rpc("observeBattle", {"runnerId": rid}, 60)
+    snap0 = rpc("combatSnapshot", {"runnerId": rid}, 90)
+    state = load_state(dec0, ob0, snap0)
+
+    tan_ent = state.get_entity(tan_id)
+    en_ent = state.get_entity(enemy_id)
+    if tan_ent is None or en_ent is None or en_ent.get_component(StatsComponent) is None \
+            or tan_ent.get_component(StatsComponent) is None or state.effects is None:
+        pytest.skip("entites/composants offline incomplets (snapshot)")
+
+    # --- toggle offline vers Conqueror (seed niveau/mult depuis le ctx du caster) ---
+    DoctrinaImperativesAbility().execute_behaviour(state, tan_id, tan_id)
+    assert state.effects.has_effect(tan_id, effect_type=CONQUEROR), "toggle KO : Conqueror absent offline"
+    conq = next((e for e in state.effects.by_unit.get(tan_id, [])
+                 if (not e.consumed) and e.effect_type == CONQUEROR), None)
+    assert conq is not None and conq.active_ability_level is not None, \
+        "Conqueror pose sans niveau seede (_seed_active_ability_level KO) -> magnitude calc-time inerte"
+
+    tctx = tan_ent.get_component(StatsComponent).ctx
+    lvl = getattr(tctx, "active_ability_level", None)
+    mult = int(getattr(tctx, "ability_variables_multiplier", 100) or 100)
+    extra = int(ability_var("DoctrinaImperatives", "extraDmg", lvl, multiplier_pct=mult) or 0)
+    assert extra > 0, f"extraDmg non resoluble offline (level={lvl}, mult={mult})"
+
+    ahc = tan_ent.get_component(HealthComponent)
+    hp = ahc.hp if ahc is not None else None
+
+    # (1) cible SAINE : gate HasNegativeModifier False -> aucun bonus Conqueror. Skip si la capture a deja
+    # une armure reduite (gate non discriminable proprement).
+    if defender_armor_reduced(state, enemy_id):
+        pytest.skip("cible deja armure-reduite au snapshot -> gate non discriminable")
+    mods_healthy, _ = attacker_modifiers(state, tan_id, hp, target_id=enemy_id)
+    add_healthy = mods_healthy.additive
+
+    # (2) DRIVE un debuff FixedArmor (mod per-source <0 = "armure reduite") -> gate True -> +extraDmg FLAT.
+    en_ctx = en_ent.get_component(StatsComponent).ctx
+    en_ctx.stats.change_stat(int(StatType.FIXED_ARMOR), "test_armor_debuff", -300)
+    assert defender_armor_reduced(state, enemy_id) is True, "gate HasNegativeModifier non arme apres debuff"
+    mods_reduced, _ = attacker_modifiers(state, tan_id, hp, target_id=enemy_id)
+    add_reduced = mods_reduced.additive
+
+    print(f"[Conqueror offline] extraDmg oracle={extra} ; additif cible saine={add_healthy} "
+          f"reduite={add_reduced} delta={add_reduced - add_healthy}")
+    # DELTA isole la contribution Conqueror (robuste a un autre additif eventuel du porteur).
+    assert add_reduced - add_healthy == extra, \
+        f"delta additif Conqueror {add_reduced - add_healthy} != extraDmg[lvl {lvl} x{mult}] {extra}"

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from ..base import BaseEffect
 from ..magnitude import ability_var
+from ....services.effect_bonus import EffectBonus, for_addition
 
 _ABILITY = "DoctrinaImperatives"
 
@@ -100,13 +101,50 @@ class ProtectorImperativeEffect(BaseEffect):
 
 
 class ConquerorImperativeEffect(BaseEffect):
-    """`ConquerorImperativeEffect` (0x4e0=1248) — `DamageModifierAbilityEffect` +extraDmg gate
-    `HasNegativeModifier(cible, FixedArmor<0)` (@180f39650), aura self + Mechanical adjacents (@180f39890).
+    """`ConquerorImperativeEffect` (0x4e0=1248, ctor @180f39910 = `DamageModifierAbilityEffect(0x45e=1118)`) —
+    +extraDmg FLAT au degat du porteur contre une cible a ARMURE REDUITE.
 
-    Increment A : effet PRESENT (materialise sur le caster par la branche THEN du toggle -> le toggle Protector
-    <-> Conqueror fonctionne) mais SANS contribution +dmg (BaseEffect = None). La contribution
-    (`create_effect_damage_bonus_for_attack` = +`extraDmg[level]` x mult FLAT, gate cible-a-armure-reduite,
-    + portee aura aux allies Mechanical adjacents) = increment C. Degradation fidele "present != applique".
-    """
-    # increment C : create_effect_damage_bonus_for_attack (ForAddition, gate HasNegativeModifier(target
-    # FixedArmor<0)) + portee aura self+Mechanical-adjacents. Volontairement non implemente ici.
+    DEUX faces du meme DamageModifierAbilityEffect natif (le selecteur @180f39890 = self + amis Mechanical
+    adjacents, IDENTIQUE a Protector) :
+      - SELF (increment C, `create_effect_damage_bonus_for_attack` ci-dessous) : quand le PORTEUR attaque.
+      - ALLIES Mechanical ADJACENTS (increment C2, canal aura-attaque-degat cote SOURCE
+        `create_aura_attack_damage_bonus_for_ally`) : quand un ami Mechanical ring-1 attaque. NON porte ici
+        (le canal aura-attaquant-allie n'est pas encore cable cote COMBAT). Degradation fidele en attendant.
+
+    `CreateDamageModifier @180f39650` : `EffectBonus.ForAddition(get_OwnerIsCaster & HasNegativeModifier(
+    cible, {ARMOR=4, FIXED_ARMOR=16}), ConfigVar(8=extraDmg, GetAbilityState(effet)))`. Increment A avait
+    l'effet PRESENT-INERTE (BaseEffect = None) ; increment C materialise la contribution SELF (le toggle
+    Protector<->Conqueror etait deja fonctionnel des A)."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None) -> "EffectBonus | None":
+        """SELF face (increment C) — `ConquerorImperative.CreateDamageModifier @180f39650` :
+        `ForAddition(OwnerIsCaster & HasNegativeModifier(cible, {ARMOR=4, FIXED_ARMOR=16}), ConfigVar(8=
+        extraDmg))` = +`extraDmg[niveau actif] x mult` FLAT au degat de TOUTES les attaques du porteur
+        (normale ET speciale : AUCUN noeud IsNormalAttack dans le trigger), UNIQUEMENT contre une cible a
+        ARMURE REDUITE (>=1 modification per-source <0 sur ARMOR/FIXED_ARMOR). Meme canal additif que
+        SmashaEad (`DamageModifiers.Add @181005f10`, applique POST-percage).
+
+        `target_armor_reduced` = evaluation du gate `HasNegativeModifier @180f9db90` faite au SITE de
+        resolution (`damage_model.defender_armor_reduced` en combat, `UnitStats.has_negative_modifier` en
+        prediction) et threadee dans le canal ; None/False -> cible saine -> pas de bonus (degradation fidele
+        "present != applique" hors condition). `OwnerIsCaster` est TRUE quand le porteur attaque (ce chemin)
+        et en PREDICTION (cf. DecoysAndMisdirection #71 : OwnerIsCaster-seul applique en display, contrairement
+        a SmashaEad dont IsNormalAttack evalue FALSE) -> contribue aux DEUX faces (pas de `if is_prediction`).
+
+        Magnitude = `ability_var("DoctrinaImperatives", "extraDmg", niveau ACTIF, mult)` (ConfigVar var 8,
+        in variablesAffectedByRarityBonus -> x multiplier). Niveau/mult seedes sur l'effet a la pose par la
+        feuille de toggle (`runner/abilities/loki/imperative.py`) depuis le ctx du caster (AddEffectOperation
+        ne les propage pas) ; niveau inconnu -> inerte (comme BeaconOfRage sans ability_level)."""
+        if not target_armor_reduced:
+            return None                                   # HasNegativeModifier(cible armure) FALSE -> pas de bonus
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        amt = ability_var(_ABILITY, "extraDmg", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
+        # ForAddition -> canal `additive @+0x10` applique POST-percage (DamageModifiers.Add @181005f10).
+        return for_addition(True, amt) if amt else None

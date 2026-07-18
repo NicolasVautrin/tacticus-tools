@@ -29,7 +29,7 @@ from engine.entities.effects import (
     hits_bonus_from_effects, hits_malus_from_defender_effects, additional_hit_groups)
 from engine.entities.traits import attacker_bonus_hits, target_hit_multiplier, TraitFactory
 from engine.entities.traits.unit_trait import UnitTrait
-from engine.entities.stats import StatType, StatPart
+from engine.entities.stats import StatType, StatPart, ARMOR_STAT_TYPES
 from engine.services.damage_prediction import get_attack_prediction
 from engine.services.min_max_damage import MinMaxDamage
 from engine.services.damage_modifiers import (
@@ -273,8 +273,14 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # N'EST PAS un modifier post-perçage mais un effet AU NIVEAU DE LA BASE (cf. base=Initial ci-dessous).
     # BeastSlayer (target-conditionnel) : traits de la CIBLE (mirror HasTrait) -> gate BigTarget/Vehicle.
     _tgt_traits = frozenset((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits") or [])
+    # gate ConquerorImperative (#22, self face) : la CIBLE a-t-elle l'armure REDUITE (>=1 mod <0 sur
+    # ARMOR/FIXED_ARMOR) -> +extraDmg FLAT du porteur. OwnerIsCaster TRUE en display (cf. DecoysAndMisdirection).
+    _tctx = scene.ctx(tgt_id)
+    _tgt_armor_reduced = (_tctx.stats.has_negative_modifier(ARMOR_STAT_TYPES)
+                          if _tctx is not None and _tctx.stats is not None else None)
     mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm,
-                                                       target_traits=_tgt_traits)
+                                                       target_traits=_tgt_traits,
+                                                       target_armor_reduced=_tgt_armor_reduced)
     # #49/#153 : base de l'attaque NORMALE en PREDICTION DISPLAY = Initial + auras stat-mod re-evaluees
     # a la TUILE CANDIDATE. On part de INITIAL (bare, exclut TOUTE modification captee dans le snapshot
     # -> pas de double-compte) puis on re-ajoute les AURAS stat-mod d'allies (RitesOfBattle @181225340,
@@ -427,8 +433,14 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
     # threader la nature du coup + le flag has-moved de la tuile candidate (gates IsRangedAttack /
     # NOT HasMoved des effets, ex. HeavyWeapon +25% ranged not-moved s'applique aux spéciales ranged).
     _hm = (attack_pos != scene.pos(uid)) if attack_pos else None
+    # gate ConquerorImperative (#22) : +extraDmg s'applique AUSSI aux attaques SPECIALES du porteur (trigger
+    # OwnerIsCaster & HasNegativeModifier, AUCUN IsNormalAttack) vs cible a armure reduite.
+    _tctx = scene.ctx(tgt)
+    _tgt_armor_reduced = (_tctx.stats.has_negative_modifier(ARMOR_STAT_TYPES)
+                          if _tctx is not None and _tctx.stats is not None else None)
     mods = calculate_attacker_modifiers_for_prediction(scene.effects(uid), is_ranged=not is_melee,
-                                                       has_moved=_hm, is_normal_attack=False)
+                                                       has_moved=_hm, is_normal_attack=False,
+                                                       target_armor_reduced=_tgt_armor_reduced)
     t_pos = scene.pos(tgt)
     _add_positional_and_defender_mods(mods, scene, uid, tgt, is_melee, attack_pos, t_pos,
                                       damage_profile=profile_name, is_normal_attack=False)

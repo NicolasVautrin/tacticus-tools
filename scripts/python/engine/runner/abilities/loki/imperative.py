@@ -17,9 +17,13 @@ bataille (GROUND-TRUTH live : Tan Gi'da a 1247 avant tout cast).
 Le predicat `If(HasEffect(...))` (kind T) est COLLAPSE imperativement (lecture d'etat `state.effects.has_effect`,
 doctrine slice-18/19/24 : les predicats/selecteurs S/T se replient, seule l'ossature E reste feuilles DSL) ;
 les DEUX branches routent par les feuilles DSL portees `AddEffect`/`RemoveEffect` (self-cast : selecteur
-`Caster()`). Increment A : Protector = stat-mod SELF +FixedArmor (materialise) ; Conqueror = present-inerte
-(contribution +dmg = increment C). Increment B (FAIT) : portee aura Protector +FixedArmor aux amis Mechanical
-adjacents (canal `create_aura_fixed_armor_bonus_for_defense`, foyer runner `defender_fixed_armor`, self auto-exclu).
+`Caster()`). Increment A : Protector = stat-mod SELF +FixedArmor (materialise). Increment B (FAIT) : portee
+aura Protector +FixedArmor aux amis Mechanical adjacents (canal `create_aura_fixed_armor_bonus_for_defense`,
+foyer runner `defender_fixed_armor`, self auto-exclu). Increment C (FAIT, self face) : Conqueror = +extraDmg
+FLAT au degat du porteur vs cible a ARMURE REDUITE (`create_effect_damage_bonus_for_attack`, gate
+`HasNegativeModifier(cible, {ARMOR,FIXED_ARMOR})` @180f39650 -> `defender_armor_reduced`) ; le niveau/mult
+actifs du caster sont seedes sur l'effet a la pose (`_seed_active_ability_level` ci-dessous). La PORTEE aura
+Conqueror aux amis Mechanical adjacents (canal aura-attaquant-allie) = increment C2, non porte (degradation fidele).
 
 DUREE : le decompile passe `0` (aucun `TurnsFromRounds`) aux deux `AddEffect` -> `DefaultAmountOfRounds`
 (@181559ff0 : null pour 1247/1248) -> fallback 1 round (`AddEffectOperation`). La PERSISTANCE de la stance
@@ -36,12 +40,36 @@ from ....entities.effect_type import EffectType
 from ....dsl.effects import ExecutionContext
 from ....entities.selectors import Caster
 from ..behaviours import AddEffect, RemoveEffect, entities_from_state
+from ...components import StatsComponent
 
 if TYPE_CHECKING:
     from ...state import State
 
 PROTECTOR = int(EffectType.ProtectorImperative)   # 1247 (0x4df)
 CONQUEROR = int(EffectType.ConquerorImperative)    # 1248 (0x4e0)
+
+
+def _seed_active_ability_level(state: "State", caster_id: int, effect_type: int) -> None:
+    """Seede `active_ability_level`/`ability_variables_multiplier` sur l'effet FRAICHEMENT pose (type
+    `effect_type` sur le caster) depuis le ctx du CASTER (source). Le natif capture une `AbilityState
+    Reference` dans l'effet, qui indexe ses variables per-niveau (`GetAbilityState @180f11780`) ;
+    `AddEffectOperation` ne propage PAS ces champs offline (level=None) -> sans ce seeding la contribution
+    CALC-TIME de Conqueror (`create_effect_damage_bonus_for_attack`, ConfigVar(8=extraDmg)) serait inerte
+    (comme BeaconOfRage sans ability_level). Local (pas dans AddEffectOperation) pour ne pas perturber les
+    autres effets seedes level=None (ex. SmashaEad #68) ; precedent : genestealer.py seede pareil les
+    owner-effects poses par trigger. Le Protector (branche ELSE) n'en a PAS besoin : son stat-mod SELF lit
+    le niveau du stats_ctx a l'apply (`applied_stat_mods`), pas de champ self."""
+    if state.effects is None:
+        return
+    ce = state.get_entity(caster_id)
+    csc = ce.get_component(StatsComponent) if ce is not None else None
+    cctx = csc.ctx if csc is not None else None
+    lvl = getattr(cctx, "active_ability_level", None)
+    mult = int(getattr(cctx, "ability_variables_multiplier", 100) or 100)
+    for e in state.effects.by_unit.get(int(caster_id), []):
+        if (not e.consumed) and e.effect_type == effect_type:
+            e.active_ability_level = lvl
+            e.ability_variables_multiplier = mult
 
 
 class DoctrinaImperativesAbility(ActiveAbility):
@@ -62,6 +90,9 @@ class DoctrinaImperativesAbility(ActiveAbility):
             # THEN : add Conqueror PUIS remove Protector (ordre op_Addition du decompile).
             AddEffect(CONQUEROR, "ConquerorImperative", Caster(), duration_rounds=None).execute(entities, ectx)
             RemoveEffect(PROTECTOR, Caster()).execute(entities, ectx)
+            # increment C : Conqueror porte une contribution +extraDmg CALC-TIME -> seeder niveau/mult actifs
+            # du caster sur l'effet pose (AbilityStateReference native ; AddEffectOperation ne les propage pas).
+            _seed_active_ability_level(state, caster_id, CONQUEROR)
             active = "Conqueror"
         else:
             # ELSE : add Protector PUIS remove Conqueror.

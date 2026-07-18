@@ -23,7 +23,7 @@ from typing import Optional, Tuple
 
 from .state import State
 from .components import StatsComponent, HealthComponent, OwnerComponent, PositionComponent
-from ..entities.stats import StatType
+from ..entities.stats import StatType, ARMOR_STAT_TYPES
 from ..services.damage_prediction import get_attack_prediction, apply_pierce_and_modifiers
 from ..services.battle_query import (
     get_attack_weapon_for_default_normal_attack,
@@ -77,6 +77,19 @@ def target_trait_names(state: State, target_id: int) -> "frozenset[str]":
     return frozenset(getattr(sc.ctx, "traits", None) or []) if sc is not None else frozenset()
 
 
+def defender_armor_reduced(state: State, target_id: int) -> bool:
+    """Gate `HasNegativeModifier(cible, {ARMOR=4, FIXED_ARMOR=16})` de `ConquerorImperative.CreateDamageModifier`
+    (@180f39650 ; trigger `ShouldTrigger @180f9db90`) : la CIBLE a-t-elle >=1 modification per-source NEGATIVE
+    sur l'une des 2 stats d'armure = « armure REDUITE » ? DELEGUE a `UnitStats.has_negative_modifier` (foyer du
+    check, mirror natif). False si la cible n'a pas de StatsComponent. Consomme par le canal +extraDmg de Conqueror
+    (self face, incr. C) au site de resolution `attacker_modifiers` (combat) — symetrique de la prediction."""
+    e = state.get_entity(target_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    if sc is None or sc.ctx is None:
+        return False
+    return sc.ctx.stats.has_negative_modifier(ARMOR_STAT_TYPES)
+
+
 def defender_fixed_armor(state: State, target_id: int) -> int:
     """FixedArmor(16) EFFECTIVE du DÉFENSEUR = `GetStat(16)` [effet-inclusif : inclut le stat-mod EAGER self
     de ProtectorImperative sur SON porteur, incr. A] + AURA +FixedArmor projetée par un ALLIÉ ADJACENT porteur
@@ -127,16 +140,20 @@ def defender_fixed_armor(state: State, target_id: int) -> int:
 
 
 def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged: Optional[bool] = None,
-                       target_traits=None):
+                       target_traits=None, target_id: Optional[int] = None):
     """`DamageModifiers` de l'attaquant depuis ses EFFETS actifs (None-safe). `is_ranged` = nature du coup
     (propagée aux bonus gated `IsRangedAttack`, ex. HeavyWeapon_ExtraDmg). `has_moved` (#60) = l'unité a-t-elle
     BOUGE ce tour (state.moved_this_turn) -> gate no-move : HeavyWeapon_ExtraDmg s'ANNULE si l'unité a bougé
-    (verdict RE cluster #60 : le combat lisait has_moved=None -> bonus TOUJOURS appliqué, FAUX)."""
+    (verdict RE cluster #60 : le combat lisait has_moved=None -> bonus TOUJOURS appliqué, FAUX). `target_id`
+    (incr. C) = la CIBLE du coup -> calcule le gate `HasNegativeModifier(cible armure)` (`defender_armor_reduced`)
+    pour la contribution +extraDmg de ConquerorImperative ; None (chemin sans cible) -> gate None (inerte)."""
     active = (state.effects.active_effects(unit_id, {"hp": hp})
               if state.effects is not None else [])
     has_moved = unit_id in state.moved_this_turn
+    tar = defender_armor_reduced(state, target_id) if target_id is not None else None
     return build_attacker_modifiers_from_effects(active, is_ranged, has_moved=has_moved,
-                                                 target_traits=target_traits), active
+                                                 target_traits=target_traits,
+                                                 target_armor_reduced=tar), active
 
 
 def defender_modifiers(state: State, unit_id: int, hp: Optional[int],

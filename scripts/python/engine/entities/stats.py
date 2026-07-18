@@ -292,6 +292,25 @@ class UnitStats:
         if comp is not None:
             comp.modification.reverse_modification(source)
 
+    def has_negative_modifier(self, stat_types) -> bool:
+        """`IdunBattle.Entities.Triggers.HasNegativeModifier.ShouldTrigger @180f9db90` — True si l'une des
+        stats de `stat_types` (le FILTRE natif) porte AU MOINS UNE modification per-source NEGATIVE (<0).
+        Le natif itere le `Dictionary<source, ValueModification>` de la stat de la cible et renvoie true au
+        1er `value(@+0x14) < 0` dont le stat(@+0x10) est dans le filtre. Foyer du gate `ConquerorImperative`
+        (@180f39650 : filtre array {4, 16} = ARMOR + FIXED_ARMOR = "cible a l'armure REDUITE"). No-op (False)
+        pour une stat absente ou sans modification. Le residu de capture (`CAPTURED_SOURCE`) NEGATIF (cible
+        deja debuffee au snapshot, Current < Initial) declenche correctement le gate = fidele."""
+        for st in stat_types:
+            comp = self.components.get(int(st))
+            if comp is None:
+                continue
+            mod = getattr(comp, "modification", None)
+            if mod is None:
+                continue
+            if any(int(v) < 0 for v in mod.per_source.values()):
+                return True
+        return False
+
     def increment_base(self, stat_type: int, by: int = 1, base_if_absent: int = 0) -> None:
         """Incrémente la valeur de BASE (Initial) d'un stat-compteur BRUT. Mirror du bump inline de
         `StartTurnOperation.Execute @180ea3fb0` : `*(int*)(unitComp+0x58) += 1` par unité du joueur
@@ -327,6 +346,11 @@ _FILLUP_STATS = frozenset({4, 5})
 # Plafonds par-stat (virtuel GetMaxValue) : les pourcentages BlockChance/CritChance sont clampés à 100
 # par `GetClampedValue @180fa8aa0` (le reste = pas de plafond). Sert au clamp de `get_current_value`.
 STAT_CLAMP_MAX = {7: 100, 9: 100}      # BlockChance / CritChance
+
+# Filtre natif du trigger HasNegativeModifier de ConquerorImperative (@180f39650 : array inline {4, 16}) =
+# les DEUX stats d'armure — ARMOR(4, "Idun Concept" obsolete, en pratique absente) + FIXED_ARMOR(16, live).
+# "Armure REDUITE" = l'une de ces stats porte >=1 modification per-source <0 (cf. UnitStats.has_negative_modifier).
+ARMOR_STAT_TYPES = (StatType.ARMOR, StatType.FIXED_ARMOR)
 
 # Les 8 StatTypes « de base » exposés comme propriétés lecture-seule de `UnitContext`
 # (`ctx.attack` == `get_stat(ATTACK, Current)`, etc.) : nom de propriété -> StatType. Source unique

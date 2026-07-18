@@ -65,15 +65,18 @@ def _as_effects(effects) -> list[BaseEffect]:
 
 
 def _attacker_effect_bonuses(effects, is_ranged: bool | None, is_normal_attack: bool,
-                             has_moved: bool | None, target_traits=None, is_prediction=False) -> list:
+                             has_moved: bool | None, target_traits=None, is_prediction=False,
+                             target_armor_reduced: bool | None = None) -> list:
     """Boucle EFFETS de l'attaquant (contribution PARTAGÉE prédiction/combat) : pour chaque effet ACTIF,
     `create_effect_damage_bonus_for_attack` (additif/percent) + `get_armor_penetration` (axe armure) →
-    liste d'`EffectBonus`. C'est la boucle `param_5` commune aux deux slots natifs (0xd préd / 0xf combat)."""
+    liste d'`EffectBonus`. C'est la boucle `param_5` commune aux deux slots natifs (0xd préd / 0xf combat).
+    `target_armor_reduced` = gate `HasNegativeModifier(cible armure)` (ConquerorImperative) threadé du site."""
     bonuses = []
     for e in _as_effects(effects):
         db = e.create_effect_damage_bonus_for_attack(is_ranged, has_moved, target_traits=target_traits,
                                                      is_prediction=is_prediction,
-                                                     is_normal_attack=is_normal_attack)
+                                                     is_normal_attack=is_normal_attack,
+                                                     target_armor_reduced=target_armor_reduced)
         if db is not None:
             bonuses.append(db)
         pen = e.get_armor_penetration(is_normal_attack)
@@ -85,7 +88,8 @@ def _attacker_effect_bonuses(effects, is_ranged: bool | None, is_normal_attack: 
 def build_attacker_modifiers_from_effects(effects, is_ranged: bool | None = None,
                                           is_normal_attack: bool = True,
                                           has_moved: bool | None = None,
-                                          target_traits=None) -> DamageModifiers:
+                                          target_traits=None,
+                                          target_armor_reduced: bool | None = None) -> DamageModifiers:
     """DamageModifiers **COMBAT** (chemin runner) depuis les EFFETS ACTIFS de l'attaquant (§17.8) —
     agrège damage-bonus (`create_effect_damage_bonus_for_attack`) + pénétration d'armure. C'est la
     contribution EFFETS SEULE (boucle `param_5`), **SANS le debuff stat-modifications** : le combat
@@ -94,15 +98,18 @@ def build_attacker_modifiers_from_effects(effects, is_ranged: bool | None = None
     `calculate_attacker_modifiers_for_prediction` (= cette boucle + le debuff).
     Effets déjà filtrés actifs (EffectsState.active_effects) ; dicts → aucun filtre is_active.
     `is_ranged` → bonus gated `IsRangedAttack` ; `is_normal_attack` → pénétrations gated normal-only ;
-    `has_moved` → bonus gated no-move (HeavyWeapon @180f4f030)."""
+    `has_moved` → bonus gated no-move (HeavyWeapon @180f4f030) ; `target_armor_reduced` → bonus gated
+    `HasNegativeModifier(cible armure)` (ConquerorImperative @180f39650)."""
     return build_attacker_modifiers(
-        _attacker_effect_bonuses(effects, is_ranged, is_normal_attack, has_moved, target_traits))
+        _attacker_effect_bonuses(effects, is_ranged, is_normal_attack, has_moved, target_traits,
+                                 target_armor_reduced=target_armor_reduced))
 
 
 def calculate_attacker_modifiers_for_prediction(
         effects, is_ranged: bool | None = None, is_normal_attack: bool = True,
         has_moved: bool | None = None, attack_stat=None,
-        apply_stat_mod_debuff: bool = False, target_traits=None) -> DamageModifiers:
+        apply_stat_mod_debuff: bool = False, target_traits=None,
+        target_armor_reduced: bool | None = None) -> DamageModifiers:
     """`CalculateAttackerModifiersForPrediction @181000590` (slot 0xd) — chemin **PRÉDICTION**, DISTINCT
     du combat. = la boucle EFFETS partagée (`_attacker_effect_bonuses`) **PLUS** la conversion
     stat-modifications `CalculateModifiersFromStatModifications` (prédiction-only, xref @181000cac).
@@ -121,7 +128,7 @@ def calculate_attacker_modifiers_for_prediction(
     # prediction (matche le DISPLAY decisionView). Le COMBAT (build_attacker_modifiers_from_effects) garde
     # is_prediction=False (defaut) -> SmashaEad applique. RapidAssault (OwnerIsCaster seul) non affecte.
     bonuses = _attacker_effect_bonuses(effects, is_ranged, is_normal_attack, has_moved, target_traits,
-                                       is_prediction=True)
+                                       is_prediction=True, target_armor_reduced=target_armor_reduced)
     if apply_stat_mod_debuff and attack_stat is not None:
         # negate=False : mirror de l'appel natif @181000cac (3e arg = 0, face attaquant NON négée).
         bonuses += calculate_modifiers_from_stat_modifications(attack_stat, negate=False)

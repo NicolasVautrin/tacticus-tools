@@ -93,7 +93,8 @@ class BaseEffect:
                                               has_moved: bool | None = None,
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
-                                              is_normal_attack: bool | None = True) -> EffectBonus | None:
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
         """`<Effect>.CreateEffectDamageBonusForAttack` — contribution au scalaire dégât (additif/percent).
         `target_traits` = noms de traits gameconfig de la CIBLE (mirror `HasTrait(target,…)` natif) pour
         les bonus target-conditionnels (ex. BeastSlayer vs BigTarget/Vehicle) ; None = cible inconnue.
@@ -103,7 +104,10 @@ class BaseEffect:
         GROUND TRUTH step-23 : les tuiles ranged AVEC déplacement de u78 collent SANS ×1.25 ; step-11 :
         « ×1.25 selon tuile »). `is_normal_attack` = mirror du nœud DSL `IsNormalAttack` (attaque normale
         vs spéciale — gate de CrushingStrike @180f3ad90 ; True par défaut : les call-sites normale ne le
-        passent pas). None = contexte inconnu."""
+        passent pas). `target_armor_reduced` = évaluation du gate `HasNegativeModifier(cible, {ARMOR,
+        FIXED_ARMOR})` (@180f9db90 ; la CIBLE porte ≥1 modification per-source <0 sur une stat d'armure =
+        « armure réduite ») threadée depuis le site de résolution — pour les bonus gated sur l'état d'armure
+        de la cible (ConquerorImperative @180f39650). None = état inconnu."""
         return None
 
     def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True) -> EffectBonus | None:

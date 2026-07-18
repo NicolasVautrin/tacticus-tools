@@ -226,7 +226,8 @@ class FightingRetreatDmgReductionEffect(BaseEffect):
                                               has_moved: bool | None = None,
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
-                                              is_normal_attack: bool | None = True) -> EffectBonus | None:
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
         lvl = self.ability_level if self.ability_level is not None else self.level
         v = ability_var("FightingRetreat", "dmgReduction", lvl,
                         multiplier_pct=self.ability_variables_multiplier)
