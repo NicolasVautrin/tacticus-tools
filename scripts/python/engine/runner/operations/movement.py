@@ -2,8 +2,12 @@
 
 Tranche 1, INCRÉMENT 1a (POSITION) : écrit la position finale du mover dans son
 `PositionComponent`. C'est le cœur observable du move (le natif fait aussi la
-validation, CalculatePaths, AddMoveEvent/pas, KillSteppableUnits, charging…, mais
-l'EFFET d'ÉTAT sur le mover = sa position finale).
+validation, CalculatePaths, AddMoveEvent/pas, charging…, mais l'EFFET d'ÉTAT sur
+le mover = sa position finale).
+
+G1 (gen-stealer) : `KillSteppableUnits @180e7c410` PORTÉ ici (`_kill_steppable_units`),
+INLINE dans l'ordre natif (avant `EvaluateAfterMoveTriggers`) — un occupant Steppable
+(decoy/spore-mine) de la tuile d'arrivée est crushé (kill propre, sans death-trigger).
 
 INCRÉMENT 1b (à venir, validé vs la vérité-terrain probe = Maugan Ra 1174 sur le
 mover) : `EvaluateAfterMoveTriggers` @180e79770 → cascade OVERWATCH
@@ -14,8 +18,41 @@ from __future__ import annotations
 
 from ..state import State
 from ..events import EventBus
-from ..components import PositionComponent
+from ..components import PositionComponent, UnitComponent, StatsComponent, HealthComponent
 from .base import Operation
+
+
+def _kill_steppable_units(state: State, dest_tile: tuple[int, int], mover_id: int) -> list:
+    """`MoveUnitOperation$$KillSteppableUnits @180e7c410` — étape INLINE du move pipeline (avant
+    `EvaluateAfterMoveTriggers`). Quand une unité MOVE sur `dest_tile`, tout occupant `Steppable`
+    (`IsSteppable @180ed8fc0` = `HasTrait(0x1b=27)`) VIVANT y est détruit par un kill **propre**
+    (`KillUnitOperationOptions$$ForSteppable @180e762c0`, type=2 flags 0x0101) : `alive=False` (hp 0) SANS
+    passer par `after_death_triggers`/`On(1)` — un decoy/spore-mine crushé ne déclenche donc PAS les
+    death-triggers de combat (ex. l'Ambush du decoy — cf. G3). `mover_id` est exclu (une unité ne se crushe
+    pas elle-même). Renvoie les ids crushés. Ordre natif : `AddMoveEvent` → **KillSteppableUnits** →
+    `EvaluateAfterMoveTriggers` (d'où le decoy déjà mort quand DecoysAndMisdirection lit `GetValidDeadDecoys`,
+    G2)."""
+    from ...entities.traits import UnitTrait, has_trait
+    killed: list = []
+    for uid, e in list(state.entities.items()):
+        if uid == mover_id:
+            continue
+        pc = e.get_component(PositionComponent)
+        uc = e.get_component(UnitComponent)
+        if pc is None or uc is None or not uc.alive:
+            continue
+        if (pc.col, pc.row) != dest_tile:
+            continue
+        sc = e.get_component(StatsComponent)
+        traits = getattr(sc.ctx, "traits", None) if sc is not None else None
+        if not has_trait(traits or [], UnitTrait.Steppable):
+            continue
+        uc.alive = False                              # kill PROPRE (ForSteppable) : PAS de after_death_triggers
+        hc = e.get_component(HealthComponent)
+        if hc is not None:
+            hc.hp = 0
+        killed.append(uid)
+    return killed
 
 
 class MoveUnitOperation(Operation):
@@ -45,6 +82,11 @@ class MoveUnitOperation(Operation):
         if old_pos is not None:
             from .triggers.tiles import apply_tile_defense_on_move
             apply_tile_defense_on_move(state, self.unit_id, old_pos, self.to)
+        # G1 (gen-stealer) `KillSteppableUnits @180e7c410` : INLINE ici, dans l'ordre natif (AddMoveEvent ->
+        # **KillSteppableUnits** -> EvaluateAfterMoveTriggers). Un occupant Steppable (decoy, spore-mine) de la
+        # tuile d'arrivée est crushé (kill propre, pas de death-trigger) AVANT que le vecteur after-move
+        # (visit_MoveUnitMessage -> after_move_triggers) ne s'exécute -> le decoy est déjà mort pour G2.
+        _kill_steppable_units(state, self.to, self.unit_id)
         # INCRÉMENT 1b : AddMoveEvent (bus) + EvaluateAfterMoveTriggers (overwatch) ici.
 
 

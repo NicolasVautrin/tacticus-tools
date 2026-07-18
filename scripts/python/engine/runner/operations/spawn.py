@@ -37,7 +37,7 @@ from ...entities.effect_type import EffectType
 
 
 def build_summon_context(entity_id: int, visual_id: str, summon_ability: str,
-                         caster_level: Optional[int], caster_mult: int):
+                         caster_level: Optional[int], caster_mult: int, key_suffix: str = ""):
     """`UnitContext` d'un summon, résolu 100% offline depuis gameconfig :
       - stats de combat = `ability_var(summon_ability, summon*, caster_level, caster_mult)` ;
       - arme/traits/profil = gameconfig de l'unité summon (`visual_id`).
@@ -66,11 +66,13 @@ def build_summon_context(entity_id: int, visual_id: str, summon_ability: str,
         ranged = bool(w.get("Range"))
     # Les 8 stats de base sont des propriétés `get_stat` → on SEEDE `UnitStats` (au lieu de champs plats).
     # Base identité (ni delta ni mod) depuis les variables `summon*` ; les clés absentes (block/hits) = 0.
+    # `key_suffix` : certaines abilities nomment leurs vars de stats summon avec un suffixe (ex. CultDemagogue
+    # = `summonHp_2`/`summonDmg_2`/`summonArmor_2`, cf. gameconfig) — une clé absente (ex. crit du neophyte) -> 0.
     stats = UnitStats()
     for st, key in ((StatType.ATTACK, "summonDmg"), (StatType.HEALTH, "summonHp"),
                     (StatType.FIXED_ARMOR, "summonArmor"), (StatType.CRIT_CHANCE, "summonCritChance"),
                     (StatType.CRIT_DAMAGE, "summonCritDmg")):
-        stats.ensure_seeded(st, sv(key))
+        stats.ensure_seeded(st, sv(key + key_suffix))
     for st in (StatType.BLOCK_CHANCE, StatType.BLOCK_DAMAGE, StatType.EXTRA_HITS):
         stats.ensure_seeded(st, 0)
     return UnitContext(
@@ -85,6 +87,66 @@ def build_summon_context(entity_id: int, visual_id: str, summon_ability: str,
         normal_weapon_hits=max(1, w_hits), normal_ranged=ranged,
         stats=stats,
     )
+
+
+def build_decoy_context(entity_id: int, visual_id: str = "genesSmnDecoy"):
+    """`UnitContext` d'un token decoy — `SpawnUnitOptions$$ForSteppable @180fd60a0` = `Level(1)` +
+    `CreateSpawnOptions(state,0,0,0,0)` (aucun override) : PAS de summon-scaling (contrairement à
+    `build_summon_context`). Le decoy prend le kit BRUT de sa config `genesDecoy`/`genesSmnDecoy` :
+    traits `Steppable`(27)+`Decoy`(1053), AUCUNE arme, AUCUNE stat de combat (config `stats` = juste
+    `AbilityLevel:1`). Token inerte (`move=None`, non-ciblable)."""
+    import gameconfig as GC
+    from ...entities import UnitContext
+    from ...entities.stats import UnitStats, StatType
+    gu = GC.unit(visual_id) or {}
+    stats = UnitStats()
+    for st in (StatType.ATTACK, StatType.HEALTH, StatType.FIXED_ARMOR, StatType.CRIT_CHANCE,
+               StatType.CRIT_DAMAGE, StatType.BLOCK_CHANCE, StatType.BLOCK_DAMAGE, StatType.EXTRA_HITS):
+        stats.ensure_seeded(st, 0)
+    return UnitContext(
+        entity_id=entity_id, visual_id=visual_id,
+        active_ability_level=1, ability_variables_multiplier=100,
+        traits=list(gu.get("traits") or []),           # Steppable, Decoy (config brute)
+        range=0, faction=gu.get("FactionId"),
+        number_of_members=1,
+        normal_profile=None, normal_profile_pierce=0,
+        normal_weapon_hits=1, normal_ranged=False,
+        stats=stats,
+    )
+
+
+def spawn_decoy(state: State, tile, caster_id: int, visual_id: str = "genesSmnDecoy") -> Optional[int]:
+    """`DSLFactory$$Spawn(genesSmnDecoy, ForSteppable) @180dfbc60` → `SpawnUnitBehaviour.Execute` →
+    `AddUnitOperation.Execute` (MÊME socle que ScarabHive/`SpawnUnitOperation`, options DIFFÉRENTES) : pose UN
+    token decoy sur `tile` (id de tuile). Options `SpawnUnitOptions$$ForSteppable @180fd60a0` :
+      - owner = team+player du **caster** (hérité, comme `CopyOwner`) ;
+      - stats = kit BRUT `genesDecoy` (level 1, PAS de `ability_var` summon-scaling) ;
+      - **`ai_controlled=False`, AUCUNE on-appearance** — le token est INERTE (≠ `SpawnUnitOperation` qui force
+        `ai_controlled=True` + attaque à l'apparition). Piège validator #3 : ne PAS réutiliser
+        `SpawnUnitOperation.execute` tel quel.
+    Renvoie l'entity id (None si `tile` None / caster introuvable). Appelé par les feuilles decoy (G4/G6/G2).
+    Fondation G1 : la primitive ; les sélecteurs de tuiles (où poser) sont propres à chaque ability."""
+    if tile is None:
+        return None
+    caster = state.get_entity(caster_id)
+    coc = caster.get_component(OwnerComponent) if caster is not None else None
+    if coc is None:
+        return None
+    e = state.add_entity()
+    e.add_component(UnitComponent(visual_id=visual_id, alive=True, ai_controlled=False))
+    e.add_component(OwnerComponent(team=coc.team, player=coc.player))   # CopyOwner (caster)
+    ctx = build_decoy_context(e.id, visual_id)
+    e.add_component(StatsComponent(ctx=ctx))
+    # HARDCODE (token) : le decoy n'a AUCUN HP de config -> HealthComponent nominal hp=1 pour qu'il OCCUPE la
+    # tuile et soit "vivant"/tuable. hp=1 n'est PAS un seuil de dégât réel : un decoy est détruit par step
+    # (crush, G1) OU par tout damage (instakill "destroyed if damaged", Decoy trait -> G2). A revoir si la RE
+    # G2 révèle un HealthComponent natif spécifique.
+    e.add_component(HealthComponent(hp=1, hp_max=1))
+    board = state.board
+    tinfo = board.by_id.get(tile) if board is not None else None
+    if tinfo is not None:
+        e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
+    return e.id
 
 
 def _free_tiles_adjacent(state: State, target_id: int, exclude: set) -> list:
@@ -147,17 +209,21 @@ def _occupied_tiles(state: State) -> set:
 
 
 def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
-                       level, mult: int, team, player) -> Optional[int]:
+                       level, mult: int, team, player, ai_controlled: bool = True,
+                       key_suffix: str = "") -> Optional[int]:
     """Spawn UNE unité `visual_id` sur `tile` (id de tuile), stats `WithStatsFromConfig(summon_ability)` =
-    `ability_var(summon_ability, summon*, level, mult)`, owner = team+player, `active_ability_level = level`
-    (propagé → lève le GAP PileIn 2e-gen). Renvoie l'entity id (None si `tile` None). Partagé par
-    GetEmRuntz/SquigHound (WithStatsFromConfig, PAS clone)."""
+    `ability_var(summon_ability, summon*[key_suffix], level, mult)`, owner = team+player, `active_ability_level
+    = level` (propagé → lève le GAP PileIn 2e-gen). Renvoie l'entity id (None si `tile` None). Partagé par
+    GetEmRuntz/SquigHound (WithStatsFromConfig, PAS clone) et par CultDemagogue (neophyte).
+    `ai_controlled` = summon auto-joué au turn-start (grots/swarms) vs unité normale jouée au tour de sa team
+    (neophyte = trait Ambush+BattleFatigue, PAS Summon → `False`). `key_suffix` = suffixe des clés de stats
+    (ex. `_2` pour CultDemagogue)."""
     if tile is None:
         return None
     e = state.add_entity()
-    e.add_component(UnitComponent(visual_id=visual_id, alive=True, ai_controlled=True))
+    e.add_component(UnitComponent(visual_id=visual_id, alive=True, ai_controlled=ai_controlled))
     e.add_component(OwnerComponent(team=team, player=player))
-    ctx = build_summon_context(e.id, visual_id, summon_ability, level, mult)   # set active_ability_level=level
+    ctx = build_summon_context(e.id, visual_id, summon_ability, level, mult, key_suffix=key_suffix)
     e.add_component(StatsComponent(ctx=ctx))
     e.add_component(HealthComponent(hp=ctx.health, hp_max=ctx.health))
     _seed_trait_owner_effects(state, e.id, ctx.traits, mult)
