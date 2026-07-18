@@ -154,6 +154,12 @@ class ComparableAbilityGenerator(ActionGenerator):
             if not ranked:
                 continue
             tgt, ab = ev.get("targetId"), ev.get("abilityId")
+            # #15 : une ability NonComparable (ex. HeroicFusillade 1180) est rangée par
+            # `InitAbilityTypeLists @1810ed540` dans le tier NonComparable SEUL (flag IsComparable) ->
+            # JAMAIS évaluée par le tier Comparable, même si elle figure dans les attackPlans (dégât).
+            # Sans ce skip, le fallback générique la repêcherait ici alors que son playbook NC a gaté (=[]).
+            if playbooks.is_noncomp(ab):
+                continue
             # LoadPlaybook : attaque normale -> NormalAttackPlaybook ; sinon fallback/spéciale.
             pb = NORMAL_ATTACK_PLAYBOOK if ab in ctx.normal_ids else get_playbook_or_default(ab)
             # SWEEP DE POSITION par paire (ability, cible) : chaque cible depuis CHAQUE tuile candidate

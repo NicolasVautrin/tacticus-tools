@@ -15,9 +15,11 @@ Poids `GetUtilityValue` résolus OFFLINE depuis `BattleConfiguration.Utilities.D
 """
 from __future__ import annotations
 
+import hexgeo
 import gameconfig as _gc
 from engine import battle_query as bq
 from engine.predict import heal_amount_config, predict_heal_effective, heal_utility
+from engine.entities.effects.magnitude import ability_var  # #15 : GetVariableForLevel (CultDemagogue nrOfSummons)
 from engine.entities.active_ability_type import ActiveAbilityType  # #158 : ABILITY_ID -> enum (abilities ACTIVES, cat W_KEY=ActiveAbilities)
 
 _TRAITS_CACHE: dict = {}
@@ -144,8 +146,102 @@ class MomentShacklePlaybook:
                  "to": (T if T != ctx.origin else None), "pred": util, "full": util}]
 
 
-# Registry des self-cast bespoke Comparable (dispatché par id d'ability présente sur le caster).
+class CultDemagoguePlaybook:
+    """`CultDemagoguePlaybook.EvaluateInternal @1811278c0` (id 0x49b=1179, Isaak genesPrimus). COMPARABLE
+    BESPOKE (ctor @1811280f0 = `ComparablePlaybook(0x49b)` -> classe COMPARABLE, PAS NonComparable ;
+    override TOTAL d'`EvaluateInternal`, AUCUNE `MakeDamagePredictions` -> ne va PAS dans noncomparable.py).
+    Cible = un ENNEMI (<=2 hex) ; cast EN PLACE (pas de sweep : régime Comparable, position caster fixée).
+
+    Utilité (par cible éligible) :
+      u = 1 + min(#tuiles_libres autour CASTER r2, nrOfSummons[lvl]) * W
+            + (#decoys + #neophytes AMIS autour CIBLE r2) * W
+    W = `Utilities.Default.ActiveAbilities.CultDemagogue_FriendlyDecoysAndNeophytes` = 20 (MÊME poids pour
+    les DEUX termes, DAT_18327dcc8 unique). MIN_UTILITY = `Fix64.FromInt(1)` = 1 (cctor @181128080).
+    Helpers natifs (VA) :
+    - `PossibleTilesForDecoys @1811ce650` = `CanAddUnit(SurroundingTiles(caster, range=GetNumberConstant
+      (0x44)=2))` -> tuiles LIBRES placeables <=2 hex du CASTER. `.Count`.
+    - `GetDecoyAmount @1811ce240` = `GetVariableForLevel(0x4f)` = `nrOfSummons` (4->8 selon niveau, NON
+      rarity-scaled). i2 : « up to 8 decoys ».
+    - `FriendlyDecoysAroundTarget @1811ce0f0` / `FriendlyNeophytesAroundTarget @1811ce190` =
+      `SurroundingEnemies(range=2 autour de la CIBLE)` filtré `UnitsWithId(genesSmnDecoy / genesSmnNeophyte)`
+      -> les alliés du CASTER de ce visualId à <=2 hex de la cible. Count via `SelectUniqueUnits` (le param
+      3 = mode SelectUnit, PAS un cap sur le count).
+    L'ÉLIGIBILITÉ (ennemi <=2 hex) est déléguée à `ability_targets` (le RPC applique
+    `CultDemagogueAbility.GetDynamicInvalidTargetReason @1811ce290`). Terme 1 = CONSTANT sur les cibles
+    (dépend du caster) -> n'affecte PAS l'argmax de cible, seulement la magnitude vs autres abilities."""
+
+    ABILITY_ID = int(ActiveAbilityType.CultDemagogue)  # 1179
+    W_KEY = "CultDemagogue_FriendlyDecoysAndNeophytes"   # cat ActiveAbilities ; W=20 (seed-bc)
+    MIN_UTILITY = 1.0
+    _RANGE = 2                             # constants.range (GetNumberConstant 0x44)
+    _DECOY_VID = "genesSmnDecoy"           # constants.unitId
+    _NEOPHYTE_VID = "genesSmnNeophyte"     # constants.unitId_2
+
+    def generate_candidates(self, ctx) -> list:
+        me = ctx.me
+        if me is None or ctx.ability_targets is None:
+            return []
+        # cibles ennemies éligibles (RPC applique GetDynamicInvalidTargetReason @1811ce290 : ennemi <=2 hex).
+        at = ctx.ability_targets(ctx.uid, self.ABILITY_ID) or {}
+        tgt_ids = set()
+        for u in (at.get("units") or []):
+            for a in (u.get("abilities") or []):
+                if a.get("abilityId") != self.ABILITY_ID:
+                    continue
+                for t in (a.get("targets") or []):
+                    if t.get("kind") == "unit" and t.get("targetId") is not None:
+                        tgt_ids.add(t["targetId"])
+        if not tgt_ids:
+            return []
+        w = ctx.wt.sub("ActiveAbilities", self.W_KEY)          # 20
+        lvl = ctx.heal_config(ctx.uid)["active"]               # niveau ACTIF du caster
+        decoy_amt = int(ability_var("CultDemagogue", "nrOfSummons", lvl) or 0)
+        # Terme 1 (CONSTANT sur les cibles) : min(#tuiles libres <=2 du CASTER, nrOfSummons).
+        term1 = min(self._free_tiles_around(ctx, ctx.origin), decoy_amt) * w
+        # decoys/neophytes AMIS positionnés (pour le terme 2, par cible).
+        team = me.get("team")
+        summons = [(u["pos"]["col"], u["pos"]["row"]) for u in ctx.units
+                   if u.get("team") == team and u.get("alive") and u.get("pos")
+                   and u["pos"].get("col") is not None
+                   and u.get("visualId") in (self._DECOY_VID, self._NEOPHYTE_VID)]
+        pos_by_id = {u.get("id"): u.get("pos") for u in ctx.units}
+        best = None   # (target, util)
+        for tid in tgt_ids:
+            tp = pos_by_id.get(tid)
+            if not tp or tp.get("col") is None:
+                continue
+            tpos = (tp["col"], tp["row"])
+            n_around = sum(1 for s in summons if hexgeo.distance(tpos, s) <= self._RANGE)
+            util = 1.0 + term1 + n_around * w
+            if best is None or util > best[1]:            # argmax strict (Bucket keep-first au tie)
+                best = (tid, util)
+        if ctx.debug:
+            import sys
+            print(f"    [dbg CultDemagogue u{ctx.uid}] W={w} decoyAmt={decoy_amt} term1={term1} "
+                  f"tgts={sorted(tgt_ids)} best={best}", file=sys.stderr)
+        if best is None or best[1] < self.MIN_UTILITY:
+            return []
+        return [{"target": best[0], "ability": self.ABILITY_ID, "to": None,
+                 "pred": best[1], "full": best[1]}]
+
+    def _free_tiles_around(self, ctx, center) -> int:
+        """`PossibleTilesForDecoys @1811ce650` : `CanAddUnit(SurroundingTiles(center, range=2))` = tuiles
+        LIBRES placeables à <=2 hex du CASTER (center=origine). Occupation LIVE = epos u fpos u origine
+        (frais), PAS l'occupantUnitId caché du boardGraph (cf. can_add_unit #116)."""
+        if center is None:
+            return 0
+        occ = set(ctx.epos or []) | set(ctx.fpos or [])
+        occ.add(center)
+        return sum(1 for T in (ctx.walkable_by_pos or {})
+                   if T != center and hexgeo.distance(center, T) <= self._RANGE
+                   and bq.can_add_unit(T, ctx.walkable_by_pos, occ))
+
+
+# Registry des self-cast/ENEMY-target bespoke Comparable (dispatché par id d'ability présente sur le caster).
+# NB : CultDemagogue cible un ENNEMI (pas self) mais partage le même régime bespoke Comparable (override
+# EvaluateInternal, hors du plan `evals`) et le même dispatch _bespoke_candidates.
 BESPOKE_SELFCAST: dict = {
     BloodChalicePlaybook.ABILITY_ID: BloodChalicePlaybook(),
     MomentShacklePlaybook.ABILITY_ID: MomentShacklePlaybook(),
+    CultDemagoguePlaybook.ABILITY_ID: CultDemagoguePlaybook(),
 }
