@@ -29,6 +29,12 @@ from typing import Optional
 from ..state import State
 from ..components import UnitComponent, OwnerComponent, HealthComponent
 from ...entities.effects.loki import HypersensoryMinimalHealthEffect
+from ...entities.effect_type import EffectType
+
+# Flag once/turn du passif (G6b) : `HypersensoryAbilities_HasBeenAttacked` (0x57f=1407), posé par
+# MoveAndSpawnDecoy après sa réaction. Retiré au début de CHAQUE tour (comme le compteur) -> la réaction
+# se ré-arme « the first time EACH enemy turn ». Cf. operations/triggers/genestealer.py (G6b).
+HYPERSENSORY_HASBEENATTACKED = int(EffectType.HypersensoryAbilities_HasBeenAttacked)   # 1407 (0x57f)
 
 
 def _minimal_health_effect(state: State, unit_id: int) -> Optional[HypersensoryMinimalHealthEffect]:
@@ -73,11 +79,21 @@ class MinimalHealthEffectOperation:
 
 def reset_times_attacked(state: State) -> None:
     """Nouveau tour -> remet `times_attacked_this_turn` à 0 pour TOUTES les unités (le compteur natif
-    `HasBeenAttackedAmountThisTurn` est per-tour). Appelé par `start_turn_triggers`."""
+    `HasBeenAttackedAmountThisTurn` est per-tour). Appelé par `start_turn_triggers`.
+
+    #G6b : retire aussi le flag once/turn `HypersensoryAbilities_HasBeenAttacked` (0x57f=1407) posé par
+    MoveAndSpawnDecoy -> la réaction de Judh se ré-arme à chaque tour (« the first time EACH enemy turn »).
+    Retrait = `consumed=True` (has_effect ignore les consommés). Sûr même si l'effet expire aussi via son
+    timer (`on_turn_end`) : idempotent."""
     for e in state.entities.values():
         uc = e.get_component(UnitComponent)
         if uc is not None:
             uc.times_attacked_this_turn = 0
+    if state.effects is not None:
+        for effs in state.effects.by_unit.values():
+            for ef in effs:
+                if not ef.consumed and ef.effect_type == HYPERSENSORY_HASBEENATTACKED:
+                    ef.consumed = True
 
 
 def evaluate_minimal_health(state: State, player_id: Optional[int]) -> list:

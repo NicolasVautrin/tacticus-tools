@@ -43,7 +43,8 @@ from .effect_triggers import (OverwatchAutoAttack, ContaminatedTileEffect,
                               OVERWATCH_AUTO_ATTACK, CONTAMINATED_TILE)
 from .genestealer import (DecoysAndMisdirectionDamageEnemiesAbility,
                           DecoysAndMisdirectionBuffFriendsAbility,
-                          AmbushSummonAbility, EnvAmbushResurrectAbility)
+                          AmbushSummonAbility, EnvAmbushResurrectAbility,
+                          HypersensoryMoveAndSpawnDecoyAbility)
 
 # --- FinalJustice / overkill ----------------------------------------------------------------------
 OVERKILL_PCT_KEY = "overkillDmgPctOfHealth"  # globalValues = 100 → overkill ssi dmg-PV >= 100%*PV (dmg>=2*PV)
@@ -72,6 +73,10 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # (ennemi qui marche sur un decoy allié -> Blast) + BuffFriends (allié -> +582 dmg fin-de-tour + decoy).
     "DecoysAndMisdirection": [DecoysAndMisdirectionDamageEnemiesAbility,
                               DecoysAndMisdirectionBuffFriendsAbility],
+    # HypersensoryAbilities (passif Judh genesKelermorph, G6b) = MoveAndSpawnDecoy : `On(9=Attack)` sur la 1re
+    # attaque du tour ennemi -> move + decoy sur la tuile quittee + contre-attaque 3x Projectile. G6a (HP-floor,
+    # effet 1380) est un OWNER-EFFECT auto-pose (pas un ability-trigger) ; ici = le volet triggered.
+    "HypersensoryAbilities": [HypersensoryMoveAndSpawnDecoyAbility],
 }
 
 # --- Registre : effectType → effet-trigger ---------------------------------------------------------
@@ -236,7 +241,17 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
     out = out + evaluate_trigger_operation(state, ev_ah)        # On(8) after-hit (vecteur natif ; sans conso #151)
     out = out + _on_fire_damage_ability(state, attacker_id, target_id, profile)  # OnFireDamageAbility @1811c3a60
     out = out + _fire_of_absolution_after_attack(state, attacker_id, target_id, ranged)  # passif @18121f380 (Vindicta)
-    return out + _squighound_after_attack(state, attacker_id, target_id)
+    out = out + _squighound_after_attack(state, attacker_id, target_id)
+    # On(9=Attack) : event GENERIQUE emis par `FinishAttackOperation @180e71310` a la FIN de CHAQUE attaque
+    # (normale ET ability -- verdict RE re-expert : `On(9)` est BRUT, PAS ability-only ; le helper
+    # `OnNormalAttackOrSmite @180df7c70` = `On(38)|(On(9)&Smite)` n'est PAS ce trigger). CORRIGE #151 : le
+    # reset ActOfFaith (`On(9)&OwnerIsCaster&WasCrit` @181219f90, AUCUN gate normal/ability) fire DONC AUSSI sur
+    # un crit d'attaque NORMALE (avant, non emis en voie normale -> reset manquant = bug). Meme event consomme
+    # par Judh `MoveAndSpawnDecoy` (G6b, `On(9)&OwnerIsTarget` @180f88070 -> reaction a toute attaque la ciblant).
+    # actor=attaquant, target=defenseur ; emis EN DERNIER (apres tous les after-hit(8) per-coup).
+    ev_at = TriggerEvent(EventTriggerType.Attack, attacker_id, target_id,
+                         ranged=ranged, profile=profile, is_crit=is_crit)
+    return out + evaluate_trigger_operation(state, ev_at)
 
 
 def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,

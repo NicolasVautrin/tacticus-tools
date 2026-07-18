@@ -39,6 +39,8 @@ from ...components import (OwnerComponent, UnitComponent, PositionComponent, Sta
                           HealthComponent, UnitFlagsComponent)
 from ....entities.traits.unit_trait import UnitTrait, has_trait
 from ....entities.effect_type import EffectType
+from ....entities.effects.magnitude import ability_var
+from ....entities.pathfinding.walk_pathfinder import get_movable_positions
 from ....dsl.event_trigger_type import EventTriggerType
 from .base import TriggeredAbility, _faction_id, _pick_randomly
 
@@ -412,3 +414,186 @@ class EnvAmbushResurrectAbility(TriggeredAbility):
             if r is not None:
                 out.append(r)
         return {"ability": "EnvAmbushResurrect", "player": player, "resurrections": out} if out else None
+
+
+# =====================================================================================================
+# G6b — HypersensoryAbilities MoveAndSpawnDecoy (passif de Judh genesKelermorph, seconde moitie du passif)
+#
+# Namespace natif `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility_MoveAndSpawnDecoy`.
+# CreateTrigger @180f88070, CreateBehaviour @180f878f0, GetTilePriority @180f88190. RE ghidra gqfc5mff6c
+# (verdict re-expert #16). i2 : « After the attack [1re du tour ennemi], she moves to a free adjacent hex and
+# places a decoy on the hex she moved from. Then, if she is within 2 hexes of the unit that attacked her, she
+# deals 3x <MinMax> Projectile Damage to that unit. » Reutilise le compteur d'attaques recues de G6a.
+#
+# TRIGGER @180f88070 (arbre PROUVE, tous op_BitwiseAnd) :
+#     On(9=Attack) BRUT & OwnerOrOwnerTileIsTarget(owner) & IsEnemyTurn(owner)
+#       & Not(HasEffect(owner, 0x57f=1407))                                      # flag once/turn
+#       & Not(HasBeenAttackedAmountThisTurnIsEqualOrGreater(owner, seuil=Direct(2)))   # SEUIL = 2 (pas 1)
+#   `On(9)` est emis par `FinishAttackOperation @180e71310` pour TOUTE attaque (normale ET ability) -> le
+#   dispatch `after_hit_normal_attack` l'emet desormais aussi (dispatch.py) => Judh reagit a n'importe quelle
+#   attaque la ciblant. Le seuil 2 (et non 1 comme le HP-floor G6a) : au moment ou On(9) fire, le compteur
+#   vaut deja 1 (record_attacked l'a incremente AVANT le vecteur after-hit) -> Not(1>=2)=True a la 1re attaque ;
+#   la 2e (compteur=2, + flag pose) est bloquee.
+#
+# BEHAVIOUR @180f878f0 (ordre PROUVE) : (1) MOVE vers la meilleure tuile adjacente libre (GetTilePriority) ->
+#   (2) DECOY sur PreviousTile (la tuile QUITTEE) -> (3) CONTRE-ATTAQUE gatee IsInRange(range) & IsAlive x2 &
+#   Not(IsObscured) -> (4) AddEffect(0x57f=1407) EN DERNIER (flag once/turn). Le compteur n'est ni lu ni
+#   incremente ici (maintenu par le pipeline d'attaque).
+#
+# GetTilePriority @180f88190 (PROUVE, tri ASCENDANT + First -> plus bas = meilleur) :
+#     prio = If( AmountIsEqual(MinDistance(tile, attaquant), Direct(range)) & Not(IsObscured(tile, attaquant)),
+#                Direct(0),
+#                If( IsSurrounding(tile, attaquant, radius 1), Direct(1), Direct(2) ) )
+#   => prefere une tuile a EXACTEMENT `range` (=2) hex de l'attaquant et non obscurcie (prio 0), sinon une
+#   tuile adjacente a l'attaquant (prio 1), sinon n'importe laquelle (prio 2). `Not(IsObscured)` / `Unobscured`
+#   = passe-tout v1 (LoS absente offline, cf. battle_query). `MoveUnit` options NULL -> position + KillSteppable
+#   inline SANS vecteur after-move overwatch (== leaf DSL MoveUnit, cf. task #4 / G5).
+# =====================================================================================================
+
+HYPERSENSORY_ABILITY = "HypersensoryAbilities"
+HYPERSENSORY_HASBEENATTACKED = int(EffectType.HypersensoryAbilities_HasBeenAttacked)   # 1407 (0x57f) flag once/turn
+HYPERSENSORY_ATTACK_CAP = 2            # Not(HasBeenAttackedAmountThisTurn >= 2), seuil @0xc8 = Direct(2)
+HYPERSENSORY_MOVE_RANGE = 1            # MovableTilesInRange(self, Direct(1)) = hex adjacent (i2 « free adjacent hex »)
+HYPERSENSORY_SURROUND_RADIUS = 1       # IsSurrounding(tile, attaquant, radius 1) dans GetTilePriority
+PROJECTILE_PROFILE = "Projectile"      # profil de la contre-attaque (PiercingRatio 15)
+
+
+def _living_occupants_map(state: State) -> dict:
+    """`{tile_id -> team}` des unites VIVANTES (occupation lue par le pathfinder `MovableTilesInRange`).
+    board None -> {}. (Meme collapse que abilities/genestealer.py, cote triggers.)"""
+    board = state.board
+    if board is None:
+        return {}
+    occ: dict = {}
+    for e in state.entities.values():
+        pc = e.get_component(PositionComponent)
+        uc = e.get_component(UnitComponent)
+        oc = e.get_component(OwnerComponent)
+        if pc is None or oc is None or (uc is not None and not uc.alive):
+            continue
+        t = board.id_at(pc.col, pc.row)
+        if t is not None:
+            occ[t] = oc.team
+    return occ
+
+
+def _hypersensory_move_dest(state: State, judh_id: int, attacker_id: int, cfg_range: int):
+    """`First(SortByFormula(Randomize(MovableTilesInRange(self, Direct(1))), GetTilePriority @180f88190))` :
+    la MEILLEURE tuile LIBRE adjacente (portee de move 1) atteignable par Judh, triee par GetTilePriority.
+    Priorite (ASC, plus bas = mieux) : 0 si dist(tile, attaquant)==cfg_range & Not(IsObscured) ; 1 si la tuile
+    entoure l'attaquant (radius 1) ; 2 sinon. Le `Randomize` (tie-break PRNG amont) COLLAPSE en tri
+    deterministe (id de tuile croissant) -> First. Renvoie (col,row) ou None si aucune tuile libre atteignable.
+    `Not(IsObscured)` = passe-tout v1 (LoS absente offline)."""
+    board = state.board
+    jpos = _pos_of(state, judh_id)
+    apos = _pos_of(state, attacker_id)
+    if board is None or jpos is None or apos is None:
+        return None
+    jtile = board.id_at(jpos[0], jpos[1])
+    if jtile is None:
+        return None
+    _visited, stop = get_movable_positions(board, jtile, HYPERSENSORY_MOVE_RANGE,
+                                           _living_occupants_map(state), _team_of(state, judh_id))
+    cands = [t for t in stop if t != jtile]                 # tuiles libres atteignables (hors tuile courante)
+    if not cands:
+        return None
+
+    def _prio(t):
+        d = hexgeo.distance(board.coord(t), apos)
+        if d == cfg_range:                                  # AmountIsEqual(MinDistance, Direct(range)) & Not(IsObscured)
+            return 0
+        if d <= HYPERSENSORY_SURROUND_RADIUS:               # IsSurrounding(tile, attaquant, radius 1)
+            return 1
+        return 2
+
+    cands.sort(key=lambda t: (_prio(t), t))                 # tri ASC + First ; Randomize collapse -> id-order
+    return board.coord(cands[0])
+
+
+class HypersensoryMoveAndSpawnDecoyAbility(TriggeredAbility):
+    """`HypersensoryAbilitiesAbility_MoveAndSpawnDecoy` (CreateTrigger @180f88070, CreateBehaviour @180f878f0,
+    GetTilePriority @180f88190). A la 1re attaque de chaque tour ennemi qui cible Judh : elle se deplace vers un
+    hex adjacent libre (le plus loin de l'attaquant), pose un decoy sur la tuile QUITTEE, et si l'attaquant est
+    a <= `range` hex contre-attaque 3x Projectile. `On(9=Attack)` BRUT (emis par FinishAttackOperation pour
+    TOUTE attaque) & OwnerOrOwnerTileIsTarget & IsEnemyTurn & Not(HasEffect 1407) & Not(HasBeenAttacked>=2)."""
+    event_id = int(EventTriggerType.Attack)          # 9 (BRUT, generique)
+
+    def matches(self, state, ev):
+        if self.owner_id != ev.target_id:                        # OwnerOrOwnerTileIsTarget (Judh = cible)
+            return False
+        if not _are_enemies(state, self.owner_id, ev.actor_id):  # IsEnemyTurn(owner) : attaquant = ennemi (tour courant)
+            return False
+        if state.effects is not None and state.effects.has_effect(   # Not(HasEffect 0x57f=1407) flag once/turn
+                self.owner_id, effect_type=HYPERSENSORY_HASBEENATTACKED):
+            return False
+        e = state.get_entity(self.owner_id)
+        uc = e.get_component(UnitComponent) if e is not None else None
+        if uc is not None and uc.times_attacked_this_turn >= HYPERSENSORY_ATTACK_CAP:   # Not(HasBeenAttacked>=2)
+            return False
+        return True
+
+    def execute_behaviour(self, state, ev):
+        from ..movement import MoveUnitOperation
+        from ...events import EventBus
+        from ..effects import AddEffectOperation
+        from ..spawn import spawn_decoy
+        judh, attacker = self.owner_id, ev.actor_id
+        cfg_range = int(ability_var(HYPERSENSORY_ABILITY, "range", is_constant=True) or 2)   # GetNumberConstant(0x16)
+        # (1) MOVE : dest = meilleure tuile adjacente libre (GetTilePriority). PreviousTile = tuile QUITTEE.
+        prev_pos = _pos_of(state, judh)
+        dest = _hypersensory_move_dest(state, judh, attacker, cfg_range)
+        moved = False
+        if dest is not None:                                     # gate AmountIsGreaterThanZero(dest) & CanMove
+            MoveUnitOperation(judh, dest).execute(state, EventBus())   # options NULL : position + KillSteppable, PAS after-move
+            moved = True
+        # (2) DECOY sur PreviousTile (la tuile quittee, desormais libre) : Spawn(genesSmnDecoy, ForSteppable).
+        decoy = None
+        if moved and prev_pos is not None:
+            prev_tile = _free_tile_or_adjacent(state, prev_pos)   # First(FreeTilesOrAdjacentFreeTiles(PreviousTile))
+            if prev_tile is not None:
+                decoy = spawn_decoy(state, prev_tile, judh)
+        # (3) CONTRE-ATTAQUE : gate IsInRange(judh, attaquant, cfg_range) & IsAlive x2 & Not(IsObscured passe-tout).
+        counter = None
+        if self._counter_gate(state, judh, attacker, cfg_range):
+            counter = self._counter_attack(state, judh, attacker)
+        # (4) FLAG once/turn (0x57f=1407) pose EN DERNIER (op_BitwiseAnd final du behaviour). Retire au
+        # prochain start_turn (reset_times_attacked) -> la reaction se re-arme chaque tour ennemi.
+        AddEffectOperation.execute(state, judh, judh, HYPERSENSORY_HASBEENATTACKED,
+                                   name="HypersensoryAbilities_HasBeenAttacked", duration_override=1)
+        return {"ability": "HypersensoryAbilities_MoveAndSpawnDecoy", "owner": judh, "attacker": attacker,
+                "moved_to": dest, "decoy": decoy, "counter": counter}
+
+    def _counter_gate(self, state, judh, attacker, cfg_range) -> bool:
+        """`IsInRange(judh, attaquant, GetNumberConstant(0x16)) & IsAlive(attaquant) & IsAlive(judh) &
+        Not(IsObscured(judh, attaquant))` (passe-tout v1). `IsInRange` = dist hex <= cfg_range."""
+        je, ae = state.get_entity(judh), state.get_entity(attacker)
+        ju = je.get_component(UnitComponent) if je is not None else None
+        au = ae.get_component(UnitComponent) if ae is not None else None
+        if ju is None or not ju.alive or au is None or not au.alive:
+            return False
+        jpos, apos = _pos_of(state, judh), _pos_of(state, attacker)
+        if jpos is None or apos is None:
+            return False
+        return hexgeo.distance(jpos, apos) <= cfg_range
+
+    def _counter_attack(self, state, judh, attacker):
+        """`AttackWithAttackDamage(judh, attaquant, MinMaxDamage(minDmg/maxDmg[niveau PASSIF]), Projectile,
+        hits=GetNumberConstant(0x2f=nrOfHits))` -> `execute_ability_attack`. Le degat scale au niveau PASSIF de
+        Judh (pas `active_ability_level` : c'est un PASSIF) -> `ability_var(..., passive_ability_level)`. Pierce
+        du profil Projectile (15) + ExtraPierce du caster (profile_pierce)."""
+        from ..damage import AttackDamageOperation
+        from ...abilities.base import profile_pierce
+        e = state.get_entity(judh)
+        sc = e.get_component(StatsComponent) if e is not None else None
+        ctx = sc.ctx if sc is not None else None
+        if ctx is None:
+            return None
+        lvl = ctx.passive_ability_level
+        mult = int(getattr(ctx, "ability_variables_multiplier", 100) or 100)
+        bmin = int(ability_var(HYPERSENSORY_ABILITY, "minDmg", lvl, multiplier_pct=mult) or 0)
+        bmax = int(ability_var(HYPERSENSORY_ABILITY, "maxDmg", lvl, multiplier_pct=mult) or 0)
+        hits = int(ability_var(HYPERSENSORY_ABILITY, "nrOfHits", is_constant=True) or 3)
+        pierce = profile_pierce(ctx, PROJECTILE_PROFILE, ranged=True)
+        return AttackDamageOperation.execute_ability_attack(
+            state, judh, attacker, bmin, bmax, pierce, hits,
+            damage_profile=PROJECTILE_PROFILE, is_melee=False)

@@ -72,7 +72,7 @@ Deux primitives partagées à porter EN PREMIER (slice G1) :
 | **G4** | #11 | **CultDemagogue** — ✅ **PORTÉ + LIVE-VALIDÉ** (arbre DSL `genestealer.py`) | G1 |
 | **G5** | #12 | **HeroicFusillade** — ✅ **PORTÉ + LIVE-VALIDÉ** (move + splash target+voisins + crit ×hex-libres ; ré-arme post-résurrection = tranche G3) | (move+splash) |
 | **G6a** | #13 | **HypersensoryAbilities — HP-floor** — ✅ **PORTÉ + LIVE-VALIDÉ** (effet 1380 : `MinimalHealth = Round(50 % HP courant)` snapshot au tour ennemi via driver ActiveCondition `IsEnemyTurn & Not(attacked>=1)` + clamp `HealthComponent.reduce` + compteur `times_attacked_this_turn` ; 1re attaque survit au floor, 2e tue ; auto-pose via `InitializeActorAbilities` boucle ABILITIES au build) | G1 |
-| **G6b** | #13 | **HypersensoryAbilities — MoveAndSpawnDecoy+counter** — 🔶 **VERDICT RE PRÊT** (après la 1re attaque : move réactif range=2 + decoy sur PreviousTile + contre-attaque 3× Projectile pierce 15 gate ≤2hex) ; RESTE À PORTER — réutilise le compteur G6a (cf. §G6) | G6a |
+| **G6b** | #16 | **HypersensoryAbilities — MoveAndSpawnDecoy+counter** — ✅ **PORTÉ + LIVE-VALIDÉ** (trigger `On(9=Attack)` 1re attaque tour ennemi → move `GetTilePriority` + decoy sur PreviousTile + contre-attaque `execute_ability_attack(hits=3)` Projectile pierce 15 gate `IsInRange(2)`, flag 1407 once/turn) ; `On(9)` émis génériquement par `after_hit_normal_attack` → **corrige aussi le bug #151** (ActOfFaith reset sur crit NORMAL, confirmé LIVE) ; réutilise le compteur G6a (cf. §G6b) | G6a |
 | **G7** | #14 | **BeastSlayer** — ✅ **DÉJÀ PORTÉ** (trait générique, live-validé orksNob #72) : reste un guard live Judh | — (couche damage-mod) |
 
 Ordre d'attaque conseillé : **G1 → G2/G3 (decoy consommateurs) → G4 → G6 → G5 → G7**. G7 (BeastSlayer) et
@@ -452,17 +452,52 @@ G2+betrayer 4/4 (0 régression). **RÉSOLU** les 3 « briques substrat » du ver
 driver 2-transitions, compteur, clamp) SAUF le dispatch `On(9)` défenseur (non requis par G6a : le clamp +
 `record_attacked` sont câblés directement dans le pipeline dégât ; `On(9)` défenseur reste pour G6b).
 
-### G6b — MoveAndSpawnDecoy + counter : À PORTER
+### G6b — MoveAndSpawnDecoy + contre-attaque : PORTÉ + LIVE-VALIDÉ (2026-07-18)
 
-`On(9=Attack) & OwnerOrOwnerTileIsTarget & IsEnemyTurn & Not(HasEffect 0x57f=1407) & Not(HasBeenAttacked>=1)`
-(@180f88070) → move réactif (dest = `First(SortByFormula(MovableTilesInRange, GetTilePriority @180f88190))` =
-tuile à EXACTEMENT `range=2` de l'attaquant, à découvert) + **decoy sur `PreviousTile` (tuile quittée)** +
-**contre-attaque 3× Projectile** (`AttackWithAttackDamage`, minDmg/maxDmg[level] rarity 1455-2183@L65, pierce
-15, gate `IsInRange(2) & IsAlive & Not(IsObscured)`) + `AddEffect(0x57f)` flag once/turn (@180f878f0).
+Décompilé RE-CONFIRMÉ (re-expert) : CreateTrigger @180f88070, CreateBehaviour @180f878f0, GetTilePriority
+@180f88190. Config `HypersensoryAbilities` : profil **Projectile** `PiercingRatio=15`, constantes
+`{range:2, nrOfHits:3, unitToSpawn:genesSmnDecoy}`, dmg **1455-2183@L65**. i2 : « ... After the attack, she
+moves to a free adjacent hex and places a decoy on the hex she moved from. Then, if she is within 2 hexes of the
+unit that attacked her, she deals 3x Projectile Damage to that unit. »
 
-Brique restante = **dispatch `On(9=Attack)` côté DÉFENSEUR** (aujourd'hui `On(9)` n'est émis que côté attaquant
-— reset ActOfFaith `OwnerIsCaster`) : il faut émettre un vecteur after-attack ciblant le DÉFENSEUR après
-`record_attacked`. REUSE : `spawn_decoy` (PreviousTile), `AttackWithAttackDamage`/`execute_ability_attack`
-(counter 3×), `MoveUnit`, `AddEffect`, compteur G6a, prédicats `IsObscured`/`IsInRange`. Points faibles
-validator (G6b) : wiring `On(9)` défenseur, dest move = `range==2` EXACT (pas ≤2), decoy sur PreviousTile,
-gate counter `IsInRange(2)&Not(IsObscured)`, flag 1407 once/turn.
+**Trigger** (`HypersensoryMoveAndSpawnDecoyAbility`, `operations/triggers/genestealer.py`) :
+`On(9=Attack) BRUT & OwnerOrOwnerTileIsTarget & IsEnemyTurn & Not(HasEffect 0x57f=1407)
+& Not(HasBeenAttackedAmountThisTurn >= 2)`. Le **seuil = 2** (pas 1 comme le HP-floor G6a) : au moment où
+`On(9)` fire, `record_attacked` a déjà mis le compteur à 1 → `Not(1>=2)`=True à la 1re attaque ; la 2e (compteur
+2 + flag posé) est bloquée. `IsEnemyTurn` collapse en `_are_enemies(owner, attaquant)` (l'attaquant = joueur
+courant). Enregistré via `ABILITY_TRIGGERS["HypersensoryAbilities"]` (voie passiveAbilities).
+
+**Behaviour** (ordre natif) : (1) **MOVE** vers la meilleure tuile adjacente libre (`_hypersensory_move_dest`,
+`MovableTilesInRange(self, Direct(1))` triée par `GetTilePriority`) via `MoveUnitOperation.execute` (options NULL
+= position + KillSteppable inline, PAS de vecteur after-move overwatch) → (2) **DECOY** sur `PreviousTile` (la
+tuile QUITTÉE, `_free_tile_or_adjacent`, `spawn_decoy` genesSmnDecoy ForSteppable) → (3) **CONTRE-ATTAQUE**
+gatée `IsInRange(range=2) & IsAlive×2 & Not(IsObscured)` : **UNE** `execute_ability_attack(hits=nrOfHits=3)`
+Projectile pierce 15, dégât `minDmg/maxDmg[niveau PASSIF]` (`ability_var(..., passive_ability_level)` — PAS
+`active_ability_level`) → (4) **AddEffect(0x57f=1407)** flag once/turn EN DERNIER. Le compteur n'est ni lu ni
+incrémenté ici (maintenu par le pipeline). Le flag 1407 est retiré au start_turn (`reset_times_attacked`,
+`minimal_health.py`) → la réaction se ré-arme « the first time EACH enemy turn ».
+
+**GetTilePriority @180f88190** (tri ASCENDANT + First, plus bas = meilleur) :
+`If( AmountIsEqual(MinDistance(tile, attaquant), Direct(range=2)) & Not(IsObscured), Direct(0),
+If( IsSurrounding(tile, attaquant, radius 1), Direct(1), Direct(2) ) )` → préfère une tuile à EXACTEMENT
+`range=2` hex de l'attaquant et non-obscurcie, sinon adjacente à l'attaquant, sinon quelconque. `Not(IsObscured)`
+/ `Unobscured` = passe-tout v1 (LoS absente offline).
+
+**Émission `On(9)` (la brique « défenseur »)** : `On(9)=Attack` est émis par `FinishAttackOperation @180e71310`
+pour **TOUTE attaque** (normale ET ability, event BRUT — verdict RE re-expert). Le port ne l'émettait qu'en voie
+ability (`after_hit_ability_attack`) → `after_hit_normal_attack` l'émet **désormais aussi** (actor=attaquant,
+target=défenseur, EN DERNIER après les after-hit(8)). Judh réagit donc à n'importe quelle attaque la ciblant.
+
+**⚠ Effet de bord CORRIGÉ (#151)** : `On(9)` étant générique, le reset ActOfFaith (`On(9) & OwnerIsCaster &
+WasCrit & HasEffect(0x3f9)` @181219f90, AUCUN gate normal/ability) fire **AUSSI sur un crit d'attaque NORMALE**.
+Le port ne l'émettant qu'en voie ability, il **manquait ce reset** (bug #151, qui confondait `On(9)` BRUT avec le
+helper `OnNormalAttackOrSmite @180df7c70` = `On(38)|(On(9)&Smite)`, non utilisé par ce trigger). L'émission
+générique corrige G6b **et** ce bug. **CONFIRMÉ LIVE** : `test_act_of_faith_normal_crit_resets_live.py` (Sister
+adeptCanoness : stack accumulé → attaque NORMALE forcée #69 en critant → crit-stat live revenue à la base).
+
+Tests : `test_hypersensory_moveandspawndecoy_live.py` (5/5 — trigger enregistré, réaction move+decoy+flag,
+contre-attaque en range, once/turn + re-arm, intégration On(9) depuis l'attaque normale) ;
+`test_act_of_faith_normal_crit_resets_live.py` (LIVE : natif reset sur crit normal) ;
+`test_act_of_faith_crit_resets_both_paths.py` (offline : les 2 voies resettent, math de revert exacte, remplace
+l'ancien `_normal_no_reset` infidèle). Guards : G6a 5/5, ActOfFaith ability-reset, damage bit-exact, G2/G3 —
+0 régression.

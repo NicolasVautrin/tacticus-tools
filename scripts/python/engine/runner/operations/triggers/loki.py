@@ -319,18 +319,18 @@ class ActOfFaithResetAbility(TriggeredAbility):
     buff au crit du porteur.
 
     CreateTrigger@181219f90 = `On(9,1) & OwnerIsCaster & WasCrit & HasEffect(owner,0x3f9)` (confirmé décompilé).
-    L'événement natif `On(9)` = attaque d'ABILITY (`OnNormalAttackOrSmite @180df7c70` : On(9)=ability-attack vs
-    On(0x26)=normal). #151 (FIX) : le reset écoute désormais l'événement `On(9)` (`EventTriggerType.Attack`,
-    dispatché par `after_hit_ability_attack` = voie ABILITY/splash/normal-like UNIQUEMENT), gaté par `is_crit`
-    — fire 1×/attaque d'ability avec `is_crit` agrégé (même timing : après l'attaque du porteur). Il N'écoute
-    PLUS le vecteur after-hit `On(8)` (partagé par les DEUX chemins) → **plus de reset sur un crit d'attaque
-    NORMALE** (l'ancien mapping On(8) était infidèle, caveat #147 résolu).
+    `On(9)=Attack` est un event GÉNÉRIQUE — émis par `FinishAttackOperation @180e71310` à la FIN de TOUTE attaque,
+    NORMALE ET ability (`DSLFactory.On` BRUT ; verdict RE re-expert G6b). Le reset n'a AUCUN gate normal/ability :
+    `WasCrit` est le SEUL filtre de type → **le porteur reset ses stacks sur un crit d'attaque NORMALE COMME
+    d'ability**. ⚠ CORRECTION de #151 (via G6b) : #151 confondait `On(9)` BRUT avec le helper
+    `OnNormalAttackOrSmite @180df7c70` (= `On(38)|(On(9)&Smite)`, NON utilisé par ce trigger) et croyait `On(9)`
+    ability-only → il n'émettait `On(9)` qu'en voie ability, d'où un reset MANQUANT sur crit normal (bug). Depuis
+    G6b, `On(9)` est émis EN PLUS par `after_hit_normal_attack` (FinishAttack générique), gaté `is_crit` — le
+    reset fire donc désormais sur les DEUX voies. Il N'écoute PAS le vecteur after-hit `On(8)` (per-coup).
     `OwnerIsCaster` = owner est l'attaquant (`actor_id`). Behaviour@181219eb0 = `RemoveEffect(0x3f9)` →
-    retire TOUS les stacks et revert leur ChangeStat (soustrait les deltas stockés). Câblé sur le SEUL
-    vecteur ability `after_hit_ability_attack` (depuis `execute_ability_attack`/`execute_normal_like`, #138)
-    → un crit d'ABILITY porté par une Battle Sister (ArmoriumCherub) ou un coup de splash (AoE
-    FireOfAbsolution) reset ses stacks (idempotent : `HasEffect` garde le no-op après le 1er) ; un crit
-    d'attaque NORMALE ne reset PLUS (On(9) ability-only, #151).
+    retire TOUS les stacks et revert leur ChangeStat (soustrait les deltas stockés). Câblé sur `after_hit_ability_
+    attack` (crit d'ABILITY/splash — ArmoriumCherub, AoE FireOfAbsolution) ET `after_hit_normal_attack` (crit
+    d'attaque NORMALE, G6b) ; idempotent (`HasEffect` garde le no-op après le 1er reset).
     ⚠ Approximation (pré-existante) : reset AGRÉGÉ (1×/attaque d'ability, `is_crit` agrégé) et non per-coup
     — le natif reset per-coup, donc si le coup i d'une attaque multi-coups crit, les coups i+1.. perdraient
     le buff ; ici tous les coups d'UNE même sous-attaque utilisent les params crit d'avant-reset. Le reset

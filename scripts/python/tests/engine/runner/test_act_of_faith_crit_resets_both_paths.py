@@ -1,20 +1,14 @@
-"""#151 — Le crit d'une attaque NORMALE ne reset PAS ActOfFaith ; seul le crit d'ABILITY le reset.
+"""ActOfFaith reset au crit : les DEUX voies (attaque NORMALE et ability) resettent le buff (port offline).
 
-Confront DISCRIMINANT du fix #151 (event-mapping ancre decompile) : le natif
-`ActOfFaith_RemoveEffectAbility.CreateTrigger @181219f90` = `On(9) & OwnerIsCaster & WasCrit &
-HasEffect(0x3f9)`, ou `On(9)=Attack` (attaque d'ABILITY, `EventTriggerType.Attack`) est DISTINCT de
-`On(0x26)=NormalAttack`. L'ancien port mappait le reset sur l'after-hit `On(8)=AttackHit` (partage par
-les DEUX chemins) -> il fire aussi sur un crit d'attaque NORMALE. #151 route le reset sur `On(9)`
-(dispatche par `after_hit_ability_attack` UNIQUEMENT).
+Contrepartie OFFLINE de `test_act_of_faith_normal_crit_resets_live.py` (confirmation LIVE) : valide la MATH de
+revert exacte du port. `On(9)=Attack` etant un event GENERIQUE (`FinishAttackOperation`, emis pour TOUTE
+attaque) et le reset @181219f90 = `On(9) & OwnerIsCaster & WasCrit & HasEffect(0x3f9)` SANS gate normal/ability,
+un crit reset ActOfFaith **quelle que soit la voie** — normale ET ability. (Correction de l'ancien verdict
+#151 qui croyait `On(9)` ability-only via `OnNormalAttackOrSmite` ; confirme en LIVE, cf. le test dedie.)
 
-Le test ACCUMULE un stack depuis 0 (deltas trackes -> revert exact), puis exerce les DEUX vecteurs
-sur la MEME Sister boostee, dans l'ordre :
-  1. `after_hit_normal_attack(..., is_crit=True)` -> AUCUN reset : les stats crit RESTENT boostees ;
-  2. `after_hit_ability_attack(..., is_crit=True)` -> reset : les stats crit REVIENNENT a la base.
-Deterministe (is_crit force a True) : independant du seed/RNG. Complement de
-`test_act_of_faith_ability_reset_live` (branche ability) et garde-fou du fix #151.
-
-ADJACENCE/PORTEE = mode evenq.
+Le test ACCUMULE un stack depuis 0 (deltas trackes -> revert exact), puis exerce CHAQUE voie sur la MEME Sister
+boostee : `after_hit_normal_attack(is_crit=True)` reset -> base, PUIS re-accumule et
+`after_hit_ability_attack(is_crit=True)` reset -> base. Deterministe (is_crit force). ADJACENCE = evenq.
 """
 from __future__ import annotations
 
@@ -30,7 +24,7 @@ from engine.runner.operations.triggers import (
 
 SISTER_VIS = "adeptCanoness"        # trait ActOfFaith ; --crit 100,250 -> cd != 0 (gate) + crite toujours
 ENEMY_VIS = "necroDestroyer"
-ENEMY2_VIS = "necroOverlord"        # 2e ennemi : la bataille survit (snapshot lisible)
+ENEMY2_VIS = "necroOverlord"
 BUILD = ["--roster", "1", "--p-units", SISTER_VIS,
          "--a-units", f"{ENEMY_VIS},{ENEMY2_VIS}", "--crit", "100,250", "--hp-target", "800"]
 
@@ -44,8 +38,8 @@ def _has_aof_reset(after_hit):
                for d in (after_hit or []))
 
 
-def test_normal_crit_does_not_reset_ability_crit_does(live_session, rpc, build_runner):
-    """#151 : crit NORMAL -> pas de reset (stats boostees conservees) ; crit ABILITY -> reset (base)."""
+def test_normal_and_ability_crit_both_reset(live_session, rpc, build_runner):
+    """Les DEUX voies resettent ActOfFaith : crit NORMAL -> reset (base) ; crit ABILITY -> reset (base)."""
     from engine.entities.pathfinding.board import Board
     rid = build_runner("777", extra=BUILD)["rid"]
     bg = rpc("boardGraph", {"runnerId": rid}, 60)
@@ -80,31 +74,34 @@ def test_normal_crit_does_not_reset_ability_crit_does(live_session, rpc, build_r
     if not base_cc or not base_cd:
         pytest.skip(f"Sister sans crit de base (cc={base_cc} cd={base_cd}) - gate ActOfFaith")
 
-    # (1) ACCUMULER un stack via le VRAI chemin de pose (feuille DSL AddEffect -> AddEffectOperation ->
-    # ActOfFaithBuffEffect.ApplyModification, keye par-source) -> revert exact au reset.
-    AddEffectOperation.execute(state, source=sister_id, target=sister_id,
-                               effect_type=ACTOFFAITH_EFFECT, name="ActOfFaith_Effect")
-    boost_cc, boost_cd = ctx.stat(StatType.CRIT_CHANCE), ctx.stat(StatType.CRIT_DAMAGE)
+    def _accumulate_one():
+        """Pose UN stack via le VRAI chemin (feuille DSL AddEffect -> ActOfFaithBuffEffect.ApplyModification,
+        keye par-source) -> revert exact au reset. Renvoie (cc, cd) boostes."""
+        AddEffectOperation.execute(state, source=sister_id, target=sister_id,
+                                   effect_type=ACTOFFAITH_EFFECT, name="ActOfFaith_Effect")
+        return ctx.stat(StatType.CRIT_CHANCE), ctx.stat(StatType.CRIT_DAMAGE)
+
+    # (1) VOIE NORMALE : accumuler -> crit force -> RESET a la base.
+    boost_cc, boost_cd = _accumulate_one()
     assert boost_cc > base_cc or boost_cd > base_cd, (
         f"accumulation KO : boostee ({boost_cc},{boost_cd}) <= base ({base_cc},{base_cd})")
-
-    # (2) Vecteur NORMAL, crit force -> PAS de reset (On(0x26)+On(8), jamais On(9)).
     ah_normal = after_hit_normal_attack(state, sister_id, enemy_id,
                                         ranged=False, profile=None, is_crit=True)
     n_cc, n_cd = ctx.stat(StatType.CRIT_CHANCE), ctx.stat(StatType.CRIT_DAMAGE)
-    print(f"\n[AOF-NORMAL-NO-RESET] base ({base_cc},{base_cd}) boostee ({boost_cc},{boost_cd}) | "
+    print(f"\n[AOF-NORMAL-CRIT-RESET] base ({base_cc},{base_cd}) boostee ({boost_cc},{boost_cd}) | "
           f"apres NORMAL crit ({n_cc},{n_cd}) aof_reset={_has_aof_reset(ah_normal)}")
-    assert not _has_aof_reset(ah_normal), (
-        f"#151 REGRESSION : le crit NORMAL a reset ActOfFaith (after_hit={ah_normal})")
-    assert (n_cc, n_cd) == (boost_cc, boost_cd), (
-        f"#151 REGRESSION : stats crit alterees par un crit NORMAL "
-        f"({n_cc},{n_cd}) != boostee ({boost_cc},{boost_cd})")
+    assert _has_aof_reset(ah_normal), (
+        f"le crit NORMAL doit reset ActOfFaith (On(9) generique -- corrige #151 ; after_hit={ah_normal})")
+    assert (n_cc, n_cd) == (base_cc, base_cd), (
+        f"reset NORMAL KO : stats crit ({n_cc},{n_cd}) != base ({base_cc},{base_cd})")
 
-    # (3) Vecteur ABILITY, crit force -> reset (On(9)) : stats reviennent EXACTEMENT a la base.
+    # (2) VOIE ABILITY : re-accumuler -> crit force -> RESET a la base (inchange).
+    boost2_cc, boost2_cd = _accumulate_one()
+    assert boost2_cc > base_cc or boost2_cd > base_cd, "re-accumulation KO avant la voie ability"
     ah_ability = after_hit_ability_attack(state, sister_id, enemy_id, is_crit=True, profile="Flame")
     a_cc, a_cd = ctx.stat(StatType.CRIT_CHANCE), ctx.stat(StatType.CRIT_DAMAGE)
-    print(f"[AOF-ABILITY-RESET] apres ABILITY crit ({a_cc},{a_cd}) aof_reset={_has_aof_reset(ah_ability)}")
+    print(f"[AOF-ABILITY-CRIT-RESET] apres ABILITY crit ({a_cc},{a_cd}) aof_reset={_has_aof_reset(ah_ability)}")
     assert _has_aof_reset(ah_ability), (
-        f"reset ActOfFaith NON declenche par le crit d'ABILITY (after_hit={ah_ability})")
+        f"le crit d'ABILITY doit reset ActOfFaith (after_hit={ah_ability})")
     assert (a_cc, a_cd) == (base_cc, base_cd), (
-        f"reset KO : apres crit d'ability ({a_cc},{a_cd}), attendu base ({base_cc},{base_cd})")
+        f"reset ABILITY KO : apres crit d'ability ({a_cc},{a_cd}), attendu base ({base_cc},{base_cd})")
