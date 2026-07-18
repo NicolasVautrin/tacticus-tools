@@ -320,6 +320,20 @@ def after_move_triggers(state: State, mover_id: int) -> list[dict]:
     return out + evaluate_trigger_operation(state, ev2)
 
 
+def displace_triggers(state: State, pusher_id: int, pushed_id: int) -> list[dict]:
+    """Vecteur DÉPLACEMENT FORCÉ (push/pull) — mirror `DisplaceUnitOperation.EventAndAbilitiesAndEffects
+    @180e681c0`. APRÈS le `MoveUnit@0x7e` de la poussée, le natif émet (via `EvaluateTriggerOperation`, msg 0x52)
+    la SÉQUENCE d'events `On(0x24=UnitPositionChanged_1)` -> `On(0x23=UnitDisplaced)` -> `On(0x1d=
+    UnitPositionChanged_2)`, tous {actor=pusher, target=pushed}. On dispatche `On(UnitDisplaced)` (actor=pusher,
+    target=pushed) : consommateur `RadSaturationAbility` (branche 2 `OwnerIsTarget` -> le Skitarii Vanguard POUSSÉ
+    contamine sa tuile d'ATTERRISSAGE ; le pushed a déjà bougé via `MoveUnitOperation` donc `Tiles(Caster())` =
+    sa tuile POST-push). Siblings `On(0x24)` / `On(0x1d)` = NON dispatchés ici (flaggés) : `0x24` sans consommateur
+    porté ; `0x1d`=DecoysAndMisdirection G2-sur-push = concern séparé (non validé). No-op si aucun trigger ne
+    matche. Appelé par `DisplaceUnitOperation.execute` (displace.py) après un push réussi."""
+    ev = TriggerEvent(EventTriggerType.UnitDisplaced, pusher_id, pushed_id, ranged=False, profile=None)
+    return evaluate_trigger_operation(state, ev)
+
+
 def tile_tick_triggers(state: State) -> list[dict]:
     """Vecteur ROUND-TICK des tile-effects (#128) : `StartTurnOperation.Execute`@180ea3fb0 émet la séquence
     0x12/0x13/0x14/... → ici on tire `On(0x12)` (Contaminated re-apply @180f3a1d0) puis `On(0x14)` (Fire DoT

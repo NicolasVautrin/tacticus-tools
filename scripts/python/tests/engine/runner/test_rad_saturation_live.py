@@ -126,6 +126,30 @@ def _skit_tile(state, board, sid):
     return board.id_at(pc.col, pc.row) if pc is not None else None
 
 
+def _find_open_push_triple(board, occupied):
+    """(pusher C, pousse T, atterrissage B) en CHAMP OUVERT : C adjacent a T ; B = tuile derriere T (oppose de
+    C) via la MEME geometrie que `DisplaceUnitOperation` (`_dir_index`/`_step`) ; les 3 walkable, distinctes,
+    libres (hors `occupied`, un set d'ids de tuiles). None si aucun triplet. Sert a DRIVE un push deterministe
+    du Skitarii pour valider la branche 2 (contamination a l'atterrissage)."""
+    from engine.runner.operations.displace import _dir_index, _step
+    for t in board.by_id:
+        tc = board.coord(t)
+        if not board.walkable(t) or t in occupied:
+            continue
+        for c in board.neighbours(t):
+            cc = board.coord(c)
+            if not board.walkable(c) or c in occupied or c == t:
+                continue
+            di = _dir_index(cc[0], cc[1], tc[0], tc[1])
+            if di is None:
+                continue
+            b = board.id_at(*_step(tc[0], tc[1], di))
+            if b is None or b in (t, c) or not board.walkable(b) or b in occupied:
+                continue
+            return c, t, b
+    return None
+
+
 def test_rad_saturation_after_move_contaminates_own_tile(live_session, rpc, build_runner):
     """Branche 1 (`On(4)&OwnerIsActor`) : quand le Skitarii bouge, `after_move_triggers(sid)` pose Contaminated
     (1244) sur SA tuile courante (== `Tiles(Caster())`)."""
@@ -194,3 +218,46 @@ def test_rad_saturation_arms_contaminated_tile_effect(live_session, rpc, build_r
 
     assert state.effects.has_effect(tile, effect_type=CONTAMINATED_TILE), "tuile non contaminee (pre-cond)"
     assert after, "aucun ContaminatedTileEffect arme sur la tuile contaminee (machinerie aval non alimentee)"
+
+
+def test_rad_saturation_on_displace_contaminates_landing_tile(live_session, rpc, build_runner):
+    """Branche 2 (`On(0x23=UnitDisplaced) & OwnerIsTarget`) : quand le Skitarii est FORCE-MOVE (push), il
+    contamine sa tuile d'ATTERRISSAGE. `DisplaceUnitOperation.execute` (apres le MoveUnit du push) dispatche
+    On(UnitDisplaced) {actor=pusher, target=Skitarii} via `displace_triggers` -> RadSaturation OwnerIsTarget ->
+    Contaminated (1244) sur la NOUVELLE tuile. Geometrie DRIVE'e (pousseur/pousse/atterrissage places en champ
+    ouvert, meme geometrie que DisplaceUnitOperation) -> deterministe, robuste au placement live."""
+    from engine.runner.events import EventBus
+    from engine.runner.operations.displace import DisplaceUnitOperation
+    from engine.runner.components import PositionComponent
+    state, board = _load(rpc, build_runner)
+    tan = _tan(state)
+    if tan is None:
+        pytest.skip("Tan Gi'da absent offline / sans StatsComponent")
+    tan_id, lvl, mult, team, player = tan
+    if lvl is None:
+        pytest.skip("niveau du caster indisponible (scaling summon non resoluble)")
+    if state.effects is None:
+        pytest.skip("EffectsState absent (snapshot sans combatSnapshot) -> AddEffect impossible")
+    triple = _find_open_push_triple(board, _occupied(state))
+    if triple is None:
+        pytest.skip("aucun triplet (pousseur, pousse, atterrissage) ouvert sur ce board")
+    c_tile, t_tile, b_tile = triple
+    # DRIVE : place Tan (pousseur) en C ; spawn le Skitarii (pousse) en T ; atterrissage attendu = B (derriere).
+    tpc = state.get_entity(tan_id).get_component(PositionComponent)
+    cc, cr = board.coord(c_tile)
+    tpc.col, tpc.row = cc, cr
+    sid = _spawn_skitarii(state, board, t_tile, lvl, mult, team, player)
+    if sid is None:
+        pytest.skip("spawn Skitarii KO")
+    assert not state.effects.has_effect(b_tile, effect_type=CONTAMINATED_TILE), "atterrissage deja contamine (pre-cond KO)"
+
+    res = DisplaceUnitOperation(tan_id, sid).execute(state, EventBus())
+    spc = state.get_entity(sid).get_component(PositionComponent)
+    new_tile = board.id_at(spc.col, spc.row)
+    print(f"[radsat displace] pusher@{c_tile} pushed@{t_tile} -> landing@{new_tile} (want {b_tile}) "
+          f"res={res} has_1244={state.effects.has_effect(b_tile, effect_type=CONTAMINATED_TILE)}")
+
+    assert new_tile == b_tile, \
+        f"le Skitarii n'a PAS ete pousse sur la tuile d'atterrissage attendue (got {new_tile}, want {b_tile})"
+    assert state.effects.has_effect(b_tile, effect_type=CONTAMINATED_TILE), \
+        "apres push : la tuile d'atterrissage du Skitarii NE porte PAS Contaminated (1244) (branche 2 non firee)"

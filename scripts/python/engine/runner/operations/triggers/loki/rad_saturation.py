@@ -4,7 +4,7 @@ build gqfc5mff6c) :
 
   - `CreateTrigger @181115970` = OU de TROIS branches (op_BitwiseOr) :
       * `On(4=UnitAfterMove) & OwnerIsActor`                 -> APRES que le Skitarii BOUGE lui-meme ;
-      * `On(0x23=35=UnitDisplaced) & OwnerIsTarget`          -> quand il est DEPLACE (push/pull) [FLAGGE non porte] ;
+      * `On(0x23=35=UnitDisplaced) & OwnerIsTarget`          -> quand il est DEPLACE (push/pull) [PORTE, cf. DISPATCH] ;
       * `On(0x17=23=TurnEnd) & OwnerIsActor & NOT(HasFlag moved@0x148)` -> en FIN DE TOUR s'il n'a PAS bouge.
     == i2 `RadSaturation` : « After the Skitarii Vanguard moves, it adds Contamination to its hex. If it does
     not move, then this ability triggers at the end of its turn. »
@@ -24,9 +24,12 @@ l'occupant a l'entree `On(4)` / au tick `On(0x12)`, sauf immunise (ContagionsOfN
 
 DISPATCH : branche 1 (`On(4)`) via le registre `ABILITY_TRIGGERS` + vecteur `after_move_triggers` (aucun
 cablage neuf) ; branche 3 (`On(0x17=TurnEnd)`) via la dispatch generique ajoutee a `end_turn_summon_triggers`
-(gate `owner not in state.moved_this_turn`). Branche 2 (`UnitDisplaced`) FLAGGEE non portee (aucun vecteur de
-displace ne dispatche de trigger ; push rare -- suivi). RadSaturationPlaybook (utility de move IA vers les
-tuiles a contaminer) = concern DECISION separe (non porte ici).
+(gate `owner not in state.moved_this_turn`). Branche 2 (`On(0x23=UnitDisplaced) & OwnerIsTarget`) PORTEE via le
+vecteur `displace_triggers` (dispatch.py) que `DisplaceUnitOperation.execute` appelle apres le push (mirror
+`DisplaceUnitOperation.EventAndAbilitiesAndEffects @180e681c0` : emet On(UnitDisplaced) {actor=pusher,
+target=pushed} ; OwnerIsTarget => fire ssi le Skitarii POUSSE est l'owner -> il contamine sa tuile
+d'ATTERRISSAGE post-push). RadSaturationPlaybook (utility de move IA vers les tuiles a contaminer) = concern
+DECISION separe (non porte ici).
 
 DOCTRINE #149 : predicats/selecteurs du trigger (OwnerIsActor, HasFlag moved) COLLAPSES imperativement
 (lecture d'etat) ; la feuille E (`AddEffect` tile-domain) delegue a l'Operation `AddEffectOperation`."""
@@ -45,8 +48,9 @@ from ..base import TriggeredAbility, TriggerEvent
 
 CONTAMINATED_TILE = int(EffectType.Contaminated)          # 1244 (0x4dc) — effet de TUILE (aval = ContaminatedTileEffect)
 
-# Events ecoutes (branches 1 et 3 du CreateTrigger ; branche 2 UnitDisplaced non portee).
-_AFTER_MOVE = int(EventTriggerType.UnitAfterMove)         # 4  — branche 1 (self-move)
+# Events ecoutes = les TROIS branches du CreateTrigger @181115970.
+_AFTER_MOVE = int(EventTriggerType.UnitAfterMove)         # 4  — branche 1 (self-move, OwnerIsActor)
+_DISPLACED = int(EventTriggerType.UnitDisplaced)          # 35 (0x23) — branche 2 (force-move/push, OwnerIsTarget)
 _TURN_END = int(EventTriggerType.TurnEnd)                 # 23 (0x17) — branche 3 (fin de tour si pas bouge)
 
 
@@ -66,16 +70,22 @@ def rad_saturation_tree():
 class RadSaturationAbility(TriggeredAbility):
     """`RadSaturationAbility` (CreateTrigger @181115970 / CreateBehaviour @181115910) — passif du Skitarii
     Vanguard (`admecSmnVanguard.passiveAbilities=['RadSaturation']`, triggered id 1202). Pose l'effet de TUILE
-    `Contaminated` (1244) sur SA PROPRE tuile quand il BOUGE (`On(4) & OwnerIsActor`) ou, s'il n'a PAS bouge
-    ce tour, en FIN DE TOUR (`On(0x17=TurnEnd) & OwnerIsActor & NOT moved`). La contamination (aval deja porte
-    `ContaminatedTileEffect`) inflige -30% FixedArmor a l'occupant a l'entree/au tick."""
-    event_id = _AFTER_MOVE                                 # primaire (branche 1) ; `event_ids` couvre les deux
-    event_ids = (_AFTER_MOVE, _TURN_END)
+    `Contaminated` (1244) sur SA PROPRE tuile quand il BOUGE (`On(4) & OwnerIsActor`), quand il est DEPLACE de
+    force (`On(0x23=UnitDisplaced) & OwnerIsTarget`, push/pull) ou, s'il n'a PAS bouge ce tour, en FIN DE TOUR
+    (`On(0x17=TurnEnd) & OwnerIsActor & NOT moved`). La contamination (aval deja porte `ContaminatedTileEffect`)
+    inflige -30% FixedArmor a l'occupant a l'entree/au tick."""
+    event_id = _AFTER_MOVE                                 # primaire (branche 1) ; `event_ids` couvre les trois
+    event_ids = (_AFTER_MOVE, _DISPLACED, _TURN_END)
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         if ev.event_id == _AFTER_MOVE:
             # branche 1 : `On(4) & OwnerIsActor` — le Skitarii vient de bouger lui-meme (actor == owner).
             return ev.actor_id == self.owner_id
+        if ev.event_id == _DISPLACED:
+            # branche 2 : `On(0x23=UnitDisplaced) & OwnerIsTarget` — le Skitarii est FORCE-MOVE (push/pull).
+            # L'event porte actor=pusher, target=pushed (mirror `EventAndAbilitiesAndEffects @180e681c0`) ->
+            # OwnerIsTarget = fire ssi le Skitarii deplace EST la cible du deplacement (owner == target).
+            return ev.target_id == self.owner_id
         if ev.event_id == _TURN_END:
             # branche 3 : `On(0x17) & OwnerIsActor & NOT(HasFlag moved@0x148)` — fin de tour du player courant,
             # le Skitarii n'a PAS bouge ce tour (sinon la branche 1 a deja contamine sa tuile de destination).

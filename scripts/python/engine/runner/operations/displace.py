@@ -126,4 +126,13 @@ class DisplaceUnitOperation(Operation):
         if dest is None:
             return {"moved": False, "reason": "blocked"}  # push annule (mirror lVar7==0 : pas de move)
         MoveUnitOperation(self.pushed_id, dest).execute(state, bus)
-        return {"moved": True, "to": dest}
+        # Mirror `DisplaceUnitOperation.EventAndAbilitiesAndEffects @180e681c0` : APRES le MoveUnit du push, le
+        # natif emet On(UnitDisplaced) {actor=pusher, target=pushed}. On dispatche ce vecteur -> RadSaturation
+        # branche 2 (`OwnerIsTarget`) : un Skitarii Vanguard POUSSE contamine sa tuile d'atterrissage. Import
+        # lazy (evite le cycle triggers<->operations). No-op si aucun trigger UnitDisplaced ne matche.
+        from .triggers import displace_triggers
+        res = {"moved": True, "to": dest}
+        trg = displace_triggers(state, self.pusher_id, self.pushed_id)
+        if trg:
+            res["displaced_triggers"] = trg
+        return res
