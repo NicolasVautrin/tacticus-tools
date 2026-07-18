@@ -139,6 +139,25 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
                     ent.add_component(ShieldComponent(shields=insts))
     # effets ACTIFS structurés (decisionView.effects), matérialisés + propagés mult/level.
     state.effects = EffectsState.seed(effects_by_id, mult_by_id, ablvl_by_id)
+    # `InitializeActorAbilitiesOperation.Execute @180e74660` (boucle ABILITIES) : à la création de CHAQUE
+    # unité, l'owner-effect posé par le `CreateBehaviour` de ses abilities (DSL `AddEffect(owner)`). Le
+    # SEED live (decisionView.effects) ne capte QUE les effets ACTIFS à l'instant T -> il RATE les
+    # owner-effects passifs INACTIFS au capture (ex. HP-floor `HypersensoryAbilities_MinimalHealth` de Judh,
+    # actif seulement au tour ENNEMI via son ActiveCondition). On les pose ici (idempotent : les effets déjà
+    # captés live sont skippés). Gate TeleportingIn (1035) : passives DIFFÉRÉES jusqu'à l'atterrissage
+    # (`land_deep_strike`), pas initialisées au capture. #G6a.
+    from .operations.spawn import _seed_ability_owner_effects, TELEPORT_STRIKE_TELEPORTING_IN
+    for eid in list(state.entities.keys()):
+        if state.effects.has_effect(eid, effect_type=TELEPORT_STRIKE_TELEPORTING_IN):
+            continue
+        ent = state.get_entity(eid)
+        sc = ent.get_component(StatsComponent) if ent is not None else None
+        uc = ent.get_component(UnitComponent) if ent is not None else None
+        if sc is None or uc is None or not uc.visual_id:
+            continue
+        _seed_ability_owner_effects(state, eid, uc.visual_id,
+                                    int(getattr(sc.ctx, "ability_variables_multiplier", 100) or 100),
+                                    ability_level=getattr(sc.ctx, "passive_ability_level", None))
 
 
 def snapshot(state: State) -> dict:

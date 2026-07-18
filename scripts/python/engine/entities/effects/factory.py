@@ -29,6 +29,7 @@ from .loki import (
     FightingRetreatHitReductionEffect,
     GuardianOrganismDamageReductionEffect,
     HeavyWeaponExtraDmgEffect,
+    HypersensoryMinimalHealthEffect,
     KanOpenerEffect,
     LightCoverEffect,
     MartialKatahDmgReductionEffect,
@@ -161,6 +162,11 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Neuroparasite). extraDmg[L65]=582 rarity-scale x mult. EffectType capte 1379. #134 (spawn+retaliation
     # Blast NON encore portes -- seul l'effet ExtraDamage l'est ici). Nom capte = effect-type-names.ts:502.
     "DecoysAndMisdirection_ExtraDamage": DecoysAndMisdirectionExtraDamageEffect,
+    # HypersensoryAbilities (passif Judh genesJudh) : HP-floor 50% du HP courant a la 1re attaque du tour
+    # ennemi (effet 0x564=1380). Snapshot floor via ApplyInternal @180f445a0 / clear via RevertInternal
+    # @180f44820 ; ActiveCondition IsEnemyTurn & Not(attacked>=1). Apply/Revert impératifs = op runner
+    # `MinimalHealthEffectOperation` ; le clamp vit dans `HealthComponent.reduce`. Nom capte = 1380 enum. G6a.
+    "HypersensoryAbilities_MinimalHealth": HypersensoryMinimalHealthEffect,
     # AnvilShield (Arjac spaceRockfist) : buff BLOCK_DAMAGE self quand il BLOQUE (0x4b2=1202,
     # AddStaticStatModifierEffect stat 8, var blockDmg[L65]=728 rarity-scale ; @180e16340). INCONDITIONNEL.
     # Le 2e effet de la behaviour (0x4b0=1200 BlockChanceBelowHealthCap, stat 7=BLOCK_CHANCE/blockChance) N'EST
@@ -232,6 +238,9 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # ground truth live ds_landing : absents au teleport-in, apparaissent au landing). ExtraCrit (axe crit) non
     # porte -> seul ExtraDmg est materialise.
     "PathOfCommand": ["PathOfCommand_ExtraDmg"],
+    # `HypersensoryAbilitiesAbility.CreateBehaviour` @180f87870 : `AddEffect(0x564=1380, owner, owner)` -> le
+    # HP-floor est posé sur le PORTEUR à l'init de l'ability passive (owner-effect self, aucun sélecteur). G6a.
+    "HypersensoryAbilities": ["HypersensoryAbilities_MinimalHealth"],
 }
 
 

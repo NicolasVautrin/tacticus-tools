@@ -158,6 +158,15 @@ class AttackDamageOperation:
         return (out or []) + unit_defeated_triggers(state, target_id, attacker_id)
 
     @staticmethod
+    def _record_attacked(state: State, target_id: int) -> None:
+        """#G6a : la cible vient d'encaisser une ATTAQUE (via `execute`/`execute_ability_attack`/
+        `execute_normal_like` ; PAS un DoT `execute_direct`) -> incremente son compteur d'attaques du tour +
+        re-eval l'ActiveCondition du HP-floor Hypersensory (attacked>=1 -> RevertInternal efface le plancher ->
+        le coup SUIVANT peut tuer). Lazy import (cycle damage<->minimal_health)."""
+        from .minimal_health import record_attacked
+        record_attacked(state, target_id)
+
+    @staticmethod
     def _target_shield(tgt) -> tuple:
         """(ShieldComponent|None, total) du bouclier COURANT de la cible — `GetShield`@180ed2030 /
         `GetTotalShield`@180fa7f30. 0 si pas de composant (rétro-compat : cibles sans bouclier)."""
@@ -369,9 +378,10 @@ class AttackDamageOperation:
         death = None
         if thc.hp is not None:
             hp_before = thc.hp
-            thc.hp = max(0, thc.hp - r["total"])
+            thc.reduce(r["total"])          # #G6a : clamp au HP-floor Hypersensory (minimal_health), pas de PV<0
             death = AttackDamageOperation._fire_death_if_killed(
                 state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=r["total"])
+            AttackDamageOperation._record_attacked(state, target_id)    # #G6a : compteur + revert du floor
         return {"hits": hits, "total": r["total"], "base": ctx.stat(StatType.ATTACK), "pierce": pierce,
                 "armor": armor, "clean_min": clean_min, "clean_max": clean_max, "death": death,
                 "shield_dmg": r["shield_dmg"], "armor_dmg": r["armor_dmg"],
@@ -549,9 +559,10 @@ class AttackDamageOperation:
         AttackDamageOperation._deplete_shield(shc, r)
         if thc.hp is not None:
             hp_before = thc.hp
-            thc.hp = max(0, thc.hp - r["total"])
+            thc.reduce(r["total"])          # #G6a : clamp au HP-floor Hypersensory (minimal_health)
             AttackDamageOperation._fire_death_if_killed(
                 state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=r["total"])
+            AttackDamageOperation._record_attacked(state, target_id)    # #G6a
         # POSE DE FEU (OnFireDamageAbility) — `EvaluateAfterHitTriggers @180e25fc0` tourne après CHAQUE coup
         # d'attaque, NORMALE **et** ability. Le port ne câblait ce vecteur que pour l'attaque normale
         # (DamageHandler) ; ici on porte la pose on-hit des tile-effects de profil pour les attaques
@@ -628,9 +639,10 @@ class AttackDamageOperation:
         AttackDamageOperation._deplete_shield(shc, r)
         if thc.hp is not None:
             hp_before = thc.hp
-            thc.hp = max(0, thc.hp - r["total"])
+            thc.reduce(r["total"])          # #G6a : clamp au HP-floor Hypersensory (minimal_health)
             AttackDamageOperation._fire_death_if_killed(
                 state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=r["total"])
+            AttackDamageOperation._record_attacked(state, target_id)    # #G6a
         # VECTEUR AFTER-HIT (splash StatAmount) : idem execute_ability_attack — reset ActOfFaith au crit
         # (#138) + vecteur complet (#140). `ranged` = POSITION-based (mirror IsRangedAttack), calculé dedans.
         from .triggers import after_hit_ability_attack
@@ -668,7 +680,9 @@ class AttackDamageOperation:
         if dmg <= 0:
             return None
         hp_before = thc.hp
-        thc.hp = max(0, thc.hp - dmg)
+        # #G6a : route par `reduce()` (clamp HP-floor + pas de PV<0). PAS de `_record_attacked` : un DoT n'est
+        # PAS une attaque (le compteur `HasBeenAttackedAmountThisTurn` ne compte que les vraies attaques).
+        thc.reduce(dmg)
         AttackDamageOperation._fire_death_if_killed(
             state, target_id, source_id, hp_before, thc.hp, tgt, damage=dmg)
         return {"total": dmg, "base": int(base), "pierce": int(profile_pierce), "armor": armor,

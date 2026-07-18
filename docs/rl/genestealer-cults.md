@@ -71,7 +71,8 @@ Deux primitives partagées à porter EN PREMIER (slice G1) :
 | **G3** | #10 | **Ambush** — ✅ **PORTÉ + LIVE-VALIDÉ** (mort→decoy `On(UnitDefeated)` + résurrection `On(TurnStart)` sur decoy + tour immédiat + flag one-shot 0xe + émet `On(UnitResurrected)`) | G1 |
 | **G4** | #11 | **CultDemagogue** — ✅ **PORTÉ + LIVE-VALIDÉ** (arbre DSL `genestealer.py`) | G1 |
 | **G5** | #12 | **HeroicFusillade** — ✅ **PORTÉ + LIVE-VALIDÉ** (move + splash target+voisins + crit ×hex-libres ; ré-arme post-résurrection = tranche G3) | (move+splash) |
-| **G6** | #13 | **HypersensoryAbilities** — 🔶 **VERDICT RE PRÊT** (HP floor 50 % + reactive move + decoy + contre-attaque 3×) ; port BLOQUÉ sur 3 briques substrat neuves (cf. §G6) | G1 |
+| **G6a** | #13 | **HypersensoryAbilities — HP-floor** — ✅ **PORTÉ + LIVE-VALIDÉ** (effet 1380 : `MinimalHealth = Round(50 % HP courant)` snapshot au tour ennemi via driver ActiveCondition `IsEnemyTurn & Not(attacked>=1)` + clamp `HealthComponent.reduce` + compteur `times_attacked_this_turn` ; 1re attaque survit au floor, 2e tue ; auto-pose via `InitializeActorAbilities` boucle ABILITIES au build) | G1 |
+| **G6b** | #13 | **HypersensoryAbilities — MoveAndSpawnDecoy+counter** — 🔶 **VERDICT RE PRÊT** (après la 1re attaque : move réactif range=2 + decoy sur PreviousTile + contre-attaque 3× Projectile pierce 15 gate ≤2hex) ; RESTE À PORTER — réutilise le compteur G6a (cf. §G6) | G6a |
 | **G7** | #14 | **BeastSlayer** — ✅ **DÉJÀ PORTÉ** (trait générique, live-validé orksNob #72) : reste un guard live Judh | — (couche damage-mod) |
 
 Ordre d'attaque conseillé : **G1 → G2/G3 (decoy consommateurs) → G4 → G6 → G5 → G7**. G7 (BeastSlayer) et
@@ -416,19 +417,52 @@ Passif = **2 triggered-abilities + 1 effet** :
   + **contre-attaque 3× Projectile** (`AttackWithAttackDamage`, minDmg/maxDmg rarity, gate `IsInRange(2) &
   IsAlive & Not(IsObscured)`) + `AddEffect(0x57f)` flag once/turn.
 
-**PORT BLOQUÉ sur 3 briques SUBSTRAT NEUVES** (absentes du moteur) — c'est ce qui distingue G6 des slices
-déjà faites :
-1. **Mécanisme ActiveCondition** (Apply/Revert conditionnel d'effet, ré-évalué par tick) — le port gère
-   `ApplyInternal`/`ApplyModification` mais PAS la ré-évaluation par condition. Sans lui, le floor serait
-   permanent (Judh invincible hors tour ennemi).
-2. **Compteur `HasBeenAttackedAmountThisTurn`** (attaques reçues ce tour par unité, reset à StartTurn) +
-   prédicats `IsEnemyTurn` / `HasBeenAttacked>=n` / `CanMove` / `IsObscured` / `OwnerOrOwnerTileIsTarget`.
-3. **Dispatch `On(9=Attack)` côté DÉFENSEUR** (aujourd'hui `On(9)` n'est émis que côté attaquant — reset
-   ActOfFaith `OwnerIsCaster`) + `HealthComponent.minimal_health` (+0x1c) + clamp dans `damage.py`
-   (`FillUpStatComponent.Reduce`).
+Le passif se sous-slice en **G6a (HP-floor, ✅ FAIT)** et **G6b (MoveAndSpawnDecoy+counter, à porter)** — le
+compteur d'attaques (`times_attacked_this_turn`) porté par G6a est partagé par les deux.
 
-REUSE : `spawn_decoy` (decoy sur PreviousTile), `AttackWithAttackDamage` (counter 3×), `MoveUnit` (options
-null), `AddEffect`, l'arbre DSL If/&/Not, `ABILITY_TRIGGERS`. Effet `HypersensoryAbilities_MinimalHealth=1380`
-déjà dans `effect_type.py`. Points faibles validator : wiring `On(9)` défenseur, reset du compteur d'attaques,
-ActiveCondition (le plus fragile), floor = % du HP **courant** (pas max), decoy sur PreviousTile, gate counter
-`IsInRange(2)&Not(IsObscured)`.
+### G6a — HP-floor : PORTÉ + LIVE-VALIDÉ (2026-07-18)
+
+Décompilé RE-CONFIRMÉ post-compact (@180f445a0/@180f44820/@180f447a0/@180f9bba0). i2 : « The first time each
+enemy turn that Judh is attacked, she cannot fall below 50% of her current Health. » Le port :
+
+- **Effet 1380** `HypersensoryMinimalHealthEffect` (`entities/effects/loki.py`) : porte le pct
+  (`hpPct[niveau passif]` = 30..50, var 0x26, level-indexée **non** rarity) + la formule
+  `compute_floor(hp) = min(round(hp × pct/100), hp-1)` (mirror `ApplyInternal`). `Fix64.Round` = `round()`
+  Python (half-to-even).
+- **Opération impérative** `MinimalHealthEffectOperation` + driver `evaluate_minimal_health` (`operations/
+  minimal_health.py`) : ré-évalue l'ActiveCondition `IsEnemyTurn(owner) & Not(times_attacked>=1)` aux
+  **transitions** (turn-start via `start_turn_triggers` ; après chaque attaque via `record_attacked`) →
+  `apply` (snapshot `HealthComponent.minimal_health@+0x1c`) / `revert` (clear). Pas de « tick » général :
+  seules les 2 transitions fonctionnellement nécessaires sont posées (mirror du framework d'effet natif).
+- **Compteur** `UnitComponent.times_attacked_this_turn` (source `HasBeenAttackedAmountThisTurn` @180df0c10) :
+  `record_attacked` l'incrémente à chaque attaque encaissée (PAS un DoT `execute_direct`), `reset_times_attacked`
+  le remet à 0 au start_turn.
+- **Clamp** `HealthComponent.reduce(amount, ignore_minimal=False)` (mirror `FillUpStatComponent.Reduce`) :
+  `red = min(amount, hp, hp - min(hp, floor))`. Les 4 chemins de `damage.py` (`execute`/`execute_ability_attack`/
+  `execute_normal_like`/`execute_direct`) routent par `reduce()` au lieu de `max(0, hp - total)`.
+- **Auto-pose** : `_seed_ability_owner_effects` (boucle ABILITIES de `InitializeActorAbilitiesOperation`) câblée
+  au build initial (`snapshot._load_stats_and_effects`, gate TeleportingIn, idempotent) — l'effet 1380 est
+  INACTIF au capture (pas tour ennemi) donc absent de `decisionView.effects` ; sans ce seed Judh ne l'aurait
+  pas. `_materialize_owner_effect` peuple aussi `effectType` depuis l'enum (corrige les owner-effets à
+  `effect_type=None`, ex. crash filtre chainage G2).
+
+Test : `tests/engine/runner/test_hypersensory_hpfloor_live.py` (5/5) — auto-pose, floor tour-ennemi/clear
+tour-Judh, clamp `reduce`, 1re attaque survit + 2e tue, reset compteur. Guards : G3 5/5, damage bit-exact,
+G2+betrayer 4/4 (0 régression). **RÉSOLU** les 3 « briques substrat » du verdict initial (ActiveCondition via
+driver 2-transitions, compteur, clamp) SAUF le dispatch `On(9)` défenseur (non requis par G6a : le clamp +
+`record_attacked` sont câblés directement dans le pipeline dégât ; `On(9)` défenseur reste pour G6b).
+
+### G6b — MoveAndSpawnDecoy + counter : À PORTER
+
+`On(9=Attack) & OwnerOrOwnerTileIsTarget & IsEnemyTurn & Not(HasEffect 0x57f=1407) & Not(HasBeenAttacked>=1)`
+(@180f88070) → move réactif (dest = `First(SortByFormula(MovableTilesInRange, GetTilePriority @180f88190))` =
+tuile à EXACTEMENT `range=2` de l'attaquant, à découvert) + **decoy sur `PreviousTile` (tuile quittée)** +
+**contre-attaque 3× Projectile** (`AttackWithAttackDamage`, minDmg/maxDmg[level] rarity 1455-2183@L65, pierce
+15, gate `IsInRange(2) & IsAlive & Not(IsObscured)`) + `AddEffect(0x57f)` flag once/turn (@180f878f0).
+
+Brique restante = **dispatch `On(9=Attack)` côté DÉFENSEUR** (aujourd'hui `On(9)` n'est émis que côté attaquant
+— reset ActOfFaith `OwnerIsCaster`) : il faut émettre un vecteur after-attack ciblant le DÉFENSEUR après
+`record_attacked`. REUSE : `spawn_decoy` (PreviousTile), `AttackWithAttackDamage`/`execute_ability_attack`
+(counter 3×), `MoveUnit`, `AddEffect`, compteur G6a, prédicats `IsObscured`/`IsInRange`. Points faibles
+validator (G6b) : wiring `On(9)` défenseur, dest move = `range==2` EXACT (pas ≤2), decoy sur PreviousTile,
+gate counter `IsInRange(2)&Not(IsObscured)`, flag 1407 once/turn.

@@ -368,7 +368,15 @@ def start_turn_triggers(state: State, player_id: int) -> list[dict]:
     Construit l'événement turn-start {player=player_id} et lance `evaluate_trigger_operation`. Déclenche
     les auto-tours forcés du player courant (ex. TheBetrayer de worldKharn : move+attaque). `actor`/`target`
     = -1 (pas d'acteur unique ; chaque trigger filtre sur `ev.player_id` == son owner). No-op si aucun
-    trigger turn-start ne matche (ou pas de board/rng pour le move+attaque)."""
+    trigger turn-start ne matche (ou pas de board/rng pour le move+attaque).
+
+    #G6a : au boundary de tour, remet a 0 le compteur d'attaques recues (`HasBeenAttackedAmountThisTurn`) de
+    toutes les unites PUIS re-evalue l'ActiveCondition des HP-floors Hypersensory (`IsEnemyTurn(owner) &
+    Not(attacked>=1)`) -> Apply (snapshot 50% du HP courant) au tour ENNEMI du porteur, Revert sinon. Avant
+    l'emission de l'event (l'etat floor doit etre pose quand les triggers turn-start s'executent)."""
+    from ..minimal_health import reset_times_attacked, evaluate_minimal_health
+    reset_times_attacked(state)
+    evaluate_minimal_health(state, player_id)
     ev = TriggerEvent(EventTriggerType.TurnStart_Actions, -1, -1, ranged=False, profile=None, player_id=player_id)
     return evaluate_trigger_operation(state, ev)
 

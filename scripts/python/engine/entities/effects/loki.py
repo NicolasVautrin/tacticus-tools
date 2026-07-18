@@ -220,6 +220,42 @@ class DecoysAndMisdirectionExtraDamageEffect(BaseEffect):
         return for_addition(True, amt) if amt is not None else None
 
 
+class HypersensoryMinimalHealthEffect(BaseEffect):
+    """`HypersensoryAbilities_MinimalHealthEffect` (Effects.Idun, effet 0x564=1380 ; ctor @180f448f0).
+
+    HP-FLOOR passif de Judh (genesJudh). i2 : « The first time each enemy turn that Judh is attacked, she
+    cannot fall below 50% of her current Health. » Posé sur le porteur à l'init de l'ability passive
+    `HypersensoryAbilities` (owner-effect `CreateBehaviour` @180f87870 = `AddEffect(0x564, owner)`).
+
+    - `ApplyInternal` @180f445a0 : `floor = Min(Round(GetStat(Health,Current) x hpPct/100), current-1)` ->
+      `HealthComponent.MinimalHealth @+0x1c` (Nullable). SNAPSHOT du HP COURANT au moment de l'Apply.
+    - `RevertInternal` @180f44820 : `MinimalHealth = null` (efface le plancher).
+    - `CreateActiveCondition` @180f447a0 : `IsEnemyTurn(owner) & Not(HasBeenAttackedAmountThisTurn(owner)>=1)`
+      = actif au tour ENNEMI, la 1re attaque SEULEMENT (retiré après -> le 2e coup peut tuer).
+
+    hpPct[L1..65] = 30..50 (var 0x26, level-indexée, NON rarity-scalée : `variablesAffectedByRarityBonus` =
+    [minDmg,maxDmg] seulement). Apply/Revert (IMPÉRATIF, mute `HealthComponent`) = `MinimalHealthEffectOperation`
+    côté runner (évalué par le driver `evaluate_minimal_health` aux transitions turn-start / après-attaque) ;
+    cette classe porte la FORMULE du plancher + le pct config (frontière déclaratif/impératif : la condition +
+    la formule ici, la mutation ECS dans l'Operation)."""
+
+    def minimal_health_pct(self) -> "int | None":
+        """`hpPct[ability_level]` (%) — var 0x26, level-indexée, NON rarity-scalée. Niveau = celui de l'ability
+        PASSIVE HypersensoryAbilities (fallback stack level)."""
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        return ability_var("HypersensoryAbilities", "hpPct", lvl)
+
+    def compute_floor(self, current_hp: "int | None") -> "int | None":
+        """`ApplyInternal` @180f445a0 : `Min(Round(current_hp x hpPct/100), current_hp - 1)`. None si pct absent
+        ou hp<=0. `Fix64.Round` = RoundToNearest half-to-even == `round()` Python (le facteur pct/100 est exact
+        en Fix64 ; l'arrondi ne joue que pour un hp impair a 50 %)."""
+        pct = self.minimal_health_pct()
+        if pct is None or current_hp is None or int(current_hp) <= 0:
+            return None
+        raw = int(round(int(current_hp) * pct / 100.0))
+        return min(raw, int(current_hp) - 1)
+
+
 class AnvilShieldAdditionalBlockEffect(BaseEffect):
     """`AnvilShield_AdditionalBlock` (effet 0x4b2=1202, StaticStatModifierEffect) — buff BLOCK_DAMAGE
     self de Arjac (spaceRockfist) quand il BLOQUE. Pose par `AnvilShieldAbility_ApplyAdditionalBlockAnd

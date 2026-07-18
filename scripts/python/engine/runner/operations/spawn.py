@@ -272,18 +272,30 @@ def _maybe_seed_ignore_battle_fatigue(state: State, unit_id: int, team, mult: in
     return True
 
 
-def _materialize_owner_effect(state: State, unit_id: int, name: str, mult: int) -> bool:
+def _materialize_owner_effect(state: State, unit_id: int, name: str, mult: int,
+                              ability_level: Optional[int] = None) -> bool:
     """Matérialise UN owner-effect (par nom) sur l'unité dans `EffectsState`, PERMANENT (rem=None), comme les
     unités initiales seedées depuis capture — pour que `attacker_modifiers`/`defender_modifiers` (qui lisent
-    `state.effects`) le voient. Idempotent (gate `has_effect`). Renvoie True si ajouté."""
+    `state.effects`) le voient. Idempotent (gate `has_effect`). Renvoie True si ajouté.
+
+    `ability_level` = niveau de l'ability SOURCE de l'owner-effect (indexe ses variables per-niveau ; ex.
+    HypersensoryAbilities.hpPct[level] = 30..50). Threadé par `_seed_ability_owner_effects` depuis
+    `ctx.passive_ability_level` ; None = fallback stack level dans l'effet."""
     from ...entities.effects import EffectFactory
     from ...entities import EffectsState
     if state.effects is None:
         state.effects = EffectsState.seed({})
     if state.effects.has_effect(unit_id, name=name):
         return False                                         # déjà présent
-    eff = EffectFactory.create({"name": name, "remaining": 0},   # rem 0 -> permanent
-                               ability_variables_multiplier=int(mult or 100))
+    # effectType depuis l'enum (l'entité-effet native porte un EffectType @+0x58) : le nom d'owner-effect ==
+    # nom de membre `EffectType` -> resout l'id (ex. HypersensoryAbilities_MinimalHealth=1380). None si le nom
+    # n'est pas un membre (fidélité-safe ; sans ça un effet materialise a effect_type=None -> casse les
+    # consommateurs qui font `int(effect_type)`, ex. filtre chainage G2).
+    etype = EffectType.__members__.get(name)
+    eff = EffectFactory.create({"name": name, "effectType": (int(etype) if etype is not None else None),
+                                "remaining": 0},               # rem 0 -> permanent
+                               ability_variables_multiplier=int(mult or 100),
+                               ability_level=ability_level)
     eff.target = unit_id
     state.effects.add_effect(unit_id, eff)
     return True
@@ -324,17 +336,20 @@ def _seed_derived_ability_owner_effects(state: State, unit_id: int, traits, mult
 TELEPORT_STRIKE_TELEPORTING_IN = int(EffectType.TeleportStrike_TeleportingIn)  # 1035 — etat deep-strike (#158 ; 1035=effet, PAS UnitTrait.CloseCombatWeakness)
 
 
-def _seed_ability_owner_effects(state: State, unit_id: int, vid: str, mult: int) -> list:
+def _seed_ability_owner_effects(state: State, unit_id: int, vid: str, mult: int,
+                                ability_level: Optional[int] = None) -> list:
     """`InitializeActorAbilitiesOperation.Execute @180e74660` (boucle ABILITIES) : pour chaque ability de
     l'unite, l'owner-effect pose par son `CreateBehaviour` a l'init (DSL `AddEffect(owner)`). Ex. passive
-    `PathOfCommand` -> `PathOfCommand_ExtraDmg` (aura +Attack). Abilities lues de gameconfig (active+passive)."""
+    `PathOfCommand` -> `PathOfCommand_ExtraDmg` (aura +Attack) ; passive `HypersensoryAbilities` ->
+    `HypersensoryAbilities_MinimalHealth` (HP-floor). Abilities lues de gameconfig (active+passive).
+    `ability_level` (= `ctx.passive_ability_level`) indexe les variables per-niveau de l'owner-effect posé."""
     import gameconfig as GC
     from ...entities.effects.factory import get_owner_effects_added_on_ability_init
     gu = GC.unit(vid) or {}
     abilities = list(gu.get("activeAbilities") or []) + list(gu.get("passiveAbilities") or [])
     return [name for ab in abilities
             for name in get_owner_effects_added_on_ability_init(ab)
-            if _materialize_owner_effect(state, unit_id, name, mult)]
+            if _materialize_owner_effect(state, unit_id, name, mult, ability_level=ability_level)]
 
 
 def land_deep_strike(state: State, unit_id: int) -> Optional[dict]:
@@ -356,7 +371,8 @@ def land_deep_strike(state: State, unit_id: int) -> Optional[dict]:
     vid = uc.visual_id if uc is not None else ""
     mult = int(getattr(ctx, "ability_variables_multiplier", 100) or 100) if ctx is not None else 100
     traits = list(getattr(ctx, "traits", None) or [])
-    added = _seed_ability_owner_effects(state, unit_id, vid, mult)      # ex. PathOfCommand -> aura +Attack
+    added = _seed_ability_owner_effects(state, unit_id, vid, mult,
+                                        ability_level=getattr(ctx, "passive_ability_level", None))   # PathOfCommand aura / HP-floor
     added += _seed_trait_owner_effects(state, unit_id, traits, mult)    # owner-effects des traits (idempotent)
     added += _seed_derived_ability_owner_effects(state, unit_id, traits, mult)
     return {"landed": unit_id, "owner_effects_added": added}

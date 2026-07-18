@@ -30,14 +30,21 @@ class UnitComponent(Component):
     `turn_defeated` = valeur de `state.turn_counts[owner_player]` AU MOMENT de la mort (G3 Ambush) —
     mirror du `TurnDefeated` que `GetUnitsEligibleForResurrect @180f79b90` lit dans
     `AmountIsEqual(Difference(CurrentPlayerTurnsStarted, TurnDefeated(u)), @0xc0=1)`. None tant que
-    l'unité n'est pas morte. Posé par `Ambush_SummonAbility` (trigger On(UnitDefeated))."""
-    __slots__ = ("visual_id", "alive", "ai_controlled", "turn_defeated")
+    l'unité n'est pas morte. Posé par `Ambush_SummonAbility` (trigger On(UnitDefeated)).
+
+    `times_attacked_this_turn` = nb d'attaques REÇUES par l'unité pendant le tour COURANT (G6
+    HypersensoryAbilities) — source du prédicat DSL `HasBeenAttackedAmountThisTurnIsEqualOrGreater`
+    @180df0c10 (compteur natif lu @+0x34 via `TotalTimesAttackedFormula`-family). Incrémenté quand l'unité
+    est la CIBLE d'une attaque (pas d'un DoT), remis à 0 au `start_turn` de chaque tour. Gate de l'ActiveCondition
+    du HP-floor (`IsEnemyTurn & Not(attacked>=1)` = 1re attaque du tour ennemi) et du trigger MoveAndSpawnDecoy."""
+    __slots__ = ("visual_id", "alive", "ai_controlled", "turn_defeated", "times_attacked_this_turn")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False):
         self.visual_id = visual_id
         self.alive = alive
         self.ai_controlled = ai_controlled
         self.turn_defeated = None
+        self.times_attacked_this_turn = 0
 
 
 class OwnerComponent(Component):
@@ -62,12 +69,33 @@ class PositionComponent(Component):
 
 
 class HealthComponent(Component):
-    """PV — `HealthComponent` @180f9f1b0. `hp` courant, `hp_max` plafond."""
-    __slots__ = ("hp", "hp_max")
+    """PV — `HealthComponent` @180f9f1b0. `hp` courant, `hp_max` plafond.
 
-    def __init__(self, hp: Optional[int], hp_max: Optional[int]):
+    `minimal_health` = **plancher de PV** courant (`Nullable<int>` natif @+0x1c ; None = pas de plancher).
+    Posé/effacé par le HP-floor `HypersensoryAbilities_MinimalHealthEffect` (Apply @180f445a0 / Revert
+    @180f44820) — quand présent, `reduce()` empêche les PV de descendre sous `min(hp, minimal_health)`
+    (mirror du clamp de `FillUpStatComponent.Reduce @180f9bba0`)."""
+    __slots__ = ("hp", "hp_max", "minimal_health")
+
+    def __init__(self, hp: Optional[int], hp_max: Optional[int], minimal_health: Optional[int] = None):
         self.hp = hp
         self.hp_max = hp_max
+        self.minimal_health = minimal_health
+
+    def reduce(self, amount: int, *, ignore_minimal: bool = False) -> int:
+        """`FillUpStatComponent.Reduce @180f9bba0` — retire `amount` PV, borné : jamais > PV courant (pas de
+        PV négatifs) et, si `minimal_health` est posé et `ignore_minimal` est faux (param_3 natif = flag de
+        bypass), jamais sous `min(hp, minimal_health)` (le HP-floor Hypersensory). Renvoie la réduction RÉELLE
+        appliquée (`iVar3`). No-op (0) si `hp` non capté. Mute `self.hp`."""
+        if self.hp is None:
+            return 0
+        amount = max(0, int(amount))                    # Max(0, param_2)
+        red = min(amount, self.hp)                       # Min(iVar2, current) — pas de PV négatifs
+        if not ignore_minimal and self.minimal_health is not None:
+            floor = min(self.hp, int(self.minimal_health))   # Min(current, minimalHealth.Value)
+            red = min(self.hp - floor, red)              # Min(current - floor, iVar3) — clamp au plancher
+        self.hp -= red
+        return red
 
 
 class EffectsOwnedComponent(Component):
