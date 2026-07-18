@@ -566,3 +566,48 @@ class SpawnUnitOperation:
         mult = int(getattr(c_ctx, "ability_variables_multiplier", 100) or 100)
         gid = _spawn_config_grot(state, vid, tile, "SquigHound", level, mult, coc.team, coc.player)
         return [gid] if gid is not None else []
+
+    @staticmethod
+    def execute_control_edict_summon(state: State, caster_id: int) -> list:
+        """`ControlEdictAbility.SummonMinion @180e1d5e0` (branche PROTECTOR, passif de Tan Gi'da). Apres une
+        attaque NORMALE du caster (trigger `On(0x26)`), si **< maxSummons[level]** Skitarii Vanguards amis
+        vivants, spawn 1 `admecSmnVanguard` sur une tuile LIBRE ADJACENTE AU **CASTER** (Tan), stats
+        `WithStatsFromConfig(ControlEdict)` (`summonHp/summonDmg/summonArmor[level]`), `active_ability_level =
+        casterLevel` (propage -> le Skitarii joue son tour via run_ai_control_pass). Renvoie [id] ou [].
+
+        DIFFERENCES vs `execute_squighound_summon` (mirror natif distinct) :
+          - hex libre adjacent au **CASTER** (`AdjacentTiles(caster)`), PAS a la cible ;
+          - cap = `ability_var("ControlEdict","maxSummons", level)` = **PER-NIVEAU (3/4/5)**, PAS une constante ;
+          - **AUCUNE on-appearance** (le Skitarii ne joue pas a l'apparition -- il agit a SON tour ; la branche
+            Conqueror d'un cast ULTERIEUR le fait attaquer). Cf. verdict RE ControlEdict.
+        `If(NOT AmountIsEqualOrGreater(Children INTER UnitsWithId(admecSmnVanguard), maxSummons)) -> Spawn` :
+        no-op au cap (pas de remplacement). Placement natif = `First(SortTilesByUtilityForSummon(CanAddUnit(
+        AdjacentTiles(caster)),7),1)` ; ici `_pick_randomly` (tri par utilite-summon = raffinement, == SquigHound)."""
+        import gameconfig as GC
+        from ...entities.effects.magnitude import ability_var
+        caster = state.get_entity(caster_id)
+        board = state.board
+        if caster is None or board is None:
+            return []
+        coc = caster.get_component(OwnerComponent)
+        csc = caster.get_component(StatsComponent)
+        c_ctx = csc.ctx if csc is not None else None
+        if coc is None or c_ctx is None:
+            return []
+        consts = (GC.ability("ControlEdict") or {}).get("constants") or {}
+        vid = consts.get("unitId")                        # admecSmnVanguard
+        if vid is None:
+            return []
+        level = getattr(c_ctx, "active_ability_level", None)
+        mult = int(getattr(c_ctx, "ability_variables_multiplier", 100) or 100)
+        max_summons = int(ability_var("ControlEdict", "maxSummons", level) or 5)   # PER-NIVEAU (pas constante)
+        # cap : `Children INTER UnitsWithId(admecSmnVanguard)` = Skitarii amis vivants (approx par team+visualId).
+        n = sum(1 for e in state.entities.values()
+                if (u := e.get_component(UnitComponent)) is not None and u.alive and u.visual_id == vid
+                and (o := e.get_component(OwnerComponent)) is not None and o.team == coc.team)
+        if n >= max_summons:                              # NOT AmountIsEqualOrGreater(count, max) False -> no-op
+            return []
+        tiles = _free_tiles_adjacent(state, caster_id, set())   # CanAddUnit(AdjacentTiles(CASTER))
+        tile = _pick_randomly(state, tiles)               # SortTilesByUtilityForSummon+First = raffinement
+        gid = _spawn_config_grot(state, vid, tile, "ControlEdict", level, mult, coc.team, coc.player)
+        return [gid] if gid is not None else []

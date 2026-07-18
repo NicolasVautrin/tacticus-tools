@@ -36,6 +36,8 @@ from .arcane_shield import (ArcaneShieldAbility, _arcaneshield_target, _arcanesh
                             CHAOS_FACTIONS, ARCANESHIELD_RANGE, ARCANESHIELD_TRAIT_EXCLUDE)
 from .final_justice import (FinalJusticeAbility, _finaljustice_target, _finaljustice_attack,
                             _normal_attack_health_range, _damage_utility_weights)
+from .control_edict import (ControlEdictAbility, _adjacent_mechanical_summons,
+                            PROTECTOR as CONTROLEDICT_PROTECTOR, CONQUEROR as CONTROLEDICT_CONQUEROR)
 
 __all__ = [
     # psyker
@@ -61,4 +63,7 @@ __all__ = [
     # final_justice
     "FinalJusticeAbility", "_finaljustice_target", "_finaljustice_attack",
     "_normal_attack_health_range", "_damage_utility_weights",
+    # control_edict (S4b)
+    "ControlEdictAbility", "_adjacent_mechanical_summons",
+    "CONTROLEDICT_PROTECTOR", "CONTROLEDICT_CONQUEROR",
 ]

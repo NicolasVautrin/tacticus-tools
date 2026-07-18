@@ -36,7 +36,7 @@ from .base import (TriggerEvent, TriggeredAbility, EffectTrigger, TileEffectTrig
                    PHASE_TRIGGER_CAP, _is_ranged_position)
 from .loki import (PsykerExtraAttackAbility, ActOfFaithAccumulateAbility, ActOfFaithResetAbility,
                    FinalJusticeAbility, TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility,
-                   ArcaneShieldAbility, FireTileDoT, FIRE_TILE,
+                   ArcaneShieldAbility, ControlEdictAbility, FireTileDoT, FIRE_TILE,
                    _on_fire_damage_ability, _fire_of_absolution_after_attack)
 from .tiles import dry_bush_fire_spread
 from .effect_triggers import (OverwatchAutoAttack, ContaminatedTileEffect,
@@ -77,6 +77,10 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # attaque du tour ennemi -> move + decoy sur la tuile quittee + contre-attaque 3x Projectile. G6a (HP-floor,
     # effet 1380) est un OWNER-EFFECT auto-pose (pas un ability-trigger) ; ici = le volet triggered.
     "HypersensoryAbilities": [HypersensoryMoveAndSpawnDecoyAbility],
+    # ControlEdict (passif Tan Gi'da admecMarshall, S4b) = after-normal-attack `On(0x26)` Imperative-gate :
+    # Protector -> summon Skitarii Vanguard adjacent a Tan (cap maxSummons[level]) ; Conqueror -> les Summons
+    # Mechanical amis adjacents attaquent la cible de Tan a portee. Cf. loki/control_edict.py.
+    "ControlEdict": [ControlEdictAbility],
 }
 
 # --- Registre : effectType → effet-trigger ---------------------------------------------------------
