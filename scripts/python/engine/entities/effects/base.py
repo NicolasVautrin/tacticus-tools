@@ -151,6 +151,19 @@ class BaseEffect:
         fourni par l'agrégateur `aura_attack_bonus_from_allies`. Défaut None = pas d'aura."""
         return None
 
+    def create_aura_fixed_armor_bonus_for_defense(self, ctx: Mapping | None = None) -> "int | None":
+        """Contribution AURA à la stat **FixedArmor(16)** du DÉFENSEUR : effet stat-mod possédé par un ALLIÉ
+        du défenseur qui buffe l'armure de ce dernier quand il est à portée (natif : `DynamicStatModifierEffect`
+        à `CreateTargetSelector` = self + `AdjacentFriends(1)` ∩ `UnitsWithTrait(5=Mechanical)`, ex.
+        `ProtectorImperative` @180f39890). Ajouté PLAT à `GetStat(FixedArmor)` du défenseur, RÉ-ÉVALUÉ PAR
+        ADJACENCE au site de résolution armure (le natif écrit la ValueModification à TOUTES ses cibles-sélecteur
+        → l'armure de l'allié à portée l'inclut). Le porteur (self) est déjà couvert par son stat-mod EAGER
+        (`applied_stat_mods`, dans `GetStat`) → l'aura n'ajoute QUE pour un défenseur allié DISTINCT (pas de
+        double-compte). `ctx` = {owner_id/pos/team/mult/level, def_id/def_pos/def_team/def_traits} fourni par
+        l'agrégateur `aura_fixed_armor_bonus_for_defense`. SYMÉTRIQUE défenseur de `create_aura_attack_bonus`
+        (attaquant). Défaut None = pas d'aura."""
+        return None
+
     def create_aura_attack_damage_malus_for_enemy(self, ctx: Mapping | None = None) -> EffectBonus | None:
         """Contribution AURA %-DÉGÂT projetée sur un ENNEMI ATTAQUANT à portée (l'effet est possédé par une
         unité, se projette sur les ENNEMIS environnants qui subissent un malus sur LEUR propre attaque —

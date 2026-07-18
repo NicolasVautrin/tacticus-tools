@@ -30,7 +30,7 @@ from ..services.battle_query import (
     select_weapon_pierce as _bq_select_weapon_pierce,
     are_tiles_adjacent)
 from ..entities.effects import (
-    aura_defense_damage_malus_from_units,
+    aura_defense_damage_malus_from_units, aura_fixed_armor_bonus_for_defense,
     build_attacker_modifiers_from_effects, build_defender_modifiers_from_effects,
     hits_bonus_from_effects,
 )
@@ -75,6 +75,55 @@ def target_trait_names(state: State, target_id: int) -> "frozenset[str]":
     e = state.get_entity(target_id)
     sc = e.get_component(StatsComponent) if e is not None else None
     return frozenset(getattr(sc.ctx, "traits", None) or []) if sc is not None else frozenset()
+
+
+def defender_fixed_armor(state: State, target_id: int) -> int:
+    """FixedArmor(16) EFFECTIVE du DÉFENSEUR = `GetStat(16)` [effet-inclusif : inclut le stat-mod EAGER self
+    de ProtectorImperative sur SON porteur, incr. A] + AURA +FixedArmor projetée par un ALLIÉ ADJACENT porteur
+    (`create_aura_fixed_armor_bonus_for_defense` : `ProtectorImperative` reach = self + `AdjacentFriends(1)` ∩
+    `UnitsWithTrait(5=Mechanical)`, @180f39890). Le porteur (self) est déjà couvert par `GetStat` → l'aura
+    n'ajoute QUE pour un défenseur allié-adjacent DISTINCT du porteur (auto-exclusion def==owner ⇒ pas de
+    double-compte). RÉ-ÉVALUÉ PAR ADJACENCE ici (site de résolution armure), mirror du natif
+    DynamicStatModifierEffect dont la ValueModification atteint TOUTES ses cibles-sélecteur.
+
+    FOYER UNIQUE de résolution de l'armure défenseur pour le COMBAT (appelé par TOUS les vecteurs de dégât :
+    normale/ability/splash + DoT tuile) — 1 service natif = 1 port (check-own-port), pas de fork. (La PRÉDICTION
+    IA est PRÉ-armure — armor=0 — donc non concernée : l'armure n'entre pas dans la décision.) Court-circuit
+    non-Mechanical : un bénéficiaire non-Mechanical n'a jamais d'aura Protector → renvoie la base direct."""
+    e = state.get_entity(target_id)
+    tsc = e.get_component(StatsComponent) if e is not None else None
+    base = int(tsc.ctx.stat(StatType.FIXED_ARMOR)) if tsc is not None else 0
+    if state.effects is None or e is None:
+        return base
+    toc = e.get_component(OwnerComponent)
+    tpc = e.get_component(PositionComponent)
+    if toc is None or tpc is None:
+        return base
+    def_traits = target_trait_names(state, target_id)
+    if "Mechanical" not in def_traits:
+        return base                                       # bénéficiaire non-Mechanical -> aucune aura Protector
+    carriers = []
+    for uid, ent in state.entities.items():
+        if uid == target_id:
+            continue
+        oc = ent.get_component(OwnerComponent)
+        pc = ent.get_component(PositionComponent)
+        if oc is None or pc is None or oc.team != toc.team:
+            continue                                      # Friends du porteur = même équipe que le défenseur
+        hc = ent.get_component(HealthComponent)
+        effs = state.effects.active_effects(uid, {"hp": hc.hp if hc is not None else None})
+        if not effs:
+            continue
+        sc = ent.get_component(StatsComponent)
+        lvl = int(getattr(sc.ctx, "active_ability_level", 0) or 0) if sc is not None else 0
+        mult = int(getattr(sc.ctx, "ability_variables_multiplier", 100) or 100) if sc is not None else 100
+        carriers.append((uid, (pc.col, pc.row), oc.team, mult, lvl, effs))
+    if not carriers:
+        return base
+    aura = aura_fixed_armor_bonus_for_defense(
+        carriers, {"def_id": target_id, "def_pos": (tpc.col, tpc.row),
+                   "def_team": toc.team, "def_traits": def_traits})
+    return base + int(aura)
 
 
 def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged: Optional[bool] = None,

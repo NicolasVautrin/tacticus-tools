@@ -8,8 +8,9 @@ RE (re-expert, build gqfc5mff6c, namespace natif "Loki") :
        THEN = AddEffect(1248 Conqueror) + RemoveEffect(1247),
        ELSE = AddProtector(1247)     + RemoveEffect(1248))`.
     Etat "Imperative courant" = quel des 2 effets (1247/1248) est present sur le caster (pas de composant).
-  - Protector (1247) = DynamicStatModifierEffect +extraArmor (stat 0x1b=27) ; `DoctrinaImperatives_SetStart`
-    (1201, @1811d5100) pose Protector PAR DEFAUT au debut de bataille -> Protector = etat initial.
+  - Protector (1247) = DynamicStatModifierEffect +extraArmor sur **FixedArmor(16)** (ground-truth live tranche
+    stat 16, PAS une stat 27 separee) ; `DoctrinaImperatives_SetStart` (1201, @1811d5100) pose Protector PAR
+    DEFAUT au debut de bataille -> Protector = etat initial. Portee = self + amis Mechanical adjacents (incr. B).
   - Conqueror (1248) = DamageModifierAbilityEffect +extraDmg gate `HasNegativeModifier(cible, FixedArmor<0)`
     (@180f39650) ; selecteur self + Mechanical adjacents (@180f39890). extraDmg/extraArmor = config-var
     (582@lvl65, rarity-scaled).
@@ -266,3 +267,87 @@ def test_doctrina_imperatives_offline_agreement(live_session, rpc, build_runner)
     if live_armor > 0:
         assert delta == live_armor, \
             f"Protector +FixedArmor offline {delta} != +armor LIVE (statModSources) {live_armor}"
+
+
+def test_doctrina_protector_aura_offline_agreement(live_session, rpc, build_runner):
+    """OFFLINE-AGREEMENT (port S4a incr. B) : le canal aura +FixedArmor (`defender_fixed_armor`, FOYER partage
+    de resolution armure defenseur) projette le +extraArmor de Protector sur un allie Mechanical ADJACENT a
+    Tan Gi'da, a l'identique du LIVE ; le porteur (self) est deja couvert par le stat-mod EAGER (GetStat) =>
+    l'aura NE double PAS (auto-exclusion def==owner). DRIVE la position de l'allie offline (adjacent vs eloigne)
+    pour mesurer la portee sans dependre de la geometrie de deploiement (doctrine drive-positions)."""
+    from engine.runner.snapshot import load_state
+    from engine.runner.components import StatsComponent, PositionComponent
+    from engine.entities.stats import StatType
+    from engine.entities.effects.magnitude import ability_var
+    from engine.runner.damage_model import defender_fixed_armor
+    import hexgeo
+
+    rid = build_runner("777", extra=BUILD)["rid"]
+    dec, tan = _advance_to_my_turn(rpc, rid, TAN_VIS)
+    if tan is None:
+        pytest.skip("Tan Gi'da absent / pas atteint son tour")
+    tan_id = tan["id"]
+    ally = _find(dec, ALLY_VIS)
+    ally_id = (ally or {}).get("id")
+    if ally_id is None:
+        pytest.skip("allie Mechanical (admecRuststalker) absent")
+    if PROTECTOR not in _effect_ids(tan):
+        pytest.skip("Protector(1247) non actif pre-cast (SetStart) -> portee non amorcable")
+
+    dec0 = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
+    ob0 = rpc("observeBattle", {"runnerId": rid}, 60)
+    snap0 = rpc("combatSnapshot", {"runnerId": rid}, 90)
+    # +armor LIVE de l'allie (oracle natif) -- la portee live est deja validee par test_doctrina_protector_aura_live ;
+    # ici on confronte le MONTANT reproduit OFFLINE. 0 si l'allie n'est pas adjacent au deploiement (aura absente live).
+    sm_ally = rpc("statModSources", {"runnerId": rid, "unitId": ally_id, "minAbs": 1}, 90)
+    live_ally_armor = 0
+    for uu in (sm_ally.get("units") or []) if isinstance(sm_ally, dict) else []:
+        fa = (uu.get("mods") or {}).get("fixedArmor")
+        if fa and (fa.get("total") or 0) > 0:
+            live_ally_armor = int(fa["total"])
+
+    state = load_state(dec0, ob0, snap0)
+    tan_ent = state.get_entity(tan_id)
+    ally_ent = state.get_entity(ally_id)
+    if tan_ent is None or ally_ent is None:
+        pytest.skip("entites offline incompletes (snapshot)")
+    tpc = tan_ent.get_component(PositionComponent)
+    apc = ally_ent.get_component(PositionComponent)
+    asc = ally_ent.get_component(StatsComponent)
+    tsc = tan_ent.get_component(StatsComponent)
+    if tpc is None or apc is None or asc is None or tsc is None or state.effects is None:
+        pytest.skip("composants position/stats/effects offline manquants")
+
+    # oracle extraArmor = niveau/mult de Tan Gi'da (SOURCE de l'aura), meme var que le self.
+    tctx = tsc.ctx
+    lvl = getattr(tctx, "active_ability_level", None)
+    mult = int(getattr(tctx, "ability_variables_multiplier", 100) or 100)
+    extra = int(ability_var("DoctrinaImperatives", "extraArmor", lvl, multiplier_pct=mult) or 0)
+    assert extra > 0, f"extraArmor non resoluble offline (level={lvl}, mult={mult})"
+
+    ally_base = int(asc.ctx.stat(StatType.FIXED_ARMOR) or 0)
+
+    # DRIVE : allie ELOIGNE (>1) -> aura ABSENTE (base seule).
+    apc.col, apc.row = tpc.col + 4, tpc.row + 4
+    far = defender_fixed_armor(state, ally_id)
+    assert far == ally_base, f"aura appliquee hors-portee : far={far} != base allie {ally_base}"
+
+    # DRIVE : allie ADJACENT (ring-1, parite hexgeo) -> +extraArmor.
+    adj_col, adj_row = hexgeo.neighbors(tpc.col, tpc.row)[0]
+    apc.col, apc.row = adj_col, adj_row
+    assert hexgeo.distance((tpc.col, tpc.row), (apc.col, apc.row)) == 1, "drive adjacency KO (parite hexgeo)"
+    near = defender_fixed_armor(state, ally_id)
+    print(f"[Protector aura offline] allie base={ally_base} adjacent={near} (+{near - ally_base}) ; "
+          f"oracle extraArmor={extra} ; live_ally=+{live_ally_armor}")
+    assert near == ally_base + extra, \
+        f"aura offline allie Mechanical adjacent {near} != base {ally_base} + extraArmor {extra}"
+    if live_ally_armor > 0:
+        assert near - ally_base == live_ally_armor, \
+            f"aura offline (+{near - ally_base}) != +armor LIVE allie (statModSources +{live_ally_armor})"
+
+    # SELF (Tan Gi'da) : deja couvert par le stat-mod EAGER (GetStat) -> defender_fixed_armor(self) == GetStat
+    # (l'aura s'auto-exclut def==owner : PAS de double-compte).
+    tan_get = int(tctx.stat(StatType.FIXED_ARMOR) or 0)
+    tan_resolved = defender_fixed_armor(state, tan_id)
+    assert tan_resolved == tan_get, \
+        f"self double-compte : defender_fixed_armor(tan)={tan_resolved} != GetStat(16) {tan_get}"

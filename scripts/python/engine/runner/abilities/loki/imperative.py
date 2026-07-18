@@ -18,7 +18,8 @@ Le predicat `If(HasEffect(...))` (kind T) est COLLAPSE imperativement (lecture d
 doctrine slice-18/19/24 : les predicats/selecteurs S/T se replient, seule l'ossature E reste feuilles DSL) ;
 les DEUX branches routent par les feuilles DSL portees `AddEffect`/`RemoveEffect` (self-cast : selecteur
 `Caster()`). Increment A : Protector = stat-mod SELF +FixedArmor (materialise) ; Conqueror = present-inerte
-(contribution +dmg = increment C) ; portee aura aux Mechanical adjacents = increment B.
+(contribution +dmg = increment C). Increment B (FAIT) : portee aura Protector +FixedArmor aux amis Mechanical
+adjacents (canal `create_aura_fixed_armor_bonus_for_defense`, foyer runner `defender_fixed_armor`, self auto-exclu).
 
 DUREE : le decompile passe `0` (aucun `TurnsFromRounds`) aux deux `AddEffect` -> `DefaultAmountOfRounds`
 (@181559ff0 : null pour 1247/1248) -> fallback 1 round (`AddEffectOperation`). La PERSISTANCE de la stance

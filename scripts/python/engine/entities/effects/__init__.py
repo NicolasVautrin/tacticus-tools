@@ -47,7 +47,7 @@ __all__ = [
     "build_defender_modifiers_from_effects",
     "hits_bonus_from_effects", "hits_malus_from_defender_effects", "aura_hits_malus_for_defense",
     "aura_hits_bonus_for_attack", "additional_hit_groups", "aura_defense_damage_malus_from_units",
-    "aura_attack_damage_bonus_from_allies",
+    "aura_attack_damage_bonus_from_allies", "aura_fixed_armor_bonus_for_defense",
     "crit_chance_bonus_from_effects", "crit_damage_bonus_from_effects",
     "apply_effect_stat_modifications", "stat_modifications_by_source",
 ]
@@ -303,6 +303,26 @@ def aura_attack_bonus_from_allies(carriers, ctx) -> int:
                 "owner_faction": owner_faction}
         for e in _as_effects(effects):
             b = e.create_aura_attack_bonus(octx)
+            if b:
+                total += int(b)
+    return total
+
+
+def aura_fixed_armor_bonus_for_defense(carriers, ctx) -> int:
+    """Σ des bonus PLATS à la stat **FixedArmor(16)** projetés sur le DÉFENSEUR par les auras stat-mod possédées
+    par ses ALLIÉS adjacents (`create_aura_fixed_armor_bonus_for_defense`, ex. `ProtectorImperative` de
+    DoctrinaImperatives @180f39890 : +extraArmor aux amis Mechanical ring-1 du porteur). SYMÉTRIQUE défenseur de
+    `aura_attack_bonus_from_allies` (attaquant). `carriers` = itérable de (owner_id, owner_pos, owner_team,
+    owner_mult, owner_level, effets du porteur) ; `ctx` = {def_id, def_pos, def_team, def_traits}. Le porteur
+    (self) est déjà buffé par son stat-mod EAGER (`GetStat`) → l'effet aura s'auto-exclut quand def==owner (pas
+    de double-compte). L'adjacence hex (ring-1) + le gate trait Mechanical sont vérifiés dans la méthode d'effet.
+    Retour >= 0 (à AJOUTER à `GetStat(FixedArmor)` du défenseur, RÉ-ÉVALUÉ PAR ADJACENCE)."""
+    total = 0
+    for owner_id, owner_pos, owner_team, owner_mult, owner_level, effects in (carriers or []):
+        octx = {**(ctx or {}), "owner_id": owner_id, "owner_pos": owner_pos, "owner_team": owner_team,
+                "owner_mult": owner_mult, "owner_level": owner_level}
+        for e in _as_effects(effects):
+            b = e.create_aura_fixed_armor_bonus_for_defense(octx)
             if b:
                 total += int(b)
     return total

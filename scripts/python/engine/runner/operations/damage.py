@@ -73,7 +73,8 @@ from ..components import (StatsComponent, HealthComponent, PositionComponent, Un
                          ShieldComponent)
 from ..damage_model import (select_weapon, select_weapon_pierce, attacker_modifiers,
                             defender_modifiers, build_hits_board, apply_elevation_bonus,
-                            apply_trench_reduction, target_trait_names, getstuckin_combat_chance)
+                            apply_trench_reduction, target_trait_names, getstuckin_combat_chance,
+                            defender_fixed_armor)
 from ...entities.effects import (hits_bonus_from_effects, crit_chance_bonus_from_effects,
                                  crit_damage_bonus_from_effects, defender_effect_block_sources)
 from ...entities.effects.loki import LIGHT_COVER_TILE_ID
@@ -298,10 +299,11 @@ class AttackDamageOperation:
         else:                                     # positions manquantes -> base seule (pas de GetStuckIn/aura)
             hits = max(1, whits + ctx.stat(StatType.EXTRA_HITS) + hits_bonus_from_effects(active))
         tsc = tgt.get_component(StatsComponent)
-        # armure = GetStat(16) DÉJÀ effet-inclusif : les bonus +armor d'effet sont des StatModifications
-        # (aucun `GetArmorBonusFromEffects` séparé n'existe — seuls crit/hits ont une couche calc-time) →
-        # cuits dans GetStat → dans le combatSnapshot → dans ctx.fixed_armor. Rien à sommer en plus.
-        armor = tsc.ctx.stat(StatType.FIXED_ARMOR) if tsc is not None else 0
+        # armure défenseur = FOYER PARTAGÉ `defender_fixed_armor` : GetStat(16) [effet-inclusif : les stat-mods
+        # +armor d'effet, dont le stat-mod EAGER self de ProtectorImperative, sont cuits dans GetStat] + AURA
+        # +FixedArmor d'un ALLIÉ Mechanical ADJACENT porteur de ProtectorImperative (self auto-exclu ⇒ pas de
+        # double-compte), ré-évaluée par adjacence. Court-circuit non-Mechanical ⇒ base seule (cas courant).
+        armor = defender_fixed_armor(state, target_id)
         # DÉFENSEUR : réductions de dégât reçu portées par les effets de la CIBLE (symétrique attaquant ;
         # CalculateDefenderModifiersForPrediction). Vide → no-op (apply_all_modifiers identité). Couvre la
         # famille ADamageDefenseModifierAbilityEffect ; STAT/Parry/triggers = axes séparés (cf. §1.8).
@@ -516,7 +518,7 @@ class AttackDamageOperation:
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None)
         tsc = tgt.get_component(StatsComponent)
-        armor = tsc.ctx.stat(StatType.FIXED_ARMOR) if tsc is not None else 0
+        armor = defender_fixed_armor(state, target_id)   # FOYER partagé (base GetStat(16) + aura Protector allié)
         # #59 suite : threade is_melee + profil de l'ability -> malus DÉFENSEUR gatés (Terrifying_ExtraDefense
         # IsMeleeAttack ; TerminatorArmour DamageProfileIs). None (caller non mis à jour) = comportement
         # historique (gates non appliqués) — INERTE pour une cible sans effet de défense gaté.
@@ -606,7 +608,7 @@ class AttackDamageOperation:
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None)
         tsc = tgt.get_component(StatsComponent)
-        armor = tsc.ctx.stat(StatType.FIXED_ARMOR) if tsc is not None else 0
+        armor = defender_fixed_armor(state, target_id)   # FOYER partagé (base GetStat(16) + aura Protector allié)
         # #59 suite : threade is_melee + profil -> malus DÉFENSEUR gatés (cf. execute_ability_attack).
         # None (caller non mis à jour) = comportement historique — INERTE sans effet de défense gaté.
         def_mods, _da = defender_modifiers(state, target_id, thc.hp,
@@ -673,8 +675,7 @@ class AttackDamageOperation:
         thc = tgt.get_component(HealthComponent) if tgt is not None else None
         if thc is None or thc.hp is None:
             return None
-        tsc = tgt.get_component(StatsComponent)
-        armor = int(tsc.ctx.stat(StatType.FIXED_ARMOR)) if tsc is not None else 0
+        armor = defender_fixed_armor(state, target_id)   # FOYER partagé (DoT tuile réduit par l'armure défenseur)
         dmg = int(round(apply_pierce_and_modifiers(int(base), pierce_pct=int(profile_pierce),
                                                    armor=armor, mods=None)))
         if dmg <= 0:
