@@ -70,7 +70,7 @@ Deux primitives partagées à porter EN PREMIER (slice G1) :
 | **G2** | #9 | **DecoysAndMisdirection** — ✅ **PORTÉ + LIVE-VALIDÉ** (2 triggers step-on : ennemi Blast / allié buff+decoy) | G1 |
 | **G3** | #10 | **Ambush** (mort→decoy, résurrection sur decoy + tour immédiat, ordre Character-first) | G1 |
 | **G4** | #11 | **CultDemagogue** — ✅ **PORTÉ + LIVE-VALIDÉ** (arbre DSL `genestealer.py`) | G1 |
-| **G5** | #12 | **HeroicFusillade** (move + splash target+voisins + crit ×hex-libres + ré-arme post-résurrection) | (move+splash) |
+| **G5** | #12 | **HeroicFusillade** — ✅ **PORTÉ + LIVE-VALIDÉ** (move + splash target+voisins + crit ×hex-libres ; ré-arme post-résurrection = tranche G3) | (move+splash) |
 | **G6** | #13 | **HypersensoryAbilities** (HP floor 50 % + reactive move + decoy + contre-attaque 3×) | G1 |
 | **G7** | #14 | **BeastSlayer** — ✅ **DÉJÀ PORTÉ** (trait générique, live-validé orksNob #72) : reste un guard live Judh | — (couche damage-mod) |
 
@@ -269,4 +269,75 @@ Blast infaisable proprement. **Validation retenue = WIRING DÉTERMINISTE sur ÉT
 **Test** : `tests/engine/runner/test_decoys_misdirection_migration_live.py` (3/3 ✓) — enemy-step→Blast+crush,
 friendly-step→effet 1379+nouveau decoy (GS), garde no-over-fire (move sans decoy → 0 trigger). Gardes vertes :
 `test_overwatch_live` (1✓, On(4) intact), `test_runner_move_live` (2✓+1xfail préexistant),
-`test_decoy_foundation_live` (3✓ G1) → **0 régression** sur le vecteur after-move. ⚠ NON committé.
+`test_decoy_foundation_live` (3✓ G1) → **0 régression** sur le vecteur after-move. **COMMITTÉ `d3126db`**.
+
+### G5 — PORTÉ + LIVE-VALIDÉ (2026-07-18) — decompile @1811e8de0 re-confirmé
+
+**PORT** : `HeroicFusilladeAbility` + `heroic_fusillade_tree()` (`abilities/genestealer.py`), registré
+`handler.py[1180]`. Nouveaux nœuds DSL : `IsSurrounding` (`entities/triggers.py`, mirror `@180df5320`),
+`ChangeStat` (`runner/abilities/behaviours.py`, mirror `DSLFactory.ChangeStat @180debdc0` →
+`ChangeStatBehaviour.Execute @180fbfb10`, modes 2=Add / 3=Sub via `apply_change_stat`/`revert_change_stat`).
+Test `test_heroic_fusillade_migration_live.py` (3/3) : move+splash+crit_bonus+revert net-nul ; gate
+déjà-adjacent ; **crit-buff OBSERVABLE au roll** (CC forcé 100 : l'ability inflige > la même attaque splash
+sans le buff, même seed). Guards plasma+stikkbomb OK.
+
+**3 CORRECTIONS tirées du décompile @1811e8de0 (vs le verdict RE ci-dessous)** :
+1. **SPLASH inclut la CIBLE** : natif `SurroundingUnits(target, radius, includeCenter=1)` → `SurroundingTiles(
+   target, includeCenter=1, radius) @180dfca70` = disk INCLUANT la tuile cible (le MOVE-ring passe
+   `includeCenter=0` = exclu-centre). i2 « 6x ... to the **target AND** all other enemies surrounding it ».
+   Porté = `Union(Target(), Alive(SurroundingEnemies(TargetTile(), 1)))`.
+2. **surrounding radius = 1** (DslContext `@+0xc0` = adjacence, i2 « surrounding **hex** »), **DISTINCT** du
+   `range` config = **2** (`GetNumberConstant(0x16)`, portée de MOUVEMENT `MovableTilesInRange`). Le natif lit
+   `@0xc0` (PAS `GetNumberConstant` — contraste CultDemagogue @1811cdc30 qui passe `GetNumberConstant(0x44)=range`).
+   `constants` = `{range:2, nrOfHits:6}` ; `variables` = `minDmg/maxDmg/extraCritDmg` (rarity-scaled, `extraCritDmg[65]=218`).
+3. **MoveUnit options NULL** (`local_1b8..local_188 = 0`) → **AUCUN after-move crush/overwatch** (feuille
+   `MoveUnit` fidèle, cf. #4). Le verdict RE « déclenche crush/overwatch » était **imprécis** — corrigé au décompile.
+
+---
+
+### G5 — VERDICT re-expert (2026-07-18, ghidra gqfc5mff6c, PROUVÉ) — [porté, cf. ci-dessus]
+
+HeroicFusillade (id **1180**, Judh `genesKelermorph`, namespace natif `Abilities.Active.Loki`). Actif —
+**décompilé = arbre DSL** ; à porter comme CultDemagogue (`ActiveAbility` dans `abilities/genestealer.py`,
+`ABILITY_TYPE=1180`, registré `handler.py`).
+
+**`HeroicFusilladeAbility$$ExecuteBehaviour @1811e8de0`** = `op_add` de 3 étages :
+```
+op_add(
+  If( Not(IsSurrounding(target, caster, radius)), MoveUnit(caster, destTile) ),        # 1. MOVE
+  If( IsAlive(target),
+      op_add( ChangeStat(CritDamage=10, mode=2=Add, mag),                              # 2a. buff crit (pose)
+      op_add( AttackWithAttackDamage(caster, splash, Projectile, hits=6),              # 2b. ATTACK 6x splash
+              ChangeStat(CritDamage=10, mode=3=Sub, mag) ) ) ) )                       # 2c. buff crit (retire)
+```
+- **MOVE** : dest = `First(SortTilesByUtility(CanAddUnit(SurroundingTiles(target, range)) &
+  MovableTilesInRange(caster, Direct(GetNumberConstant(0x16)=range=2), reachOnly), 7))` @180df6a20/…/180df6ae0.
+  Vraie `MoveUnitOperation` (déclenche crush/overwatch). Gate `Not(IsSurrounding(target, caster, radius))
+  @180df5320` = move SEULEMENT si la cible n'entoure pas déjà le caster (sinon skip = déjà adjacent).
+  Sélecteur S lourd → COLLAPSER en `_move_dest_tile(state, caster, target, range=2)` (tuiles libres autour
+  cible ∩ atteignables ≤range, tri utilité, first) → `MoveUnit(Caster(), FixedTiles([dest]))`.
+- **ATTACK** : splash = `Unobscured(Enemies(SurroundingUnits(target, radius)))` @180dfcb70 = ennemis-du-caster
+  VIVANTS entourant la cible (cible incluse, splash cible-centré comme PlasmaGrenade), **enemies-only** (pas
+  friendly-fire). `hits = GetNumberConstant(0x2f) = nrOfHits = 6` (gameconfig). Profil Projectile P15. →
+  leaf `AttackWithAttackDamage(splash_sel, "HeroicFusillade", "Projectile", is_melee=False)` mode `multi=True`
+  (sélecteur `Alive(SurroundingEnemies(TargetTile(), radius))` ; `Unobscured`/LoS collapsé = no-op board
+  dégagé, HYPOTHÈSE à valider si cover).
+- **CRIT-PER-FREE-HEX** : `mag = Multiply(Direct(GetVariableForLevel(0x42)=extraCritDmg), nbFree)` où
+  `nbFree = Count(Unobscured(CanAddUnit(SurroundingTiles(target))))` = tuiles LIBRES entourant la cible au
+  cast. **`extraCritDmg[L]=218@L65` rarity-scaled** → `mag = 218 × nbFree`. Appliqué par **2× ChangeStat sur
+  CRIT_DAMAGE (StatType 10)** (`ChangeStatBehaviour.Execute @180fbfb10`, mode2=Add avant l'attaque, mode3=Sub
+  après) = **buff crit temporaire net-nul scopé à l'attaque**, cible = le caster (self-buff). Port : ops
+  `apply_change_stat`/`revert_change_stat` (stat_ops.py) sur CRIT_DAMAGE=10 encadrant l'attaque, OU paramètre
+  d'attaque si l'engine ne relit pas CRIT_DAMAGE au roll.
+  **⚠ VALIDATOR PRIORITÉ #1** : vérifier LIVE que le crit-bonus est OBSERVABLE (hits critiques +218×nbFree,
+  retiré après) — dépend que `ApplyCritDamage @181000210` lise `GetStat(CRIT_DAMAGE)` au moment du roll.
+- **RÉ-ARME post-résurrection** = trigger SÉPARÉ `HeroicFusillade_ResurrectAbility$$CreateTrigger @180f86590`
+  = `On(0x2f=UnitResurrected=47) & OwnerIsTarget` → reset flag "ability used" (mécanisme exact = tranche
+  trigger, avec G3-Ambush ; PAS dans l'ability active).
+
+**Insertion** : `HeroicFusilladeAbility(ActiveAbility)` dans `abilities/genestealer.py` (`heroic_fusillade_tree()`
+= l'op_add ci-dessus, sélecteurs S collapsés), registré `handler.py` `ABILITY_CLASSES[1180]`. Ajouter
+`HeroicFusillade` à l'enum `ActiveAbilityType` si absent. Émet `{move, main_attack, splash, crit_bonus, dsl}`.
+Validator : (1) crit-bonus observable, (2) `nbFree` compté correctement (drive positions), (3) MOVE sur la
+bonne tuile + gate déjà-adjacent, (4) splash enemies-only + cible incluse. ✅ PORTÉ + live-validé 2026-07-18
+(cf. section « PORTÉ + LIVE-VALIDÉ » ci-dessus) ; ⚠ NON committé.

@@ -260,6 +260,24 @@ class IsInRange(AbilityTrigger):
         return any(x is not None and y is not None and hexgeo.distance(x, y) <= r for x in pa for y in pb)
 
 
+class IsSurrounding(AbilityTrigger):
+    """`DSLFactory.IsSurrounding(a, b, radius) @180df5320` : une unite de `b` est-elle a distance hex
+    <= `radius` d'une unite de `a` (b "entoure" a) ? Distance SYMETRIQUE -> semantique == `IsInRange`
+    (l'ordre a/b est indifferent). ctor IL2CPP mislabele (`AttackHitsWithModifiersFormula.ctor` = corps
+    gshared partage) ; sens DEDUIT de l'usage + i2 : HeroicFusillade @1811e8de0 gate son move par
+    `Not(IsSurrounding(caster@0x148, target@0x178, radius=1))` = move SEULEMENT si la cible n'entoure pas
+    DEJA le caster (i2 « ... or is already on a hex surrounding Judh. She then moves to the free hex »).
+    `radius` = noeud VALEUR (`.evaluate`). None d'un cote -> False."""
+    def __init__(self, a: AbilityTrigger, b: AbilityTrigger, radius: AbilityTrigger):
+        self.a, self.b, self.radius = a, b, radius
+
+    def should_trigger(self, ctx):
+        r = self.radius.evaluate(ctx)
+        pa = [_pos(u) for u in _units_of(self.a, ctx)]
+        pb = [_pos(u) for u in _units_of(self.b, ctx)]
+        return any(x is not None and y is not None and hexgeo.distance(x, y) <= r for x in pa for y in pb)
+
+
 class OwnerIsTarget(AbilityTrigger):
     """`DSLFactory.get_OwnerIsTarget @180e026f0` = `AreEqual(Owner, Target)` : l'entité OWNER est-elle la
     même que la cible ? (`ctx.owner` défaut → `ctx.caster`, hypothèse Owner==Caster documentée)."""

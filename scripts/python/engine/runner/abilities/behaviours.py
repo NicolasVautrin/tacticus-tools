@@ -875,6 +875,50 @@ class MoveUnit(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class ChangeStat(AbilityBehaviour):
+    """`DSLFactory.ChangeStat @180debdc0` -> `ChangeStatBehaviour.Execute @180fbfb10` : applique une
+    MODIFICATION DE STAT (`ModifyStatMessage` -> `UnitStats.Transform`) sur le(s) sujet(s) de `target_sel`,
+    stat `stat_type` (natif `Position(statType,0,0)`), selon `mode` (lu au decompile @180fbfb10, champ
+    +0x68) :
+        0 = SetAbsolute (new = delta - GetStat)           2 = Add       (new = GetStat + delta)
+        1 = Clamp/Min-Max (Min(Max(GetStat+delta,0),max)) 3 = Subtract  (new = Max(GetStat - delta, 0))
+        4 = source-scaled (StatModifier depuis une source)   -- seuls 2/3 sont portes (usage actuel).
+    Porte via `apply_change_stat`/`revert_change_stat` (`operations.stat_ops` = `ModifyStatMessage` apply
+    part5 / revert part6, PAR-SOURCE) : `mode="add"` -> `apply_change_stat(+delta)` attribue a `source` ;
+    `mode="revert"` -> `revert_change_stat(source)`. Le revert par-source == le natif mode3 `Max(GetStat -
+    delta, 0)` TANT QU'aucun autre modifier ne touche la stat entre l'add et le revert -- cas du buff
+    NET-NUL scope-attaque (HeroicFusillade encadre son attaque de `ChangeStat(CRIT_DAMAGE, Add, mag)` /
+    `ChangeStat(CRIT_DAMAGE, Sub, mag)`). Le combat relit `ctx.stat(stat_type)` AU ROLL (cf.
+    `damage._crit_params`) -> un buff pose AVANT l'attaque est OBSERVABLE (crit +mag), retire apres.
+
+    `amount` = int OU callable `(entities, ectx) -> int` (mag calculee LIVE, ex. `extraCritDmg x nbFree`
+    lu POST-move). `source` = cle de source PARTAGEE entre l'add et le revert (revert exact par-source).
+    Emet 'ChangeStat'. PUR (stop=False)."""
+    __slots__ = ("target_sel", "stat_type", "mode", "source", "amount")
+
+    def __init__(self, target_sel: TargetsSelector, stat_type: int, mode: str, source, amount=0):
+        self.target_sel, self.stat_type, self.mode = target_sel, int(stat_type), mode
+        self.source, self.amount = source, amount
+
+    def execute(self, entities, ectx):
+        from ..operations.stat_ops import apply_change_stat, revert_change_stat
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        for u in _units_of(self.target_sel, entities):
+            uid = u.get("id") if isinstance(u, dict) else None
+            if uid is None:
+                continue
+            if self.mode == "revert":                     # ChangeStat mode 3 (Subtract) = undo net-nul
+                val = revert_change_stat(state, uid, self.stat_type, self.source)
+                ectx.emit("ChangeStat", unit=uid, stat=self.stat_type, mode="revert", value=val)
+            else:                                         # ChangeStat mode 2 (Add)
+                amt = int(self.amount(entities, ectx) if callable(self.amount) else self.amount)
+                val = apply_change_stat(state, uid, self.stat_type, self.source, amt)
+                ectx.emit("ChangeStat", unit=uid, stat=self.stat_type, mode="add", amount=amt, value=val)
+        return OperationResult.ok()
+
+
 class KillDeadUnits(AbilityBehaviour):
     """`DSLFactory.KillDeadUnits @180df5c60` = `Kill(subject, DownedUnits(units_sel), options) @180df5cb0`
     -> `KillUnitBehaviour.Execute @180fc8b10` : pour chaque unite DOWNED (flag 0xf, via
