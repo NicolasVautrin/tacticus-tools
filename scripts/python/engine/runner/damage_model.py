@@ -31,6 +31,7 @@ from ..services.battle_query import (
     are_tiles_adjacent)
 from ..entities.effects import (
     aura_defense_damage_malus_from_units, aura_fixed_armor_bonus_for_defense,
+    aura_attack_damage_bonus_from_allies,
     build_attacker_modifiers_from_effects, build_defender_modifiers_from_effects,
     hits_bonus_from_effects,
 )
@@ -139,6 +140,63 @@ def defender_fixed_armor(state: State, target_id: int) -> int:
     return base + int(aura)
 
 
+def _grand_alliance(state: State, unit_id: int) -> Optional[str]:
+    """`GrandAllianceId` gameconfig de l'unité (résolu par `visual_id`) — gate grande-alliance des auras
+    ALLIÉES cote source (ex. `BeaconOfRage_FriendlyExtraDamage` : Chaos). Lit DIRECTEMENT le champ
+    GrandAllianceId (== la valeur que la prédiction passe, `GC.unit(vis).GrandAllianceId`), analogue de
+    `_faction_id` (triggers/base). None si l'unité ou son visual_id est introuvable."""
+    import gameconfig as GC
+    e = state.get_entity(unit_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    vid = getattr(sc.ctx, "visual_id", None) if (sc is not None and sc.ctx is not None) else None
+    if vid is None:
+        return None
+    return (GC.unit(vid) or {}).get("GrandAllianceId")
+
+
+def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: Optional[bool],
+                                    target_armor_reduced: Optional[bool]) -> None:
+    """AURA ALLIÉE +dégât FLAT projetée sur l'ATTAQUANT par les effets `create_aura_attack_damage_bonus_for_ally`
+    de ses ALLIÉS à portée (canal AURA côté SOURCE : l'effet vit sur le porteur et se projette sur ses amis quand
+    EUX attaquent). `ConquerorImperative` (#23) : +extraDmg aux amis Mechanical ring-1 vs cible à armure réduite ;
+    `BeaconOfRage_FriendlyExtraDamage` (#191) : +50% rage aux amis Chaos adjacents en mêlée. Mirror COMBAT du même
+    wiring que la PRÉDICTION (`aura_attack_damage_bonus_from_allies`, prediction.py) — le natif applique le
+    DamageModifier à TOUTES les cibles-sélecteur dans les deux faces. Carriers = tous les autres VIVANTS de
+    l'ÉQUIPE de l'attaquant avec effets actifs ; le gate (équipe/trait/adjacence/grande-alliance/is_melee/
+    target_armor_reduced) vit dans le `create_aura_`. No-op sans carrier concerné."""
+    if state.effects is None:
+        return
+    ae = state.get_entity(att_id)
+    aoc = ae.get_component(OwnerComponent) if ae is not None else None
+    apc = ae.get_component(PositionComponent) if ae is not None else None
+    if aoc is None or apc is None:
+        return
+    carriers = []
+    for uid, ent in state.entities.items():
+        if uid == att_id:
+            continue                                      # AdjacentFriends exclut le bénéficiaire lui-même
+        oc = ent.get_component(OwnerComponent)
+        pc = ent.get_component(PositionComponent)
+        if oc is None or pc is None or oc.team != aoc.team:
+            continue                                      # Friends du porteur = même équipe que l'attaquant
+        hc = ent.get_component(HealthComponent)
+        if hc is not None and hc.hp is not None and hc.hp <= 0:
+            continue                                      # porteur mort -> aura éteinte
+        effs = state.effects.active_effects(uid, {"hp": hc.hp if hc is not None else None})
+        if effs:
+            carriers.append((uid, (pc.col, pc.row), oc.team, effs))
+    if not carriers:
+        return
+    from ..services.damage_modifiers import add_modifier
+    is_melee = (not is_ranged) if is_ranged is not None else None
+    ctx = {"att_id": att_id, "att_pos": (apc.col, apc.row), "att_team": aoc.team,
+           "att_traits": target_trait_names(state, att_id),
+           "att_grand_alliance": _grand_alliance(state, att_id),
+           "is_melee": is_melee, "target_armor_reduced": target_armor_reduced}
+    for eb in aura_attack_damage_bonus_from_allies(carriers, ctx):
+        add_modifier(mods, eb)
+
+
 def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged: Optional[bool] = None,
                        target_traits=None, target_id: Optional[int] = None):
     """`DamageModifiers` de l'attaquant depuis ses EFFETS actifs (None-safe). `is_ranged` = nature du coup
@@ -146,14 +204,18 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     BOUGE ce tour (state.moved_this_turn) -> gate no-move : HeavyWeapon_ExtraDmg s'ANNULE si l'unité a bougé
     (verdict RE cluster #60 : le combat lisait has_moved=None -> bonus TOUJOURS appliqué, FAUX). `target_id`
     (incr. C) = la CIBLE du coup -> calcule le gate `HasNegativeModifier(cible armure)` (`defender_armor_reduced`)
-    pour la contribution +extraDmg de ConquerorImperative ; None (chemin sans cible) -> gate None (inerte)."""
+    pour la contribution +extraDmg de ConquerorImperative ; None (chemin sans cible) -> gate None (inerte).
+    Les AURAS ALLIÉES +dégât (incr. C2 : `create_aura_attack_damage_bonus_for_ally` des alliés à portée,
+    Conqueror/BeaconOfRage) sont ajoutées ici (`_apply_ally_attack_damage_auras`) — mirror combat de la prédiction."""
     active = (state.effects.active_effects(unit_id, {"hp": hp})
               if state.effects is not None else [])
     has_moved = unit_id in state.moved_this_turn
     tar = defender_armor_reduced(state, target_id) if target_id is not None else None
-    return build_attacker_modifiers_from_effects(active, is_ranged, has_moved=has_moved,
+    mods = build_attacker_modifiers_from_effects(active, is_ranged, has_moved=has_moved,
                                                  target_traits=target_traits,
-                                                 target_armor_reduced=tar), active
+                                                 target_armor_reduced=tar)
+    _apply_ally_attack_damage_auras(state, unit_id, mods, is_ranged, tar)
+    return mods, active
 
 
 def defender_modifiers(state: State, unit_id: int, hp: Optional[int],

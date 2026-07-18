@@ -107,9 +107,9 @@ class ConquerorImperativeEffect(BaseEffect):
     DEUX faces du meme DamageModifierAbilityEffect natif (le selecteur @180f39890 = self + amis Mechanical
     adjacents, IDENTIQUE a Protector) :
       - SELF (increment C, `create_effect_damage_bonus_for_attack` ci-dessous) : quand le PORTEUR attaque.
-      - ALLIES Mechanical ADJACENTS (increment C2, canal aura-attaque-degat cote SOURCE
-        `create_aura_attack_damage_bonus_for_ally`) : quand un ami Mechanical ring-1 attaque. NON porte ici
-        (le canal aura-attaquant-allie n'est pas encore cable cote COMBAT). Degradation fidele en attendant.
+      - ALLIES Mechanical ADJACENTS (increment C2, `create_aura_attack_damage_bonus_for_ally` ci-dessous) :
+        canal aura-attaque-degat cote SOURCE, quand un ami Mechanical ring-1 attaque une cible a armure reduite.
+        Cable en COMBAT (`damage_model.attacker_modifiers`) ET en PREDICTION (normale + speciale).
 
     `CreateDamageModifier @180f39650` : `EffectBonus.ForAddition(get_OwnerIsCaster & HasNegativeModifier(
     cible, {ARMOR=4, FIXED_ARMOR=16}), ConfigVar(8=extraDmg, GetAbilityState(effet)))`. Increment A avait
@@ -147,4 +147,40 @@ class ConquerorImperativeEffect(BaseEffect):
         amt = ability_var(_ABILITY, "extraDmg", lvl,
                           multiplier_pct=self.ability_variables_multiplier)
         # ForAddition -> canal `additive @+0x10` applique POST-percage (DamageModifiers.Add @181005f10).
+        return for_addition(True, amt) if amt else None
+
+    def create_aura_attack_damage_bonus_for_ally(self, ctx=None) -> "EffectBonus | None":
+        """AURA face (increment C2) — le MEME `CreateDamageModifier @180f39650` projete sur un ALLIE
+        **Mechanical(5) ADJACENT** (ring-1) du porteur quand C'EST LUI qui attaque une cible a ARMURE REDUITE.
+        `CreateTargetSelector @180f39890` = self + `AdjacentFriends(1)` ∩ `UnitsWithTrait(5=Mechanical)`
+        (IDENTIQUE a Protector). Le SELF (porteur) est deja couvert par la self-face
+        (`create_effect_damage_bonus_for_attack`) -> AUTO-EXCLUSION att==owner (pas de double-compte ;
+        `AdjacentFriends` exclut le porteur). Le gate `HasNegativeModifier(cible armure)` est le MEME que la
+        self-face (trigger UNIQUE `OwnerIsCaster & HasNegativeModifier` : `OwnerIsCaster` = l'ami projete est le
+        caster-attaquant du coup) -> threade via `target_armor_reduced` dans le ctx aura. Magnitude = `extraDmg
+        [niveau actif] x mult` lue du MEME effet-entite (niveau seede a la pose par la feuille de toggle, cf.
+        self-face) -- pas de owner_level en ctx. `ctx` = {owner_id/pos/team, att_id/att_pos/att_team, att_traits,
+        target_armor_reduced} fourni par l'agregateur `aura_attack_damage_bonus_from_allies` (COMBAT
+        `damage_model.attacker_modifiers` / PREDICTION normale+speciale). SYMETRIQUE ALLIE de la self-face, meme
+        canal additif que SmashaEad/BeaconOfRage (`DamageModifiers.Add`, POST-percage)."""
+        c = ctx or {}
+        if not c.get("target_armor_reduced"):
+            return None                                   # HasNegativeModifier(cible armure) FALSE -> pas de bonus
+        if c.get("att_id") == c.get("owner_id"):
+            return None                                   # self = self-face (incr. C) -> AdjacentFriends exclut le porteur
+        ot = c.get("owner_team")
+        if ot is None or ot != c.get("att_team"):
+            return None                                   # AdjacentFriends = meme equipe que le porteur
+        if "Mechanical" not in (c.get("att_traits") or ()):
+            return None                                   # UnitsWithTrait(5=Mechanical) sur le beneficiaire (l'attaquant)
+        op, ap = c.get("owner_pos"), c.get("att_pos")
+        if not op or not ap:
+            return None
+        import hexgeo
+        if hexgeo.distance(op, ap) != 1:                  # AdjacentFriends(range 1) = hex-adjacent ring-1
+            return None
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        amt = ability_var(_ABILITY, "extraDmg", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
         return for_addition(True, amt) if amt else None

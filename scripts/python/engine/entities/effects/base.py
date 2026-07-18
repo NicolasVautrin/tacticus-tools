@@ -182,10 +182,12 @@ class BaseEffect:
         unité et BONIFIE le dégât que ses ALLIÉS environnants INFLIGENT — natif : effet à
         `CreateEffectDamageBonusForAttack(OwnerIsCaster & ...)` + `CreateTargetSelector` = `AdjacentFriends
         + UnitsWithTrait(...)`, ex. `BeaconOfRage_FriendlyExtraDamageEffect` @180f33370 : +50% du bonus rage
-        FLAT aux attaques MÊLÉE des amis Chaos adjacents d'Azkor, #191). `ctx` = {owner_id/pos/team,
-        att_id/att_pos/att_team, att_grand_alliance, is_melee} fourni par l'agrégateur
-        `aura_attack_damage_bonus_from_allies`. SYMÉTRIQUE ALLIÉ de `create_aura_attack_damage_malus_for_enemy`.
-        Défaut None = pas d'aura."""
+        FLAT aux attaques MÊLÉE des amis Chaos adjacents d'Azkor, #191 ; `ConquerorImperativeEffect` @180f39650 :
+        +extraDmg FLAT aux amis Mechanical adjacents vs cible à armure réduite, #23). `ctx` = {owner_id/pos/team,
+        att_id/att_pos/att_team, att_grand_alliance, att_traits, is_melee, target_armor_reduced} fourni par
+        l'agrégateur `aura_attack_damage_bonus_from_allies` (les gates lisent le sous-ensemble pertinent :
+        BeaconOfRage → att_grand_alliance+is_melee ; Conqueror → att_traits+target_armor_reduced). SYMÉTRIQUE
+        ALLIÉ de `create_aura_attack_damage_malus_for_enemy`. Défaut None = pas d'aura."""
         return None
 
     def create_aura_defense_damage_malus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:

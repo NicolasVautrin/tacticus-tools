@@ -356,10 +356,11 @@ def aura_attack_damage_malus_from_enemies(carriers, ctx) -> list:
 def aura_attack_damage_bonus_from_allies(carriers, ctx) -> list:
     """Liste des bonus de DÉGÂT projetés sur l'ATTAQUANT par les auras d'effet possédées par ses ALLIÉS à
     portée (`create_aura_attack_damage_bonus_for_ally`, ex. `BeaconOfRage_FriendlyExtraDamageEffect`
-    @180f33370 : +50% du bonus rage FLAT aux attaques MÊLÉE des amis Chaos adjacents d'Azkor, #191).
-    SYMÉTRIQUE ALLIÉ de `aura_attack_damage_malus_from_enemies`. `carriers` = itérable (owner_id,
+    @180f33370 : +50% du bonus rage FLAT aux attaques MÊLÉE des amis Chaos adjacents d'Azkor, #191 ;
+    `ConquerorImperativeEffect` @180f39650 : +extraDmg FLAT aux amis Mechanical adjacents vs cible à armure
+    réduite, #23). SYMÉTRIQUE ALLIÉ de `aura_attack_damage_malus_from_enemies`. `carriers` = itérable (owner_id,
     owner_pos, owner_team, ..., effets du porteur) ; `ctx` = {att_id, att_pos, att_team,
-    att_grand_alliance, is_melee}. Renvoie une liste d'`EffectBonus` (chaque porteur à portée empile son
+    att_grand_alliance, att_traits, is_melee, target_armor_reduced}. Renvoie une liste d'`EffectBonus` (chaque porteur à portée empile son
     bonus) à intégrer aux modifiers de l'attaquant via `add_modifier`. Chaque `carrier` = tuple dont
     [0]=owner_id, [1]=owner_pos, [2]=owner_team, [-1]=effets (accepte le 4-tuple comme le 8-tuple
     `carriers` de la prédiction)."""

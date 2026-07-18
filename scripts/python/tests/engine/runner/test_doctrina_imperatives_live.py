@@ -429,3 +429,119 @@ def test_doctrina_conqueror_extradmg_offline_agreement(live_session, rpc, build_
     # DELTA isole la contribution Conqueror (robuste a un autre additif eventuel du porteur).
     assert add_reduced - add_healthy == extra, \
         f"delta additif Conqueror {add_reduced - add_healthy} != extraDmg[lvl {lvl} x{mult}] {extra}"
+
+
+def test_doctrina_conqueror_aura_offline_agreement(live_session, rpc, build_runner):
+    """OFFLINE-AGREEMENT (port S4a incr. C2, portee aura) : apres le toggle vers Conqueror(1248), le +extraDmg
+    FLAT se projette sur un ALLIE Mechanical ADJACENT a Tan Gi'da quand C'EST L'ALLIE qui attaque une cible a
+    ARMURE REDUITE (`create_aura_attack_damage_bonus_for_ally` -> `damage_model.attacker_modifiers`, meme foyer
+    combat que la self-face). Selecteur @180f39890 = self + `AdjacentFriends(1)` ∩ `UnitsWithTrait(5=Mechanical)`
+    (IDENTIQUE a Protector). Le porteur (self) passe par la self-face (incr. C) -> l'aura NE s'applique QU'a un
+    allie DISTINCT (auto-exclusion att==owner : pas de double-compte). DRIVE la position de l'allie (adjacent
+    vs eloigne) + un debuff FixedArmor sur la cible (arme le gate `HasNegativeModifier`) pour ISOLER la
+    contribution : delta additif de l'allie (adjacent MOINS eloigne) == extraDmg[niveau actif de Tan] ; cible
+    SAINE -> AUCUN bonus meme adjacent (gate False). Doctrine drive-positions/state."""
+    from engine.runner.snapshot import load_state
+    from engine.runner.components import StatsComponent, PositionComponent, HealthComponent
+    from engine.entities.stats import StatType
+    from engine.entities.effects.magnitude import ability_var
+    from engine.runner.abilities.loki import DoctrinaImperativesAbility
+    from engine.runner.damage_model import attacker_modifiers, defender_armor_reduced, target_trait_names
+    import hexgeo
+
+    rid = build_runner("777", extra=BUILD)["rid"]
+    dec, tan = _advance_to_my_turn(rpc, rid, TAN_VIS)
+    if tan is None:
+        pytest.skip("Tan Gi'da absent / pas atteint son tour")
+    tan_id = tan["id"]
+    if PROTECTOR not in _effect_ids(tan):
+        pytest.skip("Protector(1247) non actif pre-cast (SetStart) -> toggle non amorcable")
+    ally = _find(dec, ALLY_VIS)
+    ally_id = (ally or {}).get("id")
+    if ally_id is None:
+        pytest.skip("allie Mechanical (admecRuststalker) absent")
+    enemy = _find(dec, "necroWarden")
+    enemy_id = (enemy or {}).get("id")
+    if enemy_id is None:
+        pytest.skip("cible ennemie (necroWarden) absente")
+
+    dec0 = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
+    ob0 = rpc("observeBattle", {"runnerId": rid}, 60)
+    snap0 = rpc("combatSnapshot", {"runnerId": rid}, 90)
+    state = load_state(dec0, ob0, snap0)
+
+    tan_ent = state.get_entity(tan_id)
+    ally_ent = state.get_entity(ally_id)
+    en_ent = state.get_entity(enemy_id)
+    if tan_ent is None or ally_ent is None or en_ent is None or state.effects is None:
+        pytest.skip("entites offline incompletes (snapshot)")
+    tpc = tan_ent.get_component(PositionComponent)
+    apc = ally_ent.get_component(PositionComponent)
+    ahc = ally_ent.get_component(HealthComponent)
+    tsc = tan_ent.get_component(StatsComponent)
+    esc = en_ent.get_component(StatsComponent)
+    if tpc is None or apc is None or tsc is None or esc is None:
+        pytest.skip("composants position/stats offline manquants")
+    # l'allie DOIT etre Mechanical (gate UnitsWithTrait(5)) ; sinon l'aura ne peut PAS l'atteindre.
+    if "Mechanical" not in target_trait_names(state, ally_id):
+        pytest.skip(f"allie {ALLY_VIS} non Mechanical offline -> portee non applicable")
+
+    # --- toggle offline vers Conqueror (seed niveau/mult sur l'effet, cf. self-face incr. C) ---
+    DoctrinaImperativesAbility().execute_behaviour(state, tan_id, tan_id)
+    assert state.effects.has_effect(tan_id, effect_type=CONQUEROR), "toggle KO : Conqueror absent offline"
+
+    # oracle extraDmg = niveau/mult de Tan Gi'da (SOURCE de l'aura), meme var que la self-face.
+    tctx = tsc.ctx
+    lvl = getattr(tctx, "active_ability_level", None)
+    mult = int(getattr(tctx, "ability_variables_multiplier", 100) or 100)
+    extra = int(ability_var("DoctrinaImperatives", "extraDmg", lvl, multiplier_pct=mult) or 0)
+    assert extra > 0, f"extraDmg non resoluble offline (level={lvl}, mult={mult})"
+
+    ally_hp = ahc.hp if ahc is not None else None
+
+    # ARME le gate : debuff FixedArmor per-source <0 sur la cible. Skip si deja reduite au snapshot.
+    if defender_armor_reduced(state, enemy_id):
+        pytest.skip("cible deja armure-reduite au snapshot -> gate non discriminable")
+    esc.ctx.stats.change_stat(int(StatType.FIXED_ARMOR), "test_armor_debuff", -300)
+    assert defender_armor_reduced(state, enemy_id) is True, "gate HasNegativeModifier non arme apres debuff"
+
+    # (1) allie ELOIGNE (>1) de Tan -> aura HORS-PORTEE : additif de base de l'allie (baseline).
+    apc.col, apc.row = tpc.col + 4, tpc.row + 4
+    mods_far, _ = attacker_modifiers(state, ally_id, ally_hp, target_id=enemy_id)
+    add_far = mods_far.additive
+
+    # (2) allie ADJACENT (ring-1) a Tan + cible reduite -> +extraDmg (aura projetee par le porteur Conqueror).
+    adj_col, adj_row = hexgeo.neighbors(tpc.col, tpc.row)[0]
+    apc.col, apc.row = adj_col, adj_row
+    assert hexgeo.distance((tpc.col, tpc.row), (apc.col, apc.row)) == 1, "drive adjacency KO (parite hexgeo)"
+    mods_adj, _ = attacker_modifiers(state, ally_id, ally_hp, target_id=enemy_id)
+    add_adj = mods_adj.additive
+
+    print(f"[Conqueror aura offline] allie additif eloigne={add_far} adjacent={add_adj} "
+          f"delta={add_adj - add_far} ; oracle extraDmg={extra}")
+    # DELTA isole la contribution de l'AURA (robuste a un autre additif eventuel de l'allie lui-meme).
+    assert add_adj - add_far == extra, \
+        f"delta additif aura Conqueror {add_adj - add_far} != extraDmg[lvl {lvl} x{mult}] {extra} (portee KO)"
+
+    # (3) GATE : cible SAINE (debuff retire) -> AUCUN bonus meme adjacent (HasNegativeModifier False).
+    tsc_en = esc.ctx.stats
+    tsc_en.revert_stat(int(StatType.FIXED_ARMOR), "test_armor_debuff")
+    assert defender_armor_reduced(state, enemy_id) is False, "debuff non retire -> gate encore arme"
+    mods_healthy_adj, _ = attacker_modifiers(state, ally_id, ally_hp, target_id=enemy_id)
+    assert mods_healthy_adj.additive == add_far, \
+        (f"aura appliquee sur cible SAINE (gate KO) : additif adjacent {mods_healthy_adj.additive} "
+         f"!= baseline eloigne {add_far}")
+
+    # (4) SELF non double-compte : Tan (le porteur) attaquant la cible reduite = self-face SEULE ; l'aura
+    # s'auto-exclut att==owner. Delta additif de Tan (cible reduite - saine) == extraDmg UNE fois (pas 2x).
+    thc = tan_ent.get_component(HealthComponent)
+    thp = thc.hp if thc is not None else None
+    mods_tan_healthy, _ = attacker_modifiers(state, tan_id, thp, target_id=enemy_id)   # cible saine (gate off)
+    tsc_en.change_stat(int(StatType.FIXED_ARMOR), "test_armor_debuff", -300)           # re-arme
+    assert defender_armor_reduced(state, enemy_id) is True, "re-arme du debuff KO"
+    mods_tan_reduced, _ = attacker_modifiers(state, tan_id, thp, target_id=enemy_id)
+    delta_tan = mods_tan_reduced.additive - mods_tan_healthy.additive
+    print(f"[Conqueror aura offline] self Tan delta additif={delta_tan} (self-face seule, aura auto-exclue)")
+    assert delta_tan == extra, \
+        (f"self double-compte : delta additif Tan {delta_tan} != extraDmg {extra} "
+         f"(l'aura devrait s'auto-exclure att==owner, seule la self-face contribue)")
