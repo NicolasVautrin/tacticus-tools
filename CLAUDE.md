@@ -143,6 +143,40 @@ Pour info : (file:///C:/Users/nicolasv/tacticus-tools/frida/host/admin.ts) +
 (file:///C:/Users/nicolasv/tacticus-tools/frida/host/sessions.ts) (cycle de vie
 des sessions, durci — cf. « Robustesse du harnais » ci-dessous).
 
+### QUAND (ne pas) ré-injecter — RÈGLE STRICTE
+
+**Un changement Python `scripts/python/engine/**` (la réimplémentation OFFLINE : runner,
+oracle, prédiction, playbook, tests moteur) N'EXIGE JAMAIS de reinject ni de rebuild `hooks.js`.**
+
+- **Pourquoi** : ce code tourne dans le process **pytest / probe** et parle au runner live
+  **par RPC** ; il **ne s'exécute PAS dans Frida**. Seul le script injecté `frida/hooks/*`
+  (bundlé en `dist/hooks.js`) tourne dans le jeu. Donc :
+  - modif `frida/hooks/*` → `npm run build:hooks` **puis** reinject (`POST /api/admin/inject`) ;
+  - modif `frida/host/*` → restart host (qui auto-réinjecte) ;
+  - modif Python `engine/**` (ou n'importe quoi hors `frida/`) → **RIEN** : on réutilise la
+    session Frida existante telle quelle, on relance juste les tests/probes.
+- **Un reinject est DESTRUCTEUR** : il stoppe la session courante et perd son état warm
+  (singletons init, `lastSource`, runners en vol). Ne jamais le déclencher « par réflexe ».
+
+**AVANT tout `POST /api/admin/inject` : vérifier qu'aucune session vivante n'existe DÉJÀ, en
+lisant le BON champ du status.** `/api/admin/status` renvoie **`.session` (SINGULIER)**, pas
+`.sessions` (pluriel — n'existe pas) :
+
+```bash
+curl -s http://127.0.0.1:8765/api/admin/status | npx -y node-jq -c '.session'
+# -> {"id":N,"pid":...,"status":"running",...}  => session VIVANTE : la RÉUTILISER, NE PAS injecter
+# -> null                                         => pas de session : injecter puis warmup
+```
+
+- **Piège vécu (2026-07-18)** : un filtre jq erroné sur `.sessions` (pluriel) a renvoyé `[]`
+  → conclusion « aucune session » → reinject inutile qui a tué une session warm vivante. **Ne
+  JAMAIS déduire « pas de session » d'un champ absent/mal nommé** : lire `.session` (singulier)
+  et tester `.session.status == "running"`. Si `running`, il n'y a **rien à injecter** (sauf
+  changement `frida/hooks/*` explicite).
+- Rappel warmup : après un inject RÉELLEMENT nécessaire (hooks changés / aucune session), warmup
+  obligatoire. En pytest, le fixture `live_session` s'en charge (warmup-if-needed au 1er test) —
+  pas besoin d'un warmup manuel.
+
 ## Arrêt
 
 - Ctrl+C dans le terminal `npm run dev`, ou
