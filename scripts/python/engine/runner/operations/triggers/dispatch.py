@@ -41,6 +41,8 @@ from .loki import (PsykerExtraAttackAbility, ActOfFaithAccumulateAbility, ActOfF
 from .tiles import dry_bush_fire_spread
 from .effect_triggers import (OverwatchAutoAttack, ContaminatedTileEffect,
                               OVERWATCH_AUTO_ATTACK, CONTAMINATED_TILE)
+from .genestealer import (DecoysAndMisdirectionDamageEnemiesAbility,
+                          DecoysAndMisdirectionBuffFriendsAbility)
 
 # --- FinalJustice / overkill ----------------------------------------------------------------------
 OVERKILL_PCT_KEY = "overkillDmgPctOfHealth"  # globalValues = 100 → overkill ssi dmg-PV >= 100%*PV (dmg>=2*PV)
@@ -62,6 +64,10 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     "TheBetrayer": [TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility],
     # ArcaneShield (Thaumachus) = bouclier après activation (modélisé after-move quand mover==owner).
     "ArcaneShield": [ArcaneShieldAbility],
+    # DecoysAndMisdirection (Isaak genesPrimus, G2) = 2 abilities-triggers step-on-decoy : DamageEnemies
+    # (ennemi qui marche sur un decoy allié -> Blast) + BuffFriends (allié -> +582 dmg fin-de-tour + decoy).
+    "DecoysAndMisdirection": [DecoysAndMisdirectionDamageEnemiesAbility,
+                              DecoysAndMisdirectionBuffFriendsAbility],
 }
 
 # --- Registre : effectType → effet-trigger ---------------------------------------------------------
@@ -276,10 +282,15 @@ def evaluate_abilities_for_event(state: State, caster_id: int, target_id: int,
 
 def after_move_triggers(state: State, mover_id: int) -> list[dict]:
     """Vecteur after-move (mirror `MoveUnitOperation.EvaluateAfterMoveTriggers`@180e79770 → dispatch).
-    Construit l'événement `On(4)` {acteur=mover} et lance `evaluate_trigger_operation`. Déclenche les
-    effet-triggers after-move (ex. Overwatch). No-op si aucun trigger ne matche (ou pas de board/rng)."""
+    Le natif émet, dans l'ordre, `On(0x24=UnitPositionChanged_1)` (aucun consommateur porté), `On(4=
+    UnitAfterMove)` (overwatch) PUIS `On(0x1d=UnitPositionChanged_2)`. On dispatche `On(4)` puis `On(0x1d)` :
+    ce dernier déclenche DecoysAndMisdirection (G2 — ennemi/allié qui marche sur un decoy allié crushé par
+    `_kill_steppable_units`, G1). No-op si aucun trigger ne matche (ou pas de board/rng)."""
     ev = TriggerEvent(EventTriggerType.UnitAfterMove, mover_id, mover_id, ranged=False, profile=None)
-    return evaluate_trigger_operation(state, ev)
+    out = evaluate_trigger_operation(state, ev)
+    # G2 : `On(0x1d=UnitPositionChanged_2)` émis APRÈS `On(4)` par le même `EvaluateAfterMoveTriggers` natif.
+    ev2 = TriggerEvent(EventTriggerType.UnitPositionChanged_2, mover_id, mover_id, ranged=False, profile=None)
+    return out + evaluate_trigger_operation(state, ev2)
 
 
 def tile_tick_triggers(state: State) -> list[dict]:

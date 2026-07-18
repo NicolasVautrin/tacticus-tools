@@ -67,7 +67,7 @@ Deux primitives partagées à porter EN PREMIER (slice G1) :
 | Slice | Tâche | Contenu | Dépend de |
 |---|---|---|---|
 | **G1** | #8 | **Fondation Decoy** : placement (Spawn) + Steppable step-on crush | — (base) |
-| **G2** | #9 | **DecoysAndMisdirection** (step-on triggers : ennemi Blast / allié buff+decoy) | G1 |
+| **G2** | #9 | **DecoysAndMisdirection** — ✅ **PORTÉ + LIVE-VALIDÉ** (2 triggers step-on : ennemi Blast / allié buff+decoy) | G1 |
 | **G3** | #10 | **Ambush** (mort→decoy, résurrection sur decoy + tour immédiat, ordre Character-first) | G1 |
 | **G4** | #11 | **CultDemagogue** — ✅ **PORTÉ + LIVE-VALIDÉ** (arbre DSL `genestealer.py`) | G1 |
 | **G5** | #12 | **HeroicFusillade** (move + splash target+voisins + crit ×hex-libres + ré-arme post-résurrection) | (move+splash) |
@@ -210,3 +210,63 @@ ports/summon_trait_effects (`_spawn_config_grot` : 7✓) → 0 régression. ⚠ 
 - **Reste (deferred)** : la confrontation live-oracle de la CHAÎNE COMPLÈTE (natif pose le decoy → ennemi
   marche dessus → crush + Blast) vient à **G2/G4** (aucune ability native ne place de decoy en autonome).
   ⚠ NON committé.
+
+### G2 — VERDICT + PORT + LIVE (2026-07-18, ghidra gqfc5mff6c)
+
+**CORRECTION de la structure G1** : DecoysAndMisdirection n'est PAS 1 trigger qui branche enemy/ally — c'est
+**DEUX abilities-triggers DISTINCTES** (2 entrées `AbilityAndEffectCache`), split par la **condition de
+faction** (`AreEnemies` vs `AreFriends`), PAS par l'event :
+
+| Ability native | CreateTrigger | CreateBehaviour |
+|---|---|---|
+| `DecoysAndMisdirection_DamageEnemiesAbility` (path ENNEMI) | @180e20310 | @180e20190 |
+| `DecoysAndMisdirection_BuffFriendsAbility` (path ALLIÉ) | @180e20050 | @180e1fe30 |
+| base `ADecoysAndMisdirectionAbility` : `GetValidDeadDecoys` @180e13550, `DidPositionChangeKillFriendlyDecoy` @180e13520 | — | — |
+
+**Events** (enum natif) : `0x1d=29=UnitPositionChanged_2` (move-onto), `0x2f=47=UnitResurrected` (résurrect →
+G3). `MoveUnitOperation.EvaluateAfterMoveTriggers @180e79770` émet `On(0x24)` (aucun conso porté) → `On(4=
+UnitAfterMove)` (overwatch) → `On(0x1d)`. Le decoy est crushé INLINE (`_kill_steppable_units`, G1) AVANT →
+`GetValidDeadDecoys` le lit **déjà mort**. `dispatch.after_move_triggers` émet désormais On(4) PUIS On(0x1d).
+
+**Conditions** (slots : 0x148=owner Isaak, 0x158=stepper, 0x180=decoy) :
+- DamageEnemies @180e20310 = `On(0x1d) & AreEnemies(owner, stepper) & AmountIsGreaterThanZero(GetValidDeadDecoys)`.
+- BuffFriends @180e20050 = `(On(0x2f)|On(0x1d)) & AreFriends(owner, stepper) & AmountIsGreaterThanZero(...)`.
+- `GetValidDeadDecoys @180e13550` = `Filter(AllDeadUnits, AreFriends(owner, decoy) & HasTrait(decoy, 0x41d=1053
+  Decoy) & IsKilledThisTurn(decoy) & AreEqual(Killer(decoy), stepper) & Contains(Tiles(stepper),
+  MainTileOfUnits(decoy)))` → collapse `_valid_dead_decoys` (decoy mort, ami owner, co-localisé au stepper ;
+  Killer/IsKilledThisTurn approximés par la co-localisation — positions exclusives, count 1 en pratique).
+
+**Behaviours** :
+- **DamageEnemies @180e20190** = `Repeat(AttackWithAbilityDamage(owner, stepper, MinMaxDamage, Blast, GetHits=1),
+  Count(GetValidDeadDecoys))`. ⚠ **DÉCOMPILE VÉRIFIÉ (moi, pas juste le re-expert)** : la feuille
+  `DSLFactory$$AttackWithAbilityDamage @180de9c90` (overload avec hits) → base @180de9e50 =
+  `AttackBehaviour(AbilityDamageBehaviour(MinMaxDamage, Blast, source))` = **pipeline crit/block/after-hit
+  COMPLET** (PAS le direct pierce-only de la feuille port homonyme fire-DoT). Porté par le leaf
+  `AttackWithAttackDamage` (`execute_ability_attack`, config MinMaxDamage 1455-1746@L65) — même pipeline que
+  Stikkbomb/Fragstorm/Plasma. Cible = le **stepper** (0x158). Le profil Blast porte `HitsMultipleMembers`
+  (splash) → **FLAG** : le splash multi-membres n'est PAS re-dérivé (leaf attaque le stepper seul) — à
+  confirmer live si un scénario stable existe.
+- **BuffFriends @180e1fe30** = `AddEffect(1379 DecoysAndMisdirection_ExtraDamage +582, on=stepper)` +
+  `If(HasFaction(stepper, 0xf=GenestealerCults), spawn_decoy(First(SortTilesByUtilityForSummon(CanAddUnit(
+  AdjacentTiles(stepper))))))`. L'effet 1379 **existait déjà** (`effects/loki.py`
+  `DecoysAndMisdirectionExtraDamageEffect`, ForAddition `extraDmg` query-time au niveau du SOURCE ; leçon
+  *check-own-port-before-RE* : j'avais créé un doublon, supprimé) — le trigger le POSE + initialise son
+  niveau/mult depuis l'owner Isaak. Nouveau decoy = réutilise `spawn_decoy` (G1).
+
+**Port** : `runner/operations/triggers/genestealer.py` (2 classes `TriggeredAbility` + helpers `_valid_dead_
+decoys`/`_are_friends`/`_are_enemies`/`_adjacent_free_tile`) ; registré `ABILITY_TRIGGERS["DecoysAndMisdirection"]`
+(dispatch.py) ; `after_move_triggers` émet On(0x1d).
+
+**⚠ FINDING durable — ORACLE LIVE ENTANGLED (prouvé live 2026-07-18)** : la SEULE source live de decoy
+(CultDemagogue G4) voit ses decoys **CONSOMMÉS par les tours AI immédiats des Neophytes** → **0 decoy vivant
+post-cast** (probe : 1 decoy placé/mort, 0 neophyte survivant sur target cornered ; même dynamique que le
+"10 decoys" G4). Donc **pas de decoy stable à driver un ennemi dessus** → confrontation du MONTANT natif du
+Blast infaisable proprement. **Validation retenue = WIRING DÉTERMINISTE sur ÉTAT LIVE RÉEL** : `spawn_decoy`
+(G1, live-validé) pose un decoy ami près d'une unité réelle → rejeu du step-on (`MoveUnitOperation` +
+`after_move_triggers` = code natif-mirror) → assert le bon trigger fire. Le MONTANT du Blast vient du pipeline
+`execute_ability_attack` déjà live-validé.
+
+**Test** : `tests/engine/runner/test_decoys_misdirection_migration_live.py` (3/3 ✓) — enemy-step→Blast+crush,
+friendly-step→effet 1379+nouveau decoy (GS), garde no-over-fire (move sans decoy → 0 trigger). Gardes vertes :
+`test_overwatch_live` (1✓, On(4) intact), `test_runner_move_live` (2✓+1xfail préexistant),
+`test_decoy_foundation_live` (3✓ G1) → **0 régression** sur le vecteur after-move. ⚠ NON committé.
