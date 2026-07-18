@@ -38,6 +38,7 @@ from .final_justice import (FinalJusticeAbility, _finaljustice_target, _finaljus
                             _normal_attack_health_range, _damage_utility_weights)
 from .control_edict import (ControlEdictAbility, _adjacent_mechanical_summons,
                             PROTECTOR as CONTROLEDICT_PROTECTOR, CONQUEROR as CONTROLEDICT_CONQUEROR)
+from .rad_saturation import RadSaturationAbility, rad_saturation_tree, CONTAMINATED_TILE as RADSAT_CONTAMINATED_TILE
 
 __all__ = [
     # psyker
@@ -66,4 +67,6 @@ __all__ = [
     # control_edict (S4b)
     "ControlEdictAbility", "_adjacent_mechanical_summons",
     "CONTROLEDICT_PROTECTOR", "CONTROLEDICT_CONQUEROR",
+    # rad_saturation (S4b GAP — passif du Skitarii Vanguard)
+    "RadSaturationAbility", "rad_saturation_tree", "RADSAT_CONTAMINATED_TILE",
 ]

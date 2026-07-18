@@ -36,7 +36,7 @@ from .base import (TriggerEvent, TriggeredAbility, EffectTrigger, TileEffectTrig
                    PHASE_TRIGGER_CAP, _is_ranged_position)
 from .loki import (PsykerExtraAttackAbility, ActOfFaithAccumulateAbility, ActOfFaithResetAbility,
                    FinalJusticeAbility, TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility,
-                   ArcaneShieldAbility, ControlEdictAbility, FireTileDoT, FIRE_TILE,
+                   ArcaneShieldAbility, ControlEdictAbility, RadSaturationAbility, FireTileDoT, FIRE_TILE,
                    _on_fire_damage_ability, _fire_of_absolution_after_attack)
 from .tiles import dry_bush_fire_spread
 from .effect_triggers import (OverwatchAutoAttack, ContaminatedTileEffect,
@@ -81,6 +81,10 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Protector -> summon Skitarii Vanguard adjacent a Tan (cap maxSummons[level]) ; Conqueror -> les Summons
     # Mechanical amis adjacents attaquent la cible de Tan a portee. Cf. loki/control_edict.py.
     "ControlEdict": [ControlEdictAbility],
+    # RadSaturation (passif Skitarii Vanguard admecSmnVanguard, S4b GAP) = pose l'effet de TUILE Contaminated
+    # (1244) sur SA PROPRE tuile apres qu'il bouge (`On(4)&OwnerIsActor`, vecteur after_move) ou en fin de tour
+    # s'il n'a pas bouge (`On(0x17=TurnEnd)`, vecteur end_turn ci-dessous). Cf. loki/rad_saturation.py.
+    "RadSaturation": [RadSaturationAbility],
 }
 
 # --- Registre : effectType → effet-trigger ---------------------------------------------------------
@@ -404,19 +408,27 @@ PILEIN_MIN_OWNER_TURNS = 2      # `OwnerHasFinishedMinTurns(2)` — gate du trig
 
 
 def end_turn_summon_triggers(state: State, player_id: int) -> list[dict]:
-    """Vecteur FIN DE TOUR — passif d'auto-dédoublement `PileInAbility` (trigger @181223c50 `On(0x17)` &
-    `OwnerHasFinishedMinTurns(2)` & `IsUnitWithStatAmount(Health Cur==Max)` ; behaviour @181223990).
+    """Vecteur FIN DE TOUR (`On(0x17=TurnEnd=23)`). Deux volets :
 
-    Chaque grot (passif `PileIn`) du `player_id` FINISSANT son tour, s'il est à PV PLEINS et que son owner a
-    fini >=2 tours, s'auto-dédouble avec probabilité `chance − chance_2 × (#grots amis)` = 75 − 5×n (constantes
-    `GetNumberConstant(0x2a)=chance`, `(0x33)=chance_2`). Le RNG `Maybe(chance)` n'est PAS modélisé offline ->
-    DÉTERMINISTE : fire si chance>0 (cap NATUREL à n=15 -> 0 %). Le double = `execute_pilein_replica`
-    (`WithStatsFromConfig(PileIn)` = stats config, PAS clone). Snapshot des grots AVANT la boucle : les doubles
-    spawnés ce tour ne se re-déclenchent pas (« acts on its NEXT turn »)."""
+    1. DISPATCH GENERIQUE `On(TurnEnd)` (registre `ABILITY_TRIGGERS`) — ability-triggers TurnEnd. Consommateur :
+       `RadSaturationAbility` (branche 3 : le Skitarii Vanguard qui n'a PAS bouge ce tour contamine sa tuile en
+       fin de tour ; gate `owner not in state.moved_this_turn`). `player_id` scope l'`OwnerIsActor`.
+    2. Passif d'auto-dédoublement `PileInAbility` (BESPOKE : trigger @181223c50 `On(0x17)` &
+       `OwnerHasFinishedMinTurns(2)` & `IsUnitWithStatAmount(Health Cur==Max)` ; behaviour @181223990) — chaque
+       grot (passif `PileIn`) du `player_id`, a PV PLEINS et owner >=2 tours finis, s'auto-dédouble avec proba
+       `chance − chance_2 × (#grots amis)` = 75 − 5×n. `Maybe(chance)` non modélisé -> DÉTERMINISTE (fire si
+       chance>0, cap naturel n=15). Double = `execute_pilein_replica`. Snapshot AVANT la boucle (« acts on its
+       NEXT turn »).
+
+    (PileIn reste BESPOKE — pas dans `ABILITY_TRIGGERS` -> pas de double-fire par le dispatch generique.)"""
     import gameconfig as GC
     from ..spawn import SpawnUnitOperation
+    # 1. dispatch generique On(TurnEnd) : RadSaturation (fin de tour si pas bouge) + tout futur ability-trigger TurnEnd.
+    ev = TriggerEvent(EventTriggerType.TurnEnd, -1, -1, ranged=False, profile=None, player_id=player_id)
+    out: list[dict] = evaluate_trigger_operation(state, ev)
+    # 2. PileIn (bespoke) — gate min-turns propre a PileIn (n'affecte pas le dispatch generique ci-dessus).
     if state.turn_counts.get(int(player_id), 0) < PILEIN_MIN_OWNER_TURNS:
-        return []
+        return out
     consts = (GC.ability("PileIn") or {}).get("constants") or {}
     chance0 = int(consts.get("chance") or 75)
     chance_2 = int(consts.get("chance_2") or 5)
@@ -435,7 +447,7 @@ def end_turn_summon_triggers(state: State, player_id: int) -> list[dict]:
         if hc.hp < hc.hp_max:                  # `IsUnitWithStatAmount(Health Cur==Max)` = PV PLEINS
             continue
         candidates.append((eid, uc.visual_id, oc.team))
-    out: list[dict] = []
+    # NB : `out` porte deja les resultats du dispatch generique On(TurnEnd) (volet 1) — on APPEND PileIn dessus.
     for (gid, vid, team) in candidates:
         # `UnitsWithSameVisualId(self) & Friends(3)` -> Count = grots amis (même visualId) hors self.
         n = sum(1 for e2 in state.entities.values()
