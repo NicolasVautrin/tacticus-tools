@@ -872,10 +872,15 @@ def _betrayer_take_turn(state: State, owner_id: int) -> Optional[dict]:
       "TheBetrayer", "Eviscerate", melee)` (BIT-EXACT : mêmes `ability_attack_params` + `execute_ability_attack`).
     - `Inform(0xbf)` = notif AI/UI = NO-OP observable (feuille `Inform`).
 
-    TODO (#149 fidélité, à trancher par RE du pipeline move/overwatch, task #4) : l'`Emit("BetrayerAfterMove")`
-    appelle `after_move_triggers` (overwatch sur le move forcé, ssi le move est effectif) — ABSENT de l'arbre
-    natif (nœud `MoveUnit` à OPTIONS NULLES, comme ThunderousAssault qui NE le déclenche PAS). Préservé ici
-    (ZÉRO régression), ordonné move -> after_move -> attaque, à RETIRER quand #4 sera tranché.
+    FIDÉLITÉ after-move overwatch (#149, task #4 RÉSOLU par RE @180e79770) : l'`Emit("BetrayerAfterMove")`
+    appelle `after_move_triggers` (overwatch sur le move forcé, ssi le move est effectif) — c'est FIDÈLE au
+    natif, PAS un over-trigger. `MoveUnitOperation.EvaluateAfterMoveTriggers @180e79770` émet `On(4)`
+    (after-move / overwatch) gaté par `if (param_6 != 0) return`, où `param_6` = options[4] du nœud `MoveUnit`
+    (behaviour +0x80) = flag SUPPRESS (défaut 0 = overwatch ACTIF). Options NULLES (Kharn == ThunderousAssault)
+    => param_6=0 => `On(4)` ÉMIS. Émission UNIQUE : la feuille `MoveUnit` appelle `MoveUnitOperation.execute`
+    (position seule ; INCRÉMENT 1b `EvaluateAfterMoveTriggers` NON replié dans l'Operation) -> l'`Emit` explicite
+    est le SEUL vecteur after-move de ce move DSL (pas de double). ⚠ Si INCRÉMENT 1b replie un jour
+    `EvaluateAfterMoveTriggers` DANS `MoveUnitOperation.execute`, RETIRER cet `Emit` (sinon double-émission).
     No-op si pas de cible / board."""
     from ...abilities.behaviours import AttackWithAttackDamage, MoveUnit, entities_from_state
     from ....dsl.effects import ExecutionContext
@@ -897,9 +902,10 @@ def _betrayer_take_turn(state: State, owner_id: int) -> Optional[dict]:
             return {"result": after_move_triggers(ectx.state, owner_id)}
         return {}
 
-    # OVER-TRIGGER hors-natif (MoveUnit options nulles @1811a4f70) : `Emit` AfterMove PRÉSERVÉ (task #4,
-    # zéro régression), ordonné move -> after_move -> attaque, à RETIRER quand le pipeline move/overwatch
-    # sera tranché. ABSENT de l'arbre natif -> encapsulé DANS la branche move, pas une feuille native.
+    # FIDÈLE au natif (task #4 RÉSOLU, RE @180e79770) : `Emit` AfterMove = l'after-move overwatch du move
+    # forcé, émis par `EvaluateAfterMoveTriggers` pour TOUT move (options nulles = flag SUPPRESS param_6=0 =
+    # overwatch actif ; Kharn == ThunderousAssault). Émission UNIQUE (feuille `MoveUnit` -> Operation
+    # position-seule) ; encapsulé DANS la branche move, ordonné move -> after_move -> attaque.
     move_branch = Seq(MoveUnit(Caster(), FixedTiles([stop] if stop is not None else [])),
                       Emit("BetrayerAfterMove", _after_move_fn))
 

@@ -272,6 +272,11 @@ def _unit_tile(state: State, board, uid: int) -> Optional[int]:
 
 
 def _is_adjacent_units(state: State, a_id: int, b_id: int) -> bool:
+    """Adjacence hex (dist == 1) entre deux unites. ORACLE DE TEST uniquement depuis la Voie A
+    (S-chantier) : le runner ne l'appelle PLUS -- le noeud DSL `IsAdjacent` (entities/triggers.py,
+    relu LIVE via LiveUnit) a repris ce role en production. Conserve comme oracle d'adjacence
+    INDEPENDANT du test de migration TheBetrayer (ne pas s'auto-tester avec le noeud sous test).
+    Cf. docs/rl/dsl-live-context-substrate.md."""
     board = state.board
     if board is None:
         return False

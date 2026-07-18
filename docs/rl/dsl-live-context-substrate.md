@@ -132,13 +132,54 @@ live-vs-snapshot dans la décision balayée post-move, cf. `predOptimistic`/`cas
 - **Frontière préservée** : les sélecteurs S LOURDS restent COLLAPSÉS (cible `_betrayer_target`, tuile
   `_betrayer_stop_tile`), fournis à l'arbre comme valeurs (`Target()`/`FixedTiles`). Le gate
   `AmountIsGreaterThanZero(target)` reste le gate S collapse (`if target is None`) — le folder exigerait
-  d'un-collapser la cible en LISTE (contre la doctrine). L'`after_move_triggers` (task #4, over-trigger
-  hors-natif) est préservé via un `Emit("BetrayerAfterMove")` DANS la branche move (ordre move→after→attack).
+  d'un-collapser la cible en LISTE (contre la doctrine). L'`after_move_triggers` (overwatch du move forcé) est
+  émis via un `Emit("BetrayerAfterMove")` DANS la branche move (ordre move→after→attack) — **FIDÈLE au natif**
+  (task #4 RÉSOLU, cf. section « After-move overwatch » ci-dessous), PAS un over-trigger.
 - **RESTE (généralisation)** : seul le contexte RUNNER est live ; la surface T/S entière le devient
   cas-par-cas (toute future ability mutate-then-predicate). `Cache` (identité) existe déjà (`selectors.py`).
 
+## After-move overwatch : FIDÈLE (task #4 RÉSOLU, RE 2026-07-18)
+
+Question tranchée : le MOVE FORCÉ de TheBetrayer (nœud `MoveUnit` à OPTIONS NULLES, comme ThunderousAssault)
+déclenche-t-il l'after-move overwatch dans le natif ? **OUI — universel, le port est fidèle (garder l'`Emit`).**
+
+Chaîne : `TheBetrayer_TakeTurn$$CreateBehaviour @1811a4f70` → `DSLFactory.MoveUnit @180df6ae0` →
+`MoveUnitBehaviour$$.ctor @180fcad60` (stocke les 7 options en `+0x60..0x90`) → `MoveUnitBehaviour$$Execute
+@180fca4f0` (évalue les options → bitfield) → `MoveUnitOperation$$Execute @180e79ff0` →
+`MoveUnitOperation$$EvaluateAfterMoveTriggers @180e79770`.
+
+`EvaluateAfterMoveTriggers @180e79770` émet l'overwatch after-move via `On(4)`, mais **gaté** :
+
+```
+FUN_180026490(0x4d, ..., 0x24, ...);   // On(0x24)
+if (param_6 != '\0') { return; }        // GATE
+FUN_180026490(0x4d, ..., 4,    ...);   // On(4) = after-move / overwatch
+```
+
+`param_6` = octet 4 du bitfield options (`plVar1[2] >> 0x20 & 0xff`) = `uVar15` dans `MoveUnitBehaviour.Execute`,
+dérivé du champ **options[4]** (`behaviour +0x80` ; ctor `*(param_1+0x80)=param_4[4]`) :
+`if (*(param_2+0x80)==0) uVar15=0`.
+
+⇒ **options[4] est un flag SUPPRESS (opt-in au SKIP), défaut 0 = overwatch ACTIF.** Options nulles (Kharn ==
+ThunderousAssault) ⇒ `param_6 = 0` ⇒ le gate `if (param_6 != 0) return` n'est PAS pris ⇒ `On(4)` ÉMIS. Il
+n'existe PAS de flag « enable overwatch » à activer : l'overwatch est le DÉFAUT, désactivable seulement par une
+option explicite (que ni Kharn ni ThunderousAssault ne passent). Sémantique des autres octets d'options nulles :
+octet 5 (`+0x88`) gate un fast-path (défaut 0 = chemin normal, qui émet aussi `On(4)`) ; octets 0/1 (`+0x78`/
+`+0x70`, XOR 0x0101) = SetMovedFlag/charge, sans lien avec l'overwatch.
+
+**Émission UNIQUE côté port** : `MoveUnitOperation.execute` (port) est POSITION-SEULE (INCRÉMENT 1b
+`EvaluateAfterMoveTriggers` non replié) ; le move NORMAL émet l'after-move dans
+`MovementHandler.visit_MoveUnitMessage`, PAS l'Operation. Pour le move DSL de Kharn, l'`Emit("BetrayerAfterMove")`
+explicite est donc le SEUL vecteur after-move → une émission, pas de double. ⚠ Si INCRÉMENT 1b replie un jour
+`EvaluateAfterMoveTriggers` DANS `MoveUnitOperation.execute`, RETIRER cet `Emit` (sinon double-émission).
+
 ## VAs (référence)
 
+- After-move overwatch : `MoveUnitBehaviour$$Execute @180fca4f0` ; `MoveUnitBehaviour$$.ctor @180fcad60`
+  (options `+0x60..0x90`, options[4]=`+0x80`) ; `MoveUnitOperation$$Execute @180e79ff0` ;
+  `MoveUnitOperation$$EvaluateAfterMoveTriggers @180e79770` (émet `On(4)` gaté par `param_6`=options[4]=flag SUPPRESS)
+- Port : `engine/runner/operations/movement.py` (`MoveUnitOperation.execute` position-seule, INCRÉMENT 1b TODO ;
+  `MovementHandler.visit_MoveUnitMessage` = after-move du move normal)
 - Arbre : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_TakeTurnAbility$$CreateBehaviour @1811a4f70`
 - `DSLFactory$$IsAdjacent @180df2f00` → `IsAdjacentAbilityTrigger$$ShouldTrigger @180f9f7b0` (ctor `@180f9fc10`)
 - `AbilityEntities$$.ctor @180fb4d50` / `@180fb3c30` ; `get_CasterPosition @180fb4f20` ;

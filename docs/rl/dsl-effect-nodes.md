@@ -299,9 +299,11 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
   > (feuille `Inform`) non modélisée. **Refactor** : `_betrayer_move` (fusion tuile+move+after-move) scindé en
   > `_betrayer_stop_tile` (COLLAPSE S pur) + move-via-feuille ; l'import mort `AttackDamageOperation` (loki.py)
   > retiré (plus aucun call-site après slices 22/24) ; re-export `_betrayer_take_turn`/`_betrayer_target`/
-  > `_betrayer_stop_tile`/`_is_adjacent_units`. **TODO fidélité (tâche)** : l'impératif appelle `after_move_triggers`
-  > (overwatch sur le move forcé), mais le nœud `MoveUnit` a des OPTIONS NULLES (comme ThunderousAssault, qui ne
-  > le déclenche PAS) → PRÉSERVÉ ici (zéro régression), à trancher par RE du pipeline move/overwatch. Test NEUF
+  > `_betrayer_stop_tile`/`_is_adjacent_units`. **Fidélité after-move (task #4 RÉSOLU, RE @180e79770)** : l'`Emit`
+  > `after_move_triggers` (overwatch sur le move forcé) est FIDÈLE, PAS un over-trigger — `EvaluateAfterMoveTriggers
+  > @180e79770` émet `On(4)` gaté par `if (param_6 != 0) return`, `param_6` = options[4] du `MoveUnit` = flag
+  > SUPPRESS (défaut 0 = overwatch ACTIF) ; options NULLES (Kharn == ThunderousAssault) => `On(4)` émis. Émission
+  > UNIQUE (feuille `MoveUnit` -> `MoveUnitOperation.execute` position-seule). Détail → `dsl-live-context-substrate.md`. Test NEUF
   > `test_thebetrayer_take_turn_migration_live` (move+attaque via feuilles ; adjacent no-move) ; guard fort =
   > `test_thebetrayer_turnstart_live` (replay-diff LIVE : cible/tuile-move/attaque == natif). 0 régression (5 verts).
   > **S-chantier (Voie A) IMPLÉMENTÉ (2026-07-18)** : composition repliée en UN arbre DSL unifié (`Seq`/`If`/
@@ -310,7 +312,7 @@ l'Operation/`ApplyModification` qui devrait vivre EN DESSOUS de la feuille.**
   > Plus aucun `_is_adjacent_units` impératif. Substrat natif RE prouvé (4×) + détail d'implémentation →
   > **`docs/rl/dsl-live-context-substrate.md`** (l'`AbilityEntities` tient une RÉF `+0x40`, position re-dérivée
   > live ; `&` = `CombinedBehaviour.Execute @180ffe730` court-circuit ; `+0x48` = `caster_pos`, sweep AI figé).
-  > Sélecteurs S lourds (cible/tuile) restent COLLAPSÉS ; `after_move` (task #4) préservé via `Emit`. RESTE =
+  > Sélecteurs S lourds (cible/tuile) restent COLLAPSÉS ; `after_move` overwatch FIDÈLE (task #4 RÉSOLU, RE @180e79770). RESTE =
   > généraliser le live-by-ref à la surface T/S (cas-par-cas). Validé 4/4 (A1 LiveUnit) + 4/4 (A2 arbre).
 
 ## Verdict RE #149 slice-2 (re-expert, PROUVÉ ghidra gqfc5mff6c) — WALKER + combinateurs + arbre GetEmRuntz
