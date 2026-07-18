@@ -17,7 +17,7 @@ from ....dsl.effects import ExecutionContext
 from ....dsl.event_trigger_type import EventTriggerType   # #209 : EvaluateAbilities(EventTriggerType) node
 from ....entities.behaviours import AtomicGroup, op_add, op_and
 from ....entities.selectors import (Caster, Target, CasterTile, TargetTile, Union, UnitsFromFaction,
-                                    AdjacentFriends, Alive)
+                                    AdjacentFriends, Alive, Cache)
 from ..behaviours import (AttackWithAttackDamage, AddEffect, EvaluateAbilities, PushUnit, MoveUnit,
                           KillDeadUnits, AddBondEffect, Heal, entities_from_state)
 
@@ -29,7 +29,7 @@ PINNED = int(EffectType.Pinned)                         # 1065 — UI « Suppres
 VALKYRIE_STRIKE = int(EffectType.ValkyrieStrike_Effect)  # 1022 — airstrike DIFFÉRÉ, fire au tour suivant
 
 
-def thunderous_assault_tree() -> AtomicGroup:
+def thunderous_assault_tree(charge_dest: "TargetsSelector | None" = None) -> AtomicGroup:
     """Arbre de `ThunderousAssaultAbility.ExecuteBehaviour @1812158b0` (id 1043, templSwordBrother — MIRROR
     du DECOMPILE) :
         ExecuteAtomic(
@@ -45,7 +45,13 @@ def thunderous_assault_tree() -> AtomicGroup:
             AddEffect(STUNNED,"Stunned",Target(),1) ),
             PushUnit(Caster(), Target()) ),
             KillDeadUnits(Caster(), Target()) ),
-            MoveUnit(Caster(), TargetTile()) ) )
+            MoveUnit(Caster(), Cache(TargetTile())) ) )
+    `charge_dest` = selecteur de tuile de la CHARGE ; defaut None -> un `Cache(TargetTile())` FRESH par cast.
+    Ce `Cache` est le mirror 1:1 du `Cache(First(Nearest(Tiles(target),casterPos)))` natif PARTAGE entre
+    l'attaque et la charge : il DOIT etre EVALUE (prime) PRE-push (le natif l'evalue a l'attaque, avant le
+    push) -> `ThunderousAssaultAbility.execute_behaviour` construit et prime le cache avant `.execute()` puis
+    l'injecte ici. Cf. #27 pour le pourquoi (sans memoisation, `TargetTile()` relu POST-push rend la tuile
+    d'ATTERRISSAGE occupee, pas la tuile PRE-push liberee).
     `op_and` = `op_BitwiseAnd` (`CombinedBehaviour`) : effets PURS (flag@+0x20==0) -> TOUS les volets
     s'executent (l'attaque ne court-circuite pas le stun, meme si elle tue la cible — le stun s'applique
     inconditionnellement APRES, comme l'imperatif live-valide). `AtomicGroup` = inline (RE #201). Ordre natif =
@@ -56,18 +62,22 @@ def thunderous_assault_tree() -> AtomicGroup:
     **slice-21a** : `PushUnit` -> `DisplaceUnitOperation` pousse la cible d'1 hex a l'oppose du caster (no-op
     si BigTarget/Immovable, cf. cible tyranTyrantGuard du test de stun). **slice-21b** : `KillDeadUnits(Caster,
     Target)` = `Kill(DownedUnits(target))` -- mort DEJA finalisee INLINE chez nous (damage.py:152) -> mirror
-    structurel NO-OP (pas de double-fire on-death) ; `MoveUnit(Caster, TargetTile())` = le CASTER CHARGE dans la
-    tuile liberee par le push. `TargetTile()` = tuile PRE-push de la cible : `ctx.target` etant un SNAPSHOT
-    pre-cast (dict fige), `_pos(ctx.target)` reste la tuile d'origine meme apres le push -> collapse gratuit du
-    `Cache(First(Nearest(Tiles(target),casterPos)))` natif (single-tile target ; meme collapse que l'attaque).
-    La garde `CanAddUnit` (tuile libre) est LIVE dans la feuille `MoveUnit` (mirror `CanAddUnitFromAbility` sur
-    contenu de tuile live) : le caster ne suit QUE si le push a reussi a liberer la tuile (sinon no-op)."""
+    structurel NO-OP (pas de double-fire on-death) ; `MoveUnit(Caster, Cache(TargetTile()))` = le CASTER CHARGE
+    dans la tuile liberee par le push. Destination = `Cache(TargetTile())` MEMOISE PRE-push (== le
+    `Cache(First(Nearest(Tiles(target),casterPos)))` natif, single-tile target -> collapse `TargetTile()`, meme
+    collapse que l'attaque). ⚠ #27 : `ctx.target` est un `LiveUnit` (live-by-ref, pos re-lue a chaque acces,
+    Voie A #6) -> `TargetTile()` NU relu POST-push rendrait la tuile d'ATTERRISSAGE (occupee), PAS la tuile
+    PRE-push. Le `Cache` (prime a l'attaque cote natif ; prime dans `execute_behaviour` cote port) fige la tuile
+    PRE-push : la charge vise la tuile liberee. La garde `CanAddUnit` (tuile libre) est LIVE dans la feuille
+    `MoveUnit` (mirror `CanAddUnitFromAbility` sur contenu de tuile live) : le caster ne suit QUE si le push a
+    reussi a liberer la tuile (sinon no-op)."""
+    dest = charge_dest if charge_dest is not None else Cache(TargetTile())
     return AtomicGroup(op_and(op_and(op_and(op_and(
         AttackWithAttackDamage(Target(), "ThunderousAssault", "Power", is_melee=True),
         AddEffect(STUNNED, "Stunned", Target(), 1)),
         PushUnit(Caster(), Target())),
         KillDeadUnits(Caster(), Target())),
-        MoveUnit(Caster(), TargetTile())))
+        MoveUnit(Caster(), dest)))
 
 
 def armorium_cherub_tree() -> AtomicGroup:
@@ -204,12 +214,13 @@ class ThunderousAssaultAbility(ActiveAbility):
         AttackWithAttackDamage(caster, Units(Cache(First(Nearest(Tiles(target),casterPos)))),
                                MinMaxDamage, profile=Power, hits=GetNumberConstant(0x2f))   # ← DSL
       & AddEffect(0x48a Stunned, source=casterStateRef, TurnsFromRounds(1))                 # ← DSL
-      & PushUnit(target, 1 hex) & KillDeadUnits & MoveUnit(caster -> hex libéré)   # [déplacement — TODO]
-    Le behaviour est l'arbre DSL (`AtomicGroup(op_and(AttackWithAttackDamage, AddEffect))`) : les feuilles
-    émettent les MÊMES Operations que l'ancien impératif (`execute_ability_attack`/`AddEffectOperation`) →
-    même mutation, même ordre, même `state.rng` (bit-exact BY CONSTRUCTION). push/kill/move = tranche
-    déplacement différée (no-op, comme l'impératif). VALIDÉ live : pose Stunned(1162, rem=1) + enfants
-    1165/1166/1167 sur la cible (cf. test_effect_stun_live)."""
+      & PushUnit(caster, target) & KillDeadUnits & MoveUnit(caster -> Cache(hex cible pre-push))  # slice-21a/b
+    Le behaviour est l'arbre DSL COMPLET (`thunderous_assault_tree()`) : les feuilles émettent les MÊMES
+    Operations que l'ancien impératif (`execute_ability_attack`/`AddEffectOperation`) → même mutation, même
+    ordre, même `state.rng` (bit-exact BY CONSTRUCTION). Déplacement PORTÉ (slice-21a push + 21b charge) :
+    le push pousse la cible d'1 hex (`DisplaceUnitOperation`), puis le caster CHARGE dans la tuile libérée —
+    destination figée par un `Cache(TargetTile())` primé PRE-push (#27 : `ctx.target`=`LiveUnit` live-by-ref).
+    VALIDÉ live : pose Stunned(1162, rem=1) + enfants 1165/1166/1167 sur la cible (cf. test_effect_stun_live)."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.ThunderousAssault)  # 1043
 
@@ -220,7 +231,16 @@ class ThunderousAssaultAbility(ActiveAbility):
         if target_id is None:
             return {"attack": None, "dsl": True}
         ectx = ExecutionContext(state=state, rng=state.rng)
-        thunderous_assault_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        entities = entities_from_state(state, caster_id, target_id)
+        # #27 : `Cache(TargetTile())` = mirror du `Cache(First(Nearest(Tiles(target),casterPos)))` natif
+        # PARTAGE attaque<->charge. Le natif le PRIME a l'attaque (pre-push) ; ici `ctx.target` est un `LiveUnit`
+        # (pos live-by-ref, Voie A #6) -> on PRIME le cache MAINTENANT (pre-push) pour figer la tuile PRE-push de
+        # la cible. Sans ce prime, la charge relirait `TargetTile()` POST-push (tuile d'atterrissage occupee) et
+        # le caster ne chargerait jamais. On injecte le MEME cache dans l'arbre -> la feuille MoveUnit relit la
+        # tuile PRE-push liberee par le push.
+        charge_cache = Cache(TargetTile())
+        charge_cache.evaluate(entities)                   # prime pre-push (1re eval == timing natif a l'attaque)
+        thunderous_assault_tree(charge_dest=charge_cache).execute(entities, ectx)
         atk = next((p["attack"] for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
         return {"attack": atk, "dsl": True}
 

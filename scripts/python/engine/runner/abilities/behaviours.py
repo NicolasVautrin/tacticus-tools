@@ -822,11 +822,13 @@ class MoveUnit(AbilityBehaviour):
     `CanAddUnit(Cache(First(Nearest(Tiles(target), casterPos))))` = la tuile d'ORIGINE de la cible (le MEME
     `Cache` que l'attaque, MEMOISE avant le push) gated LIBRE.
 
-    FIDELITE du cache -> tuile PRE-push (sans noeud Cache) : `entities_from_state` construit le `DslContext`
-    UNE fois au cast -> `ctx.units`/`ctx.target` sont un SNAPSHOT pre-cast ; le push mute l'ECS LIVE mais PAS
-    les dicts. Donc `dest_tile_sel` = `TargetTile()` (== `_pos(ctx.target)`) rend la tuile PRE-push meme
-    evalue APRES le push -> le snapshot EST le `Cache(Tiles(target))` natif (memoisation gratuite ; meme
-    collapse que l'attaque `Units(Cache(First(Nearest(...))))` -> `Target()`).
+    FIDELITE du cache -> tuile PRE-push (VRAI noeud `Cache`, #27) : `ctx.target` est un `LiveUnit` (vue
+    live-by-ref, pos re-lue du state a chaque acces -- Voie A #6). Donc un `TargetTile()` NU relu APRES le push
+    rendrait la tuile POST-push (atterrissage OCCUPE) -> aucune charge. Le natif MEMOISE via
+    `Cache(First(Nearest(Tiles(target),casterPos)))` EVALUE a l'attaque (pre-push) et PARTAGE avec la charge ;
+    le port passe donc `dest_tile_sel = Cache(TargetTile())` PRIME pre-push par `ThunderousAssaultAbility.
+    execute_behaviour` (single-tile target -> collapse `TargetTile()`, meme collapse que l'attaque
+    `Units(Cache(First(Nearest(...))))` -> `Target()`). Sans ce `Cache`, le bug #27 : le caster ne charge jamais.
 
     Garde `CanAddUnit` = tuile LIBRE, lue sur l'ETAT LIVE (post-push) -- mirror `CanAddUnitTileSelector.Select
     @180ee4230` qui teste `TileExtensions.CanAddUnitFromAbility` sur le CONTENU DE TUILE live -- et NON via le
