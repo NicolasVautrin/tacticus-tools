@@ -150,9 +150,12 @@ class AttackDamageOperation:
         uc = tgt.get_component(UnitComponent) if tgt is not None else None
         if uc is not None:
             uc.alive = False
-        from .triggers import after_death_triggers, is_overkill
-        return after_death_triggers(state, target_id, attacker_id,
-                                    overkill=is_overkill(hp_before, damage))
+        from .triggers import after_death_triggers, is_overkill, unit_defeated_triggers
+        out = after_death_triggers(state, target_id, attacker_id,
+                                   overkill=is_overkill(hp_before, damage))
+        # #G3 : le natif emet AUSSI `On(UnitDefeated=55)` (event DISTINCT de PreUnitDeath=1) apres la mort ->
+        # Ambush_SummonAbility (mort -> decoy + record turn_defeated). L'unite est deja alive=False (fire-on-death).
+        return (out or []) + unit_defeated_triggers(state, target_id, attacker_id)
 
     @staticmethod
     def _target_shield(tgt) -> tuple:

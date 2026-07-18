@@ -1,5 +1,6 @@
-"""Ability-triggers gen-stealer — passif `DecoysAndMisdirection` d'Isaak (`genesPrimus`), slice G2.
+"""Ability-triggers gen-stealer — passif `DecoysAndMisdirection` d'Isaak (G2) + trait `Ambush` (G3).
 
+## G2 — DecoysAndMisdirection
 Namespace natif `IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_*`. Le passif est
 materialise par DEUX abilities-triggers DISTINCTES (2 entrees dans `AbilityAndEffectCache`), split par la
 CONDITION DE FACTION (`AreEnemies` vs `AreFriends`), PAS par l'event :
@@ -34,19 +35,23 @@ Doc : docs/rl/genestealer-cults.md.
 from __future__ import annotations
 
 from ...state import State
-from ...components import OwnerComponent, UnitComponent, PositionComponent, StatsComponent
+from ...components import (OwnerComponent, UnitComponent, PositionComponent, StatsComponent,
+                          HealthComponent, UnitFlagsComponent)
 from ....entities.traits.unit_trait import UnitTrait, has_trait
 from ....entities.effect_type import EffectType
 from ....dsl.event_trigger_type import EventTriggerType
-from .base import TriggeredAbility, _faction_id
+from .base import TriggeredAbility, _faction_id, _pick_randomly
 
 import hexgeo
 
 DECOYS_EXTRA_DMG = int(EffectType.DecoysAndMisdirection_ExtraDamage)   # 1379 (0x563)
 DECOY_TRAIT = UnitTrait.Decoy                        # 1053 (0x41d)
+AMBUSH_TRAIT = UnitTrait.Ambush                      # 1052 (0x41c) — G3
+HERO_TRAIT = UnitTrait.Hero                          # 16 (0x10) — Character-first (G3)
 GENESTEALERS_FACTION = "Genestealers"                # HasFaction(0xf=GenestealerCults) (FactionId gameconfig)
 ABILITY_ID = "DecoysAndMisdirection"
 BLAST_PROFILE = "Blast"                              # profile=Blast{PiercingRatio:15, Traits:[HitsMultipleMembers]}
+RESURRECT_TURN_DELAY = 1                             # G3 constants@0xc0 : Difference(turnsStarted, turnDefeated)==1
 
 
 # ----- selecteurs S collapses (AreFriends/AreEnemies, GetValidDeadDecoys, AdjacentFreeTiles) -----
@@ -219,3 +224,191 @@ class DecoysAndMisdirectionBuffFriendsAbility(TriggeredAbility):
                 spawned = spawn_decoy(state, tile, self.owner_id)
         return {"ability": "DecoysAndMisdirection_BuffFriends", "owner": self.owner_id,
                 "target": stepper, "effect": DECOYS_EXTRA_DMG, "spawned_decoy": spawned}
+
+
+# =====================================================================================================
+# G3 — trait Ambush (1052) : mort -> decoy + resurrection sur decoy allie + tour immediat
+#
+# Namespace natif `IdunBattleLogic.Entities.Abilities.Triggered.Loki`. Le trait 1052 = 2 abilities-triggers :
+#   - `Ambush_SummonAbility`      (CreateTrigger @180e15970, GetSummonBehaviour @180e15a10) : mort -> decoy.
+#   - `EnvAmbushResurrectAbility`  (CreateTrigger @180f79a10, CreateBehaviour @180f79760)   : resurrection.
+# La feuille DSL `Resurrect` @180dfa420 appelle l'Operation imperative `ResurrectUnitOperation.Execute
+# @180e8e4c0` (../resurrect.py) qui pose le flag one-shot 0xe + crushe le decoy + emet On(UnitResurrected=47).
+# RE ghidra gqfc5mff6c ; doc docs/rl/genestealer-cults.md (verdict G3).
+# =====================================================================================================
+
+def _free_tile_or_adjacent(state: State, coord):
+    """`First(FreeTilesOrAdjacentFreeTiles(Tiles(target), constants@0xf8))` (collapse S) : la tuile de `coord`
+    si LIBRE (aucun vivant) et marchable, sinon la 1re tuile libre marchable ADJACENTE (hex, ordre id
+    croissant = First). Renvoie un id de tuile (arg `spawn_decoy`) ou None. Le porteur mourant etant
+    alive=False, sa PROPRE tuile est 'libre' -> le decoy se pose sur la tuile du mort."""
+    board = state.board
+    if board is None or coord is None:
+        return None
+    occ = set()
+    for e in state.entities.values():
+        pc = e.get_component(PositionComponent)
+        uc = e.get_component(UnitComponent)
+        if pc is None or (uc is not None and not uc.alive):     # occupants VIVANTS uniquement
+            continue
+        occ.add((pc.col, pc.row))
+    center = (int(coord[0]), int(coord[1]))
+    if center not in occ:                                        # FreeTiles(Tiles(target)) : la tuile du mort
+        t = board.id_at(center[0], center[1])
+        if t is not None and board.walkable(t):
+            return t
+    cands = []                                                   # AdjacentFreeTiles : voisins hex libres
+    for (c, r) in hexgeo.disk(center[0], center[1], 1):
+        if (c, r) == center or (c, r) in occ:
+            continue
+        t = board.id_at(c, r)
+        if t is not None and board.walkable(t):
+            cands.append(t)
+    return sorted(cands)[0] if cands else None
+
+
+def _valid_decoys(state: State, player) -> list:
+    """`GetValidDecoys @180f79d80` (collapse S) : decoys VIVANTS (trait Decoy 1053) du joueur `player`, sur
+    une tuile marchable (`IsCanAddUnit(Tiles(decoy))`). Le decoy est crushe a la resurrection (l'unite
+    reapparait sur SA tuile). Le `Not(HasEffect(decoy, 1390))` natif (decoy deja reclame) est assure par la
+    RE-EVALUATION entre iterations du behaviour (un decoy crushe passe alive=False -> exclu de l'appel suivant).
+    `player`-based (CopyOwner : un decoy herite du player du caster => meme player == meme team, runner 2-team)."""
+    board = state.board
+    out = []
+    for uid, e in state.entities.items():
+        uc = e.get_component(UnitComponent)
+        if uc is None or not uc.alive:                    # decoy VIVANT (token debout)
+            continue
+        sc = e.get_component(StatsComponent)
+        traits = getattr(sc.ctx, "traits", None) if sc is not None else None
+        if not has_trait(traits or [], DECOY_TRAIT):      # HasTrait(decoy, Decoy=1053)
+            continue
+        oc = e.get_component(OwnerComponent)
+        if oc is None or oc.player != player:             # AreFriends(decoy, CurrentPlayer)
+            continue
+        pc = e.get_component(PositionComponent)
+        if pc is None:
+            continue
+        if board is not None:                             # IsCanAddUnit(Tiles(decoy)) ~ tuile marchable
+            t = board.id_at(pc.col, pc.row)
+            if t is None or not board.walkable(t):
+                continue
+        out.append(uid)
+    return out
+
+
+def _eligible_for_resurrect(state: State, player) -> list:
+    """`GetUnitsEligibleForResurrect @180f79b90` (collapse S) : unites MORTES du joueur `player` portant le
+    trait Ambush, PAS deja ressuscitees (`Not(HasFlag 0xe)`), mortes au tour PRECEDENT du joueur
+    (`AmountIsEqual(Difference(CurrentPlayerTurnsStarted, TurnDefeated(u)), @0xc0=1)`). `turn_defeated` est
+    pose a la mort par `AmbushSummonAbility`."""
+    cur = state.turn_counts.get(int(player), 0)
+    out = []
+    for uid, e in state.entities.items():
+        uc = e.get_component(UnitComponent)
+        if uc is None or uc.alive:                        # IsDefeated(u)
+            continue
+        oc = e.get_component(OwnerComponent)
+        if oc is None or oc.player != player:             # AreEqual(OriginalOwner(u), CurrentPlayer)
+            continue
+        sc = e.get_component(StatsComponent)
+        traits = getattr(sc.ctx, "traits", None) if sc is not None else None
+        if not has_trait(traits or [], AMBUSH_TRAIT):     # HasTrait(u, Ambush=1052)
+            continue
+        fl = e.get_component(UnitFlagsComponent)
+        if fl is not None and fl.has(UnitFlagsComponent.AMBUSH_CONSUMED):   # Not(HasFlag 0xe)
+            continue
+        td = uc.turn_defeated
+        if td is None or (cur - int(td)) != RESURRECT_TURN_DELAY:           # Difference == @0xc0(=1)
+            continue
+        out.append(uid)
+    return out
+
+
+def _max_health(state: State, uid: int):
+    """PV pleins de `uid` (`StatAmount(unit, Health=5, mode=2)` = max health) pour SetHealth a la resurrection."""
+    e = state.get_entity(uid)
+    hc = e.get_component(HealthComponent) if e is not None else None
+    return hc.hp_max if hc is not None else None
+
+
+class AmbushSummonAbility(TriggeredAbility):
+    """`Ambush_SummonAbility` (CreateTrigger @180e15970, GetSummonBehaviour @180e15a10). A la MORT d'un porteur
+    Ambush : `On(UnitDefeated=55) & OwnerIsTarget & Not(HasFlag(owner, 0xe))` -> pose 1 decoy genesSmnDecoy sur
+    la tuile du mort (sinon adjacente libre), ForSteppable (feuille Spawn = G1). ENREGISTRE aussi `turn_defeated`
+    (base du delai de resurrection). `fire_on_death` : l'owner EST l'unite morte (alive=False)."""
+    event_id = int(EventTriggerType.UnitDefeated)         # 55 (0x37)
+    fire_on_death = True
+
+    def matches(self, state, ev):
+        u = ev.dying_id if ev.dying_id is not None else ev.target_id
+        if u != self.owner_id:                            # OwnerIsTarget (owner = unite morte)
+            return False
+        e = state.get_entity(u)
+        sc = e.get_component(StatsComponent) if e is not None else None
+        traits = getattr(sc.ctx, "traits", None) if sc is not None else None
+        if not has_trait(traits or [], AMBUSH_TRAIT):     # HasTrait(owner, Ambush)
+            return False
+        fl = e.get_component(UnitFlagsComponent) if e is not None else None
+        return not (fl is not None and fl.has(UnitFlagsComponent.AMBUSH_CONSUMED))   # Not(HasFlag 0xe)
+
+    def execute_behaviour(self, state, ev):
+        from ..spawn import spawn_decoy
+        u = self.owner_id
+        e = state.get_entity(u)
+        uc = e.get_component(UnitComponent) if e is not None else None
+        oc = e.get_component(OwnerComponent) if e is not None else None
+        # TurnDefeated = compteur de tours du joueur du porteur A LA MORT (base du delai `Difference == 1`).
+        if uc is not None:
+            uc.turn_defeated = state.turn_counts.get(int(oc.player), 0) if (oc is not None and oc.player is not None) else 0
+        tile = _free_tile_or_adjacent(state, _pos_of(state, u))     # FreeTilesOrAdjacentFreeTiles(Tiles(target))
+        did = spawn_decoy(state, tile, u) if tile is not None else None
+        return {"ability": "Ambush_Summon", "owner": u, "decoy": did,
+                "turn_defeated": (uc.turn_defeated if uc is not None else None)}
+
+
+class EnvAmbushResurrectAbility(TriggeredAbility):
+    """`EnvAmbushResurrectAbility` (CreateTrigger @180f79a10, CreateBehaviour @180f79760). Au DEBUT du tour du
+    joueur courant : `On(TurnStart_Actions=22) & AmountIsGreaterThanZero(GetValidDecoys) &
+    AmountIsGreaterThanZero(GetUnitsEligibleForResurrect)` -> ressuscite chaque porteur Ambush eligible (mort
+    au tour precedent, non deja ressuscite) sur un decoy allie ALEATOIRE, PV pleins, TOUR IMMEDIAT. Ordre
+    CHARACTER-FIRST (Hero avant non-Hero, `SortByFormula(HasTrait Hero)`).
+
+    `fire_on_death` : l'owner (porteur Ambush) est en general MORT quand il ressuscite. Le behaviour est GLOBAL
+    (enumere TOUS les eligibles) -> IDEMPOTENT via le flag 0xe : la 1re instance a fire ressuscite tout le
+    monde (pose 0xe sur chacun), les instances suivantes trouvent `_eligible_for_resurrect` vide (matches False)."""
+    event_id = int(EventTriggerType.TurnStart_Actions)    # 22 (0x16)
+    fire_on_death = True
+
+    def matches(self, state, ev):
+        player = ev.player_id
+        if player is None:
+            return False
+        return (len(_valid_decoys(state, player)) > 0
+                and len(_eligible_for_resurrect(state, player)) > 0)
+
+    def execute_behaviour(self, state, ev):
+        from ..resurrect import ResurrectUnitOperation
+        player = ev.player_id
+        eligible = _eligible_for_resurrect(state, player)
+        if not eligible:
+            return None
+
+        def _hero_key(u):                                 # SortByFormula(HasTrait Hero) : Hero devant
+            e = state.get_entity(u)
+            sc = e.get_component(StatsComponent) if e is not None else None
+            traits = getattr(sc.ctx, "traits", None) if sc is not None else None
+            return (0 if has_trait(traits or [], HERO_TRAIT) else 1, u)
+        eligible.sort(key=_hero_key)
+
+        out = []
+        for unit in eligible:
+            decoys = _valid_decoys(state, player)         # re-eval : decoy crushe (resurrection precedente) exclu
+            if not decoys:
+                break
+            decoy = _pick_randomly(state, decoys)          # PickRandomly(decoys, 1)
+            dest = _pos_of(state, decoy)                   # tuile du decoy = point de reapparition
+            r = ResurrectUnitOperation.execute(state, unit, dest, _max_health(state, unit), immediate_turn=True)
+            if r is not None:
+                out.append(r)
+        return {"ability": "EnvAmbushResurrect", "player": player, "resurrections": out} if out else None

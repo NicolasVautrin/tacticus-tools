@@ -68,10 +68,10 @@ Deux primitives partagées à porter EN PREMIER (slice G1) :
 |---|---|---|---|
 | **G1** | #8 | **Fondation Decoy** : placement (Spawn) + Steppable step-on crush | — (base) |
 | **G2** | #9 | **DecoysAndMisdirection** — ✅ **PORTÉ + LIVE-VALIDÉ** (2 triggers step-on : ennemi Blast / allié buff+decoy) | G1 |
-| **G3** | #10 | **Ambush** (mort→decoy, résurrection sur decoy + tour immédiat, ordre Character-first) | G1 |
+| **G3** | #10 | **Ambush** — ✅ **PORTÉ + LIVE-VALIDÉ** (mort→decoy `On(UnitDefeated)` + résurrection `On(TurnStart)` sur decoy + tour immédiat + flag one-shot 0xe + émet `On(UnitResurrected)`) | G1 |
 | **G4** | #11 | **CultDemagogue** — ✅ **PORTÉ + LIVE-VALIDÉ** (arbre DSL `genestealer.py`) | G1 |
 | **G5** | #12 | **HeroicFusillade** — ✅ **PORTÉ + LIVE-VALIDÉ** (move + splash target+voisins + crit ×hex-libres ; ré-arme post-résurrection = tranche G3) | (move+splash) |
-| **G6** | #13 | **HypersensoryAbilities** (HP floor 50 % + reactive move + decoy + contre-attaque 3×) | G1 |
+| **G6** | #13 | **HypersensoryAbilities** — 🔶 **VERDICT RE PRÊT** (HP floor 50 % + reactive move + decoy + contre-attaque 3×) ; port BLOQUÉ sur 3 briques substrat neuves (cf. §G6) | G1 |
 | **G7** | #14 | **BeastSlayer** — ✅ **DÉJÀ PORTÉ** (trait générique, live-validé orksNob #72) : reste un guard live Judh | — (couche damage-mod) |
 
 Ordre d'attaque conseillé : **G1 → G2/G3 (decoy consommateurs) → G4 → G6 → G5 → G7**. G7 (BeastSlayer) et
@@ -341,3 +341,94 @@ op_add(
 Validator : (1) crit-bonus observable, (2) `nbFree` compté correctement (drive positions), (3) MOVE sur la
 bonne tuile + gate déjà-adjacent, (4) splash enemies-only + cible incluse. ✅ PORTÉ + live-validé 2026-07-18
 (cf. section « PORTÉ + LIVE-VALIDÉ » ci-dessus) ; ⚠ NON committé.
+
+### G3 — VERDICT + PORT + LIVE (2026-07-18, ghidra gqfc5mff6c) — trait Ambush (1052)
+
+Le trait 1052 = **2 abilities-triggers** (namespace `Triggered.Loki`) + **1 Operation impérative** neuve :
+
+| Artefact natif | VA | Rôle |
+|---|---|---|
+| `Ambush_SummonAbility` (CreateTrigger / GetSummonBehaviour) | @180e15970 / @180e15a10 | mort → decoy |
+| `EnvAmbushResurrectAbility` (CreateTrigger / CreateBehaviour) | @180f79a10 / @180f79760 | résurrection |
+| feuille DSL `Resurrect` → `ResurrectUnitOperation.Execute` | @180dfa420 → **@180e8e4c0** | mutateur ECS |
+| `GetValidDecoys` / `GetUnitsEligibleForResurrect` | @180f79d80 / @180f79b90 | sélecteurs S (filtres) |
+
+**Facette A (mort→decoy)** : `On(UnitDefeated=55=0x37) & OwnerIsTarget & Not(HasFlag(owner, 0xe))` →
+`Spawn(genesSmnDecoy, First(FreeTilesOrAdjacentFreeTiles(Tiles(target))), ForSteppable)` = 1 decoy sur la
+tuile du mort (le mort étant `alive=False`, sa tuile est libre). **⚠ event `UnitDefeated=55`, PAS
+`PreUnitDeath=1`** — event natif DISTINCT ; il a fallu un vecteur `unit_defeated_triggers` séparé (le pipeline
+de mort `_fire_death_if_killed` émet désormais `On(1)` PUIS `On(55)`).
+
+**Facette B (résurrection)** : `On(TurnStart_Actions=22) & AmountIsGreaterThanZero(GetValidDecoys) &
+AmountIsGreaterThanZero(GetUnitsEligibleForResurrect)` → tri **Character-first** (`SortByFormula(HasTrait
+Hero=16)`) → `foreach eligible: Resurrect(unit, PickRandomly(decoys,1), fullHP, immediate_turn=1)`.
+- `GetUnitsEligibleForResurrect` = morts du joueur courant, trait Ambush, `Not(HasFlag 0xe)`, **délai
+  `Difference(CurrentPlayerTurnsStarted, TurnDefeated(u)) == @0xc0(=1)`** (== 1, PAS >=1 : ressuscite au tour
+  SUIVANT du joueur, ni avant ni après).
+- `GetValidDecoys` = decoys VIVANTS (trait Decoy 1053) amis, tuile addable. Re-évalué entre itérations (un
+  decoy crushé sort du pool) → gère la contention 2-éligibles/1-decoy sans le `Not(HasEffect 1390)` natif.
+
+**Frontière** = la feuille `Resurrect` → **`ResurrectUnitOperation.Execute @180e8e4c0`** (impératif ECS) :
+alive=True + **flag `0xe` (one-shot)** + `KillSteppableUnits` (crushe le decoy d'arrivée) + `SetHealth(full)`
++ `RemoveTurnFlags` (tour immédiat) + **émet `On(UnitResurrected=47=0x2f)`** (source live de G2 BuffFriends +
+G5 ré-arme).
+
+**PORT** (6 fichiers, moi/orchestrateur) : `components.py` (`UnitComponent.turn_defeated` + flag
+`UnitFlagsComponent.AMBUSH_CONSUMED=14`, survit à `remove_turn_flags`) ; `operations/resurrect.py` (NEUF,
+`ResurrectUnitOperation`) ; `operations/triggers/genestealer.py` (`AmbushSummonAbility` +
+`EnvAmbushResurrectAbility` + filtres `_valid_decoys`/`_eligible_for_resurrect`/`_free_tile_or_adjacent`,
+`fire_on_death=True` sur les deux) ; `dispatch.py` (`TRAIT_TRIGGERS["Ambush"]` + vecteurs
+`unit_defeated_triggers`/`unit_resurrected_triggers`) ; `triggers/__init__.py` (exports) ; `damage.py`
+(`_fire_death_if_killed` émet `On(55)`). Le decoy crushé co-localisé alimente G2 `GetValidDeadDecoys` → self/
+ally +582 confirmé.
+
+**LIVE-VALIDÉ 2026-07-18** (déterministe-sur-état, Isaak+Judh+necron ;
+`test_ambush_migration_live.py`, 5/5) : (A) mort→decoy sur tuile du mort + `turn_defeated` ; (B) résurrection
+delta==1 : alive/PV pleins/flag 0xe/sur tuile decoy/decoy crushé ; (C) **gate délai** delta 0 et 2 → PAS de
+résurrection, delta 1 → oui ; (D) **one-shot** : re-mourir → pas de 2e decoy ni 2e résurrection ; (E)
+**chaînage** `On(UnitResurrected)` → G2 pose l'effet 1379 sur le ressuscité. Gardes 14/14 (FinalJustice,
+DecoysAndMisdirection, TheBetrayer turnstart, turnflow flags) — zéro régression.
+
+**HYPOTHÈSES restantes** (non load-bearing sur la structure, à durcir en confrontation live pleine) :
+`@0xc0 == 1` (délai « tour suivant ») ; `StatAmount(unit, Health=5, mode=2)` = max health ; sens exact de
+`0x56e=1390` (decoy « déjà réclamé », rendu moot par la re-éval) ; Character-first vs Hero/non-Hero non testé
+en live (Isaak+Judh tous deux Hero ; testé côté contention). Le `On(55)` n'est branché que sur le chemin de
+mort `_fire_death_if_killed` (les morts par DoT/effet direct = à brancher si un cas l'exige). ⚠ NON committé.
+
+### G6 — VERDICT re-expert (2026-07-18, ghidra gqfc5mff6c, PROUVÉ) — passif HypersensoryAbilities (Judh)
+
+Passif = **2 triggered-abilities + 1 effet** :
+
+| Artefact natif | VA | Rôle |
+|---|---|---|
+| `HypersensoryAbilitiesAbility$$CreateBehaviour` | @180f87870 | pose l'effet HP-floor (`AddEffect(0x564=1380)`) |
+| `HypersensoryAbilities_MinimalHealthEffect` (Apply/Revert/ActiveCondition) | @180f445a0 / @180f44820 / @180f447a0 | le HP-floor |
+| `..._MoveAndSpawnDecoy` (Trigger / Behaviour / GetTilePriority) | @180f88070 / @180f878f0 / @180f88190 | move réactif + decoy + counter |
+| clamp effectif `FillUpStatComponent$$Reduce` | @180f9bba0 | plancher HP dans le pipeline dégât |
+
+- **HP-floor** : `ApplyInternal` = `floor = min(round(GetStat(Health,Current) × hpPct/100), cur-1)` →
+  `HealthComponent.MinimalHealth@+0x1c` ; `Reduce @180f9bba0` clampe `red = min(dmg, current - min(current,
+  floor))`. **ActiveCondition** = `IsEnemyTurn(owner) & Not(HasBeenAttackedThisTurn >= 1)` (actif au tour
+  ennemi, la **1re** attaque seulement ; retiré après → le 2e coup peut tuer). hpPct = 30→50 (non rarity).
+- **Move+decoy+counter** : `On(9=Attack) & OwnerOrOwnerTileIsTarget & IsEnemyTurn & Not(HasEffect 0x57f=1407)
+  & Not(HasBeenAttacked>=1)` → move réactif (dest = `First(SortByFormula(MovableTilesInRange, GetTilePriority))`
+  = tuile à EXACTEMENT `range=2` de l'attaquant, à découvert) + **decoy sur `PreviousTile` (la tuile QUITTÉE)**
+  + **contre-attaque 3× Projectile** (`AttackWithAttackDamage`, minDmg/maxDmg rarity, gate `IsInRange(2) &
+  IsAlive & Not(IsObscured)`) + `AddEffect(0x57f)` flag once/turn.
+
+**PORT BLOQUÉ sur 3 briques SUBSTRAT NEUVES** (absentes du moteur) — c'est ce qui distingue G6 des slices
+déjà faites :
+1. **Mécanisme ActiveCondition** (Apply/Revert conditionnel d'effet, ré-évalué par tick) — le port gère
+   `ApplyInternal`/`ApplyModification` mais PAS la ré-évaluation par condition. Sans lui, le floor serait
+   permanent (Judh invincible hors tour ennemi).
+2. **Compteur `HasBeenAttackedAmountThisTurn`** (attaques reçues ce tour par unité, reset à StartTurn) +
+   prédicats `IsEnemyTurn` / `HasBeenAttacked>=n` / `CanMove` / `IsObscured` / `OwnerOrOwnerTileIsTarget`.
+3. **Dispatch `On(9=Attack)` côté DÉFENSEUR** (aujourd'hui `On(9)` n'est émis que côté attaquant — reset
+   ActOfFaith `OwnerIsCaster`) + `HealthComponent.minimal_health` (+0x1c) + clamp dans `damage.py`
+   (`FillUpStatComponent.Reduce`).
+
+REUSE : `spawn_decoy` (decoy sur PreviousTile), `AttackWithAttackDamage` (counter 3×), `MoveUnit` (options
+null), `AddEffect`, l'arbre DSL If/&/Not, `ABILITY_TRIGGERS`. Effet `HypersensoryAbilities_MinimalHealth=1380`
+déjà dans `effect_type.py`. Points faibles validator : wiring `On(9)` défenseur, reset du compteur d'attaques,
+ActiveCondition (le plus fragile), floor = % du HP **courant** (pas max), decoy sur PreviousTile, gate counter
+`IsInRange(2)&Not(IsObscured)`.

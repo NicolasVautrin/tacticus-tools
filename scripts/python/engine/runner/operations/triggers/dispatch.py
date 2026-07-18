@@ -42,7 +42,8 @@ from .tiles import dry_bush_fire_spread
 from .effect_triggers import (OverwatchAutoAttack, ContaminatedTileEffect,
                               OVERWATCH_AUTO_ATTACK, CONTAMINATED_TILE)
 from .genestealer import (DecoysAndMisdirectionDamageEnemiesAbility,
-                          DecoysAndMisdirectionBuffFriendsAbility)
+                          DecoysAndMisdirectionBuffFriendsAbility,
+                          AmbushSummonAbility, EnvAmbushResurrectAbility)
 
 # --- FinalJustice / overkill ----------------------------------------------------------------------
 OVERKILL_PCT_KEY = "overkillDmgPctOfHealth"  # globalValues = 100 → overkill ssi dmg-PV >= 100%*PV (dmg>=2*PV)
@@ -55,6 +56,9 @@ TRAIT_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     "ActOfFaith": [ActOfFaithAccumulateAbility, ActOfFaithResetAbility],
     # FinalJustice (worldKharn) = attaque normale à la mort (fire-on-death, gate overkill).
     "FinalJustice": [FinalJusticeAbility],
+    # Ambush (Isaak/Judh/Neophyte, G3) = mort -> decoy (On UnitDefeated=55) + resurrection sur decoy allie
+    # au debut du tour suivant (On TurnStart=22). Les DEUX sont fire-on-death (owner mort au moment du fire).
+    "Ambush": [AmbushSummonAbility, EnvAmbushResurrectAbility],
 }
 
 # --- Registre : passiveAbility → ability-trigger(s) accordée(s) ------------------------------------
@@ -320,6 +324,30 @@ def after_death_triggers(state: State, dying_id: int, killer_id: Optional[int],
                       killer_id if killer_id is not None else dying_id, dying_id,
                       ranged=False, profile=None, killer_id=killer_id, dying_id=dying_id,
                       overkill=overkill)
+    return evaluate_trigger_operation(state, ev)
+
+
+def unit_defeated_triggers(state: State, dying_id: int, killer_id: Optional[int] = None) -> list[dict]:
+    """Vecteur `On(UnitDefeated=55=0x37)` (G3) — event NATIF DISTINCT de `PreUnitDeath(1)` : le natif
+    `Ambush_SummonAbility` @180e15970 ecoute `On(0x37) & OwnerIsTarget & Not(HasFlag 0xe)`, PAS On(1). Emis
+    par le pipeline de mort APRES `after_death_triggers(On 1)` (l'unite est deja alive=False -> l'ability
+    fire-on-death voit sa mort). Declenche la pose du decoy Ambush (mort -> decoy) + l'enregistrement de
+    `turn_defeated`. No-op si aucun porteur Ambush ne meurt."""
+    ev = TriggerEvent(EventTriggerType.UnitDefeated,
+                      killer_id if killer_id is not None else dying_id, dying_id,
+                      ranged=False, profile=None, killer_id=killer_id, dying_id=dying_id)
+    return evaluate_trigger_operation(state, ev)
+
+
+def unit_resurrected_triggers(state: State, resurrected_id: int) -> list[dict]:
+    """Vecteur `On(UnitResurrected=47=0x2f)` (G3) — emis par `ResurrectUnitOperation` @180e8e4c0 apres une
+    resurrection Ambush (`actor` = l'unite ressuscitee, co-localisee avec le decoy qu'elle vient de crusher).
+    Alimente `DecoysAndMisdirection_BuffFriends` (G2, `(On(0x2f)|On(0x1d)) & AreFriends` -> +582 + nouveau
+    decoy si GS Cult) et la re-arme HeroicFusillade (G5, `On(0x2f) & OwnerIsTarget`). No-op si aucun
+    consommateur ne matche. Le decoy crushe (steppable, alive=False, meme tuile) satisfait `GetValidDeadDecoys`
+    de BuffFriends (co-localisation dead-decoy/stepper)."""
+    ev = TriggerEvent(EventTriggerType.UnitResurrected, resurrected_id, resurrected_id,
+                      ranged=False, profile=None)
     return evaluate_trigger_operation(state, ev)
 
 

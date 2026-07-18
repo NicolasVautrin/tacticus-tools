@@ -25,13 +25,19 @@ class UnitComponent(Component):
     `IdunGameViews.IsPlayerAiControlled` @1804d7b10 (SortedDictionary +0x18==1 → AI-contrôlé ; posé
     quand l'unité est invoquée). N'est PAS un trait gameconfig — c'est un état runtime posé au spawn
     (cf. `SpawnUnitOperation`). Une unité d'une team entièrement-IA est de toute façon jouée par l'IA
-    (type player 2) ; ce flag cible le cas summon-sur-team-joueur."""
-    __slots__ = ("visual_id", "alive", "ai_controlled")
+    (type player 2) ; ce flag cible le cas summon-sur-team-joueur.
+
+    `turn_defeated` = valeur de `state.turn_counts[owner_player]` AU MOMENT de la mort (G3 Ambush) —
+    mirror du `TurnDefeated` que `GetUnitsEligibleForResurrect @180f79b90` lit dans
+    `AmountIsEqual(Difference(CurrentPlayerTurnsStarted, TurnDefeated(u)), @0xc0=1)`. None tant que
+    l'unité n'est pas morte. Posé par `Ambush_SummonAbility` (trigger On(UnitDefeated))."""
+    __slots__ = ("visual_id", "alive", "ai_controlled", "turn_defeated")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False):
         self.visual_id = visual_id
         self.alive = alive
         self.ai_controlled = ai_controlled
+        self.turn_defeated = None
 
 
 class OwnerComponent(Component):
@@ -227,6 +233,10 @@ class UnitFlagsComponent(Component):
     NO_ACTION_AVAILABLE = 4     # UnitFlag.NoActionAvailable
     FLED = 9                    # UnitFlag.Fled — « a fui » ce tour
     TELEPORTED = 12             # UnitFlag.Teleported
+    AMBUSH_CONSUMED = 14        # flag 0xe (UnitPostAbility) — G3 : Ambush ré-suscité UNE fois ; posé par
+                                # `ResurrectUnitOperation` (Add 0xe), testé `Not(HasFlag 0xe)` par les 2 triggers
+                                # Ambush → résurrection one-shot. PERMANENT : survit à `remove_turn_flags` (pas un
+                                # flag de tour), donc re-mourir ne re-déclenche PAS une 2e résurrection.
     TURN_FINISHED_FORCED = 27   # flag 0x1b (FinishUnitTurnOperation forced=True ; hors enum dump)
 
     def __init__(self, flags=None):
