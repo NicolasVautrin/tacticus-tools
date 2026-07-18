@@ -43,10 +43,10 @@
 
 Dans notre port, 1180 et 1179 sont enregistrés côté **runner/exécution** (`handler.py`) mais **absents
 du layer playbook** (ni `engine.playbook.base.REGISTRY` Comparable, ni le registre NonComparable de
-`noncomparable.py`). → la décision offline les route sur `DefaultActiveAbilityPlaybook` (prédiction
+le package `noncomparable/`). → la décision offline les route sur `DefaultActiveAbilityPlaybook` (prédiction
 générique Comparable) = **DIVERGENCE** vs le natif NonComparable.
 
-**Fix** = porter 2 playbooks NonComparable dans `engine/playbook/noncomparable.py`, sur le motif des
+**Fix** = porter 2 playbooks NonComparable dans `engine/playbook/noncomparable/`, sur le motif des
 classes déjà portées fidèlement : `BloodyFuryPlaybook` (@181122be0, `1 + #adj×10`), `AberrantHypermorphPlaybook`
 (@1811197d0, move+summon), `VexillaMagnificaPlaybook`, `FightingRetreatPlaybook`.
 
@@ -82,14 +82,14 @@ défaut : agreement INCHANGÉ (42% ability / 56% pos avant == après) -> **zéro
 ### VERDICT ARCHITECTURAL (re-expert) — 2 corrections vs l'hypothèse initiale
 
 1. **CultDemagogue (1179) = ComparablePlaybook bespoke**, PAS NonComparable (ctor @1811280f0 =
-   `ComparablePlaybook(0x49b)`). Home = `bespoke_heals.py` + dict `BESPOKE_SELFCAST` (régime Comparable,
-   dispatch `_bespoke_candidates`), PAS `noncomparable.py`. Formule VA-citée @1811278c0 :
+   `ComparablePlaybook(0x49b)`). Home = `bespoke.py` + dict `BESPOKE_SELFCAST` (régime Comparable,
+   dispatch `_bespoke_candidates`), PAS le package `noncomparable/`. Formule VA-citée @1811278c0 :
    `u = 1 + min(#tuilesLibresAutourCaster r2, nrOfSummons[lvl]) x W + (#decoys + #neophytes amis autour
    cible r2) x W`, **W=20** (`CultDemagogue_FriendlyDecoysAndNeophytes`, MÊME poids les 2 termes),
    MIN_UTILITY=1. `nrOfSummons` = 4->8 (NON rarity-scaled).
 2. **HeroicFusillade (1180) = NonComparablePlaybook** (ctor @181144ac0 = `NonComparablePlaybook(0x49c)`),
    util PLATE=1, gates `HasTrait(cible,Hero)` + `>=1 ennemi ring-1 de la cible` (slot 0x76
-   GetSurroundingUnits). Home = `noncomparable.py` + dict `PLAYBOOKS`.
+   GetSurroundingUnits). Home = `noncomparable/heroic_fusillade.py` (registre `PLAYBOOKS` = package `__init__`).
 
 ### La pièce structurelle manquante : filtre `is_noncomp` dans le tier Comparable
 
@@ -102,8 +102,8 @@ steps 4/8** (les gates NC retournaient déjà `[]` correctement). Changement gé
 seed-777 inchangé) : une NC en attackPlans est désormais routée au tier NC seul, fidèle au natif.
 
 ### Fichiers du port (mutations moteur)
-- `engine/playbook/bespoke_heals.py` : `CultDemagoguePlaybook` + entrée `BESPOKE_SELFCAST`.
-- `engine/playbook/noncomparable.py` : `HeroicFusilladePlaybook` + entrée `PLAYBOOKS`.
+- `engine/playbook/bespoke.py` : `CultDemagoguePlaybook` + entrée `BESPOKE_SELFCAST`.
+- `engine/playbook/noncomparable/heroic_fusillade.py` : `HeroicFusilladePlaybook` (+ entrée du registre `PLAYBOOKS` dans le package `__init__`).
 - `engine/ai/action_generators.py` : skip `is_noncomp(ab)` dans `_best_attack`.
 
 ### Chemins NON encore exercés (à valider séparément)

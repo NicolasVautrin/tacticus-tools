@@ -5,7 +5,7 @@ NonComparablePlaybook}`. Le générateur d'action (engine/ai) fait `LoadPlaybook
 
 - **Comparable** (attaques/soins) : `base.ComparablePlaybook` -> `common.py` (NormalAttack/Default/
   Heal/Repair). Prédiction déléguée à `prediction.py` (modèle objet : Scene + ability + services).
-- **NonComparable** (summons/buffs/retraite) : `noncomparable.py` (heuristique entière par feuille).
+- **NonComparable** (summons/buffs/retraite) : package `noncomparable/` (1 module par playbook natif).
 - **Bespoke** (SaviorProtocols, à clés-strings) : dormant, référence RE.
 - Prédiction : `prediction.py` (à venir) = orchestration mince (MakeDamagePredictions) sur le modèle objet
   `engine/entities` + services `engine/services` + `ProbableDamageEvent`. Remplace `predict_validate` (PV).

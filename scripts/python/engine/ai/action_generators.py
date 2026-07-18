@@ -46,7 +46,7 @@ from engine import battle_query as bq          # is_adjacent (élévation-gaté)
 from engine.playbook import noncomparable as playbooks
 from engine.playbook import get_playbook_or_default, tile_utility
 from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK, HEAL_PLAYBOOK
-from engine.playbook.bespoke_heals import BESPOKE_SELFCAST   # #82 : BloodChalice/MomentShackle self-cast
+from engine.playbook.bespoke import BESPOKE_SELFCAST   # #82 : BloodChalice/MomentShackle self-cast
 from engine.predict import (repair_utility,            # RepairedAmountUtility (analogue non-custom du soin)
                             predict_heal_effective, heal_amount_config,   # magnitude soin OFFLINE (#79)
                             predict_repair_effective, repair_amount_config,  # magnitude repair OFFLINE (#83)

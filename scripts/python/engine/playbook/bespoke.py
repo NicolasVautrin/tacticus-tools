@@ -149,7 +149,7 @@ class MomentShacklePlaybook:
 class CultDemagoguePlaybook:
     """`CultDemagoguePlaybook.EvaluateInternal @1811278c0` (id 0x49b=1179, Isaak genesPrimus). COMPARABLE
     BESPOKE (ctor @1811280f0 = `ComparablePlaybook(0x49b)` -> classe COMPARABLE, PAS NonComparable ;
-    override TOTAL d'`EvaluateInternal`, AUCUNE `MakeDamagePredictions` -> ne va PAS dans noncomparable.py).
+    override TOTAL d'`EvaluateInternal`, AUCUNE `MakeDamagePredictions` -> ne va PAS dans noncomparable/).
     Cible = un ENNEMI (<=2 hex) ; cast EN PLACE (pas de sweep : régime Comparable, position caster fixée).
 
     Utilité (par cible éligible) :

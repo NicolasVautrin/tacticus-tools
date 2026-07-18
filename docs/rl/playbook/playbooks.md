@@ -129,7 +129,7 @@ identification heal par `"Heal" in name` INCOMPLÈTE (rate MedicusMinistorum/Com
   ⇒ `Σ (missing/maxHP)` = somme des fractions de PV manquantes des cibles. **N'utilise PAS `hpToHeal`**
   (magnitude ≠ utilité dans ce régime). Gate `MIN_UTILITY = Fix64.FromIntFraction(9,10) = 0.9` (cctor
   @1811265c0). Sweep positions caster → argmax.
-  → **CombatRestoratives PORTÉ** dans `engine/playbook/noncomparable.py` (`CombatRestorativesPlaybook`,
+  → **CombatRestoratives PORTÉ** dans `engine/playbook/noncomparable/heals.py` (`CombatRestorativesPlaybook`,
     smoke-test OK) ; **agreement LIVE encore à confirmer** (exige un état mid-combat avec alliés blessés
     current<max ; `--hp-target` met current=max donc ne blesse pas → driver un échange ou patcher la BC).
 
@@ -158,7 +158,7 @@ positions**.
   via `IterateAdjacentTiles` = **même porte d'élévation `|Δelev|<2`** que les comptages `GetAdjacent*`
   (#45). Le port des heals utilisait `hexgeo.distance==1` brut (fork) → factorisé en `bq.is_adjacent`
   (comptages ET heals partagent 1 primitive).
-- **Fix** (`engine/playbook/noncomparable.py`) : `_sweep_origin_first(ctx) = [origine] + moves`, appliqué
+- **Fix** (`engine/playbook/noncomparable/_base.py`) : `_sweep_origin_first(ctx) = [origine] + moves`, appliqué
   aux 4 self-cast (CombatRestoratives 1002, RevitalizingMalignancy 1037, DefendTheDivineWork 1117,
   RitesOfRestoration 1039) + `bq.is_adjacent` partagé. **Validé LIVE** (deathRotbone/ultraApothecary/
   admecManipulus self + →destroyer : tous in-place, MATCH target+ability natif).
@@ -259,14 +259,14 @@ Route les 3 heals Comparable BESPOKE que `_heal_candidates` ratait (nom sans "He
 @181408980` / `CalculateActionUtility @181406ee0`) par une utilité PROPRE. Poids `GetUtilityValue` résolus
 OFFLINE depuis `BattleConfiguration.Utilities.Default.ActiveAbilities` (clés du dump `stringliteral.json`).
 
-**BloodChalice (0x497=1175 ; bloodSanguinary/Nicodemus) — PORTÉ** (`bespoke_heals.BloodChalicePlaybook`) :
+**BloodChalice (0x497=1175 ; bloodSanguinary/Nicodemus) — PORTÉ** (`bespoke.BloodChalicePlaybook`) :
 - `EvaluateInternal @1811224c0` = override TOTAL (PAS de HealUtility) : util = `count(alliés NON-mécaniques
   ADJACENTS au caster, PV% < seuil) × W`. Self-cast AoE (cible = MainTile ; `GenerateAction(this,casterTile)`).
 - seuil = `GetNumberConstant(0x4f)` = config `healthPct` = 50 ; PV% = `GetStat(Health, StatPart=1)` =
   `round(cur/max×100)`. W = `BloodChalice_AdjacentDamagedNonMechanicalFriend` = **50**. MIN_UTILITY=1
   (cctor @181122b10). `ShouldExecute @1811228b0` : `Σ(seuil − PV%)` sur amis non-méca > 0.
 
-**MomentShackle (0x4a0=1184 ; custoTrajann/Trajann) — PORTÉ** (`bespoke_heals.MomentShacklePlaybook`) :
+**MomentShackle (0x4a0=1184 ; custoTrajann/Trajann) — PORTÉ** (`bespoke.MomentShacklePlaybook`) :
 - Util = HealUtility(SELF-heal) + `CalculateCasterPositionUtility`. Cible = SOI. Position-swept.
 - Self-heal : `MakeHealPredictions @18114c7f0` -> `GetHealAmount = ConfigVar(0x20)` = **`hpToHeal[level]`**
   (MomentShackle config a `hpToHeal`) -> `PredictHeal` (`min(healAmount, missing_self)`, #79) -> HealUtility
@@ -559,7 +559,7 @@ CIBLE (pas de la tuile de charge) → il influe l'**argmax de cible** (pas cosm�
 - `engine/battle_query.py` : `can_add_unit(pos, walkable_by_pos, occupied)` (= `CanAddUnit @180ec4c60`) +
   `adjacent_addable_count(tile, neigh_by_pos, walkable_by_pos, occupied, elev)` (= `GetAdjacentTiles`
   slot 0x4e filtré, porte `|Δelev|<2` réutilisée de #45).
-- `engine/playbook/noncomparable.py` : `HammerOfWrathPlaybook._displacement_bonus` = `5 ·
+- `engine/playbook/noncomparable/hammer_of_wrath.py` : `HammerOfWrathPlaybook._displacement_bonus` = `5 ·
   adjacent_addable_count(cible.tile)`, wiré dans `evaluate_non_comparable`. Occupation LIVE = `epos ∪ fpos
   ∪ origine` (FRAÎCHE — PAS le `occupantUnitId` du boardGraph caché = périmé).
 - `engine/ai/context.py` + `action_generators.py` : plumbing `walkable_by_pos` (boardGraph

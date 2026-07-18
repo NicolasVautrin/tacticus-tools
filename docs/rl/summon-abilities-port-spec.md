@@ -28,7 +28,7 @@ Piège de nommage corrigé (#65) : le port a longtemps eu UNE classe `ScarabSumm
   `ai_controlled=True`. Playbook du dédoublement = `ScarabSummonPlaybook` (`GetUseProbability` = 1.0 ou 1/2 selon
   un compteur runtime ; utilité 3/2 par cible éligible).
 - **PORTÉ + VALIDÉ LIVE (#65)** : ScarabSummon (1047) = classe `ScarabSummonAbility` (`loki.py`,
-  `SpawnUnitOperation.execute_self_replica`) + `ScarabSummonPlaybook` (`noncomparable.py`, NC prio 0, util 1.5)
+  `SpawnUnitOperation.execute_self_replica`) + `ScarabSummonPlaybook` (`noncomparable/scarab_summon.py`, NC prio 0, util 1.5)
   + registre `ABILITY_CLASSES`/`PLAYBOOKS`. **Confronté live** (necroSpyder vs 2 healers) : le count de scarabs
   snowball 2->3->5->6->8 (auto-dédoublement natif), tous hpMax=2218 IDENTIQUES (clone). Offline : l'auto-play
   décide ScarabSummon(1047) pour chaque scarab, `execute_self_replica` produit un clone hp=2218/atk=998 adjacent

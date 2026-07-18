@@ -8,7 +8,7 @@ d'action fait `LoadPlaybook(abilityType) -> playbook.Evaluate(unit, tile)` ; c'e
   cibles éligibles à position caster FIXÉE, `CalculateActionUtility @181406ee0` par cible
   (`= predictionUtility + Σ CalculateUtilityFromPredictions + [gate ShouldExecute] + Tile(7)`), argmax
   dans un Bucket. `MakeDamagePredictions` (vtable) = le fournisseur de prédiction, OVERRIDÉ par playbook.
-- **NonComparable** (`NonComparablePlaybook<T>`) : heuristique entière dans la feuille -> `noncomparable.py`.
+- **NonComparable** (`NonComparablePlaybook<T>`) : heuristique entière dans la feuille -> package `noncomparable/`.
 
 PRÉDICTEUR : `ComparablePlaybook.make_damage_predictions` délègue à `engine.playbook.prediction`
 (orchestration mince) sur le MODÈLE OBJET — `Scene` (état live) + `AActiveAbility`/`UnitContext`
@@ -94,7 +94,7 @@ class ComparablePlaybook(BasePlaybook):
 
 
 # Registry AbilityType id -> instance de playbook (Comparable ; les NonComparable ont leur propre
-# registre dans noncomparable.py). Port incrémental : les ids absents -> DefaultActiveAbilityPlaybook.
+# registre dans le package noncomparable/). Port incrémental : les ids absents -> DefaultActiveAbilityPlaybook.
 REGISTRY: dict[int, ComparablePlaybook] = {}
 
 

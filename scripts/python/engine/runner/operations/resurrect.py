@@ -16,7 +16,7 @@ Operation (en-dessous, impératif). Chaîne native : `ResurrectBehaviour.Execute
     (l'exécution du tour = couche IA/contrôleur, pas cette Operation) ;
   * émet `On(UnitResurrected=0x2f=47)` → `unit_resurrected_triggers` → alimente G2 `BuffFriends` + G5 ré-arme.
 
-⚠ NE PAS confondre avec la couche DÉCISION `RitesOfRestorationPlaybook` (`playbook/noncomparable.py`,
+⚠ NE PAS confondre avec la couche DÉCISION `RitesOfRestorationPlaybook` (`playbook/noncomparable/heals.py`,
 `GetPossibleResurrectTargets`) qui SCORE l'évaluation IA — le runner n'avait PAS d'Operation resurrect ;
 c'est un AJOUT net (piège check-own-port).
 """

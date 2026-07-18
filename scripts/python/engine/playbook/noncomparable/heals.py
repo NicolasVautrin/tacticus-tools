@@ -1,0 +1,369 @@
+"""Playbooks de SOIN / REPAIR / refresh NonComparable — famille partageant HealTargets / _wound_fraction.
+
+Rites (resurrection), CombatRestoratives (heal AoE), DefendTheDivineWork (repair AoE), Revitalizing-
+Malignancy (heal Chaos filtre), InspiredToGreatness (refresh d'ability d'un allie). DefendTheDivineWork
+et RevitalizingMalignancy REUTILISENT `CombatRestorativesPlaybook._wound_fraction` (couplage natif =
+meme HealTargets @1811cca50) -> co-localises.
+"""
+from __future__ import annotations
+
+import hexgeo
+from engine import battle_query as bq
+from engine.entities.active_ability_type import ActiveAbilityType
+
+from ._base import (NCContext, NonComparablePlaybook, _has_valid_targets,
+                    _sweep_origin_first, _traits, _unit_cfg)
+
+
+class RitesOfRestorationPlaybook(NonComparablePlaybook):
+    """`RitesOfRestorationPlaybook.EvaluateNonComparable @181157a60` (NonComparable, id 1039). Soin AoE +
+    RESURRECTION (adeptHospitaller). Emet l'action en 1039, ciblee sur SOI (confirme live : ATK(1039,78)).
+
+    - `ShouldEvaluate @1811580a0` : `Count(GetPossibleResurrectTargets) > 0` -> l'IA n'evalue Rites QUE
+      s'il y a un allie DEFAIT. Morts lus via `obs_units.isDead` (decisionView garde les depouilles ->
+      observeBattle est la source ; cf. project_decisionview_keeps_dead).
+    - Gate (par position T du caster) : `(heroDead>=1 & |resurrectTiles|>=1) | (summonDead>=2 & |tiles|>=2)`.
+      hero = allie mort avec trait `Hero` (UnitsWithTrait 0x10 @GetPossibleResurrectHeroTargets 181203d00) ;
+      summon = allie mort SANS `Hero` (UnitsWithTrait 2 @181203d40). resurrectTiles = `CanAddUnit(
+      AdjacentTiles(T))` @181203f70 = hex adjacents sur board, libres (unite vivante absente).
+    - util = `1 + Count(GetHealTargets)` (cctor Fix64(1) @1811581d0 ; GetHealTargets @181203c80 =
+      `Healable(owner + AdjacentFriends(owner,1))` = self (non-Mecanique) + amis adjacents non-Mecaniques).
+      MIN_UTILITY=1 (Bucket du cctor). Sweep reach_nc (adjacence -> depend de la position -> le caster va
+      la ou il soigne le plus).
+    PRIORITY=0 CONFIRME (#115 : aucun playbook n'override get_Priority -> defaut base NonComparable=0)."""
+    ABILITY_ID = int(ActiveAbilityType.RitesOfRestoration)  # 1039
+    MIN_UTILITY = 1.0
+    PRIORITY = 0
+
+    def generate_candidates(self, ctx: NCContext) -> list[dict]:
+        obs = ctx.obs_units or []
+        me_obs = next((u for u in obs if u.get("squadId") == ctx.uid), None)
+        if me_obs is None:
+            return []
+        team = me_obs.get("teamId")
+        # ShouldEvaluate : Count(GetPossibleResurrectTargets) > 0. GetPossibleResurrectTargets @181203d80
+        # = AllDeadUnits -> Friends -> UnitsWithTrait(0x1a=Imperial=26) -> UnitsAffectedByHealType(0).
+        # IsAffectedByHealType(u,0) @180ed77d0 = HasTrait(0x421) OU non-Mecanique. (R1 corrige : mon port
+        # ignorait les filtres Imperial + heal-type -> FAUX POSITIF sur allie mort non-Imperial/Mecanique,
+        # masque par le test all-Imperial. Imperial = gameconfig GrandAllianceId ; heal-affectable ~
+        # non-Mecanique, trait 0x421 override NON modelise -> TODO.) Morts lus via obs_units.isDead.
+        def _resurrectable(u):
+            cfg = _unit_cfg(u.get("visualId"))
+            return (cfg.get("GrandAllianceId") == "Imperial"                 # UnitsWithTrait(0x1a=26)
+                    and "Mechanical" not in (cfg.get("traits") or []))       # AffectedByHealType(0)
+        dead = [u for u in obs if u.get("teamId") == team and u.get("isDead")
+                and u.get("squadId") != ctx.uid and _resurrectable(u)]
+        if not dead:
+            return []   # Count(GetPossibleResurrectTargets) == 0 -> ability non evaluee
+        # hero = ResurrectTargets ∩ UnitsWithTrait(0x10=Hero=16) @181203d00 ; summon = ∩ UnitsWithTrait(
+        # Summon=2) @181203d40. Le trait "Summon" EST exposé par gameconfig (59 unités ; les summons
+        # Imperial sont en section kind="summons", PAS "npc") -> l'ancien proxy kind=="npc" ratait 100%
+        # des vrais summons ET comptait des npc non-summon (faux nég + faux pos, validateur) -> trait exact.
+        hero_dead = sum(1 for u in dead if "Hero" in _traits(u.get("visualId")))
+        summon_dead = sum(1 for u in dead if "Summon" in _traits(u.get("visualId")))
+        # Alliees VIVANTES non-Mecaniques (heal targets adjacents) + occupation (resurrectTiles).
+        ally_nonmech_pos = [(u.get("col"), u.get("row")) for u in obs
+                            if u.get("teamId") == team and not u.get("isDead")
+                            and u.get("squadId") != ctx.uid and u.get("col") is not None
+                            and "Mechanical" not in _traits(u.get("visualId"))]
+        self_nonmech = "Mechanical" not in _traits(me_obs.get("visualId"))
+        occupied = {(u.get("col"), u.get("row")) for u in obs
+                    if not u.get("isDead") and u.get("squadId") != ctx.uid
+                    and u.get("col") is not None}                # le caster (mobile) n'occupe pas
+        board = ctx.elev_by_pos or {}
+        best = None  # (T, util)
+        for T in _sweep_origin_first(ctx):   # ORIGINE d'abord : keep-first au tie -> reste en place (#76)
+            res_tiles = [n for n in hexgeo.neighbors(*T)
+                         if ((not board) or n in board) and n not in occupied]
+            gate = (hero_dead >= 1 and len(res_tiles) >= 1) or (summon_dead >= 2 and len(res_tiles) >= 2)
+            if not gate:
+                continue
+            heal_count = (1 if self_nonmech else 0) + sum(
+                1 for p in ally_nonmech_pos if bq.is_adjacent(T, p, ctx.elev_by_pos))  # AdjacentUnits gate (#45/#76)
+            util = 1.0 + heal_count
+            if best is None or util > best[1]:   # strict > : 1er max garde (ordre reach_nc)
+                best = (T, util)
+        if ctx.debug:
+            import sys
+            print(f"    [dbg NC u{ctx.uid}] Rites deadHero={hero_dead} deadSum={summon_dead} "
+                  f"best={best} min={self.MIN_UTILITY}", file=sys.stderr)
+        if best is None or best[1] < self.MIN_UTILITY:
+            return []
+        T, util = best
+        return [{"target": ctx.uid, "ability": self.ABILITY_ID,   # cast sur SOI (self-target)
+                 "to": (T if T != ctx.origin else None), "pred": util}]
+
+
+class CombatRestorativesPlaybook(NonComparablePlaybook):
+    """`CombatRestorativesPlaybook.EvaluateNonComparable @181125fd0` (NonComparable, id 1002 ;
+    ultraApothecary/Incisus). Soin AoE self + allies adjacents. Emet l'action ciblee sur SOI.
+
+    - Ciblage `CombatRestorativesAbility.HealTargets @1811cca50` = `Friends(AdjacentUnits(caster,r=1))
+      + self` -> SOI + unites ALLIEES adjacentes. Pas de wrapper `Healable` (contrairement a Rites
+      @181203c80) : inclut les allies MECANIQUES (le natif compte leur fraction de PV manquante).
+    - util(T) = `Σ (1 - FillUpStatComponent.RemainingPercentage) @180f9be60` sur {self + allies
+      adjacents a T}. `RemainingPercentage = max(0, cur/max)` (Health fillup : cur@+0x18 / CurrentMax)
+      -> `1 - RemainingPercentage = missing/maxHP` = FRACTION de PV MANQUANTE. N'utilise PAS le
+      montant `hpToHeal` (magnitude != utilite dans ce regime NonComparable). Un allie plein -> 0.
+    - MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (cctor @1811265c0). Sweep reach_nc (le caster
+      va la ou la somme des fractions manquantes adjacentes est max), argmax STRICT.
+    PRIORITY=0 CONFIRME (#115 : aucun playbook n'override get_Priority -> defaut base NonComparable=0)."""
+    ABILITY_ID = int(ActiveAbilityType.CombatRestoratives)  # 1002
+    MIN_UTILITY = 0.9      # cctor @1811265c0 : Fix64.FromIntFraction(9,10)
+    PRIORITY = 0
+
+    @staticmethod
+    def _wound_fraction(u: dict) -> float:
+        """`1 - FillUpStatComponent.RemainingPercentage` = `(maxHP - curHP)/maxHP` (>= 0). Health fillup
+        lu depuis obs_units (hp/hpMax). maxHP <= 0 -> 0 (evite /0, comme le +1 defensif natif absent ici)."""
+        mx = int(u.get("hpMax") or 0)
+        if mx <= 0:
+            return 0.0
+        cur = int(u.get("hp") or 0)
+        return max(0.0, 1.0 - cur / mx)
+
+    def generate_candidates(self, ctx: NCContext) -> list[dict]:
+        obs = ctx.obs_units or []
+        me_obs = next((u for u in obs if u.get("squadId") == ctx.uid), None)
+        if me_obs is None:
+            return []
+        team = me_obs.get("teamId")
+        self_wound = self._wound_fraction(me_obs)      # self TOUJOURS dans HealTargets (0 si plein)
+        # Allies VIVANTS (self exclu) avec position -> candidats "adjacents a T" (Friends(AdjacentUnits)).
+        allies = [(u.get("col"), u.get("row"), self._wound_fraction(u)) for u in obs
+                  if u.get("teamId") == team and not u.get("isDead")
+                  and u.get("squadId") != ctx.uid and u.get("col") is not None]
+        best = None  # (T, util)
+        for T in _sweep_origin_first(ctx):   # ORIGINE d'abord : keep-first au tie -> reste en place (#76)
+            # AdjacentUnits(caster@T, r=1) @180de8320 = AdjacentTiles + porte d'elevation |dElev|<2
+            # d'IterateAdjacentTiles (#45/#76). bq.is_adjacent = MEME adjacence que les comptages
+            # GetAdjacent* -> plus de fork raw-hexgeo qui sur-comptait des voisins hors-elevation.
+            util = self_wound + sum(w for c, r, w in allies if bq.is_adjacent(T, (c, r), ctx.elev_by_pos))
+            if best is None or util > best[1]:         # strict > : 1er max garde (ordre reach_nc)
+                best = (T, util)
+        if ctx.debug:
+            import sys
+            print(f"    [dbg NC u{ctx.uid}] CombatRestoratives selfW={self_wound:.2f} "
+                  f"best={best} min={self.MIN_UTILITY}", file=sys.stderr)
+        if best is None or best[1] < self.MIN_UTILITY:
+            return []
+        T, util = best
+        # Cible native = MainTile-id du caster (self-cast AoE : GenerateAction(this, pos, MainTile, util) ;
+        # mesure live tgt=22 = id de la tuile (1,0) du caster). Fallback ctx.uid si tile-id absent.
+        target = ctx.tile_id_by_pos.get(T, ctx.uid)
+        return [{"target": target, "ability": self.ABILITY_ID,
+                 "to": (T if T != ctx.origin else None), "pred": util}]
+
+
+class DefendTheDivineWorkPlaybook(NonComparablePlaybook):
+    """`DefendTheDivineWorkPlaybook.EvaluateNonComparable @18112b9b0` (NonComparable REPAIR, id 1117 ;
+    admecManipulus/Actus). Repair AoE self + allies adjacents ; emet l'action ciblee sur SOI (MainTile).
+
+    - Ciblage = `CombatRestorativesAbility.HealTargets @1811cca50` REUTILISE (self + amis adjacents),
+      GATE par `GetEligibleTargetsEntities` : l'ability n'est evaluee QUE s'il existe >=1 cible eligible
+      (repair -> unite MECANIQUE). Sinon aucune action a cette position.
+    - util(T) = `Σ_{cible ∈ HealTargets} [ (1 - FillUpStatComponent.RemainingPercentage_health @180f9be60)
+      + 0.5 × HasValidTargets(cible) ]` sur {self + amis adjacents}. Le +0.5 (`Fix64.FromIntFraction(1,2)`)
+      par cible SSI `IBattleQuery.HasValidTargets(cible, GetUnitPosition(cible), GetNormalAttackType(cible))`
+      (slot 0x3f @18106e8d0 -> `AttackQuery.HasValidTargets @181057540`) = "la cible peut-elle attaquer un
+      ennemi avec son attaque NORMALE DEPUIS SA POSITION (sans bouger)" = combat-readiness (+0.5 par allié
+      réparé prêt à combattre). PORTÉ (#77) via `_has_valid_targets(ctx, cible)` = `abilityTargets(cible,
+      normalAttack).usable ET fromHereCount>0` (`fromHere` = GetValidTargets à position FIXE) — calculé 1x
+      par cible (position-indép du sweep). `ability_targets` absent -> +0.5 omis (borne inf, pré-#77).
+    - MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (cctor @18112c070). Sweep reach_nc, argmax STRICT.
+    PRIORITY=0 CONFIRME (#115 : aucun override get_Priority)."""
+    ABILITY_ID = int(ActiveAbilityType.DefendTheDivineWork)  # 1117
+    MIN_UTILITY = 0.9      # cctor @18112c070 : Fix64.FromIntFraction(9,10)
+    PRIORITY = 0
+
+    def generate_candidates(self, ctx: NCContext) -> list[dict]:
+        obs = ctx.obs_units or []
+        me_obs = next((u for u in obs if u.get("squadId") == ctx.uid), None)
+        if me_obs is None:
+            return []
+        team = me_obs.get("teamId")
+        wf = CombatRestorativesPlaybook._wound_fraction
+        self_wound = wf(me_obs)                                       # self TOUJOURS dans HealTargets
+        self_mech = "Mechanical" in _traits(me_obs.get("visualId"))   # repair-eligible = Mecanique
+        # combat-readiness (#77) : +0.5 par cible qui HasValidTargets DEPUIS SA POSITION FIXE (position-indep
+        # du sweep -> resolu 1x par cible). self TOUJOURS dans HealTargets -> son readiness compte aussi.
+        self_ready = 0.5 if _has_valid_targets(ctx, ctx.uid) else 0.0
+        allies = [(u.get("col"), u.get("row"), wf(u), "Mechanical" in _traits(u.get("visualId")),
+                   0.5 if _has_valid_targets(ctx, u.get("squadId")) else 0.0)
+                  for u in obs if u.get("teamId") == team and not u.get("isDead")
+                  and u.get("squadId") != ctx.uid and u.get("col") is not None]
+        best = None  # (T, util)
+        for T in _sweep_origin_first(ctx):   # ORIGINE d'abord : keep-first au tie -> reste en place (#76)
+            adj = [(w, mech, rd) for c, r, w, mech, rd in allies
+                   if bq.is_adjacent(T, (c, r), ctx.elev_by_pos)]   # AdjacentUnits gate (#45/#76)
+            # GATE GetEligibleTargetsEntities : >=1 cible MECANIQUE (self ou adjacent) sinon ability non evaluee.
+            if not (self_mech or any(mech for _, mech, _ in adj)):
+                continue
+            # util = Σ [ (1 - healthPct) + 0.5×HasValidTargets ] sur self + adjacents (boucle HealTargets, #77).
+            util = self_wound + self_ready + sum(w + rd for w, _, rd in adj)
+            if best is None or util > best[1]:                       # strict > : 1er max garde
+                best = (T, util)
+        if ctx.debug:
+            import sys
+            print(f"    [dbg NC u{ctx.uid}] DefendTheDivineWork selfMech={self_mech} selfReady={self_ready} "
+                  f"best={best} min={self.MIN_UTILITY}", file=sys.stderr)
+        if best is None or best[1] < self.MIN_UTILITY:
+            return []
+        T, util = best
+        target = ctx.tile_id_by_pos.get(T, ctx.uid)                  # MainTile-id (self-cast AoE)
+        return [{"target": target, "ability": self.ABILITY_ID,
+                 "to": (T if T != ctx.origin else None), "pred": util}]
+
+
+class RevitalizingMalignancyPlaybook(NonComparablePlaybook):
+    """`RevitalizingMalignancyPlaybook.EvaluateNonComparable @181156790` (NonComparable heal, id 1037 ;
+    deathRotbone/Nauseous). Soin AoE self + adjacents, FILTRE non-Imperial ET non-Mecanique.
+
+    - Ciblage `GetAllHealTargets @181201150` = `Healable(UnitsWithoutTrait(0x1a=Imperial=26,
+      Friends(AdjacentUnits(caster,r=1)) + self))` = self + amis adjacents qui sont NON-Imperial ET
+      non-Mecanique (`Healable`). (Chaos ne soigne pas les Imperials ni les machines.)
+    - util(T) = `Σ (1 - RemainingPercentage_health @180f9be60)` sur ces cibles (= Σ missing/max). Meme
+      formule que CombatRestoratives. MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (cctor @181156d30).
+      Sweep reach_nc, argmax STRICT ; self-cast (MainTile-id). PRIORITY=0 CONFIRME (#115)."""
+    ABILITY_ID = int(ActiveAbilityType.RevitalizingMalignancy)  # 1037
+    MIN_UTILITY = 0.9      # cctor @181156d30 : Fix64.FromIntFraction(9,10)
+    PRIORITY = 0
+
+    @staticmethod
+    def _healable(u: dict) -> bool:
+        """`Healable ∘ UnitsWithoutTrait(Imperial)` : non-Imperial (GrandAllianceId) ET non-Mecanique (trait)."""
+        cfg = _unit_cfg(u.get("visualId"))
+        return (cfg.get("GrandAllianceId") != "Imperial"
+                and "Mechanical" not in (cfg.get("traits") or []))
+
+    def generate_candidates(self, ctx: NCContext) -> list[dict]:
+        obs = ctx.obs_units or []
+        me_obs = next((u for u in obs if u.get("squadId") == ctx.uid), None)
+        if me_obs is None:
+            return []
+        team = me_obs.get("teamId")
+        wf = CombatRestorativesPlaybook._wound_fraction
+        self_wound = wf(me_obs) if self._healable(me_obs) else 0.0   # self compte SSI Healable
+        allies = [(u.get("col"), u.get("row"), wf(u)) for u in obs
+                  if u.get("teamId") == team and not u.get("isDead")
+                  and u.get("squadId") != ctx.uid and u.get("col") is not None
+                  and self._healable(u)]
+        best = None  # (T, util)
+        for T in _sweep_origin_first(ctx):   # ORIGINE d'abord : keep-first au tie -> reste en place (#76)
+            util = self_wound + sum(w for c, r, w in allies
+                                    if bq.is_adjacent(T, (c, r), ctx.elev_by_pos))  # AdjacentUnits gate (#45/#76)
+            if best is None or util > best[1]:
+                best = (T, util)
+        if best is None or best[1] < self.MIN_UTILITY:
+            return []
+        T, util = best
+        target = ctx.tile_id_by_pos.get(T, ctx.uid)
+        return [{"target": target, "ability": self.ABILITY_ID,
+                 "to": (T if T != ctx.origin else None), "pred": util}]
+
+
+def _active_ability_levels(ctx: NCContext) -> dict:
+    """`{unitId: activeAbilityLevel}` — délègue à `ctx.active_levels()` (bound sur l'AiDecisionContext,
+    combatSnapshot cache/rid). `{}` si non branché (harnais de sonde) -> level 0 = argmax trivial a UN
+    seul candidat (le niveau ne départage QUE plusieurs allies en cooldown)."""
+    f = getattr(ctx, "active_levels", None)
+    return f() if callable(f) else {}
+
+
+class InspiredToGreatnessPlaybook(NonComparablePlaybook):
+    """`InspiredToGreatnessPlaybook.EvaluateNonComparable @181145b80` (NonComparable, id 0x43a=1082 ;
+    tauAunShi/Kroot). Refresh l'ability d'un ALLIE (`RepairOrHeal @1811eb050` = If(IsRepairable, Repair,
+    Heal) + `InspiredToGreatness_OverrideLevelEffect`). Cible = l'ALLIE (unit-id), PAS une tuile.
+
+    - Ciblage : `GetEligibleTargetsSelectable` (targeting `AActiveAbility`) filtre par
+      `GetDynamicInvalidTargetReason @1811eaec0` = cible != caster, PAS trait 0x7e7, ET
+      (repairable | healable-blesse | ability-en-cooldown) [slots 0x11/0x12/0x31]. -> on delegue au jeu
+      via `ctx.ability_targets(uid, 1082)` (VIDE si aucun allie blesse/reparable/en-cooldown -> pas d'action).
+    - util(cible) : le natif prend l'ACTIVE ability de la cible (`ActiveAbilityComponent.GetActive`) ;
+      SEULEMENT si `ActiveAbility.CanCurrentlyBeUsed == FALSE` (= EN COOLDOWN) -> util =
+      `Fix64.FromInt(Level.ToZeroBasedIndex(AbilityState.Level))` = NIVEAU zero-based de cette ability.
+      Les allies dont l'active est PRETE (usable) NE contribuent PAS. `Bucket.AddAction` argmax STRICT ->
+      l'IA refresh l'ability EN COOLDOWN de plus HAUT NIVEAU.
+    - MIN_UTILITY=0 (ctor `NonComparablePlaybook(0x43a)` @181146090, SANS min explicite). PRIORITY=0 CONFIRME (#115).
+    - Data offline : eligibilite = `abilityTargets` (jeu) ; cooldown = entree active de `dv.units[ally]
+      .abilities` (`usable`) ; niveau = `combatSnapshot.unitConfig.activeAbilityLevel` (cfg+0xb8 ;
+      `GetStat(18)`=null en snapshot -> via unitConfig). Le level ne departage QUE plusieurs allies en
+      cooldown -> a UN seul candidat la cible est determinee sans lui. VALIDE LIVE (#78) : util=49 (level 50).
+    - Eligibilite = `targets` (superset MOVE-inclus) : le natif BALAIE les tuiles de move et CASTE 1082 AVEC
+      un move pour atteindre l'allie en cooldown quand il est hors portee in-place (VALIDE LIVE #78/#81).
+    - POSITIONNEMENT move-to-reach (#81, PORTE + VALIDE LIVE via `castFromTiles`) : `to` = origine si l'allie
+      est castable in-place (`currentValid`, origine-preference #76), sinon la 1re tuile de move LEGALE
+      (`GetInvalidTargetReason(caster, tile, ally, 1082)` valide par tuile, ordre `GetMovableTilesFor`) ->
+      MATCH EXACT natif (tauAunShi caste 1082 depuis (1,1) = port to=(1,1)). NB : le cas `currentValid=True`
+      (origine castable) emet to=None par origine-preference #76 (self-cast confirme) ; NON separement crafte
+      pour l'ally-target (le generateur keep-first-move-first pourrait BOUGER si des tuiles de move sont aussi
+      legales -> a confirmer si un craft origine-castable apparait)."""
+    ABILITY_ID = int(ActiveAbilityType.InspiredToGreatness)  # 1082
+    MIN_UTILITY = 0.0     # ctor NonComparablePlaybook(0x43a) sans min -> 0
+    PRIORITY = 0
+
+    @staticmethod
+    def _eligible_targets(at: dict) -> list:
+        """Cibles alliees eligibles pour 1082 (le jeu a deja applique repairable/healable/on-cooldown).
+        `targets` = superset MOVE-inclus (le natif balaie les tuiles de move pour atteindre l'allie ; cf.
+        validation #78 ou le natif BOUGE pour caster). On prend ce superset pour l'ELIGIBILITE (ability+
+        cible) ; la tuile de move exacte reste un raffinement de positionnement non porte."""
+        out: list = []
+        for u in (at.get("units") or []):
+            for a in (u.get("abilities") or []):
+                if a.get("abilityId") == InspiredToGreatnessPlaybook.ABILITY_ID:
+                    src = a.get("targets") or []
+                    out = [t.get("targetId") for t in src        # Tgt.targetId (PAS squadId)
+                           if t.get("kind") == "unit" and t.get("targetId") is not None]
+        return list(dict.fromkeys(out))
+
+    @staticmethod
+    def _active_ability(au: dict) -> dict | None:
+        """`ActiveAbilityComponent.GetActive` : l'active NON-normale de l'unite (entree `kind` active/
+        granted de `dv.units[i].abilities`)."""
+        return next((ab for ab in (au.get("abilities") or [])
+                     if ab.get("kind") in ("active", "granted")), None)
+
+    def generate_candidates(self, ctx: NCContext) -> list[dict]:
+        if ctx.ability_targets is None:
+            return []
+        at = ctx.ability_targets(ctx.uid, self.ABILITY_ID) or {}
+        eligible = self._eligible_targets(at)
+        if not eligible:
+            return []                                  # aucun allie eligible en portee -> pas d'action
+        levels = _active_ability_levels(ctx)
+        best = None  # (ally_id, level_zero_based)
+        for ally_id in eligible:
+            au = next((u for u in ctx.units if u.get("id") == ally_id), None)
+            if au is None:
+                continue
+            active = self._active_ability(au)          # GetActive
+            if active is None or active.get("usable") is not False:
+                continue                               # requis : ability EN COOLDOWN (usable == False)
+            lvl = max(0, int(levels.get(ally_id, 1)) - 1)   # ToZeroBasedIndex (activeAbilityLevel 1-based)
+            if best is None or lvl > best[1]:          # argmax STRICT (keep-first au tie)
+                best = (ally_id, lvl)
+        if best is None:
+            if ctx.debug:
+                import sys
+                print(f"    [dbg NC u{ctx.uid}] InspiredToGreatness eligible={eligible} best=None",
+                      file=sys.stderr)
+            return []
+        ally_id, lvl = best
+        # POSITIONNEMENT (#81) : cast SANS bouger si l'allie est castable in-place (origine-preference #76) ;
+        # sinon la 1re tuile de move LEGALE (GetInvalidTargetReason par tuile via castFromTiles) -> le natif
+        # BALAIE les tuiles de move et caste depuis la 1re d'ou l'allie est atteignable (keep-first).
+        to = None
+        cft_fn = getattr(ctx, "cast_from_tiles", None)
+        if callable(cft_fn):
+            cft = cft_fn(ctx.uid, ally_id, self.ABILITY_ID) or {}
+            if not cft.get("currentValid"):
+                mt = cft.get("moveTiles") or []
+                if mt:
+                    to = (mt[0].get("col"), mt[0].get("row"))
+        if ctx.debug:
+            import sys
+            print(f"    [dbg NC u{ctx.uid}] InspiredToGreatness eligible={eligible} best={best} to={to}",
+                  file=sys.stderr)
+        # Cible = l'ALLIE (unit-id) ; to = origine (in-place) ou 1re tuile de move legale (#81).
+        return [{"target": ally_id, "ability": self.ABILITY_ID, "to": to, "pred": float(lvl)}]
