@@ -38,8 +38,11 @@ from .trait_damage_limits import apply_trait_damage_limits_to_damage, compute_pr
 @dataclass
 class DamagePredictionResult:
     """struct DamagePredictionResult (dump.cs TypeDefIndex 11757, offsets STRUCT) :
-      CurrentHealth@0 · CurrentArmor@4 · CurrentShield@8 · healthDmg(RAW min@0x24/max@0x28,
-      NON capé par HP — utilisé par get_WillBeKill @18102bef0 / WillBeOverkill @18102ba40) ·
+      CurrentHealth@0 · CurrentArmor@4 · CurrentShield@8 · healthDmg RAW (MinMax)@0x18
+      {cap@0x18, Min@0x20, Max@0x24} — NON capé par HP ; `get_WillBeKill @18102bef0` =
+      `CurrentHealth@0 <= raw MAX@0x24` (offsets RE-CONFIRMÉS #40 : `get_DefaultBlockScenario
+      @18102bcd0` copie result@+0x20 → BS.healthDmg@+0x08 = raw MIN cumulé, layout vérifié
+      par le `[0]<=[9]` de WillBeKill + le kill natif=true à rawMax>=HP) ·
       AccurateHealthDamage(MinMax)@0x58 (Min@+8=0x60, Max@+0xc=0x64, CAPÉ par HP santé restante)
       · AccurateArmorDamage@0x68 · AccurateShieldDamage@0x78 · TotalDamage@0x88 · LimitedByMinHp@0xB0
       · MightCrit@0xB1 · ForceOverkill@0xB2 · AppliedHits@0xBC.
@@ -64,9 +67,14 @@ class DamagePredictionResult:
 
     def default_block_scenario(self) -> "BlockScenario":
         """`DamagePredictionResult.get_DefaultBlockScenario` @18102bcd0 — le scénario cumulé (dégât santé/
-        bouclier déjà infligé) threadé comme `prev` au coup suivant → ressources RESTANTES de la cible."""
+        bouclier déjà infligé) threadé comme `prev` au coup suivant → ressources RESTANTES de la cible.
+        ⚠ #40 (RE 2026-07-20, copie champ-à-champ LUE) : la santé threadée est UN SEUL int —
+        `BS.healthDmg@+0x08 = result@+0x20` = **raw health MIN cumulé** (PAS un par-borne min/max).
+        La borne MAX du coup suivant est donc déplétée par le scénario MIN (le natif suppose le
+        minimum garanti déjà infligé) — c'est ce qui laisse le rawMax cumulé dépasser HP−1
+        (31337 s8 : 1047+800(cap 801−1)+102 = 1949 > 1498). Bouclier : PER-BORNE (@+0x28/+0x2c)."""
         return BlockScenario(
-            health_min=self.accurate_health_damage.min, health_max=self.accurate_health_damage.max,
+            health=self.raw_health_damage.min,
             shield_min=self.accurate_shield_damage.min, shield_max=self.accurate_shield_damage.max)
 
     def add(self, other: "DamagePredictionResult") -> None:
@@ -101,10 +109,12 @@ class BlockScenario:
     """Scénario cumulé threadé comme `prev` entre coups — `get_DefaultBlockScenario` @18102bcd0. Porte le
     dégât CUMULÉ (santé/bouclier) des coups précédents → RESSOURCES RESTANTES de la cible au coup suivant
     (`rem = pleine − cumul`). Champs natifs consommés par `PredictAttackRaw` (prev = Nullable@param_3+0x84) :
-    healthDmg@+0x08 (rem_HP @181034087), shieldAbs min@+0x28 / max@+0x2c (rem_shield @1810341d5/427a).
-    (armorDmg@+0x18 non threadé ici — armure=0 en prédiction IA.) Vide (tout 0) = 1er coup = pleines."""
-    health_min: int = 0
-    health_max: int = 0
+    healthDmg@+0x08 = **UN SEUL int** (rem_HP @181034087 : `local_914 = Max(0, HP − BS@+0x08)` — la MÊME
+    valeur sert les 2 bornes), shieldAbs min@+0x28 / max@+0x2c (rem_shield @1810341d5/427a).
+    (armorDmg@+0x18 = déplétion armure @181034130 — armure=0 en prédiction IA, non threadé.)
+    Vide (tout 0) = 1er coup = pleines. ⚠ #40 : l'ancien port threadait health_min/health_max PER-BORNE
+    (rem_hi déplété par le cumul MAX) → rawMax saturait à HP−1 (1498) là où le natif rend 1949."""
+    health: int = 0
     shield_min: int = 0
     shield_max: int = 0
 
@@ -354,20 +364,21 @@ def predict_attack_raw(
         # `current_health` = HP RESTANT de la cible avant CE coup (déplété par `prev`). `target_limits` =
         # champs STATIQUES cible (traits/member/max_health) montés par l'appelant ; les caps non dérivables
         # offline (Impervious charge, member-count stat 20, boss 0x5d4) y sont des no-op documentés.
-        _rem_lo = max(0, target_current_health - prev.health_min)
-        _rem_hi = max(0, target_current_health - prev.health_max)
+        # #40 : rem UNIQUE (natif @181034087 lit BS.healthDmg@+0x08 = raw MIN cumulé) — les DEUX
+        # bornes du coup courant sont capées contre le MÊME HP restant (scénario minimum garanti).
+        _rem = max(0, target_current_health - prev.health)
         # Porte IsOverkill (@181032db0) : le natif calcule le flag UNE fois depuis la borne MIN (accum =
         # (maxHP - curHP) + dmgMin) et l'applique aux 2 bornes (ApplyResilient(min,ovk)+ApplyResilient(max,
         # ovk)). overkill=True => cap Resilient BYPASSE (l'unite meurt) => pas de HP-1. Fidele au live :
         # over-kill massif -> skip (HP), modere -> cape (HP-1). max_health peuple par le vrai moteur
         # (engine/ai/context.py observeBattle) ; None dans le harnais de sonde -> flag inerte (cap deja off).
         _maxhp = int(target_limits.get("max_health") or 0)
-        _ovk = compute_prediction_overkill(_rem_lo, _maxhp, lo) if (lo and _maxhp > 0) else False
+        _ovk = compute_prediction_overkill(_rem, _maxhp, lo) if (lo and _maxhp > 0) else False
         if lo:
-            lo = apply_trait_damage_limits_to_damage(lo, current_health=_rem_lo, overkill=_ovk,
+            lo = apply_trait_damage_limits_to_damage(lo, current_health=_rem, overkill=_ovk,
                                                      **target_limits)
         if hi:
-            hi = apply_trait_damage_limits_to_damage(hi, current_health=_rem_hi, overkill=_ovk,
+            hi = apply_trait_damage_limits_to_damage(hi, current_health=_rem, overkill=_ovk,
                                                      **target_limits)
     health = calculate_damage_prediction_scenario(
         MinMaxDamage(min=lo, max=hi), prev_hits=0, profile_type=profile_type,
@@ -375,10 +386,12 @@ def predict_attack_raw(
     # RAW @0x24/@0x28 : dégât santé AVANT le cap de santé-restante (over-shoot préservé pour kill/overkill).
     raw_health = MinMaxDamage(min=health.min, max=health.max, cap=health.cap)
     if target_current_health > 0:
-        # overkill PER-COUP : la santé de CE coup <= HP RESTANT (HP courant − cumul prev). La somme sur les
-        # coups = min(Σ, HP) — équivalent à l'ancien cap-sur-agrégat, mais fidèle à la déplétion native.
-        health = MinMaxDamage(min=min(health.min, max(0, target_current_health - prev.health_min)),
-                              max=min(health.max, max(0, target_current_health - prev.health_max)),
+        # overkill PER-COUP : la santé de CE coup <= HP RESTANT (FillUpStat.MaxReduceByMinimum consomme
+        # local_914 = LE rem UNIQUE @181034087, #40) — les 2 bornes contre le même rem ; la borne max
+        # cumulée peut donc dépasser HP (normalisée ensuite par le cap HP de l'accurate dans Add).
+        _rem_hp = max(0, target_current_health - prev.health)
+        health = MinMaxDamage(min=min(health.min, _rem_hp),
+                              max=min(health.max, _rem_hp),
                               cap=health.cap)
     return DamagePredictionResult(
         current_health=target_current_health, armor=armor, shield=target_shield,

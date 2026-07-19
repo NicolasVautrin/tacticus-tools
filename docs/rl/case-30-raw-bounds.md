@@ -135,6 +135,11 @@ qu'un symptôme. NB : 698/1047 ⇔ base efficace 872.5 (0.8×872.5=698, 1.2×872
 DEMI-ENTIÈRE (chemin avg(minDmg,maxDmg) d'arme ? mod ×1.x sur base int ? à élucider par recon du
 kit u83 au pas s8).
 
+**[⚠ FALSIFIÉ à son tour — cf. « ✅ #40 RÉSOLU » plus bas : il n'y a AUCUN mod manquant ni base
+demi-entière. Le fit (698,1047) était un artefact du MAUVAIS modèle de chaîne de caps ; la vraie
+cause = le threading `prev` santé PER-BORNE du port là où le natif déplète par UN SEUL scalaire
+(raw MIN cumulé). Base 1408 inchangée → (1498,1949) bit-exact.]**
+
 Acquis RE COMPLÉMENTAIRES (mécanique flags, décompile 2026-07-19, tous confirmés) :
 - `ApplyTraitDamageLimitsToDamage @18102c650` appelle l'IMPL `IsOverkill @181032db0` directement :
   baseHP=param_11(maxHP), accum=op_Explicit(FromInt(maxHP−curHP)+FromInt(p12)+*param_3(minBound
@@ -206,3 +211,43 @@ Session Frida tombée pendant l'investigation (jeu fermé → `session:null`). L
 ont été capturés AVANT la chute (seed 31337, 20 pas). Re-tester le fix : re-inject + warmup, puis
 `walk_dump_raw` (mon dumper scratchpad) sur seeds 31337 + 777, cible s08 (raw doit passer à
 (1498,1949), kill→True) et s13 (traiter séparément le defender-mod).
+
+## ✅ #40 RÉSOLU (2026-07-20) : `BlockScenario.healthDmg` = UN SEUL int (raw MIN cumulé), pas per-borne
+
+**CAUSE RACINE du lead 4 (s8) — et clôture de toute la chaîne #30.** Ni porte overkill (falsifiée le
+19), ni mod manquant / base demi-entière (falsifiés le 20) : le port threadait la déplétion santé
+**PER-BORNE** (`prev.health_min` pour lo, `prev.health_max` pour hi) là où le natif déplète les DEUX
+bornes par **UN SEUL scalaire**.
+
+RE décompilé (lecture intégrale, VAs) :
+- `get_DefaultBlockScenario @18102bcd0` : copie champ-à-champ `result@0x18..0x48` → BlockScenario ;
+  **`BS.healthDmg@+0x08 = result@+0x20 = raw health MIN cumulé`**. Layout du struct résultat
+  RE-CONFIRMÉ : raw MinMax **@0x18** `{cap@0x18, Min@0x20, Max@0x24}` (l'ancienne note
+  « min@0x24/max@0x28 » était décalée de 4) ; preuve croisée : `get_WillBeKill @18102bef0` =
+  `[0] <= [9]` = `CurrentHealth <= raw MAX@0x24` (cohérent avec kill natif=true à rawMax≥HP).
+- `PredictAttackRaw` consomme le Nullable prev (@param_3+0x84) en 4 lectures : santé
+  **`local_914 = Max(0, HP − BS@+0x08)` @181034087** (UNIQUE — sert les 2 bornes : trait-limits ET
+  cap FillUpStat), armure `@181034130` (BS@+0x18), bouclier min/max `@1810341d5`/`@18103427a`
+  (BS@+0x28/+0x2c — bouclier PER-BORNE, le port était déjà fidèle là-dessus).
+
+**Pourquoi ça produit 1949 > HP−1** : la borne max de chaque coup est capée contre le rem du
+scénario MINIMUM garanti (h1 (901,1352) intacts ; rem 1499−901=598 → cap Resilient 597 → h2
+(597,597) ; rem 1 → cap 0 → h3 (0,0)) ⇒ raw = (1498, **1949**) avec base 1408 INCHANGÉE — bit-exact
+natif. Le port per-borne saturait hi à 1352+146+0 = 1498. Idem u81→u91 : (1003, min(1505,1498)) +
+(495,495) + (0,0) = (1498, **1993**) bit-exact (base 1003, ×1.25 RapidAssault, pierce 100).
+
+**Fix (damage_prediction.py)** : `BlockScenario.health` (un champ, = `raw_health_damage.min` du
+cumul), `_rem` unique dans les trait-limits + le cap santé du scénario. L'accurate max cumulé peut
+alors dépasser HP par coup — renormalisé par le cap HP de l'accurate dans `Add` (1499 ✓).
+
+**Validation** : agreement 777+31337 ×20 → prédiction **19/21 (90 %)** (s8 réglé, zéro régression) ;
+tests ciblés `test_predict_live` + `test_damage_roll_live` + `test_runner_attack_live` +
+`test_finaljustice_live` = 7/7. Restants (dossiers DISTINCTS) : 777 s11 u95 ab1150 (split bouclier,
+shieldDmgMin 3351 vs 2873) ; 31337 s13 u93→u83 (mod défenseur ×0.611 sur LES DEUX bornes raw —
+vrai modificateur multiplicatif, PAS un artefact de chaîne : off (4428,6640) vs nat (2704,4056)).
+
+**Leçon de méthode** : le fit arithmétique du 19 (base 872.5 « demi-entière ») collait parfaitement…
+dans le mauvais modèle de chaîne. Avant de chasser un « mod manquant », REJOUER les bornes natives
+dans le pipeline EXACT du port (fit exhaustif par énumération — `fit40_exhaustive.py`) : ici aucune
+base/mod ne pouvait produire 1949, ce qui pointait la STRUCTURE (discipline « check own port »,
+le commentaire du port documentait déjà `healthDmg@+0x08` SINGULIER que le dataclass violait).

@@ -96,11 +96,17 @@ mécaniquement l'essentiel du positioning.
    float64 vs Fix64 (Q31.32), fix = émulation Fix64 exacte (`engine/services/fix64.py`) +
    matérialisation Round(mode 1) des bornes — 777 s06 et 31337 s05 corrigés, prédiction
    16/21 → 18/21 (85 %), 0 régression (11 tests combat verts). Détail complet :
-   `docs/rl/case-30-raw-bounds.md` §#30a. Le résidu 31337 s08 (kill off=False nat=True +
-   raw max 1498 vs 1949) = porte OVERKILL (#30b, tâche #40), PAS un arrondi.
+   `docs/rl/case-30-raw-bounds.md` §#30a. **Résidu s08 ✅ RÉSOLU 2026-07-20 (#40)** : ni porte
+   overkill ni mod manquant — le port threadait la déplétion santé `prev` PER-BORNE là où le natif
+   déplète les 2 bornes par UN SEUL scalaire (`BlockScenario.healthDmg@+0x08` = raw MIN cumulé,
+   `get_DefaultBlockScenario @18102bcd0` + rem unique @181034087). Fix `BlockScenario.health`
+   (damage_prediction.py) → s08 bit-exact (1498,1949), prédiction 18/21 → **19/21 (90 %)**,
+   0 régression (7/7 tests ciblés). Détail : `case-30-raw-bounds.md` §« ✅ #40 RÉSOLU ».
 5. **killSure fantôme (raw sur-évalué)** — 31337 s13, u93 ab=69 tgt=83 : accurate min OK
    (2783 vs 2704) mais raw off 4428-6640 vs nat 2704-4056 → **killSure off=True nat=False**.
-   L'overshoot raw offline est trop haut (mécanisme distinct du lead 4 : sens inverse).
+   MAJ 2026-07-20 (post-#40, le lead 4 étant clos) : les DEUX bornes raw natives = off ×0.611
+   (2704/4428 = 4056/6640) → **vrai modificateur défenseur multiplicatif** sur u93→u83
+   (deathRotbone→eldarAutarch), PAS un artefact de chaîne de caps. À traquer séparément.
 6. **NC overfire (gates trop lâches)** — famille : AdMech 1118 self-cast émis là où le natif
    bouge/attaque (2 occurrences AdMech + 31337 s17 : nat 69→87 u_off=192.7 pourtant le moteur
    sort 1118→77 par ORDRE de tier NC) ; 909 s10 : 1180 HeroicFusillade émise, natif attaque
