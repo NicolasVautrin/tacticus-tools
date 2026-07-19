@@ -47,7 +47,7 @@ d'`aiPlaybookPredict`). Toute confrontation prédiction doit être **à-position
 |---|---|---|---|---|
 | seed 777 (20 pas) | 16/17, 17/17 | 15/16 | **8/11 (72 %)** — 3 logic | 1 utility-logic, 1 move-tie-break |
 | seed 909 (20 pas) | 10/16, 12/16 | 4/6 | (agrégé ci-dessous) | 1 utility-logic, 1 non-attack-oracle, **3 move-formula**, 3 pos-downstream |
-| seed 31337 (20 pas) | 12/18, 13/18 | 6/13 | agrégé 909+31337 : **8/14 (57 %)**, 1 feed, 5 logic | **2 prediction**, 2 utility-logic, 3 non-attack-oracle, 1 generator-overfire, 5 pos-downstream |
+| seed 31337 (20 pas) | 12/18, 13/18 | 6/13 → **7/13 (#33)** | agrégé 909+31337 : **8/14 (57 %)**, 1 feed→**0 (#33)**, 5 logic | **2 prediction**, 2 utility-logic, 3 non-attack-oracle, 1 generator-overfire, 5 pos-downstream |
 | AdMech 3v3 (Marshall+Manipulus+Ruststalker vs 2 Warden, fini pas 9) | 6/8 | 4/5 | 1/3 | 1 utility-logic (1118), 1 generator-overfire (1118) |
 
 Lecture : **la position est très majoritairement une CASCADE du choix d'ability**
@@ -80,9 +80,18 @@ mécaniquement l'essentiel du positioning.
    POST-FIX (777+31337, 20 pas) : ability 22/29 (75 %), prédiction 15/21 (71 %), garde
    test_effect_stun_live PASS. NB : `CreateEffectDamageBonusForAttack` = famille de **30+
    overrides** natifs (ExtraDamage/Pct/ReduceDmg…) — le harnais les fera émerger un par un.
-3. **Staleness prédicteur PROUVÉE** — 31337 s16, u79 ab=1191 tgt=87 : off 598-898,
-   nat 994-1976, **fresh == natif (`feed=True`)** ; cf_nat=56.2 > eng=51.2 → le miss flippe.
-   → justifie l'Étape 2 (resync prédicteur per-step, pas seulement les boucliers).
+3. **✅ RÉSOLU (#33, 2026-07-19) — Staleness prédicteur** — 31337 s16, u79 ab=1191 tgt=87 :
+   off 598-898, nat 994-1976, **fresh == natif (`feed=True`)** ; cf_nat=56.2 > eng=51.2 → le
+   miss flippe. CAUSE ISOLÉE (mesure cold-vs-fresh table par table) = **`actorstats_by_id`
+   (`TotalAttacksMade`) périmé** : le cold de `build_predictor` capte le compteur au pas 0 (=0) ;
+   l'attaquant u79 avait fait **2 attaques** → sa prédiction MartialInspiration (+33 %/attaque)
+   sous-estimait ×1.66. FIX = re-capturer `actorStats` PAR-PAS dans `scene.refresh_shields` (le
+   seul canal dynamique manquant : `ctx` INITIAL est stable, les drifts d'`ATTACK` CURRENT/MOD
+   observés — aura Calgar +1298 sur la CIBLE s07/s08 — sont INERTES car la prédiction lit INITIAL
+   + recalcule l'aura par adjacence live). VALIDÉ : s16 `cold==fresh==natif`, `feed=0` global.
+   POST-FIX (777+31337, 20 pas) : prédiction 16/21 (76 %), ability 23/29 (79 %), 0 régression
+   (garde `test_playbook_live` 3/3). NB : le seul autre canal cold-dynamique (aura CURRENT) reste
+   inerte pour la prédiction — l'Étape 2 « resync per-step » est donc CLOSE pour le feed prouvé.
 4. **Bornes ±1-5 qui flippent le kill-flag** — 777 s06 (min 1390 vs 1385), 31337 s05
    (3006 vs 3009), 31337 s08 : max 1498 vs 1499 **→ kill off=False nat=True** (cap à hp-1) ;
    même run raw max 1498 vs 1949 (overshoot natif non modélisé). Un ±1 à la frontière hp
@@ -119,7 +128,12 @@ le walk applique les actions natives (runner isolé recommandé).
 
 ## 6. Suites (plan réconciliation acté)
 
-- **Étape 2 — fermer le feed** : resync prédicteur PER-STEP (lead 3 le prouve) + audit du
-  read-set natif de l'IA (décompilé) pour garantir l'identité des entrées.
+- **Étape 2 — fermer le feed** : ✅ resync prédicteur PER-STEP FAIT (#33) — audit cold-vs-fresh
+  table par table sur toute la marche 31337/777 : le SEUL canal dynamique manquant était
+  `actorstats_by_id` (`TotalAttacksMade`, MartialInspiration), re-capturé par-pas dans
+  `refresh_shields`. Tout le reste est soit statique (`ctx` INITIAL, board, mult/ablvl), soit
+  recalculé live à la décision (aura d'adjacence, positions, hp, effets) → `feed=0` sur les
+  paires confrontées. Reste ouvert : l'audit du read-set peut resurfacer un canal cold si un
+  nouveau modificateur indexé par un compteur mid-bataille apparaît (le harnais le classera `feed`).
 - **Étape 3 — endgame** : runner offline complet + replay-diff (supprime la couture RPC),
   chantier `runner_engine`.

@@ -269,9 +269,10 @@ def build_predictor(rpc, rid):
         ctx_by_id[eid] = UnitContext.from_snapshot(u, GC.unit(vis_by_id.get(eid) or ""),
                                                    snap.get("statTypes"))
     # TotalAttacksMade PER-UNITE (#106) — capteur actorStats (ActorStatisticsComponent +0x20). Capture
-    # au BUILD (point-in-time) : correct pour une prediction ponctuelle (count=0 au debut de bataille) ;
-    # un refresh PAR-PAS (cf. refresh_shields) serait requis pour un compteur qui evolue mid-bataille
-    # (count>0) -> suivi #106. Degrade proprement a {} (count=0) si le RPC manque/echoue.
+    # au BUILD (point-in-time = count au pas 0). DYNAMIQUE (incremente a chaque attaque) -> RE-CAPTUREE
+    # PAR-PAS par `refresh_shields` (#33 : sans ce refresh, une prediction mid-bataille indexee par ce
+    # compteur SOUS-ESTIME -- MartialInspiration ; staleness prouvee 31337 s16). Degrade proprement a
+    # {} (count=0) si le RPC manque/echoue.
     try:
         _ast = rpc("actorStats", {"runnerId": rid}, 40)
     except Exception:
@@ -342,8 +343,13 @@ def _defense_stats_from_snapshot(units) -> dict:
 
 
 def refresh_shields(predictor, rpc, rid):
-    """Rafraîchit l'état DYNAMIQUE (boucliers accordés/consommés + armure débuffée + stat DEFENSE
-    modifiée #194) depuis un `combatSnapshot` FRAIS — appeler 1×/pas comparé. (Ex-`PV.refresh_shields`.)"""
+    """Rafraîchit l'état DYNAMIQUE par pas comparé (appeler 1×/pas) — deux sources FRAÎCHES :
+    - `combatSnapshot` : boucliers accordés/consommés + armure débuffée + stat DEFENSE modifiée (#194) ;
+    - `actorStats` : `TotalAttacksMade` par unité (#33/#106) — DYNAMIQUE (incrémente à CHAQUE attaque)
+      donc le cold de `build_predictor` (capté au pas 0 = 0) SOUS-ESTIME toute prédiction mid-bataille
+      indexée par ce compteur (MartialInspiration +33 %/attaque). Staleness FEED prouvée 31337 s16 :
+      l'attaquant u79 avait fait 2 attaques → cold 598-898 vs natif 994-1976 == fresh (2 stacks).
+    (Ex-`PV.refresh_shields`.)"""
     snap = rpc("combatSnapshot", {"runnerId": rid}, 40)
     if not snap.get("ok"):
         return
@@ -355,6 +361,14 @@ def refresh_shields(predictor, rpc, rid):
         u["entityId"]: int((u.get("stats") or {}).get("fixedArmor") or 0)
         for u in (snap.get("units") or [])}
     predictor["defstat_by_id"] = _defense_stats_from_snapshot(snap.get("units"))
+    # #33 : re-capture TotalAttacksMade (mirror du refresh de build_predictor). On n'écrase QUE si
+    # le RPC a répondu (units présent) — sinon on garde le cold en fallback (RPC KO -> _r renvoie {},
+    # .get("units") is None). Un `actorStats` valide sans attaque = {units:[…, totalAttacksMade:0]}.
+    _ast = rpc("actorStats", {"runnerId": rid}, 40)
+    if _ast.get("units") is not None:
+        predictor["actorstats_by_id"] = {
+            u["entityId"]: int(u.get("totalAttacksMade") or 0)
+            for u in _ast["units"] if u.get("entityId") is not None}
 
 
 def step_context(predictor, dv):
