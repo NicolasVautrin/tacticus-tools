@@ -94,7 +94,8 @@ class BaseEffect:
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
                                               is_normal_attack: bool | None = True,
-                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
         """`<Effect>.CreateEffectDamageBonusForAttack` — contribution au scalaire dégât (additif/percent).
         `target_traits` = noms de traits gameconfig de la CIBLE (mirror `HasTrait(target,…)` natif) pour
         les bonus target-conditionnels (ex. BeastSlayer vs BigTarget/Vehicle) ; None = cible inconnue.
@@ -107,7 +108,11 @@ class BaseEffect:
         passent pas). `target_armor_reduced` = évaluation du gate `HasNegativeModifier(cible, {ARMOR,
         FIXED_ARMOR})` (@180f9db90 ; la CIBLE porte ≥1 modification per-source <0 sur une stat d'armure =
         « armure réduite ») threadée depuis le site de résolution — pour les bonus gated sur l'état d'armure
-        de la cible (ConquerorImperative @180f39650). None = état inconnu."""
+        de la cible (ConquerorImperative @180f39650). None = état inconnu. `att_ctx` (Mapping|None) =
+        contexte POSITIONNEL de l'attaque pour les bonus dont la MAGNITUDE dépend de la position du caster
+        (mirror du DSL qui lit la UnitPosition hypothétique, ex. LordOfTempests `SurroundingTiles(owner,0,1)`
+        @180f56b40) : {"att_pos": (col,row) tuile candidate, "tile_effects_by_pos": {(col,row):[noms]}}.
+        None = contexte inconnu -> ces bonus rendent None (« présent ≠ appliqué », dégradation fidèle)."""
         return None
 
     def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True) -> EffectBonus | None:

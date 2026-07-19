@@ -235,8 +235,10 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     # (cet ordre brut). Donc `reach_nc` reste origine-LAST ; les self-cast le reordonnent localement.
     reach_nc = [(t["col"], t["row"]) for t in move_tiles] + ([origin] if origin is not None else [])
 
-    # Scene objet = predictor + sctx consolidés (+ élévation) — consommée par engine.playbook.prediction.
-    scene = (Scene.from_predictor_sctx(predictor, sctx, elev_by_pos)
+    # Scene objet = predictor + sctx consolidés (+ élévation + effets de tuile FRAIS du pas — la glace
+    # LordOfTempests s'accumule en bataille) — consommée par engine.playbook.prediction.
+    scene = (Scene.from_predictor_sctx(predictor, sctx, elev_by_pos,
+                                       tile_effects_by_pos=effects_by_pos)
              if (predictor is not None and sctx is not None) else None)
 
     return AiDecisionContext(

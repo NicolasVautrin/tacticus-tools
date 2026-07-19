@@ -35,6 +35,29 @@ def global_value(key: str) -> int | None:
     return int(v) if v is not None else None
 
 
+_BC_EFFECT_CFG: dict | None = None
+
+
+def bc_effect_config(key: str, default: int | None = None) -> int | None:
+    """Entrée NOMMÉE de la section `Effect` de la BattleConfiguration — la table que
+    `DSLFactory.EffectConfig @180dee9e0` (-> `EffectConfigAmount`) et `BattleQuery.GetEffectConfig
+    @1810610b0` (Dict peuplé par `InitEffectConfig @18106e9c0`) indexent par enum. Source unique =
+    `weights.DEFAULT_BC` (même pattern que `CONTAMINATED_ARMOR_REDUCTION_PCT`, effect_triggers.py).
+    Ex. `StunnedDmgReductionPct`=50 (EffectConfig(2), Stunned_DamageModifierEffect @180f6f770),
+    `PinnedDmgReductionPct`=30, `IceCritDmgBonusPct`=25. Cache module (BC statique par bataille)."""
+    global _BC_EFFECT_CFG
+    if _BC_EFFECT_CFG is None:
+        try:
+            import json as _json
+            from ... import weights as _weights
+            _BC_EFFECT_CFG = (_json.loads(_weights.DEFAULT_BC.read_text(encoding="utf-8"))
+                              .get("Effect", {}) if _weights.DEFAULT_BC.exists() else {})
+        except Exception:
+            _BC_EFFECT_CFG = {}
+    v = _BC_EFFECT_CFG.get(key, default)
+    return int(v) if v is not None else None
+
+
 def ability_var(ability_id: str, var_key: str, level: int | None = None,
                 is_constant: bool = False, multiplier_pct: int = 100) -> int | None:
     """Variable/constante d'ability. Constante = scalaire ; variable = tableau per-niveau indexé `level`

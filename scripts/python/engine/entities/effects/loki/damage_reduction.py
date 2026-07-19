@@ -52,6 +52,35 @@ class MartialKatahDmgReductionEffect(BaseEffect):
         return for_percent_decrease(False, abs(int(red)))   # owner=défenseur (l'effet est sur la cible)
 
 
+class VexillaMagnificaDmgReductionEffect(BaseEffect):
+    """`VexillaMagnifica_DmgReductionEffect.CreateDamageDefenseModifier @180f76510` (active
+    VexillaMagnifica 1183, custoVexilusPraetor — effet 0x567=1383, nom capté
+    "VexillaMagnifica_DmgReduction") : réduit le dégât reçu par son PORTEUR. #29 lead 2 (la pièce
+    ×0.34 du miss 777 s15).
+
+    Trigger natif = `get_OwnerIsTarget` SEUL (décompilé @180f76510 : AUCUN gate profil/mêlée/normal)
+    → s'applique à TOUT dégât reçu, prédiction ET combat. Valeur = `ConfigVar(0x46=dmgReductionPct,
+    GetAbilityState(effet))` = `dmgReductionPct[ablvl]` des variables VexillaMagnifica (=66 à tous
+    les niveaux utiles, HORS variablesAffectedByRarityBonus → multiplier no-op ; même clé 0x46 que
+    SmashaEad/GuardianOrganism/OverwhelmingWrath). `EffectBonus.ForPercentDecrease` → entrée %-list
+    multiplicative standard. VALIDÉ BIT-EXACT (777 s15, u83 stunné -> u87 porteur) :
+    ×0.8 (MartialKatah) × 0.5 (Stunned) × 0.34 (CE malus) = 219-437 == natif.
+
+    NB : l'effet est posé par le toggle actif VexillaMagnifica (le porteur « plante la bannière ») —
+    la POSE runner-face n'est pas portée ; ici on consomme l'effet CAPTÉ (présent = actif)."""
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                                damage_profile: str | None = None,
+                                                attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        red = ability_var("VexillaMagnifica", "dmgReductionPct", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
+        if not red:
+            return None
+        return for_percent_decrease(False, abs(int(red)))   # owner=défenseur (l'effet est sur la cible)
+
+
 _TERMINATOR_EXCLUDED: "frozenset[str] | None" = None
 
 
@@ -227,7 +256,8 @@ class FightingRetreatDmgReductionEffect(BaseEffect):
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
                                               is_normal_attack: bool | None = True,
-                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
         lvl = self.ability_level if self.ability_level is not None else self.level
         v = ability_var("FightingRetreat", "dmgReduction", lvl,
                         multiplier_pct=self.ability_variables_multiplier)

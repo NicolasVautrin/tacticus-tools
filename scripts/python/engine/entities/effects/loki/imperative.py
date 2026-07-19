@@ -121,7 +121,8 @@ class ConquerorImperativeEffect(BaseEffect):
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
                                               is_normal_attack: bool | None = True,
-                                              target_armor_reduced: bool | None = None) -> "EffectBonus | None":
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> "EffectBonus | None":
         """SELF face (increment C) — `ConquerorImperative.CreateDamageModifier @180f39650` :
         `ForAddition(OwnerIsCaster & HasNegativeModifier(cible, {ARMOR=4, FIXED_ARMOR=16}), ConfigVar(8=
         extraDmg))` = +`extraDmg[niveau actif] x mult` FLAT au degat de TOUTES les attaques du porteur

@@ -298,9 +298,15 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     _tctx = scene.ctx(tgt_id)
     _tgt_armor_reduced = (_tctx.stats.has_negative_modifier(ARMOR_STAT_TYPES)
                           if _tctx is not None and _tctx.stats is not None else None)
+    # att_ctx POSITIONNEL (#29) : magnitude re-countee a la TUILE CANDIDATE pour les bonus dont le DSL lit
+    # la UnitPosition hypothetique (LordOfTempests : Count(Ice ring-1) @180f56b40 — meme threading candidat
+    # que les auras #153). tile_effects_by_pos = tileMeta FRAIS du pas (la glace s'accumule).
+    _att_ctx = {"att_pos": attack_pos or scene.pos(att_id),
+                "tile_effects_by_pos": scene.tile_effects_by_pos}
     mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm,
                                                        target_traits=_tgt_traits,
-                                                       target_armor_reduced=_tgt_armor_reduced)
+                                                       target_armor_reduced=_tgt_armor_reduced,
+                                                       att_ctx=_att_ctx)
     # #49/#153 : base de l'attaque NORMALE en PREDICTION DISPLAY = Initial + auras stat-mod re-evaluees
     # a la TUILE CANDIDATE. On part de INITIAL (bare, exclut TOUTE modification captee dans le snapshot
     # -> pas de double-compte) puis on re-ajoute les AURAS stat-mod d'allies (RitesOfBattle @181225340,
@@ -458,7 +464,10 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
                           if _tctx is not None and _tctx.stats is not None else None)
     mods = calculate_attacker_modifiers_for_prediction(scene.effects(uid), is_ranged=not is_melee,
                                                        has_moved=_hm, is_normal_attack=False,
-                                                       target_armor_reduced=_tgt_armor_reduced)
+                                                       target_armor_reduced=_tgt_armor_reduced,
+                                                       att_ctx={"att_pos": attack_pos or scene.pos(uid),
+                                                                "tile_effects_by_pos":
+                                                                    scene.tile_effects_by_pos})
     t_pos = scene.pos(tgt)
     _add_positional_and_defender_mods(mods, scene, uid, tgt, is_melee, attack_pos, t_pos,
                                       damage_profile=profile_name, is_normal_attack=False)

@@ -32,6 +32,10 @@ class Scene:
     eff_state: object          # EffectsState (effets matérialisés seed)
     hpmax_by_id: dict = field(default_factory=dict)   # {squadId: hpMax} (observeBattle)
     elev_by_pos: dict | None = None                    # {(col,row): elevation} (tileMeta)
+    tile_effects_by_pos: dict | None = None            # {(col,row): [noms d'effets de tuile]} — DYNAMIQUE
+    #                                                    # (la glace LordOfTempests s'ACCUMULE en bataille) ->
+    #                                                    # fourni FRAIS par décision (tileMeta, cf. context.py) ;
+    #                                                    # None = inconnu (bonus position-dépendants inertes)
     board: object | None = None                        # Board (voisins natifs, adjacence hex) — cf.
     #                                                    # engine.entities.pathfinding.board ; None → evenq
     # AbilityState PER-ABILITY (#100) : {uid: {abilityId: {"level","multiplier"}}} — capteur
@@ -125,8 +129,11 @@ class Scene:
 
     @classmethod
     def from_predictor_sctx(cls, predictor: dict, sctx: dict, elev_by_pos: dict | None = None,
-                            board: object | None = None) -> "Scene":
-        """Bridge des dicts de l'ancien PV vers l'objet Scene (mêmes données, forme objet)."""
+                            board: object | None = None,
+                            tile_effects_by_pos: dict | None = None) -> "Scene":
+        """Bridge des dicts de l'ancien PV vers l'objet Scene (mêmes données, forme objet).
+        `tile_effects_by_pos` = effets de tuile FRAIS du pas (tileMeta ; dynamique — la glace
+        LordOfTempests s'accumule) ; None -> bonus position-dépendants inertes."""
         sc = cls(
             ctx_by_id=predictor.get("ctx_by_id") or {}, armor_by_id=predictor.get("armor_by_id") or {},
             shield_by_id=predictor.get("shield_by_id") or {}, mult_by_id=predictor.get("mult_by_id") or {},
@@ -135,6 +142,7 @@ class Scene:
             pos_by_id=sctx.get("pos_by_id") or {}, team_by_id=sctx.get("team_by_id") or {},
             eff_state=sctx.get("eff_state"), hpmax_by_id=sctx.get("hpmax_by_id") or {},
             elev_by_pos=elev_by_pos if elev_by_pos is not None else predictor.get("elev_by_pos"),
+            tile_effects_by_pos=tile_effects_by_pos,
             board=board if board is not None else predictor.get("board"),
             abstate_by_id=predictor.get("abstate_by_id") or {},
             actorstats_by_id=predictor.get("actorstats_by_id") or {},

@@ -10,7 +10,7 @@ from ....services.effect_bonus import (EffectBonus, for_addition, for_subtractio
                                        for_percent_decrease, for_percent_increase,
                                        for_percent_subtraction_capped)
 from ..base import BaseEffect, SubEffectSpec, SAME_TURNS
-from ..magnitude import ability_var, global_value, trait_var
+from ..magnitude import ability_var, bc_effect_config, global_value, trait_var
 
 
 class HypersensoryMinimalHealthEffect(BaseEffect):
@@ -156,7 +156,8 @@ class BlessingsOfKhorneModifiersEffect(BaseEffect):
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
                                               is_normal_attack: bool | None = True,
-                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
         # trigger natif @180f34ae0 = get_OwnerIsCaster SEUL — tous profils, normale ET spéciale.
         n = self._n()
         if n <= 0:
@@ -187,6 +188,39 @@ class StunnedEffect(BaseEffect):
             SubEffectSpec(0x48e, "Stunned_MovementOverride", turns=0),         # AddStatOverrideEffect (cond. mvt>0)
             SubEffectSpec(0x48f, "Stunned_DamageModifier", turns=0),           # AddEffect turns=0
         ]
+
+
+class StunnedDamageModifierEffect(BaseEffect):
+    """`Stunned_DamageModifierEffect` (enfant 0x48f=1167 du composite Stunned, posé par
+    `StunnedEffect.ApplyDamageModifier @180f6e9b0` = DSL `AddEffect(0x48f)`) — le malus de DÉGÂT
+    SORTANT du porteur stunné (#29 lead 2, la pièce ×0.5 du miss 777 s15).
+
+    `CreateEffectDamageMalusForDefense @180f6f770` : `EffectBonus.ForPercentDecrease(
+    get_OwnerIsActor, EffectConfig(2))`. ⚠ Le hook natif est le SLOT DÉFENSE mais son trigger est
+    **OwnerIsActor** (pas OwnerIsTarget) : le malus s'applique quand le PORTEUR est l'ACTEUR du coup
+    (la boucle défense native est state-wide, le trigger route). Mapping port fidèle = la boucle
+    ATTAQUANT (`create_effect_damage_bonus_for_attack`), qui n'itère que les effets de l'attaquant =
+    OwnerIsActor par construction. Aucun autre gate (tous profils, normale ET spéciale, prédiction
+    ET combat — le natif l'inclut dans l'oracle décision : mesuré aiPlaybookPredict s15).
+
+    MAGNITUDE `EffectConfig(2)` = entrée BC `Effect.StunnedDmgReductionPct` (=50) — table
+    `BattleConfiguration.Effect` (`EffectConfigAmount`, cf. `bc_effect_config`), PAS une var
+    d'ability. VALIDÉ BIT-EXACT (777 s15, u83 admecDominus stunné -> u87 custoVexilusPraetor) :
+    1607-3213 pré-mods × 0.8 (MartialKatah) × 0.5 (CE malus) × 0.34 (VexillaMagnifica) = 219-437
+    == natif. Runner offline : l'enfant est matérialisé par `StunnedEffect.sub_effects_on_apply`
+    -> le combat offline porte le malus dès la pose du stun (même canal)."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        pct = bc_effect_config("StunnedDmgReductionPct", 50)   # EffectConfig(2) — BC Effect section
+        if not pct:
+            return None
+        return for_percent_decrease(True, abs(int(pct)))
 
 
 class ActOfFaithBuffEffect(BaseEffect):

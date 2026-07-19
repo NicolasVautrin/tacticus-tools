@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from .extra_damage import (RapidAssaultExtraDamageEffect, SmashaEadExtraDamageEffect,
                            FeederTendrilsExtraDamageEffect, DecoysAndMisdirectionExtraDamageEffect,
+                           LordOfTempestsExtraDamageEffect,
                            RitesOfBattleExtraDmgEffect, PathOfCommandExtraDmgEffect,
                            CrushingStrikeEffect, HeavyWeaponExtraDmgEffect, RangedSpecialistEffect,
                            BeastSlayerExtraDmgEffect, DaughterOfTheAbyssExtraDamagePctEffect,
@@ -26,21 +27,23 @@ from .damage_reduction import (TerrifyingExtraDefenseEffect, MartialKatahDmgRedu
                                FightingRetreatDmgReductionEffect, ShadowInTheWarpLessDmgEffect,
                                DaughterOfTheAbyssFriendlyDmgReductionPctEffect,
                                DaughterOfTheAbyssOwnerDmgReductionEffect,
-                               OverwhelmingWrathRangeDmgReductionEffect)
+                               OverwhelmingWrathRangeDmgReductionEffect,
+                               VexillaMagnificaDmgReductionEffect)
 from .hits import (SquigHoundAdditionalHitsEffect, AnvilShieldAdditionalBlockEffect,
                    BeastSlayerExtraBlockEffect, FightingRetreatHitReductionEffect, LightCoverEffect,
                    ParryEffect, MasterAnnihilatorAdditionalHitEffect, BigTargetAdjacentEffect,
                    AstartesBannerExtraHitEffect, PowerTripFullHealthEffect, PowerTripIgnoreArmorEffect,
                    KanOpenerEffect, LIGHT_COVER_TILE_ID)
 from .status import (HypersensoryMinimalHealthEffect, ContaminatedUnitEffect, StandVigilExtraArmorEffect,
-                     BlessingsOfKhorneModifiersEffect, StunnedEffect, ActOfFaithBuffEffect,
-                     TauntedEffect, PinnedEffect)
+                     BlessingsOfKhorneModifiersEffect, StunnedEffect, StunnedDamageModifierEffect,
+                     ActOfFaithBuffEffect, TauntedEffect, PinnedEffect)
 from .imperative import ProtectorImperativeEffect, ConquerorImperativeEffect
 
 __all__ = [
     # extra_damage
     "RapidAssaultExtraDamageEffect", "SmashaEadExtraDamageEffect", "FeederTendrilsExtraDamageEffect",
-    "DecoysAndMisdirectionExtraDamageEffect", "RitesOfBattleExtraDmgEffect", "PathOfCommandExtraDmgEffect",
+    "DecoysAndMisdirectionExtraDamageEffect", "LordOfTempestsExtraDamageEffect",
+    "RitesOfBattleExtraDmgEffect", "PathOfCommandExtraDmgEffect",
     "CrushingStrikeEffect", "HeavyWeaponExtraDmgEffect", "RangedSpecialistEffect",
     "BeastSlayerExtraDmgEffect", "DaughterOfTheAbyssExtraDamagePctEffect",
     "BeaconOfRageExtraDamageEffect", "BeaconOfRageFriendlyExtraDamageEffect",
@@ -49,7 +52,7 @@ __all__ = [
     "GuardianOrganismDamageReductionEffect", "NightshroudDmgReductionEffect", "NeuroparasiteEffect",
     "FightingRetreatDmgReductionEffect", "ShadowInTheWarpLessDmgEffect",
     "DaughterOfTheAbyssFriendlyDmgReductionPctEffect", "DaughterOfTheAbyssOwnerDmgReductionEffect",
-    "OverwhelmingWrathRangeDmgReductionEffect",
+    "OverwhelmingWrathRangeDmgReductionEffect", "VexillaMagnificaDmgReductionEffect",
     # hits
     "SquigHoundAdditionalHitsEffect", "AnvilShieldAdditionalBlockEffect", "BeastSlayerExtraBlockEffect",
     "FightingRetreatHitReductionEffect", "LightCoverEffect", "ParryEffect",
@@ -57,8 +60,8 @@ __all__ = [
     "PowerTripFullHealthEffect", "PowerTripIgnoreArmorEffect", "KanOpenerEffect", "LIGHT_COVER_TILE_ID",
     # status
     "HypersensoryMinimalHealthEffect", "ContaminatedUnitEffect", "StandVigilExtraArmorEffect",
-    "BlessingsOfKhorneModifiersEffect", "StunnedEffect", "ActOfFaithBuffEffect",
-    "TauntedEffect", "PinnedEffect",
+    "BlessingsOfKhorneModifiersEffect", "StunnedEffect", "StunnedDamageModifierEffect",
+    "ActOfFaithBuffEffect", "TauntedEffect", "PinnedEffect",
     # imperative
     "ProtectorImperativeEffect", "ConquerorImperativeEffect",
 ]

@@ -28,7 +28,8 @@ class RapidAssaultExtraDamageEffect(BaseEffect):
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
                                               is_normal_attack: bool | None = True,
-                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
         pct = trait_var("RapidAssault", "rapidAssaultExtraDmgPct")
         return for_percent_increase(True, pct) if pct is not None else None
 
@@ -61,7 +62,8 @@ class SmashaEadExtraDamageEffect(BaseEffect):
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
                                               is_normal_attack: bool | None = True,
-                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
         # #71 : trigger natif = OwnerIsCaster & IsNormalAttack (@180f6bee0). Le noeud DSL IsNormalAttack
         # (= `IsRegularAttack(ability DECLENCHANTE)` @180f8d260/@181555b40, FALSE si pas d'ability dans le
         # contexte) evalue FALSE dans le contexte PREDICTION DISPLAY (verdict re-expert : additif absent de
@@ -137,7 +139,8 @@ class FeederTendrilsExtraDamageEffect(BaseEffect):
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
                                               is_normal_attack: bool | None = True,
-                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
         if is_ranged:                       # IsCharging & get_IsMelee (@1811dd850) -> melee uniquement
             return None
         if is_normal_attack is False:       # IsNormalAttack (@180df4690)
@@ -181,7 +184,8 @@ class DecoysAndMisdirectionExtraDamageEffect(BaseEffect):
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
                                               is_normal_attack: bool | None = True,
-                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
         # Gate natif = OwnerIsCaster SEUL (@180f3e340) : aucun re-gate is_ranged/is_normal/is_prediction.
         # Ce chemin n'est appele que pour les attaques du porteur -> OwnerIsCaster implicitement TRUE.
         lvl = (self.active_ability_level if self.active_ability_level is not None
@@ -190,6 +194,70 @@ class DecoysAndMisdirectionExtraDamageEffect(BaseEffect):
                           multiplier_pct=self.ability_variables_multiplier)
         # ForAddition -> canal `additive @+0x10` applique POST-percage (DamageModifiers.Add @181005f10).
         return for_addition(True, amt) if amt is not None else None
+
+
+class LordOfTempestsExtraDamageEffect(BaseEffect):
+    """`LordOfTempests_ExtraDamageEffect` (Effects.Loki, EffectType 0x4d4=1236, nom capté
+    "LordOfTempests_ExtraDamage" — passif de Njal spaceStormcaller). i2 : « Njal's normal attacks deal
+    +237 Damage for each hex surrounding him that is covered in Ice. » (#29, lead 1 agreement-stages).
+
+    - hexes `GetHexesIncreasingDamage @180f56b40` : `EntitiesWithAnyEffect(SurroundingTiles(owner, 0, 1),
+      0x11, domain Tiles)` = les tuiles du RING-1 du caster porteuses de l'effet **Ice** — le CENTRE ne
+      compte PAS (vérifié bit-exact seed 31337 s18 : (2,4) elle-même glacée -> count=3 = ring-1 seul).
+    - dégât `CreateEffectDamageBonusForAttack @180f569a0` : `EffectBonus.ForAddition(get_OwnerIsCaster,
+      Multiply(ConfigVar(8=extraDmg, GetAbilityState(effet)), Count(hexes)))` — FLAT additif, canal
+      standard `DamageModifiers.Add @181005f10` appliqué PAR COUP (comme SmashaEad/BeaconOfRage).
+    - condition d'activité `CreateActiveCondition @180f56950` : `AmountIsGreaterThanZero(Count(hexes))`
+      (l'effet n'est « actif » que s'il y a >=1 hex glacé adjacent — évalué à la POSITION COURANTE par
+      le natif ; côté port la magnitude re-count par POSITION CANDIDATE rend ce gate redondant : count=0
+      -> bonus None).
+    - POSITION-DÉPENDANT : la chaîne display threade la UnitPosition CANDIDATE de bout en bout (#153) ->
+      le count se fait autour de la TUILE D'ATTAQUE évaluée (`att_ctx["att_pos"]`), PAS la position
+      réelle. VALIDÉ BIT-EXACT (seed 31337 s18, u89 Njal -> u81 Mephiston, extraDmg[50]x180%=400/hex,
+      3 hits) : à (3,3) 1 hex glacé -> (642+400)x3 = 3126-4092 == natif ; à (2,4) 3 hexes ->
+      (642+1200)x3 = 5526-6492 == natif (aiPlaybookPredict col/row).
+    - MAGNITUDE : `extraDmg[ablvl passif] x multiplier` (variables LordOfTempests, [L1..65]=[3..237],
+      in variablesAffectedByRarityBonus -> scale x mult ; u89 : 222x1.8=400). i2 « +237 » = extraDmg[65].
+    - gate `is_normal_attack` : l'i2 dit « normal attacks » (le trigger-flag struct copié @param_2+0x14
+      n'est pas décodé ; gate conservateur aligné i2 — la spéciale Stormcaller ne porte pas le bonus).
+    - La 2e moitié du passif (« each enemy hit covers its hex in Ice ») =
+      `LordOfTempests_AddIceAbility.CreateBehaviour/CreateTrigger @1811085d0/@181108670` (face RUNTIME,
+      arbre DSL AddEffect tile-domain) — NON portée ici (tâche runner-face dédiée) : la prédiction lit
+      la glace DÉJÀ posée (tileMeta frais), elle n'en pose pas."""
+
+    ICE_TILE_EFFECT = "Ice"   # nom d'effet de tuile capté (tileMeta.effects[].name, vérifié live 31337)
+
+    def get_hexes_increasing_damage(self, att_ctx) -> int:
+        """`GetHexesIncreasingDamage @180f56b40` -> COUNT des tuiles ring-1 (centre EXCLU) autour de la
+        position d'attaque candidate porteuses de l'effet Ice. att_ctx None / sans données -> 0."""
+        c = att_ctx or {}
+        pos = c.get("att_pos")
+        tfx = c.get("tile_effects_by_pos")
+        if pos is None or not tfx:
+            return 0
+        import hexgeo
+        return sum(1 for p, names in tfx.items()
+                   if names and self.ICE_TILE_EFFECT in names and hexgeo.distance(pos, p) == 1)
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        if is_normal_attack is False:        # i2 : « normal attacks » (gate conservateur, cf. docstring)
+            return None
+        count = self.get_hexes_increasing_damage(att_ctx)
+        if count <= 0:                       # ActiveCondition AmountIsGreaterThanZero(Count) -> inerte
+            return None
+        lvl = (self.ability_level if self.ability_level is not None else self.level)
+        per = ability_var("LordOfTempests", "extraDmg", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
+        if not per:
+            return None
+        # Multiply(ConfigVar(extraDmg), Count) -> ForAddition = canal additif PAR COUP standard.
+        return for_addition(True, int(per) * int(count))
 
 
 class RitesOfBattleExtraDmgEffect(BaseEffect):
@@ -302,7 +370,8 @@ class CrushingStrikeEffect(BaseEffect):
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
                                               is_normal_attack: bool | None = True,
-                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
         if is_ranged:                            # gated IsMeleeAttack (@180f3ad90)
             return None
         if is_normal_attack is False:            # gated IsNormalAttack (spéciale mêlée → pas de bonus)
@@ -327,7 +396,8 @@ class HeavyWeaponExtraDmgEffect(BaseEffect):
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
                                               is_normal_attack: bool | None = True,
-                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
         if not is_ranged:                        # gated IsRangedAttack (no-op sur mêlée / contexte inconnu)
             return None
         # Gate NO-MOVE (`!HasFlag(HasMoved=0)` @180f4f030 ; i2 : « When this unit has not moved this
@@ -357,7 +427,8 @@ class RangedSpecialistEffect(BaseEffect):
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
                                               is_normal_attack: bool | None = True,
-                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
         if not is_ranged:                        # gated IsRangedAttack (@180f67520)
             return None
         pct = trait_var("RangedSpecialist", "rangedSpecialistDmgPct")
@@ -384,7 +455,8 @@ class BeastSlayerExtraDmgEffect(BaseEffect):
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
                                               is_normal_attack: bool | None = True,
-                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
         if is_ranged:                                  # IsMeleeAttack -> melee uniquement
             return None
         if not target_traits or _BEAST_SLAYER_TARGET_TRAITS.isdisjoint(target_traits):
@@ -454,7 +526,8 @@ class BeaconOfRageExtraDamageEffect(BaseEffect):
                                               target_traits: "frozenset[str] | None" = None,
                                               is_prediction: bool = False,
                                               is_normal_attack: bool | None = True,
-                                              target_armor_reduced: bool | None = None) -> EffectBonus | None:
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
         # trigger natif @180f33130 = get_OwnerIsCaster SEUL — tous profils, normale ET spéciale.
         rage = self.level                              # EffectLevel (stack), déjà cappé à l'écriture
         if not rage or int(rage) <= 0:

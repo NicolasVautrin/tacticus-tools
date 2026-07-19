@@ -18,6 +18,8 @@ from .loki import (
     BlessingsOfKhorneModifiersEffect,
     ContaminatedUnitEffect,
     OverwhelmingWrathRangeDmgReductionEffect,
+    VexillaMagnificaDmgReductionEffect,
+    StunnedDamageModifierEffect,
     BigTargetAdjacentEffect,
     CrushingStrikeEffect,
     DaughterOfTheAbyssExtraDamagePctEffect,
@@ -25,6 +27,7 @@ from .loki import (
     DaughterOfTheAbyssOwnerDmgReductionEffect,
     DecoysAndMisdirectionExtraDamageEffect,
     FeederTendrilsExtraDamageEffect,
+    LordOfTempestsExtraDamageEffect,
     FightingRetreatDmgReductionEffect,
     FightingRetreatHitReductionEffect,
     GuardianOrganismDamageReductionEffect,
@@ -101,6 +104,14 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "PowerTrip_FullHealth": PowerTripFullHealthEffect,
     "PowerTrip_IgnoreArmor": PowerTripIgnoreArmorEffect,
     "Stunned": StunnedEffect,           # effet COMPOSITE (parent 1162 → enfants 1165/1166/1167)
+    # Enfant 1167 du composite Stunned : -StunnedDmgReductionPct% (BC Effect, =50) au dégât SORTANT du
+    # porteur stunné (@180f6f770 ForPercentDecrease trigger OwnerIsActor -> boucle ATTAQUANT du port).
+    # VALIDÉ BIT-EXACT 777 s15 (×0.8 MK × 0.5 stun × 0.34 vexilla = 219-437 == natif). #29 lead 2.
+    "Stunned_DamageModifier": StunnedDamageModifierEffect,
+    # VexillaMagnifica (active 1183 custoVexilusPraetor, effet 1383) : -dmgReductionPct% (=66, non
+    # rarity-scalé) à TOUT dégât reçu par le porteur (@180f76510 ForPercentDecrease OwnerIsTarget SEUL,
+    # aucun gate profil/mêlée). #29 lead 2.
+    "VexillaMagnifica_DmgReduction": VexillaMagnificaDmgReductionEffect,
     "ActOfFaith_Effect": ActOfFaithBuffEffect,  # buff crit empilable (1017) — stack seedé = cc/cd_delta 0
     # Tyrant Guard (CrushingClaws) :
     "Taunted_OnlySpecificTargets": TauntedEffect,  # COMPOSITE 27 → enfants 25/26/1237 (bond cible↔tauntant)
@@ -169,6 +180,11 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Neuroparasite). extraDmg[L65]=582 rarity-scale x mult. EffectType capte 1379. #134 (spawn+retaliation
     # Blast NON encore portes -- seul l'effet ExtraDamage l'est ici). Nom capte = effect-type-names.ts:502.
     "DecoysAndMisdirection_ExtraDamage": DecoysAndMisdirectionExtraDamageEffect,
+    # LordOfTempests (passif Njal spaceStormcaller, EffectType 0x4d4=1236) : +extraDmg[ablvl]xmult FLAT
+    # PAR HEX GLACE du ring-1 de la position d'attaque (@180f569a0 ForAddition(OwnerIsCaster,
+    # Multiply(ConfigVar 8=extraDmg, Count(SurroundingTiles(0,1) with Ice)))) — magnitude POSITION-
+    # DEPENDANTE re-countee par tuile candidate via att_ctx. VALIDE BIT-EXACT 31337 s18 (#29).
+    "LordOfTempests_ExtraDamage": LordOfTempestsExtraDamageEffect,
     # HypersensoryAbilities (passif Judh genesJudh) : HP-floor 50% du HP courant a la 1re attaque du tour
     # ennemi (effet 0x564=1380). Snapshot floor via ApplyInternal @180f445a0 / clear via RevertInternal
     # @180f44820 ; ActiveCondition IsEnemyTurn & Not(attacked>=1). Apply/Revert impératifs = op runner
