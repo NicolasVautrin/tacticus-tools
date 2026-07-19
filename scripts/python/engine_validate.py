@@ -85,12 +85,18 @@ def native_chunk(action: dict) -> dict:
     return {"move": move, "ability": ability, "finish": finish, "unit": unit}
 
 
-def run_agreement(sid: int, rid: int, steps: int, wt, log=print) -> dict:
+def run_agreement(sid: int, rid: int, steps: int, wt, log=print, probe=None) -> dict:
     """Marche la trajectoire NATIVE sur `steps` pas (aiStepDryRun → applyAction) et
     compare la décision du MOTEUR à chaque chunk décisionnel (move/ability). SOURCE
     UNIQUE de la comparaison — réutilisée par `main` ET la suite pytest
     (tests/engine/test_playbook_live.py). MUTE l'état du runner (applique les
     actions natives pour avancer) → runner ISOLÉ recommandé.
+
+    `probe` (optionnel) = sonde de DIAGNOSTIC par-étage (Étape 1 réconciliation,
+    cf. engine_agreement_stages.py) appelée à chaque pas COMPARÉ, AVANT applyAction
+    (l'état runner est encore l'état de décision) : `probe(step, uid, dv, mov_by_unit,
+    nat, eng, predictor)`. None (défaut) = comportement inchangé ; une exception de la
+    sonde est loggée, jamais propagée (le walk d'agreement prime sur le diagnostic).
 
     Retourne {pos:{n,exact,near}, ability:{n,match}, records:[…]}."""
     # Prédicteur OFFLINE capturé 1×/runner (combatSnapshot cold) — nourrit le scoring d'attaque
@@ -160,6 +166,13 @@ def run_agreement(sid: int, rid: int, steps: int, wt, log=print) -> dict:
                 log(f"  step {step:2} u{uid}: ABIL native(ab={na['ability']},tgt={na['target']}) "
                     f"engine={eng['kind']}(ab={eng.get('ability')},tgt={eng.get('target')}) "
                     f"[{'MATCH' if same_ab else 'MISS'}]")
+            # Sonde par-étage (Étape 1) : AVANT applyAction — l'état runner est encore
+            # celui de la décision (les RPC de la sonde lisent le même état que le natif).
+            if probe is not None:
+                try:
+                    probe(step, uid, dv, mov_by_unit, nat, eng, predictor)
+                except Exception as exc:
+                    log(f"  [probe] step {step} u{uid}: sonde KO ({exc}) — walk poursuivi")
         else:
             k = "finish" if nat["finish"] else "other"
             log(f"  step {step:2} u{uid}: native={k} (non comparé, on avance)")

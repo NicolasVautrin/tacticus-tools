@@ -1,0 +1,494 @@
+#!/usr/bin/env python
+"""Étape 1 réconciliation live/offline — agreement DÉCOMPOSÉ PAR ÉTAGE (diagnostic pur).
+
+Le % d'agreement d'`engine_validate` est OPAQUE : un miss peut venir de la PRÉDICTION
+(le dégât estimé diverge), de l'UTILITÉ (formule/termes), de l'ÉNUMÉRATION (la paire
+native n'est pas dans notre candidat-set = trou de feed), du GATE (playbook offline
+refuse), ou du MOVE-SCORING. Ce module branche une SONDE (`probe` de `run_agreement`)
+qui, à chaque pas comparé, classe le hit/miss par étage :
+
+  ÉTAGE PRÉDICTION — confrontation par paire (ability, cible), MÊME TUILE (la courante) :
+    natif  = RPC `aiPlaybookPredict` (= `<Ability>Playbook.MakeDamagePredictions`, l'oracle
+             que le scorer de DÉCISION consomme réellement — PAS le preview `aiPredict`) ;
+    offline = `playbook.make_damage_predictions(ctx, origin, …)` (port PV).
+    Mismatch -> re-test avec un prédicteur REBUILDÉ FRAIS à ce pas :
+      fresh == natif  -> «prediction-feed»  (staleness du prédicteur cold, trou de feed) ;
+      fresh != natif  -> «prediction-logic» (gap de formule, ex. defender-modifiers #40).
+    La confrontation tourne AUSSI sur les HITS -> métrique de fidélité prédiction globale.
+
+  CONTREFACTUEL — pour un miss d'ability : on réévalue l'utilité offline des DEUX paires
+  (native et moteur) avec les PRÉDICTIONS NATIVES injectées (damage_composite sur les
+  events natifs). Si la paire native repasse devant -> le miss est «prediction»
+  (entièrement expliqué par l'étage prédiction) ; sinon -> «utility-logic» (résiduel).
+
+  ÉTAGE MOVE — pour un miss de move PUR (natif ET moteur ont bougé sans caster) :
+    T_native pas dans nos tuiles légales -> «move-enumeration» (feed) ;
+    u_off(T_native) == u_off(T_engine)   -> «move-tie-break» ;
+    u_off(T_native) <  u_off(T_engine)   -> «move-formula» (breakdown Tile7/MinDist loggé) ;
+    u_off(T_native) >  u_off(T_engine)   -> «move-selection-anomaly» (argmax incohérent).
+    Un chunk COMPOSÉ (move+ability) a sa position en aval du choix d'ability ->
+    «pos-downstream-of-ability» (pas de double-comptage).
+
+  Cas non décomposés v1 (comptés tels quels) : «nc-pair» (utilité NonComparable =
+  heuristique entière), «non-attack-oracle» (heal/repair : aiPlaybookPredict ne décode
+  que les DamageEvent), «generator-overfire» (le moteur caste là où le natif bouge).
+
+LIMITE v1 (assumée, documentée) : `aiPlaybookPredict` prédit depuis la tuile COURANTE ;
+la confrontation prédiction est donc contrôlée à position égale (formule), les termes
+position-dépendants relèvent de l'étage utilité/move.
+
+Usage :
+  python engine_agreement_stages.py --runner N [--steps K] [--json out.json]
+  python engine_agreement_stages.py --build --seeds 777,909 [--steps K] [-- <args rl_duel build>]
+      (mode batch : construit un runner ISOLÉ par seed via `rl_duel build` — state-file
+       DÉDIÉ data/_stages_duel_state.json, --board MC1_67 par défaut — le walke, le DISPOSE.)
+Pré-requis : session Frida warmee (+ hooks avec les champs shieldDmg/forceOverkill du
+décodeur ProbableDamageEvent — rebuild + reinject si anciens hooks ; dégrade proprement sinon).
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from collections import Counter
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
+import hexgeo  # noqa: E402
+from engine import weights  # noqa: E402
+from engine.playbook import noncomparable as playbooks  # noqa: E402
+from engine.playbook import scene as _scene  # noqa: E402
+from engine.playbook import get_playbook_or_default, tile_utility  # noqa: E402
+from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK  # noqa: E402
+from engine.utilities import damage_composite, tile_composite  # noqa: E402
+from engine.utilities.move import MIN_DIST_UTILITY  # noqa: E402
+from engine.ai import context as _ai_ctx  # noqa: E402
+import engine_validate as EV  # noqa: E402  (run_agreement = SOURCE UNIQUE du walk)
+
+PYDIR = Path(__file__).resolve().parent
+ROOT = PYDIR.parents[1]
+# State-file DÉDIÉ (jamais data/duel_state.json : replace scope = ownership record).
+STATE = ROOT / "data" / "_stages_duel_state.json"
+
+
+def _r(sid: int, method: str, body: dict, t: float = 90) -> dict:
+    return (_rpc(sid, method, [body], timeout=t).get("result") or {})
+
+
+# ── Confrontation prédiction : lecture des events natifs -> champs composite ────────────
+
+def _fields_from_native_event(ev: dict) -> dict:
+    """Champs composite Damage depuis un event NATIF d'`aiPlaybookPredict` (mirror de
+    `ProbableDamageEvent.composite_fields`). willKillDmg/mightKillDmg = struct+0x24/+0x28
+    = les bornes RAW (non capées HP) ; healthDmg = AccurateHealthDamage (capé) ;
+    shieldDmg/limitedByMinHp/forceOverkill = champs AJOUTÉS au décodeur (hooks récents) —
+    absents (vieux hooks) -> 0/False, comparaison bouclier sautée par l'appelant."""
+    hp = ev.get("hpBefore") or 0
+    raw_min = ev.get("willKillDmg") or 0
+    raw_max = ev.get("mightKillDmg") or 0
+    return {"hpBefore": hp, "shieldBefore": ev.get("shieldBefore") or 0,
+            "healthDmgMin": min(ev.get("healthDmgMin") or 0, hp),
+            "healthDmgMax": min(ev.get("healthDmgMax") or 0, hp),
+            "rawHealthDmgMin": raw_min, "rawHealthDmgMax": raw_max,
+            "forceOverkill": bool(ev.get("forceOverkill")),
+            "shieldDmgMin": ev.get("shieldDmgMin") or 0,
+            "shieldDmgMax": ev.get("shieldDmgMax") or 0,
+            "limitedByMinHp": bool(ev.get("limitedByMinHp")),
+            "appliedHits": ev.get("appliedHits") or 0,
+            "kill": hp <= raw_max, "killSure": hp <= raw_min}
+
+
+_CMP_KEYS = ("healthDmgMin", "healthDmgMax", "rawHealthDmgMin", "rawHealthDmgMax",
+             "kill", "killSure")
+_CMP_SHIELD = ("shieldDmgMin", "shieldDmgMax")
+
+
+def _pred_delta(off_f: dict, nat_f: dict, shield_ok: bool) -> dict:
+    """Diff champ-à-champ des deux prédictions (main target). {} = MATCH."""
+    keys = _CMP_KEYS + (_CMP_SHIELD if shield_ok else ())
+    return {k: {"off": off_f.get(k), "nat": nat_f.get(k)}
+            for k in keys if off_f.get(k) != nat_f.get(k)}
+
+
+class StageProbe:
+    """Sonde par-étage branchée sur `run_agreement(probe=...)` — accumule `self.records`."""
+
+    def __init__(self, sid: int, rid: int, wt):
+        self.sid = sid
+        self.rid = rid
+        self.wt = wt
+        self.rpc = lambda m, b, t: _r(sid, m, b, t)
+        self.records: list = []
+        self._nat_events_cache: dict = {}   # {(step, uid, ab, tgt): events|None} — 1 RPC/paire/pas
+
+    # ---- côté natif : events décision (MakeDamagePredictions) ----
+    def _native_events(self, step: int, uid: int, ab: int, tgt: int, tile=None):
+        """Events natifs de la paire, prédits DEPUIS `tile` (UnitPosition à la tuile
+        candidate, `GetUnitPositionAtTile` — ce que le sweep de décision natif évalue).
+        tile None = tuile courante. Sans col/row, un chunk composé move+attack rendrait
+        un faux 0 « hors de portée depuis la tuile courante » (piège mesuré seed 777)."""
+        key = (step, uid, ab, tgt, tile)
+        if key in self._nat_events_cache:
+            return self._nat_events_cache[key]
+        body = {"runnerId": self.rid, "unitId": uid, "targetId": tgt, "abilityType": ab}
+        if tile is not None:
+            body["col"], body["row"] = int(tile[0]), int(tile[1])
+        resp = self.rpc("aiPlaybookPredict", body, 60)
+        evs = (resp.get("events") or []) if resp.get("ok") else None
+        self._nat_events_cache[key] = evs
+        return evs
+
+    # ---- côté offline : meilleur (u_full, tuile) d'une paire via le sweep du générateur ----
+    def _pair_best_offline(self, ctx, ab: int, tgt: int):
+        """Mirror du sweep par-paire de `ComparableAbilityGenerator._best_attack`.
+        Renvoie {u_full, u, tile, pred} | "gated" (évals présentes, toutes tuiles refusées)
+        | None (paire absente des evals = non énumérée offline)."""
+        plan = ctx.plans.get(ctx.uid) or {}
+        ev = next((e for e in (plan.get("evals") or [])
+                   if e.get("abilityId") == ab and e.get("targetId") == tgt
+                   and e.get("rankCount")), None)
+        if ev is None:
+            return None
+        pb = NORMAL_ATTACK_PLAYBOOK if ab in ctx.normal_ids else get_playbook_or_default(ab)
+        best = None
+        for rk in (ev.get("ranked") or []):
+            tile = (rk.get("col"), rk.get("row"))
+            if tile[0] is None:
+                continue
+            cand = pb.calculate_action_utility(ctx, tile, tgt, ab)
+            if cand is None:
+                continue
+            if best is None or cand["u_full"] > best["u_full"]:
+                best = {"u_full": cand["u_full"], "u": cand["u"], "tile": tile,
+                        "pred": cand["pred"]}
+        return best if best is not None else "gated"
+
+    # ---- confrontation prédiction (MÊME tuile des deux côtés = la tuile d'attaque) ----
+    def _confront_prediction(self, ctx, dv, mov_by_unit, step: int, uid: int,
+                             ab: int, tgt: int, tile) -> dict:
+        """Confronte la prédiction offline à l'oracle décision natif (`aiPlaybookPredict`)
+        DEPUIS LA MÊME TUILE `tile` (= la tuile d'attaque du chunk natif : move-to si
+        composé, sinon la courante). Mismatch -> feed-vs-logic via prédicteur FRAIS."""
+        if playbooks.is_noncomp(ab):
+            return {"skipped": "nc-pair"}
+        tile = tile if tile is not None else ctx.origin
+        nat_evs = self._native_events(step, uid, ab, tgt, tile)
+        if not nat_evs:
+            return {"skipped": "no-native-events"}   # non-attaque (heal/…) ou RPC KO
+        nat_main = next((e for e in nat_evs if e.get("targetId") == tgt), nat_evs[0])
+        shield_ok = "shieldDmgMin" in nat_main       # champs récents du décodeur
+        pb = NORMAL_ATTACK_PLAYBOOK if ab in ctx.normal_ids else get_playbook_or_default(ab)
+        off_evs = pb.make_damage_predictions(ctx, tile, tgt, ab) or []
+        off_main = next((e for e in off_evs if e.target == tgt), off_evs[0] if off_evs else None)
+        if off_main is None:
+            return {"match": False, "off": "empty", "nat_n": len(nat_evs),
+                    "feed": None, "delta": None, "tile": tile}
+        nat_f = _fields_from_native_event(nat_main)
+        delta = _pred_delta(off_main.composite_fields(), nat_f, shield_ok)
+        out = {"match": not delta, "delta": delta or None, "tile": tile,
+               "aoe": {"off": len(off_evs), "nat": len(nat_evs)}, "shield_ok": shield_ok}
+        if delta:
+            # feed vs logic : la MÊME formule offline, nourrie d'un prédicteur REBUILDÉ à ce pas.
+            fresh = _scene.build_predictor(self.rpc, self.rid)
+            if fresh is not None:
+                ctx_f = _ai_ctx.build(self.rpc, self.rid, dv, mov_by_unit, uid, self.wt, fresh)
+                f_evs = pb.make_damage_predictions(ctx_f, tile, tgt, ab) or []
+                f_main = next((e for e in f_evs if e.target == tgt),
+                              f_evs[0] if f_evs else None)
+                f_delta = (_pred_delta(f_main.composite_fields(), nat_f, shield_ok)
+                           if f_main is not None else {"off": "empty"})
+                out["feed"] = not f_delta        # True = fresh matche -> staleness (feed)
+                out["fresh_delta"] = f_delta or None
+            else:
+                out["feed"] = None               # combatSnapshot KO — inclassable
+        return out
+
+    # ---- contrefactuel : utilité offline avec prédictions NATIVES injectées ----
+    def _counterfactual_utility(self, ctx, step: int, uid: int, ab: int, tgt: int,
+                                tile) -> float | None:
+        """Σ (prob × ±damage_composite(fields natifs @tile)) + Tile(7)@tile — l'utilité que
+        NOTRE formule donnerait à la paire si notre prédiction était EXACTE (= la native,
+        prédite depuis la MÊME tuile). La négation friendly mirrore
+        `CalculateUtilityFromDamageEvent` (IsFriend)."""
+        evs = self._native_events(step, uid, ab, tgt, tile if tile is not None else ctx.origin)
+        if not evs:
+            return None
+        me = next((u for u in ctx.units if u.get("id") == uid), None)
+        my_team = (me or {}).get("team")
+        team_by_id = {u.get("id"): u.get("team") for u in ctx.units}
+        u = 0.0
+        for ev in evs:
+            t_id = ev.get("targetId")
+            sign = -1.0 if (t_id is not None and team_by_id.get(t_id) == my_team) else 1.0
+            prob = (ev.get("probability") or 1.0) * (ev.get("probMult") or 1.0)
+            u += sign * prob * damage_composite(_fields_from_native_event(ev),
+                                                ctx.hpmax_by_id.get(t_id), ctx.wt)
+        return u + (tile_utility(ctx, tile) if tile is not None else 0.0)
+
+    # ---- scoring move par-tuile (mirror best_move_faithful, tuiles ciblées) ----
+    def _move_utils(self, ctx, tiles: list) -> dict:
+        coords = [(t["col"], t["row"]) for t in ctx.move_tiles]
+        elevs = [ctx.elev_by_pos.get(c) for c in coords]
+        elevs = [e for e in elevs if e is not None]
+        emax, emin = (max(elevs), min(elevs)) if elevs else (None, None)
+        out = {}
+        for c in tiles:
+            e = ctx.elev_by_pos.get(c)
+            meta: dict = {"elevation": e, "elevation_max": emax, "elevation_min": emin} \
+                if e is not None else {}
+            if c in ctx.is_temporary_by_pos:
+                meta["is_temporary"] = ctx.is_temporary_by_pos[c]
+            if c in ctx.effects_by_pos:
+                meta["effects"] = ctx.effects_by_pos[c]
+            tile_u = tile_composite(c, meta, {}, ctx.wt)
+            mind_u = MIN_DIST_UTILITY.evaluate_movement(c, ctx.epos, ctx.wt,
+                                                        ctx.pathdist_by_pos)
+            out[c] = {"tile": round(tile_u, 3), "mindist": round(mind_u, 3),
+                      "u": round(tile_u + mind_u, 3),
+                      "pathdist": ctx.pathdist_by_pos.get(c)}
+        return out
+
+    # ---- classification dimension ABILITY ----
+    def _probe_ability(self, ctx, dv, mov_by_unit, step: int, uid: int, nat: dict,
+                       eng: dict) -> dict:
+        na = nat["ability"]
+        ab, tgt = na["ability"], na["target"]
+        eng_is_ab = eng.get("kind") == "ability"
+        hit = (eng_is_ab and eng.get("ability") == ab
+               and (eng.get("target") == tgt or playbooks.is_summon(ab)))
+        rec = {"step": step, "uid": uid, "dim": "ability", "hit": hit,
+               "native": {"ability": ab, "target": tgt},
+               "engine": {"kind": eng.get("kind"), "ability": eng.get("ability"),
+                          "target": eng.get("target")}}
+        # Tuile d'attaque du chunk NATIF : move-to si composé, sinon la tuile courante —
+        # la confrontation prédiction se fait à CETTE tuile, des deux côtés (à-position-égale).
+        nat_tile = (nat["move"] or {}).get("to") or ctx.origin
+        # Confrontation prédiction SYSTÉMATIQUE (hits inclus) -> fidélité prédiction globale.
+        rec["pred"] = self._confront_prediction(ctx, dv, mov_by_unit, step, uid, ab, tgt,
+                                                nat_tile)
+        if hit:
+            rec["stage"] = "hit"
+            return rec
+        if playbooks.is_noncomp(ab):
+            rec["stage"] = "nc-pair"
+            return rec
+        if rec["pred"].get("skipped") == "no-native-events":
+            rec["stage"] = "non-attack-oracle"   # heal/repair : pas d'oracle DamageEvent v1
+            return rec
+        nat_pair = self._pair_best_offline(ctx, ab, tgt)
+        if nat_pair is None:
+            rec["stage"] = "enumeration"         # paire native absente des evals offline (feed)
+            return rec
+        if nat_pair == "gated":
+            rec["stage"] = "gate"                # playbook offline refuse toutes les tuiles
+            return rec
+        rec["u_off_nat_pair"] = round(nat_pair["u_full"], 3)
+        # Utilité offline du CHOIX du moteur : sweep par-paire pour une attaque Comparable ;
+        # pour un choix heal/repair/bespoke (paire hors attackPlans), reconstruction depuis
+        # l'action émise (full = util(pred) + Tile(7)@to — la forme des candidats du générateur).
+        u_eng = None
+        eng_ab, eng_tgt = eng.get("ability"), eng.get("target")
+        if eng_is_ab and eng_ab is not None and not playbooks.is_noncomp(eng_ab):
+            eng_pair = self._pair_best_offline(ctx, eng_ab, eng_tgt)
+            if isinstance(eng_pair, dict):
+                u_eng = eng_pair["u_full"]
+            elif isinstance(eng.get("util"), (int, float)):
+                to = eng.get("to") or ctx.origin
+                u_eng = eng["util"] + (tile_utility(ctx, to) if to is not None else 0.0)
+                rec["u_off_eng_src"] = "util+tile"
+        rec["u_off_eng_choice"] = None if u_eng is None else round(u_eng, 3)
+        if u_eng is not None and nat_pair["u_full"] > u_eng:
+            rec["stage"] = "selection-anomaly"   # offline préférait la paire native — sweep incohérent
+            return rec
+        # CONTREFACTUEL : les deux paires re-scorées avec les prédictions NATIVES injectées
+        # (chacune à SA tuile d'attaque : la native au move-to du chunk, celle du moteur à son to).
+        cf_nat = self._counterfactual_utility(ctx, step, uid, ab, tgt, nat_tile)
+        cf_eng = None
+        if eng_is_ab and eng_ab is not None and eng_tgt is not None \
+                and not playbooks.is_noncomp(eng_ab):
+            cf_eng = self._counterfactual_utility(ctx, step, uid, eng_ab, eng_tgt,
+                                                  eng.get("to"))
+        base_eng = cf_eng if cf_eng is not None else u_eng
+        rec["cf"] = {"nat": None if cf_nat is None else round(cf_nat, 3),
+                     "eng": None if base_eng is None else round(base_eng, 3)}
+        if cf_nat is not None and base_eng is not None and cf_nat > base_eng:
+            rec["stage"] = "prediction"          # injecter la prédiction native suffit à flipper
+            pc = rec["pred"]
+            rec["pred_kind"] = ("feed" if pc.get("feed") else
+                                "logic" if pc.get("feed") is False else "unknown")
+        else:
+            rec["stage"] = "utility-logic"       # résiduel : formule/termes d'utilité
+        return rec
+
+    # ---- classification dimension MOVE ----
+    def _probe_move(self, ctx, step: int, uid: int, nat: dict, eng: dict) -> dict:
+        nat_to = nat["move"]["to"]
+        eng_to = eng.get("to")
+        d = hexgeo.distance(eng_to, nat_to) if (eng_to and nat_to) else None
+        rec = {"step": step, "uid": uid, "dim": "move", "hit": d == 0,
+               "native": nat_to, "engine": {"kind": eng.get("kind"), "to": eng_to},
+               "dist": d}
+        if d == 0:
+            rec["stage"] = "hit"
+            return rec
+        if nat["ability"] or eng.get("kind") == "ability":
+            # Chunk composé (ou moteur qui caste) : la position découle du choix d'ability.
+            rec["stage"] = ("generator-overfire"
+                            if (not nat["ability"] and eng.get("kind") == "ability")
+                            else "pos-downstream-of-ability")
+            return rec
+        # Move PUR des deux côtés -> décomposition Tile7 + MinDist.
+        legal = {(t["col"], t["row"]) for t in ctx.move_tiles}
+        if nat_to not in legal:
+            rec["stage"] = "move-enumeration"    # tuile native hors de notre set légal (feed)
+            return rec
+        mu = self._move_utils(ctx, [nat_to] + ([eng_to] if eng_to else []))
+        rec["move_terms"] = {str(k): v for k, v in mu.items()}
+        u_nat = mu.get(nat_to, {}).get("u")
+        u_eng = mu.get(eng_to, {}).get("u") if eng_to else None
+        if u_nat is None or u_eng is None:
+            rec["stage"] = "move-unscored"
+        elif u_nat == u_eng:
+            rec["stage"] = "move-tie-break"
+        elif u_nat < u_eng:
+            rec["stage"] = "move-formula"
+        else:
+            rec["stage"] = "move-selection-anomaly"
+        return rec
+
+    # ---- entrée sonde (signature `probe` de run_agreement) ----
+    def __call__(self, step: int, uid: int, dv: dict, mov_by_unit: dict, nat: dict,
+                 eng: dict, predictor) -> None:
+        # ctx REBUILDÉ avec les MÊMES entrées qu'engine_decide (même predictor partagé,
+        # boucliers déjà refreshés par run_agreement) -> l'offline sondé == l'offline décidé.
+        ctx = _ai_ctx.build(self.rpc, self.rid, dv, mov_by_unit, uid, self.wt, predictor)
+        if nat["ability"]:
+            self.records.append(self._probe_ability(ctx, dv, mov_by_unit, step, uid,
+                                                    nat, eng))
+        if nat["move"]:
+            self.records.append(self._probe_move(ctx, step, uid, nat, eng))
+
+
+# ── Orchestration : un runner -> walk + sonde ; batch = N seeds ────────────────────────
+
+def run_stages(sid: int, rid: int, steps: int, wt) -> dict:
+    probe = StageProbe(sid, rid, wt)
+    res = EV.run_agreement(sid, rid, steps, wt, probe=probe)
+    return {"agreement": {"pos": res["pos"], "ability": res["ability"]},
+            "stage_records": probe.records}
+
+
+def _build_runner(seed: str, extra: list) -> int | None:
+    """`rl_duel build` sur le state-file DÉDIÉ (mirror du fixture pytest build_runner)."""
+    board_args = [] if any(x in ("--board", "--board-pool") for x in extra) \
+        else ["--board", "MC1_67"]
+    proc = subprocess.run(
+        [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
+         "--state-file", str(STATE), *board_args, *extra],
+        cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if not STATE.exists():
+        print(f"[stages] build seed={seed} KO: {(proc.stderr or proc.stdout or '')[-300:]}",
+              file=sys.stderr)
+        return None
+    return json.loads(STATE.read_text())["runnerId"]
+
+
+def summarize(all_records: list) -> None:
+    """Tableau des misses PAR ÉTAGE + fidélité prédiction globale (ASCII only)."""
+    ab_recs = [r for r in all_records if r["dim"] == "ability"]
+    mv_recs = [r for r in all_records if r["dim"] == "move"]
+    print()
+    print("=== ETAGE PREDICTION (paires natives confrontees, hits inclus) ===")
+    preds = [r["pred"] for r in ab_recs if isinstance(r.get("pred"), dict)
+             and "match" in r["pred"]]
+    n = len(preds)
+    if n:
+        n_match = sum(1 for p in preds if p["match"])
+        n_feed = sum(1 for p in preds if not p["match"] and p.get("feed") is True)
+        n_logic = sum(1 for p in preds if not p["match"] and p.get("feed") is False)
+        n_unk = n - n_match - n_feed - n_logic
+        print(f"  confrontations: {n}  match={n_match} ({100 * n_match // n}%)  "
+              f"mismatch-feed(staleness)={n_feed}  mismatch-logic(formule)={n_logic}  "
+              f"inclassable={n_unk}")
+    else:
+        print("  aucune paire confrontable")
+    print()
+    print("=== MISSES PAR ETAGE ===")
+    for name, recs in (("ability", ab_recs), ("move", mv_recs)):
+        cnt = Counter(r["stage"] for r in recs)
+        total = len(recs)
+        hits = cnt.pop("hit", 0)
+        print(f"  [{name}] compares={total} hits={hits}"
+              + (f" ({100 * hits // total}%)" if total else ""))
+        for stage, k in cnt.most_common():
+            print(f"    {stage:<28} {k}")
+    print()
+    # Détail des misses de prédiction (les leviers) : champ(s) divergents les plus frequents.
+    field_cnt: Counter = Counter()
+    for p in preds:
+        for k in (p.get("delta") or {}):
+            field_cnt[k] += 1
+    if field_cnt:
+        print("=== CHAMPS DIVERGENTS (prediction main-target) ===")
+        for k, v in field_cnt.most_common():
+            print(f"    {k:<20} {v}")
+
+
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--runner", type=int, default=None)
+    ap.add_argument("--build", action="store_true",
+                    help="batch : construit/walke/dispose un runner isole par seed")
+    ap.add_argument("--seeds", type=str, default="777",
+                    help="seeds du mode --build, separes par des virgules")
+    ap.add_argument("--steps", type=int, default=20)
+    ap.add_argument("--json", type=str, default=None,
+                    help="dump JSON des stage_records (defaut data/stages_agreement.json)")
+    args, extra = ap.parse_known_args(argv)
+    if extra and extra[0] == "--":
+        extra = extra[1:]
+    sid = _resolve_session()
+    wt = weights.load()
+    all_records: list = []
+    runs: list = []
+
+    if args.build:
+        for seed in [s.strip() for s in args.seeds.split(",") if s.strip()]:
+            rid = _build_runner(seed, extra)
+            if rid is None:
+                continue
+            print(f"[stages] seed={seed} runner={rid} steps={args.steps}")
+            try:
+                out = run_stages(sid, rid, args.steps, wt)
+                runs.append({"seed": seed, "rid": rid, **out})
+                all_records += out["stage_records"]
+            finally:
+                _r(sid, "disposeRunner", {"runnerId": rid}, 20)
+    else:
+        rid = args.runner
+        if rid is None:
+            rl = _rpc(sid, "listRunners", [], timeout=10).get("result") or []
+            first = rl[0] if rl else None
+            rid = first.get("runnerId") if isinstance(first, dict) else first
+        if rid is None:
+            print("[stages] aucun runner — --runner N ou --build", file=sys.stderr)
+            return 2
+        print(f"[stages] session={sid} runner={rid} steps={args.steps}")
+        out = run_stages(sid, rid, args.steps, wt)
+        runs.append({"rid": rid, **out})
+        all_records += out["stage_records"]
+
+    summarize(all_records)
+    dump = Path(args.json) if args.json else (ROOT / "data" / "stages_agreement.json")
+    dump.parent.mkdir(parents=True, exist_ok=True)
+    with open(dump, "w", encoding="utf-8") as f:
+        json.dump({"runs": runs}, f, ensure_ascii=False, indent=1, default=str)
+    print(f"[stages] dump JSON -> {dump}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

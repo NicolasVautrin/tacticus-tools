@@ -49,6 +49,13 @@ export interface DamageEvent {
     /** Seuils de mort EFFECTIFS (post floor-Resilient + overkill) : hp<=willKillDmg =
      *  mort garantie (get_WillBeKill@struct+0x24) ; hp<=mightKillDmg = possible (@+0x28). */
     willKillDmg: number; mightKillDmg: number;
+    /** AccurateShieldDamage (MinMax @struct+0x78 : Min@+0x80/Max@+0x84) — le split bouclier
+     *  que le composite Damage consomme (leaves Shield). */
+    shieldDmgMin: number; shieldDmgMax: number;
+    /** LimitedByMinHp@struct+0xB0 (floor Resilient/HP-min a borne le degat) ·
+     *  ForceOverkill@struct+0xB2 (trait force-overkill). Consommes par les leaves
+     *  kill/overkill du composite Damage (confrontation par-etage, Etape 1). */
+    limitedByMinHp: number; forceOverkill: number;
     mightCrit: number; appliedHits: number;
     probability: number; probMult: number;
 }
@@ -195,8 +202,12 @@ export function readDamageEvent(
         mightKillDmg: ev.add(0x30).readS32(),
         healthDmgMin: ev.add(0x68).readS32(),
         healthDmgMax: ev.add(0x6c).readS32(),
+        shieldDmgMin: ev.add(0x88).readS32(),
+        shieldDmgMax: ev.add(0x8c).readS32(),
         totalDmgMin: ev.add(0x98).readS32(),
         totalDmgMax: ev.add(0x9c).readS32(),
+        limitedByMinHp: ev.add(0xb8).readU8(),
+        forceOverkill: ev.add(0xba).readU8(),
         mightCrit: ev.add(0xb9).readU8(),
         appliedHits: ev.add(0xc4).readS32(),
         probability: fx(0xc8), probMult: fx(0xd0),

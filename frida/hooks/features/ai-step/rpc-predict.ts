@@ -39,7 +39,7 @@ import {
 } from "./projection.js";
 import {
     classNameAt, decodeDamageEvents, loadPlaybook, makeDamagePredictions,
-    resolvePlaybookDatabase, unitPositionCurrent,
+    resolvePlaybookDatabase, unitPositionAtTile, unitPositionCurrent,
 } from "./playbook-predict.js";
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -258,12 +258,18 @@ export function registerViewPredict(ctx: Ctx): void {
      *  @1811359a0) — stride/champs DIFFÉRENTS : ce RPC ne décode que les DamageEvent (gate par
      *  taille de struct non porté ; l'appelant passe une ability d'ATTAQUE). Read-only visé
      *  (summarize avant/après → mutated ; PredictAttack peut lazy-init des caches widget,
-     *  idempotent). body: { runnerId, unitId, targetId, abilityType, level?, multiplier? }
-     *  (level/multiplier OVERRIDENT le capteur — pour tester une hypothèse de niveau). */
+     *  idempotent). body: { runnerId, unitId, targetId, abilityType, level?, multiplier?,
+     *  col?, row? } (level/multiplier OVERRIDENT le capteur — pour tester une hypothèse de
+     *  niveau ; col/row = TUILE CANDIDATE de cast → UnitPosition via `GetUnitPositionAtTile
+     *  @180eb6dc0`, exactement ce que le sweep de DÉCISION natif évalue — la tuile doit être
+     *  la courante ou dans le movable set, résolution mirror d'aiPredict ; absent = tuile
+     *  courante. Confrontation par-étage Étape 1 : prédire depuis la tuile d'attaque CHOISIE
+     *  élimine le faux 0 « hors de portée depuis la tuile courante » des chunks composés). */
     ctx.rpc.aiPlaybookPredict = (
         body?: {
             runnerId?: number; unitId?: number; targetId?: number;
             abilityType?: number; level?: number; multiplier?: number;
+            col?: number; row?: number;
         },
     ): Promise<unknown> => queueOnMainThread(() => {
         if (typeof body?.unitId !== "number" || typeof body?.targetId !== "number"
@@ -331,6 +337,41 @@ export function registerViewPredict(ctx: Ctx): void {
             ? unitPositionCurrent(target, statePtr)
             : unitPositionCurrent(unit, statePtr);
         if (!posPtr) posPtr = unitPositionCurrent(unit, statePtr);
+        // Tuile CANDIDATE (col,row) : UnitPosition à cette tuile (GetUnitPositionAtTile),
+        // résolution mirror d'aiPredict (movable set via GetMovableTilesFor(3), sinon la
+        // tuile courante). Unités seulement (le MoW off-board garde la visée sur la cible).
+        let posSrc = "current";
+        const wantCol = body?.col; const wantRow = body?.row;
+        if (!casterIsMachine && typeof wantCol === "number" && typeof wantRow === "number") {
+            let tile = ptr(0);
+            if (getMovableTilesMi) {
+                const movementQuery = runner.add(movementQueryOff).readPointer();
+                const boolFalse = Memory.alloc(1); boolFalse.writeU8(0);
+                const optsZero = Memory.alloc(0x30);
+                for (let k = 0; k < 0x30; k += 4) optsZero.add(k).writeU32(0);
+                try {
+                    const os = invokeMethod(getMovableTilesMi.info, movementQuery,
+                        [unit, boolFalse, optsZero]);
+                    for (const t of extractTilePtrs(os)) {
+                        if (t.col === wantCol && t.row === wantRow) { tile = t.ptr; break; }
+                    }
+                } catch { /* fallback tuile courante ci-dessous */ }
+            }
+            if (tile.isNull()) {
+                const mt = getUnitMainTile(unit, statePtr);
+                if (!mt.isNull()) {
+                    const c = readTileCoord(mt);
+                    if (c.col === wantCol && c.row === wantRow) tile = mt;
+                }
+            }
+            if (tile.isNull()) {
+                return { ok: false, error: "tile (" + wantCol + "," + wantRow
+                    + ") ni courante ni dans le movable set" };
+            }
+            const atTile = unitPositionAtTile(unit, tile, statePtr);
+            if (!atTile) return { ok: false, error: "GetUnitPositionAtTile null" };
+            posPtr = atTile; posSrc = "tile(" + wantCol + "," + wantRow + ")";
+        }
         if (!posPtr) return { ok: false, error: "GetUnitPosition null (caster/cible)" };
 
         // AbilityState per-ability : override body > capteur #100 > défaut flaggé.
@@ -356,7 +397,7 @@ export function registerViewPredict(ctx: Ctx): void {
         }
         return {
             ok: true, runner: label, dbSrc, playbookClass, retClass: mk.retClass,
-            makeArity: mk.makeArity,
+            makeArity: mk.makeArity, posSrc,
             unitId: body.unitId, targetId: body.targetId,
             ability: body.abilityType, abilityName: abilityName(body.abilityType),
             abilityState: { level: lvl, multiplier: mult, source: stSrc },
