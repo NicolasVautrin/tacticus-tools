@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 
+from . import fix64 as _fx
 from .min_max_damage import MinMaxDamage
 from .damage_calculations import spread_to_min_max
 from .static_battle_rules import get_damage_with_piercing, get_piercing_ratio
@@ -208,9 +209,23 @@ def get_base_damage_fix64(base: int, extra_max: int = 0, spread_pct: int = 20,
     return MinMaxDamage(min=lo, max=hi)
 
 
+def _materialize(v) -> int:
+    """Matérialisation int des BORNES de prédiction = `Fix64.Round(·, mode 1 AwayFromZero)
+    @1815636e0` sur la valeur Fix64 EXACTE, puis conversion (intégrale → passthrough).
+    ⚠ Verdict EMPIRIQUE #30a (2 mesures A/B live, seeds 777+31337 ×20 steps) : floor(exact)
+    = 13 mismatches vs round(float) = 5 vs round(exact) — le natif ARRONDIT les bornes
+    prédites (le Round vit en aval de `CalculateBaseDamageWithAllModifiers @18102d3f0`,
+    qui lui renvoie du fractionnaire sans Round interne — lu intégralement ; les op_Explicit
+    de PredictAttackRaw portent sur des Fix64 déjà intégraux). ≠ COMBAT : le dégât TIRÉ se
+    matérialise par op_Explicit=floor (`CalculateAbilityDamage @18102cb50`, apply_all_modifiers).
+    L'exactitude Fix64 reste LA correction : round(float) divergeait aux frontières .5
+    fabriquées par le bruit float (777s6 : float 277.5→278 vs exact 277.49999982…→277)."""
+    return _fx.to_int(_fx.round_raw(_fx.from_number(v), 1))
+
+
 def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0,
                                mods: DamageModifiers | None = None, hit_mult: int = 1,
-                               attacker_additive_pre: bool = False) -> int:
+                               attacker_additive_pre: bool = False):
     """BASE COMMUNE prédiction↔combat — réduction d'UNE valeur de dégât (= étape 3+3b de
     `predict_attack_raw`, cf. `CalculateBaseDamageWithAllModifiers` @18102d3f0) :
         pierce_eff = clamp(0,100, pierce + mods.extra_pierce)
@@ -299,13 +314,18 @@ def predict_attack_raw(
     else:
         blk_lo = blk_hi = 0
         rem_lo, rem_hi = mm.min, mm.max
-    # PRÉDICTION : conversion int finale = **Round** (le natif matérialise la borne prédite via Round ;
-    # ≠ COMBAT op_Explicit=troncature). apply_pierce_and_modifiers/apply_capped_modifiers renvoient le
-    # Fix64 fractionnaire (perçage non tronqué #111) -> on arrondit ICI, une seule fois par borne.
-    lo = round(apply_pierce_and_modifiers(rem_lo, pierce_pct, armor, mods_pct, hit_mult,
-                                          attacker_additive_pre=True)) if rem_lo else 0
-    hi = round(apply_pierce_and_modifiers(rem_hi, pierce_pct, armor, mods_pct, hit_mult,
-                                          attacker_additive_pre=True)) if rem_hi else 0
+    # PRÉDICTION : conversion int finale = **op_Explicit = FLOOR** (@181034e87/e98/eaa/ebb — le natif
+    # matérialise les bornes prédites par `Fix64.op_Explicit @181564100` = raw>>32, PAS un Round ; le
+    # commentaire historique « Round » était FAUX, #30a). MÊME conversion que le COMBAT. La chaîne
+    # apply_pierce_and_modifiers/apply_capped_modifiers renvoie le Fix64 fractionnaire EXACT (`.raw`,
+    # perçage non tronqué #111 + arithmétique Fix64 #30a) -> floor ICI, une seule fois par borne.
+    # (`round()` float ne marchait qu'aux points où round(float)==floor(exact) : 777s6 natif
+    # 1850×fix(0.15)=277.4999…→277 vs float 277.5→278 ; et floor(float) régressait ailleurs — seule
+    # l'exactitude raw rend le floor universellement juste.)
+    lo = _materialize(apply_pierce_and_modifiers(rem_lo, pierce_pct, armor, mods_pct, hit_mult,
+                                                 attacker_additive_pre=True)) if rem_lo else 0
+    hi = _materialize(apply_pierce_and_modifiers(rem_hi, pierce_pct, armor, mods_pct, hit_mult,
+                                                 attacker_additive_pre=True)) if rem_hi else 0
     # Réduction DÉFENSEUR capée FLAT (GuardianOrganism) : scalaire = min(trunc(pct% × D), cap) avec D=(lo+hi)/2 =
     # CurrentDamage (base/centre du dégât, pré-GO), soustrait des DEUX bornes (mirror pré-évalué natif @18102d3f0 ;
     # HELPER PARTAGÉ avec le COMBAT `capped_reduction_flat` = MÊME formule + troncature Fix64, confirmée bit-exact

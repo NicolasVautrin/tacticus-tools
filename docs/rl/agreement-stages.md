@@ -92,10 +92,12 @@ mécaniquement l'essentiel du positioning.
    POST-FIX (777+31337, 20 pas) : prédiction 16/21 (76 %), ability 23/29 (79 %), 0 régression
    (garde `test_playbook_live` 3/3). NB : le seul autre canal cold-dynamique (aura CURRENT) reste
    inerte pour la prédiction — l'Étape 2 « resync per-step » est donc CLOSE pour le feed prouvé.
-4. **Bornes ±1-5 qui flippent le kill-flag** — 777 s06 (min 1390 vs 1385), 31337 s05
-   (3006 vs 3009), 31337 s08 : max 1498 vs 1499 **→ kill off=False nat=True** (cap à hp-1) ;
-   même run raw max 1498 vs 1949 (overshoot natif non modélisé). Un ±1 à la frontière hp
-   = grand écart d'utilité (leaves kill). Chercher un arrondi/roll-min systématique.
+4. **Bornes ±1-5 qui flippent le kill-flag — ✅ RÉSOLU 2026-07-19 (#30a)** : cause racine =
+   float64 vs Fix64 (Q31.32), fix = émulation Fix64 exacte (`engine/services/fix64.py`) +
+   matérialisation Round(mode 1) des bornes — 777 s06 et 31337 s05 corrigés, prédiction
+   16/21 → 18/21 (85 %), 0 régression (11 tests combat verts). Détail complet :
+   `docs/rl/case-30-raw-bounds.md` §#30a. Le résidu 31337 s08 (kill off=False nat=True +
+   raw max 1498 vs 1949) = porte OVERKILL (#30b, tâche #40), PAS un arrondi.
 5. **killSure fantôme (raw sur-évalué)** — 31337 s13, u93 ab=69 tgt=83 : accurate min OK
    (2783 vs 2704) mais raw off 4428-6640 vs nat 2704-4056 → **killSure off=True nat=False**.
    L'overshoot raw offline est trop haut (mécanisme distinct du lead 4 : sens inverse).

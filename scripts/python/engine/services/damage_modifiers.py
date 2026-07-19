@@ -34,6 +34,7 @@ from __future__ import annotations
 import json as _json
 from dataclasses import dataclass, field
 
+from . import fix64 as _fx
 from .effect_bonus import EffectBonus
 from .. import weights as _weights
 
@@ -125,36 +126,38 @@ def add_modifier(acc: DamageModifiers, eb: EffectBonus) -> None:
     acc.details.append(eb)
 
 
-def apply_capped_modifiers(value: int, mods: DamageModifiers) -> int:
-    """DamageCalculations.ApplyCappedModifiers @181000020 — réducteur du `%-list` :
-        POUR CHAQUE (mult, cap) : value = value × mult   [Fix64, PAS d'arrondi int intermédiaire]
-                                  si cap : value = clamp(round(value), −cap, +cap)
-        retour : round(value)   [conversion int UNIQUE en fin de chaîne]
-    ⚠ COMPOSITION SANS ARRONDI INTERMÉDIAIRE (#98, MESURÉ live) : le natif compose les entrées %-list
-    en Fix64 (fractionnaire) et ne matérialise l'int qu'UNE fois — un arrondi PAR entrée divergeait de
-    ±1/coup dès 2 mults (u80 darkaTerminator, CrushingStrike×Élévation = ×1.5×1.5 : bouts natifs per-coup
-    3980/5969 = round(1769×2.25)/round(2653×2.25) ; round-par-entrée donnait 3981/5970). Une entrée
-    CAPÉE matérialise (clamp sur int) à sa position — sans consommateur actuel (les pct portés sont tous
-    cap=None) ; mono-mult : round(v×m) STRICTEMENT inchangé (tous les cas validés ×1.25/×1.33/×0.7/×0.25
-    préservés bit-exact). L'`additif` plat est appliqué à part — cf. apply_all_modifiers.
+def apply_capped_modifiers(value, mods: DamageModifiers) -> "_fx.Fix64":
+    """DamageCalculations.ApplyCappedModifiers @181000020 — réducteur du `%-list`, ARITHMÉTIQUE Fix64
+    EXACTE (#30a) :
+        POUR CHAQUE (mult, cap) : value = Fix64Mul(value, mult_raw)   [mul TRONQUANT, pas d'arrondi]
+                                  si cap : value = Clamp(Round(value, AwayFromZero), −cap, +cap)
+        retour : Fix64 FRACTIONNAIRE (`.raw` exact) — AUCUNE matérialisation int ici.
+    `mult_raw` = reconstruction exacte du raw natif depuis le float stocké (`mult_raw_from_float`,
+    cf. `GetMultiplierFromDamageBonus @181005210` = `One ± Div(FromInt(|pct|), FromInt(100))`).
 
-    ⚠ CONVERSION int DÉFÉRÉE AU CALLER : `ApplyCappedModifiers @181000020` renvoie un **Fix64** ; liste %-list
-    VIDE -> valeur **INCHANGÉE (fractionnaire)** — l'arrondi/troncature UNIQUE est fait par l'appelant
-    (prédiction: Round ; COMBAT: op_Explicit=troncature, cf. `apply_all_modifiers`/`CalculateAbilityDamage`
-    @18102cb50). C'est nécessaire depuis que `get_damage_with_piercing` renvoie le fractionnaire du perçage
-    (#111) : floorer/arrondir ici perdrait le fractionnaire AVANT le point de conversion natif. Liste NON
-    vide -> on matérialise l'int UNE fois (round, #98 : compose sans arrondi intermédiaire)."""
-    v = float(value)
+    ⚠ COMPOSITION SANS ARRONDI INTERMÉDIAIRE pour les entrées NON capées (#98, MESURÉ live : u80
+    darkaTerminator ×1.5×1.5 → bouts natifs per-coup 3980/5969 = floor(1769×2.25)/floor(2653×2.25) ;
+    un Round PAR entrée donnerait 2653.5→2654→3981 ≠ 3980 natif). Le décompilé @181000020 montre un
+    `Round(·,1)+Clamp` par entrée — la mesure #98 prouve que les bonus multi-mults validés ne passent
+    PAS chacun par ce Round (fold côté data : Multiplier slot / entrée unique) ; on garde la sémantique
+    MESURÉE : mul tronquant par entrée, Round+Clamp UNIQUEMENT sur entrée capée (mirror décompile,
+    aucun consommateur actuel : tous les pct portés sont cap=None).
+
+    ⚠ MATÉRIALISATION %-list = `Round(·, mode 1)` EN FIN D'APPEL quand la liste est NON vide
+    (VALIDÉ live : ThunderousAssault combat 6948 = Round(6947.x), floor→6947 régresse ; tous les
+    single-mult historiques = Round(v×m) bit-exact). Liste VIDE → valeur INCHANGÉE (fractionnaire,
+    perçage #111) : la conversion est alors faite au caller (prédiction : Round des bornes ;
+    COMBAT : op_Explicit=floor du dégât tiré, `CalculateAbilityDamage @18102cb50`). Le retour est
+    toujours un Fix64 (`.raw` exact — intégral si matérialisé)."""
+    v_raw = _fx.from_number(value)
     if not mods.pct_list:
-        return v                      # %-list VIDE -> Fix64 INCHANGÉ (@181000020 ne touche pas la valeur) ;
-                                      # la conversion int est faite au caller (prédiction Round / COMBAT
-                                      # op_Explicit troncature) — nécessaire depuis le perçage fractionnaire #111.
+        return _fx.Fix64(v_raw)
     for mult, cap in mods.pct_list:
-        v = v * mult
+        v_raw = _fx.mul(v_raw, _fx.mult_raw_from_float(mult))
         if cap is not None:
-            v = float(max(-cap, min(cap, round(v))))
-    return round(v)                   # %-list NON vide -> matérialise l'int UNE fois (round, #98 : compose
-                                      # sans arrondi intermédiaire) ; la troncature/round finale du caller = no-op.
+            cap_raw = _fx.from_int(cap)
+            v_raw = max(-cap_raw, min(cap_raw, _fx.round_raw(v_raw, 1)))
+    return _fx.Fix64(_fx.round_raw(v_raw, 1))
 
 
 def apply_all_modifiers(value: int, mods: DamageModifiers) -> int:
@@ -164,13 +167,13 @@ def apply_all_modifiers(value: int, mods: DamageModifiers) -> int:
     plancher >= 0 (Fix64.Max(dmg, 0)). ⚠ PRÉDICTION d'attaque : l'additif s'applique UNE FOIS PAR
     ATTAQUE sur le total agrégé (cf. get_attack_prediction §5, call-sites PredictAttackRaw AVANT la
     boucle d'events) — cette fonction combinée reste pour le chemin COMBAT (valeur tirée)."""
-    v = apply_capped_modifiers(value, mods)
+    v_raw = apply_capped_modifiers(value, mods).raw
     if mods.additive:
-        v = v + mods.additive
+        v_raw = v_raw + _fx.from_number(mods.additive)
     # COMBAT : conversion int finale = TRONCATURE (`op_Explicit`, `CalculateAbilityDamage @18102cb50`),
-    # PAS round. `apply_capped_modifiers` a déjà matérialisé l'int si %-list non vide (troncature = no-op) ;
-    # %-list vide -> `v` reste le fractionnaire du perçage -> troncature = floor natif du dégât tiré.
-    v = int(v)
+    # PAS round. Fix64 EXACT de bout en bout (#30a) : `v_raw` porte le fractionnaire du perçage/%-list
+    # sans bruit float -> `to_int` (floor) = le natif bit-exact.
+    v = _fx.to_int(v_raw)
     # ⚠ Les réductions DYNAMIQUES CAPÉES du DÉFENSEUR (GuardianOrganism) ne sont PLUS appliquées ici :
     # `CurrentDamage` du natif = la valeur UNIQUE post-mods (le dégât TIRÉ), donc en COMBAT la soustraction
     # se fait PAR VALEUR TIRÉE (cf. `apply_capped_reductions`, appelé dans `_run_hits` APRÈS le tirage), PAS

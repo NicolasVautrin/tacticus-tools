@@ -1,9 +1,54 @@
 # Case #30 — Bornes RAW du DamagePredictionResult (raw @0x24/0x28 vs accurate @0x58)
 
-Statut : RE structurel PROUVÉ (décompile + live event-dumps). Fix candidat identifié, **validation
-live requise** (session Frida tombée en cours d'investigation — voir §Validation).
+Statut : **#30a (arrondi des bornes ±1-5) RÉSOLU 2026-07-19** — cause racine float64-vs-Fix64,
+fix = émulation Fix64 exacte (`engine/services/fix64.py`), validé live 18/21 (voir §#30a).
+**#30b (overshoot raw / porte overkill, tâche #40)** : RE structurel PROUVÉ (décompile + live
+event-dumps), fix candidat identifié, validation live requise (sections suivantes).
 
 Build : gqfc5mff6c. VAs absolues (RVA = VA − 0x180000000).
+
+## #30a — RÉSOLU : bornes ±1-5 = float64 vs Fix64 (Q31.32), PAS un choix round-vs-floor
+
+**Cause racine.** Le pipeline natif calcule TOUT en `FixMath.NET.Fix64` (long 64-bit, 32 bits de
+fraction). Le port calculait en float64 → aux frontières ENTIÈRES (exactement là où kill/killSure
+flippe) le bruit flottant traverse l'entier dans les DEUX sens. Preuve A/B (agreement seeds
+777+31337 ×20 steps, 21 confrontations prédiction) : round(float) = 5 mismatch-logic ;
+floor(float) = 8 (session précédente) ; floor(exact) = 13 ; **round(exact) = 3** — et les 3
+restants sont d'AUTRES causes (voir plus bas). Ni round ni floor ne pouvait « réparer » le float.
+
+**Sémantique Fix64 vérifiée au décompilé (2026-07-19)** — port : `engine/services/fix64.py` :
+- `op_Multiply @181564280` = produit 128-bit puis TRONCATURE (`(a·b)>>32`, floor). Pas d'arrondi.
+- `op_Division @181563e50` = ROUND-HALF-UP sur la magnitude (`(q+1)>>1` final), signe après.
+- `op_Explicit @181564100` = `raw>>32` (floor) ; `Round @1815636e0` mode 0 = ToEven, mode 1 =
+  AwayFromZero (frac==0.5 exact : négatif→floor, positif→+1).
+- `GetMultiplierFromDamageBonus @181005210` = `One ± Div(FromInt(|pct|), FromInt(100))` —
+  reconstructible EXACTEMENT depuis le float stocké (`round(mult×2^32)`, aucun cas ambigu pct
+  entier) → format `pct_list` inchangé.
+
+**L'ordre des ops est LOAD-BEARING** (`GetDamageWithPiercing @1815598b0`) : le natif fait
+`pierceFrac = Div(pierce,100)` (arrondi : 0.15 → raw 644245094 = 0.1499999999767…) PUIS
+`Mul(damage, pierceFrac)` (tronquant). Cas signature 777 s6 : natif `1850 × fix(0.15) =
+277.4999998…` → 277 ; port float `1850×15/100 = 277.5` → round 278 (+1/coup, ×5 hits = le +5).
+
+**Points de matérialisation int (verdicts, mélange décompile + empirique live) :**
+- Bornes PRÉDICTION (`_materialize`, damage_prediction.py) : `Round(exact, mode 1)`. Empirique
+  (13 vs 3 ci-dessus) ; `CalculateBaseDamageWithAllModifiers @18102d3f0` lu intégralement : AUCUN
+  Round interne (renvoie du fractionnaire) ; les `op_Explicit` de PredictAttackRaw portent sur des
+  Fix64 déjà intégraux → le Round vit en aval de CBDWAM, position exacte non localisée statiquement.
+- `ApplyCappedModifiers @181000020` (port `apply_capped_modifiers`) : compose les entrées par muls
+  TRONQUANTS sans arrondi intermédiaire (#98 u80 : ×1.5×1.5 → 3980.25 → 3980, un Round par entrée
+  donnerait 3981) PUIS matérialise `Round(·, mode 1)` en fin d'appel si liste non vide (validé
+  combat ThunderousAssault : live 6948 = Round(6947.x) — floor régressait à 6947). NB : le
+  décompilé montre un Round+Clamp PAR entrée — la mesure u80 prouve que les multi-mults validés ne
+  le traversent pas chacun (fold côté data) ; sémantique MESURÉE conservée.
+- Dégât TIRÉ combat (`apply_all_modifiers` fin de chaîne) : `op_Explicit` = floor
+  (`CalculateAbilityDamage @18102cb50`), inchangé — désormais floor du raw EXACT.
+
+**Résultat live** : corrige 777 s6 u85 (±5 roll-min, le cas #30a nominal) et 31337 s5 u81 (−3).
+Les 3 mismatches restants = causes distinctes déjà trackées : 777 s11 u95 (shieldDmgMin, bouclier),
+31337 s8 u83 (**#30b** overkill, tâche #40), 31337 s13 u93 (killSure fantôme raw defender-mod,
+lead 5 — voir §Lead 5). Tests combat ciblés : 11/11 verts (roll/attack/crit/block/armored/decomp/
+ability dont ThunderousAssault bit-exact).
 
 ## Symptômes (agreement-stages.md leads 4-5, seed 31337, event-dumps capturés live)
 
@@ -76,7 +121,37 @@ sur le total raw. C'est pourquoi `mightKillDmg` (1949, 4056) dépasse `hpBefore`
   (trait_damage_limits.py) est FIDÈLE en structure.** Le seul paramètre NON PROUVÉ = le threshold
   `*(cfg+0x34)` (config DI, asset-driven) ; le port suppose `overkillDmgPctOfHealth`=100 (HYPOTHÈSE).
 
+## ⚠ RÉVISION 2026-07-19 (#40) : la porte OVERKILL n'est PAS le bug du lead 4 — FIT ARITHMÉTIQUE
+
+Le fit entier des per-hit natifs s8 (3 coups, tgt 1499 HP) reproduit LES DEUX totaux natifs avec la
+formule DU PORT (rem déplété + caps Resilient ACTIFS + overkill=False) :
+per-hit **(min 698, max 1047)** (ratio 1047/698 = 1.5 = spread 20 % exact) →
+h1 rem=1499 cap 1498 : (698,1047) intacts ; h2 rem=801 cap 800 : max→800 ; h3 rem=103 cap **102** :
+min ET max →102. **rawMin = 698+698+102 = 1498 ✓ ; rawMax = 1047+800+102 = 1949 ✓.**
+⇒ le natif APPLIQUE les caps Resilient sur s8 ; le vrai écart = les **bornes per-hit** (natif
+698/1047 vs port ≈500/650) = une divergence de DÉGÂT sous-jacente (mod attaquant/défenseur manquant
+sur eldarAutarch u83 → bloodDeathCompany u91), même famille que le lead 5 (s13). Le kill-flip n'est
+qu'un symptôme. NB : 698/1047 ⇔ base efficace 872.5 (0.8×872.5=698, 1.2×872.5=1047) — une base
+DEMI-ENTIÈRE (chemin avg(minDmg,maxDmg) d'arme ? mod ×1.x sur base int ? à élucider par recon du
+kit u83 au pas s8).
+
+Acquis RE COMPLÉMENTAIRES (mécanique flags, décompile 2026-07-19, tous confirmés) :
+- `ApplyTraitDamageLimitsToDamage @18102c650` appelle l'IMPL `IsOverkill @181032db0` directement :
+  baseHP=param_11(maxHP), accum=op_Explicit(FromInt(maxHP−curHP)+FromInt(p12)+*param_3(minBound
+  Fix64 FRACTIONNAIRE)), default_flag=son param_8, allow_flag=son param_13, suppress=HasFlag(0x13),
+  cond=*(cfg+0x30) byte, threshold=*(cfg+0x34) int, 8e arg Nullable (min-HP ≥1 → return 0 direct —
+  le floor HypersensoryAbilities coupe l'overkill). Le doc historique « allow=*(cfg+0x30) »
+  mélangait cond et allow.
+- PredictAttackRaw pose allow_flag (stack+0x60) = byte @args+0x68, **forcé à 1 si l'ATTAQUANT
+  HasTrait(0x420=ThrillSeekers) ET HasEffect(0x59a=ThrillSeekers) ET (byte@+0x69 OU byte@0xb8)**
+  (@L2279 du décompilé) ; default_flag (stack+0x38) = byte @args+0x69 ; p12 = Nullable @args+0x7c
+  (=0 chemin attaque normale, PredictNormalAttack zère le struct). param_9 (curHP) = local_914 =
+  rem_HP DÉPLÉTÉ @181034087 (le port fait pareil ✓).
+- La confirmation live u78 (modéré → capé HP−1, massif PV=10 → bypass) reste VALIDE : default=0,
+  allow=0, threshold=100 pour une attaque normale sans ThrillSeekers.
+
 ## Diagnostic du bug (port) — CAUSE RACINE = la porte OVERKILL sur cible Resilient
+**[SECTION HISTORIQUE — falsifiée par la révision ci-dessus ; conservée pour les acquis RE]**
 
 Faits vérifiés :
 - `DamagePredictionResult.add` (damage_prediction.py L71-93) est CORRECT et fidèle à `Add @18102a710`
