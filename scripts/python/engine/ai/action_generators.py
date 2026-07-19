@@ -533,7 +533,7 @@ class MovementActionGenerator(ActionGenerator):
             ctx.move_tiles, ctx.elev_by_pos, ctx.epos, ctx.wt,
             pathdist_by_pos=ctx.pathdist_by_pos,
             is_temporary_by_pos=ctx.is_temporary_by_pos, effects_by_pos=ctx.effects_by_pos,
-            leaf_ctx=tile_leaf_ctx(ctx))
+            terrain_by_pos=ctx.terrain_by_pos, leaf_ctx=tile_leaf_ctx(ctx))
         return {"kind": "move", "to": move_to, "util": move_util}
 
 

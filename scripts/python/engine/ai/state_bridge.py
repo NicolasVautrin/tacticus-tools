@@ -150,17 +150,18 @@ def _occupants(state) -> dict:
     return occ
 
 
-def _board_topology_maps(board) -> tuple[dict, dict, dict]:
-    """Mirror OFFLINE des 3 seams boardGraph du contexte LIVE (`context._board_tile_ids/_board_neighbours/
-    _board_walkable`), construits depuis `State.board` (memes tuiles boardGraph) :
+def _board_topology_maps(board) -> tuple[dict, dict, dict, dict]:
+    """Mirror OFFLINE des seams boardGraph du contexte LIVE (`context._board_tile_ids/_board_neighbours/
+    _board_walkable/_board_terrain`), construits depuis `State.board` (memes tuiles boardGraph) :
       - `tile_id_by_pos` {(col,row): tileEntityId} : id de tuile (cible d'une self-cast AoE = MainTile) ;
       - `neigh_by_pos`   {(col,row): [voisins (col,row) ORDRE NATIF GetAdjacentTiles]} : depuis le champ BRUT
         `neighbours` du boardGraph (PAS `board.neighbours` evenq/sorted), pour preserver l'ordre natif dont
         depend la cible exacte de Gauntlets (#117, SortReverse sur le ring-1 natif) ;
-      - `walkable_by_pos` {(col,row): walkable} : gate STATIQUE de placement (CanAddUnit #116).
-    Board absent -> 3 dicts vides (consumers gates ; sans board, ni placement ni Gauntlets)."""
+      - `walkable_by_pos` {(col,row): walkable} : gate STATIQUE de placement (CanAddUnit #116) ;
+      - `terrain_by_pos` {(col,row): tileDefId} : covers HÉBERGÉS par le terrain (TileEffects Loop2, case-37).
+    Board absent -> 4 dicts vides (consumers gates ; sans board, ni placement ni Gauntlets ni cover)."""
     if board is None:
-        return {}, {}, {}
+        return {}, {}, {}, {}
     tiles = list(board.by_id.values())
     id2pos = {t["id"]: (t["col"], t["row"]) for t in tiles}
     tile_id_by_pos = {(t["col"], t["row"]): t["id"] for t in tiles}
@@ -168,7 +169,8 @@ def _board_topology_maps(board) -> tuple[dict, dict, dict]:
                     [id2pos[n] for n in (t.get("neighbours") or []) if n in id2pos]
                     for t in tiles}
     walkable_by_pos = {(t["col"], t["row"]): bool(t.get("walkable")) for t in tiles}
-    return tile_id_by_pos, neigh_by_pos, walkable_by_pos
+    terrain_by_pos = {(t["col"], t["row"]): t.get("tileDefId") for t in tiles}
+    return tile_id_by_pos, neigh_by_pos, walkable_by_pos, terrain_by_pos
 
 
 def _move_tiles(state, uid: int, vid: str, my_team: int, origin: tuple | None) -> list:
@@ -498,7 +500,7 @@ def build_from_state(state, uid: int, debug: bool = False):
     # topologie boardGraph (self-cast MainTile #116, ordre voisins natif Gauntlets #117, gate placement) —
     # mirror OFFLINE des 3 seams boardGraph que le contexte LIVE fournit ; ex-gap du bridge (build_from_state
     # anterieur a l'ajout de ces champs requis) revele par la confrontation du tour du Skitarii (#24).
-    tile_id_by_pos, neigh_by_pos, walkable_by_pos = _board_topology_maps(state.board)
+    tile_id_by_pos, neigh_by_pos, walkable_by_pos, terrain_by_pos = _board_topology_maps(state.board)
     # Plans d'ATTAQUE : ne cibler que les ennemis CIBLABLES (exclut les deep-strike teleporting-in, non-ciblables
     # jusqu'a l'atterrissage). `enemies` reste complet pour le positionnement (ils occupent le board).
     tgt_enemies = [e for e in enemies if not _is_untargetable(state, e.get("id"))]
@@ -521,4 +523,4 @@ def build_from_state(state, uid: int, debug: bool = False):
         elev_by_pos=elev_by_pos, is_temporary_by_pos={}, effects_by_pos={},
         pathdist_by_pos=pathdist_by_pos,
         tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos, walkable_by_pos=walkable_by_pos,
-        debug=debug)
+        terrain_by_pos=terrain_by_pos, debug=debug)

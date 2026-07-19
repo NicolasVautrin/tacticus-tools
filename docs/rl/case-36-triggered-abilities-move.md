@@ -319,12 +319,11 @@ Restant hors-scope (étendre quand un case le montre décisif) : les ~24 autres 
   (leaf + kit helper + poids config, aucun fit).
 - **LIVE (walk stages 909, 20 pas, runner 3)** : **s19 u89 → (4,3) EXACT** (le miss phare TrigAb=90
   est fermé). Move 12/16 (les 3 autres = pos-downstream-of-ability, hors move-pur).
-- **s4 u89 reste move-formula** mais ce N'EST PLUS TrigAb : notre (3,2) tile=45 INCLUT le +30
-  (20 élév − 5 + 30) ; le résiduel vs natif (59) = 2 gaps PRÉ-EXISTANTS d'autres feuilles →
-  **tâche #37** : (1) TileEffects LightCover=9 non alimenté par tileMeta ; (2) Elevation :
-  LowestElevation (−5) appliqué à tort (notre min = candidates ; le set natif
-  `LoadRelevantTileElevations` contient une élévation plus basse — origine ?). Les deux corrigés,
-  (3,2) = −641 > (0,3) = −650 → s4 fermera.
+- **s4 u89 : RÉSOLU par #37** ([case-37](case-37-tileeffects-elevation-move.md)) — ce N'ÉTAIT PLUS TrigAb
+  (notre (3,2) tile=45 incluait déjà le +30 = 20 élév − 5 + 30) ; le résiduel vs natif (59) = 2 gaps
+  PRÉ-EXISTANTS d'autres feuilles, corrigés : (1) TileEffects LightCover=9 (cover hébergé par la DryBush,
+  Loop2) ; (2) Elevation LowestElevation (−5) indu (`LoadRelevantTileElevations` = board ENTIER, pas les
+  candidats). **(3,2) = −641 > (0,3) = −650 → s4 EXACT** (walk 909 : move 12/16 → 13/16, `move-formula` = 0).
 
 ### VAs (résolution)
 

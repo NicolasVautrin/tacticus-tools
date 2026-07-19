@@ -69,6 +69,8 @@ class AiDecisionContext:
     walkable_by_pos: dict             # {(col,row): walkable} (boardGraph, statique) — gate STATIQUE de
     #                                   placement (TileExtensions.CanAddUnit) ; l'occupation DYNAMIQUE se
     #                                   lit via epos/fpos/origine (frais), PAS le occupantUnitId caché (#116)
+    terrain_by_pos: dict              # {(col,row): tileDefId} (boardGraph, statique) — covers HÉBERGÉS par
+    #                                   le terrain sommés par TileEffects(9) Loop2 (DryBush->LightCover, case-37)
 
     debug: bool = False
 
@@ -122,6 +124,7 @@ _BOARD_GRAPH_CACHE: dict = {}      # {rid: tiles list} — boardGraph brut, 1 fe
 _BOARD_TILE_IDS_CACHE: dict = {}   # {rid: {(col,row): tileEntityId}} — board statique, dérivé
 _BOARD_NEIGH_CACHE: dict = {}      # {rid: {(col,row): [voisins ordre natif]}} — dérivé
 _BOARD_WALKABLE_CACHE: dict = {}   # {rid: {(col,row): walkable}} — board statique, dérivé (#116)
+_BOARD_TERRAIN_CACHE: dict = {}    # {rid: {(col,row): tileDefId}} — terrain statique, dérivé (case-37)
 _ACTIVE_LEVEL_CACHE: dict = {}     # {rid: {unitId: {active,passive,multiplier}}} — combatSnapshot, 1 fetch/rid
 
 
@@ -160,6 +163,17 @@ def _board_neighbours(rpc: Callable[..., dict], rid: int) -> dict:
              [id2pos[n] for n in (t.get("neighbours") or []) if n in id2pos]
              for t in tiles}
         _BOARD_NEIGH_CACHE[rid] = m
+    return m
+
+
+def _board_terrain(rpc: Callable[..., dict], rid: int) -> dict:
+    """{(col,row): tileDefId} depuis `boardGraph` (terrain STATIQUE `TileId` de la BC : Grass/DryBush/
+    Trench/... — board caché par rid). Alimente les covers HÉBERGÉS par le terrain sommés par la feuille
+    TileEffects(9) via son Loop2 (DryBush->LightCover ; case-37). `tileMeta` ne porte pas le terrain."""
+    m = _BOARD_TERRAIN_CACHE.get(rid)
+    if m is None:
+        m = {(t.get("col"), t.get("row")): t.get("tileDefId") for t in _board_graph_tiles(rpc, rid)}
+        _BOARD_TERRAIN_CACHE[rid] = m
     return m
 
 
@@ -221,6 +235,7 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     tile_id_by_pos = _board_tile_ids(rpc, rid)
     neigh_by_pos = _board_neighbours(rpc, rid)   # voisins ordre natif -> cible exacte Gauntlets (#117)
     walkable_by_pos = _board_walkable(rpc, rid)  # gate statique de placement CanAddUnit (#116)
+    terrain_by_pos = _board_terrain(rpc, rid)    # terrain statique -> covers TileEffects (DryBush->LightCover, case-37)
 
     origin = (me["pos"]["col"], me["pos"]["row"]) if me and me.get("pos") else None
     move_tiles = (mov_by_unit.get(uid) or {}).get("tiles") or []
@@ -251,4 +266,4 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
         elev_by_pos=elev_by_pos, is_temporary_by_pos=is_temporary_by_pos,
         effects_by_pos=effects_by_pos, pathdist_by_pos=pathdist_by_pos,
         tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos,
-        walkable_by_pos=walkable_by_pos, debug=debug)
+        walkable_by_pos=walkable_by_pos, terrain_by_pos=terrain_by_pos, debug=debug)

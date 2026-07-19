@@ -12,9 +12,11 @@ sur une bataille basique plate. Chaque feuille = une CLASSE `IdunBattle.AI.Utili
 quand la donnée manque — c'est EXACTEMENT la dégradation native (la condition de gate ne tient pas) :
 
 `meta` (PAR TUILE candidate) — clés consommées :
-  elevation, elevation_max, elevation_min : int            (Elevation 8 — via tileMeta) [ACTIF]
+  elevation : int ; elevation_max, elevation_min : int     (Elevation 8 — tuile via tileMeta ; max/min sur le
+                                                            BOARD ENTIER, cf. LoadRelevantTileElevations) [ACTIF]
   steppable : {is_enemy, is_decoy} | None                  (SteppableUnit 19)
-  effects : [effect_name]                                  (TileEffects 9 — noms d'effets SUR la tuile)
+  effects : [effect_name]                                  (TileEffects 9 — effets DYNAMIQUES (Loop1) + covers
+                                                            HÉBERGÉS par le terrain (Loop2 : DryBush->LightCover)) [ACTIF]
   is_temporary : bool                                      (TemporaryTile 13 — via tileMeta) [ACTIF]
   is_territory : bool                                      (CapturePoint 24 — via tileMeta.isTerritory)
   occupant_is_powerup : bool                               (PowerUp 26)
@@ -71,6 +73,25 @@ TILE_LEAF_IDS = [
 # Pénalité constante (Fix64) appliquée aux tuiles temporaires — RE'd, PAS un poids BC.
 TEMPORARY_TILE_PENALTY = -10000.0
 
+# Terrain STATIQUE (`tileDefId` de la BC) -> effets de cover HÉBERGÉS que la feuille TileEffects(9) somme.
+# `TileEffectsUtility.<d__1>.MoveNext @1810fbe50` a DEUX boucles sur la tuile candidate : Loop1 = effets
+# DYNAMIQUES (EffectsOwnedComponent, ex. Fire/Ice ; = `meta.effects` via tileMeta) ; **Loop2 = abilities
+# HÉBERGÉES sur la tuile** (collection `DAT_1831b9908`, `Unit.get_Id` = `AbilityType`, poids
+# `Default.TileEffects.<AbilityName>`). Le +9 LightCover d'une DryBush vient de LOOP2 (verdict re-expert :
+# `LightCoverAbility` @1811c14e0 est une `Abilities.Tiles.Loki.*` hébergée par le terrain DryBush, PAS un
+# effet dynamique — une DryBush VIDE rend +9). Offline la seule source de cover statique = le terrain
+# (`tileDefId`, boardGraph). DryBush->LightCover VALIDÉ L3 (909 s4 (3,2)=+9 EXACT, pas +DryBush_DefenseBonus
+# => DryBush n'héberge que LightCover pour cette feuille). cf. docs/rl/terrain-effects.md §2 + case-37.
+TERRAIN_TILE_EFFECTS: dict[str, tuple] = {
+    "DryBush": ("LightCover",),
+}
+
+
+def terrain_tile_effects(terrain: str | None) -> list:
+    """Noms d'effets de cover HÉBERGÉS par le terrain statique (`tileDefId`) — sommés par TileEffects(9)
+    via son Loop2 (tile-hosted abilities). Vide si le terrain n'héberge aucun cover à poids BC."""
+    return list(TERRAIN_TILE_EFFECTS.get(terrain or "", ()))
+
 
 # ── Helpers PARTAGES (petites primitives réutilisées par plusieurs feuilles) ─────────────────────────
 def _has(ctx: dict, key: str, val: int) -> bool:
@@ -93,7 +114,12 @@ def _ability_count(meta: dict, ability_id: int) -> int:
 class ElevationUtility(BaseUtility):
     """`ElevationUtility` (@1810efa20 ; UtilityType.Elevation=8) ; `<d__8>.MoveNext @1811019a0` :
         u = Multiplier × elev  (+ HighestElevation si elev == max) (+ LowestElevation si elev == min)
-    BC : Multiplier=10, HighestElevation=10, LowestElevation=-5. `meta` requis (élévation tuile + max/min)."""
+    BC : Multiplier=10, HighestElevation=10, LowestElevation=-5. `meta` requis (élévation tuile + max/min).
+    ⚠ `elevation_max`/`elevation_min` = min/max sur le BOARD ENTIER, PAS le candidate-set : le natif
+    `LoadRelevantTileElevations @1810ef690` (one-shot, garde this+0x68) énumère la collection de TOUS les
+    tiles du board (composant board-singleton sur le World `this+0x10`, éléments = TileComponent, elev@+0x18)
+    et calcule min@this+0x64 (seed 10) / max@this+0x60 (seed 0). Verdict re-expert (case-37) : ni unité, ni
+    reachable, ni candidate-set. => la harness alimente min/max sur `elev_by_pos` COMPLET (tileMeta = board)."""
     UTILITY_TYPE = int(UtilityType.Elevation)  # 8
 
     def evaluate(self, tile, meta, ctx, wt) -> float:

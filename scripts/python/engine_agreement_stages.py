@@ -64,6 +64,7 @@ from engine.playbook import scene as _scene  # noqa: E402
 from engine.playbook import get_playbook_or_default, tile_utility  # noqa: E402
 from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK  # noqa: E402
 from engine.utilities import damage_composite, tile_composite  # noqa: E402
+from engine.utilities.tile import terrain_tile_effects  # noqa: E402  (covers terrain TileEffects, case-37)
 from engine.utilities.move import MIN_DIST_UTILITY  # noqa: E402
 from engine.ai import context as _ai_ctx  # noqa: E402
 from engine.ai.action_generators import tile_leaf_ctx  # noqa: E402  (feuille TriggeredAbilities(2), case-36)
@@ -266,10 +267,9 @@ class StageProbe:
 
     # ---- scoring move par-tuile (mirror best_move_faithful, tuiles ciblées) ----
     def _move_utils(self, ctx, tiles: list) -> dict:
-        coords = [(t["col"], t["row"]) for t in ctx.move_tiles]
-        elevs = [ctx.elev_by_pos.get(c) for c in coords]
-        elevs = [e for e in elevs if e is not None]
-        emax, emin = (max(elevs), min(elevs)) if elevs else (None, None)
+        # Elevation(8) : min/max sur le BOARD ENTIER (LoadRelevantTileElevations, case-37), pas les candidats.
+        board_elevs = [e for e in ctx.elev_by_pos.values() if e is not None]
+        emax, emin = (max(board_elevs), min(board_elevs)) if board_elevs else (None, None)
         leaf_ctx = tile_leaf_ctx(ctx)   # TriggeredAbilities(2) : kit passif mover + fpos (case-36)
         out = {}
         for c in tiles:
@@ -278,8 +278,12 @@ class StageProbe:
                 if e is not None else {}
             if c in ctx.is_temporary_by_pos:
                 meta["is_temporary"] = ctx.is_temporary_by_pos[c]
-            if c in ctx.effects_by_pos:
-                meta["effects"] = ctx.effects_by_pos[c]
+            # TileEffects(9) : effets DYNAMIQUES (tileMeta, Loop1) + covers HÉBERGÉS par le terrain
+            # (Loop2 : DryBush->LightCover, case-37).
+            _effs = list(ctx.effects_by_pos.get(c) or [])
+            _effs += terrain_tile_effects(ctx.terrain_by_pos.get(c))
+            if _effs:
+                meta["effects"] = _effs
             tile_u = tile_composite(c, meta, leaf_ctx, ctx.wt)
             mind_u = MIN_DIST_UTILITY.evaluate_movement(c, ctx.epos, ctx.wt,
                                                         ctx.pathdist_by_pos)
