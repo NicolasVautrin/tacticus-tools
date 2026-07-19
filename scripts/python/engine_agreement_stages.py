@@ -73,6 +73,36 @@ ROOT = PYDIR.parents[1]
 # State-file DÉDIÉ (jamais data/duel_state.json : replace scope = ownership record).
 STATE = ROOT / "data" / "_stages_duel_state.json"
 
+# ── Diag « terme manquant » move (docs/rl/agreement-stages.md lead 7 + case-36) ──
+# Le breakdown `move_terms` est AUTO-RÉFÉRENTIEL : il ne montre que les feuilles qu'on CALCULE.
+# Une feuille droppée à 0 (utilities/tile.py TILE_LEAVES = None) ne peut donc jamais apparaître
+# comme coupable → un `move-formula` est ambigu (formule fausse VS terme absent). Deux leviers :
+#
+# LEVER 1 (précondition OFFLINE, coût zéro, aucune capture) : abilities de la famille
+# `AdjacentUnitPreferenceTriggeredAbilityPlaybook` CONFIRMÉES (case-36) — un ami porteur ADJACENT
+# à la tuile candidate ajoute ~30 au terme move `TriggeredAbilities(2)` qu'on drop. Set EXTENSIBLE
+# (sous-ensemble PROUVÉ ; élargir en énumérant la famille via ghidra/gameconfig).
+ADJ_PREF_TRIGGER_ABILITIES = {
+    1191,   # MartialInspiration (custoBladeChampion)
+    1165,   # MightFromBelow    (genesPatriarch)
+    1202,   # VigilanceEternal  (custoKyrus)
+}
+_ADJ_PREF_EST_PER_FRIEND = 30   # valeur empirique/ami (case-36 : 30x1=30, 30x3=90) — ESTIMATION, pas hardcode de fidélité
+
+# LEVER 3 (diff L3 natif ↔ offline) : mots-clés des feuilles move qu'on DROP à 0 (TILE_LEAVES=None).
+# Un score natif L3 non nul dont le NOM matche = terme MANQUANT nommé automatiquement.
+_DROPPED_LEAF_KEYWORDS = ("Triggered", "UnitSpecificBehaviour", "RangedAdjacentEnemy")
+TRACES_DIR = ROOT / "frida" / "data" / "ai-traces"   # host cwd = frida/ (cf. ai-trace-store)
+
+
+def _tile_of(ct):
+    """(col,row) d'un `caseTile` d'event L3 ({tile:{col,row}} ou {col,row}). None sinon."""
+    if isinstance(ct, dict):
+        v = ct.get("tile") if isinstance(ct.get("tile"), dict) else ct
+        if isinstance(v, dict) and v.get("col") is not None:
+            return (v.get("col"), v.get("row"))
+    return None
+
 
 def _r(sid: int, method: str, body: dict, t: float = 90) -> dict:
     return (_rpc(sid, method, [body], timeout=t).get("result") or {})
@@ -123,6 +153,11 @@ class StageProbe:
         self.rpc = lambda m, b, t: _r(sid, m, b, t)
         self.records: list = []
         self._nat_events_cache: dict = {}   # {(step, uid, ab, tgt): events|None} — 1 RPC/paire/pas
+        # LEVER 3 (opt-in --l3) : fenêtre seq de CE pas (events L3 émis par l'aiStepDryRun) + trace.
+        self.l3 = False
+        self._prev_seq = None
+        self._seq_win = None
+        self._trace_path = None
 
     # ---- côté natif : events décision (MakeDamagePredictions) ----
     def _native_events(self, step: int, uid: int, ab: int, tgt: int, tile=None):
@@ -323,6 +358,100 @@ class StageProbe:
             rec["stage"] = "utility-logic"       # résiduel : formule/termes d'utilité
         return rec
 
+    # ---- LEVER 1 : précondition offline « terme TriggeredAbilities suspect » (sans capture) ----
+    def _suspect_trigger(self, ctx, uid: int, nat_to, eng_to) -> dict | None:
+        """Un ami (même team, vivant, != acteur) porteur d'une ability AdjacentUnitPreference
+        (case-36) ADJACENT à la tuile candidate ajoute ~30 au terme move TriggeredAbilities(2)
+        qu'on DROP à 0. Si strictement PLUS d'amis adjacents à la tuile NATIVE qu'à la nôtre →
+        le miss move est expliqué par ce terme manquant (heuristique, nomme le suspect au walk)."""
+        if eng_to is None or nat_to is None:
+            return None
+        me = next((u for u in ctx.units if u.get("id") == uid), None)
+        if me is None:
+            return None
+        team = me.get("team")
+
+        def carriers_adjacent(tile):
+            who = []
+            for u in ctx.units:
+                if (not u.get("alive")) or u.get("team") != team or u.get("id") == uid:
+                    continue
+                ids = [(a.get("id") if isinstance(a, dict) else a) for a in (u.get("abilities") or [])]
+                if not any(i in ADJ_PREF_TRIGGER_ABILITIES for i in ids):
+                    continue
+                p = u.get("pos") or {}
+                pc = (p.get("col"), p.get("row"))
+                if pc[0] is not None and hexgeo.distance(pc, tile) <= 1:
+                    who.append(u.get("id"))
+            return who
+
+        who_nat, who_eng = carriers_adjacent(nat_to), carriers_adjacent(eng_to)
+        if len(who_nat) > len(who_eng):
+            return {"term": "TriggeredAbilities:AdjacentUnitPreference",
+                    "nat_adj": who_nat, "eng_adj": who_eng,
+                    "est_delta": _ADJ_PREF_EST_PER_FRIEND * (len(who_nat) - len(who_eng))}
+        return None
+
+    # ---- LEVER 3 : diff L3 natif ↔ offline (feuilles move par-tuile, fenêtre seq de ce pas) ----
+    def _trace_file(self):
+        """Fichier NDJSON L3 le plus récent de cette session (glob `<sid>-*.jsonl`)."""
+        if self._trace_path is None:
+            try:
+                files = sorted(TRACES_DIR.glob(f"{self.sid}-*.jsonl"),
+                               key=lambda p: p.stat().st_mtime)
+                self._trace_path = files[-1] if files else None
+            except OSError:
+                self._trace_path = None
+        return self._trace_path
+
+    def _l3_native_terms(self, actor_vis, tiles: list) -> dict:
+        """Scores natifs par-feuille (events `utility_score`) pour `tiles`, filtrés sur la
+        fenêtre seq de CE pas (émis par l'aiStepDryRun). Renvoie {tile: {utility: score}} ({}
+        si pas de trace/fenêtre). Le champ `unit` de la trace = {name: visualId} → on filtre par
+        NOM (== visualId de l'acteur) quand connu (une seule unité agit/pas ; robustesse fenêtre)."""
+        win = self._seq_win
+        tf = self._trace_file()
+        if win is None or tf is None:
+            return {}
+        lo, hi = win
+        tset = {tuple(t) for t in tiles if t}
+        out: dict = {}
+        try:
+            with open(tf, encoding="utf-8") as f:
+                for line in f:
+                    if '"utility_score"' not in line:
+                        continue
+                    try:
+                        e = json.loads(line)
+                    except Exception:
+                        continue
+                    if e.get("evt") != "utility_score":
+                        continue
+                    sq = e.get("seq")
+                    if sq is None or (hi is not None and sq > hi) or (lo is not None and sq <= lo):
+                        continue
+                    eu = e.get("unit")
+                    eun = eu.get("name") if isinstance(eu, dict) else eu
+                    if actor_vis is not None and eun is not None and eun != actor_vis:
+                        continue
+                    t = _tile_of(e.get("caseTile"))
+                    if t not in tset:
+                        continue
+                    out.setdefault(t, {})[str(e.get("utility") or "")] = e.get("score")
+        except OSError:
+            return {}
+        return out
+
+    @staticmethod
+    def _missing_terms(native_terms: dict) -> list:
+        """Feuilles natives non nulles dont le NOM matche une feuille qu'on DROP à 0 = manquantes."""
+        miss = []
+        for tile, leaves in native_terms.items():
+            for name, score in leaves.items():
+                if score and any(k in name for k in _DROPPED_LEAF_KEYWORDS):
+                    miss.append({"tile": list(tile), "term": name, "native_score": score})
+        return miss
+
     # ---- classification dimension MOVE ----
     def _probe_move(self, ctx, step: int, uid: int, nat: dict, eng: dict) -> dict:
         nat_to = nat["move"]["to"]
@@ -357,11 +486,33 @@ class StageProbe:
             rec["stage"] = "move-formula"
         else:
             rec["stage"] = "move-selection-anomaly"
+        # Nommer un TERME MANQUANT (feuille droppée à 0) au lieu du fourre-tout move-formula :
+        #   LEVER 1 (offline) — précondition « ami TriggeredAbilities adjacent » (sans capture) ;
+        #   LEVER 3 (--l3)    — breakdown natif par-feuille (diff L3) + feuilles manquantes nommées.
+        suspect = self._suspect_trigger(ctx, uid, nat_to, eng_to)
+        if suspect:
+            rec["suspect"] = suspect
+        if self.l3:
+            _me = next((u for u in ctx.units if u.get("id") == uid), None)
+            nt = self._l3_native_terms(_me.get("visualId") if _me else None, [nat_to, eng_to])
+            if nt:
+                rec["native_terms"] = {str(k): v for k, v in nt.items()}
+                miss = self._missing_terms(nt)
+                if miss:
+                    rec["missing_terms"] = miss
         return rec
 
     # ---- entrée sonde (signature `probe` de run_agreement) ----
     def __call__(self, step: int, uid: int, dv: dict, mov_by_unit: dict, nat: dict,
                  eng: dict, predictor) -> None:
+        # LEVER 3 : borne HAUTE de la fenêtre seq = seq AVANT tout RPC de sonde (les events L3
+        # de CE pas ont été émis par l'aiStepDryRun de run_agreement ; les RPC intermédiaires
+        # decisionView/movable/engine_decide n'émettent PAS d'utility_score → fenêtre propre).
+        if self.l3:
+            st = _rpc(self.sid, "aiTraceStatus", [], timeout=20).get("result") or {}
+            seq_now = st.get("seq")
+            self._seq_win = (self._prev_seq, seq_now)
+            self._prev_seq = seq_now
         # ctx REBUILDÉ avec les MÊMES entrées qu'engine_decide (même predictor partagé,
         # boucliers déjà refreshés par run_agreement) -> l'offline sondé == l'offline décidé.
         ctx = _ai_ctx.build(self.rpc, self.rid, dv, mov_by_unit, uid, self.wt, predictor)
@@ -374,9 +525,16 @@ class StageProbe:
 
 # ── Orchestration : un runner -> walk + sonde ; batch = N seeds ────────────────────────
 
-def run_stages(sid: int, rid: int, steps: int, wt) -> dict:
+def run_stages(sid: int, rid: int, steps: int, wt, l3: bool = False) -> dict:
     probe = StageProbe(sid, rid, wt)
-    res = EV.run_agreement(sid, rid, steps, wt, probe=probe)
+    probe.l3 = l3
+    if l3:
+        _rpc(sid, "aiTraceEnable", ["L3"], timeout=20)   # RUNTIME, sans reinject
+    try:
+        res = EV.run_agreement(sid, rid, steps, wt, probe=probe)
+    finally:
+        if l3:
+            _rpc(sid, "aiTraceDisable", ["L3"], timeout=20)
     return {"agreement": {"pos": res["pos"], "ability": res["ability"]},
             "stage_records": probe.records}
 
@@ -426,6 +584,22 @@ def summarize(all_records: list) -> None:
         for stage, k in cnt.most_common():
             print(f"    {stage:<28} {k}")
     print()
+    # LEVER 1/3 : « termes manquants » NOMMÉS sur les misses move (au lieu du fourre-tout
+    # move-formula) — suspect offline (précondition) + missing L3 (feuille native non nulle qu'on drop).
+    sus: Counter = Counter()
+    miss_l3: Counter = Counter()
+    for r in mv_recs:
+        if r.get("suspect"):
+            sus[r["suspect"]["term"]] += 1
+        for m in (r.get("missing_terms") or []):
+            miss_l3[m["term"]] += 1
+    if sus or miss_l3:
+        print("=== TERMES MANQUANTS MOVE (leviers 1/3) ===")
+        for term, k in sus.most_common():
+            print(f"    suspect(offline)   {term:<40} {k}")
+        for term, k in miss_l3.most_common():
+            print(f"    missing(L3-natif)  {term:<40} {k}")
+        print()
     # Détail des misses de prédiction (les leviers) : champ(s) divergents les plus frequents.
     field_cnt: Counter = Counter()
     for p in preds:
@@ -447,6 +621,13 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--steps", type=int, default=20)
     ap.add_argument("--json", type=str, default=None,
                     help="dump JSON des stage_records (defaut data/stages_agreement.json)")
+    ap.add_argument("--l3", action="store_true",
+                    help="LEVER 3 : capture ai-trace L3 (RUNTIME, sans reinject) + diff natif par-feuille "
+                         "sur les misses move (native_terms/missing_terms). Plus lent (1 RPC seq/pas). "
+                         "L3 est SESSION-GLOBALE -> lancer SOLO (cf. --l3-force).")
+    ap.add_argument("--l3-force", action="store_true",
+                    help="passer outre le garde-fou --l3 malgre des runners preexistants (danger : "
+                         "crash IL2CPP si un autre agent walke l'IA en parallele).")
     args, extra = ap.parse_known_args(argv)
     if extra and extra[0] == "--":
         extra = extra[1:]
@@ -455,14 +636,29 @@ def main(argv: list[str]) -> int:
     all_records: list = []
     runs: list = []
 
+    # GARDE-FOU --l3 : L3 est SESSION-GLOBALE (hooks sur 41 *Utility.MoveNext du hot-path IA). Si un
+    # AUTRE agent walke l'IA en parallele, ses aiStepDryRun declenchent AUSSI ces hooks -> double
+    # charge hot-path = crash IL2CPP (VECU 2026-07-19 : session perdue). En mode --build, tout runner
+    # preexistant est ETRANGER -> refuser --l3 sauf --l3-force.
+    if args.build and args.l3 and not getattr(args, "l3_force", False):
+        pre = _rpc(sid, "listRunners", [], timeout=10).get("result") or []
+        if pre:
+            ids = [(r.get("runnerId") if isinstance(r, dict) else r) for r in pre]
+            print(f"[stages] REFUS --l3 : {len(pre)} runner(s) preexistant(s) {ids} — L3 est "
+                  f"SESSION-GLOBALE ; un autre agent qui walke l'IA en parallele => crash IL2CPP. "
+                  f"Relance en SOLO (aucun autre runner), ou --l3-force si tu es certain d'etre seul.",
+                  file=sys.stderr)
+            return 2
+
     if args.build:
         for seed in [s.strip() for s in args.seeds.split(",") if s.strip()]:
             rid = _build_runner(seed, extra)
             if rid is None:
                 continue
-            print(f"[stages] seed={seed} runner={rid} steps={args.steps}")
+            print(f"[stages] seed={seed} runner={rid} steps={args.steps}"
+                  + (" +L3" if args.l3 else ""))
             try:
-                out = run_stages(sid, rid, args.steps, wt)
+                out = run_stages(sid, rid, args.steps, wt, l3=args.l3)
                 runs.append({"seed": seed, "rid": rid, **out})
                 all_records += out["stage_records"]
             finally:
@@ -476,8 +672,9 @@ def main(argv: list[str]) -> int:
         if rid is None:
             print("[stages] aucun runner — --runner N ou --build", file=sys.stderr)
             return 2
-        print(f"[stages] session={sid} runner={rid} steps={args.steps}")
-        out = run_stages(sid, rid, args.steps, wt)
+        print(f"[stages] session={sid} runner={rid} steps={args.steps}"
+              + (" +L3" if args.l3 else ""))
+        out = run_stages(sid, rid, args.steps, wt, l3=args.l3)
         runs.append({"rid": rid, **out})
         all_records += out["stage_records"]
 
