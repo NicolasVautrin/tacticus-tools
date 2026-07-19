@@ -41,7 +41,9 @@ import {
 // --- Pathfinder (distance CHEMIN, pour le scoring de move fidèle, doc §13.12) ---
 // `MinDistanceToClosestEnemyUtility.GetMinDistanceToEnemy` mesure une distance de CHEMIN
 // (`Pathfinders.GetPath(...).Count`), PAS la distance hex. On expose donc la distance-chemin
-// par tuile candidate → ennemi le plus proche, pour remplacer hexgeo.distance dans le moteur.
+// par tuile candidate → le `ClosestEnemy` UNIQUE (fidélité #32 : le natif cible l'ennemi le plus
+// proche de la position COURANTE via FindClosestEnemy, PAS le min sur tous les ennemis — cf. la
+// sélection ClosestEnemy dans pathDistToEnemies ci-dessous), pour remplacer hexgeo.distance côté moteur.
 // Champ runner = auto-property `<Pathfinders>k__BackingField` (IPathfinders), PAS `_pathfinders`
 // (ça c'est le Dict interne de la classe Pathfinders). GetPath résolu LAZY depuis la classe
 // runtime de l'instance (robuste à l'assembly) : GetPath(unit, from, to, Nullable<UseTeleporter>)
@@ -521,15 +523,6 @@ export function registerViewBoard(ctx: Ctx): void {
                 return -1;
             }
         };
-        const minToEnemies = (from: NativePointer): number => {
-            let best = -1;
-            for (const et of enemyTiles) {
-                const d = pathLen(from, et);
-                if (d >= 0 && (best < 0 || d < best)) best = d;
-            }
-            return best;
-        };
-
         // Tuiles atteignables (GetMovableTilesFor) + tuile COURANTE (rester sur place).
         const boolBuf = Memory.alloc(1); boolBuf.writeU8(0);
         const optsBuf = Memory.alloc(0x30); for (let k = 0; k < 0x30; k += 4) optsBuf.add(k).writeU32(0);
@@ -545,8 +538,36 @@ export function registerViewBoard(ctx: Ctx): void {
                 tilePtrs.push({ ptr: cur, col: c.col, row: c.row });
             }
         }
-        const tiles = tilePtrs.map((t) => ({ col: t.col, row: t.row, pathDist: minToEnemies(t.ptr) }));
-        return { ok: true, runner: label, unitId: body.unitId, enemyCount: enemyTiles.length, tiles };
+
+        // #32 — FIDELITE MinDistanceToClosestEnemyUtility : le natif ne prend PAS le min sur TOUS les
+        // ennemis. `GetMinDistanceToEnemy @1810f04a0` fait `IterateTiles(closestEnemy)` sur UN SEUL
+        // ennemi = le `ClosestEnemy` precalcule par `MovementActionGenerator.FindClosestEnemy @181197f10`
+        // (l'ennemi le plus proche de la POSITION COURANTE de l'unite, via `GetDistanceToEnemy @1811855e0`).
+        // On reproduit : (1) selectionne le ClosestEnemy = argmin distance-de-chemin depuis la tuile
+        // courante ; (2) mesure chaque tuile candidate vers CET ennemi. L'ancien min-sur-tous ecrasait
+        // le tiebreak MinDist (toutes distances = la plus courte) -> divergence move-pur seed 909
+        // (cf. docs/rl/agreement-stages.md lead 7 : natif MinDist 3/4/5 par tuile, nous 3 partout).
+        let closestTile: NativePointer | null = null;
+        if (cur && !cur.isNull()) {
+            let best = -1;
+            for (const et of enemyTiles) {
+                const d = pathLen(cur, et);
+                if (d >= 0 && (best < 0 || d < best)) { best = d; closestTile = et; }
+            }
+        }
+        const distTo = (from: NativePointer): number => {
+            if (closestTile) return pathLen(from, closestTile);
+            // fallback (pas de tuile courante / aucun chemin depuis cur) : min-sur-tous (etat anterieur)
+            let best = -1;
+            for (const et of enemyTiles) {
+                const d = pathLen(from, et);
+                if (d >= 0 && (best < 0 || d < best)) best = d;
+            }
+            return best;
+        };
+        const tiles = tilePtrs.map((t) => ({ col: t.col, row: t.row, pathDist: distTo(t.ptr) }));
+        return { ok: true, runner: label, unitId: body.unitId,
+            enemyCount: enemyTiles.length, closestResolved: !!closestTile, tiles };
     });
 
 }

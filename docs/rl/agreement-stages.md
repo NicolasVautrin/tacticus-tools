@@ -104,11 +104,42 @@ mécaniquement l'essentiel du positioning.
    sort 1118→77 par ORDRE de tier NC) ; 909 s10 : 1180 HeroicFusillade émise, natif attaque
    (pred quasi égales 1362 vs 1365, cf_nat=90.1). Le playbook NC natif GATE là où le nôtre émet.
 7. **Move pur : le natif ne maximise PAS Tile7+MinDist** — 909, 3/3 move-formula au MÊME
-   pathdist : s04 nat(3,2) tile=15 vs eng(0,3) tile=50 ; s05 nat(5,5) 20 vs eng(6,4) 40 ;
-   s19 nat(4,3) 30 vs eng(4,2) 50. À pathdist égale le natif choisit systématiquement une
-   tuile de tile_composite INFÉRIEUR → soit la feuille distance diffère (MovementSuggestion(32)
-   = [Tile(7), **TileDistance(33)**], pas MinDistanceToClosestEnemy(16) d'UnitMovement(6)),
-   soit le terme Tile est sur-pondéré chez nous. RE ciblé requis (`move.py` porte UnitMovement(6)).
+   pathdist (MinDist IDENTIQUE des deux côtés) : s04 nat(3,2) tile=15 vs eng(0,3) tile=50 ;
+   s05 nat(5,5) 20 vs eng(6,4) 40 ; s19 nat(4,3) 30 vs eng(4,2) 50 — le natif choisit
+   SYSTÉMATIQUEMENT la tuile de Tile(7) INFÉRIEUR à MinDist égal.
+   **❌ Hypothèse « mauvaise feuille distance (TileDistance 33) » RÉFUTÉE par décompilé (2026-07-19)** :
+   `MovementActionGenerator.<GenerateActions>d__6.MoveNext @181199d50` construit
+   `UtilityDefinition((IsTemporary(mainTile)^1)+5)` = **6 = UnitMovement(6) = [Tile(7),
+   MinDistanceToClosestEnemy(16)]** pour une tuile normale (5=UnitMovementFromTemporary si temp),
+   passé au décideur `FUN_1800051a0`. La feuille distance du move-action est BIEN MinDist(16) —
+   notre port est correct. `MovementSuggestion(32)`/`TileDistance(33)` est un AUTRE consommateur
+   (`GetUtility(32)` d'`IdunRunner.Initialize`), PAS le décideur de move-action → ne pas swapper.
+   **✅ RÉSOLU (2026-07-19) via capture L3 `ai-trace` (utility_score par tuile) — c'est le MinDist,
+   pas l'Elevation.** Scores NATIFS par tuile (seed 909) : s5 (5,5) Elev=20/MinDist=**−300** total −280
+   (natif) vs (6,4) Elev=30/MinDist=**−400** total −370 ; s19 (4,3) Elev=30/**−400** −370 (natif) vs
+   (4,2) Elev=50/**−500** −450. Le natif MAXIMISE bien Elev+MinDist — mais son **MinDist DIFFÈRE par
+   tuile** (distances 3/4/5) là où **notre `pathdist_by_pos` les dit toutes = 3** → tiebreak écrasé,
+   on retombe sur l'Elevation. CAUSE RACINE (décompilé `GetMinDistanceToEnemy @1810f04a0`) : le natif
+   `IterateTiles(param_4)` sur **UN SEUL ennemi** = le `ClosestEnemy` du case (précalculé par
+   `MovementActionGenerator.FindClosestEnemy` depuis la position COURANTE de l'unité), min sur les
+   tuiles de CET ennemi ; gates `IsNonAttacking(me)`→0 et `UnitCanBeDamaged(me, closestEnemy)`. Notre
+   RPC `pathDistToEnemies` (rpc-board.ts:524-531) fait **min sur TOUS les ennemis vivants** → sous-
+   estime quand un autre ennemi est plus proche de la tuile candidate. FIX = aligner le RPC sur le
+   natif (distance au ClosestEnemy unique, pas min-sur-tous) → rebuild + reinject. Détail 2ndaire :
+   Elevation native n'applique PAS la pénalité `LowestElevation −5` que nous mettons (native (3,2)=20=
+   10×2, nous 15) — min-référence native sur un set plus large que nos move-tiles. NB : le tool L3
+   (`ai-trace/utilities.ts installL3`, hooke les 41 `*Utility.<EvaluateMovementInSteps>d__N.MoveNext`,
+   capture le Fix64 yieldé + `UtilityMovementCase` tuile) était DÉJÀ déployé, juste `L3=off` par défaut
+   → activé au runtime via RPC `aiTraceEnable("L3")`, events NDJSON dans `frida/data/ai-traces/`, ZÉRO reinject.
+   **FIX PARTIEL (2026-07-19)** : le RPC `pathDistToEnemies` corrigé (ClosestEnemy unique) a **flippé s5**
+   (move-formula 3→2). MAIS la capture L3 des utilités COMPLÈTES révèle un 3ᵉ terme : le composite move
+   `ComposedUtility` = Elevation + TileEffects + **`TriggeredAbilitiesUtility(2)`** + MinDist. On DROP
+   `TriggeredAbilities` à 0 (tile.py:486) alors qu'elle score PAR TUILE et DÉCIDE : s4 (3,2)=Elev20+
+   TileEffects9+**TrigAb30**+MinDist−700=−641 bat (0,3)=Elev50+MinDist−700=−650 ; s19 (4,3)=Elev30+
+   **TrigAb90**+MinDist−400=−280 bat (4,2)=Elev50+TrigAb30+MinDist−500=−420. → **tâche #36** (porter
+   TriggeredAbilitiesUtility comme terme de tuile). NB s19 : notre ClosestEnemy sélectionne encore le
+   mauvais ennemi (nous 3/3 vs natif −400/−500=darkaAsmodai) → raffiner la métrique/filtre de sélection
+   (hex vs chemin ? `IsTargetable`/`GetOnlyTargets` ?) ; avec le bon MinDist seul, s19 flippe déjà.
 8. **Angle mort heal/buff (`non-attack-oracle`)** — 4 paires (1121, 1113, 1163, 1151) + 1202
    inconfrontables : `aiPlaybookPredict` ne décode que les ProbableDamageEvent. Étendre le
    décodeur aux Probable{Heal,Effect}Event (@181135820/@1811359a0, strides différents).
