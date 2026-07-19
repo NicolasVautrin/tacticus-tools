@@ -27,7 +27,8 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
                        steppable_by_pos: dict | None = None,
                        pathdist_by_pos: dict | None = None,
                        is_temporary_by_pos: dict | None = None,
-                       effects_by_pos: dict | None = None) -> tuple:
+                       effects_by_pos: dict | None = None,
+                       leaf_ctx: dict | None = None) -> tuple:
     """Move scoring FIDÈLE — décideur **UnitMovement(6) = Tile(7) + MinDistanceToClosestEnemy(16)**
     (composition LUE runtime, doc §13.8/13.11). `U(tuile) = tile_composite(Tile(7)) + wMin×d`.
     PAS de `MaxDistanceToEnemies` (dans AUCUN composite) ni `MaxDistanceToUnitTile` (seulement
@@ -37,7 +38,9 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
     si `pathdist_by_pos` (RPC `pathDistToEnemies`) est fourni, on l'utilise ; sinon fallback hex
     (approximation). `elev_by_pos` = `{(col,row): elevation}` (RPC tileMeta) ; max/min sur les
     tuiles candidates (= `LoadRelevantTileElevations`). `is_temporary_by_pos` = `{(col,row): bool}`
-    (tileMeta.isTemporary) → leaf TemporaryTile(13) (-10000 sur tuile temporaire). Renvoie ((col,row)|None, util).
+    (tileMeta.isTemporary) → leaf TemporaryTile(13) (-10000 sur tuile temporaire). `leaf_ctx` = le dict
+    `ctx` PAR-DÉCISION des feuilles Tile(7) (`unit_triggered_abilities` + `friend_positions` → feuille
+    TriggeredAbilities(2), case-36). Renvoie ((col,row)|None, util).
     """
     if not enemy_positions:
         return None, None
@@ -60,7 +63,7 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
             meta["effects"] = effects_by_pos[c]   # feuille TileEffects (Thorns/Fire/... via tileMeta)
         # UnitMovement(6) = Tile(7) [canal tile] + MinDistanceToClosestEnemy(16) [canal mouvement].
         # MinDist gère lui-même distance CHEMIN (si dispo) vs hex (fallback) — corps dans la feuille.
-        tile_u = 0.0 if tile_off else tile_composite(c, meta, {}, wt)
+        tile_u = 0.0 if tile_off else tile_composite(c, meta, leaf_ctx or {}, wt)
         mindist_u = MIN_DIST_UTILITY.evaluate_movement(c, enemy_positions, wt, pathdist_by_pos)
         u = tile_u + mindist_u
         if bu is None or u > bu:

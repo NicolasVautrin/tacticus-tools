@@ -32,15 +32,17 @@ quand la donnée manque — c'est EXACTEMENT la dégradation native (la conditio
 
 `ctx` (PAR UNITÉ/DÉCISION, constant sur toutes les tuiles d'une décision) — clés consommées :
   unit_traits : [int]                 (2 summon, 5, 13, 16 hero, 26, 1006, 1019, 2026 …)
-  unit_triggered_abilities : [int]    (1120 SaviorProtocols, 1221 MoltenForm …)
+  unit_triggered_abilities : [int]    (1120 SaviorProtocols, 1221 MoltenForm, 1181 GuardianOrganism …)
   unit_faction : int                  (9 T'au-style, 15 GSC-style …)
+  friend_positions : [(col,row)]      (allies vivants self-exclu = ctx.fpos — TriggeredAbilities(2))
   unit_has_ranged_weapon : bool ; unit_is_ai : bool ; player_door_mode : int ; contaminated_excluded : bool
 
 Statut de portage (cf. docs/rl/playbook-engine.md §13.8/§13.14) :
-- ACTIVES (metadata dispo) : Elevation(8), SteppableUnit(19), TileEffects(9, partiel), TemporaryTile(13).
+- ACTIVES (metadata dispo) : Elevation(8), SteppableUnit(19), TileEffects(9, partiel), TemporaryTile(13),
+  TriggeredAbilities(2) (dispatcher playbook, case-36 — via ctx.unit_triggered_abilities/friend_positions).
 - PORTÉES FIDÈLE mais DORMANTES (gate sur metadata non encore plombée → 0) : les 22 autres `*Utility`.
-- NON portées comme simples leaves : RangedAdjacentEnemy(15)=0 dans Default ; TriggeredAbilities(2)/
-  NonOwner(4)/UnitSpecificBehaviours(3) = dispatchers vers le moteur Playbook par-ability (séparé).
+- NON portées comme simples leaves : RangedAdjacentEnemy(15)=0 dans Default ; TriggeredAbilitiesNonOwner(4)/
+  UnitSpecificBehaviours(3) = dispatchers restants du moteur Playbook (séparé).
 """
 from __future__ import annotations
 
@@ -449,6 +451,32 @@ class MasterOfTheTutelaries_MoveTowardsTargetUtility(MoveTowardsUnitUtility):
     _TRAIT_GATE = {2026, 1019}
 
 
+class TriggeredAbilitiesUtility(BaseUtility):
+    """`TriggeredAbilitiesUtility` (`.ctor @1810f32c0` ; UtilityType.TriggeredAbilities=2) ;
+    `<EvaluateMovementInSteps>d__2.MoveNext @1810fda80` : DISPATCHER — itère les abilities DE L'UNITÉ
+    QUI BOUGE (`case.unit@0x10` → AbilitiesComponent), `PlaybookDatabase.LoadPlaybook(abilityType)
+    @1810dfd10` (singleton par type, null → skip), Σ des `CalculateMovementUtilityInSteps` (famille
+    `AdjacentUnitPreferenceTriggeredAbilityPlaybook` : `engine/playbook/adjacent_unit_preference.py`).
+    `ctx.unit_triggered_abilities` (kit passif du mover — `triggered_ability_ids(visualId)`) +
+    `ctx.friend_positions` (allies vivants self-exclu = `ctx.fpos`). Cf. case-36 (909 s4/s19 : 30/90)."""
+    UTILITY_TYPE = int(UtilityType.TriggeredAbilities)  # 2
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        ab_ids = (ctx or {}).get("unit_triggered_abilities") or ()
+        friends = (ctx or {}).get("friend_positions") or ()
+        if not ab_ids or not friends:
+            return 0.0
+        # Import paresseux : utilities.tile est importé par engine.playbook.base — l'import module-level
+        # inverse (tile -> playbook) bouclerait.
+        from ..playbook.adjacent_unit_preference import load_playbook
+        total = 0.0
+        for ab in ab_ids:
+            pb = load_playbook(ab)
+            if pb is not None:
+                total += pb.calculate_movement_utility_in_steps(tile, friends, wt)
+        return total
+
+
 # ── Registry : UtilityType -> (name, instance|None). None => délégué/non-portable comme simple leaf. ──
 TILE_LEAVES: dict[int, tuple] = {
     # --- ACTIVES (metadata dispo aujourd'hui) ---
@@ -478,12 +506,13 @@ TILE_LEAVES: dict[int, tuple] = {
     22: ("SaviorProtocols", SaviorProtocolsUtility()),
     61: ("BioMinefield_MoveTowardsTarget", BioMinefield_MoveTowardsTargetUtility()),
     62: ("MasterOfTheTutelaries_MoveTowardsTarget", MasterOfTheTutelaries_MoveTowardsTargetUtility()),
+    # --- Dispatcher playbook PORTÉ (case-36) : abilities déclenchées de l'unité qui bouge ---
+    2:  ("TriggeredAbilities", TriggeredAbilitiesUtility()),
     # --- NON portées comme simples leaves ---
     15: ("RangedAdjacentEnemy", None),       # =0 dans le profil Default (BC HasAdjacentEnemy absent)
-    # 2/3/4 = dispatchers vers le moteur Playbook PAR-ABILITY (LoadPlaybook/LoadPlaybookNonOwner ;
-    # somme des playbooks par unit/ability/behaviour) — workstream Playbook séparé, pas un simple
-    # terme de tuile. Restent 0 ici (cf. §13.14 + project_playbook_engine).
-    2:  ("TriggeredAbilities", None),
+    # 3/4 = dispatchers vers le moteur Playbook (LoadPlaybookNonOwner / behaviours par-unité) —
+    # restent 0 (cf. §13.14 + project_playbook_engine). NonOwner(4) : face d__2 @18134f250 non portée
+    # (=0 observé 909 ; config `TriggeredAbilitiesNonOwner`, 25 clés).
     4:  ("TriggeredAbilitiesNonOwner", None),
     3:  ("UnitSpecificBehaviours", None),
 }

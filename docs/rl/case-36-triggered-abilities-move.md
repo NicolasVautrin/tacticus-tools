@@ -1,6 +1,9 @@
 # Case #36 — TriggeredAbilitiesUtility(2) comme terme de tuile move
 
-**Statut : RE fait (nature établie), port NON commencé. Reclassé : playbook-dispatch, pas une feuille.**
+**Statut : ✅ RÉSOLU + PORTÉ (2026-07-19). Voir « RÉSOLUTION FINALE » en bas — le modèle correct est
+« abilities déclenchées DU MOVER » (GuardianOrganism du TyrantGuard), PAS « carriers adjacents ».
+Les sections intermédiaires (driver 909, carriers, contradiction) sont l'HISTORIQUE d'investigation ;
+leurs modèles sont SUPERSÉDÉS par la résolution.**
 
 ## Symptôme (agreement move-pur, seed 909)
 
@@ -153,3 +156,183 @@ memory `feedback_l3_session_global_crash`).
 - iface `ITriggeredAbilityPlaybook` (DAT_1831e7018 / DAT_1831ebb60) méthode 2 = `CalculateMovementUtilityInSteps`
 - `TriggeredAbilityPlaybook.CalculateMovementUtilityInSteps @18150f630`
 - `AdjacentUnitPreferenceTriggeredAbilityPlaybook.<...>d__1.MoveNext @18134eb30`
+
+## MAJ 2026-07-19 (RE reprise EN DIRECT par l'orchestrateur — l'agent re-expert delegue est MORT, transcript 0 octet)
+
+**CORRECTION MAJEURE du modele "30 flat" ci-dessus : le poids est une CONFIG BC PAR-COMPORTEMENT, pas un 30 constant.**
+
+### Source du poids = CONFIG (preuve config trouvee — resout le no-fit-scalaire)
+
+`Utilities.Default.TriggeredAbilities` (dans la BC, ex. `data/seed-bc.json`) = **dict de 107 poids nommes
+par-comportement**, valeurs 5..100. Exemples : `RITESOFBATTLE_AdjacentFriend=10`, `INSPIRINGPRESENCE_AdjacentFriend=10`,
+`FABRICATORCLAWARRAY_AdjacentFriend=30`, `SWEEPINGBLOW_AdjacentEnemy=40`, `NOMNOM_LikesAdjacentEnemySummon=100`.
+=> Le leaf lit `wt.category("TriggeredAbilities")[<behaviourKey>]` (meme pattern que les feuilles UnitEffects*
+qui lisent deja `wt.category("UnitEffectsAdjacent")`). Le "30" observe = le poids config de CES comportements,
+**PAS un constant a hardcoder** ; d'autres comportements valent 5/10/15/20/40/50/100.
+
+### Adjacence = BattleQuery (confirme)
+
+`getAdjacentUnits(tile)` = `BattleQuery.GetAdjacentUnits @18105bca0` (rayon 1) ; `getSurroundingUnits` =
+`GetSurroundingUnits @181068880` (rayon 2). Boucles `Min(count, cap)` ; caps = getters vtbl (0x228/0x238).
+
+### Ground truth L3 (trace `40-...305Z.jsonl`, 13928 events TriggeredAbilities)
+
+- Playbooks OBSERVES pour le roster 909 : **`MartialInspirationPlaybook`, `MightFromBelowPlaybook`** (+ `Loki_NormalAttackPlaybook`).
+  Confirme que MartialInspiration(1191) et MightFromBelow(1165) SONT des carriers AdjacentUnitPreference.
+- Total DISPATCHER par-tuile (evt `ability=None playbook=None`) pour **u89 tyranTyrantGuard** : **(3,2)=30** (winner s4),
+  (2,2)=30. Coherent avec le case ci-dessus (s4 TrigAb=30).
+- Autres movers : `custoBladeChampion` (ability=`ForHonor`) score 10/20/30/60 sur SES propres tuiles ; `adeptHospitaller`
+  45/30/15 ; `deathPutrifier` 15/30. => les poids VARIENT (multiples/sommes de poids config par-comportement).
+- **`VigilanceEternalPlaybook` ABSENT du top-40 combos** => l'attribution 1202 du case ci-dessus est INCERTAINE
+  (a re-verifier ; 1202 n'est peut-etre pas un AdjacentUnitPreference, ou apparait tres rarement).
+
+### BLOCKER pour le PORT (ce qui reste, non trivial)
+
+Le **behaviourKey config par ability est OPAQUE** : (a) PAS derivable du nom (les cles sont des noms de COMPORTEMENT
+`RITESOFBATTLE_*`, pas les noms d'ability ; `MARTIALINSPIRATION`/`MIGHTFROMBELOW`/`VIGILANCEETERNAL` ABSENTS des 107 cles) ;
+(b) PAS dans le gameconfig (la def d'ability n'a aucun champ playbook/utility) ; (c) donc **baked dans la sous-classe
+native du playbook** (`MartialInspirationPlaybook`, `MightFromBelowPlaybook`, ...) qui passe une string au lookup config.
+
+=> **Port fidele bloque sur** : RE ghidra PAR-PLAYBOOK de chaque carrier (`MartialInspirationPlaybook` etc.) pour
+extraire la **string de cle config** exacte (donc le poids exact), + confirmer/infirmer 1202. Tant que ce map
+`ability -> behaviourKey` n'est pas etabli, le leaf ne peut PAS lire le bon poids (et le "30 flat" serait un fit,
+interdit). C'est la vraie piece lourde restante — candidate re-expert/fable-solver (le 1er agent delegue est mort).
+
+### Carriers CORRIGES + ctors (RE 2026-07-19)
+
+- **`VigilanceEternalPlaybook` @181180050 a `EvaluateNonComparable @18117fae0`** => c'est un playbook **NonComparable**,
+  PAS un carrier AdjacentUnitPreference de mouvement. **1202 est RETIRE des carriers #36** (l'attribution du case
+  ci-dessus etait fausse). Les carriers reels du roster 909 = **MartialInspiration(1191) + MightFromBelow(1165)** SEULEMENT.
+- Ctors (decompile) : `MightFromBelowPlaybook..ctor @18114bf20` = `ComparablePlaybook..ctor(this, 0x48d=1165, DAT_18321c880)` ;
+  `MartialInspirationPlaybook..ctor @18114b2a0` = `ComparablePlaybook..ctor(this, 0x4a7=1191, DAT_18321c740)`.
+  => ces playbooks etendent **ComparablePlaybook** (le playbook du CAST actif de l'ability). Le 3e param (statique
+  `DAT_18321c880`/`DAT_18321c740`) est le candidat cle-config / type — **a resoudre via lecture du slot statique**
+  (couche suivante). NB relation a clarifier : ComparablePlaybook (cast) vs `AdjacentUnitPreferenceTriggeredAbilityPlaybook`
+  (le mouvement-utility charge par `LoadPlaybook` dans le dispatcher) — le trace L3 nomme `MartialInspirationPlaybook`
+  sur les events TriggeredAbilities, donc le lien passe par ce playbook (composition ou base commune ITriggeredAbilityPlaybook).
+- VAs ajoutees : `MightFromBelowPlaybook..ctor @18114bf20` · `MartialInspirationPlaybook..ctor @18114b2a0` /`.cctor @18114b230`
+  · `VigilanceEternalPlaybook..ctor @181180050` /`EvaluateNonComparable @18117fae0` · `BattleQuery.GetAdjacentUnits @18105bca0`
+  /`GetSurroundingUnits @181068880`.
+
+### ⚠ CONTRADICTION NON RESOLUE (le modele n'est PAS self-consistant) — STOP RE offline
+
+Retirer 1202 CASSE l'arithmetique s19 du case ci-dessus :
+- s19 (4,3)=90 exigeait 3 carriers adjacents (u87 MI + u91 MFB + **u95 VigilanceEternal**) x30. Sans u95 => 2 carriers => 60, pas 90.
+- s19 (4,2)=30 etait attribue a "u95 seul". Sans u95 carrier => (4,2) devrait etre 0, pas 30.
+
+Donc AU MOINS une hypothese est fausse parmi : (a) poids flat-30 (peut varier : MI=?, MFB=?, un 3e=?), (b) le set
+de carriers, (c) "1202 pas un carrier" (VigilanceEternal a un cast NonComparable MAIS pourrait AUSSI porter un
+comportement triggered AdjacentUnitPreference SEPARE — un ability peut avoir un behaviour triggered independant de son
+playbook de cast). Le gameconfig ne relie PAS ability->behaviourKey ; les defs d'ability sont des configs d'ATTAQUE
+(minDmg/nrOfHits), aucun champ playbook/utility/behaviour.
+
+**=> La resolution fidele necessite soit (1) un PROBE LIVE lisant les sous-scores TriggeredAbilities PAR-CARRIER a
+s19 (split du 90) + le weight-field de chaque `AdjacentUnitPreferenceTriggeredAbilityPlaybook` instance, soit (2) une
+RE de la REGISTRATION triggered-behaviour->config-key (couche non atteinte). PAS un port a l'aveugle.** Cas dur
+multi-couches a verdicts qui se retournent (flat-30 -> config-par-behaviour -> carrier corrige -> contradiction s19)
+=> candidat **fable-solver** (ou re-expert frais avec mandat PROBE LIVE). Findings persistes ; port NON fait.
+
+*(NB : les deux options ci-dessus se sont averees inutiles — la contradiction est tombee par pur decompile,
+voir la RESOLUTION FINALE ci-dessous.)*
+
+## ✅ RÉSOLUTION FINALE (2026-07-19, décompile pur — AUCUN reinject)
+
+### Le modèle correct : les abilities déclenchées DU MOVER, pas des « carriers adjacents »
+
+Le dispatcher `TriggeredAbilitiesUtility.<EvaluateMovementInSteps>d__2.MoveNext @1810fda80` itère
+**les abilities de L'UNITÉ QUI BOUGE** (`case.unit@0x10` → GetComponent(AbilitiesComponent) → collection
+@0x18), PAS les amis porteurs. Par ability : `PlaybookDatabase.LoadPlaybook @1810dfd10` =
+**singleton PAR TYPE d'ability** (cache dict@0x90 + factories dict@0x88 — les 190 lambdas
+`InitializePlaybookBuilders`), null → skip, sinon `Σ ITriggeredAbilityPlaybook.CalculateMovementUtilityInSteps`.
+
+Corps commun `AdjacentUnitPreferenceTriggeredAbilityPlaybook.<CalculateMovementUtilityInStepsInternal>
+d__1.MoveNext @18134eb30` (lecture propre, les « MethodInfo slots » résolus) :
+
+```
+owner    = case.unit@0x10 ; playerId = OwnerComponent.get_CurrentPlayerEntityId(owner)
+adjacent = IBattleQuery.<slot 0x81>(caseTile=case@0x18, playerId)  MINUS ToArray(self)   # amis R1
+n1       = Min(count(vtbl+0x248 filtre), vtbl+0x228 cap)
+val      = Σ_{i<n1} vtbl+0x208 weightAdjacent(u_i, ctx)
+surround = IBattleQuery.<slot 0x7d>(caseTile, playerId, 0)                               # amis R2
+n2       = Min(count(vtbl+0x258 filtre), vtbl+0x238 cap)
+val     += Σ_{i<n2} vtbl+0x218 weightSurrounding(u_i, ctx)
+yield Fix64.FromInt(val)
+```
+
+Les ~25 concrets (`RitesOfBattlePlaybook`, `FabricatorClawArrayPlaybook`, `GuardianOrganismPlaybook`,
+`DrawFirePlaybook`, … base intermédiaire `AdjacentToOwnerNonOwnerPlaybook<T>..ctor @1813824d0`)
+overrident `GetAdjacentFriendUtility`/`GetAdjacentEnemyUtility` = **lookup config plat, l'unité passée
+est IGNORÉE** : `GuardianOrganismPlaybook.GetAdjacentFriendUtility @181166df0` invoque le délégué de
+lookup (l'arg ctx du dispatcher = `utility@0x58`) avec la string-slot `DAT_183267540` →
+`Utilities.Default.TriggeredAbilities["GuardianOrganism_AdjacentFriend"]` **= 30 (BC)**.
+
+### Pourquoi 909 s4/s19 : GuardianOrganism = le passif du TYRANT GUARD (le mover !)
+
+`GuardianOrganismPlaybook..ctor @181166e50` = base(0x49d=**1181** = `TriggeredAbilityType.GuardianOrganism`) ;
+gameconfig : `tyranTyrantGuard` = actif CrushingClaws(1105) + **passif GuardianOrganism**. Donc :
+
+**TrigAb(2) du move de u89 = 30 × #amis-vivants-adjacents-à-la-tuile (self exclu).**
+
+- s19 (4,3) : u87+u91+u95 adjacents → 3×30 = **90** ✓ · (4,2) : u95 seul → **30** ✓ · (3,4) : u87 seul → **30** ✓
+- s4 (3,2) : u87 seul → **30** ✓ · (0,3) : 0 → **0** ✓  (5/5 points L3 exacts, check offline)
+
+### Pourquoi la contradiction était un ARTEFACT (leçon)
+
+L'ancien modèle « Σ carriers {1191,1165,1202} adjacents × 30 » collait s4/s19 par **coïncidence
+géométrique** : à ces tuiles, les amis adjacents ÉTAIENT justement u87/u91/u95. « Retirer 1202 des
+carriers » cassait l'arithmétique parce que le modèle carrier lui-même était faux — u95 comptait comme
+*ami adjacent*, pas comme *carrier*. MartialInspiration/MightFromBelow/VigilanceEternal sont les
+playbooks de CAST de u87/u91/u95 (chargés quand EUX bougent) — hors sujet pour le move de u89.
+La clé qui a tout débloqué : lire le champ `case@0x10` du d__1 (= l'ENTITÉ mover, dont on tire
+`OwnerComponent.CurrentPlayerEntityId`) au lieu de présumer le sélecteur « amis porteurs ».
+
+### Structure du composite (trace L3, parents reconstruits)
+
+Le composite move (`ComposedUtility#0/#4`) contient UNE `TriggeredAbilitiesUtility` (la feuille 2) +
+UNE `TriggeredAbilitiesNonOwnerUtility` (feuille 4, config séparée `TriggeredAbilitiesNonOwner` 25 clés,
+`IterateAbilities @1810f2fb0` → tuples `(ITriggeredAbilityNonOwnerPlaybook, IEntity owner)`, face
+d__2 @18134f250 = poids unique gaté « tuile adjacente au porteur ») — **=0 partout sur 909**, non portée.
+Les instances `#1/#2/#5/#6` taguées `ab=ForHonor` sont d'AUTRES composites (contexte ability), pas le move.
+
+### PORT (fait, 2026-07-19)
+
+- `engine/playbook/adjacent_unit_preference.py` (NOUVEAU) : base `AdjacentUnitPreferenceTriggeredAbilityPlaybook`
+  (Σ R1/R2, mirror d__1) + `AdjacentToOwnerNonOwnerPlaybook` + `GuardianOrganismPlaybook` (clé
+  `GuardianOrganism_AdjacentFriend`) + registre `TRIGGERED_MOVE_PLAYBOOKS` / `load_playbook` (mirror LoadPlaybook).
+- `engine/utilities/tile.py` : feuille `TriggeredAbilitiesUtility` (dispatcher @1810fda80) branchée à
+  `TILE_LEAVES[2]` ; consomme `ctx.unit_triggered_abilities` + `ctx.friend_positions`.
+- `engine/entities/triggered_ability_type.py` : `triggered_ability_ids(visualId)` (gameconfig
+  `passiveAbilities` → enum) — source offline de l'AbilitiesComponent.
+- `engine/ai/action_generators.py` : `tile_leaf_ctx(ctx)` (kit passif mover + `ctx.fpos`) passé par
+  `MovementActionGenerator` → `best_move_faithful(..., leaf_ctx=)` (`engine/move.py`).
+- `engine_agreement_stages.py` : `_move_utils` passe le même leaf_ctx ; LEVER 1 réécrit sur le modèle
+  correct (suspect = passif du mover à clé config `<NOM>_Adjacent*` NON portée), l'ancien set
+  {1191,1165,1202} supprimé.
+
+Restant hors-scope (étendre quand un case le montre décisif) : les ~24 autres concrets
+`GetAdjacent{Friend,Enemy}Utility` (3 lignes chacun), la face NonOwner(4), les caps vtbl+0x228/0x238
+(gshared non symbolisés, jamais liants observés — max 3 amis adjacents).
+
+### VALIDATION (offline + LIVE, 2026-07-19)
+
+- **Offline** : 5/5 points L3 exacts — s19 (4,3)=90 / (4,2)=30 / (3,4)=30, s4 (3,2)=30 / (0,3)=0
+  (leaf + kit helper + poids config, aucun fit).
+- **LIVE (walk stages 909, 20 pas, runner 3)** : **s19 u89 → (4,3) EXACT** (le miss phare TrigAb=90
+  est fermé). Move 12/16 (les 3 autres = pos-downstream-of-ability, hors move-pur).
+- **s4 u89 reste move-formula** mais ce N'EST PLUS TrigAb : notre (3,2) tile=45 INCLUT le +30
+  (20 élév − 5 + 30) ; le résiduel vs natif (59) = 2 gaps PRÉ-EXISTANTS d'autres feuilles →
+  **tâche #37** : (1) TileEffects LightCover=9 non alimenté par tileMeta ; (2) Elevation :
+  LowestElevation (−5) appliqué à tort (notre min = candidates ; le set natif
+  `LoadRelevantTileElevations` contient une élévation plus basse — origine ?). Les deux corrigés,
+  (3,2) = −641 > (0,3) = −650 → s4 fermera.
+
+### VAs (résolution)
+
+- `TriggeredAbilitiesUtility.<EvaluateMovementInSteps>d__2.MoveNext @1810fda80` (dispatcher, abilities du mover)
+- `PlaybookDatabase.LoadPlaybook @1810dfd10` (singleton par ability-type ; factories dict@0x88, cache dict@0x90)
+- `AdjacentUnitPreferenceTriggeredAbilityPlaybook.<CalculateMovementUtilityInStepsInternal>d__1.MoveNext @18134eb30`
+- `AdjacentToOwnerNonOwnerPlaybook<T>..ctor @1813824d0` · face NonOwner `<CalculateMovementUtilityInSteps>d__2 @18134f250`
+- `GuardianOrganismPlaybook..ctor @181166e50` (ability 0x49d=1181) · `GetAdjacentFriendUtility @181166df0`
+  (lookup `DAT_183267540` = "GuardianOrganism_AdjacentFriend")
+- Famille concrète (extension future) : `RitesOfBattlePlaybook$$GetAdjacentFriendUtility @181187d70`,
+  `FabricatorClawArrayPlaybook @181165af0`, `DrawFirePlaybook @1811652f0`, `DeathwingPlaybook @181165080`, …

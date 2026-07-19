@@ -66,6 +66,7 @@ from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK  # noqa: E402
 from engine.utilities import damage_composite, tile_composite  # noqa: E402
 from engine.utilities.move import MIN_DIST_UTILITY  # noqa: E402
 from engine.ai import context as _ai_ctx  # noqa: E402
+from engine.ai.action_generators import tile_leaf_ctx  # noqa: E402  (feuille TriggeredAbilities(2), case-36)
 import engine_validate as EV  # noqa: E402  (run_agreement = SOURCE UNIQUE du walk)
 
 PYDIR = Path(__file__).resolve().parent
@@ -78,19 +79,19 @@ STATE = ROOT / "data" / "_stages_duel_state.json"
 # Une feuille droppée à 0 (utilities/tile.py TILE_LEAVES = None) ne peut donc jamais apparaître
 # comme coupable → un `move-formula` est ambigu (formule fausse VS terme absent). Deux leviers :
 #
-# LEVER 1 (précondition OFFLINE, coût zéro, aucune capture) : abilities de la famille
-# `AdjacentUnitPreferenceTriggeredAbilityPlaybook` CONFIRMÉES (case-36) — un ami porteur ADJACENT
-# à la tuile candidate ajoute ~30 au terme move `TriggeredAbilities(2)` qu'on drop. Set EXTENSIBLE
-# (sous-ensemble PROUVÉ ; élargir en énumérant la famille via ghidra/gameconfig).
-ADJ_PREF_TRIGGER_ABILITIES = {
-    1191,   # MartialInspiration (custoBladeChampion)
-    1165,   # MightFromBelow    (genesPatriarch)
-    1202,   # VigilanceEternal  (custoKyrus)
-}
-_ADJ_PREF_EST_PER_FRIEND = 30   # valeur empirique/ami (case-36 : 30x1=30, 30x3=90) — ESTIMATION, pas hardcode de fidélité
+# LEVER 1 (précondition OFFLINE, coût zéro, aucune capture) — modèle CORRIGÉ case-36 : le terme move
+# `TriggeredAbilities(2)` = Σ sur les abilities DÉCLENCHÉES DU MOVER des playbooks
+# `AdjacentUnitPreferenceTriggeredAbilityPlaybook` (poids config `TriggeredAbilities[<NOM>_Adjacent*]`
+# × #amis adjacents à la tuile candidate). Les types ENREGISTRÉS (`engine/playbook/
+# adjacent_unit_preference.TRIGGERED_MOVE_PLAYBOOKS`) sont désormais CALCULÉS par la feuille portée ;
+# le suspect restant = un passif du mover dont une clé config `<NOM>_Adjacent*` existe mais dont le
+# playbook n'est PAS ENCORE porté (~24 concrets restants) — `_suspect_trigger` le nomme + chiffre.
+# (L'ancien set {1191,1165,1202} « carriers adjacents » était un FAUX modèle — coïncidence géométrique
+# 909 s4/s19 : les amis adjacents à ces tuiles étaient justement ces 3 porteurs. Cf. case-36 résolution.)
 
-# LEVER 3 (diff L3 natif ↔ offline) : mots-clés des feuilles move qu'on DROP à 0 (TILE_LEAVES=None).
-# Un score natif L3 non nul dont le NOM matche = terme MANQUANT nommé automatiquement.
+# LEVER 3 (diff L3 natif ↔ offline) : mots-clés des feuilles move qu'on DROP à 0 (TILE_LEAVES=None)
+# ou qu'on ne couvre que PARTIELLEMENT (TriggeredAbilities : seuls les playbooks enregistrés comptent).
+# Un score natif L3 non nul dont le NOM matche = terme MANQUANT/PARTIEL nommé automatiquement.
 _DROPPED_LEAF_KEYWORDS = ("Triggered", "UnitSpecificBehaviour", "RangedAdjacentEnemy")
 TRACES_DIR = ROOT / "frida" / "data" / "ai-traces"   # host cwd = frida/ (cf. ai-trace-store)
 
@@ -269,6 +270,7 @@ class StageProbe:
         elevs = [ctx.elev_by_pos.get(c) for c in coords]
         elevs = [e for e in elevs if e is not None]
         emax, emin = (max(elevs), min(elevs)) if elevs else (None, None)
+        leaf_ctx = tile_leaf_ctx(ctx)   # TriggeredAbilities(2) : kit passif mover + fpos (case-36)
         out = {}
         for c in tiles:
             e = ctx.elev_by_pos.get(c)
@@ -278,7 +280,7 @@ class StageProbe:
                 meta["is_temporary"] = ctx.is_temporary_by_pos[c]
             if c in ctx.effects_by_pos:
                 meta["effects"] = ctx.effects_by_pos[c]
-            tile_u = tile_composite(c, meta, {}, ctx.wt)
+            tile_u = tile_composite(c, meta, leaf_ctx, ctx.wt)
             mind_u = MIN_DIST_UTILITY.evaluate_movement(c, ctx.epos, ctx.wt,
                                                         ctx.pathdist_by_pos)
             out[c] = {"tile": round(tile_u, 3), "mindist": round(mind_u, 3),
@@ -360,36 +362,49 @@ class StageProbe:
 
     # ---- LEVER 1 : précondition offline « terme TriggeredAbilities suspect » (sans capture) ----
     def _suspect_trigger(self, ctx, uid: int, nat_to, eng_to) -> dict | None:
-        """Un ami (même team, vivant, != acteur) porteur d'une ability AdjacentUnitPreference
-        (case-36) ADJACENT à la tuile candidate ajoute ~30 au terme move TriggeredAbilities(2)
-        qu'on DROP à 0. Si strictement PLUS d'amis adjacents à la tuile NATIVE qu'à la nôtre →
-        le miss move est expliqué par ce terme manquant (heuristique, nomme le suspect au walk)."""
+        """Modèle CORRIGÉ case-36 : le terme move TriggeredAbilities(2) appartient au MOVER (Σ de SES
+        playbooks AdjacentUnitPreference × amis adjacents à la tuile). Les types portés
+        (TRIGGERED_MOVE_PLAYBOOKS) sont calculés par la feuille → plus suspects. Reste suspect : un
+        passif du mover dont une clé config `TriggeredAbilities[<NOM>_Adjacent*]` existe mais dont le
+        playbook n'est pas porté → est_delta = Σ poids × (amis adj nat − eng)."""
         if eng_to is None or nat_to is None:
             return None
         me = next((u for u in ctx.units if u.get("id") == uid), None)
         if me is None:
             return None
+        from engine.playbook.adjacent_unit_preference import TRIGGERED_MOVE_PLAYBOOKS
+        from engine.entities.triggered_ability_type import TriggeredAbilityType
+        import gameconfig as GC
+        ta = ctx.wt.category("TriggeredAbilities")
+        unported = []          # [(passif, clé config, poids)]
+        for a in (GC.unit_abilities(me.get("visualId") or "").get("passive") or []):
+            nm = a.get("name") or ""
+            m = TriggeredAbilityType.__members__.get(nm)
+            if m is not None and int(m) in TRIGGERED_MOVE_PLAYBOOKS:
+                continue       # porté → calculé par la feuille TriggeredAbilitiesUtility
+            for k, v in ta.items():
+                if v and k.split("_")[0].lower() == nm.lower() and "adjacent" in k.lower():
+                    unported.append((nm, k, v))
+        if not unported:
+            return None
         team = me.get("team")
 
-        def carriers_adjacent(tile):
-            who = []
+        def friends_adjacent(tile):
+            n = 0
             for u in ctx.units:
                 if (not u.get("alive")) or u.get("team") != team or u.get("id") == uid:
                     continue
-                ids = [(a.get("id") if isinstance(a, dict) else a) for a in (u.get("abilities") or [])]
-                if not any(i in ADJ_PREF_TRIGGER_ABILITIES for i in ids):
-                    continue
                 p = u.get("pos") or {}
                 pc = (p.get("col"), p.get("row"))
-                if pc[0] is not None and hexgeo.distance(pc, tile) <= 1:
-                    who.append(u.get("id"))
-            return who
+                if pc[0] is not None and hexgeo.distance(pc, tile) == 1:
+                    n += 1
+            return n
 
-        who_nat, who_eng = carriers_adjacent(nat_to), carriers_adjacent(eng_to)
-        if len(who_nat) > len(who_eng):
-            return {"term": "TriggeredAbilities:AdjacentUnitPreference",
-                    "nat_adj": who_nat, "eng_adj": who_eng,
-                    "est_delta": _ADJ_PREF_EST_PER_FRIEND * (len(who_nat) - len(who_eng))}
+        d = friends_adjacent(nat_to) - friends_adjacent(eng_to)
+        if d > 0:
+            return {"term": "TriggeredAbilities:AdjacentUnitPreference(unported)",
+                    "mover_passives": [f"{nm}:{k}={v}" for (nm, k, v) in unported],
+                    "est_delta": sum(v for (_, _, v) in unported) * d}
         return None
 
     # ---- LEVER 3 : diff L3 natif ↔ offline (feuilles move par-tuile, fenêtre seq de ce pas) ----

@@ -53,6 +53,7 @@ from engine.predict import (repair_utility,            # RepairedAmountUtility (
                             heal_utility)             # HealUtility — terme lifesteal SpiritLeech (#84)
 from engine.entities.stats import StatType, StatPart   # Attack INITIALE de la cible (magnitude #85)
 from engine.entities.effect_type import EffectType     # #158 : ids d'effet -> enum natif
+from engine.entities.triggered_ability_type import triggered_ability_ids   # kit passif -> TriggeredAbilities(2) (case-36)
 from engine.entities.effects.magnitude import ability_var   # maxDmg/dmgPct GalvanicField (#85)
 from engine.ai.bucket import Action, Bucket
 
@@ -531,5 +532,14 @@ class MovementActionGenerator(ActionGenerator):
         move_to, move_util = move.best_move_faithful(
             ctx.move_tiles, ctx.elev_by_pos, ctx.epos, ctx.wt,
             pathdist_by_pos=ctx.pathdist_by_pos,
-            is_temporary_by_pos=ctx.is_temporary_by_pos, effects_by_pos=ctx.effects_by_pos)
+            is_temporary_by_pos=ctx.is_temporary_by_pos, effects_by_pos=ctx.effects_by_pos,
+            leaf_ctx=tile_leaf_ctx(ctx))
         return {"kind": "move", "to": move_to, "util": move_util}
+
+
+def tile_leaf_ctx(ctx) -> dict:
+    """Dict `ctx` PAR-DÉCISION des feuilles Tile(7) depuis l'`AiDecisionContext` — feuille
+    TriggeredAbilities(2) (case-36) : kit passif du mover (dispatcher `@1810fda80` sur l'Abilities-
+    Component) + allies vivants self-exclu (adjacence R1/R2 de la tuile candidate)."""
+    return {"unit_triggered_abilities": triggered_ability_ids((ctx.me or {}).get("visualId")),
+            "friend_positions": ctx.fpos}

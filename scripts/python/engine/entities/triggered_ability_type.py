@@ -590,3 +590,21 @@ class TriggeredAbilityType(IntEnum):
     TestRetaliateOnRandomAdjacentUnit = 9004
     testRelicAbility = 9005
     testAssetBundles = 9999
+
+
+def triggered_ability_ids(visual_id: str | None) -> list[int]:
+    """Ids `TriggeredAbilityType` du KIT PASSIF d'une unité (gameconfig `passiveAbilities` -> enum).
+
+    Source OFFLINE du dispatcher `TriggeredAbilitiesUtility(2)` (le natif lit l'AbilitiesComponent
+    ECS de l'unité qui bouge, `@1810fda80` — cf. case-36). Les abilities DÉCLENCHÉES du jeu sont les
+    `passiveAbilities` du gameconfig (namespace natif `Abilities.Triggered.Loki.*Ability`).
+    [] si unité inconnue ou passif hors enum."""
+    if not visual_id:
+        return []
+    import gameconfig as GC
+    out: list[int] = []
+    for a in (GC.unit_abilities(visual_id).get("passive") or []):
+        m = TriggeredAbilityType.__members__.get(a.get("name") or "")
+        if m is not None:
+            out.append(int(m))
+    return out
