@@ -55,49 +55,100 @@ appelle donc `generate_multi_hit_attack_prediction` **directement** (même conto
 |---|---|---|---|
 | baseline #43 | 24/29 (3 « non-attack-oracle ») | 31/35 | 21/21 |
 | 1113/1121/1163/1202 enregistrés, 1151 **hors registre** | **25/29** | **31/35** | 21/21 |
+| + fix cible 1163 au contact (#47) | **26/29 (89 %)** | **31/35** | 21/21 |
 
 - **1113 Stormcaller** (31337 s11, u89 → cible 81) : **hit** — le miss est fermé.
-- **1163 BlackRage** (31337 s12, u91) : la bonne ability est désormais émise, mais la **cible** reste
-  fausse (natif 85, port 77 : utilités 40,3 vs 50,2) → miss `nc-pair`, à traiter comme un problème de
-  **fidélité de prédiction par cible** (même famille que #40/#41), pas comme un gate manquant.
-  `SWEEP_ALL_RANKED` (balayage de toutes les tuiles rankées au lieu de `ranked[0]`) **ne renverse pas**
-  l'argmax → la divergence n'est pas positionnelle. **Hypothèse à vérifier** (non prouvée) : le natif
-  prédit la charge **avec** le bonus de BlackRage (`+728 Damage when charging`, gameconfig), qui peut
-  faire basculer u85 en `kill`/`killSure` (saut d'utilité) là où un flat +728 seul ne renverserait
-  rien. Le port score l'attaque normale **sans** ce bonus.
+- **1163 BlackRage** (31337 s12, u91) : **RÉSOLU (#47)** — la bonne ability ET la bonne cible (85).
+  La divergence était la **position de prédiction** : la charge ferme au contact avant l'attaque
+  (`ExecuteBehaviour @1811b9c20` : `MoveUnit(First(SortTilesByUtility(TilesUnitCanMoveToChargeTarget)))`
+  puis `UseActiveAbility(attaque normale)`), donc la prédiction de décision est celle de l'attaque
+  **de MÊLÉE au contact**, indépendante de la position d'évaluation du générateur (mesure s12 : le
+  natif émet (1163, 85) **sans pré-move**). Le port scorait la paire depuis la tuile de cast rankée
+  (= l'origine) → sélection d'arme **ranged** (dist 2) → 85 = 1 hit u=40,3 vs 77 = 4 hits u=50,2 →
+  mauvais argmax. Au contact : 85 = mêlée 4 hits 3008-3788 `kill` → **u=132,8** ≫ 77 (jamais kill,
+  hp 8533) — argmax natif reproduit. Fix : `evaluate_non_comparable` évalue chaque hex **adjacent à
+  la cible** libre+walkable (mirror `TilesUnitCanMoveToChargeTarget`) et garde le max ; la tuile de
+  cast ne sert que d'ancre `to` (`ranked[0]`=origine → `to=None`, cast en place comme le natif) ;
+  `SWEEP_ALL_RANKED` retiré (prédiction indépendante de la tuile de cast).
+  **Hypothèse « bonus +728 » RÉFUTÉE au décompilé** : le bonus est l'effet `BlackRage_ExtraDamage`
+  (1343 = `0x53f`, trigger DSL `OwnerIsCaster & IsCharging & IsNormalAttack`,
+  `CreateEffectDamageBonusForAttack @180f340e0`, magnitude `ConfigVar 8`) posé par `AddEffect(0x53f)`
+  dans l'`ExecuteAtomic` d'`ExecuteBehaviour` — donc **à l'exécution seulement**, absent de l'unité à
+  l'instant de la décision → la prédiction native ne peut pas le voir ; ne PAS l'ajouter au port
+  (ce serait un fit).
 - **1121 / 1202** : aucun porteur sur ces deux seeds → portés sur preuve décompilée, **non confrontés
   live** (à confronter sur un seed portant tyranParasiteOfMortrex / Tyrith).
 
-## 4. Le point dur : 1151 TheQuickening — porte native NON RÉSOLUE
+## 4. Le point dur : 1151 TheQuickening — porte LOCALISÉE (#46), mécanisme à nommer
 
 Mesure seed 31337 :
 
 - **pas 5** — u81 à l'origine (5,8), 21 tuiles de move, `abilityTargets(81, 1151)` = **36 tuiles
   valides**, ability `usable = true`. Le **natif joue l'attaque NORMALE** (ab 69 → u95) et n'émet
-  **pas** 1151. Or l'unique gate du décompilé (`GetNumAttackTargetsInPosition > 0`) passe pour de
+  **pas** 1151. Or le gate `GetNumAttackTargetsInPosition > 0` de `EvaluateNonComparable` passe pour de
   nombreuses tuiles, **dont (3,5)** — précisément la tuile d'où le natif attaque.
 - **pas 15** — origine (3,5), 4 tuiles de move : le natif **émet** 1151 → tuile 52 = (4,4).
 
 Comme toute NonComparable qui « sort » prime sur toute Comparable **par l'ordre des générateurs**
-(`InitAbilityTypeLists @1810ed540`), le natif n'aurait **pas pu** attaquer au pas 5 si le playbook
-avait produit une action. Il manque donc une porte (ShouldEvaluate ? usabilité runtime ? condition de
-round / mouvement déjà consommé ?) **invisible** dans `EvaluateNonComparable @18116afb0` — la table des
-symboles ne montre aucun `ShouldEvaluate`/`ShouldExecute` sur ce playbook.
+(`InitAbilityTypeLists @1810ed540` + `<CalculateNextActionForUnit>d__5 @1810f54e0` = first-generateur-
+non-vide), le natif n'aurait **pas pu** attaquer au pas 5 si le playbook 1151 avait produit une action.
 
-Second point ouvert : l'utilité est **plate** (tous les candidats à 2.0 = base 1 + palier
-FuryOfTheAncients) dès qu'aucune tuile cible ne porte d'ami → l'accord de **cible** se joue sur
-l'**ordre d'énumération** (keep-first du Bucket), pas sur l'utilité.
+### 4.1 La porte manquante = `IPlaybook` **slot 4 `ShouldEvaluate(unit)`** (LOCALISÉE LIVE #46)
 
-→ Le playbook est **porté et documenté mais volontairement pas enregistré** dans `PLAYBOOKS` :
-l'enregistrer produit un **sur-tir mesuré** au pas 5 (anti-pattern #31) et un miss d'ordre au pas 15.
-Tâche dédiée ouverte pour le RE de la porte + de l'ordre d'énumération.
+Le générateur `ActiveAbilityActionGenerator.<GenerateActions>d__7 @18119a3f0` gate CHAQUE ability, AVANT
+tout sweep de position, par DEUX prédicats d'interface : `slot 4 ShouldEvaluate(unit)` (`FUN_180003bd0(4,
+…)`) **puis** `slot 5 ShouldEvaluate(unit, tiles)` (`FUN_1800051a0(5, …)`). Si slot 4 rend 0, l'ability
+est **sautée entièrement** (jamais évaluée) → le fallback Comparable (attaque normale) prend la main.
+
+**Mesure live décisive** (RPC `pbSlots` = mapping vtable de la classe du playbook ; RPC `pbGate` =
+invocation d'un slot d'interface avec args résolus ; RPC `ncEvaluate` = la voie `Evaluate(unit, position,
+tiles)` par position). Sur seed 31337, board MC1_67 :
+- `pbSlots(1151)` : IPlaybook (offset 18) slots 0..13 = get_Priority / get_IsComparable /
+  get_CanHandleNullCasterTile / Init / **ShouldEvaluate(1)** / **ShouldEvaluate(2)** / ShouldEvaluate(3) /
+  Evaluate(3) / GetCustomUnitOrderUtility(1) / ResetCaches / … / EvaluateNonComparable(3).
+- **pas 5** : `slot 4 ShouldEvaluate(unit) = 0` (8/8 invocations → **DÉTERMINISTE**) ; `slot 5 = 1` ;
+  `ncEvaluate` rend des actions util=2 à ~13 positions (la leaf « voudrait » tirer).
+- **pas 15** : `slot 4 = 1` (8/8) ; `ncEvaluate` rend util=**3** sur exactement (4,5)→tuile (4,4) =
+  l'action native (u79 y est allié → 3e palier +1). L'utilité N'est PAS plate ; le miss de cible
+  s'explique sans invoquer l'ordre d'énumération.
+
+Donc : **le natif décline 1151 au pas 5 parce que `ShouldEvaluate(unit)` rend 0**, indépendamment de la
+leaf. Le wrapper de base `BasePlaybook.ShouldEvaluate(unit) @18111fb70` calcule
+`prob := vtable[0x1f8](this, unit)` (VirtualInvokeData {code, MethodInfo} au champ classe 0x1f8) puis :
+`prob >= Fix64(1) → true` ; `0 < prob < 1 → tirage RNG autobot (this+0x30)` ; **`prob <= 0 → false`**.
+Le résultat étant **stable à 0** (8/8), la branche est `prob <= 0` — un déclin FERME, PAS le tirage
+aléatoire (contrairement aux GAP `GetUseProbability` de 1121/1163). `GetUseProbability` de base
+(`@18111f9b0` = `Fix64(1)`) donnerait toujours `true` ; **le slot vtable `0x1f8` n'est donc PAS la
+`GetUseProbability` de base** — c'est un virtuel per-playbook (ou hérité `NonComparablePlaybook`) qui
+rend 0 pour u81 au pas 5. **Reste à nommer `0x1f8`** (résolution de la vtable non faite offline).
+
+### 4.2 Corrélation à confirmer (NE PAS porter en l'état)
+
+Le seul état **par-unité** (pas de position) qui bascule entre les deux pas : les effets **RapidAssault**
+(`RapidAssault_Movement` 1228 + `RapidAssault_ExtraDamage` 1229) sont **présents sur u81 au pas 5**,
+**absents au pas 15** (mesuré via `decisionView.effects`). Hypothèse : `ShouldEvaluate(unit)` de 1151
+décline tant qu'un effet de mouvement (RapidAssault / « a déjà bougé/assailli ce tour ») est actif. C'est
+une corrélation sur **n=2** → NE PAS porter dessus (anti-fit) ; il faut le mécanisme natif de `0x1f8`.
+
+→ 1151 reste **porté mais PAS enregistré**. Prochaine étape #46 : nommer le virtuel `0x1f8` (résoudre la
+vtable de `TheQuickeningPlaybook` : soit statiquement via le layout `Il2CppClass.vtable`, soit live en
+lisant `klass+0x1f8` → `MethodInfo.name`), lire son corps, et si le déclin est bien un état lisible
+offline (effet RapidAssault / flag « moved this turn »), porter le gate + enregistrer 1151.
+
+Outils réutilisables livrés pour ça (RPCs `frida/hooks/features/ai-step/rpc-predict.ts`, non commités) :
+`ncEvaluate` (leaf par position), `pbSlots` (mapping itf→méthode d'un playbook), `pbGate` (invocation
+d'un slot d'interface avec args `unit`/`pos`/`tiles`).
 
 ## 5. Écarts assumés (flaggés dans le code)
 
+- **`ShouldEvaluate(unit)` slot 4** (gate AMONT du générateur, valable pour TOUS les NC) : le port
+  `NonComparableGenerator` ne modélise PAS ce prédicat par-unité — il suppose l'ability évaluable dès
+  qu'elle est `usable`. Pour 1151 c'est la source du sur-tir (cf. §4). À porter dès que le virtuel
+  `0x1f8` est nommé ; il pourrait aussi resserrer d'autres NC (à vérifier).
 - **`GetUseProbability` (porte ALÉATOIRE)** non modélisée — le moteur offline est déterministe :
   1163 `@181121740` = `0.4` si les PV après usage (`GetHealthPercentageAfterUse @1811ba570`, ConfigVar
   0x26 = 50 %) < PV courants, sinon `1.0` ; 1121 `@1811477b0` = `Fix64.FromIntFraction(GetMaxNumUnitsAffected, 3)`.
-  Même statut que ScarabSummon.
+  Même statut que ScarabSummon. (NB : pour 1151 le gate slot 4 est DÉTERMINISTE `prob<=0`, PAS ce tirage.)
 - **Slot `0x4d`** de `CanBePushed` (1121) non identifié (ce n'est ni `GetAdjacentTiles` = `0x4e`, ni
   `GetTilesBehind` = `0x53` — arités différentes) → porté par la **géométrie réellement exécutée**
   (`DisplaceUnitOperation` / `FindTileToPush @180e695e0` : un pas dans la direction caster→cible, tuile

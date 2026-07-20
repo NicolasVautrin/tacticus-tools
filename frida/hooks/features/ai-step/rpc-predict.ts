@@ -4,7 +4,8 @@
  *  INCHANGEE (memes noms ctx.rpc.*), agregee par registerView (rpc-view.ts). */
 import {
     class_get_name, class_get_namespace, findClass, findClassAnywhere, findMethod,
-    findMethodByParamCount, readIl2cppString, s,
+    findMethodByParamCount, method_get_name, method_get_param_count,
+    readIl2cppString, s,
 } from "../../il2cpp/helpers.js";
 import { invokeMethod } from "../../il2cpp/invoke.js";
 import { gcRoot } from "../../il2cpp/gc-root.js";
@@ -422,5 +423,322 @@ export function registerViewPredict(ctx: Ctx): void {
             effectRetClass: mkEff.retClass, effectError: decEff.error ?? null,
             mutated: before.sig !== after.sig,
         };
+    });
+
+    /** ORACLE NC (#46) : invoque la LEAF NATIVE `EvaluateNonComparable(unit, UnitPosition)`
+     *  du playbook d'une ability, par POSITION (courante + sweep du movable set), et décode
+     *  le Bucket rendu (best BucketAction : utilité Fix64 + UnitAction{position,target,ability}).
+     *  Bisecte un désaccord de DÉCISION NC : bucket vide à une position ⇒ le déclin natif se
+     *  joue DANS la leaf (éligibilité/gates internes) ; bucket plein partout ⇒ le drop est en
+     *  AMONT (générateur : gates d'état, slot-6 per-position, HasValidTargets 0x3f, ChooseAction).
+     *  On lit AUSSI `HasValidTargets(unit, pos, ability)` (BattleQuery, gate per-position du
+     *  générateur `<GenerateActions>d__7 @18119a3f0`) pour croiser. Layouts décodés du
+     *  décompilé (générateur finish-block) : Bucket.best@+0x20 ; BucketAction{action@+0x10,
+     *  util Fix64@+0x18} ; UnitAction{position@+0x10, target BEntityId@+0x18, ability@+0x20}.
+     *  Read-only (queries de prédiction). body: { runnerId?, unitId, abilityType,
+     *  sweep? (défaut true = courante + toutes les tuiles de move), col?, row? } */
+    ctx.rpc.ncEvaluate = (
+        body?: {
+            runnerId?: number; unitId?: number; abilityType?: number;
+            sweep?: boolean; col?: number; row?: number;
+        },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        if (typeof body?.unitId !== "number" || typeof body?.abilityType !== "number") {
+            return { ok: false, error: "need unitId + abilityType" };
+        }
+        let runner: NativePointer; let label: string;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);
+            label = "build#" + body.runnerId;
+        } else if (state.liveRunner) { runner = state.liveRunner; label = "live"; }
+        else { return { ok: false, error: "no runner — pass runnerId" }; }
+        if (runner.isNull()) return { ok: false, error: label + " runner null" };
+        const statePtr = runner.add(runnerOff.state).readPointer();
+        if (statePtr.isNull()) return { ok: false, error: "state null" };
+        const status = readBattleStatus(statePtr);
+        if (status.stage !== 1) {
+            return { ok: false, error: "stage " + (status.stageName ?? status.stage) };
+        }
+        const dbHit = resolvePlaybookDatabase(runner);
+        if (!dbHit) return { ok: false, error: "PlaybookDatabase introuvable" };
+        const playbook = loadPlaybook(dbHit.db, body.abilityType);
+        if (playbook.isNull()) {
+            return { ok: false, error: "pas de playbook pour ability " + body.abilityType };
+        }
+        const playbookClass = classNameAt(playbook);
+        // Voie du GÉNÉRATEUR (`<GenerateActions>d__7 @18119a3f0`) : slot 7 = `Evaluate(unit,
+        // UnitPosition, tiles)` (wrapper @18111df40 : AbilityState + DisallowRandom +
+        // EvaluateInternal → EvaluateNonComparable). On invoque CE wrapper — appeler la leaf
+        // nue crashe (AV 0x0 : l'AbilityState/contexte monté par le wrapper manque).
+        let evalMi = null; let evalName = "";
+        for (const [nm, n] of [["Evaluate", 3], ["Evaluate", 2],
+            ["EvaluateNonComparable", 2]] as Array<[string, number]>) {
+            evalMi = findMethodByParamCount(playbook.readPointer(), nm, n);
+            if (evalMi) { evalName = nm + "/" + n; break; }
+        }
+        if (!evalMi) {
+            return { ok: false, playbookClass,
+                error: "Evaluate/EvaluateNonComparable introuvable sur " + playbookClass };
+        }
+        let unit = ptr(0);
+        forEachEntity(statePtr, (e, id, ty) => {
+            if (ty === EntityType.Unit && id === body.unitId) unit = e;
+        });
+        if (unit.isNull()) return { ok: false, error: "unit " + body.unitId + " not found" };
+        // Gate per-position du générateur : HasValidTargets(unit, UnitPosition, AbilityType)
+        // (BattleQuery slot 0x3f) — best-effort (null si non résolu).
+        const aq = runner.add(attackQueryOff).readPointer();
+        const hvtMi = aq.isNull()
+            ? null : findMethodByParamCount(aq.readPointer(), "HasValidTargets", 3);
+        const abilBuf = Memory.alloc(4); abilBuf.writeS32(body.abilityType | 0);
+        // Positions candidates : tuile courante (+ movable set si sweep, défaut true).
+        const posList: Array<{ col: number | null; row: number | null;
+            tile: NativePointer; cur: boolean }> = [];
+        const mt = getUnitMainTile(unit, statePtr);
+        if (!mt.isNull()) {
+            const c = readTileCoord(mt);
+            posList.push({ col: c.col, row: c.row, tile: mt, cur: true });
+        }
+        const sweep = body?.sweep !== false;
+        const oneCol = body?.col; const oneRow = body?.row;
+        let tilesObj = ptr(0);   // collection movable native = 3e arg d'Evaluate (action tiles)
+        if (getMovableTilesMi) {
+            const movementQuery = runner.add(movementQueryOff).readPointer();
+            const boolFalse = Memory.alloc(1); boolFalse.writeU8(0);
+            const optsZero = Memory.alloc(0x30);
+            for (let k = 0; k < 0x30; k += 4) optsZero.add(k).writeU32(0);
+            try {
+                const os = invokeMethod(getMovableTilesMi.info, movementQuery,
+                    [unit, boolFalse, optsZero]);
+                tilesObj = os;
+                if (sweep || typeof oneCol === "number") {
+                    for (const t of extractTilePtrs(os)) {
+                        if (typeof oneCol === "number"
+                            && (t.col !== oneCol || t.row !== oneRow)) continue;
+                        posList.push({ col: t.col, row: t.row, tile: t.ptr, cur: false });
+                    }
+                }
+            } catch { /* sweep best-effort */ }
+        }
+        const out: unknown[] = [];
+        for (const p of posList) {
+            const posPtr = unitPositionAtTile(unit, p.tile, statePtr);
+            if (!posPtr) {
+                out.push({ pos: [p.col, p.row], cur: p.cur, error: "UnitPosition null" });
+                continue;
+            }
+            let hvt: boolean | null = null;
+            if (hvtMi) {
+                try { hvt = !invokeMethod(hvtMi.info, aq, [unit, posPtr, abilBuf]).isNull(); }
+                catch { hvt = null; }
+            }
+            try {
+                const evalArgs = evalName === "Evaluate/3"
+                    ? [unit, posPtr, tilesObj] : [unit, posPtr];
+                const bucket = invokeMethod(evalMi.info, playbook, evalArgs);
+                if (bucket.isNull()) {
+                    out.push({ pos: [p.col, p.row], cur: p.cur, hvt, bucket: null });
+                    continue;
+                }
+                const best = bucket.add(0x20).readPointer();
+                if (best.isNull()) {
+                    out.push({ pos: [p.col, p.row], cur: p.cur, hvt, bucket: "empty" });
+                    continue;
+                }
+                // BucketAction{action@+0x10, util Fix64@+0x18} ; UnitAction{position@+0x10,
+                // target BEntityId@+0x18, ability@+0x20} (layouts du finish-block @18119a3f0).
+                const utilRaw = best.add(0x18).readS64();
+                const action = best.add(0x10).readPointer();
+                let act: unknown = null;
+                if (!action.isNull()) {
+                    act = {
+                        posQ: action.add(0x10).readU64().toString(16),
+                        targetQ: action.add(0x18).readU64().toString(16),
+                        targetLow: action.add(0x18).readU32(),
+                        ability: action.add(0x20).readS32(),
+                    };
+                }
+                out.push({ pos: [p.col, p.row], cur: p.cur, hvt,
+                    util: utilRaw.toNumber() / 4294967296, action: act });
+            } catch (e) {
+                out.push({ pos: [p.col, p.row], cur: p.cur, hvt,
+                    error: (e as Error).message });
+            }
+        }
+        return { ok: true, runner: label, playbookClass, evalName,
+            unitId: body.unitId,
+            ability: body.abilityType, abilityName: abilityName(body.abilityType),
+            positions: out };
+    });
+
+    /** MAPPING itf→méthode d'un playbook (#46) : dumpe, pour CHAQUE interface implémentée
+     *  par la classe du playbook d'une ability, les slots de vtable qu'elle projette
+     *  (layout IL2CPP du décompilé : interfaceOffsets @klass+0xb0 = paires 16 o
+     *  {Il2CppClass* itf, int32 offset}, count u16 @+0x12e ; vtable @+0x138, entrées 16 o
+     *  {codePtr, MethodInfo*}). Résout ce que sont RÉELLEMENT les slots 4/5/6 (gates du
+     *  générateur `<GenerateActions>d__7 @18119a3f0`) qu'aucune table de symboles offline
+     *  n'expose. body: { runnerId?, abilityType, maxSlots? } */
+    ctx.rpc.pbSlots = (
+        body?: { runnerId?: number; abilityType?: number; maxSlots?: number },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        if (typeof body?.abilityType !== "number") {
+            return { ok: false, error: "need abilityType" };
+        }
+        let runner: NativePointer;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+        } else if (state.liveRunner) { runner = state.liveRunner; }
+        else { return { ok: false, error: "no runner — pass runnerId" }; }
+        const dbHit = resolvePlaybookDatabase(runner);
+        if (!dbHit) return { ok: false, error: "PlaybookDatabase introuvable" };
+        const playbook = loadPlaybook(dbHit.db, body.abilityType);
+        if (playbook.isNull()) {
+            return { ok: false, error: "pas de playbook pour ability " + body.abilityType };
+        }
+        const klass = playbook.readPointer();
+        const playbookClass = classNameAt(playbook);
+        const nItf = klass.add(0x12e).readU16();
+        const pairs = klass.add(0xb0).readPointer();
+        const maxSlots = body?.maxSlots ?? 12;
+        const interfaces: unknown[] = [];
+        for (let i = 0; i < nItf; i++) {
+            const itf = pairs.add(i * 0x10).readPointer();
+            const off = pairs.add(i * 0x10 + 8).readS32();
+            let itfName = "?";
+            try {
+                itfName = s(class_get_namespace(itf) as NativePointer) + "."
+                    + s(class_get_name(itf) as NativePointer);
+            } catch { /* */ }
+            const slots: unknown[] = [];
+            // On ne détaille que les interfaces « playbook » (les System.* n'intéressent pas).
+            if (itfName.indexOf("Playbook") >= 0 || itfName.indexOf("playbook") >= 0) {
+                for (let sIdx = 0; sIdx < maxSlots; sIdx++) {
+                    try {
+                        const mi = klass.add(0x138 + (off + sIdx) * 0x10 + 8).readPointer();
+                        if (mi.isNull()) { slots.push({ slot: sIdx, name: null }); continue; }
+                        const mName = s(method_get_name(mi) as NativePointer);
+                        let nParams = -1;
+                        try { nParams = method_get_param_count(mi) as number; } catch { /* */ }
+                        slots.push({ slot: sIdx, name: mName, params: nParams });
+                    } catch (e) {
+                        slots.push({ slot: sIdx, error: (e as Error).message });
+                    }
+                }
+            }
+            interfaces.push({ itf: itfName, offset: off,
+                slots: slots.length ? slots : undefined });
+        }
+        return { ok: true, playbookClass, interfaceCount: nItf, interfaces };
+    });
+
+    /** GATE-PROBE générique (#46) : invoque UN slot d'interface du playbook d'une ability,
+     *  avec une spec d'arguments fournie par l'appelant — permet de tester chaque gate du
+     *  générateur (slots 4/5/6…) sans re-livrer de hooks. La convention d'appel est celle
+     *  du jeu : `codePtr(this, args..., MethodInfo)` (entrées vtable 16 o {code, mi}).
+     *  args: liste de specs parmi "unit" (entité unitId), "pos" (UnitPosition à col/row,
+     *  défaut tuile courante), "tiles" (collection movable native), "null".
+     *  body: { runnerId?, unitId, abilityType, itf? (sous-chaîne du nom d'interface,
+     *  défaut "Playbook"), slot, args, col?, row? } → { retRaw, retLow } */
+    ctx.rpc.pbGate = (
+        body?: {
+            runnerId?: number; unitId?: number; abilityType?: number;
+            itf?: string; slot?: number; args?: string[]; col?: number; row?: number;
+        },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        if (typeof body?.unitId !== "number" || typeof body?.abilityType !== "number"
+            || typeof body?.slot !== "number") {
+            return { ok: false, error: "need unitId + abilityType + slot" };
+        }
+        let runner: NativePointer;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+        } else if (state.liveRunner) { runner = state.liveRunner; }
+        else { return { ok: false, error: "no runner — pass runnerId" }; }
+        const statePtr = runner.add(runnerOff.state).readPointer();
+        if (statePtr.isNull()) return { ok: false, error: "state null" };
+        const dbHit = resolvePlaybookDatabase(runner);
+        if (!dbHit) return { ok: false, error: "PlaybookDatabase introuvable" };
+        const playbook = loadPlaybook(dbHit.db, body.abilityType);
+        if (playbook.isNull()) {
+            return { ok: false, error: "pas de playbook pour ability " + body.abilityType };
+        }
+        const klass = playbook.readPointer();
+        let unit = ptr(0);
+        forEachEntity(statePtr, (e, id, ty) => {
+            if (ty === EntityType.Unit && id === body.unitId) unit = e;
+        });
+        if (unit.isNull()) return { ok: false, error: "unit " + body.unitId + " not found" };
+        // Interface ciblée par sous-chaîne de nom.
+        const wantItf = body?.itf ?? "Playbook";
+        const nItf = klass.add(0x12e).readU16();
+        const pairs = klass.add(0xb0).readPointer();
+        let itfOff = -1; let itfName = "";
+        for (let i = 0; i < nItf; i++) {
+            const itf = pairs.add(i * 0x10).readPointer();
+            let nm = "";
+            try {
+                nm = s(class_get_namespace(itf) as NativePointer) + "."
+                    + s(class_get_name(itf) as NativePointer);
+            } catch { continue; }
+            if (nm.indexOf(wantItf) >= 0) { itfOff = pairs.add(i * 0x10 + 8).readS32();
+                itfName = nm; break; }
+        }
+        if (itfOff < 0) return { ok: false, error: "interface '" + wantItf + "' absente" };
+        const entry = klass.add(0x138 + (itfOff + body.slot) * 0x10);
+        const code = entry.readPointer();
+        const mi = entry.add(8).readPointer();
+        if (code.isNull() || mi.isNull()) {
+            return { ok: false, error: "slot " + body.slot + " vide" };
+        }
+        let miName = "?";
+        try { miName = s(method_get_name(mi) as NativePointer); } catch { /* */ }
+        // Résolution des args.
+        let tilesObj = ptr(0); let posPtr: NativePointer | null = null;
+        const needTiles = (body.args ?? []).indexOf("tiles") >= 0;
+        const needPos = (body.args ?? []).indexOf("pos") >= 0;
+        if ((needTiles || needPos) && getMovableTilesMi) {
+            const movementQuery = runner.add(movementQueryOff).readPointer();
+            const boolFalse = Memory.alloc(1); boolFalse.writeU8(0);
+            const optsZero = Memory.alloc(0x30);
+            for (let k = 0; k < 0x30; k += 4) optsZero.add(k).writeU32(0);
+            try {
+                tilesObj = invokeMethod(getMovableTilesMi.info, movementQuery,
+                    [unit, boolFalse, optsZero]);
+            } catch { /* */ }
+        }
+        if (needPos) {
+            let tile = ptr(0);
+            if (typeof body?.col === "number" && !tilesObj.isNull()) {
+                for (const t of extractTilePtrs(tilesObj)) {
+                    if (t.col === body.col && t.row === body.row) { tile = t.ptr; break; }
+                }
+            }
+            if (tile.isNull()) tile = getUnitMainTile(unit, statePtr);
+            posPtr = tile.isNull() ? null : unitPositionAtTile(unit, tile, statePtr);
+            if (!posPtr) return { ok: false, error: "UnitPosition irresoluble" };
+        }
+        const natArgs: NativePointer[] = [playbook];
+        for (const a of (body.args ?? [])) {
+            if (a === "unit") natArgs.push(unit);
+            else if (a === "pos") natArgs.push(posPtr as NativePointer);
+            else if (a === "tiles") natArgs.push(tilesObj);
+            else if (a === "null") natArgs.push(ptr(0));
+            else return { ok: false, error: "arg spec inconnue: " + a };
+        }
+        natArgs.push(mi);
+        try {
+            const fn = new NativeFunction(code, "pointer",
+                natArgs.map(() => "pointer") as unknown as NativeFunctionArgumentType[]);
+            const ret = fn.apply(null, natArgs as never) as NativePointer;
+            return { ok: true, itf: itfName, slot: body.slot, method: miName,
+                retRaw: ret.toString(16), retLow: ret.and(0xff).toUInt32() };
+        } catch (e) {
+            return { ok: false, itf: itfName, slot: body.slot, method: miName,
+                error: (e as Error).message };
+        }
     });
 }

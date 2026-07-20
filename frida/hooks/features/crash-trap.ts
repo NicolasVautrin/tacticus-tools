@@ -335,7 +335,16 @@ function install(): void {
     installed = true;
     installSehHandler();
     const hookedExc = installManagedExceptionHook();
-    const hookedInit = installClassInitHook();
+    // NOTE: class_init hook (installClassInitHook) N'EST PLUS auto-armé —
+    // Interceptor.attach sur il2cpp_runtime_class_init = trampoline JS sur un
+    // chemin ULTRA-hot au boot frais (mesuré 2026-07-20 session 50 :
+    // initNo=734k en ~6 min, soit des milliers d'appels/s pendant les loads)
+    // → main thread saturé → UnityFreezeDetector TUE le process. Même loi que
+    // l'interdit « hook permanent sur getters hot » (CLAUDE.md) et que le
+    // RaiseException hook ci-dessous. Sur un jeu chaud depuis longtemps le
+    // rythme est supportable, d'où la latence du symptôme (3 morts de jeu sur
+    // boots frais avant diagnostic). Ré-armable à la demande via le RPC
+    // `armClassInitTrace` (diagnostic « quelle classe crashe son cctor »).
     // NOTE: RaiseException hook (installRaiseExceptionHook) was REMOVED
     // because Interceptor.attach on kernelbase!RaiseException — called
     // by EVERY IL2CPP managed exception propagation (hundreds per second
@@ -348,15 +357,17 @@ function install(): void {
             evt: "crash_trap", op: "installed",
             seh: true,
             unhandled_exception_hook: hookedExc,
-            class_init_hook: hookedInit,
+            class_init_hook: false,
             output_debug_string_hook: hookedODS,
         });
     } catch { /* ignore */ }
 }
 
-export function register(_ctx: Ctx): void {
+export function register(ctx: Ctx): void {
     // Auto-arm at module register, per "debug features on by default"
     // convention — diagnostic must be active from the first hook of the
-    // session, no manual RPC arm step.
+    // session, no manual RPC arm step. (Exception : class_init, cf. install()
+    // — tue le jeu sur boot frais, opt-in via RPC ci-dessous.)
     install();
+    ctx.rpc.armClassInitTrace = () => ({ ok: true, armed: installClassInitHook() });
 }
