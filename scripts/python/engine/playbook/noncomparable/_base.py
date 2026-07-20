@@ -65,6 +65,56 @@ def _has_valid_targets(ctx: "NCContext", unit_id: int) -> bool:
     return False
 
 
+def _normal_attack_ids(ctx: "NCContext", unit_id: int) -> set:
+    """Ids de l'attaque NORMALE CONCRETE d'une unite (`GetNormalAttackType` ; per-unit, PAS l'abstrait
+    17 — cf. project_ability_normal_attack_concrete). Vide si l'unite est absente de `ctx.units`."""
+    u = next((x for x in (ctx.units or []) if x.get("id") == unit_id), None)
+    return {a.get("id") for a in ((u or {}).get("abilities") or [])
+            if a.get("kind") == "normal" and a.get("id") is not None}
+
+
+def _will_normal_attack_kill(ctx: "NCContext", target_id, position: tuple | None) -> bool:
+    """`BasePlaybook.WillNormalAttackKill @18111fff0` : `PredictAttack` (slot 0x20 = attaque NORMALE du
+    caster DEPUIS `position`) -> `ProbableDamageEvent` -> `DamagePredictionResult.get_WillBeKill` =
+    SURE-kill (borne MIN >= PV courants, = `killSure` du composite). `target == null` -> false (branche
+    `param_3 == 0` du natif). Predicteur (`ctx.scene`) absent -> false (borne inf, pas de gate a l'aveugle).
+
+    A NE PAS confondre avec `EnemyCouldBeKilledWithNormalAttack` (`_enemy_killed_by_normal_attack`,
+    hammer_of_wrath) qui teste s'il EXISTE un ennemi sure-kill ; ici c'est CETTE cible-la."""
+    if target_id is None or position is None or ctx.scene is None:
+        return False
+    from engine.playbook.prediction import make_normal_attack_predictions
+    ev = make_normal_attack_predictions(ctx.scene, ctx.uid, target_id, position)
+    if ev is None:
+        return False
+    return bool(ev.composite_fields().get("killSure"))
+
+
+def _get_num_attack_targets_in_position(ctx: "NCContext", unit_id: int, tile: tuple | None) -> int:
+    """`TheQuickeningPlaybook.GetNumAttackTargetsInPosition @18116b4b0` = `IBattleQuery` slot 0x7f
+    (cibles d'attaque NORMALE de `unit_id` DEPUIS `tile`) suivi de `.Count`.
+
+    Mirror OFFLINE via le plan natif (`decisionView.attackPlans`) : nombre de cibles DISTINCTES dont
+    l'eval d'attaque NORMALE de `unit_id` liste `tile` parmi ses tuiles rankees — les tuiles rankees
+    d'une paire (ability, cible) sont exactement les positions d'ou l'attaque est legale. Plan absent
+    (le bridge offline `state_bridge` ne peuple que l'unite ACTIVE) -> 0 (borne inf assumee)."""
+    if tile is None:
+        return 0
+    plan = (ctx.plans or {}).get(unit_id) or {}
+    nids = _normal_attack_ids(ctx, unit_id)
+    if not nids:
+        return 0
+    tgts = set()
+    for ev in (plan.get("evals") or []):
+        if ev.get("abilityId") not in nids or not ev.get("rankCount"):
+            continue
+        for rk in (ev.get("ranked") or []):
+            if (rk.get("col"), rk.get("row")) == tile:
+                tgts.add(ev.get("targetId"))
+                break
+    return len(tgts)
+
+
 def _sweep_origin_first(ctx: "NCContext") -> list:
     """Ordre de balayage des positions candidates pour un SELF-CAST (heal/repair/rites) : ORIGINE
     D'ABORD, puis les tuiles de move.
@@ -115,6 +165,9 @@ class NCContext:
     #                            etat cooldown des allies pour InspiredToGreatness (GetActive usable)
     cast_from_tiles: object = None   # callable(uid, target_id, ability_id) -> {currentValid, moveTiles} :
     #                            positionnement move-to-reach des NC ally-targeted (#81)
+    plans: dict = field(default_factory=dict)   # {unitId: plan attackPlans} de TOUTES les unites (#44) :
+    #                            `GetNumAttackTargetsInPosition(unit, tile)` de TheQuickening interroge
+    #                            aussi le plan d'un ALLIE (terme +1 de l'ami echange), pas seulement `plan`
     scene: object = None           # engine.playbook.Scene (predictor+sctx) — HammerOfWrath (#114) score
     #                            son utilité de décision via Σ CalculateUtilityFromDamageEvent (prédiction
     #                            dégât INTERNE, bypass du gate d'affichage #109) sur cible + adjacents.
@@ -142,7 +195,15 @@ class _PlanTargetPlaybook(NonComparablePlaybook):
     """Base des abilities d'ATTAQUE NonComparable (BloodyFury, VexillaMagnifica). Le generator
     natif enumere ici les couples (cible, tuile d'attaque) via le plan natif rank
     (`abilityTargets`/ranked du plan) au lieu d'un balayage de tuiles de move ; leaf par sous-classe.
+
+    `SWEEP_ALL_RANKED` (defaut False = 1re tuile rankee seulement) : quand l'utilite DEPEND de la tuile
+    de cast (playbooks a utilite de DEGAT — BlackRage, VigilanceEternal), balayer TOUTES les tuiles
+    rankees de la paire, ce qui mirrore le balayage de POSITIONS du generator natif
+    (`<GenerateActions>d__7 @18119a3f0`) restreint aux positions LEGALES pour cette paire. Les
+    playbooks a utilite position-INDEPENDANTE (BloodyFury/Vexilla/Hammer) gardent `ranked[0]`.
     """
+    SWEEP_ALL_RANKED: bool = False
+
     def evaluate_non_comparable(self, tile: tuple, target, ctx: NCContext) -> float | None:
         raise NotImplementedError
 
@@ -154,13 +215,17 @@ class _PlanTargetPlaybook(NonComparablePlaybook):
             ranked = ev.get("ranked") or []
             if not ranked:
                 continue
-            tile = (ranked[0].get("col"), ranked[0].get("row"))
+            tiles = ranked if self.SWEEP_ALL_RANKED else ranked[:1]
             tgt = ev.get("targetId")
-            nu = self.evaluate_non_comparable(tile, tgt, ctx)
-            if nu is None:
-                continue
-            if best is None or nu > best[2]:   # strict > : premier max garde
-                best = (tgt, tile, nu)
+            for rk in tiles:
+                tile = (rk.get("col"), rk.get("row"))
+                if tile[0] is None:
+                    continue
+                nu = self.evaluate_non_comparable(tile, tgt, ctx)
+                if nu is None:
+                    continue
+                if best is None or nu > best[2]:   # strict > : premier max garde
+                    best = (tgt, tile, nu)
         if best is None or best[2] < self.MIN_UTILITY:
             return []
         return [{"target": best[0], "ability": self.ABILITY_ID,

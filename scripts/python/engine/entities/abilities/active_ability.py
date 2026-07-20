@@ -471,6 +471,16 @@ _NONCOMPARABLE_ABILITIES: "frozenset[str]" = frozenset({
                          # NonComparable → N'ÉMET AUCUN ProbableDamageEvent (MakeDamagePredictions=null, oracle
                          # disp=[0,0]). Le port doit donc EXCLURE l'event de dégât affiché (#109). ⚠ Une utilité de
                          # décision fidèle (NC) reste à porter dans engine.playbook.noncomparable si besoin décision.
+    # --- #44 (reframe #34) : les 5 playbooks NC du « lead 8 ». MESURE LIVE (probe #34, aiPlaybookPredict) :
+    # MakeDamagePredictions / MakeHealPredictions / MakeEffectPredictions rendent TOUS `null` pour ces
+    # abilities -> AUCUN ProbableDamageEvent affiché, exactement comme Gauntlets/Hammer (#109). Leur
+    # utilité de DÉCISION vit dans engine.playbook.noncomparable (comptages, ou dégât INTERNE via
+    # `generate_multi_hit_attack_prediction` appelé directement pour 1202 / l'attaque normale pour 1163).
+    "Stormcaller",       # StormcallerPlaybook @181160ff0 ; utilité = #unités dans la zone de glace
+    "ItItches",          # ItItchesPlaybook @181146c50 ; utilité = #ennemis poussés
+    "TheQuickening",     # TheQuickeningPlaybook @18116afb0 ; utilité = paliers +1 (cible = TUILE)
+    "BlackRage",         # BlackRagePlaybook @1811211f0 ; utilité = dégât de l'attaque NORMALE (interne)
+    "VigilanceEternal",  # VigilanceEternalPlaybook @18117fae0 ; utilité = dégât de l'ability (interne)
 })
 
 

@@ -169,6 +169,13 @@ mécaniquement l'essentiel du positioning.
    Probable{Heal,Effect}Event est FAIT + validé (partie A #34 : `aiPlaybookPredict` renvoie
    `healEvents`/`effectEvents` ; HealPlaybook ab 18 validé live) — il sert les familles
    Comparable (heal 18, SpiritLeech…) ; scoreur heal offline + branchement = tâche #45.
+   **PORTAGE FAIT (#44, case-44-noncomparable-lead8.md)** : 1113/1121/1163/1202 portés + enregistrés
+   → l'étape `non-attack-oracle` disparaît ; **1113 devient un hit** (31337 s11) et l'ability passe
+   **24/29 → 25/29** (move 31/35, prédiction 21/21 inchangés). Restent : 1163 émet la bonne ability
+   mais la mauvaise **cible** (fidélité de prédiction par cible, famille #40/#41) ; 1121/1202 non
+   confrontés live faute de porteur sur ces seeds ; **1151 porté mais PAS enregistré** — porte de
+   décision native non résolue (le natif décline 1151 là où le décompilé dit qu'il devrait tirer :
+   sur-tir mesuré → tâche #46).
 
 ## 5. Usage
 

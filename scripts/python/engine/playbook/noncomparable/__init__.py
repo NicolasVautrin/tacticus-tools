@@ -67,6 +67,11 @@ from .gauntlets_of_ultramar import GauntletsOfUltramarPlaybook
 from .hammer_of_wrath import HammerOfWrathPlaybook, _enemy_killed_by_normal_attack
 from .heroic_fusillade import HeroicFusilladePlaybook
 from .doctrina_imperatives import DoctrinaImperativesPlaybook
+from .stormcaller import StormcallerPlaybook
+from .it_itches import ItItchesPlaybook
+from .the_quickening import TheQuickeningPlaybook
+from .black_rage import BlackRagePlaybook
+from .vigilance_eternal import VigilanceEternalPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -89,6 +94,19 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         HammerOfWrathPlaybook(),
         HeroicFusilladePlaybook(),   # #15 (G5, Judh) — util plate=1, gates Hero+ennemi-voisin
         DoctrinaImperativesPlaybook(),  # S4a (Tan Gi'da) — self-cast toggle, util 100, once-per-turn
+        # #44 (reframe #34) — les 5 playbooks NC du « lead 8 » : le stage agreement les classait
+        # « non-attack-oracle » alors qu'ils sont NonComparable NATIFS (EvaluateNonComparable, AUCUN
+        # Make*Predictions). Deux familles : utilite ENTIERE (comptage/paliers) pour 1113/1121/1151,
+        # utilite de DEGAT interne (CalculateUtilityFromDamageEvent) pour 1163/1202 — cf. HammerOfWrath.
+        StormcallerPlaybook(),          # 1113 — #unites dans la zone de glace ; gate WillNormalAttackKill
+        ItItchesPlaybook(),             # 1121 — #ennemis pousses ; gates IsDisplaceable + CanBePushed
+        BlackRagePlaybook(),            # 1163 — degat de l'attaque NORMALE depuis la tuile de charge
+        VigilanceEternalPlaybook(),     # 1202 — degat de l'ability depuis l'hex libre adjacent
+        # 1151 TheQuickening : PORTE mais DELIBEREMENT PAS ENREGISTRE — porte de decision native
+        # NON RESOLUE (mesure 31337 : le natif DECLINE 1151 au pas 5 alors que l'unique gate du
+        # decompile `GetNumAttackTargetsInPosition > 0` passe, et le cast au pas 15 ; l'enregistrer
+        # produit un OVERFIRE mesure au s5 + un miss d'ordre au s15 sur utilite PLATE). Voir
+        # the_quickening.py et la tache dediee. L'enregistrer sans la porte = anti-pattern #31.
     )
 }
 
@@ -148,4 +166,6 @@ __all__ = [
     "RevitalizingMalignancyPlaybook", "InspiredToGreatnessPlaybook", "ScarabSummonPlaybook",
     "GetEmRuntzPlaybook", "GauntletsOfUltramarPlaybook", "HammerOfWrathPlaybook",
     "HeroicFusilladePlaybook", "DoctrinaImperativesPlaybook",
+    "StormcallerPlaybook", "ItItchesPlaybook", "TheQuickeningPlaybook",
+    "BlackRagePlaybook", "VigilanceEternalPlaybook",
 ]
