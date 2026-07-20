@@ -59,10 +59,12 @@ def count_enemies_in_arc(tile: tuple, positions: list, elev_by_pos: dict | None 
       - `GetAdjacentTargetsSelector @1811e2010` = `Unique(Enemies(AdjacentTiles(tile)))` -> ring-1
         (distance hex 1), PORTE d'élévation `|Δelev| < 2` d'`IterateAdjacentTiles` (cf. `is_adjacent`).
       - `GetSurroundingTargetsSelector @1811e20d0` = `Unobscured(SurroundingEnemies(tile, r=2) - Adjacent)`
-        = ring-2 STRICT (distance hex EXACTEMENT 2), filtré `Unobscured` (LoS / practicabilité terrain).
-    `Unobscured` n'est PAS modélisable offline (pas de donnée LoS) -> PASSE-TOUT v1 (borne SUP sur ring-2 :
-    peut sur-compter un ennemi masqué par un obstacle). Chaque unité occupe une tuile distincte -> le compte
-    de positions EST déjà unique. Le plafond `SelectUniqueUnits(3)` est appliqué par l'appelant (playbook)."""
+        = ring-2 (distance hex 2), filtré `Unobscured` (terrain, cf. case-49).
+    ⚠ CASE-49 (2026-07-20) : le terme ring-2 natif contribue TOUJOURS 0 (probes live 49b/49c : ennemi
+    visible à dist 2, chemin libre -> bucket vide ; 3 adjacents -> util=3 exactement). L'UTILITÉ
+    Gauntlets ne passe PLUS par ce compte (elle utilise `count_adjacent` = ring-1 seul, non cappé).
+    Cette fonction est CONSERVÉE pour le fallback CIBLE (`enemies_in_arc`/`gauntlets_target` —
+    l'énumération eligible-targets est un sélecteur DISTINCT de l'utilité)."""
     return sum(1 for p in (positions or []) if in_arc(tile, p, elev_by_pos))
 
 

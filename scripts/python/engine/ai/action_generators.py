@@ -51,10 +51,10 @@ from engine.predict import (repair_utility,            # RepairedAmountUtility (
                             predict_heal_effective, heal_amount_config,   # magnitude soin OFFLINE (#79)
                             heal_amount_weapon,        # #45c : branche ARME REELLE de HealAmount
                             predict_repair_effective, repair_amount_config,  # magnitude repair OFFLINE (#83)
+                            repair_amount, calculate_repair_modifier_for_prediction,  # RepairModifier cible (#45d)
                             heal_utility)             # HealUtility — terme lifesteal SpiritLeech (#84)
 from engine.entities.stats import StatType, StatPart   # Attack INITIALE de la cible (magnitude #85)
 from engine.entities.effect_type import EffectType     # #158 : ids d'effet -> enum natif
-from engine.entities.triggered_ability_type import triggered_ability_ids   # kit passif -> TriggeredAbilities(2) (case-36)
 from engine.entities.effects.magnitude import ability_var   # maxDmg/dmgPct GalvanicField (#85)
 from engine.ai.bucket import Action, Bucket
 
@@ -364,6 +364,7 @@ class ComparableAbilityGenerator(ActionGenerator):
         reach = ([ctx.origin] if ctx.origin is not None else []) \
             + [(t["col"], t["row"]) for t in ctx.move_tiles]
         REPAIR_RANGE = 1  # gameconfig : repair ciblé adjacent (pas de `range` propre observé)
+        eff_by_id = {u.get("id"): (u.get("effects") or []) for u in ctx.units}  # RepairModifier cible (#45d)
         # Magnitude REPAIR OFFLINE = hpToRepair[activeLevel] × rareté (résolu 1x : dépend du caster, pas de
         # la cible). Niveau = ACTIF (réparation native, +0xB8) via heal_config (même source unitConfig).
         _rc = ctx.heal_config(ctx.uid)
@@ -390,7 +391,13 @@ class ComparableAbilityGenerator(ActionGenerator):
                     fill_hp = max(0, hp_max - hp_cur)
                     fill_armor = max(0, arm_max - arm_cur)
                 else:                    # PredictRepair : min(repairAmount, manquant) par stat (Health+Armor)
-                    rp = predict_repair_effective(repair_amt, hp_cur, hp_max, arm_cur, arm_max)
+                    # RepairModifier (#45d) : bonus/malus des effets ACTIFS portés par la CIBLE
+                    # (Nanoscarab +hpToRepair, Voltagheist ×0.5), appliqué à la base AVANT MaxFillUp
+                    # (ordre natif PredictRepair @181038280 : modifier -> caps -> min(amount, manquant)).
+                    mod_add, mod_mul = calculate_repair_modifier_for_prediction(
+                        eff_by_id.get(tg), ctx.heal_config)
+                    rp = predict_repair_effective(repair_amount(repair_amt, mod_add, mod_mul),
+                                                  hp_cur, hp_max, arm_cur, arm_max)
                     fill_hp, fill_armor = rp.fill_hp, rp.fill_armor
                 pred = repair_utility(fill_hp, hp_max, fill_armor, arm_max, is_boss=False)
                 if ctx.debug:
@@ -441,6 +448,7 @@ class ComparableAbilityGenerator(ActionGenerator):
         reach = ([ctx.origin] if ctx.origin is not None else []) \
             + [(t["col"], t["row"]) for t in ctx.move_tiles]
         REPAIR_RANGE = 1  # réparation ciblée adjacente (pas de `range` propre observé)
+        eff_by_id = {u.get("id"): (u.get("effects") or []) for u in ctx.units}  # RepairModifier cible (#45d)
         # dmgPct/maxDmg du passif GalvanicField au niveau PASSIF du caster (maxDmg rarity-scaled par mult).
         cfg = ctx.heal_config(ctx.uid)
         maxdmg = ability_var("GalvanicField", "maxDmg", cfg["passive"], multiplier_pct=cfg["multiplier"])
@@ -467,7 +475,11 @@ class ComparableAbilityGenerator(ActionGenerator):
             att = tctx.get_stat(StatType.ATTACK, StatPart.INITIAL)
             raw = int(round(att * (dmgpct or 0) / 100.0))
             M = raw if maxdmg is None else min(raw, maxdmg)
-            rp = predict_repair_effective(M, hp_cur, hp_max, arm_cur, arm_max)  # fill = min(M, manquant_i)
+            # RepairModifier (#45d) appliqué au FILL seulement (il vit DANS PredictRepair @181038280) ;
+            # le terme custom @181155520 consomme le M brut de GetOverrideAttackDamageAmount (hors PredictRepair).
+            mod_add, mod_mul = calculate_repair_modifier_for_prediction(eff_by_id.get(tg), ctx.heal_config)
+            rp = predict_repair_effective(repair_amount(M, mod_add, mod_mul),
+                                          hp_cur, hp_max, arm_cur, arm_max)  # fill = min(M', manquant_i)
             repaired = repair_utility(rp.fill_hp, hp_max, rp.fill_armor, arm_max, is_boss=False)
             custom = (M / (hp_max + 1) * 50.0) if playbooks._has_valid_targets(ctx, tg) else 0.0
             pred = repaired + custom
@@ -545,9 +557,7 @@ class MovementActionGenerator(ActionGenerator):
         return {"kind": "move", "to": move_to, "util": move_util}
 
 
-def tile_leaf_ctx(ctx) -> dict:
-    """Dict `ctx` PAR-DÉCISION des feuilles Tile(7) depuis l'`AiDecisionContext` — feuille
-    TriggeredAbilities(2) (case-36) : kit passif du mover (dispatcher `@1810fda80` sur l'Abilities-
-    Component) + allies vivants self-exclu (adjacence R1/R2 de la tuile candidate)."""
-    return {"unit_triggered_abilities": triggered_ability_ids((ctx.me or {}).get("visualId")),
-            "friend_positions": ctx.fpos}
+# tile_leaf_ctx : DÉPLACÉ dans engine/utilities/tile.py (case-49 : consommé par les DEUX chemins
+# de la Composed Tile(7) — move ET attaque). Ré-exporté ici pour les importeurs existants
+# (engine_agreement_stages).
+from engine.utilities.tile import tile_leaf_ctx  # noqa: E402,F401

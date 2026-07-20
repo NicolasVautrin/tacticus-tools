@@ -77,6 +77,17 @@ class GuardianOrganismPlaybook(AdjacentToOwnerNonOwnerPlaybook):
         return wt.sub("TriggeredAbilities", "GuardianOrganism_AdjacentFriend")
 
 
+class RitesOfBattlePlaybook(AdjacentToOwnerNonOwnerPlaybook):
+    """`RitesOfBattlePlaybook` (`..ctor @181187dd0` : ability 0x3f6=1014 RitesOfBattle — passif aura
+    ultraCalgar). `GetAdjacentFriendUtility @181187d70` = TriggeredAbilities
+    ["RITESOFBATTLE_AdjacentFriend"] (=10 BC), unité ignorée. Case-49 résiduel (31337) : ce terme
+    manquant faussait les Tile7 de u87 → miss move s3 ((2,2) vs (3,2)) ET miss CIBLE s14
+    (l'argmax attaque u_full = paire + Tile7 flippait vers 79@(4,3) au lieu de 81@(3,4))."""
+
+    def get_adjacent_friend_utility(self, wt) -> float:
+        return wt.sub("TriggeredAbilities", "RITESOFBATTLE_AdjacentFriend")
+
+
 # `PlaybookDatabase.LoadPlaybook @1810dfd10` : singleton par TYPE d'ability. Seuls les types dont le
 # playbook CONTRIBUE au mouvement sont enregistrés — les autres (playbooks de cast Comparable/
 # NonComparable ; base `TriggeredAbilityPlaybook.CalculateMovementUtilityInSteps @18150f630`) yield 0
@@ -84,6 +95,7 @@ class GuardianOrganismPlaybook(AdjacentToOwnerNonOwnerPlaybook):
 # `GetAdjacent{Friend,Enemy}Utility` (~25, mêmes 3 lignes chacun) quand un case les montre décisifs.
 TRIGGERED_MOVE_PLAYBOOKS: dict[int, AdjacentUnitPreferenceTriggeredAbilityPlaybook] = {
     int(TriggeredAbilityType.GuardianOrganism): GuardianOrganismPlaybook(),
+    int(TriggeredAbilityType.RitesOfBattle): RitesOfBattlePlaybook(),
 }
 
 

@@ -35,8 +35,12 @@ class BasePlaybook:
 
 # ── Terme de tuile Tile(7) partagé (`CalculateUtilityFromTilePrediction @181408740`) ────────────────
 def tile_utility(ctx, pos) -> float:
-    """Composite Tile(7) évalué sur la tuile caster `pos`. Sur carte plate ≈ 0 (feuilles situationnelles
-    gatées sur métadata absente) -> ne discrimine que sur élévation / tuiles spéciales. Bonus additif."""
+    """Composite Tile(7) évalué sur la tuile caster `pos` — MÊME Composed que le sweep MOVE (case-49 :
+    le natif émet `ComposedUtility` identique sous le playbook d'ATTAQUE, L3 s14 31337 — feuille
+    TriggeredAbilities(2) incluse : natif (3,4)=25=30elev-25effets+20trig vs (4,3)=40=30+10trig).
+    Meta et leaf_ctx MIRROIR de `engine.move` (élévation min/max BOARD, effets dynamiques + covers
+    terrain, kit passif + fpos via `tile_leaf_ctx`). Sur carte plate ≈ 0. Bonus additif."""
+    from ..utilities.tile import terrain_tile_effects, tile_leaf_ctx   # lazy : évite tout cycle
     meta: dict = {}
     e = ctx.elev_by_pos.get(pos)
     if e is not None:
@@ -44,9 +48,12 @@ def tile_utility(ctx, pos) -> float:
         meta = {"elevation": e, "elevation_max": max(_elevs), "elevation_min": min(_elevs)}
     if pos in ctx.is_temporary_by_pos:
         meta["is_temporary"] = ctx.is_temporary_by_pos[pos]
-    if pos in ctx.effects_by_pos:
-        meta["effects"] = ctx.effects_by_pos[pos]   # feuille TileEffects (ex. Thorns=-25)
-    return tile_composite(pos, meta, {}, ctx.wt)
+    _effs = list(ctx.effects_by_pos.get(pos) or [])          # feuille TileEffects (ex. Thorns=-25)
+    # ctx POLYMORPHE : NCContext (NovaShield via get_movement_utility) n'a pas `terrain_by_pos`.
+    _effs += terrain_tile_effects((getattr(ctx, "terrain_by_pos", None) or {}).get(pos))  # covers (case-37)
+    if _effs:
+        meta["effects"] = _effs
+    return tile_composite(pos, meta, tile_leaf_ctx(ctx), ctx.wt)
 
 
 class ComparablePlaybook(BasePlaybook):

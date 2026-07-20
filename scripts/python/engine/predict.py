@@ -285,13 +285,67 @@ def heal_action_utility(events) -> float:
 
 
 def repair_amount(base: int, mod_add: int = 0, mod_mul: float = 1.0) -> int:
-    """Montant de réparation après modificateur côté caster (path RepairModifier de PredictRepair
-    @181038280) : `floor((floor(mod_add) + base) × mod_mul)`.
+    """Montant de réparation après RepairModifier (path de PredictRepair @181038280) :
+    `trunc((trunc(mod_add) + base) × mod_mul)` — add appliqué à la base AVANT la multiplication,
+    troncature vers zéro UNIQUE en sortie (`Fix64.op_Explicit` ; positif ⇒ = floor). Aucun arrondi
+    intermédiaire dans le fold (RE #45d).
 
     `base` = magnitude brute de l'ability de réparation (StatAmount(weapon) × max(hits,1), comme
-    `HealAbility.HealAmount`). `mod_add`/`mod_mul` = composantes Fix64 (additif, multiplicatif) du
-    RepairModifier évalué sur (caster, cible) ; par défaut 0 / 1.0 → no-op ⇒ renvoie `base`."""
+    `HealAbility.HealAmount`). `mod_add`/`mod_mul` = composantes Fix64 (Σ additifs, Π multiplicatifs)
+    du RepairModifier évalué sur les effets de la CIBLE (`calculate_repair_modifier_for_prediction`) ;
+    par défaut 0 / 1.0 → no-op ⇒ renvoie `base`."""
     return int((int(mod_add) + int(base)) * mod_mul)
+
+
+def calculate_repair_modifier_for_prediction(target_effects, heal_config=None) -> tuple:
+    """`RepairCalculations.CalculateRepairModifierForPrediction @181052890` — construit le
+    `RepairModifier` {mult, add} (défaut `Empty @1810537d0` = {1.0, 0}) en foldant
+    (`RepairModifier.Add @1810535a0` : add SOMMÉS via op_Addition, mult MULTIPLIÉS via op_Multiply,
+    commutatif, sans arrondi intermédiaire) les bonus de réparation — slot virtuel 0x1d
+    `BaseEffect.RepairBonus @180f15370` (descripteur EffectBonus caché : condition + pctNode/addNode,
+    `mult = 1 + pct/100` via `GetFloatMultiplierFromPercentage @180ffd270`).
+
+    L'énumération native balaye TOUS les EffectComponents du combat mais la condition `OwnerIsTarget`
+    filtre : seuls les effets PORTÉS PAR LA CIBLE de la réparation contribuent (bonus sur réparations
+    REÇUES, pas faites). Implémenteurs du build gqfc5mff6c (les 3 SEULS, RE #45d) :
+      - `NanoscarabRepairProtocolsEffect @180f5ab60` (EffectType 1545) : `ForAddition @180f406e0`,
+        add = `hpToRepair[Level de l'effet]` (ConfigVar 0x24), rarity-scaled par le multiplier du
+        POSEUR (AbilityState baké : Level surfacé par dv `effects[].level`, multiplier résolu via
+        `heal_config(effects[].source)`).
+      - `VoltagheistField_RepairReductionEffect @180f76b10` (EffectType 1382) :
+        `ForPercentDecrease @180f40760` (pctNode enveloppé ×−1), pct = −`healthPct` (constante
+        config 50, NON scalée) → mult ×= 1 − healthPct/100.
+      - `NetherRealmCasket_LivingMetalBonusEffect @180f5b650` (EffectType 1456) : ForAddition
+        `hpToHeal[lvl]` MAIS gate `TriggeringAbilityIs(LivingMetalRepair=0x3f2)` — la prédiction
+        Comparable (Repair 28 / GalvanicField 1119) n'est JAMAIS déclenchée par LivingMetalRepair
+        → contribue 0 sur ce chemin (no-op FIDÈLE, pas un manque : le +hpToHeal ne vit que dans le
+        self-repair trigger LivingMetal, hors décision).
+
+    `target_effects` = decisionView.units[cible].effects (IsActive-filtrés ; {name, level, source}) ;
+    `heal_config` = callable(uid) → {"multiplier": …} (scaling rareté du poseur du Nanoscarab).
+    Retourne `(mod_add, mod_mul)` à passer à `repair_amount` (troncature unique là-bas)."""
+    mod_add, mod_mul = 0, 1.0
+    from engine.entities.effects.magnitude import ability_var   # lazy : évite tout cycle d'import
+    for e in (target_effects or []):
+        name = str(e.get("name") or "")
+        if name == "NanoscarabRepairProtocols":
+            mult_pct = 100
+            if heal_config is not None and e.get("source") is not None:
+                try:
+                    mult_pct = int((heal_config(e["source"]) or {}).get("multiplier") or 100)
+                except Exception:
+                    mult_pct = 100   # poseur hors roster courant (mort/retiré) → base non scalée
+            add = ability_var("NanoscarabRepairProtocols", "hpToRepair",
+                              e.get("level"), multiplier_pct=mult_pct)
+            if add:
+                mod_add += int(add)
+        elif name == "VoltagheistField_RepairReduction":
+            pct = ability_var("VoltagheistField", "healthPct", is_constant=True)
+            if pct is not None:
+                mod_mul *= 1.0 - pct / 100.0
+        # NetherRealmCasket_LivingMetalBonus (1456) : gate TriggeringAbilityIs(LivingMetalRepair)
+        # jamais satisfait ici (cf. docstring) → aucun terme.
+    return mod_add, mod_mul
 
 
 # Réparations NonComparable (régime propre, PAS `_repair_candidates`) : à EXCLURE de la résolution

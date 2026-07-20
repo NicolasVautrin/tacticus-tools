@@ -579,6 +579,22 @@ def tile_composite(tile, meta: dict | None, ctx: dict, wt: Weights) -> float:
     return TILE_UTILITY.evaluate(tile, meta or {}, ctx, wt)
 
 
+def tile_leaf_ctx(ctx) -> dict:
+    """Dict `ctx` PAR-DÉCISION des feuilles Tile(7) depuis l'`AiDecisionContext` — feuille
+    TriggeredAbilities(2) (case-36) : kit passif du mover (dispatcher `@1810fda80` sur l'Abilities-
+    Component) + allies vivants self-exclu (adjacence R1/R2 de la tuile candidate). Vit ICI (module
+    des feuilles) car consommé par les DEUX chemins natifs de la Composed Tile(7) : le sweep MOVE
+    (`engine.move` via action_generators) ET le terme Tile(7) de l'ATTAQUE (`playbook.base.
+    tile_utility` — case-49 : le natif émet la MÊME `ComposedUtility` sous `Loki_NormalAttackPlaybook`,
+    L3 s14 31337). Import ici = pas de cycle (action_generators importe playbook.base)."""
+    from ..entities.triggered_ability_type import triggered_ability_ids   # lazy : évite tout cycle
+    # ctx POLYMORPHE (AiDecisionContext OU NCContext via get_movement_utility/NovaShield) : NCContext
+    # n'a pas `me` -> kit vide = feuille TriggeredAbilities silencieuse (comportement pré-case-49).
+    me = getattr(ctx, "me", None) or {}
+    return {"unit_triggered_abilities": triggered_ability_ids(me.get("visualId")),
+            "friend_positions": ctx.fpos}
+
+
 def triggered_abilities_attack_utility(ctx, attacker_uid: int, ability_id: int,
                                        target_uid: int, attack_tile) -> float:
     """Feuille TriggeredAbilities(2) FACE ATTACK du composite Damage(34) (#45-s18) — entrée des deux

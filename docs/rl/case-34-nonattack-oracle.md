@@ -396,12 +396,37 @@ Précisions RE gagnées au port (chaîne du « montant brut » slot 0x23) :
   (0 override `Create*HealBonus`) → boucle structurellement présente, TOUJOURS 0 : le port
   actuel (sans la boucle) est fidèle par vacuité sur ce build.
 - **`PredictRepair @181038280`** : gate `IsActor(caster)` → service slot-0 =
-  `RepairCalculations.CalculateRepairModifierForPrediction @181052890` : boucle les effets du
-  caster → virtuel slot **0x1d** (repair-bonus, un cran après HealBonus) → fold
-  `RepairModifier.Add @1810535a0` ({mult via `GetFloatMultiplierFromPercentage(pct)`, add}) →
-  **`amount' = trunc((amount + add) × mult)`** (Fix64), puis caps + `MaxFillUp` par stat
-  (hp@stat5, armor@stat4). **3 implémenteurs dans ce build (Necron)** :
-  `NanoscarabRepairProtocolsEffect @180f5ab60`, `NetherRealmCasket_LivingMetalBonusEffect
-  @180f5b650`, `VoltagheistField_RepairReductionEffect @180f76b10` (CreateEffectRepairBonus).
-  Port + validation (craft roster Necron avec repair) = tâche dédiée — aucun des seeds
-  d'agreement actuels n'exerce ces effets.
+  `RepairCalculations.CalculateRepairModifierForPrediction @181052890` : énumération ECS de
+  **TOUS les EffectComponents du combat** (pas « les effets du caster » — correction RE 2ᵉ passe),
+  filtrée par la condition **`OwnerIsTarget`** → seuls les effets **portés par la CIBLE** de la
+  réparation contribuent (bonus sur réparations REÇUES, pas faites). Par effet : virtuel slot
+  **0x1d** = `BaseEffect.RepairBonus @180f15370` (lit le CACHE `EffectBonus` {condition@+0x00,
+  pctNode@+0x08, addNode@+0x10} ; builders `ForAddition @180f406e0` / `ForPercentIncrease
+  @180f40850` / `ForPercentDecrease @180f40760` — Decrease enveloppe le pctNode ×−1) → fold
+  `RepairModifier.Add @1810535a0` : add **sommés** (op_Addition), mult **multipliés**
+  (op_Multiply, `mult = 1 + pct/100` via `GetFloatMultiplierFromPercentage @180ffd270`),
+  commutatif, SANS arrondi intermédiaire → **`amount' = trunc((amount + Σadd) × Πmult)`**
+  (troncature vers zéro unique, `Fix64.op_Explicit`), puis caps + `MaxFillUp` par stat
+  (hp@stat5, armor@stat4) — le modifier s'applique AVANT MaxFillUp.
+- **Les 3 implémenteurs du build (RE 2026-07-20, re-expert #9)** :
+
+  | Effet (CreateEffectRepairBonus) | EffectType | Type | Valeur + source | Gate |
+  |---|---|---|---|---|
+  | `NanoscarabRepairProtocolsEffect @180f5ab60` | 1545 | add | `hpToRepair[lvl]` (ConfigVar 0x24, rarity-scaled multiplier poseur) | OwnerIsTarget |
+  | `NetherRealmCasket_LivingMetalBonusEffect @180f5b650` | 1456 | add | `hpToHeal[lvl]` (ConfigVar 0x20, max 1456) | OwnerIsTarget **ET `TriggeringAbilityIs(LivingMetalRepair=0x3f2)`** → INERTE sur le chemin décision (Repair 28 / Galvanic 1119) |
+  | `VoltagheistField_RepairReductionEffect @180f76b10` | 1382 | mult | pct = −`healthPct` (constante 50, non scalée) → ×0.5 | OwnerIsTarget |
+
+  Enums : `AbilityVariableType{hpToHeal=0x20, hpToRepair=0x24}`, `AbilityConstantType{healthPct=0x4f}`,
+  `TriggeredAbilityType{LivingMetalRepair=0x3f2, NetherRealmCasket=0x5b6}`. Porteurs (gameconfig) :
+  Nanoscarab = `necroReanimator`/`necroNpcMoWReanimator` ; Voltagheist = `admecNpc3Electropriest*`/
+  `admecSmnElectropriest` ; NetherRealmCasket = NPC Necron (Warden/Destroyer/Spyder + bosses, avec
+  trait Living Metal).
+- **PORTÉ (2026-07-20)** : `engine/predict.py` `calculate_repair_modifier_for_prediction` (fold
+  homonyme, lit dv `effects[].{name,level,source}` de la CIBLE ; multiplier poseur via
+  `heal_config(source)`) + `repair_amount` (docstring corrigée : trunc unique). Câblé dans
+  `action_generators._repair_candidates` (avant `predict_repair_effective`) et
+  `_repair_galvanic_candidates` (sur le FILL seulement — le terme custom @181155520 consomme le
+  M brut de `GetOverrideAttackDamageAmount`, hors PredictRepair). Smoke : volt ×0.5 (constante
+  lue gameconfig), nano-l3 +11, nether no-op. **Validation live à faire** (scénario proposé par
+  le RE : `necroReanimator` répare `admecSmnElectropriest` blessé même camp → predicted =
+  trunc(base×0.5) ; puis buff Nanoscarab actif sur cible → +hpToRepair[lvl]).
