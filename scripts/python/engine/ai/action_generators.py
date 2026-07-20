@@ -49,6 +49,7 @@ from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK, HEAL_PLAYBOOK
 from engine.playbook.bespoke import BESPOKE_SELFCAST   # #82 : BloodChalice/MomentShackle self-cast
 from engine.predict import (repair_utility,            # RepairedAmountUtility (analogue non-custom du soin)
                             predict_heal_effective, heal_amount_config,   # magnitude soin OFFLINE (#79)
+                            heal_amount_weapon,        # #45c : branche ARME REELLE de HealAmount
                             predict_repair_effective, repair_amount_config,  # magnitude repair OFFLINE (#83)
                             heal_utility)             # HealUtility — terme lifesteal SpiritLeech (#84)
 from engine.entities.stats import StatType, StatPart   # Attack INITIALE de la cible (magnitude #85)
@@ -293,6 +294,13 @@ class ComparableAbilityGenerator(ActionGenerator):
             # `hpToHeal` (soin a arme reelle Heal(18) / magnitude speciale TwistedScience) -> saturation.
             _hc = ctx.heal_config(ctx.uid)
             heal_amt = heal_amount_config(ab.get("name"), _hc["active"], _hc["passive"], _hc["multiplier"])
+            # #45c : pas de `hpToHeal` -> branche ARME REELLE de `HealAmount @180e345b0`
+            # (StatAmount(weapon) = stat Damage resolue du caster, x1). La saturation
+            # `missing` ne reste que si la Scene manque (dernier filet, etat anterieur).
+            if heal_amt is None and getattr(ctx, "scene", None) is not None:
+                _actx = ctx.scene.ctx(ctx.uid)
+                if _actx is not None:
+                    heal_amt = heal_amount_weapon(_actx.attack)
             for tg in vts:
                 tu = unit_by_id.get(tg) or {}
                 # gate natif `HasEffect(target, EffectType.TwistedScience_ExtraHp=1355)` sur l'état d'effets

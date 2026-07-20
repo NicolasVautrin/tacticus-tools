@@ -7,6 +7,10 @@ DamageDealt(35) = `IdunBattle.AI.Utilities.DamageUtility` (@1810cf370, TypeDefIn
     sAvg        = Avg(AccurateShieldDamage@0x78)                        # bouclier COMPTE dans l'utilité
     D           = hAvg + sAvg
     combinedMax = (target.MaxHealth + 1) + (GetShield(target) + 1)     # boss : config 0xa9 (@1810ce8a0)
+    ⚠ #45b' : MaxHealth = `GetStat(target, Health=5, StatPart=2, null)` (relu @1810e2280) = l'agrégat
+    base+modifications (clamp cape) — PAS le champ struct MaximumValue@0x14 (observeBattle.hpMax).
+    Le `target_max_hp` passé à `evaluate` doit être ce max EFFECTIF (capteur combatSnapshot.healthMax,
+    overlay dans context.build) ; vécu 777 s15 : bump TwistedScience +2992 -> 2.8836 exact vs 2.3755.
     remaining   = (target.CurrentHealth + 1) + (GetShield(target) + 1) # GetRemainingHealth @1810cee40
     u_damage    = Clamp(D / combinedMax, 0, 1) * 80
     u_remaining = (1 - Clamp((remaining - D) / combinedMax, 0, 1)) * 20

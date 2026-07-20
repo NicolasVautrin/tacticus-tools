@@ -91,6 +91,7 @@ export function registerViewSnapshot(ctx: Ctx): void {
         }
         const partBuf = Memory.alloc(4); partBuf.writeS32(0);        // StatPart.Current
         const partBufInit = Memory.alloc(4); partBufInit.writeS32(3); // StatPart.Initial (=base)
+        const partBufMax = Memory.alloc(4); partBufMax.writeS32(2);  // StatPart 2 = MAX agrégé (#45b')
         // Nullable<BEntityId> = null (HasValue=false) : struct zéroé (taille large par sûreté).
         const nullId = Memory.alloc(16); for (let i = 0; i < 16; i += 4) nullId.add(i).writeS32(0);
         const getStatP = (e: NativePointer, k: string, pb: NativePointer): number | null => {
@@ -258,6 +259,13 @@ export function registerViewSnapshot(ctx: Ctx): void {
                     statDelta[k] = (stats[k] as number) - init;
                 }
             }
+            // #45b' : MaxHealth EFFECTIF (StatPart=2 = agrégat base+modifications, clamp cape
+            // inclus) — la lecture EXACTE de `DamageUtility.<EvaluateAttackInSteps>d__2
+            // @1810e2280` : `GetStat(target, Health=5, 2, null)` pour combinedMax. Le champ
+            // struct MaximumValue@0x14 (observeBattle.hpMax) est la BASE : il rate les bumps
+            // mid-bataille (TwistedScience +2992 sur u87, 777 s15 — utilité native 2.8836
+            // reconstruite exacte avec 14036). DYNAMIQUE -> refresh par pas côté Python.
+            const healthMax = getStatP(e, "health", partBufMax);
             // AbilityState PER-ABILITY (#100) : {level, multiplier} de chaque entrée ActiveAbility
             // (_abilityState @0x4c, Override @0x58 prime — cf. internals.readAbilityState). C'est le
             // couple que le natif passe au playbook (5e arg MakeDamagePredictions) et qui indexe les
@@ -269,7 +277,8 @@ export function registerViewSnapshot(ctx: Ctx): void {
                     level: a.level, multiplier: a.multiplier }));
             units.push({
                 entityId: id, ctrl: invokeBool(isCtrlByCurMi, [e, statePtr]),
-                stats, statDelta, normalAttack: readNormalAttack(e), unitConfig: readUnitConfig(e),
+                stats, statDelta, healthMax,
+                normalAttack: readNormalAttack(e), unitConfig: readUnitConfig(e),
                 shields: readShields(e), abilityStates,
             });
         }

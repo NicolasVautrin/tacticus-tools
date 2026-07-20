@@ -226,6 +226,12 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     obs = rpc("observeBattle", {"runnerId": rid}, 40)
     obs_units = obs.get("units") or []
     hpmax_by_id = {u.get("squadId"): (u.get("hpMax") or 0) for u in obs_units}
+    # #45b' : overlay MaxHealth EFFECTIF (combatSnapshot.healthMax = GetStat(e,5,part=2), la
+    # lecture EXACTE de DamageUtility @1810e2280) — obs.hpMax est la BASE (struct @0x14) et
+    # rate les bumps mid-bataille (TwistedScience +2992 sur u87, 777 s15 : natif 2.8836
+    # reconstruit exact avec 14036, faux 2.3755 avec 11044). Vieux hooks -> overlay vide.
+    if predictor is not None:
+        hpmax_by_id.update(predictor.get("hpmax_eff_by_id") or {})
 
     # État courant du pas pour le prédicteur OFFLINE (hp/pos/team/effets seed).
     sctx = _step_context(predictor, dv) if predictor is not None else None

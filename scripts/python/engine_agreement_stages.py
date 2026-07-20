@@ -21,6 +21,19 @@ qui, à chaque pas comparé, classe le hit/miss par étage :
   events natifs). Si la paire native repasse devant -> le miss est «prediction»
   (entièrement expliqué par l'étage prédiction) ; sinon -> «utility-logic» (résiduel).
 
+  ÉTAGE UTILITÉ (#45b') — confrontation par paire, MÊME TUILE, hits inclus :
+    natif   = RPC `pairUtility` (= `ComparablePlaybook.CalculateUtilityFromPredictions
+              @181407890` invoqué en direct — la valeur EXACTE que le bucket natif
+              attribue à la paire, SANS le terme Tile(7) qui vit hors du scorer) ;
+    offline = `_formula_pair_utility` : mirror 4-familles nourri des prédictions
+              NATIVES (formule isolée — un mismatch est TOUJOURS «logic», la
+              staleness/feed ayant déjà l'étage prédiction).
+    Sous-produit sur un miss d'ability : si le scorer natif LUI-MÊME préfère la paire
+    du MOTEUR (nat_u(native_pair) < nat_u(engine_pair)) -> «native-gate» : la décision
+    native ne vient pas de l'utilité de paire (gate/éligibilité manqué offline —
+    signature du cas 777 s15 stun, résolu par `battle_query.can_use_ability`) — au
+    lieu du fourre-tout «utility-logic».
+
   ÉTAGE MOVE — pour un miss de move PUR (natif ET moteur ont bougé sans caster) :
     T_native pas dans nos tuiles légales -> «move-enumeration» (feed) ;
     u_off(T_native) == u_off(T_engine)   -> «move-tie-break» ;
@@ -68,6 +81,7 @@ from engine.playbook import scene as _scene  # noqa: E402
 from engine.playbook import get_playbook_or_default, tile_utility  # noqa: E402
 from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK  # noqa: E402
 from engine.predict import (heal_amount_config, heal_utility,  # noqa: E402  (#45 confrontation
+                            heal_amount_weapon,                # #45c : branche ARME REELLE
                             predict_heal_effective,            # heal/repair : familles 2 et 4 de
                             predict_repair_effective,          # CalculateUtilityFromPredictions
                             repair_amount_config, repair_utility)  # @181407890)
@@ -163,6 +177,7 @@ class StageProbe:
         self.rpc = lambda m, b, t: _r(sid, m, b, t)
         self.records: list = []
         self._nat_events_cache: dict = {}   # {(step, uid, ab, tgt): events|None} — 1 RPC/paire/pas
+        self._pu_cache: dict = {}           # {(step, uid, ab, tgt, tile): resp|None} — pairUtility (#45b')
         # LEVER 3 (opt-in --l3) : fenêtre seq de CE pas (events L3 émis par l'aiStepDryRun) + trace.
         self.l3 = False
         self._prev_seq = None
@@ -284,6 +299,12 @@ class StageProbe:
             nat = next((e for e in hevs if e.get("targetId") == tgt), hevs[0])
             amt = heal_amount_config(ctx.ab_name_by_id.get(ab), hc["active"],
                                      hc["passive"], hc["multiplier"])
+            # #45c : pas de `hpToHeal` -> branche ARME REELLE (stat Damage du caster x1),
+            # mirror du generateur heal (action_generators). Saturation = dernier filet.
+            if amt is None and getattr(ctx, "scene", None) is not None:
+                actx = ctx.scene.ctx(ctx.uid)
+                if actx is not None:
+                    amt = heal_amount_weapon(actx.attack)
             missing = max(0, hp_max - hp_cur)
             off = missing if amt is None else predict_heal_effective(amt, hp_cur, hp_max)
             delta = ({} if int(off) == int(nat.get("healAmount") or 0) else
@@ -311,43 +332,34 @@ class StageProbe:
                     "family": "repair", "feed": (False if delta else None)}
         return None
 
-    # ---- contrefactuel : utilité offline avec prédictions NATIVES injectées ----
-    def _counterfactual_utility(self, ctx, step: int, uid: int, ab: int, tgt: int,
-                                tile) -> float | None:
-        """Σ (prob × ±damage_composite(fields natifs @tile)) + Tile(7)@tile — l'utilité que
-        NOTRE formule donnerait à la paire si notre prédiction était EXACTE (= la native,
-        prédite depuis la MÊME tuile). La négation friendly mirrore
-        `CalculateUtilityFromDamageEvent` (IsFriend)."""
-        evs = self._native_events(step, uid, ab, tgt, tile if tile is not None else ctx.origin)
-        if not evs:
-            return self._counterfactual_nonattack(ctx, step, uid, ab, tgt, tile)
-        me = next((u for u in ctx.units if u.get("id") == uid), None)
-        my_team = (me or {}).get("team")
-        team_by_id = {u.get("id"): u.get("team") for u in ctx.units}
-        u = 0.0
-        for ev in evs:
-            t_id = ev.get("targetId")
-            sign = -1.0 if (t_id is not None and team_by_id.get(t_id) == my_team) else 1.0
-            prob = (ev.get("probability") or 1.0) * (ev.get("probMult") or 1.0)
-            u += sign * prob * damage_composite(_fields_from_native_event(ev),
-                                                ctx.hpmax_by_id.get(t_id), ctx.wt)
-        return u + (tile_utility(ctx, tile) if tile is not None else 0.0)
-
-    def _counterfactual_nonattack(self, ctx, step: int, uid: int, ab: int, tgt: int,
-                                  tile) -> float | None:
-        """#45 : contrefactuel des familles NON-damage — fills NATIFS injectés dans NOS
-        utilités : Σ prob × HealUtility(healAmount) (famille 2, `CalculateUtilityFrom-
-        HealEvent @1814aac80` = prob × Weight[44].Eval) + Σ RepairedAmountUtility(fills)
-        (famille 4, Weight[46].Eval, SANS facteur prob — mirror @181407890) + Tile(7).
-        None si familles vides / non décodées (vieux hooks). Écart documenté : le
-        CustomUtility TwistedScience (+100/+200) n'est pas modélisé ici."""
-        resp = self._native_resp(step, uid, ab, tgt, tile if tile is not None else ctx.origin)
+    # ---- #45b' : mirror OFFLINE du scorer de paire (4 familles, prédictions NATIVES) ----
+    def _formula_pair_utility(self, ctx, step: int, uid: int, ab: int, tgt: int,
+                              tile) -> float | None:
+        """Mirror de `ComparablePlaybook.CalculateUtilityFromPredictions @181407890`
+        nourri des prédictions NATIVES (`aiPlaybookPredict`, MÊME tuile) — la formule
+        ISOLÉE (tout écart au scorer natif = logic, jamais feed) :
+          Σ damage (+0x358 : prob1×prob2 × ±damage_composite, friendly NÉGÉ,
+                    `CalculateUtilityFromDamageEvent @1814a9f90`)
+        + Σ heal   (+0x368 : prob × HealUtility, `CalculateUtilityFromHealEvent @1814aac80`)
+        + Σ repair (+0x388 : RepairedAmountUtility(fills), SANS facteur prob — mirror natif)
+        SANS le terme Tile(7) (hors scorer : il vit dans le sweep de position) et SANS la
+        famille effet (+0x378) : seul override du build = SpiritLeech, poids
+        AddedTileEffects=0 -> contribution 0 des deux côtés (cf. probable_damage_event.py).
+        Écart documenté : le CustomUtility TwistedScience (+100/+200) n'est pas modélisé.
+        None = RPC KO ou paire sans aucune famille décodée (vieux hooks)."""
+        resp = self._native_resp(step, uid, ab, tgt, tile)
         if resp is None:
             return None
         me = next((u for u in ctx.units if u.get("id") == uid), None)
         my_team = (me or {}).get("team")
         team_by_id = {u.get("id"): u.get("team") for u in ctx.units}
         u = None
+        for ev in (resp.get("events") or []):
+            t_id = ev.get("targetId")
+            sign = -1.0 if (t_id is not None and team_by_id.get(t_id) == my_team) else 1.0
+            prob = (ev.get("probability") or 1.0) * (ev.get("probMult") or 1.0)
+            u = (u or 0.0) + sign * prob * damage_composite(
+                _fields_from_native_event(ev), ctx.hpmax_by_id.get(t_id), ctx.wt)
         for ev in (resp.get("healEvents") or []):
             t_id = ev.get("targetId")
             u = (u or 0.0) + (ev.get("probability") or 1.0) * heal_utility(
@@ -361,9 +373,56 @@ class StageProbe:
                 int(rp.get("hpFill") or 0), int(ob.get("hpMax") or 0),
                 int(rp.get("armorFill") or 0), int(ob.get("armorMax") or 0),
                 is_boss=False)
+        return u
+
+    # ---- contrefactuel : utilité offline avec prédictions NATIVES injectées ----
+    def _counterfactual_utility(self, ctx, step: int, uid: int, ab: int, tgt: int,
+                                tile) -> float | None:
+        """L'utilité que NOTRE formule donnerait à la paire si notre prédiction était
+        EXACTE (la native, même tuile) + Tile(7)@tile — la forme des candidats du
+        générateur. Délègue le scorer de paire à `_formula_pair_utility` (#45b' :
+        source UNIQUE, le même mirror sert à l'étage UTILITÉ — plus de drift possible
+        entre contrefactuel et confrontation)."""
+        u = self._formula_pair_utility(ctx, step, uid, ab, tgt,
+                                       tile if tile is not None else ctx.origin)
         if u is None:
             return None
         return u + (tile_utility(ctx, tile) if tile is not None else 0.0)
+
+    # ---- #45b' : ÉTAGE UTILITÉ — scorer natif invoqué vs formule offline, même tuile ----
+    def _confront_utility(self, ctx, step: int, uid: int, ab: int, tgt: int,
+                          tile) -> dict:
+        """Confronte `_formula_pair_utility` (formule offline, prédictions natives) au
+        scorer NATIF invoqué (RPC `pairUtility` = `CalculateUtilityFromPredictions
+        @181407890` en direct, MÊME tuile). Prédictions natives des deux côtés ⇒ un
+        mismatch chiffre un gap de FORMULE par famille (jamais un gap de feed).
+        Tolérance : |delta| <= max(0.01, 0.1% de |natif|) (Fix64 Q32.32 + arrondis)."""
+        if playbooks.is_noncomp(ab):
+            return {"skipped": "nc-pair"}
+        tile = tile if tile is not None else ctx.origin
+        key = (step, uid, ab, tgt, tile)
+        if key not in self._pu_cache:
+            r = self.rpc("pairUtility",
+                         {"runnerId": self.rid, "unitId": uid, "targetId": tgt,
+                          "abilityType": ab, "col": int(tile[0]), "row": int(tile[1])}, 60)
+            self._pu_cache[key] = r if r.get("ok") else {"error": r.get("error")}
+        nat = self._pu_cache[key]
+        if nat.get("utility") is None:
+            return {"skipped": "rpc-ko", "error": nat.get("error")}
+        off = self._formula_pair_utility(ctx, step, uid, ab, tgt, tile)
+        if off is None:
+            return {"skipped": "no-native-events", "nat": round(nat["utility"], 4)}
+        delta = off - nat["utility"]
+        resp = self._native_resp(step, uid, ab, tgt, tile) or {}
+        fams = [f for f, k in (("damage", "events"), ("heal", "healEvents"),
+                               ("effect", "effectEvents"), ("repair", "repairs"))
+                if resp.get(k)]
+        out = {"match": abs(delta) <= max(0.01, 0.001 * abs(nat["utility"])),
+               "off": round(off, 4), "nat": round(nat["utility"], 4),
+               "delta": round(delta, 4), "families": fams, "tile": tile}
+        if nat.get("mutated"):
+            out["mutated"] = True   # scorer censé être read-only — à investiguer si vu
+        return out
 
     # ---- scoring move par-tuile (mirror best_move_faithful, tuiles ciblées) ----
     def _move_utils(self, ctx, tiles: list) -> dict:
@@ -410,6 +469,8 @@ class StageProbe:
         # Confrontation prédiction SYSTÉMATIQUE (hits inclus) -> fidélité prédiction globale.
         rec["pred"] = self._confront_prediction(ctx, dv, mov_by_unit, step, uid, ab, tgt,
                                                 nat_tile)
+        # #45b' : confrontation UTILITÉ systématique (hits inclus) -> fidélité formule globale.
+        rec["util"] = self._confront_utility(ctx, step, uid, ab, tgt, nat_tile)
         if hit:
             rec["stage"] = "hit"
             return rec
@@ -460,8 +521,19 @@ class StageProbe:
             pc = rec["pred"]
             rec["pred_kind"] = ("feed" if pc.get("feed") else
                                 "logic" if pc.get("feed") is False else "unknown")
-        else:
-            rec["stage"] = "utility-logic"       # résiduel : formule/termes d'utilité
+            return rec
+        # #45b' : le scorer NATIF départage le résiduel — s'il préfère LUI-MÊME la paire
+        # du moteur, la décision native ne vient pas de l'utilité de paire -> gate/
+        # éligibilité manqué offline (signature 777 s15 stun), pas un gap de formule.
+        if eng_is_ab and eng_ab is not None and eng_tgt is not None \
+                and not playbooks.is_noncomp(eng_ab):
+            rec["util_eng"] = self._confront_utility(ctx, step, uid, eng_ab, eng_tgt,
+                                                     eng.get("to") or ctx.origin)
+        nu_nat = (rec.get("util") or {}).get("nat")
+        nu_eng = (rec.get("util_eng") or {}).get("nat")
+        rec["stage"] = ("native-gate" if (nu_nat is not None and nu_eng is not None
+                                          and nu_nat < nu_eng)
+                        else "utility-logic")    # résiduel : formule/termes d'utilité
         return rec
 
     # ---- LEVER 1 : précondition offline « terme TriggeredAbilities suspect » (sans capture) ----
@@ -690,6 +762,32 @@ def summarize(all_records: list) -> None:
         print(f"  confrontations: {n}  match={n_match} ({100 * n_match // n}%)  "
               f"mismatch-feed(staleness)={n_feed}  mismatch-logic(formule)={n_logic}  "
               f"inclassable={n_unk}")
+    else:
+        print("  aucune paire confrontable")
+    print()
+    print("=== ETAGE UTILITE (#45b' : formule offline vs scorer natif pairUtility) ===")
+    urecs = [(r, r["util"]) for r in ab_recs
+             if isinstance(r.get("util"), dict) and "match" in r["util"]]
+    nu = len(urecs)
+    if nu:
+        n_match = sum(1 for _, u in urecs if u["match"])
+        n_skip = sum(1 for r in ab_recs if isinstance(r.get("util"), dict)
+                     and r["util"].get("skipped") not in (None, "nc-pair"))
+        print(f"  confrontations: {nu}  match={n_match} ({100 * n_match // nu}%)  "
+              f"mismatch={nu - n_match}  skipped(rpc/no-events)={n_skip}")
+        mism = [(r, u) for r, u in urecs if not u["match"]]
+        fam_cnt: Counter = Counter("+".join(u.get("families") or ["?"]) for _, u in mism)
+        for fam, k in fam_cnt.most_common():
+            ds = [abs(u["delta"]) for _, u in mism
+                  if "+".join(u.get("families") or ["?"]) == fam]
+            print(f"    {fam:<20} {k}  |delta| moy={sum(ds) / len(ds):.3f} "
+                  f"max={max(ds):.3f}")
+        for r, u in sorted(mism, key=lambda x: -abs(x[1]["delta"]))[:3]:
+            na = r.get("native") or {}
+            print(f"    worst: step={r['step']} u{r['uid']} "
+                  f"ab={na.get('ability')}->t{na.get('target')} "
+                  f"off={u['off']} nat={u['nat']} delta={u['delta']} "
+                  f"fam={'+'.join(u.get('families') or [])}")
     else:
         print("  aucune paire confrontable")
     print()

@@ -326,7 +326,12 @@ def build_predictor(rpc, rid):
             "board": board, "elev_by_pos": elev_by_pos,
             # #194 : vue DefenseComponent (stat 3 + modifications). Capture au BUILD ; DYNAMIQUE
             # (suit l'occupation de tuile) -> re-capturee par-pas via refresh_shields.
-            "defstat_by_id": _defense_stats_from_snapshot(snap.get("units"))}
+            "defstat_by_id": _defense_stats_from_snapshot(snap.get("units")),
+            # #45b' : MaxHealth EFFECTIF (capteur combatSnapshot.healthMax = GetStat(e,5,part=2),
+            # la lecture EXACTE de DamageUtility @1810e2280 pour combinedMax — base+modifs,
+            # clamp cape). DYNAMIQUE (bump TwistedScience mid-bataille) -> refresh par-pas.
+            # Vieux hooks sans le champ -> {} (fallback obs.hpMax base, etat anterieur).
+            "hpmax_eff_by_id": _hpmax_eff_from_snapshot(snap.get("units"))}
 
 
 def build_board(rpc, rid):
@@ -346,6 +351,14 @@ def build_board(rpc, rid):
     if not tiles:
         return None
     return Board(tiles, adjacency="native_sym")
+
+
+def _hpmax_eff_from_snapshot(units) -> dict:
+    """{uid: MaxHealth EFFECTIF} depuis `combatSnapshot.healthMax` (#45b') = GetStat(e, Health=5,
+    StatPart=2) — l'agrégat base+modifications (clamp cape inclus) que `DamageUtility
+    @1810e2280` lit pour combinedMax. {} si le capteur manque (vieux hooks)."""
+    return {u["entityId"]: int(u["healthMax"]) for u in (units or [])
+            if u.get("healthMax") is not None}
 
 
 def _defense_stats_from_snapshot(units) -> dict:
@@ -389,6 +402,9 @@ def refresh_shields(predictor, rpc, rid):
         u["entityId"]: int((u.get("stats") or {}).get("fixedArmor") or 0)
         for u in (snap.get("units") or [])}
     predictor["defstat_by_id"] = _defense_stats_from_snapshot(snap.get("units"))
+    # #45b' : re-capture MaxHealth EFFECTIF (part 2) — DYNAMIQUE (bump TwistedScience
+    # mid-bataille : u87 777 s15 base 11044 -> 14036 apres le cast 1167 du pas 1).
+    predictor["hpmax_eff_by_id"] = _hpmax_eff_from_snapshot(snap.get("units"))
     # #46 : re-capture TurnsStarted (stat 12, incrémente à chaque tour démarré) — même raison
     # que TotalAttacksMade (#33) : le cold du build (pas 0) sous-estime tout gate mid-bataille.
     predictor["turns_started_by_id"] = {

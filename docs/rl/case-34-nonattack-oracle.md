@@ -253,3 +253,87 @@ La piste « feuilles 2/4 » de la MAJ précédente est CLOSE : mesure directe au
   d'un étage UTILITÉ du harnais (confrontation par-paire systématique, comme `aiPlaybookPredict`
   l'est pour la prédiction) ; (c) heal formule (u91 biophagus 1167 self-heal : off 5066 vs natif
   3614, feed=false) ; (d) bonus acteur PredictRepair/PredictHeal (inchangés).
+
+## MAJ #45ter (2026-07-20) — ÉTAGE UTILITÉ branché + s15 damage RÉSOLU (MaxHealth part-2)
+
+**(b') est branché et le « gap 22.38 vs 2.88 » est mort : c'était le terme Tile(7) qui polluait
+la comparaison** (le scoreur natif ne le contient pas — il vit dans le sweep de position).
+
+- **ÉTAGE UTILITÉ** (`engine_agreement_stages.py`) : confrontation par-paire SYSTÉMATIQUE (hits
+  inclus) `_formula_pair_utility` (mirror 4-familles de `CalculateUtilityFromPredictions
+  @181407890`, nourri des prédictions NATIVES = formule isolée, SANS Tile(7)) vs RPC `pairUtility`
+  (même tuile). Les contrefactuels délèguent au MÊME mirror (source unique, `_counterfactual_
+  nonattack` fusionné). Sous-produit : classification `native-gate` sur un miss quand le scoreur
+  natif préfère LUI-MÊME la paire du moteur (signature s15 stun) — au lieu de «utility-logic».
+- **BATCH 777/909/31337 ×20 : 26 confrontations, 24 match (92 %), 2 mismatches famille damage**
+  (offline SOUS-estime) : 777 s15 u83 69→87 (off 2.3755 / nat 2.8836) et 31337 s18 u89
+  spaceStormcaller 69→u81 bloodMephiston (off 164.2269 / nat 182.0807).
+- **s15 RÉSOLU EXACT — MaxHealth = StatPart 2, pas le champ struct.** Décompilé @1810e2280 :
+  `combinedMax = GetStat(target, Health=5, **StatPart=2**, null) + 1 + GetShield+1` — l'agrégat
+  base+modifications (clamp cape). `observeBattle.hpMax` lit MaximumValue@0x14 = la BASE. Vécu :
+  u87 custoVexilusPraetor base 11044, **bump TwistedScience +2992** (u91 caste 1167 sur 87 au
+  pas 1 ; `statModSources(u87, health) = {total: 2992, source: effet 145}`) → max effectif 14036
+  → 328/14038×80 + (1−13326/14038)×20 = **2.8836 exact**. FIX (4 étages) : capteur
+  `combatSnapshot.healthMax` = GetStat(e,5,part=2) (rpc-snapshot.ts) → `hpmax_eff_by_id`
+  (build_predictor + refresh_shields par-pas, scene.py) → overlay `hpmax_by_id` (context.build).
+  Hooks reinjectés (session 57) ; **VALIDÉ live** : re-batch 777/909/31337 → étage UTILITÉ
+  **25/26 (96 %)**, le mismatch s15 a DISPARU (seul restant : s18 splash Psyker, cf. MAJ
+  #45quater) ; prédiction 26/26 (dont heal 1167 → match 3614, port heal_amount_weapon
+  validé), ability 34/35, move 46/51 — aucune régression de l'overlay hpmax_eff.
+- **s18 OUVERT : +17.854 ADDITIF** (aucun mod health sur Mephiston — statModSources vide → pas
+  un problème de CM ; kill garanti 100 + DamageDealt 64.23 corrects). Feuille additive à NOMMER
+  au breakdown natif par-feuille (**L3 utility_score, exige SOLO** — après le validator).
+- **RE composite Damage(34) = [40,35,36,38,43,39,37,41,2,4,3,59,42]** (13 feuilles, on porte
+  35/36/37) : **42 AttackTargetWithEffect** @1810e0f00 = Σ effets ACTIFS de la CIBLE →
+  +poids BC keyé par le NOM du type d'effet (`Enum.ToString`, catégorie `AttackTargetWithEffect` ;
+  ce build : seul `ArmourOfShriekingSouls: 20`) ; **59 OptimizedGait_AdjacentFriends** @1810f73c0 =
+  si ACTEUR mécanique, +poids par unité ADJACENTE à la tuile candidate portant la triggered 0x4b5
+  =1205 (poids BC = 0 ce build → inerte) ; **2/4 TriggeredAbilities(NonOwner)** mode attack
+  (@1810f64b0 / @1810f7ea0) = protocole triggered standard (owner : LoadPlaybook par ability du
+  porteur, vslot 3 `CalculateAttackUtilityInSteps` ; NonOwner : IterateAbilities + vslot 1) ;
+  `OptimizedGaitPlaybook` attack @18118a050 **yield 0**. Modificateur Π : SEULS overrides =
+  `Dislike{Boss @1810cf5d0, EnvironmentUnits @1810cf720, Objects @1810cf870}` (=1 sur unité
+  normale). ~60 playbooks triggered ont un corps attack non-trivial (liste symbols
+  `CalculateAttackUtilityInStepsInternal`) — porter à la demande (agreement-driven).
+- **(c) heal Heal_TwistedScience — RÉSOLU + PORTÉ** : la magnitude native 3614 ==
+  **la stat Damage du caster** (BC genesBiophagus `Damage: 3614`). Décompilé relu :
+  `HealAmount @180e345b0` = arbre DSL `Multiply(StatAmount(this.weapon@0x160),
+  Max(WeaponHighestHits(weapon), 1))` ; `TwistedScience_HealPlaybook.MakeHealPredictions
+  @18116fc60` = `GenerateHealPredictions(target@ability+0x178, HealAmount)`. Le bump max-HP
+  est un canal SÉPARÉ : `ExecuteBehaviour @181217ad0` = AddDynamicStatModifierEffect(stat 5,
+  ConfigVar(TwistedScience=1278, `hp`)) — le +2992 vu au statModSources. PORT :
+  `engine/predict.heal_amount_weapon(attack_stat)` (stat Damage résolue = `ctx.attack`) +
+  fallback branché aux DEUX call-sites (générateur heal action_generators + confrontation
+  stages) quand `hpToHeal` absent ; saturation missing = dernier filet (Scene absente).
+
+## MAJ #45quater (2026-07-20) — s18 NOMMÉ : splash Psyker (leaf 2 → PsykerPlaybook)
+
+**Le +17.854 de 31337 s18 est NOMMÉ par le breakdown natif par-feuille** (hooks L3 étendus
+aux SM `EvaluateAttackInSteps(Internal)` des feuilles Damage(34), ai-trace/utilities.ts,
+events `mode:"attack"` avec acteur/cible projetés du `UtilityAttackCase` +0x10/+0x20) :
+`TriggeredAbilitiesUtility#0 score=17.85381752299145` — la feuille 2 (triggered de l'ACTEUR).
+
+- **Chaîne** : u89 spaceStormcaller (Njal) porte les triggered `1194 LordOfTempests, 1013
+  PsykerExtraAttack, 1142 TerminatorArmour` (capteur unitAbilityStates). La feuille 2 charge
+  leurs playbooks ; le contributeur = **`PsykerPlaybook.CalculateAttackUtilityInStepsInternal
+  d__2 @18118a0d0`** (le SPLASH PSYCHIQUE, trait Psyker) :
+  1. Gates : `IsRegularAttack(case)` ; arme du case **ranged** (`IsMelee` → 0) ; profil
+     **Psychic** (`profile+0x10 == 0xd=13`) ; non supprimé (`IsPsykerAttackSuppressed
+     @181224610` = IsEffectTarget(CASTER, 1191 HuntersBeyondDeathPsykerSuppression) ||
+     IsEffectTarget(CIBLE, 1533 WatchedOver_PsykerSuppression)).
+  2. `PossibleTargets @181224690` = `Damageable(Enemies(caster, AdjacentUnits(CIBLE, 1, 3)))`
+     — les ennemis damageables ADJACENTS À LA CIBLE (ring 1) ; vide → 0.
+  3. `GetAttackDamage @181224550` = `PercentageOf(StatAmount(weapon@0x148),
+     Direct(GetNumberConstant(config, 0xf)))` — stat Damage du caster × constante config #15
+     (le % de splash ; à localiser dans le gameconfig au port — PsykerExtraAttack n'est pas
+     une entrée `ability()` directe).
+  4. Pour chaque target U : prédiction du MONTANT brut vs U (query slot 0x23, profil 13,
+     AbilityOrEffect(1013)) → `ProbableDamageEvent` → `TriggeredAbilityPlaybook.
+     CalculateUtilityFromDamageEvent` (composite Damage par event) ; **u = Σ / Count(targets)
+     (MOYENNE, pas somme)** — d'où le 17.85 non-rond, position-dépendant (2 cases sur 6).
+- **Port (à faire, #45-s18)** : registre `TRIGGERED_ATTACK_PLAYBOOKS = {1013: psyker}` +
+  fonction leaf-2 attack appelée PAR EVENT depuis les deux scoreurs de paire
+  (`calculate_action_utility` + `_formula_pair_utility` stages — le natif évalue les 13
+  feuilles DANS ForDamagePrediction, par DamageEvent). Gates ranged/Psychic via la
+  résolution d'arme existante (select_weapon), suppression via effets 1191/1533,
+  magnitude = ctx.attack × pct15, prédiction montant-vs-U via le chemin amount existant.

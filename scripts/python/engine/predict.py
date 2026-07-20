@@ -209,6 +209,21 @@ def heal_amount_config(ability_name: str | None, active_level: int, passive_leve
     return ability_var(key, "hpToHeal", level, multiplier_pct=multiplier_pct)
 
 
+def heal_amount_weapon(attack_stat: int) -> int:
+    """`HealAbility.HealAmount @180e345b0` branche ARME REELLE (ability SANS `hpToHeal` config) :
+    `StatAmount(weapon@0x160) x Max(WeaponHighestHits(weapon), 1)` — decompile relu #45c :
+    l'arbre DSL est `Multiply(StatAmount(this.weapon), Max(WeaponHighestHits(this.weapon), 1))`.
+
+    `StatAmount` de l'arme du soin = la stat Damage RESOLUE du caster (GetStat Attack=0,
+    effet-inclusif -> `ctx.attack`). Mesure 1167 Heal_TwistedScience (777) : natif 3614 ==
+    BC Damage du biophagus, CONSTANT self (s9) et allie (s1) ; ce n'est NI la variable `hp`
+    de TwistedScience (= le bump max-HP : 2992), NI la saturation missing (5066 = l'ancien
+    fallback faux). Facteur hits : x1 — MAJ #37 (5 soins verifies 1 coup) + datapoint 1167
+    (arme 1-hit, indiscriminable) ; a re-verifier si un soin a arme multi-hit surgit en
+    confrontation (l'etage heal du harnais le chiffrera)."""
+    return heal_amount(int(attack_stat), 1)
+
+
 def predict_heal_effective(heal_amount_value: int, target_current_hp: int, target_max_hp: int,
                            boss_max_hp: int | None = None, group_limit: int | None = None) -> int:
     """`DamagePrediction.PredictHeal` @181037180 → `FillUpStatComponent.MaxFillUp` @180f9b790.
