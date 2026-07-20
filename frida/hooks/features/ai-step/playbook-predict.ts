@@ -27,8 +27,15 @@
  *      event @+0x08+X : hp@+0x08, armor@+0x0c, shield@+0x10, willKill@+0x2c=struct+0x24,
  *      mightKill@+0x30=struct+0x28, healthDmg@+0x68/+0x6c=struct+0x60/+0x64, totalDmg@+0x98/
  *      +0x9c, mightCrit@+0xb9, appliedHits@+0xc4), probability(Fix64)@+0xc8, probMult@+0xd0.
- *  ⚠ Certains playbooks (heal/repair) rendent des Probable{Heal,Effect}Event : ce module
- *  ne décode que les DamageEvent (l'appelant passe une ability d'ATTAQUE). */
+ *  #34 : décode AUSSI les Probable{Heal,Effect}Event (siblings du slot damage —
+ *  `MakeHealPredictions @18140a970` / `MakeEffectPredictions @18140a930`, overrides bespoke
+ *  ex. HealPlaybook @181184a70) via le MÊME harnais (invocation par nom + List/array/yield).
+ *  Layouts RE (ctors @1811359a0 / @181135820, stride 0x18) : target(ptr)@+0x00 ;
+ *  HealEvent : HealPrediction INLINE 8 o = {currentHealth@+0x08, healAmount@+0x0c} (=
+ *  retour par VALEUR de `DamagePrediction.PredictHeal @181037180` : CONCAT44(amount,
+ *  curHP), amount capé MaxFillUp/boss/group) ; EffectEvent : effectType(int)@+0x08 ;
+ *  probability(Fix64)@+0x10 (Nullable → 1.0 par défaut). Repair : PAS d'event —
+ *  `MakeRepairPredictions @18140a9b0` rend un Dictionary (décodage non porté, v2). */
 import {
     class_get_name, findMethodByNameSuffix, findMethodByParamClasses,
     findMethodByParamCount, getFieldOffset, s,
@@ -158,23 +165,27 @@ export function unitPositionCurrent(
     } catch { return null; }
 }
 
-/** Invoque `MakeDamagePredictions(caster, UnitPosition, target[, AbilityState{level,mult,0}])`
+/** Invoque `Make<X>Predictions(caster, UnitPosition, target[, AbilityState{level,mult,0}])`
  *  sur le playbook (override résolu sur la classe CONCRÈTE). Arité 4 (avec AbilityState)
- *  d'abord — signature du slot +0x358 — 3 en secours. Retourne {list, retClass, makeArity}
- *  (list null si non résolu / throw). */
+ *  d'abord — signature du slot +0x358 — 3 en secours. `methodName` défaut =
+ *  "MakeDamagePredictions" ; #34 : mêmes args pour les siblings "MakeHealPredictions" /
+ *  "MakeEffectPredictions" (base @18140a970/@18140a930 rend un enumerable VIDE quand le
+ *  playbook n'override pas). Retourne {list, retClass, makeArity} (list null si non
+ *  résolu / throw). */
 export function makeDamagePredictions(
     playbook: NativePointer, unit: NativePointer, posPtr: NativePointer,
     target: NativePointer, level: number, mult: number,
+    methodName: string = "MakeDamagePredictions",
 ): { list: NativePointer; retClass: string | null; makeArity: number } {
     const stateBuf = Memory.alloc(12);
     stateBuf.writeS32(level | 0);
     stateBuf.add(4).writeS32((mult ?? 100) | 0);
     stateBuf.add(8).writeS32(0);
     const pbCls = playbook.readPointer();
-    let makeMi = findMethodByParamCount(pbCls, "MakeDamagePredictions", 4);
+    let makeMi = findMethodByParamCount(pbCls, methodName, 4);
     let makeArgs: NativePointer[] = [unit, posPtr, target, stateBuf];
     if (!makeMi) {
-        makeMi = findMethodByParamCount(pbCls, "MakeDamagePredictions", 3);
+        makeMi = findMethodByParamCount(pbCls, methodName, 3);
         makeArgs = [unit, posPtr, target];
     }
     if (!makeMi) return { list: ptr(0), retClass: null, makeArity: 0 };
@@ -214,15 +225,59 @@ export function readDamageEvent(
     };
 }
 
-/** Décode le retour de MakeDamagePredictions en events. Gère les 3 formes :
+/** #34 — ProbableHealEvent (ctor @1811359a0, stride 0x18) : target@+0x00 +
+ *  HealPrediction INLINE (retour par VALEUR de `PredictHeal @181037180` =
+ *  CONCAT44(amount, currentHealth)) : targetHpBefore@+0x08, healAmount@+0x0c
+ *  (capé MaxFillUp maxHP−curHP / boss / group-limit) + probability@+0x10. */
+export interface HealEvent {
+    targetId: number | null;
+    targetHpBefore: number; healAmount: number;
+    probability: number;
+}
+
+/** #34 — ProbableEffectEvent (ctor @181135820, stride 0x18) : target@+0x00,
+ *  effectType(int)@+0x08, probability@+0x10. */
+export interface EffectEvent {
+    targetId: number | null;
+    effectType: number;
+    probability: number;
+}
+
+export function readHealEvent(
+    ev: NativePointer, idByPtr: Map<string, number>,
+): HealEvent {
+    return {
+        targetId: idByPtr.get(ev.readPointer().toString()) ?? null,
+        targetHpBefore: ev.add(0x08).readS32(),
+        healAmount: ev.add(0x0c).readS32(),
+        probability: ev.add(0x10).readS64().toNumber() / 4294967296,   // Fix64 Q32.32
+    };
+}
+
+export function readEffectEvent(
+    ev: NativePointer, idByPtr: Map<string, number>,
+): EffectEvent {
+    return {
+        targetId: idByPtr.get(ev.readPointer().toString()) ?? null,
+        effectType: ev.add(0x08).readS32(),
+        probability: ev.add(0x10).readS64().toNumber() / 4294967296,
+    };
+}
+
+/** sizeof(Probable{Heal,Effect}Event) — RE ctors @1811359a0/@181135820 (3 slots 8 o). */
+const SMALL_EVENT_STRIDE = 0x18;
+
+/** Décode le retour d'un Make<X>Predictions en events (générique #34 : le READER et le
+ *  STRIDE varient par famille, le harnais est identique). Gère les 3 formes :
  *  `List`1` (items@+0x10/count@+0x18, structs INLINE dès +0x20), array managé
- *  `ProbableDamageEvent[]` (max_length@+0x18, éléments dès +0x20), et yield-machine
- *  `<MakeDamagePredictions>d__N` (IEnumerable ET IEnumerator : `<>1__state`=0 puis
+ *  `Probable<X>Event[]` (max_length@+0x18, éléments dès +0x20), et yield-machine
+ *  `<Make<X>Predictions>d__N` (IEnumerable ET IEnumerator : `<>1__state`=0 puis
  *  MoveNext + lecture du struct INLINE `<>2__current`). */
-export function decodeDamageEvents(
+function decodeEventsGeneric<T>(
     list: NativePointer, idByPtr: Map<string, number>,
-): { events: DamageEvent[]; count: number; retClass: string | null; error?: string } {
-    const events: DamageEvent[] = [];
+    reader: (ev: NativePointer, m: Map<string, number>) => T, stride: number,
+): { events: T[]; count: number; retClass: string | null; error?: string } {
+    const events: T[] = [];
     if (list.isNull()) return { events, count: -1, retClass: null };
     const retClass = classNameAt(list);
     try {
@@ -231,7 +286,7 @@ export function decodeDamageEvents(
             const count = list.add(0x18).readS32();
             if (!items.isNull() && count > 0 && count < 64) {
                 for (let i = 0; i < count; i++) {
-                    events.push(readDamageEvent(items.add(0x20 + i * EVENT_STRIDE), idByPtr));
+                    events.push(reader(items.add(0x20 + i * stride), idByPtr));
                 }
             }
             return { events, count, retClass };
@@ -240,19 +295,19 @@ export function decodeDamageEvents(
             const count = list.add(0x18).readS32();
             if (count > 0 && count < 64) {
                 for (let i = 0; i < count; i++) {
-                    events.push(readDamageEvent(list.add(0x20 + i * EVENT_STRIDE), idByPtr));
+                    events.push(reader(list.add(0x20 + i * stride), idByPtr));
                 }
             }
             return { events, count, retClass };
         }
-        // Retour YIELD : machine d'état `<MakeDamagePredictions>d__N` (IEnumerable
-        // ET IEnumerator de ProbableDamageEvent). On CALL le GetEnumerator NATIF au
+        // Retour YIELD : machine d'état `<Make<X>Predictions>d__N` (IEnumerable
+        // ET IEnumerator de Probable<X>Event). On CALL le GetEnumerator NATIF au
         // lieu de forcer `<>1__state`=0 à la main : GetEnumerator (state -2 → 0)
         // COPIE aussi les paramètres capturés `<>3__caster/target/pos/state` vers les
         // champs de TRAVAIL que MoveNext lit (RE @18117d570 : bloc LAB `this+0x118 =
         // this+0x120` …). Sans cette copie, MoveNext déréférence des champs nuls →
         // il2cpp "system error". GetEnumerator est une impl EXPLICITE d'interface
-        // (nom qualifié `…IEnumerable<ProbableDamageEvent>.GetEnumerator`) → résolue
+        // (nom qualifié `…IEnumerable<Probable<X>Event>.GetEnumerator`) → résolue
         // par suffixe. Retourne `this` (même thread, fast-path) ou un clone initialisé.
         const getEnumMi = findMethodByNameSuffix(list.readPointer(), "GetEnumerator", 0);
         if (!getEnumMi) {
@@ -277,11 +332,29 @@ export function decodeDamageEvents(
         for (let i = 0; i < 64; i++) {
             const more = invokeMethod(moveMi.info, en, null);   // bool boxé → valeur @+0x10
             if (more.isNull() || more.add(0x10).readU8() === 0) break;
-            events.push(readDamageEvent(en.add(curOff), idByPtr));
+            events.push(reader(en.add(curOff), idByPtr));
             count++;
         }
         return { events, count, retClass };
     } catch (e) {
         return { events, count: -1, retClass, error: "lecture events: " + (e as Error).message };
     }
+}
+
+export function decodeDamageEvents(
+    list: NativePointer, idByPtr: Map<string, number>,
+): { events: DamageEvent[]; count: number; retClass: string | null; error?: string } {
+    return decodeEventsGeneric(list, idByPtr, readDamageEvent, EVENT_STRIDE);
+}
+
+export function decodeHealEvents(
+    list: NativePointer, idByPtr: Map<string, number>,
+): { events: HealEvent[]; count: number; retClass: string | null; error?: string } {
+    return decodeEventsGeneric(list, idByPtr, readHealEvent, SMALL_EVENT_STRIDE);
+}
+
+export function decodeEffectEvents(
+    list: NativePointer, idByPtr: Map<string, number>,
+): { events: EffectEvent[]; count: number; retClass: string | null; error?: string } {
+    return decodeEventsGeneric(list, idByPtr, readEffectEvent, SMALL_EVENT_STRIDE);
 }

@@ -161,9 +161,14 @@ mécaniquement l'essentiel du positioning.
    TriggeredAbilitiesUtility comme terme de tuile). NB s19 : notre ClosestEnemy sélectionne encore le
    mauvais ennemi (nous 3/3 vs natif −400/−500=darkaAsmodai) → raffiner la métrique/filtre de sélection
    (hex vs chemin ? `IsTargetable`/`GetOnlyTargets` ?) ; avec le bon MinDist seul, s19 flippe déjà.
-8. **Angle mort heal/buff (`non-attack-oracle`)** — 4 paires (1121, 1113, 1163, 1151) + 1202
-   inconfrontables : `aiPlaybookPredict` ne décode que les ProbableDamageEvent. Étendre le
-   décodeur aux Probable{Heal,Effect}Event (@181135820/@1811359a0, strides différents).
+8. **Angle mort heal/buff (`non-attack-oracle`)** — 4 paires (1121, 1113, 1163, 1151) + 1202.
+   **⚠ REFRAME 2026-07-20 (#34, case-34-nonattack-oracle.md §MAJ)** : ces 5 abilities sont des
+   playbooks **NC natifs** (`EvaluateNonComparable`, AUCUN `Make*Predictions`) — le stage était
+   un double mal-classement (registre NC offline ignorant + conjecture heal/buff). Déblocage =
+   **porter les 5 évaluateurs NC** (tâche #44, comme 1179/1180/1118). Le décodeur
+   Probable{Heal,Effect}Event est FAIT + validé (partie A #34 : `aiPlaybookPredict` renvoie
+   `healEvents`/`effectEvents` ; HealPlaybook ab 18 validé live) — il sert les familles
+   Comparable (heal 18, SpiritLeech…) ; scoreur heal offline + branchement = tâche #45.
 
 ## 5. Usage
 

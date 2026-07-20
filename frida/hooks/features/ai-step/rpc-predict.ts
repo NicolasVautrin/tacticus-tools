@@ -38,7 +38,8 @@ import {
     projectMowsFull, projectUnitsFull,
 } from "./projection.js";
 import {
-    classNameAt, decodeDamageEvents, loadPlaybook, makeDamagePredictions,
+    classNameAt, decodeDamageEvents, decodeEffectEvents, decodeHealEvents,
+    loadPlaybook, makeDamagePredictions,
     resolvePlaybookDatabase, unitPositionAtTile, unitPositionCurrent,
 } from "./playbook-predict.js";
 
@@ -386,10 +387,23 @@ export function registerViewPredict(ctx: Ctx): void {
         }
         // 3. MakeDamagePredictions (tuile courante) + décodage List/array/yield — cf.
         //    playbook-predict.ts (helper partagé avec l'affichage decisionView).
+        //    #34 : invoque AUSSI les siblings MakeHealPredictions / MakeEffectPredictions
+        //    (mêmes args ; base = enumerable VIDE si le playbook n'override pas) →
+        //    healEvents/effectEvents — l'oracle couvre les abilities heal/buff
+        //    (ex. 1113 Stormcaller, 1121 ItItches, 1151 TheQuickening, 1163 BlackRage).
+        //    Erreur d'une famille = champ *Error (ne fail pas le RPC ; le gate reste damage).
         const before = summarize(statePtr);
         const mk = makeDamagePredictions(
             playbook, unit, posPtr, target, lvl as number, (mult ?? 100) as number);
         const dec = decodeDamageEvents(mk.list, idByPtr);
+        const mkHeal = makeDamagePredictions(
+            playbook, unit, posPtr, target, lvl as number, (mult ?? 100) as number,
+            "MakeHealPredictions");
+        const decHeal = decodeHealEvents(mkHeal.list, idByPtr);
+        const mkEff = makeDamagePredictions(
+            playbook, unit, posPtr, target, lvl as number, (mult ?? 100) as number,
+            "MakeEffectPredictions");
+        const decEff = decodeEffectEvents(mkEff.list, idByPtr);
         const after = summarize(statePtr);
         if (dec.error) {
             return { ok: false, dbSrc, playbookClass, retClass: mk.retClass,
@@ -402,6 +416,10 @@ export function registerViewPredict(ctx: Ctx): void {
             ability: body.abilityType, abilityName: abilityName(body.abilityType),
             abilityState: { level: lvl, multiplier: mult, source: stSrc },
             listNull: mk.list.isNull(), count: dec.count, events: dec.events,
+            healCount: decHeal.count, healEvents: decHeal.events,
+            healRetClass: mkHeal.retClass, healError: decHeal.error ?? null,
+            effectCount: decEff.count, effectEvents: decEff.events,
+            effectRetClass: mkEff.retClass, effectError: decEff.error ?? null,
             mutated: before.sig !== after.sig,
         };
     });
