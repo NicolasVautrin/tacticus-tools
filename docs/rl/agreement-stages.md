@@ -175,10 +175,16 @@ mécaniquement l'essentiel du positioning.
    prédiction de la charge s'évalue **au contact** (tuile adjacente à la cible, mirror
    `TilesUnitCanMoveToChargeTarget`), pas depuis la tuile de cast — 31337 s12 devient un hit,
    ability **25/29 → 26/29 (89 %)** (move 31/35, prédiction 21/21 inchangés). L'hypothèse « bonus
-   +728 » est RÉFUTÉE (effet posé à l'exécution seulement, cf. case-44 §3). Restent : 1121/1202 non
-   confrontés live faute de porteur sur ces seeds ; **1151 porté mais PAS enregistré** — porte de
-   décision native non résolue (le natif décline 1151 là où le décompilé dit qu'il devrait tirer :
-   sur-tir mesuré → tâche #46).
+   +728 » est RÉFUTÉE (effet posé à l'exécution seulement, cf. case-44 §3). **Porte 1151 RÉSOLUE
+   (#46, case-44 §4)** : slot 4 `ShouldEvaluate(unit)` = corps foldé @18111af90 = `turnsStarted > 1`
+   (jamais au 1er tour de l'unité) — gate porté (`should_evaluate` + `_turns_started_gate`, aussi
+   appliqué à 1180/1202 dont les vtables partagent le corps ; Vexilla 1183 reçoit le gate
+   `!EnemyWillBeKilledWithNormalAttack` foldé avec Hammer) + fallback géométrique MELEE de
+   `GetNumAttackTargetsInPosition` hors univers movable (la cible-échange occupée par un allié
+   était jetée par le mirror plan-based). **1151 ENREGISTRÉ** ; 31337 s15 devient un MATCH
+   ability+cible (1151→52) : ability **26/29 → 27/29 (93 %)** (move 31/35, prédiction 21/21
+   inchangés ; le résidu s15 = position ~1hex à util égal 3, `pos-downstream-of-ability`).
+   Restent : 1121 non confronté live faute de tir sur ces seeds.
 
 ## 5. Usage
 

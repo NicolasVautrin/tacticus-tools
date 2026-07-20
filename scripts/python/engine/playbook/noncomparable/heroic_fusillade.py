@@ -4,7 +4,7 @@ from __future__ import annotations
 from engine import battle_query as bq
 from engine.entities.active_ability_type import ActiveAbilityType
 
-from ._base import NCContext, NonComparablePlaybook, _traits
+from ._base import NCContext, NonComparablePlaybook, _traits, _turns_started_gate
 
 
 class HeroicFusilladePlaybook(NonComparablePlaybook):
@@ -35,6 +35,11 @@ class HeroicFusilladePlaybook(NonComparablePlaybook):
     ABILITY_ID = int(ActiveAbilityType.HeroicFusillade)  # 1180
     MIN_UTILITY = 1.0
     PRIORITY = 0
+
+    def should_evaluate(self, ctx: NCContext) -> bool:
+        """Slot 4 de la vtable (0x298, resolu live #46) -> corps foldé @18111af90 :
+        `turnsStarted > 1` — 1180 n'est jamais évaluée au 1er tour de l'unité."""
+        return _turns_started_gate(ctx)
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         if not self._is_player_side(ctx):      # gate per-joueur (case-31 §A) : a-units ne tire JAMAIS

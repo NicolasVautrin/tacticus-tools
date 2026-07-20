@@ -6,7 +6,8 @@ from engine.entities.active_ability_type import ActiveAbilityType
 from engine.entities.triggered_ability_type import triggered_ability_ids
 
 from ._base import (NCContext, NonComparablePlaybook, _unit_cfg,
-                    _get_num_attack_targets_in_position, _sweep_origin_first)
+                    _get_num_attack_targets_in_position, _sweep_origin_first,
+                    _turns_started_gate)
 
 _FURY_OF_THE_ANCIENTS = 1247   # 0x4df — HasTriggeredAbility(caster, 0x4df)
 _RANGE = 2                     # gameconfig `range:2` (« a hex within movement range 2 »)
@@ -33,30 +34,36 @@ class TheQuickeningPlaybook(NonComparablePlaybook):
     `PRIORITY`=0 (#115). `GenerateAction(position, targetTile, util)` -> la cible emise est l'ID D'ENTITE
     DE LA TUILE (`ctx.tile_id_by_pos`), pas un id d'unite.
 
-    ⚠ PAS ENREGISTRE dans `PLAYBOOKS` (cf. `__init__.py`) — PORTE DE DECISION NATIVE NON RESOLUE.
-    Mesure live (seed 31337, board MC1_67, 2026-07-20) :
-      - pas 5 (u81 origine (5,8), 21 tuiles de move, `abilityTargets` = 36 tuiles valides, ability
-        `usable=true`) : le NATIF joue l'attaque NORMALE (ab 69 sur u95) et N'EMET PAS 1151 — alors
-        que l'unique gate du decompile (`GetNumAttackTargetsInPosition(caster, T) > 0`) passe pour
-        de nombreuses tuiles, y compris (3,5) qui est justement la tuile d'ou le natif attaque.
-      - pas 15 (origine (3,5), 4 tuiles de move) : le natif EMET 1151 vers la tuile 52 = (4,4).
-    Une NonComparable qui « sort » prime sur toute Comparable PAR L'ORDRE des generateurs : si le
-    playbook avait produit une action au pas 5, le natif n'aurait pas pu attaquer. Il MANQUE donc une
-    porte (ShouldEvaluate ? usabilite runtime ? condition de round ?) invisible dans
-    `EvaluateNonComparable @18116afb0` (aucun `ShouldEvaluate`/`ShouldExecute` sur ce playbook dans la
-    table des symboles). Enregistrer en l'etat = sur-tir MESURE (anti-pattern #31) -> on attend le RE
-    de la porte. Second point ouvert : l'utilite est PLATE (tous les candidats a 2.0 = base 1 + palier
-    FuryOfTheAncients) quand aucune tuile cible ne porte d'ami -> l'accord de CIBLE se joue alors sur
-    l'ORDRE d'enumeration (keep-first du Bucket), pas sur l'utilite.
+    PORTE DE DECISION RESOLUE (#46, 2026-07-20) : le gate manquant = slot 4 `ShouldEvaluate(unit)`
+    de la vtable (klass+0x298, resolu LIVE via `resolveVtableSlot`) -> corps FOLDE @18111af90
+    (`AlphaWarriorPlaybook$$ShouldEvaluate`) = `GetStat(unit, 0xc=TurnsStarted) > 1` : 1151 n'est
+    JAMAIS evaluee au PREMIER tour de l'unite (`should_evaluate` = `_turns_started_gate`).
+    Mesures concordantes (seed 31337, board MC1_67) : pas 5 (1er tour u81, turnsStarted=1) ->
+    slot4=0 (8/8) -> le natif attaque normal ; pas 15 (2e tour) -> slot4=1 -> le natif emet 1151 ;
+    step 0 build frais (turnsStarted=0) -> slot4=0. NB : `BasePlaybook.ShouldEvaluate @18111fb70`
+    (voie `prob := vtable[0x1f8] GetUseProbability`) n'est PAS l'impl de ce playbook (les 2
+    surcharges de base @18111f9b0/@18111fa00 = `Fix64(1)` constant, verifie live = 1.0) — la piste
+    « prob<=0 » du 1er RE etait la MAUVAISE implementation. La correlation RapidAssault (n=2)
+    etait un PROXY du 1er tour, pas le mecanisme (anti-fit respecte).
+    Point residuel : `ncEvaluate` au pas 15 rend util=3 sur exactement l'action native (4,5)->
+    tuile 52 (u79 allie -> 3e palier) -> l'utilite n'est PAS plate dans le cas mesure ; le
+    keep-first du Bucket ne departage que les vrais ties.
 
     Ecarts assumes : (1) l'eligibilite par position est reconstituee en filtrant l'union
     `abilityTargets` (`GetAllValidTargetsFromAllPossibleMovementTiles`) par distance HEX <= 2 de la
-    position balayee — le natif dit « movement range 2 » (distance de CHEMIN) ; (2)
-    `GetNumAttackTargetsInPosition` est porte via le plan natif, donc vaut 0 pour un ALLIE quand le
-    contexte ne fournit pas son plan (bridge offline) -> le 3e palier degrade a la baisse."""
+    position balayee — le natif dit « movement range 2 » (distance de CHEMIN) et enumere PAR position
+    via `GetValidTargets` slot 0x41 (l'union RPC inclut bien les tuiles ALLIE-occupees : mesure pas 15
+    = 25 tuiles dont (4,4) occupee par u79, la cible native) ; (2) `GetNumAttackTargetsInPosition` est
+    porte via le plan natif + FALLBACK geometrique MELEE hors univers movable (#46, cf. `_base`) —
+    la partie RANGED du fallback (portee+LoS) n'est pas portee -> borne inf residuelle pour un allie
+    echange purement ranged."""
     ABILITY_ID = int(ActiveAbilityType.TheQuickening)  # 1151
     MIN_UTILITY = 1.0     # cctor @18116b550 = Fix64(1)
     PRIORITY = 0
+
+    def should_evaluate(self, ctx: NCContext) -> bool:
+        """Slot 4 de la vtable (0x298) -> corps foldé @18111af90 : `turnsStarted > 1` (#46)."""
+        return _turns_started_gate(ctx)
 
     def _eligible_target_tiles(self, ctx: NCContext) -> list[tuple]:
         """`GetEligibleTargetsSelectable` (tuiles) : union `abilityTargets` kind=tile (le filtre

@@ -92,12 +92,23 @@ def _will_normal_attack_kill(ctx: "NCContext", target_id, position: tuple | None
 
 def _get_num_attack_targets_in_position(ctx: "NCContext", unit_id: int, tile: tuple | None) -> int:
     """`TheQuickeningPlaybook.GetNumAttackTargetsInPosition @18116b4b0` = `IBattleQuery` slot 0x7f
-    (cibles d'attaque NORMALE de `unit_id` DEPUIS `tile`) suivi de `.Count`.
+    (cibles d'attaque NORMALE de `unit_id` DEPUIS `tile`, POSITION HYPOTHETIQUE — la requete prend
+    la tuile en argument, elle n'est PAS contrainte par le mouvement/l'occupation) suivi de `.Count`.
 
     Mirror OFFLINE via le plan natif (`decisionView.attackPlans`) : nombre de cibles DISTINCTES dont
     l'eval d'attaque NORMALE de `unit_id` liste `tile` parmi ses tuiles rankees — les tuiles rankees
     d'une paire (ability, cible) sont exactement les positions d'ou l'attaque est legale. Plan absent
-    (le bridge offline `state_bridge` ne peuple que l'unite ACTIVE) -> 0 (borne inf assumee)."""
+    (le bridge offline `state_bridge` ne peuple que l'unite ACTIVE) -> 0 (borne inf assumee).
+
+    FALLBACK GEOMETRIQUE (#46) : le plan est AVEUGLE hors de l'univers MOVABLE de `unit_id` — ses
+    tuiles rankees sortent de `GetPossibleMovementTiles`, donc une tuile OCCUPEE (l'echange
+    TheQuickening : caster sur la tuile d'un allie de meme empreinte) ou la position P d'un ALLIE
+    echange n'y figure JAMAIS (mesure 31337 pas 15 : la cible native 52=(4,4), occupee par u79,
+    etait jetee ici -> le port ratait la paire). Pour ces tuiles hors-plan on mirrore la partie
+    MELEE du slot 0x7f : #ennemis ADJACENTS a `tile` (porte |dElev|<2, `is_adjacent`), si l'unite a
+    une arme de melee (gameconfig `weapons` sans `Range`). Borne INF : l'arme RANGED (portee+LoS non
+    portees) n'est pas comptee ; pour une tuile DU plan du caster le verdict plan reste autoritaire
+    (pas de sur-comptage des tuiles movables sans attaque legale)."""
     if tile is None:
         return 0
     plan = (ctx.plans or {}).get(unit_id) or {}
@@ -112,7 +123,39 @@ def _get_num_attack_targets_in_position(ctx: "NCContext", unit_id: int, tile: tu
             if (rk.get("col"), rk.get("row")) == tile:
                 tgts.add(ev.get("targetId"))
                 break
-    return len(tgts)
+    if tgts:
+        return len(tgts)
+    if unit_id == ctx.uid and tile in (ctx.reach_nc or []):
+        return 0     # tuile DANS l'univers movable du plan du caster -> plan autoritaire
+    u = next((x for x in (ctx.units or []) if x.get("id") == unit_id), None)
+    if u is None:
+        return 0
+    weapons = _unit_cfg(u.get("visualId")).get("weapons") or []
+    if not any("Range" not in w for w in weapons):
+        return 0     # pas d'arme de melee -> le mirror geometrique ne sait pas compter (borne inf)
+    from engine.battle_query import count_adjacent
+    return count_adjacent(tile, ctx.epos or [], ctx.elev_by_pos)
+
+
+def _turns_started_gate(ctx: "NCContext") -> bool:
+    """Corps FOLDÉ (COMDAT) du slot-4 `ShouldEvaluate(unit)` « pas au 1er tour » — code UNIQUE
+    @18111af90 (symbole `AlphaWarriorPlaybook$$ShouldEvaluate`, refcount 7) pointé par la vtable de
+    PLUSIEURS playbooks : `return GetStat(unit, 0xc=TurnsStarted) > 1`.
+
+    Vtables résolues LIVE (`resolveVtableSlot` @0x298, gqfc5mff6c) : TheQuickening(1151),
+    HeroicFusillade(1180), VigilanceEternal(1202), AlphaWarrior (non porté) -> @18111af90.
+    `turnsStarted` (stat 12) = compteur PER-UNIT incrémenté au StartTurn -> vaut 1 pendant le
+    PREMIER tour de l'unité : l'ability n'est JAMAIS évaluée au 1er tour (mesure #46 seed 31337 :
+    slot4=0 au pas 5 (1er tour u81, 8/8 déterministe), =1 au pas 15 (2e tour) — la corrélation
+    RapidAssault n=2 était un PROXY du 1er tour, pas le mécanisme). Compteur non capturé (scene
+    absente / uid hors tables) -> True : ne PAS gater à l'aveugle (mirror du précédent
+    `_is_player_side`)."""
+    if ctx.scene is None:
+        return True
+    ts = ctx.scene.turns_started(ctx.uid)
+    if ts is None:
+        return True
+    return ts > 1
 
 
 def _sweep_origin_first(ctx: "NCContext") -> list:
@@ -183,6 +226,22 @@ class NonComparablePlaybook:
     MIN_UTILITY: float = 0.0       # cctor du playbook -> gate Bucket.AddAction (util >= min)
     PRIORITY: int = 0              # get_Priority (slot0) -> tier NonComparable (dict[prio], @1810ed540)
     #                                les 4 portés = 0 (confirmé live via abilityPreferences/get_Priority)
+
+    def should_evaluate(self, ctx: NCContext) -> bool:
+        """`IPlaybook` slot 4 `ShouldEvaluate(unit)` — gate AMONT du générateur
+        `ActiveAbilityActionGenerator.<GenerateActions>d__7 @18119a3f0` (`FUN_180003bd0(4, …)`),
+        évalué AVANT tout sweep de position : False -> l'ability est SAUTÉE entièrement (le
+        fallback Comparable prend la main).
+
+        Impl de base = `BasePlaybook.ShouldEvaluate @18111fb70` : `prob := vtable[0x1f8]
+        GetUseProbability(unit)` puis `prob >= 1 -> True` ; `prob <= 0 -> False` ; sinon tirage
+        RNG autobot. Les DEUX surcharges de base `GetUseProbability` (@18111f9b0 / @18111fa00,
+        slots 0x208/0x1f8) rendent `Fix64(1)` -> True constant ici. Les playbooks à
+        `GetUseProbability` conditionnelle (BlackRage @181121740 = 0.4, ItItches @1811477b0)
+        restent True = écart assumé « porte ALÉATOIRE non modélisée » (moteur déterministe,
+        cf. §5 case-44). Un playbook qui OVERRIDE le slot 4 lui-même (vtable ≠ @18111fb70)
+        surcharge cette méthode (ex. corps foldé @18111af90 `GetStat(unit,12) > 1`)."""
+        return True
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         """Mirror <GenerateActions>d__7 pour CETTE ability : balaie positions/cibles (selector

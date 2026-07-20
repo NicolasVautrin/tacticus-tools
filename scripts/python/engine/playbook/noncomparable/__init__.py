@@ -102,11 +102,10 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         ItItchesPlaybook(),             # 1121 — #ennemis pousses ; gates IsDisplaceable + CanBePushed
         BlackRagePlaybook(),            # 1163 — degat de l'attaque NORMALE depuis la tuile de charge
         VigilanceEternalPlaybook(),     # 1202 — degat de l'ability depuis l'hex libre adjacent
-        # 1151 TheQuickening : PORTE mais DELIBEREMENT PAS ENREGISTRE — porte de decision native
-        # NON RESOLUE (mesure 31337 : le natif DECLINE 1151 au pas 5 alors que l'unique gate du
-        # decompile `GetNumAttackTargetsInPosition > 0` passe, et le cast au pas 15 ; l'enregistrer
-        # produit un OVERFIRE mesure au s5 + un miss d'ordre au s15 sur utilite PLATE). Voir
-        # the_quickening.py et la tache dediee. L'enregistrer sans la porte = anti-pattern #31.
+        TheQuickeningPlaybook(),        # 1151 — teleport-echange ; porte #46 RESOLUE : slot 4
+        #                                 `ShouldEvaluate(unit)` = corps folde @18111af90
+        #                                 (`turnsStarted > 1`, jamais au 1er tour de l'unite)
+        #                                 -> `should_evaluate` (gate AMONT dans choose_action)
     )
 }
 
@@ -141,6 +140,11 @@ def choose_action(abilities: list, ctx: NCContext, priority: int | None = None) 
             continue
         if priority is not None and pb.PRIORITY != priority:
             continue   # ability d'un autre tier NonComparable -> pas dans CE generateur
+        # Gate AMONT slot-4 `ShouldEvaluate(unit)` (#46) : le générateur natif le teste AVANT tout
+        # sweep (`FUN_180003bd0(4, …)` dans <GenerateActions>d__7 @18119a3f0) — False = ability
+        # sautée entièrement (jamais évaluée), le fallback Comparable prend la main.
+        if not pb.should_evaluate(ctx):
+            continue
         nc_cands += pb.generate_candidates(ctx)
     if not nc_cands:
         return None

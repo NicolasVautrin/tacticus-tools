@@ -53,6 +53,13 @@ class Scene:
     # modification suit l'occupation de tuile) → capture combatSnapshot (defense + statDelta.defense),
     # refresh par-pas via `refresh_shields`. Defaut {} → axe inerte (defense non modifiee partout).
     defstat_by_id: dict = field(default_factory=dict)
+    # TurnsStarted PER-UNITE (#46) : {uid: turnsStarted} — stat 12 (`UnitComponent.turnsStarted@+0x58`,
+    # incr. StartTurn ; `UnitTurnsStartedFormula.Calculate @180f2d6c0` = GetStat(unit,0xc)). Indexe le
+    # gate `ShouldEvaluate(unit)` slot-4 des playbooks « pas au 1er tour » (corps folde @18111af90 :
+    # TheQuickening/HeroicFusillade/VigilanceEternal = `GetStat(unit,12) > 1`). DYNAMIQUE (incremente
+    # a CHAQUE tour demarre) → capture combatSnapshot, refresh par-pas via `refresh_shields`.
+    # Defaut {} → uid absent = non capte (l'accesseur rend None, le gate ne mord pas a l'aveugle).
+    turns_started_by_id: dict = field(default_factory=dict)
 
     @classmethod
     def from_state(cls, state) -> "Scene":
@@ -71,6 +78,7 @@ class Scene:
         hp_by_id, hpmax_by_id, pos_by_id, team_by_id = {}, {}, {}, {}
         defstat_by_id = {}
         from engine.entities.stats import StatType as _ST     # #197 : DEFENSE (stat 3) du ctx ECS
+        turns_started_by_id = {}
         units: list = []
         for eid, e in state.entities.items():
             uc = e.get_component(UnitComponent)
@@ -96,6 +104,10 @@ class Scene:
                 _ds = ctx.stats.components.get(int(_ST.DEFENSE)) if ctx.stats is not None else None
                 if _ds is not None:
                     defstat_by_id[eid] = _ds
+                # #46 : TurnsStarted (stat 12) du ctx ECS — le runner offline l'incremente au
+                # StartTurn (mirror `StartTurnOperation @180ea3fb0`, `increment_base`).
+                if ctx.stats is not None and int(_ST.TURNS_STARTED) in ctx.stats.components:
+                    turns_started_by_id[eid] = ctx.stats.get_stat(int(_ST.TURNS_STARTED))
             shield_by_id[eid] = shc.get_total_shield() if shc is not None else 0
             vis_by_id[eid] = vis
             if hc is not None:
@@ -123,7 +135,8 @@ class Scene:
             mult_by_id=mult_by_id, ablvl_by_id=ablvl_by_id, vis_by_id=vis_by_id,
             units=units, hp_by_id=hp_by_id, pos_by_id=pos_by_id, team_by_id=team_by_id,
             eff_state=getattr(state, "effects", None), hpmax_by_id=hpmax_by_id,
-            elev_by_pos=elev_by_pos, board=board, defstat_by_id=defstat_by_id)
+            elev_by_pos=elev_by_pos, board=board, defstat_by_id=defstat_by_id,
+            turns_started_by_id=turns_started_by_id)
         sc._seed_battle_counters()   # #185 (units offline sans defeatedByMelee -> N=0, inerte)
         return sc
 
@@ -146,7 +159,8 @@ class Scene:
             board=board if board is not None else predictor.get("board"),
             abstate_by_id=predictor.get("abstate_by_id") or {},
             actorstats_by_id=predictor.get("actorstats_by_id") or {},
-            defstat_by_id=predictor.get("defstat_by_id") or {})
+            defstat_by_id=predictor.get("defstat_by_id") or {},
+            turns_started_by_id=predictor.get("turns_started_by_id") or {})
         sc._seed_battle_counters()   # #185 BlessingsOfKhorne (melee-defeats -> effets N-scalés)
         return sc
 
@@ -225,6 +239,14 @@ class Scene:
         capté (from_state offline / début de bataille)."""
         return int((self.actorstats_by_id or {}).get(uid, 0) or 0)
 
+    def turns_started(self, uid) -> int | None:
+        """`GetStat(unit, 0xc=TurnsStarted)` (`UnitTurnsStartedFormula.Calculate @180f2d6c0`) — nb
+        de tours DEMARRES par l'unité cette bataille (incr. StartTurn). Indexe le gate slot-4
+        `ShouldEvaluate(unit) = GetStat(unit,12) > 1` (#46, corps foldé @18111af90). None si non
+        capturé (uid absent des tables) → l'appelant ne gate pas à l'aveugle."""
+        v = (self.turns_started_by_id or {}).get(uid)
+        return None if v is None else int(v)
+
 
 # ── SEAM live-feed (RPC) — tables cold + état par-pas. `rpc(method, body, timeout) -> result dict`. ──
 def build_predictor(rpc, rid):
@@ -295,6 +317,12 @@ def build_predictor(rpc, rid):
     return {"ctx_by_id": ctx_by_id, "armor_by_id": armor_by_id, "shield_by_id": shield_by_id,
             "mult_by_id": mult_by_id, "ablvl_by_id": ablvl_by_id, "vis_by_id": vis_by_id,
             "abstate_by_id": abstate_by_id, "actorstats_by_id": actorstats_by_id,
+            # #46 : TurnsStarted (stat 12) — gate slot-4 « pas au 1er tour ». DYNAMIQUE ->
+            # re-capturé par-pas via `refresh_shields` (le cold seul serait figé au pas 0).
+            "turns_started_by_id": {
+                u["entityId"]: int((u.get("stats") or {}).get("turnsStarted") or 0)
+                for u in (snap.get("units") or [])
+                if (u.get("stats") or {}).get("turnsStarted") is not None},
             "board": board, "elev_by_pos": elev_by_pos,
             # #194 : vue DefenseComponent (stat 3 + modifications). Capture au BUILD ; DYNAMIQUE
             # (suit l'occupation de tuile) -> re-capturee par-pas via refresh_shields.
@@ -361,6 +389,12 @@ def refresh_shields(predictor, rpc, rid):
         u["entityId"]: int((u.get("stats") or {}).get("fixedArmor") or 0)
         for u in (snap.get("units") or [])}
     predictor["defstat_by_id"] = _defense_stats_from_snapshot(snap.get("units"))
+    # #46 : re-capture TurnsStarted (stat 12, incrémente à chaque tour démarré) — même raison
+    # que TotalAttacksMade (#33) : le cold du build (pas 0) sous-estime tout gate mid-bataille.
+    predictor["turns_started_by_id"] = {
+        u["entityId"]: int((u.get("stats") or {}).get("turnsStarted") or 0)
+        for u in (snap.get("units") or [])
+        if (u.get("stats") or {}).get("turnsStarted") is not None}
     # #33 : re-capture TotalAttacksMade (mirror du refresh de build_predictor). On n'écrase QUE si
     # le RPC a répondu (units présent) — sinon on garde le cold en fallback (RPC KO -> _r renvoie {},
     # .get("units") is None). Un `actorStats` valide sans attaque = {units:[…, totalAttacksMade:0]}.

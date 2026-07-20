@@ -60,13 +60,16 @@ class HammerOfWrathPlaybook(_PlanTargetPlaybook):
     PRIORITY = 0
     _OVERWATCH = "Overwatch"   # trait 0x3eb=1003 (enum UnitTrait) -> +100 sur une cible en Overwatch
 
-    def generate_candidates(self, ctx: NCContext) -> list[dict]:
-        if _enemy_killed_by_normal_attack(ctx):   # ShouldEvaluate=false -> le natif n'évalue pas Hammer
+    def should_evaluate(self, ctx: NCContext) -> bool:
+        """Slot 4 de la vtable -> `ShouldEvaluate @181142320` = `!EnemyWillBeKilledWithNormalAttack`
+        (relogé de generate_candidates vers l'étage natif du gate — le générateur le teste AVANT
+        tout sweep, #46)."""
+        if _enemy_killed_by_normal_attack(ctx):
             if ctx.debug:
                 import sys
                 print(f"    [dbg NC u{ctx.uid}] Hammer SKIP (normal sure-kill)", file=sys.stderr)
-            return []
-        return super().generate_candidates(ctx)
+            return False
+        return True
 
     def evaluate_non_comparable(self, tile, target, ctx):
         if tile is None or ctx.scene is None:

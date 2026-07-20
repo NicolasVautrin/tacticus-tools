@@ -79,7 +79,48 @@ appelle donc `generate_multi_hit_attack_prediction` **directement** (même conto
 - **1121 / 1202** : aucun porteur sur ces deux seeds → portés sur preuve décompilée, **non confrontés
   live** (à confronter sur un seed portant tyranParasiteOfMortrex / Tyrith).
 
-## 4. Le point dur : 1151 TheQuickening — porte LOCALISÉE (#46), mécanisme à nommer
+## 4. Le point dur : 1151 TheQuickening — porte RÉSOLUE (#46) : `turnsStarted > 1`
+
+**RÉSOLUTION (2026-07-20)** — le mécanisme complet, en 3 pièces :
+
+1. **La porte = slot 4 `ShouldEvaluate(unit)` de la vtable, corps FOLDÉ @18111af90** (symbole
+   `AlphaWarriorPlaybook$$ShouldEvaluate`, COMDAT, refcount 7) = **`GetStat(unit, 0xc=TurnsStarted) > 1`**
+   — l'ability n'est JAMAIS évaluée pendant le **premier tour** de l'unité (`turnsStarted` = compteur
+   per-unit incrémenté au StartTurn, `UnitComponent.turnsStarted@+0x58`, stat 12 déjà portée #122).
+   Résolu LIVE par `resolveVtableSlot` (introspect.ts) sur la classe : entrée vtable @0x298
+   (= itf IPlaybook offset 18 + slot 4) → code @18111af90. Vtables partageant ce corps parmi les
+   NC portés : **TheQuickening(1151), HeroicFusillade(1180), VigilanceEternal(1202)**, AlphaWarrior
+   (non porté) — le gate a été ajouté aux trois (`should_evaluate` → `_turns_started_gate`, `_base.py`).
+   Mesures concordantes (seed 31337, MC1_67) : pas 5 (1er tour u81, ts=1) → slot4=0 (8/8), le natif
+   attaque normal ; pas 15 (2e tour, ts=2) → slot4=1, le natif émet 1151 ; step 0 frais (ts=0) →
+   slot4=0 + `GetUseProbability`=1.0. La corrélation RapidAssault (n=2) était un **proxy du 1er tour**
+   (ces effets tombent après le 1er tour), pas le mécanisme — l'anti-fit a payé.
+   **Correction du §4.1 initial** : la voie `prob := vtable[0x1f8]` de `BasePlaybook.ShouldEvaluate
+   @18111fb70` n'est PAS l'implémentation de ce playbook — le slot 0x1f8 pointe
+   `BasePlaybook.GetUseProbability @18111fa00` = `Fix64(1)` constant (vérifié live = 1.0) ; la
+   déduction « branche prob<=0 » raisonnait sur la MAUVAISE implémentation du slot 4.
+
+2. **Le miss de CIBLE résiduel (52 vs 35) n'était PAS un tie d'ordre** : la cible native 52=(4,4),
+   **occupée par l'allié u79** (l'échange = la raison d'être de l'ability), était jetée par le mirror
+   plan-based de `GetNumAttackTargetsInPosition` — les tuiles rankées des attackPlans sortent de
+   `GetPossibleMovementTiles`, donc une tuile OCCUPÉE n'y figure jamais, alors que le slot natif 0x7f
+   prend la position en ARGUMENT (hypothétique, non contrainte par l'occupation). Fix : fallback
+   géométrique MELEE hors univers movable (`count_adjacent` + porte élévation) dans
+   `_get_num_attack_targets_in_position` (`_base.py`) ; borne inf résiduelle = arme RANGED (LoS non
+   portée). NB : l'union `abilityTargets` inclut BIEN les tuiles allié-occupées (mesure pas 15 :
+   25 tuiles dont (4,4)) — l'énumération n'était pas le problème.
+
+3. **Ciblage natif de 1151** (`GetDynamicInvalidTargetReason @181212560`) : sélecteur =
+   `MovableTilesInRange(caster, Direct(range=cfg 0x16=2), 1, 1)` **moins** `Enemies(...)`
+   (op_Subtraction) ; tuile vide OK, tuile occupée OK **ssi** `GetFeetCount(occupant) ==
+   GetFeetCount(caster)` (même empreinte → échange légal). Les tuiles ennemies sont exclues.
+
+**Verdict mesuré** (agreement `--build --seeds 777,31337 --steps 20`, MC1_67) : 31337 pas 5 = MATCH
+(gate ferme le 1er tour), pas 15 = **MATCH ability+cible** (1151→52) — position ~1hex ((3,6) vs
+(4,5), tie util=3, ordre de sweep → `pos-downstream-of-ability`). **Ability 26/29 → 27/29 (93 %)**,
+`nc-pair` disparu ; move 31/35 et prédiction 21/21 inchangés. 1151 **ENREGISTRÉ** dans `PLAYBOOKS`.
+
+Historique de la localisation (mesures live pré-résolution) :
 
 Mesure seed 31337 :
 
@@ -93,7 +134,7 @@ Comme toute NonComparable qui « sort » prime sur toute Comparable **par l'ordr
 (`InitAbilityTypeLists @1810ed540` + `<CalculateNextActionForUnit>d__5 @1810f54e0` = first-generateur-
 non-vide), le natif n'aurait **pas pu** attaquer au pas 5 si le playbook 1151 avait produit une action.
 
-### 4.1 La porte manquante = `IPlaybook` **slot 4 `ShouldEvaluate(unit)`** (LOCALISÉE LIVE #46)
+### 4.1 (historique) Localisation live de la porte = `IPlaybook` **slot 4 `ShouldEvaluate(unit)`**
 
 Le générateur `ActiveAbilityActionGenerator.<GenerateActions>d__7 @18119a3f0` gate CHAQUE ability, AVANT
 tout sweep de position, par DEUX prédicats d'interface : `slot 4 ShouldEvaluate(unit)` (`FUN_180003bd0(4,
@@ -122,7 +163,7 @@ aléatoire (contrairement aux GAP `GetUseProbability` de 1121/1163). `GetUseProb
 `GetUseProbability` de base** — c'est un virtuel per-playbook (ou hérité `NonComparablePlaybook`) qui
 rend 0 pour u81 au pas 5. **Reste à nommer `0x1f8`** (résolution de la vtable non faite offline).
 
-### 4.2 Corrélation à confirmer (NE PAS porter en l'état)
+### 4.2 (historique) Corrélation RapidAssault — réfutée (proxy du 1er tour)
 
 Le seul état **par-unité** (pas de position) qui bascule entre les deux pas : les effets **RapidAssault**
 (`RapidAssault_Movement` 1228 + `RapidAssault_ExtraDamage` 1229) sont **présents sur u81 au pas 5**,
@@ -141,10 +182,15 @@ d'un slot d'interface avec args `unit`/`pos`/`tiles`).
 
 ## 5. Écarts assumés (flaggés dans le code)
 
-- **`ShouldEvaluate(unit)` slot 4** (gate AMONT du générateur, valable pour TOUS les NC) : le port
-  `NonComparableGenerator` ne modélise PAS ce prédicat par-unité — il suppose l'ability évaluable dès
-  qu'elle est `usable`. Pour 1151 c'est la source du sur-tir (cf. §4). À porter dès que le virtuel
-  `0x1f8` est nommé ; il pourrait aussi resserrer d'autres NC (à vérifier).
+- **`ShouldEvaluate(unit)` slot 4** — **PORTÉ** (#46) : `NonComparablePlaybook.should_evaluate(ctx)`
+  (base True = mirror `BasePlaybook.ShouldEvaluate @18111fb70` avec `GetUseProbability` de base
+  `Fix64(1)`), testé par `choose_action` AVANT `generate_candidates` (mirror du gate
+  `FUN_180003bd0(4,…)` du générateur). Overrides portés d'après la RÉSOLUTION LIVE des vtables
+  (`resolveVtableSlot` @0x298) : 1151/1180/1202 = corps foldé @18111af90 (`turnsStarted > 1`,
+  `_turns_started_gate`) ; 1153 Hammer = `!EnemyWillBeKilledWithNormalAttack @181142320` (relogé de
+  `generate_candidates` vers `should_evaluate`) ; **1183 Vexilla = MÊME corps foldé @181142320 que
+  Hammer** (gate ajouté). NovaBoost/NovaShield gardent leurs overrides propres (écart usable-proxy
+  documenté dans nova_boost.py).
 - **`GetUseProbability` (porte ALÉATOIRE)** non modélisée — le moteur offline est déterministe :
   1163 `@181121740` = `0.4` si les PV après usage (`GetHealthPercentageAfterUse @1811ba570`, ConfigVar
   0x26 = 50 %) < PV courants, sinon `1.0` ; 1121 `@1811477b0` = `Fix64.FromIntFraction(GetMaxNumUnitsAffected, 3)`.
