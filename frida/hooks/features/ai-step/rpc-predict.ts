@@ -40,7 +40,7 @@ import {
 } from "./projection.js";
 import {
     classNameAt, decodeDamageEvents, decodeEffectEvents, decodeHealEvents,
-    loadPlaybook, makeDamagePredictions,
+    decodeRepairDict, loadPlaybook, makeDamagePredictions,
     resolvePlaybookDatabase, unitPositionAtTile, unitPositionCurrent,
 } from "./playbook-predict.js";
 
@@ -405,6 +405,12 @@ export function registerViewPredict(ctx: Ctx): void {
             playbook, unit, posPtr, target, lvl as number, (mult ?? 100) as number,
             "MakeEffectPredictions");
         const decEff = decodeEffectEvents(mkEff.list, idByPtr);
+        // #45 : 4e famille du scorer (`CalculateUtilityFromPredictions @181407890`,
+        // virtuel +0x388) — Dictionary, pas d'event (décodage v2 decodeRepairDict).
+        const mkRep = makeDamagePredictions(
+            playbook, unit, posPtr, target, lvl as number, (mult ?? 100) as number,
+            "MakeRepairPredictions");
+        const decRep = decodeRepairDict(mkRep.list, idByPtr);
         const after = summarize(statePtr);
         if (dec.error) {
             return { ok: false, dbSrc, playbookClass, retClass: mk.retClass,
@@ -421,6 +427,8 @@ export function registerViewPredict(ctx: Ctx): void {
             healRetClass: mkHeal.retClass, healError: decHeal.error ?? null,
             effectCount: decEff.count, effectEvents: decEff.events,
             effectRetClass: mkEff.retClass, effectError: decEff.error ?? null,
+            repairCount: decRep.count, repairs: decRep.events,
+            repairRetClass: decRep.retClass, repairError: decRep.error ?? null,
             mutated: before.sig !== after.sig,
         };
     });

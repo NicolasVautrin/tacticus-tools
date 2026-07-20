@@ -30,8 +30,12 @@ qui, à chaque pas comparé, classe le hit/miss par étage :
     «pos-downstream-of-ability» (pas de double-comptage).
 
   Cas non décomposés v1 (comptés tels quels) : «nc-pair» (utilité NonComparable =
-  heuristique entière), «non-attack-oracle» (heal/repair : aiPlaybookPredict ne décode
-  que les DamageEvent), «generator-overfire» (le moteur caste là où le natif bouge).
+  heuristique entière), «generator-overfire» (le moteur caste là où le natif bouge).
+  #45 : les familles heal (healEvents, #34A) et repair (repairs, décodage v2 du
+  Dictionary `MakeRepairPredictions`) sont désormais confrontées quand la paire n'a pas
+  de DamageEvent (magnitude offline vs fill natif) et contrefactualisées (fills natifs
+  × HealUtility/RepairedAmountUtility) — «non-attack-oracle» ne reste que pour les
+  vieux hooks sans décodeur.
 
 LIMITE v1 (assumée, documentée) : `aiPlaybookPredict` prédit depuis la tuile COURANTE ;
 la confrontation prédiction est donc contrôlée à position égale (formule), les termes
@@ -63,6 +67,10 @@ from engine.playbook import noncomparable as playbooks  # noqa: E402
 from engine.playbook import scene as _scene  # noqa: E402
 from engine.playbook import get_playbook_or_default, tile_utility  # noqa: E402
 from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK  # noqa: E402
+from engine.predict import (heal_amount_config, heal_utility,  # noqa: E402  (#45 confrontation
+                            predict_heal_effective,            # heal/repair : familles 2 et 4 de
+                            predict_repair_effective,          # CalculateUtilityFromPredictions
+                            repair_amount_config, repair_utility)  # @181407890)
 from engine.utilities import damage_composite, tile_composite  # noqa: E402
 from engine.utilities.tile import terrain_tile_effects  # noqa: E402  (covers terrain TileEffects, case-37)
 from engine.utilities.move import MIN_DIST_UTILITY  # noqa: E402
@@ -162,11 +170,10 @@ class StageProbe:
         self._trace_path = None
 
     # ---- côté natif : events décision (MakeDamagePredictions) ----
-    def _native_events(self, step: int, uid: int, ab: int, tgt: int, tile=None):
-        """Events natifs de la paire, prédits DEPUIS `tile` (UnitPosition à la tuile
-        candidate, `GetUnitPositionAtTile` — ce que le sweep de décision natif évalue).
-        tile None = tuile courante. Sans col/row, un chunk composé move+attack rendrait
-        un faux 0 « hors de portée depuis la tuile courante » (piège mesuré seed 777)."""
+    def _native_resp(self, step: int, uid: int, ab: int, tgt: int, tile=None) -> dict | None:
+        """Réponse BRUTE d'`aiPlaybookPredict` pour la paire, prédite DEPUIS `tile`
+        (cachée) — porte les 4 familles du scorer (`CalculateUtilityFromPredictions
+        @181407890`) : events (damage) + healEvents + effectEvents + repairs (#45)."""
         key = (step, uid, ab, tgt, tile)
         if key in self._nat_events_cache:
             return self._nat_events_cache[key]
@@ -174,9 +181,17 @@ class StageProbe:
         if tile is not None:
             body["col"], body["row"] = int(tile[0]), int(tile[1])
         resp = self.rpc("aiPlaybookPredict", body, 60)
-        evs = (resp.get("events") or []) if resp.get("ok") else None
-        self._nat_events_cache[key] = evs
-        return evs
+        resp = resp if resp.get("ok") else None
+        self._nat_events_cache[key] = resp
+        return resp
+
+    def _native_events(self, step: int, uid: int, ab: int, tgt: int, tile=None):
+        """Events DAMAGE natifs de la paire, prédits DEPUIS `tile` (UnitPosition à la
+        tuile candidate, `GetUnitPositionAtTile` — ce que le sweep de décision natif
+        évalue). tile None = tuile courante. Sans col/row, un chunk composé move+attack
+        rendrait un faux 0 « hors de portée depuis la tuile courante » (piège seed 777)."""
+        resp = self._native_resp(step, uid, ab, tgt, tile)
+        return (resp.get("events") or []) if resp is not None else None
 
     # ---- côté offline : meilleur (u_full, tuile) d'une paire via le sweep du générateur ----
     def _pair_best_offline(self, ctx, ab: int, tgt: int):
@@ -214,7 +229,10 @@ class StageProbe:
         tile = tile if tile is not None else ctx.origin
         nat_evs = self._native_events(step, uid, ab, tgt, tile)
         if not nat_evs:
-            return {"skipped": "no-native-events"}   # non-attaque (heal/…) ou RPC KO
+            fam = self._confront_nonattack(ctx, step, uid, ab, tgt, tile)
+            if fam is not None:
+                return fam                           # #45 : famille heal/repair confrontée
+            return {"skipped": "no-native-events"}   # non-attaque non décodée ou RPC KO
         nat_main = next((e for e in nat_evs if e.get("targetId") == tgt), nat_evs[0])
         shield_ok = "shieldDmgMin" in nat_main       # champs récents du décodeur
         pb = NORMAL_ATTACK_PLAYBOOK if ab in ctx.normal_ids else get_playbook_or_default(ab)
@@ -243,6 +261,56 @@ class StageProbe:
                 out["feed"] = None               # combatSnapshot KO — inclassable
         return out
 
+    # ---- #45 : confrontation des familles NON-damage (heal famille 2, repair famille 4) ----
+    def _confront_nonattack(self, ctx, step: int, uid: int, ab: int, tgt: int,
+                            tile) -> dict | None:
+        """Confronte la MAGNITUDE offline (mirrors `PredictHeal @181037180` /
+        `PredictRepair @181038280`) au fill NATIF décodé (`healEvents` #34A /
+        `repairs` #45 v2) quand la paire n'a aucun DamageEvent — les familles 2 et 4
+        du scorer `CalculateUtilityFromPredictions @181407890`. None = famille absente
+        (vieux hooks sans décodeur, ou paire réellement vide) -> l'appelant garde le
+        skip v1 `no-native-events`. Mismatch = logic (feed=False) : la magnitude ne lit
+        que l'état DU PAS (obs fraîche) + la config — pas de canal cold."""
+        resp = self._native_resp(step, uid, ab, tgt, tile)
+        if resp is None:
+            return None
+        hevs = resp.get("healEvents") or []
+        reps = resp.get("repairs") or []
+        ob = next((u for u in ctx.obs_units if u.get("squadId") == tgt), None)
+        hp_max = int((ob or {}).get("hpMax") or 0)
+        hp_cur = int((ob or {}).get("hp") or 0)
+        hc = ctx.heal_config(ctx.uid)
+        if hevs:
+            nat = next((e for e in hevs if e.get("targetId") == tgt), hevs[0])
+            amt = heal_amount_config(ctx.ab_name_by_id.get(ab), hc["active"],
+                                     hc["passive"], hc["multiplier"])
+            missing = max(0, hp_max - hp_cur)
+            off = missing if amt is None else predict_heal_effective(amt, hp_cur, hp_max)
+            delta = ({} if int(off) == int(nat.get("healAmount") or 0) else
+                     {"healAmount": {"off": int(off), "nat": nat.get("healAmount")}})
+            return {"match": not delta, "delta": delta or None, "tile": tile,
+                    "family": "heal", "feed": (False if delta else None)}
+        if reps:
+            nat = next((r for r in reps if r.get("targetId") == tgt), reps[0])
+            arm_max = int((ob or {}).get("armorMax") or 0)
+            arm_cur = int((ob or {}).get("armor") or 0)
+            vid = next((u.get("visualId") for u in ctx.obs_units
+                        if u.get("squadId") == uid), None)
+            amt = repair_amount_config(vid, hc["active"], hc["multiplier"])
+            if amt is None:      # pas de hpToRepair Comparable -> saturation (approx #83)
+                off_hp, off_arm = max(0, hp_max - hp_cur), max(0, arm_max - arm_cur)
+            else:
+                rp = predict_repair_effective(amt, hp_cur, hp_max, arm_cur, arm_max)
+                off_hp, off_arm = rp.fill_hp, rp.fill_armor
+            delta = {}
+            if int(off_hp) != int(nat.get("hpFill") or 0):
+                delta["hpFill"] = {"off": int(off_hp), "nat": nat.get("hpFill")}
+            if int(off_arm) != int(nat.get("armorFill") or 0):
+                delta["armorFill"] = {"off": int(off_arm), "nat": nat.get("armorFill")}
+            return {"match": not delta, "delta": delta or None, "tile": tile,
+                    "family": "repair", "feed": (False if delta else None)}
+        return None
+
     # ---- contrefactuel : utilité offline avec prédictions NATIVES injectées ----
     def _counterfactual_utility(self, ctx, step: int, uid: int, ab: int, tgt: int,
                                 tile) -> float | None:
@@ -252,7 +320,7 @@ class StageProbe:
         `CalculateUtilityFromDamageEvent` (IsFriend)."""
         evs = self._native_events(step, uid, ab, tgt, tile if tile is not None else ctx.origin)
         if not evs:
-            return None
+            return self._counterfactual_nonattack(ctx, step, uid, ab, tgt, tile)
         me = next((u for u in ctx.units if u.get("id") == uid), None)
         my_team = (me or {}).get("team")
         team_by_id = {u.get("id"): u.get("team") for u in ctx.units}
@@ -263,6 +331,38 @@ class StageProbe:
             prob = (ev.get("probability") or 1.0) * (ev.get("probMult") or 1.0)
             u += sign * prob * damage_composite(_fields_from_native_event(ev),
                                                 ctx.hpmax_by_id.get(t_id), ctx.wt)
+        return u + (tile_utility(ctx, tile) if tile is not None else 0.0)
+
+    def _counterfactual_nonattack(self, ctx, step: int, uid: int, ab: int, tgt: int,
+                                  tile) -> float | None:
+        """#45 : contrefactuel des familles NON-damage — fills NATIFS injectés dans NOS
+        utilités : Σ prob × HealUtility(healAmount) (famille 2, `CalculateUtilityFrom-
+        HealEvent @1814aac80` = prob × Weight[44].Eval) + Σ RepairedAmountUtility(fills)
+        (famille 4, Weight[46].Eval, SANS facteur prob — mirror @181407890) + Tile(7).
+        None si familles vides / non décodées (vieux hooks). Écart documenté : le
+        CustomUtility TwistedScience (+100/+200) n'est pas modélisé ici."""
+        resp = self._native_resp(step, uid, ab, tgt, tile if tile is not None else ctx.origin)
+        if resp is None:
+            return None
+        me = next((u for u in ctx.units if u.get("id") == uid), None)
+        my_team = (me or {}).get("team")
+        team_by_id = {u.get("id"): u.get("team") for u in ctx.units}
+        u = None
+        for ev in (resp.get("healEvents") or []):
+            t_id = ev.get("targetId")
+            u = (u or 0.0) + (ev.get("probability") or 1.0) * heal_utility(
+                int(ev.get("healAmount") or 0), int(ctx.hpmax_by_id.get(t_id) or 0),
+                is_friend=(t_id is not None and team_by_id.get(t_id) == my_team),
+                is_boss=False)
+        for rp in (resp.get("repairs") or []):
+            t_id = rp.get("targetId")
+            ob = next((o for o in ctx.obs_units if o.get("squadId") == t_id), None) or {}
+            u = (u or 0.0) + repair_utility(
+                int(rp.get("hpFill") or 0), int(ob.get("hpMax") or 0),
+                int(rp.get("armorFill") or 0), int(ob.get("armorMax") or 0),
+                is_boss=False)
+        if u is None:
+            return None
         return u + (tile_utility(ctx, tile) if tile is not None else 0.0)
 
     # ---- scoring move par-tuile (mirror best_move_faithful, tuiles ciblées) ----
@@ -317,7 +417,7 @@ class StageProbe:
             rec["stage"] = "nc-pair"
             return rec
         if rec["pred"].get("skipped") == "no-native-events":
-            rec["stage"] = "non-attack-oracle"   # heal/repair : pas d'oracle DamageEvent v1
+            rec["stage"] = "non-attack-oracle"   # famille non décodée (vieux hooks sans #45 v2)
             return rec
         nat_pair = self._pair_best_offline(ctx, ab, tgt)
         if nat_pair is None:

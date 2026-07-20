@@ -125,6 +125,17 @@ mécaniquement l'essentiel du positioning.
    bouge/attaque (2 occurrences AdMech + 31337 s17 : nat 69→87 u_off=192.7 pourtant le moteur
    sort 1118→77 par ORDRE de tier NC) ; 909 s10 : 1180 HeroicFusillade émise, natif attaque
    (pred quasi égales 1362 vs 1365, cf_nat=90.1). Le playbook NC natif GATE là où le nôtre émet.
+   **909 s10 ✅ fermé par le gate `turnsStarted > 1` (#46).** **NOUVELLE occurrence DIAGNOSTIQUÉE
+   (#49, 2026-07-20) : 31337 s14, Gauntlets 1000 (u87 Calgar)** — les gates générateur passent
+   (vtable résolue live : slots 4/5 = base prob=Fix64(1)) mais `ncEvaluate` rend bucket=EMPTY sur
+   les 25 positions : 3 ennemis vivants → gate bucket = arc >= min(3,3), et le natif compte < 3 à
+   (5,4) (la seule tuile où NOTRE arc compte 3, dists 2,1,2) alors que `castFromTiles` y montre les
+   3 ennemis individuellement ciblables → le drop = **`Unobscured` ring-2** (flag v1 passe-tout de
+   `count_enemies_in_arc`) ; board sans murs → obscurcissement par unités/élévation. Chaîne RE :
+   `UnobscuredEntitiesSelector.IsObscured @180f06c20` → `TargetingQuery.IsTargetUnitObscured
+   @1810bf680` → `IsTargetTileObscured @1810bf5a0` = raycast board slot 0x10, masque (flag?4:6),
+   count>0 = obscuré. Reste à RE le raycast (tâche #49) — levier multi-abilities
+   (`DSLFactory.Unobscured @180e01540`, refcount 21).
 7. **Move pur : le natif ne maximise PAS Tile7+MinDist** — 909, 3/3 move-formula au MÊME
    pathdist (MinDist IDENTIQUE des deux côtés) : s04 nat(3,2) tile=15 vs eng(0,3) tile=50 ;
    s05 nat(5,5) 20 vs eng(6,4) 40 ; s19 nat(4,3) 30 vs eng(4,2) 50 — le natif choisit

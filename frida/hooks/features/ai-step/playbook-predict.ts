@@ -358,3 +358,59 @@ export function decodeEffectEvents(
 ): { events: EffectEvent[]; count: number; retClass: string | null; error?: string } {
     return decodeEventsGeneric(list, idByPtr, readEffectEvent, SMALL_EVENT_STRIDE);
 }
+
+/** #45 — décodage v2 REPAIR. Le repair n'a PAS d'event : `RepairPlaybook.
+ *  MakeRepairPredictions @181187830` rend un `Dictionary<IEntity, RepairPrediction>`
+ *  {cible: PredictRepair(...)} (la base @18140a9b0 rend un dict VIDE quand le playbook
+ *  n'override pas). RepairPrediction = retour par VALEUR de `DamagePrediction.
+ *  PredictRepair @181038280`, 16 o = 4 ints : currentHealth@+0x00 (GetStat 5),
+ *  currentArmor@+0x04 (GetStat 4), hpFill@+0x08 (MaxFillUp Health), armorFill@+0x0c
+ *  (MaxFillUp Armor) — les DEUX fills consomment le MÊME amount (pas de partage). */
+export interface RepairEntry {
+    targetId: number | null;
+    targetHpBefore: number; targetArmorBefore: number;
+    hpFill: number; armorFill: number;
+}
+
+export function decodeRepairDict(
+    dict: NativePointer, idByPtr: Map<string, number>,
+): { events: RepairEntry[]; count: number; retClass: string | null; error?: string } {
+    if (dict.isNull()) return { events: [], count: 0, retClass: null };
+    const retClass = classNameAt(dict);
+    try {
+        const cls = dict.readPointer();
+        // offsets résolus runtime (mirror items-catalog.ts : survit au drift de layout)
+        const entriesOff = getFieldOffset(cls, "_entries");
+        const countOff = getFieldOffset(cls, "_count");
+        if (entriesOff < 0 || countOff < 0) {
+            return { events: [], count: -1, retClass,
+                error: "offsets Dictionary (_entries/_count) introuvables" };
+        }
+        const entries = dict.add(entriesOff).readPointer();
+        const count = dict.add(countOff).readS32();
+        if (entries.isNull() || count <= 0 || count > 4096) {
+            return { events: [], count: 0, retClass };
+        }
+        // Entry<ref, struct 16 o> : {hashCode(4), next(4), key(ptr 8), value(16)} = 32 o ;
+        // éléments de l'array dès +0x20. hashCode==0 = slot libéré (pattern items-catalog).
+        const ENTRY_SIZE = 32, KEY_OFF = 8, VAL_OFF = 16, ARR_DATA = 0x20;
+        const out: RepairEntry[] = [];
+        for (let i = 0; i < count; i++) {
+            const e = entries.add(ARR_DATA + i * ENTRY_SIZE);
+            if (e.readS32() === 0) continue;
+            const keyPtr = e.add(KEY_OFF).readPointer();
+            if (keyPtr.isNull()) continue;
+            out.push({
+                targetId: idByPtr.get(keyPtr.toString()) ?? null,
+                targetHpBefore: e.add(VAL_OFF).readS32(),
+                targetArmorBefore: e.add(VAL_OFF + 4).readS32(),
+                hpFill: e.add(VAL_OFF + 8).readS32(),
+                armorFill: e.add(VAL_OFF + 12).readS32(),
+            });
+        }
+        return { events: out, count: out.length, retClass };
+    } catch (e) {
+        return { events: [], count: -1, retClass,
+            error: "lecture repair dict: " + (e as Error).message };
+    }
+}

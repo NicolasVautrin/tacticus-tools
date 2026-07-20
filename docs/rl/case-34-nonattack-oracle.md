@@ -162,3 +162,42 @@ Plus des overrides bespoke (HealPlaybook @181184a70, SpiritLeech @18115d7a0/@181
 - `CalculateUtilityFromPredictions @181407890` · `CalculateUtilityFromHealEvent @1814aac80` · `CalculateActionUtility @181406ee0`
 - `ComparablePlaybook.MakeHealPredictions @18140a970` · `MakeEffectPredictions @18140a930` · `MakeRepairPredictions @18140a9b0`
 - Weights : Damage=34, Heal=44 (op 0x2c), AddedTileEffects=45 (0x2d), Repair=46 (0x2e)
+
+## MAJ #45 (2026-07-20) — décodage v2 repair + composites 44/45/46 RÉSOLUS + mesure s15
+
+**Le RE demandé ci-dessus est fait ; la mesure 777 s15 a localisé la vraie divergence.**
+
+- **Composites 44/45/46 résolus LIVE** (`dumpComposedUtility`, UtilitiesDatabase champ +0x58) :
+  `Repair(46) = [47 RepairedAmount, 2 TriggeredAbilities, 4 TriggeredAbilitiesNonOwner]` ;
+  `Damage(34) = [40,35,36,38,43,39,37,41, 2,4,3, 59,42]` ; `Tile(7)` et `UnitMovement(6)`
+  inchangés vs le port. Heal(44)/AddedTileEffects(45) ne sont PAS des composites (feuilles
+  directes, déjà portées : `HealUtility` / `AddedEffectUtility`). Chaque feuille d'un composite
+  se dispatch PAR TYPE DE CASE : `Evaluate{Attack,Movement,Repair}InSteps` — pour un case repair,
+  les feuilles 2/4 exécutent leur `EvaluateRepairInSteps` (NonOwner d__2 @1810f2ea0, Dispose
+  @181102cd0) — **NON PORTÉES** (on n'applique que la feuille 47).
+- **Scorer 4-familles** : `CalculateUtilityFromPredictions @181407890` = Σ damage(+0x358, ×prob)
+  + heal(+0x368, `@1814aac80` = prob × GetUtility(44).Eval(`ForHealPrediction @181105420`),
+  `AbilityOrEffect(18)`) + effect(+0x378, GetUtility(45) × prob) + repair(+0x388,
+  GetUtility(46).Eval(`ForRepairPrediction @1811055f0`), `AbilityOrEffect(28)`, **sans** prob).
+- **`PredictRepair @181038280`** : `RepairPrediction = {curHealth, curArmor, hpFill, armorFill}`
+  (4 ints, 16 o) ; fills = `MaxFillUp(amount)` PAR stat (montant non partagé) ; **bonus ACTEUR
+  `(amount + add) × mult`** via query d'effets (slot itf, analogue au bonus-soin) — NON porté ;
+  group-limit + boss-cap déjà mirrorés. `RepairPlaybook.MakeRepairPredictions @181187830` =
+  `{target: PredictRepair(...)}` (base @18140a9b0 = dict VIDE).
+- **Hook décodage v2** : `decodeRepairDict` (playbook-predict.ts — walk du Dictionary, entry
+  32 o {hash,next,key ptr,value 16 o}) + champ `repairs` d'`aiPlaybookPredict` (rpc-predict.ts).
+  VALIDÉ LIVE (777 s15 : `{targetId:83, hpBefore:6319, hpFill:2716, armorFill:0}`).
+- **Harnais** : `_confront_nonattack` (magnitude offline vs fills natifs, familles heal/repair)
+  + `_counterfactual_nonattack` (fills natifs × HealUtility/RepairedAmountUtility) dans
+  engine_agreement_stages.py ; `non-attack-oracle` ne reste que pour des hooks sans décodeur.
+- **MESURE 777 s15 (u83 admecDominus, self-repair 28)** : fills natifs == offline (2716/armor 0)
+  → la MAGNITUDE est fidèle ; notre utilité 30.06 (RepairedAmountUtility) bat encore l'attaque
+  (~22.4) alors que le natif préfère l'attaque → **la divergence = les feuilles 2/4 du composite
+  46 en mode repair** (attendu : contribution négative — famille « AdjacentUnitPreference » déjà
+  suspectée par le harnais côté move). NB mesure : les états DIVERGENT entre runners au même pas
+  (RNG dégâts per-runner) — le « u=50.1 » historique vs 30.06 = mêmes formules, hp différents ;
+  toujours re-mesurer sur SON runner.
+- **RESTE** : (a) décompiler + porter les 2 `EvaluateRepairInSteps` (feuilles 2/4) → s15 doit
+  flipper ; (b) vérifier la couverture attack de `damage_composite` vs les feuilles 2/4/3 de
+  Damage(34) ; (c) ProbableHealEvent offline + branchement heal au total par-paire du moteur ;
+  (d) bonus acteur PredictRepair/PredictHeal.
