@@ -298,25 +298,48 @@ def aura_attack_bonus_from_allies(carriers, ctx) -> int:
     +extraDmg/_2 aux alliés ring-1, gate grande-alliance Imperial ; `PathOfCommandAbility` @181110f10 :
     +extraDmg(/_2 si même FACTION) aux alliés dans un rayon 2). `carriers` = itérable de (owner_id, owner_pos,
     owner_team, owner_mult, owner_level, owner_grand_alliance, owner_faction, effets du porteur) ; `ctx` =
-    {att_id, att_pos, att_team, att_grand_alliance, att_faction, board}. Modélisé CÔTÉ SOURCE, évalué à la
-    position passée dans `att_pos`. #153 (REFUTE l'ancien verdict #67 « position réelle jamais tuile
-    candidate ») : en PRÉDICTION DISPLAY l'appelant passe la TUILE CANDIDATE (`attack_pos`, fallback
-    position réelle) — la chaîne native threade la UnitPosition candidate de bout en bout
+    {att_id, att_pos, att_team, att_grand_alliance, att_faction, board, att_real_pos?}. Modélisé CÔTÉ
+    SOURCE, évalué à la position passée dans `att_pos`. #153 (REFUTE l'ancien verdict #67 « position réelle
+    jamais tuile candidate ») : en PRÉDICTION DISPLAY l'appelant passe la TUILE CANDIDATE (`attack_pos`,
+    fallback position réelle) — la chaîne native threade la UnitPosition candidate de bout en bout
     (`GetAllPredictions @181090f50` -> `DamagePrediction.PredictNormalAttack @181037cd0` : CasterTile =
-    tuile candidate dans `AbilityEntities.ctor`) et ré-évalue l'aura PAR TUILE (mesure discriminante
-    seed-31337 : aura PERDUE out-ring malgré le stat-mod +1298 baké live, GAGNÉE in-ring pour un
-    attaquant réel hors portée du porteur). Retour >= 0 (à AJOUTER à `GetStat(Attack, INITIAL)`).
-    NB gates DIFFÉRENTS : RitesOfBattle=grande-alliance (Imperial), PathOfCommand=faction (IsSameFaction)."""
+    tuile candidate dans `AbilityEntities.ctor`) et RE-VÉRIFIE l'aura PAR TUILE.
+
+    RAFFINEMENT #41 (2026-07-20) : la re-vérification per-candidate est SPLITTÉE PAR ARME (mesures
+    seed-31337, les 2 canaux natifs ranked==aiPlaybookPredict concordants partout) :
+    - RANGED = sémantique #153 pure (tuile candidate, GAIN INCLUS) : u95 thousAhriman réel dist-3 du
+      porteur, candidate (4,5) in-ring -> natif base 3011+898 ; u92 #153 12 out-ring PERDUES / 2
+      in-ring gardées ; u89 s11/s13 base 2101=803+1298 bit-exact ×4 tuiles. L'appelant ne passe PAS
+      `att_real_pos` (None) -> gate inactif.
+    - MÊLÉE = pas de GAIN depuis une tuile candidate (u93 deathRotbone s13 : candidate (2,3) in-ring
+      de Calgar, natif = base Initial 1408 ×1.5 élévation EXACT, zéro flat). L'appelant passe
+      `ctx["att_real_pos"]` = position réelle : chaque effet doit fire AUSSI à la position réelle
+      (matérialisation du stat-mod) pour contribuer — l'amount est celui du candidat (identique :
+      montants niveau-source). Seul cas mêlée+matérialisé mesuré = candidate-out-ring (drop, couvert).
+    - Tuile candidate NON-ENTRABLE (BlockEnteringUnits) : aura PERDUE même matérialisée+in-ring (u89
+      s11 candidate (1,3) : natif base 803 ×1.5) — guard au call-site prédiction (mirror
+      `GetUnitPositionAtTile` dégénérée sur tuile bloquée).
+    Retour >= 0 (à AJOUTER à `GetStat(Attack, INITIAL)`). NB gates DIFFÉRENTS : RitesOfBattle =
+    grande-alliance (Imperial), PathOfCommand = faction (IsSameFaction)."""
     total = 0
+    c0 = ctx or {}
+    rp = c0.get("att_real_pos")
+    cand = c0.get("att_pos")
     for owner_id, owner_pos, owner_team, owner_mult, owner_level, owner_ga, owner_faction, effects \
             in (carriers or []):
-        octx = {**(ctx or {}), "owner_id": owner_id, "owner_pos": owner_pos, "owner_team": owner_team,
+        octx = {**c0, "owner_id": owner_id, "owner_pos": owner_pos, "owner_team": owner_team,
                 "owner_mult": owner_mult, "owner_level": owner_level, "owner_grand_alliance": owner_ga,
                 "owner_faction": owner_faction}
         for e in _as_effects(effects):
             b = e.create_aura_attack_bonus(octx)
-            if b:
-                total += int(b)
+            if not b:
+                continue
+            # #41 : matérialisation — pas de GAIN d'aura depuis une tuile candidate si l'effet ne
+            # fire pas à la position RÉELLE (stat-mod absent du store natif -> rien à re-vérifier).
+            if rp is not None and cand is not None and tuple(rp) != tuple(cand) \
+                    and not e.create_aura_attack_bonus({**octx, "att_pos": rp}):
+                continue
+            total += int(b)
     return total
 
 

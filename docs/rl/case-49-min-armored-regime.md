@@ -5,6 +5,43 @@ seeds FRAIS via `test_predict_live` (PREDICT_SEED) ont RE-EXPOSE un residu que l
 seed-777 + overkill 3/3 ne montraient pas. **#49 etait marque completed : son cote MIN ne
 l'est PAS.** GREP ce fichier avant de re-investiguer #49.
 
+## MAJ 2026-07-20 (#41, RAFFINE #153) : l'aura-position est SPLITTEE PAR ARME (ranged=candidate, melee=materialise) + quirk tuile bloquee
+
+**#153 reste vrai pour le RANGED ; il est INCOMPLET pour la MELEE.** Trouve via l'agreement-stages
+31337 s13 (u93 deathRotbone ab69 -> u83, mismatch etiquete a tort « mod defenseur x0.611 » : le ratio
+0.611 = 1408/2306 = base sans-aura / base port-avec-aura — c'etait le PORT qui SUR-appliquait
+la Basic +898 de Calgar, pas un mod defenseur manquant). Mesures 2026-07-20 (les 2 canaux natifs
+`attackPlans.ranked` == `aiPlaybookPredict` CONCORDANTS sur chaque ligne — aiPlaybookPredict est un
+oracle FRAIS, pas le cache #96) :
+
+- **RANGED = #153 pur (tuile CANDIDATE, GAIN inclus)** : u95 thousAhriman (reel dist-3 de Calgar,
+  AUCUN stat-mod) candidate (4,5) in-ring -> natif (3127,4691) = base 3011+898 Basic GAGNEE — le
+  « u96 » de #153 etait CE cas (thousAhriman, pas darkaTerminator — ids-then = ids-now +1), REPRODUIT
+  bit-exact, donc PAS un artefact de cache ; u89 spaceStormcaller (materialise +1298, reel (1,2)
+  adjacent Calgar (2,2)) : candidates in-ring (3,3) -> base 2101=803+1298 EXACT x4 lignes/3 cibles.
+- **MELEE = PAS de gain depuis une tuile candidate** : u93 deathRotbone (reel (0,3) dist-2 de Calgar,
+  non materialise) candidate (2,3) in-ring -> natif (2704,4056) = **base Initial 1408 x1.5 elevation
+  EXACT via le pipeline port** (fit41_pipeline.py : aucune combinaison base-aura ne matche), zero flat.
+  Seul cas melee+materialise mesure (u91 (6,5), reel (5,5) in-ring) = candidate OUT-ring -> pas d'aura
+  (les deux sous-modeles le couvrent) ; si un futur cas melee+materialise+IN-ring sort sans aura native,
+  passer la melee en « jamais d'aura » et RE le read natif du stat Attack en prediction.
+- **Tuile candidate NON-ENTRABLE (BlockEnteringUnits, mur Thorns (1,3) MC1_67)** : aura PERDUE meme
+  materialisee+in-ring (u89 s11 : candidate (1,3) -> base 803 x1.5 elevation EXACT ; (3,3) propre ->
+  2101 garde). Mecanisme presume : `GetUnitPositionAtTile` degeneree sur tuile bloquee -> l'adjacence
+  du selecteur echoue ; l'elevation (lue sur la TUILE) s'applique toujours.
+
+**Selecteurs RE-confirmes** (@180f69770/@180f699c0) : Basic = AdjacentUnits(1)->Friends(=meme equipe,
+`UnitsByTeamSelector` mode 1)->UnitsWithoutTrait(0x1a=26 Imperial) ; Imperial = ...WithTrait(26) ;
+amounts ConfigVar(0x3f6, idx8 extraDmg / idx9 extraDmg_2) — le modele port des effets etait bon, le
+gate manquant etait dans la COUCHE prediction (position candidate vs reelle par arme).
+
+**Fix port** : `aura_attack_bonus_from_allies` accepte `ctx["att_real_pos"]` (gate de materialisation,
+actif MELEE seulement — l'appelant `make_normal_attack_predictions` le passe si `is_melee`) + guard
+`BlockEnteringUnits` sur la tuile candidate au call-site. Valide : s13 bit-exact, agreement prediction
+19/21 -> **20/21 (95 %)**, s11 4/4 lignes bit-exact (y c. tuile bloquee), `test_predict_live` 2/2.
+NB : les 9 lignes rouges u91 de `test_aura_position_live` sont un defaut PRE-EXISTANT independant
+(accurate MAX non cape HP, prouve par stash-run a HEAD — tache #43).
+
 ## MAJ 2026-07-13 bis (#153, TRANCHE) : le "residu broad" ETAIT l'aura-position — regime blinde per-coup REFUTE
 
 **La section "MAJ 2026-07-13" ci-dessous se trompe sur le residu** (sa mesure statModSources reste

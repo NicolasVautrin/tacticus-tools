@@ -102,11 +102,16 @@ mécaniquement l'essentiel du positioning.
    `get_DefaultBlockScenario @18102bcd0` + rem unique @181034087). Fix `BlockScenario.health`
    (damage_prediction.py) → s08 bit-exact (1498,1949), prédiction 18/21 → **19/21 (90 %)**,
    0 régression (7/7 tests ciblés). Détail : `case-30-raw-bounds.md` §« ✅ #40 RÉSOLU ».
-5. **killSure fantôme (raw sur-évalué)** — 31337 s13, u93 ab=69 tgt=83 : accurate min OK
-   (2783 vs 2704) mais raw off 4428-6640 vs nat 2704-4056 → **killSure off=True nat=False**.
-   MAJ 2026-07-20 (post-#40, le lead 4 étant clos) : les DEUX bornes raw natives = off ×0.611
-   (2704/4428 = 4056/6640) → **vrai modificateur défenseur multiplicatif** sur u93→u83
-   (deathRotbone→eldarAutarch), PAS un artefact de chaîne de caps. À traquer séparément.
+5. **killSure fantôme (raw sur-évalué) — ✅ RÉSOLU 2026-07-20 (#41)** : PAS un mod défenseur —
+   le ×0.611 = 1408/2306 = le PORT sur-appliquait l'aura RitesOfBattle Basic +898 de Calgar
+   (u87, adjacent à la tuile candidate (2,3)) sur l'attaque MÊLÉE de u93. Loi native mesurée
+   (2 canaux concordants) : aura-stat re-évaluée à la tuile CANDIDATE pour le RANGED (#153, gain
+   inclus), mais PAS de gain non-matérialisé pour la MÊLÉE ; + tuile candidate BlockEnteringUnits
+   → aura perdue même matérialisée. Fix : gate matérialisation (mêlée) + guard tuile bloquée dans
+   `make_normal_attack_predictions`/`aura_attack_bonus_from_allies` → s13 bit-exact (2704,4056),
+   prédiction 19/21 → **20/21 (95 %)**, 0 régression. Détail : `case-49-min-armored-regime.md`
+   §MAJ #41. Résidu indépendant découvert au passage : accurate MAX non capé HP (u91, pré-existant
+   prouvé par stash-run) → tâche #43.
 6. **NC overfire (gates trop lâches)** — famille : AdMech 1118 self-cast émis là où le natif
    bouge/attaque (2 occurrences AdMech + 31337 s17 : nat 69→87 u_off=192.7 pourtant le moteur
    sort 1118→77 par ORDRE de tier NC) ; 909 s10 : 1180 HeroicFusillade émise, natif attaque

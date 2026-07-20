@@ -327,15 +327,29 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     _att_gu = GC.unit(scene.vis_by_id.get(att_id)) or {}
     att_grand = _att_gu.get("GrandAllianceId")           # gate RitesOfBattle (Imperial)
     att_faction = _att_gu.get("FactionId")               # gate PathOfCommand (IsSameFaction = FactionId)
+    # #41 : gate de MATÉRIALISATION pour la MÊLÉE SEULEMENT (att_real_pos=None -> gate inactif).
+    # Mesures seed-31337 (2026-07-20) : RANGED suit purement la tuile CANDIDATE (#153 confirmé, gain
+    # inclus — u95 thousAhriman réel dist-3 de Calgar, candidate (4,5) in-ring : natif = base+898 sur
+    # les 2 canaux ranked/aiPlaybookPredict) ; MÊLÉE ne gagne PAS l'aura d'une tuile candidate (u93
+    # deathRotbone s13 : candidate (2,3) in-ring, natif = base Initial ×1.5 élévation EXACT). Le seul
+    # cas mêlée+matérialisé mesuré ((6,5) u91) est candidate-out-ring (les deux modèles le couvrent) —
+    # si un futur contre-cas mêlée+matérialisé+in-ring sort sans aura native, passer la mêlée en
+    # « jamais d'aura » (v4) et RE le read natif du stat Attack en prédiction.
     aura_ctx = {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
-                "att_grand_alliance": att_grand, "att_faction": att_faction, "board": scene.board}
+                "att_grand_alliance": att_grand, "att_faction": att_faction, "board": scene.board,
+                "att_real_pos": scene.pos(att_id) if is_melee else None}
     carriers = [(uid, scene.pos(uid), scene.team(uid), scene.mult(uid), scene.ablvl_by_id.get(uid),
                  (GC.unit(scene.vis_by_id.get(uid)) or {}).get("GrandAllianceId"),   # owner grande-alliance
                  (GC.unit(scene.vis_by_id.get(uid)) or {}).get("FactionId"),         # owner faction
                  scene.effects(uid)) for uid in scene.pos_by_id                      # (type-level, miroir-safe)
                 if uid != att_id and (scene.hp(uid) or 0) > 0]
+    # #41 : tuile candidate NON-ENTRABLE (BlockEnteringUnits, ex. mur Thorns (1,3) MC1_67) -> le natif
+    # perd l'aura MÊME matérialisée+in-ring (u89 s11 : candidate (1,3) = base Initial 803 ×1.5 élévation
+    # EXACT, vs (3,3) propre = 2101 gardé) : `GetUnitPositionAtTile` sur tuile bloquée rend une position
+    # dégénérée -> l'adjacence du re-check échoue. L'élévation, lue sur la TUILE, s'applique toujours.
+    _cand_blocked = "BlockEnteringUnits" in ((scene.tile_effects_by_pos or {}).get(tuple(_ap)) or ())
     attack_base = ctx.get_stat(StatType.ATTACK, StatPart.INITIAL) \
-        + aura_attack_bonus_from_allies(carriers, aura_ctx)
+        + (0 if _cand_blocked else aura_attack_bonus_from_allies(carriers, aura_ctx))
     _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, attack_pos, t_pos,
                                       damage_profile=prof_name)
     # AURA ENNEMIE %-degat projetee sur l'ATTAQUANT : ShadowInTheWarp_LessDmg_Effect (-25% Psychic aux

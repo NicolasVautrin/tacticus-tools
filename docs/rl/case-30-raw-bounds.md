@@ -243,8 +243,11 @@ alors dépasser HP par coup — renormalisé par le cap HP de l'accurate dans `A
 **Validation** : agreement 777+31337 ×20 → prédiction **19/21 (90 %)** (s8 réglé, zéro régression) ;
 tests ciblés `test_predict_live` + `test_damage_roll_live` + `test_runner_attack_live` +
 `test_finaljustice_live` = 7/7. Restants (dossiers DISTINCTS) : 777 s11 u95 ab1150 (split bouclier,
-shieldDmgMin 3351 vs 2873) ; 31337 s13 u93→u83 (mod défenseur ×0.611 sur LES DEUX bornes raw —
-vrai modificateur multiplicatif, PAS un artefact de chaîne : off (4428,6640) vs nat (2704,4056)).
+shieldDmgMin 3351 vs 2873, tâche #42) ; 31337 s13 u93→u83 — **✅ RÉSOLU 2026-07-20 (#41)** : le
+« mod défenseur ×0.611 » n'existait pas — ×0.611 = 1408/2306, le PORT sur-appliquait l'aura
+RitesOfBattle Basic +898 (Calgar adjacent à la tuile candidate) sur une attaque MÊLÉE ; loi native
+= aura per-candidate RANGED seulement (pas de gain mêlée non-matérialisé) + drop sur tuile bloquée.
+Détail : `case-49-min-armored-regime.md` §MAJ #41.
 
 **Leçon de méthode** : le fit arithmétique du 19 (base 872.5 « demi-entière ») collait parfaitement…
 dans le mauvais modèle de chaîne. Avant de chasser un « mod manquant », REJOUER les bornes natives
