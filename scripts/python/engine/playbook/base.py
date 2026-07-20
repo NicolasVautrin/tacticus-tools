@@ -79,10 +79,16 @@ class ComparablePlaybook(BasePlaybook):
                                             calculate_utility_from_effect_event)
         # `CalculateUtilityFromPredictions @181407890` = Σ `CalculateUtilityFromDamageEvent @1814a9f90`
         # (= prob1 × prob2 × composite Damage ; event FRIENDLY -> utilité NÉGÉE) + Σ des events d'EFFET.
+        from ..utilities.tile import triggered_abilities_attack_utility
         u = 0.0
         bk = []
         for ev in events:
             ua = calculate_utility_from_damage_event(ev, ctx.wt, ctx.hpmax_by_id.get(ev.target))
+            # Feuille TriggeredAbilities(2) face ATTACK (#45-s18, splash Psyker) : évaluée DANS le
+            # composite par event (`ForDamagePrediction`) -> même prob × signe que le composite.
+            trig = triggered_abilities_attack_utility(ctx, ctx.uid, ability_id, ev.target, caster_tile)
+            if trig:
+                ua += (-1.0 if ev.friendly else 1.0) * ev.probability * trig
             u += ua
             bk.append((ev.target, round(ua, 1)))
         # Fold EFFET (branche +0x388) : base vide -> no-op pour toute ability sans override (additif).

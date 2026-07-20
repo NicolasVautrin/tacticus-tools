@@ -608,3 +608,28 @@ def triggered_ability_ids(visual_id: str | None) -> list[int]:
         if m is not None:
             out.append(int(m))
     return out
+
+
+# Abilities déclenchées ACCORDÉES PAR TRAIT (l'AbilityFactory native peuple l'AbilitiesComponent
+# depuis les traits, pas seulement les `passiveAbilities` gameconfig — mirror AI du registre runner
+# `BEHAVIOUR_TRAIT_TRIGGERS` de `runner/operations/triggers/dispatch.py`, même source de vérité).
+# Ex. u89 spaceStormcaller : unitAbilityStates raw = {1194, 1013, 1142} alors que passiveAbilities
+# gameconfig = [LordOfTempests] seul — 1013 vient du trait Psyker, 1142 du trait TerminatorArmour.
+TRAIT_TRIGGERED_ABILITY_IDS: dict[str, tuple[int, ...]] = {
+    "Psyker": (int(TriggeredAbilityType.PsykerExtraAttack),),        # 1013 (splash Smite)
+    "TerminatorArmour": (int(TriggeredAbilityType.TerminatorArmour),),   # 1142 (réduction dégât)
+}
+
+
+def kit_triggered_ability_ids(visual_id: str | None) -> list[int]:
+    """Kit déclenché COMPLET d'une unité = passifs gameconfig (`triggered_ability_ids`) + abilities
+    accordées par TRAIT (`TRAIT_TRIGGERED_ABILITY_IDS`) — le miroir fidèle de l'AbilitiesComponent
+    ECS qu'itèrent les dispatchers `TriggeredAbilitiesUtility(2)` (faces move @1810fda80 ET attack
+    @1810f64b0). La face move historique (case-36) lit encore `triggered_ability_ids` seul —
+    sans impact (aucun trait-granted n'a de playbook move enregistré)."""
+    out = list(triggered_ability_ids(visual_id))
+    if visual_id:
+        import gameconfig as GC
+        for tr in ((GC.unit(visual_id) or {}).get("traits") or []):
+            out.extend(TRAIT_TRIGGERED_ABILITY_IDS.get(tr, ()))
+    return out

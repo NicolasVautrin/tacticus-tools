@@ -337,3 +337,71 @@ events `mode:"attack"` avec acteur/cible projetés du `UtilityAttackCase` +0x10/
   feuilles DANS ForDamagePrediction, par DamageEvent). Gates ranged/Psychic via la
   résolution d'arme existante (select_weapon), suppression via effets 1191/1533,
   magnitude = ctx.attack × pct15, prédiction montant-vs-U via le chemin amount existant.
+
+## MAJ #45quinquies (2026-07-20) — s18 PORTÉ + VALIDÉ EXACT : la chaîne slot-0x23 élucidée
+
+**Feuille portée = 17.853817519579994 vs L3 natif 17.85381752299145 (delta 3.4e-9), probe
+`probe_45_psyker.py` (rebuild 31337, walk s18, feuille offline vs capture L3 + splash exécuté).**
+Fichiers : `engine/playbook/psyker.py` (NOUVEAU — `PsykerPlaybook` + `TRIGGERED_ATTACK_PLAYBOOKS`),
+`engine/utilities/tile.py` (`TriggeredAbilitiesUtility.evaluate_attack_in_steps` face attack
+@1810f64b0 + `triggered_abilities_attack_utility`), `engine/entities/triggered_ability_type.py`
+(`kit_triggered_ability_ids` = passifs + `TRAIT_TRIGGERED_ABILITY_IDS` {Psyker→1013} — 1013 vient
+du TRAIT, pas des `passiveAbilities`), câblé dans `playbook/base.calculate_action_utility` +
+stages `_formula_pair_utility` (par event, DANS le composite → suit prob × signe).
+
+Précisions RE gagnées au port (chaîne du « montant brut » slot 0x23) :
+
+1. **slot 0x23 = `BattleQuery.GetAttackPrediction @18105e090`** (overload amount+Nullable<profil>) :
+   profil résolu via `GetDamageProfile`, **hits forcés 1**, délègue à `DamagePredictionQuery.
+   GetAttackPrediction @181091c90` qui boxe l'amount en **Nullable<int> = canal PREDEFINED**
+   (même famille que les additional-hits `RandomAmount` : **SANS spread ±20%**) et dispatche la
+   requête (struct 0xC8, flag byte=1) au service interne (iface `DAT_183287ef8` slot+4).
+2. **Le pipeline predefined applique la COUCHE MODIFIERS COMPLÈTE** (le « montant brut » n'est brut
+   qu'à l'entrée) — prouvé au chiffre près (31337 s18, u89 Njal → u81, splash {u77, u79}) :
+   base 402 (= 50% × GetStat(Attack, Current)=803, `statModSources` mods={} — AUCUN stat-mod)
+   **+ 1200 additif `LordOfTempests_ExtraDamage`** (= `round(extraDmg[50]=222 × 180%) = 400` par
+   hex glacé × **3 hexes ring-1 de la TUILE DU CASE (2,4)**, centre exclu — l'effet était DÉJÀ
+   porté/validé, `effects/loki/extra_damage.py`) = **1602** (u77 admecMarshall, sans réduction) ;
+   u79 custoBladeChampion **−20% `MartialKatah_DmgReduction` → 1282 == le splash EXÉCUTÉ sur u79**
+   (hp-diff exact après applyAction). Solve exact : mean(u77(1602)=21.3896, u79(1282)=14.3181)
+   = 35.707635/2 == natif à 1e-7.
+3. **Le splash est traité `is_normal_attack=True` par la couche modifiers** (LordOfTempests ET
+   Katah sont IsNormalAttack-gatés côté port, et les DEUX s'appliquent au splash, prédiction ET
+   exécution — mesuré). Le flag byte=1 de la requête @181091c90 en est la trace plausible.
+4. **Pièges évités** : `ctx.attack` du snapshot EST le bon StatAmount (Current, sans mods ici) —
+   le ×3.6 apparent venait du bonus ADDITIF positionnel, pas d'un stat caché ; premier essai
+   `mods=None` donnait 6.21 vs 17.85 (ratio non-entier → refus de fitter, recon de l'effet).
+**BATCH FINAL (777/909/31337, post-fix staleness)** : prédiction **26/26**, **UTILITÉ 26/26
+(100 % — étage FERMÉ)**, ability **34/35** (seul reste = #49 Gauntlets ring-2), move **47/51**
+(+1 : la position u89 s18 « ~1hex » était DOWNSTREAM de l'utilité d'attaque — feuille alignée
+⇒ sweep de position aligné ; restent 3 pos-downstream + 1 move-formula AdjacentUnitPreference).
+
+5. **Piège STALENESS (2e bug, trouvé au batch)** : dans le harnais stages le prédicteur est COLD
+   (build 1×/runner) → `ctx_by_id[u89].attack` = **2101 au déploiement** (= 803 + **1298 aura
+   RitesOfBattle** : Njal adjacent à Calgar au spawn) vs **803 au s18** (éloigné) → feuille 24.37,
+   off 188.59 (+6.51). L'aura par-ADJACENCE va et vient → tout nœud `StatAmount(Attack, Current)`
+   doit lire le stat DU PAS. Fix : canal `attack_cur_by_id` (capture `combatSnapshot.stats.attack`,
+   refresh par-pas dans `refresh_shields`), accessor `Scene.attack_current(uid)` (fallback
+   `ctx.attack` pour from_state/vieux hooks), consommé par la feuille. Re-validé 17.8538 exact
+   DANS le ctx stages (repro dédié).
+
+### (d) bonus acteur PredictHeal/PredictRepair — RE COMPLET (port = tâche dédiée)
+
+- **`PredictHeal @181037180`** : si caster IsUnit, boucle sur ses EFFETS → virtuel slot 0x1c =
+  `BaseEffect.HealBonus @180f12540` (lit le CACHE de bonus `InitializeBonusCacheIfNeeded`
+  @+0x250.. : descripteur {condition, nodes} ; condition.Test(entities) → évalue les nœuds
+  Amount) → **Σ des `add` AJOUTÉE à l'amount d'entrée** (flat, pas de mult côté heal). Puis
+  caps existants (group-limit flag, boss `GetStat(5,3)−cur`) ; amount<0 → `MaxReduce` négé,
+  sinon `MaxFillUp(max(0,amount))`. **AUCUN effet du build ne peuple le cache heal-bonus**
+  (0 override `Create*HealBonus`) → boucle structurellement présente, TOUJOURS 0 : le port
+  actuel (sans la boucle) est fidèle par vacuité sur ce build.
+- **`PredictRepair @181038280`** : gate `IsActor(caster)` → service slot-0 =
+  `RepairCalculations.CalculateRepairModifierForPrediction @181052890` : boucle les effets du
+  caster → virtuel slot **0x1d** (repair-bonus, un cran après HealBonus) → fold
+  `RepairModifier.Add @1810535a0` ({mult via `GetFloatMultiplierFromPercentage(pct)`, add}) →
+  **`amount' = trunc((amount + add) × mult)`** (Fix64), puis caps + `MaxFillUp` par stat
+  (hp@stat5, armor@stat4). **3 implémenteurs dans ce build (Necron)** :
+  `NanoscarabRepairProtocolsEffect @180f5ab60`, `NetherRealmCasket_LivingMetalBonusEffect
+  @180f5b650`, `VoltagheistField_RepairReductionEffect @180f76b10` (CreateEffectRepairBonus).
+  Port + validation (craft roster Necron avec repair) = tâche dédiée — aucun des seeds
+  d'agreement actuels n'exerce ces effets.

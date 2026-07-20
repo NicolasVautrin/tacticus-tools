@@ -60,6 +60,14 @@ class Scene:
     # a CHAQUE tour demarre) → capture combatSnapshot, refresh par-pas via `refresh_shields`.
     # Defaut {} → uid absent = non capte (l'accesseur rend None, le gate ne mord pas a l'aveugle).
     turns_started_by_id: dict = field(default_factory=dict)
+    # Stat ATTACK COURANT PER-UNITE (#45-s18) : {uid: GetStat(Attack, Current)} — la lecture EXACTE des
+    # noeuds DSL `StatAmount(Self, Attack, Current)` (ex. splash Psyker `GetAttackDamage @181224550`).
+    # DYNAMIQUE : les ValueModifications vont et viennent (aura RitesOfBattle +1298 par ADJACENCE a
+    # Calgar — vecu 31337 : 2101 au deploiement, 803 au s18 une fois Njal eloigne) → le cold
+    # `ctx_by_id[uid].attack` (fige au build) SURESTIME/SOUS-ESTIME des qu'une aura bouge. Capture
+    # combatSnapshot (stats.attack), refresh par-pas via `refresh_shields`. Defaut {} → fallback
+    # `ctx.attack` (from_state offline : le UnitContext du State est deja live).
+    attack_cur_by_id: dict = field(default_factory=dict)
 
     @classmethod
     def from_state(cls, state) -> "Scene":
@@ -160,7 +168,8 @@ class Scene:
             abstate_by_id=predictor.get("abstate_by_id") or {},
             actorstats_by_id=predictor.get("actorstats_by_id") or {},
             defstat_by_id=predictor.get("defstat_by_id") or {},
-            turns_started_by_id=predictor.get("turns_started_by_id") or {})
+            turns_started_by_id=predictor.get("turns_started_by_id") or {},
+            attack_cur_by_id=predictor.get("attack_cur_by_id") or {})
         sc._seed_battle_counters()   # #185 BlessingsOfKhorne (melee-defeats -> effets N-scalés)
         return sc
 
@@ -238,6 +247,15 @@ class Scene:
         de l'unité CETTE BATAILLE. Indexe le buff MartialInspiration (+33%/tour, #106). 0 si non
         capté (from_state offline / début de bataille)."""
         return int((self.actorstats_by_id or {}).get(uid, 0) or 0)
+
+    def attack_current(self, uid) -> int:
+        """`GetStat(unit, Attack=0, Current)` DU PAS — la lecture des noeuds `StatAmount(Attack)`
+        (#45-s18). Fallback `ctx.attack` (cold snapshot / from_state live) si non capturé."""
+        v = (self.attack_cur_by_id or {}).get(uid)
+        if v is not None:
+            return int(v)
+        c = self.ctx_by_id.get(uid)
+        return int(c.attack) if c is not None else 0
 
     def turns_started(self, uid) -> int | None:
         """`GetStat(unit, 0xc=TurnsStarted)` (`UnitTurnsStartedFormula.Calculate @180f2d6c0`) — nb
@@ -331,7 +349,13 @@ def build_predictor(rpc, rid):
             # la lecture EXACTE de DamageUtility @1810e2280 pour combinedMax — base+modifs,
             # clamp cape). DYNAMIQUE (bump TwistedScience mid-bataille) -> refresh par-pas.
             # Vieux hooks sans le champ -> {} (fallback obs.hpMax base, etat anterieur).
-            "hpmax_eff_by_id": _hpmax_eff_from_snapshot(snap.get("units"))}
+            "hpmax_eff_by_id": _hpmax_eff_from_snapshot(snap.get("units")),
+            # #45-s18 : Attack COURANT (GetStat(0, Current)) — lecture des noeuds StatAmount(Attack)
+            # (splash Psyker). DYNAMIQUE (aura RitesOfBattle par adjacence) -> refresh par-pas.
+            "attack_cur_by_id": {
+                u["entityId"]: int((u.get("stats") or {}).get("attack") or 0)
+                for u in (snap.get("units") or [])
+                if (u.get("stats") or {}).get("attack") is not None}}
 
 
 def build_board(rpc, rid):
@@ -405,6 +429,12 @@ def refresh_shields(predictor, rpc, rid):
     # #45b' : re-capture MaxHealth EFFECTIF (part 2) — DYNAMIQUE (bump TwistedScience
     # mid-bataille : u87 777 s15 base 11044 -> 14036 apres le cast 1167 du pas 1).
     predictor["hpmax_eff_by_id"] = _hpmax_eff_from_snapshot(snap.get("units"))
+    # #45-s18 : re-capture Attack COURANT (StatAmount(Attack) du pas) — DYNAMIQUE (aura
+    # RitesOfBattle +1298 par ADJACENCE : 2101 au deploiement vs 803 au s18, 31337 u89).
+    predictor["attack_cur_by_id"] = {
+        u["entityId"]: int((u.get("stats") or {}).get("attack") or 0)
+        for u in (snap.get("units") or [])
+        if (u.get("stats") or {}).get("attack") is not None}
     # #46 : re-capture TurnsStarted (stat 12, incrémente à chaque tour démarré) — même raison
     # que TotalAttacksMade (#33) : le cold du build (pas 0) sous-estime tout gate mid-bataille.
     predictor["turns_started_by_id"] = {

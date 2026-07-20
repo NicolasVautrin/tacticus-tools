@@ -502,6 +502,27 @@ class TriggeredAbilitiesUtility(BaseUtility):
                 total += pb.calculate_movement_utility_in_steps(tile, friends, wt)
         return total
 
+    def evaluate_attack_in_steps(self, ctx, attacker_uid: int, ability_id: int,
+                                 target_uid: int, attack_tile) -> float:
+        """Face ATTACK du dispatcher — `<EvaluateAttackInSteps>d__2.MoveNext @1810f64b0` (feuille 2
+        du composite Damage(34), #45-s18) : itère les abilities déclenchées de l'ATTAQUANT (kit
+        COMPLET passifs+traits = AbilitiesComponent), `PlaybookDatabase.LoadPlaybook`, Σ des
+        `ITriggeredAbilityPlaybook.CalculateAttackUtilityInSteps` (vslot 3 — registre attack
+        `engine/playbook/psyker.py`, ce build : PsykerExtraAttack 1013 seul). `ctx` = AiDecisionContext
+        (scene/wt/hpmax/normal_ids), PAS le dict tile-leaf de la face move."""
+        sc = getattr(ctx, "scene", None)
+        if sc is None:
+            return 0.0
+        from ..entities.triggered_ability_type import kit_triggered_ability_ids
+        from ..playbook.psyker import load_attack_playbook
+        total = 0.0
+        for ab in kit_triggered_ability_ids(sc.vis_by_id.get(attacker_uid)):
+            pb = load_attack_playbook(ab)
+            if pb is not None:
+                total += pb.calculate_attack_utility_in_steps(ctx, attacker_uid, ability_id,
+                                                              target_uid, attack_tile)
+        return total
+
 
 # ── Registry : UtilityType -> (name, instance|None). None => délégué/non-portable comme simple leaf. ──
 TILE_LEAVES: dict[int, tuple] = {
@@ -533,7 +554,7 @@ TILE_LEAVES: dict[int, tuple] = {
     61: ("BioMinefield_MoveTowardsTarget", BioMinefield_MoveTowardsTargetUtility()),
     62: ("MasterOfTheTutelaries_MoveTowardsTarget", MasterOfTheTutelaries_MoveTowardsTargetUtility()),
     # --- Dispatcher playbook PORTÉ (case-36) : abilities déclenchées de l'unité qui bouge ---
-    2:  ("TriggeredAbilities", TriggeredAbilitiesUtility()),
+    2:  ("TriggeredAbilities", TriggeredAbilitiesUtility()),   # face attack : cf. fonction ci-dessous
     # --- NON portées comme simples leaves ---
     15: ("RangedAdjacentEnemy", None),       # =0 dans le profil Default (BC HasAdjacentEnemy absent)
     # 3/4 = dispatchers vers le moteur Playbook (LoadPlaybookNonOwner / behaviours par-unité) —
@@ -556,3 +577,17 @@ def tile_composite(tile, meta: dict | None, ctx: dict, wt: Weights) -> float:
     """Composite Tile(7) = `TILE_UTILITY.evaluate` (Σ des feuilles portées). Wrapper mince pour les
     appelants existants (`engine.playbook.base.tile_utility`, `engine.move`). `meta` absent ⇒ ≈0."""
     return TILE_UTILITY.evaluate(tile, meta or {}, ctx, wt)
+
+
+def triggered_abilities_attack_utility(ctx, attacker_uid: int, ability_id: int,
+                                       target_uid: int, attack_tile) -> float:
+    """Feuille TriggeredAbilities(2) FACE ATTACK du composite Damage(34) (#45-s18) — entrée des deux
+    scoreurs de paire (`playbook.base.calculate_action_utility` + stages `_formula_pair_utility`).
+    Le natif évalue les 13 feuilles Damage DANS `ForDamagePrediction`, PAR DamageEvent -> ce terme
+    s'ajoute au `damage_composite` de l'event et suit son `prob x signe` (à appliquer PAR L'APPELANT,
+    comme pour le composite). `attack_tile` = tuile caster du case (sweep de position)."""
+    return _TRIG_AB_UTILITY.evaluate_attack_in_steps(ctx, attacker_uid, ability_id,
+                                                     target_uid, attack_tile)
+
+
+_TRIG_AB_UTILITY: TriggeredAbilitiesUtility = TILE_LEAVES[2][1]

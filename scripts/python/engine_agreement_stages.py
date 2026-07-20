@@ -86,7 +86,8 @@ from engine.predict import (heal_amount_config, heal_utility,  # noqa: E402  (#4
                             predict_repair_effective,          # CalculateUtilityFromPredictions
                             repair_amount_config, repair_utility)  # @181407890)
 from engine.utilities import damage_composite, tile_composite  # noqa: E402
-from engine.utilities.tile import terrain_tile_effects  # noqa: E402  (covers terrain TileEffects, case-37)
+from engine.utilities.tile import (terrain_tile_effects,  # noqa: E402  (covers terrain TileEffects, case-37)
+                                   triggered_abilities_attack_utility)  # noqa: E402  (feuille 2 attack, #45-s18)
 from engine.utilities.move import MIN_DIST_UTILITY  # noqa: E402
 from engine.ai import context as _ai_ctx  # noqa: E402
 from engine.ai.action_generators import tile_leaf_ctx  # noqa: E402  (feuille TriggeredAbilities(2), case-36)
@@ -358,8 +359,11 @@ class StageProbe:
             t_id = ev.get("targetId")
             sign = -1.0 if (t_id is not None and team_by_id.get(t_id) == my_team) else 1.0
             prob = (ev.get("probability") or 1.0) * (ev.get("probMult") or 1.0)
-            u = (u or 0.0) + sign * prob * damage_composite(
-                _fields_from_native_event(ev), ctx.hpmax_by_id.get(t_id), ctx.wt)
+            # #45-s18 : + feuille TriggeredAbilities(2) face ATTACK (splash Psyker) — le natif
+            # l'évalue DANS ForDamagePrediction par event -> même prob x signe que le composite.
+            u = (u or 0.0) + sign * prob * (
+                damage_composite(_fields_from_native_event(ev), ctx.hpmax_by_id.get(t_id), ctx.wt)
+                + triggered_abilities_attack_utility(ctx, uid, ab, t_id, tile))
         for ev in (resp.get("healEvents") or []):
             t_id = ev.get("targetId")
             u = (u or 0.0) + (ev.get("probability") or 1.0) * heal_utility(
