@@ -35,7 +35,6 @@ class VigilanceEternalPlaybook(_PlanTargetPlaybook):
     ABILITY_ID = int(ActiveAbilityType.VigilanceEternal)  # 1202
     MIN_UTILITY = 1.0     # cctor @18117ffe0 = Fix64(1)
     PRIORITY = 0
-    SWEEP_ALL_RANKED = True   # utilite POSITION-dependante (degat depuis l'hex libre choisi)
 
     def should_evaluate(self, ctx: NCContext) -> bool:
         """Slot 4 de la vtable (0x298, resolu live #46) -> corps foldé @18111af90 :

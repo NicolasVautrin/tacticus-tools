@@ -46,8 +46,9 @@ class BlackRagePlaybook(_PlanTargetPlaybook):
     ABILITY_ID = int(ActiveAbilityType.BlackRage)  # 1163
     MIN_UTILITY = 1.0     # cctor @181121960 = Fix64(1)
     PRIORITY = 0
-    # PAS de SWEEP_ALL_RANKED : la prediction est independante de la tuile de cast (charge au contact),
-    # balayer les tuiles rankees ne ferait que dupliquer la meme evaluation.
+    # Prediction independante de la position balayee (charge au contact) : le sweep position-outer
+    # de _PlanTargetPlaybook duplique la meme evaluation -> le tie retombe sur la 1re position
+    # legale de l'ordre movable natif (mirror Bucket keep-first @1813fbcc0).
 
     def _charge_tiles(self, target, ctx: NCContext) -> list[tuple]:
         """Tuiles de charge candidates pour la PREDICTION : hex ADJACENTS a la cible, walkable et

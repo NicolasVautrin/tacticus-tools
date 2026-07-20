@@ -49,14 +49,16 @@ class TheQuickeningPlaybook(NonComparablePlaybook):
     tuile 52 (u79 allie -> 3e palier) -> l'utilite n'est PAS plate dans le cas mesure ; le
     keep-first du Bucket ne departage que les vrais ties.
 
-    Ecarts assumes : (1) l'eligibilite par position est reconstituee en filtrant l'union
-    `abilityTargets` (`GetAllValidTargetsFromAllPossibleMovementTiles`) par distance HEX <= 2 de la
-    position balayee — le natif dit « movement range 2 » (distance de CHEMIN) et enumere PAR position
-    via `GetValidTargets` slot 0x41 (l'union RPC inclut bien les tuiles ALLIE-occupees : mesure pas 15
-    = 25 tuiles dont (4,4) occupee par u79, la cible native) ; (2) `GetNumAttackTargetsInPosition` est
-    porte via le plan natif + FALLBACK geometrique MELEE hors univers movable (#46, cf. `_base`) —
-    la partie RANGED du fallback (portee+LoS) n'est pas portee -> borne inf residuelle pour un allie
-    echange purement ranged."""
+    Eligibilite PAR POSITION (#32, fixe 31337 s15) : cibles = union `abilityTargets`
+    (`GetAllValidTargetsFromAllPossibleMovementTiles` ; inclut les tuiles ALLIE-occupees — mesure
+    pas 15 = 25 tuiles dont (4,4) occupee par u79, la cible native), et POSITIONS legales PAR cible
+    = `castFromTiles` (seam `ctx.cast_from_tiles` = `GetInvalidTargetReason` par tuile de move) —
+    la « movement range 2 » native est une distance de CHEMIN : l'ancien filtre hex-dist <= 2
+    admettait (3,6)->tuile 52 (illegal natif) et cassait le tie util=3 vers (3,6) quand le natif
+    n'avait que origine(2)/(4,5)(3). Le fallback hex-dist reste si la seam est absente.
+    Ecart assume : `GetNumAttackTargetsInPosition` est porte via le plan natif + FALLBACK geometrique
+    MELEE hors univers movable (#46, cf. `_base`) — la partie RANGED du fallback (portee+LoS) n'est
+    pas portee -> borne inf residuelle pour un allie echange purement ranged."""
     ABILITY_ID = int(ActiveAbilityType.TheQuickening)  # 1151
     MIN_UTILITY = 1.0     # cctor @18116b550 = Fix64(1)
     PRIORITY = 0
@@ -97,11 +99,35 @@ class TheQuickeningPlaybook(NonComparablePlaybook):
             p = u.get("pos")
             if p and p.get("col") is not None:
                 unit_by_pos[(p["col"], p["row"])] = u
+        # Eligibilite PAR POSITION native (#32, 31337 s15) : `castFromTiles` (seam ctx.cast_from_tiles)
+        # = `GetInvalidTargetReason` valide par tuile de move — la « movement range 2 » native est une
+        # distance de CHEMIN, PAS l'hex-dist ((3,6)->tuile 52 : hex-dist 2 mais cast ILLEGAL natif ->
+        # notre tie util=3 a (3,6) etait un FAUX eligible ; natif = origine(2) vs (4,5)(3) -> (4,5)).
+        # Fallback hex-dist <= _RANGE si la seam est absente (borne sup, comportement pre-#32).
+        elig_by_T: dict = {}
+        if ctx.cast_from_tiles is not None:
+            for T in tiles:
+                tid = ctx.tile_id_by_pos.get(T)
+                if tid is None:
+                    continue
+                try:
+                    cf = ctx.cast_from_tiles(ctx.uid, tid, self.ABILITY_ID) or {}
+                except Exception:
+                    continue                        # RPC KO -> fallback hex-dist pour cette tuile
+                posset = {(t.get("col"), t.get("row")) for t in (cf.get("moveTiles") or [])
+                          if t.get("col") is not None}
+                if cf.get("currentValid") and ctx.origin is not None:
+                    posset.add(ctx.origin)
+                elig_by_T[T] = posset
         best = None      # (util, position, targetTile)
         for P in _sweep_origin_first(ctx):
             for T in tiles:
-                if hexgeo.distance(P, T) > _RANGE:
-                    continue      # hors portee depuis CETTE position (eligibilite par-position)
+                elig = elig_by_T.get(T)
+                if elig is not None:
+                    if P not in elig:
+                        continue  # cast (1151 -> T) ILLEGAL depuis cette position (natif)
+                elif hexgeo.distance(P, T) > _RANGE:
+                    continue      # fallback : hors portee hex depuis CETTE position
                 if _get_num_attack_targets_in_position(ctx, ctx.uid, T) == 0:
                     continue      # gate natif : rien a attaquer depuis la tuile d'arrivee
                 util = 1.0

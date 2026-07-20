@@ -42,7 +42,11 @@ from ..entities.triggered_ability_type import TriggeredAbilityType
 
 class AdjacentUnitPreferenceTriggeredAbilityPlaybook:
     """Base : Σ poids sur amis R1 (adjacents) + Σ poids sur amis R2 (surrounding) de la tuile candidate.
-    `friend_positions` = positions ALLIÉES vivantes self-exclu (mirror du MINUS self natif — `ctx.fpos`)."""
+
+    Signature du dispatcher (#32) : `calculate_movement_utility_in_steps(tile, ctx, wt)` où `ctx` =
+    le dict par-décision `tile_leaf_ctx` — mirror du natif qui passe le CASE entier au playbook
+    (chaque famille y lit ses clés : ici `friend_positions` = allies vivants self-exclu, mirror du
+    MINUS self natif ; `FuryOfTheAncientsPlaybook` lit `enemies`/`scene`/…)."""
 
     def get_adjacent_friend_utility(self, wt) -> float:      # vtbl+0x208 (défaut base : 0)
         return 0.0
@@ -50,9 +54,9 @@ class AdjacentUnitPreferenceTriggeredAbilityPlaybook:
     def get_surrounding_friend_utility(self, wt) -> float:   # vtbl+0x218 (défaut base : 0)
         return 0.0
 
-    def calculate_movement_utility_in_steps(self, tile, friend_positions, wt) -> float:
+    def calculate_movement_utility_in_steps(self, tile, ctx: dict, wt) -> float:
         val = 0.0
-        for p in friend_positions:
+        for p in ((ctx or {}).get("friend_positions") or ()):
             d = hexgeo.distance(tile, p)
             if d == 1:
                 val += self.get_adjacent_friend_utility(wt)
@@ -93,13 +97,20 @@ class RitesOfBattlePlaybook(AdjacentToOwnerNonOwnerPlaybook):
 # NonComparable ; base `TriggeredAbilityPlaybook.CalculateMovementUtilityInSteps @18150f630`) yield 0
 # nativement : absence du registre == 0, même dégradation. Étendre en portant les autres concrets
 # `GetAdjacent{Friend,Enemy}Utility` (~25, mêmes 3 lignes chacun) quand un case les montre décisifs.
-TRIGGERED_MOVE_PLAYBOOKS: dict[int, AdjacentUnitPreferenceTriggeredAbilityPlaybook] = {
+# Le registre accueille TOUTE famille de playbook move-relevant (protocole = la méthode
+# `calculate_movement_utility_in_steps(tile, ctx, wt)`) — pas seulement AdjacentUnitPreference :
+# `FuryOfTheAncientsPlaybook` (#32) est de la famille `TriggeredAbilityPlaybook<T>` (ennemis
+# adjacents + prédiction de dégât), module `fury_of_the_ancients.py`.
+from .fury_of_the_ancients import FuryOfTheAncientsPlaybook   # noqa: E402  (après les bases)
+
+TRIGGERED_MOVE_PLAYBOOKS: dict = {
     int(TriggeredAbilityType.GuardianOrganism): GuardianOrganismPlaybook(),
     int(TriggeredAbilityType.RitesOfBattle): RitesOfBattlePlaybook(),
+    int(TriggeredAbilityType.FuryOfTheAncients): FuryOfTheAncientsPlaybook(),   # 1247 (#32)
 }
 
 
-def load_playbook(ability_id: int) -> AdjacentUnitPreferenceTriggeredAbilityPlaybook | None:
+def load_playbook(ability_id: int):
     """Mirror `PlaybookDatabase.LoadPlaybook` (movement-relevant uniquement). None → le dispatcher skip
     (même chemin que le `if playbook == null: continue` natif)."""
     return TRIGGERED_MOVE_PLAYBOOKS.get(int(ability_id))

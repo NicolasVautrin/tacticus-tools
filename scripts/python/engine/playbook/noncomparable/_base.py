@@ -251,40 +251,43 @@ class NonComparablePlaybook:
 
 
 class _PlanTargetPlaybook(NonComparablePlaybook):
-    """Base des abilities d'ATTAQUE NonComparable (BloodyFury, VexillaMagnifica). Le generator
-    natif enumere ici les couples (cible, tuile d'attaque) via le plan natif rank
-    (`abilityTargets`/ranked du plan) au lieu d'un balayage de tuiles de move ; leaf par sous-classe.
+    """Base des abilities d'ATTAQUE NonComparable (BloodyFury, VexillaMagnifica, HammerOfWrath,
+    BlackRage, VigilanceEternal). Le generator natif `<GenerateActions>d__7 @18119a3f0` balaie les
+    POSITIONS candidates (ordre BRUT `reach_nc` : tuiles de move dans l'ordre du movable set natif,
+    puis `NullPosition`/origine EN DERNIER — cf. #76/#80) et, PAR position, les cibles eligibles ;
+    `Bucket.AddAction @1813fbcc0` SEED le 1er ajoute puis ne remplace QUE si STRICTEMENT superieur
+    -> au tie d'utilite, la PREMIERE position de l'ordre movable gagne (une utilite
+    position-INDEPENDANTE type BloodyFury retombe donc sur la 1re position legale de cet ordre).
+    L'eligibilite par position pour la paire (ability, cible) = les tuiles rankees du plan natif
+    (`GetAllValidTargetsFromAllPossibleMovementTiles`) -> gate `P in ranked(tgt)`.
 
-    `SWEEP_ALL_RANKED` (defaut False = 1re tuile rankee seulement) : quand l'utilite DEPEND de la tuile
-    de cast (playbooks a utilite de DEGAT — BlackRage, VigilanceEternal), balayer TOUTES les tuiles
-    rankees de la paire, ce qui mirrore le balayage de POSITIONS du generator natif
-    (`<GenerateActions>d__7 @18119a3f0`) restreint aux positions LEGALES pour cette paire. Les
-    playbooks a utilite position-INDEPENDANTE (BloodyFury/Vexilla/Hammer) gardent `ranked[0]`.
-    """
-    SWEEP_ALL_RANKED: bool = False
+    Miss vecu (#32, 909 s17 VigilanceEternal) : l'ancien balayage en ordre RANKED du plan cassait
+    le tie 43.867 vers (4,2) (1re rankee) quand le natif prend (3,4) (1re du movable set)."""
 
     def evaluate_non_comparable(self, tile: tuple, target, ctx: NCContext) -> float | None:
         raise NotImplementedError
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
-        best = None  # (target, tile, util)
+        pairs = []   # (tgt, tuiles rankees de la paire) — ordre cibles = ordre du plan natif
         for ev in (ctx.plan.get("evals") or []):
             if ev.get("abilityId") != self.ABILITY_ID or not ev.get("rankCount"):
                 continue
-            ranked = ev.get("ranked") or []
-            if not ranked:
-                continue
-            tiles = ranked if self.SWEEP_ALL_RANKED else ranked[:1]
-            tgt = ev.get("targetId")
-            for rk in tiles:
-                tile = (rk.get("col"), rk.get("row"))
-                if tile[0] is None:
-                    continue
-                nu = self.evaluate_non_comparable(tile, tgt, ctx)
+            rset = {(rk.get("col"), rk.get("row")) for rk in (ev.get("ranked") or [])
+                    if rk.get("col") is not None}
+            if rset:
+                pairs.append((ev.get("targetId"), rset))
+        if not pairs:
+            return []
+        best = None  # (target, tile, util)
+        for P in ctx.reach_nc:                      # moves (ordre natif) puis origine EN DERNIER
+            for tgt, rset in pairs:
+                if P not in rset:
+                    continue                        # pas de cast (ability,tgt) depuis cette position
+                nu = self.evaluate_non_comparable(P, tgt, ctx)
                 if nu is None:
                     continue
-                if best is None or nu > best[2]:   # strict > : premier max garde
-                    best = (tgt, tile, nu)
+                if best is None or nu > best[2]:   # strict > : premiere position du max gagne
+                    best = (tgt, P, nu)
         if best is None or best[2] < self.MIN_UTILITY:
             return []
         return [{"target": best[0], "ability": self.ABILITY_ID,

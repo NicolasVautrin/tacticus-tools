@@ -489,17 +489,19 @@ class TriggeredAbilitiesUtility(BaseUtility):
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         ab_ids = (ctx or {}).get("unit_triggered_abilities") or ()
-        friends = (ctx or {}).get("friend_positions") or ()
-        if not ab_ids or not friends:
+        if not ab_ids:
             return 0.0
         # Import paresseux : utilities.tile est importé par engine.playbook.base — l'import module-level
-        # inverse (tile -> playbook) bouclerait.
+        # inverse (tile -> playbook) bouclerait. Chaque playbook lit SES clés du ctx par-décision
+        # (AdjacentUnitPreference : friend_positions ; Fury 1247 : enemies/scene/… — #32) : pas de
+        # gate global sur friends ici (le natif dispatche inconditionnellement, la feuille dégrade
+        # à 0 dans le playbook).
         from ..playbook.adjacent_unit_preference import load_playbook
         total = 0.0
         for ab in ab_ids:
             pb = load_playbook(ab)
             if pb is not None:
-                total += pb.calculate_movement_utility_in_steps(tile, friends, wt)
+                total += pb.calculate_movement_utility_in_steps(tile, ctx, wt)
         return total
 
     def evaluate_attack_in_steps(self, ctx, attacker_uid: int, ability_id: int,
@@ -586,13 +588,23 @@ def tile_leaf_ctx(ctx) -> dict:
     des feuilles) car consommé par les DEUX chemins natifs de la Composed Tile(7) : le sweep MOVE
     (`engine.move` via action_generators) ET le terme Tile(7) de l'ATTAQUE (`playbook.base.
     tile_utility` — case-49 : le natif émet la MÊME `ComposedUtility` sous `Loki_NormalAttackPlaybook`,
-    L3 s14 31337). Import ici = pas de cycle (action_generators importe playbook.base)."""
+    L3 s14 31337). Import ici = pas de cycle (action_generators importe playbook.base).
+
+    #32 : clés supplémentaires pour la famille `TriggeredAbilityPlaybook<T>` (Fury 1247 : ennemis
+    adjacents à la tuile + prédiction de dégât) — `uid`/`enemies`/`elev_by_pos`/`neigh_by_pos`/
+    `scene`/`hpmax_by_id`. getattr-tolérant : NCContext (via get_movement_utility/NovaShield) n'a
+    ni `me` ni `hpmax_by_id` -> kit vide = feuille silencieuse (comportement pré-case-49) ; ses
+    champs partagés (enemies/elev/scene) passent tels quels."""
     from ..entities.triggered_ability_type import triggered_ability_ids   # lazy : évite tout cycle
-    # ctx POLYMORPHE (AiDecisionContext OU NCContext via get_movement_utility/NovaShield) : NCContext
-    # n'a pas `me` -> kit vide = feuille TriggeredAbilities silencieuse (comportement pré-case-49).
     me = getattr(ctx, "me", None) or {}
     return {"unit_triggered_abilities": triggered_ability_ids(me.get("visualId")),
-            "friend_positions": ctx.fpos}
+            "friend_positions": ctx.fpos,
+            "uid": getattr(ctx, "uid", None),
+            "enemies": getattr(ctx, "enemies", None) or [],
+            "elev_by_pos": getattr(ctx, "elev_by_pos", None),
+            "neigh_by_pos": getattr(ctx, "neigh_by_pos", None),
+            "scene": getattr(ctx, "scene", None),
+            "hpmax_by_id": getattr(ctx, "hpmax_by_id", None) or {}}
 
 
 def triggered_abilities_attack_utility(ctx, attacker_uid: int, ability_id: int,
