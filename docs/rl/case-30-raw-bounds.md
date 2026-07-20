@@ -228,7 +228,8 @@ RE décompilé (lecture intégrale, VAs) :
 - `PredictAttackRaw` consomme le Nullable prev (@param_3+0x84) en 4 lectures : santé
   **`local_914 = Max(0, HP − BS@+0x08)` @181034087** (UNIQUE — sert les 2 bornes : trait-limits ET
   cap FillUpStat), armure `@181034130` (BS@+0x18), bouclier min/max `@1810341d5`/`@18103427a`
-  (BS@+0x28/+0x2c — bouclier PER-BORNE, le port était déjà fidèle là-dessus).
+  (BS@+0x28/+0x2c). ⚠ La note historique « bouclier PER-BORNE » est RÉFUTÉE par la mesure —
+  le rem bouclier EFFECTIF est un scalaire unique = cumul MAX (cf. §MAJ #42 ci-dessous).
 
 **Pourquoi ça produit 1949 > HP−1** : la borne max de chaque coup est capée contre le rem du
 scénario MINIMUM garanti (h1 (901,1352) intacts ; rem 1499−901=598 → cap Resilient 597 → h2
@@ -243,7 +244,7 @@ alors dépasser HP par coup — renormalisé par le cap HP de l'accurate dans `A
 **Validation** : agreement 777+31337 ×20 → prédiction **19/21 (90 %)** (s8 réglé, zéro régression) ;
 tests ciblés `test_predict_live` + `test_damage_roll_live` + `test_runner_attack_live` +
 `test_finaljustice_live` = 7/7. Restants (dossiers DISTINCTS) : 777 s11 u95 ab1150 (split bouclier,
-shieldDmgMin 3351 vs 2873, tâche #42) ; 31337 s13 u93→u83 — **✅ RÉSOLU 2026-07-20 (#41)** : le
+shieldDmgMin 3351 vs 2873 — **✅ RÉSOLU 2026-07-20 (#42)**, cf. §MAJ #42) ; 31337 s13 u93→u83 — **✅ RÉSOLU 2026-07-20 (#41)** : le
 « mod défenseur ×0.611 » n'existait pas — ×0.611 = 1408/2306, le PORT sur-appliquait l'aura
 RitesOfBattle Basic +898 (Calgar adjacent à la tuile candidate) sur une attaque MÊLÉE ; loi native
 = aura per-candidate RANGED seulement (pas de gain mêlée non-matérialisé) + drop sur tuile bloquée.
@@ -254,3 +255,46 @@ dans le mauvais modèle de chaîne. Avant de chasser un « mod manquant », REJO
 dans le pipeline EXACT du port (fit exhaustif par énumération — `fit40_exhaustive.py`) : ici aucune
 base/mod ne pouvait produire 1949, ce qui pointait la STRUCTURE (discipline « check own port »,
 le commentaire du port documentait déjà `healthDmg@+0x08` SINGULIER que le dataclass violait).
+
+## MAJ 2026-07-20 (#42) — rem BOUCLIER = scalaire unique (cumul MAX), mirror du #40 côté santé
+
+**Cas** : 777 s11, u95 ab1150 (PlasmaCannon, 3 coups, base 1396 → mm per-coup [1117, 1675]) →
+u81 (HP 9537, armure 2813, **bouclier 3989**). Seul champ divergent : `shieldDmgMin` off 3351
+vs nat **2873** (= 1117+1117+639). Événement secondaire u77 (sans bouclier) : identique 2 côtés.
+
+**Loi native (mesure discriminante + RE)** : par coup i, `rem(i) = S − Σ_{j<i} blocked_MAX(j)`
+— UN SEUL rem, consommé par LES DEUX bornes : `blocked_b(i) = min(dmg_b, rem(i))`.
+- piste MAX : {1675, 1675, 639} → shieldDmgMax 3989 (coup 3 capé par rem = 3989−3350 = 639) ;
+- piste MIN : {1117, 1117, **639**} → 2873 (le coup 3 MIN est capé par le MÊME rem, pas par
+  3989−2234 = 1755 comme le faisait l'ancienne déplétion par-piste → 3351 faux) ;
+- santé max coup 3 = f(1675−639 = 1036) = 58 natif ✓ (même rem côté borne haute).
+Symétrie #40 : santé = rem unique au cumul **MIN** (minimum garanti infligé) ; bouclier = rem
+unique au cumul **MAX** (absorption maximale possible). Les 2 modèles (per-piste vs rem-unique)
+coïncident tant que la piste MAX n'épuise pas le bouclier en cours de rafale — d'où l'absence
+de détection sur les validations bouclier antérieures (worldTerminator : dégât/coup < bouclier).
+
+**RE structure (corrige le mapping BS)** : `get_DefaultBlockScenario @18102bcd0` copie
+DPR@0x18..0x4b dans un buffer 0x34 ; le repack de `GetMultiHitAttackPrediction @181066080`
+**saute les 4 premiers octets** → le BlockScenario RÉEL = buffer@0x04.. Le scénario
+(`CalculateDamagePredictionScenario @18102ed00`, LU) = `{int, MM1 santé{min,max}, MM2
+shieldAbs-CDS{min,max}, MM3 bouclier-bloqué{min,max}}` (3 MinMaxDamage `{cap Nullable@0,
+min@+8, max@+0xc}` — layout confirmé par `MinMaxDamage.ApplyCap @181052380` ; sommés par
+`Add @18102a710` @+0x24/+0x28, +0x34/+0x38, +0x44/+0x48). D'où BS@+0x08 = MM1.min = santé
+raw MIN cumulé (#40 re-confirmé sous le bon skew) ; les lectures bouclier @1810341d5/@18103427a
+tombent sur la paire MM3 — la mesure force le rem effectif au cumul MAX pour les 2 branches.
+
+**Raffinement #170 exposé par le fix** : le plancher prédiction 1-dégât (`MathMax(&dmg, Fix64.One)
+@181035682`) a pour gate natif « le Nullable bouclier du HitDamage est SANS VALEUR » = cible
+SANS bouclier (aucun block boxé). L'ancien mapping port `rem>0` divergeait dès qu'un coup était
+PARTIELLEMENT absorbé (u81 coup 3 : rem 478 > 0 mais natif healthDmgMin RESTE 0). Port :
+plancher gated sur `target_shield <= 0`.
+
+**Fix (damage_prediction.py, 2 lignes de logique)** : `predict_attack_raw` — (1) split :
+`_rem_sh = max(0, target_shield − prev.shield_max)` pour blk_lo ET blk_hi (`prev.shield_min`
+conservé dans le struct, mirror MM3.min, mais ne pilote plus le rem) ; (2) plancher #170 :
+`if target_shield <= 0:` autour des `max(·,1)`.
+
+**Validation** : probe42_s11 → les DEUX events bit-exact tous champs (u81 : shieldDmg [2873,3989],
+healthDmg [0,58] ; u77 inchangé) ; agreement 777+31337 ×20 → prédiction **21/21 (100 %)** —
+étage prédiction CLOS, zéro régression (ability 24/29, move 31/35 inchangés) ; `test_predict_live`
+2/2. Repro : `probe42_s11.py` (scratchpad session).

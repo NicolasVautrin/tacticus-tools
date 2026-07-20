@@ -90,6 +90,14 @@ VALIDATION LIVE : MTE [6,6]/[6,6] OK, FragBomb [6,6]/[6,6] OK, Executioner OK (p
 normales OK (degat>1, no-op). GARDE COMBAT : `test_damage_normal_armored_live` + `test_damage_roll_live` 3/3
 PASS (combat planche toujours a 0). GARDE PREDICTION : `test_predict_live` 2/2 PASS (pas de regression).
 
+**MAJ 2026-07-20 (#42) — gate RAFFINE** : le mapping `rem>0` etait une approximation valide UNIQUEMENT
+sans bouclier. Mesure discriminante 777 s11 u95 ab1150 -> u81 (bouclier 3989) coup 3 PARTIELLEMENT
+absorbe (rem = 1117-639 = 478 > 0) : le natif n'applique PAS le plancher (healthDmgMin reste 0).
+Lecture fidele du gate natif « Nullable bouclier sans valeur » : des que la CIBLE a un bouclier, le
+HitDamage porte une valeur de block (meme partielle) -> plancher JAMAIS applique. Port : `if
+target_shield <= 0:` autour des `max(.,1)` (le sous-gate `rem>0` reste pour le cas base nulle).
+Detail : case-30-raw-bounds.md §MAJ #42.
+
 **REVELATION #164** : CrushingClaws "[2,2] bit-exact" (case-164) etait en fait **eng=[0,0] vs live=[2,2]**, classe
 OK par la TOLERANCE `TOL=3` du sweep (2 coups -> ecart 2 <= 3). Le port n'avait JAMAIS eu le plancher 1/coup ; il
 etait juste masque a faible nombre de coups. A 6 coups (MTE/FragBomb) l'ecart (6 vs 0) depasse TOL -> ENG_ZERO

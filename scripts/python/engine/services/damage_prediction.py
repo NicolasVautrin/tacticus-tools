@@ -47,8 +47,9 @@ class DamagePredictionResult:
       · AccurateArmorDamage@0x68 · AccurateShieldDamage@0x78 · TotalDamage@0x88 · LimitedByMinHp@0xB0
       · MightCrit@0xB1 · ForceOverkill@0xB2 · AppliedHits@0xBC.
     SPLIT santé/bouclier (PredictAttackRaw, call-sites VA 0x181034caa/0x181034ce7) :
-      shieldDmg = CalculateDamageBlockedByShield @181002850 = Min(dmg, shieldRestant) PAR BORNE ;
-      healthDmg = dmg − shieldDmg. Le bouclier absorbe le dégât FINAL (post-armure/modifiers).
+      shieldDmg = CalculateDamageBlockedByShield = Min(dmg_borne, rem) avec **rem UNIQUE** =
+      shield − cumul MAX absorbé (#42, cf. BlockScenario) ; healthDmg = dmg − shieldDmg.
+      Le bouclier absorbe la base RAW pré-perçage (le reste traverse perçage/armure/mods).
     ⚠ DEUX représentations du dégât santé (le natif les DISTINGUE) : `raw_health_damage` (@0x24/@0x28,
       NON capé par la santé restante) sert le test de KILL/OVERKILL (l'écrasement `min(dmg,HP)` détruirait
       l'info d'over-shoot) ; `accurate_health_damage` (@0x58, CAPÉ) sert `DamageDealt` (satu à HP). Le port
@@ -72,7 +73,8 @@ class DamagePredictionResult:
         `BS.healthDmg@+0x08 = result@+0x20` = **raw health MIN cumulé** (PAS un par-borne min/max).
         La borne MAX du coup suivant est donc déplétée par le scénario MIN (le natif suppose le
         minimum garanti déjà infligé) — c'est ce qui laisse le rawMax cumulé dépasser HP−1
-        (31337 s8 : 1047+800(cap 801−1)+102 = 1949 > 1498). Bouclier : PER-BORNE (@+0x28/+0x2c)."""
+        (31337 s8 : 1047+800(cap 801−1)+102 = 1949 > 1498). Bouclier : les DEUX champs sont
+        threadés mais le rem effectif ne lit que `shield_max` (cumul MAX, #42 — cf. BlockScenario)."""
         return BlockScenario(
             health=self.raw_health_damage.min,
             shield_min=self.accurate_shield_damage.min, shield_max=self.accurate_shield_damage.max)
@@ -113,7 +115,15 @@ class BlockScenario:
     valeur sert les 2 bornes), shieldAbs min@+0x28 / max@+0x2c (rem_shield @1810341d5/427a).
     (armorDmg@+0x18 = déplétion armure @181034130 — armure=0 en prédiction IA, non threadé.)
     Vide (tout 0) = 1er coup = pleines. ⚠ #40 : l'ancien port threadait health_min/health_max PER-BORNE
-    (rem_hi déplété par le cumul MAX) → rawMax saturait à HP−1 (1498) là où le natif rend 1949."""
+    (rem_hi déplété par le cumul MAX) → rawMax saturait à HP−1 (1498) là où le natif rend 1949.
+    ⚠ #42 (mesure discriminante 777 s11, ab1150 3 coups vs bouclier 3989) : côté BOUCLIER le rem
+    effectif est AUSSI un scalaire UNIQUE = shield − `shield_max` (cumul MAX absorbé) pour les DEUX
+    bornes — `shield_min` (cumul MIN, mirror MM3.min du scénario natif) est conservé dans le struct
+    mais ne pilote PAS le rem (l'ancienne lecture per-piste min@+0x28/max@+0x2c donnait un
+    shieldDmgMin sur-évalué 3351 vs natif 2873). Layout RE réel (skew +4 lu au repack de
+    `GetMultiHitAttackPrediction @181066080`) : le buffer de `get_DefaultBlockScenario` copie
+    DPR@0x18..0x4b et le BlockScenario VRAI = buffer@0x04.. → BS@+0x08 = MM1.min (santé raw MIN
+    cumulé, #40 ✓) ; MM3 {min@+0x28, max@+0x2c} = paire bouclier bloquée cumulée."""
     health: int = 0
     shield_min: int = 0
     shield_max: int = 0
@@ -317,9 +327,17 @@ def predict_attack_raw(
     if _capped:
         mods_pct = replace(mods, capped_reductions=[])
     if target_shield > 0:
-        # split bouclier PER-COUP sur le bouclier RESTANT (déplété par prev) : Min(base, rem_shield)
-        blk_lo = min(mm.min, max(0, target_shield - prev.shield_min))
-        blk_hi = min(mm.max, max(0, target_shield - prev.shield_max))
+        # split bouclier PER-COUP sur le bouclier RESTANT — #42 : rem UNIQUE = shield − cumul MAX
+        # absorbé (prev.shield_max), consommé par LES DEUX bornes (mirror #40 côté santé, où le rem
+        # HP unique = cumul MIN). Mesure discriminante 777 s11 u95 ab1150 -> u81 (S=3989, m=1117,
+        # M=1675 x3 coups) : natif shieldDmg = [2873, 3989] = m-track {1117,1117,639} / M-track
+        # {1675,1675,639} — le coup 3 des DEUX pistes est capé par rem = 3989−(1675+1675) = 639 ;
+        # l'ancienne déplétion par-piste donnait min = 1117x3 = 3351 (faux, jamais discriminé avant :
+        # les 2 modèles coïncident tant que la piste MAX n'épuise pas le bouclier en cours de rafale).
+        # healthDmgMax natif 58 = f(1675−639) confirme le MÊME rem côté borne haute.
+        _rem_sh = max(0, target_shield - prev.shield_max)
+        blk_lo = min(mm.min, _rem_sh)
+        blk_hi = min(mm.max, _rem_sh)
         rem_lo, rem_hi = mm.min - blk_lo, mm.max - blk_hi
     else:
         blk_lo = blk_hi = 0
@@ -349,15 +367,17 @@ def predict_attack_raw(
     # WithAllModifiers/ApplyCap (perçage+armure+%-mods+défenseur), AVANT ApplyTraitDamageLimitsToDamage. Valeur =
     # littéral 1 (Fix64 static+0x20 ; ≠ le +0x28=Zero que planche get_damage_with_piercing). ⚠ PRÉDICTION SEULE :
     # le COMBAT `CalculateAbilityDamage @18102cb50` planche à 0 (`Fix64.Max(base, 0)`) — NE PAS toucher
-    # `get_damage_with_piercing` (partagé combat). GATE natif = le coup CONNECTE et n'est PAS entièrement absorbé
-    # par le BOUCLIER (Nullable bouclier sans valeur) : on le mappe sur `rem>0` (base non entièrement shield-
-    # bloquée : rem_lo/rem_hi = mm − blk). Un coup absorbé par l'ARMURE (rem>0, lo=0) → 1 ; entièrement absorbé
-    # par le BOUCLIER (rem=0 → lo=0) → reste 0. Sur cible non blindée le degât > 1 → max(·,1) no-op (n'affecte
-    # QUE le cas pierce-0/armure-lourde). Verdict RE #170 + docs/rl/case-166-168-...md.
-    if rem_lo:
-        lo = max(lo, 1)
-    if rem_hi:
-        hi = max(hi, 1)
+    # `get_damage_with_piercing` (partagé combat). GATE natif = le coup CONNECTE et le Nullable bouclier du
+    # HitDamage est SANS VALEUR (= cible SANS bouclier : le split ne tourne pas, aucun block boxé). #42 RAFFINE
+    # l'ancien mapping `rem>0` : mesure 777 s11 u81 (bouclier 3989) coup 3 partiellement absorbé (rem 478 > 0)
+    # -> natif healthDmgMin RESTE 0 (pas de plancher) ; dès que la cible a un bouclier le hit porte une valeur
+    # de block (même 0) -> plancher JAMAIS appliqué. Sans bouclier : coup absorbé par l'ARMURE (lo=0) → 1 ;
+    # dégât > 1 → no-op (n'affecte QUE pierce-0/armure-lourde). Verdict RE #170 + docs/rl/case-166-168-...md.
+    if target_shield <= 0:
+        if rem_lo:
+            lo = max(lo, 1)
+        if rem_hi:
+            hi = max(hi, 1)
     if target_limits:
         # ApplyTraitDamageLimitsToDamage @18102c650 — cape le dégât per-bout APRÈS modifiers, AVANT le
         # scénario (ordre natif). Appliqué aux 2 bornes (le natif appelle chaque Apply 2× : min puis max).

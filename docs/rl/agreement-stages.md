@@ -112,6 +112,14 @@ mécaniquement l'essentiel du positioning.
    prédiction 19/21 → **20/21 (95 %)**, 0 régression. Détail : `case-49-min-armored-regime.md`
    §MAJ #41. Résidu indépendant découvert au passage : accurate MAX non capé HP (u91, pré-existant
    prouvé par stash-run) → tâche #43.
+5bis. **Split bouclier ab1150 (777 s11, shieldDmgMin 3351 vs 2873) — ✅ RÉSOLU 2026-07-20 (#42)** :
+   le rem bouclier de `PredictAttackRaw` est un scalaire UNIQUE = bouclier − cumul MAX absorbé,
+   consommé par les 2 bornes (mirror du #40 côté santé, où le rem HP unique = cumul MIN). L'ancienne
+   déplétion par-piste ne divergeait que quand la piste MAX épuise le bouclier en cours de rafale.
+   Raffinement #170 au passage : plancher 1-dégât gated sur cible SANS bouclier (`target_shield<=0`),
+   plus sur `rem>0`. Fix `predict_attack_raw` (2 lignes) → s11 bit-exact 2 events, prédiction
+   20/21 → **21/21 (100 %) — étage prédiction CLOS**, 0 régression (`test_predict_live` 2/2).
+   Détail : `case-30-raw-bounds.md` §MAJ #42.
 6. **NC overfire (gates trop lâches)** — famille : AdMech 1118 self-cast émis là où le natif
    bouge/attaque (2 occurrences AdMech + 31337 s17 : nat 69→87 u_off=192.7 pourtant le moteur
    sort 1118→77 par ORDRE de tier NC) ; 909 s10 : 1180 HeroicFusillade émise, natif attaque
