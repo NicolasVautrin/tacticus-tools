@@ -240,6 +240,9 @@ natif. Le port per-borne saturait hi à 1352+146+0 = 1498. Idem u81→u91 : (100
 **Fix (damage_prediction.py)** : `BlockScenario.health` (un champ, = `raw_health_damage.min` du
 cumul), `_rem` unique dans les trait-limits + le cap santé du scénario. L'accurate max cumulé peut
 alors dépasser HP par coup — renormalisé par le cap HP de l'accurate dans `Add` (1499 ✓).
+(⚠ Cette renormalisation n'existait PAS dans le struct du port à ce moment-là : seul
+`composite_fields()` — `min(r.max, hp)` — capait, ce qui rendait la confrontation agreement verte
+tout en laissant `accurate_health_damage` sur-évalué. Corrigé au niveau du struct par le **§MAJ #43**.)
 
 **Validation** : agreement 777+31337 ×20 → prédiction **19/21 (90 %)** (s8 réglé, zéro régression) ;
 tests ciblés `test_predict_live` + `test_damage_roll_live` + `test_runner_attack_live` +
@@ -298,3 +301,42 @@ conservé dans le struct, mirror MM3.min, mais ne pilote plus le rem) ; (2) plan
 healthDmg [0,58] ; u77 inchangé) ; agreement 777+31337 ×20 → prédiction **21/21 (100 %)** —
 étage prédiction CLOS, zéro régression (ability 24/29, move 31/35 inchangés) ; `test_predict_live`
 2/2. Repro : `probe42_s11.py` (scratchpad session).
+
+## MAJ 2026-07-20 (#43) — Cap HP de l'ACCURATE = Nullable BOXÉ dans le struct (pas seulement le composite)
+
+**Symptôme** (PRÉ-EXISTANT, découvert pendant #41 puis isolé en #43) : `test_aura_position_live`
+(seed 31337 + drive 6) — 9 lignes u91 bloodDeathCompany (ranged 3 coups, RapidAssault ×1.25,
+aura Calgar +1298) où le MIN est EXACT mais l'accurate MAX offline DÉPASSE le HP cible :
+u91→u83 off (3512, **9532**) vs nat (3512, **8034** = HP u83) ; u91→u85 off max 8024–9601 vs
+nat **5522** = HP u85. L'agreement (21/21) ne l'a JAMAIS vu : la confrontation lit
+`composite_fields()` qui cape en aval (`min(r.max, hp)`) — le test, lui, lit
+`prediction.accurate_health_damage` DIRECTEMENT dans le struct.
+
+**Loi native (décompile `PredictAttackRaw @181032fb0`, lecture du staging du résultat)** :
+- result@0x00 (premier int du `DamagePredictionResult`) = `local_914` = **le rem HP unique**
+  (`max(0, HP − BS@+0x08)` @181034087 — le même scalaire #40 qui sert les trait-limits et
+  l'overkill per-coup) ;
+- l'AccurateHealthDamage@0x58 reçoit un **Cap Nullable AVEC VALEUR = result@0x00** :
+  `Nullable<int>.ctor(&cap, result@0x00)` (call-site @181036304) puis
+  `MinMaxDamage.ApplyCap` (@18103632c) avant l'écriture @0x58 (cap@0x58, min@0x60, max@0x64) ;
+- `Add @18102a710` NE somme JAMAIS les caps (acquis #40/#42) et garde le cap de SELF = coup 1,
+  dont le rem = **HP PLEIN** → ApplyCap post-somme clampe l'AGRÉGAT accurate au HP cible.
+  Mesuré : s8 accurate max = 1499 = HP exact ; u91→u83 = 8034 = HP plein (PAS le rem du coup 3
+  = 5692, ce qui élimine « cap de OTHER ») ; le RAW (@0x24/@0x28) reste NON capé (s8 : 1949).
+
+**Le gap port** : `predict_attack_raw` construisait l'accurate avec `cap=None` (le `result_cap`
+de CDS n'était jamais passé) → le `h.apply_cap()` de `Add` était un no-op structurel ; seul le
+`min(health, rem)` per-coup existait — insuffisant quand AUCUN coup individuel ne dépasse le rem
+MIN (HP haut + piste MIN basse, cas u91 3 coups). Le masque `composite_fields()` (cap en lecture)
+gardait l'agreement vert : leçon « green targeted ≠ gap closed » — la valeur de vérité est le
+STRUCT, pas sa projection.
+
+**Fix (damage_prediction.py, 1 ligne de logique)** : dans le bloc `if target_current_health > 0:`
+de `predict_attack_raw`, l'accurate est construit avec `cap=_rem_hp` (au lieu de `cap=None`).
+Coup 1 : cap = HP plein → `Add` clampe l'agrégat ; coups suivants : cap = rem (mirror du boxing
+natif per-coup). Le `raw_health` (construit AVANT le bloc) garde `cap=None` → over-shoot
+kill/overkill préservé (#84/#40).
+
+**Validation** : `test_aura_position_live` PASS (9 lignes rouges → 0) ; `test_predict_live` 2/2 ;
+agreement 777+31337 ×20 → prédiction **21/21 (100 %)**, 0 feed/logic, ability 24/29 + move 31/35
+inchangés. Repro : `probe41f_teststate.py` (scratchpad session).

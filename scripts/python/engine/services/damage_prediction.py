@@ -409,10 +409,18 @@ def predict_attack_raw(
         # overkill PER-COUP : la santé de CE coup <= HP RESTANT (FillUpStat.MaxReduceByMinimum consomme
         # local_914 = LE rem UNIQUE @181034087, #40) — les 2 bornes contre le même rem ; la borne max
         # cumulée peut donc dépasser HP (normalisée ensuite par le cap HP de l'accurate dans Add).
+        # #43 : le natif BOXE ce rem comme Cap Nullable de l'AccurateHealthDamage — result@0x00 =
+        # local_914 (rem), repris `Nullable<int>.ctor(&cap, result@0x00) @181036304` + `ApplyCap
+        # @18103632c` avant l'écriture @0x58. `Add @18102a710` garde le cap de SELF (= coup 1, rem =
+        # HP PLEIN) et re-ApplyCap → l'AGRÉGAT accurate est clampé au HP cible (mesuré : s8 accurate
+        # max 1499 = HP ; 31337-drive6 u91→u83 8034 = HP, pas Σ 9532 ni le rem du coup 3). Le port ne
+        # posait jamais ce cap (cap=None → apply_cap no-op dans Add) : seul le min() per-coup contre
+        # le rem MIN existait — insuffisant quand aucun coup individuel ne dépasse le rem (HP haut,
+        # piste MIN basse). Gate hp>0 = port-side (harnais/probes sans cible ; natif toujours boxé).
         _rem_hp = max(0, target_current_health - prev.health)
         health = MinMaxDamage(min=min(health.min, _rem_hp),
                               max=min(health.max, _rem_hp),
-                              cap=health.cap)
+                              cap=_rem_hp)
     return DamagePredictionResult(
         current_health=target_current_health, armor=armor, shield=target_shield,
         accurate_health_damage=health, raw_health_damage=raw_health,
