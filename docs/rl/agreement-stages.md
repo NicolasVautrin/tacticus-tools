@@ -201,6 +201,18 @@ mécaniquement l'essentiel du positioning.
    `GetAdjacentTiles` natif (keep-first à util égal) — 909 passe à **ability 6/6, move 15/16,
    prédiction 4/4** sans régression 777+31337 (détail : case-44 §3). Les 5 paires NC du lead 8
    sont désormais TOUTES confrontées et fermées côté ability.
+9. **Miss « utility-logic » 777 s15/s4 (u83 self-repair 28 vs attaque native 69→87) — ✅ RÉSOLU
+   2026-07-20 (#45bis, case-34-nonattack-oracle.md §MAJ #45bis) : gate STUN, pas l'utilité.**
+   Mesure au scoreur natif (nouveau RPC `pairUtility` = `CalculateUtilityFromPredictions
+   @181407890`) : repair 28→self = 30.0575 (== offline 30.058, scoreur repair exact 1:1) vs
+   attack 69→87 = 2.8836 → le natif classait repair ≫ attack et jouait QUAND MÊME l'attaque :
+   u83 était STUNNÉ (`Stunned_CantUseAbility 1165`, posé s12 par 1183) → actives/granted
+   interdites, attaque normale seule légale. Mirror : `battle_query.can_use_ability`
+   (`AttackQuery.CanUseAbility @181054ec0`, famille 26/1165) + filtre `ctx.me.abilities`
+   (context.build). **Batch 777/909/31337 ×20 : ability 34/35 (97 % — unique miss = #49
+   Gauntlets 31337 s14), prédiction 26/26 (100 %), move 46/51** (4 pos-downstream, 1
+   move-formula AdjacentUnitPreference = #32). Nouveau gap ouvert au passage : heal u91
+   (1167 self-heal) off 5066 vs natif 3614 (formule, #45c).
 
 ## 5. Usage
 

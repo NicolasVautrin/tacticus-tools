@@ -107,6 +107,30 @@ def can_add_unit(pos: tuple, walkable_by_pos: dict | None = None,
     return bool(walkable_by_pos.get((pos[0], pos[1]), False))   # tuile absente = hors-board -> non placeable
 
 
+def can_use_ability(unit: dict, ability: dict) -> bool:
+    """`AttackQuery.CanUseAbility @181054ec0` — gate d'USABILITE d'une ability (stun/taunt).
+
+    Le natif enchaine : (1) l'unite possede l'ability (slot itf 0x14) ; (2) un bool
+    d'interface (slot 0x13) doit etre FAUX — le blocage par effet de la famille
+    `CantUseAbilityEffect` : 26 `Taunted_CantUseAbility`, 1165 `Stunned_CantUseAbility`
+    (frida/hooks/data/effect-type-names.ts) ; (3) `GetInvalidCasterReason` valide.
+    Offline : (1) et (3) sont deja couverts par l'enumeration decisionView
+    (`usable`/`disabled`), MAIS le capteur `usable` lit l'entree ActiveAbility et
+    IGNORE les effets -> ce mirror porte le maillon (2), le seul manquant.
+    L'attaque NORMALE (kind 'normal') n'est PAS bloquee : vecu 777 s15 (u83 stunne
+    par 1183 attaque encore 69->87) + wiki §Stunned (« bloque UNIQUEMENT les
+    actives », valide live seed 97000). Match par SUFFIXE de nom `_CantUseAbility`
+    = proxy offline du check par CLASSE d'effet (couvre les 2 membres connus et
+    tout futur membre de la famille) ; les effets decisionView sont deja
+    IsActive-filtres (on ignore `remaining`)."""
+    if (ability or {}).get("kind") == "normal":
+        return True
+    for e in (unit or {}).get("effects") or []:
+        if str(e.get("name") or "").endswith("_CantUseAbility"):
+            return False
+    return True
+
+
 def adjacent_addable_count(tile: tuple, neigh_by_pos: dict | None,
                            walkable_by_pos: dict | None, occupied: set | None,
                            elev_by_pos: dict | None = None) -> int:

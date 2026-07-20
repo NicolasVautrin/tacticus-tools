@@ -433,6 +433,133 @@ export function registerViewPredict(ctx: Ctx): void {
         };
     });
 
+    /** #45 — UTILITÉ DE PAIRE NATIVE : invoque le scoreur COMPARABLE
+     *  `ComparablePlaybook.CalculateUtilityFromPredictions @181407890` (4 params :
+     *  unit, UnitPosition, target, Nullable<AbilityState>) sur le playbook
+     *  `LoadPlaybook(ability)` → la valeur EXACTE que le bucket natif attribue à la
+     *  paire (ability, cible) depuis une position : Σ des 4 familles damage/heal/
+     *  effect/repair (probabilités et modificateurs inclus), en Fix64. Voie DIRECTE :
+     *  le wrapper `Evaluate` (ncEvaluate) AV @0x46 sur les playbooks comparables
+     *  invoqués hors du tour de décision natif — le scoreur, lui, ne dépend que du
+     *  playbook chargé (UtilitiesDatabase à playbook+0x40) et des mêmes args que
+     *  Make*Predictions (déjà validés par aiPlaybookPredict). Résolution par NOM,
+     *  aucun RVA. Retour Fix64 boxé → valeur à +0x10 (Q32.32).
+     *  body: { runnerId?, unitId, targetId, abilityType, level?, multiplier?,
+     *  col?, row? } (mêmes conventions qu'aiPlaybookPredict, tuile candidate incl.) */
+    ctx.rpc.pairUtility = (
+        body?: {
+            runnerId?: number; unitId?: number; targetId?: number;
+            abilityType?: number; level?: number; multiplier?: number;
+            col?: number; row?: number;
+        },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        if (typeof body?.unitId !== "number" || typeof body?.targetId !== "number"
+            || typeof body?.abilityType !== "number") {
+            return { ok: false, error: "need unitId + targetId + abilityType" };
+        }
+        let runner: NativePointer; let label: string;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);
+            label = "build#" + body.runnerId;
+        } else if (state.liveRunner) { runner = state.liveRunner; label = "live"; }
+        else { return { ok: false, error: "no runner — pass runnerId" }; }
+        if (runner.isNull()) return { ok: false, error: label + " runner null" };
+        const statePtr = runner.add(runnerOff.state).readPointer();
+        if (statePtr.isNull()) return { ok: false, error: "state null" };
+        const dbHit = resolvePlaybookDatabase(runner);
+        if (!dbHit) return { ok: false, error: "PlaybookDatabase introuvable" };
+        const playbook = loadPlaybook(dbHit.db, body.abilityType);
+        if (playbook.isNull()) {
+            return { ok: false, error: "pas de playbook pour ability " + body.abilityType };
+        }
+        const playbookClass = classNameAt(playbook);
+        const scoreMi = findMethodByParamCount(
+            playbook.readPointer(), "CalculateUtilityFromPredictions", 4);
+        if (!scoreMi) {
+            return { ok: false, playbookClass,
+                error: "CalculateUtilityFromPredictions(4) introuvable" };
+        }
+        let unit = ptr(0); let target = ptr(0);
+        forEachEntity(statePtr, (e, id, ty) => {
+            if (ty === EntityType.Unit || ty === EntityType.Machine) {
+                if (id === body.unitId) unit = e;
+            }
+            if (ty === EntityType.Unit && id === body.targetId) target = e;
+        });
+        if (unit.isNull()) return { ok: false, error: "unit " + body.unitId + " not found" };
+        if (target.isNull()) return { ok: false, error: "target " + body.targetId + " not found" };
+        // UnitPosition : tuile courante, ou tuile CANDIDATE (col,row) du movable set
+        // (mirror aiPlaybookPredict).
+        let posPtr = unitPositionCurrent(unit, statePtr);
+        let posSrc = "current";
+        if (typeof body?.col === "number" && typeof body?.row === "number") {
+            let tile = ptr(0);
+            if (getMovableTilesMi) {
+                const movementQuery = runner.add(movementQueryOff).readPointer();
+                const boolFalse = Memory.alloc(1); boolFalse.writeU8(0);
+                const optsZero = Memory.alloc(0x30);
+                for (let k = 0; k < 0x30; k += 4) optsZero.add(k).writeU32(0);
+                try {
+                    const os = invokeMethod(getMovableTilesMi.info, movementQuery,
+                        [unit, boolFalse, optsZero]);
+                    for (const t of extractTilePtrs(os)) {
+                        if (t.col === body.col && t.row === body.row) { tile = t.ptr; break; }
+                    }
+                } catch { /* fallback courante */ }
+            }
+            if (tile.isNull()) {
+                const mt = getUnitMainTile(unit, statePtr);
+                if (!mt.isNull()) {
+                    const c = readTileCoord(mt);
+                    if (c.col === body.col && c.row === body.row) tile = mt;
+                }
+            }
+            if (tile.isNull()) {
+                return { ok: false, error: "tile (" + body.col + "," + body.row
+                    + ") ni courante ni dans le movable set" };
+            }
+            const atTile = unitPositionAtTile(unit, tile, statePtr);
+            if (!atTile) return { ok: false, error: "GetUnitPositionAtTile null" };
+            posPtr = atTile; posSrc = "tile(" + body.col + "," + body.row + ")";
+        }
+        if (!posPtr) return { ok: false, error: "GetUnitPosition null" };
+        // AbilityState : override body > capteur #100 > défaut flaggé (mirror aiPlaybookPredict).
+        let lvl = body.level; let mult = body.multiplier; let stSrc = "body";
+        if (typeof lvl !== "number" || typeof mult !== "number") {
+            const info = unitAbilityTypes(unit, true).find((a) => a.id === body.abilityType);
+            if (info && typeof info.level === "number") {
+                lvl = info.level; mult = info.multiplier ?? 100; stSrc = "capteur";
+            } else if (typeof lvl !== "number") {
+                lvl = 0; mult = mult ?? 100; stSrc = "default(0,100)";
+            }
+        }
+        const stateBuf = Memory.alloc(12);
+        stateBuf.writeS32((lvl as number) | 0);
+        stateBuf.add(4).writeS32(((mult ?? 100) as number) | 0);
+        stateBuf.add(8).writeS32(0);
+        const before = summarize(statePtr);
+        let boxed: NativePointer;
+        try {
+            boxed = invokeMethod(scoreMi.info, playbook, [unit, posPtr, target, stateBuf]);
+        } catch (e) {
+            return { ok: false, playbookClass, posSrc,
+                error: "CalculateUtilityFromPredictions threw: " + (e as Error).message };
+        }
+        const after = summarize(statePtr);
+        const raw = boxed.isNull() ? null : boxed.add(0x10).readS64();
+        return {
+            ok: true, runner: label, playbookClass, posSrc,
+            unitId: body.unitId, targetId: body.targetId,
+            ability: body.abilityType, abilityName: abilityName(body.abilityType),
+            abilityState: { level: lvl, multiplier: mult, source: stSrc },
+            utility: raw === null ? null : raw.toNumber() / 4294967296,
+            utilRaw: raw === null ? null : raw.toString(),
+            mutated: before.sig !== after.sig,
+        };
+    });
+
     /** ORACLE NC (#46) : invoque la LEAF NATIVE `EvaluateNonComparable(unit, UnitPosition)`
      *  du playbook d'une ability, par POSITION (courante + sweep du movable set), et décode
      *  le Bucket rendu (best BucketAction : utilité Fix64 + UnitAction{position,target,ability}).

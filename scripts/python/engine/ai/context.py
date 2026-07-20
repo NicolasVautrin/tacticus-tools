@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from engine import battle_query  # gate CanUseAbility @181054ec0 (stun/taunt)
 from engine.playbook.scene import Scene, step_context as _step_context  # état objet + seam live-feed
 
 
@@ -210,6 +211,16 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     ab_name_by_id = {x.get("id"): x.get("name") for x in ((me or {}).get("abilities") or [])}
     normal_ids = {a.get("id") for a in ((me or {}).get("abilities") or [])
                   if a.get("kind") == "normal"}
+    # Gate d'usabilite `AttackQuery.CanUseAbility @181054ec0` (stun/taunt -> effets
+    # `*_CantUseAbility`) : les actives/granted bloquees ne doivent JAMAIS atteindre les
+    # generateurs (le natif ne genere pas d'action pour elles ; l'attaque normale passe).
+    # Filtre au POINT DE COUTURE unique (tous les generateurs lisent ctx.me["abilities"]).
+    # Vecu #45 777 s15 : u83 stunne (1165) -> le natif joue 69->87 (2.88) faute de mieux,
+    # nous emettions Repair 28 self (30.06) -> miss "utility-logic" fantome.
+    if me is not None:
+        kept = [a for a in (me.get("abilities") or []) if battle_query.can_use_ability(me, a)]
+        if len(kept) != len(me.get("abilities") or []):
+            me = {**me, "abilities": kept}
 
     # maxHP par cible (combinedMax du composite Damage) — observeBattle 1×/décision (réutilisé heal).
     obs = rpc("observeBattle", {"runnerId": rid}, 40)

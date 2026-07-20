@@ -201,3 +201,55 @@ Plus des overrides bespoke (HealPlaybook @181184a70, SpiritLeech @18115d7a0/@181
   flipper ; (b) vérifier la couverture attack de `damage_composite` vs les feuilles 2/4/3 de
   Damage(34) ; (c) ProbableHealEvent offline + branchement heal au total par-paire du moteur ;
   (d) bonus acteur PredictRepair/PredictHeal.
+
+## MAJ #45bis (2026-07-20) — RÉSOLUTION s15 repair-vs-attack : gate STUN, pas l'utilité
+
+La piste « feuilles 2/4 » de la MAJ précédente est CLOSE : mesure directe au scoreur natif.
+
+- **RPC `pairUtility`** (rpc-predict.ts) : invoque `ComparablePlaybook.CalculateUtilityFromPredictions
+  @181407890` — signature invocable `(unit, UnitPosition, target, Nullable<AbilityState>*)` + MethodInfo,
+  retour Fix64 boxé (+0x10, Q32.32) = la valeur EXACTE de la paire (Σ 4 familles, prob/modifs inclus).
+  Mêmes conventions qu'`aiPlaybookPredict` (tuile candidate col/row, AbilityState capteur).
+  ⚠ `ncEvaluate` (wrapper `Evaluate` slot 7) **AV @0x46 sur les playbooks COMPARABLES** invoqués hors
+  du tour de décision natif (OK sur les NC) → pour une utilité comparable, passer par `pairUtility`.
+- **MESURE DÉCISIVE (777 s15, u83 admecDominus hp 6319/9035 @(3,6))** :
+  `pairUtility(28→self) = 30.0575` == notre 30.058 → **le scoreur repair offline est exact 1:1**
+  (leaf 47 seul ; feuilles 2/4 ≈ 0 sur ce roster). `pairUtility(69→87) = 2.8836` (nous : cf 22.376).
+  Le natif classe donc repair ≫ attack au scoreur… et joue l'attaque → le self-repair est éliminé
+  AVANT le scoring.
+- **LE GATE = STUN.** u83 est stunné au s12 par u87 (custoVexilusPraetor, ability 1183) : effets
+  `Stunned 1162` + `Stunned_CantUseAbility 1165` + `Stunned_MovementOverride 1166` + `_DamageModifier
+  1167`. 1165 bloque les abilities ACTIVE/GRANTED (Repair 28 = granted, RadBombardment 1116), PAS
+  l'attaque normale (wiki §Stunned, validé seed 97000) → le natif n'avait QUE 69→87 (2.88).
+  Pièges mesure : le capteur `usable:true` (entrée ActiveAbility) IGNORE les effets ; `abilityTargets`
+  liste QUAND MÊME u83 comme cible valide de 28 (le targeting ne porte pas ce gate).
+- **MIRROR** : `engine/battle_query.can_use_ability` (= `AttackQuery.CanUseAbility @181054ec0` ;
+  maillon slot itf 0x13 = effet famille `CantUseAbilityEffect` : 26 `Taunted_CantUseAbility`,
+  1165 `Stunned_CantUseAbility` ; match offline par suffixe de nom `_CantUseAbility`) + filtre au
+  point de couture unique `ctx.me["abilities"]` (context.build) — les actives/granted bloquées
+  n'atteignent jamais les générateurs ; kind `normal` passe. Côté move : rien à faire (nos candidats
+  = movable set NATIF, qui folds déjà MovementOverride).
+- **VALIDATION** : match sur le pas exact (runner arrêté à s15 par `probe_45_repair_gate.py` —
+  walk-until-condition réutilisable) ; batch frais 777/909/31337 ×20 : **ability 34/35 (97 %)**
+  — l'unique miss est le #49 Gauntlets (31337 s14, connu) — **prédiction 26/26 (100 %)**, move 46/51.
+- **RE annexe (pour le port futur des feuilles 2/4, roadmap AdMech #20)** :
+  `ComposedUtility.EvaluateRepairInSteps` d__7 @181102db0 = (Σ enfants) × (`CalculateAttackModifier
+  @1810cd930` = Π des Nullable<Fix64> des enfants ; seuls overrides : Dislike{Boss,EnvironmentUnits,
+  Objects}Utility → =1 pour Repair(46)=[47,2,4]). Leaf 47 natif (d__2 @1810e45b0) =
+  `hpFill/(maxHp+1)×W_HP + armorFill/(maxArmor+1)×W_ARMOR`, ×2 si `IsBoss(ACTEUR)` (case+0x10),
+  boss-cap santé via config si CIBLE boss. Feuilles 2/4 = `CalculateRepairUtilityInSteps(case, x)`
+  des playbooks triggered (protocole : steps yield 0, DERNIER yield = valeur ; base Internal yield 0
+  @18134f520) — owner d__1 @1811022c0 : LoadPlaybook par ability du porteur ; NonOwner d__2 @181102860
+  + `IterateAbilities` d__3 @181103860 (skip owner, `LoadPlaybookNonOwner(unit.Type)`, gate
+  `flag || IsFriend(owner, unit)`). Concrets : OmnissiahsBlessing @181197aa0 (+config si la CIBLE
+  réparée porte l'ability ; valeur alternative si 1293), RepairEnthusiast @181197930 (+config si
+  actor≠target et cible sans 1514), VoltagheistField, Repair_GalvanicField.
+  Case `UtilityAttackCase` : +0x10=ACTEUR, +0x18=UnitPosition, +0x20=CIBLE,
+  +0xfc=Nullable<RepairPrediction> (`ForRepairPrediction @1811055f0` ; `AbilityOrEffect(28)` hardcodé
+  par le scorer pour la famille repair, (45)/ForEffect pour la famille effect ×prob).
+- **RESTE (#45)** : (b') **échelle famille damage** : notre cf 22.376 (damage_composite + Tile7) vs
+  `pairUtility` natif 2.8836 pour 69→87 — u87 est SHIELDED (hp 13368 > max 11044), suspect n°1 =
+  traitement du shield dans la famille damage ; levier propre = brancher `pairUtility` comme ORACLE
+  d'un étage UTILITÉ du harnais (confrontation par-paire systématique, comme `aiPlaybookPredict`
+  l'est pour la prédiction) ; (c) heal formule (u91 biophagus 1167 self-heal : off 5066 vs natif
+  3614, feed=false) ; (d) bonus acteur PredictRepair/PredictHeal (inchangés).

@@ -114,6 +114,15 @@ Read-only sauf `applyAction` (`mutated=false` attendu). Cœur oracle + harnais m
   natif → liste `ProbableDamageEvent` (target, healthDmg min/max, appliedHits, probability).
   `level`/`multiplier` overrident le capteur AbilityState (test d'hypothèse de niveau).
   Depuis la tuile COURANTE (bouger l'unité pour une autre position). Read-only.
+- **`pairUtility({ runnerId, unitId, targetId, abilityType, level?, multiplier?, col?, row? })`**
+  (#45) — UTILITÉ DE PAIRE au scoreur NATIF : invoque `ComparablePlaybook.
+  CalculateUtilityFromPredictions @181407890` → Fix64 (Σ familles damage/heal/effect/repair,
+  prob + modifs inclus) pour (ability, cible) depuis une position. ⚠ `ncEvaluate` AV @0x46
+  sur les playbooks COMPARABLES hors tour natif — utiliser CE RPC pour l'utilité comparable.
+- **`navToCampaign()`** (`warmup-singletons.ts`) — levier de SECOURS : force la nav interne
+  (`IdunNavigation.ToCampaign`) pour débloquer une UI coincée en transition post-retreat
+  (écran figé, zéro bouton) sans relancer le jeu. Le warmup vérifie désormais lui-même le
+  retour campagne (step `wait-back-to-campaign`).
 - **`exposureView({ runnerId, unitId?, allAbilities?=true })`** — move-guard
   (inverse d'attackPlans) : dégât ennemi entrant au prochain tour + flag `exposed`.
   Même routing dégât que attackPlans (#103 : actives→playbook, normale→preview).

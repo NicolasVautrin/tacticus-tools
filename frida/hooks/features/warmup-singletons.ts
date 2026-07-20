@@ -439,6 +439,31 @@ async function warmupGameSingletons(
     }
     steps.push({ step: "click-confirm", ok: true });
 
+    // 8. Verify the post-retreat transition actually COMPLETES (battle scene
+    //    unloaded, campaign screen re-mounted with its level nodes). Without
+    //    this gate the cycle reported ok right after click-confirm; a hung
+    //    transition (frozen screen, ZERO clickable buttons anywhere) went
+    //    unnoticed — observed 2026-07-20: engine kept pumping (RPCs fine) but
+    //    the UI was dead until a game relaunch. 45s: scene unload+reload can
+    //    exceed 30s on a busy frame budget.
+    const backHome = await waitFor(
+        () => findButtonBySuffix(r, NODE_SUFFIX), 45000, 500);
+    if (backHome === null) {
+        // The ctor WAS captured (builder armed) — report the wedge precisely
+        // instead of pretending the cycle is healthy. `navToCampaign` (RPC
+        // below) is the recovery lever to try before relaunching the game.
+        steps.push({ step: "wait-back-to-campaign", ok: false });
+        log("[warmup-singletons] WEDGE: campaign screen did not remount 45s "
+            + "after retreat-confirm — try rpc navToCampaign");
+        return {
+            ok: false, capturedAt: captured.toString(), steps,
+            err: "wait-back-to-campaign: campaign screen did not remount "
+                + "within 45s after retreat-confirm — UI likely stuck in "
+                + "transition; try rpc navToCampaign, else relaunch the game",
+        };
+    }
+    steps.push({ step: "wait-back-to-campaign", ok: true });
+
     log("[warmup-singletons] cycle complete — builder ready, game retreated");
     return { ok: true, capturedAt: captured.toString(), steps };
 }
@@ -447,4 +472,22 @@ export function register(ctx: Ctx): void {
     ctx.rpc.warmupGameSingletons = (
         opts?: { force?: boolean },
     ) => warmupGameSingletons(opts);
+    // Recovery lever: force the game's OWN navigation back to the campaign
+    // screen (same IL2CPP invoke the warmup nav uses, animated=false). Unsticks
+    // a UI wedged in the post-retreat transition without relaunching the game.
+    // No battle-state mutation; safe anytime.
+    ctx.rpc.navToCampaign = () => queueOnMainThread(() => {
+        try {
+            const n = ensureNavRefs();
+            const inst = findLiveIdunNavigation(n);
+            if (inst === null) {
+                return { ok: false, err: "no live IdunNavigation instance" };
+            }
+            invokeToCampaign(n, inst, false,
+                CAMPAIGN_TYPE_INDOMITUS, CAMPAIGN_ID_INDOMITUS);
+            return { ok: true, navInstance: inst.toString() };
+        } catch (e) {
+            return { ok: false, err: (e as Error).message };
+        }
+    });
 }
