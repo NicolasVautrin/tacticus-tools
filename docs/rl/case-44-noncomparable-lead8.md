@@ -76,8 +76,22 @@ appelle donc `generate_multi_hit_attack_prediction` **directement** (même conto
   dans l'`ExecuteAtomic` d'`ExecuteBehaviour` — donc **à l'exécution seulement**, absent de l'unité à
   l'instant de la décision → la prédiction native ne peut pas le voir ; ne PAS l'ajouter au port
   (ce serait un fit).
-- **1121 / 1202** : aucun porteur sur ces deux seeds → portés sur preuve décompilée, **non confrontés
-  live** (à confronter sur un seed portant tyranParasiteOfMortrex / Tyrith).
+- **1121 ItItches** : **CONFRONTÉ + RÉSOLU (#48, 2026-07-20, seed 909 s14, u93 tyranParasite)** —
+  le natif émet (1121 → tuile 63) là où le port n'émettait JAMAIS. Deux fixes (it_itches.py) :
+  1. **Les cibles éligibles sont des TUILES, pas des unités** : `abilityTargets` 1121 rend
+     `kind=tile` (mesure s14 : 5 tuiles = les 5 positions ennemies) → l'ancien parse `kind=="unit"`
+     rendait une liste vide → aucun candidat. Décompilé @181146c50 : l'élément éligible est passé
+     **tel quel** à `GenerateAction` (→ le natif émet un **id de tuile**, 63=(5,6)=u81) et l'unité
+     des gates (`IsDisplaceable`) est résolue depuis l'élément via `UnitExtensions.GetUnit`.
+  2. **Ordre par-position = ordre `GetAdjacentTiles` natif** (`neigh_by_pos`), décisif au keep-first
+     du Bucket à util égal : à P=(4,5), (5,5) et (5,6) rendent toutes deux util=2, mais les voisins
+     natifs de (4,5) = `[54, 63, 62, …]` → 63=(5,6) énuméré AVANT 62=(5,5) → le natif garde 63 ;
+     l'union RPC (ordre trans-positions) listait (5,5) d'abord → mauvaise cible à util égal.
+  Résultat 909 : **ability 6/6 (100 %)**, move 15/16 (résidu unique = s17 cast-tile, cf. #32),
+  prédiction 4/4 ; **777+31337 inchangés** (27/29, 31/35, 21/21 — pas d'overfire induit).
+- **1202 VigilanceEternal** : confronté sur 909 s17 (u95 Tyrith) → **hit ability+cible** (1202→85
+  des deux côtés) ; seul le **cast-tile** diverge (natif (3,4) vs moteur (4,2)) = résidu
+  move-with-ability fiché #32.
 
 ## 4. Le point dur : 1151 TheQuickening — porte RÉSOLUE (#46) : `turnsStarted > 1`
 

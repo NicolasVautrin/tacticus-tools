@@ -47,6 +47,7 @@ d'`aiPlaybookPredict`). Toute confrontation prédiction doit être **à-position
 |---|---|---|---|---|
 | seed 777 (20 pas) | 16/17, 17/17 | 15/16 | **8/11 (72 %)** — 3 logic | 1 utility-logic, 1 move-tie-break |
 | seed 909 (20 pas) | 10/16, 12/16 | 4/6 | (agrégé ci-dessous) | 1 utility-logic, 1 non-attack-oracle, **3 move-formula**, 3 pos-downstream |
+| seed 909 **re-run 2026-07-20** (post-#37/#44/#46/#48) | **15/16, 15/16** | **6/6 (100 %)** | 4/4 (100 %) | 1 pos-downstream (s17 cast-tile 1202, cf. #32) |
 | seed 31337 (20 pas) | 12/18, 13/18 | 6/13 → **7/13 (#33)** | agrégé 909+31337 : **8/14 (57 %)**, 1 feed→**0 (#33)**, 5 logic | **2 prediction**, 2 utility-logic, 3 non-attack-oracle, 1 generator-overfire, 5 pos-downstream |
 | AdMech 3v3 (Marshall+Manipulus+Ruststalker vs 2 Warden, fini pas 9) | 6/8 | 4/5 | 1/3 | 1 utility-logic (1118), 1 generator-overfire (1118) |
 
@@ -184,7 +185,11 @@ mécaniquement l'essentiel du positioning.
    était jetée par le mirror plan-based). **1151 ENREGISTRÉ** ; 31337 s15 devient un MATCH
    ability+cible (1151→52) : ability **26/29 → 27/29 (93 %)** (move 31/35, prédiction 21/21
    inchangés ; le résidu s15 = position ~1hex à util égal 3, `pos-downstream-of-ability`).
-   Restent : 1121 non confronté live faute de tir sur ces seeds.
+   **1121 confronté + RÉSOLU (#48, 2026-07-20, 909 s14)** : les cibles éligibles sont des TUILES
+   (l'ancien parse `kind=="unit"` rendait la liste vide → jamais émis) + ordre par-position =
+   `GetAdjacentTiles` natif (keep-first à util égal) — 909 passe à **ability 6/6, move 15/16,
+   prédiction 4/4** sans régression 777+31337 (détail : case-44 §3). Les 5 paires NC du lead 8
+   sont désormais TOUTES confrontées et fermées côté ability.
 
 ## 5. Usage
 

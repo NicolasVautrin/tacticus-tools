@@ -21,8 +21,11 @@ class ItItchesPlaybook(NonComparablePlaybook):
     ennemi adjacent ET les ennemis adjacents A LA FOIS a la cible et a elle-meme, puis fait apparaitre un
     Ripper Swarm dans chaque hex libere. L'utilite = COMBIEN d'ennemis la poussee affecte.
 
-    - cibles = `GetEligibleTargetsSelectable(ctx, position)` (ennemis adjacents).
-    - GATE 1 : `UnitExtensions.IsDisplaceable(target) == false -> continue` (@180ed8140 : unite vivante,
+    - cibles = `GetEligibleTargetsSelectable(ctx, position)` : des TUILES, pas des unites (mesure live
+      909 s14 : `abilityTargets` 1121 rend kind=tile = les tuiles des ennemis ; decompile : l'element
+      est passe TEL QUEL a `GenerateAction` comme cible -> le natif emet un ID DE TUILE, ex. 63=(5,6)) ;
+      l'unite est resolue depuis l'element via `UnitExtensions.GetUnit` (= l'occupant) pour les gates.
+    - GATE 1 : `UnitExtensions.IsDisplaceable(occupant) == false -> continue` (@180ed8140 : unite vivante,
       SANS `Immovable(17)` ni `Hulking(3)` ni `BigTarget(0x3f9=1017)`, et sans le FLAG runtime 0x19).
     - GATE 2 (`CanBePushed` inline, cf. @181146aa0) : `IBattleQuery` slot 0x4d `(casterTile, target)` ->
       liste de tuiles, `FilterInPlace(<predicat du playbook>)`, `Count > 0` = il existe une destination de
@@ -34,31 +37,34 @@ class ItItchesPlaybook(NonComparablePlaybook):
       `ItItchesAbility.GetTargetUnits @1811ec5e0` = `Enemies(Target + AdjacentTilesIntersection(caster,
       target))` = la cible ELLE-MEME + les ennemis adjacents A LA FOIS a la cible et au caster.
     - `MIN_UTILITY` = cctor @181147830 = `Fix64.FromInt(1)` (toujours passe des que la cible est
-      poussable : elle compte pour 1) ; `PRIORITY`=0 (#115). `GenerateAction(position, cible, util)`.
+      poussable : elle compte pour 1) ; `PRIORITY`=0 (#115). `GenerateAction(position, element, util)`
+      ou `element` = l'entite TUILE issue de la liste eligible (mirror : `ctx.tile_id_by_pos[T]`).
 
     Ecarts assumes : (1) le FLAG runtime `HasFlag(unit, 0x19)` d'`IsDisplaceable` n'est pas lisible
     offline (enum de flags d'entite, distinct des traits gameconfig) -> non teste ; (2) l'eligibilite
-    par-position est reconstituee en filtrant l'union `abilityTargets` par adjacence a la position
-    balayee ; (3) `GetUseProbability @1811477b0` = `Fix64.FromIntFraction(GetMaxNumUnitsAffected, 3)`
-    (porte ALEATOIRE : ~n/3 de chances d'utiliser l'ability) — non modelisee (moteur deterministe),
+    par-position est reconstituee en filtrant l'union `abilityTargets` (tuiles) par adjacence a la
+    position balayee ; (3) `GetUseProbability @1811477b0` = `Fix64.FromIntFraction(GetMaxNumUnitsAffected,
+    3)` (porte ALEATOIRE : ~n/3 de chances d'utiliser l'ability) — non modelisee (moteur deterministe),
     meme statut que ScarabSummon/BlackRage."""
     ABILITY_ID = int(ActiveAbilityType.ItItches)  # 1121
     MIN_UTILITY = 1.0     # cctor @181147830 = Fix64(1)
     PRIORITY = 0
 
-    def _eligible_targets(self, ctx: NCContext) -> list[int]:
-        """`GetEligibleTargetsSelectable` (unites) : union `abilityTargets`, ordre preserve."""
+    def _eligible_target_tiles(self, ctx: NCContext) -> list[tuple]:
+        """`GetEligibleTargetsSelectable` : union `abilityTargets` kind=tile (les tuiles des ennemis
+        poussables — mesure live 909 s14 : 5 tuiles = les 5 positions ennemies), ordre preserve."""
         if ctx.ability_targets is None:
             return []
         at = ctx.ability_targets(ctx.uid, self.ABILITY_ID) or {}
-        out: list[int] = []
+        out: list[tuple] = []
         for u in (at.get("units") or []):
             for a in (u.get("abilities") or []):
                 if a.get("abilityId") != self.ABILITY_ID:
                     continue
                 for t in (a.get("targets") or []):
-                    if t.get("kind") == "unit" and t.get("targetId") is not None:
-                        out.append(t["targetId"])
+                    tl = t.get("tile") if t.get("kind") == "tile" else None
+                    if tl and tl.get("col") is not None:
+                        out.append((tl["col"], tl["row"]))
         return list(dict.fromkeys(out))
 
     @staticmethod
@@ -87,36 +93,44 @@ class ItItchesPlaybook(NonComparablePlaybook):
         return dest not in occupied
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
-        tgt_ids = self._eligible_targets(ctx)
-        if not tgt_ids:
+        tiles = self._eligible_target_tiles(ctx)
+        if not tiles:
             return []
-        by_id = {u.get("id"): u for u in (ctx.units or [])}
-        best = None      # (util, position, target)
+        unit_by_pos = {}
+        for u in (ctx.units or []):
+            if u.get("alive") is False:
+                continue
+            p = u.get("pos")
+            if p and p.get("col") is not None:
+                unit_by_pos[(p["col"], p["row"])] = u
+        eligible = set(tiles)
+        best = None      # (util, position, targetTile)
         for P in _sweep_origin_first(ctx):
-            for tid in tgt_ids:
-                tu = by_id.get(tid)
-                p = (tu or {}).get("pos") if tu else None
-                if not p or p.get("col") is None:
-                    continue
-                tpos = (p["col"], p["row"])
-                if not bq.is_adjacent(P, tpos, ctx.elev_by_pos):
-                    continue                        # cible non adjacente DEPUIS cette position
+            # Ordre par-position NATIF : le selecteur enumere les tuiles adjacentes du caster dans
+            # l'ordre `GetAdjacentTiles` (neigh_by_pos) — decisif au keep-first du Bucket a util egal
+            # (mesure 909 s14 : voisins de (4,5) = [.., 63=(5,6), 62=(5,5), ..] -> natif garde 63).
+            neigh = (ctx.neigh_by_pos or {}).get(P)
+            ordered = ([T for T in neigh if T in eligible] if neigh else
+                       [T for T in tiles if bq.is_adjacent(P, T, ctx.elev_by_pos)])
+            for T in ordered:
+                tu = unit_by_pos.get(T)             # `GetUnit(element)` : l'occupant de la tuile
                 if not self._is_displaceable(ctx, tu):
                     continue                        # GATE 1
-                if not self._can_be_pushed(ctx, P, tpos):
+                if not self._can_be_pushed(ctx, P, T):
                     continue                        # GATE 2
                 # GetTargetUnits : la cible + les ennemis adjacents A LA FOIS a la cible et au caster.
                 util = 1.0 + sum(1.0 for e in (ctx.epos or [])
-                                 if e != tpos
-                                 and bq.is_adjacent(tpos, e, ctx.elev_by_pos)
+                                 if e != T
+                                 and bq.is_adjacent(T, e, ctx.elev_by_pos)
                                  and bq.is_adjacent(P, e, ctx.elev_by_pos))
                 if best is None or util > best[0]:  # Bucket.AddAction : remplacement STRICT `>`
-                    best = (util, P, tid)
+                    best = (util, P, T)
         if best is None or best[0] < self.MIN_UTILITY:
             return []
-        util, P, tid = best
+        util, P, T = best
         if ctx.debug:
             import sys
-            print(f"    [dbg ItItches u{ctx.uid}] pos={P} tgt={tid} util={util}", file=sys.stderr)
-        return [{"target": tid, "ability": self.ABILITY_ID,
+            print(f"    [dbg ItItches u{ctx.uid}] pos={P} tile={T} "
+                  f"tid={ctx.tile_id_by_pos.get(T)} util={util}", file=sys.stderr)
+        return [{"target": ctx.tile_id_by_pos.get(T), "ability": self.ABILITY_ID,
                  "to": (P if P != ctx.origin else None), "pred": util}]
