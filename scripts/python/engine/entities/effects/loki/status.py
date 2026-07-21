@@ -312,9 +312,30 @@ class PinnedEffect(BaseEffect):
     """`PinnedEffect.ApplyInternal` @180f5e6d0 (effet 1065 `Pinned` ; UI = « Suppressed »). Effet
     stat-mod SIMPLE (pas de sous-effet nommé) : un `ChangeStat(Position(1,5), statType=4 = Movement,
     valeur = Negative(EffectConfig(1)))` sur la cible ⇒ réduit le MOUVEMENT (la cible « pinned » ne peut
-    pas avancer le tour suivant).
+    pas avancer le tour suivant). `EffectConfig(1)` = BC `Effect.PinnedMovementReduction` (mapping
+    ordinal→champ DTO prouvé par `InitEffectConfig @18106e9c0` : +0x10→0, +0x14→1, +0x1c→2, ... —
+    recoupé par Stunned EffectConfig(2)=StunnedDmgReductionPct bit-exact).
 
-    ⚠ Contributions NON encore portées (présent ≠ appliqué, §17.4) : (1) la réduction de Movement (le
-    mouvement n'est pas dans le chemin de combat/dégât porté) ; (2) `PinnedEffect.CreateEffectDamageBonusForAttack`
-    @180f5e8e0 (malus de dégât quand l'unité Pinned attaque) — à RE + porter si on modélise le débuff
-    offensif. Ici on MATÉRIALISE l'effet (nom 1065 sur la cible) — c'est le scope de la tranche EFFETS."""
+    MALUS DE DÉGÂT ATTAQUANT (#57b, famille ×0.70 du batch #52) : `CreateEffectDamageBonusForAttack
+    @180f5e8e0` = `EffectBonus.ForPercentIncrease(get_OwnerIsCaster, Negative(EffectConfig(0)))` —
+    quand le PORTEUR attaque, son dégât est réduit de `EffectConfig(0)` = BC
+    `Effect.PinnedDmgReductionPct` (=30) ⇒ ×0.70. Trigger OwnerIsCaster == boucle ATTAQUANT du port
+    (même mapping que Stunned_DamageModifier ci-dessus). Aucun autre gate (mêlée ET ranged, tous
+    profils). GROUND TRUTH : 54321 s16 u81 bloodIntercessor Pinned -> t89, natif 2192/3288 =
+    off 3132/4698 × 0.700 EXACT (probe_57b_x070.py).
+
+    ⚠ Contribution NON portée restante (présent ≠ appliqué, §17.4) : la réduction de Movement
+    (le mouvement n'est pas dans le chemin de combat/dégât porté)."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        pct = bc_effect_config("PinnedDmgReductionPct", 30)   # EffectConfig(0) — BC Effect section
+        if not pct:
+            return None
+        # ForPercentIncrease(Negative(pct)) natif == percent-decrease de pct (1 - pct/100).
+        return for_percent_decrease(True, abs(int(pct)))

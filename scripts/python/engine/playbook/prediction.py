@@ -326,11 +326,11 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                                                        target_traits=_tgt_traits,
                                                        target_armor_reduced=_tgt_armor_reduced,
                                                        att_ctx=_att_ctx)
-    # #49/#153 : base de l'attaque NORMALE en PREDICTION DISPLAY = Initial + auras stat-mod re-evaluees
-    # a la TUILE CANDIDATE. On part de INITIAL (bare, exclut TOUTE modification captee dans le snapshot
-    # -> pas de double-compte) puis on re-ajoute les AURAS stat-mod d'allies (RitesOfBattle @181225340,
-    # PathOfCommand @181110f10) evaluees a `attack_pos` (tuile candidate ; None -> position reelle).
-    # NB : le residu `+400` (autre aura non identifiee) n'est PAS couvert ici.
+    # #49/#153/#57a : base de l'attaque NORMALE en PREDICTION DISPLAY = CURRENT(du pas)
+    # - aura_modele(pos reelle) + aura_modele(tuile candidate) : les AURAS stat-mod d'allies
+    # (RitesOfBattle @181225340, PathOfCommand @181110f10) sont re-evaluees a `attack_pos`
+    # (tuile candidate), les mods NON-positionnels (ex. SummaryExecution_BaseEffect 1043 +400,
+    # ex-"residu +400" identifie #57a) restent inclus via CURRENT.
     _ap = attack_pos or scene.pos(att_id)
     # #153 (tranche le flip-flop #45/#58/#67) : la chaine display threade la position candidate de bout
     # en bout — `DamagePredictionQuery.GetAllPredictions @181090f50` construit `UnitPosition(tuile de
@@ -367,8 +367,19 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # EXACT, vs (3,3) propre = 2101 gardé) : `GetUnitPositionAtTile` sur tuile bloquée rend une position
     # dégénérée -> l'adjacence du re-check échoue. L'élévation, lue sur la TUILE, s'applique toujours.
     _cand_blocked = "BlockEnteringUnits" in ((scene.tile_effects_by_pos or {}).get(tuple(_ap)) or ())
-    attack_base = ctx.get_stat(StatType.ATTACK, StatPart.INITIAL) \
-        + (0 if _cand_blocked else aura_attack_bonus_from_allies(carriers, aura_ctx))
+    # #57a : la base CONSERVE les stat-mods NON-positionnels courants (SummaryExecution_BaseEffect
+    # 1043 : +400 flat aux Friends(UnitsWithTrait), sélecteur SANS nœud d'adjacence — décompilé
+    # `SummaryExecutionEffect.CreateTargetSelector @180f6f8a0` ; vécu 1357 s15 u135 : natif per-hit
+    # = 1.2/1.8 × 1496 (CURRENT) et non ×1096 (INITIAL)). Modèle : base = CURRENT(du pas)
+    # − aura_modèle(position réelle) + aura_modèle(tuile candidate) — algébriquement
+    # = INITIAL + mods-non-aura + auras ré-évaluées (#153) ; identique à l'ancien INITIAL+aura
+    # quand aucun mod non-aura n'est posé (aura_baked == aura_modèle(réel), cf. #49 exact).
+    _aura_cand = 0 if _cand_blocked else aura_attack_bonus_from_allies(carriers, aura_ctx)
+    _rp = scene.pos(att_id)
+    _aura_real = (aura_attack_bonus_from_allies(
+        carriers, {**aura_ctx, "att_pos": _rp, "att_real_pos": _rp if is_melee else None})
+        if _rp is not None else 0)
+    attack_base = scene.attack_current(att_id) - _aura_real + _aura_cand
     _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, attack_pos, t_pos,
                                       damage_profile=prof_name)
     # AURA ENNEMIE %-degat projetee sur l'ATTAQUANT : ShadowInTheWarp_LessDmg_Effect (-25% Psychic aux
@@ -397,7 +408,11 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     tgt_effects = scene.effects(tgt_id)
     aura_sources = [(uid, scene.pos(uid), scene.team(uid), scene.effects(uid))
                     for uid in scene.pos_by_id if uid != tgt_id]
-    hits = attack_hits_with_modifiers(weapon_hits=whits, extra_hits=ctx.stat(StatType.EXTRA_HITS),
+    # #57a : EXTRA_HITS DU PAS (scene, refresh par-pas) et non le cold ctx — les stat-mods hits
+    # dynamiques (Swarm_HitReduction : -1 hit/membre perdu) sont posés APRES l'hydratation.
+    _xh = scene.extra_hits_current(att_id)
+    hits = attack_hits_with_modifiers(weapon_hits=whits,
+                                      extra_hits=_xh if _xh is not None else ctx.stat(StatType.EXTRA_HITS),
                                       extra_hits_melee=ctx.extra_hits_melee,
                                       attacker_effects=att_effects, trait_objects=ctx.trait_objects(),
                                       target_effects=tgt_effects, aura_sources=aura_sources, board=board,

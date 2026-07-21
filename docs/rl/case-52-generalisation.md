@@ -106,30 +106,82 @@ killSure/DefinitelyOverkill block-aware (`probable_damage_event.py`, `utilities/
 harnais recompute (`_fields_from_native_event(block_amount)`). Validé `stages_54a_fix.json` :
 étage utilité 16/17, les deux +50 fermés à ±0.
 
-**−40 (u81 bloodIntercessor) — feuille attack `TriggeredAbilitiesUtility` = AggressiveOnslaught
-(1248), → tâche #58** : L3 = Damage 21.1402 + Kill 100 + Overkill 40 + **TriggeredAbilities 40**
-= 201.140154… exact. `AggressiveOnslaughtPlaybook.CalculateAttackUtilityInStepsInternal
-@1811638d0` : gates [caster adjacent cible] ∧ [≥ nrOfSummons(2) hex plaçables], valeur =
-(maxSummon−1) × délégué per-summon (=40 mesuré, corps generic-shared NON décompilé — ne PAS
-coder 40 en dur). Finding structurel : `TRIGGERED_ATTACK_PLAYBOOKS` ne contient que Psyker
-1013 alors que ~60 triggered ont un corps attack non-trivial → complétion agreement-driven.
+**−40 (u81 bloodIntercessor) — ✅ RÉSOLU (#58, re-expert)** : feuille attack
+`TriggeredAbilitiesUtility` = AggressiveOnslaught (1248). Chaîne RE complète : le délégué
+per-summon = `TriggeredAbilityPlaybook.GetUtilityValue @181510570` = **lookup config plat**
+`Utilities.Default.TriggeredAbilities.AggressiveOnslaught_PerFreeTileAfterCharge = 40` (BC —
+le 40 ÉMERGE de la config, zéro hardcode). Corps `d__3.MoveNext @181173e70` : GATE 1 =
+CasterTile adjacent à la cible ; GATE 2 = `IsTargetInAttackRangeForSummon @1810700d0` ;
+valeur = `min(#tuiles-libres-adjacentes(cible), GetMaxSummon−1) × weight`, avec
+`GetMaxSummon @180e156c0` = `constants.nrOfSummons` (=2). Port :
+`engine/playbook/aggressive_onslaught.py` + registre `TRIGGERED_ATTACK_PLAYBOOKS` (psyker.py).
+Smoke agent : les 3 paires −40 → delta 0.0000, contrôles 1357 (non-adjacent → gate 0) intacts.
+Flags validateur : cap min() exercé seulement à 1 (nrOfSummons=2) ; GATE 2 partiel (élévation
+non modélisée) ; `allowTemporary` divergent (sur-comptage possible hors MC1_67). Finding
+structurel inchangé : ~60 triggered ont un corps attack non-trivial → complétion agreement-driven.
 
-**Erreur compensatoire DÉMASQUÉE par le port (nouveau gap prédiction, bucket #57)** :
+**⚠ Méthodologie (2026-07-21)** : les trajectoires natives batch sont DÉTERMINISTES par seed
+et **stables à travers les relances du jeu** (vérifié : 50/50 clés seed/step/uid identiques
+entre instances). En revanche, **ne JAMAIS éditer `engine/**` pendant qu'un batch tourne**
+(imports Python lazy → module lu à moitié écrit → walks corrompus, inventaire rétréci —
+c'était la cause du batch anormal à 19 confrontations). Batch rétréci = contaminé → rejeter
+et relancer.
+
+**Erreur compensatoire DÉMASQUÉE par le port (bucket #57) — ✅ RÉSOLU (#57a)** :
 1357 s15 u135 était un HIT par annulation de deux erreurs (notre raw gonflé 6580/9865 vs
-natif 5388/8079 = ×1.221 SUR L'ATTAQUANT SUMMON ripper swarm, ET killSure gonflé). Le port
-block corrige killSure → notre argmax choisit t191 (dont notre prédiction est aussi gonflée :
-cf.eng=89.91 avec les prédictions natives injectées). Vrai résiduel = **la prédiction de
-dégât d'un attaquant SUMMON est ~+22 % au-dessus du natif** (feed=False, fresh identique →
-logic). Décomposition base-par-coup : raw_min = 0.8×base×3 → base_off = 6580/2.4 = 2742 vs
-base_nat = 5388/2.4 = 2245 — piste : notre base = `GetStat(ATTACK, INITIAL)` + auras
-re-évaluées (#153), qui EXCLUT toute modification NÉGATIVE courante non-aura (malus type
-BattleFatigue/stack sur le summon) ; le natif serait à l'Attack CURRENT (2245 ?). À sonder :
-comparer INITIAL vs attack_cur_by_id de u135 au s15 (canal attack_current, cf. #45-s18).
+natif 5388/8079 = ×1.221 SUR L'ATTAQUANT SUMMON ripper swarm, ET killSure gonflé). Ground
+truth (probe_57a_summonatk.py + probe_57a2_swarm.py, 1357 s15) : le +22 % était en réalité
+**DEUX gaps qui se composaient** :
+
+1. **Hits 5 off vs 3 nat — trait Swarm, gap de FEED.** u135 = tyranNpc2RipperSwarm (5
+   membres, hp 2576 → 3 vivants). `SwarmAbility.CreateBehaviour @181225e20` (arbre DSL) poste
+   un stat-mod **EXTRA_HITS = −Min(Difference(StatAmount(Owner,NumberOfMembers,INITIAL), …),
+   StatAmount(Owner,NumberOfMembers,MISSING))** via `AddOrUpdateStaticStatModifierEffect`
+   (effectType 0x3fd = 1021 `Swarm_HitReduction`, vérifié live : `statDelta.extraHits = −2`,
+   `numberOfMembers 5→3`). Notre ctx (hydraté au SPAWN, #53) figeait extraHits=0. **Fix** :
+   canal per-pas `extra_hits_cur_by_id` (build_predictor + refresh_shields, scene.py) +
+   accesseur `scene.extra_hits_current` consommé au call-site hits de `prediction.py`.
+2. **Base 2742 (INITIAL) off vs 2245+400=... nat — mods NON-positionnels exclus à tort.**
+   INITIAL(u135)=1096, CURRENT=1496 : le natif prédit per-hit = 1.2/1.8 × **1496** (CURRENT).
+   La modification +400 = **`SummaryExecution_BaseEffect` (1043), entité-effet 116, source
+   u83** — le fameux « résidu +400 » de #153, enfin identifié : PAS une aura positionnelle
+   (sélecteur `Friends(Owner, UnitsWithTrait(0x3f7))` sans nœud d'adjacence, décompilé
+   `CreateTargetSelector @180f6f8a0` ; magnitude `ConfigVar(1033)` via EffectSource) ; buff
+   present aussi sur u139/u150 ; **invisible de decisionView.effects** (ValueModification
+   keyée par l'entité-effet — cf. memoire aura-unexplained-stat-delta). **Fix (modèle de
+   base #57a, prediction.py)** : `base = attack_current(pas) − aura_modèle(pos réelle) +
+   aura_modèle(tuile candidate)` — algébriquement INITIAL + mods-non-aura + auras
+   ré-évaluées (#153) ; identique à l'ancien modèle quand aucun mod non-aura (zéro
+   régression attendue). Validé : confrontation off==nat EXACTE champ par champ
+   (5388/8079, hits 3, blockRawMin 2097, kill/killSure).
 
 ## Étage PRÉDICTION — champs divergents
 
 rawHealthDmgMin/Max (11), healthDmgMin (5), killSure (2), healthDmgMax (2), kill (2),
 healAmount (1).
+
+### État après pile #57a + #57b(Pinned) + #58 (batchs `stages_58_gen.json` / `stages_58_ref.json`)
+
+Gen 4 seeds : **prédiction 25/34 (73 %)** · **utilité 34/34 (100 %** — les 3 ×−40 fermées par
+#58**)** · ability 34/50 (68 %) · move 55/65 (85 %). Diff paire-à-paire vs pré-fix :
+FIXED = les 4 ×0.70 Pinned (1357 s13, 54321 s12/s14/s16), **0 REGRESSED**. Référence
+777/909/31337 : **4×100 % maintenu** (26/26 · 26/26 · 35/35 · 51/51).
+Restent 9 mismatch-logic prédiction : coups additionnels ~4488/~2245 (12345 s18, 54321 s7,
+2468 s14/s15) · ×2 exact (1357 s18) · ×1.22 (54321 s19) · composites (54321 s6/s18, 1357 s16).
+
+### Triage post-#57a (batch `stages_57a_gen.json`, 4 seeds, 2026-07-21)
+
+Diff vs batch précédent : **2 paires fermées** (1357 s15 u135, s17 u150 — les 2 swarms),
+**0 régression**. Restent **13 mismatch-logic**, par famille (ratios nat/off EXACTS sur
+min ET max sauf mention) :
+
+| Famille | Cas | Signature | Piste |
+|---|---|---|---|
+| **×0.70 = ATTAQUANT `Pinned` — ✅ RÉSOLU (#57b)** | 54321 s12 u93, s14 u159, s16 u81 ; 1357 s13 u91 | nat = off × 0.700 | PAS Terrifying (déjà porté #152), PAS le défenseur : probe 54321 s16 → attaquant u81 bloodIntercessor porte `Pinned`, défenseur u89 admecRuststalker zéro stat-mod. `PinnedEffect.CreateEffectDamageBonusForAttack @180f5e8e0` = `ForPercentIncrease(OwnerIsCaster, −EffectConfig(0))` ; EffectConfig(0) = BC `Effect.PinnedDmgReductionPct` = 30 (mapping ordinal↔champ DTO prouvé par `InitEffectConfig @18106e9c0`, recoupé Stunned ordinal 2 bit-exact). Port : `PinnedEffect.create_effect_damage_bonus_for_attack` (status.py, canal attaquant, modèle Stunned). Validé : off == nat EXACT (2192/3288, probe_57b_x070.py). Fausse piste écartée : `Camouflage_HitReductionEffect @181107180` = malus de HITS ranged (DSL ConditionalAmount −const[0x4d]/[0x4b]/[0x2c], min 1) — hits égaux des deux côtés ici, mais **gap distinct à porter** (non enregistré factory). |
+| **coup(s) additionnel(s) ~4488/~2245** | 12345 s18 u77 (+4488 FLAT min&max) ; 54321 s7 u79 (+2245 flat) ; 2468 s14 u89 (diff = 0.8/1.2 × ~4488) ; 2468 s15 u83 (diff = 0.8/1.2 × ~2215) | diff constante ou 0.8/1.2-spread | groupe de coups additionnels (canal #179 `additional_hit_groups`) d'un effet non enregistré, base config ~2244×mult ; à identifier par recon kit + effectAbilityStates. |
+| **×2 exact** | 1357 s18 u81 | nat = 2 × off | multiplicateur ×2 côté cible (MkXGravis-like) ou double-dégât attaquant non porté. |
+| **×1.22** | 54321 s19 u77 | nat = off × 1.22 | base attack : buff non modélisé (vérifier statModSources au pas). |
+| **composites** | 54321 s6 u85, s18 u85 ; 1357 s16 u139 | ratios mixtes | à sonder individuellement (s16 u139 = swarm : vérifier hits + cap membres). |
 
 **healAmount ×3 — ✅ RÉSOLU (#55)** : 12345 s13, u91 = **adeptHospitaller** (⚠ les entityIds
 varient PAR SEED — pas le Biophagus), `Heal(18)` granted, self. Natif 6024 = attack 2008 ×

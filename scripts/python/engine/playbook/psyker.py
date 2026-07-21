@@ -173,8 +173,13 @@ class PsykerPlaybook:
 # le playbook a un corps attack NON-trivial sont enregistrés (base `TriggeredAbilityPlaybook.
 # CalculateAttackUtilityInSteps` yield 0) : absence == 0, même dégradation que le natif. ~60 playbooks
 # triggered ont un corps attack non-trivial (case-34 §MAJ #45quater) — port à la demande (agreement).
-TRIGGERED_ATTACK_PLAYBOOKS: dict[int, PsykerPlaybook] = {
+from .aggressive_onslaught import AggressiveOnslaughtPlaybook   # #58 (registre, cf. module dedie)
+
+TRIGGERED_ATTACK_PLAYBOOKS: dict[int, object] = {
     int(TriggeredAbilityType.PsykerExtraAttack): PsykerPlaybook(),
+    # #58 : AggressiveOnslaught (1248) — summon d'attaque, valeur = min(free_adj(target), nrOfSummons-1)
+    # x weight (AggressiveOnslaught_PerFreeTileAfterCharge=40). Corps @181173e70.
+    int(TriggeredAbilityType.AggressiveOnslaught): AggressiveOnslaughtPlaybook(),
 }
 
 

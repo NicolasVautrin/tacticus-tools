@@ -68,6 +68,13 @@ class Scene:
     # combatSnapshot (stats.attack), refresh par-pas via `refresh_shields`. Defaut {} → fallback
     # `ctx.attack` (from_state offline : le UnitContext du State est deja live).
     attack_cur_by_id: dict = field(default_factory=dict)
+    # Stat EXTRA_HITS COURANT PER-UNITE (#57a) : {uid: GetStat(ExtraHits=17, Current)} — les effets
+    # stat-mod DYNAMIQUES sur les hits (Swarm_HitReduction 1021 : `SwarmAbility.CreateBehaviour
+    # @181225e20` poste EXTRA_HITS = -min(membresInitiaux-?, membresManquants) a chaque membre perdu ;
+    # vecu 1357 s15 u135 ripperSwarm : extraHits -2, hits natifs 3 vs 5 offline). Le cold
+    # `ctx.stat(EXTRA_HITS)` (fige a l'hydratation — au SPAWN pour un summon #53) devient stale des
+    # que des membres meurent. Capture combatSnapshot (stats.extraHits), refresh par-pas.
+    extra_hits_cur_by_id: dict = field(default_factory=dict)
 
     @classmethod
     def from_state(cls, state) -> "Scene":
@@ -169,7 +176,8 @@ class Scene:
             actorstats_by_id=predictor.get("actorstats_by_id") or {},
             defstat_by_id=predictor.get("defstat_by_id") or {},
             turns_started_by_id=predictor.get("turns_started_by_id") or {},
-            attack_cur_by_id=predictor.get("attack_cur_by_id") or {})
+            attack_cur_by_id=predictor.get("attack_cur_by_id") or {},
+            extra_hits_cur_by_id=predictor.get("extra_hits_cur_by_id") or {})
         sc._seed_battle_counters()   # #185 BlessingsOfKhorne (melee-defeats -> effets N-scalés)
         return sc
 
@@ -256,6 +264,17 @@ class Scene:
             return int(v)
         c = self.ctx_by_id.get(uid)
         return int(c.attack) if c is not None else 0
+
+    def extra_hits_current(self, uid) -> int | None:
+        """`GetStat(unit, ExtraHits=17, Current)` DU PAS (#57a) — inclut les stat-mods dynamiques
+        (Swarm_HitReduction). Fallback `ctx.stat(EXTRA_HITS)` (cold snapshot / from_state live) ;
+        None si l'unité est absente des deux tables."""
+        v = (self.extra_hits_cur_by_id or {}).get(uid)
+        if v is not None:
+            return int(v)
+        c = self.ctx_by_id.get(uid)
+        from engine.entities.stats import StatType as _ST
+        return int(c.stat(_ST.EXTRA_HITS)) if c is not None else None
 
     def turns_started(self, uid) -> int | None:
         """`GetStat(unit, 0xc=TurnsStarted)` (`UnitTurnsStartedFormula.Calculate @180f2d6c0`) — nb
@@ -365,7 +384,13 @@ def build_predictor(rpc, rid):
             "attack_cur_by_id": {
                 u["entityId"]: int((u.get("stats") or {}).get("attack") or 0)
                 for u in (snap.get("units") or [])
-                if (u.get("stats") or {}).get("attack") is not None}}
+                if (u.get("stats") or {}).get("attack") is not None},
+            # #57a : ExtraHits COURANT (GetStat(17, Current)) — stat-mods hits dynamiques
+            # (Swarm_HitReduction @181225e20). DYNAMIQUE -> refresh par-pas.
+            "extra_hits_cur_by_id": {
+                u["entityId"]: int((u.get("stats") or {}).get("extraHits") or 0)
+                for u in (snap.get("units") or [])
+                if (u.get("stats") or {}).get("extraHits") is not None}}
 
 
 def build_board(rpc, rid):
@@ -445,6 +470,14 @@ def refresh_shields(predictor, rpc, rid):
         u["entityId"]: int((u.get("stats") or {}).get("attack") or 0)
         for u in (snap.get("units") or [])
         if (u.get("stats") or {}).get("attack") is not None}
+    # #57a : re-capture ExtraHits COURANT — stat-mods hits dynamiques (Swarm_HitReduction :
+    # -1 hit par membre de swarm perdu, maintenu par le behaviour DSL @181225e20). Le cold
+    # (hydratation au build/spawn) SURESTIME les hits des qu'un membre meurt (1357 s15 u135 :
+    # extraHits -2, natif 3 hits vs 5 offline).
+    predictor["extra_hits_cur_by_id"] = {
+        u["entityId"]: int((u.get("stats") or {}).get("extraHits") or 0)
+        for u in (snap.get("units") or [])
+        if (u.get("stats") or {}).get("extraHits") is not None}
     # #46 : re-capture TurnsStarted (stat 12, incrémente à chaque tour démarré) — même raison
     # que TotalAttacksMade (#33) : le cold du build (pas 0) sous-estime tout gate mid-bataille.
     predictor["turns_started_by_id"] = {
