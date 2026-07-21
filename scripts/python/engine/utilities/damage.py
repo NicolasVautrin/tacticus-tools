@@ -124,7 +124,12 @@ class OverkillUnitUtility(BaseUtility):
             raw_min, raw_max = pred.get("healthDmgMin") or 0, pred.get("healthDmgMax") or 0
         thr = _overkill_threshold_pct()
         allow = 1 if pred.get("forceOverkill") else 0
-        if is_overkill(hp, raw_min, default_flag=0, allow_flag=allow, suppress=0, cond=1, threshold_pct=thr):
+        # #54A : `WillBeOverkill @18102ba40` lit le scénario BLOCK `list[0]@0x50` quand présent
+        # (comme WillBeKill) — la borne « garantie » compte le block du défenseur. MightBeOverkill
+        # reste sur le rawMax scalaire.
+        _bmin = pred.get("blockRawMin")
+        will_min = _bmin if _bmin is not None else raw_min
+        if is_overkill(hp, will_min, default_flag=0, allow_flag=allow, suppress=0, cond=1, threshold_pct=thr):
             return wt.overkill(definite=True)     # WillBeOverkill -> DefinitelyOverkill (40)
         if is_overkill(hp, raw_max, default_flag=0, allow_flag=allow, suppress=0, cond=1, threshold_pct=thr):
             return wt.overkill(definite=False)    # MightBeOverkill -> PossibleOverkill (15)

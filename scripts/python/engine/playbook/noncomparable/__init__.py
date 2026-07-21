@@ -72,6 +72,8 @@ from .it_itches import ItItchesPlaybook
 from .the_quickening import TheQuickeningPlaybook
 from .black_rage import BlackRagePlaybook
 from .vigilance_eternal import VigilanceEternalPlaybook
+from .scarab_hive import ScarabHivePlaybook
+from .cord_claw import CordClawPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -106,6 +108,12 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 `ShouldEvaluate(unit)` = corps folde @18111af90
         #                                 (`turnsStarted > 1`, jamais au 1er tour de l'unite)
         #                                 -> `should_evaluate` (gate AMONT dans choose_action)
+        # #56 (tranche 1) — 2 NC natifs (EvaluateNonComparable) jamais confrontes, reveles par le
+        # batch de generalisation MC1_67 (misses "non-attack-oracle") :
+        ScarabHivePlaybook(),           # 1007 — summon 2 scarabs adj. cible ; util plate 1, gate
+        #                                 adjacent_addable_count(cible) >= 2 (@181158ab0)
+        CordClawPlaybook(),             # 1122 — attaque melee ; util = #ennemis adj. tuile d'attaque
+        #                                 (GetAdjacentEnemies casterPos), MIN_UTILITY=1 (@181126670)
     )
 }
 

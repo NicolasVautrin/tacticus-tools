@@ -84,7 +84,8 @@ class BeastSlayerExtraBlockEffect(BaseEffect):
     natif la tient dans `GetMultiValueStat(7)`. Variables de TRAIT -> globales, NON scalees par le mult.
     Cf. docs/rl/case-68-orksnob-attacker-effects.md (#72)."""
 
-    def create_effect_block_source_for_defense(self, defender_fixed_armor: int = 0):
+    def create_effect_block_source_for_defense(self, defender_fixed_armor: int = 0,
+                                               defender_attack: int = 0):
         chance = trait_var("BeastSlayer", "beastSlayerBlockChance")
         pct = trait_var("BeastSlayer", "beastSlayerBlockAsMaxArmorPct")
         if not chance or pct is None:
@@ -94,6 +95,30 @@ class BeastSlayerExtraBlockEffect(BaseEffect):
             return None
         # block_id = la chance (id natif dans failedList @181002350) : une source EXCLUE apres son 1er
         # echec sur un coup (exclusion inter-coups, cf. AttackDamageOperation._run_hits #72).
+        return BlockSource(chance=int(chance), amount=amount, block_id=int(chance))
+
+
+class DaemonExtraBlockEffect(BaseEffect):
+    """Trait Daemon, effet `Daemon_ExtraBlock` (1034) — source de BLOCK du defenseur daemon (#54A) :
+    chance = `daemonBlockChance` (25), amount = `daemonBlockDamagePercentage`% (50) de la stat
+    **Attack COURANTE du defenseur** (variables de TRAIT globales, non scalees par le mult). Entree
+    `GetMultiValueStat(7)` (`CalculateBlockChances @181002350`), ABSENTE du scalaire GetStat(7/8),
+    comme BeastSlayer. Cote PREDICTION elle pilote le scenario block `list[0]@0x50` du
+    `DamagePredictionResult` (« tous les coups bloques », `CalculateDamagePredictionScenario
+    @18102ed00` : dmg' = max(0, dmg − blockAmount)) consomme par `get_WillBeKill @18102bef0` /
+    `WillBeOverkill @18102ba40`. Reconcilie 1357 s15 (u135 3 hits vs blackSmnBloodletter atk 2194,
+    hp 3888) : blockAmount = 50%×2194 = 1097 ; list[0].rawMin = 5388 − 3×1097 = 2097 < 3888
+    -> WillBeKill FALSE -> PossibleKill(50) ; pairUtility natif 164.94858612772077 = EXACT."""
+
+    def create_effect_block_source_for_defense(self, defender_fixed_armor: int = 0,
+                                               defender_attack: int = 0):
+        chance = trait_var("Daemon", "daemonBlockChance")
+        pct = trait_var("Daemon", "daemonBlockDamagePercentage")
+        if not chance or pct is None:
+            return None
+        amount = int(int(defender_attack) * int(pct) / 100)   # PercentageOf(Attack courant, pct)
+        if amount <= 0:
+            return None
         return BlockSource(chance=int(chance), amount=amount, block_id=int(chance))
 
 

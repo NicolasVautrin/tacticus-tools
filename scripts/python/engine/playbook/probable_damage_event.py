@@ -46,12 +46,19 @@ class ProbableDamageEvent:
         rr = dp.raw_health_damage
         s = dp.accurate_shield_damage
         hp = dp.current_health
+        # #54A : `get_WillBeKill @18102bef0` lit `list[0]@0x50` (scénario « tous coups bloqués »)
+        # quand la liste est non-vide, sinon le scalaire rawMin@0x24 — killSure compte donc le BLOCK
+        # du défenseur (Daemon 25%/50%×Attack, BeastSlayer…). `kill` (MightBeKill @18102be30) reste
+        # sur le rawMax scalaire SANS block.
+        bmin = dp.block_raw_min
+        will_min = bmin if bmin is not None else rr.min
         return {"hpBefore": hp, "shieldBefore": dp.shield,
                 "healthDmgMin": min(r.min, hp), "healthDmgMax": min(r.max, hp),
                 "rawHealthDmgMin": rr.min, "rawHealthDmgMax": rr.max, "forceOverkill": dp.force_overkill,
                 "shieldDmgMin": s.min, "shieldDmgMax": s.max,
                 "limitedByMinHp": dp.limited_by_min_hp, "appliedHits": dp.applied_hits,
-                "kill": r.max >= hp, "killSure": r.min >= hp}
+                "blockRawMin": bmin,
+                "kill": r.max >= hp, "killSure": will_min >= hp}
 
 
 def calculate_utility_from_damage_event(event: ProbableDamageEvent, wt, target_max_hp: int | None = None) -> float:

@@ -38,6 +38,7 @@ from .loki import (
     MartialKatahDmgReductionEffect,
     BeastSlayerExtraDmgEffect,
     BeastSlayerExtraBlockEffect,
+    DaemonExtraBlockEffect,
     MasterAnnihilatorAdditionalHitEffect,
     NeuroparasiteEffect,
     NightshroudDmgReductionEffect,
@@ -101,6 +102,9 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # BeastSlayer cote DEFENSE : +10% chance de bloquer 100% du FixedArmor courant en degat (source de
     # block SUPPLEMENTAIRE, AddExtraBlockEffectToOwner @180e18b70 ; absente du scalaire GetStat(7/8)). #72.
     "BeastSlayer_ExtraBlock": BeastSlayerExtraBlockEffect,
+    # Daemon (trait, effet 1034) : 25% chance de bloquer 50% de l'Attack COURANTE du defenseur —
+    # pilote WillBeKill/WillBeOverkill de la prediction (scenario block list[0]@0x50). #54A.
+    "Daemon_ExtraBlock": DaemonExtraBlockEffect,
     "PowerTrip_FullHealth": PowerTripFullHealthEffect,
     "PowerTrip_IgnoreArmor": PowerTripIgnoreArmorEffect,
     "Stunned": StunnedEffect,           # effet COMPOSITE (parent 1162 → enfants 1165/1166/1167)

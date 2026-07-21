@@ -269,6 +269,25 @@ def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_arm
         add_modifier(mods, eb)
 
 
+def defender_prediction_block_amount(scene, tgt_id) -> int:
+    """Amount de BLOCK du défenseur pour le scénario `list[0]@0x50` de la prédiction (#54A) —
+    mirror des entrées `CalculateBlockChances @181002350` consommées par le scénario block
+    (`CalculateDamagePredictionScenario @18102ed00`) : scalaire GetStat(7/8)
+    (blockChance/blockDamage) + sources multi-value des EFFETS du défenseur (Daemon_ExtraBlock
+    25 %/50 %×Attack courant, BeastSlayer_ExtraBlock…). Approximation documentée : sources
+    multiples SOMMÉES (un seul cas mesuré, mono-source Daemon — 1357 s15). 0 = pas de block
+    → liste native vide → WillBeKill/WillBeOverkill retombent sur les scalaires raw."""
+    amt = 0
+    tctx = scene.ctx(tgt_id)
+    if tctx is not None and int(tctx.block_chance or 0) > 0:
+        amt += int(tctx.block_damage or 0)
+    from ..entities.effects import defender_effect_block_sources
+    for bs in defender_effect_block_sources(scene.effects(tgt_id), scene.armor(tgt_id),
+                                            defender_attack=scene.attack_current(tgt_id)):
+        amt += int(bs.amount or 0)
+    return amt
+
+
 def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=False):
     """`ALoki_NormalAttackPlaybook.MakeDamagePredictions @181372730` -> `ability.PredictAttack @1811afa50` :
     base=Attack × hits + perçage + armure + MODIFIER (effets attaquant + ElevationBonus + défenseur).
@@ -407,7 +426,8 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
         target_current_health=scene.hp(tgt_id) or 0, initial_damage=attack_base, hits=hits,
         profile_type=0, pierce_pct=pierce, armor=scene.armor(tgt_id), mods=mods, hit_mult=tgt_hit_mult,
         target_shield=scene.shield(tgt_id), target_limits=_target_damage_limits(scene, tgt_id),
-        extra_groups=_extra_groups)
+        extra_groups=_extra_groups,
+        defender_block_amount=defender_prediction_block_amount(scene, tgt_id))
     ev = ProbableDamageEvent(target=tgt_id, prediction=res)
     if meta:
         return ev, {"base": attack_base, "pierce": pierce, "armor": scene.armor(tgt_id), "hits": hits,
@@ -504,7 +524,8 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
         target_current_health=scene.hp(tgt) or 0, initial_damage=base, hits=hits,
         profile_type=profile_idx, pierce_pct=pierce, armor=scene.armor(tgt),
         mods=mods, target_shield=tgt_shield, hit_mult=tgt_hit_mult,
-        target_limits=_target_damage_limits(scene, tgt))
+        target_limits=_target_damage_limits(scene, tgt),
+        defender_block_amount=defender_prediction_block_amount(scene, tgt))
 
 
 # Abilities dont la PRÉDICTION de dégât SANTÉ est Attack-based (== l'attaque NORMALE), PAS le config

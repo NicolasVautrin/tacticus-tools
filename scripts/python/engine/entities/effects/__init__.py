@@ -184,7 +184,8 @@ def build_defender_modifiers_from_effects(effects, is_melee: bool | None = None,
     return acc
 
 
-def defender_effect_block_sources(effects, defender_fixed_armor: int = 0) -> list:
+def defender_effect_block_sources(effects, defender_fixed_armor: int = 0,
+                                  defender_attack: int = 0) -> list:
     """Sources de BLOCK supplementaires posees par les effets de la CIBLE (defenseur) — a AJOUTER a la
     chaine `apply_random_block_damage` APRES le block de base (scalaire `GetStat(7/8)`). Mirror des
     entrees SEPAREES de `GetMultiValueStat(7)` (`CalculateBlockChances @181002350`) posees par
@@ -194,7 +195,8 @@ def defender_effect_block_sources(effects, defender_fixed_armor: int = 0) -> lis
     Retourne [] si aucun effet ne pose de source -> combat exact inchange (no-op). #72."""
     out = []
     for e in _as_effects(effects):
-        bs = e.create_effect_block_source_for_defense(defender_fixed_armor)
+        bs = e.create_effect_block_source_for_defense(defender_fixed_armor,
+                                                      defender_attack=defender_attack)
         if bs is not None:
             out.append(bs)
     return out

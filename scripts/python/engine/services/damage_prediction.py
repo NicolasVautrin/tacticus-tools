@@ -65,6 +65,11 @@ class DamagePredictionResult:
     might_crit: bool = False
     force_overkill: bool = False   # ForceOverkill @0xB2 (trait force-overkill ; défaut False, non porté baseline)
     applied_hits: int = 0
+    # #54A : mirror de `list[0]@0x50` (scénarios de BLOCK, mergés par index dans `Add @18102a710`) =
+    # le scénario « TOUS les coups bloqués » : Σ_coup max(0, rawMin_coup − blockAmount). None = pas de
+    # source de block chez le défenseur (liste vide) → `get_WillBeKill @18102bef0` retombe sur le
+    # scalaire rawMin@0x24. Consommé par will-be-kill/will-be-overkill (killSure/DefinitelyOverkill).
+    block_raw_min: int | None = None
 
     def default_block_scenario(self) -> "BlockScenario":
         """`DamagePredictionResult.get_DefaultBlockScenario` @18102bcd0 — le scénario cumulé (dégât santé/
@@ -82,6 +87,7 @@ class DamagePredictionResult:
     def add(self, other: "DamagePredictionResult") -> None:
         """`DamagePredictionResult.Add` @18102a710 — somme ENTIÈRE champ-par-champ (Accurate* santé/bouclier
         + Total + AppliedHits) avec ApplyCap. MUTE self (agrège le coup `other` de la boucle multi-coups)."""
+        _self_raw_min_before = self.raw_health_damage.min   # #54A : fallback block AVANT la somme raw
         h = MinMaxDamage(min=self.accurate_health_damage.min + other.accurate_health_damage.min,
                          max=self.accurate_health_damage.max + other.accurate_health_damage.max,
                          cap=self.accurate_health_damage.cap)
@@ -104,6 +110,12 @@ class DamagePredictionResult:
         self.total_damage = t
         self.applied_hits += other.applied_hits
         self.might_crit = self.might_crit or other.might_crit
+        # #54A : merge du scénario block (mirror per-index de `Add @18102a710` : quand UN côté n'a pas
+        # de liste, son scalaire rawMin sert d'entrée — c'est exactement le fallback natif).
+        if self.block_raw_min is not None or other.block_raw_min is not None:
+            a = self.block_raw_min if self.block_raw_min is not None else _self_raw_min_before
+            b = other.block_raw_min if other.block_raw_min is not None else other.raw_health_damage.min
+            self.block_raw_min = a + b
 
 
 @dataclass
@@ -436,7 +448,8 @@ def get_multi_hit_attack_prediction(
         reduction_min: int = 0, reduction_max: int = 0, spread_pct: int = 20,
         target_shield: int = 0, might_crit: bool = False,
         target_limits: dict | None = None,
-        extra_groups: "list[dict] | None" = None) -> DamagePredictionResult:
+        extra_groups: "list[dict] | None" = None,
+        defender_block_amount: int | None = None) -> DamagePredictionResult:
     """`BattleQuery.GetMultiHitAttackPrediction` @181066080 — LA boucle multi-coups (le `×hits` est ICI, PAS
     dans PredictAttackRaw) :
         result = predict_attack_raw(coup 1, prev=vide)
@@ -454,13 +467,22 @@ def get_multi_hit_attack_prediction(
     (PlasmaCannon/SpiritLeech) ne passent PAS ici (routés via _PREDICT_VIA_NORMAL_ATTACK)."""
     hits = max(1, hits)
 
+    # #54A : scénario BLOCK per-coup (mirror `CalculateDamagePredictionScenario @18102ed00` →
+    # entrée `list[0]@0x50` « tous les coups bloqués ») : rawMin_coup' = max(0, rawMin_coup − amount).
+    # Appliqué au raw min FINAL du coup (armure=0 en prédiction IA, pré-armure ≡ post) — réconcilié
+    # 1357 s15 (5388 − 3×1097 = 2097). None/0 = pas de source de block → liste vide (fallback scalaire).
+    def _with_block(r: DamagePredictionResult) -> DamagePredictionResult:
+        if defender_block_amount and int(defender_block_amount) > 0:
+            r.block_raw_min = max(0, r.raw_health_damage.min - int(defender_block_amount))
+        return r
+
     def _hit(prev: "BlockScenario") -> DamagePredictionResult:
-        return predict_attack_raw(
+        return _with_block(predict_attack_raw(
             prev, initial_damage or 0, profile_type=profile_type, armor=armor, pierce_pct=pierce_pct,
             extra_max=extra_max, mods=mods, hit_mult=hit_mult, reduction_min=reduction_min,
             reduction_max=reduction_max, spread_pct=spread_pct,
             target_current_health=target_current_health, target_shield=target_shield,
-            target_limits=target_limits, might_crit=might_crit)
+            target_limits=target_limits, might_crit=might_crit))
 
     result = _hit(BlockScenario())                          # coup 1 : prev vide → ressources pleines
     for _i in range(1, hits):
@@ -481,7 +503,7 @@ def get_multi_hit_attack_prediction(
                 target_current_health=target_current_health, target_shield=target_shield,
                 target_limits=target_limits, predefined=_pre, might_crit=might_crit)
         for _j in range(max(0, int(_grp.get("count", 0)))):
-            result.add(_ghit(result.default_block_scenario()))
+            result.add(_with_block(_ghit(result.default_block_scenario())))
     # #70 : l'additif plat (ForAddition) est appliqué PAR COUP dans `predict_attack_raw` (via `mods` non
     # strippé) -> mirror natif (Σ des events per-coup, chacun avec l'additif). PLUS d'application UNE FOIS
     # sur l'agrégat (ancien bloc = artefact pré-refactor #51 ; SANS contrepartie native, cf. prediction.md §4).
@@ -495,7 +517,8 @@ def get_attack_prediction(
         reduction_min: int = 0, reduction_max: int = 0, spread_pct: int = 20,
         might_crit: bool = False, target_shield: int = 0, target_limits: dict | None = None,
         shield_raw: MinMaxDamage | None = None,
-        extra_groups: "list[dict] | None" = None) -> DamagePredictionResult:
+        extra_groups: "list[dict] | None" = None,
+        defender_block_amount: int | None = None) -> DamagePredictionResult:
     """`BattleQuery.GetNormalAttackPrediction` / `GetAttackPrediction` (slot 14) — entrée attaque NORMALE
     (whole-attack). Le natif route TOUTE attaque multi-coups par `GetMultiHitAttackPrediction` (boucle
     `PredictAttackRaw` par coup + `prev` déplété + `Add`) : on DÉLÈGUE donc à `get_multi_hit_attack_prediction`.
@@ -512,4 +535,5 @@ def get_attack_prediction(
         profile_type=profile_type, armor=armor, pierce_pct=pierce_pct, extra_max=extra_max,
         mods=mods, hit_mult=hit_mult, reduction_min=reduction_min, reduction_max=reduction_max,
         spread_pct=spread_pct, target_shield=target_shield, might_crit=might_crit,
-        target_limits=target_limits, extra_groups=extra_groups)
+        target_limits=target_limits, extra_groups=extra_groups,
+        defender_block_amount=defender_block_amount)

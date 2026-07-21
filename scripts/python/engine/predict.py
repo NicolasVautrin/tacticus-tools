@@ -209,7 +209,7 @@ def heal_amount_config(ability_name: str | None, active_level: int, passive_leve
     return ability_var(key, "hpToHeal", level, multiplier_pct=multiplier_pct)
 
 
-def heal_amount_weapon(attack_stat: int) -> int:
+def heal_amount_weapon(attack_stat: int, weapon_highest_hits: int = 1) -> int:
     """`HealAbility.HealAmount @180e345b0` branche ARME REELLE (ability SANS `hpToHeal` config) :
     `StatAmount(weapon@0x160) x Max(WeaponHighestHits(weapon), 1)` — decompile relu #45c :
     l'arbre DSL est `Multiply(StatAmount(this.weapon), Max(WeaponHighestHits(this.weapon), 1))`.
@@ -218,10 +218,12 @@ def heal_amount_weapon(attack_stat: int) -> int:
     effet-inclusif -> `ctx.attack`). Mesure 1167 Heal_TwistedScience (777) : natif 3614 ==
     BC Damage du biophagus, CONSTANT self (s9) et allie (s1) ; ce n'est NI la variable `hp`
     de TwistedScience (= le bump max-HP : 2992), NI la saturation missing (5066 = l'ancien
-    fallback faux). Facteur hits : x1 — MAJ #37 (5 soins verifies 1 coup) + datapoint 1167
-    (arme 1-hit, indiscriminable) ; a re-verifier si un soin a arme multi-hit surgit en
-    confrontation (l'etage heal du harnais le chiffrera)."""
-    return heal_amount(int(attack_stat), 1)
+    fallback faux). Facteur hits (#55, batch #52) : le `x Max(WeaponHighestHits,1)` du DSL est
+    REEL — datapoint discriminant 12345 s13 (probe_55_heal) : adeptHospitaller Heal(18) granted,
+    arme Bolter 3 hits, attack 2008 -> healAmount natif 6024 = 2008 x 3 EXACT (biophagus 1167 :
+    arme 1-hit -> x1, indiscriminable, cohérent). `weapon_highest_hits` = hits de l'arme du
+    caster (`UnitContext.normal_weapon_hits`, gameconfig)."""
+    return heal_amount(int(attack_stat), weapon_highest_hits)
 
 
 def predict_heal_effective(heal_amount_value: int, target_current_hp: int, target_max_hp: int,
@@ -379,7 +381,8 @@ def repair_amount_config(caster_visual_id: str | None, active_level: int,
     OFFLINE = la variable `hpToRepair[level]` de la clé CONCRÈTE de réparation Comparable de l'unité
     (`_repair_config_key` depuis `gameconfig.unit(visualId).activeAbilities`), via `ability_var` (index
     niveau + scaling rareté `variablesAffectedByRarityBonus` dont `hpToRepair` fait partie). Réparation =
-    1 coup → PAS de `× hits` (comme le soin, MAJ #37/#79). Niveau = ACTIF (réparation native, +0xB8).
+    1 coup → PAS de `× hits` (variable de config = arme SYNTHÉTIQUE 1 coup ; ≠ la branche arme RÉELLE
+    du soin qui multiplie par WeaponHighestHits, #55). Niveau = ACTIF (réparation native, +0xB8).
     Renvoie None si l'unité n'a pas de réparation Comparable à `hpToRepair` → l'appelant retombe alors sur
     la saturation `fill = missing` (approximation documentée, sans régression)."""
     if not caster_visual_id:

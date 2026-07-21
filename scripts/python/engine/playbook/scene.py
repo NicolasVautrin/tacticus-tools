@@ -267,6 +267,40 @@ class Scene:
 
 
 # ── SEAM live-feed (RPC) — tables cold + état par-pas. `rpc(method, body, timeout) -> result dict`. ──
+def _hydrate_static_unit(ctx_by_id, vis_by_id, mult_by_id, ablvl_by_id, abstate_by_id,
+                         u, vis_id, stat_types):
+    """Entrée STATIQUE d'une unité dans les tables du predictor (bloc per-unit de
+    `build_predictor`, partagé avec l'hydratation mid-bataille de `refresh_shields` #53).
+
+    #87 : NE PAS dropper le ctx sur `normalAttack.error`. `readNormalAttack` (frida rpc-view.ts)
+    renvoie error="aucune cible atteignable au deploiement (base non capturable)" quand aucun
+    ennemi n'est a portee de l'attaque normale DEPUIS LA POSITION COURANTE (il ne teste PAS les
+    move-tiles). Or le natif score les attaques depuis les tuiles de MOUVEMENT -> une unite peut
+    avoir des attaques rankees (attackPlans/decisionView non vide) alors que sa base normale est
+    "non capturable" au deploiement. Dropper le ctx -> scene.ctx()=None -> make_normal_attack_
+    predictions renvoie None -> AUCUNE attaque scoree (normale ET specials via _PREDICT_VIA_
+    NORMAL_ATTACK), d'ou attack_cands=[] malgre NATIVE ranked non-vide. `from_snapshot` degrade
+    deja proprement sur na.error (nh=1, min/max=0) ; la base reelle = get_stat(ATTACK, INITIAL)
+    (position-independante) et l'arme est re-resolue par adjacence (select_weapon_pierce). Le port
+    ne score de toute facon QUE les abilities deja rankees par le natif (_best_attack itere
+    plan.evals) -> aucun risque d'attaque fantome. Build INCONDITIONNEL."""
+    eid = u["entityId"]
+    u["visualId"] = vis_id
+    vis_by_id[eid] = vis_id
+    uc = u.get("unitConfig") or {}
+    if isinstance(uc, dict) and uc.get("abilityVariablesMultiplier") is not None:
+        mult_by_id[eid] = int(uc["abilityVariablesMultiplier"])
+        if uc.get("passiveAbilityLevel"):
+            ablvl_by_id[eid] = int(uc["passiveAbilityLevel"])
+    # AbilityState PER-ABILITY (#100) — capteur combatSnapshot.abilityStates (entrée
+    # ActiveAbility._abilityState @0x4c) : {abilityId: {level, multiplier}}.
+    sts = {int(a["id"]): {"level": a.get("level"), "multiplier": a.get("multiplier")}
+           for a in (u.get("abilityStates") or []) if a.get("id") is not None}
+    if sts:
+        abstate_by_id[eid] = sts
+    ctx_by_id[eid] = UnitContext.from_snapshot(u, GC.unit(vis_id or ""), stat_types)
+
+
 def build_predictor(rpc, rid):
     """Tables STATIQUES (cold, 1×/runner) : `combatSnapshot` (dégât d'arme + stats + unitConfig
     mult/level + boucliers) + `decisionView` (visualId). None si combatSnapshot KO. (Ex-`PV.build_predictor`.)"""
@@ -279,35 +313,11 @@ def build_predictor(rpc, rid):
     abstate_by_id = {}
     for u in (snap.get("units") or []):
         eid = u["entityId"]
-        u["visualId"] = vis_by_id.get(eid)
         armor_by_id[eid] = int((u.get("stats") or {}).get("fixedArmor") or 0)
         shield_by_id[eid] = sum(int(s.get("amount") or 0)
                                 for s in (u.get("shields") or []) if (s.get("amount") or 0) > 0)
-        uc = u.get("unitConfig") or {}
-        if isinstance(uc, dict) and uc.get("abilityVariablesMultiplier") is not None:
-            mult_by_id[eid] = int(uc["abilityVariablesMultiplier"])
-            if uc.get("passiveAbilityLevel"):
-                ablvl_by_id[eid] = int(uc["passiveAbilityLevel"])
-        # AbilityState PER-ABILITY (#100) — capteur combatSnapshot.abilityStates (entrée
-        # ActiveAbility._abilityState @0x4c) : {abilityId: {level, multiplier}}.
-        sts = {int(a["id"]): {"level": a.get("level"), "multiplier": a.get("multiplier")}
-               for a in (u.get("abilityStates") or []) if a.get("id") is not None}
-        if sts:
-            abstate_by_id[eid] = sts
-        # #87 : NE PAS dropper le ctx sur `normalAttack.error`. `readNormalAttack` (frida rpc-view.ts)
-        # renvoie error="aucune cible atteignable au deploiement (base non capturable)" quand aucun
-        # ennemi n'est a portee de l'attaque normale DEPUIS LA POSITION COURANTE (il ne teste PAS les
-        # move-tiles). Or le natif score les attaques depuis les tuiles de MOUVEMENT -> une unite peut
-        # avoir des attaques rankees (attackPlans/decisionView non vide) alors que sa base normale est
-        # "non capturable" au deploiement. Dropper le ctx -> scene.ctx()=None -> make_normal_attack_
-        # predictions renvoie None -> AUCUNE attaque scoree (normale ET specials via _PREDICT_VIA_
-        # NORMAL_ATTACK), d'ou attack_cands=[] malgre NATIVE ranked non-vide. `from_snapshot` degrade
-        # deja proprement sur na.error (nh=1, min/max=0) ; la base reelle = get_stat(ATTACK, INITIAL)
-        # (position-independante) et l'arme est re-resolue par adjacence (select_weapon_pierce). Le port
-        # ne score de toute facon QUE les abilities deja rankees par le natif (_best_attack itere
-        # plan.evals) -> aucun risque d'attaque fantome. Build INCONDITIONNEL.
-        ctx_by_id[eid] = UnitContext.from_snapshot(u, GC.unit(vis_by_id.get(eid) or ""),
-                                                   snap.get("statTypes"))
+        _hydrate_static_unit(ctx_by_id, vis_by_id, mult_by_id, ablvl_by_id, abstate_by_id,
+                             u, vis_by_id.get(eid), snap.get("statTypes"))
     # TotalAttacksMade PER-UNITE (#106) — capteur actorStats (ActorStatisticsComponent +0x20). Capture
     # au BUILD (point-in-time = count au pas 0). DYNAMIQUE (incremente a chaque attaque) -> RE-CAPTUREE
     # PAR-PAS par `refresh_shields` (#33 : sans ce refresh, une prediction mid-bataille indexee par ce
@@ -449,6 +459,23 @@ def refresh_shields(predictor, rpc, rid):
         predictor["actorstats_by_id"] = {
             u["entityId"]: int(u.get("totalAttacksMade") or 0)
             for u in _ast["units"] if u.get("entityId") is not None}
+    # #53 : hydrate les unités APPARUES mid-bataille (summons) dans les tables STATIQUES —
+    # `build_predictor` est cold (pas 0), donc un summon spawné ensuite n'a NI ctx NI visualId :
+    # scene.ctx(summon)=None -> make_normal_attack_predictions=None -> toutes tuiles refusées
+    # ("gated") -> le moteur bouge au lieu d'attaquer (batch #52 : 5 misses, probe_53_summon).
+    # Le natif lit l'ECS live par décision — l'hydratation par-pas retire la staleness de NOTRE
+    # seam, elle n'invente rien. decisionView LAZY (1 RPC uniquement quand un entityId inconnu
+    # apparaît dans le snapshot frais — rare).
+    new_units = [u for u in (snap.get("units") or [])
+                 if u.get("entityId") is not None and u["entityId"] not in predictor["ctx_by_id"]]
+    if new_units:
+        dv0 = rpc("decisionView", {"runnerId": rid, "maxRank": 1}, 60)
+        vis = {x["id"]: x.get("visualId") for x in (dv0.get("units") or [])}
+        for u in new_units:
+            _hydrate_static_unit(predictor["ctx_by_id"], predictor["vis_by_id"],
+                                 predictor["mult_by_id"], predictor["ablvl_by_id"],
+                                 predictor["abstate_by_id"], u, vis.get(u["entityId"]),
+                                 snap.get("statTypes"))
 
 
 def step_context(predictor, dv):

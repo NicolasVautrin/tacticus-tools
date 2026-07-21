@@ -30,7 +30,8 @@ from .damage_reduction import (TerrifyingExtraDefenseEffect, MartialKatahDmgRedu
                                OverwhelmingWrathRangeDmgReductionEffect,
                                VexillaMagnificaDmgReductionEffect)
 from .hits import (SquigHoundAdditionalHitsEffect, AnvilShieldAdditionalBlockEffect,
-                   BeastSlayerExtraBlockEffect, FightingRetreatHitReductionEffect, LightCoverEffect,
+                   BeastSlayerExtraBlockEffect, DaemonExtraBlockEffect,
+                   FightingRetreatHitReductionEffect, LightCoverEffect,
                    ParryEffect, MasterAnnihilatorAdditionalHitEffect, BigTargetAdjacentEffect,
                    AstartesBannerExtraHitEffect, PowerTripFullHealthEffect, PowerTripIgnoreArmorEffect,
                    KanOpenerEffect, LIGHT_COVER_TILE_ID)
@@ -55,6 +56,7 @@ __all__ = [
     "OverwhelmingWrathRangeDmgReductionEffect", "VexillaMagnificaDmgReductionEffect",
     # hits
     "SquigHoundAdditionalHitsEffect", "AnvilShieldAdditionalBlockEffect", "BeastSlayerExtraBlockEffect",
+    "DaemonExtraBlockEffect",
     "FightingRetreatHitReductionEffect", "LightCoverEffect", "ParryEffect",
     "MasterAnnihilatorAdditionalHitEffect", "BigTargetAdjacentEffect", "AstartesBannerExtraHitEffect",
     "PowerTripFullHealthEffect", "PowerTripIgnoreArmorEffect", "KanOpenerEffect", "LIGHT_COVER_TILE_ID",

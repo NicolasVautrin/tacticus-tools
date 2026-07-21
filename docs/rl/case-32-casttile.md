@@ -107,12 +107,16 @@ Fix (`engine/playbook/noncomparable/the_quickening.py::generate_candidates`) :
 
 ## Résiduels ouverts (hors périmètre #32, tâches créées)
 
-- **Fury face ATTACK** (flag spec re-expert) : la feuille TriggeredAbilities(2) du composite
-  Damage(34) évalue AUSSI Fury en mode attack (L3 : 7.8168/6.9492) — `load_attack_playbook(1247)`
-  absent (`psyker.py` : registre attack = PsykerExtraAttack seul). Chemin distinct du move-leaf,
-  n'a pas mordu sur le batch (u/pairUtility matchent à 6 décimales sur les paires confrontées —
-  probablement gaté IsRegularAttack-only ou replié différemment) ; à investiguer sur un cas
-  discriminant avant port.
+- **Fury face ATTACK — RÉSOLU (#51, verdict re-expert)** : c'est le **no-op de base**
+  `TriggeredAbilityPlaybook<T>.CalculateAttackUtilityInStepsInternal @18150f4c0` (iterator
+  `d__37.MoveNext @18134e990` : yield unique `Fix64(0)`) — Fury n'override QUE la face move
+  (~60 autres concrets overrident la face attack, Fury n'y figure pas). Chaîne attack :
+  `<EvaluateAttackInSteps>d__0 @1810f6a50` → `<EvaluateAttackInStepsInternal>d__3 @1810f64b0`
+  → slot 3 `CalculateAttackUtilityInSteps @18150f530` → vslot 0x1e8 (base). Discriminant live
+  31337 s5 tuile (3,5) (2 ennemis adjacents, move-Fury=20.53) : `pairUtility` natif = `u`
+  offline SANS terme Fury attack à 9 décimales → terme attack ≡ 0. **L'absence de 1247 dans
+  `TRIGGERED_ATTACK_PLAYBOOKS` est le mirror fidèle — ne rien ajouter.** Les sous-valeurs L3
+  7.8168/6.9492 = artefact d'attribution du tracer (comme le tag `ability:"ForHonor"`).
 - **Second-target multi-adjacent** : le déterminisme de `SelectUnit(…,3)` quand E a ≥ 2 ennemis
   adjacents (ordre d'énumération des tuiles adjacentes de E) — non liant à s5 (1 seul), port =
   ordre `neigh_by_pos` natif, à valider si un cas multi-adjacent apparaît.

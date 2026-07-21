@@ -80,6 +80,7 @@ from engine.playbook import noncomparable as playbooks  # noqa: E402
 from engine.playbook import scene as _scene  # noqa: E402
 from engine.playbook import get_playbook_or_default, tile_utility  # noqa: E402
 from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK  # noqa: E402
+from engine.playbook.prediction import defender_prediction_block_amount  # noqa: E402  (#54A)
 from engine.predict import (heal_amount_config, heal_utility,  # noqa: E402  (#45 confrontation
                             heal_amount_weapon,                # #45c : branche ARME REELLE
                             predict_heal_effective,            # heal/repair : familles 2 et 4 de
@@ -135,7 +136,7 @@ def _r(sid: int, method: str, body: dict, t: float = 90) -> dict:
 
 # ── Confrontation prédiction : lecture des events natifs -> champs composite ────────────
 
-def _fields_from_native_event(ev: dict) -> dict:
+def _fields_from_native_event(ev: dict, block_amount: int = 0) -> dict:
     """Champs composite Damage depuis un event NATIF d'`aiPlaybookPredict` (mirror de
     `ProbableDamageEvent.composite_fields`). willKillDmg/mightKillDmg = struct+0x24/+0x28
     = les bornes RAW (non capées HP) ; healthDmg = AccurateHealthDamage (capé) ;
@@ -144,6 +145,15 @@ def _fields_from_native_event(ev: dict) -> dict:
     hp = ev.get("hpBefore") or 0
     raw_min = ev.get("willKillDmg") or 0
     raw_max = ev.get("mightKillDmg") or 0
+    # #54A : le décodeur n'expose PAS `list[0]@0x50` (scénario « tous coups bloqués ») — on le
+    # RECALCULE depuis le kit du défenseur (`block_amount`, cf. defender_prediction_block_amount) :
+    # per-hit uniforme = raw_min // hits ; bmin = raw_min − hits × min(per, amount). killSure
+    # (WillBeKill @18102bef0) et DefinitelyOverkill le consomment ; kill (rawMax) inchangé.
+    bmin = None
+    _hits = int(ev.get("appliedHits") or 0) or 1
+    if block_amount and int(block_amount) > 0:
+        per = raw_min // _hits
+        bmin = raw_min - _hits * min(per, int(block_amount))
     return {"hpBefore": hp, "shieldBefore": ev.get("shieldBefore") or 0,
             "healthDmgMin": min(ev.get("healthDmgMin") or 0, hp),
             "healthDmgMax": min(ev.get("healthDmgMax") or 0, hp),
@@ -153,7 +163,8 @@ def _fields_from_native_event(ev: dict) -> dict:
             "shieldDmgMax": ev.get("shieldDmgMax") or 0,
             "limitedByMinHp": bool(ev.get("limitedByMinHp")),
             "appliedHits": ev.get("appliedHits") or 0,
-            "kill": hp <= raw_max, "killSure": hp <= raw_min}
+            "blockRawMin": bmin,
+            "kill": hp <= raw_max, "killSure": hp <= (bmin if bmin is not None else raw_min)}
 
 
 _CMP_KEYS = ("healthDmgMin", "healthDmgMax", "rawHealthDmgMin", "rawHealthDmgMax",
@@ -257,7 +268,10 @@ class StageProbe:
         if off_main is None:
             return {"match": False, "off": "empty", "nat_n": len(nat_evs),
                     "feed": None, "delta": None, "tile": tile}
-        nat_f = _fields_from_native_event(nat_main)
+        # #54A : killSure natif recompute avec le block du défenseur (le décodeur n'expose pas list[0])
+        _blk = (defender_prediction_block_amount(ctx.scene, tgt)
+                if getattr(ctx, "scene", None) is not None else 0)
+        nat_f = _fields_from_native_event(nat_main, block_amount=_blk)
         delta = _pred_delta(off_main.composite_fields(), nat_f, shield_ok)
         out = {"match": not delta, "delta": delta or None, "tile": tile,
                "aoe": {"off": len(off_evs), "nat": len(nat_evs)}, "shield_ok": shield_ok}
@@ -300,12 +314,13 @@ class StageProbe:
             nat = next((e for e in hevs if e.get("targetId") == tgt), hevs[0])
             amt = heal_amount_config(ctx.ab_name_by_id.get(ab), hc["active"],
                                      hc["passive"], hc["multiplier"])
-            # #45c : pas de `hpToHeal` -> branche ARME REELLE (stat Damage du caster x1),
+            # #45c : pas de `hpToHeal` -> branche ARME REELLE (stat Damage du caster x
+            # Max(WeaponHighestHits,1) — #55 : Hospitaller Heal(18) 3-hit = 2008x3=6024),
             # mirror du generateur heal (action_generators). Saturation = dernier filet.
             if amt is None and getattr(ctx, "scene", None) is not None:
                 actx = ctx.scene.ctx(ctx.uid)
                 if actx is not None:
-                    amt = heal_amount_weapon(actx.attack)
+                    amt = heal_amount_weapon(actx.attack, actx.normal_weapon_hits)
             missing = max(0, hp_max - hp_cur)
             off = missing if amt is None else predict_heal_effective(amt, hp_cur, hp_max)
             delta = ({} if int(off) == int(nat.get("healAmount") or 0) else
@@ -361,8 +376,11 @@ class StageProbe:
             prob = (ev.get("probability") or 1.0) * (ev.get("probMult") or 1.0)
             # #45-s18 : + feuille TriggeredAbilities(2) face ATTACK (splash Psyker) — le natif
             # l'évalue DANS ForDamagePrediction par event -> même prob x signe que le composite.
+            _blk = (defender_prediction_block_amount(ctx.scene, t_id)
+                    if getattr(ctx, "scene", None) is not None else 0)   # #54A block défenseur
             u = (u or 0.0) + sign * prob * (
-                damage_composite(_fields_from_native_event(ev), ctx.hpmax_by_id.get(t_id), ctx.wt)
+                damage_composite(_fields_from_native_event(ev, block_amount=_blk),
+                                 ctx.hpmax_by_id.get(t_id), ctx.wt)
                 + triggered_abilities_attack_utility(ctx, uid, ab, t_id, tile))
         for ev in (resp.get("healEvents") or []):
             t_id = ev.get("targetId")
