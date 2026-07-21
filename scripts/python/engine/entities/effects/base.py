@@ -121,7 +121,8 @@ class BaseEffect:
 
     def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
                                              damage_profile: str | None = None,
-                                             defender_on_cover: bool | None = None) -> EffectBonus | None:
+                                             defender_on_cover: bool | None = None,
+                                             dist: int | None = None) -> EffectBonus | None:
         """Contribution DÉFENSEUR à l'axe COUPS (l'effet est sur la CIBLE, modifie les coups reçus).
         Natif : même canal `CreateEffectHitsBonusForAttack` mais trigger `OwnerIsTarget` (ex.
         `LightCoverEffect.CreateEffectHitsBonusForAttack` @180f556b0 = `ForAdditionWithMinimum(

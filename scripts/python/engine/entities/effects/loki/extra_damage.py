@@ -465,6 +465,28 @@ class BeastSlayerExtraDmgEffect(BaseEffect):
         return for_percent_increase(True, pct) if pct is not None else None
 
 
+class MartialKatahDmgBonusEffect(BaseEffect):
+    """`MartialKatah_DmgBonusEffect.CreateEffectDamageBonusForAttack @180f58930` (trait MartialKatah,
+    Custodes ex. custoBladeChampion/custoTrajann) : `EffectBonus.ForPercentIncrease(OwnerIsCaster &
+    HasTrait(target, Summon=2), Direct(GetNumberConstant cfg 0xf = martialKatahExtraDmgPct=100))`.
+    => +100% de dégât vs SUMMONS — AUCUN gate mêlée/ranged/normal (i2 « all attacks against Summons »),
+    et APPLIQUÉ en prédiction display (validé live #57d : NAT[cand] = off ×2 exact, 1357 s18 u81→u168
+    Bloodletter Summon [15174,22752]). Variable de TRAIT → globale, NON scalée (cf. BeastSlayer).
+    (Le -20% défenseur du même trait = MartialKatahDmgReductionEffect, canal défense, #105.)"""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        if not target_traits or "Summon" not in target_traits:
+            return None                               # HasTrait(target, UnitTrait.Summon=2)
+        pct = trait_var("MartialKatah", "martialKatahExtraDmgPct")
+        return for_percent_increase(True, pct) if pct is not None else None
+
+
 class DaughterOfTheAbyssExtraDamagePctEffect(BaseEffect):
     """`DaughterOfTheAbyss_ExtraDamagePctEffect` (effet 0x589=1417) — les Psykers ENNEMIS dans le rayon
     du porteur REÇOIVENT +extraDmgPct% de dégât (i2 : « Enemy Psykers within 2 hexes receive +20%

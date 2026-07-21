@@ -37,9 +37,11 @@ from .loki import (
     LightCoverEffect,
     MartialKatahDmgReductionEffect,
     BeastSlayerExtraDmgEffect,
+    MartialKatahDmgBonusEffect,
     BeastSlayerExtraBlockEffect,
     DaemonExtraBlockEffect,
     MasterAnnihilatorAdditionalHitEffect,
+    CamouflageHitReductionEffect,
     NeuroparasiteEffect,
     NightshroudDmgReductionEffect,
     ParryEffect,
@@ -55,6 +57,7 @@ from .loki import (
     SquigHoundAdditionalHitsEffect,
     CordClawAdditionalHitsEffect,
     FoulInfusionExtraHitsEffect,
+    CyclicIonBlasterAdditionalHitsEffect,
     ExplosiveMaladiesExtraRangedAttackEffect,
     ExplosiveMaladiesExtraMeleeAttackEffect,
     LordOfTheHostExtraDamageEffect,
@@ -80,6 +83,11 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # canal #179 GLOBAL : trigger IsMeleeAttack&OwnerIsCaster indecidable en display -> TRUE,
     # s'applique a TOUT attaquant en prediction — mesure 2468 s14). #57c-C.
     "FoulInfusion_ExtraHits": FoulInfusionExtraHitsEffect,
+    # CyclicIonBlaster (Tau, triggered 1133, effet 0x47c=1148) : +nrOfHits=3 coups Particle de
+    # minDmg[state] (+extraDmg si cible Markerlight/Mechanical) a TOUTES les attaques du porteur
+    # (@180e1dd70, canal #179 forme "amount" : display n'evalue que le noeud MIN, spread pipeline).
+    # Valide 54321 s19 (#57e).
+    "CyclicIonBlaster_AdditionalHits": CyclicIonBlasterAdditionalHitsEffect,
     # ExplosiveMaladies (Pestillian, effets-AURA sur le PORTEUR) : +nrOfHits=1 coup Blast de
     # extraDmg[state] aux attaques normales des amis ADJACENTS (ranged: tous @180f43cc0 ;
     # melee: Chaos @180f43a40) — adjacence re-evaluee a la tuile candidate. #57c-C bit-exact.
@@ -158,8 +166,11 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "Nightshroud_DmgReduction": NightshroudDmgReductionEffect,
     # MartialKatah (Custodes ex. custoTrajann/custoVexilusPraetor) : -20% degat des ATTAQUES NORMALES
     # recues (defender, gated IsNormalAttack ; @180f58b30 ForPercentDecrease ConfigConst 0x72=
-    # martialKatahDmgReductionPct). Le DmgBonus (+100% vs Summons) reste no-op (canal attaquant, hors gap). #105.
+    # martialKatahDmgReductionPct). #105.
     "MartialKatah_DmgReduction": MartialKatahDmgReductionEffect,
+    # MartialKatah face ATTAQUE (@180f58930) : +100% degat vs SUMMONS (HasTrait(target, Summon=2),
+    # aucun gate melee/normal, applique en prediction). Valide bit-exact 1357 s18 (#57d).
+    "MartialKatah_DmgBonus": MartialKatahDmgBonusEffect,
     # Neuroparasite (passif Neurothrope ; EffectType CAPTE = 1218 'Neuroparasite', name-route ; ctor 0x49f=1183
     # = AbilityOrEffect, distinct) : ADDITIF +extraDmg[nivSource]xniveau_parasite au degat PSYCHIQUE recu DE CE
     # Neurothrope (defender, ForAddition gated Psychic + AreEqual(source)). Magnitude+gating+PLACEMENT (scale
@@ -171,6 +182,10 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "FightingRetreatHitReduction": FightingRetreatHitReductionEffect,
     "LightCover": LightCoverEffect,     # couverture (tuile) : -2 coups ranged reçus, plancher 1
     "Parry_ReduceHits": ParryEffect,    # trait Parry : -1 coup MÊLÉE reçu, plancher 1
+    # Camouflage (trait 1037, ex. admecRuststalker) : -1 coup RANGED reçu (-2 si dist>2, -3 sur tuile
+    # DryBush << Tall Grass >>), plancher 1 (@181107180, jumeau LightCover/Parry ; slot 0x23 OwnerIsTarget
+    # & IsRangedAttack ; consts camouflageHitReduction_1/2/3=1/2/3). #59.
+    "Camouflage_HitReduction": CamouflageHitReductionEffect,
     "MasterAnnihilator_extraHit": MasterAnnihilatorAdditionalHitEffect,  # debuff Vitruvius : +1 coup reçu (non-Psychic)
     "BigTarget_AdjacentEffect": BigTargetAdjacentEffect,  # aura : -1 coup ranged aux alliés ring-1 du porteur
     # AstartesBanner (porte-banniere Astartes ex. templAncient) : AURA +extraHits(=1) coup MELEE aux ALLIES

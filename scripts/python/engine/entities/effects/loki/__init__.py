@@ -19,7 +19,8 @@ from .extra_damage import (RapidAssaultExtraDamageEffect, SmashaEadExtraDamageEf
                            LordOfTempestsExtraDamageEffect,
                            RitesOfBattleExtraDmgEffect, PathOfCommandExtraDmgEffect,
                            CrushingStrikeEffect, HeavyWeaponExtraDmgEffect, RangedSpecialistEffect,
-                           BeastSlayerExtraDmgEffect, DaughterOfTheAbyssExtraDamagePctEffect,
+                           BeastSlayerExtraDmgEffect, MartialKatahDmgBonusEffect,
+                           DaughterOfTheAbyssExtraDamagePctEffect,
                            BeaconOfRageExtraDamageEffect, BeaconOfRageFriendlyExtraDamageEffect,
                            LordOfTheHostExtraDamageEffect, DoomExtraDmgEffect)
 from .damage_reduction import (TerrifyingExtraDefenseEffect, MartialKatahDmgReductionEffect,
@@ -31,13 +32,14 @@ from .damage_reduction import (TerrifyingExtraDefenseEffect, MartialKatahDmgRedu
                                OverwhelmingWrathRangeDmgReductionEffect,
                                VexillaMagnificaDmgReductionEffect)
 from .hits import (SquigHoundAdditionalHitsEffect, CordClawAdditionalHitsEffect,
-                   FoulInfusionExtraHitsEffect,
+                   FoulInfusionExtraHitsEffect, CyclicIonBlasterAdditionalHitsEffect,
                    ExplosiveMaladiesExtraRangedAttackEffect,
                    ExplosiveMaladiesExtraMeleeAttackEffect,
                    AnvilShieldAdditionalBlockEffect,
                    BeastSlayerExtraBlockEffect, DaemonExtraBlockEffect,
                    FightingRetreatHitReductionEffect, LightCoverEffect,
-                   ParryEffect, MasterAnnihilatorAdditionalHitEffect, BigTargetAdjacentEffect,
+                   ParryEffect, CamouflageHitReductionEffect, MasterAnnihilatorAdditionalHitEffect,
+                   BigTargetAdjacentEffect,
                    AstartesBannerExtraHitEffect, PowerTripFullHealthEffect, PowerTripIgnoreArmorEffect,
                    KanOpenerEffect, LIGHT_COVER_TILE_ID)
 from .status import (HypersensoryMinimalHealthEffect, ContaminatedUnitEffect, StandVigilExtraArmorEffect,
@@ -51,7 +53,7 @@ __all__ = [
     "DecoysAndMisdirectionExtraDamageEffect", "LordOfTempestsExtraDamageEffect",
     "RitesOfBattleExtraDmgEffect", "PathOfCommandExtraDmgEffect",
     "CrushingStrikeEffect", "HeavyWeaponExtraDmgEffect", "RangedSpecialistEffect",
-    "BeastSlayerExtraDmgEffect", "DaughterOfTheAbyssExtraDamagePctEffect",
+    "BeastSlayerExtraDmgEffect", "MartialKatahDmgBonusEffect", "DaughterOfTheAbyssExtraDamagePctEffect",
     "BeaconOfRageExtraDamageEffect", "BeaconOfRageFriendlyExtraDamageEffect",
     "LordOfTheHostExtraDamageEffect", "DoomExtraDmgEffect",
     # damage_reduction
@@ -62,11 +64,12 @@ __all__ = [
     "OverwhelmingWrathRangeDmgReductionEffect", "VexillaMagnificaDmgReductionEffect",
     # hits
     "SquigHoundAdditionalHitsEffect", "CordClawAdditionalHitsEffect",
-    "FoulInfusionExtraHitsEffect",
+    "FoulInfusionExtraHitsEffect", "CyclicIonBlasterAdditionalHitsEffect",
     "ExplosiveMaladiesExtraRangedAttackEffect", "ExplosiveMaladiesExtraMeleeAttackEffect",
     "AnvilShieldAdditionalBlockEffect", "BeastSlayerExtraBlockEffect",
     "DaemonExtraBlockEffect",
     "FightingRetreatHitReductionEffect", "LightCoverEffect", "ParryEffect",
+    "CamouflageHitReductionEffect",
     "MasterAnnihilatorAdditionalHitEffect", "BigTargetAdjacentEffect", "AstartesBannerExtraHitEffect",
     "PowerTripFullHealthEffect", "PowerTripIgnoreArmorEffect", "KanOpenerEffect", "LIGHT_COVER_TILE_ID",
     # status

@@ -37,6 +37,8 @@ donc partage sans reserve avec la prediction).
 """
 from __future__ import annotations
 
+import hexgeo
+
 from ..entities.effects import (hits_bonus_from_effects, hits_malus_from_defender_effects,
                                  aura_hits_malus_for_defense, aura_hits_bonus_for_attack)
 from ..entities.traits import attacker_bonus_hits
@@ -73,9 +75,16 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
     # (3) malus défenseur : LightCover -2 ranged / Parry -1 mêlée / MasterAnnihilator +1. Le gate
     # compute-time `defender_on_cover` (A3, #113) empêche LightCover de sur-appliquer un effet périmé en
     # runner-sim (cible ayant quitté sa tuile de cover) ; None (prédiction) = applique-sur-présence.
+    # Distance AVERAGE(Caster,Target) hex (branches Camouflage dist>2 -> -2 / dist<=2 -> -1),
+    # calculee ICI depuis le board (attack_pos = tuile candidate du caster, t_pos = cible) : les DEUX
+    # facades (prediction + combat) peuplent ces cles -> pas d'edit de call-site pour la distance.
+    _cam_ap, _cam_tp = board.get("attack_pos"), board.get("t_pos")
+    _cam_dist = (hexgeo.distance(tuple(_cam_ap), tuple(_cam_tp))
+                 if (_cam_ap is not None and _cam_tp is not None) else None)
     hits = max(1, hits
                + hits_malus_from_defender_effects(target_effects, is_melee, damage_profile,
-                                                  defender_on_cover=defender_on_cover)
+                                                  defender_on_cover=defender_on_cover,
+                                                  dist=_cam_dist)
                + aura_hits_malus_for_defense(aura_sources, board)
                + aura_hits_bonus_for_attack(aura_sources, att_ctx))
     return hits

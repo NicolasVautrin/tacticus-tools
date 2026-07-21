@@ -111,6 +111,50 @@ class FoulInfusionExtraHitsEffect(BaseEffect):
         return [{"count": int(count), "amount": int(amt), "profile": profile}]
 
 
+class CyclicIonBlasterAdditionalHitsEffect(BaseEffect):
+    """`CyclicIonBlaster_AdditionalHitsEffect` (effet 0x47c=1148, classe native
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki`, Tau) — i2 : « All attacks deal an additional
+    3x minDmg-maxDmg Particle Damage. If the target has a Markerlight or the Mechanical trait these
+    hits deal +extraDmg Damage ».
+
+    Natif : `CreateAdditionalHits @180e1dd70` -> `EffectAdditionalHits.Create` {trigger = OwnerIsCaster
+    (TOUTES les attaques, pas de gate melee/normal), amount = ConditionalAmount(HasEffect(target,
+    0x462=1122 Markerlight) | HasTrait(target, 5=Mechanical), RandomAmount(Sum(minDmg 0xc, extraDmg 8),
+    Sum(maxDmg 0xd, extraDmg 8)), RandomAmount(minDmg, maxDmg)), count = GetNumberConstant(0x2f=
+    nrOfHits=3), profile = GetDamageProfile = Particle (p35), minNode = ConditionalAmount(cond,
+    Sum(minDmg, extraDmg), minDmg)}.
+
+    PREDICTION (#57e, 54321 s19 u77->t93 + varTrace) : le display n'evalue QUE le noeud MIN (2
+    resolutions var 0xc minDmg etat {50,180} -> 599 ; JAMAIS 0xd ni 8) et laisse le pipeline etaler :
+    amount 599 x ±20% x %-mods attaquant (1.33 RangedSpecialist x 0.7 Pinned) x pierce Particle 35
+    (armure haute) = [156,234]/coup x3 = nat [1098,1644] - arme [630,942] EXACT -> forme « amount »
+    (spread pipeline, comme FoulInfusion), PAS predefined [min,max]. Multiplier = GLOBAL de l'unite
+    (varTrace mult=180 ; pas le per-ability #68). Gate +extraDmg = cible Markerlight (effet 1122) OU
+    trait Mechanical, via ctx tgt_effect_names/tgt_traits (branche non exercee : t93 ni l'un ni
+    l'autre -> flag validator). Face COMBAT (RandomAmount reel) non confrontee -> flag validator."""
+
+    def additional_hit_groups(self, ctx: "Mapping | None" = None) -> "list[dict] | None":
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        mn = ability_var("CyclicIonBlaster", "minDmg", lvl,
+                         multiplier_pct=self.ability_variables_multiplier)
+        count = ability_var("CyclicIonBlaster", "nrOfHits", is_constant=True)  # numberConstant 0x2f
+        if mn is None or mn <= 0 or not count or count <= 0:
+            return None
+        c = ctx or {}
+        if ("Markerlight" in (c.get("tgt_effect_names") or ()) or
+                "Mechanical" in (c.get("tgt_traits") or ())):
+            extra = ability_var("CyclicIonBlaster", "extraDmg", lvl,
+                                multiplier_pct=self.ability_variables_multiplier)
+            mn = int(mn) + int(extra or 0)      # noeud min du Conditional = Sum(minDmg, extraDmg)
+        try:
+            import gameconfig as _GC
+            profile = ((_GC.ability("CyclicIonBlaster") or {}).get("constants") or {}).get("damageProfile") \
+                or "Particle"
+        except Exception:
+            profile = "Particle"
+        return [{"count": int(count), "amount": int(mn), "profile": profile}]
+
+
 class _ExplosiveMaladiesAuraHitsBase(BaseEffect):
     """Mold commun des deux effets-AURA d'ExplosiveMaladies (passif deathPutrifier Pestillian, effets
     HOSTES SUR LE PORTEUR — rien n'est poste sur le beneficiaire, modele #49) : +nrOfHits=1 coup de
@@ -294,7 +338,8 @@ class LightCoverEffect(BaseEffect):
 
     def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
                                              damage_profile: str | None = None,
-                                             defender_on_cover: bool | None = None) -> EffectBonus | None:
+                                             defender_on_cover: bool | None = None,
+                                             dist: int | None = None) -> EffectBonus | None:
         if is_melee:                        # trigger natif = !IsMeleeAttack (@180f556b0)
             return None
         if defender_on_cover is False:      # AreEqual(coverPatch, target) FAUX : cible hors tuile de cover
@@ -314,10 +359,59 @@ class ParryEffect(BaseEffect):
 
     def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
                                              damage_profile: str | None = None,
-                                             defender_on_cover: bool | None = None) -> EffectBonus | None:
+                                             defender_on_cover: bool | None = None,
+                                             dist: int | None = None) -> EffectBonus | None:
         if not is_melee:                    # trigger natif = IsMeleeAttack (@180f5d860)
             return None
         n = trait_var("Parry", "parryHitReduction")  # miroir du ConfigConst 0x2c (=1)
+        return for_addition(True, -int(n)) if n else None
+
+
+class CamouflageHitReductionEffect(BaseEffect):
+    """`Camouflage_HitReductionEffect.CreateEffectHitsBonusForAttack` @181107180 (effet 0x46e=1134
+    'Camouflage_HitReduction', trait Camouflage 1037, ex. admecRuststalker Exitor-Rho) - jumeau RANGED
+    de LightCover/Parry cote DEFENSE : canal `CreateEffectHitsBonusForAttack` (slot 0x23, trigger
+    `OwnerIsTarget & IsRangedAttack`), plancher min 1. Consomme par la MEME boucle native
+    `AdditionalHitsFromEffects.GetAdditionalHitsFromEffectsInternal @180e59150` (slot 0x23 sur chaque
+    effet), partagee prediction/combat via `AttackHitsWithModifiersFormula.Calculate @180f0bf50` (PAS
+    predOptimistic : la reduction de COUPS est foldee dans le nb de coups, cote prediction ET combat).
+    i2 : << Ranged attacks against this character score -1 hit. This increases to -2 hits if this
+    character is more than 2 hexes away from the attacker or to -3 hits when in Tall Grass. Attackers
+    always score at least 1 hit. >>
+
+    Natif = `ForAdditionWithMinimum(OwnerIsTarget & IsRangedAttack, amount, min=Direct(1))` avec
+      amount = ConditionalAmount(
+        HasTile(TilesWithTriggeredAbility(Tiles(Target), 0x39=57=DryBushFireSpread)),   # cible sur DryBush
+        Direct(-const(0x4d)),                                                            # << Tall Grass >>
+        ConditionalAmount(AmountIsGreater(AverageDistance(Caster,Target), Direct(2)),   # dist > 2
+                          Direct(-const(0x4b)),
+                          Direct(-const(0x2c))))                                         # dist <= 2 (melee)
+    Constantes GetNumberConstant(config, key) = traitVariables (l'ability Camouflage n'existe PAS dans
+    gameconfig.abilities -> les slots numberConstant 0x2c/0x4b/0x4d du config Loki-triggered sont seedes
+    depuis les vars de trait) : 0x2c=camouflageHitReduction_1=1, 0x4b=camouflageHitReduction_2=2,
+    0x4d=camouflageHitReduction_3=3 (coherent i2 -1/-2/-3).
+
+    GATE tuile << Tall Grass >> = MEME tuile DryBush que LightCover : la triggered ability 57
+    (DryBushFireSpread) coexiste avec LightCoverAbility sur la tuile DryBush (le jeu l'affiche << Tall
+    Grass >>) -> on REUTILISE le flag `defender_on_cover` (True = cible sur DryBush, deja calcule cote
+    combat depuis le terrain). En PREDICTION (defender_on_cover None, terrain non threade) la branche -3
+    est inaccessible -> repli distance (FLAG validator : prediction sur DryBush sous-predit -3 en -2/-1 ;
+    combler = threader le terrain au board de prediction, comme le combat). Distance = AverageDistance(
+    Caster,Target) en hex, calculee dans la formule depuis le board (dist>2 -> -2, sinon -1 ; multi-tuile
+    approxime par hexgeo.distance mono-tuile - FLAG)."""
+
+    def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
+                                             damage_profile: str | None = None,
+                                             defender_on_cover: bool | None = None,
+                                             dist: int | None = None) -> EffectBonus | None:
+        if is_melee:                          # trigger IsRangedAttack -> aucune reduction en melee
+            return None
+        if defender_on_cover is True:         # HasTile(TilesWithTriggeredAbility(Target, 57)) = sur DryBush
+            n = trait_var("Camouflage", "camouflageHitReduction_3")   # numberConstant 0x4d (=3)
+        elif dist is not None and dist > 2:   # AverageDistance(Caster,Target) > 2
+            n = trait_var("Camouflage", "camouflageHitReduction_2")   # numberConstant 0x4b (=2)
+        else:                                 # dist <= 2 (portee melee) OU distance inconnue
+            n = trait_var("Camouflage", "camouflageHitReduction_1")   # numberConstant 0x2c (=1)
         return for_addition(True, -int(n)) if n else None
 
 
@@ -336,7 +430,8 @@ class MasterAnnihilatorAdditionalHitEffect(BaseEffect):
 
     def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
                                              damage_profile: str | None = None,
-                                             defender_on_cover: bool | None = None) -> EffectBonus | None:
+                                             defender_on_cover: bool | None = None,
+                                             dist: int | None = None) -> EffectBonus | None:
         if damage_profile == "Psychic":     # !AreEqual(profil, 0xd=Psychic) (@180f58d50)
             return None
         n = ability_var("MasterAnnihilator", "nrOfHits", is_constant=True)   # ConfigConst 0x2f (=1)

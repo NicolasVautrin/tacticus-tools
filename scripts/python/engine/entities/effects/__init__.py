@@ -256,7 +256,8 @@ def aura_additional_hits_from_allies(carriers, ctx: Mapping) -> list:
 
 def hits_malus_from_defender_effects(effects, is_melee: bool | None = None,
                                      damage_profile: str | None = None,
-                                     defender_on_cover: bool | None = None) -> int:
+                                     defender_on_cover: bool | None = None,
+                                     dist: int | None = None) -> int:
     """Σ des modifications de COUPS des effets actifs de la CIBLE (`create_effect_hits_malus_for_defense`,
     ex. LightCover @180f556b0 : -2 ranged ; Parry @180f5d860 : -1 mêlée ; MasterAnnihilator
     @180f58d50 : +1 non-Psychic). Natif = même canal `CreateEffectHitsBonusForAttack` trigger
@@ -266,7 +267,7 @@ def hits_malus_from_defender_effects(effects, is_melee: bool | None = None,
     Retour signé (à ADDITIONNER aux hits)."""
     total = 0
     for e in _as_effects(effects):
-        hb = e.create_effect_hits_malus_for_defense(is_melee, damage_profile, defender_on_cover)
+        hb = e.create_effect_hits_malus_for_defense(is_melee, damage_profile, defender_on_cover, dist)
         if hb is None:
             continue
         if hb.kind == "Addition":

@@ -219,6 +219,94 @@ maintenu** (26/26 · 26/26 · 35/35 · 51/51). Restent gen : prédiction 4 (5432
 ×1.22, 1357 s16 swarm-composite/s18 ×2), ability 10 (4 utility-logic, 3 prediction-per-target,
 2 native-gate, 1 nc-pair), move 9 (6 downstream, move-formula 12345 s5, 2 generator-overfire RNG).
 
+### État après #57d + #57e (batchs `stages_57e_gen.json` / `stages_57e_ref.json`) — PRÉDICTION 100 %
+
+Gen 4 seeds : **prédiction 34/34 (100 %)** · **utilité 34/34 (100 %)** · **ability 44/50 (88 %)** ·
+**move 58/65 (89 %)**. Diff vs `stages_57d` : **+4 prédiction / +4 ability / +2 move, 0 régression**
+(1357 s16 member-cap Swarm + s18 MartialKatah ; 54321 s18 GreatFrostAxe + s19 CyclicIonBlaster ;
+ability : 54321 s5+s6 et 1357 s13+s15 basculés par ricochet des prédictions per-target corrigées —
+le member-cap Swarm à lui seul a flippé 3 choix de cible ; move : 2 downstream 1357). Référence
+777/909/31337 : **4×100 % maintenu**. **Les étages PRÉDICTION et UTILITÉ du batch de généralisation
+sont fermés.** Restent : ability 6 (utility-logic 12345 s14/s15 + 54321 s12, native-gate 2468
+s16/s18, nc-pair 54321 s8), move 7 (3 downstream des ability, move-formula 12345 s5, 2
+generator-overfire RNG structurels). Caractérisation du reliquat : 12345 s14 et 2468 s16 = le natif
+prend une paire MOINS bien notée par son propre pairUtility (cf.eng > cf.nat) → gate caché ou ordre
+intra-tour ; 12345 s15 = tie exact 167.86 (MurderousSwing t83 vs t81) → tie-break d'énumération ;
+54321 s12 = off offre BlackRage(1163)→t159 que le natif ne score même pas (cf null) → gate à
+mirrorer ; 2468 s18 = MartialInspiration(1191) bloqué natif (CanUseAbility ?).
+
+### #57e RÉSOLU : les 2 miss prédiction 54321 (s18 GreatFrostAxe + s19 CyclicIonBlaster)
+
+**54321 s18 u85 (spaceWulfen ab 1089 GreatFrostAxe → t93, nat = off ×0.889 uniforme)** =
+**base minDmg SEUL** : `GreatFrostAxePlaybook.MakeDamagePredictions @18113fbd0` passe
+`Get(GetVariableForLevel(0xc=minDmg, state))` à `GenerateMultiHitAttackPredictions` — PAS l'avg
+(minDmg+maxDmg)/2 du chemin générique (hits = const 0x2f = 4 et profil = config Piercing 80,
+identiques au générique). Signature qui a tranché : centres per-hit off 1256.4 vs nat 1117.5, ratio
+= (1+1.25)/2 = exactement le maxDmg/minDmg config. Port : handler registry
+`_great_frost_axe_inputs` (`base_override`, même mold que HellfireShells #173), id 1089 dans
+`_MAKE_DMG_INPUT_OVERRIDES`. Validé harnais seed 54321 : s18 pred match, **et s6 u85
+(ability:prediction) bascule à hit par ricochet** (per-target GreatFrostAxe corrigée → choix de
+cible natif retrouvé).
+
+**54321 s19 u77 (Tau, attaque normale 69 → t93, nat [1098,1644] vs off [630,942], 9 hits vs 6)** =
+**effet `CyclicIonBlaster_AdditionalHits` (1148) non porté** (canal #179). Natif :
+`CyclicIonBlaster_AdditionalHitsEffect.CreateAdditionalHits @180e1dd70` (classe
+`Abilities.Triggered.Loki`) = `EffectAdditionalHits.Create{trigger = OwnerIsCaster (toutes
+attaques), amount = ConditionalAmount(HasEffect(target, 0x462=1122 Markerlight) | HasTrait(target,
+5=Mechanical), RandomAmount(Sum(minDmg,extraDmg), Sum(maxDmg,extraDmg)), RandomAmount(minDmg,
+maxDmg)), count = nrOfHits = 3, profile = Particle p35}`. **varTrace décisif (leçon #57c-C
+appliquée)** : 2 résolutions var 0xc (minDmg) état {50,180} → 599, JAMAIS 0xd/8 → le display
+n'évalue que le nœud MIN et le pipeline étale : 599 ±20 % × %-mods attaquant (1.33
+RangedSpecialist × 0.7 Pinned) × pierce 35 = [156,234]/coup ×3 — arithmétique EXACTE
+(1098−630=468=3×156 ; 1644−942=702=3×234). Multiplier GLOBAL (mult 180 dans l'état varTrace — pas
+le per-ability #68). Port : `CyclicIonBlasterAdditionalHitsEffect` (hits.py, forme « amount » comme
+FoulInfusion) + ctx #179 enrichi (`tgt_traits`/`tgt_effect_names` pour la ConditionalAmount cible).
+**Bit-exact** probe_57e_54321.py S19 : OFF = NAT = [1098,1644], healthDmg [1098,1291], 9 hits, kill.
+
+Flags validator #57e : branche +extraDmg (cible Markerlight/Mechanical) non exercée ; face COMBAT
+du CyclicIonBlaster (RandomAmount réel min..max au runner) non confrontée ; les descripteurs #179
+ne sont foldés que sur le chemin ATTAQUE NORMALE offline (le natif les applique à toute PredictAttack
+slot 0x27 — un Tau castant une speciale devrait aussi les folder) ; GreatFrostAxe : « Crit Damage
+bonus of the Ice already applied » (i2) supposé baké dans les valeurs config, non contre-vérifié.
+
+### #57d RÉSOLU : les 2 miss prédiction 1357 (s18 « ×2 exact » + s16 « swarm-composite »)
+
+**1357 s18 u81 (custoBladeChampion → t168 Bloodletter, nat = off ×2 EXACT min&max)** =
+**trait MartialKatah, face ATTAQUE** : `MartialKatah_DmgBonusEffect.CreateEffectDamageBonusForAttack
+@180f58930` = `EffectBonus.ForPercentIncrease(OwnerIsCaster & HasTrait(target, Summon=2),
+Direct(GetNumberConstant cfg 0xf = martialKatahExtraDmgPct = 100))` — **+100 % vs Summons**, AUCUN
+gate mêlée/ranged/normal (i2 « all attacks against Summons »), appliqué en prédiction display.
+Décomposition per-hit qui a identifié le mod : per-hit = 2529/3792 (base 2107 ±20 % ×1.5) ; OFF ×1.5,
+NAT[real (3,5)] ×2.0 (pas bougé → pas de RapidAssault, ×2 Summon seul), NAT[cand (2,4)] ×3.0 = 1.5×2
+(multiplicatif). Port : `MartialKatahDmgBonusEffect` (extra_damage.py, moule BeastSlayer target_traits),
+factory `MartialKatah_DmgBonus` (l'ex no-op « hors gap » #105). **Bit-exact** probe_57d_1357.py S18 :
+OFF = NAT = [15174, 22752], blockRawMin 11883 compris.
+
+**1357 s16 u139 (RipperSwarm 5×[1197,1795] → t191 necroSmnSwarm, nat [2971,3569])** =
+**member-cap Swarm de la prédiction, jamais câblé** (`_target_damage_limits` passait `member_count: 1`
+TODO). Natif : `DamagePrediction.ApplyGroupUnitDamageLimit @18102bfe0` (appelé per-hit et per-borne par
+`ApplyTraitDamageLimitsToDamage @18102c650`) — si la cible a un GroupUnit (memberCount>1) et que le
+profil DU COUP n'a pas `DamageTrait.HitsMultipleMembers` (2, = Blast) : `dmg = min(dmg, hp_now −
+GetGroupUnitMaxHealthWithRemainingMembers(maxHP, count, remaining−1))` avec `remaining =
+GetGroupUnitRemainingMemberCount(maxHP, count, hp_now) @181005120` ; **PAS de cap si remaining == 1**
+(le dernier membre prend le roll plein — d'où min&max qui diffèrent du roll seulement sur le dernier
+coup). Répartition membre : `maxHP/count`, +1 pour les `maxHP%count` premiers (`GetGroupUnitMemberHealth
+@1810050f0`, i2 : « Each incoming hit can deal Damage only to one member », « Does not apply to Blast »).
+Vérification analytique u191 (maxHP 2220, 5 membres de 444, hp 2218) : caps 442,444,444,444 puis 5ᵉ coup
+non cappé → min 1774+1197=2971 ✓, max 1774+1795=3569 ✓ (les 2 bornes capées contre le MÊME hp min-track,
+règle #40 déjà portée). Câblage : `member_count = nrOfMembers` gameconfig (5 pour les 2 swarms) +
+`damage_profile` threadé aux 4 call-sites de `_target_damage_limits` + flag per-GROUPE pour les coups
+additionnels (le natif passe le profil du coup courant — un coup Blast additionnel skippe le cap).
+**Bit-exact** probe_57d_1357.py S16 : OFF = NAT = [2971, 3569]. Le service `trait_damage_limits.py`
+était déjà fidèle (aucune modif) — c'était un pur trou de NOURRISSAGE.
+
+Flags validator #57d : gate attaquant-Swarm NON porté (« 1 fewer hit per member defeated » — u139
+avait ses 5 membres, hits arme 5 == nrOfMembers, non exercé ; consommateur natif à localiser via
+`BattleQuery.GetGroupUnitRemainingMemberCount @181061cb0`) ; heal-limit Swarm
+(`DamagePrediction.GetGroupUnitHealLimit @1810325e0`) non porté ; member-cap du chemin DirectDamage
+(`CalculateDirectDamage @18102f212` appelle aussi @18102bfe0) non vérifié offline ; MartialKatah_DmgBonus
+sur le canal COMBAT (damage_model) non confronté (prédiction seule mesurée).
+
 ### #57c-C RÉSOLU : 2468 s14 u89 = aura ExplosiveMaladies (PAS un « fold LightImUp »)
 
 Le miss prédiction 2468 s14 (u89 orksWarboss → t177, ranged, delta [3591, 5385]) est fermé

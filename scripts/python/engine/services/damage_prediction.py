@@ -498,13 +498,20 @@ def get_multi_hit_attack_prediction(
         _pre = _grp.get("predefined")
         _amt = int(_grp.get("amount") or 0)
 
+        # #57d : member-cap Swarm per-COUP — le groupe porte le flag HitsMultipleMembers de SON profil
+        # (natif : ApplyGroupUnitDamageLimit @18102bfe0 recoit le DamageProfile du coup courant).
+        _ghmm = _grp.get("profile_has_hits_multiple_members")
+        _gtl = (target_limits if _ghmm is None or not target_limits
+                else {**target_limits, "profile_has_hits_multiple_members": bool(_ghmm)})
+
         def _ghit(prev: "BlockScenario", _pre=_pre, _amt=_amt, _gp=_grp.get("pierce_pct", pierce_pct),
-                  _gpt=_grp.get("profile_type", profile_type), _gm=_grp.get("mods")) -> DamagePredictionResult:
+                  _gpt=_grp.get("profile_type", profile_type), _gm=_grp.get("mods"),
+                  _gtl=_gtl) -> DamagePredictionResult:
             return predict_attack_raw(
                 prev, _amt, profile_type=_gpt, armor=armor, pierce_pct=_gp, mods=_gm, hit_mult=hit_mult,
                 reduction_min=reduction_min, reduction_max=reduction_max, spread_pct=spread_pct,
                 target_current_health=target_current_health, target_shield=target_shield,
-                target_limits=target_limits, predefined=_pre, might_crit=might_crit)
+                target_limits=_gtl, predefined=_pre, might_crit=might_crit)
         for _j in range(max(0, int(_grp.get("count", 0)))):
             result.add(_with_block(_ghit(result.default_block_scenario())))
     # #70 : l'additif plat (ForAddition) est appliqué PAR COUP dans `predict_attack_raw` (via `mods` non

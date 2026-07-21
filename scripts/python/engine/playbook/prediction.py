@@ -30,6 +30,7 @@ from engine.entities.effects import (
     aura_additional_hits_from_allies)
 from engine.entities.traits import attacker_bonus_hits, target_hit_multiplier, TraitFactory
 from engine.entities.traits.unit_trait import UnitTrait
+from engine.entities.damage_trait import DamageTrait
 from engine.entities.stats import StatType, StatPart, ARMOR_STAT_TYPES
 from engine.services.damage_prediction import get_attack_prediction
 from engine.services.min_max_damage import MinMaxDamage
@@ -230,23 +231,27 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
         add_modifier(mods, _eb)
 
 
-def _target_damage_limits(scene, tgt_id):
+def _target_damage_limits(scene, tgt_id, damage_profile: str | None = None):
     """Champs STATIQUES cible pour `apply_trait_damage_limits_to_damage` (#56, `ApplyTraitDamageLimits
-    ToDamage @18102c650`). SEUL **Resilient** est dérivable offline (trait gameconfig + hp/hpmax → cape
-    le dégât à `HP-1`, la cible ne peut pas être one-shot). Les autres sous-limites restent des **NO-OP
-    documentés** (defaults conservateurs) faute d'input offline : member-cap (`numberOfMembers` = StatType
-    20, non mappé offline), Impervious (charge runtime non captée par combatSnapshot), boss-cap
-    (`HasTriggeredAbility(0x5d4)` non vérifié offline). Le service porte les 5 ; ici on ne nourrit que ce
-    qui est fidèlement dérivable."""
-    utraits = set((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits") or [])
+    ToDamage @18102c650`). Dérivables offline : **Resilient** (trait gameconfig + hp/hpmax → cape le
+    dégât à `HP-1`) et **member-cap Swarm** (#57d : `nrOfMembers` gameconfig de la cible + hpmax =
+    répartition native `GetGroupUnitMemberHealth @1810050f0` ; skip si le profil de L'ATTAQUE a
+    `DamageTrait.HitsMultipleMembers` (2) = Blast — d'où `damage_profile` threadé par l'appelant).
+    Validé bit-exact 1357 s16 (u139 5 hits 1197/1795 vs necroSmnSwarm 5×444 : caps 442,444,444,444
+    puis dernier membre NON cappé → [2971,3569] == natif). Les autres sous-limites restent des **NO-OP
+    documentés** (defaults conservateurs) faute d'input offline : Impervious (charge runtime non captée
+    par combatSnapshot), boss-cap (`HasTriggeredAbility(0x5d4)` non vérifié offline)."""
+    gu = GC.unit(scene.vis_by_id.get(tgt_id)) or {}
+    utraits = set(gu.get("traits") or [])
     hpmax = scene.hpmax(tgt_id) or 0
+    _dp_traits = (GC.damage_profile(damage_profile) or {}).get("Traits") or [] if damage_profile else []
     return {
         "target_has_resilient": "Resilient" in utraits,
         "target_has_impervious": "Impervious" in utraits,
         "impervious_stat_current": None,             # charge Impervious non captée offline -> no-op (TODO)
-        "member_count": 1,                           # numberOfMembers (StatType 20) non mappé offline -> no-op (TODO)
+        "member_count": int(gu.get("nrOfMembers") or 1),   # GroupUnitComponent (@18102bfe0 lit le composant)
         "member_total_hp": hpmax,
-        "profile_has_hits_multiple_members": False,  # moot tant que member_count=1 (Blast skip member-cap)
+        "profile_has_hits_multiple_members": DamageTrait.HitsMultipleMembers.name in _dp_traits,
         "max_health": hpmax,
         "target_has_boss_cap": False,                # HasTriggeredAbility(0x5d4) non vérifié offline -> no-op (TODO)
         "boss_cap_const": 0,
@@ -349,7 +354,7 @@ def get_additional_damage_prediction(scene, att_id, tgt_id, ability_name):
         target_current_health=scene.hp(tgt_id) or 0, initial_damage=int(amount), hits=int(n),
         profile_type=_PROFILE_INDEX.get(prof, 0), pierce_pct=pierce, armor=scene.armor(tgt_id),
         mods=None, hit_mult=tgt_hit_mult, target_shield=scene.shield(tgt_id),
-        target_limits=_target_damage_limits(scene, tgt_id),
+        target_limits=_target_damage_limits(scene, tgt_id, prof),
         defender_block_amount=defender_prediction_block_amount(scene, tgt_id))
 
 
@@ -376,7 +381,7 @@ def get_klaw_attack1_prediction(scene, att_id, tgt_id, ability_name):
         target_current_health=scene.hp(tgt_id) or 0, initial_damage=int(amount), hits=int(n),
         profile_type=_PROFILE_INDEX.get(prof, 0), pierce_pct=pierce, armor=scene.armor(tgt_id),
         mods=None, hit_mult=tgt_hit_mult, target_shield=scene.shield(tgt_id),
-        target_limits=_target_damage_limits(scene, tgt_id),
+        target_limits=_target_damage_limits(scene, tgt_id, prof),
         defender_block_amount=defender_prediction_block_amount(scene, tgt_id))
 
 
@@ -552,7 +557,13 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # seul) prennent le spread ±20% du pipeline ; TOUS les groupes recoivent les %-mods attaquant
     # (mesure 2468 s14 : le coup ExplosiveMaladies de u89 subit bien le x1.5 CrushingStrike).
     _extra_groups = []
-    _ah_ctx = {"is_melee": is_melee}
+    # #57e : gates CIBLE des descripteurs additional-hits (ex. CyclicIonBlaster ConditionalAmount
+    # HasEffect(target, Markerlight) | HasTrait(target, Mechanical)) — traits gameconfig + noms
+    # d'effets ACTIFS de la cible threades dans le ctx du canal #179.
+    _ah_ctx = {"is_melee": is_melee,
+               "tgt_traits": frozenset((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits") or ()),
+               "tgt_effect_names": frozenset(
+                   n for n in (getattr(_e, "name", None) for _e in (scene.effects(tgt_id) or [])) if n)}
     _aura_hits = aura_additional_hits_from_allies(
         carriers, {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
                    "att_faction": att_faction, "att_grand_alliance": att_grand,
@@ -561,7 +572,11 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
         _dp = GC.damage_profile(_g["profile"]) or {}
         _gp = max(0, min(100, int(_dp.get("PiercingRatio") or 0) + ctx.extra_pierce))
         _entry = {"count": _g["count"], "pierce_pct": _gp,
-                  "profile_type": _PROFILE_INDEX.get(_g["profile"], 0), "mods": mods}
+                  "profile_type": _PROFILE_INDEX.get(_g["profile"], 0), "mods": mods,
+                  # #57d : le member-cap Swarm lit le profil DU COUP (param_5 d'@18102bfe0) — un coup
+                  # additionnel Blast (HitsMultipleMembers) skippe le cap meme si l'arme ne le fait pas.
+                  "profile_has_hits_multiple_members":
+                      DamageTrait.HitsMultipleMembers.name in (_dp.get("Traits") or [])}
         if "amount" in _g:
             _entry["amount"] = int(_g["amount"])
         else:
@@ -570,7 +585,7 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     res = get_attack_prediction(
         target_current_health=scene.hp(tgt_id) or 0, initial_damage=attack_base, hits=hits,
         profile_type=0, pierce_pct=pierce, armor=scene.armor(tgt_id), mods=mods, hit_mult=tgt_hit_mult,
-        target_shield=scene.shield(tgt_id), target_limits=_target_damage_limits(scene, tgt_id),
+        target_shield=scene.shield(tgt_id), target_limits=_target_damage_limits(scene, tgt_id, prof_name),
         extra_groups=_extra_groups,
         defender_block_amount=defender_prediction_block_amount(scene, tgt_id))
     # #57c-C : override PredictAttack des attaques normales de boss (Gulgortz/LightImUp, Ghazghkull/
@@ -679,7 +694,7 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
         target_current_health=scene.hp(tgt) or 0, initial_damage=base, hits=hits,
         profile_type=profile_idx, pierce_pct=pierce, armor=scene.armor(tgt),
         mods=mods, target_shield=tgt_shield, hit_mult=tgt_hit_mult,
-        target_limits=_target_damage_limits(scene, tgt),
+        target_limits=_target_damage_limits(scene, tgt, profile_name),
         defender_block_amount=defender_prediction_block_amount(scene, tgt))
 
 
@@ -786,11 +801,24 @@ def _hellfire_shells_inputs(scene, caster_id, target_id, ab, cfg) -> dict:
     return {"base_override": base, "hits_override": hits, "profile_override": "None"}
 
 
+def _great_frost_axe_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # target_id ignoré (contrat registre)
+    """`GreatFrostAxePlaybook.MakeDamagePredictions @18113fbd0` (ability 1089) — BASE =
+    `Get(GetVariableForLevel(0xc=minDmg, state))` = **minDmg SEUL** (rarity-scaled), PAS l'avg
+    (minDmg+maxDmg)/2 générique. hits = GetNumberConstant(0x2f=nrOfHits=4) et profil =
+    GetDamageProfile config (Piercing 80) = identiques au chemin générique -> pas d'override.
+    Mesuré 54321 s18 (u85 ab1089 -> t93) : off avg-based [4020,6032] vs nat minDmg-based
+    [3576,5364] — centres per-hit 1256.4 vs 1117.5, ratio = (1+1.25)/2 = le maxDmg/minDmg
+    config exact. Même mold que HellfireShells #173 (Direct minDmg). #57e."""
+    lvl, mult = ab.level, ab.multiplier
+    base = cfg.get_variable_for_level("minDmg", lvl, 0, mult)     # var 0xc = minDmg (Get), rarity-scaled
+    return {"base_override": base}
+
+
 # {ability_id: handler(scene, caster_id, target_id, ab, cfg) -> {base/hits/profile_override}}. Mirror du dispatch
 # playbook natif (par type d'ability). HammerOfWrath (1153) a son propre chemin (make_hammer_wrath_events,
 # NonComparable) ; ici = les playbooks Comparable qui surchargent juste les INPUTS de GenerateMultiHit.
 _MAKE_DMG_INPUT_OVERRIDES = {1191: _martial_inspiration_inputs, 1105: _crushing_claws_inputs,
-                             1080: _hellfire_shells_inputs}
+                             1080: _hellfire_shells_inputs, 1089: _great_frost_axe_inputs}
 
 
 # Override de PROFIL DE PREDICTION par-ability (audit #165) — mirror du `param_8`
