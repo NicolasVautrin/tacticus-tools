@@ -37,12 +37,33 @@ Chaque ability = un playbook à porter (roadmap `dsl-vocabulary-catalog.md`) :
   (générateur cible-first vs natif position-first — non départagé sur les cas connus),
   gate N=2 à exactement 2 tuiles libres.
 
-Restants (9 misses) :
+**✅ Tranche 2 RÉSOLUE (#56-t2, verdict re-expert + port)** — trois NC natifs :
+- **Poxwalkers (1040)** `EvaluateNonComparable @18115c6f0` (deathBlightbringer) : summon
+  SELF-CAST, utilité CONSTANTE 1.5 (`Fix64.FromIntFraction(3,2)`), MIN=1 (cctor
+  `@18115ca90`), cible = SOI, cast en place (keep-first). `GetUseProbability @18115ca00
+  = TurnsStarted*0.2` = porte RNG per-appel NON modélisée (comme BlackRage/ItItches) →
+  `should_evaluate=True`. Port : `noncomparable/poxwalkers.py`.
+- **FoulInfusion (1038)** `@18113c670` (deathPutrifier) : buff SELF-CAST, utilité =
+  `#amis-éligibles-adjacents(pos, self exclu)` + `(count>=2 && adjEnemies(pos)>0)`,
+  MIN=2 (cctor `@18113c8f0`) ; amis = trait Nurgle 0x7ea via `abilityTargets` (pas de
+  trait en dur). Réconcilié LIVE 7/7 positions (2468 s12). Port :
+  `noncomparable/foul_infusion.py`.
+- **HolyDuel (1050)** `@181144b00` (templChampion) : défi, utilité = `Attack(cible)`
+  (`GetStat(cible,0)`), cible = argmax Attack parmi ennemis éligibles, MIN=0 (pas de
+  cctor) ; gate `ShouldEvaluate @181144db0 = !EnemyMightBeKilledWithNormalAttack`
+  (killSure=0, `MightBeKill` — DISTINCT du `WillBeKill` de Hammer/Stormcaller). Port :
+  `noncomparable/holy_duel.py`.
+- Validé (smoke agent session 60 + repro orchestrateur `data/stages_56t2_gen.json`) :
+  les 3 misses → HIT, tranche 1 intacte. **1 régression move structurelle connue :
+  2468 s4 u87 `generator-overfire`** — échange 1-pour-1 imposé par la porte RNG
+  Poxwalkers (natif : False@s4 → move, True@s5 → cast ; même prob non-déterministe).
+  Flags validator : range=1 FoulInfusion (hypothèse 7/7, constant CustomRange non
+  décodé), bonus ennemi-adjacent non exercé, tie max-Attack HolyDuel, gate MightBeKill
+  sensible à predOptimistic (faux SKIP), cascade over-fire Poxwalkers multi-tours.
+
+Restants (6 misses) :
 | SendInTheNextWave | 1016 | 1357 s9 |
 | Incursion | 1021 | 1357 s11 |
-| FoulInfusion | 1038 | 2468 s12 |
-| Poxwalkers | 1040 | 2468 s5 |
-| HolyDuel | 1050 | 1357 s12 |
 | EarlyWarningOverride | 1077 | 54321 s9 |
 | GrapnelLauncher | 1090 | 54321 s13 |
 | DarkTalonStrike | 1092 | 54321 s11 |
@@ -168,6 +189,22 @@ FIXED = les 4 ×0.70 Pinned (1357 s13, 54321 s12/s14/s16), **0 REGRESSED**. Réf
 777/909/31337 : **4×100 % maintenu** (26/26 · 26/26 · 35/35 · 51/51).
 Restent 9 mismatch-logic prédiction : coups additionnels ~4488/~2245 (12345 s18, 54321 s7,
 2468 s14/s15) · ×2 exact (1357 s18) · ×1.22 (54321 s19) · composites (54321 s6/s18, 1357 s16).
+
+⚠ CAVEAT mesure : `stages_58_gen` tournait DÉJÀ avec les 3 fichiers tranche-2 #56-t2
+(déposés par l'agent dans l'arbre principal en cours de session) → ses chiffres
+ability/move incluent tranche 2. Les étages prédiction/utilité (confrontés sur les
+paires NATIVES) n'en dépendent pas — les claims 25/34 et 34/34 de la pile #57/#58
+restent purs.
+
+### État après tranche 2 #56-t2 (batchs `stages_56t2_gen.json` / `stages_56t2_ref.json`, validé orchestrateur)
+
+Gen 4 seeds : prédiction 25/34 · utilité 34/34 · **ability 34/50** · move 55/65 —
+identique à `stages_58` (qui incluait déjà tranche 2, cf. caveat). Diff vs la vraie
+baseline pré-tranche-2 (`stages_57a_gen`, 08:43) : **ability +3** (2468 s5 u87
+Poxwalkers, 2468 s12 u91 FoulInfusion, 1357 s12 u87 HolyDuel → HIT) ; **move −1**
+(2468 s4 u87 = generator-overfire RNG Poxwalkers, structurel) et **move +1** (54321
+s18 u85 fixé par #57b) — net 0. Référence 777/909/31337 : **4×100 % maintenu**
+(26/26 · 26/26 · 35/35 · 51/51).
 
 ### Triage post-#57a (batch `stages_57a_gen.json`, 4 seeds, 2026-07-21)
 

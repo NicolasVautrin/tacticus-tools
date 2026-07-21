@@ -74,6 +74,9 @@ from .black_rage import BlackRagePlaybook
 from .vigilance_eternal import VigilanceEternalPlaybook
 from .scarab_hive import ScarabHivePlaybook
 from .cord_claw import CordClawPlaybook
+from .poxwalkers import SpawnPoxwalkersPlaybook
+from .foul_infusion import FoulInfusionPlaybook
+from .holy_duel import HolyDuelPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -114,6 +117,12 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 adjacent_addable_count(cible) >= 2 (@181158ab0)
         CordClawPlaybook(),             # 1122 — attaque melee ; util = #ennemis adj. tuile d'attaque
         #                                 (GetAdjacentEnemies casterPos), MIN_UTILITY=1 (@181126670)
+        # #56 (tranche 2) — 3 NC natifs self/enemy-cast reveles par le batch MC1_67 (non-attack-oracle) :
+        SpawnPoxwalkersPlaybook(),      # 1040 — summon self-cast ; util plate 1.5, cible=SOI (@18115c6f0)
+        FoulInfusionPlaybook(),         # 1038 — buff self-cast ; util=#amis-eligibles adj +bonus ennemi,
+        #                                 MIN_UTILITY=2, cible=SOI (@18113c670)
+        HolyDuelPlaybook(),             # 1050 — defi ; util=Attack(cible), cible=max-Attack ennemi,
+        #                                 gate !MightBeKill (@181144b00)
     )
 }
 
@@ -180,4 +189,6 @@ __all__ = [
     "HeroicFusilladePlaybook", "DoctrinaImperativesPlaybook",
     "StormcallerPlaybook", "ItItchesPlaybook", "TheQuickeningPlaybook",
     "BlackRagePlaybook", "VigilanceEternalPlaybook",
+    "ScarabHivePlaybook", "CordClawPlaybook",
+    "SpawnPoxwalkersPlaybook", "FoulInfusionPlaybook", "HolyDuelPlaybook",
 ]
