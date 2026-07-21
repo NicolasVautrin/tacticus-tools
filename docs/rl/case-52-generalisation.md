@@ -208,6 +208,56 @@ ability/move incluent tranche 2. Les étages prédiction/utilité (confrontés s
 paires NATIVES) n'en dépendent pas — les claims 25/34 et 34/34 de la pile #57/#58
 restent purs.
 
+### État après #57c-C (ExplosiveMaladies) + tranche 3b #56 (batchs `stages_57d_gen.json` / `stages_57d_ref.json`)
+
+Gen 4 seeds : **prédiction 30/34 (88 %)** · **utilité 34/34 (100 %)** · **ability 40/50 (80 %)** ·
+**move 56/65 (86 %)**. Diff paire-à-paire vs `stages_57c` : exactement **5 FIXED, 0 régression** —
+1357 s7 u79 (ability **+ move**, ExcruciatingFrequencies 1197 cible-tuile 44 + position exacte),
+1357 s9 u83 (SendInTheNextWave 1016), 1357 s11 u93 (Incursion 1021), 2468 s14 u89 (prédiction,
+aura ExplosiveMaladies — 2468 passe à **8/8 prédiction**). Référence 777/909/31337 : **4×100 %
+maintenu** (26/26 · 26/26 · 35/35 · 51/51). Restent gen : prédiction 4 (54321 s18/s19 composite+
+×1.22, 1357 s16 swarm-composite/s18 ×2), ability 10 (4 utility-logic, 3 prediction-per-target,
+2 native-gate, 1 nc-pair), move 9 (6 downstream, move-formula 12345 s5, 2 generator-overfire RNG).
+
+### #57c-C RÉSOLU : 2468 s14 u89 = aura ExplosiveMaladies (PAS un « fold LightImUp »)
+
+Le miss prédiction 2468 s14 (u89 orksWarboss → t177, ranged, delta [3591, 5385]) est fermé
+**bit-exact** (probe_57c_flathits.py C : OFF = NAT = [6722, 10082], appliedHits 2/2). Le vrai
+mécanisme : **`ExplosiveMaladies_Extra{Ranged,Melee}AttackEffect`** (passif Pestillian/deathPutrifier,
+effets-AURA hostés SUR le porteur u91) — `CreateAdditionalHits @180f43cc0` (ranged) / `@180f43a40`
+(melee) = descripteur `{trigger = OwnerIsCaster & Is(Ranged|Melee)Attack, amount = ConfigVar(8=extraDmg,
+GetAbilityState(effet)), count = GetNumberConstant(0x2f=nrOfHits=1), profile =
+GetAffectedDamageProfile = Blast p15}` ; sélecteur `@180f43ef0` = `UnitsWithRangedWeapons(
+AdjacentFriends(owner, 1))` (i2 : melee = amis **Chaos** seulement). Adjacence **ré-évaluée à la
+tuile candidate** (modèle #49) : u89 à (2,3) adjacent de u91 (3,3) → +1 coup de extraDmg[50]×1.8
+= **2992**, roll ±20 % **puis ×1.5 CrushingStrike** (les %-mods attaquant S'APPLIQUENT au coup
+foldé) = [3591, 5385] ; à (0,3) non adjacent → rien.
+
+**Méthodologie (2 fausses pistes évitées de justesse, à retenir)** :
+1. « fold LightImUp » (hypothèse initiale) : coïncidence numérique — LightImUp.minDmg[50] =
+   Waaagh.summonArmor[50] = 831 et 3×1496 ≈ 1×2992×1.5±20 % ont le même total. Le mold
+   `Boltstorm_NormalAttackAbility.PredictAttack @1811bd950` (base + `GetAdditionalDamagePrediction
+   @1811bd170` sur scénario vierge, gate `!IsMelee`) et son symétrique
+   `ProperKilly_NormalAttackAbility.PredictAttack @1811fc690` (klaw = n coups de
+   `PercentageOf(MaxHealth(cible), dmgPct)` `@1811fb760`, gate `!IsRanged`, Ghazghkull) sont RÉELS
+   et restent portés (prediction.py, ProperKilly seul dispatché, non exercé) — mais u89 ne passe PAS par là.
+2. « FoulInfusion display-true » : les 3 effets `FoulInfusion_ExtraHits` (u91/u162/u166, dmg[50]
+   ×1.8 = 2792 ≠ 1496) ne contribuent PAS — leur trigger `IsMeleeAttack & OwnerIsCaster` est
+   **ÉVALUÉ** en prédiction (attaque ranged → False). Aucun trigger « court-circuité TRUE » ici.
+3. **L'outil qui a tranché** : `varTraceInstall` étendu (Interceptor temporaire sur
+   `GetVariableForLevel @181576fb0`, backtrace RVA + **valeur retournée**) : UNE résolution
+   varType 8 (extraDmg) state {50,180} → **2992** = ExplosiveMaladies.extraDmg[50]×1.8, pile dans
+   `GetAdditionalHitsFromEffectsInternal @180e59150` (énumération GLOBALE des effets, descripteurs
+   filtrés par leur trigger/sélecteur). Leçon : ne JAMAIS identifier une magnitude par
+   valeur-matching seul — tracer la résolution native (config + valeur).
+
+Ports (commit à venir) : `ExplosiveMaladiesExtra{Ranged,Melee}AttackEffect` (hits.py, nouveau canal
+`create_aura_additional_hits_for_ally` + agrégateur `aura_additional_hits_from_allies`),
+`FoulInfusionExtraHitsEffect` (canal #179 porteur, gate is_melee threadé — non exercé),
+groupes « amount » (spread ±20 % pipeline) dans get_multi_hit_attack_prediction. Flags validator :
+gate Chaos du sélecteur melee mirror i2 (non décompilé) ; ordre aura-groups vs owner-groups dans la
+chaîne prev (invisible à armure 0) ; flag « always overkilled » non porté.
+
 ### État après pile #57c (3 effets dégât) + tranche 3a #56 (batchs `stages_57c_gen.json` / `stages_57c_ref.json`)
 
 Gen 4 seeds : **prédiction 29/34 (85 %)** · **utilité 34/34 (100 %)** · **ability 37/50 (74 %)** ·
@@ -216,8 +266,8 @@ LordOfTheHost, 54321 s7 Doom, 2468 s15 CordClaw, **+ 54321 s6 u85 composite** �
 fermait), **0 nouveau miss** ; ability **+3** (54321 s9/s11/s13, tranche 3a), **0 perte** ; move
 **liste identique** (10 misses pré-existants). Référence 777/909/31337 : **4×100 % maintenu**.
 Restent **5 mismatch-logic prédiction** : 54321 s18 u85 (composite), 54321 s19 u77 (×1.22),
-2468 s14 u89 (**fold LightImUp**, mécanisme identifié, site à RE), 1357 s16 u139 (swarm
-composite), 1357 s18 u81 (×2 exact).
+2468 s14 u89 (~~fold LightImUp~~ → **RÉSOLU** aura ExplosiveMaladies, cf. section dédiée
+ci-dessus), 1357 s16 u139 (swarm composite), 1357 s18 u81 (×2 exact).
 
 ### État après tranche 2 #56-t2 (batchs `stages_56t2_gen.json` / `stages_56t2_ref.json`, validé orchestrateur)
 

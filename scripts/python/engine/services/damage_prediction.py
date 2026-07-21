@@ -493,12 +493,15 @@ def get_multi_hit_attack_prediction(
     # scenario()) APRES les coups d'arme -> deplete bouclier/HP restant = overkill CONTINU fidele (le natif
     # les ajoute au meme DamagePredictionResult). Mirror EffectAdditionalHits.Create @180f405b0.
     for _grp in (extra_groups or []):
-        _pre = _grp["predefined"]
+        # deux formes de degat de groupe : `predefined` [min,max] (RandomAmount natif, pas de spread)
+        # OU `amount` seul (ConfigVar, ex. FoulInfusion #57c-C) -> spread ±20% standard du per-coup.
+        _pre = _grp.get("predefined")
+        _amt = int(_grp.get("amount") or 0)
 
-        def _ghit(prev: "BlockScenario", _pre=_pre, _gp=_grp.get("pierce_pct", pierce_pct),
+        def _ghit(prev: "BlockScenario", _pre=_pre, _amt=_amt, _gp=_grp.get("pierce_pct", pierce_pct),
                   _gpt=_grp.get("profile_type", profile_type), _gm=_grp.get("mods")) -> DamagePredictionResult:
             return predict_attack_raw(
-                prev, 0, profile_type=_gpt, armor=armor, pierce_pct=_gp, mods=_gm, hit_mult=hit_mult,
+                prev, _amt, profile_type=_gpt, armor=armor, pierce_pct=_gp, mods=_gm, hit_mult=hit_mult,
                 reduction_min=reduction_min, reduction_max=reduction_max, spread_pct=spread_pct,
                 target_current_health=target_current_health, target_shield=target_shield,
                 target_limits=target_limits, predefined=_pre, might_crit=might_crit)

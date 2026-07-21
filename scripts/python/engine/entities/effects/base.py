@@ -267,11 +267,24 @@ class BaseEffect:
 
     def additional_hit_groups(self, ctx: Mapping | None = None) -> "list[dict] | None":
         """`<Effect>.CreateAdditionalHits` (`EffectAdditionalHits.Create @180f405b0`) — coups ADDITIONNELS
-        HETEROGENES a degat/profil PROPRE ajoutes a l'attaque du porteur (gate natif `OwnerIsCaster`).
-        Renvoie une liste de groupes `{count, min, max, profile}` : `count` coups de degat [min,max]
-        (RandomAmount = plage directe, PAS le spread ±20% de l'arme) au `profile` propre, a materialiser
-        APRES les coups d'arme dans la MEME chaine prev-threadee (overkill continu). Defaut None = pas de
-        coups additionnels. Ex. `SquigHound_AdditionalHits` = 2 coups [minDmg,maxDmg] profil Physical."""
+        HETEROGENES a degat/profil PROPRE ajoutes a l'attaque du PORTEUR (trigger natif OwnerIsActor/
+        OwnerIsCaster, evalue ; +gate nature d'attaque eventuel via `ctx["is_melee"]`, ex. FoulInfusion
+        IsMeleeAttack). Renvoie une liste de groupes `{count, min, max, profile}` — `count` coups de
+        degat [min,max] (RandomAmount = plage directe, PAS le spread ±20% de l'arme) — OU
+        `{count, amount, profile}` (amount SEUL = ConfigVar : le pipeline applique le spread ±20%).
+        A materialiser APRES les coups d'arme dans la MEME chaine prev-threadee (overkill continu).
+        Defaut None = pas de coups additionnels. Ex. `SquigHound_AdditionalHits` = 2 coups
+        [minDmg,maxDmg] profil Physical."""
+        return None
+
+    def create_aura_additional_hits_for_ally(self, ctx: Mapping) -> "dict | None":
+        """`<Effect>.CreateAdditionalHits` + `CreateTargetSelector` (mold AURA, ex. ExplosiveMaladies
+        @180f43cc0/@180f43a40 + selecteur @180f43ef0 `AdjacentFriends(owner, 1)`) — coups additionnels
+        projetes par un effet HOSTE SUR LE PORTEUR sur les attaques d'un ALLIE selectionne (adjacence
+        re-evaluee a la TUILE CANDIDATE, modele #49/#153 : rien n'est poste sur le beneficiaire).
+        `ctx` = {att_id, att_pos, att_team, att_faction, att_grand_alliance, is_melee, owner_id,
+        owner_pos, owner_team} (owner_* = le porteur). Renvoie UN groupe `{count, amount|min/max,
+        profile}` ou None (gates non satisfaites). Defaut None = pas d'aura additional-hits."""
         return None
 
     # ── stat-modification (famille AStatModifierEffect) ─────────────────────────────────────────────

@@ -31,6 +31,9 @@ from .damage_reduction import (TerrifyingExtraDefenseEffect, MartialKatahDmgRedu
                                OverwhelmingWrathRangeDmgReductionEffect,
                                VexillaMagnificaDmgReductionEffect)
 from .hits import (SquigHoundAdditionalHitsEffect, CordClawAdditionalHitsEffect,
+                   FoulInfusionExtraHitsEffect,
+                   ExplosiveMaladiesExtraRangedAttackEffect,
+                   ExplosiveMaladiesExtraMeleeAttackEffect,
                    AnvilShieldAdditionalBlockEffect,
                    BeastSlayerExtraBlockEffect, DaemonExtraBlockEffect,
                    FightingRetreatHitReductionEffect, LightCoverEffect,
@@ -59,6 +62,8 @@ __all__ = [
     "OverwhelmingWrathRangeDmgReductionEffect", "VexillaMagnificaDmgReductionEffect",
     # hits
     "SquigHoundAdditionalHitsEffect", "CordClawAdditionalHitsEffect",
+    "FoulInfusionExtraHitsEffect",
+    "ExplosiveMaladiesExtraRangedAttackEffect", "ExplosiveMaladiesExtraMeleeAttackEffect",
     "AnvilShieldAdditionalBlockEffect", "BeastSlayerExtraBlockEffect",
     "DaemonExtraBlockEffect",
     "FightingRetreatHitReductionEffect", "LightCoverEffect", "ParryEffect",

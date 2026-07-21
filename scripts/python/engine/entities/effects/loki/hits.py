@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+import hexgeo
+
 from ....services.effect_bonus import (EffectBonus, for_addition, for_subtraction,
                                        for_percent_decrease, for_percent_increase,
                                        for_percent_subtraction_capped)
@@ -77,6 +79,99 @@ class CordClawAdditionalHitsEffect(BaseEffect):
         except Exception:
             profile = "Physical"
         return [{"count": int(count), "min": int(mn), "max": int(mx), "profile": profile}]
+
+
+class FoulInfusionExtraHitsEffect(BaseEffect):
+    """`FoulInfusion_ExtraHitsEffect` (effet 0x432=1074, deathPutrifier Pestillian) — au cast de
+    FoulInfusion (1038), Pestillian ET les unites Chaos dans son aura de Contagion recoivent CET
+    effet : leurs attaques normales MELEE infligent +1 coup Toxic « this round and the next » (i2).
+
+    Natif : `FoulInfusion_ExtraHitsEffect.CreateAdditionalHits @180f4a340` -> `EffectAdditionalHits
+    .Create` {trigger = IsMeleeAttack & OwnerIsCaster, amount = ConfigVar(dmg, GetAbilityState(effet)),
+    count = GetNumberConstant(0x2f)=nrOfHits (=1), profile = GetDamageProfile(config) = Toxic (p70)}.
+    Le trigger est EVALUE en prediction (mesure 2468 s14 : les 3 effets u91/u162/u166 ne contribuent
+    PAS a la prediction RANGED de u89 — le +2992 venait d'ExplosiveMaladies) : canal #179 standard
+    du PORTEUR, gate `ctx["is_melee"]` requis (IsMeleeAttack). `amount` seul -> spread ±20% pipeline.
+    NON exerce bit-exact live (porte 1:1 du decompile ; s'active quand u91/poxwalkers attaquent MELEE)."""
+
+    def additional_hit_groups(self, ctx: "Mapping | None" = None) -> "list[dict] | None":
+        if not ctx or ctx.get("is_melee") is not True:      # trigger IsMeleeAttack (evalue)
+            return None
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        amt = ability_var("FoulInfusion", "dmg", lvl, multiplier_pct=self.ability_variables_multiplier)
+        count = ability_var("FoulInfusion", "nrOfHits", is_constant=True)   # numberConstant 0x2f
+        if amt is None or amt <= 0 or not count or count <= 0:
+            return None
+        try:
+            import gameconfig as _GC
+            profile = ((_GC.ability("FoulInfusion") or {}).get("constants") or {}).get("damageProfile") \
+                or "Toxic"
+        except Exception:
+            profile = "Toxic"
+        return [{"count": int(count), "amount": int(amt), "profile": profile}]
+
+
+class _ExplosiveMaladiesAuraHitsBase(BaseEffect):
+    """Mold commun des deux effets-AURA d'ExplosiveMaladies (passif deathPutrifier Pestillian, effets
+    HOSTES SUR LE PORTEUR — rien n'est poste sur le beneficiaire, modele #49) : +nrOfHits=1 coup de
+    ConfigVar(8=extraDmg, GetAbilityState(effet)) au profil `GetAffectedDamageProfile` (= Blast p15)
+    aux attaques NORMALES des amis ADJACENTS au porteur (`AdjacentFriends(owner, 1)` @180f43ef0),
+    adjacence re-evaluee a la TUILE CANDIDATE.
+
+    VALIDE bit-exact live (probe #57c-C, 2468 s14) : u89 (Ork, ranged, NON porteur) a (2,3) adjacent
+    de u91 -> +1 coup de extraDmg[50]x1.8=2992, roll ±20% PUIS x1.5 CrushingStrike (les %-mods
+    attaquant S'APPLIQUENT au coup folde) = delta [3591, 5385] ; a (0,3) non adjacent -> rien.
+    i2 : « Enemies defeated by affected attacks are always overkilled » (flag overkill non porte)."""
+
+    _VARIANT_IS_MELEE = False        # ExtraRanged : IsRangedAttack ; ExtraMelee : IsMeleeAttack
+
+    def _gates_ok(self, ctx: "Mapping") -> bool:
+        return True                  # gates additionnels de la variante (Chaos pour la melee)
+
+    def create_aura_additional_hits_for_ally(self, ctx: "Mapping") -> "dict | None":
+        att_pos, owner_pos = ctx.get("att_pos"), ctx.get("owner_pos")
+        if att_pos is None or owner_pos is None:
+            return None
+        if ctx.get("att_team") != ctx.get("owner_team"):     # AdjacentFriends (allies seulement)
+            return None
+        if bool(ctx.get("is_melee")) != self._VARIANT_IS_MELEE:   # trigger Is(Ranged|Melee)Attack
+            return None
+        if not self._gates_ok(ctx):
+            return None
+        if hexgeo.distance(tuple(att_pos), tuple(owner_pos)) != 1:   # AdjacentFriends(owner, 1)
+            return None
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        amt = ability_var("ExplosiveMaladies", "extraDmg", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
+        count = ability_var("ExplosiveMaladies", "nrOfHits", is_constant=True)   # numberConstant 0x2f
+        if amt is None or amt <= 0 or not count or count <= 0:
+            return None
+        try:
+            import gameconfig as _GC
+            profile = ((_GC.ability("ExplosiveMaladies") or {}).get("constants") or {}) \
+                .get("affectedDamageProfile") or "Blast"     # GetAffectedDamageProfile
+        except Exception:
+            profile = "Blast"
+        return {"count": int(count), "amount": int(amt), "profile": profile}
+
+
+class ExplosiveMaladiesExtraRangedAttackEffect(_ExplosiveMaladiesAuraHitsBase):
+    """`ExplosiveMaladies_ExtraRangedAttackEffect.CreateAdditionalHits @180f43cc0` — trigger
+    `OwnerIsCaster & IsRangedAttack`, selecteur `UnitsWithRangedWeapons(AdjacentFriends(owner,1))`
+    @180f43ef0 : TOUT ami adjacent (arme ranged requise — implicite : l'attaque predite EST ranged)."""
+
+    _VARIANT_IS_MELEE = False
+
+
+class ExplosiveMaladiesExtraMeleeAttackEffect(_ExplosiveMaladiesAuraHitsBase):
+    """`ExplosiveMaladies_ExtraMeleeAttackEffect.CreateAdditionalHits @180f43a40` — trigger
+    `OwnerIsCaster & IsMeleeAttack` ; i2 : seuls les amis CHAOS adjacents beneficient du coup en
+    MELEE (selecteur melee non decompile — gate GrandAlliance Chaos mirror i2, flag validator)."""
+
+    _VARIANT_IS_MELEE = True
+
+    def _gates_ok(self, ctx: "Mapping") -> bool:
+        return (ctx.get("att_grand_alliance") == "Chaos")
 
 
 class AnvilShieldAdditionalBlockEffect(BaseEffect):

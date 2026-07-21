@@ -80,6 +80,8 @@ from .holy_duel import HolyDuelPlaybook
 from .grapnel_launcher import GrapnelLauncherPlaybook
 from .early_warning_override import EarlyWarningOverridePlaybook
 from .dark_talon_strike import DarkTalonStrikePlaybook
+from .send_in_the_next_wave import SendInTheNextWavePlaybook
+from .incursion import IncursionPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -135,6 +137,13 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 position=argmax, gate nearest<9 (@18112e880)
         DarkTalonStrikePlaybook(),      # 1092 -- beam en ligne ; cible=TILE (aim), util=#ennemis
         #                                 continus sur le rayon caster->aim, MIN_UTILITY=2 (@1811299a0)
+        # #56 (tranche 3b) -- 2 NC natifs summon reveles par le batch MC1_67 seed 1357 (misses
+        # non-attack-oracle). MIN_UTILITY DYNAMIQUE = max stat sur TOUS les ennemis (ne fire que si le
+        # meilleur ennemi est ciblable) ; util(cible) = stat de la cible.
+        SendInTheNextWavePlaybook(),    # 1016 -- summon Cadians ; util=Attack(cible), cible=ennemi de
+        #                                 plus haute Attack, MIN=max Attack ennemis (@18115a1f0)
+        IncursionPlaybook(),            # 1021 -- summon Bloodletters ; util=PV(cible), cible=ennemi de
+        #                                 plus haut PV avec >=2 tuiles libres adj., MIN=max PV (@181144fc0)
     )
 }
 
@@ -204,4 +213,5 @@ __all__ = [
     "ScarabHivePlaybook", "CordClawPlaybook",
     "SpawnPoxwalkersPlaybook", "FoulInfusionPlaybook", "HolyDuelPlaybook",
     "GrapnelLauncherPlaybook", "EarlyWarningOverridePlaybook", "DarkTalonStrikePlaybook",
+    "SendInTheNextWavePlaybook", "IncursionPlaybook",
 ]

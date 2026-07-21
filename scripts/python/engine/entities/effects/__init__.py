@@ -231,6 +231,29 @@ def additional_hit_groups(effects, ctx: Mapping | None = None) -> list:
     return out
 
 
+def aura_additional_hits_from_allies(carriers, ctx: Mapping) -> list:
+    """Groupes de coups additionnels PROJETES sur l'ATTAQUANT par les effets-AURA d'AUTRES unités
+    (`create_aura_additional_hits_for_ally`, ex. ExplosiveMaladies : +1 coup Blast aux attaques
+    normales des amis adjacents a Pestillian — ranged pour tous, melee pour les Chaos). Le natif
+    énumère les effets GLOBALEMENT (`GetAdditionalHitsFromEffectsInternal @180e59150`) et le
+    descripteur porte sélecteur + trigger ; en display l'adjacence est ré-évaluée à la TUILE
+    CANDIDATE (mesuré 2468 s14 : u89 gagne le coup à (2,3) adjacent de u91, rien à (0,3)).
+    `carriers` = même 8-tuple que les autres canaux d'aura ; retour [] strict."""
+    out: list = []
+    att_id = ctx.get("att_id")
+    for uid, pos, team, mult, ablvl, grand, faction, effs in carriers:
+        if uid == att_id or pos is None:
+            continue
+        octx = {**ctx, "owner_id": uid, "owner_pos": pos, "owner_team": team,
+                "owner_mult": mult, "owner_ablvl": ablvl,
+                "owner_grand_alliance": grand, "owner_faction": faction}
+        for e in _as_effects(effs):
+            g = e.create_aura_additional_hits_for_ally(octx)
+            if g:
+                out.append(g)
+    return out
+
+
 def hits_malus_from_defender_effects(effects, is_melee: bool | None = None,
                                      damage_profile: str | None = None,
                                      defender_on_cover: bool | None = None) -> int:

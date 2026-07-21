@@ -600,37 +600,57 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 }
             }
         } catch { /* liste illisible */ }
-        return { ok: true, cfgClassName, id: body.id, kind: paramClass, varType, values, rarityFlagged };
+        return { ok: true, cfgClassName, id: body.id, kind: paramClass, varType, values,
+            rarityFlagged, cfgPtr: cfg.toString() };
     });
 
-    // --- TRACE one-shot de la résolution de variable d'ability (#68/#75) ---
-    // Interceptor.attach TEMPORAIRE sur `AbilityConfiguration.TryGetVariableArrayForLevel
-    // @181577510` (unique impl concrète, résolue par NOM — basse fréquence : quelques fires
-    // par résolution d'ability, PAS un hot path). But : lire le state {level, mult} EXACT
-    // passé par le COMBAT pour extraDmg (=8) — donnée runtime que le décompilé ne peut pas
-    // donner (tous les states statiquement lisibles = {50,180} mais le combat produit la
-    // valeur de {50,90}). ARM ON-DEMAND uniquement (jamais auto-armé — leçon modifier-observe),
-    // à retirer via varTraceRemove sitôt la mesure faite.
+    // --- TRACE one-shot de la résolution de variable d'ability (#68/#75, étendu #57c-C) ---
+    // Interceptor.attach TEMPORAIRE sur `AbilityConfiguration.GetVariableForLevel @181576fb0`
+    // (l'API externe, basse fréquence — PAS un hot path). Capture {varType, state{level,mult},
+    // cfg ptr, backtrace RVAs, VALEUR retournée (int brut RAX)} : la donnée runtime que le
+    // décompilé ne peut pas donner. La VALEUR + la pile identifient la config/mécanisme sans
+    // ambiguïté (leçon #57c-C : le couple {state,varType} seul est sous-déterminé — coïncidences
+    // 831/1496 multi-configs ont coûté 2 fausses pistes ; c'est value=2992 dans la pile
+    // GetAdditionalHitsFromEffectsInternal @180e59150 qui a tranché ExplosiveMaladies).
+    // ARM ON-DEMAND uniquement (jamais auto-armé — leçon modifier-observe), à retirer via
+    // varTraceRemove sitôt la mesure faite.
     let varTraceListener: InvocationListener | null = null;
-    const varTraceBuf: Array<Record<string, number>> = [];
+    const varTraceBuf: Array<Record<string, unknown>> = [];
     ctx.rpc.varTraceInstall = (): Promise<unknown> => queueOnMainThread(() => {
         if (varTraceListener) return { ok: true, already: true };
         const cfgClass = findClassAnywhere("IdunBattle.Configuration", "AbilityConfiguration");
         if (!cfgClass) return { ok: false, error: "AbilityConfiguration non résolu" };
-        const mi = findMethodByParamCount(cfgClass, "TryGetVariableArrayForLevel", 3);
-        if (!mi || mi.ptr.isNull()) return { ok: false, error: "TryGetVariableArrayForLevel non résolu" };
+        // GetVariableForLevel(varType, state, noThrow) @181576fb0 — l'API EXTERNE (au-dessus de
+        // TryGetVariableArrayForLevel) : onLeave lit la VALEUR RÉSOLUE (boxed int @+0x10) — la
+        // donnée qui identifie la config/var sans ambiguïté (le couple {state} seul est sous-
+        // déterminé : coïncidences 831/1496 multi-configs, vécu #57c-C).
+        const mi = findMethodByParamCount(cfgClass, "GetVariableForLevel", 3);
+        if (!mi || mi.ptr.isNull()) return { ok: false, error: "GetVariableForLevel non résolu" };
+        const gaBase = Process.getModuleByName("GameAssembly.dll").base;
         varTraceListener = Interceptor.attach(mi.ptr, {
             onEnter(args) {
-                if (varTraceBuf.length >= 500) return;
                 try {
                     const st = args[2];
-                    varTraceBuf.push({
+                    (this as InvocationContext & { entry?: Record<string, unknown> }).entry = {
                         varType: args[1].toInt32(),
                         level: st.readS32(),
                         mult: st.add(4).readS32(),
                         counter: st.add(8).readS32(),
-                    });
+                        cfg: args[0].toString(),
+                        // RVAs GameAssembly de la pile d'appel (VA ghidra = RVA + 0x180000000).
+                        bt: Thread.backtrace(this.context, Backtracer.ACCURATE)
+                            .filter((a) => a.compare(gaBase) >= 0)
+                            .slice(0, 10)
+                            .map((a) => a.sub(gaBase).toString()),
+                    };
                 } catch { /* frame illisible */ }
+            },
+            onLeave(retval) {
+                const entry = (this as InvocationContext & { entry?: Record<string, unknown> }).entry;
+                if (!entry || varTraceBuf.length >= 500) return;
+                // retour = int BRUT (registre RAX), pas un boxed object.
+                entry.value = retval.toInt32();
+                varTraceBuf.push(entry);
             },
         });
         return { ok: true, installed: true };

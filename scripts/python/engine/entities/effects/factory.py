@@ -54,6 +54,9 @@ from .loki import (
     SmashaEadExtraDamageEffect,
     SquigHoundAdditionalHitsEffect,
     CordClawAdditionalHitsEffect,
+    FoulInfusionExtraHitsEffect,
+    ExplosiveMaladiesExtraRangedAttackEffect,
+    ExplosiveMaladiesExtraMeleeAttackEffect,
     LordOfTheHostExtraDamageEffect,
     DoomExtraDmgEffect,
     StandVigilExtraArmorEffect,
@@ -72,6 +75,16 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # CordClaw (Exitor-Rho, effet 0x4e2=1250) : apres cast 1122, +nrOfHits_2=2 coups [minDmg_2,maxDmg_2]
     # DirectDamage a toutes ses attaques (@180f3a900, canal #179). #57c.
     "CordClaw_AdditionHits": CordClawAdditionalHitsEffect,
+    # FoulInfusion (Pestillian, effet 0x432=1074 sur CHAQUE unite Chaos dans l'aura au cast) :
+    # +nrOfHits=1 coup Toxic de ConfigVar(dmg)[state du cast] aux attaques normales (@180f4a340,
+    # canal #179 GLOBAL : trigger IsMeleeAttack&OwnerIsCaster indecidable en display -> TRUE,
+    # s'applique a TOUT attaquant en prediction — mesure 2468 s14). #57c-C.
+    "FoulInfusion_ExtraHits": FoulInfusionExtraHitsEffect,
+    # ExplosiveMaladies (Pestillian, effets-AURA sur le PORTEUR) : +nrOfHits=1 coup Blast de
+    # extraDmg[state] aux attaques normales des amis ADJACENTS (ranged: tous @180f43cc0 ;
+    # melee: Chaos @180f43a40) — adjacence re-evaluee a la tuile candidate. #57c-C bit-exact.
+    "ExplosiveMaladies_ExtraRangedAttack": ExplosiveMaladiesExtraRangedAttackEffect,
+    "ExplosiveMaladies_ExtraMeleeAttack": ExplosiveMaladiesExtraMeleeAttackEffect,
     # LordOfTheHost (Dante, effet 0x562=1378 sur le PORTEUR) : aura +extraDmg[ablvl]xmult additif
     # pre-percage aux attaques MELEE des amis RapidAssault/Flying rayon 2 (@180f56e30 ForAddition,
     # selector @180f56fb0). Re-evaluee par tuile candidate. #57c.

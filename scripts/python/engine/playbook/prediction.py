@@ -26,7 +26,8 @@ from engine.entities.effects import (
     aura_attack_damage_malus_from_enemies, aura_attack_damage_bonus_from_allies,
     aura_defense_damage_malus_from_units,
     calculate_attacker_modifiers_for_prediction, build_defender_modifiers_from_effects,
-    hits_bonus_from_effects, hits_malus_from_defender_effects, additional_hit_groups)
+    hits_bonus_from_effects, hits_malus_from_defender_effects, additional_hit_groups,
+    aura_additional_hits_from_allies)
 from engine.entities.traits import attacker_bonus_hits, target_hit_multiplier, TraitFactory
 from engine.entities.traits.unit_trait import UnitTrait
 from engine.entities.stats import StatType, StatPart, ARMOR_STAT_TYPES
@@ -38,6 +39,9 @@ from engine.services.damage_modifiers import (
     calculate_trench_reduction,
     TRENCH_PCT, _TRENCH_IGNORED_PROFILES)
 from engine.services.battle_query import select_weapon_pierce, are_tiles_adjacent
+from engine.entities.effects.magnitude import ability_var
+from engine.dsl.base import _round_fix64
+from fractions import Fraction
 from engine.services.attack_hits_formula import attack_hits_with_modifiers
 from engine.playbook.probable_damage_event import ProbableDamageEvent
 
@@ -298,6 +302,106 @@ def defender_prediction_block_amount(scene, tgt_id) -> int:
     return amt
 
 
+# ── #57c-C : overrides `<Boss>_NormalAttackAbility.PredictAttack` (attaque normale + follow-up) ──
+# Dispatch natif ActiveAbilityType→classe : l'attaque NORMALE de certains boss est instanciée sur une
+# SOUS-CLASSE qui surcharge PredictAttack = base ALoki (@1811afa50) + prédiction ADDITIONNELLE calculée
+# sur scénario VIERGE puis sommée via `DamagePredictionResult.Add @18102a710` (appliedHits natif 1+1=2).
+# Deux molds (corps COMDAT partagés par famille — l'instance porte la CONFIG du passif du kit) :
+#  - RANGED (`Boltstorm_NormalAttackAbility.PredictAttack @1811bd950`, gate arme choisie `!IsMelee`) :
+#    `GetAdditionalDamagePrediction @1811bd170` = éval MODE 4 (= MIN) de `GetAdditionalDamageAmount
+#    @1811bceb0` = `RandomAmount(var 0xc minDmg, var 0xd maxDmg)` → hits = ConfigConst(0x2f nrOfHits),
+#    profil = `AbilityConfiguration.GetDamageProfile` du passif, slot 0x27 SANS widgets modifiers.
+#    ⚠ AUCUN porteur confirmé : l'hypothèse « Gulgortz/LightImUp = ce mold » est RÉFUTÉE (varTrace
+#    2468 s14 : le +3×1496 de u89 = les 3 effets FoulInfusion_ExtraHits du canal #179 GLOBAL, cf.
+#    FoulInfusionExtraHitsEffect ; la coïncidence LightImUp.minDmg[50] == FoulInfusion.dmg[50] == 831
+#    a masqué la vraie source). Registre VIDE tant qu'un porteur réel du mold n'est pas mesuré.
+#  - MELEE (`ProperKilly_NormalAttackAbility.PredictAttack @1811fc690`, gate `!IsRanged`) :
+#    `GetKlawAttack1Prediction @1811fbe10` = n = ConfigConst(0x2f nrOfHits=1) coups de
+#    `GetFirstAttackDamage @1811fb760` = `PercentageOf(StatAmount(target, Health=5, part=2 Max),
+#    ConfigConst(0x3b dmgPct=60), mode 0)`, profil Power(40), chaque coup via `GetKlawAttack1Hit-
+#    Prediction @1811fb800` (même slot standard). Ghazghkull — NON exercé au batch gen (port 1:1
+#    du décompilé, non validé live).
+# Clé de dispatch = le PASSIF du kit gameconfig (l'instance native lit SA config = celle du passif).
+_RANGED_FOLLOWUP_PASSIVES = ()          # vide — cf. réfutation LightImUp ci-dessus (#57c-C)
+_MELEE_KLAW_PASSIVES = ("ProperKilly",)
+
+
+def get_additional_damage_prediction(scene, att_id, tgt_id, ability_name):
+    """`Boltstorm_NormalAttackAbility.GetAdditionalDamagePrediction @1811bd170` — follow-up RANGED :
+    amount = MIN du `RandomAmount(minDmg, maxDmg)` (éval mode 4), hits = nrOfHits, profil propre du
+    passif, mods attaquant ABSENTS (le call slot 0x27 natif ne passe pas les widgets modifiers),
+    scénario VIERGE (armure/bouclier de la cible re-disponibles — quirk natif mirroré)."""
+    ctx = scene.ctx(att_id)
+    if ctx is None:
+        return None
+    lvl = scene.ablvl_by_id.get(att_id)
+    amount = ability_var(ability_name, "minDmg", lvl, multiplier_pct=scene.mult(att_id))
+    n = ability_var(ability_name, "nrOfHits", is_constant=True)
+    if not amount or amount <= 0 or not n or n <= 0:
+        return None
+    prof = ((GC.ability(ability_name) or {}).get("constants") or {}).get("damageProfile") or ""
+    prof_ratio = int((GC.damage_profile(prof) or {}).get("PiercingRatio") or 0)
+    # pierce = profil + ExtraPierce stat (GetAttackPiercingDamageRatio @181030a20, même pipeline 0x27)
+    pierce = max(0, min(100, prof_ratio + ctx.extra_pierce + ctx.extra_pierce_ranged))
+    tgt_hit_mult = target_hit_multiplier(
+        TraitFactory.create_many((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits")))
+    return get_attack_prediction(
+        target_current_health=scene.hp(tgt_id) or 0, initial_damage=int(amount), hits=int(n),
+        profile_type=_PROFILE_INDEX.get(prof, 0), pierce_pct=pierce, armor=scene.armor(tgt_id),
+        mods=None, hit_mult=tgt_hit_mult, target_shield=scene.shield(tgt_id),
+        target_limits=_target_damage_limits(scene, tgt_id),
+        defender_block_amount=defender_prediction_block_amount(scene, tgt_id))
+
+
+def get_klaw_attack1_prediction(scene, att_id, tgt_id, ability_name):
+    """`ProperKilly_NormalAttackAbility.GetKlawAttack1Prediction @1811fbe10` — klaw MELEE : n coups de
+    `PercentageOf(MaxHealth EFFECTIF de la cible, dmgPct, mode 0)` (`GetFirstAttackDamage @1811fb760`),
+    profil propre (Power 40), scénario VIERGE, coups chaînés (armure déplétée entre coups — c'est le
+    per-coup standard de get_attack_prediction)."""
+    ctx = scene.ctx(att_id)
+    if ctx is None:
+        return None
+    pct = ability_var(ability_name, "dmgPct", is_constant=True)
+    n = ability_var(ability_name, "nrOfHits", is_constant=True)
+    hpmax = scene.hpmax(tgt_id)
+    if not pct or pct <= 0 or not n or n <= 0 or not hpmax:
+        return None
+    amount = _round_fix64(Fraction(int(pct) * int(hpmax), 100), 0)   # PercentageOf mode 0 (half-to-even)
+    prof = ((GC.ability(ability_name) or {}).get("constants") or {}).get("damageProfile") or ""
+    prof_ratio = int((GC.damage_profile(prof) or {}).get("PiercingRatio") or 0)
+    pierce = max(0, min(100, prof_ratio + ctx.extra_pierce + ctx.extra_pierce_melee))
+    tgt_hit_mult = target_hit_multiplier(
+        TraitFactory.create_many((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits")))
+    return get_attack_prediction(
+        target_current_health=scene.hp(tgt_id) or 0, initial_damage=int(amount), hits=int(n),
+        profile_type=_PROFILE_INDEX.get(prof, 0), pierce_pct=pierce, armor=scene.armor(tgt_id),
+        mods=None, hit_mult=tgt_hit_mult, target_shield=scene.shield(tgt_id),
+        target_limits=_target_damage_limits(scene, tgt_id),
+        defender_block_amount=defender_prediction_block_amount(scene, tgt_id))
+
+
+def _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee, weapon_found):
+    """Sélecteur du mold follow-up de l'attaquant (cf. bloc ci-dessus). None = pas de fold
+    (pas d'arme trouvée / kit sans passif concerné / gate mêlée-ranged non satisfaite)."""
+    if not weapon_found:
+        return None                       # mirror `FindAttackWeapon != null` (@1811bd950 / @1811fc690)
+    try:
+        kit = GC.unit_abilities(scene.vis_by_id.get(att_id)) or {}
+    except Exception:
+        return None
+    names = {(a.get("name") or "") for lst in (kit.get("passive"), kit.get("active"))
+             for a in (lst or [])}
+    if not is_melee:
+        for nm in _RANGED_FOLLOWUP_PASSIVES:
+            if nm in names:
+                return get_additional_damage_prediction(scene, att_id, tgt_id, nm)
+    else:
+        for nm in _MELEE_KLAW_PASSIVES:
+            if nm in names:
+                return get_klaw_attack1_prediction(scene, att_id, tgt_id, nm)
+    return None
+
+
 def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=False):
     """`ALoki_NormalAttackPlaybook.MakeDamagePredictions @181372730` -> `ability.PredictAttack @1811afa50` :
     base=Attack × hits + perçage + armure + MODIFIER (effets attaquant + ElevationBonus + défenseur).
@@ -441,24 +545,48 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # profil + extra_pierce), MEME armure/hp/bouclier/hit_mult(MkXGravis) que la cible, ET `mods` COMPLET — le
     # coup subit le même pipeline : réductions défenseur plates (Nightshroud_DmgReduction, fusionnées dans
     # mods.additive) + %-mods/additif attaquant. Mirror `EffectAdditionalHits.Create @180f405b0`. [] hors carrier.
+    # #57c-C : deux sources de groupes — (a) effets du PORTEUR (SquigHound/CordClaw/FoulInfusion,
+    # triggers OwnerIsActor/OwnerIsCaster+IsMeleeAttack EVALUES : ctx is_melee threade) ; (b) effets-
+    # AURA d'ALLIES adjacents (ExplosiveMaladies : adjacence re-evaluee a la TUILE CANDIDATE, mirror
+    # de l'enumeration globale @180e59150 + selecteur @180f43ef0). Les groupes "amount" (ConfigVar
+    # seul) prennent le spread ±20% du pipeline ; TOUS les groupes recoivent les %-mods attaquant
+    # (mesure 2468 s14 : le coup ExplosiveMaladies de u89 subit bien le x1.5 CrushingStrike).
     _extra_groups = []
-    for _g in additional_hit_groups(att_effects):
+    _ah_ctx = {"is_melee": is_melee}
+    _aura_hits = aura_additional_hits_from_allies(
+        carriers, {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
+                   "att_faction": att_faction, "att_grand_alliance": att_grand,
+                   "is_melee": is_melee})
+    for _g in list(additional_hit_groups(att_effects, _ah_ctx)) + _aura_hits:
         _dp = GC.damage_profile(_g["profile"]) or {}
         _gp = max(0, min(100, int(_dp.get("PiercingRatio") or 0) + ctx.extra_pierce))
-        _extra_groups.append({
-            "count": _g["count"], "predefined": MinMaxDamage(min=_g["min"], max=_g["max"]),
-            "pierce_pct": _gp, "profile_type": _PROFILE_INDEX.get(_g["profile"], 0), "mods": mods})
+        _entry = {"count": _g["count"], "pierce_pct": _gp,
+                  "profile_type": _PROFILE_INDEX.get(_g["profile"], 0), "mods": mods}
+        if "amount" in _g:
+            _entry["amount"] = int(_g["amount"])
+        else:
+            _entry["predefined"] = MinMaxDamage(min=_g["min"], max=_g["max"])
+        _extra_groups.append(_entry)
     res = get_attack_prediction(
         target_current_health=scene.hp(tgt_id) or 0, initial_damage=attack_base, hits=hits,
         profile_type=0, pierce_pct=pierce, armor=scene.armor(tgt_id), mods=mods, hit_mult=tgt_hit_mult,
         target_shield=scene.shield(tgt_id), target_limits=_target_damage_limits(scene, tgt_id),
         extra_groups=_extra_groups,
         defender_block_amount=defender_prediction_block_amount(scene, tgt_id))
+    # #57c-C : override PredictAttack des attaques normales de boss (Gulgortz/LightImUp, Ghazghkull/
+    # ProperKilly) — prédiction ADDITIONNELLE sur scénario VIERGE sommée via DamagePredictionResult.add
+    # (@18102a710), cf. bloc _RANGED_FOLLOWUP_PASSIVES ci-dessus.
+    _fw = _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee, prof_name is not None)
+    if _fw is not None:
+        res.add(_fw)
     ev = ProbableDamageEvent(target=tgt_id, prediction=res)
     if meta:
-        return ev, {"base": attack_base, "pierce": pierce, "armor": scene.armor(tgt_id), "hits": hits,
-                    "mods": [round(m, 3) for m, _c in mods.pct_list] or None,
-                    "effects": [e.name for e in att_effects] or None}
+        _m = {"base": attack_base, "pierce": pierce, "armor": scene.armor(tgt_id), "hits": hits,
+              "mods": [round(m, 3) for m, _c in mods.pct_list] or None,
+              "effects": [e.name for e in att_effects] or None}
+        if _fw is not None:
+            _m["followup"] = {"min": _fw.raw_health_damage.min, "max": _fw.raw_health_damage.max}
+        return ev, _m
     return ev
 
 

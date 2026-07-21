@@ -481,6 +481,9 @@ _NONCOMPARABLE_ABILITIES: "frozenset[str]" = frozenset({
     "TheQuickening",     # TheQuickeningPlaybook @18116afb0 ; utilité = paliers +1 (cible = TUILE)
     "BlackRage",         # BlackRagePlaybook @1811211f0 ; utilité = dégât de l'attaque NORMALE (interne)
     "VigilanceEternal",  # VigilanceEternalPlaybook @18117fae0 ; utilité = dégât de l'ability (interne)
+    # --- #56 (tranche 3b) : 2 summons NonComparable (EvaluateNonComparable, PAS de Make*Predictions).
+    "SendInTheNextWave",  # SendInTheNextWavePlaybook @18115a1f0 ; util=Attack(cible), MIN=max Attack ennemis
+    "Incursion",          # IncursionPlaybook @181144fc0 ; util=PV(cible), MIN=max PV, gate adj>=2 tuiles
 })
 
 
