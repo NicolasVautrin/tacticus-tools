@@ -43,29 +43,114 @@ def count_adjacent(tile: tuple, positions: list, elev_by_pos: dict | None = None
 
 
 def in_arc(tile: tuple, pos: tuple, elev_by_pos: dict | None = None) -> bool:
-    """`pos` est-il dans l'ARC de `tile` (ring-1 UNION ring-2) au sens de `GetAllTargetsSelector
-    @1811e2090` ? ring-1 = `is_adjacent` (dist hex 1, porte d'élévation `|Δelev| < 2`) ; ring-2 = dist
-    hex EXACTEMENT 2 (`Unobscured` PASSE-TOUT v1, LoS absente offline). Prédicat PARTAGÉ par
-    `count_enemies_in_arc` (compte l'utilité) et `enemies_in_arc` (émet la cible représentative)."""
+    """`pos` est-il dans l'ARC de `tile` (ring-1 UNION ring-2) ? ring-1 = `is_adjacent` (dist hex 1,
+    porte d'élévation `|Δelev| < 2`) ; ring-2 = dist hex EXACTEMENT 2 (`Unobscured` PASSE-TOUT v1
+    pour ce prédicat d'ÉLIGIBILITÉ, non exercé par les seeds). Prédicat PARTAGÉ par
+    `count_enemies_in_arc` (gate d'éligibilité par-position) et `enemies_in_arc` (cible émise)."""
     if is_adjacent(tile, pos, elev_by_pos):                              # ring-1 (dist 1, élévation-gaté)
         return True
     return hexgeo.distance((tile[0], tile[1]), (pos[0], pos[1])) == 2    # ring-2 (dist 2, Unobscured passe-tout)
 
 
 def count_enemies_in_arc(tile: tuple, positions: list, elev_by_pos: dict | None = None) -> int:
-    """`GauntletsOfUltramarAbility.GetAllTargetsSelector @1811e2090` — nombre d'unités de `positions`
-    (ennemis) dans l'ARC de `tile` = ring-1 UNION ring-2 (`in_arc`). Le sélecteur natif est la somme
-    (`TargetsSelector.op_Addition`) de deux sous-sélecteurs :
-      - `GetAdjacentTargetsSelector @1811e2010` = `Unique(Enemies(AdjacentTiles(tile)))` -> ring-1
-        (distance hex 1), PORTE d'élévation `|Δelev| < 2` d'`IterateAdjacentTiles` (cf. `is_adjacent`).
-      - `GetSurroundingTargetsSelector @1811e20d0` = `Unobscured(SurroundingEnemies(tile, r=2) - Adjacent)`
-        = ring-2 (distance hex 2), filtré `Unobscured` (terrain, cf. case-49).
-    ⚠ CASE-49 (2026-07-20) : le terme ring-2 natif contribue TOUJOURS 0 (probes live 49b/49c : ennemi
-    visible à dist 2, chemin libre -> bucket vide ; 3 adjacents -> util=3 exactement). L'UTILITÉ
-    Gauntlets ne passe PLUS par ce compte (elle utilise `count_adjacent` = ring-1 seul, non cappé).
-    Cette fonction est CONSERVÉE pour le fallback CIBLE (`enemies_in_arc`/`gauntlets_target` —
-    l'énumération eligible-targets est un sélecteur DISTINCT de l'utilité)."""
+    """`BasePlaybook.GetEligibleTargetsSelectable(unit, MainTile(T)) @18111ed80` (compte) — nombre
+    d'unités de `positions` (ennemis) dans l'ARC de `tile` = ring-1 UNION ring-2 (`in_arc`), l'ensemble
+    des CIBLES ÉLIGIBLES depuis la position T. C'est le set ancré à T que le natif énumère pour
+    `GenerateAction(pos, eligible_target, util)` : si ce set est VIDE à T, AUCUNE action n'est générée
+    (bucket vide) quelle que soit l'utilité — gate PROUVÉ live (probe_49x_realanchor phase B, C1_25 :
+    23/23 positions, les 6 vides = exactement celles sans ennemi à dist <= 2 de T).
+    ⚠ CASE-49x (2026-07-21) : ce compte n'est PAS l'utilité Gauntlets. L'utilité =
+    `|ring1(T) ∪ surrounding_enemies(TUILE RÉELLE)|` (cf. `surrounding_enemies` + le playbook) —
+    la conclusion antérieure « ring-2 mort » (case-49 §2bis) confondait les deux ancrages."""
     return sum(1 for p in (positions or []) if in_arc(tile, p, elev_by_pos))
+
+
+def eligible_targets_count(tile: tuple, positions: list,
+                           elev_by_pos: dict | None = None) -> int:
+    """`BasePlaybook.GetEligibleTargetsEntities(unit, MainTile(T))` (via `GetEligibleTargetsSelectable
+    @18111ed80`) — nombre de CIBLES ÉLIGIBLES depuis la position T = ennemis à dist hex <= 2 de T,
+    **SANS porte d'élévation au ring-1** : PROUVÉ live (probe_49x phase B, C1_25 : T=(0,2) elev 4,
+    ennemi (1,3) elev 2 adjacent -> |Δelev|=2 exclurait via IterateAdjacentTiles, or le natif GÉNÈRE
+    une action -> l'éligibilité n'utilise pas cette porte, contrairement au terme utilité
+    `AdjacentTiles`). Si 0 : la boucle `GenerateAction` n'est jamais entrée -> bucket VIDE à T quelle
+    que soit l'utilité (gate par-position, 23/23 sur E1-repro). v1 FLAG : dist-2 sans filtre
+    Unobscured (non exercé par les mesures ; cf. `is_target_tile_obscured` si un cas le falsifie)."""
+    tk = (tile[0], tile[1])
+    return sum(1 for p in (positions or [])
+               if hexgeo.distance(tk, (p[0], p[1])) <= 2)
+
+
+def is_target_tile_obscured(frm: tuple, to: tuple, elev_by_pos: dict | None = None) -> bool:
+    """`TargetingQuery.IsTargetTileObscured @1810bf5a0` -> `MovementQuery.GetTilesObscuringTerrain
+    @18109bad0` (mask 6 : élévation bit 2 + murs bit 4 — pas d'IndirectFire ici), TERRAIN uniquement,
+    restreint à dist hex == 2 (le seul cas où le playbook NC l'exerce ; à dist 1 le natif ne teste
+    rien : `2 < count` faux -> jamais obscurci ; dist > 2 hors périmètre Gauntlets).
+
+    Élévation (`DetermineBlockingTiles @18109d090`, seuil closure[3]=2) : la ligne from->to (dist 2,
+    count=3) teste l'UNIQUE tuile intermédiaire idx=1 (== count-2) contre elev(from) PUIS elev(to) ;
+    bloque si `elev(mid) - elevRef >= 2` pour l'UNE des deux réfs. Fat-line (lignes A/B ±eps ->
+    candidates différentes = les 2 voisins communs) : bloque SSI les DEUX candidates passent le
+    seuil pour la MÊME réf (`bVar1 & bVar2`). Mids offline = voisins communs hexgeo (bit-exact
+    cube-line pour dist 2 : trajet droit -> 1 mid ; diagonal -> midpoint sur l'arête -> ±eps
+    départage les 2 candidates). LIMITES v1 (flaggées) : murs (bit 4) non modélisés (aucun
+    `wall_by_pos` offline ; aucun board d'agreement n'a de mur en zone jouable) ; nudge eps natif
+    (FloatCube @DAT_1832593f8+0xb8) supposé départager les 2 candidates du cas diagonal (si les
+    lignes A/B tombaient sur la MÊME candidate, le natif bloquerait sur elle seule)."""
+    fk, tk = (frm[0], frm[1]), (to[0], to[1])
+    if hexgeo.distance(fk, tk) != 2 or not elev_by_pos:
+        return False
+    ef, et = elev_by_pos.get(fk), elev_by_pos.get(tk)
+    if ef is None or et is None:
+        return False
+    mids = [p for p in hexgeo.neighbors(*fk) if hexgeo.distance((p[0], p[1]), tk) == 1]
+    mids = [elev_by_pos[p] for p in mids if p in elev_by_pos]   # GetTileAt null -> pas bloquant
+    if not mids:
+        return False
+    if len(mids) == 1:                                          # ligne DROITE : 1 seul mid
+        return (mids[0] - ef >= 2) or (mids[0] - et >= 2)
+    blk_f = all(m - ef >= 2 for m in mids)                      # fat-line : ET des 2 candidates
+    blk_t = all(m - et >= 2 for m in mids)
+    return blk_f or blk_t
+
+
+def surrounding_enemies(origin: tuple, positions: list,
+                        elev_by_pos: dict | None = None) -> set:
+    """`Unobscured(DSLFactory.SurroundingEnemies(Caster, r=2))` — le terme « surrounding » de
+    `GauntletsOfUltramarAbility.GetSurroundingTargetsSelector @1811e20d0`, ancré à la TUILE RÉELLE
+    du caster (`Caster@+0x160` = CasterSelector -> ENTITÉ -> `GetMainTile` dans
+    `SurroundingTilesSelector.Select @180ef6100` — PAS la tuile balayée du contexte).
+
+    Chaîne native (décompilée, case-49x) : `SurroundingEnemies @180dfc570` =
+    `Enemies(Units(SurroundingTiles(caster, r=2) - Tiles(caster)))` ; `SurroundingTiles` -> slot
+    0x65 = `BattleQuery.GetSurroundingTiles @181068600` -> `TileQuery.IterateSurroundingTiles
+    @1810acb90` (cube-loop DISQUE dist <= 2 — pas le ring exact) avec flags MESURÉS au call-site
+    (ctor @180ef65c0 <- SurroundingTiles(query, caster, 1, r=2, 0, 0)) :
+      - requireEmptyOrSteppable = OFF (p4=0) -> les tuiles OCCUPÉES par des ennemis PASSENT
+        (la conclusion case-49 §2bis « empty-only / ring-2 mort » était FAUSSE) ;
+      - filtre restant = `TileUtil.IsTileValidForList(tile, src, 1, 0) @1810c0660` = non-mur +
+        walkable, SANS test d'élévation ni d'occupation (une unité stationne sur du walkable -> no-op
+        offline) ; PAS de porte |Δelev| ici (contrairement au ring-1 `IterateAdjacentTiles`) ;
+      - includeSelf = ON (p7=1) puis `- Tiles(caster)` au niveau DSL -> exclure `origin`.
+    `Unobscured @180e01540` -> `TargetingQuery.IsTargetUnitObscured @1810bf680` depuis la tuile
+    RÉELLE : dist 1 jamais obscurci, dist 2 via `is_target_tile_obscured`.
+    Retour : set de positions (== unités : 1 unité/tuile) — l'union avec ring1(T) est dédupliquée
+    par le `SelectUniqueUnits(@1810108b0)` du playbook.
+    VALIDÉ LIVE (probe_49x_realanchor, 2026-07-21) : craft-P MC1_67 plat (disque réel compte : util
+    3 = 1 ring1(T) + 2 dist-2-du-réel) ; craft-N (dist-2-de-T ne compte PAS) ; E1-repro C1_25
+    (17/23 positions util=2 = les 2 ennemis à dist 2 du réel, indépendant de T)."""
+    ok = (origin[0], origin[1])
+    out = set()
+    for p in (positions or []):
+        pk = (p[0], p[1])
+        if pk == ok:
+            continue
+        d = hexgeo.distance(ok, pk)
+        if d > 2:
+            continue
+        if d == 2 and is_target_tile_obscured(ok, pk, elev_by_pos):
+            continue
+        out.add(pk)
+    return out
 
 
 def enemies_in_arc(tile: tuple, enemies: list, elev_by_pos: dict | None = None) -> list:

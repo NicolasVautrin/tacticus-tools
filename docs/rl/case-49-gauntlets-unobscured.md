@@ -3,14 +3,61 @@
 **Symptôme** : 31337 s14, u87 (ultraCalgar @(2,2)) — natif joue move (3,4) + attaque normale
 69→81 ; notre moteur émet 1000→79 depuis (5,4). Seul miss ability du batch (34/35).
 
-## ⚡ RÉSOLUTION (2026-07-20) — overfire CORRIGÉ ; mécanisme prouvé décompilé + live
+## ⚡⚡ RÉSOLUTION FINALE (2026-07-21, case-49x / tâche #10) — la règle « ring-1 seul » était un OVERFIT
+
+**La vraie utilité Gauntlets a DEUX ANCRAGES différents** (décompilé `EvaluateNonComparable
+@18113e5a0` + `GetAdjacentTargetsSelector @1811e2010` + `GetSurroundingTargetsSelector @1811e20d0`,
+prouvé live par 4 crafts + repro E1, probe committée `probe_49x_realanchor.py`) :
+
+```
+util(T) = | ring1(T)  UNION  Unobscured(disque r<=2 de la TUILE RÉELLE du caster) |
+bucket(T) non-vide  <=>  util(T) >= min(3, #ennemis vivants)  ET  eligible(T) != vide
+eligible(T) = ennemis à dist <= 2 de T (SANS porte d'élévation au ring-1)
+```
+
+- **ring-1 = ancré à la position BALAYÉE T** : `AdjacentTiles(CasterTile@+0x168)` — `CasterTileSelector
+  .Select @180ee49b0` lit la tuile du CONTEXTE `AbilityEntities` (= `MainTile(position)` passée par
+  EvaluateNonComparable). Porte élévation |Δelev|<2 (IterateAdjacentTiles).
+- **surrounding = ancré à la position RÉELLE de l'ENTITÉ** : `SurroundingEnemies(Caster@+0x160, r=2)`
+  — `CasterSelector.Select @180ee47d0` rend l'ENTITÉ ; `SurroundingTilesSelector.Select @180ef6100`
+  prend `GetMainTile(entité)` = la tuile réelle dans l'état ECS, PAS celle du contexte. Cube-loop
+  disque dist<=2 (pas le ring exact), **tuiles occupées INCLUSES** (flag requireEmptyOrSteppable=0
+  au call-site, ctor @180ef65c0), filtre `TileUtil.IsTileValidForList(tile,src,1,0) @1810c0660` =
+  non-mur + walkable SANS élévation ni occupation, `Unobscured` depuis la tuile réelle
+  (élévation : `MovementQuery.GetTilesObscuringTerrain @18109bad0`, dist-1 jamais obscurci).
+- **Gate d'éligibilité par-position** : le natif boucle `GetEligibleTargetsSelectable(caster,
+  MainTile(T)) @18111ed80` — set ancré à T ; vide => AUCUNE action générée à T même si util >= floor
+  (prouvé 23/23 positions E1-repro C1_25, dont (0,2) : ennemi adjacent |Δelev|=2 QUAND MÊME éligible
+  => pas de porte d'élévation dans l'éligibilité).
+
+**Pourquoi le flip-flop** : chaque mesure antérieure ne voyait qu'UN régime. Quand disque(réel)=∅
+(s14 : ennemis à dist 3-5 de la tuile réelle (2,2)) la règle dégénère en « ring-1 seul » (fix
+2026-07-20, batch 35/35 — vrai sur CE board) ; quand réel==balayé (E1 validator C1_25 : caster
+immobile) elle dégénère en « arc(T) » (port d'origine). Les deux « validations » étaient des
+projections d'une même règle à deux ancrages — cf. l'entrée #49x de `docs/rl/solving-playbook.md`.
+
+**Fix final** : `gauntlets_of_ultramar.py` (util = union deux-ancrages + gate éligibilité) +
+`battle_query.py` (`surrounding_enemies`, `eligible_targets_count`, `is_target_tile_obscured`).
+**Validation** : batch 3 seeds préd 26/26 · util 26/26 · **ability 35/35** · move 48/51 (3 misses
+= pos-downstream-of-ability, tâche #32) ; crafts discriminants NOUVEAUX tous PASS position-par-
+position (probe_49x) : craft-P (zone PLATE MC1_67 : disque-réel compte -> non-vide EXACTEMENT à
+(5,8) util 3 quand ring-1-seul ET arc(T) prédisaient vide), craft-N (plat : dist-2-de-T ne compte
+PAS -> vide partout quand arc(T) prédisait 3), craft-O (ennemi dist-2 du réel DERRIÈRE crête elev 4
+-> EXCLU : vide partout ; valide le prédicat obscured positivement), craft-O2 (même layout, ennemi
+déplacé visible -> non-vide (5,2)=3 : contrôle), E1-repro (23/23 : 17 positions util=2 uniformes =
+signature de l'ancre réelle, 6 vides = gate d'éligibilité).
+
+**⚠ Sections historiques ci-dessous** : la résolution 2026-07-20 et §1/§2bis sont CONSERVÉES comme
+trace mais **partiellement FALSIFIÉES** — annotations inline. Ne pas réutiliser §2bis.
+
+## ~~⚡ RÉSOLUTION (2026-07-20)~~ [DÉPASSÉE par case-49x — overfit board-dépendant]
 
 **Utilité Gauntlets = compte d'ennemis RING-1 (adjacents) SEUL, NON cappé ; admission bucket
-`>=` (loose).** Trois hypothèses réfutées en cascade (§1), mécanisme final prouvé (§2bis).
+`>=` (loose).** [FALSIFIÉ 2026-07-21 : vrai seulement quand disque(réel)=∅ — cf. résolution finale.]
 Fix : `gauntlets_of_ultramar.py` → `bq.count_adjacent` (ring-1, élévation-gatée, non cappée),
-`_CAP` renommé `_FLOOR_CONST` (le « 3 » de SelectUniqueUnits = UnitSelectionType, PAS un cap).
-Batch 3 seeds post-fix : préd 26/26, util 26/26, ability 34/35, move 47/51 — zéro régression,
-s14 n'émet PLUS 1000 (le moteur attaque normale comme le natif).
+`_CAP` renommé `_FLOOR_CONST` (le « 3 » de SelectUniqueUnits = UnitSelectionType, PAS un cap)
+[toujours VRAI]. Batch 3 seeds post-fix : préd 26/26, util 26/26, ability 34/35, move 47/51 —
+zéro régression, s14 n'émet PLUS 1000 (le moteur attaque normale comme le natif).
 
 **Miss résiduel s14 (cible 79 vs 81) — RÉSOLU en deux couches supplémentaires** :
 1. **`RitesOfBattlePlaybook` porté** (famille AdjacentUnitPreference, case-36) : ctor
@@ -33,11 +80,16 @@ s14 n'émet PLUS 1000 (le moteur attaque normale comme le natif).
 **ability 35/35 (100 % — ÉTAGE FERMÉ)**, move 48/51 (94 % — plus AUCUN move-formula, les 3
 restants = pos-downstream-of-ability : s5/s15 31337 + 1). Chaîne des probes conservée :
 probe_49_gauntlets (dispo ability), 49b/49c (falsification ring-2), 49d (paires natives),
-49e (plan énuméré), 49f (sweep debug), 49g (L3 par-feuille tuiles).
+49e (plan énuméré), 49f (sweep debug), 49g (L3 par-feuille tuiles), **49x (discriminateur
+final ancre-réelle : crafts P/N/O/O2 + E1-repro — cf. Résolution finale)**.
 
-## 1. Hypothèses RÉFUTÉES (ne pas re-suspecter)
+## 1. Hypothèses RÉFUTÉES [⚠ annoté case-49x : les MESURES restent bonnes, deux INTERPRÉTATIONS étaient fausses]
 
-- **Unobscured ring-2 (hypothèse initiale de la tâche #8) — RÉFUTÉE** (re-expert 2026-07-20).
+- **Unobscured ring-2 (hypothèse initiale de la tâche #8) — RÉFUTÉE** *sur CE cas* (re-expert
+  2026-07-20). [Case-49x : l'analyse de visibilité ci-dessous est CORRECTE mais hors-sujet — le
+  terme surrounding natif est ancré à la tuile RÉELLE (2,2), pas à la balayée (5,4) ; les ennemis
+  étaient à dist 3-5 du réel, d'où le vide. Le prédicat Unobscured existe bel et bien et a depuis
+  été validé live (craft-O/O2 probe_49x : crête elev 4 -> ennemi dist-2 du réel EXCLU).]
   Élévations réelles MC1_67 : (5,4)=3, (6,5)=2, (4,4)=2, (3,5)=2, (6,4)=3, (5,5)=2.
   Prédicat natif fidèle exécuté offline : `(5,4)→(3,5)` VISIBLE (mid (4,4) elev 2, deltas < 2) ;
   `(5,4)→(6,5)` VISIBLE (fat-line {(6,4)=3,(5,5)=2} vs elev(to)=2 : il faudrait LES DEUX ≥ 4).
@@ -70,28 +122,23 @@ probe_49_gauntlets (dispo ability), 49b/49c (falsification ring-2), 49d (paires 
   déplacé hors (4,4) → chemin 2-pas libre vers u81 → bucket TOUJOURS vide ; 49c config B :
   2 adjacents + 1 ennemi dist-2 chemin libre → vide).
 
-## 2bis. MÉCANISME FINAL (prouvé structurellement) — le terme ring-2 rend TOUJOURS 0
+## ~~2bis. MÉCANISME FINAL — le terme ring-2 rend TOUJOURS 0~~ [**FAUX** — falsifié case-49x, NE PAS RÉUTILISER]
 
-Chaîne : `GetSurroundingTargetsSelector @1811e20d0` = `Unobscured(SurroundingEnemies(caster,
-r=2) − AdjacentTargets)` ; `SurroundingEnemies @180dfc570` = `Enemies(Units(SurroundingTiles(
-caster, r=2) − Tiles(caster)))` avec `Units @180e01340` → `UnitsOnTilesSelector.Select
-@180f02450` (mappe tuile → unité qui l'OCCUPE) et `SurroundingTiles @180dfca70` →
-`SurroundingTilesSelector.Select @180ef6100` (portée slot 0x65 du board-query, args Gauntlets
-radius=2, flag1=0, flag2=0 via ctor @180ef65c0).
+[La chaîne de sélecteurs listée ici (VAs) est correcte, mais la conclusion était FAUSSE :]
 
-**`SurroundingTiles` est la primitive de portée type MOUVEMENT/PLACEMENT : elle ne rend que
-des tuiles vides (ou steppables) — JAMAIS la tuile occupée par un ennemi normal.** Donc
-`Units(...)` n'y trouve aucune unité → le terme ring-2 = ∅ STRUCTURELLEMENT (peu importe
-distance/visibilité/chemin). Ring-1 (`AdjacentTiles`→`IterateAdjacentTiles`) n'a PAS ce
-filtre (inclut les tuiles occupées, porte |Δelev|<2 seule) → seuls les ADJACENTS comptent.
-Grille complète satisfaite : #117 (≥4 ring-1 → caste), s14 (ring-1 1 → vide), 49b (<3 →
-vide), 49c B (2 → vide), 49c A (3 → non-vide util=3).
-
-**Résidu ouvert (edge case, flaggé)** : le prédicat exact du slot 0x65 (empty-only vs
-empty-OR-steppable, flag-dépendant ou systématique) est enfoui sous 3 couches de dispatch
-d'interface. Test falsifiable si besoin : ennemi STEPPABLE (spore mine) à dist 2 chemin
-libre → compté = « empty-or-steppable », pas compté = « empty-only ». Aucun seed
-d'agreement n'exerce ce cas.
+~~**`SurroundingTiles` est la primitive de portée type MOUVEMENT/PLACEMENT : elle ne rend que
+des tuiles vides (ou steppables) — JAMAIS la tuile occupée par un ennemi normal.»**~~
+**FALSIFIÉ (case-49x, décompilé + live E1/C1_25 + craft-P)** : la lecture « empty-only » avait
+confondu flag=0 avec filtre actif. Le décompilé de `TileQuery.<IterateSurroundingTiles>d__6
+.MoveNext @1810ae1b0` montre que le filtre `IsEmptyOrSteppable` est CONDITIONNEL au flag
+requireEmptyOrSteppable — et le call-site Gauntlets passe **0 (OFF)** (`SurroundingTiles(query,
+caster, 1, r=2, 0, 0)` -> ctor @180ef65c0 -> slot 0x65 args `(tile, r, 0, 1, 0, 1)`). Les tuiles
+occupées PASSENT ; le seul filtre par-tuile restant = `TileUtil.IsTileValidForList @1810c0660`
+(non-mur + walkable, sans élévation ni occupation). Le vrai mécanisme du vide s14/49b/49c :
+**l'ancrage à la tuile RÉELLE** (cf. Résolution finale en tête) — les ennemis étaient à dist 3-5
+de (2,2). La « grille complète satisfaite » ci-dessus était une coïncidence de configs où
+disque(réel)=∅ : c'est le piège de la sous-détermination (plusieurs règles compatibles avec les
+mêmes mesures tant qu'on ne CRAFTE pas le cas qui les sépare — fait par probe_49x craft-P/N).
 
 **Corollaire multi-abilities** : `SurroundingEnemies` (4 surcharges, refcount ~40) est
 potentiellement inerte PARTOUT où il compte des ennemis normaux à portée ≥2 (quirk natif) ;
@@ -136,13 +183,16 @@ Chaîne (build gqfc5mff6c) :
   KillMaimBurn, MultiThreatEliminator, TheWailingDoomSweeps, GauntletsOfUltramar,
   SanctorumMissile.
 
-### Spec de port (si/quand implémenté — PAS pour #49)
+### Spec de port — PORTÉ (case-49x) pour le cas dist-2 : `bq.is_target_tile_obscured`
 
-`engine/battle_query.py`, ring-2 de `in_arc` : `distance==2 and not is_tile_obscured(...)`.
-mask = 4 si caster IndirectFire sinon 6 ; ligne A/B avec nudge ±eps (epsilon exact natif =
-FloatCube readonly @DAT_1832593f8+0xb8, non lu statiquement — le nudge asymétrique
-`(1,2,-3)e-6` du script de vérif reproduit le comportement, à valider live sur high-ground) ;
-bit 2 sur idx∈{1, count−2} vs elev(from/to), seuil >= 2, fat-line = ET des deux candidates ;
-bit 4 murs sur toute la ligne (A ET B). Données offline : `elev_by_pos` (présent) +
-`wall_by_pos` (À PLUMBER — aucun board d'agreement actuel n'a de mur). Script de référence :
-scratchpad re-expert `obscure_check.py` (perdu au cleanup worktree — re-dériver de ce doc).
+Port dist-2 (le seul cas exercé par le playbook NC Gauntlets) dans `engine/battle_query.py`
+(`is_target_tile_obscured`, consommé par `surrounding_enemies`) : mids = voisins communs
+hexgeo (dist-2 : trajet droit -> 1 mid ; diagonal -> midpoint exactement sur l'arête -> les
+lignes A/B ±eps départagent les 2 candidates -> fat-line = ET) ; bit 2 : bloque si
+`elev(mid) − elev(from) >= 2` OU `elev(mid) − elev(to) >= 2` (fat : ET des 2 candidates par
+réf). **VALIDÉ LIVE positif+négatif** (probe_49x craft-O/O2 : (2,2)->(1,4) mids (1,3)/(2,3)
+elev 4 -> EXCLU ; (2,2)->(3,3) visible -> compté). RESTE v1 : murs (bit 4, `wall_by_pos` À
+PLUMBER — aucun board d'agreement n'a de mur en zone jouable) ; mask 4 IndirectFire (aucun
+caster NC concerné) ; dist >= 3 (hors périmètre Gauntlets) ; nudge eps exact (FloatCube
+readonly @DAT_1832593f8+0xb8, non lu statiquement) supposé départager les candidates du cas
+diagonal — si A/B tombaient sur la MÊME candidate, le natif bloquerait sur elle seule.

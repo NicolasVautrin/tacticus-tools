@@ -195,3 +195,65 @@ factorisait un scalaire sous-determine.
 - **Latents a ne pas perdre** (documentes case-184, hors perimetre) : `MovementUtil.AreTilesAdjacent
   @18109d740` = voisinage && |Delta-elevation| < 2 (le port n a pas le gate elevation) ; la selection
   d arme native retombe sur MELEE hors portee ranged (FindRangedWeapon null -> FindMeleeWeapon).
+
+## #49x / tache #10 (2026-07-21) — Flip-flop sur le COMPTE d'une utilite NC (Gauntlets 1000) : deux "validations" incompatibles etaient les projections d'UNE regle a DEUX ANCRAGES
+
+**Symptome-type** : une heuristique de compte (utilite playbook, selecteur DSL) validee deux fois
+avec deux regles INCOMPATIBLES, chacune reproductible sur SON board/config (ici : "ring-1 seul"
+35/35 sur MC1_67 vs "l'arc dist<=2 compte" admis par le natif sur C1_25) ; chaque camp a une
+grille de mesures propre qui "prouve" sa regle ; la difference visible entre les configs (board,
+elevations) suggere de fausses pistes environnementales (murs, LoS, epsilon).
+
+**Methode qui l'a craque** :
+
+1. **Chercher la variable CACHEE qui differe entre les deux corpus de mesures, pas un mecanisme
+   de plus.** Ici : dans TOUTES les mesures "ring-2 mort", la position evaluee etait une tuile
+   BALAYEE != la tuile reelle du caster (sweep ncEvaluate) ; dans la mesure "ring-2 vivant", le
+   caster etait IMMOBILE (reel == balaye). Des qu'on liste cote a cote les configs avec la colonne
+   "reel vs balaye", la reconciliation saute aux yeux : la regle est `util(T) = |ring1(T) UNION
+   disque2(TUILE REELLE)|` — chaque camp n'avait vu qu'une degenerescence (disque(reel)=vide ->
+   "ring-1 seul" ; reel==T -> "arc(T)"). C'est le pattern #153 (position d'evaluation) applique a
+   un SELECTEUR : **quand deux regles rivales collent chacune a son corpus, suspecter que
+   l'ANCRAGE (quelle tuile/entite/etat) differe entre les mesures, pas la formule.**
+2. **Le decompile revele l'ancrage dans les NOEUDS DSL, pas dans la formule.** La chaine
+   `EvaluateNonComparable @18113e5a0` construit le contexte avec `MainTile(position balayee)` ;
+   MAIS les deux sous-selecteurs ne consomment PAS le meme noeud racine : `AdjacentTiles(
+   CasterTile@+0x168)` (= tuile du CONTEXTE -> suit le sweep) vs `SurroundingEnemies(Caster@
+   +0x160)` (= ENTITE -> `GetMainTile(entite)` dans l'etat ECS -> tuile REELLE). **Heuristique
+   reutilisable : dans tout arbre DSL evalue en position hypothetique, tracer CHAQUE reference
+   au caster jusqu'a son noeud (+0x148 Owner / +0x158 Actor / +0x160 Caster / +0x168 CasterTile /
+   +0x170 CasterTiles / +0x178 Target, cf. runner-engine.md:660) : `Caster` et `CasterTile` n'ont
+   PAS le meme referentiel pendant un sweep** (`CasterTileSelector.Select @180ee49b0` lit
+   ctx.tiles ?? ctx.tile AVANT le fallback entite ; `CasterSelector.Select @180ee47d0` rend
+   l'entite). Un selecteur "surrounding/adjacent/nearest" bati sur l'ENTITE est T-independant.
+3. **Lire les FLAGS reels du call-site avant de croire un filtre.** La conclusion falsifiee
+   ("SurroundingTiles ne rend que des tuiles vides") venait d'une lecture de l'iterateur sans
+   ses arguments. Le filtre `IsEmptyOrSteppable` de `TileQuery.<IterateSurroundingTiles>d__6
+   @1810ae1b0` est CONDITIONNEL (`dc+0x50`) ; le call-site Gauntlets passe 0 -> OFF. **Remonter
+   la chaine ctor -> champs -> MoveNext en suivant les VALEURS (ici SurroundingTiles(...,0,0) ->
+   ctor @180ef65c0 -> slot 0x65 args) ; un flag=0 n'est pas un filtre actif.** Piege gshared :
+   les offsets de champs different entre le ctor et le MoveNext decompiles (instanciations
+   generiques distinctes) — se fier a l'ORDRE des stores, pas aux offsets absolus.
+4. **Craft discriminant sur TERRAIN PLAT pour tuer les echappatoires environnementales.** Les
+   regles rivales invoquaient l'elevation/LoS ; en placant les crafts sur une zone tout-plat
+   (MC1_67 rows 7-8 elev 1), tout blocage "obscured" est impossible PAR CONSTRUCTION -> le
+   resultat ne peut trancher que l'ancrage. Ensuite seulement, un craft dedie (crete elev 4)
+   valide le predicat obscured isolement (positif craft-O + controle craft-O2).
+5. **Valider position-par-position, pas au best.** `ncEvaluate sweep` + comparateur port-vs-natif
+   sur CHAQUE position balayee (probe_49x `measure_vs_port`) : un accord "au best" peut masquer
+   deux erreurs qui se compensent dans l'argmax ; l'accord par-position sur 17-32 tuiles par
+   config est la preuve forte. Et verifier la NON-VACUITE du cote positif (imprimer le set
+   non-vide natif : un "PASS tout-vide vs tout-vide" ne prouve rien).
+
+**Outils/heuristiques reutilisables** :
+- `probe_49x_realanchor.py` : pattern complet build-roster-custom (`--p-units/--a-units`, 1vN,
+  floor controle) + driving multi-tours generique (`drive()` : moves legaux + cycles endturn ;
+  `refresh_turn()` : rendre la main au caster AVANT mesure — 3 joueurs, p3=environnement, sinon
+  le sweep se reduit a l'origine) + `measure_vs_port()` (accord par-position).
+- `bq.surrounding_enemies` / `bq.eligible_targets_count` / `bq.is_target_tile_obscured` :
+  primitives mirrorees reutilisables pour les 11 autres abilities a terme `Unobscured`
+  (Boltstorm, Doombolt, HeroicFusillade, ... cf. case-49 §3) et tout futur selecteur
+  "surrounding" — en se rappelant que l'ancrage (entite vs tuile-contexte) se lit au NOEUD.
+- Gate d'eligibilite par-position : `GetEligibleTargetsSelectable(unit, MainTile(T)) @18111ed80`
+  vide -> bucket vide MEME si util >= floor ; l'eligibilite dist-1 n'a PAS la porte d'elevation
+  du ring-1 utilite (prouve E1-repro (0,2), |Delta-elev|=2 adjacent quand meme eligible).
