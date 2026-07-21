@@ -46,6 +46,39 @@ class SquigHoundAdditionalHitsEffect(BaseEffect):
         return [{"count": int(count), "min": int(mn), "max": int(mx), "profile": profile}]
 
 
+class CordClawAdditionalHitsEffect(BaseEffect):
+    """`CordClaw_AdditionalHitsEffect` (effet 0x4e2=1250, nom capté "CordClaw_AdditionHits",
+    admecRuststalker Exitor-Rho) — après un cast CordClaw (0x462=1122), TOUTES les attaques du porteur
+    jusqu'à la fin de son prochain tour gagnent des coups additionnels à dégât PROPRE (i2 : « All of
+    Exitor-Rho's further attacks ... deal an additional 2x 582-873 Direct Damage »).
+
+    Natif : `CordClaw_AdditionalHitsEffect.CreateAdditionalHits @180f3a900` -> EffectAdditionalHits
+    {condition=OwnerIsActor, minmax=GetMinMaxDamage2(effect, idx0/idx1) = vars `minDmg_2`/`maxDmg_2`
+    de l'ability CordClaw (indexées AbilityStateFromEffect = ablvl du cast, rarity-scalées ×mult),
+    count=GetNumberConstant(0x32)=`nrOfHits_2` (=2), profile=GetDamageProfile(config)=DirectDamage
+    (fallback natif 0xf si absent)}. Même canal #179 que SquigHound (prev-threadés après les coups
+    d'arme, overkill continu).
+
+    VALIDÉ arithmétique live (probe_57c_flathits.py D, 2468 s15 u83 lvl50 mult200, ability 1123 vs
+    t162 deathPoxwalker) : per-hit [886,1330] = [minDmg_2,maxDmg_2][50]=[443,665]×2.0, ×2 coups ->
+    rawMin +1772 / rawMax +2660 EXACT (nat 6590/9886 vs off-sans 4818/7226)."""
+
+    def additional_hit_groups(self, ctx: "Mapping | None" = None) -> "list[dict] | None":
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        mn = ability_var("CordClaw", "minDmg_2", lvl, multiplier_pct=self.ability_variables_multiplier)
+        mx = ability_var("CordClaw", "maxDmg_2", lvl, multiplier_pct=self.ability_variables_multiplier)
+        count = ability_var("CordClaw", "nrOfHits_2", is_constant=True)  # numberConstant 0x32
+        if mn is None or mx is None or not count or count <= 0:
+            return None
+        try:
+            import gameconfig as _GC
+            profile = ((_GC.ability("CordClaw") or {}).get("constants") or {}).get("damageProfile") \
+                or "Physical"
+        except Exception:
+            profile = "Physical"
+        return [{"count": int(count), "min": int(mn), "max": int(mx), "profile": profile}]
+
+
 class AnvilShieldAdditionalBlockEffect(BaseEffect):
     """`AnvilShield_AdditionalBlock` (effet 0x4b2=1202, StaticStatModifierEffect) — buff BLOCK_DAMAGE
     self de Arjac (spaceRockfist) quand il BLOQUE. Pose par `AnvilShieldAbility_ApplyAdditionalBlockAnd

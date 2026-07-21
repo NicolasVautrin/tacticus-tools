@@ -249,22 +249,32 @@ def _target_damage_limits(scene, tgt_id):
     }
 
 
-def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_armor_reduced, carriers=None):
+def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_armor_reduced, carriers=None,
+                                 tgt_id=None, is_normal_attack=None):
     """AURA ALLIEE +degat FLAT projetee sur l'ATTAQUANT par les effets `create_aura_attack_damage_bonus_for_ally`
     de ses ALLIES a portee (canal cote SOURCE) : `BeaconOfRage_FriendlyExtraDamage` (#191 : +50% rage aux amis
-    Chaos adjacents en melee) et `ConquerorImperative` (#23 : +extraDmg aux amis Mechanical ring-1 vs cible a
-    armure reduite). Le +extraDmg s'applique a TOUTES les attaques (aucun IsNormalAttack) -> appele par la NORMALE
-    ET la SPECIALE. `carriers` (8-tuple de la normale) reutilisable ; sinon construit un 4-tuple (uid,pos,team,
-    effets). Le ctx est keye sur l'ATTAQUANT (att_grand_alliance/att_traits/is_melee/target_armor_reduced), les
-    gates lisant le sous-ensemble pertinent. Symetrique combat de `damage_model._apply_ally_attack_damage_auras`."""
+    Chaos adjacents en melee), `ConquerorImperative` (#23 : +extraDmg aux amis Mechanical ring-1 vs cible a
+    armure reduite), `LordOfTheHost_ExtraDamage` (#57c : +extraDmg melee aux amis RapidAssault/Flying rayon 2
+    de Dante) et `Doom_extraDmg` (#57c : +extraDmg aux attaques des amis d'Eldryon CONTRE la cible doomee a
+    exactement 2 hexes — gate cote CIBLE, d'ou tgt_id/t_pos/tgt_team dans le ctx). Le +extraDmg de Conqueror
+    s'applique a TOUTES les attaques (aucun IsNormalAttack) -> appele par la NORMALE ET la SPECIALE
+    (`is_normal_attack` threade pour les gates qui distinguent, ex. la branche non-Aeldari de Doom).
+    `carriers` (8-tuple de la normale) reutilisable ; sinon construit un 4-tuple (uid,pos,team,effets). Le ctx
+    est keye sur l'ATTAQUANT (+ cible), les gates lisant le sous-ensemble pertinent. Symetrique combat de
+    `damage_model._apply_ally_attack_damage_auras`."""
     if carriers is None:
         carriers = [(uid, scene.pos(uid), scene.team(uid), scene.effects(uid))
                     for uid in scene.pos_by_id if uid != att_id and (scene.hp(uid) or 0) > 0]
     att_gu = GC.unit(scene.vis_by_id.get(att_id)) or {}
     ctx = {"att_id": att_id, "att_pos": att_pos, "att_team": scene.team(att_id),
            "att_grand_alliance": att_gu.get("GrandAllianceId"),
+           "att_faction": att_gu.get("FactionId"),
            "att_traits": frozenset(att_gu.get("traits") or ()),
-           "is_melee": is_melee, "target_armor_reduced": tgt_armor_reduced}
+           "is_melee": is_melee, "target_armor_reduced": tgt_armor_reduced,
+           "is_normal_attack": is_normal_attack,
+           "tgt_id": tgt_id,
+           "t_pos": scene.pos(tgt_id) if tgt_id is not None else None,
+           "tgt_team": scene.team(tgt_id) if tgt_id is not None else None}
     for eb in aura_attack_damage_bonus_from_allies(carriers, ctx):
         add_modifier(mods, eb)
 
@@ -395,7 +405,8 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # Mechanical/target_armor_reduced) dans le create_aura_. Additif -> mods.additive (meme canal que le self,
     # deja bit-exact). NB : le self (le porteur attaque) et l'aura (un ami attaque) portent sur des ATTAQUANTS
     # distincts -> jamais cumules.
-    _apply_ally_attack_dmg_bonus(mods, scene, att_id, _ap, is_melee, _tgt_armor_reduced, carriers)
+    _apply_ally_attack_dmg_bonus(mods, scene, att_id, _ap, is_melee, _tgt_armor_reduced, carriers,
+                                 tgt_id=tgt_id, is_normal_attack=True)
     # Nb de coups : cette prediction EST la facade `DamagePrediction.GetAttackHits @18102f240` — elle
     # rassemble les entrees depuis la Scene puis appelle la FORMULE PARTAGEE `attack_hits_with_modifiers`
     # (`AttackHitsWithModifiersFormula.Calculate @180f0bf50`, MEME formule que la facade combat runner) :
@@ -524,7 +535,8 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
     # gate IsNormalAttack -> s'applique aussi quand un ami Mechanical adjacent utilise une attaque SPECIALE vs
     # cible a armure reduite (symetrique de la normale). Gates dans le create_aura_ (Mechanical/adjacence/team/
     # target_armor_reduced ; BeaconOfRage : is_melee/Chaos).
-    _apply_ally_attack_dmg_bonus(mods, scene, uid, attack_pos or scene.pos(uid), is_melee, _tgt_armor_reduced)
+    _apply_ally_attack_dmg_bonus(mods, scene, uid, attack_pos or scene.pos(uid), is_melee, _tgt_armor_reduced,
+                                 tgt_id=tgt, is_normal_attack=False)
     tgt_shield = scene.shield(tgt)
     # Base spéciale = `base` (avg(minDmg,maxDmg) scalé rareté) route par le MÊME chemin que la normale
     # (GetBaseDamageFix64 ±20% dans predict_attack_raw). L'ancien chemin `get_multi_hit_attack_prediction(

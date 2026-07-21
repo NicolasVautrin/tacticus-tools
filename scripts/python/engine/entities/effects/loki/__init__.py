@@ -20,7 +20,8 @@ from .extra_damage import (RapidAssaultExtraDamageEffect, SmashaEadExtraDamageEf
                            RitesOfBattleExtraDmgEffect, PathOfCommandExtraDmgEffect,
                            CrushingStrikeEffect, HeavyWeaponExtraDmgEffect, RangedSpecialistEffect,
                            BeastSlayerExtraDmgEffect, DaughterOfTheAbyssExtraDamagePctEffect,
-                           BeaconOfRageExtraDamageEffect, BeaconOfRageFriendlyExtraDamageEffect)
+                           BeaconOfRageExtraDamageEffect, BeaconOfRageFriendlyExtraDamageEffect,
+                           LordOfTheHostExtraDamageEffect, DoomExtraDmgEffect)
 from .damage_reduction import (TerrifyingExtraDefenseEffect, MartialKatahDmgReductionEffect,
                                TerminatorArmourReduceDmgEffect, GuardianOrganismDamageReductionEffect,
                                NightshroudDmgReductionEffect, NeuroparasiteEffect,
@@ -29,7 +30,8 @@ from .damage_reduction import (TerrifyingExtraDefenseEffect, MartialKatahDmgRedu
                                DaughterOfTheAbyssOwnerDmgReductionEffect,
                                OverwhelmingWrathRangeDmgReductionEffect,
                                VexillaMagnificaDmgReductionEffect)
-from .hits import (SquigHoundAdditionalHitsEffect, AnvilShieldAdditionalBlockEffect,
+from .hits import (SquigHoundAdditionalHitsEffect, CordClawAdditionalHitsEffect,
+                   AnvilShieldAdditionalBlockEffect,
                    BeastSlayerExtraBlockEffect, DaemonExtraBlockEffect,
                    FightingRetreatHitReductionEffect, LightCoverEffect,
                    ParryEffect, MasterAnnihilatorAdditionalHitEffect, BigTargetAdjacentEffect,
@@ -48,6 +50,7 @@ __all__ = [
     "CrushingStrikeEffect", "HeavyWeaponExtraDmgEffect", "RangedSpecialistEffect",
     "BeastSlayerExtraDmgEffect", "DaughterOfTheAbyssExtraDamagePctEffect",
     "BeaconOfRageExtraDamageEffect", "BeaconOfRageFriendlyExtraDamageEffect",
+    "LordOfTheHostExtraDamageEffect", "DoomExtraDmgEffect",
     # damage_reduction
     "TerrifyingExtraDefenseEffect", "MartialKatahDmgReductionEffect", "TerminatorArmourReduceDmgEffect",
     "GuardianOrganismDamageReductionEffect", "NightshroudDmgReductionEffect", "NeuroparasiteEffect",
@@ -55,7 +58,8 @@ __all__ = [
     "DaughterOfTheAbyssFriendlyDmgReductionPctEffect", "DaughterOfTheAbyssOwnerDmgReductionEffect",
     "OverwhelmingWrathRangeDmgReductionEffect", "VexillaMagnificaDmgReductionEffect",
     # hits
-    "SquigHoundAdditionalHitsEffect", "AnvilShieldAdditionalBlockEffect", "BeastSlayerExtraBlockEffect",
+    "SquigHoundAdditionalHitsEffect", "CordClawAdditionalHitsEffect",
+    "AnvilShieldAdditionalBlockEffect", "BeastSlayerExtraBlockEffect",
     "DaemonExtraBlockEffect",
     "FightingRetreatHitReductionEffect", "LightCoverEffect", "ParryEffect",
     "MasterAnnihilatorAdditionalHitEffect", "BigTargetAdjacentEffect", "AstartesBannerExtraHitEffect",

@@ -61,12 +61,24 @@ Chaque ability = un playbook à porter (roadmap `dsl-vocabulary-catalog.md`) :
   décodé), bonus ennemi-adjacent non exercé, tie max-Attack HolyDuel, gate MightBeKill
   sensible à predOptimistic (faux SKIP), cascade over-fire Poxwalkers multi-tours.
 
-Restants (6 misses) :
+**✅ Tranche 3a RÉSOLUE (#56-t3a, verdict re-expert + port)** — les 3 NC du seed 54321 :
+- **GrapnelLauncher (1090)** `EvaluateNonComparable @18113f300` (spaceHound à s13) : utilité
+  CONSTANTE 1, MIN=1 (cctor `@18113f600`), aucun gate ; cible = 1er ennemi éligible fromHere,
+  cast en place (keep-first). Port : `noncomparable/grapnel_launcher.py`.
+- **EarlyWarningOverride (1077)** `@18112e880` (tauCrisis) : self-cast POSITIONNEL, util(P) =
+  `Σ_E [ +50 si P hors de portée de E (slot 0xc4) − 10×dist(P,E) ]`, gate nearest-enemy < 9,
+  MIN=1 ; réconcilié AU BIT 12/12 positions (s9 : natif MOVE→(3,7)=argmax puis cast). Port :
+  `noncomparable/early_warning_override.py` (approx portée-arme-max — flags validator).
+- **DarkTalonStrike (1092)** `@1811299a0` (darkaAzrael) : cible = TILE (aim du beam ; tgt 43 =
+  entité-tuile (3,4)), util = #ennemis CONTINUS sur le rayon droit depuis le caster (`_beam_count`
+  cube-line, AU BIT 5/1/1), MIN=2 (cctor `@181129e10`). Port : `noncomparable/dark_talon_strike.py`
+  (flags : variante beam coudé + aim post-move non modélisés).
+- Smoke agent 54321 : s9/s11/s13 → HIT, 28/32 records identiques, misses hors-périmètre inchangés,
+  zéro cast parasite (2468/1357).
+
+Restants (3 misses, tranche 3b) :
 | SendInTheNextWave | 1016 | 1357 s9 |
 | Incursion | 1021 | 1357 s11 |
-| EarlyWarningOverride | 1077 | 54321 s9 |
-| GrapnelLauncher | 1090 | 54321 s13 |
-| DarkTalonStrike | 1092 | 54321 s11 |
 | ExcruciatingFrequencies | 1197 | 1357 s7 |
 
 ### 2. `gate` (5) — **les SUMMONS n'attaquent JAMAIS chez nous — ✅ RÉSOLU (#53)**
@@ -196,6 +208,17 @@ ability/move incluent tranche 2. Les étages prédiction/utilité (confrontés s
 paires NATIVES) n'en dépendent pas — les claims 25/34 et 34/34 de la pile #57/#58
 restent purs.
 
+### État après pile #57c (3 effets dégât) + tranche 3a #56 (batchs `stages_57c_gen.json` / `stages_57c_ref.json`)
+
+Gen 4 seeds : **prédiction 29/34 (85 %)** · **utilité 34/34 (100 %)** · **ability 37/50 (74 %)** ·
+move 55/65 (85 %). Diff paire-à-paire vs `stages_56t2` : prédiction **+4 FIXED** (12345 s18
+LordOfTheHost, 54321 s7 Doom, 2468 s15 CordClaw, **+ 54321 s6 u85 composite** — la part Doom le
+fermait), **0 nouveau miss** ; ability **+3** (54321 s9/s11/s13, tranche 3a), **0 perte** ; move
+**liste identique** (10 misses pré-existants). Référence 777/909/31337 : **4×100 % maintenu**.
+Restent **5 mismatch-logic prédiction** : 54321 s18 u85 (composite), 54321 s19 u77 (×1.22),
+2468 s14 u89 (**fold LightImUp**, mécanisme identifié, site à RE), 1357 s16 u139 (swarm
+composite), 1357 s18 u81 (×2 exact).
+
 ### État après tranche 2 #56-t2 (batchs `stages_56t2_gen.json` / `stages_56t2_ref.json`, validé orchestrateur)
 
 Gen 4 seeds : prédiction 25/34 · utilité 34/34 · **ability 34/50** · move 55/65 —
@@ -215,7 +238,7 @@ min ET max sauf mention) :
 | Famille | Cas | Signature | Piste |
 |---|---|---|---|
 | **×0.70 = ATTAQUANT `Pinned` — ✅ RÉSOLU (#57b)** | 54321 s12 u93, s14 u159, s16 u81 ; 1357 s13 u91 | nat = off × 0.700 | PAS Terrifying (déjà porté #152), PAS le défenseur : probe 54321 s16 → attaquant u81 bloodIntercessor porte `Pinned`, défenseur u89 admecRuststalker zéro stat-mod. `PinnedEffect.CreateEffectDamageBonusForAttack @180f5e8e0` = `ForPercentIncrease(OwnerIsCaster, −EffectConfig(0))` ; EffectConfig(0) = BC `Effect.PinnedDmgReductionPct` = 30 (mapping ordinal↔champ DTO prouvé par `InitEffectConfig @18106e9c0`, recoupé Stunned ordinal 2 bit-exact). Port : `PinnedEffect.create_effect_damage_bonus_for_attack` (status.py, canal attaquant, modèle Stunned). Validé : off == nat EXACT (2192/3288, probe_57b_x070.py). Fausse piste écartée : `Camouflage_HitReductionEffect @181107180` = malus de HITS ranged (DSL ConditionalAmount −const[0x4d]/[0x4b]/[0x2c], min 1) — hits égaux des deux côtés ici, mais **gap distinct à porter** (non enregistré factory). |
-| **coup(s) additionnel(s) ~4488/~2245** | 12345 s18 u77 (+4488 FLAT min&max) ; 54321 s7 u79 (+2245 flat) ; 2468 s14 u89 (diff = 0.8/1.2 × ~4488) ; 2468 s15 u83 (diff = 0.8/1.2 × ~2215) | diff constante ou 0.8/1.2-spread | groupe de coups additionnels (canal #179 `additional_hit_groups`) d'un effet non enregistré, base config ~2244×mult ; à identifier par recon kit + effectAbilityStates. |
+| **coup(s) additionnel(s) ~4488/~2245 — 🔎 IDENTIFIÉS (#57c, probe_57c_flathits.py, mécanismes décompilés)** | 4 mécanismes DISTINCTS : (1) 12345 s18 u77 bloodSanguinary→t95 : **aura Dante `LordOfTheHost_ExtraDamageEffect` `CreateEffectDamageBonusForAttack @180f56e30`** = `ForAddition(IsMeleeAttack & OwnerIsCaster, ConfigVar(8=extraDmg))` — amis ≤2 hexes du porteur avec RapidAssault/Flying, additif PRÉ-perçage PAR COUP, ré-évalué à la tuile candidate (u77 réel dist-3 de Dante : AUCUN effet posé live, bonus quand même — modèle RitesOfBattle #49) ; a=extraDmg[50]×1.8=898.2, ×1.25 RapidAssault, ×4 coups = +4488 EXACT min&max. (2) 54321 s7 u79 genesPatriarch→t95 : **aura Farseer `Doom_extraDmgEffect @180f3f780`** = `ForAddition(OwnerIsTarget & AreFriends(att, source) & !AreEqual(att, source) & (Aeldari\|IsNormalAttack), ConditionalAmount(Aeldari→extraDmg_2, extraDmg))` — cible ennemie à EXACTEMENT range 2 du porteur (Shadowsun dist-2 d'Eldryon ✓, aucun effet posé sur elle non plus) ; a=898 pré-perçage, l'armure 1806 mange la moitié bloquée : 5060/6470 EXACT. (3) 2468 s14 u89 orksWarboss→t177 (RANGED dist 3, notre arme Projectile 1-hit CORRECTE) : follow-up **LightImUp** (passif : 2e attaque 3×Projectile) foldé par le natif = groupe [0.8,1.2]×3×minDmg[50]×1.8=1495.8 → +3591/+5385 EXACT — site de fold à RE (`AddAdditionalHitsToPrediction @180faff30` via ALoki_NormalAttackAbility.PredictAttack ; provider LightImUp à localiser). (4) 2468 s15 u83 admecRuststalker : **`CordClaw_AdditionalHitsEffect.CreateAdditionalHits @180f3a900`** = groupe `{OwnerIsActor, count=GetNumberConstant(0x32)=nrOfHits_2=2, minmax=GetMinMaxDamage2=vars minDmg_2/maxDmg_2, profile=DirectDamage}` : per-hit [886,1330]=[443,665]×2.0 EXACT (canal #179, moule SquigHound). | flats = additive pré-perçage ; groupes = #179 | **PORTÉS + VALIDÉS BIT-EXACT (probe_57c ×3)** : `LordOfTheHostExtraDamageEffect` + `DoomExtraDmgEffect` (extra_damage.py, canal `create_aura_attack_damage_bonus_for_ally` étendu ctx cible : tgt_id/t_pos/tgt_team/att_faction/is_normal_attack dans `_apply_ally_attack_dmg_bonus`) ; `CordClawAdditionalHitsEffect` (hits.py, canal #179). Selectors décompilés : LordOfTheHost `@180f56fb0` = Unique(UnitsWithTrait(SurroundingFriends(range 2), RapidAssault 0x413) + (…, Flying 4)) ; Doom `@180f3fa80` = SurroundingEnemies(r) − SurroundingEnemies(r−1) (ring exact). Magnitudes : extraDmg[ablvl 50 porteur]×mult 180 = 898.2/coup pré-perçage (Dante 1378 / Eldryon 1114 captés ACTIFS sur les porteurs). RESTE : **C = fold LightImUp** (RE du provider dans `AddAdditionalHitsToPrediction @180faff30`) + `LordOfTheHost_ExtraHit` (1377, +1 hit mêlée amis ≤50 % HP — non exercé, non porté). |
 | **×2 exact** | 1357 s18 u81 | nat = 2 × off | multiplicateur ×2 côté cible (MkXGravis-like) ou double-dégât attaquant non porté. |
 | **×1.22** | 54321 s19 u77 | nat = off × 1.22 | base attack : buff non modélisé (vérifier statModSources au pas). |
 | **composites** | 54321 s6 u85, s18 u85 ; 1357 s16 u139 | ratios mixtes | à sonder individuellement (s16 u139 = swarm : vérifier hits + cap membres). |

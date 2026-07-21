@@ -53,6 +53,9 @@ from .loki import (
     ShadowInTheWarpLessDmgEffect,
     SmashaEadExtraDamageEffect,
     SquigHoundAdditionalHitsEffect,
+    CordClawAdditionalHitsEffect,
+    LordOfTheHostExtraDamageEffect,
+    DoomExtraDmgEffect,
     StandVigilExtraArmorEffect,
     StunnedEffect,
     TauntedEffect,
@@ -66,6 +69,17 @@ from .loki import (
 EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "RapidAssault_ExtraDamage": RapidAssaultExtraDamageEffect,
     "SquigHound_AdditionalHits": SquigHoundAdditionalHitsEffect,   # #179 : 2 coups hetero [minDmg,maxDmg] Physical
+    # CordClaw (Exitor-Rho, effet 0x4e2=1250) : apres cast 1122, +nrOfHits_2=2 coups [minDmg_2,maxDmg_2]
+    # DirectDamage a toutes ses attaques (@180f3a900, canal #179). #57c.
+    "CordClaw_AdditionHits": CordClawAdditionalHitsEffect,
+    # LordOfTheHost (Dante, effet 0x562=1378 sur le PORTEUR) : aura +extraDmg[ablvl]xmult additif
+    # pre-percage aux attaques MELEE des amis RapidAssault/Flying rayon 2 (@180f56e30 ForAddition,
+    # selector @180f56fb0). Re-evaluee par tuile candidate. #57c.
+    "LordOfTheHost_ExtraDamage": LordOfTheHostExtraDamageEffect,
+    # Doom (Eldryon, effet 0x45a=1114 sur le PORTEUR) : les ennemis a EXACTEMENT 2 hexes du porteur
+    # prennent +extraDmg[ablvl]xmult des attaques normales des amis du porteur (extraDmg_2 Aeldari,
+    # toutes attaques) (@180f3f780, selector @180f3fa80 ring-exact). #57c.
+    "Doom_extraDmg": DoomExtraDmgEffect,
     # AURA +dégât (Attack) du SOURCE Calgar (RitesOfBattleAbility @181225340) : 2 effets permanents
     # mutuellement exclusifs par trait Imperial (26). Noms captés EXACTS = ...Basic (1002) / ...Imperial
     # (1003) ; la classe lit le variant via self.name (endswith Imperial). Modélisée SOURCE-side

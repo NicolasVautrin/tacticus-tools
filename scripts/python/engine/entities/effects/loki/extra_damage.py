@@ -600,3 +600,95 @@ class BeaconOfRageFriendlyExtraDamageEffect(BaseEffect):
         self_bonus = int(per) * int(self.level)               # Multiply(ConfigVar(extraDmg), EffectLevel)
         friendly = round(Fraction(self_bonus * 50, 100))      # PercentageOf(x, 0x32=50, mode 0 = half-to-even)
         return for_addition(True, friendly) if friendly else None
+
+
+class LordOfTheHostExtraDamageEffect(BaseEffect):
+    """`LordOfTheHost_ExtraDamageEffect` (effet 0x562=1378, nom capté "LordOfTheHost_ExtraDamage",
+    passif LordOfTheHost 0x515=1301 de bloodDante) — AURA côté SOURCE : l'effet vit sur DANTE
+    (capté chez lui, permanent), il se projette sur ses amis. i2 : « Other friendly units within
+    2 hexes with Rapid Assault or Flying deal +extraDmg Damage with melee attacks. » #57c.
+
+    - dégât `CreateEffectDamageBonusForAttack @180f56e30` : `ForAddition(IsMeleeAttack &
+      OwnerIsCaster, ConfigVar(8=extraDmg, GetAbilityState))` = +extraDmg[ablvl Dante]×mult FLAT
+      additif PRÉ-perçage PAR COUP (canal `DamageModifiers.additive`, comme SmashaEad/BeaconOfRage).
+    - cible `CreateTargetSelector @180f56fb0` : `Unique(UnitsWithTrait(SurroundingFriends(owner,
+      ConfigConst(0x16)=range=2), 0x413=RapidAssault) + UnitsWithTrait(idem, 4=Flying))` — amis
+      (self exclu) à ≤2 hexes du porteur, porteurs du trait RapidAssault OU Flying.
+    - ré-évaluation PAR TUILE CANDIDATE (#57c prouvé, modèle RitesOfBattle #49/#153) : 12345 s18
+      u77 bloodSanguinary RÉEL à dist-3 de Dante (AUCUN effet posé sur lui live), le natif ajoute
+      quand même le bonus à la candidate (0,4) dist-2.
+
+    VALIDÉ (probe_57c_flathits.py A) : Dante ablvl=50 mult=180 → a = extraDmg[50]×1.8 = 898.2
+    pré-perçage par coup, puis ×1.25 RapidAssault, ×4 coups → nat = off + 4488 EXACT min&max
+    (7704/12324 vs 3216/7836, armure 1205 traversée pierce 20)."""
+
+    def create_aura_attack_damage_bonus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        c = ctx or {}
+        if not c.get("is_melee"):                             # IsMeleeAttack (@180f56e30)
+            return None
+        if c.get("att_id") == c.get("owner_id"):              # SurroundingFriends : self exclu
+            return None
+        if c.get("owner_team") is None or c.get("owner_team") != c.get("att_team"):
+            return None                                       # bénéficiaire = AMI du porteur
+        traits = c.get("att_traits") or frozenset()
+        if "RapidAssault" not in traits and "Flying" not in traits:
+            return None                                       # UnitsWithTrait(0x413 RapidAssault | 4 Flying)
+        op, ap = c.get("owner_pos"), c.get("att_pos")
+        if not op or not ap:
+            return None
+        rng = ability_var("LordOfTheHost", "range", is_constant=True) or 2   # ConfigConst 0x16
+        import hexgeo
+        if hexgeo.distance(op, ap) > int(rng):
+            return None
+        if self.ability_level is None:                        # ConfigVar sans AbilityState -> pas de magnitude
+            return None
+        amt = ability_var("LordOfTheHost", "extraDmg", self.ability_level,
+                          multiplier_pct=self.ability_variables_multiplier)
+        return for_addition(True, amt) if amt else None
+
+
+class DoomExtraDmgEffect(BaseEffect):
+    """`Doom_extraDmgEffect` (effet 0x45a=1114, nom capté "Doom_extraDmg", passif Doom de
+    eldarFarseer Eldryon) — AURA côté SOURCE gate CIBLE : les ENNEMIS à EXACTEMENT `range`(=2)
+    hexes d'Eldryon prennent +extraDmg des attaques NORMALES des amis d'Eldryon (+extraDmg_2 de
+    TOUTES les attaques des amis Aeldari). i2 : « All enemy units exactly 2 hexes away from
+    Eldryon take +extraDmg Damage from other friendly unit's normal attacks. Other friendly
+    Aeldari units deal +extraDmg_2 Damage with all their attacks to affected units instead. » #57c.
+
+    - dégât `CreateEffectDamageBonusForAttack @180f3f780` : `ForAddition(OwnerIsTarget &
+      AreFriends(attaquant, EffectSource) & !AreEqual(attaquant, EffectSource) &
+      (HasFaction(attaquant, Aeldari) | IsNormalAttack), ConditionalAmount(HasFaction(att,
+      Aeldari), ConfigVar(9=extraDmg_2), ConfigVar(8=extraDmg)))` — FLAT PRÉ-perçage PAR COUP.
+    - cible `CreateTargetSelector @180f3fa80` : `SurroundingEnemies(owner, ConfigConst(0x16)=
+      range) − SurroundingEnemies(owner, range−1)` = ennemis à EXACTEMENT range hexes du porteur.
+    - AUCUN effet posé sur la cible doomée (#57c : Shadowsun dist-2 exacte, effectAbilityStates
+      vide d'un Doom chez elle) — l'effet vit sur le PORTEUR, le selector est évalué à la demande.
+
+    VALIDÉ (probe_57c_flathits.py B, 54321 s7 u79 genesPatriarch→t95 tauShadowsun dist-2
+    d'Eldryon ablvl=50 mult=180) : a = extraDmg[50]×1.8 = 898.2 pré-perçage par coup ×5 coups,
+    l'armure 1806 mange la part bloquée → nat 5060/6470 = off + 2240 EXACT min&max."""
+
+    def create_aura_attack_damage_bonus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        c = ctx or {}
+        tp, op = c.get("t_pos"), c.get("owner_pos")
+        if not tp or not op:
+            return None
+        if c.get("tgt_team") is None or c.get("tgt_team") == c.get("owner_team"):
+            return None                                       # SurroundingEnemies : cible ENNEMIE du porteur
+        if c.get("att_id") == c.get("owner_id"):              # !AreEqual(attaquant, EffectSource)
+            return None
+        if c.get("owner_team") != c.get("att_team"):          # AreFriends(attaquant, EffectSource)
+            return None
+        rng = int(ability_var("Doom", "range", is_constant=True) or 2)   # ConfigConst 0x16
+        import hexgeo
+        if hexgeo.distance(op, tp) != rng:                    # EXACTEMENT range (soustraction ring r-1)
+            return None
+        is_aeldari = (c.get("att_faction") == "Aeldari")      # HasFaction(attaquant, Aeldari)
+        if not is_aeldari and c.get("is_normal_attack") is False:
+            return None                                       # branche non-Aeldari gated IsNormalAttack
+        if self.ability_level is None:
+            return None
+        var = "extraDmg_2" if is_aeldari else "extraDmg"      # ConditionalAmount(Aeldari -> 9, sinon 8)
+        amt = ability_var("Doom", var, self.ability_level,
+                          multiplier_pct=self.ability_variables_multiplier)
+        return for_addition(True, amt) if amt else None

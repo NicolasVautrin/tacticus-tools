@@ -77,6 +77,9 @@ from .cord_claw import CordClawPlaybook
 from .poxwalkers import SpawnPoxwalkersPlaybook
 from .foul_infusion import FoulInfusionPlaybook
 from .holy_duel import HolyDuelPlaybook
+from .grapnel_launcher import GrapnelLauncherPlaybook
+from .early_warning_override import EarlyWarningOverridePlaybook
+from .dark_talon_strike import DarkTalonStrikePlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -123,6 +126,15 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 MIN_UTILITY=2, cible=SOI (@18113c670)
         HolyDuelPlaybook(),             # 1050 — defi ; util=Attack(cible), cible=max-Attack ennemi,
         #                                 gate !MightBeKill (@181144b00)
+        # #56 (tranche 3a) -- 3 NC natifs Loki reveles par le batch MC1_67 seed 54321 (misses
+        # non-attack-oracle). Les 3 sont des NC natifs (EvaluateNonComparable).
+        GrapnelLauncherPlaybook(),      # 1090 -- reposition ; util plate 1, cible=1er ennemi
+        #                                 eligible a l'origine, cast en place (@18113f300)
+        EarlyWarningOverridePlaybook(),  # 1077 -- summon overwatch self-cast ; util POSITIONNELLE
+        #                                 50*(#ennemis hors-portee) - 10*Sum(dist), cible=SOI,
+        #                                 position=argmax, gate nearest<9 (@18112e880)
+        DarkTalonStrikePlaybook(),      # 1092 -- beam en ligne ; cible=TILE (aim), util=#ennemis
+        #                                 continus sur le rayon caster->aim, MIN_UTILITY=2 (@1811299a0)
     )
 }
 
@@ -191,4 +203,5 @@ __all__ = [
     "BlackRagePlaybook", "VigilanceEternalPlaybook",
     "ScarabHivePlaybook", "CordClawPlaybook",
     "SpawnPoxwalkersPlaybook", "FoulInfusionPlaybook", "HolyDuelPlaybook",
+    "GrapnelLauncherPlaybook", "EarlyWarningOverridePlaybook", "DarkTalonStrikePlaybook",
 ]
