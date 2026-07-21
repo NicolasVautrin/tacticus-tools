@@ -1,4 +1,4 @@
-"""GauntletsOfUltramarPlaybook — AoE arc NonComparable (utilite = # ennemis a portee <=2)."""
+"""GauntletsOfUltramarPlaybook — AoE arc NonComparable (utilite = ring1(T) UNION disque-2 REEL)."""
 from __future__ import annotations
 
 from engine import battle_query as bq
@@ -9,27 +9,39 @@ from ._base import NCContext, NonComparablePlaybook, _sweep_origin_first
 
 class GauntletsOfUltramarPlaybook(NonComparablePlaybook):
     """`GauntletsOfUltramarPlaybook.EvaluateNonComparable @18113e5a0` (id 0x3e8=1000, ultraCalgar). AoE
-    dégât sur l'arc (ring1+ring2) — mais NonComparable : l'utilité est une heuristique de COMPTE d'ennemis
-    à portée (aucun `ProbableDamageEvent` -> exclu de la prédiction de dégât, cf. #109). Le caster BOUGE
-    vers la tuile qui maximise le nombre d'ennemis touchés.
+    dégât sur l'arc — mais NonComparable : l'utilité est une heuristique de COMPTE d'ennemis (aucun
+    `ProbableDamageEvent` -> exclu de la prédiction de dégât, cf. #109). Le caster BOUGE vers la tuile
+    qui maximise le compte.
 
-    - utilité(T) = COMPTE NON CAPPÉ des ennemis ADJACENTS (ring-1, porte élévation |Δelev|<2) à T.
-      RE case-49 (docs/rl/case-49-gauntlets-unobscured.md) : le sélecteur natif `GetAllTargetsSelector
-      @1811e2090` = ring1 (`Enemies(AdjacentTiles)`) + ring2 (`Unobscured(SurroundingEnemies(r=2) -
-      Adjacent)`), MAIS le terme ring-2 contribue TOUJOURS 0 — prouvé LIVE (probes 49b/49c s14 31337 :
-      ennemi VISIBLE terrain à dist 2, chemin 2-pas LIBRE -> bucket vide ; 3 ennemis déplacés sur les
-      voisins de (5,4) -> util=3 EXACTEMENT = ring-1 seul ; mécanisme décompilé en cours de preuve,
-      piste : SurroundingTilesSelector @180ef6100 / portée slot 0x65 exclut les tuiles occupées).
-      `SelectUniqueUnits @1810108b0` : le « 3 » = UnitSelectionType (filtre PAR-unité via
-      `SelectUnit @181010de0` -> MatchesUnitSelectionType), PAS un cap de compte -> util NON plafonnée.
-      `GenerateAction(MainTile(T), Fix64(count))` + `Bucket.AddAction`.
+    - utilité(T) = `SelectUniqueUnits(GetAllTargetsSelector, ctx(T), 3).Count` NON cappée, avec
+      **DEUX ANCRAGES DIFFÉRENTS** (case-49x, décompilé + prouvé live — c'est la clé qui a réconcilié
+      les mesures contradictoires E1/E2/E3 de case-49) :
+        · `GetAdjacentTargetsSelector @1811e2010` = `Unique(Enemies(Caster@+0x160,
+          AdjacentTiles(CasterTile@+0x168), 3))` — **CasterTile = tuile du CONTEXTE** (`AbilityEntities`
+          reçoit `MainTile(position balayée)` dans EvaluateNonComparable ; `CasterTileSelector.Select
+          @180ee49b0` lit ctx.tiles ?? ctx.tile avant le fallback entité) -> **ring-1 autour de T**
+          (porte élévation |Δelev|<2 d'IterateAdjacentTiles) = `bq.is_adjacent`.
+        · `GetSurroundingTargetsSelector @1811e20d0` = `Unobscured(SurroundingEnemies(Caster@+0x160,
+          r=2) − Adjacent)` — **Caster = ENTITÉ** (`CasterSelector.Select @180ee47d0` -> ctx.casterEntity ;
+          `SurroundingTilesSelector.Select @180ef6100` prend `GetMainTile(entité)` = tuile RÉELLE dans
+          l'état ECS, PAS la tuile balayée) -> **disque dist<=2 autour de la position RÉELLE**,
+          T-indépendant = `bq.surrounding_enemies` (tuiles occupées INCLUSES : flag
+          requireEmptyOrSteppable=0 mesuré au ctor @180ef65c0 ; Unobscured depuis la tuile réelle).
+      => util(T) = |ring1(T) ∪ surrounding(RÉEL)| (dédup `SelectUniqueUnits @1810108b0` ; le « 3 » =
+      UnitSelectionType via `SelectUnit @181010de0` -> MatchesUnitSelectionType, PAS un cap).
+      Le port de case-49 (« ring-1 seul, ring-2 structurellement mort ») était un OVERFIT : vrai
+      quand disque(réel)=∅ (31337 s14 : ennemis à dist 3-5 du réel), falsifié par E1/C1_25
+      (caster immobile : disque(réel)=2 -> util=2 ADMIS) — cf. docs/rl/case-49-gauntlets-unobscured.md.
+    - GATE d'ÉLIGIBILITÉ par-position (prouvé live probe_49x phase B, 23/23) : le natif boucle sur
+      `GetEligibleTargetsSelectable(caster, MainTile(T)) @18111ed80` et ne génère une action QUE s'il
+      existe une cible dans l'ARC de T (dist<=2 de T) -> position sans cible = bucket vide MÊME si
+      util >= floor (E1-repro : 6 positions vides = exactement celles à d>2 des 2 ennemis).
     - ADMISSION bucket (case-49, décompilé + confirmé live 49c) : `util >= Min(Fix64(3),
       Fix64(#ennemis TOTAUX))` — LOOSE (`op_GreaterThanOrEqual`, porte @18004cc80 appelée par
       AddAction @1813fbcc0 ; util 3 == seed 3 ADMIS, mesuré). Le `op_GreaterThan` STRICT de AddAction
       ne sert qu'au remplacement ENTRE actions déjà admises (keep-first #117). La const 3 vient du
-      cctor @18113ed50 ; le compte total de `Enemies(query, Entity(caster), AllTiles, 2)` ->
-      `UnitsByTeamSelector` board-WIDE @180deedd0. => Gauntlets ne caste QUE si son compte
-      d'ADJACENTS atteint `min(3, #ennemis restants)`.
+      cctor @18113ed50 ; le compte total = `Enemies(Entity(unit), AllAliveMachines@+0x80, 2)`
+      board-WIDE. => Gauntlets ne caste QUE si son compte atteint `min(3, #ennemis restants)`.
     - ctor @18113edc0 = `NonComparablePlaybook(1000)` : 1er arg = ABILITY_ID (PAS priorité) ; aucun
       `get_Priority` override -> PRIORITY=0 (défaut). [#115 : 1er arg ctor = ability_id, confirmé ici.]
     - POSITION (#117) : sweep ORIGINE D'ABORD (`_sweep_origin_first`) + remplacement STRICT `>`
@@ -43,8 +55,13 @@ class GauntletsOfUltramarPlaybook(NonComparablePlaybook):
       `boardGraph.neighbours` (GetAdjacentTiles natif) **INVERSÉ**, sinon ring-2 (`bq.gauntlets_target`).
       VALIDÉ LIVE BIT-EXACT (#117 : natif tgt=118 = ultraCalgar @(3,5) ring-1 [80,114,78,118]_fwd inversé).
       PAS la MainTile ni None.
-    v1 FLAG (résiduel) : ordre EXACT ring-2 (cible) non validé (fallback dernier) -- ring-1 = cas commun
-    validé ; la CIBLE garde l'arc ring1+ring2 (sélecteur eligible-targets distinct de l'utilité)."""
+    VALIDATION case-49x (probe_49x_realanchor.py, 2026-07-21, session 58) : craft-P MC1_67 plat
+    (non-vide EXACTEMENT à (5,8) util=3 = 1 ring1(T) + 2 disque-réel — les règles rivales ring-1-seul
+    et arc(T) prédisaient vide) ; craft-N plat (vide partout — arc(T) prédisait 3 à (1,7) ; sur plat,
+    aucune échappatoire « obscured ») ; E1-repro C1_25 (23/23 : 17 positions util=2, 6 vides = gate
+    d'éligibilité).
+    v1 FLAGS (résiduels) : ordre EXACT ring-2 de la cible (fallback dernier) ; Unobscured de
+    l'ÉLIGIBILITÉ (arc de T) passe-tout ; murs non modélisés dans `is_target_tile_obscured`."""
     ABILITY_ID = int(ActiveAbilityType.GauntletsOfUltramar)  # 1000
     MIN_UTILITY = 1.0     # plancher structurel (>=1 ennemi éligible) ; vrai gate = min(3, #ennemis totaux)
     PRIORITY = 0
@@ -52,19 +69,28 @@ class GauntletsOfUltramarPlaybook(NonComparablePlaybook):
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         floor = min(self._FLOOR_CONST, len(ctx.epos or []))   # Min(3, #ennemis TOTAUX) = seed du bucket natif
+        # Terme « surrounding » ANCRÉ À LA POSITION RÉELLE (T-indépendant, calculé UNE fois) :
+        # Unobscured(SurroundingEnemies(Caster ENTITÉ, r=2)) — cf. bq.surrounding_enemies (case-49x).
+        surround_real = bq.surrounding_enemies(ctx.origin, ctx.epos, ctx.elev_by_pos)
         best_t, best_u = None, None
         # ORIGINE D'ABORD + remplacement STRICT `>` (Bucket.AddAction keep-first @1813fbcc0, NullPosition
-        # toujours evaluee) -> le caster CASTE EN PLACE a egalite d'arc, ne BOUGE que sur gain STRICT
-        # (#117 : natif (3,5)=(4,5) arc 5 -> caste @origine (3,5) ; le port balayait reach_nc=[moves,origine]
-        # -> gardait un move au tie -> best_t faux -> cible fausse car cible suit best_t). Mirror #76/#80.
+        # toujours evaluee) -> le caster CASTE EN PLACE a egalite, ne BOUGE que sur gain STRICT
+        # (#117 : natif (3,5)=(4,5) arc 5 -> caste @origine (3,5)). Mirror #76/#80.
         for T in _sweep_origin_first(ctx):
-            # ring-1 SEUL, NON cappé (case-49 : terme ring-2 natif structurellement 0, probes 49b/49c)
-            u_ = float(bq.count_adjacent(T, ctx.epos, ctx.elev_by_pos))
+            # GATE éligibilité : sans cible à dist<=2 de T (SANS porte d'élévation — prouvé live
+            # (0,2) E1-repro), AUCUNE action générée à T (GetEligibleTargetsSelectable(unit, T)
+            # vide -> boucle GenerateAction jamais entrée).
+            if bq.eligible_targets_count(T, ctx.epos, ctx.elev_by_pos) == 0:
+                continue
+            ring1 = {(p[0], p[1]) for p in (ctx.epos or [])
+                     if bq.is_adjacent(T, p, ctx.elev_by_pos)}
+            u_ = float(len(ring1 | surround_real))            # SelectUniqueUnits : union dédupliquée
             if best_u is None or u_ > best_u:    # strict > : origine gagne le tie (elle est en tete)
                 best_t, best_u = T, u_
         if ctx.debug:
             import sys
-            print(f"    [dbg NC u{ctx.uid}] Gauntlets floor(min3,total)={floor} best={best_t} u={best_u}",
+            print(f"    [dbg NC u{ctx.uid}] Gauntlets floor(min3,total)={floor} "
+                  f"surround_real={sorted(surround_real)} best={best_t} u={best_u}",
                   file=sys.stderr)
         if best_u is None or best_u < max(self.MIN_UTILITY, float(floor)):   # bucket gate: util >= Min(3,total)
             return []
