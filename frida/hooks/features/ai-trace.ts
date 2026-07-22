@@ -10,8 +10,13 @@
 //
 // Shared module state, projection schemas, and low-level helpers live in
 // ./ai-trace/state.ts. All event records flow via `send({t:"ai_trace",
-// ...})` → host writes a JSONL line. All three levels are ON by default;
-// use aiTraceDisable("L3") if needed.
+// ...})` → host writes a JSONL line. Tous les niveaux sont OFF par défaut,
+// et l'INSTALLATION des hooks est LAZY (premier `aiTraceEnable`) : ~50
+// trampolines (39 L3 MoveNext + L3atk + Predict* + L1/L2) sur les chemins
+// IL2CPP les plus chauds — attachés au register, ils taxaient CHAQUE fire
+// de la bataille réelle du warmup même gated (pattern de l'incident
+// modifier-observe 2026-07-10 : churn inject/warmup + hooks chauds = crash).
+// Un inject+warmup frais ne porte donc plus AUCUN trampoline ai-trace.
 //
 // Anchors used in projections (driven by aiTraceSetProjection RPC):
 //   caster, target, closestEnemy, unit  (IEntity heap obj)
@@ -31,6 +36,7 @@ import {
     installDamagePredictionHook, installHealRepairHooks,
 } from "./ai-trace/predictions.js";
 import { installAiControlHooks } from "./ai-trace/ai-control.js";
+import { queueOnMainThread } from "../runtime/queue.js";
 
 function installOnce(): void {
     if (traceState.installed) return;
@@ -80,7 +86,8 @@ function isPathSpec(x: unknown): x is PathSpec {
 }
 
 export function register(ctx: Ctx): void {
-    installOnce();
+    // PAS d'installOnce() ici — install LAZY au premier aiTraceEnable (cf. en-tête : zéro
+    // trampoline sur les hot paths pendant inject/warmup ; l'enable arme sur état CALME).
 
     ctx.rpc.aiTraceStatus = (): unknown => ({
         installed: traceState.installed,
@@ -94,6 +101,16 @@ export function register(ctx: Ctx): void {
         const lv = level.toUpperCase() as keyof Levels;
         if (lv !== "L1" && lv !== "L2" && lv !== "L3") {
             return { ok: false, error: "level must be L1|L2|L3" };
+        }
+        // Install LAZY au premier enable (main thread : findClass/attach sur état calme,
+        // post-warmup). Les enables suivants ne repayent rien (installOnce idempotent).
+        if (!traceState.installed) {
+            return queueOnMainThread(() => {
+                installOnce();
+                traceState.enabled[lv] = true;
+                emit({ evt: "control", op: "enable", level: lv });
+                return { ok: true, enabled: traceState.enabled, installedNow: true };
+            });
         }
         traceState.enabled[lv] = true;
         emit({ evt: "control", op: "enable", level: lv });
