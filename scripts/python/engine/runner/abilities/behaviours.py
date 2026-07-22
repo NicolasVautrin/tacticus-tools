@@ -159,6 +159,18 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         e = state.get_entity(uid) if uid is not None else None
         sc = e.get_component(StatsComponent) if e is not None else None
         us = getattr(sc.ctx, "stats", None) if sc is not None else None
+        # #60 : stat 20 (NUMBER_OF_MEMBERS) = branche DÉDIÉE du GetStat natif (handler jumptable 0x14
+        # @180ed3929 : GroupUnitComponent fill-up {+0x10=nrOfMembers, +0x18=restants}, PAS un
+        # StatComponent — `GetStatComponent @180ed20c0` n'a pas de case 0x14). Offline : parts dérivées
+        # de l'état PV via `group_unit_stat_part` (lu par `SwarmAbility` StatAmount(Self,20,3/4)).
+        from ...entities.stats import StatType as _ST
+        if int(stat_type) == int(_ST.NUMBER_OF_MEMBERS):
+            n = int(getattr(sc.ctx, "number_of_members", 1)) if sc is not None else 1
+            hc = e.get_component(HealthComponent) if e is not None else None
+            if hc is None or hc.hp is None or hc.hp_max is None:
+                return n if int(variant) in (0, 2, 3) else 0
+            from ...services.trait_damage_limits import group_unit_stat_part
+            return group_unit_stat_part(int(variant), int(hc.hp_max), n, int(hc.hp))
         return us.get_stat(int(stat_type), int(variant)) if us is not None else 0
 
     # `ctx.get_ability_level` (mirror du niveau d'ability lu par `ConfigVar` sur une unité TIERCE) : le nœud

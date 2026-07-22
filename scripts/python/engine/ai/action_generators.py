@@ -94,6 +94,37 @@ def _faction(visual_id) -> str | None:
     return f
 
 
+# #60 : cap groupe des prédictions soin/repair (`GetGroupUnitHealLimit @1810325e0`). Dans le natif il
+# est GATE par un flag d'APPEL de `PredictHeal @181037180` (param_6==1) / `PredictRepair @181038280`
+# (param_7==1) — non lisible statiquement (façades virtuelles), DISCRIMINÉ live (probe_60_swarm,
+# runner 25 seed 60004) : scarab 2218 hpMax à hp=888 = PILE la frontière de membre (at_limit=True,
+# group_limit=0) → `aiPlaybookPredict.repairs.hpFill = 1330` (= missing ENTIER, NON capé) et
+# `pairUtility = 59.9369 = 1330/2219×100` EXACT, pour Repair 28 ET Repair_GalvanicField 1119 ;
+# éligibilité (`EntityCanBeRepaired`, abilityTargets) : cible at-limit LÉGALE → gate flag 0 aussi.
+# Cohérent i2 Swarm : « Healing this unit can revive dead members ». ⇒ flags OFF sur les chemins IA ;
+# la plomberie (helpers + group_limit) reste en place pour un futur chemin natif à flag 1.
+_HEAL_GROUP_CAP = False
+_REPAIR_GROUP_CAP = False
+
+
+def _group_heal_limit(visual_id, hp_max: int, hp_cur: int) -> int | None:
+    """`GetGroupUnitHealLimit @1810325e0` pour une cible identifiée par son visualId : None pour un
+    héros (nrOfMembers<2 -> int.MaxValue natif = pas de cap ; on omet le min). nrOfMembers de BASE =
+    gameconfig (GroupUnitComponent+0x10), hpMax = HealthComponent max (observeBattle.hpMax)."""
+    from engine.services.trait_damage_limits import get_group_unit_heal_limit
+    if not visual_id:
+        return None
+    try:
+        uid = gc.resolve_unit_id(visual_id)
+        u = gc.unit(uid) if uid else None
+        n = int((u or {}).get("nrOfMembers") or 1)
+    except Exception:
+        return None
+    if n < 2:
+        return None
+    return get_group_unit_heal_limit(int(hp_max), n, int(hp_cur))
+
+
 class ActionGenerator:
     """Base d'un générateur : `generate(ctx) -> action|None`. None = ce générateur n'a produit
     aucune action légale (le tactic passe au suivant)."""
@@ -343,7 +374,13 @@ class ComparableAbilityGenerator(ActionGenerator):
                 # Soin EFFECTIF = `PredictHeal @181037180` (MaxFillUp @180f9b790) = min(healAmount, missing).
                 # heal_amt None (soin non-hpToHeal) -> saturation `missing` (approximation documentee #79,
                 # sans regression). Le -50/+50 friendSign + bossMod restent dans HealUtility (score).
-                effective = missing if heal_amt is None else predict_heal_effective(heal_amt, hp_cur, hp_max)
+                # #60 : cap groupe `GetGroupUnitHealLimit @1810325e0` — dans PredictHeal il est GATE
+                # par le flag d'appel (`param_6 == 1`), mesuré OFF sur les chemins IA (probe_60 :
+                # PredictRepair natif NON capé a la frontiere de membre ; i2 Swarm « Healing this
+                # unit can revive dead members »). Plomberie en place, inerte tant que le flag est OFF.
+                group_limit = _group_heal_limit(tu.get("visualId"), hp_max, hp_cur) if _HEAL_GROUP_CAP else None
+                effective = (missing if heal_amt is None
+                             else predict_heal_effective(heal_amt, hp_cur, hp_max, group_limit=group_limit))
                 is_friend = (me is not None and tu.get("team") == me.get("team"))
                 faction = _faction(tu.get("visualId"))
                 pred = HEAL_PLAYBOOK.score(effective, hp_max, is_friend, is_twisted, faction)
@@ -422,8 +459,12 @@ class ComparableAbilityGenerator(ActionGenerator):
                     # (ordre natif PredictRepair @181038280 : modifier -> caps -> min(amount, manquant)).
                     mod_add, mod_mul = calculate_repair_modifier_for_prediction(
                         eff_by_id.get(tg), ctx.heal_config)
+                    # #60 : cap groupe `GetGroupUnitHealLimit` (PredictRepair @181038280, gate param_7)
+                    # — cible multi-membres (ex. necroSmnSwarm 5 membres) -> repair « sans réveiller ».
+                    _glim = (_group_heal_limit(ob.get("visualId"), hp_max, hp_cur)
+                             if _REPAIR_GROUP_CAP else None)
                     rp = predict_repair_effective(repair_amount(repair_amt, mod_add, mod_mul),
-                                                  hp_cur, hp_max, arm_cur, arm_max)
+                                                  hp_cur, hp_max, arm_cur, arm_max, group_limit=_glim)
                     fill_hp, fill_armor = rp.fill_hp, rp.fill_armor
                 pred = repair_utility(fill_hp, hp_max, fill_armor, arm_max, is_boss=False)
                 if ctx.debug:
@@ -504,8 +545,11 @@ class ComparableAbilityGenerator(ActionGenerator):
             # RepairModifier (#45d) appliqué au FILL seulement (il vit DANS PredictRepair @181038280) ;
             # le terme custom @181155520 consomme le M brut de GetOverrideAttackDamageAmount (hors PredictRepair).
             mod_add, mod_mul = calculate_repair_modifier_for_prediction(eff_by_id.get(tg), ctx.heal_config)
+            _glim = (_group_heal_limit(ob.get("visualId"), hp_max, hp_cur)
+                     if _REPAIR_GROUP_CAP else None)   # #60 : cap groupe (PredictRepair, gate param_7)
             rp = predict_repair_effective(repair_amount(M, mod_add, mod_mul),
-                                          hp_cur, hp_max, arm_cur, arm_max)  # fill = min(M', manquant_i)
+                                          hp_cur, hp_max, arm_cur, arm_max,
+                                          group_limit=_glim)  # fill = min(M', manquant_i)
             repaired = repair_utility(rp.fill_hp, hp_max, rp.fill_armor, arm_max, is_boss=False)
             custom = (M / (hp_max + 1) * 50.0) if playbooks._has_valid_targets(ctx, tg) else 0.0
             pred = repaired + custom

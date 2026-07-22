@@ -167,6 +167,21 @@ class UnitContext:
         if stat_ids and effects:
             from .effects import stat_modifications_by_source
             attributed = stat_modifications_by_source(effects)
+        # #60 : attribution du malus Swarm_HitReduction (effet 0x3fd=1021, trait Swarm) — la part
+        # `-min(n-1, membres morts)` du delta EXTRA_HITS est attribuée sous la CLÉ PARTAGÉE avec le
+        # refresh runner (AddOrUpdate = replace par-source), sinon elle resterait dans CAPTURED_SOURCE
+        # et le 1er refresh offline la DOUBLERAIT. Membres morts lus du stat capté (numberOfMembers =
+        # GetStat(20, Current) = restants ; delta = Current - Initial(+0x10=base)) — pas de dépendance
+        # à hpMax. Attribution indépendante de la visibilité de l'effet dans decisionView.effects.
+        if stat_ids and "Swarm" in (cfg.get("traits") or []):
+            _d_members = int((snap_unit.get("statDelta") or {}).get("numberOfMembers") or 0)
+            _n_base = g("numberOfMembers") - _d_members
+            _swarm_amt = -min(_n_base - 1, -_d_members) if (_n_base > 1 and _d_members < 0) else 0
+            if _swarm_amt:
+                from .effects.loki.hits import SWARM_HIT_REDUCTION_SOURCE
+                attributed = attributed if attributed is not None else {}
+                _d = attributed.setdefault(int(StatType.EXTRA_HITS), {})
+                _d[SWARM_HIT_REDUCTION_SOURCE] = _d.get(SWARM_HIT_REDUCTION_SOURCE, 0) + _swarm_amt
         unit_stats = (seed_unit_stats(s, snap_unit.get("statDelta"), stat_ids, attributed)
                       if stat_ids else UnitStats())
         # Garantit que les 8 stats de base (propriétés) sont seedées même si `stat_ids` est absent /
@@ -187,7 +202,11 @@ class UnitContext:
             # indexe les variables[level] des ABILITIES (minDmg/maxDmg par niveau). Fallback stats/0.
             active_ability_level=int((snap_unit.get("unitConfig") or {}).get("activeAbilityLevel")
                                      or s.get("activeAbilityLevel") or 0),
-            number_of_members=max(1, g("numberOfMembers")),
+            # #60 : nrOfMembers de BASE (GroupUnitComponent+0x10, = part Initial du stat 20) — le stat
+            # capté `numberOfMembers` est GetStat(20, Current) = membres RESTANTS (5→3 sur un swarm
+            # blessé, case-52) ; base = Current − delta. Aligné sur spawn.py (gameconfig nrOfMembers).
+            number_of_members=max(1, g("numberOfMembers")
+                                  - int((snap_unit.get("statDelta") or {}).get("numberOfMembers") or 0)),
             traits=list(cfg.get("traits") or []),
             damage_type=int(cfg.get("damageType", 0) or 0),
             range=int(cfg.get("range", 0) or 0),

@@ -66,6 +66,62 @@ def get_group_unit_remaining_member_count(total_hp: int, member_count: int, dama
     return m
 
 
+def get_group_unit_heal_limit(member_total_hp: int, member_count: int, current_hp: int) -> int:
+    """`DamagePrediction.GetGroupUnitHealLimit @1810325e0` : cap de soin « sans réveiller de membre »
+    d'une unité multi-membres = `maxHealthWith(membres RESTANTS) − hp`. Héros (`nrOfMembers < 2`) →
+    int.MaxValue (pas de cap). Consommé par `PredictHeal @181037180` / `PredictRepair @181038280`
+    **UNIQUEMENT sous leur flag d'appel** (`param_6/param_7 == 1`) : `amount = Min(amount, healLimit)`
+    AVANT le cap boss et le `MaxFillUp` (#60)."""
+    if member_count < 2:
+        return 0x7fffffff
+    remaining = get_group_unit_remaining_member_count(member_total_hp, member_count, current_hp)
+    return get_group_unit_max_health_with_remaining_members(
+        member_total_hp, member_count, remaining) - int(current_hp)
+
+
+def is_at_group_unit_heal_limit(member_total_hp: int, member_count: int, current_hp: int) -> bool:
+    """`AttackQuery.IsAtGroupUnitHealLimit @181057b30` : l'unité multi-membres est « au plafond de soin »
+    (hp >= max des membres RESTANTS — tout soin supplémentaire ne ferait QUE réveiller des membres).
+    Héros → False. Consommé par les gates d'éligibilité `AttackQuery.EntityCanBeHealed @181054fa0` /
+    `EntityCanBeRepaired @181055080/@181055170` : sous leur flag d'appel (param 4/3), une cible « at
+    limit » n'est PAS éligible au soin/repair (#60)."""
+    if member_count < 2:
+        return False
+    remaining = get_group_unit_remaining_member_count(member_total_hp, member_count, current_hp)
+    return get_group_unit_max_health_with_remaining_members(
+        member_total_hp, member_count, remaining) <= int(current_hp)
+
+
+def group_unit_stat_part(part: int, member_total_hp: int, member_count: int,
+                         current_hp: int) -> int:
+    """Résolution OFFLINE de `GetStat(unit, NUMBER_OF_MEMBERS=20, part)` (#60).
+
+    Natif : `UnitExtensions.GetStat @180ed30d0` case 0x14 (jumptable, handler @180ed3929) =
+    `GetComponent<GroupUnitComponent>` puis **`FillUpStatComponent.GetStatPart @180f9b3a0`** direct sur
+    ce composant — layout fill-up : `+0x10` = nrOfMembers (base), `+0x18` = membres RESTANTS (champ
+    MAINTENU par le jeu au fil des événements PV). Offline le champ « courant » est DÉRIVÉ de l'état
+    PV — même invariant, les mainteneurs natifs étant exactement les événements de mutation PV :
+    `current = GetGroupUnitRemainingMemberCount(hpMax, n, hp)` (@181005120).
+
+    Parts (mirror @180f9b3a0) : 0=Current → membres restants ; 2=Maximum (`get_CurrentMaximumValue
+    @180f9c010` = base + mod clampé ; aucun mod de membres offline → n) ; 3=Initial → champ base
+    `+0x10` = n ; 4=Missing → max − current = membres MORTS ; 1=CurrentPct → round(max(0, cur/max)·100).
+    C'est la source des deux `StatAmount(Self, 20, part 3/4)` de `SwarmAbility.CreateBehaviour
+    @181225e20`."""
+    n = max(1, int(member_count))
+    p = int(part)
+    if p in (2, 3):
+        return n
+    remaining = get_group_unit_remaining_member_count(int(member_total_hp), n, int(current_hp))
+    if p == 0:
+        return remaining
+    if p == 4:
+        return n - remaining
+    if p == 1:
+        return round(max(0.0, remaining / n) * 100)
+    raise ValueError(f"StatPart {p} non implemente (GroupUnitComponent stat 20)")
+
+
 def apply_group_unit_damage_limit(dmg: int, profile_has_hits_multiple_members: bool,
                                   member_count: int, member_total_hp: int,
                                   cumulative_damage: int, flag: bool = False) -> int:

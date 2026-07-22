@@ -159,6 +159,15 @@ class AttackDamageOperation:
         return (out or []) + unit_defeated_triggers(state, target_id, attacker_id)
 
     @staticmethod
+    def _refresh_swarm(state: State, target_id: int) -> None:
+        """#60 : bras `On(UnitMemberDeath=48) & OwnerIsTarget` du `SwarmAbility.CreateTrigger
+        @181225f50` — apres toute baisse de PV de la cible, re-evalue le stat-mod EXTRA_HITS du trait
+        Swarm (`AddOrUpdateStaticStatModifierEffect 0x3fd`, cf. runner/abilities/loki/swarm.py). No-op
+        rapide pour une cible non-swarm ou morte. Lazy import (cycle damage <-> abilities)."""
+        from ..abilities.loki.swarm import on_group_unit_hp_changed
+        on_group_unit_hp_changed(state, target_id)
+
+    @staticmethod
     def _record_attacked(state: State, target_id: int) -> None:
         """#G6a : la cible vient d'encaisser une ATTAQUE (via `execute`/`execute_ability_attack`/
         `execute_normal_like` ; PAS un DoT `execute_direct`) -> incremente son compteur d'attaques du tour +
@@ -385,6 +394,7 @@ class AttackDamageOperation:
             death = AttackDamageOperation._fire_death_if_killed(
                 state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=r["total"])
             AttackDamageOperation._record_attacked(state, target_id)    # #G6a : compteur + revert du floor
+            AttackDamageOperation._refresh_swarm(state, target_id)      # #60 : On(UnitMemberDeath=48)
         return {"hits": hits, "total": r["total"], "base": ctx.stat(StatType.ATTACK), "pierce": pierce,
                 "armor": armor, "clean_min": clean_min, "clean_max": clean_max, "death": death,
                 "shield_dmg": r["shield_dmg"], "armor_dmg": r["armor_dmg"],
@@ -566,6 +576,7 @@ class AttackDamageOperation:
             AttackDamageOperation._fire_death_if_killed(
                 state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=r["total"])
             AttackDamageOperation._record_attacked(state, target_id)    # #G6a
+            AttackDamageOperation._refresh_swarm(state, target_id)      # #60 : On(UnitMemberDeath=48)
         # POSE DE FEU (OnFireDamageAbility) — `EvaluateAfterHitTriggers @180e25fc0` tourne après CHAQUE coup
         # d'attaque, NORMALE **et** ability. Le port ne câblait ce vecteur que pour l'attaque normale
         # (DamageHandler) ; ici on porte la pose on-hit des tile-effects de profil pour les attaques
@@ -646,6 +657,7 @@ class AttackDamageOperation:
             AttackDamageOperation._fire_death_if_killed(
                 state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=r["total"])
             AttackDamageOperation._record_attacked(state, target_id)    # #G6a
+            AttackDamageOperation._refresh_swarm(state, target_id)      # #60 : On(UnitMemberDeath=48)
         # VECTEUR AFTER-HIT (splash StatAmount) : idem execute_ability_attack — reset ActOfFaith au crit
         # (#138) + vecteur complet (#140). `ranged` = POSITION-based (mirror IsRangedAttack), calculé dedans.
         from .triggers import after_hit_ability_attack
@@ -687,6 +699,7 @@ class AttackDamageOperation:
         thc.reduce(dmg)
         AttackDamageOperation._fire_death_if_killed(
             state, target_id, source_id, hp_before, thc.hp, tgt, damage=dmg)
+        AttackDamageOperation._refresh_swarm(state, target_id)          # #60 : On(UnitMemberDeath=48)
         return {"total": dmg, "base": int(base), "pierce": int(profile_pierce), "armor": armor,
                 "hp_before": hp_before, "hp_after": thc.hp}
 

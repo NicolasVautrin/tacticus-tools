@@ -61,6 +61,7 @@ from .loki import (
     FleshmetalGunsFocusedMaliceEffect,
     FleshmetalGunsRuinousSalvoEffect,
     FleshmetalGunsWarpHailEffect,
+    Swarm_HitReductionEffect,
     ExplosiveMaladiesExtraRangedAttackEffect,
     ExplosiveMaladiesExtraMeleeAttackEffect,
     LordOfTheHostExtraDamageEffect,
@@ -100,6 +101,10 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "FleshmetalGunsFocusedMalice": FleshmetalGunsFocusedMaliceEffect,
     "FleshmetalGunsRuinousSalvo": FleshmetalGunsRuinousSalvoEffect,
     "FleshmetalGunsWarpHail": FleshmetalGunsWarpHailEffect,
+    # Swarm (trait, effet 0x3fd=1021 self) : EXTRA_HITS = -min(nrOfMembers-1, membres morts) —
+    # AddOrUpdate par SwarmAbility @181225e20 a chaque evenement PV du porteur. Amount dependant de
+    # l'etat PV -> lie post-materialisation (bind_group_state, cf. unit_context.from_snapshot). #60.
+    "Swarm_HitReduction": Swarm_HitReductionEffect,
     # ExplosiveMaladies (Pestillian, effets-AURA sur le PORTEUR) : +nrOfHits=1 coup Blast de
     # extraDmg[state] aux attaques normales des amis ADJACENTS (ranged: tous @180f43cc0 ;
     # melee: Chaos @180f43a40) — adjacence re-evaluee a la tuile candidate. #57c-C bit-exact.

@@ -59,4 +59,9 @@ class HealUnitOperation:
         if healed <= 0:
             return 0
         thc.hp = int(thc.hp) + healed
+        # #60 : bras `On(UnitHealed=44) & OwnerIsTarget` (+ `On(UnitRepaired=49)`, le repair HP passant
+        # par ce meme mutateur) du `SwarmAbility.CreateTrigger @181225f50` — re-evalue le stat-mod
+        # EXTRA_HITS du trait Swarm apres la remontee de PV (des membres reviennent -> malus reduit).
+        from ..abilities.loki.swarm import on_group_unit_hp_changed
+        on_group_unit_hp_changed(state, target_id)
         return healed

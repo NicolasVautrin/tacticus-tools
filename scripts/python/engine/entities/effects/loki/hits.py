@@ -641,3 +641,51 @@ class KanOpenerEffect(BaseEffect):
     def get_armor_penetration(self, is_normal_attack: bool = True) -> int | None:
         # TODO: mapper la clé 0x40 → var gameconfig (per-niveau) puis return ability_var(..., self.level).
         return None
+
+
+# Clé de source UNIQUE du stat-mod Swarm_HitReduction — partagée entre l'attribution d'hydratation
+# (`UnitContext.from_snapshot`) et le refresh runner (`runner/abilities/loki/swarm.py`) : même clé =
+# `ValueModification.Modify @180fadfc0` REMPLACE la contribution (sémantique AddOrUpdate native),
+# jamais de double-compte. Forme = le tuple stable par défaut de `stat_modifications_by_source`.
+SWARM_HIT_REDUCTION_SOURCE = ("statmod", 1021, None, "Swarm_HitReduction")
+
+
+class Swarm_HitReductionEffect(BaseEffect):
+    """`Swarm_HitReduction` (effet 0x3fd=1021, StaticStatModifierEffect) — malus EXTRA_HITS(17) self du
+    trait **Swarm** : « For each member defeated, the swarm attacks with 1 fewer hit » (i2, #60).
+
+    Natif : `SwarmAbility.CreateBehaviour @181225e20` (ability 0x3ff=1023 accordée par le trait) =
+    `AddOrUpdateStaticStatModifierEffect(Self@+0x148, 0x3fd, statType 0x11=EXTRA_HITS,
+        Negative(Min(Difference(StatAmount(Self, 20, part 3=INITIAL), Const1@+0xc0),
+                     StatAmount(Self, 20, part 4=MISSING))))`
+    = **−min(nrOfMembers − 1, membres MORTS)** (plancher structurel 1 hit). Stat 20 = NUMBER_OF_MEMBERS,
+    résolue par le handler jumptable 0x14 de `GetStat @180ed30d0` (@180ed3929) → GroupUnitComponent
+    fill-up {+0x10=nrOfMembers, +0x18=membres restants} via `FillUpStatComponent.GetStatPart @180f9b3a0`.
+    Triggers `CreateTrigger @181225f50` : (On(UnitRepaired=49)|On(UnitHealed=44)|On(UnitMemberDeath=48)|
+    On(UnitRevived=46)) & OwnerIsTarget | OnOwnerSpecificAbilityInit(1023) — tous les événements qui
+    changent le compte de membres.
+
+    Côté runner l'AddOrUpdate vit dans `runner/abilities/loki/swarm.py` (refresh aux points de mutation
+    PV). Ici = la face HYDRATATION : l'amount dépend de l'état PV du porteur → il est LIÉ après
+    matérialisation (`bind_group_state`) ; non lié → None = no-op (« présent ≠ appliqué », fidélité-safe).
+    La clé de source partagée `SWARM_HIT_REDUCTION_SOURCE` (runner/abilities/loki/swarm.py) fait que le
+    refresh runner REMPLACE la contribution hydratée (sémantique AddOrUpdate de
+    `ValueModification.Modify @180fadfc0`)."""
+
+    _bound_amount: "int | None" = None
+
+    def bind_group_state(self, current_hp: int, member_total_hp: int, member_count: int) -> None:
+        """Évalue la formule native avec l'état PV du porteur : amount = −min(n−1, membres morts)."""
+        from ....services.trait_damage_limits import group_unit_stat_part
+        n = int(member_count)
+        if n < 2:
+            self._bound_amount = None
+            return
+        missing = group_unit_stat_part(4, int(member_total_hp), n, int(current_hp))
+        self._bound_amount = -min(n - 1, missing)
+
+    def get_stat_modification_stat(self) -> "int | None":
+        return 17 if self._bound_amount else None    # StatType.EXTRA_HITS
+
+    def get_stat_modification_amount(self) -> "int | None":
+        return self._bound_amount

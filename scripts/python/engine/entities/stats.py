@@ -202,9 +202,13 @@ class StatComponent:
 
 class FillUpStatComponent:
     """`IdunBattle.Entities.Components.FillUpStatComponent` — stat « qui se remplit » (Health=5,
-    et l'index 4), layout distinct de `StatComponent` : `current`(+0x18), `maximum` via
-    `get_CurrentMaximumValue`. `GetStatPart @180f9b3a0` : 0→current, 1→pourcentage
-    (`round(max(0, current/max) * 100)`), 2→max, 4→max-current, 3→modTotal, 7→override.
+    et l'index 4), layout distinct de `StatComponent` : `current`(+0x18), base max (+0x10), `maximum`
+    via `get_CurrentMaximumValue @180f9c010` (= base + mod clampé). `GetStatPart @180f9b3a0` :
+    0→current, 1→pourcentage (`round(max(0, current/max) * 100)`), 2→max courant, **3→champ base
+    +0x10** (le max de BASE — PAS le modTotal), 4→max−current, **5/9→modTotal** (+0x28 ; avec `source`
+    → `ValueModification.GetModificationFromEntity`), 7→override. (#60 : l'ancien mapping du port
+    3→modTotal était une transcription erronée — re-décompilé, part 3 lit `*(comp+0x10)` ; c'est ce
+    part 3 que `SwarmAbility @181225e20` lit sur le GroupUnitComponent = nrOfMembers.)
 
     Pour la reproduction de la valeur Current (part 0), un `StatComponent` générique suffirait ;
     cette classe est fournie pour la fidélité des parts spécifiques (pourcentage, max)."""
@@ -222,19 +226,25 @@ class FillUpStatComponent:
         return self.current
 
     def get_stat_part(self, part: int, source: object = None) -> int:
-        """`FillUpStatComponent.GetStatPart @180f9b3a0`."""
+        """`FillUpStatComponent.GetStatPart @180f9b3a0`. Offline `self.maximum` tient lieu de champ
+        base +0x10 ET de max courant (aucun max-mod modélisé) → parts 2 et 3 coïncident (fidèle tant
+        qu'aucune modification de maximum n'est portée)."""
         p = int(part)
-        if p in (0, 2) and p == 0:
+        if p == 0:
             return self.current
         if p == 1:
             if self.maximum <= 0:
                 return 0
             return round(max(0.0, self.current / self.maximum) * 100)
         if p == 2:
-            return self.maximum
+            return self.maximum                     # get_CurrentMaximumValue (base + mod clampé)
+        if p == 3:
+            return self.maximum                     # champ base +0x10 (#60 : ex-mapping modTotal erroné)
         if p == 4:
             return self.maximum - self.current
-        if p == 3:
+        if p in (5, 9):
+            if source is not None:
+                return self.modification.get_modification_from_entity(source)
             return self.modification.total
         if p == 7:
             return int(self.override.override or 0)
@@ -272,7 +282,7 @@ class UnitStats:
         idx = int(stat_type)
         if idx not in self.components:
             self.components[idx] = StatComponent(
-                initial=int(initial), min_value=0, max_value=STAT_CLAMP_MAX.get(idx))
+                initial=int(initial), min_value=_stat_min(idx), max_value=STAT_CLAMP_MAX.get(idx))
 
     def change_stat(self, stat_type: int, source: object, amount: int) -> None:
         """`DSLFactory.ChangeStat` (Position(statType, part 5/9) = apply) : ajoute `amount` (delta
@@ -281,7 +291,7 @@ class UnitStats:
         idx = int(stat_type)
         comp = self.components.get(idx)
         if comp is None:
-            comp = StatComponent(initial=0, min_value=0)
+            comp = StatComponent(initial=0, min_value=_stat_min(idx))
             self.components[idx] = comp
         comp.modification.modify(source, int(amount))
 
@@ -322,7 +332,7 @@ class UnitStats:
         idx = int(stat_type)
         comp = self.components.get(idx)
         if comp is None:
-            comp = StatComponent(initial=int(base_if_absent), min_value=0,
+            comp = StatComponent(initial=int(base_if_absent), min_value=_stat_min(idx),
                                  max_value=STAT_CLAMP_MAX.get(idx))
             self.components[idx] = comp
         if not isinstance(comp, StatComponent):
@@ -346,6 +356,17 @@ _FILLUP_STATS = frozenset({4, 5})
 # Plafonds par-stat (virtuel GetMaxValue) : les pourcentages BlockChance/CritChance sont clampés à 100
 # par `GetClampedValue @180fa8aa0` (le reste = pas de plafond). Sert au clamp de `get_current_value`.
 STAT_CLAMP_MAX = {7: 100, 9: 100}      # BlockChance / CritChance
+
+# Planchers par-stat (virtuel GetMinValue) : le port seedait TOUT à min 0, mais EXTRA_HITS(17) est
+# NÉGATIF live — preuve #60 (probe_60_swarm) : scarab 3 membres morts → GetStat(17, Current) natif
+# = −3 (stat-mod Swarm_HitReduction @181225e20). Le `Max(0)` natif vit à la FIN de la formule hits
+# (`GetDefaultAttackHits @181032520` : Math.Max(hits, 0)), PAS dans le clamp du stat. None = pas de
+# plancher ; les stats absentes gardent le min 0 historique (aucun contre-exemple mesuré).
+STAT_CLAMP_MIN = {17: None}            # ExtraHits — négatif (Swarm_HitReduction, #60)
+
+
+def _stat_min(idx: int) -> "Optional[int]":
+    return STAT_CLAMP_MIN.get(int(idx), 0)
 
 # Filtre natif du trigger HasNegativeModifier de ConquerorImperative (@180f39650 : array inline {4, 16}) =
 # les DEUX stats d'armure — ARMOR(4, "Idun Concept" obsolete, en pratique absente) + FIXED_ARMOR(16, live).
@@ -394,7 +415,7 @@ def seed_unit_stats(stats: Dict[str, Optional[int]],
             continue
         idx = int(idx)
         d = int(delta.get(name, 0) or 0)
-        comp = StatComponent(initial=int(cur) - d, min_value=0, max_value=STAT_CLAMP_MAX.get(idx))
+        comp = StatComponent(initial=int(cur) - d, min_value=_stat_min(idx), max_value=STAT_CLAMP_MAX.get(idx))
         for src, amt in (attributed.get(idx) or {}).items():
             comp.modification.modify(src, int(amt))
         residual = d - comp.modification.total                    # part inexpliquée par les effets

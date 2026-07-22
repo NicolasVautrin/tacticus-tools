@@ -58,6 +58,10 @@ class ResurrectUnitOperation:
         hc = e.get_component(HealthComponent)
         if hc is not None and hp is not None:
             hc.hp = int(hp)                   # SetHealth @180e91000
+            # #60 : bras `On(UnitRevived=46) & OwnerIsTarget` du `SwarmAbility.CreateTrigger
+            # @181225f50` — re-evalue le stat-mod EXTRA_HITS du trait Swarm au retour a la vie.
+            from ..abilities.loki.swarm import on_group_unit_hp_changed
+            on_group_unit_hp_changed(state, unit_id)
         fl = e.get_component(UnitFlagsComponent)
         if fl is None:
             fl = e.add_component(UnitFlagsComponent())
