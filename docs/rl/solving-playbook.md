@@ -257,3 +257,82 @@ elevations) suggere de fausses pistes environnementales (murs, LoS, epsilon).
 - Gate d'eligibilite par-position : `GetEligibleTargetsSelectable(unit, MainTile(T)) @18111ed80`
   vide -> bucket vide MEME si util >= floor ; l'eligibilite dist-1 n'a PAS la porte d'elevation
   du ring-1 utilite (prouve E1-repro (0,2), |Delta-elev|=2 adjacent quand meme eligible).
+
+---
+
+## #39 (2026-07-22) — « Gate per-JOUEUR » de 1180 HeroicFusillade : un A/B 4-experiences reproductible etait un CONFOND avec une variable temporelle (turnsStarted), pas un mecanisme
+
+**Symptome-type** : un verdict comportemental « le natif discrimine par CAMP/joueur » appuye par
+plusieurs experiences A/B live reproductibles (swap de camps = flip du comportement), alors que la
+lecture decompile ne trouve AUCUNE branche per-player dans la chaine ; le port a fige l'artefact en
+gate `team == 1` ; une ability soeur (1191, meme classe de playbook) ne montre PAS l'asymetrie.
+
+**Methode qui l'a craque** :
+
+1. **Lire la chaine ENTIERE avant d'inventer un mecanisme : si tout est player-blind, suspecter
+   l'EXPERIENCE, pas le code.** Chaine relue de bout en bout (VAs) : `RunComputerActionsOperation
+   @180e93e80` -> `AiControl.GetAi @180ffc270` (PlayerType 0 ET 1 -> MEME instance +0x20 ;
+   `AiControl.Init @180ffc460` : 2 paires (AiQuery+DefaultPlayerStrategy+WithSomeRandomness), la
+   #2 reservee a PlayerType 4) -> `DefaultPlayerStrategy.<CalculateNextActionForUnit>d__7
+   @1810c0c10` (seule reference absolue au camp : un bool `GetCurrentTeamId != 1` passe au LOG
+   `AILog.AIActions..ctor` — ecran debug, pas un gate) -> `DefaultAiUnitTactic..ctor @1810eebc0`
+   (generateurs ordonnes : dict NC par priorite {1000,100,0,-100,-1000} +0x40, comparables +0x38,
+   movement dernier ; premier generateur a action non-nulle GAGNE) ->
+   `ActiveAbilityActionGenerator.<GenerateActions>d__7 @18119a3f0` (gates per-ability :
+   HasFlag(unit,2=ActiveAbilityUsed), Contains liste, IsAbilityBlocked, get_CanCurrentlyBeUsed
+   @180f8fdb0 (+0x28 canStillBeUsed && !+0x35 disabled && cooldown+0x2c && ammo+0x38/+0x40),
+   IPlaybook slot4 ShouldEvaluate(unit) / slot5 (unit,positions) / slot6 per-position / slot7
+   Evaluate) -> `HeroicFusilladePlaybook.EvaluateNonComparable @181144510` (gates RELATIFS :
+   HasTrait(cible,Hero) + IsEnemy(surrounding, CASTER) — symetriques sous swap). ZERO branche
+   PlayerType hors Environment. => le « per-joueur » ne POUVAIT pas etre un mecanisme de code.
+
+2. **Chercher la variable CONFONDUE avec le camp dans les experiences.** Lister pour chaque
+   experience historique la valeur des variables NON controlees : ici, TOUTES les mesures
+   « a-units n'emet pas » etaient au 1er tour de l'unite (walks courts : le camp a-units joue
+   2e => son tour 2 est ~2x plus loin en pas), et TOUTES les emissions p-units etaient au tour
+   >= 2. Le slot-4 `ShouldEvaluate(unit)` de 1180 (corps folde @18111af90, decouvert en #46
+   APRES le verdict case-31) = `GetStat(unit, 0xc=TurnsStarted) > 1` : il predit EXACTEMENT la
+   partition observee. **Heuristique : un A/B « camp swap » ne controle PAS le temps — le camp
+   determine l'ORDRE de jeu, donc tout gate temporel (turnsStarted, cooldown initial, once-per-N)
+   est structurellement correle au camp dans un walk court.**
+
+3. **Croiser avec le contre-exemple de la famille** : 1191 MartialInspiration (meme classe
+   NonComparablePlaybook) emet cote team 2 (case-52 #57f) => la famille NC marche pour les
+   a-units ; ce qui distingue 1180 n'est pas le camp mais SON slot-4 (1191 n'a pas le gate
+   turnsStarted). Un « mecanisme per-X » qui ne s'applique qu'a UN membre d'une famille homogene
+   est presque toujours un attribut du membre, pas de X.
+
+4. **Rejouer l'experience historique en MESURANT la variable suspecte** (`probe_39b_tscounter.py` :
+   walk natif 909/MC1_67 avec dump `combatSnapshot.stats.turnsStarted` de TOUTES les unites a
+   CHAQUE pas). Confirmations : a s10 (verdict historique) ts(Judh)=1 -> bloque ; au tour 2 de
+   Judh les autres a-units passent a 2 (le compteur est bien per-player-turn symetrique,
+   `StartTurnOperation.Execute @180ea3fb0` ++ `UnitComponent.turnsStarted@+0x58` sur les
+   `CurrentlyOwnedUnitIds` du joueur courant) mais ts(Judh) RESTE 1 (effet de bord du 1202
+   VigilanceEternal caste SUR lui) -> bloque encore, ce qui explique pourquoi meme un walk long
+   sur CE seed n'aurait jamais montre l'emission a-units.
+
+5. **Craft discriminant a UNE variable** (`probe_39c_crafted.py`) : Judh SEUL cote a-units,
+   2 necroWarden p-units PILOTES par le probe (tenus adjacents = gate2 garanti, immobiles),
+   AUCUNE source d'interference sur le compteur (pas de Kyrus/1202). Resultat : au tour 2
+   (ts=2), le natif emet `move+1180->79` DEPUIS LE CAMP A-UNITS => H_perplayer refutee par
+   contre-exemple direct. Fix : suppression du gate `_is_player_side` du port (le slot-4
+   turnsStarted, deja porte via `_turns_started_gate` + lecture live du compteur par pas,
+   suffit) ; agreements re-valides : 909 s10 HIT (69->93), 909 tour-2-Judh ts-colle HIT
+   (pas d'overfire), 31337 s6 HIT (1180->79 p-units), crafted HIT (1180->79 a-units).
+
+**Outils/heuristiques reutilisables** :
+- **Anti-confond temporel des A/B camp-swap** : avant de conclure « per-joueur », verifier que
+  les deux bras de l'A/B sont mesures au MEME numero de tour de l'unite (turnsStarted egal), au
+  meme etat de cooldown/ammo, et que le walk est assez long pour voir le 2e tour du camp qui
+  joue en second. `combatSnapshot.stats.turnsStarted` par pas = le compteur gratuit.
+- **probe_39c pattern « adversaire scripte »** : pour tester une decision du camp AI, piloter le
+  camp p-units a la main (moves scriptes + finish, jamais l'IA) pour construire/maintenir la
+  precondition geometrique (ici : paire de cibles adjacentes), et laisser le natif decider en
+  face. C'est le complement cote a-units du levier « swap --p-units/--a-units ».
+- **Un gate slot-4 se mesure au COMPTEUR, pas au calendrier** : l'increment de turnsStarted peut
+  etre SAUTE pour une unite (mesure : cible d'un 1202 VigilanceEternal reste a ts=1 pendant son
+  2e tour) -> tout port du gate doit lire le compteur LIVE (stat 12) et non « numero de round ».
+- **La seule reference absolue au camp dans toute la chaine IA = un flag de log** (`AIActions
+  ..ctor(unit, now, teamId != 1)` @1810c0c10, consomme par l'ecran debug AILogScreen) : si un
+  futur cas exhibe une vraie asymetrie per-camp cote decision, elle ne peut venir QUE de l'etat
+  (compteurs, effets, geometrie), pas du routage IA.
