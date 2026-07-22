@@ -24,7 +24,6 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 | # | Tâche | Modèle | Point d'entrée |
 |---|---|---|---|
-| **#61bis** | Porter `MV71SniperDroneSquadAttack` (**1076**) — **tranches 1-2 LIVRÉES (2026-07-22), reste la tranche 3** | `[opus]` | Tranches 1 (exécution) + 2 (dispatch mêlée) livrées + validées live (`case-61bis-mv71-sniper-drone.md` §8 : 3 tests replay-diff, dégât bit-exact, tuile PickTile exacte via bucket Tile(7)+utilité 0x37, cap/éviction confirmés). **Reste : (3) prédiction distance** (`PredictAttack @18110a5f0` : config d'arme du drone + `StatAmount(caster, ATTACK)` + coups `1+ExtraHits(caster)` + canal additional-hits déjà porté + % Markerlight côté prédiction) + le dispatch normal-attack→1076 dans `visit_AttackUnitMessage` (`operations/damage.py:850`) pour les tours simulés. Point ouvert : 3ᵉ délégué `m860` (datapoint ExtraHits>0). |
 | #35 | LordOfTempests `AddIce` (arbre DSL) | `[opus]` | Patron de slice DSL rodé depuis #149 ; artefact = `CreateBehaviour`. |
 | #38 | DoctrinaImperatives `ReachedSummonCap` | `[opus]` | Prédicat/sélecteur scopé. |
 | #39 | RE de la porte **per-player 1180** | `[fable]` | Asymétrie par camp constatée sans explication (`case-31`, mémoire `project_per_player_ai_asymmetry`) — profil « a déjà résisté ». |
@@ -48,3 +47,8 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   modélisé par `execute()`. `[opus]`.
 - **Flag=1 des caps heal/repair** (`case-60` §5) : aucun chemin natif identifié à ce jour ; la
   plomberie `group_limit` est en place, gatée OFF. `[opus]` si une ability « ne peut pas réveiller » apparaît.
+- **MV71 (1076), résidus** (`case-61bis` §6/§8/§9 — case CLOS, tranches 1-3 livrées) : mods
+  attaquant-effets présumés droppés dans la prédiction drone (widget zéroé — aucun datapoint
+  caster-buffé) ; datapoint `ExtraHits>0` (délégué m860) jamais mesuré ; LoS non portée dans
+  PickTile (boards à obstacles) ; retrait Markerlight au heal/repair non porté. `[opus]` si un miss
+  d'agreement les fait surface.

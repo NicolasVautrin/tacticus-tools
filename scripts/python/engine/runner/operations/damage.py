@@ -848,6 +848,31 @@ class DamageHandler:
         self.after_hit: list = []              # extra-attaques after-hit (traits) du dernier coup
 
     def visit_AttackUnitMessage(self, msg) -> None:
+        # --- #61bis tranche 3 : dispatch NormalAttackType CONCRET. L'attaque normale native est une
+        # ActiveAbility PER-UNIT (`ActiveAbilityComponent.NormalAttackType@0x28`) ; pour un porteur du
+        # passif MV71SniperDroneSquad (Sho'syl/tauMarksman), c'est `MV71SniperDroneSquadAttackAbility`
+        # (1076) : à DISTANCE elle invoque un DRONE (spawn + attaque commandée + Markerlight), en MÊLÉE
+        # elle délègue au pipeline normal. Les tours simulés (AttackUnitMessage) routent donc comme le
+        # cast live 1076. `self.last` = l'attaque du VECTEUR (mêlée : celle du caster ; distance :
+        # l'attaque commandée du drone) — même shape que le chemin générique.
+        _ae = self.state.get_entity(msg.attacker_id)
+        _uc = _ae.get_component(UnitComponent) if _ae is not None else None
+        if _uc is not None:
+            from ..abilities.loki.mv71 import (is_mv71_normal_attacker,
+                                               MV71SniperDroneSquadAttackAbility)
+            if is_mv71_normal_attacker(_uc.visual_id):
+                res = MV71SniperDroneSquadAttackAbility().execute_behaviour(
+                    self.state, msg.attacker_id, msg.target_id) or {}
+                self.last = res.get("attack")
+                self.after_hit = res.get("after_hit") or []
+                # flags du CASTER (#139) — même queue que le chemin générique ci-dessous (les flags
+                # du DRONE sont posés par execute_behaviour lui-même).
+                from .turnflow import add_flags_after_ability_execution
+                _fl = add_flags_after_ability_execution(
+                    self.state, int(msg.attacker_id), skip_ability_used=False, skip_end_turn=False)
+                if isinstance(self.last, dict):
+                    self.last["flags"] = _fl
+                return
         self.last = AttackDamageOperation.execute(
             self.state, msg.attacker_id, msg.target_id, self.spread_pct)
         # VECTEUR AFTER-HIT : dispatcher GÉNÉRIQUE de triggers (mirror `EvaluateAfterHitTriggers` →

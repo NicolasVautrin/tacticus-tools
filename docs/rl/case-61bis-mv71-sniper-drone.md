@@ -1,9 +1,10 @@
 # Case #61bis — MV71SniperDroneSquadAttack (1076) : port de l'attaque déclenchée du Marksman
 
 > Successeur de #61 (clos sans port — `case-61-additional-hits-prediction-reachability.md`) : le
-> SEUL appelant non porté du canal additional-hits côté prédiction. **Tranches 1 (exécution) et
-> 2 (dispatch mêlée) LIVRÉES et validées live (§8, 2026-07-22)** ; reste la tranche 3 (prédiction
-> distance). La cartographie RE vient du décompilé (confirmée par le ground truth, pas dérivée).
+> SEUL appelant non porté du canal additional-hits côté prédiction. **Tranches 1 (exécution),
+> 2 (dispatch mêlée) et 3 (prédiction distance + dispatch AttackUnitMessage) LIVRÉES et validées
+> live (§8-§9, 2026-07-22) — case CLOS** (résidus mineurs flaggés §8/§9). La cartographie RE vient
+> du décompilé (confirmée par le ground truth, pas dérivée).
 
 ## 1. Ce que fait l'ability (i2, vérité fonctionnelle)
 
@@ -168,10 +169,34 @@ compte de coups. Le nombre de coups vient de `ExtraHitsComponent(caster).Current
 valide ⇒ **prédiction vide**. Le canal additional-hits s'insère après le retour du service, clé =
 `attackTypeId` du drone (identique à ALoki).
 
-## 6. Ouvert / tranché (MAJ 2026-07-22, tranches 1-2)
+## 6. Ouvert / tranché (MAJ 2026-07-22, tranches 1-3)
 
-- **3ᵉ délégué de `PredictAttack`** (`m860`) : TOUJOURS OUVERT (tranche 3). Rôle « compte de coups » =
-  INFERENCE. Datapoint discriminant : Sho'syl avec `ExtraHits > 0` vs `0`.
+- **3ᵉ délégué de `PredictAttack`** (`m860` = DAT_183279860) : **TRANCHÉ PAR ÉLIMINATION** (tranche 3).
+  La DisplayClass7_0 n'a que 2 lambdas symbolisées : `b__0 @1811194e0` = `() => PickTile(entities,
+  firstOnly=0)` (le MÊME PickTile que l'exécution, mémoïsé par un service de cache) et `b__1
+  @181119590` = `StatAmount(Caster, ATTACK, CURRENT)` (dégât). Le champ hits `dc+0x148 =
+  ExtraHits(caster)+1` n'a AUCUN autre lecteur possible → le 3ᵉ délégué (b__2 sans symbole,
+  espacement métadata régulier 0x140 après b__0/b__1, MÊME position d'argument que le délégué hits
+  par défaut du fallback ALoki slot 0x25 = DAT_183283000) EST le compte de coups. Cohérent live :
+  `appliedHits = 1` partout (probe_61bis_pred). Résidu mineur : datapoint `ExtraHits > 0` jamais
+  mesuré (aucun granter d'ExtraHits commode dans le roster T'au).
+- **Widget modifiers ZÉROÉ de la branche distance — ARBITRÉ LIVE** (probe_61bis_pred seeds
+  61011/61013, 15/15 EXACT) : le memset `&local_3f8` ne supprime que les mods ATTAQUANT-effets
+  (builder @181000590 côté appelant, non forwardé). Les mods **POSITIONNELS + DÉFENSEUR sont
+  calculés EN AVAL dans le service** et s'appliquent : ÉLÉVATION évaluée à la **TUILE DU DRONE** vs
+  cible (rows ×1.5 EXACT sur (3,6)/(2,6)/(6,6) elev2 ; le flip post-cast de la row (4,6) 1.5→1.15
+  quand le drone réel occupe (3,6) le prouve) ; DÉFENSEUR incl. **Markerlight ×1.15 EXACT** (composé
+  1.5×1.15 = 1.725 observé). Résidu : aucun datapoint « caster avec effets d'attaque » (drop des
+  mods attaquant = lecture littérale du décompilé, non contredit).
+- **PickTile en PRÉDICTION : le caster est VIRTUELLEMENT sur la tuile candidate** (#153 de bout en
+  bout) — (a) la candidate est EXCLUE des tuiles de drone (mirror du filtre `!Contains` du natif,
+  indiscernable de l'occupation en exécution) ; (b) sa tuile réelle devient LIBRE ; (c) l'adjacence
+  (AdjacentToTau/NoAdjacentEnemy/leaves 20-22) le voit à la position hypothétique. Discriminé par
+  les rows (5,7) (pick natif (6,6) elev2 : −50+40+20(adj T'au hypothétique)+20(t7 elev) = 30 bat
+  (4,7) 15) et (4,6) (pick (3,6) pré-cast, (4,7) post-cast).
+- **Slot 0xc0 résolu** : unit-config par id STRING (consommé par PredictAttack pour résoudre la
+  config du drone depuis `unitId`) ; champ @0x10 = attackTypeId (clé du canal additional-hits),
+  champ @0x18 = config d'attaque (arme).
 - **Sens du tri** `SortByFormula(..., 1)` : **CONFIRMÉ LIVE** (test cap §8) — au 4ᵉ cast, le drone de
   plus BASSE Health est retiré (évincé identique live/offline).
 - **Double éviction** (a)+(b) : au 4ᵉ cast, **exactement 1 drone évincé** live (test cap) — (b) seul
@@ -192,12 +217,9 @@ valide ⇒ **prédiction vide**. Le canal additional-hits s'insère après le re
 ## 7. Plan de port (tranches)
 
 1. **Exécution** — **LIVRÉE + VALIDÉE** (§8).
-2. **Dispatch mêlée** — **LIVRÉ + VALIDÉ** (§8 ; exécution seule — la face prédiction du dispatch va
-   avec la tranche 3).
-3. **Prédiction distance** — RESTE À FAIRE : substitution config d'arme du drone + dégât
-   `StatAmount(caster, ATTACK)` + coups `1 + ExtraHits(caster)`, puis canal additional-hits (déjà
-   porté pour ALoki) ; « aucune tuile valide ⇒ prédiction vide » ; + threading du % Markerlight dans
-   la face prédiction des defender-mods.
+2. **Dispatch mêlée** — **LIVRÉ + VALIDÉ** (§8 ; face prédiction du dispatch validée en §9 :
+   row adjacente ratio 1.0 EXACT via le chemin arme ALoki).
+3. **Prédiction distance + dispatch runner** — **LIVRÉE + VALIDÉE** (§9).
 
 ## 8. Tranches 1-2 livrées (2026-07-22) — port + validation live
 
@@ -253,6 +275,51 @@ Gardes de non-régression : `test_damage_roll_live` + `test_effect_stun_live` (3
 - consommation de 1132/1133 exécutée par l'ability après l'attaque commandée (le SEUL On(10) du
   porteur atteignable dans le cast) — PAS câblée aux attaques AI-turn (un drone qui n'attaquerait pas
   au cast garderait l'effet offline) ;
-- Markerlight : retrait au HEAL/REPAIR non porté (durée seule) ; % non threadé dans la face
-  PRÉDICTION (tranche 3) ; contribution combat active (att_ctx faction) mais non exercée par un
-  datapoint dédié (tir de drone ULTERIEUR sur cible marquée = AI-turn replay, hors tranche 1).
+- Markerlight : retrait au HEAL/REPAIR non porté (durée seule) ; % PRÉDICTION livré + validé en
+  tranche 3 (§9 : ×1.15 EXACT sur cible marquée) ; contribution COMBAT active (att_ctx faction)
+  mais non exercée par un datapoint dédié (tir de drone ULTERIEUR sur cible marquée = AI-turn
+  replay).
+
+## 9. Tranche 3 livrée (2026-07-22) — prédiction distance + dispatch runner
+
+**Port** (fichiers) :
+- `engine/playbook/prediction.py` — `_make_mv71_drone_predictions` (mirror `PredictAttack
+  @18110a5f0` branche distance : PickTile scene-side, aucune tuile → prédiction VIDE (memset 0xc0
+  natif = résultat zéro), hits = `1+ExtraHits(caster)` (délégué m860, §6), dégât =
+  `StatAmount(Caster, ATTACK, CURRENT)` via le foyer partagé **`_display_attack_base`** (extrait de
+  `make_normal_attack_predictions` — MÊME lecture display re-positionnée #153), arme du DRONE
+  résolue par la distance tuile→cible, pierce = profil + ExtraPierce du caster (`GetUnit(tile) ??
+  caster`), canal additional-hits #179 keyé attackTypeId du drone, mods = widget attaquant ZÉROÉ +
+  `_add_positional_and_defender_mods(attack_pos = TUILE DU DRONE)` (arbitrage §6)) ; **dispatch**
+  dans `make_normal_attack_predictions` (kit porteur de `MV71SniperDroneSquad` ; mêlée sur la
+  position CANDIDATE → chemin arme ALoki, distance → chemin drone) ; threading
+  `att_ctx["faction"]` dans `_add_positional_and_defender_mods` (gate Markerlight, TOUS les
+  chemins prédiction — même source `_faction(visualId)` que le combat).
+- `engine/runner/abilities/loki/mv71.py` — `is_mv71_normal_attacker` (résolution kit du
+  NormalAttackType@0x28, doctrine `UnitNormalAttackType`) ; `pick_tile_scene` (hydrateur SCENE du
+  MÊME PickTile : caster virtuel sur `parent_pos` — exclusion candidate + tuile réelle libérée +
+  adjacence hypothétique, §6) ; `_spawn_tile_utility_0x37`/`_tile7_utility` refactorées PURES
+  (entrées préparées — un seul scoring pour runner ET scène, zéro fork).
+- `engine/runner/operations/damage.py` — `visit_AttackUnitMessage` : dispatch NormalAttackType
+  CONCRET → un `AttackUnitMessage` d'un porteur MV71 (tours simulés) route vers
+  `MV71SniperDroneSquadAttackAbility.execute_behaviour` + flags caster (#139).
+
+**Arbitrage live** (`probe_61bis_pred.py`, seeds 61011/61013) : v1 « widget zéroé littéral » (aucun
+mod) → 4/8 EXACT pré-cast ; les patterns ×1.5/×1.15/×1.725 ont tranché élévation-à-la-tuile-du-drone
++ défenseur service-side + caster virtuel sur la candidate (§6) → **15/15 EXACT** (8 pré-cast +
+7 post-Markerlight, rows plates/surélevées/mêlée + `aiPlaybookPredict` per-tile, appliedHits=1).
+
+**Validation** (`test_mv71_sniper_drone_live.py`, 2 nouveaux tests — 5/5 au total) :
+4. `test_mv71_prediction_live_offline_agreement` : rows rankées PRE-cast EXACT (accumulées sur
+   ≤3 tours), puis cast → rows POST-Markerlight EXACT (×1.15 suivi) ;
+5. `test_mv71_normal_attack_dispatch_sim` : replay-diff `AttackUnitMessage` offline vs cast live
+   1076 — même tuile de drone, dégât commandé bit-exact, Markerlight des deux côtés.
+Gardes : `test_aura_position_live` (#153, refactor `_display_attack_base`) 1/1 +
+`test_damage_roll_live` (visiteur AttackUnitMessage) 2/2 + les 3 tests tranches 1-2 re-PASS
+(refactor scoring pur).
+
+**Résidus flaggés (non bloquants)** :
+- mods ATTAQUANT-effets présumés DROPPÉS dans la branche drone (widget zéroé, lecture littérale) —
+  aucun datapoint caster-avec-effet-d'attaque ; à re-mesurer si un buff d'attaque de Sho'syl surgit ;
+- datapoint `ExtraHits > 0` (m860) jamais mesuré (§6) ;
+- LoS toujours non portée dans PickTile (les deux hydrateurs) — boards à obstacles.

@@ -73,6 +73,31 @@ def _drone_attack_range(unit_id: str) -> int:
     return mx if mx > 0 else 1
 
 
+def is_mv71_normal_attacker(visual_id) -> bool:
+    """L'attaque NORMALE de cette unité est-elle `MV71SniperDroneSquadAttack` (1076) ? Mirror du
+    dispatch natif par `ActiveAbilityComponent.NormalAttackType@0x28` (per-unit, vtable de l'instance),
+    résolu OFFLINE depuis le KIT gameconfig : porteur du passif `MV71SniperDroneSquad` (Sho'syl /
+    `tauMarksman`) — même doctrine de résolution kit que `UnitNormalAttackType` (formulas.py)."""
+    if not visual_id:
+        return False
+    v = _MV71_KIT_CACHE.get(visual_id)
+    if v is None:
+        names = []
+        for _slot, x in (GC.unit_abilities(visual_id) or {}).items():
+            if isinstance(x, str):
+                names.append(x)
+            elif isinstance(x, dict):
+                names.append(x.get("name") or x.get("id"))
+            elif isinstance(x, list):
+                names += [(y.get("name") if isinstance(y, dict) else y) for y in x]
+        v = CONFIG in names
+        _MV71_KIT_CACHE[visual_id] = v
+    return v
+
+
+_MV71_KIT_CACHE: dict = {}
+
+
 def _friendly_drones(state: "State", team, unit_id: str) -> list:
     """`AlreadySpawnedSummonsSortedSelector @1811087e0` = `SortByFormula(UnitsWithId(Friends(Self),
     unitId), StatAmount(Subject, 5=HEALTH), dir=1)` : drones amis VIVANTS tries par PV CROISSANTS
@@ -122,7 +147,7 @@ def _adjacent_occupants(state: "State", board, tid: int):
     return out
 
 
-def _spawn_tile_utility_0x37(state: "State", board, tid: int, pos, cpos, caster_team) -> float:
+def _spawn_tile_utility_0x37(pos, parent_pos, adj, caster_team) -> float:
     """`MV71SniperDroneSquad_SpawnTileUtility.EvaluateMovementInSteps` (`<d__5>.MoveNext @181100f60`,
     poids BC catégorie `MV71SniperDroneSquad_ClosestToParent`) :
         u  = Fix64(-steps(candidate, tuile du PARENT)) x W[AdjacentToParent]            (=50/pas)
@@ -132,17 +157,17 @@ def _spawn_tile_utility_0x37(state: "State", board, tid: int, pos, cpos, caster_
             (gate idem)                     ami a DefenderOfTheGreaterGood(0x483) -> +W[InRangeOf...GreaterGood] (=25)
             `CanBeProtector @1810e0a50` (= HasFaction(9=T'au) ET PAS SaviorProtocols 0x460) -> +W[AdjacentToTau] (=20)
     `steps` = slot service 0x6b(parentTile, candidate) — port : distance hex (== pas sur board ouvert
-    sans mur ; flag si un board a des obstacles)."""
+    sans mur ; flag si un board a des obstacles). FONCTION PURE (tranche 3) : `adj` = occupants VIVANTS
+    adjacents [(team, visual_id)] — hydraté runner-state (`_adjacent_occupants`) OU scene (prédiction)."""
     from ....entities.triggered_ability_type import triggered_ability_ids
     from ....ai.action_generators import _faction
     wt = _wt()
-    u = -hexgeo.distance(pos, cpos) * wt.sub(_W_CAT, "MV71SniperDroneSquad_AdjacentToParent")
-    adj = _adjacent_occupants(state, board, tid)
-    enemies_adj = [x for x in adj if x[1] != caster_team]
-    friends_adj = [x for x in adj if x[1] == caster_team]
+    u = -hexgeo.distance(pos, parent_pos) * wt.sub(_W_CAT, "MV71SniperDroneSquad_AdjacentToParent")
+    enemies_adj = [x for x in adj if x[0] != caster_team]
+    friends_adj = [x for x in adj if x[0] == caster_team]
     if not enemies_adj:
         u += wt.sub(_W_CAT, "MV71SniperDroneSquad_NoAdjacentEnemy")
-    for _e, _team, vis in friends_adj:
+    for _team, vis in friends_adj:
         trig = set(triggered_ability_ids(vis) or ())
         if not enemies_adj:
             if STRUCTURAL_ANALYSER in trig:
@@ -154,30 +179,23 @@ def _spawn_tile_utility_0x37(state: "State", board, tid: int, pos, cpos, caster_
     return float(u)
 
 
-def _tile7_utility(state: "State", board, tid: int, pos, unit_id: str, caster_team,
-                   elev_minmax) -> float:
+def _tile7_utility(pos, elev, elev_minmax, eff_names, adj, caster_team, unit_id: str) -> float:
     """Terme `WeightedUtility(7 = Tile)` du bucket — le composite Tile(7) PORTÉ (`utilities/tile.py`,
     29 feuilles), évalué pour le DRONE-TEST (`TestUnitProvider` natif : l'unité évaluée = le drone qui
-    serait posé). Meta runner-side : élévation (min/max BOARD ENTIER), effets DYNAMIQUES de la tuile
-    (state.effects, keyés par tile id) + covers hébergés par le TERRAIN, counts d'amis adjacents par
-    triggered-ability (leaves 20/21/22). leaf_ctx du drone : kit déclenché (SaviorProtocols 1120 —
-    LoadPlaybook(1120) natif = null -> dispatcher(2) à 0), faction T'au (9), arme ranged."""
-    from ....utilities.tile import tile_composite, terrain_tile_effects
+    serait posé). FONCTION PURE (tranche 3) : `elev`/`elev_minmax` = élévation tuile + min/max BOARD
+    ENTIER ; `eff_names` = effets DYNAMIQUES de la tuile + covers hébergés par le TERRAIN ; `adj` =
+    occupants VIVANTS adjacents [(team, visual_id)] (counts d'amis par triggered-ability, leaves
+    20/21/22). leaf_ctx du drone : kit déclenché (SaviorProtocols 1120 — LoadPlaybook(1120) natif =
+    null -> dispatcher(2) à 0), faction T'au (9), arme ranged."""
+    from ....utilities.tile import tile_composite
     from ....entities.triggered_ability_type import triggered_ability_ids
     meta: dict = {}
-    info = board.by_id.get(tid) or {}
-    elev = info.get("elevation")
     if elev is not None:
         meta = {"elevation": elev, "elevation_max": elev_minmax[1], "elevation_min": elev_minmax[0]}
-    effs = []
-    if state.effects is not None:                       # effets dynamiques poses SUR la tuile (Fire/Ice…)
-        effs += [e.name for e in state.effects.by_unit.get(int(tid), [])
-                 if not e.consumed and e.name]
-    effs += terrain_tile_effects(board.terrain_at(pos[0], pos[1]))   # covers heberges (DryBush->LightCover)
-    if effs:
-        meta["effects"] = effs
+    if eff_names:
+        meta["effects"] = list(eff_names)
     counts: dict = {}
-    for _e, _team, vis in _adjacent_occupants(state, board, tid):
+    for _team, vis in adj:
         if _team != caster_team:
             continue
         for ab in (triggered_ability_ids(vis) or ()):
@@ -232,10 +250,18 @@ def _pick_tile(state: "State", caster_id: int, target_id: int, unit_id: str,
             return cands[0][0]                              # gate GetDynamicInvalidTargetReason (1er candidat)
         elevs = [t.get("elevation") for t in board.by_id.values() if t.get("elevation") is not None]
         emm = (min(elevs), max(elevs)) if elevs else (None, None)
+        from ....utilities.tile import terrain_tile_effects
         best_tid, best_u = None, None
         for tid, pos in cands:                              # max stable (ordre des candidats au tie)
-            u = (_tile7_utility(state, board, tid, pos, unit_id, coc.team, emm)
-                 + _spawn_tile_utility_0x37(state, board, tid, pos, cpos, coc.team))
+            adj = [(t, v) for _e, t, v in _adjacent_occupants(state, board, tid)]
+            effs = []
+            if state.effects is not None:                   # effets dynamiques poses SUR la tuile (Fire/Ice…)
+                effs += [e.name for e in state.effects.by_unit.get(int(tid), [])
+                         if not e.consumed and e.name]
+            effs += terrain_tile_effects(board.terrain_at(pos[0], pos[1]))   # covers heberges
+            elev = (board.by_id.get(tid) or {}).get("elevation")
+            u = (_tile7_utility(pos, elev, emm, effs, adj, coc.team, unit_id)
+                 + _spawn_tile_utility_0x37(pos, cpos, adj, coc.team))
             if best_u is None or u > best_u:
                 best_tid, best_u = tid, u
         return best_tid
@@ -252,6 +278,96 @@ def _pick_tile(state: "State", caster_id: int, target_id: int, unit_id: str,
     if d_t < 1 or d_t > rng:
         return None
     return board.id_at(wp.col, wp.row)
+
+
+def pick_tile_scene(scene, att_id: int, tgt_id: int, unit_id: str, max_summons: int,
+                    parent_pos=None, first_only: bool = False):
+    """`PickTile @181109ac0` côté PRÉDICTION (#61bis tranche 3) — MÊME port que `_pick_tile` (runner),
+    hydraté depuis la `Scene` du playbook : la prédiction native passe le délégué b__0 @1811194e0 =
+    `() => PickTile(entities, firstOnly=0)`, soit LE MÊME PickTile que l'exécution. Le SCORING
+    (Tile(7) + utilité 0x37) est la MÊME fonction pure que le runner (pas de fork) ; seule
+    l'hydratation diffère (pos_by_id/vis_by_id/hp vs entities/components).
+
+    `parent_pos` = position du CASTER pour le terme ClosestToParent — la chaîne display threade la
+    POSITION CANDIDATE de bout en bout (#153 : entities.CasterPosition = tuile de sélection), donc
+    l'appelant passe `attack_pos` ; défaut = position réelle. **Le caster est VIRTUELLEMENT SUR
+    `parent_pos`** (arbitré live, probe_61bis_pred seed 61011) : (a) la tuile candidate est EXCLUE
+    des tuiles de drone (mirror du filtre `!Contains(unitPosition.Tile)` — indiscernable de
+    l'occupation en EXÉCUTION où la tuile du caster est réellement occupée, discriminé en prédiction
+    par les rows (5,7)/(4,6) x1.5) ; (b) sa tuile RÉELLE devient LIBRE ; (c) l'adjacence
+    (AdjacentToTau/NoAdjacentEnemy/leaves 20-22) le voit à la position HYPOTHÉTIQUE (parent (5,7) :
+    (6,6) ne gagne que si le caster T'au adjacent est vu en (5,7)). Occupation/adjacence = unités
+    VIVANTES (hp>0 — decisionView garde les cadavres). Renvoie la POSITION (col,row), ou None
+    (aucune tuile -> prédiction VIDE)."""
+    board = scene.board
+    t_pos = scene.pos(tgt_id)
+    if board is None or t_pos is None:
+        return None
+    if parent_pos is None:
+        parent_pos = scene.pos(att_id)
+    caster_team = scene.team(att_id)
+    if parent_pos is None or caster_team is None:
+        return None
+    parent_pos = tuple(parent_pos)
+    rng = _drone_attack_range(unit_id)
+    alive = [u for u in scene.pos_by_id
+             if (scene.hp(u) or 0) > 0 and scene.pos(u) is not None]
+    # remap : caster deplace de sa tuile reelle vers parent_pos (position hypothetique #153)
+    _pos_of = {u: (parent_pos if u == att_id else tuple(scene.pos(u))) for u in alive}
+    occupied = set(_pos_of.values())
+    by_pos = {p: u for u, p in _pos_of.items()}
+    tpos = tuple(t_pos)
+
+    def _adj(tid):
+        out = []
+        for n in board.neighbours(tid):
+            info = board.by_id.get(n)
+            if info is None:
+                continue
+            u = by_pos.get((info["col"], info["row"]))
+            if u is not None:
+                out.append((scene.team(u), scene.vis_by_id.get(u)))
+        return out
+
+    cands = []
+    for tid in sorted(board.by_id.keys()):
+        info = board.by_id[tid]
+        pos = (info["col"], info["row"])
+        if not board.walkable(tid) or pos in occupied:      # CanAddUnit (libre + marchable)
+            continue
+        d_t = hexgeo.distance(pos, tpos)
+        if d_t < 1 or d_t > rng:                            # « peut attaquer la cible depuis » (portée)
+            continue
+        cands.append((tid, pos))
+    if cands:
+        if first_only:
+            return cands[0][1]
+        elevs = [t.get("elevation") for t in board.by_id.values() if t.get("elevation") is not None]
+        emm = (min(elevs), max(elevs)) if elevs else (None, None)
+        from ....utilities.tile import terrain_tile_effects
+        best_pos, best_u = None, None
+        for tid, pos in cands:
+            adj = _adj(tid)
+            effs = list((scene.tile_effects_by_pos or {}).get(pos) or ())   # dynamiques (tileMeta du pas)
+            effs += terrain_tile_effects(board.terrain_at(pos[0], pos[1]))
+            elev = (board.by_id.get(tid) or {}).get("elevation")
+            u = (_tile7_utility(pos, elev, emm, effs, adj, caster_team, unit_id)
+                 + _spawn_tile_utility_0x37(pos, tuple(parent_pos), adj, caster_team))
+            if best_u is None or u > best_u:
+                best_pos, best_u = pos, u
+        return best_pos
+    # FALLBACK natif : uniquement au cap — tuile du drone le plus FAIBLE, si à portée de la cible.
+    drones = sorted((int(scene.hp(u) or 0), u) for u in alive
+                    if scene.vis_by_id.get(u) == unit_id and scene.team(u) == caster_team)
+    if len(drones) < max_summons or not drones:
+        return None
+    wpos = scene.pos(drones[0][1])
+    if wpos is None:
+        return None
+    d_t = hexgeo.distance(tuple(wpos), tpos)
+    if d_t < 1 or d_t > rng:
+        return None
+    return tuple(wpos)
 
 
 class MV71SniperDroneSquadAttackAbility(ActiveAbility):

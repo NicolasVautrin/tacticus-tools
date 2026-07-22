@@ -374,3 +374,174 @@ def test_mv71_melee_dispatch_live_offline_agreement(live_session, rpc, build_run
         assert off_total == live_dmg, \
             f"degat melee offline {off_total} != live {live_dmg} (delegation attaque normale)"
     print(f"[MV71 melee] dispatch OK degat={off_total} (live {live_dmg}) — pas de drone/Markerlight")
+
+
+def _collect_pred_rows(dec, scene, att_id, tgt_id, tgt_pos):
+    """Rows (tuile candidate, oracle natif ranked, offline) de l'attaque NORMALE 1076 vs la cible.
+    Oracle = canal `ranked` de decisionView (dmgMin/dmgMax par position candidate, #102)."""
+    import hexgeo
+    from engine.playbook import prediction
+    rows = []
+    norm_ids = {ab.get("id") for u in (dec.get("units") or []) if u.get("id") == att_id
+                for ab in (u.get("abilities") or []) if ab.get("kind") == "normal"}
+    for ap in (dec.get("attackPlans") or []):
+        if ap.get("unitId") != att_id:
+            continue
+        for ev in (ap.get("evals") or []):
+            if ev.get("targetId") != tgt_id or (norm_ids and ev.get("abilityId") not in norm_ids):
+                continue
+            for rk in (ev.get("ranked") or []):
+                if rk.get("dmgMax") is None or rk.get("col") is None:
+                    continue
+                tile = (rk["col"], rk["row"])
+                out = prediction.make_normal_attack_predictions(scene, att_id, tgt_id, tile,
+                                                                meta=True)
+                if out is None:
+                    continue
+                res = out[0].prediction.accurate_health_damage
+                rows.append({"tile": tile, "d_tgt": hexgeo.distance(tile, tgt_pos),
+                             "oracle": (rk.get("dmgMin"), rk.get("dmgMax")),
+                             "offline": (res.min, res.max), "meta": out[1]})
+    return rows
+
+
+def _scene_for(rpc, rid, dec):
+    from engine.playbook import scene as SC
+    from engine.playbook.scene import Scene
+    predictor = SC.build_predictor(rpc, rid)
+    if predictor is None:
+        return None
+    return Scene.from_predictor_sctx(predictor, SC.step_context(predictor, dec), None)
+
+
+def test_mv71_prediction_live_offline_agreement(live_session, rpc, build_runner):
+    """Tranche 3 — PREDICTION distance (`PredictAttack @18110a5f0`, arbitrage probe_61bis_pred
+    seed 61011/61013 = 15/15 EXACT) : confrontation PER-TUILE (canal ranked) offline vs natif.
+      - modele : PickTile scene-side (caster VIRTUELLEMENT sur la tuile candidate : exclusion
+        !Contains + adjacence hypothetique), degat = StatAmount(caster, ATTACK, CURRENT), hits =
+        1+ExtraHits(caster) (delegue m860), arme du DRONE, widget attaquant ZEROE mais mods
+        POSITIONNELS (elevation A LA TUILE DU DRONE) + DEFENSEUR calcules dans le service ;
+      - datapoint B : apres un cast (cible Markerlit), les rows natives montent de x1.15 EXACT
+        (MarkerlightDmgBonusPct, gate HasFaction(9=T'au) & IsRangedAttack) — l'offline suit via
+        le threading faction de l'att_ctx defenseur."""
+    from engine.entities.pathfinding.board import Board
+
+    rid = build_runner("61004", extra=BUILD)["rid"]
+    bg = rpc("boardGraph", {"runnerId": rid}, 60)
+    if not (isinstance(bg, dict) and bg.get("tiles")):
+        pytest.skip("boardGraph indispo")
+    board = Board(bg["tiles"], adjacency="evenq")
+
+    # --- A : rows PRE-cast (cible sans Markerlight), ACCUMULEES sur <=3 tours (le nombre de
+    # rows rankees par tour depend de la geometrie du moment — cf. skip seed 61004 a 1 row) ---
+    rows, caster_id, target_id = [], None, None
+    for _ in range(3):
+        dec, sho, tgt = _drive_sho_in_range(rpc, rid, board)
+        if sho is None or tgt is None:
+            break
+        caster_id, target_id = sho["id"], tgt["id"]
+        tp = tgt.get("pos") or {}
+        dec_r = rpc("decisionView", {"runnerId": rid, "maxRank": 99, "allAbilities": True}, 150)
+        if not _ok(dec_r):
+            break
+        scene = _scene_for(rpc, rid, dec_r)
+        if scene is None:
+            pytest.skip("combatSnapshot/predictor KO")
+        rows += _collect_pred_rows(dec_r, scene, caster_id, target_id, (tp["col"], tp["row"]))
+        if len(rows) >= 3:
+            break
+        rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
+    if caster_id is None:
+        pytest.skip("drive KO : Sho'syl pas amene a distance [2..3] de la cible")
+    if not rows:
+        pytest.skip("aucune row rankee pre-cast")
+    bad = [r for r in rows if r["oracle"] != r["offline"]]
+    assert not bad, f"pred PRE-cast : {len(bad)}/{len(rows)} rows divergentes, ex. {bad[:3]}"
+
+    # --- B : cast (pose Markerlight) puis rows du tour SUIVANT ---
+    res = _cast_live(rpc, rid, caster_id, target_id)
+    if not _cast_ok(res):
+        pytest.skip(f"cast live KO: {str(res)[:150]}")
+    rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
+    _d, sho2, _t = _drive_sho_in_range(rpc, rid, board)   # re-drive = retour au tour + en portee
+    if sho2 is None:
+        pytest.skip("retour au tour de Sho'syl KO apres le cast")
+    dec2 = rpc("decisionView", {"runnerId": rid, "maxRank": 99, "allAbilities": True}, 150)
+    if not _ok(dec2):
+        pytest.skip("decisionView maxRank 99 KO au tour suivant")
+    sho2, tgt2 = _find(dec2, CASTER_VIS), _find(dec2, TARGET_VIS)
+    if sho2 is None or tgt2 is None:
+        pytest.skip("retour au tour de Sho'syl KO apres le cast")
+    if MARKERLIGHT not in _effect_types(tgt2):
+        pytest.skip("Markerlight absent de la cible au tour suivant (duree ecoulee ?)")
+    scene2 = _scene_for(rpc, rid, dec2)
+    if scene2 is None:
+        pytest.skip("predictor KO au tour suivant")
+    tp2 = tgt2.get("pos") or {}
+    rows2 = _collect_pred_rows(dec2, scene2, sho2["id"], tgt2["id"], (tp2["col"], tp2["row"]))
+    if len(rows2) < 2:
+        pytest.skip(f"pas assez de rows rankees post-Markerlight ({len(rows2)})")
+    bad2 = [r for r in rows2 if r["oracle"] != r["offline"]]
+    assert not bad2, \
+        f"pred POST-Markerlight : {len(bad2)}/{len(rows2)} rows divergentes, ex. {bad2[:3]}"
+    print(f"[MV71 pred] pre {len(rows)}/{len(rows)} EXACT ; post-Markerlight "
+          f"{len(rows2)}/{len(rows2)} EXACT")
+
+
+def test_mv71_normal_attack_dispatch_sim(live_session, rpc, build_runner):
+    """Tranche 3 — dispatch runner : un `AttackUnitMessage` (attaque normale des tours SIMULES)
+    d'un porteur MV71 route vers `MV71SniperDroneSquadAttackAbility.execute_behaviour` (drone +
+    attaque commandee + Markerlight) — replay-diff vs le cast live 1076 (meme etat pre-cast) :
+    meme tuile de drone, degat bit-exact, Markerlight des deux cotes."""
+    from engine.entities.pathfinding.board import Board
+    from engine.runner.runner import Runner
+    from engine.runner.messages import AttackUnitMessage
+    from engine.runner.components import PositionComponent, UnitComponent
+
+    rid = build_runner("61005", extra=BUILD)["rid"]
+    bg = rpc("boardGraph", {"runnerId": rid}, 60)
+    if not (isinstance(bg, dict) and bg.get("tiles")):
+        pytest.skip("boardGraph indispo")
+    board = Board(bg["tiles"], adjacency="evenq")
+
+    dec, sho, tgt = _drive_sho_in_range(rpc, rid, board)
+    if sho is None or tgt is None:
+        pytest.skip("drive KO : Sho'syl pas amene a distance [2..3] de la cible")
+    caster_id, target_id = sho["id"], tgt["id"]
+    n_drones0 = len(_find_all(dec, DRONE_VIS))
+
+    dec0, ob0, snap0, s0 = _capture(rpc, rid)
+    hp0 = _hp(ob0, target_id)
+    state = _offline_state(dec0, ob0, snap0, s0, board)
+    if state.get_entity(caster_id) is None or state.rng is None or state.effects is None:
+        pytest.skip("etat offline incomplet (snapshot/rng)")
+
+    # --- LIVE : cast 1076 (l'attaque normale native de Sho'syl) ---
+    res = _cast_live(rpc, rid, caster_id, target_id)
+    assert _cast_ok(res), f"cast live KO (interne): {str(res)[:300]}"
+    dec2 = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
+    ob2 = rpc("observeBattle", {"runnerId": rid}, 60)
+    drones2 = _find_all(dec2, DRONE_VIS)
+    assert len(drones2) == n_drones0 + 1, f"live : attendu +1 drone, obtenu {len(drones2)}"
+    live_dpos = drones2[-1].get("pos") or {}
+    hp2 = _hp(ob2, target_id)
+    live_dmg = (hp0 - hp2) if (hp0 is not None and hp2 is not None) else None
+
+    # --- OFFLINE : le MESSAGE d'attaque normale (chemin des tours simules) ---
+    runner = Runner(state).install_default_handlers(20)
+    runner.apply(AttackUnitMessage(caster_id, target_id))
+    off_drone = next((eid for eid, e in state.entities.items()
+                      if (uc := e.get_component(UnitComponent)) is not None and uc.alive
+                      and uc.visual_id == DRONE_VIS), None)
+    assert off_drone is not None, "offline : AttackUnitMessage n'a pas route vers MV71 (pas de drone)"
+    opc = state.get_entity(off_drone).get_component(PositionComponent)
+    assert (opc.col, opc.row) == (live_dpos.get("col"), live_dpos.get("row")), \
+        f"dispatch : tuile offline ({opc.col},{opc.row}) != live ({live_dpos.get('col')},{live_dpos.get('row')})"
+    off_total = (runner.damage_handler.last or {}).get("total")
+    if live_dmg is not None:
+        assert off_total == live_dmg, \
+            f"dispatch : degat commande offline {off_total} != live {live_dmg}"
+    assert state.effects.has_effect(target_id, effect_type=MARKERLIGHT), \
+        "offline : Markerlight absent apres AttackUnitMessage"
+    print(f"[MV71 dispatch] AttackUnitMessage -> drone ({opc.col},{opc.row}) degat={off_total} "
+          f"(live {live_dmg}) markerlight OK")

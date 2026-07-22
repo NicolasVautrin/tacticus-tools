@@ -169,8 +169,14 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     # ETANT le source (AreEqual), extraDmg s'indexe sur SON ablvl x SON multiplier.
     # `is_normal_attack` propagé au gate `IsNormalAttack` des malus défenseur (ex. MartialKatah -20% #105 :
     # réduit UNIQUEMENT les attaques normales, no-op sur les spéciales config-based).
+    # #61bis tranche 3 : FACTION de l'attaquant threadée pour les malus défenseur gates par faction —
+    # Markerlight (1122) : `OwnerIsTarget & HasFaction(actor, 9=T'au) & IsRangedAttack ->
+    # ForPercentIncrease(MarkerlightDmgBonusPct=15)` (`CreateDamageModifier @180f58170`). MÊME source
+    # que le combat (`damage_model.defender_modifiers` : `_faction(visual_id)` gameconfig).
+    from engine.ai.action_generators import _faction as _fac
     att_ctx = {"id": att_id, "ability_level": scene.ablvl_by_id.get(att_id), "multiplier": scene.mult(att_id),
-               "is_normal_attack": is_normal_attack}
+               "is_normal_attack": is_normal_attack,
+               "faction": _fac(scene.vis_by_id.get(att_id))}
     # STAT-MODS DEFENSE de la CIBLE (#194/#197) : moitié DEFENSE de `CalculateDefenderModifiersForPrediction
     # @181002c30` (DefenseComponent stat 3 @181003066 → `CalculateModifiersFromStatModifications @181004380`
     # negate=1 → `1±v/100`). Ex. tuile Thorns −50 → +50 → ×1.5 (GROUND TRUTH C2_19). PORTÉE DANS la fonction
@@ -412,49 +418,16 @@ def _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee, weapon_f
     return None
 
 
-def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=False):
-    """`ALoki_NormalAttackPlaybook.MakeDamagePredictions @181372730` -> `ability.PredictAttack @1811afa50` :
-    base=Attack × hits + perçage + armure + MODIFIER (effets attaquant + ElevationBonus + défenseur).
-    Renvoie 1 `ProbableDamageEvent` (l'attaque normale n'est pas AoE) ou None. `meta=True` -> `(event,
-    meta_dict)` (base/pierce/armure/hits/mods/effets — diagnostic pour le harnais de validation)."""
-    ctx = scene.ctx(att_id)
-    if ctx is None:
-        return None
-    att_effects = scene.effects(att_id)
-    t_pos = scene.pos(tgt_id)
-    # Sélection d'arme mêlée<->ranged : service PARTAGÉ `BattleQuery.are_tiles_adjacent` (MÊME que le
-    # runner combat). ADJACENCE HEX, PAS Chebyshev — une unité à armes mixtes (u92 : mêlée 4x + ranged
-    # 3x Blast) bascule mêlée UNIQUEMENT sur une tuile hex-adjacente ; les tuiles cheby=1 mais hex=2
-    # (ex. (5,5)->(6,6)) restent ranged. `scene.board` (si fourni) = voisins natifs, sinon evenq.
-    is_adjacent = are_tiles_adjacent(attack_pos, t_pos, scene.board)
-    _dist = hexgeo.distance(attack_pos, t_pos) if (attack_pos and t_pos) else None   # porte portée ranged #188
-    pierce, _ranged, whits, prof_name = _weapon_pierce(scene, att_id, is_adjacent, _dist)
-    is_melee = not _ranged
-    _hm = (attack_pos != scene.pos(att_id)) if attack_pos else None
-    # PRÉDICTION (slot 0xd) — branche distincte du combat (runner). Le debuff stat-modifications
-    # (CalculateModifiersFromStatModifications @181004380, prédiction-only) reste GATÉ off : ce
-    # N'EST PAS un modifier post-perçage mais un effet AU NIVEAU DE LA BASE (cf. base=Initial ci-dessous).
-    # BeastSlayer (target-conditionnel) : traits de la CIBLE (mirror HasTrait) -> gate BigTarget/Vehicle.
-    _tgt_traits = frozenset((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits") or [])
-    # gate ConquerorImperative (#22, self face) : la CIBLE a-t-elle l'armure REDUITE (>=1 mod <0 sur
-    # ARMOR/FIXED_ARMOR) -> +extraDmg FLAT du porteur. OwnerIsCaster TRUE en display (cf. DecoysAndMisdirection).
-    _tctx = scene.ctx(tgt_id)
-    _tgt_armor_reduced = (_tctx.stats.has_negative_modifier(ARMOR_STAT_TYPES)
-                          if _tctx is not None and _tctx.stats is not None else None)
-    # att_ctx POSITIONNEL (#29) : magnitude re-countee a la TUILE CANDIDATE pour les bonus dont le DSL lit
-    # la UnitPosition hypothetique (LordOfTempests : Count(Ice ring-1) @180f56b40 — meme threading candidat
-    # que les auras #153). tile_effects_by_pos = tileMeta FRAIS du pas (la glace s'accumule).
-    _att_ctx = {"att_pos": attack_pos or scene.pos(att_id),
-                "tile_effects_by_pos": scene.tile_effects_by_pos}
-    mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm,
-                                                       target_traits=_tgt_traits,
-                                                       target_armor_reduced=_tgt_armor_reduced,
-                                                       att_ctx=_att_ctx)
-    # #49/#153/#57a : base de l'attaque NORMALE en PREDICTION DISPLAY = CURRENT(du pas)
-    # - aura_modele(pos reelle) + aura_modele(tuile candidate) : les AURAS stat-mod d'allies
-    # (RitesOfBattle @181225340, PathOfCommand @181110f10) sont re-evaluees a `attack_pos`
-    # (tuile candidate), les mods NON-positionnels (ex. SummaryExecution_BaseEffect 1043 +400,
-    # ex-"residu +400" identifie #57a) restent inclus via CURRENT.
+def _display_attack_base(scene, att_id, attack_pos, is_melee):
+    """Base ATTACK de la chaîne DISPLAY, re-positionnée à la tuile candidate (#49/#153/#57a) :
+    base = CURRENT(du pas) − aura_modèle(position réelle) + aura_modèle(tuile candidate). Les AURAS
+    stat-mod d'alliés (RitesOfBattle @181225340, PathOfCommand @181110f10) sont ré-évaluées à
+    `attack_pos` ; les mods NON-positionnels (ex. SummaryExecution_BaseEffect 1043 +400, #57a)
+    restent inclus via CURRENT. FOYER PARTAGÉ (#61bis tranche 3) : l'attaque normale ALoki
+    (`GetAttackHitPrediction @1811af4e0` = GetStat(Attack, Current) + arme) ET le chemin drone MV71
+    (délégué b__1 @181119590 = `StatAmount(Caster, ATTACK, CURRENT)`) font la MÊME lecture native.
+    Renvoie `(attack_base, carriers, att_grand, att_faction, _ap)` (carriers/gates réutilisés par
+    l'appelant normal pour les hits/auras)."""
     _ap = attack_pos or scene.pos(att_id)
     # #153 (tranche le flip-flop #45/#58/#67) : la chaine display threade la position candidate de bout
     # en bout — `DamagePredictionQuery.GetAllPredictions @181090f50` construit `UnitPosition(tuile de
@@ -504,6 +477,181 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
         carriers, {**aura_ctx, "att_pos": _rp, "att_real_pos": _rp if is_melee else None})
         if _rp is not None else 0)
     attack_base = scene.attack_current(att_id) - _aura_real + _aura_cand
+    return attack_base, carriers, att_grand, att_faction, _ap
+
+
+_MV71_CONFIG = "MV71SniperDroneSquad"    # l'entrée gameconfig (passif 1119) qui porte constants/variables
+
+
+def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=False):
+    """`MV71SniperDroneSquadAttackAbility.PredictAttack @18110a5f0`, branche DISTANCE (#61bis
+    tranche 3 — la branche mêlée délègue à ALoki et reste dans `make_normal_attack_predictions`).
+
+    Mirror du décompilé (re-lu 2026-07-22) :
+      - tile = PickTile — délégué b__0 @1811194e0 = `() => PickTile(entities, firstOnly=0)`, LE MÊME
+        PickTile que l'exécution (mémoïsé par un service de cache) -> `pick_tile_scene` (hydrateur
+        scene du port runner, scoring partagé). Parent = la POSITION CANDIDATE (#153).
+        **Aucune tuile -> prédiction VIDE** (memset 0xc0 + liste block vide = résultat ZÉRO, pas
+        d'absence d'event).
+      - hits = `ExtraHitsComponent(CASTER).CurrentValue + 1`, stocké DisplayClass@0x148 et consommé
+        par le 3ᵉ délégué (DAT_183279860 — « b__2 » sans symbole ghidra, alias « m860 ») : rôle
+        compte-de-coups tranché PAR ÉLIMINATION (b__0 = tile, b__1 = dégât : aucun autre lecteur
+        possible du champ @0x148) + position = celle du délégué hits par défaut du fallback ALoki
+        (slot 0x25, DAT_183283000). Confronté live via `appliedHits` d'aiPlaybookPredict.
+      - dégât = délégué b__1 @181119590 = `StatAmount(Caster, ATTACK, CURRENT)` ->
+        `_display_attack_base` (MÊME lecture display que la normale, re-positionnée #153).
+      - arme = la config d'attaque du DRONE (service slot 0xc0 = unit-config par id, champ @0x18),
+        résolue par la distance TUILE DU DRONE -> cible (le drone tire de SA tuile) ; pierce =
+        PiercingRatio du profil + ExtraPierce de l'unité passée au service (`GetUnit(tile) ?? caster`
+        -> le CASTER à la prédiction, aucun drone encore posé — flag : au fallback-cap la tuile porte
+        un drone, l'unité native serait CE drone, ExtraPierce 0 dans les deux cas).
+      - attribution = Nullable<AbilityOrEffect>(1076) ; canal additional-hits keyé sur l'attackTypeId
+        du drone (unit-config @0x10) : `GetAdditionalHitsFromEffectsForPrediction` +
+        `AddAdditionalHitsToPrediction` — MÊME canal #179 que la normale (effets du CASTER + auras).
+      - modifiers (ARBITRÉ LIVE, probe_61bis_pred seed 61011) : le widget attaquant est **ZÉROÉ**
+        (memset `&local_3f8` — le `param_4` du playbook N'EST PAS forwardé, contrairement à la
+        branche mêlée qui le passe à ALoki) -> AUCUN mod ATTAQUANT-effets (builder @181000590 côté
+        appelant ; résidu flaggé : aucun datapoint caster-avec-effet-d'attaque encore). MAIS les
+        mods POSITIONNELS + DÉFENSEUR sont calculés EN AVAL DANS le service et S'APPLIQUENT :
+          . ÉLÉVATION évaluée à la TUILE DU DRONE vs cible (rows x1.5 EXACT quand la tuile choisie
+            est surélevée : (3,6)/(2,6)/(6,6) elev2 vs cible elev1 — le flip post-cast de (4,6)
+            1.5->1.15 quand le drone réel occupe (3,6) le prouve) ;
+          . DÉFENSEUR : cible Markerlit -> x1.15 EXACT sur les rows plates (3694,5541 = 3212,4818
+            x1.15), composé x1.725 = 1.5x1.15 sur les rows surélevées.
+        -> port : `_add_positional_and_defender_mods(attack_pos = TUILE DU DRONE)` sur un
+        `DamageModifiers()` vierge (l'attaquant du coup = le drone, identité/niveau = caster,
+        mirror du `unit` passé au service)."""
+    ctx = scene.ctx(att_id)
+    if ctx is None:
+        return None
+    consts = (GC.ability(_MV71_CONFIG) or {}).get("constants") or {}
+    unit_id = consts.get("unitId")                       # GetStringConstant(cfg, 0) = tauSmnDroneSniper
+    max_summons = int(consts.get("maxSummons") or 3)
+    t_pos = scene.pos(tgt_id)
+    if unit_id is None or t_pos is None:
+        return None
+    from engine.runner.abilities.loki.mv71 import pick_tile_scene
+    tile_pos = pick_tile_scene(scene, att_id, tgt_id, unit_id, max_summons,
+                               parent_pos=attack_pos or scene.pos(att_id))
+    if tile_pos is None:
+        from engine.services.damage_prediction import DamagePredictionResult
+        ev = ProbableDamageEvent(target=tgt_id, prediction=DamagePredictionResult())
+        return (ev, {"mv71": True, "tile": None}) if meta else ev
+    # hits (délégué « m860 ») = ExtraHits CURRENT du CASTER + 1 — PAS la formule arme
+    # (AttackHitsWithModifiersFormula n'est PAS appelée sur ce chemin : ni GetStuckIn, ni malus
+    # défenseur LightCover/Parry, ni hits d'arme).
+    _xh = scene.extra_hits_current(att_id)
+    hits = 1 + int(_xh if _xh is not None else (ctx.stat(StatType.EXTRA_HITS) or 0))
+    # dégât (délégué b__1) = StatAmount(Caster, ATTACK, CURRENT) — foyer partagé display (#153).
+    attack_base, carriers, att_grand, att_faction, _ap = _display_attack_base(
+        scene, att_id, attack_pos, is_melee=False)
+    # arme du drone par distance tuile->cible (mirror config d'attaque @0x18 du unit-config drone).
+    from engine.services.battle_query import get_attack_weapon_for_default_normal_attack
+    _adj = are_tiles_adjacent(tile_pos, t_pos, scene.board)
+    _d = hexgeo.distance(tile_pos, t_pos)
+    w, w_ranged = get_attack_weapon_for_default_normal_attack(unit_id, _adj, dist=_d)
+    prof_name = (w or {}).get("DamageProfile")
+    _dpw = GC.damage_profile(prof_name) or {}
+    dir_pierce = ctx.extra_pierce_ranged if w_ranged else ctx.extra_pierce_melee
+    pierce = max(0, min(100, int(_dpw.get("PiercingRatio") or 0) + ctx.extra_pierce + dir_pierce))
+    from engine.services.damage_modifiers import DamageModifiers
+    mods = DamageModifiers()                             # widget attaquant ZÉROÉ (cf. docstring)
+    # POSITIONNELS + DÉFENSEUR (service-side, arbitré live) : attack_pos = LA TUILE DU DRONE
+    # (élévation drone->cible), défenseur incl. Markerlight (faction caster = T'au, threadée #61bis).
+    _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, not w_ranged, tuple(tile_pos),
+                                      t_pos, damage_profile=prof_name)
+    # canal additional-hits #179 (clé native = attackTypeId du drone) — mêmes sources que la normale.
+    att_effects = scene.effects(att_id)
+    _ah_ctx = {"is_melee": False,
+               "tgt_traits": frozenset((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits") or ()),
+               "tgt_effect_names": frozenset(
+                   n for n in (getattr(_e, "name", None) for _e in (scene.effects(tgt_id) or [])) if n)}
+    _aura_hits = aura_additional_hits_from_allies(
+        carriers, {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
+                   "att_faction": att_faction, "att_grand_alliance": att_grand,
+                   "is_melee": False})
+    _extra_groups = []
+    for _g in list(additional_hit_groups(att_effects, _ah_ctx)) + _aura_hits:
+        _dp2 = GC.damage_profile(_g["profile"]) or {}
+        _gp = max(0, min(100, int(_dp2.get("PiercingRatio") or 0) + ctx.extra_pierce))
+        _entry = {"count": _g["count"], "pierce_pct": _gp,
+                  "profile_type": _PROFILE_INDEX.get(_g["profile"], 0), "mods": mods,
+                  "profile_has_hits_multiple_members":
+                      DamageTrait.HitsMultipleMembers.name in (_dp2.get("Traits") or [])}
+        if "amount" in _g:
+            _entry["amount"] = _g["amount"]
+        else:
+            _entry["predefined"] = MinMaxDamage(min=_g["min"], max=_g["max"])
+        _extra_groups.append(_entry)
+    tgt_hit_mult = target_hit_multiplier(
+        TraitFactory.create_many((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits")))
+    res = get_attack_prediction(
+        target_current_health=scene.hp(tgt_id) or 0, initial_damage=attack_base, hits=hits,
+        profile_type=_PROFILE_INDEX.get(prof_name, 0), pierce_pct=pierce, armor=scene.armor(tgt_id),
+        mods=mods, hit_mult=tgt_hit_mult, target_shield=scene.shield(tgt_id),
+        target_limits=_target_damage_limits(scene, tgt_id, prof_name),
+        extra_groups=_extra_groups,
+        defender_block_amount=defender_prediction_block_amount(scene, tgt_id))
+    ev = ProbableDamageEvent(target=tgt_id, prediction=res)
+    if meta:
+        return ev, {"mv71": True, "tile": tile_pos, "base": attack_base, "hits": hits,
+                    "pierce": pierce, "profile": prof_name}
+    return ev
+
+
+def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=False):
+    """`ALoki_NormalAttackPlaybook.MakeDamagePredictions @181372730` -> `ability.PredictAttack @1811afa50` :
+    base=Attack × hits + perçage + armure + MODIFIER (effets attaquant + ElevationBonus + défenseur).
+    Renvoie 1 `ProbableDamageEvent` (l'attaque normale n'est pas AoE) ou None. `meta=True` -> `(event,
+    meta_dict)` (base/pierce/armure/hits/mods/effets — diagnostic pour le harnais de validation)."""
+    ctx = scene.ctx(att_id)
+    if ctx is None:
+        return None
+    att_effects = scene.effects(att_id)
+    t_pos = scene.pos(tgt_id)
+    # Sélection d'arme mêlée<->ranged : service PARTAGÉ `BattleQuery.are_tiles_adjacent` (MÊME que le
+    # runner combat). ADJACENCE HEX, PAS Chebyshev — une unité à armes mixtes (u92 : mêlée 4x + ranged
+    # 3x Blast) bascule mêlée UNIQUEMENT sur une tuile hex-adjacente ; les tuiles cheby=1 mais hex=2
+    # (ex. (5,5)->(6,6)) restent ranged. `scene.board` (si fourni) = voisins natifs, sinon evenq.
+    is_adjacent = are_tiles_adjacent(attack_pos, t_pos, scene.board)
+    # --- #61bis tranche 3 : dispatch NormalAttackType CONCRET -> override `MV71SniperDroneSquad-
+    # AttackAbility.PredictAttack @18110a5f0` (1076). Le natif dispatche par vtable (l'attaque normale
+    # per-unit EST l'instance MV71 pour un porteur du passif) ; le port dispatche par kit. MÊLÉE
+    # (`IsMeleeAttack @181109960`, évaluée sur la POSITION CANDIDATE threadée par la chaîne display) ->
+    # délégation TOTALE à ALoki.PredictAttack AVEC les modifiers d'origine = on RESTE ici (chemin
+    # arme) ; DISTANCE -> chemin drone (config du drone, dégât StatAmount(caster), widget mods zéroé).
+    if is_adjacent is not True:
+        from engine.runner.abilities.loki.mv71 import is_mv71_normal_attacker
+        if is_mv71_normal_attacker(scene.vis_by_id.get(att_id)):
+            return _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, meta=meta)
+    _dist = hexgeo.distance(attack_pos, t_pos) if (attack_pos and t_pos) else None   # porte portée ranged #188
+    pierce, _ranged, whits, prof_name = _weapon_pierce(scene, att_id, is_adjacent, _dist)
+    is_melee = not _ranged
+    _hm = (attack_pos != scene.pos(att_id)) if attack_pos else None
+    # PRÉDICTION (slot 0xd) — branche distincte du combat (runner). Le debuff stat-modifications
+    # (CalculateModifiersFromStatModifications @181004380, prédiction-only) reste GATÉ off : ce
+    # N'EST PAS un modifier post-perçage mais un effet AU NIVEAU DE LA BASE (cf. base=Initial ci-dessous).
+    # BeastSlayer (target-conditionnel) : traits de la CIBLE (mirror HasTrait) -> gate BigTarget/Vehicle.
+    _tgt_traits = frozenset((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits") or [])
+    # gate ConquerorImperative (#22, self face) : la CIBLE a-t-elle l'armure REDUITE (>=1 mod <0 sur
+    # ARMOR/FIXED_ARMOR) -> +extraDmg FLAT du porteur. OwnerIsCaster TRUE en display (cf. DecoysAndMisdirection).
+    _tctx = scene.ctx(tgt_id)
+    _tgt_armor_reduced = (_tctx.stats.has_negative_modifier(ARMOR_STAT_TYPES)
+                          if _tctx is not None and _tctx.stats is not None else None)
+    # att_ctx POSITIONNEL (#29) : magnitude re-countee a la TUILE CANDIDATE pour les bonus dont le DSL lit
+    # la UnitPosition hypothetique (LordOfTempests : Count(Ice ring-1) @180f56b40 — meme threading candidat
+    # que les auras #153). tile_effects_by_pos = tileMeta FRAIS du pas (la glace s'accumule).
+    _att_ctx = {"att_pos": attack_pos or scene.pos(att_id),
+                "tile_effects_by_pos": scene.tile_effects_by_pos}
+    mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm,
+                                                       target_traits=_tgt_traits,
+                                                       target_armor_reduced=_tgt_armor_reduced,
+                                                       att_ctx=_att_ctx)
+    # #49/#153/#57a : base display re-positionnée à la tuile candidate — foyer PARTAGÉ `_display_
+    # attack_base` (aussi consommé par le chemin drone MV71, #61bis tranche 3 : délégué b__1 = la
+    # même lecture native StatAmount(Caster, ATTACK, CURRENT)).
+    attack_base, carriers, att_grand, att_faction, _ap = _display_attack_base(
+        scene, att_id, attack_pos, is_melee)
     _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, attack_pos, t_pos,
                                       damage_profile=prof_name)
     # AURA ENNEMIE %-degat projetee sur l'ATTAQUANT : ShadowInTheWarp_LessDmg_Effect (-25% Psychic aux
