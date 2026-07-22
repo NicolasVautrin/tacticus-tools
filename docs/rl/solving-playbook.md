@@ -336,3 +336,82 @@ gate `team == 1` ; une ability soeur (1191, meme classe de playbook) ne montre P
   ..ctor(unit, now, teamId != 1)` @1810c0c10, consomme par l'ecran debug AILogScreen) : si un
   futur cas exhibe une vraie asymetrie per-camp cote decision, elle ne peut venir QUE de l'etat
   (compteurs, effets, geometrie), pas du routage IA.
+
+
+---
+
+## #38b (2026-07-23) — Un gate NC qui « contredit le decompile » + un summon « inerte en runner » : DEUX symptomes, UN artefact d'observation (mauvais visualId de summon)
+
+**Symptome-type** : (a) un gate playbook (ReachedSummonCap/DoctrinaImperatives 1118) emet la ou NOTRE
+reconstruction refuse, sur un modele 3-branches pourtant re-confirme au decompile ; deux sous-termes
+suspects, dont un herite d'un lot de RE deja refute (slot 0x51 « GetAdjacentUnits », meme lot que le
+faux per-player #39). (b) COUPLE : une behaviour (summon ControlEdict) semble ne JAMAIS s'executer en
+runner alors qu'elle est validee live ailleurs. Les deux sont en fait le MEME bug de MESURE : le port
+ET la sonde comptaient les summons par le mauvais nom -> 0 enfant vu -> cap toujours False (a) ET
+« aucun summon » (b).
+
+**Methode qui l'a craque** (dans l'ordre) :
+
+1. **Resoudre les slots d'interface par la VTABLE LIVE, pas par un verdict RE anterieur.** Un
+   call-site `FUN_180003bd0(0x51, itfDAT, service, caster)` dispatche le slot 0x51 d'IBattleQuery.
+   Le RPC `resolveVtableSlot` (lecture pointeurs de l'Il2CppClass, ZERO invoke) dumpe la vtable de
+   `BattleQuery` ; **ancrer sur un slot CONNU** (0xc9 = ReachedSummonCap @181070f60, verifie) donne
+   la base d'interface, d'ou tous les autres slots par offset. Verdict : slot 0x51 =
+   `GetFreeAdjacentTiles` (1 param), PAS `GetAdjacentUnits` (3 params from/friendsOf/enemiesOf) — la
+   signature du call-site (1 argument) suffisait deja a REFUTER l'ancien verdict. Heuristique :
+   **le nombre d'arguments du dispatch (`FUN_180003bd0`=1 param apres this, `FUN_18000c1b0`=plusieurs)
+   contraint la surcharge ; un slot « tout camp » a 3 params ne peut pas etre un dispatch a 1 arg.**
+   Corroborer avec un autre port qui consomme deja le meme slot (`aggressive_onslaught.py` avait
+   deja slot 0x51 = free tiles) — deux ports contradictoires du MEME slot dans le code = drapeau rouge.
+
+2. **Desassembler le gate au niveau instruction (capstone) pour figer le CONTROLE DE FLUX**, pas
+   se fier au pseudo-C de ghidra. `read_bytes` @VA + capstone : le `jle cb1d` (free-count <= 0 ->
+   saute au bloc emit) vs `test al,al; je` (ReachedSummonCap faux -> return) donne les 3 branches
+   EXACTES : `count==0 -> ssi Conqueror ; count>0 & free==0 -> emit ; count>0 & free>0 -> ssi cap`.
+   Les deux branches d'emission pointent le MEME bloc `GenerateAction(Fix64(100))` -> valider UNE
+   branche live valide l'autre par construction.
+
+3. **Oracle natif de gate GRATUIT : `ncEvaluate(unit, ability, sweep=false)`** invoque la leaf
+   `Evaluate(unit,pos)` du playbook et rend le bucket (emit + util). C'est la VERITE-TERRAIN du gate,
+   step par step, sans hook neuf. Confronter le port `_should_emit` a cette leaf sur CHAQUE step de
+   l'unite (14/14) tranche « le port suit-il le gate ? » independamment du downstream (once-per-turn,
+   ordre generateurs).
+
+4. **A/B a UNE variable pour la CAUSATION (pas la correlation).** Le gate emettait a count>0 la ou
+   nos DEUX modeles (adj-units ET free-tiles) predisaient « cap gate -> pas d'emission ». Plutot que
+   re-fitter, construire l'A/B qui isole le cap : MEME tuile, MEME count, free>0 dans les deux bras,
+   seul le nombre de summons change (0 -> cap False ; 5+ -> cap True). Resultat : emission flippe avec
+   le cap SEUL -> causation prouvee. Bonus : a free=6>0 le bras « 0 summon » n'emet PAS -> refute
+   d'un coup le modele « adj==0 -> emit » ET confirme que le mirror free-adj est fidele (le natif voit
+   aussi free>0). C'est le pattern #153/#184 (isoler une variable, tester la converse) applique a un
+   gate booleen.
+
+5. **Quand « 0 observe » alors que le mecanisme est valide ailleurs : suspecter le NOM, pas le
+   mecanisme.** Le summon ControlEdict porte `constants.unitId = admecSmnVanguard` (cle KIT) mais son
+   `visualId` LIVE (ce que `observeBattle`/`decisionView` exposent) = `admecNpc1Vanguard`. Compter
+   par la cle -> 0 match -> « inerte ». Le comptage par TOUS les visualId (probe) a revele 7 summons
+   bien reels. **Le test sibling `test_control_edict_live` documentait deja `SUMMON_VIS` (cle) vs
+   `SUMMON_LIVE_VIS` (visualId)** — GREP les tests/docs de la behaviour avant de conclure « ne
+   s'execute pas ». Fix principled : resoudre `constants.unitId -> gameconfig.unit(...).visualId`,
+   jamais coder le nom en dur.
+
+**Outils/heuristiques reutilisables** :
+- **`resolveVtableSlot` + ancre-slot-connu** = LA facon de resoudre un slot d'interface (0x51, etc.)
+  contre un verdict RE douteux : lecture pointeurs pure, aucun invoke, aucun reinject. Un slot mal
+  attribue par un ancien lot de RE (surtout le lot qui a deja produit un verdict refute) est
+  PRIORITAIRE a re-verifier.
+- **Signature du dispatch = filtre de surcharge** : `FUN_180003bd0(slot, itf, obj, arg)` = 1 arg
+  managed apres this ; toute surcharge candidate a >1 param managed est exclue d'office.
+- **`ncEvaluate(sweep=false)` = oracle de gate per-step** ; le confronter au `_should_emit` du port
+  sur toutes les decisions de l'unite isole le gate du downstream (once-per-turn, ordre generateurs).
+- **A/B « cap » a tuile+count fixes** (`probe_38b_capAB`) : pour tout gate a seuil (cap, cooldown,
+  stacks), driver la VARIABLE DE SEUIL seule (ici : faire attaquer l'unite N fois pour accumuler des
+  summons) en gelant la geometrie -> causation, pas correlation. Bra « seuil bas » DOIT montrer le
+  non-emit (sinon le seuil n'est pas le determinant).
+- **`constants.unitId` (cle KIT) != `visualId` (identite LIVE)** : tout comptage/identification d'un
+  summon/spawn dans `obs_units`/`decisionView` DOIT passer par `gameconfig.unit(unitId).visualId`.
+  Reflexe : si une sonde compte « 0 » d'une entite censee exister, imprimer TOUS les visualId presents
+  avant de conclure a l'absence.
+- **GetChildrenCount (ParentComponent, append-only, morts inclus) ~ compte `obs_units` du visualId
+  du summon SANS filtre isDead** (obs garde les depouilles) : fidele tant qu'aucun summon n'est
+  RemoveUnit-ed (retire du board != mort).

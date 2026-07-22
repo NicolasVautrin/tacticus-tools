@@ -110,7 +110,7 @@ def main() -> int:
                     cast_from_tiles=ctx.cast_from_tiles, scene=ctx.scene, debug=False)
                 pb = DoctrinaImperativesPlaybook()
                 hv = ncbase._has_valid_targets(nc, uid)
-                adj = pb._adjacent_units(nc)
+                adj = pb._free_adjacent_tiles(nc)   # #38b : slot 0x51 = GetFreeAdjacentTiles
                 conq = pb._is_conqueror(nc)
                 cap = pb._reached_summon_cap(nc)
                 emit = pb._should_emit(nc)
