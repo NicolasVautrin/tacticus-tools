@@ -81,6 +81,7 @@ au tour IA vs offline per-tuile (TOL 3) :
 
 - **24 lignes (18 DryBush + 6 contrôle) : 23/24 exactes.** La 24e = +748 FLAT (spread identique
   543 → même nb de coups, face #62 saine) = aura alliée `SpotterReworked` non portée → tâche #66.
+  **#66 PORTÉ depuis** (SpotterReworked*Effect, extra_damage.py) : re-run du probe = **24/24**.
 - Lignes discriminantes : u77 ranged dist≤2 → 6−3−2 plancher 1 (1088,1631) EXACT ; (3,3) mêlée
   adjacente → 6 coups pleins (gates IsRangedAttack/!IsMeleeAttack) EXACT ; u79 3h → plancher 1
   avec élévation par-tuile EXACT ; contrôle hors-cover EXACT.

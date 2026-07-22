@@ -159,6 +159,8 @@ beaucoup de primitives sont portees "inline" par ability (active_ability.py comp
 | Walkable / IsWalkable / MovableTilesInRange | 180e01f30, df5b10, df6a20 | 16+7+11 | tiles marchables | MANQUANT |
 | Unobscured / UnobscuredTiles / IsObscured | 180e01540, e01480, df48e0 | 21+7+6 | ligne de vue | MANQUANT |
 | UnitsWithTrait / UnitsWithoutTrait(s) | 180e00b10, e01040, e010e0, e00bb0 | 90+39+10+6 | filtre par trait | MANQUANT (tres fort refcount) |
+| UnitsWithRangedWeapons | 180e00850 | 6 | arme ranged au kit (UnitsWithWeaponsSelector type 2) | PORTE (gates ExplosiveMaladies/Spotter `att_has_ranged_weapon`) |
+| UnitsWithRangedAttacks | 180e00610 | 5 | **UNION** {arme ranged} + {TilesOnSameElevationSelector ref porteur, abs(delta elev)<=2 via GetElevationDifference @180ec4ee0} — PAS un filtre arme pur (mesure live probe_66 : melee-only inclus par elevation) | PORTE (`_SpotterReworkedAuraBase._in_ranged_attacks_selector`) |
 | UnitsFromFaction/Team/Player | 180dff960, dffad0, dffa30 | 30+13+4 | filtre appartenance | MANQUANT |
 | UnitsWithId(s)/VisualId/Rarity | 180e00170, e00230, e00e90, e00900 | 19+7+8+13 | filtre identite | MANQUANT |
 | MechanicalUnits / HeroUnits / NormalUnits | 180df66a0, df18a0, df7770 | 15+8+21 | filtres type | MANQUANT |

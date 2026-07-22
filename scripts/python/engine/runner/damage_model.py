@@ -140,18 +140,25 @@ def defender_fixed_armor(state: State, target_id: int) -> int:
     return base + int(aura)
 
 
-def _grand_alliance(state: State, unit_id: int) -> Optional[str]:
-    """`GrandAllianceId` gameconfig de l'unité (résolu par `visual_id`) — gate grande-alliance des auras
-    ALLIÉES cote source (ex. `BeaconOfRage_FriendlyExtraDamage` : Chaos). Lit DIRECTEMENT le champ
-    GrandAllianceId (== la valeur que la prédiction passe, `GC.unit(vis).GrandAllianceId`), analogue de
-    `_faction_id` (triggers/base). None si l'unité ou son visual_id est introuvable."""
+def _unit_gameconfig(state: State, unit_id: int) -> Optional[dict]:
+    """Kit gameconfig de l'unité (résolu par `visual_id`) — partagé par les gates des auras ALLIÉES
+    côté source (grande-alliance BeaconOfRage, `UnitsWithRangedAttacks` SpotterReworked). None si
+    l'unité ou son visual_id est introuvable."""
     import gameconfig as GC
     e = state.get_entity(unit_id)
     sc = e.get_component(StatsComponent) if e is not None else None
     vid = getattr(sc.ctx, "visual_id", None) if (sc is not None and sc.ctx is not None) else None
     if vid is None:
         return None
-    return (GC.unit(vid) or {}).get("GrandAllianceId")
+    return GC.unit(vid)
+
+
+def _grand_alliance(state: State, unit_id: int) -> Optional[str]:
+    """`GrandAllianceId` gameconfig de l'unité (résolu par `visual_id`) — gate grande-alliance des auras
+    ALLIÉES cote source (ex. `BeaconOfRage_FriendlyExtraDamage` : Chaos). Lit DIRECTEMENT le champ
+    GrandAllianceId (== la valeur que la prédiction passe, `GC.unit(vis).GrandAllianceId`), analogue de
+    `_faction_id` (triggers/base). None si l'unité ou son visual_id est introuvable."""
+    return (_unit_gameconfig(state, unit_id) or {}).get("GrandAllianceId")
 
 
 def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: Optional[bool],
@@ -189,9 +196,14 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
         return
     from ..services.damage_modifiers import add_modifier
     is_melee = (not is_ranged) if is_ranged is not None else None
+    att_gu = _unit_gameconfig(state, att_id) or {}
     ctx = {"att_id": att_id, "att_pos": (apc.col, apc.row), "att_team": aoc.team,
            "att_traits": target_trait_names(state, att_id),
-           "att_grand_alliance": _grand_alliance(state, att_id),
+           "att_grand_alliance": att_gu.get("GrandAllianceId"),
+           # UnitsWithRangedAttacks (selector SpotterReworked @180f6c860) = UNION {arme ranged au kit}
+           # + {diff elevation <= 2 vs tuile porteur} (@180e00610) -> board pour le terme elevation
+           "att_has_ranged_weapon": any(w.get("Range") for w in (att_gu.get("weapons") or ())),
+           "board": state.board,
            "is_melee": is_melee, "target_armor_reduced": target_armor_reduced}
     for eb in aura_attack_damage_bonus_from_allies(carriers, ctx):
         add_modifier(mods, eb)

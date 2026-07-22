@@ -22,7 +22,8 @@ from .extra_damage import (RapidAssaultExtraDamageEffect, SmashaEadExtraDamageEf
                            BeastSlayerExtraDmgEffect, MartialKatahDmgBonusEffect,
                            DaughterOfTheAbyssExtraDamagePctEffect,
                            BeaconOfRageExtraDamageEffect, BeaconOfRageFriendlyExtraDamageEffect,
-                           LordOfTheHostExtraDamageEffect, DoomExtraDmgEffect)
+                           LordOfTheHostExtraDamageEffect, DoomExtraDmgEffect,
+                           SpotterReworkedExtraDamageEffect, SpotterReworkedHeavyWeaponEffect)
 from .damage_reduction import (TerrifyingExtraDefenseEffect, MartialKatahDmgReductionEffect,
                                TerminatorArmourReduceDmgEffect, GuardianOrganismDamageReductionEffect,
                                NightshroudDmgReductionEffect, NeuroparasiteEffect,
@@ -56,6 +57,7 @@ __all__ = [
     "BeastSlayerExtraDmgEffect", "MartialKatahDmgBonusEffect", "DaughterOfTheAbyssExtraDamagePctEffect",
     "BeaconOfRageExtraDamageEffect", "BeaconOfRageFriendlyExtraDamageEffect",
     "LordOfTheHostExtraDamageEffect", "DoomExtraDmgEffect",
+    "SpotterReworkedExtraDamageEffect", "SpotterReworkedHeavyWeaponEffect",
     # damage_reduction
     "TerrifyingExtraDefenseEffect", "MartialKatahDmgReductionEffect", "TerminatorArmourReduceDmgEffect",
     "GuardianOrganismDamageReductionEffect", "NightshroudDmgReductionEffect", "NeuroparasiteEffect",

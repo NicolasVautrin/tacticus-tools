@@ -714,3 +714,99 @@ class DoomExtraDmgEffect(BaseEffect):
         amt = ability_var("Doom", var, self.ability_level,
                           multiplier_pct=self.ability_variables_multiplier)
         return for_addition(True, amt) if amt else None
+
+
+class _SpotterReworkedAuraBase(BaseEffect):
+    """Base commune des deux effets-aura du passif SpotterReworked 0x5df=1503 (astraOrdnance Thaddeus) —
+    AURA côté SOURCE : `SpotterReworkedAbility.CreateBehaviour @1811a1920` pose les DEUX effets sur le
+    PORTEUR (`AddEffect(0x40f=1039) + AddEffect(0x428=1064)`), chacun se projette sur ses amis via son
+    TargetSelector. i2 : « Other friendly units within {range} hexes deal +{extraDmg} Damage with ranged
+    attacks ; Heavy Weapon units deal +{extraDmg_2} instead. » Le « instead » = sélecteurs mutuellement
+    exclusifs sur le trait HeavyWeapon 0x3e9=1001. Sélecteur commun (@180f6c860 / @180f6cb40) :
+    `SurroundingFriends(owner, ConfigConst(0x16)=range=2, 1, 3) → UnitsWithRangedAttacks → fork trait`
+    (self exclu, ami à ≤range hexes).
+
+    ⚠ `UnitsWithRangedAttacks @180e00610` N'EST PAS un filtre arme-ranged pur : c'est l'UNION
+    (`TargetsSelector.op_Addition`, même sens que LordOfTheHost RapidAssault+Flying) de
+    `UnitsWithWeaponsSelector(type 2=ranged)` ET `TilesOnSameElevationSelector(réf=DSLFactory+0x28
+    = entité du contexte (porteur), maxDiff=2)` — `GetElevationDifference @180ec4ee0` =
+    abs(élév_a − élév_b), garde si ≤ 2. Un ami SANS arme ranged est donc INCLUS dès que sa tuile
+    (candidate en prédiction) est à ≤2 d'élévation de la tuile du porteur — MESURÉ live (probe_66 :
+    Baraqiel darkaTerminator melee-only reçoit +extraDmg_2, +~399/coup). Sur les boards à faible
+    amplitude d'élévation (MC1_67 : 3–4) le nœud est un pass-through. Board absent du ctx →
+    retombe sur le terme arme seul (conservateur). #66."""
+
+    _VAR = ""                 # ConfigVar(8)=extraDmg | ConfigVar(9)=extraDmg_2
+    _WANT_HEAVY = False       # UnitsWithoutTrait(1001) | UnitsWithTrait(1001)
+
+    def _trigger_ok(self, c: Mapping) -> bool:
+        raise NotImplementedError
+
+    @staticmethod
+    def _in_ranged_attacks_selector(c: Mapping) -> bool:
+        """`UnitsWithRangedAttacks @180e00610` : arme ranged au kit OU |Δélévation| ≤ 2 vs porteur."""
+        if c.get("att_has_ranged_weapon"):
+            return True
+        b, op, ap = c.get("board"), c.get("owner_pos"), c.get("att_pos")
+        if b is None or not op or not ap:
+            return False
+        to, ta = b.tile_at(op[0], op[1]), b.tile_at(ap[0], ap[1])
+        if to is None or ta is None:
+            return False
+        return abs(int(ta.get("elevation") or 0) - int(to.get("elevation") or 0)) <= 2
+
+    def create_aura_attack_damage_bonus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        c = ctx or {}
+        if not self._trigger_ok(c):
+            return None
+        if c.get("att_id") == c.get("owner_id"):              # SurroundingFriends : self exclu
+            return None
+        if c.get("owner_team") is None or c.get("owner_team") != c.get("att_team"):
+            return None                                       # bénéficiaire = AMI du porteur
+        if not self._in_ranged_attacks_selector(c):           # UnitsWithRangedAttacks (union, cf. classe)
+            return None
+        traits = c.get("att_traits") or frozenset()
+        if ("HeavyWeapon" in traits) != self._WANT_HEAVY:     # UnitsWith[out]Trait(0x3e9=1001)
+            return None
+        op, ap = c.get("owner_pos"), c.get("att_pos")
+        if not op or not ap:
+            return None
+        rng = ability_var("SpotterReworked", "range", is_constant=True) or 2   # ConfigConst 0x16
+        import hexgeo
+        if hexgeo.distance(op, ap) > int(rng):
+            return None
+        if self.ability_level is None:                        # ConfigVar sans AbilityState -> pas de magnitude
+            return None
+        amt = ability_var("SpotterReworked", self._VAR, self.ability_level,
+                          multiplier_pct=self.ability_variables_multiplier)
+        return for_addition(True, amt) if amt else None
+
+
+class SpotterReworkedExtraDamageEffect(_SpotterReworkedAuraBase):
+    """`SpotterReworked_ExtraDamageEffect` (effet 0x40f=1039) — amis SANS HeavyWeapon.
+    - dégât `CreateEffectDamageBonusForAttack @180f6c680` : `ForAddition(OwnerIsActor & IsRangedAttack,
+      ConfigVar(8=extraDmg, GetAbilityState), source 0x5df)` = +extraDmg[ablvl Thaddeus]×mult FLAT
+      additif PRÉ-perçage PAR COUP (canal `DamageModifiers.additive`, comme LordOfTheHost).
+    - cible `CreateTargetSelector @180f6c860` : `UnitsWithoutTrait(UnitsWithRangedAttacks(
+      SurroundingFriends(owner, range=2)), 0x3e9=HeavyWeapon)`."""
+
+    _VAR = "extraDmg"
+    _WANT_HEAVY = False
+
+    def _trigger_ok(self, c: Mapping) -> bool:
+        return c.get("is_melee") is False                     # IsRangedAttack (@180f6c680)
+
+
+class SpotterReworkedHeavyWeaponEffect(_SpotterReworkedAuraBase):
+    """`SpotterReworked_HeavyWeaponEffect` (effet 0x428=1064) — amis AVEC HeavyWeapon, « instead ».
+    - dégât `CreateEffectDamageBonusForAttack @180f6c980` : `ForAddition(OwnerIsActor,
+      ConfigVar(9=extraDmg_2, GetAbilityState), source 0x5df)` — trigger SANS IsRangedAttack (fidèle
+      au décompilé : un porteur HeavyWeapon à arme ranged garde le bonus même sur un coup MÊLÉE).
+    - cible `CreateTargetSelector @180f6cb40` : `UnitsWithTrait(UnitsWithRangedAttacks(
+      SurroundingFriends(owner, range=2)), 0x3e9=HeavyWeapon)`."""
+
+    _VAR = "extraDmg_2"
+    _WANT_HEAVY = True
+
+    def _trigger_ok(self, c: Mapping) -> bool:
+        return True                                           # OwnerIsActor seul (@180f6c980)

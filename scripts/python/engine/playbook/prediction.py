@@ -280,6 +280,10 @@ def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_arm
            "att_grand_alliance": att_gu.get("GrandAllianceId"),
            "att_faction": att_gu.get("FactionId"),
            "att_traits": frozenset(att_gu.get("traits") or ()),
+           # UnitsWithRangedAttacks (selector SpotterReworked @180f6c860) = UNION {arme ranged au kit}
+           # + {diff elevation <= 2 vs tuile porteur} (@180e00610) -> board pour le terme elevation
+           "att_has_ranged_weapon": any(w.get("Range") for w in (att_gu.get("weapons") or ())),
+           "board": scene.board,
            "is_melee": is_melee, "target_armor_reduced": tgt_armor_reduced,
            "is_normal_attack": is_normal_attack,
            "tgt_id": tgt_id,

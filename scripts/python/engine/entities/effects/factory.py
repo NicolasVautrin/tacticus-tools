@@ -62,6 +62,8 @@ from .loki import (
     ExplosiveMaladiesExtraMeleeAttackEffect,
     LordOfTheHostExtraDamageEffect,
     DoomExtraDmgEffect,
+    SpotterReworkedExtraDamageEffect,
+    SpotterReworkedHeavyWeaponEffect,
     StandVigilExtraArmorEffect,
     StunnedEffect,
     TauntedEffect,
@@ -101,6 +103,12 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # prennent +extraDmg[ablvl]xmult des attaques normales des amis du porteur (extraDmg_2 Aeldari,
     # toutes attaques) (@180f3f780, selector @180f3fa80 ring-exact). #57c.
     "Doom_extraDmg": DoomExtraDmgEffect,
+    # SpotterReworked (Thaddeus astraOrdnance, 2 effets sur le PORTEUR @1811a1920) : aura
+    # +extraDmg[ablvl]xmult additif pre-percage aux attaques RANGED des amis SANS HeavyWeapon
+    # rayon 2 (@180f6c680) ; +extraDmg_2 aux amis AVEC HeavyWeapon, toutes attaques (@180f6c980).
+    # Selectors @180f6c860/@180f6cb40 (UnitsWithRangedAttacks + fork trait 1001). #66.
+    "SpotterReworked_ExtraDamage": SpotterReworkedExtraDamageEffect,
+    "SpotterReworked_HeavyWeapon": SpotterReworkedHeavyWeaponEffect,
     # AURA +dégât (Attack) du SOURCE Calgar (RitesOfBattleAbility @181225340) : 2 effets permanents
     # mutuellement exclusifs par trait Imperial (26). Noms captés EXACTS = ...Basic (1002) / ...Imperial
     # (1003) ; la classe lit le variant via self.name (endswith Imperial). Modélisée SOURCE-side
