@@ -1,7 +1,9 @@
 # Case-31 — NonComparable overfire : gates 1180 HeroicFusillade + 1118 DoctrinaImperatives trop lâches
 
-**Statut : 1118 RÉSOLU+VALIDÉ ; 1180 RÉSOLU (gate per-JOUEUR prouvé A/B live, mécanisme natif interne
-non localisé — cf. §A.4).** Build `gqfc5mff6c`. Les générateurs NC passent AVANT le fallback Comparable
+**Statut : 1118 RÉSOLU+VALIDÉ ; 1180 RÉSOLU+REFERMÉ (2026-07-22, #39 fable-solver) — le « gate
+per-JOUEUR » était un ARTEFACT expérimental (confond camp ↔ numéro de tour) ; mécanisme natif réel =
+slot-4 `turnsStarted > 1` @18111af90 (#46), player-blind — cf. §A.4.** Build `gqfc5mff6c`. Les
+générateurs NC passent AVANT le fallback Comparable
 (`InitAbilityTypeLists @1810ed540`) → une NC qui « sort » écrase l'attaque par l'ordre des générateurs ;
 une NC émise à tort = miss d'agreement (ability + position en aval).
 
@@ -33,13 +35,21 @@ NB : Tan Gi'da était côté **p-units** dans ces walks → le gate 3-branches e
 
 ---
 
-## Demi-partie A — 1180 HeroicFusillade (Judh) — **RÉSOLU : gate per-JOUEUR (prouvé A/B), pas géométrique**
+## Demi-partie A — 1180 HeroicFusillade (Judh) — **REFERMÉ : « per-JOUEUR » = artefact ; mécanisme = turnsStarted>1**
 
-### A.1 — Le verdict (4 expériences live, reproductibles, session 2026-07-19)
+> **RÉVISION 2026-07-22 (#39 fable-solver).** Le verdict A.1 ci-dessous est CONSERVÉ comme archive
+> mais sa CONCLUSION (« c'est le JOUEUR ») est **RÉFUTÉE** : dans les 4 expériences, le camp de Judh
+> était CONFONDU avec son numéro de tour (`turnsStarted`). Les mesures « a-units » étaient TOUTES au
+> 1er tour de Judh (ts=1) ; les émissions « p-units » toutes au tour >= 2 (ts=2). Le mécanisme réel
+> est le slot-4 `ShouldEvaluate(unit)` foldé @18111af90 = `GetStat(unit, 0xc=TurnsStarted) > 1`
+> (découvert en #46, APRÈS le verdict). Contre-exemple direct mesuré (`probe_39c_crafted.py`,
+> MC1_67 seed 4242, Judh SEUL a-units vs 2 necroWarden p-units tenus adjacents) : au tour 2 de Judh
+> (ts=2), **le natif émet `move+1180→79` DEPUIS LE CAMP A-UNITS**. Détails : §A.4.
 
-**Le natif n'émet JAMAIS 1180 pour une unité du camp a-units (player 12 « enemy_1 », PlayerType 1,
-team 2) ; il l'émet normalement pour le camp p-units (player 11 « player », PlayerType 0, team 1).**
-Aucune condition géométrique/d'état ne discrimine — c'est le JOUEUR :
+### A.1 — Le verdict INITIAL (4 expériences live, session 2026-07-19) — conclusion révisée, cf. encadré
+
+**Observation brute (exacte) : le natif n'a émis 1180 dans aucune de ces mesures côté a-units, et
+l'a émis côté p-units.** L'INFÉRENCE « c'est le JOUEUR » était fausse (variable confondue : ts) :
 
 | # | setup | mesure | résultat |
 |---|---|---|---|
@@ -98,22 +108,64 @@ bespoke (mesuré : 1117 DefendTheDivineWork, 1122, 1123 en 31337 swappée). Elle
   @1810e0090` : builder manquant + create → **DefaultActiveAbilityPlaybook (Comparable)** (⇒ une ability sans
   builder serait classée Comparable par `InitAbilityTypeLists`).
 
-### A.4 — Résiduel RE (mécanisme interne non localisé) — task dédiée
+### A.4 — RÉSOLU (#39, 2026-07-22) : mécanisme = slot-4 `turnsStarted > 1` ; « per-joueur » = confond
 
-Tous les gates lisibles statiquement passent des deux côtés (traits Hero vérifiés : genesPatriarch/
-custoKyrus/tyranParasite/necroWarden TOUS Hero ; élévations uniformes → porte #45 sans effet ; usability
-verte ; positions non élaguées ; même paire de stratégies ; mêmes builders de playbooks). Le point de
-divergence per-joueur est donc dans un maillon non encore observé (candidats : corps générique bucket
-réellement exécuté, un gate du tactic/générateur sensible au PlayerComponent, config Utilities per-player).
-**Instrument** : hooks runtime frais sur `EvaluateNonComparable @181144510` + `<GenerateActions>d__7
-@18119a3f0` (le bucket-audit existant n'a PAS tiré : diag=0 sur un dryRun pourtant bucketisé — ses RVAs
-gshared ne correspondent pas au corps exécuté ; à réinvestiguer avant réutilisation).
+**1. La chaîne native est INTÉGRALEMENT player-blind (relue de bout en bout, VAs).** Les trois
+candidats de l'ancienne §A.4 sont ÉLIMINÉS :
+- (c) Utilities per-player : la seed BC n'a qu'UN bloc `Utilities` partagé (`Default`/
+  `MovementSuggestion`), aucune clé per-player, aucune entrée HeroicFusillade ;
+- (b) gate PlayerComponent dans tactic/générateur : `RunComputerActionsOperation.Execute @180e93e80`
+  (cheat ET tour naturel convergent : `RunComputerActionsForPlayer(currentPlayerId)`) →
+  `AiControl.GetAi @180ffc270` (PlayerType 0 ET 1 → MÊME instance +0x20 ; `Init @180ffc460` : la
+  paire #2 (+0x28/+0x68) est réservée à PlayerType 4) → `DefaultPlayerStrategy.<CalculateNextAction
+  ForUnit>d__7 @1810c0c10` : la SEULE référence absolue au camp de toute la chaîne est le bool
+  `GetCurrentTeamId(unit) != 1` passé à `AILog.AIActions..ctor` — un flag d'ÉCRAN DEBUG (AILogScreen),
+  pas un gate → `DefaultAiUnitTactic..ctor @1810eebc0` / `GetDefaultActiveAbilityActionGenerators
+  @1810ed0c0` (générateurs ordonnés : NC dict{1000,100,0,-100,-1000}@+0x40 → comparable@+0x38 →
+  movement ; premier yield non-nul gagne, `<CalculateNextActionForUnit>d__5 @1810f54e0`) →
+  `<GenerateActions>d__7 @18119a3f0` (gates per-ability tous unit-scoped : HasFlag(unit,2=
+  ActiveAbilityUsed), Contains liste NC, IsAbilityBlocked, get_CanCurrentlyBeUsed @180f8fdb0
+  (+0x28 canStillBeUsed && !+0x35 && cooldown+0x2c && ammo+0x38/+0x40), IPlaybook slot4/5/6/7) —
+  rien de per-player ; les gates du playbook @181144510 sont RELATIFS (IsEnemy(surrounding, caster)) ;
+- (a) corps générique bucket : `Bucket.Merge @1813fc790` / `ChooseAction @1813fc0d0` déterministes,
+  sans état joueur (et `ShouldRandomizeOrder @181182dd0` ne shuffle que pour {1134,1135,1136,1218}).
 
-### A.5 — Port (comportemental, fidèle à l'A/B)
+**2. Le discriminant réel = slot-4 `ShouldEvaluate(unit)` de 1180** (corps foldé @18111af90, #46) :
+`GetStat(unit, 0xc=TurnsStarted) > 1`. Dans les 4 expériences A.1, camp ↔ tour étaient confondus
+(le camp a-units joue 2e → son 2e tour arrive ~2x plus loin dans le walk ; toutes les mesures
+a-units étaient à ts=1). Cohérent avec 1191 MartialInspiration (même famille NC, PAS de slot-4
+turnsStarted) qui émet côté team 2 (case-52 #57f) — l'asymétrie n'affectait QUE 1180.
 
-`heroic_fusillade.py` : gate d'émission **caster ∈ camp p-units (team 1)** (+ gates Hero/adjacent-enemy
-inchangés, éligibilité `targets` inchangée — elle matche le cas émetteur step-6). Validation :
-909 s10 → plus d'overfire (attaque comparée) ; 31337-genes s6 → 1180→79 MATCH préservé.
+**3. Preuves live (#39, probes versionnés) :**
+- `probe_39b_tscounter.py` (909/MC1_67, walk natif, dump ts par pas) : à s10 ts(Judh)=1 → bloqué ;
+  au tour 2 les autres a-units passent ts 1→2 (compteur symétrique : `StartTurnOperation.Execute
+  @180ea3fb0` ++ `UnitComponent.turnsStarted@+0x58` sur les `CurrentlyOwnedUnitIds` du joueur
+  courant) mais ts(Judh) RESTE 1 — effet de bord du 1202 VigilanceEternal casté SUR Judh (u95
+  s17) → bloqué au tour 2 AUSSI sur ce seed (c'est pourquoi même un walk long 909 ne montrait
+  jamais l'émission a-units).
+- `probe_39c_crafted.py` (MC1_67 seed 4242, Judh SEUL a-units, 2 necroWarden p-units SCRIPTÉS
+  adjacents/immobiles, zéro 1202) : tour 2, ts=2, cibles {79,81} légales, gate2 vrai → **natif =
+  `move+1180→79` côté TEAM 2** ; H_perplayer réfutée par contre-exemple direct.
+
+**Latéral (hors périmètre, à creuser si besoin)** : le saut d'incrément ts sur la cible d'un 1202
+(mesuré, non RE'd) ; le port est immunisé (il lit le compteur live par pas). NB outillage : le
+bucket-audit (frida/hooks/features/bucket-audit.ts) résout ses cibles via la générique OUVERTE
+`Bucket\`1` (findBucketMethod) → methodEntry ne pointe pas les corps gshared exécutés
+(@1813fbcc0/@1813fbb60/@1813fc0d0/@1813fc660) → diag=0 STRUCTUREL ; inutilisable sans rebuild.
+
+### A.5 — Port (mirror du mécanisme natif, plus de gate camp)
+
+`heroic_fusillade.py` : le gate `_is_player_side` (team 1) est **SUPPRIMÉ** (#39). Gates restants,
+tous natifs : slot-4 `turnsStarted > 1` (`_turns_started_gate`, lecture live stat 12 par pas) +
+gate1 Hero + gate2 adjacent-enemy + éligibilité `targets`. Validation #39 (4 walks ciblés) :
+- crafted a-units (runner gelé à l'état de décision du probe_39c) : engine `1180→79` = natif
+  **MATCH** — le cas que l'ancien port MANQUAIT par construction ;
+- 909/MC1_67 22 pas : pos 17/17, ability 7/8 — s10 `69→93` HIT (bloqué par ts, sans gate camp) ;
+  le seul miss (s20 u77 `1140` vs eng `69→152`) est HORS périmètre (u77 sans 1180, tronçon jamais
+  couvert par la référence historique qui s'arrête à s18) ;
+- 909 suite (tour 2 Judh, ts collé à 1 par 1202) : `69→93` HIT — pas d'overfire, le port suit le
+  compteur live ;
+- 31337-genes 9 pas : ability 5/5 — s6 `1180→79` MATCH préservé (émission p-units).
 
 ## VAs
 `HeroicFusilladePlaybook.EvaluateNonComparable @181144510` · `GetEligibleTargetsSelectable @18111ed80`
@@ -132,6 +184,14 @@ movableTiles+current → AttackQuery.GetValidTargets, PAS de filtre dynamique) �
 `RunComputerActionsForPlayer @180ffcf20` · `AiQuery..ctor @181054600` / `GetUnitTacticForUnit @181054550` ·
 `SkipActiveAbilityUnitTactic.IsValidAbilityType @1811366a0` · `StaticBattleRules.ActiveAbility.IsActiveAbility
 @181555670` · `UnitExtensions.IsAbilityBlocked @180ed75f0` · `BasePlaybook.Evaluate @18111df40` /
-`ShouldEvaluate @18111fb70/@18111fc70/@18111fe70` / `GetUseProbability @18111f9b0` ·
+`ShouldEvaluate @18111fb70/@18111fc70/@18111fe70` / `GetUseProbability @18111f9b0` · slot-4 1180 foldé
+@18111af90 (turnsStarted>1) · `StartTurnOperation.Execute @180ea3fb0` (++ `UnitComponent.turnsStarted
+@+0x58`) · `UnitTurnsStartedFormula.Calculate @180f2d6c0` · `RunComputerActionsOperation.Execute
+@180e93e80` · `DefaultPlayerStrategy.<CalculateNextActionForPlayer>d__6 @1810c0760` /
+`<CalculateNextActionForUnit>d__7 @1810c0c10` (flag log `teamId != 1` → AILog) · `DefaultAiUnitTactic..ctor
+@1810eebc0` · `ABaseAiActorTactic..ctor @1810edcd0` / `GetDefaultActiveAbilityActionGenerators @1810ed0c0` ·
+`ActiveAbilityActionGenerator..ctor @181183050` / `GetUnitAbilitiesInOrder @181182a40` / `ShouldRandomizeOrder
+@181182dd0` · `Bucket.Merge @1813fc790` / `ChooseAction @1813fc0d0` · `ActiveAbility..ctor @180f8fba0` /
+`get_CanCurrentlyBeUsed @180f8fdb0` ·
 `DoctrinaImperativesPlaybook.EvaluateNonComparable @18112c8d0` · `ReachedSummonCap @181070f60` · slots
 IBattleQuery 0xe/0x3f/0x41/0x44/0x51/0x6e (distance hex)/0x76/0xbb/0xc9.

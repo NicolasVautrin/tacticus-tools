@@ -25,25 +25,30 @@ class HeroicFusilladePlaybook(NonComparablePlaybook):
     Aucun W, aucune prédiction de dégât. (`to`=None : le natif dash-off vers un free hex adjacent à la
     cible via `SortTilesByUtility(7)` en exec @1811e8de0 -> non modélisé dans la face décision.)
 
-    **GATE PER-JOUEUR (case-31 demi-partie A, prouvé A/B live 2026-07-19)** : le natif n'émet JAMAIS 1180
-    pour une unité du camp a-units (player « enemy_1 », PlayerType 1, team 2) -- même état optimal forcé
-    (1180 fraîche/usable/hasAmmo, cibles légales depuis 9 tuiles au pipeline complet, caster adjacent à un
-    Héros accompagné -> le dryRun attaque quand même) -- alors qu'il l'émet spontanément pour le MÊME Judh,
-    MÊME seed/board/rosters, côté p-units (team 1). L'asymétrie est spécifique à 1180 (le camp a-units
-    émet d'autres NC : 1117/1122/1123 mesurés) ; le maillon natif interne n'est pas localisé (candidats +
-    instruments : case-31 §A.4). Port = comportement observé : émettre SSI caster team 1."""
+    **PAS de gate per-joueur (case-31 §A REFERME 2026-07-22, #39 fable-solver)** : l'ancien « gate
+    caster ∈ team 1 » était un ARTEFACT expérimental — dans les 4 expériences A/B de 2026-07-19, le
+    camp de Judh était CONFONDU avec son numéro de tour (a-units toujours mesuré à turnsStarted=1,
+    p-units à turnsStarted>=2). Le mécanisme natif réel est le slot-4 `turnsStarted > 1` ci-dessous
+    (@18111af90), player-blind. Prouvé live (probe_39c_crafted, MC1_67 seed 4242) : le natif ÉMET
+    `move+1180->79` pour Judh **team 2** dès ts=2, cibles Hero + gate2 verts. Toute la chaîne de
+    décision native (strategy -> tactic -> generateurs -> playbook) est partagée entre joueurs et
+    sans branche PlayerType (AiControl.GetAi @180ffc270 route les PlayerType 0 ET 1 vers la MÊME
+    instance +0x20) — cf. case-31 §A.4."""
     ABILITY_ID = int(ActiveAbilityType.HeroicFusillade)  # 1180
     MIN_UTILITY = 1.0
     PRIORITY = 0
 
     def should_evaluate(self, ctx: NCContext) -> bool:
         """Slot 4 de la vtable (0x298, resolu live #46) -> corps foldé @18111af90 :
-        `turnsStarted > 1` — 1180 n'est jamais évaluée au 1er tour de l'unité."""
+        `turnsStarted > 1` — 1180 n'est jamais évaluée au 1er tour de l'unité.
+        NB (#39) : c'est CE gate qui explique tout le pseudo « per-joueur » du case-31 ; le
+        compteur (stat 12, `UnitComponent.turnsStarted@+0x58`, ++ par StartTurnOperation
+        @180ea3fb0 sur les CurrentlyOwnedUnitIds du joueur courant) est lu LIVE par-pas via
+        combatSnapshot -> les cas où le natif saute l'incrément (mesuré : Judh ciblé par 1202
+        VigilanceEternal reste à ts=1 à son 2e tour) sont suivis automatiquement."""
         return _turns_started_gate(ctx)
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
-        if not self._is_player_side(ctx):      # gate per-joueur (case-31 §A) : a-units ne tire JAMAIS
-            return []
         if ctx.ability_targets is None:
             return []
         at = ctx.ability_targets(ctx.uid, self.ABILITY_ID) or {}
@@ -75,14 +80,3 @@ class HeroicFusilladePlaybook(NonComparablePlaybook):
                 print(f"    [dbg HeroicFusillade u{ctx.uid}] tgt={tid} pos={tpos} -> util=1", file=sys.stderr)
             return [{"target": tid, "ability": self.ABILITY_ID, "to": None, "pred": 1.0}]
         return []
-
-    def _is_player_side(self, ctx: NCContext) -> bool:
-        """Caster ∈ camp « player » (BC `Player.Players` : PlayerType 0 -> TeamId 1 ; a-units =
-        « enemy_1 » PlayerType 1 -> TeamId 2). Comportement A/B case-31 §A.1 : 4 expériences live,
-        suppress systématique côté team 2, émission spontanée côté team 1. team absent -> permissif
-        (comportement pré-fix) pour ne pas gater à l'aveugle un contexte sans decisionView complet."""
-        me = next((u for u in (ctx.units or []) if u.get("id") == ctx.uid), None)
-        team = (me or {}).get("team")
-        if team is None:
-            return True
-        return int(team) == 1
