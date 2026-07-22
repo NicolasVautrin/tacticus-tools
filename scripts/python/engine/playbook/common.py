@@ -23,8 +23,9 @@ from ..entities.active_ability_type import ActiveAbilityType
 
 
 class NormalAttackPlaybook(ComparablePlaybook):
-    """Attaque normale (par-unité côté natif ; ici une classe, PV gère la sélection d'arme). Tie-break :
-    à utilité TOTALE égale, la normale gagne (`InitAbilityTypeLists` : [normal, spéciales…])."""
+    """Attaque normale (par-unité côté natif ; ici une classe, PV gère la sélection d'arme).
+    Porte le bonus d'action +1 (`calculate_custom_utility`) : la normale bat tout actif Comparable
+    tant que Δ(pair+tile) < 1 — l'ancien « tie-break à utilité égale » en était l'ombre (#64)."""
     is_normal_attack = True
 
     def make_damage_predictions(self, ctx, caster_tile, target, ability_id):
@@ -32,6 +33,15 @@ class NormalAttackPlaybook(ComparablePlaybook):
             return None
         ev = prediction.make_normal_attack_predictions(ctx.scene, ctx.uid, target, caster_tile)
         return None if ev is None else [ev]
+
+    def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
+        """`ALoki_NormalAttackPlaybook<T>.CalculateCustomUtility @1813726e0` (générique partagé de
+        tous les `*_NormalAttackPlaybook` par-unité) ; idem `Idun.NormalAttackPlaybook<T> @18149ee60`
+        et `Loki_NormalBossAttackPlaybook @1811497c0` : `Fix64.FromInt(1)` constant. Preuve L3 #64
+        (2468 s18 u77) : action 69 = 20.981 pair + 40 tile + 1 = 61.981 > 61.728 = 21.728 + 40 + 0
+        (MartialInspiration 1191) -> natif joue 69 ; 31337 s16 Δpair=4.97 > 1 -> 1191 émis.
+        (Exception native NON portée : ProperKilly_NormalAttackPlaybook @1811532a0, logique melee.)"""
+        return 1.0
 
 
 class DefaultActiveAbilityPlaybook(ComparablePlaybook):

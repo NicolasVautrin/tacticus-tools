@@ -75,6 +75,15 @@ class ComparablePlaybook(BasePlaybook):
         ce build (effet Pinned=0x429, poids 0 -> inerte). Override par sous-classe au besoin."""
         return []
 
+    def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
+        """`ComparablePlaybook.CalculateCustomUtility @181407840` = `Fix64.FromInt(0)`. Terme d'ACTION
+        ajouté PAR-DESSUS `u_full` (pair + Tile) dans l'assemblage du BucketAction — il n'apparaît PAS
+        dans le pairUtility (le scorer natif confronté à l'étage UTILITÉ ne le contient pas ; preuve
+        L3 #64 : playbook_action u = pair + tile + custom exacts). Overrides natifs : NormalAttack +1
+        (common.py) ; quirks per-ability NON portés à ce jour (MortisRound @18114d190 displacement,
+        Drachnyen @18112dc60 count>=2, HeraldOfTheApocalypse @1811441b0, ProperKilly @1811532a0...)."""
+        return 0.0
+
     def calculate_action_utility(self, ctx, caster_tile, target, ability_id) -> dict | None:
         """`CalculateActionUtility @181406ee0` pour (caster@caster_tile, target) : Σ des events (dégât)
         + Σ effet + Tile(7)@tuile. Gate `ShouldExecute` = pas de prédiction d'attaque -> None (pas d'action).

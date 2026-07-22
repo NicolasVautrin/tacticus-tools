@@ -42,7 +42,12 @@ TRACES_DIR = ROOT / "frida" / "data" / "ai-traces"   # host cwd = frida/ (cf. en
 CASES = {"S14": ("12345", 14, 87, "necroOverlord", [(3, 5), (4, 3), (3, 4)]),
          "S16": ("2468", 16, 79, "necroSpyder", [(3, 4), (4, 2), (4, 3)]),
          "S8":  ("54321", 8, 81, "bloodIntercessor", [(5, 8)]),
-         "S5":  ("12345", 5, 89, "worldExecutions", [(0, 4), (1, 4)])}
+         "S5":  ("12345", 5, 89, "worldExecutions", [(0, 4), (1, 4)]),
+         # S18 (#64) : biais cross-generateur MartialInspiration 1191 — le natif joue 69
+         # alors que SON pairUtility prefere 1191 (21.73 vs 20.98, meme tuile (4,3), meme
+         # cible u91). vis=None : garder TOUS les events (la cible = le merge, pas les
+         # termes tuile). Necessite L1 (playbook_action = utilite d'ACTION du merge).
+         "S18": ("2468", 18, 77, None, [(4, 3)])}
 
 
 def _r(sid: int, method: str, body, t: float = 90) -> dict:
@@ -64,12 +69,17 @@ def _trace_file(sid: int):
 
 
 def run_case(sid: int, tag: str, seed: str, stop: int, uid: int, vis: str, tiles: list) -> None:
-    subprocess.run([sys.executable, "rl_duel.py", "build", "--seed", seed,
-                    "--state-file", str(STATE), "--board", "MC1_67"],
-                   cwd=str(PYDIR), capture_output=True, text=True,
-                   encoding="utf-8", errors="replace")
+    # Purger le state-file AVANT le build : un STATE residuel d'une passe precedente
+    # ferait lire un runnerId mort si le build echoue (vecu : faux « epuise au pas 0 »
+    # alors que le build criait « Board not found » dans le stderr avale).
+    STATE.unlink(missing_ok=True)
+    proc = subprocess.run([sys.executable, "rl_duel.py", "build", "--seed", seed,
+                           "--state-file", str(STATE), "--board", "MC1_67"],
+                          cwd=str(PYDIR), capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
     if not STATE.exists():
-        print(f"[57k:{tag}] build KO", file=sys.stderr)
+        print(f"[57k:{tag}] build KO: {(proc.stderr or proc.stdout or '')[-400:]}",
+              file=sys.stderr)
         return
     rid = json.loads(STATE.read_text())["runnerId"]
     print(f"[57k:{tag}] seed={seed} runner={rid} -> walk s{stop}")
@@ -77,7 +87,9 @@ def run_case(sid: int, tag: str, seed: str, stop: int, uid: int, vis: str, tiles
         for step in range(stop):
             dry = _r(sid, "aiStepDryRun", {"runnerId": rid}, 60)
             if not dry.get("ok") or not dry.get("hasNext"):
-                print(f"[57k:{tag}] natif epuise au pas {step}")
+                print(f"[57k:{tag}] natif epuise au pas {step} "
+                      f"(ok={dry.get('ok')} hasNext={dry.get('hasNext')} "
+                      f"err={dry.get('error')})")
                 return
             acts = []
             for m in (dry["action"]["messages"] or []):
@@ -112,6 +124,7 @@ def run_case(sid: int, tag: str, seed: str, stop: int, uid: int, vis: str, tiles
         tset = {tuple(t) for t in tiles}
         by_tile: dict = {}
         others: Counter = Counter()
+        win: list = []
         with open(tf, encoding="utf-8") as f:
             for line in f:
                 try:
@@ -121,6 +134,7 @@ def run_case(sid: int, tag: str, seed: str, stop: int, uid: int, vis: str, tiles
                 sq = e.get("seq")
                 if sq is None or (lo is not None and sq <= lo) or (hi is not None and sq > hi):
                     continue
+                win.append(e)
                 if e.get("evt") != "utility_score":
                     others[e.get("evt")] += 1
                     continue
@@ -130,7 +144,25 @@ def run_case(sid: int, tag: str, seed: str, stop: int, uid: int, vis: str, tiles
                     continue
                 t = _tile_of(e.get("caseTile"))
                 by_tile.setdefault(t, []).append((e.get("utility"), e.get("score")))
+        # dump brut de la fenetre : re-analyse offline sans re-payer une passe L3
+        dump = ROOT / "data" / f"l3_57k_{tag.lower()}.jsonl"
+        with open(dump, "w", encoding="utf-8") as f:
+            for e in win:
+                f.write(json.dumps(e) + "\n")
+        print(f"[57k:{tag}] fenetre brute: {len(win)} events -> {dump}")
         print(f"[57k:{tag}] autres events fenetre: {dict(others)}")
+        # resume playbook (#64) : utilites d'ACTION du merge cross-generateur (L1)
+        pb = [e for e in win if e.get("evt") == "playbook_action"]
+        for e in pb[:200]:
+            cast = e.get("caster")
+            cast = cast.get("name") if isinstance(cast, dict) else cast
+            tgt = e.get("target")
+            tgt = tgt.get("name") if isinstance(tgt, dict) else tgt
+            at = _tile_of(e.get("actionTile"))
+            print(f"[57k:{tag}] PB {e.get('playbook')} ab={e.get('ability')} caster={cast} "
+                  f"tile={at} tgt={tgt} u={e.get('utility')}")
+        if len(pb) > 200:
+            print(f"[57k:{tag}] ... {len(pb) - 200} playbook_action de plus (voir dump)")
         for t in sorted(by_tile, key=lambda x: (x not in tset, str(x))):
             star = "*" if t in tset else " "
             terms = by_tile[t]
@@ -159,7 +191,11 @@ def main() -> int:
               f"lancer SOLO (ou --force si certain d'etre seul).", file=sys.stderr)
         return 2
     tags = [t.strip().upper() for t in args.only.split(",")] if args.only else list(CASES)
-    _r(sid, "aiTraceEnable", ["L3"], 20)
+    # L1 (playbook actions/utilites du merge) + L2 (inputs generateurs) + L3 (feuilles
+    # utility_score). Les 3 niveaux sont INDEPENDANTS cote hooks (ai-trace.ts) — L3 seul
+    # ne dumpe PAS playbook_action, indispensable pour S18/#64.
+    for lv in ("L1", "L2", "L3"):
+        _r(sid, "aiTraceEnable", [lv], 20)
     try:
         for tag in tags:
             if tag not in CASES:
@@ -167,8 +203,9 @@ def main() -> int:
                 continue
             run_case(sid, tag, *CASES[tag])
     finally:
-        _r(sid, "aiTraceDisable", ["L3"], 20)
-        print("[57k] L3 disabled")
+        for lv in ("L1", "L2", "L3"):
+            _r(sid, "aiTraceDisable", [lv], 20)
+        print("[57k] L1+L2+L3 disabled")
     return 0
 
 

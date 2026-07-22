@@ -768,3 +768,54 @@ le worktree (reinject interdit a l'agent) -- a confirmer par l'orchestrateur : p
 12345 **100 %** (ability 10/10, move 15/15, préd 9/9, util 9/9 — s5 = (0,4) natif ✓, preuve que
 `IsTargetable` s'est résolu au runtime) ; zéro régression 54321 (15/15, 17/17, 10/10, 10/10) et
 777 (16/16, 17/17, 12/12, 12/12). Dumps `data/stages_57l_{12345,54321,777}.json`. Miss s5 FERMÉ.
+
+## #64 — MartialInspiration 1191 (2468 s18) RÉSOLU : bonus d'action +1 de l'attaque normale (CalculateCustomUtility)
+
+**Le « biais cross-générateur » de #57f n'existe pas : c'est un TERME natif chiffré.** Passe L3 solo
+(probe_57k_l3.py cas S18, niveaux **L1+L2+L3** — L3 seul ne dumpe PAS `playbook_action`, activation des
+3 niveaux ajoutée au probe) sur 2468 s18 u77 custoBladeChampion, fenêtre du dry-run de décision
+(`data/l3_57k_s18.jsonl`, 92 events) :
+
+- `playbook_action` **MartialInspirationPlaybook** : u = **61.72794423531741** = 21.72794423531741 (pair)
+  + 40 (tile : Elevation +30, TriggeredAbilities +10) + **0**.
+- `playbook_action` **Loki_NormalAttackPlaybook** : u = **61.98099426366389** = 20.98099426366389 (pair)
+  + 40 (tile, Composed identique) + **1.000 EXACT**.
+
+Décomposition complète, zéro scalaire fitté : chaque terme est soit dumpé natif (pair, tile), soit lu du
+décompilé. Le +1 = **`CalculateCustomUtility`**, hook virtuel ajouté PAR-DESSUS pair+tile dans l'assemblage
+du `BucketAction.Utility` (il n'apparaît JAMAIS dans le pairUtility du scorer RPC — d'où l'étage UTILITÉ
+100 % match des deux paires pendant que la décision divergeait) :
+
+- base `ComparablePlaybook<T>.CalculateCustomUtility @181407840` = `Fix64.FromInt(0)` ;
+- `ALoki_NormalAttackPlaybook<T> @1813726e0` (générique partagé de tous les `*_NormalAttackPlaybook`
+  par-unité), `Idun.NormalAttackPlaybook<T> @18149ee60`, `Loki_NormalBossAttackPlaybook @1811497c0`
+  = `Fix64.FromInt(1)` constant.
+
+**Loi** : l'attaque normale bat tout actif Comparable tant que Δ(pair+tile) < 1. Vérifie les 2 datapoints :
+2468 s18 Δpair=0.75 → 69 joué ✓ ; 31337 s16 Δpair=4.97 → 1191 émis ✓. Notre ancien tie-break empirique
+« normale gagne au tie exact » (clé `(u_full, is_normal)`) était l'ombre de ce seuil plus large — exactement
+le scénario anticipé par #64 (« seuil natif PLUS LARGE à chiffrer depuis le décompilé, jamais fitté »).
+
+**Structure du merge (décompilé, précise la lecture #57f)** : `CalculateNextActionForUnit d__5.MoveNext
+@1810f54e0` = **FIRST-WINS sur la liste ordonnée des générateurs** (tactic+0x60 ; `FUN_18000d910` évalue le
+générateur courant, `if (result != 0) break`) — PAS une comparaison d'utilité inter-générateurs. 69 et 1191
+vivent dans le MÊME `ActiveAbilityActionGenerator` (5 instances partitionnent les abilities — L2 `candidates` ;
+G5 = bucket comparables NormalAttack/Heal/Repair/...). La décision 69-vs-1191 est donc INTRA-générateur, dans
+le max des BucketAction — le +1 était le seul terme manquant. (`CalculateAbilityActionForUnit d__7 @1810f47f0`
+= variante mono-ability : OrderedSet {abilityType} + générateur dédié, même boucle.)
+
+**Port (miroir 1:1)** :
+- `engine/playbook/base.py` : `ComparablePlaybook.calculate_custom_utility` = 0.0 (@181407840) ;
+- `engine/playbook/common.py` : `NormalAttackPlaybook.calculate_custom_utility` = 1.0 (@1813726e0) ;
+- `engine/ai/action_generators.py` `_best_attack` : clé argmax inter-ability = `u_action = u_full +
+  pb.calculate_custom_utility(...)` (remplace `(u_full, is_normal)`) ; le candidat pousse `full = u_action`
+  dans le `Bucket.ChooseAction` final (attaque vs soins — le natif y compare des BucketAction.Utility).
+
+**Overrides natifs NON portés (quirks per-ability — 27 au total, catalogue)** : contextuels lus :
+`MortisRoundPlaybook @18114d190` (GetTargetUtilityDiffOnDisplace), `DrachnyenPlaybook @18112dc60`
+(count cibles >= 2 → GetUtilityValue), `HeraldOfTheApocalypsePlaybook @1811441b0` (0 si une cible normale
+damageable, sinon GetUtilityValue), `ProperKilly_NormalAttackPlaybook @1811532a0` (melee : Health-stat,
+sinon stat+1) ; + TwistedScience_Heal, PlagueburstMortar, LightOfSanguinius, ArmoriumCherub, Chronometron,
+DaemonicOrdnance, DevoutPush, DoomSiren, ForwardObservers, HealingBalms_Heal, InstrumentsOfVengeance,
+MartialExemplar, MortarionsPlagueWind, PlasmaGrenade, Repair_GalvanicField, SavageEchoes, SorcerousFacade,
+Stikkbomb, TheLionsWrath. À porter à la demande (dès qu'un cas d'agreement les exerce) — tâche dédiée #27.

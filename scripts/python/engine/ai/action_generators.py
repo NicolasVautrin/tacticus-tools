@@ -142,10 +142,10 @@ class ComparableAbilityGenerator(ActionGenerator):
     (ability,cible) [argmax tile STRICT] -> argmax inter-ability -> pool attaque+soin -> `Bucket.ChooseAction`."""
 
     def _best_attack(self, ctx):
-        """Sweep attaque : renvoie `best = (u, u_full, target, ability, tile)` ou None. Argmax inter-
-        ability par clé `(u_full, is_normal)` (tie-break : à utilité TOTALE égale, l'attaque NORMALE
-        gagne — `is_normal_attack` du playbook ; step-9 seed777 : 69 et 1067 sure-kill même tuile
-        -> natif garde la normale)."""
+        """Sweep attaque : renvoie `best = (u, u_action, target, ability, tile)` ou None. Argmax
+        inter-ability sur l'utilité d'ACTION `u_full + CalculateCustomUtility` (#64 : la normale
+        porte +1 -> elle bat tout actif Comparable à Δ(pair+tile) < 1 ; couvre l'ancien tie exact
+        step-9 seed777 (69 vs 1067 même u_full) ET 2468 s18 (69 vs 1191, Δpair=0.75))."""
         plan = ctx.plans.get(ctx.uid) or {}
         best = None       # (u, u_full, tgt, ab, tile)
         best_key = None
@@ -199,7 +199,12 @@ class ComparableAbilityGenerator(ActionGenerator):
             if pair_best is None:
                 continue
             u_full, u, pred, aoe, tile, bk = pair_best
-            key = (u_full, 1 if pb.is_normal_attack else 0)  # util TOTALE, puis normal premier-énuméré
+            # #64 : le natif compare des utilités d'ACTION (`BucketAction.Utility` = u_full +
+            # `CalculateCustomUtility` ; base 0 @181407840, NormalAttack +1 @1813726e0). L3 2468 s18 :
+            # 69 = 20.981+40+1 = 61.981 bat 1191 = 21.728+40+0 = 61.728. L'ancien tie-break exact
+            # `(u_full, is_normal)` était l'ombre de ce +1 (seuil natif PLUS LARGE, jamais fitté).
+            u_action = u_full + pb.calculate_custom_utility(ctx, tile, tgt, ab)
+            key = u_action
             if ctx.debug:
                 p = pred or {}
                 dbg.append((ab, tgt, round(u, 1), round(u_full, 1), p.get("killSure"), p.get("kill"),
@@ -208,14 +213,14 @@ class ComparableAbilityGenerator(ActionGenerator):
             rank = (bq.iterate_surrounding_tiles_order_key(tgt_pos_by_id[tgt])
                     if tgt in tgt_pos_by_id else None)
             if best_key is None or key > best_key:
-                best = (u, u_full, tgt, ab, tile)
+                best = (u, u_action, tgt, ab, tile)
                 best_key = key
                 best_rank = rank
             elif (key == best_key and best is not None and ab == best[3] and tile == best[4]
                   and rank is not None and best_rank is not None and rank < best_rank):
                 # tie exact même ability + même tuile d'attaque -> la cible énumérée PLUS TÔT par
                 # l'EvaluateInternal natif gagne (inter-ability = boucle générateur, hors périmètre)
-                best = (u, u_full, tgt, ab, tile)
+                best = (u, u_action, tgt, ab, tile)
                 best_rank = rank
         if ctx.debug:
             ab_ids = [a.get("id") for a in ((ctx.me or {}).get("abilities") or [])]
@@ -537,7 +542,7 @@ class ComparableAbilityGenerator(ActionGenerator):
         best = self._best_attack(ctx)
         if best and best[0] > 0:   # best[0] = u (dégât) > 0 -> ShouldExecute
             cands.append({"target": best[2], "ability": best[3], "to": best[4],
-                          "pred": best[0], "full": best[1]})   # full = u_full (dégât + Tile7)
+                          "pred": best[0], "full": best[1]})   # full = u_action (dégât + Tile7 + custom #64)
         cands += self._heal_candidates(ctx)
         cands += self._repair_candidates(ctx)             # RepairPlaybook générique (id 28)
         cands += self._repair_galvanic_candidates(ctx)    # #85 : Repair_GalvanicField bespoke (id 1119)
