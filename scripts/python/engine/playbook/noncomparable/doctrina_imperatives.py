@@ -25,8 +25,9 @@ class DoctrinaImperativesPlaybook(NonComparablePlaybook):
         - count == 0 : emit ssi `HasEffect(caster, ConquerorImperative 0x4e0=1248)` -- en Conqueror et rien a
           taper depuis la position courante -> rebascule Protector (reprend tank/summon) ; en Protector -> rien.
         - count > 0 : adj = `GetAdjacentUnits(caster)` (slot 0x51, TOUT CAMP) ;
-          - adj > 0  : emit ssi `ReachedSummonCap(caster, ControlEdict 0x4b0=1200)` (slot 0xc9, cap 5 Skitarii
-            Vanguard atteint -> plus rien a gagner a rester en Protector -> basculer).
+          - adj > 0  : emit ssi `ReachedSummonCap(caster, ControlEdict 0x4b0=1200)` (slot 0xc9, cap
+            maxSummons[level passif] (3/4/5) d'enfants JAMAIS spawnes atteint -- morts inclus, cf.
+            `_reached_summon_cap` -> plus rien a gagner a rester en Protector -> basculer).
           - adj == 0 : emit inconditionnel (toggle libre).
 
     SELF-cast (comme NovaBoost/heals #76/#80) : la cible = self, position-independante -> le generateur
@@ -84,13 +85,43 @@ class DoctrinaImperativesPlaybook(NonComparablePlaybook):
         return len(neigh & occupied)
 
     def _reached_summon_cap(self, ctx: NCContext) -> bool:
-        """`ReachedSummonCap(caster, ControlEdict 1200)` @181070f60 = `GetChildrenCount(caster) >= cap(5)`.
-        CHAMP OFFLINE MANQUANT (pas de lien summoner->summons dans le context) -> conservateur = **NON
-        atteint** (False = ne PAS toggle). Le natif ne toggle en branche count>0 & adj>0 QUE si le cap est
-        plein (rare / tardif) -> False matche le cas COMMUN (cap non atteint) ; residuel = sous-tir quand le
-        cap est reellement atteint. TODO(#task) : exposer un lien summoner->summons (obs_units parent) ou un
-        RPC `ReachedSummonCap` pour fideliser cette branche."""
-        return False
+        """Mirror `BattleQuery.ReachedSummonCap @181070f60` (arg fixe ControlEdict 0x4b0=1200, ability
+        TRIGGERED -> branche `IsTriggered` du natif) :
+        `GetVariableForLevel(config(ControlEdict), maxSummons=49, level) <= GetChildrenCount(caster)`.
+
+        - `GetChildrenCount @180ecf290` = len(`ParentComponent.children`) du caster, SANS FILTRE
+          (predicat null) : liste append-only -- creee VIDE par `Blueprints.Unit @180eb3a3d`, alimentee
+          au spawn (AddUnitOperation), JAMAIS purgee a la mort (`RemoveUnitOperation.Execute @180e8add0`
+          ne touche que les listes units/removed du PlayerComponent, aucun RemoveChild n'existe) ->
+          compte TOUT enfant jamais spawne, DEPOUILLES INCLUSES. NB : sematique DIFFERENTE du cap
+          runner-face (`execute_control_edict_summon` : Skitarii VIVANTS) -- un Skitarii mort libere le
+          re-summon cote runner mais reste compte ici (le toggle peut donc sortir cap "plein de morts").
+        - level = `GetAbilityState(caster, ControlEdict).level` = niveau PASSIF de Tan Gi'da
+          (ControlEdict est son passif) -> `ctx.ability_config(uid)["passive"]` (combatSnapshot).
+        - Le gate amont `HasTriggeredAbility(caster, ControlEdict)` est structurel (l'unique porteur de
+          DoctrinaImperatives porte ControlEdict) -- non re-code.
+
+        Offline (aucun lien parent->enfants dans decisionView/observeBattle) : approx IDENTITE = squads
+        `obs_units` de visualId == `ability("ControlEdict").constants.unitId` (admecSmnVanguard) du MEME
+        CAMP que le caster, MORTS INCLUS (obs_units garde les depouilles -- cf. RitesOfRestoration /
+        project_decisionview_keeps_dead). Exacte tant que le caster est l'unique source de ce vid dans
+        son camp (2 Marshals au meme camp pooleraient leurs comptes ; un summon RemoveUnit-ed sortirait
+        d'obs_units -> sous-compte). Cf. case-38."""
+        import gameconfig as GC
+        from engine.entities.effects.magnitude import ability_var
+        vid = ((GC.ability("ControlEdict") or {}).get("constants") or {}).get("unitId")
+        if vid is None:
+            return False
+        obs = ctx.obs_units or []
+        my_team = next((u.get("teamId") for u in obs if u.get("squadId") == ctx.uid), None)
+        if my_team is None:
+            return False
+        kids = {u.get("squadId") for u in obs
+                if u.get("visualId") == vid and u.get("teamId") == my_team}
+        cfg_f = getattr(ctx, "ability_config", None)
+        level = ((cfg_f(ctx.uid) or {}).get("passive") if callable(cfg_f) else None)
+        cap = int(ability_var("ControlEdict", "maxSummons", level) or 5)   # per-niveau (3/4/5)
+        return len(kids) >= cap
 
     def _usable(self, ctx: NCContext) -> bool:
         """Ability disponible pour le caster ? Le driver filtre deja `usable is False` (encode le

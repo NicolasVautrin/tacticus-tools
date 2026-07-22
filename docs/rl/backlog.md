@@ -24,8 +24,7 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 | # | Tâche | Modèle | Point d'entrée |
 |---|---|---|---|
-| #38 | DoctrinaImperatives `ReachedSummonCap` | `[opus]` | Prédicat/sélecteur scopé. |
-| #39 | RE de la porte **per-player 1180** | `[fable]` | Asymétrie par camp constatée sans explication (`case-31`, mémoire `project_per_player_ai_asymmetry`) — profil « a déjà résisté ». |
+| #38b | Gate 1118 : sémantique **adj/count** des branches + **ControlEdict summon inerte en runner** | `[opus]` | `case-38` §5 : plan discriminant micro-états craftés (ennemi-adjacent-seul / ami-seul / personne) pour trancher slot 0x51 ; élucider zéro-spawn SummonMinion (stance P + On(0x26) satisfaits). Escalade `[fable]` si les craftés se contredisent. |
 | #27 | 25 overrides `CalculateCustomUtility` | `[opus]` | Volume mécanique → fan-out `re-expert`, **un item par agent**. |
 | #5 | Chantier `DslContext` live-state | `[opus]` | Architecture à poser, pas d'énigme à trancher. |
 | #20 | Roadmap AdMec | `[opus]` | Planification + découpage en tranches de port. |
@@ -51,6 +50,14 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   caster-buffé) ; datapoint `ExtraHits>0` (délégué m860) jamais mesuré ; LoS non portée dans
   PickTile (boards à obstacles) ; retrait Markerlight au heal/repair non porté. `[opus]` si un miss
   d'agreement les fait surface.
+- **Per-player 1180, résidus** (`case-31` §A refermé par PR #4, mergée — « Non couvert ») : mécanisme
+  du saut d'incrément `turnsStarted` sur la cible d'un 1202 (mesuré, non RE'd — port immunisé via
+  lecture live) ; miss s20 u77/`1140` (hors périmètre historique) ; dash-off `to=None` de 1180.
+  `[opus]` si un miss les fait surface.
+- **ReachedSummonCap, résidus** (`case-38` §4 — port livré, hors follow-up #38b) : branche `IsActive`
+  de `ReachedSummonCap @181070f60` non mirrorée (aucun caller connu avec une active) ; approx
+  identité offline (2 Marshals même camp poolent leurs comptes ; summon `RemoveUnit`-ed sort
+  d'obs_units → sous-compte). `[opus]` si un miss les fait surface.
 - **LordOfTempests AddIce, résidus** (`case-35` §4 — case CLOS) : branche 2 (glace sur la victime
   du smite Psyker) non exercée live (câblée + unit-testée) ; `is_normal_attack` face attaquant
   toujours True au foyer combat (snowball s'appliquerait aux abilities de Njal — inerte,

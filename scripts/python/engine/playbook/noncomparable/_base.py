@@ -204,6 +204,9 @@ class NCContext:
     #                            cible d'une self-cast AoE (heal) = MainTile-id du caster, PAS son unit-id
     active_levels: object = None   # callable() -> {unitId: activeAbilityLevel} (lazy combatSnapshot) :
     #                            niveau d'ability des allies pour InspiredToGreatness (util = level)
+    ability_config: object = None  # callable(uid) -> {"active","passive","multiplier"} (combatSnapshot) :
+    #                            niveau PASSIF du caster pour ReachedSummonCap (#38 : ControlEdict est
+    #                            le passif de Tan Gi'da -> maxSummons[level passif])
     units: list = field(default_factory=list)   # dv.units (par-unite abilities + usable/cooldown) :
     #                            etat cooldown des allies pour InspiredToGreatness (GetActive usable)
     cast_from_tiles: object = None   # callable(uid, target_id, ability_id) -> {currentValid, moveTiles} :
