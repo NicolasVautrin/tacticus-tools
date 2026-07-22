@@ -56,12 +56,44 @@ peuplent déjà `board`/positions → aucun call-site à éditer). Factory : `"C
 
 ## Flags validator / suites
 
-1. **GAP prédiction-DryBush** (tâche #62) : le call-site PRÉDICTION passe `defender_on_cover=None`
-   → branche -3 dégradée en -1/-2 quand le porteur est sur DryBush (le combat est exact, terrain
-   threadé). Fix : threader le terrain au board de prédiction comme le combat.
+1. ~~**GAP prédiction-DryBush** (tâche #62)~~ **RÉSOLU** — cf. section #62 ci-dessous.
 2. Branche -3 non isolée (toujours confondue avec LightCover) — lire la définition de tuile DryBush
    pour prouver la co-localisation 57↔LightCover.
 3. `AverageDistance` ≈ `hexgeo.distance` mono-tuile — non exercé multi-tuiles (le natif moyenne sur
    les tuiles occupées).
-4. Confrontation end-to-end `engine_validate.py` sur scénario Camouflage (le smoke = combat réel vs
-   logique offline, pas le pipeline prédiction complet).
+4. ~~Confrontation end-to-end sur scénario Camouflage~~ **FAIT** — agreement per-tuile oracle natif
+   (cf. #62 ci-dessous ; plus discriminant qu'`engine_validate` : chaque tuile candidate confrontée).
+
+## #62 — RÉSOLU : terrain threadé au board de prédiction (`defender_on_cover`)
+
+Fix (`engine/playbook/prediction.py`, `make_normal_attack_predictions`) :
+`_on_cover = (scene.board.terrain_at(*t_pos) == LIGHT_COVER_TILE_ID)` (None si board KO), passé à
+`attack_hits_with_modifiers` — mirror exact du call-site combat (`runner/operations/damage.py`).
+Le natif évalue les gates TUILE aussi en prédiction (formule PARTAGÉE @180f0bf50) : LightCover
+`AreEqual(coverPatch,target)` @180f556b0 et branche Camouflage -3 `HasTile(...57)` @181107180.
+LightCover prédiction : même flag → même trou fermé (en single-step la présence de l'effet ⟺
+sur-tuile, donc gate no-op en pratique — mais désormais fidèle, plus d'applique-sur-présence).
+
+Validation live (`probe_62_campred.py`, seed 62001, MC1_67, session 71) : admecRuststalker (p-unit)
+drivé sur (3,2) DryBush + bloodSanguinary (contrôle hors-cover) ; attaquants IA necroDestroyer
+(6h Gauss R2) + astraOrdnance (3h Blast R3). Oracle = `decisionView.attackPlans[].ranked[]` NATIF
+au tour IA vs offline per-tuile (TOL 3) :
+
+- **24 lignes (18 DryBush + 6 contrôle) : 23/24 exactes.** La 24e = +748 FLAT (spread identique
+  543 → même nb de coups, face #62 saine) = aura alliée `SpotterReworked` non portée → tâche #66.
+- Lignes discriminantes : u77 ranged dist≤2 → 6−3−2 plancher 1 (1088,1631) EXACT ; (3,3) mêlée
+  adjacente → 6 coups pleins (gates IsRangedAttack/!IsMeleeAttack) EXACT ; u79 3h → plancher 1
+  avec élévation par-tuile EXACT ; contrôle hors-cover EXACT.
+- Counterfactuel pré-fix (`terrain_at`→None) : 7/18 lignes divergent = EXACTEMENT les ranged
+  6-coups déclampées (6−1−2=3 vs 6−3−2=1 ; les 3-coups planchent à 1 des deux côtés, la mêlée ne
+  touche pas au cover) → cas discriminant prouvé.
+- **Piège `predOptimistic`** : le tag decisionView (regex `/Reduce(Dmg|Damage|Hits)|HitReduction/`,
+  projection.ts) est SUR-LARGE pour `Camouflage_HitReduction` — le canal hits-malus EST foldé dans
+  la prédiction native (verdict §Natif) → les lignes taguées restent comparables (le test aura #153,
+  qui skippe ces lignes, ne peut PAS servir tel quel pour un porteur *_HitReduction).
+
+Régression : stages 12345 = 100 % partout (préd 9/9, util 9/9, ability 10/10, move 15/15) ;
+2468 = baseline exacte (2 résiduels structurels connus). Découvertes hors-scope du probe :
+tâche #65 (FleshmetalGuns = groupes additional-hits attaquant cycliques de Volk non portés,
+mesuré 3.2× sur u79 blackObliterator avant remplacement par astraOrdnance) et tâche #66
+(SpotterReworked ci-dessus).

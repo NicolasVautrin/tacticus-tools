@@ -28,6 +28,7 @@ from engine.entities.effects import (
     calculate_attacker_modifiers_for_prediction, build_defender_modifiers_from_effects,
     hits_bonus_from_effects, hits_malus_from_defender_effects, additional_hit_groups,
     aura_additional_hits_from_allies)
+from engine.entities.effects.loki import LIGHT_COVER_TILE_ID
 from engine.entities.traits import attacker_bonus_hits, target_hit_multiplier, TraitFactory
 from engine.entities.traits.unit_trait import UnitTrait
 from engine.entities.damage_trait import DamageTrait
@@ -537,13 +538,21 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # #57a : EXTRA_HITS DU PAS (scene, refresh par-pas) et non le cold ctx — les stat-mods hits
     # dynamiques (Swarm_HitReduction : -1 hit/membre perdu) sont posés APRES l'hydratation.
     _xh = scene.extra_hits_current(att_id)
+    # #62 : gates/branches TUILE compute-time des malus défenseur — le natif les évalue AUSSI en
+    # prédiction (formule PARTAGÉE @180f0bf50) : LightCover `AreEqual(coverPatch, target)` @180f556b0,
+    # Camouflage branche -3 `HasTile(TilesWithTriggeredAbility(Tiles(Target), 57))` @181107180. Terrain
+    # de la CIBLE (immobile : seule la tuile candidate de l'attaquant varie) via scene.board (#124),
+    # mirror du call-site combat (operations/damage.py). Board KO -> None = applique-sur-présence.
+    _t_terrain = scene.board.terrain_at(t_pos[0], t_pos[1]) if scene.board is not None else None
+    _on_cover = (_t_terrain == LIGHT_COVER_TILE_ID) if _t_terrain is not None else None
     hits = attack_hits_with_modifiers(weapon_hits=whits,
                                       extra_hits=_xh if _xh is not None else ctx.stat(StatType.EXTRA_HITS),
                                       extra_hits_melee=ctx.extra_hits_melee,
                                       attacker_effects=att_effects, trait_objects=ctx.trait_objects(),
                                       target_effects=tgt_effects, aura_sources=aura_sources, board=board,
                                       is_melee=is_melee, damage_profile=prof_name,
-                                      include_bonus_hit_behaviours=True)  # prediction folde GetStuckIn (deterministe)
+                                      include_bonus_hit_behaviours=True,  # prediction folde GetStuckIn (deterministe)
+                                      defender_on_cover=_on_cover)
     # MkXGravis (trait CIBLE 0x3f5) : l'armure est traversée 2× → hit_mult=2 dans predict_attack_raw
     # (GetBaseDamageWithFixedPiercedArmor @181030d10). No-op (=1) pour toute cible sans trait hit-twice.
     tgt_hit_mult = target_hit_multiplier(TraitFactory.create_many(_tgt_traits))
