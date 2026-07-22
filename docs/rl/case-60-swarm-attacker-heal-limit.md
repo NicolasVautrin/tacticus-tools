@@ -95,10 +95,25 @@ Faces heal-limit (pures, `DamageCalculations` déjà portées #57d) :
 
 ## 5. Restes / flags
 
-- **DirectDamage member-cap** (`CalculateDirectDamage @18102f212` → `@18102bfe0`) : toujours non
-  vérifié offline (le `execute_direct` du port n'applique PAS de member-cap — le dégât direct du
-  check runner-face a traversé les frontières). À vérifier si un consommateur DirectDamage vs
-  swarm apparaît dans une confrontation.
+- **DirectDamage member-cap — RÉSOLU (#30/#60bis, 2026-07-22, `probe_60bis_directcap.py`)** :
+  le natif CAPE le dégât direct à la frontière de membre. RE : `DirectDamageOperation.Execute
+  @180e677f0` (nœud DSL `DirectDamage @180dee0a0`) route par `IDamagePrediction.CalculateDirectDamage`
+  (slot 7, `@18102f130`) → `ApplyGroupUnitDamageLimit @18102bfe0` avec **profile=NULL** (pas de
+  bypass Blast possible), skip si flag payload ; la route ATTAQUE-pipeline du DoT feu passe par
+  `ApplyTraitDamageLimitsToDirectDamage @18102c9b0` (= même wrapper, dispatch virtuel — les bytes
+  de mode du hit-struct dans `CalculateDamageOperation @18102dc30` sélectionnent la variante).
+  **Prouvé live** (seeds 60112/60113, scénario ennemi-verrouillé + tour ennemi sauté) : scarab
+  PLEIN (2218, 5 membres, LivingMetal inerte à PV pleins → diff pur) posé sur tuile en feu →
+  tick natif = **443** = `hp − maxHealthWith(4)` (vs 444 non-capé ; modèle du tick vérifié exact
+  par ailleurs : 444 nu à rem=1, 111 sous aura Protector +886). Port : `execute_direct` applique
+  `apply_group_unit_damage_limit(dmg_net, False, n, hpMax, hp)` post perçage/armure.
+  Apprentissages scénario (durement acquis, runs 60101-60113) : per-hit de TOUT attaquant lineup
+  ≥ PV membre (444) → la défense #57d fait TOUJOURS atterrir la victime sur une frontière (rem=1
+  au tick) ; tick 20 % PVmax == PV d'un membre (n=5) → seul un scarab PLEIN donne un état
+  discriminant (gap 443 < 444) ; le hive ne spawn PAS sur tour ennemi inerte ; la capture des
+  événements de frontière exige un tour ennemi AVEC activations ; `--hp-target` ne protège pas
+  du feu (20 % du max/tick) ; LivingMetal peut réviver massivement (444→1775) → canal diff
+  inutilisable sur unité endommagée.
 - Le flag=1 des caps heal/repair n'a AUCUN chemin natif identifié à ce jour ; si un apparaît
   (ability « ne peut pas réveiller »), rebrancher les booleans par chemin.
 - `necroSmnSwarm.ScarabSummon` (split) agit à l'apparition — bruit de scénario, sans impact port.

@@ -693,6 +693,22 @@ class AttackDamageOperation:
                                                    armor=armor, mods=None)))
         if dmg <= 0:
             return None
+        # #30 (#60bis) MEMBER-CAP du degat DIRECT — mirror `ApplyTraitDamageLimitsToDirectDamage
+        # @18102c9b0` (= `ApplyGroupUnitDamageLimit @18102bfe0` avec profile=NULL : PAS de bypass
+        # Blast possible), meme wrapper que le chemin `CalculateDirectDamage @18102f130` de
+        # `DirectDamageOperation.Execute @180e677f0`. Un degat direct ne tue AU PLUS qu'UN membre :
+        # cap = hp - maxHealthWith(remaining-1), applique au montant NET (post percage/armure —
+        # l'etage limites de `CalculateDamageOperation @18102dc30` opere apres la FixedArmor plate).
+        # PROUVE LIVE (probe_60bis seeds 60112/60113) : scarab PLEIN (2218, 5 membres) sur tuile en
+        # feu -> tick natif 443 = cap exact (vs 444 non-cape, modele verifie par ailleurs a 444 nu
+        # rem=1 et 111 sous aura +886). Doc : case-60 par. 5 (resolu).
+        tuc = tgt.get_component(UnitComponent)
+        if tuc is not None and thc.hp_max:
+            import gameconfig as GC
+            n = int((GC.unit(tuc.visual_id) or {}).get("nrOfMembers") or 1)
+            if n > 1:
+                from ...services.trait_damage_limits import apply_group_unit_damage_limit
+                dmg = apply_group_unit_damage_limit(dmg, False, n, int(thc.hp_max), int(thc.hp))
         hp_before = thc.hp
         # #G6a : route par `reduce()` (clamp HP-floor + pas de PV<0). PAS de `_record_attacked` : un DoT n'est
         # PAS une attaque (le compteur `HasBeenAttackedAmountThisTurn` ne compte que les vraies attaques).
