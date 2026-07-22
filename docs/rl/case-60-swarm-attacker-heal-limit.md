@@ -114,6 +114,10 @@ Faces heal-limit (pures, `DamageCalculations` déjà portées #57d) :
   événements de frontière exige un tour ennemi AVEC activations ; `--hp-target` ne protège pas
   du feu (20 % du max/tick) ; LivingMetal peut réviver massivement (444→1775) → canal diff
   inutilisable sur unité endommagée.
+- **Étage limites du COMBAT (attaque/ability) — RÉSOLU (#67, 2026-07-22)** : l'étage entier
+  (member-cap + Resilient + bypass Blast + porte overkill) est câblé dans `_run_hits` et validé
+  live 4/4 scénarios — détail, découvertes (cap des BORNES avant tirage, ancrage hp_départ de la
+  porte, flag group-cap ≠ overkill) et résidus : `docs/rl/case-67-combat-trait-limits.md`.
 - Le flag=1 des caps heal/repair n'a AUCUN chemin natif identifié à ce jour ; si un apparaît
   (ability « ne peut pas réveiller »), rebrancher les booleans par chemin.
 - `necroSmnSwarm.ScarabSummon` (split) agit à l'apparition — bruit de scénario, sans impact port.

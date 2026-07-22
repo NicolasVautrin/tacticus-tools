@@ -63,6 +63,9 @@ from ...services.damage_calculations import spread_to_min_max
 from ...services.damage_prediction import get_base_damage_fix64, apply_pierce_and_modifiers
 from ...services.damage_combat import (calculate_damage_operation, Damage, could_crit,
                                        roll_critical, BlockSource)
+from ...services.trait_damage_limits import (apply_trait_damage_limits_to_damage,
+                                             compute_prediction_overkill)
+from ...entities.damage_trait import DamageTrait
 from ...services.damage_modifiers import apply_all_modifiers, capped_reduction_flat
 from ...services.battle_query import are_tiles_adjacent
 from ...services.attack_hits_formula import attack_hits_with_modifiers
@@ -219,6 +222,51 @@ class AttackDamageOperation:
         cc = ctx.stat(StatType.CRIT_CHANCE) + crit_chance_bonus_from_effects(attacker_effects)
         cd = ctx.stat(StatType.CRIT_DAMAGE) + crit_damage_bonus_from_effects(attacker_effects)
         return cc, cd, could_crit(cc, cd)
+
+    @staticmethod
+    def _target_limits(tgt, thc, damage_profile: Optional[str] = None,
+                       is_special: int = 1) -> Optional[dict]:
+        """#67 : champs STATIQUES cible de l'etage LIMITES du COMBAT (`ApplyTraitDamageLimitsToDamage
+        @18102c650`) — mirror ECS du `_target_damage_limits` de la PREDICTION (playbook/prediction.py),
+        MEME etage partage (`services/trait_damage_limits.py`). Le natif applique cet etage a
+        l'EXECUTION aussi : attaque normale via le per-coup d'`ExecuteHit @180e5eff0` (wrappers mode-1
+        `ApplyTraitDamageLimitsToAttackDamage @18102c510/@18102c5b0`, virtual-only — l'execution
+        reutilise la routine per-coup de prediction, cellules min/max capees AVANT la resolution),
+        ability/splash via `CalculateAbilityDamage @18102cb50` (mode 2 : `ApplyTraitDamageLimitsTo
+        Damage(2, &dmg, &dmg, profil, cible, ..., hp=hc+0x18, ...)`). `is_special` = le mode natif
+        (1=attack -> Impervious applique ; 2=ability) — sans effet offline tant que
+        `impervious_stat_current=None` (no-op documente, comme la prediction).
+        None = fast-path retro-compat : cible mono-membre sans Resilient -> etage strictement no-op
+        (Impervious charge / boss 0x5d4 = no-op documentes de toute facon)."""
+        tuc = tgt.get_component(UnitComponent) if tgt is not None else None
+        if tuc is None or thc is None or not thc.hp_max:
+            return None
+        import gameconfig as GC
+        gu = GC.unit(tuc.visual_id) or {}
+        utraits = set(gu.get("traits") or [])
+        n = int(gu.get("nrOfMembers") or 1)
+        has_res = "Resilient" in utraits
+        if n <= 1 and not has_res:
+            return None
+        _dp_traits = ((GC.damage_profile(damage_profile) or {}).get("Traits") or []
+                      ) if damage_profile else []
+        return {
+            "is_special": int(is_special),
+            "target_has_resilient": has_res,
+            "target_has_impervious": "Impervious" in utraits,
+            "impervious_stat_current": None,   # charge Impervious non captee offline -> no-op (comme la prediction)
+            "member_count": n,                 # GroupUnitComponent (@18102bfe0 lit le composant cible)
+            "member_total_hp": int(thc.hp_max),
+            "profile_has_hits_multiple_members": DamageTrait.HitsMultipleMembers.name in _dp_traits,
+            # `max_health` = param_11 du core : pour l'EXECUTION c'est le HP AU DEBUT DE L'ATTAQUE
+            # (ancre per-attaque de l'executeur), PAS hpMax — discrimine live par probe 67201
+            # (tour letal hp_depart 784 != hpMax 7530 : le coup rem=1 a TUE, seuil 2x784 ouvert ;
+            # contre-datapoint 67111 hp_depart 1513 : rem=1 TENU a 0, seuil 2x1513 ferme). La
+            # PREDICTION garde hpMax (son propre appelant PredictAttackRaw, valide tel quel).
+            "max_health": int(thc.hp if thc.hp is not None else thc.hp_max),
+            "target_has_boss_cap": False,      # HasTriggeredAbility(0x5d4) non verifie offline -> no-op
+            "boss_cap_const": 0,
+        }
 
     @staticmethod
     def _apply_defender_flat_reductions(mods, def_mods) -> None:
@@ -385,7 +433,12 @@ class AttackDamageOperation:
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources, shield=shield_total,
                                             bonus_hit_chance=_gsi,
-                                            capped_reductions=def_mods.capped_reductions)
+                                            capped_reductions=def_mods.capped_reductions,
+                                            # #67 : etage limites (member-cap/Resilient/bypass Blast) —
+                                            # mode 1 = attaque (wrapper @18102c510/@18102c5b0)
+                                            limits=AttackDamageOperation._target_limits(
+                                                tgt, thc, _profile, is_special=1),
+                                            limits_hp=int(thc.hp or 0))
         AttackDamageOperation._deplete_shield(shc, r)
         death = None
         if thc.hp is not None:
@@ -407,7 +460,8 @@ class AttackDamageOperation:
     def _run_hits(rng: IntBasedMersenneTwister, hit_nc: "HitDamage", hit_cr: "HitDamage",
                   crit_chance: int, crit_enabled: bool, hits: int, block_sources,
                   shield: int = 0, armor_pool: int = 0, armor_pct: int = 0, post_roll=None,
-                  bonus_hit_chance: Optional[int] = None, capped_reductions=None) -> dict:
+                  bonus_hit_chance: Optional[int] = None, capped_reductions=None,
+                  limits: Optional[dict] = None, limits_hp: int = 0) -> dict:
         """Boucle PAR COUP partagée (attaque normale ET ability) : pour chaque coup, crit-roll D'ABORD
         (1 tirage NextBool si cc>=1, sinon 0) PUIS tirage dans `hit_cr`/`hit_nc`, PUIS split combat
         (bouclier/armure-pool/block, `calculate_damage_operation`). Ordre RNG crit->spread->block confirmé.
@@ -442,6 +496,7 @@ class AttackDamageOperation:
             if capped_reductions else 0
         _capped_flat_cr = capped_reduction_flat((hit_cr.min + hit_cr.max) / 2.0, capped_reductions) \
             if capped_reductions else 0
+        _rogne = [0]        # #67 : rogne cumule des cellules MIN des coups precedents (porte overkill)
 
         def _one_hit(idx: int) -> bool:
             """Un coup complet crit->spread->block + le roll Maybe GetStuckIn si `idx` impair. Renvoie True
@@ -451,12 +506,63 @@ class AttackDamageOperation:
             crit = roll_critical(rng, crit_chance) if crit_enabled else False
             crits.append(crit)
             hd = hit_cr if crit else hit_nc
-            roll = hd.get_damage(rng)
-            if post_roll is not None:
-                roll = post_roll(roll)        # ability : réduction APRÈS le tirage (roll-then-reduce)
-            if capped_reductions:             # #91 : réduction CAPÉE défenseur (GuardianOrganism) = scalaire FLAT
-                roll = max(0, roll - (_capped_flat_cr if crit else _capped_flat_nc))  # (D=centre bornes, PAS 33%×roll)
-            rolls.append(roll)
+            # #67 : etage LIMITES du natif (`ApplyTraitDamageLimitsToDamage @18102c650`) — MEME etage
+            # partage que la prediction (`services/trait_damage_limits.py`, bit-exact 1357 s16) :
+            # member-cap Swarm (443/443/444/444, live run 60102 + probe 67061 vs scarab plein) +
+            # Resilient HP-1 (porte overkill) + bypass Blast (HitsMultipleMembers, probe 67071).
+            # `_rem` = HP restant avant CE coup (le natif relit le HealthComponent entre coups ; ici
+            # `limits_hp - total`). Deux ORDRES natifs distincts, discrimines live (probe 67101) :
+            #  - ATTAQUE (mode 1) : les caps s'appliquent aux BORNES min/max PUIS le tirage se fait
+            #    DANS la plage capee (routine per-coup slot-4 -> resolution slot-8 d'`ExecuteHit
+            #    @180e5eff0` ; le core cape *param_3/*param_4 = cellules min et max). Preuve : tour
+            #    letal live [505,541,602,206] — coup 3 tire 602 dans [lo, cap=808] (largeur CAPEE :
+            #    le meme tirage donnait >=809 en pleine largeur), coup 4 degenere [206,206] = rem-1.
+            #    Le tirage est TOUJOURS consomme (RandomlyResolveMinMaxDamage @181038600 appelle
+            #    Next(min,max+1) SANS gate min==max — largeur 1 = 1 tirage quand meme) -> les caps
+            #    TOTAUX (swarm : cap < lo, plage degeneree) restent bit-exacts en consommation.
+            #  - ABILITY/splash (mode 2) : cap SCALAIRE post-tirage — `CalculateAbilityDamage
+            #    @18102cb50` recoit le degat DEJA resolu et passe la MEME cellule deux fois
+            #    (`&dmg, &dmg` : degenere par construction).
+            # PORTE OVERKILL (probes 67072/67081/67111/67201) : accum du core = `(param_11 -
+            # param_9) + param_12 + *param_3` (cellule MIN pre-cap) avec param_11 = HP AU DEBUT DE
+            # L'ATTAQUE (= limits_hp ; discrimine par 67201 vs 67111, cf. _target_limits), param_9
+            # = rem frais, param_12 = ROGNE cumule des coups precedents (rogne de la cellule MIN :
+            # 67081 coup2-cape/coup3-letal excluent p12=0 ET p12=brut-cumule). Seuil = 2x hp_depart
+            # (overkillDmgPctOfHealth=100).
+            # RESIDU documente : cible bouclier + multi-membre/Resilient — CalculateAbilityDamage
+            # cape le reste POST-part-bouclier (iVar20=min(dmg,shield) re-additionne apres) alors
+            # qu'ici le cap precede le split ; identique tant que shield=0 (tous les cas valides).
+            if limits is not None and int(limits.get("is_special") or 1) == 1:
+                # ATTAQUE : cap des bornes AVANT le tirage (largeur du modulo = plage capee)
+                flat = (_capped_flat_cr if crit else _capped_flat_nc) if capped_reductions else 0
+                lo_pre = max(0, hd.min - flat)
+                hi_pre = max(0, hd.max - flat)
+                _rem = max(0, limits_hp - total)
+                _ovk = (compute_prediction_overkill(_rem, limits_hp, lo_pre, p12=_rogne[0])
+                        if limits_hp > 0 else False)
+                lo = apply_trait_damage_limits_to_damage(lo_pre, current_health=_rem,
+                                                         overkill=_ovk, **limits)
+                hi = apply_trait_damage_limits_to_damage(hi_pre, current_health=_rem,
+                                                         overkill=_ovk, **limits)
+                _rogne[0] += max(0, lo_pre - lo)
+                roll = rng.next_internal(lo, hi + 1)   # TOUJOURS 1 tirage (mirror slot 8, sans gate)
+                rolls.append(roll)
+            else:
+                roll = hd.get_damage(rng)
+                if post_roll is not None:
+                    roll = post_roll(roll)    # ability : réduction APRÈS le tirage (roll-then-reduce)
+                if capped_reductions:         # #91 : réduction CAPÉE défenseur (GuardianOrganism) = scalaire FLAT
+                    roll = max(0, roll - (_capped_flat_cr if crit else _capped_flat_nc))  # (D=centre bornes)
+                rolls.append(roll)            # rolls = tirage POST-mods PRE-limites (cap lisible dans per_hit)
+                if limits is not None and roll > 0:
+                    # ABILITY : cap scalaire post-tirage (cellule degeneree, CalculateAbilityDamage)
+                    _rem = max(0, limits_hp - total)
+                    _ovk = (compute_prediction_overkill(_rem, limits_hp, roll, p12=_rogne[0])
+                            if limits_hp > 0 else False)
+                    _pre = roll
+                    roll = apply_trait_damage_limits_to_damage(roll, current_health=_rem,
+                                                               overkill=_ovk, **limits)
+                    _rogne[0] += max(0, _pre - roll)
             # #72 : mirror `CalculateBlockChances(param_4=failedList)` @181002350 -> une source de block
             # AYANT ECHOUE a un coup precedent est EXCLUE des coups suivants (Contains(failedList, id)) ;
             # une source qui REUSSIT reste jouable (ApplyRandomBlockDamage return sans AddFailedBlockId).
@@ -568,7 +674,12 @@ class AttackDamageOperation:
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources, shield=shield_total,
                                             post_roll=_reduce,
-                                            capped_reductions=def_mods.capped_reductions)
+                                            capped_reductions=def_mods.capped_reductions,
+                                            # #67 : etage limites — mode 2 = ability
+                                            # (`CalculateAbilityDamage @18102cb50`)
+                                            limits=AttackDamageOperation._target_limits(
+                                                tgt, thc, damage_profile, is_special=2),
+                                            limits_hp=int(thc.hp or 0))
         AttackDamageOperation._deplete_shield(shc, r)
         if thc.hp is not None:
             hp_before = thc.hp
@@ -649,7 +760,12 @@ class AttackDamageOperation:
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources,
                                             shield=shield_total,   # post_roll=None (reduce-then-roll)
-                                            capped_reductions=def_mods.capped_reductions)
+                                            capped_reductions=def_mods.capped_reductions,
+                                            # #67 : etage limites — mode 2 = ability/splash
+                                            # (`CalculateAbilityDamage @18102cb50`)
+                                            limits=AttackDamageOperation._target_limits(
+                                                tgt, thc, damage_profile, is_special=2),
+                                            limits_hp=int(thc.hp or 0))
         AttackDamageOperation._deplete_shield(shc, r)
         if thc.hp is not None:
             hp_before = thc.hp

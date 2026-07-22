@@ -235,9 +235,13 @@ def apply_trait_damage_limits_to_damage(
       4. si HasTriggeredAbility(0x5d4=1492) : cap boss  = Min(dmg, param_9 - maxHealth*const/100)
     `cumulative_damage` (param_5 member-cap / param_9 boss) defaut = current_health si None."""
     cum = current_health if cumulative_damage is None else cumulative_damage
-    # 1. member-cap
+    # 1. member-cap — flag natif = octet 0 CONSTANT aux deux appels du core (@18102c650 :
+    # `in_stack_...b0 & 0xffffff00` -> byte 0) : l'overkill ne bypasse JAMAIS le member-cap
+    # (seul le cap Resilient est gate par IsOverkill, calcule APRES les group caps). #67 :
+    # l'ex-passage d'`overkill` ici etait une deviation inexercee (overkill exige dmg >=
+    # ~2x hpMax, jamais combine a une cible multi-membre dans les validations).
     dmg = apply_group_unit_damage_limit(
-        dmg, profile_has_hits_multiple_members, member_count, member_total_hp, cum, overkill)
+        dmg, profile_has_hits_multiple_members, member_count, member_total_hp, cum, False)
     # 2. Resilient
     dmg = apply_resilient_trait_damage_limit(
         dmg, target_has_resilient, current_health, max_health, overkill)
