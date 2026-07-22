@@ -466,7 +466,7 @@ class StageProbe:
             if _effs:
                 meta["effects"] = _effs
             tile_u = tile_composite(c, meta, leaf_ctx, ctx.wt)
-            mind_u = MIN_DIST_UTILITY.evaluate_movement(c, ctx.epos, ctx.wt,
+            mind_u = MIN_DIST_UTILITY.evaluate_movement(c, ctx.tgt_epos or ctx.epos, ctx.wt,
                                                         ctx.pathdist_by_pos)
             out[c] = {"tile": round(tile_u, 3), "mindist": round(mind_u, 3),
                       "u": round(tile_u + mind_u, 3),

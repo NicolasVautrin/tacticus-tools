@@ -577,8 +577,11 @@ class MovementActionGenerator(ActionGenerator):
     def generate(self, ctx) -> dict | None:
         if not ctx.move_tiles or not ctx.enemies:
             return {"kind": "move", "to": None}
+        # #26 : le seed du fallback HEX de MinDist(16) = les ennemis CIBLABLES (tgt_epos, post-filtres
+        # `FindClosestEnemy` @181197f10), PAS epos complet — un ennemi Environment/deep-strike/irrelevant
+        # ne participe jamais au ClosestEnemy natif. epos (complet) reste le fallback si tgt_epos vide.
         move_to, move_util = move.best_move_faithful(
-            ctx.move_tiles, ctx.elev_by_pos, ctx.epos, ctx.wt,
+            ctx.move_tiles, ctx.elev_by_pos, ctx.tgt_epos or ctx.epos, ctx.wt,
             pathdist_by_pos=ctx.pathdist_by_pos,
             is_temporary_by_pos=ctx.is_temporary_by_pos, effects_by_pos=ctx.effects_by_pos,
             terrain_by_pos=ctx.terrain_by_pos, leaf_ctx=tile_leaf_ctx(ctx))

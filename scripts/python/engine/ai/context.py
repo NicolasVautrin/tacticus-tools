@@ -45,7 +45,10 @@ class AiDecisionContext:
 
     # --- Positions / adversaires / alliés ---
     enemies: list                     # unités adverses vivantes positionnées
-    epos: list                        # positions ennemies (GetAdjacentEnemies)
+    epos: list                        # positions ennemies (GetAdjacentEnemies) — COMPLET (occupance)
+    tgt_epos: list                    # positions ennemies CIBLABLES (post-filtres `FindClosestEnemy`
+    #                                   @181197f10 #26 : Environment/IsTargetable/IsIrrelevantObject/
+    #                                   IsDead/GetOnlyTargets) — seed du fallback HEX de MinDist(16)
     fpos: list                        # positions alliées, self exclu (GetAdjacentFriends)
     origin: tuple | None              # (col,row) de l'unité active
     move_tiles: list                  # tuiles de mouvement atteignables (aiMovableTiles[uid])
@@ -247,6 +250,12 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
                       for t in tiles}
     pdr = rpc("pathDistToEnemies", {"runnerId": rid, "unitId": uid}, 90)
     pathdist_by_pos = {(t.get("col"), t.get("row")): t.get("pathDist") for t in (pdr.get("tiles") or [])}
+    # #26 — ennemis CIBLABLES retenus par le RPC (miroir natif COMPLET des filtres `FindClosestEnemy`
+    # @181197f10 : Environment / IsTargetable / IsIrrelevantObject / IsDead / GetOnlyTargets) : seed
+    # du fallback HEX de MinDist(16) quand pathDist=-1. Fallback epos (complet) si RPC KO.
+    _pdr_enemies = pdr.get("enemies")
+    tgt_epos = ([(e.get("col"), e.get("row")) for e in _pdr_enemies]
+                if _pdr_enemies else epos)
     # {(col,row): tileEntityId} — board STATIQUE (caché par rid). Cible native d'une self-cast AoE
     # = MainTile-id du caster (mesuré CombatRestoratives : tgt=22 = id de la tuile du caster).
     tile_id_by_pos = _board_tile_ids(rpc, rid)
@@ -276,7 +285,7 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     return AiDecisionContext(
         rpc=rpc, rid=rid, wt=wt, predictor=predictor, sctx=sctx, scene=scene,
         uid=uid, me=me, units=units, cur=cur, plans=plans,
-        enemies=enemies, epos=epos, fpos=fpos, origin=origin,
+        enemies=enemies, epos=epos, tgt_epos=tgt_epos, fpos=fpos, origin=origin,
         move_tiles=move_tiles, reach_nc=reach_nc,
         hp_cur_by_id=hp_cur_by_id, hpmax_by_id=hpmax_by_id, obs_units=obs_units,
         ab_name_by_id=ab_name_by_id, normal_ids=normal_ids,

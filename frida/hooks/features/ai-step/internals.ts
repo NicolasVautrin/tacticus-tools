@@ -194,6 +194,23 @@ export const getMainTileMi = entityExtClass
 export const getTilesMi = entityExtClass
     ? findMethodByParamCount(entityExtClass, "GetTiles", 2) : null;
 
+// #26 — filtres RESTANTS de `MovementActionGenerator.<FindClosestEnemy>d__8.MoveNext @181197f10`
+// (ordre natif : skip si CurrentOwnerIsEnvironment / !IsTargetable / IsIrrelevantObject / IsDead,
+// puis restriction aux `GetOnlyTargets` si la liste est non vide) :
+//   `EntityExtensions.CurrentOwnerIsEnvironment @180eb4d00` = GetCurrentPlayer(e,state).Owner.Type==2
+//     (unité possédée par le joueur Environment/neutre) ;
+//   `UnitExtensions.IsIrrelevantObject @180ed86d0` = trait 27, ou trait 13 avec stat0 <= 0 (décor) ;
+//   `UnitExtensions.GetOnlyTargets @180ed1b10` = List<int> d'ids de cibles FORCÉES (taunt/forced-target,
+//     champ +0x50 du composant ; pas de composant OU OwnerComponent.IsOverridden → liste vide).
+// Tous invoqués NATIFS (aucune sémantique portée côté hooks). Consommés par pathDistToEnemies
+// (rpc-board.ts) ; guardés null (méthode non résolue => pas de filtre, dégradation sûre).
+export const currentOwnerIsEnvMi = entityExtClass
+    ? findMethodByParamCount(entityExtClass, "CurrentOwnerIsEnvironment", 2) : null;
+export const isIrrelevantObjMi = unitExtClass
+    ? findMethodByParamCount(unitExtClass, "IsIrrelevantObject", 1) : null;
+export const getOnlyTargetsMi = unitExtClass
+    ? findMethodByParamCount(unitExtClass, "GetOnlyTargets", 1) : null;
+
 /** Invoque une méthode statique retournant bool (résultat boxé : valeur @0x10). */
 export function invokeBool(
     mi: { info: NativePointer } | null, args: NativePointer[],

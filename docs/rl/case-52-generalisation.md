@@ -819,3 +819,36 @@ sinon stat+1) ; + TwistedScience_Heal, PlagueburstMortar, LightOfSanguinius, Arm
 DaemonicOrdnance, DevoutPush, DoomSiren, ForwardObservers, HealingBalms_Heal, InstrumentsOfVengeance,
 MartialExemplar, MortarionsPlagueWind, PlasmaGrenade, Repair_GalvanicField, SavageEchoes, SorcerousFacade,
 Stikkbomb, TheLionsWrath. À porter à la demande (dès qu'un cas d'agreement les exerce) — tâche dédiée #27.
+
+## #26 -- filtre FindClosestEnemy COMPLET dans pathDistToEnemies (4 predicats + GetOnlyTargets + tgt_epos)
+
+Suite de #57l (qui n'avait mirrore que `IsTargetable`). Le natif `MovementActionGenerator.
+<FindClosestEnemy>d__8.MoveNext @181197f10` applique, DANS CET ORDRE, sur chaque ennemi
+(`GetAllEnemyUnitsOfUnit`) : skip si `EntityExtensions.CurrentOwnerIsEnvironment @180eb4d00`
+(= `GetCurrentPlayer(e,state).Owner.Type == 2`, joueur Environment/neutre) ; skip si
+`!UnitExtensions.IsTargetable @180ed8ff0` ; skip si `UnitExtensions.IsIrrelevantObject @180ed86d0`
+(= trait 27, ou trait 13 avec stat0 <= 0 -- decor) ; skip si `IsDead`. Puis, si
+`UnitExtensions.GetOnlyTargets @180ed1b10` (unite qui BOUGE) renvoie une liste NON vide
+(`List<int>` d'ids au champ +0x50 du composant taunt ; liste vide si pas de composant ou si
+`OwnerComponent.IsOverridden`), le candidat doit etre CONTENU (`List.Contains`) -- taunt/forced-target.
+
+**Port (RPC `pathDistToEnemies`, rpc-board.ts)** : les 4 predicats sont invoques NATIFS (aucune
+semantique portee), guardes null (methode non resolue => pas de filtre). Restriction GetOnlyTargets
+par ids ; si elle VIDE le set (cible forcee morte/non-ciblable -- comportement natif aval non RE'd),
+degradation sure = set non restreint + flag `onlyTargetsUnmatched`. La reponse porte aussi
+`enemies:[{id,col,row}]` (cibles retenues) -> `ctx.tgt_epos` (context.py live ; state_bridge offline
+reutilise son tgt_epos `_is_untargetable`), consomme par le generateur de move et le harness stages
+comme seed du fallback HEX de MinDist(16) quand pathDist=-1 (le SET est fidele, hex reste une approx).
+
+**Validation (2026-07-22, sessions 69-70)** :
+- stages 12345 : 100% partout (10/10 ability, 15/15 move, 9/9 pred, 9/9 util) -- seed deep-strike,
+  chemin modifie exerce de bout en bout ; dump `data/stages_26_12345.json`.
+- stages 2468 : 12/12 ability, 15/17 move = exactement les 2 misses structurels connus (s4
+  generator-overfire, s15 downstream) -- zero regression ; dump `data/stages_26_2468.json`.
+- live taunt (runner TG+Sanguinary vs Bullgryn, MC1_67) : pre-taunt `enemies=[79,81]`,
+  `onlyTargetsCount=0` ; post-`CrushingClaws(1105)` (effet `Taunted_OnlySpecificTargets`), au tour
+  IA : `onlyTargetsCount=1`, `enemies=[79]` SEUL (u81 a egale distance exclu) ; post-expiration du
+  taunt (1 round) : retombe a 0 -- le RPC lit la verite native aux trois moments.
+- non testables en runner (pas de porteur spawnable) : Environment/IsIrrelevantObject -- mais ce
+  sont des INVOCATIONS natives (pas des formules portees), le risque se limite au cablage, couvert
+  par les tests ci-dessus (meme pattern de garde).

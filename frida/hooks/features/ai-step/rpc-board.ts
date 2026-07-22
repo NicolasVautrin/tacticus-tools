@@ -24,11 +24,13 @@ import { abilityName } from "../../data/ability-names.js";
 import { TARGETING_RULE_BITS } from "../../data/targeting-rule-names.js";
 import { Ctx } from "../../controller.js";
 import {
-    ActionResult, ActionSpec, activeAbilityMsgClass, applyOneAction,
-    attackQueryOff, battleInServicesOff, dpqInServicesOff, entityServicesClass,
+    ActionResult, ActionSpec, activeAbilityMsgClass, applyOneAction, ARRAY_FIRST,
+    attackQueryOff, battleInServicesOff, currentOwnerIsEnvMi, dpqInServicesOff, entityServicesClass,
     extractTiles, extractTilePtrs,
-    entityExtClass, finishUnitTurnMsgClass, getMovableTilesMi, getTilesMi, getUnitMainTile,
-    invokeBool, isAliveMi, isCtrlByCurMi, isTargetableMi, LIST_SIZE, moveUnitMsgClass, movementQueryOff,
+    entityExtClass, finishUnitTurnMsgClass, getMovableTilesMi, getOnlyTargetsMi, getTilesMi,
+    getUnitMainTile,
+    invokeBool, isAliveMi, isCtrlByCurMi, isIrrelevantObjMi, isTargetableMi, LIST_SIZE,
+    moveUnitMsgClass, movementQueryOff,
     mowAbilityTypes, readTileCoord, resolveDpq, servicesOff, summarize, unitAbilityTypes,
     unitExtClass,
 } from "./internals.js";
@@ -501,25 +503,53 @@ export function registerViewBoard(ctx: Ctx): void {
         const movementQuery = runner.add(movementQueryOff).readPointer();
 
         // Tuile ennemie (MainTile) de chaque unité adverse vivante (= !ctrl par le joueur courant).
-        const enemyTiles: NativePointer[] = [];
+        // #57l/#26 — MIROIR COMPLET des filtres de `MovementActionGenerator.<FindClosestEnemy>d__8
+        // .MoveNext @181197f10` (ordre natif) : le natif ne mesure MinDist(16) QU'AUX ennemis
+        // CIBLABLES — skip si `CurrentOwnerIsEnvironment @180eb4d00` (unité du joueur Environment/
+        // neutre), si `!IsTargetable @180ed8ff0` (deep-strike non atterri, flag 0x11 — sans ce filtre
+        // un Dante deep-strike plus proche par chemin écrasait le vrai ClosestEnemy : 12345 s5, (1,4)
+        // valait 6 vers Dante vs 7 vers l'ennemi ciblable), si `IsIrrelevantObject @180ed86d0` (décor :
+        // trait 27, ou trait 13 avec stat0<=0), si mort (IsAlive ci-dessus). Chaque prédicat est
+        // guardé : méthode non résolue => pas de filtre (dégradation sûre).
+        let cands: Array<{ tile: NativePointer; id: number }> = [];
         let me: NativePointer = ptr(0);
         forEachEntity(statePtr, (e, id, ty) => {
             if (ty !== EntityType.Unit || !invokeBool(isAliveMi, [e, statePtr])) return;
             if (id === body.unitId) { me = e; return; }
             if (invokeBool(isCtrlByCurMi, [e, statePtr])) return;   // allié → pas une cible
-            // #57l — MIROIR de `MovementActionGenerator.<FindClosestEnemy>d__8.MoveNext @181197f10`
-            // (filtre `!IsTargetable`) : le natif ne mesure MinDist(16) QU'AUX ennemis CIBLABLES.
-            // Une unité en Deep-Strike (TeleportStrike, flag 0x11) est NON-CIBLABLE tant qu'elle n'a
-            // pas agi → exclue du ClosestEnemy. Sans ce filtre, un Dante deep-strike (plus proche par
-            // chemin) écrasait le vrai ClosestEnemy et faussait la distance-chemin par tuile (12345 s5 :
-            // (1,4) valait 6 vers Dante vs 7 vers l'ennemi ciblable). Guardé : si la méthode ne résout
-            // pas, on ne filtre pas (dégradation sûre). `IsTargetable` = 1 param (l'unité).
+            if (currentOwnerIsEnvMi && invokeBool(currentOwnerIsEnvMi, [e, statePtr])) return;
             if (isTargetableMi && !invokeBool(isTargetableMi, [e])) return;
+            if (isIrrelevantObjMi && invokeBool(isIrrelevantObjMi, [e])) return;
             const t = getUnitMainTile(e, statePtr);
-            if (t && !t.isNull()) enemyTiles.push(t);
+            if (t && !t.isNull()) cands.push({ tile: t, id });
         });
         if (me.isNull()) return { ok: false, error: "unit " + body.unitId + " introuvable/morte" };
-        if (!enemyTiles.length) return { ok: false, error: "aucun ennemi vivant" };
+        // #26 — `GetOnlyTargets @180ed1b10` sur l'unité qui BOUGE : si la liste (List<int> d'ids de
+        // cibles FORCÉES — taunt/forced-target) est non vide, le natif restreint le ClosestEnemy aux
+        // ids CONTENUS (List.Contains). Si la restriction VIDE le set (cible forcée morte/non-ciblable),
+        // le natif rend ClosestEnemy=null (comportement aval non RE'd) → on GARDE le set non restreint
+        // (dégradation sûre, signalée par onlyTargetsUnmatched).
+        let onlyTargetsCount = 0; let onlyTargetsUnmatched = false;
+        if (getOnlyTargetsMi) {
+            try {
+                const lst = invokeMethod(getOnlyTargetsMi.info, null, [me]);
+                if (!lst.isNull()) {
+                    const n = lst.add(LIST_SIZE).readS32();
+                    const items = lst.add(0x10).readPointer();
+                    const ids = new Set<number>();
+                    for (let i = 0; i < n && !items.isNull(); i++) {
+                        ids.add(items.add(ARRAY_FIRST + 4 * i).readS32());
+                    }
+                    onlyTargetsCount = ids.size;
+                    if (ids.size) {
+                        const kept = cands.filter((c) => ids.has(c.id));
+                        if (kept.length) cands = kept;
+                        else onlyTargetsUnmatched = true;
+                    }
+                }
+            } catch { /* dégradation sûre : pas de restriction */ }
+        }
+        if (!cands.length) return { ok: false, error: "aucun ennemi vivant" };
 
         const tele = Memory.alloc(8); tele.writeU32(0); tele.add(4).writeU32(0);  // Nullable<UseTeleporter>=null
         const typeBuf = Memory.alloc(4); typeBuf.writeS32(1);  // PathfinderType=1 (cf. GetMinDistanceToEnemy)
@@ -558,24 +588,31 @@ export function registerViewBoard(ctx: Ctx): void {
         let closestTile: NativePointer | null = null;
         if (cur && !cur.isNull()) {
             let best = -1;
-            for (const et of enemyTiles) {
-                const d = pathLen(cur, et);
-                if (d >= 0 && (best < 0 || d < best)) { best = d; closestTile = et; }
+            for (const ec of cands) {
+                const d = pathLen(cur, ec.tile);
+                if (d >= 0 && (best < 0 || d < best)) { best = d; closestTile = ec.tile; }
             }
         }
         const distTo = (from: NativePointer): number => {
             if (closestTile) return pathLen(from, closestTile);
             // fallback (pas de tuile courante / aucun chemin depuis cur) : min-sur-tous (etat anterieur)
             let best = -1;
-            for (const et of enemyTiles) {
-                const d = pathLen(from, et);
+            for (const ec of cands) {
+                const d = pathLen(from, ec.tile);
                 if (d >= 0 && (best < 0 || d < best)) best = d;
             }
             return best;
         };
         const tiles = tilePtrs.map((t) => ({ col: t.col, row: t.row, pathDist: distTo(t.ptr) }));
+        // #26 — positions des ennemis CIBLABLES retenus (post-filtres) : consommées par le moteur
+        // (ctx.tgt_epos) comme seed du fallback HEX de MinDist(16) quand pathDist=-1 (inatteignable).
+        const enemies = cands.map((c) => {
+            const p = readTileCoord(c.tile);
+            return { id: c.id, col: p.col, row: p.row };
+        });
         return { ok: true, runner: label, unitId: body.unitId,
-            enemyCount: enemyTiles.length, closestResolved: !!closestTile, tiles };
+            enemyCount: cands.length, closestResolved: !!closestTile,
+            enemies, onlyTargetsCount, onlyTargetsUnmatched, tiles };
     });
 
 }

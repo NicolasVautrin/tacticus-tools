@@ -12,13 +12,18 @@ MinDistanceToClosestEnemy=16`) :
     ennemi fige) de la distance de CHEMIN (`IPathfinders.GetPath(type=1, unit, tuile, tuileEnnemie,
     null).Count`, PAS hex ; Count INCLUT la tuile de depart) de `tuile` a chaque tuile ennemie.
   - **ClosestEnemy = `MovementActionGenerator.<FindClosestEnemy>d__8.MoveNext @181197f10`** : argmin
-    (depuis la position COURANTE) SUR LES ENNEMIS CIBLABLES uniquement -- filtres `!CurrentOwnerIsEnvironment`,
-    **`IsTargetable`** (`@180ed8ff0` = `!HasFlag(0x11)`), `!IsIrrelevantObject`, `!IsDead`, et `GetOnlyTargets`
-    (taunt/forced-target, non porte -- LIMITE #57l). CRITIQUE : une unite en Deep-Strike (TeleportStrike,
-    flag 0x11 non-atterri) est NON-CIBLABLE -> exclue du ClosestEnemy. Le RPC `pathDistToEnemies` applique
-    ce filtre `IsTargetable` (rpc-board.ts) ; le bridge offline filtre le seed (`state_bridge._is_untargetable`).
-    12345 s5 (case-52 §#57l) : sans le filtre, un Dante deep-strike (plus proche par chemin) ecrasait le
-    ClosestEnemy -> (1,4) valait d=6 vers Dante au lieu de d=7 vers l'ennemi ciblable -> move (1,4) au lieu de (0,4).
+    (depuis la position COURANTE) SUR LES ENNEMIS CIBLABLES uniquement -- filtres COMPLETS (#26, ordre
+    natif) : `!CurrentOwnerIsEnvironment` (`@180eb4d00` = Owner.Type==2, joueur Environment/neutre),
+    **`IsTargetable`** (`@180ed8ff0` = `!HasFlag(0x11)`), `!IsIrrelevantObject` (`@180ed86d0` = trait 27,
+    ou trait 13 avec stat0<=0), `!IsDead`, puis restriction `GetOnlyTargets` (`@180ed1b10` = List<int>
+    d'ids de cibles FORCEES, taunt ; liste vide si pas de composant ou OwnerComponent.IsOverridden).
+    Le RPC `pathDistToEnemies` (rpc-board.ts) invoque ces predicats NATIFS et renvoie aussi `enemies`
+    (les cibles retenues) -> `ctx.tgt_epos`, seed du fallback HEX quand pathDist=-1 ; le bridge offline
+    filtre son seed via `state_bridge._is_untargetable` (deep-strike ; Environment/irrelevant/taunt sans
+    porteur offline connu a ce jour). CRITIQUE : une unite en Deep-Strike (TeleportStrike, flag 0x11
+    non-atterri) est NON-CIBLABLE -> exclue du ClosestEnemy. 12345 s5 (case-52 §#57l) : sans le filtre,
+    un Dante deep-strike (plus proche par chemin) ecrasait le ClosestEnemy -> (1,4) valait d=6 vers
+    Dante au lieu de d=7 vers l'ennemi ciblable -> move (1,4) au lieu de (0,4).
 
 Le decideur de move PUR est **UnitMovement(6) = Tile(7) + MinDistanceToClosestEnemy(16)** (composition
 LUE runtime via `UtilitiesDatabase.InitializeUtilities._composedUtilityLookup`, doc §13.8/13.11). C'est
@@ -47,9 +52,9 @@ class MinDistanceToClosestEnemyUtility(BaseUtility):
         """`MinDistanceToClosestEnemyUtility.GetMinDistanceToEnemy @1810f04a0` : distance de CHEMIN de
         `pos` au **ClosestEnemy CIBLABLE** (min sur son footprint ; le ClosestEnemy est fige par
         `FindClosestEnemy`, cf. en-tete). `pathdist_by_pos[pos]` porte cette distance-chemin filtree
-        (RPC `pathDistToEnemies` ou `state_bridge`, tous deux post-filtre `IsTargetable`) ; sinon
-        fallback hex (approx : min sur `enemy_positions` -- NB l'appelant devrait ne passer que des
-        ennemis ciblables ; le fallback hex sur epos complet reste une approximation, cf. #57l)."""
+        (RPC `pathDistToEnemies` ou `state_bridge`, tous deux post-filtres natifs) ; sinon fallback
+        hex (approx : min sur `enemy_positions` = `ctx.tgt_epos`, les ennemis CIBLABLES post-filtres
+        #26 -- hex reste une approximation de la distance de CHEMIN, mais le SET est fidele)."""
         pd = pathdist_by_pos.get(pos) if pathdist_by_pos else None
         if pd is not None and pd >= 0:
             return int(pd)

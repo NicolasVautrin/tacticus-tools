@@ -523,7 +523,7 @@ def build_from_state(state, uid: int, debug: bool = False):
     return AiDecisionContext(
         rpc=_rpc, rid=0, wt=_weights(), predictor=None, sctx=None, scene=scene,
         uid=uid, me=me, units=units, cur=getattr(state, "current_player_id", None), plans=plans,
-        enemies=enemies, epos=epos, fpos=fpos, origin=origin,
+        enemies=enemies, epos=epos, tgt_epos=tgt_epos, fpos=fpos, origin=origin,
         move_tiles=move_tiles, reach_nc=reach_nc,
         hp_cur_by_id=hp_cur_by_id, hpmax_by_id=hpmax_by_id, obs_units=_obs_units(state),
         ab_name_by_id=ab_name_by_id, normal_ids=normal_ids,

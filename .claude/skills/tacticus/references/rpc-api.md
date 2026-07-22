@@ -97,6 +97,12 @@ Read-only sauf `applyAction` (`mutated=false` attendu). Cœur oracle + harnais m
   `walkable` + élévation ; graphe STATIQUE, capter 1×/battle.
 - **`pathDistToEnemies({ runnerId, unitId })`** — par tuile atteignable,
   distance-CHEMIN (`Pathfinders.GetPath`) à l'ennemi le plus proche (≠ dist hex).
+  Miroir COMPLET des filtres `FindClosestEnemy @181197f10` (#26, prédicats NATIFS
+  invoqués) : `!CurrentOwnerIsEnvironment` / `IsTargetable` / `!IsIrrelevantObject`
+  / vivant, puis restriction `GetOnlyTargets` (taunt — validé live CrushingClaws).
+  Renvoie aussi `enemies:[{id,col,row}]` (cibles retenues → `ctx.tgt_epos`, seed du
+  fallback hex MinDist) + `onlyTargetsCount`/`onlyTargetsUnmatched` (set vidé par la
+  restriction = dégradation sûre non restreinte, flaggée).
 - **`aiMovableTiles({ runnerId, side?, dangerZone?, threat?, extraRange?, overrideRange? })`**
   — tuiles légales par unité contrôlée (`GetMovableTilesFor`).
 - **`aiAttackRank({ runnerId, unitId?, targetId?, abilityType?, allAbilities?, maxRank?=8, overrideRange? })`**
