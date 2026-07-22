@@ -50,6 +50,33 @@ class BlackRagePlaybook(_PlanTargetPlaybook):
     # de _PlanTargetPlaybook duplique la meme evaluation -> le tie retombe sur la 1re position
     # legale de l'ordre movable natif (mirror Bucket keep-first @1813fbcc0).
 
+    def should_evaluate(self, ctx: NCContext) -> bool:
+        """`BasePlaybook.ShouldEvaluate @18111fb70` (slot 4 IPlaybook, gate AMONT du generateur
+        `ActiveAbilityActionGenerator.<GenerateActions>d__7 @18119a3f0`) nourri de
+        `BlackRagePlaybook.GetUseProbability @181121740` : prob = `0.4`
+        (`Fix64.FromIntFraction(4,10)`) si HP_apres_usage < PV COURANTS, sinon `1.0`
+        (`Fix64.One`, statics+0x20 -- lu au cctor @181563a60). ShouldEvaluate : prob>=1 -> True ;
+        prob<=0 -> False ; sinon RNG (jamais 0 ici). HP_apres = MaxHealth * ConfigVar(0x26) =
+        50% MaxHealth (`GetHealthPercentageAfterUse @1811ba570` = ConfigVar(0x26) ;
+        `GetSetHealthBehaviour @1811ba690` = ChangeStat(Health, PercentageOf(MaxHealth, 0x26)) ;
+        i2 "set to 50% Health").
+
+        -> prob 1.0 = OFFERT DETERMINISTE ssi PV_courant <= 50% MaxHealth (Lucien deja blesse :
+        berserk garanti, HP_apres le remonte a 50%). Sinon prob 0.4 = porte ALEATOIRE per-appel
+        que le moteur DETERMINISTE ne reproduit pas -> on ne l'offre PAS (conservateur : matche
+        la MAJORITE ~60% des non-offres natives ET la reference capturee). CONFIRME LIVE (#57f) :
+        31337 s12 u91 hp=1/9537 (<50%) -> natif 6/6 offert (deterministe) ; 54321 s12 u93 hp=6040
+        (>50%) -> flicker 1/5 (RNG 0.4). scene/hp absents -> True (pas de gate a l'aveugle =
+        comportement pre-#57f ; evaluate_non_comparable rend None sans scene de toute facon)."""
+        if ctx.scene is None:
+            return True
+        hp = ctx.scene.hp(ctx.uid)
+        hpmax = ctx.scene.hpmax(ctx.uid)
+        if hp is None or hpmax is None:
+            return True
+        # ConfigVar 0x26 = 50% (i2 "set to 50% Health" ; GetHealthPercentageAfterUse @1811ba570) -- Lucien-only
+        return hp <= hpmax * 0.5
+
     def _charge_tiles(self, target, ctx: NCContext) -> list[tuple]:
         """Tuiles de charge candidates pour la PREDICTION : hex ADJACENTS a la cible, walkable et
         LIBRES (mirror `TilesUnitCanMoveToChargeTarget` — l'occupation/walkability y gate les

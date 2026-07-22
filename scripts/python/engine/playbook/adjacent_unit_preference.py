@@ -41,27 +41,54 @@ from ..entities.triggered_ability_type import TriggeredAbilityType
 
 
 class AdjacentUnitPreferenceTriggeredAbilityPlaybook:
-    """Base : Σ poids sur amis R1 (adjacents) + Σ poids sur amis R2 (surrounding) de la tuile candidate.
+    """Base : Σ poids sur AMIS R1 (adjacents) + Σ poids sur ENNEMIS R1 (adjacents) de la tuile candidate.
 
-    Signature du dispatcher (#32) : `calculate_movement_utility_in_steps(tile, ctx, wt)` où `ctx` =
-    le dict par-décision `tile_leaf_ctx` — mirror du natif qui passe le CASE entier au playbook
-    (chaque famille y lit ses clés : ici `friend_positions` = allies vivants self-exclu, mirror du
-    MINUS self natif ; `FuryOfTheAncientsPlaybook` lit `enemies`/`scene`/…)."""
+    Corps natif `<CalculateMovementUtilityInStepsInternal>d__1.MoveNext @18134eb30` (#57i) : DEUX branches,
+    toutes deux à DISTANCE 1 de la tuile candidate (PAS adjacent+surrounding — verdict corrigé par le
+    comptage d'args de la query interface : GetAdjacentFriends=this+2, GetAdjacentEnemies=this+3,
+    GetSurrounding*=this+4) :
+      B1 = IBattleQuery.GetAdjacentFriends(caseTile, playerId) MINUS self  (slot 0x81, this+2 args)
+           filtre vtbl+0x248 (défaut identité) ; cap vtbl+0x228 (jamais liante <=6 voisins) ;
+           Σ get_adjacent_friend_utility (vtbl+0x208)
+      B2 = IBattleQuery.GetAdjacentEnemies(caseTile, playerId, false)      (slot 0x7d, this+3 args)
+           filtre vtbl+0x258 (défaut identité) ; cap vtbl+0x238 ;
+           Σ get_adjacent_enemy_utility (vtbl+0x218)
+      yield Fix64.FromInt(val)
+    Les poids (vtbl+0x208/0x218) sont des LOOKUP CONFIG PLATS `Utilities.Default.TriggeredAbilities[<clé>]`
+    (l'unité est IGNORÉE par `GetAdjacent{Friend,Enemy}Utility` — cf. @1811689d0/@181165af0). L'ancien
+    modèle (amis R1+R2) rendait EXACT pour GuardianOrganism/RitesOfBattle (poids surrounding + enemy = 0)
+    mais RATAIT la branche ennemis — d'où MartialApotheosis(1045) muet (#57i : miss S14 12345).
+
+    Signature du dispatcher (#32) : `calculate_movement_utility_in_steps(tile, ctx, wt)` où `ctx` = le dict
+    par-décision `tile_leaf_ctx` (mirror du natif qui passe le CASE entier — chaque famille y lit ses clés :
+    ici `friend_units`/`enemy_units` = {pos,traits} vivants self-exclu ; `FuryOfTheAncientsPlaybook` lit
+    `enemies`/`scene`/…)."""
 
     def get_adjacent_friend_utility(self, wt) -> float:      # vtbl+0x208 (défaut base : 0)
         return 0.0
 
-    def get_surrounding_friend_utility(self, wt) -> float:   # vtbl+0x218 (défaut base : 0)
+    def get_adjacent_enemy_utility(self, wt) -> float:       # vtbl+0x218 (défaut base : 0)
         return 0.0
 
+    def filter_adjacent_friend(self, unit: dict, ctx: dict) -> bool:   # vtbl+0x248 (défaut : identité)
+        return True
+
+    def filter_adjacent_enemy(self, unit: dict, ctx: dict) -> bool:    # vtbl+0x258 (défaut : identité)
+        return True
+
     def calculate_movement_utility_in_steps(self, tile, ctx: dict, wt) -> float:
+        ctx = ctx or {}
         val = 0.0
-        for p in ((ctx or {}).get("friend_positions") or ()):
-            d = hexgeo.distance(tile, p)
-            if d == 1:
-                val += self.get_adjacent_friend_utility(wt)
-            elif d == 2:
-                val += self.get_surrounding_friend_utility(wt)
+        wf = self.get_adjacent_friend_utility(wt)
+        if wf:
+            for u in (ctx.get("friend_units") or ()):
+                if hexgeo.distance(tile, u["pos"]) == 1 and self.filter_adjacent_friend(u, ctx):
+                    val += wf
+        we = self.get_adjacent_enemy_utility(wt)
+        if we:
+            for u in (ctx.get("enemy_units") or ()):
+                if hexgeo.distance(tile, u["pos"]) == 1 and self.filter_adjacent_enemy(u, ctx):
+                    val += we
         return val
 
 
@@ -101,11 +128,37 @@ class RitesOfBattlePlaybook(AdjacentToOwnerNonOwnerPlaybook):
 # `calculate_movement_utility_in_steps(tile, ctx, wt)`) — pas seulement AdjacentUnitPreference :
 # `FuryOfTheAncientsPlaybook` (#32) est de la famille `TriggeredAbilityPlaybook<T>` (ennemis
 # adjacents + prédiction de dégât), module `fury_of_the_ancients.py`.
+class MartialApotheosisPlaybook(AdjacentToOwnerNonOwnerPlaybook):
+    """`MartialApotheosisPlaybook` (`..ctor @181168a30` : ability 0x415=1045 MartialApotheosis — passif
+    necroOverlord). `GetAdjacentEnemyUtility @1811689d0` = TriggeredAbilities["MARTIALAPOTHEOSIS_AdjacentEnemy"]
+    (=15 BC), unité ignorée ; branche ENNEMIS R1 (B2). Pas de filtre custom (défaut identité). #57i :
+    12345 s14, u87 préfère (3,5) [3 ennemis adjacents -> +45] a (4,3) [0] -> flip cible 69->t77."""
+
+    def get_adjacent_enemy_utility(self, wt) -> float:
+        return wt.sub("TriggeredAbilities", "MARTIALAPOTHEOSIS_AdjacentEnemy")
+
+
+class FabricatorClawArrayPlaybook(AdjacentToOwnerNonOwnerPlaybook):
+    """`FabricatorClawArrayPlaybook` (`..ctor @181165b50` : ability 0x3ee=1006 FabricatorClawArray — passif
+    necroSpyder). `GetAdjacentFriendUtility @181165af0` = TriggeredAbilities["FABRICATORCLAWARRAY_AdjacentFriend"]
+    (=30 BC), unité ignorée ; branche AMIS R1 (B1). `FilterAdjacentFriends @181165830` : garde les amis
+    ayant le trait Mechanical (UnitTrait 5). #57i : 2468 s16, u79 préfère (3,4) [1 ami mécanique adjacent
+    admecRuststalker -> +30] a (4,2) [0] -> flip cible 69->t89."""
+
+    def get_adjacent_friend_utility(self, wt) -> float:
+        return wt.sub("TriggeredAbilities", "FABRICATORCLAWARRAY_AdjacentFriend")
+
+    def filter_adjacent_friend(self, unit: dict, ctx: dict) -> bool:
+        return "Mechanical" in (unit.get("traits") or ())
+
+
 from .fury_of_the_ancients import FuryOfTheAncientsPlaybook   # noqa: E402  (après les bases)
 
 TRIGGERED_MOVE_PLAYBOOKS: dict = {
     int(TriggeredAbilityType.GuardianOrganism): GuardianOrganismPlaybook(),
     int(TriggeredAbilityType.RitesOfBattle): RitesOfBattlePlaybook(),
+    int(TriggeredAbilityType.MartialApotheosis): MartialApotheosisPlaybook(),   # 1045 (#57i, branche ennemis)
+    int(TriggeredAbilityType.FabricatorClawArray): FabricatorClawArrayPlaybook(),  # 1006 (#57i, amis mecaniques)
     int(TriggeredAbilityType.FuryOfTheAncients): FuryOfTheAncientsPlaybook(),   # 1247 (#32)
 }
 

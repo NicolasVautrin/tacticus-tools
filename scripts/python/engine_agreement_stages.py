@@ -867,7 +867,14 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--l3-force", action="store_true",
                     help="passer outre le garde-fou --l3 malgre des runners preexistants (danger : "
                          "crash IL2CPP si un autre agent walke l'IA en parallele).")
+    ap.add_argument("--state-file", type=str, default=None,
+                    help="state-file DEDIE du mode --build (defaut data/_stages_duel_state.json, "
+                         "PARTAGE). En passer un PROPRE (chemin absolu) permet de lancer N "
+                         "invocations --build EN PARALLELE (une par seed) sans collision de "
+                         "scoped-replace — discipline runner par-state-file inchangee.")
     args, extra = ap.parse_known_args(argv)
+    if args.state_file:
+        globals()["STATE"] = Path(args.state_file)
     if extra and extra[0] == "--":
         extra = extra[1:]
     sid = _resolve_session()

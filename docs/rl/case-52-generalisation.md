@@ -413,3 +413,240 @@ n'est PAS concernée (docstring précisée).
 3. **C — heal ×3** (2008 vs 6024, magnitude).
 4. **D — backlog 11 playbooks non-attack** (roadmap vocabulary, prioriser ScarabHive/CordClaw ×2).
 5. **E — prediction per-target (4), native-gate (2), move-formula pathdist (1)** : cas à sonder.
+
+## #57g — RÉSOLU : tie-break d'énumération des cibles (12345 s15, MurderousSwing t83 vs t81)
+
+**Miss** : s15 u89 worldExecutions, off = (1137, t81), natif = (1137, t83), NOTRE scoreur donnait
+167.86 aux deux (étage `utility-logic`, « tie exact »).
+
+**Discriminant (probe_57g_tie.py)** : le tie est RÉEL côté natif — `pairUtility` bit-identique
+pour les deux paires à leur tuile argmax commune (1,6) : `172.8598932735622` les deux (u sans
+Tile7 ; u_full décisionnel 167.8599 égal aussi, même tuile ⇒ même terme Tile7 −5). Donc pas un
+terme manquant : un problème d'ORDRE au argmax.
+
+**Mécanisme natif (décompilé)** :
+- `ComparablePlaybook.EvaluateInternal @181408980` : à position FIXE, itère les cibles éligibles
+  et ne remplace le best que sur `op_GreaterThan` STRICT → au tie, la PREMIÈRE cible énumérée gagne.
+- L'ordre d'énumération = `BasePlaybook.GetEligibleTargetsEntities @18111ead0` ← `AttackQuery.
+  GetValidTargetsWithCache @181056cd0` ← `TargetingQuery.GetValidTargets @1810be550` (OrderedSet.Add
+  en itérant les possibles) ← `GetPossibleTargetsForOptions @1810bcea0` ← `GetUnitsInRange @1810be120`
+  (slot 0x76) ← `BattleQuery.GetUnitsAtDistance @18106c9a0` (tuile→unité, ordre préservé) ←
+  `GetTilesAtDistance @181069760` (filtre ring exact, ordre préservé) ← `TileQuery.
+  IterateSurroundingTiles` (`d__6.MoveNext @1810ae1b0`).
+- `d__6.MoveNext` = triple boucle cube ASCENDANTE (x puis y puis z, filtre x+y+z==0) ⇒ ordre
+  d'émission = **lexicographique (cube.x, cube.y) CROISSANT** des tuiles (le centre borne le disque,
+  il ne change pas l'ordre relatif). Convention vérifiée : `CubeCoordinate.ToAxialCoordinate
+  @180e30ab0` (field3==0) = inverse exact de `hexgeo.to_cube` (field0=x=col, field2=z,
+  row=z+(x+(x&1))//2) ⇒ champs natifs (0,1,2) ≡ (x,y,z) hexgeo.
+
+**Vérification sur le cas** : ring-1 autour de (1,6) en ordre natif = [(0,6),(0,5),(1,7),(1,5),
+(2,6),(2,5)] ; t83 necroWarden @(2,6) cube (2,−7) index 4, t81 templAncient @(2,5) cube (2,−6)
+index 5 → t83 énuméré AVANT t81 → au tie strict le natif garde t83. ✓ cohérent avec la décision.
+
+**Port** : `bq.iterate_surrounding_tiles_order_key(pos)` (engine/battle_query.py, clé lex cube
+(x,y)) + tie-break dans `ComparableAbilityGenerator._best_attack` (action_generators.py) : à clé
+`(u_full, is_normal)` égale ET même ability ET même tuile d'attaque, la cible au plus petit rang
+cube gagne. Périmètre : tie INTRA-position/intra-ability uniquement — tie inter-positions (ordre du
+sweep de move-tiles natif) et inter-abilities (boucle générateur) NON LUS, comportement premier-
+énuméré conservé (non exercés).
+
+**Flags validator** : (a) cible multi-tuiles = rang de sa première tuile émise (non exercé) ;
+(b) range>1 : l'empilement des rings d=1..R (ordre inter-distances de GetUnitsInRange slot 0x76)
+non lu — le cas s15 est mêlée R=1 ; (c) tie inter-positions/inter-abilities hors périmètre (cf.
+ci-dessus).
+
+## #57h — REQUALIFIÉS : 12345 s14 + 2468 s16 = divergence de TERME DE TUILE (pas d'utilité de paire)
+
+**Méthode** (probe_57h_gates.py, extension #57g) : l'étage UTILITÉ (100 %) ne confronte que la
+paire NATIVE — le score de NOTRE choix engine n'avait jamais été confronté au scoreur natif.
+Confrontation des 2 paires × toutes leurs tuiles ranked, OFF pleine précision vs `pairUtility` natif.
+
+**Verdict** : dans les DEUX cas, `pairUtility` natif == notre u à l'epsilon Fix64 près, pour les
+DEUX paires à TOUTES les tuiles (S14 : 22.662/16.997 ; S16 : 20.99/26.24). L'utilité de paire est
+EXACTE des deux côtés ; **toute la divergence est dans u_full − u = le terme Tile(7)** :
+
+| cas | paire native (tuile, notre T) | choix engine (tuile, notre T) | contrainte native déduite |
+|---|---|---|---|
+| 12345 s14 u87 | 69→t77 @(3,5), T=+20 | 69→t85 @(4,3), T=+30 | T(4,3)−T(3,5) < 5.665 |
+| 2468 s16 u79 | 69→t89 @(3,4), T=+30 | 69→t91 @(4,2), T=+50 | T(3,4)−T(4,2) > 5.25 |
+
+**Décomposition par feuille** (probe_57h2_tileterm.py) : nos termes = 100 % **Elevation(8)**
+(modèle RE'd case-37 : 10×elev, +10 max board, −5 min ; elev2→20, elev3→30, elev4(max)→50).
+Aucune courbe d'élévation monotone ne satisfait S16 (il faudrait E(3) > E(4)+5.25) ⇒ un terme
+**NÉGATIF natif ≥ ~25 sur (4,2)** (et ≥ ~4.3 sur (4,3)/(3,4) au S14) manque offline. Les tuiles
+suspectes SONT dans les aiMovableTiles du tour (vérifié) — pas un gate d'atteignabilité. L'ancienne
+étiquette « native-gate » de S16 (nu_nat < nu_eng du classifieur) était un artefact de la
+comparaison sans terme de tuile.
+
+**Suspect principal** : feuille **TriggeredAbilitiesNonOwner(4)** (non portée, =0 offline) —
+zones de danger émises par les triggered abilities ENNEMIES (famille `*NonOwnerPlaybook.
+CalculateMovementUtilityInSteps`, ex. `AdjacentToOwnerNonOwnerPlaybook.<…>d__2.MoveNext
+@18134f250` : IsAdjacent(porteur, tuile) → poids config profil `TriggeredAbilitiesNonOwner`).
+→ mission #57i (re-expert). Confirmation décisive possible plus tard par diff L3 par-feuille
+aux tuiles suspectes (L3 = session-globale, à faire en session CALME uniquement).
+
+## #57j — SONDÉ : 54321 s8 nc-pair HammerOfWrath (natif t91, offline t93) — PAS un tie
+
+Décomposition offline (probe_57j_hammer.py) : les 3 paires ne sont castables que depuis (5,8)
+(position courante de u81 bloodIntercessor). Nos utilités NC : t89=95.76 (events 80.76 + disp 15),
+t91 darkaAzrael=185.54 (events 65.54 + Overwatch +100 + disp 20), t93 bloodDeathCompany=207.66
+(events 187.66 + disp 20). On émet t93 strictement > t91 → PAS un problème d'ordre (même position,
+et l'ordre evals mettait déjà t91 avant t93). Le natif préfère t91 ⇒ divergence dans la Σ
+CalculateUtilityFromDamageEvent INTERNE (nos events t93 sur-scorent d'au moins ~22, ou t91
+sous-score) — suspects : prédiction primaire/secondaire de make_hammer_wrath_events sur t93
+(bonus kill ? PV ?), set des adjacents secondaires. Utilités NC natives NON exposées par RPC
+(dégât Hammer hors prédiction affichée, #109) → **résolution = diff L3 par-feuille/par-action en
+session CALME** (même passe que #57h s14/s16 si #57i ne conclut pas).
+
+### #57f — gates natifs d'offre (BlackRage 1163 / MartialInspiration 1191) — verdict re-expert
+
+**BlackRage 1163 (54321 s12 u93) — RÉSOLU : gate RNG/HP dans ShouldEvaluate.**
+`BlackRagePlaybook.EvaluateNonComparable @1811211f0` n'a pas de gate ; le gate d'offre est
+`BasePlaybook.ShouldEvaluate @18111fb70` = `GetUseProbability @181121740` : prob `0.4`
+(`Fix64.FromIntFraction(4,10)`) si HP_apres < PV courants, sinon `1.0` (`Fix64.One`,
+statics+0x20 via cctor @181563a60). HP_apres = 50%·MaxHealth (`GetHealthPercentageAfterUse
+@1811ba570` = ConfigVar(0x26) ; `GetSetHealthBehaviour @1811ba690` = ChangeStat(Health,
+PercentageOf(MaxHealth,0x26)) ; i2 "set to 50% Health"). ShouldEvaluate : prob>=1->True,
+prob<=0->False, sinon RNG. => offert DÉTERMINISTE ssi PV<=50%MaxHealth. LIVE : 31337 s12 u91
+hp=1/9537 -> natif 6/6 ; 54321 s12 u93 hp=6040(>50%) -> flicker 1/5 (RNG 0.4). Port :
+`BlackRagePlaybook.should_evaluate` (black_rage.py) = `hp <= 0.5*hpmax` (branche 1.0 seule ;
+0.4-RNG conservativement non-offerte, moteur déterministe). VALIDÉ : 54321 s12 flip HIT
+(ability 13->14/15, move 17/17, 0 régression) ; 31337 s12 u91 BlackRage HIT préservé
+(ability 13/13). BlackRage n'apparaît QUE dans ces 2 records sur tous les dumps -> risque nul.
+Flags validator : branche 0.4 non-offerte (un roll natif chanceux HP>50% serait manqué —
+non-déterministe par nature) ; ConfigVar 0x26 codé 0.5 (i2+décompilé, non lu de la config).
+
+**MartialInspiration 1191 (2468 s18 u77) — NON RÉSOLU : biais cross-générateur, PAS per-joueur.**
+Le « gate per-joueur 1180 » (#39) est RÉFUTÉ pour 1191 : u79 (31337 s16) = custoBladeChampion
+team 2 (même camp que u77) émet 1191 6/6 déterministe (move(4,3)+1191->87, réf HIT). PAS
+CanUseAbility (depuis (4,3) : NoBrokenTargetingRule, usable). PAS cooldown/buff
+(totalTurnsWithAttacksMade=1 identique)/kill (t91=12047, t87=4471 : aucun kill). Générateur
+`<GenerateActions>d__7 @18119a3f0` : TOUS les gates passent pour 1191 depuis (4,3)
+(IsAbilityBlocked, get_CanCurrentlyBeUsed @180f8fdb0, tactic IsValidAbilityType [u77=Default,
+`GetUnitTacticForUnit @181054550`], ShouldEvaluate, HasValidTargets @181057540). Le natif DÉVIE
+de son propre pairUtility : pairUtility(1191) > pairUtility(69) dans les 2 états (2468 Δ=0.75 ;
+31337 Δ=4.97) mais n'émet 1191 qu'en 31337. Le biais vit dans la sélection cross-générateur
+`DefaultAiUnitTactic.CalculateNextActionForUnit @1810f54e0` (merge attaque-normale +
+`CalculateAbilityActionForUnit @1810f47f0` -> ActiveAbilityActionGenerator) — NON localisé
+(même classe que le 1180 de case-31, mais MARGIN-DEPENDENT, pas per-joueur). Signature : le
+natif préfère l'attaque normale à un actif marginalement supérieur (Δutil petit), émet quand
+Δutil grand. Pas de fix sans seuil inventé -> à re-scoper (mission dédiée / fable-solver).
+
+
+## #57i - feuille TriggeredAbilitiesNonOwner(4) investiguee ; le vrai trou = branche ENNEMIS de TriggeredAbilities(2)
+
+**Symptome** (probes #57h/#57h2, `scripts/python/probe_57h_gates.py`/`probe_57h2_tileterm.py`) : 2 miss
+CIBLE d'ability ou le pairUtility natif == offline BIT-PRES aux deux paires -> TOUTE la divergence vit
+dans le terme Tile(7) du caster. 12345 s14 u87 necroOverlord : natif `69->t77 bloodSanguinary` depuis
+(3,5) ; offline `69->t85 bloodDante` depuis (4,3). 2468 s16 u79 necroSpyder : natif `69->t89 orksWarboss`
+depuis (3,4) ; offline `69->t91 deathPutrifier` depuis (4,2). Notre Tile(7) = 100% Elevation
+((3,5)=+20 elev2, (4,3)/(3,4)=+30 elev3 ; (4,2)=+50 elev4 max).
+
+### NonOwner(4) ECARTE (RE complete, ce N'EST PAS la source)
+
+Arbre natif lu : feuille `TriggeredAbilitiesNonOwnerUtility` (ctor @1810f30b0 ; face move
+`<EvaluateMovementInSteps>d__0.MoveNext @1810f91c0` ; enumerateur `<IterateAbilities>d__3.MoveNext
+@181103860` = pour CHAQUE unite != self, `PlaybookDatabase.LoadPlaybookNonOwner @1810df9a0`, yield
+`(playbook, entity)` si `AppliesToFriendly(interface slot 4) || UnitExtensions.IsFriend`). Famille
+`AdjacentToOwnerNonOwnerPlaybook<T>.<CalculateMovementUtilityInSteps>d__2.MoveNext @18134f250` : si tuile
+candidate ADJACENTE au porteur -> `GetUtilityValue @18150ec60` = lookup config `Default.
+TriggeredAbilitiesNonOwner[<cle>]`. Profil = **25 cles = abilities LEGENDAIRES precises** (FirstAmong
+Traitors/ShieldOfFaith/HaywireMine(-30/-50)/NornCrown/KustomForceFieldReworked/...). Recon des kits
+ennemis des 2 seeds : AUCUN ne porte une de ces abilities (S14 : SanguinaryPriest/LordOfTheHost/Deathwing/
+AstartesBanner/RelentlessMarch/ContagionsOfNurgle ; S16 : idem). => la feuille (4) yield **0** pour ces
+seeds. Non porte (reste `TILE_LEAVES[4]=None`) ; a porter en feuille propre le jour ou un case montre une
+unite PORTANT une ability NonOwner.
+
+### Vrai trou : feuille (2) TriggeredAbilities - base `AdjacentUnitPreference` amputee de la branche ENNEMIS
+
+`Default.TriggeredAbilities` (feuille 2, deja portee) contient `MARTIALAPOTHEOSIS_AdjacentEnemy=15`
+(u87 necroOverlord passif MartialApotheosis 1045) et `FABRICATORCLAWARRAY_AdjacentFriend=30` (u79
+necroSpyder passif FabricatorClawArray 1006). Notre base `AdjacentUnitPreferenceTriggeredAbilityPlaybook`
+modelisait `amis R1 (adjacent) + amis R2 (surrounding)`. Or le corps natif
+`<CalculateMovementUtilityInStepsInternal>d__1.MoveNext @18134eb30` a **DEUX branches, toutes deux a
+DISTANCE 1** de la tuile candidate :
+
+| branche | query natif | poids (vtbl) | filtre (vtbl) | cap (vtbl) |
+|---|---|---|---|---|
+| B1 amis R1 | `IBattleQuery.GetAdjacentFriends(tile, playerId)` MINUS self (slot 0x81) | `GetAdjacentFriendUtility` 0x208 | `FilterAdjacentFriends` 0x248 | 0x228 |
+| B2 ennemis R1 | `IBattleQuery.GetAdjacentEnemies(tile, playerId, false)` (slot 0x7d) | `GetAdjacentEnemyUtility` 0x218 | `FilterAdjacentEnemies` 0x258 | 0x238 |
+
+**Preuve que B2 = ennemis R1 (pas surrounding R2)** : comptage d'args de l'appel interface. `GetAdjacent
+Friends`=this+2 params (entity, playerId) ; `GetAdjacentEnemies`=this+3 (entity, playerId, bool) ;
+`GetSurrounding*`=this+4. B1 passe this+2 args -> GetAdjacentFriends. B2 passe this+3 (`...,uVar2,0,...`)
+-> GetAdjacentEnemies. Les poids concrets IGNORENT l'unite (lookup config plat @1811689d0/@181165af0).
+L'ancien modele (amis R1+R2) rendait EXACT pour GuardianOrganism(1181)/RitesOfBattle(1014) (poids
+surrounding ET enemy = 0, donc B2 muette) mais RATAIT MartialApotheosis (qui n'override QUE la branche
+ennemis). case-36 (GuardianOrganism 30/90) ne distinguait pas car ses tuiles n'avaient pas d'ennemi
+adjacent -> la branche B2 n'etait jamais exercee.
+
+### Config + signes + geometrie (live, board MC1_67)
+
+| seed/step | mover | ability (id) | branche | poids BC | tuile natif | #adj (live) | terme | tuile offline | #adj | terme |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 12345 s14 | u87 necroOverlord | MartialApotheosis 1045 | B2 ennemis | +15 | (3,5) | 3 ennemis | +45 | (4,3) | 0 ennemis | 0 |
+| 2468 s16 | u79 necroSpyder | FabricatorClawArray 1006 | B1 amis(Mechanical) | +30 | (3,4) | 1 ami mecanique (admecRuststalker) | +30 | (4,2) | 0 | 0 |
+
+Le miss n'etait donc PAS un terme NEGATIF sur (4,3)/(4,2) (hypothese #57h) mais un terme POSITIF sur la
+tuile native (effet relatif identique). Total apres fix : S14 (3,5)=20+45=**65** > (4,3)=30, (3,4)=60 ->
+argmax (3,5). S16 (3,4)=30+30=**60** > (4,2)=50 -> argmax (3,4). FabricatorClaw filtre les amis par trait
+Mechanical (=5) : `FilterAdjacentFriends @181165830` (HasTrait 5).
+
+### Port
+
+- `scripts/python/engine/playbook/adjacent_unit_preference.py` : base reecrite (branches B1 amis + B2
+  ennemis R1, hooks `get_adjacent_enemy_utility` vtbl+0x218 et `filter_adjacent_{friend,enemy}`
+  vtbl+0x248/0x258 defaut identite ; suppression de la branche surrounding fantome). Ajout des classes
+  `MartialApotheosisPlaybook` (@181168a30/@1811689d0) et `FabricatorClawArrayPlaybook`
+  (@181165b50/@181165af0/@181165830, filtre Mechanical), enregistrees 1045/1006 dans
+  `TRIGGERED_MOVE_PLAYBOOKS`.
+- `scripts/python/engine/utilities/tile.py` : `tile_leaf_ctx` fournit `friend_units`/`enemy_units`
+  ({pos,traits} vivants self-exclu, traits gameconfig pour les filtres) via helper `_adjacent_units`.
+  Commentaire feuille (4) mis a jour (RE NonOwner consignee).
+
+### Validation (stages, board MC1_67, sans L3)
+
+| seed | avant (57g/57e_gen) | apres (57i) |
+|---|---|---|
+| 12345 | ability 9/10, pos exact 13/15 ; miss s14 ability(69->77)+move, s5 move-formula | **ability 10/10, pos exact 14/15 (near 15/15)** ; s14 FIXE ; reste s5 move-formula (pre-existant, non force) |
+| 2468 | ability 10/12, pos exact 14/17 ; miss s16 ability(69->89)+move, s4/s15 move, s18 native-gate | **ability 11/12, pos exact 15/17 (near 16/17)** ; s16 FIXE ; reste s4 generator-overfire, s15 pos-downstream, s18 native-gate (tous pre-existants) |
+
+Etages PREDICTION+UTILITE 100% aux 2 seeds. Zero regression (s15 12345 reste hit, tous les hits
+preserves). Dumps : `data/stages_57i_12345.json`, `data/stages_57i_2468.json`.
+
+### Flags validator
+
+- **B2 = ennemis R1 tranche par comptage d'args interface** (this+2 GetAdjacentFriends vs this+3
+  GetAdjacentEnemies), PAS lu directement du slot interface -> a re-confronter si une autre unite montre
+  la branche.
+- **Caps (vtbl+0x228/0x238) non repliques** (corps gshared) : suppose non-liants (<=6 voisins hex ;
+  S14 (3,5)=3 ennemis compte a plein -> requis pour le flip). Un cap < #adjacents casserait.
+- **Filtre B2 defaut = identite** (MartialApotheosis sans FilterAdjacentEnemies) ; le friend-check
+  redondant de FilterAdjacentFriends est absorbe (friend_units deja cote allie). enemy_units ne portent
+  pas de filtre trait aujourd'hui (aucun case).
+- **s18 2468 (MartialInspiration 1191) et s5 12345 (move-formula) restent** : hors scope #57i
+  (native-gate documente ci-dessus non-resolu ; move-formula = autre tranche).
+
+## #57k — passe L3 solo (post-#57g/f/i) : s8 Hammer et s5 move DÉCODÉS
+
+Probe : `probe_57k_l3.py` (L3 session-globale, lancé SOLO ; traces `frida/data/ai-traces/<sid>-*.jsonl`).
+
+**54321 s8 HammerOfWrath — le gap est UN EVENT DE TROP (~+120) sur t93.** Les 8 `DamageUtility#73`
+natifs de la fenêtre se regroupent par cible et matchent NOS sommes pour t89 et t91 : t89 =
+48.90+21.63+10.23 = 80.77 (off 80.76 ✓), t91 = 33.43+9.01+23.10 = 65.54 (off 65.54 ✓ ; total
+décision 185.54 avec Overwatch+100 et disp+20 == off ✓). MAIS t93 bloodDeathCompany = **2 events**
+natifs (44.57+23.10 = 67.68, total ~87.7 avec disp 20) contre **3 events offline Σ=187.66** →
+notre t93 sur-score de ~120 (event primaire gonflé ou secondaire en trop dans
+`make_hammer_wrath_events`). Prochain pas : imprimer NOS 3 events t93 un à un, diff vs
+[44.57, 23.10] — identifier l'event fautif (kill-flag ? adjacent illégitime ?), fix ciblé.
+
+**12345 s5 u89 move-formula — TIE NATIF exact + notre pathdist diverge.** Par-feuille natif :
+(0,4) ET (1,4) = Elevation +30 + `MinDistanceToClosestEnemyUtility#76` **−700 les DEUX** →
+Composed −670 égalité parfaite ; le natif départage par l'ordre du movable set (premier-gagne,
+(0,4) avant (1,4)). NOUS : MinDist(1,4) = −600 (pathdist 6) vs natif −700 (≙ 7) → UN PAS de
+notre chemin (1,4)→ennemi le plus proche est compté 6 offline mais 7 nativement (pas illégal :
+porte d'élévation/blocage à identifier sur ce chemin précis). NB : l'ancienne note « le natif
+confirme pathdist (1,4)=6 via pathDistToEnemies » visait le RPC, pas la feuille — la feuille
+MinDist n'égale donc PAS pathDistToEnemies×(−100) sur cette tuile : chercher la vraie source de
+distance de la feuille (#76) avant de toucher au pathfinder. L'hypothèse « terme ≥+100 manquant
+à (0,4) » est MORTE (c'était un déficit de NOTRE (1,4), pas un bonus natif de (0,4)).

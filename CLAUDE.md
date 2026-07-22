@@ -356,6 +356,23 @@ suite `tests/engine/` — **beaucoup trop lourd**.
   touchent JAMAIS mon arbre. L'isolation par défaut prime sur son coût (~200-500 ms
   + disque). (`isolation: "remote"` = variante cloud, toujours en background.)
 
+- **Worktree RUNNABLE : junction `data/` OBLIGATOIRE (tâche #63, 2026-07-22).** Un worktree
+  frais n'a PAS les `data/` gitignorés (dumps gameconfig/i2, seeds BC, boards, state-files,
+  ai-traces) dont dépendent `gameconfig.py`, `rl_duel.py`, le harness stages et les probes.
+  **Étape 1 de TOUT agent tacticus : créer la junction** —
+  `powershell -File C:\Users\nicolasv\tacticus-tools\scripts\setup-agent-worktree.ps1`
+  (depuis son worktree ; équivalent Git Bash :
+  `cmd //c "mklink /J data C:\Users\nicolasv\tacticus-tools\data"`) — **puis travailler DANS
+  son worktree** (éditer + exécuter). Ne PLUS instruire « travaille dans l'arbre principal » :
+  cette ancienne béquille faisait partager le working copy → l'orchestrateur devait GELER ses
+  éditions `engine/**` pendant les runs des agents, et leurs validations zéro-régression
+  devenaient polluables. Avec la junction, l'isolation redevient réelle : l'orchestrateur édite
+  `master` librement pendant que les agents tournent (leurs imports viennent de LEUR checkout
+  figé). `data/` reste PHYSIQUEMENT PARTAGÉ → disciplines runner inchangées (state-file à NOM
+  UNIQUE par agent en chemin absolu, disposer SES runners, MAX_RUNNERS=10, session Frida
+  globale via RPC). Vérifié : junction sans droits admin, `git status` du worktree ignore
+  `data` (gitignore), suppression du worktree n'affecte pas la cible (rmdir = lien seul).
+
 - **CONSÉQUENCE — le worktree part du HEAD de `master` (la base), PAS de ma branche
   courante ni de mes changements NON COMMITÉS.** Un working tree sale / une
   side-branch est INVISIBLE au worktree → l'agent auditerait du code périmé (déjà

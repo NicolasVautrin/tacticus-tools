@@ -149,6 +149,16 @@ class ComparableAbilityGenerator(ActionGenerator):
         plan = ctx.plans.get(ctx.uid) or {}
         best = None       # (u, u_full, tgt, ab, tile)
         best_key = None
+        # #57g : tie-break natif INTRA-POSITION. `EvaluateInternal @181408980` compare les cibles en
+        # STRICT `op_GreaterThan` dans l'ordre d'énumération de `IterateSurroundingTiles` (lex cube
+        # (x,y) croissant, cf. bq.iterate_surrounding_tiles_order_key) -> à utilité égale DEPUIS LA
+        # MÊME tuile d'attaque, la cible au plus petit rang cube gagne (12345 s15 : t83(2,-7) bat
+        # t81(2,-6) à 167.8599 exact). Tie inter-positions (tuiles d'attaque différentes) = ordre du
+        # sweep de positions natif, NON LU -> comportement premier-énuméré conservé (non exercé).
+        best_rank = None  # rang cube-loop de la tuile de la cible du best courant
+        tgt_pos_by_id = {e.get("id"): (e["pos"]["col"], e["pos"]["row"])
+                         for e in (ctx.enemies or [])
+                         if isinstance(e, dict) and (e.get("pos") or {}).get("col") is not None}
         dbg = []
         for ev in (plan.get("evals") or []):
             if not ev.get("rankCount"):
@@ -195,9 +205,18 @@ class ComparableAbilityGenerator(ActionGenerator):
                 dbg.append((ab, tgt, round(u, 1), round(u_full, 1), p.get("killSure"), p.get("kill"),
                             p.get("healthDmgMax"), p.get("hpBefore"), f"aoe{len(aoe)}", tile,
                             ("sh", p.get("shieldDmgMin"), p.get("shieldDmgMax")), ("bk", bk)))
+            rank = (bq.iterate_surrounding_tiles_order_key(tgt_pos_by_id[tgt])
+                    if tgt in tgt_pos_by_id else None)
             if best_key is None or key > best_key:
                 best = (u, u_full, tgt, ab, tile)
                 best_key = key
+                best_rank = rank
+            elif (key == best_key and best is not None and ab == best[3] and tile == best[4]
+                  and rank is not None and best_rank is not None and rank < best_rank):
+                # tie exact même ability + même tuile d'attaque -> la cible énumérée PLUS TÔT par
+                # l'EvaluateInternal natif gagne (inter-ability = boucle générateur, hors périmètre)
+                best = (u, u_full, tgt, ab, tile)
+                best_rank = rank
         if ctx.debug:
             ab_ids = [a.get("id") for a in ((ctx.me or {}).get("abilities") or [])]
             print(f"    [dbg u{ctx.uid}] abilities={ab_ids} attack_cands(ab,tgt,util,kS,k,dmax,hp)={dbg}",

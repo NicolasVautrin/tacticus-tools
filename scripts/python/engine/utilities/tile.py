@@ -559,9 +559,18 @@ TILE_LEAVES: dict[int, tuple] = {
     2:  ("TriggeredAbilities", TriggeredAbilitiesUtility()),   # face attack : cf. fonction ci-dessous
     # --- NON portées comme simples leaves ---
     15: ("RangedAdjacentEnemy", None),       # =0 dans le profil Default (BC HasAdjacentEnemy absent)
-    # 3/4 = dispatchers vers le moteur Playbook (LoadPlaybookNonOwner / behaviours par-unité) —
-    # restent 0 (cf. §13.14 + project_playbook_engine). NonOwner(4) : face d__2 @18134f250 non portée
-    # (=0 observé 909 ; config `TriggeredAbilitiesNonOwner`, 25 clés).
+    # 3/4 = dispatchers vers le moteur Playbook (LoadPlaybookNonOwner / behaviours par-unité).
+    # NonOwner(4) RE COMPLETE (#57i) : feuille `TriggeredAbilitiesNonOwnerUtility` (ctor @1810f30b0 ;
+    # `<EvaluateMovementInSteps>d__0.MoveNext @1810f91c0` ; enum `<IterateAbilities>d__3.MoveNext
+    # @181103860` = pour CHAQUE unite non-self, `LoadPlaybookNonOwner @1810df9a0` puis yield
+    # (playbook, entity) si `AppliesToFriendly(slot4) || IsFriend` ; famille `AdjacentToOwnerNonOwner
+    # Playbook<T>.<...>d__2.MoveNext @18134f250` : tuile adjacente au PORTEUR -> `GetUtilityValue`
+    # @18150ec60 = config `Default.TriggeredAbilitiesNonOwner[<cle>]`). Les 25 cles NonOwner sont des
+    # abilities LEGENDAIRES precises (FirstAmongTraitors/ShieldOfFaith/HaywireMine/NornCrown/...) ->
+    # la feuille yield 0 tant qu'AUCUNE unite ne PORTE une de ces abilities. Ce N'ETAIT PAS la source
+    # des miss #57i (S14 12345 u87 / S16 2468 u79 : aucun ennemi ne porte de NonOwner) -> le vrai trou
+    # etait la branche ENNEMIS de la feuille (2) TriggeredAbilities (voir adjacent_unit_preference.py).
+    # A porter (feuille propre) quand un case montre une unite portant une ability NonOwner decisive.
     4:  ("TriggeredAbilitiesNonOwner", None),
     3:  ("UnitSpecificBehaviours", None),
 }
@@ -581,6 +590,27 @@ def tile_composite(tile, meta: dict | None, ctx: dict, wt: Weights) -> float:
     return TILE_UTILITY.evaluate(tile, meta or {}, ctx, wt)
 
 
+def _adjacent_units(ctx, uid):
+    """{pos,traits} des AMIS (ctrl, self-exclu) et ENNEMIS (non-ctrl) vivants positionnés — mirror des
+    query natives `GetAdjacentFriends`/`GetAdjacentEnemies` du corps AdjacentUnitPreference (#57i). Les
+    traits (gameconfig) alimentent les filtres `FilterAdjacent*` (ex. FabricatorClaw = Mechanical=5).
+    getattr-tolerant : un contexte sans `units` (NCContext) rend deux listes vides -> feuille silencieuse."""
+    import gameconfig as GC
+    friends, enemies = [], []
+    for u in (getattr(ctx, "units", None) or []):
+        pos = u.get("pos")
+        if not (u.get("alive") and pos):
+            continue
+        rec = {"pos": (pos["col"], pos["row"]),
+               "traits": frozenset(((GC.unit(u.get("visualId")) or {}).get("traits")) or ())}
+        if u.get("ctrl"):
+            if u.get("id") != uid:
+                friends.append(rec)
+        else:
+            enemies.append(rec)
+    return friends, enemies
+
+
 def tile_leaf_ctx(ctx) -> dict:
     """Dict `ctx` PAR-DÉCISION des feuilles Tile(7) depuis l'`AiDecisionContext` — feuille
     TriggeredAbilities(2) (case-36) : kit passif du mover (dispatcher `@1810fda80` sur l'Abilities-
@@ -597,9 +627,15 @@ def tile_leaf_ctx(ctx) -> dict:
     champs partagés (enemies/elev/scene) passent tels quels."""
     from ..entities.triggered_ability_type import triggered_ability_ids   # lazy : évite tout cycle
     me = getattr(ctx, "me", None) or {}
+    uid = getattr(ctx, "uid", None)
+    friend_units, enemy_units = _adjacent_units(ctx, uid)
     return {"unit_triggered_abilities": triggered_ability_ids(me.get("visualId")),
             "friend_positions": ctx.fpos,
-            "uid": getattr(ctx, "uid", None),
+            # {pos,traits} vivants self-exclu — branches AMIS(B1)/ENNEMIS(B2) de AdjacentUnitPreference
+            # (#57i : traits pour les filtres, ex. FabricatorClaw garde les amis Mechanical).
+            "friend_units": friend_units,
+            "enemy_units": enemy_units,
+            "uid": uid,
             "enemies": getattr(ctx, "enemies", None) or [],
             "elev_by_pos": getattr(ctx, "elev_by_pos", None),
             "neigh_by_pos": getattr(ctx, "neigh_by_pos", None),

@@ -153,6 +153,31 @@ def surrounding_enemies(origin: tuple, positions: list,
     return out
 
 
+def iterate_surrounding_tiles_order_key(pos: tuple) -> tuple:
+    """Clé d'ORDRE d'énumération de `TileQuery.IterateSurroundingTiles` (`d__6.MoveNext @1810ae1b0`) —
+    le tie-break NATIF de cible à utilité égale au sein d'une position (#57g, 12345 s15).
+
+    Le natif énumère le disque par triple boucle cube ASCENDANTE : `for x in cx-R..cx+R:
+    for y in cy-R..cy+R: for z in cz-R..cz+R: if x+y+z==0 -> yield` — pour (x,y) donnés un seul z
+    matche, donc l'ordre = LEXICOGRAPHIQUE (cube.x, cube.y) CROISSANT des tuiles émises ; le centre ne
+    fait que borner le disque, il ne change PAS l'ordre relatif de deux tuiles. Cet ordre survit à toute
+    la chaîne de ciblage (chaque étage filtre en préservant l'ordre via OrderedSet/List.Remove) :
+    `ComparablePlaybook.EvaluateInternal @181408980` (argmax cibles STRICT `op_GreaterThan` -> PREMIÈRE
+    énumérée gagne au tie) <- `BasePlaybook.GetEligibleTargetsEntities @18111ead0` (List + Remove
+    prédicat) <- `AttackQuery.GetValidTargetsWithCache @181056cd0` <- `TargetingQuery.GetValidTargets
+    @1810be550` (itère les possibles, OrderedSet.Add si valide) <- `GetPossibleTargetsForOptions
+    @1810bcea0` <- `GetUnitsInRange @1810be120` (slot 0x76) <- `BattleQuery.GetUnitsAtDistance
+    @18106c9a0` (tuiles du ring -> GetUnit, ordre préservé) <- `GetTilesAtDistance @181069760`
+    (filtre dist==R, ordre préservé) <- `GetSurroundingTiles` -> l'itérateur ci-dessus.
+
+    Champs cube natifs (0,1,2) == (x,y,z) `hexgeo.to_cube` : `CubeCoordinate.ToAxialCoordinate
+    @180e30ab0` (field3==0) = inverse exact de `to_cube` (col=x ; row=z+(x+(x&1))//2). Limites :
+    cible multi-tuiles = rang de sa première tuile émise (non exercé) ; l'empilement de rings pour
+    range>1 (ordre inter-distances) est non lu — le tie s15 est mêlée R=1 (un seul ring)."""
+    x, y, _z = hexgeo.to_cube(pos[0], pos[1])
+    return (x, y)
+
+
 def enemies_in_arc(tile: tuple, enemies: list, elev_by_pos: dict | None = None) -> list:
     """Ennemis (unités decisionView `{id, pos:{col,row}}`) dans l'ARC de `tile` = ring-1 UNION ring-2
     (`in_arc`), DANS L'ORDRE d'énumération de `enemies`. Fallback de `gauntlets_target` sans neighbours."""
