@@ -178,6 +178,8 @@ class UnitsDirectlyBehind(TargetsSelector):
         d_ct = hexgeo.distance(cpos, tpos)
         out = []
         for u in ctx.units:
+            if not _is_alive(u):                                   # cands = Enemies(Units(ring)) : occupation (#57m)
+                continue
             p = _pos(u)
             if p is None or u.get("id") == tid or u.get("team") == ct:
                 continue
@@ -212,7 +214,8 @@ class Units(TargetsSelector):
 
     def select(self, ctx):
         tset = set(self.tiles.evaluate(ctx))
-        return [u for u in ctx.units if _pos(u) in tset]
+        # Occupation de tuile (#57m) : un mort n'est plus DEBOUT sur sa tuile (cf. _within).
+        return [u for u in ctx.units if _is_alive(u) and _pos(u) in tset]
 
 
 class Tiles(TargetsSelector):

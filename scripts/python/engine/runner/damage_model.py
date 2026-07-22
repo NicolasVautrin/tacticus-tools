@@ -375,12 +375,19 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
     cible (LightCover/Parry). Identité = **entity_id**, team = **OwnerComponent.team** (instance-safe). PAS
     de `faction_of`/visual_id : le comptage par faction de GetStuckIn est retiré, aucun consommateur ne le
     lit — et `visual_id` ne distinguerait pas 2 instances du même type en miroir (danger connu)."""
-    from .components import PositionComponent, OwnerComponent, HealthComponent
+    from .components import PositionComponent, OwnerComponent, HealthComponent, UnitComponent
     pos_by_id: dict = {}
     team_by_id: dict = {}
     aura_sources = []
     target_effects: list = []
     for uid, e in state.entities.items():
+        # VIVANTS SEULEMENT (#57m) : le board natif = OCCUPATION DE TUILE (`AdjacentUnits @180de8320`
+        # = `Units(AdjacentTiles(.)) - .`) — un mort (alive=False, reste dans state.entities) n'est
+        # plus sur le board : ni compte GetStuckIn, ni porteur d'aura. Cible conservee (vivante par
+        # construction d'une attaque).
+        _uc = e.get_component(UnitComponent)
+        if uid != tgt_id and _uc is not None and not _uc.alive:
+            continue
         pc = e.get_component(PositionComponent)
         oc = e.get_component(OwnerComponent)
         hc = e.get_component(HealthComponent)

@@ -520,14 +520,20 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # rassemble les entrees depuis la Scene puis appelle la FORMULE PARTAGEE `attack_hits_with_modifiers`
     # (`AttackHitsWithModifiersFormula.Calculate @180f0bf50`, MEME formule que la facade combat runner) :
     # base weapon+ExtraHits+effets, +GetStuckIn/traits, +malus defenseur (LightCover/Parry) + auras (BigTarget).
+    # VIVANTS SEULEMENT (#57m) : le board natif = OCCUPATION DE TUILE (`AdjacentUnits @180de8320` =
+    # `Units(AdjacentTiles(.)) - .`) — les cadavres de scene.pos_by_id (decisionView les garde) n'y
+    # sont plus : ni compte GetStuckIn (@180f83460), ni porteur d'aura (idiome hp>0, cf. l.227/276).
+    _alive_ids = [uid for uid in scene.pos_by_id
+                  if uid in (att_id, tgt_id) or (scene.hp(uid) or 0) > 0]
     board = {"att_id": att_id, "tgt_id": tgt_id, "attack_pos": attack_pos, "t_pos": t_pos,
              "tgt_team": scene.team(tgt_id), "is_melee": is_melee,
-             "pos_by_id": scene.pos_by_id, "team_by_id": scene.team_by_id,
+             "pos_by_id": {uid: scene.pos_by_id[uid] for uid in _alive_ids},
+             "team_by_id": scene.team_by_id,
              # faction par unité — gate GetBonusHitChance de GetStuckIn (orks_adj>=2, @180f83460, #98)
-             "faction_by_id": {uid: scene.faction(uid) for uid in scene.pos_by_id}}
+             "faction_by_id": {uid: scene.faction(uid) for uid in _alive_ids}}
     tgt_effects = scene.effects(tgt_id)
     aura_sources = [(uid, scene.pos(uid), scene.team(uid), scene.effects(uid))
-                    for uid in scene.pos_by_id if uid != tgt_id]
+                    for uid in _alive_ids if uid != tgt_id]
     # #57a : EXTRA_HITS DU PAS (scene, refresh par-pas) et non le cold ctx — les stat-mods hits
     # dynamiques (Swarm_HitReduction : -1 hit/membre perdu) sont posés APRES l'hydratation.
     _xh = scene.extra_hits_current(att_id)
@@ -961,8 +967,11 @@ def make_hammer_wrath_events(scene, caster_id, target_id, attack_pos):
     PROPRES de Hammer (config gqfc5mff6c vérifiée) :
       - PRIMARY (cible) : base=`minDmg` (AbilityVariableType 12, GetMinDamage @1811e6660), hits=`nrOfHits`
         (AbilityConstantType 47, ArmoriumCherubAbility.GetHits @180fb16c0 = 2), profil=`damageProfile` (Power).
-      - SECONDARY (chaque ennemi adjacent à la cible, `GetAdjacentTargets @1811e6150` =
-        `Enemies(AdjacentUnits(TARGET, r=1))`, plafond `SelectUniqueUnits(3)`) : base=`minDmg_2` (var 54,
+      - SECONDARY (chaque ennemi VIVANT adjacent à la cible, `GetAdjacentTargets @1811e6150` =
+        `Enemies(AdjacentUnits(TARGET, r=1))` où `AdjacentUnits @180de8320` = `Units(AdjacentTiles(target))
+        − target` : unités lues par OCCUPATION DE TUILE → un mort n'est plus sur le board (notre
+        pos_by_id garde les cadavres, d'où le filtre hp>0 explicite — #57m, corpse u95 +120 à 54321 s8),
+        plafond `SelectUniqueUnits(3)`) : base=`minDmg_2` (var 54,
         GetMinDamage2 @1811e6610), hits=`nrOfHits_2` (const 50, BringerOfDespair.GetHitsToBonusTarget = 1),
         profil=`damageProfile_2` (Physical).
     Le reste du pipeline (spread ±20%, pierce, armure, mods attaquant/positionnels, bouclier) est identique au
@@ -992,8 +1001,11 @@ def make_hammer_wrath_events(scene, caster_id, target_id, attack_pos):
     caster_team = scene.team(caster_id)
     t_pos = scene.pos(target_id)
     if t_pos is not None:
+        # `AdjacentUnits @180de8320` = Units(AdjacentTiles(target)) − target : occupation de TUILE
+        # → vivants seulement (pos_by_id garde les cadavres ; idiome hp>0 = IsAlive, cf. l.227/276).
         adj = [u for u in scene.pos_by_id
                if u != target_id and scene.team(u) != caster_team
+               and (scene.hp(u) or 0) > 0
                and scene.pos(u) is not None and hexgeo.distance(scene.pos(u), t_pos) == 1]
         for sid in adj[:_HAMMER_MAX_SECONDARY]:
             sdp = generate_multi_hit_attack_prediction(scene, caster_id, sid, 1153, _HAMMER_ABILITY_NAME,

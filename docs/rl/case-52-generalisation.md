@@ -650,3 +650,121 @@ confirme pathdist (1,4)=6 via pathDistToEnemies » visait le RPC, pas la feuille
 MinDist n'égale donc PAS pathDistToEnemies×(−100) sur cette tuile : chercher la vraie source de
 distance de la feuille (#76) avant de toucher au pathfinder. L'hypothèse « terme ≥+100 manquant
 à (0,4) » est MORTE (c'était un déficit de NOTRE (1,4), pas un bonus natif de (0,4)).
+
+## #57m — RÉSOLU : 54321 s8 Hammer = event secondaire sur un CADAVRE (filtre vivant manquant)
+
+Le 3ᵉ event t93 de `make_hammer_wrath_events` était **u95, une unité MORTE** (isDead=True, hp=0,
+cadavre resté à (3,5) hex-adjacent de la cible (2,4)) : hp=0 ⇒ `kill=True/killSure=True` ⇒
+composite Damage **+119.995** — exactement le sur-score ~+120 mesuré en L3 (#57k). Preuve interne
+supplémentaire : DEUX cadavres (u95 team 1, u140 team 2) partagent la tuile (3,5) — impossible
+pour des unités sur board.
+
+**Mécanisme natif (décompilé)** : `HammerOfWrathAbility.GetAdjacentTargets @1811e6150` =
+`Enemies(AdjacentUnits(TARGET, r=1))` avec `DSLFactory.AdjacentUnits @180de8320` =
+`Units(AdjacentTiles(target)) − target` : les unités sont résolues par **OCCUPATION DE TUILE**
+→ un mort n'est plus sur le board, le filtre vivant est STRUCTUREL (pas un check isDead explicite).
+Notre `scene.pos_by_id` (issu de decisionView) garde les cadavres (piège connu, cf.
+decisionview-keeps-dead) → le mirror fidèle est le filtre explicite `(scene.hp(u) or 0) > 0`
+(idiome déjà en place aux autres scans : prediction.py l.102/227/276).
+
+**Fix** : `prediction.py make_hammer_wrath_events` (boucle adj) + docstring. **Validation** :
+probe_57j → t93 = 2 events Σ=67.6679 (natif 67.68 ✓, 44.57+23.10), t89/t91 inchangés au bit
+près, pick = (81, 1153, t91) == natif. Étage 54321 complet re-passé (voir dump stages_57m).
+
+**Suite (tâche #25)** : audit de la même classe de trou sur les AUTRES scans sans filtre vivant —
+`aura_sources` (prediction.py l.529), `board["pos_by_id"]`/`faction_by_id` bruts consommés par
+GetStuckIn (orks adjacents), `bespoke.py:207`, `fury_of_the_ancients.py:122`, `foul_infusion.py:63`.
+Vérifier le sélecteur natif de CHAQUE site avant de patcher (certains folds type-level sont
+miroir-safe).
+
+### Audit #25 (suite #57m) — tous les scans « unités sans filtre vivant » traités
+
+Décompiles à l'appui (`GetBonusHitChance @180f83460` = compte via `AdjacentUnits` ;
+`UnitsOnTilesSelector.Select @180f02450` = sélecteur de TUILES @+0x18 + mode d'occupation
+main/steppable @+0x20 → résolveur board : les unités d'un sélecteur d'occupation viennent des
+tuiles, un mort n'y est plus) :
+
+**Trous réels corrigés (4)** :
+1. `make_hammer_wrath_events` (le miss d'origine, cf. ci-dessus).
+2. `prediction.py` board/`aura_sources` de la normale (l.523-537) : `pos_by_id`/`faction_by_id`/
+   porteurs d'aura désormais vivants-only (`_alive_ids`) — GetStuckIn ne compte plus un ork mort,
+   un cadavre ne porte plus BigTarget/AstartesBanner.
+3. `runner/damage_model.py build_hits_board` : skip `uc.alive=False` (cible conservée) — même
+   classe côté COMBAT.
+4. Sélecteurs DSL d'occupation : filtre `_is_alive` au cœur `_within` (dsl/base.py — couvre
+   SurroundingUnits/AdjacentUnits/AdjacentEnemies + les 3 rings l.290/302/314), `Units.select`,
+   et le scan ring « behind » (selectors.py l.180). Les sélecteurs d'ENSEMBLE gardent leur choix
+   propre (`AllUnits`=alive #202, `UnitsDefeatedByMeleeAttack`=morts exprès, `CanAddUnit` filtrait
+   déjà).
+
+**Sites audités SAINS (déjà filtrés ou keyés sur des ids de query native)** : bespoke CultDemagogue
+(l.203 filtre alive ; l.207 lookup d'ids de plan) + BloodChalice (l.68) ; fury `_second_target`
+(consomme `ctx.enemies` filtré) ; foul_infusion (ids d'abilityTargets) ; black_rage `_charge_tiles` ;
+it_itches ; stormcaller ; the_quickening ; SpiritLeech heal (action_generators l.260) ; heals l.337
+(lookup) ; ctx.enemies (`_enemies` filtre alive à la source).
+
+**Validation** : stages 54321 (100 % ability 15/15 + move 17/17 + pred 10/10 + util 10/10) et 2468
+(identique à l'officiel : seuls les 3 misses pré-existants s18/s4/s15) re-passés APRÈS les fixes ;
+pytest live `test_runner_attack` + `test_getstuckin_combat` (5 passed) ; splash/AoE DSL
+`stikkbomb`/`fire_of_absolution`/`plasma_grenade`/`psyker_splash` (4 passed) ; cascade de mort
+`finaljustice`/`summon_trigger`/`ambush` (voir run).
+
+**Flag (cas de bord non exercé)** : pendant une cascade de mort, notre port pose `alive=False`
+AVANT `after_death_triggers` → le mourant sort désormais des sélecteurs d'occupation évalués par
+ses propres triggers. Natif : PreUnitDeath fire avant le retrait du board — si un arbre de trigger
+lisait le MOURANT via un ring (aucun cas connu : les arbres passent par `Target()`/rôles), il
+faudrait un flag « dying encore sur board » dans le ctx DSL.
+
+
+## #57l -- s5 move (12345) FERME : filtre IsTargetable du ClosestEnemy (deep-strike non-ciblable)
+
+> NB doc : section redigee depuis un worktree base 0195b5d (case doc ancien) ; a placer apres #57k
+> dans le case doc courant (master). Les VAs/chiffres sont contre le build gqfc5mff6c.
+
+**Symptome** (ref `stages_57post_12345.json`) : step 5 u89 worldExecutions, move natif=(0,4), engine=(1,4)
+-> pos 14/15 (la SEULE miss). Composite move `UnitMovement(6) = Tile(7) + MinDist(16)` : natif (0,4) et
+(1,4) EGAUX a -670 (Elevation +30 + MinDist -700, d=7) -> tie resolu PREMIER-GAGNE dans l'ordre movable
+((0,4) idx 10 avant (1,4) idx 11). Nous : MinDist(1,4) = -600 (pathdist 6) -> (1,4)=-570 > (0,4)=-670 -> BOUGE en (1,4).
+
+**RE (decompile = verite).** Chaine du leaf MinDist(16) :
+- `<GenerateActions>d__6.MoveNext @181199d50` construit, par tuile candidate, un `UtilityMovementCase(unit,
+  tuile, ClosestEnemy)` ; `ClosestEnemy = FindClosestEnemy(unit, positionCourante)` (mesure depuis la tuile COURANTE).
+- `<EvaluateMovementInSteps>d__2.MoveNext @1810fe690` (stub @1810f0430) : `U = wMin * d`, wMin =
+  `PerTileDistance` = -100 ; `d = GetMinDistanceToEnemy(unit, tuile, ClosestEnemy)`.
+- `GetMinDistanceToEnemy @1810f04a0` : MIN sur le FOOTPRINT du ClosestEnemy (UN ennemi fige) de
+  `IPathfinders.GetPath(type=1, unit, tuile, tuileEnnemie, null).Count` (Count INCLUT la tuile de depart -> offset +1).
+- **`MovementActionGenerator.<FindClosestEnemy>d__8.MoveNext @181197f10`** : argmin depuis la position
+  courante, MAIS SUR LES ENNEMIS CIBLABLES uniquement -- filtres per-ennemi : `!CurrentOwnerIsEnvironment`,
+  **`IsTargetable`**, `!IsIrrelevantObject`, `!IsDead`, puis `GetOnlyTargets` (Contains, taunt/forced-target).
+  `UnitExtensions.IsTargetable @180ed8ff0 = !HasFlag(unit, 0x11)` (flag 0x11 = ne-peut-etre-cible).
+
+**Cause mecanique (mesuree live + flood-fill OFFLINE prouve fidele 15/15 vs RPC).** u89 @ (0,0), 5 ennemis
+lointains (bas-droite). L'ennemi le plus proche PAR CHEMIN **et** par hex depuis (0,0) = **bloodDante (e85)
+@ (6,6)** (path 10, hex 9). MAIS Dante porte le trait **TeleportStrike** (Deep-Strike) : "cannot be targeted
+until it has taken an action" -> a s5 (Dante ennemi n'a pas encore agi) flag 0x11 pose -> `IsTargetable(e85)=false`
+-> **exclu du ClosestEnemy**. Le natif mesure donc vers le closest CIBLABLE = darka/templ/necroWarden (e79/e81/e83,
+path 11) -> d(0,4)=7, d(1,4)=7 -> tie -670/-670 -> (0,4). Notre RPC `pathDistToEnemies` n'appliquait AUCUN filtre
+de targetabilite -> incluait Dante -> closest=e85 -> d(1,4)=6 -> (1,4). (Note morte : "terme +100 manquant a (0,4)"
+etait un deficit de NOTRE (1,4), pas un bonus de (0,4).)
+
+**Fix (miroir 1:1).**
+- LIVE : `frida/hooks/features/ai-step/rpc-board.ts` `pathDistToEnemies` -- filtre la boucle ennemie par
+  `IsTargetable` (`internals.ts` `isTargetableMi = IsTargetable(1)`, guarde : non-resolu => pas de filtre).
+  => rebuild `hooks.js` + reinject requis (orchestrateur).
+- OFFLINE : `engine/ai/state_bridge.py` `build_from_state` -- seed de `_pathdist_to_enemies` = ennemis CIBLABLES
+  (`_is_untargetable` deja present, effet `TeleportStrike_TeleportingIn` 1035). `enemies`/`epos` restent complets
+  (occupance) ; seul le seed MinDist est filtre.
+- Docstrings : `engine/utilities/move.py` (mecanisme complet + VAs).
+
+**Validation OFFLINE** (`_probe_s5_fixcheck.py`, flood-fill fidele + `context.build` poids reels) : BUGGY best=(1,4)
+util=-570 (MISS) ; FIX (closest targetable=e79) best=(0,4) util=-670 (HIT). Le live stages exige le reinject du RPC.
+
+**Limites / a attaquer** : (1) `GetOnlyTargets` (taunt/forced-target, `@180ed1b10`) non porte -- OK ici (liste vide)
+mais un scenario Taunt divergerait. (2) fallback HEX du leaf (`enemy_positions=ctx.epos` NON filtre en live) : approx
+quand pathdist=None -- a filtrer si une tuile inatteignable apparait. (3) validation live (patched-RPC) non faite dans
+le worktree (reinject interdit a l'agent) -- a confirmer par l'orchestrateur : pos 15/15 seed 12345, 0 regression 54321/777.
+
+**VALIDATION LIVE #57l (post rebuild+reinject session 66, 2026-07-22)** : stages avec le RPC patché —
+12345 **100 %** (ability 10/10, move 15/15, préd 9/9, util 9/9 — s5 = (0,4) natif ✓, preuve que
+`IsTargetable` s'est résolu au runtime) ; zéro régression 54321 (15/15, 17/17, 10/10, 10/10) et
+777 (16/16, 17/17, 12/12, 12/12). Dumps `data/stages_57l_{12345,54321,777}.json`. Miss s5 FERMÉ.

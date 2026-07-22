@@ -28,7 +28,7 @@ import {
     attackQueryOff, battleInServicesOff, dpqInServicesOff, entityServicesClass,
     extractTiles, extractTilePtrs,
     entityExtClass, finishUnitTurnMsgClass, getMovableTilesMi, getTilesMi, getUnitMainTile,
-    invokeBool, isAliveMi, isCtrlByCurMi, LIST_SIZE, moveUnitMsgClass, movementQueryOff,
+    invokeBool, isAliveMi, isCtrlByCurMi, isTargetableMi, LIST_SIZE, moveUnitMsgClass, movementQueryOff,
     mowAbilityTypes, readTileCoord, resolveDpq, servicesOff, summarize, unitAbilityTypes,
     unitExtClass,
 } from "./internals.js";
@@ -507,6 +507,14 @@ export function registerViewBoard(ctx: Ctx): void {
             if (ty !== EntityType.Unit || !invokeBool(isAliveMi, [e, statePtr])) return;
             if (id === body.unitId) { me = e; return; }
             if (invokeBool(isCtrlByCurMi, [e, statePtr])) return;   // allié → pas une cible
+            // #57l — MIROIR de `MovementActionGenerator.<FindClosestEnemy>d__8.MoveNext @181197f10`
+            // (filtre `!IsTargetable`) : le natif ne mesure MinDist(16) QU'AUX ennemis CIBLABLES.
+            // Une unité en Deep-Strike (TeleportStrike, flag 0x11) est NON-CIBLABLE tant qu'elle n'a
+            // pas agi → exclue du ClosestEnemy. Sans ce filtre, un Dante deep-strike (plus proche par
+            // chemin) écrasait le vrai ClosestEnemy et faussait la distance-chemin par tuile (12345 s5 :
+            // (1,4) valait 6 vers Dante vs 7 vers l'ennemi ciblable). Guardé : si la méthode ne résout
+            // pas, on ne filtre pas (dégradation sûre). `IsTargetable` = 1 param (l'unité).
+            if (isTargetableMi && !invokeBool(isTargetableMi, [e])) return;
             const t = getUnitMainTile(e, statePtr);
             if (t && !t.isNull()) enemyTiles.push(t);
         });

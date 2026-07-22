@@ -3,11 +3,22 @@ gqfc5mff6c, doc §1.5 / §13.11 / §13.12). UNE CLASSE feuille (nom NATIF) + le 
 
 `IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility` (ctor @1810f0810 ; `UtilityType.
 MinDistanceToClosestEnemy=16`) :
-  - `GetMinDistanceToEnemy @1810f04a0` : itere les ennemis, garde le MIN de la distance de CHEMIN
-    (pathfinding, PAS hex) de `pos` a chaque tuile ennemie. Fallback hex si pas de table de chemin.
-  - `EvaluateMovementInSteps` (stub @1810f0430 ; body `<...>d__.MoveNext`) : `U = wMin * d`, avec
+  - `<EvaluateMovementInSteps>d__2.MoveNext @1810fe690` (stub @1810f0430) : `U = wMin * d`, avec
     `wMin = MinDistanceToClosestEnemy.PerTileDistance` (-100, du BC ; negatif => preferer se
-    RAPPROCHER) et `d = GetMinDistanceToEnemy(pos)`.
+    RAPPROCHER) et `d = GetMinDistanceToEnemy(unit, tuile_candidate, ClosestEnemy)`. Le contexte du
+    leaf = `UtilityMovementCase(unit, tuile, ClosestEnemy)`, construit par le generateur
+    `<GenerateActions>d__6.MoveNext @181199d50` avec `ClosestEnemy = FindClosestEnemy(unit, posCourante)`.
+  - `GetMinDistanceToEnemy @1810f04a0` : MIN sur les tuiles de FOOTPRINT du **ClosestEnemy** (UN seul
+    ennemi fige) de la distance de CHEMIN (`IPathfinders.GetPath(type=1, unit, tuile, tuileEnnemie,
+    null).Count`, PAS hex ; Count INCLUT la tuile de depart) de `tuile` a chaque tuile ennemie.
+  - **ClosestEnemy = `MovementActionGenerator.<FindClosestEnemy>d__8.MoveNext @181197f10`** : argmin
+    (depuis la position COURANTE) SUR LES ENNEMIS CIBLABLES uniquement -- filtres `!CurrentOwnerIsEnvironment`,
+    **`IsTargetable`** (`@180ed8ff0` = `!HasFlag(0x11)`), `!IsIrrelevantObject`, `!IsDead`, et `GetOnlyTargets`
+    (taunt/forced-target, non porte -- LIMITE #57l). CRITIQUE : une unite en Deep-Strike (TeleportStrike,
+    flag 0x11 non-atterri) est NON-CIBLABLE -> exclue du ClosestEnemy. Le RPC `pathDistToEnemies` applique
+    ce filtre `IsTargetable` (rpc-board.ts) ; le bridge offline filtre le seed (`state_bridge._is_untargetable`).
+    12345 s5 (case-52 §#57l) : sans le filtre, un Dante deep-strike (plus proche par chemin) ecrasait le
+    ClosestEnemy -> (1,4) valait d=6 vers Dante au lieu de d=7 vers l'ennemi ciblable -> move (1,4) au lieu de (0,4).
 
 Le decideur de move PUR est **UnitMovement(6) = Tile(7) + MinDistanceToClosestEnemy(16)** (composition
 LUE runtime via `UtilitiesDatabase.InitializeUtilities._composedUtilityLookup`, doc §13.8/13.11). C'est
@@ -33,9 +44,12 @@ class MinDistanceToClosestEnemyUtility(BaseUtility):
     UTILITY_TYPE = int(UtilityType.MinDistanceToClosestEnemy)  # 16
 
     def get_min_distance_to_enemy(self, pos, enemy_positions, pathdist_by_pos=None) -> int:
-        """`MinDistanceToClosestEnemyUtility.GetMinDistanceToEnemy @1810f04a0` : MIN sur les ennemis
-        de la distance de CHEMIN de `pos` a la tuile ennemie (pattern nullable : `if d < cur: cur=d`).
-        Distance de chemin si `pathdist_by_pos[pos]` est fournie (fidele) ; sinon fallback hex (approx)."""
+        """`MinDistanceToClosestEnemyUtility.GetMinDistanceToEnemy @1810f04a0` : distance de CHEMIN de
+        `pos` au **ClosestEnemy CIBLABLE** (min sur son footprint ; le ClosestEnemy est fige par
+        `FindClosestEnemy`, cf. en-tete). `pathdist_by_pos[pos]` porte cette distance-chemin filtree
+        (RPC `pathDistToEnemies` ou `state_bridge`, tous deux post-filtre `IsTargetable`) ; sinon
+        fallback hex (approx : min sur `enemy_positions` -- NB l'appelant devrait ne passer que des
+        ennemis ciblables ; le fallback hex sur epos complet reste une approximation, cf. #57l)."""
         pd = pathdist_by_pos.get(pos) if pathdist_by_pos else None
         if pd is not None and pd >= 0:
             return int(pd)

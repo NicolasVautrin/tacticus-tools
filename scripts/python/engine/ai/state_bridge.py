@@ -496,7 +496,14 @@ def build_from_state(state, uid: int, debug: bool = False):
     hp_cur_by_id = dict(scene.hp_by_id)
     hpmax_by_id = dict(scene.hpmax_by_id)
     elev_by_pos = scene.elev_by_pos or {}
-    pathdist_by_pos = _pathdist_to_enemies(state, uid, my_team, epos)
+    # #57l — MinDist(16) ne mesure QU'AUX ennemis CIBLABLES (miroir `FindClosestEnemy` -> `!IsTargetable`,
+    # @181197f10) : un ennemi en Deep-Strike (TeleportStrike, non-atterri) est NON-ciblable et exclu du
+    # ClosestEnemy. Sans ce filtre, un deep-strike plus proche par chemin ecrase le vrai ClosestEnemy et
+    # fausse la distance-chemin par tuile (12345 s5 : (1,4)=6 vers Dante vs 7 vers l'ennemi ciblable).
+    # `enemies`/`epos` restent complets (occupance/positionnement) ; seul le seed MinDist est filtre.
+    tgt_epos = [(e["pos"]["col"], e["pos"]["row"]) for e in enemies
+                if e.get("pos") and not _is_untargetable(state, e.get("id"))]
+    pathdist_by_pos = _pathdist_to_enemies(state, uid, my_team, tgt_epos)
     # topologie boardGraph (self-cast MainTile #116, ordre voisins natif Gauntlets #117, gate placement) —
     # mirror OFFLINE des 3 seams boardGraph que le contexte LIVE fournit ; ex-gap du bridge (build_from_state
     # anterieur a l'ajout de ces champs requis) revele par la confrontation du tour du Skitarii (#24).

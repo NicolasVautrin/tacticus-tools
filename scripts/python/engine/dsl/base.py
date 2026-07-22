@@ -160,8 +160,18 @@ def _pos(u):
 
 
 def _within(units, center, radius, include_center=False):
+    """Anneau/disque d'unites autour de `center` — cœur des selecteurs d'OCCUPATION (`Units(
+    SurroundingTiles/AdjacentTiles(...))`, tous les call-sites). VIVANTS SEULEMENT (#57m) : le natif
+    resout les unites PAR TUILE (`UnitsOnTilesSelector.Select @180f02450` : selecteur de tuiles @+0x18
+    + mode d'occupation main/steppable @+0x20 -> resolveur board) et un mort n'est plus sur sa tuile
+    (KillUnit retire l'unite du board) — un cadavre de `ctx.units` (state garde alive=False) ne doit
+    donc jamais sortir d'un selecteur d'occupation. Les selecteurs d'ENSEMBLE font leur propre choix
+    (`AllUnits`=alive #202, `UnitsDefeatedByMeleeAttack`=morts expres) : le filtre vit ICI, pas dans
+    ctx.units."""
     out = []
     for u in units:
+        if not _is_alive(u):
+            continue
         p = _pos(u)
         if p is None:
             continue

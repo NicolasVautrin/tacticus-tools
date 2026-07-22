@@ -120,6 +120,18 @@ def main() -> int:
                         if x.get("squadId") == tgt), None)
             ow = "Overwatch" in _traits(vis)
             disp = HammerOfWrathPlaybook._displacement_bonus(tgt, nc)
+            # Diagnostic secondaires : TOUTES les unites hex-adjacentes a la cible (team + isDead),
+            # pour voir laquelle le natif exclut (2 events natifs a t93 vs nos 3).
+            import hexgeo  # noqa: PLC0415
+            sc = nc.scene
+            tp = sc.pos(tgt)
+            dead_by_id = {x.get("squadId"): x.get("isDead") for x in (nc.obs_units or [])}
+            adjs = [(u, sc.pos(u), sc.team(u), dead_by_id.get(u))
+                    for u in sc.pos_by_id
+                    if u != tgt and sc.pos(u) is not None and tp is not None
+                    and hexgeo.distance(sc.pos(u), tp) == 1]
+            print(f"[57j]   adj(all) de {tgt}@{tp} (id,pos,team,isDead): {adjs} "
+                  f"caster_team={sc.team(UID)}")
             for P in nc.reach_nc:
                 if P not in set(tiles):
                     continue
@@ -129,6 +141,14 @@ def main() -> int:
                 total = pb.evaluate_non_comparable(P, tgt, nc)
                 print(f"[57j]   ({AB},{tgt})@{P}: total={total!r} events(n={len(events or [])})"
                       f"={eu:.4f} overwatch={ow} disp={disp:.0f} tgt_pos=({tpos.get('col')},{tpos.get('row')})")
+                for x in (events or []):
+                    cf = x.composite_fields()
+                    u1 = calculate_utility_from_damage_event(x, nc.wt, nc.scene.hpmax(x.target))
+                    print(f"[57j]     ev tgt={x.target} u={u1:+.4f} hp={cf['hpBefore']}"
+                          f"/{sc.hpmax(x.target)} shield={cf['shieldBefore']} "
+                          f"dmg=[{cf['healthDmgMin']},{cf['healthDmgMax']}] "
+                          f"raw=[{cf['rawHealthDmgMin']},{cf['rawHealthDmgMax']}] "
+                          f"hits={cf['appliedHits']} kill={cf['kill']} killSure={cf['killSure']}")
         return 0
     finally:
         try:

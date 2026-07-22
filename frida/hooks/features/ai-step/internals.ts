@@ -38,6 +38,12 @@ export const isCtrlByCurMi = unitExtClass
     ? findMethodByParamCount(unitExtClass, "IsControlledByCurrentPlayer", 2) : null;
 export const isRangedMi = unitExtClass
     ? findMethodByParamCount(unitExtClass, "IsRanged", 1) : null;
+// `UnitExtensions.IsTargetable @180ed8ff0` = `!HasFlag(unit, 0x11)` (flag 0x11 = « ne peut être
+// ciblé », posé par TeleportStrike/Deep-Strike tant que l'unité n'a pas agi). Miroir du filtre de
+// `MovementActionGenerator.<FindClosestEnemy>d__8 @181197f10` : la feuille MinDist(16) ne mesure
+// QU'AUX ennemis ciblables (une unité deep-strike non-atterrie est ignorée du ClosestEnemy). #57l.
+export const isTargetableMi = unitExtClass
+    ? findMethodByParamCount(unitExtClass, "IsTargetable", 1) : null;
 
 // EndTurnMessage — appliqué pour passer la main à l'autre équipe quand
 // l'épuisement de l'énumérateur n'a pas auto-flippé le tour.
