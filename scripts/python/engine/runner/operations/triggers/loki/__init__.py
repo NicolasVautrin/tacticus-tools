@@ -39,6 +39,8 @@ from .final_justice import (FinalJusticeAbility, _finaljustice_target, _finaljus
 from .control_edict import (ControlEdictAbility, _adjacent_mechanical_summons,
                             PROTECTOR as CONTROLEDICT_PROTECTOR, CONQUEROR as CONTROLEDICT_CONQUEROR)
 from .rad_saturation import RadSaturationAbility, rad_saturation_tree, CONTAMINATED_TILE as RADSAT_CONTAMINATED_TILE
+from .lord_of_tempests import (LordOfTempestsAddIceAbility, lord_of_tempests_add_ice_tree,
+                               ICE_TILE, SMITE_KIND)
 
 __all__ = [
     # psyker
@@ -69,4 +71,6 @@ __all__ = [
     "CONTROLEDICT_PROTECTOR", "CONTROLEDICT_CONQUEROR",
     # rad_saturation (S4b GAP — passif du Skitarii Vanguard)
     "RadSaturationAbility", "rad_saturation_tree", "RADSAT_CONTAMINATED_TILE",
+    # lord_of_tempests (#35 — passif AddIce de Njal)
+    "LordOfTempestsAddIceAbility", "lord_of_tempests_add_ice_tree", "ICE_TILE", "SMITE_KIND",
 ]

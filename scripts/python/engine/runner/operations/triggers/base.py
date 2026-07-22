@@ -28,12 +28,13 @@ class TriggerEvent:
     0x158) = l'auteur du coup fatal, `dying_id` (slot 0x178) = l'unité qui meurt (actor/target les reflètent
     aussi pour rester compatibles avec le dispatch générique)."""
     __slots__ = ("event_id", "actor_id", "target_id", "ranged", "profile", "is_crit",
-                 "killer_id", "dying_id", "player_id", "overkill")
+                 "killer_id", "dying_id", "player_id", "overkill", "ability_type")
 
     def __init__(self, event_id: int, actor_id: int, target_id: int, *,
                  ranged: bool, profile: Optional[str], is_crit: bool = False,
                  killer_id: Optional[int] = None, dying_id: Optional[int] = None,
-                 player_id: Optional[int] = None, overkill: bool = False):
+                 player_id: Optional[int] = None, overkill: bool = False,
+                 ability_type: Optional[int] = None):
         self.event_id = event_id
         self.actor_id = actor_id
         self.target_id = target_id
@@ -44,6 +45,10 @@ class TriggerEvent:
         self.dying_id = dying_id
         self.player_id = player_id          # tour DÉBUTÉ (event turn-start On(0x16)) — owner doit appartenir
         self.overkill = overkill            # mort par OVERKILL (dmg >= 2*PV) — gate de FinalJustice
+        self.ability_type = ability_type    # AbilityOrEffect du coup (mirror du payload d'event natif lu par
+                                            # DirectAbilitySelector, ex. 0x3f5=1013 kind « attaque-normale »
+                                            # du smite Psyker — gate branche 2 LordOfTempests AddIce #35).
+                                            # None = kind inconnu/non threadé (aucun gate kind ne fire).
 
 
 class TriggeredAbility:

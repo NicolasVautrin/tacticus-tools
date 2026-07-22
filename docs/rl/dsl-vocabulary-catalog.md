@@ -227,7 +227,7 @@ beaucoup de primitives sont portees "inline" par ability (active_ability.py comp
 | Maybe | 180df6610, df6470, df6540, df6350 | 14+11+8+7 | behaviour probabiliste (chance%) | MANQUANT |
 | Inform / InformWeapon / InformList | 180df2380(+df2450,df2300,df2510,df24b0,df25e0), df2010(+df2260), df1f60 | 15+14+12+6+5+4 / 9+3 / 5 | emet une info/event | MANQUANT (fort refcount cumule) |
 | OnDeath / OnPreDeath(2) / OnDeathEvent | 180df7c40, df7f10(+df7ee0), df7ad0 | 17+19+6+5 | hooks de mort | MANQUANT |
-| OnOwnerSpecificAbilityInit / OnNormalAttackOrSmite | 180df7db0, df7c70 | 20+4 | hooks d'init | MANQUANT |
+| OnOwnerSpecificAbilityInit / OnNormalAttackOrSmite | 180df7db0, df7c70 | 20+4 | hooks d'init | OnNormalAttackOrSmite PORTÉ collapsé (#35 `lord_of_tempests.py` : `On(38) \| (On(9) & kind==0x3f5)` — la branche 2 = le MÊME nœud DAT_18322f680+DirectAbilitySelector(1013) que la branche 2 d'IsNormalAttack, cf. dsl-wave3) ; OnOwnerSpecificAbilityInit MANQUANT |
 | FromTrigger | 180df00e0 | 17 | valeur depuis le contexte du trigger | PARTIEL (inline dans UnitsDirectlyBehind) |
 | Do / Repeat / Repeat | 180dee620, dfa180 | 4+10 | execute / repete | MANQUANT |
 | Nothing / Null | 180df7870, df74f0 | 52+23 | no-op / vide | MANQUANT (fort refcount) |

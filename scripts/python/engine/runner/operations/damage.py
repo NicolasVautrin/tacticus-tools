@@ -608,7 +608,8 @@ class AttackDamageOperation:
     def execute_ability_attack(state: State, attacker_id: int, target_id: int,
                                base_min: int, base_max: int, profile_pierce: int,
                                hits: int, damage_profile: Optional[str] = None,
-                               is_melee: Optional[bool] = None) -> Optional[dict]:
+                               is_melee: Optional[bool] = None,
+                               ability_type: Optional[int] = None) -> Optional[dict]:
         """Attaque d'une ABILITY active (mirror `AttackWithAttackDamage` + `MinMaxDamage`/`GetHits`/
         `GetDamageProfile`). DIFFÈRE de l'attaque normale par la BASE : les bornes du coup = `[base_min,
         base_max]` données par la config d'ability (`GetVariableForLevel` clés 0xc/0xd = minDmg/maxDmg),
@@ -699,7 +700,7 @@ class AttackDamageOperation:
         # after-hit trigger (#140 : splash Psyker sur ability/splash psychique, chain borné par le cap).
         # `ranged` = POSITION-based (calculé dans after_hit_ability_attack, mirror IsRangedAttack).
         after_hit = after_hit_ability_attack(state, attacker_id, target_id, r["did_crit"],
-                                             profile=damage_profile)
+                                             profile=damage_profile, ability_type=ability_type)
         return {"hits": hits, "total": r["total"], "base_min": base_min, "base_max": base_max,
                 "pierce": profile_pierce, "armor": armor, "fire": fire, "after_hit": after_hit,
                 "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,
@@ -711,7 +712,8 @@ class AttackDamageOperation:
     def execute_normal_like(state: State, attacker_id: int, target_id: int, base: int,
                             profile_pierce: int, hits: int = 1, spread_pct: int = 20,
                             damage_profile: Optional[str] = None,
-                            is_melee: Optional[bool] = None) -> Optional[dict]:
+                            is_melee: Optional[bool] = None,
+                            ability_type: Optional[int] = None) -> Optional[dict]:
         """Attaque dont le node de dégât est un `StatAmount`/`PercentageOf(StatAmount(...))` (ex. splash
         Psyker = `PercentageOf(StatAmount(Attack), psykerExtraDmg%)`, profil Psychic). Pipeline
         **reduce-then-roll** (bornes pré-réduites puis tirage, post_roll=None), comme l'attaque normale
@@ -776,9 +778,10 @@ class AttackDamageOperation:
             AttackDamageOperation._refresh_swarm(state, target_id)      # #60 : On(UnitMemberDeath=48)
         # VECTEUR AFTER-HIT (splash StatAmount) : idem execute_ability_attack — reset ActOfFaith au crit
         # (#138) + vecteur complet (#140). `ranged` = POSITION-based (mirror IsRangedAttack), calculé dedans.
+        # `ability_type` = kind AbilityOrEffect du coup (smite Psyker 0x3f5 -> branche 2 AddIce #35).
         from .triggers import after_hit_ability_attack
         after_hit = after_hit_ability_attack(state, attacker_id, target_id, r["did_crit"],
-                                             profile=damage_profile)
+                                             profile=damage_profile, ability_type=ability_type)
         return {"hits": hits, "total": r["total"], "base": base, "pierce": profile_pierce,
                 "armor": armor, "after_hit": after_hit,
                 "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,

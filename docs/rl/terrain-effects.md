@@ -152,9 +152,14 @@ Placeurs de tuiles ICE : `AnvilShieldAbility_ApplyIce @180e16480` (Arjac spaceRo
 EffectSource `0x493` (AnvilShield 1171), `CreateTargetTrigger @180f31dc0` = `On(0xe) & AreEqual(target@0x178,
 EffectSource)` -> avantage DYNAMIQUE contre l'attaquant gele specifique.
 
-**Port : GATE** (rien porte cote ICE) — depend de #128 (vecteur placement tile-effect on-block), #131 (blocage
-mouvement, deja defere faute de board jouable), + le crit-bonus (mecanique 2) + le gate sante de 1200 (ABS-vs-%
-a trancher live) + le dynamique 1201. Seul `1202 AnvilShield_AdditionalBlock` est porte (loki.py, cf. #133).
+**Port : PARTIEL** — le PLACEUR LordOfTempests est PORTÉ (#35, `case-35` :
+`LordOfTempests_AddIceAbility @181108670/@1811085d0` → `triggers/loki/lord_of_tempests.py`, pose Ice(17)
+sur la tuile de chaque ennemi touché par une normale de Njal, durée défaut 2 rounds, replay-diff 2/2 ;
++ couplage combat att_ctx → snowball `LordOfTempests_ExtraDamage` bit-exact). RESTENT GATE : le placeur
+Arjac on-block (#128/#133), le blocage mouvement (#131, defere faute de board jouable), le crit-bonus
+(mecanique 2), le gate sante de 1200 (ABS-vs-% a trancher live), le dynamique 1201, et la zone de glace
+de l'ACTIVE Stormcaller (`GetAddIceTiles @18120cf70`, runner-face non porte). Seul `1202
+AnvilShield_AdditionalBlock` etait deja porte (loki.py, cf. #133).
 
 ## 3. Power-ups (`Abilities.Triggered.Loki.APowerUpAbility` family)
 

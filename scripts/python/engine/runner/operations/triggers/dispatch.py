@@ -36,7 +36,8 @@ from .base import (TriggerEvent, TriggeredAbility, EffectTrigger, TileEffectTrig
                    PHASE_TRIGGER_CAP, _is_ranged_position)
 from .loki import (PsykerExtraAttackAbility, ActOfFaithAccumulateAbility, ActOfFaithResetAbility,
                    FinalJusticeAbility, TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility,
-                   ArcaneShieldAbility, ControlEdictAbility, RadSaturationAbility, FireTileDoT, FIRE_TILE,
+                   ArcaneShieldAbility, ControlEdictAbility, RadSaturationAbility,
+                   LordOfTempestsAddIceAbility, FireTileDoT, FIRE_TILE,
                    _on_fire_damage_ability, _fire_of_absolution_after_attack)
 from .tiles import dry_bush_fire_spread
 from .effect_triggers import (OverwatchAutoAttack, ContaminatedTileEffect,
@@ -85,6 +86,10 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # (1244) sur SA PROPRE tuile apres qu'il bouge (`On(4)&OwnerIsActor`, vecteur after_move) ou en fin de tour
     # s'il n'a pas bouge (`On(0x17=TurnEnd)`, vecteur end_turn ci-dessous). Cf. loki/rad_saturation.py.
     "RadSaturation": [RadSaturationAbility],
+    # LordOfTempests (passif Njal spaceStormcaller, #35) = AddIce : glace la tuile de CHAQUE ennemi touche
+    # par une attaque normale de Njal (`On(38)` cible principale + `On(9)&kind==0x3f5` victime du smite
+    # Psyker), `OwnerIsCaster`. Cf. loki/lord_of_tempests.py (@181108670/@1811085d0).
+    "LordOfTempests": [LordOfTempestsAddIceAbility],
 }
 
 # --- Registre : effectType → effet-trigger ---------------------------------------------------------
@@ -263,7 +268,8 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
 
 
 def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
-                             is_crit: bool, profile: Optional[str] = None) -> list[dict]:
+                             is_crit: bool, profile: Optional[str] = None,
+                             ability_type: Optional[int] = None) -> list[dict]:
     """Vecteur after-hit d'une attaque d'ABILITY ou de SPLASH. Mirror `EvaluateAfterHitTriggers @180e25fc0`,
     porté par `ADamageOperation` donc PARTAGÉ par l'attaque normale ET les attaques d'ability : dispatche le
     message **after-hit `On(8)`** (branche crit `param_6!=0` = `On(0x3d)`, non écouté ici). ⚠ Ce vecteur
@@ -278,8 +284,11 @@ def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
     # On(9) ability-attack (per-attaque) : reset ActOfFaith au crit (@181219f90 = On(9) & OwnerIsCaster &
     # WasCrit & HasEffect(0x3f9)). #151 : ROUTE le reset ICI (voie ability/splash/normal-like = is_normal_attack
     # =False) au lieu de after-hit(8) partagé avec la NORMALE -> plus de reset sur un crit d'attaque normale.
+    # `ability_type` = AbilityOrEffect du coup (payload d'event natif, lu par les gates kind type
+    # DirectAbilitySelector) — threadé par la feuille `AttackWithAttackDamage` (ex. smite Psyker =
+    # 0x3f5=1013 → branche 2 de LordOfTempests AddIce #35). None (callers historiques) = gates kind muets.
     ev_aa = TriggerEvent(EventTriggerType.Attack, attacker_id, target_id,
-                         ranged=ranged, profile=profile, is_crit=is_crit)
+                         ranged=ranged, profile=profile, is_crit=is_crit, ability_type=ability_type)
     out = evaluate_trigger_operation(state, ev_aa)
     # On(8) after-hit (vecteur natif per-coup, EvaluateAfterHitTriggers) : conservé pour fidélité ; aucun
     # consommateur actif depuis #151 (le reset a migré sur On(9)).

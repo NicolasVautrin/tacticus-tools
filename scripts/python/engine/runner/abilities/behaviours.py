@@ -480,15 +480,20 @@ class AttackWithAttackDamage(AbilityBehaviour):
     `hits` = nb de coups EXPLICITE du dégât-node (défaut 1 en mode `amount` ; en mode bornes, None → `hits`
     de la config via `ability_attack_params`)."""
     __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key",
-                 "damage_override", "multi", "pick_n", "amount", "hits")
+                 "damage_override", "multi", "pick_n", "amount", "hits", "ability_type")
 
     def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True,
                  min_key: str = "minDmg", max_key: str = "maxDmg", hits_key: str = "nrOfHits",
-                 damage_override=None, multi: bool = False, pick_n=None, amount=None, hits=None):
+                 damage_override=None, multi: bool = False, pick_n=None, amount=None, hits=None,
+                 ability_type=None):
         self.target_sel, self.ability_id, self.profile, self.is_melee = target_sel, ability_id, profile, is_melee
         self.min_key, self.max_key, self.hits_key = min_key, max_key, hits_key
         self.damage_override, self.multi, self.pick_n = damage_override, multi, pick_n
         self.amount, self.hits = amount, hits
+        # `ability_type` = AbilityOrEffect NUMERIQUE du coup, threade au payload des events after-hit
+        # (`TriggerEvent.ability_type`, mirror du champ d'event natif lu par DirectAbilitySelector) —
+        # ex. smite Psyker = 0x3f5=1013 (gate branche 2 LordOfTempests AddIce #35). None = non threade.
+        self.ability_type = ability_type
 
     def execute(self, entities, ectx):
         from ..operations.damage import AttackDamageOperation
@@ -517,7 +522,8 @@ class AttackWithAttackDamage(AbilityBehaviour):
                 atk = AttackDamageOperation.execute_normal_like(  # montant mono-valeur -> spread_pct=0
                     state, caster, tgt, base, pierce,
                     hits=int(self.hits) if self.hits is not None else 1, spread_pct=0,
-                    damage_profile=self.profile, is_melee=self.is_melee)
+                    damage_profile=self.profile, is_melee=self.is_melee,
+                    ability_type=self.ability_type)
             else:
                 bmin, bmax, pierce, hits = ability_attack_params(
                     state, caster, self.ability_id, self.profile, ranged=not self.is_melee,
@@ -526,7 +532,8 @@ class AttackWithAttackDamage(AbilityBehaviour):
                     bmin, bmax = self.damage_override(state, caster, tgt, bmin, bmax)
                 atk = AttackDamageOperation.execute_ability_attack(
                     state, caster, tgt, bmin, bmax, pierce, hits,
-                    damage_profile=self.profile, is_melee=self.is_melee)
+                    damage_profile=self.profile, is_melee=self.is_melee,
+                    ability_type=self.ability_type)
             ectx.emit("AttackWithAttackDamage", caster=caster, target=tgt,
                       total=(atk or {}).get("total"), attack=atk)
         return OperationResult.ok()

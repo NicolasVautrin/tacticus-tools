@@ -222,8 +222,10 @@ class LordOfTempestsExtraDamageEffect(BaseEffect):
       n'est pas décodé ; gate conservateur aligné i2 — la spéciale Stormcaller ne porte pas le bonus).
     - La 2e moitié du passif (« each enemy hit covers its hex in Ice ») =
       `LordOfTempests_AddIceAbility.CreateBehaviour/CreateTrigger @1811085d0/@181108670` (face RUNTIME,
-      arbre DSL AddEffect tile-domain) — NON portée ici (tâche runner-face dédiée) : la prédiction lit
-      la glace DÉJÀ posée (tileMeta frais), elle n'en pose pas."""
+      arbre DSL AddEffect tile-domain) — PORTÉE #35 (`runner/operations/triggers/loki/lord_of_tempests.py`,
+      case-35) : le runner pose la glace en simulant ; la prédiction lit la glace DÉJÀ posée (tileMeta
+      frais), elle n'en pose pas. Côté COMBAT runner l'att_ctx positionnel vient de
+      `damage_model._positional_att_ctx` (state.effects tuiles), symétrique du tileMeta."""
 
     ICE_TILE_EFFECT = "Ice"   # nom d'effet de tuile capté (tileMeta.effects[].name, vérifié live 31337)
 

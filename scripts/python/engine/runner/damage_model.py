@@ -210,6 +210,40 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
         add_modifier(mods, eb)
 
 
+def _positional_att_ctx(state: State, unit_id: int) -> Optional[dict]:
+    """Contexte POSITIONNEL `{att_pos, tile_effects_by_pos}` pour les bonus attaquant à magnitude
+    position-dépendante (#35 — LordOfTempests `GetHexesIncreasingDamage @180f56b40` : Count(Ice
+    ring-1 de la position d'attaque)). Côté COMBAT runner la position d'attaque = la position
+    COURANTE de l'attaquant (il a déjà bougé avant de taper). `tile_effects_by_pos` = centre +
+    ring-1 : noms d'effets DYNAMIQUES posés sur la tuile (`state.effects.by_unit[tile_id]`, même
+    lecture que le PickTile MV71) + covers hébergés par le terrain. None si board/position absents
+    → les bonus positionnels rendent None (comportement historique, fidèle : pas de count devinable)."""
+    board = getattr(state, "board", None)
+    if board is None:
+        return None
+    e = state.get_entity(unit_id)
+    pc = e.get_component(PositionComponent) if e is not None else None
+    if pc is None:
+        return None
+    pos = (pc.col, pc.row)
+    ctid = board.id_at(pos[0], pos[1])
+    if ctid is None:
+        return None
+    from ..utilities.tile import terrain_tile_effects            # lazy : évite cycle runner<->utilities
+    tfx: dict = {}
+    for tid in (ctid, *board.neighbours(ctid)):
+        p = board.coord(tid)
+        if p is None:
+            continue
+        names: list = []
+        if state.effects is not None:                            # effets dynamiques posés SUR la tuile (Ice/Fire…)
+            names += [x.name for x in state.effects.by_unit.get(int(tid), [])
+                      if not x.consumed and x.name]
+        names += terrain_tile_effects(board.terrain_at(p[0], p[1]))
+        tfx[tuple(p)] = names
+    return {"att_pos": pos, "tile_effects_by_pos": tfx}
+
+
 def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged: Optional[bool] = None,
                        target_traits=None, target_id: Optional[int] = None):
     """`DamageModifiers` de l'attaquant depuis ses EFFETS actifs (None-safe). `is_ranged` = nature du coup
@@ -224,9 +258,14 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
               if state.effects is not None else [])
     has_moved = unit_id in state.moved_this_turn
     tar = defender_armor_reduced(state, target_id) if target_id is not None else None
+    # #35 : att_ctx POSITIONNEL (att_pos + effets de tuile ring-1 lus de l'ECS) — nourrit les bonus
+    # position-dépendants (LordOfTempests : +extraDmg x Count(Ice ring-1)) côté COMBAT, symétrique de
+    # la prédiction (qui le lit du tileMeta frais). Seul consommateur d'att_ctx à ce jour ; les unités
+    # sans effet positionnel sont inchangées (les autres bonus ignorent att_ctx).
+    att_ctx = _positional_att_ctx(state, unit_id)
     mods = build_attacker_modifiers_from_effects(active, is_ranged, has_moved=has_moved,
                                                  target_traits=target_traits,
-                                                 target_armor_reduced=tar)
+                                                 target_armor_reduced=tar, att_ctx=att_ctx)
     _apply_ally_attack_damage_auras(state, unit_id, mods, is_ranged, tar)
     return mods, active
 

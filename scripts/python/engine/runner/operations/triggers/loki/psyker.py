@@ -44,7 +44,11 @@ def psyker_smite_tree(pct: int, profile: str):
     pierce via `profile_pierce`, meme rng). `pct`/`profile` passes par l'appelant (`GC.trait("Psyker").
     variables.psykerExtraDmg` / `PSYCHIC_PROFILE`) pour eviter tout couplage d'import."""
     amount = PercentageOf(Const(pct), StatAmount(Caster(), int(StatType.ATTACK)))   # Direct(pct) x StatAmount(Attack)
-    return AttackWithAttackDamage(Target(), "Psyker", profile, is_melee=False, amount=amount, hits=1)
+    # `ability_type=0x3f5` (1013) : le smite porte l'AbilityOrEffect « kind attaque-normale » (case-34
+    # ProbableDamageEvent AbilityOrEffect(1013)) -> threade au payload d'event On(9) after-hit — c'est le
+    # gate de la branche 2 d'`OnNormalAttackOrSmite @180df7c70` (LordOfTempests AddIce #35).
+    return AttackWithAttackDamage(Target(), "Psyker", profile, is_melee=False, amount=amount, hits=1,
+                                  ability_type=0x3f5)
 
 
 class PsykerExtraAttackAbility(TriggeredAbility):

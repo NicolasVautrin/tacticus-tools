@@ -24,7 +24,6 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 | # | Tâche | Modèle | Point d'entrée |
 |---|---|---|---|
-| #35 | LordOfTempests `AddIce` (arbre DSL) | `[opus]` | Patron de slice DSL rodé depuis #149 ; artefact = `CreateBehaviour`. |
 | #38 | DoctrinaImperatives `ReachedSummonCap` | `[opus]` | Prédicat/sélecteur scopé. |
 | #39 | RE de la porte **per-player 1180** | `[fable]` | Asymétrie par camp constatée sans explication (`case-31`, mémoire `project_per_player_ai_asymmetry`) — profil « a déjà résisté ». |
 | #27 | 25 overrides `CalculateCustomUtility` | `[opus]` | Volume mécanique → fan-out `re-expert`, **un item par agent**. |
@@ -52,3 +51,10 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   caster-buffé) ; datapoint `ExtraHits>0` (délégué m860) jamais mesuré ; LoS non portée dans
   PickTile (boards à obstacles) ; retrait Markerlight au heal/repair non porté. `[opus]` si un miss
   d'agreement les fait surface.
+- **LordOfTempests AddIce, résidus** (`case-35` §4 — case CLOS) : branche 2 (glace sur la victime
+  du smite Psyker) non exercée live (câblée + unit-testée) ; `is_normal_attack` face attaquant
+  toujours True au foyer combat (snowball s'appliquerait aux abilities de Njal — inerte,
+  Stormcaller non porté) ; `load_state` sans hydratation des effets de TUILE mi-bataille ;
+  Stormcaller (1113) runner-face non porté (zone `GetAddIceTiles @18120cf70` + 3× AoE + stun
+  Flying) ; blocage mouvement / crit-bonus ICE toujours GATE (#131, terrain-effects §2). `[opus]`
+  si un miss d'agreement les fait surface.

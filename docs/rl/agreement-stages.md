@@ -65,7 +65,8 @@ mécaniquement l'essentiel du positioning.
    EXCLU). Porté `LordOfTempestsExtraDamageEffect` (extra_damage.py) + plumbing `att_ctx`
    positionnel (Scene.tile_effects_by_pos = tileMeta FRAIS par pas — la glace s'accumule).
    VALIDÉ BIT-EXACT aux 2 tuiles ((3,3) 1 hex : 3126-4092 ; (2,4) 3 hexes : 5526-6492) ;
-   s18 → HIT. Face RUNNER (pose de glace AddIce) = tâche dédiée.
+   s18 → HIT. Face RUNNER (pose de glace AddIce) = ✅ LIVRÉE (#35, 2026-07-22, `case-35` :
+   trigger 1194 porté + couplage att_ctx combat, replay-diff 2/2 bit-exact).
 2. **✅ RÉSOLU (#29, 2026-07-19) — Sur-estimation ×5.9** — 777 s15, u83 ab=69 tgt=87 : off
    1286-2570, nat 219-437 (×0.17). CAUSE = **DEUX réductions manquantes composées** (×0.8
    MartialKatah déjà porté × **0.5 Stunned** × **0.34 VexillaMagnifica** = 0.136 pré-MK,
