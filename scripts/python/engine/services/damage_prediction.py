@@ -238,7 +238,12 @@ def get_base_damage_fix64(base: int, extra_max: int = 0, spread_pct: int = 20,
     mm = spread_to_min_max(base, spread_pct)            # {base−spread, base+spread}
     hi = mm.max + extra_max
     lo = hi if is_max_out else mm.min
-    return MinMaxDamage(min=lo, max=hi)
+    # #65 : les bornes sont consommees par `CalculateBaseDamageWithAllModifiers @18102d3f0` dont le
+    # param est un **int baseDamage** (op_Explicit Fix64->int = TRONCATURE) -> trunc mirror. No-op pour
+    # toute base entiere (bornes entieres) ; ne mord que sur les bases fractionnaires (midpoint x.5 du
+    # noeud Average, ex. FleshmetalGuns Melta avg 1246.5 -> bornes 997.5/1495.5 -> 997/1495, ground
+    # truth AllMods + oracle (3890,5830) reconstruit exact).
+    return MinMaxDamage(min=int(lo), max=int(hi))
 
 
 def _materialize(v) -> int:
@@ -494,9 +499,11 @@ def get_multi_hit_attack_prediction(
     # les ajoute au meme DamagePredictionResult). Mirror EffectAdditionalHits.Create @180f405b0.
     for _grp in (extra_groups or []):
         # deux formes de degat de groupe : `predefined` [min,max] (RandomAmount natif, pas de spread)
-        # OU `amount` seul (ConfigVar, ex. FoulInfusion #57c-C) -> spread ±20% standard du per-coup.
+        # OU `amount` seul -> spread ±20% standard du per-coup. L'amount peut etre un ConfigVar entier
+        # (FoulInfusion #57c-C) ou le MIDPOINT x.5 du noeud Average natif (FleshmetalGuns #65) ->
+        # pas de troncature int (le spread Fix64 from_number est exact sur les .5).
         _pre = _grp.get("predefined")
-        _amt = int(_grp.get("amount") or 0)
+        _amt = _grp.get("amount") or 0
 
         # #57d : member-cap Swarm per-COUP — le groupe porte le flag HitsMultipleMembers de SON profil
         # (natif : ApplyGroupUnitDamageLimit @18102bfe0 recoit le DamageProfile du coup courant).

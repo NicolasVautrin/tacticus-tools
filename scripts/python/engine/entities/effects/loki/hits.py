@@ -155,6 +155,92 @@ class CyclicIonBlasterAdditionalHitsEffect(BaseEffect):
         return [{"count": int(count), "amount": int(mn), "profile": profile}]
 
 
+class _BaseFleshmetalGunsEffect(BaseEffect):
+    """`BaseFleshmetalGunsEffect` (ctor @180f48570, EffectSource = AbilityOrEffect 0x429=1065
+    FleshmetalGuns, blackObliterator Volk) — mold commun des 3 effets CYCLIQUES du passif : au debut
+    du tour de Volk, `FleshMetalGunsAbility.CreateBehaviour @18121f6e0` retire les 3 effets puis pose
+    `If(UnitTurnsStarted % 3 == 1 -> AddEffect(0x42b FocusedMalice), == 2 -> AddEffect(0x4bc
+    RuinousSalvo), == 0 -> AddEffect(0x4c5 WarpHail))` — le CYCLE est natif (l'etat runner porte
+    l'effet courant), seul le canal #179 est porte ici.
+
+    Natif : `BaseFleshmetalGunsEffect.CreateAdditionalHits @180f48260` -> `EffectAdditionalHits.Create`
+    {condition = OwnerIsCaster & IsRangedAttack, noeud roll = GetMinMaxDamage(effect, 0, keyMin, keyMax)
+    = RandomAmount(ConfigVar(keyMin, AbilityStateFromEffect), ConfigVar(keyMax, ...)), noeud display =
+    GetMinMaxDamage(effect, 1, ...) = **Average** des memes ConfigVars, count = GetNumberConstant(
+    keyCount), profile = virtuel 0x728}. Les cles min/max/count/profil sont des VIRTUELS par variante
+    (suffixe _2/_3) : base = minDmg/maxDmg/nrOfHits/GetDamageProfile (Melta) ; RuinousSalvo override
+    GetDamageProfileType @180f49fa0 -> GetDamageProfile2 (Flame, jeu _2) ; WarpHail @180f49ff0 ->
+    GetDamageProfile3 (HeavyRound, jeu _3). min/max in `variablesAffectedByRarityBonus` -> x multiplier ;
+    niveau = AbilityStateFromEffect (ability_level).
+
+    ⚠ FORME DISPLAY = AMOUNT (midpoint), PAS predefined [min,max] — GROUND TRUTH AllMods (probe_65_
+    allmods, round WarpHail, mult 180) : inputs per-coup du groupe = 718/1076 = round((698+1096)/2
+    x 0.8/1.2) ou 698/1096 = minDmg_3/maxDmg_3 int-resolus (varTrace 56/57), outs x0.55 (pierce
+    HeavyRound) = [395,592]/coup -> oracle ranked (3184,4772) reconstruit EXACT. La prediction native
+    evalue le noeud Average (midpoint des vars INT-resolues) puis applique le spread pipeline ±20%
+    (CalculateDamageSpread @1810028e0). Les paires Melta [554,831] et Flame [443,665] (comme SquigHound
+    [1330,1994] / CordClaw [886,1330]) sont des paires ±20% EXACTES autour de leur moyenne -> predefined
+    et amount-midpoint coincident au round pres ; seule la paire WarpHail [388,609] est ASYMETRIQUE
+    (±22.2%) et discrimine les formes (miss +-22 du 1er run probe_65). Face COMBAT (roll reel) =
+    RandomAmount(min,max) — bornes DIFFERENTES du display (incoherence native mirroree telle quelle ;
+    aucun consommateur combat du canal #179 a ce jour).
+
+    DECOUVERT par probe #62 (seed 62001 MC1_67) : u79 blackObliterator (4,4) vs u81 natif (2321,3479)
+    vs offline (725,1087). i2 : << Ranged attacks deal an additional {nrOfHits}x {minDmg}-{maxDmg} ...
+    >>. Le volet << Despoiled Ground >> de WarpHail = `FleshMetalGuns_TileEffectAbility @18121fb40`
+    (effet de TUILE, hors canal #179, non porte). #65."""
+
+    _SUFFIX = ""                       # cles gameconfig de la variante : ""|"_2"|"_3"
+    _FALLBACK_PROFILE = "Melta"
+
+    def additional_hit_groups(self, ctx: "Mapping | None" = None) -> "list[dict] | None":
+        if not ctx or ctx.get("is_melee") is not False:   # trigger IsRangedAttack (evalue)
+            return None
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        sfx = self._SUFFIX
+        mn = ability_var("FleshmetalGuns", "minDmg" + sfx, lvl,
+                         multiplier_pct=self.ability_variables_multiplier)
+        mx = ability_var("FleshmetalGuns", "maxDmg" + sfx, lvl,
+                         multiplier_pct=self.ability_variables_multiplier)
+        count = ability_var("FleshmetalGuns", "nrOfHits" + sfx, is_constant=True)
+        if mn is None or mx is None or not count or count <= 0:
+            return None
+        try:
+            import gameconfig as _GC
+            profile = ((_GC.ability("FleshmetalGuns") or {}).get("constants") or {}) \
+                .get("damageProfile" + sfx) or self._FALLBACK_PROFILE
+        except Exception:
+            profile = self._FALLBACK_PROFILE
+        # display natif = noeud Average (midpoint des vars INT-resolues) + spread pipeline ±20%
+        # (cf. docstring de la base) -> forme "amount" du canal #179, midpoint possiblement x.5.
+        return [{"count": int(count), "amount": (int(mn) + int(mx)) / 2, "profile": profile}]
+
+
+class FleshmetalGunsFocusedMaliceEffect(_BaseFleshmetalGunsEffect):
+    """`FleshmetalGunsFocusedMaliceEffect` (effet 0x42b=1067, tour 1 du cycle) — defauts de la BASE :
+    vars minDmg/maxDmg, nrOfHits (=2), GetDamageProfile = Melta (pas d'override nomme)."""
+
+    _SUFFIX = ""
+    _FALLBACK_PROFILE = "Melta"
+
+
+class FleshmetalGunsRuinousSalvoEffect(_BaseFleshmetalGunsEffect):
+    """`FleshmetalGunsRuinousSalvoEffect` (effet 0x4bc=1212, tour 2 du cycle) — jeu _2 :
+    minDmg_2/maxDmg_2, nrOfHits_2 (=2), `GetDamageProfileType @180f49fa0` -> GetDamageProfile2 = Flame."""
+
+    _SUFFIX = "_2"
+    _FALLBACK_PROFILE = "Flame"
+
+
+class FleshmetalGunsWarpHailEffect(_BaseFleshmetalGunsEffect):
+    """`FleshmetalGunsWarpHailEffect` (effet 0x4c5=1221, tour 3 du cycle) — jeu _3 :
+    minDmg_3/maxDmg_3, nrOfHits_3 (=2), `GetDamageProfileType @180f49ff0` -> GetDamageProfile3 =
+    HeavyRound. Le volet Despoiled Ground (tuile) est un artefact separe non porte (@18121fb40)."""
+
+    _SUFFIX = "_3"
+    _FALLBACK_PROFILE = "HeavyRound"
+
+
 class _ExplosiveMaladiesAuraHitsBase(BaseEffect):
     """Mold commun des deux effets-AURA d'ExplosiveMaladies (passif deathPutrifier Pestillian, effets
     HOSTES SUR LE PORTEUR — rien n'est poste sur le beneficiaire, modele #49) : +nrOfHits=1 coup de

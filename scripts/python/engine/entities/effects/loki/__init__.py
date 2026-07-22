@@ -34,6 +34,8 @@ from .damage_reduction import (TerrifyingExtraDefenseEffect, MartialKatahDmgRedu
                                VexillaMagnificaDmgReductionEffect)
 from .hits import (SquigHoundAdditionalHitsEffect, CordClawAdditionalHitsEffect,
                    FoulInfusionExtraHitsEffect, CyclicIonBlasterAdditionalHitsEffect,
+                   FleshmetalGunsFocusedMaliceEffect, FleshmetalGunsRuinousSalvoEffect,
+                   FleshmetalGunsWarpHailEffect,
                    ExplosiveMaladiesExtraRangedAttackEffect,
                    ExplosiveMaladiesExtraMeleeAttackEffect,
                    AnvilShieldAdditionalBlockEffect,
@@ -67,6 +69,8 @@ __all__ = [
     # hits
     "SquigHoundAdditionalHitsEffect", "CordClawAdditionalHitsEffect",
     "FoulInfusionExtraHitsEffect", "CyclicIonBlasterAdditionalHitsEffect",
+    "FleshmetalGunsFocusedMaliceEffect", "FleshmetalGunsRuinousSalvoEffect",
+    "FleshmetalGunsWarpHailEffect",
     "ExplosiveMaladiesExtraRangedAttackEffect", "ExplosiveMaladiesExtraMeleeAttackEffect",
     "AnvilShieldAdditionalBlockEffect", "BeastSlayerExtraBlockEffect",
     "DaemonExtraBlockEffect",

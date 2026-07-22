@@ -597,7 +597,9 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                   "profile_has_hits_multiple_members":
                       DamageTrait.HitsMultipleMembers.name in (_dp.get("Traits") or [])}
         if "amount" in _g:
-            _entry["amount"] = int(_g["amount"])
+            # #65 : PAS de troncature int — un amount midpoint (Average natif, ex. FleshmetalGuns)
+            # peut valoir x.5 ; le spread Fix64 (`calculate_damage_spread` from_number) le gere exact.
+            _entry["amount"] = _g["amount"]
         else:
             _entry["predefined"] = MinMaxDamage(min=_g["min"], max=_g["max"])
         _extra_groups.append(_entry)

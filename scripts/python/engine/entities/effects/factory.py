@@ -58,6 +58,9 @@ from .loki import (
     CordClawAdditionalHitsEffect,
     FoulInfusionExtraHitsEffect,
     CyclicIonBlasterAdditionalHitsEffect,
+    FleshmetalGunsFocusedMaliceEffect,
+    FleshmetalGunsRuinousSalvoEffect,
+    FleshmetalGunsWarpHailEffect,
     ExplosiveMaladiesExtraRangedAttackEffect,
     ExplosiveMaladiesExtraMeleeAttackEffect,
     LordOfTheHostExtraDamageEffect,
@@ -90,6 +93,13 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # (@180e1dd70, canal #179 forme "amount" : display n'evalue que le noeud MIN, spread pipeline).
     # Valide 54321 s19 (#57e).
     "CyclicIonBlaster_AdditionalHits": CyclicIonBlasterAdditionalHitsEffect,
+    # FleshmetalGuns (Volk blackObliterator, passif 0x429=1065) : effet CYCLIQUE au debut de son tour
+    # (behaviour @18121f6e0, UnitTurnsStarted % 3) -> +nrOfHits{,_2,_3}=2 coups PREDEFINED
+    # [minDmg,maxDmg]{,_2,_3} Melta/Flame/HeavyRound aux attaques RANGED du porteur
+    # (@180f48260, trigger OwnerIsCaster & IsRangedAttack, canal #179). #65 (decouvert probe #62).
+    "FleshmetalGunsFocusedMalice": FleshmetalGunsFocusedMaliceEffect,
+    "FleshmetalGunsRuinousSalvo": FleshmetalGunsRuinousSalvoEffect,
+    "FleshmetalGunsWarpHail": FleshmetalGunsWarpHailEffect,
     # ExplosiveMaladies (Pestillian, effets-AURA sur le PORTEUR) : +nrOfHits=1 coup Blast de
     # extraDmg[state] aux attaques normales des amis ADJACENTS (ranged: tous @180f43cc0 ;
     # melee: Chaos @180f43a40) — adjacence re-evaluee a la tuile candidate. #57c-C bit-exact.
