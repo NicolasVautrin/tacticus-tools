@@ -22,7 +22,8 @@ from __future__ import annotations
 from typing import Optional, Tuple
 
 from .state import State
-from .components import StatsComponent, HealthComponent, OwnerComponent, PositionComponent
+from .components import (StatsComponent, HealthComponent, OwnerComponent, PositionComponent,
+                         UnitComponent)
 from ..entities.stats import StatType, ARMOR_STAT_TYPES
 from ..services.damage_prediction import get_attack_prediction, apply_pierce_and_modifiers
 from ..services.battle_query import (
@@ -254,6 +255,16 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
     att_ctx = None
     if attacker_id is not None or is_normal_attack is not None:
         att_ctx = {"id": attacker_id, "is_normal_attack": is_normal_attack}
+        # FACTION de l'attaquant (gate `HasFaction(actor, ...)` des malus défenseur, ex. Markerlight
+        # @180f58170 : +15% aux attaques RANGED d'un attaquant T'AU sur la cible marquée). FactionId
+        # gameconfig par visualId (même résolveur `_faction` que `entities_from_state`) ; lazy import
+        # (garde anti-circulaire). Attaquant introuvable → clé absente → gates faction no-op (fidèle).
+        if attacker_id is not None:
+            _ae = state.get_entity(attacker_id)
+            _auc = _ae.get_component(UnitComponent) if _ae is not None else None
+            if _auc is not None:
+                from ..ai.action_generators import _faction
+                att_ctx["faction"] = _faction(_auc.visual_id)
     # STAT-MODS DEFENSE de la CIBLE (#197) : moitie DEFENSE de `CalculateDefenderModifiersForPrediction
     # @181002c30`, portee DANS la fonction PARTAGEE (fin du fork prediction/combat -- cf. son docstring).
     # Source runner = le `StatComponent` DEFENSE (stat 3) de l'ECS live (`ctx.stats`, delta cuit au load

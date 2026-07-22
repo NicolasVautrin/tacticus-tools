@@ -61,3 +61,29 @@ def revert_change_stat(state, unit_id: int, stat_type: int, source) -> Optional[
         return None
     ctx.stats.revert_stat(int(stat_type), source)
     return ctx.stats.get_stat(int(stat_type), StatPart.CURRENT)
+
+
+def apply_stat_override(state, unit_id: int, stat_type: int, value: int,
+                        is_modifiable: bool = True) -> Optional[int]:
+    """`ChangeStat` mode 4 + `Position(statType, part 7 = OVERRIDE)` (émis par ex. par
+    `MV71SniperDroneSquad_InitialDmgEffect.ApplyStat @180f573f0`) → `StatComponent.ApplyModifier
+    @180fa8800` case 7 → `ValueOverride.SetOverride @180faea70`. La valeur (ex. stat CURRENT du
+    parent) est SNAPSHOTÉE par l'appelant (nœud `Direct(...)` évalué à l'exécution). Renvoie la
+    nouvelle valeur Current (None si pas de stats)."""
+    ctx = _ctx(state, unit_id)
+    if ctx is None:
+        return None
+    ctx.stats.set_stat_override(int(stat_type), int(value), is_modifiable)
+    return ctx.stats.get_stat(int(stat_type), StatPart.CURRENT)
+
+
+def remove_stat_override(state, unit_id: int, stat_type: int) -> Optional[int]:
+    """`ChangeStat` mode 4 + `Position(statType, part 8 = REMOVE_OVERRIDE)` (ex.
+    `MV71SniperDroneSquad_InitialDmgEffect.ResetStat @180f57620`, appelé ×4 par `RevertInternal
+    @180f577d0`) → `ApplyModifier @180fa8800` case 8 → `ValueOverride.RemoveOverride @180fae930`.
+    Renvoie la nouvelle valeur Current (None si pas de stats)."""
+    ctx = _ctx(state, unit_id)
+    if ctx is None:
+        return None
+    ctx.stats.remove_stat_override(int(stat_type))
+    return ctx.stats.get_stat(int(stat_type), StatPart.CURRENT)

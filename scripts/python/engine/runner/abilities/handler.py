@@ -15,7 +15,8 @@ from .base import ActiveAbility
 from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
                    ScarabSummonAbility, GetEmRuntzAbility, CrushingClawsAbility, ValkyrieStrikeAbility,
                    PlasmaGrenadeAbility, StikkbombAbility, FragstormAbility, ScythingTalonsAbility,
-                   SpiritLeechAbility, ArmoriumCherubAbility, DoctrinaImperativesAbility)
+                   SpiritLeechAbility, ArmoriumCherubAbility, DoctrinaImperativesAbility,
+                   MV71SniperDroneSquadAttackAbility)
 from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility
 
 # Registre ActiveAbilityType (int) -> classe d'ability portée. À ÉTENDRE au roster.
@@ -35,6 +36,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     CultDemagogueAbility.ABILITY_TYPE: CultDemagogueAbility,           # 1179 (Isaak : pose decoys + summon Neophytes moitié + tour AI immédiat)
     HeroicFusilladeAbility.ABILITY_TYPE: HeroicFusilladeAbility,       # 1180 (Judh : move + 6x Projectile splash cible+voisins + crit-per-free-hex)
     DoctrinaImperativesAbility.ABILITY_TYPE: DoctrinaImperativesAbility,  # 1118 (Tan Gi'da : toggle Protector<->Conqueror ; Protector +FixedArmor self)
+    MV71SniperDroneSquadAttackAbility.ABILITY_TYPE: MV71SniperDroneSquadAttackAbility,  # 1076 (Sho'syl : summon drone + attaque commandee + Markerlight, #61bis)
 }
 
 

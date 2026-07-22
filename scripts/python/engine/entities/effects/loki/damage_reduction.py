@@ -9,7 +9,40 @@ from ....services.effect_bonus import (EffectBonus, for_addition, for_subtractio
                                        for_percent_decrease, for_percent_increase,
                                        for_percent_subtraction_capped)
 from ..base import BaseEffect
-from ..magnitude import ability_var, global_value, trait_var
+from ..magnitude import ability_var, bc_effect_config, global_value, trait_var
+
+
+class MarkerlightEffect(BaseEffect):
+    """`MarkerlightEffect` (effet **1122=0x462**, `Entities.Effects.Loki`) — la cible est « marquée ».
+    `.ctor @180f583b0` = `DamageModifierAbilityEffect..ctor(this, 0x462, Nullable(1))`.
+    `CreateDamageModifier @180f58170` : trigger = `OwnerIsTarget & HasFaction(actor@0x158, 9=T'au, 3)
+    & IsRangedAttack` ; bonus = `EffectBonus.ForPercentIncrease(Direct(GetEffectConfig(4)))` —
+    slot service 0xbe(4) = la règle GLOBALE `MarkerlightDmgBonusPct` de la section BC `Effect`
+    (`unitEffectVariables.markerlightDmgBonusPct` = **15** ; même mécanisme `InitEffectConfig
+    @18106e9c0` que Pinned EffectConfig(0/1)).
+
+    ⇒ malus DÉFENSEUR : les attaques **RANGED** d'un attaquant **T'au** contre le porteur font
+    **+15 %**. Gates lus du contexte : `is_melee is False` (RANGED prouvé ; None = nature inconnue →
+    None, présent ≠ appliqué) + `attacker_ctx["faction"] == "Tau"` (threadé par
+    `damage_model.defender_modifiers` ; absent → None).
+
+    Pose (MV71SniperDroneSquadAttack @181108900 étape (e)) : sur la CIBLE, durée
+    `Sum(TurnsFromRounds(1), Direct(1))` = fin du prochain tour du caster — identique à
+    `StructuralAnalyser_AddMarkerlightAbility.CreateBehaviour @1811a2a00`.
+    ⚠ NON porté (flaggé) : le retrait au HEAL/REPAIR de la cible (i2 « Healing or repairing removes
+    the effect ») — cycle de vie durée-seule offline."""
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                                damage_profile: str | None = None,
+                                                attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        if is_melee is not False:                              # gated IsRangedAttack (None = inconnu)
+            return None
+        if not (attacker_ctx and attacker_ctx.get("faction") == "Tau"):   # HasFaction(actor, 9=T'au)
+            return None
+        pct = bc_effect_config("MarkerlightDmgBonusPct", 15)   # règle globale (unitEffectVariables)
+        if not pct:
+            return None
+        return for_percent_increase(False, int(pct))           # owner=défenseur (dégât REÇU +15 %)
 
 
 class TerrifyingExtraDefenseEffect(BaseEffect):

@@ -120,6 +120,9 @@ class AddEffectOperation:
         # les ChangeStat déclarés par l'effet (part DATA `applied_stat_mods`). Séparé d'`AddNewEffect` (pure
         # matérialisation ECS) côté natif → séparé ici aussi (frontière déclaratif feuille / impératif op).
         AddEffectOperation._apply_stat_mods(state, target, eff)
+        # `<Effect>.ApplyInternal` part OVERRIDE (MV71 InitialDmg @180f57320) : overrides part 7 aux
+        # valeurs CURRENT du PARENT (= la source de la pose), snapshotées ICI (nœud Direct évalué à l'apply).
+        AddEffectOperation._apply_stat_overrides(state, target, eff)
         # Effet COMPOSITE : `<Effect>.ApplyInternal` spawne ses SOUS-effets (enfants) juste après le
         # parent (ex. Stunned 1162 → 1165/1166/1167). Effet-driven : la liste vient de la classe d'effet.
         AddEffectOperation._spawn_sub_effects(state, source, target, eff)
@@ -150,6 +153,44 @@ class AddEffectOperation:
         for stat, amount in mods:
             apply_change_stat(state, target, int(stat), src, int(amount))
         eff.stat_mod_source = src
+
+    @staticmethod
+    def _apply_stat_overrides(state: State, target: int, eff: BaseEffect) -> None:
+        """Mirror `MV71SniperDroneSquad_InitialDmgEffect.ApplyInternal @180f57320` : pour chaque StatType
+        déclaré par l'effet (`overridden_stats()`, DATA côté `entities/`), lit `GetStat(parent, stat,
+        CURRENT)` — **parent = `eff.source`** (la pose native passe `AbilityStateReference` = le caster,
+        qui EST le `GetParentUnit(drone)` : Unit_Parent_Id = casterId, GT case-61bis §2) — et pose
+        l'OVERRIDE (part 7, `apply_stat_override`, modifiable). Valeurs SNAPSHOTÉES à l'apply (nœud
+        `Direct(...)` natif évalué à l'exécution du ChangeStat). Stocke `stat_override_stats` sur
+        l'instance (la liste que le retrait reverte via `remove_stat_override`, part 8 — mirror
+        `RevertInternal @180f577d0`). No-op si l'effet ne déclare aucun override / parent sans stats."""
+        stats = eff.overridden_stats() or []
+        if not stats:
+            return
+        src = eff.source
+        pe = state.get_entity(src) if src is not None else None
+        psc = pe.get_component(StatsComponent) if pe is not None else None
+        pus = getattr(psc.ctx, "stats", None) if psc is not None else None
+        if pus is None:
+            return
+        from .stat_ops import apply_stat_override
+        applied = []
+        for st in stats:
+            val = pus.get_stat(int(st), 0)                 # GetStat(parent, stat, CURRENT) — snapshot
+            apply_stat_override(state, target, int(st), int(val), is_modifiable=True)
+            applied.append(int(st))
+        eff.stat_override_stats = applied
+
+    @staticmethod
+    def revert_stat_overrides(state: State, target: int, eff: BaseEffect) -> None:
+        """Mirror `RevertInternal @180f577d0` = `ResetStat @180f57620` ×N (part 8 = REMOVE_OVERRIDE) :
+        retire les overrides posés par `_apply_stat_overrides` (liste `stat_override_stats` de
+        l'instance). Appelé à la CONSOMMATION de l'effet (ex. TargetTrigger `On(AttackDamageAttack)&
+        OwnerIsCaster` de MV71 InitialDmg, exécuté par l'ability après l'attaque commandée)."""
+        from .stat_ops import remove_stat_override
+        for st in (getattr(eff, "stat_override_stats", None) or []):
+            remove_stat_override(state, target, int(st))
+        eff.stat_override_stats = []
 
     @staticmethod
     def _spawn_sub_effects(state: State, source: Optional[int], target: int,

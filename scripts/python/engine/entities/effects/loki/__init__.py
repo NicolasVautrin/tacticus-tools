@@ -31,7 +31,7 @@ from .damage_reduction import (TerrifyingExtraDefenseEffect, MartialKatahDmgRedu
                                DaughterOfTheAbyssFriendlyDmgReductionPctEffect,
                                DaughterOfTheAbyssOwnerDmgReductionEffect,
                                OverwhelmingWrathRangeDmgReductionEffect,
-                               VexillaMagnificaDmgReductionEffect)
+                               VexillaMagnificaDmgReductionEffect, MarkerlightEffect)
 from .hits import (SquigHoundAdditionalHitsEffect, CordClawAdditionalHitsEffect,
                    FoulInfusionExtraHitsEffect, CyclicIonBlasterAdditionalHitsEffect,
                    FleshmetalGunsFocusedMaliceEffect, FleshmetalGunsRuinousSalvoEffect,
@@ -48,7 +48,8 @@ from .hits import (SquigHoundAdditionalHitsEffect, CordClawAdditionalHitsEffect,
                    KanOpenerEffect, LIGHT_COVER_TILE_ID)
 from .status import (HypersensoryMinimalHealthEffect, ContaminatedUnitEffect, StandVigilExtraArmorEffect,
                      BlessingsOfKhorneModifiersEffect, StunnedEffect, StunnedDamageModifierEffect,
-                     ActOfFaithBuffEffect, TauntedEffect, PinnedEffect)
+                     ActOfFaithBuffEffect, TauntedEffect, PinnedEffect,
+                     MV71InitialDmgEffect, MV71ResetInitialDmgEffect)
 from .imperative import ProtectorImperativeEffect, ConquerorImperativeEffect
 
 __all__ = [
@@ -67,6 +68,7 @@ __all__ = [
     "FightingRetreatDmgReductionEffect", "ShadowInTheWarpLessDmgEffect",
     "DaughterOfTheAbyssFriendlyDmgReductionPctEffect", "DaughterOfTheAbyssOwnerDmgReductionEffect",
     "OverwhelmingWrathRangeDmgReductionEffect", "VexillaMagnificaDmgReductionEffect",
+    "MarkerlightEffect",
     # hits
     "SquigHoundAdditionalHitsEffect", "CordClawAdditionalHitsEffect",
     "FoulInfusionExtraHitsEffect", "CyclicIonBlasterAdditionalHitsEffect",
@@ -84,6 +86,7 @@ __all__ = [
     "HypersensoryMinimalHealthEffect", "ContaminatedUnitEffect", "StandVigilExtraArmorEffect",
     "BlessingsOfKhorneModifiersEffect", "StunnedEffect", "StunnedDamageModifierEffect",
     "ActOfFaithBuffEffect", "TauntedEffect", "PinnedEffect",
+    "MV71InitialDmgEffect", "MV71ResetInitialDmgEffect",
     # imperative
     "ProtectorImperativeEffect", "ConquerorImperativeEffect",
 ]

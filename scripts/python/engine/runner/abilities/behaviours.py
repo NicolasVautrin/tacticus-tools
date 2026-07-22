@@ -975,6 +975,44 @@ class KillDeadUnits(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class RemoveUnit(AbilityBehaviour):
+    """`DSLFactory.RemoveUnit @180df9fd0` -> `RemoveUnitBehaviour.Execute @180fce1d0` : RETIRE de la
+    bataille chaque unite du selecteur — un DESPAWN, PAS une mort (i2 MV71 : « the one with the lowest
+    Health is REMOVED ») : AUCUN vecteur on-death (pas de PreUnitDeath/UnitDefeated, pas d'attribution
+    de tueur). Call-sites portes (MV71SniperDroneSquadAttack @181108900) : eviction (a)
+    `RemoveUnit(Units(Get(tile),1,3))` = le drone occupant la tuile choisie (fallback PickTile) ;
+    eviction (b) `RemoveUnit(First(AlreadySpawnedSummonsSortedSelector,1,0))` = le drone le plus faible
+    au cap maxSummons.
+
+    Port : marque `alive=False` (libere l'occupation — `_occupied`/`CanAddUnit` excluent les morts) et
+    consomme les effets portes par l'unite (l'entite-effet native part avec son porteur). SANS
+    death-triggers (difference structurelle avec la mort d'`AttackDamageOperation`). Emet 'RemoveUnit'
+    par unite. PUR (stop=False)."""
+    __slots__ = ("units_sel",)
+
+    def __init__(self, units_sel: TargetsSelector):
+        self.units_sel = units_sel
+
+    def execute(self, entities, ectx):
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        for u in sorted((x for x in _units_of(self.units_sel, entities)
+                         if isinstance(x, dict) and x.get("id") is not None),
+                        key=lambda x: x["id"]):              # ordre de lecture = id
+            uid = u["id"]
+            e = state.get_entity(uid)
+            uc = e.get_component(UnitComponent) if e is not None else None
+            if uc is None or not uc.alive:
+                continue
+            uc.alive = False                                 # despawn : PAS de vecteur on-death
+            if state.effects is not None:                    # les effets portes partent avec l'unite
+                for eff in state.effects.by_unit.get(int(uid), []):
+                    eff.consumed = True
+            ectx.emit("RemoveUnit", unit=uid)
+        return OperationResult.ok()
+
+
 class UseActiveAbility(AbilityBehaviour):
     """`DSLFactory.UseActiveAbility @180e015e0` -> `UseActiveAbilityBehaviour.Execute @180fd9930` : pour
     CHAQUE cible du selecteur `targets_sel` (+0x58), le SUJET (`subject_sel`, +0x50) UTILISE son ability

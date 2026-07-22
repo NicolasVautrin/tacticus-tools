@@ -312,6 +312,15 @@ class BaseEffect:
         multi-stat (ex. ActOfFaith = crit-chance ET crit-damage). Défaut `[]` = aucun ChangeStat à annuler."""
         return []
 
+    def overridden_stats(self) -> "list":
+        """Part DATA d'un `ApplyInternal` qui OVERRIDE des stats du porteur (part 7, `ChangeStat` mode 4)
+        aux valeurs **CURRENT du PARENT** du porteur — cas `MV71SniperDroneSquad_InitialDmgEffect
+        @180f57320` (4 stats). La couche runner (`AddEffectOperation._apply_stat_overrides`) SNAPSHOTE la
+        valeur du parent (= `eff.source`, mirror `GetParentUnit`) et exécute `apply_stat_override`
+        (part 7 → SetOverride) ; le retrait exécute `remove_stat_override` (part 8, mirror `RevertInternal
+        @180f577d0` → ResetStat ×N). Défaut `[]` = pas d'override."""
+        return []
+
     # ── matérialisation composite ─────────────────────────────────────────────────────────────────
     def sub_effects_on_apply(self) -> list[SubEffectSpec]:
         """`<Effect>.ApplyInternal` — sous-effets (enfants) spawnés quand CET effet est appliqué.

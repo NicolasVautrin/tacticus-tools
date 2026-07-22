@@ -36,6 +36,9 @@ from .loki import (
     KanOpenerEffect,
     LightCoverEffect,
     MartialKatahDmgReductionEffect,
+    MarkerlightEffect,
+    MV71InitialDmgEffect,
+    MV71ResetInitialDmgEffect,
     BeastSlayerExtraDmgEffect,
     MartialKatahDmgBonusEffect,
     BeastSlayerExtraBlockEffect,
@@ -142,6 +145,17 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "ProtectorImperative": ProtectorImperativeEffect,   # 1247
     "ConquerorImperative": ConquerorImperativeEffect,   # 1248
     "RangedSpecialist": RangedSpecialistEffect,  # +33% dégât RANGED (trait, actif si pas parti adjacent)
+    # Markerlight (1122, posé sur la CIBLE par MV71SniperDroneSquadAttack @181108900 (e) /
+    # StructuralAnalyser @1811a2a00) : +MarkerlightDmgBonusPct% (=15, règle BC Effect) au dégât reçu des
+    # attaques RANGED d'un attaquant T'AU (@180f58170 ForPercentIncrease, gates OwnerIsTarget &
+    # HasFaction(T'au) & IsRangedAttack). Retrait au heal/repair NON porté (flag). #61bis.
+    "Markerlight": MarkerlightEffect,
+    # MV71SniperDroneSquad (Sho'syl, #61bis) — paire posée sur le DRONE par l'ability 1076 :
+    # InitialDmg (1132) = OVERRIDE des 4 stats du drone (ATTACK/CRIT_CHANCE/CRIT_DAMAGE/EXTRA_HITS) aux
+    # valeurs CURRENT du PARENT (@180f57320, part 7 SetOverride modifiable) ; ResetInitialDmg (1133) =
+    # compagnon. Les DEUX retirés dès que le drone attaque (TargetTrigger On(10,1)&OwnerIsCaster).
+    "MV71SniperDroneSquad_InitialDmg": MV71InitialDmgEffect,       # 1132
+    "MV71SniperDroneSquad_ResetInitialDmg": MV71ResetInitialDmgEffect,   # 1133
     "HeavyWeapon_ExtraDmg": HeavyWeaponExtraDmgEffect,   # +25% dégât RANGED (trait HeavyWeapon→Overwatch)
     # CrushingStrike (trait Terminators, effet 0x4a2=1186, nom capté = 'CrushingStrike') : +50% dégât
     # MÊLÉE NORMALE si pas bougé (@180f3ad90 ForPercentIncrease gated OwnerIsCaster & IsNormalAttack &

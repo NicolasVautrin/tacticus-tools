@@ -1,9 +1,9 @@
 # Case #61bis — MV71SniperDroneSquadAttack (1076) : port de l'attaque déclenchée du Marksman
 
 > Successeur de #61 (clos sans port — `case-61-additional-hits-prediction-reachability.md`) : le
-> SEUL appelant non porté du canal additional-hits côté prédiction. **En cours** — la
-> cartographie RE est déléguée ; ce document collecte d'abord le GROUND TRUTH live (confirmation,
-> pas dérivation : la mécanique vient du décompilé).
+> SEUL appelant non porté du canal additional-hits côté prédiction. **Tranches 1 (exécution) et
+> 2 (dispatch mêlée) LIVRÉES et validées live (§8, 2026-07-22)** ; reste la tranche 3 (prédiction
+> distance). La cartographie RE vient du décompilé (confirmée par le ground truth, pas dérivée).
 
 ## 1. Ce que fait l'ability (i2, vérité fonctionnelle)
 
@@ -168,38 +168,91 @@ compte de coups. Le nombre de coups vient de `ExtraHitsComponent(caster).Current
 valide ⇒ **prédiction vide**. Le canal additional-hits s'insère après le retour du service, clé =
 `attackTypeId` du drone (identique à ALoki).
 
-## 6. Ouvert (à trancher au portage / par datapoint live)
+## 6. Ouvert / tranché (MAJ 2026-07-22, tranches 1-2)
 
-- **3ᵉ délégué de `PredictAttack`** (`m860`) : rôle « compte de coups » = INFERENCE (ghidra ne nomme que
-  `b__0`/`b__1` de la `DisplayClass`). Si c'en est un autre, la prédiction distance est fausse d'un facteur
-  `1 + ExtraHits`. Datapoint discriminant : Sho'syl avec `ExtraHits > 0` vs `0`.
-- **Sens du tri** `SortByFormula(..., 1)` : que ce soit bien le drone de plus BASSE Health qui saute reste
-  à confirmer live (le cap 3 n'a pas encore été exercé — §2).
-- **Double éviction** (a)+(b) : peut-elle retirer DEUX drones ? En lecture statique (a) retire le drone de
-  la tuile, donc (b) devrait être faux ensuite — à prouver.
-- **`WithStatsFromConfig(cfg, target, …)`** : le 2ᵉ argument est la CIBLE, contre-intuitif pour un spawn —
-  vérifier que les stats du drone n'en dérivent pas. (Ground truth §2 : stats identiques aux 3 spawns,
-  cible constante — non discriminant en l'état.)
-- **Attribution du dégât** : vérifier que `UnitDamaged` live rapporte l'ability **1076** et non le
-  `NormalAttackType` du drone.
-- **Effet 1133** : skew de nommage non arbitré — le seul `.ctor` passant `0x46d` est `@180e1e0f0`, que
-  ghidra nomme `CyclicIonBlaster_AdditionalHitsEffect`, alors que `entities/effect_type.py` donne
-  1133 = `MV71SniperDroneSquad_ResetInitialDmg` (et `CyclicIonBlaster_AdditionalHits = 1148`). L'ancre de
-  contrôle est saine par ailleurs (`MarkerlightEffect..ctor @180f583b0` passe bien 0x462 = 1122). Le
-  comportement de 1133 dans MV71 reste **non lu**.
-- **Slots vtable non résolus** de l'agrégat de services `DAT_18327ff80` : `0xaa` (config d'unité), `0x66`
-  (tuiles candidates), `0xc0` (config d'attaque par unitId), `0xc3` (peut-attaquer-depuis-tuile), `0x24`
-  (service de prédiction) — appels indirects, noms natifs inconnus.
+- **3ᵉ délégué de `PredictAttack`** (`m860`) : TOUJOURS OUVERT (tranche 3). Rôle « compte de coups » =
+  INFERENCE. Datapoint discriminant : Sho'syl avec `ExtraHits > 0` vs `0`.
+- **Sens du tri** `SortByFormula(..., 1)` : **CONFIRMÉ LIVE** (test cap §8) — au 4ᵉ cast, le drone de
+  plus BASSE Health est retiré (évincé identique live/offline).
+- **Double éviction** (a)+(b) : au 4ᵉ cast, **exactement 1 drone évincé** live (test cap) — (b) seul
+  exercé ; (a) reste réservée au fallback (tuile d'un drone existant), non atteinte à ce jour.
+- **`WithStatsFromConfig(cfg, target, …)`** : stats identiques re-validées (1996/2093/499 == live via
+  `ability_var(lvl passif 50, mult 180)`) — le 2ᵉ arg (cible) n'influence pas les stats observées.
+- **Attribution du dégât** (`UnitDamaged` = 1076 vs NormalAttackType du drone) : non re-vérifiée
+  (le replay-diff compare les PV, pas l'attribution) — sans enjeu offline à ce stade.
+- **Effet 1133 — skew ARBITRÉ** : le `.ctor @180e1e0f0` (« CyclicIonBlaster_AdditionalHitsEffect »)
+  passe `AbilityOrEffect(0x46d)` = **TriggeredAbilityType.CyclicIonBlaster = 1133** (l'ATTRIBUTION
+  SOURCE de l'effet CyclicIonBlaster, EffectType 1148) — PAS un EffectType. Le `AddEffect(0x46d)` de
+  l'arbre MV71 = EffectType **1133 = MV71SniperDroneSquad_ResetInitialDmg**, conforme à l'enum du dump.
+- **Slots de services résolus au passage** : `0xbe` = `GetEffectConfig` (règles BC section `Effect` —
+  Markerlight lit l'ordinal 4 = `MarkerlightDmgBonusPct` = 15) ; `0x6b` = distance entre deux tuiles
+  (consommé par SpawnTileUtility) ; `0x79` = unités adjacentes à une tuile filtrées par relation
+  (amis/ennemis d'une unité de référence). Restent inconnus : `0xaa`/`0x66`/`0xc0`/`0xc3`/`0x24`.
 
 ## 7. Plan de port (tranches)
 
-1. **Exécution** (cœur de l'agreement d'état) : feuille `RemoveUnit` (absente — seul `KillDeadUnits`
-   existe), arbre `mv71_sniper_drone_squad_attack_tree()` mirrorant §5.1, effet 1132 (4 OVERRIDE depuis
-   le parent — nécessite de brancher `ValueOverride` / `StatPart.OVERRIDE=7` / `REMOVE_OVERRIDE=8`, déjà
-   définis dans `entities/stats.py`, la feuille `ChangeStat` actuelle ne gérant que l'additif), Markerlight
-   1122, et `PickTile` en helper impératif (filtres + tri d'utilité collapsés, doctrine FinalJustice) en
-   gardant le fallback sous peine de rendre l'éviction (a) injoignable.
-2. **Dispatch mêlée** (exécution ET prédiction) : délégation à l'attaque normale — supprime le faux
-   « min-range » de H53.
-3. **Prédiction distance** : substitution config d'arme du drone + dégât `StatAmount(caster, ATTACK)` +
-   coups `1 + ExtraHits(caster)`, puis canal additional-hits (déjà porté pour ALoki).
+1. **Exécution** — **LIVRÉE + VALIDÉE** (§8).
+2. **Dispatch mêlée** — **LIVRÉ + VALIDÉ** (§8 ; exécution seule — la face prédiction du dispatch va
+   avec la tranche 3).
+3. **Prédiction distance** — RESTE À FAIRE : substitution config d'arme du drone + dégât
+   `StatAmount(caster, ATTACK)` + coups `1 + ExtraHits(caster)`, puis canal additional-hits (déjà
+   porté pour ALoki) ; « aucune tuile valide ⇒ prédiction vide » ; + threading du % Markerlight dans
+   la face prédiction des defender-mods.
+
+## 8. Tranches 1-2 livrées (2026-07-22) — port + validation live
+
+**Port** (fichiers) :
+- `engine/runner/abilities/loki/mv71.py` — `MV71SniperDroneSquadAttackAbility` (1076, enregistrée au
+  handler) : dispatch mêlée (délégation attaque normale), `_pick_tile` (candidats libres à portée-4 de
+  la cible ; score = **Tile(7) porté** (`utilities/tile.py`, élévation active) + **utilité 0x37**
+  `_spawn_tile_utility_0x37`), évictions (a)/(b), spawn `_spawn_config_grot(cfg MV71SniperDroneSquad,
+  niveau PASSIF du caster)`, AddEffect 1132/1133, attaque commandée (`AttackDamageOperation.execute`
+  du DRONE — les overrides passent par GetStat), consommation 1132/1133 + revert, flags de tour du
+  drone, Markerlight durée `turns_from_rounds(1)+1`.
+- `entities/stats.py` — `StatComponent.apply_override/remove_override` + `UnitStats.set_stat_override/
+  remove_stat_override` (mirror `ApplyModifier @180fa8800` parts **7/8** → `SetOverride @180faea70` /
+  `RemoveOverride @180fae930` — part-switch RE-confirmé) ; `runner/operations/stat_ops.py` —
+  `apply_stat_override`/`remove_stat_override`.
+- `entities/effects/loki/status.py` — `MV71InitialDmgEffect` (DATA `overridden_stats()` = ATTACK/
+  CRIT_CHANCE/CRIT_DAMAGE/EXTRA_HITS) + `MV71ResetInitialDmgEffect` ; `AddEffectOperation.
+  _apply_stat_overrides` (snapshot `GetStat(parent=source, CURRENT)` à l'apply, **modifiable** — les
+  buffs du drone s'appliquent par-dessus, i2) + `revert_stat_overrides`.
+- `entities/effects/loki/damage_reduction.py` — `MarkerlightEffect` : `CreateDamageModifier @180f58170`
+  = `OwnerIsTarget & HasFaction(actor, 9=T'au) & IsRangedAttack → ForPercentIncrease(
+  MarkerlightDmgBonusPct=15)` (règle GLOBALE BC `Effect`, slot 0xbe = GetEffectConfig(4)) ; gate
+  faction threadé par `damage_model.defender_modifiers` (att_ctx["faction"]).
+- `runner/abilities/behaviours.py` — feuille `RemoveUnit` (`DSLFactory.RemoveUnit @180df9fd0` →
+  `RemoveUnitBehaviour.Execute @180fce1d0` : despawn SANS vecteur on-death).
+
+**RE complémentaire** (décompilé, VAs) : `ExecuteBehaviour @181108900` re-lu 1:1 (AddEffect 0x46c/0x46d,
+`UseActiveAbility(GetNormalAttackType(drone), attribution 2× AbilityOrEffect(1076))`, Markerlight
+`Sum(TurnsFromRounds(1), Direct(1))`) ; `PickTile @181109ac0` intégralement décodé (candidats slot 0x66
+sur les tuiles de la CIBLE × config drone slot 0xaa, filtres CanAddUnit/!PendingDrafting/slot 0xc3,
+`firstOnly` = 1er candidat = gate de GetDynamicInvalidTargetReason, fallback au cap seulement) ;
+`MV71SniperDroneSquad_SpawnTileUtility <d__5>.MoveNext @181100f60` = `-steps(cand→parent) ×
+W[AdjacentToParent=50] + W[NoAdjacentEnemy=40] si aucun ennemi adjacent + par ami adjacent :
+W[InRangeOfStructuralAnalyser=3]/W[InRangeOfDefenderOfTheGreaterGood=25] (gate aucun-ennemi-adjacent)
++ W[AdjacentToTau=20] si `CanBeProtector @1810e0a50` (= T'au ET PAS SaviorProtocols 0x460)` — poids BC
+catégorie `MV71SniperDroneSquad_ClosestToParent` (⚠ 2 sous-clés portent le typo natif « DDrone ») ;
+`ChangeStatBehaviour.Execute @180fbfb10` mode 4 décodé (StatModifier + Position(part) → Transform).
+
+**Validation** (`tests/engine/runner/test_mv71_sniper_drone_live.py`, 3 tests, replay-diff MT seedé) :
+1. cast à distance : TUILE du drone == live (le bucket Tile(7)+0x37 reproduit le choix natif — le
+   collapse « distance seule » divergait, (4,7) vs (3,6)), stats 1996/2093/499, **dégât commandé
+   bit-exact**, Markerlight posé, 1132/1133 consommés + overrides revertés (ATTACK du drone == propre) ;
+2. cap/éviction : 4ᵉ cast → le plus faible évincé (identique live/offline), tuile du 4ᵉ drone exacte,
+   3 drones des deux côtés ;
+3. dispatch mêlée : dégât == attaque normale (bit-exact), AUCUN drone, AUCUN Markerlight.
+Gardes de non-régression : `test_damage_roll_live` + `test_effect_stun_live` (3/3 PASS).
+
+**Résidus flaggés (non bloquants)** :
+- LoS (`UnobscuredTiles`/slot 0xc3 complet) non portée dans `_pick_tile` (MC1_67 ouvert ; boards à
+  obstacles → à porter) ; `steps` = distance hex (== pas sur board ouvert) ;
+- l'énumération native des candidats (slot 0x66) n'est pas RE'd — tie-break stable par id de tuile,
+  aucun tie observé sur les 2 scénarios validés ;
+- consommation de 1132/1133 exécutée par l'ability après l'attaque commandée (le SEUL On(10) du
+  porteur atteignable dans le cast) — PAS câblée aux attaques AI-turn (un drone qui n'attaquerait pas
+  au cast garderait l'effet offline) ;
+- Markerlight : retrait au HEAL/REPAIR non porté (durée seule) ; % non threadé dans la face
+  PRÉDICTION (tranche 3) ; contribution combat active (att_ctx faction) mais non exercée par un
+  datapoint dédié (tir de drone ULTERIEUR sur cible marquée = AI-turn replay, hors tranche 1).

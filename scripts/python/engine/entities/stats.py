@@ -199,6 +199,21 @@ class StatComponent:
         la contribution de `source`."""
         self.modification.reverse_modification(source)
 
+    def apply_override(self, value: int, is_modifiable: bool = True) -> None:
+        """`StatComponent.ApplyModifier @180fa8800` part **7 = OVERRIDE** → `ValueOverride.SetOverride
+        @180faea70` : pose la valeur d'override du stat. `is_modifiable=True` (cas MV71 InitialDmg,
+        flag +0x7c du ChangeStat mode 4) ⇒ `Current = override + modTotal` — les modifications du
+        PORTEUR (buffs) continuent de s'appliquer par-dessus l'override (i2 « buffs are taken from
+        the Drone »)."""
+        self.override.override = int(value)
+        self.override.is_modifiable = bool(is_modifiable)
+
+    def remove_override(self) -> None:
+        """`StatComponent.ApplyModifier @180fa8800` part **8 = REMOVE_OVERRIDE** →
+        `ValueOverride.RemoveOverride @180fae930` : retire l'override — `Current` redevient
+        `Initial + modTotal` (les modifications par-source sont intactes)."""
+        self.override.override = None
+
 
 class FillUpStatComponent:
     """`IdunBattle.Entities.Components.FillUpStatComponent` — stat « qui se remplit » (Health=5,
@@ -301,6 +316,28 @@ class UnitStats:
         comp = self.components.get(int(stat_type))
         if comp is not None:
             comp.modification.reverse_modification(source)
+
+    def set_stat_override(self, stat_type: int, value: int, is_modifiable: bool = True) -> None:
+        """`ChangeStat` mode 4 + `Position(statType, part 7 = OVERRIDE)` → `StatComponent.ApplyModifier
+        @180fa8800` case 7 → `ValueOverride.SetOverride @180faea70`. Crée le composant si absent
+        (StatType non seedé → base 0, l'override prime de toute façon). Usage : effet MV71
+        `InitialDmg` (4 stats du drone overridées aux valeurs CURRENT du parent)."""
+        idx = int(stat_type)
+        comp = self.components.get(idx)
+        if comp is None:
+            comp = StatComponent(initial=0, min_value=_stat_min(idx), max_value=STAT_CLAMP_MAX.get(idx))
+            self.components[idx] = comp
+        if not isinstance(comp, StatComponent):
+            raise TypeError(f"set_stat_override: stat {idx} n'est pas un StatComponent "
+                            f"({type(comp).__name__})")
+        comp.apply_override(int(value), is_modifiable)
+
+    def remove_stat_override(self, stat_type: int) -> None:
+        """`ChangeStat` mode 4 + `Position(statType, part 8 = REMOVE_OVERRIDE)` → `ApplyModifier
+        @180fa8800` case 8 → `ValueOverride.RemoveOverride @180fae930`. No-op si composant absent."""
+        comp = self.components.get(int(stat_type))
+        if comp is not None and isinstance(comp, StatComponent):
+            comp.remove_override()
 
     def has_negative_modifier(self, stat_types) -> bool:
         """`IdunBattle.Entities.Triggers.HasNegativeModifier.ShouldTrigger @180f9db90` — True si l'une des

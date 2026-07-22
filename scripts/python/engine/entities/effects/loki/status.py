@@ -339,3 +339,43 @@ class PinnedEffect(BaseEffect):
             return None
         # ForPercentIncrease(Negative(pct)) natif == percent-decrease de pct (1 - pct/100).
         return for_percent_decrease(True, abs(int(pct)))
+
+
+class MV71InitialDmgEffect(BaseEffect):
+    """`MV71SniperDroneSquad_InitialDmgEffect` (effet **1132=0x46c**, posé sur le DRONE par
+    `MV71SniperDroneSquadAttackAbility.ExecuteBehaviour @181108900` — `AddEffect(0x46c, stateRef,
+    Get(drone))`, source = le CASTER Sho'syl = le PARENT du drone).
+
+    `ApplyInternal @180f57320` : `parent = GetParentUnit(drone)` puis `ApplyStat @180f573f0` sur
+    **4 stats — 0 ATTACK, 9 CRIT_CHANCE, 10 CRIT_DAMAGE, 0x11 EXTRA_HITS** : chaque `ApplyStat` lit
+    `GetStat(parent, stat, CURRENT)` (SNAPSHOT au moment de l'apply, nœud `Direct(valeur)`) et émet
+    `ChangeStat(drone, Position(stat, part 7 = OVERRIDE), mode 4, Direct(valeur))` → `ApplyModifier
+    @180fa8800` case 7 → `SetOverride @180faea70` (**modifiable** : les buffs PROPRES du drone
+    continuent de s'appliquer par-dessus — i2 « uses Sho'syl's Damage stat, while other effects,
+    like buffs, are taken from the Drone »). `RevertInternal @180f577d0` = `ResetStat @180f57620`
+    ×4 (part 8 = REMOVE_OVERRIDE).
+
+    Cycle de vie : `CreateTargetTrigger @180f575c0` = `On(AttackDamageAttack=10, 1) & OwnerIsCaster`
+    → l'effet est retiré (RevertInternal) dès que le DRONE porte une attaque — l'attaque COMMANDÉE du
+    cast (GT §2 case-61bis : après le cast, le drone ne porte plus que RangedSpecialist). Côté port,
+    la consommation+revert est exécutée par l'ability juste après l'attaque commandée (seul On(10)
+    du porteur atteignable dans ce cast — collapse documenté)."""
+
+    def overridden_stats(self) -> "list":
+        from ...stats import StatType
+        return [StatType.ATTACK, StatType.CRIT_CHANCE, StatType.CRIT_DAMAGE, StatType.EXTRA_HITS]
+
+
+class MV71ResetInitialDmgEffect(BaseEffect):
+    """`MV71SniperDroneSquad_ResetInitialDmg` (effet **1133=0x46d**, posé sur le DRONE juste APRÈS
+    1132 par le même `ExecuteBehaviour @181108900` — `AddEffect(0x46d, stateRef, Get(drone))`).
+
+    ⚠ Skew de nommage ARBITRÉ (#61bis §6) : le `.ctor` ghidra passant `0x46d` (@180e1e0f0,
+    « CyclicIonBlaster_AdditionalHitsEffect ») passe en réalité `AbilityOrEffect(TriggeredAbilityType.
+    CyclicIonBlaster = 1133)` — l'ATTRIBUTION SOURCE de l'effet CyclicIonBlaster (EffectType 1148),
+    PAS un EffectType. L'enum EffectType du dump (1133 = MV71SniperDroneSquad_ResetInitialDmg) est
+    la bonne lecture du `AddEffect(0x46d)` de l'arbre MV71.
+
+    Rôle : effet-compagnon du reset — retiré AVEC 1132 après l'attaque commandée du drone (GT : ni
+    1132 ni 1133 présents post-cast). Aucun comportement observable propre lu dans le décompilé →
+    matérialisation pure (présence + retrait), pas de contribution."""

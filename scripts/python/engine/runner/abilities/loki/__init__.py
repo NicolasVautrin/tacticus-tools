@@ -7,6 +7,8 @@ dans `handler.py`/`abilities/__init__.py`, `from ..abilities.loki import X` dans
 `genestealer.py`, `from engine.runner.abilities.loki import X` dans les tests) restent INCHANGES.
 
 - `summon.py` — SPAWN d'unites : ScarabHive, ScarabSummon, GetEmRuntz + on-appearance helpers.
+- `mv71.py`   — MV71SniperDroneSquadAttack (1076, Sho'syl) : attaque normale = summon drone + attaque
+                 commandee (overrides du parent) + Markerlight (#61bis).
 - `splash.py` — attaque + splash multi-cible : CrushingClaws, PlasmaGrenade, Stikkbomb, Fragstorm,
                  ScythingTalons + helpers de ciblage splash (`_pick_randomly_n` = PickRandomly, etc.).
 - `strike.py` — single-target / self : ThunderousAssault, ArmoriumCherub, SpiritLeech, ValkyrieStrike.
@@ -29,6 +31,7 @@ from .strike import (ThunderousAssaultAbility, ArmoriumCherubAbility, SpiritLeec
                      spirit_leech_get_attack_damage, spirit_leech_heal_amount,
                      spirit_leech_heal_targets, spirit_leech_tree, valkyrie_strike_tree)
 from .imperative import DoctrinaImperativesAbility
+from .mv71 import MV71SniperDroneSquadAttackAbility
 
 __all__ = [
     # summon
@@ -47,4 +50,6 @@ __all__ = [
     "spirit_leech_heal_targets", "spirit_leech_tree", "valkyrie_strike_tree",
     # imperative
     "DoctrinaImperativesAbility",
+    # mv71
+    "MV71SniperDroneSquadAttackAbility",
 ]
