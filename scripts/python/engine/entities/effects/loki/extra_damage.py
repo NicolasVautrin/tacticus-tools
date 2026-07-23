@@ -626,6 +626,61 @@ class BeaconOfRageFriendlyExtraDamageEffect(BaseEffect):
         return for_addition(True, friendly) if friendly else None
 
 
+class TerrifyingCrescendoExtraDmgEffect(BaseEffect):
+    """`TerrifyingCrescendo_ExtraDmgEffect` (EffectType 0x590=1424, nom capte "TerrifyingCrescendo_ExtraDmg" ;
+    passif triggered TerrifyingCrescendo 0x59b=1435 d'emperNoiseMarine <<Shiron>>, EmperorsChildren/Chaos) —
+    i2 : << Shiron's ranged attacks deal +218 Damage for each time he Overkilled or would have Suppressed an
+    enemy unit, up to a maximum of 6 times. >> #204. JUMEAU STRUCTUREL de BeaconOfRage (meme
+    Multiply(ConfigVar(8=extraDmg), EffectLevel)) avec UNE difference : le gate IsRangedAttack.
+
+    - degat `CreateEffectDamageBonusForAttack @180f715e0` : `EffectBonus.ForAddition(IsRangedAttack &
+      OwnerIsCaster, GetCurrentExtraDamage())` = bonus FLAT additif (AUCUN ForPercent*), meme canal additif
+      que BeaconOfRage/SmashaEad (`DamageModifiers.Add @181005f10`, applique par coup). SEULE difference vs
+      BeaconOfRage @180f33130 (OwnerIsCaster seul) : le noeud DSL `IsRangedAttack` @180f715e0 (donc le bonus
+      est ABSENT des attaques MELEE / des attaques d'ability non-ranged du porteur).
+    - `GetCurrentExtraDamage @180f4ae70` (HERITE de FuelledByFury_ExtraDamageEffect ; refcount 10) =
+      `Multiply(ConfigVar(8=extraDmg, GetAbilityState(effet)), EffectLevel(effet))`. extraDmg = variables
+      TerrifyingCrescendo, 3 (L1) -> 218 (L65), DANS variablesAffectedByRarityBonus -> scale x multiplier
+      de l'unite (contrairement a BeaconOfRage dont extraDmg est HORS rarityBonus = mult no-op). i2 << +218 >>
+      = extraDmg[L65].
+    - niveau de CRESCENDO = `EffectLevel` de l'instance, cappe a `buffMaxLevel=6` (constants). Accumulation
+      `TerrifyingCrescendoAbility.CreateTrigger @1811a3910` = disjonction :
+        (branche 1) `On(0) & OwnerIsActor & TargetIsOverkilled`  = le porteur OVERKILL une cible ;
+        (branche 2) `On(0x3e=62) & OwnerIsActor & TriggeringEffectIs(0x429=1065)` = le porteur POSE
+                    l'effet Pinned/Suppressed (0x429=1065, applique par le trait SuppressiveFire a chaque
+                    ennemi touche en ranged) = << would have Suppressed >>.
+      `CreateBehaviour @1811a3840` = `AddEffectOrIncreaseLevel(0x590, stateRef, ..., Direct(GetNumberConstant
+      (cfg, 0x62)))` = +1 stack par declenchement (Direct d'une constante), plafonne a buffMaxLevel=6. Le
+      level cappe arrive TEL QUEL dans decisionView.effects[].level (comme BeaconOfRage @180e13230) -> on lit
+      `self.level` sans re-calcul offline (le natif enforce le cap A L'ECRITURE ; le compteur de triggers
+      n'est pas capte). Un tir ranged qui touche & overkill peut incrementer 2x (suppress + overkill) dans
+      le meme evenement -- le compteur, pas le port : on lit le level abouti.
+    - magnitude : `extraDmg[abilityLevel PASSIF] x multiplier x level`. `ability_level` = niveau du passif
+      du porteur (Scene ablvl_by_id = passive_ability_level) ; niveau/level inconnu -> inerte (degradation
+      fidele). VALIDE live #204 (probe_204_crescendo : native ranked per-tuile == offline pour L=0..6 stacks,
+      cas 0-stack inclus ; controle melee = pas de bonus)."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        if not is_ranged:                              # gate IsRangedAttack @180f715e0 (melee/inconnu -> 0)
+            return None
+        crescendo = self.level                         # EffectLevel (stack), deja cappe (buffMaxLevel=6) a l'ecriture
+        if not crescendo or int(crescendo) <= 0:
+            return None
+        if self.ability_level is None:                 # ConfigVar sans AbilityState -> pas de magnitude
+            return None
+        per = ability_var("TerrifyingCrescendo", "extraDmg", self.ability_level,
+                          multiplier_pct=self.ability_variables_multiplier)
+        if not per:
+            return None
+        return for_addition(True, int(per) * int(crescendo))   # Multiply(ConfigVar(extraDmg), EffectLevel)
+
+
 class LordOfTheHostExtraDamageEffect(BaseEffect):
     """`LordOfTheHost_ExtraDamageEffect` (effet 0x562=1378, nom capté "LordOfTheHost_ExtraDamage",
     passif LordOfTheHost 0x515=1301 de bloodDante) — AURA côté SOURCE : l'effet vit sur DANTE
