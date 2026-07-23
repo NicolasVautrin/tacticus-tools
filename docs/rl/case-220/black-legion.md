@@ -1,0 +1,94 @@
+> Tranche de la campagne de classification [case-220](../case-220-classification-campaign.md) — protocole, sommaire et ledger §T (prerequis transverses) dans le fichier maitre.
+
+### §6.11 BlackLegion (10 items après exclusions 1021/1148 ; namespace natif « Loki »)
+
+**Constat (PROUVÉ)** : aucune active BL dans ABILITY_CLASSES, aucun passif dans les registres
+triggers ; faces DÉCISION présentes (Herald validé `prediction.py:1017`, BringerOfDespair
+`prediction.py:1149`, Drachnyen custom-utility). Trait faction **LetTheGalaxyBurn** (1482 —
+DespoiledGround + extra-hit) : enum présent, NON wiré TRAIT_TRIGGERS — signalé transverse (hors
+items MISSING listés).
+
+```
+[1022 BringerOfDespair | blackTerminator]  — [opus] direct (le + facile)
+VAs : ExecuteBehaviour @1811be740 ; @1811bebc0/@180fb1690/@1811beb50 ; playbook @181123c40
+Attack(target, 4x Power) & Attack(PickRandomly(adjacents-caster − target, 1), 4x) — template
+GauntletsOfUltramar/splash. 0 prérequis. Risques : RNG PickRandomly ; « x2 fatigue » ignoré (no-op dégât).
+```
+```
+[1036 FrenziedFiring | blackObliterator]  — [opus]+prérequis
+VAs : ExecuteBehaviour @1811e1600 ; GetHitsForOriginalTarget @1811e19f0 ; GetTargets @1811e1ba0
+Attack(target, hits = 1 + count(hex libres adjacents cible), cap 10, HeavyRound) & Attack(adjacents
+de la cible, 1 hit chacun). Prérequis : formule hits-par-free-hex en AMOUNT (comptage déjà fait côté
+HeroicFusillade). Les extra-hits FleshmetalGuns COMPOSENT dessus. Risques : cap ; géométrie free-hex.
+```
+```
+[Possession | blackPossession passif]  — [opus]+prérequis
+VAs : CreateTrigger @181223f30 ; CreateBehaviour @181223d50
+On(54 PostUnitKill KILLER-side) : kill melee → Spawn(blackSmnBloodletter) sur l'hex victime ;
+kill ranged → Spawn(thousSmnBlueHorror). Prérequis : kill-event killer-side On(53/54) & OwnerIsActor
+(dispatch = victime-side only) ; prédicat IsDefeatedByMeleeAttack. Validable direct.
+```
+```
+[FleshmetalGuns | blackObliterator passif]  — [opus]+prérequis (runner-face only)
+VAs : CreateBehaviour @18121f6e0 ; TileEffect @18121fb40/@18121fbc0 ; base @180f48570/@180f48260
+Les 3 effets extra-hits (1067/1212/1221) PORTÉS+consommés (hits.py:158-236) → prédiction gratuite.
+Manque la ROTATION turn-start : Remove x3 + If(Modulo(UnitTurnsStarted,3)==k, AddEffect(...)).
+Prérequis : amount-node Modulo ; volet WarpHail DespoiledGround tile-pose. Risques : parité modulo
+(==0 → WarpHail) ; ne pas double-poser (capté + posé).
+```
+```
+[HeadClaimer | blackHaarken passif]  — [opus]+prérequis
+VAs : CreateTrigger @181220f70 ; CreateBehaviour @181220e30 ; effets 1028 @180f4e0c0/@180f4ddc0,
+      1029 @180f4e230/@180f4e110
+Kill par Haarken → AddEffectOrIncreaseLevel(1028 +218 dmg) toujours + If(IsHero(victime), 1029 +1 hit).
+Snowball capté live → prédiction gratuite. Prérequis : 2 classes d'effet per-level (template SmashaEad/
+BeaconOfRage) ; feuille AddEffectOrIncreaseLevel [partagée] ; kill-trigger killer-side + IsHero.
+```
+```
+[FirstAmongTraitors | blackAbaddon passif]  — [opus]+prérequis
+VAs : effet @180f49f50/@180f499e0/@180f49ba0/@180f49b10/@180f49ee0 ; GetRange @18121f6b0
+Aura Chaos rayon-2 : +dmg = Min(364 + 73 × TotalAttacksMade(Abaddon), cap 1313). Templates : aura
+BeaconOfRage + magnitude dynamique LordOfTempests ; TotalAttacksMade présent (formulas.py). Prérequis :
+la classe (compteur de la SOURCE d'aura, remote). Risques : self-exclusion ; compteur d'Abaddon pas
+du bénéficiaire.
+```
+```
+[1020 HeraldOfTheApocalypse | blackHaarken]  — [opus]+prérequis
+VAs : ExecuteBehaviour @1811e8860 ; effet 1027 @180f4f390/@180f4f570 ; playbook @181144390 (VALIDÉ)
+Attack(target + 1 ennemi DERRIÈRE en ligne, 2x Piercing) + AddEffect(1027 : +1310 REÇU one-shot,
+self-remove On(9)) + TriggerAbility(ennemis rayon-2, 1025 BattleFatigue). Templates : TilesBehindInLine
+(excruciating_frequencies.py) ; BattleFatigue PORTÉ ; ForAddition(OwnerIsTarget) LordOfTheHost.
+Prérequis : effet one-shot dmg-taken + feuille TriggerAbility-sur-sélecteur. Risques : parité hexgeo
+« derrière » ; consommation par attaquant TIERS.
+```
+```
+[1029 Drachnyen | blackAbaddon]  — [opus]+prérequis (borderline fable)
+VAs : ExecuteBehaviour @1811d6570 ; effet 1471 @180e212f0/@180e210e0/@180e21450 ; playbook @18112dc60
+SetHealth(self, Min(4729, maxHealth)) & AddEffect(1471 permanent) & UseActiveAbility(normal-attack).
+1471 DÉRIVE une triggered : après CHAQUE attaque normale d'Abaddon → 2e attaque 3x Piercing sur un
+adjacent, reste de la bataille. Prérequis : SetHealth variante Min(const, max) ; plumbing
+effet-posé-par-active dérivant un triggered persistant (les effect-derived actuels = traits,
+factory.py:354). Escalade [fable] si le wiring ne colle pas au patron EFFECT_TRIGGERS.
+Risques : pas de boucle infinie ; ne compte pas les attaques d'ability.
+```
+```
+[HatefulAssault | blackTerminator passif]  — [fable] (vecteur before-move partagé)
+VAs : CreateTrigger @1812203e0 ; CreateBehaviour @1812201e0 ; marqueur 1175
+Ennemi qui QUITTE un hex adjacent → Attack(2x Power) + marqueur AlreadyAttacked (once-per-mover).
+Prérequis ABSENT : vecteur On(PreUnitMove=31) + hex-de-départ (enum présent event_trigger_type.py:60,
+AUCUN émetteur) — PARTAGÉ MomentShackle §6.1. L'attaque est triviale → REDESCEND [opus] dès que le
+vecteur existe. Risques : ordre attaque-vs-move ; kill à mi-déplacement.
+```
+```
+[1147 HadesAutocannons | blackForgefiend MoW]  — BLOQUÉ harnais MoW
+VAs : ExecuteBehaviour @1811e50e0 ; playbook @181140a60 (prediction.py:1031 note déjà « MoW »)
+Rejoint le groupe DaemonicOrdnance/PlagueburstMortar/Malleus/DutyEternal.
+```
+
+**Synthèse BL** : [opus] direct = BringerOfDespair ; [opus]+prérequis = FrenziedFiring, Possession,
+FleshmetalGuns (runner-face), HeadClaimer, FirstAmongTraitors, Herald, Drachnyen (borderline) ;
+**[fable]** = HatefulAssault (vecteur before-move) ; BLOQUÉ MoW = HadesAutocannons. NOUVEAUX
+transverses : kill-events KILLER-side On(53/54) + IsDefeatedByMeleeAttack (Possession, HeadClaimer) ;
+Modulo + rotation d'effets turn-start (FleshmetalGuns) ; effet-dérivant-triggered persistant
+(Drachnyen) ; trait faction LetTheGalaxyBurn 1482 non wiré. HYPOTHÈSES : GetHitsForOriginalTarget
+au bit ; event 53 vs 54 ; Not(AreEqual(Tiles,dest)) HatefulAssault ; index ConfigVar FirstAmongTraitors.

@@ -57,31 +57,49 @@ le playbook NC porté). Par sous-groupe :
 | 1113 Stormcaller | spaceStormcaller | **fable-solver** | résidu case-35 : zone `GetAddIceTiles @18120cf70` + 3x AoE + stun Flying + gates terrain ICE (#131) — cumul de sous-systèmes |
 | 1163 BlackRage | bloodDeathCompany | opus-solver | |
 | 1151 TheQuickening | bloodMephiston | opus-solver | |
-| 1153 HammerOfWrath | bloodIntercessor | opus-solver | |
-| 1191 MartialInspiration | custoBladeChampion | opus-solver | `[--]` (ni décision ni combat) mais castée au walk — inclure sa face décision |
+| 1153 HammerOfWrath | bloodIntercessor | ✅ opus-solver + prérequis (`case-220` §4) | formules `ConditionalAmount`/`MinDistance` + tile-pick de charge (Tile7) à collapser — escalade fable si le collapse ne tient pas ; `@1811e5a40` |
+| 1191 MartialInspiration | custoBladeChampion | ✅ opus-solver + prérequis (`case-220` §4) | ⚠ le tag `[--]` était FAUX : décision DÉJÀ portée (`prediction.py:925`, validée #106) — reste combat : 1 effet ForPercentIncrease + `CurrentAbilityIs` + compteur +0x30 (≠ +0x20 !) ; `@1811f2b30` |
 
-### P0-HEAL / P0-REPAIR — substrat prêt (`HealUnitOperation`, repair dans `heal.py`)
+### P0-HEAL / P0-REPAIR — CLASSIFIÉ (campagne agents 2026-07-23, `case-220` §1)
 
-1002 CombatRestoratives (ultraApothecary), 1037 RevitalizingMalignancy (deathRotbone),
-1039 RitesOfRestoration (adeptHospitaller), 1082 InspiredToGreatness (tauAunShi),
-1117 DefendTheDivineWork (admecManipulus, repair) — **opus-solver**, 1 tâche chacune.
+| Ability | Porteur | Agent | Verdict (arbre + VAs dans `case-220` §1) |
+|---|---|---|---|
+| 1002 CombatRestoratives | ultraApothecary | ✅ opus-solver **direct** | 0 prérequis — Heal ×2 split trait Imperial ; `@1811cc590` |
+| 1037 RevitalizingMalignancy | deathRotbone | ✅ opus-solver **direct** | jumeau 1002 côté Chaos ; montant Chaos = SOMME var0x20+var0x22 (ne pas fitter) ; `@181200eb0` |
+| 1117 DefendTheDivineWork | admecManipulus | ✅ opus-solver + prérequis | feuille Repair multi-cible (clone Heal) + PerformAIAttack multi-unités ; galvanic = pattern quickening DÉJÀ porté ; ⚠ attaque galvanique non-tooltipée à confirmer live ; `@1811d30b0` |
+| 1039 RitesOfRestoration | adeptHospitaller | ✅ opus-solver + prérequis | feuille Resurrect (op existante) + sélecteur `AllDeadUnits` ; RNG double PickRandomly + flag no-act ; `@1812033c0` |
+| 1082 InspiredToGreatness | tauAunShi | ⚠ **fable-solver** | `ResetActiveAbility` (réactivation d'active, ABSENTE) + override de niveau `Min(...)` — 5 primitives neuves, état d'activation/tour ; `@1811eac00` |
 
-### P0-SUMMON — templates ScarabHive / GetEmRuntz / MasterOfTheTutelaries
+### P0-SUMMON — CLASSIFIÉ (`case-220` §2)
 
-1016 SendInTheNextWave (astraYarrick), 1021 Incursion (blackPossession), 1040 Poxwalkers
-(deathBlightbringer), 1077 EarlyWarningOverride (tauCrisis), 1121 ItItches (tyranParasite),
-1166 AberrantHypermorph (genesBiophagus) — **opus-solver**, 1 tâche chacune.
+| Ability | Porteur | Agent | Verdict (arbre + VAs dans `case-220` §2) |
+|---|---|---|---|
+| 1166 AberrantHypermorph | genesBiophagus | ✅ opus-solver **direct** | 0 prérequis — template SpawnTutelaryHorror, spawn 1 adjacent + attaque IA ; `@1811b0550` |
+| 1016 SendInTheNextWave | astraYarrick | ✅ opus-solver + prérequis | count dynamique (2+morts alliés, cap 5) + placement range-2 attack-priority ; `@181206490` |
+| 1040 Poxwalkers | deathBlightbringer | ✅ opus-solver + prérequis | amount-nodes DSL `RandomAmount`/`Divide`/`Get` + PickRandomly-by-count + range d'effet Nurgle ; `@181208b80` |
+| 1021 Incursion | blackPossession | ✅ opus-solver + prérequis | combinateur `ChainBehaviour` (boucle ≤6 ré-évaluée par itération) + `GetNextSpawnTile` ; `@1811e9fe0` |
+| 1077 EarlyWarningOverride | tauCrisis | ✅ opus-solver (spawn) + **sous-système Overwatch** (§4) | drones portables tout de suite ; volet réactivation Overwatch (+1892) bloqué sur le sous-système — agreement partiel assumé d'ici là ; `@1811d7310` |
+| 1121 ItItches | tyranParasite | ⚠ **fable-solver** | multi-étage atomique positionnel (suppress + push + kill + hexes libérés + spawn Rippers + `PerformAIAbility` + ResetMovement) ; dépend de P1 PerformAIAction ; `@1811ebd40` |
 
-### P0-DAMAGE — template SpiritLeech / CrushingClaws
+### P0-DAMAGE — CLASSIFIÉ (`case-220` §3)
 
-1000 GauntletsOfUltramar (ultraCalgar), 1038 FoulInfusion (deathPutrifier), 1090 GrapnelLauncher
-(spaceHound), 1092 DarkTalonStrike (darkaAzrael), 1122 CordClaw (admecRuststalker), 1129
-BloodyFury (worldTerminator), 1202 VigilanceEternal (custoKyrus) — **opus-solver**, 1 tâche chacune.
+| Ability | Porteur | Agent | Verdict (arbre + VAs dans `case-220` §3) |
+|---|---|---|---|
+| 1122 CordClaw | admecRuststalker | ✅ opus-solver **direct** | jumeau CrushingClaws, effet 0x4e2 DÉJÀ porté (`hits.py`) ; `@1811ccbf0` |
+| 1202 VigilanceEternal | custoKyrus | ✅ opus-solver **direct** | template HeroicFusillade EXACT (move-si-pas-adjacent + attack) ; `@18122a580` |
+| 1000 GauntletsOfUltramar | ultraCalgar | ✅ opus-solver **direct** | splash 2 bandes (adjacent + anneau r=2) ; sélecteur set-diff trivial ; `@1811e1c80` |
+| 1038 FoulInfusion | deathPutrifier | ✅ opus-solver + prérequis | feuille `UseNormalAttack` (thin) ; effet aura 0x432 DÉJÀ porté ; `@1811dffb0` |
+| 1092 DarkTalonStrike | darkaAzrael | opus-solver, borderline fable | géométrie ligne hex + heuristique best-line — RE `GetTilesInBestLine @1811d16f0` AVANT de figer ; `@1811d1440` |
+| 1090 GrapnelLauncher | spaceHound | ⚠ **fable-solver** | ≥6 primitives pull/kill/remove-from-tile/placement + If imbriqués sur IsDead ; `@1811e29c0` |
+| 1129 BloodyFury | worldTerminator | ⚠ **fable-solver** | primitive `ChainLeftOverHitsAttackDamage` (cleave coups-restants) + tri par prédiction de dégât + kill intra-attaque ; `@1811bbbc0` |
 
-### P0-EFFECT
+### P0-EFFECT — CLASSIFIÉ (`case-220` §4)
 
-1050 HolyDuel (templChampion), 1081 FightingRetreat (tauDarkstrider), 1183 VexillaMagnifica
-(custoVexilusPraetor) — **opus-solver**, 1 tâche chacune.
+| Ability | Porteur | Agent | Verdict (arbre + VAs dans `case-220` §4) |
+|---|---|---|---|
+| 1183 VexillaMagnifica | custoVexilusPraetor | ✅ opus-solver + prérequis | 2 selectors seulement (`SortUnitsByDamageUtility`, `NormalUnits`) — Stun + DmgReduction DÉJÀ portés, template splash ; `@18122a020` |
+| 1050 HolyDuel | templChampion | ✅ opus-solver + prérequis | 3 effet-classes du bond Duel (taunt mutuel no-expiry + ±dégât) — feuilles AddBondEffect/UseActiveAbility présentes ; `@1811e97a0` |
+| 1081 FightingRetreat | tauDarkstrider | ⚠ **fable-solver** | ré-entrance de tour (`ResetTurn` — le caster peut rebouger) touche le scheduler + ~6 primitives neuves ; effets ±dégât DÉJÀ portés ; `@1811ddf90` |
 
 Hors périmètre lineup : 1192/1194 NovaBoost/NovaShield (`tauBossRiptide`, NPC) — veille.
 
@@ -98,9 +116,29 @@ Hors périmètre lineup : 1192/1194 NovaBoost/NovaShield (`tauBossRiptide`, NPC)
 | Réutilisation `GenerateMultiHitAttackPredictions` | groupe #27 | opus-solver | `case-27` |
 | Utilité de déplacement (`UtilityMovementCase`, `GetTargetUtilityDiffOnDisplace`) | groupe #27 | opus-solver, escalade fable si structure ambiguë | `case-27` |
 | Movement-stop #131/B4 (effets de tuile dans la reachability) + exemption Unstoppable | Stormcaller/ICE, Fire tiles, trait 1042 | opus-solver | `case-205`, `terrain-effects.md` |
+| **Sous-système Overwatch en combat** (effets 1009/1144/1145/1149, `@180f40550`/`@180f40360`) | 1077 EarlyWarningOverride (volet réactivation) + blind spot IA overwatch connu | opus-solver (RE d'abord), escalade fable si état transient ambigu | `case-220` §2 |
 | DslContext live-state (#5) | feuilles DSL à état | opus-solver (architecture à poser) | `dsl-live-context-substrate.md` |
 
-## 5. P2 — le reste des kits, par faction
+### 4.1 Consolidation campagne `case-220` (2026-07-23) — top débloqueurs par nombre d'items
+
+Ledger complet (~60 familles, avec VAs et items sourceurs) : `case-220-classification-campaign.md` §T.
+Classement des NOUVEAUX sous-systèmes par retour sur investissement (items débloqués) :
+
+| Sous-système (nouveau) | Items débloqués | Agent | Réf §T |
+|---|---|---|---|
+| **Harnais cast-par-MoW hors-plateau** | **17 items** BLOQUÉS (DutyEternal, Malleus, 2x tauBroadside, 2x necroReanimator, 2x adeptExorcist, 2x orksRukkatrukk, 2x thousDaemonPrince, EntropyCannons, MacroPlasmaIncinerator, HadesAutocannons, ForwardSpotter, DeathOnTheWind/Hailstrike) | **fable** (prouver le cast MoW en runner) | case-219 §5 |
+| **Feuille AddStaticStatModifierEffect** (self / ToOwner / sur SÉLECTEUR) | 9 items (4 BlackTemplars + DoomSiren, ExcruciatingFrequencies, RefusalToBeOutdone, LeadingTheCharge, TrophyTaker) | opus | §T |
+| **Persistent-data store** (Set/Get/Add/Clear, scalar+LIST+compteur) | 8 items (StandVigil, LegendaryCommander, PrioritisedEfficiency, FuryFromTheDelve, AncestralFortune, HazeOfCorruption, HaywireMine, AggressiveOnslaught) — Fury/Fortune retombent quasi-opus après | fable (1er port), retombées opus | §T |
+| **Vecteur On(ArrivedAtFinalTile=28)** (émettre AUSSI en fin de tour sans move) | 7 items (FabricatorClawArray, LivingLightning, SanguinaryPriest, RedRampage, FuryOfTheAncients, ChampionOfTheFeast, SpiritualLeader) | opus (turnflow pose déjà le flag) | §T |
+| **Sous-système REVIVE** (en-place / once / at-position ; gates once-per-turn + overkill) | 7 items (Narthecium, FuelledByFury/C, TaintedNarthecium, PhoenixGem, GhostRevive, RitesOfMorkai, TimeFlux) | fable | §T |
+| **Vecteurs réactifs DÉFENSEUR** (on-being-hit On 58, PreUnitMove=31, UnitBlocked=0x3d, pré-attaque 0x2b + ANNULATION, riposte) | ~11 items (UnwaveringSentinel, MomentShackle, Deathwing, GrimRetribution, Hailstrike, HatefulAssault, GeminaeSuperia, MedicusMinistorum, AnvilShield, WireweaveNet, MartialSuperiority, SwornProtector) | fable (ordre d'exécution du pipeline) | §T |
+| **Sous-système PENDING-ATTACK** (bond + snapshot + fire turn-start) | 4 classifiés (OverwhelmingWrath, SeekerMissile, HeavyRailRifle, DevastatingRefrain) + ~18 kits roster en enum | fable (brique commune) | §T |
+| **PRIMITIVE AURA CONTAGION** (range = f(round)) + source armor-reduction | CursedPlagueBell x2, EntropyCannons, FoulInfusion, Poxwalkers + 6 héros DG | opus | §T |
+| **Géométrie ligne hex** (best-line, TilesBehindInLine, array-par-position) | 6 items (DarkTalon, Excruciating, DeathOnTheWind, ThriceBlessed, RadBombardment, SwoopingHawk) | opus (helper cube existe côté décision) | §T |
+| **Kill-events KILLER-side** On(0/53/54/55 & OwnerIsActor) + On(54) au CRUSH + IsDefeatedByMeleeAttack | Possession, HeadClaimer, BarbedOvipositor, CosmicHorror | opus | §T |
+| **Feuille Repair DSL** + sélecteurs Repairable/UnitsAffectedByHealType | DefendTheDivineWork(+GalvanicField fold), FabricatorClawArray, RelentlessMarch, ReanimationBeam | opus | §T |
+| **ChainLeftOverHitsAttackDamage** (report hits sur kill) | BloodyFury, MultiThreatEliminator, Fragstorm | opus (candidat fable si RNG délicat) | §T |
+| Canal PIERCE attaquant/aura (`for_piercing` orphelin) ; canal CRIT-ATTAQUANT (hooks 0-user) ; NumLeftOverHits ; ResetMovement ; HasTakenDamageOfDamageProfileThisTurn (wrapper #202) ; AddEffectOrIncreaseLevel ; custom normal-attack (pattern MV71) ; spawn-sur-decoy ; MinMaxDamage2/3 | 2-4 items chacun — petits leviers à prendre AVEC le premier item consommateur | opus | §T |
 
 **Règle par défaut** (sauf exceptions §5.2) : chaque kit de `kit-coverage.md` se découpe selon
 le modèle §2, TOUT en **opus-solver** (1 tâche par active NO-OP, 1 par passif non câblé), PR +
@@ -115,17 +153,20 @@ AstraMilitarum (15) > EmperorsChildren (15) > Custodes (14) > WorldEaters (14) >
 (#20 « Roadmap AdMec » est absorbée ici : AdMec = 4 kits / 9 items, règle par défaut, aucune
 exception dure détectée sauf `SentinelDirectives` à classifier en T-RE.)
 
-### 5.1 Tâches « trait commun de faction » (1 tâche chacune, AVANT les kits porteurs)
+### 5.1 Tâches « trait commun de faction » — CLASSIFIÉ (`case-220` §5)
 
-| Trait | Porteurs | Agent | Note |
+**4 sur 7 sont FERMÉS sans travail** (déjà couverts ou invalidables) — il ne reste que 2 ports
+[opus] + 1 [fable] :
+
+| Trait | Porteurs | Verdict | Note (`case-220` §5) |
 |---|---|---|---|
-| ThrillSeekers (x5 EmperorsChildren) | tous les emper* | opus-solver | |
-| PrioritisedEfficiency (x7 Votann) | tous les votan* | opus-solver | |
-| PutridExplosion (x6 DeathGuard) | deathPutrifier + npc | opus-solver | |
-| IndirectFire (x9) | astraOrdnance, ... | opus-solver | vérifier d'abord si legality/LoS le couvre déjà |
-| BlessingsOfKhorne (x11 WorldEaters) | world* | opus-solver (câblage) | effets DÉJÀ portés (case-185) — probable simple enregistrement registre, trancher en T-RE courte |
-| MartialKatah (x4 Custodes) | custo* | opus-solver (câblage) | effets DÉJÀ portés (case-108 DmgBonus/DmgReduction) — idem |
-| Vehicle (x8) | admecDestroyer, ... | opus-solver | probablement couvert par couches globales (pathfinder NotBlockingMovement) — audit court |
+| MartialKatah (x4 Custodes) | custo* | ✅ **CLOS — rien à faire** | déjà porté + validé bit-exact (#105/#57d), registres complets |
+| BlessingsOfKhorne (x11 WorldEaters) | world* | ✅ **CLOS — rien à faire** | validé bit-exact deux faces (case-185) ; ⚠ matérialisation par CAPTURE, PAS un enregistrement `TRAIT_OWNER_EFFECTS` (l'y ajouter serait FAUX) ; résiduel N-tracking runner = suite séparée case-185 |
+| IndirectFire (x9) | astraOrdnance, ... | ✅ **CLOS — rien à faire** | volet Trench déjà câblé (`calculate_trench_reduction` gate) ; volet obscuring : moteur déjà over-permissif → rien à exempter (le gap = LoS des NON-porteurs, fondation séparée) |
+| Vehicle (x8) | admecDestroyer, ... | ✅ **CLOS** (rattaché #131/B4) | target-trait déjà consommé (BeastSlayer) ; exemption mouvement = fondation déferrée INVALIDABLE (case-205 §3) — la porter = registered-but-dead |
+| PutridExplosion (x6 DeathGuard) | deathPutrifier + npc | **opus-solver, 1 tranche** | fire-on-death miroir FinalJustice + AoE ability-damage 25% maxHP Toxic, exclusion faction DeathGuard ; VALIDABLE ; `@1812248f0` |
+| ThrillSeekers (x5 EmperorsChildren) | emper* | **opus-solver, 1-2 tranches** | trigger 2 events (attaque pleine-vie / dégât subi) → effet Thrilled 1434 +15 CritChance 1 round ; events 6/0xf à confirmer ; `@1811a8570` |
+| PrioritisedEfficiency (x7 Votann) | votan* | ⚠ **fable-solver** | machine de STANCE partagée-équipe (persistent-data + StanceDefiningUnit + parité d'actives + re-application turn-start + 1 Movement) — proche chantier DslContext #5 ; `@181114b80` |
 
 ### 5.2 Exceptions DURES ou à trancher (ne PAS envoyer en opus-solver direct)
 
@@ -144,9 +185,40 @@ exception dure détectée sauf `SentinelDirectives` à classifier en T-RE.)
 | 1158 DutyEternal | ultraDreadnought | ⛔ `[opus]` **BLOQUÉ substrat** (T-RE FAITE, `case-219` §5) | transform MoW → unité 3-hex stationnaire (`RemoveMachine` + `Spawn(ThreeTileUnitSpawnShape)` + transfert questUnitId + trait Stationary) — pas un summon-à-la-mort ; prérequis = footprint multi-hex + cast par MoW hors-plateau ; `@1811d6b70` |
 | 1226 Chronometron | necroChronomancer | **fable-solver** | `dp=False` (case-27) : non-modélisation, cadre à concevoir (NON re-examinée en case-219) |
 | ~~SavageEchoes (id ?)~~ **1230** | bloodTerminator | ✅ **opus-solver** (id RÉSOLU, `case-219` §6) | tâche kit NORMALE (4× Eviscerate + healthPct 50 ; passif RedRampage 1551) — enum mirrors fixés (tsv stale) ; `@181204660` |
-| ~~SternguardFocus (id ?)~~ **1228** | darkaSternguard | ✅ **opus-solver** (id RÉSOLU, `case-219` §6) | tâche kit NORMALE (+ triggered 1548 SternguardFocus_Cooldown, passif SpecialIssueCombiMelta 1545) ; `@18120bca0` |
+| ~~SternguardFocus (id ?)~~ **1228** | darkaSternguard | ✅ **opus-solver** (affiné `case-220` §6.5) | [opus]+prérequis : pattern OVERRIDE-ATTAQUE (1er user runner) + PercentageOfAttackCappedAtMax runner + ChangeCooldown (1548) ; ⚠ passif SpecialIssueCombiMelta 1545 = **[fable]**, RE à finir (effets 1563/1564 non lus) ; `@18120bca0` |
 | 1100 SorcerousFacade | thousTzaangor | opus-solver **avec lecture case-171 obligatoire** | interaction attaque-normale déjà documentée |
 | 1169 PlagueburstMortar, 1148 DaemonicOrdnance, 1142 MalleusRocketLauncher | deathCrawler, blackForgefiend, astraOrdnanceBattery | **BLOQUÉ harnais** | porteur MoW hors-plateau en arène (case-27/#172) — veille, pas de tâche ; **DutyEternal rejoint ce groupe** avec débloqueur explicite (multi-hex) |
+
+### 5.3 Classification par faction — campagne `case-220` §6 (**COMPLÈTE 2026-07-23**, 24/24 tranches)
+
+Les verdicts détaillés (VAs, arbres, prérequis) vivent dans `docs/rl/case-220/<tranche>.md`
+(sommaire dans `case-220-classification-campaign.md`) ; le ledger des prérequis transverses =
+`case-220` §T (~60 familles, la consolidation §4 P1 pointe dessus).
+
+| Faction | Statut | Verdicts (détail `case-220` §6.x) |
+|---|---|---|
+| Custodes | ✅ classifiée (§6.1) | COUVERT : DaughterOfTheAbyss (déjà porté #184 — MISSING de `kit-coverage.md` à tort) ; [opus] direct : StandVigil ; [opus]+prérequis : TalonsOfTheEmperor, LegacyOfCombat (candidat fable) ; **[fable]** : UnwaveringSentinel, MomentShackle (sous-tranche décision-heal isolable [opus]), LegendaryCommander |
+| AstraMilitarum | ✅ classifiée (§6.2) | quasi-couverts : SpotterReworked, Nightshroud (effets DÉJÀ portés — restes = pose runner-face) ; [opus] direct : AvalancheOfMuscle (clone FeederTendrils) ; [opus]+prérequis : ToughToKill, FragBomb, PsychicMaelstrom, BasiliskBarrage ; bloqué harnais MoW : ForwardSpotter ; mixte : SummaryExecution ; **[fable]** : SwornProtector, LeadingTheCharge |
+| WorldEaters | ✅ classifiée (§6.3) | STALE kit-coverage : MurderousSwing 1137 DÉJÀ porté #108 ; [opus] direct : JakhalStimms ; [opus]+prérequis : WrathfulDevotion, Skullsmasher, TrophyTaker, OverwhelmingWrath (S2 candidat fable) ; **[fable]** : KillMaimBurn |
+| EmperorsChildren | ✅ classifiée (§6.4) | [opus]+prérequis : TerrifyingCrescendo (effet déjà porté #204), LashOfTorment, EuphoricStrikes, ExcruciatingFrequencies, EcstaticSlaughter (dépend ThrillSeekers) + moitiés opus DoomSiren/ObsessiveAnnunciation ; **[fable]** : DaemonicPatrons, RefusalToBeOutdone, ArmourOfShriekingSouls (+ moitiés fable DoomSiren extra-hit, ObsessiveAnnunciation aura-crit) |
+| DarkAngels | ✅ classifiée (§6.5) | [opus] direct : PlasmaCannon (0 prérequis) ; [opus]+prérequis : Supercharge, EnmityForTheUnworthy, FearedInterrogator, SternguardFocus (pattern override-attaque, 1er user runner) ; **[fable] x8** : CalibaniteGreatsword, LionHelm, GrimRetribution, Deathwing, ExemplarOfHate, SpecialIssueCombiMelta (RE à finir — effets 1563/1564 non lus), DeathOnTheWind + Hailstrike (MoW, groupe harnais) |
+| Tau | ✅ classifiée (§6.6) | COUVERTS : MV71 passif 1119, CyclicIonBlaster (faux positifs) ; [opus] direct : DefenderOfTheGreaterGood/ExtraDmg ; [opus]+prérequis : StructuralAnalyser, ExemplarOfTheMontka, SereneUnifier, TwinSmartMissileSystem (MoW) ; **[fable]** : DotGG/ExtraHits (Maybe), SeekerMissileFrequencyLock + HeavyRailRifle (pending-attack, MoW), WayOfTheShortBlade, ExemplarOfTheKauyon |
+| Necrons | ✅ classifiée (§6.7) | [opus] direct : MartialApotheosis, HarbingerOfDestruction ; [opus]+prérequis : FabricatorClawArray, RelentlessMarch, LivingLightning, MultiThreatEliminator (candidat fable), AdaptiveStrategy, TimesplinterMantle (pivot combat-flat) ; **[fable]** : InescapableDeath (overwatch) + ReanimationBeam/NanoscarabRepairProtocols (BLOQUÉS MoW). Débloqueurs faction : feuille Repair DSL + vecteur On(28) |
+| DeathGuard | ✅ classifiée (§6.8) | COUVERT : ExplosiveMaladies (faux positif, validé #57c-C) ; [opus] direct : DestroyerHive, FlailSwing ; [opus]+prérequis : PlagueWind, CursedPlagueBell x2 ; BLOQUÉ MoW : EntropyCannons ; **[fable]** : TaintedNarthecium (Revive+Maybe), HazeOfCorruption (leftover-overkill). Levier #1 : PRIMITIVE AURA CONTAGION |
+| Ultramarines | ✅ classifiée (§6.9) | COUVERT : RitesOfBattle (faux positif) ; [opus] direct : PsychicFortress, MortisRound, DeathFromAbove, FuelledByFury/A ; [opus]+prérequis : ShockAssault, StormOfWrath (RE ChainAbilityDamage d'abord), CamoCloak (à différer) ; **[fable]** : TacticalPrecision (IsCharging), MacroPlasmaIncinerator (MoW), Narthecium + FuelledByFury/C (REVIVE) |
+| Votann | ✅ classifiée (§6.10) | RIEN de porté (ni combat ni décision) ; [opus] direct : IronkinSteeljack, AugmentedAssault, GravitonRifle (attaque) ; [opus]+prérequis : PredictiveGuidance, GrimEfficiency (GATE DUR PrioritisedEfficiency) ; **[fable]** : FuryFromTheDelve, EcogSupport (repair-combat), AncestralFortune. Levier : persistent-data (2 items retombent quasi-opus) |
+| BlackLegion | ✅ classifiée (§6.11) | [opus] direct : BringerOfDespair ; [opus]+prérequis : FrenziedFiring, Possession, FleshmetalGuns (runner-face, effets portés), HeadClaimer, FirstAmongTraitors, Herald, Drachnyen (borderline) ; **[fable]** : HatefulAssault (before-move) ; BLOQUÉ MoW : HadesAutocannons. + trait LetTheGalaxyBurn 1482 non wiré |
+| BloodAngels | ✅ classifiée (§6.12) | [opus] direct : SavageEchoes 1230 (template ArmoriumCherub) ; [opus]+prérequis : LordOfTheHost/1377, SanguinaryPriest, BloodChalice, RedRampage, VisionsOfHeresy ; **[fable]** : FuryOfTheAncients (ChainAttackDamage + no-heal), AggressiveOnslaught (bloqué HammerOfWrath). Débloqueur #1 : vecteur On(28) |
+| Orks | ✅ classifiée (§6.13) | quasi-couverts : SquigHound, SmashaEad, PowerTrip (gaps mineurs) ; [opus]+prérequis : GrotTank, KustomForceFieldReworked, LightImUp, DakkaDakkaDakka ; **[fable]** : UnstoppableMomentum (charge impérative) ; BLOQUÉ MoW : SquigLaunchas, SquigMine. Levier #1 : NumLeftOverHits |
+| Sisterhood | ✅ classifiée (§6.14) | COUVERTS : ArmoriumCherub, FireOfAbsolution (faux positif), ActOfFaith, RighteousRepugnance/A ; [opus] direct : CondemnorStake, SanctorumMissile, SkyStrike (tag registre FAUX) ; [opus]+prérequis : BrazierOfHolyFire, MedicusMinistorum, RighteousRepugnance/B, GeminaeSuperia ; BLOQUÉ MoW (adeptExorcist) : ThriceBlessed, DevastatingRefrain |
+| SpaceWolves | ✅ classifiée (§6.15) | [opus] direct : GreatFrostAxe ; [opus]+prérequis : Foehammer, SagaOfTheWarriorBorn, WarHowl, HuntersBeyondDeath (borderline), HealingBalms (1re active heal) ; **[fable]** : AnvilShield (dispatch UnitBlocked), SavageKiller, RitesOfMorkai (revive-once) |
+| Tyranids | ✅ classifiée (§6.16) | COUVERTS x5 (SpiritLeech, CrushingClaws, FeederTendrils, Neuroparasite, GuardianOrganism — sur-report) ; [opus] direct : SporeMineLauncher, AlphaWarrior ; [opus]+prérequis : BarbedOvipositor, SynapticLinchpin, FearOfTheUnseen ; **[fable]** : BioMinefield. ⚠ kits summons downstream (FloatingDeath…) = tâche séparée |
+| AdeptusMechanicus | ✅ classifiée (§6.17) | CLOS/fold : Vehicle, GalvanicField (combat = fold 1117) ; [opus] direct : SentinelDirectives ; [opus]+prérequis : MasterAnnihilator (pose seule — effet validé), HeavyGravCannon (canal pierce), RadBombardment ; **[fable]** : OptimizedGait (react-to-ally-attack) |
+| ThousandSons | ✅ classifiée (§6.18) | COUVERT : ArcaneShield (#149) ; [opus]+prérequis : RealityUnbound (0 primitive neuve), Doombolt, HellfyreMissileRack, PsychicStalk (aura à risque), TimeFlux/regen ; **[fable]** : AttemptedPossession (PerformAIAbility généralisé), TimeFlux/ghost-revive ; BLOQUÉ MoW : InfernalCannon, AetherStride (jumeau DutyEternal) |
+| Aeldari | ✅ classifiée (§6.19) | COUVERT : Doom (#57c) ; [opus] direct : Executioner, HarvesterOfSouls (décisions déjà validées #122) ; [opus]+prérequis : TerrorsLament, FireAndReposition (ResetMovement), SilentDeath (snake-chain), InescapableAccuracy (canal crit-attaquant 1er user) ; **[fable]** : WireweaveNet (riposte pre-hit + annulation), SwoopingHawk |
+| BlackTemplars | ✅ classifiée (§6.20) | COUVERTS : ThunderousAssault, AstartesBanner ; [opus]+prérequis : CrusadeOfWrath, ChampionOfTheFeast, Boltstorm (pattern MV71), DestroyTheWitch, UnbreakableDuty, Fragstorm (candidat fable) ; **[fable]** : MartialSuperiority (contre pré-attaque On 0x2b). Levier #1 : feuille AddStaticStatModifierEffect |
+| Genestealers | ✅ classifiée (§6.21) | COUVERT : TwistedScience (décision live-validée) ; [opus]+prérequis : MightFromBelow, SpiritualLeader (spawn-sur-decoy) ; **[fable]** : CosmicHorror (RE ability 1025 OBLIGATOIRE avant port — ambiguïté gates 60%) |
+| AdeptusAstartes | ✅ classifiée (§6.22) | [opus]+prérequis : StrikeFromTheShadows (magnitude effet 1549 à RE — sinon fable) ; **[fable]** : HaywireMine (persistent-data + OnPreDeath-depuis-crush). ⚠ i2 absent pour ce kit |
 
 ## 6. Entretien de la roadmap
 
