@@ -33,10 +33,10 @@ from .splash import (CrushingClawsAbility, PlasmaGrenadeAbility, StikkbombAbilit
                      fragstorm_tree, gauntlets_of_ultramar_tree,
                      _adjacent_to_both, _adjacent_enemies_of, _pick_randomly_n, _splash_ability_behaviour)
 from .strike import (ThunderousAssaultAbility, ArmoriumCherubAbility, SpiritLeechAbility,
-                     ValkyrieStrikeAbility, BlackRageAbility, thunderous_assault_tree, armorium_cherub_tree,
-                     spirit_leech_get_attack_damage, spirit_leech_heal_amount,
+                     ValkyrieStrikeAbility, BlackRageAbility, CordClawAbility, thunderous_assault_tree,
+                     armorium_cherub_tree, spirit_leech_get_attack_damage, spirit_leech_heal_amount,
                      spirit_leech_heal_targets, spirit_leech_tree, valkyrie_strike_tree,
-                     black_rage_tree, _black_rage_charge_positions)
+                     black_rage_tree, _black_rage_charge_positions, cord_claw_tree)
 from .imperative import DoctrinaImperativesAbility
 from .mv71 import MV71SniperDroneSquadAttackAbility
 from .stormcaller import (StormcallerAbility, stormcaller_tree, stormcaller_get_add_ice_tiles)
@@ -58,10 +58,10 @@ __all__ = [
     "_adjacent_to_both", "_adjacent_enemies_of", "_pick_randomly_n", "_splash_ability_behaviour",
     # strike
     "ThunderousAssaultAbility", "ArmoriumCherubAbility", "SpiritLeechAbility",
-    "ValkyrieStrikeAbility", "BlackRageAbility", "thunderous_assault_tree", "armorium_cherub_tree",
-    "spirit_leech_get_attack_damage", "spirit_leech_heal_amount",
+    "ValkyrieStrikeAbility", "BlackRageAbility", "CordClawAbility", "thunderous_assault_tree",
+    "armorium_cherub_tree", "spirit_leech_get_attack_damage", "spirit_leech_heal_amount",
     "spirit_leech_heal_targets", "spirit_leech_tree", "valkyrie_strike_tree",
-    "black_rage_tree", "_black_rage_charge_positions",
+    "black_rage_tree", "_black_rage_charge_positions", "cord_claw_tree",
     # imperative
     "DoctrinaImperativesAbility",
     # mv71
