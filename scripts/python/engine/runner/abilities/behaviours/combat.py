@@ -63,16 +63,20 @@ class AttackWithAttackDamage(AbilityBehaviour):
     `hits` = nb de coups EXPLICITE du degat-node (defaut 1 en mode `amount` ; en mode bornes, None → `hits`
     de la config via `ability_attack_params`)."""
     __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key",
-                 "damage_override", "multi", "pick_n", "amount", "hits", "ability_type")
+                 "damage_override", "multi", "pick_n", "amount", "hits", "ability_type", "hits_add_key")
 
     def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True,
                  min_key: str = "minDmg", max_key: str = "maxDmg", hits_key: str = "nrOfHits",
                  damage_override=None, multi: bool = False, pick_n=None, amount=None, hits=None,
-                 ability_type=None):
+                 ability_type=None, hits_add_key=None):
         self.target_sel, self.ability_id, self.profile, self.is_melee = target_sel, ability_id, profile, is_melee
         self.min_key, self.max_key, self.hits_key = min_key, max_key, hits_key
         self.damage_override, self.multi, self.pick_n = damage_override, multi, pick_n
         self.amount, self.hits = amount, hits
+        # `hits_add_key` = 2e constante de coups AJOUTEE au `hits_key` (bande dont le nb de coups est la
+        # SOMME de deux GetNumberConstant -- Gauntlets bande adjacente = nrOfHits + nrOfHits_2). Mode bornes
+        # uniquement (le mode `amount` a un `hits` explicite). Defaut None.
+        self.hits_add_key = hits_add_key
         # `ability_type` = AbilityOrEffect NUMERIQUE du coup, threade au payload des events after-hit
         # (`TriggerEvent.ability_type`, mirror du champ d'event natif lu par DirectAbilitySelector) —
         # ex. smite Psyker = 0x3f5=1013 (gate branche 2 LordOfTempests AddIce #35). None = non threade.
@@ -110,7 +114,8 @@ class AttackWithAttackDamage(AbilityBehaviour):
             else:
                 bmin, bmax, pierce, hits = ability_attack_params(
                     state, caster, self.ability_id, self.profile, ranged=not self.is_melee,
-                    min_key=self.min_key, max_key=self.max_key, hits_key=self.hits_key)
+                    min_key=self.min_key, max_key=self.max_key, hits_key=self.hits_key,
+                    hits_add_key=self.hits_add_key)
                 if self.damage_override is not None:       # GetAttackDamage surchargee (ex. SpiritLeech +extraDmg)
                     bmin, bmax = self.damage_override(state, caster, tgt, bmin, bmax)
                 atk = AttackDamageOperation.execute_ability_attack(

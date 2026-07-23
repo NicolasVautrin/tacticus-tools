@@ -27,8 +27,9 @@ from .summon import (ScarabHiveAbility, ScarabSummonAbility, GetEmRuntzAbility,
                      scarab_hive_tree, scarab_summon_tree, getemruntz_taunt_tree, getemruntz_tree,
                      _summon_on_appearance_attack, _nearest_enemy)
 from .splash import (CrushingClawsAbility, PlasmaGrenadeAbility, StikkbombAbility, FragstormAbility,
-                     ScythingTalonsAbility, crushing_claws_splash_tree, crushing_claws_tree,
-                     plasma_grenade_tree, scything_talons_tree, stikkbomb_tree, fragstorm_tree,
+                     ScythingTalonsAbility, GauntletsOfUltramarAbility, crushing_claws_splash_tree,
+                     crushing_claws_tree, plasma_grenade_tree, scything_talons_tree, stikkbomb_tree,
+                     fragstorm_tree, gauntlets_of_ultramar_tree,
                      _adjacent_to_both, _adjacent_enemies_of, _pick_randomly_n, _splash_ability_behaviour)
 from .strike import (ThunderousAssaultAbility, ArmoriumCherubAbility, SpiritLeechAbility,
                      ValkyrieStrikeAbility, BlackRageAbility, thunderous_assault_tree, armorium_cherub_tree,
@@ -49,8 +50,9 @@ __all__ = [
     "_summon_on_appearance_attack", "_nearest_enemy",
     # splash
     "CrushingClawsAbility", "PlasmaGrenadeAbility", "StikkbombAbility", "FragstormAbility",
-    "ScythingTalonsAbility", "crushing_claws_splash_tree", "crushing_claws_tree",
-    "plasma_grenade_tree", "scything_talons_tree", "stikkbomb_tree", "fragstorm_tree",
+    "ScythingTalonsAbility", "GauntletsOfUltramarAbility", "crushing_claws_splash_tree",
+    "crushing_claws_tree", "plasma_grenade_tree", "scything_talons_tree", "stikkbomb_tree",
+    "fragstorm_tree", "gauntlets_of_ultramar_tree",
     "_adjacent_to_both", "_adjacent_enemies_of", "_pick_randomly_n", "_splash_ability_behaviour",
     # strike
     "ThunderousAssaultAbility", "ArmoriumCherubAbility", "SpiritLeechAbility",

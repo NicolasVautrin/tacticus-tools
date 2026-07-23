@@ -13,14 +13,25 @@ Units/First/Union, `get_movable_positions`, `_pick_randomly_n`. **Effets extra-h
 existe, seule la POSE (`AddEffect`) + l'attaque manquent.
 
 ```
-[1000 GauntletsOfUltramar | ultraCalgar]
+[1000 GauntletsOfUltramar | ultraCalgar]  -- PORTE (face COMBAT execute)
 VAs : ExecuteBehaviour @1811e1c80 ; GetAdjacentTargetsSelector @1811e2010 ; GetSurroundingTargetsSelector @1811e20d0
-Arbre : op_and( Attack(adjSel, nrOfHits 0x2f + nrOfHits_2 0x32, prof, MinMax),
-                Attack(surrSel, nrOfHits 0x2f, prof, MinMax) )   # 2 bandes de portée
-        adjSel = Unique(Enemies(AdjacentTiles(caster))) ; surrSel = Unobscured(Surrounding(r=2) - adjSel)
-Prérequis MANQUANTS : (a) sélecteur set-diff (Surrounding - Adjacent) ~trivial ; (b) hits = somme
-   de 2 constantes en mode bornes (petit ajout param).
-Verdict : [opus] direct, 1 tranche. Risques : bande extérieure (dist exactement 2) vs anneau<=2.
+Arbre (DECOMPILE, iVar11=const 0x2f, iVar12=const 0x32) : ExecuteAtomic( op_BitwiseAnd(
+          Attack(adjSel,  hits = 0x2f + 0x32 = nrOfHits + nrOfHits_2, Bolter, MinMax),   # bande ADJACENTE = 2 coups
+          Attack(surrSel, hits = 0x32       = nrOfHits_2,             Bolter, MinMax) ), 0x1d )  # bande SURROUNDING = 1 coup
+        adjSel  = Unique(Enemies(AdjacentTiles(caster)))                         # ennemis dist 1
+        surrSel = Unobscured(caster, SurroundingEnemies(caster, r=2) - adjSel)   # disque r<=2 MOINS adjacent = dist EXACTEMENT 2
+        Config 1000 : nrOfHits(0x2f)=1, nrOfHits_2(0x32)=1, damageProfile=Bolter (pierce 20), attackRangeType=Ranged.
+        (NB : surrounding = const 0x32 au decompile -- le "0x2f" du verdict initial etait une erreur ; les 2 constantes
+         valent 1, donc numeriquement identique -- 1 coup. AoE SELF-CAST : la cible du message est ignoree pour le degat.)
+POINT DE DIVERGENCE TRANCHE (live) : bande exterieure = distance EXACTEMENT 2 (PAS anneau <=2). Prouve par le
+   discriminant dist 1/2/3 -> 2/1/0 coups (test_gauntlets_combat_live).
+Porte : GauntletsOfUltramarAbility + gauntlets_of_ultramar_tree (loki/splash.py, registre handler.py 1000) ;
+   noeud DSL Unobscured (selectors.py, reuse bq.is_target_tile_obscured = geometrie case-49x validee) ; param
+   hits_add_key (base.py/combat.py) pour la somme de 2 constantes. Validation LIVE (drive 2 camps, zone flat) :
+   banding + coups par bande bit-exact (dist1=2, dist2=1, dist3=0) ; A/B tree==execute_ability_attack (port fidele) ;
+   1er coup exact (params degat OK). GAP HORS PORT : per-coup vs live desync apres le 1er coup d'une cible multi-coups
+   = accounting rng crit/block du pipeline PARTAGE (#205, pre-existant, meme sur CrushingClaws) -- NON introduit par ce port.
+Verdict : [opus] direct -- LIVRE.
 ```
 ```
 [1038 FoulInfusion | deathPutrifier]
@@ -91,7 +102,7 @@ Verdict : [opus] direct, 1 tranche. Risques : TilesUnitCanMoveToChargeTarget vs 
    (charge = s'arrête adjacent) ; SortTilesByUtility(0x20) collapse → plus proche (proxy, déjà fait HF).
 ```
 
-**Synthèse** : [opus] direct = CordClaw, VigilanceEternal, GauntletsOfUltramar ; [opus]+prérequis =
+**Synthèse** : [opus] direct = CordClaw, VigilanceEternal, GauntletsOfUltramar (**PORTE** — face COMBAT execute) ; [opus]+prérequis =
 FoulInfusion ; borderline = DarkTalonStrike (RE best-line d'abord) ; **[fable]** = GrapnelLauncher,
 BloodyFury. Hypothèses restantes (1 décompile ciblé au port) : source GetHits (CordClaw),
 heuristique best-line (DarkTalon).
