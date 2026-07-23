@@ -25,7 +25,6 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 | # | Tâche | Modèle | Point d'entrée |
 |---|---|---|---|
 | #202 | Kit d'Abraxas (`thousInfernalMaster`) : WeaverOfFate + InfernalPacts + MasterOfTheTutelaries | `[opus]` | `case-202` : **tranches A (WeaverOfFate) et B (aura InfernalPacts) LIVRÉES** (A : 98e0fbd ; B : effet bi-canal Average/RandomAmount + face COMBAT du canal #179 créée — prédiction 10/10, comptes 6/5/3, garde 100 %). Reste C (MasterOfTheTutelaries : summon cascade + décision NC). **EN COURS (orchestrateur).** |
-| #203 | Trait `LivingMetal` : régen Necron (`LivingMetalRepair` 0x3f2) — 51 unités (6 lineup), face COMBAT (+ résidu NetherRealmCasket 1456) | `[opus]` | **DÉLÉGUÉ opus-solver (2026-07-23, en vol)** — livraison par PR. Points de départ : effet 1456 @180f5b650 (case-34), revives swarm observés (case-60). |
 | #27 | Résidus `CalculateCustomUtility` : 4 sous-systèmes à porter (débloqueurs nommés) | `[opus]` | `case-27` : **2 portés** (ArmoriumCherub 1014, LightOfSanguinius 1177 — `loki_custom.py`, garde 31337 100%) + **20 résidus** classés par débloqueur (DSL-évaluateur / BattleQuery-token 0x44-0xb1 / multi-hit / utilité-déplacement / MoW off-board / `dp=False` / dead-code / sans-id). Reprise = porter un sous-système → débloque son groupe d'overlays (roadmap dans le doc). |
 | #5 | Chantier `DslContext` live-state | `[opus]` | Architecture à poser, pas d'énigme à trancher. |
 | #20 | Roadmap AdMec | `[opus]` | Planification + découpage en tranches de port. |
@@ -44,8 +43,14 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   spawnables en runner → **invalidables**, non portés (doctrine `feedback_no_unvalidatable_ability_ports`).
 - **FireOfAbsolution, volet feu-sur-cible** (`case-67` §5) : vecteur after-hit probabiliste non
   modélisé par `execute()`. `[opus]`.
-- **Flag=1 des caps heal/repair** (`case-60` §5) : aucun chemin natif identifié à ce jour ; la
-  plomberie `group_limit` est en place, gatée OFF. `[opus]` si une ability « ne peut pas réveiller » apparaît.
+- **Flag=1 des caps heal/repair** (`case-60` §5) : **chemin natif IDENTIFIÉ par #203** — `RepairBehaviourOptions.
+  ForRegenerate @180fce8c0` (repair « NO-WAKE ») cape le montant au `get_group_unit_heal_limit @1810325e0`,
+  contrairement à `ForRepair @180fce920` (WAKE, réveille des membres). LivingMetal = NO-WAKE (câblé, cf. case-203).
+- **LivingMetal swarm « no-wake top-off » (INVALIDÉ live)** (`case-203` §5) : pour un swarm à HP **non-frontière**
+  (membre partiel, ex. 700/2218) le port complète le membre vivant (mirror `get_group_unit_heal_limit`), mais le
+  member-cap (#57d) maintient les swarms **toujours aux frontières** → chemin jamais atteint en combat normal
+  (LivingMetal est de fait INERTE sur `necroSmnSwarm` : 10 % du maxHP < 1 membre). Revalider si un dégât Blast
+  non-member-capé pose un membre partiel. `[opus]`.
 - **MV71 (1076), résidus** (`case-61bis` §6/§8/§9 — case CLOS, tranches 1-3 livrées) : mods
   attaquant-effets présumés droppés dans la prédiction drone (widget zéroé — aucun datapoint
   caster-buffé) ; datapoint `ExtraHits>0` (délégué m860) jamais mesuré ; LoS non portée dans

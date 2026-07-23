@@ -14,7 +14,8 @@ from .base import (TriggerEvent, TriggeredAbility, EffectTrigger, TileEffectTrig
 from .dispatch import (
     TRAIT_TRIGGERS, ABILITY_TRIGGERS, EFFECT_TRIGGERS,
     collect_triggered_abilities, collect_effect_triggers, evaluate_trigger_operation,
-    after_death_triggers, is_overkill, start_turn_triggers, tile_tick_triggers,
+    after_death_triggers, is_overkill, start_turn_triggers, turn_start_other_triggers,
+    tile_tick_triggers,
     after_hit_normal_attack, after_hit_ability_attack, after_move_triggers, displace_triggers,
     end_turn_summon_triggers, unit_defeated_triggers, unit_resurrected_triggers,
 )
@@ -33,7 +34,8 @@ __all__ = [
     "_unit_tile", "_hex_dist", "_adjacent_enemies", "_is_adjacent_units",
     "TRAIT_TRIGGERS", "ABILITY_TRIGGERS", "EFFECT_TRIGGERS",
     "collect_triggered_abilities", "collect_effect_triggers", "evaluate_trigger_operation",
-    "after_death_triggers", "is_overkill", "start_turn_triggers", "tile_tick_triggers",
+    "after_death_triggers", "is_overkill", "start_turn_triggers", "turn_start_other_triggers",
+    "tile_tick_triggers",
     "after_hit_normal_attack", "after_hit_ability_attack", "after_move_triggers", "displace_triggers",
     "end_turn_summon_triggers", "unit_defeated_triggers", "unit_resurrected_triggers",
     "_fire_of_absolution_after_attack", "_on_fire_damage_ability",
