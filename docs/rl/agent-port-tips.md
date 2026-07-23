@@ -12,13 +12,21 @@ Réf : `rl_duel.py:339-356`. Usages :
 - caler une cible fragile pour un **kill déterministe** (revive, kill-events, death-triggers) ;
 - stabiliser un tir mesurable (self-buff qui se manifeste au tour suivant, ex. additional-hits).
 
-## 2. Bugs du pipeline PARTAGE déjà connus -> NE PAS re-root-cause
-Si le symptôme correspond à un bug **partagé déjà tracké**, reporte-le par son numéro et AVANCE —
-ne perds pas 100K tokens à le ré-expliquer :
-- **#37** — attaque d'ABILITY multi-coups à `cc=0` : désync RNG (coups >=2 divergent, coup 1 exact,
-  total ~1% off). Cause = crit-roll skip à cc=0 dans `_run_hits` (`operations/damage.py`). Un
-  fable-solver est dessus. Prouve que TON port est structurellement correct (tip #4), reporte #37.
-- **#205** — désync per-coup après le 1er coup d'une cible multi-coups (même racine que #37).
+## 2. Pipeline PARTAGE : #37/#205 RÉSOLUS (factory attack vs ability) — classe TON leaf
+Le "désync RNG ~1% aux coups >=2" de #37/#205 est **RÉSOLU** (PR #18, mergé). La cause réelle n'était
+PAS un crit-roll : **deux factories natives DISTINCTES avec une consommation RNG per-coup différente** :
+- **attack** (`DSLFactory.AttackWithAttackDamage @180de9fb0`) = valeur brute (GetDamage-top) + resolve
+  slot-8 **GASPILLÉ** = **2 tirages/coup** à cc=0.
+- **ability** (`AttackWithAbilityDamage @180de9c90/@180de9dd0 -> core @180de9e50`) = GetDamage par coup
+  SEUL (`CalculateAbilityDamage @18102cb50`, 0-RNG interne) = **1 tirage/coup**.
+
+Le leaf `AttackWithAttackDamage` (behaviours/combat.py) porte un flag `native_factory="attack"|"ability"`
+(**défaut "attack"** = comportement inchangé). **Si ton ability fait une attaque MULTI-COUPS, tu DOIS
+classer la factory de SON leaf par les XREFS de son `ExecuteBehaviour` natif** (quelle factory il appelle),
+JAMAIS au nom du commentaire de port — et passer `native_factory="ability"` si c'est la famille ability.
+Sinon per-hit désync dès le coup 2. Attaque MONO-coup, ou effet `DirectDamage` (montant fixe, autre path) =
+non concerné (défaut OK). Réf : `docs/rl/solving-playbook.md` entrée **rngcrit-1202** + `probe_rngcrit_1202.py`
+(patron de discrimination : rejouer les modèles candidats depuis le MÊME état MT vs per-hit live).
 > Mets à jour cette liste quand un nouveau bug partagé est identifié.
 
 ## 3. ETAPE 0 OBLIGATOIRE — rebaser sur le master LOCAL (base stale garantie)
