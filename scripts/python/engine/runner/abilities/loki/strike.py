@@ -183,7 +183,8 @@ def spirit_leech_tree():
     L'imperatif `SpiritLeechAbility.execute_behaviour` est REMPLACE par l'execution de cet arbre."""
     tgt = Target()
     attack = AttackWithAttackDamage(tgt, "SpiritLeech", "Psychic", is_melee=False,   # ranged (range 3), nrOfHits=0x2f=1
-                                     damage_override=spirit_leech_get_attack_damage)  # GetAttackDamage (+extraDmg si Pinned)
+                                     damage_override=spirit_leech_get_attack_damage,  # GetAttackDamage (+extraDmg si Pinned)
+                                     native_factory="ability")  # @181209a9f appelle @180de9dd0 -> AbilityDamageOperation
     pin = AddEffect(PINNED, "Pinned", tgt, None)                                      # AddEffect(0x429), duree DEFAUT
     heal = Heal(spirit_leech_heal_targets(), spirit_leech_heal_amount)                # lifesteal (Self + Tyranids adj)
     return op_add(op_add(attack, pin), heal)                                          # ((A + Pin) + Heal)

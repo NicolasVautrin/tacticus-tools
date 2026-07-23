@@ -63,12 +63,13 @@ class AttackWithAttackDamage(AbilityBehaviour):
     `hits` = nb de coups EXPLICITE du degat-node (defaut 1 en mode `amount` ; en mode bornes, None → `hits`
     de la config via `ability_attack_params`)."""
     __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key",
-                 "damage_override", "multi", "pick_n", "amount", "hits", "ability_type", "hits_add_key")
+                 "damage_override", "multi", "pick_n", "amount", "hits", "ability_type", "hits_add_key",
+                 "native_factory")
 
     def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True,
                  min_key: str = "minDmg", max_key: str = "maxDmg", hits_key: str = "nrOfHits",
                  damage_override=None, multi: bool = False, pick_n=None, amount=None, hits=None,
-                 ability_type=None, hits_add_key=None):
+                 ability_type=None, hits_add_key=None, native_factory: str = "attack"):
         self.target_sel, self.ability_id, self.profile, self.is_melee = target_sel, ability_id, profile, is_melee
         self.min_key, self.max_key, self.hits_key = min_key, max_key, hits_key
         self.damage_override, self.multi, self.pick_n = damage_override, multi, pick_n
@@ -81,6 +82,18 @@ class AttackWithAttackDamage(AbilityBehaviour):
         # (`TriggerEvent.ability_type`, mirror du champ d'event natif lu par DirectAbilitySelector) —
         # ex. smite Psyker = 0x3f5=1013 (gate branche 2 LordOfTempests AddIce #35). None = non threade.
         self.ability_type = ability_type
+        # `native_factory` = LA FACTORY NATIVE de la feuille (cas fable rngcrit-1202) — deux operations
+        # natives DISTINCTES avec des consommations RNG per-coup differentes :
+        #   "attack"  (defaut) = `DSLFactory.AttackWithAttackDamage @180de9fb0` (+overloads @180dea180/
+        #             350/520/6b0) -> AttackDamageBehaviour -> `AttackDamageOperation.ExecuteHit
+        #             @180e5eff0` : valeur BRUTE (GetDamage-top) + resolve slot-8 GASPILLE = 2 tirages/
+        #             coup a cc=0 (mesure bit-exact VigilanceEternal, 5 seeds x 2 cibles).
+        #   "ability" = `DSLFactory.AttackWithAbilityDamage @180de9c90/@180de9dd0 -> core @180de9e50`
+        #             -> AbilityDamageBehaviour -> `AbilityDamageOperation.ExecuteHits @180e2a860` :
+        #             GetDamage par coup SEUL (CalculateAbilityDamage @18102cb50 = 0 RNG) = 1 tirage/
+        #             coup (mesure bit-exact Stormcaller 3-hit, probe_217). Classifier par les XREFS de
+        #             l'`ExecuteBehaviour` natif de l'ability (quelle factory est appelee), JAMAIS au juge.
+        self.native_factory = native_factory
 
     def execute(self, entities, ectx):
         from ...operations.damage import AttackDamageOperation
@@ -121,7 +134,8 @@ class AttackWithAttackDamage(AbilityBehaviour):
                 atk = AttackDamageOperation.execute_ability_attack(
                     state, caster, tgt, bmin, bmax, pierce, hits,
                     damage_profile=self.profile, is_melee=self.is_melee,
-                    ability_type=self.ability_type)
+                    ability_type=self.ability_type,
+                    wasted_resolve=(self.native_factory != "ability"))
             ectx.emit("AttackWithAttackDamage", caster=caster, target=tgt,
                       total=(atk or {}).get("total"), attack=atk)
         return OperationResult.ok()

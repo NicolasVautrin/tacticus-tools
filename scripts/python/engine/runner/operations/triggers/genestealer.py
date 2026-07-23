@@ -180,7 +180,8 @@ class DecoysAndMisdirectionDamageEnemiesAbility(TriggeredAbility):
         blasts = []
         for _ in range(n):                            # Repeat( ... , Count(GetValidDeadDecoys) )
             ectx = ExecutionContext(state=state, rng=state.rng)
-            AttackWithAttackDamage(Target(), ABILITY_ID, BLAST_PROFILE, is_melee=False).execute(
+            AttackWithAttackDamage(Target(), ABILITY_ID, BLAST_PROFILE, is_melee=False,
+                                   native_factory="ability").execute(   # @180e202af -> @180de9c90 = AbilityDamageOperation
                 entities_from_state(state, self.owner_id, stepper), ectx)
             atk = next((p for nm, p in ectx.emitted if nm == "AttackWithAttackDamage"), None)
             blasts.append(atk)
