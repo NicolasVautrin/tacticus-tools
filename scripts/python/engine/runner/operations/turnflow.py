@@ -38,7 +38,8 @@ from ..state import State
 from ..components import (OwnerComponent, UnitComponent, ShieldComponent, StatsComponent,
                           UnitFlagsComponent)
 from ...entities.stats import StatType
-from .triggers import start_turn_triggers, tile_tick_triggers, first_aid_heal
+from .triggers import (start_turn_triggers, turn_start_other_triggers, tile_tick_triggers,
+                       first_aid_heal)
 
 
 class FinishUnitTurnOperation:
@@ -206,9 +207,14 @@ class StartTurnOperation:
         # FirstAid (0x13, PLAYER courant via IsTurnOf) + On(0x16). 0x15 PAS ENCORE branche (role non mappe).
         tile_ticks = tile_tick_triggers(state)
         first_aid = first_aid_heal(state, player)          # #130 : On(0x13) heal-on-tile des unites du player courant
+        # #203 : On(0x13=TurnStart_Other) -> LivingMetalRepair (regen % PV des Necron endommages du player).
+        # Meme event que FirstAid ; l'ordre 0x13-vs-0x14(tile DoT) herite de l'imperfection existante (tile_ticks
+        # lumpe 0x12+0x14) -> residu documente (case-203). L'ordre FirstAid/LivingMetal entre eux est immateriel
+        # (les deux soins s'additionnent, capes a maxHP).
+        living_metal = turn_start_other_triggers(state, player)
         out = start_turn_triggers(state, player)
         from .summon_ai import run_ai_control_pass         # lazy : evite le cycle turnflow<->summon_ai
-        out = tile_ticks + first_aid + out + run_ai_control_pass(state, player)
+        out = tile_ticks + first_aid + living_metal + out + run_ai_control_pass(state, player)
         return out
 
 

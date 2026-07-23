@@ -46,6 +46,7 @@ from .genestealer import (DecoysAndMisdirectionDamageEnemiesAbility,
                           DecoysAndMisdirectionBuffFriendsAbility,
                           AmbushSummonAbility, EnvAmbushResurrectAbility,
                           HypersensoryMoveAndSpawnDecoyAbility)
+from .loki.living_metal import LivingMetalRepairAbility             # #203 (trait LivingMetal, Necron)
 
 # --- FinalJustice / overkill ----------------------------------------------------------------------
 OVERKILL_PCT_KEY = "overkillDmgPctOfHealth"  # globalValues = 100 → overkill ssi dmg-PV >= 100%*PV (dmg>=2*PV)
@@ -61,6 +62,10 @@ TRAIT_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Ambush (Isaak/Judh/Neophyte, G3) = mort -> decoy (On UnitDefeated=55) + resurrection sur decoy allie
     # au debut du tour suivant (On TurnStart=22). Les DEUX sont fire-on-death (owner mort au moment du fire).
     "Ambush": [AmbushSummonAbility, EnvAmbushResurrectAbility],
+    # LivingMetal (trait 1000, TOUT le roster Necron : 41 npc + 6 lineup + 4 summons, #203) = regen % PV
+    # au debut du tour du proprietaire : `On(TurnStart_Other=19) & OwnerIsActor & IsDamaged(self)` ->
+    # Repair(self, round(10% maxHP)). Cf. loki/living_metal.py (@181222630/@1812224e0).
+    "LivingMetal": [LivingMetalRepairAbility],
 }
 
 # --- Registre : passiveAbility → ability-trigger(s) accordée(s) ------------------------------------
@@ -424,6 +429,17 @@ def start_turn_triggers(state: State, player_id: int) -> list[dict]:
     reset_times_attacked(state)
     evaluate_minimal_health(state, player_id)
     ev = TriggerEvent(EventTriggerType.TurnStart_Actions, -1, -1, ranged=False, profile=None, player_id=player_id)
+    return evaluate_trigger_operation(state, ev)
+
+
+def turn_start_other_triggers(state: State, player_id: int) -> list[dict]:
+    """Vecteur `On(TurnStart_Other=0x13=19)` — 2e des 5 events emis par `StartTurnOperation.Execute
+    @180ea3fb0` (sequence 0x12->0x13->0x14->0x15->0x16 ; cf. turnflow.py). Dispatch GENERIQUE du
+    registre `TRAIT_TRIGGERS` sur cet event. Consommateur : `LivingMetalRepairAbility` (#203, regen %
+    PV des Necron endommages, `OwnerIsActor` via `player_id`). Le meme event 0x13 porte aussi FirstAid
+    (tile-effect, reste bespoke dans tiles.py). `actor`/`target` = -1 (chaque trigger filtre sur
+    `ev.player_id`). No-op si aucun porteur LivingMetal endommage du player courant."""
+    ev = TriggerEvent(EventTriggerType.TurnStart_Other, -1, -1, ranged=False, profile=None, player_id=player_id)
     return evaluate_trigger_operation(state, ev)
 
 
