@@ -17,7 +17,7 @@ from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
                    PlasmaGrenadeAbility, StikkbombAbility, FragstormAbility, ScythingTalonsAbility,
                    SpiritLeechAbility, ArmoriumCherubAbility, DoctrinaImperativesAbility,
                    MV71SniperDroneSquadAttackAbility, MasterOfTheTutelariesAbility,
-                   StormcallerAbility)
+                   StormcallerAbility, TheQuickeningAbility)
 from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility
 
 # Registre ActiveAbilityType (int) -> classe d'ability portée. À ÉTENDRE au roster.
@@ -40,6 +40,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     MV71SniperDroneSquadAttackAbility.ABILITY_TYPE: MV71SniperDroneSquadAttackAbility,  # 1076 (Sho'syl : summon drone + attaque commandee + Markerlight, #61bis)
     MasterOfTheTutelariesAbility.ABILITY_TYPE: MasterOfTheTutelariesAbility,  # 1096 (Abraxas : effet 1197 + summon Pink Horror tile-target + Screamer sur Psychic, #202-C)
     StormcallerAbility.ABILITY_TYPE: StormcallerAbility,               # 1113 (Njal : glace zone cible+ring1 + 3x Psychic ennemis-sur-glace + stun Flying, #217)
+    TheQuickeningAbility.ABILITY_TYPE: TheQuickeningAbility,  # 1151 (Mephiston : teleport-echange tile-target + free melee attack faction-BloodAngels, #217)
 }
 
 

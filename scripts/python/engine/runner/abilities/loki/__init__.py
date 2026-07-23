@@ -37,6 +37,7 @@ from .strike import (ThunderousAssaultAbility, ArmoriumCherubAbility, SpiritLeec
 from .imperative import DoctrinaImperativesAbility
 from .mv71 import MV71SniperDroneSquadAttackAbility
 from .stormcaller import (StormcallerAbility, stormcaller_tree, stormcaller_get_add_ice_tiles)
+from .quickening import TheQuickeningAbility
 
 __all__ = [
     # summon
@@ -61,4 +62,6 @@ __all__ = [
     "MV71SniperDroneSquadAttackAbility",
     # stormcaller
     "StormcallerAbility", "stormcaller_tree", "stormcaller_get_add_ice_tiles",
+    # quickening
+    "TheQuickeningAbility",
 ]

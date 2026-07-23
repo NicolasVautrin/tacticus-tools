@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **171** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **17**
-- **NO-OP silencieux** (a porter) : **154**
-- Ventilation NO-OP : **DAMAGE**=97, **EFFECT/BUFF**=30, **SUMMON**=19, **HEAL**=5, **REPAIR**=3
+- **PORTED** (dans `ABILITY_CLASSES`) : **18**
+- **NO-OP silencieux** (a porter) : **153**
+- Ventilation NO-OP : **DAMAGE**=97, **EFFECT/BUFF**=29, **SUMMON**=19, **HEAL**=5, **REPAIR**=3
 
 ## Priorisation & templates de port
 
@@ -22,7 +22,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (154)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (153)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -151,7 +151,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1203 | DaemonicPatrons | EFFECT/BUFF | 1 | L |
 | 1107 | Reveal | EFFECT/BUFF | 1 | N |
 | 1211 | RitesOfMorkai | EFFECT/BUFF | 1 | L |
-| 1151 | TheQuickening | EFFECT/BUFF | 1 | L |
 | 1106 | WarHowl | EFFECT/BUFF | 1 | L |
 | 1002 | CombatRestoratives | HEAL | 4 | LN |
 | 1082 | InspiredToGreatness | HEAL | 4 | LN |
@@ -181,7 +180,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 | 1219 | IronkinSteeljack | SUMMON | 1 | L |
 
-## PORTED (registry) (17)
+## PORTED (registry) (18)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -197,6 +196,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1113 | Stormcaller | DAMAGE(Psychic) | 2 | LN |
 | 1018 | ValkyrieStrike | DAMAGE(Blast) | 2 | NS |
 | 1118 | DoctrinaImperatives | EFFECT/BUFF | 6 | LN |
+| 1151 | TheQuickening | EFFECT/BUFF | 1 | L |
 | 1096 | MasterOfTheTutelaries | SUMMON | 6 | LN |
 | 1007 | ScarabHive | SUMMON | 6 | LN |
 | 1179 | CultDemagogue | SUMMON | 4 | LN |
