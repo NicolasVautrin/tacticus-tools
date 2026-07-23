@@ -10,6 +10,30 @@ from ...components import (OwnerComponent, PositionComponent, UnitComponent, Sta
 from ....entities.traits.unit_trait import UnitTrait, has_trait
 
 
+import functools
+
+
+_GRAND_ALLIANCE_TRAITS = frozenset({"Imperial", "Chaos", "Xenos"})
+
+
+@functools.lru_cache(maxsize=None)
+def _grand_alliance_trait(visual_id: str | None) -> str | None:
+    """Trait d'ALLIANCE d'une unite, DERIVE de sa GrandAlliance (mirror `GrandAlliance.GetTrait
+    @1815647a0` : "Imperial"->0x1a=26, "Xenos"->0x3ee=1006, "Chaos"->0x7ea=2026). Le NOM du trait ==
+    le `GrandAllianceId` gameconfig (== `UnitTrait.Imperial/Xenos/Chaos.name`) -> ajoutable tel quel au
+    set de traits (resolu par `_has_trait` -> `UnitTrait(id).name in traits`). ABSENT de
+    `gameconfig.unit().traits` (0 unite le porte) : c'est un trait de bataille inne non expose offline
+    ni dans le combatSnapshot. None si l'alliance n'a pas de trait dedie. Cache (statique par unite)."""
+    if not visual_id:
+        return None
+    try:
+        import gameconfig as _GC
+    except Exception:
+        return None
+    ga = (_GC.unit(visual_id) or {}).get("GrandAllianceId")
+    return ga if ga in _GRAND_ALLIANCE_TRAITS else None
+
+
 def _unit_dict(state, eid: int, entity=None) -> dict | None:
     """Dict d'unite {id, team, player, pos, alive, hp, visualId, _traits} lu du `State` runner — la forme
     `unit` que consomment les selecteurs DSL. `entity` optionnel (evite un `get_entity` redondant)."""
@@ -22,6 +46,13 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
     sc = e.get_component(StatsComponent)
     hc = e.get_component(HealthComponent)
     traits = set(getattr(sc.ctx, "traits", None) or ()) if sc is not None else set()
+    # Trait d'ALLIANCE (Imperial/Chaos/Xenos) inne, DERIVE de la GrandAlliance (cf. `_grand_alliance_trait`)
+    # : requis par le split RevitalizingMalignancy (WithoutTrait Imperial / WithTrait Chaos) + l'exclusion
+    # Imperial de CombatRestoratives. CONFIRME LIVE (case-220 : deathBlightbringer Chaos +6980,
+    # eldarRanger Xenos +3490, adeptHospitaller Imperial +0).
+    _ga = _grand_alliance_trait(uc.visual_id if uc is not None else None)
+    if _ga is not None:
+        traits = traits | {_ga}
     alive = uc.alive if uc is not None else True
     return {
         "id": eid,

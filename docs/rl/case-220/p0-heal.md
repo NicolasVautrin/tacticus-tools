@@ -21,14 +21,27 @@ Prérequis MANQUANTS : AUCUN. Verdict : [opus] direct, 1 tranche.
 Risques : split-trait = 2 feuilles Heal distinctes (pas 1 amount conditionnel) ; ordre d'emit.
 ```
 ```
-[1037 RevitalizingMalignancy | deathRotbone]
-VAs : ExecuteBehaviour @181200eb0, GetAllHealTargets @181201150 (+Chaos @181201230 / Regular @181201280)
-Arbre : AllHealTargets = Healable(WithoutTrait(0x1a, Union(Friends(AdjacentUnits), self)))
-        -> regular = WithoutTrait(0x7ea Chaos) heal var0x20=2546
-        -> chaos   = WithTrait(0x7ea)          heal var0x20+var0x22 (CUMUL iVar14+iVar13)
-Prérequis MANQUANTS : garde `Healable` côté mutation (HP<max & non-mechanical) — à porter comme
-   garde de la feuille. Verdict : [opus] direct, 1 tranche.
-Risques : le « +2546 Chaos » est une SOMME des 2 vars, pas un 2e var isolé — ne pas fitter.
+[1037 RevitalizingMalignancy | deathRotbone]  --- PORTE + VALIDE LIVE (case-220 opus-solver)
+VAs : ExecuteBehaviour @181200eb0, GetAllHealTargets @181201150 (+Chaos @181201230 / Regular @181201280),
+      callback b__0 @181218d00
+Arbre : AllHealTargets = Healable(WithoutTrait(0x1a Imperial, Union(Friends(AdjacentUnits(self,1)), self)))
+        AtomicGroup( Heal(regular = WithoutTrait(0x7ea Chaos) , Direct(var0x20=hpToHeal))          # non-Chaos
+                   & Heal(chaos   = WithTrait(0x7ea)          , Direct(var0x22+var0x20)) )          # Chaos (CUMUL)
+   var0x20 = GetVariableForLevel(0x20) = hpToHeal ; var0x22 = GetVariableForLevel(0x22) = hpToHeal_2.
+Port : runner/abilities/deathguard.py (RevitalizingMalignancyAbility + revitalizing_malignancy_tree) ;
+   feuille Heal `guard=` (behaviours/stats.py) ; enregistre handler.py (1037). Test :
+   test_revitalizing_malignancy_live.py.
+PREREQUIS (porte) : (a) garde `Healable` cote mutation = HP<max ET non-mechanical
+   (`IsAffectedByHealType(unit,0) @180ed77d0` ; IsMechanical @180ed8a30 = Mechanical|LivingMetal|Vehicle) ;
+   (b) *** NON LISTE au triage, DECOUVERT au port *** : le trait Chaos(0x7ea)/Imperial(0x1a) est ABSENT de
+   gameconfig.unit().traits (0 unite le porte) -> DERIVE de la GrandAlliance (`GrandAlliance.GetTrait
+   @1815647a0` : Imperial->26, Xenos->1006, Chaos->2026). Porte via `_grand_alliance_trait` (context.py :
+   ajoute le trait d'alliance au set runner ; nom == GrandAllianceId). Sans ca le split est mort (tout en
+   regular, aucune exclusion Imperial). Reutilisable pour le jumeau 1002 CombatRestoratives.
+VALIDE LIVE (rank 17, deathRotbone lvl50 mult180 -> regular 3490, chaos 6980) : deathBlightbringer[Chaos]
+   +6980, eldarRanger[Xenos] +3490, adeptHospitaller[Imperial] +0, necroWarden[LivingMetal, blesse] +0.
+   Le « chaos » = SOMME de 2 vars lues+arrondies separement (iVar14+iVar13), PAS un scalaire fitte
+   (6980 = 3490+3490 confirme live). Offline (port) == live sur les 5 discriminateurs.
 ```
 ```
 [1039 RitesOfRestoration | adeptHospitaller]
