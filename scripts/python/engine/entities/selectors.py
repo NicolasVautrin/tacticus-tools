@@ -387,6 +387,52 @@ class Alive(TargetsSelector):
         return [u for u in self.source.evaluate(ctx) if _is_alive(u)]
 
 
+class Unobscured(TargetsSelector):
+    """`DSLFactory.Unobscured(from, source) @180e01540` -> `UnobscuredEntitiesSelector.Select @180f06d30` :
+    garde les unites de `source` dont la tuile n'est PAS obscurcie (terrain) depuis la tuile du referent
+    `from` (`TargetingQuery.IsTargetUnitObscured @1810bf680` -> `MovementQuery.GetTilesObscuringTerrain
+    @18109bad0`, mask 6 = elevation bit2 + murs bit4 ; TERRAIN seul, aucun blocage par unite). Multi-tuiles :
+    unite obscurcie ssi TOUTES ses tuiles le sont (v1 : MainTile seule).
+
+    - **dist 1 : jamais obscurcie** (la ligne n'a aucune tuile intermediaire testable, cf. case-49x §3) -> gardee.
+    - **dist 2 : `bq.is_target_tile_obscured(from, unit, elev)`** (elevation, cube-line ±eps) -- geometrie
+      DEJA validee live cote PREDICTION (`bq.surrounding_enemies`, craft-O/O2 probe_49x : crete elev 4 ->
+      ennemi dist-2 EXCLU / deplace visible -> compte). `elev` construit depuis `ctx.board`
+      (`by_coord[(col,row)]['elevation']`).
+
+    v1 FLAGS (IDENTIQUES a la face prediction, cf. `battle_query.is_target_tile_obscured`) : murs (bit 4)
+    non modelises (aucun board d'agreement n'a de mur en zone jouable) ; mask 4 IndirectFire non gate
+    (`HasTrait(caster, 0x3ed)` -- aucun caster concerne) ; dist>=3 non modelisee (hors perimetre du seul
+    consommateur porte : Gauntlets, source = disque r<=2 MOINS adjacent = dist EXACTEMENT 2). Sans
+    `ctx.board` (elevation indisponible) -> passe-tout (degradation sure : board plat = 0 obscurcissement).
+
+    `from_ref` = referent de visibilite (`DSLFactory.Unobscured` recoit l'ENTITE caster `@+0x160`) ; None ->
+    tuile du caster (`ctx.caster_pos or _pos(ctx.caster)` = tuile REELLE en execute, aucune position balayee)."""
+    def __init__(self, source: TargetsSelector, from_ref: TargetsSelector | None = None):
+        self.source, self.from_ref = source, from_ref
+
+    def select(self, ctx):
+        from ..battle_query import is_target_tile_obscured
+        frm = (_pos(resolve_unit(self.from_ref, ctx)) if self.from_ref is not None
+               else (ctx.caster_pos or _pos(ctx.caster)))
+        units = _units_of(self.source, ctx)
+        if frm is None:
+            return list(units)
+        board = getattr(ctx, "board", None)
+        bc = getattr(board, "by_coord", None) if board is not None else None
+        elev = ({k: t.get("elevation", 0) for k, t in bc.items()} if bc else None)
+        out = []
+        for u in units:
+            p = _pos(u)
+            if p is None:
+                continue
+            if hexgeo.distance(frm, p) == 2 and elev is not None \
+                    and is_target_tile_obscured(frm, p, elev):
+                continue                                    # terrain obscurcit la tuile dist-2 -> exclue
+            out.append(u)
+        return out
+
+
 # --- Selecteurs de TUILES (domaine TILE = ids de tuile ; lisent ctx.board). Pont unit->tile
 #     (`AdjacentTiles`) et tile->tile (`CanAddUnit`/`TileUnique`/`TileIntersect`). board None -> []. ---
 

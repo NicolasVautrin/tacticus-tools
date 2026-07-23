@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 def ability_attack_params(state: "State", caster_id: int, ability_id: str,
                           profile_name: str, ranged: bool = False,
                           min_key: str = "minDmg", max_key: str = "maxDmg",
-                          hits_key: str = "nrOfHits"):
+                          hits_key: str = "nrOfHits", hits_add_key: str | None = None):
     """Paramètres de l'attaque d'une ability (mirror `MinMaxDamage`/`GetHits`/`GetDamageProfile`) depuis
     l'ECS + gameconfig : `(base_min, base_max, pierce, hits)`.
       • base_min/base_max = `GetVariableForLevel(config, 0xc/0xd, level)` = `minDmg`/`maxDmg`[active_ability_level]
@@ -25,7 +25,12 @@ def ability_attack_params(state: "State", caster_id: int, ability_id: str,
 
     `min_key`/`max_key`/`hits_key` = noms des variables/constantes config à lire (défaut minDmg/maxDmg/
     nrOfHits). Une ability à DEUX volets de dégât (ex. CrushingClaws : attaque principale + splash) passe
-    le 2ᵉ jeu de clés (`minDmg_2`/`maxDmg_2`/`nrOfHits_2`) + son profil pour le volet secondaire."""
+    le 2ᵉ jeu de clés (`minDmg_2`/`maxDmg_2`/`nrOfHits_2`) + son profil pour le volet secondaire.
+
+    `hits_add_key` = 2ᵉ constante de coups AJOUTÉE à `hits` (mirror d'une bande dont le nb de coups est la
+    SOMME de deux `GetNumberConstant` — GauntletsOfUltramar bande adjacente = `GetNumberConstant(0x2f)` +
+    `GetNumberConstant(0x32)`, `ExecuteBehaviour @1811e1c80`). Défaut None = un seul `hits_key`. Constante
+    absente → +0 (le natif `GetNumberConstant` d'un index manquant rend 0, pas 1)."""
     from ..components import StatsComponent
     from ...entities.effects.magnitude import ability_var
     e = state.get_entity(caster_id)
@@ -36,6 +41,8 @@ def ability_attack_params(state: "State", caster_id: int, ability_id: str,
     bmin = ability_var(ability_id, min_key, level, multiplier_pct=mult) or 0
     bmax = ability_var(ability_id, max_key, level, multiplier_pct=mult) or 0
     hits = ability_var(ability_id, hits_key, is_constant=True) or 1
+    if hits_add_key is not None:                       # bande somme-de-2-constantes (Gauntlets adjacente)
+        hits += ability_var(ability_id, hits_add_key, is_constant=True) or 0
     pierce = profile_pierce(ctx, profile_name, ranged)
     return int(bmin), int(bmax), pierce, int(hits)
 

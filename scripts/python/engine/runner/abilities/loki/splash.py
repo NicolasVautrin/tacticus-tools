@@ -18,7 +18,8 @@ from ....dsl.base import Const
 from ....dsl.effects import ExecutionContext
 from ....entities.behaviours import Foreach, If, AtomicGroup, op_add, op_and
 from ....entities.selectors import (Subject, Caster, Target, CasterTile, TargetTile, AdjacentEnemies,
-                                    AdjacentUnits, And, Sub, UnitsWithoutTrait, AdjacentFriends, Alive)
+                                    AdjacentUnits, And, Sub, UnitsWithoutTrait, AdjacentFriends, Alive,
+                                    SurroundingEnemies, Unobscured, Unique)
 from ....entities.triggers import IsAlive
 from ....entities.traits.unit_trait import UnitTrait
 from ..behaviours import (AttackWithAttackDamage, AddEffect, AddBondEffect, PushUnit,
@@ -227,6 +228,51 @@ def fragstorm_tree() -> AtomicGroup:
     splash = AttackWithAttackDamage(splash_sel, "Fragstorm", "Blast", is_melee=False,
                                      hits_key="nrOfHits_2", multi=True, pick_n=n_targets)            # MEME plage, PickRandomly(4), 0x32=2
     return AtomicGroup(op_and(main, splash))
+
+
+def gauntlets_of_ultramar_tree() -> AtomicGroup:
+    """Arbre de `GauntletsOfUltramarAbility.ExecuteBehaviour @1811e1c80` (id 1000, ultraCalgar — MIRROR du
+    DECOMPILE) : AoE SELF-CAST a DEUX BANDES DE PORTEE (aucune cible unique -- ancre sur le CASTER, pas
+    `Target()`) :
+        adjSel  = `GetAdjacentTargetsSelector @1811e2010`  = Unique(Enemies(caster, AdjacentTiles(casterTile), 3))
+        surrSel = `GetSurroundingTargetsSelector @1811e20d0` = Unobscured(caster,
+                     SurroundingEnemies(caster, r=2) - adjSel)
+        ExecuteAtomic( op_BitwiseAnd(
+            AttackWithAttackDamage(caster, snapshot(adjSel), MinMaxDamage, Bolter,
+                                    hits = GetNumberConstant(0x2f) + GetNumberConstant(0x32)),   # BANDE ADJACENTE
+            AttackWithAttackDamage(caster, surrSel,          MinMaxDamage, Bolter,
+                                    hits = GetNumberConstant(0x32)) ), 0x1d )                     # BANDE SURROUNDING
+
+    - **Deux bandes DISJOINTES par distance** : adjacente = ennemis dist 1 (`AdjacentEnemies(CasterTile())`) ;
+      surrounding = ennemis a dist EXACTEMENT 2 = `SurroundingEnemies(r=2)` (DISQUE dist<=2, cf. case-49x
+      `bq.surrounding_enemies`) MOINS `AdjacentEnemies` (dist<=1) -> dist 2 seul (le disque exclut deja le
+      centre). Aucun chevauchement -> l'ordre eager(adj)/lazy(surr) natif == mes deux `multi=True` sequentiels.
+    - **hits par bande (DECOMPILE, `iVar11=const(0x2f)` `iVar12=const(0x32)`)** : adjacente = `iVar12 + iVar11`
+      = nrOfHits + nrOfHits_2 (via `hits_add_key`) ; surrounding = `iVar12` = nrOfHits_2 seul. Config 1000 :
+      nrOfHits=1, nrOfHits_2=1 -> adjacente 2 coups, surrounding 1 coup. (Le verdict p0-damage.md notait
+      surrounding=nrOfHits(0x2f) ; le decompile dit nrOfHits_2(0x32) -- NUMERIQUEMENT identiques ici, les 2
+      constantes valant 1 ; je mirror le decompile.)
+    - **Plage `MinMaxDamage(minDmg=var0xc, maxDmg=var0xd)` PARTAGEE** (RandomAmount, flag 0) et **profil
+      `GetDamageProfile(config,0)` = Bolter** (PiercingRatio 20), pour les DEUX bandes ; seul le nb de coups
+      differe. `attackRangeType=Ranged` -> `is_melee=False`.
+    - **Snapshot eager de la bande adjacente** (`Get(SelectAllUnits(adjSel)) @18100ee50`) : le natif fige la
+      liste adjacente AVANT la 1re attaque ; comme la 1re attaque est le premier acte et que les bandes sont
+      disjointes (tuer un adjacent ne retire aucun ennemi dist-2), la resolution LAZY `multi=True` a
+      l'execution == le snapshot -> bit-exact.
+    `op_BitwiseAnd` = `CombinedBehaviour` (effets PURS -> les deux bandes s'executent) ; `ExecuteAtomic` ->
+    `AtomicGroup` (inline #201 ; tag 0x1d = id du groupe atomique, aucun `EvaluateAbilities` implicite, cf.
+    #209). Ordre = adjacente PUIS surrounding, cibles triees par id (OrderBy natif) -> meme `state.rng` ->
+    bit-exact BY CONSTRUCTION. `Unobscured` = geometrie DEJA validee live cote PREDICTION (case-49/#50,
+    MC1_67) : NE PAS la contredire."""
+    adj_sel = Unique(AdjacentEnemies(CasterTile(), Const(1)))                       # Unique(Enemies(AdjacentTiles(caster)))
+    surr_sel = Unobscured(                                                          # Unobscured(caster, Surrounding - adj)
+        Sub(SurroundingEnemies(CasterTile(), Const(2)), AdjacentEnemies(CasterTile(), Const(1))),
+        Caster())
+    band_adj = AttackWithAttackDamage(adj_sel, "GauntletsOfUltramar", "Bolter", is_melee=False,
+                                      hits_key="nrOfHits", hits_add_key="nrOfHits_2", multi=True)   # 0x2f + 0x32
+    band_surr = AttackWithAttackDamage(surr_sel, "GauntletsOfUltramar", "Bolter", is_melee=False,
+                                       hits_key="nrOfHits_2", multi=True)                            # 0x32 seul
+    return AtomicGroup(op_and(band_adj, band_surr))
 
 
 def _adjacent_to_both(state: "State", caster_id: int, target_id: int) -> list[int]:
@@ -527,3 +573,38 @@ class ScythingTalonsAbility(ActiveAbility):
                   for p in atks if p.get("target") != target_id]      # cibles splash != cible principale
         return {"ability": "ScythingTalons", "caster": caster_id, "target": target_id,
                 "main_attack": main, "splash": splash, "dsl": True}
+
+
+class GauntletsOfUltramarAbility(ActiveAbility):
+    """`GauntletsOfUltramarAbility.ExecuteBehaviour @1811e1c80` (id 1000, ultraCalgar).
+
+    AoE SELF-CAST a DEUX BANDES DE PORTEE (ancre sur le CASTER, PAS `Target()`) : la bande ADJACENTE frappe
+    tous les ennemis a dist 1 (`Unique(Enemies(AdjacentTiles(caster)))`, 2 coups = nrOfHits 0x2f + nrOfHits_2
+    0x32) ; la bande SURROUNDING frappe les ennemis a dist EXACTEMENT 2, NON obscurcis (`Unobscured(
+    SurroundingEnemies(caster,r=2) - Adjacent)`, 1 coup = nrOfHits_2 0x32). Meme plage `MinMaxDamage` +
+    profil Bolter pour les deux bandes.
+
+    La behaviour EST l'arbre DSL `gauntlets_of_ultramar_tree()` (mirror 1:1 du decompile @1811e1c80 :
+    `ExecuteAtomic(op_BitwiseAnd(bandeAdj, bandeSurr), 0x1d)`). Les deux bandes = `AttackWithAttackDamage(
+    multi=True)` (`AttackBehaviour.Execute @180fb91a0` resout la liste + `OrderBy` par id) -> memes Operations
+    (`AttackDamageOperation.execute_ability_attack`) que l'imperatif -> bit-exact BY CONSTRUCTION (memes
+    bornes/hits/profil, cibles triees par id, meme `state.rng`). La face PREDICTION (arc NC) est portee a part
+    (`playbook/noncomparable/gauntlets_of_ultramar.py`, case-49/#50) ; ici = la face COMBAT (execute) seule,
+    alignee sur la MEME geometrie Unobscured/surrounding validee live.
+
+    `target_id` (cible que l'IA a choisie pour le message) est IGNORE pour le degat : Gauntlets frappe TOUT
+    l'entourage du caster, pas cette cible (l'arbre n'utilise ni `Target()` ni `TargetTile()`)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.GauntletsOfUltramar)  # 1000
+    ABILITY_ID = "GauntletsOfUltramar"
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        # behaviour = arbre DSL (2 bandes AttackWithAttackDamage multi=True) ; target_id inutilise (AoE
+        # ancree caster). Emet les MEMES Operations (execute_ability_attack) -> meme mutation, diag par bande.
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        gauntlets_of_ultramar_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        atks = [{"target": p["target"], "attack": p["attack"]}
+                for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        return {"ability": "GauntletsOfUltramar", "caster": caster_id, "target": target_id,
+                "attacks": atks, "dsl": True}
