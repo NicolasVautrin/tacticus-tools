@@ -91,7 +91,9 @@ Hors périmètre lineup : 1192/1194 NovaBoost/NovaShield (`tauBossRiptide`, NPC)
 
 | Sous-système | Débloque | Agent | Réf |
 |---|---|---|---|
-| Méthodes `BattleQuery` token 0x44/0x77/0x7c/0x7d/0x7f/0xb1 | groupe d'overlays #27 | opus-solver (slots depuis le dump vtable, patron #202-C) | `case-27` |
+| Méthodes `BattleQuery` token 0x44/0x77/0x7c/0x7d/0x7f/0xb1 (+0x7b, légalité MindControl — non bloquant, mirror direct possible) | groupe d'overlays #27 | opus-solver (slots depuis le dump vtable, patron #202-C) | `case-27`, `case-219` §1 |
+| **`PerformAIAction` — feuille unifiée + dispatch after-hit** (PROMU depuis le fix-forward fork #217) | Waaagh (§5.2), SupremeCommander (§5.2), act-again BlackRage, refactor CultDemagogue/`quickening.py`/`summon.py` | opus-solver | `case-219` §7, `case-217-thequickening` §5 |
+| `GetAbilityStatModification` (petit mirror `UnitExtensions`) | SupremeCommander (canal Kell) + futures interactions « si X en jeu » | opus-solver (fusionnable avec la tâche SupremeCommander) | `case-219` §4 |
 | Évaluateur DSL de forme/chain | groupe #27 + sélecteurs #216 | **fable-solver** (conception, fork full-tree vs prediction-only ouvert) | `dsl-vocabulary-catalog.md` |
 | Réutilisation `GenerateMultiHitAttackPredictions` | groupe #27 | opus-solver | `case-27` |
 | Utilité de déplacement (`UtilityMovementCase`, `GetTargetUtilityDiffOnDisplace`) | groupe #27 | opus-solver, escalade fable si structure ambiguë | `case-27` |
@@ -129,16 +131,22 @@ exception dure détectée sauf `SentinelDirectives` à classifier en T-RE.)
 
 | Item | Porteur | Agent | Pourquoi |
 |---|---|---|---|
-| 1164 MindControl | genesMagus | **re-expert** (T-RE) puis probable **fable-solver** | prise de contrôle d'une unité ennemie = sémantique ECS inédite (owner-swap) |
-| 1009 ResurrectionOrb | necroOverlord | **re-expert** puis opus/fable selon verdict | résurrection (event `UnitResurrected` existe, mécanique complète inconnue) |
-| 1058 Waaagh | orksWarboss | **re-expert** d'abord | summon/buff de masse, sémantique inconnue |
-| 1028 SupremeCommander | astraCreed | **re-expert** d'abord | summon à sémantique inconnue |
-| 1158 DutyEternal | ultraDreadnought | **re-expert** d'abord | summon (dreadnought à la mort ?) à confirmer |
-| 1226 Chronometron | necroChronomancer | **fable-solver** | `dp=False` (case-27) : non-modélisation, cadre à concevoir |
-| SavageEchoes (id ?) | bloodTerminator | **re-expert** | sans id `ActiveAbilityType` résolu — identifier l'artefact |
-| SternguardFocus (id ?) | darkaSternguard | **re-expert** | idem |
+> **T-RE campagne 2026-07-23 (`case-219`)** : les 6 énigmes historiques sont TRANCHÉES par
+> l'orchestrateur — 5 descendent en `[opus]` dispatchable, 1 reste bloquée substrat. Les lignes
+> ✅ sont prêtes pour un solver SANS re-enquête (arbre + VAs dans le case doc).
+
+| Item | Porteur | Agent | Verdict RE |
+|---|---|---|---|
+| 1164 MindControl | genesMagus | ✅ **opus-solver** (T-RE FAITE, `case-219` §1) | PAS d'owner-swap : 2 debuffs (1349 flat −dmgReduction sortant / 1350 +% subis) + taunt bondé 27/1367 vers l'allié adjacent max-Health, gate trait 25 Immune — substrat Taunted/AddBondEffect DÉJÀ porté ; `ExecuteBehaviour @1811f3ec0` |
+| 1009 ResurrectionOrb | necroOverlord | ✅ **opus-solver** (T-RE FAITE, `case-219` §2) | summon template PUR (pas de résurrection) : `Min(morts LivingMetal alliés + turnsStarted, 6)` × necroSmnWarrior adjacents ; nouveau sélecteur `AllDeadOrResurrectedUnits` ; `@181200140` |
+| 1058 Waaagh | orksWarboss | ✅ **opus-solver, 2 tranches** (T-RE FAITE, `case-219` §3) | 5 groupes séquentiels TOUS nommés/template (spawn, buff équipe, charge `SortTilesByUtility`, attaque normale, Boyz jouent) ; prérequis partagé `PerformAIAction` (§4) ; `@18122b010` |
+| 1028 SupremeCommander | astraCreed | ✅ **opus-solver** (T-RE FAITE, `case-219` §4) | summon + `PerformAIAction` (Guardsmen jouent) + canal `GetAbilityStatModification` (interaction Kell : +1 summon, range 3) ; `@18120df30` |
+| 1158 DutyEternal | ultraDreadnought | ⛔ `[opus]` **BLOQUÉ substrat** (T-RE FAITE, `case-219` §5) | transform MoW → unité 3-hex stationnaire (`RemoveMachine` + `Spawn(ThreeTileUnitSpawnShape)` + transfert questUnitId + trait Stationary) — pas un summon-à-la-mort ; prérequis = footprint multi-hex + cast par MoW hors-plateau ; `@1811d6b70` |
+| 1226 Chronometron | necroChronomancer | **fable-solver** | `dp=False` (case-27) : non-modélisation, cadre à concevoir (NON re-examinée en case-219) |
+| ~~SavageEchoes (id ?)~~ **1230** | bloodTerminator | ✅ **opus-solver** (id RÉSOLU, `case-219` §6) | tâche kit NORMALE (4× Eviscerate + healthPct 50 ; passif RedRampage 1551) — enum mirrors fixés (tsv stale) ; `@181204660` |
+| ~~SternguardFocus (id ?)~~ **1228** | darkaSternguard | ✅ **opus-solver** (id RÉSOLU, `case-219` §6) | tâche kit NORMALE (+ triggered 1548 SternguardFocus_Cooldown, passif SpecialIssueCombiMelta 1545) ; `@18120bca0` |
 | 1100 SorcerousFacade | thousTzaangor | opus-solver **avec lecture case-171 obligatoire** | interaction attaque-normale déjà documentée |
-| 1169 PlagueburstMortar, 1148 DaemonicOrdnance, 1142 MalleusRocketLauncher | deathCrawler, blackForgefiend, astraOrdnanceBattery | **BLOQUÉ harnais** | porteur MoW hors-plateau en arène (case-27/#172) — veille, pas de tâche |
+| 1169 PlagueburstMortar, 1148 DaemonicOrdnance, 1142 MalleusRocketLauncher | deathCrawler, blackForgefiend, astraOrdnanceBattery | **BLOQUÉ harnais** | porteur MoW hors-plateau en arène (case-27/#172) — veille, pas de tâche ; **DutyEternal rejoint ce groupe** avec débloqueur explicite (multi-hex) |
 
 ## 6. Entretien de la roadmap
 

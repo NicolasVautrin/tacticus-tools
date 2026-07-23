@@ -327,7 +327,11 @@ class ActiveAbilityType(IntEnum):
     NanoscarabRepairProtocols = 1224
     StrikeFromTheShadows = 1225
     Chronometron = 1226
-    DA_Hero6_Active = 1228
+    # 1228/1230 : corriges depuis le RPC live `dumpEnum` (2026-07-23, build gqfc5mff6c) — le
+    # `data/il2cpp_enums.tsv` est STALE sur la fin de cet enum (1228 y est encore le placeholder
+    # `DA_Hero6_Active`, 1230 absent). Cezare (bloodTerminator) / Ramus (darkaSternguard), cf. case-219.
+    SternguardFocus = 1228
+    SavageEchoes = 1230
     TestTargetAndAdjacentAttack = 9001
     TestMeleeAttackDamage = 9002
     TestRangedAttackDamage = 9003

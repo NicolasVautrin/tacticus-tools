@@ -1000,7 +1000,8 @@ ACTIVE_ABILITY_TYPE = {
     1224: 'NanoscarabRepairProtocols',
     1225: 'StrikeFromTheShadows',
     1226: 'Chronometron',
-    1228: 'DA_Hero6_Active',
+    1228: 'SternguardFocus',   # fix live dumpEnum 2026-07-23 (tsv stale : placeholder DA_Hero6_Active)
+    1230: 'SavageEchoes',      # fix live dumpEnum 2026-07-23 (absent du tsv)
     9001: 'TestTargetAndAdjacentAttack',
     9002: 'TestMeleeAttackDamage',
     9003: 'TestRangedAttackDamage',
@@ -1587,11 +1588,12 @@ PASSIVE_ABILITY_TYPE = {
     1541: 'Lakrimae',
     1542: 'HaywireMineSteppable',
     1544: 'EnhancementCritBoost',
-    1545: 'DA_Hero6_Passive',
+    1545: 'SpecialIssueCombiMelta',      # fix live dumpEnum 2026-07-23 (tsv stale : DA_Hero6_Passive)
     1547: 'KustomForceFieldReworked',
-    1548: 'DA_Hero6_Active',
+    1548: 'SternguardFocus_Cooldown',    # fix live dumpEnum 2026-07-23 (tsv stale : DA_Hero6_Active)
     1549: 'HeadwoppasKillchoppa',
     1550: 'ChaliceOfBaal',
+    1551: 'RedRampage',                  # fix live dumpEnum 2026-07-23 (absent du tsv)
     9001: 'TestBlank',
     9002: 'TestMachineOfWar',
     9004: 'TestRetaliateOnRandomAdjacentUnit',

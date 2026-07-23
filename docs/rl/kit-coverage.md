@@ -63,7 +63,7 @@
 | darkaAzrael | 2 | DarkTalonStrike(1092) [-D] NO-OP DAMAGE(DirectDamage) | LionHelm | - |
 | darkaCompanion | 2 | CalibaniteGreatsword(1189) [--] NO-OP DAMAGE(Power) | EnmityForTheUnworthy | - |
 | darkaHellblaster | 2 | Supercharge(1103) [--] NO-OP DAMAGE(Plasma) | GrimRetribution | - |
-| darkaSternguard | 2 | SternguardFocus(?) [--] NO-OP EFFECT/BUFF | SpecialIssueCombiMelta | - |
+| darkaSternguard | 2 | SternguardFocus(1228) [--] NO-OP EFFECT/BUFF | SpecialIssueCombiMelta | - |
 | darkaStormSpeeder | 2 | DeathOnTheWind(1213) [--] NO-OP DAMAGE(HeavyRound)<br>Hailstrike(1214) [--] NO-OP DAMAGE(Projectile) | - | - |
 | darkaTerminator | 2 | PlasmaCannon(1150) [--] NO-OP DAMAGE(Plasma) | Deathwing | - |
 
@@ -163,7 +163,7 @@
 | bloodDante | 2 | LightOfSanguinius(1177) [--] NO-OP DAMAGE(Melta) | LordOfTheHost | - |
 | bloodIntercessor | 2 | HammerOfWrath(1153) [-D] NO-OP DAMAGE(Power) | AggressiveOnslaught | - |
 | bloodSanguinary | 2 | BloodChalice(1175) [--] NO-OP HEAL | SanguinaryPriest | - |
-| bloodTerminator | 2 | SavageEchoes(?) [--] NO-OP DAMAGE(Eviscerate) | RedRampage | - |
+| bloodTerminator | 2 | SavageEchoes(1230) [--] NO-OP DAMAGE(Eviscerate) | RedRampage | - |
 | bloodDeathCompany | 1 | BlackRage(1163) [CD] OK | VisionsOfHeresy | - |
 | bloodMephiston | 1 | TheQuickening(1151) [CD] OK | FuryOfTheAncients | - |
 

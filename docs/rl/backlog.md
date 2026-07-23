@@ -42,7 +42,10 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
 - **Fork de port `PerformAIAttackFromCurrentPosition`** (`case-217-thequickening` §5, finding
   relecture au merge PR #11) : 2 mirrors du même nœud natif (`loki/summon.py` #202-C avec dispatch
   after-hit vs `quickening.py::_free_melee_attack` #217 sans) → unifier en une feuille unique
-  contexte-aware (ForcedInMelee → domaine adjacent) + dispatch after-hit. `[opus]`, fix-forward court.
+  contexte-aware (ForcedInMelee → domaine adjacent) + dispatch after-hit. `[opus]`. **PROMU
+  sous-système P1 par la campagne T-RE `case-219` §7** : le nœud cousin `PerformAIAction` est le
+  débloqueur commun de Waaagh (1058), SupremeCommander (1028), de l'act-again BlackRage (event
+  0x16) et du refactor CultDemagogue — cf. `port-roadmap.md` §4.
 - **Trait `Unstoppable` (1042), exemption movement-stop** (`case-205` — RE complet, verdict
   invalidable) : trait = membre de `NotBlockingMovementOfTraits @18155b370` {Mounted, Vehicle,
   Unstoppable} consommé par le WalkPathfinder pour les effets de tuile movement-ending

@@ -580,11 +580,15 @@ class TriggeredAbilityType(IntEnum):
     Lakrimae = 1541
     HaywireMineSteppable = 1542
     EnhancementCritBoost = 1544
-    DA_Hero6_Passive = 1545
+    # 1545/1548/1551 : corriges depuis le RPC live `dumpEnum` (2026-07-23, build gqfc5mff6c) — le
+    # `data/il2cpp_enums.tsv` est STALE (placeholders DA_Hero6_* devenus les abilities de Ramus
+    # darkaSternguard ; 1551 RedRampage = passif de Cezare bloodTerminator, absent du tsv). Cf. case-219.
+    SpecialIssueCombiMelta = 1545
     KustomForceFieldReworked = 1547
-    DA_Hero6_Active = 1548
+    SternguardFocus_Cooldown = 1548
     HeadwoppasKillchoppa = 1549
     ChaliceOfBaal = 1550
+    RedRampage = 1551
     TestBlank = 9001
     TestMachineOfWar = 9002
     TestRetaliateOnRandomAdjacentUnit = 9004
