@@ -31,6 +31,7 @@ VALKYRIE_STRIKE = int(EffectType.ValkyrieStrike_Effect)  # 1022 — airstrike DI
 BLACK_RAGE_EXTRA_MOVE = int(EffectType.BlackRage_ExtraMove)         # 1342 — self stat-mod +MOVEMENT
 BLACK_RAGE_EXTRA_DAMAGE = int(EffectType.BlackRage_ExtraDamage)     # 1343 — self marqueur (+dmg-on-charge, résidu)
 BLACK_RAGE_AUTOMATIC_UNIT = int(EffectType.BlackRage_AutomaticUnit)  # 1344 — self marqueur (act-again, résidu)
+CORD_CLAW_ADDITIONAL_HITS = int(EffectType.CordClaw_AdditionHits)   # 1250 (0x4e2) — self-buff coups additionnels (#179)
 
 
 def thunderous_assault_tree(charge_dest: "TargetsSelector | None" = None) -> AtomicGroup:
@@ -211,6 +212,71 @@ def valkyrie_strike_tree() -> AddBondEffect:
     return AddBondEffect(VALKYRIE_STRIKE, "ValkyrieStrike_Effect", Caster(), Target(), None)
 
 
+def _seed_cord_claw_hits_level(state: "State", caster_id: int) -> None:
+    """Seede `ability_level`/`ability_variables_multiplier` sur l'effet `CordClaw_AdditionHits` (0x4e2)
+    FRAICHEMENT pose (self-buff) depuis le ctx du CASTER (source). Le natif capture une `AbilityStateReference`
+    dans l'effet, indexant ses vars per-niveau (`GetMinMaxDamage2` = `ConfigVar(minDmg_2/maxDmg_2,
+    AbilityStateFromEffect)` = niveau de CordClaw sur l'owner) ; `AddEffectOperation` ne propage PAS ces champs
+    (level=None -> `CordClawAdditionalHitsEffect.additional_hit_groups` resoudrait minDmg_2/maxDmg_2 au NIVEAU 1,
+    idx 0 de `ability_var`). CordClaw etant l'ability ACTIVE du caster, le niveau = `active_ability_level`
+    (fallback `passive_ability_level` -- ce que le seeding LIVE utilise, snapshot.py:160). Local (pas dans
+    `AddEffectOperation`, qui doit rester agnostique) -- precedent EXACT : `imperative.py._seed_active_ability_level`
+    (DoctrinaImperatives) + `genestealer.py` owner-effects poses par trigger."""
+    if state.effects is None:
+        return
+    ce = state.get_entity(caster_id)
+    csc = ce.get_component(StatsComponent) if ce is not None else None
+    cctx = csc.ctx if csc is not None else None
+    lvl = getattr(cctx, "active_ability_level", None)
+    if lvl is None:
+        lvl = getattr(cctx, "passive_ability_level", None)
+    mult = int(getattr(cctx, "ability_variables_multiplier", 100) or 100)
+    for e in state.effects.by_unit.get(int(caster_id), []):
+        if (not e.consumed) and e.effect_type == CORD_CLAW_ADDITIONAL_HITS:
+            e.ability_level = lvl
+            e.ability_variables_multiplier = mult
+
+
+def cord_claw_tree() -> "op_add":
+    """Arbre de `CordClawAbility.ExecuteBehaviour @1811ccbf0` (id 1122, admecRuststalker « Exitor-Rho » —
+    MIRROR du DECOMPILE) :
+        Execute( op_Addition(
+            AttackWithAttackDamage(caster@0x160, target@0x178, MinMaxDamage(minDmg 0xc/maxDmg 0xd),
+                                   GetDamageProfile=DirectDamage, nrOfHits=GetHits=GetNumberConstant(0x2f)=4),  # attaque
+            AddEffect(0x4e2=1250 CordClaw_AdditionHits, source=AbilityStateReference, target=Self@0x148,
+                      TurnsFromRounds(2)) ) )                                                                   # self-buff
+    Port : `op_add( AttackWithAttackDamage(Target(),"CordClaw","DirectDamage",melee), AddEffect(0x4e2,
+    "CordClaw_AdditionHits", Caster(), 2) )` -- plain `Execute` (PAS `ExecuteAtomic`, contraste CrushingClaws/
+    ArmoriumCherub ; == SpiritLeech).
+
+    JUMEAU STRUCTUREL d'ArmoriumCherub (attaque MinMax + noeud unique) mais le 2e volet est un `AddEffect`
+    self-buff (au lieu d'`EvaluateAbilities`). Details RE :
+    - `GetHits` : le decompile appelle litteralement `ArmoriumCherubAbility$$GetHits @180fb16c0` = MISLABEL
+      GSHARED (corps de methode DEDUPLIQUE : `GetNumberConstant(config@0x60, 0x2f)`). Appele avec `param_1`=
+      l'instance CordClaw -> lit la config CORDCLAW (`nrOfHits`=4), PAS celle d'ArmoriumCherub. La feuille
+      `AttackWithAttackDamage` lit `nrOfHits` (0x2f, hits_key defaut) via `ability_attack_params("CordClaw")`.
+    - profil `GetDamageProfile` = `DirectDamage` (constants.damageProfile ; PiercingRatio 100 = ignore armure,
+      i2 « Direct Damage »). Attaque MELEE (attackRangeType=Melee).
+    - cible de l'`AddEffect` = `Self@0x148` (noeud sélecteur d'une CLASSE DISTINCTE de `Caster@0x160`, cf.
+      `DSLFactory.InitializeShared @180df2670` -- 0x148 sert de référentiel « owner » dans
+      `HasUsedActiveAbilityThisTurnTrigger`). Pour un cast SELF, `Self` == le caster (Exitor-Rho) -> porté via
+      `Caster()` (observable identique : l'effet se pose sur le caster, i2 « All of Exitor-Rho's further
+      attacks »). BlackRage pose ses self-buffs via `Caster@0x160` ; le nuance Self/Caster n'a AUCUN effet
+      observable ici (self-cast).
+    - `AddEffect` source = `AbilityStateReference` (= le caster) ; la feuille l'assigne implicitement
+      (`entities.caster`). Durée `TurnsFromRounds(2)` (i2 « until the end of his next turn »).
+
+    L'ordre `op_Addition` (== `op_add`, Seq gauche->droite, effets PURS) = attaque PUIS pose de l'effet : le
+    self-buff N'EST PAS present pendant l'attaque du cast (le canal #179 lu par `_collect_additional_hit_groups`
+    a l'attaque ne le voit pas encore) -> le cast frappe 4x DirectDamage SANS coups additionnels ; les coups
+    additionnels (+nrOfHits_2=2 [minDmg_2,maxDmg_2] DirectDamage, effet DEJA porté `hits.py:CordClawAdditional
+    HitsEffect`) s'appliquent aux attaques SUIVANTES (tour N+1). Aucun tirage RNG dans l'`AddEffect` -> l'ordre
+    n'altere PAS l'ordre RNG de l'attaque : bit-exact BY CONSTRUCTION vs un imperatif attaque->pose."""
+    attack = AttackWithAttackDamage(Target(), "CordClaw", "DirectDamage", is_melee=True)   # 4x DirectDamage melee
+    self_buff = AddEffect(CORD_CLAW_ADDITIONAL_HITS, "CordClaw_AdditionHits", Caster(), 2)  # TurnsFromRounds(2)
+    return op_add(attack, self_buff)
+
+
 class ThunderousAssaultAbility(ActiveAbility):
     """`ThunderousAssaultAbility.ExecuteBehaviour` @1812158b0 (id 1043, templSwordBrother).
 
@@ -360,6 +426,46 @@ class ValkyrieStrikeAbility(ActiveAbility):
         return {"ability": "ValkyrieStrike", "caster": caster_id, "target": target_id,
                 "deferred_effect": (bond or {}).get("effect_type", VALKYRIE_STRIKE),
                 "immediate_attack": None, "dsl": True}
+
+
+class CordClawAbility(ActiveAbility):
+    """`CordClawAbility.ExecuteBehaviour @1811ccbf0` (id 1122, admecRuststalker « Exitor-Rho », AdMech) —
+    MIRROR du DECOMPILE, arbre DSL (`cord_claw_tree`) :
+        Execute( op_Addition(
+            AttackWithAttackDamage(caster, target, MinMaxDamage, DirectDamage, nrOfHits=GetHits(0x2f)=4),  # attaque
+            AddEffect(0x4e2=1250 CordClaw_AdditionHits, source=caster, target=Self, TurnsFromRounds(2)) ) ) # self-buff
+
+    JUMEAU d'ArmoriumCherub (1014) : même MinMax + `GetHits`=GetNumberConstant(0x2f)=4 (corps `GetHits` PARTAGE
+    -- Ghidra mislabel `ArmoriumCherubAbility$$GetHits`, mais lit la config CordClaw). Le 2e volet est un
+    `AddEffect` SELF (au lieu de l'`EvaluateAbilities` d'ArmoriumCherub) : pose sur le caster l'effet 0x4e2
+    (DEJA porté `hits.py:CordClawAdditionalHitsEffect`, canal #179) pour `TurnsFromRounds(2)`. Attaque MELEE
+    DirectDamage (PiercingRatio 100 = ignore armure). Plain `Execute` (PAS atomic).
+
+    L'effet 0x4e2 fait gagner à TOUTES les attaques SUIVANTES du caster (i2 « All of Exitor-Rho's further
+    attacks ... deal an additional 2x 582-873 Direct Damage ») +nrOfHits_2=2 coups [minDmg_2,maxDmg_2]
+    DirectDamage. L'attaque DU CAST ne les gagne PAS (effet posé APRES l'attaque dans l'arbre op_add). Le
+    niveau/mult des vars de l'effet sont SEEDES post-pose depuis le caster (`_seed_cord_claw_hits_level` :
+    `AddEffectOperation` pose level=None ; sans seeding l'effet resoudrait ses vars au niveau 1).
+
+    Résidu : la durée `TurnsFromRounds(2)` = 2 (identité `turns_from_rounds`, exacte en 1v1). Le residu
+    d'expiration exacte (« fin de son prochain tour ») suit le cycle de vie standard des effets round."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.CordClaw)  # 1122
+    ABILITY_ID = "CordClaw"
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        cord_claw_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        main = next((p["attack"] for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
+        placed = next((p.get("placed") for n, p in ectx.emitted if n == "AddEffect"), None)
+        # seede niveau/mult des vars de l'effet 0x4e2 depuis le caster (AbilityStateReference native) :
+        # AddEffectOperation pose level=None -> sans seeding les coups additionnels seraient au niveau 1.
+        _seed_cord_claw_hits_level(state, caster_id)
+        return {"ability": "CordClaw", "caster": caster_id, "target": target_id,
+                "main_attack": main, "self_buff_placed": placed, "dsl": True}
 
 
 def _black_rage_charge_positions(state, caster_id, target_id) -> list:

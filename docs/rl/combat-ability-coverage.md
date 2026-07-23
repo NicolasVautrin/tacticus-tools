@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **171** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **19**
-- **NO-OP silencieux** (a porter) : **152**
-- Ventilation NO-OP : **DAMAGE**=97, **EFFECT/BUFF**=28, **SUMMON**=19, **HEAL**=5, **REPAIR**=3
+- **PORTED** (dans `ABILITY_CLASSES`) : **20**
+- **NO-OP silencieux** (a porter) : **151**
+- Ventilation NO-OP : **DAMAGE**=96, **EFFECT/BUFF**=28, **SUMMON**=19, **HEAL**=5, **REPAIR**=3
 
 ## Priorisation & templates de port
 
@@ -22,13 +22,12 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (152)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (151)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
 | 1115 | FearOfTheUnseen | DAMAGE(DirectDamage) | 7 | LN |
 | 1036 | FrenziedFiring | DAMAGE(HeavyRound) | 7 | LN |
-| 1122 | CordClaw | DAMAGE(DirectDamage) | 6 | LN |
 | 1029 | Drachnyen | DAMAGE(Piercing) | 6 | LN |
 | 1008 | HarbingerOfDestruction | DAMAGE(DirectDamage) | 6 | LN |
 | 1088 | HellfyreMissileRack | DAMAGE(HeavyRound) | 6 | LN |
@@ -179,11 +178,12 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 | 1219 | IronkinSteeljack | SUMMON | 1 | L |
 
-## PORTED (registry) (19)
+## PORTED (registry) (20)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
 | 1104 | SpiritLeech | DAMAGE(Psychic) | 7 | LN |
+| 1122 | CordClaw | DAMAGE(DirectDamage) | 6 | LN |
 | 1105 | CrushingClaws | DAMAGE(Piercing) | 6 | LN |
 | 1180 | HeroicFusillade | DAMAGE(Projectile) | 5 | LN |
 | 1065 | ScythingTalons | DAMAGE(Bio) | 5 | NS |
