@@ -19,11 +19,17 @@ class Heal(AbilityBehaviour):
     `amount_fn` = FOLD du `SetCache(PercentageOf(LastAttackDamageMade, ...))` natif (le Heal natif lit un
     montant CACHE derive de la derniere attaque ; l'`amount_fn` nommee (mirror `GetHealAmountForExecution`)
     le recompute en lisant le total de la derniere `AttackWithAttackDamage` dans `ectx.emitted`). `source`
-    de soin = `ctx.caster`. No-op si montant <= 0. Emet 'Heal' (amount + heals=[{target, healed}]). PUR."""
-    __slots__ = ("targets_sel", "amount_fn")
+    de soin = `ctx.caster`. No-op si montant <= 0. Emet 'Heal' (amount + heals=[{target, healed}]). PUR.
 
-    def __init__(self, targets_sel: TargetsSelector, amount_fn):
-        self.targets_sel, self.amount_fn = targets_sel, amount_fn
+    `guard` (optionnel, defaut None) = predicat par-unite `(entities, ectx, unit_dict) -> bool` : quand
+    fourni, une unite dont la garde est FAUSSE est EXCLUE du set (jamais soignee, absente de `heals`). Sert a
+    porter la garde `Healable` du `HealableUnitsSelector` natif COTE MUTATION (case-220 1037
+    RevitalizingMalignancy : HP<max ET non-mechanical) sans creer un noeud selecteur dedie. None = comportement
+    historique inchange (lifesteal SpiritLeech)."""
+    __slots__ = ("targets_sel", "amount_fn", "guard")
+
+    def __init__(self, targets_sel: TargetsSelector, amount_fn, guard=None):
+        self.targets_sel, self.amount_fn, self.guard = targets_sel, amount_fn, guard
 
     def execute(self, entities, ectx):
         from ...operations.heal import HealUnitOperation
@@ -36,6 +42,8 @@ class Heal(AbilityBehaviour):
                 tid = u.get("id") if isinstance(u, dict) else None
                 if tid is None:
                     continue
+                if self.guard is not None and not self.guard(entities, ectx, u):
+                    continue                              # garde Healable (case-220 1037) : HP<max & non-mechanical
                 healed = HealUnitOperation.execute(state, tid, amount, source_id=src)
                 heals.append({"target": tid, "healed": healed})
         ectx.emit("Heal", amount=amount, heals=heals)
