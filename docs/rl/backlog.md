@@ -24,7 +24,8 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 | # | Tâche | Modèle | Point d'entrée |
 |---|---|---|---|
-| #202 | Kit d'Abraxas (`thousInfernalMaster`) : WeaverOfFate + InfernalPacts + MasterOfTheTutelaries | `[opus]` | `case-202` : recon + carte des artefacts faits ; **tranche A (WeaverOfFate) LIVRÉE** (98e0fbd — trigger + max-out COMBAT/PRÉD, live 3/3, garde 100 %) ; restent B (aura InfernalPacts +1 hit Psychic) et C (summon cascade + décision NC). **EN COURS (orchestrateur).** |
+| #202 | Kit d'Abraxas (`thousInfernalMaster`) : WeaverOfFate + InfernalPacts + MasterOfTheTutelaries | `[opus]` | `case-202` : **tranches A (WeaverOfFate) et B (aura InfernalPacts) LIVRÉES** (A : 98e0fbd ; B : effet bi-canal Average/RandomAmount + face COMBAT du canal #179 créée — prédiction 10/10, comptes 6/5/3, garde 100 %). Reste C (MasterOfTheTutelaries : summon cascade + décision NC). **EN COURS (orchestrateur).** |
+| #203 | Trait `LivingMetal` : régen Necron (`LivingMetalRepair` 0x3f2) — 51 unités (6 lineup), face COMBAT (+ résidu NetherRealmCasket 1456) | `[opus]` | **DÉLÉGUÉ opus-solver (2026-07-23, en vol)** — livraison par PR. Points de départ : effet 1456 @180f5b650 (case-34), revives swarm observés (case-60). |
 | #27 | Résidus `CalculateCustomUtility` : 4 sous-systèmes à porter (débloqueurs nommés) | `[opus]` | `case-27` : **2 portés** (ArmoriumCherub 1014, LightOfSanguinius 1177 — `loki_custom.py`, garde 31337 100%) + **20 résidus** classés par débloqueur (DSL-évaluateur / BattleQuery-token 0x44-0xb1 / multi-hit / utilité-déplacement / MoW off-board / `dp=False` / dead-code / sans-id). Reprise = porter un sous-système → débloque son groupe d'overlays (roadmap dans le doc). |
 | #5 | Chantier `DslContext` live-state | `[opus]` | Architecture à poser, pas d'énigme à trancher. |
 | #20 | Roadmap AdMec | `[opus]` | Planification + découpage en tranches de port. |

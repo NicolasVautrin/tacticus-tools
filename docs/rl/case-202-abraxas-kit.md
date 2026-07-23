@@ -138,6 +138,104 @@ Porteur spawnable (lineup) ; Pink Horror/Screamer = summons listés (spawn via a
   offline — un replay-diff live d'un tour maxé le confronterait bit-exact (à faire si un miss
   d'agreement le fait surfacer).
 
-## 7. Découvertes / résidus (autres tranches)
+## 7. Tranche B — InfernalPacts : RE (décompilé 2026-07-23)
 
-(à remplir au fil des tranches B/C)
+**Arbre natif complet** (`InfernalPacts_AdditionalHitsEffect`, effet 1198, auto-porteur
+enregistré par `EffectsDatabase.b__14_225`) :
+
+- `.ctor @180f527a0` : `BaseEffect(AbilityOrEffect(0x492=1170 InfernalPacts), 1, 0)`.
+- `CreateAdditionalHits @180f52430` → `EffectAdditionalHits.Create @180f405b0` avec :
+  - trigger = `OwnerIsCaster & (IsRangedAttack | HasTrait(Caster, 0x3fb=1019 Daemon))` ;
+  - dégât = `BaseEffect.GetMinMaxDamage(this, 0)` `@180f11cc0` (wrapper `@180f11da0`
+    défauts 0xc/0xd) = **`RandomAmount(ConfigVar(0xc=minDmg), ConfigVar(0xd=maxDmg))`**
+    sur l'AbilityState de l'EFFET (courbe InfernalPacts 10-20 L1 → 728-1455 L65) — plage
+    DIRECTE, pas de re-spread ±20 % ; la variante `(this, 1)` = **`Average(min,max)`**
+    (canal prédiction/display, champ [2] du descripteur) ;
+  - nrOfHits = `GetNumberConstant(0x2f)` = 1 ; profil = `GetAffectedDamageProfile` = Psychic.
+- `CreateTargetSelector @180f52650` :
+  `Unique( UnitsWithRangedWeapons(UnitsWithTrait(AdjacentFriends(Caster,1), 0x7ea=2026 Chaos))
+  + UnitsWithTrait(AdjacentFriends(Caster,1)∩Chaos, 0x3fb=1019 Daemon) )` — bénéficiaires =
+  amis Chaos adjacents ring-1 avec arme ranged, OU Daemons Chaos adjacents (sans condition
+  d'arme — leur volet melee vient du disjunct Daemon du trigger).
+- `GetRefreshTriggers @180f52730` : `[PreAttack(5), PreAttackDamageHit(7)]` — l'aura est
+  réévaluée AU MOMENT de l'attaque → le modèle offline « adjacence à la tuile candidate,
+  rien n'est posé sur le bénéficiaire » (#49/#153, mold ExplosiveMaladies) est fidèle.
+
+**Exécution COMBAT native** : les coups additionnels à profil PROPRE passent par
+`ExecuteAdditionalHitsWithDamageProfileTypeOperation.Execute @180e70600` (via
+`OperationProcessor.ExecuteAdditionalHitsWithDamageProfileType @180e07fb0`, dispatch virtuel)
+→ `AdditionalHitsFromEffects.GetAdditionalHitsFromEffects @180e59e50` /
+`GetAdditionalHitsFromEffectsInternal @180e59150` (énumération GLOBALE des effets, éval du
+trigger dans le contexte d'attaque via AbilityEntities) + `GetAdditionalHitsData @180e589b0`,
+puis chaque descripteur qualifié exécute son coup comme sous-opération de dégât (résultats
+`OperationResult.Combine`). Le jumeau même-profil (`ExecuteAdditionalHitsWithoutDamageProfileType
+@180e5e7c0`) est le coup bonus BASE déjà documenté (damage.py). **GAP CONSTATÉ : le canal #179
+n'a AUCUNE face runner-combat offline aujourd'hui** (SquigHound/ExplosiveMaladies = prédiction
+seule) — la tranche B doit câbler ce consommateur combat.
+
+**Port livré (tranche B)** :
+1. `entities/effects/loki/hits.py` : `InfernalPactsAdditionalHitsEffect` —
+   `create_aura_additional_hits_for_ally` (mold ExplosiveMaladies) : gates allié même team,
+   ring-1, **Chaos** (GrandAllianceId — les traits gameconfig ne portent pas Chaos), et
+   (attaque ranged) OU (attaquant **Daemon**, melee inclus). Groupe **BI-CANAL** :
+   `{count, amount, min, max, profile}` — `amount` = Average EXACT (.5 gardé, précédent
+   FleshmetalGuns) consommé par la PRÉDICTION ; `min`/`max` = plage RandomAmount consommée
+   par le COMBAT.
+2. `factory.py` : `EFFECT_CLASSES["InfernalPacts_AdditionalHits"]` +
+   `ABILITY_INIT_OWNER_EFFECTS["InfernalPacts"]` (filet ; le nom capté live confirme la clé).
+3. PRÉDICTION : ctx aura +`att_traits` (gate Daemon) aux 2 call-sites de prediction.py.
+4. COMBAT (**nouveau canal — le #179 n'avait AUCUNE face runner-combat**) :
+   `AttackDamageOperation._collect_additional_hit_groups` (mirror énumération globale
+   @180e59150, positions ECS réelles) + `_execute_additional_hits` (mirror @180e70600) dans
+   `execute` : sous-opérations APRÈS les coups d'arme, bornes = plage [min,max] réduite
+   (perce du profil DU GROUPE + armure + MÊMES mods attaquant/défenseur que l'arme), tirage
+   mode-1 toujours-consommé, PAS de crit-roll (1er jet), pipeline par groupe avec SON profil
+   (`is_attack=False`) ⇒ le Psychic bonus alimente `received_damage_this_turn`/WeaverOfFate.
+   Max-out #202-A : bornes dégénérées (max,max), symétrique de la prédiction.
+
+**Découverte de RE — dégât BI-CANAL du descripteur (mesuré live, probe_202b)** : le
+descripteur `EffectAdditionalHits` porte DEUX nœuds — field[1] = `RandomAmount(min,max)`
+(résolution COMBAT) et field[2] = `Average(min,max)` (param_8 de Create, canal
+PRÉDICTION/display). Preuves : (a) prédiction native du bonus = paire ±20 % sum-preserving
+((3248,4871) ≈ centre 4059.5) ≠ plage brute — la courbe InfernalPacts (max=2×min)
+DISCRIMINE là où SquigHound (max=1.5×min) rendait les deux modèles identiques ; (b) 10
+tirages combat no-crit [1122…1872] ⊂ [997,1996] (RandomAmount) et VIOLENT le support
+avg±20 % (1197-1796) aux deux bouts. ⚠ Les groupes house `{min,max}` historiques
+(SquigHound…) restent fidèles en prédiction PARCE QUE leur ratio 1.5 fait coïncider les
+modèles — ne pas « corriger » sans courbe discriminante.
+
+**Validation live (probe_202b_infernal.py, seed 20203, Abraxas + Toth thousTerminator +
+Azkor worldEightbound vs 3 necroWarden, MC1_67)** :
+- Capture : effet `InfernalPacts_AdditionalHits` (1198) présent sur Abraxas (clé factory OK).
+- PRÉDICTION per-tuile (canal ranked natif) : **10/10 MATCH exact** — Toth ranged ADJ
+  (weapon+bonus, tuiles plates ET élevées, rows optimistes incluses), Azkor Daemon melee ADJ
+  (7584-11373 == off, élévation ×1.5), contrôles non-adjacents, et gate melee-non-Daemon
+  (Toth melee ADJ : AUCUN bonus des deux côtés).
+- COMBAT : comptes 6=5+1 (Toth ADJ), 5 (contrôle non-adj), 3=2+1 (Azkor Daemon melee ADJ) ;
+  distribution des tirages bonus ⊂ RandomAmount (cf. ci-dessus).
+- Garde 31337 : 100 % sur les 4 étages (relancée après chaque évolution du modèle).
+- Piège de porteur documenté : emperNoiseMarine ÉCARTÉ (son passif `TerrifyingCrescendo`
+  1424, NON porté, stacke un additif à chaque round → pollue toute confrontation
+  post-combat). Toth = porteur Chaos ranged le plus propre (WeaverOfFate contrôlé en
+  restant <3 ennemis Psychic-touchés/tour).
+
+**Résidus tranche B** :
+- Crit-roll des coups bonus en combat NON discriminé (Toth cc=0 → aucun tirage crit dans le
+  sample ; le port ne crit-rolle pas les coups bonus — un replay-diff avec porteur cc>0
+  trancherait). Position RNG exacte du tirage bonus dans le flux = idem.
+- `failed_block` remis à zéro entre phase d'arme et sous-opérations bonus (le natif persiste
+  la failedList PAR ATTAQUE) — sans effet tant que les cibles de test n'ont pas de block multi-échec.
+- Gate `hp > 0` (cible morte pendant la phase d'arme → sous-opérations non émises) :
+  hypothèse cessation-post-mortem, non exercée live.
+- La face combat du canal #179 s'active AUSSI pour les groupes historiques (SquigHound
+  {min,max} ; ExplosiveMaladies/FoulInfusion/CyclicIonBlaster/FleshmetalGuns forme `amount`
+  → spread ±20 %) — leur modèle de résolution combat propre n'a jamais été mesuré (validé
+  prédiction only) ; à confronter si un replay-diff les fait surfacer.
+- `TerrifyingCrescendo` (1424, Emperor's Children) : effet stacking NON porté découvert au
+  probe — candidat backlog (famille traits/passifs restants).
+- Défenseur : les %-gates par profil des mods défenseur du coup bonus héritent du ctx de
+  l'ARME (mirror prédiction) — un cas TerminatorArmour-vs-bonus-Psychic discriminerait.
+
+## 8. Découvertes / résidus (tranche C)
+
+(à remplir à la livraison de la tranche C)

@@ -283,8 +283,9 @@ class BaseEffect:
         @180f43cc0/@180f43a40 + selecteur @180f43ef0 `AdjacentFriends(owner, 1)`) — coups additionnels
         projetes par un effet HOSTE SUR LE PORTEUR sur les attaques d'un ALLIE selectionne (adjacence
         re-evaluee a la TUILE CANDIDATE, modele #49/#153 : rien n'est poste sur le beneficiaire).
-        `ctx` = {att_id, att_pos, att_team, att_faction, att_grand_alliance, is_melee, owner_id,
-        owner_pos, owner_team} (owner_* = le porteur). Renvoie UN groupe `{count, amount|min/max,
+        `ctx` = {att_id, att_pos, att_team, att_faction, att_grand_alliance, att_traits, is_melee,
+        owner_id, owner_pos, owner_team} (owner_* = le porteur ; att_traits = traits gameconfig de
+        l'attaquant, gate Daemon d'InfernalPacts #202-B). Renvoie UN groupe `{count, amount|min/max,
         profile}` ou None (gates non satisfaites). Defaut None = pas d'aura additional-hits."""
         return None
 

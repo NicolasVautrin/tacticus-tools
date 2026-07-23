@@ -304,6 +304,71 @@ class ExplosiveMaladiesExtraMeleeAttackEffect(_ExplosiveMaladiesAuraHitsBase):
         return (ctx.get("att_grand_alliance") == "Chaos")
 
 
+class InfernalPactsAdditionalHitsEffect(BaseEffect):
+    """`InfernalPacts_AdditionalHitsEffect` (effet 0x4ae=1198, AURA HOSTEE SUR LE PORTEUR — Abraxas
+    thousInfernalMaster, passif `InfernalPacts` 0x492=1170 ; #202-B) : +nrOfHits=1 coup PREDEFINED
+    [minDmg,maxDmg] (courbe InfernalPacts 10-20 L1 -> 728-1455 L65, RandomAmount natif — PAS de spread
+    ±20%) au profil `affectedDamageProfile` (=Psychic) aux attaques des amis CHAOS adjacents ring-1 :
+    ranged pour tous, melee AUSSI pour les Daemons.
+
+    Natif (case-202 §7) : ctor @180f527a0 = `BaseEffect(AbilityOrEffect(0x492), 1, 0)` (effet
+    auto-porteur EffectsDatabase b__14_225, AUCUNE classe Ability dediee) ; `CreateAdditionalHits
+    @180f52430` -> `EffectAdditionalHits.Create @180f405b0` {trigger = `OwnerIsCaster &
+    (IsRangedAttack | HasTrait(Caster, 0x3fb=1019 Daemon))`, dmg = `GetMinMaxDamage(this,0)`
+    @180f11cc0 = `RandomAmount(ConfigVar(0xc=minDmg), ConfigVar(0xd=maxDmg))`, count =
+    `GetNumberConstant(0x2f=nrOfHits)`, profil = `GetAffectedDamageProfile`, avg =
+    `GetMinMaxDamage(this,1)` = `Average(min,max)` (canal display)} ; `CreateTargetSelector
+    @180f52650` = `Unique( UnitsWithRangedWeapons(UnitsWithTrait(AdjacentFriends(Caster,1),
+    0x7ea=2026 Chaos)) + UnitsWithTrait(AdjacentFriends(Caster,1) avec Chaos, 0x3fb Daemon) )` ;
+    `GetRefreshTriggers @180f52730` = [PreAttack(5), PreAttackDamageHit(7)] -> l'aura est reevaluee
+    AU MOMENT de l'attaque = modele tuile-candidate (#49/#153), rien n'est pose sur le beneficiaire.
+
+    Gates offline : allie meme team + ring-1 + CHAOS (grande alliance — les traits gameconfig ne
+    portent pas Chaos/Imperial, mirror UnitsWithTrait(0x7ea) via grand_alliance, precedent
+    ExplosiveMaladies melee) + (attaque ranged OU attaquant Daemon). La branche selecteur
+    `UnitsWithRangedWeapons` est implicite cote ranged (l'attaque consideree EST ranged, precedent
+    ExplosiveMaladiesExtraRanged).
+
+    DEGAT BI-CANAL (mesure live probe_202b, seed 20202 round-2 propre) : le descripteur natif
+    porte LES DEUX noeuds — field[1] = RandomAmount(min,max) (resolution COMBAT) et field[2] =
+    Average(min,max) (canal PREDICTION/display, param_8 de Create). La prediction native de
+    l'attaque bonus = Average ± 20% (paire sum-preserving (3248,4871) vs plage brute (2948,5172) —
+    la courbe InfernalPacts max=2x min DISCRIMINE, contrairement a SquigHound max=1.5x min ou les
+    deux modeles coincident). Le groupe expose donc `amount` (Average EXACT, .5 possible —
+    precedent FleshmetalGuns #65) consomme par la PREDICTION, ET `min`/`max` (plage RandomAmount)
+    consommes par la face COMBAT (`_execute_additional_hits`, qui prefere min/max)."""
+
+    def create_aura_additional_hits_for_ally(self, ctx: "Mapping") -> "dict | None":
+        att_pos, owner_pos = ctx.get("att_pos"), ctx.get("owner_pos")
+        if att_pos is None or owner_pos is None:
+            return None
+        if ctx.get("att_team") != ctx.get("owner_team"):        # AdjacentFriends (allies seulement)
+            return None
+        if ctx.get("att_grand_alliance") != "Chaos":            # UnitsWithTrait(0x7ea=2026) — les 2 branches
+            return None
+        is_daemon = "Daemon" in (ctx.get("att_traits") or ())   # UnitTrait 0x3fb=1019
+        if bool(ctx.get("is_melee")) and not is_daemon:         # trigger IsRangedAttack | HasTrait(Daemon)
+            return None
+        if hexgeo.distance(tuple(att_pos), tuple(owner_pos)) != 1:   # AdjacentFriends(caster, 1)
+            return None
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        mn = ability_var("InfernalPacts", "minDmg", lvl, multiplier_pct=self.ability_variables_multiplier)
+        mx = ability_var("InfernalPacts", "maxDmg", lvl, multiplier_pct=self.ability_variables_multiplier)
+        count = ability_var("InfernalPacts", "nrOfHits", is_constant=True)    # numberConstant 0x2f
+        if mn is None or mx is None or not count or count <= 0:
+            return None
+        try:
+            import gameconfig as _GC
+            profile = ((_GC.ability("InfernalPacts") or {}).get("constants") or {}) \
+                .get("affectedDamageProfile") or "Psychic"      # GetAffectedDamageProfile
+        except Exception:
+            profile = "Psychic"
+        # bi-canal : `amount` = noeud Average (PREDICTION, exact — pas de troncature du .5) ;
+        # `min`/`max` = noeud RandomAmount (COMBAT). Cf. docstring (mesure 202b).
+        return {"count": int(count), "amount": (int(mn) + int(mx)) / 2,
+                "min": int(mn), "max": int(mx), "profile": profile}
+
+
 class AnvilShieldAdditionalBlockEffect(BaseEffect):
     """`AnvilShield_AdditionalBlock` (effet 0x4b2=1202, StaticStatModifierEffect) — buff BLOCK_DAMAGE
     self de Arjac (spaceRockfist) quand il BLOQUE. Pose par `AnvilShieldAbility_ApplyAdditionalBlockAnd

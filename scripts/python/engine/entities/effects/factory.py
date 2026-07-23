@@ -67,6 +67,7 @@ from .loki import (
     Swarm_HitReductionEffect,
     ExplosiveMaladiesExtraRangedAttackEffect,
     ExplosiveMaladiesExtraMeleeAttackEffect,
+    InfernalPactsAdditionalHitsEffect,
     LordOfTheHostExtraDamageEffect,
     DoomExtraDmgEffect,
     SpotterReworkedExtraDamageEffect,
@@ -113,6 +114,11 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # melee: Chaos @180f43a40) — adjacence re-evaluee a la tuile candidate. #57c-C bit-exact.
     "ExplosiveMaladies_ExtraRangedAttack": ExplosiveMaladiesExtraRangedAttackEffect,
     "ExplosiveMaladies_ExtraMeleeAttack": ExplosiveMaladiesExtraMeleeAttackEffect,
+    # InfernalPacts (Abraxas thousInfernalMaster, effet-AURA 0x4ae=1198 sur le PORTEUR ; #202-B) :
+    # +nrOfHits=1 coup PREDEFINED [minDmg,maxDmg] Psychic aux attaques des amis CHAOS adjacents
+    # (ranged tous @ trigger IsRangedAttack ; melee AUSSI pour les Daemons, disjunct HasTrait(0x3fb)).
+    # @180f52430/@180f52650/@180f52730 — adjacence re-evaluee a la tuile candidate (refresh PreAttack).
+    "InfernalPacts_AdditionalHits": InfernalPactsAdditionalHitsEffect,
     # LordOfTheHost (Dante, effet 0x562=1378 sur le PORTEUR) : aura +extraDmg[ablvl]xmult additif
     # pre-percage aux attaques MELEE des amis RapidAssault/Flying rayon 2 (@180f56e30 ForAddition,
     # selector @180f56fb0). Re-evaluee par tuile candidate. #57c.
@@ -347,6 +353,10 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # `HypersensoryAbilitiesAbility.CreateBehaviour` @180f87870 : `AddEffect(0x564=1380, owner, owner)` -> le
     # HP-floor est posé sur le PORTEUR à l'init de l'ability passive (owner-effect self, aucun sélecteur). G6a.
     "HypersensoryAbilities": ["HypersensoryAbilities_MinimalHealth"],
+    # InfernalPacts (passif Abraxas, #202-B) : effet-AURA 0x4ae=1198 AUTO-PORTEUR (enregistré par
+    # `EffectsDatabase.<InitializeEffects>b__14_225`, AUCUNE classe Ability — pas de CreateBehaviour à citer).
+    # Seed = filet pour les états non captés (Abraxas lineup est normalement couvert par decisionView).
+    "InfernalPacts": ["InfernalPacts_AdditionalHits"],
 }
 
 

@@ -571,6 +571,9 @@ def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fals
     _aura_hits = aura_additional_hits_from_allies(
         carriers, {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
                    "att_faction": att_faction, "att_grand_alliance": att_grand,
+                   # #202-B : traits gameconfig de l'ATTAQUANT (gate Daemon d'InfernalPacts —
+                   # disjunct HasTrait(0x3fb) du trigger @180f52430).
+                   "att_traits": frozenset((GC.unit(scene.vis_by_id.get(att_id)) or {}).get("traits") or ()),
                    "is_melee": False})
     _extra_groups = []
     for _g in list(additional_hit_groups(att_effects, _ah_ctx)) + _aura_hits:
@@ -737,6 +740,9 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     _aura_hits = aura_additional_hits_from_allies(
         carriers, {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
                    "att_faction": att_faction, "att_grand_alliance": att_grand,
+                   # #202-B : traits gameconfig de l'ATTAQUANT (gate Daemon d'InfernalPacts —
+                   # disjunct HasTrait(0x3fb) du trigger @180f52430).
+                   "att_traits": frozenset((GC.unit(scene.vis_by_id.get(att_id)) or {}).get("traits") or ()),
                    "is_melee": is_melee})
     for _g in list(additional_hit_groups(att_effects, _ah_ctx)) + _aura_hits:
         _dp = GC.damage_profile(_g["profile"]) or {}
