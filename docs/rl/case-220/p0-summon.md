@@ -10,13 +10,37 @@ SurroundingTiles/First/Cache). **Absents** : `ChainBehaviour`, amount-nodes `Ran
 (=PerformAIAction P1). Décision portée confirmée (playbooks noncomparable présents).
 
 ```
-[1166 AberrantHypermorph | genesBiophagus]  — le plus simple
-VAs : ExecuteBehaviour @1811b0550. Pas de triggered.
-Arbre : Spawn(genesSmnAberrant, hex libre adjacent caster, WithStatsFromConfig(AbilityLevelAmount),
-        onAppearance = PerformAIAttackFromCurrentPosition). Count=1.
-Template : SpawnTutelaryHorror, placement auto-adjacent-caster (variante SpawnUnitOperation).
-Prérequis MANQUANTS : AUCUN. Verdict : [opus] direct, 1 tranche.
-Risques : cannot-move-this-turn du summon probablement no-op runner ; placement à confirmer.
+[1166 AberrantHypermorph | genesBiophagus]  — le plus simple  [PORTE + valide live]
+VAs : ExecuteBehaviour @1811b0550 ; ctor @1811b0730.
+Arbre (mirror 1:1 @1811b0550, CONFIRME decompile) :
+  Execute( Spawn(caster@0x160, Target@0x178=TUILE, GetStringConstant(config,0)="genesSmnAberrant",
+                 WithStatsFromConfig(config, AbilityLevelAmount(Self@0x148, AbilityType(1166)))
+                   .onAppearance(+0x18) = PerformAIAttackFromCurrentPosition(Target@0x178)) ). Count=1.
+UN SEUL noeud Spawn (plain AActiveAbility.Execute, PAS ExecuteAtomic, PAS d'AddEffect, PAS d'op_BitwiseAnd).
+DISTINCT de MasterOfTheTutelaries @1811f30c0 (op_BitwiseAnd(AddEffect(1197), Spawn) + onAppearance
+Spawned@0x180) : ici PAS d'effet-marqueur, et l'onAppearance passe Target@0x178 (le MEME selecteur que la
+tuile de spawn) au lieu de Spawned@0x180 -> les DEUX resolvent au MEME summon (Target@0x178 apres le spawn =
+l'unite sur la tuile-cible = le summon fraichement pose ; tuile libre AVANT le spawn par la legalite du cast).
+Placement = cast TILE-target (ctor @1811b0730 = TargetingOptions(0, statsFromClass, 1, 0x1040) IDENTIQUE a
+MasterOfTheTutelaries) : hex libre adjacent au caster choisi par le targeting (abilityTargets kind="tile" ;
+CONFIRME live : decisionView now[3] = tuiles libres adjacentes). PAS un selecteur auto interne -> le port
+porte le tile_id resolu par la classe.
+Prérequis MANQUANTS : AUCUN (confirme).
+Port : `loki/summon.py` -> feuille `SpawnAberrant` + `aberrant_hypermorph_tree` + classe
+  `AberrantHypermorphAbility` (mirror de SpawnTutelaryHorror SANS AddEffect) ; registre `handler.py` 1166.
+Validation (test_aberrant_hypermorph_live.py, board MC1_67, genesBiophagus lvl50 mult180 vs ultraTitus) :
+  - SPAWN live-EXACT : summon team=caster(1), hpMax=7477 == summonHp[50]x180 (port) ; summonDmg=3888,
+    summonArmor=1397 confirmes ; sur la tuile ciblee (live squadId 95, teamId 1, (0,0)).
+  - Attaque a l'apparition : port total=2013 (cible=ennemi adjacent 77) ; live enemy 9537->6344/7099
+    (delta ~2400-3200). Ecart de degat EXACT = passive Hypermorph du summon (buff/transform attaque pose au
+    spawn, UnitStats_Attack_Modification lvl50) NON portee -> HORS ExecuteBehaviour de 1166
+    (raffinement/gap connu, meme classe que l'effet 0x4a3 de ScarabHive). Attaque a lieu des DEUX cotes,
+    bonne cible.
+  - Flags de tour : defauts base (SetsEndTurnFlags/SetsActiveAbilityUsedFlag=True ; 1166 absent des
+    inventaires) -> tour du caster termine (live : UnitStats_TurnFinished=1 + ActiveAbility used) ; VERIFIE.
+Risque leve : cannot-move-this-turn du summon (TriggerSpawnedUnitBehaviours @180fd57b0, flag 0x23) = NO-OP
+  runner (summon a agi a l'apparition, non rejoue ce tour). Placement CONFIRME (cast tile-target hex libre).
+Verdict : [opus] direct -> PORTE + valide live (spawn EXACT ; attaque structurelle + gap Hypermorph flagge).
 ```
 ```
 [1016 SendInTheNextWave | astraYarrick]
@@ -87,7 +111,8 @@ Verdict : **[fable]** — multi-étage atomique positionnel (push → hexes lib�
 Risques : ordre push/spawn strict.
 ```
 
-**Synthèse** : [opus] direct = 1166 ; [opus]+prérequis = 1016, 1040, 1021 ; à trous = 1077 (volet
+**Synthèse** : [opus] direct = 1166 (**PORTE + valide live**, cf. bloc ci-dessus) ; [opus]+prérequis =
+1016, 1040, 1021 ; à trous = 1077 (volet
 Overwatch = sous-système dédié) ; **[fable]** = 1121. Prérequis transverses NOUVEAUX identifiés :
 amount-nodes DSL (RandomAmount/Divide/Get), ChainBehaviour, PickRandomly-by-count, sous-système
 **Overwatch**, et confirmation de la dépendance **PerformAIAction (P1)**.

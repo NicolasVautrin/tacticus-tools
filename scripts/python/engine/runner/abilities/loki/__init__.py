@@ -24,6 +24,7 @@ from __future__ import annotations
 from .summon import (ScarabHiveAbility, ScarabSummonAbility, GetEmRuntzAbility,
                      MasterOfTheTutelariesAbility, master_of_the_tutelaries_tree,
                      SpawnTutelaryHorror, perform_ai_attack_from_current_position,
+                     AberrantHypermorphAbility, aberrant_hypermorph_tree, SpawnAberrant,
                      scarab_hive_tree, scarab_summon_tree, getemruntz_taunt_tree, getemruntz_tree,
                      _summon_on_appearance_attack, _nearest_enemy)
 from .splash import (CrushingClawsAbility, PlasmaGrenadeAbility, StikkbombAbility, FragstormAbility,
@@ -45,6 +46,7 @@ __all__ = [
     "ScarabHiveAbility", "ScarabSummonAbility", "GetEmRuntzAbility",
     "MasterOfTheTutelariesAbility", "master_of_the_tutelaries_tree",
     "SpawnTutelaryHorror", "perform_ai_attack_from_current_position",
+    "AberrantHypermorphAbility", "aberrant_hypermorph_tree", "SpawnAberrant",
     "scarab_hive_tree", "scarab_summon_tree", "getemruntz_taunt_tree", "getemruntz_tree",
     "_summon_on_appearance_attack", "_nearest_enemy",
     # splash
