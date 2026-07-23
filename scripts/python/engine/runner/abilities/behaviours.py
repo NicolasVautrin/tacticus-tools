@@ -949,6 +949,51 @@ class ChangeStat(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class SetHealth(AbilityBehaviour):
+    """`BlackRageAbility.GetSetHealthBehaviour @1811ba690` -> `ChangeStat(Health(5), mode 0=SetAbsolute,
+    PercentageOf(StatAmount(Health, MAXIMUM=2), ConfigVar(hpPct)))` : SET le HP courant du sujet a
+    `hpPct%` de son MaxHealth. Mode 0 SetAbsolute (`ChangeStatBehaviour.Execute @180fbfb10` case 0 : la
+    modification impose `GetStat(stat) == amount`) ; Health = stat FILL-UP (`HealthComponent`, PAS un
+    `StatComponent`) -> le SetAbsolute sur le fill-up = SET du current HP (`HealthComponent.hp = amount`).
+    Amount = `hp_max * hpPct // 100` (`PercentageOf(MaxHealth, hpPct%)`). `hpPct` = ability var per-level
+    (BlackRage: [30,30,...] = 30%, HORS variablesAffectedByRarityBonus -> multiplier 100).
+
+    DETERMINISTE (aucun rng). C'est le COUT self de BlackRage : Lucien tombe a 30% MaxHealth (HEAL s'il est
+    DEJA sous 30%, cf. walk garde 31337 hp=1 -> 30%). Emet 'SetHealth'. PUR (stop=False). MESURE live (31337,
+    Lucien MaxHealth 15060) : hp 9035 -> 4518 = 15060*30//100 (SetAbsolute a 30%)."""
+    __slots__ = ("target_sel", "ability_id", "pct_var")
+
+    def __init__(self, target_sel: TargetsSelector, ability_id: str, pct_var: str = "hpPct"):
+        self.target_sel, self.ability_id, self.pct_var = target_sel, ability_id, pct_var
+
+    def execute(self, entities, ectx):
+        from fractions import Fraction
+        from ...entities.effects.magnitude import ability_var
+        from ...dsl.base import _round_fix64
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        for u in _units_of(self.target_sel, entities):
+            uid = u.get("id") if isinstance(u, dict) else None
+            if uid is None:
+                continue
+            e = state.get_entity(uid)
+            hc = e.get_component(HealthComponent) if e is not None else None
+            if hc is None or hc.hp_max is None:
+                continue
+            sc = e.get_component(StatsComponent)
+            level = getattr(sc.ctx, "active_ability_level", None) if sc is not None else None
+            pct = ability_var(self.ability_id, self.pct_var, level)     # ConfigVar(hpPct) par niveau
+            if pct is None:
+                continue
+            # PercentageOf(MaxHealth, hpPct%) mode 0 = Round half-to-even (`_round_fix64` mode 0), PAS floor
+            # (bit-exact vs live 4518 = round(15059*30/100=4517.7) ; floor donnerait 4517). SetAbsolute -> hp.
+            new_hp = _round_fix64(Fraction(int(hc.hp_max) * int(pct), 100), 0)
+            hc.hp = new_hp
+            ectx.emit("SetHealth", unit=uid, hp=new_hp, pct=int(pct))
+        return OperationResult.ok()
+
+
 class KillDeadUnits(AbilityBehaviour):
     """`DSLFactory.KillDeadUnits @180df5c60` = `Kill(subject, DownedUnits(units_sel), options) @180df5cb0`
     -> `KillUnitBehaviour.Execute @180fc8b10` : pour chaque unite DOWNED (flag 0xf, via
@@ -1071,7 +1116,11 @@ class UseActiveAbility(AbilityBehaviour):
                    if isinstance(u, dict) and u.get("id") is not None]
         for tu in sorted(targets, key=lambda x: x["id"]):    # ordre de lecture = id (mirror OrderBy natif)
             tid = tu["id"]
-            res = AttackDamageOperation.execute(state, sid, tid, self.spread_pct)  # dispatch attaque normale
+            # DEFENSIF (mirror `execute_ability_attack` @180fbfe70 : rng non cale -> None au lieu de lever) :
+            # le wiring d'ability reste utilisable pour un replay EFFET-SEUL (load_state sans dumpRng), la
+            # SEQUENCE (setHealth/buffs/move) restant fidele ; le dispatch normal `AttackDamageOperation.
+            # execute` leverait sinon (ValueError rng non cale). Un replay de DEGAT cale rng (dumpRng) avant.
+            res = None if state.rng is None else AttackDamageOperation.execute(state, sid, tid, self.spread_pct)
             ectx.emit("UseActiveAbility", subject=sid, target=tid, attack=res)
         return OperationResult.ok()
 

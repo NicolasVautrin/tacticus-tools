@@ -7,7 +7,7 @@ from typing import Optional, TYPE_CHECKING
 from fractions import Fraction
 
 from ..base import ActiveAbility
-from ...components import StatsComponent
+from ...components import StatsComponent, PositionComponent
 from ....entities.stats import StatType
 from ....entities.effect_type import EffectType
 from ....entities.active_ability_type import ActiveAbilityType
@@ -17,9 +17,10 @@ from ....dsl.effects import ExecutionContext
 from ....dsl.event_trigger_type import EventTriggerType   # #209 : EvaluateAbilities(EventTriggerType) node
 from ....entities.behaviours import AtomicGroup, op_add, op_and
 from ....entities.selectors import (Caster, Target, CasterTile, TargetTile, Union, UnitsFromFaction,
-                                    AdjacentFriends, Alive, Cache)
+                                    AdjacentFriends, Alive, Cache, FixedTiles)
 from ..behaviours import (AttackWithAttackDamage, AddEffect, EvaluateAbilities, PushUnit, MoveUnit,
-                          KillDeadUnits, AddBondEffect, Heal, entities_from_state)
+                          KillDeadUnits, AddBondEffect, Heal, SetHealth, UseActiveAbility,
+                          entities_from_state)
 
 if TYPE_CHECKING:
     from ...state import State
@@ -27,6 +28,9 @@ if TYPE_CHECKING:
 STUNNED = int(EffectType.Stunned)                       # 1162 — effet COMPOSITE -> enfants 1165/1166/1167
 PINNED = int(EffectType.Pinned)                         # 1065 — UI « Suppressed » — stat-mod Movement
 VALKYRIE_STRIKE = int(EffectType.ValkyrieStrike_Effect)  # 1022 — airstrike DIFFÉRÉ, fire au tour suivant
+BLACK_RAGE_EXTRA_MOVE = int(EffectType.BlackRage_ExtraMove)         # 1342 — self stat-mod +MOVEMENT
+BLACK_RAGE_EXTRA_DAMAGE = int(EffectType.BlackRage_ExtraDamage)     # 1343 — self marqueur (+dmg-on-charge, résidu)
+BLACK_RAGE_AUTOMATIC_UNIT = int(EffectType.BlackRage_AutomaticUnit)  # 1344 — self marqueur (act-again, résidu)
 
 
 def thunderous_assault_tree(charge_dest: "TargetsSelector | None" = None) -> AtomicGroup:
@@ -356,3 +360,99 @@ class ValkyrieStrikeAbility(ActiveAbility):
         return {"ability": "ValkyrieStrike", "caster": caster_id, "target": target_id,
                 "deferred_effect": (bond or {}).get("effect_type", VALKYRIE_STRIKE),
                 "immediate_attack": None, "dsl": True}
+
+
+def _black_rage_charge_positions(state, caster_id, target_id) -> list:
+    """Collapse de `GetPossibleMovementTiles @1811ba5f0` = `TilesUnitCanMoveToChargeTarget(caster@0x160,
+    target@0x178, UnitMovementRangeWithBonus(0x53e, ConfigConst 0xe))` PUIS `SortTilesByUtility(...,0x20)`
+    -> `First(...,1)` (`ExecuteBehaviour @1811b9c20`). Sélecteur AI/pathfinding LOURD (kind S) -> COLLAPSE
+    impératif (doctrine slice-18/19, véhicule `FixedTiles`) : tuiles ADJACENTES à la cible, ORDONNÉES par
+    proximité au caster (charge la plus courte = mirror fidèle du choix de charge — au contact toute tuile
+    adjacente donne la MÊME attaque mêlée). La feuille `MoveUnit` filtre libre+walkable (`CanAddUnit` live) et
+    prend la 1re -> le caster charge au contact. La reachability (range de charge) est déjà garantie par la
+    DÉCISION (`GetDynamicInvalidTargetReason @1811ba280`) au moment du cast. RÉSIDU documenté : l'ordre EXACT
+    de `SortTilesByUtility` (métrique d'utilité par tuile) n'est pas reproduit -> la tuile de charge peut
+    différer d'un hex adjacent équivalent (l'attaque connecte identiquement)."""
+    import hexgeo
+    board = getattr(state, "board", None)
+    ce = state.get_entity(caster_id)
+    te = state.get_entity(target_id)
+    if board is None or ce is None or te is None:
+        return []
+    cpc = ce.get_component(PositionComponent)
+    tpc = te.get_component(PositionComponent)
+    if cpc is None or tpc is None:
+        return []
+    cpos = (cpc.col, cpc.row)
+    ttid = board.id_at(tpc.col, tpc.row)
+    if ttid is None:
+        return []
+    positions = []
+    for tid in board.neighbours(ttid):
+        t = board.by_id.get(tid)
+        if t is not None:
+            positions.append((t["col"], t["row"]))
+    positions.sort(key=lambda p: hexgeo.distance(cpos, p))     # SortTilesByUtility -> First : charge la plus courte
+    return positions
+
+
+def black_rage_tree(charge_positions) -> "op_add":
+    """Arbre de `BlackRageAbility.ExecuteBehaviour @1811b9c20` (id 1163, bloodDeathCompany « Lucien » —
+    MIRROR du DÉCOMPILE) — TROIS phases (Execute / ExecuteAtomic / Execute) enchaînées :
+        A. Execute( SetHealth(caster, hpPct% MaxHealth) )                       # GetSetHealthBehaviour @1811ba690
+        B. ExecuteAtomic( AddEffect(1342 ExtraMove) & AddEffect(1343 ExtraDamage)
+                          & AddEffect(1344 AutomaticUnit) )                     # 3 self-buffs, durée ZÉRO (remaining=0)
+        C. Execute( MoveUnit(caster -> chargeTile) & UseActiveAbility(caster, target, NormalAttack) )
+
+    Port : `op_add( op_add( SetHealth, AtomicGroup(buffs) ), op_and(MoveUnit, UseActiveAbility) )`. `SetHealth`
+    = coût self (Lucien -> 30% MaxHealth). Les 3 `AddEffect` posent les self-buffs (`Caster()`, durée 0 =
+    permanent, remaining=0 live) : ExtraMove applique +1 MOVEMENT (feuille -> effet `applied_stat_mods`),
+    ExtraDamage/AutomaticUnit = marqueurs (résidus documentés côté classe d'effet). `MoveUnit(Caster(),
+    FixedTiles(charge))` = la CHARGE (collapse de `SortTilesByUtility(TilesUnitCanMoveToChargeTarget)->First`),
+    puis `UseActiveAbility(Caster(), Target())` = l'attaque NORMALE au contact (dispatch `AttackDamageOperation.
+    execute` = attaque normale ECS, mêlée post-move). Ordre gauche->droite (Seq, effets PURS stop=False) =
+    l'ordre natif setHealth -> buffs -> charge -> attaque (les buffs AVANT l'attaque : le natif l'exige pour
+    le bonus ExtraDamage-on-charge). `AtomicGroup` = inline (RE #201, pass-through). NB : `AddStaticStatModifier
+    Effect(1342)` natif est FOLDÉ dans `AddEffect(1342)` + la classe `BlackRageExtraMoveEffect` (qui DÉCLARE le
+    stat-mod MOVEMENT) : même Operation `AddEffectOperation` en aval, même observable (statModSources)."""
+    set_health = SetHealth(Caster(), "BlackRage", "hpPct")
+    buffs = AtomicGroup(op_and(op_and(
+        AddEffect(BLACK_RAGE_EXTRA_MOVE, "BlackRage_ExtraMove", Caster(), 0),        # durée 0 -> permanent (remaining=0)
+        AddEffect(BLACK_RAGE_EXTRA_DAMAGE, "BlackRage_ExtraDamage", Caster(), 0)),
+        AddEffect(BLACK_RAGE_AUTOMATIC_UNIT, "BlackRage_AutomaticUnit", Caster(), 0)))
+    charge = op_and(MoveUnit(Caster(), FixedTiles(charge_positions)),
+                    UseActiveAbility(Caster(), Target()))
+    return op_add(op_add(set_health, buffs), charge)
+
+
+class BlackRageAbility(ActiveAbility):
+    """`BlackRageAbility.ExecuteBehaviour @1811b9c20` (id 1163, bloodDeathCompany « Lucien », #217) — MIRROR
+    du DÉCOMPILE, arbre DSL 3 phases (`black_rage_tree`) :
+        SetHealth(caster -> 30% MaxHealth)               # coût self (GetSetHealthBehaviour @1811ba690 ; hpPct=30)
+      + [ AddEffect(1342 ExtraMove) & AddEffect(1343 ExtraDamage) & AddEffect(1344 AutomaticUnit) ]  # 3 self-buffs
+      + [ MoveUnit(caster -> charge) & UseActiveAbility(caster, target, NormalAttack) ]              # charge + attaque
+
+    Sélecteurs natifs : caster = `factory+0x160`, target = `factory+0x178` (l'ENNEMI chargé). Les effets +
+    SetHealth ciblent le CASTER (self) ; l'attaque NORMALE frappe la cible AU CONTACT (après la charge).
+
+    VALIDÉ live (31337, Lucien MaxHealth 15060 vs tyranTyrantGuard) : hp 9035 -> 4518 (=30% Max), pose 1342/
+    1343/1344 (remaining=0), movement +1 (statModSources source-de-l'effet), charge tuile adjacente (5,8),
+    attaque normale mêlée 4 coups. RÉSIDUS documentés : +extraDmg-on-charge (négligeable, gate IsCharging non
+    porté), act-again AutomaticUnit (triggered PerformAIAction non porté). L'attaque normale offline consomme
+    `state.rng` (dégât bit-exact seulement si rng calé ; la SÉQUENCE reste fidèle)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.BlackRage)   # 1163
+    ABILITY_ID = "BlackRage"
+
+    def execute_behaviour(self, state, caster_id, target_id):
+        if target_id is None:
+            return None
+        charge = _black_rage_charge_positions(state, caster_id, target_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        black_rage_tree(charge).execute(entities_from_state(state, caster_id, target_id), ectx)
+        set_hp = next((p for n, p in ectx.emitted if n == "SetHealth"), None)
+        effects = [p.get("effect_type") for n, p in ectx.emitted if n == "AddEffect"]
+        moved = next((p for n, p in ectx.emitted if n == "MoveUnit"), None)
+        attack = next((p for n, p in ectx.emitted if n == "UseActiveAbility"), None)
+        return {"ability": "BlackRage", "caster": caster_id, "target": target_id,
+                "set_health": set_hp, "effects": effects, "moved": moved, "attack": attack, "dsl": True}
