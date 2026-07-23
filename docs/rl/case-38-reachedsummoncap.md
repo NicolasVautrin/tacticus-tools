@@ -1,10 +1,14 @@
 # Case-38 — `ReachedSummonCap` : fidélisation de la branche cap du gate DoctrinaImperatives (1118)
 
-**Statut : PORT LIVRÉ (correct-par-RE, non-régressif) — branche cap PAS ENCORE exerçable live
-(cf. §5, follow-up #38b).** Build `gqfc5mff6c`. Suite directe de `case-31` demi-partie B : le gate
-3-branches de `DoctrinaImperativesPlaybook.EvaluateNonComparable @18112c8d0` était porté avec
-`_reached_summon_cap` **hardcodé `False`** (champ offline manquant) → sous-tir du toggle quand le cap
-de summons est réellement atteint (branche `count>0 & adj>0`).
+**Statut : RÉSOLU + VALIDÉ (#38b, 2026-07-23).** Build `gqfc5mff6c`. Suite directe de `case-31`
+demi-partie B : le gate 3-branches de `DoctrinaImperativesPlaybook.EvaluateNonComparable @18112c8d0`.
+Le port émettait 1118 correctement SAUF sur la branche `count>0 & free>0 → ReachedSummonCap`, qui
+sous-tirait **parce que `_reached_summon_cap` comptait les summons par le MAUVAIS visualId** (cle de
+config `admecSmnVanguard` au lieu du `visualId` LIVE `admecNpc1Vanguard`) → 0 enfant vu → cap toujours
+`False` → misses s32/44/50 du walk 38001. **De plus, la sémantique du slot 0x51 héritée de case-31
+(« GetAdjacentUnits TOUT CAMP ») était FAUSSE** : le slot 0x51 = `GetFreeAdjacentTiles` (tuiles LIBRES
+adjacentes), corrigé #38b. Les DEUX mystères de #38b (sémantique du gate + « summon inerte en runner »)
+sont le MÊME artefact d'observation : le mauvais visualId. Voir §5.
 
 ---
 
@@ -68,11 +72,12 @@ Fichiers :
   `_ACTIVE_LEVEL_CACHE` du contexte porte déjà les 3 champs).
 
 **Approximation d'identité offline** (aucun lien parent→enfants dans decisionView/observeBattle,
-aucun hook frais possible — reinject interdit pendant #39) : enfants ≈ squads `obs_units` de
-`visualId == ability("ControlEdict").constants.unitId` (admecSmnVanguard) du **même camp** que le
-caster, **morts inclus** (`obs_units` garde les dépouilles — même source que RitesOfRestoration,
-cf. `project_decisionview_keeps_dead`). Le gate amont `HasTriggeredAbility(caster, ControlEdict)`
-est structurel (l'unique porteur de DoctrinaImperatives porte ControlEdict) — non re-codé.
+aucun hook frais possible) : enfants ≈ squads `obs_units` du summon ControlEdict du **même camp** que
+le caster, **morts inclus** (`obs_units` garde les dépouilles — même source que RitesOfRestoration,
+cf. `project_decisionview_keeps_dead`). **Le nom à matcher est le `visualId` LIVE
+`admecNpc1Vanguard` = `gameconfig.unit(constants.unitId).visualId`, PAS la clé de config
+`admecSmnVanguard`** (cause racine #38b, cf. §5). Le gate amont `HasTriggeredAbility(caster,
+ControlEdict)` est structurel (l'unique porteur de DoctrinaImperatives porte ControlEdict) — non re-codé.
 
 ---
 
@@ -85,58 +90,89 @@ est structurel (l'unique porteur de DoctrinaImperatives porte ControlEdict) — 
    `admecMarshall,admecManipulus,admecRuststalker` vs `necroWarden×2`, walk 9 steps (bataille finie) :
    **ability 5/5, move 8/8, prédiction 3/3, utilité 3/3 — zéro overfire 1118** (cap jamais atteint →
    changement inerte, attendu).
-3. **RUN B — seed 38001, même roster, `--hp-target 250000 --hp-player 120000`, 60 steps** :
-   **zéro overfire** (l'unique émission moteur 1118 = step 38, matchée). MAIS la branche cap n'a PAS
-   été exercée : **aucun Skitarii n'a jamais spawné de tout le walk** (sonde `probe_38_children.py`,
-   versionnée : `ever=0` sur 60 steps malgré ~10 attaques normales de Tan en stance Protector — cf.
-   §5-b). Les 3 miss du walk (s32/s44/s50, `nc-pair` u81) sont **préexistants** (l'ancien port
-   cap=False prenait les mêmes décisions) et relèvent d'un sous-mécanisme DIFFÉRENT du cap (§5-a).
+3. **RUN B (post-fix #38b) — seed 38001, même roster, `--hp-target 250000 --hp-player 120000`,
+   55 steps** : les 3 miss `nc-pair` u81 s32/s44/s50 (1118 cap-branch) deviennent des **HITS**
+   (`1118→81` == natif), **zéro nouvel overfire**. Généralisation seeds **54321** (s32/38/44 hit) et
+   **2468** (s37/43/49 hit) : mêmes verdicts, 0 overfire 1118, sur des trajectoires de summon
+   distinctes. Guard **31337** : ability 5/5, move 8/8, pred 3/3, util 3/3 (cap jamais atteint →
+   1118 inerte, comme case-31-B). Miss résiduels (s7/s33 : cible de l'attaque 69 ; 1119/1123 sur
+   u83/u85) **préexistants et hors périmètre** (aucun ne touche 1118).
 
-## §5 — Découvertes annexes (sonde instrumentée + re-décompilé) → follow-up #38b
+## §5 — RÉSOLU (#38b, 2026-07-23) : les deux mystères = UN artefact d'observation (mauvais visualId)
 
-- **(a) Les émissions natives 1118 hors-cap contredisent notre reconstruction du gate.** Timeline
-  sonde (dv effects) : Tan porte `ProtectorImperative` dès s01 ; le natif toggle CHAQUE TOUR dès t7
-  (s32 P→C, s38 C→P, s44 P→C, s50 C→P) puis attaque. Sous-termes de NOTRE gate à ces steps :
-  s38 `hv=False & conq=True` → émis (branche Conqueror) = MATCH ; s32/s44/s50 `hv=True, adj=2,
-  cap=False (0 enfant)` → refus = MISS. Or le re-décompilé d'`EvaluateNonComparable @18112c8d0`
-  (contrôle de flux relu ce jour) **CONFIRME** le modèle case-31 : `count==0 → ssi Conqueror ;
-  count>0 → (adj>0 ? ReachedSummonCap : émettre)`. Avec 0 enfant, `ReachedSummonCap=False` ⇒ le
-  natif n'a pu émettre à s32/s44/s50 que si SON `count==0` (≠ notre `hv=True`) ou SON `adj==0`
-  (≠ notre `adj=2`). Suspects : la **sémantique du slot 0x51** (résolu « GetAdjacentUnits tout
-  camp » en case-31 — même RE qui a produit le faux per-player #39 ; peut être friends-only, ou
-  filtré unités-vraies via les params de `GetUnitsOnTiles`), ou `GetEligibleTargetsForNormalAttack`
-  ≠ notre `_has_valid_targets`. **Plan discriminant** (micro-états craftés, doctrine positions
-  pilotées) : Tan en P, 0 enfant, cible attaquable depuis sa tuile, UN ENNEMI adjacent et AUCUN ami
-  → modèle tout-camp : pas d'émission ; modèle friends-only : émission. Variantes ami-seul /
-  personne. À mener AVANT tout re-fit du port.
-- **(b) ControlEdict ne summone JAMAIS dans les walks runner** malgré stance P + attaques normales.
-  RE fait : `CreateTrigger @180e1d500` = `On(0x26, !(OwnerIsCaster & TriggeringAbilityIs(0x400=1024
-  Burrowers_Appear))) & OwnerIsCaster` (la négation ne concerne PAS Tan) ; `CreateBehaviour
-  @180e1d2c0` = `If(HasEffect(Self, 1247 ProtectorImperative)) → SummonMinion` +
-  `If(HasEffect(Self, 1248 ConquerorImperative)) → Foreach(UnitsWithTrait(UnitsWithTrait(
-  AdjacentFriends(Self,1,3), 2,3), 5,3), <attack>)`. Le gate stance est SATISFAIT (P présent dès
-  s01) et le trigger devrait pomper sur ab=69 (On(38) natif pompe bien en runner — prouvé #35 Ice).
-  Cause à élucider (#38b) — la validation LIVE de la branche cap en dépend.
+**Cause racine UNIQUE** : le summon ControlEdict est le config `admecSmnVanguard` (= `constants.unitId`),
+mais son champ `visualId` (ce que `observeBattle`/`decisionView` exposent LIVE) vaut
+**`admecNpc1Vanguard`**. `probe_38_children.py` ET `_reached_summon_cap` comptaient les enfants par
+`visualId == admecSmnVanguard` → **jamais aucun match** → cap toujours `False` ET « aucun summon
+observé ». Les deux « mystères » de #38b étaient la MÊME cécité.
+
+### (b) ControlEdict summone bien — RÉSOLU (artefact d'observation)
+`probe_38b_summons.py` (walk 38001, comptage par TOUS les visualId) : **7 `admecNpc1Vanguard`
+distincts** apparaissent (croissance 3→4→5→6→7 le long du walk), pas 0. Le trigger On(38) pompe, le
+summon spawne — `probe_38` regardait le mauvais nom. (Le test `test_control_edict_live` documentait
+déjà `SUMMON_VIS=admecSmnVanguard` cle vs `SUMMON_LIVE_VIS=admecNpc1Vanguard` visualId.)
+
+### (a) La branche cap — RÉSOLU (mirror corrigé + slot 0x51 refait)
+Modèle 3-branches **CONFIRMÉ au désassemblage** (`EvaluateNonComparable @18112c8d0`, capstone) :
+`count==0 → ssi Conqueror ; count>0 & GetFreeAdjacentTiles(caster)==0 → émettre ; count>0 & free>0 →
+ssi ReachedSummonCap`. Deux corrections :
+
+1. **Slot 0x51 = `GetFreeAdjacentTiles` @181061650, PAS `GetAdjacentUnits`.** Le verdict case-31
+   (« GetAdjacentUnits TOUT CAMP », même lot de RE que le faux per-player #39) était FAUX :
+   `GetAdjacentUnits` prend 3 params (from/friendsOf/enemiesOf) et ne matche pas le dispatch à
+   **1 argument** du call-site (`FUN_180003bd0(0x51, itf, service, caster)`). Résolu LIVE via
+   `resolveVtableSlot` sur `BattleQuery` (ancre slot `0xc9`=ReachedSummonCap @181070f60 → slot `0x51`=
+   `GetFreeAdjacentTiles`) ; corroboré par `aggressive_onslaught.py` (déjà porté slot 0x51 = free
+   tiles). @181061650 = `GetAdjacentTiles(caster,1,1,1)` puis `FilterInPlace(CanAddUnit(tile,world,
+   1,0,0))` = tuiles WALKABLE+VIDES+|dElev|<2 adjacentes. Mirror = `battle_query.adjacent_addable_count`.
+2. **`_reached_summon_cap` : compter par `visualId` LIVE.** Résoudre `constants.unitId → gameconfig
+   .visualId` (`admecSmnVanguard → admecNpc1Vanguard`) avant de compter `obs_units` (morts inclus =
+   all-ever, mirror de `GetChildrenCount` append-only).
+
+**Preuve de CAUSATION (pas corrélation)** — `probe_38b_capAB.py`, A/B natif, MÊME tuile (4,7),
+count fixe (fh=2), free>0 dans les deux bras :
+| instant | summons (cap) | free_adj | `ncEvaluate` leaf natif |
+|---------|---------------|----------|-------------------------|
+| A       | 0 (False)     | 6        | **PAS d'émission**      |
+| B       | 5 (True)      | 2        | **émission (util 100)** |
+
+Seul le cap change → l'émission flippe : la branche cap EST le déterminant (et à free=6>0, A n'émet
+PAS → réfute tout « adj==0 → émettre » ; valide aussi que le mirror free-adj est fidèle : le natif
+voit AUSSI free>0). Oracle par step (`probe_38b_gate.py`) : port `_should_emit` == leaf natif sur
+**14/14 steps Tan** (s32/44/50 : miss→hit ; s27 cap=True mais count==0/conq=False → pas d'overfire ;
+s33/45/51 gate ouvert mais once-per-turn `_usable`=False → port joue 69 comme le natif).
+
 - NB enum : `0x4b0=1200` est un **TriggeredAbilityType** (=ControlEdict) — l'`ActiveAbilityType`
   1200 est SquigLaunchas (les deux enums se recouvrent numériquement, toujours qualifier).
 
-## §4 — Résidus
+## §4 — Résidus / non couverts
 
+- **Branche `free==0` (Tan encerclé → émettre inconditionnel)** : confirmée au DÉSASSEMBLAGE (`jle
+  cb1d` saute vers le MÊME bloc `GenerateAction(Fix64(100))` que la branche cap-true, elle-même
+  validée live par l'A/B), mais **PAS craftée live** — surround complet impraticable (tuile 5-6
+  voisins vs 3 unités mobilisables ; corner degré 2 `(6,8)` atteignable en théorie mais drive
+  cross-board AI-gated non fiable en <30 tours). Risque résiduel = mon mirror `adjacent_addable_count`
+  SUR-compterait (free>0 quand natif free==0) → je prendrais la branche cap au lieu d'émettre → un
+  MISS (jamais un overfire) dans l'état rare « Tan totalement encerclé ». Non observé.
 - **Summon `RemoveUnit`-ed** (retiré du board, pas seulement mort) : sort d'`observeBattle.units`
-  (projection par UnitFoot avec tuile résolue) → sous-compte vs liste native. Aucun chemin connu
-  qui remove un Skitarii ControlEdict en pratique.
-- **2 Marshals dans le même camp** : l'approx identité par (vid, camp) poolerait leurs comptes ;
-  le natif compte par-caster. Setup non standard, non couvert.
+  → sous-compte vs `GetChildrenCount` (append-only). Aucun chemin connu qui remove un Skitarii
+  ControlEdict en pratique.
+- **2 Marshals dans le même camp** : l'approx identité par (visualId, camp) poolerait leurs comptes ;
+  le natif compte par-caster (ParentComponent). Setup non standard, non couvert.
 - **Branche `IsActive` de ReachedSummonCap** (abilities de summon ACTIVES) : non exercée par 1118
   (ControlEdict est triggered) — à mirrorer si un autre playbook consomme le slot 0xc9 avec une
   active (aucun caller connu à ce jour).
-- Le lien parent→enfants EXACT nécessiterait un RPC (hooks frais) — à considérer si un miss
-  d'agreement expose l'approximation identité.
 
 ## VAs
 
-`ReachedSummonCap @181070f60` · `GetChildrenCount @180ecf290` · `GetChildrenUnits @180ecf520` ·
+`ReachedSummonCap @181070f60` (slot itf 0xc9) · `GetChildrenCount @180ecf290` ·
+`GetFreeAdjacentTiles @181061650` (slot itf **0x51**, `<>b__96_0 @1810721f0` = `CanAddUnit(tile,
+world,1,0,0)`) · `GetAdjacentTiles @18105b660` · `CanAddUnit @180ec4c60` ·
+`GetEligibleTargetsForNormalAttack @18111ed00` (dispatch slot itf **0x41** `GetValidTargets`) ·
 `GetChildren @180ecf700` · `GetParent @180ed1d70` · `ParentComponent..ctor @180fa6880` ·
-`ChildComponent..ctor @180f97610` · `Blueprints.Unit @180eb3a3d` · `Blueprints.Machine @180eb2d46` ·
-`RemoveUnitOperation.Execute @180e8add0` · `EvaluateNonComparable @18112c8d0` ·
-`ControlEdictAbility.SummonMinion @180e1d5e0` · `GetVariableForLevel` (var 0x31=49 maxSummons).
+`Blueprints.Unit @180eb3a3d` · `RemoveUnitOperation.Execute @180e8add0` ·
+`EvaluateNonComparable @18112c8d0` · `ControlEdictAbility.SummonMinion @180e1d5e0` ·
+`GetVariableForLevel` (var 0x31=49 maxSummons). Slots IBattleQuery résolus LIVE `resolveVtableSlot`
+(ancre 0xc9=ReachedSummonCap) : 0x3f=HasValidTargets, 0x41=GetValidTargets, 0x44=GetAllValidTargets
+FromAllPossibleMovementTiles, **0x51=GetFreeAdjacentTiles**, 0x7f=GetAdjacentEnemies, 0xc9=Reached
+SummonCap.
