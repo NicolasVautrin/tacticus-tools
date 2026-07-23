@@ -402,3 +402,51 @@ class MV71ResetInitialDmgEffect(BaseEffect):
     Rôle : effet-compagnon du reset — retiré AVEC 1132 après l'attaque commandée du drone (GT : ni
     1132 ni 1133 présents post-cast). Aucun comportement observable propre lu dans le décompilé →
     matérialisation pure (présence + retrait), pas de contribution."""
+
+
+class BlackRageExtraMoveEffect(BaseEffect):
+    """`BlackRage_ExtraMove` (EffectType 0x53e=1342) — buff **StatModification** +MOUVEMENT, SELF-buff
+    posé par `BlackRageAbility.ExecuteBehaviour @1811b9c20` via `AddStaticStatModifierEffect(caster@0x160,
+    1342, stat=MOVEMENT(1), amount=ConfigConst(0xe=extraMovement))`. AUCUNE classe d'effet native bespoke
+    (StaticStatModifierEffect générique — cf. `AddStaticStatModifierEffect @180de7b20`) : ici on porte le
+    stat-mod EAGER (chemin runner `AddEffectOperation._apply_stat_mods` -> `apply_change_stat`, keyé par
+    source) = +`extraMovement` (constante gameconfig = 1) à la stat MOVEMENT.
+
+    VALIDÉ live (statModSources 31337) : movement total=1, bySource=[{source=effet 98, amount=1}]. Reverte
+    MOVEMENT au retrait (`reverted_stats`, symétrique via la feuille `RemoveEffect`)."""
+
+    def applied_stat_mods(self, stats_ctx) -> "list":
+        from ...stats import StatType
+        amt = ability_var("BlackRage", "extraMovement", is_constant=True)   # ConfigConst(0xe) = 1
+        return [(int(StatType.MOVEMENT), int(amt))] if amt else []
+
+    def reverted_stats(self) -> "list":
+        from ...stats import StatType
+        return [StatType.MOVEMENT]
+
+
+class BlackRageExtraDamageEffect(BaseEffect):
+    """`BlackRage_ExtraDamageEffect` (EffectType 0x53f=1343 ; `CreateEffectDamageBonusForAttack @180f340e0`)
+    — posé sur le caster (self) par `ExecuteBehaviour` via `AddEffect(1343, caster@0x160)`. Le natif =
+    `ForAddition((get_OwnerIsCaster & IsCharging(caster,target) & IsNormalAttack), ConfigVar(8=extraDmg))`
+    = +`extraDmg[level]` au dégât de l'attaque NORMALE de CHARGE du porteur (le coup qui suit le MoveUnit du
+    MÊME cast).
+
+    MARQUEUR porté (présent/diffable) — la CONTRIBUTION +extraDmg n'est PAS modélisée (RÉSIDU documenté) :
+    (a) magnitude NÉGLIGEABLE (extraDmg[L]=[10,12,14,...] vs ~3000/coup mesuré live = <0.5%) ; (b) le gate
+    natif `IsCharging` (unité entrée AU CONTACT durant CE cast) n'est PAS exprimable dans le canal modifier
+    EAGER sans SUR-APPLIQUER aux attaques HORS-charge du porteur (l'effet persiste remaining=0). Posé pour
+    le diff structurel ; si une tranche future porte `IsCharging` (cf. FeederTendrils gate charge), brancher
+    `create_effect_damage_bonus_for_attack` = ForAddition(ConfigVar(8)) gated charge."""
+
+
+class BlackRageAutomaticUnitEffect(BaseEffect):
+    """`BlackRage_AutomaticUnitEffect` (EffectType 0x540=1344 ; ctor @180f34090 = `BaseEffect(AbilityOrEffect(
+    0x48b=1163), 1)`) — posé sur le caster (self) par `ExecuteBehaviour` via `AddEffect(1344, caster@0x160)`.
+    MARQUEUR pur (aucune stat-mod) : arme la triggered `BlackRage_ActivationAbility` (`CreateTrigger @180e19f30`
+    = `On(0x16) & HasEffect(self, 0x540)` -> `CreateBehaviour @180e19ef0` = `PerformAIAction(self)`) = Lucien
+    REJOUE une action (berserk Death Company « acts again »).
+
+    Le mécanisme ACT-AGAIN (triggered `PerformAIAction` sur event 0x16) n'est PAS modélisé (RÉSIDU documenté,
+    tranche triggered dédiée : nécessite le vecteur On(0x16) + un re-tour d'action offline) ; l'effet est posé
+    pour le diff structurel (présent/diffable, remaining=0)."""
