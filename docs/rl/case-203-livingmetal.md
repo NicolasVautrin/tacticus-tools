@@ -115,3 +115,10 @@ int.MaxValue` → pas de cap. Le cap est **LOAD-BEARING** : sans lui le port soi
   membre partiel). À revalider si un tel état apparaît.
 - **Quantification exacte du repair WAKE (`ForRepair`)** hors scope #203 (manipulus/ReanimationBeam) : le port
   LivingMetal (NO-WAKE) n'en dépend pas.
+- **Ordre event `0x13` vs `0x14` au turn-start (imperfection PRÉ-EXISTANTE, partagée avec FirstAid)** : le natif
+  émet `0x12->0x13->0x14->0x15->0x16` ; le port lumpe `tile_tick_triggers` (`0x12`+`0x14` ensemble) PUIS
+  `first_aid`+`turn_start_other` (`0x13`) → le tile DoT (`0x14`) tourne AVANT LivingMetal (`0x13`) au lieu
+  d'après. Impact : un Necron endommagé sur tuile de feu voit, natif, la régen `0x13` PUIS le DoT `0x14` ;
+  offline l'inverse. Net-HP identique sur un tour (les deux sont additifs) SAUF cas-limite survie (DoT-létal-
+  d'abord vs régen-sauve-d'abord). Corrige-le en séparant `0x14` de `tile_tick_triggers` si un miss d'agreement
+  Necron-sur-feu le fait surface. `[opus]`.
