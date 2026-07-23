@@ -100,6 +100,29 @@ class StandVigilExtraArmorEffect(BaseEffect):
         return ability_var("StandVigil", "extraArmor", lvl)
 
 
+class MasterOfTheTutelariesEffect(BaseEffect):
+    """`MasterOfTheTutelariesEffect` (Effects.Loki, effet 0x4ad=1197 ; ctor @180f59300 =
+    `BaseEffect(AbilityOrEffect(0x448=1096), 1)`) — marqueur until-EoT posé sur ABRAXAS
+    (thousInfernalMaster) par l'execute de l'active 1096 (`MasterOfTheTutelariesAbility.
+    ExecuteBehaviour @1811f30c0` : `AddEffect(0x4ad, stateRef, caster@0x160, caster@0x160,
+    durée@dsl+0xc0)`, séquencé AVANT le Spawn du Pink Horror — l'attaque immédiate du Horror
+    peut donc DÉJÀ déclencher un Screamer).
+
+    - `ApplyInternal @180f59090` : `AddTriggeredAbility(Entity(target), 0x495=1173,
+      GetAbilityState(...))` — ARME la triggered `MasterOfTheTutelaries_SummonAbility`
+      (Screamer sur attaque Psychic contre un ennemi) sur le porteur ; l'ability-state de
+      1096 est propagé (le niveau des summons en dérive).
+    - `RevertInternal @180f591f0` : `RemoveTriggeredAbility(Entity(target), 0x495)` —
+      désarme à l'expiration (i2 « until the end of this turn » ; durée = 1 round posée
+      par l'AddEffect de l'arbre actif, aucun défaut `_DEFAULT_ROUNDS` pour 1197).
+
+    Port runner : le trigger 1173 vit dans `EFFECT_TRIGGERS[1197]` (triggers/dispatch.py) —
+    `collect_effect_triggers` n'instancie le trigger QUE tant que l'effet est ACTIF sur le
+    porteur, ce qui EST le Add/RemoveTriggeredAbility natif (le natif gate d'ailleurs
+    DOUBLEMENT : le `CreateTrigger @18110be00` re-teste `HasEffect(owner, 0x4ad)`).
+    Marqueur pur : aucune stat-mod."""
+
+
 class BlessingsOfKhorneModifiersEffect(BaseEffect):
     """`BlessingsOfKhorne_ModifiersEffect` (EffectType 0x4ee=1262, nom capté "BlessingsOfKhorne" ;
     config-owner TriggeredAbilityType 0x4c0=1216) — trait BlessingsOfKhorne (1046), TOUTE la faction

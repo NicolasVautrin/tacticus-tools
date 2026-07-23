@@ -50,7 +50,7 @@ from .hits import (SquigHoundAdditionalHitsEffect, CordClawAdditionalHitsEffect,
 from .status import (HypersensoryMinimalHealthEffect, ContaminatedUnitEffect, StandVigilExtraArmorEffect,
                      BlessingsOfKhorneModifiersEffect, StunnedEffect, StunnedDamageModifierEffect,
                      ActOfFaithBuffEffect, TauntedEffect, PinnedEffect,
-                     MV71InitialDmgEffect, MV71ResetInitialDmgEffect)
+                     MV71InitialDmgEffect, MV71ResetInitialDmgEffect, MasterOfTheTutelariesEffect)
 from .imperative import ProtectorImperativeEffect, ConquerorImperativeEffect
 
 __all__ = [
@@ -88,7 +88,7 @@ __all__ = [
     "HypersensoryMinimalHealthEffect", "ContaminatedUnitEffect", "StandVigilExtraArmorEffect",
     "BlessingsOfKhorneModifiersEffect", "StunnedEffect", "StunnedDamageModifierEffect",
     "ActOfFaithBuffEffect", "TauntedEffect", "PinnedEffect",
-    "MV71InitialDmgEffect", "MV71ResetInitialDmgEffect",
+    "MV71InitialDmgEffect", "MV71ResetInitialDmgEffect", "MasterOfTheTutelariesEffect",
     # imperative
     "ProtectorImperativeEffect", "ConquerorImperativeEffect",
 ]

@@ -28,13 +28,13 @@ class TriggerEvent:
     0x158) = l'auteur du coup fatal, `dying_id` (slot 0x178) = l'unité qui meurt (actor/target les reflètent
     aussi pour rester compatibles avec le dispatch générique)."""
     __slots__ = ("event_id", "actor_id", "target_id", "ranged", "profile", "is_crit",
-                 "killer_id", "dying_id", "player_id", "overkill", "ability_type")
+                 "killer_id", "dying_id", "player_id", "overkill", "ability_type", "profiles")
 
     def __init__(self, event_id: int, actor_id: int, target_id: int, *,
                  ranged: bool, profile: Optional[str], is_crit: bool = False,
                  killer_id: Optional[int] = None, dying_id: Optional[int] = None,
                  player_id: Optional[int] = None, overkill: bool = False,
-                 ability_type: Optional[int] = None):
+                 ability_type: Optional[int] = None, profiles=None):
         self.event_id = event_id
         self.actor_id = actor_id
         self.target_id = target_id
@@ -49,6 +49,11 @@ class TriggerEvent:
                                             # DirectAbilitySelector, ex. 0x3f5=1013 kind « attaque-normale »
                                             # du smite Psyker — gate branche 2 LordOfTempests AddIce #35).
                                             # None = kind inconnu/non threadé (aucun gate kind ne fire).
+        # `CurrentAttackDamageProfilesContain` (#202-C) : le SET des profils de TOUTE l'attaque —
+        # profil d'arme + profils des sous-operations bonus (#179 InfernalPacts : MESURE live, une
+        # attaque melee Physical/Power + bonus Psychic QUALIFIE le trigger 1173). None = non threadé
+        # (les consommateurs retombent sur {profile}).
+        self.profiles = set(profiles) if profiles else None
 
 
 class TriggeredAbility:

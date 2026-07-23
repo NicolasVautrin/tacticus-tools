@@ -611,3 +611,83 @@ class SpawnUnitOperation:
         tile = _pick_randomly(state, tiles)               # SortTilesByUtilityForSummon+First = raffinement
         gid = _spawn_config_grot(state, vid, tile, "ControlEdict", level, mult, coc.team, coc.player)
         return [gid] if gid is not None else []
+
+    @staticmethod
+    def execute_master_of_tutelaries_screamer(state: State, owner_id: int) -> list:
+        """`MasterOfTheTutelaries_SummonAbility.CreateSummonBehaviour @18110bba0` (triggered 1173,
+        armee par l'effet 1197 sur Abraxas — #202-C). Spawn UN `thousSmnScreamer` :
+
+          RemoveEffect(EntitiesWithAnyEffect(@0x80, 0x425=1061 GeminaeSuperia_JustSummonedEffect))
+          & Spawn( owner@0x148,
+                   PickRandomly( TilesUnitCanAttackFrom( CanAddUnit(AdjacentTiles(owner@0x148)),
+                                                         owner, unitId_2="thousSmnScreamer" )
+                                 .Otherwise(possible), 1 ),
+                   unitId_2, WithStatsFromConfig2(config 1096) + onAppearance=PerformAIAttackFromCurrentPosition )
+
+        - possible = tuiles LIBRES adjacentes au PORTEUR (== `GetPossibleSummonTiles @18110bf30`) ;
+        - preferred = celles d'ou le Screamer (MELEE, Power 3 hits) peut attaquer = >=1 ennemi VIVANT
+          adjacent (porte d'elevation `is_adjacent`) (== `GetPreferredSummonTiles @18110bf70` :
+          `TilesUnitCanAttackFrom(...).Otherwise(possible)`) ;
+        - stats `WithStatsFromConfig2(config 1096)` = summonHp/summonDmg de MasterOfTheTutelaries au
+          niveau ACTIF du porteur (la variante `2` derive le niveau de l'ability-state propage par
+          l'effet 1197 = celui de l'active 1096 — meme valeur que le Horror) ;
+        - le RemoveEffect(1061) préalable est mirrore par consommation des instances 1061 (marqueur
+          `GeminaeSuperia_JustSummonedEffect`) — NO-OP offline tant qu'aucun poseur de 1061 n'est
+          porte (aucun AddEffect(1061) dans ce kit ; poseur natif hors perimetre, residu case-202 §8).
+        L'ON-APPEARANCE (`PerformAIAttackFromCurrentPosition`) est execute par l'APPELANT (le trigger),
+        comme SquigHound/ControlEdict. Renvoie [id] ou []."""
+        import gameconfig as GC
+        caster = state.get_entity(owner_id)
+        board = state.board
+        if caster is None or board is None:
+            return []
+        coc = caster.get_component(OwnerComponent)
+        csc = caster.get_component(StatsComponent)
+        c_ctx = csc.ctx if csc is not None else None
+        if coc is None or c_ctx is None:
+            return []
+        consts = (GC.ability("MasterOfTheTutelaries") or {}).get("constants") or {}
+        vid = consts.get("unitId_2")                      # thousSmnScreamer (GetStringConstant(config, 4))
+        if vid is None:
+            return []
+        # RemoveEffect(1061) sur tous les porteurs — mirror structurel, no-op offline (cf. docstring).
+        eff = getattr(state, "effects", None)
+        if eff is not None:
+            for _uid, _effs in eff.by_unit.items():
+                for _e in _effs:
+                    if not _e.consumed and _e.effect_type == 1061:
+                        _e.consumed = True
+        possible = _free_tiles_adjacent(state, owner_id, set())  # CanAddUnit(AdjacentTiles(owner))
+        # TilesUnitCanAttackFrom(possible, owner, "thousSmnScreamer") : Screamer = MELEE -> tuiles avec
+        # >=1 ennemi VIVANT hex-adjacent (porte d'elevation |dElev|<2, `is_adjacent` maison).
+        from engine.battle_query import is_adjacent
+        elev = {}
+        epos = []
+        for eid2, e2 in state.entities.items():
+            oc2 = e2.get_component(OwnerComponent)
+            uc2 = e2.get_component(UnitComponent)
+            pc2 = e2.get_component(PositionComponent)
+            if oc2 is None or pc2 is None or oc2.team == coc.team:
+                continue
+            if uc2 is not None and not uc2.alive:
+                continue
+            epos.append((pc2.col, pc2.row))
+        if board is not None:
+            elev = {(t["col"], t["row"]): t.get("elevation") for t in board.by_id.values()
+                    if t.get("elevation") is not None}
+        def _can_attack_from(tid) -> bool:
+            ti = board.by_id.get(tid)
+            if ti is None:
+                return False
+            return any(is_adjacent((ti["col"], ti["row"]), p, elev) for p in epos)
+        preferred = [t for t in possible if _can_attack_from(t)]
+        sel = preferred if preferred else possible        # .Otherwise(possible)
+        tile = _pick_randomly(state, sel)                 # PickRandomly(sel, 1)
+        level = getattr(c_ctx, "active_ability_level", None)
+        mult = int(getattr(c_ctx, "ability_variables_multiplier", 100) or 100)
+        # MESURE LIVE (diag 202c, runner 183) : Screamer MaxHealth 4487 = summonHp_2[50] x 180%
+        # (2493*1.8) -> les stats du Screamer = variables suffixees `_2` (summonHp_2/summonDmg_2,
+        # meme convention que CultDemagogue), PAS summonHp/summonDmg (le Horror).
+        gid = _spawn_config_grot(state, vid, tile, "MasterOfTheTutelaries", level, mult,
+                                 coc.team, coc.player, key_suffix="_2")
+        return [gid] if gid is not None else []

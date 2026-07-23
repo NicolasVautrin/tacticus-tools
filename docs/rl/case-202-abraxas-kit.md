@@ -236,6 +236,105 @@ Azkor worldEightbound vs 3 necroWarden, MC1_67)** :
 - Défenseur : les %-gates par profil des mods défenseur du coup bonus héritent du ctx de
   l'ARME (mirror prédiction) — un cas TerminatorArmour-vs-bonus-Psychic discriminerait.
 
-## 8. Découvertes / résidus (tranche C)
+## 8. Tranche C — MasterOfTheTutelaries : LIVRÉE (COMBAT + DÉCISION portées ; décision non confrontée oracle)
 
-(à remplir à la livraison de la tranche C)
+### RE (décompilé, VAs §2 ; corrections MESURÉES live diag/probe 202c, runners 181-189)
+
+**Active 1096 `ExecuteBehaviour @1811f30c0`** (cast TILE-target : hex libre adjacent) :
+`op_BitwiseAnd( AddEffect(0x4ad=1197, stateRef, caster@0x160, caster@0x160, durée@dsl+0xc0),
+Spawn(caster@0x160, Target@0x178=TUILE, unitId="thousSmnPinkHorror",
+WithStatsFromConfig(config, AbilityLevelAmount(Self@0x148, 1096)) .onAppearance =
+PerformAIAttackFromCurrentPosition) )` — AddEffect AVANT Spawn : l'attaque immédiate du Horror
+déclenche déjà la chaîne. Mesures : Horror hp 3589 = `summonHp[50]×180 %`, atk 898 =
+`summonDmg[50]×180 %` ; tuile = la tuile CIBLÉE ; le cast pose `TurnFinished` d'Abraxas.
+
+**Effet 1197 `MasterOfTheTutelariesEffect`** (ctor @180f59300 = BaseEffect(1096, 1)) :
+`ApplyInternal @180f59090` = `AddTriggeredAbility(Entity(target), 0x495=1173, state)` ;
+`RevertInternal @180f591f0` = `RemoveTriggeredAbility(…, 0x495)`. Cascade : posé
+`Effect_RemainingTurns=1`, décrément + revert à la FIN DU TOUR D'ÉQUIPE (cascade v1 :
+`RemainingTurns 1→0` puis `UnitStats_RemoveTriggeredAbility:1173` juste avant le
+`Match_CurrentPlayerId` flip). ⚠ decisionView FILTRE cet effet (jamais visible) — le lire
+dans la cascade (action s=16 `Effect_SourceActiveAbility:1096`).
+
+**Triggered 1173 `MasterOfTheTutelaries_SummonAbility`** :
+- `CreateTrigger @18110be00` = `On(9,1) & HasEffect(owner,1197) & AreEnemies(owner, target)
+  & !IsObjectOrSteppable(target) & CurrentAttackDamageProfilesContain(0xd=13 Psychic)`.
+  **Lois mesurées** : (a) UN fire max par ATTAQUE (pas par coup) ; (b) le SET de profils
+  inclut les BONUS-HITS #179 — une attaque melee Physical/Power portant le bonus
+  InfernalPacts Psychic QUALIFIE → chaîne Horror→Screamer→Screamer… bornée par les POSITIONS
+  (summon sans cible à portée n'attaque pas) et non par le profil d'arme ; (c) aucun gate
+  « dégât > 0 » dans l'arbre (une attaque Psychic bloquée qualifierait — non exercé).
+- `CreateBehaviour @18110bb30` (gshared, précédent ActOfFaith #151) : branche `!=0x20` =
+  `TriggerAbilityDelayed(owner, 0x495, kind=3)` (fire initial → différé), branche `==0x20` =
+  `CreateSummonBehaviour @18110bba0` (réveil différé → spawn). Les DEUX branches vivantes
+  (self-delayed). Ordre observé : enregistrement PENDANT l'attaque (groupe 21 vide), spawn
+  APRÈS la résolution de l'attaque.
+- `CreateSummonBehaviour @18110bba0` : `RemoveEffect(EntitiesWithAnyEffect(@0x80, 0x425=1061
+  GeminaeSuperia_JustSummonedEffect)) & Spawn(owner@0x148, PickRandomly(
+  TilesUnitCanAttackFrom(CanAddUnit(AdjacentTiles(owner)), owner, unitId_2)
+  .Otherwise(possible), 1), "thousSmnScreamer", WithStatsFromConfig2 + onAppearance
+  PerformAIAttackFromCurrentPosition)`. **Screamer stats = variables SUFFIXÉES `_2`**
+  (`summonHp_2`/`summonDmg_2` — mesuré : 4487 = 2493×180 %), niveau/mult = ceux de l'active
+  1096 du caster (propagés par l'ability-state de 1197). `GetPossibleSummonTiles @18110bf30`
+  / `GetPreferredSummonTiles @18110bf70` = les mêmes sélecteurs exposés (face décision).
+
+**Découvertes transverses (cascade spawn)** :
+- **`Daemon` → ability dérivée → `Daemon_ExtraBlock`** posé au spawn de CHAQUE Daemon
+  (+25 block chance, +449 = 50 % Attack block damage) — chemin `TRAIT_DERIVED_ABILITIES`
+  ajouté offline (classe `DaemonExtraBlockEffect` déjà portée).
+- Le summon reçoit l'aura InfernalPacts (1198) DÈS le spawn (refresh immédiat) + triggered
+  1156/1161/1036/1013 (kit du Horror) — son attaque porte donc le bonus Psychic si adjacent.
+- **Ranged désactivé AU CONTACT** (règle légalité, diag v5 : sorcier adjacent à un ennemi →
+  `actionConsumed=False` sur son tir) — légalité d'action en amont, pas un étage du pipeline
+  dégât (le driver/fromHere l'exclut nativement).
+
+**Décision `MasterOfTheTutelariesPlaybook.EvaluateNonComparable @18114b300`** (cctor MIN=1 ;
+slots IBattleQuery résolus via le dump vtable #38b : 0x49=`GetNearestEnemy @181066440`,
+0x52=`GetFreeAdjacentTiles(target) @181061570`, 0x6b=`GetDistance @181061040`,
+0x72=`GetUnitsAtDistance @18106c9a0` ring EXACT) : par tuile de spawn candidate ST —
+gates `freeAdj(ST) > 2` && `#ennemis à dist==2 de la tuile RÉELLE > 0` ; utilité
+`1 + (nE2-1)×10 + (nFree-3)×10 + 100 si dist(nearestEnemyTile, ST) == 2`.
+`GetNearestEnemy` : plus-proche strict avec PRIORITÉ aux ennemis en mêlée (AreUnitsInMelee
+supplante la distance) ; tie = 1er énuméré.
+
+### Port
+
+- `effects/loki/status.py` : `MasterOfTheTutelariesEffect` (marqueur 1197) + factory.
+- `abilities/loki/summon.py` : `MasterOfTheTutelariesAbility` (1096, arbre
+  `Seq(AddEffect, SpawnTutelaryHorror)`) + `perform_ai_attack_from_current_position`
+  (on-appearance pipeline attaque normale COMPLET, cible = `_nearest_enemy` gaté portée) ;
+  handler 1096.
+- `spawn.py` : `execute_master_of_tutelaries_screamer` (possible/preferred/PickRandomly,
+  `key_suffix="_2"`, RemoveEffect(1061) no-op mirroré).
+- `triggers/loki/master_of_the_tutelaries.py` : `MasterOfTheTutelariesSummonAbility`
+  (`EffectTrigger`, `EFFECT_TRIGGERS[1197]` = mirror du Add/RemoveTriggeredAbility) ; gate
+  profils via `TriggerEvent.profiles` (NOUVEAU : set arme+bonus threadé par les vecteurs
+  after-attack — damage.py / summon_ai.py / on-appearance).
+- `factory.py` : `TRAIT_DERIVED_ABILITIES["Daemon"]` + `ABILITY_INIT_OWNER_EFFECTS["Daemon"]`.
+- `playbook/noncomparable/master_of_the_tutelaries.py` : playbook NC 1096 (registre).
+
+### Validation (probe_202c_tutelaries.py, seed 20203 — PASS)
+
+A1 effet 1197 posé (RemainingTurns=1, cascade) ; A2 Horror tuile ciblée + hp EXACT offline ;
+A3 Screamer hp EXACT (`summonHp_2`) + tuile adjacente ; A4 #Screamers == #attaques
+qualifiantes ; B tir Psychic ALLIÉ même tour → chaîne loi-conforme (2 spawns == 2 attaques
+Psychic de la cascade B) → 1197 armé jusqu'à FIN DE TOUR D'ÉQUIPE ; C tour suivant → +0
+(expiry). Garde 31337 : cf. journal de commit.
+
+### Résidus tranche C
+
+- **Face DÉCISION non confrontée à l'oracle** : le playbook NC est porté (slots résolus) mais
+  aucun A/B `ncEvaluate` ni walk avec Abraxas n'a encore confronté gates/utilité/tie —
+  à faire au premier walk Thousand Sons (le seed 31337 n'a pas Abraxas → inerte).
+- Tuile du Screamer : `PickRandomly(1)` sur le set preferred — coût RNG exact / ordre du set
+  natif non mesurés (les scénarios probe avaient 1-2 candidats) ; mirror `_pick_randomly`.
+- Cible de l'on-appearance : approx `_nearest_enemy` (précédent ScarabSummon) — le choix AI
+  natif complet (utilité) non mirroré ; scénarios multi-cibles à portée divergeraient.
+- `RemoveEffect(1061)` : poseur de `GeminaeSuperia_JustSummonedEffect` hors périmètre (aucun
+  AddEffect(1061) dans ce kit) — no-op offline documenté.
+- Attaque Psychic entièrement BLOQUÉE (0 dégât) → qualifie selon l'arbre (pas de gate
+  dégât>0) — non exercé live.
+- `On(9,1)` : le 2e arg (1) commun à WoF/ActOfFaith/1173 — sémantique du flag non tranchée
+  (sans effet observable ici).
+- Durée @dsl+0xc0 : nœud singleton non résolu au décompilé — comportement MESURÉ (1 tour
+  d'équipe) mirroré via `duration_rounds=1` ; l'identité exacte du nœud reste ouverte.

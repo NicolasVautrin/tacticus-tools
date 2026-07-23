@@ -48,6 +48,8 @@ from .genestealer import (DecoysAndMisdirectionDamageEnemiesAbility,
                           HypersensoryMoveAndSpawnDecoyAbility)
 from .loki.weaver_of_fate import WeaverOfFateAbility                 # #202-A (trait WeaverOfFate)
 from .loki.living_metal import LivingMetalRepairAbility             # #203 (trait LivingMetal, Necron)
+from .loki.master_of_the_tutelaries import (MasterOfTheTutelariesSummonAbility,   # #202-C (triggered 1173)
+                                            MASTER_EFFECT as MASTEROFTUTELARIES_EFFECT)
 
 # --- FinalJustice / overkill ----------------------------------------------------------------------
 OVERKILL_PCT_KEY = "overkillDmgPctOfHealth"  # globalValues = 100 → overkill ssi dmg-PV >= 100%*PV (dmg>=2*PV)
@@ -107,6 +109,10 @@ EFFECT_TRIGGERS: dict[int, type[EffectTrigger]] = {
     OVERWATCH_AUTO_ATTACK: OverwatchAutoAttack,
     CONTAMINATED_TILE: ContaminatedTileEffect,   # tile-effect : enter(4)+tick(0x12) -> pose Contaminated_Unit
     FIRE_TILE: FireTileDoT,                       # tile-effect : tick(0x14) -> DoT 20% PV initiale a l'occupant
+    # MasterOfTheTutelaries (#202-C, effet 1197 pose par l'active 1096 d'Abraxas) : la collecte
+    # par-effet-actif EST le Add/RemoveTriggeredAbility natif (ApplyInternal @180f59090 /
+    # RevertInternal @180f591f0) -> Screamer sur attaque Psychic vs ennemi (On(9), triggered 1173).
+    MASTEROFTUTELARIES_EFFECT: MasterOfTheTutelariesSummonAbility,   # 1197 -> 1173
 }
 
 
@@ -248,7 +254,8 @@ def _squighound_after_attack(state: State, attacker_id: int, target_id: int) -> 
 
 
 def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
-                            ranged: bool, profile: Optional[str], is_crit: bool = False) -> list[dict]:
+                            ranged: bool, profile: Optional[str], is_crit: bool = False,
+                            profiles=None) -> list[dict]:
     """Vecteur attaque NORMALE. Le natif émet DEUX events distincts (verdict RE #147) : `On(0x26)`=NormalAttack
     (per-ATTAQUE, chemin normal only) ET l'after-hit `On(8)` (message 8 de `EvaluateAfterHitTriggers`). On
     dispatche les deux : `NormalAttack` déclenche Psyker (splash Smite) ; `after-hit(8)` = vecteur natif
@@ -272,8 +279,11 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
     # un crit d'attaque NORMALE (avant, non emis en voie normale -> reset manquant = bug). Meme event consomme
     # par Judh `MoveAndSpawnDecoy` (G6b, `On(9)&OwnerIsTarget` @180f88070 -> reaction a toute attaque la ciblant).
     # actor=attaquant, target=defenseur ; emis EN DERNIER (apres tous les after-hit(8) per-coup).
+    # `profiles` (#202-C) = set COMPLET des profils de l'attaque (arme + bonus-hits #179) — lu par
+    # `CurrentAttackDamageProfilesContain` (trigger 1173 : une attaque non-Psychic au corps a corps
+    # avec bonus InfernalPacts Psychic QUALIFIE — mesure live diag 202c).
     ev_at = TriggerEvent(EventTriggerType.Attack, attacker_id, target_id,
-                         ranged=ranged, profile=profile, is_crit=is_crit)
+                         ranged=ranged, profile=profile, is_crit=is_crit, profiles=profiles)
     return out + evaluate_trigger_operation(state, ev_at)
 
 

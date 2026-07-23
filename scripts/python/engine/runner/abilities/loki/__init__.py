@@ -20,6 +20,8 @@ SPECIFIQUES a chaque ability vivent avec leur classe."""
 from __future__ import annotations
 
 from .summon import (ScarabHiveAbility, ScarabSummonAbility, GetEmRuntzAbility,
+                     MasterOfTheTutelariesAbility, master_of_the_tutelaries_tree,
+                     SpawnTutelaryHorror, perform_ai_attack_from_current_position,
                      scarab_hive_tree, scarab_summon_tree, getemruntz_taunt_tree, getemruntz_tree,
                      _summon_on_appearance_attack, _nearest_enemy)
 from .splash import (CrushingClawsAbility, PlasmaGrenadeAbility, StikkbombAbility, FragstormAbility,
@@ -36,6 +38,8 @@ from .mv71 import MV71SniperDroneSquadAttackAbility
 __all__ = [
     # summon
     "ScarabHiveAbility", "ScarabSummonAbility", "GetEmRuntzAbility",
+    "MasterOfTheTutelariesAbility", "master_of_the_tutelaries_tree",
+    "SpawnTutelaryHorror", "perform_ai_attack_from_current_position",
     "scarab_hive_tree", "scarab_summon_tree", "getemruntz_taunt_tree", "getemruntz_tree",
     "_summon_on_appearance_attack", "_nearest_enemy",
     # splash

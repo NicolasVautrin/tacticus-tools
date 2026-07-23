@@ -1090,10 +1090,14 @@ class DamageHandler:
         # scope elle-même via sa condition (ex. Psyker OwnerIsActor). No-op si aucun trigger ne matche.
         if self.last is not None:
             from .triggers import after_hit_normal_attack
+            # #202-C : set des profils de l'attaque = arme + bonus-hits #179 (lu par le gate
+            # CurrentAttackDamageProfilesContain du trigger 1173).
+            _profs = {self.last.get("profile")} - {None}
+            _profs |= set((self.last.get("additional_hits") or {}).get("profiles") or [])
             self.after_hit = after_hit_normal_attack(
                 self.state, msg.attacker_id, msg.target_id,
                 bool(self.last.get("ranged")), self.last.get("profile"),
-                is_crit=bool(self.last.get("did_crit")))
+                is_crit=bool(self.last.get("did_crit")), profiles=_profs)
         # #139 : l'attaque normale native EST une ActiveAbility (NormalAttack per-unite ; AttackUnitMessage
         # n'existe pas en natif — c'est la simplification port de l'ActiveAbilityMessage) et traverse la
         # MEME queue `AddFlagsAfterAbilityExecution` @180e447f0 — base `SetsEndTurnFlags`/

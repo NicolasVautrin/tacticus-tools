@@ -82,6 +82,7 @@ from .early_warning_override import EarlyWarningOverridePlaybook
 from .dark_talon_strike import DarkTalonStrikePlaybook
 from .send_in_the_next_wave import SendInTheNextWavePlaybook
 from .incursion import IncursionPlaybook
+from .master_of_the_tutelaries import MasterOfTheTutelariesPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -144,6 +145,9 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 plus haute Attack, MIN=max Attack ennemis (@18115a1f0)
         IncursionPlaybook(),            # 1021 -- summon Bloodletters ; util=PV(cible), cible=ennemi de
         #                                 plus haut PV avec >=2 tuiles libres adj., MIN=max PV (@181144fc0)
+        # #202-C (Abraxas) — summon Pink Horror tile-target ; gates nFree(ST)>2 & nE2(ring exact
+        # dist==2 du REEL)>0 ; util = 1 + (nE2-1)*10 + (nFree-3)*10 + 100 si dist(nearest, ST)==2.
+        MasterOfTheTutelariesPlaybook(),  # 1096 (@18114b300, slots 0x49/0x52/0x6b/0x72 resolus)
     )
 }
 
@@ -213,5 +217,5 @@ __all__ = [
     "ScarabHivePlaybook", "CordClawPlaybook",
     "SpawnPoxwalkersPlaybook", "FoulInfusionPlaybook", "HolyDuelPlaybook",
     "GrapnelLauncherPlaybook", "EarlyWarningOverridePlaybook", "DarkTalonStrikePlaybook",
-    "SendInTheNextWavePlaybook", "IncursionPlaybook",
+    "SendInTheNextWavePlaybook", "IncursionPlaybook", "MasterOfTheTutelariesPlaybook",
 ]

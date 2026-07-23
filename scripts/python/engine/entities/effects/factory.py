@@ -37,6 +37,7 @@ from .loki import (
     LightCoverEffect,
     MartialKatahDmgReductionEffect,
     MarkerlightEffect,
+    MasterOfTheTutelariesEffect,
     MV71InitialDmgEffect,
     MV71ResetInitialDmgEffect,
     BeastSlayerExtraDmgEffect,
@@ -145,6 +146,9 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "PathOfCommand_ExtraDmg": PathOfCommandExtraDmgEffect,
     # Stat-mod +armure (FixedArmor) FLAT, SELF-buff extraArmor[level] (résidu 0 validable ; nom à confirmer).
     "StandVigil_ExtraArmor": StandVigilExtraArmorEffect,
+    # Marqueur until-EoT 1197 (#202-C, Abraxas) : arme la triggered 1173 (Screamer sur attaque Psychic
+    # vs ennemi) tant qu'il est actif — cf. EFFECT_TRIGGERS[1197] (triggers/dispatch.py).
+    "MasterOfTheTutelaries": MasterOfTheTutelariesEffect,   # 1197 (0x4ad)
     # DoctrinaImperatives (Tan Gi'da) — toggle @1811d4d20 : Protector = stat-mod +extraArmor sur FixedArmor(16)
     # (aura self+Mechanical-adjacents ; port SELF, portee = increment B) ; Conqueror = +extraDmg gate
     # HasNegativeModifier(cible FixedArmor<0) PRESENT-inerte (contribution +dmg = increment C).
@@ -336,6 +340,11 @@ TRAIT_DERIVED_ABILITIES: dict[str, list[str]] = {
     # ShadowInTheWarp 0x3f9+... 2025 -> ability derivee 0x424 = ShadowInTheWarp_AddEffectAbility (pattern
     # generique _AddEffectAbility : base CreateBehaviour pose constants.effectType au porteur).
     "ShadowInTheWarp": ["ShadowInTheWarp"],
+    # Daemon (trait 0x3fb=1019) -> ability derivee "Daemon" dont l'init pose Daemon_ExtraBlock (MESURE
+    # live #202-C, cascade spawn Pink Horror/Screamer runner 183 : groupe 21 src=Daemon -> groupe 22
+    # Daemon_ExtraBlock, BlockChance +25 / BlockDamage +449 = 50% Attack). Sans ce seed, un summon
+    # Daemon spawne offline n'a AUCUN block (gap corrige).
+    "Daemon": ["Daemon"],
 }
 
 # Étape 2 — owner-effects posés par `<Ability>.CreateBehaviour` À L'INIT de l'ability (DSL `AddEffect(owner)`).
@@ -353,6 +362,9 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # `HypersensoryAbilitiesAbility.CreateBehaviour` @180f87870 : `AddEffect(0x564=1380, owner, owner)` -> le
     # HP-floor est posé sur le PORTEUR à l'init de l'ability passive (owner-effect self, aucun sélecteur). G6a.
     "HypersensoryAbilities": ["HypersensoryAbilities_MinimalHealth"],
+    # Ability derivee du trait Daemon : pose Daemon_ExtraBlock (1034) sur le porteur a l'init (#202-C,
+    # mesure live — block 25% / 50% Attack, deja porte via DaemonExtraBlockEffect).
+    "Daemon": ["Daemon_ExtraBlock"],
     # InfernalPacts (passif Abraxas, #202-B) : effet-AURA 0x4ae=1198 AUTO-PORTEUR (enregistré par
     # `EffectsDatabase.<InitializeEffects>b__14_225`, AUCUNE classe Ability — pas de CreateBehaviour à citer).
     # Seed = filet pour les états non captés (Abraxas lineup est normalement couvert par decisionView).
