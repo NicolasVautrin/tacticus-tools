@@ -24,9 +24,8 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 | # | Tâche | Modèle | Point d'entrée |
 |---|---|---|---|
-| #202 | Kit d'Abraxas (`thousInfernalMaster`) : WeaverOfFate + InfernalPacts + MasterOfTheTutelaries | `[opus]` | `case-202` : recon + carte des artefacts natifs faits ; tranches A (WeaverOfFate max-out, COMBAT+PRÉD), B (aura InfernalPacts +1 hit Psychic), C (summon cascade + décision NC). **EN COURS (orchestrateur).** |
-| #38b | Gate 1118 : sémantique **adj/count** des branches + **ControlEdict summon inerte en runner** | `[opus]` | `case-38` §5 : plan discriminant micro-états craftés (ennemi-adjacent-seul / ami-seul / personne) pour trancher slot 0x51 ; élucider zéro-spawn SummonMinion (stance P + On(0x26) satisfaits). **DÉLÉGUÉ fable-solver (en vol).** |
-| #27 | 22 overrides `CalculateCustomUtility` à porter (triage fait) | `[opus]` | `case-27` : énumération exhaustive (27 corps ghidra : 3 génériques + 2 portés + 22 restants, VAs figées) + protocole fan-out `re-expert` **un item par agent** (reachability → porteur spawnable → RE/port → validation craftée). **DÉLÉGUÉ opus-solver (en vol).** |
+| #202 | Kit d'Abraxas (`thousInfernalMaster`) : WeaverOfFate + InfernalPacts + MasterOfTheTutelaries | `[opus]` | `case-202` : recon + carte des artefacts faits ; **tranche A (WeaverOfFate) LIVRÉE** (98e0fbd — trigger + max-out COMBAT/PRÉD, live 3/3, garde 100 %) ; restent B (aura InfernalPacts +1 hit Psychic) et C (summon cascade + décision NC). **EN COURS (orchestrateur).** |
+| #27 | Résidus `CalculateCustomUtility` : 4 sous-systèmes à porter (débloqueurs nommés) | `[opus]` | `case-27` : **2 portés** (ArmoriumCherub 1014, LightOfSanguinius 1177 — `loki_custom.py`, garde 31337 100%) + **20 résidus** classés par débloqueur (DSL-évaluateur / BattleQuery-token 0x44-0xb1 / multi-hit / utilité-déplacement / MoW off-board / `dp=False` / dead-code / sans-id). Reprise = porter un sous-système → débloque son groupe d'overlays (roadmap dans le doc). |
 | #5 | Chantier `DslContext` live-state | `[opus]` | Architecture à poser, pas d'énigme à trancher. |
 | #20 | Roadmap AdMec | `[opus]` | Planification + découpage en tranches de port. |
 | #17 | Surveillance des 2 résidus `move` | `[opus]` | Nature RNG, non actionnable — veille seulement. |
@@ -55,10 +54,13 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   du saut d'incrément `turnsStarted` sur la cible d'un 1202 (mesuré, non RE'd — port immunisé via
   lecture live) ; miss s20 u77/`1140` (hors périmètre historique) ; dash-off `to=None` de 1180.
   `[opus]` si un miss les fait surface.
-- **ReachedSummonCap, résidus** (`case-38` §4 — port livré, hors follow-up #38b) : branche `IsActive`
+- **ReachedSummonCap, résidus** (`case-38` §4 — port livré ; #38b RÉSOLU par PR #5 mergée : slot
+  0x51 = `GetFreeAdjacentTiles @181061650`, cap par `visualId` live) : branche `IsActive`
   de `ReachedSummonCap @181070f60` non mirrorée (aucun caller connu avec une active) ; approx
   identité offline (2 Marshals même camp poolent leurs comptes ; summon `RemoveUnit`-ed sort
-  d'obs_units → sous-compte). `[opus]` si un miss les fait surface.
+  d'obs_units → sous-compte) ; branche `free==0` (Tan encerclé → emit inconditionnel) confirmée
+  au désassemblage mais non craftée live (surround AI-gated) — risque = un MISS rare, jamais un
+  overfire. `[opus]` si un miss les fait surface.
 - **LordOfTempests AddIce, résidus** (`case-35` §4 — case CLOS) : branche 2 (glace sur la victime
   du smite Psyker) non exercée live (câblée + unit-testée) ; `is_normal_attack` face attaquant
   toujours True au foyer combat (snowball s'appliquerait aux abilities de Njal — inerte,
@@ -66,3 +68,12 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   Stormcaller (1113) runner-face non porté (zone `GetAddIceTiles @18120cf70` + 3× AoE + stun
   Flying) ; blocage mouvement / crit-bonus ICE toujours GATE (#131, terrain-effects §2). `[opus]`
   si un miss d'agreement les fait surface.
+- **`CalculateCustomUtility`, 20 overlays non portés** (`case-27` — 2 portés `loki_custom.py`) :
+  bloqués par 4 sous-systèmes (évaluateur DSL de forme/chain ; méthodes `BattleQuery` à token
+  0x44/0x77/0x7c/0x7d/0x7f/0xb1 ; réutilisation `GenerateMultiHitAttackPredictions` ; utilité de
+  déplacement `UtilityMovementCase`/`GetTargetUtilityDiffOnDisplace`), ou par une limite de harnais
+  (porteur MoW hors-plateau en arène : PlagueburstMortar/DaemonicOrdnance/Malleus), ou non-modélisation
+  (`dp=False` : Chronometron/DevoutPush/ForwardObservers/HealingBalms), dead-code (ProperKilly/
+  Repair_GalvanicField) ou sans id `ActiveAbilityType` (SavageEchoes). Chaque item nomme son débloqueur
+  exact dans `case-27`. `[opus]` : porter UN sous-système débloque son groupe d'overlays. Biais visible
+  seulement en concurrence serrée d'actions du porteur → promouvoir si un miss le fait surface.
