@@ -302,6 +302,20 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
     return d
 
 
+def is_attack_max_out_damage(attacker_effects) -> bool:
+    """#202 WeaverOfFate — mirror `UnitExtensions.IsAttackMaxOutDamage @180ed7a50` (branche effet) :
+    l'attaquant est owner OU target de l'effet 1185 `WeaverOfFate_MaxOutDamage` (self-cast : roles
+    confondus offline) -> degats MAX sans tirage. FOYER UNIQUE cote prediction, evalue DANS
+    `predict_attack_raw` comme le natif l'evalue DANS `PredictAttackRaw` (wrapper `DamagePrediction.
+    IsAttackMaxOutDamage @1810329f0`, call site @181034aba) — les appelants passent les EFFETS de
+    l'attaquant (scene.effects / active ECS), pas un flag pre-calcule. La branche
+    `HasTriggeredAbility(1494 ParagonSpear)` n'est PAS mirroree (porteur hors kit — residu case-202 §6).
+    (Le COMBAT runner a son mirror jumeau sur l'EffectsState ECS : `weaver_of_fate.
+    is_attack_max_out_damage` — meme fonction native, deux stores.)"""
+    return any(getattr(e, "name", None) == "WeaverOfFate_MaxOutDamage"
+               for e in (attacker_effects or []))
+
+
 def predict_attack_raw(
         prev: "BlockScenario", initial_damage: int, profile_type: int = 0,
         armor: int = 0, pierce_pct: int = 100, extra_max: int = 0,
@@ -309,7 +323,8 @@ def predict_attack_raw(
         reduction_min: int = 0, reduction_max: int = 0, spread_pct: int = 20,
         target_current_health: int = 0, target_shield: int = 0,
         target_limits: dict | None = None,
-        predefined: MinMaxDamage | None = None, might_crit: bool = False) -> DamagePredictionResult:
+        predefined: MinMaxDamage | None = None, might_crit: bool = False,
+        attacker_effects=None) -> DamagePredictionResult:
     """`DamagePrediction.PredictAttackRaw` @181032fb0 — prédiction d'UN COUP contre les RESSOURCES RESTANTES
     de la cible (déplétées par `prev`, scénario cumulé des coups précédents ; `prev` vide = ressources
     pleines = 1er coup). NE fait PAS le ×hits (→ `get_multi_hit_attack_prediction`) ; l'additif plat EST
@@ -324,8 +339,14 @@ def predict_attack_raw(
       health  = min(health, rem_HP)                             # overkill PER-COUP (FillUpStat.MaxReduceByMinimum)
     ⚠ `prev` déplète les RESSOURCES EN AMONT (bouclier/HP restant) — ce N'EST PAS `param_7`
     (previousHitsPrediction) de CDS, qui est le bonus crit INTRA-coup (verdict RE @181035dce)."""
+    # #202 WeaverOfFate : le flag max-out est evalue ICI, foyer unique (mirror natif : PredictAttackRaw
+    # appelle IsAttackMaxOutDamage @181034aba lui-meme) puis passe a `GetBaseDamageFix64 @181030ba0`
+    # -> min = max (bornes degenerees). Un `predefined` (bornes d'ability RandomAmount) est degenere pareil.
+    is_max_out = is_attack_max_out_damage(attacker_effects)
     mm = predefined if predefined is not None \
-        else get_base_damage_fix64(initial_damage, extra_max, spread_pct)
+        else get_base_damage_fix64(initial_damage, extra_max, spread_pct, is_max_out=is_max_out)
+    if is_max_out and predefined is not None:
+        mm = MinMaxDamage(min=predefined.max, max=predefined.max)
     # #70/Q3 : additif plat NON strippé -> appliqué PAR COUP en PRÉ-perçage (attacker_additive_pre=True aux
     # call-sites lo/hi ci-dessous). Verdict RE (PredictAttackRaw @181032fb0, prediction.md §10) : le natif
     # ajoute l'additif @+0x10 à la base int AVANT `CalculateBaseDamageWithAllModifiers @18102d3f0` (L1940/L2062) ;
@@ -454,7 +475,8 @@ def get_multi_hit_attack_prediction(
         target_shield: int = 0, might_crit: bool = False,
         target_limits: dict | None = None,
         extra_groups: "list[dict] | None" = None,
-        defender_block_amount: int | None = None) -> DamagePredictionResult:
+        defender_block_amount: int | None = None,
+        attacker_effects=None) -> DamagePredictionResult:
     """`BattleQuery.GetMultiHitAttackPrediction` @181066080 — LA boucle multi-coups (le `×hits` est ICI, PAS
     dans PredictAttackRaw) :
         result = predict_attack_raw(coup 1, prev=vide)
@@ -487,7 +509,7 @@ def get_multi_hit_attack_prediction(
             extra_max=extra_max, mods=mods, hit_mult=hit_mult, reduction_min=reduction_min,
             reduction_max=reduction_max, spread_pct=spread_pct,
             target_current_health=target_current_health, target_shield=target_shield,
-            target_limits=target_limits, might_crit=might_crit))
+            target_limits=target_limits, might_crit=might_crit, attacker_effects=attacker_effects))
 
     result = _hit(BlockScenario())                          # coup 1 : prev vide → ressources pleines
     for _i in range(1, hits):
@@ -518,7 +540,8 @@ def get_multi_hit_attack_prediction(
                 prev, _amt, profile_type=_gpt, armor=armor, pierce_pct=_gp, mods=_gm, hit_mult=hit_mult,
                 reduction_min=reduction_min, reduction_max=reduction_max, spread_pct=spread_pct,
                 target_current_health=target_current_health, target_shield=target_shield,
-                target_limits=_gtl, predefined=_pre, might_crit=might_crit)
+                target_limits=_gtl, predefined=_pre, might_crit=might_crit,
+                attacker_effects=attacker_effects)
         for _j in range(max(0, int(_grp.get("count", 0)))):
             result.add(_with_block(_ghit(result.default_block_scenario())))
     # #70 : l'additif plat (ForAddition) est appliqué PAR COUP dans `predict_attack_raw` (via `mods` non
@@ -535,7 +558,8 @@ def get_attack_prediction(
         might_crit: bool = False, target_shield: int = 0, target_limits: dict | None = None,
         shield_raw: MinMaxDamage | None = None,
         extra_groups: "list[dict] | None" = None,
-        defender_block_amount: int | None = None) -> DamagePredictionResult:
+        defender_block_amount: int | None = None,
+        attacker_effects=None) -> DamagePredictionResult:
     """`BattleQuery.GetNormalAttackPrediction` / `GetAttackPrediction` (slot 14) — entrée attaque NORMALE
     (whole-attack). Le natif route TOUTE attaque multi-coups par `GetMultiHitAttackPrediction` (boucle
     `PredictAttackRaw` par coup + `prev` déplété + `Add`) : on DÉLÈGUE donc à `get_multi_hit_attack_prediction`.
@@ -553,4 +577,4 @@ def get_attack_prediction(
         mods=mods, hit_mult=hit_mult, reduction_min=reduction_min, reduction_max=reduction_max,
         spread_pct=spread_pct, target_shield=target_shield, might_crit=might_crit,
         target_limits=target_limits, extra_groups=extra_groups,
-        defender_block_amount=defender_block_amount)
+        defender_block_amount=defender_block_amount, attacker_effects=attacker_effects)

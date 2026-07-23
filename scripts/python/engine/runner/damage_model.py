@@ -533,7 +533,8 @@ def normal_attack_per_hit_range(state: State, unit_id: int) -> Optional[dict]:
     # = ce que `aiPredict` (pré-armure) renvoie par coup ; les MODIFIERS d'effet sont inclus.
     res = get_attack_prediction(
         target_current_health=_BIG_HP, initial_damage=ctx.stat(StatType.ATTACK), hits=1,
-        profile_type=ctx.damage_type, armor=0, pierce_pct=100, mods=mods)
+        profile_type=ctx.damage_type, armor=0, pierce_pct=100, mods=mods,
+        attacker_effects=active)   # #202 : max-out evalue DANS predict_attack_raw
     r = res.accurate_health_damage
     return {
         "min": r.min, "max": r.max, "base": ctx.stat(StatType.ATTACK),

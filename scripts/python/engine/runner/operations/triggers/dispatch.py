@@ -46,6 +46,7 @@ from .genestealer import (DecoysAndMisdirectionDamageEnemiesAbility,
                           DecoysAndMisdirectionBuffFriendsAbility,
                           AmbushSummonAbility, EnvAmbushResurrectAbility,
                           HypersensoryMoveAndSpawnDecoyAbility)
+from .loki.weaver_of_fate import WeaverOfFateAbility                 # #202-A (trait WeaverOfFate)
 
 # --- FinalJustice / overkill ----------------------------------------------------------------------
 OVERKILL_PCT_KEY = "overkillDmgPctOfHealth"  # globalValues = 100 → overkill ssi dmg-PV >= 100%*PV (dmg>=2*PV)
@@ -61,6 +62,10 @@ TRAIT_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Ambush (Isaak/Judh/Neophyte, G3) = mort -> decoy (On UnitDefeated=55) + resurrection sur decoy allie
     # au debut du tour suivant (On TurnStart=22). Les DEUX sont fire-on-death (owner mort au moment du fire).
     "Ambush": [AmbushSummonAbility, EnvAmbushResurrectAbility],
+    # WeaverOfFate (trait Abraxas thousInfernalMaster, #202-A) = `On(9=Attack)` : >=3 ennemis ayant recu
+    # du degat PSYCHIC ce tour -> pose l'effet-marqueur 1185 WeaverOfFate_MaxOutDamage sur soi (1 tour,
+    # degats max sans tirage). Cf. loki/weaver_of_fate.py (@1811acc50/@1811acb90).
+    "WeaverOfFate": [WeaverOfFateAbility],
 }
 
 # --- Registre : passiveAbility → ability-trigger(s) accordée(s) ------------------------------------

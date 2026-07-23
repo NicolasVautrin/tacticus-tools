@@ -198,6 +198,13 @@ class StartTurnOperation:
             fl = e.get_component(UnitFlagsComponent)
             if fl is not None:
                 fl.remove_turn_flags(include_no_action=False, new_activation=True)
+            # #202 : reset du dict "degats recus ce tour" — mirror `StartTurnOperation.ResetUnit
+            # @180ea5a10` -> `ResetReceivedDamageThisTurn @180f923c0`, PAR-UNITE DU JOUEUR ENTRANT
+            # uniquement (les cles des unites ADVERSES survivent a leur propre tour — la portee du
+            # reset compte pour le seuil >=3 de WeaverOfFate). Consomme par UnitsThatTakenDamageThisTurn.
+            uc = e.get_component(UnitComponent)
+            if uc is not None and uc.received_damage_this_turn:
+                uc.received_damage_this_turn.clear()
         # #128 tile-effects ROUND-TICK : StartTurn emet la SEQUENCE d'events 0x12->0x13->0x14->0x15->0x16
         # (VERIFIE @180ea3fb0 : 5 emissions FUN_180026490(...,0x12/0x13/0x14/0x15/0x16) en fin d'Execute ;
         # l'ancien "0x12/0x14/0x16" etait INCOMPLET). Mapping effets : 0x12 = Contaminated re-apply ; 0x13 =

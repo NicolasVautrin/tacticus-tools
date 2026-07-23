@@ -366,7 +366,8 @@ def get_additional_damage_prediction(scene, att_id, tgt_id, ability_name):
         profile_type=_PROFILE_INDEX.get(prof, 0), pierce_pct=pierce, armor=scene.armor(tgt_id),
         mods=None, hit_mult=tgt_hit_mult, target_shield=scene.shield(tgt_id),
         target_limits=_target_damage_limits(scene, tgt_id, prof),
-        defender_block_amount=defender_prediction_block_amount(scene, tgt_id))
+        defender_block_amount=defender_prediction_block_amount(scene, tgt_id),
+        attacker_effects=scene.effects(att_id))   # #202 : PredictAttackRaw universel
 
 
 def get_klaw_attack1_prediction(scene, att_id, tgt_id, ability_name):
@@ -393,7 +394,8 @@ def get_klaw_attack1_prediction(scene, att_id, tgt_id, ability_name):
         profile_type=_PROFILE_INDEX.get(prof, 0), pierce_pct=pierce, armor=scene.armor(tgt_id),
         mods=None, hit_mult=tgt_hit_mult, target_shield=scene.shield(tgt_id),
         target_limits=_target_damage_limits(scene, tgt_id, prof),
-        defender_block_amount=defender_prediction_block_amount(scene, tgt_id))
+        defender_block_amount=defender_prediction_block_amount(scene, tgt_id),
+        attacker_effects=scene.effects(att_id))   # #202 : PredictAttackRaw universel
 
 
 def _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee, weapon_found):
@@ -591,7 +593,8 @@ def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fals
         mods=mods, hit_mult=tgt_hit_mult, target_shield=scene.shield(tgt_id),
         target_limits=_target_damage_limits(scene, tgt_id, prof_name),
         extra_groups=_extra_groups,
-        defender_block_amount=defender_prediction_block_amount(scene, tgt_id))
+        defender_block_amount=defender_prediction_block_amount(scene, tgt_id),
+        attacker_effects=att_effects)   # #202 : max-out evalue DANS predict_attack_raw (foyer natif)
     ev = ProbableDamageEvent(target=tgt_id, prediction=res)
     if meta:
         return ev, {"mv71": True, "tile": tile_pos, "base": attack_base, "hits": hits,
@@ -756,7 +759,8 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
         profile_type=0, pierce_pct=pierce, armor=scene.armor(tgt_id), mods=mods, hit_mult=tgt_hit_mult,
         target_shield=scene.shield(tgt_id), target_limits=_target_damage_limits(scene, tgt_id, prof_name),
         extra_groups=_extra_groups,
-        defender_block_amount=defender_prediction_block_amount(scene, tgt_id))
+        defender_block_amount=defender_prediction_block_amount(scene, tgt_id),
+        attacker_effects=att_effects)   # #202 : max-out evalue DANS predict_attack_raw (foyer natif)
     # #57c-C : override PredictAttack des attaques normales de boss (Gulgortz/LightImUp, Ghazghkull/
     # ProperKilly) — prédiction ADDITIONNELLE sur scénario VIERGE sommée via DamagePredictionResult.add
     # (@18102a710), cf. bloc _RANGED_FOLLOWUP_PASSIVES ci-dessus.
@@ -864,7 +868,8 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
         profile_type=profile_idx, pierce_pct=pierce, armor=scene.armor(tgt),
         mods=mods, target_shield=tgt_shield, hit_mult=tgt_hit_mult,
         target_limits=_target_damage_limits(scene, tgt, profile_name),
-        defender_block_amount=defender_prediction_block_amount(scene, tgt))
+        defender_block_amount=defender_prediction_block_amount(scene, tgt),
+        attacker_effects=scene.effects(uid))   # #202 : max-out evalue DANS predict_attack_raw (specials aussi)
 
 
 # Abilities dont la PRÉDICTION de dégât SANTÉ est Attack-based (== l'attaque NORMALE), PAS le config

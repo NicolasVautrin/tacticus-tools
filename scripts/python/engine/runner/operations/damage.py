@@ -66,6 +66,7 @@ from ...services.damage_combat import (calculate_damage_operation, Damage, could
 from ...services.trait_damage_limits import (apply_trait_damage_limits_to_damage,
                                              compute_prediction_overkill)
 from ...entities.damage_trait import DamageTrait
+from ...entities.damage_profile_type import DamageProfileType
 from ...services.damage_modifiers import apply_all_modifiers, capped_reduction_flat
 from ...services.battle_query import are_tiles_adjacent
 from ...services.attack_hits_formula import attack_hits_with_modifiers
@@ -169,6 +170,74 @@ class AttackDamageOperation:
         rapide pour une cible non-swarm ou morte. Lazy import (cycle damage <-> abilities)."""
         from ..abilities.loki.swarm import on_group_unit_hp_changed
         on_group_unit_hp_changed(state, target_id)
+
+    @staticmethod
+    def _apply_damage_pipeline(state: State, target_id: int, attacker_id: int, tgt, thc,
+                               total: int, profile: Optional[str],
+                               shield_dmg: int = 0, armor_dmg: int = 0,
+                               is_attack: bool = True) -> Optional[list]:
+        """#202 : CHOKEPOINT post-resolution PARTAGE des 4 vecteurs de degat — mirror du pipeline natif
+        unique qui suit toute application de degat : `ApplyDamageOperation` (mutation HP, clamp HP-floor)
+        -> OnDeathEvent (`_fire_death_if_killed`) -> compteurs per-tour (`_record_attacked`, attaques
+        seulement) -> `RegisterDamageOperation @180e86de0` (`_register_received_damage`) -> re-eval Swarm
+        (`_refresh_swarm`, On(UnitMemberDeath=48)). Avant ce foyer, chaque vecteur inlinait le meme bloc
+        x4 (divergence structurelle vs le chokepoint natif). `is_attack=False` = degat DIRECT (DoT) :
+        pas de `_record_attacked` (un DoT n'est PAS une attaque, compteur HasBeenAttackedAmountThisTurn).
+        Renvoie la liste d'events de mort (ou None si pas de mort / pas de HP)."""
+        if thc is None or thc.hp is None:
+            return None
+        hp_before = thc.hp
+        thc.reduce(total)                   # #G6a : clamp au HP-floor Hypersensory, pas de PV<0
+        death = AttackDamageOperation._fire_death_if_killed(
+            state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=total)
+        if is_attack:
+            AttackDamageOperation._record_attacked(state, target_id)    # #G6a : compteur + revert du floor
+        AttackDamageOperation._register_received_damage(
+            state, target_id, profile, total, shield_dmg, armor_dmg)
+        AttackDamageOperation._refresh_swarm(state, target_id)          # #60 : On(UnitMemberDeath=48)
+        return death
+
+    @staticmethod
+    def _register_received_damage(state: State, target_id: int, profile: Optional[str],
+                                  health: int, shield: int = 0, armor: int = 0) -> None:
+        """#202 : mirror `RegisterDamageOperation.Execute @180e86de0` -> `ActorStatisticsComponent.
+        RegisterReceivedDamage @180f922c0` : incremente `received_damage_this_turn[profil]` de la CIBLE
+        (TryAdd(profil,1) sinon +1). Consomme par le selecteur `UnitsThatTakenDamageThisTurn @180f2e230`
+        (WeaverOfFate : ContainsKey(Psychic) — seule la PRESENCE de la cle compte). Enregistre quand du
+        degat a ete inflige (sante OU bouclier OU armure-pool > 0) — le gate exact du natif (enqueue de
+        l'op par le pipeline, dispatch virtuel invisible aux xrefs) est un RESIDU documente (case-202 §6),
+        sans effet tant que seul WeaverOfFate lit le dict (cle Psychic posee par de VRAIS degats)."""
+        if not profile or (health <= 0 and shield <= 0 and armor <= 0):
+            return
+        ent = state.get_entity(target_id)
+        uc = ent.get_component(UnitComponent) if ent is not None else None
+        if uc is None:
+            return
+        try:
+            pid = int(DamageProfileType[profile])
+        except KeyError:
+            return                                  # profil inconnu -> pas de cle (fidele : enum natif)
+        d = uc.received_damage_this_turn
+        d[pid] = d.get(pid, 0) + 1
+
+    @staticmethod
+    def _apply_max_out(state: State, attacker_id: int, hit_nc: "HitDamage",
+                       hit_cr: "HitDamage") -> tuple:
+        """#202 WeaverOfFate : mirror de la branche max-out des DEUX foyers de degat natifs
+        (`AttackDamageBehaviour.GetDamage @180fbb250` / `AbilityDamageBehaviour.GetDamage @180f8c560`) :
+        si `IsAttackMaxOutDamage(attaquant) == true`, le HitDamage est construit `(max, null)` — le noeud
+        est invoque sur son slot GetMaxDamage, AUCUN tirage. Port = degenerer les bornes a (max, max) :
+        - voie `get_damage` (limits None / ability roll-then-reduce) : min==max -> AUCUN tirage consomme,
+          comme le natif (`HitDamage.GetDamage @181007bf0` gate min==max) ;
+        - voie slot-8 mode-1 (#67, limits actifs) : le tirage TOUJOURS consomme tire dans [max, max] —
+          consommation RNG bit-exacte preservee (RandomlyResolveMinMaxDamage @181038600 sans gate).
+        La branche crit d'`ExecuteHit @180e5eff0` prend aussi le max comme base (uVar26 = struct.max) —
+        couvert par la degenerescence de `hit_cr`. No-op (retourne les bornes inchangees) si l'attaquant
+        n'a pas l'effet 1185 (cas courant)."""
+        from .triggers.loki.weaver_of_fate import is_attack_max_out_damage   # lazy : cycle damage<->triggers
+        if not is_attack_max_out_damage(state, attacker_id):
+            return hit_nc, hit_cr
+        return HitDamage(hit_nc.max, hit_nc.max), HitDamage(hit_cr.max, hit_cr.max)
 
     @staticmethod
     def _record_attacked(state: State, target_id: int) -> None:
@@ -420,6 +489,9 @@ class AttackDamageOperation:
         _tgt_hit_mult = target_hit_multiplier(tsc.ctx.trait_objects()) if tsc is not None else 1
         hit_nc = _reduced_bounds(ctx.stat(StatType.ATTACK), hit_mult=_tgt_hit_mult)   # NON-crit → double-armure MkXGravis
         hit_cr = _reduced_bounds(ctx.stat(StatType.ATTACK) + crit_damage) if crit_enabled else hit_nc  # crit: hit_mult=1 (exempt)
+        # #202 WeaverOfFate : attaquant max-out (effet 1185) -> bornes degenerees a (max, max), mirror
+        # HitDamage(max, null) de `AttackDamageBehaviour.GetDamage @180fbb250` (cf. _apply_max_out).
+        hit_nc, hit_cr = AttackDamageOperation._apply_max_out(state, attacker_id, hit_nc, hit_cr)
         clean_min = hit_nc.min * hits          # référence affichée = plage non-crit (× hits)
         clean_max = hit_nc.max * hits
         # BOUCLIER cible : absorbe le coup réduit AVANT les PV (CalculateDamageOperation shield-first) ;
@@ -440,14 +512,9 @@ class AttackDamageOperation:
                                                 tgt, thc, _profile, is_special=1),
                                             limits_hp=int(thc.hp or 0))
         AttackDamageOperation._deplete_shield(shc, r)
-        death = None
-        if thc.hp is not None:
-            hp_before = thc.hp
-            thc.reduce(r["total"])          # #G6a : clamp au HP-floor Hypersensory (minimal_health), pas de PV<0
-            death = AttackDamageOperation._fire_death_if_killed(
-                state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=r["total"])
-            AttackDamageOperation._record_attacked(state, target_id)    # #G6a : compteur + revert du floor
-            AttackDamageOperation._refresh_swarm(state, target_id)      # #60 : On(UnitMemberDeath=48)
+        death = AttackDamageOperation._apply_damage_pipeline(           # chokepoint partage (#202)
+            state, target_id, attacker_id, tgt, thc, r["total"], _profile,
+            r["shield_dmg"], r["armor_dmg"])
         return {"hits": hits, "total": r["total"], "base": ctx.stat(StatType.ATTACK), "pierce": pierce,
                 "armor": armor, "clean_min": clean_min, "clean_max": clean_max, "death": death,
                 "shield_dmg": r["shield_dmg"], "armor_dmg": r["armor_dmg"],
@@ -670,6 +737,10 @@ class AttackDamageOperation:
         # CRIT pour ability = HYPOTHÈSE (non RE/validée) : crit plie sur les bornes brutes (min/max +
         # critDamage) avant réduction. NON exercé tant que cc=0 (crit = item normalisé) ; à confirmer live.
         hit_cr = HitDamage(base_min + crit_damage, base_max + crit_damage) if crit_enabled else hit_nc
+        # #202 WeaverOfFate : attaquant max-out (effet 1185) -> bornes BRUTES degenerees a (max, max),
+        # mirror HitDamage(GetMax, null) d'`AbilityDamageBehaviour.GetDamage @180f8c560` (AUCUN tirage
+        # consomme — get_damage court-circuite min==max — puis post_roll reduit le max, roll-then-reduce).
+        hit_nc, hit_cr = AttackDamageOperation._apply_max_out(state, attacker_id, hit_nc, hit_cr)
         hits = max(1, int(hits))
         shc, shield_total = AttackDamageOperation._target_shield(tgt)      # bouclier shield-first
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
@@ -682,13 +753,9 @@ class AttackDamageOperation:
                                                 tgt, thc, damage_profile, is_special=2),
                                             limits_hp=int(thc.hp or 0))
         AttackDamageOperation._deplete_shield(shc, r)
-        if thc.hp is not None:
-            hp_before = thc.hp
-            thc.reduce(r["total"])          # #G6a : clamp au HP-floor Hypersensory (minimal_health)
-            AttackDamageOperation._fire_death_if_killed(
-                state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=r["total"])
-            AttackDamageOperation._record_attacked(state, target_id)    # #G6a
-            AttackDamageOperation._refresh_swarm(state, target_id)      # #60 : On(UnitMemberDeath=48)
+        AttackDamageOperation._apply_damage_pipeline(                   # chokepoint partage (#202)
+            state, target_id, attacker_id, tgt, thc, r["total"], damage_profile,
+            r["shield_dmg"], r["armor_dmg"])
         # POSE DE FEU (OnFireDamageAbility) — `EvaluateAfterHitTriggers @180e25fc0` tourne après CHAQUE coup
         # d'attaque, NORMALE **et** ability. Le port ne câblait ce vecteur que pour l'attaque normale
         # (DamageHandler) ; ici on porte la pose on-hit des tile-effects de profil pour les attaques
@@ -757,6 +824,9 @@ class AttackDamageOperation:
 
         hit_nc = _reduced(base)
         hit_cr = _reduced(base + crit_damage) if crit_enabled else hit_nc
+        # #202 WeaverOfFate : attaquant max-out (effet 1185) -> bornes degenerees a (max, max) — le
+        # splash Psyker / smite passe par `AbilityDamageBehaviour.GetDamage @180f8c560` (meme gate).
+        hit_nc, hit_cr = AttackDamageOperation._apply_max_out(state, attacker_id, hit_nc, hit_cr)
         hits = max(1, int(hits))
         shc, shield_total = AttackDamageOperation._target_shield(tgt)      # bouclier shield-first
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
@@ -769,13 +839,9 @@ class AttackDamageOperation:
                                                 tgt, thc, damage_profile, is_special=2),
                                             limits_hp=int(thc.hp or 0))
         AttackDamageOperation._deplete_shield(shc, r)
-        if thc.hp is not None:
-            hp_before = thc.hp
-            thc.reduce(r["total"])          # #G6a : clamp au HP-floor Hypersensory (minimal_health)
-            AttackDamageOperation._fire_death_if_killed(
-                state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=r["total"])
-            AttackDamageOperation._record_attacked(state, target_id)    # #G6a
-            AttackDamageOperation._refresh_swarm(state, target_id)      # #60 : On(UnitMemberDeath=48)
+        AttackDamageOperation._apply_damage_pipeline(                   # chokepoint partage (#202)
+            state, target_id, attacker_id, tgt, thc, r["total"], damage_profile,
+            r["shield_dmg"], r["armor_dmg"])
         # VECTEUR AFTER-HIT (splash StatAmount) : idem execute_ability_attack — reset ActOfFaith au crit
         # (#138) + vecteur complet (#140). `ranged` = POSITION-based (mirror IsRangedAttack), calculé dedans.
         # `ability_type` = kind AbilityOrEffect du coup (smite Psyker 0x3f5 -> branche 2 AddIce #35).
@@ -790,7 +856,8 @@ class AttackDamageOperation:
 
     @staticmethod
     def execute_direct(state: State, source_id: int, target_id: int, base: int,
-                       profile_pierce: int) -> Optional[dict]:
+                       profile_pierce: int,
+                       damage_profile: Optional[str] = None) -> Optional[dict]:
         """Dégât DIRECT d'un nœud `Direct(...)` (mirror `DSLFactory.AttackWithAbilityDamage @180de9c90`
         + `AttackDamageBehaviour` sur nœud `Direct` — factory DISTINCTE de `AttackWithAttackDamage`
         @180de9fb0). La `base` (déjà calculée par le dégât-node, ex. `PercentageOf(StatAmount(Health,
@@ -829,12 +896,13 @@ class AttackDamageOperation:
                 from ...services.trait_damage_limits import apply_group_unit_damage_limit
                 dmg = apply_group_unit_damage_limit(dmg, False, n, int(thc.hp_max), int(thc.hp))
         hp_before = thc.hp
-        # #G6a : route par `reduce()` (clamp HP-floor + pas de PV<0). PAS de `_record_attacked` : un DoT n'est
-        # PAS une attaque (le compteur `HasBeenAttackedAmountThisTurn` ne compte que les vraies attaques).
-        thc.reduce(dmg)
-        AttackDamageOperation._fire_death_if_killed(
-            state, target_id, source_id, hp_before, thc.hp, tgt, damage=dmg)
-        AttackDamageOperation._refresh_swarm(state, target_id)          # #60 : On(UnitMemberDeath=48)
+        # Chokepoint partage (#202), `is_attack=False` : PAS de `_record_attacked` (un DoT n'est PAS une
+        # attaque — compteur HasBeenAttackedAmountThisTurn) ; la cle profil "recu ce tour" est posee
+        # (le natif route tout HP-loss par ApplyDamage -> RegisterDamage) ; `damage_profile` None
+        # (caller non threade) = pas de cle. NB : execute_direct ne consulte PAS IsAttackMaxOutDamage
+        # (aucun call site natif sur la voie DirectDamage).
+        AttackDamageOperation._apply_damage_pipeline(
+            state, target_id, source_id, tgt, thc, dmg, damage_profile, is_attack=False)
         return {"total": dmg, "base": int(base), "pierce": int(profile_pierce), "armor": armor,
                 "hp_before": hp_before, "hp_after": thc.hp}
 

@@ -24,8 +24,9 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 | # | Tâche | Modèle | Point d'entrée |
 |---|---|---|---|
-| #38b | Gate 1118 : sémantique **adj/count** des branches + **ControlEdict summon inerte en runner** | `[opus]` | `case-38` §5 : plan discriminant micro-états craftés (ennemi-adjacent-seul / ami-seul / personne) pour trancher slot 0x51 ; élucider zéro-spawn SummonMinion (stance P + On(0x26) satisfaits). Escalade `[fable]` si les craftés se contredisent. |
-| #27 | 25 overrides `CalculateCustomUtility` | `[opus]` | Volume mécanique → fan-out `re-expert`, **un item par agent**. |
+| #202 | Kit d'Abraxas (`thousInfernalMaster`) : WeaverOfFate + InfernalPacts + MasterOfTheTutelaries | `[opus]` | `case-202` : recon + carte des artefacts natifs faits ; tranches A (WeaverOfFate max-out, COMBAT+PRÉD), B (aura InfernalPacts +1 hit Psychic), C (summon cascade + décision NC). **EN COURS (orchestrateur).** |
+| #38b | Gate 1118 : sémantique **adj/count** des branches + **ControlEdict summon inerte en runner** | `[opus]` | `case-38` §5 : plan discriminant micro-états craftés (ennemi-adjacent-seul / ami-seul / personne) pour trancher slot 0x51 ; élucider zéro-spawn SummonMinion (stance P + On(0x26) satisfaits). **DÉLÉGUÉ fable-solver (en vol).** |
+| #27 | 22 overrides `CalculateCustomUtility` à porter (triage fait) | `[opus]` | `case-27` : énumération exhaustive (27 corps ghidra : 3 génériques + 2 portés + 22 restants, VAs figées) + protocole fan-out `re-expert` **un item par agent** (reachability → porteur spawnable → RE/port → validation craftée). **DÉLÉGUÉ opus-solver (en vol).** |
 | #5 | Chantier `DslContext` live-state | `[opus]` | Architecture à poser, pas d'énigme à trancher. |
 | #20 | Roadmap AdMec | `[opus]` | Planification + découpage en tranches de port. |
 | #17 | Surveillance des 2 résidus `move` | `[opus]` | Nature RNG, non actionnable — veille seulement. |

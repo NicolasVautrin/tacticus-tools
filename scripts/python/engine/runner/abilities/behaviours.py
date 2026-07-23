@@ -587,7 +587,8 @@ class AttackWithAbilityDamage(AbilityBehaviour):
         pierce = profile_pierce(None, self.profile, ranged=not self.is_melee)  # source=tuile : PiercingRatio brut
         atk = None
         for _ in range(max(1, self.hits)):
-            atk = AttackDamageOperation.execute_direct(state, src, tgt, base, pierce)
+            atk = AttackDamageOperation.execute_direct(state, src, tgt, base, pierce,
+                                                       damage_profile=self.profile)   # #202 : cle "recu ce tour"
         ectx.emit("AttackWithAbilityDamage", source=src, target=tgt,
                   total=(atk or {}).get("total"), attack=atk)
         return OperationResult.ok()

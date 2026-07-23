@@ -49,7 +49,8 @@ def _normal_attack_health_range(state: State, owner_id: int):
     hits = max(1, whits + ctx.stat(StatType.EXTRA_HITS) + hits_bonus_from_effects(active))
     pred = get_attack_prediction(
         target_current_health=0, initial_damage=int(ctx.stat(StatType.ATTACK)), hits=hits,
-        profile_type=0, armor=0, pierce_pct=100, mods=mods, spread_pct=20)    # PRÉ-ARMURE (armor=0)
+        profile_type=0, armor=0, pierce_pct=100, mods=mods, spread_pct=20,    # PRÉ-ARMURE (armor=0)
+        attacker_effects=active)   # #202 : max-out evalue DANS predict_attack_raw
     return (pred.accurate_health_damage.min, pred.accurate_health_damage.max)
 
 

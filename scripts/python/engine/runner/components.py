@@ -36,8 +36,18 @@ class UnitComponent(Component):
     HypersensoryAbilities) — source du prédicat DSL `HasBeenAttackedAmountThisTurnIsEqualOrGreater`
     @180df0c10 (compteur natif lu @+0x34 via `TotalTimesAttackedFormula`-family). Incrémenté quand l'unité
     est la CIBLE d'une attaque (pas d'un DoT), remis à 0 au `start_turn` de chaque tour. Gate de l'ActiveCondition
-    du HP-floor (`IsEnemyTurn & Not(attacked>=1)` = 1re attaque du tour ennemi) et du trigger MoveAndSpawnDecoy."""
-    __slots__ = ("visual_id", "alive", "ai_controlled", "turn_defeated", "times_attacked_this_turn")
+    du HP-floor (`IsEnemyTurn & Not(attacked>=1)` = 1re attaque du tour ennemi) et du trigger MoveAndSpawnDecoy.
+
+    `received_damage_this_turn` (#202) = Dictionary {profil de dégât (int DamageProfileType) → nb
+    d'instances} des dégâts REÇUS pendant le tour COURANT — mirror du dict `receivedDamageThisTurn`
+    de l'`ActorStatisticsComponent` natif @+0x80 (écrit par `RegisterDamageOperation.Execute @180e86de0`
+    → `RegisterReceivedDamage @180f922c0` : TryAdd(profil,1) sinon +1 ; reset par-unité du joueur
+    ENTRANT par `StartTurnOperation.ResetUnit @180ea5a10` → `ResetReceivedDamageThisTurn @180f923c0`).
+    Consommé par le sélecteur `UnitsThatTakenDamageThisTurn` (WeaverOfFate : ContainsKey(Psychic=13)).
+    NB : logé ici (comme `times_attacked_this_turn`) alors que le foyer natif est un composant
+    ActorStatistics dédié — résidu structurel documenté (case-202 §6)."""
+    __slots__ = ("visual_id", "alive", "ai_controlled", "turn_defeated", "times_attacked_this_turn",
+                 "received_damage_this_turn")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False):
         self.visual_id = visual_id
@@ -45,6 +55,7 @@ class UnitComponent(Component):
         self.ai_controlled = ai_controlled
         self.turn_defeated = None
         self.times_attacked_this_turn = 0
+        self.received_damage_this_turn: dict = {}
 
 
 class OwnerComponent(Component):
