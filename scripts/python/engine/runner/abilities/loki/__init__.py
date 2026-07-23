@@ -34,6 +34,7 @@ from .strike import (ThunderousAssaultAbility, ArmoriumCherubAbility, SpiritLeec
                      spirit_leech_heal_targets, spirit_leech_tree, valkyrie_strike_tree)
 from .imperative import DoctrinaImperativesAbility
 from .mv71 import MV71SniperDroneSquadAttackAbility
+from .quickening import TheQuickeningAbility
 
 __all__ = [
     # summon
@@ -56,4 +57,6 @@ __all__ = [
     "DoctrinaImperativesAbility",
     # mv71
     "MV71SniperDroneSquadAttackAbility",
+    # quickening
+    "TheQuickeningAbility",
 ]
