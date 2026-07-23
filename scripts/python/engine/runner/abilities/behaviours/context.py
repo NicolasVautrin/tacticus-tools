@@ -1,0 +1,171 @@
+"""Socle du contexte DSL runner-couple : `entities_from_state` (construit le `DslContext` natif
+`AbilityEntities` depuis le `State` runner) + `LiveUnit` (vue live-by-ref d'une unite). Consomme par
+TOUTES les feuilles du package `behaviours`. cf. docs/rl/dsl-effect-nodes.md,
+docs/rl/dsl-live-context-substrate.md."""
+from __future__ import annotations
+
+from ....dsl.base import DslContext
+from ...components import (OwnerComponent, PositionComponent, UnitComponent, StatsComponent,
+                          HealthComponent)
+from ....entities.traits.unit_trait import UnitTrait, has_trait
+
+
+def _unit_dict(state, eid: int, entity=None) -> dict | None:
+    """Dict d'unite {id, team, player, pos, alive, hp, visualId, _traits} lu du `State` runner — la forme
+    `unit` que consomment les selecteurs DSL. `entity` optionnel (evite un `get_entity` redondant)."""
+    e = entity if entity is not None else state.get_entity(eid)
+    if e is None:
+        return None
+    oc = e.get_component(OwnerComponent)
+    pc = e.get_component(PositionComponent)
+    uc = e.get_component(UnitComponent)
+    sc = e.get_component(StatsComponent)
+    hc = e.get_component(HealthComponent)
+    traits = set(getattr(sc.ctx, "traits", None) or ()) if sc is not None else set()
+    alive = uc.alive if uc is not None else True
+    return {
+        "id": eid,
+        "team": oc.team if oc is not None else None,
+        "player": oc.player if oc is not None else None,
+        "pos": {"col": pc.col, "row": pc.row} if pc is not None else None,
+        "alive": alive,
+        "hp": hc.hp if hc is not None else (1 if alive else 0),
+        "visualId": uc.visual_id if uc is not None else None,
+        "_traits": traits,
+    }
+
+
+# Champs MUTABLES d'une unite (re-lus du state a chaque acces par LiveUnit). Les autres (id/team/player/
+# visualId/_traits) sont quasi-statiques -> servis depuis le snapshot seed.
+_LIVE_KEYS = frozenset({"pos", "hp", "alive"})
+
+
+class LiveUnit(dict):
+    """Vue LIVE d'une unite pour le contexte RUNNER (mirror natif : `AbilityEntities` tient une REF
+    d'entite @+0x40, position/PV re-derives A LA LECTURE -- jamais un snapshot ; cf.
+    docs/rl/dsl-live-context-substrate.md, `get_CasterPosition @180fb4f20` / `UnitPosition..ctor @18102a070`).
+
+    Sous-classe `dict` pour rester reconnue par les `isinstance(v, dict)` du DSL (`resolve_unit`/`_units_of`/
+    helpers de `dsl/base.py`) et exposer les champs STATIQUES (id/team/player/visualId/_traits) via le
+    snapshot seed (compat `**`/`.items()`/iteration). Les champs MUTABLES (`_LIVE_KEYS` = pos/hp/alive) sont
+    RE-LUS du `state` a chaque `get`/`[]` -> une re-eval de predicat (ex. `IsAdjacent`) APRES une mutation
+    (Move/degat/mort) voit l'etat COURANT. C'est CE qui permet a UN arbre DSL de rester correct a travers une
+    mutation intra-arbre (Voie A, S-chantier).
+
+    L'override `caster_pos` (mode `AbilityEntities+0x48`, decision balayee AI) reste applique par les
+    SELECTEURS (`ctx.caster_pos or _pos(...)`), PAS ici : LiveUnit rend la position BRUTE live du `state`.
+    Le chemin PREDICTION (`playbook/prediction.py`) construit toujours des dicts FIGES depuis sa scene
+    hypothetique -> il n'utilise PAS LiveUnit (frozen-by-design)."""
+
+    def __init__(self, state, eid: int, entity=None):
+        self._state = state
+        self._eid = eid
+        # Ref d'entite STABLE (les composants mutent en place) = l'homologue de AbilityEntities+0x40.
+        self._entity = entity if entity is not None else state.get_entity(eid)
+        super().__init__(_unit_dict(state, eid, self._entity) or {"id": eid})
+
+    def _live(self, key):
+        d = _unit_dict(self._state, self._eid, self._entity)
+        return (d or {}).get(key)
+
+    def get(self, key, default=None):
+        if key in _LIVE_KEYS:
+            v = self._live(key)
+            return v if v is not None else default
+        return super().get(key, default)
+
+    def __getitem__(self, key):
+        if key in _LIVE_KEYS:
+            v = self._live(key)
+            if v is None:
+                raise KeyError(key)
+            return v
+        return super().__getitem__(key)
+
+
+def entities_from_state(state, caster_id: int, target_id: int | None = None,
+                        actor_id: int | None = None) -> DslContext:
+    """Construit l'`AbilityEntities` (= `DslContext`) lu par les selecteurs d'un behaviour, depuis le
+    `State` runner : `units` = `LiveUnit` (vues live-by-ref, pos/hp/alive re-lus du `state` a chaque acces
+    -> mirror `AbilityEntities+0x40` ; permet la re-eval de predicat post-mutation, Voie A), `caster`
+    (`factory+0x160`, aussi `Self@0x148`
+    pour un triggered Owner==Caster), `target` (cible principale = `factory+0x178`, lu par `Target()` —
+    None si l'ability est sans cible ; sur un OnPreDeath = l'unite MOURANTE @0x178), `actor` (`factory+
+    0x158` = ACTEUR/TUEUR de l'evenement, lu par `Actor()` — threade sur les behaviours de trigger type
+    ActOfFaith accumulate ; None sinon), `board` (= `state.board`), `has_trait(unit, traitId)` (mirror
+    `UnitExtensions.HasFlag`, via l'enum `UnitTrait` + le set de noms `ctx.traits`). `children=[]` =
+    accumulateur de spawn FRAIS pour CE cast (mirror factory+0x148)."""
+    units: list = []
+    caster = None
+    target = None
+    actor = None
+    for eid, e in state.entities.items():
+        u = LiveUnit(state, eid, e)                   # vue LIVE (pos/hp/alive re-lus a chaque acces)
+        units.append(u)
+        if eid == caster_id:
+            caster = u
+        if target_id is not None and eid == target_id:
+            target = u
+        if actor_id is not None and eid == actor_id:
+            actor = u
+
+    def _has_trait(unit, trait_id):
+        try:
+            enum = UnitTrait(int(trait_id))
+        except ValueError:
+            return False
+        return has_trait(unit.get("_traits") or set(), enum)
+
+    # `ctx.faction_of` (mirror `UnitsFromFaction`) — FactionId gameconfig par visualId (`_faction` cache).
+    # Lazy import (garde anti-circulaire, comme les Operations importees dans les feuilles).
+    from ....ai.action_generators import _faction
+
+    def _faction_of(unit):
+        return _faction((unit or {}).get("visualId"))
+
+    # `ctx.get_stat` (mirror `UnitExtensions.GetStat @180ed30d0`) : le noeud `StatAmount(sel, statType,
+    # variant)` lit la VRAIE stat de l'unite (Attack/Health/…) via son `StatsComponent.ctx.stats` — sans
+    # ce wiring il degraderait vers Health (hp) via `_default_get_stat`. `variant` = `StatPart` natif
+    # (0=Current, 2=Maximum, 3=Initial) ; `level` ignore offline (stats non scalees par niveau tierce).
+    # id de l'unite DSL -> entite ECS -> `UnitStats.get_stat(statType, part)`.
+    def _get_stat(unit, stat_type, variant=0, level=None):
+        uid = (unit or {}).get("id")
+        e = state.get_entity(uid) if uid is not None else None
+        sc = e.get_component(StatsComponent) if e is not None else None
+        us = getattr(sc.ctx, "stats", None) if sc is not None else None
+        # #60 : stat 20 (NUMBER_OF_MEMBERS) = branche DEDIEE du GetStat natif (handler jumptable 0x14
+        # @180ed3929 : GroupUnitComponent fill-up {+0x10=nrOfMembers, +0x18=restants}, PAS un
+        # StatComponent — `GetStatComponent @180ed20c0` n'a pas de case 0x14). Offline : parts derivees
+        # de l'etat PV via `group_unit_stat_part` (lu par `SwarmAbility` StatAmount(Self,20,3/4)).
+        from ....entities.stats import StatType as _ST
+        if int(stat_type) == int(_ST.NUMBER_OF_MEMBERS):
+            n = int(getattr(sc.ctx, "number_of_members", 1)) if sc is not None else 1
+            hc = e.get_component(HealthComponent) if e is not None else None
+            if hc is None or hc.hp is None or hc.hp_max is None:
+                return n if int(variant) in (0, 2, 3) else 0
+            from ....services.trait_damage_limits import group_unit_stat_part
+            return group_unit_stat_part(int(variant), int(hc.hp_max), n, int(hc.hp))
+        return us.get_stat(int(stat_type), int(variant)) if us is not None else 0
+
+    # `ctx.get_ability_level` (mirror du niveau d'ability lu par `ConfigVar` sur une unite TIERCE) : le noeud
+    # `ConfigVarForEntity(RighteousRepugnance, chance, killer)` lit le niveau PASSIF/ACTIF capte de l'unite
+    # (`StatsComponent.ctx.passive_ability_level`/`active_ability_level`, seede depuis unitConfig).
+    def _get_ability_level(unit, slot="passive"):
+        uid = (unit or {}).get("id")
+        e = state.get_entity(uid) if uid is not None else None
+        sc = e.get_component(StatsComponent) if e is not None else None
+        if sc is None:
+            return None
+        return getattr(sc.ctx, "active_ability_level" if slot == "active" else "passive_ability_level", None)
+
+    # `ctx.tile_has_effect` (predicat tuile de `UnitsOnTilesWithEffect @180dffc50`, #217) : la TUILE
+    # (entite ECS tile-id) porte-t-elle un effet ACTIF (non consomme) du type ? Meme cle tile-id de
+    # `state.effects` que la pose `AddEffectOperation` (case-35 : la glace vit dans by_unit[tile_id]).
+    def _tile_has_effect(tile_id, effect_type):
+        return (state.effects is not None
+                and state.effects.has_effect(int(tile_id), effect_type=int(effect_type)))
+
+    return DslContext(units=units, caster=caster, target=target, actor=actor, board=state.board,
+                      has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat,
+                      get_ability_level=_get_ability_level, tile_has_effect=_tile_has_effect,
+                      children=[])

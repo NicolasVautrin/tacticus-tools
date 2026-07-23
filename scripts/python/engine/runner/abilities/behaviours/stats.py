@@ -1,0 +1,131 @@
+"""Feuilles DSL de mutation de STATS/PV runner-couplees : `Heal` (soin), `ChangeStat` (modification de
+stat par-source), `SetHealth` (SET du HP courant a un % du max). Wrappers au-dessus de
+`runner/operations/heal.py` + `stat_ops.py`. Namespace natif `Entities.Behaviours.*`.
+
+C'est ICI qu'atterrira la feuille `AddStaticStatModifierEffect` (levier transverse #1 de la campagne
+case-220 : buffs permanents/durees sur SELECTEUR / ToOwner)."""
+from __future__ import annotations
+
+from ....dsl.base import TargetsSelector, _units_of
+from ....dsl.effects import AbilityBehaviour, OperationResult
+from ...components import HealthComponent, StatsComponent
+
+
+class Heal(AbilityBehaviour):
+    """`DSLFactory.Heal(source, targets, amount) @...` -> `HealBehaviour.Execute` : soigne CHAQUE unite du
+    selecteur `targets_sel` de `amount_fn(entities, ectx)` PV, via l'Operation portee `HealUnitOperation.
+    execute` (mutation PV, plafond `hp_max`, gate `Cursed`). Wrapper MINCE au-dessus du mutateur ECS (mirror
+    du 3e volet de `SpiritLeech.ExecuteBehaviour` = lifesteal). Le montant est calcule UNE fois par
+    `amount_fn` = FOLD du `SetCache(PercentageOf(LastAttackDamageMade, ...))` natif (le Heal natif lit un
+    montant CACHE derive de la derniere attaque ; l'`amount_fn` nommee (mirror `GetHealAmountForExecution`)
+    le recompute en lisant le total de la derniere `AttackWithAttackDamage` dans `ectx.emitted`). `source`
+    de soin = `ctx.caster`. No-op si montant <= 0. Emet 'Heal' (amount + heals=[{target, healed}]). PUR."""
+    __slots__ = ("targets_sel", "amount_fn")
+
+    def __init__(self, targets_sel: TargetsSelector, amount_fn):
+        self.targets_sel, self.amount_fn = targets_sel, amount_fn
+
+    def execute(self, entities, ectx):
+        from ...operations.heal import HealUnitOperation
+        state = ectx.state
+        amount = int(self.amount_fn(entities, ectx) or 0)
+        heals: list = []
+        if state is not None and amount > 0:
+            src = (entities.caster or {}).get("id")
+            for u in (self.targets_sel.evaluate(entities) or []):
+                tid = u.get("id") if isinstance(u, dict) else None
+                if tid is None:
+                    continue
+                healed = HealUnitOperation.execute(state, tid, amount, source_id=src)
+                heals.append({"target": tid, "healed": healed})
+        ectx.emit("Heal", amount=amount, heals=heals)
+        return OperationResult.ok()
+
+
+class ChangeStat(AbilityBehaviour):
+    """`DSLFactory.ChangeStat @180debdc0` -> `ChangeStatBehaviour.Execute @180fbfb10` : applique une
+    MODIFICATION DE STAT (`ModifyStatMessage` -> `UnitStats.Transform`) sur le(s) sujet(s) de `target_sel`,
+    stat `stat_type` (natif `Position(statType,0,0)`), selon `mode` (lu au decompile @180fbfb10, champ
+    +0x68) :
+        0 = SetAbsolute (new = delta - GetStat)           2 = Add       (new = GetStat + delta)
+        1 = Clamp/Min-Max (Min(Max(GetStat+delta,0),max)) 3 = Subtract  (new = Max(GetStat - delta, 0))
+        4 = source-scaled (StatModifier depuis une source)   -- seuls 2/3 sont portes (usage actuel).
+    Porte via `apply_change_stat`/`revert_change_stat` (`operations.stat_ops` = `ModifyStatMessage` apply
+    part5 / revert part6, PAR-SOURCE) : `mode="add"` -> `apply_change_stat(+delta)` attribue a `source` ;
+    `mode="revert"` -> `revert_change_stat(source)`. Le revert par-source == le natif mode3 `Max(GetStat -
+    delta, 0)` TANT QU'aucun autre modifier ne touche la stat entre l'add et le revert -- cas du buff
+    NET-NUL scope-attaque (HeroicFusillade encadre son attaque de `ChangeStat(CRIT_DAMAGE, Add, mag)` /
+    `ChangeStat(CRIT_DAMAGE, Sub, mag)`). Le combat relit `ctx.stat(stat_type)` AU ROLL (cf.
+    `damage._crit_params`) -> un buff pose AVANT l'attaque est OBSERVABLE (crit +mag), retire apres.
+
+    `amount` = int OU callable `(entities, ectx) -> int` (mag calculee LIVE, ex. `extraCritDmg x nbFree`
+    lu POST-move). `source` = cle de source PARTAGEE entre l'add et le revert (revert exact par-source).
+    Emet 'ChangeStat'. PUR (stop=False)."""
+    __slots__ = ("target_sel", "stat_type", "mode", "source", "amount")
+
+    def __init__(self, target_sel: TargetsSelector, stat_type: int, mode: str, source, amount=0):
+        self.target_sel, self.stat_type, self.mode = target_sel, int(stat_type), mode
+        self.source, self.amount = source, amount
+
+    def execute(self, entities, ectx):
+        from ...operations.stat_ops import apply_change_stat, revert_change_stat
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        for u in _units_of(self.target_sel, entities):
+            uid = u.get("id") if isinstance(u, dict) else None
+            if uid is None:
+                continue
+            if self.mode == "revert":                     # ChangeStat mode 3 (Subtract) = undo net-nul
+                val = revert_change_stat(state, uid, self.stat_type, self.source)
+                ectx.emit("ChangeStat", unit=uid, stat=self.stat_type, mode="revert", value=val)
+            else:                                         # ChangeStat mode 2 (Add)
+                amt = int(self.amount(entities, ectx) if callable(self.amount) else self.amount)
+                val = apply_change_stat(state, uid, self.stat_type, self.source, amt)
+                ectx.emit("ChangeStat", unit=uid, stat=self.stat_type, mode="add", amount=amt, value=val)
+        return OperationResult.ok()
+
+
+class SetHealth(AbilityBehaviour):
+    """`BlackRageAbility.GetSetHealthBehaviour @1811ba690` -> `ChangeStat(Health(5), mode 0=SetAbsolute,
+    PercentageOf(StatAmount(Health, MAXIMUM=2), ConfigVar(hpPct)))` : SET le HP courant du sujet a
+    `hpPct%` de son MaxHealth. Mode 0 SetAbsolute (`ChangeStatBehaviour.Execute @180fbfb10` case 0 : la
+    modification impose `GetStat(stat) == amount`) ; Health = stat FILL-UP (`HealthComponent`, PAS un
+    `StatComponent`) -> le SetAbsolute sur le fill-up = SET du current HP (`HealthComponent.hp = amount`).
+    Amount = `hp_max * hpPct // 100` (`PercentageOf(MaxHealth, hpPct%)`). `hpPct` = ability var per-level
+    (BlackRage: [30,30,...] = 30%, HORS variablesAffectedByRarityBonus -> multiplier 100).
+
+    DETERMINISTE (aucun rng). C'est le COUT self de BlackRage : Lucien tombe a 30% MaxHealth (HEAL s'il est
+    DEJA sous 30%, cf. walk garde 31337 hp=1 -> 30%). Emet 'SetHealth'. PUR (stop=False). MESURE live (31337,
+    Lucien MaxHealth 15060) : hp 9035 -> 4518 = 15060*30//100 (SetAbsolute a 30%)."""
+    __slots__ = ("target_sel", "ability_id", "pct_var")
+
+    def __init__(self, target_sel: TargetsSelector, ability_id: str, pct_var: str = "hpPct"):
+        self.target_sel, self.ability_id, self.pct_var = target_sel, ability_id, pct_var
+
+    def execute(self, entities, ectx):
+        from fractions import Fraction
+        from ....entities.effects.magnitude import ability_var
+        from ....dsl.base import _round_fix64
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        for u in _units_of(self.target_sel, entities):
+            uid = u.get("id") if isinstance(u, dict) else None
+            if uid is None:
+                continue
+            e = state.get_entity(uid)
+            hc = e.get_component(HealthComponent) if e is not None else None
+            if hc is None or hc.hp_max is None:
+                continue
+            sc = e.get_component(StatsComponent)
+            level = getattr(sc.ctx, "active_ability_level", None) if sc is not None else None
+            pct = ability_var(self.ability_id, self.pct_var, level)     # ConfigVar(hpPct) par niveau
+            if pct is None:
+                continue
+            # PercentageOf(MaxHealth, hpPct%) mode 0 = Round half-to-even (`_round_fix64` mode 0), PAS floor
+            # (bit-exact vs live 4518 = round(15059*30/100=4517.7) ; floor donnerait 4517). SetAbsolute -> hp.
+            new_hp = _round_fix64(Fraction(int(hc.hp_max) * int(pct), 100), 0)
+            hc.hp = new_hp
+            ectx.emit("SetHealth", unit=uid, hp=new_hp, pct=int(pct))
+        return OperationResult.ok()
