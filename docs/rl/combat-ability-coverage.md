@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **171** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **18**
-- **NO-OP silencieux** (a porter) : **153**
-- Ventilation NO-OP : **DAMAGE**=97, **EFFECT/BUFF**=29, **SUMMON**=19, **HEAL**=5, **REPAIR**=3
+- **PORTED** (dans `ABILITY_CLASSES`) : **19**
+- **NO-OP silencieux** (a porter) : **152**
+- Ventilation NO-OP : **DAMAGE**=97, **EFFECT/BUFF**=28, **SUMMON**=19, **HEAL**=5, **REPAIR**=3
 
 ## Priorisation & templates de port
 
@@ -22,7 +22,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (153)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (152)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -146,7 +146,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | ? | SternguardFocus | EFFECT/BUFF | 2 | LN |
 | 1186 | WallOfMirrors | EFFECT/BUFF | 2 | NS |
 | 1133 | WarConstruct | EFFECT/BUFF | 2 | N |
-| 1163 | BlackRage | EFFECT/BUFF | 1 | L |
 | 1032 | Catalyst | EFFECT/BUFF | 1 | N |
 | 1203 | DaemonicPatrons | EFFECT/BUFF | 1 | L |
 | 1107 | Reveal | EFFECT/BUFF | 1 | N |
@@ -180,7 +179,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 | 1219 | IronkinSteeljack | SUMMON | 1 | L |
 
-## PORTED (registry) (18)
+## PORTED (registry) (19)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -196,6 +195,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1113 | Stormcaller | DAMAGE(Psychic) | 2 | LN |
 | 1018 | ValkyrieStrike | DAMAGE(Blast) | 2 | NS |
 | 1118 | DoctrinaImperatives | EFFECT/BUFF | 6 | LN |
+| 1163 | BlackRage | EFFECT/BUFF | 1 | L |
 | 1151 | TheQuickening | EFFECT/BUFF | 1 | L |
 | 1096 | MasterOfTheTutelaries | SUMMON | 6 | LN |
 | 1007 | ScarabHive | SUMMON | 6 | LN |

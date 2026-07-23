@@ -95,3 +95,11 @@ Cast TILE-TARGET (le joueur/IA choisit une TUILE a portee-mouvement 2). Sur exec
   ne cible pas les tuiles ennemies en jeu AI reel — la decision ne les valorise pas).
 - **`Reserve` / `SetCache` / `InvalidateCaches` / `EffectFromOwner(0x19)`** = plomberie DSL sans effet
   net observable (memoisation de tuile, reservation, invalidation de cache) -> non materialises.
+- **FORK de port `PerformAIAttackFromCurrentPosition` (finding relecture orchestrateur, au merge)** :
+  le meme noeud natif a DEUX mirrors — `loki/summon.py::perform_ai_attack_from_current_position`
+  (#202-C : nearest enemy toutes portees + gate `_in_attack_range` + dispatch `after_hit_normal_attack`
+  avec profils) et `quickening.py::_free_melee_attack` (#217 : nearest ADJACENT + `AttackDamageOperation.
+  execute` SANS dispatch after-hit). Divergence structurelle (`feedback_check_own_port_before_re`) +
+  la free-attack Quickening ne pompe PAS les triggers after-hit (ex. un hit Psychic pres d'un porteur
+  1197 devrait chainer un Screamer ; on-kill triggers idem). A UNIFIER en une seule feuille qui lit le
+  contexte (ForcedInMelee -> domaine adjacent) et dispatche l'after-hit. `[opus]`, fix-forward.

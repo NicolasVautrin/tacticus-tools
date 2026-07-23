@@ -26,14 +26,23 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 |---|---|---|---|
 | #202 | Kit d'Abraxas (`thousInfernalMaster`) : WeaverOfFate + InfernalPacts + MasterOfTheTutelaries | `[opus]` | `case-202` : **tranches A, B et C LIVRÉES** (C : execute 1096 + effet 1197 + triggered 1173 Screamer-par-attaque-Psychic-du-SET-bonus-inclus + chaîne InfernalPacts + playbook NC slots 0x49/0x52/0x6b/0x72 — probe 202c PASS A1-A4/B/C, garde 31337 100 %). Résidu principal : face DÉCISION portée mais non confrontée oracle (`case-202` §8) — au premier walk Thousand Sons. |
 | #27 | Résidus `CalculateCustomUtility` : 4 sous-systèmes à porter (débloqueurs nommés) | `[opus]` | `case-27` : **2 portés** (ArmoriumCherub 1014, LightOfSanguinius 1177 — `loki_custom.py`, garde 31337 100%) + **20 résidus** classés par débloqueur (DSL-évaluateur / BattleQuery-token 0x44-0xb1 / multi-hit / utilité-déplacement / MoW off-board / `dp=False` / dead-code / sans-id). Reprise = porter un sous-système → débloque son groupe d'overlays (roadmap dans le doc). |
+| #217 | P0 DÉCIDER≠EXÉCUTER : porter le combat des **27 actives `[-D]`** (décision portée, exécution NO-OP) | `[opus]` (Stormcaller `[fable]`) | `port-roadmap.md` §3 — commencer par P0-WALK (1113/1163/1151/1153/1191, castées dans le walk de garde 31337). |
+| #20 | Port des kits par faction (ex-« Roadmap AdMec », généralisée à TOUTES les factions) | `[opus]` | `port-roadmap.md` §5 + `kit-coverage.md` (119 kits, 249 items ; piocher par faction, exceptions dures en §5.2). Audits régénérables : `audit_kit_coverage.py` / `audit_combat_ability_coverage.py`. |
 | #5 | Chantier `DslContext` live-state | `[opus]` | Architecture à poser, pas d'énigme à trancher. |
-| #20 | Roadmap AdMec | `[opus]` | Planification + découpage en tranches de port. |
 | #17 | Surveillance des 2 résidus `move` | `[opus]` | Nature RNG, non actionnable — veille seulement. |
 
 ## Résidus documentés (pas encore des tâches)
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **BlackRage décision : seuil `should_evaluate` hp<=50% vs `hpPct` per-level (30→50%)** (`case-217-
+  blackrage`, candidat remonté par PR #12) : le playbook décision gate à 0.5 fixe alors que la RE combat
+  montre un hpPct par niveau — correct seulement au niveau max. N'affecte pas le guard (Lucien caste à
+  hp=1). À corriger si un walk à niveau intermédiaire l'exerce. `[opus]`.
+- **Fork de port `PerformAIAttackFromCurrentPosition`** (`case-217-thequickening` §5, finding
+  relecture au merge PR #11) : 2 mirrors du même nœud natif (`loki/summon.py` #202-C avec dispatch
+  after-hit vs `quickening.py::_free_melee_attack` #217 sans) → unifier en une feuille unique
+  contexte-aware (ForcedInMelee → domaine adjacent) + dispatch after-hit. `[opus]`, fix-forward court.
 - **Trait `Unstoppable` (1042), exemption movement-stop** (`case-205` — RE complet, verdict
   invalidable) : trait = membre de `NotBlockingMovementOfTraits @18155b370` {Mounted, Vehicle,
   Unstoppable} consommé par le WalkPathfinder pour les effets de tuile movement-ending
