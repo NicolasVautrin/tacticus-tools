@@ -461,6 +461,11 @@ Il résout end-to-end et **LIVRE PAR PULL REQUEST** :
   **`!include` dans ce CLAUDE.md** (section « Documentation détaillée ») → chargé en contexte chaque
   session : je tente de résoudre un cas dur SEUL avec ces techniques AVANT de déléguer. But : à terme,
   de moins en moins besoin de l'agent.
+- **Variante `opus-solver` pour les cas `[opus]`** (`.claude/agents/opus-solver.md`, modèle opus) :
+  même workflow solver end-to-end (worktree isolé, édition libre, validation adversariale de son
+  propre fix, livraison par PR que je relis/merge) — pour l'artefact **identifié** / volume
+  mécanique / port 1:1. Il n'écrit **jamais** `solving-playbook.md` (fable-solver only) ; un item
+  qui se révèle DUR est reporté comme **candidat fable-solver**, pas résolu à l'usure.
 
 ## Ne jamais
 
