@@ -245,13 +245,19 @@ def _positional_att_ctx(state: State, unit_id: int) -> Optional[dict]:
 
 
 def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged: Optional[bool] = None,
-                       target_traits=None, target_id: Optional[int] = None):
+                       target_traits=None, target_id: Optional[int] = None,
+                       is_normal_attack: bool = True):
     """`DamageModifiers` de l'attaquant depuis ses EFFETS actifs (None-safe). `is_ranged` = nature du coup
     (propagée aux bonus gated `IsRangedAttack`, ex. HeavyWeapon_ExtraDmg). `has_moved` (#60) = l'unité a-t-elle
     BOUGE ce tour (state.moved_this_turn) -> gate no-move : HeavyWeapon_ExtraDmg s'ANNULE si l'unité a bougé
     (verdict RE cluster #60 : le combat lisait has_moved=None -> bonus TOUJOURS appliqué, FAUX). `target_id`
     (incr. C) = la CIBLE du coup -> calcule le gate `HasNegativeModifier(cible armure)` (`defender_armor_reduced`)
     pour la contribution +extraDmg de ConquerorImperative ; None (chemin sans cible) -> gate None (inerte).
+    `is_normal_attack` (#217) = nature du VECTEUR côté ATTAQUANT (symétrique du #112 défenseur) : False =
+    attaque d'ABILITY (`execute_ability_attack`) -> gate les bonus attaquant normal-only (LordOfTempests
+    snowball : MESURÉ live probe_217 B — cast Stormcaller avec effet actif + 3 hexes glacés ring-1 ->
+    natif +0, offline-sans-gate +extraDmg x 3 x 3 hits ; le natif NE l'applique PAS aux attaques d'ability).
+    Défaut True = attaque normale / normal-like (le smite Psyker porte le KIND 1013 = attaque-normale).
     Les AURAS ALLIÉES +dégât (incr. C2 : `create_aura_attack_damage_bonus_for_ally` des alliés à portée,
     Conqueror/BeaconOfRage) sont ajoutées ici (`_apply_ally_attack_damage_auras`) — mirror combat de la prédiction."""
     active = (state.effects.active_effects(unit_id, {"hp": hp})
@@ -263,8 +269,8 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     # la prédiction (qui le lit du tileMeta frais). Seul consommateur d'att_ctx à ce jour ; les unités
     # sans effet positionnel sont inchangées (les autres bonus ignorent att_ctx).
     att_ctx = _positional_att_ctx(state, unit_id)
-    mods = build_attacker_modifiers_from_effects(active, is_ranged, has_moved=has_moved,
-                                                 target_traits=target_traits,
+    mods = build_attacker_modifiers_from_effects(active, is_ranged, is_normal_attack=is_normal_attack,
+                                                 has_moved=has_moved, target_traits=target_traits,
                                                  target_armor_reduced=tar, att_ctx=att_ctx)
     _apply_ally_attack_damage_auras(state, unit_id, mods, is_ranged, tar)
     return mods, active

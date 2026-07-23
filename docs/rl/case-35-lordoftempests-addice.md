@@ -72,14 +72,17 @@ LordOfTempests sur ses coups (la zone de glace de Stormcaller = SON propre artef
 - **Branche 2 (glace sur la victime du smite) non exercée LIVE** : exige un 2e ennemi adjacent à
   la cible (build mono-ennemi). Structurellement câblée + unit-testée (5 branches `matches`) ; le
   threading emprunte le chemin Psyker déjà bit-exact. `[opus]`.
-- **`is_normal_attack` face attaquant toujours True dans le foyer combat** (pré-existant) : si une
-  attaque d'ABILITY de Njal était simulée (Stormcaller non porté), le bonus snowball s'appliquerait
-  à tort (l'i2 dit « normal attacks »). Inerte aujourd'hui. Le smite (normal-like 1013) le reçoit —
-  plausible-correct, non mesuré. `[opus]`.
+- **`is_normal_attack` face attaquant** — **RÉSOLU + MESURÉ (#217, case-217)** : le natif n'applique
+  PAS le snowball aux attaques d'ABILITY (probe_217 B : cast Stormcaller, effet actif + 3 hexes glacés
+  ring-1 → natif +0 ; offline sans gate divergeait d'exactement extraDmg×3×3 hits). Fix :
+  `execute_ability_attack` threade `is_normal_attack=False` côté attaquant (`attacker_modifiers`).
+  Le smite (normal-like 1013) reste sur le vecteur `execute_normal_like` (défaut True) — kind 1013 =
+  attaque-normale, cohérent avec la branche 2 AddIce.
 - **`load_state` n'hydrate PAS les effets de TUILE** d'un snapshot mi-bataille (le test 2 les seede
   du tileMeta). N'affecte pas les walks complets (notre trigger pose la glace en simulant). `[opus]`.
-- **Stormcaller (active 1113) non porté runner** — sa pose de glace de zone
-  (`GetAddIceTiles @18120cf70` : cible + ring-1) et ses 3× hits AoE = tranche dédiée si besoin. `[opus]`.
+- **Stormcaller (active 1113)** — **PORTÉ (#217, case-217)** : zone de glace (`GetAddIceTiles
+  @18120cf70`), 3× Psychic sur les ennemis-sur-glace, stun Flying — `runner/abilities/loki/
+  stormcaller.py`, validé probe_217 (bit-exact 2 scénarios) + agreement 31337 4×100 %.
 - **Mécaniques ICE aval toujours GATE** (pré-existant, terrain-effects.md §2) : blocage de mouvement
   (`NotBlockingMovementOfTraits(0x11)`, #131) et crit-bonus (`IceEffect.
   CreateEffectDamageBonusForAttack @180f44940`, direction/sélecteur À TRANCHER). Le stun Flying de

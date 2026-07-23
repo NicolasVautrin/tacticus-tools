@@ -218,6 +218,36 @@ class Units(TargetsSelector):
         return [u for u in ctx.units if _is_alive(u) and _pos(u) in tset]
 
 
+class UnitsOnTilesWithEffect(TargetsSelector):
+    """`DSLFactory.UnitsOnTilesWithEffect(source, effectType) @180dffc50` → `FromTrigger(source,
+    <prédicat tuile-porte-effet>)` : garde les unités de `source` dont la TUILE porte un effet ACTIF
+    du type `effect_type`. Structure du décompilé : construit un objet-config (effectType stocké
+    @+0x20) + un prédicat (ctor gshared MISLABELÉ « AttackHitsWithModifiersFormula » dans ghidra —
+    structure lue, jamais le nom) puis `DSLFactory.FromTrigger(source, prédicat)` = FILTRE de la
+    source. Consommateur porté : `StormcallerAbility.ExecuteBehaviour @18120cc20` (#217 — cibles de
+    l'attaque = `Enemies(Owner) ∩ on-tiles-with-Ice(0x11)`, TOUTES tuiles glacées, pas juste la zone
+    du cast). Lit `ctx.tile_has_effect(tile_id, effect_type)` (wiré par `entities_from_state` sur
+    `state.effects`, même clé tile-id que la pose `AddEffectOperation`, case-35) + `ctx.board.id_at`
+    pour la tuile de l'unité. board/capacité absents → [] (dégradation documentée).
+    ⚠ MainTile seule (l'occupation multi-tuile BigTarget n'est pas raffinée — même réduction que
+    `Units`/`_within`)."""
+    def __init__(self, source: TargetsSelector, effect_type: int):
+        self.source, self.effect_type = source, int(effect_type)
+
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        the = getattr(ctx, "tile_has_effect", None)
+        if board is None or the is None:
+            return []
+        out = []
+        for u in _units_of(self.source, ctx):
+            p = _pos(u)
+            tid = board.id_at(p[0], p[1]) if p is not None else None
+            if tid is not None and the(tid, self.effect_type):
+                out.append(u)
+        return out
+
+
 class Tiles(TargetsSelector):
     """`DSLFactory.Tiles(units) @180dfdc60` → `UnitsMainTilesSelector.Select @180f02150` (ctor mislabelé
     "SortReverse", singleton distinct DAT_183278e98) : unités → leur MainTile. Retour list[position].

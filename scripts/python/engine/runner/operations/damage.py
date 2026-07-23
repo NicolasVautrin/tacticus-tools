@@ -840,7 +840,12 @@ class AttackDamageOperation:
             return None
         ctx = sc.ctx
         ahc = att.get_component(HealthComponent)
-        mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, target_id=target_id)
+        # #217 : vecteur ABILITY -> is_normal_attack=False côté ATTAQUANT aussi (symétrique du #112
+        # défenseur ci-dessous). MESURÉ live (probe_217 B, cast Stormcaller avec effet LordOfTempests
+        # ACTIF + 3 hexes glacés ring-1 à l'attaque) : natif +0, offline-sans-gate +extraDmg x3 x3 hits
+        # -> le natif n'applique PAS les bonus attaquant normal-only aux attaques d'ability.
+        mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, target_id=target_id,
+                                          is_normal_attack=False)
         tsc = tgt.get_component(StatsComponent)
         armor = defender_fixed_armor(state, target_id)   # FOYER partagé (base GetStat(16) + aura Protector allié)
         # #59 suite : threade is_melee + profil de l'ability -> malus DÉFENSEUR gatés (Terrifying_ExtraDefense
