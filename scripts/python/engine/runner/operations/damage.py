@@ -7,23 +7,31 @@ Chaîne native RE'd (VA citées) :
 
     AttackDamageOperation.Execute        @180e60c70
       → GetAttackHits                    @180e613d0   (nb de coups ; 1 par défaut)
-      → SetupHitGroup : construit le `HitDamage` {Min,Max} PAR COUP = plage RÉDUITE
-        (perçage/armure/modifiers appliqués aux bornes base±spread AVANT le tirage)
       → ExecuteHits (boucle nbHits)      @180e607b0
-          → ExecuteHit (PAR COUP)        @180e5eff0
-              1. RollCritical (IDamagePrediction slot 0xa → DamageCalculations.RollCritical
-                 @1810057b0 → NextBool(critChance))  ← 1er conso RNG SI cc≥1 (tirage PAIR)
-              2. HitDamage.GetDamage     @181007bf0   ← spread DANS la plage réduite SÉLECTIONNÉE
-                 (crit → bornes eff_attack=attack+critDamage ; sinon non-crit) — tirage IMPAIR
-              3. roll block (composant 10)                        — palier 2 (non porté)
-              4. split bouclier/armure-pool (CalculateDamageOperation) — palier 3
-              5. EvaluateAfterHitTriggers (cascade)               — palier 4
+          → ExecuteHit (PAR COUP)        @180e5eff0   — per-coup PARTAGÉ : attaque NORMALE **et**
+            attaques d'ABILITY `AttackWithAttackDamage` (AttackDamageBehaviour.ExecuteTarget
+            @180fba140 → stream slot 0x3c → même opération). Corrigé cas fable rngcrit-1202 :
+              1. HitDamage.GetDamage     @181007bf0   sur le STRUCT d'entrée — tirage SSI min!=max :
+                 NORMALE = struct DÉGÉNÉRÉ → 0 tirage ; ABILITY bounds = [minDmg,maxDmg] config
+                 → 1 tirage = LA VALEUR BRUTE (roll-then-reduce).
+              2. RollCritical (IDamagePrediction slot 0xa → DamagePrediction.RollCritical
+                 @1810387a0 : gate `cc<1 → false SANS tirage` → DamageCalculations.RollCritical
+                 @1810057b0 = NextBool brut, atteint seulement à travers le gate)  ← SI cc≥1
+              3. slot 4 CalculateDamageOperation @18102dc30 : shield-part/armure/caps → cellules
+                 min/max (0 RNG) — NORMALE : bornes RÉDUITES ; ABILITY : cellules DÉGÉNÉRÉES.
+              4. slot 8 RandomlyResolveMinMaxDamage @181038600 : Next(min,max+1) — TOUJOURS
+                 1 tirage (AUCUN gate min==max) : NORMALE = LA VALEUR (plage réduite) ;
+                 ABILITY = tirage GASPILLÉ (largeur 1).
+              5. sub-op 0x42 : block rolls + split bouclier/armure-pool (calculate_damage_operation)
+              6. EvaluateAfterHitTriggers @180e25fc0 (cascade)
 
-**Ordre RNG CONFIRMÉ (genrand brut live, necroDestroyer CC=100)** : par coup =
-RollCritical (tirage PAIR) PUIS spread (tirage IMPAIR) = 2 tirages/coup. À cc=0,
-RollCritical ne tire RIEN (NextBool gate cc≥1) → 1 tirage/coup → rétro-compat exacte
-du multi-coups non-crit (validé 18/18). Le spread d'un coup non-crit propre reste le
-tirage RNG #1 — base de la validation bit-exact (`tests/engine/runner/test_damage_roll_live.py`).
+**Ordre RNG CONFIRMÉ (genrand brut live, necroDestroyer CC=100 ; re-mesuré probe_rngcrit_1202
+2026-07-23, custoKyrus 3-hit cc=0, 5 seeds x 2 cibles)** : attaque NORMALE par coup =
+RollCritical si cc≥1 (tirage PAIR) PUIS valeur (resolve slot 8, tirage IMPAIR). À cc=0,
+RollCritical ne tire RIEN (gate `cc<1` de @1810387a0) → 1 tirage/coup (validé 18/18 + probe A).
+Attaque d'ABILITY bounds-mode par coup à cc=0 : **2 tirages** = valeur BRUTE (GetDamage-top)
+puis resolve GASPILLÉ — cf. `_one_hit`. La désync #220/#205 (« 6 rng pour 3 coups ») était ce
+resolve dégénéré, PAS un crit-roll : aucun chemin natif ne consomme un tirage crit à cc=0.
 
 **CRIT (combat ≠ prédiction)** : le crit du COMBAT s'ajoute à la BASE D'ATTAQUE AVANT
 spread/perçage (`GetBaseDamageFix64` param_4=isCrit ⇒ `eff_attack=attack+critDamage`,
@@ -461,8 +469,14 @@ class AttackDamageOperation:
         # {1125,1687}×0.6=[675,1012] (=W338 du solveur, ×1.552=(906+500)/906) ; next_internal(675,1013)
         # aux tirages IMPAIRS = live [932,882,967,867,961,955] À L'UNITÉ.
         # ORDRE PAR COUP (confirmé par positions genrand) : RollCritical D'ABORD (tirage pair), spread APRÈS
-        # (tirage impair). `roll_critical` ne tire QUE si cc≥1 (NextBool) — cc=0 ⇒ 0 tirage ⇒ rétro-compat
-        # exacte du multi-coups non-crit validé (18/18). Gate `could_crit` = cc>0 ET cd>0 (CouldCrit@181004fb0).
+        # (tirage impair). `roll_critical` ne tire QUE si cc≥1 — gate `cc<1 → false SANS tirage` de
+        # `DamagePrediction.RollCritical @1810387a0` (l'UNIQUE chemin crit d'`ExecuteHit`, slot 0xa ;
+        # `DamageCalculations.RollCritical @1810057b0` = le NextBool brut DERRIÈRE ce gate) — cc=0 ⇒ 0 tirage
+        # ⇒ rétro-compat exacte du multi-coups non-crit validé (18/18 + probe_rngcrit_1202 branche A).
+        # NB cas fable rngcrit-1202 : le « crit-roll fantôme » mesuré par #220/#205 sur les attaques
+        # d'ABILITY multi-coups à cc=0 n'était PAS un crit-roll (réfuté décompile + live M1/M2) mais le
+        # resolve slot-8 GASPILLÉ du vecteur ability — cf. `_one_hit`. Gate `could_crit` = cc>0 ET cd>0
+        # (CouldCrit@181004fb0).
         # crit = GetStat(9/10) [DÉJÀ effet-inclusif : les effets StatModification sur la crit sont
         # cuits dans GetStat → dans le combatSnapshot → dans ctx] + couche calc-time SÉPARÉE
         # GetCritChanceBonusFromEffects/GetCritDamageBonusFromEffects (PAS dans GetStat → sommée ici
@@ -541,7 +555,8 @@ class AttackDamageOperation:
                   crit_chance: int, crit_enabled: bool, hits: int, block_sources,
                   shield: int = 0, armor_pool: int = 0, armor_pct: int = 0, post_roll=None,
                   bonus_hit_chance: Optional[int] = None, capped_reductions=None,
-                  limits: Optional[dict] = None, limits_hp: int = 0) -> dict:
+                  limits: Optional[dict] = None, limits_hp: int = 0,
+                  wasted_resolve: bool = True) -> dict:
         """Boucle PAR COUP partagée (attaque normale ET ability) : pour chaque coup, crit-roll D'ABORD
         (1 tirage NextBool si cc>=1, sinon 0) PUIS tirage dans `hit_cr`/`hit_nc`, PUIS split combat
         (bouclier/armure-pool/block, `calculate_damage_operation`). Ordre RNG crit->spread->block confirmé.
@@ -578,11 +593,104 @@ class AttackDamageOperation:
             if capped_reductions else 0
         _rogne = [0]        # #67 : rogne cumule des cellules MIN des coups precedents (porte overkill)
 
+        def _one_hit_tail(idx: int, crit: bool, roll: int) -> bool:
+            """Queue PARTAGÉE d'un coup : split combat (sub-op 0x42) + comptabilité + Maybe GetStuckIn.
+            #72 : mirror `CalculateBlockChances(param_4=failedList)` @181002350 -> une source de block
+            AYANT ECHOUE a un coup precedent est EXCLUE des coups suivants (Contains(failedList, id)) ;
+            une source qui REUSSIT reste jouable (ApplyRandomBlockDamage return sans AddFailedBlockId).
+            Donc une source est jouee chaque coup JUSQU'A son 1er echec, puis plus (aucun tirage). Preuve
+            live (orksNob BeastSlayer chance=10) : hit1 succes + hit2 echec -> 0 roll hits 3-6 = 8 tirages."""
+            nonlocal total, shield, armor_pool, shield_dmg, armor_dmg, did_crit, did_block, did_evade
+            hit_block = ([s for s in block_sources if s.block_id not in failed_block] or None
+                         ) if block_sources else None
+            dmg: Damage = calculate_damage_operation(
+                roll, shield=shield, armor_pool=armor_pool, armor_pct=armor_pct,
+                block_sources=hit_block, evasion_branch=False, rng=rng)
+            failed_block.update(dmg.failed_block_ids or [])
+            shield = max(0, shield - dmg.shield)
+            armor_pool = max(0, armor_pool - dmg.armor)
+            per_hit.append(dmg.get_total())
+            total += dmg.health
+            shield_dmg += dmg.shield
+            armor_dmg += dmg.armor
+            did_crit |= crit
+            did_block |= dmg.did_block
+            did_evade |= dmg.did_evade
+            # #62c : behaviour Maybe(GetBonusHitChance) sur coup d'INDEX IMPAIR (0-based), APRES le degat.
+            if bonus_hit_chance is not None and (idx % 2 == 1):
+                return rng.next_bool(bonus_hit_chance)      # 1 tirage genrand (chance 30/100, toujours >=1)
+            return False
+
         def _one_hit(idx: int) -> bool:
             """Un coup complet crit->spread->block + le roll Maybe GetStuckIn si `idx` impair. Renvoie True
             si le Maybe a RÉUSSI (coup bonus à spawner) — le caller décide de l'exécuter (base) ou l'ignore
-            (bonus, anti-récursion)."""
+            (bonus, anti-récursion).
+
+            CONSOMMATION RNG PER-COUP — mirror `AttackDamageOperation.ExecuteHit @180e5eff0` (per-coup
+            PARTAGÉ attaque normale ET ability AttackWithAttackDamage ; cas fable rngcrit-1202, 2026-07-23) :
+              1. `HitDamage.GetDamage @181007bf0` sur le STRUCT d'entrée — tirage SSI struct.min != max :
+                 - NORMALE : struct DÉGÉNÉRÉ (Attack,Attack) -> 0 tirage (la vraie valeur = étape 4) ;
+                 - ABILITY bounds-mode : struct = [minDmg,maxDmg] config -> 1 tirage = LA VALEUR (brut).
+              2. `RollCritical` slot 0xa -> `DamagePrediction.RollCritical @1810387a0` : gate `cc<1 ->
+                 false SANS tirage` (le NextBool brut `DamageCalculations.RollCritical @1810057b0` n'est
+                 atteint QU'À travers ce gate) + bypass crit-garanti (byte +0x2c / buff slot 4) qui SKIPPE
+                 le roll. Il n'existe AUCUN chemin consommant un tirage crit à cc=0 — ni par vecteur, ni
+                 par « éligibilité » : l'éligibilité crit d'une ability se matérialise par cc=0.
+              3. slot 4 `CalculateDamageOperation @18102dc30` : shield-part/armure/caps -> cellules
+                 min/max (0 RNG ; les block CHANCES y sont calculées, pas roulées).
+              4. slot 8 `RandomlyResolveMinMaxDamage @181038600` : `Next(min, max+1)` — TOUJOURS 1 tirage
+                 (AUCUN gate min==max) :
+                 - NORMALE : cellules = bornes RÉDUITES (largeur > 1) -> ce tirage EST la valeur ;
+                 - ABILITY : cellules DÉGÉNÉRÉES (reduce(rolled), idem) -> tirage GASPILLÉ (largeur 1).
+              5. sub-op 0x42 : block rolls + splits (= `calculate_damage_operation`, APRÈS le resolve —
+                 prouvé par #72 valeur-puis-block bit-exact).
+            => NORMALE cc=0 : 1 tirage/coup (validé 18/18 + probe A 4 seeds) ; ABILITY bounds cc=0 :
+            2 tirages/coup (probe_rngcrit_1202 : M3 bit-exact per-hit 5 seeds x2 cibles, 6 tirages/3 coups
+            = mesure #220 réconciliée : l'« extra tirage » N'EST PAS un crit-roll, c'est le GetDamage brut
+            + resolve dégénéré). Les modèles « crit-roll par coup à cc=0 » (valeur aux tirages impairs)
+            sont RÉFUTÉS par la mesure (M1/M2 mismatch total ET per-hit)."""
             nonlocal total, shield, armor_pool, shield_dmg, armor_dmg, did_crit, did_block, did_evade
+            if post_roll is not None:
+                # VECTEUR ABILITY bounds-mode (roll-then-reduce) — ordre natif ExecuteHit :
+                # (1) VALEUR = tirage BRUT dans les bornes config (GetDamage-top, struct min<max).
+                raw = hit_nc.get_damage(rng)
+                # (2) crit-roll APRÈS le tirage de valeur (gate cc<1 -> 0 tirage, cf. bloc ci-dessus).
+                crit = roll_critical(rng, crit_chance) if crit_enabled else False
+                crits.append(crit)
+                if crit:
+                    # `CalculateCriticalDamage @18102da90` -> `ApplyCritDamage @181000210` : critBonus
+                    # FLAT sur la valeur ROULÉE, PRE-reduce. Le montant = le SHIFT des bornes crit
+                    # (hit_cr = bornes + critDamage, largeurs égales -> même modulo => numériquement ==
+                    # l'ancien modèle bornes-décalées).
+                    raw += hit_cr.min - hit_nc.min
+                roll = post_roll(raw)         # réduction perçage/armure/mods APRÈS le tirage
+                if capped_reductions:         # #91 : réduction CAPÉE défenseur (scalaire FLAT, D=centre)
+                    roll = max(0, roll - (_capped_flat_cr if crit else _capped_flat_nc))
+                rolls.append(roll)            # rolls = tirage POST-mods PRE-limites
+                if limits is not None and roll > 0:
+                    # ABILITY : cap scalaire post-tirage (cellule degeneree, CalculateAbilityDamage)
+                    _rem = max(0, limits_hp - total)
+                    _ovk = (compute_prediction_overkill(_rem, limits_hp, roll, p12=_rogne[0])
+                            if limits_hp > 0 else False)
+                    _pre = roll
+                    roll = apply_trait_damage_limits_to_damage(roll, current_health=_rem,
+                                                               overkill=_ovk, **limits)
+                    _rogne[0] += max(0, _pre - roll)
+                # (4) resolve slot 8 sur la cellule DÉGÉNÉRÉE -> 1 tirage GASPILLÉ, valeur inchangée
+                # (`RandomlyResolveMinMaxDamage @181038600` : Next(v, v+1) SANS gate largeur-1). C'EST le
+                # tirage « fantôme » mesuré par #220/#205 — le fix du désync multi-coups cc=0.
+                # `wasted_resolve` = LA FAMILLE DE FACTORY NATIVE (deux operations distinctes) :
+                #   True  = `DSLFactory.AttackWithAttackDamage @180de9fb0` (+overloads @180dea180/350/
+                #           520/6b0) -> AttackDamageBehaviour -> AttackDamageOperation.ExecuteHit
+                #           @180e5eff0 -> le resolve slot-8 consomme (2 tirages/coup a cc=0) ;
+                #   False = `DSLFactory.AttackWithAbilityDamage @180de9c90/@180de9dd0 -> core @180de9e50`
+                #           -> AbilityDamageBehaviour -> AbilityDamageOperation.ExecuteHits @180e2a860
+                #           (GetDamage par coup) + CalculateAbilityDamage @18102cb50 (0 RNG) : AUCUN
+                #           resolve -> 1 tirage/coup. Mesure live : Stormcaller 3-hit bit-exact SANS
+                #           tirage gaspille (probe_217 PASS pre-fix, FAIL avec un resolve inconditionnel).
+                if wasted_resolve:
+                    rng.next_internal(max(0, roll), max(0, roll) + 1)
+                return _one_hit_tail(idx, crit, roll)
             crit = roll_critical(rng, crit_chance) if crit_enabled else False
             crits.append(crit)
             hd = hit_cr if crit else hit_nc
@@ -629,13 +737,11 @@ class AttackDamageOperation:
                 rolls.append(roll)
             else:
                 roll = hd.get_damage(rng)
-                if post_roll is not None:
-                    roll = post_roll(roll)    # ability : réduction APRÈS le tirage (roll-then-reduce)
                 if capped_reductions:         # #91 : réduction CAPÉE défenseur (GuardianOrganism) = scalaire FLAT
                     roll = max(0, roll - (_capped_flat_cr if crit else _capped_flat_nc))  # (D=centre bornes)
                 rolls.append(roll)            # rolls = tirage POST-mods PRE-limites (cap lisible dans per_hit)
                 if limits is not None and roll > 0:
-                    # ABILITY : cap scalaire post-tirage (cellule degeneree, CalculateAbilityDamage)
+                    # cap scalaire post-tirage (cellule degeneree, CalculateAbilityDamage)
                     _rem = max(0, limits_hp - total)
                     _ovk = (compute_prediction_overkill(_rem, limits_hp, roll, p12=_rogne[0])
                             if limits_hp > 0 else False)
@@ -643,30 +749,7 @@ class AttackDamageOperation:
                     roll = apply_trait_damage_limits_to_damage(roll, current_health=_rem,
                                                                overkill=_ovk, **limits)
                     _rogne[0] += max(0, _pre - roll)
-            # #72 : mirror `CalculateBlockChances(param_4=failedList)` @181002350 -> une source de block
-            # AYANT ECHOUE a un coup precedent est EXCLUE des coups suivants (Contains(failedList, id)) ;
-            # une source qui REUSSIT reste jouable (ApplyRandomBlockDamage return sans AddFailedBlockId).
-            # Donc une source est jouee chaque coup JUSQU'A son 1er echec, puis plus (aucun tirage). Preuve
-            # live (orksNob BeastSlayer chance=10) : hit1 succes + hit2 echec -> 0 roll hits 3-6 = 8 tirages.
-            hit_block = ([s for s in block_sources if s.block_id not in failed_block] or None
-                         ) if block_sources else None
-            dmg: Damage = calculate_damage_operation(
-                roll, shield=shield, armor_pool=armor_pool, armor_pct=armor_pct,
-                block_sources=hit_block, evasion_branch=False, rng=rng)
-            failed_block.update(dmg.failed_block_ids or [])
-            shield = max(0, shield - dmg.shield)
-            armor_pool = max(0, armor_pool - dmg.armor)
-            per_hit.append(dmg.get_total())
-            total += dmg.health
-            shield_dmg += dmg.shield
-            armor_dmg += dmg.armor
-            did_crit |= crit
-            did_block |= dmg.did_block
-            did_evade |= dmg.did_evade
-            # #62c : behaviour Maybe(GetBonusHitChance) sur coup d'INDEX IMPAIR (0-based), APRES le degat.
-            if bonus_hit_chance is not None and (idx % 2 == 1):
-                return rng.next_bool(bonus_hit_chance)      # 1 tirage genrand (chance 30/100, toujours >=1)
-            return False
+            return _one_hit_tail(idx, crit, roll)
 
         base_bonus = 0
         for i in range(hits):
@@ -689,13 +772,15 @@ class AttackDamageOperation:
                                base_min: int, base_max: int, profile_pierce: int,
                                hits: int, damage_profile: Optional[str] = None,
                                is_melee: Optional[bool] = None,
-                               ability_type: Optional[int] = None) -> Optional[dict]:
+                               ability_type: Optional[int] = None,
+                               wasted_resolve: bool = True) -> Optional[dict]:
         """Attaque d'une ABILITY active (mirror `AttackWithAttackDamage` + `MinMaxDamage`/`GetHits`/
         `GetDamageProfile`). DIFFÈRE de l'attaque normale par la BASE : les bornes du coup = `[base_min,
         base_max]` données par la config d'ability (`GetVariableForLevel` clés 0xc/0xd = minDmg/maxDmg),
-        PAS `Attack ± spread%`. Le perçage = celui du PROFIL de l'ability (`GetDamageProfile`). Le RESTE
-        du pipeline est IDENTIQUE (réduction perçage/armure/modifiers sur les bornes -> tirage dans la
-        plage réduite -> crit -> block), donc réutilise `_run_hits`. Mute les PV de la cible.
+        PAS `Attack ± spread%`. Le perçage = celui du PROFIL de l'ability (`GetDamageProfile`). Même
+        per-coup natif partagé (`ExecuteHit @180e5eff0`) via `_run_hits`, mais en mode ROLL-THEN-REDUCE :
+        valeur = tirage BRUT dans [base_min, base_max] puis réduction, + 1 resolve GASPILLÉ par coup
+        (cf. `_one_hit`, cas fable rngcrit-1202). Mute les PV de la cible.
 
         `RandomAmount(min,max)` natif = tirage uniforme dans [min,max] (= `get_damage` sur des bornes
         déjà = [min,max]). Perçage de l'arme normale + ExtraPierce stats : ici on applique le perçage du
@@ -735,10 +820,9 @@ class AttackDamageOperation:
         # #120 : réduction PLATE défenseur (Nightshroud, ungated -> spéciales aussi) fusionnée pré-perçage.
         AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
         # MkXGravis (trait CIBLE 0x3f5) : armure traversée 2× aussi pour les spéciales (CBDWAM @18102d3f0
-        # partagé quel que soit l'ability, #180). ⚠ Le crit ability est une HYPOTHÈSE non validée (cc=0 non
-        # exercé, cf. hit_cr ci-dessous) → `_reduce` (post_roll) ne connaît pas le flag crit du coup, donc le
-        # hit_mult s'applique à TOUS les rolls sans exemption crit ici ; quand le crit ability sera RE'd,
-        # exempter le crit (param_8==1). No-op (=1) hors cible hit-twice.
+        # partagé quel que soit l'ability, #180). ⚠ `_reduce` (post_roll) ne connaît pas le flag crit du
+        # coup, donc le hit_mult s'applique à TOUS les rolls sans exemption crit ici ; un porteur ability
+        # cc>=1 + cible MkXGravis exigerait l'exemption (non exercé live). No-op (=1) hors cible hit-twice.
         _tgt_hit_mult = target_hit_multiplier(tsc.ctx.trait_objects()) if tsc is not None else 1
 
         def _reduce(value: int) -> int:
@@ -750,14 +834,22 @@ class AttackDamageOperation:
 
         # ABILITY = roll-then-reduce : on tire dans les bornes BRUTES config (RandomAmount(min,max)) PUIS
         # on réduit (perçage/armure/mods) via `post_roll`. (≠ attaque normale reduce-then-roll.) Confirmé
-        # bit-exact live (ThunderousAssault necroOverlord : roll-then-reduce = live 6948, à l'unité).
+        # bit-exact live (ThunderousAssault necroOverlord : roll-then-reduce = live 6948, à l'unité ;
+        # re-confirmé probe_rngcrit_1202 : VigilanceEternal 3-hit, per-hit bit-exact 5 seeds x 2 cibles).
+        # CONSOMMATION (cas fable rngcrit-1202) : ce vecteur = AttackDamageOperation.ExecuteHit @180e5eff0
+        # avec un STRUCT NON dégénéré → 2 tirages/coup à cc=0 (valeur BRUTE + resolve slot-8 GASPILLÉ),
+        # cf. `_one_hit`. ≠ attaque normale (struct dégénéré → 1 tirage/coup).
         hit_nc = HitDamage(base_min, base_max)                            # bornes BRUTES
-        # CRIT pour ability = HYPOTHÈSE (non RE/validée) : crit plie sur les bornes brutes (min/max +
-        # critDamage) avant réduction. NON exercé tant que cc=0 (crit = item normalisé) ; à confirmer live.
+        # CRIT ability (décompile, non exercé live — aucun porteur cc>=1) : `CalculateCriticalDamage
+        # @18102da90` → `ApplyCritDamage @181000210` = critBonus FLAT sur la valeur ROULÉE, PRE-reduce
+        # (appliqué dans `_one_hit` branche post_roll : `raw += crit_damage`). `hit_cr` ne sert plus
+        # qu'au flat #91 (`_capped_flat_cr`, centre bornes+cd) — numériquement == l'ancien modèle
+        # bornes-décalées (largeurs égales → même modulo).
         hit_cr = HitDamage(base_min + crit_damage, base_max + crit_damage) if crit_enabled else hit_nc
         # #202 WeaverOfFate : attaquant max-out (effet 1185) -> bornes BRUTES degenerees a (max, max),
-        # mirror HitDamage(GetMax, null) d'`AbilityDamageBehaviour.GetDamage @180f8c560` (AUCUN tirage
-        # consomme — get_damage court-circuite min==max — puis post_roll reduit le max, roll-then-reduce).
+        # mirror HitDamage(GetMax, null) d'`AbilityDamageBehaviour.GetDamage @180f8c560` (le tirage de
+        # VALEUR est court-circuité par min==max — get_damage — mais le resolve slot-8 consomme TOUJOURS
+        # 1 tirage/coup, désormais mirroré par `_one_hit` ; puis post_roll reduit le max, roll-then-reduce).
         hit_nc, hit_cr = AttackDamageOperation._apply_max_out(state, attacker_id, hit_nc, hit_cr)
         hits = max(1, int(hits))
         shc, shield_total = AttackDamageOperation._target_shield(tgt)      # bouclier shield-first
@@ -769,7 +861,11 @@ class AttackDamageOperation:
                                             # (`CalculateAbilityDamage @18102cb50`)
                                             limits=AttackDamageOperation._target_limits(
                                                 tgt, thc, damage_profile, is_special=2),
-                                            limits_hp=int(thc.hp or 0))
+                                            limits_hp=int(thc.hp or 0),
+                                            # famille de factory native (cf. _one_hit) : True =
+                                            # AttackWithAttackDamage (resolve gaspille) ; False =
+                                            # AttackWithAbilityDamage (AbilityDamageOperation, sans).
+                                            wasted_resolve=wasted_resolve)
         AttackDamageOperation._deplete_shield(shc, r)
         AttackDamageOperation._apply_damage_pipeline(                   # chokepoint partage (#202)
             state, target_id, attacker_id, tgt, thc, r["total"], damage_profile,

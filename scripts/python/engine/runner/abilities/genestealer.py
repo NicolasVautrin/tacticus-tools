@@ -472,15 +472,16 @@ class VigilanceEternalAbility(ActiveAbility):
       - LANDING TILE EXACT : port pose Tyrith en (0,1) == live (0,1) (collapse closest-tile de
         `SortTilesByUtility(0x20)` fidele).
       - MONO-CIBLE : un ennemi voisin de la cible n'est PAS touche (pas de splash).
-      - RESIDU DEGAT ~1% (candidat fable-solver, PIPELINE PARTAGE `_run_hits`, PAS la structure DSL) : port
-        total 2307 vs live 2281 (per-hit [762,829,716] vs [763,716,802] ; cc=0, aucun crit/block/evade). ROOT
-        CAUSE MESURE : le natif fait 6 tirages rng (mti 624->6) pour un 3-hit cc=0 (1 spread + 1 crit-roll
-        `RollCritical` NextBool PAR COUP) ; le port n'en fait que 3 (`_run_hits` @damage.py:585 `roll_critical
-        ... if crit_enabled` SKIP le crit-roll a cc=0) -> ses spreads consomment g1,g2,g3 au lieu de g1,g3,g5
-        -> desync des coups >=2. Contredit la note damage.py:463 ("cc=0 => 0 tirage, validé 18/18") -> fix =
-        tirer le crit-roll (et/ou block-roll) meme a 0-chance dans le chemin ABILITY multi-hit, avec
-        re-validation croisee normal-vs-ability (decompile RollCritical/ApplyRandomBlock) : hors perimetre d'un
-        port 1:1, flagge fable-solver."""
+      - RESIDU DEGAT ~1% : RESOLU (cas fable rngcrit-1202, 2026-07-23). La cause N'ETAIT PAS un crit-roll a
+        cc=0 (refute decompile : `DamagePrediction.RollCritical @1810387a0` gate `cc<1 -> false SANS tirage`,
+        unique chemin crit d'`ExecuteHit @180e5eff0` ; la note damage.py "cc=0 => 0 tirage" reste VRAIE pour
+        les DEUX vecteurs). Le 2e tirage/coup natif = le VECTEUR : AttackWithAttackDamage passe par le MEME
+        `ExecuteHit` que l'attaque normale mais avec un struct NON degenere -> `HitDamage.GetDamage @181007bf0`
+        tire la VALEUR BRUTE (1 tirage) PUIS `RandomlyResolveMinMaxDamage @181038600` (slot 8, SANS gate
+        min==max) consomme 1 tirage GASPILLE sur la cellule degeneree. Fix : `_run_hits`/`_one_hit` branche
+        post_roll (damage.py) ; valide bit-exact per-hit + consommation (6 tirages/3 coups) sur 5 seeds x 2
+        cibles via probe_rngcrit_1202.py. L'ecart residuel +1/coup constate a ARMURE>0 (les deux vecteurs,
+        p.ex. [918,903,1112] vs live [919,904,1113]) = gap de ROUNDING pierce/armure SEPARE, pre-existant."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.VigilanceEternal)  # 1202
     ABILITY_ID = "VigilanceEternal"

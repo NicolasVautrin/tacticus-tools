@@ -472,3 +472,88 @@ noeud IsNormalAttack visible dans la formule vs struct +0x14 copiee non decodee)
 - **Walk de garde qui caste l'ability** (31337 step 11) : `engine_agreement_stages --build --seeds
   31337` valide en une passe le port ET son aval (steps suivants EXACT = pas de divergence d'etat
   compensee).
+
+---
+
+## rngcrit-1202 (2026-07-24) — « Crit-roll fantome » : desync de CONSOMMATION RNG entre attaque normale et attaque d'ability multi-coups a cc=0
+
+**Symptome-type** : deux mesures live « validees » qui se contredisent sur la consommation RNG du
+MEME pipeline partage — « cc=0 => 0 tirage crit, 18/18 » (attaque normale) vs « 6 tirages pour
+3 coups a cc=0 = 1 crit-roll par coup » (ability #220/#205) ; residu de degat ~1% multi-coups,
+coup 1 quasi-exact, coups >=2 desynchronises. Piege classique : attribuer le tirage surnumeraire
+a la mecanique la plus connue (le crit) au lieu de le LOCALISER.
+
+**Methode qui l'a craque** :
+
+1. **Decompiler le GATE avant de theoriser l'« eligibilite ».** L'unique chemin crit du per-coup
+   partage (`AttackDamageOperation.ExecuteHit @180e5eff0`, slot 0xa) est
+   `DamagePrediction.RollCritical @1810387a0` : `cc<1 -> return false SANS tirage`.
+   `DamageCalculations.RollCritical @1810057b0` (NextBool brut, sans gate) n'est atteint QUE
+   derriere ce gate — deux fonctions homonymes, UNE seule porte le gate : citer la mauvaise VA
+   fabrique un faux verdict. A cc=0 il n'existe AUCUN chemin natif qui consomme un tirage crit,
+   quel que soit le vecteur. L'« eligibilite crit par ability » se materialise par cc=0, pas par
+   un flag qui changerait la consommation.
+
+2. **Enumerer les POINTS DE TIRAGE du per-coup partage et leurs gates** (pas « qui tire », mais
+   « qui PEUT tirer et sous quelle condition ») :
+   - `HitDamage.GetDamage @181007bf0` sur le struct d'entree — gate `min==max -> 0 tirage` ;
+   - crit slot 0xa — gate `cc<1` (+ bypass crit-garanti byte+0x2c/buff slot 4 : crit SANS roll) ;
+   - `RandomlyResolveMinMaxDamage @181038600` (slot 8) — **SANS AUCUN gate** (largeur 1 = 1 tirage
+     quand meme) ;
+   - block/evade dans la sub-op 0x42 (apres le resolve — prouve par #72 valeur-puis-block).
+   La difference normal-vs-ability est alors une difference de DONNEES, pas de code : l'attaque
+   normale arrive avec un struct DEGENERE (0 tirage GetDamage, le resolve EST la valeur) ; l'ability
+   bounds-mode arrive avec [minDmg,maxDmg] (GetDamage = la valeur BRUTE, le resolve degenere est
+   GASPILLE). => 1 vs 2 tirages/coup a cc=0, meme code.
+
+3. **Panel de modeles candidats confrontes au MEME etat MT dumpe** (l'arme decisive) : dumper le
+   MT pre-cast (`dumpRng`), poser 3-4 modeles de consommation/valeur (port actuel, crit-then-value
+   aux impairs, value-then-waste aux pairs...), calculer le per-hit de CHACUN offline depuis des
+   clones du MEME etat MT, et comparer au per-hit LIVE extrait des events. Le vrai modele matche
+   A L'UNITE tous les seeds ; les faux divergent des le coup 2. Les modeles « crit-roll a cc=0 »
+   (valeur aux tirages impairs) sont REFUTES par la donnee, pas par l'argument.
+   - Per-hit LIVE robuste = deltas `UnitStats_RemainingHealth` des events step-4 d'`applyAction`
+     (JAMAIS le delta HP post-action : une attaque normale FINIT le tour et `LivingMetalRepair`
+     resoigne la cible -> delta 0 trompeur).
+   - A/B anti-confond : MEME attaquant (custoKyrus : 3-hit normal ET ability 1202 3-hit), MEME
+     cible, seule la VOIE change.
+   - Piege d'outillage : `--hp-target/--hp-player` ZERONT FixedArmor -> reduce identite -> les
+     modeles roll-then-reduce/reduce-then-roll deviennent indistinguables. Discriminer le
+     PLACEMENT de la reduction exige une cible a armure reelle SANS override (orksWarboss 2609 ;
+     eviter templAncient : machine + pool d'armure = confonds).
+
+4. **Le fix n'est PAS uniforme : la factory DSL native choisit l'OPERATION.** Deux factories
+   homonymes cote gameplay, deux operations, deux consommations :
+   - `DSLFactory.AttackWithAttackDamage @180de9fb0` (+@180dea180/350/520/6b0) ->
+     `AttackDamageBehaviour` -> `AttackDamageOperation.ExecuteHit` -> 2 tirages/coup (cc=0) ;
+   - `DSLFactory.AttackWithAbilityDamage @180de9c90/@180de9dd0 -> core @180de9e50` ->
+     `AbilityDamageBehaviour` -> `AbilityDamageOperation.ExecuteHits @180e2a860` (GetDamage/coup,
+     `CalculateAbilityDamage @18102cb50` = 0 RNG, PAS de resolve) -> 1 tirage/coup.
+   **Classifier chaque ability portee par les XREFS de son `ExecuteBehaviour` natif** (une requete
+   `list_xrefs` par factory rend la liste complete d'un coup) — JAMAIS au juge ni au nom du
+   commentaire de port (PlasmaGrenade etait mal etiquete « AttackWithAttackDamage » alors que ses
+   xrefs pointent @180de9c90). Porte par `native_factory="attack"|"ability"` sur la feuille
+   Python + `wasted_resolve` dans `execute_ability_attack`/`_run_hits`.
+
+5. **Validation adversariale qui a ATTRAPE une regression du fix lui-meme** : apres le fix
+   inconditionnel, rejouer le probe multi-hit de L'AUTRE famille (`probe_217_stormcaller`, 3-hit
+   AttackWithAbilityDamage) — FAIL post-fix / PASS pre-fix (A/B par `git stash`) => le tirage
+   gaspille devait etre conditionnel. Sans ce test croise, le fix aurait ete un sur-ajustement
+   inverse. Les carriers 1-hit (SpiritLeech, ThunderousAssault) ne discriminent RIEN en
+   consommation : chercher le porteur MULTI-HIT de chaque famille.
+
+**Outils/heuristiques reutilisables** :
+- **`probe_rngcrit_1202.py`** : gabarit du panel-de-modeles (dumpRng + clones MT + variantes +
+  per-hit events + PORT reel) — adaptable a tout probleme de consommation RNG.
+- **Brute-force (lo, W) des bornes live** : avec le MT dumpe, enumerer `g_i = genrand>>1` et
+  resoudre `v_i == lo + (g_i mod W)` sur 3 coups -> identifie les bornes du modulo natif SANS
+  connaitre le pipeline (confirme lo=2010/W=1005 = bornes reduites du port).
+- **Compter les tirages par delta `mti`** (`dumpRng` avant/apres, wrap 624) = le verdict de
+  consommation le moins cher ; les VALEURS disent ensuite QUELLE position porte quoi.
+- **Un « N/M draws » anormal n'est PAS forcement la mecanique suspectee** : localiser le point de
+  tirage par gates (etape 2) avant de nommer le coupable.
+- Residu detecte au passage, HORS scope, documente : off-by-one (+1) valeur-dependant sur les
+  DEUX vecteurs a armure>0 (rounding pierce/armure, ex. port [918,903,1112] vs live
+  [919,904,1113]) ; et `execute_normal_like`/amount-mode + fire-DoT (EnvFireTile) ont une
+  consommation NON mesuree (candidats memes familles).
+

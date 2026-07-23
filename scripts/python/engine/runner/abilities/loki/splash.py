@@ -109,9 +109,15 @@ def plasma_grenade_tree():
     BY CONSTRUCTION vs l'ancien imperatif (memes bornes/hits/profil, splash `sorted` par
     id, meme `state.rng`). L'imperatif `PlasmaGrenadeAbility.execute_behaviour` est REMPLACE par cet arbre."""
     tgt = Target()
-    main = AttackWithAttackDamage(tgt, "PlasmaGrenade", "Plasma", is_melee=False)         # RandomAmount/Plasma/0x2f
+    # rngcrit-1202 : la factory native de PlasmaGrenade est `AttackWithABILITYDamage @180de9c90`
+    # (XREFS @1811f9b9a/@1811f9c0e -> @180de9c90 -> core @180de9e50 = AbilityDamageBehaviour), PAS
+    # AttackWithAttackDamage comme l'ancien commentaire le disait -> AbilityDamageOperation = 1 tirage/
+    # coup (AUCUN resolve slot-8 gaspille) -> native_factory="ability".
+    main = AttackWithAttackDamage(tgt, "PlasmaGrenade", "Plasma", is_melee=False,
+                                  native_factory="ability")                             # RandomAmount/Plasma/0x2f
     splash = AttackWithAttackDamage(Alive(AdjacentEnemies(TargetTile())), "PlasmaGrenade", "Plasma",
-                                     is_melee=False, hits_key="nrOfHits_2", multi=True)     # MEME plage, 0x32
+                                     is_melee=False, hits_key="nrOfHits_2", multi=True,
+                                     native_factory="ability")                          # MEME plage, 0x32
     return op_add(main, splash)
 
 
@@ -370,7 +376,8 @@ def _pick_randomly_n(state: "State", items: list, n: int) -> list:
 
 
 def _splash_ability_behaviour(state: "State", caster_id: int, target_id: int, ability_id: str,
-                              profile: str, ranged: bool, splash_set: list) -> dict:
+                              profile: str, ranged: bool, splash_set: list,
+                              wasted_resolve: bool = True) -> dict:
     """Mécanique partagée B1 (mirror `CrushingClaws` SANS var-séparées) : 1 attaque MAIN sur `target`
     (hits=`nrOfHits`) + 1 volet SPLASH sur `splash_set`, PARTAGEANT la MÊME plage `minDmg/maxDmg` — seul le
     nb de hits diffère (splash = `nrOfHits_2`). ⚠ le splash réutilise minDmg/maxDmg/pierce (PAS
@@ -378,17 +385,21 @@ def _splash_ability_behaviour(state: "State", caster_id: int, target_id: int, ab
 
     RÉFÉRENCE IMPÉRATIVE des tests de bit-exactness des arbres DSL splash (PlasmaGrenade/ScythingTalons tests
     comparent leur arbre `AttackWithAttackDamage(multi=True)` à ce retour) : plus AUCUN appelant PRODUCTION
-    (tous les splash migrés en arbres DSL, Fragstorm compris slice-13), conservé pour l'oracle des tests."""
+    (tous les splash migrés en arbres DSL, Fragstorm compris slice-13), conservé pour l'oracle des tests.
+    `wasted_resolve` = famille de factory native (rngcrit-1202, cf. behaviours/combat.py) — l'oracle doit
+    passer la MÊME famille que l'arbre DSL comparé (PlasmaGrenade = "ability" -> False)."""
     bmin, bmax, pierce, hits = ability_attack_params(state, caster_id, ability_id, profile, ranged=ranged)
     main = AttackDamageOperation.execute_ability_attack(state, caster_id, target_id, bmin, bmax, pierce, hits,
-                                                        damage_profile=profile, is_melee=not ranged)
+                                                        damage_profile=profile, is_melee=not ranged,
+                                                        wasted_resolve=wasted_resolve)
     # splash : MÊME plage (minDmg/maxDmg/pierce), seule la constante de hits change (nrOfHits_2).
     _bmin2, _bmax2, _pierce2, hits2 = ability_attack_params(
         state, caster_id, ability_id, profile, ranged=ranged, hits_key="nrOfHits_2")
     splash: list[dict] = []
     for sid in splash_set:
         satk = AttackDamageOperation.execute_ability_attack(state, caster_id, sid, bmin, bmax, pierce, hits2,
-                                                            damage_profile=profile, is_melee=not ranged)
+                                                            damage_profile=profile, is_melee=not ranged,
+                                                            wasted_resolve=wasted_resolve)
         splash.append({"target": sid, "attack": satk})
     return {"main_attack": main, "splash": splash, "hits_main": hits, "hits_splash": hits2}
 

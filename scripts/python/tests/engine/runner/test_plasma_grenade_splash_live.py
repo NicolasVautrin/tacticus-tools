@@ -117,8 +117,11 @@ def test_plasma_grenade_migration_matches_imperative(live_session, rpc, build_ru
 
     # [IMPERATIF] la mecanique partagee _splash_ability_behaviour + _adjacent_enemies_of (ancien chemin)
     imp_set = _adjacent_enemies_of(st_imp, caster_id, target_id)
+    # rngcrit-1202 : PlasmaGrenade = factory native AttackWithABILITYDamage @180de9c90 (XREFS) ->
+    # AbilityDamageOperation, 1 tirage/coup SANS resolve gaspille -> l'oracle imperatif doit passer
+    # la MEME famille que l'arbre DSL (native_factory="ability").
     res_imp = _splash_ability_behaviour(st_imp, caster_id, target_id, "PlasmaGrenade", "Plasma",
-                                        ranged=True, splash_set=imp_set)
+                                        ranged=True, splash_set=imp_set, wasted_resolve=False)
     imp_main = _per_hit(res_imp.get("main_attack"))
     imp_splash = {s["target"]: _per_hit(s["attack"]) for s in (res_imp.get("splash") or [])}
 

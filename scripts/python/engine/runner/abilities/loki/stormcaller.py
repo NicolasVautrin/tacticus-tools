@@ -91,6 +91,7 @@ def stormcaller_tree():
     cache = Cache(UnitsOnTilesWithEffect(Enemies(AllUnits()), ICE_TILE))
     ice = AddEffect(ICE_TILE, "Ice", stormcaller_get_add_ice_tiles(), duration_rounds=None)
     attack = AttackWithAttackDamage(cache, "Stormcaller", "Psychic", is_melee=False, multi=True,
+                                    native_factory="ability",   # @180de9dd0 -> AbilityDamageOperation (1 tirage/coup, cf. combat.py)
                                     ability_type=int(ActiveAbilityType.Stormcaller))
     stun = AddEffect(STUNNED, "Stunned", UnitsWithTrait(cache, int(UnitTrait.Flying)),
                      duration_rounds=1)
