@@ -17,10 +17,10 @@ from typing import Optional, TYPE_CHECKING
 
 from ...dsl.base import resolve_unit, Const
 from ...dsl.effects import AbilityBehaviour, OperationResult, ExecutionContext
-from ...entities.behaviours import op_add, If
+from ...entities.behaviours import op_add, op_and, If
 from ...entities.selectors import (Target, Caster, TargetTile, FixedTiles, Alive, SurroundingEnemies,
                                    Union)
-from ...entities.triggers import Not, IsAlive, IsSurrounding
+from ...entities.triggers import Not, IsAlive, IsSurrounding, IsAdjacent, TriggerAnd
 from ...entities.traits.unit_trait import UnitTrait, has_trait
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.stats import StatType
@@ -401,3 +401,99 @@ class HeroicFusilladeAbility(ActiveAbility):
         return {"ability": "HeroicFusillade", "caster": caster_id, "target": target_id,
                 "move": moved, "main_attack": main, "splash": splash,
                 "crit_bonus": crit_bonus, "dsl": True}
+
+
+# ===================== VigilanceEternal (Tyrith custoKyrus, actif 1202) =====================
+#
+# `VigilanceEternalAbility$$ExecuteBehaviour @18122a580` (namespace natif `Abilities.Active.Loki`,
+# Custodes -- HORS gen-stealer, mais REUTILISE le template de charge `_move_dest_tile` de HeroicFusillade
+# defini ci-dessus, d'ou le voisinage). L'arbre est `HeroicFusillade @1811e8de0` EXACT, MOINS splash/crit :
+#     op_BitwiseAnd(
+#       If( Not(IsAdjacent(caster@0x160, target@0x178, 3)),                                  # MOVE gate
+#           MoveUnit(caster, First(SortTilesByUtility(GetPossibleMovementTiles, 0x20))) ),   # charge-tile
+#       If( IsAlive(caster@0x160) op_BitwiseAnd IsAlive(target@0x178),                       # ATTACK gate (2)
+#           AttackWithAttackDamage(caster, target, MinMaxDamage, GetDamageProfile,           # mono-cible
+#                                  GetNumberConstant(0x2f)=nrOfHits) ) )
+# Differences avec HeroicFusillade (@1811e8de0), lues au decompile :
+#  - MOVE gate = `Not(IsAdjacent(caster, target, 3))` (`IsAdjacent @180df2f00` -> `@180f9f7b0`) au lieu de
+#    `Not(IsSurrounding(caster, target, radius=1))`. `IsAdjacent.ShouldTrigger` @180f9f7b0 : le predicat
+#    par-paire = slot iface `0x5f` (bool `AreNeighbours(pos_a,pos_b)`, PAS `0x6e`=GetDistance d'`IsInRange`
+#    @180fa1720) -> seuil dist==1 STRICT ; le `3` (champ +0x18) n'est PAS passe a `0x5f` -- il ne va qu'a
+#    l'eval du selecteur (`FUN_180025220` param_5), INERTE pour les selecteurs d'unite Caster/Target. Donc
+#    la gate = "bouge SAUF si deja adjacent (dist 1) a la cible", SEMANTIQUEMENT IDENTIQUE au move-gate
+#    HeroicFusillade. Corrobore : (a) wiki Tyrith (« melee mobile ... cible un ennemi DEJA adjacent OU
+#    ayant un hex libre adjacent dans la move range 2, gap-close sur cet hex ») ; (b) le node `IsAdjacent`
+#    porte (dist==1, sans radius) ; (c) le precedent TheBetrayer @1811a4f70 (meme node IsAdjacent sous
+#    op_LogicalNot pour gater un move). Le port reutilise le node dist==1 tel quel. [VALIDE LIVE : dist 2/3
+#    -> gap-close ; dist 1 -> skip move.]
+#  - ATTACK gate = `IsAlive(caster) op_BitwiseAnd IsAlive(target)` (les DEUX vivants) au lieu du seul
+#    `IsAlive(target)` -- le caster peut mourir a un overwatch/counter pendant la charge (Tyrith melee).
+#  - Attaque MONO-cible (`AttackWithAttackDamage(caster, target, ...)`, PAS de Union/SurroundingEnemies) ;
+#    AUCUN buff crit (pas de ChangeStat encadrant). Profil = `GetDamageProfile` = "Power" (melee, pierce
+#    40%) ; nrOfHits = `GetNumberConstant(0x2f)` = 3 ; bornes = `MinMaxDamage` = minDmg/maxDmg[level].
+#  - Composition top-level = `op_BitwiseAnd` (CombinedBehaviour, == `op_add` : Seq court-circuit ; les deux
+#    branches sont pures -> les deux s'executent).
+# `GetPossibleMovementTiles @18122ae10` = `TilesUnitCanMoveToChargeTarget(caster@0x160, tile@0x168,
+# target@0x190, Direct(GetNumberConstant(0x16)=range=2), canReachOnly=1)` @180dfda00
+#   = `CanAddUnit(AdjacentTiles(target)) op_And MovableTilesInRange(caster, tile, Direct(range), reachOnly=1)`
+#   == EXACTEMENT le collapse `_move_dest_tile` de HeroicFusillade avec surround_radius=1 (AdjacentTiles =
+#   ring-1 = SurroundingTiles radius 1) + move_range=range=2. `SortTilesByUtility(0x20)` collapse -> tuile
+#   la plus PROCHE du caster (meme proxy que HeroicFusillade ; gap-closer landing adjacent).
+VIGIL_SURROUND_RADIUS = 1     # AdjacentTiles(target) = ring-1 (== SurroundingTiles radius 1)
+
+
+def vigilance_eternal_tree(state: "State", caster_id: int, target_id: int, move_range: int):
+    """Mirror 1:1 de `VigilanceEternalAbility$$ExecuteBehaviour @18122a580` (HeroicFusillade moins
+    splash/crit) : `op_and(If(Not(IsAdjacent(caster,target)), MoveUnit(caster, destTile)),
+    If(IsAlive(caster) & IsAlive(target), AttackWithAttackDamage(caster->target, Power, 3 hits)))`.
+    dest = selecteur S lourd COLLAPSE (`_move_dest_tile`, surround_radius=1, move_range=`range`=2) PRE-move
+    ; gate move = `Not(IsAdjacent)` (dist==1 : bouge sauf si deja adjacent) ; gate attaque = les deux
+    vivants (re-eval LIVE apres le move -- Voie A, `LiveUnit`)."""
+    dest = _move_dest_tile(state, caster_id, target_id, VIGIL_SURROUND_RADIUS, move_range)
+    move = If(Not(IsAdjacent(Caster(), Target())),
+              MoveUnit(Caster(), FixedTiles([dest] if dest is not None else [])))
+    attack = AttackWithAttackDamage(Target(), "VigilanceEternal", "Power", is_melee=True)   # mono-cible
+    attack_branch = If(TriggerAnd(IsAlive(Caster()), IsAlive(Target())), attack)
+    return op_and(move, attack_branch)
+
+
+class VigilanceEternalAbility(ActiveAbility):
+    """`VigilanceEternalAbility$$ExecuteBehaviour @18122a580` (id 1202, Tyrith custoKyrus, namespace natif
+    `Abilities.Active.Loki`). Arbre DSL `vigilance_eternal_tree()` = HeroicFusillade EXACT moins splash/crit :
+    (1) Tyrith MOVE sur une tuile libre adjacente a la cible atteignable en <= `range`=2 (sauf si deja
+    adjacente, gate `Not(IsAdjacent)`) ; (2) attaque MONO-cible melee (profil Power, 3 hits) gatee par les
+    DEUX vivants. Selecteur S (dest move) collapse ; structure DSL. Renvoie {move, attack, dsl}.
+    Ne termine PAS le tour (`SetsEndTurnFlags`/`SetsActiveAbilityUsedFlag` overrides = base.py, 1202 dans les
+    deux frozensets) -> flags NON poses (reutilisable plusieurs fois/tour, cf. wiki Tyrith).
+
+    VALIDE LIVE (#220, confront cast 1202 vs port, board MC1_67, custoKyrus vs necroWarden) :
+      - GATE dist==1 CONFIRME : cible a dist 3 -> le JEU charge Tyrith (live_moved=True) == port. Prouve que le
+        `3` d'`IsAdjacent` n'est PAS un seuil dist<=3 (sinon aucun move a dist 3).
+      - LANDING TILE EXACT : port pose Tyrith en (0,1) == live (0,1) (collapse closest-tile de
+        `SortTilesByUtility(0x20)` fidele).
+      - MONO-CIBLE : un ennemi voisin de la cible n'est PAS touche (pas de splash).
+      - RESIDU DEGAT ~1% (candidat fable-solver, PIPELINE PARTAGE `_run_hits`, PAS la structure DSL) : port
+        total 2307 vs live 2281 (per-hit [762,829,716] vs [763,716,802] ; cc=0, aucun crit/block/evade). ROOT
+        CAUSE MESURE : le natif fait 6 tirages rng (mti 624->6) pour un 3-hit cc=0 (1 spread + 1 crit-roll
+        `RollCritical` NextBool PAR COUP) ; le port n'en fait que 3 (`_run_hits` @damage.py:585 `roll_critical
+        ... if crit_enabled` SKIP le crit-roll a cc=0) -> ses spreads consomment g1,g2,g3 au lieu de g1,g3,g5
+        -> desync des coups >=2. Contredit la note damage.py:463 ("cc=0 => 0 tirage, validé 18/18") -> fix =
+        tirer le crit-roll (et/ou block-roll) meme a 0-chance dans le chemin ABILITY multi-hit, avec
+        re-validation croisee normal-vs-ability (decompile RollCritical/ApplyRandomBlock) : hors perimetre d'un
+        port 1:1, flagge fable-solver."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.VigilanceEternal)  # 1202
+    ABILITY_ID = "VigilanceEternal"
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        move_range = int(ability_var(self.ABILITY_ID, "range", is_constant=True) or 2)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        vigilance_eternal_tree(state, caster_id, target_id, move_range).execute(
+            entities_from_state(state, caster_id, target_id), ectx)
+        moved = next((p for n, p in ectx.emitted if n == "MoveUnit"), None)
+        atk = next((p for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
+        return {"ability": "VigilanceEternal", "caster": caster_id, "target": target_id,
+                "move": moved, "attack": atk, "dsl": True}
