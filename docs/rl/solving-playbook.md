@@ -415,3 +415,60 @@ ET la sonde comptaient les summons par le mauvais nom -> 0 enfant vu -> cap touj
 - **GetChildrenCount (ParentComponent, append-only, morts inclus) ~ compte `obs_units` du visualId
   du summon SANS filtre isDead** (obs garde les depouilles) : fidele tant qu'aucun summon n'est
   RemoveUnit-ed (retire du board != mort).
+
+---
+
+## #217 (2026-07-23) — Port combat d'une ability AoE + un residu "gate non decode" tranche par replay-diff hydrate
+
+**Symptome-type** : ability active NO-OP silencieuse en combat (absente d'ABILITY_CLASSES) qui
+cumule plusieurs sous-systemes (pose d'effets de TUILE + attaque multi-cible + effet gate par trait),
+ET un residu documente d'un case anterieur ("struct de flags natif non decode -> gate conservateur
+aligne i2") qui devient ACTIF avec le nouveau port : deux lectures du decompile s'opposent (pas de
+noeud IsNormalAttack visible dans la formule vs struct +0x14 copiee non decodee).
+
+**Methode qui l'a craque** :
+
+1. **Resoudre l'overload EXACT par xref du call-site, pas par le nom du symbole.** Le decompile de
+   l'ExecuteBehaviour affiche `AttackWithAbilityDamage` — il y a 4 overloads homonymes + 4
+   `AttackWithAttackDamage`, et le PORT distingue crit/block vs degat-direct sous ces deux noms.
+   `list_xrefs` sur chaque overload -> le call-site (18120cdfc) tombe sur @180de9dd0 = LE MEME
+   overload que SpiritLeech (deja bit-exact via `execute_ability_attack`) -> pipeline tranche par
+   ANCRE (une ability deja validee qui appelle le meme noeud), sans re-RE le behaviour.
+   Les overloads minces delegue au core (@180de9e50) : decompiler le CORE pour la classe construite.
+
+2. **Un selecteur natif manquant = nouveau PRIMITIF + nouvelle CAPACITE de contexte, pas un helper
+   imperatif.** `UnitsOnTilesWithEffect @180dffc50` n'existait pas cote port ; le mirror = classe
+   selecteur (structure du decompile : predicat effectType@+0x20 + FromTrigger) + un champ
+   `DslContext.tile_has_effect` wire par `entities_from_state` sur `state.effects` (meme cle tile-id
+   que la pose case-35). Pattern reutilisable pour tout predicat d'etat non expose au DslContext :
+   capacite nommee + degradation [] documentee si absente.
+
+3. **Trancher un "gate non decode" = replay-diff avec l'effet HYDRATE, en 2 scenarios qui isolent le
+   confond d'hydratation.** Piege specifique : `decisionView.effects` est IsActive-filtre -> un effet
+   conditionnel INACTIF au capture (ici : LordOfTempests_ExtraDamage sans glace ring-1) n'est PAS
+   hydrate offline -> un "match" offline==live peut etre un artefact (les deux sans bonus pour des
+   raisons differentes). Discipline : (a) creer la PRE-CONDITION avant le capture (round 1 : attaque
+   normale qui pose la glace via le passif deja valide ; round 2 : DRIVE adjacent a la glace ->
+   effet actif -> hydrate), (b) IMPRIMER l'etat d'hydratation (`has_lot`, count_pre) pour rendre le
+   datapoint interpretable, (c) le verdict = l'ECART CHIFFRE exact (offline-sans-gate - live =
+   extraDmg x hexes x hits, au point pres) — pas un booleen. Ici : natif +0 avec effet actif et 3
+   hexes glaces -> gate normal-only CONFIRME cote combat, fix = threader `is_normal_attack=False`
+   dans le vecteur ability attaquant (symetrique du #112 defenseur).
+
+4. **La zone de diff du replay se compare en DELTAS, pas en absolus** : une tuile deja glacee
+   pre-cast ne reapparait pas dans les NOUVELLES poses (gate already-present des deux cotes) ->
+   asserter `new_live == new_offline` + `cible in (new | pre)`, jamais `cible in new`.
+
+**Outils/heuristiques reutilisables** :
+- **Ancre-par-overload** : avant de RE un noeud d'attaque/degat, xref l'overload du call-site et
+  chercher une ability DEJA PORTEE bit-exact sur le meme overload -> le pipeline est herite, pas
+  re-derive.
+- **Table des selecteurs de contexte DSLFactory** (runner-engine.md : 0x148 Owner, 0x160 Caster,
+  0x168 CasterTile, 0x178 Target, 0x190 TargetTiles...) : lire les `*(ctx+0x...)` du decompile
+  DIRECTEMENT contre cette table — plus rapide et plus sur que re-deriver chaque slot.
+- **Probe replay-diff bit-exact (pattern case-35/probe_217)** = LE discriminant des gates de
+  modifiers : meme etat + meme rng -> tout ecart est un modifier manquant/en-trop, et son MONTANT
+  identifie l'effet responsable (400 x count x hits ne peut etre que LordOfTempests).
+- **Walk de garde qui caste l'ability** (31337 step 11) : `engine_agreement_stages --build --seeds
+  31337` valide en une passe le port ET son aval (steps suivants EXACT = pas de divergence d'etat
+  compensee).

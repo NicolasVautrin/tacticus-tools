@@ -16,7 +16,8 @@ from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
                    ScarabSummonAbility, GetEmRuntzAbility, CrushingClawsAbility, ValkyrieStrikeAbility,
                    PlasmaGrenadeAbility, StikkbombAbility, FragstormAbility, ScythingTalonsAbility,
                    SpiritLeechAbility, ArmoriumCherubAbility, DoctrinaImperativesAbility,
-                   MV71SniperDroneSquadAttackAbility, MasterOfTheTutelariesAbility)
+                   MV71SniperDroneSquadAttackAbility, MasterOfTheTutelariesAbility,
+                   StormcallerAbility)
 from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility
 
 # Registre ActiveAbilityType (int) -> classe d'ability portée. À ÉTENDRE au roster.
@@ -38,6 +39,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     DoctrinaImperativesAbility.ABILITY_TYPE: DoctrinaImperativesAbility,  # 1118 (Tan Gi'da : toggle Protector<->Conqueror ; Protector +FixedArmor self)
     MV71SniperDroneSquadAttackAbility.ABILITY_TYPE: MV71SniperDroneSquadAttackAbility,  # 1076 (Sho'syl : summon drone + attaque commandee + Markerlight, #61bis)
     MasterOfTheTutelariesAbility.ABILITY_TYPE: MasterOfTheTutelariesAbility,  # 1096 (Abraxas : effet 1197 + summon Pink Horror tile-target + Screamer sur Psychic, #202-C)
+    StormcallerAbility.ABILITY_TYPE: StormcallerAbility,               # 1113 (Njal : glace zone cible+ring1 + 3x Psychic ennemis-sur-glace + stun Flying, #217)
 }
 
 

@@ -131,6 +131,11 @@ class DslContext:
     # Accès effets par unité (HasEffect/HasAnyEffect), mirror `HasOneOfEffects @180eb7640` — hors state
     # standard. `has_effect(unit, effectType, source_flag=6, min_level=0)->bool` défaut None → False.
     has_effect: object | None = None
+    # Accès effets par TUILE (prédicat de `UnitsOnTilesWithEffect @180dffc50` : la tuile porte-t-elle un
+    # effet ACTIF du type — ex. Ice 0x11 pour Stormcaller #217). `tile_has_effect(tile_id, effectType)
+    # ->bool` ; défaut None → sélecteur dégradé [] (documenté par nœud). Fourni par `entities_from_state`
+    # (lit `state.effects` keyé tile-id, même clé que la pose `AddEffectOperation`, cf. case-35).
+    tile_has_effect: object | None = None
     # Effet COURANT (EffectSource/EffectLevel) — n'existe qu'en application d'effet ; défaut None.
     effect: object | None = None
     # Faction (`FactionId` gameconfig) PAR UNITÉ (mirror `DSLFactory.UnitsFromFaction`, qui compare vs

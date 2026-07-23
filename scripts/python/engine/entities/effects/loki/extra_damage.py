@@ -218,8 +218,13 @@ class LordOfTempestsExtraDamageEffect(BaseEffect):
       (642+1200)x3 = 5526-6492 == natif (aiPlaybookPredict col/row).
     - MAGNITUDE : `extraDmg[ablvl passif] x multiplier` (variables LordOfTempests, [L1..65]=[3..237],
       in variablesAffectedByRarityBonus -> scale x mult ; u89 : 222x1.8=400). i2 « +237 » = extraDmg[65].
-    - gate `is_normal_attack` : l'i2 dit « normal attacks » (le trigger-flag struct copié @param_2+0x14
-      n'est pas décodé ; gate conservateur aligné i2 — la spéciale Stormcaller ne porte pas le bonus).
+    - gate `is_normal_attack` : l'i2 dit « normal attacks » — **MESURÉ LIVE (#217, probe_217 B)** :
+      cast Stormcaller (1113) avec l'effet ACTIF pré-cast (1 hex glacé ring-1, hydraté) et 3 hexes
+      glacés ring-1 à l'instant de l'attaque -> le natif applique **+0** (offline sans gate aurait mis
+      +extraDmg x 3 par coup ; l'écart mesuré était exactement 3600 = 400x3x3 hits). Le natif n'applique
+      donc PAS ce bonus aux attaques d'ABILITY (le trigger-flag struct @param_2+0x14 reste non décodé au
+      bit près, mais son EFFET est mesuré = gate normal-only). Côté combat le vecteur ability threade
+      `is_normal_attack=False` (`execute_ability_attack` -> `attacker_modifiers`, #217).
     - La 2e moitié du passif (« each enemy hit covers its hex in Ice ») =
       `LordOfTempests_AddIceAbility.CreateBehaviour/CreateTrigger @1811085d0/@181108670` (face RUNTIME,
       arbre DSL AddEffect tile-domain) — PORTÉE #35 (`runner/operations/triggers/loki/lord_of_tempests.py`,

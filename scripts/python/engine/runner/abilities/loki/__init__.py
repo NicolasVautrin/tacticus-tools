@@ -12,6 +12,8 @@ dans `handler.py`/`abilities/__init__.py`, `from ..abilities.loki import X` dans
 - `splash.py` — attaque + splash multi-cible : CrushingClaws, PlasmaGrenade, Stikkbomb, Fragstorm,
                  ScythingTalons + helpers de ciblage splash (`_pick_randomly_n` = PickRandomly, etc.).
 - `strike.py` — single-target / self : ThunderousAssault, ArmoriumCherub, SpiritLeech, ValkyrieStrike.
+- `stormcaller.py` — Stormcaller (1113, Njal) : zone de glace + 3x Psychic ennemis-sur-glace +
+                 stun Flying (#217).
 - `imperative.py` — DoctrinaImperatives (Tan Gi'da) : toggle Protector <-> Conqueror (self-cast).
 
 Le vocabulaire DSL generique (combinateurs `entities/behaviours.py`, feuilles runner-couplees
@@ -34,6 +36,7 @@ from .strike import (ThunderousAssaultAbility, ArmoriumCherubAbility, SpiritLeec
                      spirit_leech_heal_targets, spirit_leech_tree, valkyrie_strike_tree)
 from .imperative import DoctrinaImperativesAbility
 from .mv71 import MV71SniperDroneSquadAttackAbility
+from .stormcaller import (StormcallerAbility, stormcaller_tree, stormcaller_get_add_ice_tiles)
 
 __all__ = [
     # summon
@@ -56,4 +59,6 @@ __all__ = [
     "DoctrinaImperativesAbility",
     # mv71
     "MV71SniperDroneSquadAttackAbility",
+    # stormcaller
+    "StormcallerAbility", "stormcaller_tree", "stormcaller_get_add_ice_tiles",
 ]

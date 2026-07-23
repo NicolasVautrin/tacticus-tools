@@ -184,9 +184,17 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
             return None
         return getattr(sc.ctx, "active_ability_level" if slot == "active" else "passive_ability_level", None)
 
+    # `ctx.tile_has_effect` (prédicat tuile de `UnitsOnTilesWithEffect @180dffc50`, #217) : la TUILE
+    # (entité ECS tile-id) porte-t-elle un effet ACTIF (non consommé) du type ? Même clé tile-id de
+    # `state.effects` que la pose `AddEffectOperation` (case-35 : la glace vit dans by_unit[tile_id]).
+    def _tile_has_effect(tile_id, effect_type):
+        return (state.effects is not None
+                and state.effects.has_effect(int(tile_id), effect_type=int(effect_type)))
+
     return DslContext(units=units, caster=caster, target=target, actor=actor, board=state.board,
                       has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat,
-                      get_ability_level=_get_ability_level, children=[])
+                      get_ability_level=_get_ability_level, tile_has_effect=_tile_has_effect,
+                      children=[])
 
 
 class Spawn(AbilityBehaviour):
