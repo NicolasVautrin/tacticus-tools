@@ -22,6 +22,7 @@ from .extra_damage import (RapidAssaultExtraDamageEffect, SmashaEadExtraDamageEf
                            BeastSlayerExtraDmgEffect, MartialKatahDmgBonusEffect,
                            DaughterOfTheAbyssExtraDamagePctEffect,
                            BeaconOfRageExtraDamageEffect, BeaconOfRageFriendlyExtraDamageEffect,
+                           TerrifyingCrescendoExtraDmgEffect,
                            LordOfTheHostExtraDamageEffect, DoomExtraDmgEffect,
                            SpotterReworkedExtraDamageEffect, SpotterReworkedHeavyWeaponEffect)
 from .damage_reduction import (TerrifyingExtraDefenseEffect, MartialKatahDmgReductionEffect,
@@ -61,6 +62,7 @@ __all__ = [
     "CrushingStrikeEffect", "HeavyWeaponExtraDmgEffect", "RangedSpecialistEffect",
     "BeastSlayerExtraDmgEffect", "MartialKatahDmgBonusEffect", "DaughterOfTheAbyssExtraDamagePctEffect",
     "BeaconOfRageExtraDamageEffect", "BeaconOfRageFriendlyExtraDamageEffect",
+    "TerrifyingCrescendoExtraDmgEffect",
     "LordOfTheHostExtraDamageEffect", "DoomExtraDmgEffect",
     "SpotterReworkedExtraDamageEffect", "SpotterReworkedHeavyWeaponEffect",
     # damage_reduction

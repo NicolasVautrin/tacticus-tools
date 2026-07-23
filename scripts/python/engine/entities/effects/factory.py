@@ -15,6 +15,7 @@ from .loki import (
     AstartesBannerExtraHitEffect,
     BeaconOfRageExtraDamageEffect,
     BeaconOfRageFriendlyExtraDamageEffect,
+    TerrifyingCrescendoExtraDmgEffect,
     BlessingsOfKhorneModifiersEffect,
     ContaminatedUnitEffect,
     OverwhelmingWrathRangeDmgReductionEffect,
@@ -258,6 +259,13 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # cote source create_aura_attack_damage_bonus_for_ally -> mods.additive de l'ami attaquant (#191).
     "BeaconOfRage_ExtraDamage": BeaconOfRageExtraDamageEffect,
     "BeaconOfRage_FriendlyExtraDamage": BeaconOfRageFriendlyExtraDamageEffect,
+    # TerrifyingCrescendo (passif triggered 1435 d'emperNoiseMarine "Shiron") : +extraDmg[ablvl passif]
+    # x mult x crescendo FLAT additif aux attaques RANGED du porteur (@180f715e0 ForAddition(IsRangedAttack
+    # & OwnerIsCaster, Multiply(ConfigVar 8=extraDmg, EffectLevel))) ; crescendo = decisionView.effects[].level
+    # = min(nb overkill/suppress, buffMaxLevel=6), cappe a l'ecriture par CreateBehaviour @1811a3840. Jumeau
+    # de BeaconOfRage + gate IsRangedAttack. EffectType 0x590=1424 (#204). Accumulation = CreateTrigger
+    # @1811a3910 (On overkill | On suppress-effect-pose 0x429=1065). extraDmg[L65]=218 (i2), rarity-scale.
+    "TerrifyingCrescendo_ExtraDmg": TerrifyingCrescendoExtraDmgEffect,
     # OverwhelmingWrath (active 1141 d'Azkor) : -dmgReductionPct% (64 des L36) au degat RANGED recu
     # par le porteur jusqu'au debut de son tour suivant (transient rem=1 ; @180f5d6e0 ForPercentDecrease
     # OwnerIsTarget & IsRangedAttack, ConfigVar 0x46). EffectType 0x515=1301 (#190). Le jumeau
