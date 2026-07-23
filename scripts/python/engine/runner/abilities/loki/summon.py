@@ -388,3 +388,108 @@ class MasterOfTheTutelariesAbility(ActiveAbility):
         effect = next((True for n, _p in ectx.emitted if n == "AddEffect"), False)
         return {"summon": "thousSmnPinkHorror", "spawned": spawned, "attacks": attacks,
                 "effect_1197": effect, "tile": tile_id, "dsl": True}
+
+
+class SpawnAberrant(AbilityBehaviour):
+    """Feuille `Spawn` de `AberrantHypermorphAbility.ExecuteBehaviour @1811b0550` (id 1166, genesBiophagus) :
+        Spawn( caster@0x160, TARGET@0x178 = la TUILE ciblee par le cast (hex libre adjacent au caster),
+               unitId = GetStringConstant(config, 0) = "genesSmnAberrant",
+               SpawnUnitOptions.WithStatsFromConfig(config 1166,
+                                                    AbilityLevelAmount(Self@0x148, AbilityType(1166)))
+                 .onAppearance(+0x18) = PerformAIAttackFromCurrentPosition(Target@0x178) )
+    Mirror 1:1 de `SpawnTutelaryHorror` (@1811f30c0 volet Spawn) SANS le AddEffect(1197) et avec la config
+    1166. Le placement N'EST PAS un selecteur : la tuile EST la cible du cast (choisie par le joueur/l'IA,
+    legalite = abilityTargets kind="tile", hex libre adjacent au caster via TargetingOptions 0x1040 --
+    ctor IDENTIQUE a MasterOfTheTutelaries @1811b0730) -> la feuille porte `tile_id` resolu par la classe.
+    Spawn delegue a `_spawn_config_grot` (WithStatsFromConfig = summonHp/summonDmg/summonArmor[level actif
+    du caster] x mult, CopyOwner team+player du caster).
+
+    ON-APPEARANCE : le natif passe `Target@0x178` (le MEME selecteur que la tuile de spawn) comme SUJET de
+    `PerformAIAttackFromCurrentPosition`, la ou MasterOfTheTutelaries passe `Spawned@0x180` -- les DEUX
+    resolvent au MEME summon (Target@0x178 apres le spawn = l'unite POSEE sur la tuile-cible = le summon
+    fraichement cree, la tuile etant libre AVANT le spawn par la legalite du cast). Outcome identique ->
+    port = `perform_ai_attack_from_current_position(state, gid)` (pipeline attaque normale COMPLET, arme par
+    distance : le genesSmnAberrant n'a qu'une arme melee 1-hit Physical -> attaque l'ennemi le plus proche
+    s'il est A PORTEE melee, sinon no-op fidele). Emet 'SpawnUnit'/'SummonOnAppearance'. Effet PUR."""
+    __slots__ = ("tile_id",)
+
+    def __init__(self, tile_id):
+        self.tile_id = tile_id
+
+    def execute(self, entities, ectx):
+        from ...operations.spawn import _spawn_config_grot
+        state = ectx.state
+        caster_id = (entities.caster or {}).get("id")
+        if state is None or caster_id is None or self.tile_id is None:
+            return OperationResult.ok()
+        consts = (GC.ability("AberrantHypermorph") or {}).get("constants") or {}
+        vid = consts.get("unitId")                       # genesSmnAberrant (GetStringConstant(config, 0))
+        ce = state.get_entity(caster_id)
+        coc = ce.get_component(OwnerComponent) if ce is not None else None
+        csc = ce.get_component(StatsComponent) if ce is not None else None
+        c_ctx = csc.ctx if csc is not None else None
+        if vid is None or coc is None or c_ctx is None:
+            return OperationResult.ok()
+        level = getattr(c_ctx, "active_ability_level", None)   # AbilityLevelAmount(Self, 1166)
+        mult = int(getattr(c_ctx, "ability_variables_multiplier", 100) or 100)
+        gid = _spawn_config_grot(state, vid, self.tile_id, "AberrantHypermorph", level, mult,
+                                 coc.team, coc.player)
+        if gid is None:
+            return OperationResult.ok()
+        ectx.emit("SpawnUnit", unit=gid)
+        att = perform_ai_attack_from_current_position(state, gid)
+        if att is not None:
+            ectx.emit("SummonOnAppearance", summon=gid, target=att["target"], total=att["total"])
+        return OperationResult.ok()
+
+
+def aberrant_hypermorph_tree(tile_id) -> SpawnAberrant:
+    """Arbre de `AberrantHypermorphAbility.ExecuteBehaviour @1811b0550` (id 1166, genesBiophagus -- MIRROR
+    1:1 du DECOMPILE) :
+        Execute( Spawn(caster@0x160, Target@0x178=TUILE, "genesSmnAberrant",
+                       WithStatsFromConfig(config, AbilityLevelAmount(Self@0x148, 1166))
+                         .onAppearance = PerformAIAttackFromCurrentPosition(Target@0x178)) )
+    UN SEUL noeud `Spawn` (plain `AActiveAbility.Execute`, PAS `ExecuteAtomic`, PAS d'AddEffect, PAS de
+    op_BitwiseAnd -- le noeud top-level passe a Execute EST le Spawn seul). Count=1 (une seule tuile-cible).
+    DISTINCT de MasterOfTheTutelaries @1811f30c0 (op_BitwiseAnd(AddEffect(1197), Spawn) + onAppearance
+    Spawned@0x180) : ici PAS d'effet-marqueur et l'onAppearance = Target@0x178 (resout au meme summon).
+    Port : feuille `SpawnAberrant` (mirror de `SpawnTutelaryHorror` sans le AddEffect)."""
+    return SpawnAberrant(tile_id)
+
+
+class AberrantHypermorphAbility(ActiveAbility):
+    """`AberrantHypermorphAbility.ExecuteBehaviour @1811b0550` (id 1166, genesBiophagus -- le summon le plus
+    simple). Cast TILE-TARGET (« Summon a genesSmnAberrant on a free hex adjacent to Biophagus ») : spawn UN
+    Aberrant Hypermorph sur la tuile ciblee (hex libre adjacent au caster), qui attaque immediatement sans
+    bouger (`PerformAIAttackFromCurrentPosition`). Pas de triggered, pas d'effet pose sur le caster.
+
+    La behaviour EST l'arbre DSL `aberrant_hypermorph_tree(tile_id)` (mirror 1:1 du decompile @1811b0550 :
+    un noeud `Spawn` UNIQUE portant `WithStatsFromConfig` + on-appearance `PerformAIAttackFromCurrentPosition`
+    embarque dans ses options -- cf. la feuille `SpawnAberrant`). La feuille delegue le SPAWN a l'Operation
+    VALIDEE `_spawn_config_grot` (genesSmnAberrant team/player du caster, stats summonHp/summonDmg/summonArmor
+    [level actif] x mult) puis l'on-appearance (le summon attaque l'ennemi le plus proche a portee melee).
+
+    `target_id` = id de TUILE (cast tile-target, abilityTargets kind="tile" -- meme convention que
+    MasterOfTheTutelaries : ctor @1811b0730 = TargetingOptions(0, statsFromClass, 1, 0x1040) IDENTIQUE).
+    Un target_id qui n'est pas une tuile du board -> Spawn no-op (diag `spawned=[]`).
+
+    Flags de tour : defauts base (`SetsEndTurnFlags`/`SetsActiveAbilityUsedFlag` = True ; 1166 absent des
+    inventaires d'override) -> l'ability termine le tour du caster + pose ActiveAbilityUsed. Le
+    « cannot-move-this-turn » que le natif pose SUR LE SUMMON (`TriggerSpawnedUnitBehaviours` @180fd57b0 :
+    flag 0x23 si le summon spawn pendant le tour du joueur courant et n'a ni trait 0x1b ni 0x10) est un
+    NO-OP runner : le summon a agi a l'apparition et n'est pas rejoue ce tour dans notre modele (aucune
+    boucle qui le referait bouger), donc le flag n'a aucun consommateur offline."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.AberrantHypermorph)  # 1166
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        board = state.board
+        tile_id = target_id if (board is not None and target_id in board.by_id) else None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        aberrant_hypermorph_tree(tile_id).execute(entities_from_state(state, caster_id), ectx)
+        spawned = [p["unit"] for n, p in ectx.emitted if n == "SpawnUnit"]
+        attacks = [{"summon": p["summon"], "target": p["target"], "total": p["total"]}
+                   for n, p in ectx.emitted if n == "SummonOnAppearance"]
+        return {"summon": "genesSmnAberrant", "spawned": spawned, "attacks": attacks,
+                "tile": tile_id, "dsl": True}

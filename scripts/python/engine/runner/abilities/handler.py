@@ -18,7 +18,7 @@ from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
                    SpiritLeechAbility, ArmoriumCherubAbility, DoctrinaImperativesAbility,
                    MV71SniperDroneSquadAttackAbility, MasterOfTheTutelariesAbility,
                    StormcallerAbility, TheQuickeningAbility, BlackRageAbility,
-                   GauntletsOfUltramarAbility)
+                   GauntletsOfUltramarAbility, AberrantHypermorphAbility)
 from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility
 
 # Registre ActiveAbilityType (int) -> classe d'ability portée. À ÉTENDRE au roster.
@@ -44,6 +44,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     TheQuickeningAbility.ABILITY_TYPE: TheQuickeningAbility,  # 1151 (Mephiston : teleport-echange tile-target + free melee attack faction-BloodAngels, #217)
     BlackRageAbility.ABILITY_TYPE: BlackRageAbility,                   # 1163 (Lucien bloodDeathCompany : setHealth 30% + 3 self-buffs + charge + attaque normale, #217)
     GauntletsOfUltramarAbility.ABILITY_TYPE: GauntletsOfUltramarAbility,  # 1000 (ultraCalgar : AoE 2 bandes adjacent 2 coups + surrounding r=2 Unobscured 1 coup, case-220 P0-DAMAGE)
+    AberrantHypermorphAbility.ABILITY_TYPE: AberrantHypermorphAbility,  # 1166 (Biophagus genesBiophagus : summon genesSmnAberrant tile-target hex libre adjacent + attaque a l'apparition, case-220 P0)
 }
 
 
