@@ -53,6 +53,7 @@ from .loki.martial_apotheosis import MartialApotheosisAttackAbility  # case-220 
 from .loki.master_of_the_tutelaries import (MasterOfTheTutelariesSummonAbility,   # #202-C (triggered 1173)
                                             MASTER_EFFECT as MASTEROFTUTELARIES_EFFECT)
 from .loki.tainted_narthecium import TaintedNartheciumReviveAbility  # case-66 (passif deathRotbone, revive)
+from .loki.suppressive_fire import SuppressiveFireAddEffectAbility  # #74 (trait SuppressiveFire 1010)
 
 # --- FinalJustice / overkill ----------------------------------------------------------------------
 OVERKILL_PCT_KEY = "overkillDmgPctOfHealth"  # globalValues = 100 → overkill ssi dmg-PV >= 100%*PV (dmg>=2*PV)
@@ -76,6 +77,11 @@ TRAIT_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # au debut du tour du proprietaire : `On(TurnStart_Other=19) & OwnerIsActor & IsDamaged(self)` ->
     # Repair(self, round(10% maxHP)). Cf. loki/living_metal.py (@181222630/@1812224e0).
     "LivingMetal": [LivingMetalRepairAbility],
+    # SuppressiveFire (trait 1010, x49 unites dont 8 lineup, #74) = pose Pinned/« Suppressed » (1065) sur
+    # la cible d'une attaque RANGED du porteur : `On(PreAttack=5) & IsRangedAttack & OwnerIsActor &
+    # AreEnemies & AmountIsGreaterThanZero(Units(target))` -> `AddEffect(Pinned, Target())`. Route sur
+    # `On(NormalAttack=38)` (cf. loki/suppressive_fire.py @181225d00/@181225c50).
+    "SuppressiveFire": [SuppressiveFireAddEffectAbility],
 }
 
 # --- Registre : passiveAbility → ability-trigger(s) accordée(s) ------------------------------------
