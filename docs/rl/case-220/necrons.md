@@ -14,11 +14,28 @@ Turn-start : AttackWithAttackDamage(PickRandomly(Damageable(Enemies(AdjacentUnit
 Tous primitifs présents. HYPOTHÈSE : event exact du trigger (CreateTrigger hérité, non symbolisé).
 ```
 ```
-[1008 HarbingerOfDestruction | necroPlasmancer]  — [opus] direct (+1 sélecteur)
-VAs : ExecuteBehaviour @1811e6750 ; GetAdditionalTargets @1811e6a40/@1811e6e50/@1811e6fa0
-Cible + N=var(0x9a) ennemis random dans un RAYON-2 du caster, 1x DirectDamage pierce-100 chacun
-(template splash.py). Prérequis : sélecteur SurroundingTiles(caster, range-2) & Enemies & Unobscured
-& Damageable (les splash portés sont ring-1). Risques : rayon-2 vs adjacence ; conso RNG (#215).
+[1008 HarbingerOfDestruction | necroPlasmancer]  — [opus] direct — PORTÉ + VALIDÉ (caster-agnostique)
+VAs : ExecuteBehaviour @1811e6750 ; GetAdditionalTargets @1811e6a40 ; GetEnemiesInRange @1811e6e50 ;
+      GetTargetAmount @1811e6fa0.  Port : runner/abilities/necrons.py (HarbingerOfDestructionAbility).
+ARBRE (mirror 1:1) : UN SEUL AttackWithAttackDamage(caster, If(AreEqual(caster,target), additional,
+Target()+additional), MinMaxDamage, Direct(GetDamageProfile(0)="DirectDamage"), Direct(GetNumberConstant(
+0x2f)=nrOfHits=1)). additional = PickRandomly( Damageable(Unobscured(caster, SurroundingEnemies(casterTile,
+range=GetNumberConstant(0x16)=2) − Target())), count = nrOfUnits(var 0x9a) − 1 ).
+= cible + (N−1) ennemis random dans le DISQUE rayon-2 du CASTER (non obscurcis, damageable), 1 coup chacun.
+CORRECTIONS RE vs classif initiale : (a) "DirectDamage" = NOM DU PROFIL (PiercingRatio 100), PAS l'effet
+direct-damage — c'est un AttackWithAttackDamage (famille "attack", native_factory défaut, PAS flaggé
+"ability"). (b) UN SEUL leaf COMBINÉ (main+additionnels attaqués ensemble, tri par id unique), PAS deux
+volets séparés (contraste BringerOfDespair). (c) sélecteur rayon-2 = SurroundingEnemies(CasterTile, 2)
+(disque, == le natif Enemies(Units(SurroundingTiles(incl=0,2))), IDENTITÉ prouvée) + Sub(Target) + Unobscured
++ Damageable — primitives LIVE-VALIDÉES par Gauntlets (rayon-2 Unobscured) + BringerOfDespair (caster-anchor
++ Sub + PickRandomly). N = nrOfUnits (var 0x9a) = 3 (lvl<=16) / 4 / 5 (lvl>=35), config-driven.
+VALIDATION : porteur necroPlasmancer = UNSPAWNABLE_FALLBACK connu (rl_collect_batch.py) ; NPC porteurs hors
+pool arène ; force-cast 1008 sur non-porteur = NO-OP (vérifié) → AUCUN cast LIVE réel possible → validation
+CASTER-AGNOSTIQUE offline (config globale, précédent PlasmaGrenade summon-only). Tests
+test_harbinger_of_destruction_live.py (4 PASS) : routage handler 1008, ciblage rayon-2 (d1&d2 frappés, d3
+exclu), cap N−1 + exclude-target, caster-anchor, A/B bit-exact (tree==execute_ability_attack), params
+DirectDamage pierce 100 / nrOfHits 1. GAP #215 (résiduel, NON root-cause) : conso RNG du PickRandomly sous
+pool > N−1 non calée (déterministe en pool <= N−1, régime validé).
 ```
 ```
 [1006 MultiThreatEliminator | necroDestroyer]  — [opus]+prérequis (candidat fable)
@@ -87,7 +104,7 @@ AddEffect(0x609 repair-bonus ForAddition) + buff maxHealth. Même blocage cast-M
 consommé par ReanimationBeam.
 ```
 
-**Synthèse Necrons** : [opus] direct = MartialApotheosis, HarbingerOfDestruction ; [opus]+prérequis =
+**Synthèse Necrons** : [opus] direct = MartialApotheosis, **HarbingerOfDestruction (PORTÉ+VALIDÉ)** ; [opus]+prérequis =
 FabricatorClawArray, RelentlessMarch, LivingLightning, MultiThreatEliminator (candidat fable),
 AdaptiveStrategy, TimesplinterMantle (pivot combat-flat) ; **[fable]** = InescapableDeath +
 ReanimationBeam/NanoscarabRepairProtocols (BLOQUÉS MoW). Débloqueurs faction : feuille **Repair DSL**
