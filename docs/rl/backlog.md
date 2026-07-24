@@ -51,6 +51,13 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   Unstoppable} consommé par le WalkPathfinder pour les effets de tuile movement-ending
   (Fire/Ice/BlockEntering). À câbler **dans la tranche movement-stop #131/B4** quand le fondement
   (effets de tuile dans la reachability) sera porté — sinon code registered-but-dead. `[opus]`.
+- **Push : arc arrière NON-dégénéré (pousseur non-adjacent)** (`case-push-distance` §5, #68 CLOS —
+  distance 1 hex tranchée RE+live) : `FindTileToPush @180e695e0` sélectionne dans l'arc arrière
+  distance-1 `GetMinimumTiles180Behind @181064f98` ; pour un pousseur **non axis-aligné** l'arc rend
+  2-3 tuiles et le natif **random-pick** parmi les valides → la DIRECTION peut différer du straight-back
+  du port. **Sans objet** pour `PushUnit(caster,target)` mêlée (pousseur toujours adjacent → arc = 1
+  tuile straight-back déterministe). À porter (slice-21b) seulement si un push d'un pousseur
+  non-adjacent (AoE/ranged) apparaît. `[opus]`.
 - **Coups post-mortem / dérive du flux MT** (`case-67` §5) : le natif cesse d'émettre les coups
   après la mort de la cible, `_run_hits` continue de tirer → dérive du PRNG après un kill
   mi-attaque en sim multi-actions. `[fable]` si ça remonte (divergence cross-cutting, se localise mal).
