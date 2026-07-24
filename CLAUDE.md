@@ -454,11 +454,25 @@ suite `tests/engine/` — **beaucoup trop lourd**.
     récupérer le partiel d'un agent mort, **déléguer la SYNTHÈSE** à un sous-agent qui le lit en chunks
     (offset/limit) et me rend ~15-30 lignes.
 
-## fable-solver + solving-playbook (cas durs)
+## Solveurs autonomes : `opus-solver` par DÉFAUT, `fable-solver` en dernier recours
 
-Pour un cas DUR qui a résisté (divergence non localisée, verdicts contradictoires, flip-flop),
-déléguer à l'agent **`fable-solver`** (modèle fable, worktree isolé, `.claude/agents/fable-solver.md`).
-Il résout end-to-end et **LIVRE PAR PULL REQUEST** :
+**RÈGLE : on dispatche EXCLUSIVEMENT sur `opus-solver`.** `fable-solver` n'est **jamais** un premier
+choix — il est réservé aux cas qu'**opus a réellement tenté et n'a pas résolus**. Un tag `[fable]`
+posé au moment de proposer une tâche est une *estimation de difficulté*, **pas** une affectation :
+même `[fable]`, la tâche part d'abord en `opus-solver`, avec l'échappatoire explicite dans son prompt
+(« si ça résiste — divergence non localisée, verdicts contradictoires, aller-retours — ne t'acharne
+pas, signale-le comme candidat à délégation »).
+
+- **Pourquoi** : sur les vagues récentes, l'écrasante majorité des cas tagués `[fable]` ont été
+  résolus par opus — plusieurs en retournant carrément leur prémisse (le débloqueur REVIVE #66,
+  résolu opus-first sans fable, en est l'exemple). Réserver fable à ce qui a *effectivement* résisté
+  évite de payer le modèle le plus lourd pour du travail qu'opus fait, et garde le
+  `solving-playbook` centré sur les vrais cas durs.
+- **Escalade** : un cas ne devient `fable` que sur un **rapport d'échec d'opus** (le solveur dit
+  lui-même qu'il bloque), jamais sur une intuition a priori de difficulté.
+
+Le workflow de livraison est **identique pour les deux** (worktree isolé, édition libre, validation
+adversariale de son PROPRE fix, livraison **PAR PULL REQUEST**) :
 
 - Il commit son fix + son entrée `docs/rl/solving-playbook.md` sur sa branche worktree, `git push
   origin HEAD` + `gh pr create`, et reporte l'URL. **Filet** : si le push/gh échoue (creds/env), il
@@ -471,11 +485,13 @@ Il résout end-to-end et **LIVRE PAR PULL REQUEST** :
   **`!include` dans ce CLAUDE.md** (section « Documentation détaillée ») → chargé en contexte chaque
   session : je tente de résoudre un cas dur SEUL avec ces techniques AVANT de déléguer. But : à terme,
   de moins en moins besoin de l'agent.
-- **Variante `opus-solver` pour les cas `[opus]`** (`.claude/agents/opus-solver.md`, modèle opus) :
-  même workflow solver end-to-end (worktree isolé, édition libre, validation adversariale de son
-  propre fix, livraison par PR que je relis/merge) — pour l'artefact **identifié** / volume
-  mécanique / port 1:1. Il n'écrit **jamais** `solving-playbook.md` (fable-solver only) ; un item
-  qui se révèle DUR est reporté comme **candidat fable-solver**, pas résolu à l'usure.
+- **`opus-solver`** (`.claude/agents/opus-solver.md`, modèle `opus[1m]`) — **le dispatch par défaut,
+  quel que soit le tag** : artefact identifié, volume mécanique, port 1:1, câblage… et aussi les cas
+  `[fable]` en PREMIÈRE tentative. Il n'écrit **jamais** `solving-playbook.md` (fable-solver only) ;
+  un item qui se révèle DUR est reporté comme **candidat fable-solver**, pas résolu à l'usure.
+- **`fable-solver`** (`.claude/agents/fable-solver.md`, modèle `fable`) — **uniquement après un échec
+  opus RAPPORTÉ**. Son modèle distinct est aussi un levier de *diversité* : sur un cas où opus a
+  tourné en rond, changer de famille de modèle vaut mieux que relancer le même.
 
 ## Ne jamais
 
@@ -550,7 +566,7 @@ ability + roadmap des tranches restantes : **`docs/rl/dsl-effect-nodes.md`** (se
 !include .claude/skills/tacticus/references/runner.md
 
 <!-- Techniques de résolution de cas durs, écrites EXCLUSIVEMENT par fable-solver (cf. section
-     « fable-solver + solving-playbook ») — incluses pour tenter de résoudre SEUL avant de déléguer. -->
+     « Solveurs autonomes ») — incluses pour tenter de résoudre SEUL avant de déléguer. -->
 !include docs/rl/solving-playbook.md
 
 <!-- TODO références à (ré)écrire contre le code actuel (les drafts d'avril
