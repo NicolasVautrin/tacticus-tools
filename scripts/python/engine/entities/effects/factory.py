@@ -28,6 +28,7 @@ from .loki import (
     DaughterOfTheAbyssOwnerDmgReductionEffect,
     DecoysAndMisdirectionExtraDamageEffect,
     FeederTendrilsExtraDamageEffect,
+    AvalancheOfMuscleExtraDamageEffect,
     LordOfTempestsExtraDamageEffect,
     FightingRetreatDmgReductionEffect,
     FightingRetreatHitReductionEffect,
@@ -189,6 +190,11 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # ForAddition). +extraDmg[level]xmult FLAT PRE-percage sur l'attaque NORMALE de CHARGE melee ;
     # multiplier GLOBAL (pas per-ability #68, car c'est l'attaque normale de l'unite). #176.
     "FeederTendrils_ExtraDamage": FeederTendrilsExtraDamageEffect,
+    # AvalancheOfMuscle (astraBullgryn passif, EffectType 1025) : JUMEAU de FeederTendrils (@180f32b20
+    # ForAddition, ctor @180f32cd0 ABondEffect 0x404=1028) SAUF le noeud IsNormalAttack ABSENT ->
+    # +extraDmg[level passif]xmult FLAT PRE-percage sur TOUTE attaque en CHARGE (OwnerIsCaster & IsCharging).
+    # astraBullgryn melee-only ; multiplier GLOBAL a valider live (#68/#75). #220.
+    "AvalancheOfMuscle_ExtraDamage": AvalancheOfMuscleExtraDamageEffect,
     # BeastSlayer (orksNob/Titus/Farsight/...) : +20% degat MELEE vs BigTarget/Vehicle (trait,
     # target-conditionnel @180f336c0 ForPercentIncrease ; gate is_melee + target_traits). #68.
     "BeastSlayer_ExtraDmg": BeastSlayerExtraDmgEffect,
