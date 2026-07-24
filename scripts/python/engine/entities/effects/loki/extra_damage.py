@@ -154,6 +154,54 @@ class FeederTendrilsExtraDamageEffect(BaseEffect):
         return for_addition(True, amt) if amt is not None else None
 
 
+class AvalancheOfMuscleExtraDamageEffect(BaseEffect):
+    """`AvalancheOfMuscleTargetEffect.CreateEffectDamageBonusForAttack @180f32b20` (astraBullgryn passif
+    AvalancheOfMuscle, AstraMilitarum ; effet EffectType 1025 "AvalancheOfMuscle_ExtraDamage" ; ctor
+    @180f32cd0 = `ABondEffect(AbilityOrEffect 0x404=1028)`). JUMEAU de `FeederTendrilsExtraDamageEffect
+    @180f48ea0` avec UNE difference : PAS de noeud `IsNormalAttack`.
+    `EffectBonus.ForAddition(OwnerIsCaster & IsCharging, ConfigVar(8=extraDmg, GetAbilityState, EffectSource))`.
+
+    RE (decompile = verite) : les callees de @180f32b20 = {get_OwnerIsCaster, IsCharging, op_BitwiseAnd,
+    GetAbilityState, ConfigVar, Nullable.ctor} -> DEUX noeuds trigger SEULEMENT (OwnerIsCaster & IsCharging).
+    `IsNormalAttack` (present chez FeederTendrils) est ABSENT ici -> le bonus s'applique a TOUTE attaque du
+    porteur en CHARGE, pas seulement l'attaque normale. Le `ForAddition` est inline (le compilo l'a fondu :
+    ConfigVar ecrite au champ additif +0x10 = param_1[2], meme layout que EffectBonus.ForAddition @180f406e0),
+    donc canal ADDITIF identique a FeederTendrils/SmashaEad (`DamageModifiers.Add @181005f10`, applique
+    par coup PRE-percage cote combat, canal `attacker_additive_pre`).
+
+    - MAGNITUDE = `ability_var("AvalancheOfMuscle", "extraDmg", level) x multiplier` (`ConfigVar` var index 8 =
+      `extraDmg`, SEULE var de l'ability, dans `variablesAffectedByRarityBonus` ; extraDmg[L1]=6, [L65]=437).
+      `GetExtraDamage @18121a080` = `AbilityConfiguration.GetVariableForLevel(config, 8, ...)` sur le config de
+      `AvalancheOfMuscleAbility` (le PASSIF du porteur) -> level = niveau passif d'astraBullgryn (cascade
+      active_ability_level -> ability_level -> level, comme FeederTendrils). Multiplier = le GLOBAL de l'unite
+      (`self.ability_variables_multiplier`) : AvalancheOfMuscle est un PASSIF (pas une triggered) -> a VALIDER
+      live que le multiplier global est le bon (piege #68/#75 per-ability vs global).
+    - GATE `IsCharging` (`AverageDistanceFormula @180f0c7e0` via `DSLFactory.IsCharging @180df3210` : l'unite
+      s'est-elle rapprochee de la cible = a-t-elle charge). astraBullgryn est MELEE-only (aucune attaque
+      ranged) -> le gate `is_ranged` est un no-op ; conserve pour rester le calque strict de FeederTendrils
+      (meme noeud IsCharging). Cote combat `has_moved = unit_id in state.moved_this_turn` (proxy de charge) ;
+      en prediction-display les tuiles rankees sont des tuiles de charge -> has_moved None/True -> gate TRUE.
+    - PAS de `is_normal_attack` gate (contrairement a FeederTendrils) : le natif n'a PAS le noeud IsNormalAttack."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        if is_ranged:                       # IsCharging melee (astraBullgryn melee-only ; calque FeederTendrils)
+            return None
+        if has_moved is False:              # IsCharging (@180df3210) : charge = deplacement vers la cible
+            return None                     # (has_moved None = inconnu -> applique, cas prediction-display)
+        # PAS de gate is_normal_attack : @180f32b20 n'a AUCUN noeud IsNormalAttack (RE decompile).
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        amt = ability_var("AvalancheOfMuscle", "extraDmg", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)  # GLOBAL (pas per-ability #68)
+        return for_addition(True, amt) if amt is not None else None
+
+
 class DecoysAndMisdirectionExtraDamageEffect(BaseEffect):
     """`DecoysAndMisdirection_ExtraDamageEffect.CreateEffectDamageBonusForAttack @180f3e340` (Genestealer
     Cults ability DecoysAndMisdirection 0x518=1304, effet 0x563=1379 "DecoysAndMisdirection_ExtraDamage") :

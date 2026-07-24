@@ -18,11 +18,20 @@ Pose = AddEffect(1046 Infiltrate + 1047 DmgReduction −364, amis ring-1 non-0x3
 Prérequis : trigger turn-start runner (template LivingMetal) ; Infiltrate 0x416 = tranche séparée basse prio.
 ```
 ```
-[AvalancheOfMuscle | astraBullgryn passif]  — [opus] direct trivial
-VAs : effet @180f32cd0/@180f32b20 ; GetExtraDamage @18121a080 ; playbook @181163e60
-ForAddition(OwnerIsCaster & IsNormalAttack & IsCharging, ConfigVar 8) — JUMEAU bit-à-bit de
-FeederTendrils (extra_damage.py:111). 1 tranche (classe + factory + enum).
-Risques : piège multiplier per-ability vs global (#68/#75) ; gate charge (has_moved).
+[AvalancheOfMuscle | astraBullgryn passif]  — PORTÉ + VALIDÉ LIVE (#220)
+VAs : ctor @180f32cd0 (ABondEffect AbilityOrEffect 0x404=1028) ; effet @180f32b20 ;
+      GetExtraDamage @18121a080 ; playbook @181163e60 ; EffectType 1025 "AvalancheOfMuscle_ExtraDamage".
+Formule (decompile @180f32b20 = vérité) : ForAddition(OwnerIsCaster & IsCharging, ConfigVar(8=extraDmg,
+GetAbilityState, EffectSource)). CORRECTION RE : PAS de nœud IsNormalAttack (callees @180f32b20 =
+{get_OwnerIsCaster, IsCharging, op_BitwiseAnd, GetAbilityState, ConfigVar} ; FeederTendrils @180f48ea0 A
+IsNormalAttack, pas ici) → jumeau de FeederTendrils MOINS le gate normal-attack. Additif PRE-percage par
+coup (attacker_additive_pre) ; extraDmg (seule var, idx8, dans variablesAffectedByRarityBonus ;
+[L1]=6..[L65]=437) x multiplier GLOBAL. Port : AvalancheOfMuscleExtraDamageEffect (extra_damage.py) +
+factory "AvalancheOfMuscle_ExtraDamage" ; enum 1025 déjà présent (effect_type.py).
+VALIDÉ (test_avalanche_of_muscle_live.py, astraBullgryn L50 mult180, bonus=+599/coup=round(333x1.8)) :
+CHARGE bit-exact off==live [3178,3303,3287,4002] (off_nocharge = -599/coup) ; NO-CHARGE bit-exact off==live
+sans bonus [3313,2782,3045,3539] (off_charge = +599). Multiplier GLOBAL confirmé (pas le piège per-ability
+#68 : sinon la magnitude divergerait). Risque #68/#75 LEVÉ pour ce passif.
 ```
 ```
 [ToughToKill | astraDreir passif]  — [opus]+prérequis
@@ -105,7 +114,7 @@ Prérequis : prédicats IsNormalUnit/HasBeenDefeated/HasAdjacentEnemies ; effet 
 stat PierceRatio (26) honoré par le pipeline de dégât ; garde re-attaque. 3 tranches.
 ```
 
-**Synthèse Astra** : quasi-couverts = SpotterReworked, Nightshroud ; [opus] direct = AvalancheOfMuscle ;
+**Synthèse Astra** : quasi-couverts = SpotterReworked, Nightshroud ; PORTÉ+VALIDÉ = AvalancheOfMuscle (#220) ;
 [opus]+prérequis = ToughToKill, FragBomb, PsychicMaelstrom, BasiliskBarrage ; bloqué harnais MoW =
 ForwardSpotter ; mixte = SummaryExecution ; **[fable]** = SwornProtector, LeadingTheCharge.
 HYPOTHÈSES : nécessité réelle des poses runner-face ; mapping direct-vs-crit des 2 overloads
