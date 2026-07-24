@@ -21,6 +21,7 @@ from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
                    GauntletsOfUltramarAbility, AberrantHypermorphAbility, CordClawAbility)
 from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility, VigilanceEternalAbility
 from .deathguard import RevitalizingMalignancyAbility
+from .spacewolves import GreatFrostAxeAbility
 
 # Registre ActiveAbilityType (int) -> classe d'ability portée. À ÉTENDRE au roster.
 ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
@@ -49,6 +50,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     VigilanceEternalAbility.ABILITY_TYPE: VigilanceEternalAbility,     # 1202 (Tyrith custoKyrus : charge gap-close + attaque melee Power mono-cible 3 hits, #220)
     CordClawAbility.ABILITY_TYPE: CordClawAbility,                     # 1122 (Exitor-Rho admecRuststalker : 4x DirectDamage melee + self-buff coups additionnels 2 tours, case-220)
     RevitalizingMalignancyAbility.ABILITY_TYPE: RevitalizingMalignancyAbility,  # 1037 (deathRotbone : heal self+allies adj non-Imperial, split trait Chaos regular/chaos-cumul, case-220)
+    GreatFrostAxeAbility.ABILITY_TYPE: GreatFrostAxeAbility,           # 1089 (spaceWulfen : glace zone cible+ring1 + attaque melee 4x Piercing mono-cible ATTACK-family, case-220 SW)
 }
 
 

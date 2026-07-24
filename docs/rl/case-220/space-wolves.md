@@ -8,10 +8,27 @@
 n'est PAS émis.
 
 ```
-[1089 GreatFrostAxe | spaceWulfen]  — [opus] direct (le + facile)
+[1089 GreatFrostAxe | spaceWulfen]  — [opus] direct -> PORTÉ (structure) ; residu +50% = CANDIDAT FABLE
 VAs : ExecuteBehaviour @1811e3500 ; playbook @18113fbd0 (prédiction VALIDÉE 54321 s18)
-Attack(RandomAmount(min,max), Piercing-80, 4 hits) & AddEffect(Ice, tuile cible + ring-1) — patron
-Stormcaller inversé, 0 prérequis dur. Risques : bonus crit-sur-Ice déféré (impact coups critiques only).
+Natif EXACT (mirror 1:1) : op_BitwiseAnd( AddEffect(0x11 Ice, source=stateRef, owner@0x148,
+  op_Addition(AdjacentTiles(TargetTiles@0x190), TargetTiles@0x190), Nullable ZÉROÉ -> defaut 2 rounds),
+  If(IsAlive(target@0x178), AttackWithAttackDamage(caster@0x160, target@0x178, RandomAmount(minDmg,maxDmg),
+  GetDamageProfile=Piercing-80, GetNumberConstant(0x2f)=nrOfHits=4, AbilityOrEffect(1089))) )
+  -> GLACE d'abord (tuile cible + ring-1), PUIS attaque la CIBLE DIRECTE (mono-cible, ATTACK-family
+  @180de9fb0 XREF from 1811e367f -- PAS ability-family, contraste Stormcaller). Porté `spacewolves.py`,
+  enregistré handler.py, test live `test_great_frost_axe_live.py`. VALIDÉ live : zone glace = 7 tuiles
+  (cible+ring1 exact), 4 coups, native_factory="attack" (rolls per-coup bit-exacts vs live).
+RÉSIDU MAJEUR (candidat fable-solver) : le « bonus crit-sur-Ice » N'EST PAS crit-only (hypothèse
+  RÉFUTÉE par le live). MESURE (spaceWulfen vs necroWarden, cc=0/DidCrit=0) : degat LIVE = EXACTEMENT
+  1.5x le degat OFFLINE sur CHAQUE coup (ratio ~1.5000). Spécifique à GreatFrostAxe (attaque normale du
+  même spaceWulfen = pas de divergence). = `IceEffect.CreateEffectDamageBonusForAttack @180f44940` appliqué
+  car GFA glace AVANT de frapper (i2 « The Crit Damage bonus of the Ice is already applied for this attack »).
+  Contradiction NON résolue : formule = PercentageOf(StatAmount(caster, CRIT_DAMAGE=10), EffectConfig(5))
+  gate AttackDamageIsCritical, MAIS caster CRIT_DAMAGE=0 -> devrait donner 0 (contredit le +50%) et le gate
+  crit devrait être faux (coups non-crit). Sous-système effect-damage-bonus PARTAGÉ (~40+ effets
+  `CreateEffectDamageBonusForAttack`, `BaseEffect.DamageBonusForAttack @180f0f5e0`, `AttackDamageOperation.
+  ExecuteHit @180e5eff0`) jamais modélisé offline (== résidu #131/#133, flaggé « crit-only » à tort dans
+  Stormcaller qui diverge IDENTIQUEMENT sans test bit-exact). Port ship la structure fidèle, degat ~33% bas.
 ```
 ```
 [1097 Foehammer | spaceRockfist]  — [opus]+1 sélecteur
@@ -71,7 +88,8 @@ Inspired = REVIVE-ONCE 5456 HP sur self+amis non-méca rayon-2 (rejoint le sous-
 revive-once partagé ; feuilles UseNormalAttack/ValidNormalAttackTargets/SortUnitsByDamageUtility.
 ```
 
-**Synthèse SW** : [opus] direct = GreatFrostAxe ; [opus]+prérequis = Foehammer, SagaOfTheWarriorBorn,
+**Synthèse SW** : [opus] direct = GreatFrostAxe (PORTÉ structure ; residu +50% crit-Ice = candidat fable,
+cf. sous-système effect-damage-bonus partagé) ; [opus]+prérequis = Foehammer, SagaOfTheWarriorBorn,
 WarHowl, HuntersBeyondDeath (borderline), HealingBalms (borderline) ; **[fable]** = AnvilShield
 (on-block), SavageKiller, RitesOfMorkai (revive-once). Transverses : AllDeadOrResurrectedUnits ;
 IsCharging combat ; dispatch UnitBlocked=0x3d ; active-heal + HealAmount (tous les Healers du roster) ;
