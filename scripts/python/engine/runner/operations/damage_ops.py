@@ -131,7 +131,8 @@ class _DamageOpsMixin:
         # BLOCK (cible) = base (scalaire GetStat 7/8) + sources d'effet (ex. BeastSlayer) — helper PARTAGE
         # par les 3 vecteurs (normale/ability/splash), mirror du `GetMultiValueStat(7)`/CalculateBlockChances
         # @181002350 unique du natif. Besoin des effets actifs de la cible -> apres defender_modifiers.
-        block_sources = AttackDamageOperation._block_sources(tsc, _def_active, armor)
+        # #65 : `_profile` gate le trait NoBlocking (profil Psychic bypasse le block, mirror ExecuteHit).
+        block_sources = AttackDamageOperation._block_sources(tsc, _def_active, armor, _profile)
         # ORDRE RÉEL (confirmé live 18/18 coups, 3 seeds, necroDestroyer 6h) : le HitDamage natif
         # porte la plage RÉDUITE — la réduction (perçage/armure/modifiers attaquant+défenseur) est
         # appliquée aux BORNES base±spread D'ABORD, puis le tirage `GetDamage` se fait DANS cette plage
@@ -324,7 +325,8 @@ class _DamageOpsMixin:
                                            attacker_id=attacker_id, is_normal_attack=False)  # #112 spéciale
         # BLOCK (cible) = base (GetStat 7/8) + sources d'effet (BeastSlayer...) via le helper PARTAGE
         # `_block_sources` (mirror du GetMultiValueStat(7)/CalculateBlockChances@181002350 unique du natif).
-        block_sources = AttackDamageOperation._block_sources(tsc, _da, armor)
+        # #65 : `damage_profile` gate le trait NoBlocking (profil Psychic bypasse le block, mirror ExecuteHit).
+        block_sources = AttackDamageOperation._block_sources(tsc, _da, armor, damage_profile)
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(ctx, active)
         # #45f : la famille ABILITY (`AbilityDamageOperation.ExecuteHit @180e29d50`) n'a AUCUN chemin
         # crit — pas d'appel RollCritical (le slot crit n'existe que dans `AttackDamageOperation.
@@ -454,7 +456,8 @@ class _DamageOpsMixin:
                                            attacker_id=attacker_id, is_normal_attack=False)  # #112 spéciale
         # BLOCK (cible) = base (GetStat 7/8) + sources d'effet (BeastSlayer...) via le helper PARTAGE
         # `_block_sources` (mirror du GetMultiValueStat(7)/CalculateBlockChances@181002350 unique du natif).
-        block_sources = AttackDamageOperation._block_sources(tsc, _da, armor)
+        # #65 : `damage_profile` gate le trait NoBlocking (profil Psychic bypasse le block, mirror ExecuteHit).
+        block_sources = AttackDamageOperation._block_sources(tsc, _da, armor, damage_profile)
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(ctx, active)
         # #120 : réduction PLATE défenseur (Nightshroud, ungated -> splash/normal-like aussi) fusionnée pré-perçage.
         AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)

@@ -10,7 +10,11 @@ que `UnitTrait` #146 / `EventTriggerType` #155). Les `DamageProfile.Traits` game
 chaine -> les checks se font name-based (`DamageTrait.X.name in Traits`), pas via des int bruts.
 
 Usages dans le port (post-#156) :
-  - NoBlocking (0)          : `PredictAttackRaw` skip la boucle multi-outcome (outcome unique) — non wire.
+  - NoBlocking (0)          : le profil BYPASSE le block. COMBAT (#65) : `AttackDamageOperation._block_sources`
+                              gate sur ce trait (profil Psychic -> aucune source, 0 tirage), mirror du flag
+                              `ExecuteHit @180e5eff0` (`DamageProfile.HasTrait(0)` -> skip block/evade de
+                              `CalculateDamageOperation @18102dc30`). PREDICTION (`PredictAttackRaw`) : reste
+                              non-gate (residu documente case-65-noblocking-block-bypass, scenario WillBeKill).
   - OnFire (1)              : `OnFireDamageAbility` pose du feu on-hit (`DamageTrait.OnFire.name in Traits`, triggers.py).
   - HitsMultipleMembers (2) : "Blast" -> `ApplyGroupUnitDamageLimit` SKIP le member-cap (bool
                               `profile_has_hits_multiple_members`, trait_damage_limits ; moot tant que member_count=1).
