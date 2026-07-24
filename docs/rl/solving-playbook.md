@@ -557,3 +557,79 @@ a la mecanique la plus connue (le crit) au lieu de le LOCALISER.
   [919,904,1113]) ; et `execute_normal_like`/amount-mode + fire-DoT (EnvFireTile) ont une
   consommation NON mesuree (candidats memes familles).
 
+
+---
+
+## #45f (2026-07-24) — Ratio constant "explique" par le MAUVAIS mecanisme (x1.5 attribue a crit-on-Ice, c'etait l'elevation)
+
+**Symptome-type** : divergence live/offline en RATIO CONSTANT par coup (ici 1.5000 exact, DidCrit=0),
+ATTRIBUEE a un effet plausible narrativement (GFA glace avant de frapper + i2 "The Crit Damage bonus
+of the Ice is already applied") alors que la formule decompilee de cet effet CONTREDIT la mesure
+(crit-only + proportionnelle a CRIT_DAMAGE=0 -> devrait etre 0). La "contradiction decompile vs live"
+n'etait PAS une bizarrerie native a elucider : c'etait le signal que l'ATTRIBUTION etait fausse.
+
+**Methode qui l'a craque** :
+
+1. **Une contradiction formule-vs-mesure se resout en CHERCHANT UN AUTRE COUPABLE, pas en forcant la
+   formule.** Le decompile de `IceEffect.CreateEffectDamageBonusForAttack @180f44940` est sans
+   ambiguite : trigger `AttackDamageIsCritical & AreEqual(Units(occupants-tuiles-effet), target@0x178)
+   & op_LogicalNot(HasTrait(target, 0x19))`, addition `PercentageOf(StatAmount(attacker@0x160,
+   10=CRIT_DAMAGE), EffectConfig(5)=25)`. Tous les canaux du EffectBonus sauf ADDITION sont zero.
+   Si la mesure dit +50% sur des coups non-crit avec cd=0, ce n'est pas "l'attaque devient critical
+   pour l'Ice" (le flag crit REEL per-coup est injecte au ctor AbilityEntities dans ExecuteHit
+   @180e5eff0 — verifiable en 5 min de lecture) : c'est un AUTRE etage qui produit le +50%.
+
+2. **Inventorier les multiplicateurs POSITIONNELS avant d'accuser un effet.** Un x1.5 exact sur
+   CHAQUE coup, insensible au crit, = un canal percent du builder de mods attaquant. Le builder
+   PARTAGE `CalculateAttackerModifiersForPrediction @181000590` inline l'elevation
+   (`CalculateElevationBonusModifier @181003ea0` : gate strict `elev(att) > elev(cible)` +
+   `!HasEffect(0x423)` DEUX cotes, valeur = config `Damage.ElevationBonus` = 50) + trench. Le
+   confond etait PARFAIT : le scenario de test movait l'attaquant sur `ranked[0]` qui PREFERE le
+   surplomb -> 1.5x systematique et REPRODUCTIBLE ; et l'attaque normale de CONTROLE du meme caster
+   passait par le chemin offline qui applique DEJA l'elevation -> "pas de divergence" -> l'ecart
+   semblait specifique a l'ability -> attribution a l'Ice. **Heuristique : un cas de controle qui
+   "passe" ne disculpe une variable cachee QUE si les deux vecteurs la traitent PAREIL offline** —
+   ici le fork de port (elevation appliquee au vecteur normal, absente du vecteur ability) rendait
+   le controle aveugle.
+
+3. **Sonde discriminante = bouger LA variable suspectee, positions FORCEES** (`probe_45f_gfa_elevation`,
+   patron reutilisable) : meme build/seed, `applyAction move` place cible et attaquant sur une paire
+   de tuiles adjacentes choisie dans `boardGraph` par relation d'elevation (high/flat/low). Resultat
+   pre-fix : high = live 1.5000x offline A ROLLS PRNG IDENTIQUES (les 4 valeurs offline de high ==
+   celles de flat, meme seed -> la divergence est UN multiplicateur, pas une derive RNG) ; flat/low
+   = bit-exact (gate strict `>`). Post-fix : bit-exact partout. **Heuristique : quand le ratio est
+   exactement constant ET les rolls identiques, chercher un multiplicateur d'etage, jamais une
+   difference de consommation RNG.**
+
+4. **La formule crit-only se valide en FORCANT le regime** (`rl_duel build --crit 100,700`) : chaque
+   coup crite -> delta live vs offline-sans-le-terme = +175 = floor(700 x 25/100) CONSTANT (delta
+   flat, ratio variable -> canal ADDITION, pas multiplicateur), et bit-exact une fois
+   `ice_crit_damage_addition` porte (position pipeline = flat PRE-reduce, meme foyer que le crit
+   flat #75/#91). Gate Immune : AUCUN porteur spawnable (pool rank 17) -> validation OFFLINE par
+   toggle du trait dans l'etat replay (inject "Immune" -> l'offline perd exactement 175/coup crit
+   = le gate est cable dans le pipeline reel) ; la face native du gate reste decompile-only.
+   Datapoint "cible non-glacee + crit" = les tests crit existants (test_damage_crit_live, cc=100
+   cd=500, aucune glace) : bit-exact SEULEMENT si le terme Ice rend 0 hors tuile glacee.
+
+5. **Asymetrie de FAMILLE mesurable en une paire de sondes** : ATTACK ExecuteHit @180e5eff0 =
+   RollCritical (slot-10) + builder mods COMPLET (slot-4, elevation/trench incluses) ; ABILITY
+   ExecuteHit @180e29d50 = `AttackHit(..., isCrit=0)` SANS roll + ctx mods attaquant ZEROE (aucun
+   builder) -> pas d'elevation, pas de crit, JAMAIS. Mesure : storm_high (Stormcaller surelevee,
+   famille ability) = live == offline sans elevation 3/3 ; scrit (--crit 100,700) = live
+   crits=[0,0,0]. **Patron : le gate par famille de factory native (`wasted_resolve` =
+   native_factory != "ability") est la frontiere correcte pour TOUTE feuille positionnelle/crit
+   du builder attaquant.**
+
+**Outils/heuristiques reutilisables** :
+- **"Ratio exact + rolls identiques" => multiplicateur d'etage manquant** ; croiser avec la liste
+  des feuilles du builder @181000590 (elevation, trench, charge, aura, ...) AVANT d'accuser un effet.
+- **Verifier qu'un controle est reellement discriminant** : lister ce que chaque vecteur offline
+  applique (grep apply_* dans les DEUX chemins) ; un fork de port rend les controles croises muets.
+- `probe_45f_gfa_elevation.py` / `probe_45_shared_bonus.py` (commites) = patrons de sonde
+  positions-forcees par relation d'elevation, reutilisables pour toute feuille positionnelle.
+- Famille effect-damage-bonus (`Effect.CreateEffectDamageBonusForAttack`, collecteur
+  `BaseEffect.DamageBonusForAttack @180f0f5e0`) : lire le EffectBonus par CANAL
+  (trigger/multiplicator/addition/subtraction/minimum/override) — l'additif ungated
+  (AvalancheOfMuscle etc.) et l'addition crit-gated (Ice) coexistent au MEME foyer pipeline ;
+  porter le canal + son trigger, jamais un scalaire fitte.
+

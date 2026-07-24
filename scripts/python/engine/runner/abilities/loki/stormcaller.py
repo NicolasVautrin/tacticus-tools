@@ -32,9 +32,14 @@ ExecuteAtomic) :
 Le ctor @18120cfc0 ne fait que sur-flaguer les TargetingOptions (0x2_00000000) — ciblage
 DECISION-side, hors périmètre combat (la cible vient du message).
 
-RÉSIDUS documentés (case-217) : conséquences AVAL des tuiles Ice toujours GATE (#131/#133 —
-blocage mouvement `NotBlockingMovementOfTraits(0x11)`, crit-bonus `IceEffect.
-CreateEffectDamageBonusForAttack @180f44940`) ; la POSE, l'attaque et le stun sont réels (état).
+RÉSIDUS documentés (case-217, MAJ #45f 2026-07-24) : blocage mouvement
+`NotBlockingMovementOfTraits(0x11)` toujours GATE (#131) ; le crit-bonus Ice (`IceEffect.
+CreateEffectDamageBonusForAttack @180f44940`) est PORTÉ (`damage_model.ice_crit_damage_addition` :
++25% du CRIT_DAMAGE de l'attaquant PAR COUP CRIT vs cible sur tuile Ice non-Immune — 0 pour Njal
+cd=0) ; l'ex-divergence x1.5 « identique à GreatFrostAxe » (#133) était le bonus d'ÉLÉVATION
+(`Damage.ElevationBonus`=50) manquant du vecteur ability — RÉSOLU #45f (`execute_ability_attack`
+applique désormais `apply_elevation_bonus`/`apply_trench_reduction`, cf. probe_45f_gfa_elevation).
+La POSE, l'attaque et le stun sont réels (état).
 
 DOCTRINE #149 : artefact natif = behaviour-seq DSL → arbre mirroré feuille à feuille ; les
 Operations dessous (`AttackDamageOperation`, `AddEffectOperation`) restent impératives."""

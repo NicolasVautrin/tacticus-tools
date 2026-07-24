@@ -85,7 +85,8 @@ from ..components import (StatsComponent, HealthComponent, PositionComponent, Un
                          ShieldComponent, OwnerComponent)
 from ..damage_model import (select_weapon, select_weapon_pierce, attacker_modifiers,
                             defender_modifiers, build_hits_board, apply_elevation_bonus,
-                            apply_trench_reduction, target_trait_names, getstuckin_combat_chance,
+                            apply_trench_reduction, ice_crit_damage_addition,
+                            target_trait_names, getstuckin_combat_chance,
                             defender_fixed_armor)
 from ...entities.effects import (hits_bonus_from_effects, crit_chance_bonus_from_effects,
                                  crit_damage_bonus_from_effects, defender_effect_block_sources,
@@ -485,16 +486,19 @@ class AttackDamageOperation:
         # #120 : réduction PLATE défenseur (Nightshroud) fusionnée dans l'additif pré-perçage (mirror prédiction).
         AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
 
-        def _reduced_bounds(eff_attack: int, hit_mult: int = 1) -> "HitDamage":
+        def _reduced_bounds(eff_attack: int, hit_mult: int = 1, flat_add: int = 0) -> "HitDamage":
             # #75 (case-68 MAJ 13) : additif ForAddition ATTAQUANT = PRÉ-perçage en COMBAT
             # (attacker_additive_pre=True : bornes (base±spread)+additif → GDWP → %-list ; le natif
             # passe à CalculateAbilityDamage @18102cb50 un dégât DÉJÀ additivé, CBDWAM @18102d3f0 ne
             # consomme pas Addition@+0x10). Bit-exact 3/3 orksNob SmashaEad (599, pierce 50, armure 2208).
+            # `flat_add` (#45f) = EffectBonus.addition PER-BRANCHE (Ice crit-only) : POST-spread
+            # PRE-perçage (même position que mods.additive #75), sans poluer `mods` (qui s'applique
+            # aux DEUX branches nc/cr).
             mm = get_base_damage_fix64(eff_attack, spread_pct=spread_pct)
             lo = apply_all_modifiers(apply_pierce_and_modifiers(
-                mm.min, pierce, armor, mods, hit_mult=hit_mult, attacker_additive_pre=True), def_mods)
+                mm.min + flat_add, pierce, armor, mods, hit_mult=hit_mult, attacker_additive_pre=True), def_mods)
             hi = apply_all_modifiers(apply_pierce_and_modifiers(
-                mm.max, pierce, armor, mods, hit_mult=hit_mult, attacker_additive_pre=True), def_mods)
+                mm.max + flat_add, pierce, armor, mods, hit_mult=hit_mult, attacker_additive_pre=True), def_mods)
             return HitDamage(lo, hi)
 
         # MkXGravis (trait CIBLE 0x3f5=1013) : les dégâts entrants traversent l'armure 2× SAUF au crit
@@ -503,8 +507,13 @@ class AttackDamageOperation:
         # le chemin COMBAT `CalculateAbilityDamage @18102cb50` → `CalculateBaseDamageWithAllModifiers
         # @18102d3f0` (décompile-confirmé, #180). No-op (=1) hors cible hit-twice.
         _tgt_hit_mult = target_hit_multiplier(tsc.ctx.trait_objects()) if tsc is not None else 1
+        # #45f : bonus crit-sur-Ice (`IceEffect.CreateEffectDamageBonusForAttack @180f44940`) — flat
+        # PER-COUP-CRIT = PercentageOf(GetStat(10), IceCritDmgBonusPct) si cible sur tuile Ice active
+        # et non-Immune. 0 hors gate / cd=0 (no-op rétro-compat, mesuré +175 probe_45f --case crit).
+        _ice_add = ice_crit_damage_addition(state, attacker_id, target_id, ctx) if crit_enabled else 0
         hit_nc = _reduced_bounds(ctx.stat(StatType.ATTACK), hit_mult=_tgt_hit_mult)   # NON-crit → double-armure MkXGravis
-        hit_cr = _reduced_bounds(ctx.stat(StatType.ATTACK) + crit_damage) if crit_enabled else hit_nc  # crit: hit_mult=1 (exempt)
+        hit_cr = _reduced_bounds(ctx.stat(StatType.ATTACK) + crit_damage,
+                                 flat_add=_ice_add) if crit_enabled else hit_nc  # crit: hit_mult=1 (exempt)
         # #202 WeaverOfFate : attaquant max-out (effet 1185) -> bornes degenerees a (max, max), mirror
         # HitDamage(max, null) de `AttackDamageBehaviour.GetDamage @180fbb250` (cf. _apply_max_out).
         hit_nc, hit_cr = AttackDamageOperation._apply_max_out(state, attacker_id, hit_nc, hit_cr)
@@ -814,6 +823,24 @@ class AttackDamageOperation:
         # -> le natif n'applique PAS les bonus attaquant normal-only aux attaques d'ability.
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, target_id=target_id,
                                           is_normal_attack=False)
+        # #45f (fable, cause racine du residu x1.5 GreatFrostAxe case-220) : les feuilles POSITIONNELLES
+        # (elevation +ElevationBonus=50% si elev(att) > elev(cible), gate effet 0x423 ; trench -50%) du
+        # builder de mods ATTAQUANT s'appliquent a la famille ATTACK **SEULEMENT** — gate par FAMILLE de
+        # factory native (== `wasted_resolve`, cf. _one_hit) :
+        #   - ATTACK (`AttackWithAttackDamage @180de9fb0` -> `AttackDamageOperation.ExecuteHit
+        #     @180e5eff0`) : le per-coup construit les mods attaquant COMPLETS (slot +4, positional
+        #     leaves incluses). MESURE (probe_45f_gfa_elevation, GreatFrostAxe, une variable = la
+        #     relation d'elevation) : pre-fix high = live 1.5000x offline sur CHAQUE coup (DidCrit=0),
+        #     flat/low = bit-exact ; post-fix 16/16 bit-exact.
+        #   - ABILITY (`AttackWithAbilityDamage @180de9dd0` -> `AbilityDamageOperation.ExecuteHit
+        #     @180e29d50`) : `CalculateAbilityDamage @18102cb50` recoit des mods ATTAQUANT **VIDES**
+        #     (struct zeroee) — seuls les mods DEFENSEUR (slot 0xf) s'appliquent. AUCUNE elevation.
+        #     MESURE (probe_217_stormcaller A : Njal elev 2 > cibles elev 1) : live SANS elevation ;
+        #     un fix non-gate rendait l'offline 1.5006x TROP HAUT — le gate famille retablit bit-exact.
+        # Le chemin attaque NORMALE (`execute`, #58/#181) reste inchange (ExecuteHit @180e5eff0 aussi).
+        if wasted_resolve:                                   # famille ATTACK only
+            apply_elevation_bonus(state, mods, attacker_id, target_id)
+            apply_trench_reduction(state, mods, attacker_id, target_id, damage_profile)
         tsc = tgt.get_component(StatsComponent)
         armor = defender_fixed_armor(state, target_id)   # FOYER partagé (base GetStat(16) + aura Protector allié)
         # #59 suite : threade is_melee + profil de l'ability -> malus DÉFENSEUR gatés (Terrifying_ExtraDefense
@@ -826,6 +853,15 @@ class AttackDamageOperation:
         # `_block_sources` (mirror du GetMultiValueStat(7)/CalculateBlockChances@181002350 unique du natif).
         block_sources = AttackDamageOperation._block_sources(tsc, _da, armor)
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(ctx, active)
+        # #45f : la famille ABILITY (`AbilityDamageOperation.ExecuteHit @180e29d50`) n'a AUCUN chemin
+        # crit — pas d'appel RollCritical (le slot crit n'existe que dans `AttackDamageOperation.
+        # ExecuteHit @180e5eff0`), l'AttackHit est construit isCrit=0, et `CalculateAbilityDamage
+        # @18102cb50` est 0-RNG. MESURE (probe_45f --case scrit : Njal --crit 100,700, Stormcaller) :
+        # live crits=[0,0,0] et 1 tirage/coup (valeurs = draws consecutifs) la ou l'offline non-gate
+        # brulait 1 crit-roll/coup + ajoutait crit flat. cc=0 (tous les porteurs actuels) : strict
+        # no-op (roll_critical deja gate cc<1). Le bonus crit-Ice suit (crit_enabled=False -> 0).
+        if not wasted_resolve:                               # famille ABILITY : crit inexistant
+            crit_chance, crit_damage, crit_enabled = 0, 0, False
         # #120 : réduction PLATE défenseur (Nightshroud, ungated -> spéciales aussi) fusionnée pré-perçage.
         AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
         # MkXGravis (trait CIBLE 0x3f5) : armure traversée 2× aussi pour les spéciales (CBDWAM @18102d3f0
@@ -849,12 +885,17 @@ class AttackDamageOperation:
         # avec un STRUCT NON dégénéré → 2 tirages/coup à cc=0 (valeur BRUTE + resolve slot-8 GASPILLÉ),
         # cf. `_one_hit`. ≠ attaque normale (struct dégénéré → 1 tirage/coup).
         hit_nc = HitDamage(base_min, base_max)                            # bornes BRUTES
-        # CRIT ability (décompile, non exercé live — aucun porteur cc>=1) : `CalculateCriticalDamage
-        # @18102da90` → `ApplyCritDamage @181000210` = critBonus FLAT sur la valeur ROULÉE, PRE-reduce
-        # (appliqué dans `_one_hit` branche post_roll : `raw += crit_damage`). `hit_cr` ne sert plus
-        # qu'au flat #91 (`_capped_flat_cr`, centre bornes+cd) — numériquement == l'ancien modèle
-        # bornes-décalées (largeurs égales → même modulo).
-        hit_cr = HitDamage(base_min + crit_damage, base_max + crit_damage) if crit_enabled else hit_nc
+        # CRIT ability : `CalculateCriticalDamage @18102da90` → `ApplyCritDamage @181000210` = critBonus
+        # FLAT sur la valeur ROULÉE, PRE-reduce (appliqué dans `_one_hit` branche post_roll via le SHIFT
+        # `hit_cr - hit_nc`). `hit_cr` sert aussi au flat #91 (`_capped_flat_cr`, centre bornes+cd) —
+        # numériquement == l'ancien modèle bornes-décalées (largeurs égales → même modulo).
+        # #45f : + bonus crit-sur-Ice (`IceEffect.CreateEffectDamageBonusForAttack @180f44940`) =
+        # EffectBonus.addition per-coup-CRIT (PercentageOf(GetStat(10), IceCritDmgBonusPct=25) si cible
+        # sur tuile Ice active et non-Immune) — MEME position pipeline (flat PRE-reduce). VALIDE live
+        # bit-exact (probe_45f --case crit : GreatFrostAxe cc=100/cd=700 -> +175/coup crit, 4/4).
+        _ice_add = ice_crit_damage_addition(state, attacker_id, target_id, ctx) if crit_enabled else 0
+        hit_cr = HitDamage(base_min + crit_damage + _ice_add,
+                           base_max + crit_damage + _ice_add) if crit_enabled else hit_nc
         # #202 WeaverOfFate : attaquant max-out (effet 1185) -> bornes BRUTES degenerees a (max, max),
         # mirror HitDamage(GetMax, null) d'`AbilityDamageBehaviour.GetDamage @180f8c560` (le tirage de
         # VALEUR est court-circuité par min==max — get_damage — mais le resolve slot-8 consomme TOUJOURS
@@ -925,6 +966,12 @@ class AttackDamageOperation:
         ctx = sc.ctx
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, target_id=target_id)
+        # #45f : feuilles POSITIONNELLES du builder PARTAGE @181000590 (elevation/trench) — appliquees
+        # a TOUT vecteur d'attaque par le natif (aucun gate normale/ability ; cf. execute_ability_attack,
+        # meme fix, probe_45f_gfa_elevation). Le vecteur normal-like (splash Psyker / amount-mode) les
+        # sautait aussi -> splash caste en surplomb ~33% bas.
+        apply_elevation_bonus(state, mods, attacker_id, target_id)
+        apply_trench_reduction(state, mods, attacker_id, target_id, damage_profile)
         tsc = tgt.get_component(StatsComponent)
         armor = defender_fixed_armor(state, target_id)   # FOYER partagé (base GetStat(16) + aura Protector allié)
         # #59 suite : threade is_melee + profil -> malus DÉFENSEUR gatés (cf. execute_ability_attack).
@@ -939,17 +986,21 @@ class AttackDamageOperation:
         # #120 : réduction PLATE défenseur (Nightshroud, ungated -> splash/normal-like aussi) fusionnée pré-perçage.
         AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
 
-        def _reduced(eff_base: int) -> "HitDamage":
+        def _reduced(eff_base: int, flat_add: int = 0) -> "HitDamage":
             # #75 (case-68 MAJ 13) : additif ForAddition ATTAQUANT = PRÉ-perçage en COMBAT.
+            # `flat_add` (#45f) = EffectBonus.addition PER-BRANCHE (Ice crit-only) : POST-spread
+            # PRE-perçage, sans polluer `mods` (applique aux deux branches).
             mm = get_base_damage_fix64(eff_base, spread_pct=spread_pct)
             lo = apply_all_modifiers(apply_pierce_and_modifiers(
-                mm.min, profile_pierce, armor, mods, attacker_additive_pre=True), def_mods)
+                mm.min + flat_add, profile_pierce, armor, mods, attacker_additive_pre=True), def_mods)
             hi = apply_all_modifiers(apply_pierce_and_modifiers(
-                mm.max, profile_pierce, armor, mods, attacker_additive_pre=True), def_mods)
+                mm.max + flat_add, profile_pierce, armor, mods, attacker_additive_pre=True), def_mods)
             return HitDamage(lo, hi)
 
+        # #45f : bonus crit-sur-Ice per-coup-CRIT (cf. execute_ability_attack, meme mirror @180f44940).
+        _ice_add = ice_crit_damage_addition(state, attacker_id, target_id, ctx) if crit_enabled else 0
         hit_nc = _reduced(base)
-        hit_cr = _reduced(base + crit_damage) if crit_enabled else hit_nc
+        hit_cr = _reduced(base + crit_damage, flat_add=_ice_add) if crit_enabled else hit_nc
         # #202 WeaverOfFate : attaquant max-out (effet 1185) -> bornes degenerees a (max, max) — le
         # splash Psyker / smite passe par `AbilityDamageBehaviour.GetDamage @180f8c560` (meme gate).
         hit_nc, hit_cr = AttackDamageOperation._apply_max_out(state, attacker_id, hit_nc, hit_cr)

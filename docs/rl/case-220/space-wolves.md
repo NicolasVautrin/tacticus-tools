@@ -8,7 +8,7 @@
 n'est PAS émis.
 
 ```
-[1089 GreatFrostAxe | spaceWulfen]  — [opus] direct -> PORTÉ (structure) ; residu +50% = CANDIDAT FABLE
+[1089 GreatFrostAxe | spaceWulfen]  — [opus] direct -> PORTÉ + BIT-EXACT live (résidu x1.5 RÉSOLU #45f)
 VAs : ExecuteBehaviour @1811e3500 ; playbook @18113fbd0 (prédiction VALIDÉE 54321 s18)
 Natif EXACT (mirror 1:1) : op_BitwiseAnd( AddEffect(0x11 Ice, source=stateRef, owner@0x148,
   op_Addition(AdjacentTiles(TargetTiles@0x190), TargetTiles@0x190), Nullable ZÉROÉ -> defaut 2 rounds),
@@ -17,18 +17,28 @@ Natif EXACT (mirror 1:1) : op_BitwiseAnd( AddEffect(0x11 Ice, source=stateRef, o
   -> GLACE d'abord (tuile cible + ring-1), PUIS attaque la CIBLE DIRECTE (mono-cible, ATTACK-family
   @180de9fb0 XREF from 1811e367f -- PAS ability-family, contraste Stormcaller). Porté `spacewolves.py`,
   enregistré handler.py, test live `test_great_frost_axe_live.py`. VALIDÉ live : zone glace = 7 tuiles
-  (cible+ring1 exact), 4 coups, native_factory="attack" (rolls per-coup bit-exacts vs live).
-RÉSIDU MAJEUR (candidat fable-solver) : le « bonus crit-sur-Ice » N'EST PAS crit-only (hypothèse
-  RÉFUTÉE par le live). MESURE (spaceWulfen vs necroWarden, cc=0/DidCrit=0) : degat LIVE = EXACTEMENT
-  1.5x le degat OFFLINE sur CHAQUE coup (ratio ~1.5000). Spécifique à GreatFrostAxe (attaque normale du
-  même spaceWulfen = pas de divergence). = `IceEffect.CreateEffectDamageBonusForAttack @180f44940` appliqué
-  car GFA glace AVANT de frapper (i2 « The Crit Damage bonus of the Ice is already applied for this attack »).
-  Contradiction NON résolue : formule = PercentageOf(StatAmount(caster, CRIT_DAMAGE=10), EffectConfig(5))
-  gate AttackDamageIsCritical, MAIS caster CRIT_DAMAGE=0 -> devrait donner 0 (contredit le +50%) et le gate
-  crit devrait être faux (coups non-crit). Sous-système effect-damage-bonus PARTAGÉ (~40+ effets
-  `CreateEffectDamageBonusForAttack`, `BaseEffect.DamageBonusForAttack @180f0f5e0`, `AttackDamageOperation.
-  ExecuteHit @180e5eff0`) jamais modélisé offline (== résidu #131/#133, flaggé « crit-only » à tort dans
-  Stormcaller qui diverge IDENTIQUEMENT sans test bit-exact). Port ship la structure fidèle, degat ~33% bas.
+  (cible+ring1 exact), 4 coups, DEGAT PER-COUP BIT-EXACT (post #45f).
+RÉSIDU x1.5 RÉSOLU (#45f fable, 2026-07-24) : l'ex-« +50% crit-sur-Ice sur coups non-crit » était un
+  ARTEFACT D'ATTRIBUTION — la vraie cause = bonus d'ÉLÉVATION (`Damage.ElevationBonus`=50, feuille du
+  builder attaquant PARTAGÉ @181000590, gate strict elev(att)>elev(cible) + !HasEffect(0x423) deux côtés,
+  cf. CalculateElevationBonusModifier @181003ea0) que le vecteur offline `execute_ability_attack`
+  n'appliquait pas (le scénario historique movait sur du surplomb -> 1.5x systématique ; l'attaque
+  normale du même caster passait par le chemin qui applique l'élévation -> « pas de divergence » =
+  confond parfait). PROUVÉ par sonde discriminante (`probe_45f_gfa_elevation`, une variable = la
+  relation d'élévation) : pre-fix high = 1.5000x/coup À ROLLS PRNG IDENTIQUES, flat/low = bit-exact ;
+  post-fix bit-exact partout. La contradiction CRIT_DAMAGE=0 est levée : la formule Ice
+  (`IceEffect.CreateEffectDamageBonusForAttack @180f44940` = EffectBonus.addition
+  `PercentageOf(StatAmount(attacker, CRIT_DAMAGE=10), EffectConfig(5)=25)` gate `AttackDamageIsCritical
+  & AreEqual(occupant-tuiles-Ice, target) & !HasTrait(target, 0x19)`) n'a JAMAIS été la source du 1.5x :
+  elle est crit-only (flag crit RÉEL per-coup injecté au ctx AbilityEntities, ExecuteHit @180e5eff0) et
+  vaut 0 pour cd=0. PORTÉE (`damage_model.ice_crit_damage_addition`) + VALIDÉE live par crit forcé
+  (+175 = floor(700x25/100) par coup crit, 4/4 bit-exact). Le sous-système effect-damage-bonus PARTAGÉ
+  (~40 effets `CreateEffectDamageBonusForAttack`, collecteur `BaseEffect.DamageBonusForAttack @180f0f5e0`)
+  a désormais ses DEUX canaux modélisés : ADDITIF ungated (AvalancheOfMuscle/TerrifyingCrescendo/
+  CondemnorStake, inchangés) + ADDITION crit-gated (Ice). i2 « already applied » = note d'AFFICHAGE.
+  Asymétrie de FAMILLE (décompilé) : ATTACK ExecuteHit @180e5eff0 = RollCritical + builder mods complet
+  (élévation/trench) ; ABILITY ExecuteHit @180e29d50 = AUCUN crit (AttackHit isCrit=0) + mods attaquant
+  ZÉROÉS (pas d'élévation) — mesuré live storm_high (Stormcaller surélevé = aucun bonus, 3/3 bit-exact).
 ```
 ```
 [1097 Foehammer | spaceRockfist]  — [opus]+1 sélecteur
@@ -88,8 +98,8 @@ Inspired = REVIVE-ONCE 5456 HP sur self+amis non-méca rayon-2 (rejoint le sous-
 revive-once partagé ; feuilles UseNormalAttack/ValidNormalAttackTargets/SortUnitsByDamageUtility.
 ```
 
-**Synthèse SW** : [opus] direct = GreatFrostAxe (PORTÉ structure ; residu +50% crit-Ice = candidat fable,
-cf. sous-système effect-damage-bonus partagé) ; [opus]+prérequis = Foehammer, SagaOfTheWarriorBorn,
+**Synthèse SW** : [opus] direct = GreatFrostAxe (PORTÉ + BIT-EXACT live, résidu x1.5 RÉSOLU #45f =
+élévation manquante du vecteur ability + bonus crit-Ice porté) ; [opus]+prérequis = Foehammer, SagaOfTheWarriorBorn,
 WarHowl, HuntersBeyondDeath (borderline), HealingBalms (borderline) ; **[fable]** = AnvilShield
 (on-block), SavageKiller, RitesOfMorkai (revive-once). Transverses : AllDeadOrResurrectedUnits ;
 IsCharging combat ; dispatch UnitBlocked=0x3d ; active-heal + HealAmount (tous les Healers du roster) ;

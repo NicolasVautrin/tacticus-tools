@@ -17,18 +17,20 @@ CE QUE CE TEST VALIDE (parties FIDELES du port) :
   (B) ZONE GLACE : `iced_tiles` offline == {tuile cible} UNION {voisins marchables de la tuile cible}
       (== le selecteur `Union(AdjacentTiles(Target()), Tiles(Target()))`), et == le nb de tuiles glacees
       LIVE (events Effect_SourceId=caster).
-  (C) NATIVE_FACTORY (discriminant #37/tip #2) : les ROLLS per-coup du port (native_factory="attack")
-      sont, apres division par le facteur crit-Ice x1.5 (cf. RESIDU ci-dessous), EGAUX au LIVE sur TOUS
-      les coups propres (ratio live/off CONSTANT = 1.5) -> meme sequence RNG -> famille ATTACK confirmee.
-      La variante native_factory="ability" (1 tirage/coup) DIVERGE des le coup 2 (ratio non-constant) ->
+  (C) DEGAT BIT-EXACT par coup propre (live == offline, native_factory="attack") ; la variante
+      native_factory="ability" (1 tirage/coup) DIVERGE des le coup 2 (discriminant #37/tip #2) ->
       classification XREF validee par contraste.
 
-RESIDU MAJEUR PINNE (NON PORTE, candidat fable-solver) : le bonus crit-sur-glace +50%
-(`IceEffect.CreateEffectDamageBonusForAttack @180f44940`) applique a CHAQUE coup (i2 « The Crit Damage
-bonus of the Ice is already applied for this attack ») rend le degat LIVE = EXACTEMENT 1.5x le degat
-OFFLINE (mesure : DidCrit=0 partout, ratio ~1.5000). Ce +50% est un SOUS-SYSTEME effect-damage-bonus
-PARTAGE jamais modelise offline (cf. docstring `spacewolves.great_frost_axe_tree`). Ce test PIN le ratio
-(le fige a ~1.5) pour la tranche future ; il n'asserte PAS le bit-exact du DEGAT (seulement des ROLLS).
+RESIDU x1.5 RESOLU (#45f, fable) : l'ex-« bonus crit-sur-glace +50% » etait un ARTEFACT DE CONFUSION —
+la vraie cause etait le bonus d'ELEVATION (`Damage.ElevationBonus`=50, feuille du builder PARTAGE
+`CalculateAttackerModifiersForPrediction @181000590`, gate elev(att) > elev(cible), AUCUN gate
+normale/ability) que le vecteur offline `execute_ability_attack` n'appliquait pas ; ce test move sur
+`aiAttackRank ranked[0]` qui PREFERE le surplomb sur MC1_67 -> ratio 1.5 systematique. PROUVE par
+sonde discriminante (probe_45f_gfa_elevation : high=1.5x, flat/low=bit-exact pre-fix ; 16/16 coups
+bit-exact post-fix). Le VRAI bonus crit-sur-Ice (`IceEffect.CreateEffectDamageBonusForAttack
+@180f44940` = +PercentageOf(GetStat(10), IceCritDmgBonusPct=25) par coup CRIT vs cible gelee
+non-Immune) vaut 0 ici (cd=0) et est porte + valide a part (probe --case crit : +175 = floor(700x25%),
+4/4 bit-exact).
 
 Lit l'etat LIVE (pas de tuile/valeur hardcodee), state-file UNIQUE, dispose au teardown. ASCII only.
 Skip propre si session/geometrie/cast KO.
@@ -106,8 +108,9 @@ def _replay_per_hit(dec1, ob1, snap1, bg, s_cast, cid, eid, native_factory):
 
 
 def test_great_frost_axe_live(live_session, rpc):
-    """Confronte le port GreatFrostAxe au LIVE : (A) structure, (B) zone glace, (C) native_factory,
-    + PIN du residu crit-Ice x1.5. State-file UNIQUE -> dispose au teardown."""
+    """Confronte le port GreatFrostAxe au LIVE : (A) structure, (B) zone glace, (C) degat BIT-EXACT
+    par coup (residu x1.5 resolu #45f = elevation) + discriminant native_factory. State-file UNIQUE ->
+    dispose au teardown."""
     state_file = ROOT / "data" / "rl-state" / f"gfa-test-{uuid.uuid4().hex[:8]}.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
@@ -212,7 +215,7 @@ def test_great_frost_axe_live(live_session, rpc):
         assert len(iced_off) == len(live_ice_ids), \
             f"nb tuiles glacees offline {len(iced_off)} != live {len(live_ice_ids)}"
 
-        # ============ (C) native_factory + PIN residu crit-Ice x1.5 ============
+        # ============ (C) DEGAT BIT-EXACT (residu x1.5 RESOLU #45f) + native_factory ============
         off_ph_ability, _ = _replay_per_hit(dec1, ob1, snap1, bg, s_cast, cid, eid, "ability")
         # coups PROPRES = non clampes par la mort (somme live cumulee < hp cible)
         clean = []
@@ -224,31 +227,23 @@ def test_great_frost_axe_live(live_session, rpc):
             clean.append(i); run += amt
         if len(clean) < 2:
             pytest.skip(f"pas assez de coups propres non clampes ({clean}, hp {hp_tgt}) -- cible trop fragile")
-        # tous les coups propres sont non-crit (cc=0) : le residu crit-Ice n'est PAS un crit-roll
+        # tous les coups propres sont non-crit (cc=0) : aucun crit-roll dans ce scenario
         assert all(int(live_ph[i]["crit"] or 0) == 0 for i in clean), \
             f"un coup propre a crit (attendu cc=0) : {live_ph}"
-        # C1 (PIN residu) : le ratio live/offline("attack") = ~1.5 CONSTANT sur les coups propres.
-        ratios_attack = [int(live_ph[i]["amt"]) / off_ph_attack[i] for i in clean if off_ph_attack[i]]
-        for r in ratios_attack:
-            assert abs(r - 1.5) <= 0.01, \
-                f"ratio live/off(attack) {ratios_attack} != ~1.5 (residu crit-Ice +50%) ; live={live_ph} off={off_ph_attack}"
-        # C2 (native_factory discriminant) : le ratio "attack" est PLUS CONSTANT que "ability".
-        # famille ATTACK -> memes rolls que live (ratio constant 1.5) ; famille ABILITY (draw count different)
-        # -> rolls divergents des le coup 2 -> ratio NON constant. On mesure la dispersion des ratios.
-        def _spread(off_ph):
-            rs = [int(live_ph[i]["amt"]) / off_ph[i] for i in clean if i < len(off_ph) and off_ph[i]]
-            return (max(rs) - min(rs)) if len(rs) >= 2 else 0.0
-        spread_attack = _spread(off_ph_attack)
-        spread_ability = _spread(off_ph_ability)
-        assert spread_attack <= 0.01, \
-            f"dispersion ratio(attack) {spread_attack:.4f} > 0.01 -> rolls attack != live (native_factory ?)"
-        # discriminant : "ability" doit etre STRICTEMENT plus disperse (rolls divergents des le coup >=2).
-        # (si les rolls etaient identiques attack==ability, la classification serait indistinguable ; ce test
-        #  echoue alors -> signale qu'il faut un autre discriminant, cf. tip #2.)
-        assert spread_ability > spread_attack, \
-            (f"native_factory NON discrimine : spread(attack)={spread_attack:.4f} "
-             f"spread(ability)={spread_ability:.4f} -- attendu ability strictement plus disperse "
-             f"(rolls divergents). off_attack={off_ph_attack} off_ability={off_ph_ability} live={live_ph}")
+        # C1 (#45f) : degat BIT-EXACT par coup propre — l'elevation (feuille positionnelle du builder
+        # partage @181000590) est desormais appliquee au vecteur ability (`execute_ability_attack`),
+        # que ranked[0] soit en surplomb ou non. Ex-PIN ~1.5 (artefact elevation) SUPPRIME.
+        for i in clean:
+            assert int(live_ph[i]["amt"]) == off_ph_attack[i], \
+                (f"hit{i} NON bit-exact : live={live_ph[i]['amt']} off={off_ph_attack[i]} "
+                 f"(live_all={[h['amt'] for h in live_ph]} off_all={off_ph_attack})")
+        # C2 (native_factory discriminant, tip #2) : la famille ABILITY (1 tirage/coup) doit DIVERGER
+        # du live des le coup 2 (draw count different), la famille ATTACK etant bit-exacte (C1).
+        div_ability = any(i < len(off_ph_ability) and off_ph_ability[i] != int(live_ph[i]["amt"])
+                          for i in clean)
+        assert div_ability, \
+            (f"native_factory NON discrimine : off_ability == live sur les coups propres "
+             f"off_ability={off_ph_ability} live={[h['amt'] for h in live_ph]} -- cf. tip #2")
     finally:
         try:
             rpc("disposeRunner", {"runnerId": rid}, 20)

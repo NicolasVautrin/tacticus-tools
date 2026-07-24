@@ -434,6 +434,57 @@ def apply_trench_reduction(state: State, mods, attacker_id: int, target_id: int,
         add_modifier(mods, eb)
 
 
+def ice_crit_damage_addition(state: State, attacker_id: int, target_id: int, ctx) -> int:
+    """#45f — `IceEffect.CreateEffectDamageBonusForAttack @180f44940` : bonus crit-sur-Ice.
+
+    L'Ice (effet de TUILE 0x11) contribue au degat d'attaque via la famille PARTAGEE
+    `CreateEffectDamageBonusForAttack` -> struct `EffectBonus` (il2cpp : trigger@+0x10,
+    multiplicator@+0x18, ADDITION@+0x20, subtraction/minimum/override/reset/sources/abilityOrEffect)
+    collectee par `BaseEffect.DamageBonusForAttack @180f0f5e0` et consommee par le per-coup partage
+    (`CalculateAbilityDamage @18102cb50` / CBDWAM @18102d3f0). L'Ice ne remplit QUE le canal ADDITION :
+        trigger  = AttackDamageIsCritical @180de9590
+                 & AreEqual(Units(occupant des tuiles de l'effet), target@0x178)
+                 & op_LogicalNot(HasTrait(target, 0x19=Immune))
+        addition = PercentageOf(StatAmount(attacker@0x160, 10=CRIT_DAMAGE), EffectConfig(5))
+    avec `EffectConfig(5)` = `IceCritDmgBonusPct` (section Effect de la BC, =25).
+
+    Evaluation offline PER-ATTAQUE : les gates occupant-Ice / Immune sont stables pendant l'attaque ;
+    le gate `AttackDamageIsCritical` est per-COUP (le ctx AbilityEntities d'`ExecuteHit @180e5eff0`
+    porte isCritical) -> l'appelant n'ajoute ce flat qu'aux coups CRITIQUES, meme position pipeline
+    que le crit flat (PRE-reduce / post-spread pre-percage, #75). MESURE live (probe_45f_gfa_elevation
+    --case crit : cc=100/cd=700 forces, cible gelee par GreatFrostAxe, board plat) : delta natif =
+    +175 = floor(700 x 25 / 100) sur CHAQUE coup crit — 4/4 bit-exact apres port. Rend 0 si : pas de
+    board/effets, cible pas sur une tuile Ice ACTIVE, cible Immune, ou CRIT_DAMAGE attaquant = 0
+    (le cas spaceWulfen cc=0/cd=0 — d'ou la « contradiction » historique du case-220 : cette formule
+    n'a JAMAIS ete la source du residu x1.5, qui etait le bonus d'ELEVATION manquant du vecteur
+    ability, cf. `apply_elevation_bonus`)."""
+    board = state.board
+    if board is None or state.effects is None or ctx is None:
+        return 0
+    et = state.get_entity(target_id)
+    pt = et.get_component(PositionComponent) if et is not None else None
+    if pt is None:
+        return 0
+    tid = board.id_at(pt.col, pt.row)
+    if tid is None:
+        return 0
+    # AreEqual(occupant tuile-Ice, target) == « la cible occupe une tuile a effet Ice ACTIF »
+    # (meme lecture tile-effects que LordOfTempests/_positional_att_ctx : state.effects.by_unit[tile_id]).
+    from ..entities.effect_type import EffectType
+    from ..entities.traits.unit_trait import UnitTrait
+    if not any((getattr(x, "effect_type", None) == int(EffectType.Ice) and not x.consumed)
+               for x in state.effects.by_unit.get(int(tid), [])):
+        return 0
+    if UnitTrait.Immune.name in target_trait_names(state, target_id):   # !HasTrait(target, 0x19=Immune)
+        return 0
+    cd = int(ctx.stat(StatType.CRIT_DAMAGE) or 0)          # StatAmount(attacker, 10) = GetStat(10)
+    if cd <= 0:
+        return 0
+    from ..entities.effects.magnitude import bc_effect_config
+    pct = bc_effect_config("IceCritDmgBonusPct", 25) or 0   # EffectConfig(5)
+    return (cd * pct) // 100                                # PercentageOf -> Fix64 -> floor int (+175 mesure)
+
+
 def build_hits_board(state: State, att_id: int, tgt_id: int,
                      attack_pos, t_pos, is_melee: Optional[bool]):
     """Bâtit `(board, aura_sources, target_effects)` pour `attack_hits_with_modifiers` depuis l'ECS
