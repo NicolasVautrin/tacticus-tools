@@ -13,13 +13,14 @@ nrOfHits ABSENT config -> hits=1 (i2 « 1x 3274-3638 ... pushed back 1 hex »).
 (A) WIRING PUSH+ATTAQUE (OFFLINE deterministe, board+stats REELS) : place caster+cible ADJACENTS en champ
     ouvert (tuile libre derriere la cible, oppose caster) sur l'etat charge, rejoue le MESSAGE d'ability, et
     confronte : cible poussee d'1 hex a l'oppose du caster (DisplaceUnitOperation) + attaque MONO-cible 1 coup.
-(C) RESIDU HeavyWeapon double (LIVE, caracterisation) : l'Eliminator porte le trait HeavyWeapon -> effet 1008
-    HeavyWeapon_ExtraDmg ACTIF (seede). i2 « The Heavy Weapon trait applies double to this ability » : le natif
-    DOUBLE le bonus +heavyWeaponExtraDmg% via `TriggeringAbilityIs(0x3ec=1004)` dans
-    `HeavyWeapon_ExtraDmgEffect.CreateDamageModifier @180f4f030`. Le PORT n'applique PAS ce bonus aux attaques
-    d'ability (is_ranged non threade dans `execute_ability_attack` -> HeavyWeapon/RangedSpecialist inertes pour
-    TOUTE attaque d'ability : blast radius ArmoriumCherub/SpiritLeech/PlasmaCannon). RESIDU CROSS-CUTTING
-    documente (candidat) -- PAS un echec du wiring core.
+(C) BIT-EXACT LIVE (#47 RESOLU) : cast live (caster au spawn = no-move, cible adjacente cote BORD -> push
+    BLOQUE hors-board) vs replay offline meme rng. Le hpDelta live = ATTAQUE x1.5 (HeavyWeapon DOUBLE via
+    `TriggeringAbilityIs(0x3ec=1004)` de `HeavyWeapon_ExtraDmgEffect.CreateDamageModifier @180f4f030`,
+    threade #47 : is_ranged + trigger_ability_type dans `execute_ability_attack`) + KNOCKBACK de collision
+    (`ApplyKnockbackTo @180e67fc0` = ceil(maxHealth x 10%), push bloque, porte #47 dans displace.py).
+    L'ancien ecart ~3.15x etait CES DEUX etages (PAS un crit-rng desync : mesure mti live = 2 tirages
+    seulement = valeur + resolve, AUCUN crit-roll ; off_did_crit=False et live sans crit).
+    ASSERTION : hp_delta_offline == hp_delta_live A L'UNITE.
 
 State-file UNIQUE. ASCII only. Usage : python probe_mortis_round.py
 """
@@ -236,26 +237,39 @@ def main():
             cast = _r(sid, "applyAction", {"runnerId": rid, "action": {
                 "kind": "ability", "casterId": cid, "targetId": eid, "abilityType": ABILITY},
                 "captureEvents": True}, 120)
+            s_post = _r(sid, "dumpRng", {"runnerId": rid}, 30)
             live_dmg = None
+            live_moved = None
             for act in (cast.get("actions") or []):
                 for ch in (act.get("changes") or []):
                     if ch.get("squadId") == eid and ch.get("hpDelta") is not None:
                         live_dmg = -int(ch["hpDelta"])
-            # offline meme rng, meme geometrie
+                        live_moved = ch.get("moved")
+            # offline meme rng, meme geometrie (etat PRE-cast dec1/ob1/snap1)
             st2 = load_state(dec1, ob1, snap1); st2.board = board
             st2.rng = _seed_rng(s_cast)
+            from engine.runner.components import HealthComponent as _HC
+            _e2 = st2.get_entity(eid)
+            _h2 = _e2.get_component(_HC) if _e2 is not None else None
+            hp_off_before = _h2.hp if _h2 is not None else None
             res2 = MortisRoundAbility().execute_behaviour(st2, cid, eid)
             m2 = (res2 or {}).get("main_attack") or {}
-            off2 = m2.get("total")
-            print(f"[C residu] LIVE dmg={live_dmg}  OFFLINE(no bonus)={off2} off_did_crit={m2.get('did_crit')}")
-            if live_dmg and off2:
-                print(f"[C residu] ratio live/off={live_dmg/off2:.4f}  "
-                      f"(off+50% HeavyWeapon={round(off2*1.5)})")
-                print("[C residu] Divergence DAMAGE = confond CROSS-CUTTING (candidat fable) :")
-                print("  (1) HeavyWeapon double +50% (TriggeringAbilityIs 1004 @180f4f030) NON applique aux")
-                print("      attaques d'ability (is_ranged non threade dans execute_ability_attack ; blast")
-                print("      radius ArmoriumCherub/SpiritLeech/PlasmaCannon) ;")
-                print("  (2) crit-rng per-hit possiblement desynchronise offline vs live (cf. rngcrit-1202).")
+            push2 = (res2 or {}).get("push") or {}
+            hp_off_after = _h2.hp if _h2 is not None else None
+            off_total = (hp_off_before - hp_off_after) if (hp_off_before is not None
+                                                           and hp_off_after is not None) else None
+            kb = push2.get("knockback") or []
+            print(f"[C #47] LIVE hpDelta={live_dmg} (moved={live_moved})  OFFLINE hpDelta={off_total} "
+                  f"(attaque={m2.get('total')} x1.5-HW-double, knockback={[k.get('amount') for k in kb]}) "
+                  f"off_did_crit={m2.get('did_crit')} mti {s_cast.get('mti')}->{s_post.get('mti')}")
+            if live_dmg is None or off_total is None:
+                fails.append("C: mesure live/offline manquante")
+            elif live_dmg != off_total:
+                fails.append(f"C: hpDelta offline {off_total} != live {live_dmg} "
+                             f"(attaque {m2.get('total')}, kb {[k.get('amount') for k in kb]})")
+            else:
+                print(f"C OK : bit-exact live=offline={live_dmg} (HeavyWeapon x2 [+50%] + knockback "
+                      f"ceil(maxHealth x 10%) sur push bloque)")
 
     finally:
         _rpc(sid, "disposeRunner", [{"runnerId": rid}], timeout=20)
@@ -265,7 +279,8 @@ def main():
         for f in fails:
             print("FAIL", f)
         return 2
-    print("WIRING PASS (attaque mono-cible 1 coup + push 1 hex oppose) ; residu HeavyWeapon double = documente")
+    print("PASS : wiring (attaque mono-cible 1 coup + push 1 hex) + BIT-EXACT live (#47 : HeavyWeapon x2 "
+          "sur MortisRound + knockback push bloque)")
     return 0
 
 
