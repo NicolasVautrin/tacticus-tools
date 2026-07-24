@@ -28,11 +28,30 @@ Validé LIVE (2 seeds, cc=0) : MAIN per-coup bit-exact port==live [2824,2186,264
   CAP1→1 des 2 / ANCHOR→cible (pas caster). Zero-régression : bringer/damage_roll/savage_echoes verts.
 ```
 ```
-[1067 HarvesterOfSouls | eldarMauganRa]  — [opus] direct
-VAs : ExecuteBehaviour @1811e70f0 ; GetHits @1811e75b0 ; @1811e76a0
-Main HeavyRound (hits +1 si n'a pas bougé) + splash MinMaxDamage2 sur les ennemis adjacents-cible
-∩ rayon-3 caster — patron splash.py exact, AtomicGroup. Décision portée+validée. Risques : gate
-not-moved en combat ; profil MinMax2 du splash.
+[1067 HarvesterOfSouls | eldarMauganRa]  — COMBAT PORTÉ + VALIDÉ LIVE (native_factory attack, ExecuteAtomic 0x2a)
+VAs : ExecuteBehaviour @1811e70f0 ; GetHits @1811e75b0 ; GetSurroundingUnits @1811e76a0 ;
+  HasFlag @180df10d0 -> HasFlagAbilityTrigger.ShouldTrigger @180eec2b0 (UnitFlagsComponent.Has, flag Moved=0) ;
+  AttackDamageBehaviour.ctor @180fbb6e0 (Nullable(0x13) = damageProfile override @+0x88).
+Arbre (mirror decompile) : ExecuteAtomic(op_and(
+  AttackWithAttackDamage(Target(), MinMaxDamage, Nullable(0x13=HeavyRound), hits),                        # MAIN
+  AttackWithAttackDamage(And(SurroundingUnits(CasterTile(), range=3), AdjacentEnemies(TargetTile(), 1)),  # SPLASH
+     MinMaxDamage2, Nullable(0x13=HeavyRound), hits, multi) ), 0x2a).
+- hits = If(HasFlag(caster, Moved=0), nrOfHits=2, Sum(nrOfHits, extraHit)=3) : A BOUGE=2 / PAS BOUGE=3
+  (i2 « +1 extra hit if hasn't moved »). DYNAMIQUE au cast, passe aux DEUX attaques (== uVar10 natif unique).
+- damageProfile = OVERRIDE explicite Nullable(0x13=19=HeavyRound, pierce 55) sur main ET splash (coincide avec la
+  face prediction : config sans damageProfile -> fallback arme RANGED HeavyRound). Contraste Executioner Nullable(0xd=Psychic).
+- native_factory="attack" (@180de9fb0, XREF ; 2 tirages/coup a cc=0, == Executioner). Splash = selecteur MULTI-cible
+  passe a UN AttackWithAttackDamage (multi=True, patron PlasmaGrenade), bornes MinMaxDamage2 (minDmg_2/maxDmg_2=0x36/0x37
+  == minDmg/maxDmg). B natif Enemies(caster, AdjacentFriends(target,1)) porte AdjacentEnemies(TargetTile(),1) (le runner
+  AdjacentFriends filtre team==CASTER, pas subject-relatif -> Enemies(AdjacentFriends) VIDE ; equivalent correct #122).
+Fichiers : runner/abilities/aeldari.py (HarvesterOfSoulsAbility, harvester_of_souls_tree, _harvester_hits) ;
+  handler.py (ABILITY_CLASSES[1067]) ; test_harvester_live.py.
+Validé LIVE (2 seeds, cc=0, cas A BOUGE hits=2) : MAIN + SPLASH per-coup bit-exact port==live (ex. seed777 main
+  [2093,2073] / splash [2313,2313] sur l'ennemi adjacent-cible dans le rayon) ; "ability" (1 tirage/coup) DIVERGE au
+  coup 2 -> discriminant native_factory. A/B arbre==sequences directes. Splash (offline drive) : HIT (adjacent-cible ∩
+  rayon-3) / PRUNE rayon / PRUNE adjacence / cible-exclue. HITS : moved=2 / not-moved=3. Passif InescapableAccuracy
+  (crit gated not-moved) NON porté = item séparé -> cas PAS BOUGE diverge per-coup LIVE (crits, main [3748,3104,2616]
+  vs offline [2001,2035,2211]) = attendu, HORS ce port (hit-count + géométrie restent exacts).
 ```
 ```
 [TerrorsLament | eldarJainZar passif]  — [opus]+prérequis (le + propre des passifs)
@@ -88,7 +107,7 @@ avec fallback. Risques : direction exacte ; dégât par position ≠ min/max uni
 [Doom | eldarFarseer passif]  — COUVERT (validé #57c ; caveat seeding combat à confirmer)
 ```
 
-**Synthèse Aeldari** : couvert = Doom ; COMBAT PORTÉ+VALIDÉ = Executioner (1066) ; [opus] direct restant = HarvesterOfSouls ;
+**Synthèse Aeldari** : couvert = Doom ; COMBAT PORTÉ+VALIDÉ = Executioner (1066), HarvesterOfSouls (1067) ;
 [opus]+prérequis = TerrorsLament < FireAndReposition < SilentDeath < InescapableAccuracy ;
 **[fable]** = WireweaveNet, SwoopingHawk. Transverses : canal CRIT-ATTAQUANT (1er user + PathOf
 Command) ; ResetMovement (partagé ItItches) ; snake-chain ; riposte pre-hit + kill-cancel.
