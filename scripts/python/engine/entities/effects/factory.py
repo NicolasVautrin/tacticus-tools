@@ -395,6 +395,14 @@ TRAIT_DERIVED_ABILITIES: dict[str, list[str]] = {
     # Daemon_ExtraBlock, BlockChance +25 / BlockDamage +449 = 50% Attack). Sans ce seed, un summon
     # Daemon spawne offline n'a AUCUN block (gap corrige).
     "Daemon": ["Daemon"],
+    # Terrifying (trait 0x22=34, x39 carriers dont 11 lineup) -> triggered ability derivee 0x62 (dict
+    # GetTriggeredAbility +0x0 @18157f650, lu par Trait.GetTriggeredAbility @18157ed10). Chaine RE'd #73 :
+    # AddDerivedAbilities @180e513c0 ajoute `TerrifyingAbilityAbility` @1811c5e00 (= AOwnerEffectSpecific-
+    # TriggeredAbility(0x62)) ; son CreateTrigger @180fb3760 = OnOwnerSpecificAbilityInit(0x62) pose l'effet
+    # Terrifying_ExtraDefense (0x62) sur le porteur a l'init. Les 11 lineup captent l'effet live (decisionView)
+    # -> seed idempotent (no-op sur eux) ; AUCUN carrier SUMMON (28 npc + 0 summons) -> spawn path sans porteur
+    # spawnable a ce jour (validation function-level, cf. tests/.../test_summon_trait_effects_live).
+    "Terrifying": ["TerrifyingAbility"],
 }
 
 # Étape 2 — owner-effects posés par `<Ability>.CreateBehaviour` À L'INIT de l'ability (DSL `AddEffect(owner)`).
@@ -415,6 +423,10 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # Ability derivee du trait Daemon : pose Daemon_ExtraBlock (1034) sur le porteur a l'init (#202-C,
     # mesure live — block 25% / 50% Attack, deja porte via DaemonExtraBlockEffect).
     "Daemon": ["Daemon_ExtraBlock"],
+    # TerrifyingAbility (triggered 0x62 derivee du trait Terrifying) : `AOwnerEffectSpecificTriggeredAbility`
+    # (0x62) CreateBehaviour = AddEffect(owner, Terrifying_ExtraDefense 0x62) a l'init du porteur -> -30%
+    # (globalValues.terrifyingBonus) degat MELEE recu (defender, gate IsMeleeAttack). Chaine RE'd #73.
+    "TerrifyingAbility": ["Terrifying_ExtraDefense"],
     # InfernalPacts (passif Abraxas, #202-B) : effet-AURA 0x4ae=1198 AUTO-PORTEUR (enregistré par
     # `EffectsDatabase.<InitializeEffects>b__14_225`, AUCUNE classe Ability — pas de CreateBehaviour à citer).
     # Seed = filet pour les états non captés (Abraxas lineup est normalement couvert par decisionView).
