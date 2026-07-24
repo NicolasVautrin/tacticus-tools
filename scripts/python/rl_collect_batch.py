@@ -822,12 +822,17 @@ def _dir_size_bytes(p: Path) -> int:
 
 # ---- BC + pool setup ---------------------------------------------------- #
 
-def _load_seed_bc() -> dict:
-    if not SEED_BC.exists():
+def _load_seed_bc(path=None) -> dict:
+    """Seed BC template (data/seed-bc.json par defaut). `path` (optionnel) = surcharge vers un
+    seed BC CUSTOM sur disque -- sert a valider un porteur HORS du pool capture (ex. SavageEchoes
+    /bloodTerminator, absent du seed BC) en injectant son bloc Unit dans une copie du seed BC.
+    N'ecrit JAMAIS le seed BC partage (le custom vit dans un fichier a part)."""
+    p = Path(path) if path else SEED_BC
+    if not p.exists():
         raise RuntimeError(
-            f"seed BC absent: {SEED_BC} — artefact live per-hash purge de data/. "
+            f"seed BC absent: {p} — artefact live per-hash purge de data/. "
             f"Regenere-le : `python dump_boards.py` (capture live via dumpBattleConfig).")
-    return json.loads(SEED_BC.read_text(encoding="utf-8"))
+    return json.loads(p.read_text(encoding="utf-8"))
 
 
 def _load_unspawnable(rank: int) -> tuple[set[str], set[str]]:

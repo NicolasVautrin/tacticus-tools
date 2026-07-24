@@ -38,7 +38,11 @@ class Heal(AbilityBehaviour):
         heals: list = []
         if state is not None and amount > 0:
             src = (entities.caster or {}).get("id")
-            for u in (self.targets_sel.evaluate(entities) or []):
+            # `_units_of` NORMALISE le selecteur en list[dict] : un selecteur MONO-unite (`Caster()` =
+            # `Self@0x148` de SavageEchoes, qui rend un dict) -> `[dict]` (sinon `for u in dict` itererait
+            # les CLES). Backward-compatible : un selecteur deja liste (SpiritLeech `Union(...)`) reste
+            # inchange. Meme idiome que `ChangeStat`/`AddEffect`.
+            for u in _units_of(self.targets_sel, entities):
                 tid = u.get("id") if isinstance(u, dict) else None
                 if tid is None:
                     continue
