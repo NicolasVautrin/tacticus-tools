@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **171** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **20**
-- **NO-OP silencieux** (a porter) : **151**
-- Ventilation NO-OP : **DAMAGE**=96, **EFFECT/BUFF**=28, **SUMMON**=19, **HEAL**=5, **REPAIR**=3
+- **PORTED** (dans `ABILITY_CLASSES`) : **42**
+- **NO-OP silencieux** (a porter) : **129**
+- Ventilation NO-OP : **DAMAGE**=84, **EFFECT/BUFF**=24, **SUMMON**=15, **HEAL**=3, **REPAIR**=3
 
 ## Priorisation & templates de port
 
@@ -22,24 +22,21 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (151)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (129)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
 | 1115 | FearOfTheUnseen | DAMAGE(DirectDamage) | 7 | LN |
 | 1036 | FrenziedFiring | DAMAGE(HeavyRound) | 7 | LN |
 | 1029 | Drachnyen | DAMAGE(Piercing) | 6 | LN |
-| 1008 | HarbingerOfDestruction | DAMAGE(DirectDamage) | 6 | LN |
 | 1088 | HellfyreMissileRack | DAMAGE(HeavyRound) | 6 | LN |
 | 1020 | HeraldOfTheApocalypse | DAMAGE(Piercing) | 6 | LN |
 | 1006 | MultiThreatEliminator | DAMAGE(Gauss) | 6 | LN |
 | 1035 | PlagueWind | DAMAGE(Psychic) | 6 | LN |
 | 1116 | RadBombardment | DAMAGE(Toxic) | 6 | LN |
 | 1026 | BasiliskBarrage | DAMAGE(Blast) | 5 | LN |
-| 1022 | BringerOfDespair | DAMAGE(Power) | 5 | LN |
 | 1102 | Doombolt | DAMAGE(Psychic) | 5 | LN |
 | 1017 | FragBomb | DAMAGE(Blast) | 5 | LN |
-| 1004 | MortisRound | DAMAGE(HeavyRound) | 5 | LN |
 | 1027 | PsychicMaelstrom | DAMAGE(Psychic) | 5 | LN |
 | 1069 | SeekerMissileFrequencyLock | DAMAGE(HeavyRound) | 5 | LN |
 | 1068 | SilentDeath | DAMAGE(Piercing) | 5 | LN |
@@ -47,21 +44,16 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1041 | BrazierOfHolyFire | DAMAGE(Flame) | 4 | LN |
 | 1171 | DakkaDakkaDakka | DAMAGE(Projectile) | 4 | LN |
 | 1087 | ExemplarOfTheKauyon | DAMAGE(Blast) | 4 | LN |
-| 1042 | FlailSwing | DAMAGE(Power) | 4 | LN |
 | 1038 | FoulInfusion | DAMAGE(Toxic) | 4 | LN |
 | 1048 | FragstormGrenadeLauncher | DAMAGE(Blast) | 4 | LN |
-| 1000 | GauntletsOfUltramar | DAMAGE(Bolter) | 4 | LN |
 | 1064 | Loki_SwoopingHawk | DAMAGE(Piercing) | 4 | LN |
 | 1165 | MightFromBelow | DAMAGE(Psychic) | 4 | LN |
-| 1062 | SanctorumMissile | DAMAGE(Blast) | 4 | LN |
-| 1139 | SentinelDirectives | DAMAGE(Physical) | 4 | LN |
 | 1019 | StormOfWrath | DAMAGE(Psychic) | 4 | LN |
 | 1154 | TacticalPrecision | DAMAGE(Bolter) | 4 | LN |
 | 1152 | UnstoppableMomentumReworked | DAMAGE(DirectDamage) | 4 | LN |
 | 1189 | CalibaniteGreatsword | DAMAGE(Power) | 3 | LN |
 | 1092 | DarkTalonStrike | DAMAGE(DirectDamage) | 3 | LN |
 | 1080 | HellfireShells | DAMAGE(Piercing) | 3 | NS |
-| 1150 | PlasmaCannon | DAMAGE(Plasma) | 3 | LN |
 | 1091 | SlashingDive | DAMAGE(Power) | 3 | NS |
 | 1103 | Supercharge | DAMAGE(Plasma) | 3 | LN |
 | 1221 | AugmentedAssault | DAMAGE(Eviscerate) | 2 | LN |
@@ -75,7 +67,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1160 | HeavyRailRifle | DAMAGE(Piercing) | 2 | LN |
 | 1044 | IncendiaryShells | DAMAGE(Flame) | 2 | NS |
 | 1209 | InfernalCannon | DAMAGE(Flame) | 2 | LN |
-| 1131 | JakhalStimms | DAMAGE(Physical) | 2 | LN |
 | 1132 | KillMaimBurn | DAMAGE(Piercing) | 2 | LN |
 | 1108 | KissOfDeath | DAMAGE(DirectDamage) | 2 | NS |
 | 1204 | LeadingTheCharge | DAMAGE(Power) | 2 | LN |
@@ -85,7 +76,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1141 | OverwhelmingWrath | DAMAGE(Eviscerate) | 2 | LN |
 | 1169 | PlagueburstMortar | DAMAGE(Toxic) | 2 | LN |
 | 1015 | PrecisionShot | DAMAGE(Energy) | 2 | NS |
-| 1230 | SavageEchoes | DAMAGE(Eviscerate) | 2 | LN |
 | 1200 | SquigLaunchas | DAMAGE(Physical) | 2 | LN |
 | 1201 | SquigMine | DAMAGE(Blast) | 2 | LN |
 | 1187 | ThriceBlessedConflagration | DAMAGE(Flame) | 2 | LN |
@@ -100,7 +90,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1097 | Foehammer | DAMAGE(Power) | 1 | L |
 | 1090 | GrapnelLauncher | DAMAGE(Physical) | 1 | L |
 | 1206 | GravitonRifle | DAMAGE(Physical) | 1 | L |
-| 1089 | GreatFrostAxe | DAMAGE(Piercing) | 1 | L |
 | 1153 | HammerOfWrath | DAMAGE(Power) | 1 | L |
 | 1215 | InstrumentsOfVengeance | DAMAGE(HeavyRound) | 1 | N |
 | 1196 | LashOfTorment | DAMAGE(Eviscerate) | 1 | L |
@@ -121,20 +110,15 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1094 | TheLantern | DAMAGE(Energy) | 1 | N |
 | 1217 | TheLionsWrath | DAMAGE(Power) | 1 | N |
 | 1183 | VexillaMagnifica | DAMAGE(Physical) | 1 | L |
-| 1202 | VigilanceEternal | DAMAGE(Power) | 1 | L |
 | 1005 | AdaptiveStrategy | EFFECT/BUFF | 6 | LN |
 | 1023 | Burrowers | EFFECT/BUFF | 6 | NS |
-| 1066 | Executioner | EFFECT/BUFF | 6 | LN |
 | 1101 | AttemptedPossession | EFFECT/BUFF | 5 | LN |
 | 1210 | ExemplarOfTheMontka | EFFECT/BUFF | 5 | LN |
 | 1081 | FightingRetreat | EFFECT/BUFF | 5 | LN |
 | 1063 | FireAndReposition | EFFECT/BUFF | 5 | LN |
-| 1067 | HarvesterOfSouls | EFFECT/BUFF | 5 | LN |
 | 1050 | HolyDuel | EFFECT/BUFF | 5 | LN |
 | 1164 | MindControl | EFFECT/BUFF | 5 | LN |
-| 1025 | SkyStrike | EFFECT/BUFF | 5 | LN |
 | 1226 | Chronometron | EFFECT/BUFF | 4 | LN |
-| 1003 | DeathFromAbove | EFFECT/BUFF | 4 | LN |
 | 1011 | TunnelingHorror | EFFECT/BUFF | 4 | NS |
 | 1061 | UnbreakableDuty | EFFECT/BUFF | 4 | LN |
 | 1049 | CrusadeOfWrath | EFFECT/BUFF | 3 | LN |
@@ -150,15 +134,12 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1107 | Reveal | EFFECT/BUFF | 1 | N |
 | 1211 | RitesOfMorkai | EFFECT/BUFF | 1 | L |
 | 1106 | WarHowl | EFFECT/BUFF | 1 | L |
-| 1002 | CombatRestoratives | HEAL | 4 | LN |
 | 1082 | InspiredToGreatness | HEAL | 4 | LN |
-| 1037 | RevitalizingMalignancy | HEAL | 4 | LN |
 | 1039 | RitesOfRestoration | HEAL | 4 | LN |
 | 1175 | BloodChalice | HEAL | 1 | L |
 | 1117 | DefendTheDivineWork | REPAIR | 6 | LN |
 | 1224 | NanoscarabRepairProtocols | REPAIR | 2 | LN |
 | 1223 | ReanimationBeam | REPAIR | 2 | LN |
-| 1112 | AlphaWarrior | SUMMON | 8 | LN |
 | 1121 | ItItches | SUMMON | 7 | LN |
 | 1016 | SendInTheNextWave | SUMMON | 7 | LN |
 | 1009 | ResurrectionOrb | SUMMON | 6 | LN |
@@ -166,39 +147,58 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1077 | EarlyWarningOverride | SUMMON | 5 | LN |
 | 1021 | Incursion | SUMMON | 5 | LN |
 | 1058 | Waaagh | SUMMON | 5 | LN |
-| 1166 | AberrantHypermorph | SUMMON | 4 | LN |
 | 1057 | GrotTank | SUMMON | 4 | LN |
 | 1040 | Poxwalkers | SUMMON | 4 | LN |
 | 1208 | AetherStride | SUMMON | 2 | LN |
 | 1144 | BioMinefield | SUMMON | 2 | LN |
 | 1158 | DutyEternal | SUMMON | 2 | LN |
 | 1143 | ForwardSpotter | SUMMON | 2 | LN |
-| 1145 | SporeMineLauncher | SUMMON | 2 | LN |
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
-| 1219 | IronkinSteeljack | SUMMON | 1 | L |
 
-## PORTED (registry) (20)
+## PORTED (registry) (42)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
 | 1104 | SpiritLeech | DAMAGE(Psychic) | 7 | LN |
 | 1122 | CordClaw | DAMAGE(DirectDamage) | 6 | LN |
 | 1105 | CrushingClaws | DAMAGE(Piercing) | 6 | LN |
+| 1008 | HarbingerOfDestruction | DAMAGE(DirectDamage) | 6 | LN |
+| 1022 | BringerOfDespair | DAMAGE(Power) | 5 | LN |
 | 1180 | HeroicFusillade | DAMAGE(Projectile) | 5 | LN |
+| 1004 | MortisRound | DAMAGE(HeavyRound) | 5 | LN |
 | 1065 | ScythingTalons | DAMAGE(Bio) | 5 | NS |
 | 1014 | ArmoriumCherub | DAMAGE(Flame) | 4 | LN |
+| 1042 | FlailSwing | DAMAGE(Power) | 4 | LN |
+| 1000 | GauntletsOfUltramar | DAMAGE(Bolter) | 4 | LN |
+| 1062 | SanctorumMissile | DAMAGE(Blast) | 4 | LN |
+| 1139 | SentinelDirectives | DAMAGE(Physical) | 4 | LN |
 | 1043 | ThunderousAssault | DAMAGE(Power) | 4 | LN |
+| 1150 | PlasmaCannon | DAMAGE(Plasma) | 3 | LN |
 | 1078 | Fragstorm | DAMAGE(Blast) | 2 | NS |
+| 1131 | JakhalStimms | DAMAGE(Physical) | 2 | LN |
 | 1098 | PlasmaGrenade | DAMAGE(Plasma) | 2 | NS |
+| 1230 | SavageEchoes | DAMAGE(Eviscerate) | 2 | LN |
 | 1051 | Stikkbomb | DAMAGE(Blast) | 2 | NS |
 | 1113 | Stormcaller | DAMAGE(Psychic) | 2 | LN |
 | 1018 | ValkyrieStrike | DAMAGE(Blast) | 2 | NS |
+| 1089 | GreatFrostAxe | DAMAGE(Piercing) | 1 | L |
+| 1202 | VigilanceEternal | DAMAGE(Power) | 1 | L |
 | 1118 | DoctrinaImperatives | EFFECT/BUFF | 6 | LN |
+| 1066 | Executioner | EFFECT/BUFF | 6 | LN |
+| 1067 | HarvesterOfSouls | EFFECT/BUFF | 5 | LN |
+| 1025 | SkyStrike | EFFECT/BUFF | 5 | LN |
+| 1003 | DeathFromAbove | EFFECT/BUFF | 4 | LN |
 | 1163 | BlackRage | EFFECT/BUFF | 1 | L |
 | 1151 | TheQuickening | EFFECT/BUFF | 1 | L |
+| 1002 | CombatRestoratives | HEAL | 4 | LN |
+| 1037 | RevitalizingMalignancy | HEAL | 4 | LN |
+| 1112 | AlphaWarrior | SUMMON | 8 | LN |
 | 1096 | MasterOfTheTutelaries | SUMMON | 6 | LN |
 | 1007 | ScarabHive | SUMMON | 6 | LN |
+| 1166 | AberrantHypermorph | SUMMON | 4 | LN |
 | 1179 | CultDemagogue | SUMMON | 4 | LN |
 | 1045 | GetEmRuntz | SUMMON | 4 | LN |
 | 1047 | ScarabSummon | SUMMON | 3 | NS |
+| 1145 | SporeMineLauncher | SUMMON | 2 | LN |
+| 1219 | IronkinSteeljack | SUMMON | 1 | L |
