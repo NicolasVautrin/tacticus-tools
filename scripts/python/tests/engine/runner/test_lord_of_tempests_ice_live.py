@@ -17,10 +17,16 @@ CE FICHIER :
      TUILE d'un snapshot mi-bataille — gap d'hydratation documente, PAS un gap de port : en walk
      complet c'est notre trigger qui pose la glace).
 
-NON couvert live ici : la branche 2 du trigger (`On(9) & kind==0x3f5` = victime du splash Psyker —
-exige un 2e ennemi adjacent a la cible, geometrie non garantie par ce build mono-ennemi ; branche
-unit-testee via matches + threading valide par le chemin Psyker existant). Residu documente
-(case-35). DRIVE POSITIONS (doctrine) : skip propre si la geometrie du drive echoue. ASCII only.
+  3. `test_lord_of_tempests_addice_smite_branch` : la BRANCHE 2 du trigger (`On(9=Attack) &
+     kind==0x3f5` = victime du splash « Smite » Psyker). Geometrie PLACEE (build 2 ennemis, Njal
+     drive a d=2 de la cible T pour forcer l'arme RANGED Psychic, E2 pose sur un VOISIN de T donc
+     seul candidat du `PickRandomly(Damageable(Enemies(AdjacentUnits(T))))`) : les tuiles de T ET
+     de E2 sont glacees live, et l'offline reproduit le MEME ensemble. Discriminant : E2 n'est
+     touche QUE par le splash — si le natif ne glaçait que la cible primaire, la branche 2 du port
+     serait refutee.
+
+DRIVE POSITIONS (doctrine) : on DEPLACE les unites (y compris adverses) pour obtenir la
+configuration voulue ; skip propre seulement si le placement lui-meme echoue. ASCII only.
 """
 from __future__ import annotations
 
@@ -28,9 +34,15 @@ import pytest
 
 CASTER_VIS = "spaceStormcaller"    # Njal — passiveAbilities=['LordOfTempests'], armes Psychic (melee 3x, r2 2x)
 TARGET_VIS = "astraYarrick"
+E2_VIS = "darkaCompanion"          # 2e ennemi : victime du splash Smite Psyker (branche 2 du trigger)
 ICE = 17                           # EffectType.Ice (0x11)
 BUILD = ["--p-units", f"{CASTER_VIS},templAncient", "--a-units", TARGET_VIS,
          "--hp-target", "200000", "--hp-player", "60000"]
+# Build 2 ennemis : la geometrie du splash (E2 adjacent a la cible) est PLACEE, pas subie.
+# Njal SEUL cote joueur : aucun allie a ecarter -> aucun mouvement parasite avant son attaque.
+BUILD_SMITE = ["--p-units", CASTER_VIS,
+               "--a-units", f"{TARGET_VIS},{E2_VIS}",
+               "--hp-target", "200000", "--hp-player", "60000"]
 
 
 def _ok(r):
@@ -158,6 +170,136 @@ def _drive_in_range(rpc, rid, lo, hi, max_turns=10):
                     return dec2, me2, tgt2
         rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
     return None, None, None
+
+
+def _move(rpc, rid, uid, coord):
+    """PLACEMENT arbitraire (applyAction/move ignore portee, MP et propriete — vaut aussi pour
+    les unites ADVERSES). Doctrine : on DEPLACE pour obtenir la configuration, on ne la subit pas."""
+    return rpc("applyAction", {"runnerId": rid, "action": {
+        "kind": "move", "unitId": uid, "to": {"col": coord[0], "row": coord[1]}}}, 60)
+
+
+def _setup_smite_geometry(rpc, rid, board):
+    """PLACE la geometrie qui exerce la BRANCHE 2 du trigger AddIce :
+      - Njal a distance hex EXACTEMENT 2 de la cible primaire T -> arme RANGED Psychic (le splash
+        Psyker exige `IsRangedAttack & DamageProfileIs(Psychic)` ; a d=1 c'est l'arme melee),
+      - E2 (2e ennemi) sur un VOISIN de T -> SEUL candidat de
+        `PickRandomly(Damageable(Enemies(AdjacentUnits(T))))` (tirage non ambigu),
+      - l'allie ecarte a d>5 (n'occupe aucune tuile utile).
+    Renvoie (njal, tgt, e2) de decisionView, ou (None, None, None) si non placable."""
+    import hexgeo
+    dec, njal = _advance_to_my_turn(rpc, rid, CASTER_VIS)
+    if njal is None:
+        return None, None, None
+    cpos = (njal["pos"]["col"], njal["pos"]["row"])
+    tgt, e2 = _find(dec, TARGET_VIS), _find(dec, E2_VIS)
+    if tgt is None or e2 is None:
+        return None, None, None
+    norm = next((ab for ab in (njal.get("abilities") or []) if ab.get("kind") == "normal"), None)
+    if norm is None:
+        return None, None, None
+    ab_id = norm["id"]
+    occupied = {board.id_at(*cpos)}
+
+    tries = 0
+    for t in sorted(board.by_id):
+        if tries >= 14:
+            break
+        if not board.walkable(t) or t in occupied:
+            continue
+        if hexgeo.distance(board.coord(t), cpos) != 2:
+            continue
+        nb = [n for n in board.neighbours(t)
+              if board.walkable(n) and n not in occupied and n != t]
+        if not nb:
+            continue
+        tries += 1
+        _move(rpc, rid, tgt["id"], board.coord(t))
+        _move(rpc, rid, e2["id"], board.coord(nb[0]))
+        dec2 = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
+        n_j, n_t, n_e = _find(dec2, CASTER_VIS), _find(dec2, TARGET_VIS), _find(dec2, E2_VIS)
+        if n_j is None or n_t is None or n_e is None:
+            return None, None, None
+        jp = (n_j["pos"]["col"], n_j["pos"]["row"])
+        tp = (n_t["pos"]["col"], n_t["pos"]["row"])
+        ep = (n_e["pos"]["col"], n_e["pos"]["row"])
+        if not (hexgeo.distance(jp, tp) == 2 and hexgeo.distance(tp, ep) == 1 and ep != jp):
+            continue
+        # LEGALITE du cast depuis cette tuile (portee/LoS) — sinon l'attaque est un no-op
+        # `mutated:false` silencieux : on essaie la configuration suivante.
+        at = rpc("abilityTargets", {"runnerId": rid, "unitId": n_j["id"], "abilityType": ab_id}, 90)
+        abl = next((a for a in (((at.get("units") or [{}])[0]).get("abilities") or [])
+                    if a.get("abilityId") == ab_id), {})
+        legal = [x.get("targetId") for x in (abl.get("fromHere") or abl.get("targets") or [])]
+        if n_t["id"] in legal:
+            return n_j, n_t, n_e
+    return None, None, None
+
+
+def test_lord_of_tempests_addice_smite_branch(live_session, rpc, build_runner):
+    """BRANCHE 2 du trigger (`On(9=Attack) & <kind attaque-normale 0x3f5>` d'`OnNormalAttackOrSmite
+    @180df7c70`) : la victime du splash « Smite » Psyker est glacee AUSSI — i2 « The hex of EACH
+    enemy that is hit by Njal's normal attacks is covered in Ice ».
+
+    Discriminant : la tuile de E2 (touche par le SEUL splash, jamais par l'attaque primaire) est
+    glacee. Si le natif ne glaçait que la cible primaire, la branche 2 du port serait FAUSSE et
+    `live_new_ice` ne contiendrait pas `e2_pos`. Referme le residu [opus] de case-35 §4."""
+    import hexgeo
+    from engine.entities.pathfinding.board import Board
+    from engine.runner.runner import Runner
+    from engine.runner.messages import AttackUnitMessage
+
+    rid = build_runner("35003", extra=BUILD_SMITE)["rid"]
+    bg = rpc("boardGraph", {"runnerId": rid}, 60)
+    if not (isinstance(bg, dict) and bg.get("tiles")):
+        pytest.skip("boardGraph indispo")
+    board = Board(bg["tiles"], adjacency="evenq")
+
+    njal, tgt, e2 = _setup_smite_geometry(rpc, rid, board)
+    if njal is None:
+        pytest.skip("geometrie splash non placee (Njal d=2 de T + E2 voisin libre de T)")
+    caster_id, target_id, e2_id = njal["id"], tgt["id"], e2["id"]
+    tgt_pos = (tgt["pos"]["col"], tgt["pos"]["row"])
+    e2_pos = (e2["pos"]["col"], e2["pos"]["row"])
+    assert hexgeo.distance(tgt_pos, e2_pos) == 1, "E2 doit etre adjacent a la cible primaire"
+
+    ice0 = _iced_positions(rpc, rid)
+    dec0, ob0, snap0, s0 = _capture(rpc, rid)
+    hp0_t, hp0_e = _hp(ob0, target_id), _hp(ob0, e2_id)
+    state = _offline_state(dec0, ob0, snap0, s0, board)
+    if state.get_entity(caster_id) is None or state.rng is None or state.effects is None:
+        pytest.skip("etat offline incomplet (snapshot/rng)")
+
+    # --- LIVE : attaque normale RANGED (d=2) sur T -> splash Psyker sur E2 ---
+    res = _cast_normal(rpc, rid, njal, target_id)
+    if res is None:
+        pytest.skip("ability kind=normal introuvable sur Njal (decisionView)")
+    assert _cast_ok(res), f"cast live KO (interne): {str(res)[:300]}"
+    ob2 = rpc("observeBattle", {"runnerId": rid}, 60)
+    hp2_t, hp2_e = _hp(ob2, target_id), _hp(ob2, e2_id)
+    if not (hp0_e is not None and hp2_e is not None and hp2_e < hp0_e):
+        pytest.skip(f"splash Psyker non declenche live sur E2 (hp {hp0_e} -> {hp2_e}) "
+                    f"- branche 2 non exercee, rien a confronter")
+    live_new_ice = _iced_positions(rpc, rid) - ice0
+
+    # --- OFFLINE : meme AttackUnitMessage ---
+    off_ice0 = _offline_iced_positions(state, board)
+    runner = Runner(state).install_default_handlers(20)
+    runner.apply(AttackUnitMessage(caster_id, target_id))
+    off_new_ice = _offline_iced_positions(state, board) - off_ice0
+
+    assert tgt_pos in live_new_ice, \
+        f"live : tuile de la cible primaire {tgt_pos} non glacee (new={sorted(live_new_ice)})"
+    assert e2_pos in live_new_ice, \
+        (f"BRANCHE 2 REFUTEE cote NATIF : la victime du splash Smite {e2_pos} n'est PAS glacee "
+         f"live (nouvelles glaces={sorted(live_new_ice)}) alors que le splash l'a bien touchee "
+         f"(hp {hp0_e} -> {hp2_e}). Le port glacerait {sorted(off_new_ice)}.")
+    assert off_new_ice == live_new_ice, \
+        f"AddIce smite : tuiles offline {sorted(off_new_ice)} != live {sorted(live_new_ice)}"
+    live_dmg_t = (hp0_t - hp2_t) if (hp0_t is not None and hp2_t is not None) else None
+    off_total = (runner.damage_handler.last or {}).get("total")
+    print(f"[LoT smite] T={tgt_pos} E2={e2_pos} : glace live/offline {sorted(live_new_ice)} ; "
+          f"splash E2 hp {hp0_e}->{hp2_e} ; degat primaire off={off_total} live={live_dmg_t}")
 
 
 def test_lord_of_tempests_addice_live_offline_agreement(live_session, rpc, build_runner):

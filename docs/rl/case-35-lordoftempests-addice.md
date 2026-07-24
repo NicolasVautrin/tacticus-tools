@@ -1,6 +1,7 @@
 # Case-35 — LordOfTempests `AddIce` (triggered 1194, Njal spaceStormcaller) : face RUNNER « pose de glace »
 
-**Statut : LIVRÉ + VALIDÉ LIVE (2/2 replay-diff + 3 gardes).** Build `gqfc5mff6c`, session 2026-07-22.
+**Statut : LIVRÉ + VALIDÉ LIVE (3/3 replay-diff — les DEUX branches du trigger — + 3 gardes).**
+Build `gqfc5mff6c`, sessions 2026-07-22 (branche 1 + snowball) et 2026-07-25 (branche 2 smite).
 Complément runner de la face DECISION déjà portée (#29 : `LordOfTempestsExtraDamageEffect`,
 `extra_damage.py` — +extraDmg × Count(Ice ring-1 de la position d'attaque), validée bit-exact 31337 s18).
 i2 : « Njal's normal attacks deal +237 Damage for each hex surrounding him that is covered in Ice.
@@ -55,7 +56,7 @@ LordOfTempests sur ses coups (la zone de glace de Stormcaller = SON propre artef
   combat passait `att_ctx=None` → `LordOfTempestsExtraDamageEffect` INERTE en sim (count=0).
   Seul consommateur d'att_ctx à ce jour → rayon d'impact limité aux porteurs LordOfTempests.
 
-## 3. Validation (`test_lord_of_tempests_ice_live.py`, 2/2 + gardes 3/3)
+## 3. Validation (`test_lord_of_tempests_ice_live.py`, 3/3 + gardes 3/3)
 
 1. **Poseur** (seed 35001, d=2 RANGED) : replay-diff `AttackUnitMessage` — NOUVELLES tuiles
    glacées live (tileMeta) == offline (`state.effects` tile-ids) = {tuile de la cible} ; dégât
@@ -64,14 +65,18 @@ LordOfTempests sur ses coups (la zone de glace de Stormcaller = SON propre artef
    glacé ring-1) → dégât attaque-2 live == offline BIT-EXACT (le +extraDmg×count est LE
    discriminant : couplage att_ctx manquant ⇒ divergence d'exactement extraDmg×count par coup).
    La glace offline est seedée du tileMeta live (gap d'hydratation, cf. §4).
-3. **Gardes** : `test_psyker_splash_live` 1/1 (feuille `AttackWithAttackDamage` + vecteur ability
+3. **Branche 2 — SMITE** (`test_lord_of_tempests_addice_smite_branch`, seed 35003, 2 ennemis) :
+   géométrie **PLACÉE** (`applyAction/move` ignore portée/MP/propriété — Njal à d=2 de la cible T
+   pour forcer l'arme RANGED Psychic, E2 sur un voisin de T donc **seul** candidat du
+   `PickRandomly(Damageable(Enemies(AdjacentUnits(T))))`, légalité du cast vérifiée via
+   `abilityTargets` avant de tirer). Observé : `T=(1,2) E2=(0,1)` → **nouvelles tuiles glacées
+   live = {(0,1),(1,2)} == offline**, splash E2 `hp 200000→199598`, dégât primaire `2286` ==
+   live. **La victime du seul splash est glacée côté NATIF** → branche 2 confirmée (i2 « the hex
+   of EACH enemy that is hit »), et reproduite bit-exact par le port.
+4. **Gardes** : `test_psyker_splash_live` 1/1 (feuille `AttackWithAttackDamage` + vecteur ability
    avec le nouveau param) + `test_damage_roll_live` 2/2 (visiteur + `attacker_modifiers` threadé).
 
 ## 4. Résidus (non bloquants, à promouvoir sur miss d'agreement)
-
-- **Branche 2 (glace sur la victime du smite) non exercée LIVE** : exige un 2e ennemi adjacent à
-  la cible (build mono-ennemi). Structurellement câblée + unit-testée (5 branches `matches`) ; le
-  threading emprunte le chemin Psyker déjà bit-exact. `[opus]`.
 - **`is_normal_attack` face attaquant** — **RÉSOLU + MESURÉ (#217, case-217)** : le natif n'applique
   PAS le snowball aux attaques d'ABILITY (probe_217 B : cast Stormcaller, effet actif + 3 hexes glacés
   ring-1 → natif +0 ; offline sans gate divergeait d'exactement extraDmg×3×3 hits). Fix :

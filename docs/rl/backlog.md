@@ -104,13 +104,15 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   d'obs_units → sous-compte) ; branche `free==0` (Tan encerclé → emit inconditionnel) confirmée
   au désassemblage mais non craftée live (surround AI-gated) — risque = un MISS rare, jamais un
   overfire. `[opus]` si un miss les fait surface.
-- **LordOfTempests AddIce, résidus** (`case-35` §4 — case CLOS) : branche 2 (glace sur la victime
-  du smite Psyker) non exercée live (câblée + unit-testée) ; `is_normal_attack` face attaquant
-  toujours True au foyer combat (snowball s'appliquerait aux abilities de Njal — inerte,
-  Stormcaller non porté) ; `load_state` sans hydratation des effets de TUILE mi-bataille ;
-  Stormcaller (1113) runner-face non porté (zone `GetAddIceTiles @18120cf70` + 3× AoE + stun
-  Flying) ; blocage mouvement / crit-bonus ICE toujours GATE (#131, terrain-effects §2). `[opus]`
+- **LordOfTempests AddIce, résidus** (`case-35` §4 — case CLOS, les DEUX branches du trigger
+  désormais confrontées live) : reste `load_state` sans hydratation des effets de TUILE
+  mi-bataille (gap de HARNAIS, pas de port : en walk complet c'est notre trigger qui pose la
+  glace) ; blocage mouvement / crit-bonus ICE toujours GATE (#131, terrain-effects §2). `[opus]`
   si un miss d'agreement les fait surface.
+  *Fermés* : branche 2 (glace sur la victime du smite Psyker) — **exercée live** par
+  `test_lord_of_tempests_addice_smite_branch` (géométrie placée : Njal d=2 de T, E2 voisin de T ;
+  live glace {T, E2} == offline) ; `is_normal_attack` face attaquant et Stormcaller (1113)
+  runner-face — **résolus par #217** (`case-217-stormcaller`).
 - **`CalculateCustomUtility`, 20 overlays non portés** (`case-27` — 2 portés `loki_custom.py`) :
   bloqués par 4 sous-systèmes (évaluateur DSL de forme/chain ; méthodes `BattleQuery` à token
   0x44/0x77/0x7c/0x7d/0x7f/0xb1 ; réutilisation `GenerateMultiHitAttackPredictions` ; utilité de
