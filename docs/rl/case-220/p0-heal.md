@@ -12,13 +12,27 @@ PerformAIAttackFromCurrentPosition (single-unit) dans `abilities/loki/quickening
 (`triggers/loki/living_metal.py:116`). Traits : 0x1a=Imperial, 0x7ea=Chaos.
 
 ```
-[1002 CombatRestoratives | ultraApothecary]
+[1002 CombatRestoratives | ultraApothecary]  --- PORTE + VALIDE LIVE (case-220 opus-solver)
 VAs : ExecuteBehaviour @1811cc590, HealTargets @1811cca50, callback b__0 @1811e3e90
-Arbre : AtomicGroup(Union(Friends(AdjacentUnits(self,1)), self))
-        -> split UnitsWithTrait(0x1a Imperial) vs op_Subtraction (sans) via SelectUniqueUnits
-        -> Heal(withImperial, GetVarForLevel 0x22=5456) & Heal(sans, 0x20=4365)
-Prérequis MANQUANTS : AUCUN. Verdict : [opus] direct, 1 tranche.
-Risques : split-trait = 2 feuilles Heal distinctes (pas 1 amount conditionnel) ; ordre d'emit.
+Arbre : base = Healable( op_Addition( Friends(AdjacentUnits(self,1)) , self ) )        # PAS d'exclusion trait
+        withImperial = SelectUniqueUnits( UnitsWithTrait(base, 0x1a Imperial) )  Heal Get(var0x22)  # Imperial
+        sans         = SelectUniqueUnits( op_Subtraction(base, withImperial) )   Heal Get(var0x20)  # tout le reste
+        AtomicGroup( Heal(withImperial) & Heal(sans) )                                  # withImperial PUIS sans
+   var0x22 = GetVariableForLevel(0x22) = hpToHeal_2 (+0x20) ; var0x20 = GetVariableForLevel(0x20) = hpToHeal (+0x160).
+Port : runner/abilities/ultramarines.py (CombatRestorativesAbility + combat_restoratives_tree) ; feuille Heal
+   `guard=healable_heal_type_0` (behaviours/stats.py, helper PARTAGE remonte de deathguard.py) ; enregistre
+   handler.py (1002). Test : test_combat_restoratives_live.py.
+DEUX DIFFERENCES vs le jumeau Chaos 1037 (LUES au decompile, pas devinees) :
+   (1) *** PAS DE CUMUL *** : var0x22 et var0x20 lues+utilisees SEPAREMENT (contraste 1037 : cote Chaos =
+       var0x22 + var0x20). Imperial = hpToHeal_2 seul ; non-Imperial = hpToHeal seul.
+   (2) *** PAS D'EXCLUSION DE TRAIT *** : base = Healable(self + allies adj) SANS WithoutTrait ; les allies
+       Chaos ET Xenos sont soignes (var0x20), contraste 1037 qui EXCLUT Imperial (0 heal). Trait Imperial(0x1a)
+       DERIVE de la GrandAlliance (`_grand_alliance_trait`, REUTILISE tel quel).
+VALIDE LIVE (rank 17, ultraApothecary lvl50 mult180 -> imperial 7477=round(4154*1.8), sans 5983=round(3324*1.8)) :
+   CAST LIVE REEL (applyAction, allie blesse via KillMaimBurn ennemi) confronte BIT-EXACT au port offline sur
+   la MEME capture pre-cast -> ultraApothecary[Imperial, blesse 22381>7477] +7477 == offline +7477 ; les 5 unites
+   live_delta == offline_delta. Offline deep-wound (test) : Imperial(caster+hospit) 7477, Xenos(ranger) 5983,
+   Chaos(blight) 5983 [NON exclu], mechanical(necroWarden) 0, full-HP 0, imperial>sans, hpToHeal_2!=hpToHeal.
 ```
 ```
 [1037 RevitalizingMalignancy | deathRotbone]  --- PORTE + VALIDE LIVE (case-220 opus-solver)

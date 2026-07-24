@@ -8,7 +8,42 @@ from __future__ import annotations
 
 from ....dsl.base import TargetsSelector, _units_of
 from ....dsl.effects import AbilityBehaviour, OperationResult
+from ....entities.traits.unit_trait import UnitTrait
 from ...components import HealthComponent, StatsComponent
+
+
+def is_mechanical(ht, u) -> bool:
+    """`UnitExtensions.IsMechanical @180ed8a30` = `HasTrait(Mechanical=5) OU HasTrait(LivingMetal=1000)
+    OU HasTrait(Vehicle=0x405=1029)`. Les TROIS sont des traits gameconfig reels (126/51/8 units), donc
+    lisibles cote runner via `ctx.has_trait`. Confirme LIVE (case-220 : necroWarden=LivingMetal exclu du
+    heal). Helper PARTAGE des feuilles Heal a garde `Healable` (1037 RevitalizingMalignancy, 1002
+    CombatRestoratives) -- co-localise avec `Heal` (son unique consommateur)."""
+    return bool(ht(u, int(UnitTrait.Mechanical)) or ht(u, int(UnitTrait.LivingMetal))
+                or ht(u, int(UnitTrait.Vehicle)))
+
+
+def healable_heal_type_0(entities, ectx, u) -> bool:
+    """Garde `Healable` de la feuille `Heal` (prerequis case-220, `HealableUnitsSelector.Select @180eec480`
+    + heal type 0) : une unite est soignable par un HEAL de type 0 ssi elle est
+      (a) ENDOMMAGEE  : HP < max                                  (IsDamaged du HealableUnitsSelector) ET
+      (b) affectee    : `UnitExtensions.IsAffectedByHealType(unit, 0) @180ed77d0`
+                        = `HasTrait(AffectedByHealAndRepair=0x421)` OU `NOT IsMechanical`.
+    IsMechanical = Mechanical(5) | LivingMetal(1000) | Vehicle(1029) (mirror @180ed8a30). HP<max est aussi
+    garanti aval par `HealUnitOperation` (FillUp rend 0 si plein) ; la garde ICI EXCLUE en plus la cible du
+    set (une unite full-HP / mechanical n'apparait pas dans `heals`), fidele au fait que le natif pre-filtre
+    via `HealableUnitsSelector` AVANT le split. Confirme LIVE (case-220 1037 : necroWarden mech blesse -> +0 ;
+    allie full-HP -> +0). Helper PARTAGE (1037 + 1002) -- co-localise avec `Heal`."""
+    state = ectx.state
+    uid = u.get("id") if isinstance(u, dict) else None
+    e = state.get_entity(uid) if (state is not None and uid is not None) else None
+    hc = e.get_component(HealthComponent) if e is not None else None
+    if hc is None or hc.hp is None or hc.hp_max is None or int(hc.hp) >= int(hc.hp_max):
+        return False                                          # non endommagee -> non Healable
+    ht = entities.has_trait
+    if ht is None:
+        return True                                           # pas de resolveur trait -> defaut affecte
+    # IsAffectedByHealType(unit, 0) : AffectedByHealAndRepair(0x421) OU non-Mechanical.
+    return bool(ht(u, int(UnitTrait.AffectedByHealAndRepair)) or not is_mechanical(ht, u))
 
 
 class Heal(AbilityBehaviour):

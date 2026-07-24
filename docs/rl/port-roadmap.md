@@ -64,7 +64,7 @@ le playbook NC porté). Par sous-groupe :
 
 | Ability | Porteur | Agent | Verdict (arbre + VAs dans `case-220` §1) |
 |---|---|---|---|
-| 1002 CombatRestoratives | ultraApothecary | ✅ opus-solver **direct** | 0 prérequis — Heal ×2 split trait Imperial ; `@1811cc590` |
+| 1002 CombatRestoratives | ultraApothecary | ✅ opus-solver **direct** — **PORTÉ + VALIDÉ LIVE** | Heal ×2 split trait Imperial (Imperial=hpToHeal_2 / non-Imperial=hpToHeal, PAS de cumul, PAS d'exclusion) ; `ultramarines.py` ; live +7477==offline ; `@1811cc590` |
 | 1037 RevitalizingMalignancy | deathRotbone | ✅ opus-solver **direct** | jumeau 1002 côté Chaos ; montant Chaos = SOMME var0x20+var0x22 (ne pas fitter) ; `@181200eb0` |
 | 1117 DefendTheDivineWork | admecManipulus | ✅ opus-solver + prérequis | feuille Repair multi-cible (clone Heal) + PerformAIAttack multi-unités ; galvanic = pattern quickening DÉJÀ porté ; ⚠ attaque galvanique non-tooltipée à confirmer live ; `@1811d30b0` |
 | 1039 RitesOfRestoration | adeptHospitaller | ✅ opus-solver + prérequis | feuille Resurrect (op existante) + sélecteur `AllDeadUnits` ; RNG double PickRandomly + flag no-act ; `@1812033c0` |
