@@ -44,6 +44,7 @@ from .loki import (
     MV71ResetInitialDmgEffect,
     BeastSlayerExtraDmgEffect,
     MartialKatahDmgBonusEffect,
+    CondemnorStakeExtraDmgEffect,
     BeastSlayerExtraBlockEffect,
     DaemonExtraBlockEffect,
     MasterAnnihilatorAdditionalHitEffect,
@@ -235,6 +236,12 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # MartialKatah face ATTAQUE (@180f58930) : +100% degat vs SUMMONS (HasTrait(target, Summon=2),
     # aucun gate melee/normal, applique en prediction). Valide bit-exact 1357 s18 (#57d).
     "MartialKatah_DmgBonus": MartialKatahDmgBonusEffect,
+    # CondemnorStake (adeptCanoness passif, effet 1076) : JUMEAU de AvalancheOfMuscle (@180f39450 ForAddition,
+    # ctor @180f39600 source 0x42e=1070) SAUF gate IsCharging -> HasTrait(target, Psyker=0x3ea=1002). +extraDmg
+    # [ablvl passif]xmult FLAT additif PRE-percage a TOUTE attaque du porteur (aucun gate melee/normal) vs cible
+    # Psyker. i2 "+2183 Damage" = extraDmg[L65] (lu gameconfig, jamais hardcode). Precedent gate target-trait
+    # BeastSlayer/MartialKatah/DaughterOfTheAbyss. #220.
+    "CondemnorStake_ExtraDmg": CondemnorStakeExtraDmgEffect,
     # Neuroparasite (passif Neurothrope ; EffectType CAPTE = 1218 'Neuroparasite', name-route ; ctor 0x49f=1183
     # = AbilityOrEffect, distinct) : ADDITIF +extraDmg[nivSource]xniveau_parasite au degat PSYCHIQUE recu DE CE
     # Neurothrope (defender, ForAddition gated Psychic + AreEqual(source)). Magnitude+gating+PLACEMENT (scale
