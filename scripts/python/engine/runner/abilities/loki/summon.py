@@ -120,21 +120,26 @@ def getemruntz_tree() -> Seq:
 
 def _summon_on_appearance_attack(state: "State", summon_id: int, target_id: int,
                                  profile_name):
-    """`PerformAIAttack` à l'apparition : le summon attaque la cible. Profil = `unitDamageProfile` de
-    l'ability de summon (ex. Piercing) en OVERRIDE de l'arme normale (i2 « immediately attack using
-    Piercing ; subsequent attacks use their normal type »). base = stat Attack du summon, hits = arme du
-    summon, pipeline normal (reduce-then-roll). No-op si rng non calé (return None)."""
+    """`UseNormalAttackIfAble(Spawned, Target)` à l'apparition : le summon attaque la cible avec son
+    attaque NORMALE. `profile_name` = OVERRIDE optionnel du profil (ex. ScarabHive `unitDamageProfile`
+    = Piercing, i2 « immediately attack using Piercing ; subsequent attacks use their normal type »).
+    `profile_name is None` (aucun override, ex. DeathFromAbove) -> FALLBACK sur le profil de l'arme
+    NORMALE du summon (`ctx.normal_profile` + son PiercingRatio) : `UseNormalAttackIfAble` = attaque
+    normale, l'override n'est PAS obligatoire (ScarabHive passe "Piercing" -> branche inchangee, aucune
+    regression). base = stat Attack du summon, hits = arme du summon, pipeline normal (reduce-then-roll).
+    No-op si rng non calé (return None)."""
     e = state.get_entity(summon_id)
     sc = e.get_component(StatsComponent) if e is not None else None
     if sc is None:
         return None
     ctx = sc.ctx
-    dp = GC.damage_profile(profile_name) or {}
+    prof = profile_name if profile_name is not None else getattr(ctx, "normal_profile", None)
+    dp = GC.damage_profile(prof) or {}
     pierce = max(0, min(100, int(dp.get("PiercingRatio") or 0) + int(ctx.extra_pierce)))
     hits = max(1, int(ctx.normal_weapon_hits))
     return AttackDamageOperation.execute_normal_like(
         state, summon_id, target_id, int(ctx.stat(StatType.ATTACK)), pierce, hits=hits, spread_pct=20,
-        damage_profile=profile_name, is_melee=ctx.is_melee)
+        damage_profile=prof, is_melee=ctx.is_melee)
 
 
 def perform_ai_attack_from_current_position(state: "State", unit_id: int) -> Optional[dict]:

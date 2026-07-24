@@ -23,7 +23,7 @@ from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility, Vigilance
 from .deathguard import RevitalizingMalignancyAbility, FlailSwingAbility
 from .blacklegion import BringerOfDespairAbility
 from .darkangels import PlasmaCannonAbility
-from .ultramarines import CombatRestorativesAbility, MortisRoundAbility
+from .ultramarines import CombatRestorativesAbility, MortisRoundAbility, DeathFromAboveAbility
 from .bloodangels import SavageEchoesAbility
 from .necrons import HarbingerOfDestructionAbility
 from .sisterhood import SanctorumMissileAbility, SkyStrikeAbility
@@ -66,6 +66,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     PlasmaCannonAbility.ABILITY_TYPE: PlasmaCannonAbility,             # 1150 (darkaTerminator DarkAngels : 3x Plasma cible + 3x sur <=2 unites tirees directly-behind, native_factory attack, case-220)
     CombatRestorativesAbility.ABILITY_TYPE: CombatRestorativesAbility,  # 1002 (ultraApothecary : heal self+allies adj, split trait Imperial hpToHeal_2 / non-Imperial hpToHeal, PAS de cumul, case-220 P0-HEAL)
     MortisRoundAbility.ABILITY_TYPE: MortisRoundAbility,               # 1004 (ultraEliminatorSgt : AtomicGroup(Attack HeavyRound 1x + PushUnit cible 1 hex) ; wiring valide ; quirk HeavyWeapon double = residu cross-cutting non porte, case-220 UM)
+    DeathFromAboveAbility.ABILITY_TYPE: DeathFromAboveAbility,         # 1003 (ultraInceptorSgt : spawn ultraSmnInceptor x StatAmount(TURNS_STARTED) tuiles adjacentes-cible SortByDistance(caster) cap-tuiles + on-appearance attaque normale Bolter cible, template SpawnSummon, case-220 UM)
     SavageEchoesAbility.ABILITY_TYPE: SavageEchoesAbility,             # 1230 (Cezare bloodTerminator : 4x Eviscerate melee + extraDmg x free-tiles + self-heal si HP<=50%, case-220 template ArmoriumCherub)
     HarbingerOfDestructionAbility.ABILITY_TYPE: HarbingerOfDestructionAbility,  # 1008 (necroPlasmancer : cible + N-1 ennemis random disque rayon-2 CASTER unobscured, 1x DirectDamage pierce-100, case-220 Necrons)
     SanctorumMissileAbility.ABILITY_TYPE: SanctorumMissileAbility,     # 1062 (adeptMorvenn Morvenn Vahl Sisterhood : missile 2x Blast cible + 1x Blast adjacents-cible (hex Morvenn exclu) Unobscured, native_factory attack, case-220)
