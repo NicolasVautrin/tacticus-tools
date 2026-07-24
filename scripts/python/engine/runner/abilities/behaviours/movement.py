@@ -39,7 +39,10 @@ class PushUnit(AbilityBehaviour):
         for u in sorted(pushed, key=lambda x: x["id"]):      # ordre de lecture = id (mirror Foreach natif)
             res = DisplaceUnitOperation(pusher_id, u["id"]).execute(state, ectx.bus)
             ectx.emit("PushUnit", pusher=pusher_id, pushed=u["id"],
-                      moved=bool((res or {}).get("moved")), to=(res or {}).get("to"))
+                      moved=bool((res or {}).get("moved")), to=(res or {}).get("to"),
+                      # #47 : degats de collision du push bloque (ApplyKnockbackTo @180e67fc0),
+                      # surfaces pour le replay-diff (None = push reussi / pas de knockback).
+                      knockback=(res or {}).get("knockback"))
         return OperationResult.ok()
 
 

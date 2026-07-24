@@ -251,7 +251,8 @@ def _positional_att_ctx(state: State, unit_id: int) -> Optional[dict]:
 
 def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged: Optional[bool] = None,
                        target_traits=None, target_id: Optional[int] = None,
-                       is_normal_attack: bool = True, damage_profile: Optional[str] = None):
+                       is_normal_attack: bool = True, damage_profile: Optional[str] = None,
+                       trigger_ability_type: Optional[int] = None):
     """`DamageModifiers` de l'attaquant depuis ses EFFETS actifs (None-safe). `is_ranged` = nature du coup
     (propagée aux bonus gated `IsRangedAttack`, ex. HeavyWeapon_ExtraDmg). `has_moved` (#60) = l'unité a-t-elle
     BOUGE ce tour (state.moved_this_turn) -> gate no-move : HeavyWeapon_ExtraDmg s'ANNULE si l'unité a bougé
@@ -263,6 +264,11 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     snowball : MESURÉ live probe_217 B — cast Stormcaller avec effet actif + 3 hexes glacés ring-1 ->
     natif +0, offline-sans-gate +extraDmg x 3 x 3 hits ; le natif NE l'applique PAS aux attaques d'ability).
     Défaut True = attaque normale / normal-like (le smite Psyker porte le KIND 1013 = attaque-normale).
+    `trigger_ability_type` (#47) = l'ABILITY DÉCLENCHANTE du coup (AbilityOrEffect numérique, mirror du
+    champ du contexte d'attaque natif lu par `TriggeringAbilityIs @180dfe9c0`) — threadé dans `att_ctx`
+    pour les amounts conditionnels par-ability (HeavyWeapon_ExtraDmg @180f4f030 : `ConditionalAmount(
+    TriggeringAbilityIs(0x3ec=1004) ? base x2 : base)`). None (attaque normale/caller historique) =
+    clé absente -> branche base.
     Les AURAS ALLIÉES +dégât (incr. C2 : `create_aura_attack_damage_bonus_for_ally` des alliés à portée,
     Conqueror/BeaconOfRage) sont ajoutées ici (`_apply_ally_attack_damage_auras`) — mirror combat de la prédiction."""
     active = (state.effects.active_effects(unit_id, {"hp": hp})
@@ -274,6 +280,10 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     # la prédiction (qui le lit du tileMeta frais). Seul consommateur d'att_ctx à ce jour ; les unités
     # sans effet positionnel sont inchangées (les autres bonus ignorent att_ctx).
     att_ctx = _positional_att_ctx(state, unit_id)
+    if trigger_ability_type is not None:
+        # #47 : l'ability déclenchante vit dans le MÊME contexte que la position (mirror AbilityEntities
+        # — un seul struct de contexte per-coup côté natif, cf. BaseEffect.DamageBonusForAttack @180f0f5e0).
+        att_ctx["trigger_ability_type"] = int(trigger_ability_type)
     mods = build_attacker_modifiers_from_effects(active, is_ranged, is_normal_attack=is_normal_attack,
                                                  has_moved=has_moved, target_traits=target_traits,
                                                  target_armor_reduced=tar, att_ctx=att_ctx)

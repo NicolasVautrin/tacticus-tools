@@ -821,8 +821,27 @@ class AttackDamageOperation:
         # défenseur ci-dessous). MESURÉ live (probe_217 B, cast Stormcaller avec effet LordOfTempests
         # ACTIF + 3 hexes glacés ring-1 à l'attaque) : natif +0, offline-sans-gate +extraDmg x3 x3 hits
         # -> le natif n'applique PAS les bonus attaquant normal-only aux attaques d'ability.
+        # #47 : NATURE DU COUP threadée dans la collecte attacker-modifiers — le natif évalue chaque
+        # effet contre le MÊME contexte d'attaque per-coup (`BaseEffect.DamageBonusForAttack @180f0f5e0`
+        # reçoit l'AbilityEntities du coup : caster/cible/ability déclenchante/arme), quel que soit le
+        # VECTEUR (normale OU ability — même collecteur, aucun collecteur ability séparé). Le port ne
+        # passait NI `is_ranged` NI l'ability déclenchante -> les bonus attaquant gated `IsRangedAttack`
+        # (HeavyWeapon_ExtraDmg @180f4f030 +25%, RangedSpecialist @180f67520 +33%, ...) rendaient None
+        # pour TOUTE attaque d'ability (MESURÉ live : PlasmaCannon x1.25, MortisRound x1.5 vs offline x1).
+        #   - `is_ranged` dérivé d'`is_melee` (nature déclarée du coup, mirror attackRangeType lu au
+        #     décompilé de chaque ExecuteBehaviour) ; None (caller historique non classé) = gates inertes
+        #     (comportement inchangé — fidèle « inconnu != ranged »).
+        #   - `trigger_ability_type` = l'AbilityOrEffect du coup (7e arg d'`AttackWithAttackDamage`
+        #     natif, `op_Implicit(*this+0x10)`) -> gate `TriggeringAbilityIs` des amounts conditionnels
+        #     (HeavyWeapon x2 quand 0x3ec=1004 MortisRound, cf. HeavyWeaponExtraDmgEffect).
+        #   - GATE FAMILLE (== le gate #45f des feuilles positionnelles ci-dessous) : la famille ABILITY
+        #     (`AbilityDamageOperation`) recoit des mods ATTAQUANT VIDES (struct zeroee, mesure #45f
+        #     Stormcaller) -> is_ranged/trigger NE SONT threades que pour la famille ATTACK
+        #     (`wasted_resolve=True`) ; ability-family = None (gates inertes, comportement inchange).
+        _ranged = (not is_melee) if (is_melee is not None and wasted_resolve) else None
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, target_id=target_id,
-                                          is_normal_attack=False)
+                                          is_ranged=_ranged, is_normal_attack=False,
+                                          trigger_ability_type=(ability_type if wasted_resolve else None))
         # #45f (fable, cause racine du residu x1.5 GreatFrostAxe case-220) : les feuilles POSITIONNELLES
         # (elevation +ElevationBonus=50% si elev(att) > elev(cible), gate effet 0x423 ; trench -50%) du
         # builder de mods ATTAQUANT s'appliquent a la famille ATTACK **SEULEMENT** — gate par FAMILLE de
@@ -831,7 +850,9 @@ class AttackDamageOperation:
         #     @180e5eff0`) : le per-coup construit les mods attaquant COMPLETS (slot +4, positional
         #     leaves incluses). MESURE (probe_45f_gfa_elevation, GreatFrostAxe, une variable = la
         #     relation d'elevation) : pre-fix high = live 1.5000x offline sur CHAQUE coup (DidCrit=0),
-        #     flat/low = bit-exact ; post-fix 16/16 bit-exact.
+        #     flat/low = bit-exact ; post-fix 16/16 bit-exact. #47 (2e datapoint INDEPENDANT, vecteur
+        #     ability-ATTACK ranged) : PlasmaCannon caster surplomb -> live = x1.25 (HeavyWeapon)
+        #     x 1.5 (elevation) = x1.875 offline-avec-feuilles, a plat x1.25 seul.
         #   - ABILITY (`AttackWithAbilityDamage @180de9dd0` -> `AbilityDamageOperation.ExecuteHit
         #     @180e29d50`) : `CalculateAbilityDamage @18102cb50` recoit des mods ATTAQUANT **VIDES**
         #     (struct zeroee) — seuls les mods DEFENSEUR (slot 0xf) s'appliquent. AUCUNE elevation.

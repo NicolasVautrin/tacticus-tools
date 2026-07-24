@@ -152,9 +152,9 @@ def mortis_round_tree() -> AtomicGroup:
     resolve slot-8 gaspille = 2 tirages/coup a cc=0). Profil `HeavyRound` (constants.damageProfile), attaque
     RANGED (attackRangeType=Ranged, range 3) -> `is_melee=False`. `nrOfHits` ABSENT de la config (constants
     n'a que damageProfile) -> `ability_attack_params` rend hits=1 (== i2 « 1x »). `ability_type=1004` threade
-    l'AbilityOrEffect du coup (mirror `op_Implicit(*this+0x10)` natif = 7e arg de AttackWithAttackDamage) — ce
-    SERAIT le vehicule du gate `TriggeringAbilityIs(0x3ec=1004)` du bonus HeavyWeapon_ExtraDmg, mais ce bonus
-    reste un RESIDU non porte (cf. docstring classe : is_ranged non threade pour les attaques d'ability)."""
+    l'AbilityOrEffect du coup (mirror `op_Implicit(*this+0x10)` natif = 7e arg de AttackWithAttackDamage) —
+    c'est le VEHICULE du gate `TriggeringAbilityIs(0x3ec=1004)` du bonus HeavyWeapon_ExtraDmg (#47 :
+    `execute_ability_attack` threade DESORMAIS is_ranged + trigger_ability_type -> +50% valide bit-exact)."""
     attack = AttackWithAttackDamage(Target(), MORTIS_ROUND_ID, "HeavyRound", is_melee=False,
                                     ability_type=int(ActiveAbilityType.MortisRound))
     push = PushUnit(Caster(), Target())
@@ -172,21 +172,19 @@ class MortisRoundAbility(ActiveAbility):
     (1 coup) + recul 1 hex de la cible (`DisplaceUnitOperation`, no-op si BigTarget/Immovable/bord). SOUS-ENSEMBLE
     structurel de ThunderousAssault (attaque + push, sans stun/charge).
 
-    QUIRK « Heavy Weapon applies double » (i2) — RESIDU CROSS-CUTTING DOCUMENTE (candidat fable, PAS porte) :
-    n'est PAS dans l'ExecuteBehaviour. C'est un raffinement de l'effet `HeavyWeapon_ExtraDmgEffect.
-    CreateDamageModifier @180f4f030` (accorde par le trait HeavyWeapon du carrier ; effet 1008 SEEDE dans le
-    runner) : `amount = ConditionalAmount(TriggeringAbilityIs(0x3ec=1004) ? Multiply(base, Direct(2)) : base)`
+    QUIRK « Heavy Weapon applies double » (i2) — RESOLU #47 (2026-07-24) : n'est PAS dans
+    l'ExecuteBehaviour. C'est un raffinement de l'effet `HeavyWeapon_ExtraDmgEffect.CreateDamageModifier
+    @180f4f030` (accorde par le trait HeavyWeapon du carrier ; effet 1008 SEEDE dans le runner) :
+    `amount = ConditionalAmount(TriggeringAbilityIs(0x3ec=1004) ? Multiply(base, Direct(2)) : base)`
     ou `base = ConfigConst 0xf = heavyWeaponExtraDmg` (=25). => le bonus +extraDmg% des attaques RANGED du
     porteur (gate `OwnerIsCaster & IsRangedAttack & no-move`) est DOUBLE (+50% au lieu de +25%) quand l'attaque
-    declenchante est MortisRound. `ability_type=1004` est threade dans le leaf (mirror de `op_Implicit(*this+
-    0x10)` = AbilityOrEffect du coup) et serait le VEHICULE du gate `TriggeringAbilityIs`. MAIS le port
-    N'APPLIQUE PAS ce bonus : `execute_ability_attack` (damage.py) ne threade PAS `is_ranged` -> le canal
-    `HeavyWeaponExtraDmgEffect.create_effect_damage_bonus_for_attack` retourne None (`if not is_ranged`) pour
-    TOUTE attaque d'ability (blast radius : ArmoriumCherub/SpiritLeech/PlasmaCannon ont aussi HeavyWeapon/
-    RangedSpecialist). Fermer le residu = tranche DEDIEE (thread `is_ranged` + `trigger_ability_type` dans le
-    pipeline attacker-modifiers + re-valider les 4 abilities, + resoudre le crit-rng per-hit desync observe).
-    Mesure live (probe_mortis_round.py) : LIVE ~3.15x OFFLINE (HeavyWeapon double + crit live). Le WIRING core
-    (attaque HeavyRound 1x mono-cible + push 1 hex) est VALIDE ; seule la MAGNITUDE du degat est residuelle.
+    declenchante est MortisRound. #47 : `execute_ability_attack` threade `is_ranged` + `trigger_ability_type`
+    dans la collecte attacker-modifiers (gate famille ATTACK, cf. damage.py) -> le x2 s'applique via
+    `att_ctx["trigger_ability_type"]` lu par `HeavyWeaponExtraDmgEffect`. L'ancien ratio live ~3.15x etait
+    DEUX etages : x1.5 (HeavyWeapon double) + KNOCKBACK de collision du push BLOQUE au bord
+    (`ApplyKnockbackTo @180e67fc0` = ceil(maxHealth x 10%), porte #47 dans displace.py) — PAS un crit-rng
+    desync (refute par comptage mti : 2 tirages/cast = valeur + resolve, AUCUN crit-roll). VALIDE bit-exact
+    live (probe_mortis_round C : 15256 push bloque ; probe_47 mortis-free : 7256 push libre sans knockback).
 
     Push DETERMINISTE (aucun rng) -> n'altere PAS l'ordre RNG de l'attaque : la SEQUENCE attaque->push est
     fidele BY CONSTRUCTION (l'attaque delegue au pipeline partage `execute_ability_attack`)."""

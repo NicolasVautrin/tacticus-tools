@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from ....services.effect_bonus import (EffectBonus, for_addition, for_subtraction,
                                        for_percent_decrease, for_percent_increase,
                                        for_percent_subtraction_capped)
+from ...active_ability_type import ActiveAbilityType
 from ..base import BaseEffect
 from ..magnitude import ability_var, global_value, trait_var
 
@@ -440,10 +441,16 @@ class CrushingStrikeEffect(BaseEffect):
 class HeavyWeaponExtraDmgEffect(BaseEffect):
     """`HeavyWeapon_ExtraDmgEffect` (effet 1008 ; ctor `DamageModifierAbilityEffect(0x3e9)`).
     - dégât `CreateDamageModifier` @180f4f030 : `EffectBonus.ForPercentIncrease(cond, amount)` où
-      `amount = ConditionalAmount(TriggeringAbilityIs(0x3ec) ? amount×2 : amount)`, `amount = ConfigConst
-      key 0xf` = trait var `heavyWeaponExtraDmg` (=25, scalaire) ; condition = `OwnerIsCaster &
-      IsRangedAttack & flags`. ⇒ **+25% de dégât sur les attaques RANGED** (le ×2 si l'ability
-      déclenchante est 0x3ec = raffinement non porté ; l'attaque normale/overwatch n'est pas 0x3ec).
+      `amount = ConditionalAmount(TriggeringAbilityIs(AbilityOrEffect(0x3ec=1004 MortisRound)) ?
+      Multiply(base, Direct(2)) : base)`, `base = ConfigConst key 0xf` = trait var `heavyWeaponExtraDmg`
+      (=25, scalaire) ; condition = `OwnerIsCaster & IsRangedAttack & ((F@0xa0 & !HasFlag(TurnFinished=3))
+      | !F@0xa0) & (!HasFlag(Moved=0) | HasFlag(Teleported=0xc))`. ⇒ **+25% de dégât sur les attaques
+      RANGED** (normale, overwatch ET ability — le gate est IsRangedAttack, PAS IsNormalAttack), **x2
+      (+50%) quand l'ability déclenchante est MortisRound** (0x3ec est le SEUL id du décompilé ; i2
+      « The Heavy Weapon trait applies double to this ability » n'existe que sur MortisRound, #47).
+      L'ability déclenchante est lue du contexte d'attaque per-coup -> `att_ctx["trigger_ability_type"]`
+      (threadé par `execute_ability_attack` via `attacker_modifiers`) ; attaque normale/overwatch/clé
+      absente -> branche base.
     Porté par le trait HeavyWeapon (qui accorde aussi l'Overwatch) → s'applique au tir d'overwatch."""
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
@@ -464,7 +471,15 @@ class HeavyWeaponExtraDmgEffect(BaseEffect):
         if has_moved:
             return None
         pct = trait_var("HeavyWeapon", "heavyWeaponExtraDmg")
-        return for_percent_increase(True, pct) if pct is not None else None
+        if pct is None:
+            return None
+        # #47 : branche `ConditionalAmount(TriggeringAbilityIs(0x3ec=1004), Multiply(base, Direct(2)),
+        # base)` du décompilé @180f4f030 — amount DOUBLÉ (+50%) quand le coup est déclenché par
+        # MortisRound. `trigger_ability_type` = l'AbilityOrEffect du coup, présent seulement sur le
+        # vecteur ABILITY (execute_ability_attack) ; absent (attaque normale/overwatch) = branche base.
+        if att_ctx and att_ctx.get("trigger_ability_type") == int(ActiveAbilityType.MortisRound):
+            pct = pct * 2                        # Multiply(base, Direct(2))
+        return for_percent_increase(True, pct)
 
 
 class RangedSpecialistEffect(BaseEffect):

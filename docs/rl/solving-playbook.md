@@ -633,3 +633,78 @@ n'etait PAS une bizarrerie native a elucider : c'etait le signal que l'ATTRIBUTI
   (AvalancheOfMuscle etc.) et l'addition crit-gated (Ice) coexistent au MEME foyer pipeline ;
   porter le canal + son trigger, jamais un scalaire fitte.
 
+
+---
+
+## #47 (2026-07-24) — Buffs RANGED du caster absents des attaques d'ABILITY + « crit-rng desync » fantome (MortisRound 3.15x)
+
+**Symptome-type** : une attaque d'ABILITY d'un porteur de buff ranged (trait HeavyWeapon /
+RangedSpecialist) sort LIVE a un multiple stable de l'offline (x1.25 / x1.5 / x1.875 selon le cas),
+ET un carrier (MortisRound) montre un ratio composite « inexplicable » (~3.15x) attribue par
+hypothese a un desync crit-rng per-hit. Deux etages MELANGES dans une seule mesure.
+
+**Methode qui l'a craque** :
+
+1. **Le gate manquant etait un TROU DE THREADING de contexte, pas une formule.** Le natif evalue
+   chaque effet contre le MEME contexte d'attaque per-coup (`BaseEffect.DamageBonusForAttack
+   @180f0f5e0` recoit l'AbilityEntities : caster/cible/ability declenchante/arme) quel que soit le
+   VECTEUR. Le port ne passait ni `is_ranged` ni l'ability declenchante dans
+   `execute_ability_attack` -> tout bonus gated `IsRangedAttack` rendait None pour TOUTE attaque
+   d'ability. Fix = threader `is_ranged` (derive d'`is_melee` deja present) +
+   `trigger_ability_type` (= le param `ability_type` deja route par les leaves) dans
+   `attacker_modifiers`, au MEME point et sous le MEME **gate famille** que les feuilles
+   positionnelles #45f (famille ATTACK seulement ; ability-family = mods attaquant VIDES).
+   **Patron : quand un bonus d'effet manque sur UN vecteur, chercher d'abord quel CHAMP DU
+   CONTEXTE natif ce vecteur ne threade pas — la collecte est partagee, seuls les args divergent.**
+
+2. **La clause x2 est un amount CONDITIONNEL au niveau du noeud DSL, hardcode sur UN id.**
+   `HeavyWeapon_ExtraDmgEffect.CreateDamageModifier @180f4f030` = `ForPercentIncrease(OwnerIsCaster
+   & IsRangedAttack & flags, ConditionalAmount(TriggeringAbilityIs(AbilityOrEffect(0x3ec=1004
+   MortisRound)) ? Multiply(base, Direct(2)) : base))`, base = ConfigConst 0xf =
+   heavyWeaponExtraDmg=25. 0x3ec est le SEUL id du decompile ET le seul « applies double » de l'i2
+   (grep i2_en.json : 1 occurrence) -> le x2 n'est PAS un trait generique, c'est une clause
+   per-ability. Vehicule offline : `att_ctx["trigger_ability_type"]` (le contexte positionnel #35
+   SERT de struct AbilityEntities du port — y ajouter un champ = mirror, pas un hack).
+
+3. **Demeler un ratio composite = mesurer la CONSOMMATION RNG, pas fitter le ratio.** MortisRound
+   live 15256 vs offline 4837 (~3.15x) : `dumpRng` avant/apres le cast -> mti +2 SEULEMENT
+   (= tirage valeur + resolve slot-8). AUCUN tirage crit -> l'hypothese « crit-rng desync »
+   REFUTEE par comptage, sans debat. Le reste etait : x1.5 (HeavyWeapon double) sur l'attaque
+   (4837->7256) + un delta FLAT de 8000 = ceil(80000 x 10%) -> **KNOCKBACK de collision du push
+   BLOQUE** (`ApplyKnockbackTo @180e67fc0`, residu slice-21b flagge dans displace.py). La cible
+   etait au bord -> push hors-board -> degat de collision agrege dans le MEME hpDelta que
+   l'attaque. **Patron : delta = A*ratio + B*flat se separe en bougeant UNE variable qui n'affecte
+   que B (ici --hp-target : 80000/50000/30001/8536 -> extra 8000/5000/3001/854 = ceil(max x 10%),
+   le point 30001->3001 discrimine le Ceiling Fix64 a l'unite).**
+
+4. **Knockback porte en mirror structurel, constante mesuree FLAGGEE.** Chaine native :
+   `Execute @180e685a0` (dest nulle OU IsFilled) -> `ApplyKnockbackTo @180e67fc0` (gate
+   IsTargetable) -> (iface DAT_183287ef8, slot 0xf) == `DamagePrediction.GetKnockback @181032760`
+   (gates IsDisplaceable + !HasTrait(0x19=25 Immune)) -> `CalculateKnockbackDamage @1810040f0` =
+   int(Fix64.Ceiling(maxHealth x cfg@+0x24/100)) via sub-op 0x42 (part bouclier d'abord, 0 rng,
+   pas reduit par l'armure — datapoint armure 4461 : kb plein 854). ⚠ la cle BC
+   `Damage.KnockbackPercentage`=20 NE matche PAS la valeur effective 10 (4 datapoints) -> champ
+   DTO @+0x24 non resolu (dump.cs absent) -> `_KNOCKBACK_PCT=10` HARDCODE-mesure documente.
+   Occupant ennemi du pousseur = knockback AUSSI (branche IsEnemy) ; contre-cas anti-sur-
+   application : push LIBRE -> zero knockback (mortis-free bit-exact 7256).
+
+5. **Pieges de MESURE live qui fabriquent de faux verdicts** (tous rencontres ici) :
+   - cast HORS-TOUR : applyAction repond ok:true mais `mutated:false` -> degats SIMULES puis
+     REVERTS dans le meme stream d'events (boucle endturn-jusqu'au-tour-caster obligatoire) ;
+   - cible a REGEN (necroWarden LivingMetal) : si l'ability FINIT le tour, le tick de regen tombe
+     DANS le stream du cast -> lire `min(serie UnitStats_RemainingHealth)`, pas la derniere ;
+   - `observeBattle` est STALE juste apres un applyAction -> le degat live per-coup se lit dans
+     les EVENTS (tags UnitStats_RemainingHealth), pas dans observeBattle ni `changes` (absents
+     sans push) ;
+   - le gate no-move de HeavyWeapon impose un caster JAMAIS deplace -> deplacer la CIBLE pour
+     crafter distance/elevation (spawn elev 3 de MC1_67 surplombe des tuiles elev 2 a portee 3).
+
+**Outils/heuristiques reutilisables** :
+- `probe_47_ranged_ability_buffs.py` (commite) : patron « caster fixe au spawn + cible deplacee
+  par relation d'elevation + assertion hpDelta ET mti » — 5 cas dont 2 regimes discriminants
+  (x1.25 plat / x1.875 surplomb depuis la MEME valeur brute 1342) et 1 contre-cas famille
+  (SpiritLeech = famille ABILITY -> +33% RangedSpecialist ABSENT live ET offline).
+- **mti-delta = arbitre des hypotheses RNG** : compter les tirages live d'un cast (dumpRng x2)
+  avant de postuler un roll fantome ; 1 comptage refute/confirme plus vite que tout fit.
+- **Ratio compose (x, +flat)** : varier `--hp-target` en 3 points dont un NON-rond (30001) pour
+  epingler a la fois la base (maxHealth), le pourcentage ET le mode d'arrondi (Ceiling).
