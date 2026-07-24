@@ -119,6 +119,15 @@ def _do_replay(rpc, rid, board, champ, tgt, move_to):
     att_eff = [e.get("name") for e in ((a2 or {}).get("effects") or []) if e.get("name")]
     snap2 = rpc("combatSnapshot", {"runnerId": rid}, 40)
     state = load_state(dv2, ob2, snap2)
+    # #63 : `load_state` NE peuple PAS `state.board` -> sans lui, les feuilles POSITIONNELLES du
+    # builder attaquant (elevation `apply_elevation_bonus`, trench, terrain LightCover/GetStuckIn)
+    # sont des no-op OFFLINE. Le combat natif applique le bonus d'ELEVATION (+ELEVATION_BONUS_PCT=50%
+    # quand l'attaquant surplombe la cible) AVANT percage/armure ; l'omettre rend l'offline TROP BAS
+    # (ex. ratio 0.58-0.67 mesure sur un tir armor-sensitive depuis une tuile plus haute). On assigne
+    # le `Board` DEJA construit ici (memes elevations que le boardGraph live) -> replay positionnel
+    # fidele. `_combat_replay` etait le seul consommateur de load_state a construire un Board sans
+    # l'assigner (les autres tests posent explicitement `state.board = board`). Cf. docs/rl/case-63.
+    state.board = board
     ae = state.get_entity(att)
     from engine.runner.components import StatsComponent
     if ae is None or ae.get_component(StatsComponent) is None:
@@ -161,3 +170,75 @@ def _do_replay(rpc, rid, board, champ, tgt, move_to):
             "live_after": live_after, "off_after": off_after,
             "armor": rr.get("armor"), "pierce": rr.get("pierce"),
             "did_crit": dc, "did_block": db, "did_evade": de, "effects": att_eff}
+
+
+def _find_elev_pair(board, want_dist, require_higher_elev):
+    """Cherche (tuile_cible T, tuile_attaquant A) toutes deux walkable, a hex-distance `want_dist`,
+    avec elev(A) > elev(T) si `require_higher_elev` (pour armer le bonus d'ELEVATION). Renvoie
+    ((tcol,trow),(acol,arow), t_elev, a_elev) ou None. Deterministe (parcours trie par id)."""
+    import hexgeo
+    tiles = [t for t in board.by_id.values() if t.get("walkable") and not t.get("isWall")]
+    tiles.sort(key=lambda t: t["id"])
+    for tt in tiles:
+        tp = (tt["col"], tt["row"]); te = tt["elevation"]
+        for at in tiles:
+            if at["id"] == tt["id"]:
+                continue
+            ap = (at["col"], at["row"]); ae = at["elevation"]
+            if hexgeo.distance(ap, tp) != want_dist:
+                continue
+            if require_higher_elev and not (ae > te):
+                continue
+            return tp, ap, te, ae
+    return None
+
+
+def replay_attack_driven(rpc, build_runner, attacker, target, want_dist=2,
+                         require_higher_elev=True, seed="777", extra=None, max_turns=6):
+    """Comme `replay_normal_attack` mais POSITIONS DRIVEES (applyAction ignore la portee) : place la
+    cible et l'attaquant sur des tuiles a hex-distance `want_dist` (et, si `require_higher_elev`, avec
+    l'attaquant EN SURPLOMB) pour exercer le bonus d'ELEVATION du chemin combat (feuille positionnelle
+    `apply_elevation_bonus`). Charge le board dans l'etat de replay (via `_do_replay`, corrige #63).
+    Renvoie la classification enrichie de {a_elev, t_elev, dist} ou {ok:False,reason}."""
+    build_extra = ["--roster", "1", "--p-units", attacker, "--a-units", target, *(extra or [])]
+    b = build_runner(seed, extra=build_extra)
+    rid = b["rid"]
+    if not _ok(rpc("dumpRng", {"runnerId": rid}, 30)):
+        return _skip("dumpRng indispo")
+    bg = rpc("boardGraph", {"runnerId": rid}, 60)
+    if not (isinstance(bg, dict) and "tiles" in bg):
+        return _skip("boardGraph indispo")
+    board = Board(bg["tiles"], adjacency="native_sym")
+    pair = _find_elev_pair(board, want_dist, require_higher_elev)
+    if pair is None:
+        return _skip(f"aucune paire de tuiles dist={want_dist} "
+                     f"{'avec surplomb' if require_higher_elev else ''} sur ce board")
+    tp, ap, t_elev, a_elev = pair
+    dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+    if not _ok(dv):
+        return _skip("decisionView KO")
+    champ = next((u for u in (dv.get("units") or []) if u.get("visualId") == attacker and u.get("alive")), None)
+    tgt = next((u for u in (dv.get("units") or []) if u.get("visualId") == target and u.get("alive")), None)
+    if champ is None or tgt is None:
+        return _skip(f"unite manquante (champ={bool(champ)} tgt={bool(tgt)})")
+    # place cible puis attaquant sur les tuiles choisies
+    rpc("applyAction", {"runnerId": rid, "action": {
+        "kind": "move", "unitId": tgt["id"], "to": {"col": tp[0], "row": tp[1]}}}, 40)
+    rpc("applyAction", {"runnerId": rid, "action": {
+        "kind": "move", "unitId": champ["id"], "to": {"col": ap[0], "row": ap[1]}}}, 40)
+    # caler le tour de l'attaquant
+    my_player = champ.get("owner")
+    for _ in range(max_turns):
+        dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+        if dv.get("currentPlayer") == my_player:
+            break
+        rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 40)
+    dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+    champ = next((u for u in (dv.get("units") or []) if u.get("id") == champ["id"] and u.get("alive")), None)
+    tgt = next((u for u in (dv.get("units") or []) if u.get("id") == tgt["id"] and u.get("alive")), None)
+    if champ is None or tgt is None:
+        return _skip("unite manquante post-move")
+    r = _do_replay(rpc, rid, board, champ, tgt, None)
+    if r.get("ok"):
+        r.update({"a_elev": a_elev, "t_elev": t_elev, "dist": want_dist})
+    return r
