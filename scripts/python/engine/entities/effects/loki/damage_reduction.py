@@ -47,17 +47,36 @@ class MarkerlightEffect(BaseEffect):
 
 class TerrifyingExtraDefenseEffect(BaseEffect):
     """`Terrifying_ExtraDefense_Effect.CreateDamageModifier` @180f47ba0 : réduit le dégât MÊLÉE reçu par
-    son PORTEUR (l'effet est sur la CIBLE). Trigger natif = `OwnerIsTarget & IsMeleeAttack` (AbilityOrEffect
-    0x62) ; valeur = `ConfigConst(0x28)`. La valeur n'est PAS exposée par gameconfig (trait/effet Terrifying
-    = variables vides) ; magnitude **30 confirmée LIVE** (scorer ×0.70 sur eldarMauganRa, seed777 step22).
-    ⇒ malus défenseur `PercentDecrease(30)` gated `IsMeleeAttack` (no-op sur attaque ranged / contexte inconnu)."""
+    son PORTEUR (l'effet est sur la CIBLE). Trigger natif = `get_OwnerIsTarget & IsMeleeAttack`
+    (AbilityOrEffect 0x62) ; valeur = `ConfigConst(0x28)`.
+
+    ⚠ Le trait `Terrifying` (id 0x22=34) N'EST PAS lu en direct dans le calcul de dégât (≠ MkXGravis
+    `HasTrait(cible, 0x3f5)` @181030d10). Il DÉRIVE une triggered ability qui pose CET effet sur le porteur
+    — chaîne RE'd intégralement (#73) : `Trait..cctor @18157f650` dict `GetTriggeredAbility` (+0x0, lu par
+    `Trait.GetTriggeredAbility @18157ed10`) mappe trait 0x22 -> TriggeredAbilityType 0x62 ;
+    `AddTraitOperation.AddDerivedAbilities @180e513c0` ajoute cette ability (`TerrifyingAbilityAbility`
+    @1811c5e00 = `AOwnerEffectSpecificTriggeredAbility(0x62)`) ; son `CreateTrigger @180fb3760` =
+    `OnOwnerSpecificAbilityInit(0x62)` -> à l'init du porteur, sa behaviour `AddEffect(owner,
+    Terrifying_ExtraDefense 0x62)`. Effet enregistré `EffectsDatabase.<InitializeEffects>b__14_11`. Côté
+    port : matérialisé pour un porteur CAPTÉ live (`decisionView.effects`, ex. eldarMauganRa) et, faute de
+    capture (summon spawné), seedé via `TRAIT_DERIVED_ABILITIES["Terrifying"]` (factory.py).
+
+    Magnitude = `ConfigConst(0x28)` = `clientGameConfig.globalValues.terrifyingBonus` (= **-30**, signé comme
+    `elevationBonus`=+50 / `trenchBonus`=-50) — LU en gameconfig (PAS un trait var : `trait("Terrifying")`
+    est vide). ⇒ malus défenseur `PercentDecrease(|−30|)` = ×0.70 gated `IsMeleeAttack` (no-op sur attaque
+    ranged / contexte inconnu). VALIDÉ bit-exact LIVE (#73, eldarMauganRa : per-hit combat offline == live en
+    mêlée ×0.70 ET ranged ×1.0)."""
 
     def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
                                                 damage_profile: str | None = None,
                                                 attacker_ctx: Mapping | None = None) -> EffectBonus | None:
         if not is_melee:                         # gated IsMeleeAttack
             return None
-        return for_percent_decrease(False, 30)   # owner_is_caster=False (l'effet est sur le défenseur)
+        # ConfigConst(0x28) = globalValues.terrifyingBonus (= -30 signé, mirror elevation/trench @globalValues).
+        red = global_value("terrifyingBonus")
+        if not red:
+            return None
+        return for_percent_decrease(False, abs(int(red)))   # owner_is_caster=False (effet sur le défenseur) -> x0.70
 
 
 class MartialKatahDmgReductionEffect(BaseEffect):
