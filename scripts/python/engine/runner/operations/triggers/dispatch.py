@@ -52,6 +52,7 @@ from .loki.destroyer_hive import DestroyerHiveAbility               # case-220 D
 from .loki.martial_apotheosis import MartialApotheosisAttackAbility  # case-220 (passif necroOverlord, Necron)
 from .loki.master_of_the_tutelaries import (MasterOfTheTutelariesSummonAbility,   # #202-C (triggered 1173)
                                             MASTER_EFFECT as MASTEROFTUTELARIES_EFFECT)
+from .loki.tainted_narthecium import TaintedNartheciumReviveAbility  # case-66 (passif deathRotbone, revive)
 
 # --- FinalJustice / overkill ----------------------------------------------------------------------
 OVERKILL_PCT_KEY = "overkillDmgPctOfHealth"  # globalValues = 100 → overkill ssi dmg-PV >= 100%*PV (dmg>=2*PV)
@@ -114,6 +115,12 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # ALEATOIRE (PickRandomly count=1) avec 2 coups Energy (pierce 30). Classe native ETEND DestroyerHive
     # (CreateTrigger/GetValidTargets herites). Cf. loki/martial_apotheosis.py (@181222d00/@18121d4b0/@18121d540).
     "MartialApotheosis": [MartialApotheosisAttackAbility],
+    # TaintedNarthecium (passif deathRotbone, Death Guard/Chaos, case-66) = base ReviveEffect : `OnPreDeath &
+    # CanBeRevived & AreFriends & HasTrait(Chaos) & IsAdjacent(2)` -> Maybe(75%){ Revive-EN-PLACE a
+    # min(reviveHP,maxPV), even-if-Overkilled ; DeactivateEffect once-per-turn }. Debloqueur du sous-systeme
+    # REVIVE (base ReviveEffect + ReviveUnitOperation). Cf. loki/tainted_narthecium.py (@180f70a90/@180f709b0/
+    # @180f46d80/@180f46a70) + operations/revive.py (@180e91bd0).
+    "TaintedNarthecium": [TaintedNartheciumReviveAbility],
 }
 
 # --- Registre : effectType → effet-trigger ---------------------------------------------------------
@@ -453,7 +460,9 @@ def start_turn_triggers(state: State, player_id: int) -> list[dict]:
     Not(attacked>=1)`) -> Apply (snapshot 50% du HP courant) au tour ENNEMI du porteur, Revert sinon. Avant
     l'emission de l'event (l'etat floor doit etre pose quand les triggers turn-start s'executent)."""
     from ..minimal_health import reset_times_attacked, evaluate_minimal_health
+    from ..revive import reset_revive_gates
     reset_times_attacked(state)
+    reset_revive_gates(state)          # case-66 : REACTIVE le passif revive (once-per-turn) au turn-start
     evaluate_minimal_health(state, player_id)
     ev = TriggerEvent(EventTriggerType.TurnStart_Actions, -1, -1, ranged=False, profile=None, player_id=player_id)
     return evaluate_trigger_operation(state, ev)
