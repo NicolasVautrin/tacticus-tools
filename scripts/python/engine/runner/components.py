@@ -395,3 +395,38 @@ class TriggeredAbilityComponent(Component):
         `has_triggered` sont conservés). Appelé au boundary d'activation (`EndPhaseOperation`)."""
         for e in self.entries.values():
             e.times_this_phase = 0
+
+
+# --- Predicat de LIVENESS d'unite (#70) -------------------------------------------------------- #
+# Mirror des primitives natives lues par le gate acteur-mort de `ActiveAbilityOperation.
+# ExecuteInternal @180e44ec0` : `if (EntityExtensions.IsUnit(caster) && UnitExtensions.IsDead(caster))
+# return 0;` — un caster MORT rend l'ability (attaque normale INCLUSE, #139) un NO-OP complet (0 tirage
+# RNG, aucun effet, aucun flag) AVANT toute execution. Ces helpers portent la semantique de mort utilisee
+# par CE gate (cf. engine/runner/operations/damage.py::visit_AttackUnitMessage et
+# abilities/handler.py::visit_ActiveAbilityMessage).
+
+def unit_is_alive(entity) -> bool:
+    """`HealthComponent.IsAlive @180f9ed10` — vivant SSI `hp >= 1` (le natif teste FillUpStat.CurrentValue
+    @+0x18 >= 1). hp INCONNU (None, ex. replay charge sans observeBattle) -> vivant (retro-compat : on ne
+    gate jamais sur un etat de PV non capte). La branche exotique du natif (hp<1 && max<1 && nullable
+    revive @+0x1c == -1 -> vivant) n'est pas portee : non exercee (une unite a plancher de PV a hp>=1)."""
+    if entity is None:
+        return True
+    hc = entity.get_component(HealthComponent)
+    if hc is None or hc.hp is None:
+        return True
+    return hc.hp >= 1
+
+
+def unit_is_dead(entity) -> bool:
+    """`UnitExtensions.IsDead @180ed8050` — mort SSI `!IsAlive(u) && !HasFlag(u, Fled=9)` : une unite
+    RETIREE du board (flag 9, `UnitFlag.Fled`) n'est PAS « morte » au sens de ce predicat. Restreint aux
+    UNITES (mirror du garde `EntityExtensions.IsUnit` d'ExecuteInternal) : une source non-unite (tuile/env,
+    sans `HealthComponent`) est TOUJOURS vivante -> jamais gated. Inerte (False) sur tout attaquant/caster
+    vivant -> le port du gate ne peut sur-immuniser aucune attaque legitime."""
+    if entity is None or unit_is_alive(entity):
+        return False
+    fl = entity.get_component(UnitFlagsComponent)
+    if fl is not None and fl.has(UnitFlagsComponent.FLED):
+        return False
+    return True

@@ -104,6 +104,11 @@ l'arme principale ne l'etait pas).
 - **NoBlocking vs EVASION** : le flag natif (metadata>>0x30) skippe block ET evade dans
   `CalculateDamageOperation`. L'evasion offline n'est pas exercee (`evasion_branch=False` partout) -> le
   gate NoBlocking cote offline ne couvre que le block (moot pour l'evade tant que non implementee).
-- **Residu SEPARE observe (hors #65)** : seed 123 u95->u81/u83 (`live_dmg=0` vs `off=2924`, blk=None) --
-  attaque Psychic sur cible Infiltrate/untargetable qui prend 0 en live ; pas un probleme de block
-  (aucune source), axe cible-eligibilite distinct.
+- **Residu SEPARE observe (hors #65) -- RESOLU par #70** : seed 123 u95->u81/u83 (`live_dmg=0` vs
+  `off=2924`, blk=None). L'etiquette initiale (attaque Psychic sur cible Infiltrate/untargetable) est
+  **REFUTEE** : u81 (Infiltrate) ET u83 (pas d'Infiltrate) prennent des degats normaux quand u95 est
+  VIVANT (2873/3594). Cause reelle : **l'ATTAQUANT u95 est MORT** dans l'etat capture (`live_ndraw=0` =
+  no-op complet ; u95 meurt en attaquant u79 avant les iterations u81/u83 de `probe_65_block_repro`). Le
+  natif gate le caster mort dans `ActiveAbilityOperation.ExecuteInternal @180e44ec0`
+  (`UnitExtensions.IsDead`). Fix = gate ACTEUR-MORT au dispatch offline. Voir
+  `case-70-dead-attacker-noop.md`.

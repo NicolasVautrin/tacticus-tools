@@ -96,6 +96,18 @@ class AbilityHandler:
         self.unported: set[int] = set()
 
     def visit_ActiveAbilityMessage(self, msg) -> None:
+        # #70 GATE ACTEUR-MORT (mirror `ActiveAbilityOperation.ExecuteInternal @180e44ec0` :
+        # `if (EntityExtensions.IsUnit(caster) && UnitExtensions.IsDead(caster)) return 0;`). Un caster MORT
+        # (hp<1, non-Fled ; `UnitExtensions.IsDead @180ed8050`) => l'ability est un NO-OP complet AVANT toute
+        # execution : aucune behaviour, aucun degat, AUCUN flag de tour (le natif retourne 0 en amont du
+        # `AddFlagsAfterAbilityExecution`). MEME gate que l'attaque normale (#139, cf. damage.py). Inerte pour
+        # tout caster vivant (les casts legitimes partent d'unites vivantes) -> zero regression. cf. case-70.
+        from ..components import unit_is_dead
+        caster = self.state.get_entity(int(msg.caster_id))
+        if unit_is_dead(caster):
+            self.last = {"ability_type": msg.ability_type, "ported": None,
+                         "caster": msg.caster_id, "target": msg.target_id, "actor_dead": True}
+            return
         klass = ABILITY_CLASSES.get(int(msg.ability_type))
         if klass is None:
             self.unported.add(int(msg.ability_type))   # #93/#95 : rend le no-op VISIBLE (plus muet)
