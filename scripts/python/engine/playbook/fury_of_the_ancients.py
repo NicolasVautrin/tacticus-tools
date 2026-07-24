@@ -94,7 +94,7 @@ class FuryOfTheAncientsPlaybook:
         _add_positional_and_defender_mods(mods, scene, uid, tgt_id, is_melee, attack_pos,
                                           scene.pos(tgt_id), damage_profile=prof_name,
                                           is_normal_attack=False)
-        _apply_ally_attack_dmg_bonus(mods, scene, uid, attack_pos, is_melee, _tar)
+        _apply_ally_attack_dmg_bonus(mods, scene, uid, attack_pos, is_melee, _tar, damage_profile=prof_name)
         hit_mult = target_hit_multiplier(TraitFactory.create_many(
             (GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits")))
         avg = (int(dmin) + int(dmax)) // 2       # MinMaxDamage avgFlag (somme paire ici : 599+797)

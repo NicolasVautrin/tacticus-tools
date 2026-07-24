@@ -29,13 +29,21 @@ turn-start→buff-sur-SÉLECTEUR (les portés ciblent le porteur seul) ; Modulo(
 Risques : offset 1-indexé (bon buff au bon round) ; persistance post-mort.
 ```
 ```
-[DefenderOfTheGreaterGood | tauShadowsun passif]  — ExtraDmg [opus] direct / ExtraHits [fable]
+[DefenderOfTheGreaterGood | tauShadowsun passif]  — ExtraDmg [opus] PORTE+VALIDE / ExtraHits [fable]
 VAs : CreateBehaviour @180e203d0 (branche HasTrait Summon : Drone→1306/1307, Shadowsun→1182/1183) ;
       selector @180e20590 ; ExtraDmg @180f3e4f0 ; ExtraHits @180f3e7c0/@180f3eb50
-1182 = +364 ranged non-Psychic (aura source-side, template SpotterReworked). 1183 = coup additionnel
-PROBABILISTE : Maybe(chance = Min(cap, 25 × UnitTurnsStarted(Shadowsun))) → +1 coup. Les additional-
-hits portés sont déterministes → doctrine RNG/valeur-attendue à trancher = [fable].
-Risques : hôte Drone couplé à ExemplarOfTheKauyon ; scale UnitTurnsStarted de la SOURCE.
+1182 = +364 ranged non-Psychic (aura source-side, template SpotterReworked). PORTE :
+DefenderOfTheGreaterGoodExtraDmgEffect (loki/extra_damage.py) — RE 1:1 @180f3e4f0 (ForAddition(
+OwnerIsCaster & IsRangedAttack & !DamageProfileIs(0xd=Psychic), ConfigVar(8=extraDmg))) + selecteur
+@180e20590 ((AdjacentFriends(1)-owner) + UnitsFromFaction(SurroundingFriends(2), Tau=9)). Threading
+damage_profile/att_faction (prediction _shared/normal_attack/abilities/psyker/fury ; combat damage_model/
+damage). VALIDE LIVE (probe_220_dotgg.py, MC1_67) : 24/24 agreement offline==oracle (TOL 3) ; aura
+load-bearing discriminante — tier ADJACENT (d=1 Tau ET non-Tau), tier T'au range-2 (d=2 Tau), non-Tau
+EXCLU au ring-2 (0 divergence admec d>=2). 1183 = coup additionnel PROBABILISTE : Maybe(chance = Min(cap,
+25 × UnitTurnsStarted(Shadowsun))) → +1 coup ; NON porte (RNG/valeur-attendue à trancher = [fable]) — le
+natif ne compte PAS ce coup probabiliste dans la DamagePrediction (admec bit-exact le prouve). Jumeaux
+drone 1306/1307 (branche Summon) NON portes (couplés à ExemplarOfTheKauyon [fable]).
+Risques (résiduels ExtraHits/[fable]) : hôte Drone couplé à ExemplarOfTheKauyon ; scale UnitTurnsStarted.
 ```
 ```
 [WayOfTheShortBlade | tauFarsight passif]  — [fable]
@@ -96,7 +104,8 @@ Face DECISION : ExemplarOfTheKauyonPlaybook @181130eb0. Risques : tuiles de réa
 le +2×2183 ; activation des effets du drone.
 ```
 
-**Synthèse Tau** : couverts = MV71 passif, CyclicIonBlaster ; [opus] direct = DotGG/ExtraDmg ;
+**Synthèse Tau** : couverts = MV71 passif, CyclicIonBlaster ; PORTE+VALIDE = DotGG/ExtraDmg (probe_220_dotgg
+LIVE 24/24, sélecteur d'aura partagé confirmé : adjacent all-faction + T'au range-2, non-Tau exclu au ring-2) ;
 [opus]+prérequis = StructuralAnalyser, ExemplarOfTheMontka, SereneUnifier, TwinSmartMissileSystem
 (MoW) ; **[fable]** = DotGG/ExtraHits, SeekerMissileFrequencyLock, HeavyRailRifle (MoW),
 WayOfTheShortBlade, ExemplarOfTheKauyon. **Sélecteur d'aura partagé x4** (StructuralAnalyser/

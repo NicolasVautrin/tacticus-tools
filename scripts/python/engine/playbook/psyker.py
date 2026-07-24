@@ -95,7 +95,7 @@ class PsykerPlaybook:
         _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, False, attack_pos,
                                           scene.pos(tgt_id), damage_profile="Psychic",
                                           is_normal_attack=True)
-        _apply_ally_attack_dmg_bonus(mods, scene, att_id, attack_pos, False, _tar)
+        _apply_ally_attack_dmg_bonus(mods, scene, att_id, attack_pos, False, _tar, damage_profile="Psychic")
         hit_mult = target_hit_multiplier(TraitFactory.create_many(
             (GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits")))
         return get_attack_prediction(

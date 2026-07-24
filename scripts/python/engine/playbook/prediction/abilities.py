@@ -88,7 +88,7 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
     # cible a armure reduite (symetrique de la normale). Gates dans le create_aura_ (Mechanical/adjacence/team/
     # target_armor_reduced ; BeaconOfRage : is_melee/Chaos).
     _apply_ally_attack_dmg_bonus(mods, scene, uid, attack_pos or scene.pos(uid), is_melee, _tgt_armor_reduced,
-                                 tgt_id=tgt, is_normal_attack=False)
+                                 tgt_id=tgt, is_normal_attack=False, damage_profile=profile_name)
     tgt_shield = scene.shield(tgt)
     # Base speciale = `base` (avg(minDmg,maxDmg) scale rarete) route par le MEME chemin que la normale
     # (GetBaseDamageFix64 ±20% dans predict_attack_raw). L'ancien chemin `get_multi_hit_attack_prediction(

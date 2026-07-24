@@ -365,7 +365,7 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # deja bit-exact). NB : le self (le porteur attaque) et l'aura (un ami attaque) portent sur des ATTAQUANTS
     # distincts -> jamais cumules.
     _apply_ally_attack_dmg_bonus(mods, scene, att_id, _ap, is_melee, _tgt_armor_reduced, carriers,
-                                 tgt_id=tgt_id, is_normal_attack=True)
+                                 tgt_id=tgt_id, is_normal_attack=True, damage_profile=prof_name)
     # Nb de coups : cette prediction EST la facade `DamagePrediction.GetAttackHits @18102f240` — elle
     # rassemble les entrees depuis la Scene puis appelle la FORMULE PARTAGEE `attack_hits_with_modifiers`
     # (`AttackHitsWithModifiersFormula.Calculate @180f0bf50`, MEME formule que la facade combat runner) :

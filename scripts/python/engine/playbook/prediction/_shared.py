@@ -259,7 +259,7 @@ def _target_damage_limits(scene, tgt_id, damage_profile: str | None = None):
 
 
 def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_armor_reduced, carriers=None,
-                                 tgt_id=None, is_normal_attack=None):
+                                 tgt_id=None, is_normal_attack=None, damage_profile=None):
     """AURA ALLIEE +degat FLAT projetee sur l'ATTAQUANT par les effets `create_aura_attack_damage_bonus_for_ally`
     de ses ALLIES a portee (canal cote SOURCE) : `BeaconOfRage_FriendlyExtraDamage` (#191 : +50% rage aux amis
     Chaos adjacents en melee), `ConquerorImperative` (#23 : +extraDmg aux amis Mechanical ring-1 vs cible a
@@ -285,6 +285,8 @@ def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_arm
            "board": scene.board,
            "is_melee": is_melee, "target_armor_reduced": tgt_armor_reduced,
            "is_normal_attack": is_normal_attack,
+           # DefenderOfTheGreaterGood_ExtraDmg (#220, aura Tau) : gate !DamageProfileIs(Psychic) @180f3e4f0.
+           "damage_profile": damage_profile,
            "tgt_id": tgt_id,
            "t_pos": scene.pos(tgt_id) if tgt_id is not None else None,
            "tgt_team": scene.team(tgt_id) if tgt_id is not None else None}
