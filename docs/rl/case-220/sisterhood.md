@@ -9,10 +9,35 @@ factory.py:212, validé #138/#149). **Correction registre : le tag `SkyStrike [-
 est FAUX** — c'est un charge+attaque melee.
 
 ```
-[CondemnorStake | adeptCanoness passif]  — [opus] direct (le + simple)
-VAs : effet 1076 @180f39600/@180f39450
-ForAddition(OwnerIsActor & HasTrait(target, Psyker), ConfigVar 8) — jumeau AvalancheOfMuscle + gate
-target-trait (précédent DaughterOfTheAbyss). ⚠ NE PAS coder 2183 en dur (lire la var gameconfig).
+[CondemnorStake | adeptCanoness <<Roswitha>> passif, effet 1076]  — [opus] direct — PORTÉ COMBAT + VALIDÉ LIVE
+VAs : effet 1076 ctor @180f39600 (source AbilityOrEffect 0x42e=1070=CondemnorStake) ;
+      CreateEffectDamageBonusForAttack @180f39450 ; get_OwnerIsActor @180e02530 (owner0x148 vs actor0x158,
+      vs get_OwnerIsCaster @180e02610 caster0x160) ; jumeau AvalancheOfMuscle @180f32b20.
+Effet PASSIF (pas une ExecuteBehaviour ability) : `EffectBonus.ForAddition(OwnerIsActor & HasTrait(target,
+0x3ea=1002=Psyker), ConfigVar(8=extraDmg, GetAbilityState, EffectSource))`. JUMEAU EXACT de
+AvalancheOfMuscleExtraDamageEffect avec le seul noeud `IsCharging` remplacé par `HasTrait(target, Psyker)`
+(RE decompile @180f39450 : callees = {GetAbilityState, ConfigVar, get_OwnerIsActor, HasTrait(target 0x178,
+0x3ea), op_BitwiseAnd, Nullable.ctor} — AUCUN gate melee/ranged/normal/charging). +extraDmg[ablvl passif]xmult
+FLAT additif (canal attacker_additive_pre, DamageModifiers.Add @181005f10) à TOUTE attaque du porteur vs cible
+Psyker. OwnerIsActor implicite TRUE (chemin appelé uniquement pour l'attaque du porteur ; précédent
+SpotterReworked/DecoysAndMisdirection). Gate CIBLE porté via `target_traits` (précédent BeastSlayer/MartialKatah/
+DaughterOfTheAbyss). MAGNITUDE = `ability_var("CondemnorStake", "extraDmg", level, mult)` (extraDmg [30(L1)..
+2183(L65)] DANS variablesAffectedByRarityBonus) ; i2 "+2183 Damage" = extraDmg[L65] base — LU gameconfig,
+JAMAIS hardcodé.
+Placement : `entities/effects/loki/extra_damage.py` (CondemnorStakeExtraDmgEffect) + dispatch factory.py
+"CondemnorStake_ExtraDmg" (PAS handler.py : c'est un effet, pas une active ability — déviation vs la roadmap
+qui présumait le patron sisterhood.py/ExecuteBehaviour). Test `tests/engine/runner/test_condemnor_stake_live.py`.
+VALIDATION LIVE (adeptCanoness SPAWNABLE — unité pool, effet 1076 capté dans decisionView.effects) : attaque
+normale (id 69) vs cible PSYKER (eldarFarseer) et NON-PSYKER (admecManipulus), contrefactuel par toggle du
+trait Psyker offline, RNG seedé (dumpRng) -> bit-exact per-coup les DEUX branches. L50 mult200 : PSYKER
+live=[5903,6028,6012]==off_real != off_flip=[2579,2704,2688] (delta +3324/coup = extraDmg[50]=1662 x200/100
+EXACT) ; NON-PSYKER live=[2579,2704,2688]==off_real != off_flip (ajout Psyker offline -> +3324 : gate
+discrimine). PV résiduel matché. Zero-regression : jumeau AvalancheOfMuscle 3/3.
+GAP infra PARTAGÉ (non spécifique) : `target_traits` n'est threadé que sur le chemin d'attaque NORMALE
+(damage.py:400) -> le bonus n'entre pas sur les attaques d'ABILITY du porteur (ex. BrazierOfHolyFire) — MÊME
+limite que BeastSlayer/MartialKatah ; adeptCanoness s'observe sur ses attaques normales (Chain melee + Bolter
+ranged). Multiplier GLOBAL (self.ability_variables_multiplier) — comme AvalancheOfMuscle ; la validation live
+L50 mult200 confirme la magnitude bit-exact (pas de bug per-ability #68/#75 côté passif ici).
 ```
 ```
 [1062 SanctorumMissile | adeptMorvenn]  — [opus] direct — PORTÉ + VALIDÉ LIVE (face COMBAT)
@@ -104,7 +129,8 @@ occupants + 75% × N accumulation ActOfFaith des alliés. Rejoint le sous-systè
 ```
 
 **Synthèse Sisterhood** : couverts = ArmoriumCherub, FireOfAbsolution, ActOfFaith, RighteousRepugnance/A,
-SanctorumMissile (porté), SkyStrike (porté COMBAT) ; [opus] direct restant = CondemnorStake ; [opus]+prérequis = BrazierOfHolyFire,
+SanctorumMissile (porté), SkyStrike (porté COMBAT), CondemnorStake (porté COMBAT + validé live) ; [opus]
+direct restant = aucun ; [opus]+prérequis = BrazierOfHolyFire,
 MedicusMinistorum, RighteousRepugnance/B, GeminaeSuperia ; BLOQUÉ MoW = ThriceBlessed (+opus),
 DevastatingRefrain (+fable). NOUVEAUX transverses : vecteurs réactifs défenseur ÉTENDUS (on-being-hit
 On(58) IsFirstDamagingHitInSeries, on-adjacent-friend-damaged) ; effets vulnérabilité ForPercentIncrease

@@ -542,6 +542,63 @@ class MartialKatahDmgBonusEffect(BaseEffect):
         return for_percent_increase(True, pct) if pct is not None else None
 
 
+class CondemnorStakeExtraDmgEffect(BaseEffect):
+    """`CondemnorStake_ExtraDmgEffect.CreateEffectDamageBonusForAttack @180f39450` (adeptCanoness
+    <<Roswitha>> passif CondemnorStake, Sisterhood/Imperial ; effet EffectType 1076 "CondemnorStake_ExtraDmg" ;
+    ctor @180f39600 = `BaseEffect(AbilityOrEffect 0x42e=1070=CondemnorStake)`). JUMEAU de
+    `AvalancheOfMuscleExtraDamageEffect @180f32b20` avec UNE difference : le noeud `IsCharging` est remplace
+    par `HasTrait(target, Psyker)`.
+    `EffectBonus.ForAddition(OwnerIsActor & HasTrait(target, 0x3ea=1002=Psyker),
+    ConfigVar(8=extraDmg, GetAbilityState, EffectSource))`.
+
+    RE (decompile = verite, @180f39450) : les callees = {GetAbilityState, ConfigVar, get_OwnerIsActor,
+    HasTrait(*(factory+0x178)=target, 0x3ea, ...), op_BitwiseAnd, Nullable.ctor} -> DEUX noeuds trigger
+    (OwnerIsActor & HasTrait(target, Psyker)). AUCUN noeud IsCharging / IsNormalAttack / IsMeleeAttack /
+    IsRangedAttack -> le bonus s'applique a TOUTE attaque du porteur (normale ET ability, melee ET ranged)
+    CONTRE une cible Psyker. Le `ForAddition` est inline (ConfigVar ecrite au champ additif, meme layout que
+    AvalancheOfMuscle/SmashaEad @180f406e0) -> canal ADDITIF identique (DamageModifiers.Add @181005f10,
+    applique par coup, canal `attacker_additive_pre`).
+
+    - `get_OwnerIsActor @180e02530` (owner@0x148 vs actor@0x158) vs `get_OwnerIsCaster @180e02610`
+      (owner@0x148 vs caster@0x160) : trigger d'identite "l'owner est l'acteur/le caster". Ce chemin
+      `CreateEffectDamageBonusForAttack` n'est appele QUE pour l'attaque du PORTEUR -> OwnerIsActor est
+      implicitement TRUE (== traitement OwnerIsCaster/OwnerIsActor de DecoysAndMisdirection/SpotterReworked).
+    - GATE CIBLE `HasTrait(target@0x178, 0x3ea=1002=Psyker)` : la cible porte-t-elle le trait Psyker.
+      Porte via `target_traits` (== BeastSlayer/MartialKatah/DaughterOfTheAbyss) : cible sans Psyker /
+      contexte sans cible (target_traits None) -> pas de bonus ("present != applique"). GAP infra PARTAGE
+      (non specifique a ce port) : `target_traits` n'est threade QUE sur le chemin d'attaque NORMALE
+      (damage.py:400) -> le bonus n'entre PAS sur les attaques d'ABILITY (ex. BrazierOfHolyFire) -- MEME
+      limite que BeastSlayer/MartialKatah. adeptCanoness s'observe sur ses attaques NORMALES (Chain melee +
+      Bolter ranged) vs Psyker.
+    - MAGNITUDE = `ability_var("CondemnorStake", "extraDmg", level) x multiplier` (ConfigVar var index 8 =
+      `extraDmg`, SEULE var de l'ability, per-niveau [30(L1)..2183(L65)], DANS variablesAffectedByRarityBonus
+      -> scale x multiplier). `GetVariableForLevel(config, 8, GetAbilityState)` sur le config de CondemnorStake
+      (le PASSIF) -> level = niveau passif d'adeptCanoness (cascade active_ability_level -> ability_level ->
+      level, comme AvalancheOfMuscle). Multiplier = le GLOBAL de l'unite (`self.ability_variables_multiplier`) :
+      passif (pas triggered) -> a VALIDER live que le multiplier global est le bon (piege #68/#75). i2 "+2183
+      Damage" = extraDmg[L65] base (NE PAS hardcoder 2183, lu de gameconfig).
+    - PAS de gate is_ranged / is_normal / is_charging : @180f39450 n'a AUCUN autre noeud (RE decompile)."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        # GATE CIBLE HasTrait(target, 0x3ea=1002=Psyker) (@180f39450). Cible non-Psyker / cible inconnue
+        # (target_traits None : chemins ability/prediction generique) -> pas de bonus.
+        if not target_traits or "Psyker" not in target_traits:
+            return None
+        # OwnerIsActor implicitement TRUE (chemin appele uniquement pour l'attaque du porteur). PAS de gate
+        # is_ranged / is_normal / is_charging : @180f39450 n'a AUCUN autre noeud trigger (RE decompile).
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        amt = ability_var("CondemnorStake", "extraDmg", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)  # GLOBAL (pas per-ability #68)
+        return for_addition(True, amt) if amt is not None else None
+
+
 class DaughterOfTheAbyssExtraDamagePctEffect(BaseEffect):
     """`DaughterOfTheAbyss_ExtraDamagePctEffect` (effet 0x589=1417) — les Psykers ENNEMIS dans le rayon
     du porteur REÇOIVENT +extraDmgPct% de dégât (i2 : « Enemy Psykers within 2 hexes receive +20%

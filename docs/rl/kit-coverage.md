@@ -149,7 +149,7 @@
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| adeptCanoness | 2 | BrazierOfHolyFire(1041) [--] NO-OP DAMAGE(Flame) | CondemnorStake | - |
+| adeptCanoness | 1 | BrazierOfHolyFire(1041) [--] NO-OP DAMAGE(Flame) | - (CondemnorStake porté, effet 1076) | - |
 | adeptCelestine | 2 | SkyStrike(1025) [--] NO-OP EFFECT/BUFF | GeminaeSuperia | - |
 | adeptExorcist | 2 | ThriceBlessedConflagration(1187) [--] NO-OP DAMAGE(Flame)<br>DevastatingRefrain(1188) [--] NO-OP DAMAGE(Blast) | - | - |
 | adeptHospitaller | 2 | RitesOfRestoration(1039) [-D] NO-OP HEAL | MedicusMinistorum | - |
