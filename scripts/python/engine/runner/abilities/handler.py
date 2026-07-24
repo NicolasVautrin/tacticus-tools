@@ -32,6 +32,7 @@ from .aeldari import ExecutionerAbility, HarvesterOfSoulsAbility
 from .spacewolves import GreatFrostAxeAbility
 from .tyranids import SporeMineLauncherAbility, AlphaWarriorAbility
 from .worldeaters import JakhalStimmsAbility
+from .admec import SentinelDirectivesAbility
 
 # Registre ActiveAbilityType (int) -> classe d'ability portée. À ÉTENDRE au roster.
 ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
@@ -76,6 +77,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     SporeMineLauncherAbility.ABILITY_TYPE: SporeMineLauncherAbility,   # 1145 (tyranBiovore Biovore MoW Tyranids : spawn tyranSmnSporeMine sur tuile-cible directe WithStatsFromConfig, corps @18120a3f0 = @1811b0550 MOINS on-appearance ; mine inerte offline FloatingDeath non porte, case-220 §6.16)
     AlphaWarriorAbility.ABILITY_TYPE: AlphaWarriorAbility,             # 1112 (tyranWingedPrime Winged Prime Tyranids : spawn tyranSmnWarrior sur tuile-cible WithStatsFromConfig + attaque a l'apparition, corps @1811b1400 = template @1811b0550 AberrantHypermorph ; gate IsInTeamSynapseRange live ABSENT, case-220 §6.16)
     JakhalStimmsAbility.ABILITY_TYPE: JakhalStimmsAbility,             # 1131 (worldJakhal Macer WorldEaters : 4x Physical melee cible + AoE intersection AdjacentUnits(caster) & AdjacentFriends(target) + self-loss 25% PV courant (ChangeStat Subtract, Execute separe) ; free action ; native_factory attack, ExecuteAtomic 0x2a, case-220 §6.3)
+    SentinelDirectivesAbility.ABILITY_TYPE: SentinelDirectivesAbility,  # 1139 (admecDestroyer Sy-Gex AdeptusMechanicus : 1x Physical ranged cible + AddEffect Pinned/Suppressed, quasi-clone SpiritLeech sans heal/conditional, native_factory attack, ne finit pas le tour, case-220 §6.17)
 }
 
 
