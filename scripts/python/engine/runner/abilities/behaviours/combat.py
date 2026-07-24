@@ -66,17 +66,20 @@ class AttackWithAttackDamage(AbilityBehaviour):
     Executioner `hits = RoundsStarted @180dfa6c0` = valeur DYNAMIQUE lue au cast, PAS une constante config)."""
     __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key",
                  "damage_override", "multi", "pick_n", "amount", "hits", "ability_type", "hits_add_key",
-                 "native_factory", "force_overkill", "hits_override")
+                 "native_factory", "force_overkill", "hits_override", "level_slot")
 
     def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True,
                  min_key: str = "minDmg", max_key: str = "maxDmg", hits_key: str = "nrOfHits",
                  damage_override=None, multi: bool = False, pick_n=None, amount=None, hits=None,
                  ability_type=None, hits_add_key=None, native_factory: str = "attack",
-                 force_overkill: bool = False, hits_override=None):
+                 force_overkill: bool = False, hits_override=None, level_slot: str = "active"):
         self.target_sel, self.ability_id, self.profile, self.is_melee = target_sel, ability_id, profile, is_melee
         self.min_key, self.max_key, self.hits_key = min_key, max_key, hits_key
         self.damage_override, self.multi, self.pick_n = damage_override, multi, pick_n
         self.amount, self.hits = amount, hits
+        # `level_slot` = source du niveau qui indexe minDmg/maxDmg (mode bornes) : "active" (defaut, ability
+        # ACTIVE) ou "passive" (ability PASSIVE/TRIGGERED, ex. MartialApotheosis -> passive_ability_level).
+        self.level_slot = level_slot
         # `hits_add_key` = 2e constante de coups AJOUTEE au `hits_key` (bande dont le nb de coups est la
         # SOMME de deux GetNumberConstant -- Gauntlets bande adjacente = nrOfHits + nrOfHits_2). Mode bornes
         # uniquement (le mode `amount` a un `hits` explicite). Defaut None.
@@ -143,7 +146,7 @@ class AttackWithAttackDamage(AbilityBehaviour):
                 bmin, bmax, pierce, hits = ability_attack_params(
                     state, caster, self.ability_id, self.profile, ranged=not self.is_melee,
                     min_key=self.min_key, max_key=self.max_key, hits_key=self.hits_key,
-                    hits_add_key=self.hits_add_key)
+                    hits_add_key=self.hits_add_key, level_slot=self.level_slot)
                 if self.hits is not None:                  # hits DYNAMIQUE (Executioner RoundsStarted) override config nrOfHits
                     hits = int(self.hits)
                 elif self.hits_override is not None:       # coups = NODE dynamique (SkyStrike MeleeWeaponHits)

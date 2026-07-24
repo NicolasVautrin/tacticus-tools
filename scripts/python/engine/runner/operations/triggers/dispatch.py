@@ -48,6 +48,7 @@ from .genestealer import (DecoysAndMisdirectionDamageEnemiesAbility,
                           HypersensoryMoveAndSpawnDecoyAbility)
 from .loki.weaver_of_fate import WeaverOfFateAbility                 # #202-A (trait WeaverOfFate)
 from .loki.living_metal import LivingMetalRepairAbility             # #203 (trait LivingMetal, Necron)
+from .loki.martial_apotheosis import MartialApotheosisAttackAbility  # case-220 (passif necroOverlord, Necron)
 from .loki.master_of_the_tutelaries import (MasterOfTheTutelariesSummonAbility,   # #202-C (triggered 1173)
                                             MASTER_EFFECT as MASTEROFTUTELARIES_EFFECT)
 
@@ -102,6 +103,11 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # par une attaque normale de Njal (`On(38)` cible principale + `On(9)&kind==0x3f5` victime du smite
     # Psyker), `OwnerIsCaster`. Cf. loki/lord_of_tempests.py (@181108670/@1811085d0).
     "LordOfTempests": [LordOfTempestsAddIceAbility],
+    # MartialApotheosis (passif necroOverlord, case-220 Necrons) = `On(TurnStart_Actions=0x16) & OwnerIsActor
+    # & AmountIsGreaterThanZero(GetValidTargets)` : au debut de son tour, attaque 1 ennemi adjacent damageable
+    # ALEATOIRE (PickRandomly count=1) avec 2 coups Energy (pierce 30). Classe native ETEND DestroyerHive
+    # (CreateTrigger/GetValidTargets herites). Cf. loki/martial_apotheosis.py (@181222d00/@18121d4b0/@18121d540).
+    "MartialApotheosis": [MartialApotheosisAttackAbility],
 }
 
 # --- Registre : effectType → effet-trigger ---------------------------------------------------------

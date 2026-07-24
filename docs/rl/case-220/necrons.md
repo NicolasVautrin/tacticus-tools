@@ -8,10 +8,29 @@ famille `ADamageDefenseModifierAbilityEffect` présente (damage_reduction.py) ; 
 déjà portées (MartialApotheosis/FabricatorClaw playbooks, prédictions 1006/1008).
 
 ```
-[MartialApotheosis | necroOverlord passif]  — [opus] direct (le + facile)
-VAs : CreateBehaviour @181222d00 ; GetValidTargets @18121d540 ; playbook @181168a30/@1811689d0
-Turn-start : AttackWithAttackDamage(PickRandomly(Damageable(Enemies(AdjacentUnits)), 1), 2x Energy).
-Tous primitifs présents. HYPOTHÈSE : event exact du trigger (CreateTrigger hérité, non symbolisé).
+[MartialApotheosis | necroOverlord passif — 1045 TriggeredAbility]  — [opus] direct — PORTE + VALIDE
+VAs : CreateBehaviour @181222d00 ; GetValidTargets @18121d540 (partage) ; CreateTrigger herite @18121d4b0 ;
+      MinMaxDamage @180fbca20 ; playbook @181168a30/@1811689d0.
+Port : runner/operations/triggers/loki/martial_apotheosis.py (MartialApotheosisAttackAbility) +
+       ABILITY_TRIGGERS["MartialApotheosis"] (dispatch.py). PAS handler.py : c'est un TRIGGERED (1045),
+       PAS un ActiveAbility -- et 1045 en ActiveAbilityType = GetEmRuntz (collision ; MartialApotheosis
+       ne se cast JAMAIS via ActiveAbilityMessage -> handler.py serait dead-code + collision).
+STRUCTURE (mirror 1:1) : la classe native MartialApotheosisAbility ETEND DestroyerHiveAbility (son
+CreateBehaviour appelle DestroyerHive.GetValidTargets(this) sur `this` = methode d'INSTANCE heritee ;
+aucun symbole propre CreateTrigger/GetValidTargets/.ctor). HYPOTHESE trigger RESOLUE :
+  CreateTrigger (herite @18121d4b0) = On(TurnStart_Actions=0x16) & OwnerIsActor(@0xa0)
+                                      & AmountIsGreaterThanZero(GetValidTargets).
+  GetValidTargets (@18121d540, refcount 6) = Damageable(Enemies(AdjacentUnits(casterTile@0x148, radius=1)))
+                                             = ennemis damageable ANNEAU-1 (PAS le disque rayon-2 Harbinger).
+  CreateBehaviour @181222d00 = AttackWithAttackDamage(caster@0x160, PickRandomly(GetValidTargets, count=1),
+    MinMaxDamage(minDmg/maxDmg[level]), GetDamageProfile(0)="Energy"(pierce 30), GetNumberConstant(0x2f)=
+    nrOfHits=2). Famille "attack" (DSLFactory.AttackWithAttackDamage @180de9fb0), attackRangeType=Melee,
+    level=PASSIVE (level_slot="passive" ; active==passive==50 verifie live necroOverlord).
+VALIDATION (test_martial_apotheosis_live.py, 5 PASS, porteur necroOverlord SPAWNABLE) : (A) vecteur
+turn-start + OwnerIsActor (muet au tour adverse) ; (B) AmountIsGreaterThanZero (0 adjacent -> pas de fire) ;
+(C) ciblage ANNEAU-1 (dist1 frappe, dist2 exclu) ; (D) A/B bit-exact (arbre==execute_ability_attack 2 coups
+Energy pierce 30, meme MT) + params ; (E) LIVE replay-diff (cible offline==live ; degat exact hors scope =
+calage RNG cascade turn-start, == TheBetrayer). COLLAPSE PickRandomly(count=1) : pool<=1 => deterministe.
 ```
 ```
 [1008 HarbingerOfDestruction | necroPlasmancer]  — [opus] direct — PORTÉ + VALIDÉ (caster-agnostique)
@@ -104,7 +123,7 @@ AddEffect(0x609 repair-bonus ForAddition) + buff maxHealth. Même blocage cast-M
 consommé par ReanimationBeam.
 ```
 
-**Synthèse Necrons** : [opus] direct = MartialApotheosis, **HarbingerOfDestruction (PORTÉ+VALIDÉ)** ; [opus]+prérequis =
+**Synthèse Necrons** : [opus] direct = **MartialApotheosis (PORTÉ+VALIDÉ)**, **HarbingerOfDestruction (PORTÉ+VALIDÉ)** ; [opus]+prérequis =
 FabricatorClawArray, RelentlessMarch, LivingLightning, MultiThreatEliminator (candidat fable),
 AdaptiveStrategy, TimesplinterMantle (pivot combat-flat) ; **[fable]** = InescapableDeath +
 ReanimationBeam/NanoscarabRepairProtocols (BLOQUÉS MoW). Débloqueurs faction : feuille **Repair DSL**
