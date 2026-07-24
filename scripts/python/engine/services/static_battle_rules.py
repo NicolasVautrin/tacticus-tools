@@ -2,27 +2,35 @@
 
 Règles de combat STATIQUES (perçage/armure). 1:1 avec le natif (gqfc5mff6c), VA citées.
 
-Constantes statiques du jeu (à confirmer par lecture des cctor DAT) :
-  • W_LASCANNON_PIERCE_BONUS : bonus de perçage si le profil a `DamageTrait.LasCannon` (3, cf.
+Constantes statiques du jeu (LUES au cctor natif, VA citées) :
+  • W_LASCANNON_PIERCE_BONUS = 50 : bonus de perçage si le profil a `DamageTrait.LasCannon` (3, cf.
     entities/damage_trait.py) ET l'attaquant a `UnitTrait.HeavyWeapon` (1001) ou `UnitTrait.Emplacement`
-    (1016) (cf. entities/traits/unit_trait.py). DAT_183218fd8[0]. (défaut connu : inconnu précis → exposé
-    en paramètre, 0 par défaut, à plomber via gameconfig/cctor.)
+    (1016) (cf. entities/traits/unit_trait.py). Valeur RÉSOLUE (#71) : `StaticBattleRules.DamageTrait$$.cctor`
+    @1815597c0 fait `**(int **)(DAT_183218fd8 + 0xb8) = 0x32` (= 50), écriture du static_field[0] de la classe
+    `StaticBattleRules.DamageTrait` ; `GetPiercingRatio @181559a40` lit `iVar3 += **(int **)(cls + 0xb8)`
+    (offset 0xb8 = Il2CppClass.static_fields). C'est un static field INTRINSÈQUE au natif (pas un paramètre)
+    → `get_piercing_ratio` l'applique par défaut.
 """
 from __future__ import annotations
 
 from . import fix64 as _fx
 
+# Bonus de perçage LasCannon — static_field[0] de `StaticBattleRules.DamageTrait` écrit à 0x32 par sa cctor
+# @1815597c0 (`**(int **)(cls + 0xb8) = 0x32`), lu par `GetPiercingRatio @181559a40`. VALEUR NATIVE = 50.
+W_LASCANNON_PIERCE_BONUS = 50
+
 
 def get_piercing_ratio(profile_piercing_ratio: int, profile_has_lascannon: bool,
                        attacker_has_heavy_weapon_or_emplacement: bool,
-                       lascannon_bonus: int = 0) -> int:
+                       lascannon_bonus: int = W_LASCANNON_PIERCE_BONUS) -> int:
     """StaticBattleRules.Damage.GetPiercingRatio (@181559a40).
 
         p = profile.PiercingDamageRatio                 # WeaponProfile/DamageProfile @+0x14
-        if profile.HasTrait(DamageTrait.LasCannon) and attacker.HasTrait(HeavyWeapon|Emplacement): p += <const DAT_183218fd8>
+        if profile.HasTrait(DamageTrait.LasCannon) and attacker.HasTrait(HeavyWeapon|Emplacement): p += 50 (@1815597c0)
         return clamp(0, 100, p)
     `profile_has_lascannon` = `DamageProfile.HasTrait(DamageTrait.LasCannon)` (précalc appelant) ;
     `attacker_has_heavy_weapon_or_emplacement` = `HasTrait(attacker, UnitTrait.HeavyWeapon|Emplacement)` (précalc appelant).
+    `lascannon_bonus` = W_LASCANNON_PIERCE_BONUS (50) par défaut — le natif le lit du static field, pas d'un param.
     """
     p = profile_piercing_ratio
     if profile_has_lascannon and attacker_has_heavy_weapon_or_emplacement:

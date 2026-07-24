@@ -197,14 +197,27 @@ class NormalAttackAbility(AActiveAbility):
 
     def get_pierce(self) -> int:
         """pierceRatio de l'attaque normale — GetAttackPiercingDamageRatio (@181030a20) : profil
-        d'arme `PiercingRatio` (gameconfig) + ExtraPierce(26) + ExtraPierce{Melee21|Ranged22}, clamp 0..100."""
+        d'arme `PiercingRatio` (gameconfig) + bonus LasCannon (#71 : +50 si le profil porte
+        DamageTrait.LasCannon(3) ET l'attaquant UnitTrait.HeavyWeapon(1001)|Emplacement(1016)) +
+        ExtraPierce(26) + ExtraPierce{Melee21|Ranged22}, clamp 0..100.
+        ⚠ DEAD CODE actuel (aucun call-site : prédiction ET combat passent par
+        `battle_query.select_weapon_pierce`, qui applique DÉJÀ le bonus #71). Rendu fidèle (plus de
+        `profile_has_lascannon=False` codé en dur) pour ne pas ré-introduire le gap si un chemin le recâble."""
+        import gameconfig as GC
         from ...services.damage_prediction import get_attack_piercing_damage_ratio
+        from ..damage_trait import DamageTrait
+        from ..traits.unit_trait import UnitTrait
         dir_pierce = (self.caster.extra_pierce_ranged if self.caster.normal_ranged
                       else self.caster.extra_pierce_melee)
+        prof = GC.damage_profile(self.caster.normal_profile) or {}
+        profile_has_lascannon = DamageTrait.LasCannon.name in (prof.get("Traits") or ())
+        att_traits = self.caster.traits or ()
+        attacker_hw_emp = (UnitTrait.HeavyWeapon.name in att_traits
+                           or UnitTrait.Emplacement.name in att_traits)
         return get_attack_piercing_damage_ratio(
-            self.caster.normal_profile_pierce, profile_has_lascannon=False,
+            self.caster.normal_profile_pierce, profile_has_lascannon=profile_has_lascannon,
             attacker_extra_pierce=self.caster.extra_pierce, attacker_extra_pierce_dir=dir_pierce,
-            attacker_has_heavy_weapon_or_emplacement=False)
+            attacker_has_heavy_weapon_or_emplacement=attacker_hw_emp)
 
     def get_damage_min_max_raw(self) -> MinMaxDamage:
         """min/max captés directement (prédiction native vs allié-déploiement — référence de capture)."""
