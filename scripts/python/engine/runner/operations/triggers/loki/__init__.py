@@ -41,6 +41,8 @@ from .control_edict import (ControlEdictAbility, _adjacent_mechanical_summons,
 from .rad_saturation import RadSaturationAbility, rad_saturation_tree, CONTAMINATED_TILE as RADSAT_CONTAMINATED_TILE
 from .lord_of_tempests import (LordOfTempestsAddIceAbility, lord_of_tempests_add_ice_tree,
                                ICE_TILE, SMITE_KIND)
+from .suppressive_fire import (SuppressiveFireAddEffectAbility, suppressive_fire_tree,
+                               PINNED as SUPPRESSIVEFIRE_PINNED)
 
 __all__ = [
     # psyker
@@ -73,4 +75,6 @@ __all__ = [
     "RadSaturationAbility", "rad_saturation_tree", "RADSAT_CONTAMINATED_TILE",
     # lord_of_tempests (#35 — passif AddIce de Njal)
     "LordOfTempestsAddIceAbility", "lord_of_tempests_add_ice_tree", "ICE_TILE", "SMITE_KIND",
+    # suppressive_fire (#74 — trait SuppressiveFire 1010 -> triggered 1044 pose Pinned 1065)
+    "SuppressiveFireAddEffectAbility", "suppressive_fire_tree", "SUPPRESSIVEFIRE_PINNED",
 ]
