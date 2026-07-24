@@ -7,13 +7,27 @@ turn-finish (turnflow.py:48/67) et le natif publie l'event 0x1c ; le dispatch n'
 Réalise le « after move, OU fin de tour si pas bougé » → débloque 3 items BA + 2 Necrons (§6.7).
 
 ```
-[1230 SavageEchoes | bloodTerminator]  — [opus] direct (le + sûr)
+[1230 SavageEchoes | bloodTerminator « Cezare »]  — [opus] direct — PORTÉ (face COMBAT ; handler 1230)
 VAs : ExecuteBehaviour @181204660 ; GetDamage @181204ab0 ; GetRegenerateCondition @181204bd0 ;
       playbook @181158870/@1811586d0
-SetCache(HP<=50% AVANT l'attaque) & Attack(4x Eviscerate, dégât = MinMax + var8 × count(tuiles
-adjacentes LIBRES du caster)) & If(cache, Heal(self, var 0x1d, ForRegenerate)). RÉUTILISE
-ArmoriumCherubAbility.GetHits (PORTÉ, handler 1014). 0 primitive manquante. Playbook custom = tâche
-décision secondaire. Risques : var8 × free-tiles ; cache lu AVANT l'attaque.
+Execute( (SetCache(cache) & Attack(4x Eviscerate, dégât = MinMaxDamage + extraDmg[var8] × count(CanAddUnit(
+AdjacentTiles(Self))))) & If(cache = HealthPctIsBelowOrEqual(Caster, ConfigConst(0x4f=healthPct=50)),
+Heal(Self, var 0x1d=hp, ForRegenerate)) ). RÉUTILISE ArmoriumCherubAbility.GetHits (=4). native_factory="attack"
+(@180de9fb0, XREFS @18120487b == template ArmoriumCherub @1811b417d, 2 tirages/coup). Index→nom confirmés
+gameconfig : var8=extraDmg (rarity-affected), var0x1d=hp (rarity-affected, heal), 0x4f=healthPct (const 50).
+Port : `runner/abilities/bloodangels.py::SavageEchoesAbility` (SetCache/Cache foldés = HP<=50% figé pré-attaque ;
+seuil entier exact `100*current <= healthPct*max`, HP courant lu de HealthComponent car get_stat(Health) rend
+l'INIT). VALIDÉ : wiring BIT-IDENTIQUE port==execute_ability_attack+bonus sur état LIVE (count=2, [3825,3598,3975,
+3445]) ; discriminant extraDmg×count (baseline sans bonus [2578,2350,2728,2198]) ; count node==free-tiles manuel ;
+heal boundary 51/50/49% + amount==hp[50]×180=5983. Fix transverse : `Heal.execute` normalise le sélecteur cible
+via `_units_of` (Caster()=Self@0x148 mono-unité).
+RÉSIDU LIVE (documenté, PAS un bug de port) : bloodTerminator est HORS du pool spawnable → injecté via `--seed-bc`
+(clone + ActiveAbilities=[1230]) ; il spawne avec SavageEchoes reconnue MAIS le cast live lève `system error` —
+`AbilityConfiguration.GetVariableForLevel @181576fb0` (throwFlag=0) THROW car les variables exotiques (extraDmg/hp/
+healthPct) ne sont pas matérialisées pour un porteur hors-progression-roster. Preuve : le MÊME porteur injecté
+caste 1014 (ArmoriumCherub, variables standard) sans erreur. Une vraie Cezare (config complète) l'exécuterait ;
+la machinerie per-coup partagée est live-validée ailleurs (VigilanceEternal/CordClaw). Tooling ajouté :
+`rl_duel --seed-bc <path>` (valider un porteur hors-pool sans toucher le seed BC partagé).
 ```
 ```
 [1301 LordOfTheHost volet ExtraHit 1377 | bloodDante passif]  — [opus]+prérequis
@@ -75,7 +89,8 @@ attaque immédiate ; ils QUITTENT au début du tour suivant de Mataneo (persiste
 RE en détail). À traiter APRÈS 1153. Prérequis : vecteur On(11)+IsCharging ; tracking + leave-at-turn-start.
 ```
 
-**Synthèse BA** : [opus] direct = SavageEchoes ; [opus]+prérequis = LordOfTheHost/1377,
+**Synthèse BA** : [opus] direct = SavageEchoes (**PORTÉ**, handler 1230 — résidu cast-live out-of-pool documenté) ;
+[opus]+prérequis = LordOfTheHost/1377,
 SanguinaryPriest, BloodChalice, RedRampage, VisionsOfHeresy ; **[fable]** = FuryOfTheAncients,
 AggressiveOnslaught (bloqué 1153). Débloqueur #1 = **vecteur On(28)** (3 items BA + 2 Necrons).
 NOUVEAUX transverses : canal aura EXTRA_HITS stat-mod ; ChainAttackDamage ; effet suppression-de-soin

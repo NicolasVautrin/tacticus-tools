@@ -251,7 +251,7 @@ def cmd_build(sid: int, a) -> int:
         print(f"[build] board swap (fixe): id={fixed_board_dump.get('id')} "
               f"kind={fixed_board_dump.get('kind')} {_bi.get('Width')}x{_bi.get('Height')} "
               f"sps={fixed_board_dump.get('spawnPointsSet')}")
-    seed_bc = _load_seed_bc()
+    seed_bc = _load_seed_bc(getattr(a, "seed_bc", None))
     # --board fixe : swap au moment de la normalisation (buildNormalizedBC boardJson+spawnPointSetIndex).
     template_bc, pool, pool_mow = _normalize_and_extract_pool(
         sid, seed_bc, a.rank, board_dump=fixed_board_dump)
@@ -1929,6 +1929,10 @@ def main(argv: list[str]) -> int:
                          "Sans --end, le tour se finit SEUL quand toutes tes units ont agi.")
     ap.add_argument("--seed", type=int, default=777)
     ap.add_argument("--rank", type=int, default=17)
+    ap.add_argument("--seed-bc", default=None,
+                    help="build: chemin d'un seed BC CUSTOM (surcharge data/seed-bc.json). Sert a "
+                         "valider un porteur HORS pool (ex. bloodTerminator/SavageEchoes) en injectant "
+                         "son bloc Unit dans une copie du seed BC. N'ecrit jamais le seed BC partage.")
     ap.add_argument("--crit", default=None,
                     help="build: force CritChance,CritDamage sur les p-units (ex. '100,700'). "
                          "Restaure le crit que la normalisation strippe (crit héros = item I_Crit).")
