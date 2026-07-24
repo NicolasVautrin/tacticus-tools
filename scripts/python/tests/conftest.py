@@ -18,6 +18,7 @@ INIT live = warmup-if-needed : `warmupGameSingletons` SANS `force` est idempoten
 """
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import subprocess
@@ -32,7 +33,23 @@ ROOT = Path(__file__).resolve().parents[3]           # racine repo
 # depuis le replace scope de `rl_duel build` (2026-07-03), un build dispose
 # le runner enregistre dans SON state-file ; sur le fichier partage par
 # defaut, ca disposerait le runner de travail de l'utilisateur.
-STATE = ROOT / "data" / "_pytest_duel_state.json"
+#
+# UNIQUE PAR PROCESSUS *ET* PAR BUILD (2026-07-25) : le nom etait FIXE, donc
+# partage par tous les pytest concurrents. Avec plusieurs agents en parallele,
+# le `build` de l'un DISPOSAIT le runner de l'autre (le scoped-replace lit
+# l'ancien runnerId dans le state-file et le dispose) -> faux echecs non
+# reproductibles. Le suffixe PID isole les processus ; le compteur ajoute
+# l'isolation INTRA-session (deux runners construits par la meme session
+# coexistent au lieu de se remplacer). `TACTICUS_PYTEST_STATE_PREFIX` permet
+# de deporter les state-files ailleurs (chemin ABSOLU, sans extension).
+STATE_PREFIX = Path(os.environ.get(
+    "TACTICUS_PYTEST_STATE_PREFIX", str(ROOT / "data" / "_pytest_duel_state")))
+_state_seq = itertools.count()
+
+
+def _new_state_path() -> Path:
+    """Chemin de state-file neuf, propre a CE processus et a CE build."""
+    return Path(f"{STATE_PREFIX}-{os.getpid()}-{next(_state_seq)}.json")
 
 
 def _unwrap(r):
@@ -87,34 +104,41 @@ def build_runner(host, live_session):
     le board par défaut n'a pas de spawns 5v5) : défaut `MC1_67` (arène), régénéré par
     `dump_boards.py`. `extra` = args `rl_duel build` supplémentaires (ex. 1v1 minimal + `--crit`
     pour la slice crit) ; si `extra` fournit déjà `--board`/`--board-pool`, le défaut est omis."""
-    created: list[int] = []
+    created: list[tuple[int, Path]] = []
 
     def _build(seed: str = "777", extra: list[str] | None = None,
                board: str = "MC1_67") -> dict:
         extra = list(extra or [])
         board_args = [] if any(x in ("--board", "--board-pool") for x in extra) \
             else ["--board", board]
+        state = _new_state_path()
+        # Purge AVANT le build : sans ça un build KO passerait inaperçu si un
+        # state-file traînait (PID recyclé, run précédent tué) — on relirait un
+        # runnerId périmé au lieu de skipper.
+        state.unlink(missing_ok=True)
         proc = subprocess.run(
             [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
-             "--state-file", str(STATE), *board_args, *extra],
+             "--state-file", str(state), *board_args, *extra],
             cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8",
             errors="replace")
-        if not STATE.exists():
+        if not state.exists():
             pytest.skip(f"build runner KO (rl_duel): "
                         f"{(proc.stderr or proc.stdout or '')[-300:]}")
-        st = json.loads(STATE.read_text())
+        st = json.loads(state.read_text())
         rid = st["runnerId"]
-        created.append(rid)
+        created.append((rid, state))
         return {"rid": rid, "my_team": st.get("myTeam", 1)}
 
     yield _build
 
-    # teardown : dispose tous les runners de test (idempotent ; removed=false si déjà parti).
-    for rid in created:
+    # teardown : dispose tous les runners de test (idempotent ; removed=false si déjà parti)
+    # puis retire les state-files — sinon ils s'accumulent dans data/ à chaque run.
+    for rid, state in created:
         try:
             host._rpc(live_session, "disposeRunner", [{"runnerId": rid}], timeout=20)
         except Exception:
             pass
+        state.unlink(missing_ok=True)
 
 
 @pytest.fixture(scope="session")
