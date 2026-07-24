@@ -22,7 +22,21 @@ Usages dans le port (post-#156) :
                               `UnitTrait.Emplacement` (1016) — bool `profile_has_lascannon` dans
                               get_piercing_ratio / static_battle_rules (non wire, defaut False).
   - OnToxic (4)             : attaque Toxic -> pose Contaminated (OnToxicDamageAbility, #137).
-  - OnMelta (5)             : attaque Melta.
+  - OnMelta (5)             : attaque Melta. i2 `Keywords/DMG_Melta` = "75% pierce ratio. Deals +50%
+                              damage against Vehicle units". Le +50% vs Vehicle est DEAD CODE dans le
+                              build gqfc5mff6c -> NON porte (le porter DIVERGERAIT du live). Racine :
+                              `OnMeltaDamageAbility` (TriggeredAbilityType 1211) a un `CreateBehaviour`
+                              @1811c3b70 (`AddEffect(Melta_ExtraDmg=1297, First(+0x78))`) mais AUCUN
+                              `CreateTrigger` -- contrairement a OnFire (1016, trigger @1811c3ae0) et
+                              OnToxic (1203, trigger @1811c3d20). Sans trigger l'ability ne fire jamais
+                              -> l'effet `Melta_ExtraDmgEffect` (@180f59c80 `ForPercentIncrease(
+                              DamageProfileHasTrait(OnMelta) & HasTrait(target, Vehicle=1029),
+                              ConfigConst 0xf=meltaDamageExtraDmgPct=50)`) n'est JAMAIS pose -> le +50%
+                              n'est applique NI en prediction NI en combat. CONFIRME LIVE (case-72) :
+                              tauShadowsun Melta ranged vs admecDestroyer (Vehicle) predit [6008-9014]
+                              == vs cible non-Vehicle (aucun +50%), aucun effet pose post-coup ; A/B :
+                              OnFire pose bien `Fire` on-hit dans le meme runner. Verdict = DEAD-CODE
+                              documente (cf. docs/rl/case-72-onmelta-dead-code.md), pas un gap de port.
 """
 from __future__ import annotations
 
