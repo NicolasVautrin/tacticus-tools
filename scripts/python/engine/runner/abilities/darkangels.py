@@ -58,7 +58,7 @@ def plasma_cannon_tree():
        rngcrit-1202 / tip #2), PAS au nom du template : les deux call-sites `@1811f97ab`/`@1811f9866` referencent
        @180de9fb0 (verifie via `list_xrefs` -- PlasmaCannon ABSENT des xrefs de @180de9c90). `native_factory=
        "attack"` => `AttackDamageOperation.ExecuteHit` = valeur brute + resolve slot-8 GASPILLE = **2 tirages/
-       coup a cc=0** (le DEFAUT `wasted_resolve=True`). Un port copie a l'aveugle du template (native_factory=
+       coup a cc=0** (le DEFAUT `is_attack_damage_op=True`). Un port copie a l'aveugle du template (native_factory=
        "ability", 1 tirage/coup) desyncherait le RNG des le coup 2 -- confronte LIVE par le test.
 
     `op_BitwiseAnd` = `CombinedBehaviour` (effets PURS -> les deux volets s'executent) ; `ExecuteAtomic` ->

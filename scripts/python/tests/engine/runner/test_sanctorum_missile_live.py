@@ -283,7 +283,7 @@ def test_sanctorum_missile_targeting_and_ab(live_session, rpc):
         st_dir = load_state(dv2, ob2, snap2); st_dir.board = board; st_dir.rng = _seed_rng(s0)
         direct_main = AttackDamageOperation.execute_ability_attack(
             st_dir, cid, target_id, bmin, bmax, pierce, hits,
-            damage_profile="Blast", is_melee=False, wasted_resolve=True)   # native_factory="attack"
+            damage_profile="Blast", is_melee=False, is_attack_damage_op=True)   # native_factory="attack"
         assert tree_main == (direct_main or {}).get("per_hit"), (
             f"arbre main per_hit {tree_main} != sequence directe {(direct_main or {}).get('per_hit')} "
             f"(la feuille MAIN n'appelle pas le pipeline fidele)")
@@ -291,7 +291,7 @@ def test_sanctorum_missile_targeting_and_ab(live_session, rpc):
         for sid in sorted(tree_splash):
             d = AttackDamageOperation.execute_ability_attack(
                 st_dir, cid, sid, bmin, bmax, pierce, hits2,
-                damage_profile="Blast", is_melee=False, wasted_resolve=True)
+                damage_profile="Blast", is_melee=False, is_attack_damage_op=True)
             assert tree_splash[sid] == (d or {}).get("per_hit"), (
                 f"arbre splash {sid} per_hit {tree_splash[sid]} != sequence directe {(d or {}).get('per_hit')}")
     finally:
@@ -337,11 +337,11 @@ def test_sanctorum_missile_native_factory_attack(live_session, rpc, seed):
         st_at = load_state(dv2, ob2, snap2); st_at.board = board; st_at.rng = _seed_rng(s0)
         off_attack = (AttackDamageOperation.execute_ability_attack(
             st_at, cid, target_id, bmin, bmax, pierce, hits,
-            damage_profile="Blast", is_melee=False, wasted_resolve=True) or {}).get("per_hit")   # "attack"
+            damage_profile="Blast", is_melee=False, is_attack_damage_op=True) or {}).get("per_hit")   # "attack"
         st_ab = load_state(dv2, ob2, snap2); st_ab.board = board; st_ab.rng = _seed_rng(s0)
         off_ability = (AttackDamageOperation.execute_ability_attack(
             st_ab, cid, target_id, bmin, bmax, pierce, hits,
-            damage_profile="Blast", is_melee=False, wasted_resolve=False) or {}).get("per_hit")  # "ability"
+            damage_profile="Blast", is_melee=False, is_attack_damage_op=False) or {}).get("per_hit")  # "ability"
         assert len(off_attack) == 2 and len(off_ability) == 2
         r_attack = [lm / om for lm, om in zip(live_main, off_attack)]
         r_ability = [lm / om for lm, om in zip(live_main, off_ability)]

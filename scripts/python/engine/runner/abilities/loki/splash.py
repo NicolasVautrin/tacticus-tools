@@ -377,7 +377,7 @@ def _pick_randomly_n(state: "State", items: list, n: int) -> list:
 
 def _splash_ability_behaviour(state: "State", caster_id: int, target_id: int, ability_id: str,
                               profile: str, ranged: bool, splash_set: list,
-                              wasted_resolve: bool = True) -> dict:
+                              is_attack_damage_op: bool = True) -> dict:
     """Mécanique partagée B1 (mirror `CrushingClaws` SANS var-séparées) : 1 attaque MAIN sur `target`
     (hits=`nrOfHits`) + 1 volet SPLASH sur `splash_set`, PARTAGEANT la MÊME plage `minDmg/maxDmg` — seul le
     nb de hits diffère (splash = `nrOfHits_2`). ⚠ le splash réutilise minDmg/maxDmg/pierce (PAS
@@ -386,12 +386,12 @@ def _splash_ability_behaviour(state: "State", caster_id: int, target_id: int, ab
     RÉFÉRENCE IMPÉRATIVE des tests de bit-exactness des arbres DSL splash (PlasmaGrenade/ScythingTalons tests
     comparent leur arbre `AttackWithAttackDamage(multi=True)` à ce retour) : plus AUCUN appelant PRODUCTION
     (tous les splash migrés en arbres DSL, Fragstorm compris slice-13), conservé pour l'oracle des tests.
-    `wasted_resolve` = famille de factory native (rngcrit-1202, cf. behaviours/combat.py) — l'oracle doit
+    `is_attack_damage_op` = famille de factory native (rngcrit-1202, cf. behaviours/combat.py) — l'oracle doit
     passer la MÊME famille que l'arbre DSL comparé (PlasmaGrenade = "ability" -> False)."""
     bmin, bmax, pierce, hits = ability_attack_params(state, caster_id, ability_id, profile, ranged=ranged)
     main = AttackDamageOperation.execute_ability_attack(state, caster_id, target_id, bmin, bmax, pierce, hits,
                                                         damage_profile=profile, is_melee=not ranged,
-                                                        wasted_resolve=wasted_resolve)
+                                                        is_attack_damage_op=is_attack_damage_op)
     # splash : MÊME plage (minDmg/maxDmg/pierce), seule la constante de hits change (nrOfHits_2).
     _bmin2, _bmax2, _pierce2, hits2 = ability_attack_params(
         state, caster_id, ability_id, profile, ranged=ranged, hits_key="nrOfHits_2")
@@ -399,7 +399,7 @@ def _splash_ability_behaviour(state: "State", caster_id: int, target_id: int, ab
     for sid in splash_set:
         satk = AttackDamageOperation.execute_ability_attack(state, caster_id, sid, bmin, bmax, pierce, hits2,
                                                             damage_profile=profile, is_melee=not ranged,
-                                                            wasted_resolve=wasted_resolve)
+                                                            is_attack_damage_op=is_attack_damage_op)
         splash.append({"target": sid, "attack": satk})
     return {"main_attack": main, "splash": splash, "hits_main": hits, "hits_splash": hits2}
 

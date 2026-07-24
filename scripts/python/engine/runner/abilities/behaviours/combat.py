@@ -157,7 +157,7 @@ class AttackWithAttackDamage(AbilityBehaviour):
                     state, caster, tgt, bmin, bmax, pierce, hits,
                     damage_profile=self.profile, is_melee=self.is_melee,
                     ability_type=self.ability_type,
-                    wasted_resolve=(self.native_factory != "ability"),
+                    is_attack_damage_op=(self.native_factory != "ability"),
                     force_overkill=self.force_overkill)
             ectx.emit("AttackWithAttackDamage", caster=caster, target=tgt,
                       total=(atk or {}).get("total"), attack=atk)

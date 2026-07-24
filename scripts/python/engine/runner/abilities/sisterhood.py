@@ -82,7 +82,7 @@ def sanctorum_missile_tree():
     template. Les DEUX call-sites `@18120432f` (main) et `@1812043cf` (splash) referencent `@180de9fb0`
     (verifie via `list_xrefs` ; SanctorumMissile ABSENT des xrefs de `@180de9c90`/`@180de9dd0` = la famille
     "ability"). `native_factory="attack"` => `AttackDamageOperation.ExecuteHit` = valeur brute + resolve
-    slot-8 GASPILLE = **2 tirages/coup a cc=0** (defaut `wasted_resolve=True`). Un port copie a l'aveugle
+    slot-8 GASPILLE = **2 tirages/coup a cc=0** (defaut `is_attack_damage_op=True`). Un port copie a l'aveugle
     ("ability", 1 tirage/coup) desyncherait le RNG des le coup 2 -- confronte LIVE par le test.
 
     `op_BitwiseAnd` = `CombinedBehaviour` (effets PURS -> les deux volets s'executent) ; `ExecuteAtomic` ->
@@ -177,7 +177,7 @@ class SanctorumMissileAbility(ActiveAbility):
 #    Profil = `NormalMeleeAttackDamageProfile(caster)` = profil arme melee (Celestine = Power) ; coups =
 #    `MeleeWeaponHits(caster)` = nrOfHits arme melee (WeaponHitsFormula.Calculate @180f2f510 = somme des parts,
 #    SANS ExtraHits ; Celestine = 3). Modelise via le mode BORNES du leaf + `damage_override` -> (V,V) degenere +
-#    `hits_override=MeleeWeaponHits` -> `execute_ability_attack(wasted_resolve=True)` (roll-then-reduce, resolve
+#    `hits_override=MeleeWeaponHits` -> `execute_ability_attack(is_attack_damage_op=True)` (roll-then-reduce, resolve
 #    slot-8 GASPILLE, 1 tirage/coup pour un node degenere : GetDamage court-circuite min==max + 1 resolve, cf.
 #    #202 WeaverOfFate). RNG-exact vs le natif. `Sum(base, extraDmg)` == pattern MurderousSwing/SavageEchoes.
 #  - ATTACK gate = `factory+0x98` = trigger cache du DslContext (`InitializeShared @180df2670`, construit depuis
@@ -258,7 +258,7 @@ def sky_strike_tree(dest, extra_dmg: int, profile: str, hits: int):
                  Sum(StatAmount(caster, Attack), Direct(extraDmg)),                      #   NormalAttackDamage + var8
                  NormalMeleeAttackDamageProfile(caster), MeleeWeaponHits(caster))) )     #   attaque melee normale
     Mono-cible (pas de Union/splash). Le node de degat = valeur mono (Attack + extraDmg) DEGENEREE -> mode BORNES
-    + `damage_override` -> (V,V) + `hits_override` -> `execute_ability_attack(wasted_resolve=True)` : chaque coup
+    + `damage_override` -> (V,V) + `hits_override` -> `execute_ability_attack(is_attack_damage_op=True)` : chaque coup
     = reduce(V) FIXE, 1 tirage/coup (resolve slot-8 gaspille). AUCUN spread +/-20% (path ability, pas
     weapon-path)."""
     move = If(Not(IsAdjacent(Caster(), Target())),

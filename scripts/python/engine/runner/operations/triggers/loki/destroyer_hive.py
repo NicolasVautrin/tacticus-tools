@@ -33,7 +33,7 @@ methodes triggered, comme FireOfAbsolution/ControlEdict/CursedPlagueBell). TROIS
                               alwaysOverkilled = Nullable<bool>(HasValue=0) )
   * `AttackWithAttackDamage @180de9fb0` = famille "attack" (2 tirages/coup a cc=0) -- VERIFIE par XREF du
     CALL-SITE de CreateBehaviour (@18121d47e -> @180de9fb0, PAS @180de9c90 ability ; tip #2 / rngcrit-1202).
-    Mono-coup (nrOfHits=1) mais la famille reste "attack" (defaut) -> `wasted_resolve=True`.
+    Mono-coup (nrOfHits=1) mais la famille reste "attack" (defaut) -> `is_attack_damage_op=True`.
   * 8e arg Nullable<bool> alwaysOverkilled = HasValue=0 (`local_68..local_48 = 0` dans le decompile) ->
     PAS de `force_overkill` (contraste FlailSwing `local_198=0x100000000` HasValue=1).
   * `MinMaxDamage @180fbca20` = `RandomAmount(GetVariableForLevel(0xc)=minDmg, GetVariableForLevel(0xd)=maxDmg)`
@@ -126,7 +126,7 @@ class DestroyerHiveAbility(TriggeredAbility):
         atk = AttackDamageOperation.execute_ability_attack(
             state, self.owner_id, target, bmin, bmax, pierce, hits,
             damage_profile=DAMAGE_PROFILE, is_melee=True,        # attackRangeType=Melee
-            wasted_resolve=True,                                 # famille "attack" @180de9fb0 (XREF du call-site)
+            is_attack_damage_op=True,                                 # famille "attack" @180de9fb0 (XREF du call-site)
             force_overkill=False)                                # alwaysOverkilled Nullable HasValue=0
         return {"type": "destroyer_hive", "owner": int(self.owner_id), "target": int(target),
                 "hits": hits, "min": bmin, "max": bmax, "pierce": pierce, "attack": atk}

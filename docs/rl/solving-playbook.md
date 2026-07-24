@@ -533,7 +533,7 @@ a la mecanique la plus connue (le crit) au lieu de le LOCALISER.
    `list_xrefs` par factory rend la liste complete d'un coup) — JAMAIS au juge ni au nom du
    commentaire de port (PlasmaGrenade etait mal etiquete « AttackWithAttackDamage » alors que ses
    xrefs pointent @180de9c90). Porte par `native_factory="attack"|"ability"` sur la feuille
-   Python + `wasted_resolve` dans `execute_ability_attack`/`_run_hits`.
+   Python + `is_attack_damage_op` dans `execute_ability_attack`/`_run_hits`.
 
 5. **Validation adversariale qui a ATTRAPE une regression du fix lui-meme** : apres le fix
    inconditionnel, rejouer le probe multi-hit de L'AUTRE famille (`probe_217_stormcaller`, 3-hit
@@ -616,7 +616,7 @@ n'etait PAS une bizarrerie native a elucider : c'etait le signal que l'ATTRIBUTI
    ExecuteHit @180e29d50 = `AttackHit(..., isCrit=0)` SANS roll + ctx mods attaquant ZEROE (aucun
    builder) -> pas d'elevation, pas de crit, JAMAIS. Mesure : storm_high (Stormcaller surelevee,
    famille ability) = live == offline sans elevation 3/3 ; scrit (--crit 100,700) = live
-   crits=[0,0,0]. **Patron : le gate par famille de factory native (`wasted_resolve` =
+   crits=[0,0,0]. **Patron : le gate par famille de factory native (`is_attack_damage_op` =
    native_factory != "ability") est la frontiere correcte pour TOUTE feuille positionnelle/crit
    du builder attaquant.**
 

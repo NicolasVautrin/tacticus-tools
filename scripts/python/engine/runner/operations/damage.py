@@ -565,7 +565,7 @@ class AttackDamageOperation:
                   shield: int = 0, armor_pool: int = 0, armor_pct: int = 0, post_roll=None,
                   bonus_hit_chance: Optional[int] = None, capped_reductions=None,
                   limits: Optional[dict] = None, limits_hp: int = 0,
-                  wasted_resolve: bool = True, force_overkill: bool = False) -> dict:
+                  is_attack_damage_op: bool = True, force_overkill: bool = False) -> dict:
         """Boucle PAR COUP partagée (attaque normale ET ability) : pour chaque coup, crit-roll D'ABORD
         (1 tirage NextBool si cc>=1, sinon 0) PUIS tirage dans `hit_cr`/`hit_nc`, PUIS split combat
         (bouclier/armure-pool/block, `calculate_damage_operation`). Ordre RNG crit->spread->block confirmé.
@@ -696,7 +696,7 @@ class AttackDamageOperation:
                 # (4) resolve slot 8 sur la cellule DÉGÉNÉRÉE -> 1 tirage GASPILLÉ, valeur inchangée
                 # (`RandomlyResolveMinMaxDamage @181038600` : Next(v, v+1) SANS gate largeur-1). C'EST le
                 # tirage « fantôme » mesuré par #220/#205 — le fix du désync multi-coups cc=0.
-                # `wasted_resolve` = LA FAMILLE DE FACTORY NATIVE (deux operations distinctes) :
+                # `is_attack_damage_op` = LA FAMILLE DE FACTORY NATIVE (deux operations distinctes) :
                 #   True  = `DSLFactory.AttackWithAttackDamage @180de9fb0` (+overloads @180dea180/350/
                 #           520/6b0) -> AttackDamageBehaviour -> AttackDamageOperation.ExecuteHit
                 #           @180e5eff0 -> le resolve slot-8 consomme (2 tirages/coup a cc=0) ;
@@ -705,7 +705,7 @@ class AttackDamageOperation:
                 #           (GetDamage par coup) + CalculateAbilityDamage @18102cb50 (0 RNG) : AUCUN
                 #           resolve -> 1 tirage/coup. Mesure live : Stormcaller 3-hit bit-exact SANS
                 #           tirage gaspille (probe_217 PASS pre-fix, FAIL avec un resolve inconditionnel).
-                if wasted_resolve:
+                if is_attack_damage_op:
                     rng.next_internal(max(0, roll), max(0, roll) + 1)
                 return _one_hit_tail(idx, crit, roll)
             crit = roll_critical(rng, crit_chance) if crit_enabled else False
@@ -790,7 +790,7 @@ class AttackDamageOperation:
                                hits: int, damage_profile: Optional[str] = None,
                                is_melee: Optional[bool] = None,
                                ability_type: Optional[int] = None,
-                               wasted_resolve: bool = True,
+                               is_attack_damage_op: bool = True,
                                force_overkill: bool = False) -> Optional[dict]:
         """Attaque d'une ABILITY active (mirror `AttackWithAttackDamage` + `MinMaxDamage`/`GetHits`/
         `GetDamageProfile`). DIFFÈRE de l'attaque normale par la BASE : les bornes du coup = `[base_min,
@@ -837,15 +837,15 @@ class AttackDamageOperation:
         #   - GATE FAMILLE (== le gate #45f des feuilles positionnelles ci-dessous) : la famille ABILITY
         #     (`AbilityDamageOperation`) recoit des mods ATTAQUANT VIDES (struct zeroee, mesure #45f
         #     Stormcaller) -> is_ranged/trigger NE SONT threades que pour la famille ATTACK
-        #     (`wasted_resolve=True`) ; ability-family = None (gates inertes, comportement inchange).
-        _ranged = (not is_melee) if (is_melee is not None and wasted_resolve) else None
+        #     (`is_attack_damage_op=True`) ; ability-family = None (gates inertes, comportement inchange).
+        _ranged = (not is_melee) if (is_melee is not None and is_attack_damage_op) else None
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, target_id=target_id,
                                           is_ranged=_ranged, is_normal_attack=False,
-                                          trigger_ability_type=(ability_type if wasted_resolve else None))
+                                          trigger_ability_type=(ability_type if is_attack_damage_op else None))
         # #45f (fable, cause racine du residu x1.5 GreatFrostAxe case-220) : les feuilles POSITIONNELLES
         # (elevation +ElevationBonus=50% si elev(att) > elev(cible), gate effet 0x423 ; trench -50%) du
         # builder de mods ATTAQUANT s'appliquent a la famille ATTACK **SEULEMENT** — gate par FAMILLE de
-        # factory native (== `wasted_resolve`, cf. _one_hit) :
+        # factory native (== `is_attack_damage_op`, cf. _one_hit) :
         #   - ATTACK (`AttackWithAttackDamage @180de9fb0` -> `AttackDamageOperation.ExecuteHit
         #     @180e5eff0`) : le per-coup construit les mods attaquant COMPLETS (slot +4, positional
         #     leaves incluses). MESURE (probe_45f_gfa_elevation, GreatFrostAxe, une variable = la
@@ -859,7 +859,7 @@ class AttackDamageOperation:
         #     MESURE (probe_217_stormcaller A : Njal elev 2 > cibles elev 1) : live SANS elevation ;
         #     un fix non-gate rendait l'offline 1.5006x TROP HAUT — le gate famille retablit bit-exact.
         # Le chemin attaque NORMALE (`execute`, #58/#181) reste inchange (ExecuteHit @180e5eff0 aussi).
-        if wasted_resolve:                                   # famille ATTACK only
+        if is_attack_damage_op:                                   # famille ATTACK only
             apply_elevation_bonus(state, mods, attacker_id, target_id)
             apply_trench_reduction(state, mods, attacker_id, target_id, damage_profile)
         tsc = tgt.get_component(StatsComponent)
@@ -881,7 +881,7 @@ class AttackDamageOperation:
         # live crits=[0,0,0] et 1 tirage/coup (valeurs = draws consecutifs) la ou l'offline non-gate
         # brulait 1 crit-roll/coup + ajoutait crit flat. cc=0 (tous les porteurs actuels) : strict
         # no-op (roll_critical deja gate cc<1). Le bonus crit-Ice suit (crit_enabled=False -> 0).
-        if not wasted_resolve:                               # famille ABILITY : crit inexistant
+        if not is_attack_damage_op:                               # famille ABILITY : crit inexistant
             crit_chance, crit_damage, crit_enabled = 0, 0, False
         # #120 : réduction PLATE défenseur (Nightshroud, ungated -> spéciales aussi) fusionnée pré-perçage.
         AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
@@ -936,7 +936,7 @@ class AttackDamageOperation:
                                             # famille de factory native (cf. _one_hit) : True =
                                             # AttackWithAttackDamage (resolve gaspille) ; False =
                                             # AttackWithAbilityDamage (AbilityDamageOperation, sans).
-                                            wasted_resolve=wasted_resolve,
+                                            is_attack_damage_op=is_attack_damage_op,
                                             # flag « always overkilled » (FlailSwing) : bypasse le cap
                                             # Resilient a chaque coup (no-op cible non-Resilient).
                                             force_overkill=force_overkill)

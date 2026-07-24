@@ -273,10 +273,10 @@ def test_jakhal_stimms_live_bitexact(live_session, rpc, seed):
         assert hh == 4 and pierce == 1, f"nrOfHits {hh} != 4 ou pierce Physical {pierce} != 1"
         d_main = (AttackDamageOperation.execute_ability_attack(
             st_dir, cid, tid, bmin, bmax, pierce, 4,
-            damage_profile="Physical", is_melee=True, wasted_resolve=True) or {}).get("per_hit")
+            damage_profile="Physical", is_melee=True, is_attack_damage_op=True) or {}).get("per_hit")
         d_aoe = (AttackDamageOperation.execute_ability_attack(
             st_dir, cid, e1, bmin, bmax, pierce, 4,
-            damage_profile="Physical", is_melee=True, wasted_resolve=True) or {}).get("per_hit")
+            damage_profile="Physical", is_melee=True, is_attack_damage_op=True) or {}).get("per_hit")
         assert tree_main == d_main, f"arbre MAIN {tree_main} != sequence directe {d_main}"
         assert tree_aoe == d_aoe, f"arbre AOE {tree_aoe} != sequence directe {d_aoe}"
 
@@ -284,7 +284,7 @@ def test_jakhal_stimms_live_bitexact(live_session, rpc, seed):
         st_ab = mkstate(); st_ab.rng = _mk_rng(s0)
         off_ability = (AttackDamageOperation.execute_ability_attack(
             st_ab, cid, tid, bmin, bmax, pierce, 4,
-            damage_profile="Physical", is_melee=True, wasted_resolve=False) or {}).get("per_hit")
+            damage_profile="Physical", is_melee=True, is_attack_damage_op=False) or {}).get("per_hit")
         assert off_ability != live_main, \
             (f"modele 'ability' {off_ability} == LIVE {live_main} : native_factory ne separe pas (attendu desync coup 2)")
         print(f"[jakhal live seed={seed}] MAIN live={live_main}==tree | AOE(E1={e1}) live={live_aoe}==tree | "

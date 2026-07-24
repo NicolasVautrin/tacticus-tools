@@ -222,7 +222,7 @@ def test_flail_swing_live(live_session, rpc):
         st_ab = load_state(dv2, ob2, snap2); st_ab.board = board; st_ab.rng = _seed_rng(s0)
         direct = AttackDamageOperation.execute_ability_attack(
             st_ab, cid, tid, bmin, bmax, pierce, hits, damage_profile="Power", is_melee=True,
-            wasted_resolve=True, force_overkill=True)
+            is_attack_damage_op=True, force_overkill=True)
         print(f"\n[FLAIL] config [{bmin},{bmax}] pierce={pierce} hits={hits}")
         print(f"[FLAIL] live={live_main} port={tree_ph} A/B={(direct or {}).get('per_hit')}")
 
@@ -246,7 +246,7 @@ def test_flail_swing_live(live_session, rpc):
         st_abty = load_state(dv2, ob2, snap2); st_abty.board = board; st_abty.rng = _seed_rng(s0)
         off_ability = (AttackDamageOperation.execute_ability_attack(
             st_abty, cid, tid, bmin, bmax, pierce, hits, damage_profile="Power", is_melee=True,
-            wasted_resolve=False, force_overkill=True) or {}).get("per_hit") or []
+            is_attack_damage_op=False, force_overkill=True) or {}).get("per_hit") or []
         r_attack = [lm / om for lm, om in zip(live_main, tree_ph)]
         r_ability = [lm / om for lm, om in zip(live_main, off_ability)]
         print(f"[FLAIL] native_factory attack={off_ability and tree_ph} ability={off_ability} "
@@ -298,11 +298,11 @@ def test_flail_swing_native_factory_second_seed(live_session, rpc):
         st_a = load_state(dv2, ob2, snap2); st_a.board = board; st_a.rng = _seed_rng(s0)
         attack = (AttackDamageOperation.execute_ability_attack(
             st_a, cid, tid, bmin, bmax, pierce, hits, damage_profile="Power", is_melee=True,
-            wasted_resolve=True, force_overkill=True) or {}).get("per_hit")
+            is_attack_damage_op=True, force_overkill=True) or {}).get("per_hit")
         st_b = load_state(dv2, ob2, snap2); st_b.board = board; st_b.rng = _seed_rng(s0)
         ability = (AttackDamageOperation.execute_ability_attack(
             st_b, cid, tid, bmin, bmax, pierce, hits, damage_profile="Power", is_melee=True,
-            wasted_resolve=False, force_overkill=True) or {}).get("per_hit")
+            is_attack_damage_op=False, force_overkill=True) or {}).get("per_hit")
         print(f"\n[FLAIL s2] attack={attack} ability={ability}")
         assert attack and ability and len(attack) == 3
         assert attack[0] == ability[0], f"coup 1 devrait etre identique (meme 1er tirage): {attack} vs {ability}"
@@ -379,7 +379,7 @@ def test_flail_swing_overkill_resilient(live_session, rpc):
         stc = load_state(dv2, ob2, snap2); stc.board = board; stc.rng = _seed_rng(s0)
         AttackDamageOperation.execute_ability_attack(
             stc, cid, tid, bmin, bmax, pierce, hits, damage_profile="Power", is_melee=True,
-            wasted_resolve=True, force_overkill=False)
+            is_attack_damage_op=True, force_overkill=False)
         hp_ctrl = stc.get_entity(tid).get_component(HealthComponent).hp
         print(f"[FLAIL ovk] port(force_overkill=True) hp->{hp_port} | control(False) hp->{hp_ctrl}")
 

@@ -248,7 +248,7 @@ def test_sentinel_directives_live(live_session, rpc):
         st_ab = load_state(dv, ob, snap); st_ab.board = board; st_ab.rng = _seed_rng(s0)
         direct = AttackDamageOperation.execute_ability_attack(
             st_ab, cid, tid, bmin, bmax, pierce, hits, damage_profile="Physical", is_melee=False,
-            wasted_resolve=True)
+            is_attack_damage_op=True)
         ab_ph = (direct or {}).get("per_hit") or []
         print(f"\n[SENTDIR] config [{bmin},{bmax}] pierce={pierce} hits={hits}")
         print(f"[SENTDIR] live={live_ph} off={off_ph} A/B={ab_ph} pinned_live_src={pinned_live.get('source')}")

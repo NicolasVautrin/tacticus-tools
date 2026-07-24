@@ -279,7 +279,7 @@ def test_savage_echoes_wiring_and_free_tile_bonus(live_session, rpc):
         flat = extra_eff * count
         direct = AttackDamageOperation.execute_ability_attack(
             st2, cid, tid, bmin + flat, bmax + flat, pierce, hits,
-            damage_profile="Eviscerate", is_melee=True, wasted_resolve=True)
+            damage_profile="Eviscerate", is_melee=True, is_attack_damage_op=True)
         assert port_ph == (direct or {}).get("per_hit"), \
             (f"PORT per-hit {port_ph} != sequence directe+bonus {(direct or {}).get('per_hit')} "
              f"(wiring arbre/damage_override/native_factory)")
@@ -290,7 +290,7 @@ def test_savage_echoes_wiring_and_free_tile_bonus(live_session, rpc):
             st3 = mkstate()
             base = AttackDamageOperation.execute_ability_attack(
                 st3, cid, tid, bmin, bmax, pierce, hits,
-                damage_profile="Eviscerate", is_melee=True, wasted_resolve=True)
+                damage_profile="Eviscerate", is_melee=True, is_attack_damage_op=True)
             base_ph = (base or {}).get("per_hit") or []
             assert port_ph != base_ph, \
                 (f"baseline SANS bonus {base_ph} == port {port_ph} : le bonus extraDmg x count "

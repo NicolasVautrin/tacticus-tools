@@ -246,7 +246,7 @@ def test_plasma_cannon_live(live_session, rpc):
         st_dir = load_state(dv2, ob2, snap2); st_dir.board = board; st_dir.rng = _seed_rng(s0)
         direct = AttackDamageOperation.execute_ability_attack(
             st_dir, cid, target["id"], bmin, bmax, pierce, hits,
-            damage_profile="Plasma", is_melee=False, wasted_resolve=True)   # native_factory="attack"
+            damage_profile="Plasma", is_melee=False, is_attack_damage_op=True)   # native_factory="attack"
         assert tree_main == (direct or {}).get("per_hit"), (
             f"arbre main per_hit {tree_main} != sequence directe execute_ability_attack "
             f"{(direct or {}).get('per_hit')} (la feuille n'appelle pas le pipeline fidele)")
@@ -256,7 +256,7 @@ def test_plasma_cannon_live(live_session, rpc):
         st_ab = load_state(dv2, ob2, snap2); st_ab.board = board; st_ab.rng = _seed_rng(s0)
         off_ability = (AttackDamageOperation.execute_ability_attack(
             st_ab, cid, target["id"], bmin, bmax, pierce, hits,
-            damage_profile="Plasma", is_melee=False, wasted_resolve=False) or {}).get("per_hit")   # "ability"
+            damage_profile="Plasma", is_melee=False, is_attack_damage_op=False) or {}).get("per_hit")   # "ability"
         assert len(live_main) == 3 and len(tree_main) == 3 and len(off_ability) == 3
         r_attack = [lm / om for lm, om in zip(live_main, tree_main)]
         r_ability = [lm / om for lm, om in zip(live_main, off_ability)]

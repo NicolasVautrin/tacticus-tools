@@ -22,7 +22,7 @@ FINDINGS DECOMPILE (VA citees dans sisterhood.py) :
     AUCUN spread +/-20% (le +/-20% de l'attaque normale vient du weapon-path GetBaseDamageFix64, ABSENT du path
     ability). Chaque coup = reduce(V) FIXE, V = Attack + extraDmg. Profil/coups = arme MELEE (Celestine = Power
     / 3 coups, MeleeWeaponHits = WeaponHitsFormula @180f2f510, SANS ExtraHits). native_factory="attack" ->
-    execute_ability_attack(wasted_resolve=True), 1 tirage/coup (node degenere : GetDamage court-circuite + resolve
+    execute_ability_attack(is_attack_damage_op=True), 1 tirage/coup (node degenere : GetDamage court-circuite + resolve
     slot-8 gaspille, cf. #202).
   - `GetDynamicInvalidTargetReason @1812082a0` (eligibilite, HORS ExecuteBehaviour) : gate DidMove(caster) -> une
     Celestine DEJA bougee ET non-adjacente ne peut PAS caster (reason 0x10). CONFIRME LIVE (b1/b2 ci-dessous).
@@ -403,7 +403,7 @@ def test_skystrike_attack_ab_and_no_spread(sky_state):
     cel_d, target_d = _setup(st_dir)
     direct = AttackDamageOperation.execute_ability_attack(
         st_dir, cel_d, target_d, V, V, pierce, whits,
-        damage_profile=profile, is_melee=True, wasted_resolve=True)   # native_factory="attack"
+        damage_profile=profile, is_melee=True, is_attack_damage_op=True)   # native_factory="attack"
     assert tree_ph == (direct or {}).get("per_hit"), (
         f"arbre per_hit {tree_ph} != sequence directe {(direct or {}).get('per_hit')} "
         f"(la feuille n'appelle pas execute_ability_attack(V,V) fidele)")

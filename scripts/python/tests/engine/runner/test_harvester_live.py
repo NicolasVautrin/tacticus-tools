@@ -249,12 +249,12 @@ def test_harvester_live_moved_bitexact_and_native_factory(live_session, rpc, see
         bmin, bmax, pierce, _h = ability_attack_params(st_dir, cid, "HarvesterOfSouls", "HeavyRound", ranged=True)
         d_main = (AttackDamageOperation.execute_ability_attack(
             st_dir, cid, tid, bmin, bmax, pierce, off_hits,
-            damage_profile="HeavyRound", is_melee=False, wasted_resolve=True) or {}).get("per_hit")
+            damage_profile="HeavyRound", is_melee=False, is_attack_damage_op=True) or {}).get("per_hit")
         bmin2, bmax2, pierce2, _h2 = ability_attack_params(
             st_dir, cid, "HarvesterOfSouls", "HeavyRound", ranged=True, min_key="minDmg_2", max_key="maxDmg_2")
         d_splash = (AttackDamageOperation.execute_ability_attack(
             st_dir, cid, sid_splash, bmin2, bmax2, pierce2, off_hits,
-            damage_profile="HeavyRound", is_melee=False, wasted_resolve=True) or {}).get("per_hit")
+            damage_profile="HeavyRound", is_melee=False, is_attack_damage_op=True) or {}).get("per_hit")
         assert tree_main == d_main, f"arbre MAIN {tree_main} != sequence directe {d_main} (feuille/pipeline)"
         assert tree_splash == d_splash, f"arbre SPLASH {tree_splash} != sequence directe {d_splash}"
         assert pierce == 55 and pierce2 == 55, f"pierce HeavyRound {pierce}/{pierce2} != 55"
@@ -263,7 +263,7 @@ def test_harvester_live_moved_bitexact_and_native_factory(live_session, rpc, see
         st_ab = mkstate(); st_ab.rng = _mk_rng(s0)
         off_ability = (AttackDamageOperation.execute_ability_attack(
             st_ab, cid, tid, bmin, bmax, pierce, off_hits,
-            damage_profile="HeavyRound", is_melee=False, wasted_resolve=False) or {}).get("per_hit")
+            damage_profile="HeavyRound", is_melee=False, is_attack_damage_op=False) or {}).get("per_hit")
         assert off_ability != live_main, \
             (f"modele 'ability' {off_ability} == LIVE {live_main} : le discriminant native_factory ne separe "
              f"pas les familles (attendu: 'ability' desync des le coup 2)")

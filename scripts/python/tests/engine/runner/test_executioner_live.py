@@ -233,7 +233,7 @@ def test_executioner_live_main_bitexact_and_native_factory(live_session, rpc, se
         bmin, bmax, pierce, _cfg_hits = ability_attack_params(st_dir, cid, "Executioner", "Psychic", ranged=True)
         direct = (AttackDamageOperation.execute_ability_attack(
             st_dir, cid, tid, bmin, bmax, pierce, off_hits,
-            damage_profile="Psychic", is_melee=False, wasted_resolve=True) or {}).get("per_hit")   # "attack"
+            damage_profile="Psychic", is_melee=False, is_attack_damage_op=True) or {}).get("per_hit")   # "attack"
         assert tree_main == direct, \
             f"arbre MAIN {tree_main} != sequence directe execute_ability_attack {direct} (feuille/pipeline)"
 
@@ -245,7 +245,7 @@ def test_executioner_live_main_bitexact_and_native_factory(live_session, rpc, se
         st_ab = load_state(dv, ob, snap); st_ab.board = board; st_ab.rng = _mk_rng(s0)
         off_ability = (AttackDamageOperation.execute_ability_attack(
             st_ab, cid, tid, bmin, bmax, pierce, off_hits,
-            damage_profile="Psychic", is_melee=False, wasted_resolve=False) or {}).get("per_hit")   # "ability"
+            damage_profile="Psychic", is_melee=False, is_attack_damage_op=False) or {}).get("per_hit")   # "ability"
         assert off_ability != live_main, \
             (f"modele 'ability' {off_ability} == LIVE {live_main} : le discriminant native_factory ne separe "
              f"pas les familles sur ce cast (attendu: 'ability' desync des le coup 2)")
@@ -375,10 +375,10 @@ def test_executioner_isdead_secondary_offline(live_session, rpc):
         _sethp(st_b, tid, 1)
         bmin, bmax, pierce, _h = ability_attack_params(st_b, cid, "Executioner", "Psychic", ranged=True)
         AttackDamageOperation.execute_ability_attack(st_b, cid, tid, bmin, bmax, pierce, K,
-                                                     damage_profile="Psychic", is_melee=False, wasted_resolve=True)
+                                                     damage_profile="Psychic", is_melee=False, is_attack_damage_op=True)
         ref_sec = (AttackDamageOperation.execute_ability_attack(
             st_b, cid, eid, bmin, bmax, pierce, K,
-            damage_profile="Psychic", is_melee=False, wasted_resolve=True) or {}).get("per_hit")
+            damage_profile="Psychic", is_melee=False, is_attack_damage_op=True) or {}).get("per_hit")
         assert sec_ph == ref_sec, f"[KILL] secondary per-hit {sec_ph} != baseline {ref_sec} (A/B)"
 
         # [SURVIVE] cible vivante -> aucune 2e attaque

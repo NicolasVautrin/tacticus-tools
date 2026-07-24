@@ -8,7 +8,7 @@ Artefacts natifs (RE ghidra gqfc5mff6c, VAs) :
   - CreateBehaviour @18121d320 : `AttackWithAttackDamage(caster, PickRandomly(GetValidTargets, 1),
       MinMaxDamage(minDmg 0xc/maxDmg 0xd)[passive lvl], GetDamageProfile(0)=DirectDamage(pierce-100),
       nrOfHits=GetNumberConstant(0x2f)=1, alwaysOverkilled=Nullable(HasValue=0))`. Factory "attack"
-      @180de9fb0 (XREF du call-site @18121d47e ; wasted_resolve=True), pas de force_overkill.
+      @180de9fb0 (XREF du call-site @18121d47e ; is_attack_damage_op=True), pas de force_overkill.
   - `PickRandomly(.,1)` @180ef0be0 tire `NextInternal(0,count)` UNE fois -- consomme 1 genrand MEME a
       count==1 (branche puissance-de-2 @180e39be0) -> la pick precede l'attaque, load-bearing pour la
       bit-exactness (prouve : le port bit-exact 3 seeds ; no-draw diverge).
