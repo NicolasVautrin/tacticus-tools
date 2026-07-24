@@ -14,10 +14,11 @@ if TYPE_CHECKING:
 def ability_attack_params(state: "State", caster_id: int, ability_id: str,
                           profile_name: str, ranged: bool = False,
                           min_key: str = "minDmg", max_key: str = "maxDmg",
-                          hits_key: str = "nrOfHits", hits_add_key: str | None = None):
+                          hits_key: str = "nrOfHits", hits_add_key: str | None = None,
+                          level_slot: str = "active"):
     """Paramètres de l'attaque d'une ability (mirror `MinMaxDamage`/`GetHits`/`GetDamageProfile`) depuis
     l'ECS + gameconfig : `(base_min, base_max, pierce, hits)`.
-      • base_min/base_max = `GetVariableForLevel(config, 0xc/0xd, level)` = `minDmg`/`maxDmg`[active_ability_level]
+      • base_min/base_max = `GetVariableForLevel(config, 0xc/0xd, level)` = `minDmg`/`maxDmg`[<level_slot>]
         scalés par `AbilityVariablesMultiplier` (vars flaggées rareté) — via `ability_var`.
       • hits = `GetNumberConstant(config, 0x2f)` = `nrOfHits` (constante).
       • pierce = clamp(0,100, profil.PiercingRatio + ExtraPierce + ExtraPierce{Melee|Ranged}) — même
@@ -30,13 +31,25 @@ def ability_attack_params(state: "State", caster_id: int, ability_id: str,
     `hits_add_key` = 2ᵉ constante de coups AJOUTÉE à `hits` (mirror d'une bande dont le nb de coups est la
     SOMME de deux `GetNumberConstant` — GauntletsOfUltramar bande adjacente = `GetNumberConstant(0x2f)` +
     `GetNumberConstant(0x32)`, `ExecuteBehaviour @1811e1c80`). Défaut None = un seul `hits_key`. Constante
-    absente → +0 (le natif `GetNumberConstant` d'un index manquant rend 0, pas 1)."""
+    absente → +0 (le natif `GetNumberConstant` d'un index manquant rend 0, pas 1).
+
+    `level_slot` = SOURCE du niveau qui indexe `minDmg`/`maxDmg` : `"active"` (défaut, ability ACTIVE =
+    `ctx.active_ability_level`) ou `"passive"` (ability PASSIVE/TRIGGERED = `ctx.passive_ability_level` —
+    l'`AbilityConfiguration` d'un passif est résolue au niveau de la PASSIVE, cf. `scene.py`/`extra_damage`
+    côté DÉCISION). Un `MartialApotheosis` (passif necroOverlord) attaque au `passive_ability_level` ; dans
+    un runner rank-based `active == passive` (vérifié live necroOverlord 50/50) → observationnellement égal,
+    mais on lit la BONNE source pour rester fidèle au natif hors de cette coïncidence."""
     from ..components import StatsComponent
     from ...entities.effects.magnitude import ability_var
     e = state.get_entity(caster_id)
     sc = e.get_component(StatsComponent) if e is not None else None
     ctx = sc.ctx if sc is not None else None
-    level = ctx.active_ability_level if ctx is not None else 0
+    if ctx is None:
+        level = 0
+    elif level_slot == "passive":
+        level = ctx.passive_ability_level if ctx.passive_ability_level is not None else ctx.active_ability_level
+    else:
+        level = ctx.active_ability_level
     mult = ctx.ability_variables_multiplier if ctx is not None else 100
     bmin = ability_var(ability_id, min_key, level, multiplier_pct=mult) or 0
     bmax = ability_var(ability_id, max_key, level, multiplier_pct=mult) or 0
