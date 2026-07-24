@@ -86,13 +86,23 @@ def _occupied(state: State, exclude_id: int) -> dict[tuple[int, int], int]:
 
 # Pourcentage de degat de KNOCKBACK (collision de push) applique = `DamageCalculations.
 # CalculateKnockbackDamage @1810040f0` : `int(Fix64.Ceiling(maxHealth x pct/100))`, pct = champ config
-# @+0x24 (nomme `KnockbackPercentageFix64` par `get_KnockbackPercentageFix64 @181005d70`, cache lazy).
-# HARDCODE (mesure #47) : la valeur RUNTIME effective = 10, prouvee par 4 datapoints live (MortisRound
-# push bloque bord : maxHealth 80000 -> 8000 ; 50000 -> 5000 ; 30001 -> 3001 = Ceiling(3000.1) EXACT
-# [discrimine toute variante int-tronquee] ; 8536 -> 854). La cle BC `Damage.KnockbackPercentage` vaut
-# 20 (ne matche PAS la valeur effective) -> le champ DTO @+0x24 reel n'est pas resolu offline (dump.cs
-# absent du data/ courant). A re-deriver si le gameconfig change (re-mesure 1 datapoint suffit).
-_KNOCKBACK_PCT = 10
+# @+0x24 (getter `get_KnockbackPercentageFix64 @181005d70`, cache lazy Nullable @this+0x58).
+# SOURCE RE'D (#61) : le config lu par CalculateKnockbackDamage = `this+0x18`, pose par
+# `DamageCalculations.Init @181005790` (arg2) depuis `IdunRunner.Initialize` = `BattleConfiguration+0xa8`
+# = `BattleConfiguration.Damage`. Layout du sous-objet `Damage` (ints consecutifs, verifie par les 3
+# getters soeurs) : +0x1c=ArmorPercentage, +0x20=DamageSpreadPercentage, +0x24=KnockbackPercentage.
+# => pct = `BattleConfiguration.Damage.KnockbackPercentage` = 20 (gameconfig gqfc5mff6c ; present tel
+# quel dans TOUS les seeds BC frais). Constante sourcee, coherente avec `calculate_damage_spread(
+# spread_pct=20)` (DamageSpreadPercentage) et `armor_percentage=50` : ces % Damage sont des constantes
+# gameconfig par-build dans le port (defaut = valeur courante ; a re-lire si le gameconfig change).
+#
+# CORRECTION #61 (le "10" de #47 etait un FIT compensatoire, PAS la valeur reelle) : #47 mesurait le
+# hpDelta NET d'un cast MortisRound sur necroWarden (=Makhotep, HERO Necron a trait LivingMetal). Le
+# `LivingMetalRepair` heal 10% du maxHealth au tour suivant -> net = attaque + knockback(20%) - repair(10%)
+# = attaque + 10%net, tout attribue a tort au knockback (pct=10). Mesure ISOLEE #61 (event StreamDispatcher
+# UnitDamaged DamageProfileType=0, degat separe de l'attaque profile=19) : maxHealth 30001 -> knockback
+# 6001 = Ceiling(30001x0.20) [impair sur mono-modele -> exclut 10% ET tout /2] ; 50000 -> 10000. => pct=20.
+_KNOCKBACK_PCT = 20
 
 
 def _apply_knockback_to(state: State, bus: EventBus, pusher_id: int, unit_id: int):
@@ -190,8 +200,9 @@ class DisplaceUnitOperation(Operation):
             #   - tuile occupee non-steppable (branche `TileContentComponent.IsFilled`) ->
             #     knockback a la POUSSEE, PUIS a l'OCCUPANT SI `IsEnemy(pusher, occupant)`
             #     (l'occupant ALLIE du pousseur n'est pas endommage — return avant le 2e appel).
-            # GROUND TRUTH #47 (MortisRound, push vers le bord) : live hpDelta = attaque + 8000
-            # = ceil(80000 x 10%), 0 tirage rng supplementaire ; 4 datapoints (cf. _KNOCKBACK_PCT).
+            # GROUND TRUTH #61 (MortisRound, push vers le bord, event knockback ISOLE) : le degat de
+            # knockback = ceil(maxHealth x 20%) (30001 -> 6001 ; 50000 -> 10000), 0 tirage rng
+            # supplementaire (cf. _KNOCKBACK_PCT = BC.Damage.KnockbackPercentage).
             res = {"moved": False, "reason": "blocked"}   # push annule (mirror lVar7==0 : pas de move)
             kbs = []
             kb = _apply_knockback_to(state, bus, self.pusher_id, self.pushed_id)
