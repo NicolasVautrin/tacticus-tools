@@ -6,11 +6,33 @@
 (`extra_damage.py:270` + factory.py:145-146 ; playbook `adjacent_unit_preference.py:111`). Rien à faire.
 
 ```
-[PsychicFortress | ultraTigurius passif]  — [opus] direct (le + facile)
-VAs : CreateBehaviour @181224070 ; DmgReduction @180f66a30/@180f66c30/@180f66cb0 ; ExtraBlock @180f66cc0
-AddExtraBlockEffectToOwner(1007, +45 block-chance/+dmg) + aura 1010 : −873 Psychic reçu, amis ring-1.
-Templates : AnvilShield/BeastSlayer (ExtraBlock) + Nightshroud/DaughterOfTheAbyss (aura). 2 classes à écrire.
-Risques : canal ExtraBlock hors GetStat ; gate Psychic-only ; magnitude ×amount@0xd8.
+[PsychicFortress | ultraTigurius passif]  — [opus] PORTE + VALIDE (aura bit-exact ; block structure)
+VAs : CreateBehaviour @181224070 ; DmgReduction (aura 1010) CreateDamageModifier @180f66a30 /
+      CreateTargetSelector @180f66c30 / ctor @180f66cb0 (base ADamageDefenseModifierAbilityEffect(1000)) ;
+      ExtraBlock (1007) ctor @180f66cc0 (base MultiValueStatEntryEffect) ; AddExtraBlockEffectToOwner @180de6f80.
+STRUCTURE (lue, mirror 1:1) : CreateBehaviour pose 2 effets sur le PORTEUR (context@0x148 = Tigurius, les
+2 CAPTES LIVE source=Tigurius) ; c'est le CreateTargetSelector de CHAQUE effet qui fixe les beneficiaires.
+- DmgReduction 1010 -> PsychicFortressDmgReductionEffect (damage_reduction.py) : AURA -dmgReduction PLAT
+  du degat PSYCHIQUE recu par les AMIS ring-1. `ForAddition(OwnerIsTarget & DamageProfileIs(0xd=Psychic),
+  Multiply(ConfigVar(0x12=dmgReduction, mult@+0x60), Direct(-1)@factory+0xd8))` = soustraction plate ;
+  selector `Friends(SurroundingUnits(range=1, includeCenter=false))` = ring-1 exact, EXCLUT le porteur.
+  Jumeau structurel EXACT de DaughterOfTheAbyss_Owner @180f3d070 / Nightshroud @180f5bff0 -> flat_reductions
+  PRE-percage. Canal `create_aura_defense_damage_malus_for_ally`.
+- ExtraBlock 1007 -> PsychicFortressExtraBlockEffect (hits.py) : source de BLOCK 50% (blockChance const 0x2d)
+  de blockDmg[ablvl] (var 0x14 rarity-scale). `AddExtraBlockEffectToOwner(0x3ef, Direct(GetNumberConstant
+  0x2d), Direct(GetVariableForLevel 0x14))` @180de6f80 = AddMultiValueStatEntryEffectBehaviour {7=BLOCK_CHANCE,
+  8=BLOCK_DAMAGE}, HORS GetStat (GetMultiValueStat(7)), canal BeastSlayer `create_effect_block_source_for_defense`.
+MAGNITUDE : blockChance=50 (const), blockDmg[65]=437, dmgReduction[65]=873 (les 2 in variablesAffectedByRarityBonus
+-> x mult unite). i2 « added Block 50% chance to block 437 Damage. Also reduces incoming Psychic Damage by 873. »
+VALIDATION LIVE (seed 777 MC1_67, bloodMephiston Psychic vs ultraTigurius + ultraApothecary ami) :
+- AURA bit-exact off_ph==live_ph : ami ring-1 (AURA ACTIVE, --crit 100,3000) [3849,4457] ; ami ring-2 (aura
+  INACTIVE) [5042,4727]. flat_reductions=[1197]=dmgReduction[65](873)x1.37mult. Gate ring-1 (dist==1) + gate
+  Psychic (physical->None, toggle offline) confirmes. Regime rank17 sans crit = clamp edge (base~=reduction).
+- BLOCK : source produite CORRECTE (chance=50, amount=blockDmg[65]xmult=599, block_id=50) + effet 1007 capte
+  live sur Tigurius. Roll live NON confronte bit-exact -> BACKLOG (desync de BASE des attaques NON-Psychic
+  sensibles a l'armure : necroDestroyer Gauss / templHelbrecht Bolter desync ~0.58 vs l'Apothecary SANS AUCUN
+  effet PsychicFortress => desync PRE-EXISTANT hors PsychicFortress, additif-pur exonere ; Psychic pierce 100
+  bit-exact). A router : replay standalone non-Psychic ranged.
 ```
 ```
 [1004 MortisRound | ultraEliminatorSgt]  — [opus] direct
@@ -82,7 +104,10 @@ FuelledByFury C, TaintedNarthecium (§6.8), PhoenixGem @1811117b0, GhostRevive @
 Risques : timing à-la-mort ; exclusion Mechanical ; gate overkill ; 1x/tour.
 ```
 
-**Synthèse UM** : couvert = RitesOfBattle ; [opus] direct = PsychicFortress, MortisRound,
-DeathFromAbove, FuelledByFury/A ; [opus]+prérequis = ShockAssault, StormOfWrath (RE chaîne d'abord),
-CamoCloak (à différer) ; **[fable]** = TacticalPrecision, MacroPlasmaIncinerator (MoW), Narthecium +
-FuelledByFury/C. Débloqueur le + rentable = **sous-système REVIVE** (2 items UM + DG + hors-faction).
+**Synthèse UM** : couvert = RitesOfBattle, **PsychicFortress (PORTE : aura DmgReduction bit-exact + block
+structure/source)** ; [opus] direct = MortisRound, DeathFromAbove, FuelledByFury/A ; [opus]+prérequis =
+ShockAssault, StormOfWrath (RE chaîne d'abord), CamoCloak (à différer) ; **[fable]** = TacticalPrecision,
+MacroPlasmaIncinerator (MoW), Narthecium + FuelledByFury/C. Débloqueur le + rentable = **sous-système
+REVIVE** (2 items UM + DG + hors-faction). BACKLOG transverse (fortuit) : desync replay du dégât des
+attaques NON-Psychic sensibles à l'armure (Bolter/Gauss ~0.58 vs cible sans effet, Psychic pierce 100
+bit-exact) — pré-existant, hors PsychicFortress.

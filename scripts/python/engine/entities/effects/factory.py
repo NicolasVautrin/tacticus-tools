@@ -51,6 +51,8 @@ from .loki import (
     CamouflageHitReductionEffect,
     NeuroparasiteEffect,
     NightshroudDmgReductionEffect,
+    PsychicFortressDmgReductionEffect,
+    PsychicFortressExtraBlockEffect,
     ParryEffect,
     PathOfCommandExtraDmgEffect,
     RangedSpecialistEffect,
@@ -305,6 +307,16 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # OwnerIsTarget & IsRangedAttack, ConfigVar 0x46). EffectType 0x515=1301 (#190). Le jumeau
     # 0x514=1300 PendingAttack (attaque differee 2x Eviscerate) = hors canal modifier, tache dediee.
     "OverwhelmingWrath_RangeDmgReduction": OverwhelmingWrathRangeDmgReductionEffect,
+    # PsychicFortress (passif Tigurius ultraTigurius, ability enum 0x3e8=1000) -- 2 effets posEs par
+    # PsychicFortressAbility.CreateBehaviour @181224070 :
+    #  - DmgReduction (0x3f2=1010) : AURA -dmgReduction[ablvl]xmult PLAT du degat PSYCHIQUE recu par les AMIS
+    #    ring-1 (aura-defense, gate DamageProfileIs Psychic ; @180f66a30 ForAddition(Multiply(ConfigVar 0x12,
+    #    Direct(-1))) ; selector @180f66c30 Friends(SurroundingUnits range 1, exclut porteur)). Jumeau structurel
+    #    de DaughterOfTheAbyss_Owner/Nightshroud -> flat_reductions pre-percage.
+    #  - ExtraBlock (0x3ef=1007) : source de BLOCK +blockChance(=50)% de blockDmg[ablvl]xmult Damage
+    #    (AddExtraBlockEffectToOwner @180de6f80, MultiValueStat 7/8 hors GetStat, comme BeastSlayer).
+    "PsychicFortress_DmgReduction": PsychicFortressDmgReductionEffect,
+    "PsychicFortress_ExtraBlock": PsychicFortressExtraBlockEffect,
     # DecoysAndMisdirection (Genestealer Cults ex. genesPrimus/genesMagus/genesKelermorph) : +extraDmg
     # FLAT additif a TOUTES les attaques de l'ami buffe (pose quand un decoy est spawn a cote / qu'un ami
     # marche sur un decoy). Gate OwnerIsCaster SEUL (@180f3e340 -> applique en prediction+combat, cf.
