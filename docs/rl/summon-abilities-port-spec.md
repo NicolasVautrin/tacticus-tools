@@ -58,8 +58,10 @@ Piège de nommage corrigé (#65) : le port a longtemps eu UNE classe `ScarabSumm
   **VALIDÉ OFFLINE** (grot lvl50/mult200 injecté : trigger fire à PV pleins & >=2 tours, produit un grot hp=4432
   =config ≠ parent 7312, adjacent, ai_ctrl ; gates PV-pleins/<2-tours refusent). GAP RESTANT : observation LIVE
   isolée impraticable (GetEmRuntz/SquigHound/PileIn spawnent TOUS des grots + condition PV-pleins) -> on s'appuie
-  sur le décompilé (=vérité) + match tooltip + validation offline. Autres traits grot : `Diminutive` (réduit hits
-  entrants), `BattleFatigue` (fuite si allié adjacent tué) — déjà connus.
+  sur le décompilé (=vérité) + match tooltip + validation offline. Autres traits grot : `Diminutive` — **PORTÉ
+  + VALIDÉ LIVE (#75)** : trait 0x408=1032 -> triggered ability 0x43f=1087 (`DiminutiveAbility` @180e20c80)
+  -> owner-effect `Diminutive_HitReduction` (@180f3f550, hits @180f3f3c0) = **-1 coup sur TOUTE attaque
+  reçue** (mêlée ET ranged), plancher 1 ; `BattleFatigue` (fuite si allié adjacent tué) — déjà connu.
 
 ## GetEmRuntz (1045) + SquigHound — PORTÉS (#65) — LÈVENT le GAP level de PileIn
 

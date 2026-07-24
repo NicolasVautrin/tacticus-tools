@@ -49,6 +49,7 @@ from .loki import (
     DaemonExtraBlockEffect,
     MasterAnnihilatorAdditionalHitEffect,
     CamouflageHitReductionEffect,
+    DiminutiveHitReductionEffect,
     NeuroparasiteEffect,
     NightshroudDmgReductionEffect,
     PsychicFortressDmgReductionEffect,
@@ -266,6 +267,10 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # DryBush << Tall Grass >>), plancher 1 (@181107180, jumeau LightCover/Parry ; slot 0x23 OwnerIsTarget
     # & IsRangedAttack ; consts camouflageHitReduction_1/2/3=1/2/3). #59.
     "Camouflage_HitReduction": CamouflageHitReductionEffect,
+    # Diminutive (trait 0x408=1032, summon `orksGrot` + 3 npc) : -diminutiveHitReduction(=1) coup sur
+    # TOUTE attaque recue, plancher 1 (@180f3f3c0 = jumeau BigTarget @180f33ac0 SANS le noeud
+    # IsRangedAttack ; trigger OwnerIsTarget seul -> melee ET ranged). #75.
+    "Diminutive_HitReduction": DiminutiveHitReductionEffect,
     "MasterAnnihilator_extraHit": MasterAnnihilatorAdditionalHitEffect,  # debuff Vitruvius : +1 coup reçu (non-Psychic)
     "BigTarget_AdjacentEffect": BigTargetAdjacentEffect,  # aura : -1 coup ranged aux alliés ring-1 du porteur
     # AstartesBanner (porte-banniere Astartes ex. templAncient) : AURA +extraHits(=1) coup MELEE aux ALLIES
@@ -403,6 +408,13 @@ TRAIT_DERIVED_ABILITIES: dict[str, list[str]] = {
     # -> seed idempotent (no-op sur eux) ; AUCUN carrier SUMMON (28 npc + 0 summons) -> spawn path sans porteur
     # spawnable a ce jour (validation function-level, cf. tests/.../test_summon_trait_effects_live).
     "Terrifying": ["TerrifyingAbility"],
+    # Diminutive (trait 0x408=1032) -> triggered ability derivee 0x43f=1087 (dict Trait +0x0, lu par
+    # `Trait.GetTriggeredAbility @18157ed10`). `DiminutiveAbility` @180e20c80 =
+    # `AOwnerEffectSpecificTriggeredAbility(0x43f)` @180fb3790 ; `CreateTrigger @180fb3760` =
+    # `OnOwnerSpecificAbilityInit(0x43f)` -> pose l'owner-effect a l'init. MEME patron que Terrifying
+    # (#73). Carrier SUMMON `orksGrot` (summone par `orksRuntherd` SquigHound/GetEmRuntz, tous deux
+    # dans le pool) -> chaine CONFRONTABLE live, contrairement a Terrifying. #75.
+    "Diminutive": ["DiminutiveAbility"],
 }
 
 # Étape 2 — owner-effects posés par `<Ability>.CreateBehaviour` À L'INIT de l'ability (DSL `AddEffect(owner)`).
@@ -427,6 +439,11 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # (0x62) CreateBehaviour = AddEffect(owner, Terrifying_ExtraDefense 0x62) a l'init du porteur -> -30%
     # (globalValues.terrifyingBonus) degat MELEE recu (defender, gate IsMeleeAttack). Chaine RE'd #73.
     "TerrifyingAbility": ["Terrifying_ExtraDefense"],
+    # DiminutiveAbility (triggered 0x43f=1087 derivee du trait Diminutive) :
+    # `AOwnerEffectSpecificTriggeredAbility(0x43f)` — CreateBehaviour = AddEffect(owner,
+    # Diminutive_HitReduction) a l'init du porteur -> -1 coup sur TOUTE attaque recue, plancher 1
+    # (`Diminutive_HitReductionEffect..ctor` @180f3f550 / hits @180f3f3c0). Chaine RE'd #75.
+    "DiminutiveAbility": ["Diminutive_HitReduction"],
     # InfernalPacts (passif Abraxas, #202-B) : effet-AURA 0x4ae=1198 AUTO-PORTEUR (enregistré par
     # `EffectsDatabase.<InitializeEffects>b__14_225`, AUCUNE classe Ability — pas de CreateBehaviour à citer).
     # Seed = filet pour les états non captés (Abraxas lineup est normalement couvert par decisionView).
