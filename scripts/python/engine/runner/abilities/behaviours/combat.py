@@ -61,7 +61,9 @@ class AttackWithAttackDamage(AbilityBehaviour):
     via `AttackDamageOperation.execute_normal_like(base, pierce=profile_pierce, hits, spread_pct=0)` (montant
     MONO-valeur = AUCUNE variance d'arme), meme pipeline reduce/crit/block/after-hit que l'attaque normale.
     `hits` = nb de coups EXPLICITE du degat-node (defaut 1 en mode `amount` ; en mode bornes, None → `hits`
-    de la config via `ability_attack_params`)."""
+    de la config via `ability_attack_params`, sinon OVERRIDE la config `nrOfHits` — cas d'une ability dont le
+    natif passe un nb de coups CALCULE a `AttackWithAttackDamage` en lieu de `GetNumberConstant(0x2f)` : ex.
+    Executioner `hits = RoundsStarted @180dfa6c0` = valeur DYNAMIQUE lue au cast, PAS une constante config)."""
     __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key",
                  "damage_override", "multi", "pick_n", "amount", "hits", "ability_type", "hits_add_key",
                  "native_factory")
@@ -129,6 +131,8 @@ class AttackWithAttackDamage(AbilityBehaviour):
                     state, caster, self.ability_id, self.profile, ranged=not self.is_melee,
                     min_key=self.min_key, max_key=self.max_key, hits_key=self.hits_key,
                     hits_add_key=self.hits_add_key)
+                if self.hits is not None:                  # hits DYNAMIQUE (Executioner RoundsStarted) override config nrOfHits
+                    hits = int(self.hits)
                 if self.damage_override is not None:       # GetAttackDamage surchargee (ex. SpiritLeech +extraDmg)
                     bmin, bmax = self.damage_override(state, caster, tgt, bmin, bmax)
                 atk = AttackDamageOperation.execute_ability_attack(

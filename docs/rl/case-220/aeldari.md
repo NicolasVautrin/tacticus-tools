@@ -4,17 +4,28 @@
 
 ### §6.19 Aeldari (9 items, préfixe `eldar*`)
 
-**Constat (PROUVÉ)** : aucune active Aeldari dans ABILITY_CLASSES (combat no-op) ; les décisions
-Executioner/HarvesterOfSouls sont DÉJÀ portées+validées (couche entités/prédiction, #122).
-**Doom = COUVERT** (extra_damage.py:734, factory.py:134, validé #57c) — caveat validator : absent
-d'ABILITY_INIT_OWNER_EFFECTS, confirmer que le canal COMBAT (dégât appliqué) passe par la même voie.
+**Constat (PROUVÉ)** : les décisions Executioner/HarvesterOfSouls sont portées+validées (couche
+entités/prédiction, #122). Executioner = COMBAT PORTÉ+VALIDÉ (ci-dessous). **Doom = COUVERT**
+(extra_damage.py:734, factory.py:134, validé #57c) — caveat validator : absent d'ABILITY_INIT_OWNER_EFFECTS,
+confirmer que le canal COMBAT (dégât appliqué) passe par la même voie.
 
 ```
-[1066 Executioner | eldarFarseer]  — [opus] direct
-VAs : ExecuteBehaviour @1811d9f10 ; GetHits @1811da4a0 ; @1811da6c0 ; playbook @181130150
-Attack(target, Psychic, hits=RoundsStarted) ; si la cible MEURT → même attaque sur 1 ennemi
-adjacent random. 0 primitif manquant (If/IsDead/PickRandomly/Attack portés) ; décision validée #122.
-Risques : ordre RNG (main → pick → secondary) ; If(IsDead) évalué APRÈS le main.
+[1066 Executioner | eldarFarseer]  — COMBAT PORTÉ + VALIDÉ LIVE (native_factory #37, PR case-220)
+VAs : ExecuteBehaviour @1811d9f10 ; GetHits @1811da4a0 ; GetPotentialOtherTarget @1811da6c0 ; playbook @181130150
+Arbre (mirror decompile) : op_and( AttackWithAttackDamage(Target(), Psychic, hits=RoundsStarted),
+  If(IsDead(Target()), AttackWithAttackDamage(PickRandomly(Alive(Enemies(AdjacentUnits(TargetTile()))),1),
+  Psychic, hits=RoundsStarted, multi/pick_n=1)) ). MAIN sur la cible ; si la cible MEURT (If(IsDead) évalué
+  APRÈS le main) → même attaque (hits=RoundsStarted) sur 1 ennemi VIVANT random adjacent à la CIBLE.
+  native_factory="attack" (@180de9fb0, XREF ; PAS AttackWithAbilityDamage @180de9c90/dd0). SetCache-prime +
+  Inform(0xc1) FOLDÉS (no-op observable : mono-cible + corpse garde sa position ; bus non modélisé).
+  hits = RoundsStarted (@1811da4a0 = GetHits = SUM turnsStarted@+0x58 scope caster = stat 12, plancher
+  max(1,.)) — DYNAMIQUE, override la config nrOfHits (absente pour Executioner) via la feuille (`hits=`).
+Fichiers : runner/abilities/aeldari.py (NOUVEAU, isolé faction) ; handler.py (ABILITY_CLASSES[1066]) ;
+  behaviours/combat.py (feuille AttackWithAttackDamage : `hits` override en mode bornes) ; test_executioner_live.py.
+Validé LIVE (2 seeds, cc=0) : MAIN per-coup bit-exact port==live [2824,2186,2644]/[1208,1172,1007] (hits=3=
+  RoundsStarted) ; "ability" (1 tirage/coup) DIVERGE dès le coup 2 → discriminant native_factory. A/B tree==
+  execute_ability_attack. If(IsDead) offline : KILL→secondary 1 ennemi adjacent-cible K coups / SURVIVE→0 /
+  CAP1→1 des 2 / ANCHOR→cible (pas caster). Zero-régression : bringer/damage_roll/savage_echoes verts.
 ```
 ```
 [1067 HarvesterOfSouls | eldarMauganRa]  — [opus] direct
@@ -77,7 +88,7 @@ avec fallback. Risques : direction exacte ; dégât par position ≠ min/max uni
 [Doom | eldarFarseer passif]  — COUVERT (validé #57c ; caveat seeding combat à confirmer)
 ```
 
-**Synthèse Aeldari** : couvert = Doom ; [opus] direct = Executioner, HarvesterOfSouls ;
+**Synthèse Aeldari** : couvert = Doom ; COMBAT PORTÉ+VALIDÉ = Executioner (1066) ; [opus] direct restant = HarvesterOfSouls ;
 [opus]+prérequis = TerrorsLament < FireAndReposition < SilentDeath < InescapableAccuracy ;
 **[fable]** = WireweaveNet, SwoopingHawk. Transverses : canal CRIT-ATTAQUANT (1er user + PathOf
 Command) ; ResetMovement (partagé ItItches) ; snake-chain ; riposte pre-hit + kill-cancel.
