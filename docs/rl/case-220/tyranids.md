@@ -11,12 +11,21 @@ handler 35), CrushingClaws 1105 (splash.py:351), FeederTendrils (extra_damage.py
 d'AlphaWarrior est fonctionnel. Restent 6 items, tous ABSENTS des registres.
 
 ```
-[1145 SporeMineLauncher | tyranBiovore]  — [opus] direct (le + simple)
-VAs : ExecuteBehaviour @18120a3f0 ; gate @18120a590
+[1145 SporeMineLauncher | tyranBiovore]  — PORTÉ (COMBAT) + validé LIVE (tyranids.py ; handler 1145)
+VAs : ExecuteBehaviour @18120a3f0 ; gate @18120a590 ; corps-frère @1811b0550 (Aberrant/Ironkin)
 Spawn(tyranSmnSporeMine, TUILE-CIBLE directe, WithStatsFromConfig) — pas d'on-appearance, pas de cap.
-Template AberrantHypermorph/summon.py. Décision = NC playbook @18115d8f0 à porter (substrat présent).
-⚠ Le spore mine est INERTE offline tant que son passif de détonation FloatingDeath (kit summon SÉPARÉ)
-n'est pas porté — l'ability exécute mais l'AoE downstream = 0.
+RE : @18120a3f0 == structure Spawn de @1811b0550 (Aberrant/Ironkin live-validé) MOINS le volet
+on-appearance (PerformAIAttackFromCurrentPosition + *(options+0x18)=onAppearance ABSENTS ici) — vérifié
+par comparaison des deux décompilés. gate @18120a590 : tuile valide ssi PAS occupée par un ennemi.
+Feuille SpawnSporeMine -> _spawn_config_grot (Operation live-validée par ScarabHive/Aberrant/Ironkin).
+VALIDATION LIVE (Biovore SPAWNABLE en MoW `--p-mow tyranBiovore`) : cast natif spawn UN tyranSmnSporeMine
+sur la tuile ciblée, hp=summonHp[50]x150%=1664 BIT-EXACT vs port, owner=(team1,player3), 0 dégât
+on-appearance, gate exclut les tuiles ennemies. 2 boards/tuiles (C4_41 (3,2) ; pool (0,1)) + test committé
+test_spore_mine_launcher_live.py (3 tests PASS). Décision NC playbook @18115d8f0 = tâche PLAYBOOK séparée.
+⚠ RÉSIDU (hors périmètre COMBAT) : le spore mine est INERTE offline tant que son passif de détonation
+FloatingDeath (kit summon SÉPARÉ) n'est pas porté — l'ability exécute (mine posé, PV réels) mais l'AoE
+downstream = 0. tyranSmnSporeMine n'ayant NI arme NI ability active (summonDmg=0), rien d'observable hors
+son existence. Port FloatingDeath = tâche summon-downstream séparée (cf. Transverses ci-dessous).
 ```
 ```
 [1112 AlphaWarrior | tyranWingedPrime]  — [opus] direct
@@ -65,8 +74,9 @@ Même dépendance FloatingDeath que SporeMineLauncher.
 ```
 
 **Synthèse Tyranids** : couverts = SpiritLeech, CrushingClaws, FeederTendrils, Neuroparasite,
-GuardianOrganism ; [opus] direct = SporeMineLauncher, AlphaWarrior ; [opus]+prérequis =
-BarbedOvipositor, SynapticLinchpin, FearOfTheUnseen (escalade possible) ; **[fable]** = BioMinefield.
+GuardianOrganism, **SporeMineLauncher (PORTÉ COMBAT + validé LIVE bit-exact, tyranids.py)** ; [opus]
+direct = AlphaWarrior ; [opus]+prérequis = BarbedOvipositor, SynapticLinchpin, FearOfTheUnseen
+(escalade possible) ; **[fable]** = BioMinefield.
 Transverses : repeat-until-cap spawn générique (SynapticLinchpin + BioMinefield) ; trigger réactif
 cross-unit ; **kits de summons Tyranides downstream** (tyranSmnSporeMine.FloatingDeath,
 tyranSmnRipperSwarm.Burrowers, tyranSmnHormagaunt.AdrenalGlands) = tâche séparée sans laquelle les
