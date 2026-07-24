@@ -105,6 +105,60 @@ def test_bigtarget_summon_seeds_via_derived_ability(rpc, build_runner):
     assert hasattr(bt, "create_aura_hits_malus_for_defense"), "methode aura absente"
 
 
+def test_diminutive_summon_seeds_via_derived_ability(rpc, build_runner):
+    """#75 — orksGrot (trait Diminutive 0x408=1032) : `Diminutive_HitReduction` seede via le chemin
+    trait->ability derivee (`Trait.GetTriggeredAbility @18157ed10` -> TriggeredAbilityType.Diminutive
+    0x43f=1087 -> `DiminutiveAbility` @180e20c80 = `AOwnerEffectSpecificTriggeredAbility(0x43f)`
+    @180fb3790, `CreateTrigger @180fb3760` = OnOwnerSpecificAbilityInit -> AddEffect(owner)).
+
+    GROUND TRUTH LIVE (runner 1155, orksRuntherd GetEmRuntz) : les grots spawnes portent
+    `UnitStats_TriggeredAbility_Id=1087` ET l'effet `Diminutive_HitReduction` (decisionView).
+    Materialise en CLASSE (pas un BaseEffect no-op) sinon la reduction de coups serait perdue."""
+    state, dec = _load(rpc, build_runner)
+    sid = _spawn(state, dec, "orksGrot")
+    effs = state.effects.active_effects(sid, {"hp": 1}) if state.effects is not None else []
+    names = [getattr(e, "name", None) for e in effs]
+    dim = next((e for e in effs if getattr(e, "name", None) == "Diminutive_HitReduction"), None)
+    print(f"\n[DIMINUTIVE] summon effects={names} class={type(dim).__name__ if dim else None}")
+    assert dim is not None, f"Diminutive_HitReduction NON seede au spawn : {names}"
+    assert type(dim).__name__ == "DiminutiveHitReductionEffect", \
+        f"effet materialise en {type(dim).__name__} (attendu DiminutiveHitReductionEffect, pas un no-op)"
+
+
+def test_diminutive_reduces_hits_melee_and_ranged(rpc, build_runner):
+    """#75 — le trigger natif @180f3f3c0 est `OwnerIsTarget` SEUL (aucun noeud IsMelee/IsRanged, aucun
+    gate de profil) : la reduction s'applique aux DEUX axes. C'est ce qui DISCRIMINE Diminutive de
+    Parry (melee-only @180f5d860) et Camouflage (ranged-only @181107180) — un port qui recopierait
+    l'un de ces deux jumeaux echouerait ici.
+
+    GROUND TRUTH LIVE (runner 1155, A/B meme attaquant u83 orksBigMek arme 4 coups, ability 69,
+    Attack_Weapon_IsMelee=1) : vs u77 orksRuntherd (sans Diminutive) = 4 coups d'arme ; vs u120 Grot
+    (Diminutive) = 3 coups d'arme -> exactement -1 EN MELEE."""
+    from engine.entities.effects import hits_malus_from_defender_effects
+    state, dec = _load(rpc, build_runner)
+    sid = _spawn(state, dec, "orksGrot")
+    effs = state.effects.active_effects(sid, {"hp": 1}) if state.effects is not None else []
+    melee = hits_malus_from_defender_effects(effs, is_melee=True)
+    ranged = hits_malus_from_defender_effects(effs, is_melee=False)
+    print(f"\n[DIMINUTIVE-HITS] melee={melee} ranged={ranged}")
+    assert melee == -1, f"malus MELEE attendu -1 (ground truth live 4->3 coups), obtenu {melee}"
+    assert ranged == -1, f"malus RANGED attendu -1 (trigger OwnerIsTarget SEUL), obtenu {ranged}"
+
+
+def test_control_summon_without_diminutive_keeps_hits(rpc, build_runner):
+    """#75 CONTROLE — un summon SANS le trait Diminutive n'ecope d'aucun malus de coups (garde contre
+    un seed pose a tort sur tout summon)."""
+    from engine.entities.effects import hits_malus_from_defender_effects
+    state, dec = _load(rpc, build_runner)
+    sid = _spawn(state, dec, "necroSmnSwarm")     # Summon/LivingMetal/Mechanical/Swarm/Flying
+    effs = state.effects.active_effects(sid, {"hp": 1}) if state.effects is not None else []
+    names = [getattr(e, "name", None) for e in effs]
+    assert "Diminutive_HitReduction" not in names, f"Diminutive seede a tort : {names}"
+    for melee in (True, False):
+        assert hits_malus_from_defender_effects(effs, is_melee=melee) == 0, \
+            f"malus de coups non nul sur un summon sans Diminutive : {names}"
+
+
 def test_shadow_in_the_warp_summon_seeds_via_derived_ability(rpc, build_runner):
     """tyranSmnWarrior (trait ShadowInTheWarp) : ShadowInTheWarp_LessDmg_Effect seede via trait->ability
     derivee (ShadowInTheWarp_AddEffectAbility)->AddEffect, materialise en classe aura de reduction Psychique

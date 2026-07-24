@@ -551,6 +551,42 @@ class ParryEffect(BaseEffect):
         return for_addition(True, -int(n)) if n else None
 
 
+class DiminutiveHitReductionEffect(BaseEffect):
+    """`Diminutive_HitReductionEffect.CreateEffectHitsBonusForAttack` @180f3f3c0 (trait `Diminutive`
+    0x408=1032, x3 npc + summon `orksGrot`) — jumeau INCONDITIONNEL de Parry/Camouflage cote DEFENSE.
+    i2 : << Due to its tiny stature, this unit reduces incoming multi-hit attacks by {hitsReduction}
+    hit, to a minimum of 1. >>
+
+    Natif @180f3f3c0 = `ForAdditionWithMinimum(OwnerIsTarget, Direct(-ConfigConst(0x2c=hitsReduction)),
+    min=Direct(1))` — structure IDENTIQUE a `BigTargetAdjacentEffect.CreateEffectHitsBonusForAttack`
+    @180f33ac0 (memes slots inlines : valeur, minimum, trigger) **MOINS le noeud `IsRangedAttack`** :
+    le trigger est `OwnerIsTarget` SEUL -> la reduction s'applique a TOUTE attaque recue (melee ET
+    ranged), contrairement a Parry (melee-only @180f5d860) et Camouflage (ranged-only @181107180).
+    Le plancher `min=Direct(1)` est applique chez les consommateurs de coups (`max(1, ...)`), comme
+    pour Parry/LightCover/Camouflage — d'ou l'absence de clamp ici.
+
+    CHAINE trait -> effet (mirror #73 Terrifying) : `Trait.GetTriggeredAbility @18157ed10` mappe le
+    trait `Diminutive` -> `TriggeredAbilityType.Diminutive` 0x43f=1087 ; `AddTraitOperation.
+    AddDerivedAbilities @180e513c0` ajoute `DiminutiveAbility` @180e20c80 (=
+    `AOwnerEffectSpecificTriggeredAbility(0x43f)` @180fb3790, enregistree par `AbilitiesDatabase.
+    <InitializeTriggeredAbilities>b__28_89` @181025ae2) ; son `CreateTrigger @180fb3760` =
+    `OnOwnerSpecificAbilityInit(0x43f)` -> a l'init du porteur, la behaviour pose l'owner-effect
+    `Diminutive_HitReduction` (`Diminutive_HitReductionEffect..ctor` @180f3f550, enregistre par
+    `EffectsDatabase.<InitializeEffects>b__14_108` @181081136).
+
+    MAGNITUDE : `ConfigConst 0x2c` = MEME slot que `parryHitReduction` / `camouflageHitReduction_1`
+    (l'ability Diminutive n'existe pas dans `units.abilities` -> le slot numberConstant du config
+    Loki-triggered est seede depuis les vars de trait) = `traitVariables.diminutiveHitReduction` = 1."""
+
+    def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
+                                             damage_profile: str | None = None,
+                                             defender_on_cover: bool | None = None,
+                                             dist: int | None = None) -> EffectBonus | None:
+        # trigger natif = OwnerIsTarget SEUL (@180f3f3c0) : AUCUN gate melee/ranged, aucun gate profil.
+        n = trait_var("Diminutive", "diminutiveHitReduction")   # ConfigConst 0x2c (=1)
+        return for_addition(True, -int(n)) if n else None
+
+
 class CamouflageHitReductionEffect(BaseEffect):
     """`Camouflage_HitReductionEffect.CreateEffectHitsBonusForAttack` @181107180 (effet 0x46e=1134
     'Camouflage_HitReduction', trait Camouflage 1037, ex. admecRuststalker Exitor-Rho) - jumeau RANGED

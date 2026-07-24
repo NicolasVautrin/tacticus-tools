@@ -10,6 +10,16 @@ pour : cibles multi-membres (member-cap), trait Resilient (1009), trait Impervio
 
 ⚠ Le dégât est un int (borne min ou max), traité séparément (le natif appelle chaque Apply 2× : une
 fois sur *param_3=min, une fois sur *param_4=max). Ici on opère sur UNE borne (int) ; l'appelant boucle.
+
+`UnitTrait.TwoManTeam` (0x3fa=1018) — RIEN À PORTER, le trait est un TAG DE TOOLTIP (#75). Preuve RE :
+`HasTrait(x, 0x3fa)` n'existe NULLE PART dans le binaire (les 7 occurrences de `,0x3fa,` sont
+ValkyrieStrike/ActOfFaith = `ActiveAbilityType` 1018, homonyme d'id). Le tooltip (« max 50% des PV max
+d'un seul coup, hors Blast ; sous 50%, plus soignable au-dessus de 50% ») décrit EXACTEMENT le
+comportement GROUP-UNIT à `nrOfMembers == 2`, keyé sur le NOMBRE DE MEMBRES : cap par-coup =
+`apply_group_unit_damage_limit` (= 1 membre = 50% de maxHP à 2 membres), exclusion Blast = le
+early-return `DamageTrait.HitsMultipleMembers` (seul le profil Blast le porte), plafond de soin =
+`get_group_unit_heal_limit`/`is_at_group_unit_heal_limit`. Les 6 porteurs du trait ont TOUS
+`nrOfMembers == 2`. Identité verrouillée par `tests/engine/test_two_man_team_group_cap.py`.
 """
 from __future__ import annotations
 

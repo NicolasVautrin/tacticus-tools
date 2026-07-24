@@ -30,6 +30,17 @@ Synapse_AddEffectAbility, ShadowInTheWarp_AddEffectAbility, ParryAbility, Diminu
 
 (Chaque sous-classe = decompiler son ctor pour lire l'EffectType possede `@+0x60`.)
 
+Resolues a ce jour (ctor lu + effet materialise + seed `TRAIT_DERIVED_ABILITIES`/`ABILITY_INIT_OWNER_EFFECTS`) :
+- **CrushingStrikeTraitAbility** (#101b) — trait 1044 -> ability 1186 -> effet 1186.
+- **TerrifyingAbilityAbility** (#73) — trait 34 -> ability 0x62 -> `Terrifying_ExtraDefense`.
+- **DiminutiveAbility** (#75) — `..ctor @180e20c80` = `AOwnerEffectSpecificTriggeredAbility(0x43f)` ;
+  `UnitTrait.Diminutive=1032` (0x408) -> `TriggeredAbilityType.Diminutive=1087` (0x43f) -> owner-effet
+  `Diminutive_HitReduction` (`..ctor @180f3f550`, meme `AbilityOrEffect.op_Implicit(0x43f)` ;
+  `EffectType.Diminutive_HitReduction=1085` est l'axe d'enum du NOM, distinct du 0x43f de l'ability).
+  Canal `CreateEffectHitsBonusForAttack @180f3f3c0` = `ForAdditionWithMinimum(OwnerIsTarget,
+  Direct(-ConfigConst 0x2c), min=Direct(1))`. GROUND TRUTH live : les grots spawnes par
+  `orksRuntherd`/GetEmRuntz portent `UnitStats_TriggeredAbility_Id=1087` + l'effet `Diminutive_HitReduction`.
+
 ## Le gap runner (pourquoi #101b / #160)
 
 Le runner offline seed `State.effects` UNIQUEMENT depuis `decisionView.effects` live-capture

@@ -49,7 +49,8 @@ from .hits import (SquigHoundAdditionalHitsEffect, CordClawAdditionalHitsEffect,
                    BeastSlayerExtraBlockEffect, DaemonExtraBlockEffect,
                    PsychicFortressExtraBlockEffect,
                    FightingRetreatHitReductionEffect, LightCoverEffect,
-                   ParryEffect, CamouflageHitReductionEffect, MasterAnnihilatorAdditionalHitEffect,
+                   ParryEffect, DiminutiveHitReductionEffect, CamouflageHitReductionEffect,
+                   MasterAnnihilatorAdditionalHitEffect,
                    BigTargetAdjacentEffect,
                    AstartesBannerExtraHitEffect, PowerTripFullHealthEffect, PowerTripIgnoreArmorEffect,
                    KanOpenerEffect, LIGHT_COVER_TILE_ID)
@@ -93,7 +94,7 @@ __all__ = [
     "AnvilShieldAdditionalBlockEffect", "BeastSlayerExtraBlockEffect",
     "DaemonExtraBlockEffect", "PsychicFortressExtraBlockEffect",
     "FightingRetreatHitReductionEffect", "LightCoverEffect", "ParryEffect",
-    "CamouflageHitReductionEffect",
+    "CamouflageHitReductionEffect", "DiminutiveHitReductionEffect",
     "MasterAnnihilatorAdditionalHitEffect", "BigTargetAdjacentEffect", "AstartesBannerExtraHitEffect",
     "PowerTripFullHealthEffect", "PowerTripIgnoreArmorEffect", "KanOpenerEffect", "LIGHT_COVER_TILE_ID",
     # status
