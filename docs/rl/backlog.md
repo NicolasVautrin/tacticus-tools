@@ -30,6 +30,7 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 | #20 | Port des kits par faction (ex-« Roadmap AdMec », généralisée à TOUTES les factions) | `[opus]` | `port-roadmap.md` §5 + `kit-coverage.md` (119 kits, 249 items ; piocher par faction, exceptions dures en §5.2). Audits régénérables : `audit_kit_coverage.py` / `audit_combat_ability_coverage.py`. |
 | #5 | Chantier `DslContext` live-state | `[opus]` | Architecture à poser, pas d'énigme à trancher. |
 | #17 | Surveillance des 2 résidus `move` | `[opus]` | Nature RNG, non actionnable — veille seulement. |
+| #66-r | Retrofit des autres consommateurs de la base `ReviveEffect` (revive-en-place) | `[opus]` | `case-66-revive-in-place` §6 : la base + `ReviveUnitOperation` sont PORTEES/VALIDEES (TaintedNarthecium). Ne restent que FILTRE + vars + gate overkill/HealType par sous-classe, chacune EXIGE un carrier spawnable validable : **Narthecium** (ultraApothecary Imperial, `@180f5ae20/@180f5acf0`, non-Mechanical + **unless Overkilled** byte 0x738=0 + chance=100) ; **RitesOfMorkai/FuelledByFury** (spaceWolfPriest 1211, `@180f4ab10`/`@180f810c0/@180f81250`) ; **GhostRevive/TimeFlux** (thousTerminator, `@180f83600/@180f83800`) ; **PhoenixGem_CanReviveEffect** (`@180f5e680/@180f5e4a0`, ability `@181111610/@1811117b0`) ; **ReanimationBeam** (`@180f67b90/@180f67ac0`, carrier a identifier). NB : Narthecium = ajouter le gate `NOT ev.overkill` (contraste TaintedNarthecium). |
 
 ## Résidus documentés (pas encore des tâches)
 

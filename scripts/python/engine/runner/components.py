@@ -45,9 +45,17 @@ class UnitComponent(Component):
     ENTRANT par `StartTurnOperation.ResetUnit @180ea5a10` → `ResetReceivedDamageThisTurn @180f923c0`).
     Consommé par le sélecteur `UnitsThatTakenDamageThisTurn` (WeaverOfFate : ContainsKey(Psychic=13)).
     NB : logé ici (comme `times_attacked_this_turn`) alors que le foyer natif est un composant
-    ActorStatistics dédié — résidu structurel documenté (case-202 §6)."""
+    ActorStatistics dédié — résidu structurel documenté (case-202 §6).
+
+    `revive_used_this_turn` = gate ONCE-PER-TURN du passif revive-en-place (`ReviveEffect`, ex.
+    TaintedNarthecium de deathRotbone / Narthecium de l'Apothicaire, case-66). Mirror de la
+    DÉSACTIVATION de l'effet (`DeactivateEffect`, 2e volet du `CreateTargetTriggerBehaviour @180f46a70`
+    exécuté APRÈS un revive réussi) : une fois l'effet désactivé, son trigger ne fire plus jusqu'à
+    RÉACTIVATION au début de tour. Posé à True par la feuille `ConsumeReviveGate` (revive.py), remis à
+    False pour TOUTES les unités au turn-start (`reset_revive_gates`, comme `times_attacked_this_turn`).
+    i2 « Can only be triggered once per turn »."""
     __slots__ = ("visual_id", "alive", "ai_controlled", "turn_defeated", "times_attacked_this_turn",
-                 "received_damage_this_turn")
+                 "received_damage_this_turn", "revive_used_this_turn")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False):
         self.visual_id = visual_id
@@ -56,6 +64,7 @@ class UnitComponent(Component):
         self.turn_defeated = None
         self.times_attacked_this_turn = 0
         self.received_damage_this_turn: dict = {}
+        self.revive_used_this_turn = False
 
 
 class OwnerComponent(Component):
