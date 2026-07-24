@@ -41,7 +41,8 @@ from __future__ import annotations
 
 from .context import entities_from_state, LiveUnit, _unit_dict
 from .summon import Spawn, PerformAIAttack, SpawnSummon, SpawnReplica
-from .combat import AttackWithAttackDamage, AttackWithAbilityDamage, EvaluateAbilities, UseActiveAbility
+from .combat import (AttackWithAttackDamage, AttackWithAbilityDamage, EvaluateAbilities,
+                     UseActiveAbility, InformWeapon)
 from .effects import (AddBondEffect, AddEffect, RemoveEffect, SetOnFire, CreateShield,
                       _add_effect_targets, _add_effect_target_id)
 from .stats import Heal, ChangeStat, SetHealth, is_mechanical, healable_heal_type_0
@@ -52,6 +53,7 @@ __all__ = [
     "entities_from_state", "LiveUnit",
     "Spawn", "PerformAIAttack", "SpawnSummon", "SpawnReplica",
     "AttackWithAttackDamage", "AttackWithAbilityDamage", "EvaluateAbilities", "UseActiveAbility",
+    "InformWeapon",
     "AddBondEffect", "AddEffect", "RemoveEffect", "SetOnFire", "CreateShield",
     "Heal", "ChangeStat", "SetHealth", "is_mechanical", "healable_heal_type_0",
     "PushUnit", "MoveUnit",

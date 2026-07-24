@@ -64,12 +64,13 @@ class AttackWithAttackDamage(AbilityBehaviour):
     de la config via `ability_attack_params`)."""
     __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key",
                  "damage_override", "multi", "pick_n", "amount", "hits", "ability_type", "hits_add_key",
-                 "native_factory")
+                 "native_factory", "force_overkill")
 
     def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True,
                  min_key: str = "minDmg", max_key: str = "maxDmg", hits_key: str = "nrOfHits",
                  damage_override=None, multi: bool = False, pick_n=None, amount=None, hits=None,
-                 ability_type=None, hits_add_key=None, native_factory: str = "attack"):
+                 ability_type=None, hits_add_key=None, native_factory: str = "attack",
+                 force_overkill: bool = False):
         self.target_sel, self.ability_id, self.profile, self.is_melee = target_sel, ability_id, profile, is_melee
         self.min_key, self.max_key, self.hits_key = min_key, max_key, hits_key
         self.damage_override, self.multi, self.pick_n = damage_override, multi, pick_n
@@ -94,6 +95,12 @@ class AttackWithAttackDamage(AbilityBehaviour):
         #             coup (mesure bit-exact Stormcaller 3-hit, probe_217). Classifier par les XREFS de
         #             l'`ExecuteBehaviour` natif de l'ability (quelle factory est appelee), JAMAIS au juge.
         self.native_factory = native_factory
+        # `force_overkill` = flag « always overkilled » (Nullable<bool>=true, 8e arg de
+        # `DSLFactory.AttackWithAttackDamage @180de9fb0`) : force `overkill=True` par coup ->
+        # BYPASSE le cap Resilient (`ApplyResilientTraitDamageLimit @18102c3a0`). No-op cible
+        # non-Resilient. Porteur : FlailSwing (1042, deathBlightlord). Defaut False. Mode bornes
+        # uniquement (route par `execute_ability_attack`).
+        self.force_overkill = force_overkill
 
     def execute(self, entities, ectx):
         from ...operations.damage import AttackDamageOperation
@@ -135,7 +142,8 @@ class AttackWithAttackDamage(AbilityBehaviour):
                     state, caster, tgt, bmin, bmax, pierce, hits,
                     damage_profile=self.profile, is_melee=self.is_melee,
                     ability_type=self.ability_type,
-                    wasted_resolve=(self.native_factory != "ability"))
+                    wasted_resolve=(self.native_factory != "ability"),
+                    force_overkill=self.force_overkill)
             ectx.emit("AttackWithAttackDamage", caster=caster, target=tgt,
                       total=(atk or {}).get("total"), attack=atk)
         return OperationResult.ok()
@@ -193,6 +201,32 @@ class AttackWithAbilityDamage(AbilityBehaviour):
                                                        damage_profile=self.profile)   # #202 : cle "recu ce tour"
         ectx.emit("AttackWithAbilityDamage", source=src, target=tgt,
                   total=(atk or {}).get("total"), attack=atk)
+        return OperationResult.ok()
+
+
+class InformWeapon(AbilityBehaviour):
+    """`DSLFactory.InformWeapon @180df2010` -> `ActivateEffectBehaviour` (Execute @180f8d710) :
+    POSE une metadata d'arme (dict {key 0x93 = weaponId derive du profil->nom d'arme, 0x92 = damageProfile,
+    0x94 = flag optionnel}) via l'operation 0x2c (`ActivateEffectBehaviour.Execute` itere le dict et applique
+    l'op 0x2c a chaque entree). C'est le CANAL weapon-inform : PAS un degat, PAS un stat-mod, PAS un effet
+    de combat, AUCUN tirage RNG, AUCUNE mutation de PV/stat -> COMBAT-INERTE (verifie decompile
+    `ActivateEffectBehaviour.Execute @180f8d710` = pose de metadata, pas de HealthComponent/StatComponent).
+
+    Consommateurs de ce canal = les triggers on-attack SPECIFIQUES a l'arme (ex. `HazeOfCorruption` du
+    deathBlightlord, passif SEPARE hors face COMBAT) + la couche VISUELLE (`FlailSwingVisuals`). Porte pour
+    MIRRORER la structure de l'arbre (`op_BitwiseAnd(InformWeapon, AttackWithAttackDamage)`, FlailSwing
+    @1811ded80) — precedent structurel-no-op : `KillDeadUnits` (ThunderousAssault, mort deja finalisee inline).
+    Deterministe et sans effet observable -> n'altere PAS l'ordre `state.rng` de l'attaque qui le suit dans le
+    `op_and` : bit-exactness de l'attaque preservee BY CONSTRUCTION. Emet 'InformWeapon' (diagnostic). PUR."""
+    __slots__ = ("profile",)
+
+    def __init__(self, profile: str):
+        self.profile = profile
+
+    def execute(self, entities, ectx):
+        # Canal weapon-inform (metadata) : no-op pour la face COMBAT (HP/degat/effets). Le trigger
+        # consommateur (Haze) est un passif separe, hors scope de ce behaviour.
+        ectx.emit("InformWeapon", profile=self.profile)
         return OperationResult.ok()
 
 
