@@ -9,10 +9,25 @@ DespoiledGround + extra-hit) : enum présent, NON wiré TRAIT_TRIGGERS — signa
 items MISSING listés).
 
 ```
-[1022 BringerOfDespair | blackTerminator]  — [opus] direct (le + facile)
-VAs : ExecuteBehaviour @1811be740 ; @1811bebc0/@180fb1690/@1811beb50 ; playbook @181123c40
-Attack(target, 4x Power) & Attack(PickRandomly(adjacents-caster − target, 1), 4x) — template
-GauntletsOfUltramar/splash. 0 prérequis. Risques : RNG PickRandomly ; « x2 fatigue » ignoré (no-op dégât).
+[1022 BringerOfDespair | blackTerminator]  — [opus] direct — PORTE + VALIDE (2026-07-24, blacklegion.py)
+VAs : ExecuteBehaviour @1811be740 ; GetValidBonusTargets @1811bebc0 / GetHitsToBonusTarget @180fb1690 /
+      GetDamageProfile @1811beb50 ; playbook @181123c40
+ExecuteAtomic( op_BitwiseAnd(
+    AttackWithAttackDamage(caster@0x160, target@0x178, MinMaxDamage, Power, nrOfHits(0x2f)=4),          # MAIN
+    AttackWithAttackDamage(caster@0x160,
+        PickRandomly( Damageable(Enemies(AdjacentUnits(casterTile@0x168, r=1))) − Target()@0x178, 1 ),
+        MinMaxDamage[PARTAGE], Power, nrOfHits_2(0x32)=4) ), 0x45 )                                     # BONUS
+Bonus ANCRE SUR LE CASTER (CasterTile @0x168, PAS TargetTile) -> ennemi random adjacent a Angrax != cible.
+native_factory="attack" (les 2 volets = DSLFactory.AttackWithAttackDamage @180de9fb0, VERIFIE callees).
+Port = template splash `loki/splash.py` (Sub/Damageable/Enemies/AdjacentUnits/CasterTile) ; classe
+`BringerOfDespairAbility` + arbre `bringer_of_despair_tree()`. Test `test_bringer_of_despair_live.py`
+(3 tests : cast live ciblage main+bonus adjacent-caster + A/B bit-exact offline ; discriminant caster-anchor
+B-adjacent-caster frappe / D-adjacent-cible NON frappe ; discriminant cap-1 PickRandomly(1) + exclude-target).
+CONFOUND CONFIRME (decompile) : Angrax porte le TRAIT FACTION `LetTheGalaxyBurn` (1482, triggered
+`LetTheGalaxyBurnEffect.CreateAdditionalHits @180f54e30` = EffectAdditionalHits +1 coup/attaque COMPOSE) ->
+LIVE = 5+5 coups = 4 (BringerOfDespair) + 1 (trait). Le trait est HORS de @1811be740 et NON WIRE (transverse,
+cf. synthese) -> per-coup-vs-live NON bit-exact (le coup extra decale le flux RNG) ; validation = ciblage LIVE
+(non confondu) + A/B OFFLINE bit-exact + magnitude config. « x2 fatigue » (i2) = no-op degat (absent du tree).
 ```
 ```
 [1036 FrenziedFiring | blackObliterator]  — [opus]+prérequis
@@ -85,10 +100,15 @@ VAs : ExecuteBehaviour @1811e50e0 ; playbook @181140a60 (prediction.py:1031 note
 Rejoint le groupe DaemonicOrdnance/PlagueburstMortar/Malleus/DutyEternal.
 ```
 
-**Synthèse BL** : [opus] direct = BringerOfDespair ; [opus]+prérequis = FrenziedFiring, Possession,
+**Synthèse BL** : [opus] direct = BringerOfDespair (**PORTE + VALIDE**, blacklegion.py) ; [opus]+prérequis = FrenziedFiring, Possession,
 FleshmetalGuns (runner-face), HeadClaimer, FirstAmongTraitors, Herald, Drachnyen (borderline) ;
 **[fable]** = HatefulAssault (vecteur before-move) ; BLOQUÉ MoW = HadesAutocannons. NOUVEAUX
 transverses : kill-events KILLER-side On(53/54) + IsDefeatedByMeleeAttack (Possession, HeadClaimer) ;
 Modulo + rotation d'effets turn-start (FleshmetalGuns) ; effet-dérivant-triggered persistant
-(Drachnyen) ; trait faction LetTheGalaxyBurn 1482 non wiré. HYPOTHÈSES : GetHitsForOriginalTarget
+(Drachnyen) ; trait faction LetTheGalaxyBurn 1482 non wiré (RE'd via BringerOfDespair : triggered
+`LetTheGalaxyBurnAbility.CreateTrigger @1811076f0` On(5)&OwnerIsCaster + `LetTheGalaxyBurnEffect.
+CreateAdditionalHits @180f54e30` = `EffectAdditionalHits.Create` FirstHitInCurrentAttackDamageRange, gate
+OwnerIsCaster & (TargetHasTileEffect DespoiledGround | IsPersistentData 0x5ca) ; +1 coup/attaque COMPOSE sur
+CHAQUE attaque du porteur -- confirme live sur BringerOfDespair 5+5=4+1 ; extra-hit template hits.py comme
+FleshmetalGuns 1067/1212/1221). HYPOTHÈSES : GetHitsForOriginalTarget
 au bit ; event 53 vs 54 ; Not(AreEqual(Tiles,dest)) HatefulAssault ; index ConfigVar FirstAmongTraitors.
