@@ -1,14 +1,33 @@
 > Tranche de la campagne de classification [case-220](../case-220-classification-campaign.md) — protocole, sommaire et ledger §T (prerequis transverses) dans le fichier maitre.
 
-### §6.10 Votann (8 items après exclusion PrioritisedEfficiency x4 ; namespace natif « Loki » ; RIEN de porté — ni combat ni décision)
+### §6.10 Votann (8 items après exclusion PrioritisedEfficiency x4 ; namespace natif « Loki » ; IronkinSteeljack COMBAT porté — reste 7 items)
 
 ```
-[1219 IronkinSteeljack | votanMemnyr]  — [opus] direct (le + facile)
-VAs : ctor @1811ebc30 (ExecuteBehaviour hérité gshared, non attaché — à pinner via vtable ; forme =
-      TestSummonAbility @1811c7cd0) ; playbook @181146a60/@181146860
-Spawn(votanSmnSteeljack, hex libre adjacent-self, WithStatsFromConfig, count=1, onAppearance attaque,
-no-move-this-turn). Template EXACT summon.py. Risques : count=1 (pas le 2 littéral de TestSummon) ;
-flag no-move.
+[1219 IronkinSteeljack | votanMemnyr]  — [opus] direct — PORTE + valide offline (etat reel), live-cast BLOQUE headless
+VAs : ctor @1811ebc30 ; ExecuteBehaviour = @1811b0550 (gshared DEDUPLIQUE, NON attache) ; playbook @181146a60/@181146860
+RE RESOLU (le "forme = TestSummon" du resume etait imprecis) : l'ExecuteBehaviour d'IronkinSteeljack N'A PAS de
+symbole dedie ; son slot methodPointers (@0x1830f8110, juste apres son ctor @1811ebc30 @0x1830f8108) pointe vers
+@1811b0550 = EXACTEMENT le slot ExecuteBehaviour d'AberrantHypermorph (@0x1830f6fb0, apres son ctor @1811b0730
+@0x1830f6fa8). IL2CPP a DEDUPLIQUE deux corps byte-identiques -> IronkinSteeljack = CLONE EXACT d'AberrantHypermorph
+(1166), seule la config per-instance differe. ctor @1811ebc30 = TargetingOptions(0, statsFromClass, 1, 0x1040) +
+AActiveAbility(...,2,0) IDENTIQUE a AberrantHypermorph @1811b0730 (le "2" != count spawn). gameconfig =
+{unitId: votanSmnSteeljack} + summonHp/summonDmg/summonArmor (memes variables que 1166), PAS de count -> count=1
+(confirme : @1811b0550 n'a PAS le Nullable(2)@options+0x40 de TestSummon @1811c7cd0). onAppearance = attaque
+(PerformAIAttackFromCurrentPosition installe @options+0x18 dans @1811b0550 -- present, contrairement a TestSummon).
+Arbre : Spawn(votanSmnSteeljack, TILE adjacent-self, WithStatsFromConfig(AbilityLevelAmount(Self,1219)), count=1,
+onAppearance PerformAIAttack). no-move-this-turn : 1219 hors des frozensets base.py -> defauts (SetsEndTurnFlags=True)
+-> FinishUnitTurn (caster no-move). Flag 0x23 sur le SUMMON = no-op runner (comme 1166).
+PORT : engine/runner/abilities/votann.py (feuille SpawnSteeljack = clone SpawnAberrant config 1219) ; handler.py
+ABILITY_CLASSES[1219]. VALIDE offline (test_ironkin_steeljack_live.py FACE 1, etat REEL charge, level 50 mult 180 :
+spawn 1 votanSmnSteeljack, hp_max=8973=summonHp[50]x180, atk=2992=summonDmg[50]x180, on-appearance total=843,
+turn_finished=True) + zero-regression (aberrant + damage).
+BLOCKER LIVE-CAST (environnement, PAS le port) : votanMemnyr absent du seed BC standard (injecte au catalogue Units
+en memoire, buildNormalizedBC recalcule ses stats reelles -> spawn OK comme p-unit, 1219 usable level 50). MAIS le
+cast NATIF de 1219 leve un "system error" = FindFirstObjectByType (query scene Unity absente en runner HEADLESS),
+SPECIFIQUE au spawn de votanSmnSteeljack (config gameconfig, inchangeable par edit catalogue). Controles : (a)
+AberrantHypermorph spawn OK live meme session ; (b) mon votanMemnyr synthetique + ability 1166 spawn genesSmnAberrant
+OK (caster synthetique SAIN) -> le blocage est intrinseque a votanSmnSteeljack en headless, orthogonal au port (dont
+le corps natif est byte-identique a 1166 live-valide). Live-cast confront = residu d'ENVIRONNEMENT documente.
 ```
 ```
 [1221 AugmentedAssault | votanBeserk]  — [opus] direct
@@ -70,7 +89,7 @@ prédicat WasBlock (event UnitBlocked=61) ; SortUnitsByDamageUtility. Risques : 
 Clear au re-cast.
 ```
 
-**Synthèse Votann** : [opus] direct = IronkinSteeljack, AugmentedAssault, GravitonRifle (attaque) ;
+**Synthèse Votann** : [opus] direct = IronkinSteeljack (PORTE), AugmentedAssault, GravitonRifle (attaque) ;
 [opus]+prérequis = PredictiveGuidance, GrimEfficiency (gate stance) ; **[fable]** = FuryFromTheDelve,
 EcogSupport, AncestralFortune. Débloqueurs faction : **persistent-data** (2 items ; une fois posé,
 Fury/Fortune retombent quasi-[opus]), **canal pierce-ratio** (GravitonRifle + GrimEfficiency),
