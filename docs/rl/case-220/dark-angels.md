@@ -3,10 +3,27 @@
 ### §6.5 DarkAngels (13 items ; faction native id 10, codename « Loki » ; DarkTalonStrike exclu)
 
 ```
-[1150 PlasmaCannon | darkaTerminator]  — [opus] direct, ZÉRO prérequis (le + facile de la faction)
+[1150 PlasmaCannon | darkaTerminator]  — [opus] direct — PORTÉ + VALIDÉ (abilities/darkangels.py)
 VAs : ExecuteBehaviour @1811f95c0 ; playbook @181150b10/@181150fe0
 Main 3x Plasma + PickRandomly(UnitsDirectlyBehind, 2) même plage/hits — template plasma_grenade_tree ;
 UnitsDirectlyBehind DÉJÀ porté (selectors.py:157, cite PlasmaCannon).
+PORT : ExecuteAtomic(op_BitwiseAnd(main, splash), 0x2a) = AtomicGroup(op_and(...)) ; splash =
+AttackWithAttackDamage(UnitsDirectlyBehind(), multi=True, pick_n=2). hits main==splash==nrOfHits(0x2f)
+(GetHits(0)=ArmoriumCherub$$GetHits @180fb16c0 pour les DEUX volets — PAS de nrOfHits_2).
+⚠ native_factory="attack" (@180de9fb0, PROUVÉ par XREFS call-sites @1811f97ab/@1811f9866 ; PlasmaCannon
+ABSENT des xrefs de @180de9c90) — CONTRE le template PlasmaGrenade "ability". Piège tip #2 évité : NE PAS
+copier native_factory du template. Validé live : ratio live/offline main CONSTANT en "attack" (rng-synced,
+2 tirages/coup), désync en "ability".
+BACKLOG (confounds SHARED-pipeline découverts en validant — HORS ce port, candidats suivi) :
+  (i)  `execute_ability_attack` (operations/damage.py:806) ne passe PAS `is_ranged` à `attacker_modifiers`
+       -> les buffs ranged du caster (HeavyWeapon_ExtraDmg gated IsRangedAttack + clause ability ×2 @180f4f030,
+       +/- bonus high-ground) NON appliqués aux attaques d'ABILITY. Mesuré : live PlasmaCannon = offline ×
+       facteur SCALAIRE constant (×1.25 HeavyWeapon seul ; ×1.875 = HeavyWeapon × high-ground caster>cible).
+       Affecte TOUTES les abilities ranged des casters HeavyWeapon. [candidat fable — cross-cutting, risque]
+  (ii) SPLASH desync per-coup (ratio non constant) : le `PickRandomly` natif consomme du rng même en piquant
+       tout (<=2 candidats), là où `_pick_randomly_n` court-circuite (GAP #215 partagé Fragstorm). [candidat]
+  (iii) armure : sans --hp-target, `defender_fixed_armor(necroWarden)`=2008 offline vs `RemainingArmor`=0 live
+       (à confirmer : FixedArmor stale/profil Plasma). Contourné par --hp-target dans le test. [à vérifier]
 ```
 ```
 [1103 Supercharge | darkaHellblaster]  — [opus]+1 effet
