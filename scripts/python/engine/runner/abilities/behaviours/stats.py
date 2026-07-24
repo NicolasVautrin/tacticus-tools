@@ -133,6 +133,60 @@ class ChangeStat(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class SubtractHealthPercent(AbilityBehaviour):
+    """`JakhalStimmsAbility.ExecuteBehaviour @1811ec770` volet SELF-LOSS -> `ChangeStat(Self@0x160,
+    Position(Health=5, current), mode 3 = Subtract, PercentageOf(StatAmount(Self, Health, current),
+    ConfigConst(hpPct)))` (`DSLFactory.ChangeStat @180debdc0` -> `ChangeStatBehaviour.Execute @180fbfb10`
+    case 3 : `new = Max(GetStat(Health) - delta, 0)`). Health = stat FILL-UP (`HealthComponent`, PAS un
+    `StatComponent`, cf. `SetHealth` + `ChangeStatBehaviour.Execute` GetStat/StatModifier) -> le modifier
+    Subtract sur le fill-up = SET du current HP a `Max(hp - delta, 0)` (`HealthComponent.hp`).
+
+    `delta = PercentageOf(current_hp, pct)` = `round_half_even(hp * pct / 100)` (`PercentageOf` mode 0 : le
+    4e arg du `DSLFactory.PercentageOf @180df8720` est 0 au decompile de `ExecuteBehaviour` -> `_round_fix64`
+    mode 0 = arrondi banquier ; MEME primitive/mode que `SetHealth` valide bit-exact BlackRage). `pct` lu via
+    `ability_var(is_constant=True)` = `GetNumberConstant`/`ConfigConst` (config 1131 : hpPct=25 constante).
+
+    DETERMINISTE (aucun rng) -> ne decale pas l'ordre `state.rng` de l'attaque qui la precede dans
+    `ExecuteBehaviour`. Le natif l'execute APRES l'`ExecuteAtomic` des attaques (`Execute` separe) ; l'appelant
+    (`JakhalStimmsAbility.execute_behaviour`) respecte cet ordre en l'executant apres l'`AtomicGroup`. `delta`
+    ne peut jamais atteindre `hp` (pct<100) -> le sujet ne meurt PAS de son self-loss (pas de death-trigger).
+    Emet 'ChangeStat' (mode="subtract"). PUR (stop=False)."""
+    __slots__ = ("target_sel", "ability_id", "pct_var")
+
+    def __init__(self, target_sel: TargetsSelector, ability_id: str, pct_var: str = "hpPct"):
+        self.target_sel, self.ability_id, self.pct_var = target_sel, ability_id, pct_var
+
+    def execute(self, entities, ectx):
+        from fractions import Fraction
+        from ....entities.effects.magnitude import ability_var
+        from ....entities.stats import StatType
+        from ....dsl.base import _round_fix64
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        pct = ability_var(self.ability_id, self.pct_var, is_constant=True)   # ConfigConst(hpPct)
+        if pct is None:
+            return OperationResult.ok()
+        for u in _units_of(self.target_sel, entities):
+            uid = u.get("id") if isinstance(u, dict) else None
+            if uid is None:
+                continue
+            e = state.get_entity(uid)
+            hc = e.get_component(HealthComponent) if e is not None else None
+            if hc is None or hc.hp is None:
+                continue
+            hp = int(hc.hp)
+            # PercentageOf(current_hp, pct) mode 0 (round half-to-even) = delta ; ChangeStat mode 3 Subtract :
+            # HealthComponent.hp = Max(hp - delta, 0). SetAbsolute-like (StatModifier), PAS FillUp.Reduce ->
+            # ignore le plancher minimal_health (aligne SetHealth : mutation directe de hc.hp).
+            delta = _round_fix64(Fraction(hp * int(pct), 100), 0)
+            new_hp = max(hp - delta, 0)
+            hc.hp = new_hp
+            ectx.emit("ChangeStat", unit=uid, stat=int(StatType.HEALTH), mode="subtract",
+                      amount=delta, value=new_hp)
+        return OperationResult.ok()
+
+
 class SetHealth(AbilityBehaviour):
     """`BlackRageAbility.GetSetHealthBehaviour @1811ba690` -> `ChangeStat(Health(5), mode 0=SetAbsolute,
     PercentageOf(StatAmount(Health, MAXIMUM=2), ConfigVar(hpPct)))` : SET le HP courant du sujet a
