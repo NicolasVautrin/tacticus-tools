@@ -64,12 +64,13 @@ class AttackWithAttackDamage(AbilityBehaviour):
     de la config via `ability_attack_params`)."""
     __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key",
                  "damage_override", "multi", "pick_n", "amount", "hits", "ability_type", "hits_add_key",
-                 "native_factory")
+                 "native_factory", "hits_override")
 
     def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True,
                  min_key: str = "minDmg", max_key: str = "maxDmg", hits_key: str = "nrOfHits",
                  damage_override=None, multi: bool = False, pick_n=None, amount=None, hits=None,
-                 ability_type=None, hits_add_key=None, native_factory: str = "attack"):
+                 ability_type=None, hits_add_key=None, native_factory: str = "attack",
+                 hits_override=None):
         self.target_sel, self.ability_id, self.profile, self.is_melee = target_sel, ability_id, profile, is_melee
         self.min_key, self.max_key, self.hits_key = min_key, max_key, hits_key
         self.damage_override, self.multi, self.pick_n = damage_override, multi, pick_n
@@ -94,6 +95,12 @@ class AttackWithAttackDamage(AbilityBehaviour):
         #             coup (mesure bit-exact Stormcaller 3-hit, probe_217). Classifier par les XREFS de
         #             l'`ExecuteBehaviour` natif de l'ability (quelle factory est appelee), JAMAIS au juge.
         self.native_factory = native_factory
+        # `hits_override` = nb de coups EXPLICITE du mode BORNES, quand le nb de coups natif N'EST PAS une
+        # constante config `GetNumberConstant` mais un NODE dynamique (ex. SkyStrike `MeleeWeaponHits(caster)`
+        # = nrOfHits de l'arme melee du caster, WeaponHitsFormula @180f2f510 ; la config d'ability 1025 n'a pas
+        # de `nrOfHits`). Defaut None = coups lus de la config (`hits_key`, comportement historique). Mode bornes
+        # uniquement (le mode `amount` a deja un `hits` explicite).
+        self.hits_override = hits_override
 
     def execute(self, entities, ectx):
         from ...operations.damage import AttackDamageOperation
@@ -129,6 +136,8 @@ class AttackWithAttackDamage(AbilityBehaviour):
                     state, caster, self.ability_id, self.profile, ranged=not self.is_melee,
                     min_key=self.min_key, max_key=self.max_key, hits_key=self.hits_key,
                     hits_add_key=self.hits_add_key)
+                if self.hits_override is not None:         # coups = NODE dynamique (SkyStrike MeleeWeaponHits)
+                    hits = int(self.hits_override)
                 if self.damage_override is not None:       # GetAttackDamage surchargee (ex. SpiritLeech +extraDmg)
                     bmin, bmax = self.damage_override(state, caster, tgt, bmin, bmax)
                 atk = AttackDamageOperation.execute_ability_attack(

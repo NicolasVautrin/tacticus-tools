@@ -32,11 +32,30 @@ Placement : `runner/abilities/sisterhood.py` (NOUVEAU module Sisterhood isolé) 
 test `tests/engine/runner/test_sanctorum_missile_live.py`.
 ```
 ```
-[1025 SkyStrike | adeptCelestine]  — [opus] direct
-VAs : ExecuteBehaviour @181207d30 ; gate @1812082a0 ; playbook @18115b110
-Gate « n'a PAS bougé » : charge adjacente (SortTilesByUtility(7) → collapse plus-proche) + attaque =
-NormalAttackDamage + Direct(var8) — PAS config-minmax (le chemin générique donnerait 0). Template
-VigilanceEternal/HeroicFusillade EXACT. Risques : base-override décision ; gate has-not-moved.
+[1025 SkyStrike | adeptCelestine]  — [opus] direct — PORTÉ COMBAT (sisterhood.py) + VALIDÉ
+VAs : ExecuteBehaviour @181207d30 ; overload attaque @180dea6b0 (call-site @1812080b2, ABSENT @180de9fb0) ;
+      node degat StatAmountFormula @180f22d40 ; MeleeWeaponHits WeaponHitsFormula @180f2f510 ;
+      gate eligibilite @1812082a0 (DidMove) ; playbook @18115b110 ; ctx trigger +0x98 InitializeShared @180df2670.
+Arbre = op_BitwiseAnd(If(Not(IsAdjacent(caster,target,3)), MoveUnit(caster, First(SortTilesByUtility(
+CanAddUnit(AdjacentTiles(target)), caster, UtilityDef(7)), 1))), If(<+0x98 alive>, AttackWithAttackDamage(
+caster, target, Sum(NormalAttackDamage=StatAmount(Attack), Direct(GetVariableForLevel(8=extraDmg))),
+NormalMeleeAttackDamageProfile(caster), MeleeWeaponHits(caster)))). Template VigilanceEternal EXACT, sauf :
+ - CHARGE SANS reach : dest = `CanAddUnit(AdjacentTiles(target))` SEUL (PAS d'`op_And MovableTilesInRange` ;
+   Celestine vole) -> collapse = tuile libre ring-1 la plus proche du caster. VALIDÉ : dist 2 ET dist 5 -> charge.
+ - ATTAQUE = attaque MELEE NORMALE + extraDmg (PAS config minDmg/maxDmg, absents = 0). Node `Sum(StatAmount(
+   Attack), Const(extraDmg))` MONO-VALEUR (StatAmountFormula.Calculate = 1 valeur) -> HitDamage(V,V) DEGENERE :
+   AUCUN spread +/-20% (le +/-20% de l'attaque normale = weapon-path GetBaseDamageFix64, ABSENT du path ability).
+   Chaque coup = reduce(V) FIXE (V = Attack + extraDmg), profil/coups = arme MELEE (Celestine Power / 3 coups,
+   MeleeWeaponHits SANS ExtraHits). native_factory="attack" -> execute_ability_attack(wasted), 1 tirage/coup.
+   Porté en mode BORNES + damage_override(V,V) + hits_override=MeleeWeaponHits.
+ - GATE has-not-moved (@1812082a0, DidMove) : eligibilite ciblage (HORS ExecuteBehaviour) — CONFIRMÉ LIVE
+   (Celestine non bougee -> castable ; bougee+non-adjacente -> reason 0x10, NON castable).
+VALIDATION : A/B bit-exact (arbre attaque == execute_ability_attack(V,V,wasted) même rng) + no-spread (3 coups
+egaux, V=3064, mesure offline) + charge dist 2/5 + gate has-not-moved live + zero-regression (Vigilance/Sanctorum/
+damage/SavageEchoes/Psyker). RÉSIDU (idem SavageEchoes) : porteur HORS pool -> cast LIVE de 1025 ECHOUE
+(GetVariableForLevel(8=extraDmg) throw pour unite injectee) -> per-hit live non mesurable ; machinerie melee
+per-coup live-validee ailleurs (VigilanceEternal 3-hit, CordClaw 4-hit). Placement : `runner/abilities/
+sisterhood.py` + handler 1025 ; test `tests/engine/runner/test_sky_strike_live.py`.
 ```
 ```
 [1041 BrazierOfHolyFire | adeptCanoness]  — [opus]+prérequis
@@ -84,8 +103,8 @@ Marque hex + 3 hexes non-mutuellement-adjacents (bond 1402) → au turn-start su
 occupants + 75% × N accumulation ActOfFaith des alliés. Rejoint le sous-système PENDING-ATTACK.
 ```
 
-**Synthèse Sisterhood** : couverts = ArmoriumCherub, FireOfAbsolution, ActOfFaith, RighteousRepugnance/A ;
-[opus] direct = CondemnorStake, SanctorumMissile, SkyStrike ; [opus]+prérequis = BrazierOfHolyFire,
+**Synthèse Sisterhood** : couverts = ArmoriumCherub, FireOfAbsolution, ActOfFaith, RighteousRepugnance/A,
+SanctorumMissile (porté), SkyStrike (porté COMBAT) ; [opus] direct restant = CondemnorStake ; [opus]+prérequis = BrazierOfHolyFire,
 MedicusMinistorum, RighteousRepugnance/B, GeminaeSuperia ; BLOQUÉ MoW = ThriceBlessed (+opus),
 DevastatingRefrain (+fable). NOUVEAUX transverses : vecteurs réactifs défenseur ÉTENDUS (on-being-hit
 On(58) IsFirstDamagingHitInSeries, on-adjacent-friend-damaged) ; effets vulnérabilité ForPercentIncrease
