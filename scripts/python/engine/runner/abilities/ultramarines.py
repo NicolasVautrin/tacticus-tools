@@ -41,15 +41,16 @@ from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
-from ...dsl.base import Const
-from ...dsl.effects import ExecutionContext
+from ...dsl.base import Const, resolve_unit
+from ...dsl.effects import ExecutionContext, AbilityBehaviour, OperationResult
 from ...entities.behaviours import op_add, op_and, AtomicGroup
 from ...entities.selectors import (Caster, CasterTile, AdjacentUnits, Friends, Union,
                                    UnitsWithTrait, Sub, Unique, Target)
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effects.magnitude import ability_var
-from ..components import StatsComponent
+from ...entities.stats import StatType
+from ..components import StatsComponent, OwnerComponent, PositionComponent
 from .base import ActiveAbility
 from .behaviours import (entities_from_state, Heal, healable_heal_type_0,
                          AttackWithAttackDamage, PushUnit)
@@ -203,3 +204,167 @@ class MortisRoundAbility(ActiveAbility):
         push = next((p for n, p in ectx.emitted if n == "PushUnit"), None)
         return {"ability": MORTIS_ROUND_ID, "caster": caster_id, "target": target_id,
                 "main_attack": atk, "push": push, "dsl": True}
+
+
+DEATH_FROM_ABOVE_ID = "DeathFromAbove"
+
+
+def _dfa_spawn_tiles(state: "State", caster_id: int, target_id: int) -> list:
+    """`AdjacentTiles(Target@0x178)` -> `CanAddUnit` -> `SortByDistance(caster@0x160)` (@1811d1b20 /
+    `GetPossibleSpawnTiles @1811d2160`) : tuiles LIBRES (marchables, non occupees) adjacentes a la CIBLE,
+    triees ASCENDANT par distance-hex au CASTER. `SortByDistanceSelector.Select @180ef2ce0` = `Enumerable.
+    OrderBy` (.NET, STABLE) sur la cle `PositionComponent.Distance(caster, tile)` (lambda @180efd0e0) -> la
+    plus proche du caster d'abord. DETERMINISTE (0 tirage rng, contraste `_pick_randomly`).
+
+    ADJACENCE = `_free_tiles_adjacent` -> `board.neighbours(target)`. Le natif `AdjacentTiles`/`CanAddUnit`
+    (`TileExtensions.CanAddUnit @180ec4c60` + le graphe d'adjacence du board) porte une PORTE D'ELEVATION :
+    une tuile hex-voisine de la cible n'est ADJACENTE que si |elev(tuile) - elev(cible)| < 2 (verifie live :
+    le champ `neighbours` du boardGraph exclut une voisine geometrique a dElev>=2 -- ex. MC1_67 tuile Swamp
+    elev4 voisine d'une cible elev2). Cette porte est DEJA BAKEE dans `Board(adjacency="native_sym")`
+    (= le champ `neighbours` du boardGraph, le mode CANONIQUE de production, scene.py:412) -> `board.neighbours`
+    la respecte. En mode `evenq` (geometrique, sans porte) `_free_tiles_adjacent` SUR-INCLURAIT les voisines
+    a dElev>=2 (== toutes les feuilles summon partagees `_free_tiles_adjacent` : convention native_sym).
+
+    Tie-break = id de tuile (raffinement positionnel : au TIE de distance-caster, l'ordre AdjacentTiles natif
+    differe, mais tous les Inceptors sont IDENTIQUES et atterrissent adjacents a la cible -> positions
+    seulement ; le count et le degat total sont inchanges -- confirme bit-exact live, cf. classe DeathFromAbove)."""
+    import hexgeo
+    from ..operations.spawn import _free_tiles_adjacent
+    board = state.board
+    cas = state.get_entity(caster_id)
+    cp = cas.get_component(PositionComponent) if cas is not None else None
+    if board is None or cp is None:
+        return []
+    cands = _free_tiles_adjacent(state, target_id, set())     # CanAddUnit(AdjacentTiles(target))
+    cpos = (cp.col, cp.row)
+
+    def _key(t):
+        ti = board.by_id.get(t) or {}
+        return (hexgeo.distance(cpos, (ti.get("col"), ti.get("row"))), t)
+
+    return sorted(cands, key=_key)
+
+
+class SpawnInceptors(AbilityBehaviour):
+    """Feuille `Spawn` de `DeathFromAboveAbility.ExecuteBehaviour @1811d1b20` (MIRROR 1:1 du DECOMPILE) :
+        Spawn( caster@0x160,
+               tileSel = Cache( First( SortByDistance( CanAddUnit(AdjacentTiles(Target@0x178)),
+                                                       caster@0x160 ),
+                                       StatAmount(caster@0x160, 0xc = TURNS_STARTED) ) ),
+               unitId = GetStringConstant(config, 8) = constants["unitToSpawn"] = "ultraSmnInceptor",
+               SpawnUnitOptions.WithStatsFromConfig(config 1003)
+                 .onAppearance(+0x18) = UseNormalAttackIfAble(Spawned@0x180, Target@0x178) )
+    UN SEUL noeud `Spawn` (plain `AActiveAbility.Execute`, PAS `ExecuteAtomic`, PAS d'AddEffect au +0x10 --
+    contraste ScarabHive qui pose l'effet persistant 0x4a3). Le count est DYNAMIQUE (`GetNumSummons
+    @1811d2110` = `StatAmount(caster, 0xc)` = stat 12 TURNS_STARTED du caster ; i2 « Summons 1 Inceptor for
+    each round that has started ») et `First(count)` CAPPE le nombre de tuiles a min(count, tuiles libres)
+    -- i2 « if not enough hexes around the target are free, fewer Inceptors will be summoned ».
+
+    Port : placement DETERMINISTE `_dfa_spawn_tiles[:count]` (SortByDistance -> 0 rng, contraste
+    `SpawnUnitOperation.execute` qui consommerait du rng via `_pick_randomly` -> desyncerait les attaques
+    on-appearance) ; le SPAWN par tuile delegue a `_spawn_config_grot` (== la creation per-summon de
+    `SpawnUnitOperation.execute` : owner CopyOwner team+player du caster, stats `ability_var(DeathFromAbove,
+    summonHp/summonDmg/summonArmor, casterLevel, mult)`, owner-effects traits + abilities derivees). Puis
+    l'ON-APPEARANCE `UseNormalAttackIfAble(Target)` = `_summon_on_appearance_attack(summon, target, None)`
+    (aucun `unitDamageProfile` override -> attaque NORMALE de l'Inceptor : Bolter 6 coups, pierce 20, base =
+    stat Attack du summon). ORDRE des attaques = ordre de spawn (tuile la plus proche du caster d'abord) ;
+    comme tous les Inceptors sont IDENTIQUES, le TOTAL de degat a la cible est INDEPENDANT de l'ordre
+    (bit-exact BY CONSTRUCTION). Emet 'SpawnUnit'/'SummonOnAppearance'. Effet PUR."""
+    __slots__ = ("target_ref",)
+
+    def __init__(self, target_ref):
+        self.target_ref = target_ref
+
+    def execute(self, entities, ectx):
+        import gameconfig as GC
+        from ..operations.spawn import _spawn_config_grot
+        from .loki import _summon_on_appearance_attack
+        state = ectx.state
+        caster_id = (entities.caster or {}).get("id")
+        tu = resolve_unit(self.target_ref, entities)          # Target@0x178
+        target_id = tu.get("id") if tu else None
+        if state is None or caster_id is None or target_id is None:
+            return OperationResult.ok()
+        vid = ((GC.ability(DEATH_FROM_ABOVE_ID) or {}).get("constants") or {}).get("unitToSpawn")
+        if vid is None:                                       # GetStringConstant(config, 8)
+            return OperationResult.ok()
+        ce = state.get_entity(caster_id)
+        coc = ce.get_component(OwnerComponent) if ce is not None else None
+        csc = ce.get_component(StatsComponent) if ce is not None else None
+        c_ctx = csc.ctx if csc is not None else None
+        if coc is None or c_ctx is None:
+            return OperationResult.ok()
+        level = getattr(c_ctx, "active_ability_level", None)
+        mult = int(getattr(c_ctx, "ability_variables_multiplier", 100) or 100)
+        # count = StatAmount(caster, 0xc = TURNS_STARTED) [GetNumSummons @1811d2110] ; AUCUN plancher
+        # (StartTurn incremente AVANT le cast -> >=1 pendant le tour du caster ; raw fidele au natif).
+        count = int(c_ctx.stat(StatType.TURNS_STARTED) or 0)
+        # First(count) CAPPE naturellement au nombre de tuiles libres (i2 « fewer Inceptors »).
+        tiles = _dfa_spawn_tiles(state, caster_id, target_id)[:max(0, count)]
+        spawned: list = []
+        for tile in tiles:
+            gid = _spawn_config_grot(state, vid, tile, DEATH_FROM_ABOVE_ID, level, mult,
+                                     coc.team, coc.player)
+            if gid is not None:
+                spawned.append(gid)
+                ectx.emit("SpawnUnit", tile=tile, unit=gid)
+        # on-appearance : chaque Inceptor attaque la CIBLE (attaque normale Bolter ; profil None -> arme).
+        for gid in spawned:
+            res = _summon_on_appearance_attack(state, gid, target_id, None)
+            if res is not None:
+                ectx.emit("SummonOnAppearance", summon=gid, total=res.get("total"))
+        return OperationResult.ok()
+
+
+def death_from_above_tree() -> "SpawnInceptors":
+    """Arbre de `DeathFromAboveAbility.ExecuteBehaviour @1811d1b20` = UN noeud `Spawn` unique (feuille
+    `SpawnInceptors`). Cf. sa docstring pour le mirror complet du decompile."""
+    return SpawnInceptors(Target())
+
+
+class DeathFromAboveAbility(ActiveAbility):
+    """`DeathFromAboveAbility.ExecuteBehaviour @1811d1b20` (id 1003, ultraInceptorSgt « Inceptor Sergeant »,
+    Ultramarines -- namespace natif `Abilities.Active.Loki.DeathFromAboveAbility`). MIRROR du DECOMPILE,
+    arbre DSL (`death_from_above_tree`) : spawn N Inceptors (`ultraSmnInceptor`) sur des tuiles libres
+    adjacentes a la cible (triees par distance-caster), chacun attaquant la cible immediatement.
+
+    i2 : « Summons 1 Inceptor for each round that has started. The Inceptors land adjacent to the target,
+    whom they attack immediately. Note: if not enough hexes around the target are free, fewer Inceptors
+    will be summoned. » -> count = `GetNumSummons @1811d2110` = `StatAmount(caster, 0xc = TURNS_STARTED)`
+    (stat 12, per-unit `UnitComponent.turnsStarted@+0x58` bumpe par StartTurn), CAPPE par `First(count)` au
+    nombre de tuiles libres. Placement = `SortByDistance(caster)` DETERMINISTE (0 rng). Stats des Inceptors
+    = `WithStatsFromConfig(DeathFromAbove)` = `ability_var(summonHp/summonDmg/summonArmor, casterLevel,
+    mult)`. On-appearance = `UseNormalAttackIfAble(Target)` = attaque normale (Bolter 6 coups, PAS de profil
+    override -- contraste ScarabHive Piercing). PAS d'effet persistant pose (contraste ScarabHive 0x4a3).
+
+    NB (residu inerte) : l'`AbilityOrEffect(1003)` que le natif threade dans `UseNormalAttackIfAble`
+    (`op_Implicit(*this+0x10)`, meme vehicule que MortisRound) n'a AUCUN consommateur porte -> non threade
+    (l'on-appearance reste une attaque normale). Le placement subset au tie (SortByDistance stable) est un
+    raffinement POSITIONNEL : count et degat total identiques (Inceptors identiques, tous adjacents cible).
+    ShockAssault (passif du carrier, On(0xa)) est un item DISTINCT (case-220 §6.9 [opus]+prerequis) : PAS
+    porte ici -- l'on-appearance est la seule attaque de ce cast.
+
+    Flags de tour : defauts base (`SetsEndTurnFlags`/`SetsActiveAbilityUsedFlag` = True) -> termine le tour
+    du caster + pose ActiveAbilityUsed.
+
+    VALIDE LIVE (agreement, board MC1_67 native_sym elevation-gated, cible tyranTyrantGuard hp force) --
+    BIT-EXACT count ET degat total on-appearance : TURNS_STARTED=1 -> 1 Inceptor (8759), =2 -> 2 (11764),
+    =3 -> 3 (11460) ; CAP tuiles TURNS_STARTED=4 free=3 -> 3 (11460) et =6 free=3 -> 3 (12084, seed 31337).
+    Le degat inclut le bonus d'ELEVATION (#45, threade dans `execute_normal_like`). Placement deterministe
+    (0 rng) -> ordre des attaques sans effet sur le total (Inceptors identiques)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.DeathFromAbove)  # 1003
+    ABILITY_ID = DEATH_FROM_ABOVE_ID
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        death_from_above_tree().execute(entities, ectx)
+        spawned = [p["unit"] for n, p in ectx.emitted if n == "SpawnUnit"]
+        attacks = [{"summon": p["summon"], "total": p["total"]}
+                   for n, p in ectx.emitted if n == "SummonOnAppearance"]
+        return {"ability": DEATH_FROM_ABOVE_ID, "caster": caster_id, "target": target_id,
+                "spawned": spawned, "attacks": attacks, "dsl": True}

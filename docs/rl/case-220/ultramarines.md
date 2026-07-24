@@ -20,11 +20,22 @@ NUANCE i2 : « Heavy Weapon applies double » (+50% au lieu de +25%) = quirk per
 l'ExecuteBehaviour — flag/config à trouver au port. Risques : magnitude x2 ; ordre attaque-avant-push.
 ```
 ```
-[1003 DeathFromAbove | ultraInceptorSgt]  — [opus] direct
+[1003 DeathFromAbove | ultraInceptorSgt]  — [opus] direct  ✅ PORTÉ + VALIDÉ LIVE BIT-EXACT
 VAs : ExecuteBehaviour @1811d1b20 ; GetNumSummons @1811d2110 ; tiles @1811d2160
-Spawn(ultraSmnInceptor × StatAmount(TURNS_STARTED), tuiles adjacentes-cible triées par distance-caster,
-onAppearance=UseNormalAttackIfAble(target)) — template EXACT SpawnSummon + count ResurrectionOrb.
-Risques : count vs cap tuiles ; tri SortByDistance/First (pas PickRandomly).
+Spawn(ultraSmnInceptor × StatAmount(caster,0xc=TURNS_STARTED), tuiles adjacentes-cible triées par
+distance-caster, onAppearance=UseNormalAttackIfAble(target)) — feuille dédiée `SpawnInceptors`
+(ultramarines.py) : count DYNAMIQUE (raw TURNS_STARTED, pas de plancher) CAPPÉ par `First(count)` au
+nb de tuiles libres (i2 « fewer Inceptors ») ; placement `SortByDistance(caster)` DÉTERMINISTE (0 rng) ;
+unitId = GetStringConstant(config,8) = constants["unitToSpawn"] ; spawn délégué à `_spawn_config_grot`
+(== per-summon de SpawnUnitOperation.execute) ; on-appearance = attaque normale Bolter 6 coups (PAS de
+`unitDamageProfile` override, contraste ScarabHive) via `_summon_on_appearance_attack(prof=None ->
+normal_profile)`. PAS d'AddEffect persistant (contraste ScarabHive 0x4a3).
+Adjacence = porte d'ÉLÉVATION native (|dElev|<2 depuis la cible), portée par `board.neighbours`
+native_sym (boardGraph, mode prod) — l'évenq géométrique sur-inclurait (bug probe uniquement, corrigé).
+VALIDÉ : count off==live 1/2/3 + cap (4→3, 6→3) ; degat total on-appearance BIT-EXACT (élévation #45).
+Résidus INERTES (non portés) : AbilityOrEffect(1003) threadé dans l'attaque = 0 consommateur ;
+tie-break placement (id tuile vs ordre AdjacentTiles) = positionnel (count/degat inchangés).
+ShockAssault (passif carrier On(10)) = item SÉPARÉ ([opus]+prérequis), pas dans ce cast.
 ```
 ```
 [FuelledByFury | ultraTitus passif — 3 volets]  — A [opus] direct / B résiduel / C [fable]
@@ -82,7 +93,8 @@ FuelledByFury C, TaintedNarthecium (§6.8), PhoenixGem @1811117b0, GhostRevive @
 Risques : timing à-la-mort ; exclusion Mechanical ; gate overkill ; 1x/tour.
 ```
 
-**Synthèse UM** : couvert = RitesOfBattle ; [opus] direct = PsychicFortress, MortisRound,
-DeathFromAbove, FuelledByFury/A ; [opus]+prérequis = ShockAssault, StormOfWrath (RE chaîne d'abord),
+**Synthèse UM** : couvert = RitesOfBattle, **MortisRound (1004)**, **DeathFromAbove (1003, ✅ PORTÉ+VALIDÉ
+BIT-EXACT)** ; [opus] direct restant = PsychicFortress, FuelledByFury/A ; [opus]+prérequis = ShockAssault
+(débloqué : DeathFromAbove porté), StormOfWrath (RE chaîne d'abord),
 CamoCloak (à différer) ; **[fable]** = TacticalPrecision, MacroPlasmaIncinerator (MoW), Narthecium +
 FuelledByFury/C. Débloqueur le + rentable = **sous-système REVIVE** (2 items UM + DG + hors-faction).
