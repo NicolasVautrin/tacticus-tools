@@ -433,3 +433,48 @@ class OverwhelmingWrathRangeDmgReductionEffect(BaseEffect):
         if not pct:
             return None
         return for_percent_decrease(False, abs(int(pct)))   # owner=défenseur (l'effet est sur la cible)
+
+
+class PsychicFortressDmgReductionEffect(BaseEffect):
+    """`PsychicFortress_DmgReductionEffect` (effet 0x3f2=1010, passif PsychicFortress de Tigurius
+    ultraTigurius ; base `ADamageDefenseModifierAbilityEffect(1000=0x3e8=PsychicFortress AbilityOrEffect)`,
+    ctor @180f66cb0) — AURA de RÉDUCTION PLATE du dégât PSYCHIQUE REÇU par les AMIS ring-1 du porteur.
+    L'effet vit sur le PORTEUR (posé par `PsychicFortressAbility.CreateBehaviour @181224070` :
+    `AddEffect(0x3f2, AbilityStateRef, context@0x148)` — capté live source=Tigurius, JAMAIS matérialisé
+    sur les amis) et se PROJETTE sur les cibles à la CALC (boucle state-wide EffectWithTarget × cibles de
+    `CalculateDefenderModifiersForPrediction @181002c30`, canal `aura_defense_damage_malus_from_units`).
+
+    - dégât `CreateDamageModifier @180f66a30` : `EffectBonus.ForAddition(OwnerIsTarget &
+      DamageProfileIs(0xd=Psychic), Multiply(ConfigVar(0x12=dmgReduction, GetAbilityState(effet),
+      mult@+0x60), Direct(-1)@factory+0xd8))` = SOUSTRACTION plate négative (slot additif défenseur @+0x10,
+      jumeau STRUCTUREL EXACT de `DaughterOfTheAbyss_OwnerDmgReduction @180f3d070` et `Nightshroud @180f5bff0`).
+    - cibles `CreateTargetSelector @180f66c30` : `Friends(SurroundingUnits(context@0x148, range=1,
+      includeCenter=false))` = amis à distance EXACTEMENT 1 (ring-1), EXCLUT le porteur (includeCenter=false).
+
+    MAGNITUDE : `dmgReduction[ablvl]` (12->873, RARITY-SCALÉ : dmgReduction ∈ variablesAffectedByRarityBonus)
+    × mult du porteur (Tigurius = le carrier de l'aura -> `self.ability_level`/`self.ability_variables_multiplier`).
+    i2 : « ... Also reduces incoming Psychic Damage by 873. » Placement PRÉ-perçage (`for_subtraction(False)`
+    -> `flat_reductions`) présumé par la famille Nightshroud (jumeau structurel, validé #120) : additif défenseur
+    plat soustrait de la BASE pré-perçage, dilué par perçage/armure PUIS scalé ×%-list. Gate Psychic-only
+    (l'aura protège les amis du porteur contre les attaques PSYCHIQUES des psykers ennemis)."""
+
+    def create_aura_defense_damage_malus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        c = ctx or {}
+        if (c.get("damage_profile") or "") != "Psychic":     # DamageProfileIs(0xd) @180f66a30
+            return None
+        if c.get("tgt_id") == c.get("owner_id"):              # SurroundingUnits(includeCenter=false) exclut le porteur
+            return None
+        if c.get("owner_team") is None or c.get("owner_team") != c.get("tgt_team"):
+            return None                                       # Friends : cible ALLIÉE du porteur
+        op, tp = c.get("owner_pos"), c.get("t_pos")
+        if not op or not tp:
+            return None
+        import hexgeo
+        if hexgeo.distance(op, tp) != 1:                      # SurroundingUnits(range=1, includeCenter=false) = ring-1 exact @180f66c30
+            return None
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        amt = ability_var("PsychicFortress", "dmgReduction", lvl,   # ConfigVar 0x12 (rarity-scalé × mult)
+                          multiplier_pct=self.ability_variables_multiplier)
+        if not amt:
+            return None
+        return for_subtraction(False, abs(int(amt)))          # owner=défenseur -> flat_reductions pré-perçage (famille Nightshroud)

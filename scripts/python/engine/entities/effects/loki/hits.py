@@ -445,6 +445,39 @@ class DaemonExtraBlockEffect(BaseEffect):
         return BlockSource(chance=int(chance), amount=amount, block_id=int(chance))
 
 
+class PsychicFortressExtraBlockEffect(BaseEffect):
+    """`PsychicFortress_ExtraBlockChanceEffect` (effet 0x3ef=1007, base `MultiValueStatEntryEffect` ctor
+    @180f66cc0, passif PsychicFortress de Tigurius ultraTigurius) — source de BLOCK SUPPLEMENTAIRE posee
+    par `PsychicFortressAbility.CreateBehaviour @181224070` :
+      `AddExtraBlockEffectToOwner(0x3ef, Direct(GetNumberConstant(0x2d=blockChance)),
+                                  Direct(GetVariableForLevel(0x14=blockDmg)))` @180de6f80
+    = `AddMultiValueStatEntryEffectBehaviour(context@0x148, 0x3ef, [{statType 7=BLOCK_CHANCE: chance},
+      {statType 8=BLOCK_DAMAGE: amount}])`. Entree separee de `GetMultiValueStat(7)`
+    (`CalculateBlockChances @181002350`), ABSENTE du scalaire GetStat(7/8) -- meme canal ExtraBlock que
+    BeastSlayer @180e18b70 / AnvilShield (hors GetStat).
+      - chance = `GetNumberConstant(0x2d)` = `blockChance` (CONSTANTE gameconfig = 50, NON scalee).
+      - amount = `GetVariableForLevel(0x14)` = `blockDmg[ablvl]` (6->437, RARITY-SCALE :
+        blockDmg in variablesAffectedByRarityBonus) x mult du porteur.
+    => +50% chance de bloquer blockDmg[niveau] Damage. i2 : « ... an added Block with 50% chance to block
+    437 Damage. » Pose ToOwner (context@0x148 = porteur, PAS de CreateTargetSelector custom sur
+    l'ExtraBlockChanceEffect -> selecteur par defaut) -- INERTE tant que non materialise (fidelite-safe
+    « present != applique », comme BeastSlayer) ; une fois present sur le defenseur, la source est
+    consommee par `apply_random_block_damage`/le scenario block de la prediction. block_id = la chance
+    (id natif dans failedList @181002350, exclusion inter-coups apres 1er echec)."""
+
+    def create_effect_block_source_for_defense(self, defender_fixed_armor: int = 0,
+                                               defender_attack: int = 0):
+        chance = ability_var("PsychicFortress", "blockChance", is_constant=True)   # GetNumberConstant 0x2d (=50)
+        if not chance:
+            return None
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        amount = ability_var("PsychicFortress", "blockDmg", lvl,                   # GetVariableForLevel 0x14 (rarity-scale x mult)
+                            multiplier_pct=self.ability_variables_multiplier)
+        if not amount or int(amount) <= 0:
+            return None
+        return BlockSource(chance=int(chance), amount=int(amount), block_id=int(chance))
+
+
 class FightingRetreatHitReductionEffect(BaseEffect):
     """`FightingRetreat_HitReductionEffect` (effet 1158 `FightingRetreatHitReduction`) — même debuff,
     axe COUPS (« They also have 1 fewer hits, to a minimum of one »).
