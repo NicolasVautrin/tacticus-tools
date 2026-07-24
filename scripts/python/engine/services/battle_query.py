@@ -19,6 +19,8 @@ from __future__ import annotations
 import gameconfig as GC
 import hexgeo
 
+from .static_battle_rules import get_piercing_ratio
+
 
 def are_tiles_adjacent(a_pos, t_pos, board=None):
     """`MovementUtil.AreTilesAdjacent @18109d740` / `AreUnitsInMelee` — ADJACENCE HEX (PAS Chebyshev),
@@ -101,13 +103,28 @@ def select_weapon_pierce(ctx, is_adjacent, dist=None):
     ExtraPierce(26) + ExtraPierce{Melee21|Ranged22}). UN seul port : prédiction (`prediction._weapon_pierce`)
     ET combat (`damage_model.select_weapon_pierce`) l'appellent (un service natif appelé par N chemins =
     UNE fonction). `ctx` = UnitContext (les 2 en ont un). `dist` = distance HEX attaquant->cible (porte
-    ranged ; `None` = legacy). Renvoie `(pierce, is_ranged, weapon_hits, profile_name)`."""
+    ranged ; `None` = legacy). Renvoie `(pierce, is_ranged, weapon_hits, profile_name)`.
+
+    #71 : le BONUS LasCannon (+50) est appliqué ICI via `get_piercing_ratio` — mirror du natif
+    `GetAttackPiercingDamageRatio @181030a20` qui fait `base = GetPiercingRatio(profile, attackerTraits)`
+    (bonus lascannon INCLUS) PUIS `+ ExtraPierce`. `GetAttackPiercingDamageRatio` n'a que des xrefs DATA
+    (invoqué par delegate/slot) = service PARTAGÉ prédiction+combat -> le fix ici couvre LES DEUX faces."""
     w, is_ranged = get_attack_weapon_for_default_normal_attack(
         ctx.visual_id, is_adjacent, prefer_hits=ctx.normal_hits, dist=dist)
     if w is None:
         return 100, False, 1, None
     dp = GC.damage_profile(w.get("DamageProfile")) or {}
     prof_ratio = int(dp.get("PiercingRatio") or 0)
+    # #71 : base pierce = GetPiercingRatio(profile, attackerTraits) = prof_ratio + 50 SI le profil porte
+    # DamageTrait.LasCannon(3) ET l'attaquant UnitTrait.HeavyWeapon(1001)|Emplacement(1016). Les traits
+    # gameconfig sont des NOMS de chaîne (DamageProfile.Traits / unit.traits) -> checks name-based.
+    from ..entities.damage_trait import DamageTrait
+    from ..entities.traits.unit_trait import UnitTrait
+    profile_has_lascannon = DamageTrait.LasCannon.name in (dp.get("Traits") or ())
+    att_traits = getattr(ctx, "traits", None) or ()
+    attacker_hw_emp = (UnitTrait.HeavyWeapon.name in att_traits
+                       or UnitTrait.Emplacement.name in att_traits)
+    base_pierce = get_piercing_ratio(prof_ratio, profile_has_lascannon, attacker_hw_emp)
     dir_pierce = ctx.extra_pierce_ranged if is_ranged else ctx.extra_pierce_melee
-    pierce = max(0, min(100, prof_ratio + ctx.extra_pierce + dir_pierce))
+    pierce = max(0, min(100, base_pierce + ctx.extra_pierce + dir_pierce))
     return pierce, is_ranged, int(w.get("hits") or 1), w.get("DamageProfile")

@@ -22,7 +22,7 @@ from dataclasses import dataclass, field, replace
 from . import fix64 as _fx
 from .min_max_damage import MinMaxDamage
 from .damage_calculations import spread_to_min_max
-from .static_battle_rules import get_damage_with_piercing, get_piercing_ratio
+from .static_battle_rules import get_damage_with_piercing, get_piercing_ratio, W_LASCANNON_PIERCE_BONUS
 from .damage_modifiers import (
     DamageModifiers, apply_all_modifiers, apply_capped_modifiers, capped_reduction_flat,
 )
@@ -155,7 +155,7 @@ def get_attack_piercing_damage_ratio(profile_piercing_ratio: int, profile_has_la
                                      attacker_extra_pierce: int, attacker_extra_pierce_dir: int,
                                      attacker_has_heavy_weapon_or_emplacement: bool,
                                      extra_pierce_min: int = 0, extra_pierce_max: int = 0,
-                                     lascannon_bonus: int = 0) -> int:
+                                     lascannon_bonus: int = W_LASCANNON_PIERCE_BONUS) -> int:
     """DamagePrediction.GetAttackPiercingDamageRatio (@181030a20) :
         base = GetPiercingRatio(profile, attackerTraits)
         total = clamp(0,100, base + ExtraPierce(26) + ExtraPierce{Melee21|Ranged22}
