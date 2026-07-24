@@ -42,7 +42,8 @@ def plasma_cannon_tree():
     1. **SELECTEUR splash = `PickRandomly(UnitsDirectlyBehind(target), 2)`** (PlasmaGrenade = `Enemies(caster,
        AdjacentUnits(target,1))`). `UnitsDirectlyBehind @180dff5e0` (DEJA porte, selectors.py:157, cite
        PlasmaCannon) = ennemis-du-caster VIVANTS sur l'anneau R1 de la cible, du COTE OPPOSE au caster
-       (`dist(caster,cand) >= dist(caster,target)`), meme elevation (tolerance +-1). Le `PickRandomly(.,2)
+       (`MinDistance(caster,cand) > MinDistance(caster,target)`, STRICT = AmountIsGreater, case #48 : la
+       laterale a distance EGALE est EXCLUE), meme elevation (tolerance +-1). Le `PickRandomly(.,2)
        @180df8db0` (2 = nrOfTargets, lu au decompile) est FOLDE dans la feuille via `pick_n=2` (comme Fragstorm
        @1811e0a00 : tire 2 cibles DANS la resolution du selecteur d'attaque via `state.rng`). len<=2 -> les deux
        (le natif ne roll pas quand le set tient).

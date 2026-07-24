@@ -160,9 +160,17 @@ class UnitsDirectlyBehind(TargetsSelector):
         ring    = SurroundingTiles(target, 1, 1) − Tiles(target)          # anneau R1 de la CIBLE
         cands   = Enemies(caster, Units(ring))                            # ennemis du caster dessus
         sameElv = TilesOnSameElevationSelector(target, cands, 1)          # même élévation que la cible
-        behind  = FromTrigger(cands, dist(caster, cand) >= dist(caster, target))   # côté OPPOSÉ au caster
-    (Les ctors de nœuds gshared sont MISLABELÉS par ghidra — sémantique lue par STRUCTURE : la paire
-    SortReverse(caster)/SortReverse(x) + AmountIsEqualOrGreater = comparaison de DISTANCES au caster.)
+        behind  = FromTrigger(cands, MinDistance(caster, cand) > MinDistance(caster, target))  # côté OPPOSÉ
+    COMPARATEUR = `>` STRICT (case #48). Piège gshared résolu par le SINGLETON de classe (ancre fiable,
+    PAS le nom de ctor foldé/mislabelé par ghidra) : le comparateur natif est `DAT_1832482b0` = classe
+    construite par `DSLFactory.AmountIsGreater @180de89d0` (`ShouldTrigger @180ee11f0 : iVar16 < iVar15`
+    = `amount > threshold`), et NON `AmountIsEqualOrGreater` (@180ee0e00 `<=` = `>=`) comme le laissait
+    croire le ctor foldé `AmountIsEqualOrGreaterAbilityTrigger___ctor` (ghidra fusionne les ctors qui
+    stockent 2 champs → nom faux). La formule = `DAT_18324e3c0` = classe construite par
+    `DSLFactory.MinDistance @180df6820` (distance hex entre MainTiles). Donc : un candidat À DISTANCE
+    ÉGALE du caster que la cible (unité LATÉRALE, delta 0 sur l'anneau) est EXCLU (`2 > 2` faux) ; seul
+    l'« away » strictement plus loin (delta +1) passe. Confirmé LIVE (test_plasma_cannon_lateral_live,
+    probe_udb_case48) : lateral d(caster)==d_ct EXCLU du splash, away d(caster)==d_ct+1 INCLUS.
     `dist` = distance hex ; caster = `ctx.caster_pos` (tuile d'attaque balayée). Élévation :
     `TilesOnSameElevationSelector.Select @180efa8a0` garde si `GetElevationDifference(cand, target)
     <= maxDiff` (ctor +0x28 = 1 ici) → TOLÉRANCE ±1, pas une égalité stricte (prouvé step-11 :
@@ -189,7 +197,7 @@ class UnitsDirectlyBehind(TargetsSelector):
                 et, ec = ctx.elev_by_pos.get(tpos), ctx.elev_by_pos.get(p)
                 if et is not None and ec is not None and abs(et - ec) > 1:
                     continue
-            if hexgeo.distance(cpos, p) >= d_ct:                   # « derrière » = au moins aussi loin
+            if hexgeo.distance(cpos, p) > d_ct:                    # STRICT (AmountIsGreater) : « derrière » = plus loin
                 out.append(u)
         return out
 
