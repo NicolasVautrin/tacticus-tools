@@ -91,7 +91,7 @@ def ns_combat(live_session, rpc, build_runner):
         ctile, ttile = utile(champ), utile(tgt)
         dist = _bfs(board, ttile)
         if ctile in board.neighbours(ttile):
-            return _replay(rpc, rid, tgt, champ, None)
+            return _replay(rpc, rid, board, tgt, champ, None)
         mt = rpc("aiMovableTiles", {"runnerId": rid, "side": "friendly"}, 60)
         cmt = next((x for x in (mt.get("units") or []) if x.get("unitId") == champ["id"]), None)
         reach = {board.id_at(t["col"], t["row"]): (t["col"], t["row"])
@@ -99,7 +99,7 @@ def ns_combat(live_session, rpc, build_runner):
         adj = [(tid, cr) for tid, cr in reach.items() if tid in board.neighbours(ttile)]
         if adj:
             _tid, (col, row) = adj[0]
-            return _replay(rpc, rid, tgt, champ, (col, row))
+            return _replay(rpc, rid, board, tgt, champ, (col, row))
         pool = [tid for tid in reach if tid in dist]
         if not pool:
             rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 40); continue
@@ -110,7 +110,7 @@ def ns_combat(live_session, rpc, build_runner):
     pytest.skip(f"{ATTACKER} n'a pas atteint {TARGET} protege en melee en 24 tours")
 
 
-def _replay(rpc, rid, tgt, champ, move_to):
+def _replay(rpc, rid, board, tgt, champ, move_to):
     att, tid = champ["id"], tgt["id"]
     if move_to is not None:
         rpc("applyAction", {"runnerId": rid, "action": {
@@ -122,7 +122,7 @@ def _replay(rpc, rid, tgt, champ, move_to):
     if norm is None:
         pytest.skip("pas d'attaque normale")
     snap2 = rpc("combatSnapshot", {"runnerId": rid}, 40)
-    state = load_state(dv2, ob2, snap2)
+    state = load_state(dv2, ob2, snap2, board=board)   # #64 : board a la source (feuilles positionnelles armees)
     te = state.get_entity(tid)
     hc = te.get_component(HealthComponent) if te is not None else None
     if hc is None or hc.hp is None:

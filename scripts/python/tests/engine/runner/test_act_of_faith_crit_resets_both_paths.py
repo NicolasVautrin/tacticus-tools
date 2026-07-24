@@ -62,8 +62,7 @@ def test_normal_and_ability_crit_both_reset(live_session, rpc, build_runner):
         pytest.skip("aucun ennemi vivant")
     sister_id, enemy_id = sister["id"], enemy["id"]
 
-    state = load_state(dec0, ob0, snap0)
-    state.board = board
+    state = load_state(dec0, ob0, snap0, board=board)
     si = state.get_entity(sister_id)
     en = state.get_entity(enemy_id)
     if (si is None or si.get_component(StatsComponent) is None

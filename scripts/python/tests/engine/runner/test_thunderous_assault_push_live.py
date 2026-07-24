@@ -106,8 +106,7 @@ def test_thunderous_assault_push_offline_endtoend(live_session, rpc, build_runne
         pytest.skip("caster/cible absents")
     att, tid = caster["id"], tgt["id"]
 
-    state = load_state(dv, ob, snap)
-    state.board = board                      # load_state ne peuple PAS le board (DisplaceUnit/MoveUnit en depend)
+    state = load_state(dv, ob, snap, board=board)   # #64 : board a la source (DisplaceUnit/MoveUnit en depend)
     ca, ta = state.get_entity(att), state.get_entity(tid)
     if ca is None or ta is None or ca.get_component(PositionComponent) is None \
             or ta.get_component(PositionComponent) is None:

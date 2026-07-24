@@ -98,8 +98,7 @@ def _capture(rpc, rid):
 def _offline_state(dec, ob, snap, s, board):
     from engine.runner.snapshot import load_state
     from engine.runner.prng import IntBasedMersenneTwister
-    state = load_state(dec, ob, snap)
-    state.board = board
+    state = load_state(dec, ob, snap, board=board)
     if _ok(s):
         rng = IntBasedMersenneTwister()
         rng.mt = list(s["mt"])

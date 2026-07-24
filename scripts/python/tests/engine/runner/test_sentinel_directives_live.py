@@ -189,7 +189,7 @@ def test_sentinel_directives_live(live_session, rpc):
         dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
         ob = rpc("observeBattle", {"runnerId": rid}, 60)
         snap = rpc("combatSnapshot", {"runnerId": rid}, 90)
-        st = load_state(dv, ob, snap); st.board = board
+        st = load_state(dv, ob, snap, board=board)
         ce = st.get_entity(cid)
         if ce is None or ce.get_component(StatsComponent) is None:
             pytest.skip("caster sans StatsComponent")
@@ -218,7 +218,7 @@ def test_sentinel_directives_live(live_session, rpc):
         cur_after = dv2.get("currentPlayer")
 
         # --- OFFLINE port (arbre DSL via le wiring ability-exec) ---
-        stp = load_state(dv, ob, snap); stp.board = board; stp.rng = _seed_rng(s0)
+        stp = load_state(dv, ob, snap, board=board); stp.rng = _seed_rng(s0)
         runner = Runner(stp).install_default_handlers(20)
         runner.apply(ActiveAbilityMessage(caster_id=cid, target_id=tid, ability_type=ABILITY))
         last = runner.ability_handler.last or {}
@@ -245,7 +245,7 @@ def test_sentinel_directives_live(live_session, rpc):
         assert cur_after == my, f"currentPlayer {cur_after} != {my} apres cast : le tour a change (1139 devrait NE PAS finir le tour)"
 
         # --- A/B : arbre == sequence directe execute_ability_attack (attack family, meme rng) ---
-        st_ab = load_state(dv, ob, snap); st_ab.board = board; st_ab.rng = _seed_rng(s0)
+        st_ab = load_state(dv, ob, snap, board=board); st_ab.rng = _seed_rng(s0)
         direct = AttackDamageOperation.execute_ability_attack(
             st_ab, cid, tid, bmin, bmax, pierce, hits, damage_profile="Physical", is_melee=False,
             is_attack_damage_op=True)

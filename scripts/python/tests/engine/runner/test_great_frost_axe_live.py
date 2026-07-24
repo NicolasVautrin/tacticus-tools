@@ -91,8 +91,7 @@ def _tags(e):
 
 def _replay_per_hit(dec1, ob1, snap1, bg, s_cast, cid, eid, native_factory):
     """Rejoue l'arbre GreatFrostAxe (avec `native_factory` donne) depuis l'etat POST-move seede -> per_hit."""
-    st = load_state(dec1, ob1, snap1)
-    st.board = Board(bg["tiles"], adjacency="native_sym")
+    st = load_state(dec1, ob1, snap1, board=Board(bg["tiles"], adjacency="native_sym"))
     st.rng = _seed_rng(s_cast)
     tgt = Target()
     ice = AddEffect(ICE_TILE, "Ice", great_frost_axe_ice_tiles(), duration_rounds=None)

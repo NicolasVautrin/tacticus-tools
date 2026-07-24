@@ -174,8 +174,7 @@ def ma_env(host, live_session, request):
     rng0 = _rpc("dumpRng", {"runnerId": rid}, 30)
 
     def build_state():
-        st = load_state(dv, ob, snap)
-        st.board = board
+        st = load_state(dv, ob, snap, board=board)
         if isinstance(rng0, dict) and rng0.get("mt"):
             st.rng = _seed_rng(rng0)
         return st
@@ -335,8 +334,7 @@ def test_ma_ab_and_params(ma_env):
     assert _hp(state, t_id) < hp0, "ennemi non endommage"
 
     # baseline : rejoue depuis le MEME MT une sequence directe execute_ability_attack (2 coups Energy).
-    st2 = ma_env["build_state"]()
-    st2.board = board
+    st2 = ma_env["build_state"]()   # #64 : build_state pose deja state.board (via load_state board=)
     if rng_snap is not None:
         r = IntBasedMersenneTwister(); r.mt = list(rng_snap["mt"]); r.mti = rng_snap["mti"]; st2.rng = r
     _park_others(st2, board, {cid, t_id}, C)
@@ -409,8 +407,7 @@ def test_ma_live_replay(ma_env):
     live_dmg = (hp_before - hp_after) if (hp_before is not None and hp_after is not None) else None
 
     # OFFLINE : load_state(S) + seed rng + start_turn_triggers(porteur).
-    state = load_state(dec, ob, snap)
-    state.board = board
+    state = load_state(dec, ob, snap, board=board)
     if isinstance(rng0, dict) and rng0.get("mt"):
         state.rng = _seed_rng(rng0)
     if state.get_entity(oid) is None or state.get_entity(fid) is None:

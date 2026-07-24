@@ -197,8 +197,7 @@ def har_off(host, live_session, request):
     rng0 = _rpc("dumpRng", {"runnerId": rid}, 30)
 
     def build_state():
-        st = load_state(dv, ob, snap)
-        st.board = board
+        st = load_state(dv, ob, snap, board=board)
         if isinstance(rng0, dict) and rng0.get("mt"):
             st.rng = _seed_rng(rng0)
         return st
@@ -312,8 +311,7 @@ def test_harbinger_radius2_targeting_and_ab(har_off):
 
     # (4) FIDELITE A/B : rejoue depuis le MEME MT une sequence directe execute_ability_attack sur les cibles
     #     id-triees {cible} U additionnels (1 coup chacun) -> l'arbre == la baseline (bit-exact).
-    st2 = har_off["build_state"]()
-    st2.board = board
+    st2 = har_off["build_state"]()   # #64 : build_state pose deja state.board (via load_state board=)
     if rng_snap is not None:
         r = IntBasedMersenneTwister(); r.mt = list(rng_snap["mt"]); r.mti = rng_snap["mti"]; st2.rng = r
     _park_others(st2, board, {cid, t_id, a1_id, a2_id, far_id}, C)

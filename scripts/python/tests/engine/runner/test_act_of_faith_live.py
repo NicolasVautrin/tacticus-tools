@@ -200,8 +200,7 @@ def test_act_of_faith_accumulation_bit_exact(live_session, rpc, build_runner):
 
     # (2) MOTEUR : rejouer l'attaque tueuse offline → l'ennemi meurt → vecteur MORT → accumulation
     #     ActOfFaith. La stat crit de la Sister cote moteur doit == la stat crit live APRES (bit-exact).
-    state = load_state(k["dec_b"], k["ob_b"], k["snap_b"])
-    state.board = board
+    state = load_state(k["dec_b"], k["ob_b"], k["snap_b"], board=board)
     state.rng = _seed_rng(k["rng"])
     si_off = state.get_entity(sister_id)
     en_off = state.get_entity(k["tgt_id"])

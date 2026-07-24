@@ -52,8 +52,7 @@ def _seed_rng(s):
 
 
 def _load(dec, ob, snap, board, rng0):
-    state = load_state(dec, ob, snap)
-    state.board = board
+    state = load_state(dec, ob, snap, board=board)
     if _ok(rng0):
         state.rng = _seed_rng(rng0)
     return state

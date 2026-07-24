@@ -110,7 +110,7 @@ def test_armorium_cherub_migration_matches_imperative(live_session, rpc, build_r
     # tuiles occupees, piege #148). Requis par `_adjacent_enemies_of` (state.board.neighbours).
     board = Board(bg["tiles"], adjacency="native_sym")
 
-    st0 = load_state(dv, ob, snap); st0.board = board
+    st0 = load_state(dv, ob, snap, board=board)
     if st0.effects is None:
         pytest.skip("EffectsState non charge (combatSnapshot absent) -> gate FireOfAbsolution KO")
     caster_id = next((eid for eid in st0.entities
@@ -132,8 +132,8 @@ def test_armorium_cherub_migration_matches_imperative(live_session, rpc, build_r
     target_id = pair
 
     # DEUX etats INDEPENDANTS depuis la MEME capture, MEME board, seedes IDENTIQUEMENT -> arbre vs imperatif.
-    st_dsl = load_state(dv, ob, snap); st_dsl.board = board; st_dsl.rng = _seed_rng(s0)
-    st_imp = load_state(dv, ob, snap); st_imp.board = board; st_imp.rng = _seed_rng(s0)
+    st_dsl = load_state(dv, ob, snap, board=board); st_dsl.rng = _seed_rng(s0)
+    st_imp = load_state(dv, ob, snap, board=board); st_imp.rng = _seed_rng(s0)
 
     # [DSL] l'arbre migre (via la classe d'ability)
     res_dsl = ArmoriumCherubAbility().execute_behaviour(st_dsl, caster_id, target_id)

@@ -53,8 +53,7 @@ def _load(rpc, build_runner, seed="777"):
     ob = rpc("observeBattle", {"runnerId": rid}, 60)
     snap = rpc("combatSnapshot", {"runnerId": rid}, 90)
     s0 = rpc("dumpRng", {"runnerId": rid}, 30)
-    state = load_state(dec, ob, snap)
-    state.board = board
+    state = load_state(dec, ob, snap, board=board)
     if _ok(s0) and s0.get("mt"):
         rng = IntBasedMersenneTwister(); rng.mt = list(s0["mt"]); rng.mti = s0["mti"]; state.rng = rng
     return state, board

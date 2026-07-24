@@ -118,16 +118,14 @@ def _do_replay(rpc, rid, board, champ, tgt, move_to):
         return _skip("pas d'attaque normale")
     att_eff = [e.get("name") for e in ((a2 or {}).get("effects") or []) if e.get("name")]
     snap2 = rpc("combatSnapshot", {"runnerId": rid}, 40)
-    state = load_state(dv2, ob2, snap2)
-    # #63 : `load_state` NE peuple PAS `state.board` -> sans lui, les feuilles POSITIONNELLES du
-    # builder attaquant (elevation `apply_elevation_bonus`, trench, terrain LightCover/GetStuckIn)
-    # sont des no-op OFFLINE. Le combat natif applique le bonus d'ELEVATION (+ELEVATION_BONUS_PCT=50%
-    # quand l'attaquant surplombe la cible) AVANT percage/armure ; l'omettre rend l'offline TROP BAS
-    # (ex. ratio 0.58-0.67 mesure sur un tir armor-sensitive depuis une tuile plus haute). On assigne
-    # le `Board` DEJA construit ici (memes elevations que le boardGraph live) -> replay positionnel
-    # fidele. `_combat_replay` etait le seul consommateur de load_state a construire un Board sans
-    # l'assigner (les autres tests posent explicitement `state.board = board`). Cf. docs/rl/case-63.
-    state.board = board
+    # #63/#64 : `state.board` peuple A LA SOURCE via `load_state(..., board=board)` -> les feuilles
+    # POSITIONNELLES du combat (elevation `CalculateElevationBonusModifier`, trench, LightCover,
+    # GetStuckIn) ne sont plus des no-op OFFLINE. Le combat natif applique le bonus d'ELEVATION
+    # (+ELEVATION_BONUS_PCT=50% quand l'attaquant surplombe la cible) AVANT percage/armure ; l'omettre
+    # rendait l'offline TROP BAS (ratio 0.58-0.67 sur un tir armor-sensitive en surplomb). Le `Board`
+    # DEJA construit ici (memes elevations que le boardGraph live) est passe a load_state -> board
+    # attache par construction (plus de `state.board=` disperse a oublier). Cf. docs/rl/case-63.
+    state = load_state(dv2, ob2, snap2, board=board)
     ae = state.get_entity(att)
     from engine.runner.components import StatsComponent
     if ae is None or ae.get_component(StatsComponent) is None:

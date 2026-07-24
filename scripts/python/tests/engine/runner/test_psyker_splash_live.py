@@ -156,8 +156,7 @@ def test_psyker_smite_splash_bit_exact(live_session, rpc, build_runner):
     dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
     ob = rpc("observeBattle", {"runnerId": rid}, 40)
     snap = rpc("combatSnapshot", {"runnerId": rid}, 40)
-    state = load_state(dv, ob, snap)
-    state.board = board
+    state = load_state(dv, ob, snap, board=board)
     ae = state.get_entity(att)
     if ae is None or ae.get_component(StatsComponent) is None:
         pytest.skip("psyker sans StatsComponent")

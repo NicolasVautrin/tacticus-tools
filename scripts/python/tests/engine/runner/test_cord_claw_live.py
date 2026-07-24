@@ -188,8 +188,7 @@ def test_cord_claw_execute_live(live_session, rpc):
         assert EFFECT in eff_n1, f"effet {EFFECT} (CordClaw self-buff) absent au tour N+1 (eff={sorted(eff_n1)})"
 
         # ============ (B) OFFLINE agreement (port execute_behaviour) ============
-        st = load_state(dec0, ob0, snap0)
-        st.board = Board(bg["tiles"], adjacency="native_sym")
+        st = load_state(dec0, ob0, snap0, board=Board(bg["tiles"], adjacency="native_sym"))
         st.rng = _seed_rng(s_cast)
         pc = st.get_entity(cid).get_component(PositionComponent)
         pc.col, pc.row = atk_tile["col"], atk_tile["row"]           # DRIVE meme tuile que le live
@@ -212,8 +211,7 @@ def test_cord_claw_execute_live(live_session, rpc):
         # DIRECT `execute_ability_attack` avec les params DERIVES de la config CordClaw (DirectDamage, nrOfHits
         # =GetHits(0x2f)=4, [minDmg,maxDmg]). Sous le MEME rng seede -> BIT-IDENTIQUE (prouve que la feuille lit
         # la bonne config/profil, sans dependre du live-vs-offline confondu par #37/block).
-        st_b = load_state(dec0, ob0, snap0)
-        st_b.board = Board(bg["tiles"], adjacency="native_sym")
+        st_b = load_state(dec0, ob0, snap0, board=Board(bg["tiles"], adjacency="native_sym"))
         st_b.rng = _seed_rng(s_cast)
         st_b.get_entity(cid).get_component(PositionComponent).col = atk_tile["col"]
         st_b.get_entity(cid).get_component(PositionComponent).row = atk_tile["row"]
@@ -253,8 +251,7 @@ def test_cord_claw_execute_live(live_session, rpc):
         fresh_id = (fresh or {}).get("id") or eid
 
         def _normal(with_buff):
-            s2 = load_state(dec0, ob0, snap0)
-            s2.board = Board(bg["tiles"], adjacency="native_sym")
+            s2 = load_state(dec0, ob0, snap0, board=Board(bg["tiles"], adjacency="native_sym"))
             s2.rng = _seed_rng(s_cast)
             if with_buff:
                 AddEffectOperation.execute(s2, source=cid, target=cid, effect_type=EFFECT,

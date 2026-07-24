@@ -126,7 +126,7 @@ def test_scything_talons_migration_matches_imperative(live_session, rpc, build_r
         snap = rpc("combatSnapshot", {"runnerId": rid}, 40)
         if not _ok(dv):
             pytest.skip("decisionView KO")
-        st = load_state(dv, ob, snap); st.board = board
+        st = load_state(dv, ob, snap, board=board)
         pc, pt = _find_adj_both_pair(st)
         if pc is not None:
             pair_caster, pair_target = pc, pt
@@ -184,8 +184,8 @@ def test_scything_talons_migration_matches_imperative(live_session, rpc, build_r
         pytest.skip("dumpRng KO")
 
     # --- DEUX etats INDEPENDANTS depuis la MEME capture, MEME board + seedes IDENTIQUEMENT -> arbre vs imperatif.
-    st_dsl = load_state(dv, ob, snap); st_dsl.board = board; st_dsl.rng = _seed_rng(s0)
-    st_imp = load_state(dv, ob, snap); st_imp.board = board; st_imp.rng = _seed_rng(s0)
+    st_dsl = load_state(dv, ob, snap, board=board); st_dsl.rng = _seed_rng(s0)
+    st_imp = load_state(dv, ob, snap, board=board); st_imp.rng = _seed_rng(s0)
 
     # [DSL] l'arbre migre (via la classe d'ability)
     res_dsl = ScythingTalonsAbility().execute_behaviour(st_dsl, caster_id, target_id)

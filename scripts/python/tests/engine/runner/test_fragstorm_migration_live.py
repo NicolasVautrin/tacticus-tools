@@ -91,8 +91,7 @@ def test_fragstorm_migration_enemies_only(live_session, rpc, build_runner):
     if not _ok(s0):
         pytest.skip("rng absent")
 
-    state = load_state(dec, ob, snap)
-    state.board = board
+    state = load_state(dec, ob, snap, board=board)
     state.rng = _seed_rng(s0)
 
     live_ids = [u["id"] for u in (dec.get("units") or []) if state.get_entity(u["id"]) is not None]

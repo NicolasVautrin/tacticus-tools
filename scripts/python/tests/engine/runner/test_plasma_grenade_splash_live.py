@@ -87,7 +87,7 @@ def test_plasma_grenade_migration_matches_imperative(live_session, rpc, build_ru
 
     # --- Trouver un couple (caster player, cible ennemie) ou l'imperatif (board) ET le DSL (hexgeo) donnent
     #     le MEME splash NON VIDE (>=1 ennemi-du-caster vivant adjacent a la cible). Board plat -> concordent.
-    st0 = load_state(dv, ob, snap); st0.board = board
+    st0 = load_state(dv, ob, snap, board=board)
     caster_id = next((eid for eid in st0.entities
                       if _visual(st0, eid) == CASTER_VIS and _alive(st0, eid)
                       and st0.get_entity(eid).get_component(StatsComponent) is not None), None)
@@ -106,8 +106,8 @@ def test_plasma_grenade_migration_matches_imperative(live_session, rpc, build_ru
     target_id = pair
 
     # --- DEUX etats INDEPENDANTS depuis la MEME capture, MEME board + seedes IDENTIQUEMENT -> arbre vs imperatif.
-    st_dsl = load_state(dv, ob, snap); st_dsl.board = board; st_dsl.rng = _seed_rng(s0)
-    st_imp = load_state(dv, ob, snap); st_imp.board = board; st_imp.rng = _seed_rng(s0)
+    st_dsl = load_state(dv, ob, snap, board=board); st_dsl.rng = _seed_rng(s0)
+    st_imp = load_state(dv, ob, snap, board=board); st_imp.rng = _seed_rng(s0)
 
     # [DSL] l'arbre migre (via la classe d'ability)
     res_dsl = PlasmaGrenadeAbility().execute_behaviour(st_dsl, caster_id, target_id)

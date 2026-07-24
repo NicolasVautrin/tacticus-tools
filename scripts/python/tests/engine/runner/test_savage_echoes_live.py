@@ -251,8 +251,7 @@ def test_savage_echoes_wiring_and_free_tile_bonus(live_session, rpc):
             pytest.skip("combatSnapshot/dumpRng indispo")
 
         def mkstate():
-            st = load_state(dec0, ob0, snap0)
-            st.board = Board(bg["tiles"], adjacency="native_sym")
+            st = load_state(dec0, ob0, snap0, board=Board(bg["tiles"], adjacency="native_sym"))
             st.rng = _mk_rng(s0)
             return st
 
@@ -354,8 +353,7 @@ def test_savage_echoes_regenerate_heal(live_session, rpc):
             pytest.skip("capture indispo")
 
         def mkstate():
-            st = load_state(dec0, ob0, snap0)
-            st.board = Board(bg["tiles"], adjacency="native_sym")
+            st = load_state(dec0, ob0, snap0, board=Board(bg["tiles"], adjacency="native_sym"))
             st.rng = _mk_rng(s0)
             return st
 

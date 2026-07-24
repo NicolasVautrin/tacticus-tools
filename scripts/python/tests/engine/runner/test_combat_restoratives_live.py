@@ -89,8 +89,7 @@ def combatrest_state(live_session, rpc, build_runner):
     snap = rpc("combatSnapshot", {"runnerId": rid}, 40)
     if not (_ok(dv) and _ok(ob) and _ok(snap)):
         pytest.skip("capture live KO")
-    state = load_state(dv, ob, snap)
-    state.board = board
+    state = load_state(dv, ob, snap, board=board)
     ids = {k: _by_vis(state, v) for k, v in
            (("apo", CASTER), ("imp", ALLY_IMP), ("xen", ALLY_XENOS),
             ("cha", ALLY_CHAOS), ("mech", ALLY_MECH))}
@@ -240,8 +239,7 @@ def test_combatrest_live_cast_confront(live_session, rpc, build_runner):
     if not (_ok(dv) and _ok(ob) and _ok(snap)):
         pytest.skip("capture pre-cast KO")
     pre = {u["squadId"]: u["hp"] for u in ob["units"]}
-    state = load_state(dv, ob, snap)
-    state.board = board
+    state = load_state(dv, ob, snap, board=board)
     cid = _by_vis(state, CASTER)
     if cid is None:
         pytest.skip("caster absent offline")

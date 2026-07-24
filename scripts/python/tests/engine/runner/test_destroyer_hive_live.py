@@ -125,8 +125,7 @@ def dh_state(rpc, build_runner):
     board = Board(tiles, adjacency="evenq")
 
     def build_state():
-        st = load_state(dec, ob, snap)
-        st.board = board
+        st = load_state(dec, ob, snap, board=board)
         if isinstance(rng0, dict) and rng0.get("mt"):
             r = IntBasedMersenneTwister()
             r.mt = list(rng0["mt"]); r.mti = rng0["mti"]

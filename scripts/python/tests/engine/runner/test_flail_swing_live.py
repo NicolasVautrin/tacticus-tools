@@ -193,7 +193,7 @@ def test_flail_swing_live(live_session, rpc):
         dv2 = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
         ob2 = rpc("observeBattle", {"runnerId": rid}, 60)
         snap2 = rpc("combatSnapshot", {"runnerId": rid}, 90)
-        st = load_state(dv2, ob2, snap2); st.board = board
+        st = load_state(dv2, ob2, snap2, board=board)
         bmin, bmax, pierce, hits = ability_attack_params(st, cid, "FlailSwing", "Power", ranged=False)
         assert hits == 3, f"nrOfHits {hits} != 3 (config FlailSwing constants.nrOfHits)"
         assert pierce == 40, f"pierce {pierce} != 40 (profil Power PiercingRatio)"
@@ -212,14 +212,14 @@ def test_flail_swing_live(live_session, rpc):
             pytest.skip(f"aucun degat live FlailSwing (cast={str(cast)[:160]})")
 
         # --- OFFLINE port (arbre DSL) ---
-        stp = load_state(dv2, ob2, snap2); stp.board = board; stp.rng = _seed_rng(s0)
+        stp = load_state(dv2, ob2, snap2, board=board); stp.rng = _seed_rng(s0)
         res = FlailSwingAbility().execute_behaviour(stp, cid, tid)
         assert res is not None and res.get("dsl") is True, f"port non execute: {res}"
         assert res.get("informed_weapon") == "Power", f"InformWeapon(Power) non emis: {res.get('informed_weapon')}"
         tree_ph = (res.get("attack") or {}).get("per_hit") or []
 
         # --- A/B : arbre == sequence directe execute_ability_attack (attack), meme rng ---
-        st_ab = load_state(dv2, ob2, snap2); st_ab.board = board; st_ab.rng = _seed_rng(s0)
+        st_ab = load_state(dv2, ob2, snap2, board=board); st_ab.rng = _seed_rng(s0)
         direct = AttackDamageOperation.execute_ability_attack(
             st_ab, cid, tid, bmin, bmax, pierce, hits, damage_profile="Power", is_melee=True,
             is_attack_damage_op=True, force_overkill=True)
@@ -243,7 +243,7 @@ def test_flail_swing_live(live_session, rpc):
                 "2e ennemi endommage offline -> l'arbre n'est pas mono-cible"
 
         # (2) native_factory : attack (2 tirages/coup) ratio-constant vs live ; ability (1 tirage/coup) desync
-        st_abty = load_state(dv2, ob2, snap2); st_abty.board = board; st_abty.rng = _seed_rng(s0)
+        st_abty = load_state(dv2, ob2, snap2, board=board); st_abty.rng = _seed_rng(s0)
         off_ability = (AttackDamageOperation.execute_ability_attack(
             st_abty, cid, tid, bmin, bmax, pierce, hits, damage_profile="Power", is_melee=True,
             is_attack_damage_op=False, force_overkill=True) or {}).get("per_hit") or []
@@ -290,16 +290,16 @@ def test_flail_swing_native_factory_second_seed(live_session, rpc):
         dv2 = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
         ob2 = rpc("observeBattle", {"runnerId": rid}, 60)
         snap2 = rpc("combatSnapshot", {"runnerId": rid}, 90)
-        st = load_state(dv2, ob2, snap2); st.board = board
+        st = load_state(dv2, ob2, snap2, board=board)
         bmin, bmax, pierce, hits = ability_attack_params(st, cid, "FlailSwing", "Power", ranged=False)
         s0 = rpc("dumpRng", {"runnerId": rid}, 30)
         if not _ok(s0):
             pytest.skip("dumpRng KO")
-        st_a = load_state(dv2, ob2, snap2); st_a.board = board; st_a.rng = _seed_rng(s0)
+        st_a = load_state(dv2, ob2, snap2, board=board); st_a.rng = _seed_rng(s0)
         attack = (AttackDamageOperation.execute_ability_attack(
             st_a, cid, tid, bmin, bmax, pierce, hits, damage_profile="Power", is_melee=True,
             is_attack_damage_op=True, force_overkill=True) or {}).get("per_hit")
-        st_b = load_state(dv2, ob2, snap2); st_b.board = board; st_b.rng = _seed_rng(s0)
+        st_b = load_state(dv2, ob2, snap2, board=board); st_b.rng = _seed_rng(s0)
         ability = (AttackDamageOperation.execute_ability_attack(
             st_b, cid, tid, bmin, bmax, pierce, hits, damage_profile="Power", is_melee=True,
             is_attack_damage_op=False, force_overkill=True) or {}).get("per_hit")
@@ -343,7 +343,7 @@ def test_flail_swing_overkill_resilient(live_session, rpc):
         dv2 = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
         ob2 = rpc("observeBattle", {"runnerId": rid}, 60)
         snap2 = rpc("combatSnapshot", {"runnerId": rid}, 90)
-        st0 = load_state(dv2, ob2, snap2); st0.board = board
+        st0 = load_state(dv2, ob2, snap2, board=board)
         te = st0.get_entity(tid)
         hp_pre = te.get_component(HealthComponent).hp if te else None
         if not hp_pre or hp_pre != HPN:
@@ -372,11 +372,11 @@ def test_flail_swing_overkill_resilient(live_session, rpc):
             f"live sum {live_sum} != PV full {hp_pre} : la cible Resilient a SURVECU live (le flag ne force pas l'overkill ?)"
 
         # --- OFFLINE port (force_overkill=True) : hp -> 0 (morte) == live ---
-        stp = load_state(dv2, ob2, snap2); stp.board = board; stp.rng = _seed_rng(s0)
+        stp = load_state(dv2, ob2, snap2, board=board); stp.rng = _seed_rng(s0)
         FlailSwingAbility().execute_behaviour(stp, cid, tid)
         hp_port = stp.get_entity(tid).get_component(HealthComponent).hp
         # --- CONTROL (force_overkill=False, meme rng) : hp -> 1 (survit, Resilient cap) ---
-        stc = load_state(dv2, ob2, snap2); stc.board = board; stc.rng = _seed_rng(s0)
+        stc = load_state(dv2, ob2, snap2, board=board); stc.rng = _seed_rng(s0)
         AttackDamageOperation.execute_ability_attack(
             stc, cid, tid, bmin, bmax, pierce, hits, damage_profile="Power", is_melee=True,
             is_attack_damage_op=True, force_overkill=False)

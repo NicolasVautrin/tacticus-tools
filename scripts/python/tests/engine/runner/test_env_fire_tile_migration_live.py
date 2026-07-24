@@ -88,8 +88,8 @@ def test_env_fire_tile_dot_migration_matches_imperative(live_session, rpc, build
         pytest.skip("fireDmgPct absent du gameconfig")
 
     board = Board(bg["tiles"], adjacency="native_sym") if isinstance(bg, dict) and bg.get("tiles") else None
-    st_new = load_state(dv, ob, snap); st_new.board = board
-    st_ref = load_state(dv, ob, snap); st_ref.board = board
+    st_new = load_state(dv, ob, snap, board=board)
+    st_ref = load_state(dv, ob, snap, board=board)
 
     # source = 1re entite (attribution de mort seule ; les cibles saines ne meurent pas -> source indifferente).
     ids = [eid for eid in st_new.entities if _alive(st_new, eid)

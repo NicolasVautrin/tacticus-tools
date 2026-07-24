@@ -85,8 +85,7 @@ def revmalig_state(live_session, rpc, build_runner):
     snap = rpc("combatSnapshot", {"runnerId": rid}, 40)
     if not (_ok(dv) and _ok(ob) and _ok(snap)):
         pytest.skip("capture live KO")
-    state = load_state(dv, ob, snap)
-    state.board = board
+    state = load_state(dv, ob, snap, board=board)
     ids = {k: _by_vis(state, v) for k, v in
            (("dr", CASTER), ("chaos", ALLY_CHAOS), ("xenos", ALLY_XENOS),
             ("imp", ALLY_IMP), ("mech", ALLY_MECH))}

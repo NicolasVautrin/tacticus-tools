@@ -40,8 +40,7 @@ def _state_with_board(rpc, build_runner):
     snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
     if not (dec.get("units")):
         pytest.skip("decisionView vide")
-    state = load_state(dec, ob, snap)
-    state.board = board
+    state = load_state(dec, ob, snap, board=board)
     return state, board
 
 

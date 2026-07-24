@@ -43,14 +43,28 @@ def _effect_names(u: dict) -> List[str]:
     return sorted(n for n in (e.get("name") for e in (u.get("effects") or [])) if n)
 
 
-def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None) -> State:
+def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
+               board=None) -> State:
     """Snapshot live → `State` ECS (entités + composants d'unité).
 
     `snapshot` (combatSnapshot) optionnel : s'il est fourni, peuple en plus le
     `StatsComponent` (stats RÉSOLUES + arme normale, via `UnitContext`) de chaque unité
     ET `State.effects` (effets STRUCTURÉS matérialisés, `EffectsState`) — le runner peut
     alors calculer la plage de tirage lui-même. Sans `snapshot` : comportement tranche 0
-    inchangé (identité/pos/HP/effets-NOMS uniquement)."""
+    inchangé (identité/pos/HP/effets-NOMS uniquement).
+
+    `board` (`engine.entities.pathfinding.board.Board`) optionnel : s'il est fourni, il
+    est ASSIGNÉ à `state.board` (adjacence hex + élévation + terrain). Point d'injection
+    UNIQUE du board — sans lui, les feuilles POSITIONNELLES du combat (bonus d'ELEVATION
+    `CalculateElevationBonusModifier @181003ea0`, trench, LightCover, GetStuckIn) sont des
+    no-op SILENCIEUX offline (cause racine #63 : un `state.board=` oublié dans un helper de
+    replay). Passer le board ICI (au lieu d'un `state.board = board` dispersé après l'appel)
+    rend l'omission structurellement impossible à un site donné. On accepte l'OBJET `Board`
+    déjà construit (pas le boardGraph brut) car son mode d'adjacence (`evenq`/`native_sym`)
+    est CONSOMMÉ par le moteur (`neighbours`/`are_tiles_adjacent`/splash) et varie selon les
+    appelants : préserver l'objet exact = préserver le mode = zéro régression. L'assignation
+    est faite en TOUTE FIN (après `_load_stats_and_effects`) → strictement équivalente à un
+    `state.board = board` post-retour (l'init/seed ne lit jamais `state.board`)."""
     state = State()
     state.current_player_id = decision.get("currentPlayer")
     hp_by_id = _hp_by_id(observe)
@@ -75,6 +89,10 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None) -
             e.add_component(EffectsOwnedComponent(effects=effs))
     if snapshot is not None:
         _load_stats_and_effects(state, decision, snapshot)
+    # Board assigné en DERNIER (cf. docstring) : identique à un `state.board = board` que
+    # l'appelant aurait posé après le retour de load_state — l'init/seed n'a jamais lu le board.
+    if board is not None:
+        state.board = board
     return state
 
 

@@ -61,8 +61,7 @@ def test_scarab_summon_migration_is_dsl_tree(live_session, rpc, build_runner):
         pytest.skip("summoner/cible/rng absent")
     spyder_id, enemy_id = spyder["id"], enemy["id"]
 
-    state = load_state(dec, ob, snap)
-    state.board = board
+    state = load_state(dec, ob, snap, board=board)
     state.rng = _seed_rng(s0)
     if state.get_entity(spyder_id) is None or state.get_entity(enemy_id) is None:
         pytest.skip("summoner/cible absents offline")

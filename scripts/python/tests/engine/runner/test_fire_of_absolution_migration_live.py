@@ -156,7 +156,7 @@ def test_fire_of_absolution_migration_matches_imperative(live_session, rpc, buil
     # board -> la branche ignite (board.neighbours) est identique quel que soit le mode (replay-diff board-agnostique).
     board = Board(bg["tiles"], adjacency="native_sym")
 
-    st0 = load_state(dv, ob, snap); st0.board = board
+    st0 = load_state(dv, ob, snap, board=board)
     if st0.effects is None:
         pytest.skip("EffectsState non charge (combatSnapshot absent) -> gate FireOfAbsolution KO")
     caster_id = next((eid for eid in st0.entities
@@ -169,8 +169,8 @@ def test_fire_of_absolution_migration_matches_imperative(live_session, rpc, buil
         pytest.skip("aucune cible ennemie avec occupant adjacent (splash FireOfAbsolution non exercable)")
 
     # DEUX etats INDEPENDANTS depuis la MEME capture, MEME board, seedes IDENTIQUEMENT -> arbre vs ref.
-    st_new = load_state(dv, ob, snap); st_new.board = board; st_new.rng = _seed_rng(s0)
-    st_ref = load_state(dv, ob, snap); st_ref.board = board; st_ref.rng = _seed_rng(s0)
+    st_new = load_state(dv, ob, snap, board=board); st_new.rng = _seed_rng(s0)
+    st_ref = load_state(dv, ob, snap, board=board); st_ref.rng = _seed_rng(s0)
 
     res_new = _fire_of_absolution_after_attack(st_new, caster_id, target_id, ranged=True)   # arbre DSL migre
     res_ref = _fire_of_absolution_imperative_ref(st_ref, caster_id, target_id, ranged=True)  # ancien imperatif

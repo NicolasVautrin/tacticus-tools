@@ -124,8 +124,7 @@ def test_overwatch_after_move_bit_exact(live_session, rpc, build_runner):
         snap = rpc("combatSnapshot", {"runnerId": rid}, 40)
         hp_before = next((u.get("hp") for u in (ob.get("units") or []) if u.get("squadId") == mover_id), None)
         s0 = rpc("dumpRng", {"runnerId": rid}, 30)
-        state = load_state(dec, ob, snap)
-        state.board = board
+        state = load_state(dec, ob, snap, board=board)
         if not _ok(s0):
             pytest.skip("dumpRng KO")
         state.rng = _seed_rng(s0)

@@ -119,7 +119,7 @@ def _replay(rpc, rid, board, champ, tgt, move_to):
     if norm is None:
         pytest.skip("pas d'attaque normale")
     snap2 = rpc("combatSnapshot", {"runnerId": rid}, 40)
-    state = load_state(dv2, ob2, snap2)
+    state = load_state(dv2, ob2, snap2, board=board)   # #64 : board a la source (feuilles positionnelles armees)
     te = state.get_entity(tid)
     hc = te.get_component(HealthComponent) if te is not None else None
     if hc is None or hc.hp is None:
