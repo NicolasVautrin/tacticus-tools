@@ -15,10 +15,21 @@ ForAddition(OwnerIsActor & HasTrait(target, Psyker), ConfigVar 8) — jumeau Ava
 target-trait (précédent DaughterOfTheAbyss). ⚠ NE PAS coder 2183 en dur (lire la var gameconfig).
 ```
 ```
-[1062 SanctorumMissile | adeptMorvenn]  — [opus] direct (décision DÉJÀ portée+validée)
-VAs : ExecuteBehaviour @1812041d0 ; GetAdjacentDamageTargetsAll @1812044a0 ; prediction.py:1018 OK
-2x Blast cible + 1x Blast adjacents (− hex de Morvenn, + tuiles steppables), atomic 0x56 — template
-splash 2-bandes. Prérequis : petit sélecteur adjacents−caster+steppables Unobscured.
+[1062 SanctorumMissile | adeptMorvenn]  — [opus] direct — PORTÉ + VALIDÉ LIVE (face COMBAT)
+VAs : ExecuteBehaviour @1812041d0 ; GetAdjacentDamageTargetsAll @1812044a0 (units-only frère
+      GetAdjacentDamageTargetsUnits @181204580 = Units(All)) ; face DÉCISION prediction abilities.py OK.
+Arbre = ExecuteAtomic(0x56, op_BitwiseAnd(MAIN, SPLASH)) : MAIN = AttackWithAttackDamage(target, Blast,
+nrOfHits=0x2f=2) ; SPLASH = AttackWithAttackDamage(GetAdjacentDamageTargetsAll(), Blast, nrOfHits_2=0x32=1).
+Sélecteur splash = Unobscured(self@0x168, (Units(AdjacentTiles(target))−caster@0x160) + EmptyOrHasSteppable(
+adjTiles)) → porté `Unobscured(Sub(AdjacentUnits(TargetTile()), Caster()), Caster())`. FRIENDLY-FIRE (band UNIT
+sans filtre équipe, == Stikkbomb) — CONFIRMÉ LIVE (allié adjacent touché). Hex de Morvenn EXCLU (Sub(caster))
+— CONFIRMÉ LIVE (Morvenn drivée adjacente, absente des cibles). native_factory="attack" @180de9fb0 (XREFS
+call-sites @18120432f/@1812043cf ; ABSENT de @180de9c90/@180de9dd0 ability) — discriminant OK 2 seeds.
+GAP flaggé : band TILE EmptyOrHasSteppable @180ee83e0 (tuiles vides/steppables) NON porté — inerte pour le
+degat-unite en duel (frère Units(All) l'élimine déjà). Observer Unobscured 0x168 = self/owner (≠ caster 0x160
+soustrait, ≠ target 0x178 centre AdjTiles) = Morvenn en cast actif ; board plat → Unobscured passe-tout.
+Placement : `runner/abilities/sisterhood.py` (NOUVEAU module Sisterhood isolé) + handler 1062 ;
+test `tests/engine/runner/test_sanctorum_missile_live.py`.
 ```
 ```
 [1025 SkyStrike | adeptCelestine]  — [opus] direct
