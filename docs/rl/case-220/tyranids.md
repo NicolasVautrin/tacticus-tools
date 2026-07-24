@@ -8,7 +8,8 @@
 handler 35), CrushingClaws 1105 (splash.py:351), FeederTendrils (extra_damage.py:111), Neuroparasite
 (damage_reduction.py:215, validé bit-exact #86), GuardianOrganism (damage_reduction.py:156, validé
 #89/#91). ScythingTalons 1065 du summon tyranSmnWarrior PORTÉ (splash.py:494) → le summon
-d'AlphaWarrior est fonctionnel. Restent 6 items, tous ABSENTS des registres.
+d'AlphaWarrior est fonctionnel. **AlphaWarrior 1112 PORTÉ COMBAT + validé LIVE bit-exact (tyranids.py).**
+Restent 5 items ([opus]+prérequis / [fable]), tous ABSENTS des registres.
 
 ```
 [1145 SporeMineLauncher | tyranBiovore]  — PORTÉ (COMBAT) + validé LIVE (tyranids.py ; handler 1145)
@@ -28,11 +29,37 @@ downstream = 0. tyranSmnSporeMine n'ayant NI arme NI ability active (summonDmg=0
 son existence. Port FloatingDeath = tâche summon-downstream séparée (cf. Transverses ci-dessous).
 ```
 ```
-[1112 AlphaWarrior | tyranWingedPrime]  — [opus] direct
-VAs : ExecuteBehaviour @1811b1400 ; GetSummonId @1811b15c0 ; IsInSynapseRange @1811b1620
-Spawn(tyranSmnWarrior, tuile-cible, onAppearance=PerformAIAttackFromCurrentPosition) — template EXACT
-summon.py ; should_evaluate = _turns_started_gate DÉJÀ PORTÉ (_base.py:140). Gate de légalité
-IsInTeamSynapseRange ABSENT → IA sur-permissive (comme obscuring). Le plus « complet » livrable.
+[1112 AlphaWarrior | tyranWingedPrime]  — PORTÉ (COMBAT) + validé LIVE bit-exact (tyranids.py ; handler 1112)
+VAs : ExecuteBehaviour @1811b1400 ; GetSummonId @1811b15c0 ; IsInSynapseRange @1811b15f0/@1811b1620 ;
+      GetDynamicInvalidTargetReason @1811b1590 ; ctor @1811b1930
+Spawn(tyranSmnWarrior, TUILE-CIBLE directe, onAppearance=PerformAIAttackFromCurrentPosition) — TEMPLATE EXACT
+AberrantHypermorph @1811b0550 (Spawn tile-target + WithStatsFromConfig + on-appearance), à TROIS détails près
+(vérifiés par comparaison des deux décompilés) : config AlphaWarrior ; nœud amount de WithStatsFromConfig = null
+(vs AbilityLevelAmount) — le level qui indexe summonHp/summonDmg/summonArmor vient du contexte d'ability du
+caster, PAS de ce nœud (confirmé BIT-EXACT live) ; sujet on-appearance = Spawned@0x180 (vs Target@0x178,
+résolvent au MÊME summon, cf. MasterOfTheTutelaries). ctor @1811b1930 : AActiveAbility.ctor(..., 2, 0)
+(IDENTIQUE Aberrant/Spore → flags de tour défauts, 1112 hors frozensets base.py → termine le tour + pose
+ActiveAbilityUsed). Feuille `SpawnAlphaWarrior` → `_spawn_config_grot` (Operation live-validée) + on-appearance
+`perform_ai_attack_from_current_position` (arme par distance : summon a melee 3-hit Physical + ranged r2 3-hit Bio).
+Gate de légalité IsInTeamSynapseRange (GetDynamicInvalidTargetReason @1811b1590 → IsInSynapseRange →
+DSLFactory.IsInTeamSynapseRange : tuile valide ssi dans la portée synapse de l'équipe) = ciblage live/RPC, HORS
+ExecuteBehaviour → ABSENT du port COMBAT (IA sur-permissive, comme SporeMineLauncher/obscuring — résidu documenté).
+NOTE visualId : le natif Spawn reçoit le constant config "tyranSmnWarrior" (== GetSummonId), mais la résolution
+DOWNSTREAM (SpawnUnitBehaviour, HORS ExecuteBehaviour) spawn la variante NPC "tyranNpc4Warrior" (MÊME kit —
+mêmes armes/abilities/passifs, SEULE diff : pas de trait `Summon`) → le port mirror l'ExecuteBehaviour (spawn
+"tyranSmnWarrior") ; stats depuis la config d'ABILITY = bit-exact quel que soit le visualId.
+VALIDATION LIVE (tyranWingedPrime SPAWNABLE en p-unit `--p-units tyranWingedPrime`) : cast tile-target natif
+spawn le summon sur la tuile ciblée, hp=summonHp[50]×180%=7976 BIT-EXACT vs port (event `appeared.hpAfter`),
+owner=(team1,player3)=caster, atk=summonDmg[50]×180%=2992 ; on-appearance = le summon attaque l'ennemi à portée
+(melee r1 adjacent OU ranged r2), l'ennemi perd des HP (live + offline). Généralisation vérifiée : ennemi dist=2
+→ attaque ranged Bio ; dist=3 (hors portée max r2) → no-op fidèle. Test committé test_alpha_warrior_live.py
+(4 tests PASS : FACE1 port offline, FACE2 spawn live bit-exact, FACE2bis on-appearance live, no-op).
+Décision NC playbook (`AlphaWarriorPlaybook.ShouldEvaluate @18111af90` = should_evaluate _turns_started_gate DÉJÀ
+PORTÉ _base.py:140 ; EvaluateNonComparable @18111ab90) = tâche PLAYBOOK séparée.
+⚠ RÉSIDU (hors périmètre COMBAT) : le summon `tyranSmnWarrior/tyranNpc4Warrior` a son propre kit (ScythingTalons
+1065 PORTÉ splash.py:494, passif ReinforcedHiveNode non porté) — son ability active et son mouvement instinctif
+aux tours SUIVANTS ne sont pas rejoués offline (aucun consommateur runner), mais l'attaque à l'apparition (le
+volet de CET ExecuteBehaviour) est fidèle. Gate synapse ABSENT = seul écart (ciblage, pas COMBAT).
 ```
 ```
 [1204 BarbedOvipositor | tyranParasite passif]  — [opus]+prérequis
@@ -74,9 +101,9 @@ Même dépendance FloatingDeath que SporeMineLauncher.
 ```
 
 **Synthèse Tyranids** : couverts = SpiritLeech, CrushingClaws, FeederTendrils, Neuroparasite,
-GuardianOrganism, **SporeMineLauncher (PORTÉ COMBAT + validé LIVE bit-exact, tyranids.py)** ; [opus]
-direct = AlphaWarrior ; [opus]+prérequis = BarbedOvipositor, SynapticLinchpin, FearOfTheUnseen
-(escalade possible) ; **[fable]** = BioMinefield.
+GuardianOrganism, **SporeMineLauncher (PORTÉ COMBAT + validé LIVE bit-exact, tyranids.py)**,
+**AlphaWarrior (PORTÉ COMBAT + validé LIVE bit-exact, tyranids.py)** ; [opus]+prérequis =
+BarbedOvipositor, SynapticLinchpin, FearOfTheUnseen (escalade possible) ; **[fable]** = BioMinefield.
 Transverses : repeat-until-cap spawn générique (SynapticLinchpin + BioMinefield) ; trigger réactif
 cross-unit ; **kits de summons Tyranides downstream** (tyranSmnSporeMine.FloatingDeath,
 tyranSmnRipperSwarm.Burrowers, tyranSmnHormagaunt.AdrenalGlands) = tâche séparée sans laquelle les
