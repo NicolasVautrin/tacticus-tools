@@ -23,15 +23,19 @@ Destination (mirror partie commune de `Execute`) :
 - garde `IsDisplaceable(pushed)` en tete : mort OU trait non-deplacable (Immovable=17, BigTarget=1017)
   -> **no-op** (c'est pourquoi le test de Stun utilise tyranTyrantGuard=BigTarget pour neutraliser le push).
 
-SCOPE slice-21a (1-hex simple) : push 1 tuile, stop sur mur/bord/occupee. #47 : le KNOCKBACK DAMAGE
-du push BLOQUE est PORTE (`_apply_knockback_to`, mirror `ApplyKnockbackTo @180e67fc0` — cf. docstring) :
-mur/bord -> degat a la poussee ; occupant non-steppable -> degat a la poussee + a l'occupant SI ennemi
-du pousseur (branche IsFilled/IsEnemy d'`Execute @180e685a0`). NON portes (=> slice-21b, flagges) :
-push MULTI-hex (`maxCount`/param_9=2 natif), steppable-crush (occupant petit ecrase), fall-damage
+SCOPE (1-hex simple) : push 1 tuile, stop sur mur/bord/occupee. La DISTANCE = 1 hex est TRANCHEE (cas
+#68, RE + live) : `FindTileToPush @180e695e0` choisit dans l'arc arriere DISTANCE-1 (`GetMinimumTiles180
+Behind @181064f98`, slot d'interface 0x4c) ; le `param_9=2` (+0x84 de DisplaceUnitBehaviour) N'EST PAS la
+distance (n'atteint pas FindTileToPush) -> le "push MULTI-hex slice-21b" est REFUTE (cf. commentaire
+`_PUSH_MAX_DIST`). #47 : le KNOCKBACK DAMAGE du push BLOQUE est PORTE (`_apply_knockback_to`, mirror
+`ApplyKnockbackTo @180e67fc0` — cf. docstring) : mur/bord -> degat a la poussee ; occupant non-steppable
+-> degat a la poussee + a l'occupant SI ennemi du pousseur (branche IsFilled/IsEnemy d'`Execute
+@180e685a0`). NON portes (residus flagges) : steppable-crush (occupant petit ecrase), fall-damage
 d'elevation au push REUSSI (branche `GetElevationDifference(dest, from) >= seuil-nullable(param_5)`
-d'Execute -> ApplyKnockbackTo ; seuil du behaviour PushUnit non RE'd), absorption par allie. La feuille
-`PushUnit` (DSLFactory.PushUnit @180df9540 -> DisplaceUnitBehaviour @180fc3ff0) emet 1
-DisplaceUnitOperation par unite poussee.
+d'Execute -> ApplyKnockbackTo ; seuil du behaviour PushUnit non RE'd), absorption par allie, arc arriere
+non-degenere (pousseur NON adjacent -> random-pick d'une tuile de l'arc distance-1 ; sans objet pour
+PushUnit melee, toujours axis-aligne). La feuille `PushUnit` (DSLFactory.PushUnit @180df9540 ->
+DisplaceUnitBehaviour @180fc3ff0) emet 1 DisplaceUnitOperation par unite poussee.
 """
 from __future__ import annotations
 
@@ -43,11 +47,26 @@ from .movement import MoveUnitOperation
 from ...entities.pathfinding.board import EVENQ_EVEN, EVENQ_ODD
 from ...entities.traits.unit_trait import UnitTrait, has_any_trait
 
-# Distance du push, en tuiles. HARDCODE (slice-21a) : HYPOTHESE 1 hex. Le natif `PushUnit` passe
-# `param_9=2` (+0x84 de DisplaceUnitBehaviour) = maxCount PROBABLE (RE non tranche) -> le push pourrait
-# aller jusqu'a 2 hexes (FindTileToPush prend la tuile la plus loin atteignable). A CONFIRMER LIVE
-# (test_thunderous_assault_push_live imprime dist(target,casterOrig) d0->d1 ; push = d1 - 1). Bump a 2
-# si live montre 2 hexes. Le multi-hex complet (marche bornee + validite par pas) = slice-21b.
+# Distance du push, en tuiles = 1. CONSTANTE SOURCEE (cas #68 : RE decompile + confirme live), PAS une
+# hypothese. TRANCHE 1-vs-2 :
+#  - `DisplaceUnitOperation.Execute @180e685a0` case 1 (push) = `FindTileToPush @180e695e0` appele avec
+#    `(this, pusher, pushed, 0)` -> la destination sort de la liste rendue par le slot d'INTERFACE 0x4c =
+#    `GetMinimumTiles180Behind @181064f98` -> `GetMinimumTiles180BehindFromTile @1810642a0` : un ARC de
+#    tuiles TOUTES a distance 1 (cas aligne melee -> 1 seule tuile straight-back). FindTileToPush filtre
+#    (predicat 0x5f) puis pick (1 tuile -> index 0 ; sinon random parmi les empty/steppable). Symetrie
+#    confirmatoire : le pull (`FindTileToPull @180e69080`) utilise le slot 0xa6 = arc AVANT
+#    (`GetMinimumTiles180Front @181064fa0`). => la destination est TOUJOURS a 1 hex.
+#  - Le champ +0x84=2 de `DisplaceUnitBehaviour` (pose par `.ctor @180fc4740` 9e arg via
+#    `DSLFactory.PushUnit @180df9540`) N'ATTEINT PAS FindTileToPush (appele avec `0` litteral) : ce n'est
+#    PAS la distance de push (c'est un parametre de la couche DSL du behaviour, hors selection de tuile).
+#    La seule source list >1 hex, `GetTilesBehind @18106a150` (ligne, maxCount Nullable), sert aux AoE
+#    ligne/cone (`GetTilesBetweenInLine`/`GetTilesInConeShape`), PAS au push.
+# CONFIRME LIVE (test_thunderous_assault_push_distance_live, cas #68) : caster+cible sur 4 tuiles
+# collineaires LIBRES (C,T,B1,B2) ; le natif pousse la cible T->B1 (1 hex) en IGNORANT B2 (2e tuile libre
+# et atteignable) -> distance native = 1, sans ambiguite (mesure sur 2 axes/parites distincts).
+# NB (slice-21b eventuelle, PAS un miss ThunderousAssault) : pour un pousseur NON adjacent (arc non
+# degenere), le natif random-pick une tuile de l'arc arriere (peut differer du straight-back) ; sans objet
+# pour PushUnit(caster,target) melee (toujours axis-aligne -> arc = 1 tuile straight-back deterministe).
 _PUSH_MAX_DIST = 1
 
 

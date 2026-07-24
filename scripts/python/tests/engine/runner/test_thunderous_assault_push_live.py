@@ -19,11 +19,13 @@ live (dans l'arene MC1_67 l'ennemi campe un coin -> push hors-board impossible ;
 son spawn). Board+stats REELS, seules les positions controlees -> validation robuste de la CHAINE
 feuille->Operation->geometrie->MoveUnit pour push ET charge.
 
-DISTANCE : slice-21a pousse d'1 HEX (`_PUSH_MAX_DIST=1`, cf. displace.py). Le natif `GetTilesBehind
-@18106a150` marche jusqu'a un `maxCount` lu d'un config GLOBAL runtime -> la distance-vs-natif (1 ou 2 hex)
-reste a confirmer LIVE ; ce test valide la chaine + la DIRECTION a la distance portee. Le no-op sur trait
-`BigTarget`/`Immovable` (IsDisplaceable) est valide par ailleurs (test_effect_stun_live : cible
-tyranTyrantGuard=BigTarget, push no-op, stun intact).
+DISTANCE : push d'1 HEX (`_PUSH_MAX_DIST=1`, cf. displace.py) — TRANCHE (cas #68, RE + live). La
+destination sort de `GetMinimumTiles180Behind` (arc arriere DISTANCE-1, slot d'interface 0x4c de
+`FindTileToPush @180e695e0`), PAS de `GetTilesBehind @18106a150` (ligne multi-hex, reservee aux AoE
+ligne/cone) ; le `param_9=2` (+0x84 de DisplaceUnitBehaviour) n'est PAS la distance. Le discriminant
+LIVE `test_thunderous_assault_push_distance_live` (dans ce fichier) place C,T,B1,B2 collineaires libres
+et prouve l'arret a 1 hex (B2 libre ignore). Le no-op sur trait `BigTarget`/`Immovable` (IsDisplaceable)
+est valide par ailleurs (test_effect_stun_live : cible tyranTyrantGuard=BigTarget, push no-op, stun intact).
 
 Invariants harnais : board+stats REELS (capture live), aucune tuile/RVA hardcodee, geometrie parity-safe.
 """
@@ -83,6 +85,126 @@ def _find_open_push_triple(board, occupied):
                 continue
             return c, t, b
     return None
+
+
+def _find_open_push_quad(board, occupied):
+    """(C, T, B1, B2) sur une LIGNE HEX droite : C adjacent a T ; B1 = tuile derriere T (oppose C,
+    1 hex) ; B2 = 1 hex AU-DELA dans la MEME direction (2 hex derriere T). Les 4 walkable, distinctes,
+    libres (hors `occupied`). B2 LIBRE => un push de 2 hexes serait POSSIBLE -> le scenario DISCRIMINE
+    1 vs 2 : si le natif s'arrete a B1 alors que B2 est atteignable, la distance de push = 1."""
+    for t in board.by_id:
+        tc = board.coord(t)
+        if not board.walkable(t) or t in occupied:
+            continue
+        for c in board.neighbours(t):
+            cc = board.coord(c)
+            if not board.walkable(c) or c in occupied or c == t:
+                continue
+            di = _dir_index(cc[0], cc[1], tc[0], tc[1])
+            if di is None:
+                continue
+            b1 = board.id_at(*_step(tc[0], tc[1], di))
+            if b1 is None or not board.walkable(b1) or b1 in occupied or b1 in (t, c):
+                continue
+            b1c = board.coord(b1)
+            b2 = board.id_at(*_step(b1c[0], b1c[1], di))
+            if b2 is None or not board.walkable(b2) or b2 in occupied or b2 in (t, c, b1):
+                continue
+            return c, t, b1, b2
+    return None
+
+
+def _dv(rpc, rid):
+    return rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+
+
+def _pos_by_id(dv):
+    """{unitId: (col,row)} des unites de la vue decision (positions LIVE)."""
+    out = {}
+    for u in (dv.get("units") or []) if isinstance(dv, dict) else []:
+        p = u.get("pos") or {}
+        if p.get("col") is not None:
+            out[u.get("id")] = (p["col"], p["row"])
+    return out
+
+
+def _apply_move(rpc, rid, uid, coord):
+    """Place l'unite `uid` sur `coord=(col,row)` LIVE (applyAction ne verifie PAS la propriete du
+    unitId -> pilote les 2 camps ; la geometrie voulue prime sur les spawns)."""
+    rpc("applyAction", {"runnerId": rid, "action": {"kind": "move", "unitId": uid,
+                        "to": {"col": coord[0], "row": coord[1]}}}, 40)
+
+
+def _cast_push(rpc, rid, caster, target, t_coord):
+    """Caste ThunderousAssault caster->target LIVE et rend la nouvelle (col,row) de la cible, ou None.
+    Gere le tour : placer le caster (son seul move) cloture son activation -> bascule a l'autre camp ;
+    on `endturn` jusqu'a ce que le cast POUSSE reellement la cible (pos != t_coord)."""
+    for _ in range(4):
+        rpc("applyAction", {"runnerId": rid, "action": {"kind": "ability", "casterId": caster,
+                            "targetId": target, "abilityType": ABILITY}}, 60)
+        pos = _pos_by_id(_dv(rpc, rid)).get(target)
+        if pos is not None and pos != t_coord:
+            return pos
+        rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 40)
+    return None
+
+
+def test_thunderous_assault_push_distance_live(live_session, rpc, build_runner):
+    """DISCRIMINANT LIVE 1-vs-2 hex du PUSH (slice-21a, cas #68 : hardcode-mesure tranche).
+
+    RE (decompile = verite) : `FindTileToPush @180e695e0` (case 1 de `DisplaceUnitOperation.Execute
+    @180e685a0`) choisit la destination dans la liste rendue par le slot d'interface 0x4c =
+    `GetMinimumTiles180Behind @181064f98`->`GetMinimumTiles180BehindFromTile @1810642a0` (arc ARRIERE,
+    tuiles TOUTES a distance 1 ; cas aligne melee = 1 seule tuile straight-back). Le pull symetrique
+    (`FindTileToPull @180e69080`) utilise le slot 0xa6 = arc AVANT (`GetMinimumTiles180Front @181064fa0`).
+    Le champ +0x84=2 de `DisplaceUnitBehaviour` (`.ctor @180fc4740`, 9e arg pose par
+    `DSLFactory.PushUnit @180df9540`) N'ATTEINT PAS FindTileToPush (appele avec `0` litteral) : ce
+    n'est PAS la distance de push. => push NATIF = 1 hex (la seule source list >1 hex, `GetTilesBehind
+    @18106a150`, sert aux AoE ligne/cone, pas au push).
+
+    Le test place caster+cible sur une LIGNE de 4 tuiles collineaires LIBRES (C, T, B1, B2), caste LIVE
+    (moteur natif), et exige que la cible bouge d'EXACTEMENT 1 hex (-> B1), PAS 2 (-> B2, pourtant LIBRE
+    et atteignable). B2 libre => 1 et 2 sont DISTINGUABLES ; l'arret a B1 tranche la distance a 1."""
+    rid = build_runner("777", extra=BUILD)["rid"]
+    board = _board(rpc, rid)
+    if board is None:
+        pytest.skip("boardGraph indispo")
+    dv = _dv(rpc, rid)
+    if not _ok(dv):
+        pytest.skip("decisionView KO")
+    caster = next((u for u in (dv.get("units") or [])
+                   if u.get("visualId") == CASTER_VIS and u.get("alive")), None)
+    tgt = next((u for u in (dv.get("units") or [])
+                if u.get("visualId") == TARGET_VIS and u.get("alive")), None)
+    if caster is None or tgt is None:
+        pytest.skip("caster/cible absents")
+    att, tid = caster["id"], tgt["id"]
+
+    quad = _find_open_push_quad(board, occupied=set())
+    if quad is None:
+        pytest.skip("aucune ligne (C,T,B1,B2) collineaire libre sur ce board")
+    c_tile, t_tile, b1_tile, b2_tile = quad
+    C, T, B1, B2 = (board.coord(x) for x in (c_tile, t_tile, b1_tile, b2_tile))
+
+    # place les 2 unites en champ ouvert (la geometrie voulue prime sur les spawns)
+    _apply_move(rpc, rid, tid, T)
+    _apply_move(rpc, rid, att, C)
+    pos0 = _pos_by_id(_dv(rpc, rid))
+    if pos0.get(att) != C or pos0.get(tid) != T:
+        pytest.skip(f"placement non realise (caster={pos0.get(att)} target={pos0.get(tid)})")
+    print(f"\n[PUSH live disc] caster@{C} target@{T} | B1(1hex)@{B1} LIBRE, B2(2hex)@{B2} LIBRE "
+          f"-> push doit s'arreter a B1 si distance=1")
+
+    newT = _cast_push(rpc, rid, att, tid, T)
+    assert newT is not None, "cast ThunderousAssault n'a PAS pousse la cible (turn/no-op)"
+    assert newT != T, f"cible non poussee (restee @{T})"
+    assert newT != B2, (f"push -> B2@{B2} = 2 hexes : distance NATIVE = 2, pas 1 -> _PUSH_MAX_DIST "
+                        f"doit passer a 2 + porter la marche multi-hex (slice-21b) !")
+    assert newT == B1, (f"push -> @{newT} != B1@{B1} (1 hex, oppose caster). B2@{B2} etait LIBRE et "
+                        f"atteignable : l'arret a 1 hex tranche la distance NATIVE de push a 1")
+    posC = _pos_by_id(_dv(rpc, rid)).get(att)
+    print(f"[PUSH live disc] OK : distance push NATIVE = 1 hex (cible {T}->{newT}, B2@{B2} libre "
+          f"IGNORE) ; caster CHARGE ->{posC} (tuile T liberee)")
 
 
 def test_thunderous_assault_push_offline_endtoend(live_session, rpc, build_runner):
