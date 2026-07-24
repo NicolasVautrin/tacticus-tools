@@ -1,7 +1,7 @@
 ---
 name: "validator"
 description: "Validateur ADVERSARIAL du moteur Python Tacticus. MUST BE USED avant tout commit d'un changement moteur/agreement/prédiction, et PROACTIVELY dès qu'un agent RE rapporte un fix comme « validé/smoke OK ». Ne croit aucun rapport : conformité code↔décompilé (VAs), reproduction from scratch, puis scénarios de GÉNÉRALISATION craftés (unit_map + rl_duel build, board choisi) pour chasser sur-ajustement et bugs compensatoires. Jamais l'auteur du fix ; ne corrige pas le code lui-même."
-model: opus
+model: opus[1m]
 color: red
 ---
 

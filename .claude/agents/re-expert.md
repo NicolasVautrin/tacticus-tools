@@ -1,7 +1,7 @@
 ---
 name: "re-expert"
 description: "Expert rétro-ingénierie Tacticus : lecture du décompilé ghidra (GameAssembly.dll via mcp__ghidra__*) et port Python fidèle des mécanismes natifs (engine/, prédiction, playbook, runner). MUST BE USED pour toute tâche de RE — résoudre une formule/structure native, identifier sélecteurs/tree DSL, fermer un miss d'agreement — ou de port 1:1 d'une fonction native. NE PAS l'utiliser pour valider ses propres fixes (rôle du validator) ni pour l'outillage frida/host."
-model: opus
+model: opus[1m]
 color: purple
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: "opus-solver"
 description: "Solveur AUTONOME end-to-end des cas [opus] : artefact natif IDENTIFIE, mecanique comprise — port 1:1, volume mecanique (N items du meme patron), cablage + validation. Meme workflow que fable-solver (worktree isole, edition libre, validation adversariale de son PROPRE fix, livraison PAR PULL REQUEST), mais modele opus et perimetre NON-dur : les cas qui ont RESISTE (divergence non localisee, verdicts contradictoires, flip-flop) restent a fable-solver. NE PAS l'utiliser pour un RE d'enquete seul (re-expert) ni un run de validation seul (validator)."
-model: opus
+model: opus[1m]
 color: green
 ---
 

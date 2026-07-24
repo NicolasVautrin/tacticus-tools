@@ -346,6 +346,16 @@ suite `tests/engine/` — **beaucoup trop lourd**.
 **Tout agent (outil `Agent`, et `agent()` d'un `Workflow`) doit être lancé avec
 `isolation: "worktree"`, sans exception.**
 
+- **NE JAMAIS passer `model:` à l'invocation de l'outil `Agent`.** Les agents du projet
+  (`opus-solver`, `re-expert`, `validator`, `standby-executor`) sont épinglés sur **`opus[1m]`**
+  dans leur frontmatter — Opus 5 **avec fenêtre 1M**. Or l'ordre de résolution du modèle est
+  *env `CLAUDE_CODE_SUBAGENT_MODEL` > paramètre d'invocation > frontmatter > modèle de session* :
+  passer `model: "opus"` à l'appel **écrase** le frontmatter et **retombe sur la fenêtre 200 K**
+  (l'enum du paramètre d'invocation ne connaît que les alias nus `sonnet|opus|haiku|fable` — il
+  **ne sait pas exprimer** le suffixe `[1m]`). Omettre le champ = les agents gardent leur 1M.
+  `fable-solver` reste sur **`fable`** (levier de diversité de modèle pour les cas durs) et
+  `live-ops` sur **`haiku`** (procédures mécaniques).
+
 - **Pourquoi** : sans `isolation`, l'agent partage MON working directory et peut
   éditer les mêmes fichiers que moi. Un agent qui monkeypatche le code (même
   « temporairement » pour reproduire un cas) corrompt alors mon arbre — déjà subi :
@@ -492,6 +502,28 @@ Le protocole complet — recon du kit, RE fidèle (décompilé = vérité, jamai
 mirror 1:1 des fonctions natives nommées, décomposition par étage (jamais fitter un scalaire),
 validation des DEUX faces (décider ≠ exécuter) — vit dans le skill `tacticus-re-port`
 (invocable via `/tacticus-re-port`), inclus ci-dessous. C'est LA source unique de cette doctrine.
+
+### Gate de confrontabilité : HERO / MoW / SUMMON — jamais NPC
+
+Avant de porter une mécanique (ou d'exiger un datapoint live), établir **qui la porte** et si ce
+porteur est atteignable en bataille. Trois catégories seulement comptent, et les chemins de
+vérification sont **distincts** :
+
+- **HERO / MACHINE OF WAR** → présence **directe** dans `python scripts/python/rl_duel.py --list-pool`
+  (rank courant). C'est **la seule porte valable** — surtout pas `kind == lineup` de gameconfig,
+  qui ment.
+- **SUMMON** → compte **aussi**, **même absent de `--list-pool`**. On l'amène en bataille en spawnant
+  son **summoner** (qui, lui, doit être dans le pool) : le summon apparaît dans l'équipe du summoner
+  et agit dès son apparition. **Ne jamais conclure « non confrontable » d'un carrier summon.**
+- **NPC** → hors-jeu, jamais confrontable. Un item dont **tous** les porteurs sont npc n'est pas
+  « bloqué », il est **NON PERTINENT** : ne pas y brûler d'agent (sauf demande explicite de mirror +
+  toggle offline).
+
+**Pourquoi** : les deux erreurs symétriques ont déjà coûté. Compter les npc comme spawnables envoie un
+solver valider une branche impossible ; inversement, ranger un carrier **summon** en « non confrontable »
+rabat à tort un port validable-live sur du mirror-offline (vécu le 2026-07-25 sur TwoManTeam/Diminutive,
+corrigé en cours de route). Toujours **ventiler les porteurs hero / mow / summon / npc** et dire par
+quel chemin chacun arrive en bataille.
 
 ### DSL-effet vs impératif : c'est l'ARTEFACT NATIF qui tranche (#149)
 
