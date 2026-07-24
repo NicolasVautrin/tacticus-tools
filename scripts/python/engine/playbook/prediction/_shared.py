@@ -294,14 +294,28 @@ def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_arm
         add_modifier(mods, eb)
 
 
-def defender_prediction_block_amount(scene, tgt_id) -> int:
+def defender_prediction_block_amount(scene, tgt_id, damage_profile: str | None = None) -> int:
     """Amount de BLOCK du defenseur pour le scenario `list[0]@0x50` de la prediction (#54A) —
     mirror des entrees `CalculateBlockChances @181002350` consommees par le scenario block
     (`CalculateDamagePredictionScenario @18102ed00`) : scalaire GetStat(7/8)
     (blockChance/blockDamage) + sources multi-value des EFFETS du defenseur (Daemon_ExtraBlock
     25 %/50 %×Attack courant, BeastSlayer_ExtraBlock…). Approximation documentee : sources
     multiples SOMMEES (un seul cas mesure, mono-source Daemon — 1357 s15). 0 = pas de block
-    → liste native vide → WillBeKill/WillBeOverkill retombent sur les scalaires raw."""
+    → liste native vide → WillBeKill/WillBeOverkill retombent sur les scalaires raw.
+
+    #69 : GATE `NoBlocking` (DamageTrait 0) du PROFIL de degat — mirror du gate COMBAT
+    `AttackDamageOperation._block_sources` (`runner/operations/damage.py`) ET du skip natif de la
+    PREDICTION : `DamagePrediction.PredictAttackRaw @181032fb0` fait `DamageProfile.HasTrait(profile,
+    0=NoBlocking)` (@181035b9c) et SKIP toute la boucle de construction du scenario block
+    (`param_1[10]`, list[0]@0x50) quand le flag est pose (`if (blockList != 0 && (char)HasTrait == 0)
+    {...}`). Un profil `Psychic` (Traits=['NoBlocking'], PiercingRatio 100 ; wiki « Cannot be
+    blocked ») bypasse donc le block en PREDICTION comme en COMBAT -> amount 0 -> `_with_block` no-op
+    -> block_raw_min reste None -> WillBeKill/WillBeOverkill retombent sur le scalaire raw (== natif :
+    liste block vide). Sans ce gate, la prediction sur-comptait le block d'une attaque Psychic
+    (kill-prediction IA faussee ; residu documente case-65-noblocking-block-bypass §« Non couvert »)."""
+    if damage_profile is not None:
+        if DamageTrait.NoBlocking.name in ((GC.damage_profile(damage_profile) or {}).get("Traits") or []):
+            return 0        # profil NoBlocking -> block bypasse (mirror PredictAttackRaw @181035b9c + _block_sources)
     amt = 0
     tctx = scene.ctx(tgt_id)
     if tctx is not None and int(tctx.block_chance or 0) > 0:
