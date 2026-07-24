@@ -43,15 +43,16 @@ from typing import Optional, TYPE_CHECKING
 
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
-from ...entities.behaviours import op_add, AtomicGroup
+from ...entities.behaviours import op_add, op_and, AtomicGroup
 from ...entities.selectors import (Caster, CasterTile, AdjacentUnits, Friends, Union,
-                                   UnitsWithTrait, Sub, Unique)
+                                   UnitsWithTrait, Sub, Unique, Target)
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effects.magnitude import ability_var
 from ..components import StatsComponent
 from .base import ActiveAbility
-from .behaviours import entities_from_state, Heal, healable_heal_type_0
+from .behaviours import (entities_from_state, Heal, healable_heal_type_0,
+                         AttackWithAttackDamage, PushUnit)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -123,3 +124,84 @@ class CombatRestorativesAbility(ActiveAbility):
         return {"ability": ABILITY_ID, "caster": caster_id, "target": target_id,
                 "imperial_amount": imperial_amount, "sans_amount": sans_amount,
                 "heals": heals, "dsl": True}
+
+
+MORTIS_ROUND_ID = "MortisRound"
+
+
+def mortis_round_tree() -> AtomicGroup:
+    """Arbre de `MortisRoundAbility.ExecuteBehaviour @1811f54a0` (id 1004, ultraEliminatorSgt — MIRROR du
+    DECOMPILE + callback `<ExecuteBehaviour>b__0 @1811fd290`) :
+        AtomicGroup( 0x3f, [callback b__0 = ] Execute(attack) PUIS Execute(push) )
+      attack = AttackWithAttackDamage(caster@factory+0x160, target@factory+0x178, MinMaxDamage(minDmg 0xc/
+               maxDmg 0xd), GetDamageProfile=HeavyRound, hitsNode@factory+0xc0, AbilityOrEffect(*this+0x10
+               =1004))                                          # 1x HeavyRound ranged (i2 « 1x 3274-3638 »)
+      push   = PushUnit(factory, caster@factory+0x160, target@factory+0x178, 0)   # recul 1 hex (i2)
+
+    Structure = SOUS-ENSEMBLE de ThunderousAssault (`strike.py`) : attaque MONO-cible + push, SANS stun/
+    kill-dead/charge. Le natif enroule l'attaque et le push dans un `AtomicGroup(0x3f, callback)` : le
+    callback `b__0` execute `AActiveAbility.Execute(attack_node)` PUIS `AActiveAbility.Execute(push_node)`
+    (ordre attaque-AVANT-push lu au decompile). Port : `AtomicGroup(op_and(Attack, Push))` — `op_and` =
+    `CombinedBehaviour` (Seq gauche->droite, effets PURS) == l'ordre du callback ; `AtomicGroup` = inline
+    pass-through (RE #201). `PushUnit` est DETERMINISTE (aucun tirage rng) -> ne decale PAS l'ordre RNG de
+    l'attaque : bit-exact BY CONSTRUCTION vs un imperatif attaque->push.
+
+    Overload d'attaque : le call-site @1811f5683 appelle `DSLFactory.AttackWithAttackDamage @180dea520`
+    (famille ATTACK, resolu par XREF — PAS le nom ; @180dea520 != le @180de9fb0 de ThunderousAssault, mais
+    MEME famille attack, precedents portes ScythingTalons/Executioner) -> `native_factory="attack"` (defaut,
+    resolve slot-8 gaspille = 2 tirages/coup a cc=0). Profil `HeavyRound` (constants.damageProfile), attaque
+    RANGED (attackRangeType=Ranged, range 3) -> `is_melee=False`. `nrOfHits` ABSENT de la config (constants
+    n'a que damageProfile) -> `ability_attack_params` rend hits=1 (== i2 « 1x »). `ability_type=1004` threade
+    l'AbilityOrEffect du coup (mirror `op_Implicit(*this+0x10)` natif = 7e arg de AttackWithAttackDamage) — ce
+    SERAIT le vehicule du gate `TriggeringAbilityIs(0x3ec=1004)` du bonus HeavyWeapon_ExtraDmg, mais ce bonus
+    reste un RESIDU non porte (cf. docstring classe : is_ranged non threade pour les attaques d'ability)."""
+    attack = AttackWithAttackDamage(Target(), MORTIS_ROUND_ID, "HeavyRound", is_melee=False,
+                                    ability_type=int(ActiveAbilityType.MortisRound))
+    push = PushUnit(Caster(), Target())
+    return AtomicGroup(op_and(attack, push))
+
+
+class MortisRoundAbility(ActiveAbility):
+    """`MortisRoundAbility.ExecuteBehaviour @1811f54a0` (id 1004, ultraEliminatorSgt « Eliminator Sergeant »,
+    Ultramarines — namespace natif `Abilities.Active.Loki.MortisRoundAbility`). MIRROR du DECOMPILE, arbre DSL
+    (`mortis_round_tree`) :
+        AtomicGroup( Attack(HeavyRound, 1x, caster->target) PUIS PushUnit(caster, target) )
+
+    i2 : « Deals 1x 3274-3638 Heavy Round Damage to a single target within range 3, which is then pushed back
+    1 hex. The Heavy Weapon trait applies double to this ability. » Le behaviour = attaque MONO-cible HeavyRound
+    (1 coup) + recul 1 hex de la cible (`DisplaceUnitOperation`, no-op si BigTarget/Immovable/bord). SOUS-ENSEMBLE
+    structurel de ThunderousAssault (attaque + push, sans stun/charge).
+
+    QUIRK « Heavy Weapon applies double » (i2) — RESIDU CROSS-CUTTING DOCUMENTE (candidat fable, PAS porte) :
+    n'est PAS dans l'ExecuteBehaviour. C'est un raffinement de l'effet `HeavyWeapon_ExtraDmgEffect.
+    CreateDamageModifier @180f4f030` (accorde par le trait HeavyWeapon du carrier ; effet 1008 SEEDE dans le
+    runner) : `amount = ConditionalAmount(TriggeringAbilityIs(0x3ec=1004) ? Multiply(base, Direct(2)) : base)`
+    ou `base = ConfigConst 0xf = heavyWeaponExtraDmg` (=25). => le bonus +extraDmg% des attaques RANGED du
+    porteur (gate `OwnerIsCaster & IsRangedAttack & no-move`) est DOUBLE (+50% au lieu de +25%) quand l'attaque
+    declenchante est MortisRound. `ability_type=1004` est threade dans le leaf (mirror de `op_Implicit(*this+
+    0x10)` = AbilityOrEffect du coup) et serait le VEHICULE du gate `TriggeringAbilityIs`. MAIS le port
+    N'APPLIQUE PAS ce bonus : `execute_ability_attack` (damage.py) ne threade PAS `is_ranged` -> le canal
+    `HeavyWeaponExtraDmgEffect.create_effect_damage_bonus_for_attack` retourne None (`if not is_ranged`) pour
+    TOUTE attaque d'ability (blast radius : ArmoriumCherub/SpiritLeech/PlasmaCannon ont aussi HeavyWeapon/
+    RangedSpecialist). Fermer le residu = tranche DEDIEE (thread `is_ranged` + `trigger_ability_type` dans le
+    pipeline attacker-modifiers + re-valider les 4 abilities, + resoudre le crit-rng per-hit desync observe).
+    Mesure live (probe_mortis_round.py) : LIVE ~3.15x OFFLINE (HeavyWeapon double + crit live). Le WIRING core
+    (attaque HeavyRound 1x mono-cible + push 1 hex) est VALIDE ; seule la MAGNITUDE du degat est residuelle.
+
+    Push DETERMINISTE (aucun rng) -> n'altere PAS l'ordre RNG de l'attaque : la SEQUENCE attaque->push est
+    fidele BY CONSTRUCTION (l'attaque delegue au pipeline partage `execute_ability_attack`)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.MortisRound)  # 1004
+    ABILITY_ID = MORTIS_ROUND_ID
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        mortis_round_tree().execute(entities, ectx)
+        atk = next((p.get("attack") for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
+        push = next((p for n, p in ectx.emitted if n == "PushUnit"), None)
+        return {"ability": MORTIS_ROUND_ID, "caster": caster_id, "target": target_id,
+                "main_attack": atk, "push": push, "dsl": True}
