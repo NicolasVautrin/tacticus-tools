@@ -40,8 +40,12 @@ class GetStuckInTrait(BaseTrait):
     **Ce fold est PRÉDICTION-ONLY** (verdict validateur cluster, BITE 2) : `attack_hits_with_modifiers` ne
     l'invoque que si `include_bonus_hit_behaviours=True` (prédiction). En COMBAT le natif applique GetStuckIn
     via le behaviour d'exécution chance-gaté `AddBonusHitsToCurrentHitGroupBehaviour @180f93410`
-    (roll `Maybe(GetBonusHitChance)` 30%/100%) NON encore porté (TODO #62c) → le combat OMET ce bonus au lieu
-    de le folder inconditionnellement (folder sur-comptait : orksNob 1v1 chance=30 → natif 3 coups, port 4).
+    (roll `Maybe(GetBonusHitChance)` 30%/100%), PORTÉ (#62c, commit 3997793) HORS de cette formule : à
+    l'EXÉCUTION dans `runner.operations.damage_hits._run_hits` (param `bonus_hit_chance`, alimenté par
+    `runner.damage_model.getstuckin_combat_chance`), qui roll le `Maybe` après le block de chaque coup
+    d'index IMPAIR et exécute les coups bonus déférés. Le fold en dur DANS la formule sur-comptait (orksNob
+    1v1 chance=30 → natif 3 coups, folder 4) → combat=False côté formule est CORRECT (le bonus vient de
+    l'exécution). VALIDÉ bit-exact live (case-67, orksNob base-3 + orksBigMek base-4, 0/1/2 coups bonus).
 
     La GÉOMÉTRIE du trigger vit ICI (contrat BaseTrait « chaque trait lit le ctx dont il a besoin »),
     pas chez l'appelant générique. `ctx` (board, fourni par `make_normal_attack_predictions` — prédiction) =

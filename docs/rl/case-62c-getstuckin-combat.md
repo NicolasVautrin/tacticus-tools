@@ -1,8 +1,11 @@
-# #62c : GetStuckIn bonus-hits en COMBAT (runner) — spec port-ready
+# #62c : GetStuckIn bonus-hits en COMBAT (runner) — PORTE + VALIDE
 
-Build `gqfc5mff6c`. RE complete 2026-07-08. Le COMBAT (runner) OMET les coups bonus GetStuckIn
-(la prediction les fold deja, deterministe, cf. `attack_hits_formula.py` + #47). Ce fichier =
-la spec pour porter le behaviour combat chance-gate. GREP avant de re-RE.
+Build `gqfc5mff6c`. RE complete 2026-07-08 ; **PORTE 2026-07-09** (commit `3997793`) ; **re-valide
+adversarialement 2026-07-24** (tache #67, cf. MAJ en bas). Le COMBAT (runner) ajoute les coups bonus
+GetStuckIn a l'EXECUTION via le behaviour chance-gate porte (`_run_hits(bonus_hit_chance=...)` +
+`getstuckin_combat_chance`), PAS dans la formule de nb de coups (la prediction, elle, les fold de facon
+DETERMINISTE cf. `attack_hits_formula.py` + #47). GREP avant de re-RE : **c'est FAIT**, ce fichier = la
+spec + le journal de validation.
 
 ## Mecanique native (LUE)
 
@@ -122,3 +125,59 @@ documente). VALIDE live `tests/engine/runner/test_getstuckin_combat_live.py` : c
 (ecart off-live CONSTANT a travers la frontiere Maybe => tirage bien positionne, pas de desync). No-reg
 damage_roll+block 4/4. NB : le bit-exact ABSOLU (off_ph==live_ph) est xfail #68 (additif SmashaEad +299/coup
 sur-applique par le port en combat, ORTHOGONAL a GetStuckIn -- cf. case-68).
+
+## MAJ 2026-07-24 (tache #67) : re-validation adversariale + nettoyage docstrings stale
+
+Contexte : la tache #67 partait d'un ETAT ACTUEL STALE (« le combat OMET le coup bonus, TODO #62c ») —
+FAUX pour la base 148dde1 : le port existe depuis `3997793` (ancetre de HEAD, aucun revert). Les 3 blocs
+« TODO #62c / combat OMET » (`attack_hits_formula.py`, `traits/combat.py`, `damage_ops.py`) etaient des
+commentaires jamais mis a jour apres le port. Cette MAJ RE-CONFIRME la fidelite par RE + live, corrige les
+docstrings, et ajoute une garde de non-regression pour l'execution DEFEREE.
+
+### RE re-confirmee (decompile = verite)
+- `CurrentHitIndex` = **compteur PERSISTANT `attack+0x30`** (RE `ExecuteHit @180e5eff0` : `param_3 = *(attack+
+  0x30)` lu au DEBUT de chaque iteration d'`ExecuteHits`, passe a `EvaluateAfterHitTriggers` comme index ;
+  `UpdateCurrentAttackAfterHit @180e26be0` l'incremente APRES chaque coup). Init 0 => base 0,1,2,... (0-based
+  confirme empiriquement : au coup index-1 uniquement pour orksNob 3-coups). Les coups bonus CONTINUENT le
+  compteur (3,4,... apres 3 coups de base).
+- Coups bonus DEFERES via `Execute @180e60c70` : la boucle base peuple `hitGroup+0x58` (`UpdateHitGroupAfterHit
+  @180e26c80` : `AddRange(hitGroup+0x58, unit+0xf0)` puis VIDE `unit+0xf0`) ; PUIS une boucle `foreach` sur une
+  **COPIE snapshot** de `hitGroup+0x58` re-`ExecuteHits` par entree => les succes Maybe des coups bonus (ajoutes
+  a l'original, pas a la copie) ne CASCADENT PAS. Un coup bonus d'index impair RE-roll un Maybe (tirage
+  consomme) mais son succes est ignore : mirror EXACT du port (`_run_hits` boucle bonus, retour ignore).
+- Roll = `MaybeBehaviour.Execute @180fc9dc0` -> `IPseudoRNG.NextBool(chance)` (slot 5) avec `chance` = formule
+  `GetBonusHitChance` evaluee ; NextBool TIRE toujours (meme a 100, v in [1,99]) == port `next_bool`.
+
+### Live (probe 1v1 propre, aucun confound — replay-diff bit-exact)
+Sur `bloodIntercessor` (non-Big/Vehicle => BeastSlayer_ExtraDmg=0), chance=30 en 1v1, MEME seed offline/live :
+- **orksNob (base 3, 1 roll Maybe idx1)** : 8 cas COUP BONUS (4 coups) + 11 cas no-bonus (3 coups), **tous
+  bit-exact** (per_hit ET PV). Ex. seed 4301 `off=live=[1685,1321,1459,1420]`, hp 9035->3150. Le 4e coup (val
+  1420 a l'index persistant 3) prouve que la conso RNG de la boucle base (3 spreads + 1 Maybe idx1) est EXACTE.
+- **orksBigMek (base 4, DEUX rolls Maybe idx1 ET idx3)** : 6 cas BONUS+1 (5 coups) + **2 cas BONUS+2 (6 coups,
+  FIFO deferee a 2 entrees, ex. seed 4410 `[550,529,550,118,476,590]`)** + no-bonus, **tous bit-exact**. Valide
+  le 2e roll Maybe (idx3) a la bonne position ET la FIFO deferee multi-entrees.
+
+### Points « a valider » de la spec — leves
+1. Attribution des tirages : replay-diff bit-exact sur 16 cas bonus + N no-bonus (2 porteurs) => aligne.
+2. Anti-recursion : confirmee par RE (snapshot copy) + aucun cas divergent.
+3. `count>1` : orksBigMek produit 2 coups bonus (2 entrees FIFO) bit-exact => leve.
+4. Branche chance=100 / cas 2-bonus « discriminant » du re-roll bonus : le re-roll d'un coup bonus d'index
+   impair est TERMINAL (aucun tirage apres) => **inobservable** pour tout porteur (max base = orksBigMek 4 ;
+   il faudrait base>=5 pour un index bonus impair NON terminal, inexistant chez les orks). Resolu par RE
+   (snapshot copy => pas de cascade), non-discriminable en live — pas un residu, une propriete structurelle.
+
+### Corrections livrees
+- Docstrings stale « TODO #62c / combat OMET » -> reformulees (formule exclut GetStuckIn car l'EXECUTION
+  l'ajoute ; bit-exact live) dans `attack_hits_formula.py`, `traits/combat.py`, `damage_ops.py`.
+- `test_getstuckin_combat_absolute_bit_exact` (bit-exact ABSOLU) est **VERT** depuis #75/#68 (additif SmashaEad
+  pre-percage, commit `c147513`) — l'ancien xfail #68 est LEVE.
+- Nouveau `tests/engine/runner/test_getstuckin_bonus_deferred_live.py` : garde l'EXECUTION DEFEREE (orksBigMek,
+  exige >=1 coup bonus materialise bit-exact) — le test soeur ne couvrait que le cas no-bonus 3-coups.
+
+### Gap NON ferme (hors #62c, documente)
+`getstuckin_combat_chance` ne calcule pas `orks_adj(cible)` faction-Orks (le runner ne porte pas la faction :
+`build_hits_board` a retire `visual_id` car il ne distingue pas 2 instances miroir). Seul `amis_adj(caster)>=4`
+est evalue -> en presence de 2+ orks adjacents a la cible SANS 4 amis adjacents au caster, le port renvoie 30 la
+ou le natif renverrait 100 (sous-compte le coup bonus). Orthogonal a la POSITION/EXECUTION RNG (#62c core) ;
+n'affecte que la PROBABILITE du roll, pas sa conso (1 tirage quel que soit chance). Fermeture = porter la faction
+dans le runner (chantier separe).

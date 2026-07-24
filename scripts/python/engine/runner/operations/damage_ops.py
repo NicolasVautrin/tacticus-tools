@@ -90,8 +90,10 @@ class _DamageOpsMixin:
         # base weapon+ExtraHits+effets, +malus defenseur (LightCover/Parry) + auras (BigTarget). #62a : le
         # combat ne sommait que weapon+ExtraHits+effets -> divergeait sur (3). BITE 2 (verdict validateur) :
         # GetStuckIn est un behaviour d'exec chance-gate (`AddBonusHitsToCurrentHitGroupBehaviour @180f93410`,
-        # roll `Maybe(GetBonusHitChance)` 30%/100%) NON porte -> `include_bonus_hit_behaviours=False` : le combat
-        # l'OMET (folder en dur sur-comptait : orksNob 1v1 chance=30 -> natif 3 coups, port 4). TODO #62c.
+        # roll `Maybe(GetBonusHitChance)` 30%/100%) -> `include_bonus_hit_behaviours=False` DANS la formule (le
+        # coup bonus n'est PAS un coup de la formule : folder en dur sur-comptait, orksNob 1v1 chance=30 ->
+        # natif 3 coups, folder 4). Le coup bonus est ajoute PLUS BAS a l'EXECUTION (#62c, commit 3997793) :
+        # `_gsi = getstuckin_combat_chance(...)` -> `_run_hits(bonus_hit_chance=_gsi)`. Bit-exact live case-67.
         if ap is not None and tp is not None:
             _board, _auras, _tgt_eff = build_hits_board(
                 state, attacker_id, target_id, (ap.col, ap.row), (tp.col, tp.row), is_melee=not _ranged)
@@ -108,7 +110,7 @@ class _DamageOpsMixin:
                 attacker_effects=active, trait_objects=ctx.trait_objects(),
                 target_effects=_tgt_eff, aura_sources=_auras, board=_board,
                 is_melee=not _ranged, damage_profile=_profile,
-                include_bonus_hit_behaviours=False,  # combat: GetStuckIn = behaviour chance-gate non porte (BITE 2)
+                include_bonus_hit_behaviours=False,  # combat: GetStuckIn NON compte dans la formule -- ajoute a l'exec (_run_hits, #62c)
                 defender_on_cover=_on_cover)
         else:                                     # positions manquantes -> base seule (pas de GetStuckIn/aura)
             hits = max(1, whits + ctx.stat(StatType.EXTRA_HITS) + hits_bonus_from_effects(active))
