@@ -104,7 +104,7 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
         profile_type=profile_idx, pierce_pct=pierce, armor=scene.armor(tgt),
         mods=mods, target_shield=tgt_shield, hit_mult=tgt_hit_mult,
         target_limits=_target_damage_limits(scene, tgt, profile_name),
-        defender_block_amount=defender_prediction_block_amount(scene, tgt),
+        defender_block_amount=defender_prediction_block_amount(scene, tgt, profile_name),  # #69 gate NoBlocking
         attacker_effects=scene.effects(uid))   # #202 : max-out evalue DANS predict_attack_raw (specials aussi)
 
 

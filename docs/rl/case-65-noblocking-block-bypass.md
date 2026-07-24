@@ -90,12 +90,17 @@ l'arme principale ne l'etait pas).
 
 ## Non couvert / residus documentes
 
-- **PREDICTION (slice SEPAREE, meme racine)** : `defender_prediction_block_amount` +
-  `get_multi_hit_attack_prediction._with_block` (`engine/services/damage_prediction.py`,
-  `engine/playbook/prediction/_shared.py`) ne gatent PAS non plus le block sur NoBlocking. Impact :
-  le scenario WillBeKill (kill-prediction IA) sur-compte le block pour un attaquant Psychic. N'affecte
-  PAS le min/max de degat affiche (`block_raw_min` = champ separe) -> hors des tests degat/block. A
-  fermer dans une passe prediction (threader le profil dans `defender_prediction_block_amount`).
+- **PREDICTION (slice SEPAREE, meme racine) : FERME par #69** (`docs/rl/case-69-noblocking-prediction-block.md`).
+  Le gate NoBlocking est desormais threade dans `defender_prediction_block_amount(scene, tgt, damage_profile)`
+  (`engine/playbook/prediction/_shared.py`) aux 5 call-sites (`normal_attack.py` x4, `abilities.py`) -> un
+  attaquant Psychic ne deduit plus de block (`block_raw_min` None, killSure sur le scalaire raw). RE-confirme
+  decompile : `PredictAttackRaw @181032fb0` fait `DamageProfile.HasTrait(profile, 0=NoBlocking)` (@181035b9c)
+  et SKIP la boucle de construction du scenario block. Test-verrou `tests/engine/test_noblocking_prediction_live.py`.
+  **Residu restant (per-groupe, symetrique combat #179)** : les coups ADDITIONNELS #179 au profil NoBlocking
+  (aura InfernalPacts Psychic, porteur Abraxas thousInfernalMaster) partagent le `defender_block_amount` gate
+  sur le profil de L'ARME PRINCIPALE dans `_with_block` -> une attaque a arme BLOCKABLE + groupe Psychic
+  InfernalPacts deduirait le block sur le coup Psychic aussi (le combat, lui, re-gate par groupe :
+  `additional_hits.py` L138-143). Non ferme (validation Abraxas dediee requise) ; cf. case-69 §residu.
 - **NoBlocking vs EVASION** : le flag natif (metadata>>0x30) skippe block ET evade dans
   `CalculateDamageOperation`. L'evasion offline n'est pas exercee (`evasion_branch=False` partout) -> le
   gate NoBlocking cote offline ne couvre que le block (moot pour l'evade tant que non implementee).
