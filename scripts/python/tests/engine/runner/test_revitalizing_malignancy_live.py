@@ -30,8 +30,8 @@ from engine.runner.snapshot import load_state
 from engine.runner.runner import Runner
 from engine.runner.messages import ActiveAbilityMessage
 from engine.runner.components import PositionComponent, HealthComponent, StatsComponent
-from engine.runner.abilities.deathguard import (RevitalizingMalignancyAbility, _heal_amounts,
-                                                _healable_heal_type_0, _is_mechanical)
+from engine.runner.abilities.deathguard import RevitalizingMalignancyAbility, _heal_amounts
+from engine.runner.abilities.behaviours import healable_heal_type_0, is_mechanical
 from engine.entities.pathfinding.board import Board
 
 CASTER = "deathRotbone"          # 1037 RevitalizingMalignancy (Death Guard, GrandAlliance Chaos)
@@ -156,14 +156,14 @@ def test_revmalig_healable_guard_fullhp_and_mechanical(revmalig_state):
 
     # mechanical (necroWarden = LivingMetal) : IsMechanical True -> guard False (blesse)
     umech = u_by_id[ids["mech"]]
-    assert _is_mechanical(ent.has_trait, umech), "necroWarden (LivingMetal) devrait etre IsMechanical"
-    assert not _healable_heal_type_0(ent, ectx, umech), "mechanical blesse devrait etre non-Healable"
+    assert is_mechanical(ent.has_trait, umech), "necroWarden (LivingMetal) devrait etre IsMechanical"
+    assert not healable_heal_type_0(ent, ectx, umech), "mechanical blesse devrait etre non-Healable"
 
     # full-HP : un Xenos non-mech remis a max -> guard False (HP<max faux)
     h = _hc(state, ids["xenos"])
     h.hp = int(h.hp_max)
     uxen = u_by_id[ids["xenos"]]
-    assert not _healable_heal_type_0(ent, ectx, uxen), "full-HP devrait etre non-Healable (HP<max faux)"
+    assert not healable_heal_type_0(ent, ectx, uxen), "full-HP devrait etre non-Healable (HP<max faux)"
     # une fois blesse d'1 PV -> Healable True (Xenos non-mech, non-Imperial)
     h.hp = int(h.hp_max) - 1
-    assert _healable_heal_type_0(ent, ectx, uxen), "Xenos blesse non-mech devrait etre Healable"
+    assert healable_heal_type_0(ent, ectx, uxen), "Xenos blesse non-mech devrait etre Healable"

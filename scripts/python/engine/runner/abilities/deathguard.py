@@ -31,9 +31,9 @@ from ...entities.selectors import (Caster, CasterTile, AdjacentUnits, Friends, U
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effects.magnitude import ability_var
-from ..components import StatsComponent, HealthComponent
+from ..components import StatsComponent
 from .base import ActiveAbility
-from .behaviours import entities_from_state, Heal
+from .behaviours import entities_from_state, Heal, healable_heal_type_0
 
 if TYPE_CHECKING:
     from ..state import State
@@ -60,42 +60,10 @@ def _heal_amounts(state: "State", caster_id: int) -> tuple[int, int]:
     return reg, reg + bonus                                                              # regular, chaos = iVar14 + iVar13
 
 
-def _is_mechanical(ht, u) -> bool:
-    """`UnitExtensions.IsMechanical @180ed8a30` = `HasTrait(Mechanical=5) OU HasTrait(LivingMetal=1000)
-    OU HasTrait(Vehicle=0x405=1029)`. Les TROIS sont des traits gameconfig reels (126/51/8 units), donc
-    lisibles cote runner via `ctx.has_trait`. Confirme LIVE (case-220 : necroWarden=LivingMetal exclu)."""
-    return bool(ht(u, int(UnitTrait.Mechanical)) or ht(u, int(UnitTrait.LivingMetal))
-                or ht(u, int(UnitTrait.Vehicle)))
-
-
-def _healable_heal_type_0(entities, ectx, u) -> bool:
-    """Garde `Healable` de la feuille Heal (prerequis case-220 1037, `HealableUnitsSelector.Select
-    @180eec480` + heal type 0) : une unite est soignable par un HEAL de type 0 ssi elle est
-      (a) ENDOMMAGEE  : HP < max                                  (IsDamaged du HealableUnitsSelector) ET
-      (b) affectee    : `UnitExtensions.IsAffectedByHealType(unit, 0) @180ed77d0`
-                        = `HasTrait(AffectedByHealAndRepair=0x421)` OU `NOT IsMechanical`.
-    IsMechanical = Mechanical(5) | LivingMetal(1000) | Vehicle(1029) (mirror @180ed8a30). HP<max est aussi
-    garanti aval par `HealUnitOperation` (FillUp rend 0 si plein) ; la garde ICI EXCLUE en plus la cible du
-    set (une unite full-HP / mechanical n'apparait pas dans `heals`), fidele au fait que le natif pre-filtre
-    via `HealableUnitsSelector` AVANT le split regular/chaos. Confirme LIVE (case-220 : necroWarden mech
-    blesse -> +0 ; allie full-HP -> +0)."""
-    state = ectx.state
-    uid = u.get("id") if isinstance(u, dict) else None
-    e = state.get_entity(uid) if (state is not None and uid is not None) else None
-    hc = e.get_component(HealthComponent) if e is not None else None
-    if hc is None or hc.hp is None or hc.hp_max is None or int(hc.hp) >= int(hc.hp_max):
-        return False                                          # non endommagee -> non Healable
-    ht = entities.has_trait
-    if ht is None:
-        return True                                           # pas de resolveur trait -> defaut affecte
-    # IsAffectedByHealType(unit, 0) : AffectedByHealAndRepair(0x421) OU non-Mechanical.
-    return bool(ht(u, int(UnitTrait.AffectedByHealAndRepair)) or not _is_mechanical(ht, u))
-
-
 def revitalizing_malignancy_tree(regular_amount: int, chaos_amount: int) -> AtomicGroup:
     """Arbre de `RevitalizingMalignancyAbility.ExecuteBehaviour @181200eb0` (MIRROR 1:1 du decompile +
     callback `b__0 @181218d00`). `AllHealTargets` = self + allies adjacents (hex 1) NON-Imperial, filtre
-    `Healable` porte cote mutation (`Heal(guard=_healable_heal_type_0)`). Split par trait Chaos(0x7ea) :
+    `Healable` porte cote mutation (`Heal(guard=healable_heal_type_0)`). Split par trait Chaos(0x7ea) :
     non-Chaos = `regular_amount` (var0x20), Chaos = `chaos_amount` (var0x20+var0x22). `AtomicGroup`
     (`ExecuteAtomic`, id 0x1f) inline (RE #201). Ordre callback natif : Heal(regular) PUIS Heal(chaos) ;
     les deux feuilles sont pures (aucun rng) et les sets DISJOINTS -> ordre sans effet observable."""
@@ -104,8 +72,8 @@ def revitalizing_malignancy_tree(regular_amount: int, chaos_amount: int) -> Atom
         int(UnitTrait.Imperial))                              # WithoutTrait(0x1a, Union(Friends(AdjacentUnits(self,1)), self))
     regular_sel = UnitsWithoutTrait(all_heal, int(UnitTrait.Chaos))   # regular = WithoutTrait(0x7ea)
     chaos_sel = UnitsWithTrait(all_heal, int(UnitTrait.Chaos))        # chaos   = WithTrait(0x7ea)
-    regular = Heal(regular_sel, lambda entities, ectx: regular_amount, guard=_healable_heal_type_0)  # Direct(var0x20)
-    chaos = Heal(chaos_sel, lambda entities, ectx: chaos_amount, guard=_healable_heal_type_0)        # Direct(var0x22+var0x20)
+    regular = Heal(regular_sel, lambda entities, ectx: regular_amount, guard=healable_heal_type_0)  # Direct(var0x20)
+    chaos = Heal(chaos_sel, lambda entities, ectx: chaos_amount, guard=healable_heal_type_0)        # Direct(var0x22+var0x20)
     return AtomicGroup(op_add(regular, chaos))                # ExecuteAtomic( regular + chaos )
 
 
