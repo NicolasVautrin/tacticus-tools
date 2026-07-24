@@ -163,7 +163,8 @@ def _grand_alliance(state: State, unit_id: int) -> Optional[str]:
 
 
 def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: Optional[bool],
-                                    target_armor_reduced: Optional[bool]) -> None:
+                                    target_armor_reduced: Optional[bool],
+                                    damage_profile: Optional[str] = None) -> None:
     """AURA ALLIÉE +dégât FLAT projetée sur l'ATTAQUANT par les effets `create_aura_attack_damage_bonus_for_ally`
     de ses ALLIÉS à portée (canal AURA côté SOURCE : l'effet vit sur le porteur et se projette sur ses amis quand
     EUX attaquent). `ConquerorImperative` (#23) : +extraDmg aux amis Mechanical ring-1 vs cible à armure réduite ;
@@ -201,6 +202,10 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
     ctx = {"att_id": att_id, "att_pos": (apc.col, apc.row), "att_team": aoc.team,
            "att_traits": target_trait_names(state, att_id),
            "att_grand_alliance": att_gu.get("GrandAllianceId"),
+           # DefenderOfTheGreaterGood_ExtraDmg (#220, aura Tau) : tier T'au range-2 = UnitsFromFaction(9)
+           # @180e20590 -> att_faction (FactionId) ; gate !DamageProfileIs(Psychic) @180f3e4f0 -> damage_profile.
+           "att_faction": att_gu.get("FactionId"),
+           "damage_profile": damage_profile,
            # UnitsWithRangedAttacks (selector SpotterReworked @180f6c860) = UNION {arme ranged au kit}
            # + {diff elevation <= 2 vs tuile porteur} (@180e00610) -> board pour le terme elevation
            "att_has_ranged_weapon": any(w.get("Range") for w in (att_gu.get("weapons") or ())),
@@ -246,7 +251,7 @@ def _positional_att_ctx(state: State, unit_id: int) -> Optional[dict]:
 
 def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged: Optional[bool] = None,
                        target_traits=None, target_id: Optional[int] = None,
-                       is_normal_attack: bool = True):
+                       is_normal_attack: bool = True, damage_profile: Optional[str] = None):
     """`DamageModifiers` de l'attaquant depuis ses EFFETS actifs (None-safe). `is_ranged` = nature du coup
     (propagée aux bonus gated `IsRangedAttack`, ex. HeavyWeapon_ExtraDmg). `has_moved` (#60) = l'unité a-t-elle
     BOUGE ce tour (state.moved_this_turn) -> gate no-move : HeavyWeapon_ExtraDmg s'ANNULE si l'unité a bougé
@@ -272,7 +277,7 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     mods = build_attacker_modifiers_from_effects(active, is_ranged, is_normal_attack=is_normal_attack,
                                                  has_moved=has_moved, target_traits=target_traits,
                                                  target_armor_reduced=tar, att_ctx=att_ctx)
-    _apply_ally_attack_damage_auras(state, unit_id, mods, is_ranged, tar)
+    _apply_ally_attack_damage_auras(state, unit_id, mods, is_ranged, tar, damage_profile=damage_profile)
     return mods, active
 
 

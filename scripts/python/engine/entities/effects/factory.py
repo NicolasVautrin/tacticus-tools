@@ -76,6 +76,7 @@ from .loki import (
     DoomExtraDmgEffect,
     SpotterReworkedExtraDamageEffect,
     SpotterReworkedHeavyWeaponEffect,
+    DefenderOfTheGreaterGoodExtraDmgEffect,
     StandVigilExtraArmorEffect,
     StunnedEffect,
     TauntedEffect,
@@ -140,6 +141,12 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Selectors @180f6c860/@180f6cb40 (UnitsWithRangedAttacks + fork trait 1001). #66.
     "SpotterReworked_ExtraDamage": SpotterReworkedExtraDamageEffect,
     "SpotterReworked_HeavyWeapon": SpotterReworkedHeavyWeaponEffect,
+    # DefenderOfTheGreaterGood (tauShadowsun passif, TriggeredAbilityType 1155 ; effet 0x49e=1182 sur le
+    # PORTEUR @180e203d0 branche NON-Summon) : aura +extraDmg[ablvl]xmult additif pre-percage aux attaques
+    # RANGED non-Psychic des amis SOIT adjacents (toute faction) SOIT T'au dans range 2 (@180f3e4f0, selector
+    # @180e20590 = (AdjacentFriends(1)-owner) + UnitsFromFaction(SurroundingFriends(2), Tau=9)). extraDmg[L65]=364.
+    # 1183 ExtraHits (coup additionnel probabiliste) + jumeaux drone 1306/1307 = NON portes ([fable]/couple).
+    "DefenderOfTheGreaterGood_ExtraDmg": DefenderOfTheGreaterGoodExtraDmgEffect,
     # AURA +dégât (Attack) du SOURCE Calgar (RitesOfBattleAbility @181225340) : 2 effets permanents
     # mutuellement exclusifs par trait Imperial (26). Noms captés EXACTS = ...Basic (1002) / ...Imperial
     # (1003) ; la classe lit le variant via self.name (endswith Imperial). Modélisée SOURCE-side

@@ -977,3 +977,75 @@ class SpotterReworkedHeavyWeaponEffect(_SpotterReworkedAuraBase):
 
     def _trigger_ok(self, c: Mapping) -> bool:
         return True                                           # OwnerIsActor seul (@180f6c980)
+
+
+class DefenderOfTheGreaterGoodExtraDmgEffect(BaseEffect):
+    """`DefenderOfTheGreaterGood_ExtraDmgEffect.CreateDamageModifier @180f3e4f0` (tauShadowsun passif
+    DefenderOfTheGreaterGood, TriggeredAbilityType 1155 ; EffectType 0x49e=1182 "DefenderOfTheGreaterGood_
+    ExtraDmg"). AURA cote SOURCE (template SpotterReworked/LordOfTheHost). i2 : « Friendly units adjacent
+    to Shadowsun or her Command-Link Drone deal +364 Damage with ranged attacks, except attacks that deal
+    Psychic Damage. ... Friendly T'au Empire units within 2 hexes ... are also affected. »
+
+    POSE (`DefenderOfTheGreaterGoodAbility.CreateBehaviour @180e203d0`, RE decompile) :
+    `If(HasTrait(owner, Summon=2), AddEffect(0x51a=1306)+AddEffect(0x51b=1307),
+        AddEffect(0x49e=1182)+AddEffect(0x49f=1183))` = branche NON-Summon (Shadowsun) pose 1182 (CET
+    effet ExtraDmg) + 1183 (ExtraHits, coup additionnel PROBABILISTE = [fable], NON porte) ; branche Summon
+    (Command-Link Drone) pose les JUMEAUX drone 1306/1307. L'effet vit sur le PORTEUR et se projette sur ses
+    amis via son TargetSelector (AURA source-side, MEME canal que SpotterReworked/LordOfTheHost/Doom).
+
+    - degat `CreateDamageModifier @180f3e4f0` (RE decompile) : `EffectBonus.ForAddition(get_OwnerIsCaster &
+      IsRangedAttack & !DamageProfileIs(0xd=13=Psychic), ConfigVar(8=extraDmg, GetAbilityState, EffectSource
+      @0x60))`, source AbilityOrEffect 0x483=1155 (DefenderOfTheGreaterGood, pour l'attribution -- non porte,
+      cf. SpotterReworked). Canal ADDITIF pre-percage PAR COUP (`DamageModifiers.additive`). DEUX differences
+      vs SpotterReworked_ExtraDamage (@180f6c680) : (1) `get_OwnerIsCaster` (vs OwnerIsActor -- meme semantique :
+      ce chemin n'est appele que pour l'attaque du BENEFICIAIRE) ; (2) noeud `!DamageProfileIs(Psychic)` en plus
+      (SpotterReworked forkait sur HeavyWeapon a la place).
+    - cible `GetBaseBuffTargetSelector @180e20590` (RE decompile) :
+      `UnitsWithRangedWeaponsExcludingDamageProfile( Unique( (AdjacentFriends(owner,1) - {owner})
+        + UnitsFromFaction(SurroundingFriends(owner, range=2), UnitFaction.Tau=9) ), 0xd=Psychic )`
+      = amis SOIT ADJACENTS (range 1, TOUTE faction) SOIT T'au dans range 2, ayant une arme RANGED non-Psychic.
+      Selecteur d'aura partage x4 (StructuralAnalyser/SereneUnifier/DotGG/WayOfTheShortBlade, cf. case-220
+      §6.6). Le filtre `UnitsWithRangedWeaponsExcludingDamageProfile(Psychic)` = eligibilite CARRIER (arme
+      ranged non-Psychic) SUBSUMEE par le gate d'attaque `is_ranged & damage_profile != Psychic` du coup mesure.
+    - MAGNITUDE = `ability_var("DefenderOfTheGreaterGood", "extraDmg", ablvl) x multiplier` (ConfigVar var
+      index 8 = extraDmg, SEULE var d'ability, DANS variablesAffectedByRarityBonus -> scale x mult ;
+      extraDmg[L1..65]=[5..364] ; i2 « +364 » = extraDmg[L65]). `GetVariableForLevel(config, 8, GetAbilityState)`
+      sur le config de DefenderOfTheGreaterGood (le PASSIF de Shadowsun) -> level = niveau passif du PORTEUR
+      (self.ability_level, comme SpotterReworked/LordOfTheHost). Multiplier = le GLOBAL du porteur
+      (self.ability_variables_multiplier).
+    - GATE : is_ranged (IsRangedAttack) ; damage_profile != Psychic (!DamageProfileIs(0xd)) ; distance
+      (adjacent range 1 toute faction, OU T'au range 2). is_melee None (chemins ability combat non threades
+      is_ranged) -> gate off (calque SpotterReworked `_trigger_ok`). Ne modelise PAS 1183 ExtraHits ([fable]).
+
+    VALIDATION : le PSYCHIC-exclusion exige `damage_profile` dans le ctx aura-ally (threade par normal_attack/
+    abilities/psyker/fury cote prediction ; par damage.py cote combat) et `att_faction` (FactionId) pour le
+    tier T'au range-2 (deja threade cote prediction ; ajoute cote combat)."""
+
+    _TAU_FACTION = "Tau"           # UnitFaction.Tau=9 (UnitsFromFaction(9) @180e20590) ; FactionId gameconfig="Tau"
+
+    def create_aura_attack_damage_bonus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        c = ctx or {}
+        if c.get("att_id") == c.get("owner_id"):              # AdjacentFriends/SurroundingFriends excluent self
+            return None
+        if c.get("owner_team") is None or c.get("owner_team") != c.get("att_team"):
+            return None                                       # Friends = meme equipe que le porteur
+        if c.get("is_melee") is not False:                    # IsRangedAttack (@180f3e4f0) : ranged only
+            return None                                       # (None = ability combat non threade -> gate off)
+        if (c.get("damage_profile") or None) == "Psychic":    # !DamageProfileIs(0xd=13=Psychic)
+            return None
+        op, ap = c.get("owner_pos"), c.get("att_pos")
+        if not op or not ap:
+            return None
+        import hexgeo
+        d = hexgeo.distance(op, ap)
+        # Selecteur @180e20590 : (AdjacentFriends(range=1, TOUTE faction) - owner) + UnitsFromFaction(
+        # SurroundingFriends(range=2, disk), Tau=9). range 1 / range 2 = litteraux DSL (pas de ConfigVar range).
+        adjacent = (d == 1)
+        tau_ring = (d <= 2 and c.get("att_faction") == self._TAU_FACTION)
+        if not (adjacent or tau_ring):
+            return None
+        if self.ability_level is None:                        # ConfigVar sans AbilityState -> pas de magnitude
+            return None
+        amt = ability_var("DefenderOfTheGreaterGood", "extraDmg", self.ability_level,
+                          multiplier_pct=self.ability_variables_multiplier)
+        return for_addition(True, amt) if amt else None
