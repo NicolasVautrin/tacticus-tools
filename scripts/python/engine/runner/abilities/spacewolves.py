@@ -62,31 +62,30 @@ def great_frost_axe_tree():
     l'ordre glace-avant-attaque n'altere PAS l'ordre RNG de l'attaque : les ROLLS per-coup sont bit-exacts
     (le port et le live tirent la MEME sequence -- valide live : native_factory correct, cf. plus bas).
 
-    ###### RESIDU MAJEUR = BONUS CRIT-SUR-GLACE +50% (CANDIDAT FABLE-SOLVER, PAS PORTE) ######
-    i2 : « The Crit Damage bonus of the Ice is already applied for this attack ». MESURE LIVE (spaceWulfen
-    vs necroWarden, cc=0, DidCrit=0 sur tous les coups) : le degat LIVE par coup = EXACTEMENT 1.5x le degat
-    OFFLINE (ratio 2425/1616=1.5006, 2508/1672=1.5000, 2456/1637=1.5003 -- coup 4 clampe par la mort). Ce
-    +50% est SPECIFIQUE a GreatFrostAxe : une attaque NORMALE du MEME spaceWulfen sur la MEME necroWarden ne
-    diverge PAS (offline ~1670 == live ~1700). C'est donc le bonus crit-sur-glace de l'effet Ice
-    (`IceEffect.CreateEffectDamageBonusForAttack @180f44940`), applique a l'attaque de GreatFrostAxe parce
-    qu'elle glace la tuile de la cible AVANT de frapper (la cible est « on-Ice » au moment du coup).
+    ###### RESIDU x1.5 RESOLU (#45f fable, 2026-07-24) — c'etait l'ELEVATION, pas la glace ######
+    L'ex-« bonus crit-sur-glace +50% » etait un ARTEFACT DE CONFUSION : la mesure historique (live =
+    1.5x offline par coup, DidCrit=0) venait du bonus d'ELEVATION (`Damage.ElevationBonus`=50, feuille
+    positionnelle du builder PARTAGE `CalculateAttackerModifiersForPrediction @181000590`, gate
+    `elev(att) > elev(cible)` + effet 0x423, AUCUN gate normale/ability) que le vecteur offline
+    `execute_ability_attack` n'appliquait pas (fork de port : seul le chemin attaque NORMALE appelait
+    `apply_elevation_bonus`). Le scenario de test move sur `aiAttackRank ranked[0]` qui PREFERE le
+    surplomb sur MC1_67 -> 1.5x systematique ; l'attaque normale du meme caster passait, elle, par le
+    chemin qui applique l'elevation -> « pas de divergence » (confond parfait). PROUVE par sonde
+    discriminante (`probe_45f_gfa_elevation`, une variable = la relation d'elevation) : pre-fix
+    high=1.5000x/coup, flat=bit-exact, low=bit-exact (gate strict `>`) ; post-fix 16/16 coups
+    bit-exact (4 cas x 4 coups). FIX : `execute_ability_attack`/`execute_normal_like` appliquent
+    desormais `apply_elevation_bonus` + `apply_trench_reduction` comme le chemin normal (#45f).
 
-    IMPORTANT -- ce n'est PAS « crit-only » (l'hypothese initiale du doc case-220 space-wolves.md, REFUTEE
-    par le live) : le bonus s'applique a CHAQUE coup meme NON-critique (DidCrit=0). Contradiction NON RESOLUE
-    dans le decompile : `CreateEffectDamageBonusForAttack` = `PercentageOf(StatAmount(caster, CRIT_DAMAGE=10),
-    EffectConfig(5))` gate par `AttackDamageIsCritical & AreEqual(occupant-tuile-glacee, target) & NOT
-    HasTrait(target,0x19)` -- MAIS le caster a CRIT_DAMAGE=0 (mesure), donc `PercentageOf(0, config5)=0`, ce
-    qui contredit le +50% observe ; ET le gate `AttackDamageIsCritical` devrait etre faux sur un coup non-crit.
-    -> le mecanisme exact (comment l'attaque devient « critical » pour le bonus + d'ou vient le 50% sans
-    CRIT_DAMAGE) reste SOUS-DETERMINE. C'est un SOUS-SYSTEME PARTAGE jamais modelise offline : la famille
-    `Effect.CreateEffectDamageBonusForAttack` (~40+ effets) collectee par `BaseEffect.DamageBonusForAttack
-    @180f0f5e0` dans `AttackDamageOperation.ExecuteHit @180e5eff0` (== residu #131/#133 flague -- a tort
-    « crit-only » -- dans Stormcaller `loki/stormcaller.py`, qui diverge IDENTIQUEMENT mais n'a jamais eu de
-    test bit-exact live). Le porter FIDELEMENT (pas fitter un x1.5) exige de RE ce subsystem + resoudre la
-    contradiction CRIT_DAMAGE=0 -> **CANDIDAT FABLE-SOLVER / tranche dediee effect-damage-bonus**. En
-    attendant, ce port ship la STRUCTURE fidele (glace + attaque + native_factory), degat ~33% bas (÷1.5),
-    COHERENT avec Stormcaller (meme residu). La face DECISION/prediction (playbook @18113fbd0) est validee a
-    part (case-220 s18) et n'est PAS impactee (la prediction a son propre canal crit-Ice).
+    La CONTRADICTION historique (« CRIT_DAMAGE=0 mais +50% ») est levee : la formule
+    `IceEffect.CreateEffectDamageBonusForAttack @180f44940` n'a JAMAIS ete la source du 1.5x. C'est un
+    `EffectBonus` (struct il2cpp : trigger/multiplicator/ADDITION/subtraction/minimum/override) du canal
+    ADDITION : `PercentageOf(StatAmount(attacker, CRIT_DAMAGE=10), EffectConfig(5)=IceCritDmgBonusPct=25)`
+    gate `AttackDamageIsCritical & AreEqual(occupant-tuile-Ice, target) & !HasTrait(target, 0x19=Immune)`
+    = +25% du CRIT_DAMAGE de l'attaquant, PAR COUP CRITIQUE, contre une cible sur tuile glacee -> 0 pour
+    Wulfen (cd=0). PORTE (`damage_model.ice_crit_damage_addition`) et VALIDE live par crit force
+    (probe --case crit, --crit 100,700 : delta natif +175 = floor(700 x 25 / 100) par coup crit, 4/4
+    bit-exact post-port). i2 « The Crit Damage bonus of the Ice is already applied for this attack » =
+    note d'AFFICHAGE (les nombres montres incluent le bonus), pas une regle d'execution speciale.
 
     - [1] `AddEffect(Ice)` : glace la tuile de la cible + son ring-1 (`great_frost_axe_ice_tiles()`). Duree =
       arg Nullable ZEROE -> `duration_rounds=None` -> `DefaultAmountOfRounds(0x11)=2` (== case-35/Stormcaller).
@@ -123,11 +122,11 @@ class GreatFrostAxeAbility(ActiveAbility):
     attaque (id + total).
 
     Turn-flags = defauts base (1089 ABSENT des overrides `NO_END_TURN`/`NO_ABILITY_USED_FLAG` -> le cast
-    TERMINE le tour + pose ActiveAbilityUsed, == Stormcaller). La glace, l'attaque et ses ROLLS per-coup sont
-    reels et bit-exacts vs live (native_factory correct). RESIDU MAJEUR NON PORTE (cf. `great_frost_axe_tree`) :
-    le bonus crit-sur-glace +50% (`IceEffect.CreateEffectDamageBonusForAttack`) applique a CHAQUE coup (mesure
-    live x1.5, PAS crit-only) -> degat ~33% bas. Sous-systeme `effect-damage-bonus` PARTAGE jamais modelise
-    offline -> CANDIDAT FABLE-SOLVER (contradiction CRIT_DAMAGE=0 vs +50% non resolue)."""
+    TERMINE le tour + pose ActiveAbilityUsed, == Stormcaller). La glace, l'attaque et le DEGAT per-coup
+    sont BIT-EXACTS vs live (native_factory correct + elevation appliquee au vecteur ability, residu
+    x1.5 RESOLU #45f — c'etait `Damage.ElevationBonus`, pas la glace ; le vrai bonus crit-sur-Ice
+    (+25% du CRIT_DAMAGE par coup crit vs cible gelee, `ice_crit_damage_addition`) est porte et vaut 0
+    ici (cd=0). Cf. `great_frost_axe_tree`."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.GreatFrostAxe)  # 1089
     ABILITY_ID = "GreatFrostAxe"
