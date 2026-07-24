@@ -48,6 +48,7 @@ from .genestealer import (DecoysAndMisdirectionDamageEnemiesAbility,
                           HypersensoryMoveAndSpawnDecoyAbility)
 from .loki.weaver_of_fate import WeaverOfFateAbility                 # #202-A (trait WeaverOfFate)
 from .loki.living_metal import LivingMetalRepairAbility             # #203 (trait LivingMetal, Necron)
+from .loki.destroyer_hive import DestroyerHiveAbility               # case-220 DG (passiveAbility deathTyphus)
 from .loki.master_of_the_tutelaries import (MasterOfTheTutelariesSummonAbility,   # #202-C (triggered 1173)
                                             MASTER_EFFECT as MASTEROFTUTELARIES_EFFECT)
 
@@ -102,6 +103,11 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # par une attaque normale de Njal (`On(38)` cible principale + `On(9)&kind==0x3f5` victime du smite
     # Psyker), `OwnerIsCaster`. Cf. loki/lord_of_tempests.py (@181108670/@1811085d0).
     "LordOfTempests": [LordOfTempestsAddIceAbility],
+    # DestroyerHive (passif deathTyphus, case-220 DG) = au debut du tour de Typhus, sa nuee attaque 1x un
+    # ennemi adjacent aleatoire (`On(0x16) & OwnerIsActor & AmountIsGreaterThanZero(GetValidTargets)` ->
+    # AttackWithAttackDamage(caster, PickRandomly(ennemis adjacents,1), MinMax[passive lvl], DirectDamage,
+    # nrOfHits=1)). Cf. loki/destroyer_hive.py (@18121d4b0/@18121d540/@18121d320).
+    "DestroyerHive": [DestroyerHiveAbility],
 }
 
 # --- Registre : effectType → effet-trigger ---------------------------------------------------------
