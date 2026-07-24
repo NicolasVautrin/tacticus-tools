@@ -75,8 +75,7 @@ def test_act_of_faith_resets_on_ability_crit_moteur(live_session, rpc, build_run
     sister_id, enemy_id = sister["id"], enemy["id"]
 
     # === MOTEUR offline : etat live au deploiement (0 stack ActOfFaith) ===
-    state = load_state(dec0, ob0, snap0)
-    state.board = board
+    state = load_state(dec0, ob0, snap0, board=board)
     state.rng = _seed_rng(s0)
     si = state.get_entity(sister_id)
     en = state.get_entity(enemy_id)

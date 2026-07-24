@@ -116,8 +116,7 @@ def _load(rpc, rid):
     ob = rpc("observeBattle", {"runnerId": rid}, 40)
     snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
     s0 = rpc("dumpRng", {"runnerId": rid}, 30)
-    state = load_state(dec, ob, snap)
-    state.board = board
+    state = load_state(dec, ob, snap, board=board)
     if isinstance(s0, dict) and s0.get("mt"):
         state.rng = _seed_rng(s0)
     return state, board

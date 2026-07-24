@@ -317,8 +317,7 @@ def test_control_edict_protector_summon_offline_agreement(live_session, rpc, bui
     ob0 = rpc("observeBattle", {"runnerId": rid}, 60)
     snap0 = rpc("combatSnapshot", {"runnerId": rid}, 90)
     s0 = rpc("dumpRng", {"runnerId": rid}, 30)
-    state = load_state(dec0, ob0, snap0)
-    state.board = board
+    state = load_state(dec0, ob0, snap0, board=board)
     if _ok(s0):
         rng = IntBasedMersenneTwister(); rng.mt = list(s0["mt"]); rng.mti = s0["mti"]; state.rng = rng
 
@@ -386,8 +385,7 @@ def test_control_edict_cap_offline(live_session, rpc, build_runner):
     dec0 = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
     ob0 = rpc("observeBattle", {"runnerId": rid}, 60)
     snap0 = rpc("combatSnapshot", {"runnerId": rid}, 90)
-    state = load_state(dec0, ob0, snap0)
-    state.board = board
+    state = load_state(dec0, ob0, snap0, board=board)
     tan_ent = state.get_entity(tan_id)
     if tan_ent is None or tan_ent.get_component(StatsComponent) is None or state.effects is None:
         pytest.skip("Tan sans StatsComponent/effects offline")
@@ -459,8 +457,7 @@ def test_control_edict_conqueror_summons_attack_offline_agreement(live_session, 
     ob0 = rpc("observeBattle", {"runnerId": rid}, 60)
     snap0 = rpc("combatSnapshot", {"runnerId": rid}, 90)
     s0 = rpc("dumpRng", {"runnerId": rid}, 30)
-    state = load_state(dec0, ob0, snap0)
-    state.board = board
+    state = load_state(dec0, ob0, snap0, board=board)
     if _ok(s0):
         rng = IntBasedMersenneTwister(); rng.mt = list(s0["mt"]); rng.mti = s0["mti"]; state.rng = rng
     tan_ent = state.get_entity(tan_id)
@@ -511,8 +508,7 @@ def test_control_edict_conqueror_summons_attack_offline_agreement(live_session, 
         "face Conqueror : le Summon Mechanical adjacent a Tan n'a PAS attaque la cible a portee"
 
     # contre-epreuve : le meme etat SANS Vanguard adjacent -> aucune attaque (cible intacte).
-    state2 = load_state(dec0, ob0, snap0)
-    state2.board = board
+    state2 = load_state(dec0, ob0, snap0, board=board)
     if _ok(s0):
         rng2 = IntBasedMersenneTwister(); rng2.mt = list(s0["mt"]); rng2.mti = s0["mti"]; state2.rng = rng2
     if state2.effects is not None:

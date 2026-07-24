@@ -199,8 +199,7 @@ def test_plasma_cannon_live(live_session, rpc):
         dv2 = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
         ob2 = rpc("observeBattle", {"runnerId": rid}, 60)
         snap2 = rpc("combatSnapshot", {"runnerId": rid}, 90)
-        st = load_state(dv2, ob2, snap2)
-        st.board = board
+        st = load_state(dv2, ob2, snap2, board=board)
         ent = entities_from_state(st, cid, target["id"])
         udb = sorted(x.get("id") for x in UnitsDirectlyBehind().select(ent))
         assert set(udb) == {b1["id"], b2["id"]}, \
@@ -236,14 +235,14 @@ def test_plasma_cannon_live(live_session, rpc):
             assert len(ph) == 3, f"cible {tid} : {len(ph)} coups live != 3 (nrOfHits)"
 
         # (A) A/B : arbre (main) == sequence directe execute_ability_attack, BIT-EXACT sous le meme rng seede.
-        st_tree = load_state(dv2, ob2, snap2); st_tree.board = board; st_tree.rng = _seed_rng(s0)
+        st_tree = load_state(dv2, ob2, snap2, board=board); st_tree.rng = _seed_rng(s0)
         res = PlasmaCannonAbility().execute_behaviour(st_tree, cid, target["id"])
         assert res is not None and res.get("dsl") is True, f"port non execute: {res}"
         tree_main = (res.get("main_attack") or {}).get("per_hit")
         tree_splash_ids = sorted(s["target"] for s in (res.get("splash") or []))
         assert tree_splash_ids == sorted([b1["id"], b2["id"]]), \
             f"splash offline {tree_splash_ids} != directly-behind {sorted([b1['id'], b2['id']])}"
-        st_dir = load_state(dv2, ob2, snap2); st_dir.board = board; st_dir.rng = _seed_rng(s0)
+        st_dir = load_state(dv2, ob2, snap2, board=board); st_dir.rng = _seed_rng(s0)
         direct = AttackDamageOperation.execute_ability_attack(
             st_dir, cid, target["id"], bmin, bmax, pierce, hits,
             damage_profile="Plasma", is_melee=False, is_attack_damage_op=True)   # native_factory="attack"
@@ -253,7 +252,7 @@ def test_plasma_cannon_live(live_session, rpc):
 
         # (C) native_factory : sur la MAIN (rng synchronise), ratio live/offline CONSTANT en famille "attack"
         #     (2 tirages/coup), NON-CONSTANT en famille "ability" (1 tirage/coup -> desync des le coup 2).
-        st_ab = load_state(dv2, ob2, snap2); st_ab.board = board; st_ab.rng = _seed_rng(s0)
+        st_ab = load_state(dv2, ob2, snap2, board=board); st_ab.rng = _seed_rng(s0)
         off_ability = (AttackDamageOperation.execute_ability_attack(
             st_ab, cid, target["id"], bmin, bmax, pierce, hits,
             damage_profile="Plasma", is_melee=False, is_attack_damage_op=False) or {}).get("per_hit")   # "ability"

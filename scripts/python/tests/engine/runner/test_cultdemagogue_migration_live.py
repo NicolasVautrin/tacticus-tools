@@ -118,8 +118,7 @@ def cult_demagogue(rpc, build_runner):
     live_neo = [u for u in (ob1.get("units") or []) if u.get("visualId") == NEO_VIS]
 
     # --- PORT sur l'etat-avant ---
-    state = load_state(dv0, ob0, snap)
-    state.board = board
+    state = load_state(dv0, ob0, snap, board=board)
     if isinstance(s0, dict) and s0.get("mt"):
         rng = IntBasedMersenneTwister()
         rng.mt = list(s0["mt"]); rng.mti = s0["mti"]

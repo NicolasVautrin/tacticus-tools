@@ -92,8 +92,7 @@ def test_thebetrayer_turnstart_live(live_session, rpc, build_runner):
     live_move = (k1.get("col"), k1.get("row")) if k1 else None
 
     # OFFLINE : load_state(S) + start_turn_triggers.
-    state = load_state(dec, ob, snap)
-    state.board = board
+    state = load_state(dec, ob, snap, board=board)
     if _ok(rng0):
         state.rng = _seed_rng(rng0)
     if state.get_entity(kid) is None:

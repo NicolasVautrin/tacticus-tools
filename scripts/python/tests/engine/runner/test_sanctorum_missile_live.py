@@ -221,7 +221,7 @@ def test_sanctorum_missile_targeting_and_ab(live_session, rpc):
         dv2 = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
         ob2 = rpc("observeBattle", {"runnerId": rid}, 60)
         snap2 = rpc("combatSnapshot", {"runnerId": rid}, 90)
-        st = load_state(dv2, ob2, snap2); st.board = board
+        st = load_state(dv2, ob2, snap2, board=board)
         ent = entities_from_state(st, cid, target_id)
         raw_adj = sorted(u.get("id") for u in AdjacentUnits(TargetTile()).select(ent))
         sub_sel = sorted(u.get("id") for u in Sub(AdjacentUnits(TargetTile()), Caster()).select(ent))
@@ -267,7 +267,7 @@ def test_sanctorum_missile_targeting_and_ab(live_session, rpc):
                 f"splash {sid} : {len(live.get(sid) or [])} coups live != 1 (nrOfHits_2)"
 
         # (A) A/B BIT-EXACT : arbre (main + splash) == sequences directes execute_ability_attack sous le meme rng.
-        st_tree = load_state(dv2, ob2, snap2); st_tree.board = board; st_tree.rng = _seed_rng(s0)
+        st_tree = load_state(dv2, ob2, snap2, board=board); st_tree.rng = _seed_rng(s0)
         res = SanctorumMissileAbility().execute_behaviour(st_tree, cid, target_id)
         assert res is not None and res.get("dsl") is True, f"port non execute: {res}"
         tree_main = (res.get("main_attack") or {}).get("per_hit")
@@ -280,7 +280,7 @@ def test_sanctorum_missile_targeting_and_ab(live_session, rpc):
         _bmin2, _bmax2, _p2, hits2 = ability_attack_params(
             st_tree, cid, "SanctorumMissile", "Blast", ranged=True, hits_key="nrOfHits_2")
         assert hits2 == 1, f"nrOfHits_2 {hits2} != 1 (config SanctorumMissile)"
-        st_dir = load_state(dv2, ob2, snap2); st_dir.board = board; st_dir.rng = _seed_rng(s0)
+        st_dir = load_state(dv2, ob2, snap2, board=board); st_dir.rng = _seed_rng(s0)
         direct_main = AttackDamageOperation.execute_ability_attack(
             st_dir, cid, target_id, bmin, bmax, pierce, hits,
             damage_profile="Blast", is_melee=False, is_attack_damage_op=True)   # native_factory="attack"
@@ -334,11 +334,11 @@ def test_sanctorum_missile_native_factory_attack(live_session, rpc, seed):
 
         bmin, bmax, pierce, hits = ability_attack_params(
             load_state(dv2, ob2, snap2), cid, "SanctorumMissile", "Blast", ranged=True)
-        st_at = load_state(dv2, ob2, snap2); st_at.board = board; st_at.rng = _seed_rng(s0)
+        st_at = load_state(dv2, ob2, snap2, board=board); st_at.rng = _seed_rng(s0)
         off_attack = (AttackDamageOperation.execute_ability_attack(
             st_at, cid, target_id, bmin, bmax, pierce, hits,
             damage_profile="Blast", is_melee=False, is_attack_damage_op=True) or {}).get("per_hit")   # "attack"
-        st_ab = load_state(dv2, ob2, snap2); st_ab.board = board; st_ab.rng = _seed_rng(s0)
+        st_ab = load_state(dv2, ob2, snap2, board=board); st_ab.rng = _seed_rng(s0)
         off_ability = (AttackDamageOperation.execute_ability_attack(
             st_ab, cid, target_id, bmin, bmax, pierce, hits,
             damage_profile="Blast", is_melee=False, is_attack_damage_op=False) or {}).get("per_hit")  # "ability"

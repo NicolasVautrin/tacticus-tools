@@ -103,7 +103,7 @@ def test_on_fire_damage_migration_matches_imperative(live_session, rpc, build_ru
         pytest.skip(f"profil {PROFILE} sans trait OnFire -> chemin OnFireDamage non exercable")
 
     board = Board(bg["tiles"], adjacency="native_sym")
-    st0 = load_state(dv, ob, snap); st0.board = board
+    st0 = load_state(dv, ob, snap, board=board)
     if st0.effects is None:
         pytest.skip("EffectsState non charge (combatSnapshot absent) -> AddEffect KO")
 
@@ -120,8 +120,8 @@ def test_on_fire_damage_migration_matches_imperative(live_session, rpc, build_ru
     if target_id is None:
         pytest.skip("aucune cible ennemie avec position (Tiles(target) non exercable)")
 
-    st_new = load_state(dv, ob, snap); st_new.board = board
-    st_ref = load_state(dv, ob, snap); st_ref.board = board
+    st_new = load_state(dv, ob, snap, board=board)
+    st_ref = load_state(dv, ob, snap, board=board)
 
     res_new = _on_fire_damage_ability(st_new, attacker_id, target_id, PROFILE)       # arbre DSL migre
     res_ref = _on_fire_damage_imperative_ref(st_ref, attacker_id, target_id, PROFILE)  # ancien imperatif

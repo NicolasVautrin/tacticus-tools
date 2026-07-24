@@ -62,8 +62,7 @@ def test_scarab_hive_migration_is_dsl_tree(live_session, rpc, build_runner):
     caster_id, enemy_id = caster["id"], enemy["id"]
     my_team, my_player = caster.get("team"), caster.get("owner")
 
-    state = load_state(dec, ob, snap)
-    state.board = board
+    state = load_state(dec, ob, snap, board=board)
     state.rng = _seed_rng(s0)
     if state.get_entity(caster_id) is None or state.get_entity(enemy_id) is None:
         pytest.skip("caster/cible absents offline")

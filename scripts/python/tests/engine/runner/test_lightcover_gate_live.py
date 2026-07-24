@@ -103,7 +103,7 @@ def lc_gate(live_session, rpc, build_runner):
         state.get_entity(uid).get_component(PositionComponent).row = row
 
     # (a) ON-COVER
-    st = load_state(dv, ob, snap); st.board = board
+    st = load_state(dv, ob, snap, board=board)
     place(st, att, *apos)
     on_eff = _eff_names(st, tid)
     on_hits, _ = _hits(st, att, tid)
@@ -114,7 +114,7 @@ def lc_gate(live_session, rpc, build_runner):
              and board.tile_def_id(t) == "Grass"]
     if not grass:
         pytest.skip("pas de tuile Grass a dist 2 de l'attaquant")
-    st2 = load_state(dv, ob, snap); st2.board = board
+    st2 = load_state(dv, ob, snap, board=board)
     place(st2, att, *apos)
     place(st2, tid, *board.coord(grass[0]))
     off_eff = _eff_names(st2, tid)

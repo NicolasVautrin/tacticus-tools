@@ -103,8 +103,7 @@ def test_the_quickening_swap_offline_endtoend(live_session, rpc, build_runner):
         pytest.skip("meph/ally/enemy absents")
     mid, aid, eid = meph["id"], ally["id"], enemy["id"]
 
-    state = load_state(dv, ob, snap)
-    state.board = board                      # load_state ne peuple PAS le board (MoveUnit en depend)
+    state = load_state(dv, ob, snap, board=board)   # #64 : board a la source (MoveUnit en depend)
     me, ae, ee = state.get_entity(mid), state.get_entity(aid), state.get_entity(eid)
     if any(x is None or x.get_component(PositionComponent) is None for x in (me, ae, ee)):
         pytest.skip("entites/positions non chargees offline")

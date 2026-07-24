@@ -57,8 +57,7 @@ def firstaid_capture(live_session, rpc, build_runner):
 
 
 def _fresh(cap):
-    st = load_state(cap["dv"], cap["ob"], cap["snap"])
-    st.board = cap["board"]
+    st = load_state(cap["dv"], cap["ob"], cap["snap"], board=cap["board"])
     return st
 
 

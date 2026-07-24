@@ -215,7 +215,7 @@ def test_jakhal_stimms_live_bitexact(live_session, rpc, seed):
             pytest.skip("combatSnapshot/dumpRng indispo")
 
         def mkstate():
-            st = load_state(dv, ob0, snap); st.board = Board(bg["tiles"], adjacency="native_sym")
+            st = load_state(dv, ob0, snap, board=Board(bg["tiles"], adjacency="native_sym"))
             return st
 
         st0 = mkstate()
@@ -356,7 +356,7 @@ def test_jakhal_stimms_skullsmasher_is_flat_and_separate(live_session, rpc):
         s0 = rpc("dumpRng", {"runnerId": rid}, 30)
         if snap is None or not _ok(s0):
             pytest.skip("capture indispo")
-        st0 = load_state(dv, ob0, snap); st0.board = Board(bg["tiles"], adjacency="native_sym")
+        st0 = load_state(dv, ob0, snap, board=Board(bg["tiles"], adjacency="native_sym"))
         ce = st0.get_entity(cid)
         cc = int(getattr(ce.get_component(StatsComponent).ctx, "crit_chance", 0) or 0)
         hc = ce.get_component(HealthComponent)
@@ -378,7 +378,7 @@ def test_jakhal_stimms_skullsmasher_is_flat_and_separate(live_session, rpc):
         if len(live_main) != 4 or len(live_aoe) != 4:
             pytest.skip(f"cast live incomplet (main={len(live_main)} aoe={len(live_aoe)})")
 
-        st = load_state(dv, ob0, snap); st.board = Board(bg["tiles"], adjacency="native_sym")
+        st = load_state(dv, ob0, snap, board=Board(bg["tiles"], adjacency="native_sym"))
         st.rng = _mk_rng(s0)
         res = JakhalStimmsAbility().execute_behaviour(st, cid, tid)
         off_main = (res.get("main_attack") or {}).get("per_hit") or []

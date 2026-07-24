@@ -188,7 +188,7 @@ def test_executioner_live_main_bitexact_and_native_factory(live_session, rpc, se
         if snap is None or not _ok(s0):
             pytest.skip("combatSnapshot/dumpRng indispo")
 
-        st = load_state(dv, ob, snap); st.board = board
+        st = load_state(dv, ob, snap, board=board)
         off_hits = _rounds_started(st, cid)
         csc = st.get_entity(cid).get_component(StatsComponent)
         cc = int(getattr(csc.ctx, "crit_chance", 0) or 0)
@@ -223,13 +223,13 @@ def test_executioner_live_main_bitexact_and_native_factory(live_session, rpc, se
             f"coups live {len(live_main)} != RoundsStarted (turnsStarted) {off_hits}"
 
         # (c) A/B : arbre MAIN == sequence directe execute_ability_attack (hits, Psychic, "attack"), meme rng
-        st_tree = load_state(dv, ob, snap); st_tree.board = board; st_tree.rng = _mk_rng(s0)
+        st_tree = load_state(dv, ob, snap, board=board); st_tree.rng = _mk_rng(s0)
         res = ExecutionerAbility().execute_behaviour(st_tree, cid, tid)
         assert res is not None and res.get("dsl") is True, f"port non execute: {res}"
         assert res.get("hits") == off_hits, f"port hits {res.get('hits')} != RoundsStarted {off_hits}"
         tree_main = (res.get("main_attack") or {}).get("per_hit") or []
 
-        st_dir = load_state(dv, ob, snap); st_dir.board = board; st_dir.rng = _mk_rng(s0)
+        st_dir = load_state(dv, ob, snap, board=board); st_dir.rng = _mk_rng(s0)
         bmin, bmax, pierce, _cfg_hits = ability_attack_params(st_dir, cid, "Executioner", "Psychic", ranged=True)
         direct = (AttackDamageOperation.execute_ability_attack(
             st_dir, cid, tid, bmin, bmax, pierce, off_hits,
@@ -242,7 +242,7 @@ def test_executioner_live_main_bitexact_and_native_factory(live_session, rpc, se
             f"arbre MAIN {tree_main} != LIVE {live_main} (bit-exact cc=0, native_factory attack)"
 
         # (d) native_factory discriminant : "ability" (1 tirage/coup) DIVERGE du live des le coup >=2
-        st_ab = load_state(dv, ob, snap); st_ab.board = board; st_ab.rng = _mk_rng(s0)
+        st_ab = load_state(dv, ob, snap, board=board); st_ab.rng = _mk_rng(s0)
         off_ability = (AttackDamageOperation.execute_ability_attack(
             st_ab, cid, tid, bmin, bmax, pierce, off_hits,
             damage_profile="Psychic", is_melee=False, is_attack_damage_op=False) or {}).get("per_hit")   # "ability"
@@ -333,8 +333,7 @@ def test_executioner_isdead_secondary_offline(live_session, rpc):
             pytest.skip("capture indispo")
 
         def mkstate():
-            st = load_state(dv, ob, snap)
-            st.board = Board(bg["tiles"], adjacency="native_sym")
+            st = load_state(dv, ob, snap, board=Board(bg["tiles"], adjacency="native_sym"))
             r = IntBasedMersenneTwister(); r.mt = list(s0["mt"]); r.mti = s0["mti"]; st.rng = r
             return st
 

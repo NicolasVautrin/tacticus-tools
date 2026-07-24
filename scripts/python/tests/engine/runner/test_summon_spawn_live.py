@@ -106,8 +106,7 @@ def test_summon_spawn_bit_exact(live_session, rpc, build_runner):
             f"offline summon attack {off_ctx.attack} != live {sw_stats.get('attack')}"
 
     # === OFFLINE : SpawnUnitOperation (owner + placement) depuis l'etat d'AVANT ===
-    state = load_state(b_dec, b_ob, b_snap)
-    state.board = board
+    state = load_state(b_dec, b_ob, b_snap, board=board)
     if state.get_entity(caster_id) is None or state.get_entity(enemy_id) is None:
         pytest.skip("caster/cible absents offline (snapshot incomplet)")
     spawned = SpawnUnitOperation.execute(state, caster_id, enemy_id, SUMMON_ABILITY, SUMMON_VIS, SUMMON_COUNT)

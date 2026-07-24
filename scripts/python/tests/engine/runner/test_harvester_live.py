@@ -199,7 +199,7 @@ def test_harvester_live_moved_bitexact_and_native_factory(live_session, rpc, see
             pytest.skip("combatSnapshot/dumpRng indispo")
 
         def mkstate():
-            st = load_state(dv, ob, snap); st.board = Board(bg["tiles"], adjacency="native_sym")
+            st = load_state(dv, ob, snap, board=Board(bg["tiles"], adjacency="native_sym"))
             ce = st.get_entity(cid)
             fc = ce.get_component(UnitFlagsComponent)
             if fc is None:
@@ -359,7 +359,7 @@ def test_harvester_offline_hits_and_splash_geometry(live_session, rpc):
             pytest.skip("combatSnapshot/dumpRng indispo")
 
         def mkstate():
-            st = load_state(dv, ob, snap); st.board = Board(bg["tiles"], adjacency="native_sym")
+            st = load_state(dv, ob, snap, board=Board(bg["tiles"], adjacency="native_sym"))
             st.rng = _mk_rng(s0)                            # rng cale -> les feuilles emettent un per_hit
             return st
 

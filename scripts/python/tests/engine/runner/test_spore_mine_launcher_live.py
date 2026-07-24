@@ -102,8 +102,7 @@ def _board_and_state(rpc, rid):
     dec = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
     ob = rpc("observeBattle", {"runnerId": rid}, 40)
     snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
-    state = load_state(dec, ob, snap)
-    state.board = board
+    state = load_state(dec, ob, snap, board=board)
     return state, board, dec, ob
 
 

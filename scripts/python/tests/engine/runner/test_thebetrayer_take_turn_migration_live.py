@@ -118,8 +118,7 @@ def _setup(rpc, build_runner):
     rng0 = rpc("dumpRng", {"runnerId": rid}, 30)
     if not _ok(dec):
         pytest.skip("decisionView KO")
-    state = load_state(dec, ob, snap)
-    state.board = board
+    state = load_state(dec, ob, snap, board=board)
     if _ok(rng0):
         state.rng = _seed_rng(rng0)                  # rng LIVE -> l'attaque (crit/block par coup) peut rouler
     kid = _kharn_id(state)

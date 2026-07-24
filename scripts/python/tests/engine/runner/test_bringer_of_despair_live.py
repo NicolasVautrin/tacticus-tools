@@ -151,8 +151,7 @@ def bod_off(rpc, build_runner):
     rng0 = rpc("dumpRng", {"runnerId": rid}, 30)
 
     def build_state():
-        st = load_state(dv, ob, snap)
-        st.board = board
+        st = load_state(dv, ob, snap, board=board)
         if isinstance(rng0, dict) and rng0.get("mt"):
             st.rng = _seed_rng(rng0)
         return st
@@ -282,7 +281,7 @@ def test_bringer_live_cast_targeting_and_ab_fidelity(live_session, rpc, build_ru
         pytest.skip("aucun event de degat BringerOfDespair live")
 
     # --- OFFLINE : l'engine DERIVE l'arbre DSL depuis le cast ---
-    st = load_state(dv, ob, snap); st.board = board; st.rng = _seed_rng(s0)
+    st = load_state(dv, ob, snap, board=board); st.rng = _seed_rng(s0)
     runner = Runner(st).install_default_handlers(20)
     runner.apply(ActiveAbilityMessage(caster_id=ang_id, target_id=t_id, ability_type=ABILITY))
     last = runner.ability_handler.last or {}
@@ -294,7 +293,7 @@ def test_bringer_live_cast_targeting_and_ab_fidelity(live_session, rpc, build_ru
     off_bonus_ph = (off_bonus.get("attack") or {}).get("per_hit") or []
 
     # baseline degat scalee (armure 0 -> per-coup dans [bmin, bmax] ; pas de crit cc=0, pas de block)
-    st2 = load_state(dv, ob, snap); st2.board = board; st2.rng = _seed_rng(s0)
+    st2 = load_state(dv, ob, snap, board=board); st2.rng = _seed_rng(s0)
     bmin, bmax, pierce, _ = ability_attack_params(st2, ang_id, "BringerOfDespair", "Power", ranged=False)
     ref_main = AttackDamageOperation.execute_ability_attack(st2, ang_id, t_id, bmin, bmax, pierce, 4,
                                                             damage_profile="Power", is_melee=True)

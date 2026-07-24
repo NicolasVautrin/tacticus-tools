@@ -248,8 +248,7 @@ def sky_state(rpc):
     rng0 = rpc("dumpRng", {"runnerId": rid}, 30)
 
     def build_state():
-        st = load_state(dv, ob, snap)
-        st.board = board
+        st = load_state(dv, ob, snap, board=board)
         if isinstance(rng0, dict) and rng0.get("mt"):
             r = IntBasedMersenneTwister()
             r.mt = list(rng0["mt"]); r.mti = rng0["mti"]

@@ -80,3 +80,9 @@ etait donc confinee au harnais de replay, PAS un bug moteur.
 - Autres feuilles positionnelles (trench, terrain LightCover, GetStuckIn) beneficient AUSSI du board
   charge mais ne sont pas re-testees ici (hors perimetre #63 ; elles ont leurs propres tests qui
   posent deja `state.board`).
+
+## Suite
+`case-64-load-state-board.md` : le `state.board = board` disperse dans ~40 tests (ligne 51) est
+supprime au profit d'un point d'injection UNIQUE `load_state(..., board=board)`, tuant la classe de
+bug. Y sont aussi corriges 5 helpers `_replay` copies (crit/block/decomp/guardian/nightshroud) qui
+avaient le MEME gap latent que `_do_replay` (board non attache).

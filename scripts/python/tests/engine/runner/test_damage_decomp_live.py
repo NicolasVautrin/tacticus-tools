@@ -110,7 +110,7 @@ def test_damage_decomp_localises_stage(live_session, rpc, build_runner):
     if norm is None:
         pytest.skip("pas d'attaque normale")
     snap2 = rpc("combatSnapshot", {"runnerId": rid}, 40)
-    state = load_state(dv2, ob2, snap2)
+    state = load_state(dv2, ob2, snap2, board=board)   # #64 : board a la source (feuilles positionnelles armees)
 
     arm_info = DD.arm(rpc)   # install + reset modifier-observe
 

@@ -185,7 +185,7 @@ def test_gauntlets_combat_two_bands_live(live_session, rpc, build_runner):
         pytest.skip("aucun event de degat Gauntlets live")
 
     # --- OFFLINE : l'engine DERIVE l'arbre DSL depuis le cast (gauntlets_of_ultramar_tree) ---
-    st = load_state(dv, ob, snap); st.board = board; st.rng = _seed_rng(s0)
+    st = load_state(dv, ob, snap, board=board); st.rng = _seed_rng(s0)
     runner = Runner(st).install_default_handlers(20)
     runner.apply(ActiveAbilityMessage(caster_id=cal_id, target_id=tgt, ability_type=ABILITY))
     last = runner.ability_handler.last or {}
@@ -217,7 +217,7 @@ def test_gauntlets_combat_two_bands_live(live_session, rpc, build_runner):
 
     # (2) FIDELITE A/B : l'arbre == une sequence directe execute_ability_attack (adj 2 coups tries par id
     #     puis surr 1 coup tries par id) -> le port n'introduit AUCUN bug de degat (meme rng seede).
-    st2 = load_state(dv, ob, snap); st2.board = board; st2.rng = _seed_rng(s0)
+    st2 = load_state(dv, ob, snap, board=board); st2.rng = _seed_rng(s0)
     bmin, bmax, pierce, _ = ability_attack_params(st2, cal_id, "GauntletsOfUltramar", "Bolter", ranged=True)
     ref_ph = {}
     for tid in adj + surr:                              # MEME ordre que l'arbre (multi=True trie par id)

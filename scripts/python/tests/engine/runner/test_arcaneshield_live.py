@@ -96,8 +96,7 @@ def test_arcaneshield_grant_live(live_session, rpc, build_runner):
     owner_id, ally_id = od["id"], ad["id"]
 
     # --- CAS ALLIE : allie adjacent vivant -> cible = allie, bouclier sur l'allie -----------------
-    state = load_state(dec, ob, snap)
-    state.board = board
+    state = load_state(dec, ob, snap, board=board)
     if state.get_entity(owner_id) is None or state.get_entity(ally_id) is None:
         pytest.skip("owner/allie absents offline (snapshot incomplet)")
     amount = _expected_amount(state, owner_id)
@@ -129,8 +128,7 @@ def test_arcaneshield_grant_live(live_session, rpc, build_runner):
     print(f"[ArcaneShield ALLIE] OK : bouclier {amount} (1 round) pose sur allie {ally_id}, total {before}->{after}")
 
     # --- CAS SOI : allie mort -> exclu des candidats -> cible = soi -------------------------------
-    state2 = load_state(dec, ob, snap)
-    state2.board = board
+    state2 = load_state(dec, ob, snap, board=board)
     _place_adjacent(state2, board, owner_id, ally_id)
     auc = state2.get_entity(ally_id).get_component(UnitComponent)
     if auc is not None:
