@@ -225,14 +225,28 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             shc.deplete(int(run_result["shield_dmg"]))
 
     @staticmethod
-    def _block_sources(tsc, tgt_active_effects, defender_armor: int):
+    def _block_sources(tsc, tgt_active_effects, defender_armor: int, damage_profile=None):
         """Sources de block du DEFENSEUR pour `apply_random_block_damage` : block de BASE (scalaire
         `GetStat(7/8)` -> ctx.block_chance/block_damage) PUIS les sources SUPPLEMENTAIRES posees par ses
         effets (`AddExtraBlockEffectToOwner`, ex. BeastSlayer @180e18b70 : chance beastSlayerBlockChance /
         amount = blockDmgPct% du FixedArmor courant) — ABSENTES du scalaire (verifie live orksNob
         blockChance=0), que le natif tient dans `GetMultiValueStat(7)` (`CalculateBlockChances @181002350`).
         ORDRE : base d'abord, effets ensuite (cible sans block de base -> effet = seule source, ordre moot).
-        None si aucune source (retro-compat : 0 tirage). Consomme par les 3 vecteurs (normale/ability/splash). #72."""
+        None si aucune source (retro-compat : 0 tirage). Consomme par les 3 vecteurs (normale/ability/splash). #72.
+
+        #65 : GATE `NoBlocking` (DamageTrait 0) du PROFIL de degat — un profil NoBlocking (ex. `Psychic`,
+        Traits=['NoBlocking'], PiercingRatio 100 ; cf. wiki « Cannot be blocked ») BYPASSE le block. Mirror
+        de `AttackDamageOperation.ExecuteHit @180e5eff0` : `DamageProfile.HasTrait(0=NoBlocking)` pose le flag
+        (metadata +0x2a) qui SKIP toute la branche block/evade de `CalculateDamageOperation @18102dc30`
+        (`if ((metadata>>0x30)==0) { ...block/evade... }`). AUCUN tirage block consomme => 0 tirage RNG (le
+        natif ne roule pas le block). Sans ce gate, l'offline sur-roulait un block spurious sur les attaques
+        Psychic (seed 123 u95 astraPrimarisPsy -> u79 genesKelermorph BeastSlayer : off 1569 vs live 2873).
+        Cable dans les 3 vecteurs (execute/execute_ability_attack/execute_normal_like) via `damage_profile`."""
+        if damage_profile is not None:
+            import gameconfig as GC
+            _dp_traits = (GC.damage_profile(damage_profile) or {}).get("Traits") or []
+            if DamageTrait.NoBlocking.name in _dp_traits:
+                return None            # profil NoBlocking -> block bypasse (0 tirage), mirror ExecuteHit
         if tsc is None:
             return None
         block_chance = int(getattr(tsc.ctx, "block_chance", 0) or 0)

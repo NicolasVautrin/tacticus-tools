@@ -111,6 +111,7 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
         return None
     import gameconfig as GC
     from .damage import AttackDamageOperation, HitDamage
+    from ...entities.damage_trait import DamageTrait
     death = None
     out = {"groups": 0, "hits": 0, "total": 0, "per_hit": [], "rolls": [], "profiles": []}
     for g in groups:
@@ -134,8 +135,14 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
         hd = HitDamage(lo, hi)
         hd, _ = AttackDamageOperation._apply_max_out(state, attacker_id, hd, hd)
         shield_total = shc.get_total_shield() if shc is not None else 0
+        # #65 : le flag NoBlocking est PER SOUS-OPERATION (ExecuteHit @180e5eff0 relit
+        # DamageProfile.HasTrait(0=NoBlocking) du profil DU COUP courant) -> un groupe au profil
+        # NoBlocking (ex. coup Psychic InfernalPacts) bypasse le block, meme si l'arme principale ne
+        # l'etait pas. On re-gate block_sources sur le profil DU GROUPE (l'arg est deja gate sur l'arme).
+        g_block = (None if DamageTrait.NoBlocking.name in (dp.get("Traits") or [])
+                   else block_sources)
         r = AttackDamageOperation._run_hits(
-            state.rng, hd, hd, 0, False, max(0, int(g.get("count") or 0)), block_sources,
+            state.rng, hd, hd, 0, False, max(0, int(g.get("count") or 0)), g_block,
             shield=shield_total,
             limits=AttackDamageOperation._target_limits(tgt, thc, g_profile, is_special=1),
             limits_hp=int(thc.hp or 0))
