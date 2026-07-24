@@ -74,7 +74,7 @@ from ...entities.damage_profile_type import DamageProfileType
 from ...entities.stats import StatType
 from ..prng import IntBasedMersenneTwister
 from ..state import State
-from ..components import UnitComponent, ShieldComponent
+from ..components import UnitComponent, ShieldComponent, unit_is_dead
 from ...entities.effects import (crit_chance_bonus_from_effects, crit_damage_bonus_from_effects,
                                  defender_effect_block_sources)
 from .damage_hits import HitDamage, _DamageHitsMixin
@@ -340,6 +340,20 @@ class DamageHandler:
         self.after_hit: list = []              # extra-attaques after-hit (traits) du dernier coup
 
     def visit_AttackUnitMessage(self, msg) -> None:
+        # --- #70 GATE ACTEUR-MORT (mirror `ActiveAbilityOperation.ExecuteInternal @180e44ec0` :
+        # `if (EntityExtensions.IsUnit(caster) && UnitExtensions.IsDead(caster)) return 0;`). L'attaque
+        # normale native EST une ActiveAbility per-unite (#139) -> passe par le MEME gate. Un attaquant MORT
+        # (hp<1, non-Fled ; `UnitExtensions.IsDead @180ed8050`) => NO-OP complet (0 tirage RNG, 0 degat,
+        # aucun after-hit, aucun flag), AVANT toute selection d'arme / boucle de coups. Le port `execute`
+        # mirror `AttackDamageOperation.Execute @180e60c70` qui n'a AUCUN gate liveness natif -> le gate vit
+        # au niveau OPERATION ici (upstream de la boucle RNG). Inerte pour tout attaquant vivant (replay/AI :
+        # les tours sont pris sur des unites vivantes) -> zero regression. Repro : seed 123, u95 (mort en
+        # attaquant u79) -> u81/u83 : live 0 tirage/0 degat, offline sur-executait 2924. cf. case-70.
+        _att = self.state.get_entity(msg.attacker_id)
+        if unit_is_dead(_att):
+            self.last = None
+            self.after_hit = []
+            return
         # --- #61bis tranche 3 : dispatch NormalAttackType CONCRET. L'attaque normale native est une
         # ActiveAbility PER-UNIT (`ActiveAbilityComponent.NormalAttackType@0x28`) ; pour un porteur du
         # passif MV71SniperDroneSquad (Sho'syl/tauMarksman), c'est `MV71SniperDroneSquadAttackAbility`
