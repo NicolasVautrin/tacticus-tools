@@ -7,11 +7,24 @@
 non porté (annoté hits.py:254).
 
 ```
-[DestroyerHive | deathTyphus passif]  — [opus] direct (le + facile)
-VAs : CreateTrigger @18121d4b0 ; GetValidTargets @18121d540
-On(0x16 TurnStart, tour du porteur) : 1x DirectDamage pierce-100 sur UN ennemi adjacent random.
-Tous primitifs présents (template Ambush/LivingMetal + AttackWithAttackDamage + PickRandomly).
-HYPOTHÈSE : CreateBehaviour non symbolisée (random-adjacent inféré du kit) ; gate +0xa0.
+[DestroyerHive | deathTyphus passif]  — [opus] direct — PORTÉ + VALIDÉ LIVE (bit-exact 3 seeds)
+VAs : CreateTrigger @18121d4b0 ; GetValidTargets @18121d540 ; CreateBehaviour @18121d320 (SYMBOLISÉE,
+      contra l'hypothèse) ; AttackWithAttackDamage @180de9fb0 (CALLEE "attack", XREF du call-site @18121d47e) ;
+      MinMaxDamage @180fbca20 ; PickRandomly @180ef0be0 ; NextInternal @180e39be0.
+CreateTrigger = On(0x16 TurnStart_Actions) & @0xa0(OwnerIsActor, == LivingMetal @0xa0) &
+      AmountIsGreaterThanZero(GetValidTargets). GetValidTargets = Damageable(Enemies(AdjacentUnits(caster,1))).
+CreateBehaviour = AttackWithAttackDamage(caster, PickRandomly(GetValidTargets,1), MinMaxDamage(minDmg 0xc/
+      maxDmg 0xd)[PASSIVE lvl], GetDamageProfile(0)=DirectDamage(pierce-100), nrOfHits=GetNumberConstant(0x2f)=1,
+      alwaysOverkilled=Nullable(HasValue=0)). => artefact = AttackWithAttackDamage famille "attack" (PAS un
+      effet DirectDamage : "DirectDamage" est le NOM du profil d'arme, pierce 100) ; PAS de force_overkill ;
+      degat au niveau PASSIF (passiveAbility -> passive_ability_level, cf. Hypersensory) ; mono-coup.
+PLACEMENT : passif TRIGGERED (PAS un summon comme la roadmap le supposait) -> triggers/loki/destroyer_hive.py,
+      registre ABILITY_TRIGGERS['DestroyerHive'] (template LivingMetal), NON deathguard.py/handler.ABILITY_CLASSES.
+FINDING RNG : PickRandomly(count=1) tire NextInternal(0,count) UNE fois -> consomme 1 genrand MEME a count==1
+      (branche puissance-de-2, comme le wasted-resolve #220). La pick precede l'attaque -> le tirage est
+      LOAD-BEARING pour la bit-exactness (le helper `_pick_randomly` base.py, sans tirage a n==1, désyncherait) ;
+      `_pick_target` (destroyer_hive.py) tire toujours. Validé : port bit-exact vs live 3 seeds (1557/1568/1480),
+      n==2 même cible + bit-exact, control no-draw diverge, gate/scoping OK. test_destroyer_hive_live.py.
 ```
 ```
 [1042 FlailSwing | deathBlightlord]  — [opus] direct — PORTÉ + VALIDÉ LIVE (PR #220)
@@ -78,7 +91,9 @@ attack→cible ; sélecteur adjacent-both ; re-trigger on-death. Risques : dépe
 ```
 
 **Synthèse DG** : couvert = ExplosiveMaladies, **FlailSwing (PR #220, porté+validé LIVE : 3x Power +
-InformWeapon no-op + flag overkill via `force_overkill`)** ; [opus] direct restant = DestroyerHive ;
+InformWeapon no-op + flag overkill via `force_overkill`)**, **DestroyerHive (porté+validé LIVE bit-exact :
+passif turn-start AttackWithAttackDamage mono-coup pierce-100 sur ennemi adjacent random ; pick-draw
+load-bearing ; triggers/loki/destroyer_hive.py)** ; [opus] direct restant = aucun ;
 [opus]+prérequis = PlagueWind, CursedPlagueBell x2 ; BLOQUÉ MoW = EntropyCannons ; **[fable]** =
 TaintedNarthecium, HazeOfCorruption. **Levier #1 faction = PRIMITIVE AURA CONTAGION**
 (`ContagionsOfNurgleRange @180dece10`, `CalculateRange @180f39940` : rounds ≤2→1, 3-4→2, 5+→3,
