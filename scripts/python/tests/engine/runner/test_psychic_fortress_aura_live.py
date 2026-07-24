@@ -79,6 +79,14 @@ def _measure(rpc, rid, t_pos, f_pos, m_pos):
     ob = rpc("observeBattle", {"runnerId": rid}, 40)
     snap = rpc("combatSnapshot", {"runnerId": rid}, 40)
     state = load_state(dv, ob, snap)
+    # #63 : charger `state.board` (load_state ne le fait pas) -> les feuilles POSITIONNELLES du combat
+    # (elevation/trench/terrain) ne sont plus des no-op. Positions de ce test PLATES (bit-exact deja),
+    # mais sans board un futur ajustement vers des tuiles a relief masquerait la reduction PsychicFortress
+    # sous un bonus d'elevation manque (faux mismatch). cf. docs/rl/case-63.
+    from engine.entities.pathfinding.board import Board
+    bg = rpc("boardGraph", {"runnerId": rid}, 60)
+    if isinstance(bg, dict) and bg.get("tiles"):
+        state.board = Board(bg["tiles"], adjacency="native_sym")
     te = state.get_entity(tid_F)
     hc = te.get_component(HealthComponent) if te else None
     if hc is None or hc.hp is None:

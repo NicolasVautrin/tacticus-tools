@@ -20,7 +20,7 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))      # import du helper sibling
-from _combat_replay import replay_normal_attack     # noqa: E402
+from _combat_replay import replay_normal_attack, replay_attack_driven   # noqa: E402
 
 ATTACKER = "necroDestroyer"
 TARGET = "necroOverlord"
@@ -44,3 +44,37 @@ def test_normal_attack_armored_reduce_then_roll(live_session, rpc, build_runner)
     assert r["off_ph"] == r["live_ph"], (
         f"attaque normale NON bit-exact sur cible armurée : off={r['off_ph']} live={r['live_ph']} "
         f"(armor={r['armor']} pierce={r['pierce']}) — l'ordre reduce-then-roll est-il toujours correct ?")
+
+
+# #63 : cible armuree SPAWNABLE, sans effet (l'Apothecary survit, 0 reduction/block cote defenseur).
+_RANGED_CARRIERS = [
+    ("necroDestroyer", "ultraApothecary"),   # Gauss ranged pierce 60
+    ("templHelbrecht", "ultraApothecary"),   # Bolter ranged pierce 20
+]
+
+
+@pytest.mark.parametrize("attacker,target", _RANGED_CARRIERS)
+def test_normal_attack_ranged_from_elevation_bitexact(live_session, rpc, build_runner, attacker, target):
+    """#63 VERROU ELEVATION : attaque normale RANGED armor-sensitive depuis une tuile EN SURPLOMB.
+
+    Le combat natif applique le bonus d'ELEVATION (+ELEVATION_BONUS_PCT=50% quand l'attaquant surplombe
+    la cible) AVANT percage/armure. L'ancien replay-diff omettait `state.board` -> `apply_elevation_bonus`
+    no-op -> degat OFFLINE TROP BAS (ratio ~0.58-0.67 mesure ; la 'divergence armure' du prompt #63 etait
+    en fait l'elevation manquee, le percage/armure etant deja fidele : Psychic pierce-100 masquait l'armure
+    ET les positions Psychic etaient plates -> faux discriminant). Avec le board charge (_do_replay #63),
+    on exige off_ph == live_ph sur un tir armor-sensitive depuis un surplomb (discriminant : armor>0 ET
+    a_elev>t_elev)."""
+    r = replay_attack_driven(rpc, build_runner, attacker, target, want_dist=2, require_higher_elev=True)
+    if not r["ok"]:
+        pytest.skip(f"{attacker}->{target}: {r['reason']}")
+    if r["did_crit"] or r["did_block"] or r["did_evade"]:
+        pytest.skip(f"coup non propre (crit/block/evade live): {r}")
+    assert r["armor"] and r["armor"] > 0, f"cible non armuree (armor={r['armor']}) — test non discriminant"
+    assert r["a_elev"] > r["t_elev"], (
+        f"attaquant PAS en surplomb (a_elev={r['a_elev']} t_elev={r['t_elev']}) — elevation non exercee")
+    print(f"\n[RANGED elev] {attacker}->{target} dist={r['dist']} armor={r['armor']} pierce={r['pierce']} "
+          f"a_elev={r['a_elev']} t_elev={r['t_elev']} live={r['live_ph']} off={r['off_ph']}")
+    assert r["off_ph"] == r["live_ph"], (
+        f"attaque RANGED depuis surplomb NON bit-exact : off={r['off_ph']} live={r['live_ph']} "
+        f"(armor={r['armor']} pierce={r['pierce']} a_elev={r['a_elev']} t_elev={r['t_elev']}) — "
+        "bonus d'ELEVATION manque (state.board non charge dans le replay ?)")
