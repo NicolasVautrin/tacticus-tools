@@ -183,9 +183,11 @@ class MortisRoundAbility(ActiveAbility):
     dans la collecte attacker-modifiers (gate famille ATTACK, cf. damage.py) -> le x2 s'applique via
     `att_ctx["trigger_ability_type"]` lu par `HeavyWeaponExtraDmgEffect`. L'ancien ratio live ~3.15x etait
     DEUX etages : x1.5 (HeavyWeapon double) + KNOCKBACK de collision du push BLOQUE au bord
-    (`ApplyKnockbackTo @180e67fc0` = ceil(maxHealth x 10%), porte #47 dans displace.py) — PAS un crit-rng
-    desync (refute par comptage mti : 2 tirages/cast = valeur + resolve, AUCUN crit-roll). VALIDE bit-exact
-    live (probe_mortis_round C : 15256 push bloque ; probe_47 mortis-free : 7256 push libre sans knockback).
+    (`ApplyKnockbackTo @180e67fc0` = ceil(maxHealth x 20%) = BC.Damage.KnockbackPercentage, porte dans
+    displace.py) — PAS un crit-rng desync (refute par comptage mti : 2 tirages/cast = valeur + resolve,
+    AUCUN crit-roll). Le pct=20 (et non 10) est prouve par mesure ISOLEE #61 : sur necroWarden le net
+    hpDelta etait confondu par LivingMetalRepair (heal 10% du maxHealth) ; l'event knockback separe =
+    ceil(maxHealth x 20%) (30001 -> 6001 ; 50000 -> 10000).
 
     Push DETERMINISTE (aucun rng) -> n'altere PAS l'ordre RNG de l'attaque : la SEQUENCE attaque->push est
     fidele BY CONSTRUCTION (l'attaque delegue au pipeline partage `execute_ability_attack`)."""
