@@ -10,11 +10,26 @@ décision** (Repair_GalvanicField 1119 bespoke Comparable, action_generators.py:
 l'ability-swap natif AddActiveAbility/RemoveActiveAbility est registered-but-dead pour le runner).
 
 ```
-[1139 SentinelDirectives | admecDestroyer]  — [opus] direct (le + facile)
+[1139 SentinelDirectives | admecDestroyer]  — [opus] direct — COMBAT PORTÉ + VALIDÉ LIVE
 VAs : ExecuteBehaviour @1811c4a30 ; playbook @181135f70 (décision DONE)
-Attack(target, 1 hit Physical) + AddEffect(Pinned 0x429 PORTÉ) — quasi-clone SpiritLeech. Seule
-finesse : sets_end_turn_flags=False (« ne finit pas le tour, peut entrer en Overwatch ») — slot
-générique existant (handler.py:88). Risques : le flag turn-flow.
+PORT : abilities/admec.py (SentinelDirectivesAbility, arbre `sentinel_directives_tree`) + registre
+handler.py (1139). Mirror 1:1 du décompilé @1811c4a30 :
+    Execute( op_Add( op_Add( InformWeapon(Physical),
+                             AttackWithAttackDamage(caster,target,MinMaxDamage,Physical,nrOfHits=1) ),
+                     AddEffect(0x429=Pinned, source=AbilityStateReference=caster, target, dur DEFAUT) ) )
+plain Execute (aucun AtomicGroup). native_factory="attack" (callee = `DSLFactory$$AttackWithAttackDamage`,
+JAMAIS AttackWithAbilityDamage — contraste SpiritLeech "ability"). Quasi-clone SpiritLeech MOINS
+GetAttackDamage conditionnel (MinMaxDamage brute, aucun damage_override) et MOINS Heal/SetCache
+(aucun callee Heal), PLUS InformWeapon (comme FlailSwing, canal weapon-inform combat-inerte).
+Turn-flow (« ne finit pas le tour, peut entrer en Overwatch ») = 1139 déjà dans les 2 frozensets
+base.py (NO_END_TURN + NO_ABILITY_USED) -> slot générique (handler `_add_flags_after_execution`).
+VALIDATION LIVE (admecDestroyer Sy-Gex, seul porteur ; test_sentinel_directives_live) : config
+[minDmg 4254,maxDmg 5318] pierce=1 hits=1 ; A/B tree==pipeline direct BIT-EXACT (off=3067==A/B=3067) ;
+Pinned posé live (delta pre/post)==offline ; turn-flow live (currentPlayer inchangé, 2 flags False).
+RÉSIDU (hors port, confound caster-intrinsèque) : live=3510 >= off=3067 (delta 443) = passifs Sy-Gex
+HeavyWeapon_ExtraDmg(1008) + HeavyGravCannon(1291) non entièrement consommés par le pipeline d'attaque
+d'ability -> égalité bit-exacte live confondue (assert direction live>=off). HeavyGravCannon = item
+séparé ci-dessous ([opus]+prérequis canal PIERCING). Le TREE SentinelDirectives lui-même est fidèle.
 ```
 ```
 [HeavyGravCannon | admecDestroyer passif]  — [opus]+prérequis
@@ -56,7 +71,7 @@ RandomAmount [partagé Poxwalkers] ; move-into-vacated-hex. Validation en TOUR E
 [Vehicle x8 | trait]  — CLOS (§5)   |   [GalvanicField | admecManipulus]  — COUVERT décision, combat = fold §1
 ```
 
-**Synthèse AdMec** : couvert/fold = Vehicle, GalvanicField ; [opus] direct = SentinelDirectives ;
+**Synthèse AdMec** : couvert/fold = Vehicle, GalvanicField ; [opus] direct = SentinelDirectives (PORTÉ+VALIDÉ) ;
 [opus]+prérequis = MasterAnnihilator, HeavyGravCannon, RadBombardment ; **[fable]** = OptimizedGait.
 Transverses : canal PIERCING attaquant (HeavyGravCannon + GravitonRifle §6.10) ; sélecteur ligne
 runner (RadBombardment + DarkTalonStrike §3) ; RandomAmount (OptimizedGait + Poxwalkers §2) ;
