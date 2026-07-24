@@ -14,11 +14,21 @@ Tous primitifs présents (template Ambush/LivingMetal + AttackWithAttackDamage +
 HYPOTHÈSE : CreateBehaviour non symbolisée (random-adjacent inféré du kit) ; gate +0xa0.
 ```
 ```
-[1042 FlailSwing | deathBlightlord]  — [opus] direct
-VAs : ExecuteBehaviour @1811ded80
-InformWeapon + AttackWithAttackDamage(target, 3x Power, flag « always overkilled » Nullable=1).
-PAS de splash ni trigger interne (le déclenchement Haze = passif séparé). Prérequis : passthrough
-flag overkill (mineur). Risques : l'overkill ne se voit que vs Resilient/revive.
+[1042 FlailSwing | deathBlightlord]  — [opus] direct — PORTÉ + VALIDÉ LIVE (PR #220)
+VAs : ExecuteBehaviour @1811ded80 ; DSLFactory.AttackWithAttackDamage @180de9fb0 (CALLEE = "attack") ;
+      DSLFactory.InformWeapon @180df2010 ; ApplyResilientTraitDamageLimit @18102c3a0
+Arbre (mirror 1:1) : Execute( op_BitwiseAnd( InformWeapon(Power), AttackWithAttackDamage(target, MinMaxDamage,
+Power, nrOfHits=GetNumberConstant(0x2f)=3, alwaysOverkilled=Nullable(true)) ) ) — plain Execute (PAS atomic).
+PAS de splash ni trigger interne (le déclenchement Haze = passif séparé). Port :
+`deathguard.py:flail_swing_tree` = `op_and(InformWeapon("Power"), AttackWithAttackDamage(Target(),"FlailSwing",
+"Power",melee, force_overkill=True))`. `InformWeapon` = canal weapon-inform metadata COMBAT-INERTE (leaf no-op
+`combat.py:InformWeapon`). native_factory="attack" (2 tirages/coup, VÉRIFIÉ par XREF de @1811ded80, tip #2).
+Flag « always overkilled » (Nullable=1) PORTÉ via `force_overkill=True` (feuille -> execute_ability_attack ->
+`_run_hits` force overkill=True/coup -> bypasse le cap Resilient) — NON un résidu. VALIDÉ LIVE : (a) 3x Power
+bit-exact per-coup (live==offline, ratio 1.0) ; (b) A/B tree==execute_ability_attack ; (c) native_factory
+attack vs ability discriminant (2 seeds) ; (d) overkill : custoKyrus Resilient HP 10000 -> live tue [5070,4555,
+375] sum=PV full ; port force_overkill=True hp->0 (tue) ; control False hp->1 (survit) = le flag est le seul
+écart. Zéro-régression (revitalizing_malignancy + damage_roll + vigilance_eternal). test_flail_swing_live.py.
 ```
 ```
 [1035 PlagueWind | deathTyphus]  — [opus]+prérequis
@@ -67,7 +77,8 @@ attack→cible ; sélecteur adjacent-both ; re-trigger on-death. Risques : dépe
 (modèle de dégât + Resilient/TerminatorArmour) ; tester couplé à FlailSwing.
 ```
 
-**Synthèse DG** : couvert = ExplosiveMaladies ; [opus] direct = DestroyerHive, FlailSwing ;
+**Synthèse DG** : couvert = ExplosiveMaladies, **FlailSwing (PR #220, porté+validé LIVE : 3x Power +
+InformWeapon no-op + flag overkill via `force_overkill`)** ; [opus] direct restant = DestroyerHive ;
 [opus]+prérequis = PlagueWind, CursedPlagueBell x2 ; BLOQUÉ MoW = EntropyCannons ; **[fable]** =
 TaintedNarthecium, HazeOfCorruption. **Levier #1 faction = PRIMITIVE AURA CONTAGION**
 (`ContagionsOfNurgleRange @180dece10`, `CalculateRange @180f39940` : rounds ≤2→1, 3-4→2, 5+→3,

@@ -556,7 +556,7 @@ class AttackDamageOperation:
                   shield: int = 0, armor_pool: int = 0, armor_pct: int = 0, post_roll=None,
                   bonus_hit_chance: Optional[int] = None, capped_reductions=None,
                   limits: Optional[dict] = None, limits_hp: int = 0,
-                  wasted_resolve: bool = True) -> dict:
+                  wasted_resolve: bool = True, force_overkill: bool = False) -> dict:
         """Boucle PAR COUP partagée (attaque normale ET ability) : pour chaque coup, crit-roll D'ABORD
         (1 tirage NextBool si cc>=1, sinon 0) PUIS tirage dans `hit_cr`/`hit_nc`, PUIS split combat
         (bouclier/armure-pool/block, `calculate_damage_operation`). Ordre RNG crit->spread->block confirmé.
@@ -577,6 +577,14 @@ class AttackDamageOperation:
         gate natif `attack.count==1 && !additionalHitsFlag`) exécuté APRÈS la boucle de base, MÊME profil
         réduit. Un coup bonus d'index impair RE-tire un Maybe (tirage consommé) mais son succès est IGNORÉ
         (anti-récursion). `bonus_hit_chance is None` (défaut) => strict no-op (rétro-compat totale).
+
+        `force_overkill` (défaut False) = flag « always overkilled » d'un `AttackWithAttackDamage` natif
+        (Nullable<bool>=true, 8e arg de `DSLFactory.AttackWithAttackDamage @180de9fb0` -> `AttackDamageBehaviour`
+        -> `ApplyTraitDamageLimitsToDamage @18102c650`) : force `overkill=True` a CHAQUE coup dans les 3 sites de
+        calcul `_ovk`, ce qui BYPASSE le cap Resilient (`ApplyResilientTraitDamageLimit @18102c3a0` :
+        `if not overkill: cap = curHP-1`). N'affecte QUE le cap Resilient (member-cap/boss/impervious ne lisent
+        PAS `overkill`) -> NO-OP sur cible non-Resilient (zero regression) ET aucune conso RNG supplementaire
+        (change seulement la VALEUR capee, pas le nombre de tirages). Porteur unique : FlailSwing (1042).
         Renvoie total/per_hit/rolls/crits + flags. Pools déplétés entre coups (0 -> invariant)."""
         total = shield_dmg = armor_dmg = 0
         did_crit = did_block = did_evade = False
@@ -670,8 +678,8 @@ class AttackDamageOperation:
                 if limits is not None and roll > 0:
                     # ABILITY : cap scalaire post-tirage (cellule degeneree, CalculateAbilityDamage)
                     _rem = max(0, limits_hp - total)
-                    _ovk = (compute_prediction_overkill(_rem, limits_hp, roll, p12=_rogne[0])
-                            if limits_hp > 0 else False)
+                    _ovk = force_overkill or (compute_prediction_overkill(_rem, limits_hp, roll, p12=_rogne[0])
+                                              if limits_hp > 0 else False)
                     _pre = roll
                     roll = apply_trait_damage_limits_to_damage(roll, current_health=_rem,
                                                                overkill=_ovk, **limits)
@@ -726,8 +734,8 @@ class AttackDamageOperation:
                 lo_pre = max(0, hd.min - flat)
                 hi_pre = max(0, hd.max - flat)
                 _rem = max(0, limits_hp - total)
-                _ovk = (compute_prediction_overkill(_rem, limits_hp, lo_pre, p12=_rogne[0])
-                        if limits_hp > 0 else False)
+                _ovk = force_overkill or (compute_prediction_overkill(_rem, limits_hp, lo_pre, p12=_rogne[0])
+                                          if limits_hp > 0 else False)
                 lo = apply_trait_damage_limits_to_damage(lo_pre, current_health=_rem,
                                                          overkill=_ovk, **limits)
                 hi = apply_trait_damage_limits_to_damage(hi_pre, current_health=_rem,
@@ -743,8 +751,8 @@ class AttackDamageOperation:
                 if limits is not None and roll > 0:
                     # cap scalaire post-tirage (cellule degeneree, CalculateAbilityDamage)
                     _rem = max(0, limits_hp - total)
-                    _ovk = (compute_prediction_overkill(_rem, limits_hp, roll, p12=_rogne[0])
-                            if limits_hp > 0 else False)
+                    _ovk = force_overkill or (compute_prediction_overkill(_rem, limits_hp, roll, p12=_rogne[0])
+                                              if limits_hp > 0 else False)
                     _pre = roll
                     roll = apply_trait_damage_limits_to_damage(roll, current_health=_rem,
                                                                overkill=_ovk, **limits)
@@ -773,7 +781,8 @@ class AttackDamageOperation:
                                hits: int, damage_profile: Optional[str] = None,
                                is_melee: Optional[bool] = None,
                                ability_type: Optional[int] = None,
-                               wasted_resolve: bool = True) -> Optional[dict]:
+                               wasted_resolve: bool = True,
+                               force_overkill: bool = False) -> Optional[dict]:
         """Attaque d'une ABILITY active (mirror `AttackWithAttackDamage` + `MinMaxDamage`/`GetHits`/
         `GetDamageProfile`). DIFFÈRE de l'attaque normale par la BASE : les bornes du coup = `[base_min,
         base_max]` données par la config d'ability (`GetVariableForLevel` clés 0xc/0xd = minDmg/maxDmg),
@@ -865,7 +874,10 @@ class AttackDamageOperation:
                                             # famille de factory native (cf. _one_hit) : True =
                                             # AttackWithAttackDamage (resolve gaspille) ; False =
                                             # AttackWithAbilityDamage (AbilityDamageOperation, sans).
-                                            wasted_resolve=wasted_resolve)
+                                            wasted_resolve=wasted_resolve,
+                                            # flag « always overkilled » (FlailSwing) : bypasse le cap
+                                            # Resilient a chaque coup (no-op cible non-Resilient).
+                                            force_overkill=force_overkill)
         AttackDamageOperation._deplete_shield(shc, r)
         AttackDamageOperation._apply_damage_pipeline(                   # chokepoint partage (#202)
             state, target_id, attacker_id, tgt, thc, r["total"], damage_profile,

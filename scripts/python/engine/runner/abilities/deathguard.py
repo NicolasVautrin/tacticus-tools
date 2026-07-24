@@ -25,15 +25,16 @@ from typing import Optional, TYPE_CHECKING
 
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
-from ...entities.behaviours import op_add, AtomicGroup
+from ...entities.behaviours import op_add, op_and, AtomicGroup
 from ...entities.selectors import (Caster, CasterTile, AdjacentUnits, Friends, Union,
-                                   UnitsWithoutTrait, UnitsWithTrait)
+                                   UnitsWithoutTrait, UnitsWithTrait, Target)
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effects.magnitude import ability_var
 from ..components import StatsComponent
 from .base import ActiveAbility
-from .behaviours import entities_from_state, Heal, healable_heal_type_0
+from .behaviours import (entities_from_state, Heal, healable_heal_type_0,
+                        AttackWithAttackDamage, InformWeapon)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -103,3 +104,78 @@ class RevitalizingMalignancyAbility(ActiveAbility):
         return {"ability": ABILITY_ID, "caster": caster_id, "target": target_id,
                 "regular_amount": regular_amount, "chaos_amount": chaos_amount,
                 "heals": heals, "dsl": True}
+
+
+# ===================== FlailSwing (deathBlightlord, actif 1042) =====================
+
+def flail_swing_tree() -> "op_and":
+    """Arbre de `FlailSwingAbility$$ExecuteBehaviour @1811ded80` (id 1042, deathBlightlord — MIRROR du
+    DECOMPILE) :
+        Execute( op_BitwiseAnd(
+            InformWeapon(GetDamageProfile=Power, 1),                                        # metadata arme
+            AttackWithAttackDamage(caster@0x160, target@0x178, MinMaxDamage(minDmg 0xc/maxDmg 0xd),
+                                   GetDamageProfile=Power, nrOfHits=GetNumberConstant(0x2f)=3,
+                                   source=AbilityOrEffect(FlailSwing),
+                                   alwaysOverkilled=Nullable(true)) ) )
+
+    Port : `op_and( InformWeapon("Power"), AttackWithAttackDamage(Target(), "FlailSwing", "Power", melee) )`
+    -- plain `Execute` (PAS `ExecuteAtomic` : le decompile passe l'`op_BitwiseAnd` DIRECTEMENT a
+    `AActiveAbility.Execute`, aucun AtomicGroup autour -- contraste BringerOfDespair @1811be740). Details RE :
+
+    - `nrOfHits` = `GetNumberConstant(config, 0x2f)` = 3 (config FlailSwing `constants.nrOfHits`="3", verifie
+      gameconfig). `MinMaxDamage(param_1, ...)` @... = bornes `minDmg`(0xc)/`maxDmg`(0xd)[level] brutes de la
+      config (aucun `GetAttackDamage` surcharge -> pas de `damage_override`). Profil `GetDamageProfile(config,0)`
+      = `Power` (`constants.damageProfile`="Power" ; melee, PiercingRatio 40). `attackRangeType=Melee` ->
+      `is_melee=True`.
+    - **native_factory = "attack"** (defaut, 2 tirages/coup a cc=0) : le decompile appelle litteralement
+      `DSLFactory.AttackWithAttackDamage @180de9fb0` (famille attack, VERIFIE par la CALLEE de @1811ded80 =
+      symbole `DSLFactory$$AttackWithAttackDamage`, JAMAIS `AttackWithAbilityDamage @180de9c90` ; tip #2 /
+      rngcrit-1202). Attaque MULTI-COUPS (3x) -> classification par XREF OBLIGATOIRE, faite ici.
+    - `InformWeapon` = `op_BitwiseAnd` volet GAUCHE (execute EN PREMIER) : canal weapon-inform (metadata,
+      `ActivateEffectBehaviour`) COMBAT-INERTE (0 RNG, 0 mutation PV/stat) -> n'altere PAS l'ordre `state.rng`
+      de l'attaque : bit-exact BY CONSTRUCTION. Le trigger consommateur (`HazeOfCorruption`) est un passif
+      SEPARE (hors face COMBAT) -- le declenchement Haze n'est PAS dans cet ExecuteBehaviour.
+    - **`alwaysOverkilled` (Nullable=true) PORTE via `force_overkill=True`** : le 8e arg de
+      `AttackWithAttackDamage @180de9fb0` (`&local_198` = `Nullable<bool>` HasValue=1, cf. `local_1e8=0x100000000`
+      + `System.Nullable<...>.ctor`) = flag « always overkilled » passe a `AttackDamageBehaviour` puis a l'etage
+      `ApplyTraitDamageLimitsToDamage @18102c650` (`overkill=true` bypasse le cap Resilient
+      `ApplyResilientTraitDamageLimit @18102c3a0`). La feuille passe `force_overkill=True` -> `_run_hits` force
+      `overkill=True` a chaque coup. VALIDE LIVE (deathBlightlord vs custoKyrus Resilient HP 10000 : live tue
+      [5070,4555,375] sum=10000 == PV full ; le port SANS le flag laissait 1 PV [5070,4555,374] sum=9999 -> le
+      flag est le seul ecart). No-op sur cible non-Resilient -> coeur 3x Power bit-exact partout."""
+    return op_and(InformWeapon("Power"),
+                  AttackWithAttackDamage(Target(), "FlailSwing", "Power", is_melee=True, force_overkill=True))
+
+
+class FlailSwingAbility(ActiveAbility):
+    """`FlailSwingAbility$$ExecuteBehaviour @1811ded80` (id 1042, deathBlightlord — Death Guard/Chaos, namespace
+    natif `Abilities.Active.Loki`). Arbre DSL `flail_swing_tree()` (MIRROR 1:1 du decompile) :
+        Execute( op_BitwiseAnd(
+            InformWeapon(Power),                                                    # metadata arme (no-op combat)
+            AttackWithAttackDamage(caster, target, MinMaxDamage, Power, nrOfHits=3, alwaysOverkilled=1) ) )
+
+    Attaque MELEE MONO-CIBLE : 3 coups Power (PiercingRatio 40) sur la cible du message. PAS de splash, PAS de
+    move/gate, PAS de trigger interne. La feuille `AttackWithAttackDamage` (native_factory="attack", VERIFIE
+    par XREF de @1811ded80) emet la MEME Operation que l'attaque generique (`AttackDamageOperation.
+    execute_ability_attack`, 2 tirages/coup a cc=0) -> bit-exact BY CONSTRUCTION (memes bornes/hits/profil/
+    state.rng). `InformWeapon` (volet gauche du op_and) = canal weapon-inform combat-inerte (consommateur =
+    passif `HazeOfCorruption`, hors scope). Termine le tour (1042 hors des frozensets base.py -> flags defaut).
+
+    Flag `alwaysOverkilled` (Nullable=1) PORTE via `force_overkill=True` (feuille -> `execute_ability_attack`
+    -> `_run_hits` force `overkill=True` par coup, bypasse le cap Resilient `ApplyResilientTraitDamageLimit`).
+    Ne change de resultat QUE vs cible Resilient/revive (no-op numerique sinon). VALIDE LIVE (custoKyrus
+    Resilient HP 10000 : live tue = sum 10000 == PV full ; port sans flag laissait 1 PV = le seul ecart)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.FlailSwing)  # 1042
+    ABILITY_ID = "FlailSwing"
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        flail_swing_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        atk = next((p["attack"] for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
+        informed = next((p.get("profile") for n, p in ectx.emitted if n == "InformWeapon"), None)
+        return {"ability": "FlailSwing", "caster": caster_id, "target": target_id,
+                "attack": atk, "informed_weapon": informed, "dsl": True}

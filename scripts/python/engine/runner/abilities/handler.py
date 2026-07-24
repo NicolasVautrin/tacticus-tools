@@ -20,7 +20,7 @@ from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
                    StormcallerAbility, TheQuickeningAbility, BlackRageAbility,
                    GauntletsOfUltramarAbility, AberrantHypermorphAbility, CordClawAbility)
 from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility, VigilanceEternalAbility
-from .deathguard import RevitalizingMalignancyAbility
+from .deathguard import RevitalizingMalignancyAbility, FlailSwingAbility
 from .blacklegion import BringerOfDespairAbility
 from .darkangels import PlasmaCannonAbility
 from .ultramarines import CombatRestorativesAbility
@@ -57,6 +57,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     VigilanceEternalAbility.ABILITY_TYPE: VigilanceEternalAbility,     # 1202 (Tyrith custoKyrus : charge gap-close + attaque melee Power mono-cible 3 hits, #220)
     CordClawAbility.ABILITY_TYPE: CordClawAbility,                     # 1122 (Exitor-Rho admecRuststalker : 4x DirectDamage melee + self-buff coups additionnels 2 tours, case-220)
     RevitalizingMalignancyAbility.ABILITY_TYPE: RevitalizingMalignancyAbility,  # 1037 (deathRotbone : heal self+allies adj non-Imperial, split trait Chaos regular/chaos-cumul, case-220)
+    FlailSwingAbility.ABILITY_TYPE: FlailSwingAbility,                 # 1042 (deathBlightlord DeathGuard : 3x Power melee mono-cible + InformWeapon no-op ; residu overkill flag, case-220)
     BringerOfDespairAbility.ABILITY_TYPE: BringerOfDespairAbility,     # 1022 (Angrax blackTerminator : 4x Power cible melee + 4x Power ennemi random adjacent-CASTER, splash factory attack, case-220 BL)
     PlasmaCannonAbility.ABILITY_TYPE: PlasmaCannonAbility,             # 1150 (darkaTerminator DarkAngels : 3x Plasma cible + 3x sur <=2 unites tirees directly-behind, native_factory attack, case-220)
     CombatRestorativesAbility.ABILITY_TYPE: CombatRestorativesAbility,  # 1002 (ultraApothecary : heal self+allies adj, split trait Imperial hpToHeal_2 / non-Imperial hpToHeal, PAS de cumul, case-220 P0-HEAL)
