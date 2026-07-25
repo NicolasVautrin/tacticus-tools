@@ -83,6 +83,22 @@ selector de mouvement, PAS la prediction de degat.) HadesAutocannons (1147) = `h
 build -> no-op. Donc la confrontation NUMERIQUE (pierce-0 full-armor) exige de monter l'etat feu (trigger-state sim)
 ET une engine-MoW-scene -> DEUX chantiers deferres (cf. section "Reste").
 
+## MAJ — le « ctx MoW cote moteur » EXISTE desormais (voir `case-mow-offboard-cast`)
+
+La phrase « l'ENGINE ne predit pas encore un MoW (combatSnapshot/Scene ne capturent pas
+`EntityType.Machine` -> pas de ctx MoW cote moteur) » est PARTIELLEMENT perimee :
+
+- **COMBAT/EXECUTION : DEBLOQUE.** `load_state` materialise desormais la MoW comme entite ECS
+  (`_load_machines`/`_load_machine_stats`, mirror `AddMachineOperation.Execute @180e4b5e0` + jeu de
+  composants mesure : ni `HealthComponent` ni `PositionComponent`) avec un `StatsComponent`
+  (level/mult = `AbilityState` per-ability) -> un port d'ability MoW s'execute et se confronte au live.
+  Sweep : 13 des 16 abilities MoW du pool castent live sans mise en scene (les 3 autres = predicats de
+  ciblage montables, PROUVE pour SquigLaunchas).
+- **DECISION : toujours bloquee** (`_plans_for_unit` / `origin=None`) — volontairement (mirrorer le
+  chemin natif dedie, pas faire passer une entite sans position pour une unite).
+- **combatSnapshot reste `EntityType.Unit`-only** -> stats resolues de MoW non captables (spec
+  `frida/hooks` documentee dans `case-mow-offboard-cast` §8). Base gameconfig = 0 pour les 8 MoW.
+
 CLOTURE : le port (override pierce-0, base=avg generique, hits generique) est RE-PROUVE + committe, et STRUCTURELLEMENT
 IDENTIQUE aux 4 candidats param_8=null deja VALIDES LIVE sur ultraTitus blinde (1020 HeraldOfTheApocalypse / 1062
 SanctorumMissile / 1017 FragBomb / 1006 MultiThreatEliminator). Meme base de cloture que le frere #169

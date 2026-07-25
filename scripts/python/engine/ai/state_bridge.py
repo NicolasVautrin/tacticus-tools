@@ -409,8 +409,10 @@ def ability_targets_offline(state, uid: int, ability_id: int) -> dict:
 
 
 def _dv_units(state) -> list:
-    """`units` façon decisionView (ctrl attribue plus bas par team) : id/alive/pos/team/hp/visualId/effects."""
-    from engine.runner.components import EffectsOwnedComponent
+    """`units` façon decisionView (ctrl attribue plus bas par team) : id/alive/pos/team/hp/visualId/effects.
+    MoW EXCLUES : le natif ne met que `EntityType.Unit` dans `decisionView.units` (les Machines vivent
+    dans le canal separe `.mows`) -- cf. `_load_machines`."""
+    from engine.runner.components import EffectsOwnedComponent, is_machine_of_war
     out: list = []
     for eid, e in state.entities.items():
         uc = e.get_component(UnitComponent)
@@ -418,7 +420,7 @@ def _dv_units(state) -> list:
         pc = e.get_component(PositionComponent)
         hc = e.get_component(HealthComponent)
         ec = e.get_component(EffectsOwnedComponent)
-        if uc is None:
+        if uc is None or is_machine_of_war(e):
             continue
         out.append({
             "id": eid, "visualId": uc.visual_id, "alive": bool(uc.alive),
@@ -433,14 +435,16 @@ def _dv_units(state) -> list:
 
 
 def _obs_units(state) -> list:
-    """`observeBattle.units` façon runner : squadId/teamId/visualId/hp/hpMax/isDead/col/row."""
+    """`observeBattle.units` façon runner : squadId/teamId/visualId/hp/hpMax/isDead/col/row.
+    MoW EXCLUES (canal separe `.mows` cote natif, cf. `_dv_units`)."""
+    from engine.runner.components import is_machine_of_war
     out: list = []
     for eid, e in state.entities.items():
         uc = e.get_component(UnitComponent)
         oc = e.get_component(OwnerComponent)
         pc = e.get_component(PositionComponent)
         hc = e.get_component(HealthComponent)
-        if uc is None:
+        if uc is None or is_machine_of_war(e):
             continue
         out.append({
             "squadId": eid, "teamId": oc.team if oc is not None else None,
