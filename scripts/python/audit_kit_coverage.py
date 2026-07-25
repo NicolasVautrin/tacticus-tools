@@ -9,6 +9,10 @@ moteur des deux faces :
     - passives -> `triggers.dispatch.ABILITY_TRIGGERS` (nom d'ability) et
                   `effects.factory.ABILITY_INIT_OWNER_EFFECTS` (effet owner pose au spawn)
     - traits   -> `triggers.dispatch.TRAIT_TRIGGERS` + `effects.factory.TRAIT_DERIVED_ABILITIES`
+                  + `effects.factory.TRAIT_OWNER_EFFECTS` (owner-effect pose au spawn : c'est un
+                  TROISIEME chemin de port, ni trigger ni ability derivee). L'oublier faisait compter
+                  MartialKatah manquant sur ses 4 porteurs Custodes alors que ses DEUX effets sont
+                  portes (MartialKatahDmgBonusEffect / MartialKatahDmgReductionEffect).
   FACE DECISION (scoring) : DEUX registres, pas un —
     - `engine.playbook.noncomparable.PLAYBOOKS` (id) : les abilities NON-COMPARABLES, qui ont
       leur propre voie de scoring ;
@@ -42,7 +46,9 @@ import enum_maps as EM
 import gameconfig as GC
 import unit_map as UM
 from audit_combat_ability_coverage import _classify
-from engine.entities.effects.factory import ABILITY_INIT_OWNER_EFFECTS, TRAIT_DERIVED_ABILITIES
+from engine.entities.effects.factory import (
+    ABILITY_INIT_OWNER_EFFECTS, EFFECT_CLASSES, TRAIT_DERIVED_ABILITIES, TRAIT_OWNER_EFFECTS,
+)
 from engine.playbook import REGISTRY as CUSTOM_PLAYBOOKS   # comparables a override CalculateCustomUtility
 from engine.playbook.noncomparable import PLAYBOOKS
 from engine.runner.abilities.handler import ABILITY_CLASSES
@@ -53,6 +59,21 @@ OUT = os.path.join(_REPO, "docs", "rl", "kit-coverage.md")
 # Au-dela de ce nombre de porteurs, un trait est presume couvert par les couches globales
 # (stats/mouvement/legalite) et n'est pas compte comme travail de kit.
 TRAIT_COMMON_MAX = 12
+
+
+def _has_effect_named_after(name: str) -> bool:
+    """Un trait/passif peut etre porte UNIQUEMENT par sa/ses classe(s) d'effet, sans passer par un
+    registre trait->X : l'effet est seede depuis le live (`decisionView.effects`) et c'est sa classe
+    qui porte toute la mecanique. Deux formes observees, les deux comptent :
+      - effet HOMONYME du trait/passif (ex. trait `BlessingsOfKhorne` -> `BlessingsOfKhorne`) ;
+      - effets PREFIXES `<nom>_...` (ex. trait `MartialKatah` -> `MartialKatah_DmgBonus` +
+        `MartialKatah_DmgReduction` ; passif `BeaconOfRage` -> `BeaconOfRage_ExtraDamage` + ...).
+    APPROXIMATION assumee, comme le reste de cet audit : c'est la convention de nommage du port,
+    pas une preuve de cablage. Elle sous-estime beaucoup moins que de l'ignorer (l'ignorer faisait
+    ressortir MartialKatah et BlessingsOfKhorne comme du travail a faire alors qu'ils sont portes
+    et valides live)."""
+    pfx = name + "_"
+    return any(k == name or k.startswith(pfx) for k in EFFECT_CLASSES)
 
 
 def collect():
@@ -80,7 +101,8 @@ def collect():
         for nm in (u.get("passiveAbilities") or []):
             passives.append({
                 "name": nm,
-                "covered": nm in ABILITY_TRIGGERS or nm in ABILITY_INIT_OWNER_EFFECTS,
+                "covered": (nm in ABILITY_TRIGGERS or nm in ABILITY_INIT_OWNER_EFFECTS
+                            or _has_effect_named_after(nm)),
             })
         kit_traits = []
         for t in (u.get("traits") or []):
@@ -88,7 +110,8 @@ def collect():
                 continue                       # trait commun -> couche globale, pas du travail de kit
             kit_traits.append({
                 "name": t, "carriers": trait_units[t],
-                "covered": t in TRAIT_TRIGGERS or t in TRAIT_DERIVED_ABILITIES,
+                "covered": (t in TRAIT_TRIGGERS or t in TRAIT_DERIVED_ABILITIES
+                            or t in TRAIT_OWNER_EFFECTS or _has_effect_named_after(t)),
             })
         missing = (sum(1 for a in actives if not a["combat"])
                    + sum(1 for p in passives if not p["covered"])
