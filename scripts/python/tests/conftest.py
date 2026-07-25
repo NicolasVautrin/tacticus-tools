@@ -75,7 +75,10 @@ def _new_state_path() -> Path:
 #   2. si le cap tient jusqu'au bout, ECHOUER FORT (`pytest.fail`) au lieu de
 #      skipper : « je n'ai pas pu valider » n'est pas « il n'y avait rien a
 #      valider ». Un skip vert sur un cap plein est un faux negatif silencieux.
-# Les autres causes de build KO gardent le `skip` (vrai probleme d'environnement).
+# Les autres causes d'indisponibilite du harnais (build KO, pas de session, warmup
+# KO) sont converties en ECHEC par `pytest_runtest_makereport` plus bas -- y compris
+# quand elles viennent d'un test qui construit son runner LUI-MEME sans passer par la
+# fabrique `build_runner`.
 _CAP_MARKER = "runner cap reached"
 _CAP_WAIT_S = float(os.environ.get("TACTICUS_RUNNER_CAP_WAIT_S", "300"))
 _CAP_POLL_S = float(os.environ.get("TACTICUS_RUNNER_CAP_POLL_S", "15"))
@@ -155,6 +158,55 @@ def pytest_runtest_call(item):
         return (yield)
     finally:
         _IN_TEST_CALL = False
+
+
+# --- Un SKIP « harnais indisponible » est un ECHEC, pas un succes (#77) --------
+#
+# La suite entiere est un harnais d'AGREMENT LIVE : un test qui n'a pas pu joindre
+# le jeu n'a rien confronte. Le rendre en `s` le fait lire comme un succes -- c'est
+# le faux negatif le plus couteux du projet (mesure du 2026-07-25 : 7/7 `s` lus
+# comme du vert ; et lors du crash de ce soir, TOUTE passe lancee pendant la fenetre
+# morte serait ressortie `sssss`).
+#
+# La fabrique `build_runner` echoue deja franchement sur le cap. Mais 13 fichiers de
+# test construisent leur runner EUX-MEMES (`subprocess.run(rl_duel build)`) et
+# retombent sur un `pytest.skip("build runner KO")` local : ils contournent la file
+# d'attente ET l'echec franc. Plutot que d'editer 13 fichiers -- et de laisser le
+# 14e recopier le motif demain -- on ferme la classe entiere ICI, au moment du
+# RAPPORT : quelle que soit la ligne qui a leve le skip, si sa raison dit que le
+# harnais etait indisponible, le resultat devient ROUGE.
+#
+# Echappatoire explicite : `TACTICUS_ALLOW_GREEN_SKIP=1` (usage attendu : inspecter
+# la collecte sans jeu lance). Elle doit rester un geste CONSCIENT, jamais un defaut.
+_HARNESS_DOWN_MARKERS = (
+    "build runner KO",
+    _CAP_MARKER,
+    "pas de session Frida active",
+    "warmup KO",
+)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Convertit un skip « harnais indisponible » en echec (cf. bloc ci-dessus)."""
+    report = yield
+    if not report.skipped or os.environ.get("TACTICUS_ALLOW_GREEN_SKIP") == "1":
+        return report
+    lr = report.longrepr
+    # skip -> longrepr = (fichier, ligne, "Skipped: <raison>") ; sinon on stringifie
+    reason = str(lr[2]) if isinstance(lr, tuple) and len(lr) == 3 else str(lr)
+    if any(m in reason for m in _HARNESS_DOWN_MARKERS):
+        report.outcome = "failed"
+        report.longrepr = (
+            "HARNAIS INDISPONIBLE -- ce test n'a RIEN confronte au live.\n"
+            "Converti en ECHEC : un `s` se lirait comme un succes alors qu'aucune\n"
+            "assertion n'a ete evaluee (cf. conftest, bloc « un SKIP harnais »).\n"
+            f"\nRaison d'origine : {reason}\n"
+            "\nA verifier, dans cet ordre : le jeu tourne ? une session Frida vivante\n"
+            "(`/api/admin/status`, champ `.session` SINGULIER) ? le cap de runners\n"
+            "(MAX_RUNNERS=10) est-il sature par des runners a disposer ?\n"
+            "Inspection sans jeu : TACTICUS_ALLOW_GREEN_SKIP=1.")
+    return report
 
 
 def _release_runners(owners: set[str]) -> None:
