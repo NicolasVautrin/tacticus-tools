@@ -4,9 +4,12 @@
 
 **Constat (PROUVÉ)** : aucune active BL dans ABILITY_CLASSES, aucun passif dans les registres
 triggers ; faces DÉCISION présentes (Herald validé `prediction.py:1017`, BringerOfDespair
-`prediction.py:1149`, Drachnyen custom-utility). Trait faction **LetTheGalaxyBurn** (1482 —
-DespoiledGround + extra-hit) : enum présent, NON wiré TRAIT_TRIGGERS — signalé transverse (hors
-items MISSING listés).
+`prediction.py:1149`, Drachnyen custom-utility). Trait faction **LetTheGalaxyBurn** (trait 1058 →
+triggered 1482 → effet 1477 ; DespoiledGround + extra-hit) : **VOLET 1 (le coup additionnel) PORTÉ +
+VALIDÉ #84** — effet 1477 dans `EffectFactory`, `TRAIT_TRIGGERS["LetTheGalaxyBurn"]` (arm `On(5)` /
+reset `On(9)`), nouveau vecteur `pre_attack_triggers`, threading du contexte CIBLE dans
+`attack_hits_with_modifiers` ; cf. `docs/rl/case-84-let-the-galaxy-burn.md`. **VOLET 2 (pose de
+`DespoiledGround` 1476 + `DespoiledGround_ExtraDamagePct` 1478) reste ouvert.**
 
 ```
 [1022 BringerOfDespair | blackTerminator]  — [opus] direct — PORTE + VALIDE (2026-07-24, blacklegion.py)
@@ -110,7 +113,7 @@ FleshmetalGuns (runner-face), HeadClaimer, FirstAmongTraitors, Herald, Drachnyen
 **[fable]** = HatefulAssault (vecteur before-move) ; BLOQUÉ MoW = HadesAutocannons. NOUVEAUX
 transverses : kill-events KILLER-side On(53/54) + IsDefeatedByMeleeAttack (Possession, HeadClaimer) ;
 Modulo + rotation d'effets turn-start (FleshmetalGuns) ; effet-dérivant-triggered persistant
-(Drachnyen) ; trait faction LetTheGalaxyBurn 1482 non wiré (RE'd via BringerOfDespair : triggered
+(Drachnyen) ; ~~trait faction LetTheGalaxyBurn 1482 non wiré~~ **volet 1 PORTÉ #84** (RE'd via BringerOfDespair : triggered
 `LetTheGalaxyBurnAbility.CreateTrigger @1811076f0` On(5)&OwnerIsCaster + `LetTheGalaxyBurnEffect.
 CreateAdditionalHits @180f54e30` = `EffectAdditionalHits.Create` FirstHitInCurrentAttackDamageRange, gate
 OwnerIsCaster & (TargetHasTileEffect DespoiledGround | IsPersistentData 0x5ca) ; +1 coup/attaque COMPOSE sur

@@ -202,12 +202,16 @@ def defender_effect_block_sources(effects, defender_fixed_armor: int = 0,
     return out
 
 
-def hits_bonus_from_effects(effects, is_normal_attack: bool = True) -> int:
+def hits_bonus_from_effects(effects, is_normal_attack: bool = True,
+                            att_ctx: Mapping | None = None) -> int:
     """Σ des bonus de COUPS (`CreateEffectHitsBonusForAttack`) des effets actifs (axe hits, ex.
-    PowerTrip_FullHealth). Addition = +value, Subtraction = −value."""
+    PowerTrip_FullHealth). Addition = +value, Subtraction = −value.
+    `att_ctx` = le `board` de `AttackHitsWithModifiersFormula` + `tile_effects_by_pos` +
+    `persistent_data` (cf. `BaseEffect.create_effect_hits_bonus_for_attack`) — requis par les bonus
+    dont le gate porte sur la CIBLE (`LetTheGalaxyBurnEffect` @180f54e30). None → ces bonus no-op."""
     total = 0
     for e in _as_effects(effects):
-        hb = e.create_effect_hits_bonus_for_attack(is_normal_attack)
+        hb = e.create_effect_hits_bonus_for_attack(is_normal_attack, att_ctx)
         if hb is None:
             continue
         if hb.kind == "Addition":

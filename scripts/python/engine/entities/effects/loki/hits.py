@@ -489,7 +489,8 @@ class FightingRetreatHitReductionEffect(BaseEffect):
       ConfigConst(0x2c=hitsReduction=1)), min=Direct(1))` = **-1 coup, PLANCHER 1**. Le plancher est
       appliqué chez les consommateurs de hits (`max(1, …)`, cf. predict_validate)."""
 
-    def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True) -> EffectBonus | None:
+    def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True,
+                                            att_ctx: "Mapping | None" = None) -> EffectBonus | None:
         # trigger natif = OwnerIsCaster SEUL (@180f495d0, pas de IsNormalAttack) -> TOUTES les attaques.
         n = ability_var("FightingRetreat", "hitsReduction", is_constant=True)   # ConfigConst 0x2c (=1)
         return for_addition(True, -int(n)) if n else None
@@ -662,6 +663,79 @@ class MasterAnnihilatorAdditionalHitEffect(BaseEffect):
         return for_addition(True, int(n)) if n else None
 
 
+# Cle du sac `PersistentDataComponent` armee par `LetTheGalaxyBurnAbility.CreateBehaviour @1811075c0`
+# (`SetPersistentData(AbilityOrEffect(0x5ca=1482), Self@0x148, Get(<champ statique cctor @181107840>),
+# Direct(1)@0xc0)`) et lue par `IsPersistentData @180df4bb0` dans le gate de
+# `LetTheGalaxyBurnEffect.CreateAdditionalHits @180f54e30`. Le tuple = la cle composite native
+# (AbilityOrEffect, nom de la donnee) ; PARTAGEE entre le poseur (runner/.../let_the_galaxy_burn.py),
+# le nettoyeur (Reset) et ce lecteur -> une seule source de verite.
+LET_THE_GALAXY_BURN_PERSISTENT_KEY = (1482, "LetTheGalaxyBurn")
+
+
+class LetTheGalaxyBurnEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect` (effet 0x5c5=1477, nom capte
+    « LetTheGalaxyBurn ») — owner-effect AUTO-PORTE par les 5 heros Black Legion qui ont le TRAIT
+    `LetTheGalaxyBurn` (0x422=1058 : blackAbaddon, blackHaarken, blackObliterator, blackPossession,
+    blackTerminator). Ctor `@180f55080` = `BaseEffect(AbilityOrEffect(0x5ca=1482), 1, 0)` : l'EffectSource
+    est l'ability DECLENCHEE 1482 (meme patron auto-porteur qu'`InfernalPacts_AdditionalHitsEffect`
+    @180f527a0 — aucune classe `Ability` ne le POSE, il est materialise a l'init de l'unite).
+
+    ⚠ HOMONYMIE : `ActiveAbilityType.Waaagh` vaut AUSSI 1058 — les espaces d'enum (`UnitTrait`,
+    `TriggeredAbilityType`, `ActiveAbilityType`, `EffectType`) sont INDEPENDANTS. Ici 1058 = **UnitTrait**.
+
+    ## Canal (RE, decompile ghidra build gqfc5mff6c)
+    `CreateAdditionalHits @180f54e30` -> `EffectAdditionalHits.Create @180f405b0` avec :
+      - condition = `get_OwnerIsCaster & ( TargetHasTileEffect | IsPersistentData(0x5ca, Self@0x148,
+        Get(<statique>)) )`, ou `TargetHasTileEffect @181107810` = `HasTileStatusEffect(Targets@0x190)`
+        (@180df13f0) — **GENERIQUE** : n'importe quel status-effect de tuile, pas un type precis ;
+      - degat  = `FirstHitInCurrentAttackDamageRange` (param_3 ET param_8 : roll ET display) ;
+      - profil = **-1** (`CONCAT44(0,0xffffffff)` -> `Nullable<DamageProfileType>` NULL) ;
+      - count  = **noeud NULL** (param_6=0, la ou `MasterAnnihilator_AdditionalHitEffect
+        .CreateAdditionalHits @180f58d50` passe `ConfigConst(0x2f=nrOfHits)`) -> defaut **1** ;
+      - cap    = NULL (param_9=0 ; MasterAnnihilator, lui, cape a `ConfigVar(0xd=maxDmg)`).
+    => coup additionnel a degat/profil de l'ARME = **+1 coup ordinaire** : MEME canal que
+    MasterAnnihilator, cote ATTAQUANT (`OwnerIsCaster`) au lieu de defenseur (`OwnerIsTarget`).
+
+    ## Les DEUX branches du gate (exclusives par construction)
+    Le trigger de POSE `LetTheGalaxyBurnAbility.CreateTrigger @1811076f0` =
+    `On(5=PreAttack) & OwnerIsCaster & Maybe(ConfigConst 0x2a) & !HasTileStatusEffect(Targets@0x190)` :
+    il n'arme le flag QUE si la cible n'est PAS deja sur une tuile a effet. Donc :
+      A. cible sur tuile SANS status-effect -> seul le roll `Maybe(LetTheGalaxyBurnChancePct=33)` arme ;
+      B. cible sur tuile AVEC status-effect -> `TargetHasTileEffect` VRAI -> +1 **systematique**, et
+         AUCUNE pose (le flag reste vide).
+
+    GROUND TRUTH LIVE (probe_84_ltgb_chance.py, blackTerminator « Angrax » vs bloodSanguinary, MC1_67,
+    8 runners) : branche A n=73 -> base 4 coups, 25 attaques a 5 coups = **34.2 %** (== 33 % config) ;
+    branche B n=23 -> **23/23 a 5 coups** (100 %). Le +1 est parfaitement correle a l'apparition de
+    `DespoiledGround` sur la tuile de la cible (= le volet 2 du meme kit, pose par
+    `LetTheGalaxyBurn_ResetAbility.CreateBehaviour @1811078a0`, `AddEffect(0x5c4=1476)`).
+    Corrobore le confound deja documente sur `test_bringer_of_despair_live.py` (Angrax 5 = 4 + 1).
+
+    ## Contexte requis (`att_ctx`)
+    Le gate a besoin de la CIBLE, que le canal `hits` ne portait pas : `att_ctx` = le `board` de
+    `AttackHitsWithModifiersFormula` (`services/attack_hits_formula.py`) enrichi de
+    `tile_effects_by_pos` (tileMeta -> `HasTileStatusEffect`) et `persistent_data` (les cles posees sur
+    l'ATTAQUANT -> `IsPersistentData`). Contexte ABSENT (None) -> les deux branches sont fausses ->
+    aucune contribution (degradation fidele « present != applique », = l'etat PREDICTION mesure #62/#65 :
+    contribution native 0 tant que la cible n'est pas sur un hex-effect)."""
+
+    def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True,
+                                            att_ctx: "Mapping | None" = None) -> EffectBonus | None:
+        c = att_ctx or {}
+        # `TargetHasTileEffect @181107810` = `HasTileStatusEffect(Targets@0x190)` — GENERIQUE (>=1 effet
+        # de tuile, quel qu'il soit). `tile_effects_by_pos` = tileMeta (effets DYNAMIQUES de la tuile) ;
+        # le terrain statique (DryBush -> LightCover, pose sur les UNITES) n'en fait PAS partie.
+        tfx, tp = c.get("tile_effects_by_pos"), c.get("t_pos")
+        on_tile_fx = bool((tfx or {}).get(tuple(tp))) if (tfx is not None and tp is not None) else False
+        # `IsPersistentData(0x5ca, Self@0x148, Get(<statique>))` @180df4bb0 — flag intra-attaque arme par
+        # le trigger de pose (33%) et efface en fin d'attaque par le Reset @1811078a0.
+        armed = LET_THE_GALAXY_BURN_PERSISTENT_KEY in (c.get("persistent_data") or ())
+        if not (on_tile_fx or armed):
+            return None
+        # count = noeud NULL @180f54e30 -> 1 coup (defaut natif ; GROUND TRUTH live 4 -> 5).
+        return for_addition(True, 1)
+
+
 class BigTargetAdjacentEffect(BaseEffect):
     """`BigTargetAdjacentEffect` — AURA du trait BigTarget (i2 : « Adjacent friendly units receive
     -1 hit from ranged attacks, to a minimum of 1 »). L'effet est POSSÉDÉ par le porteur BigTarget
@@ -728,7 +802,8 @@ class PowerTripFullHealthEffect(BaseEffect):
     - condition @180f64cb0 : `!IsDamaged` (hp == max).
     MAGNITUDE résolue : `gameconfig.ability('PowerTrip').constants['extraHit']` = 1 → +1 coup quand PV pleins."""
 
-    def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True) -> EffectBonus | None:
+    def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True,
+                                            att_ctx: "Mapping | None" = None) -> EffectBonus | None:
         # trigger natif @180f64cf0 = `IsNormalAttack & OwnerIsCaster` -> ATTAQUE NORMALE SEULEMENT
         # (l'appliquer aux spéciales sur-prédisait DakkaDakkaDakka -> régression steps 6/13).
         if not is_normal_attack:

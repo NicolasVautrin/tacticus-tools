@@ -20,11 +20,13 @@ from ...services.battle_query import are_tiles_adjacent
 from ...services.attack_hits_formula import attack_hits_with_modifiers
 from ...entities.stats import StatType
 from ..state import State
-from ..components import StatsComponent, HealthComponent, PositionComponent, UnitComponent
+from ..components import (StatsComponent, HealthComponent, PositionComponent, UnitComponent,
+                          persistent_data_keys)
 from ..damage_model import (select_weapon, select_weapon_pierce, attacker_modifiers,
                             defender_modifiers, build_hits_board, apply_elevation_bonus,
                             apply_trench_reduction, ice_crit_damage_addition,
-                            target_trait_names, getstuckin_combat_chance, defender_fixed_armor)
+                            target_trait_names, getstuckin_combat_chance, defender_fixed_armor,
+                            tile_status_effects_by_pos)
 from ...entities.effects import hits_bonus_from_effects
 from ...entities.effects.loki import LIGHT_COVER_TILE_ID
 from ...entities.traits import target_hit_multiplier
@@ -94,6 +96,14 @@ class _DamageOpsMixin:
         # coup bonus n'est PAS un coup de la formule : folder en dur sur-comptait, orksNob 1v1 chance=30 ->
         # natif 3 coups, folder 4). Le coup bonus est ajoute PLUS BAS a l'EXECUTION (#62c, commit 3997793) :
         # `_gsi = getstuckin_combat_chance(...)` -> `_run_hits(bonus_hit_chance=_gsi)`. Bit-exact live case-67.
+        # `On(PreAttack=5)` (#84) — vecteur natif emis AVANT `GetAttackHits`. Le SEUL consommateur porte
+        # est `LetTheGalaxyBurnArmAbility` (arme le flag persistant lu 3 lignes plus bas par le canal de
+        # coups de CETTE attaque) ; aucun autre trigger n'ecoute l'event 5 -> no-op (et zero conso RNG)
+        # pour toute unite non-porteuse. Emis APRES la selection d'arme (le natif connait deja la nature
+        # du coup) et AVANT la formule, comme le natif.
+        if tp is not None:
+            from .triggers.dispatch import pre_attack_triggers   # lazy : cycle damage<->triggers
+            pre_attack_triggers(state, attacker_id, target_id, ranged=bool(_ranged), profile=_profile)
         if ap is not None and tp is not None:
             _board, _auras, _tgt_eff = build_hits_board(
                 state, attacker_id, target_id, (ap.col, ap.row), (tp.col, tp.row), is_melee=not _ranged)
@@ -111,7 +121,12 @@ class _DamageOpsMixin:
                 target_effects=_tgt_eff, aura_sources=_auras, board=_board,
                 is_melee=not _ranged, damage_profile=_profile,
                 include_bonus_hit_behaviours=False,  # combat: GetStuckIn NON compte dans la formule -- ajoute a l'exec (_run_hits, #62c)
-                defender_on_cover=_on_cover)
+                defender_on_cover=_on_cover,
+                # #84 : contexte CIBLE du canal (1) -- `HasTileStatusEffect` (status-effects DYNAMIQUES
+                # de la tuile de la cible) + `IsPersistentData` (flag arme juste au-dessus par le vecteur
+                # PreAttack). MEME couple d'entrees que la facade PREDICTION.
+                tile_effects_by_pos=tile_status_effects_by_pos(state, [(tp.col, tp.row)]),
+                attacker_persistent_data=persistent_data_keys(att))
         else:                                     # positions manquantes -> base seule (pas de GetStuckIn/aura)
             hits = max(1, whits + ctx.stat(StatType.EXTRA_HITS) + hits_bonus_from_effects(active))
         tsc = tgt.get_component(StatsComponent)
