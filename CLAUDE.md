@@ -385,6 +385,34 @@ d'écrire `<symbole>+0x<offset>`.
 `data/symbols/*/frida/` et retient celui dont l'estampille porte le sha256 du binaire chargé.
 Il ne peut donc plus appliquer les symboles d'un autre build — soit il trouve, soit il refuse.
 
+### Partage de vérité Frida / Ghidra — aucun ne remplace l'autre
+
+**Frida fait autorité sur les MÉTADONNÉES** : dispositions de classes, offsets de champs,
+valeurs d'enum, signatures. Il lit la table de métadonnées du runtime IL2CPP.
+
+**Ghidra fait autorité sur le CODE** : frontières de fonctions, instructions, références
+croisées, graphe d'appels. Frida ne les voit pas — il ne désassemble rien.
+
+Le sens de la dépendance va peut-être à l'inverse de l'intuition :
+
+> **Ghidra ne connaît les structures que parce qu'on les lui injecte.** Le binaire IL2CPP est
+> strippé — l'analyse automatique de Ghidra ne peut pas retrouver la disposition d'un type C#.
+> C'est `GhidraApplyIl2CppSymbols` qui lit `frida/classes.tsv` et **fabrique** les structs dans
+> la base. Une structure fausse dans le TSV devient une structure fausse dans tout le décompilé.
+
+C'est pourquoi une MAJ oblige à refaire **toute** la chaîne, pas un maillon : regénérer le
+dump Frida sans réappliquer dans Ghidra laisse un décompilé qui ment sur les types ; et
+l'inverse (rejouer Ghidra sur de vieux TSV) est exactement l'incident du 2026-07-25.
+
+**Ordre de lecture après une mise à jour**, du moins cher au plus cher :
+
+1. diff `frida/classes.tsv` + `frida/enums.tsv` → **CE QUI** a changé dans le contrat de données ;
+2. diff `ghidra/functions.tsv` → **QUELLES FONCTIONS** ont disparu, apparu, été renommées ;
+3. décompilé via `mcp__ghidra__*` → **COMMENT**.
+
+Seule la 3ᵉ étape coûte ; les deux premières servent à la cibler. Attaquer directement par le
+décompilé, c'est relire un binaire de 60 Mo sans savoir quoi y chercher.
+
 ### Le projet Ghidra a DEUX consommateurs, pas un
 
 Les frontières de fonctions ne servent pas qu'à produire `ghidra/functions.tsv` : c'est **le
