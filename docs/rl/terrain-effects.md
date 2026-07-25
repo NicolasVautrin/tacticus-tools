@@ -12,6 +12,12 @@ combat, en PREDICTION (oracle/damage view) ET dans le RUNNER offline (sim multi-
 - **Runner multi-step** : le runner materialise les effets UNE FOIS au build (snapshot) et ne modelise
   AUCUNE transition tuile (gagner/perdre un effet en entrant/sortant d'une tuile, ramasser un power-up,
   heal FirstAid, fire-spread). => gap analogue #123, mais generalise a toutes les mecaniques de tuile.
+- **SEED des effets de TUILE : RESOLU (#102, `case-102-tile-effect-seeding.md`)**. `load_state(...,
+  tiles=tileMeta)` charge desormais les effets portes par les TUILES (meme cle entite-tuile que la pose
+  `AddEffectOperation`). Avant, un etat offline recharge mi-bataille repartait d'un plateau VIERGE ->
+  toute mecanique tile-driven etait INCONFRONTABLE. Ne couvre PAS l'evolution des durees (le tick
+  `on_turn_end` est per-UNITE) ni les transitions ci-dessus : le seed rend l'etat de depart fidele, il
+  ne simule pas la suite.
 
 Preuve empirique (runner C1_25/SyncPvp_Arctic_06) : `LightCover` et `Trench` sont IsActive-gate sur
 "actuellement sur la tuile" — l'effet DISPARAIT de `decisionView.effects` des que l'unite quitte la
@@ -128,10 +134,18 @@ bit 0x4 = occupant ennemi. => une tuile block-entering ne peut etre ni TRAVERSEE
 d'arete `IsValidPathNode @180f2ee50` NE regarde PAS l'effet (juste walkable comp+0x10 + elev + !ennemi).
 
 **Port** : `walk_pathfinder.py` est FIDELE pour nos boards (walkable+elev+!ennemi = bits 0x4 + walkable).
-Le SEUL manque = le gate bit-0x1 (`BlockEnteringUnitsTileEffect` sur la tuile), INERTE car aucun board
-courant ne le porte. **Ne PAS porter tant qu'un board/trigger jouable n'est pas confirme** (impossible a
-valider live sinon ; static-block deja refute). Port futur = modeliser l'effet sur les tuiles (+ exemption
-trait via `NotBlockingMovementOfTraits`) et gater l'expansion/stop dans `get_reachable_levels`/`get_movable_positions`.
+Le SEUL manque = le gate bit-0x1 (`BlockEnteringUnitsTileEffect` sur la tuile).
+
+⚠ **CORRECTION (#102)** : l'affirmation « INERTE car aucun board courant ne le porte » est **FAUSSE**.
+Mesure live (`tileMeta`, board `C1_02`, des la construction du runner) : les tuiles **Swamp** portent
+`BlockEnteringUnits` (EffectType 0) **et** `Thorns_DefenseReduction` (0xb). Ces effets etaient
+invisibles offline tant que `load_state` ne seedait pas les effets de tuile ; ils le sont desormais
+(`state.effects.by_unit[tile_id]`). L'argument « impossible a valider live » ne tient donc plus — le
+port du gate reste A FAIRE (#131), mais il est CONFRONTABLE. Port futur = gater l'expansion/stop dans
+`get_reachable_levels`/`get_movable_positions` sur la presence de l'effet 0 (+ exemption trait via
+`NotBlockingMovementOfTraits`). ⚠ Ne PAS en deduire que le Swamp bloque : le static-block est refute
+live (Swamp walkable=TRUE et dans aiMovableTiles) — c'est la CONDITION de pose/l'exemption de traits
+qui reste a RE.
 
 ### ICE dynamique (0x11) — #133, MECANIQUE RE'd 2026-07-16 (carrier jouable Arjac + Stormcaller)
 

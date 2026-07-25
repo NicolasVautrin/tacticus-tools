@@ -12,10 +12,10 @@ CE FICHIER :
      offline (state.effects sur tile-ids), degat cible bit-exact (MT seede — l'attaque 1 est SANS
      bonus : la glace se pose APRES le degat, « at the end of the attack »).
   2. `test_lord_of_tempests_snowball_second_attack` : la 2e attaque, menee ADJACENTE a la glace
-     posee par la 1re — le degat live inclut +extraDmg x Count(Ice ring-1) ; replay-diff bit-exact
-     (l'offline seede la glace depuis le tileMeta live : `load_state` n'hydrate PAS les effets de
-     TUILE d'un snapshot mi-bataille — gap d'hydratation documente, PAS un gap de port : en walk
-     complet c'est notre trigger qui pose la glace).
+     posee par la 1re — le degat live inclut +extraDmg x Count(Ice ring-1) ; replay-diff bit-exact.
+     La glace pre-existante vient DU LOAD (`load_state(..., tiles=tileMeta)`, #102) : ce test est
+     donc AUSSI un confront du vecteur de seeding des effets de TUILE — sans lui, le compte ring-1
+     serait 0 offline et le degat divergerait d'exactement extraDmg x count.
 
   3. `test_lord_of_tempests_addice_smite_branch` : la BRANCHE 2 du trigger (`On(9=Attack) &
      kind==0x3f5` = victime du splash « Smite » Psyker). Geometrie PLACEE (build 2 ennemis, Njal
@@ -100,17 +100,20 @@ def _advance_to_my_turn(rpc, rid, vis, max_iter=12):
 
 
 def _capture(rpc, rid):
+    """Capture COMPLETE de l'etat live, `tileMeta` INCLUS (#102 : les effets portes par les TUILES
+    ne transitent que par ce canal ; sans lui l'etat offline repart d'un plateau vierge)."""
     dec = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
     ob = rpc("observeBattle", {"runnerId": rid}, 60)
     snap = rpc("combatSnapshot", {"runnerId": rid}, 90)
     s = rpc("dumpRng", {"runnerId": rid}, 30)
-    return dec, ob, snap, s
+    tm = rpc("tileMeta", {"runnerId": rid}, 60)
+    return dec, ob, snap, s, tm
 
 
-def _offline_state(dec, ob, snap, s, board):
+def _offline_state(dec, ob, snap, s, board, tiles=None):
     from engine.runner.snapshot import load_state
     from engine.runner.prng import IntBasedMersenneTwister
-    state = load_state(dec, ob, snap, board=board)
+    state = load_state(dec, ob, snap, board=board, tiles=tiles)
     if _ok(s):
         rng = IntBasedMersenneTwister()
         rng.mt = list(s["mt"])
@@ -263,9 +266,9 @@ def test_lord_of_tempests_addice_smite_branch(live_session, rpc, build_runner):
     assert hexgeo.distance(tgt_pos, e2_pos) == 1, "E2 doit etre adjacent a la cible primaire"
 
     ice0 = _iced_positions(rpc, rid)
-    dec0, ob0, snap0, s0 = _capture(rpc, rid)
+    dec0, ob0, snap0, s0, tm0 = _capture(rpc, rid)
     hp0_t, hp0_e = _hp(ob0, target_id), _hp(ob0, e2_id)
-    state = _offline_state(dec0, ob0, snap0, s0, board)
+    state = _offline_state(dec0, ob0, snap0, s0, board, tiles=tm0)
     if state.get_entity(caster_id) is None or state.rng is None or state.effects is None:
         pytest.skip("etat offline incomplet (snapshot/rng)")
 
@@ -322,9 +325,9 @@ def test_lord_of_tempests_addice_live_offline_agreement(live_session, rpc, build
     tgt_pos = (tgt["pos"]["col"], tgt["pos"]["row"])
 
     ice0 = _iced_positions(rpc, rid)                     # glace deja presente (attendu : aucune)
-    dec0, ob0, snap0, s0 = _capture(rpc, rid)
+    dec0, ob0, snap0, s0, tm0 = _capture(rpc, rid)
     hp0 = _hp(ob0, target_id)
-    state = _offline_state(dec0, ob0, snap0, s0, board)
+    state = _offline_state(dec0, ob0, snap0, s0, board, tiles=tm0)
     if state.get_entity(caster_id) is None or state.rng is None or state.effects is None:
         pytest.skip("etat offline incomplet (snapshot/rng)")
 
@@ -395,9 +398,9 @@ def test_lord_of_tempests_snowball_second_attack(live_session, rpc, build_runner
     if count <= 0:
         pytest.skip(f"geometrie non cooperative : aucune glace ring-1 de {my_pos} (glaces={sorted(iced_live)})")
 
-    dec0, ob0, snap0, s0 = _capture(rpc, rid)
+    dec0, ob0, snap0, s0, tm0 = _capture(rpc, rid)
     hp0 = _hp(ob0, target_id)
-    state = _offline_state(dec0, ob0, snap0, s0, board)
+    state = _offline_state(dec0, ob0, snap0, s0, board, tiles=tm0)
     if state.get_entity(caster_id) is None or state.rng is None or state.effects is None:
         pytest.skip("etat offline incomplet (snapshot/rng)")
     for p in iced_live:                                   # seed du gap d'hydratation tile-effects

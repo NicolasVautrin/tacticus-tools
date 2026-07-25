@@ -208,18 +208,20 @@ def _drive_adjacent_to_ice(rpc, rid, max_turns=8):
 
 
 def _capture(rpc, rid):
+    """`tileMeta` INCLUS (#102) : les effets portes par les TUILES (la glace pre-existante que
+    `UnitsOnTilesWithEffect` selectionne) ne transitent QUE par ce canal."""
     dec = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
     ob = rpc("observeBattle", {"runnerId": rid}, 60)
     snap = rpc("combatSnapshot", {"runnerId": rid}, 90)
     s = rpc("dumpRng", {"runnerId": rid}, 30)
-    return dec, ob, snap, s
+    tm = rpc("tileMeta", {"runnerId": rid}, 60)
+    return dec, ob, snap, s, tm
 
 
-def _offline_state(dec, ob, snap, s, board):
+def _offline_state(dec, ob, snap, s, board, tiles=None):
     from engine.runner.snapshot import load_state
     from engine.runner.prng import IntBasedMersenneTwister
-    state = load_state(dec, ob, snap)
-    state.board = board
+    state = load_state(dec, ob, snap, board=board, tiles=tiles)
     if _ok(s):
         rng = IntBasedMersenneTwister()
         rng.mt = list(s["mt"])
@@ -253,7 +255,6 @@ def run_scenario(rpc, rid, tag: str, lo: int, hi: int, fails: list,
     from engine.entities.pathfinding.board import Board
     from engine.runner.runner import Runner
     from engine.runner.messages import ActiveAbilityMessage
-    from engine.runner.operations.effects import AddEffectOperation
     from engine.runner.components import HealthComponent
     from engine.entities.effects.magnitude import ability_var
 
@@ -294,17 +295,19 @@ def run_scenario(rpc, rid, tag: str, lo: int, hi: int, fails: list,
           f"ennemis={[(u.get('visualId'), _pos(u)) for u in enemies]}")
 
     ice0 = _iced_positions(rpc, rid)
-    dec0, ob0, snap0, s0 = _capture(rpc, rid)
+    dec0, ob0, snap0, s0, tm0 = _capture(rpc, rid)
     hp0 = {u["id"]: _hp(ob0, u["id"]) for u in enemies}
-    state = _offline_state(dec0, ob0, snap0, s0, board)
+    # #102 : les glaces PRE-EXISTANTES viennent desormais DU LOAD (`load_state(tiles=tileMeta)`).
+    # L'hydratation defensive manuelle a ete retiree : c'est justement ce que le vecteur remplace,
+    # et la garde ci-dessous verifie que le load a bien reproduit l'ensemble live.
+    state = _offline_state(dec0, ob0, snap0, s0, board, tiles=tm0)
     if state.get_entity(caster_id) is None or state.rng is None or state.effects is None:
         fails.append(f"{tag}:etat-offline")
         return
-    for p in ice0:                     # hydratation defensive des glaces pre-existantes (gap load_state)
-        tid = board.id_at(p[0], p[1])
-        if tid is not None:
-            AddEffectOperation.execute(state, source=caster_id, target=int(tid),
-                                       effect_type=ICE, name="Ice")
+    off_ice0 = _offline_iced_positions(state, board)
+    if off_ice0 != ice0:
+        print(f"[217-{tag}] SEED TUILES : offline {sorted(off_ice0)} != live {sorted(ice0)}")
+        fails.append(f"{tag}:tile-seed")
     count_pre = sum(1 for p in ice0 if hexgeo.distance(my_pos, p) == 1)
     has_lot = any("LordOfTempests" in (getattr(e, "name", "") or "")
                   for e in (state.effects.by_unit.get(caster_id) or []))

@@ -83,8 +83,9 @@ LordOfTempests sur ses coups (la zone de glace de Stormcaller = SON propre artef
   `execute_ability_attack` threade `is_normal_attack=False` côté attaquant (`attacker_modifiers`).
   Le smite (normal-like 1013) reste sur le vecteur `execute_normal_like` (défaut True) — kind 1013 =
   attaque-normale, cohérent avec la branche 2 AddIce.
-- **`load_state` n'hydrate PAS les effets de TUILE** d'un snapshot mi-bataille (le test 2 les seede
-  du tileMeta). N'affecte pas les walks complets (notre trigger pose la glace en simulant). `[opus]`.
+- **`load_state` n'hydrate PAS les effets de TUILE** — **RÉSOLU (#102, `case-102-tile-effect-seeding`)** :
+  `load_state(..., tiles=tileMeta)` les seede à la source (clé entité-tuile). Le test 2 (snowball) ne
+  re-pose plus la glace à la main — il consomme le vecteur, et reste **bit-exact** vs live.
 - **Stormcaller (active 1113)** — **PORTÉ (#217, case-217)** : zone de glace (`GetAddIceTiles
   @18120cf70`), 3× Psychic sur les ennemis-sur-glace, stun Flying — `runner/abilities/loki/
   stormcaller.py`, validé probe_217 (bit-exact 2 scénarios) + agreement 31337 4×100 %.

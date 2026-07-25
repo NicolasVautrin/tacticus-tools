@@ -63,6 +63,11 @@ def default_amount_of_rounds(effect_type: int) -> Optional[int]:
     return _DEFAULT_ROUNDS.get(int(effect_type))
 
 
+# L'AUTRE membre porté de `StaticBattleRules.Effect` — `IsTileStatusEffect` — vit dans
+# `engine/services/static_battle_rules.py` : il est consommé par `entities/` ET par `runner/`, et
+# `entities/` n'importe jamais `runner/` (cf. le commentaire d'implantation là-bas).
+
+
 class AddEffectOperation:
     """`IdunBattle.Operations.AddEffectOperation` IdunBattle.Operations.AddEffectOperation$$Execute — matérialise un effet sur une cible.
 

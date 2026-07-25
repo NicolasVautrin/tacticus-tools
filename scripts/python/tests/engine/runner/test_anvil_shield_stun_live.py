@@ -41,7 +41,6 @@ from engine.entities.pathfinding.board import Board
 from engine.entities.stats import StatType
 from engine.runner.snapshot import load_state
 from engine.runner.components import PositionComponent, StatsComponent, HealthComponent
-from engine.runner.operations.effects import AddEffectOperation
 from engine.runner.operations.triggers.dispatch import (after_hit_normal_attack,
                                                         pre_unit_ability_triggers)
 from engine.runner.operations.refresh_effects import refresh_stat_modifier_effects
@@ -175,13 +174,20 @@ def _ensure_off_ice(rpc, rid, att_id, arj_id, tries=4):
 
 
 def _offline(rpc, rid, dec=None):
-    """`State` OFFLINE (board + effets) reconstruit depuis la capture LIVE courante."""
+    """`State` OFFLINE (board + effets d'UNITE + effets de TUILE) reconstruit depuis la capture LIVE.
+
+    `tiles=tileMeta` (#102) : les effets portes par les TUILES (ici l'Ice pose par `ApplyIce`) sont
+    seedes PAR LE LOAD. Sans ce canal, le rejeu offline repartait d'un plateau vierge et la
+    precondition `IsUnitOnTileWithEffect(caster, Ice)` du `CreateTrigger` de
+    `AnvilShieldAbility_FrozenAttackerAdvantage` etait FAUSSE offline alors qu'elle etait VRAIE live
+    -> le test devait re-poser la glace a la main (ce qui court-circuitait justement ce qu'il garde)."""
     bg = rpc("boardGraph", {"runnerId": rid}, 60)
     board = Board(bg["tiles"], adjacency="evenq") if bg.get("tiles") else None
     dec = dec or _dv(rpc, rid)
     ob = rpc("observeBattle", {"runnerId": rid}, 60)
     snap = rpc("combatSnapshot", {"runnerId": rid}, 120)
-    return load_state(dec, ob, snap, board=board), dec, board
+    tm = rpc("tileMeta", {"runnerId": rid}, 60)
+    return load_state(dec, ob, snap, board=board, tiles=tm), dec, board
 
 
 def _off_effect(state, uid, effect_type):
@@ -274,14 +280,15 @@ def test_anvil_shield_stuns_blocked_melee_attacker_on_ice_live(live_session, rpc
         "(le +20 % block deviendrait permanent)")
 
     # --- REJEU OFFLINE de la MEME sequence depuis la capture pre-coup#2 : memes verdicts.
-    # `load_state` ne seede que les effets d'UNITE (decisionView) — la precondition « tuile glacee »
-    # (oracle live `tileMeta`) est re-posee ici par la MEME feuille que la pose native (`AddEffect` de
-    # `ApplyIce`), sur la tuile OCCUPEE par l'attaquant.
+    # #102 : la precondition « tuile glacee » vient desormais DU LOAD (`load_state(tiles=tileMeta)`),
+    # plus d'une re-pose manuelle. C'est le discriminant du vecteur de seeding : si `load_state`
+    # n'hydratait pas les effets de TUILE, l'assertion ci-dessous tomberait et tout le rejeu
+    # `On(PreUnitAbility)` -> 1201 -> Stun serait muet offline alors qu'il est vrai live.
     apc = state.get_entity(att["id"]).get_component(PositionComponent)
     att_tile = board.id_at(apc.col, apc.row)
-    AddEffectOperation.execute(state, source=arj["id"], target=att_tile,
-                               effect_type=ICE, name="Ice")
-    assert state.effects.has_effect(att_tile, effect_type=ICE)
+    assert state.effects.has_effect(att_tile, effect_type=ICE), (
+        f"l'etat CHARGE ne porte pas l'Ice de la tuile {(apc.col, apc.row)} (tile-id {att_tile}) "
+        f"alors que le live la porte -> le seed des effets de TUILE de `load_state` est muet (#102)")
     assert _off_effect(state, att["id"], STUNNED) is None
     pre = _off_block_chance(state, arj["id"])
     pre_unit_ability_triggers(state, att["id"], arj["id"], ranged=False, profile="Power",

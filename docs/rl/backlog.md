@@ -176,10 +176,10 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `RemoveUnit`-ed — pas seulement mort — sortirait d'obs_units, aucun chemin connu). `[opus]` si un
   miss les fait surface.
 - **LordOfTempests AddIce, résidus** (`case-35` §4 — case CLOS, les DEUX branches du trigger
-  désormais confrontées live) : reste `load_state` sans hydratation des effets de TUILE
-  mi-bataille (gap de HARNAIS, pas de port : en walk complet c'est notre trigger qui pose la
-  glace) ; blocage mouvement / crit-bonus ICE toujours GATE (#131, terrain-effects §2). `[opus]`
-  si un miss d'agreement les fait surface.
+  désormais confrontées live) : l'hydratation des effets de TUILE mi-bataille est **RÉSOLUE**
+  (`case-102-tile-effect-seeding`, `load_state(..., tiles=tileMeta)` — le test snowball consomme le
+  vecteur au lieu de re-poser la glace à la main, bit-exact) ; blocage mouvement / crit-bonus ICE
+  toujours GATE (#131, terrain-effects §2). `[opus]` si un miss d'agreement les fait surface.
   *Fermés* : branche 2 (glace sur la victime du smite Psyker) — **exercée live** par
   `test_lord_of_tempests_addice_smite_branch` (géométrie placée : Njal d=2 de T, E2 voisin de T ;
   live glace {T, E2} == offline) ; `is_normal_attack` face attaquant et Stormcaller (1113)

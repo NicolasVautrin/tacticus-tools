@@ -6,8 +6,9 @@ le runner reproduit ensuite l'ÉVOLUTION (operations). Le port complet BC→Init
 (indépendance totale) est différé.
 
   • `load_state(decision, observe)` : snapshot live (decisionView + observeBattle) →
-    `State` ECS (entités + composants). Charge les UNITÉS (`decisionView.units`) **et les
-    MACHINES OF WAR** (`decisionView.mows`, cf. `_load_machines`).
+    `State` ECS (entités + composants). Charge les UNITÉS (`decisionView.units`), les
+    MACHINES OF WAR (`decisionView.mows`, cf. `_load_machines`) **et les effets portés par
+    les TUILES** (`tileMeta.tiles[].effects`, cf. `_load_tile_effects`).
   • `snapshot(state)` : `State` → forme canonique comparable (lue depuis les composants).
   • `snapshot_live(decision, observe)` : MÊME forme canonique, calculée DIRECTEMENT
     depuis les RPC (chemin INDÉPENDANT de load_state → cross-check du loader).
@@ -44,6 +45,15 @@ def _effect_names(u: dict) -> List[str]:
     return sorted(n for n in (e.get("name") for e in (u.get("effects") or [])) if n)
 
 
+def _tile_rows(tiles) -> List[dict]:
+    """Lignes exploitables de `tileMeta` (RPC `tileMeta`, `rpc-board.ts`). On accepte le
+    PAYLOAD COMPLET (`{ok, tileCount, tiles:[...]}`) ou la liste brute — même tolérance que
+    `snapshot`/`combatSnapshot` côté unités (les appelants passent le retour RPC tel quel)."""
+    if isinstance(tiles, dict):
+        tiles = tiles.get("tiles")
+    return [t for t in (tiles or []) if isinstance(t, dict)]
+
+
 def _machine_rows(decision: dict) -> List[dict]:
     """Lignes MoW exploitables de `decisionView.mows` (`projectMowsFull`, ai-step/projection.ts).
     Clé ECS = `casterId` (== `machineId`, l'entité **Machine** Type=6) — c'est l'id que
@@ -66,7 +76,7 @@ def _machine_ability_state(m: dict) -> tuple:
 
 
 def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
-               board=None) -> State:
+               board=None, tiles=None) -> State:
     """Snapshot live → `State` ECS (entités + composants d'unité).
 
     `snapshot` (combatSnapshot) optionnel : s'il est fourni, peuple en plus le
@@ -86,7 +96,24 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     est CONSOMMÉ par le moteur (`neighbours`/`are_tiles_adjacent`/splash) et varie selon les
     appelants : préserver l'objet exact = préserver le mode = zéro régression. L'assignation
     est faite en TOUTE FIN (après `_load_stats_and_effects`) → strictement équivalente à un
-    `state.board = board` post-retour (l'init/seed ne lit jamais `state.board`)."""
+    `state.board = board` post-retour (l'init/seed ne lit jamais `state.board`).
+
+    `tiles` (payload du RPC `tileMeta`) optionnel : les EFFETS PORTÉS PAR LES TUILES (feu, glace,
+    contaminé, …). Nativement une tuile est une ENTITÉ comme une autre et porte le MÊME
+    `EffectsOwnedComponent` qu'une unité — `IdunBattle.Operations.AddEffectOperation$$Execute`
+    prend une cible `IEntity` quelconque et ne gate son contrôle unité-spécifique que derrière
+    `IdunBattle.Entities.EntityExtensions$$IsUnit` ; `IdunBattle.Entities.TileExtensions$$HasTileStatusEffect`
+    relit cette même liste sur l'entité-tuile. Le canal live jumeau de `decisionView.units[].effects`
+    (`readEffectsByUnit`) est `tileMeta.tiles[].effects` (`readEffectsByTile`, MÊME lecture,
+    MÊMES champs `{name, effectType, remaining, level, source}`, seul le filtre d'EntityType
+    change) — d'où le seed par la MÊME chaîne `EffectFactory`. Sans lui, un état rechargé
+    mi-bataille perdait TOUS les effets de tuile (#102) : les consommateurs déjà portés
+    (`ctx.tile_has_effect` / `UnitsOnTilesWithEffect` #217, le filtre de zone
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnanceAbility$$GetAllDamageableTargets`,
+    le compte `IdunBattle.Entities.Effects.Loki.LordOfTempests_ExtraDamageEffect$$GetHexesIncreasingDamage`)
+    partaient d'un plateau VIERGE → toute mécanique tile-driven était INCONFRONTABLE.
+    Requiert `board` (le tile-id ECS ne vient que de `boardGraph` ; `tileMeta` ne porte que
+    col/row) ; `tiles=None` = canal non fourni → comportement STRICTEMENT inchangé."""
     state = State()
     state.current_player_id = decision.get("currentPlayer")
     # #90/#98 -- FACTEUR rounds->turns (`IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` = `count(joueurs du
@@ -122,6 +149,11 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     _load_machines(state, decision)
     if snapshot is not None:
         _load_stats_and_effects(state, decision, snapshot)
+    # Effets de TUILE : APRÈS `_load_stats_and_effects` (qui REMPLACE `state.effects` par un
+    # `EffectsState.seed` frais) et APRÈS que les `StatsComponent` des sources soient posés (le
+    # niveau/multiplicateur d'un effet de tuile se lit sur son unité SOURCE, cf. `_load_tile_effects`).
+    if tiles is not None:
+        _load_tile_effects(state, tiles, board)
     # Board assigné en DERNIER (cf. docstring) : identique à un `state.board = board` que
     # l'appelant aurait posé après le retour de load_state — l'init/seed n'a jamais lu le board.
     if board is not None:
@@ -304,6 +336,117 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
                                     ability_level=getattr(sc.ctx, "passive_ability_level", None))
 
 
+def _source_ability_state(state: State, source_id) -> Tuple[int, Optional[int], Optional[int]]:
+    """`(multiplier, passiveAbilityLevel, activeAbilityLevel)` de l'unité SOURCE d'un effet.
+
+    Le natif BAKE l'`AbilityStateReference` (`EffectComponent.AbilityState`) à la CRÉATION de
+    l'effet, depuis l'ability qui le pose — donc depuis la SOURCE, pas depuis le porteur. Pour
+    un effet d'UNITÉ le port approxime avec le `unitConfig` du PORTEUR (résidu documenté dans
+    `_load_stats_and_effects`) ; une TUILE n'a AUCUN `unitConfig`, donc il n'y a rien à
+    approximer : on lit le canal exact, le `StatsComponent.ctx` de la source
+    (`EffectComponent.SourceUnitId` = le champ `source` du capteur). Source inconnue/non chargée
+    (posée par une unité morte et retirée de la capture, ou par l'environnement) → neutre
+    (100, None, None), MÊME défaut que `EffectFactory.create`."""
+    if source_id is None:
+        return (100, None, None)
+    ent = state.get_entity(int(source_id))
+    sc = ent.get_component(StatsComponent) if ent is not None else None
+    if sc is None:
+        return (100, None, None)
+    ctx = sc.ctx
+    mult = getattr(ctx, "ability_variables_multiplier", 100)
+    return (int(mult or 100),
+            getattr(ctx, "passive_ability_level", None),
+            getattr(ctx, "active_ability_level", None))
+
+
+def _load_tile_effects(state: State, tiles, board) -> int:
+    """Effets portés par les TUILES (`tileMeta.tiles[].effects`) → `State.effects`, clé =
+    l'ENTITÉ-TUILE (id `boardGraph`). Rend le nombre d'effets matérialisés.
+
+    MIRROR de l'append natif : `IdunBattle.Operations.AddEffectOperation$$AddNewEffect` ajoute
+    l'id de l'entité-effet à `EffectsOwnedComponent.ActiveEffectIds` de la CIBLE, sans jamais
+    regarder son EntityType (le seul branchement unité-spécifique d'`AddEffectOperation$$Execute`
+    est gardé par `IdunBattle.Entities.EntityExtensions$$IsUnit`). Côté port, l'homonyme de cet
+    append est `EffectsState.add_effect(carrier_id, effect)` — c'est déjà par là que passe la POSE
+    en combat (`AddEffectOperation` du runner : la glace de LordOfTempests vit dans
+    `by_unit[tile_id]`). Le LOAD emprunte donc EXACTEMENT le même chemin que la pose ; il n'y a
+    pas deux modèles d'effet de tuile, il y en a un seul, alimenté par deux bouts.
+
+    Pourquoi pas `EffectsState.seed` (la voie des unités) : son `mult_by_unit`/`ability_level_by_unit`
+    sont keyés PAR PORTEUR, ce qui n'a pas de sens pour une tuile (elle n'a pas de config propre et
+    peut porter des effets de sources DIFFÉRENTES — p.ex. deux feux posés par deux MoW). On
+    matérialise donc effet PAR effet avec l'état de SA source (`_source_ability_state`), ce qui est
+    strictement plus fidèle que la clé par porteur.
+
+    `board` est indispensable : `tileMeta` ne rend que (col,row), l'ID d'entité-tuile (celui que
+    `state.effects` et `AddEffectOperation` utilisent) ne vient que de `boardGraph`. Sans board →
+    aucun seed (dégradation silencieuse impossible à confondre : l'appelant qui veut les effets de
+    tuile passe forcément le board, seul point d'injection du plateau)."""
+    from ..entities import EffectsState, EffectFactory
+
+    rows = _tile_rows(tiles)
+    if board is None or not rows:
+        return 0
+    if state.effects is None:
+        state.effects = EffectsState()
+    n = 0
+    for t in rows:
+        captured = [e for e in (t.get("effects") or []) if isinstance(e, dict) and e.get("name")]
+        if not captured:
+            continue
+        col, row = t.get("col"), t.get("row")
+        tid = board.id_at(col, row) if (col is not None and row is not None) else None
+        if tid is None:
+            continue
+        for cap in captured:
+            mult, ablvl, actlvl = _source_ability_state(state, cap.get("source"))
+            state.effects.add_effect(int(tid),
+                                     EffectFactory.create(cap, mult, ablvl, actlvl))
+            n += 1
+    return n
+
+
+def tile_effects_footprint(state: State) -> Optional[dict]:
+    """Empreinte OFFLINE des effets de tuile : `{tile_id: {effectType: remaining}}`.
+
+    `remaining` None (effet sans compte-à-rebours) → 0, comme le capteur live qui rend 0 quand
+    `EffectComponent.HasTurns` est faux. None si l'état n'a ni effets ni board (canal absent —
+    rien à confronter). Les ids d'entité sont GLOBAUX côté natif (unités et tuiles dans le même
+    espace) : l'appartenance au board (`board.by_id`) est donc le discriminant exact « c'est une
+    tuile »."""
+    if state.effects is None or state.board is None:
+        return None
+    out: Dict[int, dict] = {}
+    for key, effs in state.effects.by_unit.items():
+        if int(key) not in state.board.by_id:
+            continue
+        cur = {int(e.effect_type): (0 if e.remaining_turns is None else int(e.remaining_turns))
+               for e in effs if not e.consumed and e.effect_type is not None}
+        if cur:
+            out[int(key)] = cur
+    return out
+
+
+def tile_effects_footprint_live(tiles, board) -> Optional[dict]:
+    """MÊME empreinte, calculée DIRECTEMENT depuis `tileMeta` + `boardGraph` (chemin INDÉPENDANT
+    de `load_state` → cross-check du seed, comme `snapshot_live` l'est de `snapshot`)."""
+    if tiles is None or board is None:
+        return None
+    out: Dict[int, dict] = {}
+    for t in _tile_rows(tiles):
+        cur = {int(e["effectType"]): int(e.get("remaining") or 0)
+               for e in (t.get("effects") or [])
+               if isinstance(e, dict) and e.get("effectType") is not None}
+        if not cur:
+            continue
+        col, row = t.get("col"), t.get("row")
+        tid = board.id_at(col, row) if (col is not None and row is not None) else None
+        if tid is not None:
+            out[int(tid)] = cur
+    return out
+
+
 def snapshot(state: State) -> dict:
     """`State` → forme canonique comparable (lue depuis les composants)."""
     units: Dict[int, dict] = {}
@@ -322,11 +465,18 @@ def snapshot(state: State) -> dict:
             "hpMax": hc.hp_max if hc else None,
             "effects": list(ec.effects) if ec else [],
         }
-    return {"currentPlayer": state.current_player_id, "units": units}
+    return {"currentPlayer": state.current_player_id, "units": units,
+            # `tiles` = empreinte des effets PORTÉS PAR LES TUILES (#102). None = canal absent
+            # (pas de board / pas d'EffectsState) -> `diff` ne le confronte pas.
+            "tiles": tile_effects_footprint(state)}
 
 
-def snapshot_live(decision: dict, observe: dict) -> dict:
-    """MÊME forme canonique, DIRECTEMENT depuis les RPC (chemin indépendant)."""
+def snapshot_live(decision: dict, observe: dict, tiles=None, board=None) -> dict:
+    """MÊME forme canonique, DIRECTEMENT depuis les RPC (chemin indépendant).
+
+    `tiles` (payload `tileMeta`) + `board` : ajoutent l'empreinte des effets de TUILE — le pendant
+    live de `snapshot(state)["tiles"]`. Omis -> None, et `diff` n'en confronte AUCUN côté (les
+    appelants historiques `snapshot_live(dec, ob)` gardent donc exactement leur sémantique)."""
     hp_by_id = _hp_by_id(observe)
     units: Dict[int, dict] = {}
     for u in (decision.get("units") or []):
@@ -359,7 +509,8 @@ def snapshot_live(decision: dict, observe: dict) -> dict:
             "hpMax": m.get("maxHp"),
             "effects": _effect_names(m),
         }
-    return {"currentPlayer": decision.get("currentPlayer"), "units": units}
+    return {"currentPlayer": decision.get("currentPlayer"), "units": units,
+            "tiles": tile_effects_footprint_live(tiles, board)}
 
 
 def diff(a: dict, b: dict) -> List[str]:
@@ -367,6 +518,11 @@ def diff(a: dict, b: dict) -> List[str]:
     out: List[str] = []
     if a.get("currentPlayer") != b.get("currentPlayer"):
         out.append(f"currentPlayer: {a.get('currentPlayer')} != {b.get('currentPlayer')}")
+    ta, tb = a.get("tiles"), b.get("tiles")
+    if ta is not None and tb is not None:          # canal tuile fourni des DEUX côtés seulement
+        for tid in sorted(set(ta) | set(tb)):
+            if ta.get(tid) != tb.get(tid):
+                out.append(f"tile{tid}.effects: {ta.get(tid)} != {tb.get(tid)}")
     ua, ub = a.get("units") or {}, b.get("units") or {}
     for uid in sorted(set(ua) | set(ub)):
         ca, cb = ua.get(uid), ub.get(uid)
