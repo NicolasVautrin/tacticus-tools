@@ -76,7 +76,7 @@ HEAL dans ABILITY_CLASSES + formule HealAmount (Damage × max hits) + effet diff
 en case-27 pour la décision — la face combat reste portable.
 ```
 ```
-[AnvilShield | spaceRockfist passif]  — **volet ApplyIce PORTE (#222) ; reste [fable]**
+[AnvilShield | spaceRockfist passif]  — **COMPLET : ApplyIce (#222) + ApplyStun/FrozenAttackerAdvantage (#100)**
 VAs : @180e16340 (+ son CreateTrigger DEDUPLIQUE @180e15880 = df@0xa8) ; ApplyIce @180e16480/@180e16500 ;
       ApplyStun @180e16590/@180e16680 ; FrozenAttackerAdvantage @180e16840/@180e168e0 (effets 1200/1201/1202)
 CORRECTION RE : « tout gate On(UnitBlocked) » est FAUX. `ApplyAdditionalBlockAndBlockChance @180e16340`
@@ -87,9 +87,11 @@ Le DISPATCH `On(UnitBlocked=0x3d)` (emetteur `EvaluateAfterHitTriggers @180e25fc
 emis AVANT On(8)) est desormais PORTE (`unit_blocked_triggers`, did_block threade) et consomme par
 `ApplyIce` : glace la tuile de l'ATTAQUANT (`AddEffect(0x11=Ice, cible=CasterTile@0x168)`) -- confirme
 LIVE (cascade `AnvilShield -> Ice` sur un runner --block-target 100).
-Restent [fable] : ApplyStun (gate HasEffect(1200|1201), effets NON portes -> port = no-op garanti) et
-FrozenAttackerAdvantage (vecteur On(0x2b=PreUnitAbility) + effet 1201 + canal stat 7 absents).
-cf. case-222-maillons-de-pose.md §4.
+ApplyStun ET FrozenAttackerAdvantage sont desormais PORTES ET VALIDES LIVE (#100) : classes d'effet
+1200/1201, vecteur On(0x2b=PreUnitAbility) + pendant On(0xe=UnitPostAbility), canal stat 7 + driver
+d'ActiveCondition. RECTIFICATION du gate : le 4e arg de DSLFactory$$HasEffect est un flag ACTIVE-ONLY
+(EffectComponent+0x5c), PAS un minLevel -> 1200 est pose en permanence et n'ouvre le gate que sous
+35 % PV. AnvilShield est COMPLET. cf. case-222-maillons-de-pose.md §4 et case-100-anvil-shield-residus.md.
 ```
 ```
 [SavageKiller | spaceHound passif]  — [fable]

@@ -49,7 +49,7 @@ __all__ = [
     "aura_hits_bonus_for_attack", "additional_hit_groups", "aura_defense_damage_malus_from_units",
     "aura_attack_damage_bonus_from_allies", "aura_fixed_armor_bonus_for_defense",
     "crit_chance_bonus_from_effects", "crit_damage_bonus_from_effects",
-    "apply_effect_stat_modifications", "stat_modifications_by_source",
+    "apply_effect_stat_modifications", "stat_modifications_by_source", "statmod_source_key",
 ]
 
 
@@ -479,6 +479,18 @@ def crit_damage_bonus_from_effects(effects) -> int:
     return total
 
 
+def statmod_source_key(eff) -> tuple:
+    """Cle de SOURCE d'une modification de stat DECLARATIVE (`AStatModifierEffect`), PARTAGEE entre
+    l'attribution du seed (`stat_modifications_by_source`, `UnitContext.from_snapshot`) et le driver
+    d'ActiveCondition (`runner/operations/refresh_effects.py`). MEME cle des deux cotes = le driver
+    re-ecrit la MEME entree `ValueModification.per_source` (`Modify` = replace par-source, mirror
+    `IdunBattle.Entities.Components.ValueModification$$Modify`) au lieu d'en creer une 2e -> aucun
+    double-compte possible (piege deja rencontre avec `SWARM_HIT_REDUCTION_SOURCE`, cf.
+    `unit_context.py`)."""
+    return ("statmod", getattr(eff, "effect_type", None), getattr(eff, "source", None),
+            getattr(eff, "name", None))
+
+
 def stat_modifications_by_source(effects, source_of=None) -> dict:
     """Contributions stat-mod DÉCLARÉES par les effets actifs, groupées `{idxStatType: {source: amount}}`
     — à passer à `stats.seed_unit_stats(attributed=...)` pour une modification **attribuée** (résidu
@@ -493,9 +505,7 @@ def stat_modifications_by_source(effects, source_of=None) -> dict:
         amt = e.get_stat_modification_amount()
         if not amt:
             continue
-        src = (source_of(e) if source_of else
-               ("statmod", getattr(e, "effect_type", None), getattr(e, "source", None),
-                getattr(e, "name", None)))
+        src = source_of(e) if source_of else statmod_source_key(e)
         d = out.setdefault(int(st), {})
         d[src] = d.get(src, 0) + int(amt)
     return out
@@ -519,9 +529,7 @@ def apply_effect_stat_modifications(unit_stats, effects, source_of=None) -> list
         amt = e.get_stat_modification_amount()
         if not amt:
             continue
-        src = (source_of(e) if source_of else
-               ("statmod", getattr(e, "effect_type", None), getattr(e, "source", None),
-                getattr(e, "name", None)))
+        src = source_of(e) if source_of else statmod_source_key(e)
         unit_stats.change_stat(int(st), src, int(amt))
         applied.append((src, int(st), int(amt)))
     return applied

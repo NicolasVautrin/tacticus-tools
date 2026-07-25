@@ -12,6 +12,8 @@ from .base import BaseEffect
 from .loki import (
     ActOfFaithBuffEffect,
     AnvilShieldAdditionalBlockEffect,
+    AnvilShieldBlockChanceBelowHealthCapEffect,
+    AnvilShieldFrozenAttackerAdvantageEffect,
     AstartesBannerExtraHitEffect,
     BeaconOfRageExtraDamageEffect,
     BeaconOfRageFriendlyExtraDamageEffect,
@@ -358,11 +360,22 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$RevertInternal ; ActiveCondition IsEnemyTurn & Not(attacked>=1). Apply/Revert impératifs = op runner
     # `MinimalHealthEffectOperation` ; le clamp vit dans `HealthComponent.reduce`. Nom capte = 1380 enum. G6a.
     "HypersensoryAbilities_MinimalHealth": HypersensoryMinimalHealthEffect,
-    # AnvilShield (Arjac spaceRockfist) : buff BLOCK_DAMAGE self quand il BLOQUE (0x4b2=1202,
-    # AddStaticStatModifierEffect stat 8, var blockDmg[L65]=728 rarity-scale ; IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyAdditionalBlockAndBlockChance$$CreateBehaviour). INCONDITIONNEL.
-    # Le 2e effet de la behaviour (0x4b0=1200 BlockChanceBelowHealthCap, stat 7=BLOCK_CHANCE/blockChance) N'EST
-    # PAS inscrit (gate sante abs-vs-% non tranche) ; 1201 FrozenAttackerAdvantage (dynamique) non plus. #133.
+    # AnvilShield (Arjac spaceRockfist) — les TROIS effets de la passive (tous ability-init, ability
+    # ACTIVE -> index activeAbilityLevel) :
+    #  - 0x4b2=1202 AdditionalBlock : stat 8 BLOCK_DAMAGE, var 0x14 blockDmg[L65]=728 RARITY-scale (997
+    #    live). INCONDITIONNEL (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyAdditionalBlockAndBlockChance$$CreateBehaviour`, 1er volet).
+    #  - 0x4b0=1200 BlockChanceBelowHealthCap : stat 7 BLOCK_CHANCE, var 0x15 blockChance (=20, NON
+    #    rarity-scale), 2e volet de la MEME behaviour. ActiveCondition (#100, resolue) =
+    #    `AmountIsEqualOrGreater(Direct(GetNumberConstant(0x4f=healthPct=35)), StatAmount(Self, HEALTH,
+    #    CURRENT_PCT))` -> le gate sante est un **POURCENTAGE** (StatPart 1). Live : absent+blockChance 0
+    #    a 100 % PV, present+blockChance 20 a 31.8 %.
+    #  - 0x4b1=1201 FrozenAttackerAdvantage : MEME stat 7 / MEME var 0x15, pose TRANSITOIREMENT par
+    #    `...AnvilShieldAbility_FrozenAttackerAdvantage$$CreateBehaviour` sur `On(0x2b=PreUnitAbility)`
+    #    quand l'attaquant est sur une tuile GLACEE, consomme a `On(0xe=UnitPostAbility)`.
+    # Les DEUX derniers etaient les prerequis manquants du volet `ApplyStun` (#100).
     "AnvilShield_AdditionalBlock": AnvilShieldAdditionalBlockEffect,
+    "AnvilShield_BlockChanceBelowHealthCap": AnvilShieldBlockChanceBelowHealthCapEffect,
+    "AnvilShield_FrozenAttackerAdvantage": AnvilShieldFrozenAttackerAdvantageEffect,
     # Contaminated_Unit (0x4dd=1245) : sous-effet -X% FixedArmor pose sur une unite occupant/entrant une
     # tuile contaminee (0x4dc). Debuff stat FixedArmor (=16) ; magnitude X NON resolue (#132) -> value=None
     # tant que non mesure live (present mais inerte-stat). Pose par le vecteur tile-effect ContaminatedTileEffect
@@ -468,6 +481,14 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # `EffectsDatabase.<InitializeEffects>b__14_225`, AUCUNE classe Ability — pas de CreateBehaviour à citer).
     # Seed = filet pour les états non captés (Abraxas lineup est normalement couvert par decisionView).
     "InfernalPacts": ["InfernalPacts_AdditionalHits"],
+    # AnvilShield (passif d'Arjac spaceRockfist) — `IdunBattleLogic.Entities.Abilities.Triggered.Loki.
+    # AnvilShieldAbility_ApplyAdditionalBlockAndBlockChance$$CreateBehaviour` pose DEUX owner-effects a
+    # l'init (`AbilityBehaviour.op_Addition` des deux `AddStaticStatModifierEffect`). Seul 0x4b0=1200 est
+    # inscrit ici : il est INACTIF au-dessus de 35 % PV, donc ABSENT du seed live (`decisionView.effects`
+    # n'expose que les ACTIFS — GROUND TRUTH #100) alors que 1202 y est TOUJOURS (inconditionnel, deja
+    # capte). Sans ce seed, le gate `HasEffect(Arjac, 1200)` d'`ApplyStun` serait mort dans tout runner
+    # demarrant Arjac a pleins PV. Idempotent : si Arjac demarre sous 35 %, l'effet est deja capte -> skip.
+    "AnvilShield": ["AnvilShield_BlockChanceBelowHealthCap"],
 }
 
 

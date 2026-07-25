@@ -195,21 +195,36 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         return (state.effects is not None
                 and state.effects.has_effect(int(tile_id), effect_type=int(effect_type)))
 
-    # `ctx.has_effect` (`IdunBattleLogic.Entities.DSLFactory$$HasEffect(unit, effectType, minLevel)` -> `HasEffectTrigger IdunBattle.Entities.Triggers.HasEffectTrigger$$ShouldTrigger`)
-    # : l'unite porte-t-elle un effet ACTIF du type, de niveau >= minLevel ? (source-flag 6 = owned|incoming
-    # -> offline on ne distingue pas la source, toutes les instances portees comptent). Meme cle `by_unit`
-    # que la pose `AddEffectOperation`. Sans `state.effects` -> False (degradation fidele).
-    def _has_effect(unit, effect_type, source_flag=6, min_level=0):
+    # `ctx.has_effect` (`IdunBattleLogic.Entities.DSLFactory$$HasEffect(unit, effectType, activeOnly,
+    # sourceFlags)` -> `IdunBattle.Entities.Triggers.HasEffectTrigger$$ShouldTrigger` ->
+    # `IdunBattle.Entities.EntityExtensions$$HasOneOfEffects`) : l'unite porte-t-elle un effet du type ?
+    # (source-flag 6 = owned|incoming -> offline on ne distingue pas la source, toutes les instances
+    # portees comptent). Meme cle `by_unit` que la pose `AddEffectOperation`. Sans `state.effects` ->
+    # False (degradation fidele).
+    # `active_only` (#100) = le 4e argument NATIF : `IsOwnerOfEffect` skippe toute entree dont
+    # `EffectComponent+0x5c` (= IsActive) est nul. Cote port, l'equivalent est l'`ActiveCondition`
+    # (`BaseEffect.is_active(unit_state)`) — indispensable pour
+    # `AnvilShield_BlockChanceBelowHealthCap` (1200), PRESENT en permanence sur Arjac mais ACTIF
+    # seulement sous 35 % PV. `unit_state` = `{hp, max_hp}` lu du `HealthComponent` du porteur.
+    def _has_effect(unit, effect_type, source_flag=6, min_level=0, active_only=True):
         if state.effects is None:
             return False
         uid = (unit or {}).get("id")
         if uid is None:
             return False
+        ustate = None
         for e in state.effects.by_unit.get(int(uid), []):
             if e.consumed or e.expired or e.effect_type != int(effect_type):
                 continue
             if int(min_level or 0) > 0 and int(e.level or 0) < int(min_level):
                 continue
+            if active_only:
+                if ustate is None:
+                    _ent = state.get_entity(int(uid))
+                    _hc = _ent.get_component(HealthComponent) if _ent is not None else None
+                    ustate = ({"hp": _hc.hp, "max_hp": _hc.hp_max} if _hc is not None else {})
+                if not e.is_active(ustate):
+                    continue
             return True
         return False
 
