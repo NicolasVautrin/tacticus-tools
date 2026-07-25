@@ -39,6 +39,19 @@ facteur SCALAIRE constant (buff ranged du caster non applique aux attaques d'abi
 CONSTANT per-coup prouve que ce n'est PAS un desync rng (native_factory OK). On valide STRUCTURE (A/B),
 TARGETING, nb de coups, native_factory (ratio-constant), PAS l'egalite de degat brute.
 
+ORACLE DU NOMBRE DE COUPS (#96 -- aucun scalaire de gameplay fige). Le decompile TRANCHE : dans
+`IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour`, les deux
+`GetNumberConstant(cfg, 0x2f)` / `GetNumberConstant(cfg, 0x32)` partent DIRECTEMENT en argument des deux
+`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (main / splash) -- aucune formule, et
+`IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant` n'est qu'un `GetStringConstant` +
+`System.Int32.Parse`. Valeurs BRUTES -> l'oracle est la CONFIG :
+`gameconfig.ability("SanctorumMissile").constants.nrOfHits` / `.nrOfHits_2`. C'est CETTE ability qui LEVE
+l'ambiguite de cle a elle seule : nrOfHits(0x2f)=2 et nrOfHits_2(0x32)=1 ont des valeurs DIFFERENTES et le
+LIVE les separe (2 coups sur la main, 1 sur chaque splash) -- un port qui lirait la mauvaise cle rougirait.
+Le nb de coups REELLEMENT applique, lui, est CALCULE (`attack_hits_with_modifiers` : base + ExtraHits -
+reductions, plancher 1) : c'est le LIVE qui l'arbitre, et on le confronte a l'oracle config (aucune
+reduction de coups dans ce setup).
+
 Lit l'etat LIVE, aucune tuile/RVA hardcodee. ASCII only. Skip si build/geometrie/adeptMorvenn indispo.
 """
 from __future__ import annotations
@@ -51,6 +64,7 @@ from pathlib import Path
 
 import pytest
 
+import gameconfig as GC
 import hexgeo
 from engine.entities.pathfinding.board import Board
 from engine.runner.snapshot import load_state
@@ -86,6 +100,15 @@ def _byvis(dv, vis, alive=True):
 
 def _spread(ratios):
     return (max(ratios) - min(ratios)) if ratios else 0.0
+
+
+def _const(key):
+    """ORACLE : constante de config d'ability SanctorumMissile (`GetNumberConstant`, lecture BRUTE cote
+    natif -- cf. en-tete). Fail explicite si la cle a disparu de la config."""
+    v = ((GC.ability("SanctorumMissile") or {}).get("constants") or {}).get(key)
+    assert v is not None, (f"oracle introuvable : gameconfig.ability('SanctorumMissile').constants.{key} "
+                           f"absent -- le natif le lit par GetNumberConstant, il DOIT exister")
+    return int(v)
 
 
 def _fromhere(at, cid):
@@ -261,10 +284,15 @@ def test_sanctorum_missile_targeting_and_ab(live_session, rpc):
         assert set(live.keys()) == ({target_id} | expect_splash), (
             f"cibles live {sorted(live)} != main+splash attendu {sorted({target_id} | expect_splash)} "
             f"(morvenn_adj={morvenn_adj}, cid={cid})")
-        assert len(live[target_id]) == 2, f"cible MAIN : {len(live[target_id])} coups live != 2 (nrOfHits)"
+        want_hits, want_hits2 = _const("nrOfHits"), _const("nrOfHits_2")   # ORACLE config (cf. en-tete)
+        assert len(live[target_id]) == want_hits, (
+            f"cible MAIN : {len(live[target_id])} coups LIVE != oracle config nrOfHits={want_hits}. Le nb "
+            f"applique est CALCULE (base - reductions, plancher 1) : soit une reduction de coups joue dans "
+            f"ce setup (le port doit la modeliser), soit le volet MAIN ne lit plus 0x2f")
         for sid in expect_splash:
-            assert len(live.get(sid) or []) == 1, \
-                f"splash {sid} : {len(live.get(sid) or [])} coups live != 1 (nrOfHits_2)"
+            assert len(live.get(sid) or []) == want_hits2, (
+                f"splash {sid} : {len(live.get(sid) or [])} coups LIVE != oracle config "
+                f"nrOfHits_2={want_hits2} (0x32) -- volet splash")
 
         # (A) A/B BIT-EXACT : arbre (main + splash) == sequences directes execute_ability_attack sous le meme rng.
         st_tree = load_state(dv2, ob2, snap2, board=board); st_tree.rng = _seed_rng(s0)
@@ -276,10 +304,16 @@ def test_sanctorum_missile_targeting_and_ab(live_session, rpc):
             f"splash offline {sorted(tree_splash)} != attendu {sorted(expect_splash)}"
         # sequence directe main (nrOfHits, attack-factory)
         bmin, bmax, pierce, hits = ability_attack_params(st_tree, cid, "SanctorumMissile", "Blast", ranged=True)
-        assert hits == 2, f"nrOfHits {hits} != 2 (config SanctorumMissile)"
+        assert hits == want_hits, (
+            f"nrOfHits lu {hits} != oracle config {want_hits} (constants.nrOfHits) -- le port ne lit pas la "
+            f"CONSTANTE d'ability (0x2f) mais autre chose (variable per-niveau scalee ? mauvaise cle ?)")
         _bmin2, _bmax2, _p2, hits2 = ability_attack_params(
             st_tree, cid, "SanctorumMissile", "Blast", ranged=True, hits_key="nrOfHits_2")
-        assert hits2 == 1, f"nrOfHits_2 {hits2} != 1 (config SanctorumMissile)"
+        assert hits2 == want_hits2, (
+            f"nrOfHits_2 lu {hits2} != oracle config {want_hits2} (constants.nrOfHits_2, 0x32)")
+        assert want_hits != want_hits2, (
+            f"les DEUX cles valent {want_hits} : la confrontation live main/splash ne discrimine plus "
+            f"nrOfHits(0x2f) de nrOfHits_2(0x32) -- un port qui lirait la mauvaise cle resterait vert")
         st_dir = load_state(dv2, ob2, snap2, board=board); st_dir.rng = _seed_rng(s0)
         direct_main = AttackDamageOperation.execute_ability_attack(
             st_dir, cid, target_id, bmin, bmax, pierce, hits,
@@ -329,8 +363,10 @@ def test_sanctorum_missile_native_factory_attack(live_session, rpc, seed):
         if out is None:
             pytest.skip("cast/dumpRng KO")
         live, (dv2, ob2, snap2), s0 = out
+        want_hits = _const("nrOfHits")                        # ORACLE config (cf. en-tete)
         live_main = live.get(target_id)
-        assert live_main and len(live_main) == 2, f"MAIN live {live_main} != 2 coups"
+        assert live_main and len(live_main) == want_hits, \
+            f"MAIN live {live_main} != oracle config nrOfHits={want_hits} coups"
 
         bmin, bmax, pierce, hits = ability_attack_params(
             load_state(dv2, ob2, snap2), cid, "SanctorumMissile", "Blast", ranged=True)
@@ -342,7 +378,13 @@ def test_sanctorum_missile_native_factory_attack(live_session, rpc, seed):
         off_ability = (AttackDamageOperation.execute_ability_attack(
             st_ab, cid, target_id, bmin, bmax, pierce, hits,
             damage_profile="Blast", is_melee=False, is_attack_damage_op=False) or {}).get("per_hit")  # "ability"
-        assert len(off_attack) == 2 and len(off_ability) == 2
+        assert len(off_attack) == want_hits and len(off_ability) == want_hits, (
+            f"comparaison per-coup impossible : attack={len(off_attack)} ability={len(off_ability)} "
+            f"coups, oracle config nrOfHits={want_hits}")
+        assert want_hits >= 2, (
+            f"setup NON discriminant : nrOfHits={want_hits} -- le desync de la famille 'ability' "
+            f"n'apparait qu'A PARTIR du 2e coup, un mono-coup rendrait le ratio trivialement constant "
+            f"des deux cotes et l'assertion de spread ci-dessous incapable de rougir")
         r_attack = [lm / om for lm, om in zip(live_main, off_attack)]
         r_ability = [lm / om for lm, om in zip(live_main, off_ability)]
         # attack-family : ratio constant (buff scalaire eventuel, rng synced) ; ability-family : desync coup 2.

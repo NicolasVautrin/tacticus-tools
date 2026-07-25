@@ -212,10 +212,10 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   souvent la clé, ce qui rend le tri mécanique.
 
   Familles restantes (scan `assert … == <litt> … (nrOfHits|pierce|chance|Pct|range|config)`) :
-  `nrOfHits`/`nrOfHits_2` (martial_apotheosis, plasma_cannon,
-  savage_echoes, sanctorum_missile, sentinel_directives, stikkbomb, summon_ability_ports, harvester,
-  harbinger, destroyer_hive) ; `PiercingRatio` de profil (40 Power, 55 HeavyRound, 30 Energy, 100
-  DirectDamage, 1 Physical, 10 Las — y compris dans les 5 fichiers du lot A, hors périmètre de ce lot) ;
+  `nrOfHits`/`nrOfHits_2` (stikkbomb, summon_ability_ports, harvester,
+  harbinger, destroyer_hive) ; `PiercingRatio` de profil (40 Power, 55 HeavyRound, 100
+  DirectDamage, 1 Physical, 10 Las — y compris dans les 5 fichiers du lot A, hors périmètre de ce lot ;
+  30 Energy est traité par le lot B) ;
   constantes globales (`getStuckInChance == 30`,
   `firstAidRecovery == 35`, `parryHitReduction` via `base_cfg - 1` dans
   `test_ability_hits_channel_live`) ; plage figée `30 <= hpPct <= 50` (hypersensory) ; et deux résidus
@@ -244,6 +244,19 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   **À NE PAS confondre** avec les invariants STRUCTURELS (`len(spawned) == 1`, `distance == 1`,
   `hp == 0`) : ils décrivent une forme, pas un réglage, et restent légitimement littéraux. Test
   d'appartenance : « un patch d'équilibrage peut-il changer ce nombre ? »
+
+  **LOT B LIVRÉ** (`martial_apotheosis`, `plasma_cannon` (+ `plasma_cannon_lateral` : RAS, aucun scalaire),
+  `savage_echoes`, `sanctorum_missile`, `sentinel_directives`) : tous les `nrOfHits`/`nrOfHits_2` + les
+  `PiercingRatio` (Energy 30, Physical 1) + `healthPct` (SavageEchoes) + `range` (SentinelDirectives)
+  dérivent maintenant de `gameconfig`. Le décompilé tranche BRUT : `GetNumberConstant`/`ConfigConst(0x2f)`
+  partent DIRECTEMENT en argument de `DSLFactory$$AttackWithAttackDamage` (aucune formule) et
+  `AbilityConfiguration$$GetNumberConstant` = `GetStringConstant` + `Int32.Parse`. **Trou de
+  discrimination trouvé et fermé** : `test_sentinel_directives_live` ne comptait JAMAIS les coups live —
+  décaler `nrOfHits` (1→2) ne le faisait pas rougir ; une assertion `len(live_ph) == nrOfHits` a été
+  ajoutée. **Résidus de confrontation** (documentés en tête des fichiers, aucun scalaire figé pour autant) :
+  `martial_apotheosis` (vecteur turn-start — `applyAction endturn` + `captureEvents` rend 1 action / **0
+  event**, aucun per-coup observable ; il faudrait hooker `AttackDamageOperation$$ExecuteHit`) et
+  `savage_echoes` (cast live = résidu out-of-pool pré-existant) ne confrontent le compte qu'au PORT.
 
   `[opus]`, par lots de quelques fichiers — l'exécution live domine le coût, pas l'édition.
 - **Nature du coup, résidus** (`case-106-ismeleeattack-fork` §7 — fork CLOS, `execute_normal_like`

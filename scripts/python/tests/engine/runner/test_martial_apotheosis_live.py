@@ -17,11 +17,27 @@ CE QUI EST VALIDE (le porteur necroOverlord EST SPAWNABLE, cf. test_thebetrayer)
   (C) CIBLAGE ANNEAU-1 : un ennemi adjacent (dist 1) est cible ; un ennemi a dist 2 NE l'est PAS (anneau-1,
       PAS le disque rayon-2 de HarbingerOfDestruction).
   (D) A/B bit-exact + params : pool==1 (deterministe) -> l'arbre == une sequence directe
-      `execute_ability_attack(2 coups, Energy pierce 30)` depuis le MEME MT ; nrOfHits=2, pierce=30, melee.
+      `execute_ability_attack` depuis le MEME MT ; params confrontes a l'ORACLE CONFIG (cf. ci-dessous), melee.
   (E) LIVE replay-diff : on drive un ennemi adjacent a necroOverlord, `endturn` (flip -> son turn-start ->
       MartialApotheosis), et la cible frappee live == la cible offline (pool==1) + une attaque a lieu.
 Le DEGAT exact live (calage RNG de la cascade turn-start `On(0x12..0x16)`) n'est PAS exige (== TheBetrayer) ;
 la bit-exactness du DEGAT est prouvee PAR CONSTRUCTION en (D).
+
+ORACLE DES PARAMS (#96 -- aucun scalaire de gameplay fige ici). Le decompile TRANCHE : le nb de coups et le
+profil sont lus TELS QUELS dans la config d'ability par
+`IdunBattleLogic.Entities.Abilities.Active.Loki.MartialApotheosisAbility$$CreateBehaviour`
+(`GetNumberConstant(cfg, 0x2f)` et `GetDamageProfile(cfg, 0)` passes directement en arguments de
+`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -- aucune formule),
+et `IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant` n'est qu'un
+`GetStringConstant` + `System.Int32.Parse`. Ce sont donc des valeurs BRUTES -> l'oracle est la CONFIG :
+`gameconfig.ability("MartialApotheosis").constants` (`nrOfHits`, `damageProfile`) et
+`gameconfig.damage_profile(<profil>).PiercingRatio`. Cle non ambigue : enum `AbilityConstantType`
+0x2f=nrOfHits(47) (cf. `engine/entities/formulas.py::ConfigConst`), distinct de 0x16=range(22).
+RESIDU DE CONFRONTATION (mesure) : sur CE vecteur (turn-start), `applyAction endturn` + `captureEvents`
+rend 1 action / 0 event -- aucun evenement per-coup n'est expose, le nb de coups LIVE n'est donc pas
+observable ici (contrairement aux abilities castees : PlasmaCannon/SanctorumMissile/SentinelDirectives le
+confrontent, eux). L'oracle config est confronte au PORT (nb de coups emis par l'arbre) ; le confronter au
+NATIF demanderait un hook sur `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`.
 
 Drive les positions (memoire « drive positions, don't blame geometry »). Etat LIVE, aucune RVA/tuile
 hardcodee. State-file UNIQUE (chemin absolu + agent id). ASCII-only.
@@ -35,6 +51,7 @@ from pathlib import Path
 
 import pytest
 
+import gameconfig as GC
 import hexgeo
 from engine.entities.pathfinding.board import Board
 from engine.runner.snapshot import load_state
@@ -54,6 +71,14 @@ STATE = ROOT / "data" / f"_pytest_martial_apotheosis_{AGENT_ID}.json"
 CARRIER = "necroOverlord"                                           # porteur du passif MartialApotheosis
 ENEMIES = "necroWarden,eldarRanger,eldarAutarch"                    # ennemis (team joueur), tanky + armure 0
 HP = "500000"                                                       # --hp-player : survivent + armure 0 (per-coup net)
+
+
+# ------------------------------------------------------------------ oracle CONFIG (cf. en-tete)
+
+def _const(key):
+    """Constante de config d'ability = `AbilityConfiguration.GetNumberConstant/GetStringConstant`
+    (lecture BRUTE, aucune formule) -> ORACLE des params. None si la cle a disparu de la config."""
+    return ((GC.ability("MartialApotheosis") or {}).get("constants") or {}).get(key)
 
 
 # ------------------------------------------------------------------ helpers etat offline
@@ -298,7 +323,10 @@ def test_ma_ring1_not_radius2(ma_env):
 
 def test_ma_ab_and_params(ma_env):
     """A/B : pool==1 (deterministe) -> l'arbre == une sequence directe `execute_ability_attack` depuis le
-    MEME MT (bit-exact). Params : nrOfHits=2, pierce=30 (profil Energy), melee, chaque coup dans [bmin,bmax]."""
+    MEME MT (bit-exact). Params confrontes a l'ORACLE CONFIG (cf. en-tete, aucun scalaire fige) : nb de
+    coups == `constants.nrOfHits`, percage == `PiercingRatio` du profil `constants.damageProfile`, melee,
+    chaque coup dans [bmin,bmax]."""
+    from engine.runner.components import StatsComponent
     state = ma_env["build_state"]()
     board = ma_env["board"]
     cid = _find_by_vis(state, CARRIER)
@@ -315,11 +343,32 @@ def test_ma_ab_and_params(ma_env):
     _set_pos(state, t_id, *_ring(board, C, 1)[0])
     op = _owner(state, cid)
 
-    # params via le port (level_slot="passive").
-    bmin, bmax, pierce, hits = ability_attack_params(state, cid, "MartialApotheosis", "Energy",
+    # ORACLE CONFIG : nb de coups + profil lus TELS QUELS dans la config (cf. en-tete).
+    want_hits = _const("nrOfHits")
+    prof = _const("damageProfile")
+    assert want_hits is not None and prof is not None, (
+        "oracle introuvable : gameconfig.ability('MartialApotheosis').constants sans nrOfHits/damageProfile "
+        "-- le natif les lit par GetNumberConstant(0x2f)/GetDamageProfile(0), elles DOIVENT exister")
+    want_hits = int(want_hits)
+    dp = GC.damage_profile(prof) or {}
+    assert dp.get("PiercingRatio") is not None, f"oracle introuvable : damageProfiles.{prof}.PiercingRatio"
+    want_pierce = int(dp["PiercingRatio"])
+
+    # params via le port (level_slot="passive"), profil pris de la config (== GetDamageProfile(0)).
+    bmin, bmax, pierce, hits = ability_attack_params(state, cid, "MartialApotheosis", prof,
                                                      ranged=False, level_slot="passive")
-    assert hits == 2, f"nrOfHits attendu 2, lu {hits}"
-    assert pierce == 30, f"pierce attendu 30 (profil Energy), lu {pierce}"
+    assert hits == want_hits, (
+        f"nrOfHits lu {hits} != oracle config {want_hits} (constants.nrOfHits) -- le port ne lit pas la "
+        f"CONSTANTE d'ability (0x2f) mais autre chose (variable per-niveau scalee ? mauvaise cle ?)")
+    # le percage de l'attaque = PiercingRatio du PROFIL + ExtraPierce du caster ; ici le porteur n'en a
+    # aucun -> l'identite isole l'oracle de profil. Si un patch lui en donnait, ce garde-fou le DIRAIT
+    # au lieu de laisser l'assertion suivante rougir sans explication.
+    _sc = state.get_entity(cid).get_component(StatsComponent)
+    _xp = int(_sc.ctx.extra_pierce or 0) + int(_sc.ctx.extra_pierce_melee or 0)
+    assert _xp == 0, (f"setup n'isole plus le PiercingRatio du profil : le porteur a ExtraPierce={_xp} "
+                      f"-> l'oracle attendu devient PiercingRatio + {_xp}")
+    assert pierce == want_pierce, (
+        f"pierce {pierce} != oracle config {want_pierce} (damageProfiles.{prof}.PiercingRatio)")
 
     # snapshot MT AVANT le fire.
     rng_snap = {"mt": list(state.rng.mt), "mti": state.rng.mti} if state.rng is not None else None
@@ -341,14 +390,16 @@ def test_ma_ab_and_params(ma_env):
     _set_pos(st2, cid, *C)
     _set_pos(st2, t_id, *_pos(state, t_id))
     rr = AttackDamageOperation.execute_ability_attack(st2, cid, t_id, bmin, bmax, pierce, hits,
-                                                      damage_profile="Energy", is_melee=True)
+                                                      damage_profile=prof, is_melee=True)
     ref_ph = (rr or {}).get("per_hit")
     print(f"[MA D] ref_per_hit={ref_ph}")
     assert port_ph == ref_ph, f"A/B : arbre {port_ph} != baseline execute_ability_attack {ref_ph}"
-    assert port_ph is not None and len(port_ph) == 2, f"attendu 2 coups, per_hit={port_ph}"
+    assert port_ph is not None and len(port_ph) == want_hits, \
+        f"{len(port_ph or [])} coups emis par l'arbre != oracle config nrOfHits={want_hits}, per_hit={port_ph}"
     for v in port_ph:
         assert bmin <= v <= bmax, f"coup {v} hors plage config [{bmin},{bmax}]"
-    print("[MA D] OK : A/B tree==baseline (2 coups Energy pierce 30, bit-exact), params conformes")
+    print(f"[MA D] OK : A/B tree==baseline ({want_hits} coups {prof} pierce {want_pierce}, bit-exact), "
+          f"params == oracle config")
 
 
 # ------------------------------------------------------------------ (E) LIVE replay-diff turn-start
@@ -401,6 +452,9 @@ def test_ma_live_replay(ma_env):
     hp_before = next((u.get("hp") for u in (ob.get("units") or []) if u.get("squadId") == fid), None)
 
     # LIVE : endturn -> porteur turn-start -> MartialApotheosis.
+    # NB (mesure) : `applyAction endturn` + `captureEvents` rend 1 action / 0 event -- la cascade
+    # turn-start n'expose AUCUN evenement per-coup. Le nb de coups de ce vecteur n'est donc PAS
+    # confrontable live (cf. en-tete, residu) ; seul le HP delta l'est.
     rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}, "captureEvents": True}, 90)
     ob2 = rpc("observeBattle", {"runnerId": rid}, 60)
     hp_after = next((u.get("hp") for u in (ob2.get("units") or []) if u.get("squadId") == fid), None)

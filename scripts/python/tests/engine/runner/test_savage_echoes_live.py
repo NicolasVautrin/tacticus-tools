@@ -37,8 +37,23 @@ VALIDATION (etat LIVE reel : board dumpe, positions drivees, stats/level/mult du
   B. DISCRIMINANT extraDmg x count : un baseline SANS le bonus (bornes config seules) DIVERGE (count>0) -> le
      bonus `extraDmg x free-tiles` est reel et correctement porte.
   C. COUNT node : `CanAddUnit(AdjacentTiles(Self))` == free-tiles calcule a la main sur le board LIVE.
-  D. self-heal : (d1) HP plein -> regenerate FALSE, heal 0 ; (d2) boundary 51%/50%/49% -> False/True/True
+  D. self-heal : (d1) HP plein -> regenerate FALSE, heal 0 ; (d2) boundary EXACTE au seuil config
+     `constants.healthPct` (thr+1 PV / thr / thr-1 -> False/True/True, granularite 1 PV)
      (`StatPercentageIsBelowOrEqual IdunBattle.Entities.Conditions.StatPercentageIsBelowOrEqualAbilityTrigger$$ShouldTrigger` : current/max <= healthPct/100) + amount == gameconfig `hp` x mult.
+
+ORACLES (#96 -- aucun scalaire de gameplay fige ici). Le decompile TRANCHE, volet par volet, dans
+`IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$ExecuteBehaviour` :
+  - nb de coups = `IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$GetHits` =
+    `GetNumberConstant(cfg, 0x2f)` passe DIRECTEMENT a `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`
+    (aucune formule ; `IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant` = `GetStringConstant`
+    + `System.Int32.Parse`) -> valeur BRUTE, oracle = `gameconfig.ability("SavageEchoes").constants.nrOfHits` ;
+  - seuil du self-heal = `DSLFactory$$ConfigConst(0x4f)` consomme par `DSLFactory$$HealthPctIsBelowOrEqual`
+    (cf. aussi `SavageEchoesAbility$$GetRegenerateCondition`) -> BRUTE, oracle =
+    `constants.healthPct` ;
+  - le DEGAT, lui, est CALCULE (`Sum(MinMaxDamage, Multiply(Get(GetVariableForLevel(8)), Count(...)))`) : on
+    ne fige donc AUCUN montant, on confronte port vs sequence directe sous le meme rng (A) et le bonus au
+    discriminant (B).
+Cle non ambigue : enum `AbilityConstantType` 0x2f=nrOfHits(47) (cf. `engine/entities/formulas.py::ConfigConst`).
 
 ASCII only. Skip propre si pas de session / seed BC sans unite clonable / geometrie infaisable.
 """
@@ -68,6 +83,15 @@ A_UNITS = f"{TGT_VIS},necroDestroyer,necroWarden,necroOverlord"
 
 def _ok(r):
     return isinstance(r, dict) and r.get("ok")
+
+
+def _const(key):
+    """ORACLE : constante de config d'ability SavageEchoes (`GetNumberConstant`/`ConfigConst`, lecture
+    BRUTE cote natif -- cf. en-tete). Fail explicite si la cle a disparu de la config."""
+    v = ((GC.ability("SavageEchoes") or {}).get("constants") or {}).get(key)
+    assert v is not None, (f"oracle introuvable : gameconfig.ability('SavageEchoes').constants.{key} "
+                           f"absent -- le natif le lit en ConfigConst, il DOIT exister")
+    return int(v)
 
 
 def _find(dec, vis):
@@ -270,10 +294,14 @@ def test_savage_echoes_wiring_and_free_tile_bonus(live_session, rpc):
         res = SavageEchoesAbility().execute_behaviour(st, cid, tid)
         assert res is not None and res.get("dsl") is True, f"port non execute: {res}"
         port_ph = (res.get("main_attack") or {}).get("per_hit") or []
-        assert len(port_ph) == 4, f"port per-hit {port_ph} != 4 coups (nrOfHits)"
+        want_hits = _const("nrOfHits")            # ORACLE config (cf. en-tete), jamais un litteral
+        assert len(port_ph) == want_hits, \
+            f"port per-hit {port_ph} = {len(port_ph)} coups != oracle config nrOfHits={want_hits}"
         st2 = mkstate()
         bmin, bmax, pierce, hits = ability_attack_params(st2, cid, "SavageEchoes", "Eviscerate", ranged=False)
-        assert hits == 4, f"nrOfHits {hits} != 4"
+        assert hits == want_hits, (
+            f"nrOfHits lu {hits} != oracle config {want_hits} (constants.nrOfHits) -- le port ne lit pas la "
+            f"CONSTANTE d'ability (0x2f) mais autre chose (variable per-niveau scalee ? mauvaise cle ?)")
         flat = extra_eff * count
         direct = AttackDamageOperation.execute_ability_attack(
             st2, cid, tid, bmin + flat, bmax + flat, pierce, hits,
@@ -310,7 +338,7 @@ def test_savage_echoes_wiring_and_free_tile_bonus(live_session, rpc):
         if _ok(cast):
             live_hits = _live_hits_from_events(cast, tid, _hp_ob(ob0, tid))
             print(f"[savage] cast LIVE OK (config materialisee !) per-hit={live_hits}")
-            if len(live_hits) == 4 and int(getattr(csc.ctx, "crit_chance", 0) or 0) == 0:
+            if len(live_hits) == want_hits and int(getattr(csc.ctx, "crit_chance", 0) or 0) == 0:
                 assert port_ph == live_hits, f"PORT {port_ph} != LIVE {live_hits} (bit-exact cc=0)"
         else:
             errs = [a.get("error") for a in (cast.get("actions") or [])]
@@ -322,7 +350,8 @@ def test_savage_echoes_wiring_and_free_tile_bonus(live_session, rpc):
 
 
 def test_savage_echoes_regenerate_heal(live_session, rpc):
-    """D. self-heal (regenerate) sur etat LIVE : boundary 51%/50%/49% du seuil healthPct=50 -> False/True/True
+    """D. self-heal (regenerate) sur etat LIVE : boundary EXACTE (granularite 1 PV) autour du seuil lu en
+    config `constants.healthPct` -- thr+1 PV / thr / thr-1 -> False/True/True
     (`StatPercentageIsBelowOrEqual IdunBattle.Entities.Conditions.StatPercentageIsBelowOrEqualAbilityTrigger$$ShouldTrigger`) + heal amount == gameconfig `hp` x mult au niveau du porteur."""
     from engine.runner.snapshot import load_state
     from engine.entities.pathfinding.board import Board
@@ -363,25 +392,34 @@ def test_savage_echoes_regenerate_heal(live_session, rpc):
         lvl = getattr(sc.ctx, "active_ability_level", 0)
         mult = int(getattr(sc.ctx, "ability_variables_multiplier", 100) or 100)
         hp_max = int(hc.hp_max)
-        # boundary du seuil 50%
-        hc.hp = (51 * hp_max) // 100 + 1
-        assert _regenerate_precondition(st, cid) is False, f"HP 51% -> regenerate devrait etre False (hp={hc.hp}/{hp_max})"
-        hc.hp = hp_max // 2                                                 # 2*current==max -> <=50%
-        assert _regenerate_precondition(st, cid) is True, f"HP 50% -> regenerate devrait etre True (hp={hc.hp}/{hp_max})"
-        hc.hp = (49 * hp_max) // 100
-        assert _regenerate_precondition(st, cid) is True, f"HP 49% -> regenerate devrait etre True (hp={hc.hp}/{hp_max})"
+        # BOUNDARY sur le seuil LU EN CONFIG (`ConfigConst(0x4f)=healthPct`), pas sur un 50% fige :
+        # `thr_hp` = plus grand PV qui satisfait ENCORE `100*current <= healthPct*max`. On teste a 1 PV
+        # pres de part et d'autre -> discrimine `<=` de `<` quel que soit le pourcentage configure.
+        pct = _const("healthPct")
+        thr_hp = (pct * hp_max) // 100
+        assert 1 < thr_hp < hp_max, (f"setup non discriminant : seuil healthPct={pct}% -> thr_hp={thr_hp} "
+                                     f"hors ]1, hp_max={hp_max}[ (impossible de tester les deux cotes)")
+        hc.hp = thr_hp + 1
+        assert _regenerate_precondition(st, cid) is False, \
+            f"HP {hc.hp}/{hp_max} (1 PV AU-DESSUS du seuil {pct}%) -> regenerate devrait etre False"
+        hc.hp = thr_hp
+        assert _regenerate_precondition(st, cid) is True, \
+            f"HP {hc.hp}/{hp_max} (AU seuil {pct}%) -> regenerate devrait etre True (comparateur <=)"
+        hc.hp = thr_hp - 1
+        assert _regenerate_precondition(st, cid) is True, \
+            f"HP {hc.hp}/{hp_max} (1 PV SOUS le seuil {pct}%) -> regenerate devrait etre True"
 
-        # amount == gameconfig hp x mult, heal fire (25%, pas de cap)
+        # amount == gameconfig hp x mult, heal fire (PV bas, sous le seuil config -> pas de cap)
         want_heal = int(ability_var("SavageEchoes", "hp", lvl, multiplier_pct=mult))
         st2 = mkstate()
-        st2.get_entity(cid).get_component(HealthComponent).hp = hp_max // 4
+        st2.get_entity(cid).get_component(HealthComponent).hp = max(1, min(hp_max // 4, thr_hp - 1))
         res = SavageEchoesAbility().execute_behaviour(st2, cid, tid)
-        assert res.get("regenerate") is True, "HP 25% -> regenerate devrait etre True"
+        assert res.get("regenerate") is True, "HP sous le seuil config -> regenerate devrait etre True"
         assert int(res.get("heal_amount") or 0) == want_heal, \
             f"heal offline {res.get('heal_amount')} != gameconfig hp x mult {want_heal}"
         healed = next((h.get("healed") for h in (res.get("heals") or []) if h.get("target") == cid), None)
         assert healed and healed > 0, f"self-heal non applique (healed={healed})"
-        print(f"[savage-heal] boundary 51/50/49% OK ; heal amount={res.get('heal_amount')} "
-              f"(=hp[{lvl}]x{mult}) healed={healed}")
+        print(f"[savage-heal] boundary healthPct={pct}% (thr_hp={thr_hp} +-1 PV) OK ; "
+              f"heal amount={res.get('heal_amount')} (=hp[{lvl}]x{mult}) healed={healed}")
     finally:
         _cleanup(rpc, rid, state_file, bc_file)
