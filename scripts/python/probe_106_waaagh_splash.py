@@ -11,6 +11,11 @@ On met donc `orksWarboss` a cote de `tyranNeurothrope` (Psyker), on caste Waaagh
 tire son arme RANGED psychique -> le splash Psyker passe par `execute_normal_like(is_melee=False)`.
 Le porteur du splash porte alors 1100 (melee-only, +extraDmg PLAT) : le natif ne doit PAS l'appliquer.
 
+#111 -- Le cast de Waaagh exige une CIBLE ENNEMIE LEGALE (cf. le commentaire au call-site).
+La version initiale de ce probe ciblait le CASTER lui-meme : le moteur refusait le cast en amont de
+tout etage de pose, aucun buff n'etait pose, et le probe sortait en `NON DISCRIMINANT`. La cible est
+desormais lue dans `abilityTargets(...).fromHere` du Warboss.
+
 Usage (depuis scripts/python) :
     python probe_106_waaagh_splash.py --seed 777 --board MC1_67 --state-file <ABSOLU>
 """
@@ -156,9 +161,20 @@ def main() -> int:
                     "kind": "move", "unitId": wb["id"], "to": {"col": cw, "row": rw_}}}, 40)
                 dec = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
                 wb = next((u for u in dec["units"] if u["id"] == wb0["id"] and u.get("alive")), wb)
-        if cands:
+        # #111 : le scenario n'est atteint que si le Warboss peut AUSSI caster -- son gate
+        # `WaaaghAbility$$GetDynamicInvalidTargetReason` exige une tuile LIBRE adjacente a une cible
+        # ennemie, atteignable en (MOVEMENT + extraMovement) pas. Sans cette condition, la boucle
+        # « reussissait » sur la seule geometrie du psyker et le cast qui suivait etait un no-op.
+        atw = rpc(s, "abilityTargets", {"runnerId": rid, "unitId": wb["id"],
+                                        "allAbilities": True}, 90)
+        wfh = [t for unit in (atw.get("units") or []) if unit.get("unitId") == wb["id"]
+               for ab in (unit.get("abilities") or []) if ab.get("abilityId") == WAAAGH_ABILITY
+               for t in (ab.get("fromHere") or []) if t.get("kind") == "unit"]
+        if cands and wfh:
             chosen = (cands[0][0], cands[0][1], ps, wb)
             break
+        if cands and not wfh:
+            print("splash OK mais Waaagh non castable depuis la tuile du Warboss -> on avance")
         goals = [T for T in ens
                  if set(board.neighbours(tile_of(T))) & {tile_of(e) for e in ens if e is not T}]
         goal = min(goals or ens, key=lambda T: dist_ps.get(tile_of(T), 99))
@@ -206,10 +222,29 @@ def main() -> int:
     print("pre-cast: psyker pos=%s tile=%s | warboss pos=%s tile=%s | adjacent=%s"
           % (psp.get("pos"), tile_of(psp), wbp.get("pos"), tile_of(wbp),
              tile_of(wbp) in set(board.neighbours(tile_of(psp)))))
+    # #111 -- Waaagh a une CIBLE ENNEMIE OBLIGATOIRE. Le gate natif
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetDynamicInvalidTargetReason` =
+    # `Count(GetPossibleMovementTiles(target)) > 0` (une tuile LIBRE adjacente a la cible, atteignable
+    # par le caster en MOVEMENT+extraMovement pas). Une cible ILLEGALE (le caster lui-meme, un allie,
+    # un ennemi hors portee de charge) fait sortir `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
+    # a `IdunBattle.Operations.ActiveAbilityOperation$$IsInvalidTarget`, AVANT tout etage de pose :
+    # `ok=true, mutated=false, actionConsumed=false`, events = [group User_UseAbility, finish].
+    # -> on prend la cible dans `abilityTargets(...).fromHere` (legalite EXACTE du cast immediat),
+    # PAS dans `targets` (superset « ce tour, MOVE inclus » : y piocher peut rendre un no-op).
+    atw = rpc(s, "abilityTargets", {"runnerId": rid, "unitId": wb["id"], "allAbilities": True}, 90)
+    wtg = [t for unit in (atw.get("units") or []) if unit.get("unitId") == wb["id"]
+           for ab in (unit.get("abilities") or []) if ab.get("abilityId") == WAAAGH_ABILITY
+           for t in (ab.get("fromHere") or []) if t.get("kind") == "unit"]
+    if not wtg:
+        print("aucune cible LEGALE pour Waaagh depuis la tuile du Warboss "
+              "(gate GetDynamicInvalidTargetReason) -> scenario non atteint")
+        return 8
     rw = rpc(s, "applyAction", {"runnerId": rid, "action": {
-        "kind": "ability", "casterId": wb["id"], "targetId": wb["id"],
-        "abilityType": WAAAGH_ABILITY}}, 90)
-    print("waaagh cast ok=%s" % ((rw.get("actions") or [{}])[0].get("ok")))
+        "kind": "ability", "casterId": wb["id"], "targetId": wtg[0]["targetId"],
+        "abilityType": WAAAGH_ABILITY}}, 120)
+    rw0 = (rw.get("actions") or [{}])[0]
+    print("waaagh cast target=%s ok=%s mutated=%s actionConsumed=%s"
+          % (wtg[0]["targetId"], rw0.get("ok"), rw0.get("mutated"), rw0.get("actionConsumed")))
 
     dv = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
     psx = next((u for u in dv["units"] if u["id"] == att), None)

@@ -198,9 +198,12 @@ Non-régression rejouée (ciblée) : `test_psyker_splash_live`, `test_heavy_weap
   **VIDES** (struct zéroée). Le port ne les vide pas — il se contente de ne pas threader `is_ranged` /
   `trigger_ability_type`. Après #106, les gates de nature s'y taisent bien, mais les bonus **sans**
   gate de nature (ex. `DecoysAndMisdirection`, `RapidAssault`) y passent encore. Chantier séparé.
-- **Contre-cas melee-only monté live avec Waaagh** : tenté (`probe_106_waaagh_splash.py` — Warboss
-  amené adjacent au Neurothrope, cast 1058), **abandonné** : dans le runner isolé le cast de Waaagh
-  rend `ok:true, mutated:false, events:[group 12 Waaagh, finish]` et ne pose AUCUN effet (ni sur le
-  caster, ni sur l'allié adjacent), y compris au tour suivant sans déplacement préalable et en ciblant
-  une tuile. Cause non élucidée — hors périmètre de ce cas, mais c'est un **résidu actionnable** pour
-  le portage de Waaagh (#PAI-c) : la face COMBAT de 1058 est inerte dans le runner.
+- ~~**Contre-cas melee-only monté live avec Waaagh** : abandonné, le cast de 1058 est inerte dans le
+  runner isolé.~~ **LEVÉ (case-111)** : le cast n'était pas inerte, la CIBLE était illégale — le probe
+  castait `targetId = <le Warboss lui-même>`, que
+  `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetDynamicInvalidTargetReason` refuse,
+  d'où le no-op moteur en amont de tout étage. Cible relue dans `abilityTargets(...).fromHere` +
+  boucle d'approche qui exige aussi une cible légale pour le Warboss : `probe_106_waaagh_splash.py`
+  converge et **le contre-cas est CONFIRMÉ live** (MC1_67 / seed 777, session 78) — splash RANGED du
+  Neurothrope, porteur du buff melee-only 1100 : `live = 1335`, `port (is_melee=False) = 1335`,
+  `legacy (nature non threadée) = 1004` → discriminant. Détail : `case-111-waaagh-cast-gate`.
