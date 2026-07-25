@@ -259,8 +259,44 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                 mow_pos = _mc.slot
                 break
 
+    # `ctx.has_negative_modifier` (`IdunBattle.Entities.Triggers.HasNegativeModifier$$ShouldTrigger`) :
+    # l'unite porte-t-elle >=1 modification per-source NEGATIVE sur l'un des StatTypes du filtre ? Mirror
+    # deja en place cote stats (`UnitStats.has_negative_modifier`, foyer du gate ConquerorImperative) —
+    # ici on l'expose au DSL (predicat de ciblage PlagueburstMortar). Stats absentes -> False.
+    def _has_negative_modifier(unit, stat_types):
+        uid = (unit or {}).get("id")
+        e = state.get_entity(uid) if uid is not None else None
+        sc = e.get_component(StatsComponent) if e is not None else None
+        us = getattr(sc.ctx, "stats", None) if sc is not None else None
+        return bool(us.has_negative_modifier(stat_types)) if us is not None else False
+
+    # `ctx.stat_modifier_amount` (`CurrentStatModifierAmountFormula`, gate d'idempotence de
+    # `AddOrUpdateStaticStatModifierEffect`) : contribution COURANTE, sur `stat_type`, de l'effet
+    # `effect_type` porte par l'unite = la `ValueModification` keyee par son `stat_mod_source`. 0 si
+    # l'effet n'est pas porte (ou n'a pas de cle de source).
+    def _stat_modifier_amount(unit, effect_type, stat_type):
+        uid = (unit or {}).get("id")
+        if uid is None or state.effects is None:
+            return 0
+        e = state.get_entity(uid)
+        sc = e.get_component(StatsComponent) if e is not None else None
+        us = getattr(sc.ctx, "stats", None) if sc is not None else None
+        comp = us.components.get(int(stat_type)) if us is not None else None
+        if comp is None:
+            return 0
+        total = 0
+        for eff in state.effects.by_unit.get(int(uid), []):
+            if eff.consumed or eff.effect_type != int(effect_type):
+                continue
+            key = getattr(eff, "stat_mod_source", None)
+            if key is None:
+                continue
+            total += int(comp.modification.get_modification_from_entity(key) or 0)
+        return total
+
     return DslContext(units=units, caster=caster, target=target, actor=actor, board=state.board,
                       has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat,
                       get_ability_level=_get_ability_level, tile_has_effect=_tile_has_effect,
                       has_effect=_has_effect, effects_from_source=_effects_from_source, children=[],
+                      has_negative_modifier=_has_negative_modifier,
                       current_player_machine_position=mow_pos)

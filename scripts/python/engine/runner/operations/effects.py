@@ -258,6 +258,48 @@ class AddEffectOperation:
             _register_name(state, target, child.name)
 
 
+class ChangeEffectTurnsOperation:
+    """`IdunBattle.Operations.ChangeEffectTurnsOperation$$Execute(effectEntity, amount, changeType)` — MIRROR :
+
+        comp = effectEntity.GetComponent<EffectComponent>()          ; null -> abandon
+        if (!comp.HasTurns @+0x5d)  { log("...") ; return }          # effet SANS timer -> no-op journalise
+        cur = comp.Duration @+0x64
+        new = max(0, BattleQuery.GetAmount(cur, amount, changeType)) # `IdunBattle.Core.Services.BattleQuery$$GetAmount`
+        comp.Duration @+0x64 = new
+        -> events UpdateEffectTurns (0x15/0x16) + `RefreshEffectOptions(0, 4, 0, 0, 0)`
+
+    `IdunBattle.Core.Services.BattleQuery$$GetAmount(current, amount, changeType)` (mirror EXACT) :
+    `IdunBattle.Entities.Enum.ChangeType` **0 = Add** (`current + amount`), **1 = Set** (`amount`) ; toute
+    autre valeur -> `ArgumentOutOfRangeException` native.
+
+    Port : `effect` = l'instance `BaseEffect` materialisee (`EffectsState`), son `remaining_turns` EST le
+    `EffectComponent.Duration`. `remaining_turns is None` = effet PERMANENT (le natif : `HasTurns == 0`)
+    -> **no-op**, mirror de la branche de log. Retour = la nouvelle duree, ou None si l'op a abandonne."""
+    __slots__ = ()
+
+    CHANGE_ADD = 0                                       # IdunBattle.Entities.Enum.ChangeType.Add
+    CHANGE_SET = 1                                       # IdunBattle.Entities.Enum.ChangeType.Set
+
+    @staticmethod
+    def get_amount(current: int, amount: int, change_type: int) -> int:
+        """`IdunBattle.Core.Services.BattleQuery$$GetAmount` — mirror 1:1 (Add=0 / Set=1)."""
+        ct = int(change_type)
+        if ct == ChangeEffectTurnsOperation.CHANGE_ADD:
+            return int(current) + int(amount)
+        if ct == ChangeEffectTurnsOperation.CHANGE_SET:
+            return int(amount)
+        raise ValueError(f"ChangeType hors domaine: {ct}")   # mirror ArgumentOutOfRangeException
+
+    @staticmethod
+    def execute(state: State, effect: BaseEffect, amount: int,
+                change_type: int = 0) -> Optional[int]:
+        if effect is None or effect.remaining_turns is None:
+            return None                                  # `HasTurns == 0` -> log + return (no-op)
+        new = ChangeEffectTurnsOperation.get_amount(effect.remaining_turns, amount, change_type)
+        effect.remaining_turns = max(0, new)             # `if (-1 < iVar4) iVar11 = iVar4` = clamp >= 0
+        return effect.remaining_turns
+
+
 def _effect_name(effect_type: int) -> str:
     """Nom lisible de repli quand le vecteur appelant ne fournit pas le nom d'EffectType (la table
     enum int→nom vit côté hooks `ability-names`/`effect-names` ; offline on garde le type brut)."""

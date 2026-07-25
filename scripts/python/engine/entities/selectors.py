@@ -63,13 +63,20 @@ class AdjacentUnits(TargetsSelector):
 
 
 class Enemies(TargetsSelector):
-    """`DSLFactory.Enemies` : filtre → équipe != celle du caster."""
+    """`IdunBattleLogic.Entities.DSLFactory$$Enemies(reference, source, mode)` -> `UnitsByTeamSelector`
+    (`IdunBattle.Entities.Selectors.UnitsByTeamSelector$$Select` -> `$$CountOrAdd`, flag@+0x28 = 0) :
+    filtre -> equipe != celle du referent (le CASTER a tous les call-sites portes). Symetrique exact de
+    `Friends` (meme classe, flag 1).
+
+    `_units_of` normalise l'operande (mirror du contrat natif : `source` peut etre un REF-ENTITE seul --
+    `Enemies(caster, target@0x178, 3)` de `PlagueburstMortarAbility$$GetMainDamageTarget` -- ou une liste ;
+    None -> vide). Sans ca, iterer un dict nu rendrait ses CLES (meme piege que `Tiles`/`Sub`)."""
     def __init__(self, inner: TargetsSelector):
         self.inner = inner
 
     def select(self, ctx):
         ct = (ctx.caster or {}).get("team")
-        return [u for u in self.inner.evaluate(ctx) if u.get("team") != ct]
+        return [u for u in _units_of(self.inner, ctx) if isinstance(u, dict) and u.get("team") != ct]
 
 
 class Damageable(TargetsSelector):
@@ -236,7 +243,27 @@ class Units(TargetsSelector):
         self.tiles = tiles
 
     def select(self, ctx):
-        tset = set(self.tiles.evaluate(ctx))
+        board = getattr(ctx, "board", None)
+        raw = self.tiles.evaluate(ctx)
+        # Le natif ITERE son selecteur de tuiles : un selecteur MONO-TUILE (`Subject()` sous un
+        # `Filter`/`SortByFormula` tile-domain, ex. `Units(Subject@0x180)` de
+        # `ThriceBlessedConflagrationAbility$$GetTilesInLine`) rend UN element -> normalisation, sinon
+        # `set(int)` leve. Domaine mixte accepte : id de tuile (int), position (col,row), dict d'unite.
+        items = [] if raw is None else ([raw] if isinstance(raw, (dict, int, tuple)) else list(raw))
+        tset = set()
+        for it in items:
+            if isinstance(it, bool):
+                continue
+            if isinstance(it, dict):
+                p = _pos(it)
+            elif isinstance(it, int):
+                p = board.coord(it) if (board is not None and it in board.by_id) else None
+            elif isinstance(it, (tuple, list)) and len(it) == 2:
+                p = (it[0], it[1])
+            else:
+                p = None
+            if p is not None:
+                tset.add((int(p[0]), int(p[1])))
         # Occupation de tuile (#57m) : un mort n'est plus DEBOUT sur sa tuile (cf. _within).
         return [u for u in ctx.units if _is_alive(u) and _pos(u) in tset]
 
@@ -573,8 +600,12 @@ class LastUnitAttackedBy(TargetsSelector):
 class AdjacentTiles(TargetsSelector):
     """`DSLFactory.AdjacentTiles(source)` : UNION (BRUTE, avec doublons possibles entre unites -> le
     natif fait suivre d'un `Unique`) des tuiles hex-adjacentes aux unites de `source`, via le
-    voisinage NATIF `ctx.board.neighbours(tile_de_l_unite)`. `source` = TargetsSelector unit-domain (unite
-    seule ou liste, normalise par `_units_of`). Retour list[int] (tile ids). board None -> []."""
+    voisinage NATIF `ctx.board.neighbours(tile_de_l_unite)`. `source` = TargetsSelector d'ENTITES : le
+    natif prend la MainTile de chaque entite -- pour une entite-UNITE c'est sa tuile, pour une
+    entite-TUILE c'est ELLE-MEME. Le port accepte donc les DEUX domaines (`_tile_positions`), ce
+    qu'exige un cast TILE-TARGET (`PlagueburstMortarAbility$$ExecuteBehaviour` :
+    `AdjacentTiles(target@0x178)` ou `target@0x178` EST la tuile ciblee ; les call-sites unit-domain
+    historiques passent par le meme chemin, resultat inchange). Retour list[int]. board None -> []."""
     def __init__(self, source: TargetsSelector):
         self.source = source
 
@@ -583,10 +614,7 @@ class AdjacentTiles(TargetsSelector):
         if board is None:
             return []
         out: list = []
-        for u in _units_of(self.source, ctx):
-            p = _pos(u)
-            if p is None:
-                continue
+        for p in _tile_positions(self.source, ctx, board):
             tid = board.id_at(p[0], p[1])
             if tid is None:
                 continue
@@ -953,6 +981,136 @@ class EntitiesWithoutEffects(TargetsSelector):
                     if ctx.tile_has_effect is not None else False
             if not has:
                 out.append(e)
+        return out
+
+
+class EntitiesWithAnyEffect(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLFactory$$EntitiesWithAnyEffect` -> `IdunBattle.Entities.Selectors.EntitiesWithAnyEffectSelector$$Select` : JUMEAU EXACT (branche opposee) d'`EntitiesWithoutEffects` -- garde les entites de `source`
+    qui portent AU MOINS UN des `effect_types` (`EntityExtensions.HasOneOfEffects(entity, types, ...,
+    source-flag @+0x30)` -> INCLUSION ; le `Without` fait l'exclusion sur le MEME appel).
+
+    Domaine MIXTE comme le natif (il itere des `IEntity` indifferenciees) : entite-UNITE (dict) testee par
+    `ctx.has_effect`, entite-TUILE (id int) par `ctx.tile_has_effect`. Accesseur absent -> « aucun effet »
+    -> l'entite est ECARTEE (symetrique fidele de la degradation d'`EntitiesWithoutEffects`, qui garde).
+
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.TwinSmartMissileSystemAbility$$GetAttackTargets`
+    (`EntitiesWithAnyEffect(Enemies(caster, allUnits), 0x462=1122 Markerlight)`)."""
+    def __init__(self, source: TargetsSelector, effect_types):
+        self.source = source
+        self.effect_types = [int(e) for e in (effect_types or [])]
+
+    def select(self, ctx):
+        out = []
+        for e in (self.source.evaluate(ctx) or []):
+            if isinstance(e, dict):
+                has = any(ctx.has_effect(e, et) for et in self.effect_types) \
+                    if ctx.has_effect is not None else False
+            else:
+                has = any(ctx.tile_has_effect(int(e), et) for et in self.effect_types) \
+                    if ctx.tile_has_effect is not None else False
+            if has:
+                out.append(e)
+        return out
+
+
+class PickFirstN(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLFactory$$First(source, amountNode)` -> `IdunBattle.Entities.Selectors.PickFirstNSelector` (`IdunBattle.DSL.APickSelector`, taille 0x30 =
+    ctx/source/amount-node/flag) : les `amount` PREMIERS elements de la source, ordre PRESERVE.
+
+    ⚠ A NE PAS CONFONDRE avec `IdunBattle.Entities.Selectors.PickAtIndexSelector$$Select` (taille 0x28, champ
+    +0x20 = un INT d'index) qui rend `[source[index]]` : c'est une classe DISTINCTE, construite par une
+    AUTRE factory. `DSLFactory.First` construit bien `PickFirstN`. Le noeud `First` de ce module (index 0
+    par defaut) coincide avec `PickFirstN(1)` pour tous ses call-sites historiques (index non passe).
+
+    `amount` = noeud VALEUR (`Direct(nrOfSummons)`) ou int. <=0 -> liste vide."""
+    def __init__(self, source: TargetsSelector, amount):
+        self.source, self.amount = source, amount
+
+    def select(self, ctx):
+        n = self.amount.evaluate(ctx) if hasattr(self.amount, "evaluate") else self.amount
+        n = int(n or 0)
+        if n <= 0:
+            return []
+        return list(self.source.evaluate(ctx))[:n]
+
+
+class Otherwise(TargetsSelector):
+    """`IdunBattle.DSL.TargetsSelector$$Otherwise(primary, fallback)` : le natif alloue un selecteur a DEUX
+    branches (ctor : `+0x18 = primary`, `+0x20 = fallback`) qui rend `primary` s'il produit quelque chose,
+    `fallback` sinon -- le FALLBACK d'un selecteur potentiellement VIDE.
+
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardSpotterAbility$$PickTiles`
+    (`TilesUnitCanAttackFrom(free, caster, unitId, 1).Otherwise(free)` = si aucune tuile libre ne permet au
+    summon d'attaquer la cible, on retombe sur TOUTES les tuiles libres adjacentes)."""
+    def __init__(self, primary: TargetsSelector, fallback: TargetsSelector):
+        self.primary, self.fallback = primary, fallback
+
+    def select(self, ctx):
+        v = self.primary.evaluate(ctx)
+        if v:
+            return v
+        return self.fallback.evaluate(ctx)
+
+
+class TilesBehindInLine(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLFactory$$TilesBehindInLine(from, to, settings)` -> `IdunBattle.Entities.Selectors.TilesBehindInLineSelector$$Select` : les tuiles ALIGNEES au-dela de `to`, en partant de `to`, dans la direction
+    `from -> to`. Geometrie CUBE droite (parite-INDEPENDANTE) DEJA live-reconciliee par les deux autres
+    consommateurs portes du meme noeud (`IdunBattleLogic.Entities.Abilities.Active.Loki.ExcruciatingFrequenciesAbility$$GetAffectedTiles`
+    `_line_tiles`, `IdunBattleLogic.Entities.Abilities.Active.Loki.DarkTalonStrikeAbility$$GetTilesInLine`) :
+    `tile_k = cube(to) + k*dir`, `dir = cube(to) - cube(from)`, `k = 0..` -- la 1re tuile rendue EST `to`.
+
+    `max_count` = le `Direct(n)` natif quand il est fourni (Excruciating : `nrOfTiles`) ; None = pas de
+    borne -> on prolonge JUSQU'AU BORD du plateau (`board.id_at` absent). Retour list[int] (tile ids).
+    `from`/`to` normalises par `_tile_positions` (unite/id/position). board None -> []."""
+    def __init__(self, frm: TargetsSelector, to: TargetsSelector, max_count=None):
+        self.frm, self.to, self.max_count = frm, to, max_count
+
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        src = _tile_positions(self.frm, ctx, board)
+        dst = _tile_positions(self.to, ctx, board)
+        if not src or not dst:
+            return []
+        ox, _oy, oz = hexgeo.to_cube(src[0][0], src[0][1])
+        ax, _ay, az = hexgeo.to_cube(dst[0][0], dst[0][1])
+        dx, dz = ax - ox, az - oz
+        if dx == 0 and dz == 0:
+            return []
+        n = self.max_count
+        n = (n.evaluate(ctx) if hasattr(n, "evaluate") else n)
+        n = int(n) if n is not None else None
+        out, k = [], 0
+        while n is None or len(out) < n:
+            p = hexgeo.from_cube(ax + dx * k, az + dz * k)
+            t = board.id_at(p[0], p[1])
+            if t is None:                      # sortie de plateau -> fin de ligne
+                break
+            out.append(t)
+            k += 1
+            if n is None and k > 64:           # garde-fou (plateau borne ; jamais atteint)
+                break
+        return out
+
+
+class FilterContinuous(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLFactory$$FilterContinuous(source, predicate)` = MEME construction que
+    `IdunBattleLogic.Entities.DSLFactory$$Filter` (`FromTriggerSelector`) + le FLAG de court-circuit : on garde
+    le PREFIXE CONTIGU d'elements satisfaisant le predicat et on S'ARRETE au premier echec (une « ligne »
+    d'ennemis s'interrompt au premier trou), la ou `Filter` balaie tout.
+
+    Meme binding sujet que `Filter` (l'element courant est lie au slot sujet du contexte avant evaluation).
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$GetTilesInLine`."""
+    def __init__(self, source: TargetsSelector, predicate: TargetsSelector):
+        self.source, self.predicate = source, predicate
+
+    def select(self, ctx):
+        out = []
+        for item in self.source.evaluate(ctx):
+            if not self.predicate.evaluate(replace(ctx, subject=item)):
+                break                          # court-circuit (flag `Continuous`)
+            out.append(item)
         return out
 
 

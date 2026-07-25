@@ -21,16 +21,18 @@ from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
                    GauntletsOfUltramarAbility, AberrantHypermorphAbility, CordClawAbility)
 from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility, VigilanceEternalAbility
 from .deathguard import (RevitalizingMalignancyAbility, FlailSwingAbility, SpawnPoxwalkersAbility,
-                         EntropyCannonsAbility)
-from .blacklegion import BringerOfDespairAbility, IncursionAbility, HadesAutocannonsAbility
+                         EntropyCannonsAbility, PlagueburstMortarAbility)
+from .blacklegion import (BringerOfDespairAbility, IncursionAbility, HadesAutocannonsAbility,
+                          DaemonicOrdnanceAbility)
 from .orks import WaaaghAbility, SquigLaunchasAbility, SquigMineAbility
 from .darkangels import PlasmaCannonAbility
 from .ultramarines import (CombatRestorativesAbility, MortisRoundAbility, DeathFromAboveAbility,
                            MacroPlasmaIncineratorAbility)
 from .bloodangels import SavageEchoesAbility
 from .necrons import HarbingerOfDestructionAbility
-from .sisterhood import SanctorumMissileAbility, SkyStrikeAbility, DevastatingRefrainAbility
-from .tau import HeavyRailRifleAbility
+from .sisterhood import (SanctorumMissileAbility, SkyStrikeAbility, DevastatingRefrainAbility,
+                         ThriceBlessedConflagrationAbility)
+from .tau import HeavyRailRifleAbility, TwinSmartMissileSystemAbility
 from .votann import IronkinSteeljackAbility
 from .aeldari import ExecutionerAbility, HarvesterOfSoulsAbility
 from .spacewolves import GreatFrostAxeAbility
@@ -38,7 +40,7 @@ from .tyranids import SporeMineLauncherAbility, AlphaWarriorAbility
 from .worldeaters import JakhalStimmsAbility
 from .admec import SentinelDirectivesAbility
 from .astramilitarum import (SupremeCommanderAbility, SendInTheNextWaveAbility,
-                             MalleusRocketLauncherAbility)
+                             MalleusRocketLauncherAbility, ForwardSpotterAbility)
 
 # Registre ActiveAbilityType (int) -> classe d'ability portée. À ÉTENDRE au roster.
 ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
@@ -104,6 +106,13 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     DevastatingRefrainAbility.ABILITY_TYPE: DevastatingRefrainAbility,  # 1188 (adeptExorcist Sisterhood MoW : AddEffect(1403 Attack -> la MoW) + AddBondEffect(1402 Target -> tuile ciblee + 3 voisines {3,1,5}/{0,2,4} selon le cote) ; tile-target)
     SquigMineAbility.ABILITY_TYPE: SquigMineAbility,                   # 1201 (orksRukkatrukk Orks MoW : AddEffect(1441 SquigMine_Tile -> tuile ciblee + PickRandomly(nrOfTiles) dans le disque range=2 libre/sans-mine), TurnsFromRounds(nrOfRounds) ; tile-target)
     MalleusRocketLauncherAbility.ABILITY_TYPE: MalleusRocketLauncherAbility,  # 1142 (astraOrdnanceBattery AstraMilitarum MoW : Inform + AddBondEffect(1308) + AddEffect(1309 PendingTarget) + AddEffect(1310 SpottedTarget), tous sur la TUILE ciblee ; tile-target)
+    # --- Lot #90 groupes B/C/D : les 5 abilities MoW restantes (cf. docs/rl/case-90-mow-effect-posers.md).
+    # B = attaque DSL filtree par un ETAT + entretien de cet etat ; C = template SPAWN ; D = composite lourd.
+    TwinSmartMissileSystemAbility.ABILITY_TYPE: TwinSmartMissileSystemAbility,  # 1161 (tauBroadside Tau MoW, groupe B : 3x Blast famille ABILITY sur TOUT ennemi porteur de Markerlight(1122) + refresh du marquage sur la cible (ChangeEffectTurns ChangeType.Add sinon AddEffect), TurnsFromRounds(2) ; unit-target)
+    PlagueburstMortarAbility.ABILITY_TYPE: PlagueburstMortarAbility,   # 1169 (deathCrawler DeathGuard MoW, groupe B : 3x Toxic + Pinned(1065) sur cible+adjacents FILTRES par le predicat aura-Contagion/armure-reduite, + Contaminated(1244) sur la cible + nrOfTiles-1 tuiles adjacentes tirees ; unit-target)
+    ForwardSpotterAbility.ABILITY_TYPE: ForwardSpotterAbility,         # 1143 (astraOrdnanceBattery AstraMilitarum MoW, groupe C : Spawn(nrOfSummons=1 astraSmnGuardsman sur tuile libre adjacente a la cible, WithStatsFromConfig) + on-appearance PerformAIAttack ; template SpawnSummon)
+    DaemonicOrdnanceAbility.ABILITY_TYPE: DaemonicOrdnanceAbility,     # 1148 (blackForgefiend BlackLegion MoW, groupe D : ChangeStat(+extraCritDmg CRIT_DAMAGE) -> 3x Plasma famille ATTACK sur les ennemis deja sur une tuile EN FEU du triangle -> ChangeStat(-extraCritDmg) -> If(HasEffect 1316) AddOrUpdateStaticStatModifier((usages+1) x extraCritChance sur CRIT_CHANCE) -> AddEffect(Fire -> triangle) ; 2-phases par construction)
+    ThriceBlessedConflagrationAbility.ABILITY_TYPE: ThriceBlessedConflagrationAbility,  # 1187 (adeptExorcist Sisterhood MoW, groupe D : Foreach(1x Flame famille ABILITY sur la ligne CONTIGUE d'ennemis partant de la cible dans la direction qui en aligne le plus) + If(HasFaction(cible, Sisterhood), AddEffect(1401), AddEffect(1436)) sur la cible ALLIEE)
 }
 
 

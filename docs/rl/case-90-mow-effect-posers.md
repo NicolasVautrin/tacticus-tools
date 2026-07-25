@@ -1,9 +1,10 @@
-# Case #90 lot B — classification par PATRON D'ARTEFACT des 10 abilities MoW restantes,
-# + port du lot « POSE D'EFFET(S) SEULE » (5 items)
+# Case #90 — les 10 abilities MoW : classification par PATRON D'ARTEFACT + port des 10
 
-**Statut** : classification RENDUE (10/10) ; lot « pose d'effet(s) seule » (5 items) **PORTE ET VALIDE
-LIVE** (session Frida 71, build `gqfc5mff6c`, boards `C1_02` / `C2_02`). Correctif 100 % Python
-(`scripts/python/**`) — aucun changement `frida/hooks`, aucun rebuild, aucun reinject.
+**Statut** : classification RENDUE (10/10) ; **les 10 items sont PORTES ET VALIDES LIVE**.
+- groupe A « pose d'effet(s) seule » (5 items) — session Frida 71, boards `C1_02` / `C2_02` ;
+- groupes **B / C / D** (5 items restants) — session Frida 77, mêmes boards (cf. §6 en fin de document).
+
+Correctif 100 % Python (`scripts/python/**`) — aucun changement `frida/hooks`, aucun rebuild, aucun reinject.
 
 Contexte amont : `docs/rl/case-mow-offboard-cast.md` (la MoW est une entite ECS offline —
 `MachineComponent`, `_load_machines`, effets MoW dans le seed `EffectsState`).
@@ -110,9 +111,9 @@ nœuds `DSLFactory` : il faut porter `AttackUnit`/`DamageUnit` comme feuilles d'
 | groupe | items | brique pivot | statut |
 |---|---|---|---|
 | A — pose d'effet(s) seule | 1160, 1159, 1188, 1201, 1142 | selecteurs de TUILES + `AddEffect`/`AddBondEffect` | **PORTE + valide live** |
-| B — attaque filtree par etat | 1161, 1169 | `EntitiesWithAnyEffect`, `ChangeEffectTurns`, predicat custom 1169 | a porter (1 tranche) |
-| C — spawn template | 1143 | `TilesUnitCanAttackFrom` / `SortTilesByUtilityForSummon` (collapsables) | a porter (rapide, seul de son patron) |
-| D — composite lourd | 1148, 1187 | `AddOrUpdateStaticStatModifierEffect` + `TotalActiveAbilityUsed` (1148) ; `GetTilesInLine` + feuille `AttackUnit` (1187) | 1 tranche CHACUN |
+| B — attaque filtree par etat | 1161, 1169 | `EntitiesWithAnyEffect`, `ChangeEffectTurns`, predicat custom 1169 | **PORTE + valide live** (§6) |
+| C — spawn template | 1143 | `TilesUnitCanAttackFrom` / `SortTilesByUtilityForSummon` (collapses) | **PORTE + valide live** (§6) |
+| D — composite lourd | 1148, 1187 | `AddOrUpdateStaticStatModifierEffect` + `TotalActiveAbilityUsed` (1148) ; `GetTilesInLine` + ligne optimisee (1187) | **PORTE + valide live** (§6) |
 
 ---
 
@@ -268,3 +269,124 @@ AVANT/APRES sur les DEUX canaux d'effets.
 6. **Face DECISION MoW** toujours hors-jeu (le natif ne met que `EntityType.Unit` dans
    `decisionView.units` ; cf. `case-mow-offboard-cast.md` §8) : ces 5 abilities ne sont pas choisies par
    le playbook offline, seulement executees quand on les caste.
+
+---
+
+## 6. Groupes B / C / D — les 5 items restants (PORTES + VALIDES LIVE)
+
+### 6.1 Corrections de RE apportees a la classification du §2
+
+La classification du §2 avait ete etablie a la lecture rapide ; le port a impose une relecture ligne a
+ligne. **Trois points sont CORRIGES** (le decompile fait foi) :
+
+1. **1148 DaemonicOrdnance — les deux variables etaient CROISEES.** C'est `extraCritDmg`
+   (`AbilityVariableType` 0x42 = 66) qui encadre l'attaque via `ChangeStat(owner, stat 10 =
+   `CRIT_DAMAGE`, Add/Subtract)`, et `extraCritChance` (0x41 = 65) qui alimente le stat-modifier
+   cumulatif `AddOrUpdateStaticStatModifierEffect(owner, 1316, stat 9 = `CRIT_CHANCE`,
+   Multiply(Sum(TotalActiveAbilityUsed(owner, 1148), Get(1)), extraCritChance))`.
+2. **1148 est 2-PHASES PAR CONSTRUCTION**, ce que le §2 ne disait pas : l'attaque ne frappe QUE les
+   ennemis sur une tuile DEJA en feu, et le feu est pose au DERNIER etage du MEME cast -> un 1er cast
+   n'inflige rien (il allume la zone). CONFIRME LIVE (0 PV bouge, natif comme port).
+3. **1169 PlagueburstMortar est TILE-TARGET** (mesure `abilityTargets` : `kind="tile"`), et le predicat
+   `GetIsValidAdjacentEnemyTrigger` a **trois** feuilles, pas deux :
+   `IsInTeamContagionsOfNurgleAura(subject, caster)` **OU** (`HasNegativeModifier(subject, FixedArmor)`
+   **ET** `AmountIsGreaterThanZero(StatAmount(subject, FixedArmor, part 3 = Initial))`).
+
+Autres lectures etablies au passage :
+- `IdunBattle.Core.Services.BattleQuery$$GetAmount(current, amount, changeType)` : `IdunBattle.Entities.Enum.ChangeType`
+  **0 = Add** (`current + amount`), **1 = Set**. Le `ChangeEffectTurns` de 1161 passe **0** -> la duree
+  est AJOUTEE, pas remise a plat.
+- `IdunBattleLogic.Entities.DSLFactory$$First(source, node)` construit `PickFirstNSelector` (les N
+  PREMIERS), **pas** `PickAtIndexSelector` (l'element a l'index N) : ce sont deux classes distinctes
+  (tailles 0x30 / 0x28). Les call-sites historiques du port passent l'index 0 -> resultat identique ;
+  le noeud `PickFirstN` est ajoute pour les call-sites a compte variable (1143).
+- `IdunBattle.Entities.Selectors.UnitsByTeamSelector$$CountOrAdd` resout chaque element par
+  `IdunBattle.Entities.UnitExtensions$$GetUnitOrMachine` **avant** le test d'equipe, mais ajoute
+  l'entite BRUTE : `Enemies(...)` accepte donc un ensemble MIXTE unites/tuiles (ce dont 1169 et 1187
+  se servent).
+- `IdunBattleLogic.Entities.DSLFactory$$.ctor` : `factory+0xb8..+0xd8` = les noeuds constante
+  `Get(0) Get(1) Get(2) Get(100) Get(-1)` -> le `Difference(ConfigVar(nrOfTiles), factory+0xc0)` de 1169
+  est bien `nrOfTiles - 1`.
+
+### 6.2 Ce qui a ete porte
+
+| ability | artefact natif (symbole) | forme portee |
+|---|---|---|
+| 1161 TwinSmartMissileSystem | `IdunBattleLogic.Entities.Abilities.Active.Loki.TwinSmartMissileSystemAbility$$ExecuteBehaviour` (+ `$$GetAttackTargets`) | `AttackWithAbilityDamage(EntitiesWithAnyEffect(Enemies(AllUnits), 1122)) & If(HasEffect(cible,1122), ChangeEffectTurns(+TurnsFromRounds(2), Add), AddEffect(1122, TurnsFromRounds(2)))` |
+| 1169 PlagueburstMortar | `IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility$$ExecuteBehaviour` (+ `$$GetIsValidAdjacentEnemyTrigger`, `$$GetMainDamageTarget`, `$$GetAdjacentDamageTargets`) | `(Attack(Unique(Filter(occupant tuile)+Filter(ennemis adjacents))) & AddEffect(1065)) & AddEffect(1244 -> tuile + PickRandomly(voisines, nrOfTiles-1))` |
+| 1143 ForwardSpotter | `IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardSpotterAbility$$ExecuteBehaviour` (+ `$$PickTiles`) | `Spawn(PickFirstN(<tuiles libres adjacentes a la cible>, nrOfSummons), astraSmnGuardsman, WithStatsFromConfig, onAppearance=PerformAIAttack(ActiveTarget))` |
+| 1148 DaemonicOrdnance | `IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnanceAbility$$ExecuteBehaviour` (+ `$$GetTargetAreaTiles`, `$$GetAllDamageableTargets`, `$$IsBottomPlayer`) | `ChangeStat(+extraCritDmg) + Attack(ennemis sur tuile en feu du triangle) + ChangeStat(-extraCritDmg) + If(HasEffect(1316), AddOrUpdate(1316)) + AddEffect(Fire -> triangle)` |
+| 1187 ThriceBlessedConflagration | `IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$ExecuteBehaviour` (+ `$$GetTilesInLine`, `$$GetTilesInBestLine`, `$$GetAttackTargets`, lambda `u003Cu003Ec__DisplayClass1_0$$u003CExecuteBehaviouru003Eb__0`) | `Foreach(Enemies(cible + ligne contigue), AttackWithAbilityDamage) & If(HasFaction(cible, Sisterhood), AddEffect(1401), AddEffect(1436))` |
+
+**Briques partagees ajoutees** (chacune dans SON namespace natif) :
+- `entities/selectors.py` — `EntitiesWithAnyEffect`, `PickFirstN`, `Otherwise`, `TilesBehindInLine`,
+  `FilterContinuous` ; `Enemies`/`Units`/`AdjacentTiles` generalises au domaine MIXTE unite/tuile
+  (mirror du contrat natif : ces selecteurs prennent des ENTITES, tuiles incluses).
+- `entities/triggers.py` — `HasFaction`, `HasUnit`, `AreEnemies`, `HasNegativeModifier`, `IsInTeamAura` ;
+  `HasEffect` generalise au domaine tuile.
+- `entities/formulas.py` — `TotalActiveAbilityUsed`, `CurrentStatModifierAmount`.
+- `runner/operations/effects.py` — `ChangeEffectTurnsOperation` (+ `GetAmount` = mirror de
+  `BattleQuery.GetAmount`).
+- `runner/abilities/behaviours/effects.py` — feuilles `ChangeEffectTurns`, `AddStaticStatModifierEffect`,
+  factory composite `add_or_update_static_stat_modifier_effect` ; `AddEffect` accepte le noeud SOURCE
+  natif (`source_ref`, 4e argument d'`IdunBattleLogic.Entities.DSLFactory$$AddEffect`).
+- `dsl/base.py` + `behaviours/context.py` — accesseurs `has_negative_modifier`, `stat_modifier_amount`
+  (branches), `is_in_team_aura`, `total_active_ability_used` (non branches, cf. residus).
+
+### 6.3 Validation
+
+Test livre : `scripts/python/tests/engine/runner/test_mow_groups_bcd_live.py` (**6 passants,
+1 skip documente**). Meme protocole que le lot A (empreinte d'effets `{entite|TUILE -> {effectType:
+remaining}}` offline vs live), plus la comparaison de l'**ENSEMBLE des unites blessees** (le montant de
+degat n'est pas confronte : le tirage n'est pas cale entre `state.rng` et le PRNG natif — ce qui est
+confronte est le CIBLAGE, c'est-a-dire ce que ces arbres decident).
+
+| test | resultat |
+|---|---|
+| 1161 cast sur runner frais | empreinte offline == live ; **0 PV bouge des deux cotes** (aucun ennemi marque -> ensemble d'attaque VIDE) ; `Markerlight` pose sur la cible |
+| 1169 cast en COIN | zone `Contaminated` offline == live, EXACTEMENT `{(0,0),(0,1),(1,0),(1,1)}` ; cardinal `1 + min(nrOfTiles-1, |voisines|)` ; degat/Pinned vides des deux cotes (predicat) |
+| 1169 cast au CENTRE (generalisation, autre board) | meme egalite avec le pool de voisines COMPLET |
+| 1143 | nb de summons offline == live ; toutes les tuiles de spawn adjacentes a la cible |
+| 1148 | zone de feu offline == live (`(0,0),(0,1),(1,1)`) ; 0 PV bouge des deux cotes ; buff `CRIT_DAMAGE` **net nul** apres le cast (revert par-source verifie) |
+| 1187 | empreinte d'effets offline == live ; ensembles blesses egaux ; branche `HasFaction` coherente avec l'effet pose |
+| 1161 « 2e cast sur cible marquee » | **SKIP** (cf. residu 4) |
+
+**Non-regression** (45 tests CIBLES rejoues, 0 skip) : `test_mow_effect_posers_live`,
+`test_effect_stun_live`, `test_damage_crushingclaws_live`, `test_summon_ability_ports_live`,
+`test_summon_spawn_live`, `test_mow_targeting_predicate_live`, `test_mow_caster_load_live`,
+`test_supreme_commander_live`, `test_sanctorum_missile_live`, `test_sky_strike_live`.
+
+Probe reutilisable : `scripts/python/probe_90bcd_markerlight.py` (duree de vie du marquage 1161).
+
+### 6.4 Residus (ce qui n'est PAS couvert)
+
+1. **`SortTilesByUtilityForSummon` (1143) NON PORTE** — c'est
+   `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` ->
+   `IdunBattleLogic.AI.Utilities.UtilityDecider$$CalculateUtility`, le moteur d'utilite IA complet
+   (meme collapse que SkyStrike/HeroicFusillade). Le referent est ici une MoW SANS POSITION, donc meme
+   le collapse « la plus proche du caster » des autres call-sites n'a pas de sens -> on garde l'ordre du
+   voisinage natif. **Consequence** : quand plusieurs tuiles libres sont adjacentes a la cible, la tuile
+   choisie peut differer du live (le POOL et le CARDINAL, eux, sont confrontes).
+2. **Etage `[4]` de 1148 (stat-modifier cumulatif) INERTE en pratique** : il est gate par
+   `If(HasEffect(owner, 1316))`, et 1316 est cree/detruit par les triggered
+   `IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnance_AddCritChance$$CreateBehaviour` /
+   `..._RemoveCritChance$$CreateBehaviour`, **non portes**. Le port est fidele (la branche existe et
+   fonctionne), mais elle ne se declenche pas tant que ces deux triggered ne sont pas portes.
+3. **`TotalActiveAbilityUsed` non capte offline** -> 0 par defaut (meme regime documente que
+   `TotalTimesAttacked`/`TimesRepaired`). Le 1er cast est exact (`0+1`), les suivants sous-estiment.
+   Brancher un compteur per-(unite, abilityType) dans `State` fermerait le point.
+4. **Le scenario « 2e cast sur une cible DEJA marquee » de 1161 n'est PAS atteignable en runner.**
+   MESURE (`probe_90bcd_markerlight.py`, board C1_02) : `Markerlight` sort a `remaining = 4`, puis
+   **disparait des la 1re fin de tour**, et 1161 n'est pas re-castable a ce moment-la (`castable = 0`).
+   Le volet `AttackWithAbilityDamage` sur ensemble NON VIDE et la branche `ChangeEffectTurns` restent
+   donc **non confrontes live** (portes + structurellement mirrores). Debloqueur probable : porter le
+   retrait de `Markerlight` (effet consomme ?) ou mettre en scene un marquage par une AUTRE source Tau.
+5. **Branche AURA du predicat de 1169 (`IsInTeamAura`) INERTE offline** : le canal d'aura n'est pas
+   materialise (meme limitation que `EffectFromOwner`). Seule la branche `HasNegativeModifier(FixedArmor)`
+   discrimine — et elle n'est pas exercee non plus sur un runner frais (aucun reducteur d'armure), donc
+   le volet DEGAT/`Pinned` de 1169 est confronte **a vide** (les deux cotes ne frappent personne).
+   Debloqueur : monter un roster avec un reducteur d'armure OU un allie Death Guard porteur de Contagion.
+6. **Domaine de `Pinned` (1169)** : le natif ajoute l'entite BRUTE (donc la TUILE ciblee pour le volet
+   « main ») a l'ensemble de cibles ; le port materialise la resolution `GetUnitOrMachine` et pose
+   `Pinned` sur l'UNITE. Non discriminable tant que le residu 5 n'est pas leve.
+7. **PHASE 2 des abilities du lot A** toujours non portee (inchange, cf. §5.1).

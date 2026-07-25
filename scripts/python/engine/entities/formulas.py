@@ -187,6 +187,52 @@ class TotalAttacksMade(AAmountFormula):
         return int((u or {}).get("_attacks_made", 0) or 0)
 
 
+class CurrentStatModifierAmount(AAmountFormula):
+    """`IdunBattle.Entities.Formulas.CurrentStatModifierAmountFormula` (allouee par
+    `IdunBattleLogic.Entities.DSLFactory$$AddOrUpdateStaticStatModifierEffect` : ctor `(dslFactory+0x38, unit,
+    effectType, statType)`) : montant COURANT de la modification de `statType` que l'effet `effectType`
+    applique deja a `unit` -- 0 si l'effet n'est pas porte. Sert UNIQUEMENT au gate d'idempotence
+    `NOT AmountIsEqual(nouveauMontant, courant)` de la factory composite.
+
+    Port : lit `ctx.stat_modifier_amount(unit, effectType, statType)` (fourni par la couche runner, qui
+    connait la `ValueModification` per-source keyee par l'instance d'effet) ; accesseur absent -> 0 (le
+    gate devient « toujours re-poser », qui est le comportement du 1er cast et reste correct tant que le
+    montant change ; documente)."""
+    def __init__(self, unit: TargetsSelector, effect_type: int, stat_type: int):
+        self.unit, self.effect_type, self.stat_type = unit, int(effect_type), int(stat_type)
+
+    def calculate(self, ctx):
+        fn = getattr(ctx, "stat_modifier_amount", None)
+        if fn is None:
+            return 0
+        u = resolve_unit(self.unit, ctx)
+        return int(fn(u, self.effect_type, self.stat_type) or 0) if u is not None else 0
+
+
+class TotalActiveAbilityUsed(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFactory$$TotalActiveAbilityUsed(unit, abilityType)` : le natif alloue un
+    noeud (ctor gshared MISLABELE `HasUsedActiveAbilityThisTurnTrigger..ctor` par ghidra -- structure lue :
+    `(unit, DirectAbilitySelector(AbilityOrEffect(abilityType)))`) = COMPTEUR runtime du nombre de fois que
+    `unit` a utilise l'ability ACTIVE `abilityType` dans la bataille.
+
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnanceAbility$$ExecuteBehaviour`
+    (`Multiply(Sum(TotalActiveAbilityUsed(Owner, 0x47c=1148), Get(1)), Direct(extraCritChance))` = le
+    modificateur de CriticalChance cumule d'un cran par usage).
+
+    RESIDU : le compteur n'est PAS capte offline -> `ctx.total_active_ability_used(unit, abilityType)`,
+    defaut None -> **0** (meme regime documente que `TotalTimesAttacked`/`TimesRepaired`). Le 1er cast est
+    donc exact (`0+1`) ; les suivants sous-estiment tant que le canal n'est pas branche."""
+    def __init__(self, unit: TargetsSelector, ability_type):
+        self.unit, self.ability_type = unit, int(ability_type)
+
+    def calculate(self, ctx):
+        fn = getattr(ctx, "total_active_ability_used", None)
+        if fn is None:
+            return 0
+        u = resolve_unit(self.unit, ctx)
+        return int(fn(u, self.ability_type) or 0) if u is not None else 0
+
+
 class UnitTurnsStarted(AAmountFormula):
     """`IdunBattleLogic.Entities.DSLFactory$$UnitTurnsStarted` = `Entities.Formulas.UnitTurnsStartedFormula` (IdunBattle.Entities.Formulas.UnitTurnsStartedFormula$$Calculate) :
     nb de tours entamés par `unit` (compteur runtime). Le natif compare (via `AmountIsEqual`) le `turnsStarted`

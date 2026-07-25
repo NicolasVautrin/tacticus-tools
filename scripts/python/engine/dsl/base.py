@@ -165,6 +165,23 @@ class DslContext:
     # `GetPlayer(turn.CurrentPlayerId)`). None = le joueur courant n'a pas de MoW -> predicat False
     # (mirror du `if (player == null) return false`). Pose par `entities_from_state`.
     current_player_machine_position: int | None = None
+    # Modifications de stat NEGATIVES par unite (predicat `HasNegativeModifier`, mirror
+    # `IdunBattle.Entities.Triggers.HasNegativeModifier$$ShouldTrigger`) : `has_negative_modifier(unit,
+    # stat_types)->bool` = l'unite porte >=1 modification per-source <0 sur l'un des StatTypes du filtre.
+    # Defaut None -> False (degradation fidele). Fourni par `entities_from_state` (UnitStats.has_negative_modifier).
+    has_negative_modifier: object | None = None
+    # Portee d'AURA d'EQUIPE (`IsInAuraRangeTrigger`, ex. `IsInTeamContagionsOfNurgleAura`) :
+    # `is_in_team_aura(unit, effectType, teamReference)->bool`. Le canal d'aura n'est PAS materialise
+    # offline -> defaut None = False (residu documente, cf. `IsInTeamAura`).
+    is_in_team_aura: object | None = None
+    # Compteur runtime d'usages d'une ability ACTIVE par une unite (`DSLFactory.TotalActiveAbilityUsed`) :
+    # `total_active_ability_used(unit, abilityType)->int`. NON capte offline (meme regime que
+    # `times_attacked`/`times_repaired`) -> defaut None = 0.
+    total_active_ability_used: object | None = None
+    # Montant COURANT de la modification de stat portee par un effet donne (`CurrentStatModifierAmount`,
+    # gate d'idempotence d'`AddOrUpdateStaticStatModifierEffect`) : `stat_modifier_amount(unit, effectType,
+    # statType)->int`. Defaut None -> 0 (cf. le noeud).
+    stat_modifier_amount: object | None = None
     # Niveau d'ability PAR UNITÉ + slot (`ConfigVar` sur une unité TIERCE, ex. la chance RighteousRepugnance
     # au niveau du killer). `get_ability_level(unit, slot='passive'|'active')->int|None` : lit le
     # `passive_ability_level`/`active_ability_level` capté (StatsComponent.ctx). Défaut None → niveau inconnu
