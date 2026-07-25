@@ -134,6 +134,7 @@ Leviers **réels** de `rl_duel.py build` (vérifiés dans l'argparse, ne pas en 
 |---|---|
 | qui est là, dans quel camp | `--p-units` / `--a-units`, `--p-mow` / `--a-mow`, `--roster` |
 | faire DURER la bataille (saturer un cap de summons, voir N tours) | `--hp-target` (ennemi), `--hp-player` (mon camp) — force `Health` ET `RemainingHealth` |
+| TUER à la demande — en particulier une unité **INVOQUÉE** | `--dmg-target` : force le stat `Damage` des a-units. Les PV d'un summon viennent du **kit du summoner**, pas du roster : `--hp-target`/`--hp-player` ne l'atteignent PAS |
 | géométrie (adjacence, ligne, portée, spawns) | `--board` / `--board-pool`, puis **drive des positions** par `applyAction move` — cf. « Choisir le board » ci-dessous |
 | niveau / magnitudes | `--rank` |
 | isoler l'aléa (crit, block) | `--crit`, `--crit-target`, `--block-target` |
@@ -149,6 +150,12 @@ re-crafter, et la livrer sans le faire, c'est livrer un port non validé.
 > justification « divergence seulement quand le cap de summons est PLEIN — rare, tardif ». Vrai
 > en jeu naturel ; **faux comme argument de validation** : un `--hp-target` élevé fait durer la
 > bataille, le summoner survit et sature son cap. Un flag, pas un scénario.
+>
+> Suite du même cas, et c'est le point le plus important : confronter la branche « summons MORTS
+> comptés » exigeait de **tuer** des invoqués — or **aucun levier existant ne le pouvait** (leurs
+> PV viennent du kit du summoner). La bonne réponse n'a pas été « branche non atteignable » : ça a
+> été **d'ajouter le levier manquant** (`--dmg-target`). Quand aucun flag ne produit ton état, le
+> défaut est dans l'outil, pas dans le cas — élargis l'outil.
 
 **Le vrai piège** : un port qui échoue DU BON CÔTÉ (rend une valeur conservatrice, donc
 sous-tire au lieu de mal-tirer) ne produit **aucun désaccord mesurable** — aucune statistique
