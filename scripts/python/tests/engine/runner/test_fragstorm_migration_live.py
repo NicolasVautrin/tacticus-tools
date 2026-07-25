@@ -1,10 +1,12 @@
 """#149 slice-13 : Fragstorm (1078, templSmnAggressor) MIGRATION vers l'arbre DSL.
 
 `IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormAbility$$ExecuteBehaviour` (DECOMPILE) = `ExecuteAtomic(op_BitwiseAnd(main, splash))` :
-    main   = AttackWithAttackDamage(caster, target, RandomAmount, Blast, nrOfHits=4)
+    main   = AttackWithAttackDamage(caster, target, RandomAmount, Blast,
+                 nrOfHits   = GetNumberConstant(cfg, 0x2f))
     splash = AttackWithAttackDamage(caster,
-                 PickRandomly(AdjacentTiles(target) - Tiles(Friends(caster)), nrOfTargets=4),
-                 RandomAmount, Blast, nrOfHits_2=2)
+                 PickRandomly(AdjacentTiles(target) - Tiles(Friends(caster)),
+                              nrOfTargets = GetNumberConstant(cfg, 0x11)),
+                 RandomAmount, Blast, nrOfHits_2 = GetNumberConstant(cfg, 0x32))
 Le splash SOUSTRAIT explicitement les tuiles a AMI-DU-CASTER (i2 « ... to up to 4 random hexes adjacent to the
 target, excluding hexes with friendly units ») -> ENEMIES-ONLY, a la DIFFERENCE de Stikkbomb (`AdjacentUnits`
 BRUT = friendly-fire). Porte = `Alive(Sub(AdjacentUnits(TargetTile()), AdjacentFriends(TargetTile())))` +
@@ -13,13 +15,20 @@ BRUT = friendly-fire). Porte = `Alive(Sub(AdjacentUnits(TargetTile()), AdjacentF
 On exerce l'ability avec un caster PROXY buildable (le vrai carrier Fragstorm = templSmnAggressor summon,
 non-buildable en lineup ; l'exclusion des amis ne depend que de l'ability + geometrie). On DRIVE un ALLIE du
 caster ET un ENNEMI adjacents a la cible, on caste, et on verifie que le splash touche l'ENNEMI mais JAMAIS
-l'allie (== enemies-only, l'INVERSE de Stikkbomb). Robuste au RNG du pick (subset + cap 4). Lit l'etat LIVE.
-ASCII-only. NON committe (tests confront live, hors depot).
+l'allie (== enemies-only, l'INVERSE de Stikkbomb). Robuste au RNG du pick (subset + cap nrOfTargets). Lit
+l'etat LIVE. ASCII-only.
+
+ORACLE DES NOMBRES DE COUPS (#96 / lot A) : le decompile montre trois `GetNumberConstant` passes TELS QUELS
+(aucune formule) -- 0x2f pour les coups de l'attaque principale, 0x32 pour ceux du splash, 0x11 pour le
+`nrOfTargets` du PickRandomly. Valeurs BRUTES -> l'oracle est la CONFIG
+(`gameconfig.ability("Fragstorm").constants.nrOfHits` / `.nrOfHits_2`, helper `_cfg_hits`), jamais un
+litteral. RESIDU ASSUME (hors lot nrOfHits) : le cap `nrOfTargets` reste ecrit en dur plus bas.
 """
 from __future__ import annotations
 
 import pytest
 
+import gameconfig as GC
 import hexgeo
 from engine.runner.snapshot import load_state
 from engine.runner.prng import IntBasedMersenneTwister
@@ -34,6 +43,19 @@ BUILD = ["--roster", "1", "--p-units", "necroSpyder,necroDestroyer",
 
 def _ok(r):
     return isinstance(r, dict) and r.get("ok")
+
+
+def _cfg_hits(key: str) -> int:
+    """ORACLE d'un nb de coups Fragstorm = la CONSTANTE de config, PAS un litteral.
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormAbility$$ExecuteBehaviour` passe
+    `IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant(cfg, 0x2f)` en `hits` de la feuille
+    MAIN et `GetNumberConstant(cfg, 0x32)` en `hits` de la feuille SPLASH -- valeurs BRUTES, aucune formule
+    -> oracle = `gameconfig.ability("Fragstorm").constants[<key>]`."""
+    c = (GC.ability("Fragstorm") or {}).get("constants") or {}
+    v = c.get(key)
+    assert v is not None, (f"oracle introuvable : constants.{key} absent de gameconfig pour Fragstorm "
+                           f"(GetNumberConstant non resolvable offline)")
+    return int(v)
 
 
 def _seed_rng(s):
@@ -133,9 +155,11 @@ def test_fragstorm_migration_enemies_only(live_session, rpc, build_runner):
     print(f"\n[FRAGSTORM migration] dsl={res.get('dsl')} main_hits={(res.get('main_attack') or {}).get('hits')} "
           f"splash={splash_ids} enemy_cands={enemy_cands} ally={ally}(team{ctm})")
 
+    cfg_hits, cfg_hits2 = _cfg_hits("nrOfHits"), _cfg_hits("nrOfHits_2")
     assert res.get("dsl") is True, f"arbre DSL non pris: {res}"
-    assert (res.get("main_attack") or {}).get("hits") == 4, \
-        f"main hits {(res.get('main_attack') or {}).get('hits')} != nrOfHits=4"
+    assert (res.get("main_attack") or {}).get("hits") == cfg_hits, (
+        f"main hits {(res.get('main_attack') or {}).get('hits')} != oracle "
+        f"gameconfig.ability('Fragstorm').constants.nrOfHits={cfg_hits} (GetNumberConstant 0x2f)")
     # ENEMIES-ONLY : chaque cible splash est un ennemi-du-caster adjacent (JAMAIS un ami)
     assert set(splash_ids).issubset(set(enemy_cands)), \
         f"splash {splash_ids} deborde des ennemis adjacents {enemy_cands} (friendly-fire indu ?)"
@@ -145,7 +169,14 @@ def test_fragstorm_migration_enemies_only(live_session, rpc, build_runner):
         f"splash {len(splash_ids)} != min(#cands {len(enemy_cands)}, 4)"
     for x in (res.get("splash") or []):
         h = (x.get("attack") or {}).get("hits")
-        assert h == 2, f"splash cible {x.get('target')} hits {h} != nrOfHits_2=2"
+        assert h == cfg_hits2, (
+            f"splash cible {x.get('target')} hits {h} != oracle constants.nrOfHits_2={cfg_hits2} "
+            f"(GetNumberConstant 0x32)")
+    # DISCRIMINANT : le splash ne se distingue de la main que si les DEUX constantes different -- sinon
+    # un port qui lirait 0x2f pour les deux feuilles passerait ce test sans rien prouver.
+    assert cfg_hits != cfg_hits2, (
+        f"setup NON discriminant : nrOfHits == nrOfHits_2 == {cfg_hits} -> le test ne separe plus la "
+        f"constante MAIN (0x2f) de la constante SPLASH (0x32)")
     # l'allie n'a PERDU AUCUN PV (enemies-only effectif)
     ally_hp1 = state.get_entity(ally).get_component(HealthComponent).hp
     assert ally_hp1 == ally_hp0, f"l'allie a subi du degat ({ally_hp0}->{ally_hp1}) -> friendly-fire indu"

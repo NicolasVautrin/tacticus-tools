@@ -6,10 +6,16 @@
                   op_Addition(AdjacentTiles(TargetTiles@0x190), TargetTiles@0x190), <Nullable ZEROE>),  # glace
         If(IsAlive(target@0x178),
            AttackWithAttackDamage(caster@0x160, target@0x178, RandomAmount(minDmg,maxDmg),
-                                  GetDamageProfile=Piercing, GetNumberConstant(0x2f)=nrOfHits=4)) )       # attaque
+                                  GetDamageProfile=Piercing, GetNumberConstant(0x2f)=nrOfHits)) )         # attaque
 
-Patron « Stormcaller inverse » : glace la tuile de la cible + ring-1 PUIS attaque la CIBLE DIRECTE 4x
-Piercing (mono-cible, ATTACK-family IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage -- XREF from_address 1811e367f).
+Patron « Stormcaller inverse » : glace la tuile de la cible + ring-1 PUIS attaque la CIBLE DIRECTE
+nrOfHits x Piercing (mono-cible, ATTACK-family IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage -- XREF from_address 1811e367f).
+
+ORACLE DU NOMBRE DE COUPS (#96 / lot A) : le natif LIT la valeur telle quelle
+(`AbilityConfiguration.GetNumberConstant(cfg, 0x2f)`, aucune formule) -> valeur BRUTE, oracle = la CONFIG
+`gameconfig.ability("GreatFrostAxe").constants.nrOfHits` (helper `_cfg_hits`), jamais un litteral. Le nb de
+coups EMIS, lui, est CALCULE (`attack_hits_with_modifiers`, plancher `max(1, ...)`) -> oracle = le LIVE :
+port == natif, et l'egalite avec la constante CONSTATE l'absence de modificateur de canal dans ce setup.
 
 CE QUE CE TEST VALIDE (parties FIDELES du port) :
   (A) STRUCTURE : cast LIVE glace 7 tuiles (cible + ring-1) + degate la cible ; le port pose iced_tiles
@@ -44,6 +50,7 @@ from pathlib import Path
 
 import pytest
 
+import gameconfig as GC
 from engine.runner.snapshot import load_state
 from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.components import HealthComponent
@@ -66,6 +73,19 @@ A_UNITS = "necroOverlord,necroWarden,necroWarden,necroWarden"
 
 def _ok(r):
     return isinstance(r, dict) and r.get("ok")
+
+
+def _cfg_hits(key: str = "nrOfHits") -> int:
+    """ORACLE du nb de coups = la CONSTANTE de config de GreatFrostAxe, PAS un litteral.
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.GreatFrostAxeAbility$$ExecuteBehaviour` passe
+    `hits = IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant(cfg, 0x2f)` a
+    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` : valeur BRUTE (aucune formule), donc
+    l'oracle est `gameconfig.ability("GreatFrostAxe").constants[<key>]`."""
+    c = (GC.ability("GreatFrostAxe") or {}).get("constants") or {}
+    v = c.get(key)
+    assert v is not None, (f"oracle introuvable : constants.{key} absent de gameconfig pour GreatFrostAxe "
+                           f"(GetNumberConstant(0x2f) non resolvable offline)")
+    return int(v)
 
 
 def _by_id(dec, uid):
@@ -197,12 +217,22 @@ def test_great_frost_axe_live(live_session, rpc):
         assert live_total is not None and live_total > 0, f"cible non degatee (dmg={live_total})"
         # A2 : la glace a ete posee (au moins la tuile cible)
         assert len(live_ice_ids) >= 1, "aucune tuile glacee live (Effect_SourceId=caster)"
-        # A3 : 4 coups emis (nrOfHits=GetNumberConstant(0x2f)=4)
-        assert len(live_ph) == 4, f"attaque LIVE {len(live_ph)} coups != 4 (nrOfHits)"
+        # A3 : le natif emet nrOfHits coups (oracle CONFIG : GetNumberConstant(0x2f) est lu tel quel).
+        # Le nb REELLEMENT emis est calcule (modificateurs de canal) -> cette egalite CONSTATE aussi
+        # qu'aucun modificateur n'agit ici, condition du bit-exact per-coup indice-par-indice en (C).
+        cfg_hits = _cfg_hits()
+        print(f"\n[GFA] oracle constants.nrOfHits={cfg_hits}")
+        assert len(live_ph) == cfg_hits, (
+            f"attaque LIVE {len(live_ph)} coups != oracle "
+            f"gameconfig.ability('GreatFrostAxe').constants.nrOfHits={cfg_hits}")
 
         # ============ (B) OFFLINE zone glace + structure ============
         off_ph_attack, iced_off = _replay_per_hit(dec1, ob1, snap1, bg, s_cast, cid, eid, "attack")
-        assert len(off_ph_attack) == 4, f"port {len(off_ph_attack)} coups != 4"
+        # oracle LIVE du cote CALCULE (le port doit suivre le natif) + oracle CONFIG de la constante
+        assert len(off_ph_attack) == len(live_ph), \
+            f"nb de coups port {len(off_ph_attack)} != live {len(live_ph)} (le port ne suit pas le natif)"
+        assert len(off_ph_attack) == cfg_hits, \
+            f"port {len(off_ph_attack)} coups != oracle constants.nrOfHits={cfg_hits}"
         # zone = tuile cible + voisins marchables (== Union(AdjacentTiles(Target()), Tiles(Target())))
         tpc = _by_id(dec1, eid).get("pos") or {}
         ttile = board.id_at(tpc.get("col"), tpc.get("row"))

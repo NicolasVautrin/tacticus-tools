@@ -14,9 +14,17 @@
 Nullable(GetDamageProfile), hits = GetHits)`. `GetHits` = `IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$GetHits` (gshared
 dedup) = `GetNumberConstant(nrOfHits=0x2f)`. i2 : « Deals 4x [dmg] Physical Damage to an adjacent enemy and all
 other enemies adjacent to both Macer and the target. Then Macer loses 25% of his current Health. Using Jakhal
-Stimms does not end Macer's turn. » Attaque MELEE, profil Physical (pierce 1) ; config 1131 : nrOfHits=4,
-hpPct=25 (constantes). `native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, XREF ExecuteBehaviour/GetAttackBehaviour ;
+Stimms does not end Macer's turn. » Attaque MELEE, profil Physical (pierce 1) ; config 1131 : constantes
+`nrOfHits` (0x2f) et `hpPct`. `native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, XREF ExecuteBehaviour/GetAttackBehaviour ;
 2 tirages/coup a cc=0, cas rngcrit-1202).
+
+ORACLE DU NOMBRE DE COUPS (#96 / lot A) : `ArmoriumCherubAbility$$GetHits` (corps partage, lit ici la config
+JakhalStimms) rend `AbilityConfiguration.GetNumberConstant(cfg, 0x2f)` et le passe TEL QUEL a
+`AttackWithAttackDamage` -- valeur BRUTE, aucune formule -> l'oracle est la CONFIG
+(`gameconfig.ability("JakhalStimms").constants.nrOfHits`, helper `_cfg_hits`), jamais un litteral. Le nb de
+coups REELLEMENT emis, lui, est CALCULE (`attack_hits_with_modifiers`, plancher `max(1, ...)`) -> oracle =
+le LIVE (port == natif) ; l'egalite avec la constante CONSTATE l'absence de modificateur de canal ici.
+RESIDU ASSUME (hors lot nrOfHits) : la constante `hpPct` du self-loss reste ecrite en dur plus bas.
 
 AoE = intersection `AdjacentUnits(caster) & AdjacentFriends(target)`. Le runner `AdjacentFriends` filtre
 team==CASTER (PAS subject-relatif comme le natif) -> le natif `AdjacentFriends(target)` (= ennemis-du-caster
@@ -37,8 +45,9 @@ Ce que ces tests PROUVENT :
       port n'introduit AUCUN bug de degat.
   (e) NATIVE_FACTORY : la MAIN live == modele "attack" (2 tirages/coup) != "ability" (1 tirage/coup) -> le choix
       "attack" est le bon (discriminant rngcrit-1202).
-  (f) DISCRIMINANT Skullsmasher (offline) : a HP REDUIT, le live = offline + un ADDITIF FLAT CONSTANT sur les 8
-      coups (main+aoe) == le passif non porte (mesure : Macer 2368/9035 -> +1400/coup) ; la STRUCTURE reste exacte.
+  (f) DISCRIMINANT Skullsmasher (offline) : a HP REDUIT, le live = offline + un ADDITIF FLAT CONSTANT sur les
+      2 x nrOfHits coups (main+aoe) == le passif non porte (mesure : Macer 2368/9035 -> +1400/coup) ; la
+      STRUCTURE reste exacte.
 
 ROSTER reaction-free-damage (necroWarden = DangerZone repair/+move, necroOverlord = rien ; PAS de necroDestroyer
 = Overwatch) -> le move final de Macer (adjacent aux ennemis) ne le blesse PAS -> Macer PLEINE VIE -> Skullsmasher
@@ -58,6 +67,7 @@ from pathlib import Path
 
 import pytest
 
+import gameconfig as GC
 import hexgeo
 
 PYDIR = Path(__file__).resolve().parents[3]                 # scripts/python
@@ -74,6 +84,20 @@ A_UNITS = "necroWarden,necroOverlord,necroWarden,necroOverlord"
 
 def _ok(r):
     return isinstance(r, dict) and r.get("ok")
+
+
+def _cfg_hits(key: str = "nrOfHits") -> int:
+    """ORACLE du nb de coups = la CONSTANTE de config de JakhalStimms, PAS un litteral.
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.JakhalStimmsAbility$$GetAttackBehaviour` passe
+    `hits = IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$GetHits` (corps partage)
+    = `IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant(cfg, 0x2f)` a
+    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` : valeur BRUTE (aucune formule), donc
+    l'oracle est `gameconfig.ability("JakhalStimms").constants[<key>]`."""
+    c = (GC.ability("JakhalStimms") or {}).get("constants") or {}
+    v = c.get(key)
+    assert v is not None, (f"oracle introuvable : constants.{key} absent de gameconfig pour JakhalStimms "
+                           f"(GetNumberConstant(0x2f) non resolvable offline)")
+    return int(v)
 
 
 def _build(seed: str, a_units: str = A_UNITS):
@@ -238,8 +262,19 @@ def test_jakhal_stimms_live_bitexact(live_session, rpc, seed):
         live_aoe = live.get(e1) or []
         if not live_main:
             pytest.skip(f"aucun degat live JakhalStimms (cast no-op ; targets live={sorted(live)})")
-        assert len(live_main) == 4, f"coups main live {len(live_main)} != nrOfHits 4"
-        assert len(live_aoe) == 4, f"coups aoe live {len(live_aoe)} != nrOfHits 4"
+        # Oracle CONFIG (nrOfHits est lu tel quel par GetHits) ; le nb EMIS etant calcule, cette egalite
+        # CONSTATE en meme temps qu'aucun modificateur de canal de coups n'agit dans ce setup -- condition
+        # du bit-exact per-coup indice-par-indice plus bas.
+        cfg_hits = _cfg_hits()
+        assert len(live_main) == cfg_hits, (
+            f"coups main live {len(live_main)} != oracle "
+            f"gameconfig.ability('JakhalStimms').constants.nrOfHits={cfg_hits}")
+        assert len(live_aoe) == cfg_hits, (
+            f"coups aoe live {len(live_aoe)} != oracle constants.nrOfHits={cfg_hits}")
+        # DISCRIMINANT (e) : la separation native_factory attack/ability commence au coup 2.
+        assert cfg_hits >= 2, (
+            f"setup NON discriminant : nrOfHits={cfg_hits} < 2 -> le volet (e) native_factory ne peut "
+            f"plus rougir (les deux familles partagent le 1er tirage)")
         # (b) geometrie : E2 (adjacent-C-only) et E3 (adjacent-T-only) EXCLUS ; cible hors AoE
         assert (live.get(e2) or []) == [], f"E2 (adjacent-caster-seul) touche a tort: {live.get(e2)}"
         assert (live.get(e3) or []) == [], f"E3 (adjacent-cible-seul) touche a tort: {live.get(e3)}"
@@ -270,12 +305,15 @@ def test_jakhal_stimms_live_bitexact(live_session, rpc, seed):
         # (d) A/B : arbre == sequences directes execute_ability_attack (main puis aoe, meme rng)
         st_dir = mkstate(); st_dir.rng = _mk_rng(s0)
         bmin, bmax, pierce, hh = ability_attack_params(st_dir, cid, "JakhalStimms", "Physical", ranged=False)
-        assert hh == 4 and pierce == 1, f"nrOfHits {hh} != 4 ou pierce Physical {pierce} != 1"
+        assert hh == cfg_hits, (
+            f"ability_attack_params rend nrOfHits={hh} != oracle constants.nrOfHits={cfg_hits} "
+            f"(GetHits 0x2f)")
+        assert pierce == 1, f"pierce Physical {pierce} != 1"
         d_main = (AttackDamageOperation.execute_ability_attack(
-            st_dir, cid, tid, bmin, bmax, pierce, 4,
+            st_dir, cid, tid, bmin, bmax, pierce, hh,
             damage_profile="Physical", is_melee=True, is_attack_damage_op=True) or {}).get("per_hit")
         d_aoe = (AttackDamageOperation.execute_ability_attack(
-            st_dir, cid, e1, bmin, bmax, pierce, 4,
+            st_dir, cid, e1, bmin, bmax, pierce, hh,
             damage_profile="Physical", is_melee=True, is_attack_damage_op=True) or {}).get("per_hit")
         assert tree_main == d_main, f"arbre MAIN {tree_main} != sequence directe {d_main}"
         assert tree_aoe == d_aoe, f"arbre AOE {tree_aoe} != sequence directe {d_aoe}"
@@ -283,7 +321,7 @@ def test_jakhal_stimms_live_bitexact(live_session, rpc, seed):
         # (e) native_factory discriminant : "ability" (1 tirage/coup) DIVERGE du live des le coup >=2
         st_ab = mkstate(); st_ab.rng = _mk_rng(s0)
         off_ability = (AttackDamageOperation.execute_ability_attack(
-            st_ab, cid, tid, bmin, bmax, pierce, 4,
+            st_ab, cid, tid, bmin, bmax, pierce, hh,
             damage_profile="Physical", is_melee=True, is_attack_damage_op=False) or {}).get("per_hit")
         assert off_ability != live_main, \
             (f"modele 'ability' {off_ability} == LIVE {live_main} : native_factory ne separe pas (attendu desync coup 2)")
@@ -331,8 +369,8 @@ def _drive_overwatch(rpc, rid, board):
 
 def test_jakhal_stimms_skullsmasher_is_flat_and_separate(live_session, rpc):
     """(f) A HP REDUIT (overwatch d'un necroDestroyer adjacent au move final de Macer), le live per-coup = le
-    port offline + un ADDITIF FLAT CONSTANT (identique sur les 8 coups main+aoe) = le passif Skullsmasher
-    (+extraDmg x floor(PV%-manquant/10)), item SEPARE NON porte. Prouve que la STRUCTURE (ordre rng, hit-count,
+    port offline + un ADDITIF FLAT CONSTANT (identique sur les 2 x nrOfHits coups main+aoe) = le passif
+    Skullsmasher (+extraDmg x floor(PV%-manquant/10)), item SEPARE NON porte. Prouve que la STRUCTURE (ordre rng, hit-count,
     geometrie) reste EXACTE et que la seule divergence est ce passif flat. Skip si Macer reste pleine vie."""
     from engine.entities.pathfinding.board import Board
     from engine.runner.snapshot import load_state
@@ -375,8 +413,16 @@ def test_jakhal_stimms_skullsmasher_is_flat_and_separate(live_session, rpc):
         live = _live_dmg_by_target(cast)
         live_main = live.get(tid) or []
         live_aoe = live.get(e1) or []
-        if len(live_main) != 4 or len(live_aoe) != 4:
-            pytest.skip(f"cast live incomplet (main={len(live_main)} aoe={len(live_aoe)})")
+        cfg_hits = _cfg_hits()
+        # Le SKIP ne couvre que l'indisponibilite REELLE du scenario (pas de cast, ou pas de cible AoE
+        # a cause de la geometrie/overwatch). Un cast qui a bien eu lieu mais avec un nombre de coups
+        # different de l'oracle est une DIVERGENCE, pas une indisponibilite : elle doit ROUGIR (les PV
+        # sont tunes a 300000, aucun coup ne peut etre absorbe par une mort).
+        if not live_main or not live_aoe:
+            pytest.skip(f"cast live sans cible exploitable (main={len(live_main)} aoe={len(live_aoe)})")
+        assert len(live_main) == cfg_hits and len(live_aoe) == cfg_hits, (
+            f"coups live main={len(live_main)} aoe={len(live_aoe)} != oracle "
+            f"gameconfig.ability('JakhalStimms').constants.nrOfHits={cfg_hits}")
 
         st = load_state(dv, ob0, snap, board=Board(bg["tiles"], adjacency="native_sym"))
         st.rng = _mk_rng(s0)
@@ -386,13 +432,14 @@ def test_jakhal_stimms_skullsmasher_is_flat_and_separate(live_session, rpc):
         off_aoe = (aoe[0]["attack"].get("per_hit") if aoe else []) or []
 
         diffs = [lm - om for lm, om in zip(live_main, off_main)] + [la - oa for la, oa in zip(live_aoe, off_aoe)]
-        assert len(diffs) == 8, "attendu 8 coups (4 main + 4 aoe)"
+        assert len(diffs) == 2 * cfg_hits, \
+            f"attendu {2 * cfg_hits} coups (nrOfHits={cfg_hits} main + autant en aoe), obtenu {len(diffs)}"
         flat = diffs[0]
         assert flat > 0, f"additif Skullsmasher {flat} <= 0 (HP reduit attendu -> +extraDmg > 0)"
         assert all(d == flat for d in diffs), \
             (f"diffs live-offline {diffs} NON constants : la divergence n'est PAS un additif flat -> structure "
              f"suspecte (rng/hit-count/geometrie), pas seulement le passif Skullsmasher")
-        print(f"[jakhal skullsmasher] HP reduit ({hc.hp}/{hc.hp_max}) -> live = offline + {flat} FLAT sur 8 coups "
-              f"(main+aoe) = passif Skullsmasher NON porte ; structure EXACTE")
+        print(f"[jakhal skullsmasher] HP reduit ({hc.hp}/{hc.hp_max}) -> live = offline + {flat} FLAT sur "
+              f"{len(diffs)} coups (main+aoe) = passif Skullsmasher NON porte ; structure EXACTE")
     finally:
         _cleanup(rpc, rid, state_file)
