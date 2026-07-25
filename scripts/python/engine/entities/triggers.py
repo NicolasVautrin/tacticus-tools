@@ -23,6 +23,22 @@ class TriggerAnd(AbilityTrigger):
         return bool(self.a.evaluate(ctx)) and bool(self.b.evaluate(ctx))
 
 
+class TriggerOr(AbilityTrigger):
+    """`AbilityTrigger.op_BitwiseOr(a, b) @180ffb0a0` : OU LOGIQUE de deux prédicats booléens. Classe
+    NATIVE DISTINCTE de l'ET (`op_BitwiseAnd @180ffb030` -> DAT_18325bd38 ; ici DAT_1832782e8), MEME
+    layout (`left@+0x10`, `right@+0x18`). 201 call-sites natifs — dont
+    `SquigLaunchasAbility.FulfillsSummonCriteria @18120aac0` (`HasMinimumAdjacentOrks(nrOfUnits_3)
+    | HasMinimumAdjacentFriendlyUnits(nrOfUnits_4)`), les disjonctions `CreateTrigger` de RadSaturation
+    /TerrifyingCrescendo/ActOfFaith (jusqu'ici recablees a la main dans leurs triggers impératifs).
+    `bool(a) or bool(b)` — court-circuit (le `ShouldTrigger` natif de la classe n'est pas relu ; sans
+    effet observable, les deux operandes etant des predicats PURS)."""
+    def __init__(self, a: AbilityTrigger, b: AbilityTrigger):
+        self.a, self.b = a, b
+
+    def should_trigger(self, ctx):
+        return bool(self.a.evaluate(ctx)) or bool(self.b.evaluate(ctx))
+
+
 class Not(AbilityTrigger):
     """`AbilityTrigger.op_LogicalNot(a)` : NÉGATION LOGIQUE d'un prédicat (`not a.evaluate`). TheBetrayer
     (`@1811a4f70`) réutilise le MÊME nœud `IsAdjacent` sous `op_LogicalNot` (gate du move) ET en direct
@@ -83,6 +99,31 @@ class AmountIsEqualOrGreater(AbilityTrigger):
 
     def should_trigger(self, ctx):
         return self.a.evaluate(ctx) >= self.b.evaluate(ctx)
+
+
+class CacheTrigger(AbilityTrigger):
+    """`DSLFactory.Cache(trigger) @180deb010` (overload PRÉDICAT du `Cache` — le sélecteur est
+    `selectors.Cache @180deb0d0`, même famille, singleton de classe DISTINCT `DAT_183282208` ; le ctor
+    affiché `thor_Menu_WaitForCondition..ctor` est un fold gshared MISLABELÉ, structure lue = 1 champ =
+    le nœud caché) : MÉMOÏSE le verdict booléen du sous-arbre. La 1ʳᵉ évaluation calcule et stocke ;
+    les suivantes rendent le CACHE — la mémoïsation est OBSERVABLE dès que l'état mute entre deux
+    consommateurs.
+
+    Consommateur porté : `SquigLaunchasAbility.ExecuteBehaviour @18120a720` —
+    `cond = Cache(FulfillsSummonCriteria)`, puis `Execute( (SetCache(cond) + attack) + If(cond, spawn) )` :
+    le `SetCache` force l'éval AVANT l'attaque, donc le critère de summon est figé sur l'état
+    **PRÉ-attaque** (une cible tuée par les 3 coups ne peut pas invalider a posteriori le spawn).
+    Portée = l'instance du nœud ; l'arbre étant rebâti par cast, le cache est **par-cast**."""
+    def __init__(self, inner: AbilityTrigger):
+        self.inner = inner
+        self._has = False
+        self._cached = False
+
+    def should_trigger(self, ctx):
+        if not self._has:                            # miss -> calcule + stocke (slot unique)
+            self._cached = bool(self.inner.evaluate(ctx))
+            self._has = True
+        return self._cached                          # hit -> verdict MEMOISE
 
 
 class AmountIsGreaterThanZero(AbilityTrigger):

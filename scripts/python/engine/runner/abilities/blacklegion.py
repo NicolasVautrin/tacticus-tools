@@ -19,8 +19,8 @@ from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import AtomicGroup, ChainBehaviour, op_and
 from ...entities.selectors import (ActiveTarget, AdjacentTiles, AdjacentUnits, CanAddUnit, Caster,
-                                   CasterTile, Damageable, Enemies, FixedTileIds, Nothing, Null, Sub,
-                                   Target)
+                                   CasterTile, Damageable, Enemies, FixedTileIds, Friends, Nothing,
+                                   Null, Sub, Target)
 from ...entities.triggers import IsAlive, IsInRange, TriggerAnd
 from ...entities.active_ability_type import ActiveAbilityType
 from .base import ActiveAbility
@@ -178,6 +178,130 @@ def incursion_tree(state: "State", max_summons: int) -> ChainBehaviour:
                           body=Spawn(ActiveTarget(), "Incursion",
                                      on_appearance=UseActiveAbility(ActiveTarget(), Target())),
                           init=Null())
+
+
+# ===================== HadesAutocannons (blackForgefiend, MACHINE OF WAR, actif 1147) =====================
+#
+# Porteur : `blackForgefiend` « Forgefiend » = MACHINE OF WAR (pool `--list-pool`, 8 MoW) -> entite ECS
+# hors-plateau (ni Position ni Health), chargee par `_load_machines` (case-mow-offboard-cast).
+#
+# CIBLAGE (face DECISION/eligibilite) : 1147 n'a **AUCUN** `GetDynamicInvalidTargetReason` (contraste
+# 1168/1200) -- son predicat vit dans les `TargetingOptions` du ctor `HadesAutocannonsAbility..ctor
+# @1811e56b0` (`TargetingOptions(0, <filtre>, 1, 0x46006000, 0,0,0)`), ET il est REDIT par le selecteur
+# d'execution `GetAllTargets @1811e5480` (`UnitsWithTrait(..., 2=Summon)`) : la cible doit etre un
+# **SUMMON ennemi**. C'est CE predicat qui rend « 0 cible au spawn » (sweep case-mow §5) : il faut le
+# MONTER (amener un summoner adverse a invoquer, puis viser un summon) pour obtenir une cible.
+CONST_HADES_RANGE = 0x16          # GetNumberConstant(0x16) -> "range" = 2
+VAR_EXTRA_CRIT_DMG = 0x42         # GetVariableForLevel(0x42) -> "extraCritDmg"
+HADES_AUTOCANNONS_ID = "HadesAutocannons"
+
+
+def hades_autocannons_get_all_targets(range_: int):
+    """`HadesAutocannonsAbility.GetAllTargets @1811e5480` — MIRROR du DECOMPILE :
+
+        sel   = UnitsWithTrait( Friends( target@0x178,                                   # allies DE LA CIBLE
+                                         SurroundingUnits(target@0x178, GetNumberConstant(0x16)=range,
+                                                          1, includeCenter=1, 3) ),
+                                2 = Summon, 3 )
+        asc   = SortByRow( Tiles(sel), 0, 0, false )
+        desc  = SortReverse( SortByRow( Tiles(sel), 0, 0, false ) )
+        return If( AreEqual(CurrentPlayer, Player(1)), asc, desc )                        # == IsTopPlayer @1811e5640
+
+    = les SUMMONS (trait 2) allies de la CIBLE, dans un disque de rayon `range` autour d'elle,
+    **CIBLE INCLUSE** (`SurroundingTiles(..., includeCenter=1)` @180dfca70 : param!=0 -> selecteur direct,
+    param==0 -> `- Tiles(center)`). i2 : « a targeted enemy summon AND all other enemy summons within 2
+    hexes of the target ». Le referent de `Friends` est la **CIBLE** (1er arg natif), pas le caster : ce
+    sont donc les summons du camp de la cible = les summons ENNEMIS du caster (d'ou le `Friends(reference=
+    Target())` porte).
+
+    **ORDRE** : le `SortByRow`/`SortReverse` (+ `If(IsTopPlayer)`) est un ordre de LECTURE du selecteur ;
+    il est ECRASE en aval par l'`OrderBy` que `AttackBehaviour.Execute @180fb91a0` applique
+    INCONDITIONNELLEMENT des que le set a >= 2 cibles (`if (1 < count) OrderBy(<>c.b__5_0 @180fd9150)`
+    = cle par-entite du slot vtable +0x158). Le port garde donc son tri par `id` (`multi=True`, == tous
+    les autres multi-cibles valides bit-exact) et NE porte PAS les noeuds de tri — HYPOTHESE explicite
+    (la cle +0x158 n'est pas relue ici) : discriminable live avec >= 2 summons dont l'ordre de `row`
+    contredit l'ordre d'`id`."""
+    from ...entities.selectors import SurroundingUnits, TargetTile, Tiles, Units, UnitsWithTrait
+    from ...entities.traits.unit_trait import UnitTrait
+    ring = SurroundingUnits(TargetTile(), Const(int(range_)), include_center=True)   # includeCenter=1
+    summons = UnitsWithTrait(Friends(ring, reference=Target()), int(UnitTrait.Summon))
+    return Units(Tiles(summons))     # aller-retour unites -> Tiles(sel) -> Units(...) du natif (mirror)
+
+
+def hades_autocannons_tree(range_: int, crit_amount: int, caster_id: int):
+    """Arbre de `HadesAutocannonsAbility$$ExecuteBehaviour @1811e50e0` — MIRROR du DECOMPILE :
+
+        crit  = GetVariableForLevel(config, 0x42 = extraCritDmg, abilityState)
+        Execute( op_Addition( op_Addition(
+            ChangeStat( Owner@0x148, Position(10=CriticalDamage, 0), mode=2=Add, Direct(crit) ),   # [1]
+            AttackWithAttackDamage( Owner@0x148, Units(GetAllTargets()),                           # [2]
+                                    MinMaxDamage, Direct(GetDamageProfile)=Flame,
+                                    Direct(GetHits()=ConfigConst(0x2f)=nrOfHits=6),
+                                    AbilityOrEffect(0x47b = 1147), <options> ) ),
+            ChangeStat( Owner@0x148, Position(10, 0), mode=3=Subtract, Direct(crit) ) ) )          # [3]
+
+    JUMEAU STRUCTUREL de `HeroicFusilladeAbility @1811e8de0` (buff crit temporaire NET-NUL encadrant
+    l'attaque, meme couple ChangeStat Add/Sub sur `CRIT_DAMAGE` avec source PARTAGEE) — d'ou la meme
+    feuille portee `ChangeStat(..., "add"/"revert", src)`.
+
+    - **native_factory = "attack"** (defaut) : le decompile appelle `DSLFactory.AttackWithAttackDamage`
+      (VERIFIE par la CALLEE de @1811e50e0 ; contraste EntropyCannons/SquigLaunchas =
+      `AttackWithAbilityDamage`) -> `AttackDamageOperation.ExecuteHit @180e5eff0`, 2 tirages/coup a cc=0,
+      crit ACTIF (c'est justement ce que le buff [1] alimente).
+    - `multi=True` : le selecteur resout N cibles -> `AttackBehaviour.Execute @180fb91a0` attaque CHACUNE
+      (ordre = OrderBy par-entite, port = tri par id).
+    - Profil `Flame` (PiercingRatio 25, trait OnFire), `nrOfHits`=6, `attackRangeType=Ranged` ->
+      `is_melee=False`.
+    - Le buff crit est INERTE tant que la `CritChance` du caster est 0 (cas d'une MoW seedee a 0 :
+      `_load_machine_stats` ; `combatSnapshot` filtre `EntityType.Unit` -> la CritChance resolue d'une
+      MoW n'est pas captable, residu case-mow §8). Il est neanmoins porte 1:1 : des que la CritChance
+      devient > 0 (i2 : `DaemonicOrdnance` +20 %/usage), le +extraCritDmg s'applique par coup CRITIQUE."""
+    from ...entities.behaviours import op_add
+    from ...entities.stats import StatType
+    from .behaviours import ChangeStat
+    src = (f"{HADES_AUTOCANNONS_ID}_CritDamage", caster_id)            # source PARTAGEE add<->revert
+    crit_add = ChangeStat(Caster(), int(StatType.CRIT_DAMAGE), "add", src, amount=int(crit_amount))
+    attack = AttackWithAttackDamage(hades_autocannons_get_all_targets(range_), HADES_AUTOCANNONS_ID,
+                                    "Flame", is_melee=False, multi=True,
+                                    ability_type=int(ActiveAbilityType.HadesAutocannons))
+    crit_revert = ChangeStat(Caster(), int(StatType.CRIT_DAMAGE), "revert", src)
+    return op_add(op_add(crit_add, attack), crit_revert)
+
+
+class HadesAutocannonsAbility(ActiveAbility):
+    """`HadesAutocannonsAbility$$ExecuteBehaviour @1811e50e0` (id 1147, `blackForgefiend` « Forgefiend »,
+    MACHINE OF WAR Black Legion). Arbre DSL `hades_autocannons_tree()` (mirror 1:1) : buff CRIT_DAMAGE
+    (+extraCritDmg[level]) -> 6 coups Flame sur la cible ET tous les summons de SON camp a <= range hex
+    d'elle (`GetAllTargets @1811e5480`) -> retrait du buff.
+
+    Caster = une **MoW hors-plateau** (ni Position ni Health) : `apply_elevation_bonus`/
+    `apply_trench_reduction` (famille ATTACK) no-op sans position d'attaquant -> aucun chemin ne suppose
+    une tuile de caster. Turn-flags = defauts base (1147 absent des overrides).
+    Diag : {crit_amount, targets, attacks:[{target,total}]}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.HadesAutocannons)   # 1147
+    ABILITY_ID = HADES_AUTOCANNONS_ID
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        from ...entities.effects.magnitude import ability_var
+        from ..components import StatsComponent
+        if target_id is None:
+            return None
+        sc = state.get_entity(caster_id).get_component(StatsComponent) if state.get_entity(caster_id) else None
+        cctx = sc.ctx if sc is not None else None
+        level = getattr(cctx, "active_ability_level", None)
+        mult = int(getattr(cctx, "ability_variables_multiplier", 100) or 100)
+        crit = int(ability_var(self.ABILITY_ID, "extraCritDmg", level, multiplier_pct=mult) or 0)
+        rng_const = int(((GC.ability(self.ABILITY_ID) or {}).get("constants") or {}).get("range") or 0)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        hades_autocannons_tree(rng_const, crit, caster_id).execute(entities, ectx)
+        attacks = [{"target": p.get("target"), "total": p.get("total")}
+                   for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
+                "crit_amount": crit, "range": rng_const,
+                "targets": [a["target"] for a in attacks], "attacks": attacks, "dsl": True}
 
 
 class IncursionAbility(ActiveAbility):
