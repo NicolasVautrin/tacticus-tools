@@ -65,7 +65,11 @@ SPY_VIS, VIN_VIS, TANK_VIS, SWARM_VIS = ("necroSpyder", "adeptRetributor",
                                          "astraBullgryn", "necroSmnSwarm")
 SCARAB_HIVE = 1007
 DOT_EFFECT = 5          # Effect_Type Fire (project_effect_type_attribution)
-FIRE_TURNS = 2          # duree du feu (runner 1v1 : convert_rounds_to_turns(2) = 2, cf. fire.py)
+# #98 : la duree NATIVE du feu = `ConvertRoundsToTurns(DefaultAmountOfRounds(5)=2 rounds)` @181058af0
+# = 2 x count(joueurs non-Environment) = **4 tours** dans un duel standard. `FIRE_TURNS` reste la
+# FENETRE d'observation de ce probe (nb de tours pendant lesquels il considere un feu « vivant ») ;
+# la valeur 2 y est un choix de probe, PAS la duree native (l'ancien commentaire l'affirmait a tort).
+FIRE_TURNS = 2
 
 
 def _r(sid: int, method: str, body: dict, t: float = 90) -> dict:

@@ -89,6 +89,15 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     `state.board = board` post-retour (l'init/seed ne lit jamais `state.board`)."""
     state = State()
     state.current_player_id = decision.get("currentPlayer")
+    # #98 -- FACTEUR rounds->turns (`BattleQuery.ConvertRoundsToTurns @181058af0` = `count(joueurs du
+    # `BC.Player.TurnOrder` dont `PlayerComponent+0x20 != 2`) * rounds`). `observeBattle.counts.player`
+    # = le nb d'entites Player PROJETEES (EntityType 4) ; le joueur **Environment** est unique et
+    # permanent dans toute BC (seed BC : Players 11/12/13 = PlayerType 0/1/2, `TurnOrder=[11,12,13]`)
+    # -> non-Environment = `counts.player - 1`. MESURE PRE-tick (2 unites/camp) : counts.player=3 -> 2,
+    # et `TurnsFromRounds(1)` comme `DefaultAmountOfRounds=1` rendent bien `remaining = 2` live.
+    _pc = (observe.get("counts") or {}).get("player") if isinstance(observe, dict) else None
+    if _pc is not None and int(_pc) > 1:
+        state.turn_order_player_count = int(_pc) - 1
     hp_by_id = _hp_by_id(observe)
     for u in (decision.get("units") or []):
         uid = u.get("id")

@@ -95,7 +95,8 @@ class WeaverOfFateAbility(TriggeredAbility):
         from ...effects import AddEffectOperation              # lazy : cycle triggers<->operations
         eff = AddEffectOperation.execute(
             state, self.owner_id, self.owner_id, WEAVER_MAXOUT,
-            name="WeaverOfFate_MaxOutDamage", duration_override=1)   # Nullable(1) natif = 1 tour
+            name="WeaverOfFate_MaxOutDamage",
+            duration_override=1)   # Nullable(1) natif (@1811acb90) = 1 TOUR, PAS TurnsFromRounds -> pas de conversion (#98)
         if eff is None:
             return None
         return {"type": "weaver_of_fate_maxout", "unit": int(self.owner_id)}

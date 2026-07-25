@@ -92,8 +92,9 @@ def getemruntz_taunt_tree() -> If:
         TriggerAnd(AmountIsGreaterThanZero(TotalAttacksMade(child)),
                    AmountIsEqual(Const(0), UnitTurnsStarted(child))),
         IsAlive(LastUnitAttackedBy(child)))
+    # duree = `TurnsFromRounds(1)` natif -> convertie par `ConvertRoundsToTurns` @181058af0 (#98)
     return If(cond, AddBondEffect(TAUNTED, "Taunted_OnlySpecificTargets",
-                                  child, LastUnitAttackedBy(child), 1))
+                                  child, LastUnitAttackedBy(child), duration_rounds=1))
 
 
 def getemruntz_tree() -> Seq:
@@ -360,10 +361,13 @@ def master_of_the_tutelaries_tree(tile_id) -> Seq:
     est ACTIF avant l'attaque immédiate du Horror → son attaque déclenche DÉJÀ un Screamer (ranged
     Psychic OU melee+bonus InfernalPacts Psychic — mesure live diag 202c ; la chaîne se poursuit tant
     que chaque summon adjacent à Abraxas attaque). Port : `Seq(AddEffect, SpawnTutelaryHorror)`.
-    Durée : nœud singleton `@dsl+0xc0` non résolu au décompilé — modélisée `TurnsFromRounds(1)`
-    (i2 « until the end of this turn », comme le Nullable(1) de WeaverOfFate) ; À CONFIRMER live
-    (probe C : effet présent pendant le tour, absent après EndTurn — résidu si divergence)."""
-    return Seq(AddEffect(MASTER_EFFECT, "MasterOfTheTutelaries", Caster(), duration_rounds=1),
+    Durée : nœud `@dsl+0xc0` = **`Direct(1)`** (#98 — le singleton constant alloué par
+    `DSLFactory..ctor @180e020b0` ; MÊME nœud que le `duree@0xc0` de Waaagh @18122b900 et que le
+    `amount = df@0xc0 = Const(1)` d'AddEffectOrIncreaseLevel). Ce n'est donc PAS un `TurnsFromRounds`
+    (résidu « non résolu » FERMÉ) : la valeur arrive telle quelle dans le `param_6` d'`AddEffect
+    Operation.Execute @180e48940`, qui ne la convertit pas → **1 TOUR** (`duration_turns=1`,
+    comportement inchangé)."""
+    return Seq(AddEffect(MASTER_EFFECT, "MasterOfTheTutelaries", Caster(), duration_turns=1),
                SpawnTutelaryHorror(tile_id))
 
 

@@ -215,7 +215,8 @@ class DecoysAndMisdirectionBuffFriendsAbility(TriggeredAbility):
         # pose (docstring effet : "niveau/multiplier = ceux du SOURCE genesPrimus"). remaining_turns=1 (fin de
         # tour). AddEffectOperation no-op si un même-type est déjà présent sur le stepper (refresh-équivalent).
         eff = AddEffectOperation.execute(state, self.owner_id, stepper, DECOYS_EXTRA_DMG,
-                                         name="DecoysAndMisdirection_ExtraDamage", duration_override=1)
+                                         name="DecoysAndMisdirection_ExtraDamage",
+                                         duration_override=1)   # duree = df@0xc0 = Direct(1) (@180e1fe30) : deja en TOURS, pas de conversion (#98)
         if eff is not None:
             lvl, mult = _owner_level_mult(state, self.owner_id)
             eff.ability_level = lvl                       # niveau du passif de l'owner (proxy, FLAG path allié)
@@ -560,7 +561,8 @@ class HypersensoryMoveAndSpawnDecoyAbility(TriggeredAbility):
         # (4) FLAG once/turn (0x57f=1407) pose EN DERNIER (op_BitwiseAnd final du behaviour). Retire au
         # prochain start_turn (reset_times_attacked) -> la reaction se re-arme chaque tour ennemi.
         AddEffectOperation.execute(state, judh, judh, HYPERSENSORY_HASBEENATTACKED,
-                                   name="HypersensoryAbilities_HasBeenAttacked", duration_override=1)
+                                   name="HypersensoryAbilities_HasBeenAttacked",
+                                   duration_override=1)   # duree = df@0xc0 = Direct(1) (@180f878f0) : deja en TOURS (#98)
         return {"ability": "HypersensoryAbilities_MoveAndSpawnDecoy", "owner": judh, "attacker": attacker,
                 "moved_to": dest, "decoy": decoy, "counter": counter}
 
@@ -598,3 +600,4 @@ class HypersensoryMoveAndSpawnDecoyAbility(TriggeredAbility):
         return AttackDamageOperation.execute_ability_attack(
             state, judh, attacker, bmin, bmax, pierce, hits,
             damage_profile=PROJECTILE_PROFILE, is_melee=False)
+

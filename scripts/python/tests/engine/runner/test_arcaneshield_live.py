@@ -25,6 +25,7 @@ from __future__ import annotations
 import pytest
 
 from engine.runner.snapshot import load_state
+from engine.runner.abilities.base import convert_rounds_to_turns
 from engine.runner.operations import triggers as T
 from engine.runner.components import (UnitComponent, OwnerComponent, PositionComponent,
                                       StatsComponent, ShieldComponent)
@@ -117,13 +118,19 @@ def test_arcaneshield_grant_live(live_session, rpc, build_runner):
     res = T._arcaneshield_grant(state, owner_id)
     assert res is not None and res.get("target") == ally_id, f"bouclier pas pose sur l'allie (res={res})"
     assert res.get("amount") == amount, f"montant {res.get('amount')} != shieldHp attendu {amount}"
-    assert res.get("remaining") == 1, f"duree {res.get('remaining')} != 1 round (TurnsFromRounds(1))"
+    # #98 : le 4e arg natif de `CreateShield` est `TurnsFromRounds(1)` (@180e16b40, verifie au
+    # decompile) -> la duree passe par `BattleQuery.ConvertRoundsToTurns @181058af0` = `count(joueurs
+    # non-Environment) x 1`. L'ancienne attente `== 1` gravait l'IDENTITE (fausse des 2 joueurs).
+    exp_dur = convert_rounds_to_turns(state, 1)
+    assert res.get("remaining") == exp_dur, (
+        f"duree {res.get('remaining')} != ConvertRoundsToTurns(TurnsFromRounds(1))={exp_dur} "
+        f"(facteur={state.turn_order_player_count})")
     after = _shield_total(state, ally_id)
     assert after == before + amount, f"shield_total allie {before}->{after} != +{amount}"
-    # instance posee : source ArcaneShield, remaining 1, amount
+    # instance posee : source ArcaneShield, remaining = ConvertRoundsToTurns(1), amount
     ashc = state.get_entity(ally_id).get_component(ShieldComponent)
     inst = next((s for s in ashc.shields if s.source == "ArcaneShield"), None)
-    assert inst is not None and int(inst.amount) == amount and inst.remaining == 1, \
+    assert inst is not None and int(inst.amount) == amount and inst.remaining == exp_dur, \
         f"instance de bouclier ArcaneShield incorrecte ({inst})"
     print(f"[ArcaneShield ALLIE] OK : bouclier {amount} (1 round) pose sur allie {ally_id}, total {before}->{after}")
 
@@ -141,3 +148,4 @@ def test_arcaneshield_grant_live(live_session, rpc, build_runner):
     after_self = _shield_total(state2, owner_id)
     assert after_self == before_self + amount, f"shield_total owner {before_self}->{after_self} != +{amount}"
     print(f"[ArcaneShield SOI] OK : fallback -> bouclier {amount} sur owner {owner_id}, total {before_self}->{after_self}")
+

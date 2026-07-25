@@ -78,17 +78,42 @@ def profile_pierce(ctx, profile_name: str, ranged: bool = False) -> int:
 
 
 def turns_from_rounds(rounds: int) -> int:
-    """`DSLFactory.TurnsFromRounds` @180dfec50 -> `TurnsFromRoundsFormula.Calculate` @180f26a50 =
-    `BattleQuery.ConvertRoundsToTurns` @181058af0 = `count(joueurs du turnOrder, PlayerType != 2) * rounds`
-    (RE #174 : PlayerType@+0x20 = config statique, Environment=2 exclu ; count = CONSTANTE de bataille).
+    """LEGACY -- IDENTITE, **PAS** le mirror de `TurnsFromRounds`. NE PAS l'utiliser pour une duree
+    d'effet : le vrai mirror est `convert_rounds_to_turns(state, rounds)` ci-dessous.
 
-    Le port rend l'IDENTITE (rounds) car dans NOS runners 1v1, `count(non-Env) = 1` -- PROUVE DIRECTEMENT
-    par le test committe test_effect_stun_live (Stunned DefaultAmountOfRounds=1 -> convert(1) = live_remaining
-    = 1, pose mid-turn sans decrement). count etant constant, TOUT effet round y vaut rounds x 1 = rounds :
-    l'identite est CORRECTE pour nos runners (PAS une approximation). Elle ne divergerait QUE dans une bataille
-    a count>=2 (ex. arene MoW ou le feu = convert(2)=4), NON simulee par le port ; si un tel contexte est un
-    jour valide, brancher `convert_rounds_to_turns(state, rounds)` lisant le turnOrder runtime (cf. #174)."""
+    Conservee comme helper d'unite neutre (call-sites qui manipulent deja des TOURS). L'ancienne
+    justification (« count(non-Env) = 1 dans nos runners, PROUVE par test_effect_stun_live ») est
+    **REFUTEE** (#98) : le `live_remaining = 1` de ce test etait un ARTEFACT DE MESURE (lecture
+    POST-tick -- en 1v1 strict le cast est l'action de la SEULE unite du camp, le moteur cloture le
+    tour et `RefreshEffects` decremente AVANT la relecture de `decisionView`). Mesure PRE-tick
+    (2 unites/camp, cast avec une unite encore activable derriere) : `Stunned` = 2, `Pinned` = 2 --
+    soit `count = 2`."""
     return int(rounds)
+
+
+def convert_rounds_to_turns(state: "State", rounds: int) -> int:
+    """`BattleQuery.ConvertRoundsToTurns @181058af0` (mirror EXACT) = `count(joueurs du turnOrder dont
+    PlayerType != 2) * rounds`.
+
+    DECOMPILE : `this+0xa0` = la `BattleConfiguration` (`IdunRunner..ctor @180e38500` :
+    `BattleQuery..ctor(state = match.state, bc)`) ; `bc+0x30 -> +0x18` = la liste iteree
+    (`BC.Player.TurnOrder`, ids de joueurs) ; pour chaque id : `StateExtensions.GetPlayer(state, id)`
+    puis `PlayerComponent+0x20` -- l'entree est comptee SAUF si cette valeur vaut 2 (Environment).
+    Retour = `compteur * rounds`.
+
+    DEUX voies natives passent par ici, TOUTES DEUX converties :
+      * le noeud DSL `TurnsFromRounds(n)` (`TurnsFromRoundsFormula.Calculate @180f26a50` = slot 0x1b
+        de `BattleQuery` sur la valeur du noeud) ;
+      * la duree PAR DEFAUT dans `AddEffectOperation.Execute @180e48940` (branche « pas d'override » :
+        `ConvertRoundsToTurns(DefaultAmountOfRounds(type).Value)`).
+    Une duree passee en `Nullable<int>`/`Direct(n)` par l'appelant est en TOURS et n'est **PAS**
+    convertie (le natif la prend telle quelle dans `param_6`).
+
+    Le facteur vient de `state.turn_order_player_count` (seede par `load_state` depuis
+    `observeBattle.counts.player - 1`, cf. sa docstring). None/0 -> IDENTITE (etats construits sans
+    ce canal : aucun changement de comportement)."""
+    n = getattr(state, "turn_order_player_count", None) if state is not None else None
+    return int(rounds) * (int(n) if n else 1)
 
 
 # ---------------------------------------------------------------------------

@@ -249,10 +249,27 @@ Le `1596` de l'item 3 est **exactement** la valeur live-validée de case-204 (`2
   câblé et le behaviour partagé avec la branche suppress (validée), mais **aucun scénario d'overkill
   n'a été exercé** (cibles à 400 000 PV pour isoler l'accumulation). Double-incrément
   overkill+suppress dans un même tir : non isolé (résidu déjà noté en #204).
-- **Tuile Ice d'AnvilShield côté LIVE** : la pose est prouvée par la cascade (`AnvilShield → Ice`),
-  mais l'IDENTITÉ de la tuile gelée n'est pas re-lue live (aucun RPC n'expose les effets de tuile) —
-  elle vient du décompilé.
+- ~~**Tuile Ice d'AnvilShield côté LIVE**~~ — **COUVERT (#99)** : le RPC **`tileMeta`** expose bien les
+  effets de tuile (`effects[].{name,effectType,source,remaining}`). `test_lot_pose_live.py::
+  test_anvil_shield_ices_blocked_attacker_tile_live` relit la tuile de l'attaquant LIVE (source =
+  Arjac, `remaining = 4`) et la confronte au rejeu offline.
 - **`On(UnitBlocked)` per-coup** : agrégé per-attaque côté port (cf. §4).
-- **Conversion rounds→turns des durées par défaut** (`Pinned` live rem 2 vs port 1) : flaggé, non corrigé.
+- ~~**Conversion rounds→turns des durées par défaut**~~ — **RÉSOLU (#98)**, cf.
+  `docs/rl/case-98-duration-rounds-to-turns.md` : `ConvertRoundsToTurns @181058af0` porté runtime
+  (facteur = joueurs non-Environment du `TurnOrder`), les deux voies (`TurnsFromRounds(n)` et
+  `DefaultAmountOfRounds`) converties, canal `duration_turns` séparé pour les `Direct(n)`/`Nullable(n)`.
+
+### E. Tests de garde (#99)
+
+Le lot n'avait livré que des **probes** (aucune garde automatique — pour une classe de bug qui est
+justement le no-op SILENCIEUX). `tests/engine/runner/test_lot_pose_live.py` couvre désormais les
+**4 maillons**, chacun confronté au LIVE puis rejoué OFFLINE depuis la même capture :
+
+| Test | Oracle natif observé | Ce qu'il garderait |
+|---|---|---|
+| `test_master_annihilator_mark_migrates_live` | marque 1249 : `u77 → u79`, jamais en double | vecteur `On(0x26)` débranché (aucune marque), `RemoveEffect` rendue mono-cible (accumulation) ou non filtrée par source (efface les marques d'autres poseurs — contrôle négatif offline) |
+| `test_fleshmetal_guns_rotation_live` | `FocusedMalice → RuinousSalvo → WarpHail → FocusedMalice` | rotation figée (`UnitTurnsStarted` non lu) ou vecteur turn-start muet |
+| `test_terrifying_crescendo_stacks_and_caps_live` | stack `1,2,3,4,5,6,6,6,6`, cap = `buffMaxLevel` lu de la config | vecteur recâblé sur `On(EffectAdded)` (le stack cesserait de monter dès le 2e tir sur cible déjà Pinned = LE bug d'origine), clamp perdu, pose muette |
+| `test_anvil_shield_ices_blocked_attacker_tile_live` | Ice source=Arjac sur la tuile de l'attaquant, `remaining = 4` | `On(UnitBlocked)` muet ; gate perdu (contrôle négatif : attaque non bloquée = 0 Ice) ; durée non convertie |
 - **Volets non portés** : DespoiledGround (FleshmetalGuns), ApplyStun + FrozenAttackerAdvantage +
   effets 1200/1201 (AnvilShield), remove-self du marqueur MasterAnnihilator à la mort de sa source.

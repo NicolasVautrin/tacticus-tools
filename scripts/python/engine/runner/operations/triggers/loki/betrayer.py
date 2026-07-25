@@ -28,14 +28,21 @@ def betrayer_add_effect_tree(effect_type: int):
     Port : `AddEffect(THEBETRAYER_EFFECT, "TheBetrayer_Effect", Caster())` (Owner==Caster pour un triggered).
     La feuille route vers `AddEffectOperation.execute(target=caster, 0x4f3, "TheBetrayer_Effect")`.
 
-    ⚠ DUREE = 1 TOUR (PAS permanent). RE @180e48940 (`AddEffectOperation.Execute`) : `EffectComponent.Duration
-    @+0x68 = local_588[0]`, et `local_588[0] = 1` quand l'override Nullable est null (cas TheBetrayer :
-    `AddEffect(0x4f3, ..., &zeroed, 0)`) ET `DefaultAmountOfRounds(0x4f3)`=null (switch @181559ff0 n'a pas
-    0x4f3). La rage native dure donc 1 tour, RE-ACCORDEE a chaque kill (trigger OnDeath & killer==owner) ->
-    Kharn auto-joue le tour APRES un kill, PAS indefiniment. L'ancien port (BaseEffect PERMANENT, rem=None)
-    etait une DIVERGENCE LATENTE ; ce mirror l'aligne sur le natif (via AddEffectOperation qui applique deja
-    ce fallback 1). `effect_type` passe par l'appelant (constante `THEBETRAYER_EFFECT`)."""
-    return AddEffect(effect_type, "TheBetrayer_Effect", Caster())
+    ⚠ DUREE : le port pose 1 TOUR, **valeur historique GELEE, pas un mirror** (cf. le commentaire du
+    `return` ci-dessous). L'ancienne justification (« `local_588[0] = 1` est la duree quand l'override
+    Nullable est null ») est REFUTEE : `local_588[0]` est le **NIVEAU** (`EffectComponent.Level @+0x68`,
+    prouve par `IncreaseEffectLevelOperation.Execute @180e73cb0`) ; la duree, elle, vaut 0 = PERMANENT
+    quand ni override ni `DefaultAmountOfRounds` n'existent. `effect_type` passe par l'appelant
+    (constante `THEBETRAYER_EFFECT`)."""
+    # #98 -- RESIDU EXPLICITE (comportement HISTORIQUE GELE, pas un mirror). Le decompile @1811a4a00
+    # passe `AddEffect(factory, 0x4f3, stateRef, self@0x148, self@0x148, &optionsZEROEES, 0)` : le slot
+    # duree est une struct ZERO -> duree PAR DEFAUT, et `DefaultAmountOfRounds(0x4f3=1267)` est ABSENT
+    # du switch @181559ff0 -> le natif pose donc un effet **PERMANENT**. Le port garde 1 TOUR
+    # (`duration_turns=1`, valeur historique) parce qu'AUCUN vecteur de RETRAIT de 0x4f3 n'est identifie
+    # (ni `TheBetrayer_TakeTurnAbility.CreateBehaviour @1811a4f70`, ni les autres membres du kit) : passer
+    # en permanent ferait rejouer Kharn a CHAQUE tour indefiniment -- regression fonctionnelle non mesuree.
+    # A instruire separement (trouver le RemoveEffect(0x4f3) natif ou mesurer live le cycle de la rage).
+    return AddEffect(effect_type, "TheBetrayer_Effect", Caster(), duration_turns=1)
 
 
 def _add_betrayer_effect(state: State, owner_id: int) -> Optional[dict]:

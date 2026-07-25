@@ -68,7 +68,12 @@ def act_of_faith_accumulate_tree(effect_type: int):
         ActOfFaith gagne le 2e stack selon le roll).
 
     `effect_type` passe par l'appelant (constante `ACTOFFAITH_EFFECT`) pour eviter le couplage d'import."""
-    base = AddEffect(effect_type, "ActOfFaith_Effect", Caster())         # [1] AddEffect(0x3f9, Self@0x148)
+    # #98 : le decompile @181219a70 passe `AddEffect(factory, 0x3f9, stateRef, self@0x148, 0, 0)` --
+    # le slot duree vaut NULL -> duree PAR DEFAUT ; `DefaultAmountOfRounds(0x3f9=1017)` est ABSENT du
+    # switch @181559ff0 -> **PERMANENT** (le stack est retire par `ActOfFaith_RemoveEffectAbility`
+    # @181219eb0, deja porte -- cf. `act_of_faith_reset_tree`). Le port passait le defaut positionnel
+    # `duration_rounds=1` (les stacks se seraient evapores au 1er tick) -> `duration_rounds=None`.
+    base = AddEffect(effect_type, "ActOfFaith_Effect", Caster(), duration_rounds=None)   # [1] AddEffect(0x3f9, Self@0x148)
     # [2] cond = HasTrait(killer,Imperial=0x1a) & AreFriends(killer,owner) & AreEqual(UnitNormalAttackType(
     #            killer), RighteousRepugnance_NormalAttack=1182) & IsMeleeAttack  (op_BitwiseAnd, gauche->droite)
     cond = TriggerAnd(TriggerAnd(TriggerAnd(
@@ -78,7 +83,8 @@ def act_of_faith_accumulate_tree(effect_type: int):
                  Const(int(ActiveAbilityType.RighteousRepugnance_NormalAttack)))),
         IsMeleeAttack())                                                 # coup fatal en melee (ctx.attack_kind)
     chance = ConfigVarForEntity("RighteousRepugnance", "chance", Actor(), slot="passive")   # ConfigVar(1107,killer,58)
-    bonus = If(cond, Maybe(chance, AddEffect(effect_type, "ActOfFaith_Effect", Caster())))   # If(cond, Maybe(chance, AddEffect))
+    bonus = If(cond, Maybe(chance, AddEffect(effect_type, "ActOfFaith_Effect", Caster(),
+                                              duration_rounds=None)))   # If(cond, Maybe(chance, AddEffect))
     return op_add(base, bonus)                                           # op_Addition([1] garanti, [2] conditionnel)
 
 
@@ -225,3 +231,4 @@ class ActOfFaithResetAbility(TriggeredAbility):
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         return _reset_act_of_faith(state, self.owner_id)
+

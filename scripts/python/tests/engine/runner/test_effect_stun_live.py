@@ -13,7 +13,15 @@ seed = simple générateur) :
   3. caste ThunderousAssault LIVE (applyAction) → lit les effets de la cible APRÈS.
   4. rejoue OFFLINE la matérialisation : `AddEffectOperation.execute(state, source, target, 1162)`.
   5. CONFRONTE : le natif pose Stunned (1162) sur la cible avec `remaining` = R ; mon op doit poser
-     un effet effect_type=1162 de `remaining_turns` == R. + `default_amount_of_rounds(1162)` == R.
+     un effet effect_type=1162 de `remaining_turns` == R, et R doit valoir
+     `ConvertRoundsToTurns(DefaultAmountOfRounds(1162))` (#98 — l'ability passe `TurnsFromRounds(1)`
+     @1812158b0, meme valeur que la duree par defaut de 1162).
+
+⚠ MESURE PRE-TICK (#98) : le roster joueur porte DEUX unites et le cast est fait par la premiere,
+l'autre restant activable. En 1v1 STRICT le cast est l'action de la SEULE unite du camp -> le moteur
+CLOT le tour (`FinishUnitTurn` -> `EndTurnOperation` -> `RefreshEffects @180e6bf70`) et `decisionView`
+rend `duree - 1` : c'est cet ARTEFACT qui faisait croire que `rounds == turns`. Le test verifie
+explicitement que `currentPlayer` n'a pas bascule pendant le cast.
 
 NB : Stunned natif est COMPOSITE (parent 1162 + enfants 1165/1166/1167 via ParentEffect) — ce test
 valide le PARENT (ce que le cœur porte aujourd'hui) ; le spawn des enfants = sous-étape suivante
@@ -30,12 +38,14 @@ from engine.runner.snapshot import load_state
 from engine.runner.runner import Runner
 from engine.runner.messages import ActiveAbilityMessage
 from engine.runner.operations.effects import default_amount_of_rounds
+from engine.runner.abilities.base import convert_rounds_to_turns
 
 CASTER_VIS = "templSwordBrother"
 TARGET_VIS = "tyranTyrantGuard"
+FILLER_VIS = "eldarAutarch"     # 2e unite du camp, JAMAIS activee : garantit la lecture PRE-tick (#98)
 ABILITY = 1043          # ThunderousAssault
 STUNNED = 1162          # EffectType.Stunned (0x48a)
-BUILD = ["--roster", "1", "--p-units", CASTER_VIS, "--a-units", TARGET_VIS]
+BUILD = ["--p-units", f"{CASTER_VIS},{FILLER_VIS}", "--a-units", TARGET_VIS]
 
 
 def _ok(r):
@@ -135,8 +145,15 @@ def test_thunderous_assault_materializes_stun(live_session, rpc, build_runner):
     live_stun = _stun_of(t2.get("effects"))
     assert live_stun is not None, f"natif n'a PAS posé Stunned (effets={t2.get('effects')})"
     live_remaining = live_stun.get("remaining")
-    assert default_amount_of_rounds(STUNNED) == live_remaining, (
-        f"default_amount_of_rounds(1162)={default_amount_of_rounds(STUNNED)} != live remaining={live_remaining}")
+    # #98 : la lecture doit etre PRE-tick (sinon on lit `duree - 1` et la conversion parait etre
+    # l'identite). Le camp a une 2e unite non activee -> le tour ne bascule pas au cast.
+    assert dv2.get("currentPlayer") == dv.get("currentPlayer"), (
+        "le tour a bascule pendant le cast -> RefreshEffects a deja decremente : mesure POST-tick "
+        "non comparable (il faut une 2e unite activable dans le camp)")
+    expected = convert_rounds_to_turns(state, default_amount_of_rounds(STUNNED))
+    assert expected == live_remaining, (
+        f"ConvertRoundsToTurns(DefaultAmountOfRounds(1162)={default_amount_of_rounds(STUNNED)})"
+        f"={expected} != live remaining={live_remaining} (facteur={state.turn_order_player_count})")
 
     # --- ABILITY-EXEC OFFLINE : l'engine DÉRIVE l'effet depuis le cast (mirror ExecuteBehaviour) ---
     # PAS d'appel direct à AddEffectOperation : on applique le MÊME message d'ability que le live.
@@ -167,9 +184,12 @@ def test_thunderous_assault_materializes_stun(live_session, rpc, build_runner):
           f"off={sorted((k, v) for k, v in off_by.items())} OK (parent 1162 + enfants 1165/1166/1167)")
 
     # --- CYCLE DE VIE des enfants : à l'expiration du parent, TOUTE la famille part ENSEMBLE ---
-    # OFFLINE : un tick de fin-de-tour de la cible (parent rem 1->0) doit cascader le retrait des
-    # enfants permanents (1166/1167 via RevertInternal) + l'enfant same-turns (1165). Famille vide.
-    state.effects.on_turn_end(tid, attacked=False)
+    # OFFLINE : on tick AUTANT DE FOIS que la duree posee (lue du natif, jamais en dur) ; au dernier
+    # tick le parent expire et cascade le retrait des enfants permanents (1166/1167 via RevertInternal)
+    # + l'enfant same-turns (1165). Famille vide. (#98 : la duree n'est plus 1 -> 1 seul tick ne
+    # suffirait pas ; le nb de ticks vient du `remaining` NATIF.)
+    for _ in range(int(live_remaining)):
+        state.effects.on_turn_end(tid, attacked=False)
     off_after = {e.effect_type for e in state.effects.active_effects(tid) if e.effect_type in FAMILY}
     assert off_after == set(), f"offline: famille Stun pas entierement retiree apres tour-fin: {off_after}"
 

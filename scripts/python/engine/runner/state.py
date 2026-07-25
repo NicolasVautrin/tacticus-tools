@@ -80,9 +80,14 @@ class State:
 
     `turn_counts` = nb de tours DÉMARRÉS par joueur (mirror `TurnComponent.turnsStartedByCurrentPlayer`,
     dict @+0x38) ; incrémenté par `StartTurnOperation`. Source de `GetAmountOfTurnsStartedByCurrentPlayer`
-    (gate « 1er tour » de certaines mécaniques). Vide tant qu'aucun tour n'a été joué via le runner."""
+    (gate « 1er tour » de certaines mécaniques). Vide tant qu'aucun tour n'a été joué via le runner.
+
+    `turn_order_player_count` = nb de joueurs du `BC.Player.TurnOrder` dont `PlayerComponent+0x20 != 2`
+    (Environment exclu) — le FACTEUR de `BattleQuery.ConvertRoundsToTurns @181058af0` (`count * rounds`),
+    donc l'unité de TOUTE durée d'effet exprimée en ROUNDS. Seedé par `load_state` ; None = inconnu →
+    `convert_rounds_to_turns` retombe sur l'identité."""
     __slots__ = ("entities", "current_player_id", "_next_entity_id", "effects", "rng", "board",
-                 "turn_counts", "moved_this_turn")
+                 "turn_counts", "moved_this_turn", "turn_order_player_count")
 
     def __init__(self):
         self.entities: dict[int, Entity] = {}
@@ -97,6 +102,10 @@ class State:
         # natif = flag du contexte d'execution d'ability @+0x148, verdict RE cluster #60). Lu par
         # `attacker_modifiers` -> gate no-move (HeavyWeapon_ExtraDmg s'annule si l'unite a bouge).
         self.moved_this_turn: set[int] = set()
+        # #98 : FACTEUR rounds->turns (`BattleQuery.ConvertRoundsToTurns @181058af0`). Seede par
+        # `load_state` ; None = canal absent -> `convert_rounds_to_turns` = identite (etats construits
+        # a la main dans les tests unitaires : comportement historique preserve).
+        self.turn_order_player_count: Optional[int] = None
 
     def add_entity(self, entity_id: Optional[int] = None) -> Entity:
         if entity_id is None:

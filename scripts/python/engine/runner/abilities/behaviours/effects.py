@@ -7,7 +7,25 @@ from __future__ import annotations
 
 from ....dsl.base import TargetsSelector, resolve_unit, _units_of
 from ....dsl.effects import AbilityBehaviour, OperationResult
-from ..base import turns_from_rounds
+from ..base import convert_rounds_to_turns
+
+
+def _resolve_duration(state, duration_rounds, duration_turns):
+    """Unite de la duree passee a `AddEffectOperation` (`param_6.NullableA` natif, en TOURS) :
+
+      * `duration_turns` (prioritaire) = duree DEJA en tours -- mirror d'un noeud `Direct(n)@0xc0` ou
+        d'un `Nullable<int>(n)` litteral cote natif : le decompile la met telle quelle dans `param_6`,
+        `AddEffectOperation.Execute @180e48940` ne la convertit PAS.
+      * `duration_rounds` = un noeud `TurnsFromRounds(n)` natif -> `convert_rounds_to_turns(state, n)`
+        (`BattleQuery.ConvertRoundsToTurns @181058af0`).
+      * `None` des deux -> pas d'override : la duree vient de `DefaultAmountOfRounds`, convertie DANS
+        `AddEffectOperation` (mirror de la branche « pas d'override » du decompile).
+    """
+    if duration_turns is not None:
+        return int(duration_turns)
+    if duration_rounds is not None:
+        return convert_rounds_to_turns(state, duration_rounds)
+    return None
 
 
 def _source_scaling(state, source_id):
@@ -39,14 +57,16 @@ class AddBondEffect(AbilityBehaviour):
     `duration_rounds` = nb de rounds (`TurnsFromRounds(rounds)`) ; `None` = duree DEFAUT de l'effet
     (`DefaultAmountOfRounds`, mirror de l'arg natif duree-node ZERO d'`AddBondEffect` SANS `TurnsFromRounds`
     -- ex. ValkyrieStrike 1022 : arg7 = struct zero-initialise, PAS un `TurnsFromRounds(n)` explicite) vs
-    explicite (CrushingClaws Taunt / GetEmRuntz = `TurnsFromRounds(1)`). MEME semantique None que `AddEffect`."""
-    __slots__ = ("effect_type", "name", "source_ref", "target_ref", "duration_rounds")
+    explicite (CrushingClaws Taunt / GetEmRuntz = `TurnsFromRounds(1)`). MEME semantique None que `AddEffect`.
+    `duration_turns` = duree deja en TOURS (noeud `Direct(n)`/`Nullable(n)` natif) -- cf. `_resolve_duration`."""
+    __slots__ = ("effect_type", "name", "source_ref", "target_ref", "duration_rounds", "duration_turns")
 
     def __init__(self, effect_type: int, name: str, source_ref: TargetsSelector, target_ref: TargetsSelector,
-                 duration_rounds=1):
+                 duration_rounds=1, duration_turns=None):
         self.effect_type, self.name = effect_type, name
         self.source_ref, self.target_ref = source_ref, target_ref
         self.duration_rounds = duration_rounds
+        self.duration_turns = duration_turns
 
     def execute(self, entities, ectx):
         from ...operations.effects import AddEffectOperation
@@ -57,8 +77,9 @@ class AddBondEffect(AbilityBehaviour):
         if src is None or tgt is None or ectx.state is None:
             return OperationResult.ok()
         # duration_rounds None -> pas d'override = duree DEFAUT (DefaultAmountOfRounds), mirror de l'arg natif
-        # duree-node ZERO d'AddBondEffect sans TurnsFromRounds (ValkyrieStrike 1022) ; sinon TurnsFromRounds(rounds).
-        dur = turns_from_rounds(self.duration_rounds) if self.duration_rounds is not None else None
+        # duree-node ZERO d'AddBondEffect sans TurnsFromRounds (ValkyrieStrike 1022) ; sinon
+        # `ConvertRoundsToTurns(rounds)` @181058af0 (mirror du noeud `TurnsFromRounds`).
+        dur = _resolve_duration(ectx.state, self.duration_rounds, self.duration_turns)
         AddEffectOperation.execute(ectx.state, source=src, target=tgt, effect_type=self.effect_type,
                                    name=self.name, duration_override=dur)
         ectx.emit("AddBondEffect", source=src, target=tgt, effect_type=self.effect_type)
@@ -116,6 +137,8 @@ class AddEffect(AbilityBehaviour):
     `duration_rounds` = nb de rounds (`TurnsFromRounds(rounds)`) ; `None` = duree DEFAUT de l'effet
     (`DefaultAmountOfRounds`, mirror de l'arg natif `0` d'`AddEffect` SANS `TurnsFromRounds` — ex. Pinned de
     CrushingClaws) vs explicite (ThunderousAssault Stunned = `TurnsFromRounds(1)`).
+    `duration_turns` = duree deja en TOURS (le natif passe un noeud `Direct(n)@0xc0` ou un `Nullable<int>(n)`
+    litteral, PAS un `TurnsFromRounds`) — PRIORITAIRE sur `duration_rounds`, cf. `_resolve_duration`.
 
     `level` = niveau de STACK initial (slot niveau de la struct d'options natives) — utilise par la branche
     AddEffect du lambda `AddEffectOrIncreaseLevel b__0 @180e25540` (la 1re pose demarre au niveau
@@ -125,13 +148,15 @@ class AddEffect(AbilityBehaviour):
     (defaut False = comportement historique) pour les effets dont la MAGNITUDE vient d'un ConfigVar
     (FleshmetalGuns 1067/1212/1221, TerrifyingCrescendo 1424).
     """
-    __slots__ = ("effect_type", "name", "target_sel", "duration_rounds", "level", "scale_from_source")
+    __slots__ = ("effect_type", "name", "target_sel", "duration_rounds", "level", "scale_from_source",
+                 "duration_turns")
 
     def __init__(self, effect_type: int, name: str, target_sel: TargetsSelector, duration_rounds=1,
-                 level=None, scale_from_source: bool = False):
+                 level=None, scale_from_source: bool = False, duration_turns=None):
         self.effect_type, self.name = effect_type, name
         self.target_sel, self.duration_rounds = target_sel, duration_rounds
         self.level, self.scale_from_source = level, scale_from_source
+        self.duration_turns = duration_turns
 
     def execute(self, entities, ectx):
         from ...operations.effects import AddEffectOperation
@@ -140,8 +165,9 @@ class AddEffect(AbilityBehaviour):
         if state is None or src is None:
             return OperationResult.ok()
         # duration_rounds None -> pas d'override = duree DEFAUT (DefaultAmountOfRounds), mirror de l'arg natif
-        # `0` d'AddEffect sans TurnsFromRounds (Pinned CrushingClaws) ; sinon TurnsFromRounds(rounds).
-        dur = turns_from_rounds(self.duration_rounds) if self.duration_rounds is not None else None
+        # `0` d'AddEffect sans TurnsFromRounds (Pinned CrushingClaws) ; sinon `ConvertRoundsToTurns(rounds)`
+        # @181058af0. `duration_turns` court-circuite (noeud Direct/Nullable natif, deja en TOURS).
+        dur = _resolve_duration(state, self.duration_rounds, self.duration_turns)
         lvl = (self.level.evaluate(entities) if hasattr(self.level, "evaluate")
                else self.level)
         mult, ab_lvl, act_lvl = (_source_scaling(state, src) if self.scale_from_source

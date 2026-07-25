@@ -79,7 +79,7 @@ def thunderous_assault_tree(charge_dest: "TargetsSelector | None" = None) -> Ato
     dest = charge_dest if charge_dest is not None else Cache(TargetTile())
     return AtomicGroup(op_and(op_and(op_and(op_and(
         AttackWithAttackDamage(Target(), "ThunderousAssault", "Power", is_melee=True),
-        AddEffect(STUNNED, "Stunned", Target(), 1)),
+        AddEffect(STUNNED, "Stunned", Target(), duration_rounds=1)),   # TurnsFromRounds(1) @1812158b0 -> converti (#98)
         PushUnit(Caster(), Target())),
         KillDeadUnits(Caster(), Target())),
         MoveUnit(Caster(), dest)))
@@ -274,7 +274,8 @@ def cord_claw_tree() -> "op_add":
     HitsEffect`) s'appliquent aux attaques SUIVANTES (tour N+1). Aucun tirage RNG dans l'`AddEffect` -> l'ordre
     n'altere PAS l'ordre RNG de l'attaque : bit-exact BY CONSTRUCTION vs un imperatif attaque->pose."""
     attack = AttackWithAttackDamage(Target(), "CordClaw", "DirectDamage", is_melee=True)   # 4x DirectDamage melee
-    self_buff = AddEffect(CORD_CLAW_ADDITIONAL_HITS, "CordClaw_AdditionHits", Caster(), 2)  # TurnsFromRounds(2)
+    # `TurnsFromRounds(2)` natif (@1811ccbf0) -> `ConvertRoundsToTurns(2)` @181058af0 (#98)
+    self_buff = AddEffect(CORD_CLAW_ADDITIONAL_HITS, "CordClaw_AdditionHits", Caster(), duration_rounds=2)
     return op_add(attack, self_buff)
 
 
@@ -563,3 +564,5 @@ class BlackRageAbility(ActiveAbility):
         attack = next((p for n, p in ectx.emitted if n == "UseActiveAbility"), None)
         return {"ability": "BlackRage", "caster": caster_id, "target": target_id,
                 "set_health": set_hp, "effects": effects, "moved": moved, "attack": attack, "dsl": True}
+
+
