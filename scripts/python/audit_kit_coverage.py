@@ -9,9 +9,14 @@ moteur des deux faces :
     - passives -> `triggers.dispatch.ABILITY_TRIGGERS` (nom d'ability) et
                   `effects.factory.ABILITY_INIT_OWNER_EFFECTS` (effet owner pose au spawn)
     - traits   -> `triggers.dispatch.TRAIT_TRIGGERS` + `effects.factory.TRAIT_DERIVED_ABILITIES`
-  FACE DECISION (scoring) :
-    - actives  -> `engine.playbook.noncomparable.PLAYBOOKS` (id) — les attaques passent par la
-      voie comparable generique (non auditee ici).
+  FACE DECISION (scoring) : DEUX registres, pas un —
+    - `engine.playbook.noncomparable.PLAYBOOKS` (id) : les abilities NON-COMPARABLES, qui ont
+      leur propre voie de scoring ;
+    - `engine.playbook.base.REGISTRY` (id) : les abilities COMPARABLES dotees d'un override
+      `CalculateCustomUtility` (#27) — leur voie generique est commune, seul le terme custom est
+      par-ability. Lire le 1er SEUL faisait ressortir `[--]` (= rien de porte) sur des abilities
+      dont la face DECISION est portee, ex. DoomSiren(1199) alors que `DoomSirenPlaybook` existe.
+    Le reste de la voie comparable est generique et n'est pas audite ici.
 
 APPROXIMATIONS assumees (l'audit RANGE les kits par volume de travail, il ne PROUVE pas une
 couverture) : un passif peut etre implemente ailleurs (mod attaquant, effet, legalite) sans
@@ -38,6 +43,7 @@ import gameconfig as GC
 import unit_map as UM
 from audit_combat_ability_coverage import _classify
 from engine.entities.effects.factory import ABILITY_INIT_OWNER_EFFECTS, TRAIT_DERIVED_ABILITIES
+from engine.playbook import REGISTRY as CUSTOM_PLAYBOOKS   # comparables a override CalculateCustomUtility
 from engine.playbook.noncomparable import PLAYBOOKS
 from engine.runner.abilities.handler import ABILITY_CLASSES
 from engine.runner.operations.triggers.dispatch import ABILITY_TRIGGERS, TRAIT_TRIGGERS
@@ -68,7 +74,7 @@ def collect():
             actives.append({
                 "name": nm, "id": aid, "cat": _classify(nm),
                 "combat": aid in ABILITY_CLASSES,
-                "decision": aid in PLAYBOOKS,
+                "decision": aid in PLAYBOOKS or aid in CUSTOM_PLAYBOOKS,
             })
         passives = []
         for nm in (u.get("passiveAbilities") or []):
@@ -114,7 +120,9 @@ def main():
     lines.append("# Couverture moteur par KIT (unites lineup)\n\n")
     lines.append("> Genere par `scripts/python/audit_kit_coverage.py` (kit gameconfig x registres moteur\n"
                  "> des deux faces). Vue KIT-centrique complementaire de `combat-ability-coverage.md`\n"
-                 "> (par-ability). Faces : `[CD]` = combat/decision portees, `[--]` = aucune. A regenerer\n"
+                 "> (par-ability). Faces : `[CD]` = combat/decision portees, `[--]` = aucune ; `D` couvre\n"
+                 "> les DEUX registres de scoring (non-comparables + overrides custom des comparables).\n"
+                 "> A regenerer\n"
                  "> apres tout port. Les MISSING passifs/traits sont des CANDIDATS (approximation\n"
                  "> registres, cf. docstring du script) : trancher au recon du kit.\n\n")
     lines.append("## Bilan\n\n")
