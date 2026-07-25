@@ -23,6 +23,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -56,6 +57,141 @@ _state_seq = itertools.count()
 def _new_state_path() -> Path:
     """Chemin de state-file neuf, propre a CE processus et a CE build."""
     return Path(f"{STATE_PREFIX}-{os.getpid()}-{next(_state_seq)}.json")
+
+
+# --- File d'attente sur le cap de runners (#77, volet client) -----------------
+#
+# Cote hooks, `initAndStart` REFUSE SEC quand MAX_RUNNERS=10 est atteint : pas de
+# file d'attente, l'erreur remonte telle quelle. Le state-file n'est donc pas
+# ecrit -> le fixture rendait un `pytest.skip`. Or plusieurs agents worktree
+# partagent la MEME session Frida : le cap se sature en fonctionnement NORMAL, et
+# une passe entiere devenait `sssssss` — des `s` qui RESSEMBLENT a des succes
+# alors que RIEN n'a ete valide (mesure du 2026-07-25 : 7/7 tests skippes,
+# runners 86 + 116-124 tous legitimement occupes par deux agents).
+#
+# Deux corrections ici, cote CLIENT (aucune reinjection requise) :
+#   1. ATTENDRE qu'un slot se libere (les autres agents disposent au fil de l'eau)
+#      au lieu d'abandonner au premier refus ;
+#   2. si le cap tient jusqu'au bout, ECHOUER FORT (`pytest.fail`) au lieu de
+#      skipper : « je n'ai pas pu valider » n'est pas « il n'y avait rien a
+#      valider ». Un skip vert sur un cap plein est un faux negatif silencieux.
+# Les autres causes de build KO gardent le `skip` (vrai probleme d'environnement).
+_CAP_MARKER = "runner cap reached"
+_CAP_WAIT_S = float(os.environ.get("TACTICUS_RUNNER_CAP_WAIT_S", "300"))
+_CAP_POLL_S = float(os.environ.get("TACTICUS_RUNNER_CAP_POLL_S", "15"))
+
+
+# --- Liberation des runners AU FIL DE L'EAU (#77) ------------------------------
+#
+# AVANT : `build_runner` empilait TOUS les runners construits et ne les disposait
+# qu'au teardown de SESSION. Une passe de 9 tests gardait donc 9 des 10 slots
+# pendant toute sa duree, alors que chaque runner n'est utile que sur une fraction
+# de la passe -> un seul agent affamait tous les autres (mesure du 2026-07-25 :
+# runners 86 + 116-124, cap 10/10, 7/7 tests d'un autre agent skippes).
+#
+# MAINTENANT : chaque runner est libere par SON PROPRIETAIRE REEL, des que la
+# portee de ce proprietaire se termine.
+#
+# QUI est le proprietaire : on ne devine pas, on lit DEUX signaux de pytest.
+#
+#   `pytest_fixture_setup`  encadre la construction d'une fixture -> on empile SA
+#                           portee. Le sommet de pile donne directement la duree de
+#                           vie du runner qu'elle construit.
+#   `pytest_runtest_call`   encadre la phase d'APPEL d'un test -> distingue « le
+#                           corps du test a appele la fabrique » du reste.
+#
+#   pile NON VIDE          -> duree de vie = portee de la fixture au sommet
+#   pile vide + phase APPEL-> le CORPS du test        -> fin de CE test
+#   pile vide + hors appel -> fixture de SESSION      -> fin de session
+#
+# POURQUOI CE DERNIER CAS EXISTE (mesure du 2026-07-25, pas une supposition) : le
+# hook `pytest_fixture_setup` de CE conftest n'est PAS appele pour les fixtures de
+# portee SESSION. Les hooks d'un conftest sont resolus par CHEMIN : une fixture de
+# session est construite au niveau du noeud `Session`, dont le chemin est la rootdir
+# (`scripts/python`) -- `tests/conftest.py` n'y est pas applicable. Sonde : le hook
+# n'a vu que `module:`/`class:`/`function:`, jamais `session:host`,
+# `session:live_session`, `session:build_runner`, `session:live_runner`.
+# Consequence : `live_runner` etait etiquete « test », donc dispose en fin de
+# premier module -> `runner 170 not found` dans le fichier suivant.
+#
+# POURQUOI PAS UN CONFTEST RACINE : il suffirait a faire porter le hook sur le
+# noeud Session, mais couterait deux fichiers de plus (le hook + un module d'etat
+# partage) pour une information que la composition ci-dessus donne deja.
+#
+# ROBUSTE AU CHANGEMENT : si une version de pytest se mettait a appeler le hook
+# pour les fixtures de session, la pile serait non vide et on lirait « session » --
+# MEME REPONSE. Et toute portee inconnue est rabattue sur SESSION : liberer PLUS
+# TARD ne coute qu'un slot, liberer plus TOT casse les tests qui reutilisent.
+#
+# Etat de MODULE (pas de fixture) : une fixture autouse qui dependrait du ledger
+# tirerait `live_session` sur CHAQUE test, y compris les tests offline -- ils
+# exigeraient alors une session Frida pour rien.
+_LEDGER: list[dict] = []
+_DISPOSER = None                      # callable(rid) -> None, pose par build_runner
+_FIXTURE_SCOPES: list[str] = []       # pile des portees en cours de construction
+_IN_TEST_CALL = False                 # True pendant la phase d'APPEL d'un test
+# portee pytest -> etiquette de duree de vie utilisee par le ledger
+_SCOPE_OWNER = {"function": "test", "class": "class", "module": "module",
+                "package": "session", "session": "session"}
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_fixture_setup(fixturedef, request):
+    """Encadre la construction d'une fixture -> on connait SA portee.
+    N'est PAS appele pour les fixtures de portee session (cf. bloc ci-dessus)."""
+    _FIXTURE_SCOPES.append(getattr(fixturedef, "scope", "session"))
+    try:
+        return (yield)
+    finally:
+        _FIXTURE_SCOPES.pop()
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item):
+    """Marque la phase d'APPEL : pile vide ICI = c'est le corps du test."""
+    global _IN_TEST_CALL
+    _IN_TEST_CALL = True
+    try:
+        return (yield)
+    finally:
+        _IN_TEST_CALL = False
+
+
+def _release_runners(owners: set[str]) -> None:
+    """Dispose (idempotent) les runners du ledger dont l'owner est dans `owners`."""
+    kept = []
+    for e in _LEDGER:
+        if e["owner"] not in owners:
+            kept.append(e)
+            continue
+        if _DISPOSER is not None:
+            try:
+                _DISPOSER(e["rid"])
+            except Exception:
+                pass                                  # deja parti / session morte
+        e["state"].unlink(missing_ok=True)
+    _LEDGER[:] = kept
+
+
+@pytest.fixture(autouse=True)
+def _release_test_owned_runners():
+    """Fin de CHAQUE test : rend les runners que le test a construits lui-meme."""
+    yield
+    _release_runners({"test"})
+
+
+@pytest.fixture(scope="class", autouse=True)
+def _release_class_owned_runners():
+    """Fin de CHAQUE classe : rend les runners de ses fixtures de classe."""
+    yield
+    _release_runners({"class"})
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _release_module_owned_runners():
+    """Fin de CHAQUE module : rend les runners de ses fixtures de module."""
+    yield
+    _release_runners({"module"})
 
 
 def _unwrap(r):
@@ -97,7 +233,7 @@ def rpc(host, live_session):
 
 @pytest.fixture(scope="session")
 def build_runner(host, live_session):
-    """Fabrique de runners ISOLÉS frais, AUTO-NETTOYÉS en fin de session.
+    """Fabrique de runners ISOLÉS frais, libérés PAR LEUR PROPRIÉTAIRE RÉEL.
 
     La coexistence est le DÉFAUT côté hooks (`initAndStart` ne dispose plus
     jamais les runners frères ; cap dur MAX_RUNNERS) — le runner de travail de
@@ -109,46 +245,81 @@ def build_runner(host, live_session):
     toute bataille). Un `--board` est OBLIGATOIRE depuis #159 (le seed BC est un skeleton dont
     le board par défaut n'a pas de spawns 5v5) : défaut `MC1_67` (arène), régénéré par
     `dump_boards.py`. `extra` = args `rl_duel build` supplémentaires (ex. 1v1 minimal + `--crit`
-    pour la slice crit) ; si `extra` fournit déjà `--board`/`--board-pool`, le défaut est omis."""
-    created: list[tuple[int, Path]] = []
+    pour la slice crit) ; si `extra` fournit déjà `--board`/`--board-pool`, le défaut est omis.
+
+    CAP SATURÉ (#77) : le build ATTEND qu'un slot se libère (`TACTICUS_RUNNER_CAP_WAIT_S`,
+    défaut 300 s) et ÉCHOUE FORT s'il ne l'obtient pas — jamais un skip vert.
+
+    LIBÉRATION (#77) : la durée de vie du runner est celle de la FIXTURE qui l'a
+    construit (portée lue sur `fixturedef.scope`) ; construit par le corps d'un test,
+    il meurt avec ce test. `keep=True` = dérogation explicite « garde-le jusqu'à la fin
+    de session ». cf. le bloc « Libération des runners AU FIL DE L'EAU » en tête."""
+    global _DISPOSER
+    _DISPOSER = lambda rid: host._rpc(                       # noqa: E731
+        live_session, "disposeRunner", [{"runnerId": rid}], timeout=20)
 
     def _build(seed: str = "777", extra: list[str] | None = None,
-               board: str = "MC1_67") -> dict:
+               board: str = "MC1_67", keep: bool = False) -> dict:
         extra = list(extra or [])
         board_args = [] if any(x in ("--board", "--board-pool") for x in extra) \
             else ["--board", board]
         state = _new_state_path()
-        # Purge AVANT le build : sans ça un build KO passerait inaperçu si un
-        # state-file traînait (PID recyclé, run précédent tué) — on relirait un
-        # runnerId périmé au lieu de skipper.
-        state.unlink(missing_ok=True)
-        proc = subprocess.run(
-            [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
-             "--state-file", str(state), *board_args, *extra],
-            cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8",
-            errors="replace")
+        argv = [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
+                "--state-file", str(state), *board_args, *extra]
+
+        def _attempt() -> str:
+            # Purge AVANT le build : sans ça un build KO passerait inaperçu si un
+            # state-file traînait (PID recyclé, run précédent tué) — on relirait
+            # un runnerId périmé au lieu de skipper.
+            state.unlink(missing_ok=True)
+            p = subprocess.run(argv, cwd=str(PYDIR), capture_output=True,
+                               text=True, encoding="utf-8", errors="replace")
+            return (p.stderr or p.stdout or "")
+
+        out = _attempt()
+        # Cap sature : on ATTEND un slot (les autres agents disposent au fil de
+        # l'eau) plutot que d'abandonner. cf. bloc « file d'attente » en tete.
+        waited = 0.0
+        while (not state.exists()) and _CAP_MARKER in out and waited < _CAP_WAIT_S:
+            time.sleep(_CAP_POLL_S)
+            waited += _CAP_POLL_S
+            out = _attempt()
         if not state.exists():
-            pytest.skip(f"build runner KO (rl_duel): "
-                        f"{(proc.stderr or proc.stdout or '')[-300:]}")
+            if _CAP_MARKER in out:
+                pytest.fail(
+                    f"cap de runners toujours sature apres {waited:.0f}s d'attente "
+                    f"-- AUCUNE validation n'a eu lieu (ce n'est PAS un skip vert). "
+                    f"Libere des slots (disposeRunner) ou releve "
+                    f"TACTICUS_RUNNER_CAP_WAIT_S. Detail: {out[-300:]}",
+                    pytrace=False)
+            pytest.skip(f"build runner KO (rl_duel): {out[-300:]}")
         st = json.loads(state.read_text())
         rid = st["runnerId"]
-        created.append((rid, state))
+        # Propriétaire (cf. bloc en tête) : portée de la fixture en construction ;
+        # à défaut, la phase tranche — corps du test, ou fixture de session (le
+        # seul cas où le hook de fixture ne passe pas ici).
+        if keep:
+            owner = "session"
+        elif _FIXTURE_SCOPES:
+            owner = _SCOPE_OWNER.get(_FIXTURE_SCOPES[-1], "session")
+        else:
+            owner = "test" if _IN_TEST_CALL else "session"
+        _LEDGER.append({"rid": rid, "state": state, "owner": owner})
         return {"rid": rid, "my_team": st.get("myTeam", 1)}
 
     yield _build
 
-    # teardown : dispose tous les runners de test (idempotent ; removed=false si déjà parti)
-    # puis retire les state-files — sinon ils s'accumulent dans data/ à chaque run.
-    for rid, state in created:
-        try:
-            host._rpc(live_session, "disposeRunner", [{"runnerId": rid}], timeout=20)
-        except Exception:
-            pass
-        state.unlink(missing_ok=True)
+    # Filet de fin de session : tout ce qui reste (les `session`, et les rescapés
+    # d'une interruption avant le teardown de leur portée). Idempotent.
+    _release_runners({"test", "class", "module", "session"})
 
 
 @pytest.fixture(scope="session")
 def live_runner(build_runner):
     """runnerId d'une bataille LIVE isolée (auto-disposée). Lecture seule côté
-    pathfinding. Seed `PATHFIND_SEED` = simple générateur."""
+    pathfinding. Seed `PATHFIND_SEED` = simple générateur.
+
+    SEULE fixture de ce conftest partagée entre PLUSIEURS modules : la libérer en fin
+    de module la tuerait sous les fichiers suivants. Aucun `keep=True` n'est nécessaire —
+    sa portée `session` est LUE sur la fixture elle-même (cf. `pytest_fixture_setup`)."""
     return build_runner(os.environ.get("PATHFIND_SEED", "777"))["rid"]
