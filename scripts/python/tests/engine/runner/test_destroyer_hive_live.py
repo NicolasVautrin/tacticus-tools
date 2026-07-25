@@ -17,9 +17,17 @@ VALIDATION : P=deathTyphus, A=ennemi high-HP (--hp-target -> survit + armure 0).
 a Typhus, on flip au tour de Typhus (endturn A->P => StartTurnOperation On(0x16) => DestroyerHive). Verifie :
   (A) le passif enregistre le trigger DestroyerHive sur Typhus (collect_triggered_abilities, event_id 22) ;
   (B) BIT-EXACT : offline start_turn_triggers(P) total == live_dmg (HP delta) ;
-  (C) STRUCTURE : 1 coup, pierce 100, cible = l'ennemi adjacent ;
+  (C) STRUCTURE : nb de coups + percage lus de la CONFIG (cf. ORACLE), cible = l'ennemi adjacent ;
   (D) SCOPING : offline start_turn(A=tour adverse) ne fire PAS (gate OwnerIsActor) ;
   (E) GATE : ennemi rendu NON adjacent (offline) => DestroyerHive ne fire pas (AmountIsGreaterThanZero=0).
+
+ORACLE (#96) -- le degat resolu est CALCULE, donc confronte au LIVE (volet B) ; les deux scalaires de
+STRUCTURE (volet C) sont BRUTS, donc confrontes a la CONFIG. Le decompile tranche :
+`DestroyerHiveAbility$$CreateBehaviour` lit `GetDamageProfile(config, 0)` et `GetNumberConstant(config,
+0x2f)` et passe les DEUX **tels quels** a `AttackWithAttackDamage` -- aucune formule entre la config et le
+noeud. Donc `constants.nrOfHits` et `damageProfiles[constants.damageProfile].PiercingRatio` (0x2f =
+`nrOfHits`, indices resolus sur `IdunBattle.Configuration.AbilityConstantType`). Aucun de ces deux nombres
+n'est ecrit en dur ici : un re-equilibrage deplace l'attendu AVEC le jeu.
 ASCII-only. Skip si pas de session / Typhus non buildable.
 """
 from __future__ import annotations
@@ -168,12 +176,58 @@ def test_dh_bit_exact_damage(dh_state):
 
 
 def test_dh_structure(dh_state):
-    """(C) STRUCTURE : 1 coup (nrOfHits=1), pierce 100 (DirectDamage), cible = l'ennemi adjacent."""
+    """(C) STRUCTURE : nb de coups == `constants.nrOfHits`, percage == `PiercingRatio` du profil NOMME PAR
+    LA CONFIG, cible = l'ennemi adjacent.
+
+    ORACLE = gameconfig (cf. en-tete). `CreateBehaviour` prend les deux scalaires TELS QUELS
+    (`GetNumberConstant(0x2f)`, `GetDamageProfile(0)`) -> BRUTS -> l'oracle est la config, jamais un
+    litteral. Le percage EFFECTIF du port est `clamp(0,100, PiercingRatio + ExtraPierce + ExtraPierceMelee)`
+    (`profile_pierce`) : on exige d'abord que le porteur n'ait AUCUN percage supplementaire, sans quoi
+    l'egalite ne testerait plus le choix du PROFIL mais la somme."""
+    import gameconfig as GC
+    from engine.runner.components import StatsComponent
+    cst = (GC.ability("DestroyerHive") or {}).get("constants") or {}
+    n_hits, prof = cst.get("nrOfHits"), cst.get("damageProfile")
+    assert n_hits is not None and prof, \
+        f"oracle introuvable : constants.nrOfHits/damageProfile de l'ability DestroyerHive (lu: {cst})"
+    ratio = (GC.damage_profile(prof) or {}).get("PiercingRatio")
+    assert ratio is not None, f"oracle introuvable : damageProfiles[{prof}].PiercingRatio"
+    ctx = dh_state["build_state"]().get_entity(dh_state["tid"]).get_component(StatsComponent).ctx
+    assert (ctx.extra_pierce, ctx.extra_pierce_melee) == (0, 0), (
+        f"le porteur a un percage supplementaire ({ctx.extra_pierce}/{ctx.extra_pierce_melee}) : le percage "
+        f"effectif n'est plus l'identite du PiercingRatio de profil -- adapter le setup ou l'attendu")
     off = _fire_offline(dh_state, dh_state["p_team"])
     assert off is not None
-    assert off.get("hits") == 1, "nrOfHits=1 (mono-coup)"
-    assert off.get("pierce") == 100, "profil DirectDamage pierce-100"
+    assert off.get("hits") == int(n_hits), \
+        f"coups {off.get('hits')} != constants.nrOfHits={n_hits} (oracle gameconfig, GetNumberConstant 0x2f)"
+    assert off.get("pierce") == int(ratio), (
+        f"pierce {off.get('pierce')} != damageProfiles[{prof}].PiercingRatio={ratio} (oracle gameconfig, "
+        f"profil lu par GetDamageProfile(config, 0))")
     assert off.get("target") == dh_state["eid"], "cible = l'unique ennemi adjacent"
+
+
+def test_dh_hits_derived_from_config(dh_state, monkeypatch):
+    """DERIVATION du nb de coups : on DECALE `constants.nrOfHits` et le port doit SUIVRE.
+
+    Sans ce controle, l'egalite du test precedent ne prouverait rien : `nrOfHits` vaut 1, exactement la
+    valeur de repli du lecteur (`ability_var(..., is_constant=True) or 1`) -- une cle MAL nommee rendrait
+    donc 1 elle aussi et passerait inapercue. C'est le piege " cle voisine de meme valeur " (#96). L'etat
+    est reconstruit a neuf par `_fire_offline` (payloads deja en cache) : aucun RPC, aucun runner de plus."""
+    import gameconfig as GC
+    cst = (GC.ability("DestroyerHive") or {}).get("constants") or {}
+    base = int(cst["nrOfHits"])
+    bumped = base + 2
+    orig_ability = GC.ability
+    patched = dict(orig_ability("DestroyerHive") or {})
+    patched["constants"] = {**cst, "nrOfHits": str(bumped)}
+    monkeypatch.setattr(GC, "ability", lambda aid: patched if aid == "DestroyerHive" else orig_ability(aid))
+    off = _fire_offline(dh_state, dh_state["p_team"])
+    assert off is not None, "DestroyerHive doit fire (ennemi adjacent)"
+    assert off.get("hits") == bumped, (
+        f"coups {off.get('hits')} != oracle decale {bumped} (base {base}) : le port ne DERIVE pas de "
+        f"constants.nrOfHits -- cle mal nommee retombant sur le repli 1, ou valeur figee")
+    assert len(((off.get("attack") or {}).get("per_hit")) or []) == bumped, \
+        "le nb de coups REELLEMENT joues ne suit pas non plus l'oracle"
 
 
 def test_dh_scoping_owner_turn(dh_state):

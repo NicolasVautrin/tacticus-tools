@@ -33,7 +33,21 @@ _live). Ce que ces tests PROUVENT (drive les positions en zone FLAT ou Unobscure
       PlasmaGrenade/Stikkbomb/Fragstorm cible-ancres).
   (4) FIDELITE A/B (bit-exact) : l'arbre == une sequence directe `execute_ability_attack` (cibles id-triees
       {cible} U additionnels, 1 coup chacun, meme rng seede) -> le port n'introduit AUCUN bug de degat.
-  (5) PARAMS DEGAT : chaque coup dans la plage config-scalee [minDmg,maxDmg], profil DirectDamage pierce 100.
+  (5) PARAMS DEGAT : chaque coup dans la plage config-scalee [minDmg,maxDmg] ; nb de coups et percage lus
+      de la CONFIG (cf. ORACLE).
+
+ORACLE (#96) -- AUCUN scalaire de gameplay n'est fige dans ce fichier. Le decompile tranche brut/calcule :
+`HarbingerOfDestructionAbility$$ExecuteBehaviour` passe `Direct(GetDamageProfile(config, 0))` et
+`Direct(GetNumberConstant(config, 0x2f))` TELS QUELS a `AttackWithAttackDamage`, et
+`$$GetAdditionalTargets` passe `GetNumberConstant(config, 0x16)` tel quel a `GetEnemiesInRange` -> ces
+trois-la sont BRUTS, leur oracle est la config : `constants.nrOfHits` (0x2f), `constants.range` (0x16),
+`damageProfiles[constants.damageProfile].PiercingRatio` (indices resolus sur
+`IdunBattle.Configuration.AbilityConstantType`). N (`nrOfUnits`, 0x9a) est deja lu par niveau via le port.
+Le degat, lui, est CALCULE : il est confronte a une sequence directe re-jouee sous le MEME rng (volet 4),
+jamais a un nombre ecrit a la main.
+NB : le port FIGE le nom de profil "DirectDamage" (mirror du decompile) la ou le natif le LIT en config ;
+le test lit la cle de config -> si un patch changeait `constants.damageProfile`, le test deviendrait rouge,
+et il aurait raison (c'est le port qui aurait diverge du natif).
 
 GAP CONNU (hors port, #215) : l'ordre/cout exact du tirage `PickRandomly` (pool > N-1) n'est pas cale ->
 DETERMINISTE seulement quand `len(pool) <= N-1` (le pool tient, pas de tirage). Les tests de ciblage exact
@@ -166,6 +180,26 @@ def _params(state, caster_id):
     return HarbingerOfDestructionAbility()._params(state, caster_id)
 
 
+def _cfg_constants() -> dict:
+    """ORACLE des scalaires BRUTS de l'ability = `constants` de gameconfig (cf. en-tete). Le decompile passe
+    `GetNumberConstant(0x2f)`/`(0x16)` et `GetDamageProfile(0)` TELS QUELS aux noeuds DSL : aucune formule
+    entre la config et le noeud, donc l'attendu du test se LIT dans la config au lieu d'etre ecrit en dur."""
+    import gameconfig as GC
+    cst = (GC.ability("HarbingerOfDestruction") or {}).get("constants") or {}
+    assert cst.get("nrOfHits") is not None and cst.get("range") is not None and cst.get("damageProfile"), \
+        f"oracle introuvable : constants nrOfHits/range/damageProfile de HarbingerOfDestruction (lu: {cst})"
+    return cst
+
+
+def _cfg_profile_pierce(profile_name: str) -> int:
+    """`damageProfiles[<profil>].PiercingRatio` -- l'autre moitie de l'oracle BRUT. Le percage EFFECTIF du
+    port y ajoute les ExtraPierce du caster (`profile_pierce`), verifies nuls par l'appelant."""
+    import gameconfig as GC
+    ratio = (GC.damage_profile(profile_name) or {}).get("PiercingRatio")
+    assert ratio is not None, f"oracle introuvable : damageProfiles[{profile_name}].PiercingRatio"
+    return int(ratio)
+
+
 # ------------------------------------------------------------------ fixture : etat LIVE rejouable
 
 @pytest.fixture(scope="module")
@@ -246,32 +280,43 @@ def test_harbinger_handler_routes_1008(har_off):
 # ------------------------------------------------------------------ (1) CIBLAGE rayon-2 + (4)(5) A/B/params
 
 def test_harbinger_radius2_targeting_and_ab(har_off):
-    """CIBLAGE rayon-2 (cible + ennemis dist 1&2 du CASTER frappes ; dist 3 NON) + A/B bit-exact + params.
-    Drive `len(pool) <= N-1` -> pick DETERMINISTE (aucun tirage) -> ciblage EXACT + per-coup bit-exact."""
+    """CIBLAGE rayon-`range` (cible + ennemis dist 1 et dist `range` du CASTER frappes ; dist `range`+1 NON)
+    + A/B bit-exact + params. Drive `len(pool) <= N-1` -> pick DETERMINISTE (aucun tirage) -> ciblage EXACT
+    + per-coup bit-exact.
+
+    `range` n'est PAS ecrit en dur : il est lu dans `constants.range` (oracle config, cf. en-tete) et pilote
+    la GEOMETRIE du scenario -- la frontiere testee est toujours `range` vs `range+1`, ou que la config le
+    place. La 1re assertion confronte la valeur que le PORT a lue a cet oracle."""
     state = har_off["build_state"]()
     board, elev = har_off["board"], har_off["elev"]
     cid = _find_by_vis(state, CASTER)
     ens = _enemies_of(state, cid)
     if cid is None or len(ens) < 4:
         pytest.skip("caster + 4 ennemis requis")
+    cst = _cfg_constants()
+    cfg_range = int(cst["range"])
     n_total, rng_range = _params(state, cid)
-    assert rng_range == 2, f"range config attendu 2 (rayon-2), lu {rng_range}"
+    assert rng_range == cfg_range, \
+        f"range lu par le port {rng_range} != constants.range={cfg_range} (oracle gameconfig, 0x16)"
     n_pick = max(0, n_total - 1)
     if n_pick < 2:
-        pytest.skip(f"N={n_total} -> besoin de n_pick>=2 pour le discriminant d1/d2")
+        pytest.skip(f"N={n_total} -> besoin de n_pick>=2 pour le discriminant d1/d{rng_range}")
+    if rng_range < 2:
+        pytest.skip(f"range={rng_range} -> le discriminant dist1/dist-range exige range>=2")
 
-    # geometrie FLAT : C avec >=2 tuiles dist1, >=1 dist2 (meme elev -> Unobscured passe), >=1 dist3.
-    # On place 2 additionnels (d1+d2, pool=2 <= n_pick -> DETERMINISTE) + cible (d1) + far (d3).
+    # geometrie FLAT : C avec >=2 tuiles dist1, >=1 a dist `range` (meme elev -> Unobscured passe), >=1 a
+    # dist `range`+1. On place 2 additionnels (d1 + d`range`, pool=2 <= n_pick -> DETERMINISTE) + cible (d1)
+    # + far (d`range`+1, PREMIERE distance hors du disque).
     C = None
     for t in sorted(board.by_id):
         if not board.walkable(t):
             continue
         c = board.coord(t); ec = elev.get(c)
-        if (len(_ring(board, c, 1)) >= 2 and len(_ring(board, c, 2, ec, elev)) >= 1
-                and len(_ring(board, c, 3)) >= 1):
+        if (len(_ring(board, c, 1)) >= 2 and len(_ring(board, c, rng_range, ec, elev)) >= 1
+                and len(_ring(board, c, rng_range + 1)) >= 1):
             C = c; break
     if C is None:
-        pytest.skip("aucune tuile caster flat avec dist 1(x2)&2&3 disponibles")
+        pytest.skip(f"aucune tuile caster flat avec dist 1(x2)&{rng_range}&{rng_range + 1} disponibles")
     ec = elev.get(C)
     t_id, a1_id, a2_id, far_id = ens[0], ens[1], ens[2], ens[3]
     _park_others(state, board, {cid, t_id, a1_id, a2_id, far_id}, C)
@@ -280,17 +325,18 @@ def test_harbinger_radius2_targeting_and_ab(har_off):
     d1 = [p for p in _ring(board, C, 1) if p not in occ]
     _set_pos(state, t_id, *d1[0]); occ.add(d1[0])            # cible a dist 1
     _set_pos(state, a1_id, *d1[1]); occ.add(d1[1])           # additionnel 1 a dist 1
-    d2 = [p for p in _ring(board, C, 2, ec, elev) if p not in occ]
-    _set_pos(state, a2_id, *d2[0]); occ.add(d2[0])           # additionnel 2 a dist 2 (flat -> Unobscured passe)
-    d3 = [p for p in _ring(board, C, 3) if p not in occ]
-    _set_pos(state, far_id, *d3[0]); occ.add(d3[0])          # far a dist 3 (hors disque rayon-2)
+    d2 = [p for p in _ring(board, C, rng_range, ec, elev) if p not in occ]
+    _set_pos(state, a2_id, *d2[0]); occ.add(d2[0])           # additionnel 2 au BORD du disque (flat -> Unobscured passe)
+    d3 = [p for p in _ring(board, C, rng_range + 1) if p not in occ]
+    _set_pos(state, far_id, *d3[0]); occ.add(d3[0])          # far juste HORS du disque rayon-`range`
 
     dist = {i: hexgeo.distance(C, _pos(state, i)) for i in (t_id, a1_id, a2_id, far_id)}
-    assert dist[a1_id] == 1 and dist[a2_id] == 2 and dist[far_id] == 3, f"geometrie inattendue: {dist}"
+    assert dist[a1_id] == 1 and dist[a2_id] == rng_range and dist[far_id] == rng_range + 1, \
+        f"geometrie inattendue: {dist} (range={rng_range})"
     expect_hit = {t_id, a1_id, a2_id}
     pos_snap = {i: _pos(state, i) for i in (cid, t_id, a1_id, a2_id, far_id)}
-    print(f"\n[HAR r2] C={C} N={n_total} n_pick={n_pick} cible=e{t_id}(d1) add=e{a1_id}(d1),e{a2_id}(d2) "
-          f"far=e{far_id}(d3)")
+    print(f"\n[HAR r{rng_range}] C={C} N={n_total} n_pick={n_pick} cible=e{t_id}(d1) "
+          f"add=e{a1_id}(d1),e{a2_id}(d{rng_range}) far=e{far_id}(d{rng_range + 1})")
 
     rng_snap = {"mt": list(state.rng.mt), "mti": state.rng.mti} if state.rng is not None else None
     hp0 = {i: _hp(state, i) for i in (t_id, a1_id, a2_id, far_id)}
@@ -299,12 +345,14 @@ def test_harbinger_radius2_targeting_and_ab(har_off):
     main = res.get("main_attack") or {}
     splash = res.get("splash") or []
     hit = {t_id} | {s["target"] for s in splash}
-    print(f"[HAR r2] hit={sorted(hit)} attendu={sorted(expect_hit)}")
+    print(f"[HAR r{rng_range}] hit={sorted(hit)} attendu={sorted(expect_hit)}")
 
-    # (1) CIBLAGE : cible + additionnels dist<=2 frappes ; far (dist3) NON frappe (frontiere rayon-2)
+    # (1) CIBLAGE : cible + additionnels dist<=range frappes ; far (dist range+1) NON frappe (frontiere)
     assert hit == expect_hit, f"cibles frappees {sorted(hit)} != attendu {sorted(expect_hit)}"
-    assert far_id not in hit, f"ennemi a dist 3 (e{far_id}) frappe a tort -> rayon > 2"
-    assert _hp(state, far_id) == hp0[far_id], f"far e{far_id} endommage a tort (rayon > 2)"
+    assert far_id not in hit, \
+        f"ennemi a dist {rng_range + 1} (e{far_id}) frappe a tort -> rayon > constants.range={rng_range}"
+    assert _hp(state, far_id) == hp0[far_id], \
+        f"far e{far_id} endommage a tort (rayon > constants.range={rng_range})"
     assert _hp(state, t_id) < hp0[t_id], "cible MAIN non endommagee"
     for aid in (a1_id, a2_id):
         assert _hp(state, aid) < hp0[aid], f"additionnel e{aid} (dist {dist[aid]}) non endommage"
@@ -317,28 +365,96 @@ def test_harbinger_radius2_targeting_and_ab(har_off):
     _park_others(st2, board, {cid, t_id, a1_id, a2_id, far_id}, C)
     for i, p in pos_snap.items():
         _set_pos(st2, i, *p)
-    bmin, bmax, pierce, hits = ability_attack_params(st2, cid, "HarbingerOfDestruction", "DirectDamage",
+    # Le profil de la baseline est LU en config (`GetDamageProfile(config, 0)`), pas ecrit en dur : la
+    # sequence de reference emprunte donc exactement le profil que le natif emprunterait.
+    cfg_profile = str(cst["damageProfile"])
+    bmin, bmax, pierce, hits = ability_attack_params(st2, cid, "HarbingerOfDestruction", cfg_profile,
                                                      ranged=True)
     ref_ph = {}
     for tid in sorted(expect_hit):                          # ordre id (== multi=True du leaf)
         rr = AttackDamageOperation.execute_ability_attack(st2, cid, tid, bmin, bmax, pierce, hits,
-                                                          damage_profile="DirectDamage", is_melee=False)
+                                                          damage_profile=cfg_profile, is_melee=False)
         ref_ph[tid] = (rr or {}).get("per_hit")
     port_ph = {t_id: main.get("per_hit")}
     for s in splash:
         port_ph[s["target"]] = (s["attack"] or {}).get("per_hit")
-    print(f"[HAR r2] params [bmin,bmax]=[{bmin},{bmax}] pierce={pierce} hits={hits}")
+    print(f"[HAR r{rng_range}] params [bmin,bmax]=[{bmin},{bmax}] pierce={pierce} hits={hits} "
+          f"profil={cfg_profile}")
     for tid in sorted(expect_hit):
-        print(f"[HAR r2]  e{tid} port_ph={port_ph.get(tid)} ref_ph={ref_ph.get(tid)}")
+        print(f"[HAR r{rng_range}]  e{tid} port_ph={port_ph.get(tid)} ref_ph={ref_ph.get(tid)}")
         assert port_ph.get(tid) == ref_ph.get(tid), (
             f"A/B e{tid}: arbre {port_ph.get(tid)} != baseline execute_ability_attack {ref_ph.get(tid)}")
-    # (5) params : nrOfHits=1, pierce=100 (profil DirectDamage), chaque coup dans [bmin,bmax]
-    assert hits == 1, f"nrOfHits attendu 1, lu {hits}"
-    assert pierce == 100, f"pierce attendu 100 (profil DirectDamage), lu {pierce}"
+    # (5) params BRUTS -> ORACLE CONFIG (jamais un litteral) : `constants.nrOfHits` (GetNumberConstant 0x2f)
+    #     et `PiercingRatio` du profil NOMME par `constants.damageProfile` (GetDamageProfile 0). Le percage
+    #     effectif etant `clamp(0,100, ratio + ExtraPierce + ExtraPierceRanged)`, on exige d'abord des
+    #     ExtraPierce nuls, sinon l'egalite ne testerait plus le choix du PROFIL mais la somme.
+    from engine.runner.components import StatsComponent
+    cfg_hits = int(cst["nrOfHits"])
+    cfg_pierce = _cfg_profile_pierce(cfg_profile)
+    ctx = st2.get_entity(cid).get_component(StatsComponent).ctx
+    assert (ctx.extra_pierce, ctx.extra_pierce_ranged) == (0, 0), (
+        f"caster avec percage supplementaire ({ctx.extra_pierce}/{ctx.extra_pierce_ranged}) : le percage "
+        f"effectif n'est plus l'identite du PiercingRatio de profil -- adapter le setup ou l'attendu")
+    assert hits == cfg_hits, \
+        f"coups {hits} != constants.nrOfHits={cfg_hits} (oracle gameconfig, GetNumberConstant 0x2f)"
+    assert pierce == cfg_pierce, (
+        f"pierce {pierce} != damageProfiles[{cfg_profile}].PiercingRatio={cfg_pierce} (oracle gameconfig, "
+        f"profil lu par GetDamageProfile(config, 0))")
     for tid in sorted(expect_hit):
+        assert len(port_ph.get(tid) or []) == cfg_hits, (
+            f"le PORT a joue {len(port_ph.get(tid) or [])} coups sur e{tid}, pas constants.nrOfHits="
+            f"{cfg_hits}")
         for v in (port_ph.get(tid) or []):
             assert bmin <= v <= bmax, f"coup e{tid} {v} hors plage config [{bmin},{bmax}]"
-    print("[HAR r2] OK : ciblage rayon-2 (dist1&2 frappes, dist3 exclu), A/B tree==baseline, params DirectDamage")
+    print(f"[HAR r{rng_range}] OK : ciblage rayon-{rng_range} (dist1&{rng_range} frappes, "
+          f"dist{rng_range + 1} exclu), A/B tree==baseline, params {cfg_profile} (oracle config)")
+
+
+def test_harbinger_hits_derived_from_config(har_off, monkeypatch):
+    """DERIVATION du nb de coups : on DECALE `constants.nrOfHits` et le port doit SUIVRE.
+
+    Sans ce controle, l'egalite du test precedent ne prouverait rien : `nrOfHits` vaut 1, exactement la
+    valeur de repli du lecteur (`ability_var(..., is_constant=True) or 1`) -- une cle MAL nommee rendrait
+    1 elle aussi et passerait inapercue (piege " cle voisine de meme valeur ", #96). Le decalage teste AUSSI
+    que le canal `GetAttackHits` (famille ATTACK) est l'identite sur ce roster : le port doit rendre
+    EXACTEMENT l'oracle decale. Geometrie minimale (cible + 1 additionnel a dist 1, jamais obscurci) ; etat
+    reconstruit depuis les payloads en cache -- aucun RPC, aucun runner de plus."""
+    import gameconfig as GC
+    state = har_off["build_state"]()
+    board = har_off["board"]
+    cid = _find_by_vis(state, CASTER)
+    ens = _enemies_of(state, cid)
+    if cid is None or len(ens) < 2:
+        pytest.skip("caster + 2 ennemis requis")
+    C = next((board.coord(t) for t in sorted(board.by_id)
+              if board.walkable(t) and len(_ring(board, board.coord(t), 1)) >= 2), None)
+    if C is None:
+        pytest.skip("aucune tuile a 2 voisins dist1")
+    t_id, a_id = ens[0], ens[1]
+    _park_others(state, board, {cid, t_id, a_id}, C)
+    _set_pos(state, cid, *C)
+    d1 = _ring(board, C, 1)
+    _set_pos(state, t_id, *d1[0]); _set_pos(state, a_id, *d1[1])
+
+    base = int(_cfg_constants()["nrOfHits"])
+    bumped = base + 2
+    orig_ability = GC.ability
+    patched = dict(orig_ability("HarbingerOfDestruction") or {})
+    patched["constants"] = {**(patched.get("constants") or {}), "nrOfHits": str(bumped)}
+    monkeypatch.setattr(GC, "ability",
+                        lambda aid: patched if aid == "HarbingerOfDestruction" else orig_ability(aid))
+    res = HarbingerOfDestructionAbility().execute_behaviour(state, cid, t_id)
+    assert res is not None and res.get("dsl") is True, f"port non execute: {res}"
+    per_hit = {t_id: ((res.get("main_attack") or {}).get("per_hit") or [])}
+    for s in (res.get("splash") or []):
+        per_hit[s["target"]] = (s["attack"] or {}).get("per_hit") or []
+    print(f"\n[HAR derive] nrOfHits {base}->{bumped} : coups par cible "
+          f"{ {k: len(v) for k, v in per_hit.items()} }")
+    for tid, ph in per_hit.items():
+        assert len(ph) == bumped, (
+            f"e{tid} : {len(ph)} coups != oracle decale {bumped} (base {base}) -- le port ne DERIVE pas de "
+            f"constants.nrOfHits (cle mal nommee retombant sur le repli 1, valeur figee, ou canal "
+            f"GetAttackHits non identite sur ce roster)")
 
 
 # ------------------------------------------------------------------ (2) CAP N-1 + exclude-target
@@ -355,44 +471,48 @@ def _set_ability_level(state, caster_id, level):
 
 
 def test_harbinger_cap_and_excludes_target(har_off):
-    """CAP : pool (ennemis disque rayon-2 - cible) > N-1 -> exactement N-1 additionnels (PickRandomly(N-1)) ;
-    la cible MAIN n'est JAMAIS un additionnel (op_Subtraction Target()). MC1_67 ne spawne que 5 ennemis ; on
-    borne N=3 (niveau bas REEL : nrOfUnits[idx<=16]=3 -> n_pick=2) pour que pool=3 > n_pick=2 -> le cap mord."""
+    """CAP : pool (ennemis du disque rayon-`range` - cible) > N-1 -> exactement N-1 additionnels
+    (PickRandomly(N-1)) ; la cible MAIN n'est JAMAIS un additionnel (op_Subtraction Target()). MC1_67 ne
+    spawne que 5 ennemis ; on borne le niveau d'ability au plus bas (N = `nrOfUnits`[niveau], config-driven)
+    pour que le pool depasse n_pick et que le cap MORDE. `range` vient de la config (pas d'attendu fige)."""
     state = har_off["build_state"]()
     board, elev = har_off["board"], har_off["elev"]
     cid = _find_by_vis(state, CASTER)
     ens = _enemies_of(state, cid)
     if cid is not None:
-        _set_ability_level(state, cid, 1)                   # niveau bas REEL -> N=3 (nrOfUnits[idx 0])
-    n_total, _ = _params(state, cid)
+        _set_ability_level(state, cid, 1)                   # niveau bas REEL -> N = nrOfUnits[idx 0]
+    n_total, rng_range = _params(state, cid)
     n_pick = max(0, n_total - 1)
     need_disk = n_pick + 1                                   # ennemis dans le disque (hors cible) -> pool > n_pick
     if cid is None or n_pick < 1 or len(ens) < need_disk + 1:
         pytest.skip(f"besoin de N>=2 et {need_disk + 1} ennemis (cible + {need_disk} disque) ; N={n_total}, {len(ens)} dispo")
-    # C avec assez de voisins dist1 (jamais obscurci) pour cible + need_disk ; complement dist2 flat si besoin.
+    # C avec assez de voisins dist1 (jamais obscurci) pour cible + need_disk ; complement au BORD du disque
+    # (dist `range`, flat -> Unobscured passe) si besoin.
     C = None
     for t in sorted(board.by_id):
         if not board.walkable(t):
             continue
         c = board.coord(t); ec = elev.get(c)
-        d1n = len(_ring(board, c, 1)); d2n = len(_ring(board, c, 2, ec, elev))
+        d1n = len(_ring(board, c, 1)); d2n = len(_ring(board, c, rng_range, ec, elev))
         if d1n + d2n >= need_disk + 1:                       # cible + need_disk cibles placables dans le disque
             C = c; break
     if C is None:
-        pytest.skip("aucune tuile caster avec assez de tuiles disque (dist1+dist2 flat)")
+        pytest.skip(f"aucune tuile caster avec assez de tuiles disque (dist1+dist{rng_range} flat)")
     ec = elev.get(C)
     everyone = ens[:need_disk + 1]                           # cible + need_disk = pool > n_pick
     t_id = everyone[0]; pool_ids = everyone[1:]
     _park_others(state, board, set(everyone) | {cid}, C)
     _set_pos(state, cid, *C)
     occ = {C}
-    slots = [p for p in _ring(board, C, 1) if p not in occ] + [p for p in _ring(board, C, 2, ec, elev) if p not in occ]
+    slots = ([p for p in _ring(board, C, 1) if p not in occ]
+             + [p for p in _ring(board, C, rng_range, ec, elev) if p not in occ])
     if len(slots) < len(everyone):
         pytest.skip("pas assez de tuiles disque placables (Unobscured)")
     for uid, p in zip(everyone, slots):
         _set_pos(state, uid, *p); occ.add(p)
     dist = {i: hexgeo.distance(C, _pos(state, i)) for i in everyone}
-    assert all(dist[i] <= 2 for i in everyone), f"toutes les cibles doivent etre dans le disque : {dist}"
+    assert all(dist[i] <= rng_range for i in everyone), \
+        f"toutes les cibles doivent etre dans le disque rayon-{rng_range} : {dist}"
 
     hp0 = {i: _hp(state, i) for i in everyone}
     res = HarbingerOfDestructionAbility().execute_behaviour(state, cid, t_id)
@@ -415,27 +535,30 @@ def test_harbinger_cap_and_excludes_target(har_off):
 
 def test_harbinger_additional_anchored_on_caster(har_off):
     """DISCRIMINANT : les additionnels sont dans le disque du CASTER, PAS de la cible seule. Place un ennemi
-    D adjacent a la CIBLE mais a dist > 2 du CASTER -> il ne doit PAS etre frappe (refute cible-anchor)."""
+    D adjacent a la CIBLE mais HORS du disque rayon-`range` du CASTER -> il ne doit PAS etre frappe (refute
+    cible-anchor). `range` = `constants.range` lu par le port (oracle config, aucun rayon fige ici)."""
     state = har_off["build_state"]()
     board, elev = har_off["board"], har_off["elev"]
     cid = _find_by_vis(state, CASTER)
     ens = _enemies_of(state, cid)
     if cid is None or len(ens) < 3:
         pytest.skip("caster + 3 ennemis requis")
+    _n_total, rng_range = _params(state, cid)
     coords = [board.coord(t) for t in sorted(board.by_id) if board.walkable(t)]
-    # geometrie : C ; T a dist 2 du caster (flat) ; A a dist 1 du caster (additionnel) ; D adjacent a T mais
-    # dist>2 de C (meme elev) -> D est adjacent a la CIBLE (splash cible-anchor le frapperait) mais HORS disque.
+    # geometrie : C ; T au BORD du disque caster (dist `range`, flat) ; A a dist 1 du caster (additionnel) ;
+    # D adjacent a T mais dist > `range` de C (meme elev) -> D est adjacent a la CIBLE (un splash
+    # cible-anchor le frapperait) mais HORS du disque caster.
     geom = None
     for t in sorted(board.by_id):
         if not board.walkable(t):
             continue
         C = board.coord(t); ec = elev.get(C)
-        d2 = _ring(board, C, 2, ec, elev); d1 = _ring(board, C, 1)
+        d2 = _ring(board, C, rng_range, ec, elev); d1 = _ring(board, C, 1)
         if not d2 or not d1:
             continue
         for T in d2:
             Dc = [p for p in coords if hexgeo.distance(T, p) == 1 and elev.get(p) == ec
-                  and hexgeo.distance(C, p) > 2 and p != C]
+                  and hexgeo.distance(C, p) > rng_range and p != C]
             Ac = [p for p in d1 if p != T and hexgeo.distance(T, p) != 1]   # A pas adjacent a T (isole)
             if Dc and Ac:
                 geom = (C, T, Ac[0], Dc[0]); break
@@ -451,7 +574,9 @@ def test_harbinger_additional_anchored_on_caster(har_off):
     dT = hexgeo.distance(T, D)
     print(f"\n[HAR anchor] C={C} T={T}(e{t_id},dC={dC[t_id]}) A={A}(e{a_id},dC={dC[a_id]}) "
           f"D={D}(e{d_id},dC={dC[d_id]},dT={dT})")
-    assert dC[d_id] > 2 and dT == 1, f"D doit etre adjacent a la CIBLE (dT={dT}) mais hors disque caster (dC={dC[d_id]})"
+    assert dC[d_id] > rng_range and dT == 1, (
+        f"D doit etre adjacent a la CIBLE (dT={dT}) mais hors du disque caster rayon-{rng_range} "
+        f"(dC={dC[d_id]})")
 
     hp0 = {i: _hp(state, i) for i in (t_id, a_id, d_id)}
     res = HarbingerOfDestructionAbility().execute_behaviour(state, cid, t_id)
@@ -461,4 +586,4 @@ def test_harbinger_additional_anchored_on_caster(har_off):
     assert d_id not in hit, f"D e{d_id} (adjacent cible mais dist {dC[d_id]} du caster) frappe a tort -> cible-anchor"
     assert _hp(state, d_id) == hp0[d_id], f"D e{d_id} endommage a tort (ciblage cible-anchor)"
     assert _hp(state, a_id) < hp0[a_id], f"A e{a_id} (disque caster) non endommage"
-    print("[HAR anchor] OK : additionnels ancres sur le CASTER (disque rayon-2), pas sur la cible")
+    print(f"[HAR anchor] OK : additionnels ancres sur le CASTER (disque rayon-{rng_range}), pas sur la cible")
