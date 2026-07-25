@@ -210,7 +210,7 @@ class ComparableAbilityGenerator(ActionGenerator):
             # SWEEP DE POSITION par paire (ability, cible) : chaque cible depuis CHAQUE tuile candidate
             # (`EvaluateInternal` boucle les cibles à position fixe). `ranked[0]` seul est FAUX pour les
             # spéciales (classement dMin/dMax-based, arbitraire) -> balayer TOUTES. Argmax STRICT `>`.
-            pair_best = None   # (u_full, u, pred, aoe, tile, bk)
+            pair_best = None   # (u_action, u_full, u, pred, aoe, tile, bk)
             for rk in ranked:
                 tile = (rk.get("col"), rk.get("row"))
                 if tile[0] is None:
@@ -226,16 +226,21 @@ class ComparableAbilityGenerator(ActionGenerator):
                     ls = self._spiritleech_lifesteal_util(ctx, tile, cand["pred"])
                     u_full += ls
                     u_val += ls
-                if pair_best is None or u_full > pair_best[0]:
-                    pair_best = (u_full, u_val, cand["pred"], cand["aoe"], tile, cand["bk"])
+                # #64/#27 : le natif compare des utilités d'ACTION (`BucketAction.Utility` = u_full +
+                # `CalculateCustomUtility` ; base 0 @181407840, NormalAttack +1 @1813726e0). L3 2468 s18 :
+                # 69 = 20.981+40+1 = 61.981 bat 1191 = 21.728+40+0 = 61.728. L'ancien tie-break exact
+                # `(u_full, is_normal)` était l'ombre de ce +1 (seuil natif PLUS LARGE, jamais fitté).
+                # Le custom est SOMMÉ DANS `CalculateActionUtility @181406ee0` (avant le terme Tile),
+                # donc AVANT l'argmax par tuile de `EvaluateInternal` -> il doit entrer dans CE
+                # comparatif, pas être ajouté après (sinon un custom POSITION-dépendant — Drachnyen
+                # @18112dc60, count d'ennemis adjacents à la tuile d'attaque — ne peut jamais changer
+                # la tuile choisie). Neutre pour les customs constants (ArmoriumCherub, NormalAttack…).
+                u_action = u_full + pb.calculate_custom_utility(ctx, tile, tgt, ab)
+                if pair_best is None or u_action > pair_best[0]:
+                    pair_best = (u_action, u_full, u_val, cand["pred"], cand["aoe"], tile, cand["bk"])
             if pair_best is None:
                 continue
-            u_full, u, pred, aoe, tile, bk = pair_best
-            # #64 : le natif compare des utilités d'ACTION (`BucketAction.Utility` = u_full +
-            # `CalculateCustomUtility` ; base 0 @181407840, NormalAttack +1 @1813726e0). L3 2468 s18 :
-            # 69 = 20.981+40+1 = 61.981 bat 1191 = 21.728+40+0 = 61.728. L'ancien tie-break exact
-            # `(u_full, is_normal)` était l'ombre de ce +1 (seuil natif PLUS LARGE, jamais fitté).
-            u_action = u_full + pb.calculate_custom_utility(ctx, tile, tgt, ab)
+            u_action, u_full, u, pred, aoe, tile, bk = pair_best
             key = u_action
             if ctx.debug:
                 p = pred or {}
