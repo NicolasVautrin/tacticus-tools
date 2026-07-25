@@ -90,6 +90,7 @@ from .loki import (
     TerrifyingExtraDefenseEffect,
     ProtectorImperativeEffect,
     ConquerorImperativeEffect,
+    ListenUpMaggotsEffect,
     BlackRageExtraMoveEffect,
     BlackRageExtraDamageEffect,
     BlackRageAutomaticUnitEffect,
@@ -248,6 +249,9 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Tyrant Guard (CrushingClaws) :
     "Taunted_OnlySpecificTargets": TauntedEffect,  # COMPOSITE 27 → enfants 25/26/1237 (bond cible↔tauntant)
     "Pinned": PinnedEffect,             # 1065 (UI « Suppressed ») — stat-mod Movement (matérialisé seul)
+    # ListenUpMaggots (0x426=1062, passif d'`astraSmnKell`) : SEULE source native de modification de
+    # CONSTANTE d'ability (`AddUnitActiveAbilityModification` sur `Parent(Self)` = Creed). #95-RESTE2.
+    "ListenUpMaggotsEffect": ListenUpMaggotsEffect,
     "Terrifying_ExtraDefense": TerrifyingExtraDefenseEffect,  # -30% dégât MÊLÉE reçu (defender, gated melee)
     "TerminatorArmour_ReduceDmg": TerminatorArmourReduceDmgEffect,  # -75% dégât reçu SAUF Psychic/DirectDamage (defender, gated profil)
     # GuardianOrganism (tanks Tyranides) : reduit le degat recu de min(dmgReductionPct%(25-33) x dmg,

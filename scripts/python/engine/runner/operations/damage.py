@@ -78,6 +78,27 @@ from .damage_hits import HitDamage, _DamageHitsMixin
 from .damage_ops import _DamageOpsMixin
 
 
+def _revert_ability_modifications_of_dead(state: State, dead_id: int) -> list:
+    """Volet `RemoveEffects` de `IdunBattle.Operations.KillUnitOperation$$Execute` limite aux
+    MODIFICATIONS D'ABILITY : chaque effet ACTIF porte par l'unite qui vient de mourir voit ses
+    `AddUnitActiveAbilityModification` annules (mirror `<Effect>.RevertInternal`). L'effet est aussi
+    marque `consumed` (il ne survit pas a son porteur).
+
+    Seul porteur du build : `ListenUpMaggotsEffect` (0x426) sur `astraSmnKell` — a la mort de Kell,
+    Creed reperd son `+1 nrOfSummons` et son `range 3`. Les effets sans `ability_modifications` ne
+    sont PAS touches (perimetre etroit, cf. le commentaire du call-site)."""
+    from .ability_modifications import revert_ability_modifications
+    if getattr(state, "effects", None) is None:
+        return []
+    out = []
+    for eff in list(state.effects.by_unit.get(int(dead_id), [])):
+        if eff.consumed or not (getattr(eff, "applied_ability_modifications", None) or []):
+            continue
+        out.extend(revert_ability_modifications(state, eff))
+        eff.consumed = True
+    return out
+
+
 class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
     """`IdunBattle.Operations.AttackDamageOperation` IdunBattle.Operations.AttackDamageOperation$$Execute (squelette fidèle).
 
@@ -165,6 +186,15 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # `On(UnitDeath = 0)` — consommateur : TerrifyingCrescendo branche OVERKILL
         # (cf. loki/terrifying_crescendo.py).
         out = out + unit_death_triggers(state, target_id, attacker_id, overkill=overkill)
+        # `RemoveEffects` de `IdunBattle.Operations.KillUnitOperation$$Execute` (sous la MEME garde
+        # revive) — VOLET PORTE : les MODIFICATIONS D'ABILITY que les effets du mort avaient posees sur
+        # d'AUTRES unites sont annulees (`RevertInternal`). Sans ca, un buff comme `ListenUpMaggots`
+        # (Kell -> +1 summon / range 3 sur Creed) SURVIVRAIT a la mort de son porteur = divergence
+        # silencieuse. ⚠ PERIMETRE VOLONTAIREMENT ETROIT : le `RemoveEffects` natif retire TOUS les
+        # effets du mort ; le port ne porte ici que la part `ability_modifications` (les stat-mods d'un
+        # cadavre ne sont lus par personne, un retrait global serait un changement de comportement
+        # transverse hors perimetre).
+        _revert_ability_modifications_of_dead(state, target_id)
         # #G3 : `On(UnitDefeated=55)` (event DISTINCT de 1, 2 et 0) -> Ambush_SummonAbility (mort -> decoy +
         # record turn_defeated). L'unité est déjà alive=False (fire-on-death).
         return out + unit_defeated_triggers(state, target_id, attacker_id)

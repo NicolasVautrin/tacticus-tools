@@ -1,7 +1,10 @@
 # `PerformAIAction` (+ `GetAbilityStatModification`) — débloqueur transverse « faire agir une autre unité »
 
 Build `gqfc5mff6c`. Statut : **PORTÉ ET VALIDÉ LIVE** via son premier consommateur
-**SupremeCommander (1028, `astraCreed`)**.
+**SupremeCommander (1028, `astraCreed`)**, faces COMBAT **et** DÉCISION.
+
+La chaîne qui alimente `GetAbilityStatModification` (`SwornProtector` → Kell → `ListenUpMaggots`)
+est portée et confrontée live : **§5.1**. La face DÉCISION (`SupremeCommanderPlaybook`) : **§6**.
 
 ---
 
@@ -177,13 +180,9 @@ reproduit à l'identique (`BFS 3->3`) sur le commit de base `9cf5e40` avec le pa
 
 ## 5. Résidus / limites (explicites)
 
-1. **`ListenUpMaggotsEffect` (effet `0x426`) non porté** → offline le
-   `ActiveAbilityModificationsComponent` reste vide et `GetAbilityStatModification` rend 0. **Ce n'est
-   pas une dégradation silencieuse** : deux probes live (dont une avec **Kell VIVANT en jeu au moment
-   du cast**) montrent que le natif summon **2** gardes, donc modification nulle côté natif aussi →
-   *agreement*. Le chemin non-nul est exercé **offline** en injectant la modification (sémantiques
-   additive/override vérifiées). Porter `ListenUpMaggots` exige la chaîne `SwornProtector` → spawn de
-   Kell → triggered ability → `AddEffect(0x426)`.
+1. **`ListenUpMaggotsEffect` (effet `0x426`) — PORTÉ ET CONFRONTÉ LIVE** (#95-RESTE2, cf. §5.1) : la
+   chaîne `SwornProtector` → Kell → `ListenUpMaggots` → `AddUnitActiveAbilityModification` est portée
+   de bout en bout, donc `GetAbilityStatModification` n'est plus condamné à rendre 0 offline.
 2. **Ordre intra-groupe** : natif = argmax d'utilité du picker (`PickNextUnit @181183d50`, iface
    slot 1) ; port = **ordre du sélecteur**. Live observé sur SupremeCommander : les deux gardes
    agissent dans l'ORDRE INVERSE de leur spawn → divergence d'ordre possible (sans incidence quand les
@@ -201,26 +200,105 @@ reproduit à l'identique (`BFS 3->3`) sur le commit de base `9cf5e40` avec le pa
 
 ---
 
-## 6. Face DÉCISION — RE faite, port **volontairement non fait** (reachability non prouvable offline)
+## 5.1. Chaîne `SwornProtector` → Kell → `ListenUpMaggots` — PORTÉE ET CONFRONTÉE LIVE (#95-RESTE2)
 
-`IdunBattle.AI.Playbook.Loki.SupremeCommanderPlaybook` (`NonComparablePlaybook<0x404=1028>`,
-`.ctor @181162c50`) :
+C'est la SEULE source native d'écriture dans `ActiveAbilityModificationsComponent` (xrefs exhaustives
+de `IdunBattle.Operations.AddUnitActiveAbilityModificationOperation$$Execute`), donc le seul chemin
+qui rende `IdunBattle.Entities.UnitExtensions$$GetAbilityStatModification` non nul.
 
-- `ShouldEvaluate @181162890` :
+### Les trois maillons (RE lue au décompilé, build `gqfc5mff6c`)
+
+| Maillon | Artefact natif | Event | Port |
+|---|---|---|---|
+| 1. spawn de Kell | `…Loki.SwornProtectorAbility$$CreateTrigger` / `$$CreateBehaviour` (triggered 1050, passif `astraCreed`) | `On(PreUnitAbility=0x2b)` | `runner/operations/triggers/loki/sworn_protector.py::SwornProtectorSummonKellAbility` |
+| 2. échange de position | `…Loki.SwornProtector_ProtectAbility$$CreateTrigger` / `$$CreateBehaviour` (triggered 1075, passif `astraSmnKell`) | `On(PreUnitAbility=0x2b)` | `…::SwornProtectorProtectSwitchAbility` |
+| 3. pose du buff | `…Loki.ListenUpMaggotsAbility$$CreateTrigger` / `$$CreateBehaviour` (triggered 1063) | `On(AbilityInit=0x21)` | `…/listen_up_maggots.py::ListenUpMaggotsAddEffectAbility` |
+| 4. écriture | `…Effects.Loki.ListenUpMaggotsEffect$$ApplyInternal` / `$$RevertInternal` (effet 0x426) | — | `entities/effects/loki/ability_modifications.py` + `runner/operations/ability_modifications.py` |
+
+Détails structurants (tous LUS, pas déduits) :
+
+- Le trigger de `SwornProtector` est un ET de **7** termes, dont `NOT
+  HasTriggeredAbilityBeenTriggered(owner, this.Id)` (« **first** targeted », one-shot par bataille),
+  `NOT AmountIsEqualOrGreater(UnitsWithId(Children(owner), astraSmnKell, 3), One@0xc0)` (Kell pas déjà
+  là) et `AmountIsEqualOrGreater(CanAddUnit(AdjacentTiles(owner)), One@0xc0)` (un hex libre).
+  `factory@0xc0` = la constante **1** du `.ctor` du `DSLFactory` (`+0xb8`=0, `+0xc0`=1, `+0xc8`=2,
+  `+0xd0`=100, `+0xd8`=-1).
+- Le behaviour de `SwornProtector` **déclenche lui-même** `SwornProtector_Protect` sur le summon
+  (`If(CanSwitchPosition(owner), TriggerAbility(unitsC, 0x433))`) : le switch a donc lieu AVANT que
+  l'attaque déclenchante ne se résolve → **c'est Kell qui encaisse**, dès le premier coup.
+- `CanSwitchPosition(u)` = `NOT HasEffect(u, 0x1b = Taunted_OnlySpecificTargets, 0, 6)`.
+- Le trigger de `ListenUpMaggots` est `df@0xa8 & HasUnit(Parent(caster@0x160), 3)`, où `df@0xa8` est le
+  trigger PRÉ-CACHÉ de `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` =
+  `On(0x21 = AbilityInit) & df@0x128 & OwnerIsActor` — la MÊME base que toute la famille des
+  owner-effects posés à l'init (`LifewardsAddEffectAbility$$CreateTrigger` = `return df@0xa8`).
+- L'effet 0x426 est **porté par Kell** mais son `CreateTargetSelector` est **`Parent(Self@0x148)`** :
+  `ApplyInternal` écrit sur **Creed**. `ApplyInternal` fait, dans cet ordre,
+  `AddUnitActiveAbilityModification(target, 0x16, GetNumberConstant(0x16)=3)` puis
+  `(target, 0x10, GetNumberConstant(0x10)=1)` ; `RevertInternal` = les mêmes appels en `-valeur`.
+
+### Ground truth LIVE — l'ancienne conclusion de ce document est RÉFUTÉE
+
+L'ancienne §5 affirmait « deux probes live, dont une avec Kell vivant, montrent que le natif summon
+**2** gardes → modification nulle des deux côtés ». **C'est faux.** Mesure refaite (session 78, board
+`MC1_67`, Creed attaqué par un `necroSpyder` — attaquant à faible dégât par coup, choisi pour que Kell
+SURVIVE au coup déclencheur) :
+
+| Observable | Kell en jeu | Contre-cas sans Kell (même board, même seed, même géométrie) |
+|---|---|---|
+| `astraSmnKell` présent, `alive` | oui, porteur de `ListenUpMaggotsEffect` | absent |
+| gardes spawnés par le cast 1028 | **3** | **2** |
+| garde ami à distance **2** rejoué par `PerformAIAction` | oui | oui |
+| garde ami à distance **3** rejoué | **oui** | **non** |
+| garde ami à distance **4** rejoué | non | — |
+
+⇒ `nrOfSummons` **+1** (additif) et `range` **3** (OVERRIDE) sont tous deux NON NULS et
+OBSERVABLES. Les probes antérieures mesuraient un état où Kell mourait du coup qui l'avait fait
+apparaître (il prend le coup à cause du switch) — d'où le « 2 gardes » trompeur.
+
+### Résidus de cette tranche (explicites)
+
+- `SwornProtectorAbility$$GetSpawnTile` enveloppe son `CanAddUnit(AdjacentTiles(...))` dans un
+  `SortTilesByUtilityForSummon` (moteur d'utilité IA complet, non porté) → la TUILE de spawn de Kell
+  offline est la première tuile libre dans l'ordre du voisinage. Même collapse que `ForwardSpotter`.
+- Le marqueur `SwornProtector_JustSummonedEffect` (0x4ce) est posé (`SpawnUnitOptions+0x10`) puis
+  retiré DANS LE MÊME behaviour et n'est lu par aucun gate porté → non porté (observable nul), plutôt
+  que de deviner ce slot d'options (`+0x18` = on-appearance, lui identifié).
+- `Inform({0xb4: EntityId(caster)})` et `ResetPreviousPosition(owner)` = notification de vue et champ
+  de pathfinding non matérialisé → no-op documentés.
+- Le port n'émet `On(PreUnitAbility)` que depuis la voie d'attaque **normale** (`damage_ops.py`) ; le
+  natif l'émet aussi pour les attaques d'**ability** → une ability offensive ciblant Creed ne réveille
+  pas encore `SwornProtector` côté port (résidu partagé avec AnvilShield).
+- `KillUnitOperation$$Execute` fait un `RemoveEffects` COMPLET ; le port n'en porte que la part
+  `ability_modifications` (les stat-mods d'un cadavre ne sont lus par personne, un retrait global
+  serait un changement transverse hors périmètre).
+
+---
+
+## 6. Face DÉCISION — `SupremeCommanderPlaybook`, PORTÉE (le gate est devenu atteignable)
+
+`IdunBattle.AI.Playbook.Loki.SupremeCommanderPlaybook` (`NonComparablePlaybook<0x404=1028>`) —
+port : `engine/playbook/noncomparable/supreme_commander.py`.
+
+- `.ctor` = `NonComparablePlaybook(0x404)` ; `.cctor` = `MIN_UTILITY = Fix64.FromInt(1)` = **1.0**.
+- `ShouldEvaluate` :
   1. `if (BasePlaybook.EnemyWillBeKilledWithNormalAttack(unit)) return false;`
   2. `units = SelectUniqueUnits(ability.baseSelector@+0x80 + DSLFactory.AllDeadUnits(), ctx)` ;
      `if (!units.Any(u => IsFriendlyKell(u, unit))) return false;`
-     — `IsFriendlyKell @181162720` = `u.<ParentComponent>+0x10 == EntityId(caster) && IsFriend(u, caster)`
-     = **il existe un enfant (vivant OU mort) du caster**, c.-à-d. Kell (`SwornProtector`) ;
-  3. seuil = `1/2 + FillUpStatComponent.RemainingPercentage(unit) / 2`, passé à l'iface `this+0x30`
-     slot 4 (chance).
-- `EvaluateNonComparable @181162410` : bucket `MIN_UTILITY` du cctor, `GetEligibleTargetsSelectable`,
-  utilité **plate `3/2`** par cible, `Bucket.AddAction`.
+     — `IsFriendlyKell` = `u.<ParentComponent>+0x10 == EntityId(caster) && IsFriend(u, caster)`
+     = **il existe un enfant (vivant OU mort) du caster**, c.-à-d. Kell ;
+  3. `chance = Fix64(1/2) + FillUpStatComponent.RemainingPercentage(unit) / 2`, passée à l'iface
+     `this+0x30` slot 4 (tirage).
+- `EvaluateNonComparable` : bucket `(0, MIN_UTILITY=1)`, `GetEligibleTargetsSelectable(position.MainTile)`,
+  utilité **plate `3/2` = 1.5** par cible, `Bucket.AddAction`.
 
-**Décision** : ne PAS porter. Le gate (2) exige un enfant du caster ; offline la seule source d'enfant
-avant le premier cast est `SwornProtector` (spawn de Kell) — **non porté**. Un port produirait un
-playbook qui rend systématiquement `False` : du **code enregistré-mais-mort**, exactement ce que la
-doctrine interdit d'introduire. À porter **avec** `SwornProtector`/Kell (voir backlog).
+**Ce qui a changé** : le gate (2) exige un enfant du caster ; c'était impossible offline tant que
+`SwornProtector` n'était pas portée — un port aurait rendu `False` en permanence (code
+enregistré-mais-mort). Kell étant désormais spawnable offline, le port est légitime et vivant.
+
+**GAP assumé** (même classe et même traitement que `BlackRagePlaybook`, dont le natif tire 0.4) :
+l'étage (3) — le TIRAGE de chance — n'est pas reproduit ; le port rend `True` dès que (1) et (2)
+passent. `FillUpStatComponent.RemainingPercentage` n'est pas matérialisé offline. À jauge pleine la
+chance vaut 1 (le port est alors EXACT) ; à jauge vide, 1/2.
 
 ---
 

@@ -74,10 +74,12 @@ class Spawn(AbilityBehaviour):
         if self.pick_n is not None:                       # fold `IdunBattleLogic.Entities.DSLFactory$$PickRandomly(tiles, n)
             from ..loki.splash import _pick_randomly_n
             tiles = _pick_randomly_n(state, tiles, int(self.pick_n))
+        from ...operations.triggers.dispatch import ability_init_triggers   # lazy : cycle spawn<->triggers
         for tile in tiles:                                # itere les tuiles EN INTERNE (natif)
             gid = _spawn_config_grot(state, vid, tile, self.summon_ability, level, mult,
                                      oc.team if oc is not None else None,
-                                     oc.player if oc is not None else None)
+                                     oc.player if oc is not None else None,
+                                     parent_id=caster_id)     # `Unit_Parent_Id` (mirror live)
             if gid is not None:
                 child = LiveUnit(state, gid)              # vue LIVE (mirror de la ref d'etat native)
                 child.update({"_new_child": True, "_turns_started": 0, "_attacks_made": 0,
@@ -85,6 +87,10 @@ class Spawn(AbilityBehaviour):
                 entities.children.append(child)       # accumulateur des enfants (relu par Children)
                 entities.units.append(child)          # ref d'etat : les selecteurs AVAL voient le summon
                 ectx.emit("SpawnUnit", tile=tile, unit=gid)
+                # `IdunBattle.Operations.InitializeActorAbilitiesOperation$$Execute` : les abilities de
+                # l'unite fraichement creee s'INITIALISENT -> event `On(AbilityInit=0x21)`. C'est ce
+                # vecteur que consomme `ListenUpMaggotsAbility` (df@0xa8 = On(0x21) & OwnerIsActor).
+                ability_init_triggers(state, gid)
                 if self.on_appearance is not None:    # SpawnUnitOptions+0x18 (TriggerSpawnedUnitBehaviours)
                     self.on_appearance.execute(replace(entities, active_target=child), ectx)
         return OperationResult.ok()

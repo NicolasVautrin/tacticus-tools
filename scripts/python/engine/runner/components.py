@@ -69,11 +69,24 @@ class UnitComponent(Component):
         (log d'erreur + return) si `!HasValue` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0x2ba, applique le revive, puis REMET LES 9 QWORDS
         À 0 @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+ (donc APRÈS l'émission de `On(UnitRevived=0x2e)`).
     Port : `None` = pas de revive en attente ; sinon un dict `{amount, heal_type, source, priority}`
-    (cf. `operations/revive.py`)."""
-    __slots__ = ("visual_id", "alive", "ai_controlled", "turn_defeated", "times_attacked_this_turn",
-                 "received_damage_this_turn", "revive_used_this_turn", "pending_revive")
+    (cf. `operations/revive.py`).
 
-    def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False):
+    `parent_id` = mirror du lien PARENT natif (`ParentComponent`, champ id @+0x10 ; observable live
+    `Unit_Parent_Id` emis au spawn d'un summon). C'est ce que lit le selecteur
+    `IdunBattle.Entities.Selectors.ParentSelector$$Select` (-> `IdunBattle.Entities.UnitExtensions$$GetParent`),
+    consomme par `IdunBattle.Entities.Effects.Loki.ListenUpMaggotsEffect$$CreateTargetSelector`
+    (`Parent(Self)` = le SUMMONER) et par le gate `IsFriendlyKell` du playbook SupremeCommander.
+    None = unite sans parent (toute unite du roster initial). Pose par `SpawnUnitOperation`
+    (`_spawn_config_grot`, mirror `SpawnUnitOptions` -> `Unit_Parent_Id = casterId`).
+
+    Le lien RECIPROQUE (parent -> enfants) n'est PAS materialise : le port le derive en balayant
+    `state.entities` (cf. `children_of`), la ou le natif tient une liste `ParentComponent.children`.
+    """
+    __slots__ = ("visual_id", "alive", "ai_controlled", "turn_defeated", "times_attacked_this_turn",
+                 "received_damage_this_turn", "revive_used_this_turn", "pending_revive", "parent_id")
+
+    def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
+                 parent_id: Optional[int] = None):
         self.visual_id = visual_id
         self.alive = alive
         self.ai_controlled = ai_controlled
@@ -82,6 +95,7 @@ class UnitComponent(Component):
         self.received_damage_this_turn: dict = {}
         self.revive_used_this_turn = False
         self.pending_revive = None            # `Nullable<ReviveData>` @UnitComponent+0xa8
+        self.parent_id = parent_id            # `ParentComponent` id @+0x10 (summoner)
 
 
 class OwnerComponent(Component):
@@ -482,11 +496,18 @@ class ActiveAbilityModificationsComponent(Component):
     `IdunBattle.Entities.Effects.Loki.ListenUpMaggotsEffect$$ApplyInternal (+ `IdunBattle.Entities.Effects.Loki.ListenUpMaggotsEffect$$RevertInternal, meme appel en
     `-value`) -- le passif de `astraSmnKell` qui buffe le SupremeCommander de son parent Creed.
 
-    ⚠ RESIDU : cette source (effet 0x426 `ListenUpMaggots`, trigger IdunBattleLogic.Entities.Abilities.Active.Loki.ListenUpMaggotsAbility$$CreateTrigger) n'est PAS portee -> le
-    dict reste VIDE offline et `get_ability_stat_modification` rend 0. C'est l'etat CONFRONTE live
-    (2 probes : meme avec Kell VIVANT en jeu au moment du cast, le natif summon 2 gardes = modification
-    nulle) -- pas une degradation silencieuse. Le composant + les deux semantiques de CONSOMMATION
-    (additive pour nrOfSummons, OVERRIDE pour range, cf. `IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour) sont portes 1:1 et exerces offline en injectant une modification."""
+    La chaine de POSE est desormais portee de bout en bout (#95-RESTE2) : `SwornProtector` (passif de
+    `astraCreed`) fait apparaitre Kell -> `ListenUpMaggotsAbility` (`On(AbilityInit)`) pose l'effet
+    0x426 sur Kell -> `ListenUpMaggotsEffect.ApplyInternal` ecrit les DEUX modifications sur
+    `Parent(Kell)` = Creed. Le dict n'est donc plus condamne a rester vide.
+
+    GROUND TRUTH LIVE (runner MC1_67, Creed attaque par `necroSpyder`, session 78) : Kell apparait
+    VIVANT en portant `ListenUpMaggotsEffect`, et le cast SupremeCommander suivant spawne **3** gardes
+    (= `nrOfSummons 2` + modification `+1`). L'ancienne note « meme avec Kell vivant le natif summon 2
+    gardes » etait FAUSSE (les probes d'alors n'avaient pas de Kell survivant/effet applique).
+
+    Les deux semantiques de CONSOMMATION restent distinctes (additive pour `nrOfSummons`, OVERRIDE si
+    non nulle pour `range`, cf. `IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour)."""
     __slots__ = ("modifications",)
 
     def __init__(self, modifications=None):
@@ -572,6 +593,34 @@ def get_ability_stat_modification(entity, key) -> int:
         return 0
     comp = entity.get_component(ActiveAbilityModificationsComponent)
     return comp.get(key) if comp is not None else 0
+
+
+# --- Lien PARENT / ENFANTS (`ParentComponent`) --------------------------------------------------- #
+def parent_of(state, unit_id):
+    """`IdunBattle.Entities.UnitExtensions$$GetParent(unit)` (lu par
+    `IdunBattle.Entities.Selectors.ParentSelector$$Select`) : l'entite PARENTE (le summoner), ou None.
+    Le port lit `UnitComponent.parent_id` pose au spawn."""
+    e = state.get_entity(unit_id) if unit_id is not None else None
+    uc = e.get_component(UnitComponent) if e is not None else None
+    pid = getattr(uc, "parent_id", None) if uc is not None else None
+    return state.get_entity(pid) if pid is not None else None
+
+
+def children_of(state, unit_id, alive_only: bool = True) -> list:
+    """Enfants (summons) de `unit_id` — mirror de `ParentComponent.children` cote natif, DERIVE ici par
+    balayage de `state.entities` (le port ne materialise que le lien enfant -> parent). `alive_only`
+    reflete `IdunBattle.Entities.Selectors.AllAliveMachinesSelector` (le selecteur `DSLFactory.Children`
+    ne rend que des unites VIVANTES) ; le gate `IsFriendlyKell` du playbook SupremeCommander, lui,
+    accepte les MORTS (`baseSelector + AllDeadUnits()`) -> `alive_only=False`."""
+    out = []
+    for eid, e in state.entities.items():
+        uc = e.get_component(UnitComponent)
+        if uc is None or getattr(uc, "parent_id", None) != unit_id:
+            continue
+        if alive_only and not uc.alive:
+            continue
+        out.append(int(eid))
+    return out
 
 
 # --- Predicat de LIVENESS d'unite (#70) -------------------------------------------------------- #

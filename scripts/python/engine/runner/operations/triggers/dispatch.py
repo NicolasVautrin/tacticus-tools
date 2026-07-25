@@ -75,6 +75,9 @@ from .loki.anvil_shield import (AnvilShieldApplyIceAbility,          # lot POSE 
                                 FROZEN_ADVANTAGE as ANVIL_FROZEN_ADVANTAGE)
 from .loki.let_the_galaxy_burn import (LetTheGalaxyBurnArmAbility,   # #84 (trait LetTheGalaxyBurn 1058)
                                        LetTheGalaxyBurnResetAbility)
+from .loki.sworn_protector import (SwornProtectorSummonKellAbility,  # #95-RESTE2 (passif astraCreed)
+                                   SwornProtectorProtectSwitchAbility)
+from .loki.listen_up_maggots import ListenUpMaggotsAddEffectAbility  # #95-RESTE2 (passif astraSmnKell)
 
 # --- FinalJustice / overkill ----------------------------------------------------------------------
 OVERKILL_PCT_KEY = "overkillDmgPctOfHealth"  # globalValues = 100 → overkill ssi dmg-PV >= 100%*PV (dmg>=2*PV)
@@ -195,6 +198,18 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # IsUnitOnTileWithEffect(caster, Ice)` -> +20 % block chance transitoire).
     "AnvilShield": [AnvilShieldApplyIceAbility, AnvilShieldApplyStunAbility,
                     AnvilShieldFrozenAttackerAdvantageAbility],
+    # --- #95-RESTE2 : chaine SwornProtector -> Kell -> ListenUpMaggots ---------------------------
+    # SwornProtector (passif `astraCreed`, triggered 1050) = `On(PreUnitAbility=0x2b)` : a la PREMIERE
+    # attaque ennemie visant Creed, Kell (`astraSmnKell`) apparait sur un hex libre adjacent et prend
+    # sa place (TriggerAbility -> SwornProtector_Protect). Cf. loki/sworn_protector.py.
+    "SwornProtector": [SwornProtectorSummonKellAbility],
+    # SwornProtector_Protect (passif `astraSmnKell`, triggered 1075) = MEME event : a chaque attaque
+    # suivante visant Creed, Kell re-echange sa position avec lui et encaisse.
+    "SwornProtector_Protect": [SwornProtectorProtectSwitchAbility],
+    # ListenUpMaggots (passif `astraSmnKell`, triggered 1063) = `On(AbilityInit=0x21)` : pose l'effet
+    # 0x426 sur Kell, qui ecrit `+1 nrOfSummons` / `+3 range` sur son PARENT (Creed) via
+    # `AddUnitActiveAbilityModification` -- SEULE source non nulle de `GetAbilityStatModification`.
+    "ListenUpMaggots": [ListenUpMaggotsAddEffectAbility],
 }
 
 # --- Registre : effectType → effet-trigger(s) ------------------------------------------------------
@@ -390,6 +405,28 @@ def unit_blocked_triggers(state: State, attacker_id: int, target_id: int,
     glacee). A raffiner si un consommateur per-coup apparait."""
     ev = TriggerEvent(EventTriggerType.UnitBlocked, attacker_id, target_id,
                       ranged=ranged, profile=profile)
+    return evaluate_trigger_operation(state, ev)
+
+
+def ability_init_triggers(state: State, unit_id: int) -> list[dict]:
+    """Vecteur `On(AbilityInit=0x21=33)` — emis par
+    `IdunBattle.Operations.InitializeActorAbilitiesOperation$$Execute` quand les abilities d'une unite
+    s'INITIALISENT (creation d'unite : roster de depart ET summon pose en cours de bataille).
+
+    C'est le trigger de base pre-cache `df@0xa8` (`IdunBattleLogic.Entities.DSLFactory$$InitializeShared` :
+    `On(0x21) & df@0x128 & OwnerIsActor(owner@0x148, actor@0x158)`), consomme tel quel par toute la
+    famille des owner-effects poses a l'init (`LifewardsAddEffectAbility$$CreateTrigger` = `return df@0xa8`)
+    et, AVEC un gate supplementaire, par `IdunBattleLogic.Entities.Abilities.Active.Loki.ListenUpMaggotsAbility$$CreateTrigger`
+    (`df@0xa8 & HasUnit(Parent(caster@0x160), 3)`).
+
+    Le port materialise deja la BRANCHE INCONDITIONNELLE de cette famille par SEEDING au spawn
+    (`spawn.py::_seed_*_owner_effects` = la table `factory.ABILITY_INIT_OWNER_EFFECTS`) ; ce vecteur
+    couvre la branche GATEE, qu'un seed inconditionnel ne peut pas porter. `actor_id == target_id ==
+    l'unite qui s'initialise` (owner == actor : c'est le sens de `get_OwnerIsActor` ici).
+
+    SEUL consommateur porte : `ListenUpMaggotsAddEffectAbility` (#95-RESTE2). Aucun autre trigger du
+    registre n'ecoute `event_id == 33` -> zero effet de bord, zero conso RNG pour les autres spawns."""
+    ev = TriggerEvent(EventTriggerType.AbilityInit, unit_id, unit_id, ranged=False, profile=None)
     return evaluate_trigger_operation(state, ev)
 
 
