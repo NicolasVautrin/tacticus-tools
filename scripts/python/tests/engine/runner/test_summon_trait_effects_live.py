@@ -125,24 +125,60 @@ def test_diminutive_summon_seeds_via_derived_ability(rpc, build_runner):
         f"effet materialise en {type(dim).__name__} (attendu DiminutiveHitReductionEffect, pas un no-op)"
 
 
-def test_diminutive_reduces_hits_melee_and_ranged(rpc, build_runner):
+def test_diminutive_reduces_hits_melee_and_ranged(rpc, build_runner, monkeypatch):
     """#75 — le trigger natif IdunBattle.Entities.Effects.Loki.Diminutive_HitReductionEffect$$CreateEffectHitsBonusForAttack est `OwnerIsTarget` SEUL (aucun noeud IsMelee/IsRanged, aucun
     gate de profil) : la reduction s'applique aux DEUX axes. C'est ce qui DISCRIMINE Diminutive de
     Parry (melee-only IdunBattle.Entities.Effects.Loki.ParryEffect$$CreateEffectHitsBonusForAttack) et Camouflage (ranged-only IdunBattleLogic.Entities.Abilities.Triggered.Loki.Camouflage_HitReductionEffect$$CreateEffectHitsBonusForAttack) — un port qui recopierait
     l'un de ces deux jumeaux echouerait ici.
 
-    GROUND TRUTH LIVE (runner 1155, A/B meme attaquant u83 orksBigMek arme 4 coups, ability 69,
-    Attack_Weapon_IsMelee=1) : vs u77 orksRuntherd (sans Diminutive) = 4 coups d'arme ; vs u120 Grot
-    (Diminutive) = 3 coups d'arme -> exactement -1 EN MELEE."""
+    ORACLE DE MAGNITUDE — aucune valeur figee dans ce test. Le decompile de
+    `IdunBattle.Entities.Effects.Loki.Diminutive_HitReductionEffect$$CreateEffectHitsBonusForAttack`
+    donne `ForAdditionWithMinimum(get_OwnerIsTarget, Direct(-AbilityConfiguration.GetNumberConstant(
+    0x2c)), min=Direct(1))` : la magnitude n'est ni per-niveau ni derivee d'une stat, c'est la
+    CONSTANTE de config 0x2c de l'ability Diminutive (TriggeredAbilityType 0x43f=1087) — slot seede
+    depuis `globalValues.traitVariables.diminutiveHitReduction`, l'ability Diminutive n'existant pas
+    dans `units.abilities`. Le test LIT cet oracle gameconfig et compare : un re-equilibrage de la
+    constante deplace l'attendu AVEC le jeu, au lieu de verrouiller le port sur une mesure datee.
+
+    DERIVATION PROUVEE : le meme calcul est rejoue avec l'oracle FORCE a une autre valeur, et le port
+    doit SUIVRE. C'est ce qui separe « le port lit la config » de « le port rend 1 par coincidence » :
+    les slots 0x2c voisins (`parryHitReduction`, `camouflageHitReduction_1`) valent 1 eux aussi, donc
+    l'egalite numerique seule ne prouverait pas que la bonne cle est lue.
+
+    ANCRAGE LIVE (mesure #75, runner 1155, A/B meme attaquant u83 orksBigMek arme 4 coups, ability 69,
+    Attack_Weapon_IsMelee=1) : vs u77 orksRuntherd (sans Diminutive) = 4 coups ; vs u120 Grot
+    (Diminutive) = 3 coups. Cette mesure etablit le SENS (le natif retranche des coups, y compris en
+    melee) ; la VALEUR attendue, elle, vient de l'oracle ci-dessus."""
+    import gameconfig as GC
     from engine.entities.effects import hits_malus_from_defender_effects
+    red = (GC.trait("Diminutive").get("variables") or {}).get("diminutiveHitReduction")
+    assert red is not None, ("oracle introuvable : globalValues.traitVariables.diminutiveHitReduction "
+                             "absent de gameconfig (GetNumberConstant(0x2c) non resolvable offline)")
+    red = int(red)
+    assert red > 0, (f"oracle incoherent : diminutiveHitReduction={red}, or le natif construit "
+                     f"Direct(-GetNumberConstant(0x2c)) -- une constante positive est attendue")
     state, dec = _load(rpc, build_runner)
     sid = _spawn(state, dec, "orksGrot")
     effs = state.effects.active_effects(sid, {"hp": 1}) if state.effects is not None else []
     melee = hits_malus_from_defender_effects(effs, is_melee=True)
     ranged = hits_malus_from_defender_effects(effs, is_melee=False)
-    print(f"\n[DIMINUTIVE-HITS] melee={melee} ranged={ranged}")
-    assert melee == -1, f"malus MELEE attendu -1 (ground truth live 4->3 coups), obtenu {melee}"
-    assert ranged == -1, f"malus RANGED attendu -1 (trigger OwnerIsTarget SEUL), obtenu {ranged}"
+    print(f"\n[DIMINUTIVE-HITS] oracle diminutiveHitReduction={red} melee={melee} ranged={ranged}")
+    assert melee == -red, f"malus MELEE attendu -{red} (oracle gameconfig), obtenu {melee}"
+    assert ranged == -red, (f"malus RANGED attendu -{red} (trigger OwnerIsTarget SEUL, aucun gate "
+                            f"IsMelee/IsRanged), obtenu {ranged}")
+    # La magnitude doit etre DERIVEE de la config, pas gelee : on decale l'oracle, le port suit.
+    bumped = red + 2
+    orig_trait = GC.trait
+    monkeypatch.setattr(GC, "trait", lambda tid: (
+        {"id": tid, "variables": {"diminutiveHitReduction": bumped}} if tid == "Diminutive"
+        else orig_trait(tid)))
+    melee_b = hits_malus_from_defender_effects(effs, is_melee=True)
+    ranged_b = hits_malus_from_defender_effects(effs, is_melee=False)
+    print(f"[DIMINUTIVE-HITS] oracle force a {bumped} -> melee={melee_b} ranged={ranged_b}")
+    assert (melee_b, ranged_b) == (-bumped, -bumped), (
+        f"magnitude NON derivee de l'oracle : diminutiveHitReduction force a {bumped} rend "
+        f"melee={melee_b} ranged={ranged_b} (attendu {-bumped}) -> le port lit une autre cle "
+        f"(parry/camouflage ?) ou porte sa valeur en dur")
 
 
 def test_control_summon_without_diminutive_keeps_hits(rpc, build_runner):
@@ -161,19 +197,60 @@ def test_control_summon_without_diminutive_keeps_hits(rpc, build_runner):
 
 def test_shadow_in_the_warp_summon_seeds_via_derived_ability(rpc, build_runner):
     """tyranSmnWarrior (trait ShadowInTheWarp) : ShadowInTheWarp_LessDmg_Effect seede via trait->ability
-    derivee (ShadowInTheWarp_AddEffectAbility)->AddEffect, materialise en classe aura de reduction Psychique
-    (-25%), pas un BaseEffect no-op."""
+    derivee (ShadowInTheWarp_AddEffectAbility)->AddEffect, materialise en classe aura de reduction
+    Psychique, pas un BaseEffect no-op.
+
+    ORACLE (magnitude ET portee lues de gameconfig, rien de fige). Decompile :
+      - `IdunBattle.Entities.Effects.Loki.ShadowInTheWarp_LessDmg_Effect$$CreateEffectDamageBonusForAttack`
+        = `ForPercentIncrease(get_OwnerIsActor & DamageProfileIs(0xd=Psychic), ConfigConst(0x3b))`
+        -> magnitude = ConfigConst 0x3b = `traitVariables.shadowInTheWarpDmgModifier` (NEGATIF : c'est
+        un PercentIncrease d'une valeur negative, que le port expose en PercentDecrease de sa valeur
+        absolue) ;
+      - `IdunBattle.Entities.Effects.Loki.ShadowInTheWarp_LessDmg_Effect$$CreateTargetSelector`
+        = `SurroundingEnemies(self, ConfigConst(0x16)) & UnitsWithTrait(0x3ea) & UnitsNotFromFaction(0xc)`
+        -> portee = ConfigConst 0x16 = `traitVariables.shadowInTheWarpRange`.
+    Le test derive ses DEUX attendus de ces cles : l'aura est exigee a `range` et exigee ABSENTE a
+    `range + 1` — ce second point est ce qui rend l'oracle discriminant (un port a portee gelee passe
+    le premier volet et tombe sur le second des que la config bouge)."""
+    import gameconfig as GC
+
+    import hexgeo
+    tv = GC.trait("ShadowInTheWarp").get("variables") or {}
+    red_pct, rng = tv.get("shadowInTheWarpDmgModifier"), tv.get("shadowInTheWarpRange")
+    assert red_pct is not None and rng is not None, (
+        "oracle introuvable : traitVariables.shadowInTheWarpDmgModifier / shadowInTheWarpRange "
+        f"absents de gameconfig (lu: {tv})")
+    red_pct, rng = int(red_pct), int(rng)
+    assert red_pct < 0, (f"oracle incoherent : shadowInTheWarpDmgModifier={red_pct} >= 0, or le natif "
+                         f"construit ForPercentIncrease(ConfigConst(0x3b)) et l'effet est une "
+                         f"REDUCTION -- le port l'expose en PercentDecrease(abs) et inverserait le sens")
     state, dec = _load(rpc, build_runner)
     sid = _spawn(state, dec, "tyranSmnWarrior")
     effs = state.effects.active_effects(sid, {"hp": 1}) if state.effects is not None else []
     names = [getattr(e, "name", None) for e in effs]
     sw = next((e for e in effs if getattr(e, "name", None) == "ShadowInTheWarp_LessDmg_Effect"), None)
-    print(f"\n[SHADOW-WARP] summon effects={names} class={type(sw).__name__ if sw else None}")
+    print(f"\n[SHADOW-WARP] summon effects={names} class={type(sw).__name__ if sw else None} "
+          f"oracle dmgModifier={red_pct} range={rng}")
     assert sw is not None, f"ShadowInTheWarp_LessDmg_Effect NON seede au spawn : {names}"
     assert type(sw).__name__ == "ShadowInTheWarpLessDmgEffect", \
         f"effet materialise en {type(sw).__name__} (attendu ShadowInTheWarpLessDmgEffect, pas un no-op)"
-    # aura Psychique -25% appliquee a un ENNEMI attaquant a portee, None sinon
-    aura = sw.create_aura_attack_damage_malus_for_enemy(
-        {"owner_pos": (5, 5), "owner_team": 2, "att_pos": (6, 5), "att_team": 1, "damage_profile": "Psychic"})
-    assert aura is not None and aura.kind == "PercentDecrease" and aura.value == 25, \
-        f"aura Psychique attendue -25%, obtenu {aura}"
+    owner = (5, 5)
+
+    def _at(dist):
+        """Position d'attaquant a distance hex EXACTE `dist` du porteur (scan hexgeo, pas de coord figee)."""
+        return next((c, r) for c in range(0, 16) for r in range(0, 16)
+                    if hexgeo.distance(owner, (c, r)) == dist)
+
+    def _aura(dist):
+        return sw.create_aura_attack_damage_malus_for_enemy(
+            {"owner_pos": owner, "owner_team": 2, "att_pos": _at(dist), "att_team": 1,
+             "damage_profile": "Psychic"})
+
+    aura = _aura(rng)                       # SurroundingEnemies(range) : DEDANS a distance = range
+    print(f"[SHADOW-WARP] aura@dist{rng}={aura} aura@dist{rng + 1}={_aura(rng + 1)}")
+    assert aura is not None and aura.kind == "PercentDecrease" and aura.value == abs(red_pct), (
+        f"aura Psychique attendue PercentDecrease({abs(red_pct)}) a dist {rng} "
+        f"(oracle shadowInTheWarpDmgModifier={red_pct}), obtenu {aura}")
+    assert _aura(rng + 1) is None, (
+        f"aura encore active a dist {rng + 1} > shadowInTheWarpRange={rng} : la portee du port ne suit "
+        f"pas ConfigConst(0x16) du selecteur SurroundingEnemies")
