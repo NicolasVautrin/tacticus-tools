@@ -1,6 +1,12 @@
 # Case-38 — `ReachedSummonCap` : fidélisation de la branche cap du gate DoctrinaImperatives (1118)
 
-**Statut : RÉSOLU + VALIDÉ (#38b, 2026-07-23).** Build `gqfc5mff6c`. Suite directe de `case-31`
+**Statut : RÉSOLU + VALIDÉ (#38b, 2026-07-23) — re-confronté et ÉLARGI (#38c, 2026-07-25).** Le port
+livré par #38b est confirmé indépendamment : seuil natif MESURÉ point par point (pas un A/B à deux
+points), sémantique « morts inclus » de `GetChildrenCount` confrontée LIVE, branche `free==0`
+(encerclement) confrontée LIVE — les trois branches du gate sont désormais exercées, et gardées par
+un test committé (`tests/engine/test_doctrina_gate_cap_live.py`). Détail : §3bis.
+
+Build `gqfc5mff6c`. Suite directe de `case-31`
 demi-partie B : le gate 3-branches de `DoctrinaImperativesPlaybook.EvaluateNonComparable @18112c8d0`.
 Le port émettait 1118 correctement SAUF sur la branche `count>0 & free>0 → ReachedSummonCap`, qui
 sous-tirait **parce que `_reached_summon_cap` comptait les summons par le MAUVAIS visualId** (cle de
@@ -98,7 +104,51 @@ ControlEdict)` est structurel (l'unique porteur de DoctrinaImperatives porte Con
    1118 inerte, comme case-31-B). Miss résiduels (s7/s33 : cible de l'attaque 69 ; 1119/1123 sur
    u83/u85) **préexistants et hors périmètre** (aucun ne touche 1118).
 
-## §5 — RÉSOLU (#38b, 2026-07-23) : les deux mystères = UN artefact d'observation (mauvais visualId)
+## §3bis — Re-confrontation indépendante (#38c, 2026-07-25)
+
+Outil : `scripts/python/probe_38c_capbranch.py` (mesure) + `tests/engine/test_doctrina_gate_cap_live.py`
+(garde). Oracle = la leaf NATIVE via `ncEvaluate` (sweep=false) ; le port est évalué sur un `NCContext`
+alimenté par les MÊMES sources RPC que `engine.ai.context.build` — aucun état forgé. Chaque point
+imprime les 3 étages du port (`hv` / `free` / `cap`) face à l'émission native : une divergence serait
+localisable par étage.
+
+**(a) Seuil natif MESURÉ, pas supposé** — arène `MC1_67`, roster `admecMarshall,admecRuststalker` vs
+`necroWarden×2`, ennemis increvables (`--hp-target 400000`) → Tan attaque tour après tour et summone.
+Lecture de la leaf à CHAQUE valeur de `summons_ever` :
+
+| `summons_ever` | 0 | 1 | 2 | 3 | 4 | **5** |
+|---|---|---|---|---|---|---|
+| leaf native | — | — | — | — | — | **émet (util 100)** |
+| port `_should_emit` | — | — | — | — | — | **émet** |
+
+`free` reste 6→2 (>0) et `fromHereCount`=2 (>0) partout : c'est bien la branche `count>0 & free>0`.
+Bascule exactement à 5 = `ability_var("ControlEdict", "maxSummons", passiveLevel=50)`. L'A/B #38b
+(0 vs ≥5) restait compatible avec n'importe quel cap 1..5 ; ce balayage n'est compatible que du seul
+cap 5 → `GetVariableForLevel(cfg, 0x31=maxSummons, level)` est confronté **numériquement**.
+
+**(b) « Morts inclus » confronté LIVE** (déduit du décompilé jusqu'ici, jamais mesuré) — au cap, on
+DÉTRUIT des Skitarii en pilotant les unités adverses (`applyAction` ne vérifie pas la propriété du
+caster), la frappe étant rendue létale par le nouveau levier `rl_duel build --dmg-target` (les PV d'une
+unité INVOQUÉE viennent du kit du summoner, donc hors de portée de `--hp-target`/`--hp-player`).
+État atteint **`alive=3 < cap=5 ≤ ever=5`** → la leaf native **émet toujours**, le port aussi.
+Un modèle « summons VIVANTS » aurait prédit l'inverse : `GetChildrenCount` append-only est **confirmé
+live**. Corollaire mesuré : `observeBattle.units` **conserve les dépouilles** des summons (le compte
+`ever` ne redescend pas) — la source du port est saine.
+
+**(c) Branche `free==0` confrontée LIVE** (résidu #38b « non craftée ») — board `C4_09` (géométrie
+serrée) : à 3 Skitarii, Tan n'a **plus aucune tuile libre adjacente**. Mesure (seeds 777 *et* 54321,
+reproductible) : `hv=True, free=0, cap=False` → **la leaf native émet** (util 100), le port aussi.
+Discriminant fort : `ReachedSummonCap` est FAUX à cet instant, donc l'émission ne peut venir que de
+la branche encerclement. Contre-épreuve dans la même passe : après destruction des 3 Skitarii,
+`free=4, ever=3 < cap` → **ni** le natif **ni** le port n'émettent.
+
+**(d) Garde de non-régression rejouée** — seed 31337, roster `admecMarshall,admecManipulus,
+admecRuststalker` vs `necroWarden×2`, walk agreement 12 steps : **positioning 8/8 exact, ability 5/5
+match**, zéro overfire 1118 (cap jamais atteint → toggle inerte, comme case-31-B).
+
+Total : **8 points de mesure sur MC1_67 + 6 sur C4_09 ×2 seeds, 0 désaccord port ↔ leaf native.**
+
+## §5 — Cause racine #38b : les deux mystères = UN artefact d'observation (mauvais visualId)
 
 **Cause racine UNIQUE** : le summon ControlEdict est le config `admecSmnVanguard` (= `constants.unitId`),
 mais son champ `visualId` (ce que `observeBattle`/`decisionView` exposent LIVE) vaut
@@ -147,21 +197,38 @@ s33/45/51 gate ouvert mais once-per-turn `_usable`=False → port joue 69 comme 
 
 ## §4 — Résidus / non couverts
 
-- **Branche `free==0` (Tan encerclé → émettre inconditionnel)** : confirmée au DÉSASSEMBLAGE (`jle
-  cb1d` saute vers le MÊME bloc `GenerateAction(Fix64(100))` que la branche cap-true, elle-même
-  validée live par l'A/B), mais **PAS craftée live** — surround complet impraticable (tuile 5-6
-  voisins vs 3 unités mobilisables ; corner degré 2 `(6,8)` atteignable en théorie mais drive
-  cross-board AI-gated non fiable en <30 tours). Risque résiduel = mon mirror `adjacent_addable_count`
-  SUR-compterait (free>0 quand natif free==0) → je prendrais la branche cap au lieu d'émettre → un
-  MISS (jamais un overfire) dans l'état rare « Tan totalement encerclé ». Non observé.
-- **Summon `RemoveUnit`-ed** (retiré du board, pas seulement mort) : sort d'`observeBattle.units`
-  → sous-compte vs `GetChildrenCount` (append-only). Aucun chemin connu qui remove un Skitarii
-  ControlEdict en pratique.
+*Fermés par #38c* : branche `free==0` (Tan encerclé → émission inconditionnelle) — **exercée live**
+sur `C4_09`, deux seeds, avec `cap=False` pour rendre le point discriminant (§3bis c) ; sémantique
+« morts inclus » de `GetChildrenCount` — **exercée live** à `alive=3 < cap=5 ≤ ever=5` (§3bis b) ;
+valeur du cap — **mesurée** point par point (§3bis a). Le mirror `adjacent_addable_count` du slot 0x51
+est donc confronté aux DEUX bornes (`free>0` et `free==0`).
+
 - **2 Marshals dans le même camp** : l'approx identité par (visualId, camp) poolerait leurs comptes ;
-  le natif compte par-caster (ParentComponent). Setup non standard, non couvert.
+  le natif compte par-caster (`ParentComponent`). Configuration de HARNAIS uniquement (une équipe
+  réelle ne fielde pas deux fois le même héros) — non couvert, sans impact en bataille normale.
+- **Summon `RemoveUnit`-ed** (retiré du board, pas seulement MORT) : la MORT est confrontée (les
+  dépouilles restent dans `observeBattle.units`, §3bis b) ; un vrai `RemoveUnitOperation` sur un
+  Skitarii sortirait de `obs_units` → sous-compte vs `GetChildrenCount`. Aucun chemin connu qui
+  remove un Skitarii ControlEdict.
 - **Branche `IsActive` de ReachedSummonCap** (abilities de summon ACTIVES) : non exercée par 1118
   (ControlEdict est triggered) — à mirrorer si un autre playbook consomme le slot 0xc9 avec une
   active (aucun caller connu à ce jour).
+- **Branche `count==0`** (gate Conqueror) : hors périmètre de #38c (tous ses points ont `count>0`) ;
+  exercée par l'oracle par-step de #38b (s27 : `cap=True` mais `count==0` et `conq=False` → pas
+  d'overfire) et par la garde 31337.
+
+## §6 — Artefacts
+
+- `scripts/python/probe_38c_capbranch.py` — MESURE (balayage du seuil + destruction de summons).
+  `run_capbranch_scenario(rid, rpc)` est la chaîne unique, réutilisée par le test (règle DRY).
+- `scripts/python/tests/engine/test_doctrina_gate_cap_live.py` — GARDE (4 tests, ~145 s) : accord
+  port ↔ leaf native avec garde ANTI-VACUITÉ des deux côtés du cap, seuil == `maxSummons[level]`
+  (oracle kit, aucune constante écrite), « morts inclus », branche `free==0`.
+- `scripts/python/rl_duel.py` — nouveau levier `--dmg-target N` (stat `Damage` des a-units,
+  post-normalisation, miroir de `--hp-target`). **Seul moyen de tuer une unité INVOQUÉE** : ses PV
+  viennent du kit du summoner (`ControlEdict.summonHp`), pas du roster — donc insensibles à
+  `--hp-target`/`--hp-player`. Mesuré : sans lui, 28 attaques adverses n'entament que ~700 PV sur
+  3878 ; avec, un Skitarii tombe en un coup.
 
 ## VAs
 

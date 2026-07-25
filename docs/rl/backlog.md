@@ -168,12 +168,13 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   lecture live) ; miss s20 u77/`1140` (hors périmètre historique) ; dash-off `to=None` de 1180.
   `[opus]` si un miss les fait surface.
 - **ReachedSummonCap, résidus** (`case-38` §4 — port livré ; #38b RÉSOLU par PR #5 mergée : slot
-  0x51 = `GetFreeAdjacentTiles @181061650`, cap par `visualId` live) : branche `IsActive`
-  de `ReachedSummonCap @181070f60` non mirrorée (aucun caller connu avec une active) ; approx
-  identité offline (2 Marshals même camp poolent leurs comptes ; summon `RemoveUnit`-ed sort
-  d'obs_units → sous-compte) ; branche `free==0` (Tan encerclé → emit inconditionnel) confirmée
-  au désassemblage mais non craftée live (surround AI-gated) — risque = un MISS rare, jamais un
-  overfire. `[opus]` si un miss les fait surface.
+  0x51 = `GetFreeAdjacentTiles @181061650`, cap par `visualId` live ; **#38c** : seuil natif mesuré
+  point par point, « morts inclus » et branche `free==0` confrontées live, garde committée
+  `tests/engine/test_doctrina_gate_cap_live.py`) : reste la branche `IsActive` de
+  `ReachedSummonCap @181070f60` non mirrorée (aucun caller connu avec une active) ; approx identité
+  offline (2 Marshals même camp poolent leurs comptes — configuration de harnais uniquement ; summon
+  `RemoveUnit`-ed — pas seulement mort — sortirait d'obs_units, aucun chemin connu). `[opus]` si un
+  miss les fait surface.
 - **LordOfTempests AddIce, résidus** (`case-35` §4 — case CLOS, les DEUX branches du trigger
   désormais confrontées live) : reste `load_state` sans hydratation des effets de TUILE
   mi-bataille (gap de HARNAIS, pas de port : en walk complet c'est notre trigger qui pose la

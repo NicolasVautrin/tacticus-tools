@@ -356,6 +356,15 @@ def cmd_build(sid: int, a) -> int:
                 u["RemainingHealth"] = a.hp_player
                 u["Armor"] = 0
                 u["FixedArmor"] = 0
+    if getattr(a, "dmg_target", None):
+        # Frappe ADVERSE écrasante : `Damage` des a-units (la normalisation rend un chiffre bas —
+        # ~30 dmg/coup mesuré, insuffisant pour tuer une unité INVOQUÉE dont les PV viennent du kit
+        # du summoner et non du roster, donc hors de portée de --hp-target/--hp-player). Sert à
+        # DÉTRUIRE des summons à la demande (case-38 : exercer `alive < cap <= everSpawned`, la
+        # branche « morts inclus » de `IdunBattle.Entities.UnitExtensions$$GetChildrenCount`).
+        for u in bc.get("Units", []):
+            if u.get("VisualId") in a_set:
+                u["Damage"] = a.dmg_target
 
     if (p_mow or a_mow) and not _board_mow_ok(bc):
         print("[warn] board de la seed BC SANS slot MoW (MachineOfWarPosition) "
@@ -1943,6 +1952,10 @@ def main(argv: list[str]) -> int:
                     help="build: force Health+RemainingHealth des a-units (PV bas = kill déterministe)")
     ap.add_argument("--hp-player", type=int, default=None,
                     help="build: idem --hp-target mais pour les p-units (mover fragile côté joueur)")
+    ap.add_argument("--dmg-target", type=int, default=None,
+                    help="build: force le stat Damage des a-units (frappe adverse écrasante — "
+                         "seul levier pour tuer une unité INVOQUÉE, dont les PV viennent du kit "
+                         "du summoner et non du roster)")
     ap.add_argument("--roster", type=int, default=5,
                     help="taille de roster pour le tirage ALÉATOIRE "
                          "(ignoré si --p-units/--a-units fournis)")

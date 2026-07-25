@@ -94,7 +94,9 @@ class DoctrinaImperativesPlaybook(NonComparablePlaybook):
         Occupation LIVE = toutes les unites VIVANTES (obs_units, summons INCLUS ; fallback epos+fpos si
         obs vide). VALIDE #38b (A/B seed 777 tuile (4,7)) : tuile ouverte free=6 -> le natif N'EMET PAS
         a 0 summon (refute tout modele "adj==0 -> emit inconditionnel" ; l'ancien `_adjacent_units`=0
-        aurait OVERFIRE ici)."""
+        aurait OVERFIRE ici). Borne OPPOSEE confrontee #38c (board C4_09, seeds 777 et 54321) : a 3
+        Skitarii Tan n'a PLUS de voisin libre -> free==0 avec cap FAUX, et le natif EMET quand meme
+        (branche encerclement) == le port. Les deux bornes du mirror sont donc mesurees."""
         from engine import battle_query as bq
         if ctx.origin is None:
             return 0
@@ -118,6 +120,8 @@ class DoctrinaImperativesPlaybook(NonComparablePlaybook):
           compte TOUT enfant jamais spawne, DEPOUILLES INCLUSES. NB : sematique DIFFERENTE du cap
           runner-face (`execute_control_edict_summon` : Skitarii VIVANTS) -- un Skitarii mort libere le
           re-summon cote runner mais reste compte ici (le toggle peut donc sortir cap "plein de morts").
+          CONFRONTE LIVE #38c : a alive=3 < cap=5 <= ever=5 (Skitarii detruits par le camp adverse) la
+          leaf native EMET toujours -> append-only confirme, et obs_units GARDE les depouilles.
         - level = `GetAbilityState(caster, ControlEdict).level` = niveau PASSIF de Tan Gi'da
           (ControlEdict est son passif) -> `ctx.ability_config(uid)["passive"]` (combatSnapshot).
         - Le gate amont `HasTriggeredAbility(caster, ControlEdict)` est structurel (l'unique porteur de
