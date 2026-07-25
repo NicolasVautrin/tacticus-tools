@@ -7,6 +7,9 @@ Verifie la FORME des termes custom portes (dispatch + formule), pas le live :
   peut lui-meme frapper quelqu'un, sinon W(HeraldOfTheApocalypse_CannotKillEnemy)=50.
 - Drachnyen (1029) IdunBattle.AI.Playbook.Loki.DrachnyenPlaybook$$CalculateCustomUtility = W(Drachnyen_MultipleAdjacentUnits)=10 si >= 2 ENNEMIS
   adjacents a la TUILE D'ATTAQUE, sinon 0.
+- DoomSiren (1199) IdunBattle.AI.Playbook.Loki.DoomSirenPlaybook$$CalculateCustomUtility =
+  W(DoomSiren_DefinitelyOverkill)=40 * #(predictions WillBeOverkill)
+  + W(DoomSiren_TargetHasAdjacentEnemy)=50 si au moins UN ennemi est adjacent a la TUILE DE LA CIBLE.
 
 Usage : python probe_custom_utility_27.py   (depuis scripts/python ; ASCII only ; exit 0 = OK)
 """
@@ -33,7 +36,8 @@ def main() -> int:
     # dispatch : les ids doivent etre enregistres sur les classes attendues.
     reg = pb.REGISTRY
     for aid, name in ((1014, "ArmoriumCherubPlaybook"), (1177, "LightOfSanguiniusPlaybook"),
-                      (1020, "HeraldOfTheApocalypsePlaybook"), (1029, "DrachnyenPlaybook")):
+                      (1020, "HeraldOfTheApocalypsePlaybook"), (1029, "DrachnyenPlaybook"),
+                      (1199, "DoomSirenPlaybook")):
         got = type(reg.get(aid)).__name__
         if got != name:
             fails.append(f"dispatch {aid}: attendu {name}, obtenu {got}")
@@ -107,13 +111,43 @@ def main() -> int:
     if v_none != wh:
         fails.append(f"Herald (aucune cible normale): attendu {wh}, obtenu {v_none}")
 
+    # --- DoomSiren (1199) : 40 * #(preds WillBeOverkill) + 50 si un ennemi est adjacent a la CIBLE.
+    wok = wt.sub("ActiveAbilities", "DoomSiren_DefinitelyOverkill")
+    wadj = wt.sub("ActiveAbilities", "DoomSiren_TargetHasAdjacentEnemy")
+    ds = pb.get_playbook(1199)
+    tgt_units = [{"id": 200, "team": 2, "alive": True, "pos": {"col": 3, "row": 3}}]
+    # `make_damage_predictions` neutralise (pas de Scene offline) -> isole le terme d'adjacence.
+    ds_noscene = types.SimpleNamespace(**{**vars(_fake_ctx(wt, units=tgt_units, epos=[(3, 4)])),
+                                          "scene": None})
+    v_adj = ds.calculate_custom_utility(ds_noscene, (2, 3), 200, 1199)
+    ds_alone = types.SimpleNamespace(**{**vars(_fake_ctx(wt, units=tgt_units, epos=[(9, 9)])),
+                                        "scene": None})
+    v_alone = ds.calculate_custom_utility(ds_alone, (2, 3), 200, 1199)
+    if v_adj != wadj:
+        fails.append(f"DoomSiren (ennemi adjacent a la cible): attendu {wadj}, obtenu {v_adj}")
+    if v_alone != 0.0:
+        fails.append(f"DoomSiren (cible isolee): attendu 0, obtenu {v_alone}")
+    # le terme d'adjacence est ancre sur la CIBLE, pas sur la tuile d'attaque : deplacer la tuile
+    # d'attaque loin ne change rien (contraste avec Drachnyen).
+    if ds.calculate_custom_utility(
+            types.SimpleNamespace(**{**vars(_fake_ctx(wt, units=tgt_units, epos=[(3, 4)])),
+                                     "scene": None}), (8, 8), 200, 1199) != wadj:
+        fails.append("DoomSiren: terme d'adjacence ancre a tort sur la tuile d'attaque")
+    # WillBeOverkill : mirror direct (le terme overkill somme W par prediction sur-tuante).
+    from engine.utilities.damage import will_be_overkill
+    if not will_be_overkill({"hpBefore": 100, "rawHealthDmgMin": 250, "rawHealthDmgMax": 300}):
+        fails.append("will_be_overkill: dmgMin 250 vs hp 100 devrait etre un overkill garanti")
+    if will_be_overkill({"hpBefore": 100, "rawHealthDmgMin": 120, "rawHealthDmgMax": 300}):
+        fails.append("will_be_overkill: dmgMin 120 vs hp 100 (over-shoot 20% < 100%) n'est PAS garanti")
+
     if fails:
         for f in fails:
             print("FAIL:", f)
         return 1
     print("OK: ArmoriumCherub=1 ; LightOfSanguinius=2*W(", w, ")=", expected,
           "; Drachnyen 2adj=", v2, "/1adj=", v1, "; Herald far=", v_far, "/near=", v_near,
-          "; dispatch 1014/1177/1020/1029 OK")
+          "; DoomSiren adj=", v_adj, "/isolee=", v_alone, "(W_overkill=", wok, ")",
+          "; dispatch 1014/1177/1020/1029/1199 OK")
     return 0
 
 
