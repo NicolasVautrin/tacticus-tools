@@ -71,8 +71,71 @@ public class GhidraApplyIl2CppSymbols extends GhidraScript {
         int offset;
     }
 
+    // ===== GARDE DE PROVENANCE (2026-07-25) =====
+    // Ce script ECRIT dans la base Ghidra (noms, structs, signatures). Applique avec des TSV
+    // d'un AUTRE build, il ecrase des symboles corrects par des faux, en silence et sans retour
+    // possible. C'est exactement l'etat trouve le 2026-07-25 : les TSV a la racine de data/
+    // dataient du build de mai, le projet Ghidra portait celui de juin (`gqfc5mff6c`) — et
+    // METHODS_TSV pointe ces fichiers EN DUR. Un simple `run` aurait detruit le projet.
+    //
+    // Chaque TSV porte desormais en 1re ligne une estampille posee par
+    // `scripts/python/preprocess_il2cpp_dump.py` :
+    //   #!il2cpp-provenance\tsha256=<64hex>\tbuild=<hash>\tgenerated=<iso>\tsource=<f>
+    // On la compare au SHA256 du binaire CHARGE. FAIL-CLOSED : estampille absente = refus
+    // (artefact d'origine inconnue, donc inutilisable), estampille discordante = refus.
+    private static final String PROVENANCE_MAGIC = "#!il2cpp-provenance";
+
+    private String provenanceSha(String tsvPath) throws IOException {
+        try (BufferedReader br = new BufferedReader(new FileReader(tsvPath))) {
+            String first = br.readLine();
+            if (first == null || !first.startsWith(PROVENANCE_MAGIC)) return null;
+            for (String field : first.split("\t")) {
+                if (field.startsWith("sha256=")) return field.substring(7).trim().toLowerCase();
+            }
+        }
+        return null;
+    }
+
+    private void assertProvenance(String tsvPath) throws Exception {
+        String expected = currentProgram.getExecutableSHA256();
+        if (expected == null || expected.isEmpty()) {
+            throw new IllegalStateException(
+                "ABANDON : Ghidra ne fournit pas de SHA256 pour le binaire charge — impossible\n"
+                + "de verifier la provenance des symboles. Refus d'ecrire.");
+        }
+        expected = expected.trim().toLowerCase();
+        String got = provenanceSha(tsvPath);
+
+        if (got == null) {
+            throw new IllegalStateException(
+                "ABANDON : " + tsvPath + " n'a PAS d'estampille de provenance.\n"
+                + "  Son build d'origine est INCONNU. L'appliquer ecraserait potentiellement des\n"
+                + "  symboles corrects par ceux d'un autre build (incident du 2026-07-25).\n"
+                + "  Regenerer la chaine :\n"
+                + "    1) jeu lance + injection Frida : hooks-legacy/_oneshot/dump-il2cpp-full.js\n"
+                + "       -> data/il2cpp_full.json\n"
+                + "    2) python scripts/python/preprocess_il2cpp_dump.py   (pose l'estampille)");
+        }
+        if (!got.equals(expected)) {
+            throw new IllegalStateException(
+                "ABANDON : DESYNCHRONISATION build <-> symboles.\n"
+                + "  " + tsvPath + "\n"
+                + "    provenance sha256 = " + got + "\n"
+                + "  binaire charge par Ghidra\n"
+                + "    sha256            = " + expected + "\n"
+                + "  Ces TSV viennent d'un AUTRE binaire : les appliquer poserait des noms FAUX\n"
+                + "  sur des adresses qui ne leur correspondent pas. Regenerer le dump depuis le\n"
+                + "  binaire courant avant de relancer.");
+        }
+        println("provenance OK : " + tsvPath + " <-> binaire charge (sha256 " + expected.substring(0, 16) + "...)");
+    }
+
     @Override
     protected void run() throws Exception {
+        // AVANT toute ecriture : verifier que les TSV viennent bien du binaire charge.
+        assertProvenance(METHODS_TSV);
+        if (APPLY_CLASSES) assertProvenance(CLASSES_TSV);
+
         dtm = currentProgram.getDataTypeManager();
         Address base = currentProgram.getImageBase();
         FunctionManager funcMgr = currentProgram.getFunctionManager();
@@ -103,6 +166,7 @@ public class GhidraApplyIl2CppSymbols extends GhidraScript {
                 if (monitor.isCancelled()) break;
                 if (MAX_METHODS > 0 && count > MAX_METHODS) break;
 
+                if (line.startsWith(PROVENANCE_MAGIC)) continue;   // estampille, deja validee
                 String[] parts = line.split("\t", -1);
                 if (parts.length < 6) continue;
 
@@ -177,6 +241,9 @@ public class GhidraApplyIl2CppSymbols extends GhidraScript {
         try (BufferedReader br = new BufferedReader(new FileReader(CLASSES_TSV), 1 << 20)) {
             String line;
             while ((line = br.readLine()) != null) {
+                // L'estampille a EXACTEMENT 5 champs : sans ce saut elle passerait le test
+                // `parts.length < 5` et creerait une classe fantome `#!il2cpp-provenance`.
+                if (line.startsWith(PROVENANCE_MAGIC)) continue;
                 String[] parts = line.split("\t", -1);
                 if (parts.length < 5) continue;
                 ClassInfo ci = new ClassInfo();
