@@ -260,7 +260,16 @@ def tile_status_effects_by_pos(state: State, positions) -> Optional[dict]:
     ceux-la sont poses sur les UNITES qui se tiennent sur la tuile (`LightCoverAbility
     .IdunBattleLogic.Entities.Abilities.Tiles.Loki.LightCoverAbility$$UnitsThatNeedEffect`), pas sur la tuile — et le canal PREDICTION equivalent
     (`scene.tile_effects_by_pos` = `tileMeta.effects`) ne les liste pas non plus. Les DEUX facades
-    lisent donc la MEME chose. Board/effets absents -> None (contexte inconnu, le gate no-op)."""
+    lisent donc la MEME chose. Board/effets absents -> None (contexte inconnu, le gate no-op).
+
+    ⚠ FILTRE `is_tile_status_effect` (#102) : une tuile porte des effets qui ne sont PAS des STATUS
+    (mesure live C1_02 : `BlockEnteringUnits`/`Thorns_DefenseReduction` sur les Swamp,
+    `Melta_ExtraDmg`). Le natif ne les compte pas — `IdunBattle.Entities.TileExtensions$$HasTileStatusEffect`
+    ne retient que les EffectType du set `StaticBattleRules.Effect$$IsTileStatusEffect`. Tant que
+    `load_state` ne seedait pas les effets de tuile, la liste offline ne contenait que ce que le
+    runner avait pose lui-meme (Fire/Ice, tous des status) et l'absence de filtre etait INVISIBLE ;
+    depuis le seed (#102) elle porte la VRAIE liste native, donc le filtre devient OBLIGATOIRE."""
+    from ..services.static_battle_rules import is_tile_status_effect
     board = getattr(state, "board", None)
     if board is None or state.effects is None:
         return None
@@ -272,7 +281,7 @@ def tile_status_effects_by_pos(state: State, positions) -> Optional[dict]:
         if tid is None:
             continue
         out[tuple(p)] = [x.name for x in state.effects.by_unit.get(int(tid), [])
-                         if not x.consumed and x.name]
+                         if not x.consumed and x.name and is_tile_status_effect(x.effect_type)]
     return out
 
 

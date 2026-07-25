@@ -1,4 +1,5 @@
-"""Port FIDÈLE de `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Damage`.
+"""Port FIDÈLE de `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Damage`
+(+ un membre de `StaticBattleRules.Effect`, cf. `is_tile_status_effect`).
 
 Règles de combat STATIQUES (perçage/armure). 1:1 avec le natif (gqfc5mff6c), VA citées.
 
@@ -17,6 +18,39 @@ from . import fix64 as _fx
 # Bonus de perçage LasCannon — static_field[0] de `StaticBattleRules.DamageTrait` écrit à 0x32 par sa cctor
 # idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.DamageTrait$$.cctor (`**(int **)(cls + 0xb8) = 0x32`), lu par `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Damage$$GetPiercingRatio`. VALEUR NATIVE = 50.
 W_LASCANNON_PIERCE_BONUS = 50
+
+
+# --- `StaticBattleRules.Effect` : le discriminant << STATUS de tuile >> ---------------------------
+# `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$IsTileStatusEffect
+# = `OrderedSet.Contains(<set statique>, effectType)`, le set etant bati par
+# `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$.cctor (champ statique
+# +0x28) avec EXACTEMENT ces 5 membres, lus 1:1 dans l'ordre des `OrderedSet.Add` du decompile.
+#
+# POURQUOI ICI et pas a cote de `default_amount_of_rounds` (l'autre membre porte de
+# `StaticBattleRules.Effect`, dans `runner/operations/effects.py`) : ce predicat est consomme par
+# `engine/entities/**` (le gate `TargetHasTileEffect` de LetTheGalaxyBurn) ET par `engine/runner/**`
+# (`damage_model.tile_status_effects_by_pos`). Or `entities/` n'importe JAMAIS `runner/` (aucune
+# inversion de couche dans l'arbre) ; `engine/services/` est la couche que les deux importent deja.
+#
+# ENJEU (#102) : une tuile porte des effets qui ne sont PAS des status (mesure live `C1_02` :
+# `BlockEnteringUnits`=0 et `Thorns_DefenseReduction`=0xb sur les Swamp, `Melta_ExtraDmg`=0x511).
+# `IdunBattle.Entities.TileExtensions$$HasTileStatusEffect` les EXCLUT via ce set. Tant que
+# `load_state` ne seedait pas les effets de tuile, la liste offline ne contenait que ce que le runner
+# avait pose lui-meme (Fire/Ice, tous des status) et l'absence de filtre etait INVISIBLE ; depuis le
+# seed elle porte la VRAIE liste native, donc le filtre est OBLIGATOIRE.
+TILE_STATUS_EFFECT_TYPES: frozenset = frozenset({0x3a, 0x05, 0x11, 0x4dc, 0x5c4})
+#                                                ^Darkness ^Fire ^Ice ^Contaminated ^DespoiledGround
+
+# MEMES membres, par NOM : le canal PREDICTION (`tileMeta.tiles[].effects[].name` ->
+# `Scene.tile_effects_by_pos`) ne transporte que des noms, pas des EffectType.
+TILE_STATUS_EFFECT_NAMES: frozenset = frozenset(
+    {"Darkness", "Fire", "Ice", "Contaminated", "DespoiledGround"})
+
+
+def is_tile_status_effect(effect_type) -> bool:
+    """`idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$IsTileStatusEffect
+    -- cet EffectType compte-t-il comme un STATUS de tuile ? (cf. `TILE_STATUS_EFFECT_TYPES`)"""
+    return effect_type is not None and int(effect_type) in TILE_STATUS_EFFECT_TYPES
 
 
 def get_piercing_ratio(profile_piercing_ratio: int, profile_has_lascannon: bool,

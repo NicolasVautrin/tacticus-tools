@@ -24,6 +24,11 @@ def load_state(decision, observe, snapshot=None, board=None) -> State:
 Chaque appelant qui posait `X = load_state(A, B, C)` puis `X.board = board` passe desormais
 `X = load_state(A, B, C, board=board)` et supprime la ligne d'assignation.
 
+> **Suite (#102)** : le MEME patron a ete applique aux **effets de TUILE**, qui souffraient de la meme
+> classe de bug (re-poses A LA MAIN dans 3 harnais faute de canal). `load_state(..., tiles=tileMeta)`
+> est le second point d'injection unique — cf. `case-102-tile-effect-seeding.md`. Il DEPEND de `board`
+> (le tile-id ECS ne vient que de `boardGraph`), ce qui rend les deux parametres solidaires.
+
 ### Pourquoi un OBJET `Board`, pas le boardGraph brut
 Le mode d'adjacence du board (`evenq` vs `native_sym`) est CONSOMME par le moteur
 (`board.neighbours`, `are_tiles_adjacent`, splash Psyker/plasma, tile-effects) et VARIE selon les

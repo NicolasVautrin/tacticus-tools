@@ -13,6 +13,7 @@ from ....services.effect_bonus import (EffectBonus, for_addition, for_subtractio
                                        for_percent_decrease, for_percent_increase,
                                        for_percent_subtraction_capped)
 from ....services.damage_combat import BlockSource
+from ....services.static_battle_rules import TILE_STATUS_EFFECT_NAMES
 from ..base import BaseEffect
 from ..magnitude import ability_var, global_value, trait_var
 
@@ -824,11 +825,19 @@ class LetTheGalaxyBurnEffect(BaseEffect):
     def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True,
                                             att_ctx: "Mapping | None" = None) -> EffectBonus | None:
         c = att_ctx or {}
-        # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$TargetHasTileEffect` = `HasTileStatusEffect(Targets@0x190)` — GENERIQUE (>=1 effet
-        # de tuile, quel qu'il soit). `tile_effects_by_pos` = tileMeta (effets DYNAMIQUES de la tuile) ;
+        # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$TargetHasTileEffect` = `HasTileStatusEffect(Targets@0x190)` — GENERIQUE au sens
+        # « n'importe LEQUEL des status de tuile », PAS « n'importe quel effet porte par la tuile » :
+        # `IdunBattle.Entities.Triggers.HasTileStatusEffectTrigger$$ShouldTrigger` appelle
+        # `IdunBattle.Entities.TileExtensions$$HasTileStatusEffect`, qui ne retient que les EffectType
+        # du set `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$IsTileStatusEffect
+        # (Darkness/Fire/Ice/Contaminated/DespoiledGround). Une tuile porte AUSSI des effets non-status
+        # (Swamp : `BlockEnteringUnits` + `Thorns_DefenseReduction` ; `Melta_ExtraDmg`) qui ne doivent
+        # PAS armer ce +1 — invisible tant que le canal offline etait vide, reel depuis le seed des
+        # effets de tuile (#102). `tile_effects_by_pos` = tileMeta (effets DYNAMIQUES de la tuile) ;
         # le terrain statique (DryBush -> LightCover, pose sur les UNITES) n'en fait PAS partie.
         tfx, tp = c.get("tile_effects_by_pos"), c.get("t_pos")
-        on_tile_fx = bool((tfx or {}).get(tuple(tp))) if (tfx is not None and tp is not None) else False
+        on_tile_fx = bool(set((tfx or {}).get(tuple(tp)) or ()) & TILE_STATUS_EFFECT_NAMES) \
+            if (tfx is not None and tp is not None) else False
         # `IdunBattleLogic.Entities.DSLFactory$$IsPersistentData(0x5ca, Self@0x148, Get(<statique>)) — flag intra-attaque arme par
         # le trigger de pose (33%) et efface en fin d'attaque par le Reset IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour.
         armed = LET_THE_GALAXY_BURN_PERSISTENT_KEY in (c.get("persistent_data") or ())

@@ -252,16 +252,16 @@ AVANT/APRES sur les DEUX canaux d'effets.
    @1812226b0` / `GetTargetTiles @181222aa0`, `SquigMine_TileEffect.GetAttackBehaviour @180f6d660`, les
    effets `MacroPlasmaIncinerator_AutoAttack` / `DevastatingRefrain_Attack`). Le cast est fidele ; le
    coup qui suit ne l'est pas encore. C'est une **tranche `Abilities.Triggered.Loki` dediee**.
-2. **`load_state` ne SEEDE PAS les effets de TUILE.** `EffectsState.seed` ne lit que
-   `decisionView.units[].effects` + `mows[].effects` ; les effets de tuile ne sont exposes que par
-   `tileMeta`. Consequence : un etat offline RE-CHARGE apres un cast a perdu les marquages de tuiles
-   (mines, zones), donc (a) `EntitiesWithoutEffects([1441])` de SquigMine est **inerte sur un etat
-   recharge**, (b) toute phase 2 tile-driven sera inconfrontable tant que ce canal n'est pas branche.
-   **Correctif propose** : passer `tileMeta` a `load_state` (ou l'ajouter au `combatSnapshot`) et
-   alimenter `EffectsState` avec les entrees keyees tile-id — meme cle que la pose `AddEffectOperation`.
-3. **`EntitiesWithoutEffects` non discrimine live** (consequence de (2) + aucun runner frais n'a de mine
-   preexistante) : un port qui l'oublierait passerait les tests actuels. Le nœud est porte fidelement,
-   mais sa validation attend (2).
+2. **`load_state` ne SEEDE PAS les effets de TUILE — RESOLU (#102, `case-102-tile-effect-seeding.md`).**
+   `load_state(..., tiles=tileMeta)` materialise desormais les effets portes par les tuiles dans
+   `EffectsState`, keyes par l'entite-tuile — exactement la cle de la pose `AddEffectOperation`, comme
+   propose ici. Empreinte `{tuile -> {effectType: remaining}}` offline == live confrontee, et le
+   consommateur `DaemonicOrdnance` (filtre de zone `HasEffect(Tiles(Subject), Fire)`) frappe le meme
+   ensemble d'ennemis des deux cotes. `tiles` est OPT-IN (defaut None) : un harnais tile-driven doit
+   le passer, comme il passe `board`.
+3. **`EntitiesWithoutEffects` non discrimine live** : le canal de (2) est desormais branche, donc la
+   validation est DEBLOQUEE (un runner dont une tuile porte deja `1441` rend l'etat confrontable) —
+   elle reste A FAIRE (aucun scenario SquigMine avec mine preexistante n'a encore ete monte).
 4. **GAP RNG #215 sur `PickRandomly`** (SquigMine) : quand `|pool| > nrOfTiles`, l'ENSEMBLE tire differe
    du live (le cardinal, le pool et la signature d'effet, eux, sont exacts). Aucune saturation du pool
    (`|pool| <= nrOfTiles`) n'est atteignable sur `C1_02`/`C2_02` sans mise en scene supplementaire.

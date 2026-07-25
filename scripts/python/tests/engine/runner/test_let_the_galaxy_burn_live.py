@@ -285,8 +285,11 @@ def test_ltgb_offline_arm_read_and_clear(ltgb_state):
     st3 = ltgb_state["build_state"]()
     tp = st3.entities[tid].get_component(PositionComponent)
     ttile = board.id_at(tp.col, tp.row)
+    # `effect_type=5` (Fire) OBLIGATOIRE : `HasTileStatusEffect` filtre par EffectType via le set
+    # `StaticBattleRules.Effect$$IsTileStatusEffect` (#102) -- un stub `effect_type=None` n'est PAS
+    # un status de tuile pour le natif, et n'arme donc pas le gate.
     st3.effects.by_unit.setdefault(int(ttile), []).append(
-        BaseEffect(name="Fire", effect_type=None))       # un status-effect de TUILE quelconque
+        BaseEffect(name="Fire", effect_type=5))          # un status-effect de TUILE quelconque
     hits3, leaked3 = _replay(st3, board, aid, tid, 60)
     print(f"[LTGB offline] cible sur tuile a status-effect : distinct={sorted(set(hits3))} "
           f"flags_poses={leaked3}")
@@ -329,10 +332,19 @@ def test_ltgb_prediction_channel_is_wired(ltgb_state):
     empty = calc({t_pos: []})                            # tuile connue SANS effet -> pas de bonus
     onfx = calc({t_pos: ["DespoiledGround"]})            # tuile a status-effect -> +1
     other = calc({(t_pos[0] + 1, t_pos[1] + 1): ["Fire"]})   # effet sur une AUTRE tuile -> pas de bonus
-    print(f"\n[LTGB pred] base={base} empty={empty} on_tile_fx={onfx} other_tile={other}")
+    # #102 : une tuile porte AUSSI des effets qui ne sont PAS des status (Swamp -> BlockEnteringUnits
+    # + Thorns_DefenseReduction, mesures live C1_02). `HasTileStatusEffect` les EXCLUT via le set
+    # `StaticBattleRules.Effect$$IsTileStatusEffect` -> ils ne doivent PAS armer le +1. Sans ce
+    # filtre, le seed des effets de tuile (#102) sur-appliquerait le bonus sur tout board a Swamp.
+    nonstatus = calc({t_pos: ["BlockEnteringUnits", "Thorns_DefenseReduction", "Melta_ExtraDmg"]})
+    print(f"\n[LTGB pred] base={base} empty={empty} on_tile_fx={onfx} other_tile={other} "
+          f"non_status={nonstatus}")
 
     assert empty == base, "un contexte tuile VIDE ne doit rien ajouter"
     assert other == base, "un status-effect sur une AUTRE tuile ne doit rien ajouter (gate = tuile de la CIBLE)"
+    assert nonstatus == base, \
+        (f"des effets de tuile NON-status (BlockEnteringUnits/Thorns_DefenseReduction/Melta_ExtraDmg) "
+         f"arment le +1 ({nonstatus} vs {base}) -> `IsTileStatusEffect` n'est pas applique")
     assert onfx == base + 1, \
         (f"la prediction n'inclut PAS le coup additionnel LetTheGalaxyBurn quand la cible est sur une "
          f"tuile a status-effect ({onfx} vs {base + 1}) -> canal non threade")
