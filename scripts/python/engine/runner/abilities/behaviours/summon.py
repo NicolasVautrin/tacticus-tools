@@ -4,10 +4,12 @@ MINCES au-dessus des Operations `runner/operations/spawn.py` + `damage.py`. Name
 `Entities.Behaviours.*`. cf. docstring du package (`__init__.py`)."""
 from __future__ import annotations
 
+from dataclasses import replace
+
 from ....dsl.base import TargetsSelector, resolve_unit
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ...components import OwnerComponent, StatsComponent
-from .context import _unit_dict
+from .context import _unit_dict, LiveUnit
 
 
 class Spawn(AbilityBehaviour):
@@ -26,12 +28,33 @@ class Spawn(AbilityBehaviour):
     (`AttackWithAttackDamage`) : le tirage vit dans la feuille, qui seule voit `ectx.state.rng`.
     Consommateur : `SupremeCommanderAbility.ExecuteBehaviour @18120df30` =
     `Spawn(PickRandomly(CanAddUnit(AdjacentTiles(caster)), nrOfSummons), unitId, WithStatsFromConfig)`.
-    None (defaut) = pas de PickRandomly natif (GetEmRuntz : toutes les tuiles du `Cache`)."""
-    __slots__ = ("tile_selector", "summon_ability", "pick_n")
+    None (defaut) = pas de PickRandomly natif (GetEmRuntz : toutes les tuiles du `Cache`).
 
-    def __init__(self, tile_selector: TargetsSelector, summon_ability: str, pick_n: int | None = None):
+    `on_appearance` = le SOUS-BEHAVIOUR EMBARQUE dans les options de spawn (`SpawnUnitOptions+0x18`), fire
+    PAR SUMMON par `TriggerSpawnedUnitBehaviours` juste apres la pose. Le natif le construit AVANT le
+    `Spawn` puis l'accroche (`*(opts+0x18) = <behaviour>`), et son selecteur d'acteur est
+    **`ActiveTarget@0x180`** = le summon fraichement pose. Le port l'execute donc UNE FOIS PAR SUMMON avec
+    `active_target` LIE a l'enfant (mirror exact). Consommateurs lus :
+      * `SpawnPoxwalkersAbility.ExecuteBehaviour @181208b80` -> `PerformAIAttackFromCurrentPosition(@0x180)` ;
+      * `SendInTheNextWaveAbility.ExecuteBehaviour @181206490` -> `UseNormalAttackIfAble(@0x180, Target@0x178)` ;
+      * `IncursionAbility.ExecuteBehaviour @1811e9fe0`        -> `UseNormalAttackIfAble(@0x180, Entity(cible))`.
+    None (defaut) = options sans sous-behaviour (SupremeCommander/Waaagh/GetEmRuntz).
+
+    FRAICHEUR DU CONTEXTE (piege du no-op silencieux) : l'`AbilityEntities` natif porte une REF d'etat --
+    tout selecteur EVALUE APRES le spawn (dans le MEME arbre) VOIT les summons. Le `DslContext` du port
+    fige sa liste `units` a la construction (`entities_from_state`) ; la feuille pousse donc chaque enfant
+    DANS `entities.units` (liste PARTAGEE par reference a travers les `replace()` du walker) en plus de
+    `entities.children`. Sans ca, un etage AVAL du meme arbre (ex. le `PerformAIAction(UnitsWithId(...))`
+    de CultDemagogue @1811cdc30, 3e terme d'un UNIQUE `op_Addition`) ne verrait AUCUN summon = NO-OP
+    SILENCIEUX. L'enfant est une `LiveUnit` (pos/hp/alive re-lus du state) -> les gardes `AllUnits`/`Alive`
+    en aval lisent l'etat courant, comme le natif."""
+    __slots__ = ("tile_selector", "summon_ability", "pick_n", "on_appearance")
+
+    def __init__(self, tile_selector: TargetsSelector, summon_ability: str, pick_n: int | None = None,
+                 on_appearance: AbilityBehaviour | None = None):
         self.tile_selector, self.summon_ability = tile_selector, summon_ability
         self.pick_n = pick_n
+        self.on_appearance = on_appearance
 
     def execute(self, entities, ectx):
         import gameconfig as GC
@@ -56,11 +79,14 @@ class Spawn(AbilityBehaviour):
                                      oc.team if oc is not None else None,
                                      oc.player if oc is not None else None)
             if gid is not None:
-                child = _unit_dict(state, gid) or {"id": gid}
+                child = LiveUnit(state, gid)              # vue LIVE (mirror de la ref d'etat native)
                 child.update({"_new_child": True, "_turns_started": 0, "_attacks_made": 0,
                               "_last_attacked": None})
-                entities.children.append(child)       # accumulateur factory+0x148 (relu par Children)
+                entities.children.append(child)       # accumulateur des enfants (relu par Children)
+                entities.units.append(child)          # ref d'etat : les selecteurs AVAL voient le summon
                 ectx.emit("SpawnUnit", tile=tile, unit=gid)
+                if self.on_appearance is not None:    # SpawnUnitOptions+0x18 (TriggerSpawnedUnitBehaviours)
+                    self.on_appearance.execute(replace(entities, active_target=child), ectx)
         return OperationResult.ok()
 
 
@@ -74,7 +100,15 @@ class PerformAIAttack(AbilityBehaviour):
     populate par le `Spawn` en ORDRE DE TUILE -> l'ordre d'attaque == l'ordre natif == l'ordre RNG), et il
     attaque l'ennemi le plus proche via `AttackDamageOperation.execute` (approx du choix AI natif,
     confront live #200 tracer-v2 DSLFactory). Annote le dict enfant (`_attacks_made`,
-    `_last_attacked` = dict FRAIS post-attaque) pour les predicats du Taunt. Emet 'PerformAIAttack'. PUR."""
+    `_last_attacked` = dict FRAIS post-attaque) pour les predicats du Taunt. Emet 'PerformAIAttack'. PUR.
+
+    Le selecteur natif est un `TargetsSelector` GENERIQUE ; les deux call-sites portes le nourrissent
+    differemment -> la feuille NORMALISE (un seul port, pas de fork) :
+      * DOMAINE TUILE (`GetEmRuntzAbility` : `Cache(GetSpawnTileSelector)`) -> ids de tuile, mappes au grot
+        pose dessus via `entities.children` ;
+      * DOMAINE UNITE (`SpawnPoxwalkersAbility.ExecuteBehaviour @181208b80` :
+        `PerformAIAttackFromCurrentPosition(ActiveTarget@0x180)` = le summon fraichement pose, lie par le
+        sous-behaviour on-appearance du `Spawn`) -> le dict d'unite est utilise TEL QUEL."""
     __slots__ = ("tile_selector",)
 
     def __init__(self, tile_selector: TargetsSelector):
@@ -95,9 +129,12 @@ class PerformAIAttack(AbilityBehaviour):
                     return c
             return None
 
+        elems = self.tile_selector.evaluate(entities) or []
+        if isinstance(elems, dict):                       # selecteur mono-unite (ActiveTarget d'un summon)
+            elems = [elems]
         attacks: list = []
-        for tid in (self.tile_selector.evaluate(entities) or []):   # tuiles du Cache, ORDRE natif (= spawn)
-            child = _child_on_tile(tid)
+        for tid in elems:                                 # tuiles du Cache (ORDRE natif = spawn) OU unites
+            child = tid if isinstance(tid, dict) else _child_on_tile(tid)
             if child is None:
                 continue
             cid = child.get("id")

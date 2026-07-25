@@ -3,22 +3,27 @@
 SupremeCommander (1028, `astraCreed` « Lord Castellan Creed ») — PREMIER consommateur porte du
 debloqueur `PerformAIAction` (`abilities/behaviours/ai_control.py` + `operations/summon_ai.py::
 ComputerActionOperation`).
+SendInTheNextWave (1016, `astraYarrick` « Commissar Yarrick ») — spawn + on-appearance
+`UseNormalAttackIfAble` (case-220 P0-SUMMON) : PAS un consommateur de `PerformAIAction`.
 """
 from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
 import gameconfig as GC
+import hexgeo
 
 from .base import ActiveAbility
-from ..components import StatsComponent, get_ability_stat_modification
+from ..components import (PositionComponent, StatsComponent, UnitComponent,
+                          get_ability_stat_modification)
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.behaviours import AtomicGroup
-from ...entities.selectors import (AdjacentTiles, CanAddUnit, Caster, CasterTile,
-                                   SurroundingFriends, UnitsWithIds)
-from .behaviours import Spawn, PerformAIAction, entities_from_state
+from ...entities.effects.magnitude import ability_var
+from ...entities.selectors import (ActiveTarget, AdjacentTiles, CanAddUnit, Caster, CasterTile,
+                                   FixedTileIds, SurroundingFriends, Target, UnitsWithIds)
+from .behaviours import Spawn, PerformAIAction, UseActiveAbility, entities_from_state
 
 if TYPE_CHECKING:
     from ..state import State
@@ -132,3 +137,149 @@ class SupremeCommanderAbility(ActiveAbility):
         return {"spawned": spawned, "ai_units": ai.get("units") or [],
                 "ai_results": ai.get("results") or [], "count": n_summons, "radius": radius,
                 "dsl": True}
+
+
+# =============== SendInTheNextWave (Yarrick `astraYarrick`, actif 1016) -- case-220 P0-SUMMON ===============
+#
+# `SendInTheNextWaveAbility.ExecuteBehaviour @181206490` (MIRROR du DECOMPILE) :
+#     unitId = GetStringConstant(config, 0)                                        # astraSmnGuardsman
+#     opts   = SpawnUnitOptions.WithStatsFromConfig(config, level)
+#     opts.+0x18 = UseNormalAttackIfAble(activeTarget@0x180, target@0x178, <AbilityOrEffect>, ...)
+#     tiles  = GetSpawnTilesSelector(this, level)                                  # @181206cc0
+#     AActiveAbility.Execute(this, Spawn(caster@0x160, tiles, unitId, opts), entities)
+# UN SEUL `Execute` top-level (PAS d'ExecuteAtomic, PAS de Group) et AUCUN `PerformAIAction` : les Cadians
+# tirent via le sous-behaviour ON-APPEARANCE embarque dans les options de spawn.
+CONST_SITNW_UNIT_ID = 0x00      # GetStringConstant(0)      -> "unitId"      = astraSmnGuardsman
+CONST_SITNW_NR_SUMMONS = 0x10   # GetNumberConstant(0x10)   -> "nrOfSummons" = 2  (MEME index que 1028)
+VAR_SITNW_MAX_SUMMONS = 0x31    # GetVariableForLevel(0x31) -> "maxSummons"  (case-38 : 0x31 = 49)
+SITNW_SPAWNED_UNIT_RANGE = 2    # `GetSpawnedUnitRange @181206ed0` = portee d'arme du summon spawne
+                                # (service `ability+0x20`, vslot 0xaa, sur GetStringConstant(0)) ;
+                                # gameconfig `astraSmnGuardsman.weapons[1].Range == 2`. CONSTANTE ici :
+                                # le service de config d'unites n'est pas expose offline (residu documente
+                                # -- si un autre porteur de 1016 apparaissait avec un summon de portee
+                                # differente, il faudrait lire la portee de l'arme du summon).
+
+
+def send_in_the_next_wave_num_summons(state: "State", caster_id: int) -> int:
+    """`SendInTheNextWaveAbility.GetNumSummons @181206a70` -- MIRROR :
+        `Min( Sum( Direct(GetNumberConstant(0x10)=nrOfSummons),
+                   Count(Attackable(Friends(owner@0x148, AllDeadOrResurrectedUnits()))) ),
+              Direct(GetVariableForLevel(0x31)=maxSummons[level]) )`
+    = `nrOfSummons` + le nombre d'ALLIES MORTS (ou ressuscites) du caster, plafonne a `maxSummons`.
+    C'est la formule de count DYNAMIQUE annoncee par case-220 P0-SUMMON ("la vague suivante grossit avec
+    les pertes").
+
+    COLLAPSE (noeud VALEUR RNG-libre, folde comme le `pick_n` des feuilles) : `AllDeadOrResurrectedUnits`
+    -> les entites-unites du `state` avec `UnitComponent.alive == False` ; `Friends(owner)` -> meme team
+    que le caster ; `Attackable` -> filtre de ciblabilite natif, sans equivalent offline distinct sur des
+    unites MORTES (aucun modele de non-attaquable parmi les cadavres) -> IDENTITE (residu documente)."""
+    from ..components import OwnerComponent, UnitComponent
+    consts = (GC.ability("SendInTheNextWave") or {}).get("constants") or {}
+    base = int(consts.get("nrOfSummons") or 0)
+    ce = state.get_entity(caster_id)
+    coc = ce.get_component(OwnerComponent) if ce is not None else None
+    team = coc.team if coc is not None else None
+    dead = 0
+    for e in state.entities.values():
+        uc = e.get_component(UnitComponent)
+        oc = e.get_component(OwnerComponent)
+        if uc is None or oc is None or oc.team != team or uc.alive:
+            continue
+        dead += 1
+    sc = ce.get_component(StatsComponent) if ce is not None else None
+    cctx = sc.ctx if sc is not None else None
+    level = getattr(cctx, "active_ability_level", None)
+    mult = int(getattr(cctx, "ability_variables_multiplier", 100) or 100)
+    cap = int(ability_var("SendInTheNextWave", "maxSummons", level, multiplier_pct=mult) or 0)
+    return min(base + dead, cap) if cap else base + dead
+
+
+def send_in_the_next_wave_spawn_tiles(state: "State", caster_id: int, target_id: int, n: int) -> list:
+    """`SendInTheNextWaveAbility.GetSpawnTilesSelector @181206cc0` -- MIRROR :
+        r         = GetSpawnedUnitRange()                                       # = 2
+        possible  = CanAddUnit(SurroundingTiles(target@0x178, 0, r))            # @181206bc0
+        preferred = AttackTilesForTarget(CanAddUnit(SurroundingTiles(target, 0, r)), target)  # @181206c30
+        k         = Min(n, Count(preferred))
+        pickA     = PickRandomly(preferred, k)
+        rest      = Sum(n, Multiply(k, Direct(-1)))                             # = n - k
+        pickB     = PickRandomly(possible, rest)
+        return    pickA op_Addition pickB
+    -> on remplit d'abord avec les tuiles d'ou le Cadian pourra TIRER sur la cible, puis on complete avec
+    n'importe quelle tuile libre du rayon.
+
+    COLLAPSE (le selecteur est un arbre S avec DEUX `PickRandomly` imbriques -> le tirage vit dans le
+    collapse, qui seul voit `state.rng` ; meme doctrine que le `pick_n` de `Spawn`). `AttackTilesForTarget`
+    (`AttackTilesForTargetSelector @180de9a50`, qui consulte la config d'arme + la geometrie de tir) est
+    l'IDENTITE offline : `possible` est deja le disque de rayon = portee d'arme du summon autour de la
+    cible, et aucun modele de cover/ligne de vue n'existe cote port (residu documente) -> `preferred ==
+    possible` -> k = min(n, |possible|), rest = n - k.
+    ATTENTION : quand `|possible| < n`, l'union native produit des DOUBLONS de tuiles (deux PickRandomly sur le meme
+    ensemble) ; le port les elimine (une 2e pose sur une tuile deja occupee par le summon precedent serait
+    de toute facon un no-op cote natif). HYPOTHESE flaguee (cas rare : plateau tres encombre)."""
+    from ..abilities.loki.splash import _pick_randomly_n
+    board = state.board
+    te = state.get_entity(target_id)
+    tpc = te.get_component(PositionComponent) if te is not None else None
+    if board is None or tpc is None:
+        return []
+    occ = set()
+    for e in state.entities.values():
+        uc = e.get_component(UnitComponent)
+        pc = e.get_component(PositionComponent)
+        if pc is None or (uc is not None and not uc.alive):
+            continue
+        t = board.id_at(pc.col, pc.row)
+        if t is not None:
+            occ.add(t)
+    possible = []
+    for (col, row) in hexgeo.disk(tpc.col, tpc.row, SITNW_SPAWNED_UNIT_RANGE):
+        if (col, row) == (tpc.col, tpc.row):                 # SurroundingTiles(includeCenter=0)
+            continue
+        t = board.id_at(col, row)
+        if t is not None and t not in occ and board.walkable(t):   # CanAddUnit
+            possible.append(t)
+    preferred = list(possible)                               # AttackTilesForTarget -> identite offline
+    k = min(int(n), len(preferred))                          # Min(n, Count(preferred))
+    picked = list(_pick_randomly_n(state, preferred, k))     # PickRandomly(preferred, k)
+    rest = int(n) - k                                        # Sum(n, Multiply(k, -1))
+    if rest > 0:
+        picked += [t for t in _pick_randomly_n(state, possible, rest) if t not in picked]
+    return picked
+
+
+def send_in_the_next_wave_tree(tiles: list) -> Spawn:
+    """Arbre de `SendInTheNextWaveAbility.ExecuteBehaviour @181206490` : UN noeud `Spawn` dont les options
+    portent le sous-behaviour ON-APPEARANCE `UseNormalAttackIfAble(activeTarget@0x180, target@0x178)`
+    (`DSLFactory.UseNormalAttackIfAble @180e01870` -> `UseActiveAbilityBehaviour(actor=@0x180,
+    targets=@0x178, TestUnitProvider(@0x180), ...)`) = chaque Cadian fraichement pose TIRE immediatement
+    sur la cible du cast. Les tuiles sont le collapse de `GetSpawnTilesSelector` (cf. ci-dessus)."""
+    return Spawn(FixedTileIds(tiles), "SendInTheNextWave",
+                 on_appearance=UseActiveAbility(ActiveTarget(), Target()))
+
+
+class SendInTheNextWaveAbility(ActiveAbility):
+    """`SendInTheNextWaveAbility.ExecuteBehaviour @181206490` (id 1016, `astraYarrick` "Commissar Yarrick",
+    AstraMilitarum). Fait apparaitre `nrOfSummons + nb d'allies morts` (plafonne a `maxSummons[level]`)
+    Cadian Guardsmen (`astraSmnGuardsman`, stats `WithStatsFromConfig`) sur des tuiles libres a <= 2 hex de
+    la cible -- en PRIORISANT celles d'ou ils peuvent tirer -- puis CHACUN tire immediatement sur la cible
+    (`UseNormalAttackIfAble` on-appearance).
+
+    N'utilise NI `PerformAIAction` NI `PerformAIAttackFromCurrentPosition` : l'on-appearance est une
+    attaque NORMALE dirigee sur la cible du cast (pas un tour d'IA). Retour : {spawned, attacks, count,
+    tiles, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.SendInTheNextWave)   # 1016
+    ABILITY_ID = "SendInTheNextWave"
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None or state.get_entity(caster_id) is None:
+            return None
+        n = send_in_the_next_wave_num_summons(state, caster_id)
+        tiles = send_in_the_next_wave_spawn_tiles(state, caster_id, target_id, n)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        send_in_the_next_wave_tree(tiles).execute(
+            entities_from_state(state, caster_id, target_id), ectx)
+        spawned = [p["unit"] for nm, p in ectx.emitted if nm == "SpawnUnit"]
+        attacks = [p for nm, p in ectx.emitted if nm == "UseActiveAbility"]
+        return {"spawned": spawned, "attacks": attacks, "count": n, "tiles": tiles, "dsl": True}

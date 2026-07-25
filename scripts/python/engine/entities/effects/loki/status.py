@@ -450,3 +450,50 @@ class BlackRageAutomaticUnitEffect(BaseEffect):
     Le mécanisme ACT-AGAIN (triggered `PerformAIAction` sur event 0x16) n'est PAS modélisé (RÉSIDU documenté,
     tranche triggered dédiée : nécessite le vecteur On(0x16) + un re-tour d'action offline) ; l'effet est posé
     pour le diff structurel (présent/diffable, remaining=0)."""
+
+
+class WaaaghExtraMovementEffect(BaseEffect):
+    """`Waaagh_ExtraMovement` (EffectType 0x44b=1099) -- buff **StatModification** +MOUVEMENT pose par
+    `WaaaghAbility.GetBuffBehaviour @18122b900` via
+    `AddStaticStatModifierEffect(<selecteur Waaagh>, 1099, stat=MOVEMENT(1),
+                                 Direct(GetNumberConstant(0xe)=extraMovement), duree=Direct(1)@dsl+0xc0)`.
+    AUCUNE classe d'effet native bespoke (StaticStatModifierEffect generique, `AddStaticStatModifierEffect
+    @180de7b20`) : on porte le stat-mod EAGER (canal `applied_stat_mods` -> `AddEffectOperation.
+    _apply_stat_mods` -> `apply_change_stat`, keye par source) = +`extraMovement` (constante gameconfig = 1)
+    a la stat MOVEMENT. MEME template que `BlackRageExtraMoveEffect` (1342, valide live statModSources).
+
+    CE PORT EST REQUIS PAR L'ETAGE MOVE de Waaagh : `WaaaghAbility.GetPossibleMovementTiles @18122c060`
+    calcule sa portee via `UnitMovementRangeWithBonus(caster@0x160, 1099, Direct(extraMovement))
+    @180dff050` = `If( HasEffect(caster, 1099), StatAmount(caster, MOVEMENT), Sum(StatAmount(caster,
+    MOVEMENT), bonus) )` -- le natif ANTI-DOUBLE-COMPTE : quand l'effet est DEJA pose (c'est le cas, le
+    Group buff @0x25 s'execute AVANT le Group move @0x23 dans l'ordre d'`Execute` de @18122b010), la portee
+    lit la stat MOVEMENT *deja bonifiee*. Sans `applied_stat_mods`, la charge perdrait son +1 hex."""
+
+    def applied_stat_mods(self, stats_ctx) -> "list":
+        from ...stats import StatType
+        amt = ability_var("Waaagh", "extraMovement", is_constant=True)   # ConfigConst(0xe) = 1
+        return [(int(StatType.MOVEMENT), int(amt))] if amt else []
+
+    def reverted_stats(self) -> "list":
+        from ...stats import StatType
+        return [StatType.MOVEMENT]
+
+
+class WaaaghExtraDamageEffect(BaseEffect):
+    """`Waaagh_ExtraDamage` (EffectType 0x44c=1100) -- pose sur le SELECTEUR Waaagh (caster + allies adjacents
+    + TOUS les allies de faction Orks) par `WaaaghAbility.GetBuffBehaviour @18122b900` via
+    `AddEffect(0x44c, AbilityStateReference, caster@0x160, <selecteur>, duree=Direct(1)@dsl+0xc0)`.
+
+    MARQUEUR porte (present/diffable, duree 1 round) -- la CONTRIBUTION `+extraDmg[level]` (var rarity-scalee,
+    582 au max) n'est PAS modelisee : elle passe par le canal `CreateEffectDamageBonusForAttack` (modifier
+    de degat par-effet), non branche pour cet effet. RESIDU DOCUMENTE (meme classe que
+    `BlackRageExtraDamageEffect`), a fermer par la tranche "canal modifier de degat par effet"."""
+
+
+class WaaaghExtraHitsEffect(BaseEffect):
+    """`Waaagh_ExtraHits` (EffectType 0x44d=1101) -- pose sur le MEME selecteur que 1100 par
+    `WaaaghAbility.GetBuffBehaviour @18122b900` (`AddEffect(0x44d, ..., duree=Direct(1)@dsl+0xc0)`).
+
+    MARQUEUR porte (present/diffable, duree 1 round) -- la CONTRIBUTION `+extraHit` (constante gameconfig = 1
+    coup additionnel) n'est PAS modelisee : elle passe par le canal coups-additionnels (#179,
+    `additional_hits`), non branche pour cet effet. RESIDU DOCUMENTE."""

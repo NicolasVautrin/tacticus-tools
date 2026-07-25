@@ -111,8 +111,25 @@ Verdict : **[fable]** — multi-étage atomique positionnel (push → hexes lib�
 Risques : ordre push/spawn strict.
 ```
 
-**Synthèse** : [opus] direct = 1166 (**PORTE + valide live**, cf. bloc ci-dessus) ; [opus]+prérequis =
-1016, 1040, 1021 ; à trous = 1077 (volet
-Overwatch = sous-système dédié) ; **[fable]** = 1121. Prérequis transverses NOUVEAUX identifiés :
-amount-nodes DSL (RandomAmount/Divide/Get), ChainBehaviour, PickRandomly-by-count, sous-système
+**Synthèse** : [opus] direct = 1166 (**PORTE + valide live**, cf. bloc ci-dessus) ; **1016, 1021, 1040 =
+PORTES + valides live (tâche #94, cf. [case-94-summon-consumers.md](../case-94-summon-consumers.md))** ;
+à trous = 1077 (volet Overwatch = sous-système dédié) ; **[fable]** = 1121. Prérequis transverses NOUVEAUX
+identifiés : amount-nodes DSL (RandomAmount/Divide/Get), ChainBehaviour, PickRandomly-by-count, sous-système
 **Overwatch**, et confirmation de la dépendance **PerformAIAction (P1)**.
+
+### Mise à jour #94 — 1016 / 1021 / 1040 fermés
+
+Prérequis levés : `ChainBehaviour @180deb910` (combinateur porté), `ActiveTarget@0x180` (+ le
+sous-behaviour on-appearance `SpawnUnitOptions+0x18` du `Spawn`), la formule de count dynamique de
+`GetNumSummons @181206a70`, le placement rayon-2 attack-priority de `GetSpawnTilesSelector @181206cc0`,
+`ContagionsOfNurgle_ArmorReduction_Effect.CalculateRange @180f39940`, et le couple
+`RandomAmount @180f22160` (borne haute INCLUSE) / `Divide(…, 100, Ceiling)` — ces deux derniers **foldés**
+dans la classe d'ability (doctrine `pick_n` : le tirage vit là où l'on voit `state.rng`), donc PAS de
+nouveaux amount-nodes DSL.
+
+**Correction de prémisse** : aucune de ces trois abilities n'appelle `PerformAIAction` — elles utilisent
+`UseNormalAttackIfAble @180e01870` (1016, 1021) ou `PerformAIAttackFromCurrentPosition @180df8a10` (1040)
+comme sous-behaviour on-appearance. La dépendance P1 ne concerne que 1058 (Waaagh) et 1179 (CultDemagogue).
+
+Résidus (détail dans la case-doc) : `GetSpawnedUnitRange` en constante 2, `AttackTilesForTarget` = identité
+offline, ordre RNG des `PickRandomly`/`RandomAmount` non calé (count Poxwalkers confronté en BANDE).

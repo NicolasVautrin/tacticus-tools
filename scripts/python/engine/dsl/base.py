@@ -119,6 +119,16 @@ class DslContext:
     # Défaut None → retombe sur `caster` (hypothèse standard Owner==Caster==Actor, divergence documentée).
     owner: dict | None = None
     actor: dict | None = None
+    # `ActiveTarget` = slot factory `+0x180` (carte des `TargetsSelector` caches du `DSLFactory`,
+    # `InitializeShared @180df2670` : `0x148 Owner · 0x150 Effect · 0x158 Actor · 0x160 Caster ·
+    # 0x168 CasterTile · 0x170 CasterTiles · 0x178 Target · 0x180 ActiveTarget · 0x188
+    # PreviousActiveTarget · 0x190 TargetTiles · 0x198 UnitFeetTiles`). C'est l'ELEMENT COURANT du
+    # behaviour qui l'a lie : (a) le SUMMON fraichement pose pour un sous-behaviour on-appearance
+    # (`SpawnUnitOptions+0x18`, ex. Poxwalkers `PerformAIAttackFromCurrentPosition(ActiveTarget)` /
+    # SendInTheNextWave `UseNormalAttackIfAble(ActiveTarget, Target)`), (b) l'element rendu par
+    # l'iteration courante d'un `ChainBehaviour` (Incursion : la TUILE de spawn). Defaut None ->
+    # le noeud `ActiveTarget` rend None (hors behaviour liant).
+    active_target: object | None = None
     # Accès trait/stat PAR UNITÉ (mirror `UnitExtensions.HasFlag`/`GetStat`) — hors state standard.
     # `has_trait(unit, traitId)->bool` défaut None → trait absent ; `get_stat(unit, statType, variant,
     # level)->int` défaut None → Health via hp (cf. `_default_get_stat`). Fournis par la couche ability.

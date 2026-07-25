@@ -152,6 +152,55 @@ class AtomicGroup(AbilityBehaviour):
         return self.child.execute(entities, ectx)   # inline (RE #201 : AtomicGroup PAS différé)
 
 
+class ChainBehaviour(AbilityBehaviour):
+    """`DSLFactory.ChainBehaviour @180deb910` -> `Entities.Behaviours.ChainBehaviourBehaviour` : BOUCLE
+    BORNEE qui REJOUE `body` au plus `times` fois, en RE-CONSTRUISANT a CHAQUE ITERATION le selecteur
+    d'element (`next_selector`, natif `System.Func<>` sur une methode de la classe d'ability) et en le
+    liant a **`ActiveTarget@0x180`** pour le corps. La boucle S'ARRETE des que le selecteur rend un
+    ensemble VIDE.
+
+    Unique consommateur porte : `IncursionAbility.ExecuteBehaviour @1811e9fe0` =
+        `ChainBehaviour( Null@init, Func(GetNextSpawnTile), Direct(GetNumberConstant(0x3c)=maxSummons),
+                         Spawn(caster@0x160, ActiveTarget@0x180, unitId, opts), <timeline> )`
+    ou `IncursionAbility.GetNextSpawnTile @1811ea520` =
+        `PickRandomly( CanAddUnit(AdjacentTiles(target@0x178)),
+                       ConditionalAmount( (IsAlive(caster@0x160) & IsAlive(target@0x178))
+                                          & IsInRange(caster, target, Direct(range)),
+                                          1@dsl+0xc0, 0@dsl+0xb8 ) )`
+    -> 1 tuile si (caster vivant ET cible vivante ET caster a portee), 0 sinon. C'est le MEME predicat que
+    `IncursionAbility.GetContinueTrigger @1811ea420` (a l'identique, moins le PickRandomly) : la condition
+    d'arret est RE-EVALUEE PAR ITERATION sur l'etat LIVE -- si les summons tuent la cible a leur apparition,
+    `IsAlive(target)` devient faux et la chaine s'arrete AVANT d'avoir consomme ses `maxSummons`.
+
+    `next_selector` = callable `(entities) -> TargetsSelector` (mirror du `Func<>` natif : une NOUVELLE
+    instance de selecteur par iteration -> aucune memoisation entre tours, l'etat live est relu), ou un
+    `TargetsSelector` fixe. `init` (natif `Null()`) = valeur initiale d'`ActiveTarget` avant la 1re
+    iteration ; le `timeline` natif (`UnitTimelines.TypeToTimeline`) = ordonnancement VUE, non porte."""
+    __slots__ = ("next_selector", "times", "body", "init")
+
+    def __init__(self, next_selector, times, body: AbilityBehaviour, init=None):
+        self.next_selector, self.times, self.body, self.init = next_selector, times, body, init
+
+    def execute(self, entities, ectx):
+        n = self.times.evaluate(entities) if isinstance(self.times, AAmountFormula) else int(self.times)
+        res = OperationResult.ok()
+        for _ in range(max(0, int(n))):
+            sel = self.next_selector(entities) if callable(self.next_selector) else self.next_selector
+            elems = sel.evaluate(entities)
+            if elems is None:
+                break
+            if not isinstance(elems, list):
+                elems = [elems]
+            if not elems:                                  # selecteur vide -> fin de chaine (GetContinueTrigger)
+                break
+            sub = replace(entities, active_target=elems)   # bind ActiveTarget@0x180 = element(s) courant(s)
+            r = self.body.execute(sub, ectx)
+            res = res.combine(r)
+            if r.stop:
+                break
+        return res
+
+
 # Alias homonymes des factories natives (lecture des arbres 1:1 : `op_and`/`op_add` = `CombinedBehaviour`).
 def op_and(left: AbilityBehaviour, right: AbilityBehaviour) -> Seq:
     """`AbilityBehaviour.op_BitwiseAnd @180ffaae0` -> `CombinedBehaviour` (cf. `Seq`)."""

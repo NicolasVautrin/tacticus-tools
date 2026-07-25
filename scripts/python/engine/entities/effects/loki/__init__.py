@@ -58,7 +58,8 @@ from .status import (HypersensoryMinimalHealthEffect, ContaminatedUnitEffect, St
                      BlessingsOfKhorneModifiersEffect, StunnedEffect, StunnedDamageModifierEffect,
                      ActOfFaithBuffEffect, TauntedEffect, PinnedEffect,
                      MV71InitialDmgEffect, MV71ResetInitialDmgEffect, MasterOfTheTutelariesEffect,
-                     BlackRageExtraMoveEffect, BlackRageExtraDamageEffect, BlackRageAutomaticUnitEffect)
+                     BlackRageExtraMoveEffect, BlackRageExtraDamageEffect, BlackRageAutomaticUnitEffect,
+                     WaaaghExtraMovementEffect, WaaaghExtraDamageEffect, WaaaghExtraHitsEffect)
 from .imperative import ProtectorImperativeEffect, ConquerorImperativeEffect
 
 __all__ = [
@@ -103,6 +104,7 @@ __all__ = [
     "ActOfFaithBuffEffect", "TauntedEffect", "PinnedEffect",
     "MV71InitialDmgEffect", "MV71ResetInitialDmgEffect", "MasterOfTheTutelariesEffect",
     "BlackRageExtraMoveEffect", "BlackRageExtraDamageEffect", "BlackRageAutomaticUnitEffect",
+    "WaaaghExtraMovementEffect", "WaaaghExtraDamageEffect", "WaaaghExtraHitsEffect",
     # imperative
     "ProtectorImperativeEffect", "ConquerorImperativeEffect",
 ]

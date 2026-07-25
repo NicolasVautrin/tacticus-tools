@@ -371,14 +371,32 @@ class AdjacentFriends(TargetsSelector):
 
 
 class SurroundingEnemies(TargetsSelector):
-    """`DSLFactory.SurroundingEnemies(center, radius) @180dfc570` = `Enemies(SurroundingUnits(center,
-    radius))` : ennemis (team != caster) à dist <= radius du centre, centre exclu."""
-    def __init__(self, center: TargetsSelector, radius: TargetsSelector):
-        self.center, self.radius = center, radius
+    """`DSLFactory.SurroundingEnemies` = `Enemies(<ref>, Units(SurroundingTiles(center, includeCenter=1,
+    radius) - Tiles(center)))` : unites a dist hex <= radius du centre (centre EXCLU) filtrees ENNEMIES
+    d'une unite de REFERENCE.
+
+    ⚠ DEUX FORMES NATIVES, distinguees par le nombre d'arguments (lues au decompile) :
+      * surcharge 6-args `@180dfc300`/`@180dfc3d0` : `SurroundingEnemies(ref, center, radius, ...)` ->
+        reference et centre SEPARES ; le call-site standard passe le CASTER en reference
+        (symetrique du `SurroundingFriends(caster, casterTile, ...)` de SupremeCommander @18120df30) ;
+      * surcharge 4-args `@180dfc570`/`@180dfc4a0` : `SurroundingEnemies(X, radius, ...)` -> le MEME
+        selecteur `X` sert de centre **ET** de reference (`Enemies(param_2 = X, units)`). Call-site lu :
+        `CultDemagogueAbility.ExecuteBehaviour @1811cdc30`
+        (`SurroundingEnemies(target@0x178, GetNumberConstant(0x44)=range, 1, 3)`) -> « unites entourant la
+        CIBLE et ennemies DE LA CIBLE » = les ALLIES du caster (les Neophytes fraichement invoques),
+        PAS ses ennemis.
+
+    `reference` = None (defaut) -> forme 6-args, reference = `ctx.caster` (comportement historique,
+    inchange pour HeroicFusillade/Stormcaller/...). Explicite -> forme 4-args (passer le MEME noeud que
+    `center`)."""
+    def __init__(self, center: TargetsSelector, radius: TargetsSelector,
+                 reference: TargetsSelector | None = None):
+        self.center, self.radius, self.reference = center, radius, reference
 
     def select(self, ctx):
         ring = _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx))
-        ct = (ctx.caster or {}).get("team")
+        ref = resolve_unit(self.reference, ctx) if self.reference is not None else ctx.caster
+        ct = (ref or {}).get("team")
         return [u for u in ring if u.get("team") != ct]
 
 
@@ -634,6 +652,22 @@ class FixedTiles(TargetsSelector):
         return list(self.positions)
 
 
+class FixedTileIds(TargetsSelector):
+    """Jumeau ID-DOMAIN de `FixedTiles` — PAS un noeud natif : VEHICULE DE COLLAPSE presentant a une
+    feuille des **ids de tuile** deja resolus imperativement. Les deux domaines coexistent parce que les
+    feuilles ne lisent PAS le meme contrat : `MoveUnit` consomme des positions `(col,row)` (-> `FixedTiles`)
+    alors que `Spawn` consomme des **ids** (comme les rendent `AdjacentTiles`/`SurroundingTiles`/
+    `CanAddUnit`) -> `FixedTileIds`. Consommateurs : les collapses de tuiles de spawn de
+    `SendInTheNextWaveAbility.GetSpawnTilesSelector @181206cc0`, `IncursionAbility.GetNextSpawnTile
+    @1811ea520` et `SpawnPoxwalkersAbility.ExecuteBehaviour @181208b80` (chaines a `PickRandomly`
+    imbriques : le tirage vit dans le collapse, seul endroit qui voit `state.rng`)."""
+    def __init__(self, tile_ids):
+        self.tile_ids = [int(t) for t in (tile_ids or []) if isinstance(t, int)]
+
+    def select(self, ctx):
+        return list(self.tile_ids)
+
+
 class OwnerTile(TargetsSelector):
     """Tuile COURANTE (réelle) de l'owner/caster — position du composant entité, PAS la tuile d'attaque
     balayée. `HarvesterOfSoulsAbility.GetSurroundingUnits @1811e76a0` ancre son `SurroundingUnits(sel@0x160,
@@ -671,6 +705,115 @@ class Target(TargetsSelector):
     est sans cible (auto/tuile)."""
     def select(self, ctx):
         return ctx.target
+
+
+class ActiveTarget(TargetsSelector):
+    """Slot `factory+0x180` = **ActiveTarget** (carte des selecteurs caches du `DSLFactory`, posee par
+    `DSLFactory.InitializeShared @180df2670` : `0x148 Owner · 0x150 Effect · 0x158 Actor · 0x160 Caster ·
+    0x168 CasterTile · 0x170 CasterTiles · 0x178 Target · 0x180 ActiveTarget · 0x188 PreviousActiveTarget ·
+    0x190 TargetTiles · 0x198 UnitFeetTiles`). C'est l'ELEMENT COURANT lie par le behaviour englobant :
+
+      * sous-behaviour **on-appearance** d'un `Spawn` (`SpawnUnitOptions+0x18`, fire par
+        `TriggerSpawnedUnitBehaviours`) -> le SUMMON fraichement pose. Consommateurs lus :
+        `SpawnPoxwalkersAbility.ExecuteBehaviour @181208b80`
+        (`PerformAIAttackFromCurrentPosition(ActiveTarget@0x180)`),
+        `SendInTheNextWaveAbility.ExecuteBehaviour @181206490`
+        (`UseNormalAttackIfAble(ActiveTarget@0x180, Target@0x178)`),
+        `IncursionAbility.ExecuteBehaviour @1811e9fe0`
+        (`UseNormalAttackIfAble(ActiveTarget@0x180, Entity(<unite cible>))`) ;
+      * iteration d'un `ChainBehaviour` -> l'element rendu par le selecteur de l'iteration (Incursion :
+        la TUILE de spawn, `Spawn(caster@0x160, ActiveTarget@0x180, unitId, opts)`).
+
+    Accesseur = `ctx.active_target` (dict d'unite | id de tuile | liste) ; None hors behaviour liant."""
+    def select(self, ctx):
+        return getattr(ctx, "active_target", None)
+
+
+class SurroundingTiles(TargetsSelector):
+    """`DSLFactory.SurroundingTiles(center, includeCenter, radius, ...) @180dfca70` : les TUILES du disque
+    hex de rayon `radius` autour du centre (`center` = selecteur unit-domain OU position). `include_center`
+    = l'argument natif `includeCenter` (0 aux call-sites portes : Poxwalkers @181208b80, SendInTheNextWave
+    @181206bc0/@181206cc0, CultDemagogue @1811cdc30 -> centre EXCLU). Retour list[int] (tile ids), ordre
+    hexgeo deterministe. Generalisation d'`AdjacentTiles` (= radius 1 via le voisinage board) au disque :
+    ici la geometrie vient de `hexgeo.disk` (meme primitive que le collapse `_surrounding_free_tiles` du
+    port CultDemagogue). board None -> []."""
+    def __init__(self, center: TargetsSelector, radius: TargetsSelector, include_center: bool = False):
+        self.center, self.radius = center, radius
+        self.include_center = bool(include_center)
+
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        r = int(self.radius.evaluate(ctx) or 0)
+        centers = self.center.evaluate(ctx)
+        if isinstance(centers, tuple) and len(centers) == 2:
+            centers = [centers]
+        elif isinstance(centers, dict) or centers is None:
+            centers = [_pos(centers)] if centers is not None else []
+        else:
+            centers = [c if (isinstance(c, tuple) and len(c) == 2) else _pos(c) for c in centers]
+        seen, out = set(), []
+        for c in centers:
+            if c is None:
+                continue
+            for (col, row) in hexgeo.disk(c[0], c[1], r):
+                if not self.include_center and (col, row) == (c[0], c[1]):
+                    continue
+                t = board.id_at(col, row)
+                if t is not None and t not in seen:
+                    seen.add(t)
+                    out.append(t)
+        return out
+
+
+class UnitsWithVisualId(TargetsSelector):
+    """`DSLFactory.UnitsWithVisualId(visualIdValue, mode) @180e00e90` = `UnitsWithIdSelector(ctx,
+    factory+0x80, visualIdValue, mode)`. La source est le slot PARTAGE `factory+0x80` (pose par
+    `InitializeShared @180df2670`, == la source d'`AllUnits`/`Friends(caster, @0x80)` de
+    `WaaaghAbility.GetBuffBehaviour @18122b900`) -> le selecteur est **BOARD-WIDE : AUCUN RAYON**, a ne pas
+    confondre avec `UnitsWithIds(source, ids)` (qui FILTRE un sous-ensemble deja restreint, ex.
+    `SurroundingFriends` de SupremeCommander @18120df30).
+
+    Consommateurs lus : `WaaaghAbility.ExecuteBehaviour @18122b010` (site @18122b306+) et son homologue
+    `WaaaghAbility.GetTriggerSummonsBehaviour @18122c260`, tous deux
+    `Friends(caster@0x160, UnitsWithVisualId(VisualUnitIdFromUnitId(Get(unitId)), 1), 3)`.
+
+    `visual_id` = noeud VALEUR (`VisualUnitIdFromUnitId`, entities/formulas.py) ou str/iterable de str.
+    Le filtre compare le champ `visualId` du dict d'unite (meme convention que `UnitsWithIds`)."""
+    def __init__(self, visual_id, mode: int = 1):
+        self.visual_id, self.mode = visual_id, int(mode)
+
+    def _ids(self, ctx) -> list:
+        v = self.visual_id
+        v = v.evaluate(ctx) if hasattr(v, "evaluate") else v
+        if v is None:
+            return []
+        return [v] if isinstance(v, str) else [s for s in v if s]
+
+    def select(self, ctx):
+        ids = self._ids(ctx)
+        if not ids:
+            return []
+        return [u for u in ctx.units if u.get("visualId") in ids]
+
+
+class UnitsWithId(TargetsSelector):
+    """`DSLFactory.UnitsWithId(source, idValue, mode) @180e00170` = `UnitsWithIdSelector(ctx, source,
+    TestUnitProvider(idValue), mode)` : le VOLET MONO-ID d'`UnitsWithIds` (qui, lui, UNIONNE les volets sur
+    un tableau d'ids). Filtre `source` par `UnitExtensions.HasUnitId(unit, id) @180ed70c0`.
+    Consommateur lu : `CultDemagogueAbility.ExecuteBehaviour @1811cdc30`
+    (`UnitsWithId(SurroundingEnemies(target@0x178, range, 1, 3), GetStringConstant(0|4), 3)`).
+    Meme reduction offline que `UnitsWithIds` : comparaison sur le champ `visualId` du dict d'unite
+    (qui porte l'id de CONFIG pour les unites SPAWNEES, cf. `_spawn_config_grot`)."""
+    def __init__(self, source: TargetsSelector, unit_id, mode: int = 3):
+        self.source, self.unit_id, self.mode = source, unit_id, int(mode)
+
+    def select(self, ctx):
+        uid = self.unit_id.evaluate(ctx) if hasattr(self.unit_id, "evaluate") else self.unit_id
+        if uid is None:
+            return []
+        return [u for u in self.source.evaluate(ctx) if u.get("visualId") == uid]
 
 
 class Cache(TargetsSelector):

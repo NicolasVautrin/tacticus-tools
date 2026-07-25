@@ -23,18 +23,20 @@ from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
+import hexgeo
+
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import op_add, op_and, AtomicGroup
-from ...entities.selectors import (Caster, CasterTile, AdjacentUnits, Friends, Union,
-                                   UnitsWithoutTrait, UnitsWithTrait, Target)
+from ...entities.selectors import (ActiveTarget, Caster, CasterTile, AdjacentUnits, FixedTileIds,
+                                   Friends, Union, UnitsWithoutTrait, UnitsWithTrait, Target)
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effects.magnitude import ability_var
-from ..components import StatsComponent
+from ..components import PositionComponent, StatsComponent, UnitComponent
 from .base import ActiveAbility
 from .behaviours import (entities_from_state, Heal, healable_heal_type_0,
-                        AttackWithAttackDamage, InformWeapon)
+                        AttackWithAttackDamage, InformWeapon, PerformAIAttack, Spawn)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -179,3 +181,138 @@ class FlailSwingAbility(ActiveAbility):
         informed = next((p.get("profile") for n, p in ectx.emitted if n == "InformWeapon"), None)
         return {"ability": "FlailSwing", "caster": caster_id, "target": target_id,
                 "attack": atk, "informed_weapon": informed, "dsl": True}
+
+
+# ============ SpawnPoxwalkers (deathBlightbringer `Typhus`... `Blightbringer`, actif 1040) ============
+#                                              case-220 P0-SUMMON
+#
+# `SpawnPoxwalkersAbility.ExecuteBehaviour @181208b80` (MIRROR du DECOMPILE) :
+#     minPct = GetVariableForLevel(config, 0x3a, level)                        # "chance"
+#     maxPct = GetVariableForLevel(config, 0x3b, level)                        # "chance_2"
+#     unitId = GetStringConstant(config, 0)                                    # deathPoxwalker
+#     range  = ContagionsOfNurgle_ArmorReduction_Effect.CalculateRange(<owner>) # @180f39940
+#     tiles  = CanAddUnit(SurroundingTiles(owner@0x148, 0, range))
+#     cnt    = <tiles>.Count(entities)                                          # EAGER (vslot +0x2b8)
+#     amount = Divide(RandomAmount(cnt*minPct, cnt*maxPct), Get(100), mode=1=Ceiling)
+#     picked = PickRandomly(tiles, amount, 0, 0x7fffffff, false)
+#     opts   = SpawnUnitOptions.WithStatsFromConfig(config, level)
+#     opts.+0x18 = PerformAIAttackFromCurrentPosition(activeTarget@0x180, 0, 0, false)
+#     AActiveAbility.Execute(this, Spawn(owner@0x148, picked, unitId, opts), entities)
+# UN SEUL `Execute` top-level. AUCUN `PerformAIAction` : l'on-appearance est un `PerformAIAttack`
+# (routine IA mono-unite depuis la position courante), PAS un tour d'IA complet.
+# SELF-CAST (`SpawnPoxwalkersPlaybook @18115c6f0` : cible eligible = SOI) -> owner@0x148 == caster.
+VAR_POX_CHANCE = 0x3a       # GetVariableForLevel(0x3a) -> "chance"   (% mini de Poxwalker par tuile libre)
+VAR_POX_CHANCE_2 = 0x3b     # GetVariableForLevel(0x3b) -> "chance_2" (% maxi)
+CONST_POX_UNIT_ID = 0x00    # GetStringConstant(0)      -> "unitId"   = deathPoxwalker
+
+
+def contagions_of_nurgle_range(state: "State", unit_id: int) -> int:
+    """`IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect.CalculateRange
+    @180f39940` -- MIRROR 1:1 :
+        `s = UnitExtensions.GetStat(unit, 0xc=TurnsStarted, Current)`
+        `if (s > 2) return (s > 4) ? 3 : 2 ; else return 1`
+    -> rayon 1 aux tours 1-2, 2 aux tours 3-4, 3 a partir du tour 5. Le natif appelle cette methode
+    STATIQUEMENT depuis `SpawnPoxwalkersAbility.ExecuteBehaviour @181208b80` (l'ability n'a pas d'effet
+    Nurgle a ce point : c'est un helper de portee PARTAGE avec l'aura ContagionsOfNurgle)."""
+    from ...entities.stats import StatType
+    e = state.get_entity(unit_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    stats = getattr(sc.ctx, "stats", None) if sc is not None else None
+    s = int(stats.get_stat(int(StatType.TURNS_STARTED), 0)) if stats is not None else 0
+    if s > 2:
+        return 3 if s > 4 else 2
+    return 1
+
+
+def poxwalkers_spawn_tiles(state: "State", caster_id: int, radius: int) -> list:
+    """`CanAddUnit(SurroundingTiles(owner@0x148, includeCenter=0, range))` : tuiles LIBRES et marchables du
+    disque hex de rayon `range` autour du caster (centre exclu -- il est occupe par le caster de toute
+    facon). Ordre `hexgeo.disk` deterministe."""
+    board = state.board
+    ce = state.get_entity(caster_id)
+    cpc = ce.get_component(PositionComponent) if ce is not None else None
+    if board is None or cpc is None:
+        return []
+    occ = set()
+    for e in state.entities.values():
+        uc = e.get_component(UnitComponent)
+        pc = e.get_component(PositionComponent)
+        if pc is None or (uc is not None and not uc.alive):
+            continue
+        t = board.id_at(pc.col, pc.row)
+        if t is not None:
+            occ.add(t)
+    out = []
+    for (col, row) in hexgeo.disk(cpc.col, cpc.row, int(radius)):
+        if (col, row) == (cpc.col, cpc.row):
+            continue
+        t = board.id_at(col, row)
+        if t is not None and t not in occ and board.walkable(t):
+            out.append(t)
+    return out
+
+
+def poxwalkers_count(state: "State", caster_id: int, nb_tiles: int) -> int:
+    """`Divide( RandomAmount(cnt*GetVariableForLevel(0x3a), cnt*GetVariableForLevel(0x3b)),
+                Get(100), mode=1=Ceiling )` @181208b80 -- MIRROR.
+
+    `cnt` = nombre de tuiles libres, evalue EAGER par le natif (appel virtuel `+0x2b8` du selecteur
+    `CanAddUnit` AVANT la construction du noeud). `chance`/`chance_2` sont des POURCENTAGES par tuile
+    (15..20 / 25..45 selon le niveau) -> le tirage porte sur `cnt*minPct .. cnt*maxPct` puis est divise
+    par 100 avec arrondi **Ceiling** (`DivideAmount` mode 1, cf. `formulas.Divide`).
+
+    `RandomAmount.Calculate @180f22160` = `rng.<slot 2>(min, max + 1)` -> borne haute INCLUSE ; le port
+    consomme `state.rng.next_internal(min, max+1)` (meme primitive que `_pick_randomly`). `state.rng`
+    non cale -> on retombe sur la borne BASSE (deterministe, documente ; le cout/ordre RNG exact reste
+    le GAP deja flague sur `_pick_randomly_n`)."""
+    from math import ceil
+    sc = state.get_entity(caster_id).get_component(StatsComponent)
+    cctx = sc.ctx if sc is not None else None
+    level = getattr(cctx, "active_ability_level", None)
+    mult = int(getattr(cctx, "ability_variables_multiplier", 100) or 100)
+    lo = int(ability_var("Poxwalkers", "chance", level, multiplier_pct=mult) or 0) * int(nb_tiles)
+    hi = int(ability_var("Poxwalkers", "chance_2", level, multiplier_pct=mult) or 0) * int(nb_tiles)
+    if hi < lo:
+        hi = lo
+    raw = lo if state.rng is None else state.rng.next_internal(lo, hi + 1)   # max INCLUS (@180f22160)
+    return int(ceil(raw / 100))                                              # Divide(..., 100, Ceiling)
+
+
+def spawn_poxwalkers_tree(tiles: list) -> Spawn:
+    """Arbre de `SpawnPoxwalkersAbility.ExecuteBehaviour @181208b80` : UN noeud `Spawn` dont les options
+    portent le sous-behaviour ON-APPEARANCE `PerformAIAttackFromCurrentPosition(activeTarget@0x180)`
+    (`DSLFactory.PerformAIAttackFromCurrentPosition @180df8a10` -> `PerformAIAbilityUnitBehaviour.Execute
+    @180fcb070`) = chaque Poxwalker fraichement pose attaque DEPUIS SA POSITION (sans bouger). La feuille
+    portee `PerformAIAttack` accepte le domaine UNITE (l'`ActiveTarget` lie par le `Spawn`) aussi bien que
+    le domaine TUILE (le `Cache` de GetEmRuntz)."""
+    return Spawn(FixedTileIds(tiles), "Poxwalkers", on_appearance=PerformAIAttack(ActiveTarget()))
+
+
+class SpawnPoxwalkersAbility(ActiveAbility):
+    """`SpawnPoxwalkersAbility.ExecuteBehaviour @181208b80` (id 1040, `deathBlightbringer`, DeathGuard).
+    SELF-CAST : fait apparaitre `ceil(rand(n*chance, n*chance_2)/100)` Poxwalkers (`deathPoxwalker`) sur
+    des tuiles libres du disque de rayon `ContagionsOfNurgle_ArmorReduction_Effect.CalculateRange(caster)`
+    (1/2/3 selon `TurnsStarted`) autour du caster, puis chacun attaque depuis sa position.
+
+    N'utilise PAS `PerformAIAction` (l'on-appearance est un `PerformAIAttackFromCurrentPosition`).
+    Retour : {spawned, attacks, radius, tiles, count, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.Poxwalkers)   # 1040
+    ABILITY_ID = "Poxwalkers"
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if state.get_entity(caster_id) is None:
+            return None
+        radius = contagions_of_nurgle_range(state, caster_id)
+        tiles = poxwalkers_spawn_tiles(state, caster_id, radius)
+        n = poxwalkers_count(state, caster_id, len(tiles))
+        from .loki.splash import _pick_randomly_n
+        picked = _pick_randomly_n(state, tiles, n)          # PickRandomly(tiles, amount)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        spawn_poxwalkers_tree(picked).execute(
+            entities_from_state(state, caster_id, target_id), ectx)
+        spawned = [p["unit"] for nm, p in ectx.emitted if nm == "SpawnUnit"]
+        attacks = [p for nm, p in ectx.emitted if nm == "PerformAIAttack"]
+        return {"spawned": spawned, "attacks": attacks, "radius": radius, "tiles": picked,
+                "count": n, "dsl": True}
