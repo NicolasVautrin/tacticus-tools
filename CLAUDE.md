@@ -352,18 +352,38 @@ Le `<HASH>` du dossier change à chaque mise à jour. **Tant que cette procédur
 passée, toute analyse offline est fausse** (adresses 100 % périmées) et les artefacts
 estampillés refusent de servir — c'est voulu, ils échouent FORT plutôt que de mentir.
 
-**Deux familles de TSV, à ne pas confondre** (le mot « dump » est surchargé) :
+**Un répertoire par build, une famille par producteur** — l'arborescence dit d'où vient
+chaque table (le mot « dump » est surchargé, la structure lève l'ambiguïté) :
 
-| artefact | produit par | consommé par |
-|---|---|---|
-| `data/il2cpp_{methods,classes,enums}.tsv` | `preprocess_il2cpp_dump.py` (depuis le dump Frida) | **Ghidra**, pour nommer les fonctions |
-| `data/symbols/<HASH>/functions.tsv` | `ghidra_symbols.py dump` (**extraction DE Ghidra**) | **nos outils offline** : `whereis`, migrateur, probes |
+```
+data/symbols/<HASH>/
+  BUILD                          le hash, en clair
+  frida/{methods,classes,enums}.tsv    produit par preprocess_il2cpp_dump.py
+  ghidra/functions.tsv                 EXTRAIT de Ghidra par ghidra_symbols.py dump
+```
 
-**Aucun des deux ne nourrit Frida.** Frida est la SOURCE de la chaîne (le one-shot lit les
-métadonnées du runtime IL2CPP), et les hooks live, eux, résolvent leurs cibles au runtime via
-`findMethod` — jamais depuis un fichier. La seconde table existe parce que **Ghidra apporte
-les frontières de fonctions** : la table Frida ne connaît que les points d'entrée, Ghidra seul
-permet de situer une adresse À L'INTÉRIEUR d'une fonction (`<symbole>+0x<offset>`).
+| famille | produit par | consommé par | son diff dit |
+|---|---|---|---|
+| `frida/methods.tsv` | `preprocess` (depuis le dump Frida) | **Ghidra** (nommage) | signatures — mais la RVA est en colonne 1, donc **toutes** les lignes changent : diff bruité |
+| `frida/classes.tsv` | idem | **Ghidra** (structs) | **taille, parent, offsets de champs** — aucune adresse, **diff propre** |
+| `frida/enums.tsv` | idem | lecture humaine | **valeurs d'enum** — aucune adresse, **diff propre** |
+| `ghidra/functions.tsv` | `ghidra_symbols.py dump` | **nos outils offline** (`whereis`, migrateur, probes) | apparitions / disparitions / renommages |
+
+**Les deux tables qui comptent pour détecter une casse silencieuse sont `classes` et `enums`** :
+la doctrine conserve les offsets RELATIFS (`+0xa8`, slots de vtable) et les identifiants
+d'effet en dur — si une MAJ redispose une struct ou renumérote un enum, **seul leur diff le
+montre**. La table plate `functions.tsv`, elle, ne voit qu'un nom qui bouge.
+
+**Aucune ne nourrit Frida.** Frida est la SOURCE de la chaîne (le one-shot lit les métadonnées
+du runtime IL2CPP), et les hooks live, eux, résolvent leurs cibles au runtime via `findMethod`
+— jamais depuis un fichier. `ghidra/functions.tsv` n'est pas une redite de `frida/methods.tsv` :
+**Ghidra apporte les frontières de fonctions**, que Frida n'a pas (il ne connaît que les points
+d'entrée). C'est ce qui permet de situer une adresse À L'INTÉRIEUR d'une fonction et donc
+d'écrire `<symbole>+0x<offset>`.
+
+`GhidraApplyIl2CppSymbols.java` **sélectionne lui-même** son build : il parcourt
+`data/symbols/*/frida/` et retient celui dont l'estampille porte le sha256 du binaire chargé.
+Il ne peut donc plus appliquer les symboles d'un autre build — soit il trouve, soit il refuse.
 
 **Étape 0 — constater.** Comparer le hash installé au hash des artefacts :
 

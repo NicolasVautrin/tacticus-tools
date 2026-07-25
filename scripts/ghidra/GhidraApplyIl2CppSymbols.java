@@ -29,9 +29,15 @@ import java.util.*;
 
 public class GhidraApplyIl2CppSymbols extends GhidraScript {
 
-    private static final String DATA_DIR = "C:/Users/nicolasv/tacticus-tools/data";
-    private static final String METHODS_TSV = DATA_DIR + "/il2cpp_methods.tsv";
-    private static final String CLASSES_TSV = DATA_DIR + "/il2cpp_classes.tsv";
+    // Racine des tables de symboles, un sous-repertoire PAR BUILD :
+    //   data/symbols/<HASH>/frida/{methods,classes,enums}.tsv   (produit par preprocess)
+    //   data/symbols/<HASH>/ghidra/functions.tsv                (extrait D'ICI ensuite)
+    private static final String SYMBOLS_DIR = "C:/Users/nicolasv/tacticus-tools/data/symbols";
+
+    // Resolus au demarrage par selectBuildDir() : on ne CHOISIT PLUS un chemin en dur, on
+    // SELECTIONNE le build dont l'estampille correspond au binaire charge (cf. garde ci-dessous).
+    private String METHODS_TSV;
+    private String CLASSES_TSV;
 
     // Enable phase 2: create struct types + apply function signatures
     private static final boolean APPLY_CLASSES = true;
@@ -130,9 +136,54 @@ public class GhidraApplyIl2CppSymbols extends GhidraScript {
         println("provenance OK : " + tsvPath + " <-> binaire charge (sha256 " + expected.substring(0, 16) + "...)");
     }
 
+    // SELECTION DU BUILD — remplace le chemin en dur qui etait la cause de l'incident.
+    // On parcourt data/symbols/<HASH>/frida/ et on retient CELUI dont l'estampille porte le
+    // sha256 du binaire charge. Le script ne peut donc plus appliquer les symboles d'un AUTRE
+    // build : soit il trouve le bon, soit il refuse. Le hash du dossier n'est qu'un indice de
+    // lecture — c'est le sha256 qui decide.
+    private void selectBuildDir() throws Exception {
+        String want = currentProgram.getExecutableSHA256();
+        if (want == null || want.isEmpty()) {
+            throw new IllegalStateException(
+                "ABANDON : Ghidra ne fournit pas de SHA256 pour le binaire charge — impossible\n"
+                + "de selectionner les symboles correspondants. Refus d'ecrire.");
+        }
+        want = want.trim().toLowerCase();
+
+        File root = new File(SYMBOLS_DIR);
+        File[] builds = root.listFiles(File::isDirectory);
+        List<String> seen = new ArrayList<>();
+        if (builds != null) {
+            Arrays.sort(builds);
+            for (File b : builds) {
+                File m = new File(new File(b, "frida"), "methods.tsv");
+                if (!m.isFile()) continue;
+                String sha = provenanceSha(m.getPath());
+                seen.add("    " + b.getName() + " -> " + (sha == null ? "(pas d'estampille)" : sha));
+                if (want.equals(sha)) {
+                    METHODS_TSV = m.getPath();
+                    CLASSES_TSV = new File(new File(b, "frida"), "classes.tsv").getPath();
+                    println("build selectionne : " + b.getName()
+                            + " (sha256 " + want.substring(0, 16) + "...)");
+                    return;
+                }
+            }
+        }
+        throw new IllegalStateException(
+            "ABANDON : aucun jeu de symboles ne correspond au binaire charge.\n"
+            + "  binaire Ghidra sha256 = " + want + "\n"
+            + "  builds disponibles sous " + SYMBOLS_DIR + " :\n"
+            + (seen.isEmpty() ? "    (aucun)" : String.join("\n", seen)) + "\n"
+            + "  Regenerer la chaine pour CE binaire :\n"
+            + "    1) jeu lance : python scripts/python/dump_il2cpp.py --pid <pid>\n"
+            + "    2)             python scripts/python/preprocess_il2cpp_dump.py");
+    }
+
     @Override
     protected void run() throws Exception {
-        // AVANT toute ecriture : verifier que les TSV viennent bien du binaire charge.
+        // AVANT toute ecriture : selectionner le build qui correspond au binaire charge,
+        // puis re-verifier l'estampille de chaque TSV effectivement lu.
+        selectBuildDir();
         assertProvenance(METHODS_TSV);
         if (APPLY_CLASSES) assertProvenance(CLASSES_TSV);
 

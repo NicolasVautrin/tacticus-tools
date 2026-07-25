@@ -28,8 +28,8 @@ VA_RE = re.compile(r"(?<![0-9a-fA-Fx])(?:0x|@)(18[0-9a-fA-F]{7})(?![0-9a-fA-F])"
 
 
 def load_table(build: str):
-    """-> (addrs triees, noms alignes). Table = data/symbols/<build>/functions.tsv."""
-    path = SYMBOLS_DIR / build / "functions.tsv"
+    """-> (addrs triees, noms alignes). Table = data/symbols/<build>/ghidra/functions.tsv."""
+    path = SYMBOLS_DIR / build / "ghidra" / "functions.tsv"
     if not path.exists():
         raise SystemExit("table absente : %s (lancer ghidra_symbols.py dump)" % path)
     pairs = []

@@ -9,19 +9,19 @@ projet Ghidra portait celui de juin — rien ne le signalait, et le script d'app
 en dur. Un `run` aurait ecrase les bons noms par les mauvais, en silence.
 
 Outputs (apres la ligne `#!il2cpp-provenance`) :
-  data/il2cpp_methods.tsv  — one method per line:
+  data/symbols/<HASH>/frida/methods.tsv  — one method per line:
     RVA_hex \t full_name \t declaring_class \t is_static(0|1) \t return_type \t params(name:type,...)
 
-  data/il2cpp_classes.tsv  — one class per line:
+  data/symbols/<HASH>/frida/classes.tsv  — one class per line:
     full_name \t size \t parent \t vtype \t fields(name:type:offset,...)
 
-  data/il2cpp_enums.tsv    — one enum per line:
+  data/symbols/<HASH>/frida/enums.tsv    — one enum per line:
     full_name \t values(value=name,...)
 
 Usage :
     python scripts/python/preprocess_il2cpp_dump.py [--dll <GameAssembly.dll>]
 Le dump `data/il2cpp_full.json` doit avoir ete produit depuis CE binaire
-(`hooks-legacy/_oneshot/dump-il2cpp-full.js` injecte dans le jeu en cours).
+(`scripts/frida/dump-il2cpp-full.js` injecte dans le jeu en cours).
 """
 
 import argparse
@@ -51,8 +51,19 @@ def main() -> int:
         print('  Aucun TSV ecrit (un TSV sans provenance est inutilisable en aval).')
         return 2
 
-    print('provenance : build=%s' % dll.parent.name)
+    # Un repertoire PAR BUILD, et une famille PAR PRODUCTEUR — la structure dit d'ou vient
+    # chaque table, ce qui evite la confusion « les TSV nourrissent Frida » (ils n'alimentent
+    # que Ghidra ; Frida est la SOURCE, pas un consommateur) :
+    #   data/symbols/<HASH>/frida/{methods,classes,enums}.tsv   <- ici
+    #   data/symbols/<HASH>/ghidra/functions.tsv                <- ghidra_symbols.py dump
+    build = dll.parent.name
+    out_dir = REPO / 'data' / 'symbols' / build / 'frida'
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir.parent / 'BUILD').write_text(build + '\n', encoding='utf-8')
+
+    print('provenance : build=%s' % build)
     print('             sha256=%s' % stamp.split('sha256=')[1].split('\t')[0])
+    print('sortie     : %s' % out_dir.relative_to(REPO))
 
     with SRC.open(encoding='utf-8') as f:
         d = json.load(f)
@@ -62,7 +73,7 @@ def main() -> int:
     enums = d['enums']
 
     # --- methods.tsv ---
-    with (REPO / 'data' / 'il2cpp_methods.tsv').open('w', encoding='utf-8') as f:
+    with (out_dir / 'methods.tsv').open('w', encoding='utf-8') as f:
         f.write(stamp + '\n')
         for rva, m in methods.items():
             name = m['n'].replace('\t', ' ').replace('\n', ' ')
@@ -78,7 +89,7 @@ def main() -> int:
     print(f'Wrote {len(methods)} methods')
 
     # --- classes.tsv ---
-    with (REPO / 'data' / 'il2cpp_classes.tsv').open('w', encoding='utf-8') as f:
+    with (out_dir / 'classes.tsv').open('w', encoding='utf-8') as f:
         f.write(stamp + '\n')
         for name, c in classes.items():
             sz = c.get('size', 0)
@@ -93,7 +104,7 @@ def main() -> int:
     print(f'Wrote {len(classes)} classes')
 
     # --- enums.tsv ---
-    with (REPO / 'data' / 'il2cpp_enums.tsv').open('w', encoding='utf-8') as f:
+    with (out_dir / 'enums.tsv').open('w', encoding='utf-8') as f:
         f.write(stamp + '\n')
         for name, values in enums.items():
             v_str = ','.join(f'{v}={n}' for v, n in values.items())

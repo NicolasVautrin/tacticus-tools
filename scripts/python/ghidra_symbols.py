@@ -15,7 +15,7 @@ ce qui rend le grep code <-> table immediat. Un point INTERNE a une fonction se 
 `<symbole>+0x<offset>` (offset RELATIF, il ne peut pas perimer sur un simple relogement).
 
 Sous-commandes :
-    dump      -> ecrit data/symbols/<HASH>/functions.tsv (adresse, symbole)
+    dump      -> ecrit data/symbols/<HASH>/ghidra/functions.tsv (adresse, symbole)
     resolve   -> symbole (ou regex) -> adresse
     whereis   -> adresse -> symbole + offset interne
     build     -> le hash du build charge par ghidra-mcp
@@ -143,7 +143,7 @@ def cmd_build(_args) -> int:
 def cmd_dump(args) -> int:
     g = GhidraMCP().connect()
     build = loaded_build(g)
-    out_dir = SYMBOLS_DIR / build
+    out_dir = SYMBOLS_DIR / build / "ghidra"
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / "functions.tsv"
     n = 0
@@ -162,7 +162,7 @@ def cmd_dump(args) -> int:
 
 
 def _table_for(build: str) -> Path:
-    p = SYMBOLS_DIR / build / "functions.tsv"
+    p = SYMBOLS_DIR / build / "ghidra" / "functions.tsv"
     if not p.exists():
         raise SystemExit("table absente pour le build %s : lancer `ghidra_symbols.py dump`" % build)
     return p
@@ -219,7 +219,7 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    p = sub.add_parser("dump", help="ecrit data/symbols/<HASH>/functions.tsv")
+    p = sub.add_parser("dump", help="ecrit data/symbols/<HASH>/ghidra/functions.tsv")
     p.add_argument("--page", type=int, default=2000)
     p.set_defaults(func=cmd_dump)
 

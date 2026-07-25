@@ -4,7 +4,7 @@
 POURQUOI. Churn inter-build MESURE (build de mai -> gqfc5mff6c) : les NOMS sont stables a
 97,5 %, les ADRESSES changent a 100 %. Une citation par ADRESSE est donc fausse des la
 mise a jour suivante, silencieusement — alors que le symbole, lui, survit et se re-resout
-d'un grep dans `data/symbols/<build>/functions.tsv`.
+d'un grep dans `data/symbols/<build>/ghidra/functions.tsv`.
 
 FORME CIBLE = EXACTEMENT la sortie de l'outil d'extraction (`ghidra_symbols.py dump`), pour
 que le grep code <-> table soit immediat :
@@ -62,7 +62,7 @@ class Table:
     """Table de symboles du build : adresse -> symbole englobant."""
 
     def __init__(self, build: str):
-        path = SYMBOLS_DIR / build / "functions.tsv"
+        path = SYMBOLS_DIR / build / "ghidra" / "functions.tsv"
         if not path.exists():
             raise SystemExit("table absente : %s\n  -> lancer `ghidra_symbols.py dump`" % path)
         pairs = []
