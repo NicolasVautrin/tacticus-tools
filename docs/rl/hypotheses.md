@@ -1126,19 +1126,21 @@ confirmé par gameconfig/i2 (hors domaine). À reproduire avant promotion.
   pour éviter sa riposte Drachnyen double-attack), puis overkill T5 → la 2ᵉ attaque enchaînée Drachnyen ne s'est jamais
   déclenchée → le claim « la chaîne auto-cible un ennemi DIFFÉRENT du primaire » non exercé. Le ciblage reste à n=1).
 
-## H22 — TerrifyingCrescendo (Shiron) : un crit étend-il la durée de ThrillSeekers ? — `provisoire` (pour:0 contre:1-i2)
-- **claim (à RÉFUTER)** : un retour combat (seed 95001) affirme qu'« un crit d'ExcruciatingFrequencies
-  étend la durée de ThrillSeekers ». **NON supporté par i2** : ThrillSeekers se re-trigger PAR TOUR quand
-  l'unité subit des dégâts OU cible un ennemi full-HP (+crit while Thrilled, crit-kill = overkill) — il
-  n'y a **aucune clause d'extension-de-durée-sur-crit**. Le CORE de TerrifyingCrescendo (+218 dmg ranged
-  par Overkill/Suppress, cap 6 = +1308) est i2-confirmé et inscrit au wiki §2 (entrée Shiron) ; SEUL le
-  sous-claim ThrillSeekers-extend est douteux.
-- **à valider** : observer la durée effective de Thrilled tour après tour (re-trigger par-tour attendu, PAS
-  une extension cumulative par crit).
-- **evidence** : seed 95001 (n=1, verdict « plausible » sur l'ensemble mais sous-claim ThrillSeekers
-  explicitement non supporté par i2). ⚠ ne pas planifier autour d'une « durée étendue ».
-  **seed 70009 (INCONCLUSIVE)** : Shiron présent mais tué avant d'observer une durée multi-tours de ThrillSeekers ;
-  aucun claim d'extension-sur-crit testable ce match (le sous-claim reste non supporté par i2, ni confirmé ni réfuté ici).
+## H22 — TerrifyingCrescendo (Shiron) : un crit étend-il la durée de ThrillSeekers ? — **RÉFUTÉ** (RE décompilé + live)
+- **claim (réfuté)** : un retour combat (seed 95001) affirmait qu'« un crit d'ExcruciatingFrequencies étend
+  la durée de ThrillSeekers ».
+- **verdict** : **FAUX**, tranché par le décompilé, pas par une statistique.
+  `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ThrillSeekersAbility$$CreateTrigger` ne contient
+  **aucun** prédicat de crit : ses deux seules branches sont
+  `On(PreAttackHit) & IsFirstHitInSeries & OwnerIsCaster & Not(IsWounded(target))` et
+  `On(DamageTaken) & OwnerIsTarget`. Le `CreateBehaviour` pose une durée FIXE
+  `TurnsFromRounds(nrOfRounds=1)` et, si l'effet est déjà porté, la **REMET** à cette même valeur
+  (`ChangeEffectTurns` avec `ChangeType.Set`, jamais `Add`) — donc pas d'extension cumulative possible,
+  quelle qu'en soit la cause.
+- **evidence live** (`case-thrillseekers`) : durée mesurée `remaining = 2` à chaque pose ET à chaque
+  refresh, décrément d'1 par `EndTurn`, retrait au 2e. Le CORE de TerrifyingCrescendo (+218 dmg ranged par
+  Overkill/Suppress, cap 6) reste i2-confirmé et porté (#204) — c'est seulement le sous-claim
+  « ThrillSeekers-extend » qui tombe.
 
 ## H23 — Aberrant (genesSmnAberrant) : « TriggeredAbility 1271 » réaction au mouvement ennemi ? — `provisoire` (pour:1 contre:1-gameconfig)
 - **claim (n=1, douteux)** : un retour combat (seed 95001) attribue à l'Aberrant invoqué une

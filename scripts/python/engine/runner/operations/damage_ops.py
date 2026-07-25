@@ -186,6 +186,15 @@ class _DamageOpsMixin:
         # d'ABILITY multi-coups à cc=0 n'était PAS un crit-roll (réfuté décompile + live M1/M2) mais le
         # resolve slot-8 GASPILLÉ du vecteur ability — cf. `_one_hit`. Gate `could_crit` = cc>0 ET cd>0
         # (IdunBattle.Core.Services.DamageCalculations$$CouldCrit).
+        # `On(PreAttackHit=6)` — vecteur PER-COUP natif emis TOUT EN HAUT d'`IdunBattle.Operations.
+        # AttackDamageOperation$$ExecuteHit`, donc APRES `GetAttackHits` et AVANT le calcul du crit du
+        # coup. Emis ICI a la MEME place : son seul consommateur porte (ThrillSeekers, branche
+        # « cible a pleine vie ») pose un stat-mod CRIT_CHANCE que `_crit_params` (ligne suivante) DOIT
+        # voir sur CETTE attaque -- le router apres serait un no-op silencieux. `is_first_hit=True` =
+        # le coup 0 (le port n'a pas de boucle de coups au niveau trigger ; cf. l'en-tete du vecteur).
+        from .triggers.dispatch import pre_attack_hit_triggers   # lazy : cycle damage<->triggers
+        pre_attack_hit_triggers(state, attacker_id, target_id, ranged=bool(_ranged),
+                                profile=_profile, is_first_hit=True, ability_type=1013)
         # crit = GetStat(9/10) [DÉJÀ effet-inclusif : les effets StatModification sur la crit sont
         # cuits dans GetStat → dans le combatSnapshot → dans ctx] + couche calc-time SÉPARÉE
         # GetCritChanceBonusFromEffects/GetCritDamageBonusFromEffects (PAS dans GetStat → sommée ici
@@ -359,6 +368,13 @@ class _DamageOpsMixin:
         # `_block_sources` (mirror du GetMultiValueStat(7)/IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances unique du natif).
         # #65 : `damage_profile` gate le trait NoBlocking (profil Psychic bypasse le block, mirror ExecuteHit).
         block_sources = AttackDamageOperation._block_sources(tsc, _da, armor, damage_profile)
+        # `On(PreAttackHit=6)` — `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit` emet le MEME
+        # trio d'events {6, 8, 0x3d} que la voie normale (verdict RE #147/#150), donc ThrillSeekers se
+        # declenche aussi sur une attaque d'ABILITY du porteur contre une cible a pleine vie.
+        from .triggers.dispatch import pre_attack_hit_triggers   # lazy : cycle damage<->triggers
+        pre_attack_hit_triggers(state, attacker_id, target_id,
+                                ranged=not bool(is_melee) if is_melee is not None else False,
+                                profile=damage_profile, is_first_hit=True, ability_type=ability_type)
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(ctx, active)
         # #45f : la famille ABILITY (`IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`) n'a AUCUN chemin
         # crit — pas d'appel RollCritical (le slot crit n'existe que dans `AttackDamageOperation.
@@ -568,6 +584,11 @@ class _DamageOpsMixin:
         # `_block_sources` (mirror du GetMultiValueStat(7)/IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances unique du natif).
         # #65 : `damage_profile` gate le trait NoBlocking (profil Psychic bypasse le block, mirror ExecuteHit).
         block_sources = AttackDamageOperation._block_sources(tsc, _da, armor, damage_profile)
+        # `On(PreAttackHit=6)` — meme vecteur per-coup natif (ExecuteHit, en tete du coup, avant le crit).
+        from .triggers.dispatch import pre_attack_hit_triggers   # lazy : cycle damage<->triggers
+        pre_attack_hit_triggers(state, attacker_id, target_id,
+                                ranged=not bool(is_melee) if is_melee is not None else False,
+                                profile=damage_profile, is_first_hit=True, ability_type=ability_type)
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(ctx, active)
         # #120 : réduction PLATE défenseur (Nightshroud, ungated -> splash/normal-like aussi) fusionnée pré-perçage.
         AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)

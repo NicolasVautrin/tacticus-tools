@@ -354,20 +354,32 @@ class ChangeEffectTurns(AbilityBehaviour):
     `entities/selectors.py`) -> la feuille resout elle-meme les instances via `state.effects.by_unit[owner]`
     filtrees sur `effect_type` (MEME cle que la pose `AddEffectOperation`) — c'est litteralement ce que le
     selecteur natif rend. `owner_sel` = le 2e argument natif (`target@0x178` pour TwinSmartMissileSystem).
-    `turns` = int OU noeud-formule ; `change_type` = 0 Add (defaut natif du seul call-site porte) / 1 Set.
+    `turns` = int OU noeud-formule, DEJA EN TOURS (mirror d'un noeud `Direct(n)`/`Nullable<int>(n)` natif) ;
+    `turns_rounds` = le meme argument exprime en ROUNDS parce que le natif y branche un noeud
+    `TurnsFromRounds(n)` (ThrillSeekers : `ChangeEffectTurns(Owner, 0x59a, TurnsFromRounds(nrOfRounds), Set)`)
+    -> converti a l'execution par `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns`, MEME
+    semantique et MEME helper `_resolve_duration` que `duration_rounds` d'`AddEffect` (prioritaire :
+    `turns` s'il est fourni). `change_type` = 0 Add (TwinSmartMissileSystem) / 1 Set (ThrillSeekers).
     Emet 'ChangeEffectTurns' par instance touchee. Effet PUR (stop=False)."""
-    __slots__ = ("owner_sel", "effect_type", "turns", "change_type")
+    __slots__ = ("owner_sel", "effect_type", "turns", "change_type", "turns_rounds")
 
-    def __init__(self, owner_sel: TargetsSelector, effect_type: int, turns, change_type: int = 0):
+    def __init__(self, owner_sel: TargetsSelector, effect_type: int, turns=None, change_type: int = 0,
+                 turns_rounds=None):
         self.owner_sel, self.effect_type = owner_sel, int(effect_type)
         self.turns, self.change_type = turns, int(change_type)
+        self.turns_rounds = turns_rounds
 
     def execute(self, entities, ectx):
         from ...operations.effects import ChangeEffectTurnsOperation
         state = ectx.state
         if state is None or state.effects is None:
             return OperationResult.ok()
-        amount = int(self.turns.evaluate(entities) if hasattr(self.turns, "evaluate") else self.turns)
+        if self.turns is not None:
+            amount = int(self.turns.evaluate(entities) if hasattr(self.turns, "evaluate") else self.turns)
+        else:                                    # noeud `TurnsFromRounds(n)` natif -> ConvertRoundsToTurns
+            _r = (self.turns_rounds.evaluate(entities) if hasattr(self.turns_rounds, "evaluate")
+                  else self.turns_rounds)
+            amount = int(_resolve_duration(state, _r, None) or 0)
         for ou in _units_of(self.owner_sel, entities):
             oid = ou.get("id") if isinstance(ou, dict) else None
             if oid is None:
@@ -383,24 +395,38 @@ class ChangeEffectTurns(AbilityBehaviour):
 
 class AddStaticStatModifierEffect(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLFactory$$AddStaticStatModifierEffect(unit, effectType, statType, amountNode,
-    ..., flag)` : pose sur `unit` un effet `effectType` porteur d'une modification de stat STATIQUE
+    turnsNode, flag)` : pose sur `unit` un effet `effectType` porteur d'une modification de stat STATIQUE
     (montant fige a la pose, != un modifier dynamique re-calcule). Wrapper MINCE au-dessus des DEUX
     operations deja portees : `AddEffectOperation` (materialisation de l'entite-effet) puis
     `apply_change_stat` (la `ValueModification` per-source, cle = l'instance d'effet) — frontiere #149
     respectee (feuille declarative / Operations imperatives).
+
+    DUREE (`duration_rounds`/`duration_turns`, #ThrillSeekers) = le **5e argument natif**, prouve au
+    decompile : `DSLFactory.AddStaticStatModifierEffect` construit
+    `IdunBattle.Entities.Behaviours.AddStatModifierEffectBehaviour$$.ctor` avec `param_9 -> champ +0x78`,
+    et `...$$Execute` evalue ce champ (`+0x78`) en `Nullable<int>` passe a l'`EffectBuilder` = la DUREE de
+    l'entite-effet (le champ +0x70 voisin est, lui, le montant). Sans ce parametre le port forcait
+    `duration_override=None` -> `DefaultAmountOfRounds(type)` -> absent de la table -> effet PERMANENT.
+    MEME semantique/`_resolve_duration` que `AddEffect` : `duration_rounds` = noeud `TurnsFromRounds(n)`
+    natif (converti par `ConvertRoundsToTurns`), `duration_turns` = noeud `Direct(n)` deja en TOURS
+    (prioritaire), les deux None = pas d'override (comportement historique des call-sites permanents).
 
     `stat_mod_source` est pose sur l'instance pour que `RemoveEffect` (qui lit `reverted_stats()` +
     `stat_mod_source`) sache annuler EXACTEMENT cette contribution : c'est la mecanique de rafraichissement
     d'`AddOrUpdateStaticStatModifierEffect` (remove-puis-add). L'effet materialise n'ayant pas forcement de
     classe dediee, on force `reverted_stats` sur l'instance (attribut d'instance, prioritaire sur la methode
     de classe seulement si l'appelant lit la LISTE -- ici `RemoveEffect` appelle `eff.reverted_stats()`, donc
-    on installe un callable). Emet 'AddStaticStatModifierEffect'. PUR."""
-    __slots__ = ("unit_sel", "effect_type", "stat_type", "amount", "name")
+    on installe un callable). L'EXPIRATION du timer passe, elle, par
+    `revert_stat_mods_of_removed_effects` (mirror `AStatModifierEffect$$RevertModification`, cf.
+    `runner/operations/effects.py`). Emet 'AddStaticStatModifierEffect'. PUR."""
+    __slots__ = ("unit_sel", "effect_type", "stat_type", "amount", "name",
+                 "duration_rounds", "duration_turns")
 
     def __init__(self, unit_sel: TargetsSelector, effect_type: int, stat_type: int, amount,
-                 name: str | None = None):
+                 name: str | None = None, duration_rounds=None, duration_turns=None):
         self.unit_sel, self.effect_type = unit_sel, int(effect_type)
         self.stat_type, self.amount, self.name = int(stat_type), amount, name
+        self.duration_rounds, self.duration_turns = duration_rounds, duration_turns
 
     def execute(self, entities, ectx):
         from ...operations.effects import AddEffectOperation
@@ -410,13 +436,16 @@ class AddStaticStatModifierEffect(AbilityBehaviour):
         if state is None or state.effects is None:
             return OperationResult.ok()
         amt = int(self.amount.evaluate(entities) if hasattr(self.amount, "evaluate") else self.amount)
+        _dr = (self.duration_rounds.evaluate(entities) if hasattr(self.duration_rounds, "evaluate")
+               else self.duration_rounds)
+        dur = _resolve_duration(state, _dr, self.duration_turns)   # champ +0x78 (turnsNode) natif
         for u in _units_of(self.unit_sel, entities):
             uid = u.get("id") if isinstance(u, dict) else None
             if uid is None:
                 continue
             eff = AddEffectOperation.execute(state, source=src, target=uid,
                                              effect_type=self.effect_type, name=self.name,
-                                             duration_override=None, value=amt)
+                                             duration_override=dur, value=amt)
             if eff is None:                          # deja present (gate `deja-present` de l'operation)
                 continue
             key = f"eff:{self.effect_type}:{uid}:{id(eff)}"
