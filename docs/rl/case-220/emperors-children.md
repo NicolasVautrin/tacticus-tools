@@ -49,12 +49,15 @@ Prérequis : UnitsDamagedThisPhase ; canal « modificateur de nrOfHits d'attaque
 Risques : RNG PickRandomly(2) ; canal nrOfHits jamais touché.
 ```
 ```
-[EcstaticSlaughter | emperFlawlessBlade passif]  — [opus]+prérequis (DÉPEND ThrillSeekers)
+[EcstaticSlaughter | emperFlawlessBlade passif]  — [opus] (prérequis ThrillSeekers LEVÉ)
 VAs : @180e222f0/@180e225a0 ; @180e228c0/@180e227c0/@180e228f0
 Trigger = gain de Thrilled(1434) OU kill-overkill ennemi adjacent → attaque 3x Eviscerate sur
 First(SortUnitsByDamageUtility(Randomize(adjacents))) + Taunt bond 1 round.
-Prérequis : SortUnitsByDamageUtility+First (collapse impératif type _black_rage_charge_positions) ;
-branche Thrilled APRÈS le port ThrillSeekers. TargetIsOverkilled = ev.overkill (déjà dispatché).
+Prérequis restant : SortUnitsByDamageUtility+First (collapse impératif type
+_black_rage_charge_positions). La branche Thrilled est DÉBLOQUÉE — `case-thrillseekers` a porté
+l'effet 1434 (pose + refresh + expiration, validés live) ; TargetIsOverkilled = ev.overkill (déjà
+dispatché). ⚠ `emperFlawlessBlade` n'est PAS dans le pool spawnable du rank 17 : validation live à
+re-vérifier avant de porter (les 2 porteurs confrontables sont emperKakophonist/emperNoiseMarine).
 ```
 ```
 [ObsessiveAnnunciation | emperKakophonist passif]  — ExtraDmg [opus] / crit-overkill [fable]

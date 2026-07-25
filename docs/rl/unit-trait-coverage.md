@@ -44,7 +44,12 @@ mais un trait SANS aucune reference n'est PAS forcement un no-op.
   nombre de coups** cote cible (direct-read).
 - `BeastSnagga` (x1, npc) : "+{extraDmgPct}% degat melee vs BigTarget/Vehicle + {blockChance}% block" -> attacker
   damage bonus conditionnel + block (direct-read). Rare (1 carrier).
-- `ThrillSeekers` (x5, lineup) : buff Crit Chance sous condition. **Prediction-moot** (crit exclu #62b) -> COMBAT-only.
+- ~~`ThrillSeekers`~~ **RESOLU** (`case-thrillseekers`) : le trait 1056 ACCORDE l'ability triggered 1444 (arbre DSL)
+  -> pose/refresh l'effet *Thrilled* 1434 = +15 CritChance pour `TurnsFromRounds(1)`, sur
+  `On(PreAttackHit) & IsFirstHitInSeries & OwnerIsCaster & Not(IsWounded(target))` OU `On(DamageTaken) & OwnerIsTarget`.
+  Feuille DSL + `TRAIT_TRIGGERS` + les 2 vecteurs d'event (6 / 0xf) qui manquaient. Valide live bit-exact sur les 2
+  porteurs spawnables (branches, refresh, contre-cas cible-blessee, expiration). RESIDU : le rider overkill-au-crit
+  (face PREDICTION `PredictAttackRaw`) reste non porte -> `backlog.md`.
 - `Invincible` (x20, npc-only) : pas de desc i2 -> semantique a confirmer (immunite degat probable = cap 0). A RE avant port.
 
 **B. On-hit / on-death effet (applique un effet, pas un scalaire)** :

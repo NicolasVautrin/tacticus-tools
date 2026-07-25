@@ -223,7 +223,16 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         if thc is None or thc.hp is None:
             return None
         hp_before = thc.hp
-        thc.reduce(total)                   # #G6a : clamp au HP-floor Hypersensory, pas de PV<0
+        applied = thc.reduce(total)         # #G6a : clamp au HP-floor Hypersensory, pas de PV<0
+        # `On(DamageTaken=0xf)` — `IdunBattle.Operations.ApplyDamageOperation$$Execute` emet cet event
+        # JUSTE APRES la mutation de PV (`FillUpStatComponent.Reduce`), sous le gate `0 < reduction
+        # REELLEMENT appliquee` (variable `local_7dc` du decompile = la valeur de retour de Reduce, PAS
+        # le degat demande) -- d'ou `applied > 0` ici. AVANT `_fire_death_if_killed` : cote natif la mort
+        # n'est traitee qu'ensuite (`VerifyDeaths` -> `KillUnitOperation`), donc une victime tombee a 0 PV
+        # est encore vivante quand l'event part. Seul consommateur porte : ThrillSeekers (branche 2).
+        if applied > 0:
+            from .triggers.dispatch import damage_taken_triggers   # lazy : cycle damage<->triggers
+            damage_taken_triggers(state, attacker_id, target_id, profile=profile)
         death = AttackDamageOperation._fire_death_if_killed(
             state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=total)
         if is_attack:

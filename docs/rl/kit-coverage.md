@@ -10,20 +10,10 @@
 
 ## Bilan
 
-- Unites lineup : **123** ; kits COMPLETS (aucun manque detecte) : **18** ; kits avec du travail : **105**
-- Volume total : **165** items manquants (actives no-op + passifs/traits non registres)
+- Unites lineup : **123** ; kits COMPLETS (aucun manque detecte) : **19** ; kits avec du travail : **104**
+- Volume total : **159** items manquants (actives no-op + passifs/traits non registres)
 
 ## Par faction (kits avec du travail, tries par volume)
-
-### EmperorsChildren — 5 kits, 14 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| emperExultant | 3 | EuphoricStrikes(1198) [--] NO-OP DAMAGE(Power) | RefusalToBeOutdone | ThrillSeekers(x5) |
-| emperFlawlessBlade | 3 | DaemonicPatrons(1203) [--] NO-OP EFFECT/BUFF | EcstaticSlaughter | ThrillSeekers(x5) |
-| emperKakophonist | 3 | DoomSiren(1199) [-D] NO-OP DAMAGE(DirectDamage) | ObsessiveAnnunciation | ThrillSeekers(x5) |
-| emperLucius | 3 | LashOfTorment(1196) [--] NO-OP DAMAGE(Eviscerate) | ArmourOfShriekingSouls | ThrillSeekers(x5) |
-| emperNoiseMarine | 2 | ExcruciatingFrequencies(1197) [--] NO-OP DAMAGE(Blast) | - | ThrillSeekers(x5) |
 
 ### DarkAngels — 7 kits, 13 items
 
@@ -58,6 +48,16 @@
 | necroPlasmancer | 1 | HarbingerOfDestruction(1008) [C-] OK | LivingLightning | - |
 | necroSpyder | 1 | ScarabHive(1007) [CD] OK | FabricatorClawArray | - |
 
+### EmperorsChildren — 5 kits, 9 items
+
+| unite | manque | actives | passifs manquants | traits de kit manquants |
+|---|---|---|---|---|
+| emperExultant | 2 | EuphoricStrikes(1198) [--] NO-OP DAMAGE(Power) | RefusalToBeOutdone | - |
+| emperFlawlessBlade | 2 | DaemonicPatrons(1203) [--] NO-OP EFFECT/BUFF | EcstaticSlaughter | - |
+| emperKakophonist | 2 | DoomSiren(1199) [-D] NO-OP DAMAGE(DirectDamage) | ObsessiveAnnunciation | - |
+| emperLucius | 2 | LashOfTorment(1196) [--] NO-OP DAMAGE(Eviscerate) | ArmourOfShriekingSouls | - |
+| emperNoiseMarine | 1 | ExcruciatingFrequencies(1197) [--] NO-OP DAMAGE(Blast) | - | - |
+
 ### Tau — 6 kits, 9 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
@@ -78,17 +78,6 @@
 | thousTerminator | 2 | HellfyreMissileRack(1088) [--] NO-OP DAMAGE(HeavyRound) | TimeFlux | - |
 | thousTzaangor | 2 | SorcerousFacade(1100) [-D] NO-OP DAMAGE(Psychic) | RealityUnbound | - |
 | thousSorcerer | 1 | AttemptedPossession(1101) [--] NO-OP EFFECT/BUFF | - | - |
-
-### AstraMilitarum — 6 kits, 8 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| astraDreir | 2 | LeadingTheCharge(1204) [--] NO-OP DAMAGE(Power) | ToughToKill | - |
-| astraOrdnance | 2 | BasiliskBarrage(1026) [--] NO-OP DAMAGE(Blast) | - | IndirectFire(x9) |
-| astraBullgryn | 1 | FragBomb(1017) [--] NO-OP DAMAGE(Blast) | - | - |
-| astraCreed | 1 | SupremeCommander(1028) [C-] OK | SwornProtector | - |
-| astraPrimarisPsy | 1 | PsychicMaelstrom(1027) [--] NO-OP DAMAGE(Psychic) | - | - |
-| astraYarrick | 1 | SendInTheNextWave(1016) [CD] OK | SummaryExecution | - |
 
 ### BlackTemplars — 5 kits, 8 items
 
@@ -120,6 +109,16 @@
 | spaceWolfPriest | 2 | RitesOfMorkai(1211) [--] NO-OP EFFECT/BUFF | HealingBalms | - |
 | spaceRockfist | 1 | Foehammer(1097) [--] NO-OP DAMAGE(Power) | - | - |
 | spaceWulfen | 1 | GreatFrostAxe(1089) [C-] OK | SavageKiller | - |
+
+### AstraMilitarum — 5 kits, 7 items
+
+| unite | manque | actives | passifs manquants | traits de kit manquants |
+|---|---|---|---|---|
+| astraDreir | 2 | LeadingTheCharge(1204) [--] NO-OP DAMAGE(Power) | ToughToKill | - |
+| astraOrdnance | 2 | BasiliskBarrage(1026) [--] NO-OP DAMAGE(Blast) | - | IndirectFire(x9) |
+| astraBullgryn | 1 | FragBomb(1017) [--] NO-OP DAMAGE(Blast) | - | - |
+| astraPrimarisPsy | 1 | PsychicMaelstrom(1027) [--] NO-OP DAMAGE(Psychic) | - | - |
+| astraYarrick | 1 | SendInTheNextWave(1016) [CD] OK | SummaryExecution | - |
 
 ### BlackLegion — 5 kits, 7 items
 
@@ -230,6 +229,6 @@
 |---|---|---|---|---|
 | astarCyrus | 2 | StrikeFromTheShadows(1225) [--] NO-OP DAMAGE(Bolter) | HaywireMine | - |
 
-## Kits lineup COMPLETS (18)
+## Kits lineup COMPLETS (19)
 
-adeptExorcist, admecMarshall, astraOrdnanceBattery, blackForgefiend, deathCrawler, deathRotbone, eldarFarseer, genesKelermorph, genesPrimus, orksRukkatrukk, orksRuntherd, spaceStormcaller, tauBroadside, thousInfernalMaster, tyranNeurothrope, tyranTyrantGuard, ultraApothecary, ultraCalgar
+adeptExorcist, admecMarshall, astraCreed, astraOrdnanceBattery, blackForgefiend, deathCrawler, deathRotbone, eldarFarseer, genesKelermorph, genesPrimus, orksRukkatrukk, orksRuntherd, spaceStormcaller, tauBroadside, thousInfernalMaster, tyranNeurothrope, tyranTyrantGuard, ultraApothecary, ultraCalgar

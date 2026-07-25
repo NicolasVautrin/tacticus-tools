@@ -78,6 +78,8 @@ from .loki.let_the_galaxy_burn import (LetTheGalaxyBurnArmAbility,   # #84 (trai
 from .loki.sworn_protector import (SwornProtectorSummonKellAbility,  # #95-RESTE2 (passif astraCreed)
                                    SwornProtectorProtectSwitchAbility)
 from .loki.listen_up_maggots import ListenUpMaggotsAddEffectAbility  # #95-RESTE2 (passif astraSmnKell)
+from .loki.thrill_seekers import (ThrillSeekersFullHealthTargetAbility,   # trait ThrillSeekers 1056
+                                  ThrillSeekersDamageTakenAbility)        # (x5 Emperor's Children)
 
 # --- FinalJustice / overkill ----------------------------------------------------------------------
 OVERKILL_PCT_KEY = "overkillDmgPctOfHealth"  # globalValues = 100 → overkill ssi dmg-PV >= 100%*PV (dmg>=2*PV)
@@ -121,6 +123,16 @@ TRAIT_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     #   - `LetTheGalaxyBurn_ResetAbility` IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour : `ClearPersistentData` en fin d'attaque (`On(9)`).
     # Cf. loki/let_the_galaxy_burn.py (2 branches du gate, ground truth live 34.2% / 100%).
     "LetTheGalaxyBurn": [LetTheGalaxyBurnArmAbility, LetTheGalaxyBurnResetAbility],
+    # ThrillSeekers (trait 1056 -> triggered 1444 ; les 5 kits Emperor's Children, tous lineup/HERO) =
+    # DISJONCTION `op_BitwiseOr` de deux `On()` -> DEUX classes (patron TerrifyingCrescendo/ActOfFaith) :
+    #   `On(PreAttackHit=6) & IsFirstHitInSeries & OwnerIsCaster & Not(IsWounded(target))`
+    #      = « le porteur commence une attaque sur un ennemi a PLEINE VIE »
+    #   `On(DamageTaken=0xf) & OwnerIsTarget`   = « le porteur SUBIT du degat »
+    # -> pose (ou REFRESH via `ChangeEffectTurns(Set)` si deja porte) l'effet *Thrilled* 1434 =
+    # `AddStaticStatModifierEffect(Owner, 1434, CRIT_CHANCE, extraCritChance=15, TurnsFromRounds(1))`.
+    # Cf. loki/thrill_seekers.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.ThrillSeekersAbility$$CreateTrigger /
+    # IdunBattleLogic.Entities.Abilities.Triggered.Loki.ThrillSeekersAbility$$CreateBehaviour).
+    "ThrillSeekers": [ThrillSeekersFullHealthTargetAbility, ThrillSeekersDamageTakenAbility],
 }
 
 # --- Registre : passiveAbility → ability-trigger(s) accordée(s) ------------------------------------
@@ -482,6 +494,61 @@ def pre_attack_triggers(state: State, attacker_id: int, target_id: int,
     est le `Maybe(33%)` de LetTheGalaxyBurn, qui ne fire que pour ses 5 porteurs."""
     ev = TriggerEvent(EventTriggerType.PreAttack, attacker_id, target_id,
                       ranged=ranged, profile=profile, ability_type=ability_type)
+    return evaluate_trigger_operation(state, ev)
+
+
+def pre_attack_hit_triggers(state: State, attacker_id: int, target_id: int,
+                            ranged: bool, profile: Optional[str] = None,
+                            is_first_hit: bool = True,
+                            ability_type: Optional[int] = None) -> list[dict]:
+    """Vecteur `On(PreAttackHit=6)` — emis PAR COUP par `IdunBattle.Operations.AttackDamageOperation$$
+    ExecuteHit` (et son homologue `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`) TOUT EN
+    HAUT du coup : `FUN_180026490(0x50, .., 6, entities)` puis `.., 7 (PreAttackDamageHit)`, les DEUX
+    **AVANT** le calcul du crit (`CritDamageInfo`) et avant le degat. L'`AbilityEntities` du vecteur est
+    `ctor(caster = attaquant, .., target = defenseur, hitIndex@+0x110 = param_3)` -> `actor_id` =
+    l'attaquant, `target_id` = le defenseur, `is_first_hit` = `hitIndex == 0` (lu par
+    `IsFirstHitInSeries`).
+
+    Le port n'a pas de boucle de coups au niveau des triggers (`_run_hits` resout les N coups d'un
+    bloc) : il emet ce vecteur **UNE fois par attaque, avec `is_first_hit=True`** — strictement
+    equivalent pour tout consommateur gate par `IsFirstHitInSeries` (le seul aujourd'hui : les deux
+    branches PreAttackHit de ThrillSeekers). MEME classe d'approximation, et meme justification, que la
+    granularite per-attaque de `unit_blocked_triggers`. A raffiner si un consommateur `On(6)` NON gate
+    par `IsFirstHitInSeries` apparait (il fire alors N fois cote natif).
+
+    PLACE D'EMISSION dans le port : apres `GetAttackHits` et **avant `_crit_params`** — c'est la place
+    NATIVE, et elle est fonctionnellement obligatoire : le seul consommateur porte pose un stat-mod
+    CRIT_CHANCE que le calcul de crit de CETTE attaque doit voir (sinon le port serait un no-op
+    silencieux, exactement comme `AnvilShieldFrozenAttackerAdvantageAbility` sur `On(0x2b)`).
+    AUCUN autre trigger porte n'ecoute `event_id == 6` -> no-op (et zero conso RNG) pour toute unite
+    non-porteuse de ThrillSeekers."""
+    ev = TriggerEvent(EventTriggerType.PreAttackHit, attacker_id, target_id,
+                      ranged=ranged, profile=profile, ability_type=ability_type,
+                      is_first_hit=bool(is_first_hit))
+    return evaluate_trigger_operation(state, ev)
+
+
+def damage_taken_triggers(state: State, source_id: Optional[int], target_id: int,
+                          profile: Optional[str] = None) -> list[dict]:
+    """Vecteur `On(DamageTaken=0xf=15)` — emis par `IdunBattle.Operations.ApplyDamageOperation$$Execute`
+    (`FUN_180026490(0x4d, .., 0xf, entities)`) apres la mutation des PV, sous le gate
+    `if ((0 < (int)local_7dc) || !HealthComponent.IsUnitWithHealthStat(target))` ou
+    `local_7dc = FillUpStatComponent.Reduce(hp, healthDamage)` = la reduction de PV **REELLEMENT
+    APPLIQUEE** (pas le degat demande). L'operation emet, dans l'ordre : `On(0x3a)`, `On(0xf)`
+    DamageTaken, puis `On(0x10)` DamageDealt (celui-la gate `0 < armorDamage`). Son `AbilityEntities`
+    porte la SOURCE du degat en caster/actor et la VICTIME en 3e slot -> `get_OwnerIsTarget` (le seul
+    predicat porte qui lit ce vecteur) = « le porteur EST la victime ».
+
+    Emis par le chokepoint `AttackDamageOperation._apply_damage_pipeline` (mirror du pipeline natif
+    post-resolution partage par les 4 vecteurs de degat), **avant** `_fire_death_if_killed` : cote natif
+    la mort n'est traitee qu'ensuite (`VerifyDeaths` -> `KillUnitOperation`), donc une victime qui vient
+    de tomber a 0 PV est encore vivante quand `On(0xf)` part. Granularite : le natif emet par COUP
+    (`ApplyDamageOperation` est appelee par coup), le port une fois par attaque -- sans effet observable
+    pour le seul consommateur porte (re-pose/refresh idempotent).
+
+    AUCUN autre trigger porte n'ecoute `event_id == 15`."""
+    ev = TriggerEvent(EventTriggerType.DamageTaken, source_id, target_id,
+                      ranged=False, profile=profile)
     return evaluate_trigger_operation(state, ev)
 
 

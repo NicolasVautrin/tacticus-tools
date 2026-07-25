@@ -12,7 +12,9 @@ Chaîne native RE'd (VA citées) :
       → GATES :
           • target == 0                         → log + abandon
           • déjà-présent (query 0x28 def↔cible) → return (pas de re-pose)
-          • IsUnit(target) && HasFlag(target,6) → immunité → log + abandon
+          • IsUnit(target) && HasFlag(target,6) → **cible MORTE** → log + abandon
+            (`IdunBattle.Entities.Enum.UnitFlag` : 6 = `Dead` — l'ancienne lecture « immunité » de ce
+             gate etait FAUSSE, corrigee 2026-07-25 depuis le dump d'enums du build)
       → durée = override (valuePtr/param_6) sinon `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$DefaultAmountOfRounds (sinon fallback 1)
       → IdunBattle.Operations.AddEffectOperation$$UpdateExistingEffect : refresh d'un même-type existant → si oui, FIN
         sinon NOUVEAU :
@@ -107,8 +109,12 @@ class AddEffectOperation:
             # Pas d'EffectsState matérialisé (snapshot sans combatSnapshot) → on ne peut pas poser
             # l'effet structuré. Le diff de NOMS (EffectsOwnedComponent) reste possible si présent.
             return None
-        # GATE immunité : IsUnit(target) && HasFlag(target,6). Non sourçable offline (flags d'unité non
-        # exposés par l'ECS) → TODO ; structure conservée pour quand les flags seront portés.
+        # GATE cible MORTE : `IsUnit(target) && HasFlag(target, 6)` — `UnitFlag.Dead` (dump d'enums du
+        # build : 0=Moved 1=ArrivedAtFinalTile 2=ActiveAbilityUsed 3=TurnFinished 4=NoActionAvailable
+        # 5=Automatic **6=Dead** 8=Overkilled...). L'ancienne lecture « immunité » etait FAUSSE. Non
+        # porte ici car REDONDANT en pratique : les vecteurs de pose passent par le dispatch de trigger
+        # (gate owner/cible vivant) ou par une ability dont l'acteur est vivant (#70) ; a porter le jour
+        # ou un vecteur peut poser un effet sur un cadavre.
         # DURÉE — mirror EXACT de la cascade IdunBattle.Operations.AddEffectOperation$$Execute (lVar14) :
         #   1. `param_6.NullableA.HasValue`  -> la valeur TELLE QUELLE (l'appelant l'a deja convertie ;
         #      c'est `duration_override` ici, exprime en TOURS) ;
@@ -308,6 +314,40 @@ class ChangeEffectTurnsOperation:
         new = ChangeEffectTurnsOperation.get_amount(effect.remaining_turns, amount, change_type)
         effect.remaining_turns = max(0, new)             # `if (-1 < iVar4) iVar11 = iVar4` = clamp >= 0
         return effect.remaining_turns
+
+
+def revert_stat_mods_of_removed_effects(state: State) -> list:
+    """Mirror `IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification` (ChangeStat part 6) au
+    RETRAIT d'un effet : quand une instance qui a APPLIQUE une `ValueModification` (cle `stat_mod_source`,
+    posee par `AddEffectOperation._apply_stat_mods` ou par la feuille `AddStaticStatModifierEffect`) est
+    retiree — expiree par son timer OU consommee — sa contribution doit SORTIR du `UnitStats`.
+
+    Cote natif c'est `<Effect>.RevertInternal` -> `ReverseModification` ; cote port, seule la feuille
+    `RemoveEffect` (retrait EXPLICITE) executait ce revert : une instance qui expirait sur son propre
+    timer gardait son stat-mod POUR TOUJOURS. Ce foyer ferme le trou pour le retrait par TIMER, avec la
+    MEME operation par-source (`revert_change_stat`) et la MEME part DATA (`reverted_stats()`), donc
+    strictement rien pour un effet sans `stat_mod_source` (le cas de tous les effets SEEDES, dont les
+    stat-mods sont deja cuits dans le snapshot de stats).
+
+    Idempotent : `stat_mod_source` est mis a None apres le revert (une 2e passe, ou un `RemoveEffect`
+    ulterieur sur la meme instance, est un no-op). Renvoie la liste des `(unit, effect_type, stat)`
+    revertes — diagnostic."""
+    out: list = []
+    if state.effects is None:
+        return out
+    from .stat_ops import revert_change_stat
+    for uid, effs in state.effects.by_unit.items():
+        for e in effs:
+            if not (e.consumed or e.expired):
+                continue
+            src = getattr(e, "stat_mod_source", None)
+            if src is None:
+                continue
+            for stat in (e.reverted_stats() or []):
+                revert_change_stat(state, int(uid), int(stat), src)
+                out.append((int(uid), e.effect_type, int(stat)))
+            e.stat_mod_source = None                     # idempotence (pas de double ReverseModification)
+    return out
 
 
 def _effect_name(effect_type: int) -> str:

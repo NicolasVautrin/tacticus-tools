@@ -277,3 +277,23 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `mutated=false, actionConsumed=false`, le port poserait les 3 buffs). Non atteint par les harnais
   actuels (les messages viennent de l'IA native, qui ne produit que des casts légaux) → divergence
   latente, pas une régression observée. Chantier TRANSVERSE (un prédicat par ability). `[opus]`.
+- **Rider OVERKILL de `ThrillSeekers`** (`case-thrillseekers` §Résidus 1) — trait PORTÉ et validé live
+  (branches + refresh + expiration), mais son second volet i2 (« if it defeats an enemy with a Crit,
+  that enemy is always overkilled ») est une face **PRÉDICTION** non portée :
+  `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` force son `allow_flag` à 1 quand
+  l'attaquant `HasTrait(0x420)` ET `HasEffect(0x59a)` ET (`default_flag` OU le flag de crit) —
+  cf. `case-30-raw-bounds` §« Acquis RE COMPLÉMENTAIRES ». Le port passe `allow_flag=0` en dur
+  (`services/trait_damage_limits.py::compute_prediction_overkill`). Débloqueur : RE de
+  `PredictAttackRaw` + threader `has_trait`/`has_effect` de l'ATTAQUANT jusqu'à `trait_damage_limits`.
+  Biais unilatéral : le port SOUS-estime l'overkill des porteurs *Thrilled* qui critent (donc
+  l'utilité `OverkillUnitUtility`), jamais l'inverse. `[opus]`.
+- **Stat-mods d'effets SEEDÉS non revertables à l'expiration** (`case-thrillseekers` §Résidus 2) —
+  angle mort **GÉNÉRIQUE**, mis en évidence (pas causé) par le port ThrillSeekers. Un effet à timer
+  matérialisé par un behaviour puis CAPTÉ dans un snapshot porte un montant **déjà cuit dans les
+  stats** et n'a aucune `ValueModification` côté port : son expiration offline ne le retire pas. Le
+  retrait par timer des effets posés EN JEU est désormais couvert
+  (`runner/operations/effects.py::revert_stat_mods_of_removed_effects`, mirror
+  `IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification`) ; fermer le cas SEED =
+  attribuer les stat-mods du seed par `statmod_source_key` ET faire skipper
+  `refresh_stat_modifier_effects` sur les instances à `stat_mod_source`. Transverse (ActOfFaith,
+  DoctrinaImperatives, AnvilShield…) → à promouvoir si un miss d'agreement le fait surface. `[opus]`.

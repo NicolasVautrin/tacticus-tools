@@ -54,15 +54,19 @@ Prérequis : confirmer feuilles AttackWithAbilityDamage multi-cible + UnitsFromF
 Risques : VALIDABLE (deathPutrifier lineup) ; exclusion faction + profil Toxic à vérifier.
 ```
 ```
-[ThrillSeekers | emper* x5 | 1444]  — PORT [opus], 1-2 tranches
+[ThrillSeekers | emper* x5 | 1444]  — ✅ PORTÉ + VALIDÉ LIVE (`case-thrillseekers`)
 VAs : CreateTrigger @1811a8570 ; CreateBehaviour @1811a83b0 ; effet Thrilled 1434
-Mécanique : trigger = (On(6) & IsFirstHitInSeries & OwnerIsCaster & Not(IsWounded(target)))
-   OR (On(0xf) & OwnerIsTarget) = « attaque un ennemi PLEINE VIE » OU « subit du dégât ».
+Mécanique CONFIRMÉE au bit : trigger = (On(PreAttackHit=6) & IsFirstHitInSeries & OwnerIsCaster
+   & Not(IsWounded(target))) OR (On(DamageTaken=0xf) & OwnerIsTarget) — les deux events sont
+   QUALIFIÉS (dump `IdunBattle.DSL.EventTriggerType`), plus une hypothèse.
    Behaviour = AddStaticStatModifierEffect(owner, 1434, stat 9=CritChance, +15,
-   TurnsFromRounds(1)) ; refresh ChangeEffectTurns si HasEffect, gate Not(HasFlag(owner,6)).
-Prérequis : events 6/0xf à nommer (HYPOTHÈSE non lue au bit) ; vérifier l'impact +CritChance
-   sur la prédiction ; rider overkill-sur-kill-au-crit (i2) = ajout pipeline kill.
-Risques : si le crit n'est pas un axe de prédiction, gain oracle faible.
+   TurnsFromRounds(1)) ; refresh ChangeEffectTurns(Set) si HasEffect(activeOnly=0) ;
+   gate Not(HasFlag(owner, 6)) où **6 = UnitFlag.Dead** (et non « immunité »).
+   Constantes : 0x45 = `nrOfRounds`, 0x30 = `extraCritChance` (`AbilityConstantType`).
+Livré avec : les 2 vecteurs d'event (6 / 0xf) qui n'existaient pas, le paramètre de DURÉE
+   d'`AddStaticStatModifierEffect` (5e arg natif, ignoré → effets permanents), et le revert de
+   stat-mod à l'expiration du timer (`AStatModifierEffect$$RevertModification`).
+Résidu : rider overkill-sur-kill-au-crit = face PRÉDICTION (`PredictAttackRaw`) → `backlog.md`.
 ```
 ```
 [PrioritisedEfficiency | votan* x7 | 1486]  — **[fable]**, le plus dur des 7

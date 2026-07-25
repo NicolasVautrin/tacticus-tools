@@ -29,14 +29,15 @@ class TriggerEvent:
     aussi pour rester compatibles avec le dispatch générique)."""
     __slots__ = ("event_id", "actor_id", "target_id", "ranged", "profile", "is_crit",
                  "killer_id", "dying_id", "player_id", "overkill", "ability_type", "profiles",
-                 "triggering_effect")
+                 "triggering_effect", "is_first_hit")
 
     def __init__(self, event_id: int, actor_id: int, target_id: int, *,
                  ranged: bool, profile: Optional[str], is_crit: bool = False,
                  killer_id: Optional[int] = None, dying_id: Optional[int] = None,
                  player_id: Optional[int] = None, overkill: bool = False,
                  ability_type: Optional[int] = None, profiles=None,
-                 triggering_effect: Optional[int] = None):
+                 triggering_effect: Optional[int] = None,
+                 is_first_hit: Optional[bool] = None):
         self.event_id = event_id
         self.actor_id = actor_id
         self.target_id = target_id
@@ -61,6 +62,14 @@ class TriggerEvent:
         # vecteurs. Consommateur : branche 2 de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger`
         # (`On(0x3e) & OwnerIsActor & TriggeringEffectIs(0x429=Pinned)`).
         self.triggering_effect = triggering_effect
+        # `IsFirstHitInSeries` (`IdunBattle.Entities.Triggers.IsFirstHitInSeriesTrigger$$ShouldTrigger`) =
+        # `AbilityEntities.get_IsFirstHit` = `Nullable<bool>(hitIndex.HasValue && hitIndex == 0)` — le champ
+        # `AbilityEntities@+0x110` est le Nullable<int> d'INDEX DE COUP, renseigne par
+        # `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (son param_3) qui emet
+        # `On(PreAttackHit=6)` PAR COUP. Le trigger renvoie **false** si le Nullable est vide -> `None`
+        # ici = « pas d'index de coup dans cet evenement » = `IsFirstHitInSeries` FAUX. Consommateur :
+        # ThrillSeekers (branche 1).
+        self.is_first_hit = is_first_hit
 
 
 class TriggeredAbility:

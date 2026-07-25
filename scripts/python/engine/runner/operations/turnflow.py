@@ -238,6 +238,13 @@ class EndTurnOperation:
             for uid in list(state.effects.by_unit.keys()):
                 state.effects.on_turn_end(uid, attacked=False)
                 ticked.append(int(uid))
+        # `<Effect>.RevertInternal` -> `IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification`
+        # (ChangeStat part 6) : un effet que le tick vient de faire EXPIRER doit SORTIR sa `ValueModification`
+        # du `UnitStats`. Sans ce foyer, seul le retrait EXPLICITE (feuille `RemoveEffect`) revertait — un
+        # stat-mod a TIMER (ex. `Thrilled` 1434 de ThrillSeekers, +15 CritChance pour 1 round) restait
+        # applique pour toujours. No-op strict pour toute instance sans `stat_mod_source`.
+        from .effects import revert_stat_mods_of_removed_effects
+        reverted = revert_stat_mods_of_removed_effects(state)
         # IdunBattle.Operations.EndTurnOperation$$RemoveOneTurnOnShields : décay d'1 tour des boucliers à durée de TOUTES les unités
         # (ShieldComponent.RemoveOneTurn → décrémente remaining, retire les instances à 0).
         shields_ticked: list[tuple] = []
@@ -266,11 +273,13 @@ class EndTurnOperation:
         pilein = end_turn_summon_triggers(state, finishing)
         if not advance:
             return {"ticked": ticked, "shields_ticked": shields_ticked, "landed": landed,
-                    "pilein": pilein, "next_player": None, "start": None}
+                    "pilein": pilein, "next_player": None, "start": None,
+                    "stat_mods_reverted": reverted}
         nxt = ChangeTurnOperation.execute(state)
         start = StartTurnOperation.execute(state, nxt) if nxt is not None else None
         return {"ticked": ticked, "shields_ticked": shields_ticked, "landed": landed,
-                "pilein": pilein, "next_player": nxt, "start": start}
+                "pilein": pilein, "next_player": nxt, "start": start,
+                "stat_mods_reverted": reverted}
 
 
 class TurnFlowHandler:
