@@ -53,6 +53,13 @@ from .loki.martial_apotheosis import MartialApotheosisAttackAbility  # case-220 
 from .loki.master_of_the_tutelaries import (MasterOfTheTutelariesSummonAbility,   # #202-C (triggered 1173)
                                             MASTER_EFFECT as MASTEROFTUTELARIES_EFFECT)
 from .loki.tainted_narthecium import TaintedNartheciumReviveAbility  # case-66 (passif deathRotbone, revive)
+from .loki.narthecium import NartheciumReviveAbility                 # #79 (passif ultraApothecary, revive)
+from .loki.rites_of_morkai import (RitesOfMorkaiReviveTrigger,       # #79 (effet 1502 pose par Baldr)
+                                   RITES_OF_MORKAI_EFFECT)
+from .loki.reanimation_beam import (ReanimationBeamReviveTrigger,    # #79 (effet 1547, MoW necroReanimator)
+                                    REANIMATION_BEAM_EFFECT)
+from .loki.phoenix_gem import (PhoenixGemReviveAbility,              # #79 (relic, marqueur 1451)
+                               PHOENIX_GEM_CAN_REVIVE)
 from .loki.suppressive_fire import SuppressiveFireAddEffectAbility  # #74 (trait SuppressiveFire 1010)
 
 # --- FinalJustice / overkill ----------------------------------------------------------------------
@@ -127,6 +134,12 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # REVIVE (base ReviveEffect + ReviveUnitOperation). Cf. loki/tainted_narthecium.py (@180f70a90/@180f709b0/
     # @180f46d80/@180f46a70) + operations/revive.py (@180e91bd0).
     "TaintedNarthecium": [TaintedNartheciumReviveAbility],
+    # Narthecium (passif ultraApothecary, Ultramarines/Imperial, #79 retrofit case-66) = MEME base
+    # ReviveEffect : `OnPreDeath(unless-Overkilled) & CanBeRevived & AreFriends & IsAdjacent(2)` ->
+    # Maybe(100%){ Revive-EN-PLACE a min(reviveHP,maxPV) ; DeactivateEffect once-per-turn }. Le filtre
+    # @180f5acf0 n'a PAS de HasTrait (contraste Chaos de TaintedNarthecium) et get_ReviveOnOverkill
+    # @1802b15a0 = 0 -> gate `NOT overkill`. Cf. loki/narthecium.py + triggers/revive_effect.py.
+    "Narthecium": [NartheciumReviveAbility],
 }
 
 # --- Registre : effectType → effet-trigger ---------------------------------------------------------
@@ -138,6 +151,20 @@ EFFECT_TRIGGERS: dict[int, type[EffectTrigger]] = {
     # par-effet-actif EST le Add/RemoveTriggeredAbility natif (ApplyInternal @180f59090 /
     # RevertInternal @180f591f0) -> Screamer sur attaque Psychic vs ennemi (On(9), triggered 1173).
     MASTEROFTUTELARIES_EFFECT: MasterOfTheTutelariesSummonAbility,   # 1197 -> 1173
+    # RitesOfMorkai (#79, effet « Inspired » 1502 pose par l'active 1211 de spaceWolfPriest) = MEME base
+    # `ReviveEffect` que Narthecium, mais rail EFFET (pose par une ACTIVE, pas par un passif) : filtre
+    # @180f69c10 = `OwnerIsTarget` (self-revive) et ctor @180f69c30 `removeEffect=TRUE` -> le 2e volet du
+    # behaviour est `RemoveEffect` (one-shot DEFINITIF) et non `DeactivateEffect` (once-per-turn).
+    RITES_OF_MORKAI_EFFECT: RitesOfMorkaiReviveTrigger,              # 1502 (self-revive one-shot)
+    # ReanimationBeam (#79, effet 1547 pose par l'active 1223 de la MoW necroReanimator) = base
+    # ReviveEffect, filtre @180f67ac0 = AreFriends & HasTrait(Mechanical=5) & HasEffect(1545
+    # NanoscarabRepairProtocols) ; ctor @180f67b90 removeEffect=TRUE -> one-shot.
+    REANIMATION_BEAM_EFFECT: ReanimationBeamReviveTrigger,           # 1547 (allie Mechanical nanoscarabe)
+    # PhoenixGem (#79, relic d'eldarAutarch) : PAS un ReviveEffect -- `PhoenixGem_ReviveAbility`
+    # (@1811117b0/@181111610) enregistree par l'effet-marqueur `PhoenixGem_CanReviveEffect` 1451
+    # (@180f5e4a0). Self-revive INCONDITIONNEL (pas de Maybe), **even if Overkilled**, one-shot par
+    # bataille (le marqueur est retire apres le revive).
+    PHOENIX_GEM_CAN_REVIVE: PhoenixGemReviveAbility,                 # 1451 (self-revive, even-if-overkill)
 }
 
 

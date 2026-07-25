@@ -1,8 +1,11 @@
 # case-66 — Sous-systeme REVIVE-EN-PLACE (base `ReviveEffect`) + TaintedNarthecium
 
-**Statut : DEBLOQUEUR LIVRE.** Primitive `ReviveEffect` (revive-en-place) + `ReviveUnitOperation` portees
-et validees sur le carrier phare **deathRotbone** (passif `TaintedNarthecium`). Les autres consommateurs de
-la base = **retrofit** (taches backlog, cf. §6).
+**Statut : DEBLOQUEUR LIVRE + RETROFIT #79 LIVRE.** Primitive `ReviveEffect` (revive-en-place) +
+`ReviveUnitOperation` portees et validees sur le carrier phare **deathRotbone** (passif
+`TaintedNarthecium`). Le retrofit #79 a ensuite porte **Narthecium** (LIVE-validee end-to-end),
+**RitesOfMorkai**, **ReanimationBeam** et **PhoenixGem** (mirror + offline, carriers non montables), et
+laisse **FuelledByFury** et **TimeFlux** en residus documentes (artefacts DISTINCTS de `ReviveEffect`,
+chantiers propres) — cf. §6.
 
 Build RE : `gqfc5mff6c`. Toutes VA en decimal-hex natif (RVA = VA - 0x180000000, calculee en code).
 
@@ -128,17 +131,111 @@ Zero-reg (tests cibles) : `test_revitalizing_malignancy_live` (MEME carrier deat
   seul -> le comportement observable (2e mort meme tour -> pas de revive) est valide ; le raffinement
   cross-turn est un residu si un walk multi-tour l'exerce.
 
-## 6. Retrofit — autres consommateurs de `ReviveEffect` (taches backlog `[opus]`)
-Tous heritent la base (structure DEJA portee) ; ne restent que le FILTRE + les vars + le gate overkill/HealType.
-Chacun EXIGE un carrier spawnable validable (cf. `feedback_no_unvalidatable_ability_ports`).
+## 6. Retrofit #79 — les consommateurs de la base
 
-| Consommateur | VA | Specifite |
-|---|---|---|
-| `Narthecium_ReviveEffect` (ultraApothecary, Imperial) | `@180f5ae20/@180f5acf0` | non-Mechanical, **unless Overkilled** (byte 0x738=0), chance=100 |
-| `ReanimationBeam_ReviveEffect` | ctor `@180f67b90`, filter `@180f67ac0` | carrier a identifier |
-| `PhoenixGem_CanReviveEffect` | ctor `@180f5e680`, `CreateHandleTriggerAbilitiesInternal @180f5e4a0` | variante « Can »-revive (PhoenixGem_ReviveAbility `@181111610`/`@1811117b0`) |
-| `FuelledByFury_CanReviveEffect` | `CreateHandleTriggerAbilitiesInternal @180f4ab10` | RitesOfMorkai / FuelledByFury (spaceWolfPriest `RitesOfMorkai 1211`) ; `FuelledByFury_ReviveAbility @180f810c0/@180f81250` |
-| `GhostReviveAbility` | `CreateBehaviour @180f83600`, `CreateTrigger @180f83800` | thousTerminator `TimeFlux` |
+### 6.0 Les 3 virtuels de `ReviveEffect`, resolus par LECTURE (jamais par deduction)
+
+`CreateTargetTrigger @180f46d80` appelle 3 virtuels ; `CreateTargetTriggerBehaviour @180f46a70` en appelle
+2 de plus. Le dump metadata NE LES LISTE PAS (corps triviaux `return N` deduplique par ICF) → resolus LIVE
+par le RPC `resolveVtableSlot` (lecture de pointeurs, ZERO invoke) — probe `probe_79_revive_vtable.py`.
+**Attention a l'alignement : les slots sont a `...8` (0x738/0x748/0x758/0x768/0x778), pas a `...0`.**
+
+| slot | methode | base `ReviveEffect` | Narthecium | TaintedNarthecium |
+|---|---|---|---|---|
+| +0x728 | `get_ActivateOnResurrect` | `@1802b15a0` = 0 | idem | idem |
+| +0x738 | `get_ReviveOnOverkill` | `@1802b15a0` = **0** | `@1802b15a0` = **0** | `@1802b1590` = **1** |
+| +0x748 | `get_HealType` | `@1802b15b0` = 0 | idem | idem |
+| +0x758 | `CreateTargetFilter` | `@1801e6080` (abstrait) | `@180f5acf0` | `@180f709b0` |
+| +0x768 | `GetReviveChance` | `@1801e6080` (abstrait) | `@180f5ada0` | `@180f5ada0` (ICF) |
+| +0x778 | `GetReviveHP` | `@1801e6080` (abstrait) | `@180f5add0` | `@180f5add0` (ICF) |
+
+`get_ReviveOnOverkill` EST le `param_3` de `OnDeathEvent @180df7ad0` : `0` → le trigger ajoute
+`NOT(HasFlag(dying,8=overkill))` (« unless Overkilled ») ; `1` → aucun gate (« even if Overkilled »).
+
+**Deuxieme discriminant, lu dans `CreateTargetTriggerBehaviour @180f46a70`** : le champ `removeEffect`
+(0x488, pose au ctor) choisit le 2e volet du `op_add` — `false` → `DeactivateEffect` (once-per-TURN,
+reactive au turn-start) ; `true` → `BaseEffect.GetRemoveEffectBehaviour` → `RemoveEffect` (one-shot
+**definitif**, « the first time … »).
+
+**Troisieme point (piege)** : `GetReviveChance` = `GetNumberConstant(config, 0x2a)` →
+`GetStringConstant @181576bb0` **LEVE UNE EXCEPTION** si la cle est absente. Une sous-classe dont le
+gameconfig n'a pas de constante `chance` (RitesOfMorkai, ReanimationBeam) NE PEUT donc PAS partager le
+`GetReviveChance` de Narthecium : elle l'override par un corps litteral (folde ⇒ invisible offline, et sa
+vtable n'est pas lisible live tant que sa classe n'est pas initialisee). Le port pose `default_chance=100`
+comme **hypothese marquee**, justifiee par l'i2 (aucun pourcentage annonce).
+
+### 6.1 Organisation du port (mirror de l'organisation native)
+
+| Fichier | Artefact natif |
+|---|---|
+| `runner/operations/triggers/revive_effect.py` | **BASE** `IdunBattle.Entities.Effects.ReviveEffect` : feuilles `Revive`/`ConsumeReviveGate`/`RemoveReviveEffect`, `create_target_trigger_behaviour` (@180f46a70), `can_be_revived` (@181058a50), coeur `_ReviveEffectCore` + les 2 rails `ReviveEffectAbility` (passif) / `ReviveEffectTrigger` (effet pose) |
+| `.../triggers/loki/narthecium.py` | `Narthecium_ReviveEffect` (@180f5ae20 / @180f5acf0) |
+| `.../triggers/loki/tainted_narthecium.py` | `TaintedNarthecium_ReviveEffect` (@180f70a90 / @180f709b0) |
+| `.../triggers/loki/rites_of_morkai.py` | `RitesOfMorkaiEffect` (@180f69c30 / @180f69c10) |
+| `.../triggers/loki/reanimation_beam.py` | `ReanimationBeam_ReviveEffect` (@180f67b90 / @180f67ac0) |
+| `.../triggers/loki/phoenix_gem.py` | `PhoenixGem_ReviveAbility` (@1811117b0 / @181111610) + marqueur `PhoenixGem_CanReviveEffect` (@180f5e680 / @180f5e4a0) |
+
+Deux rails parce que le natif pose le meme `ReviveEffect` de deux facons : d'office par un
+**passiveAbility** (Narthecium/TaintedNarthecium → `ABILITY_TRIGGERS`) ou par une **ability ACTIVE**
+(RitesOfMorkai/ReanimationBeam → `EFFECT_TRIGGERS[effectType]`). Consequence de fidelite : pour le rail
+EFFET, `GetReviveHP` lit l'`abilityState` **porte par l'effet** (niveau/multiplicateur du POSEUR), pas
+ceux du porteur — `revive_level()` par rail.
+
+### 6.2 Etat par consommateur
+
+| Consommateur | Carrier | Pool | Voie | Gate overkill | Gate re-fire |
+|---|---|---|---|---|---|
+| `Narthecium_ReviveEffect` @180f5ae20/@180f5acf0 | `ultraApothecary` | **OUI** (hero) | **LIVE-validee** | **unless** (0x738 = `@1802b15a0` = 0, lu) | once-per-turn (`removeEffect`=0) |
+| `TaintedNarthecium_ReviveEffect` @180f70a90/@180f709b0 | `deathRotbone` | OUI | LIVE (case-66) | even-if (0x738 = `@1802b1590` = 1, lu) | once-per-turn |
+| `RitesOfMorkaiEffect` @180f69c30/@180f69c10 | `spaceWolfPriest` | **NON** | mirror + offline | unless (herite base) — i2 le confirme | one-shot (`removeEffect`=1) |
+| `ReanimationBeam_ReviveEffect` @180f67b90/@180f67ac0 | `necroReanimator` (MoW) | **NON** (+ blocage harnais MoW hors-plateau) | mirror + offline | unless (herite base) — **residu** : i2 muet | one-shot (`removeEffect`=1) |
+| `PhoenixGem_ReviveAbility` @1811117b0/@181111610 | relic sur `eldarAutarch` | unite OUI, **relic non posable** | mirror + offline | **even-if** (`OnPreDeath(1)` litteral, lu) | one-shot par BATAILLE (retrait du marqueur 1451) |
+
+Filtres (`CreateTargetFilter`, virtuel +0x758) :
+- Narthecium : `baseFilter & AreFriends & IsAdjacent(2)` — **pas** de `HasTrait` ; le « non-Mechanical »
+  de l'i2 vient du noeud `CanBeRevived` de la base (`IsAffectedByHealType(0)`), pas du filtre.
+- TaintedNarthecium : idem **+ `HasTrait(target, Chaos=0x7ea)`**.
+- RitesOfMorkai : `get_OwnerIsTarget` (self-revive ; la portee a ete appliquee a la POSE).
+- ReanimationBeam : `AreFriends & HasTrait(target, Mechanical=5) & HasEffect(target, 1545
+  NanoscarabRepairProtocols)` — l'INVERSE de Narthecium sur le Mechanical.
+- PhoenixGem (hors famille) : `OnPreDeath(ignoreOverkill=TRUE) & OwnerIsTarget & HasEffect(self, 1451)`.
+
+### 6.3 Validation
+
+- **Narthecium — LIVE end-to-end** (`probe_79_narthecium_live.py`, 3 runners) : ennemi mis au contact,
+  degat MESURE (12327), 3 scenarios. `A` PV=10477 et `B` PV=7396 (coup letal, `dmg < 2 x PV` ⇒
+  non-overkill) → l'allie est **VIVANT** a `hp=5983` **dans les DEUX cas** (valeur ABSOLUE ⇒ c'est un
+  revive, pas un degat amorti) et **sur sa propre tuile** ; `C` PV=3698 (`dmg >= 2 x PV` ⇒ overkill) →
+  **MORT**. Confrontation offline : `ability_var('Narthecium','hp', level=50, mult=180) = 5983` = la
+  valeur live, au PV pres.
+- Tests cibles : `test_narthecium_revive_live.py` (9), `test_tainted_narthecium_revive_live.py` (8,
+  **garde zero-regression** #66), `test_rites_of_morkai_revive_live.py` (5),
+  `test_revive_retrofit_offline_live.py` (8 : ReanimationBeam + PhoenixGem) = **30 PASS**.
+
+### 6.4 Residus / hors-perimetre (RE fait, port NON tente)
+
+Deux consommateurs appellent bien `DSLFactory.Revive` → `ReviveUnitOperation`, mais ne sont **pas** des
+sous-classes de `ReviveEffect` : leur port n'est pas un retrofit « filtre + vars + gate », c'est un
+chantier propre. Aucun port speculatif n'a ete ecrit.
+
+- **`FuelledByFury`** (`ultraTitus`, hero **dans le pool**) — `FuelledByFury_CanReviveEffect`
+  (1324, `CreateHandleTriggerAbilitiesInternal @180f4ab10`) enregistre `FuelledByFury_ReviveAbility` :
+  `CreateTrigger @180f81250` = `On(3=PendingDeathAdded) & HasEffect(self, 0x52c=1324) &
+  AreEqual(caster@0x160, self@0x148) & TriggeringAbilityIs(0x400=1024 = **TriggeredAbilityType.FinalJustice**,
+  l'enum interne du « Final Vengeance » de l'i2)` ; `CreateBehaviour @180f810c0` =
+  `Revive(self, self, ConfigVar(0x1d='hp'))`. **Bloquant** : l'event `PendingDeathAdded(3)` n'est
+  **jamais emis** par le port (`EventTriggerType.PendingDeathAdded` existe mais aucun vecteur ne le
+  dispatche) ; il faut aussi l'`InitAbility` qui pose 1324 et `FuelledByFury_BlockOverkillEffect`
+  (@180f4aac0/@180f4a7c0/@180f4a850, « the first time each turn he cannot be Overkilled »).
+- **`TimeFlux`** (`thousTerminator`, hero **dans le pool**) — `GhostReviveAbility.CreateTrigger
+  @180f83800` = `On(0x1f=PreUnitMove) & OwnerIsCaster` ; `CreateBehaviour @180f83600` = `If(cond,
+  Nothing, AddEffect(ghost, caster, CurrentTurnStartTile))` avec `cond = AmountIsEqual(tile, 0) |
+  HasBeenRevivedByAbility(caster, this) | NOT(OwnerIsCaster) | TileHasTriggeredAbility(tile,
+  0x1d=29=BrokenIce)`. `TimeFluxReviveAbility..ctor @1811a88a0` = la meme classe parametree par
+  `EffectType.TimeFlux_Revive=1186`. **Bloquant** : l'i2 (« he revives … **at its location** ») impose un
+  revive **NON in-place**, donc `ReviveUnitOperation` doit accepter une tuile cible (`SetRevivePosition
+  @180e936e0` parametree) — plus toute la mecanique de ghost (pose a chaque deplacement, disparition si
+  la tuile est occupee ou devient impassable).
 
 NB : `RitesOfRestoration` (deja porte) = **Resurrect** (tile-choice/ambush), sous-systeme DISTINCT
 (`ResurrectUnitOperation`) — NE PAS confondre avec Revive-en-place.
