@@ -3,7 +3,7 @@
 
 C'est la SOURCE de toute la chaine de symboles :
     jeu lance + injection Frida
-      hooks-legacy/_oneshot/dump-il2cpp-full.js   parcourt le runtime IL2CPP
+      scripts/frida/dump-il2cpp-full.js           parcourt le runtime IL2CPP
         -> data/il2cpp_full.json
       preprocess_il2cpp_dump.py                   -> data/il2cpp_{methods,classes,enums}.tsv
       GhidraApplyIl2CppSymbols.java               -> noms appliques dans Ghidra
@@ -31,7 +31,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 HOST = "http://127.0.0.1:8765"
-ONESHOT = REPO / "hooks-legacy" / "_oneshot" / "dump-il2cpp-full.js"
+ONESHOT = REPO / "scripts" / "frida" / "dump-il2cpp-full.js"
 LOG_DIR = REPO / "frida" / "logs"
 OUT = REPO / "data" / "il2cpp_full.json"
 

@@ -10,9 +10,12 @@ Hooking Frida de **WH40K Tacticus** (Windows PC build, Unity 6 IL2CPP) — monor
   - `frida/host/` — serveur Node qui pilote les sessions Frida (Express + WS)
   - `frida/public/` — frontend browser (statique, servi sur `/view/`)
   - `frida/dist/` — outputs build (gitignored)
-- `hooks-legacy/` — ancien répertoire de hooks, conservé pour one-shots (dumps,
-  probes historiques). Voir `hooks-legacy/README.md` pour classification.
-- `data/` — dumps IL2CPP (`symbols.json`, abilities, enums) — gitignored
+- `scripts/frida/` — scripts Frida one-shot **vivants**, hors bundle (notamment
+  `dump-il2cpp-full.js`, qui produit toute la chaîne de symboles).
+- `hooks-legacy/` — hooks et probes **historiques** (versionnés, consultables). Rien
+  de vivant ne doit en dépendre. Voir `hooks-legacy/README.md`.
+- `data/` — dumps IL2CPP, gameconfig, boards — gitignored, **à une exception près** :
+  `data/symbols/<HASH>/` (la table de symboles) est VERSIONNÉE.
 - `sources_win/` — décompilation Ghidra de `GameAssembly.dll` — gitignored
 - `STATUS.md` — état d'avancement vivant du projet
 
@@ -26,9 +29,8 @@ Hooking Frida de **WH40K Tacticus** (Windows PC build, Unity 6 IL2CPP) — monor
 
 Tacticus stocke chaque build dans `C:\Users\nicolasv\AppData\Local\tacticus\games\<HASH>\`
 où `<HASH>` (ex. `nb3o9lmt6c`, `uu2fr8mv6c`, …) **change à chaque mise à jour**
-du jeu. Toutes les RVAs IL2CPP, dumps Il2CppDumper (`data/win_dump/`,
-`data/dumps/<HASH>/`), décompilations Ghidra (`sources_win/`) et caches
-analytiques (`data/all_game_targets_win.tsv`, `call_graph_win.json`, …) sont
+du jeu. Toutes les RVAs IL2CPP, le dump `data/il2cpp_full.json` et ses TSV,
+la table `data/symbols/<HASH>/` et les décompilations Ghidra (`sources_win/`) sont
 **spécifiques à ce hash**. Une RVA résolue contre le mauvais dump donne un
 nom de méthode incohérent — symptôme classique : la stack pointe vers une
 méthode qui n'existe pas dans le binaire actif (typique : `findMethod` retourne
@@ -344,10 +346,67 @@ c'est quasi toujours que **le serveur n'est pas lancé** → le démarrer puis `
   `gameassembly.lock` / `.lock~` dans `data/ghidra_<HASH>/`. Si **aucun** process
   java/pyghidra ne tourne, ces locks sont périmés → les supprimer avant de relancer.
 
-### Au changement de build du jeu
+## Au changement de build du jeu — PROCÉDURE
 
-Le `<HASH>` change → refaire le pipeline (dump Il2CppDumper v39 → import/analyse
-Ghidra → apply IL2CPP names) puis pointer `-Project` sur le nouveau `.gpr`.
+Le `<HASH>` du dossier change à chaque mise à jour. **Tant que cette procédure n'est pas
+passée, toute analyse offline est fausse** (adresses 100 % périmées) et les artefacts
+estampillés refusent de servir — c'est voulu, ils échouent FORT plutôt que de mentir.
+
+**Étape 0 — constater.** Comparer le hash installé au hash des artefacts :
+
+```bash
+ls -d /c/Users/nicolasv/AppData/Local/tacticus/games/*/   # hash installé
+cat data/symbols/*/BUILD                                  # hash des symboles
+```
+
+**Étape 1 — re-dumper depuis le jeu qui tourne** (jeu lancé, menu principal ; le
+lancement du jeu est un geste UTILISATEUR) :
+
+```bash
+python scripts/python/dump_il2cpp.py --pid <pid>   # -> data/il2cpp_full.json
+python scripts/python/preprocess_il2cpp_dump.py    # -> data/il2cpp_{methods,classes,enums}.tsv
+```
+
+**PAS de warmup** pour cette étape : le one-shot lit les métadonnées IL2CPP, pas les
+singletons de jeu. Le dump (~40 Mo en un `send`) fait tomber la session Frida — c'est
+normal et sans danger depuis la neutralisation du détecteur de gel.
+`preprocess` estampille chaque TSV (`#!il2cpp-provenance`, pivot = **sha256 du
+GameAssembly.dll installé**) et **refuse d'écrire** s'il ne peut pas l'établir.
+
+**Étape 2 — Ghidra** : importer le nouveau `GameAssembly.dll` dans un projet neuf, laisser
+l'analyse finir (~2 min), puis appliquer les noms via `scripts/ghidra/GhidraApplyIl2CppSymbols.java`.
+Ce script **vérifie l'estampille avant toute écriture** et s'arrête si elle ne correspond pas
+au binaire chargé. Démarrer le serveur sur le nouveau projet :
+
+```bash
+pwsh -File C:\Users\nicolasv\ghidra-mcp\start-ghidra-mcp.ps1 -Project <chemin\nouveau.gpr>
+```
+
+**Étape 3 — extraire la table, et la COMMITER** :
+
+```bash
+python scripts/python/ghidra_symbols.py dump   # -> data/symbols/<NOUVEAU_HASH>/functions.tsv
+git add data/symbols/<NOUVEAU_HASH>
+```
+
+`data/symbols/` est la **seule** exception versionnée de `data/` (cf. `.gitignore`).
+**Son diff EST le rapport de changement du jeu** : ce qui apparaît, disparaît ou se
+renomme entre deux builds est exactement ce que la mise à jour a touché. Ne pas le
+commiter, c'est perdre le seul moyen de savoir ce qui a bougé.
+
+**Étape 4 — reprendre les citations.** Le code cite des **symboles**, pas des adresses :
+~97,5 % traversent la mise à jour sans rien faire. Les survivantes ne sont pas le sujet —
+**les disparues le sont**, et ce sont précisément les fonctions que la MAJ a changées :
+
+```bash
+python scripts/python/probe_va_citation_shapes.py scripts/python/engine   # taux de résolution
+```
+
+Une citation qui ne résout plus = une mécanique à re-RE, pas un simple renommage.
+
+**Pas encore outillé, à faire à la main** : le diff `gameconfig` inter-build (séparer un
+rééquilibrage de valeurs d'un changement de mécanique) et la garde automatique qui refuse
+les artefacts désynchronisés en amont de chaque probe.
 
 ## Sorties console Python — ASCII only (Windows cp1252)
 
@@ -554,8 +613,9 @@ adversariale de son PROPRE fix, livraison **PAR PULL REQUEST**) :
 - **Hook permanent sur des property getters** appelés par les sérialisations
   Newtonsoft du jeu (ex. `GameConfigData.get_gameConfigDto`) : 27 000 appels/s
   → frame >960 ms → crash.
-- **Commit** : `data/`, `frida/dist/`, `hooks-legacy/`, `server/`, `logs/`,
-  `frida/assets/raw/`, `sources_win/`.
+- **Commit** : `data/` (SAUF `data/symbols/`, qui est versionnée EXPRÈS),
+  `frida/dist/`, `server/`, `logs/`, `frida/assets/raw/`, `sources_win/`.
+  (`hooks-legacy/` EST versionné — l'ancienne mention ici était fausse.)
 
 ## Protocole RE + portage (DÉCISION + COMBAT)
 

@@ -101,7 +101,7 @@ def read_stamp(artifact: Path) -> dict:
             "  Cet artefact a ete produit AVANT la mise en place de la provenance, ou par un\n"
             "  outil qui ne la pose pas. Son build d'origine est INCONNU -> il est INUTILISABLE\n"
             "  pour appliquer des symboles. Le regenerer :\n"
-            "    1) dump live   : hooks-legacy/_oneshot/dump-il2cpp-full.js -> data/il2cpp_full.json\n"
+            "    1) dump live   : scripts/frida/dump-il2cpp-full.js -> data/il2cpp_full.json\n"
             "    2) TSV         : python scripts/python/preprocess_il2cpp_dump.py\n"
             % (artifact.name, exc))
 

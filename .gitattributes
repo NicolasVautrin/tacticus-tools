@@ -1,0 +1,6 @@
+# La table de symboles du build est VERSIONNEE et son DIFF est le livrable : c'est lui qui
+# dit ce que la mise a jour du jeu a change. On force donc des fins de ligne LF stables des
+# deux cotes — sans ca, la conversion CRLF de Windows reecrit les 143 000 lignes a chaque
+# checkout et noie le vrai changement dans du bruit.
+data/symbols/**/*.tsv text eol=lf
+data/symbols/**/BUILD  text eol=lf

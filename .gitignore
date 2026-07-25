@@ -1,6 +1,19 @@
 node_modules/
 dist/
+# Tout repertoire `data/` A N'IMPORTE QUELLE PROFONDEUR (motif NON ancre) : dumps runtime.
+# Ne pas le remplacer par `data/*`, qui lui est ancre a la racine et laisserait remonter
+# `frida/data/` et `scripts/python/data/`.
 data/
+# Le `data/` DE LA RACINE demande un traitement en deux temps : on le re-inclut pour que git
+# accepte d'y descendre, puis on exclut son contenu — sans quoi aucune negation ne peut
+# atteindre un sous-repertoire (git n'ouvre jamais un dossier exclu).
+!/data/
+/data/*
+# EXCEPTION VERSIONNEE : la table de symboles du build. C'est le SEUL artefact de `data/`
+# qui doit survivre a la machine — son diff inter-build EST le rapport de changement du jeu
+# (churn mesure : noms stables a 97,5 %, adresses a 100 % changees), et toutes les citations
+# du code pointent dessus. Un `data/` detruit (deja vu le 2026-07-22) ne doit plus l'emporter.
+!/data/symbols/
 # Exception: the hooks/data/ subtree holds source-code lookup tables
 # (ability name mappers), NOT runtime dumps.
 !frida/hooks/data/
