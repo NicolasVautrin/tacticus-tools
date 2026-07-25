@@ -68,7 +68,11 @@ from .loki.master_annihilator import MasterAnnihilatorMarkAbility   # lot POSE (
 from .loki.fleshmetal_guns import FleshmetalGunsRotationAbility     # lot POSE (passif blackObliterator)
 from .loki.terrifying_crescendo import (TerrifyingCrescendoOverkillAbility,   # lot POSE (passif
                                         TerrifyingCrescendoSuppressAbility)   # emperNoiseMarine, #204)
-from .loki.anvil_shield import AnvilShieldApplyIceAbility            # lot POSE (passif spaceRockfist)
+from .loki.anvil_shield import (AnvilShieldApplyIceAbility,          # lot POSE (passif spaceRockfist)
+                                AnvilShieldApplyStunAbility,          # #100 volet Stun on-block
+                                AnvilShieldFrozenAttackerAdvantageAbility,   # #100 volet +block glace
+                                AnvilShieldFrozenAdvantageExpire,     # #100 conso On(UnitPostAbility)
+                                FROZEN_ADVANTAGE as ANVIL_FROZEN_ADVANTAGE)
 from .loki.let_the_galaxy_burn import (LetTheGalaxyBurnArmAbility,   # #84 (trait LetTheGalaxyBurn 1058)
                                        LetTheGalaxyBurnResetAbility)
 
@@ -185,7 +189,12 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # l'attaquant BLOQUE gele). L'effet de tuile Ice etait deja porte ; c'est le DISPATCH `On(0x3d)` qui
     # manquait. Volets Stun / FrozenAttackerAdvantage / init-effects = residus documentes.
     # Cf. loki/anvil_shield.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateBehaviour ; emetteur IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers).
-    "AnvilShield": [AnvilShieldApplyIceAbility],
+    # #100 : les DEUX autres volets on-block sont desormais portes (ils etaient du dead-code faute de
+    # leurs prerequis) — `ApplyStun` (`On(0x3d) & IsMeleeAttack & (HasEffect(1200)|HasEffect(1201))` ->
+    # Stunned sur l'attaquant) et `FrozenAttackerAdvantage` (`On(0x2b=PreUnitAbility) & IsNormalAttack &
+    # IsUnitOnTileWithEffect(caster, Ice)` -> +20 % block chance transitoire).
+    "AnvilShield": [AnvilShieldApplyIceAbility, AnvilShieldApplyStunAbility,
+                    AnvilShieldFrozenAttackerAdvantageAbility],
 }
 
 # --- Registre : effectType → effet-trigger(s) ------------------------------------------------------
@@ -218,6 +227,11 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     PHOENIX_GEM_CAN_REVIVE: [PhoenixGemReviveAbility,                # 1451 (self-revive, even-if-overkill)
                              PhoenixGemRemoveMarkerOnRevive,         # On(0x2e) -> RemoveEffect(1451)
                              PhoenixGemRemoveMarkerOnResurrect],     # On(0x2f) -> RemoveEffect(1451)
+    # AnvilShield_FrozenAttackerAdvantage (#100, effet 0x4b1=1201 pose par le volet `On(0x2b)`) : son
+    # SEUL trigger propre est `IdunBattle.Entities.Effects.Loki.AnvilShield_FrozenAttackerAdvantageEffect
+    # $$CreateTargetTrigger` = `On(0xe=UnitPostAbility) & AreEqual(target@0x178, EffectSource(this))` ->
+    # le bonus +20 % block ne vit QUE le temps de l'ability qui l'a declenche (ground truth live).
+    ANVIL_FROZEN_ADVANTAGE: [AnvilShieldFrozenAdvantageExpire],      # 1201 -> conso a UnitPostAbility
 }
 
 
@@ -379,6 +393,41 @@ def unit_blocked_triggers(state: State, attacker_id: int, target_id: int,
     return evaluate_trigger_operation(state, ev)
 
 
+def pre_unit_ability_triggers(state: State, caster_id: int, target_id: int,
+                              ranged: bool, profile: Optional[str] = None,
+                              ability_type: Optional[int] = None) -> list[dict]:
+    """Vecteur `On(PreUnitAbility=0x2b=43)` — emis par
+    `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` (`FUN_180026490(0x4d, .., 0x2b)`)
+    **TOUT EN HAUT**, avant l'execution de l'ability (donc avant tout degat/block) ; la MEME operation
+    emet ensuite, dans l'ordre, `0xb (UnitAbility)`, `0xc (UnitActiveAbility)` et `0xe (UnitPostAbility)`.
+    L'`AbilityEntities` de l'evenement est celui de l'ability : caster = l'ACTEUR, target = la cible.
+
+    L'attaque NORMALE emprunte cette operation (l'attaque normale EST une active ability, cf.
+    `NormalAttackType` — memoire « normal attack = concrete ability id ») : le port l'emet donc au DEBUT
+    de la voie normale, avec `ability_type` renseigne pour que le gate `IsNormalAttack` puisse trancher.
+
+    Consommateur porte : `AnvilShieldFrozenAttackerAdvantageAbility` (#100) — le bonus +20 % block
+    d'Arjac doit etre POSE avant le calcul du block de CETTE attaque, sinon le port est un no-op
+    silencieux (c'est exactement pour ca que le natif emet l'evenement AVANT l'execution).
+    AUCUN autre trigger porte n'ecoute `event_id == 0x2b`."""
+    ev = TriggerEvent(EventTriggerType.PreUnitAbility, caster_id, target_id,
+                      ranged=ranged, profile=profile, ability_type=ability_type)
+    return evaluate_trigger_operation(state, ev)
+
+
+def unit_post_ability_triggers(state: State, caster_id: int, target_id: int,
+                               ranged: bool, profile: Optional[str] = None,
+                               ability_type: Optional[int] = None) -> list[dict]:
+    """Vecteur `On(UnitPostAbility=0xe=14)` — DERNIER evenement emis par
+    `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` (`FUN_180026490(0x4d, .., 0xe)`),
+    apres `0x2b` puis `0xb`/`0xc`. Consommateur porte : le trigger PROPRE de l'effet 1201
+    (`AnvilShieldFrozenAdvantageExpire`) qui consomme le +20 % block a la fin de l'ability.
+    AUCUN autre trigger porte n'ecoute `event_id == 0xe`."""
+    ev = TriggerEvent(EventTriggerType.UnitPostAbility, caster_id, target_id,
+                      ranged=ranged, profile=profile, ability_type=ability_type)
+    return evaluate_trigger_operation(state, ev)
+
+
 def pre_attack_triggers(state: State, attacker_id: int, target_id: int,
                         ranged: bool, profile: Optional[str] = None,
                         ability_type: Optional[int] = None) -> list[dict]:
@@ -432,7 +481,13 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
     # avec bonus InfernalPacts Psychic QUALIFIE — mesure live diag 202c).
     ev_at = TriggerEvent(EventTriggerType.Attack, attacker_id, target_id,
                          ranged=ranged, profile=profile, is_crit=is_crit, profiles=profiles)
-    return out + evaluate_trigger_operation(state, ev_at)
+    out = out + evaluate_trigger_operation(state, ev_at)
+    # `On(UnitPostAbility=0xe)` (#100) — DERNIER evenement de `ActiveAbilityOperation.ExecuteInternal`
+    # (sequence `0x2b` -> execution -> `0xb` -> `0xc` -> `0xe`). Emis ICI = a la CLOTURE de l'attaque
+    # normale, en pendant exact du `On(0x2b)` emis en tete par `AttackDamageOperation.execute`.
+    # Consommateur porte : `AnvilShieldFrozenAdvantageExpire` (consomme le +20 % block transitoire).
+    return out + unit_post_ability_triggers(state, attacker_id, target_id, ranged, profile,
+                                            ability_type=1013)
 
 
 def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,

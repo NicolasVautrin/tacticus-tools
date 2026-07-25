@@ -335,13 +335,19 @@ Unstoppable » concerne l'arret-MOUVEMENT (« entering a Fire hex ends movement 
 - **ApplyAdditionalBlockAndBlockChance @180e16340** : 2 StaticStatModifierEffects self sur Arjac ->
   `0x4b2=1202 AnvilShield_AdditionalBlock` (stat 8 BLOCK_DAMAGE, blockDmg, INCONDITIONNEL) **[PORTE — leaf
   loki.py + factory, L65=728]** ; `0x4b0=1200 AnvilShield_BlockChanceBelowHealthCap` (stat 7 BLOCK_CHANCE,
-  blockChance, gate `CreateActiveCondition @180f31c50` health <= healthPct) **[NON porte : ambiguite abs-vs-%
-  du cap]**.
+  blockChance=20) **[PORTE #100]** — l'ambiguite abs-vs-% du cap est TRANCHEE par le decompile :
+  `AnvilShield_BlockChanceBelowHealthCapEffect$$CreateActiveCondition` =
+  `AmountIsEqualOrGreater(Direct(GetNumberConstant(0x4f=healthPct=35)), StatAmount(Self, 5=HEALTH,
+  **1=CURRENT_PCT**))` -> c'est bien un POURCENTAGE (live : blockChance 0 a 100 % PV, 20 a 31.8 %).
 - **ApplyIce @180e16480** : pose ICE (dynamic 0x11) sur la TUILE de l'attaquant (!= static BrokenIce 0x12 #131,
   != Freeze-coroutine view-only `AnvilShieldEffectVisual`). Placement tuile = **vecteur #128**.
-- **ApplyStun @180e16590** : Stun (0x48a) sur l'attaquant (`StunnedEffect` deja porte).
-- **FrozenAttackerAdvantage @180e16840** : effet dynamique `0x4b1=1201` (ctor @180f31e50, CreateTargetTrigger
-  @180f31dc0 = `On(0xe) & AreEqual(target, EffectSource)`) = advantage contre l'attaquant gele **[NON porte]**.
+- **ApplyStun** (`AnvilShieldAbility_ApplyStun$$CreateTrigger`/`$$CreateBehaviour`) : Stun (0x48a) sur
+  l'attaquant MELEE bloque, gate `HasEffect(1200|1201, **activeOnly**)` **[PORTE #100]**.
+- **FrozenAttackerAdvantage** (`AnvilShieldAbility_FrozenAttackerAdvantage$$CreateTrigger`/
+  `$$CreateBehaviour`) : effet dynamique `0x4b1=1201` (`AnvilShield_FrozenAttackerAdvantageEffect$$.ctor`,
+  `$$CreateTargetTrigger` = `On(0xe=UnitPostAbility) & AreEqual(target, EffectSource)`) = +20 % block
+  TRANSITOIRE contre l'attaquant gele **[PORTE #100]** — vecteur `On(0x2b=PreUnitAbility)` ajoute, effet
+  consomme en fin d'ability (ground truth live : absent de decisionView juste apres l'attaque).
 Carrier jouable (Arjac). 1202 validable via scenario BLOCK live (statModSources stat 8), cf. BeastSlayer #72.
 
 ### 6.4 DECOY — #134 — genesPrimus DecoysAndMisdirection

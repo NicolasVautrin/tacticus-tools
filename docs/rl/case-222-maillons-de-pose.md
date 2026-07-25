@@ -159,12 +159,14 @@ que `is_crit`, déjà en place) — observationnellement équivalent pour ce con
 idempotente).
 
 **Résidus** (non portés, dead-code offline si portés tels quels) :
-- `ApplyStun @180e16590`/`@180e16680` : gate `HasEffect(target, 0x4b0=1200, lvl>=1) | HasEffect(target,
-  0x4b1=1201, lvl>=1)` — **1200/1201 ne sont ni portés ni posés** ⇒ un port serait un no-op garanti.
-- `FrozenAttackerAdvantage @180e16840`/`@180e168e0` : `On(0x2b = PreUnitAbility) & IsNormalAttack &
-  OwnerIsTarget & IsUnitOnTileWithEffect(caster, Ice) & !HasEffect(Self,1200) & !HasEffect(Self,1201)`
-  → `AddStaticStatModifierEffect(Self, 1201, stat 7)`. Prérequis absents : vecteur `On(PreUnitAbility)`,
-  classe d'effet 1201, canal stat 7 (BLOCK_CHANCE).
+- ~~`ApplyStun` / `FrozenAttackerAdvantage`~~ — **PORTÉS ET VALIDÉS LIVE (#100)**, cf.
+  `docs/rl/case-100-anvil-shield-residus.md`. Les trois prérequis manquants ont été construits (classes
+  d'effet 1200/1201, vecteur `On(0x2b = PreUnitAbility)` + son pendant `On(0xe = UnitPostAbility)`, canal
+  stat 7 avec son driver d'`ActiveCondition`). ⚠ **Une lecture de #222 est RECTIFIÉE** : le 4ᵉ argument de
+  `DSLFactory$$HasEffect` n'est PAS un `minLevel` mais un flag **ACTIVE-ONLY** (`EffectComponent+0x5c`,
+  lu par `EntityExtensions$$IsOwnerOfEffect`, remis à 0 par `RefreshEffectsOperation$$DeactivateEffect`)
+  — c'est ce qui rend le gate cohérent : 1200 est posé en permanence sur Arjac et n'ouvre le gate qu'en
+  dessous de 35 % PV (`CreateActiveCondition` = `healthPct >= StatAmount(Self, HEALTH, CURRENT_PCT)`).
 
 ---
 
@@ -271,5 +273,6 @@ justement le no-op SILENCIEUX). `tests/engine/runner/test_lot_pose_live.py` couv
 | `test_fleshmetal_guns_rotation_live` | `FocusedMalice → RuinousSalvo → WarpHail → FocusedMalice` | rotation figée (`UnitTurnsStarted` non lu) ou vecteur turn-start muet |
 | `test_terrifying_crescendo_stacks_and_caps_live` | stack `1,2,3,4,5,6,6,6,6`, cap = `buffMaxLevel` lu de la config | vecteur recâblé sur `On(EffectAdded)` (le stack cesserait de monter dès le 2e tir sur cible déjà Pinned = LE bug d'origine), clamp perdu, pose muette |
 | `test_anvil_shield_ices_blocked_attacker_tile_live` | Ice source=Arjac sur la tuile de l'attaquant, `remaining = 4` | `On(UnitBlocked)` muet ; gate perdu (contrôle négatif : attaque non bloquée = 0 Ice) ; durée non convertie |
-- **Volets non portés** : DespoiledGround (FleshmetalGuns), ApplyStun + FrozenAttackerAdvantage +
-  effets 1200/1201 (AnvilShield), remove-self du marqueur MasterAnnihilator à la mort de sa source.
+- **Volets non portés** : DespoiledGround (FleshmetalGuns), remove-self du marqueur MasterAnnihilator
+  à la mort de sa source. (~~ApplyStun + FrozenAttackerAdvantage + effets 1200/1201~~ : **portés en
+  #100**, cf. `case-100-anvil-shield-residus.md`.)

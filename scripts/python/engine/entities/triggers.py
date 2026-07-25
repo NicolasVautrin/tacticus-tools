@@ -210,15 +210,30 @@ class HasGrandAlliance(AbilityTrigger):
 
 
 class HasEffect(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$HasEffect(unit, effectType[, minLevel])` → `HasEffectTrigger IdunBattle.Entities.Triggers.HasEffectTrigger$$ShouldTrigger` :
-    l'unité a un effet du type (>= minLevel, source-flag mode 6 = owned|incoming). `ctx.has_effect`
-    (nouveau) défaut None → False. NON captable offline standard (partiel live via decisionView.effects)."""
-    def __init__(self, unit: AbilityTrigger, effect_type, min_level: int = 0):
+    """`IdunBattleLogic.Entities.DSLFactory$$HasEffect(unit, effectType, activeOnly, sourceFlags)` →
+    `IdunBattle.Entities.Triggers.HasEffectTrigger$$ShouldTrigger` → `IdunBattle.Entities.
+    EntityExtensions$$HasOneOfEffects(entity, query, [effectType], activeOnly, sourceFlags)`.
+
+    ⚠ RECTIFICATION (#100) : le 4e argument natif n'est PAS un `minLevel` — c'est un **flag ACTIVE-ONLY**.
+    Preuve par le decompile de `IdunBattle.Entities.EntityExtensions$$IsOwnerOfEffect` (chemin de
+    `HasOneOfEffects`) : `if (param_4 != 0) { if (EffectComponent+0x5c == '\\0') continue; }` avant le
+    test `EffectComponent+0x58 == effectType` — et `+0x5c` est le flag **IsActive** (mis a 0 par
+    `IdunBattle.Operations.RefreshEffectsOperation$$DeactivateEffect`, qui court-circuite s'il vaut deja
+    0). Le `sourceFlags` (5e arg, = 6 = 2|4) selectionne les DEUX branches de `HasOneOfEffects`
+    (owned | incoming). Tous les call-sites lus du cluster AnvilShield passent `activeOnly = 1`.
+
+    `min_level` (conserve, defaut 0) reste le filtre de NIVEAU du port pour les call-sites qui en ont
+    besoin ; `active_only` (defaut True = ce que passent les call-sites natifs lus) fait respecter
+    l'`ActiveCondition` de l'effet (`BaseEffect.is_active`). `ctx.has_effect` defaut None → False."""
+    def __init__(self, unit: AbilityTrigger, effect_type, min_level: int = 0,
+                 active_only: bool = True):
         self.unit, self.effect_type, self.min_level = unit, effect_type, min_level
+        self.active_only = bool(active_only)
 
     def should_trigger(self, ctx):
-        he = ctx.has_effect or (lambda u, et, sf=6, ml=0: False)
-        return any(he(u, self.effect_type, 6, self.min_level) for u in _units_of(self.unit, ctx))
+        he = ctx.has_effect or (lambda u, et, sf=6, ml=0, ao=True: False)
+        return any(he(u, self.effect_type, 6, self.min_level, self.active_only)
+                   for u in _units_of(self.unit, ctx))
 
 
 class HasAnyEffect(AbilityTrigger):

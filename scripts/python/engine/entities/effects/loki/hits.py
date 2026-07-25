@@ -396,6 +396,115 @@ class AnvilShieldAdditionalBlockEffect(BaseEffect):
                            multiplier_pct=self.ability_variables_multiplier)
 
 
+def _anvil_shield_level(eff: BaseEffect) -> "int | None":
+    """Niveau qui indexe `variables[level]` d'AnvilShield — MEME resolution que
+    `AnvilShieldAdditionalBlockEffect` (AnvilShield est une ability ACTIVE : index `activeAbilityLevel`,
+    fallback passif/stack)."""
+    return (eff.active_ability_level if eff.active_ability_level is not None
+            else (eff.ability_level if eff.ability_level is not None else eff.level))
+
+
+class AnvilShieldBlockChanceBelowHealthCapEffect(BaseEffect):
+    """`AnvilShield_BlockChanceBelowHealthCap` (effet 0x4b0=1200, classe native
+    `IdunBattle.Entities.Effects.Loki.AnvilShield_BlockChanceBelowHealthCapEffect` — base
+    `IdunBattle.Entities.Effects.ADynamicStatModifierEffect`, source `AbilityOrEffect 0x493` = AnvilShield).
+
+    POSE : owner-effect pose A L'INIT DE L'ABILITY, 2e volet de
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyAdditionalBlockAndBlockChance$$CreateBehaviour` :
+    `AddStaticStatModifierEffect(Self@0x148, 0x4b0, statType 7 = BLOCK_CHANCE,
+     GetVariableForLevel(0x15 = blockChance))` (le 1er volet = 0x4b2=1202 stat 8 BLOCK_DAMAGE, var 0x14
+    = blockDmg). Son `CreateTrigger` est le corps deduplique `LifewardsAddEffectAbility$$CreateTrigger`
+    (`return df@0xa8` = `On(0x21 = AbilityInit) & OwnerIsActor`).
+
+    ACTIVE-CONDITION (le point qui etait NON TRANCHE en #133, RESOLU ici) —
+    `IdunBattle.Entities.Effects.Loki.AnvilShield_BlockChanceBelowHealthCapEffect$$CreateActiveCondition` :
+        AmountIsEqualOrGreater( Direct(GetNumberConstant(0x4f)),
+                                StatAmount(Self@0x148, 5 = HEALTH, 1 = CURRENT_PCT) )
+    `StatPart 1 = CURRENT_PCT` => la comparaison est un **POURCENTAGE**, pas une valeur absolue :
+    l'effet n'est ACTIF que si `healthPct >= PV courant en %`. `GetNumberConstant(0x4f)` =
+    `gameconfig.ability('AnvilShield').constants['healthPct']` = **35**. i2 : « **If Arjac is below 35%
+    Health**, ... he gains +20% Block chance ».
+
+    GROUND TRUTH LIVE (#100, runner 11/28, `probe_anvil_shield_residues.py`) : a 100 % PV l'effet est
+    ABSENT de `decisionView.effects` et `blockChance = 0` ; a 31.8 % (puis 8.2 %) il APPARAIT et
+    `blockChance = 20`. `decisionView.effects` n'expose donc que les effets ACTIFS — c'est aussi ce que
+    lit le gate `HasEffect(..., activeOnly=1)` d'`ApplyStun`.
+
+    MAGNITUDE : `blockChance[activeAbilityLevel]` = 20 au rank courant. `blockChance` n'est **PAS** dans
+    `variablesAffectedByRarityBonus` (contraste `blockDmg` : 728 -> 997 avec le multiplier) -> la valeur
+    live est 20 EXACTEMENT, non scalee (`ability_var` applique la regle par-config).
+
+    Le CHANGESTAT n'est PAS declare en `applied_stat_mods` : il est pilote par le driver
+    `runner/operations/refresh_effects.py` (mirror `IdunBattle.Operations.RefreshEffectsOperation`
+    ActivateEffect/DeactivateEffect -> `AStatModifierEffect.ApplyModification/RevertModification`), pour
+    que la contribution SUIVE la condition (Arjac qui passe sous/au-dessus de 35 % en cours de bataille).
+    `get_stat_modification_stat/amount` restent declares : c'est ce que lit l'ATTRIBUTION du seed
+    (`stat_modifications_by_source`) quand l'effet est capte live (donc deja actif)."""
+
+    def is_active(self, unit_state: Mapping | None = None) -> bool:
+        """`CreateActiveCondition` : `healthPct >= GetStat(Self, HEALTH, CURRENT_PCT)`. `unit_state` =
+        `{hp, max_hp}` (meme convention que `PowerTripFullHealthEffect`). PV non captes -> True
+        (degradation fidele : on ne masque pas l'effet a tort)."""
+        s = unit_state or {}
+        hp, mx = s.get("hp"), s.get("max_hp")
+        cap = ability_var("AnvilShield", "healthPct", is_constant=True)   # GetNumberConstant(0x4f) = 35
+        if hp is None or mx is None or not mx or cap is None:
+            return True
+        return int(cap) >= (100.0 * float(hp) / float(mx))
+
+    def get_stat_modification_stat(self) -> int | None:
+        return 7                                     # StatType.BLOCK_CHANCE
+
+    def get_stat_modification_amount(self) -> int | None:
+        return ability_var("AnvilShield", "blockChance", _anvil_shield_level(self),
+                           multiplier_pct=self.ability_variables_multiplier)
+
+    def reverted_stats(self) -> "list":
+        from ...stats import StatType
+        return [StatType.BLOCK_CHANCE]
+
+
+class AnvilShieldFrozenAttackerAdvantageEffect(BaseEffect):
+    """`AnvilShield_FrozenAttackerAdvantage` (effet 0x4b1=1201, classe native
+    `IdunBattle.Entities.Effects.Loki.AnvilShield_FrozenAttackerAdvantageEffect` — meme base
+    `ADynamicStatModifierEffect`, meme source `AbilityOrEffect 0x493`).
+
+    POSE : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_FrozenAttackerAdvantage$$CreateBehaviour` =
+    `AddStaticStatModifierEffect(Self@0x148, 0x4b1, statType 7 = BLOCK_CHANCE,
+     GetVariableForLevel(0x15 = blockChance))` — **MEME stat et MEME variable que 1200** : +20 % de
+    chance de bloquer. i2 : « ... **or if his attacker is on a hex covered in Ice**, he gains +20 % Block
+    chance ».
+
+    DUREE : l'effet ne porte AUCUNE ActiveCondition ; son SEUL trigger propre est
+    `IdunBattle.Entities.Effects.Loki.AnvilShield_FrozenAttackerAdvantageEffect$$CreateTargetTrigger` =
+    `On(0xe = UnitPostAbility) & AreEqual(target@0x178, EffectSource(thisEffect@0x150))` -> il est donc
+    consomme A LA FIN de l'ability qui a declenche sa pose (mirror : `AnvilShieldFrozenAdvantageExpire`,
+    `runner/operations/triggers/loki/anvil_shield.py`). GROUND TRUTH LIVE (#100) : apres l'attaque,
+    l'effet est ABSENT de `decisionView.effects` et `blockChance` est retombe a 0 — alors que le STUN
+    a bien eu lieu PENDANT l'attaque (le gate `HasEffect(Arjac, 1201, activeOnly=1)` d'`ApplyStun` etait
+    donc vrai a cet instant, Arjac etant a 100 % PV donc 1200 INACTIF).
+
+    Contrairement a 1200, le ChangeStat est declare en `applied_stat_mods` : l'effet est pose a
+    l'EXECUTION (jamais dans le seed) et n'a pas de condition -> `AddEffectOperation._apply_stat_mods`
+    l'applique, la feuille `RemoveEffect` le reverte via `reverted_stats()`."""
+
+    def get_stat_modification_stat(self) -> int | None:
+        return 7                                     # StatType.BLOCK_CHANCE
+
+    def get_stat_modification_amount(self) -> int | None:
+        return ability_var("AnvilShield", "blockChance", _anvil_shield_level(self),
+                           multiplier_pct=self.ability_variables_multiplier)
+
+    def applied_stat_mods(self, stats_ctx) -> "list":
+        """DATA du `ChangeStat` (part 5) pose a l'application : BLOCK_CHANCE += blockChance[level]."""
+        amt = self.get_stat_modification_amount()
+        return [(7, int(amt))] if amt else []
+
+    def reverted_stats(self) -> "list":
+        from ...stats import StatType
+        return [StatType.BLOCK_CHANCE]
+
+
 class BeastSlayerExtraBlockEffect(BaseEffect):
     """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.BeastSlayerAbility$$CreateAddBlockEffectBehaviour` (trait BeastSlayer, effet
     `BeastSlayer_ExtraBlock`, cote DEFENSE) : `AddExtraBlockEffectToOwner(chance, amount)` avec

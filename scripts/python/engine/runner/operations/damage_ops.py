@@ -75,6 +75,20 @@ class _DamageOpsMixin:
         pierce, _ranged, whits = select_weapon_pierce(ctx, dist)
         _w = select_weapon(ctx, dist)
         _profile = _w.get("DamageProfile") if _w else None     # profil du coup (pour vecteurs after-hit)
+        # `On(PreUnitAbility=0x2b)` (#100) — `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
+        # l'emet TOUT EN HAUT (`FUN_180026490(0x4d, .., 0x2b)`), AVANT l'execution de l'ability : l'attaque
+        # normale EST une active ability (`NormalAttackType`, cf. #139 plus bas). Emis ICI, juste apres la
+        # selection d'arme (lecture pure : le natif connait deja la nature du coup) et AVANT tout calcul
+        # de coups / modificateurs / **block** — c'est indispensable : son seul consommateur porte
+        # (`AnvilShieldFrozenAttackerAdvantageAbility`) pose un stat-mod BLOCK_CHANCE que `_block_sources`
+        # doit voir sur CETTE attaque, sinon le port serait un no-op silencieux. Le gate natif
+        # `IsNormalAttack` est satisfait STRUCTURELLEMENT (ce vecteur n'est emis que par l'operation
+        # d'attaque NORMALE) ; `ability_type` porte quand meme l'id natif du kind attaque-normale
+        # (0x3f5=1013) pour les futurs consommateurs a gate `kind`. Aucun autre trigger porte n'ecoute
+        # `0x2b` -> no-op (et zero conso RNG) pour toute unite non-porteuse.
+        from .triggers.dispatch import pre_unit_ability_triggers   # lazy : cycle damage<->triggers
+        pre_unit_ability_triggers(state, attacker_id, target_id, ranged=bool(_ranged),
+                                  profile=_profile, ability_type=1013)
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, is_ranged=_ranged,
                                           target_traits=target_trait_names(state, target_id),

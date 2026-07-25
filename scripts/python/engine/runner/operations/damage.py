@@ -201,6 +201,13 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         AttackDamageOperation._register_received_damage(
             state, target_id, profile, total, shield_dmg, armor_dmg)
         AttackDamageOperation._refresh_swarm(state, target_id)          # #60 : On(UnitMemberDeath=48)
+        # #100 : `IdunBattle.Operations.RefreshEffectsOperation` (volet stat-modifier) — les PV viennent
+        # de changer, donc les `CreateActiveCondition` qui lisent `StatAmount(Self, HEALTH, CURRENT_PCT)`
+        # peuvent basculer. Cas porte : `AnvilShield_BlockChanceBelowHealthCap` (1200) dont la
+        # contribution BLOCK_CHANCE (+20) doit ENTRER quand Arjac tombe sous 35 % PV (et sortir s'il
+        # repasse au-dessus). Idempotent/no-op pour tout autre effet (cf. refresh_effects.py).
+        from .refresh_effects import refresh_stat_modifier_effects
+        refresh_stat_modifier_effects(state, target_id)
         return death
 
     @staticmethod
