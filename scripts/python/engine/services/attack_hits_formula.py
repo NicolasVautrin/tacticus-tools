@@ -5,10 +5,32 @@ contextes. Nativement, les facades `GetAttackHits` (slot d'interface 0xb5) deleg
   - `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits`  = PREDICTION (playbook) ;
   - `IdunBattle.Core.Services.BattleQuery$$GetAttackHits`  (+ variantes Cached/Recorded/Query).
 
-Les DEUX call-sites du port SONT ces facades : le combat (`AttackDamageOperation.execute`) et la prediction
-(`make_normal_attack_predictions`) rassemblent leurs entrees (ECS vs Scene) puis appellent cette formule =>
-MEME nb de coups des deux cotes. C'est FIDELE : le natif PARTAGE la formule (il ne la duplique pas entre
-combat et prediction), donc le port la partage aussi (un seul point de calcul, deux facades).
+Les call-sites du port SONT ces facades : le combat (`AttackDamageOperation.execute` pour l'attaque
+NORMALE, `execute_ability_attack` pour l'attaque d'ABILITY de la famille ATTACK) et la prediction
+(`make_normal_attack_predictions`) rassemblent leurs entrees (ECS vs Scene) puis appellent cette formule.
+C'est FIDELE : le natif PARTAGE la formule (il ne la duplique pas entre combat et prediction), donc le
+port la partage aussi (un seul point de calcul, plusieurs facades).
+
+PERIMETRE EXACT DU CANAL (case-61, RE + mesure live) — trois vecteurs, TROIS verdicts DISTINCTS :
+  1. COMBAT, attaque NORMALE : `IdunBattle.Operations.AttackDamageOperation$$Execute` appelle
+     `IdunBattle.Operations.AttackDamageOperation$$GetAttackHits` -> formule. Base = nb de coups de l'arme.
+  2. COMBAT, attaque d'ABILITY **famille ATTACK** (`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`
+     -> `AttackDamageBehaviour` -> `AttackDamageOperation`) : MEME `Execute`, MEME `GetAttackHits` -> formule.
+     La BASE change seulement : c'est le noeud `hits` du DSL (champ +0x80 du behaviour, evalue dans
+     `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$ExecuteTarget` en `Nullable<int>` de l'AttackData),
+     pas le nb de coups de l'arme. GROUND TRUTH live (case-61) : FlailSwing (`nrOfHits`=3) rend **2** coups
+     contre une cible `Parry_ReduceHits` et **3** contre le temoin -> le canal EST traverse.
+  3. COMBAT, attaque d'ABILITY **famille ABILITY** (`IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`
+     -> `AbilityDamageOperation`) : `IdunBattle.Operations.AbilityDamageOperation$$Execute` N'APPELLE PAS
+     `GetAttackHits` — il lit le `Nullable<int>` de l'AttackData et l'utilise BRUT (defaut 1 si absent).
+     AUCUN ExtraHits, AUCUN effet. -> le port ne traverse PAS la formule pour cette famille.
+  4. PREDICTION d'une attaque d'ABILITY (`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions`)
+     : le playbook EVALUE le noeud `hits` de l'ability et le passe tel quel a `PredictAttack` (slot 0x27) —
+     la formule n'est PAS interposee. GROUND TRUTH live (case-61) : la MEME FlailSwing predit **3** coups
+     contre la cible Parry (vs 2 reellement appliques), et FrenziedFiring predit le meme nb de coups contre
+     une cible `Camouflage_HitReduction` que contre le temoin. -> `generate_multi_hit_attack_prediction`
+     reste sur la BASE seule (`get_special_hits`), c'est FIDELE. Ne pas "corriger" cette asymetrie : elle
+     est NATIVE (l'IA sur-estime ses propres attaques speciales contre les porteurs de Parry/Camouflage).
 
 Composition (chaque piece deleguee a SON port de classe natif) :
   1. base = `IdunBattle.Core.Services.DamagePrediction$$GetDefaultAttackHits` (`weapon + ExtraHits(0x11) + (melee ? ExtraHitsMelee(0x17))`)
@@ -55,7 +77,8 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
                                include_bonus_hit_behaviours: bool = False,
                                defender_on_cover: bool | None = None,
                                tile_effects_by_pos: dict | None = None,
-                               attacker_persistent_data=None) -> int:
+                               attacker_persistent_data=None,
+                               is_normal_attack: bool = True) -> int:
     """`IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula$$Calculate` : nb de coups d'une attaque normale. `board` =
     {att_id, tgt_id, attack_pos, t_pos, tgt_team, is_melee, pos_by_id, team_by_id} (base_hits pose ici) ;
     `aura_sources` = [(owner_id, pos, team, effets)] des unites != cible. Ordre = base (APRES PowerTrip) ->
@@ -74,7 +97,13 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
     # d'etat ci-dessus. Un seul dict = un seul point d'enrichissement pour les futurs gates cible.
     att_hits_ctx = {**(board or {}), "tile_effects_by_pos": tile_effects_by_pos,
                     "persistent_data": attacker_persistent_data}
-    eff_hits = hits_bonus_from_effects(attacker_effects, att_ctx=att_hits_ctx)
+    # `is_normal_attack` = nature du VECTEUR (attaque normale vs attaque d'ABILITY), threade jusqu'aux
+    # bonus dont le trigger natif porte le noeud `IsNormalAttack` (`IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack`) —
+    # aujourd'hui `IdunBattle.Entities.Effects.Loki.PowerTrip_FullHealthEffect$$CreateEffectHitsBonusForAttack`
+    # (`IsNormalAttack & OwnerIsCaster`). Les autres bonus/malus du canal n'ont PAS ce gate (LetTheGalaxyBurn,
+    # FightingRetreat_HitReduction, Parry, LightCover, Camouflage, Diminutive, BigTarget, AstartesBanner) :
+    # ils s'appliquent aux DEUX vecteurs. Defaut True = attaque normale (comportement historique inchange).
+    eff_hits = hits_bonus_from_effects(attacker_effects, bool(is_normal_attack), att_ctx=att_hits_ctx)
     # base = `IdunBattle.Core.Services.DamagePrediction$$GetDefaultAttackHits` : weapon + ExtraHits(0x11) + (melee ? ExtraHitsMelee(0x17)).
     # is_melee=None (contexte inconnu) -> False -> pas d'ExtraHitsMelee (conservateur, mêlée seule).
     base_default = get_default_attack_hits(int(weapon_hits), int(extra_hits), int(extra_hits_melee),

@@ -423,6 +423,53 @@ class _DamageOpsMixin:
         # VALEUR est court-circuité par min==max — get_damage — mais le resolve slot-8 consomme TOUJOURS
         # 1 tirage/coup, désormais mirroré par `_one_hit` ; puis post_roll reduit le max, roll-then-reduce).
         hit_nc, hit_cr = AttackDamageOperation._apply_max_out(state, attacker_id, hit_nc, hit_cr)
+        # #61 CANAL DE COUPS DU VECTEUR ABILITY. `hits` recu ici = la valeur du noeud `hits` du DSL
+        # (champ +0x80 du `AttackDamageBehaviour`, evalue en `Nullable<int>` de l'AttackData par
+        # `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$ExecuteTarget`) = la BASE, pas le total.
+        #   - famille ATTACK (`is_attack_damage_op=True`) : `IdunBattle.Operations.AttackDamageOperation$$Execute`
+        #     passe cette base a `IdunBattle.Operations.AttackDamageOperation$$GetAttackHits` (slot d'interface
+        #     0xb5 -> `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits`), EXACTEMENT comme l'attaque
+        #     normale : `base + ExtraHits(0x11) + (melee ? ExtraHitsMelee(0x17))`, clamp Max(.,0), puis la
+        #     boucle des effets (bonus attaquant `OwnerIsCaster` / malus cible `OwnerIsTarget` / auras).
+        #     GROUND TRUTH live (case-61, runner isole, une seule variable = le trait de la cible) :
+        #     FlailSwing (`nrOfHits`=3) -> **2** coups sur une cible `Parry_ReduceHits`, **3** sur le temoin.
+        #     Le port ne traversait PAS ce canal : ni la base (ExtraHits) ni AUCUN bonus/malus.
+        #   - famille ABILITY (`is_attack_damage_op=False`) : `IdunBattle.Operations.AbilityDamageOperation$$Execute`
+        #     n'appelle PAS `GetAttackHits` (decompile : il lit le `Nullable<int>` et l'utilise BRUT, defaut 1)
+        #     -> base SEULE, canal NON traverse. C'est pourquoi le fold est GATE par la famille.
+        # `is_melee` de la formule = POSITIONNEL (`IdunBattle.Core.Services.DamagePrediction$$IsMeleeAttack` que
+        # `GetAttackHits` appelle lui-meme, et `IdunBattleLogic.Entities.DSLFactory$$IsMeleeAttack` des triggers
+        # d'effet), PAS la nature declaree de l'ability : une ability "melee" castee a distance 2 est RANGED
+        # pour ce canal. Positions/board absents -> on GARDE la base brute (aucune sur-application).
+        _ap_h = att.get_component(PositionComponent)
+        _tp_h = tgt.get_component(PositionComponent)
+        if is_attack_damage_op and _ap_h is not None and _tp_h is not None and state.board is not None:
+            from .triggers.base import _is_ranged_position   # lazy : cycle damage<->triggers
+            _melee_pos = not _is_ranged_position(state, attacker_id, target_id)
+            _board_h, _auras_h, _tgt_eff_h = build_hits_board(
+                state, attacker_id, target_id, (_ap_h.col, _ap_h.row), (_tp_h.col, _tp_h.row),
+                is_melee=_melee_pos)
+            # A3 (#113) : gate compute-time LightCover, mirror du call-site de l'attaque normale.
+            _t_terrain_h = state.board.terrain_at(_tp_h.col, _tp_h.row)
+            _on_cover_h = (_t_terrain_h == LIGHT_COVER_TILE_ID) if _t_terrain_h is not None else None
+            hits = attack_hits_with_modifiers(
+                weapon_hits=int(hits), extra_hits=ctx.stat(StatType.EXTRA_HITS),
+                extra_hits_melee=ctx.extra_hits_melee,
+                attacker_effects=active, trait_objects=ctx.trait_objects(),
+                target_effects=_tgt_eff_h, aura_sources=_auras_h, board=_board_h,
+                is_melee=_melee_pos, damage_profile=damage_profile,
+                # combat : GetStuckIn n'est PAS dans la formule (behaviour d'exec chance-gate, #62c).
+                # Le vecteur ability ne roule pas non plus de coup bonus (aucun `bonus_hit_chance`
+                # passe a `_run_hits` ici) -> gate False, comme la facade combat de l'attaque normale.
+                include_bonus_hit_behaviours=False,
+                defender_on_cover=_on_cover_h,
+                # #84 : memes DEUX entrees d'etat que la facade normale pour le gate LetTheGalaxyBurn.
+                # `IsPersistentData` reste faux sur ce vecteur (le natif n'emet PAS `On(PreAttack=5)`
+                # depuis le chemin ability -- il est emis par `ExecuteNormalAttack`) ; seule la branche
+                # `TargetHasTileEffect` peut armer le +1 ici. Fidele, documente en residu (case-61).
+                tile_effects_by_pos=tile_status_effects_by_pos(state, [(_tp_h.col, _tp_h.row)]),
+                attacker_persistent_data=persistent_data_keys(att),
+                is_normal_attack=False)     # gate `IsNormalAttack` (PowerTrip) : vecteur ABILITY
         hits = max(1, int(hits))
         shc, shield_total = AttackDamageOperation._target_shield(tgt)      # bouclier shield-first
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
