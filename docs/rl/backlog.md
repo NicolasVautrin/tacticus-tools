@@ -30,11 +30,21 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 | #20 | Port des kits par faction (ex-« Roadmap AdMec », généralisée à TOUTES les factions) | `[opus]` | `port-roadmap.md` §5 + `kit-coverage.md` (119 kits, 249 items ; piocher par faction, exceptions dures en §5.2). Audits régénérables : `audit_kit_coverage.py` / `audit_combat_ability_coverage.py`. |
 | #5 | Chantier `DslContext` live-state | `[opus]` | Architecture à poser, pas d'énigme à trancher. |
 | #17 | Surveillance des 2 résidus `move` | `[opus]` | Nature RNG, non actionnable — veille seulement. |
+| #PAI-c | Consommateurs de `PerformAIAction` restants (socle LIVRÉ) : **Waaagh 1058**, **SendInTheNextWave 1016**, **Incursion 1021**, **Poxwalkers 1040**, + retrofit **CultDemagogue 1179** (`PerformAINeophyteTurn` bespoke → nœud générique, cycle flags manquant) | `[opus]` | `case-perform-ai-action` §7 (par consommateur : ce qui manque exactement). Waaagh site-2 déjà lu (`@18122c260`, `asGroup=1/reset=1`) → manque `UnitsWithVisualId` / `VisualUnitIdFromUnitId` / `Get`. |
+| #PAI-k | `ListenUpMaggotsEffect` (0x426) + chaîne `SwornProtector`→spawn de Kell : SEULE source de `ActiveAbilityModificationsComponent` ; débloque le chemin NON-NUL de `GetAbilityStatModification` **et** la face DÉCISION `SupremeCommanderPlaybook` (gate « un enfant du caster existe ») | `[opus]` | `case-perform-ai-action` §5.1 + §6 (VAs : `@180f56590`/`@180f56740`, ability `@181221cc0`/`@181221d20` ; playbook `@181162890`/`@181162410`/`@181162720`). Tant que Kell n'est pas porté, porter le playbook = code enregistré-mais-mort. |
 | #66-r | Retrofit des autres consommateurs de la base `ReviveEffect` (revive-en-place) | `[opus]` | `case-66-revive-in-place` §6 : la base + `ReviveUnitOperation` sont PORTEES/VALIDEES (TaintedNarthecium). Ne restent que FILTRE + vars + gate overkill/HealType par sous-classe, chacune EXIGE un carrier spawnable validable : **Narthecium** (ultraApothecary Imperial, `@180f5ae20/@180f5acf0`, non-Mechanical + **unless Overkilled** byte 0x738=0 + chance=100) ; **RitesOfMorkai/FuelledByFury** (spaceWolfPriest 1211, `@180f4ab10`/`@180f810c0/@180f81250`) ; **GhostRevive/TimeFlux** (thousTerminator, `@180f83600/@180f83800`) ; **PhoenixGem_CanReviveEffect** (`@180f5e680/@180f5e4a0`, ability `@181111610/@1811117b0`) ; **ReanimationBeam** (`@180f67b90/@180f67ac0`, carrier a identifier). NB : Narthecium = ajouter le gate `NOT ev.overkill` (contraste TaintedNarthecium). |
 
 ## Résidus documentés (pas encore des tâches)
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
+
+- **Ordre intra-groupe de `PerformAIAction(asGroup=1)`** (`case-perform-ai-action` §5.2) : natif =
+  argmax d'utilité du picker `DefaultGroupOperator.PickNextUnit @181183d50` (iface slot 1) ; port =
+  ordre du sélecteur. Live observé : les 2 gardes de SupremeCommander agissent dans l'ORDRE INVERSE de
+  leur spawn. Sans incidence tant que les unités du groupe sont interchangeables. `[opus]`.
+- **`test_skitarii_turn_live::test_skitarii_played_by_generic_ai_pass` échoue au commit `9cf5e40`**
+  (`BFS 3->3` : le Vanguard bouge mais ne se rapproche pas ; attaque ranged 3 hits pour 0 dégât).
+  Reproduit sur base propre (patch stashé) → **pré-existant**, pas une régression. `[opus]`.
 
 - **BlackRage décision : seuil `should_evaluate` hp<=50% vs `hpPct` per-level (30→50%)** (`case-217-
   blackrage`, candidat remonté par PR #12) : le playbook décision gate à 0.5 fixe alors que la RE combat

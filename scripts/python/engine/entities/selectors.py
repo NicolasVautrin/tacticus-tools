@@ -297,6 +297,43 @@ class Unique(TargetsSelector):
         return out
 
 
+class UnitsWithIds(TargetsSelector):
+    """`DSLFactory.UnitsWithIds(source, string[] ids) @180e00230` : UNION (`op_Addition`) sur `ids` de
+    `UnitsWithIdSelector(source, TestUnitProvider(id))` -- l'accumulateur part du selecteur VIDE
+    (`ctor` gshared mislabele « AllAliveMachinesSelector » dans ghidra : structure lue, jamais le nom),
+    donc `ids` vide -> ensemble VIDE.
+
+    `UnitsWithIdSelector.Select @180f04390` = filtre de `source` par
+    `UnitExtensions.HasUnitId(unit, id) @180ed70c0` =
+    `UnitNamingConventions.GetUnitIdWithoutLevel(GetUnitId(unit)) == id` -- comparaison sur l'id de
+    CONFIG de l'unite (`GetUnitId @180ed48d0` lit le champ +0x10 du composant d'identite), pas sur son
+    id VISUEL.
+
+    ⚠ OFFLINE : le champ `visualId` du dict d'unite porte l'id de CONFIG pour les unites SPAWNEES
+    (`_spawn_config_grot(visual_id=constants['unitId'])`, ex. `astraSmnGuardsman`) et l'id VISUEL rendu
+    par `decisionView` pour les unites seedees depuis le live (ex. `astraNpc1Guardsman`, qui est le
+    `visualId` gameconfig d'`astraSmnGuardsman`). Le seul consommateur porte (SupremeCommander,
+    `affectedUnitIds = "astraSmnGuardsman,astraNpc1Guardsman"`) liste LES DEUX formes -> le filtre est
+    EXACT dans les deux cas. Un futur consommateur qui ne listerait qu'une seule forme demanderait un
+    id de config par-unite dans le `State` (residu documente).
+
+    Ordre : union dans l'ordre des `ids` (comme le `op_Addition` natif), chaque volet preservant
+    l'ordre de `source` ; DOUBLONS possibles si un id apparait deux fois (fidele au natif, qui
+    n'insere aucun `Unique`)."""
+    def __init__(self, source: TargetsSelector, ids):
+        self.source = source
+        if isinstance(ids, str):                          # constante gameconfig = liste CSV
+            ids = [s.strip() for s in ids.split(",") if s.strip()]
+        self.ids = list(ids or ())
+
+    def select(self, ctx):
+        units = self.source.evaluate(ctx)
+        out: list = []
+        for uid in self.ids:                              # op_Addition dans l'ordre des ids
+            out += [u for u in units if u.get("visualId") == uid]
+        return out
+
+
 class UnitsWithTrait(TargetsSelector):
     """`DSLFactory.UnitsWithTrait(source, traitId) @180e00b10` → `UnitsWithFlagSelector` flag=1 : garde
     les unités où `HasFlag(unit, traitId)` (même primitive que HasFlag). `ctx.has_trait` teste le trait ;

@@ -32,7 +32,12 @@ ROOT = Path(__file__).resolve().parents[3]           # racine repo
 # depuis le replace scope de `rl_duel build` (2026-07-03), un build dispose
 # le runner enregistre dans SON state-file ; sur le fichier partage par
 # defaut, ca disposerait le runner de travail de l'utilisateur.
-STATE = ROOT / "data" / "_pytest_duel_state.json"
+# `TACTICUS_PYTEST_STATE` (chemin ABSOLU) permet a plusieurs pytest CONCURRENTS (plusieurs agents
+# worktree partageant le meme `data/`) d'avoir chacun SON state-file : le `replace` scope de
+# `rl_duel build` dispose le runner enregistre dans CE fichier — deux runs sur le meme fichier se
+# tueraient mutuellement leur runner. Defaut inchange.
+STATE = Path(os.environ.get("TACTICUS_PYTEST_STATE")
+             or (ROOT / "data" / "_pytest_duel_state.json"))
 
 
 def _unwrap(r):
