@@ -17,7 +17,8 @@ from .dispatch import (
     after_death_triggers, is_overkill, start_turn_triggers, turn_start_other_triggers,
     tile_tick_triggers,
     after_hit_normal_attack, after_hit_ability_attack, after_move_triggers, displace_triggers,
-    end_turn_summon_triggers, unit_defeated_triggers, unit_resurrected_triggers,
+    end_turn_summon_triggers, unit_defeated_triggers, unit_death_triggers,
+    unit_resurrected_triggers, pre_effect_added_triggers,
 )
 from .loki import (
     _fire_of_absolution_after_attack, _on_fire_damage_ability,
@@ -37,7 +38,8 @@ __all__ = [
     "after_death_triggers", "is_overkill", "start_turn_triggers", "turn_start_other_triggers",
     "tile_tick_triggers",
     "after_hit_normal_attack", "after_hit_ability_attack", "after_move_triggers", "displace_triggers",
-    "end_turn_summon_triggers", "unit_defeated_triggers", "unit_resurrected_triggers",
+    "end_turn_summon_triggers", "unit_defeated_triggers", "unit_death_triggers",
+    "unit_resurrected_triggers", "pre_effect_added_triggers",
     "_fire_of_absolution_after_attack", "_on_fire_damage_ability",
     "THEBETRAYER_EFFECT", "ACTOFFAITH_EFFECT",
     "_add_betrayer_effect", "_reset_act_of_faith",

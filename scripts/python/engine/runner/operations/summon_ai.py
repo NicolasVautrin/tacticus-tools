@@ -106,7 +106,8 @@ def apply_action(state: State, uid: int, action: dict) -> dict:
                 _profs |= set((r.get("additional_hits") or {}).get("profiles") or [])
                 res["after_hit"] = after_hit_normal_attack(
                     state, uid, target, bool(r.get("ranged")), r.get("profile"),
-                    is_crit=bool(r.get("did_crit")), profiles=_profs)
+                    is_crit=bool(r.get("did_crit")), profiles=_profs,
+                    did_block=bool(r.get("did_block")))
         elif ability is not None:
             res["attack"] = _apply_active_ability(state, uid, target, ability)
     return res

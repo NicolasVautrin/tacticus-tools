@@ -76,13 +76,20 @@ HEAL dans ABILITY_CLASSES + formule HealAmount (Damage × max hits) + effet diff
 en case-27 pour la décision — la face combat reste portable.
 ```
 ```
-[AnvilShield | spaceRockfist passif]  — [fable]
-VAs : @180e16340 ; ApplyIce @180e16480/@180e16500 ; ApplyStun @180e16590/@180e16680 ;
-      FrozenAttackerAdvantage @180e16840/@180e168e0 (effets 1200/1201/1202)
-Tout gate On(UnitBlocked=0x3d) & OwnerIsTarget : +block-dmg (1202 PORTÉ factory.py:308) ; +block-chance
-conditionnel (1200, gate santé <35% abs-vs-% NON tranché factory.py:307) ; glace la tuile de
-l'attaquant ; Stun l'attaquant melee. Prérequis ABSENT : DISPATCH UnitBlocked (did_block résolu mais
-event jamais émis) — rejoint le vecteur ON-BLOCK du ledger (Deathwing §6.5). Validation probabiliste.
+[AnvilShield | spaceRockfist passif]  — **volet ApplyIce PORTE (#222) ; reste [fable]**
+VAs : @180e16340 (+ son CreateTrigger DEDUPLIQUE @180e15880 = df@0xa8) ; ApplyIce @180e16480/@180e16500 ;
+      ApplyStun @180e16590/@180e16680 ; FrozenAttackerAdvantage @180e16840/@180e168e0 (effets 1200/1201/1202)
+CORRECTION RE : « tout gate On(UnitBlocked) » est FAUX. `ApplyAdditionalBlockAndBlockChance @180e16340`
+a pour trigger `df@0xa8` = `On(0x21=AbilityInit) & OwnerIsActor` (InitializeShared @180df2670) : 1202 et
+1200 sont des OWNER-EFFECTS poses A L'INIT (ground truth : Arjac porte AnvilShield_AdditionalBlock des le
+1er decisionView) -> RIEN a caber pour 1202 (premisse « la pose manque » REFUTEE pour cet effet).
+Le DISPATCH `On(UnitBlocked=0x3d)` (emetteur `EvaluateAfterHitTriggers @180e25fc0`, branche `param_6`,
+emis AVANT On(8)) est desormais PORTE (`unit_blocked_triggers`, did_block threade) et consomme par
+`ApplyIce` : glace la tuile de l'ATTAQUANT (`AddEffect(0x11=Ice, cible=CasterTile@0x168)`) -- confirme
+LIVE (cascade `AnvilShield -> Ice` sur un runner --block-target 100).
+Restent [fable] : ApplyStun (gate HasEffect(1200|1201), effets NON portes -> port = no-op garanti) et
+FrozenAttackerAdvantage (vecteur On(0x2b=PreUnitAbility) + effet 1201 + canal stat 7 absents).
+cf. case-222-maillons-de-pose.md §4.
 ```
 ```
 [SavageKiller | spaceHound passif]  — [fable]

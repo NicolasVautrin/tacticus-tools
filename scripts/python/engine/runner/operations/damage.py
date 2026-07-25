@@ -117,12 +117,17 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         uc = tgt.get_component(UnitComponent) if tgt is not None else None
         if uc is not None:
             uc.alive = False
-        from .triggers import after_death_triggers, is_overkill, unit_defeated_triggers
-        out = after_death_triggers(state, target_id, attacker_id,
-                                   overkill=is_overkill(hp_before, damage))
+        from .triggers import (after_death_triggers, is_overkill, unit_death_triggers,
+                               unit_defeated_triggers)
+        overkill = is_overkill(hp_before, damage)
+        out = after_death_triggers(state, target_id, attacker_id, overkill=overkill)
+        # `KillUnitOperation.Execute @180e76470` emet la SEQUENCE 1 -> 2 -> **0 (UnitDeath)** -> 0x37
+        # (UnitDefeated) -> 0x36 (PostUnitKill). `On(0)` s'insere donc ICI, entre `On(1)` et `On(0x37)`
+        # (consommateur : TerrifyingCrescendo branche OVERKILL, cf. loki/terrifying_crescendo.py).
+        out = (out or []) + unit_death_triggers(state, target_id, attacker_id, overkill=overkill)
         # #G3 : le natif emet AUSSI `On(UnitDefeated=55)` (event DISTINCT de PreUnitDeath=1) apres la mort ->
         # Ambush_SummonAbility (mort -> decoy + record turn_defeated). L'unite est deja alive=False (fire-on-death).
-        return (out or []) + unit_defeated_triggers(state, target_id, attacker_id)
+        return out + unit_defeated_triggers(state, target_id, attacker_id)
 
     @staticmethod
     def _refresh_swarm(state: State, target_id: int) -> None:
@@ -393,7 +398,8 @@ class DamageHandler:
             self.after_hit = after_hit_normal_attack(
                 self.state, msg.attacker_id, msg.target_id,
                 bool(self.last.get("ranged")), self.last.get("profile"),
-                is_crit=bool(self.last.get("did_crit")), profiles=_profs)
+                is_crit=bool(self.last.get("did_crit")), profiles=_profs,
+                did_block=bool(self.last.get("did_block")))
         # #139 : l'attaque normale native EST une ActiveAbility (NormalAttack per-unite ; AttackUnitMessage
         # n'existe pas en natif — c'est la simplification port de l'ActiveAbilityMessage) et traverse la
         # MEME queue `AddFlagsAfterAbilityExecution` @180e447f0 — base `SetsEndTurnFlags`/

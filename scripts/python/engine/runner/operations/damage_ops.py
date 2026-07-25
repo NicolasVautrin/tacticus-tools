@@ -411,7 +411,8 @@ class _DamageOpsMixin:
         # after-hit trigger (#140 : splash Psyker sur ability/splash psychique, chain borné par le cap).
         # `ranged` = POSITION-based (calculé dans after_hit_ability_attack, mirror IsRangedAttack).
         after_hit = after_hit_ability_attack(state, attacker_id, target_id, r["did_crit"],
-                                             profile=damage_profile, ability_type=ability_type)
+                                             profile=damage_profile, ability_type=ability_type,
+                                             did_block=r["did_block"])
         return {"hits": hits, "total": r["total"], "base_min": base_min, "base_max": base_max,
                 "pierce": profile_pierce, "armor": armor, "fire": fire, "after_hit": after_hit,
                 "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,
@@ -502,7 +503,8 @@ class _DamageOpsMixin:
         # `ability_type` = kind AbilityOrEffect du coup (smite Psyker 0x3f5 -> branche 2 AddIce #35).
         from .triggers import after_hit_ability_attack
         after_hit = after_hit_ability_attack(state, attacker_id, target_id, r["did_crit"],
-                                             profile=damage_profile, ability_type=ability_type)
+                                             profile=damage_profile, ability_type=ability_type,
+                                             did_block=r["did_block"])
         return {"hits": hits, "total": r["total"], "base": base, "pierce": profile_pierce,
                 "armor": armor, "after_hit": after_hit,
                 "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,

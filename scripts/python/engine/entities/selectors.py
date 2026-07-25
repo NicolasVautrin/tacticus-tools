@@ -700,6 +700,52 @@ class EffectFromOwner(TargetsSelector):
         return []
 
 
+class EffectsFromUnitSource(TargetsSelector):
+    """`DSLFactory.EffectsFromUnitSource(source, effectType) @180deec70` -> `EffectWithTypeSelector
+    @180ee7f30` (frere d'`EffectFromOwner`, keye sur la SOURCE au lieu de l'owner) : les INSTANCES d'effet
+    du type `effect_type` dont le `EffectComponent.SourceUnit @+0x10` est l'unite `source`. Domaine =
+    ENTITES-EFFET (pas des unites) -> consomme par `OwnerOfEffect` qui remonte a leurs porteurs.
+
+    Seul call-site porte : `MasterAnnihilatorAbility.CreateBehaviour @18110b940`
+    (`RemoveEffect(OwnerOfEffect(EffectsFromUnitSource(Self@0x148, 0x4e1)), 0x4e1)` = le marqueur pose par
+    CE caster, ou qu'il soit). Offline l'entite-effet est modelisee par un dict
+    `{"effect_type", "source", "owner_id"}` (`ctx.effects_from_source`) ; sans accesseur -> [] (degradation
+    fidele « present != applique »)."""
+    def __init__(self, source: TargetsSelector, effect_type):
+        self.source, self.effect_type = source, effect_type
+
+    def select(self, ctx):
+        fn = getattr(ctx, "effects_from_source", None)
+        if fn is None:
+            return []
+        src = resolve_unit(self.source, ctx)
+        if src is None:
+            return []
+        et = self.effect_type.evaluate(ctx) if hasattr(self.effect_type, "evaluate") else self.effect_type
+        return list(fn(src, int(et)) or [])
+
+
+class OwnerOfEffect(TargetsSelector):
+    """`DSLFactory.OwnerOfEffect(effects) @180df8350` : remonte de chaque ENTITE-EFFET a l'UNITE qui la
+    PORTE (`EffectComponent.Target @+0x14` / cle `EffectsState.by_unit`). Rend des dicts d'unite
+    (domaine unit) dedupliques, dans l'ordre du selecteur source."""
+    def __init__(self, effects: TargetsSelector):
+        self.effects = effects
+
+    def select(self, ctx):
+        by_id = {u.get("id"): u for u in (ctx.units or []) if isinstance(u, dict)}
+        out, seen = [], set()
+        for e in (self.effects.evaluate(ctx) or []):
+            oid = e.get("owner_id") if isinstance(e, dict) else None
+            if oid is None or oid in seen:
+                continue
+            u = by_id.get(oid)
+            if u is not None:
+                seen.add(oid)
+                out.append(u)
+        return out
+
+
 def get_spawn_tile_selector() -> TargetsSelector:
     """`GetEmRuntzAbility.GetSpawnTileSelector @1811e26b0` (mirror 1:1, confirme LIVE #200 tracer-v2) =
         op_BitwiseAnd( CanAddUnit(AdjacentTiles(caster)),

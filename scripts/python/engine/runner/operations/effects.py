@@ -74,12 +74,28 @@ class AddEffectOperation:
     @staticmethod
     def execute(state: State, source: Optional[int], target: Optional[int], effect_type: int,
                 *, name: Optional[str] = None, duration_override: Optional[int] = None,
-                value: Optional[int] = None) -> Optional[BaseEffect]:
+                value: Optional[int] = None, level: Optional[int] = None,
+                ability_level: Optional[int] = None, active_ability_level: Optional[int] = None,
+                multiplier_pct: Optional[int] = None) -> Optional[BaseEffect]:
         """Pose l'effet `effect_type` sur `target` (posé par `source`). Renvoie l'effet matérialisé
         (`BaseEffect`) ou None si la pose est abandonnée (pas de cible / déjà présent / pas d'EffectsState).
 
         `name` = nom d'EffectType (`decisionView.effects[].name`) pour l'enregistrement diffable ;
-        `duration_override`/`value` = paramètres du builder du vecteur appelant (param_6 natif)."""
+        `duration_override`/`value` = paramètres du builder du vecteur appelant (param_6 natif).
+        `level` = niveau de STACK initial (`EffectComponent.Level @+0x68`) — posé par le seul vecteur
+        `AddEffectOrIncreaseLevel @180de6860` (branche AddEffect de son lambda `b__0 @180e25540`, qui passe
+        l'INCRÉMENT comme niveau de la 1re pose) ; None = niveau non porté (tous les autres vecteurs).
+        `ability_level`/`active_ability_level`/`multiplier_pct` = paramètres de SCALING de l'effet
+        matérialisé (§17.21 — l'équivalent de ce que `EffectsState.seed` fournit aux effets CAPTÉS) : sans
+        eux un effet dont la magnitude vient d'un `ConfigVar` reste inerte. Renseignés par les vecteurs qui
+        connaissent l'unité de référence ; None = comportement historique (mult 100, niveaux None)."""
+        # `On(PreEffectAdded=0x3e=62)` — le natif émet ce message TOUT EN HAUT d'`Execute @180e48940`
+        # (`FUN_180026490(0x50, …, 0x3e)` juste après la construction de l'`AbilityEntities`), donc AVANT
+        # le gate cible-nulle, AVANT le gate « déjà présent » et AVANT le gate d'immunité : l'événement
+        # fire même si la pose est finalement abandonnée (sémantique « would have », cf.
+        # TerrifyingCrescendo « would have Suppressed »). Émis ICI, à la MÊME place.
+        from .triggers import pre_effect_added_triggers
+        pre_effect_added_triggers(state, source, target, int(effect_type))
         # GATE : pas de cible → abandon (Execute log "couldn't apply, no target" puis return 0).
         if target is None:
             return None
@@ -89,19 +105,35 @@ class AddEffectOperation:
             return None
         # GATE immunité : IsUnit(target) && HasFlag(target,6). Non sourçable offline (flags d'unité non
         # exposés par l'ECS) → TODO ; structure conservée pour quand les flags seront portés.
-        # DURÉE : override (builder) sinon DefaultAmountOfRounds(type) sinon fallback 1 (cf. Execute).
+        # DURÉE : override (builder, `param_6` NullableA) sinon `DefaultAmountOfRounds(type)` converti
+        # rounds→turns ; si les DEUX sont absents → **AUCUNE durée = PERMANENT** (`lVar14 = 0` du natif,
+        # observable `remaining = 0`). ⚠ CORRIGÉ : l'ancien fallback `1` faisait EXPIRER au 1er tick tout
+        # effet posé sans durée et hors table — GROUND TRUTH LIVE (runner 1181, decisionView.effects) :
+        # `MasterAnnihilator_extraHit` posé par l'attaque native de Vitruvius = `remaining 0, level 1`
+        # (idem RelentlessMarch_DangerZone / FleshmetalGuns* / AnvilShield_AdditionalBlock / HeavyWeapon_
+        # ExtraDmg : TOUS `rem=0, level=1`). Le `1` du décompilé (`local_588[0] = 1`) n'est PAS la durée
+        # mais le **NIVEAU** (`EffectComponent.Level @+0x68`, cf. `IncreaseEffectLevelOperation.Execute
+        # @180e73cb0` qui lit/écrit CE champ comme niveau) — porté ci-dessous par `level`.
+        # `remaining = 0` → `EffectFactory.create` mappe rem<=0 → None = permanent (retrait par TRIGGER).
         duration = duration_override
         if duration is None:
             duration = default_amount_of_rounds(effect_type)
         if duration is None:
-            duration = 1
+            duration = 0                       # pas de timer -> permanent (mirror `lVar14 = 0`)
+        # NIVEAU : `param_6` NullableB sinon **1** (`local_588[0] = 1` @180e48940) -> `EffectComponent.Level`.
+        if level is None:
+            level = 1
         # NOUVEL effet : entité-effet via le builder natif (PlayerIdGenerator.Next). Côté Python on
         # matérialise l'instance BaseEffect (via la factory, sous-classe 1:1 si portée). Champs =
         # EffectComponent : Type/Duration/SourceUnit/Target/Value/Active (Active implicite = présent).
         # On la crée AVANT le gate « déjà-présent » pour interroger sa classe (`stacks_stat_mod_on_add`).
         captured = {"name": name or _effect_name(effect_type), "effectType": int(effect_type),
-                    "level": None, "remaining": duration, "source": source}
-        eff = EffectFactory.create(captured)
+                    "level": level, "remaining": duration, "source": source}
+        eff = EffectFactory.create(captured,
+                                   ability_variables_multiplier=(100 if multiplier_pct is None
+                                                                 else int(multiplier_pct)),
+                                   ability_level=ability_level,
+                                   active_ability_level=active_ability_level)
         eff.target = target
         eff.value = value
         # GATE : déjà-présent (query 0x28 def↔cible) — pas de re-pose d'un même type non consommé.

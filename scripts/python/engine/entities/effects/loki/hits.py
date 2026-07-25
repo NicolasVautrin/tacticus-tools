@@ -371,20 +371,24 @@ class InfernalPactsAdditionalHitsEffect(BaseEffect):
 
 class AnvilShieldAdditionalBlockEffect(BaseEffect):
     """`AnvilShield_AdditionalBlock` (effet 0x4b2=1202, StaticStatModifierEffect) — buff BLOCK_DAMAGE
-    self de Arjac (spaceRockfist) quand il BLOQUE. Pose par `AnvilShieldAbility_ApplyAdditionalBlockAnd
-    BlockChance.CreateBehaviour @180e16340` : `AddStaticStatModifierEffect(0x4b2, statType 8=BLOCK_DAMAGE,
-    GetVariableForLevel(0x14))` (2e effet de la meme behaviour = 0x4b0=1200 BlockChanceBelowHealthCap,
-    stat 7=BLOCK_CHANCE / var blockChance, gate sante -> NON porte ici, ambiguite abs-vs-% du cap).
+    self de Arjac (spaceRockfist), OWNER-EFFECT pose A L'INIT DE L'ABILITY. Pose par
+    `AnvilShieldAbility_ApplyAdditionalBlockAndBlockChance.CreateBehaviour @180e16340` :
+    `AddStaticStatModifierEffect(0x4b2, statType 8=BLOCK_DAMAGE, GetVariableForLevel(0x14))` (2e effet de
+    la meme behaviour = 0x4b0=1200 BlockChanceBelowHealthCap, stat 7=BLOCK_CHANCE / var blockChance, gate
+    sante -> NON porte ici, ambiguite abs-vs-% du cap).
 
     Magnitude = ability_var AnvilShield `blockDmg` (idx enum 0x14 <-> stat 8 BLOCK_DAMAGE ; blockDmg in
     variablesAffectedByRarityBonus -> scale x multiplier de l'unite). blockDmg[L1..65]=[10..728]. Effet
     INCONDITIONNEL (pas d'ActiveCondition). AnvilShield = ability ACTIVE -> index activeAbilityLevel
     (fallback passif/stack). EffectSource = AbilityOrEffect 0x493 (=AnvilShield, ability enum).
 
-    ⚠ Pose par le vecteur ON-BLOCK (materialisation d'effet on-block, NON porte) -> INERTE tant que non
-    materialise (fidelite-safe : « present != applique ») ; une fois present sur Arjac (seed live / vecteur),
-    le stat-layer applique +blockDmg a la stat BLOCK_DAMAGE (stat 8, lue par CalculateBlockChances #30).
-    Validation live possible via un scenario BLOCK (Arjac bloque -> statModSources stat 8), cf. BeastSlayer #72."""
+    ⚠ MIS-ATTRIBUTION CORRIGEE (#222) : l'ancienne note « pose par le vecteur ON-BLOCK » etait FAUSSE.
+    Le `CreateTrigger` de cette ability est le corps DEDUPLIQUE `@180e15880` (`return df@0xa8`), et
+    `df@0xa8` est construit par `DSLFactory.InitializeShared @180df2670` = `On(0x21 = AbilityInit) &
+    OwnerIsActor` -> 1202 (et 1200) sont poses A LA CREATION de l'unite, PAS au block. GROUND TRUTH live :
+    Arjac porte `AnvilShield_AdditionalBlock` (level 1, remaining 0) des le PREMIER `decisionView` d'un
+    runner frais -> l'effet est deja materialise par le seed, RIEN a caber. Le vrai volet ON-BLOCK
+    (`On(UnitBlocked=0x3d)`) est `ApplyIce`/`ApplyStun` (cf. triggers/loki/anvil_shield.py)."""
 
     def get_stat_modification_stat(self) -> int | None:
         return 8                                     # StatType.BLOCK_DAMAGE

@@ -44,12 +44,17 @@ kill ranged → Spawn(thousSmnBlueHorror). Prérequis : kill-event killer-side O
 (dispatch = victime-side only) ; prédicat IsDefeatedByMeleeAttack. Validable direct.
 ```
 ```
-[FleshmetalGuns | blackObliterator passif]  — [opus]+prérequis (runner-face only)
-VAs : CreateBehaviour @18121f6e0 ; TileEffect @18121fb40/@18121fbc0 ; base @180f48570/@180f48260
-Les 3 effets extra-hits (1067/1212/1221) PORTÉS+consommés (hits.py:158-236) → prédiction gratuite.
-Manque la ROTATION turn-start : Remove x3 + If(Modulo(UnitTurnsStarted,3)==k, AddEffect(...)).
-Prérequis : amount-node Modulo ; volet WarpHail DespoiledGround tile-pose. Risques : parité modulo
-(==0 → WarpHail) ; ne pas double-poser (capté + posé).
+[FleshmetalGuns | blackObliterator passif]  — **ROTATION PORTEE + VALIDEE LIVE (#222)**
+VAs : CreateTrigger @180e17450 (corps DEDUPLIQUE, identifie par la table de pointeurs de methodes) ;
+      CreateBehaviour @18121f6e0 ; TileEffect @18121fb40/@18121fbc0 ; base @180f48570/@180f48260
+Les 3 effets extra-hits (1067/1212/1221) etaient PORTES+consommes ; la ROTATION turn-start est cablee :
+`On(0x16=TurnStart_Actions) & IsTurnOf(Self@0x148 = df@0xa0)` -> Remove x3 + 3x
+If(Modulo(UnitTurnsStarted(Self),3)==k, AddEffect(k)). PARITE TRANCHEE : %3==1 Melta(1067),
+%3==2 Flame(1212), %3==0 HeavyRound(1221) -- confirmee LIVE (3 tours natifs consecutifs de Volk :
+FocusedMalice -> RuinousSalvo -> WarpHail) et par le seed (turnsStarted=1 -> FocusedMalice).
+Pas de double-pose (les 3 RemoveEffect sont INCONDITIONNELS avant les If).
+Residu : volet WarpHail DespoiledGround (tile-pose) -- vecteur On(0x10=DamageDealt) absent + effet 1476
+non porte. cf. case-222-maillons-de-pose.md §2.
 ```
 ```
 [HeadClaimer | blackHaarken passif]  — [opus]+prérequis

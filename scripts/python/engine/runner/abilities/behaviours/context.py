@@ -196,7 +196,43 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         return (state.effects is not None
                 and state.effects.has_effect(int(tile_id), effect_type=int(effect_type)))
 
+    # `ctx.has_effect` (`HasEffect(unit, effectType, minLevel) @180df0fb0` -> `HasEffectTrigger @180f9d830`)
+    # : l'unite porte-t-elle un effet ACTIF du type, de niveau >= minLevel ? (source-flag 6 = owned|incoming
+    # -> offline on ne distingue pas la source, toutes les instances portees comptent). Meme cle `by_unit`
+    # que la pose `AddEffectOperation`. Sans `state.effects` -> False (degradation fidele).
+    def _has_effect(unit, effect_type, source_flag=6, min_level=0):
+        if state.effects is None:
+            return False
+        uid = (unit or {}).get("id")
+        if uid is None:
+            return False
+        for e in state.effects.by_unit.get(int(uid), []):
+            if e.consumed or e.expired or e.effect_type != int(effect_type):
+                continue
+            if int(min_level or 0) > 0 and int(e.level or 0) < int(min_level):
+                continue
+            return True
+        return False
+
+    # `ctx.effects_from_source` (`EffectsFromUnitSource @180deec70`, #MasterAnnihilator) : les INSTANCES
+    # d'effet du type dont le `EffectComponent.SourceUnit` == `source_unit`. Balaye `state.effects.by_unit`
+    # (cle = le PORTEUR) et ne garde que les instances ACTIVES (non consommees) de la bonne source.
+    def _effects_from_source(source_unit, effect_type):
+        if state.effects is None:
+            return []
+        sid = (source_unit or {}).get("id")
+        if sid is None:
+            return []
+        out = []
+        for uid, effs in state.effects.by_unit.items():
+            for e in effs:
+                if e.consumed or e.effect_type != int(effect_type) or e.source is None:
+                    continue
+                if int(e.source) == int(sid):
+                    out.append({"effect_type": int(effect_type), "source": int(sid), "owner_id": int(uid)})
+        return out
+
     return DslContext(units=units, caster=caster, target=target, actor=actor, board=state.board,
                       has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat,
                       get_ability_level=_get_ability_level, tile_has_effect=_tile_has_effect,
-                      children=[])
+                      has_effect=_has_effect, effects_from_source=_effects_from_source, children=[])

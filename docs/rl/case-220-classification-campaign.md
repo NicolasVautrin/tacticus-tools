@@ -57,7 +57,7 @@
 |---|---|---|
 | PerformAIAction (feuille unifiée + after-hit ; variantes PerformAIAbility / -repair / PerformAIMovement ; généralisation aux unités ENNEMIES + move-before-attack) | Waaagh, SupremeCommander, ItItches, act-again BlackRage, AdaptiveStrategy, ReanimationBeam, ShockAssault, EcogSupport, BioMinefield (movement), AttemptedPossession (ennemis+summons) | case-219 §7, §2, §6.7, §6.9, §6.10, §6.16, §6.18 |
 | Sous-système Overwatch (effets 1009/1144/1145/1149 ; re-arm-on-kill + hits décroissants ; extra-dmg gate IsOverwatchAttack) | EarlyWarningOverride, InescapableDeath, LionHelm/GrimRetribution (attribution), CalibaniteGreatsword ; blind spot IA connu | §2, §6.5, §6.7 |
-| Vecteurs réactifs DÉFENSEUR : on-being-attacked, on-being-hit (On 58 IsFirstDamagingHitInSeries), on-adjacent-friend-damaged, On(PreUnitMove=31) + hex-de-départ, ON-BLOCK mid-attaque, riposte self+allié-adjacent, attaque-liée machine | UnwaveringSentinel, MomentShackle, Deathwing, GrimRetribution, Hailstrike, HatefulAssault, GeminaeSuperia, MedicusMinistorum, AnvilShield (dispatch UnitBlocked=0x3d), SavageKiller (réaction move Summon), WireweaveNet (riposte PRE-HIT + annulation on-kill) | §6.1, §6.5, §6.11, §6.14, §6.15, §6.19 |
+| Vecteurs réactifs DÉFENSEUR : on-being-attacked, on-being-hit (On 58 IsFirstDamagingHitInSeries), on-adjacent-friend-damaged, On(PreUnitMove=31) + hex-de-départ, ON-BLOCK mid-attaque, riposte self+allié-adjacent, attaque-liée machine | UnwaveringSentinel, MomentShackle, Deathwing, GrimRetribution, Hailstrike, HatefulAssault, GeminaeSuperia, MedicusMinistorum, ~~AnvilShield (dispatch UnitBlocked=0x3d)~~ **LEVÉ #222** (`unit_blocked_triggers` — émetteur `EvaluateAfterHitTriggers @180e25fc0` branche `param_6`, `did_block` threadé ; 1er user = AnvilShield ApplyIce), SavageKiller (réaction move Summon), WireweaveNet (riposte PRE-HIT + annulation on-kill) | §6.1, §6.5, §6.11, §6.14, §6.15, §6.19 |
 | TriggerAbilityDelayed (file d'ability différée — écarté 2x par collapse, act_of_faith.py:96) | UnwaveringSentinel, Hailstrike, HaywireMine | §6.1, §6.5, §6.22 |
 | Pattern OVERRIDE-ATTAQUE (AddStatOverrideEffect dégât + UseNormalAttack + Remove) + PercentageOfAttackCappedAtMax runner | SternguardFocus, ExemplarOfHate | §6.5 |
 | Sélecteur d'attaquant prediction-heavy (SortAttackersByDamagePredictionSelector + UnitsWhoCanAttack + UnitsFromFaction) | ExemplarOfHate | §6.5 |
@@ -66,7 +66,7 @@
 | Persistent data — scalar (Set/Get) et LIST (Add/IsIn/clear) + compteur (Add/Clear) | StandVigil (range), LegendaryCommander (marquage), PrioritisedEfficiency (stance), FuryFromTheDelve (flag 2-events), AncestralFortune (compteur 6), HazeOfCorruption (0x434), HaywireMine (gate un-seul-mine), AggressiveOnslaught (tracking summons) | §5, §6.1, §6.8, §6.10, §6.12, §6.22 |
 | Compteurs/prédicats d'attaque : TimesAttackMadeThisTurn, CurrentAbilityIs, IsFirstHitGroupInAttack, IsPartialAttackAbility, TriggeringAbilityIsNormalAttack, TotalTurnsWithAttacksMade (+0x30) | LegacyOfCombat, LegendaryCommander, MartialInspiration | §4, §6.1 |
 | HasUsedActiveAbilityThisTurn comme filtre de sélecteur | LegendaryCommander | §6.1 |
-| AddEffectOrIncreaseLevel côté ÉCRITURE (accumulate, level-cap) | TalonsOfTheEmperor (1420), TerrifyingCrescendo (1424), HeadClaimer (1028/1029) | §6.1, §6.4, §6.11 |
+| ~~AddEffectOrIncreaseLevel côté ÉCRITURE (accumulate, level-cap)~~ **LEVÉ #222** (factory `add_effect_or_increase_level` + feuille `IncreaseEffectLevel`, clamp mirror @180e73cb0 ; 1er user = TerrifyingCrescendo) | TalonsOfTheEmperor (1420), TerrifyingCrescendo (1424) **PORTÉ**, HeadClaimer (1028/1029) | §6.1, §6.4, §6.11 |
 | Amount-nodes DSL : RandomAmount / Divide / Get(const) + PickRandomly-by-count | Poxwalkers, OptimizedGait (RandomAmount) | §2, §6.17 |
 | ChainBehaviour (boucle ré-évaluée par itération) + snake-chain impératif (expand-from-last + exclusion + PickRandomly par pas) | Incursion, SilentDeath | §2, §6.19 |
 | Feuilles turn-flow : ResetTurn (ré-entrance), FinishTurn | FightingRetreat | §4 |
@@ -112,7 +112,7 @@
 | ChangeEffectTurns (re-timing de durée d'effet) | ThrillSeekers (refresh), TwinSmartMissileSystem, RedRampage (+1 au kill) | §5, §6.6, §6.12 |
 | Attaque d'ability MULTI-CIBLE (Foreach sur sélecteur d'unités — extension du Foreach FireTile) | PutridExplosion, TwinSmartMissileSystem, MacroPlasmaIncinerator (zone) | §5, §6.6, §6.9 |
 | Teleport-ciblé (tuile adjacente-à-un-allié) + spawn-sur-ex-tuile-du-caster | ExemplarOfTheKauyon | §6.6 |
-| Trigger turn-start → buff sur SÉLECTEUR (les portés ciblent le porteur seul) + Modulo round-cycling (PlayerTurnsStarted / UnitTurnsStarted) | SereneUnifier, TimesplinterMantle, RelentlessMarch, FleshmetalGuns (rotation x3) | §6.6, §6.7, §6.11 |
+| Trigger turn-start → buff sur SÉLECTEUR (les portés ciblent le porteur seul) + Modulo round-cycling (PlayerTurnsStarted / UnitTurnsStarted) — **volet Modulo/UnitTurnsStarted LEVÉ #222** (`UnitTurnsStarted` lit le vrai `GetStat(unit,0xc)` ; `IsTurnOf(Self)` = `df@0xa0`) | SereneUnifier, TimesplinterMantle, RelentlessMarch, FleshmetalGuns (rotation x3) **PORTÉE** | §6.6, §6.7, §6.11 |
 | Tracking mouvement de la CIBLE au tour précédent : TilesMovedLastTurn (chiffré) / prédicat moved-last-turn | HeavyRailRifle, PredictiveGuidance | §6.6, §6.10 |
 | Prédicat WasBlock (event UnitBlocked=61) comme trigger | AncestralFortune | §6.10 |
 | Action REPAIR combat exécutable + event UnitRepaired(49) (trait Mechanic faction-wide — repair.py = utilité IA seule) | EcogSupport | §6.10 |
@@ -129,7 +129,7 @@
 | Active HEAL en ABILITY_CLASSES + formule HealAmount (trait Healer) — 1re du registre | HealingBalms | §6.15 |
 | Boucle repeat-until-cap spawn GÉNÉRIQUE (bespoke spawn.py:583 aujourd'hui) + trigger réactif cross-unit (owner≠actor, gates trait/amitié sur l'ACTEUR) | SynapticLinchpin, BioMinefield | §6.16 |
 | Kits de summons Tyranides DOWNSTREAM (tyranSmnSporeMine.FloatingDeath, RipperSwarm.Burrowers, Hormagaunt.AdrenalGlands) — sans eux les spawns exécutent mais l'aval = 0 | SporeMineLauncher, BioMinefield, BarbedOvipositor, SynapticLinchpin | §6.16 |
-| remove-effect-by-source (retirer l'effet posé PAR CE caster, marqueur unique) | MasterAnnihilator | §6.17 |
+| ~~remove-effect-by-source (retirer l'effet posé PAR CE caster, marqueur unique)~~ **LEVÉ #222** (sélecteurs `EffectsFromUnitSource @180deec70` + `OwnerOfEffect @180df8350` + `RemoveEffect` multi-cible) | MasterAnnihilator **PORTÉ** | §6.17 |
 | Compteur TotalRepairActionsAmount (repairs battle-scoped des amis Mechanic) | RadBombardment | §6.17 |
 | **Canal CRIT-ATTAQUANT** (crit-chance/crit-dmg DONNÉ — hooks base.py:213/220 présents, 0 USER) | InescapableAccuracy (1er user), PathOfCommand_ExtraCrit (TODO factory.py:377), SagaOfTheWarriorBorn (crit-dmg) | §6.19, §6.15 |
 | Feuille ResetMovement (2e move du caster, ≠ ResetTurn) | ItItches, FireAndReposition, StrikeFromTheShadows | §2, §6.19, §6.22 |

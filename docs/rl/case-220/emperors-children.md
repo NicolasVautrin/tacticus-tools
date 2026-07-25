@@ -8,10 +8,13 @@ existent → face DÉCISION à porter en parallèle ; seule ExcruciatingFrequenc
 #204** — seule la pose manque.
 
 ```
-[TerrifyingCrescendo | emperNoiseMarine passif]  — [opus]+prérequis, LE plus rapide
+[TerrifyingCrescendo | emperNoiseMarine passif]  — **PORTE + VALIDE LIVE (#222)**
 VAs : @1811a3840/@1811a3910 ; effet @180f715e0/@180f4ae70
 Trigger = overkill OR pose-de-Pinned(1065) par le porteur (On 0x3e=62) → AddEffectOrIncreaseLevel
-(1424, +218/stack, cap 6). Prérequis : feuille AddEffectOrIncreaseLevel + event On(62)&TriggeringEffectIs.
+(1424, +218/stack, cap 6). Prérequis LEVES : factory AddEffectOrIncreaseLevel + vecteurs On(0=UnitDeath)
+et On(0x3e=PreEffectAdded)&TriggeringEffectIs. Port : triggers/loki/terrifying_crescendo.py.
+Live 8 tirs suppress : stack 1..6 puis cap ; offline identique. Branche OVERKILL non exercee (residu).
+cf. case-222-maillons-de-pose.md §3.
 ```
 ```
 [1196 LashOfTorment | emperLucius]  — [opus]+prérequis (PullUnitOneTile)

@@ -399,7 +399,8 @@ class MV71SniperDroneSquadAttackAbility(ActiveAbility):
                 from ...operations.triggers import after_hit_normal_attack
                 after = after_hit_normal_attack(state, caster_id, target_id,
                                                 bool(atk.get("ranged")), atk.get("profile"),
-                                                is_crit=bool(atk.get("did_crit")))
+                                                is_crit=bool(atk.get("did_crit")),
+                                                did_block=bool(atk.get("did_block")))
             return {"melee": True, "attack": atk, "after_hit": after}
 
         consts = (GC.ability(CONFIG) or {}).get("constants") or {}
