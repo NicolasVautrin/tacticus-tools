@@ -250,9 +250,15 @@ def phase_spawn_and_act(sid, units, do_act=True):
 
 
 def _state_footprint(sid, rid):
-    """Empreinte live : unites vivantes + hp + effets par entite."""
+    """Empreinte live : unites vivantes + hp + effets par entite ET PAR TUILE.
+
+    `decisionView` est AVEUGLE aux effets de TUILE : seul `tileMeta` (`readEffectsByTile`) les
+    expose. Sans eux, une ability qui pose une zone (InfernalCannon -> Fire) se lit « cast ok mais
+    aucun effet observable » -- faux negatif mesure sur 1209.
+    """
     dec = rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True})
     ob = rpc(sid, "observeBattle", {"runnerId": rid}, 40)
+    tm = rpc(sid, "tileMeta", {"runnerId": rid}, 60) or {}
     units = {u.get("squadId"): (u.get("visualId"), u.get("hp"), bool(u.get("isDead")))
              for u in (ob.get("units") or [])}
     effs = {}
@@ -265,7 +271,13 @@ def _state_footprint(sid, rid):
              if x.get("effectType") is not None}
         if e:
             effs[int(key)] = e
-    return {"units": units, "effects": effs}
+    tiles = {}
+    for t in (tm.get("tiles") or []):
+        e = {int(x["effectType"]): x.get("remaining") for x in (t.get("effects") or [])
+             if x.get("effectType") is not None}
+        if e:
+            tiles[f"tile:{t.get('col')},{t.get('row')}"] = e
+    return {"units": units, "effects": effs, "tiles": tiles}
 
 
 def _fp_delta(before, after):
@@ -279,8 +291,14 @@ def _fp_delta(before, after):
         add = {t: r for t, r in e.items() if t not in (before["effects"].get(k) or {})}
         if add:
             new_eff[k] = add
+    new_tiles = {}
+    for k, e in (after.get("tiles") or {}).items():
+        add = {t: r for t, r in e.items() if t not in ((before.get("tiles") or {}).get(k) or {})}
+        if add:
+            new_tiles[k] = add
     return {"newUnits": {k: v[0] for k, v in new_units.items()},
-            "hpDelta": hp_delta, "deaths": death, "newEffects": new_eff}
+            "hpDelta": hp_delta, "deaths": death, "newEffects": new_eff,
+            "newTileEffects": new_tiles}
 
 
 def _pick_target(tgts, caster_pos):
@@ -342,7 +360,7 @@ def _try_cast(sid, rid, caster_row, ability=None):
         after = _state_footprint(sid, rid)
         d = _fp_delta(before, after)
         act0 = (res.get("actions") or [{}])[0]
-        observable = bool(d["newUnits"] or d["hpDelta"] or d["deaths"] or d["newEffects"])
+        observable = any(d.values())
         print(f"    ability {ab}: CAST ok={act0.get('ok', True)} err={act0.get('error')} "
               f"cibles={len(tgts)} tgt={json.dumps(t)[:120]} delta={json.dumps(d)}")
         if observable and fired is None:

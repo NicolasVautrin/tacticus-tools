@@ -94,9 +94,15 @@ def _rpc(host, sid):
 
 
 def _footprint(call, rid):
-    """{unites vivantes -> (visualId, hp, mort)} + {entite -> effets} : la base des deltas."""
+    """{unites vivantes -> (visualId, hp, mort)} + {entite -> effets} + {tuile -> effets}.
+
+    `decisionView` est AVEUGLE aux effets de TUILE : seul `tileMeta` (`readEffectsByTile`) les
+    expose. Sans eux, une ability qui pose une zone (InfernalCannon -> Fire) se lirait « cast ok,
+    aucun effet observable » — faux negatif mesure sur 1209.
+    """
     dec = call("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True})
     ob = call("observeBattle", {"runnerId": rid}, 40)
+    tm = call("tileMeta", {"runnerId": rid}, 60) or {}
     units = {u.get("squadId"): (u.get("visualId"), u.get("hp"), bool(u.get("isDead")))
              for u in (ob.get("units") or [])}
     effs = {}
@@ -109,11 +115,17 @@ def _footprint(call, rid):
              if x.get("effectType") is not None}
         if e:
             effs[int(key)] = e
-    return {"units": units, "effects": effs}
+    tiles = {}
+    for t in (tm.get("tiles") or []):
+        e = {int(x["effectType"]) for x in (t.get("effects") or [])
+             if x.get("effectType") is not None}
+        if e:
+            tiles[f"tile:{t.get('col')},{t.get('row')}"] = e
+    return {"units": units, "effects": effs, "tiles": tiles}
 
 
 def _observable(before, after) -> dict:
-    """Ce que le cast a CHANGE : nouvelles unites, hp, morts, effets poses."""
+    """Ce que le cast a CHANGE : nouvelles unites, hp, morts, effets d'entite, effets de tuile."""
     new_units = {k: v[0] for k, v in after["units"].items() if k not in before["units"]}
     hp = {k: (before["units"][k][1], v[1]) for k, v in after["units"].items()
           if k in before["units"] and before["units"][k][1] != v[1]}
@@ -122,7 +134,11 @@ def _observable(before, after) -> dict:
     new_eff = {k: sorted(e - (before["effects"].get(k) or set()))
                for k, e in after["effects"].items()
                if e - (before["effects"].get(k) or set())}
-    return {"newUnits": new_units, "hpDelta": hp, "deaths": deaths, "newEffects": new_eff}
+    new_tiles = {k: sorted(e - (before["tiles"].get(k) or set()))
+                 for k, e in after["tiles"].items()
+                 if e - (before["tiles"].get(k) or set())}
+    return {"newUnits": new_units, "hpDelta": hp, "deaths": deaths,
+            "newEffects": new_eff, "newTileEffects": new_tiles}
 
 
 def _pick_target(tgts, caster_pos):

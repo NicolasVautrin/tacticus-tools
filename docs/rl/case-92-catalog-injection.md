@@ -155,9 +155,12 @@ au deploiement. Ce controle couvre aussi `Power=0` et les constantes Affinity/Cl
 
 ```
 thousDaemonPrince  1208 AetherStride    -> spawn thousSmnDaemonPrince (effets 1034 Daemon_ExtraBlock,
-                                          1026 BigTarget_AdjacentEffect) ; 1209 InfernalCannon cast OK
+                                          1026 BigTarget_AdjacentEffect)
+                   1209 InfernalCannon  -> effet de TUILE 5 (Fire) remaining=4 sur la tuile ennemie
 necroReanimator    1224 NanoscarabRepairProtocols -> cible necroDestroyer hp 8032 -> 10691,
                                           effets 1545/1546 (NanoscarabRepairProtocols[_ExtraHp])
+                   1223 ReanimationBeam -> (allie mort present) +1563 hp sur necroWarden + effet
+                                          1547 ReanimationBeam_Revive remaining=2 sur la MoW
 votanMemnyr        1219 IronkinSteeljack -> spawn du Steeljack (hp 8973, atk 2992, fixedArmor 2194),
                                           attaque a l'apparition (-3952), effets 1538 PurgeResponse /
                                           1026 BigTarget / 1009 Overwatch
@@ -224,14 +227,15 @@ python probe_92_catalog.py --phase actmow --mow thousDaemonPrince
 `--board` est obligatoire ; une MoW exige un board avec slot `MachineOfWarPosition` des deux cotes
 (`C1_02` par exemple).
 
+### Piege de mesure : `decisionView` est AVEUGLE aux effets de TUILE
+
+`InfernalCannon` a d'abord paru caster « sans effet observable » : elle pose un effet de TUILE
+(`Fire` 5, remaining 4), et seul `tileMeta` (`readEffectsByTile`) les expose — `decisionView` ne
+rend que les effets d'unite et de MoW. L'empreinte du probe et du test lit donc les DEUX canaux ;
+sans ca, toute ability de zone se lit comme un no-op.
+
 ## 7. Ce qui n'est PAS couvert
 
-- **`ReanimationBeam` (1223, necroReanimator)** : 0 cible legale dans les scenarios joues — c'est
-  une ability de REVIVE (effet `ReanimationBeam_Revive` 1547), elle exige un allie MORT. Sa
-  config est injectee et l'ability est exposee ; il reste a crafter le scenario (allie
-  one-shottable via `--hp-target`, le tuer, puis caster).
-- **`InfernalCannon` (1209)** : caste sans erreur, mais les tirs joues visaient une tuile vide —
-  aucun delta observable mesure. Le bombardement sur cible occupee reste a mesurer.
 - **Les 7 autres unites hors catalogue** (`astarCyrus`, `darkaSternguard`, `darkaStormSpeeder`,
   `emperExultant`, `emperFlawlessBlade`, `emperLucius`, `spaceWolfPriest`) : etat (1) verifie,
   (2)/(3) non joues faute de pertinence immediate. Rien ne les distingue des 10 confrontes.
