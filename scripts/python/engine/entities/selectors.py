@@ -785,7 +785,11 @@ class SurroundingTiles(TargetsSelector):
         elif isinstance(centers, dict) or centers is None:
             centers = [_pos(centers)] if centers is not None else []
         else:
-            centers = [c if (isinstance(c, tuple) and len(c) == 2) else _pos(c) for c in centers]
+            # Le centre natif est une ENTITE-tuile : le domaine ID (list[int], ce que rendent
+            # `AdjacentTiles`/`FixedTileIds`) est accepte au meme titre que (col,row) et le dict d'unite
+            # — necessaire pour un cast TILE-TARGET (`SquigMineAbility.ExecuteBehaviour @18120b350` :
+            # `SurroundingTiles(Target@0x178 = la TUILE ciblee, range)`).
+            centers = [_center_pos(c, board) for c in centers]
         seen, out = set(), []
         for c in centers:
             if c is None:
@@ -798,6 +802,197 @@ class SurroundingTiles(TargetsSelector):
                     seen.add(t)
                     out.append(t)
         return out
+
+
+def _center_pos(c, board):
+    """Position (col,row) d'UN element de centre : (col,row) tel quel, dict d'unite -> sa position,
+    id de TUILE (int) -> `board.coord`. None si non resolvable (le caller saute)."""
+    if isinstance(c, tuple) and len(c) == 2:
+        return c
+    if isinstance(c, bool):
+        return None
+    if isinstance(c, int):
+        return board.coord(c) if c in board.by_id else None
+    return _pos(c)
+
+
+# --- Geometrie de TUILES par DIRECTION HEX (`IdunBattle.Utils.Hex`) -------------------------
+#
+# `CubeDirections..cctor @180e30ec0` alloue SIX `int[3]` (coordonnees CUBE x/y/z aux offsets
+# +0x20/+0x24/+0x28) puis les range dans l'array statique indexe par direction :
+#     V0=(0,-1,1)  V1=(0,1,-1)  V2=(1,0,-1)  V3=(1,-1,0)  V4=(-1,1,0)  V5=(-1,0,1)
+#     array[0..5] = [V0, V3, V2, V1, V4, V5]
+# `AxialCoordinate.NeighbourAt @180e2c1f0` lit `array[dir][0]` (= dx, ajoute a la COLONNE) et
+# `array[dir][2]` (= dz, ajoute au z cube `row - (col + (col&1))/2`) -> la table (dx, dz) ci-dessous.
+# En offset (col,row) odd-q-UP (convention `hexgeo`, live-validee vs `boardGraph`) cela donne :
+#     0 = S     1 = SE    2 = NE    3 = N     4 = NW    5 = SW
+# CONFIRME LIVE (#90) : `DevastatingRefrain` bombarde `Target + dirs {3,1,5}` -> cast sur (2,3) a
+# marque (2,2)=N, (3,4)=SE, (1,4)=SW.
+_CUBE_DIRECTIONS = ((0, 1), (1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1))
+
+
+def neighbour_at(col: int, row: int, direction: int) -> tuple:
+    """`AxialCoordinate.NeighbourAt @180e2c1f0` : position de la tuile voisine dans la DIRECTION HEX
+    `direction` (0..5, table `_CUBE_DIRECTIONS`). Le natif passe en cube (x=col, z=row-(col+(col&1))/2),
+    ajoute (dx,dz) puis reconvertit — soit exactement `hexgeo.to_cube`/`from_cube` (meme parite
+    odd-q-UP : le natif calcule `col + (col & 1)` quand le flag de parite @+0x18 vaut 0)."""
+    dx, dz = _CUBE_DIRECTIONS[int(direction) % 6]
+    x, _y, z = hexgeo.to_cube(int(col), int(row))
+    return hexgeo.from_cube(x + dx, z + dz)
+
+
+# `BattleQuery.GetTilesInTriangleShape @18106ba60` : par index de COIN (0..5), le COUPLE de directions
+# hex des deux voisines ajoutees a la tuile-centre, dans l'ordre d'insertion du natif (lVar5 puis lVar6).
+# Lu case par case sur les DEUX branches de parite du decompile (colonne paire / impaire), qui donnent
+# le MEME couple de directions — la parite ne change que l'ecriture en offset.
+_TRIANGLE_SHAPE_DIRECTIONS = {0: (5, 0), 1: (0, 1), 2: (5, 4), 3: (1, 2), 4: (4, 3), 5: (3, 2)}
+
+
+class TilesInTriangleShape(TargetsSelector):
+    """`DSLFactory.TilesInTriangleShape @180dfd750` -> `TilesInTriangleShapeSelector.Select @180efa510`
+    -> `BattleQuery.GetTilesInTriangleShape @18106ba60` : la tuile-CENTRE + les DEUX voisines du coin
+    `direction` (0..5) = un triangle de 3 hexes. `direction > 5` -> le centre SEUL (garde native
+    `if (5 < param_3) goto LAB_18106bd25`). Les voisines hors-plateau sont ignorees (le natif
+    n'ajoute au HashSet que les `GetTileAt` non nuls).
+
+    `center` = selecteur (position (col,row), dict d'unite, ou liste) ; `direction` = scalaire ou noeud
+    VALEUR (`.evaluate`). Retour list[int] (tile ids), centre d'abord. board None -> []."""
+    def __init__(self, center: TargetsSelector, direction):
+        self.center, self.direction = center, direction
+
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        d = self.direction.evaluate(ctx) if hasattr(self.direction, "evaluate") else self.direction
+        d = int(d)
+        seen, out = set(), []
+        for c in _tile_positions(self.center, ctx, board):
+            for p in [c] + [neighbour_at(c[0], c[1], k)
+                            for k in _TRIANGLE_SHAPE_DIRECTIONS.get(d, ())]:
+                t = board.id_at(p[0], p[1])
+                if t is not None and t not in seen:
+                    seen.add(t)
+                    out.append(t)
+        return out
+
+
+class TileFromVector(TargetsSelector):
+    """`DSLFactory.TileFromVector @180dfd0a0` -> `TileFromVectorSelector.Select @180ef7e70` : pour CHAQUE
+    tuile de `tiles`, la VOISINE dans la direction hex `direction` (`AxialCoordinate.NeighbourAt
+    @180e2c1f0`). Le natif abandonne si le noeud-vecteur (Nullable @+0x28) n'a pas de valeur, et n'ajoute
+    que les tuiles resolues (hors-plateau -> ignorees). Retour list[int] (tile ids)."""
+    def __init__(self, tiles: TargetsSelector, direction):
+        self.tiles, self.direction = tiles, direction
+
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        d = self.direction.evaluate(ctx) if hasattr(self.direction, "evaluate") else self.direction
+        if d is None:
+            return []
+        out = []
+        for c in _tile_positions(self.tiles, ctx, board):
+            p = neighbour_at(c[0], c[1], int(d))
+            t = board.id_at(p[0], p[1])
+            if t is not None:
+                out.append(t)
+        return out
+
+
+class Walkable(TargetsSelector):
+    """`DSLFactory.Walkable @180e01f30` : garde les tuiles WALKABLE (`BattleQuery.IsWalkableTile` =
+    `TileExtensions.IsWalkable`, expose par `Board.walkable`). N'exige PAS que la tuile soit LIBRE
+    (c'est `CanAddUnit` qui ajoute la contrainte d'occupation). Ordre de `source` preserve."""
+    def __init__(self, source: TargetsSelector):
+        self.source = source
+
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        return [t for t in self.source.evaluate(ctx) if board.walkable(t)]
+
+
+class TilesOnSameElevation(TargetsSelector):
+    """`DSLFactory.TilesOnSameElevation @180dfd8b0` -> `TilesOnSameElevationSelector.Select @180efa8a0` :
+    garde les tuiles de `tiles` dont l'ECART D'ELEVATION avec la tuile d'ANCRAGE (selecteur @+0x18, une
+    seule tuile) est <= `max_diff` (@+0x28) — `TileExtensions.GetElevationDifference(tile, anchor) <=
+    maxDiff`. Ancrage introuvable -> [] (le natif abandonne si le selecteur d'ancre ne rend rien)."""
+    def __init__(self, anchor: TargetsSelector, tiles: TargetsSelector, max_diff: int = 0):
+        self.anchor, self.tiles, self.max_diff = anchor, tiles, int(max_diff)
+
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        anchors = _tile_positions(self.anchor, ctx, board)
+        if not anchors:
+            return []
+        at = board.id_at(anchors[0][0], anchors[0][1])
+        if at is None:
+            return []
+        ae = board.elevation(at)
+        return [t for t in self.tiles.evaluate(ctx)
+                if abs(board.elevation(t) - ae) <= self.max_diff]
+
+
+class EntitiesWithoutEffects(TargetsSelector):
+    """`DSLFactory.EntitiesWithoutEffects @180def360` -> `EntitiesWithoutEffectsSelector.Select
+    @180eea3e0` : garde les entites de `source` qui NE portent AUCUN des `effect_types`
+    (`EntityExtensions.HasOneOfEffects(entity, types, source-flag 6)` -> exclusion).
+
+    Domaine MIXTE, comme le natif (il itere des `IEntity` indifferenciees) : une entite-UNITE (dict) est
+    testee par `ctx.has_effect`, une entite-TUILE (id int) par `ctx.tile_has_effect`. Accesseur absent ->
+    « aucun effet » (degradation fidele documentee dans `DslContext`)."""
+    def __init__(self, source: TargetsSelector, effect_types):
+        self.source = source
+        self.effect_types = [int(e) for e in (effect_types or [])]
+
+    def select(self, ctx):
+        out = []
+        for e in (self.source.evaluate(ctx) or []):
+            if isinstance(e, dict):
+                has = any(ctx.has_effect(e, et) for et in self.effect_types) \
+                    if ctx.has_effect is not None else False
+            else:
+                has = any(ctx.tile_has_effect(int(e), et) for et in self.effect_types) \
+                    if ctx.tile_has_effect is not None else False
+            if not has:
+                out.append(e)
+        return out
+
+
+def _tile_positions(sel: TargetsSelector, ctx, board) -> list:
+    """Normalise l'evaluation d'un selecteur en liste de POSITIONS (col,row) : id de tuile (int) ->
+    `board.coord`, position (col,row) -> telle quelle, dict d'unite -> sa position, liste -> chacun.
+    Helper PARTAGE des selecteurs tile-domain ancres sur une tuile (triangle/vecteur/elevation) — le
+    natif, lui, manipule des entites-tuiles homogenes."""
+    v = sel.evaluate(ctx)
+    if v is None:
+        return []
+    if isinstance(v, tuple) and len(v) == 2 and all(isinstance(x, int) for x in v):
+        items = [v]
+    elif isinstance(v, (dict, int)):
+        items = [v]
+    else:
+        items = list(v)
+    out = []
+    for it in items:
+        if isinstance(it, dict):
+            p = _pos(it)
+        elif isinstance(it, bool):
+            p = None
+        elif isinstance(it, int):
+            p = board.coord(it) if it in board.by_id else None
+        elif isinstance(it, (tuple, list)) and len(it) == 2:
+            p = (it[0], it[1])
+        else:
+            p = None
+        if p is not None:
+            out.append((int(p[0]), int(p[1])))
+    return out
 
 
 class UnitsWithVisualId(TargetsSelector):

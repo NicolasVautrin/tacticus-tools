@@ -87,8 +87,27 @@ def turns_from_rounds(rounds: int) -> int:
     = 1, pose mid-turn sans decrement). count etant constant, TOUT effet round y vaut rounds x 1 = rounds :
     l'identite est CORRECTE pour nos runners (PAS une approximation). Elle ne divergerait QUE dans une bataille
     a count>=2 (ex. arene MoW ou le feu = convert(2)=4), NON simulee par le port ; si un tel contexte est un
-    jour valide, brancher `convert_rounds_to_turns(state, rounds)` lisant le turnOrder runtime (cf. #174)."""
+    jour valide, brancher `convert_rounds_to_turns(state, rounds)` lisant le turnOrder runtime (cf. #174).
+
+    ⚠ #90 : ce contexte EST arrive. La MESURE live (runner MoW `C1_02`, `observeBattle.counts.player = 3`
+    -> 2 joueurs non-Environment) donne `convert(1) = 2` : `MacroPlasmaIncinerator` (`TurnsFromRounds(1)`)
+    et `SquigMine` (`TurnsFromRounds(nrOfRounds=1)`) posent leurs effets avec `remaining = 2` live. Les
+    ports #90 utilisent donc `convert_rounds_to_turns(state, rounds)` ci-dessous. L'identite reste le
+    modele des call-sites HISTORIQUES (aucun n'est retouche ici : blast radius) — reconcilier les deux
+    est une tache dediee, a instruire avec un avant/apres chiffre par effet."""
     return int(rounds)
+
+
+def convert_rounds_to_turns(state: "State", rounds: int) -> int:
+    """`BattleQuery.ConvertRoundsToTurns @181058af0` (mirror EXACT) : `count(joueurs du turnOrder dont
+    `PlayerType != 2`) * rounds` — le decompile compte les joueurs de `turnOrder` en sautant ceux dont
+    `Player+0x20 == 2` (Environment).
+
+    Le facteur vient de `state.turn_order_player_count` (seede par `load_state` depuis
+    `observeBattle.counts.player - 1`). None/0 -> IDENTITE (== `turns_from_rounds`), pour ne rien
+    changer aux etats construits sans ce canal."""
+    n = state.turn_order_player_count
+    return int(rounds) * (int(n) if n else 1)
 
 
 # ---------------------------------------------------------------------------

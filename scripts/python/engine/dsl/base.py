@@ -159,6 +159,12 @@ class DslContext:
     # `faction_of(unit)->str|None` défaut None → faction inconnue (UnitsFromFaction rend vide). Fourni par la
     # couche runner (`entities_from_state`) via `_faction(visualId)`.
     faction_of: object | None = None
+    # Slot de deploiement (`MachineOfWarPosition` : 1=Top, 2=Bottom) de la MACHINE OF WAR du joueur
+    # COURANT — lu par le predicat `IsPositionMachineForCurrentPlayer` (mirror
+    # `IsPositionMachineForPlayerTrigger.ShouldTrigger @180fa3520`, qui interroge
+    # `GetPlayer(turn.CurrentPlayerId)`). None = le joueur courant n'a pas de MoW -> predicat False
+    # (mirror du `if (player == null) return false`). Pose par `entities_from_state`.
+    current_player_machine_position: int | None = None
     # Niveau d'ability PAR UNITÉ + slot (`ConfigVar` sur une unité TIERCE, ex. la chance RighteousRepugnance
     # au niveau du killer). `get_ability_level(unit, slot='passive'|'active')->int|None` : lit le
     # `passive_ability_level`/`active_ability_level` capté (StatsComponent.ctx). Défaut None → niveau inconnu

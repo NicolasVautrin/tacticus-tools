@@ -12,7 +12,7 @@ from typing import Optional, TYPE_CHECKING
 import gameconfig as GC
 import hexgeo
 
-from .base import ActiveAbility
+from .base import ActiveAbility, convert_rounds_to_turns
 from ..components import PositionComponent, StatsComponent, OwnerComponent, UnitComponent
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
@@ -22,9 +22,10 @@ from ...entities.effect_type import EffectType
 from ...entities.formulas import Count, Get, VisualUnitIdFromUnitId
 from ...entities.pathfinding.walk_pathfinder import get_movable_positions
 from ...entities.selectors import (ActiveTarget, AdjacentFriends, AdjacentTiles, AdjacentUnits,
-                                   AllUnits, CanAddUnit, Caster, CasterTile, FixedTiles, Friends,
-                                   Target, TargetTile, Union, Unique, UnitsFromFaction,
-                                   UnitsWithVisualId, non_steppable_or_object_units)
+                                   AllUnits, Cache, CanAddUnit, Caster, CasterTile,
+                                   EntitiesWithoutEffects, FixedTileIds, FixedTiles, Friends,
+                                   SurroundingTiles, Target, TargetTile, Union, Unique,
+                                   UnitsFromFaction, UnitsWithVisualId, non_steppable_or_object_units)
 from ...entities.stats import StatType
 from ...entities.triggers import AmountIsEqualOrGreater, CacheTrigger, IsAdjacent, TriggerOr
 from .behaviours import (AddEffect, AttackWithAttackDamage, KillDeadUnits, MoveUnit, PerformAIAction,
@@ -451,3 +452,106 @@ class SquigLaunchasAbility(ActiveAbility):
         return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
                 "attacks": attacks, "summon_criteria": criteria, "spawned": spawned,
                 "orks_min": orks_min, "friends_min": friends_min, "dsl": True}
+
+
+# =================================================================================================== #
+# SquigMine (1201, `orksRukkatrukk` -- Rukkatrukk Squigbuggy, MachineOfWar) -- lot #90-B
+# Patron « pose d'effet(s) seule » : le CAST ne fait que MINER des tuiles (aucune attaque immediate).
+# =================================================================================================== #
+
+SQUIG_MINE_ID = "SquigMine"
+SQUIG_MINE_TILE = int(EffectType.SquigMine_Tile)     # 0x5a1 = 1441
+# Index des variables/constantes lues par `SquigMineAbility.ExecuteBehaviour @18120b350`
+# (`AbilityConfiguration.Get*`) -> cle gameconfig (croisee avec la config 1201 : nrOfRounds=1, range=2,
+# nrOfTiles[level]).
+SQUIG_CONST_NR_OF_ROUNDS = 0x45     # GetNumberConstant(0x45)     -> "nrOfRounds" = 1
+SQUIG_CONST_RANGE = 0x16            # GetNumberConstant(0x16)     -> "range"      = 2
+SQUIG_VAR_NR_OF_TILES = 0x66        # GetVariableForLevel(0x66)   -> "nrOfTiles"[level]
+
+
+def squig_mine_pool_tree(target_tile_id: int, rng_range: int):
+    """POOL de tuiles minables de `SquigMineAbility.ExecuteBehaviour @18120b350` -- MIRROR 1:1 :
+
+        EntitiesWithoutEffects(
+            CanAddUnit( SurroundingTiles(target@0x178, includeCenter=0, GetNumberConstant(0x16)=range),
+                        dsl+0xf8 ),
+            [0x5a1=1441 SquigMine_Tile] )
+
+    -> les tuiles a `range` hex de la tuile ciblee (centre EXCLU), LIBRES et walkable (`CanAddUnit`),
+    qui ne portent PAS deja une mine. C'est le pool que `PickRandomly` echantillonne."""
+    tgt = FixedTileIds([target_tile_id])
+    return EntitiesWithoutEffects(
+        CanAddUnit(SurroundingTiles(tgt, Const(int(rng_range)), include_center=False)),
+        [SQUIG_MINE_TILE])
+
+
+def squig_mine_tree(target_tile_id: int, picked_tile_ids, duration_turns: int):
+    """Arbre de `SquigMineAbility.ExecuteBehaviour @18120b350` -- MIRROR 1:1 du DECOMPILE :
+
+        turns  = TurnsFromRounds( GetNumberConstant(0x45)=nrOfRounds )
+        pool   = EntitiesWithoutEffects(CanAddUnit(SurroundingTiles(target, 0, range)), [1441])
+        picked = PickRandomly(pool, GetVariableForLevel(0x66)=nrOfTiles[level], 0, 0x7fffffff, false)
+        Execute( AddEffect(0x5a1=1441 SquigMine_Tile, absRef, source=owner@0x148,
+                           targets=Cache(target@0x178 + picked, 1), turns) )
+
+    UN SEUL noeud `AddEffect` (plain `AActiveAbility.Execute`) -> la tuile CIBLEE est TOUJOURS minee,
+    plus `nrOfTiles[level]` tuiles tirees au hasard dans le pool.
+
+    COLLAPSE du `PickRandomly` (doctrine slice-18/19, == BringerOfDespair/Poxwalkers/SendInTheNextWave) :
+    le tirage doit voir `state.rng`, que le domaine DSL n'expose pas -> la classe d'ability evalue le pool
+    (arbre DSL, cf. `squig_mine_pool_tree`), applique `_pick_randomly_n`, et injecte le resultat par le
+    vehicule `FixedTileIds`. ⚠ GAP #215 (RNG-exact) : l'ordre/cout exact du tirage natif n'est pas calibre
+    -> quand `len(pool) > nrOfTiles`, l'ENSEMBLE tire peut differer du live (le CARDINAL et le POOL, eux,
+    sont exacts)."""
+    picked = FixedTileIds(list(picked_tile_ids))
+    targets = Cache(Union(FixedTileIds([target_tile_id]), picked))
+    return AddEffect(SQUIG_MINE_TILE, EffectType.SquigMine_Tile.name, targets,
+                     duration_rounds=None, duration_turns=duration_turns)
+
+
+class SquigMineAbility(ActiveAbility):
+    """`SquigMineAbility.ExecuteBehaviour @18120b350` (id 1201, `orksRukkatrukk` -- Rukkatrukk Squigbuggy,
+    Orks, MachineOfWar). Cast TILE-TARGET (`abilityTargets` kind="tile", 29 tuiles sur C1_02).
+
+    RE (ghidra gqfc5mff6c) :
+    - `ExecuteBehaviour @18120b350` : cf. `squig_mine_tree` (UN `AddEffect`, zero attaque).
+    - `.ctor @18120b6b0` ; `AdditionalMarkedTiles @18120b1d0` = le MEME pool (preview/playbook) ;
+      `GetDynamicInvalidTargetReason @18120b640` = gate de legalite du ciblage (live/RPC, hors behaviour).
+    - PHASE 2 (NON PORTEE) : `IdunBattle.Entities.Effects.Loki.SquigMine_TileEffect` (`.ctor @180f6d790`,
+      `CreateTargetTrigger @180f6d590`, `CreateTargetTriggerBehaviour @180f6d390`, `GetAttackBehaviour
+      @180f6d660`) -- la mine detone quand une unite entre sur la tuile (minDmg/maxDmg, `damageProfile=
+      Blast`, `nrOfHits=3`).
+
+    OBSERVABLE DU CAST (mesure live, runner MoW C1_02, caster 53, cible = tuile (0,1), niveau 50 ->
+    `nrOfTiles[49] = 4`) : 5 tuiles portent `SquigMine_Tile` (1441, source 53, remaining 2) = la ciblee
+    (0,1) + 4 tirees dans le disque de rayon 2 : (0,3) (1,3) (2,1) (2,2).
+
+    `target_id` = id de TUILE. Flags de tour : defauts base -> termine le tour + ActiveAbilityUsed."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.SquigMine)   # 1201
+    ABILITY_ID = SQUIG_MINE_ID
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        from ...entities.effects.magnitude import ability_var
+        from .loki.splash import _pick_randomly_n
+        board = state.board
+        tile_id = target_id if (board is not None and target_id in board.by_id) else None
+        if tile_id is None:
+            return {"tile": None, "posed": [], "dsl": True}
+        e = state.get_entity(caster_id)
+        sc = e.get_component(StatsComponent) if e is not None else None
+        level = getattr(sc.ctx, "active_ability_level", None) if sc is not None else None
+        mult = int(getattr(sc.ctx, "ability_variables_multiplier", 100) or 100) if sc is not None else 100
+        rng_range = int(ability_var(SQUIG_MINE_ID, "range", is_constant=True) or 0)
+        rounds = int(ability_var(SQUIG_MINE_ID, "nrOfRounds", is_constant=True) or 0)
+        n_tiles = int(ability_var(SQUIG_MINE_ID, "nrOfTiles", level, multiplier_pct=mult) or 0)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id)
+        pool = squig_mine_pool_tree(tile_id, rng_range).evaluate(entities)   # arbre DSL
+        picked = _pick_randomly_n(state, pool, n_tiles)                     # PickRandomly (collapse)
+        turns = convert_rounds_to_turns(state, rounds)                      # TurnsFromRounds(nrOfRounds)
+        squig_mine_tree(tile_id, picked, turns).execute(entities, ectx)
+        posed = [p["target"] for n, p in ectx.emitted if n == "AddEffect"]
+        return {"tile": tile_id, "pool": list(pool), "picked": list(picked), "turns": turns,
+                "nrOfTiles": n_tiles, "range": rng_range, "posed": posed, "dsl": True}

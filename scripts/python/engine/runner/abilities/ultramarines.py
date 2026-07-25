@@ -44,15 +44,19 @@ from typing import Optional, TYPE_CHECKING
 from ...dsl.base import Const, resolve_unit
 from ...dsl.effects import ExecutionContext, AbilityBehaviour, OperationResult
 from ...entities.behaviours import op_add, op_and, AtomicGroup
-from ...entities.selectors import (Caster, CasterTile, AdjacentUnits, Friends, Union,
-                                   UnitsWithTrait, Sub, Unique, Target)
+from ...entities.formulas import If as FormulaIf
+from ...entities.selectors import (Caster, CasterTile, AdjacentUnits, FixedTileIds, Friends,
+                                   TilesInTriangleShape, TilesOnSameElevation, Union,
+                                   UnitsWithTrait, Sub, Unique, Target, Walkable)
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.active_ability_type import ActiveAbilityType
+from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
 from ...entities.stats import StatType
+from ...entities.triggers import IsPositionMachineForCurrentPlayer
 from ..components import StatsComponent, OwnerComponent, PositionComponent
-from .base import ActiveAbility
-from .behaviours import (entities_from_state, Heal, healable_heal_type_0,
+from .base import ActiveAbility, convert_rounds_to_turns
+from .behaviours import (entities_from_state, AddEffect, Heal, healable_heal_type_0,
                          AttackWithAttackDamage, PushUnit)
 
 if TYPE_CHECKING:
@@ -370,3 +374,89 @@ class DeathFromAboveAbility(ActiveAbility):
                    for n, p in ectx.emitted if n == "SummonOnAppearance"]
         return {"ability": DEATH_FROM_ABOVE_ID, "caster": caster_id, "target": target_id,
                 "spawned": spawned, "attacks": attacks, "dsl": True}
+
+
+# =================================================================================================== #
+# MacroPlasmaIncinerator (1159, `ultraDreadnought` -- Redemptor Dreadnought, MachineOfWar) -- #90-B
+# Patron « pose d'effet(s) seule » : le CAST ne fait que MARQUER une zone de 3 hexes et ARMER la MoW ;
+# le degat vient de la phase 2 (effet `MacroPlasmaIncinerator_AutoAttack` porte par la MoW), NON portee.
+# =================================================================================================== #
+
+MACRO_PLASMA_ID = "MacroPlasmaIncinerator"
+MACRO_PLASMA_TILE = int(EffectType.MacroPlasmaIncinerator_Tile)               # 0x537 = 1335
+MACRO_PLASMA_AUTO_ATTACK = int(EffectType.MacroPlasmaIncinerator_AutoAttack)  # 0x538 = 1336
+# `MachineOfWarPosition.Bottom` = 2, la valeur litterale passee a
+# `DSLFactory.IsPositionMachineForCurrentPlayer(2)` @1811f1910.
+MACHINE_POSITION_BOTTOM = 2
+
+
+def macro_plasma_incinerator_tree(target_tile_id: int, duration_turns: int):
+    """Arbre de `MacroPlasmaIncineratorAbility.ExecuteBehaviour @1811f1910` -- MIRROR 1:1 du DECOMPILE :
+
+        dir   = If( IsPositionMachineForCurrentPlayer(2), Direct(1), Direct(4) )
+        tiles = Walkable( TilesOnSameElevation( target@0x178,
+                            TilesInTriangleShape(target@0x178, dir), 1 ) )
+        Execute(   AddEffect(0x537=1335 MacroPlasmaIncinerator_Tile, absRef, source=owner@0x148,
+                             targets=tiles, TurnsFromRounds(1))
+                 & AddEffect(0x538=1336 MacroPlasmaIncinerator_AutoAttack, absRef,
+                             targets=owner@0x148, TurnsFromRounds(1)) )
+
+    (`AActiveAbility.Execute`, PAS `ExecuteAtomic`.) La 2e `AddEffect` utilise la surcharge SANS
+    argument `source` (6 args au lieu de 7) -> l'effet se pose sur l'OWNER = la MoW elle-meme.
+
+    GEOMETRIE. `TilesInTriangleShape` = la tuile ciblee + les DEUX voisines du coin `dir`
+    (`BattleQuery.GetTilesInTriangleShape @18106ba60`) : `dir=1` -> {S, SE}, `dir=4` -> {NW, N}. Le coin
+    depend du COTE du plateau ou se deploie la MoW du joueur COURANT (slot Top/Bottom) -- le
+    Dreadnought bombarde « vers l'avant ». Puis filtre elevation (ecart <= 1 vs la tuile ciblee) et
+    walkable. Bords de plateau : les voisines hors-plateau sont simplement absentes.
+
+    DUREE. `TurnsFromRounds(1)` -> `BattleQuery.ConvertRoundsToTurns @181058af0` = `count(joueurs
+    non-Environment) x 1` = **2** dans nos runners (MESURE : `remaining = 2` live sur les deux effets)
+    -> passee en `duration_turns` (deja convertie par la classe d'ability via `convert_rounds_to_turns`)."""
+    tgt = FixedTileIds([target_tile_id])
+    direction = FormulaIf(IsPositionMachineForCurrentPlayer(MACHINE_POSITION_BOTTOM),
+                          Const(1), Const(4))
+    tiles = Walkable(TilesOnSameElevation(tgt, TilesInTriangleShape(tgt, direction), 1))
+    return op_and(
+        AddEffect(MACRO_PLASMA_TILE, EffectType.MacroPlasmaIncinerator_Tile.name, tiles,
+                  duration_rounds=None, duration_turns=duration_turns),
+        AddEffect(MACRO_PLASMA_AUTO_ATTACK, EffectType.MacroPlasmaIncinerator_AutoAttack.name,
+                  Caster(), duration_rounds=None, duration_turns=duration_turns))
+
+
+class MacroPlasmaIncineratorAbility(ActiveAbility):
+    """`MacroPlasmaIncineratorAbility.ExecuteBehaviour @1811f1910` (id 1159, `ultraDreadnought` --
+    Redemptor Dreadnought, Ultramarines, MachineOfWar). Cast TILE-TARGET (`abilityTargets` kind="tile").
+
+    RE (ghidra gqfc5mff6c) :
+    - `ExecuteBehaviour @1811f1910` : cf. `macro_plasma_incinerator_tree` (2 `AddEffect`, zero attaque).
+    - `.ctor @1811f1c80` ; `GetTargetAreaTiles @1811f1b90` = la MEME chaine de tuiles, exposee pour la
+      PREVIEW / le playbook (`Loki.MacroPlasmaIncineratorPlaybook`), pas pour l'execution.
+    - PHASE 2 (NON PORTEE) : l'effet `MacroPlasmaIncinerator_AutoAttack` (1336) pose SUR la MoW declenche
+      le tir sur les tuiles marquees `MacroPlasmaIncinerator_Tile` (1335) -- c'est la qu'interviennent
+      `minDmg`/`maxDmg`, `damageProfile=Plasma`, `nrOfHits=3`.
+
+    OBSERVABLE DU CAST (mesure live, runner MoW C1_02 slot 2, caster 53, cible = tuile (0,0) au COIN du
+    plateau 5x7) : tuiles (0,0) (0,1) (1,1) + `MacroPlasmaIncinerator_Tile` (1335, source 53, remaining 2)
+    ; mow53 + `MacroPlasmaIncinerator_AutoAttack` (1336, remaining 2). `dir=1` (= {S, SE}) confirme que
+    `IsPositionMachineForCurrentPlayer(2)` est VRAI pour une MoW de slot 2 du joueur courant.
+
+    `target_id` = id de TUILE (cast tile-target). Un `target_id` qui n'est pas une tuile du board -> no-op.
+    Flags de tour : defauts base (1159 hors tables d'override) -> termine le tour + ActiveAbilityUsed."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.MacroPlasmaIncinerator)   # 1159
+    ABILITY_ID = MACRO_PLASMA_ID
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        board = state.board
+        tile_id = target_id if (board is not None and target_id in board.by_id) else None
+        if tile_id is None:
+            return {"tile": None, "posed": [], "dsl": True}
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id)
+        turns = convert_rounds_to_turns(state, 1)          # TurnsFromRounds(1)
+        macro_plasma_incinerator_tree(tile_id, turns).execute(entities, ectx)
+        posed = [{"target": p["target"], "effect": p["effect_type"]}
+                 for n, p in ectx.emitted if n == "AddEffect"]
+        return {"tile": tile_id, "turns": turns, "posed": posed, "dsl": True}

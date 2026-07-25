@@ -232,7 +232,21 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                     out.append({"effect_type": int(effect_type), "source": int(sid), "owner_id": int(uid)})
         return out
 
+    # `ctx.current_player_machine_position` (predicat `IsPositionMachineForCurrentPlayer`, mirror
+    # `IsPositionMachineForPlayerTrigger @180fa3520` qui lit le slot MoW de `GetPlayer(turn.
+    # CurrentPlayerId)`) : le slot (`MachineComponent.Position` @0x78) de la MoW dont l'owner-PLAYER
+    # est le joueur courant. None si le joueur courant n'a pas de MoW deployee.
+    mow_pos = None
+    if state.current_player_id is not None:
+        from ...components import MachineComponent
+        for _e, _mc in state.with_component(MachineComponent):
+            _oc = _e.get_component(OwnerComponent)
+            if _oc is not None and _oc.player == state.current_player_id:
+                mow_pos = _mc.slot
+                break
+
     return DslContext(units=units, caster=caster, target=target, actor=actor, board=state.board,
                       has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat,
                       get_ability_level=_get_ability_level, tile_has_effect=_tile_has_effect,
-                      has_effect=_has_effect, effects_from_source=_effects_from_source, children=[])
+                      has_effect=_has_effect, effects_from_source=_effects_from_source, children=[],
+                      current_player_machine_position=mow_pos)
