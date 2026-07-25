@@ -493,6 +493,58 @@ class ActiveAbilityModificationsComponent(Component):
         return int(self.modifications.get(key, 0))
 
 
+class PersistentDataComponent(Component):
+    """`IdunBattle.Entities.Components.PersistentDataComponent` (.ctor @180fa6a50) — sac de donnees
+    persistantes PAR ENTITE, indexe par une cle composite. Natif = `Dictionary<key, value>` @+0x10 :
+      • `PersistData<T>(key, value)` @181308270 / `TryGetPersistData<T>(key, out)` @181308430 ;
+      • `ClearPersistentData(key)` @180fa6960 = `Dictionary.Remove(key)` ;
+      • `ClearAllPersistentData()` @180fa6910 (appele par `ResurrectUnitOperation.ResetPersistentData`
+        @180e90101 et `ClearPersistentDataBehaviour.ExecuteClearAll` @180fc052d).
+
+    Cote DSL, les noeuds qui l'adressent sont `DSLFactory.SetPersistentData` (@180dfac60 et overloads),
+    `DSLFactory.IsPersistentData @180df4bb0` (= `AmountIsEqualOrGreater(GetPersistentDataFormula(key,
+    entity, dataKey) @180f9cb10, Direct(0)@0xb8)` -> « la cle est posee ») et
+    `DSLFactory.ClearPersistentData` (@180debfc0/@180dec050).
+
+    Le port modelise le sac comme un dict `{cle: valeur}` sur l'unite. La CLE offline = le tuple
+    `(abilityOrEffect, dataKey)` (mirror de la cle composite native : l'`AbilityOrEffect` passe a
+    `SetPersistentData` + le `Get(<champ statique de l'ability>)` qui nomme la donnee).
+
+    Consommateur porte : `LetTheGalaxyBurnAbility` (`runner/operations/triggers/loki/
+    let_the_galaxy_burn.py`) — flag INTRA-ATTAQUE arme au `On(PreAttack=5)` et efface par
+    `LetTheGalaxyBurn_ResetAbility.CreateBehaviour @1811078a0` en fin d'attaque."""
+    __slots__ = ("data",)
+
+    def __init__(self, data=None):
+        self.data: dict = dict(data or {})
+
+    def persist_data(self, key, value=1) -> None:
+        """`PersistentDataComponent.PersistData<T>` @181308270 : pose/ecrase `key -> value`."""
+        self.data[key] = value
+
+    def try_get_persist_data(self, key):
+        """`TryGetPersistData<T>` @181308430 : la valeur, ou None si la cle est absente."""
+        return self.data.get(key)
+
+    def clear_persistent_data(self, key) -> None:
+        """`ClearPersistentData(key)` @180fa6960 = `Dictionary.Remove(key)` (no-op si absente)."""
+        self.data.pop(key, None)
+
+    def clear_all_persistent_data(self) -> None:
+        """`ClearAllPersistentData()` @180fa6910 : vide le sac (resurrection)."""
+        self.data.clear()
+
+
+def persistent_data_keys(entity) -> frozenset:
+    """Cles persistantes POSEES sur l'entite (mirror de l'ensemble des cles du dict natif) — lu par le
+    noeud `IsPersistentData` cote EFFET (`LetTheGalaxyBurnEffect.CreateAdditionalHits @180f54e30`), qui
+    n'a acces qu'a l'etat, pas au composant. Entite/composant absent -> frozenset() (= sac vide)."""
+    if entity is None:
+        return frozenset()
+    comp = entity.get_component(PersistentDataComponent)
+    return frozenset(comp.data.keys()) if comp is not None else frozenset()
+
+
 def get_ability_stat_modification(entity, key) -> int:
     """`IdunBattle.Entities.UnitExtensions.GetAbilityStatModification` @180ece900 =
     `unit.GetComponent<ActiveAbilityModificationsComponent>().Get(key)`.

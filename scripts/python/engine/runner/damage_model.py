@@ -249,6 +249,33 @@ def _positional_att_ctx(state: State, unit_id: int) -> Optional[dict]:
     return {"att_pos": pos, "tile_effects_by_pos": tfx}
 
 
+def tile_status_effects_by_pos(state: State, positions) -> Optional[dict]:
+    """`{(col,row): [noms]}` des **status-effects DYNAMIQUES portes par la TUILE** aux positions
+    demandees — mirror runner de la lecture native `HasTileStatusEffect @180df13f0` (la tuile est une
+    ENTITE qui porte ses effets : `state.effects.by_unit[tile_entity_id]`, ids de tuile disjoints des
+    ids d'unite, cf. `TileEffectTrigger`). Alimente le contexte CIBLE de la formule de coups
+    (`LetTheGalaxyBurnEffect.CreateAdditionalHits @180f54e30`, gate `TargetHasTileEffect`).
+
+    ⚠ N'inclut PAS `terrain_tile_effects` (les covers HEBERGES par le terrain, DryBush -> LightCover) :
+    ceux-la sont poses sur les UNITES qui se tiennent sur la tuile (`LightCoverAbility
+    .UnitsThatNeedEffect @1811c1830`), pas sur la tuile — et le canal PREDICTION equivalent
+    (`scene.tile_effects_by_pos` = `tileMeta.effects`) ne les liste pas non plus. Les DEUX facades
+    lisent donc la MEME chose. Board/effets absents -> None (contexte inconnu, le gate no-op)."""
+    board = getattr(state, "board", None)
+    if board is None or state.effects is None:
+        return None
+    out: dict = {}
+    for p in positions:
+        if p is None:
+            continue
+        tid = board.id_at(p[0], p[1])
+        if tid is None:
+            continue
+        out[tuple(p)] = [x.name for x in state.effects.by_unit.get(int(tid), [])
+                         if not x.consumed and x.name]
+    return out
+
+
 def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged: Optional[bool] = None,
                        target_traits=None, target_id: Optional[int] = None,
                        is_normal_attack: bool = True, damage_profile: Optional[str] = None,

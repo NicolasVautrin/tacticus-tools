@@ -55,14 +55,28 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
                                attacker_effects, trait_objects, target_effects, aura_sources,
                                board: dict, is_melee: bool | None, damage_profile: str | None,
                                include_bonus_hit_behaviours: bool = False,
-                               defender_on_cover: bool | None = None) -> int:
+                               defender_on_cover: bool | None = None,
+                               tile_effects_by_pos: dict | None = None,
+                               attacker_persistent_data=None) -> int:
     """`AttackHitsWithModifiersFormula.Calculate @180f0bf50` : nb de coups d'une attaque normale. `board` =
     {att_id, tgt_id, attack_pos, t_pos, tgt_team, is_melee, pos_by_id, team_by_id} (base_hits pose ici) ;
     `aura_sources` = [(owner_id, pos, team, effets)] des unites != cible. Ordre = base (APRES PowerTrip) ->
     +GetStuckIn/traits (SSI `include_bonus_hit_behaviours` : prediction=True [fold formule] ; combat=False
     [le coup bonus est ajoute a l'EXECUTION par `_run_hits`, PAS ici], cf. entete BITE 2)
-    -> +malus defenseur/aura, plancher 1."""
-    eff_hits = hits_bonus_from_effects(attacker_effects)
+    -> +malus defenseur/aura, plancher 1.
+
+    `tile_effects_by_pos` ({(col,row): [noms]}, tileMeta) et `attacker_persistent_data` (les cles
+    `PersistentDataComponent` de l'ATTAQUANT) completent le contexte CIBLE que le canal (1) exige depuis
+    #84 : `LetTheGalaxyBurnEffect.CreateAdditionalHits @180f54e30` gate son +1 coup sur
+    `TargetHasTileEffect @181107810` (la cible se tient sur une tuile a status-effect) OU
+    `IsPersistentData @180df4bb0` (flag intra-attaque arme au `On(PreAttack=5)`). Les deux sont des
+    entrees d'ETAT que la formule native lit via son `AbilityEntities` ; ici elles sont threadees
+    explicitement par les DEUX facades. Non fournies -> le bonus no-op (degradation fidele)."""
+    # Contexte de l'attaque passe aux effets du canal (1) : le `board` de la formule + les 2 entrees
+    # d'etat ci-dessus. Un seul dict = un seul point d'enrichissement pour les futurs gates cible.
+    att_hits_ctx = {**(board or {}), "tile_effects_by_pos": tile_effects_by_pos,
+                    "persistent_data": attacker_persistent_data}
+    eff_hits = hits_bonus_from_effects(attacker_effects, att_ctx=att_hits_ctx)
     # base = `GetDefaultAttackHits @181032520` : weapon + ExtraHits(0x11) + (melee ? ExtraHitsMelee(0x17)).
     # is_melee=None (contexte inconnu) -> False -> pas d'ExtraHitsMelee (conservateur, mêlée seule).
     base_default = get_default_attack_hits(int(weapon_hits), int(extra_hits), int(extra_hits_melee),

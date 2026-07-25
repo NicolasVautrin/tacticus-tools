@@ -67,6 +67,8 @@ from .loki.fleshmetal_guns import FleshmetalGunsRotationAbility     # lot POSE (
 from .loki.terrifying_crescendo import (TerrifyingCrescendoOverkillAbility,   # lot POSE (passif
                                         TerrifyingCrescendoSuppressAbility)   # emperNoiseMarine, #204)
 from .loki.anvil_shield import AnvilShieldApplyIceAbility            # lot POSE (passif spaceRockfist)
+from .loki.let_the_galaxy_burn import (LetTheGalaxyBurnArmAbility,   # #84 (trait LetTheGalaxyBurn 1058)
+                                       LetTheGalaxyBurnResetAbility)
 
 # --- FinalJustice / overkill ----------------------------------------------------------------------
 OVERKILL_PCT_KEY = "overkillDmgPctOfHealth"  # globalValues = 100 → overkill ssi dmg-PV >= 100%*PV (dmg>=2*PV)
@@ -103,6 +105,13 @@ TRAIT_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # PutridExplosion (2028 -> triggered 1074, @1812248f0/@181224710) : maxPV x 25% en Toxic aux adjacents
     # SAUF faction DeathGuard ; `OnPreDeath2(1,0)` = pas de gate overkill, mais NOT HasTrait(Steppable).
     "PutridExplosion": [PutridExplosionAbility],
+    # LetTheGalaxyBurn (trait 1058, x5 heros Black Legion, #84 volet 1) = arme/desarme le FLAG persistant
+    # 1482 qui alimente le +1 coup de `LetTheGalaxyBurnEffect` (effet 1477) :
+    #   - `LetTheGalaxyBurnAbility` @1811076f0/@1811075c0 : `On(PreAttack=5) & OwnerIsCaster &
+    #     Maybe(33%) & !HasTileStatusEffect(Targets)` -> `SetPersistentData` ;
+    #   - `LetTheGalaxyBurn_ResetAbility` @1811078a0 : `ClearPersistentData` en fin d'attaque (`On(9)`).
+    # Cf. loki/let_the_galaxy_burn.py (2 branches du gate, ground truth live 34.2% / 100%).
+    "LetTheGalaxyBurn": [LetTheGalaxyBurnArmAbility, LetTheGalaxyBurnResetAbility],
 }
 
 # --- Registre : passiveAbility → ability-trigger(s) accordée(s) ------------------------------------
@@ -359,6 +368,27 @@ def unit_blocked_triggers(state: State, attacker_id: int, target_id: int,
     glacee). A raffiner si un consommateur per-coup apparait."""
     ev = TriggerEvent(EventTriggerType.UnitBlocked, attacker_id, target_id,
                       ranged=ranged, profile=profile)
+    return evaluate_trigger_operation(state, ev)
+
+
+def pre_attack_triggers(state: State, attacker_id: int, target_id: int,
+                        ranged: bool, profile: Optional[str] = None,
+                        ability_type: Optional[int] = None) -> list[dict]:
+    """Vecteur `On(PreAttack=5)` — emis par le pipeline d'attaque natif **AVANT** le calcul du nombre de
+    coups (`GetAttackHits`) et avant tout degat, UNE fois par attaque, sur la cible PRIMAIRE.
+
+    Le port ne l'emettait PAS jusqu'a #84 : les consommateurs deja portes qui l'ecoutent nativement
+    avaient ete ROUTES sur d'autres vecteurs (`SuppressiveFireAddEffectAbility` -> `On(38)`, cf. son
+    en-tete) parce que leur observable ne depend pas du timing. `LetTheGalaxyBurnArmAbility` (#84), lui,
+    **exige** ce timing : son behaviour arme un flag (`SetPersistentData`) que le canal de coups de la
+    MEME attaque relit (`IsPersistentData` dans `LetTheGalaxyBurnEffect.CreateAdditionalHits`
+    @180f54e30) — le router apres coup serait un no-op silencieux.
+
+    AUCUN autre trigger porte n'ecoute `event_id == 5` (verifie : le seul `PreAttack` du port etait une
+    mention en commentaire) -> emettre ce vecteur ne reveille rien d'autre, et le seul cout RNG possible
+    est le `Maybe(33%)` de LetTheGalaxyBurn, qui ne fire que pour ses 5 porteurs."""
+    ev = TriggerEvent(EventTriggerType.PreAttack, attacker_id, target_id,
+                      ranged=ranged, profile=profile, ability_type=ability_type)
     return evaluate_trigger_operation(state, ev)
 
 

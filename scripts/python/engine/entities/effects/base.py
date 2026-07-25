@@ -115,8 +115,15 @@ class BaseEffect:
         None = contexte inconnu -> ces bonus rendent None (« présent ≠ appliqué », dégradation fidèle)."""
         return None
 
-    def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True) -> EffectBonus | None:
-        """`<Effect>.CreateEffectHitsBonusForAttack` — contribution à l'axe COUPS (Addition/Subtraction)."""
+    def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True,
+                                            att_ctx: Mapping | None = None) -> EffectBonus | None:
+        """`<Effect>.CreateEffectHitsBonusForAttack` — contribution à l'axe COUPS (Addition/Subtraction).
+        `att_ctx` (Mapping|None) = le `board` de `AttackHitsWithModifiersFormula` ({att_id, tgt_id,
+        attack_pos, t_pos, …}) ENRICHI de `tile_effects_by_pos` (tileMeta → nœud `HasTileStatusEffect`)
+        et `persistent_data` (les clés `PersistentDataComponent` posées sur l'ATTAQUANT → nœud
+        `IsPersistentData`), pour les bonus dont le gate porte sur la CIBLE ou sur un flag intra-attaque
+        (ex. `LetTheGalaxyBurnEffect.CreateAdditionalHits` @180f54e30 = `OwnerIsCaster &
+        (TargetHasTileEffect | IsPersistentData)`). None = contexte inconnu → ces bonus rendent None."""
         return None
 
     def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,

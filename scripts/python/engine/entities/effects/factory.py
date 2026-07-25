@@ -48,6 +48,7 @@ from .loki import (
     BeastSlayerExtraBlockEffect,
     DaemonExtraBlockEffect,
     MasterAnnihilatorAdditionalHitEffect,
+    LetTheGalaxyBurnEffect,
     CamouflageHitReductionEffect,
     DiminutiveHitReductionEffect,
     NeuroparasiteEffect,
@@ -272,6 +273,10 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # IsRangedAttack ; trigger OwnerIsTarget seul -> melee ET ranged). #75.
     "Diminutive_HitReduction": DiminutiveHitReductionEffect,
     "MasterAnnihilator_extraHit": MasterAnnihilatorAdditionalHitEffect,  # debuff Vitruvius : +1 coup reçu (non-Psychic)
+    # LetTheGalaxyBurn (effet 0x5c5=1477, owner-effect auto-porte par les 5 heros Black Legion qui ont le
+    # TRAIT 0x422=1058) : +1 coup d'ARME a l'attaque du porteur, gate `OwnerIsCaster &
+    # (TargetHasTileEffect | IsPersistentData(0x5ca))` (@180f54e30, count node NULL -> 1 coup). #84.
+    "LetTheGalaxyBurn": LetTheGalaxyBurnEffect,
     "BigTarget_AdjacentEffect": BigTargetAdjacentEffect,  # aura : -1 coup ranged aux alliés ring-1 du porteur
     # AstartesBanner (porte-banniere Astartes ex. templAncient) : AURA +extraHits(=1) coup MELEE aux ALLIES
     # dans le rayon 2 du porteur (l'effet vit sur LE PORTEUR, comme BigTarget ; @180f323b0 ForAddition

@@ -51,6 +51,7 @@ from .hits import (SquigHoundAdditionalHitsEffect, CordClawAdditionalHitsEffect,
                    FightingRetreatHitReductionEffect, LightCoverEffect,
                    ParryEffect, DiminutiveHitReductionEffect, CamouflageHitReductionEffect,
                    MasterAnnihilatorAdditionalHitEffect,
+                   LetTheGalaxyBurnEffect, LET_THE_GALAXY_BURN_PERSISTENT_KEY,
                    BigTargetAdjacentEffect,
                    AstartesBannerExtraHitEffect, PowerTripFullHealthEffect, PowerTripIgnoreArmorEffect,
                    KanOpenerEffect, LIGHT_COVER_TILE_ID)
@@ -95,7 +96,9 @@ __all__ = [
     "DaemonExtraBlockEffect", "PsychicFortressExtraBlockEffect",
     "FightingRetreatHitReductionEffect", "LightCoverEffect", "ParryEffect",
     "CamouflageHitReductionEffect", "DiminutiveHitReductionEffect",
-    "MasterAnnihilatorAdditionalHitEffect", "BigTargetAdjacentEffect", "AstartesBannerExtraHitEffect",
+    "MasterAnnihilatorAdditionalHitEffect", "LetTheGalaxyBurnEffect",
+    "LET_THE_GALAXY_BURN_PERSISTENT_KEY",
+    "BigTargetAdjacentEffect", "AstartesBannerExtraHitEffect",
     "PowerTripFullHealthEffect", "PowerTripIgnoreArmorEffect", "KanOpenerEffect", "LIGHT_COVER_TILE_ID",
     # status
     "HypersensoryMinimalHealthEffect", "ContaminatedUnitEffect", "StandVigilExtraArmorEffect",
