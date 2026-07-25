@@ -120,6 +120,40 @@ PAS un reducteur de coups). Les autres (`Water`/`Bridge` = LOS/mvt, `BrokenIce`,
   ou un test qui fait son propre `rl_duel build`, garde l'ancien comportement.)
 - **Libère tes runners AU FIL DE L'EAU**, pas en fin de passe : les tenir tous jusqu'au teardown
   affame les autres agents (c'était la cause du cap saturé ci-dessus).
+
+### ⚠ TU AS LA MAÎTRISE TOTALE DU SETUP DE TEST — « pas atteignable » est presque toujours FAUX
+
+La bataille n'est pas un donné qu'on subit : **tu la FABRIQUES**. Tu choisis qui est présent, à
+quel rang, avec combien de PV, sur quel plateau, et tu déplaces les unités où tu veux avant de
+mesurer. Une condition rare EN JEU NATUREL n'est PAS une condition coûteuse à TESTER — c'est
+exactement ce que le runner isolé existe pour produire.
+
+Leviers **réels** de `rl_duel.py build` (vérifiés dans l'argparse, ne pas en inventer d'autres) :
+
+| besoin | levier |
+|---|---|
+| qui est là, dans quel camp | `--p-units` / `--a-units`, `--p-mow` / `--a-mow`, `--roster` |
+| faire DURER la bataille (saturer un cap de summons, voir N tours) | `--hp-target` (ennemi), `--hp-player` (mon camp) — force `Health` ET `RemainingHealth` |
+| géométrie (adjacence, ligne, portée, spawns) | `--board` / `--board-pool`, puis **drive des positions** par `applyAction move` |
+| niveau / magnitudes | `--rank` |
+| isoler l'aléa (crit, block) | `--crit`, `--crit-target`, `--block-target` |
+| neutraliser l'IA adverse | `--no-ai` |
+| cibler un cast précis | `--caster`, `--ability`, `--target` |
+
+Et la contrepartie : **avant d'écrire « branche non confrontée » / « non atteignable » /
+« bloqué par la géométrie de spawn » dans un rapport, demande-toi quel levier ci-dessus rendrait
+l'état atteignable.** Si un flag suffit, ce n'est pas une limite du cas — c'est une bataille à
+re-crafter, et la livrer sans le faire, c'est livrer un port non validé.
+
+> Cas vécu (2026-07-25) : le résidu `ReachedSummonCap` a dormi des semaines derrière la
+> justification « divergence seulement quand le cap de summons est PLEIN — rare, tardif ». Vrai
+> en jeu naturel ; **faux comme argument de validation** : un `--hp-target` élevé fait durer la
+> bataille, le summoner survit et sature son cap. Un flag, pas un scénario.
+
+**Le vrai piège** : un port qui échoue DU BON CÔTÉ (rend une valeur conservatrice, donc
+sous-tire au lieu de mal-tirer) ne produit **aucun désaccord mesurable** — aucune statistique
+d'agrément ne peut le voir. Ces trous-là ne remontent jamais tout seuls : il faut aller les
+chercher en craftant l'état.
 - **Dispose tes runners en fin de passe** (`disposeRunner({runnerId})` ; `listRunners` pour vérifier
   l'atelier vide). Exclusifs : traces globales (`scorer*`, `aiUtilityTrace*`…) + ops de session.
 
