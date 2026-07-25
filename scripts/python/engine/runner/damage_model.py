@@ -310,6 +310,12 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     if trigger_ability_type is not None:
         # #47 : l'ability déclenchante vit dans le MÊME contexte que la position (mirror AbilityEntities
         # — un seul struct de contexte per-coup côté natif, cf. BaseEffect.DamageBonusForAttack @180f0f5e0).
+        # ⚠ ATTAQUANT SANS POSITION (MACHINE OF WAR hors-plateau, case-mow-offboard-cast : ni Position ni
+        # Health) -> `_positional_att_ctx` rend None faute de tuile. Le contexte natif porte NÉANMOINS
+        # l'ability déclenchante (elle ne dépend PAS de la position) : on matérialise un ctx minimal
+        # (copie défensive quand il existe) au lieu de crasher sur `None[...]`. Découvert par le 1ᵉʳ
+        # attaquant sans position de la famille ATTACK (HadesAutocannons 1147, blackForgefiend).
+        att_ctx = dict(att_ctx or {})
         att_ctx["trigger_ability_type"] = int(trigger_ability_type)
     mods = build_attacker_modifiers_from_effects(active, is_ranged, is_normal_attack=is_normal_attack,
                                                  has_moved=has_moved, target_traits=target_traits,

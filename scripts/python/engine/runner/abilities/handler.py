@@ -20,9 +20,10 @@ from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
                    StormcallerAbility, TheQuickeningAbility, BlackRageAbility,
                    GauntletsOfUltramarAbility, AberrantHypermorphAbility, CordClawAbility)
 from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility, VigilanceEternalAbility
-from .deathguard import RevitalizingMalignancyAbility, FlailSwingAbility, SpawnPoxwalkersAbility
-from .blacklegion import BringerOfDespairAbility, IncursionAbility
-from .orks import WaaaghAbility
+from .deathguard import (RevitalizingMalignancyAbility, FlailSwingAbility, SpawnPoxwalkersAbility,
+                         EntropyCannonsAbility)
+from .blacklegion import BringerOfDespairAbility, IncursionAbility, HadesAutocannonsAbility
+from .orks import WaaaghAbility, SquigLaunchasAbility
 from .darkangels import PlasmaCannonAbility
 from .ultramarines import CombatRestorativesAbility, MortisRoundAbility, DeathFromAboveAbility
 from .bloodangels import SavageEchoesAbility
@@ -86,6 +87,11 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     SendInTheNextWaveAbility.ABILITY_TYPE: SendInTheNextWaveAbility,   # 1016 (astraYarrick AstraMilitarum : Spawn(min(nrOfSummons + allies morts, maxSummons[level]) Cadians sur tuiles libres <=2 hex de la cible, priorite AttackTilesForTarget) + on-appearance UseNormalAttackIfAble(cible) — case-220 P0-SUMMON, tache #94)
     IncursionAbility.ABILITY_TYPE: IncursionAbility,                   # 1021 (blackPossession BlackLegion : ChainBehaviour <=maxSummons=6 iterations, 1 Bloodletter/iteration sur hex libre adjacent a la cible, arret si cible morte/hors portee + on-appearance UseNormalAttackIfAble(cible) — case-220 P0-SUMMON, tache #94)
     SpawnPoxwalkersAbility.ABILITY_TYPE: SpawnPoxwalkersAbility,       # 1040 (deathBlightbringer DeathGuard : self-cast, ceil(rand(n*chance, n*chance_2)/100) Poxwalkers sur hex libres rayon CalculateRange(TurnsStarted)=1/2/3 + on-appearance PerformAIAttackFromCurrentPosition — case-220 P0-SUMMON, tache #94)
+    # --- MACHINES OF WAR (debloqueur case-mow-offboard-cast : la MoW est une entite ECS hors-plateau,
+    # `_load_machines`). Les 3 abilities MoW a PREDICAT DE CIBLAGE conditionnel (tache #90 lot A) :
+    EntropyCannonsAbility.ABILITY_TYPE: EntropyCannonsAbility,         # 1168 (deathCrawler MoW DeathGuard : 2x Energy mono-cible, famille ABILITY ; ciblage = cible sous aura Contagion alliee OU FixedArmor negativement modifiee, GetDynamicInvalidTargetReason @1811bfc20)
+    HadesAutocannonsAbility.ABILITY_TYPE: HadesAutocannonsAbility,     # 1147 (blackForgefiend MoW BlackLegion : buff CRIT_DAMAGE +extraCritDmg -> 6x Flame sur la cible ET les summons de SON camp <=range hex (GetAllTargets @1811e5480, includeCenter) -> retrait du buff ; ciblage = SUMMON ennemi)
+    SquigLaunchasAbility.ABILITY_TYPE: SquigLaunchasAbility,           # 1200 (orksRukkatrukk MoW Orks : 3x Physical famille ABILITY + summon orksSmnSquig conditionne par FulfillsSummonCriteria @18120aac0 EVALUE AVANT l'attaque (SetCache) ; ciblage = >=1 Ork allie ou >=2 allies adjacents a la cible)
 }
 
 

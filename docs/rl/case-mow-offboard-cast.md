@@ -129,13 +129,15 @@ cf. case-172), pas d'une stat d'unite.
 
 ## 5. Les 3 abilities « 0 cible » = predicats de ciblage, pas un verrou
 
-Lecture i2 (kit) + confront live :
+**RESOLU** — les 3 sont desormais RE, MONTEES et PORTEES (face COMBAT), confrontees live :
+**`docs/rl/case-mow-targeting-predicates.md`** (tache #90 lot A, 7 tests
+`test_mow_targeting_predicate_live.py`).
 
-| ability | predicat (i2) | verdict |
+| ability | predicat (decompile) | verdict |
 |---|---|---|
-| `SquigLaunchas` (1200) | cible ennemie ayant **>=1 Ork allie** ou **>=2 unites alliees** adjacentes (« allie » = **du CASTER**) | **PROUVE montable** : 0 cible au spawn ; en deplacant 2 de MES unites adjacentes a l'ennemi -> **1 cible**, cast OK, degat observe (astraBullgryn 9539 -> 9450). Pure mise en scene. |
-| `HadesAutocannons` (1147) | cible = **un SUMMON ennemi** (+ tous les summons ennemis a 2 hexes) | montable : adversaire summoner + laisser invoquer. |
-| `EntropyCannons` (1168) | cible = ennemi a **Armure reduite** OU dans une **aura Contagion alliee** | montable : reducteur d'armure, ou allie Death Guard porteur de Contagion. |
+| `SquigLaunchas` (1200) | `GetDynamicInvalidTargetReason` **@18120ab80** : `HasMinimumAdjacentOrks(nrOfUnits=1)` OU `HasMinimumAdjacentFriendlyUnits(nrOfUnits_2=2)` (« allie » = **du CASTER**, referent `Owner@0x148`) | **PORTE + VALIDE** : 0 cible au spawn ; 1 Ork ami adjacent -> cible legale ; 2 Orks -> le Squig est en plus invoque (`FulfillsSummonCriteria @18120aac0`, seuils **nrOfUnits_3=2 / nrOfUnits_4=4**, evalue AVANT l'attaque via `SetCache`). |
+| `HadesAutocannons` (1147) | pas de `GetDynamicInvalidTargetReason` : `TargetingOptions` du ctor **@1811e56b0** + `GetAllTargets` **@1811e5480** (`UnitsWithTrait(2=Summon)`) -> cible = **SUMMON ennemi** ; splash = summons du camp **de la CIBLE** a `<= range`=2, **cible incluse** | **PORTE + VALIDE** (SET frappe identique offline/live ; borne `range` et exclusion des summons ALLIES confrontees). |
+| `EntropyCannons` (1168) | `GetDynamicInvalidTargetReason` **@1811bfc20** : `IsInTeamContagionsOfNurgleAura(effet 1071)` OU `HasNegativeModifier(FixedArmor)` | **PORTE + VALIDE** (branche AURA montee avec `deathTyphus` ; branche armure-reduite non montee live, mirror offline `UnitStats.has_negative_modifier` deja present). |
 
 ## 6. SECOND VERROU CONFIRME — substrat MULTI-HEX
 
@@ -155,16 +157,16 @@ Porteurs **dans** le pool MoW spawnable (`rl_duel build --list-pool` -> 8 MoW ; 
 | ability | porteur | debloque ? |
 |---|---|---|
 | `PlagueburstMortar` (1169) | deathCrawler | **OUI** — cast + caster offline |
-| `EntropyCannons` (1168) | deathCrawler | **OUI** + monter le predicat (armure reduite / Contagion) |
+| `EntropyCannons` (1168) | deathCrawler | **PORTE + VALIDE LIVE** (#90 lot A, `case-mow-targeting-predicates`) |
 | `DaemonicOrdnance` (1148) | blackForgefiend | **OUI** (2-phases : 1er cast pose le feu) |
-| `HadesAutocannons` (1147) | blackForgefiend | **OUI** + monter le predicat (summon ennemi) |
+| `HadesAutocannons` (1147) | blackForgefiend | **PORTE + VALIDE LIVE** (#90 lot A) |
 | `MalleusRocketLauncher` (1142) | astraOrdnanceBattery | **OUI** (2-phases : marquage puis barrage) |
 | `ForwardSpotter` (1143) | astraOrdnanceBattery | **OUI** (spawn + tour immediat du summon) |
 | `ThriceBlessedConflagration` (1187) | adeptExorcist | **OUI** |
 | `DevastatingRefrain` (1188) | adeptExorcist | **OUI** (2-phases) |
 | `HeavyRailRifle` (1160) | tauBroadside | **OUI** (2-phases, etat d'attente **sur la MoW** — desormais visible offline) |
 | `TwinSmartMissileSystem` (1161) | tauBroadside | **OUI** |
-| `SquigLaunchas` (1200) | orksRukkatrukk | **OUI** + geometrie (prouvee §5) |
+| `SquigLaunchas` (1200) | orksRukkatrukk | **PORTE + VALIDE LIVE** (#90 lot A ; degat + summon conditionnel) |
 | `SquigMine` (1201) | orksRukkatrukk | **OUI** |
 | `MacroPlasmaIncinerator` (1159) | ultraDreadnought | **OUI** (2-phases : zone marquee) |
 | `DutyEternal` (1158) | ultraDreadnought | **NON** — bloque par le substrat **multi-hex** (§6) |

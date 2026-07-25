@@ -16,13 +16,23 @@ from ..dsl.base import (TargetsSelector, Const, _pos, _within, _is_alive, _units
 
 
 class SurroundingUnits(TargetsSelector):
-    """`DSLFactory.SurroundingUnits(center, radius) @180dfcb70` = `Units(SurroundingTiles(center, radius))`
-    = unités à distance hex <= radius du centre, centre exclu."""
-    def __init__(self, center: TargetsSelector, radius: TargetsSelector):
+    """`DSLFactory.SurroundingUnits(center, radius, ..., includeCenter, ...) @180dfcb70` =
+    `Units(SurroundingTiles(center, includeCenter, radius))` = unités à distance hex <= radius du centre.
+
+    `include_center` = MIRROR de l'argument natif `param_3` de `DSLFactory.SurroundingTiles @180dfca70`
+    (lu au décompilé) : `param_3 == 0` -> le factory construit `SurroundingTiles(includeCenter=1) op_Subtraction
+    Tiles(center)` (centre EXCLU) ; `param_3 != 0` -> `SurroundingTilesSelector` DIRECT (centre **INCLUS**).
+    Défaut `False` = centre exclu (tous les call-sites portés jusqu'ici). `HadesAutocannonsAbility.GetAllTargets
+    @1811e5480` passe `SurroundingUnits(target@0x178, range, 1, 1, 3)` -> `SurroundingTiles(..., param_5=1, ...)`
+    = **centre inclus** (la cible elle-même est un des summons frappés, cf. i2 « a targeted enemy summon AND all
+    other enemy summons within 2 hexes »)."""
+    def __init__(self, center: TargetsSelector, radius: TargetsSelector, include_center: bool = False):
         self.center, self.radius = center, radius
+        self.include_center = bool(include_center)
 
     def select(self, ctx):
-        return _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx))
+        return _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx),
+                       include_center=self.include_center)
 
 
 class AdjacentEnemies(TargetsSelector):
@@ -203,14 +213,21 @@ class UnitsDirectlyBehind(TargetsSelector):
 
 
 class Friends(TargetsSelector):
-    """`DSLFactory.Friends(inner) @180df0040` → `UnitsByTeamSelector` flag=1 (symétrique exact d'`Enemies`
-    flag=0) : garde les unités du sélecteur ALLIÉES au référent (référent = caster standard)."""
-    def __init__(self, inner: TargetsSelector):
-        self.inner = inner
+    """`DSLFactory.Friends(reference, source) @180df0040` → `UnitsByTeamSelector(ctx, reference, source,
+    flag=1)` (symétrique exact d'`Enemies` flag=0) : garde les unités de `source` ALLIÉES au **RÉFÉRENT**.
+
+    Le référent est le 1ᵉʳ argument NATIF (`param_2`), pas une constante : `reference=None` (défaut) = le
+    CASTER — le cas de tous les call-sites portés jusqu'ici (`Friends(caster@0x160 / Owner@0x148, ...)`,
+    ex. `SquigLaunchasAbility.HasMinimumAdjacentFriendlyUnits @18120af30` = `Friends(Owner@0x148, ...)`).
+    `HadesAutocannonsAbility.GetAllTargets @1811e5480` passe `Friends(target@0x178, ...)` = alliés **de la
+    CIBLE** (donc les summons ENNEMIS du caster) — d'où le paramètre."""
+    def __init__(self, inner: TargetsSelector, reference: TargetsSelector | None = None):
+        self.inner, self.reference = inner, reference
 
     def select(self, ctx):
-        ct = (ctx.caster or {}).get("team")
-        return [u for u in self.inner.evaluate(ctx) if u.get("team") == ct]
+        ref = resolve_unit(self.reference, ctx) if self.reference is not None else ctx.caster
+        rt = (ref or {}).get("team")
+        return [u for u in self.inner.evaluate(ctx) if u.get("team") == rt]
 
 
 class Units(TargetsSelector):
@@ -356,6 +373,22 @@ class UnitsWithoutTrait(TargetsSelector):
     def select(self, ctx):
         ht = ctx.has_trait or (lambda u, t: False)
         return [u for u in self.source.evaluate(ctx) if not ht(u, self.trait)]
+
+
+def non_steppable_or_object_units(source: TargetsSelector) -> TargetsSelector:
+    """`DSLFactory.NonSteppableOrObjectUnits(source) @180df7420` — MIRROR du décompilé (composition PURE
+    de primitives déjà portées, comme `get_spawn_tile_selector`) :
+        `(source op_BitwiseAnd UnitsWithoutTrait(source, 0x1b=Steppable))
+                op_BitwiseAnd UnitsWithoutTrait(source, 0xd=Object)`
+    = les unités de `source` qui ne sont NI `Steppable` (27, decoys/mines traversables) NI `Object` (13,
+    murs/objets de plateau). Le nom natif dit « non (steppable ou object) ».
+
+    Consommateur porté : les deux prédicats de ciblage de `SquigLaunchasAbility`
+    (`HasMinimumAdjacentOrks @18120aff0` / `HasMinimumAdjacentFriendlyUnits @18120af30`) — un decoy ou un
+    objet adjacent à la cible NE COMPTE PAS comme « unité amie adjacente »."""
+    from .traits.unit_trait import UnitTrait
+    return And(And(source, UnitsWithoutTrait(source, int(UnitTrait.Steppable))),
+               UnitsWithoutTrait(source, int(UnitTrait.Object)))
 
 
 class AdjacentFriends(TargetsSelector):

@@ -278,6 +278,90 @@ def poxwalkers_count(state: "State", caster_id: int, nb_tiles: int) -> int:
     return int(ceil(raw / 100))                                              # Divide(..., 100, Ceiling)
 
 
+# ===================== EntropyCannons (deathCrawler, MACHINE OF WAR, actif 1168) =====================
+#
+# Porteur : `deathCrawler` « Plagueburst Crawler » = MACHINE OF WAR (pool `--list-pool`, 8 MoW) ->
+# entite ECS hors-plateau (ni Position ni Health), chargee par `_load_machines` (case-mow-offboard-cast).
+#
+# CIBLAGE (face DECISION/eligibilite, HORS `ExecuteBehaviour`) — `EntropyCannonsAbility.
+# GetDynamicInvalidTargetReason @1811bfc20`, MIRROR du decompile :
+#     if !EntityExtensions.IsUnit(target) -> reason 0 (pas d'objection)
+#     aura = IsInTeamContagionsOfNurgleAura(target@0x178, caster@0x160) @180df3ea0
+#            -> `IsInAuraRangeTrigger(effectType=0x42f=1071 ContagionsOfNurgle_ArmorReduction1,
+#                                     unit=target, teamReference=caster)`
+#     armor = HasNegativeModifier(target@0x178, 0x10=FixedArmor) @180df11e0
+#            -> `Triggers.HasNegativeModifier.ShouldTrigger @180f9db90` = il existe une modification
+#               PER-SOURCE < 0 sur le StatType du filtre (array a 1 element = {16 FixedArmor})
+#     comp = <StatComponent de la cible>            # lu par dispatch d'interface, gate `comp+0x48 > 0`
+#     return (aura ? 0 : ((comp+0x48 > 0 && armor) ? 0 : 2))
+# => la cible n'est LEGALE que si elle est (a) dans une aura Contagion d'un allie du CASTER, OU
+#    (b) porteuse d'une modification NEGATIVE de FixedArmor (« Armour reduced » de l'i2).
+# C'est CE predicat qui rend « 0 cible au spawn » (sweep case-mow §5) : il faut le MONTER (reducteur
+# d'armure sur la cible, ou allie Death Guard porteur de Contagion) pour obtenir une cible.
+# Le port n'a PAS de face DECISION pour les MoW (le natif ne met que `EntityType.Unit` dans
+# `decisionView.units` -> les MoW en sont EXCLUES, case-mow §4) : le predicat est donc RE + documente
+# ici et exerce LIVE (`abilityTargets`), pas re-porte offline en code mort. Son homologue OFFLINE
+# existe deja pour la branche (b) : `UnitStats.has_negative_modifier({16})` (mirror @180f9db90).
+
+ENTROPY_CANNONS_ID = "EntropyCannons"
+
+
+def entropy_cannons_tree() -> AttackWithAttackDamage:
+    """Arbre de `EntropyCannonsAbility$$ExecuteBehaviour @1811bfa40` (id 1168, deathCrawler MoW) —
+    MIRROR du DECOMPILE (UN seul noeud, passe directement a `AActiveAbility.Execute`) :
+
+        Execute( AttackWithAbilityDamage( caster@0x160, target@0x178,
+                                          MinMaxDamage(this, entities),                # minDmg/maxDmg[level]
+                                          Nullable(GetDamageProfile(this))=Energy,
+                                          GetHits(this)=ConfigConst(0x2f)=nrOfHits=2,
+                                          AbilityOrEffect(this+0x10 = 0x490 = 1168) ) )
+
+    - **native_factory = "ability"** : le decompile appelle litteralement `DSLFactory.
+      AttackWithAbilityDamage @180de9c90` (overload core @180de9e50), PAS `AttackWithAttackDamage
+      @180de9fb0` -> `AbilityDamageBehaviour` -> `AbilityDamageOperation.ExecuteHits @180e2a860` :
+      1 tirage/coup, AUCUN crit, AUCUNE feuille positionnelle (elevation/trench) — MEME route que
+      Stormcaller/SpiritLeech (classification par XREF, jamais au juge).
+    - `MinMaxDamage` = bornes `minDmg`(0xc)/`maxDmg`(0xd)[activeAbilityLevel] scalees par
+      `AbilityVariablesMultiplier` ; pour une MoW le couple {level, mult} vient de son `AbilityState`
+      PER-ABILITY (`_load_machine_stats`), seul canal de niveau d'une Machine.
+    - Profil `Energy` (`constants.damageProfile`, PiercingRatio 30) ; `nrOfHits`=2 (constante config).
+    - `is_melee=None` : la config 1168 n'a **PAS** d'`attackRangeType` (contraste 1147/1200 = `Ranged`)
+      -> nature du coup NON declaree -> convention `execute_ability_attack(is_melee=None)` = gates
+      defenseur melee/ranged INERTES (`Terrifying_ExtraDefense` IsMeleeAttack, ...). Ne rien inventer.
+    - AUCUN effet pose, AUCUN spawn, AUCUNE 2e phase : l'ability EST cette seule attaque (le volet
+      « armure reduite / Contagion » de l'i2 est le PREDICAT DE CIBLAGE ci-dessus, pas un volet degat)."""
+    return AttackWithAttackDamage(Target(), ENTROPY_CANNONS_ID, "Energy", is_melee=None,
+                                  native_factory="ability",          # @180de9c90 (XREF), 1 tirage/coup
+                                  ability_type=int(ActiveAbilityType.EntropyCannons))
+
+
+class EntropyCannonsAbility(ActiveAbility):
+    """`EntropyCannonsAbility$$ExecuteBehaviour @1811bfa40` (id 1168, `deathCrawler` « Plagueburst
+    Crawler », MACHINE OF WAR Death Guard). Arbre DSL `entropy_cannons_tree()` (mirror 1:1) : 2 coups
+    Energy (pierce 30) sur la cible du message, via la famille ABILITY (pas de crit, pas d'elevation).
+
+    Caster = une **MoW hors-plateau** (ni Position ni Health) : les feuilles positionnelles du builder
+    de mods attaquant sont de toute facon gatees OFF pour la famille ABILITY (#45f), et `apply_elevation
+    _bonus`/`apply_trench_reduction` no-op sans position -> aucun chemin ne suppose une tuile de caster.
+
+    Turn-flags = defauts base (1168 absent des overrides `SetsEndTurnFlags`/`SetsActiveAbilityUsedFlag`).
+    Diag : {attacks:[{target,total}]}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.EntropyCannons)   # 1168
+    ABILITY_ID = ENTROPY_CANNONS_ID
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entropy_cannons_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        attacks = [{"target": p.get("target"), "total": p.get("total")}
+                   for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        return {"ability": ENTROPY_CANNONS_ID, "caster": caster_id, "target": target_id,
+                "attacks": attacks, "dsl": True}
+
+
 def spawn_poxwalkers_tree(tiles: list) -> Spawn:
     """Arbre de `SpawnPoxwalkersAbility.ExecuteBehaviour @181208b80` : UN noeud `Spawn` dont les options
     portent le sous-behaviour ON-APPEARANCE `PerformAIAttackFromCurrentPosition(activeTarget@0x180)`

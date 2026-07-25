@@ -17,17 +17,18 @@ from ..components import PositionComponent, StatsComponent, OwnerComponent, Unit
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.active_ability_type import ActiveAbilityType
-from ...entities.behaviours import If, op_add, op_and
+from ...entities.behaviours import If, SetCache, op_add, op_and
 from ...entities.effect_type import EffectType
-from ...entities.formulas import Get, VisualUnitIdFromUnitId
+from ...entities.formulas import Count, Get, VisualUnitIdFromUnitId
 from ...entities.pathfinding.walk_pathfinder import get_movable_positions
-from ...entities.selectors import (ActiveTarget, AdjacentFriends, AdjacentTiles, AllUnits, CanAddUnit,
-                                   Caster, CasterTile, FixedTiles, Friends, Target, Union, Unique,
-                                   UnitsFromFaction, UnitsWithVisualId)
+from ...entities.selectors import (ActiveTarget, AdjacentFriends, AdjacentTiles, AdjacentUnits,
+                                   AllUnits, CanAddUnit, Caster, CasterTile, FixedTiles, Friends,
+                                   Target, TargetTile, Union, Unique, UnitsFromFaction,
+                                   UnitsWithVisualId, non_steppable_or_object_units)
 from ...entities.stats import StatType
-from ...entities.triggers import IsAdjacent
-from .behaviours import (AddEffect, KillDeadUnits, MoveUnit, PerformAIAction, Spawn, UseActiveAbility,
-                         entities_from_state)
+from ...entities.triggers import AmountIsEqualOrGreater, CacheTrigger, IsAdjacent, TriggerOr
+from .behaviours import (AddEffect, AttackWithAttackDamage, KillDeadUnits, MoveUnit, PerformAIAction,
+                         Spawn, UseActiveAbility, entities_from_state)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -299,3 +300,154 @@ class WaaaghAbility(ActiveAbility):
         return {"spawned": spawned, "buffed": buffed, "moved": moved, "attack": atk,
                 "ai_units": ai.get("units") or [], "ai_results": ai.get("results") or [],
                 "count": n_summons, "move_range": move_range, "dsl": True}
+
+
+# ===================== SquigLaunchas (orksRukkatrukk, MACHINE OF WAR, actif 1200) =====================
+#
+# Porteur : `orksRukkatrukk` « Rukkatrukk » = MACHINE OF WAR (pool `--list-pool`, 8 MoW) -> entite ECS
+# hors-plateau (ni Position ni Health), chargee par `_load_machines` (case-mow-offboard-cast).
+#
+# Index des constantes lues par `SquigLaunchasAbility` (`AbilityConfiguration.Get*Constant(config, i)`) :
+CONST_SL_UNIT_ID = 0x00           # GetStringConstant(0)     -> "unitId"      = orksSmnSquig
+CONST_SL_ORKS_TARGET = 0x78       # GetNumberConstant(0x78)  -> "nrOfUnits"   = 1  (CIBLAGE, Orks)
+CONST_SL_FRIENDS_TARGET = 0x79    # GetNumberConstant(0x79)  -> "nrOfUnits_2" = 2  (CIBLAGE, amis)
+CONST_SL_ORKS_SUMMON = 0x81       # GetNumberConstant(0x81)  -> "nrOfUnits_3" = 2  (SUMMON, Orks)
+CONST_SL_FRIENDS_SUMMON = 0x82    # GetNumberConstant(0x82)  -> "nrOfUnits_4" = 4  (SUMMON, amis)
+
+SQUIG_LAUNCHAS_ID = "SquigLaunchas"
+SQUIG_FACTION = "Orks"            # `UnitsFromFaction(..., 5, 3)` — UnitFaction.Orks = 5 (il2cpp_enums)
+
+
+def squig_launchas_has_minimum_adjacent_friendly_units(amount: int):
+    """`SquigLaunchasAbility.HasMinimumAdjacentFriendlyUnits @18120af30` — MIRROR du DECOMPILE :
+
+        AmountIsEqualOrGreater(
+            Friends( Owner@0x148,
+                     NonSteppableOrObjectUnits( AdjacentUnits(target@0x178, 1, 3) ) ),
+            amount )
+
+    = « au moins `amount` unites ALLIEES DU CASTER (Owner), ni Steppable ni Object, adjacentes (hex 1)
+    a la CIBLE ». Le referent de `Friends` est l'OWNER (le caster MoW) : « friendly » = de MON camp,
+    pas du camp de la cible (confirme live case-mow §5 : deplacer 2 de MES unites au contact de
+    l'ennemi ouvre le ciblage). `AmountIsEqualOrGreater(selecteur, n)` = `Count(sel) >= n`
+    (`ShouldTrigger @180ee0e00` : slot +0x10 = selecteur COMPTE, +0x20 = seuil, `return seuil <= gauche`)."""
+    return AmountIsEqualOrGreater(
+        Count(Friends(non_steppable_or_object_units(AdjacentUnits(TargetTile(), Const(1))))),
+        Const(int(amount)))
+
+
+def squig_launchas_has_minimum_adjacent_orks(amount: int):
+    """`SquigLaunchasAbility.HasMinimumAdjacentOrks @18120aff0` — MIRROR du DECOMPILE : IDENTIQUE a
+    `HasMinimumAdjacentFriendlyUnits` avec UN etage de plus, `UnitsFromFaction(..., 5=Orks, 3)` :
+
+        AmountIsEqualOrGreater(
+            UnitsFromFaction( Friends(Owner@0x148,
+                                      NonSteppableOrObjectUnits(AdjacentUnits(target@0x178, 1, 3))),
+                              5 = Orks ),
+            amount )
+
+    `UnitsFromFaction @180dff960` compare `System.Enum.ToString(UnitFaction)` = le NOM de faction
+    (« Orks ») au `FactionId` gameconfig de l'unite -> `ctx.faction_of` cote port."""
+    return AmountIsEqualOrGreater(
+        Count(UnitsFromFaction(
+            Friends(non_steppable_or_object_units(AdjacentUnits(TargetTile(), Const(1)))),
+            SQUIG_FACTION)),
+        Const(int(amount)))
+
+
+def squig_launchas_fulfills_summon_criteria(orks_min: int, friends_min: int):
+    """`SquigLaunchasAbility.FulfillsSummonCriteria @18120aac0` — MIRROR du DECOMPILE :
+
+        op_BitwiseOr( HasMinimumAdjacentOrks(         Direct(GetNumberConstant(0x81)=nrOfUnits_3=2) ),
+                      HasMinimumAdjacentFriendlyUnits(Direct(GetNumberConstant(0x82)=nrOfUnits_4=4) ) )
+
+    i2 : « if the target has 2 friendly Orks OR 4 friendly units adjacent to it, summons a Large Squig ».
+    ⚠ CONSTANTES DIFFERENTES du predicat de CIBLAGE (`GetDynamicInvalidTargetReason @18120ab80` : 0x78=1
+    Ork / 0x79=2 amis) — meme paire de predicats, seuils PLUS HAUTS pour le summon."""
+    return TriggerOr(squig_launchas_has_minimum_adjacent_orks(orks_min),
+                     squig_launchas_has_minimum_adjacent_friendly_units(friends_min))
+
+
+def squig_launchas_tree(orks_min: int, friends_min: int):
+    """Arbre de `SquigLaunchasAbility$$ExecuteBehaviour @18120a720` — MIRROR du DECOMPILE :
+
+        attack = AttackWithAbilityDamage( Owner@0x148, target@0x178,
+                                          MinMaxDamage, GetDamageProfile(config)=Physical,
+                                          GetHits()=ConfigConst(0x2f)=nrOfHits=3,
+                                          AbilityOrEffect(0x4b0 = 1200) )
+        opts   = SpawnUnitOptions.WithStatsFromConfig(config, abilityState)
+        spawn  = Spawn( caster@0x160,
+                        PickRandomly( CanAddUnit(AdjacentTiles(Cache(TargetTiles@0x190, 1))), 1,
+                                      ..., 0x7fffffff ),
+                        GetStringConstant(config, 0) = "orksSmnSquig", opts )
+        cond   = Cache( FulfillsSummonCriteria )                              # @18120aac0
+        Execute( op_Addition( op_Addition( SetCache(cond), attack ), If(cond, spawn) ) )
+
+    - **ORDRE / TIMING (le point non trivial)** : `SetCache(cond)` s'execute AVANT l'attaque
+      (`SetCacheBehaviour.Execute @180fd2470` = evalue le noeud cache, aucune mutation) -> le critere de
+      summon est FIGE sur l'etat **PRE-attaque**, puis `If(cond, spawn)` relit le CACHE. Consequence
+      mecanique : meme si les 3 coups TUENT la cible, le Squig est invoque des lors que le critere etait
+      rempli avant l'attaque.
+    - **native_factory = "ability"** : le decompile appelle `DSLFactory.AttackWithAbilityDamage
+      @180de9c90` (PAS `AttackWithAttackDamage @180de9fb0`) -> `AbilityDamageOperation.ExecuteHits
+      @180e2a860` : 1 tirage/coup, AUCUN crit, AUCUNE feuille positionnelle. Profil `Physical`
+      (PiercingRatio 1), `nrOfHits`=3, `attackRangeType=Ranged` -> `is_melee=False`.
+    - **SPAWN** : `AdjacentTiles(Cache(TargetTiles@0x190))` = tuiles hex-adjacentes a la tuile de la
+      CIBLE ; `CanAddUnit` = libres+marchables ; `PickRandomly(..., 1)` FOLDE dans la feuille `Spawn`
+      (`pick_n=1`, le tirage vit la ou l'on voit `state.rng` — meme convention que Waaagh/SupremeCommander).
+      Le port ancre `AdjacentTiles(Target())` (selecteur unit-domain -> tuile de l'unite = MEME tuile que
+      `TargetTiles@0x190` ; meme reduction que `waaagh_spawn_tree`). Stats du Squig =
+      `WithStatsFromConfig` = `summonHp`/`summonDmg`/`summonArmor`[level] x mult de l'ABILITY (canal
+      `AbilityState` de la MoW). AUCUN sous-behaviour on-appearance (`opts+0x18` jamais assigne au
+      decompile) : le Squig (trait `Summon`) joue au debut de SON tour, pas a l'apparition."""
+    cond = CacheTrigger(squig_launchas_fulfills_summon_criteria(orks_min, friends_min))
+    attack = AttackWithAttackDamage(Target(), SQUIG_LAUNCHAS_ID, "Physical", is_melee=False,
+                                    native_factory="ability",     # @180de9c90 (XREF), 1 tirage/coup
+                                    ability_type=int(ActiveAbilityType.SquigLaunchas))
+    spawn = Spawn(CanAddUnit(AdjacentTiles(Target())), SQUIG_LAUNCHAS_ID, pick_n=1)
+    return op_add(op_add(SetCache(cond), attack), If(cond, spawn))
+
+
+class SquigLaunchasAbility(ActiveAbility):
+    """`SquigLaunchasAbility$$ExecuteBehaviour @18120a720` (id 1200, `orksRukkatrukk` « Rukkatrukk »,
+    MACHINE OF WAR Orks). Arbre DSL `squig_launchas_tree()` (mirror 1:1) : 3 coups Physical sur la cible
+    (famille ABILITY), PUIS — si le critere de summon evalue AVANT l'attaque est rempli — invocation d'un
+    `orksSmnSquig` sur un hex libre aleatoire adjacent a la cible.
+
+    PREDICAT DE CIBLAGE (face DECISION/eligibilite, HORS `ExecuteBehaviour`) —
+    `GetDynamicInvalidTargetReason @18120ab80`, MIRROR du decompile :
+        if !EntityExtensions.IsUnit(target) -> 0
+        a = HasMinimumAdjacentOrks(         Direct(GetNumberConstant(0x78)=nrOfUnits=1) )
+        b = HasMinimumAdjacentFriendlyUnits(Direct(GetNumberConstant(0x79)=nrOfUnits_2=2) )
+        return (b || a) ? 0 : 2
+    => cible legale ssi >= 1 Ork allie-du-caster OU >= 2 unites alliees-du-caster adjacentes a elle.
+    C'est CE predicat qui rend « 0 cible au spawn » (sweep case-mow §5) : on le MONTE en amenant 1 Ork
+    (ou 2 unites quelconques) de MON camp au contact de l'ennemi. Le port n'a PAS de face DECISION pour
+    les MoW (case-mow §4) -> le predicat est RE + exerce LIVE (`abilityTargets`), et ses DEUX helpers
+    natifs sont neanmoins portes ici : ils sont REUTILISES par `FulfillsSummonCriteria` (seuils 0x81/0x82),
+    lui DANS l'ExecuteBehaviour -> confrontables offline.
+
+    Turn-flags = defauts base (1200 absent des overrides). Diag :
+    {attacks, summon_criteria, spawned}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.SquigLaunchas)   # 1200
+    ABILITY_ID = SQUIG_LAUNCHAS_ID
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        consts = (GC.ability(self.ABILITY_ID) or {}).get("constants") or {}
+        orks_min = int(consts.get("nrOfUnits_3") or 0)         # GetNumberConstant(0x81)
+        friends_min = int(consts.get("nrOfUnits_4") or 0)      # GetNumberConstant(0x82)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        # Verdict du critere de summon (PRE-attaque, == le `SetCache` de l'arbre) pour le diagnostic.
+        criteria = bool(squig_launchas_fulfills_summon_criteria(orks_min, friends_min).evaluate(entities))
+        squig_launchas_tree(orks_min, friends_min).execute(entities, ectx)
+        attacks = [{"target": p.get("target"), "total": p.get("total")}
+                   for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        spawned = [p["unit"] for n, p in ectx.emitted if n == "SpawnUnit"]
+        return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
+                "attacks": attacks, "summon_criteria": criteria, "spawned": spawned,
+                "orks_min": orks_min, "friends_min": friends_min, "dsl": True}

@@ -101,6 +101,27 @@ class If(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class SetCache(AbilityBehaviour):
+    """`DSLFactory.SetCache(node) @180dfa8f0` (3 overloads -> MEME classe `SetCacheBehaviour`,
+    DAT_18320e858 ; les ctors affiches `RefreshDynamicStatModifierValueBehaviour`/`ActivateEffectBehaviour`
+    sont des folds gshared MISLABELES) -> `SetCacheBehaviour.Execute @180fd2470` : EVALUE le noeud cache
+    (slot +0x60 pour un PREDICAT, +0x50 selecteur / +0x58 formule) et rend un resultat VIDE — **aucune
+    mutation d'etat, aucun court-circuit**. Son SEUL effet est de PLACER le noeud `Cache` dans le temps :
+    tout consommateur AVAL du meme `Cache` relira le verdict fige ICI.
+
+    Consommateur porte : `SquigLaunchasAbility.ExecuteBehaviour @18120a720`
+    (`(SetCache(cond) + attack) + If(cond, spawn)` : le critere de summon est evalue AVANT l'attaque).
+    Deterministe, 0 tirage -> n'altere PAS l'ordre `state.rng` de l'attaque qui le suit. PUR (stop=False)."""
+    __slots__ = ("node",)
+
+    def __init__(self, node):
+        self.node = node
+
+    def execute(self, entities, ectx):
+        self.node.evaluate(entities)                 # force la 1re eval -> remplit le cache
+        return OperationResult.ok()
+
+
 class Emit(AbilityBehaviour):
     """Feuille GENERIQUE emettant UNE Operation : patron des feuilles concretes (`SpawnUnit`,
     `AddBondEffect`, `PerformAIAttack`, runner/abilities/behaviours.py) = wrappers MINCES au-dessus

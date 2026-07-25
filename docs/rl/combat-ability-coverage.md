@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **171** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **42**
-- **NO-OP silencieux** (a porter) : **129**
-- Ventilation NO-OP : **DAMAGE**=84, **EFFECT/BUFF**=24, **SUMMON**=15, **HEAL**=3, **REPAIR**=3
+- **PORTED** (dans `ABILITY_CLASSES`) : **50**
+- **NO-OP silencieux** (a porter) : **121**
+- Ventilation NO-OP : **DAMAGE**=81, **EFFECT/BUFF**=24, **SUMMON**=10, **HEAL**=3, **REPAIR**=3
 
 ## Priorisation & templates de port
 
@@ -22,7 +22,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (129)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (121)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -61,8 +61,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1148 | DaemonicOrdnance | DAMAGE(Plasma) | 2 | LN |
 | 1213 | DeathOnTheWind | DAMAGE(HeavyRound) | 2 | LN |
 | 1188 | DevastatingRefrain | DAMAGE(Blast) | 2 | LN |
-| 1168 | EntropyCannons | DAMAGE(Energy) | 2 | LN |
-| 1147 | HadesAutocannons | DAMAGE(Flame) | 2 | LN |
 | 1214 | Hailstrike | DAMAGE(Projectile) | 2 | LN |
 | 1160 | HeavyRailRifle | DAMAGE(Piercing) | 2 | LN |
 | 1044 | IncendiaryShells | DAMAGE(Flame) | 2 | NS |
@@ -76,7 +74,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1141 | OverwhelmingWrath | DAMAGE(Eviscerate) | 2 | LN |
 | 1169 | PlagueburstMortar | DAMAGE(Toxic) | 2 | LN |
 | 1015 | PrecisionShot | DAMAGE(Energy) | 2 | NS |
-| 1200 | SquigLaunchas | DAMAGE(Physical) | 2 | LN |
 | 1201 | SquigMine | DAMAGE(Blast) | 2 | LN |
 | 1187 | ThriceBlessedConflagration | DAMAGE(Flame) | 2 | LN |
 | 1161 | TwinSmartMissileSystem | DAMAGE(Blast) | 2 | LN |
@@ -141,14 +138,9 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1224 | NanoscarabRepairProtocols | REPAIR | 2 | LN |
 | 1223 | ReanimationBeam | REPAIR | 2 | LN |
 | 1121 | ItItches | SUMMON | 7 | LN |
-| 1016 | SendInTheNextWave | SUMMON | 7 | LN |
 | 1009 | ResurrectionOrb | SUMMON | 6 | LN |
-| 1028 | SupremeCommander | SUMMON | 6 | LN |
 | 1077 | EarlyWarningOverride | SUMMON | 5 | LN |
-| 1021 | Incursion | SUMMON | 5 | LN |
-| 1058 | Waaagh | SUMMON | 5 | LN |
 | 1057 | GrotTank | SUMMON | 4 | LN |
-| 1040 | Poxwalkers | SUMMON | 4 | LN |
 | 1208 | AetherStride | SUMMON | 2 | LN |
 | 1144 | BioMinefield | SUMMON | 2 | LN |
 | 1158 | DutyEternal | SUMMON | 2 | LN |
@@ -156,7 +148,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (42)
+## PORTED (registry) (50)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -175,10 +167,13 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1139 | SentinelDirectives | DAMAGE(Physical) | 4 | LN |
 | 1043 | ThunderousAssault | DAMAGE(Power) | 4 | LN |
 | 1150 | PlasmaCannon | DAMAGE(Plasma) | 3 | LN |
+| 1168 | EntropyCannons | DAMAGE(Energy) | 2 | LN |
 | 1078 | Fragstorm | DAMAGE(Blast) | 2 | NS |
+| 1147 | HadesAutocannons | DAMAGE(Flame) | 2 | LN |
 | 1131 | JakhalStimms | DAMAGE(Physical) | 2 | LN |
 | 1098 | PlasmaGrenade | DAMAGE(Plasma) | 2 | NS |
 | 1230 | SavageEchoes | DAMAGE(Eviscerate) | 2 | LN |
+| 1200 | SquigLaunchas | DAMAGE(Physical) | 2 | LN |
 | 1051 | Stikkbomb | DAMAGE(Blast) | 2 | NS |
 | 1113 | Stormcaller | DAMAGE(Psychic) | 2 | LN |
 | 1018 | ValkyrieStrike | DAMAGE(Blast) | 2 | NS |
@@ -194,11 +189,16 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1002 | CombatRestoratives | HEAL | 4 | LN |
 | 1037 | RevitalizingMalignancy | HEAL | 4 | LN |
 | 1112 | AlphaWarrior | SUMMON | 8 | LN |
+| 1016 | SendInTheNextWave | SUMMON | 7 | LN |
 | 1096 | MasterOfTheTutelaries | SUMMON | 6 | LN |
 | 1007 | ScarabHive | SUMMON | 6 | LN |
+| 1028 | SupremeCommander | SUMMON | 6 | LN |
+| 1021 | Incursion | SUMMON | 5 | LN |
+| 1058 | Waaagh | SUMMON | 5 | LN |
 | 1166 | AberrantHypermorph | SUMMON | 4 | LN |
 | 1179 | CultDemagogue | SUMMON | 4 | LN |
 | 1045 | GetEmRuntz | SUMMON | 4 | LN |
+| 1040 | Poxwalkers | SUMMON | 4 | LN |
 | 1047 | ScarabSummon | SUMMON | 3 | NS |
 | 1145 | SporeMineLauncher | SUMMON | 2 | LN |
 | 1219 | IronkinSteeljack | SUMMON | 1 | L |

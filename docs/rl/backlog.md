@@ -60,11 +60,19 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `Nullable<DamageModifiers>` HasValue ; le port ne le matérialise que dans `apply_capped_modifiers`
   **quand la %-list est non vide**, sinon le caller TRONQUE (`op_Explicit` @181564100). Divergence de
   ±1 quand le produit du perçage tombe juste sous un entier (MESURÉ live : base 200 -> natif 140 vs
-  port 139 ; base 201 -> 141 vs 140). **Corrigé UNIQUEMENT pour la famille ABILITY amount-mode**
-  (`apply_all_modifiers(..., round_materialize=True)` depuis la feuille `AttackWithAbilityDamage`).
-  Reste à mesurer/généraliser : bornes d'attaque NORMALE (`damage_ops:177/179`), ability bounds-mode
-  (`:353`), normal-like (`:472`), additional-hits — tous live-validés bit-exact AVEC la troncature,
-  donc chacun exige sa propre campagne de datapoints discriminants. `[fable]`.
+  port 139 ; base 201 -> 141 vs 140). **Corrigé pour TOUTE la famille ABILITY** — amount-mode
+  (`AttackWithAbilityDamage`, mesure nova) **ET mode bornes** (#90 lot A : `execute_ability_attack`
+  active `round_materialize` dès que `is_attack_damage_op=False`, car `CalculateAbilityDamage
+  @18102cb50` construit TOUJOURS le `Nullable` défenseur slot 0xf → l'arrondi passe toujours pour ce
+  vecteur ; MESURÉ live SquigLaunchas 1200, 4 seeds, écart variant dans [0, hits] = signature d'arrondi,
+  4/4 bit-exact après fix — cf. `case-mow-targeting-predicates` §4).
+  Reste à mesurer/généraliser : bornes d'attaque NORMALE (`damage_ops:177/179`), normal-like (`:472`),
+  additional-hits — tous live-validés bit-exact AVEC la troncature (famille ATTACK), donc chacun exige
+  sa propre campagne de datapoints discriminants. `[fable]`.
+- **`test_harvester_live::test_harvester_live_moved_bitexact_and_native_factory` (seeds 777 et 31337)
+  échoue au commit `9eedcbc`** : MAIN offline `[2694, 2896]` vs LIVE `[2155, 2317]` (ratio 1.25 =
+  HeavyWeapon_ExtraDmg appliqué offline alors que l'unité a BOUGÉ). Reproduit sur base propre (patch
+  stashé) → **pré-existant**, pas une régression du lot #90 A. `[opus]`.
 - **Garde `@0x180e76c9e` de `KillUnitOperation$$Execute` entre `On(1)` et `On(2)`**
   (`case-death-nova-explodes-putridexplosion` §2.1) : `On(PreUnitDeath=1)` est émis AVANT la garde,
   `On(2)`/`On(0)`/`On(55)`/`On(54)` DEDANS. Sémantique du lookup (`entities+0xa8` indexé par une clé du
