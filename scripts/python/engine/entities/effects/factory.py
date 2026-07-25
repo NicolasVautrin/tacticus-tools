@@ -90,6 +90,9 @@ from .loki import (
     BlackRageExtraMoveEffect,
     BlackRageExtraDamageEffect,
     BlackRageAutomaticUnitEffect,
+    WaaaghExtraMovementEffect,
+    WaaaghExtraDamageEffect,
+    WaaaghExtraHitsEffect,
 )
 
 # Registre nom d'EffectType (`decisionView.effects[].name`) → classe d'effet. À ÉTENDRE au roster.
@@ -177,6 +180,14 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "BlackRage_ExtraMove": BlackRageExtraMoveEffect,
     "BlackRage_ExtraDamage": BlackRageExtraDamageEffect,
     "BlackRage_AutomaticUnit": BlackRageAutomaticUnitEffect,
+    # Waaagh (orksWarboss, active 1058 @18122b010) — 3 buffs poses par `GetBuffBehaviour @18122b900`
+    # sur caster + allies adjacents + TOUS les allies de faction Orks, duree 1 round (@dsl+0xc0) :
+    # ExtraMovement (1099) = stat-mod +MOVEMENT (constante extraMovement=1, canal eager applied_stat_mods,
+    # REQUIS par UnitMovementRangeWithBonus de l'etage MOVE) ; ExtraDamage (1100) = marqueur (+extraDmg[L]
+    # NON modelise, residu) ; ExtraHits (1101) = marqueur (+extraHit coup NON modelise, residu).
+    "Waaagh_ExtraMovement": WaaaghExtraMovementEffect,
+    "Waaagh_ExtraDamage": WaaaghExtraDamageEffect,
+    "Waaagh_ExtraHits": WaaaghExtraHitsEffect,
     "RangedSpecialist": RangedSpecialistEffect,  # +33% dégât RANGED (trait, actif si pas parti adjacent)
     # Markerlight (1122, posé sur la CIBLE par MV71SniperDroneSquadAttack @181108900 (e) /
     # StructuralAnalyser @1811a2a00) : +MarkerlightDmgBonusPct% (=15, règle BC Effect) au dégât reçu des

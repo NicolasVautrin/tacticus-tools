@@ -20,8 +20,9 @@ from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
                    StormcallerAbility, TheQuickeningAbility, BlackRageAbility,
                    GauntletsOfUltramarAbility, AberrantHypermorphAbility, CordClawAbility)
 from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility, VigilanceEternalAbility
-from .deathguard import RevitalizingMalignancyAbility, FlailSwingAbility
-from .blacklegion import BringerOfDespairAbility
+from .deathguard import RevitalizingMalignancyAbility, FlailSwingAbility, SpawnPoxwalkersAbility
+from .blacklegion import BringerOfDespairAbility, IncursionAbility
+from .orks import WaaaghAbility
 from .darkangels import PlasmaCannonAbility
 from .ultramarines import CombatRestorativesAbility, MortisRoundAbility, DeathFromAboveAbility
 from .bloodangels import SavageEchoesAbility
@@ -33,7 +34,7 @@ from .spacewolves import GreatFrostAxeAbility
 from .tyranids import SporeMineLauncherAbility, AlphaWarriorAbility
 from .worldeaters import JakhalStimmsAbility
 from .admec import SentinelDirectivesAbility
-from .astramilitarum import SupremeCommanderAbility
+from .astramilitarum import SupremeCommanderAbility, SendInTheNextWaveAbility
 
 # Registre ActiveAbilityType (int) -> classe d'ability portée. À ÉTENDRE au roster.
 ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
@@ -81,6 +82,10 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     JakhalStimmsAbility.ABILITY_TYPE: JakhalStimmsAbility,             # 1131 (worldJakhal Macer WorldEaters : 4x Physical melee cible + AoE intersection AdjacentUnits(caster) & AdjacentFriends(target) + self-loss 25% PV courant (ChangeStat Subtract, Execute separe) ; free action ; native_factory attack, ExecuteAtomic 0x2a, case-220 §6.3)
     SentinelDirectivesAbility.ABILITY_TYPE: SentinelDirectivesAbility,  # 1139 (admecDestroyer Sy-Gex AdeptusMechanicus : 1x Physical ranged cible + AddEffect Pinned/Suppressed, quasi-clone SpiritLeech sans heal/conditional, native_factory attack, ne finit pas le tour, case-220 §6.17)
     SupremeCommanderAbility.ABILITY_TYPE: SupremeCommanderAbility,     # 1028 (astraCreed Creed AstraMilitarum : ExecuteAtomic(Spawn nrOfSummons gardes hex libres adjacents WithStatsFromConfig) puis Execute(PerformAIAction(UnitsWithIds(SurroundingFriends(range), affectedUnitIds), asGroup=1, resetTurnFlags=1)) — 1er consommateur du debloqueur PerformAIAction, case-perform-ai-action)
+    WaaaghAbility.ABILITY_TYPE: WaaaghAbility,                         # 1058 (orksWarboss Orks : 5 Execute successifs @18122b010 — Spawn(2 Ork Boyz adjacents) / buff 1099+1100+1101 (caster + allies adjacents + TOUS les allies Orks, 1 round) / charge MoveUnit(movement+extraMovement) / attaque normale si adjacent / PerformAIAction(Friends(UnitsWithVisualId(orksOrkBoys)) BOARD-WIDE, asGroup=1, resetTurnFlags=1) — 2e consommateur PerformAIAction, tache #94)
+    SendInTheNextWaveAbility.ABILITY_TYPE: SendInTheNextWaveAbility,   # 1016 (astraYarrick AstraMilitarum : Spawn(min(nrOfSummons + allies morts, maxSummons[level]) Cadians sur tuiles libres <=2 hex de la cible, priorite AttackTilesForTarget) + on-appearance UseNormalAttackIfAble(cible) — case-220 P0-SUMMON, tache #94)
+    IncursionAbility.ABILITY_TYPE: IncursionAbility,                   # 1021 (blackPossession BlackLegion : ChainBehaviour <=maxSummons=6 iterations, 1 Bloodletter/iteration sur hex libre adjacent a la cible, arret si cible morte/hors portee + on-appearance UseNormalAttackIfAble(cible) — case-220 P0-SUMMON, tache #94)
+    SpawnPoxwalkersAbility.ABILITY_TYPE: SpawnPoxwalkersAbility,       # 1040 (deathBlightbringer DeathGuard : self-cast, ceil(rand(n*chance, n*chance_2)/100) Poxwalkers sur hex libres rayon CalculateRange(TurnsStarted)=1/2/3 + on-appearance PerformAIAttackFromCurrentPosition — case-220 P0-SUMMON, tache #94)
 }
 
 

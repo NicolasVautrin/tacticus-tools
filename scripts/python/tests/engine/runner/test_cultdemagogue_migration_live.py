@@ -1,9 +1,15 @@
 """Gen-stealer G4 : CultDemagogue (id 1179, Isaak genesPrimus) MIGRATION -> arbre DSL, CONFRONTE au LIVE.
 
-`CultDemagogueAbility$$ExecuteBehaviour @1811cdc30` = `op_add(SpawnDecoys, op_add(SpawnNeophytesOnDecoys,
-PerformAINeophyteTurn))` : (1) pose N=`nrOfSummons` decoys <=range de la cible, (2) summon Neophytes sur
-ceil(moitie) des decoys allies de la zone (stats config `summon*_2`), (3) chaque Neophyte joue un TOUR AI
-complet immediat. Le port EST l'arbre `cult_demagogue_tree()` (feuilles genestealer.py).
+`CultDemagogueAbility$$ExecuteBehaviour @1811cdc30` = `op_add(op_add(SpawnDecoys, SpawnNeophytesOnDecoys),
+PerformAIAction(UnitsWithId(SurroundingEnemies(target, range, ref=target), unitId_2), 0, 1))` :
+(1) pose N=`nrOfSummons` decoys <=range de la cible, (2) summon Neophytes sur ceil(moitie) des decoys allies
+de la zone (stats config `summon*_2`), (3) chaque Neophyte joue un TOUR AI complet immediat. Le port EST
+l'arbre `cult_demagogue_tree()` (feuilles genestealer.py).
+
+RETROFIT #94 : le 3e etage passait par une feuille BESPOKE `PerformAINeophyteTurn` qui FUSIONNAIT selecteur
+et action et appelait `decide_and_apply` A NU (aucun cycle de flags de tour). Il passe desormais par le
+SOCLE `PerformAIAction` (`behaviours/ai_control.py`) -> `ComputerActionOperation.execute` (mono,
+`resetTurnFlags=1`). Tests dedies en fin de fichier (selection, cycle de flags, contre-cas no-op).
 
 CONFRONTATION LIVE -- invariant ROBUSTE = les stats de SPAWN des Neophytes (`summonHp_2[level] x mult`),
 BIT-EXACT vs le live, INDEPENDANTES du bruit end-state. On drive Isaak a dist<=2 d'un ennemi, on caste LIVE,
@@ -129,7 +135,8 @@ def cult_demagogue(rpc, build_runner):
     mult = int(getattr(ctx, "ability_variables_multiplier", 100) or 100) if ctx is not None else 100
     res = CultDemagogueAbility().execute_behaviour(state, isaak_id, enemy_id)
 
-    return {"live_neo": live_neo, "res": res, "state": state, "level": level, "mult": mult}
+    return {"live_neo": live_neo, "res": res, "state": state, "level": level, "mult": mult,
+            "caster_id": isaak_id, "target_id": enemy_id}
 
 
 def test_cultdemagogue_spawns_live(cult_demagogue):
@@ -167,3 +174,79 @@ def test_neophyte_count_is_ceil_half_decoys(cult_demagogue):
         pytest.skip("port n'a place aucun decoy (geometrie)")
     assert len(res["neophytes"]) == math.ceil(len(res["decoys"]) / 2), \
         f"neophytes {len(res['neophytes'])} != ceil(decoys {len(res['decoys'])} / 2)"
+
+
+# ============================================================================================== #
+# RETROFIT #94 -- le 3e etage passe par le SOCLE `PerformAIAction` (`behaviours/ai_control.py` +
+# `operations/summon_ai.py::ComputerActionOperation`) au lieu de la feuille bespoke
+# `PerformAINeophyteTurn` (qui fusionnait selecteur + action et n'avait PAS le cycle de flags).
+# ============================================================================================== #
+
+def test_perform_ai_action_selects_the_fresh_neophytes(cult_demagogue):
+    """ANTI-NO-OP-SILENCIEUX : le selecteur DSL du 3e etage
+    (`UnitsWithId(SurroundingEnemies(target@0x178, range, ref=target), unitId_2)`) doit voir les Neophytes
+    tout juste poses par le 2e etage -- alors que les DEUX etages vivent dans UN SEUL `Execute` top-level
+    (`op_Addition`, @1811cdc30) et que le `DslContext` fige sa liste d'unites a la construction.
+    C'est la classe de bug la plus couteuse (porte, correct, jamais atteint)."""
+    d = cult_demagogue
+    res = d["res"]
+    if not res["neophytes"]:
+        pytest.skip("port n'a summon aucun Neophyte (geometrie)")
+    assert res["ai_units"], (
+        "PerformAIAction n'a selectionne AUCUNE unite alors que le port a summon "
+        f"{len(res['neophytes'])} Neophytes -> NO-OP SILENCIEUX (le selecteur ne voit pas les spawns)")
+    assert set(res["ai_units"]) <= set(res["neophytes"]), (
+        f"ai_units {res['ai_units']} deborde des Neophytes {res['neophytes']} -> le filtre "
+        f"UnitsWithId(unitId_2) ne s'applique pas")
+
+
+def test_reset_turn_flags_cycle_on_neophytes(cult_demagogue):
+    """`PerformAIAction(..., asGroup=0, resetTurnFlags=1)` -> `ComputerActionOperation.Execute
+    @180e641e0` : les flags de tour de la cible sont SAUVEGARDES, EFFACES puis RESTAURES ->
+    (a) le Neophyte agit MEME deja `TurnFinished`, (b) son etat de tour est INCHANGE apres coup.
+    L'ancienne feuille bespoke appelait `decide_and_apply` A NU : aucun cycle de flags."""
+    from engine.runner.components import UnitFlagsComponent
+    from engine.runner.operations.summon_ai import ComputerActionOperation
+    d = cult_demagogue
+    res = d["res"]
+    if not res["neophytes"]:
+        pytest.skip("pas de Neophyte porte")
+    nid = res["neophytes"][0]
+    e = d["state"].get_entity(nid)
+    if e is None:
+        pytest.skip("Neophyte absent du state")
+    fl = e.get_component(UnitFlagsComponent)
+    if fl is None:
+        fl = UnitFlagsComponent()
+        e.add_component(fl)
+    before = {UnitFlagsComponent.TURN_FINISHED, UnitFlagsComponent.ACTIVE_ABILITY_USED,
+              UnitFlagsComponent.MOVED}
+    fl.flags = set(before)
+    ComputerActionOperation.execute(d["state"], nid, True)
+    assert before <= fl.flags, (
+        f"flags de tour NON restaures : {sorted(fl.flags)} ne contient pas {sorted(before)}")
+
+
+def test_counter_case_without_state_ref_push(cult_demagogue):
+    """CONTRE-CAS du piege : avec un `DslContext` FIGE (les summons du 2e etage NON pousses dans
+    `entities.units`), le selecteur du 3e etage rend un ensemble VIDE -> `PerformAIAction` = no-op.
+    Sans ce contraste, "ai_units est non vide" ne prouve pas que la re-materialisation est ce qui
+    l'a rendu non vide."""
+    from engine.dsl.effects import ExecutionContext
+    from engine.runner.abilities.genestealer import cult_demagogue_ai_tree
+    from engine.runner.abilities.behaviours import entities_from_state
+    d = cult_demagogue
+    if not d["res"]["neophytes"]:
+        pytest.skip("pas de Neophyte porte")
+    st = d["state"]                       # etat DEJA mute par le cast : les Neophytes existent
+    # contexte FIGE : meme etat, mais liste d'unites TRONQUEE des Neophytes (= ce que voyait le port
+    # AVANT la poussee `entities.units.append` de la feuille de spawn)
+    ectx = ExecutionContext(state=st, rng=st.rng)
+    ents = entities_from_state(st, d["caster_id"], d["target_id"])
+    neo = set(d["res"]["neophytes"])
+    ents.units[:] = [u for u in ents.units if u.get("id") not in neo]      # simule le contexte fige
+    cult_demagogue_ai_tree().execute(ents, ectx)
+    ai = next((p for n, p in ectx.emitted if n == "PerformAIAction"), {})
+    assert not (ai.get("units") or []), (
+        "contre-cas : le selecteur trouve des unites SANS les Neophytes -> le discriminant n'isole pas "
+        "la re-materialisation")

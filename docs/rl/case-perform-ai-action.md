@@ -226,6 +226,15 @@ doctrine interdit d'introduire. À porter **avec** `SwornProtector`/Kell (voir b
 
 ## 7. Ce qu'il reste à faire pour les AUTRES consommateurs (au-dessus de ce socle)
 
+> **MISE À JOUR — tâche #94 ([case-94-summon-consumers.md](case-94-summon-consumers.md))** : **Waaagh
+> (1058)** et **CultDemagogue (1179, retrofit)** sont PORTÉS + validés live au-dessus de ce socle.
+> **SendInTheNextWave (1016), Incursion (1021) et Poxwalkers (1040) ne sont PAS des consommateurs de
+> `PerformAIAction`** (décompilé : aucun appel à `@180df8990`) — ils utilisent le sous-behaviour
+> **on-appearance** du `Spawn` (`SpawnUnitOptions+0x18`), respectivement `UseNormalAttackIfAble
+> @180e01870` (1016, 1021) et `PerformAIAttackFromCurrentPosition @180df8a10` (1040). Ils sont portés +
+> validés live par la même tâche, mais via d'autres primitives. La liste ci-dessous est conservée telle
+> qu'elle a été écrite ; les corrections sont dans la case-doc #94.
+
 Le socle fournit : le nœud `PerformAIAction(selector, asGroup, resetTurnFlags)`, l'Operation
 `ComputerActionOperation`, `AiControl.ExecuteFor{,_group}`, `UnitsWithIds`, `Spawn(pick_n=…)`,
 `get_ability_stat_modification`. Reste, par consommateur :

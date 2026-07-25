@@ -6,9 +6,12 @@ HypersensoryAbilities réutilisera `SpawnDecoys`). Org native = 1 classe par abi
 les arbres SPÉCIFIQUES vivent avec leur ability. RE ghidra gqfc5mff6c (VA citées). Doc : docs/rl/genestealer-cults.md.
 
 Arbre CultDemagogue (`CultDemagogueAbility$$ExecuteBehaviour @1811cdc30`, mirror op_Addition 3 étages) :
-    op_add( SpawnDecoys , op_add( SpawnNeophytesOnDecoys , PerformAINeophyteTurn ) )
-Sélecteurs AI/tuile LOURDS (S) COLLAPSÉS (doctrine slice-18/19/22/23/24) : résolus impérativement dans
+    op_add( op_add( SpawnDecoys , SpawnNeophytesOnDecoys ) , PerformAIAction(UnitsWithId(...), 0, 1) )
+Sélecteurs de TUILE lourds (S) COLLAPSÉS (doctrine slice-18/19/22/23/24) : résolus impérativement dans
 chaque feuille au moment de l'exécution (data-dep : les neophytes lisent les decoys fraîchement posés).
+Le 3e étage a été RETROFITÉ (#94) sur le socle `PerformAIAction` (`behaviours/ai_control.py` +
+`operations/summon_ai.py::ComputerActionOperation`) : la feuille bespoke `PerformAINeophyteTurn`
+fusionnait sélecteur + action et n'implémentait PAS le cycle de flags de tour (`resetTurnFlags=1`).
 """
 from __future__ import annotations
 
@@ -19,7 +22,7 @@ from ...dsl.base import resolve_unit, Const
 from ...dsl.effects import AbilityBehaviour, OperationResult, ExecutionContext
 from ...entities.behaviours import op_add, op_and, If
 from ...entities.selectors import (Target, Caster, TargetTile, FixedTiles, Alive, SurroundingEnemies,
-                                   Union)
+                                   Union, UnitsWithId)
 from ...entities.triggers import Not, IsAlive, IsSurrounding, IsAdjacent, TriggerAnd
 from ...entities.traits.unit_trait import UnitTrait, has_trait
 from ...entities.active_ability_type import ActiveAbilityType
@@ -28,9 +31,9 @@ from ...entities.effects.magnitude import ability_var
 from ...entities.pathfinding.walk_pathfinder import get_movable_positions
 from ..components import OwnerComponent, PositionComponent, UnitComponent, StatsComponent
 from ..operations.spawn import spawn_decoy, _spawn_config_grot
-from ..operations.summon_ai import decide_and_apply
 from .base import ActiveAbility
-from .behaviours import entities_from_state, AttackWithAttackDamage, MoveUnit, ChangeStat
+from .behaviours import (entities_from_state, AttackWithAttackDamage, MoveUnit, ChangeStat,
+                         PerformAIAction, LiveUnit)
 
 from .loki import _pick_randomly_n
 
@@ -135,6 +138,10 @@ class SpawnDecoys(AbilityBehaviour):
         for t in _pick_randomly_n(state, tiles, n):
             did = spawn_decoy(state, t, caster_id)
             if did is not None:
+                # REF D'ETAT native : les etages AVAL du MEME arbre voient les decoys (cf. la note de
+                # `SpawnNeophytesOnDecoys`). `SpawnNeophytesOnDecoys` lit le `state` directement (collapse
+                # imperatif), mais la poussee garde le contexte COHERENT (occupation de tuile notamment).
+                entities.units.append(LiveUnit(state, did))
                 ectx.emit("SpawnDecoy", unit=did, tile=t)
         return OperationResult.ok()
 
@@ -179,41 +186,15 @@ class SpawnNeophytesOnDecoys(AbilityBehaviour):
             nid = _spawn_config_grot(state, neophyte_vid, tile, self.ability_id, level, mult,
                                      coc.team, coc.player, ai_controlled=False, key_suffix="_2")
             if nid is not None:
+                # REF D'ETAT (mirror de l'`AbilityEntities` natif) : le 3e etage du MEME arbre
+                # (`cult_demagogue_ai_tree`, un UNIQUE `Execute` top-level) selectionne les Neophytes via
+                # un selecteur DSL sur `ctx.units` -- fige a la construction du `DslContext`. Sans cette
+                # poussee, il ne verrait AUCUN Neophyte => NO-OP SILENCIEUX. `LiveUnit` = pos/hp/alive
+                # re-lus du state (comme la feuille `Spawn`).
+                child = LiveUnit(state, nid)
+                entities.children.append(child)
+                entities.units.append(child)
                 ectx.emit("SpawnNeophyte", unit=nid, tile=tile, on_decoy=did)
-        return OperationResult.ok()
-
-
-class PerformAINeophyteTurn(AbilityBehaviour):
-    """3e étage : `PerformAIAction(FriendlyNeophytesAroundTarget, 0, 1)` @1811cdc30 -> `PerformAIActionBehaviour
-    .Execute @180fcba10`. Chaque Neophyte fraîchement summon dans le disk `range` autour de la cible joue un
-    TOUR AI COMPLET (move + attaque via playbook), PAS une simple attaque (re-expert Q4 : le Neophyte a move=3
-    + Ambush -> il DOIT bouger). -> `decide_and_apply` par neophyte. Effet PUR."""
-    __slots__ = ("target_ref", "ability_id")
-
-    def __init__(self, target_ref, ability_id: str = "CultDemagogue"):
-        self.target_ref, self.ability_id = target_ref, ability_id
-
-    def execute(self, entities, ectx):
-        state = ectx.state
-        caster_id = (entities.caster or {}).get("id")
-        tu = resolve_unit(self.target_ref, entities)
-        target_id = tu.get("id") if tu else None
-        if state is None or caster_id is None or target_id is None:
-            return OperationResult.ok()
-        c = state.get_entity(caster_id)
-        coc = c.get_component(OwnerComponent) if c is not None else None
-        if coc is None:
-            return OperationResult.ok()
-        radius = int(ability_var(self.ability_id, "range", is_constant=True) or 2)
-        neophyte_vid = _const(self.ability_id, "unitId_2")
-        tpos = _pos_of(state, target_id)
-        for nid in _friendly_units_around(state, tpos, radius, coc.team, neophyte_vid):
-            e = state.get_entity(nid)
-            uc = e.get_component(UnitComponent) if e is not None else None
-            if uc is None or not uc.alive:              # un tour précédent (overwatch) a pu le tuer
-                continue
-            res = decide_and_apply(state, nid)
-            ectx.emit("NeophyteTurn", unit=nid, result=res)
         return OperationResult.ok()
 
 
@@ -222,19 +203,60 @@ def _const(ability_id: str, key: str):
     return ((GC.ability(ability_id) or {}).get("constants") or {}).get(key)
 
 
+def cult_demagogue_ai_tree(ability_id: str = "CultDemagogue") -> PerformAIAction:
+    """3e etage de `CultDemagogueAbility$$ExecuteBehaviour @1811cdc30` — MIRROR 1:1 du decompile
+    (RETROFIT #94 : remplace l'ancienne feuille bespoke `PerformAINeophyteTurn`, qui FUSIONNAIT selecteur
+    et action et n'implementait PAS le cycle de flags de tour) :
+
+        `PerformAIAction( UnitsWithId( SurroundingEnemies(target@0x178, GetNumberConstant(0x44)=range,
+                                                          1, 3),
+                                       GetStringConstant(config, 4)=unitId_2, 3 ),
+                          asGroup=0, resetTurnFlags=1 )`
+
+    - `SurroundingEnemies` en surcharge **4-args** (`@180dfc570` : `Enemies(param_2 = X, Units(...))` ou
+      `X` est A LA FOIS le centre ET la reference) -> « unites entourant la CIBLE et ennemies DE LA CIBLE »
+      = les ALLIES du caster ; d'ou `reference=Target()` (cf. `selectors.SurroundingEnemies`).
+    - `UnitsWithId(..., unitId_2)` (`@180e00170`) restreint aux Neophytes.
+    - `asGroup=0` -> `ComputerActionOperation.execute` (mono) = `AiControl.ExecuteFor(unit) @180ffbda0`
+      UNE passe de decision PAR unite, sequentielle et independante (PAS le group operator a boucle).
+    - `resetTurnFlags=1` -> les flags de tour de chaque Neophyte sont SAUVEGARDES, EFFACES puis RESTAURES
+      autour de l'action (`RemoveTurnFlags @180fad310` / `SetUnitTurnsFlags @180e645b0`) : il agit meme
+      s'il avait deja fini son tour, ET **son action supplementaire ne consomme pas son tour**. C'est ce
+      cycle que l'ancienne feuille bespoke n'avait PAS (elle appelait `decide_and_apply` a nu).
+
+    Le socle (`behaviours/ai_control.py::PerformAIAction` + `operations/summon_ai.py::
+    ComputerActionOperation`) est utilise TEL QUEL -- la frontiere DSL/imperatif est le `.execute` de la
+    feuille : au-dessus l'arbre de selecteurs, en-dessous l'Operation."""
+    radius = int(ability_var(ability_id, "range", is_constant=True) or 2)
+    neophytes = UnitsWithId(SurroundingEnemies(TargetTile(), Const(radius), reference=Target()),
+                            _const(ability_id, "unitId_2"))
+    return PerformAIAction(neophytes, as_group=False, reset_turn_flags=True)
+
+
 def cult_demagogue_tree(target_ref=None):
-    """Mirror `CultDemagogueAbility$$ExecuteBehaviour @1811cdc30` : `op_add(SpawnDecoys, op_add(
-    SpawnNeophytesOnDecoys, PerformAINeophyteTurn))` (les `Group(id=100/101)` natifs = ordonnancement, no-op
-    observable ici). Cible ennemie = `Target()@0x178` collapsé (doctrine slice-24)."""
+    """Mirror `CultDemagogueAbility$$ExecuteBehaviour @1811cdc30` :
+        `op_Addition( op_Addition( Group(spawnDecoys, Null, 100), Group(spawnNeophytes, Null, 0x65) ),
+                      PerformAIAction(...) )`
+    (les `Group(id=100/101)` natifs = ordonnancement de VUE, no-op observable ici ; l'ASSOCIATION
+    `((a+b)+c)` est celle du decompile). UN SEUL `AActiveAbility.Execute` top-level -> le contexte
+    `entities` N'EST PAS re-materialise entre les etages : c'est la feuille `Spawn`/`SpawnNeophytesOnDecoys`
+    qui pousse ses enfants dans `entities.units` (mirror de la ref d'etat native) pour que le selecteur
+    DSL du 3e etage VOIE les Neophytes tout juste poses -- sans quoi : no-op silencieux.
+    Cible ennemie = `Target()@0x178` collapsé (doctrine slice-24)."""
     tr = target_ref if target_ref is not None else Target()
-    return op_add(SpawnDecoys(tr), op_add(SpawnNeophytesOnDecoys(tr), PerformAINeophyteTurn(tr)))
+    return op_add(op_add(SpawnDecoys(tr), SpawnNeophytesOnDecoys(tr)), cult_demagogue_ai_tree())
 
 
 class CultDemagogueAbility(ActiveAbility):
     """`CultDemagogueAbility$$ExecuteBehaviour @1811cdc30` (id 1179, Isaak genesPrimus). Arbre DSL
     `cult_demagogue_tree()` : (1) pose N=`nrOfSummons` decoys ≤range de la cible ; (2) summon des Neophytes sur
     ceil(moitié) des decoys alliés de la zone (stats config `summon*_2`) ; (3) chaque Neophyte joue un tour AI
-    complet immédiat. Sélecteurs S collapsés. Renvoie {decoys, neophytes, turns, dsl}."""
+    complet immédiat. Sélecteurs de TUILE collapsés. Renvoie {decoys, neophytes, ai_units, ai_results, dsl}.
+
+    `ai_units` = les unités RÉELLEMENT sélectionnées par le 3e étage (`PerformAIAction`) : c'est la garde
+    ANTI-NO-OP-SILENCIEUX du retrofit #94 — un `ai_units` vide alors que `neophytes` ne l'est pas signale
+    que le sélecteur DSL ne voit pas les summons du même arbre (cf. la note « ref d'état » de
+    `SpawnNeophytesOnDecoys`)."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.CultDemagogue)  # 1179
 
@@ -246,8 +268,10 @@ class CultDemagogueAbility(ActiveAbility):
         cult_demagogue_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
         decoys = [p["unit"] for n, p in ectx.emitted if n == "SpawnDecoy"]
         neophytes = [p["unit"] for n, p in ectx.emitted if n == "SpawnNeophyte"]
-        turns = [p for n, p in ectx.emitted if n == "NeophyteTurn"]
-        return {"decoys": decoys, "neophytes": neophytes, "turns": turns, "dsl": True}
+        ai = next((p for n, p in ectx.emitted if n == "PerformAIAction"), {})
+        return {"decoys": decoys, "neophytes": neophytes,
+                "ai_units": ai.get("units") or [], "ai_results": ai.get("results") or [],
+                "dsl": True}
 
 
 # ============================ HeroicFusillade (Judh genesKelermorph, actif 1180) ============================

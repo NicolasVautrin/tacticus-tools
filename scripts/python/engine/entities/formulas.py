@@ -210,6 +210,33 @@ class Get(Const):
     accesseur. (Les overloads Get @180df0690/@180df0630 sur arg objet = sélecteurs distincts, hors batch.)"""
 
 
+class VisualUnitIdFromUnitId(AAmountFormula):
+    """`DSLFactory.VisualUnitIdFromUnitId(unitIdValue) @180e01d70` : noeud VALEUR convertissant un id de
+    CONFIG d'unite (ex. `orksOrkBoys`, `GetStringConstant(config, 0)`) en son id VISUEL (ex.
+    `orksNpc2OrkBoy`). Le ctor gshared est mislabele `Loki.AutoBot.AutoBotLoopFactory..ctor` par ghidra
+    (structure lue : `(factory+0x28 = le service de config d'unites, unitIdValue)`) -- jamais le nom.
+    Consommateur lu : `WaaaghAbility.ExecuteBehaviour @18122b010` / `GetTriggerSummonsBehaviour @18122c260`
+    (`UnitsWithVisualId(VisualUnitIdFromUnitId(Get(unitId)), 1)`).
+
+    REDUCTION OFFLINE (documentee, meme classe que celle du noeud `UnitsWithIds`) : le champ `visualId` du
+    dict d'unite porte l'id de **CONFIG** pour les unites SPAWNEES par le moteur offline
+    (`_spawn_config_grot(visual_id=constants['unitId'])` -> `orksOrkBoys`) et l'id **VISUEL** rendu par
+    `decisionView` pour les unites seedees depuis le live (-> `orksNpc2OrkBoy`). Le noeud rend donc les
+    **DEUX** formes (`{unitId, gameconfig.unit(unitId).visualId}`), ce qui rend le filtre EXACT dans les
+    deux cas -- exactement ce que fait naturellement la constante `affectedUnitIds` de SupremeCommander
+    (`"astraSmnGuardsman,astraNpc1Guardsman"`, cf. `UnitsWithIds`). `unit_id` = noeud valeur (`Get`) ou str."""
+    def __init__(self, unit_id):
+        self.unit_id = unit_id
+
+    def calculate(self, ctx):
+        import gameconfig as GC
+        uid = self.unit_id.evaluate(ctx) if hasattr(self.unit_id, "evaluate") else self.unit_id
+        if not uid:
+            return []
+        vis = (GC.unit(uid) or {}).get("visualId")
+        return [uid, vis] if (vis and vis != uid) else [uid]
+
+
 class ConfigVar(AAmountFormula):
     """`DSLFactory.ConfigVar(key) @180decac0` → `Formulas.ConfigAmount.Calculate @180f171c0` :
     `AbilityConfiguration.GetVariableForLevel(key, level)` = valeur du tableau de config SCALÉE par le
