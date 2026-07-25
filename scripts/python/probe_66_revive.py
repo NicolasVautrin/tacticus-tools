@@ -27,7 +27,7 @@ STATE = ROOT / "data" / "_66_revive_state.json"
 import rl_collect_batch as R
 from engine.runner.snapshot import load_state
 from engine.runner.operations.triggers import after_death_triggers
-from engine.runner.operations.revive import reset_revive_gates, ReviveUnitOperation
+from engine.runner.operations.revive import reset_revive_gates, kill_unit_revive_gate
 from engine.runner.components import (UnitComponent, HealthComponent, OwnerComponent,
                                       PositionComponent, StatsComponent)
 from engine.runner.prng import IntBasedMersenneTwister
@@ -196,10 +196,14 @@ def main():
             return True
 
         def kill_and_fire(st, ally_uid, overkill=False):
-            """Simule la mort de l'allie (hp=0, alive=False) + after_death_triggers(event 1)."""
+            """Simule `KillUnitOperation.Execute @180e76470` : hp=0/alive=False, `On(1)`
+            (`after_death_triggers`) PUIS la GARDE @0x180e76c9e (`kill_unit_revive_gate` : draine la
+            `ReviveData` posee par la feuille `Revive` -> phase 0xd de `VerifyDeaths`)."""
             hc = _hc(st, ally_uid); hc.hp = 0
             _uc(st, ally_uid).alive = False
-            return after_death_triggers(st, dying_id=ally_uid, killer_id=ids["dr"], overkill=overkill)
+            out = after_death_triggers(st, dying_id=ally_uid, killer_id=ids["dr"], overkill=overkill)
+            kill_unit_revive_gate(st, ally_uid)
+            return out
 
         results = []
 

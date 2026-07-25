@@ -21,7 +21,7 @@ import pytest
 
 from engine.runner.snapshot import load_state
 from engine.runner.operations.triggers import after_death_triggers
-from engine.runner.operations.revive import reset_revive_gates
+from engine.runner.operations.revive import reset_revive_gates, kill_unit_revive_gate
 from engine.runner.components import (UnitComponent, HealthComponent,
                                       PositionComponent, StatsComponent)
 from engine.runner.prng import IntBasedMersenneTwister
@@ -128,9 +128,13 @@ def _place(env, st, ally_uid, dist):
 
 
 def _kill(env, st, ally_uid, overkill=False):
+    """`On(1)` @0x180e76c4c PUIS la GARDE @0x180e76c9e (`kill_unit_revive_gate`) qui draine la
+    `ReviveData` posee par la feuille `Revive` -- mirror de `KillUnitOperation.Execute` (case-89 volet C)."""
     _hc(st, ally_uid).hp = 0
     _uc(st, ally_uid).alive = False
-    return after_death_triggers(st, dying_id=ally_uid, killer_id=env["ids"]["ap"], overkill=overkill)
+    out = after_death_triggers(st, dying_id=ally_uid, killer_id=env["ids"]["ap"], overkill=overkill)
+    kill_unit_revive_gate(st, ally_uid)
+    return out
 
 
 def test_revive_base_hp_and_position(nar_env):

@@ -66,12 +66,15 @@ dispatchs sont SYNCHRONES (`EvaluateTriggerOperation$$Execute` @180e6fd60 et `$$
 @180e6ec90 terminent tous deux par `ExecuteInternal` @180e6ef40 hors mode record/replay), donc ordre
 d'emission == ordre d'execution.
 
-**Asymetrie de garde (residu documente, hors perimetre)** : `On(1)` est emis AVANT la garde
-`@0x180e76c9e` ; `On(2)`, `On(0)`, `On(55)`, `On(54)` sont DEDANS. La semantique exacte de cette garde
-(lookup dans un dictionnaire `entities+0xa8` indexe par une cle du singleton de bataille) n'a PAS ete
-resolue. **Consequence ouverte** : savoir si un REVIVE declenche sur `On(1)` (TaintedNarthecium)
-court-circuite `On(2)`/`On(55)` reste OUVERT. Le port emet les trois inconditionnellement — c'est le
-comportement DEJA en place pour `On(55)`, inchange ici. A trancher par le retrofit REVIVE (#66-r).
+**Asymetrie de garde — RESOLUE (#88/#89, 2026-07-25)** : `On(1)` est emis AVANT la garde
+`@0x180e76c9e` ; `On(2)`, `On(0)`, `On(55)`, `On(54)` sont DEDANS (profondeur d'accolades 7 vs 9, et
+AUCUN `else`). Ce n'est PAS un lookup de dictionnaire mais le `hasValue` du **`Nullable<ReviveData>`
+@`UnitComponent + 0xa8`** — le MEME champ qu'ECRIT `ReviveBehaviour.Execute @180fd1230` et que
+LIT+PURGE `ReviveUnitOperation.Execute @180e91bd0`. **Consequence : un REVIVE declenche sur `On(1)`
+COURT-CIRCUITE `On(2)` — donc la death-nova NE PART PAS si le mourant est revive.** Le port applique la
+garde (`kill_unit_revive_gate`, `runner/operations/revive.py`) ; scenario live discriminant
+`test_revive_cancels_death_events_live.py` (Narthecium adjacent a un `deathPutrifier` : nova annulee vs
+nova emise sur la face negative). Detail : `case-66-revive-in-place` §7.
 
 ### 2.2 Les triggers
 
@@ -262,8 +265,9 @@ l'event 2, et un dispatch sans match ne consomme AUCUN tirage RNG -> bit-exactne
    comparable dans ce protocole. Les scenarios neutralisent donc le block (`--block-target 0,0` +
    tueur sans `BeastSlayer_ExtraBlock`) pour mesurer l'etage DEGAT. Le modele de block reste couvert
    par les tests block dedies.
-4. **Garde `@0x180e76c9e` entre `On(1)` et `On(2)`** : semantique non resolue -> interaction
-   revive-sur-`On(1)` / nova-sur-`On(2)` OUVERTE (cf. §2.1, a trancher par #66-r).
+4. ~~**Garde `@0x180e76c9e` entre `On(1)` et `On(2)`**~~ — **RESOLU (#88/#89)** : c'est le `hasValue` du
+   `Nullable<ReviveData>` @`UnitComponent+0xa8` ⇒ un revive sur `On(1)` **annule** la nova `On(2)`.
+   Porte + valide live (cf. §2.1 et `case-66-revive-in-place` §7).
 5. **Arrondi `round_materialize`** : corrige pour la famille ABILITY amount-mode SEULEMENT ;
    generalisation = chantier separe (cf. §3.1 + backlog).
 6. **`RefreshDynamicStatModifierValueBehaviour`** : STRUCTURAL NO-OP cote port.

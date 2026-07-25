@@ -17,7 +17,8 @@ import pytest
 
 from engine.runner.snapshot import load_state
 from engine.runner.operations.triggers import after_death_triggers
-from engine.runner.operations.revive import reset_revive_gates, ReviveUnitOperation
+from engine.runner.operations.revive import (reset_revive_gates, ReviveUnitOperation,
+                                             post_pending_revive, kill_unit_revive_gate)
 from engine.runner.components import (UnitComponent, HealthComponent, OwnerComponent,
                                       PositionComponent, StatsComponent)
 from engine.runner.prng import IntBasedMersenneTwister
@@ -133,9 +134,15 @@ def _place(env, st, ally_uid, dist):
 
 
 def _kill(env, st, ally_uid, overkill=False):
+    """Mirror de la sequence de `KillUnitOperation.Execute @180e76470` : `On(1)` @0x180e76c4c PUIS la
+    GARDE @0x180e76c9e (`kill_unit_revive_gate`) qui draine la `ReviveData` posee par la feuille
+    `Revive` (phase `RunPhase(0xd)` de `VerifyDeaths @180ebb0a0`). Sans la garde, la feuille ne fait que
+    POSER : rien ne serait applique (RE case-89 volet C)."""
     _hc(st, ally_uid).hp = 0
     _uc(st, ally_uid).alive = False
-    return after_death_triggers(st, dying_id=ally_uid, killer_id=env["ids"]["dr"], overkill=overkill)
+    out = after_death_triggers(st, dying_id=ally_uid, killer_id=env["ids"]["dr"], overkill=overkill)
+    kill_unit_revive_gate(st, ally_uid)
+    return out
 
 
 def test_revive_base_hp_and_position(rev_env):
@@ -245,14 +252,46 @@ def test_can_be_revived_mechanical(rev_env):
 
 
 def test_clamp_maxhp_below_revivehp_offline():
-    """SetHealth clamp : maxHP < reviveHP -> hp = maxHP (ReviveUnitOperation @180e93450), in-place. Offline pur."""
+    """SetHealth clamp : maxHP < reviveHP -> hp = maxHP (ReviveUnitOperation @180e93450), in-place.
+    Offline pur. La signature NATIVE est `Execute(operation, entity)` : le HP vient de la `ReviveData`
+    posee sur `UnitComponent+0xa8` (`post_pending_revive`), pas d'un parametre."""
     from engine.runner.state import State
     st = State()
     e = st.add_entity()
     e.add_component(UnitComponent("x", False))
     e.add_component(HealthComponent(0, 1200))              # hp=0, hp_max=1200
     e.add_component(PositionComponent(3, 4))
-    ReviveUnitOperation.execute(st, e.id, 4887)            # reviveHP 4887 > maxHP 1200
+    post_pending_revive(st, e.id, 4887)                    # reviveHP 4887 > maxHP 1200
+    ReviveUnitOperation.execute(st, e.id)
     assert int(e.get_component(HealthComponent).hp) == 1200, "hp non clampe a maxHP"
     assert e.get_component(UnitComponent).alive, "non revive"
     assert (e.get_component(PositionComponent).col, e.get_component(PositionComponent).row) == (3, 4), "position changee"
+    assert e.get_component(UnitComponent).pending_revive is None, "ReviveData non purgee (@0x180e92977+)"
+
+
+def test_pending_revive_cancels_the_kill_offline():
+    """GARDE @0x180e76c9e (case-89 volet C) : une `ReviveData` posee pendant `On(1)` fait ECHOUER la
+    garde de `KillUnitOperation.Execute` -> `On(2)` / `On(0)` / `On(55)` / `On(54)` ne sont PAS emis.
+    Ici on verifie le contrat de `kill_unit_revive_gate` : rend un dict (mort ANNULEE) vs None."""
+    from engine.runner.state import State
+    st = State()
+    e = st.add_entity()
+    e.add_component(UnitComponent("x", False))
+    e.add_component(HealthComponent(0, 1000))
+    assert kill_unit_revive_gate(st, e.id) is None, "garde franchie a tort (aucun revive en attente)"
+    post_pending_revive(st, e.id, 300)
+    r = kill_unit_revive_gate(st, e.id)
+    assert r is not None and r.get("revived") == e.id, "la garde n'a pas court-circuite la mort"
+    assert e.get_component(UnitComponent).alive, "unite non revive par le drain de la garde"
+    assert int(e.get_component(HealthComponent).hp) == 300
+
+
+def test_is_preferred_revive_offline():
+    """`ReviveBehaviour.IsPreferredRevive @180fd1b50` : priorite d'abord, puis amount le plus GRAND.
+    (PhoenixGem pose priority=-1000 -> tout autre revive lui est prefere.)"""
+    from engine.runner.operations.revive import is_preferred_revive
+    assert is_preferred_revive(None, {"priority": -1000, "amount": 1})
+    assert is_preferred_revive({"priority": -1000, "amount": 9999}, {"priority": 0, "amount": 1})
+    assert not is_preferred_revive({"priority": 0, "amount": 1}, {"priority": -1000, "amount": 9999})
+    assert is_preferred_revive({"priority": 0, "amount": 100}, {"priority": 0, "amount": 200})
+    assert not is_preferred_revive({"priority": 0, "amount": 200}, {"priority": 0, "amount": 100})
