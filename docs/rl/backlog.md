@@ -41,10 +41,17 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
-- **Ordre intra-groupe de `PerformAIAction(asGroup=1)`** (`case-perform-ai-action` §5.2) : natif =
-  argmax d'utilité du picker `DefaultGroupOperator.PickNextUnit @181183d50` (iface slot 1) ; port =
-  ordre du sélecteur. Live observé : les 2 gardes de SupremeCommander agissent dans l'ORDRE INVERSE de
-  leur spawn. Sans incidence tant que les unités du groupe sont interchangeables. `[opus]`.
+- **Ordre intra-groupe de `PerformAIAction(asGroup=1)`** (`case-perform-ai-action` §5.2, RE avancée
+  par `case-95-waaagh-contributions` §6) : natif = argmax d'utilité du picker
+  `IdunBattle.AI.OperationalDeciders.DefaultGroupOperator$$PickNextUnit` (slot 1 de `operator+0x28`,
+  picker `operator+0x30`) ; port = ordre du sélecteur. Live observé : les 2 gardes de SupremeCommander
+  agissent dans l'ORDRE INVERSE de leur spawn. **Ce qui est établi** :
+  `IdunBattle.AI.OperationalDeciders.DefaultGroupOperator$$.ctor` construit le picker comme un tableau
+  de 8 `IdunBattleLogic.AI.Utilities.UtilityBucket` — ids `0x4a`(poids Fix64 1) · `0x44`(1) · `0x45`(1)
+  · `0x4c`(poids NUL, flag +0x18=1) · `0x4b` · `0x49` · `0x47` · `0x48` (poids nuls).
+  **Ce qui manque** : la sémantique des 8 ids (aucun dump d'enum `UtilityBucket`) + le scoreur
+  par-unité derrière le slot 1. Sans incidence tant que les unités du groupe sont interchangeables
+  (Ork Boyz clones, gardes de Creed). `[opus]`.
 - **`test_skitarii_turn_live::test_skitarii_played_by_generic_ai_pass` échoue au commit `9cf5e40`**
   (`BFS 3->3` : le Vanguard bouge mais ne se rapproche pas ; attaque ranged 3 hits pour 0 dégât).
   Reproduit sur base propre (patch stashé) → **pré-existant**, pas une régression. `[opus]`.

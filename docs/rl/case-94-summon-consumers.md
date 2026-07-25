@@ -260,9 +260,16 @@ que fait naturellement la constante `affectedUnitIds` de SupremeCommander.
 
 ## 9. Résidus ouverts
 
-- **Waaagh 1100 / 1101** : marqueurs posés (présents, durée 1 round) — les contributions `+extraDmg[level]`
-  (canal `CreateEffectDamageBonusForAttack`) et `+extraHit` (canal coups additionnels #179) ne sont PAS
-  branchées. Même classe de résidu que `BlackRage_ExtraDamage`.
+- ~~**Waaagh 1100 / 1101** : marqueurs posés, contributions non branchées.~~ **FERMÉ par #95** —
+  cf. [`case-95-waaagh-contributions.md`](case-95-waaagh-contributions.md) : les deux canaux
+  (`Waaagh_ExtraDamageEffect$$CreateEffectDamageBonusForAttack` = `ForAddition(IsNormalAttack &
+  IsMeleeAttack & OwnerIsCaster, ConfigVar(8=extraDmg))` et
+  `Waaagh_ExtraHitsEffect$$CreateEffectHitsBonusForAttack` = même condition, `ConfigConst(0x2b=extraHit)`)
+  sont portés et confrontés live (+1 coup, +`extraDmg[L poseur]` **brut** par coup). #95 corrige aussi
+  la magnitude (multiplier résolu = 100, PAS celui du caster ni du porteur) et **valide enfin live** le
+  3ᵉ terme board-wide du sélecteur de buff (allié Ork à 9 hex buffé) — ce que le volet live de
+  `test_waaagh_ork_ally_is_buffed_not_forced_to_act` ne prouvait pas (assertion vide : les buffs
+  `Direct(1)` avaient déjà expiré au tick de bascule de tour).
 - **`SortTilesByUtility`** (Waaagh move) collapsé en « tuile la plus proche du caster » — même proxy que
   tous les gap-closers déjà portés (HeroicFusillade / VigilanceEternal / SkyStrike).
 - **`GetSpawnedUnitRange`** (1016) en constante `2` : le service de config d'unités (`ability+0x20`,

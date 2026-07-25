@@ -97,20 +97,29 @@ def waaagh_buff_tree():
     `AddStaticStatModifierEffect` (IdunBattleLogic.Entities.DSLFactory$$AddStaticStatModifierEffect) n'a PAS de feuille dediee dans le port : le mapping etabli
     du projet (valide live sur `BlackRage_ExtraMove` 1342) est `AddEffect(<type>)` + une classe d'effet
     portant `applied_stat_mods` (canal EAGER `AddEffectOperation._apply_stat_mods`) -> ici
-    `WaaaghExtraMovementEffect` (+MOVEMENT = extraMovement). Les contributions de 1100 (+extraDmg[level])
-    et 1101 (+extraHit) restent des RESIDUS documentes (marqueurs poses, canaux modifier non branches)."""
+    `WaaaghExtraMovementEffect` (+MOVEMENT = extraMovement).
+
+    #95 : les contributions de 1100 (+extraDmg[level], canal
+    `IdunBattle.Entities.Effects.Loki.Waaagh_ExtraDamageEffect$$CreateEffectDamageBonusForAttack`) et de 1101
+    (+extraHit, canal `IdunBattle.Entities.Effects.Loki.Waaagh_ExtraHitsEffect$$CreateEffectHitsBonusForAttack`)
+    sont DESORMAIS BRANCHEES (classes d'effet `WaaaghExtraDamageEffect`/`WaaaghExtraHitsEffect`)."""
     # #98 : la duree des TROIS effets est `dsl+0xc0` = un noeud `Direct(1)` (alloue par
     # `DSLFactory..IdunBattleLogic.Entities.DSLFactory$$.ctor`), PAS un `TurnsFromRounds(1)` -> elle arrive telle quelle dans le
     # `param_6` d'`IdunBattle.Operations.AddEffectOperation$$Execute`, qui ne la convertit PAS : 1 TOUR, pas 1 round.
     # -> `duration_turns=1` (comportement INCHANGE ; c'est exactement le call-site qu'une conversion
     # aveugle aurait double).
+    # #95 `scale_from_source=True` = le PORT de l'`AbilityStateReference` que les TROIS noeuds natifs
+    # passent en 2e argument : l'effet materialise resout son `ConfigVar` contre l'AbilityState de sa
+    # SOURCE (`ConfigAmount.GetAbilityState` -> selecteur AbilityStateFromEffect -> Owner du reference),
+    # pas contre celle du buffe. Requis par `ConfigVar(8=extraDmg)` de 1100, qui n'en consomme que le
+    # NIVEAU (multiplier de rarete resolu = 100, MESURE) ; no-op sur 1099/1101 (magnitudes CONSTANTES).
     sel = waaagh_buffed_units_selector()
     return op_and(op_and(AddEffect(int(EffectType.Waaagh_ExtraMovement), "Waaagh_ExtraMovement", sel,
-                                   duration_turns=1),
+                                   duration_turns=1, scale_from_source=True),
                          AddEffect(int(EffectType.Waaagh_ExtraDamage), "Waaagh_ExtraDamage", sel,
-                                   duration_turns=1)),
+                                   duration_turns=1, scale_from_source=True)),
                   AddEffect(int(EffectType.Waaagh_ExtraHits), "Waaagh_ExtraHits", sel,
-                            duration_turns=1))
+                            duration_turns=1, scale_from_source=True))
 
 
 def waaagh_move_range(state: "State", caster_id: int, extra_movement: int) -> int:

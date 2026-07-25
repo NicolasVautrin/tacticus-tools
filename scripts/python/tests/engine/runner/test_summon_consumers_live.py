@@ -216,7 +216,13 @@ def test_waaagh_summon_stats_bit_exact_vs_live(waaagh):
 
 def test_waaagh_buff_effects_posed_live_and_port(waaagh):
     """`IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffBehaviour` : les 3 effets (1099 ExtraMovement / 1100 ExtraDamage /
-    1101 ExtraHits) sont poses sur le caster LIVE **et** par le port (le selecteur inclut le caster)."""
+    1101 ExtraHits) sont poses sur le caster LIVE **et** par le port (le selecteur inclut le caster).
+
+    ⚠ Le volet LIVE est CONDITIONNEL **par necessite** : dans CE scenario (roster a 1-2 unites) le cast
+    epuise les activations du camp -> le tour bascule -> le TICK de fin de tour passe et les 3 buffs
+    (`Direct(1)` = 1 TOUR) ont DEJA expire quand `decisionView` est relu (mesure #95 : « effects [] »
+    sur TOUTES les unites, caster compris). Le volet live INCONDITIONNEL vit dans
+    `test_waaagh_buff_contrib_live.py`, qui garde le tour OUVERT avec une 4e unite jamais activee."""
     d = waaagh
     from engine.entities.effect_type import EffectType
     want = {"Waaagh_ExtraMovement", "Waaagh_ExtraDamage", "Waaagh_ExtraHits"}
@@ -600,6 +606,9 @@ def test_waaagh_ork_ally_is_buffed_not_forced_to_act(waaagh_ally):
     assert d["ally_id"] not in (d["res"]["ai_units"] or []), (
         f"port : l'allie Ork {d['ally_id']} est dans ai_units {d['res']['ai_units']} -> le filtre "
         f"UnitsWithVisualId ne s'applique pas")
+    # ⚠ CONDITIONNEL par necessite (cf. test_waaagh_buff_effects_posed_live_and_port) : ici le cast
+    # epuise le camp -> bascule de tour -> tick -> les buffs `Direct(1)` ont deja expire a la relecture.
+    # Le volet live INCONDITIONNEL (allie Ork a 9 hex, buffe) est dans test_waaagh_buff_contrib_live.py.
     if d["ally_effects"]:
         assert want <= d["ally_effects"], (
             f"live : l'allie Ork n'est pas buffe ({sorted(d['ally_effects'])})")

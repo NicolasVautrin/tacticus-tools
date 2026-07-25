@@ -474,20 +474,91 @@ class WaaaghExtraMovementEffect(BaseEffect):
 
 
 class WaaaghExtraDamageEffect(BaseEffect):
-    """`Waaagh_ExtraDamage` (EffectType 0x44c=1100) -- pose sur le SELECTEUR Waaagh (caster + allies adjacents
-    + TOUS les allies de faction Orks) par `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffBehaviour` via
+    """`Waaagh_ExtraDamage` (EffectType 0x44c=1100 ; `IdunBattle.Entities.Effects.Loki.Waaagh_ExtraDamageEffect$$.ctor`
+    = `BaseEffect(AbilityOrEffect(0x422=1058 Waaagh), 1)` -> sa config = celle de l'ability WAAAGH) -- pose
+    sur le SELECTEUR Waaagh (caster + allies adjacents + TOUS les allies de faction Orks) par
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffBehaviour` via
     `AddEffect(0x44c, AbilityStateReference, caster@0x160, <selecteur>, duree=Direct(1)@dsl+0xc0)`.
 
-    MARQUEUR porte (present/diffable, duree 1 round) -- la CONTRIBUTION `+extraDmg[level]` (var rarity-scalee,
-    582 au max) n'est PAS modelisee : elle passe par le canal `CreateEffectDamageBonusForAttack` (modifier
-    de degat par-effet), non branche pour cet effet. RESIDU DOCUMENTE (meme classe que
-    `BlackRageExtraDamageEffect`), a fermer par la tranche "canal modifier de degat par effet"."""
+    CANAL PORTE (#95) -- `IdunBattle.Entities.Effects.Loki.Waaagh_ExtraDamageEffect$$CreateEffectDamageBonusForAttack`,
+    MIRROR 1:1 du decompile :
+        `EffectBonus.ForAddition( IsNormalAttack & IsMeleeAttack & get_OwnerIsCaster,
+                                  ConfigVar(8=extraDmg, GetAbilityState(effet), effet+0x60) )`
+    (ordre de lecture natif : `IsNormalAttack` puis `op_BitwiseAnd(IsMeleeAttack)` puis
+    `op_BitwiseAnd(get_OwnerIsCaster)`, puis `ForAddition(cond, ConfigVar(...))`).
+    => +`extraDmg[niveau Waaagh du POSEUR]` PLAT (multiplier resolu = 100, cf. plus bas), PAR COUP, sur
+    les attaques **NORMALES MELEE** du porteur. `OwnerIsCaster` est vrai par construction sur ce canal (il n'est appele que pour
+    les attaques du porteur, cf. `_attacker_effect_bonuses`). Canal `additive @+0x10` (`DamageModifiers.Add`)
+    -- MEME canal que SmashaEad/DecoysAndMisdirection/LordOfTempests.
+
+    NIVEAU = celui du POSEUR : `IdunBattle.Entities.Formulas.ConfigAmount$$GetAbilityState` resout le
+    selecteur `AbilityStateFromEffect` (-> `EffectComponent.AbilityState` = {Owner=le Warboss,
+    Ability=1058, Nullable<AbilityState> **VIDE** -- MESURE live `effectAbilityStates(1100)` :
+    stateRaw=[81,1,1058,0,0,0,...]}) puis le passe au slot 0xd4 du `BattleQuery` -> l'AbilityState de
+    l'ability 1058 de son OWNER. Cote port : le vecteur de pose passe `scale_from_source=True`
+    (`runner/abilities/behaviours/effects.py::_source_scaling`) -> `active_ability_level` de la SOURCE.
+
+    MULTIPLIER = **100** (aucun scaling de rarete), MESURE LIVE -- ne PAS passer celui du porteur ni
+    celui du caster. `IdunBattle.Configuration.AbilityConfiguration$$TryGetVariableArrayForLevel`
+    applique bien `Round(value x AbilityState.VariableMultiplierPercentage/100)` quand la cle est dans
+    `variablesAffectedByRarityBonus` (c'est le cas d'`extraDmg`) : c'est donc le MULTIPLIER RESOLU qui
+    vaut 100 ici. GROUND TRUTH (probe_95_waaagh_contrib, MC1_67 seed 31337, Warboss L50 mult 200,
+    beneficiaire orksNob mult 180) : la contribution mesuree par la preview NATIVE (`aiPredict` ->
+    `GetAllPredictions`) est **+443 par coup**, EXACTEMENT `extraDmg[L50]=443` BRUT --
+    ni x200 % (=886, multiplier du caster) ni x180 % (=797, multiplier du porteur). Le facteur 200 est
+    d'ailleurs arithmetiquement REFUTE : 443 est impair, aucun `extraDmg[L]` x2 ne le produit.
+    (Meme famille que le gap #68/#75 « multiplier COMBAT d'un additif d'effet » -- ici MESURE, pas
+    suppose.)
+
+    PAS de gate `is_prediction` (contrairement a SmashaEad #71) : le calque est `CrushingStrikeEffect`
+    (meme couple `IsNormalAttack & IsMeleeAttack`), et la contribution est MESUREE PRESENTE dans la
+    preview native (face prediction) -- cf. GROUND TRUTH ci-dessus."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: "bool | None" = None,
+                                              has_moved: "bool | None" = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: "bool | None" = True,
+                                              target_armor_reduced: "bool | None" = None,
+                                              att_ctx=None) -> "EffectBonus | None":
+        if is_ranged:                        # IsMeleeAttack (IdunBattleLogic.Entities.DSLFactory$$IsMeleeAttack)
+            return None
+        if is_normal_attack is False:        # IsNormalAttack (IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack)
+            return None
+        # ConfigVar(8=extraDmg, GetAbilityState(effet)) : NIVEAU du poseur, multiplier RESOLU = 100
+        # (mesure live +443 = extraDmg[L50] brut ; cf. docstring). `multiplier_pct` laisse a 100.
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        amt = ability_var("Waaagh", "extraDmg", lvl)
+        return for_addition(True, int(amt)) if amt else None
 
 
 class WaaaghExtraHitsEffect(BaseEffect):
     """`Waaagh_ExtraHits` (EffectType 0x44d=1101) -- pose sur le MEME selecteur que 1100 par
     `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffBehaviour` (`AddEffect(0x44d, ..., duree=Direct(1)@dsl+0xc0)`).
 
-    MARQUEUR porte (present/diffable, duree 1 round) -- la CONTRIBUTION `+extraHit` (constante gameconfig = 1
-    coup additionnel) n'est PAS modelisee : elle passe par le canal coups-additionnels (#179,
-    `additional_hits`), non branche pour cet effet. RESIDU DOCUMENTE."""
+    CANAL PORTE (#95) -- `IdunBattle.Entities.Effects.Loki.Waaagh_ExtraHitsEffect$$CreateEffectHitsBonusForAttack`,
+    MIRROR 1:1 du decompile (JUMEAU EXACT du canal degat 1100, meme condition, autre magnitude) :
+        `EffectBonus.ForAddition( IsNormalAttack & IsMeleeAttack & get_OwnerIsCaster,
+                                  ConfigConst(0x2b=extraHit, effet+0x60) )`
+    => **+extraHit coup** (CONSTANTE gameconfig Waaagh = 1, NON rarity-scalee -- `GetNumberConstant`, cf.
+    `IdunBattle.Entities.Formulas.ConfigAmount$$Calculate` branche constante) sur les attaques **NORMALES
+    MELEE** du porteur. Canal `CreateEffectHitsBonusForAttack` = axe COUPS attaquant
+    (`entities.effects.hits_bonus_from_effects` -> `IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula$$Calculate`),
+    exactement comme `PowerTrip_FullHealthEffect` (dont le gate est `IsNormalAttack & OwnerIsCaster`, SANS
+    le `IsMeleeAttack` d'ici).
+
+    `is_melee` vient de l'`att_ctx` (= le `board` de la formule de coups, peuple par les DEUX facades :
+    combat `damage_model.build_hits_board` et prediction `playbook/prediction/normal_attack.py`) ;
+    contexte ABSENT / nature inconnue -> pas de contribution (degradation fidele « present != applique »)."""
+
+    def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True,
+                                            att_ctx: "Mapping | None" = None) -> "EffectBonus | None":
+        if not is_normal_attack:             # IsNormalAttack (IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack)
+            return None
+        # IsMeleeAttack (IdunBattleLogic.Entities.DSLFactory$$IsMeleeAttack) : la nature du coup est portee par
+        # l'att_ctx (board de la formule). None/absent = inconnu -> aucune contribution.
+        if (att_ctx or {}).get("is_melee") is not True:
+            return None
+        n = ability_var("Waaagh", "extraHit", is_constant=True)   # ConfigConst(0x2b) = 1
+        return for_addition(True, int(n)) if n else None
