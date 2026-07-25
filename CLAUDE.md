@@ -385,6 +385,30 @@ d'écrire `<symbole>+0x<offset>`.
 `data/symbols/*/frida/` et retient celui dont l'estampille porte le sha256 du binaire chargé.
 Il ne peut donc plus appliquer les symboles d'un autre build — soit il trouve, soit il refuse.
 
+### Le projet Ghidra a DEUX consommateurs, pas un
+
+Les frontières de fonctions ne servent pas qu'à produire `ghidra/functions.tsv` : c'est **le
+même modèle** que les agents interrogent en direct via `mcp__ghidra__*` (`decompile_function`,
+`list_xrefs`, `gen_callgraph`, `search_symbols_by_name`). Le `.gpr` n'est pas un détail
+d'outillage, **c'est la surface de RE entière**.
+
+**Conséquence à ne pas rater après une MAJ** : si le serveur `ghidra-mcp` sert encore l'ANCIEN
+projet pendant que la table versionnée est celle du NOUVEAU build, un agent **décompile un
+binaire et cite les symboles d'un autre** — et rien ne proteste. Les deux réponses sont
+plausibles séparément, incohérentes ensemble. C'est la version silencieuse de l'incident du
+2026-07-25, transposée aux agents.
+
+**Le contrôle**, à passer après tout redémarrage du serveur ou changement de build :
+
+```bash
+python scripts/python/ghidra_symbols.py build   # hash RÉELLEMENT chargé par ghidra-mcp
+cat data/symbols/*/BUILD                        # hash des tables versionnées
+```
+
+Les deux doivent coïncider. Sinon : relancer `start-ghidra-mcp.ps1 -Project <nouveau.gpr>`
+**avant** de lancer le moindre agent RE — un agent lancé sur un serveur périmé produit du
+travail à jeter, sans le savoir.
+
 **Étape 0 — constater.** Comparer le hash installé au hash des artefacts :
 
 ```bash
