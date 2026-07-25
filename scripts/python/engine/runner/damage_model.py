@@ -37,6 +37,7 @@ from ..entities.effects import (
     hits_bonus_from_effects,
 )
 from ..entities.traits.combat import GetStuckInTrait
+from ..entities.effects.magnitude import trait_var
 
 _BIG_HP = 1 << 30          # santé cible « infinie » → scenario sans overkill/cap
 
@@ -628,7 +629,14 @@ def getstuckin_combat_chance(state: State, att_id: int, tgt_id: int,
                 continue                         # unite morte -> non comptee
             if are_tiles_adjacent(attack_pos, (pc2.col, pc2.row), board):
                 friends_adj += 1
-    return 100 if friends_adj >= 4 else 30
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance` =
+    # `If(<4+ allies adjacents>, ConfigConst(0x33), ConfigConst(0x2a))` -> les DEUX branches rendent une
+    # variable de trait, pas un litteral. Ecrire 100/30 en dur coincidait avec la config du jour ; au
+    # premier reequilibrage le port aurait derive EN SILENCE (trouve pendant le lot D, #110).
+    key = "getStuckInChance_2" if friends_adj >= 4 else "getStuckInChance"     # 0x33 : 0x2a
+    chance = trait_var("GetStuckIn", key)
+    assert chance is not None, f"traitVariables.{key} absent du gameconfig (trait GetStuckIn)"
+    return int(chance)
 
 
 def normal_attack_per_hit_range(state: State, unit_id: int) -> Optional[dict]:
