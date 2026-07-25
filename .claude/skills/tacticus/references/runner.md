@@ -134,7 +134,7 @@ Leviers **réels** de `rl_duel.py build` (vérifiés dans l'argparse, ne pas en 
 |---|---|
 | qui est là, dans quel camp | `--p-units` / `--a-units`, `--p-mow` / `--a-mow`, `--roster` |
 | faire DURER la bataille (saturer un cap de summons, voir N tours) | `--hp-target` (ennemi), `--hp-player` (mon camp) — force `Health` ET `RemainingHealth` |
-| géométrie (adjacence, ligne, portée, spawns) | `--board` / `--board-pool`, puis **drive des positions** par `applyAction move` |
+| géométrie (adjacence, ligne, portée, spawns) | `--board` / `--board-pool`, puis **drive des positions** par `applyAction move` — cf. « Choisir le board » ci-dessous |
 | niveau / magnitudes | `--rank` |
 | isoler l'aléa (crit, block) | `--crit`, `--crit-target`, `--block-target` |
 | neutraliser l'IA adverse | `--no-ai` |
@@ -154,6 +154,39 @@ re-crafter, et la livrer sans le faire, c'est livrer un port non validé.
 sous-tire au lieu de mal-tirer) ne produit **aucun désaccord mesurable** — aucune statistique
 d'agrément ne peut le voir. Ces trous-là ne remontent jamais tout seuls : il faut aller les
 chercher en craftant l'état.
+
+#### Choisir le board — c'est une VARIABLE EXPÉRIMENTALE, pas une formalité
+
+**779 boards** sont disponibles (`data/boards/` : 675 `global`, 69 `pvp`, 35 `syncPvp`). Le
+board fixe le terrain, l'**élévation**, la jouabilité des tuiles et les spawns — donc il fixe
+une partie de ce que tu crois mesurer. **`board.py` te les fait lire AVANT de construire**
+(terrain `TileId`, `Elevation`, `ForceUnplayable`, `SpawnPointSets`, depuis la BC) : choisis un
+board qui PORTE la propriété dont tu as besoin, au lieu de la découvrir après coup.
+
+Ce que le board décide, et qui a déjà produit de FAUX diagnostics :
+
+- **Nombre de voisins au spawn.** Un spawn en coin ou en bord a **moins de 6 voisins** → toute
+  mécanique d'adjacence, d'anneau ou d'AoE est **silencieusement sous-exercée**, et un port faux
+  peut passer. Vécu (#90) : la zone d'un `PlagueburstMortar` mesurée depuis un coin ne prouvait
+  rien ; il a fallu **rejouer au centre sur un autre board (`C2_02`)** pour couvrir le voisinage
+  complet. Corollaire : si ta mécanique compte des voisins, **exige explicitement une tuile à 6
+  voisins**, ne l'espère pas.
+- **Élévation.** Elle entre dans le calcul de dégât. Vécu (#63) : une « divergence d'armure de
+  0.58 » attribuée au moteur était en réalité une différence d'élévation non voulue entre les
+  deux camps — un gap de HARNAIS lu comme un bug moteur.
+- **Terrain.** Cover et effets de tuile (`DryBush` → `Camouflage`, #62) gatent des mécaniques :
+  un board sans le terrain requis rend la branche **inatteignable** et le contre-cas **vide**.
+- **Distance entre spawns.** Décide si une unité ranged tire au tour 1 ou passe trois tours à
+  marcher — donc si ta mesure arrive avant que l'état que tu voulais observer ait expiré.
+
+**Discipline de généralisation.** Un résultat obtenu sur UN SEUL board n'est pas un résultat dès
+que la mécanique touche à la géométrie : c'est peut-être un artefact de ce board. Rejoue sur
+**au moins deux couples (board, seed) distincts** — patron déjà appliqué (#95 : `MC1_67/31337`,
+`C3_01/777`, `C4_09/999` ; #61 : quatre géométries donnant 7/6/5/4 coups, ce qui a précisément
+révélé que la base de `FrenziedFiring` était géométrique et non un bug de canal).
+
+⚠ `--board` est **OBLIGATOIRE** au build : le board par défaut du seed BC n'a pas de spawns 5v5
+(#159). Les boards se régénèrent par `python dump_boards.py` **à chaque changement de hash**.
 - **Dispose tes runners en fin de passe** (`disposeRunner({runnerId})` ; `listRunners` pour vérifier
   l'atelier vide). Exclusifs : traces globales (`scorer*`, `aiUtilityTrace*`…) + ops de session.
 
