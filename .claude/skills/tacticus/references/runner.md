@@ -49,6 +49,25 @@ Puis piloter : `rl_duel.py view|act|play|aiturn|abilities ...` (lisent le `runne
 ou `engine_validate.py --runner <id> --steps N` pour l'agreement. Chaque `build` sur un `--state-file`
 ne dispose QUE le runner enregistré dans CE fichier (les frères sont intouchés — cf. §3).
 
+### 1bis. Porteur ABSENT du seed BC → `catalog_inject.py` (jamais « non confrontable »)
+
+Le seed BC est la capture d'UNE bataille : son catalogue ne contient que les unités possédées ce
+jour-là. **17 unités `lineup` du gameconfig n'y sont pas** (les 4 Votann, `thousDaemonPrince`,
+`necroReanimator`, `darkaStormSpeeder`, …) → `--p-units <id>` répond « hors pool ». Ce n'est PAS
+une limite du jeu : le catalogue se complète.
+
+```bash
+python catalog_inject.py --missing                        # qui manque
+python catalog_inject.py --units <ids> --out <absolu>.json # seed BC augmenté (le partagé est intact)
+python rl_duel.py build --seed-bc <absolu>.json --board <id> --p-units <id> [--p-mow <id>]
+```
+
+**Deux catalogues, pas un** : `BC.Units` (l'unité) ET `BC.Abilities` (Variables/Constants de
+chaque ability). Injecter le premier seul donne un porteur qui se déploie, s'affiche… et **faute
+au cast** (« system error » = exception managée : config d'ability vide →
+`AbilityConfiguration$$GetVariableForLevel` lève). `catalog_inject` fait les deux. Détail,
+dérivations et validation : `docs/rl/case-92-catalog-injection.md`.
+
 ## 2. Choix du board (mécaniques board-dépendantes)
 
 Élévation, trench, couverture/LOS, slot MoW **dépendent du board**. Le **choisir**, ne pas le subir :

@@ -46,34 +46,20 @@ CARRIER = "votanMemnyr"
 ENEMY = "ultraTitus"
 
 
-# --- injection catalogue : entree votanMemnyr construite depuis gameconfig (buildNormalizedBC recalcule) ---
-def _mem_entry(seed_bc: dict) -> dict:
-    base = next(u for u in seed_bc["Units"] if u.get("Id") == "genesBiophagus")   # squelette hero reel
-    e = copy.deepcopy(base)
-    e.update({
-        "Id": CARRIER, "VisualId": CARRIER, "QuestUnitId": CARRIER,
-        "Faction": "LeaguesOfVotann", "Subfaction": None, "Movement": 2,
-        "Weapons": [{"DamageProfileType": "Physical",
-                     "DamageProfile": {"DamageProfileType": "Physical",
-                                       "PiercingDamageRatio": 1, "DamageTraits": []},
-                     "Hits": 1, "Range": None, "IsMelee": True, "IsRanged": False}],
-        "ActiveAbilities": [STEELJACK], "PassiveAbilities": [], "TertiaryAbility": None,
-        "Traits": ["Xenos", "Hero", "PrioritisedEfficiency", "Mechanical"],
-        "ConfigId": {"PureId": CARRIER, "Rarity": None, "Level": None,
-                     "IsBorrowed": False, "IsPvpOpponent": False},
-    })
-    return e
-
-
+# --- injection catalogue (case-92) : `catalog_inject` remplit les DEUX catalogues -- l'entree
+#     `Units` de votanMemnyr ET les configs d'ability IronkinSteeljack/PredictiveGuidance dans
+#     `BC.Abilities`. Sans la seconde, le porteur se deploie mais le cast FAUTE
+#     (`AbilitiesConfiguration$$GetActive` rend une config VIDE ->
+#     `AbilityConfiguration$$GetVariableForLevel` leve). Cf. docs/rl/case-92-catalog-injection.md.
 def _build_votan(host, sid, rank: int = 17, seed: str = "4242", board: str = "MC1_67"):
     """Runner ISOLE avec votanMemnyr (p-unit) via BC augmente EN MEMOIRE. Renvoie rid ou None (skip)."""
+    import catalog_inject as CI
     R = host
     try:
         seed_bc = R._load_seed_bc()
     except Exception as e:                                # seed BC purge (artefact per-hash)
         return None, f"seed BC absent: {e}"
-    bc = copy.deepcopy(seed_bc)
-    bc["Units"] = bc["Units"] + [_mem_entry(bc)]
+    bc, _added, _ab, _marker = CI.augment(seed_bc, [CARRIER], rank=rank)
     try:
         board_dump = R._load_board_dump(board)
     except Exception as e:
@@ -251,9 +237,14 @@ def test_steeljack_noop_on_non_tile(rpc, votan_runner):
 # ------------------------------------------------------------------ FACE 2 : LIVE (cast natif, best-effort)
 
 def test_steeljack_live_spawn_confront(rpc, votan_runner):
-    """LIVE : cast tile-target natif -> le runner devrait spawn votanSmnSteeljack (equipe/tuile/hpMax du port).
-    BLOQUE en headless : le spawn natif de votanSmnSteeljack leve FindFirstObjectByType (scene Unity absente).
-    On tente le cast ; sur ce blocker connu -> skip documente (le port reste RE-airtight + offline-valide)."""
+    """LIVE : le cast tile-target natif spawn le Steeljack (equipe / tuile / hpMax du port).
+
+    Le "blocage headless FindFirstObjectByType" documente jusqu'ici etait un DOUBLE faux negatif
+    (case-92) : (a) la config d'ability d'IronkinSteeljack manquait dans `BC.Abilities` ->
+    `AbilityConfiguration$$GetVariableForLevel` levait ("system error") ; (b) la tuile-cible n'etait
+    pas ADJACENTE au caster -> `ok:true` / `spawned:0`. Les deux corriges, le cast passe.
+    PIEGE : le summon apparait sous le `visualId` du gameconfig (`votanNpc2Steeljack`), pas sous
+    l'id de son entree (`votanSmnSteeljack`) -- chercher l'id ne le trouve jamais."""
     rid = votan_runner
     state, board = _load(rpc, rid)
     caster = _find(state, CARRIER)
@@ -268,19 +259,25 @@ def test_steeljack_live_spawn_confront(rpc, votan_runner):
         for ab in u.get("abilities", []):
             if ab.get("abilityId") == STEELJACK:
                 fh = [(t["tile"]["col"], t["tile"]["row"]) for t in ab.get("fromHere", [])]
-    if not fh:
-        pytest.skip("aucune tuile fromHere legale pour 1219")
-    col, row = fh[0]
+    assert fh, "aucune tuile fromHere legale pour 1219"
+    # ADJACENCE OBLIGATOIRE : le behaviour de Spawn exige une tuile voisine du caster ; une tuile
+    # legale mais distante donne un cast `ok:true` sans effet (mutated=false, spawned=0).
+    import hexgeo
+    cpc = state.get_entity(caster).get_component(PositionComponent)
+    adj = [t for t in fh if hexgeo.distance(t, (cpc.col, cpc.row)) == 1]
+    assert adj, f"aucune tuile fromHere ADJACENTE au caster ({cpc.col},{cpc.row}) parmi {fh}"
+    col, row = adj[0]
     before = {u["squadId"] for u in (rpc("observeBattle", {"runnerId": rid}, 40) or {}).get("units", [])}
     res = rpc("applyAction", {"runnerId": rid, "action": {
         "kind": "ability", "casterId": caster, "abilityType": STEELJACK,
         "to": {"col": col, "row": row}}}, 60) or {}
     act = (res.get("actions") or [{}])[0]
-    if act.get("error"):
-        pytest.skip(f"cast natif bloque (headless, votanSmnSteeljack): error={act.get('error')} "
-                    f"spawned={act.get('spawned')} -- limitation d'environnement, port RE-airtight (IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour)")
+    assert not act.get("error"), f"cast natif en erreur: {act.get('error')} spawned={act.get('spawned')}"
+    # le summon porte le visualId du gameconfig (`votanNpc2Steeljack`), pas l'id de son entree
+    import gameconfig as GC
+    smn_vid = (GC.unit(SUMMON_VID) or {}).get("visualId") or SUMMON_VID
     summons = [u for u in (rpc("observeBattle", {"runnerId": rid}, 40) or {}).get("units", [])
-               if u.get("visualId") == SUMMON_VID and u["squadId"] not in before and not u.get("isDead")]
+               if u.get("visualId") == smn_vid and u["squadId"] not in before and not u.get("isDead")]
     print(f"\n[STEELJACK/live-spawn] exp_hp={exp_hp} cteam={cteam} tile=({col},{row}) "
           f"summons={[(u['squadId'], u.get('teamId'), u.get('hpMax')) for u in summons]}")
     assert summons, "aucun votanSmnSteeljack spawne live"
