@@ -156,7 +156,7 @@ beaucoup de primitives sont portees "inline" par ability (active_ability.py comp
 | TilesAtDistance / TilesAtRow / TilesInPath | 180dfd1b0, dfd250, dfd6b0 | 13+6+8 | geometrie tiles | MANQUANT |
 | TilesInDiamondShape/Cone/Triangle/Line | 180dfd570, dfd4d0, dfd750, dfd610 | 8+6+5+5 | formes AoE | MANQUANT |
 | TilesOnSameElevation | 180dfd8b0 | 7 | meme elevation | PARTIEL (inline dans UnitsDirectlyBehind via elev_by_pos) |
-| Walkable / IsWalkable / MovableTilesInRange | 180e01f30, df5b10, df6a20 | 16+7+11 | tiles marchables | MANQUANT |
+| Walkable / IsWalkable / MovableTilesInRange | 180e01f30, df5b10, df6a20 | 16+7+11 | tiles marchables | PARTIEL — `Walkable` PORTE ; `MovableTilesInRange` PORTE (#115, feuille DSL -> `WalkPathfinder.GetMovablePositions` ; `canReachOnly=0` => `visited`, `=1` => `stop_set`) + le combinateur `TilesUnitCanMoveToChargeTarget` (= `CanAddUnit(AdjacentTiles(target)) op_And MovableTilesInRange`) |
 | Unobscured / UnobscuredTiles / IsObscured | 180e01540, e01480, df48e0 | 21+7+6 | ligne de vue | MANQUANT |
 | UnitsWithTrait / UnitsWithoutTrait(s) | 180e00b10, e01040, e010e0, e00bb0 | 90+39+10+6 | filtre par trait | MANQUANT (tres fort refcount) |
 | UnitsWithRangedWeapons | 180e00850 | 6 | arme ranged au kit (UnitsWithWeaponsSelector type 2) | PORTE (gates ExplosiveMaladies/Spotter `att_has_ranged_weapon`) |

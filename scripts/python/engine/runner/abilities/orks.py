@@ -13,19 +13,20 @@ import gameconfig as GC
 import hexgeo
 
 from .base import ActiveAbility, convert_rounds_to_turns
-from ..components import PositionComponent, StatsComponent, OwnerComponent, UnitComponent
+from .targeting import RULE_TARGET_IS_IN_RANGE, TargetingOptions
+from ..components import PositionComponent, StatsComponent
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.behaviours import If, SetCache, op_add, op_and
 from ...entities.effect_type import EffectType
 from ...entities.formulas import Count, Get, VisualUnitIdFromUnitId
-from ...entities.pathfinding.walk_pathfinder import get_movable_positions
 from ...entities.selectors import (ActiveTarget, AdjacentFriends, AdjacentTiles, AdjacentUnits,
                                    AllUnits, Cache, CanAddUnit, Caster, CasterTile,
                                    EntitiesWithoutEffects, FixedTileIds, FixedTiles, Friends,
                                    SurroundingTiles, Target, TargetTile, Union, Unique,
-                                   UnitsFromFaction, UnitsWithVisualId, non_steppable_or_object_units)
+                                   UnitsFromFaction, UnitsWithVisualId, non_steppable_or_object_units,
+                                   tiles_unit_can_move_to_charge_target)
 from ...entities.stats import StatType
 from ...entities.triggers import AmountIsEqualOrGreater, CacheTrigger, IsAdjacent, TriggerOr
 from .behaviours import (AddEffect, AttackWithAttackDamage, KillDeadUnits, MoveUnit, PerformAIAction,
@@ -139,62 +140,55 @@ def waaagh_move_range(state: "State", caster_id: int, extra_movement: int) -> in
     return mv if has_eff else mv + int(extra_movement)
 
 
-def _living_occupants_map(state: "State") -> dict:
-    """`{tile_id -> team}` des unites VIVANTES (occupation lue par le pathfinder `MovableTilesInRange`)."""
-    board = state.board
-    if board is None:
-        return {}
-    occ: dict = {}
-    for e in state.entities.values():
-        pc = e.get_component(PositionComponent)
-        uc = e.get_component(UnitComponent)
-        oc = e.get_component(OwnerComponent)
-        if pc is None or oc is None or (uc is not None and not uc.alive):
-            continue
-        t = board.id_at(pc.col, pc.row)
-        if t is not None:
-            occ[t] = oc.team
-    return occ
+def waaagh_possible_movement_tiles_selector(move_range: int):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetPossibleMovementTiles` —
+    MIRROR du decompile, ARBRE DSL (aucune logique recablee a la main) :
+
+        TilesUnitCanMoveToChargeTarget( caster@0x160, casterTile@0x168, target,
+                                        UnitMovementRangeWithBonus(caster, 1099,
+                                                                   Direct(GetNumberConstant(0xe))),
+                                        canReachOnly = 0 )
+        = CanAddUnit(AdjacentTiles(target)) op_BitwiseAnd MovableTilesInRange(caster, casterTile,
+                                                                             range, canReachOnly=0)
+
+    `canReachOnly=0` (CONTRASTE avec VigilanceEternal/HeroicFusillade qui passent 1) -> l'ensemble
+    « movable » est le `visited` du BFS (toutes les tuiles ATTEINTES en <= range pas) et non le
+    `stop_set` ; la difference (tuiles traversables mais occupees) est de toute facon eliminee par le
+    `CanAddUnit(AdjacentTiles(target))` en amont.
+
+    `move_range` arrive DEJA CALCULE (`waaagh_move_range`, collapse documente du noeud
+    `UnitMovementRangeWithBonus` — il lit l'effet 1099 deja pose, cf. sa docstring) et est presente
+    au noeud par un `Direct` : c'est LA valeur du 4e argument natif.
+
+    DEUX consommateurs, exactement comme le natif :
+      * l'etage MOVE de `WaaaghAbility$$ExecuteBehaviour` (`waaagh_charge_tile`, qui trie et prend
+        la 1re tuile) ;
+      * le gate de ciblage `WaaaghAbility$$GetDynamicInvalidTargetReason` (qui n'en prend que le
+        `Count`). Les deux voient donc TOUJOURS le meme ensemble."""
+    return tiles_unit_can_move_to_charge_target(Caster(), CasterTile(), Target(),
+                                                Const(int(move_range)), can_reach_only=False)
 
 
 def waaagh_charge_tile(state: "State", caster_id: int, target_id: int, move_range: int):
     """COLLAPSE du selecteur de destination LOURD (kind S) de l'etage MOVE IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour :
         `First( SortTilesByUtility( WaaaghAbility.GetPossibleMovementTiles(target@0x178),
                                     caster@0x160, 0x20 ), 1 )`
-    ou `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetPossibleMovementTiles` =
-        `IdunBattleLogic.Entities.DSLFactory$$TilesUnitCanMoveToChargeTarget(caster@0x160, casterTile@0x168, target,
-                                        UnitMovementRangeWithBonus(caster, 1099, Direct(extraMovement)),
-                                        canReachOnly=0)`
-        = `CanAddUnit(AdjacentTiles(target)) op_And MovableTilesInRange(caster, tile, range, reachOnly=0)`.
 
-    `canReachOnly=0` (CONTRASTE avec VigilanceEternal/HeroicFusillade qui passent 1) -> l'ensemble
-    « movable » est le `visited` du BFS (toutes les tuiles ATTEINTES en <= range pas) et non le `stop_set`
-    ; la difference (tuiles traversables mais occupees) est de toute facon eliminee par le
-    `CanAddUnit(AdjacentTiles(target))` en amont. `SortTilesByUtility(0x20)` (selecteur AI lourd) COLLAPSE
-    en : la tuile la plus PROCHE du caster (tie-break tile id) -- MEME proxy que les autres gap-closers
-    portes (HeroicFusillade/VigilanceEternal/SkyStrike). Renvoie une (col,row) ou None."""
+    L'operande `GetPossibleMovementTiles` est l'ARBRE DSL `waaagh_possible_movement_tiles_selector`
+    (mirror 1:1). Seul `SortTilesByUtility(0x20)` (selecteur AI lourd) reste COLLAPSE en : la tuile
+    la plus PROCHE du caster (tie-break tile id) -- MEME proxy que les autres gap-closers portes
+    (HeroicFusillade/VigilanceEternal/SkyStrike). Renvoie une (col,row) ou None."""
     board = state.board
-    ce, te = state.get_entity(caster_id), state.get_entity(target_id)
+    ce = state.get_entity(caster_id)
     cpc = ce.get_component(PositionComponent) if ce is not None else None
-    tpc = te.get_component(PositionComponent) if te is not None else None
-    if board is None or cpc is None or tpc is None:
+    if board is None or cpc is None or state.get_entity(target_id) is None:
         return None
-    ctile = board.id_at(cpc.col, cpc.row)
-    if ctile is None:
-        return None
-    coc = ce.get_component(OwnerComponent)
-    visited, _stop = get_movable_positions(board, ctile, int(move_range),
-                                           _living_occupants_map(state),
-                                           coc.team if coc is not None else None)
-    occ = set(_living_occupants_map(state))
-    # CanAddUnit(AdjacentTiles(target)) : tuiles hex-adjacentes a la cible, LIBRES et marchables.
-    adj_free = [t for t in board.neighbours(board.id_at(tpc.col, tpc.row))
-                if t not in occ and board.walkable(t)]
-    cands = [t for t in adj_free if t in visited]        # op_And MovableTilesInRange (canReachOnly=0)
+    cands = waaagh_possible_movement_tiles_selector(move_range).evaluate(
+        entities_from_state(state, caster_id, target_id))
     if not cands:
         return None
     cpos = (cpc.col, cpc.row)
-    cands.sort(key=lambda t: (hexgeo.distance(cpos, board.coord(t)), t))   # SortTilesByUtility collapse
+    cands = sorted(cands, key=lambda t: (hexgeo.distance(cpos, board.coord(t)), t))
     return board.coord(cands[0])
 
 
@@ -279,6 +273,48 @@ class WaaaghAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.Waaagh)   # 1058
     ABILITY_ID = "Waaagh"
+
+    # GATE DE CIBLE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$.ctor` :
+    #     TargetingOptions..ctor(&opts, 0, &statsFromClass, 1, 0x106004012, 0, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2, 0)
+    # -> masque LITTERAL (overload « flags directs », pas l'overload preset : le litteral EST le
+    # masque effectif). Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
+    #     0x2         TargetMatchesDynamicRule        -> consulte GetDynamicInvalidTargetReason
+    #     0x10        CasterHasNotMoved               -> PORTE (volet CASTER : le Warboss ne peut pas
+    #                                                    caster Waaagh apres s'etre deplace ; MESURE,
+    #                                                    cf. probe_115_ability_reason.py)
+    #     0x4000      TargetIsEnemy                   -> PORTE (refus sur soi-meme / un allie)
+    #     0x6000000   AllowObscuredTarget             -> permissif (aucune contrainte de ligne de vue)
+    #     0x100000000 (bit 32, nom hors dump 32 bits)  -> predicat battleQuery slot 0x61, non porte
+    TARGETING_OPTIONS = TargetingOptions(rules=0x106004012)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetDynamicInvalidTargetReason`
+        — MIRROR du decompile :
+
+            tiles = WaaaghAbility.GetPossibleMovementTiles( Get(target) )
+            ents  = AbilityEntities(caster, caster, target, ..., casterTiles, ...)
+            return Count( tiles.Evaluate(ents) ) > 0 ? 0 : 0x8000000
+
+        `0x8000000` = `TargetingRule.TargetIsInRange` : Waaagh exprime sa contrainte de DISTANCE
+        ici (et pas par le volet portee generique du filtre statique). Le predicat : il existe au
+        moins une tuile LIBRE et marchable hex-adjacente a la cible, atteignable par le caster en
+        `MOVEMENT + extraMovement` pas — autrement dit **la cible doit etre chargeable ce tour-ci,
+        sans bouger d'abord**.
+
+        La portee est lue par `waaagh_move_range` (= `UnitMovementRangeWithBonus(caster, 1099,
+        Direct(extraMovement))`) : au moment du GATE l'effet 1099 n'est PAS encore pose (les 5
+        etages de la behaviour n'ont pas commence) -> la branche `MOVEMENT + bonus` du `If` natif,
+        exactement comme le natif qui evalue la meme formule avant toute execution."""
+        if target_id is None or state.get_entity(int(target_id)) is None:
+            return RULE_TARGET_IS_IN_RANGE
+        consts = (GC.ability(self.ABILITY_ID) or {}).get("constants") or {}
+        extra_movement = int(consts.get("extraMovement") or 0)   # GetNumberConstant(0xe)
+        move_range = waaagh_move_range(state, caster_id, extra_movement)
+        tiles = waaagh_possible_movement_tiles_selector(move_range).evaluate(
+            entities_from_state(state, caster_id, target_id))
+        return 0 if len(tiles) > 0 else RULE_TARGET_IS_IN_RANGE
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

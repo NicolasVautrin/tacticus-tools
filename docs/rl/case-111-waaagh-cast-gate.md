@@ -133,13 +133,14 @@ rendrait un no-op moteur, c'est-à-dire de nouveau le symptôme de ce cas.
 
 ## 7. Ce qui n'est PAS couvert
 
-- **Le port n'a AUCUN gate de cible.** `AbilityHandler.visit_ActiveAbilityMessage` ne mirror de
-  `ExecuteInternal` que le gate ACTEUR-MORT (#70) ; ni `IsInvalidTarget`, ni `IsValidCaster`, ni
-  `IsDeadUnitAndNotAllowedByAbility`. Offline, un `ActiveAbilityMessage` Waaagh sur le caster
-  lui-même exécuterait le behaviour, là où le natif refuse. Non atteint par les harnais actuels
-  (les messages viennent de l'IA native, qui ne produit que des casts légaux) ; le porter
-  supposerait `GetDynamicInvalidTargetReason` + `TargetingOptions` par ability — chantier
-  transverse, hors périmètre de ce cas. Reporté au backlog.
+- ~~**Le port n'a AUCUN gate de cible.**~~ **FERMÉ par #115** (`case-115-ability-target-gate`) :
+  `AbilityHandler.visit_ActiveAbilityMessage` mirror désormais `IsInvalidTarget` — filtre statique
+  piloté par les `TargetingOptions` du ctor + point d'extension
+  `ActiveAbility.get_dynamic_invalid_target_reason`, instancié sur Waaagh (1058). Les deux rejets
+  décomposés ci-dessus (A/B statique, C dynamique) sont reproduits offline **avec le même code
+  `TargetingRule`** que le natif (`abilityReason.targetReason.hex` : `0x4000 TargetIsEnemy`,
+  `0x8000000 TargetIsInRange`). `IsValidCaster`, `IsAbilityBlocked`, cooldown, mode atomique et
+  `IsDeadUnitAndNotAllowedByAbility` restent non portés.
 - **Le reste des rejets de `ExecuteInternal`** n'a pas été décomposé (`IsValidCaster`,
   `IsAbilityBlocked`, cooldown, `IsAllowedToStartInAtomicMode`) : ils partagent l'observable
   « 2 événements » et pourraient être confondus avec un refus de cible.

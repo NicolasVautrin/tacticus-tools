@@ -326,15 +326,18 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   #45f dit que `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` reçoit des modifiers
   ATTAQUANT **vides** ; le port ne les vide pas, il se contente de ne pas threader la nature, donc les
   bonus SANS gate de nature (`DecoysAndMisdirection`, `RapidAssault`) y passent encore. `[opus]`.
-- **Le port n'a AUCUN gate de CIBLE** (`case-111-waaagh-cast-gate` §7) :
-  `AbilityHandler.visit_ActiveAbilityMessage` ne mirror d'`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
-  que le gate ACTEUR-MORT (#70). Manquent `IsInvalidTarget` (→ `AActiveAbility.GetInvalidTargetReason`
-  → `<Ability>.GetDynamicInvalidTargetReason` + `TargetingOptions` du ctor), `IsValidCaster` et
-  `IsDeadUnitAndNotAllowedByAbility`. Offline, un `ActiveAbilityMessage` sur une cible que le natif
-  REFUSE exécute quand même le behaviour (mesuré sur Waaagh 1058 : le natif rend un no-op complet,
-  `mutated=false, actionConsumed=false`, le port poserait les 3 buffs). Non atteint par les harnais
-  actuels (les messages viennent de l'IA native, qui ne produit que des casts légaux) → divergence
-  latente, pas une régression observée. Chantier TRANSVERSE (un prédicat par ability). `[opus]`.
+- **Gate de CIBLE : maillon générique LIVRÉ (#115), reste l'INSTANCIATION par ability**
+  (`case-115-ability-target-gate`). `AbilityHandler.visit_ActiveAbilityMessage` mirror désormais
+  `IsInvalidTarget` : filtre statique piloté par les `TargetingOptions` du ctor + point d'extension
+  `ActiveAbility.get_dynamic_invalid_target_reason` (1ʳᵉ instanciation : Waaagh 1058). Ce qui reste :
+  (a) **renseigner `TARGETING_OPTIONS` sur les 60 autres abilities du registre** (1 ligne par ability,
+  lue au ctor décompilé — attention à l'overload « preset + flags » dont le littéral n'est PAS le
+  masque effectif) et instancier leur `GetDynamicInvalidTargetReason` quand le bit `0x2` est posé ;
+  (b) porter les règles du filtre statique laissées permissives (inventaire exhaustif et motif de
+  chaque non-port en tête de `engine/runner/abilities/targeting.py` — la **portée**
+  (`TargetingQuery$$GetRange`) et le domaine TILE sont les deux gros morceaux) ;
+  (c) `IsValidCaster`, `IsAbilityBlocked`, cooldown, mode atomique et
+  `IsDeadUnitAndNotAllowedByAbility` restent non portés. `[opus]`.
 - **Rider OVERKILL de `ThrillSeekers`** (`case-thrillseekers` §Résidus 1) — trait PORTÉ et validé live
   (branches + refresh + expiration), mais son second volet i2 (« if it defeats an enemy with a Crit,
   that enemy is always overkilled ») est une face **PRÉDICTION** non portée :

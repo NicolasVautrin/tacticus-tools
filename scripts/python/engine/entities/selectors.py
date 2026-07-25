@@ -710,6 +710,81 @@ class TileIntersect(TargetsSelector):
         return out
 
 
+class MovableTilesInRange(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLFactory$$MovableTilesInRange(unit, fromTile, range, canReachOnly,
+    …)` -> `IdunBattle.Entities.Selectors.MovableTilesInRangeSelector$$Select`, qui resout
+    `unit` (@+0x20), `fromTile` (@+0x28, a defaut `GetMainTile(unit)`), `range` (formule @+0x30,
+    `Nullable<int>`) puis delegue au slot 0xc de la `PathfindingQuery` avec `canReachOnly` (@+0x38).
+
+    Le calcul est le PATHFINDER (impératif, `entities/pathfinding/walk_pathfinder.py` — mirror de
+    `IdunBattle.Entities.Pathfinding.BasePathfinder$$GetMovablePositions`) : ce noeud est la FEUILLE
+    DSL qui l'appelle, comme `CanAddUnit` est la feuille qui appelle les predicats de board.
+
+    `can_reach_only` :
+      * `False` (natif `0`) -> le `visited` du BFS = TOUTES les tuiles ATTEINTES en <= range pas
+        (traversables, y compris occupees par un allie) ;
+      * `True`  (natif `1`) -> le `stop_set` = celles ou l'unite peut S'ARRETER (libres, start exclu).
+    Contraste mesure : `WaaaghAbility$$GetPossibleMovementTiles` passe `0`,
+    `VigilanceEternal`/`HeroicFusillade` passent `1`.
+
+    Occupation = les unites VIVANTES de `ctx.units` (meme modele que `CanAddUnit`) ; `moving_team` =
+    l'equipe de `unit` (un ENNEMI sur la tuile bloque la traversee, un allie non). Ordre de sortie =
+    id de tuile croissant (le natif rend un `List<Tile>` issu d'un BFS ; ce noeud n'est consomme
+    qu'a travers une INTERSECTION `op_BitwiseAnd`, cf. `tiles_unit_can_move_to_charge_target`, ou
+    seul l'ordre de l'operande GAUCHE est observable). `board` absent -> []."""
+    def __init__(self, unit: TargetsSelector, from_tile: TargetsSelector,
+                 range_amount, can_reach_only: bool = False):
+        self.unit, self.from_tile = unit, from_tile
+        self.range_amount, self.can_reach_only = range_amount, bool(can_reach_only)
+
+    def select(self, ctx):
+        from .pathfinding.walk_pathfinder import get_movable_positions
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        u = resolve_unit(self.unit, ctx)
+        if u is None:
+            return []
+        start_pos = None
+        for p in _tile_positions(self.from_tile, ctx, board):
+            start_pos = p
+            break
+        if start_pos is None:
+            start_pos = _pos(u)
+        start = board.id_at(start_pos[0], start_pos[1]) if start_pos is not None else None
+        if start is None:
+            return []
+        occ: dict = {}
+        for other in ctx.units:
+            if not _is_alive(other):
+                continue
+            p = _pos(other)
+            if p is None:
+                continue
+            t = board.id_at(p[0], p[1])
+            if t is not None:
+                occ[t] = other.get("team")
+        visited, stop = get_movable_positions(board, start, int(self.range_amount.evaluate(ctx)),
+                                              occ, u.get("team"))
+        return sorted(stop if self.can_reach_only else visited)
+
+
+def tiles_unit_can_move_to_charge_target(unit: TargetsSelector, from_tile: TargetsSelector,
+                                         target: TargetsSelector, range_amount,
+                                         can_reach_only: bool = False) -> TargetsSelector:
+    """`IdunBattleLogic.Entities.DSLFactory$$TilesUnitCanMoveToChargeTarget(unit, fromTile, target,
+    range, canReachOnly)` — MIRROR du decompile, qui n'assemble QUE deux noeuds :
+
+        CanAddUnit(AdjacentTiles(target))  op_BitwiseAnd  MovableTilesInRange(unit, fromTile,
+                                                                             range, canReachOnly)
+
+    = « tuiles LIBRES et marchables hex-adjacentes a la cible, que l'unite peut atteindre en <=
+    `range` pas ». `op_BitwiseAnd` du domaine TILE = `TileIntersect` (ordre de l'operande GAUCHE
+    preserve). Helper de FACTORY (comme `get_spawn_tile_selector`), pas une classe native."""
+    return TileIntersect(CanAddUnit(AdjacentTiles(target)),
+                         MovableTilesInRange(unit, from_tile, range_amount, can_reach_only))
+
+
 # --- Accesseurs SELECTEUR (mirror `DSLFactory.X` -> tuiles/entites/sujet natifs ; kind S). ---
 
 class CasterTile(TargetsSelector):

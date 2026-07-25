@@ -216,10 +216,36 @@ class ActiveAbility:
     __slots__ = ()
     ABILITY_TYPE: int = -1
 
+    # --- GATE DE CIBLE (#115) : les deux membres du contrat natif de validation de cible. ---------
+    #
+    # `TARGETING_OPTIONS` = les `IdunBattle.Core.Services.TargetingOptions` que le
+    # `<X>Ability$$.ctor` passe a `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor` (masque de
+    # flags `TargetingRule` a `options+0x28`). C'est la SEULE donnee qui arme le filtre statique
+    # generique (`abilities/targeting.py`). `None` = masque non RE-lu -> AUCUN gate pour cette
+    # ability (on ne devine pas un refus). A ne renseigner qu'apres lecture du ctor decompile — et
+    # jamais depuis l'overload « preset + flags », dont le litteral n'est pas le masque effectif
+    # (cf. la docstring de `TargetingOptions`).
+    TARGETING_OPTIONS = None
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:  # pragma: no cover
         raise NotImplementedError(
             f"{type(self).__name__}.execute_behaviour non porté (cf. plan tranche EFFETS/ABILITIES)")
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`<X>Ability$$GetDynamicInvalidTargetReason` — LE PATRON a instancier par ability (mirror
+        du virtuel slot vtable `+0x480`, que `AActiveAbility$$.ctor` lie en
+        `TargetingOptions.DynamicTargetingTargetRule` a `options+0x38`).
+
+        Rend un `TargetingRule` (0 = cible valide). N'est consulte que si l'ability pose le bit
+        `TargetMatchesDynamicRule` (0x2) dans ses `TARGETING_OPTIONS` — exactement comme le natif,
+        qui n'invoque la regle-delegue que sous ce bit.
+
+        Defaut 0 : une sous-classe qui pose le bit 0x2 SANS surcharger cette methode degrade en
+        « pas de refus dynamique » (permissif), jamais en refus invente. 1re instanciation :
+        `WaaaghAbility` (1058), cf. `engine/runner/abilities/orks.py`."""
+        return 0
 
     def sets_end_turn_flags(self, state: "State", caster_id: int) -> bool:
         """Mirror du virtual `IdunBattle.Entities.Abilities.AActiveAbility$$SetsEndTurnFlags (défaut `_dsl.True`) — résolu par la table
