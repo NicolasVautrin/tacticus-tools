@@ -21,13 +21,17 @@ PORT : engine/runner/abilities/votann.py (feuille SpawnSteeljack = clone SpawnAb
 ABILITY_CLASSES[1219]. VALIDE offline (test_ironkin_steeljack_live.py FACE 1, etat REEL charge, level 50 mult 180 :
 spawn 1 votanSmnSteeljack, hp_max=8973=summonHp[50]x180, atk=2992=summonDmg[50]x180, on-appearance total=843,
 turn_finished=True) + zero-regression (aberrant + damage).
-BLOCKER LIVE-CAST (environnement, PAS le port) : votanMemnyr absent du seed BC standard (injecte au catalogue Units
-en memoire, buildNormalizedBC recalcule ses stats reelles -> spawn OK comme p-unit, 1219 usable level 50). MAIS le
-cast NATIF de 1219 leve un "system error" = FindFirstObjectByType (query scene Unity absente en runner HEADLESS),
-SPECIFIQUE au spawn de votanSmnSteeljack (config gameconfig, inchangeable par edit catalogue). Controles : (a)
-AberrantHypermorph spawn OK live meme session ; (b) mon votanMemnyr synthetique + ability 1166 spawn genesSmnAberrant
-OK (caster synthetique SAIN) -> le blocage est intrinseque a votanSmnSteeljack en headless, orthogonal au port (dont
-le corps natif est byte-identique a 1166 live-valide). Live-cast confront = residu d'ENVIRONNEMENT documente.
+LIVE-CAST : CONFRONTE ET VALIDE (case-92, 2026-07-25). L'ancien verdict "system error =
+FindFirstObjectByType, blocage intrinseque a votanSmnSteeljack en headless" est REFUTE — le cast fonctionne en
+runner headless. Deux causes cumulees, aucune liee a la scene Unity : (a) la config d'ability d'IronkinSteeljack
+manquait dans BC.Abilities (aucune unite du seed BC ne la porte) -> AbilitiesConfiguration$$GetActive rend une
+AbilityConfiguration VIDE, et AbilityConfiguration$$GetVariableForLevel LEVE -> "system error" ; (b) la tuile-cible
+prise (targets[0] d'abilityTargets = tout l'ensemble castable) n'etait PAS adjacente au caster -> ok:true /
+mutated:false / spawned:0 (controle : AberrantHypermorph 1166, live-validee, donne le MEME spawned:0 sur une tuile
+non adjacente). Les deux corriges, le summon apparait avec hp_max=8973 / atk=2992 / fixedArmor=2194 + attaque a
+l'apparition = les valeurs assertees offline. PIEGE : le summon porte le visualId `votanNpc2Steeljack`, pas
+`votanSmnSteeljack`. Mecanisme + validation : docs/rl/case-92-catalog-injection.md
+(scripts/python/catalog_inject.py, tests/engine/runner/test_catalog_inject_live.py).
 ```
 ```
 [1221 AugmentedAssault | votanBeserk]  — [opus] direct
