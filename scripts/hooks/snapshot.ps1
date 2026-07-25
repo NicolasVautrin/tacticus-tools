@@ -84,5 +84,20 @@ if ($installed -and $tables) {
     }
 }
 
+# --- notes non derivables -------------------------------------------------
+# Le script ne sait mesurer que des FAITS. Ce qui est en cours (decisions ouvertes, agents en
+# vol, intention de la tranche) n'est nulle part sur le disque : on le tient a la main dans
+# `.claude/compact-notes.md`, incorpore ici pour qu'il SURVIVE a chaque regeneration.
+$notes = Join-Path $repo '.claude\compact-notes.md'
+if (Test-Path $notes) {
+    $body = (Get-Content $notes -Raw).Trim()
+    if ($body) {
+        $out.Add("## En cours (tenu a la main, non derivable)")
+        $out.Add("")
+        $out.Add($body)
+        $out.Add("")
+    }
+}
+
 $dest = Join-Path $repo '.claude\last-compact-state.md'
 $out -join "`n" | Set-Content $dest -Encoding UTF8
