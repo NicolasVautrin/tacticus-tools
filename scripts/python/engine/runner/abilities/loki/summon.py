@@ -173,7 +173,7 @@ def perform_ai_attack_from_current_position(state: "State", unit_id: int) -> Opt
     profs |= set((r.get("additional_hits") or {}).get("profiles") or [])
     after = after_hit_normal_attack(state, unit_id, tgt, bool(r.get("ranged")),
                                     r.get("profile"), is_crit=bool(r.get("did_crit")),
-                                    profiles=profs)
+                                    profiles=profs, did_block=bool(r.get("did_block")))
     return {"summon": unit_id, "target": tgt, "total": r.get("total"), "after_hit": after}
 
 

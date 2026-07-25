@@ -192,16 +192,28 @@ class UnitTurnsStarted(AAmountFormula):
     """`DSLFactory.UnitTurnsStarted @180dff280` = `Entities.Formulas.UnitTurnsStartedFormula` (@180f2d6c0) :
     nb de tours entamés par `unit` (compteur runtime). Le natif compare (via `AmountIsEqual`) le `turnsStarted`
     de l'owner CAPTURÉ au cast (`factory+0xb8`) au `UnitTurnsStarted(child)` → ne retient que les enfants NEUFS
-    de CE cast. Offline le compteur n'est pas capté → `_turns_started` de l'enfant (SpawnUnit pose 0) ; couplé
-    à `Const(0)` (owner fraîchement dans nos runners) l'égalité tient EXACTEMENT comme le natif la satisfait
-    pour les enfants neufs. Unité hors-cast → 0. ⚠ Mid-bataille (owner turnsStarted>0) ce couple dégradé
-    demanderait les vrais compteurs runtime (gap offline documenté, même régime que `times_attacked`)."""
+    de CE cast. Le compteur REEL = `GetStat(unit, 0xc=TURNS_STARTED)` (`UnitComponent.turnsStarted@+0x58`,
+    incrémenté par `StartTurnOperation`, capté par combatSnapshot #122 et maintenu offline par
+    `_bump_turns_started`) → lu via `ctx.get_stat` (le vrai mirror @180f2d6c0).
+
+    Ordre de résolution : `_turns_started` du dict s'il est PRÉSENT (posé explicitement par `SpawnUnit` sur
+    l'enfant frais — le couple `AmountIsEqual(Const(0), UnitTurnsStarted(child))` de GetEmRuntz s'appuie
+    dessus), sinon `ctx.get_stat(unit, 0xc)`, sinon 0. Consommateur du compteur RÉEL : la rotation
+    `FleshMetalGunsAbility.CreateBehaviour @18121f6e0` (`Modulo(UnitTurnsStarted(Self), 3, k)`)."""
     def __init__(self, unit: TargetsSelector):
         self.unit = unit
 
     def calculate(self, ctx):
+        from .stats import StatType
         u = resolve_unit(self.unit, ctx)
-        return int((u or {}).get("_turns_started", 0) or 0)
+        if u is None:
+            return 0
+        if "_turns_started" in u:                    # enfant SPAWNE (SpawnUnit pose 0) — priorite au marqueur
+            return int(u.get("_turns_started", 0) or 0)
+        gs = getattr(ctx, "get_stat", None)
+        if gs is None:
+            return 0
+        return int(gs(u, int(StatType.TURNS_STARTED), 0) or 0)
 
 
 class TurnsFromRounds(AAmountFormula):

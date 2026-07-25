@@ -28,13 +28,15 @@ class TriggerEvent:
     0x158) = l'auteur du coup fatal, `dying_id` (slot 0x178) = l'unité qui meurt (actor/target les reflètent
     aussi pour rester compatibles avec le dispatch générique)."""
     __slots__ = ("event_id", "actor_id", "target_id", "ranged", "profile", "is_crit",
-                 "killer_id", "dying_id", "player_id", "overkill", "ability_type", "profiles")
+                 "killer_id", "dying_id", "player_id", "overkill", "ability_type", "profiles",
+                 "triggering_effect")
 
     def __init__(self, event_id: int, actor_id: int, target_id: int, *,
                  ranged: bool, profile: Optional[str], is_crit: bool = False,
                  killer_id: Optional[int] = None, dying_id: Optional[int] = None,
                  player_id: Optional[int] = None, overkill: bool = False,
-                 ability_type: Optional[int] = None, profiles=None):
+                 ability_type: Optional[int] = None, profiles=None,
+                 triggering_effect: Optional[int] = None):
         self.event_id = event_id
         self.actor_id = actor_id
         self.target_id = target_id
@@ -54,6 +56,11 @@ class TriggerEvent:
         # attaque melee Physical/Power + bonus Psychic QUALIFIE le trigger 1173). None = non threadé
         # (les consommateurs retombent sur {profile}).
         self.profiles = set(profiles) if profiles else None
+        # `TriggeringEffectIs(effectType)` (`On(PreEffectAdded=62)`/`On(EffectRemoved=65)`) : le TYPE
+        # d'effet porte par l'evenement (celui qu'on est en train de poser/retirer). None hors de ces
+        # vecteurs. Consommateur : branche 2 de `TerrifyingCrescendoAbility.CreateTrigger @1811a3910`
+        # (`On(0x3e) & OwnerIsActor & TriggeringEffectIs(0x429=Pinned)`).
+        self.triggering_effect = triggering_effect
 
 
 class TriggeredAbility:

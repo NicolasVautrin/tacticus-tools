@@ -62,6 +62,11 @@ from .loki.phoenix_gem import (PhoenixGemReviveAbility,              # #79 (reli
                                PHOENIX_GEM_CAN_REVIVE)
 from .loki.suppressive_fire import SuppressiveFireAddEffectAbility  # #74 (trait SuppressiveFire 1010)
 from .loki.death_nova import ExplodesAbility, PutridExplosionAbility  # death-nova (traits 1008 / 2028)
+from .loki.master_annihilator import MasterAnnihilatorMarkAbility   # lot POSE (passif admecDominus)
+from .loki.fleshmetal_guns import FleshmetalGunsRotationAbility     # lot POSE (passif blackObliterator)
+from .loki.terrifying_crescendo import (TerrifyingCrescendoOverkillAbility,   # lot POSE (passif
+                                        TerrifyingCrescendoSuppressAbility)   # emperNoiseMarine, #204)
+from .loki.anvil_shield import AnvilShieldApplyIceAbility            # lot POSE (passif spaceRockfist)
 
 # --- FinalJustice / overkill ----------------------------------------------------------------------
 OVERKILL_PCT_KEY = "overkillDmgPctOfHealth"  # globalValues = 100 → overkill ssi dmg-PV >= 100%*PV (dmg>=2*PV)
@@ -149,6 +154,27 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # @180f5acf0 n'a PAS de HasTrait (contraste Chaos de TaintedNarthecium) et get_ReviveOnOverkill
     # @1802b15a0 = 0 -> gate `NOT overkill`. Cf. loki/narthecium.py + triggers/revive_effect.py.
     "Narthecium": [NartheciumReviveAbility],
+    # MasterAnnihilator (passif admecDominus << Vitruvius >>) = POSE du marqueur 1249 avec REMOVE-BY-SOURCE :
+    # `On(0x26=NormalAttack) & OwnerIsCaster & AreEnemies` -> `RemoveEffect(OwnerOfEffect(EffectsFromUnitSource(
+    # Self, 1249)), 1249) + AddEffect(1249, Target())`. L'effet (+1 coup recu non-Psychic) etait deja porte
+    # (hits.py) mais JAMAIS pose. Cf. loki/master_annihilator.py (@18110ba90/@18110b940).
+    "MasterAnnihilator": [MasterAnnihilatorMarkAbility],
+    # FleshmetalGuns (passif blackObliterator << Volk >>) = ROTATION turn-start des 3 effets d'arme :
+    # `On(0x16=TurnStart_Actions) & IsTurnOf(Self)` -> `RemoveEffect x3 + If(Modulo(UnitTurnsStarted(Self),
+    # 3, k), AddEffect(1067|1212|1221))`. Les 3 effets (+2 coups Melta/Flame/HeavyRound) etaient deja portes
+    # (hits.py) mais SEUL celui du seed vivait. Cf. loki/fleshmetal_guns.py (@180e17450/@18121f6e0).
+    "FleshmetalGuns": [FleshmetalGunsRotationAbility],
+    # TerrifyingCrescendo (passif emperNoiseMarine << Shiron >>) = ACCUMULATION du stack de l'effet 1424
+    # (deja porte #204, magnitude x level) : disjonction `On(0=UnitDeath) & OwnerIsActor & TargetIsOverkilled`
+    # | `On(0x3e=PreEffectAdded) & OwnerIsActor & TriggeringEffectIs(1065=Pinned)` -> `AddEffectOrIncreaseLevel(
+    # 1424, +1, max=buffMaxLevel=6)`. Cf. loki/terrifying_crescendo.py (@1811a3910/@1811a3840).
+    "TerrifyingCrescendo": [TerrifyingCrescendoOverkillAbility, TerrifyingCrescendoSuppressAbility],
+    # AnvilShield (passif spaceRockfist << Arjac >>) = volet ON-BLOCK `ApplyIce` : `On(UnitBlocked=0x3d) &
+    # OwnerIsTarget & IsUnit(caster)` -> `AddEffect(Ice=0x11, source=Self, cible=CasterTile)` (la tuile de
+    # l'attaquant BLOQUE gele). L'effet de tuile Ice etait deja porte ; c'est le DISPATCH `On(0x3d)` qui
+    # manquait. Volets Stun / FrozenAttackerAdvantage / init-effects = residus documentes.
+    # Cf. loki/anvil_shield.py (@180e16500/@180e16480 ; emetteur @180e25fc0).
+    "AnvilShield": [AnvilShieldApplyIceAbility],
 }
 
 # --- Registre : effectType → effet-trigger ---------------------------------------------------------
@@ -314,9 +340,31 @@ def _squighound_after_attack(state: State, attacker_id: int, target_id: int) -> 
     return [{"squighound": attacker_id, "spawned": spawned}] if spawned else []
 
 
+def unit_blocked_triggers(state: State, attacker_id: int, target_id: int,
+                          ranged: bool, profile: Optional[str]) -> list[dict]:
+    """Vecteur `On(UnitBlocked=0x3d=61)` — emis par `ADamageOperation.EvaluateAfterHitTriggers @180e25fc0`
+    sur la branche `if (param_6 != 0)` (le flag BLOCK), **AVANT** le `On(8)` inconditionnel. L'
+    `AbilityEntities` de ce vecteur est `ctor(caster = param_3 = l'ATTAQUANT, owner = actor = target =
+    param_4 = le DEFENSEUR, casterTiles = GetTiles(attaquant), targetTiles = GetTiles(defenseur))` :
+    d'ou `actor_id` = attaquant et `target_id` = defenseur (le BLOQUEUR) cote port -> le predicat
+    `get_OwnerIsTarget` d'AnvilShield se lit `ev.target_id == owner_id`.
+
+    Consommateur : `AnvilShieldApplyIceAbility` (glace la tuile de l'attaquant bloque, @180e16500/
+    @180e16480). AVANT ce vecteur, `did_block` etait resolu par le pipeline (damage_hits.py) mais
+    l'evenement n'etait JAMAIS emis -> tout le cluster on-block etait inatteignable.
+
+    ⚠ GRANULARITE : le natif emet `On(0x3d)` PAR COUP bloque ; le port l'emet UNE fois par ATTAQUE
+    (meme agregation que `is_crit`, deja en place). Observationnellement EQUIVALENT pour le seul
+    consommateur porte (la pose d'Ice est idempotente : `AddEffectOperation` no-op si la tuile est deja
+    glacee). A raffiner si un consommateur per-coup apparait."""
+    ev = TriggerEvent(EventTriggerType.UnitBlocked, attacker_id, target_id,
+                      ranged=ranged, profile=profile)
+    return evaluate_trigger_operation(state, ev)
+
+
 def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
                             ranged: bool, profile: Optional[str], is_crit: bool = False,
-                            profiles=None) -> list[dict]:
+                            profiles=None, did_block: bool = False) -> list[dict]:
     """Vecteur attaque NORMALE. Le natif émet DEUX events distincts (verdict RE #147) : `On(0x26)`=NormalAttack
     (per-ATTAQUE, chemin normal only) ET l'after-hit `On(8)` (message 8 de `EvaluateAfterHitTriggers`). On
     dispatche les deux : `NormalAttack` déclenche Psyker (splash Smite) ; `after-hit(8)` = vecteur natif
@@ -327,6 +375,8 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
     ev_na = TriggerEvent(EventTriggerType.NormalAttack, attacker_id, target_id,
                          ranged=ranged, profile=profile, is_crit=is_crit)
     out = evaluate_trigger_operation(state, ev_na)              # On(0x26) : Psyker (per-attaque)
+    if did_block:                                               # `EvaluateAfterHitTriggers` : 0x3d AVANT 8
+        out = out + unit_blocked_triggers(state, attacker_id, target_id, ranged, profile)
     ev_ah = TriggerEvent(EventTriggerType.AttackHit, attacker_id, target_id,
                          ranged=ranged, profile=profile, is_crit=is_crit)
     out = out + evaluate_trigger_operation(state, ev_ah)        # On(8) after-hit (vecteur natif ; sans conso #151)
@@ -350,7 +400,8 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
 
 def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
                              is_crit: bool, profile: Optional[str] = None,
-                             ability_type: Optional[int] = None) -> list[dict]:
+                             ability_type: Optional[int] = None,
+                             did_block: bool = False) -> list[dict]:
     """Vecteur after-hit d'une attaque d'ABILITY ou de SPLASH. Mirror `EvaluateAfterHitTriggers @180e25fc0`,
     porté par `ADamageOperation` donc PARTAGÉ par l'attaque normale ET les attaques d'ability : dispatche le
     message **after-hit `On(8)`** (branche crit `param_6!=0` = `On(0x3d)`, non écouté ici). ⚠ Ce vecteur
@@ -371,6 +422,8 @@ def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
     ev_aa = TriggerEvent(EventTriggerType.Attack, attacker_id, target_id,
                          ranged=ranged, profile=profile, is_crit=is_crit, ability_type=ability_type)
     out = evaluate_trigger_operation(state, ev_aa)
+    if did_block:                                     # `EvaluateAfterHitTriggers` : 0x3d AVANT 8
+        out = out + unit_blocked_triggers(state, attacker_id, target_id, ranged, profile)
     # On(8) after-hit (vecteur natif per-coup, EvaluateAfterHitTriggers) : conservé pour fidélité ; aucun
     # consommateur actif depuis #151 (le reset a migré sur On(9)).
     ev_ah = TriggerEvent(EventTriggerType.AttackHit, attacker_id, target_id,
@@ -473,6 +526,44 @@ def pre_unit_death_2_triggers(state: State, dying_id: int, killer_id: Optional[i
                       killer_id if killer_id is not None else dying_id, dying_id,
                       ranged=False, profile=None, killer_id=killer_id, dying_id=dying_id,
                       overkill=overkill)
+    return evaluate_trigger_operation(state, ev)
+
+
+def unit_death_triggers(state: State, dying_id: int, killer_id: Optional[int] = None,
+                        overkill: bool = False) -> list[dict]:
+    """Vecteur `On(UnitDeath=0)` — 3e des events de mort emis par `KillUnitOperation.Execute @180e76470`
+    (sequence verifiee au decompile : `FUN_180026490(...,1)` PreUnitDeath -> `...,2` PreUnitDeath_2 ->
+    `...,0` **UnitDeath** -> `...,0x37` UnitDefeated -> `...,0x36` PostUnitKill). Le port emettait deja
+    `On(1)` (`after_death_triggers`) et `On(0x37)` (`unit_defeated_triggers`) mais PAS `On(0)` — d'ou ce
+    vecteur, insere a sa place EXACTE (entre les deux).
+
+    Consommateur : branche 1 de `TerrifyingCrescendoAbility.CreateTrigger @1811a3910`
+    (`On(0) & OwnerIsActor & TargetIsOverkilled` -> +1 stack). `actor` = le TUEUR (OwnerIsActor),
+    `target`/`dying` = la victime, `overkill` = `TargetIsOverkilled`. No-op si rien ne matche.
+    (Le `MasterAnnihilator_AdditionalHitEffect.CreateRemoveEffectTrigger @180f58f40` ecoute aussi `On(0)`
+    — retrait du marqueur a la mort de SA source — mais c'est un EFFET-trigger non enregistre, cf.
+    loki/master_annihilator.py.)"""
+    ev = TriggerEvent(EventTriggerType.UnitDeath,
+                      killer_id if killer_id is not None else dying_id, dying_id,
+                      ranged=False, profile=None, killer_id=killer_id, dying_id=dying_id,
+                      overkill=overkill)
+    return evaluate_trigger_operation(state, ev)
+
+
+def pre_effect_added_triggers(state: State, source_id: Optional[int], target_id: Optional[int],
+                              effect_type: int) -> list[dict]:
+    """Vecteur `On(PreEffectAdded=0x3e=62)` — emis par `AddEffectOperation.Execute @180e48940` **TOUT EN
+    HAUT** (`FUN_180026490(0x50, ..., 0x3e)` juste apres la construction de l'`AbilityEntities`, AVANT le
+    gate cible-nulle, AVANT le gate << deja present >> et AVANT le gate d'immunite `HasFlag(target,6)`).
+    => l'evenement fire meme quand l'effet n'est finalement PAS applique (semantique << would have >>).
+
+    `AbilityEntities.ctor(source, source, target)` -> **actor = la SOURCE** de l'effet ; `target` = la
+    cible ; `triggering_effect` = le type pose (lu par `TriggeringEffectIs`). Consommateur : branche 2 de
+    `TerrifyingCrescendoAbility.CreateTrigger @1811a3910`. No-op si rien ne matche."""
+    ev = TriggerEvent(EventTriggerType.PreEffectAdded,
+                      source_id if source_id is not None else -1,
+                      target_id if target_id is not None else -1,
+                      ranged=False, profile=None, triggering_effect=int(effect_type))
     return evaluate_trigger_operation(state, ev)
 
 

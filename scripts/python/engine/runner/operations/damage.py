@@ -130,6 +130,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
           mourant, gate overkill dans son BEHAVIOUR), TaintedNarthecium (revive).
         - `On(2)` : famille DEATH-NOVA (`Explodes` 1008->1021, `PutridExplosion` 2028->1074) — `OnPreDeath2`
           @180df7ee0. Les deux passent `a=1` => **AUCUN gate overkill** : la nova part même en overkill.
+        - `On(0)` : TerrifyingCrescendo branche OVERKILL (`On(0) & OwnerIsActor & TargetIsOverkilled`).
         - `On(55)` : Ambush_SummonAbility (mort -> decoy) + `turn_defeated`.
 
         RÉSIDU DOCUMENTÉ (hors périmètre, cf. le retrofit REVIVE) : natif, `On(1)` est émis AVANT la garde
@@ -144,13 +145,17 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         if uc is not None:
             uc.alive = False
         from .triggers import (after_death_triggers, is_overkill, unit_defeated_triggers,
-                               pre_unit_death_2_triggers)
+                               pre_unit_death_2_triggers, unit_death_triggers)
         overkill = is_overkill(hp_before, damage)
+        # `KillUnitOperation.Execute @180e76470` emet la SEQUENCE 1 -> 2 -> 0 -> 0x37 -> 0x36. Les quatre
+        # premiers sont portes, DANS CET ORDRE (le 5e, PostUnitKill=0x36, n'a pas de consommateur porte).
         out = after_death_triggers(state, target_id, attacker_id, overkill=overkill)
-        # `On(PreUnitDeath_2 = 2)` — émis par `KillUnitOperation$$Execute` APRÈS `On(1)` et AVANT `On(55)`
-        # (ordre d'instruction lu au décompilé, cf. docstring). Vecteur des death-novas Explodes/Putrid.
+        # `On(PreUnitDeath_2 = 2)` — vecteur des death-novas Explodes/PutridExplosion.
         out = (out or []) + pre_unit_death_2_triggers(state, target_id, attacker_id, overkill=overkill)
-        # #G3 : `On(UnitDefeated=55)` (event DISTINCT de 1 et 2) -> Ambush_SummonAbility (mort -> decoy +
+        # `On(UnitDeath = 0)` — consommateur : TerrifyingCrescendo branche OVERKILL
+        # (cf. loki/terrifying_crescendo.py).
+        out = out + unit_death_triggers(state, target_id, attacker_id, overkill=overkill)
+        # #G3 : `On(UnitDefeated=55)` (event DISTINCT de 1, 2 et 0) -> Ambush_SummonAbility (mort -> decoy +
         # record turn_defeated). L'unité est déjà alive=False (fire-on-death).
         return out + unit_defeated_triggers(state, target_id, attacker_id)
 
@@ -423,7 +428,8 @@ class DamageHandler:
             self.after_hit = after_hit_normal_attack(
                 self.state, msg.attacker_id, msg.target_id,
                 bool(self.last.get("ranged")), self.last.get("profile"),
-                is_crit=bool(self.last.get("did_crit")), profiles=_profs)
+                is_crit=bool(self.last.get("did_crit")), profiles=_profs,
+                did_block=bool(self.last.get("did_block")))
         # #139 : l'attaque normale native EST une ActiveAbility (NormalAttack per-unite ; AttackUnitMessage
         # n'existe pas en natif — c'est la simplification port de l'ActiveAbilityMessage) et traverse la
         # MEME queue `AddFlagsAfterAbilityExecution` @180e447f0 — base `SetsEndTurnFlags`/

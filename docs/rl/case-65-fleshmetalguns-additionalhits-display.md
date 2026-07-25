@@ -8,9 +8,13 @@ utilisée jusqu'ici (indétectable avant, cf. §3).
 
 - Cycle natif (`FleshMetalGunsAbility.CreateBehaviour @18121f6e0`) : au début du tour de Volk,
   `RemoveEffect(0x42b, 0x4bc, 0x4c5)` puis `If(UnitTurnsStarted % 3 == 1/2/0 → AddEffect(
-  FocusedMalice 0x42b=1067 / RuinousSalvo 0x4bc=1212 / WarpHail 0x4c5=1221))`. Le cycle est
+  FocusedMalice 0x42b=1067 / RuinousSalvo 0x4bc=1212 / WarpHail 0x4c5=1221))`. ~~Le cycle est
   **natif** (l'état runner porte l'effet courant) — offline, seules les 3 classes d'effet sont
-  portées (`loki/hits.py`, `_BaseFleshmetalGunsEffect` + 3 variantes).
+  portées~~ → **MAJ #222** : la ROTATION est désormais PORTÉE offline
+  (`runner/operations/triggers/loki/fleshmetal_guns.py`, `ABILITY_TRIGGERS["FleshmetalGuns"]`) —
+  trigger `On(0x16=TurnStart_Actions) & IsTurnOf(Self)` (`CreateTrigger @180e17450`, corps dédupliqué
+  identifié par la table de pointeurs de méthodes). Parité tranchée et confirmée LIVE :
+  `%3==1` Melta, `%3==2` Flame, `%3==0` HeavyRound. cf. `case-222-maillons-de-pose.md` §2.
 - `BaseFleshmetalGunsEffect.CreateAdditionalHits @180f48260` : trigger `OwnerIsCaster &
   IsRangedAttack` ; nœud roll = `RandomAmount(ConfigVar(keyMin), ConfigVar(keyMax))`
   (`GetMinMaxDamage(effect, 0, …)`), nœud display = **`Average` des mêmes ConfigVars**

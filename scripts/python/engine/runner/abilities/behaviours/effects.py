@@ -1,5 +1,6 @@
 """Feuilles DSL de POSE/RETRAIT d'effets runner-couplees : `AddBondEffect` (effet BOND source<->target),
-`AddEffect` (effet sur unite OU tuile), `RemoveEffect` (retrait + revert StatModification), `SetOnFire`
+`AddEffect` (effet sur unite OU tuile), `IncreaseEffectLevel` (+ la factory composite
+`add_effect_or_increase_level`), `RemoveEffect` (retrait + revert StatModification), `SetOnFire`
 (effet FEU de tuile), `CreateShield` (bouclier). Wrappers au-dessus de `runner/operations/effects.py` +
 `stat_ops.py`. Namespace natif `Entities.Behaviours.*`."""
 from __future__ import annotations
@@ -7,6 +8,24 @@ from __future__ import annotations
 from ....dsl.base import TargetsSelector, resolve_unit, _units_of
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ..base import turns_from_rounds
+
+
+def _source_scaling(state, source_id):
+    """Parametres de SCALING (§17.21) de l'unite `source_id` = l'equivalent PORT de l'
+    `AbilityStateReference` natif : un effet materialise resout ses `ConfigVar` contre l'etat d'ability
+    de SA SOURCE (`GetAbilityState(effect)`), donc contre le niveau d'ability + le multiplier de rarete
+    de l'unite qui l'a pose. Rend `(multiplier_pct, ability_level, active_ability_level)` ; (None, None,
+    None) si l'unite n'a pas de `StatsComponent` (l'effet retombe alors sur les defauts historiques)."""
+    from ...components import StatsComponent
+    e = state.get_entity(source_id) if (state is not None and source_id is not None) else None
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = getattr(sc, "ctx", None) if sc is not None else None
+    if ctx is None:
+        return (None, None, None)
+    passive = getattr(ctx, "passive_ability_level", None)
+    active = getattr(ctx, "active_ability_level", None)
+    return (int(getattr(ctx, "ability_variables_multiplier", 100) or 100),
+            passive if passive is not None else active, active)
 
 
 class AddBondEffect(AbilityBehaviour):
@@ -96,12 +115,23 @@ class AddEffect(AbilityBehaviour):
 
     `duration_rounds` = nb de rounds (`TurnsFromRounds(rounds)`) ; `None` = duree DEFAUT de l'effet
     (`DefaultAmountOfRounds`, mirror de l'arg natif `0` d'`AddEffect` SANS `TurnsFromRounds` — ex. Pinned de
-    CrushingClaws) vs explicite (ThunderousAssault Stunned = `TurnsFromRounds(1)`)."""
-    __slots__ = ("effect_type", "name", "target_sel", "duration_rounds")
+    CrushingClaws) vs explicite (ThunderousAssault Stunned = `TurnsFromRounds(1)`).
 
-    def __init__(self, effect_type: int, name: str, target_sel: TargetsSelector, duration_rounds=1):
+    `level` = niveau de STACK initial (slot niveau de la struct d'options natives) — utilise par la branche
+    AddEffect du lambda `AddEffectOrIncreaseLevel b__0 @180e25540` (la 1re pose demarre au niveau
+    = INCREMENT) ; None = pas de niveau porte (tous les autres call-sites).
+    `scale_from_source` = le PORT de l'`AbilityStateReference` : l'effet materialise resout ses `ConfigVar`
+    contre l'etat d'ability de sa SOURCE (niveau d'ability + multiplier de rarete du caster). Opt-in
+    (defaut False = comportement historique) pour les effets dont la MAGNITUDE vient d'un ConfigVar
+    (FleshmetalGuns 1067/1212/1221, TerrifyingCrescendo 1424).
+    """
+    __slots__ = ("effect_type", "name", "target_sel", "duration_rounds", "level", "scale_from_source")
+
+    def __init__(self, effect_type: int, name: str, target_sel: TargetsSelector, duration_rounds=1,
+                 level=None, scale_from_source: bool = False):
         self.effect_type, self.name = effect_type, name
         self.target_sel, self.duration_rounds = target_sel, duration_rounds
+        self.level, self.scale_from_source = level, scale_from_source
 
     def execute(self, entities, ectx):
         from ...operations.effects import AddEffectOperation
@@ -112,15 +142,97 @@ class AddEffect(AbilityBehaviour):
         # duration_rounds None -> pas d'override = duree DEFAUT (DefaultAmountOfRounds), mirror de l'arg natif
         # `0` d'AddEffect sans TurnsFromRounds (Pinned CrushingClaws) ; sinon TurnsFromRounds(rounds).
         dur = turns_from_rounds(self.duration_rounds) if self.duration_rounds is not None else None
+        lvl = (self.level.evaluate(entities) if hasattr(self.level, "evaluate")
+               else self.level)
+        mult, ab_lvl, act_lvl = (_source_scaling(state, src) if self.scale_from_source
+                                 else (None, None, None))
         for elem in _add_effect_targets(self.target_sel.evaluate(entities)):  # natif : itere le selecteur
             tgt = _add_effect_target_id(elem, state)          # unit dict->id | (col,row)->tile id | int->tile id
             if tgt is None:
                 continue
             eff = AddEffectOperation.execute(state, source=src, target=tgt, effect_type=self.effect_type,
-                                             name=self.name, duration_override=dur)
+                                             name=self.name, duration_override=dur,
+                                             level=(None if lvl is None else int(lvl)),
+                                             ability_level=ab_lvl, active_ability_level=act_lvl,
+                                             multiplier_pct=mult)
             ectx.emit("AddEffect", source=src, target=tgt, effect_type=self.effect_type,
-                      placed=eff is not None)
+                      placed=eff is not None, level=(None if lvl is None else int(lvl)))
         return OperationResult.ok()
+
+
+class IncreaseEffectLevel(AbilityBehaviour):
+    """`DSLFactory.IncreaseEffectLevel @180df1d90` -> `IncreaseEffectLevelBehaviour.Execute @180fc7ac0`
+    -> `IncreaseEffectLevelOperation.Execute @180e73cb0` : incremente le NIVEAU (`EffectComponent.Level
+    @+0x68`) des instances d'effet `effect_type` portees par les cibles du selecteur, avec CAP optionnel.
+
+    Mirror EXACT du clamp natif (@180e73cb0) :
+    ```
+    if (!max.HasValue || max.Value < cur || cur + amount <= max.Value)  level = cur + amount
+    else                                                               level = max.Value
+    ```
+    (quirk natif conserve : un niveau DEJA au-dessus du cap continue d'etre incremente -- branche
+    `max.Value < cur`). Gate natif `StaticBattleRules.Effect.HasLevel(effectType)` = l'effet supporte un
+    niveau ; offline on l'assure par la presence d'une instance materialisee du type.
+    `amount`/`max_level` = scalaires ou noeuds VALEUR (`.evaluate`). Emet 'IncreaseEffectLevel' par cible.
+    Effet PUR (stop=False)."""
+    __slots__ = ("effect_type", "target_sel", "amount", "max_level")
+
+    def __init__(self, effect_type: int, target_sel: TargetsSelector, amount, max_level=None):
+        self.effect_type, self.target_sel = int(effect_type), target_sel
+        self.amount, self.max_level = amount, max_level
+
+    def execute(self, entities, ectx):
+        state = ectx.state
+        if state is None or state.effects is None:
+            return OperationResult.ok()
+        amt = int(self.amount.evaluate(entities) if hasattr(self.amount, "evaluate") else self.amount)
+        mx = self.max_level
+        if mx is not None:
+            mx = int(mx.evaluate(entities) if hasattr(mx, "evaluate") else mx)
+        for tu in _units_of(self.target_sel, entities):
+            tgt = tu.get("id") if isinstance(tu, dict) else None
+            if tgt is None:
+                continue
+            for eff in state.effects.by_unit.get(int(tgt), []):
+                if eff.consumed or eff.effect_type != self.effect_type:
+                    continue
+                cur = int(eff.level or 0)
+                if mx is None or mx < cur or cur + amt <= mx:      # mirror @180e73cb0
+                    eff.level = cur + amt
+                else:
+                    eff.level = mx
+                ectx.emit("IncreaseEffectLevel", target=tgt, effect_type=self.effect_type,
+                          level=eff.level, amount=amt, max_level=mx)
+        return OperationResult.ok()
+
+
+def add_effect_or_increase_level(effect_type: int, name: str, target_sel: TargetsSelector,
+                                 amount, max_level=None, duration_rounds=0,
+                                 scale_from_source: bool = True):
+    """`DSLFactory.AddEffectOrIncreaseLevel(effectType, stateRef, subject, selector, amount, max)
+    @180de6860` — factory COMPOSITE : le natif alloue un `ForeachBehaviour(selector, Func<entity,
+    behaviour>)` dont le lambda `b__0 @180e25540` construit, PAR ELEMENT :
+
+        If( HasEffect(elem, effectType),
+            IncreaseEffectLevel(elem, effectType, amount, max),      # then
+            AddEffect(effectType, stateRef, subject, elem, {level = amount}) )   # else
+
+    On MIRRORE cet arbre (Foreach + If/else + les 2 feuilles) au lieu de le collapser : c'est un noeud de
+    la FACTORY, pas une Operation. Call-sites portes : `TerrifyingCrescendoAbility.CreateBehaviour
+    @1811a3840` (0x590=1424, amount=Const(1)@0xc0, max=Direct(GetNumberConstant(0x62)=buffMaxLevel)) ;
+    `HeadClaimerAbility.CreateBehaviour @181220e30` (0x404/0x405, amount=Const(1), max=NULL).
+
+    `duration_rounds=0` = la duree ZERO du natif (l'options-struct ne porte pas de `TurnsFromRounds`) ->
+    `remaining=0` = PERMANENT cote port (`EffectFactory.create` mappe rem<=0 -> None), conforme au live
+    (`TerrifyingCrescendo` rem=0, buff cumulatif sur la bataille)."""
+    from ....entities.behaviours import Foreach, If as IfBehaviour
+    from ....entities.selectors import Subject
+    from ....entities.triggers import HasEffect
+    return Foreach(target_sel, lambda _sub: IfBehaviour(
+        HasEffect(Subject(), int(effect_type)),
+        IncreaseEffectLevel(effect_type, Subject(), amount, max_level),
+        AddEffect(effect_type, name, Subject(), duration_rounds=duration_rounds,
+                  level=amount, scale_from_source=scale_from_source)))
 
 
 class RemoveEffect(AbilityBehaviour):
@@ -128,7 +240,13 @@ class RemoveEffect(AbilityBehaviour):
     effets du type `effect_type` (non consommes) et ANNULE leur StatModification (`<Effect>.RevertInternal`).
     `target` = `target_sel` (ex. `Caster()`/`Self@0x148` pour le reset ActOfFaith @181219eb0). Wrapper au-dessus
     de l'Operation impurative `revert_change_stat` (mirror exact de l'ancien `_reset_act_of_faith`). No-op si
-    `state.effects`/cible absents. Emet 'RemoveEffect' (removed = nb de stacks retires). Effet PUR (stop=False).
+    `state.effects`/cible absents. Emet 'RemoveEffect' PAR CIBLE (removed = nb de stacks retires). Effet PUR
+    (stop=False).
+
+    Le natif ITERE son selecteur-cible (`RemoveEffectsBehaviour`, meme mold que `AddEffectBehaviour`) : le port
+    itere donc `_units_of(target_sel)` — les call-sites MONO-cible historiques (`Caster()`) rendent une liste
+    d'1 element -> chemin bit-IDENTIQUE ; le call-site MULTI-cible est
+    `MasterAnnihilatorAbility.CreateBehaviour @18110b940` (`OwnerOfEffect(EffectsFromUnitSource(...))`).
 
     Frontiere classification (#149) : le NOEUD `RemoveEffect` (declaratif) au-dessus ; `ReverseModification`
     (revert par-source, impuratif) EN DESSOUS. L'effet DECLARE ses StatTypes revertes (`reverted_stats()`, DATA
@@ -145,22 +263,22 @@ class RemoveEffect(AbilityBehaviour):
         state = ectx.state
         if state is None or state.effects is None:
             return OperationResult.ok()
-        tu = resolve_unit(self.target_sel, entities)
-        tgt = tu.get("id") if tu else None
-        if tgt is None:
-            return OperationResult.ok()
-        removed = 0
-        for eff in state.effects.by_unit.get(int(tgt), []):
-            if eff.consumed or eff.effect_type != self.effect_type:
+        for tu in _units_of(self.target_sel, entities):     # natif : ITERE le selecteur-cible
+            tgt = tu.get("id") if isinstance(tu, dict) else None
+            if tgt is None:
                 continue
-            # revert par SOURCE (ReverseModification) : la valeur se re-clampe au read, sans delta stocke.
-            src = getattr(eff, "stat_mod_source", None)
-            if src is not None:
-                for stat in eff.reverted_stats():
-                    revert_change_stat(state, tgt, stat, src)
-            eff.consumed = True
-            removed += 1
-        ectx.emit("RemoveEffect", target=tgt, effect_type=self.effect_type, removed=removed)
+            removed = 0
+            for eff in state.effects.by_unit.get(int(tgt), []):
+                if eff.consumed or eff.effect_type != self.effect_type:
+                    continue
+                # revert par SOURCE (ReverseModification) : la valeur se re-clampe au read, sans delta stocke.
+                src = getattr(eff, "stat_mod_source", None)
+                if src is not None:
+                    for stat in eff.reverted_stats():
+                        revert_change_stat(state, tgt, stat, src)
+                eff.consumed = True
+                removed += 1
+            ectx.emit("RemoveEffect", target=tgt, effect_type=self.effect_type, removed=removed)
         return OperationResult.ok()
 
 

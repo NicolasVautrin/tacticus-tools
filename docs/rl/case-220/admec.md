@@ -50,12 +50,15 @@ compteur TotalRepairActionsAmount (souvent 0 offline). Risques : longueur croiss
 Subtraction(Blocking).
 ```
 ```
-[MasterAnnihilator | admecDominus passif]  — [opus]+prérequis (consommation DÉJÀ validée)
+[MasterAnnihilator | admecDominus passif]  — **PORTE + VALIDE LIVE (#222)**
 VAs : CreateTrigger @18110ba90 ; CreateBehaviour @18110b940 ; effet @180f58d50/@180f58f40
-L'effet-marqueur 1249 (+1 coup, non-Psychic, first-hit) est PORTÉ+CONSOMMÉ (hits.py:569,
-factory.py:247, ground-truth step-6 seed777). Manque la POSE : On(0x26) attaque normale de Vitruvius
-→ RemoveEffect(ancien 1249 posé par LUI — remove-by-source) + AddEffect(1249, cible). Prérequis :
-entrée ABILITY_TRIGGERS + primitive remove-effect-by-source ; cap 5456 non modélisé (TODO hits.py:578).
+L'effet-marqueur 1249 (+1 coup, non-Psychic, first-hit) etait PORTE+CONSOMME ; la POSE est desormais
+cablee : On(0x26) attaque normale de Vitruvius -> RemoveEffect(OwnerOfEffect(EffectsFromUnitSource(
+Self,1249)), 1249) + AddEffect(1249, Target()). Prerequis LEVES : entree ABILITY_TRIGGERS +
+selecteurs EffectsFromUnitSource/OwnerOfEffect + RemoveEffect multi-cible. Live : le marqueur SE
+DEPLACE (u77->u79->u77), level 1 rem 0, jamais en double ; un marqueur d'AUTRE source n'est pas retire.
+Residus : remove-self a la mort de la source (@180f58f40) ; cap 5456 non modelise (TODO hits.py).
+cf. case-222-maillons-de-pose.md §1.
 ```
 ```
 [OptimizedGait | admecRuststalker passif]  — [fable]

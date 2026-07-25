@@ -138,6 +138,12 @@ class DslContext:
     tile_has_effect: object | None = None
     # Effet COURANT (EffectSource/EffectLevel) — n'existe qu'en application d'effet ; défaut None.
     effect: object | None = None
+    # Accès aux INSTANCES d'effet par SOURCE (mirror `DSLFactory.EffectsFromUnitSource @180deec70` =
+    # `EffectWithTypeSelector(source, effectType)`) : `effects_from_source(source_unit, effectType)`
+    # -> list[{"effect_type", "source", "owner_id"}] (une entrée par instance d'effet ACTIVE dont le
+    # `EffectComponent.SourceUnit` == `source_unit`). Défaut None -> sélecteur dégradé [] (documenté par
+    # nœud). Fourni par la couche runner (`entities_from_state`, lit `state.effects`).
+    effects_from_source: object | None = None
     # Faction (`FactionId` gameconfig) PAR UNITÉ (mirror `DSLFactory.UnitsFromFaction`, qui compare vs
     # `Enum.ToString(UnitFaction)` = le NOM de faction) — hors state standard, comme `has_trait`/`get_stat`.
     # `faction_of(unit)->str|None` défaut None → faction inconnue (UnitsFromFaction rend vide). Fourni par la

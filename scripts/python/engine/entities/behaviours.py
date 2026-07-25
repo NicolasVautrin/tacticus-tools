@@ -59,7 +59,12 @@ class Foreach(AbilityBehaviour):
     evalue `selector` (noeud SELECTEUR `TargetsSelector` -> liste), puis DANS L'ORDRE DU SELECTEUR (pas de tri) reconstruit
     `entities` (subject = element courant, `DSLFactory.Entity`) et execute `body`. `body` = un
     `AbilityBehaviour` STATIQUE, ou un Callable(entities_subject) -> AbilityBehaviour (corps dependant de
-    l'element, ex. le `Func<entities,behaviour>` de `TauntWithNewChildrenWhoDidDamage`)."""
+    l'element, ex. le `Func<entities,behaviour>` de `TauntWithNewChildrenWhoDidDamage`).
+
+    NORMALISATION du selecteur (mirror du contrat natif `TargetsSelector` = IEnumerable) : un selecteur
+    MONO-ENTITE (`Caster()`/`Target()`/`Subject()`, qui rend un DICT d'unite) compte pour UN element --
+    sinon Python itererait les CLES du dict. Cas reel : `AddEffectOrIncreaseLevel @180de6860` construit
+    `Foreach(self@0x148, ...)` sur un selecteur mono-entite."""
     __slots__ = ("selector", "body")
 
     def __init__(self, selector: TargetsSelector, body):
@@ -67,7 +72,9 @@ class Foreach(AbilityBehaviour):
 
     def execute(self, entities, ectx):
         res = OperationResult.ok()
-        for item in (self.selector.evaluate(entities) or []):
+        raw = self.selector.evaluate(entities)
+        items = [] if raw is None else ([raw] if isinstance(raw, dict) else list(raw))
+        for item in items:
             sub = replace(entities, subject=item)    # rebuild entities (subject swap), mirror Entity()
             node = self.body(sub) if callable(self.body) else self.body
             res = res.combine(node.execute(sub, ectx))
@@ -75,17 +82,22 @@ class Foreach(AbilityBehaviour):
 
 
 class If(AbilityBehaviour):
-    """`If(cond, then)` natif (predicat LAZY + branche a EFFET) : execute `then` SSI `cond.evaluate`
-    est vrai. `cond` = noeud PREDICAT (`AbilityTrigger`, evaluate/should_trigger -> bool). Sans branche
-    `else` (les behaviours GetEmRuntz / `TauntWithNewChildrenWhoDidDamage` @1811e27a0 n'en ont pas)."""
-    __slots__ = ("cond", "then")
+    """`DSLFactory.If(cond, then[, else]) @180df1960` (predicat LAZY + branches a EFFET) : execute `then`
+    SSI `cond.evaluate` est vrai, sinon `otherwise` s'il existe. `cond` = noeud PREDICAT (`AbilityTrigger`,
+    evaluate/should_trigger -> bool). La branche `else` est le 4e argument natif : ABSENTE (0) sur
+    GetEmRuntz / `TauntWithNewChildrenWhoDidDamage` @1811e27a0 / la rotation FleshmetalGuns @18121f6e0,
+    PRESENTE sur le lambda `AddEffectOrIncreaseLevel b__0 @180e25540`
+    (`If(HasEffect, IncreaseEffectLevel, AddEffect)`)."""
+    __slots__ = ("cond", "then", "otherwise")
 
-    def __init__(self, cond: AbilityTrigger, then: AbilityBehaviour):
-        self.cond, self.then = cond, then
+    def __init__(self, cond: AbilityTrigger, then: AbilityBehaviour, otherwise: AbilityBehaviour = None):
+        self.cond, self.then, self.otherwise = cond, then, otherwise
 
     def execute(self, entities, ectx):
         if self.cond.evaluate(entities):
             return self.then.execute(entities, ectx)
+        if self.otherwise is not None:
+            return self.otherwise.execute(entities, ectx)
         return OperationResult.ok()
 
 

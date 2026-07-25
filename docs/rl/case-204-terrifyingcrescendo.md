@@ -174,6 +174,10 @@ le port est byte-inerte. **#204 introduit ZERO nouveau mismatch.**
 - **Double-increment overkill+suppress dans un meme tir** : le natif a DEUX branches OR ; un tir qui touche
   ET overkill pourrait incrementer 2x. Non isole ici (setup no-kill = suppress-only, +1/round). Sans impact
   sur le port (on lit le level abouti, pas le compteur). A explorer si un scenario overkill est requis.
-- **Accumulation offline auto-simulee** : NON portee (comme BeaconOfRage rage) — le runner LIVE incremente,
-  l'offline lit le level capte. Un runner offline pur ne verrait pas le stack croitre sans une operation-
-  trigger dediee (candidat futur, hors #204).
+- ~~**Accumulation offline auto-simulee** : NON portee~~ -> **CLOS par #222** (`case-222-maillons-de-pose.md`
+  §3) : les deux branches de `CreateTrigger @1811a3910` sont portees
+  (`runner/operations/triggers/loki/terrifying_crescendo.py`, `ABILITY_TRIGGERS["TerrifyingCrescendo"]`),
+  avec les DEUX vecteurs d'evenement qui manquaient (`On(UnitDeath=0)` et `On(PreEffectAdded=0x3e)`) et la
+  factory `AddEffectOrIncreaseLevel` (increment +1, cap `buffMaxLevel=6`, clamp mirror
+  `IncreaseEffectLevelOperation.Execute @180e73cb0`). Confronte LIVE : 8 tirs suppress natifs ->
+  stack 1,2,3,4,5,6,6,6 ; port offline 1,2,3,4,5,6,6,6,6. Le branche OVERKILL reste NON exercee.
