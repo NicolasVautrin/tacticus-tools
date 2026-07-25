@@ -45,7 +45,8 @@ from .combat import (AttackWithAttackDamage, AttackWithAbilityDamage, EvaluateAb
                      UseActiveAbility, InformWeapon)
 from .effects import (AddBondEffect, AddEffect, RemoveEffect, SetOnFire, CreateShield,
                       _add_effect_targets, _add_effect_target_id)
-from .stats import Heal, ChangeStat, SetHealth, SubtractHealthPercent, is_mechanical, healable_heal_type_0
+from .stats import (Heal, ChangeStat, SetHealth, SubtractHealthPercent, is_mechanical,
+                    healable_heal_type_0, RefreshDynamicStatModifierValue)
 from .movement import PushUnit, MoveUnit
 from .lifecycle import KillDeadUnits, RemoveUnit
 
@@ -56,6 +57,7 @@ __all__ = [
     "InformWeapon",
     "AddBondEffect", "AddEffect", "RemoveEffect", "SetOnFire", "CreateShield",
     "Heal", "ChangeStat", "SetHealth", "SubtractHealthPercent", "is_mechanical", "healable_heal_type_0",
+    "RefreshDynamicStatModifierValue",
     "PushUnit", "MoveUnit",
     "KillDeadUnits", "RemoveUnit",
 ]

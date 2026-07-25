@@ -43,6 +43,10 @@ from .lord_of_tempests import (LordOfTempestsAddIceAbility, lord_of_tempests_add
                                ICE_TILE, SMITE_KIND)
 from .suppressive_fire import (SuppressiveFireAddEffectAbility, suppressive_fire_tree,
                                PINNED as SUPPRESSIVEFIRE_PINNED)
+from .death_nova import (ExplodesAbility, PutridExplosionAbility,
+                         explodes_tree, putrid_explosion_tree,
+                         EXPLODES_ABILITY, PUTRID_ABILITY, EXPLODES_PROFILE,
+                         RAMMING_SPEED_EXTRA_EXPLODE)
 
 __all__ = [
     # psyker
@@ -77,4 +81,7 @@ __all__ = [
     "LordOfTempestsAddIceAbility", "lord_of_tempests_add_ice_tree", "ICE_TILE", "SMITE_KIND",
     # suppressive_fire (#74 — trait SuppressiveFire 1010 -> triggered 1044 pose Pinned 1065)
     "SuppressiveFireAddEffectAbility", "suppressive_fire_tree", "SUPPRESSIVEFIRE_PINNED",
+    # death_nova — traits Explodes (1008 -> 1021) et PutridExplosion (2028 -> 1074), event PreUnitDeath_2
+    "ExplodesAbility", "PutridExplosionAbility", "explodes_tree", "putrid_explosion_tree",
+    "EXPLODES_ABILITY", "PUTRID_ABILITY", "EXPLODES_PROFILE", "RAMMING_SPEED_EXTRA_EXPLODE",
 ]

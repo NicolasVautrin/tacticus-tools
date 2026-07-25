@@ -54,6 +54,21 @@ class If(AAmountFormula):
         return (self.a if self.cond.evaluate(ctx) else self.b).evaluate(ctx)
 
 
+class ConditionalAmount(AAmountFormula):
+    """`DSLFactory.ConditionalAmount(cond, ifTrue, ifFalse) @180dec5c0` (ctor gshared MISLABELE
+    « ModuloAbilityTrigger » dans ghidra -- structure lue, jamais le nom) : noeud VALEUR ternaire.
+    Factory native DISTINCTE de `DSLFactory.If @180df1960` (meme semantique cond?a:b, autre singleton) ;
+    on la porte sous SON nom pour que les arbres qui la citent restent des homonymes 1:1.
+    Consommateur porte : `ExplodesAbility.CreateBehaviour @18121e450` (`ConditionalAmount(HasEffect(Self,
+    1098 RammingSpeed_ExtraExplode), ConfigConst(1059 RammingSpeed, extraDmgPct), Get(0))`).
+    Evaluation PARESSEUSE de la branche prise (comme `If`)."""
+    def __init__(self, cond, a: AAmountFormula, b: AAmountFormula):
+        self.cond, self.a, self.b = cond, a, b
+
+    def calculate(self, ctx):
+        return (self.a if self.cond.evaluate(ctx) else self.b).evaluate(ctx)
+
+
 class Max(AAmountFormula):
     """`DSLFactory.Max(a,b) @180df62e0` : `max(a,b)` (singleton DAT_1832457c8, usage prouvé via
     `NonLethalDamage = Min(Max(HP-1, 0), dmg)`)."""

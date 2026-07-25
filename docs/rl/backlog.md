@@ -40,6 +40,30 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   blackrage`, candidat remonté par PR #12) : le playbook décision gate à 0.5 fixe alors que la RE combat
   montre un hpPct par niveau — correct seulement au niveau max. N'affecte pas le guard (Lucien caste à
   hp=1). À corriger si un walk à niveau intermédiaire l'exerce. `[opus]`.
+- **Étage d'ARRONDI `Fix64.Round` du multiplicateur, non matérialisé quand la %-list est VIDE**
+  (`case-death-nova-explodes-putridexplosion` §3.1) : `CalculateBaseDamageWithAllModifiers @18102d3f0`
+  applique **inconditionnellement** `Fix64.Round(Mul(v, multiplier), AwayFromZero)` (slot 0x10 ->
+  `CalculateBaseDamageWithModifiers @1810021c0`, `Round` @181002308) dès qu'un
+  `Nullable<DamageModifiers>` HasValue ; le port ne le matérialise que dans `apply_capped_modifiers`
+  **quand la %-list est non vide**, sinon le caller TRONQUE (`op_Explicit` @181564100). Divergence de
+  ±1 quand le produit du perçage tombe juste sous un entier (MESURÉ live : base 200 -> natif 140 vs
+  port 139 ; base 201 -> 141 vs 140). **Corrigé UNIQUEMENT pour la famille ABILITY amount-mode**
+  (`apply_all_modifiers(..., round_materialize=True)` depuis la feuille `AttackWithAbilityDamage`).
+  Reste à mesurer/généraliser : bornes d'attaque NORMALE (`damage_ops:177/179`), ability bounds-mode
+  (`:353`), normal-like (`:472`), additional-hits — tous live-validés bit-exact AVEC la troncature,
+  donc chacun exige sa propre campagne de datapoints discriminants. `[fable]`.
+- **Garde `@0x180e76c9e` de `KillUnitOperation$$Execute` entre `On(1)` et `On(2)`**
+  (`case-death-nova-explodes-putridexplosion` §2.1) : `On(PreUnitDeath=1)` est émis AVANT la garde,
+  `On(2)`/`On(0)`/`On(55)`/`On(54)` DEDANS. Sémantique du lookup (`entities+0xa8` indexé par une clé du
+  singleton de bataille) NON résolue -> savoir si un REVIVE déclenché sur `On(1)` court-circuite
+  `On(2)`/`On(55)` reste OUVERT. Le port émet les trois inconditionnellement (== comportement déjà en
+  place pour `On(55)`). À trancher avec **#66-r** (retrofit REVIVE). `[fable]`.
+- **Migration du DoT de tuile `EnvFireTile` vers la route `AbilityDamageOperation`**
+  (`case-death-nova-explodes-putridexplosion` §3) : `DSLFactory.AttackWithAbilityDamage @180de9e50`
+  construit `AbilityDamageBehaviour` + `AttackBehaviour` -> `AbilityDamageOperation`, alors que le port
+  du feu route encore sur `execute_direct` (perçage/armure SEULS : ni mods défenseur, ni block, ni
+  bouclier, ni cap Resilient). Numériquement équivalent pour une source TUILE dans les mesures
+  existantes, mais latent. `[opus]`.
 - **Fork de port `PerformAIAttackFromCurrentPosition`** (`case-217-thequickening` §5, finding
   relecture au merge PR #11) : 2 mirrors du même nœud natif (`loki/summon.py` #202-C avec dispatch
   after-hit vs `quickening.py::_free_melee_attack` #217 sans) → unifier en une feuille unique

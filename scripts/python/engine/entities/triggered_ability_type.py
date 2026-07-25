@@ -622,6 +622,16 @@ def triggered_ability_ids(visual_id: str | None) -> list[int]:
 TRAIT_TRIGGERED_ABILITY_IDS: dict[str, tuple[int, ...]] = {
     "Psyker": (int(TriggeredAbilityType.PsykerExtraAttack),),        # 1013 (splash Smite)
     "TerminatorArmour": (int(TriggeredAbilityType.TerminatorArmour),),   # 1142 (réduction dégât)
+    # DEATH-NOVA — mappings du registre natif `StaticBattleRules.Trait$$.cctor` @18157f650, lu par
+    # `Trait$$GetTriggeredAbility` @18157ed10 et matérialisé par `AddTraitOperation$$AddDerivedAbilities`
+    # @180e513c0 : trait `Explodes` (UnitTrait 1008) -> 1021, trait `PutridExplosion` (UnitTrait 2028) -> 1074.
+    # ⚠ MESURE d'inertie (vérifiée) : `PlaybookDatabase.LoadPlaybook` n'a AUCUN playbook pour 1021/1074 (aucun
+    # symbole `Explodes*Playbook`/`PutridExplosion*Playbook` dans le binaire) -> le dispatcher natif
+    # `TriggeredAbilitiesUtility` SKIPPE ces ids (`if (playbook == null) continue`). L'ajout ici est donc le
+    # mirror FIDÈLE du contenu de l'AbilitiesComponent (et le socle de tout futur consommateur), mais reste
+    # OBSERVABLEMENT INERTE côté utilité — comme dans le jeu.
+    "Explodes": (int(TriggeredAbilityType.Explodes),),                     # 1021 (nova de mort)
+    "PutridExplosion": (int(TriggeredAbilityType.PutridExplosion_Ability),),  # 1074 (nova de mort Toxic)
 }
 
 
