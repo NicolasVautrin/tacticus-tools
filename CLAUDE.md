@@ -352,6 +352,19 @@ Le `<HASH>` du dossier change à chaque mise à jour. **Tant que cette procédur
 passée, toute analyse offline est fausse** (adresses 100 % périmées) et les artefacts
 estampillés refusent de servir — c'est voulu, ils échouent FORT plutôt que de mentir.
 
+**Deux familles de TSV, à ne pas confondre** (le mot « dump » est surchargé) :
+
+| artefact | produit par | consommé par |
+|---|---|---|
+| `data/il2cpp_{methods,classes,enums}.tsv` | `preprocess_il2cpp_dump.py` (depuis le dump Frida) | **Ghidra**, pour nommer les fonctions |
+| `data/symbols/<HASH>/functions.tsv` | `ghidra_symbols.py dump` (**extraction DE Ghidra**) | **nos outils offline** : `whereis`, migrateur, probes |
+
+**Aucun des deux ne nourrit Frida.** Frida est la SOURCE de la chaîne (le one-shot lit les
+métadonnées du runtime IL2CPP), et les hooks live, eux, résolvent leurs cibles au runtime via
+`findMethod` — jamais depuis un fichier. La seconde table existe parce que **Ghidra apporte
+les frontières de fonctions** : la table Frida ne connaît que les points d'entrée, Ghidra seul
+permet de situer une adresse À L'INTÉRIEUR d'une fonction (`<symbole>+0x<offset>`).
+
 **Étape 0 — constater.** Comparer le hash installé au hash des artefacts :
 
 ```bash
@@ -382,7 +395,8 @@ au binaire chargé. Démarrer le serveur sur le nouveau projet :
 pwsh -File C:\Users\nicolasv\ghidra-mcp\start-ghidra-mcp.ps1 -Project <chemin\nouveau.gpr>
 ```
 
-**Étape 3 — extraire la table, et la COMMITER** :
+**Étape 3 — EXTRAIRE la table DE Ghidra, et la COMMITER.** Rien n'est relu du jeu ici : on
+sort de Ghidra ce qu'on vient d'y faire entrer, enrichi des frontières de fonctions.
 
 ```bash
 python scripts/python/ghidra_symbols.py dump   # -> data/symbols/<NOUVEAU_HASH>/functions.tsv
