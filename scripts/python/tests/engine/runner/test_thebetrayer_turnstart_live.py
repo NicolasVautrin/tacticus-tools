@@ -1,7 +1,7 @@
 """TheBetrayer (worldKharn) — auto-tour de DÉBUT DE TOUR, confronté au LIVE (replay-diff).
 
 Valide le **vecteur turn-start** (`start_turn_triggers` = `On(0x16)`, émis par `StartTurnOperation`
-@180ea3fb0) + la passive **TheBetrayer** :
+IdunBattle.Operations.StartTurnOperation$$Execute) + la passive **TheBetrayer** :
   - `TheBetrayer_AddEffectAbility` : Kharn gagne la rage `0x4f3` quand il TUE (OnDeath & OwnerIsActor) —
     confirmé : la rage apparaît dans `decisionView.effects` après un kill ;
   - `TheBetrayer_TakeTurnAbility` : au début de SON tour, s'il a la rage, il vise l'unité la plus proche

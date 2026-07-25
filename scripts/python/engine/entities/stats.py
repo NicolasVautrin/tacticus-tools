@@ -16,7 +16,7 @@ from typing import Dict, Optional
 
 class StatType(IntEnum):
     """`StatType` natif — mirror COMPLET (dump.cs TypeDefIndex 24354 ; index du `switch` de
-    `GetStatComponent @180ed20c0` / `GetStatOverride @180ed2800` + `STAT_IDS` du RPC combatSnapshot).
+    `IdunBattle.Entities.UnitExtensions$$GetStatComponent` / `IdunBattle.Entities.UnitExtensions$$GetStatOverride` + `STAT_IDS` du RPC combatSnapshot).
     Convention port = UPPER_CASE (le natif est PascalCase). #157 : complété 15/18-26 (avant : trous
     comblés par des constantes hex mortes STAT_EXTRA_* éparses, retirées)."""
     ATTACK = 0
@@ -32,7 +32,7 @@ class StatType(IntEnum):
     CRIT_DAMAGE = 10
     UNUSED_1 = 11
     TURNS_STARTED = 12      # 0xc — compteur per-unit `UnitComponent.turnsStarted@+0x58` (incr. StartTurn) ;
-                            # exposé via `UnitTurnsStartedFormula.Calculate @180f2d6c0` = `GetStat(unit,0xc)`.
+                            # exposé via `IdunBattle.Entities.Formulas.UnitTurnsStartedFormula$$Calculate` = `GetStat(unit,0xc)`.
                             # Base des hits Executioner (RoundsStarted). Capté par combatSnapshot (#122).
     PASSIVE_ABILITY_LEVEL = 13
     PASSIVE_ABILITY_VARIABLE_MULTIPLIER_PERCENTAGE = 14
@@ -51,8 +51,7 @@ class StatType(IntEnum):
 
 
 class StatPart(IntEnum):
-    """`StatPart` natif — mirror COMPLET (dump.cs TypeDefIndex 24355 ; `StatComponent.GetStatPart
-    @180fa8bb0`). CURRENT=0 = résolu (Initial+Σmods) ; INITIAL=3 = base ; MODIFICATION=5 = total des
+    """`StatPart` natif — mirror COMPLET (dump.cs TypeDefIndex 24355 ; `IdunBattle.Entities.Components.StatComponent$$GetStatPart`). CURRENT=0 = résolu (Initial+Σmods) ; INITIAL=3 = base ; MODIFICATION=5 = total des
     mods ; OVERRIDE=7."""
     CURRENT = 0
     CURRENT_PCT = 1
@@ -68,8 +67,8 @@ class StatPart(IntEnum):
 
 class ValueModification:
     """`IdunBattle.Entities.Components.ValueModification` — modifications de stat **attribuées
-    par source** (`Modify @180fadfc0` / `ReverseModification @180fae2d0` /
-    `GetModificationFromEntity @180fadf10` / `get_Modifications @180fae5a0`).
+    par source** (`IdunBattle.Entities.Components.ValueModification$$Modify` / `IdunBattle.Entities.Components.ValueModification$$ReverseModification` /
+    `IdunBattle.Entities.Components.ValueModification$$GetModificationFromEntity` / `IdunBattle.Entities.Components.ValueModification$$get_Modifications`).
 
     Layout natif : `total`(+0x0, int) = Σ sur les sources ; `per_source`(+0x8) =
     `Dict<sourceEntity, Modifier>`. Chaque source contribue une valeur ; `total` en est la somme.
@@ -87,12 +86,12 @@ class ValueModification:
         self.per_source: Dict[object, int] = dict(per_source) if per_source else {}
 
     def modify(self, source: object, amount: int) -> None:
-        """`ValueModification.Modify @180fadfc0` (branche additive) : SET la contribution de `source`
+        """`IdunBattle.Entities.Components.ValueModification$$Modify` (branche additive) : SET la contribution de `source`
         à `amount` (nouvelle source → ajout ; existante → remplacement), `total = total - old + amount`.
 
         ISO natif : le natif garde `if (param_3 != 0)` ⇒ `Modify(*, 0)` est un **no-op** (retirer une
         source passe par `reverse_modification`, jamais par `Modify(*, 0)` ; confirmé
-        `ReverseModification @180fae2d0`). La branche **MultiplyModifier** native (`isMult`/`multVal`,
+        `IdunBattle.Entities.Components.ValueModification$$ReverseModification`). La branche **MultiplyModifier** native (`isMult`/`multVal`,
         param_4/param_5) n'est PAS portée — additif seulement (couvre les stat-mods seedés + additifs)."""
         amount = int(amount)
         if amount == 0:                              # garde native `if (param_3 != 0)` -> no-op
@@ -102,21 +101,21 @@ class ValueModification:
         self.total += amount - old
 
     def reverse_modification(self, source: object) -> None:
-        """`ValueModification.ReverseModification @180fae2d0` : retire la contribution d'UNE source
+        """`IdunBattle.Entities.Components.ValueModification$$ReverseModification` : retire la contribution d'UNE source
         (`total -= sa value`)."""
         old = self.per_source.pop(source, 0)
         self.total -= old
 
     def get_modification_from_entity(self, source: object) -> int:
-        """`ValueModification.GetModificationFromEntity @180fadf10` : contribution d'une source
+        """`IdunBattle.Entities.Components.ValueModification$$GetModificationFromEntity` : contribution d'une source
         (0 si absente)."""
         return self.per_source.get(source, 0)
 
 
 class ValueOverride:
     """`IdunBattle.Entities.Components.ValueOverride` — valeur d'override optionnelle + flag
-    modifiable (`GetOverrideValueWithModification @180fae700`, `SetOverride @180faea70`,
-    `RemoveOverride @180fae930`). `override = None` → pas d'override (cas normal)."""
+    modifiable (`IdunBattle.Entities.Components.ValueOverride$$GetOverrideValueWithModification`, `IdunBattle.Entities.Components.ValueOverride$$SetOverride`,
+    `IdunBattle.Entities.Components.ValueOverride$$RemoveOverride`). `override = None` → pas d'override (cas normal)."""
     __slots__ = ("override", "is_modifiable")
 
     def __init__(self, override: Optional[int] = None, is_modifiable: bool = True):
@@ -127,7 +126,7 @@ class ValueOverride:
         return self.override is not None
 
     def get_override_value_with_modification(self, mod_total: int) -> Optional[int]:
-        """`ValueOverride.GetOverrideValueWithModification @180fae700` :
+        """`IdunBattle.Entities.Components.ValueOverride$$GetOverrideValueWithModification` :
         `override + (isModifiable ? mod_total : 0)`, ou `None` si pas d'override."""
         if self.override is None:
             return None
@@ -139,7 +138,7 @@ class StatComponent:
 
     Layout natif : `+0x48`=Initial (base), `+0x10`=ValueModification (`modification`),
     `+0x20`=ValueOverride (`override`), clamp via virtuels GetMin/GetMaxValue (`+0x1b8/+0x1c8`).
-    `get_current_value @180fa91d0` : `override ?? (Initial + modTotal)`, puis `GetClampedValue`.
+    `get_current_value IdunBattle.Entities.Components.StatComponent$$get_CurrentValue` : `override ?? (Initial + modTotal)`, puis `GetClampedValue`.
     """
     __slots__ = ("initial", "modification", "override", "min_value", "max_value")
 
@@ -154,7 +153,7 @@ class StatComponent:
         self.max_value = max_value
 
     def get_clamped_value(self, raw: int) -> int:
-        """`StatComponent.GetClampedValue @180fa8aa0` = `Min(max, Max(min, raw))` (min/max =
+        """`IdunBattle.Entities.Components.StatComponent$$GetClampedValue` = `Min(max, Max(min, raw))` (min/max =
         virtuels par-stat ; la plupart min=0, max=+inf)."""
         v = int(raw)
         if self.min_value is not None:
@@ -164,14 +163,14 @@ class StatComponent:
         return v
 
     def get_current_value(self) -> int:
-        """`StatComponent.get_CurrentValue @180fa91d0`."""
+        """`IdunBattle.Entities.Components.StatComponent$$get_CurrentValue`."""
         mod = self.modification.total
         ovr = self.override.get_override_value_with_modification(mod)
         raw = ovr if ovr is not None else (self.initial + mod)
         return self.get_clamped_value(raw)
 
     def get_stat_part(self, part: int, source: object = None) -> int:
-        """`StatComponent.GetStatPart @180fa8bb0`. Current(0/2)→CurrentValue ; Initial(3)→Initial ;
+        """`IdunBattle.Entities.Components.StatComponent$$GetStatPart`. Current(0/2)→CurrentValue ; Initial(3)→Initial ;
         5/9→total des modifications (ou contribution d'une `source` si fournie) ; 7→override ;
         4→0."""
         p = int(part)
@@ -190,18 +189,17 @@ class StatComponent:
         raise ValueError(f"StatPart {p} non implemente (StatComponent)")
 
     def modify(self, source: object, amount: int) -> None:
-        """`ChangeStat` (apply, part 5/9) → `ValueModification.Modify @180fadfc0` : écrit `amount`
+        """`ChangeStat` (apply, part 5/9) → `IdunBattle.Entities.Components.ValueModification$$Modify` : écrit `amount`
         (delta additif) attribué à `source` dans la modification du stat."""
         self.modification.modify(source, int(amount))
 
     def revert(self, source: object) -> None:
-        """`ChangeStat` (revert, part 6) → `ValueModification.ReverseModification @180fae2d0` : retire
+        """`ChangeStat` (revert, part 6) → `IdunBattle.Entities.Components.ValueModification$$ReverseModification` : retire
         la contribution de `source`."""
         self.modification.reverse_modification(source)
 
     def apply_override(self, value: int, is_modifiable: bool = True) -> None:
-        """`StatComponent.ApplyModifier @180fa8800` part **7 = OVERRIDE** → `ValueOverride.SetOverride
-        @180faea70` : pose la valeur d'override du stat. `is_modifiable=True` (cas MV71 InitialDmg,
+        """`IdunBattle.Entities.Components.StatComponent$$ApplyModifier` part **7 = OVERRIDE** → `IdunBattle.Entities.Components.ValueOverride$$SetOverride` : pose la valeur d'override du stat. `is_modifiable=True` (cas MV71 InitialDmg,
         flag +0x7c du ChangeStat mode 4) ⇒ `Current = override + modTotal` — les modifications du
         PORTEUR (buffs) continuent de s'appliquer par-dessus l'override (i2 « buffs are taken from
         the Drone »)."""
@@ -209,8 +207,8 @@ class StatComponent:
         self.override.is_modifiable = bool(is_modifiable)
 
     def remove_override(self) -> None:
-        """`StatComponent.ApplyModifier @180fa8800` part **8 = REMOVE_OVERRIDE** →
-        `ValueOverride.RemoveOverride @180fae930` : retire l'override — `Current` redevient
+        """`IdunBattle.Entities.Components.StatComponent$$ApplyModifier` part **8 = REMOVE_OVERRIDE** →
+        `IdunBattle.Entities.Components.ValueOverride$$RemoveOverride` : retire l'override — `Current` redevient
         `Initial + modTotal` (les modifications par-source sont intactes)."""
         self.override.override = None
 
@@ -218,12 +216,12 @@ class StatComponent:
 class FillUpStatComponent:
     """`IdunBattle.Entities.Components.FillUpStatComponent` — stat « qui se remplit » (Health=5,
     et l'index 4), layout distinct de `StatComponent` : `current`(+0x18), base max (+0x10), `maximum`
-    via `get_CurrentMaximumValue @180f9c010` (= base + mod clampé). `GetStatPart @180f9b3a0` :
+    via `IdunBattle.Entities.Components.FillUpStatComponent$$get_CurrentMaximumValue` (= base + mod clampé). `IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart` :
     0→current, 1→pourcentage (`round(max(0, current/max) * 100)`), 2→max courant, **3→champ base
     +0x10** (le max de BASE — PAS le modTotal), 4→max−current, **5/9→modTotal** (+0x28 ; avec `source`
     → `ValueModification.GetModificationFromEntity`), 7→override. (#60 : l'ancien mapping du port
     3→modTotal était une transcription erronée — re-décompilé, part 3 lit `*(comp+0x10)` ; c'est ce
-    part 3 que `SwarmAbility @181225e20` lit sur le GroupUnitComponent = nrOfMembers.)
+    part 3 que `SwarmAbility IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateBehaviour` lit sur le GroupUnitComponent = nrOfMembers.)
 
     Pour la reproduction de la valeur Current (part 0), un `StatComponent` générique suffirait ;
     cette classe est fournie pour la fidélité des parts spécifiques (pourcentage, max)."""
@@ -241,7 +239,7 @@ class FillUpStatComponent:
         return self.current
 
     def get_stat_part(self, part: int, source: object = None) -> int:
-        """`FillUpStatComponent.GetStatPart @180f9b3a0`. Offline `self.maximum` tient lieu de champ
+        """`IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart`. Offline `self.maximum` tient lieu de champ
         base +0x10 ET de max courant (aucun max-mod modélisé) → parts 2 et 3 coïncident (fidèle tant
         qu'aucune modification de maximum n'est portée)."""
         p = int(part)
@@ -267,8 +265,7 @@ class FillUpStatComponent:
 
 
 class UnitStats:
-    """Bloc de stats d'une unité : `StatType → composant`. `get_stat` = `UnitExtensions.GetStat
-    @180ed30d0` (dispatch StatType → composant → `get_stat_part(part)`). Porté par `UnitContext`,
+    """Bloc de stats d'une unité : `StatType → composant`. `get_stat` = `IdunBattle.Entities.UnitExtensions$$GetStat` (dispatch StatType → composant → `get_stat_part(part)`). Porté par `UnitContext`,
     partagé par la prédiction ET le runner."""
     __slots__ = ("components",)
 
@@ -278,7 +275,7 @@ class UnitStats:
 
     def get_stat(self, stat_type: int, stat_part: int = StatPart.CURRENT,
                  source: object = None) -> int:
-        """`UnitExtensions.GetStat @180ed30d0`. Renvoie 0 si le StatType n'a pas de composant
+        """`IdunBattle.Entities.UnitExtensions$$GetStat`. Renvoie 0 si le StatType n'a pas de composant
         (mirror du `default → return 0` natif)."""
         comp = self.components.get(int(stat_type))
         if comp is None:
@@ -318,8 +315,7 @@ class UnitStats:
             comp.modification.reverse_modification(source)
 
     def set_stat_override(self, stat_type: int, value: int, is_modifiable: bool = True) -> None:
-        """`ChangeStat` mode 4 + `Position(statType, part 7 = OVERRIDE)` → `StatComponent.ApplyModifier
-        @180fa8800` case 7 → `ValueOverride.SetOverride @180faea70`. Crée le composant si absent
+        """`ChangeStat` mode 4 + `Position(statType, part 7 = OVERRIDE)` → `IdunBattle.Entities.Components.StatComponent$$ApplyModifier` case 7 → `IdunBattle.Entities.Components.ValueOverride$$SetOverride`. Crée le composant si absent
         (StatType non seedé → base 0, l'override prime de toute façon). Usage : effet MV71
         `InitialDmg` (4 stats du drone overridées aux valeurs CURRENT du parent)."""
         idx = int(stat_type)
@@ -333,18 +329,17 @@ class UnitStats:
         comp.apply_override(int(value), is_modifiable)
 
     def remove_stat_override(self, stat_type: int) -> None:
-        """`ChangeStat` mode 4 + `Position(statType, part 8 = REMOVE_OVERRIDE)` → `ApplyModifier
-        @180fa8800` case 8 → `ValueOverride.RemoveOverride @180fae930`. No-op si composant absent."""
+        """`ChangeStat` mode 4 + `Position(statType, part 8 = REMOVE_OVERRIDE)` → `IdunBattle.Entities.Components.StatComponent$$ApplyModifier` case 8 → `IdunBattle.Entities.Components.ValueOverride$$RemoveOverride`. No-op si composant absent."""
         comp = self.components.get(int(stat_type))
         if comp is not None and isinstance(comp, StatComponent):
             comp.remove_override()
 
     def has_negative_modifier(self, stat_types) -> bool:
-        """`IdunBattle.Entities.Triggers.HasNegativeModifier.ShouldTrigger @180f9db90` — True si l'une des
+        """`IdunBattle.Entities.Triggers.HasNegativeModifier$$ShouldTrigger` — True si l'une des
         stats de `stat_types` (le FILTRE natif) porte AU MOINS UNE modification per-source NEGATIVE (<0).
         Le natif itere le `Dictionary<source, ValueModification>` de la stat de la cible et renvoie true au
         1er `value(@+0x14) < 0` dont le stat(@+0x10) est dans le filtre. Foyer du gate `ConquerorImperative`
-        (@180f39650 : filtre array {4, 16} = ARMOR + FIXED_ARMOR = "cible a l'armure REDUITE"). No-op (False)
+        (IdunBattle.Entities.Effects.Loki.ConquerorImperativeEffect$$CreateDamageModifier : filtre array {4, 16} = ARMOR + FIXED_ARMOR = "cible a l'armure REDUITE"). No-op (False)
         pour une stat absente ou sans modification. Le residu de capture (`CAPTURED_SOURCE`) NEGATIF (cible
         deja debuffee au snapshot, Current < Initial) declenche correctement le gate = fidele."""
         for st in stat_types:
@@ -360,7 +355,7 @@ class UnitStats:
 
     def increment_base(self, stat_type: int, by: int = 1, base_if_absent: int = 0) -> None:
         """Incrémente la valeur de BASE (Initial) d'un stat-compteur BRUT. Mirror du bump inline de
-        `StartTurnOperation.Execute @180ea3fb0` : `*(int*)(unitComp+0x58) += 1` par unité du joueur
+        `IdunBattle.Operations.StartTurnOperation$$Execute` : `*(int*)(unitComp+0x58) += 1` par unité du joueur
         courant (compteur PER-UNIT `turnsStarted`, stat 12 = `GetStat(unit, 0xc)`). Le natif écrit le
         CHAMP BRUT du compteur (PAS une `ValueModification`) → on bump l'`initial` du `StatComponent`,
         pas sa modification. Seede un `StatComponent(base_if_absent)` si le stat est absent (summon frais /
@@ -391,13 +386,13 @@ CAPTURED_SOURCE = "captured"
 _FILLUP_STATS = frozenset({4, 5})
 
 # Plafonds par-stat (virtuel GetMaxValue) : les pourcentages BlockChance/CritChance sont clampés à 100
-# par `GetClampedValue @180fa8aa0` (le reste = pas de plafond). Sert au clamp de `get_current_value`.
+# par `IdunBattle.Entities.Components.StatComponent$$GetClampedValue` (le reste = pas de plafond). Sert au clamp de `get_current_value`.
 STAT_CLAMP_MAX = {7: 100, 9: 100}      # BlockChance / CritChance
 
 # Planchers par-stat (virtuel GetMinValue) : le port seedait TOUT à min 0, mais EXTRA_HITS(17) est
 # NÉGATIF live — preuve #60 (probe_60_swarm) : scarab 3 membres morts → GetStat(17, Current) natif
-# = −3 (stat-mod Swarm_HitReduction @181225e20). Le `Max(0)` natif vit à la FIN de la formule hits
-# (`GetDefaultAttackHits @181032520` : Math.Max(hits, 0)), PAS dans le clamp du stat. None = pas de
+# = −3 (stat-mod Swarm_HitReduction IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateBehaviour). Le `Max(0)` natif vit à la FIN de la formule hits
+# (`IdunBattle.Core.Services.DamagePrediction$$GetDefaultAttackHits` : Math.Max(hits, 0)), PAS dans le clamp du stat. None = pas de
 # plancher ; les stats absentes gardent le min 0 historique (aucun contre-exemple mesuré).
 STAT_CLAMP_MIN = {17: None}            # ExtraHits — négatif (Swarm_HitReduction, #60)
 
@@ -405,7 +400,7 @@ STAT_CLAMP_MIN = {17: None}            # ExtraHits — négatif (Swarm_HitReduct
 def _stat_min(idx: int) -> "Optional[int]":
     return STAT_CLAMP_MIN.get(int(idx), 0)
 
-# Filtre natif du trigger HasNegativeModifier de ConquerorImperative (@180f39650 : array inline {4, 16}) =
+# Filtre natif du trigger HasNegativeModifier de ConquerorImperative (IdunBattle.Entities.Effects.Loki.ConquerorImperativeEffect$$CreateDamageModifier : array inline {4, 16}) =
 # les DEUX stats d'armure — ARMOR(4, "Idun Concept" obsolete, en pratique absente) + FIXED_ARMOR(16, live).
 # "Armure REDUITE" = l'une de ces stats porte >=1 modification per-source <0 (cf. UnitStats.has_negative_modifier).
 ARMOR_STAT_TYPES = (StatType.ARMOR, StatType.FIXED_ARMOR)

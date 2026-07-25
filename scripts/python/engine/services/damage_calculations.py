@@ -6,7 +6,7 @@ from .min_max_damage import MinMaxDamage
 
 
 def calculate_damage_spread(base: int, spread_pct: int = 20) -> int:
-    """DamageCalculations.CalculateDamageSpread (@1810028e0) — ARITHMÉTIQUE Fix64 EXACTE (#30a) :
+    """DamageCalculations.CalculateDamageSpread (IdunBattle.Core.Services.DamageCalculations$$CalculateDamageSpread) — ARITHMÉTIQUE Fix64 EXACTE (#30a) :
         frac  = Fix64Div(FromInt(spread_pct), FromInt(100))   # div ARRONDI (0.2 → raw 858993459),
                                                               # caché Nullable this+0x38 côté natif
         delta = Round(base × frac, AwayFromZero)              # mul TRONQUANT puis Round mode 1

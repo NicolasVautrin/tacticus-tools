@@ -1,9 +1,9 @@
 """TRANCHE ABILITY COMBAT (#217) — TheQuickening (1151, bloodMephiston) : teleport-echange e2e offline.
 
-`TheQuickeningAbility.ExecuteBehaviour @181211d50` : cast TILE-TARGET. Le caster se TELEPORTE sur la tuile
+`IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$ExecuteBehaviour` : cast TILE-TARGET. Le caster se TELEPORTE sur la tuile
 ciblee ; l'unite presente y est ECHANGEE vers la tuile d'origine du caster ; puis caster + unite-echangee
 (SI BloodAngels, `HasFaction 0xe=14`) attaquent en melee depuis leur nouvelle position (Attack OVERRIDE par
-`PercentageOfAttackCappedAtMax @180df8530` = min(maxDmg[lvl]xmult, round(Attack x dmgPct[lvl]/100))).
+`IdunBattleLogic.Entities.DSLFactory$$PercentageOfAttackCappedAtMax` = min(maxDmg[lvl]xmult, round(Attack x dmgPct[lvl]/100))).
 
 MESURE LIVE (probe_217) : SWAP net des positions ; effets Untargetable(0x414)/ForcedInMelee(0x529)/
 TemporaryStatOverride(0x510) TOUS ajoutes ET retires DANS le cast (net-zero, aucun effet persistant).

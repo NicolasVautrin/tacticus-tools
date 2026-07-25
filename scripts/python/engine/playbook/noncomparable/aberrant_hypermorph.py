@@ -9,12 +9,12 @@ from ._base import NCContext, NonComparablePlaybook
 
 
 class AberrantHypermorphPlaybook(NonComparablePlaybook):
-    """AberrantHypermorphPlaybook.EvaluateNonComparable @1811197d0 (action COMPOSEE move+summon).
+    """IdunBattle.AI.Playbook.Loki.AberrantHypermorphPlaybook$$EvaluateNonComparable (action COMPOSEE move+summon).
     Le generator balaie les tuiles de MOVE du caster ; par tuile T, le selector
-    `GetEligibleTargetsSelectable @18111f0d0` rend les tuiles de SPAWN eligibles (ring-1 libre,
+    `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable` rend les tuiles de SPAWN eligibles (ring-1 libre,
     portee=1 — gameconfig 1166 « free adjacent hex ») ; utilite d'un spawn ST = #ennemis adjacents
-    (`GetUtility @181119c10`, slot 126 GetAdjacentEnemies -> Fix64.FromInt). Le caster BOUGE vers la
-    tuile T qui maximise ce count. cctor @181119cd0 : MIN_UTILITY=1.
+    (`IdunBattle.AI.Playbook.Loki.AberrantHypermorphPlaybook$$GetUtility`, slot 126 GetAdjacentEnemies -> Fix64.FromInt). Le caster BOUGE vers la
+    tuile T qui maximise ce count. IdunBattle.AI.Playbook.Loki.AberrantHypermorphPlaybook$$.cctor : MIN_UTILITY=1.
 
     NB abilityTargets.targets = UNION des spawns sur TOUTES les tuiles de move
     (GetAllValidTargetsFromAllPossibleMovementTiles, dist 0-4 de l'origine) — le filtre
@@ -26,7 +26,7 @@ class AberrantHypermorphPlaybook(NonComparablePlaybook):
         spawn_tiles = self._eligible_spawn_tiles(ctx)
         best_t, best_u = None, None
         for T in ctx.reach_nc:   # positions candidates du caster (origine + tuiles de move)
-            # GetUtility @181119c10 (slot 126 GetAdjacentEnemies) = #ennemis adjacents au spawn ST.
+            # IdunBattle.AI.Playbook.Loki.AberrantHypermorphPlaybook$$GetUtility (slot 126 GetAdjacentEnemies) = #ennemis adjacents au spawn ST.
             cnt = [float(bq.count_adjacent(ST, ctx.epos, ctx.elev_by_pos))
                    for ST in spawn_tiles if hexgeo.distance(T, ST) == 1]
             u_ = max(cnt) if cnt else 0.0
@@ -38,7 +38,7 @@ class AberrantHypermorphPlaybook(NonComparablePlaybook):
                  "to": (best_t if best_t != ctx.origin else None), "pred": best_u}]
 
     def _eligible_spawn_tiles(self, ctx: NCContext) -> list[tuple]:
-        """Mirror BasePlaybook.GetEligibleTargetsSelectable @18111f0d0 : union des tuiles de spawn
+        """Mirror IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable : union des tuiles de spawn
         (kind="tile") via l'RPC abilityTargets."""
         if ctx.ability_targets is None:
             return []

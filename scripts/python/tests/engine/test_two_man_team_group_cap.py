@@ -9,12 +9,12 @@ Damage. Once below 50% of its max Health, cannot be healed above 50% of its max 
 EXACTEMENT le comportement du GroupUnitComponent pour `nrOfMembers == 2`, keye sur le NOMBRE DE
 MEMBRES, pas sur le trait :
 
-  - cap par-coup     = `DamagePrediction.ApplyGroupUnitDamageLimit` @18102bfe0
+  - cap par-coup     = `IdunBattle.Core.Services.DamagePrediction$$ApplyGroupUnitDamageLimit
                        -> cap = cumul - maxHealthWith(remaining-1) = 1 membre = 50% de maxHP a 2 membres
   - exclusion Blast  = `DamageProfile.HasTrait(profile, 2)` = `DamageTrait.HitsMultipleMembers`
                        (SEUL le profil `Blast` le porte dans gameconfig) -> early-return, pas de cap
-  - plafond de soin  = `DamagePrediction.GetGroupUnitHealLimit` @1810325e0 (+ `AttackQuery.
-                       IsAtGroupUnitHealLimit` @181057b30) -> maxHealthWith(membres RESTANTS) - hp,
+  - plafond de soin  = `IdunBattle.Core.Services.DamagePrediction$$GetGroupUnitHealLimit (+ `AttackQuery.
+                       IdunBattle.Core.Services.AttackQuery$$IsAtGroupUnitHealLimit) -> maxHealthWith(membres RESTANTS) - hp,
                        soit 50% de maxHP des qu'un des 2 membres est mort
 
 Ces tests VERROUILLENT l'identite numerique "TwoManTeam == group-cap a 2 membres" sur les porteurs

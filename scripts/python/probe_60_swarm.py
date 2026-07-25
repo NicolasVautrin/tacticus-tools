@@ -12,9 +12,9 @@ tour) fait REVIVRE des membres -> variation des deux sens.
 Phases : (1) APPROCHE — avancer le spyder vers sang jusqu'a ce que ScarabHive ait une cible
 legale (abilityTargets) ; (2) CAST 1007 -> scarabs ; (3) MESURE a chaque debut de tour P :
  (a) GROUND TRUTH formule : statDelta.extraHits natif du scarab == -min(n_base-1, membres
-     manquants) (`SwarmAbility.CreateBehaviour @181225e20`) ; manquants lus du stat 20
+     manquants) (`IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateBehaviour`) ; manquants lus du stat 20
      (numberOfMembers Current/delta) ET rederives du hp (`group_unit_stat_part(4, hpMax, n, hp)`
-     mirror @180ed3929/@180f9b3a0) -> doivent coincider (derivation hp->membres == champ
+     mirror IdunBattle.Entities.UnitExtensions$$GetStat+0x859/IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart) -> doivent coincider (derivation hp->membres == champ
      maintenu natif +0x18).
  (b) ATTRIBUTION : apres build_predictor, le stat-17 du scarab est EXPLIQUE par
      SWARM_HIT_REDUCTION_SOURCE (residu CAPTURED_SOURCE == 0) — validation non-circulaire de
@@ -22,7 +22,7 @@ legale (abilityTargets) ; (2) CAST 1007 -> scarabs ; (3) MESURE a chaque debut d
  (c) AGREMENT rows : attaques normales rankees du scarab vs sang, oracle natif == offline
      (TOL 3) — hits reduits (5-k) couverts bout en bout.
  (d) HEAL-LIMIT (discriminant du flag) : rows repair (spyder 28 / manipulus 1119) vs le scarab
-     endommage. `PredictHeal/PredictRepair @181037180/@181038280` gatent le cap groupe par un
+     endommage. `PredictHeal/PredictRepair IdunBattle.Core.Services.DamagePrediction$$PredictHeal/IdunBattle.Core.Services.DamagePrediction$$PredictRepair` gatent le cap groupe par un
      flag d'appel : hp sur une frontiere de membre => group_limit ~0 => fill capee ~0 (flag=1)
      vs fill=min(amt, missing)>0 (flag=0). Rows natives imprimees + les 2 hypotheses -> le flag
      observe fixe _HEAL_GROUP_CAP/_REPAIR_GROUP_CAP (action_generators).
@@ -177,7 +177,7 @@ def _endturn(rpc, rid) -> None:
 
 
 def _repair_eligibility(rpc, rid, caster_ids: list[int], swarm_id: int) -> dict:
-    """GROUND TRUTH eligibilite (`EntityCanBeHealed/Repaired @181054fa0/@181055080` cote natif) :
+    """GROUND TRUTH eligibilite (`EntityCanBeHealed/Repaired IdunBattle.Core.Services.AttackQuery$$EntityCanBeHealed/IdunBattle.Core.Services.AttackQuery$$EntityCanBeRepaired` cote natif) :
     pour chaque repairer, le scarab est-il dans les cibles legales de ses abilities repair ?"""
     out = {}
     for cid in caster_ids:

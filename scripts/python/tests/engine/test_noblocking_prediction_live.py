@@ -2,8 +2,8 @@
 porte `block_raw_min` = base de WillBeKill/killSure) est BYPASSE pour un profil `NoBlocking` (ex.
 `Psychic`), mirror de la face COMBAT #65 (`test_noblocking_bypass_live`).
 
-Racine (RE decompile gqfc5mff6c) : `DamagePrediction.PredictAttackRaw @181032fb0` fait
-`DamageProfile.HasTrait(profile, 0=NoBlocking)` (@181035b9c) puis SKIP toute la boucle de construction
+Racine (RE decompile gqfc5mff6c) : `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` fait
+`DamageProfile.HasTrait(profile, 0=NoBlocking)` (IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x2bec) puis SKIP toute la boucle de construction
 du scenario block (`param_1[10]` ; `if (blockList != 0 && (char)HasTrait == 0) {...}`). La face
 PREDICTION avait le MEME gap que #65 combat : `defender_prediction_block_amount` / `_with_block`
 (`services/damage_prediction.py`, `playbook/prediction/_shared.py`) ne gataient PAS NoBlocking -> une

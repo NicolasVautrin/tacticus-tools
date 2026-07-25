@@ -4,7 +4,7 @@
 Design : p-unit = blackObliterator (Volk, melee 4h Power / ranged 6h HeavyRound R3, MV 2)
 SEUL cote joueur (drive-positions), a-unit cible = bloodSanguinary (cible propre validee #66 :
 non-Mechanical, pas d'hex-effect, pas de reduction defensive). --hp-player 30000 pour encaisser
->=3 rounds. Le CYCLE est natif (`FleshMetalGunsAbility.CreateBehaviour @18121f6e0` :
+>=3 rounds. Le CYCLE est natif (`IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGunsAbility$$CreateBehaviour` :
 UnitTurnsStarted % 3 == 1/2/0 -> AddEffect FocusedMalice 0x42b / RuinousSalvo 0x4bc / WarpHail
 0x4c5) — la branche offline attendue est cle sur l'effet OBSERVE dans decisionView.effects de
 Volk, le cycle observe est logge pour confirmation.
@@ -15,7 +15,7 @@ les tuiles candidates couvrent dist 1 (melee) a 5 (ranged).
 
 Couverture visee (x3 branches Melta/Flame/HeavyRound) :
   - ranged (d_tgt>1)  : natif +nrOfHits{,_2,_3}=2 coups PREDEFINED [minDmg,maxDmg]{,_2,_3}
-                        (@180f48260, trigger OwnerIsCaster & IsRangedAttack) ;
+                        (IdunBattle.Entities.Effects.Loki.BaseFleshmetalGunsEffect$$CreateAdditionalHits, trigger OwnerIsCaster & IsRangedAttack) ;
   - melee  (d_tgt==1) : PAS de groupe (gate IsRangedAttack).
 Counterfactuel : additional_hit_groups de la BASE patche -> None ; divergent EXACTEMENT les
 rows ranged des rounds a effet present (groupes load-bearing), les rows melee restent stables.

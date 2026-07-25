@@ -3,7 +3,7 @@
 Port FIDÈLE au niveau SÉMANTIQUE de l'ECS natif (PAS du layout mémoire octet par
 octet — inutile pour la fidélité comportementale) :
   • Native : entité = table de composants `entity+0xb0` {typeToken, slot}, count
-    `+0x12e`, base `+0x138` ; ajout `Entity$$AddComponent` @181006990.
+    `+0x12e`, base `+0x138` ; ajout `Entity$$IdunBattle.Core.Entity$$AddComponent.
   • Python : `Entity` = id + dict {type_de_composant -> instance}.
 
 `Component` = classe de base ; chaque composant concret (UnitFootComponent,
@@ -32,7 +32,7 @@ class Component:
 
 
 class Entity:
-    """Entité ECS = id + composants typés (mirror Entity$$AddComponent @181006990)."""
+    """Entité ECS = id + composants typés (mirror Entity$$IdunBattle.Core.Entity$$AddComponent)."""
     __slots__ = ("id", "_components")
 
     def __init__(self, entity_id: int):
@@ -40,7 +40,7 @@ class Entity:
         self._components: dict[type, Component] = {}
 
     def add_component(self, comp: Component) -> Component:
-        """mirror Entity$$AddComponent @181006990 (1 composant par type)."""
+        """mirror Entity$$IdunBattle.Core.Entity$$AddComponent (1 composant par type)."""
         self._components[type(comp)] = comp
         return comp
 
@@ -83,7 +83,7 @@ class State:
     (gate « 1er tour » de certaines mécaniques). Vide tant qu'aucun tour n'a été joué via le runner.
 
     `turn_order_player_count` = nb de joueurs du `BC.Player.TurnOrder` dont `PlayerComponent+0x20 != 2`
-    (Environment exclu) — le FACTEUR de `BattleQuery.ConvertRoundsToTurns @181058af0` (`count * rounds`),
+    (Environment exclu) — le FACTEUR de `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` (`count * rounds`),
     donc l'unité de TOUTE durée d'effet exprimée en ROUNDS. Seedé par `load_state` ; None = inconnu →
     `convert_rounds_to_turns` retombe sur l'identité."""
     __slots__ = ("entities", "current_player_id", "_next_entity_id", "effects", "rng", "board",
@@ -103,7 +103,7 @@ class State:
         # `attacker_modifiers` -> gate no-move (HeavyWeapon_ExtraDmg s'annule si l'unite a bouge).
         self.moved_this_turn: set[int] = set()
         # #90/#98 : nb de joueurs du `BC.Player.TurnOrder` de `PlayerType != 2` (Environment exclu) —
-        # le FACTEUR de `BattleQuery.ConvertRoundsToTurns @181058af0` (`count * rounds`). Seede par
+        # le FACTEUR de `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` (`count * rounds`). Seede par
         # `load_state` depuis `observeBattle.counts.player` (moins l'unique joueur Environment
         # permanent) ; None = canal absent -> `convert_rounds_to_turns` retombe sur l'identite (etats
         # construits a la main dans les tests unitaires : comportement historique preserve).

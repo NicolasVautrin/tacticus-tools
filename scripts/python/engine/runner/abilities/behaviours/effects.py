@@ -15,9 +15,9 @@ def _resolve_duration(state, duration_rounds, duration_turns):
 
       * `duration_turns` (prioritaire) = duree DEJA en tours -- mirror d'un noeud `Direct(n)@0xc0` ou
         d'un `Nullable<int>(n)` litteral cote natif : le decompile la met telle quelle dans `param_6`,
-        `AddEffectOperation.Execute @180e48940` ne la convertit PAS.
+        `IdunBattle.Operations.AddEffectOperation$$Execute` ne la convertit PAS.
       * `duration_rounds` = un noeud `TurnsFromRounds(n)` natif -> `convert_rounds_to_turns(state, n)`
-        (`BattleQuery.ConvertRoundsToTurns @181058af0`).
+        (`IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns`).
       * `None` des deux -> pas d'override : la duree vient de `DefaultAmountOfRounds`, convertie DANS
         `AddEffectOperation` (mirror de la branche « pas d'override » du decompile).
     """
@@ -47,7 +47,7 @@ def _source_scaling(state, source_id):
 
 
 class AddBondEffect(AbilityBehaviour):
-    """`DSLFactory.AddBondEffect(0x1b, stateRef, source, target, ..., TurnsFromRounds(1)) @1811e27a0` : pose
+    """`DSLFactory.AddBondEffect(0x1b, stateRef, source, target, ..., TurnsFromRounds(1)) IdunBattleLogic.Entities.Abilities.Active.Loki.GetEmRuntzAbility$$TauntWithNewChildrenWhoDidDamage` : pose
     l'effet BOND `Taunted_OnlySpecificTargets` (0x1b=27, COMPOSITE 25/26/1237) reliant `source` (l'enfant/
     grot) et `target` (`LastUnitAttackedBy` = l'ennemi frappe), duree `TurnsFromRounds(rounds)`. Wrapper
     MINCE au-dessus de `AddEffectOperation.execute` (mirror exact de l'imperatif : source=grot, target=
@@ -62,8 +62,8 @@ class AddBondEffect(AbilityBehaviour):
     prioritaire sur `duration_rounds`. Cf. `_resolve_duration` et `AddEffect`.
 
     Le natif ITERE son selecteur-cible (meme mold qu'`AddEffectBehaviour`) et ses cibles sont des ENTITES
-    (unites OU tuiles) : `MalleusRocketLauncherAbility.ExecuteBehaviour @1811f1d90` et
-    `DevastatingRefrainAbility.ExecuteBehaviour @1811d3730` bondent sur des TUILES. Le port itere donc
+    (unites OU tuiles) : `IdunBattleLogic.Entities.Abilities.Active.Loki.MalleusRocketLauncherAbility$$ExecuteBehaviour` et
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility$$ExecuteBehaviour` bondent sur des TUILES. Le port itere donc
     `_add_effect_targets` / `_add_effect_target_id` (les call-sites MONO-unite historiques — `Target()`,
     `LastUnitAttackedBy(child)` — rendent 1 element -> chemin identique)."""
     __slots__ = ("effect_type", "name", "source_ref", "target_ref", "duration_rounds", "duration_turns")
@@ -84,7 +84,7 @@ class AddBondEffect(AbilityBehaviour):
             return OperationResult.ok()
         # duration_rounds None -> pas d'override = duree DEFAUT (DefaultAmountOfRounds), mirror de l'arg natif
         # duree-node ZERO d'AddBondEffect sans TurnsFromRounds (ValkyrieStrike 1022) ; sinon
-        # `ConvertRoundsToTurns(rounds)` @181058af0 (mirror du noeud `TurnsFromRounds`). `duration_turns`
+        # `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns(rounds) (mirror du noeud `TurnsFromRounds`). `duration_turns`
         # (noeud Direct(n)/Nullable(n), deja en TOURS) est prioritaire et N'EST PAS converti.
         dur = _resolve_duration(state, self.duration_rounds, self.duration_turns)
         for elem in _add_effect_targets(self.target_ref.evaluate(entities)):
@@ -130,7 +130,7 @@ def _add_effect_target_id(elem, state):
 
 
 class AddEffect(AbilityBehaviour):
-    """`DSLFactory.AddEffect @180de6d20` -> `AddEffectBehaviour.Execute` : pose un effet, `source` =
+    """`IdunBattleLogic.Entities.DSLFactory$$AddEffect` -> `AddEffectBehaviour.Execute` : pose un effet, `source` =
     `AbilityStateReference` (= le caster), sur CHAQUE cible du selecteur `target_sel`, duree
     `TurnsFromRounds(rounds)`. Wrapper MINCE au-dessus de `AddEffectOperation.execute` (mirror exact de
     l'imperatif). DIFFERE de `AddBondEffect` (qui LIE source+target = deux unites distinctes) : ici la source
@@ -142,7 +142,7 @@ class AddEffect(AbilityBehaviour):
     - unit-domain (`Target()`/`Subject()`) -> effet sur l'unite (Stunned/Pinned de ThunderousAssault/
       CrushingClaws/SpiritLeech ; selecteurs mono-cible = 1 element -> chemin bit-IDENTIQUE a l'ancien
       `resolve_unit`) ;
-    - tile-domain (`Tiles(Target())` d'OnFireDamage @1811c3a60) -> effet de TUILE (le selecteur rend la
+    - tile-domain (`Tiles(Target())` d'OnFireDamage IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateBehaviour) -> effet de TUILE (le selecteur rend la
       MainTile de la cible ; `_add_effect_target_id` la convertit en id de tuile). MEME `AddEffectOperation`.
 
     `duration_rounds` = nb de rounds (`TurnsFromRounds(rounds)`) ; `None` = duree DEFAUT de l'effet
@@ -152,7 +152,7 @@ class AddEffect(AbilityBehaviour):
     litteral, PAS un `TurnsFromRounds`) — PRIORITAIRE sur `duration_rounds`, cf. `_resolve_duration`.
 
     `level` = niveau de STACK initial (slot niveau de la struct d'options natives) — utilise par la branche
-    AddEffect du lambda `AddEffectOrIncreaseLevel b__0 @180e25540` (la 1re pose demarre au niveau
+    AddEffect du lambda `AddEffectOrIncreaseLevel b__0 IdunBattleLogic.Entities.DSLFactory.u003Cu003Ec__DisplayClass569_0$$u003CAddEffectOrIncreaseLevelu003Eb__0` (la 1re pose demarre au niveau
     = INCREMENT) ; None = pas de niveau porte (tous les autres call-sites).
     `scale_from_source` = le PORT de l'`AbilityStateReference` : l'effet materialise resout ses `ConfigVar`
     contre l'etat d'ability de sa SOURCE (niveau d'ability + multiplier de rarete du caster). Opt-in
@@ -177,7 +177,7 @@ class AddEffect(AbilityBehaviour):
             return OperationResult.ok()
         # duration_rounds None -> pas d'override = duree DEFAUT (DefaultAmountOfRounds), mirror de l'arg natif
         # `0` d'AddEffect sans TurnsFromRounds (Pinned CrushingClaws) ; sinon `ConvertRoundsToTurns(rounds)`
-        # @181058af0. `duration_turns` court-circuite (noeud Direct/Nullable natif, deja en TOURS).
+        # IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns. `duration_turns` court-circuite (noeud Direct/Nullable natif, deja en TOURS).
         dur = _resolve_duration(state, self.duration_rounds, self.duration_turns)
         lvl = (self.level.evaluate(entities) if hasattr(self.level, "evaluate")
                else self.level)
@@ -198,11 +198,11 @@ class AddEffect(AbilityBehaviour):
 
 
 class IncreaseEffectLevel(AbilityBehaviour):
-    """`DSLFactory.IncreaseEffectLevel @180df1d90` -> `IncreaseEffectLevelBehaviour.Execute @180fc7ac0`
-    -> `IncreaseEffectLevelOperation.Execute @180e73cb0` : incremente le NIVEAU (`EffectComponent.Level
+    """`IdunBattleLogic.Entities.DSLFactory$$IncreaseEffectLevel` -> `IdunBattle.Entities.Behaviours.IncreaseEffectLevelBehaviour$$Execute`
+    -> `IdunBattle.Operations.IncreaseEffectLevelOperation$$Execute` : incremente le NIVEAU (`EffectComponent.Level
     @+0x68`) des instances d'effet `effect_type` portees par les cibles du selecteur, avec CAP optionnel.
 
-    Mirror EXACT du clamp natif (@180e73cb0) :
+    Mirror EXACT du clamp natif (IdunBattle.Operations.IncreaseEffectLevelOperation$$Execute) :
     ```
     if (!max.HasValue || max.Value < cur || cur + amount <= max.Value)  level = cur + amount
     else                                                               level = max.Value
@@ -234,7 +234,7 @@ class IncreaseEffectLevel(AbilityBehaviour):
                 if eff.consumed or eff.effect_type != self.effect_type:
                     continue
                 cur = int(eff.level or 0)
-                if mx is None or mx < cur or cur + amt <= mx:      # mirror @180e73cb0
+                if mx is None or mx < cur or cur + amt <= mx:      # mirror IdunBattle.Operations.IncreaseEffectLevelOperation$$Execute
                     eff.level = cur + amt
                 else:
                     eff.level = mx
@@ -246,18 +246,16 @@ class IncreaseEffectLevel(AbilityBehaviour):
 def add_effect_or_increase_level(effect_type: int, name: str, target_sel: TargetsSelector,
                                  amount, max_level=None, duration_rounds=0,
                                  scale_from_source: bool = True):
-    """`DSLFactory.AddEffectOrIncreaseLevel(effectType, stateRef, subject, selector, amount, max)
-    @180de6860` — factory COMPOSITE : le natif alloue un `ForeachBehaviour(selector, Func<entity,
-    behaviour>)` dont le lambda `b__0 @180e25540` construit, PAR ELEMENT :
+    """`IdunBattleLogic.Entities.DSLFactory$$AddEffectOrIncreaseLevel(effectType, stateRef, subject, selector, amount, max)` — factory COMPOSITE : le natif alloue un `ForeachBehaviour(selector, Func<entity,
+    behaviour>)` dont le lambda `b__0 IdunBattleLogic.Entities.DSLFactory.u003Cu003Ec__DisplayClass569_0$$u003CAddEffectOrIncreaseLevelu003Eb__0` construit, PAR ELEMENT :
 
         If( HasEffect(elem, effectType),
             IncreaseEffectLevel(elem, effectType, amount, max),      # then
             AddEffect(effectType, stateRef, subject, elem, {level = amount}) )   # else
 
     On MIRRORE cet arbre (Foreach + If/else + les 2 feuilles) au lieu de le collapser : c'est un noeud de
-    la FACTORY, pas une Operation. Call-sites portes : `TerrifyingCrescendoAbility.CreateBehaviour
-    @1811a3840` (0x590=1424, amount=Const(1)@0xc0, max=Direct(GetNumberConstant(0x62)=buffMaxLevel)) ;
-    `HeadClaimerAbility.CreateBehaviour @181220e30` (0x404/0x405, amount=Const(1), max=NULL).
+    la FACTORY, pas une Operation. Call-sites portes : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateBehaviour` (0x590=1424, amount=Const(1)@0xc0, max=Direct(GetNumberConstant(0x62)=buffMaxLevel)) ;
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.HeadClaimerAbility$$CreateBehaviour` (0x404/0x405, amount=Const(1), max=NULL).
 
     `duration_rounds=0` = la duree ZERO du natif (l'options-struct ne porte pas de `TurnsFromRounds`) ->
     `remaining=0` = PERMANENT cote port (`EffectFactory.create` mappe rem<=0 -> None), conforme au live
@@ -273,9 +271,9 @@ def add_effect_or_increase_level(effect_type: int, name: str, target_sel: Target
 
 
 class RemoveEffect(AbilityBehaviour):
-    """`DSLFactory.RemoveEffect @180df9cc0` -> `RemoveEffectBehaviour.Execute` : retire de la cible TOUS les
+    """`IdunBattleLogic.Entities.DSLFactory$$RemoveEffect` -> `RemoveEffectBehaviour.Execute` : retire de la cible TOUS les
     effets du type `effect_type` (non consommes) et ANNULE leur StatModification (`<Effect>.RevertInternal`).
-    `target` = `target_sel` (ex. `Caster()`/`Self@0x148` pour le reset ActOfFaith @181219eb0). Wrapper au-dessus
+    `target` = `target_sel` (ex. `Caster()`/`Self@0x148` pour le reset ActOfFaith IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateBehaviour). Wrapper au-dessus
     de l'Operation impurative `revert_change_stat` (mirror exact de l'ancien `_reset_act_of_faith`). No-op si
     `state.effects`/cible absents. Emet 'RemoveEffect' PAR CIBLE (removed = nb de stacks retires). Effet PUR
     (stop=False).
@@ -283,7 +281,7 @@ class RemoveEffect(AbilityBehaviour):
     Le natif ITERE son selecteur-cible (`RemoveEffectsBehaviour`, meme mold que `AddEffectBehaviour`) : le port
     itere donc `_units_of(target_sel)` — les call-sites MONO-cible historiques (`Caster()`) rendent une liste
     d'1 element -> chemin bit-IDENTIQUE ; le call-site MULTI-cible est
-    `MasterAnnihilatorAbility.CreateBehaviour @18110b940` (`OwnerOfEffect(EffectsFromUnitSource(...))`).
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterAnnihilatorAbility$$CreateBehaviour` (`OwnerOfEffect(EffectsFromUnitSource(...))`).
 
     Frontiere classification (#149) : le NOEUD `RemoveEffect` (declaratif) au-dessus ; `ReverseModification`
     (revert par-source, impuratif) EN DESSOUS. L'effet DECLARE ses StatTypes revertes (`reverted_stats()`, DATA
@@ -320,7 +318,7 @@ class RemoveEffect(AbilityBehaviour):
 
 
 class SetOnFire(AbilityBehaviour):
-    """`FireOfAbsolutionAbility.SetOnFire` (child `Func<entities,behaviour>` du `Maybe` natif @18121f380) ->
+    """`FireOfAbsolutionAbility.SetOnFire` (child `Func<entities,behaviour>` du `Maybe` natif IdunBattleLogic.Entities.Abilities.Active.Loki.FireOfAbsolutionAbility$$CreateBehaviour) ->
     pose l'effet FEU DE TUILE (`EnvFireTile`) sur la TUILE COURANTE. Le `Maybe(child, AdjacentTiles(target),
     30)` natif itere ses tuiles et lie la tuile courante en sujet (== `Foreach(tiles, Maybe(30, SetOnFire))`
     cote port) : `SetOnFire` lit `entities.subject` = l'id de TUILE (int, PAS une unite — le `Foreach`
@@ -347,7 +345,7 @@ class SetOnFire(AbilityBehaviour):
 
 
 class CreateShield(AbilityBehaviour):
-    """`DSLFactory.CreateShield @180ded000` -> `CreateShieldBehaviour.Execute @180fc2650` : pour CHAQUE cible
+    """`IdunBattleLogic.Entities.DSLFactory$$CreateShield` -> `IdunBattle.Entities.Behaviours.CreateShieldBehaviour$$Execute` : pour CHAQUE cible
     du selecteur `target_sel` (+0x50), accorde/rafraichit un bouclier de `amount` (formule +0x58, scalaire)
     duree `duration` rounds via `ShieldComponent.add_or_update_shield` (cumule meme-source/meme-duree, sinon
     nouvelle instance ; no-op si amount<=0). Options +0x60..+0x88 (2e amount Nullable +0x78, flags) non

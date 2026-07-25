@@ -10,39 +10,39 @@ Kit natif -- `IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbilit
 methodes triggered, comme FireOfAbsolution/ControlEdict/CursedPlagueBell). TROIS fonctions natives NOMMEES
 (RE ghidra gqfc5mff6c, VAs citees ; mirror STRUCTURE, pas les noms gshared) :
 
-- `DestroyerHiveAbility.CreateTrigger @18121d4b0` =
+- `IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateTrigger` =
       On(TurnStart_Actions=0x16) & @0xa0(OwnerIsActor) & AmountIsGreaterThanZero(GetValidTargets)
   * `On(0x16, 1, 0)` = TurnStart_Actions (`DSLFactory.On`), vecteur `start_turn_triggers` (dispatch.py) --
     MEME event que EnvAmbushResurrect (0x16). (LivingMetal, lui, ecoute 0x13=TurnStart_Other.)
-  * `@0xa0` = `*(dslFactory + 0xa0)` (`DSLFactory.InitializeShared @180df2670`, ctor gshared) = scoping
+  * `@0xa0` = `*(dslFactory + 0xa0)` (`IdunBattleLogic.Entities.DSLFactory$$InitializeShared`, ctor gshared) = scoping
     OwnerIsActor "le proprietaire est le joueur ENTRANT" -- MEME slot @0xa0 que LivingMetal.CreateTrigger
-    (@181222630, prouve LIVE probe_203 : ne fire QU'AU tour du proprietaire). Porte = `ev.player_id ==
+    (IdunBattleLogic.Entities.Abilities.Active.Loki.LivingMetalRepairAbility$$CreateTrigger, prouve LIVE probe_203 : ne fire QU'AU tour du proprietaire). Porte = `ev.player_id ==
     OwnerComponent.player`.
   * `AmountIsGreaterThanZero(GetValidTargets)` : ne fire que s'il existe >=1 ennemi adjacent damageable.
-- `DestroyerHiveAbility.GetValidTargets @18121d540` =
+- `IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$GetValidTargets` =
       Damageable( Enemies( AdjacentUnits(caster@0x148, 1) ) )
   = ennemis (de Typhus) VIVANTS adjacents (hex 1). Collapse porte = `_adjacent_enemies(state, owner)`
     (base.py : ennemis vivants adjacents ; Damageable ~ vivant pour un ennemi standard).
-- `DestroyerHiveAbility.CreateBehaviour @18121d320` =
+- `IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateBehaviour` =
       AttackWithAttackDamage( source = caster@0x160,
-                              target = PickRandomly(GetValidTargets, count=1) @180df8e70,
-                              damage = MinMaxDamage(minDmg=var0xc, maxDmg=var0xd)[level] @180fbca20,
+                              target = IdunBattleLogic.Entities.DSLFactory$$PickRandomly(GetValidTargets, count=1),
+                              damage = MinMaxDamage(minDmg=var0xc, maxDmg=var0xd)[level] IdunBattle.Entities.Abilities.BaseTriggeredAbility$$MinMaxDamage,
                               profile = GetDamageProfile(config, 0) = "DirectDamage",
                               nrOfHits = GetNumberConstant(config, 0x2f) = 1,
                               source = AbilityOrEffect(DestroyerHive),
                               alwaysOverkilled = Nullable<bool>(HasValue=0) )
-  * `AttackWithAttackDamage @180de9fb0` = famille "attack" (2 tirages/coup a cc=0) -- VERIFIE par XREF du
-    CALL-SITE de CreateBehaviour (@18121d47e -> @180de9fb0, PAS @180de9c90 ability ; tip #2 / rngcrit-1202).
+  * `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` = famille "attack" (2 tirages/coup a cc=0) -- VERIFIE par XREF du
+    CALL-SITE de CreateBehaviour (IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateBehaviour+0x15e -> IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, PAS IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage ability ; tip #2 / rngcrit-1202).
     Mono-coup (nrOfHits=1) mais la famille reste "attack" (defaut) -> `is_attack_damage_op=True`.
   * 8e arg Nullable<bool> alwaysOverkilled = HasValue=0 (`local_68..local_48 = 0` dans le decompile) ->
     PAS de `force_overkill` (contraste FlailSwing `local_198=0x100000000` HasValue=1).
-  * `MinMaxDamage @180fbca20` = `RandomAmount(GetVariableForLevel(0xc)=minDmg, GetVariableForLevel(0xd)=maxDmg)`
+  * `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$MinMaxDamage` = `RandomAmount(GetVariableForLevel(0xc)=minDmg, GetVariableForLevel(0xd)=maxDmg)`
     au niveau de l'ability -- DestroyerHive etant une PASSIVE, le niveau = `passive_ability_level` (comme
     `HypersensoryMoveAndSpawnDecoy._counter_attack`, sibling passif triggered AttackWithAttackDamage), et NON
     `active_ability_level` (que le leaf `AttackWithAttackDamage`/`ability_attack_params` lirait par defaut) ->
     on route directement l'Operation `execute_ability_attack` avec les bornes lues au passive level.
-  * `PickRandomly(sel, 1)` -> `PickRandomAmountSelector.Select @180ef0be0` : la boucle tire
-    `NextInternal(0, candidates.Count)` UNE fois (count=1). `NextInternal @180e39be0` a rng==1 prend la branche
+  * `PickRandomly(sel, 1)` -> `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` : la boucle tire
+    `NextInternal(0, candidates.Count)` UNE fois (count=1). `IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextInternal` a rng==1 prend la branche
     PUISSANCE-DE-2 qui CONSOMME un genrand (retourne 0) -- comme le wasted-resolve #220 `Next(v, v+1)` largeur-1.
     Donc la pick CONSOMME 1 tirage MEME a n==1 (critique : elle precede l'attaque -> la bit-exactness de
     l'attaque en depend). `_pick_target` ci-dessous tire donc TOUJOURS `next_internal(0, n)` (contraste le helper
@@ -68,8 +68,8 @@ DAMAGE_PROFILE = "DirectDamage"          # constants.damageProfile ; profil Pier
 
 
 def _pick_target(state: State, candidates: list) -> Optional[int]:
-    """`PickRandomly(GetValidTargets, count=1) @180df8e70` -> `PickRandomAmountSelector.Select @180ef0be0` :
-    la boucle tire `NextInternal(0, candidates.Count)` UNE fois pour count=1. `NextInternal @180e39be0` a
+    """`IdunBattleLogic.Entities.DSLFactory$$PickRandomly(GetValidTargets, count=1)` -> `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` :
+    la boucle tire `NextInternal(0, candidates.Count)` UNE fois pour count=1. `IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextInternal` a
     rng==1 prend la branche puissance-de-2 qui CONSOMME un genrand (retourne 0) -> **la pick consomme 1 tirage
     MEME a n==1** (le decompile ne skippe pas le tirage quand le set tient -- contraste `_pick_randomly`/
     `_pick_randomly_n` cales pour le spawn placement). Le tirage precede l'attaque -> le consommer est necessaire
@@ -126,7 +126,7 @@ class DestroyerHiveAbility(TriggeredAbility):
         atk = AttackDamageOperation.execute_ability_attack(
             state, self.owner_id, target, bmin, bmax, pierce, hits,
             damage_profile=DAMAGE_PROFILE, is_melee=True,        # attackRangeType=Melee
-            is_attack_damage_op=True,                                 # famille "attack" @180de9fb0 (XREF du call-site)
+            is_attack_damage_op=True,                                 # famille "attack" IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage (XREF du call-site)
             force_overkill=False)                                # alwaysOverkilled Nullable HasValue=0
         return {"type": "destroyer_hive", "owner": int(self.owner_id), "target": int(target),
                 "hits": hits, "min": bmin, "max": bmax, "pierce": pierce, "attack": atk}

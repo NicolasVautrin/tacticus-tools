@@ -1,19 +1,18 @@
 """Générateurs d'action ordonnés — namespace `IdunBattle.AI` (cf. playbook/architecture.md §2.3).
 
 Le tactic natif (`DefaultAiUnitTactic`) itère une LISTE ORDONNÉE de générateurs et prend la PREMIÈRE
-action NON-NULLE (`CalculateNextActionForUnit.MoveNext @1810f54e0`). Un `ActiveAbilityActionGenerator`
+action NON-NULLE (`IdunBattle.AI.Tactics.DefaultAiUnitTactic.u003CCalculateNextActionForUnitu003Ed__5$$MoveNext`). Un `ActiveAbilityActionGenerator`
 balaie (tuiles de move × abilities de SON ensemble), fait `LoadPlaybook(ability) -> playbook.Evaluate`
 (le playbook énumère ses cibles et les score), merge dans un `Bucket`, `ChooseAction`
-(`<GenerateActions>d__7 @18119a3f0` + `@1813fc0d0`).
+(`<GenerateActions>d__7 IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` + `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$ChooseAction`).
 
-MÉCANISME CONFIRMÉ (RE ghidra, décompilé = vérité — cf. architecture.md §2.3) : `InitAbilityTypeLists
-@1810ed540` range chaque ability par le flag `slot1` de son playbook = **Comparable vs NonComparable** :
+MÉCANISME CONFIRMÉ (RE ghidra, décompilé = vérité — cf. architecture.md §2.3) : `IdunBattle.AI.Tactics.ABaseAiActorTactic$$InitAbilityTypeLists` range chaque ability par le flag `slot1` de son playbook = **Comparable vs NonComparable** :
   - NonComparable (slot1=FALSE) -> `dict[get_Priority]` : UN générateur par tier de priorité,
     dans l'ordre `[1000, 100, 0, -100, -1000]` (générateurs #1..#5) ;
   - Comparable (slot1=TRUE, **attaque normale INCLUSE** + spéciales d'attaque + soins) -> l'OrderedSet
     `special` = UN générateur fallback (#6), évalué APRÈS tous les tiers NonComparable ;
   - `MovementActionGenerator` (approche pure) EN DERNIER (#7).
-`GetDefaultActiveAbilityActionGenerators @1810ed0c0` crée cette liste dans cet ordre exact ; le tactic
+`IdunBattle.AI.Tactics.ABaseAiActorTactic$$GetDefaultActiveAbilityActionGenerators` crée cette liste dans cet ordre exact ; le tactic
 prend la 1re action non-nulle. => **toute NonComparable précède toute Comparable** : une NC bat une
 attaque de plus forte utilité PAR L'ORDRE DES GÉNÉRATEURS, pas par l'utilité (preuves live seed777 :
 step7 FightingRetreat u=2 vs attaque u=102 ; step10 BloodyFury ; step14 summon). Le gate par-playbook
@@ -30,7 +29,7 @@ n'override `get_Priority` (slot-0 de l'interface, dispatch `FUN_180002560(0, int
 search_symbols get_Priority/Playbook.*Priority/IsComparable = 0 hit Playbook -> le getter vit UNE fois
 sur le parent partagé, jamais surchargé par-leaf) -> les 15 NonComparable portées partagent TOUTES le
 tier de base = 0. L'ORDRE inter-tier N'EST DONC JAMAIS exercé (un seul tier peuplé) ; l'ancien
-NovaBoost=1000/NovaShield=-1000 venait d'un @1807D66A0 (`mov eax,0x3E8`) stale/mal-attribué qui NE RÉSOUT
+NovaBoost=1000/NovaShield=-1000 venait d'un idun.tests.TestLegendaryEventProgression$$GetLiveEventState+0x40 (`mov eax,0x3E8`) stale/mal-attribué qui NE RÉSOUT
 PLUS dans ce build -> corrigé à 0. Deux NonComparable d'une même unité se départagent alors par UTILITÉ
 (argmax intra-tier `choose_action`), pas par un tier fabriqué.
 """
@@ -60,17 +59,17 @@ from engine.entities.effects.magnitude import ability_var   # maxDmg/dmgPct Galv
 from engine.ai.bucket import Action, Bucket
 
 
-# RepairPlaybook GENERIQUE @181187c00 — identifiee par ID (PAS `"Repair" in name` : R2 ce substring
-# captait aussi NanoscarabRepairProtocols(1224), NonComparablePlaybook @18114e1f0 -> mauvais routage).
+# RepairPlaybook GENERIQUE IdunBattle.AI.Playbook.Common.RepairPlaybook$$.ctor — identifiee par ID (PAS `"Repair" in name` : R2 ce substring
+# captait aussi NanoscarabRepairProtocols(1224), NonComparablePlaybook IdunBattle.AI.Playbook.Loki.NanoscarabRepairProtocolsPlaybook$$.ctor -> mauvais routage).
 # Repair(28) SEUL = repair Comparable generique (magnitude hpToRepair, RepairedAmountUtility seule ;
 # necroReanimator/ReanimationBeam...). Repair_GalvanicField(1119) = playbook BESPOKE distinct
-# (`Repair_GalvanicFieldPlaybook @181155b80` : magnitude % Attack-CIBLE + terme CustomUtility) ->
+# (`Repair_GalvanicFieldPlaybook IdunBattle.AI.Playbook.Loki.Repair_GalvanicFieldPlaybook$$.ctor` : magnitude % Attack-CIBLE + terme CustomUtility) ->
 # route dediee `_repair_galvanic_candidates` (#85), PAS ce set generique. (1224 = NonComparable-repair,
 # exclu ; 82/84 = IDs inexistants dans l'enum, retires -- validateur.)
 _COMPARABLE_REPAIR_IDS: "frozenset[int]" = frozenset({28})
 _GALVANIC_REPAIR_ID = 1119   # Repair_GalvanicField (bespoke Comparable, admecManipulus/Loki) — #85
 _SPIRITLEECH_ID = 1104       # SpiritLeech (tyranNeurothrope/Loki) — attaque psychique per-ennemi + lifesteal (#84)
-_SPIRITLEECH_HEAL_FACTION = "Tyranids"   # GetHealTargets @18120a1e0 : faction 0xc (self + amis Tyranids adjacents)
+_SPIRITLEECH_HEAL_FACTION = "Tyranids"   # IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetHealTargets : faction 0xc (self + amis Tyranids adjacents)
 
 
 _FACTION_CACHE: dict = {}
@@ -94,8 +93,8 @@ def _faction(visual_id) -> str | None:
     return f
 
 
-# #60 : cap groupe des prédictions soin/repair (`GetGroupUnitHealLimit @1810325e0`). Dans le natif il
-# est GATE par un flag d'APPEL de `PredictHeal @181037180` (param_6==1) / `PredictRepair @181038280`
+# #60 : cap groupe des prédictions soin/repair (`IdunBattle.Core.Services.DamagePrediction$$GetGroupUnitHealLimit`). Dans le natif il
+# est GATE par un flag d'APPEL de `IdunBattle.Core.Services.DamagePrediction$$PredictHeal` (param_6==1) / `IdunBattle.Core.Services.DamagePrediction$$PredictRepair`
 # (param_7==1) — non lisible statiquement (façades virtuelles), DISCRIMINÉ live (probe_60_swarm,
 # runner 25 seed 60004) : scarab 2218 hpMax à hp=888 = PILE la frontière de membre (at_limit=True,
 # group_limit=0) → `aiPlaybookPredict.repairs.hpFill = 1330` (= missing ENTIER, NON capé) et
@@ -108,7 +107,7 @@ _REPAIR_GROUP_CAP = False
 
 
 def _group_heal_limit(visual_id, hp_max: int, hp_cur: int) -> int | None:
-    """`GetGroupUnitHealLimit @1810325e0` pour une cible identifiée par son visualId : None pour un
+    """`IdunBattle.Core.Services.DamagePrediction$$GetGroupUnitHealLimit` pour une cible identifiée par son visualId : None pour un
     héros (nrOfMembers<2 -> int.MaxValue natif = pas de cap ; on omet le min). nrOfMembers de BASE =
     gameconfig (GroupUnitComponent+0x10), hpMax = HealthComponent max (observeBattle.hpMax)."""
     from engine.services.trait_damage_limits import get_group_unit_heal_limit
@@ -134,8 +133,7 @@ class ActionGenerator:
 
 
 class NonComparableGenerator(ActionGenerator):
-    """UN générateur NonComparable de tier `priority` (= `dict[get_Priority]`, `InitAbilityTypeLists
-    @1810ed540`). Évalue les abilities NonComparable de l'unité DE CE TIER ; chaque
+    """UN générateur NonComparable de tier `priority` (= `dict[get_Priority]`, `IdunBattle.AI.Tactics.ABaseAiActorTactic$$InitAbilityTypeLists`). Évalue les abilities NonComparable de l'unité DE CE TIER ; chaque
     `<Playbook>.EvaluateNonComparable` score une heuristique ENTIÈRE (pas de terme Tile7), gate par
     `MIN_UTILITY` (seuil du cctor). `choose_action(priority=…)` = `Bucket.ChooseAction` (argmax STRICT).
     Le tactic instancie 5 de ces générateurs [1000,100,0,-100,-1000], tous AVANT le fallback Comparable
@@ -169,7 +167,7 @@ class NonComparableGenerator(ActionGenerator):
 class ComparableAbilityGenerator(ActionGenerator):
     """Tier Comparable (attaque normale INCLUSE + spéciales d'attaque + soins). DISPATCHE par playbook :
     `LoadPlaybook(ability)` (NormalAttack pour l'attaque normale, Default/spéciale sinon) puis
-    `playbook.calculate_action_utility(ctx, tuile, cible)` (= `EvaluateInternal @181408980` :
+    `playbook.calculate_action_utility(ctx, tuile, cible)` (= `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$EvaluateInternal` :
     prédiction déléguée à PV + Σ + Tile(7) + gate ShouldExecute). Sweep de position par paire
     (ability,cible) [argmax tile STRICT] -> argmax inter-ability -> pool attaque+soin -> `Bucket.ChooseAction`."""
 
@@ -181,7 +179,7 @@ class ComparableAbilityGenerator(ActionGenerator):
         plan = ctx.plans.get(ctx.uid) or {}
         best = None       # (u, u_full, tgt, ab, tile)
         best_key = None
-        # #57g : tie-break natif INTRA-POSITION. `EvaluateInternal @181408980` compare les cibles en
+        # #57g : tie-break natif INTRA-POSITION. `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$EvaluateInternal` compare les cibles en
         # STRICT `op_GreaterThan` dans l'ordre d'énumération de `IterateSurroundingTiles` (lex cube
         # (x,y) croissant, cf. bq.iterate_surrounding_tiles_order_key) -> à utilité égale DEPUIS LA
         # MÊME tuile d'attaque, la cible au plus petit rang cube gagne (12345 s15 : t83(2,-7) bat
@@ -200,7 +198,7 @@ class ComparableAbilityGenerator(ActionGenerator):
                 continue
             tgt, ab = ev.get("targetId"), ev.get("abilityId")
             # #15 : une ability NonComparable (ex. HeroicFusillade 1180) est rangée par
-            # `InitAbilityTypeLists @1810ed540` dans le tier NonComparable SEUL (flag IsComparable) ->
+            # `IdunBattle.AI.Tactics.ABaseAiActorTactic$$InitAbilityTypeLists` dans le tier NonComparable SEUL (flag IsComparable) ->
             # JAMAIS évaluée par le tier Comparable, même si elle figure dans les attackPlans (dégât).
             # Sans ce skip, le fallback générique la repêcherait ici alors que son playbook NC a gaté (=[]).
             if playbooks.is_noncomp(ab):
@@ -227,13 +225,13 @@ class ComparableAbilityGenerator(ActionGenerator):
                     u_full += ls
                     u_val += ls
                 # #64/#27 : le natif compare des utilités d'ACTION (`BucketAction.Utility` = u_full +
-                # `CalculateCustomUtility` ; base 0 @181407840, NormalAttack +1 @1813726e0). L3 2468 s18 :
+                # `CalculateCustomUtility` ; base 0 IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateCustomUtility, NormalAttack +1 IdunBattle.AI.Playbook.Loki.ALoki_NormalAttackPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateCustomUtility). L3 2468 s18 :
                 # 69 = 20.981+40+1 = 61.981 bat 1191 = 21.728+40+0 = 61.728. L'ancien tie-break exact
                 # `(u_full, is_normal)` était l'ombre de ce +1 (seuil natif PLUS LARGE, jamais fitté).
-                # Le custom est SOMMÉ DANS `CalculateActionUtility @181406ee0` (avant le terme Tile),
+                # Le custom est SOMMÉ DANS `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility` (avant le terme Tile),
                 # donc AVANT l'argmax par tuile de `EvaluateInternal` -> il doit entrer dans CE
                 # comparatif, pas être ajouté après (sinon un custom POSITION-dépendant — Drachnyen
-                # @18112dc60, count d'ennemis adjacents à la tuile d'attaque — ne peut jamais changer
+                # IdunBattle.AI.Playbook.Loki.DrachnyenPlaybook$$CalculateCustomUtility, count d'ennemis adjacents à la tuile d'attaque — ne peut jamais changer
                 # la tuile choisie). Neutre pour les customs constants (ArmoriumCherub, NormalAttack…).
                 u_action = u_full + pb.calculate_custom_utility(ctx, tile, tgt, ab)
                 if pair_best is None or u_action > pair_best[0]:
@@ -272,15 +270,15 @@ class ComparableAbilityGenerator(ActionGenerator):
         return best
 
     def _spiritleech_lifesteal_util(self, ctx, tile_T, cand_pred) -> float:
-        """Terme LIFESTEAL de `SpiritLeechPlaybook.MakeHealPredictions @18115d7a0` (Comparable id 1104,
+        """Terme LIFESTEAL de `IdunBattle.AI.Playbook.Loki.SpiritLeechPlaybook$$MakeHealPredictions` (Comparable id 1104,
         tyranNeurothrope/Loki) → `GenerateHealPredictions` → Σ `CalculateUtilityFromHealEvent`, SOMMÉ au
-        dégât (+ effet Pinned=0, inerte ce build) par `CalculateActionUtility @181406ee0`.
+        dégât (+ effet Pinned=0, inerte ce build) par `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility`.
 
-        - lifesteal = `GetHealAmountForPrediction @181209fa0` = `ceil(degat_predit × hpToHealPct/100)`
-          (`GetHealAmountFromDamageAmount @18120a160` = `PercentageOf(dmg, ConfigVar 0x4b, roundUp=1)`).
+        - lifesteal = `IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetHealAmountForPrediction` = `ceil(degat_predit × hpToHealPct/100)`
+          (`IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetHealAmountFromDamageAmount` = `PercentageOf(dmg, ConfigVar 0x4b, roundUp=1)`).
           `hpToHealPct` ∈ [40..60] au niveau ACTIF du caster (PAS rarity-scaled). `degat_predit` = dégât
           santé+bouclier prédit sur la cible d'attaque (avg des bornes BRUTES @0x24/@0x28 + bouclier).
-        - cibles = `GetHealTargets @18120a1e0` = SELF ∪ (amis ADJACENTS à `tile_T`, faction Tyranids(0xc)).
+        - cibles = `IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetHealTargets` = SELF ∪ (amis ADJACENTS à `tile_T`, faction Tyranids(0xc)).
         - Σ par cible : eff = `PredictHeal` = min(lifesteal, PV manquants) ; `HealUtility` = eff/(maxHP+1)×100
           (is_friend=True). Position-dépendant (adjacence des alliés à la tuile de cast `tile_T`)."""
         me = ctx.me
@@ -351,12 +349,12 @@ class ComparableAbilityGenerator(ActionGenerator):
                             if t.get("kind") == "unit" and t.get("targetId") is not None:
                                 vts.add(t["targetId"])
             is_twisted = "TwistedScience" in (ab.get("name") or "")
-            # Magnitude OFFLINE du soin = `HealAbility.HealAmount @180e345b0` = `ability_var(hpToHeal, level)`
+            # Magnitude OFFLINE du soin = `IdunBattleLogic.Entities.Abilities.Active.Common.HealAbility$$HealAmount` = `ability_var(hpToHeal, level)`
             # (#79 ; depend de l'ability + du niveau du caster, PAS de la cible -> resolu 1x). None -> pas de
             # `hpToHeal` (soin a arme reelle Heal(18) / magnitude speciale TwistedScience) -> saturation.
             _hc = ctx.heal_config(ctx.uid)
             heal_amt = heal_amount_config(ab.get("name"), _hc["active"], _hc["passive"], _hc["multiplier"])
-            # #45c : pas de `hpToHeal` -> branche ARME REELLE de `HealAmount @180e345b0`
+            # #45c : pas de `hpToHeal` -> branche ARME REELLE de `IdunBattleLogic.Entities.Abilities.Active.Common.HealAbility$$HealAmount`
             # (StatAmount(weapon) = stat Damage resolue du caster x Max(WeaponHighestHits,1) —
             # #55 : le x hits est reel, Hospitaller Heal(18) 3-hit = 2008x3=6024). La saturation
             # `missing` ne reste que si la Scene manque (dernier filet, etat anterieur).
@@ -377,10 +375,10 @@ class ComparableAbilityGenerator(ActionGenerator):
                 hp_max = int(ob.get("hpMax") or 0)
                 hp_cur = int(ob.get("hp") or 0)
                 missing = max(0, hp_max - hp_cur)   # PV manquants = BORNE du soin effectif
-                # Soin EFFECTIF = `PredictHeal @181037180` (MaxFillUp @180f9b790) = min(healAmount, missing).
+                # Soin EFFECTIF = `IdunBattle.Core.Services.DamagePrediction$$PredictHeal` (IdunBattle.Entities.Components.FillUpStatComponent$$MaxFillUp) = min(healAmount, missing).
                 # heal_amt None (soin non-hpToHeal) -> saturation `missing` (approximation documentee #79,
                 # sans regression). Le -50/+50 friendSign + bossMod restent dans HealUtility (score).
-                # #60 : cap groupe `GetGroupUnitHealLimit @1810325e0` — dans PredictHeal il est GATE
+                # #60 : cap groupe `IdunBattle.Core.Services.DamagePrediction$$GetGroupUnitHealLimit` — dans PredictHeal il est GATE
                 # par le flag d'appel (`param_6 == 1`), mesuré OFF sur les chemins IA (probe_60 :
                 # PredictRepair natif NON capé a la frontiere de membre ; i2 Swarm « Healing this
                 # unit can revive dead members »). Plomberie en place, inerte tant que le flag est OFF.
@@ -406,7 +404,7 @@ class ComparableAbilityGenerator(ActionGenerator):
         return out
 
     def _repair_candidates(self, ctx) -> list:
-        """Sweep RÉPARATION GÉNÉRIQUE (tile-swept) via `RepairPlaybook` (Comparable, @181187c00) -> liste
+        """Sweep RÉPARATION GÉNÉRIQUE (tile-swept) via `RepairPlaybook` (Comparable, IdunBattle.AI.Playbook.Common.RepairPlaybook$$.ctor) -> liste
         {target, ability, to, pred, full}. MIROIR de `_heal_candidates` : identification par ID Comparable-
         repair (`_COMPARABLE_REPAIR_IDS` = {28} = Repair générique SEUL ; PAS `"Repair" in name` qui
         captait le NonComparable NanoscarabRepairProtocols(1224). Repair_GalvanicField(1119) = playbook
@@ -415,9 +413,9 @@ class ComparableAbilityGenerator(ActionGenerator):
         `repair_utility` (RepairedAmountUtility : `fill_hp/(maxHP+1)×100 + fill_armor/(maxArmor+1)×50`,
         PAS de friendSign — répare ses propres machines) ; gate `ShouldExecute` : pred > 0.
 
-        MAGNITUDE (#83) : `RepairAmount @1811c4860` = `hpToRepair[activeLevel]` de la clé CONCRÈTE de
+        MAGNITUDE (#83) : `IdunBattleLogic.Entities.Abilities.Active.RepairAbility$$RepairAmount` = `hpToRepair[activeLevel]` de la clé CONCRÈTE de
         l'unité (`repair_amount_config` : nom runtime `Repair` GÉNÉRIQUE → clé résolue via gameconfig
-        `activeAbilities`, ex. necroReanimator → ReanimationBeam). `PredictRepair @181038280` remplit DEUX
+        `activeAbilities`, ex. necroReanimator → ReanimationBeam). `IdunBattle.Core.Services.DamagePrediction$$PredictRepair` remplit DEUX
         stats via `MaxFillUp` : Health(5) + Armor(4) → `fill_hp`/`fill_armor` = `min(repairAmount,
         manquant_i)` (`predict_repair_effective`). Armor courante/max = `observeBattle.armor/armorMax`
         (ArmorComponent, #83). `repair_amt` None (unité sans réparation Comparable à `hpToRepair`) →
@@ -462,10 +460,10 @@ class ComparableAbilityGenerator(ActionGenerator):
                 else:                    # PredictRepair : min(repairAmount, manquant) par stat (Health+Armor)
                     # RepairModifier (#45d) : bonus/malus des effets ACTIFS portés par la CIBLE
                     # (Nanoscarab +hpToRepair, Voltagheist ×0.5), appliqué à la base AVANT MaxFillUp
-                    # (ordre natif PredictRepair @181038280 : modifier -> caps -> min(amount, manquant)).
+                    # (ordre natif IdunBattle.Core.Services.DamagePrediction$$PredictRepair : modifier -> caps -> min(amount, manquant)).
                     mod_add, mod_mul = calculate_repair_modifier_for_prediction(
                         eff_by_id.get(tg), ctx.heal_config)
-                    # #60 : cap groupe `GetGroupUnitHealLimit` (PredictRepair @181038280, gate param_7)
+                    # #60 : cap groupe `GetGroupUnitHealLimit` (IdunBattle.Core.Services.DamagePrediction$$PredictRepair, gate param_7)
                     # — cible multi-membres (ex. necroSmnSwarm 5 membres) -> repair « sans réveiller ».
                     _glim = (_group_heal_limit(ob.get("visualId"), hp_max, hp_cur)
                              if _REPAIR_GROUP_CAP else None)
@@ -489,22 +487,22 @@ class ComparableAbilityGenerator(ActionGenerator):
         return out
 
     def _repair_galvanic_candidates(self, ctx) -> list:
-        """`Repair_GalvanicFieldPlaybook @181155b80` (ComparablePlaybook<0x45f=1119>, admecManipulus/Loki)
+        """`Repair_GalvanicFieldPlaybook IdunBattle.AI.Playbook.Loki.Repair_GalvanicFieldPlaybook$$.ctor` (ComparablePlaybook<0x45f=1119>, admecManipulus/Loki)
         — réparation Comparable BESPOKE GRANTED par le passif GalvanicField. DISTINCTE du RepairPlaybook
         générique (`_repair_candidates`, id 28, magnitude hpToRepair) : magnitude ET utilité PROPRES (RE
         ghidra gqfc5mff6c). Tile-swept sur les cibles de `abilityTargets` (self + amis Mechanical, vérité
         live — le natif cible target!=caster, mais le self-repair est OBSERVÉ live seed909 step14).
 
-        MAGNITUDE `GetOverrideAttackDamageAmount @181200080` = `PercentageOfAttackCappedAtMax @180df8530`
+        MAGNITUDE `IdunBattleLogic.Entities.Abilities.Active.Loki.Repair_GalvanicFieldAbility$$GetOverrideAttackDamageAmount` = `IdunBattleLogic.Entities.DSLFactory$$PercentageOfAttackCappedAtMax`
         = `M = min(round(cible.Attack_INITIALE × dmgPct/100), maxDmg)` — % de l'Attack INITIALE de la
         CIBLE réparée (`StatType=Attack`, `StatPart=Initial` ; le « 100% of *its own* Damage » du tooltip),
         plafonnée à `maxDmg`. `dmgPct`/`maxDmg` = vars du passif GalvanicField au niveau PASSIF du CASTER
         (`maxDmg` seule rarity-scaled). PAS `hpToRepair`.
 
-        UTILITÉ `CalculateActionUtility @181406ee0` (chemin repair) = SOMME de deux termes (lu dans le
+        UTILITÉ `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility` (chemin repair) = SOMME de deux termes (lu dans le
         décompilé, ADDITIFS) : (1) `RepairedAmountUtility` générique = `repair_utility(fill_hp, maxHP,
         fill_armor, maxArmor)` avec `fill = min(M, manquant)` sur Health+Armor (`PredictRepair`/`MaxFillUp`,
-        cf. #83) ; (2) `CalculateCustomUtility @181155520` bespoke = `M/(cible.maxHP+1) × 50`, GATÉ par
+        cf. #83) ; (2) `IdunBattle.AI.Playbook.Loki.Repair_GalvanicFieldPlaybook$$CalculateCustomUtility` bespoke = `M/(cible.maxHP+1) × 50`, GATÉ par
         `HasValidTargets(cible)` (la cible réparée peut attaquer depuis SA position = combat-readiness, même
         prédicat que #77 → 0 sinon). `ShouldExecute` : util totale > 0."""
         me = ctx.me
@@ -548,8 +546,8 @@ class ComparableAbilityGenerator(ActionGenerator):
             att = tctx.get_stat(StatType.ATTACK, StatPart.INITIAL)
             raw = int(round(att * (dmgpct or 0) / 100.0))
             M = raw if maxdmg is None else min(raw, maxdmg)
-            # RepairModifier (#45d) appliqué au FILL seulement (il vit DANS PredictRepair @181038280) ;
-            # le terme custom @181155520 consomme le M brut de GetOverrideAttackDamageAmount (hors PredictRepair).
+            # RepairModifier (#45d) appliqué au FILL seulement (il vit DANS IdunBattle.Core.Services.DamagePrediction$$PredictRepair) ;
+            # le terme custom IdunBattle.AI.Playbook.Loki.Repair_GalvanicFieldPlaybook$$CalculateCustomUtility consomme le M brut de GetOverrideAttackDamageAmount (hors PredictRepair).
             mod_add, mod_mul = calculate_repair_modifier_for_prediction(eff_by_id.get(tg), ctx.heal_config)
             _glim = (_group_heal_limit(ob.get("visualId"), hp_max, hp_cur)
                      if _REPAIR_GROUP_CAP else None)   # #60 : cap groupe (PredictRepair, gate param_7)
@@ -628,7 +626,7 @@ class MovementActionGenerator(ActionGenerator):
         if not ctx.move_tiles or not ctx.enemies:
             return {"kind": "move", "to": None}
         # #26 : le seed du fallback HEX de MinDist(16) = les ennemis CIBLABLES (tgt_epos, post-filtres
-        # `FindClosestEnemy` @181197f10), PAS epos complet — un ennemi Environment/deep-strike/irrelevant
+        # `FindClosestEnemy` IdunBattle.AI.ActionGenerators.MovementActionGenerator.u003CFindClosestEnemyu003Ed__8$$MoveNext), PAS epos complet — un ennemi Environment/deep-strike/irrelevant
         # ne participe jamais au ClosestEnemy natif. epos (complet) reste le fallback si tgt_epos vide.
         move_to, move_util = move.best_move_faithful(
             ctx.move_tiles, ctx.elev_by_pos, ctx.tgt_epos or ctx.epos, ctx.wt,

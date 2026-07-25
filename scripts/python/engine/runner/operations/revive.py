@@ -8,35 +8,35 @@ LE PIVOT : `UnitComponent + 0xa8` = `Nullable<ReviveData>` (case-89 volet C, RE 
 La feuille DSL `Revive` NE MUTE RIEN. Le sous-systeme est en DEUX TEMPS, articules autour du champ
 `Nullable<ReviveData>` @UnitComponent+0xa8 :
 
-  1. POSE      `DSLFactory.Revive @180dfa4f0` -> `ReviveBehaviour.Execute @180fd1230` : pour chaque
-               cible du selecteur, `amount = Min(formule, GetMaxReviveAmount @180fd1a80)`, construit la
-               `ReviveData` puis, SI `IsPreferredRevive @180fd1b50`, ECRIT les 9 qwords
+  1. POSE      `IdunBattleLogic.Entities.DSLFactory$$Revive` -> `IdunBattle.Entities.Behaviours.ReviveBehaviour$$Execute` : pour chaque
+               cible du selecteur, `amount = Min(formule, IdunBattle.Entities.Behaviours.ReviveBehaviour$$GetMaxReviveAmount)`, construit la
+               `ReviveData` puis, SI `IdunBattle.Entities.Behaviours.ReviveBehaviour$$IsPreferredRevive`, ECRIT les 9 qwords
                `unitComponent + 0xa8 .. +0xe8`. AUCUNE mutation de PV/flag/position ici.
-  2. GARDE     `KillUnitOperation.Execute @180e76470` : `On(1)` est emis @0x180e76c4c PUIS
-               @0x180e76c9e la garde `pcVar21 = thunk_FUN_1801f3000(unitComponent + 0xa8,
+  2. GARDE     `IdunBattle.Operations.KillUnitOperation$$Execute` : `On(1)` est emis @IdunBattle.Operations.KillUnitOperation$$Execute+0x7dc PUIS
+               @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e la garde `pcVar21 = thunk_FUN_1801f3000(unitComponent + 0xa8,
                <hasValue de Nullable<ReviveData>>) ; if (*pcVar21 == '\\0') { ... }`. TOUT le reste de
                la mort est DANS ce bloc (verifie a la profondeur d'accolades : `On(1)` @depth 7,
                `On(2)`/`On(0)`/`On(55)`/`On(54)` @depth 9). Un revive POSE pendant `On(1)`
                **ANNULE la mort** -- cf. `damage.py::_fire_death_if_killed`.
-  3. DRAIN     `InputMessageProcessor.VerifyDeaths @180ebb0a0` lance DEUX phases : `RunPhase(0xc)`
-               (les kills, lambda `<VerifyDeaths>b__0 @180ecb870` -> `KillUnit` slots 0x60/0x61) PUIS
-               `RunPhase(0xd)` sur la 2e liste de requete -> `OperationProcessor.ReviveUnit @180e0b510`
-               -> `ReviveUnitOperation.Execute @180e91bd0` (ICI) qui LIT la `ReviveData`, applique, et
-               REMET LES 9 QWORDS A 0 @0x180e92977+.
+  3. DRAIN     `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` lance DEUX phases : `RunPhase(0xc)`
+               (les kills, lambda `<VerifyDeaths>b__0 IdunBattle.Messages.InputMessageProcessor.u003Cu003Ec__DisplayClass49_0$$u003CVerifyDeathsu003Eb__0` -> `KillUnit` slots 0x60/0x61) PUIS
+               `RunPhase(0xd)` sur la 2e liste de requete -> `Core.Services.OperationProcessor$$ReviveUnit`
+               -> `IdunBattle.Operations.ReviveUnitOperation$$Execute` (ICI) qui LIT la `ReviveData`, applique, et
+               REMET LES 9 QWORDS A 0 @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+.
 
 Le port COLLAPSE 2+3 au meme endroit (`kill_unit_revive_gate`, appelee par `_fire_death_if_killed`
 juste apres `On(1)`) : c'est l'ordre observable natif (la phase 0xd suit la phase 0xc).
 
 --------------------------------------------------------------------------------------------------
-`ReviveUnitOperation.Execute @180e91bd0` (mutateur ECS IMPERATIF, mirror ci-dessous)
+`IdunBattle.Operations.ReviveUnitOperation$$Execute` (mutateur ECS IMPERATIF, mirror ci-dessous)
 --------------------------------------------------------------------------------------------------
-  * garde        @0x180e91e8a : `if (!pendingRevive.HasValue)` -> `Logger.Error` + RETURN (pas de revive)
-  * SetHealth    @180e93450 : hp = Min(ReviveData.amount, GetStat(unit, Health=5, MAX=3))  (re-clamp)
-  * flags        @180e923b0 : Remove(0xf), Remove(8=overkill), Add(0x14) -> l'unite redevient VIVANTE
+  * garde        @IdunBattle.Operations.ReviveUnitOperation$$Execute+0x2ba : `if (!pendingRevive.HasValue)` -> `Logger.Error` + RETURN (pas de revive)
+  * IdunBattle.Operations.ReviveUnitOperation$$SetHealth : hp = Min(ReviveData.amount, GetStat(unit, Health=5, MAX=3))  (re-clamp)
+  * flags        IdunBattle.Operations.ReviveUnitOperation$$Execute+0x7e0 : Remove(0xf), Remove(8=overkill), Add(0x14) -> l'unite redevient VIVANTE
                  (PAS 0xe AmbushConsumed -- un revive-en-place N'EST PAS un ambush one-shot)
-  * SetRevivePosition @180e936e0 : repositionne sur la tuile de l'unite -> IN-PLACE
-  * emet `On(UnitRevived = 46 = 0x2e)` @0x180e92691 (`FUN_180026490(0x4d,...,lVar16,0x2e)`)
-  * PUIS purge `unitComponent + 0xa8 .. +0xe8 = 0` @0x180e92977+ (donc APRES le dispatch de On(0x2e))
+  * IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition : repositionne sur la tuile de l'unite -> IN-PLACE
+  * emet `On(UnitRevived = 46 = 0x2e)` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 (`FUN_180026490(0x4d,...,lVar16,0x2e)`)
+  * PUIS purge `unitComponent + 0xa8 .. +0xe8 = 0` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+ (donc APRES le dispatch de On(0x2e))
 
 Frontiere DSL (#149) : la feuille `Revive` (declaratif, `triggers/revive_effect.py`) POSE ; l'Operation
 (imperatif, ICI) APPLIQUE. On NE fusionne PAS.
@@ -49,14 +49,14 @@ from ..state import State
 from ..components import UnitComponent, HealthComponent
 
 # `Revive(..., healType, sourceId, ?, priority, ?)` -- priorite par defaut des consommateurs
-# (`ReviveEffect.CreateTargetTriggerBehaviour @180f46a70` et `FuelledByFury_ReviveAbility.CreateBehaviour
-# @180f810c0` passent 0 ; `PhoenixGem_ReviveAbility.CreateBehaviour @181111610` passe **-1000**
+# (`IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour` et `FuelledByFury_ReviveAbility.CreateBehaviour
+# IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ReviveAbility$$CreateBehaviour` passent 0 ; `IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateBehaviour` passe **-1000**
 # = 0xfffffc18, la plus BASSE -> tout autre revive lui est prefere).
 REVIVE_PRIORITY_DEFAULT = 0
 
 
 def is_preferred_revive(existing: Optional[dict], new: dict) -> bool:
-    """`ReviveBehaviour.IsPreferredRevive @180fd1b50` (mirror 1:1) :
+    """`IdunBattle.Entities.Behaviours.ReviveBehaviour$$IsPreferredRevive` (mirror 1:1) :
 
         if (!existing.HasValue) return true;                       // aucun revive en attente
         if (new.priority > existing.priority) return true;         // param_3[6] vs local_30
@@ -77,14 +77,14 @@ def is_preferred_revive(existing: Optional[dict], new: dict) -> bool:
 
 def post_pending_revive(state: State, unit_id: int, amount, heal_type: int = 0,
                         source=None, priority: int = REVIVE_PRIORITY_DEFAULT) -> Optional[dict]:
-    """Mirror de l'ECRITURE de `ReviveBehaviour.Execute @180fd1230` : pose la `ReviveData` sur
+    """Mirror de l'ECRITURE de `IdunBattle.Entities.Behaviours.ReviveBehaviour$$Execute` : pose la `ReviveData` sur
     `unitComponent + 0xa8` si `IsPreferredRevive`. AUCUNE mutation de PV/flag/position (c'est
     `ReviveUnitOperation` qui les fait, plus tard). Renvoie la `ReviveData` posee, ou None si le gate
     `IsPreferredRevive` l'a rejetee (ou entite/composant absent).
 
     `source` = le `sourceId` (`Nullable<AbilityOrEffect>`) : `AbilityOrEffect(effect.Id)` pour un
-    `ReviveEffect` (@180f46a70 `param_1[2]`), `AbilityOrEffect(this.Id)` pour une TriggeredAbility
-    autonome (PhoenixGem 1458 @181111610, FuelledByFury 1251 @180f810c0). Il est relu par le noeud
+    `ReviveEffect` (IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour `param_1[2]`), `AbilityOrEffect(this.Id)` pour une TriggeredAbility
+    autonome (PhoenixGem 1458 IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateBehaviour, FuelledByFury 1251 IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ReviveAbility$$CreateBehaviour). Il est relu par le noeud
     `CurrentAbilityIs` des triggers `On(UnitRevived)`."""
     e = state.get_entity(unit_id)
     if e is None:
@@ -101,9 +101,9 @@ def post_pending_revive(state: State, unit_id: int, amount, heal_type: int = 0,
 
 
 class ReviveUnitOperation:
-    """Mirror `ReviveUnitOperation.Execute @180e91bd0` (mutateur ECS, revive-EN-PLACE). Signature NATIVE
+    """Mirror `IdunBattle.Operations.ReviveUnitOperation$$Execute` (mutateur ECS, revive-EN-PLACE). Signature NATIVE
     = `Execute(operation, entity)` : le HP n'est PAS un parametre, il vient de la `ReviveData` posee sur
-    `UnitComponent + 0xa8` (mirror exact ici). `SetHealth @180e93450` re-clampe `Min(amount, hp_max)`.
+    `UnitComponent + 0xa8` (mirror exact ici). `IdunBattle.Operations.ReviveUnitOperation$$SetHealth` re-clampe `Min(amount, hp_max)`.
     Position INCHANGEE (in-place)."""
     __slots__ = ()
 
@@ -117,11 +117,11 @@ class ReviveUnitOperation:
             return None
         data = uc.pending_revive
         if data is None:
-            # @0x180e91e8a : `if (!pendingRevive.HasValue)` -> Logger.Error + RETURN (aucun revive).
+            # @IdunBattle.Operations.ReviveUnitOperation$$Execute+0x2ba : `if (!pendingRevive.HasValue)` -> Logger.Error + RETURN (aucun revive).
             return None
         hc = e.get_component(HealthComponent)
         hp = data.get("amount")
-        # SetHealth @180e93450 : hp = Min(amount, GetStat(unit, Health, MAX)). Sans HealthComponent/max
+        # IdunBattle.Operations.ReviveUnitOperation$$SetHealth : hp = Min(amount, GetStat(unit, Health, MAX)). Sans HealthComponent/max
         # capte -> on pose l'amount brut (fidelite-safe : le clamp natif est un Min, jamais un boost).
         set_hp = None
         if hc is not None and hp is not None:
@@ -129,29 +129,29 @@ class ReviveUnitOperation:
             if hc.hp_max is not None:
                 set_hp = min(set_hp, int(hc.hp_max))     # Min(amount, maxHP)
             hc.hp = set_hp
-        # flags @180e923b0 : Remove(0xf), Remove(8=overkill), Add(0x14) -> l'unite redevient VIVANTE.
+        # flags IdunBattle.Operations.ReviveUnitOperation$$Execute+0x7e0 : Remove(0xf), Remove(8=overkill), Add(0x14) -> l'unite redevient VIVANTE.
         # Le port modelise l'etat de vie via `uc.alive` (les flags ECS 0xf/8/0x14 = internes non suivis).
         uc.alive = True
-        # SetRevivePosition @180e936e0 : IN-PLACE -> position inchangee (aucune ecriture de PositionComponent).
+        # IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition : IN-PLACE -> position inchangee (aucune ecriture de PositionComponent).
         # #60 : re-eval du stat-mod EXTRA_HITS du trait Swarm au retour a la vie (bras On(UnitRevived=46) du
-        # SwarmAbility.CreateTrigger @181225f50), comme ResurrectUnitOperation.
+        # IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger), comme ResurrectUnitOperation.
         if hc is not None and set_hp is not None:
             from ..abilities.loki.swarm import on_group_unit_hp_changed
             on_group_unit_hp_changed(state, unit_id)
-        # `On(UnitRevived = 0x2e = 46)` @0x180e92691 -- emis AVANT la purge du champ (ordre natif lu).
-        # Consommateurs portes : `PhoenixGem_CanReviveEffect` (@180f5e4a0 : retrait du marqueur 1451 sous
+        # `On(UnitRevived = 0x2e = 46)` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 -- emis AVANT la purge du champ (ordre natif lu).
+        # Consommateurs portes : `PhoenixGem_CanReviveEffect` (IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal : retrait du marqueur 1451 sous
         # `CurrentAbilityIs(PhoenixGem)`), et tout futur `On(0x2e)`.
         from .triggers import unit_revived_triggers
         fired = unit_revived_triggers(state, unit_id, current_ability=data.get("source"))
-        # purge des 9 qwords @0x180e92977+ : la `ReviveData` est consommee.
+        # purge des 9 qwords @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+ : la `ReviveData` est consommee.
         uc.pending_revive = None
         return {"revived": int(unit_id), "hp": set_hp, "in_place": True,
                 "source": data.get("source"), "on_revived": fired}
 
 
 def kill_unit_revive_gate(state: State, unit_id: int) -> Optional[dict]:
-    """**GARDE de `KillUnitOperation.Execute` @0x180e76c9e** + DRAIN de la phase `RunPhase(0xd)` de
-    `VerifyDeaths @180ebb0a0`, fondus (le port collapse le pump FIFO natif, cf. `dispatch.py`).
+    """**GARDE de `KillUnitOperation.Execute` @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e** + DRAIN de la phase `RunPhase(0xd)` de
+    `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths`, fondus (le port collapse le pump FIFO natif, cf. `dispatch.py`).
 
     A appeler JUSTE APRES `On(PreUnitDeath = 1)` et AVANT `On(PreUnitDeath_2 = 2)` :
       * renvoie `None`  -> `pendingRevive.HasValue == false` : la garde PASSE, la mort CONTINUE

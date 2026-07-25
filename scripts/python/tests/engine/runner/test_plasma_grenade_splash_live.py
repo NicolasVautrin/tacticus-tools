@@ -1,12 +1,12 @@
 """#149 slice-6 : PlasmaGrenade (1098) MIGRATION replay-diff -- l'arbre DSL == l'imperatif, BIT-EXACT.
 
-`PlasmaGrenadeAbility.ExecuteBehaviour @1811f99e0` (DECOMPILE) =
+`IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaGrenadeAbility$$ExecuteBehaviour` (DECOMPILE) =
     Execute( op_Addition(
         AttackWithAbilityDamage(caster, target, RandomAmount(minDmg/maxDmg), Plasma, nrOfHits=0x2f),
         AttackWithAbilityDamage(caster, Enemies(caster, AdjacentUnits(target,1)), MEME RandomAmount,
                                 Plasma, nrOfHits_2=0x32) ) )
 Le SPLASH natif = UN SEUL `AttackWithAbilityDamage` avec un SELECTEUR MULTI-cible (PAS un Foreach) :
-`AttackBehaviour.Execute @180fb91a0` resout la liste + `OrderBy` (cle par-unite = ordre de lecture) puis
+`IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` resout la liste + `OrderBy` (cle par-unite = ordre de lecture) puis
 attaque chaque cible. Porte via le mode `multi=True` de la feuille (tri par id = ordre de lecture natif ==
 l'ordre `sorted` de l'imperatif).
 
@@ -117,7 +117,7 @@ def test_plasma_grenade_migration_matches_imperative(live_session, rpc, build_ru
 
     # [IMPERATIF] la mecanique partagee _splash_ability_behaviour + _adjacent_enemies_of (ancien chemin)
     imp_set = _adjacent_enemies_of(st_imp, caster_id, target_id)
-    # rngcrit-1202 : PlasmaGrenade = factory native AttackWithABILITYDamage @180de9c90 (XREFS) ->
+    # rngcrit-1202 : PlasmaGrenade = factory native IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage (XREFS) ->
     # AbilityDamageOperation, 1 tirage/coup SANS resolve gaspille -> l'oracle imperatif doit passer
     # la MEME famille que l'arbre DSL (native_factory="ability").
     res_imp = _splash_ability_behaviour(st_imp, caster_id, target_id, "PlasmaGrenade", "Plasma",

@@ -1,7 +1,7 @@
 """#14 (gen-stealer G7) BeastSlayer_ExtraDmg (ATTAQUE) -- FACE POSITIVE live.
 
 Trait BeastSlayer -> effet capte `BeastSlayer_ExtraDmg` = `+beastSlayerExtraDmgPct% de degat MELEE vs
-Big Targets / Vehicles` (`BeastSlayer_ExtraDmgEffect.CreateDamageModifier @180f336c0` :
+Big Targets / Vehicles` (`IdunBattle.Entities.Effects.Loki.BeastSlayer_ExtraDmgEffect$$CreateDamageModifier` :
 `ForPercentIncrease(0xf=extraDmgPct)` gate `OwnerIsCaster & IsMeleeAttack & (HasTrait(target,BigTarget)
 | HasTrait(target,Vehicle))`).
 

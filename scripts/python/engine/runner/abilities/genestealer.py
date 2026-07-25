@@ -5,7 +5,7 @@ chantier gen-stealer regroupe plusieurs slices partageant les feuilles de decoy 
 HypersensoryAbilities réutilisera `SpawnDecoys`). Org native = 1 classe par ability (`Abilities.Active.*`) ;
 les arbres SPÉCIFIQUES vivent avec leur ability. RE ghidra gqfc5mff6c (VA citées). Doc : docs/rl/genestealer-cults.md.
 
-Arbre CultDemagogue (`CultDemagogueAbility$$ExecuteBehaviour @1811cdc30`, mirror op_Addition 3 étages) :
+Arbre CultDemagogue (`CultDemagogueAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour`, mirror op_Addition 3 étages) :
     op_add( op_add( SpawnDecoys , SpawnNeophytesOnDecoys ) , PerformAIAction(UnitsWithId(...), 0, 1) )
 Sélecteurs de TUILE lourds (S) COLLAPSÉS (doctrine slice-18/19/22/23/24) : résolus impérativement dans
 chaque feuille au moment de l'exécution (data-dep : les neophytes lisent les decoys fraîchement posés).
@@ -115,7 +115,7 @@ def _caster_level_mult(state: "State", caster_id: int):
 
 class SpawnDecoys(AbilityBehaviour):
     """1er étage : `Spawn( PickRandomly(CanAddUnit(SurroundingTiles(target@0x178, range)), n=nrOfSummons),
-    genesSmnDecoy, ForSteppable )` @1811cdc30. Pose `n` decoys inertes sur des tuiles libres aléatoires ≤`range`
+    genesSmnDecoy, ForSteppable )` IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour. Pose `n` decoys inertes sur des tuiles libres aléatoires ≤`range`
     hex de la CIBLE. `n = GetVariableForLevel(0x4f)` = var `nrOfSummons` (config-scalé par niveau, ~8 au max, NON
     rarity-scaled) ; `range = NumberConstant(0x44)` = `constants.range` (=2). Feuille DSL -> `spawn_decoy` (G1).
     Sélecteur de tuile COLLAPSÉ (doctrine slice-18/19). Effet PUR (stop=False)."""
@@ -148,7 +148,7 @@ class SpawnDecoys(AbilityBehaviour):
 
 class SpawnNeophytesOnDecoys(AbilityBehaviour):
     """2e étage : `Spawn( Tiles(PickRandomly(Half(Count(FriendlyDecoysAroundTarget)))), genesSmnNeophyte,
-    WithStatsFromConfig )` @1811cdc30. Sur la MOITIÉ (ceil — `DivideAmount mode1=Ceiling @180f19800`) des decoys
+    WithStatsFromConfig )` IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour. Sur la MOITIÉ (ceil — `DivideAmount mode1=Ceiling IdunBattle.Entities.Formulas.DivideAmount$$Calculate`) des decoys
     ALLIÉS dans le disk `range` autour de la cible, summon un Neophyte (stats config-scalées `summon*_2`,
     2183/1746/437 au max). Owner = caster ; `ai_controlled=False` (le Neophyte a Ambush+BattleFatigue, PAS
     Summon -> joué au tour normal de sa team, pas auto turn-start). Sélecteur+Half COLLAPSÉS.
@@ -204,7 +204,7 @@ def _const(ability_id: str, key: str):
 
 
 def cult_demagogue_ai_tree(ability_id: str = "CultDemagogue") -> PerformAIAction:
-    """3e etage de `CultDemagogueAbility$$ExecuteBehaviour @1811cdc30` — MIRROR 1:1 du decompile
+    """3e etage de `CultDemagogueAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour` — MIRROR 1:1 du decompile
     (RETROFIT #94 : remplace l'ancienne feuille bespoke `PerformAINeophyteTurn`, qui FUSIONNAIT selecteur
     et action et n'implementait PAS le cycle de flags de tour) :
 
@@ -213,14 +213,14 @@ def cult_demagogue_ai_tree(ability_id: str = "CultDemagogue") -> PerformAIAction
                                        GetStringConstant(config, 4)=unitId_2, 3 ),
                           asGroup=0, resetTurnFlags=1 )`
 
-    - `SurroundingEnemies` en surcharge **4-args** (`@180dfc570` : `Enemies(param_2 = X, Units(...))` ou
+    - `SurroundingEnemies` en surcharge **4-args** (`IdunBattleLogic.Entities.DSLFactory$$SurroundingEnemies` : `Enemies(param_2 = X, Units(...))` ou
       `X` est A LA FOIS le centre ET la reference) -> « unites entourant la CIBLE et ennemies DE LA CIBLE »
       = les ALLIES du caster ; d'ou `reference=Target()` (cf. `selectors.SurroundingEnemies`).
-    - `UnitsWithId(..., unitId_2)` (`@180e00170`) restreint aux Neophytes.
-    - `asGroup=0` -> `ComputerActionOperation.execute` (mono) = `AiControl.ExecuteFor(unit) @180ffbda0`
+    - `UnitsWithId(..., unitId_2)` (`IdunBattleLogic.Entities.DSLFactory$$UnitsWithId`) restreint aux Neophytes.
+    - `asGroup=0` -> `ComputerActionOperation.execute` (mono) = `IdunBattle.Core.Services.AiControl$$ExecuteFor(unit)`
       UNE passe de decision PAR unite, sequentielle et independante (PAS le group operator a boucle).
     - `resetTurnFlags=1` -> les flags de tour de chaque Neophyte sont SAUVEGARDES, EFFACES puis RESTAURES
-      autour de l'action (`RemoveTurnFlags @180fad310` / `SetUnitTurnsFlags @180e645b0`) : il agit meme
+      autour de l'action (`IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags` / `IdunBattle.Operations.ComputerActionOperation$$SetUnitTurnsFlags`) : il agit meme
       s'il avait deja fini son tour, ET **son action supplementaire ne consomme pas son tour**. C'est ce
       cycle que l'ancienne feuille bespoke n'avait PAS (elle appelait `decide_and_apply` a nu).
 
@@ -234,7 +234,7 @@ def cult_demagogue_ai_tree(ability_id: str = "CultDemagogue") -> PerformAIAction
 
 
 def cult_demagogue_tree(target_ref=None):
-    """Mirror `CultDemagogueAbility$$ExecuteBehaviour @1811cdc30` :
+    """Mirror `CultDemagogueAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour` :
         `op_Addition( op_Addition( Group(spawnDecoys, Null, 100), Group(spawnNeophytes, Null, 0x65) ),
                       PerformAIAction(...) )`
     (les `Group(id=100/101)` natifs = ordonnancement de VUE, no-op observable ici ; l'ASSOCIATION
@@ -248,7 +248,7 @@ def cult_demagogue_tree(target_ref=None):
 
 
 class CultDemagogueAbility(ActiveAbility):
-    """`CultDemagogueAbility$$ExecuteBehaviour @1811cdc30` (id 1179, Isaak genesPrimus). Arbre DSL
+    """`CultDemagogueAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour` (id 1179, Isaak genesPrimus). Arbre DSL
     `cult_demagogue_tree()` : (1) pose N=`nrOfSummons` decoys ≤range de la cible ; (2) summon des Neophytes sur
     ceil(moitié) des decoys alliés de la zone (stats config `summon*_2`) ; (3) chaque Neophyte joue un tour AI
     complet immédiat. Sélecteurs de TUILE collapsés. Renvoie {decoys, neophytes, ai_units, ai_results, dsl}.
@@ -278,7 +278,7 @@ class CultDemagogueAbility(ActiveAbility):
 #
 # "Surrounding radius" = le champ DslContext @+0xc0 (rayon d'ADJACENCE = 1, i2 « surrounding hex »),
 # DISTINCT du `range` config (=2, `GetNumberConstant(0x16)`, = portee de MOUVEMENT `MovableTilesInRange`).
-# Le natif @1811e8de0 lit @0xc0 (PAS `GetNumberConstant` -- contraste CultDemagogue @1811cdc30 qui passe
+# Le natif IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility$$ExecuteBehaviour lit @0xc0 (PAS `GetNumberConstant` -- contraste CultDemagogue IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour qui passe
 # `GetNumberConstant(0x44)=range` a `SurroundingTiles`) -> valeur d'adjacence par defaut du contexte, non
 # exposee en config. i2 (« a free surrounding hex within movement range 2 ») confirme : surrounding=adjacent(1),
 # movement=2. VALIDATOR : confirmer live (drive positions).
@@ -312,7 +312,7 @@ def _living_occupants_map(state: "State") -> dict:
 
 def _move_dest_tile(state: "State", caster_id: int, target_id: int, surround_radius: int, move_range: int):
     """COLLAPSE (doctrine slice-18/19/22) du selecteur de destination LOURD (kind S) de HeroicFusillade
-    @1811e8de0 : `First(SortTilesByUtility( CanAddUnit(SurroundingTiles(target, radius))
+    IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility$$ExecuteBehaviour : `First(SortTilesByUtility( CanAddUnit(SurroundingTiles(target, radius))
     op_And MovableTilesInRange(caster, Direct(range), reachOnly), 7))`. Renvoie la (col,row) de la MEILLEURE
     tuile LIBRE `surround_radius`-adjacente a la cible que le caster peut ATTEINDRE en <= `move_range` pas
     de marche, ou None. `MovableTilesInRange` -> `walk_pathfinder.get_movable_positions` (BFS niveaux fidele,
@@ -339,7 +339,7 @@ def _move_dest_tile(state: "State", caster_id: int, target_id: int, surround_rad
 
 def _hf_crit_mag(state: "State", caster_id: int, target_id: int, surround_radius: int) -> int:
     """`Multiply(Direct(GetVariableForLevel(0x42)=extraCritDmg), Count(Unobscured(CanAddUnit(
-    SurroundingTiles(target, radius)))))` @1811e8de0 = `extraCritDmg[level] x nbFree`. `nbFree` = nb de
+    SurroundingTiles(target, radius)))))` IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility$$ExecuteBehaviour = `extraCritDmg[level] x nbFree`. `nbFree` = nb de
     tuiles LIBRES `surround_radius`-adjacentes a la cible, comptees POST-move (le natif `Cache` la 1re eval
     = au ChangeStat(Add), APRES le move -> la tuile ou le caster vient de se poser n'est PLUS libre).
     `extraCritDmg` est rarity-scaled (`variablesAffectedByRarityBonus`) -> multiplier_pct. `Unobscured` =
@@ -352,7 +352,7 @@ def _hf_crit_mag(state: "State", caster_id: int, target_id: int, surround_radius
 
 def heroic_fusillade_tree(state: "State", caster_id: int, target_id: int,
                           surround_radius: int, move_range: int):
-    """Mirror 1:1 de `HeroicFusilladeAbility$$ExecuteBehaviour @1811e8de0` :
+    """Mirror 1:1 de `HeroicFusilladeAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility$$ExecuteBehaviour` :
         op_Addition(
           If( Not(IsSurrounding(caster@0x148, target@0x178, radius)), MoveUnit(caster, destTile) ),   # MOVE
           If( IsAlive(target),
@@ -366,8 +366,7 @@ def heroic_fusillade_tree(state: "State", caster_id: int, target_id: int,
       #4 + ThunderousAssault ; le verdict re-expert « declenche crush/overwatch » etait imprecis, corrige au
       decompile).
     - SPLASH : natif `Unobscured(Enemies(SurroundingUnits(target, radius, includeCenter=1)))`. Le
-      `includeCenter=1` (SurroundingUnits @180dfcb70 -> `SurroundingTiles(target, includeCenter=1, radius)`
-      @180dfca70 = disk INCLUANT la tuile cible -- contraste MOVE `includeCenter=0` = ring exclu-centre) ->
+      `includeCenter=1` (IdunBattleLogic.Entities.DSLFactory$$SurroundingUnits -> `IdunBattleLogic.Entities.DSLFactory$$SurroundingTiles(target, includeCenter=1, radius) = disk INCLUANT la tuile cible -- contraste MOVE `includeCenter=0` = ring exclu-centre) ->
       la CIBLE est dans l'ensemble (i2 « 6x ... to the target AND all other enemies surrounding it »). Porte
       = `Union(Target(), Alive(SurroundingEnemies(TargetTile(), radius)))` (cible + ennemis-du-caster VIVANTS
       `radius`-adjacents ; `SurroundingEnemies` exclut le centre -> `Union(Target())` reinjecte la cible ;
@@ -393,14 +392,14 @@ def heroic_fusillade_tree(state: "State", caster_id: int, target_id: int,
 
 
 class HeroicFusilladeAbility(ActiveAbility):
-    """`HeroicFusilladeAbility$$ExecuteBehaviour @1811e8de0` (id 1180, Judh genesKelermorph, namespace natif
+    """`HeroicFusilladeAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility$$ExecuteBehaviour` (id 1180, Judh genesKelermorph, namespace natif
     `Abilities.Active.Loki`). Arbre DSL `heroic_fusillade_tree()` : (1) Judh MOVE sur une tuile libre
     adjacente a la cible atteignable en <= `range`=2 (sauf si deja adjacente) ; (2) 6x Projectile a la CIBLE
     + tous les ennemis l'entourant (splash cible-centre) ; (3) crit +extraCritDmg x nb de hex libres
     entourant la cible (buff CRIT_DAMAGE net-nul encadrant l'attaque). Selecteurs S (dest move, nbFree)
     collapses ; structure DSL. Renvoie {move, main_attack, splash, crit_bonus, dsl}.
 
-    RE-ARME post-resurrection (`HeroicFusillade_ResurrectAbility$$CreateTrigger @180f86590` = On(0x2f=
+    RE-ARME post-resurrection (`HeroicFusillade_ResurrectAbility$$IdunBattleLogic.Entities.Abilities.Triggered.Loki.HeroicFusillade_ResurrectAbility$$CreateTrigger` = On(0x2f=
     UnitResurrected) & OwnerIsTarget -> reset flag ability-used) = trigger SEPARE (tranche G3-Ambush /
     triggers), PAS dans l'ability active."""
     __slots__ = ()
@@ -429,25 +428,25 @@ class HeroicFusilladeAbility(ActiveAbility):
 
 # ===================== VigilanceEternal (Tyrith custoKyrus, actif 1202) =====================
 #
-# `VigilanceEternalAbility$$ExecuteBehaviour @18122a580` (namespace natif `Abilities.Active.Loki`,
+# `VigilanceEternalAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$ExecuteBehaviour` (namespace natif `Abilities.Active.Loki`,
 # Custodes -- HORS gen-stealer, mais REUTILISE le template de charge `_move_dest_tile` de HeroicFusillade
-# defini ci-dessus, d'ou le voisinage). L'arbre est `HeroicFusillade @1811e8de0` EXACT, MOINS splash/crit :
+# defini ci-dessus, d'ou le voisinage). L'arbre est `HeroicFusillade IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility$$ExecuteBehaviour` EXACT, MOINS splash/crit :
 #     op_BitwiseAnd(
 #       If( Not(IsAdjacent(caster@0x160, target@0x178, 3)),                                  # MOVE gate
 #           MoveUnit(caster, First(SortTilesByUtility(GetPossibleMovementTiles, 0x20))) ),   # charge-tile
 #       If( IsAlive(caster@0x160) op_BitwiseAnd IsAlive(target@0x178),                       # ATTACK gate (2)
 #           AttackWithAttackDamage(caster, target, MinMaxDamage, GetDamageProfile,           # mono-cible
 #                                  GetNumberConstant(0x2f)=nrOfHits) ) )
-# Differences avec HeroicFusillade (@1811e8de0), lues au decompile :
-#  - MOVE gate = `Not(IsAdjacent(caster, target, 3))` (`IsAdjacent @180df2f00` -> `@180f9f7b0`) au lieu de
-#    `Not(IsSurrounding(caster, target, radius=1))`. `IsAdjacent.ShouldTrigger` @180f9f7b0 : le predicat
+# Differences avec HeroicFusillade (IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility$$ExecuteBehaviour), lues au decompile :
+#  - MOVE gate = `Not(IsAdjacent(caster, target, 3))` (`IdunBattleLogic.Entities.DSLFactory$$IsAdjacent` -> `IdunBattle.Entities.Triggers.IsAdjacentAbilityTrigger$$ShouldTrigger`) au lieu de
+#    `Not(IsSurrounding(caster, target, radius=1))`. `IdunBattle.Entities.Triggers.IsAdjacentAbilityTrigger$$ShouldTrigger : le predicat
 #    par-paire = slot iface `0x5f` (bool `AreNeighbours(pos_a,pos_b)`, PAS `0x6e`=GetDistance d'`IsInRange`
-#    @180fa1720) -> seuil dist==1 STRICT ; le `3` (champ +0x18) n'est PAS passe a `0x5f` -- il ne va qu'a
+#    IdunBattle.Entities.Triggers.IsInRangeAbilityTrigger$$ShouldTrigger) -> seuil dist==1 STRICT ; le `3` (champ +0x18) n'est PAS passe a `0x5f` -- il ne va qu'a
 #    l'eval du selecteur (`FUN_180025220` param_5), INERTE pour les selecteurs d'unite Caster/Target. Donc
 #    la gate = "bouge SAUF si deja adjacent (dist 1) a la cible", SEMANTIQUEMENT IDENTIQUE au move-gate
 #    HeroicFusillade. Corrobore : (a) wiki Tyrith (« melee mobile ... cible un ennemi DEJA adjacent OU
 #    ayant un hex libre adjacent dans la move range 2, gap-close sur cet hex ») ; (b) le node `IsAdjacent`
-#    porte (dist==1, sans radius) ; (c) le precedent TheBetrayer @1811a4f70 (meme node IsAdjacent sous
+#    porte (dist==1, sans radius) ; (c) le precedent TheBetrayer IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_TakeTurnAbility$$CreateBehaviour (meme node IsAdjacent sous
 #    op_LogicalNot pour gater un move). Le port reutilise le node dist==1 tel quel. [VALIDE LIVE : dist 2/3
 #    -> gap-close ; dist 1 -> skip move.]
 #  - ATTACK gate = `IsAlive(caster) op_BitwiseAnd IsAlive(target)` (les DEUX vivants) au lieu du seul
@@ -457,8 +456,8 @@ class HeroicFusilladeAbility(ActiveAbility):
 #    40%) ; nrOfHits = `GetNumberConstant(0x2f)` = 3 ; bornes = `MinMaxDamage` = minDmg/maxDmg[level].
 #  - Composition top-level = `op_BitwiseAnd` (CombinedBehaviour, == `op_add` : Seq court-circuit ; les deux
 #    branches sont pures -> les deux s'executent).
-# `GetPossibleMovementTiles @18122ae10` = `TilesUnitCanMoveToChargeTarget(caster@0x160, tile@0x168,
-# target@0x190, Direct(GetNumberConstant(0x16)=range=2), canReachOnly=1)` @180dfda00
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$GetPossibleMovementTiles` = `IdunBattleLogic.Entities.DSLFactory$$TilesUnitCanMoveToChargeTarget(caster@0x160, tile@0x168,
+# target@0x190, Direct(GetNumberConstant(0x16)=range=2), canReachOnly=1)
 #   = `CanAddUnit(AdjacentTiles(target)) op_And MovableTilesInRange(caster, tile, Direct(range), reachOnly=1)`
 #   == EXACTEMENT le collapse `_move_dest_tile` de HeroicFusillade avec surround_radius=1 (AdjacentTiles =
 #   ring-1 = SurroundingTiles radius 1) + move_range=range=2. `SortTilesByUtility(0x20)` collapse -> tuile
@@ -467,7 +466,7 @@ VIGIL_SURROUND_RADIUS = 1     # AdjacentTiles(target) = ring-1 (== SurroundingTi
 
 
 def vigilance_eternal_tree(state: "State", caster_id: int, target_id: int, move_range: int):
-    """Mirror 1:1 de `VigilanceEternalAbility$$ExecuteBehaviour @18122a580` (HeroicFusillade moins
+    """Mirror 1:1 de `VigilanceEternalAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$ExecuteBehaviour` (HeroicFusillade moins
     splash/crit) : `op_and(If(Not(IsAdjacent(caster,target)), MoveUnit(caster, destTile)),
     If(IsAlive(caster) & IsAlive(target), AttackWithAttackDamage(caster->target, Power, 3 hits)))`.
     dest = selecteur S lourd COLLAPSE (`_move_dest_tile`, surround_radius=1, move_range=`range`=2) PRE-move
@@ -482,7 +481,7 @@ def vigilance_eternal_tree(state: "State", caster_id: int, target_id: int, move_
 
 
 class VigilanceEternalAbility(ActiveAbility):
-    """`VigilanceEternalAbility$$ExecuteBehaviour @18122a580` (id 1202, Tyrith custoKyrus, namespace natif
+    """`VigilanceEternalAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$ExecuteBehaviour` (id 1202, Tyrith custoKyrus, namespace natif
     `Abilities.Active.Loki`). Arbre DSL `vigilance_eternal_tree()` = HeroicFusillade EXACT moins splash/crit :
     (1) Tyrith MOVE sur une tuile libre adjacente a la cible atteignable en <= `range`=2 (sauf si deja
     adjacente, gate `Not(IsAdjacent)`) ; (2) attaque MONO-cible melee (profil Power, 3 hits) gatee par les
@@ -497,11 +496,11 @@ class VigilanceEternalAbility(ActiveAbility):
         `SortTilesByUtility(0x20)` fidele).
       - MONO-CIBLE : un ennemi voisin de la cible n'est PAS touche (pas de splash).
       - RESIDU DEGAT ~1% : RESOLU (cas fable rngcrit-1202, 2026-07-23). La cause N'ETAIT PAS un crit-roll a
-        cc=0 (refute decompile : `DamagePrediction.RollCritical @1810387a0` gate `cc<1 -> false SANS tirage`,
-        unique chemin crit d'`ExecuteHit @180e5eff0` ; la note damage.py "cc=0 => 0 tirage" reste VRAIE pour
+        cc=0 (refute decompile : `IdunBattle.Core.Services.DamagePrediction$$RollCritical` gate `cc<1 -> false SANS tirage`,
+        unique chemin crit d'`IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` ; la note damage.py "cc=0 => 0 tirage" reste VRAIE pour
         les DEUX vecteurs). Le 2e tirage/coup natif = le VECTEUR : AttackWithAttackDamage passe par le MEME
-        `ExecuteHit` que l'attaque normale mais avec un struct NON degenere -> `HitDamage.GetDamage @181007bf0`
-        tire la VALEUR BRUTE (1 tirage) PUIS `RandomlyResolveMinMaxDamage @181038600` (slot 8, SANS gate
+        `ExecuteHit` que l'attaque normale mais avec un struct NON degenere -> `IdunBattle.Core.HitDamage$$GetDamage`
+        tire la VALEUR BRUTE (1 tirage) PUIS `IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage` (slot 8, SANS gate
         min==max) consomme 1 tirage GASPILLE sur la cellule degeneree. Fix : `_run_hits`/`_one_hit` branche
         post_roll (damage.py) ; valide bit-exact per-hit + consommation (6 tirages/3 coups) sur 5 seeds x 2
         cibles via probe_rngcrit_1202.py. L'ecart residuel +1/coup constate a ARMURE>0 (les deux vecteurs,

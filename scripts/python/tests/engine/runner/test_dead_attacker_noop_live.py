@@ -1,12 +1,12 @@
 """#70 GATE ACTEUR-MORT — une attaque/ability d'un attaquant MORT est un NO-OP (0 tirage RNG, 0 degat).
 
-Racine (RE gqfc5mff6c) : `ActiveAbilityOperation.ExecuteInternal @180e44ec0` gate le CASTER en amont de
+Racine (RE gqfc5mff6c) : `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` gate le CASTER en amont de
 toute execution -> `if (EntityExtensions.IsUnit(caster) && UnitExtensions.IsDead(caster)) return 0;`. Le
-predicat `UnitExtensions.IsDead @180ed8050` = `!IsAlive(caster) && !HasFlag(caster, Fled=9)`, ou
-`HealthComponent.IsAlive @180f9ed10` = hp>=1. L'attaque normale native EST une ActiveAbility per-unite
+predicat `IdunBattle.Entities.UnitExtensions$$IsDead` = `!IsAlive(caster) && !HasFlag(caster, Fled=9)`, ou
+`IdunBattle.Entities.Components.HealthComponent$$IsAlive` = hp>=1. L'attaque normale native EST une ActiveAbility per-unite
 (#139) -> passe par le MEME gate. Un attaquant a hp=0 encore sur le board (IsAlive=false, non-Fled) rend
 l'attaque un no-op AVANT tout roll. L'offline (`AttackDamageOperation.execute`, qui mirror le natif
-`AttackDamageOperation.Execute @180e60c70` — SANS gate liveness) sur-executait une attaque complete depuis
+`IdunBattle.Operations.AttackDamageOperation$$Execute` — SANS gate liveness) sur-executait une attaque complete depuis
 un attaquant mort. Fix : gate ACTEUR-MORT au niveau DISPATCH (`DamageHandler.visit_AttackUnitMessage` +
 `AbilityHandler.visit_ActiveAbilityMessage`, mirror d'ExecuteInternal), inerte sur tout attaquant vivant.
 

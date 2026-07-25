@@ -8,24 +8,24 @@ from ._base import NCContext, NonComparablePlaybook, _sweep_origin_first, _has_v
 
 
 class DoctrinaImperativesPlaybook(NonComparablePlaybook):
-    """`DoctrinaImperativesPlaybook` (RE @18112ccf0, ctor `NonComparablePlaybook(0x45e=1118)`).
+    """`DoctrinaImperativesPlaybook` (RE IdunBattle.AI.Playbook.Loki.DoctrinaImperativesPlaybook$$.ctor, ctor `NonComparablePlaybook(0x45e=1118)`).
 
-    - cctor @18112cc80 : `MIN_UTILITY = Fix64.FromInt(1)` (gate Bucket.AddAction).
-    - `GetUseProbability @18112cbf0` : `Fix64(1)` (100%) si `HasUsedAbilityThisTurn == false`, sinon `Fix64(0)`
+    - IdunBattle.AI.Playbook.Loki.DoctrinaImperativesPlaybook$$.cctor : `MIN_UTILITY = Fix64.FromInt(1)` (gate Bucket.AddAction).
+    - `IdunBattle.AI.Playbook.Loki.DoctrinaImperativesPlaybook$$GetUseProbability` : `Fix64(1)` (100%) si `HasUsedAbilityThisTurn == false`, sinon `Fix64(0)`
       -> l'IA n'active DoctrinaImperatives qu'UNE fois par tour (le once-per-turn est reflete cote driver par
       `usable is False` une fois utilise, comme les autres actives -- non re-modelise ici).
-    - `EvaluateNonComparable @18112c8d0` : **GATE 3 branches** (verdict re-expert task #31, slots BattleQuery
-      0x51=`GetAdjacentUnits` / 0xc9=`ReachedSummonCap` @181070f60 resolus). Le natif ne score l'usage a 100
+    - `IdunBattle.AI.Playbook.Loki.DoctrinaImperativesPlaybook$$EvaluateNonComparable` : **GATE 3 branches** (verdict re-expert task #31, slots BattleQuery
+      0x51=`GetAdjacentUnits` / 0xc9=`IdunBattle.Core.Services.BattleQuery$$ReachedSummonCap resolus). Le natif ne score l'usage a 100
       (`GenerateAction(Fix64.FromInt(100))`) QUE si le gate passe -- sinon bucket vide -> pas d'action -> le
       fallback Comparable (attaque) prend la main. Notre port emmettait 1118 INCONDITIONNELLEMENT (overfire
       #31 : s01/s07 AdMech + 31337 s17, le toggle ecrasait une attaque native ab=69).
 
-      Gate natif (mirror `_should_emit`, DESASSEMBLE @18112c8d0 #38b : `jle` sur le count
+      Gate natif (mirror `_should_emit`, DESASSEMBLE IdunBattle.AI.Playbook.Loki.DoctrinaImperativesPlaybook$$EvaluateNonComparable #38b : `jle` sur le count
       free-adjacent -> emit ; sinon ReachedSummonCap) :
         count = GetEligibleTargetsForNormalAttack(caster) = cibles d'attaque normale SANS bouger (fromHere).
         - count == 0 : emit ssi `HasEffect(caster, ConquerorImperative 0x4e0=1248)` -- en Conqueror et rien a
           taper depuis la position courante -> rebascule Protector (reprend tank/summon) ; en Protector -> rien.
-        - count > 0 : free = `GetFreeAdjacentTiles(caster)` (IBattleQuery slot 0x51 @181061650,
+        - count > 0 : free = `GetFreeAdjacentTiles(caster)` (IBattleQuery slot 0x51 IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles,
           RESOLU LIVE vtable #38b -- l'ancien verdict case-31 "GetAdjacentUnits TOUT CAMP" etait
           FAUX ; slot 0x51 = TUILES LIBRES placables adjacentes, PAS des unites) ;
           - free == 0 : emit inconditionnel (Tan encercle : plus de place a summon -> toggle libre).
@@ -43,7 +43,7 @@ class DoctrinaImperativesPlaybook(NonComparablePlaybook):
     ABILITY_ID = int(ActiveAbilityType.DoctrinaImperatives)   # 1118
     MIN_UTILITY = 1.0
     PRIORITY = 0          # get_Priority de base NonComparable (aucun override lu)
-    UTILITY = 100.0       # GenerateAction(..., Fix64.FromInt(100)) @18112c8d0
+    UTILITY = 100.0       # GenerateAction(..., Fix64.FromInt(100)) IdunBattle.AI.Playbook.Loki.DoctrinaImperativesPlaybook$$EvaluateNonComparable
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         if not self._usable(ctx):
@@ -55,7 +55,7 @@ class DoctrinaImperativesPlaybook(NonComparablePlaybook):
                  "to": (to if to != ctx.origin else None), "pred": self.UTILITY}]
 
     def _should_emit(self, ctx: NCContext) -> bool:
-        """Mirror du gate `EvaluateNonComparable @18112c8d0` (3 branches, cf. docstring de classe)."""
+        """Mirror du gate `IdunBattle.AI.Playbook.Loki.DoctrinaImperativesPlaybook$$EvaluateNonComparable` (3 branches, cf. docstring de classe)."""
         # count = GetEligibleTargetsForNormalAttack(caster) : `_has_valid_targets` mirror `HasValidTargets`
         # (0x3f) = >=1 ennemi attaquable a l'attaque NORMALE DEPUIS la position courante (fromHereCount>0).
         if not _has_valid_targets(ctx, ctx.uid):          # count == 0
@@ -80,14 +80,13 @@ class DoctrinaImperativesPlaybook(NonComparablePlaybook):
         return False
 
     def _free_adjacent_tiles(self, ctx: NCContext) -> int:
-        """`GetFreeAdjacentTiles(caster)` (IBattleQuery slot 0x51 @181061650) = nombre de TUILES
+        """`GetFreeAdjacentTiles(caster)` (IBattleQuery slot 0x51 IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles) = nombre de TUILES
         LIBRES placables adjacentes au caster.
 
-        RESOLU LIVE #38b (`resolveVtableSlot` sur BattleQuery, ancre slot 0xc9=ReachedSummonCap
-        @181070f60 -> slot 0x51 = `GetFreeAdjacentTiles`). CORRIGE le verdict case-31 (slot 0x51 =
+        RESOLU LIVE #38b (`resolveVtableSlot` sur BattleQuery, ancre slot 0xc9=IdunBattle.Core.Services.BattleQuery$$ReachedSummonCap -> slot 0x51 = `GetFreeAdjacentTiles`). CORRIGE le verdict case-31 (slot 0x51 =
         "GetAdjacentUnits TOUT CAMP") -- MEME lot de RE que le faux "gate per-player" refute #39 :
         GetAdjacentUnits prend 3 params (from/friendsOf/enemiesOf) et ne matche PAS le dispatch a
-        1 argument du call-site (`FUN_180003bd0(0x51, itf, service, caster)`). Le natif @181061650 =
+        1 argument du call-site (`FUN_180003bd0(0x51, itf, service, caster)`). Le natif IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles =
         `GetAdjacentTiles(caster,1,1,1)` puis `FilterInPlace(CanAddUnit(tile, world, 1,0,0))` = tuiles
         WALKABLE + VIDES + |dElev|<2 adjacentes. Mirror = `battle_query.adjacent_addable_count` (MEME
         primitive que AggressiveOnslaught @181163... et HammerOfWrath #116).
@@ -108,13 +107,13 @@ class DoctrinaImperativesPlaybook(NonComparablePlaybook):
                                          occ, ctx.elev_by_pos)
 
     def _reached_summon_cap(self, ctx: NCContext) -> bool:
-        """Mirror `BattleQuery.ReachedSummonCap @181070f60` (arg fixe ControlEdict 0x4b0=1200, ability
+        """Mirror `IdunBattle.Core.Services.BattleQuery$$ReachedSummonCap` (arg fixe ControlEdict 0x4b0=1200, ability
         TRIGGERED -> branche `IsTriggered` du natif) :
         `GetVariableForLevel(config(ControlEdict), maxSummons=49, level) <= GetChildrenCount(caster)`.
 
-        - `GetChildrenCount @180ecf290` = len(`ParentComponent.children`) du caster, SANS FILTRE
-          (predicat null) : liste append-only -- creee VIDE par `Blueprints.Unit @180eb3a3d`, alimentee
-          au spawn (AddUnitOperation), JAMAIS purgee a la mort (`RemoveUnitOperation.Execute @180e8add0`
+        - `IdunBattle.Entities.UnitExtensions$$GetChildrenCount` = len(`ParentComponent.children`) du caster, SANS FILTRE
+          (predicat null) : liste append-only -- creee VIDE par `IdunBattle.Entities.Blueprints$$Unit+0x4fd`, alimentee
+          au spawn (AddUnitOperation), JAMAIS purgee a la mort (`IdunBattle.Operations.RemoveUnitOperation$$Execute`
           ne touche que les listes units/removed du PlayerComponent, aucun RemoveChild n'existe) ->
           compte TOUT enfant jamais spawne, DEPOUILLES INCLUSES. NB : sematique DIFFERENTE du cap
           runner-face (`execute_control_edict_summon` : Skitarii VIVANTS) -- un Skitarii mort libere le

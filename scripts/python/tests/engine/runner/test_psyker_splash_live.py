@@ -1,6 +1,6 @@
 """VECTEUR AFTER-HIT — splash « Smite » du trait PSYKER : replay-diff LIVE vs moteur porté.
 
-Valide `triggers.psyker_extra_attack` (mirror `PsykerExtraAttackAbility` @1812241b0..) : après une attaque
+Valide `triggers.psyker_extra_attack` (mirror `PsykerExtraAttackAbility` IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$CreateBehaviour..) : après une attaque
 NORMALE RANGED de profil PSYCHIQUE, le trait Psyker déclenche une extra-attaque sur UN ennemi adjacent
 (hex) à la cible primaire — `PickRandomly(1)` de `Damageable(Enemies(AdjacentUnits(cible)))` — pour
 `round(Attack × psykerExtraDmg%)` Psychic, montant `StatAmount` PLAT (aucune variance d'arme), Psychic

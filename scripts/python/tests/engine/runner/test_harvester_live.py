@@ -1,8 +1,8 @@
 """HarvesterOfSouls (1067, eldarMauganRa « Maugan Ra », Aeldari) -- face COMBAT (execute) portee, confrontee au LIVE.
 
-`HarvesterOfSoulsAbility.ExecuteBehaviour @1811e70f0` (DECOMPILE, mirror 1:1 -- namespace natif
+`IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$ExecuteBehaviour` (DECOMPILE, mirror 1:1 -- namespace natif
 `Abilities.Active.Loki.HarvesterOfSoulsAbility`) =
-    hits = If( HasFlag(caster@0x160, Moved=0), ConfigConst(nrOfHits=0x2f),                       # GetHits @1811e75b0
+    hits = If( HasFlag(caster@0x160, Moved=0), ConfigConst(nrOfHits=0x2f),                       # IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$GetHits
                Sum(ConfigConst(nrOfHits=0x2f), ConfigConst(extraHit=0x2b)) )                     #   a bouge:2 / sinon:3
     ExecuteAtomic( op_BitwiseAnd(                                                                 # tag 0x2a
         AttackWithAttackDamage(caster@0x160, target@0x178, MinMaxDamage, Nullable(0x13=HeavyRound), hits),   # MAIN
@@ -13,7 +13,7 @@
 
 i2 : « 3x HeavyRound + 1 extra hit if hasn't moved a un ennemi ET aux ennemis adjacents dans un rayon ».
 Attaque RANGED HeavyRound (pierce 55), config 1067 : nrOfHits=2, extraHit=1, range=3 ; minDmg_2/maxDmg_2 ==
-minDmg/maxDmg. `native_factory="attack"` (@180de9fb0, XREF ExecuteBehaviour ; 2 tirages/coup a cc=0, rngcrit-1202).
+minDmg/maxDmg. `native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, XREF ExecuteBehaviour ; 2 tirages/coup a cc=0, rngcrit-1202).
 Le natif B `Enemies(caster, AdjacentFriends(target,1))` = ennemis-du-caster ring-1 de la cible ; porte via
 `AdjacentEnemies(TargetTile(), Const(1))` (le runner `AdjacentFriends` filtre team==CASTER, PAS subject-relatif ->
 `Enemies(AdjacentFriends(target))` serait VIDE ; `AdjacentEnemies(TargetTile())` = l'equivalent CORRECT, convention #122).

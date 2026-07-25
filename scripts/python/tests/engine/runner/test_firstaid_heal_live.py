@@ -1,7 +1,7 @@
-"""B3 (#130) -- `FirstAidHealAbility` (Abilities.Tiles @1811c0490) heal-on-tile au DEBUT DE TOUR.
+"""B3 (#130) -- `FirstAidHealAbility` (Abilities.Tiles IdunBattleLogic.Entities.Abilities.Tiles.FirstAidHealAbility$$CreateBehaviour) heal-on-tile au DEBUT DE TOUR.
 
 RE (decompile gqfc5mff6c) : une tuile FirstAid porte `FirstAidHealEffect` (type 10) ; trigger
-`On(0x13) & IsTurnOf(Units(units-on-tile))` ; behaviour @180f44090 =
+`On(0x13) & IsTurnOf(Units(units-on-tile))` ; behaviour IdunBattle.Entities.Effects.FirstAidHealEffect$$CreateTargetTriggerBehaviour =
 `Heal(PercentageOf(StatAmount(Health=5, Initial=2)=maxHP, Direct(GetNumberConstant(0x13)=firstAidRecovery%)))`,
 targets = `UnitsWithoutTrait(Units(tile), 0x19=25=Immune)`. firstAidRecovery = 35 (globalValue).
 

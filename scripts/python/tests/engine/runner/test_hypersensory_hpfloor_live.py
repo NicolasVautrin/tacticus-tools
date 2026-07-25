@@ -2,11 +2,11 @@
 
 i2 : « The first time each enemy turn that Judh is attacked, she cannot fall below 50% of her current
 Health. » = effet 0x564=1380 `HypersensoryAbilities_MinimalHealthEffect` :
-  - `CreateBehaviour` @180f87870 : `AddEffect(0x564, owner)` self a l'init de l'ability passive (owner-effect).
-  - `ApplyInternal` @180f445a0 : `MinimalHealth = Min(Round(hp x hpPct/100), hp-1)` (snapshot du HP courant).
-  - `RevertInternal` @180f44820 : `MinimalHealth = null`.
-  - `CreateActiveCondition` @180f447a0 : `IsEnemyTurn(owner) & Not(HasBeenAttackedAmountThisTurn(owner)>=1)`.
-  - clamp `FillUpStatComponent.Reduce @180f9bba0` : les PV ne descendent pas sous `min(hp, MinimalHealth)`.
+  - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility$$CreateBehaviour : `AddEffect(0x564, owner)` self a l'init de l'ability passive (owner-effect).
+  - `IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$ApplyInternal : `MinimalHealth = Min(Round(hp x hpPct/100), hp-1)` (snapshot du HP courant).
+  - `IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$RevertInternal : `MinimalHealth = null`.
+  - `IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$CreateActiveCondition : `IsEnemyTurn(owner) & Not(HasBeenAttackedAmountThisTurn(owner)>=1)`.
+  - clamp `IdunBattle.Entities.Components.FillUpStatComponent$$Reduce` : les PV ne descendent pas sous `min(hp, MinimalHealth)`.
 hpPct[L1..65] = 30..50 (var 0x26, level-indexee, NON rarity-scalee).
 
 VALIDATION : deterministe-sur-etat-live (comme G2/G3/G4/G5). BUILD un runner (Judh + ennemi), capture l'etat

@@ -1,9 +1,9 @@
 """TURN FLOW (TF-A) — EndTurn -> ChangeTurn -> StartTurn, confronte au LIVE (replay-diff).
 
 Valide le vecteur turn flow porte (`engine.runner.operations.turnflow`) :
-  - `ChangeTurnOperation`/`find_next_player` @180e62570 : le `current_player` passe au joueur suivant ;
-  - `EndTurnOperation.RefreshEffects` @180e6bf70 : les effets a duree de TOUTES les unites perdent 1 tour ;
-  - `StartTurnOperation` @180ea3fb0 : compteur de tours du nouveau joueur incremente.
+  - `ChangeTurnOperation`/`find_next_player` IdunBattle.Operations.ChangeTurnOperation$$FindNextPlayer : le `current_player` passe au joueur suivant ;
+  - `IdunBattle.Operations.EndTurnOperation$$RefreshEffects : les effets a duree de TOUTES les unites perdent 1 tour ;
+  - `StartTurnOperation` IdunBattle.Operations.StartTurnOperation$$Execute : compteur de tours du nouveau joueur incremente.
 
 PROTOCOLE : build d'une bataille 2 equipes (necron vs necron, AUCUN trigger turn-start type TheBetrayer).
 On capture S, on lit le joueur courant + les effets a duree. LIVE on `applyAction endturn` (fin du tour

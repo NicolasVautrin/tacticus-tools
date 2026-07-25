@@ -1,6 +1,6 @@
 """Gen-stealer G4 : CultDemagogue (id 1179, Isaak genesPrimus) MIGRATION -> arbre DSL, CONFRONTE au LIVE.
 
-`CultDemagogueAbility$$ExecuteBehaviour @1811cdc30` = `op_add(op_add(SpawnDecoys, SpawnNeophytesOnDecoys),
+`CultDemagogueAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour` = `op_add(op_add(SpawnDecoys, SpawnNeophytesOnDecoys),
 PerformAIAction(UnitsWithId(SurroundingEnemies(target, range, ref=target), unitId_2), 0, 1))` :
 (1) pose N=`nrOfSummons` decoys <=range de la cible, (2) summon Neophytes sur ceil(moitie) des decoys allies
 de la zone (stats config `summon*_2`), (3) chaque Neophyte joue un TOUR AI complet immediat. Le port EST
@@ -186,7 +186,7 @@ def test_perform_ai_action_selects_the_fresh_neophytes(cult_demagogue):
     """ANTI-NO-OP-SILENCIEUX : le selecteur DSL du 3e etage
     (`UnitsWithId(SurroundingEnemies(target@0x178, range, ref=target), unitId_2)`) doit voir les Neophytes
     tout juste poses par le 2e etage -- alors que les DEUX etages vivent dans UN SEUL `Execute` top-level
-    (`op_Addition`, @1811cdc30) et que le `DslContext` fige sa liste d'unites a la construction.
+    (`op_Addition`, IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour) et que le `DslContext` fige sa liste d'unites a la construction.
     C'est la classe de bug la plus couteuse (porte, correct, jamais atteint)."""
     d = cult_demagogue
     res = d["res"]
@@ -201,8 +201,7 @@ def test_perform_ai_action_selects_the_fresh_neophytes(cult_demagogue):
 
 
 def test_reset_turn_flags_cycle_on_neophytes(cult_demagogue):
-    """`PerformAIAction(..., asGroup=0, resetTurnFlags=1)` -> `ComputerActionOperation.Execute
-    @180e641e0` : les flags de tour de la cible sont SAUVEGARDES, EFFACES puis RESTAURES ->
+    """`PerformAIAction(..., asGroup=0, resetTurnFlags=1)` -> `IdunBattle.Operations.ComputerActionOperation$$Execute` : les flags de tour de la cible sont SAUVEGARDES, EFFACES puis RESTAURES ->
     (a) le Neophyte agit MEME deja `TurnFinished`, (b) son etat de tour est INCHANGE apres coup.
     L'ancienne feuille bespoke appelait `decide_and_apply` A NU : aucun cycle de flags."""
     from engine.runner.components import UnitFlagsComponent

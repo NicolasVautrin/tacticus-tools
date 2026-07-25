@@ -1,14 +1,13 @@
 """`HealUtility` — utilite de SOIN (RE ghidra gqfc5mff6c, doc §13 / status.md §3.1). UNE CLASSE (nom NATIF).
 
-`IdunBattle.AI.Utilities.HealUtility` (ctor @1810cfd80 ; `UtilityType.Heal=44`). Corps =
-`<EvaluateAttackInSteps>d__.MoveNext` (stub `EvaluateAttackInSteps @1810cfc10`, body iter @1810e16f0) :
+`IdunBattle.AI.Utilities.HealUtility` (IdunBattle.AI.Utilities.HealUtility$$.ctor ; `UtilityType.Heal=44`). Corps =
+`<EvaluateAttackInSteps>d__.MoveNext` (stub `IdunBattle.AI.Utilities.HealUtility$$EvaluateAttackInSteps`, body iter IdunBattle.AI.Utilities.HealUtility.u003CEvaluateAttackInStepsu003Ed__1$$MoveNext) :
     U = (effective / (maxHP + 1)) * W_HEAL * friendSign * bossMod
-avec `W_HEAL = 100` (`HealUtility.cctor @1810cfd10` = Fix64.FromInt(100)), `friendSign = +1` si la
+avec `W_HEAL = 100` (`IdunBattle.AI.Utilities.HealUtility$$.cctor` = Fix64.FromInt(100)), `friendSign = +1` si la
 cible est un ALLIE du caster (-1 sinon : soigner un ennemi = utilite negative), `bossMod = 2` si la
-cible est un BOSS sinon 1 (`GetUnitUtilityModifier @1810cfc80`).
+cible est un BOSS sinon 1 (`IdunBattle.AI.Utilities.HealUtility$$GetUnitUtilityModifier`).
 
-Le calcul du soin EFFECTIF (`HealAbility.HealAmount @180e345b0` -> `DamagePrediction.PredictHeal
-@181037180` -> `FillUpStatComponent.MaxFillUp @180f9b790`) N'EST PAS ici : c'est de la PREDICTION
+Le calcul du soin EFFECTIF (`IdunBattleLogic.Entities.Abilities.Active.Common.HealAbility$$HealAmount` -> `IdunBattle.Core.Services.DamagePrediction$$PredictHeal` -> `IdunBattle.Entities.Components.FillUpStatComponent$$MaxFillUp`) N'EST PAS ici : c'est de la PREDICTION
 (magnitude), pas de l'utilite -> reste dans `engine.predict` (heal_amount/predict_heal_effective).
 """
 from __future__ import annotations
@@ -16,16 +15,16 @@ from __future__ import annotations
 from .base import BaseUtility
 from .utility_type import UtilityType
 
-W_HEAL = 100   # HealUtility.cctor @1810cfd10 : Fix64.FromInt(100)
+W_HEAL = 100   # IdunBattle.AI.Utilities.HealUtility$$.cctor : Fix64.FromInt(100)
 
 
 class HealUtility(BaseUtility):
-    """`IdunBattle.AI.Utilities.HealUtility` (ctor @1810cfd80 ; UtilityType.Heal=44). Corps dans
-    `evaluate` (= `<EvaluateAttackInSteps>d__.MoveNext`, body @1810e16f0)."""
+    """`IdunBattle.AI.Utilities.HealUtility` (IdunBattle.AI.Utilities.HealUtility$$.ctor ; UtilityType.Heal=44). Corps dans
+    `evaluate` (= `<EvaluateAttackInSteps>d__.MoveNext`, body IdunBattle.AI.Utilities.HealUtility.u003CEvaluateAttackInStepsu003Ed__1$$MoveNext)."""
     UTILITY_TYPE = int(UtilityType.Heal)  # 44
 
     def get_unit_utility_modifier(self, is_boss: bool) -> float:
-        """`HealUtility.GetUnitUtilityModifier @1810cfc80` : `bossMod = 2` si la cible est un BOSS,
+        """`IdunBattle.AI.Utilities.HealUtility$$GetUnitUtilityModifier` : `bossMod = 2` si la cible est un BOSS,
         sinon 1 (le soin d'un boss compte double)."""
         return 2.0 if is_boss else 1.0
 

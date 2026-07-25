@@ -1,13 +1,13 @@
 """#84 volet 1 -- LetTheGalaxyBurn : le COUP ADDITIONNEL (trait 1058 -> triggered 1482 -> effet 1477).
 
 Chaine PORTEE (decompile ghidra, build gqfc5mff6c) :
-  - `LetTheGalaxyBurnEffect.CreateAdditionalHits @180f54e30` -> `EffectAdditionalHits.Create @180f405b0`
-    { condition = `OwnerIsCaster & (TargetHasTileEffect @181107810 | IsPersistentData(0x5ca) @180df4bb0)`,
+  - `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits` -> `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create`
+    { condition = `OwnerIsCaster & (IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$TargetHasTileEffect | IdunBattleLogic.Entities.DSLFactory$$IsPersistentData(0x5ca))`,
       degat = `FirstHitInCurrentAttackDamageRange`, profil = -1 (NULL), count = noeud NULL -> 1 } ;
-  - `LetTheGalaxyBurnAbility.CreateTrigger @1811076f0` = `On(5=PreAttack) & OwnerIsCaster &
+  - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateTrigger` = `On(5=PreAttack) & OwnerIsCaster &
     Maybe(ConfigConst 0x2a = traitVariables.LetTheGalaxyBurnChancePct=33) & !HasTileStatusEffect(Targets)` ;
-  - `LetTheGalaxyBurnAbility.CreateBehaviour @1811075c0` = `SetPersistentData(0x5ca, Self, key, 1)` ;
-  - `LetTheGalaxyBurn_ResetAbility.CreateBehaviour @1811078a0` = `... + ClearPersistentData(0x5ca, Self, key)`
+  - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateBehaviour` = `SetPersistentData(0x5ca, Self, key, 1)` ;
+  - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour` = `... + ClearPersistentData(0x5ca, Self, key)`
     (le volet `AddEffect(0x5c4=1476 DespoiledGround)` du meme behaviour = VOLET 2, non porte).
 
 Ce que ces tests PROUVENT, en confrontant le NATIF (aucune constante de coups en dur -- la base est
@@ -21,7 +21,7 @@ MESUREE sur le live, et les assertions portent sur des RELATIONS) :
         - effet 1477 retire de l'attaquant  -> plus AUCUN `base+1` ;
         - tuile de la cible forcee a un status-effect -> `base+1` a 100 % ET aucune pose (gate exclusif).
   (3) que le canal est bien branche cote PREDICTION : la formule PARTAGEE
-      `attack_hits_with_modifiers` (facade `DamagePrediction.GetAttackHits @18102f240`) rend `base+1`
+      `attack_hits_with_modifiers` (facade `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits`) rend `base+1`
       quand `tile_effects_by_pos` porte un effet sur la tuile de la cible, `base` sinon -- c'est
       EXACTEMENT le threading qui manquait (sans lui, l'IA sous-estimerait l'attaque d'un porteur).
 
@@ -106,7 +106,7 @@ def test_ltgb_live_gate_two_branches(rpc, ltgb_runner):
     status-effects de la TUILE de la cible (`tileMeta`), et on compte les evenements de degat.
 
     Le tile-effect de la branche B apparait TOUT SEUL : c'est le volet 2 du meme kit
-    (`LetTheGalaxyBurn_ResetAbility` @1811078a0 pose `DespoiledGround` quand le flag etait arme).
+    (`LetTheGalaxyBurn_ResetAbility` IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour pose `DespoiledGround` quand le flag etait arme).
 
     Assertions (relations, pas de constante) :
       - l'ensemble des comptes observes est inclus dans {base, base+1} -> le count node NULL vaut
@@ -266,7 +266,7 @@ def test_ltgb_offline_arm_read_and_clear(ltgb_state):
 
     assert set(hits) <= {base, base + 1}, f"comptes offline hors {{base, base+1}}: {sorted(set(hits))}"
     assert leaked == 0, \
-        f"{leaked} attaques laissent le flag persistant pose -> `ClearPersistentData` @1811078a0 non atteint"
+        f"{leaked} attaques laissent le flag persistant pose -> `ClearPersistentData` IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour non atteint"
     # La chance est un tirage : borne LARGE autour du 33 % de config (n=300 -> +-8 pts a 3 sigma).
     assert 15.0 <= pct <= 55.0, \
         f"frequence du +1 offline {pct:.1f}% incompatible avec Maybe(LetTheGalaxyBurnChancePct=33)"
@@ -281,7 +281,7 @@ def test_ltgb_offline_arm_read_and_clear(ltgb_state):
         f"le +1 subsiste sans l'effet LetTheGalaxyBurn -> il vient d'ailleurs ({sorted(set(hits2))})"
 
     # COUNTERFACTUEL 2 : cible posee sur une tuile a status-effect -> +1 a 100 % ET aucune pose
-    # (`!HasTileStatusEffect` du trigger @1811076f0 rend le gate EXCLUSIF).
+    # (`!HasTileStatusEffect` du trigger IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateTrigger rend le gate EXCLUSIF).
     st3 = ltgb_state["build_state"]()
     tp = st3.entities[tid].get_component(PositionComponent)
     ttile = board.id_at(tp.col, tp.row)
@@ -298,8 +298,7 @@ def test_ltgb_offline_arm_read_and_clear(ltgb_state):
 # ------------------------------------------------------------------ (3) FACE PREDICTION (threading)
 
 def test_ltgb_prediction_channel_is_wired(ltgb_state):
-    """La formule PARTAGEE `attack_hits_with_modifiers` (= facade `DamagePrediction.GetAttackHits
-    @18102f240` cote decision) doit rendre `base+1` quand la tuile de la CIBLE porte un status-effect.
+    """La formule PARTAGEE `attack_hits_with_modifiers` (= facade `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits` cote decision) doit rendre `base+1` quand la tuile de la CIBLE porte un status-effect.
     Sans le threading `tile_effects_by_pos` (l'objet de #84), elle rendrait `base` -> l'IA
     sous-estimerait de 1/base l'attaque de tout porteur Black Legion."""
     board = ltgb_state["board"]

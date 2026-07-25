@@ -1,8 +1,8 @@
-"""Port FIDÈLE de `IdunBattle.Core.Services.DamagePrediction.ApplyTraitDamageLimitsToDamage` @18102c650
+"""Port FIDÈLE de `IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage
 et de ses 5 sous-limites (gqfc5mff6c). Chaque fonction = sa jumelle native (même nom homonyme, VA citée).
 
 CONTEXTE (RE) : dans `PredictAttackRaw`, le rawMM per-coup (après perçage/armure/modifiers, =
-`CalculateBaseDamageWithAllModifiers`) est passé à **`ApplyTraitDamageLimitsToDamage` @0x1810359c7**
+`CalculateBaseDamageWithAllModifiers`) est passé à **`ApplyTraitDamageLimitsToDamage` @IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x2a17**
 qui le MODIFIE IN-PLACE **avant** la boucle multi-coups. Le port historique (`damage_prediction.py`)
 SAUTAIT entièrement cette étape → trou. Ces limites sont surtout no-op pour un héros nu, mais comptent
 pour : cibles multi-membres (member-cap), trait Resilient (1009), trait Impervious (28), boss
@@ -23,7 +23,7 @@ early-return `DamageTrait.HitsMultipleMembers` (seul le profil Blast le porte), 
 
 ⚠ L'argument « pas de `HasTrait(0x3fa)` » est INSUFFISANT SEUL — `Diminutive` (0x408) n'est lui non plus
 JAMAIS lu par `HasTrait` : il passe par le dict trait→ability dérivée. Le chemin manquant a été fermé
-(validation adversariale #87) : dans `StaticBattleRules.Trait..cctor @18157f650`, `0x3fa` n'est clé
+(validation adversariale #87) : dans `StaticBattleRules.Trait..idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Trait$$.cctor`, `0x3fa` n'est clé
 d'AUCUN des 7 conteneurs (ni `GetTriggeredAbility`, ni `GetEffectToBeAddedToOwnerForTrait` — clés
 0x41e/0x3e9/0x41f/0x424 —, ni les OrderedSets) ; il n'y apparaît qu'en VALEUR de la clé 0x3ef
 (trait 1007 → triggered 1018). ⇒ ni ability dérivée, ni owner-effect. Ghidra écrivant les constantes
@@ -53,7 +53,7 @@ import math
 
 def get_group_unit_max_health_with_remaining_members(total_hp: int, member_count: int,
                                                      remaining: int) -> int:
-    """DamageCalculations.GetGroupUnitMaxHealthWithRemainingMembers @1810050a0 : somme des PV des
+    """IdunBattle.Core.Services.DamageCalculations$$GetGroupUnitMaxHealthWithRemainingMembers : somme des PV des
     `remaining` premiers membres, PV repartis (total_hp / member_count, +1 pour les premiers restes)."""
     acc = 0
     if remaining <= 0:
@@ -70,7 +70,7 @@ def get_group_unit_max_health_with_remaining_members(total_hp: int, member_count
 
 
 def get_group_unit_remaining_member_count(total_hp: int, member_count: int, damage: int) -> int:
-    """DamageCalculations.GetGroupUnitRemainingMemberCount @181005120 : nb de membres SURVIVANTS apres
+    """IdunBattle.Core.Services.DamageCalculations$$GetGroupUnitRemainingMemberCount : nb de membres SURVIVANTS apres
     `damage` (retire des membres tant que la somme de leurs PV <= damage)."""
     m = member_count
     while m >= 1:
@@ -92,9 +92,9 @@ def get_group_unit_remaining_member_count(total_hp: int, member_count: int, dama
 
 
 def get_group_unit_heal_limit(member_total_hp: int, member_count: int, current_hp: int) -> int:
-    """`DamagePrediction.GetGroupUnitHealLimit @1810325e0` : cap de soin « sans réveiller de membre »
+    """`IdunBattle.Core.Services.DamagePrediction$$GetGroupUnitHealLimit` : cap de soin « sans réveiller de membre »
     d'une unité multi-membres = `maxHealthWith(membres RESTANTS) − hp`. Héros (`nrOfMembers < 2`) →
-    int.MaxValue (pas de cap). Consommé par `PredictHeal @181037180` / `PredictRepair @181038280`
+    int.MaxValue (pas de cap). Consommé par `IdunBattle.Core.Services.DamagePrediction$$PredictHeal` / `IdunBattle.Core.Services.DamagePrediction$$PredictRepair`
     **UNIQUEMENT sous leur flag d'appel** (`param_6/param_7 == 1`) : `amount = Min(amount, healLimit)`
     AVANT le cap boss et le `MaxFillUp` (#60)."""
     if member_count < 2:
@@ -105,10 +105,10 @@ def get_group_unit_heal_limit(member_total_hp: int, member_count: int, current_h
 
 
 def is_at_group_unit_heal_limit(member_total_hp: int, member_count: int, current_hp: int) -> bool:
-    """`AttackQuery.IsAtGroupUnitHealLimit @181057b30` : l'unité multi-membres est « au plafond de soin »
+    """`IdunBattle.Core.Services.AttackQuery$$IsAtGroupUnitHealLimit` : l'unité multi-membres est « au plafond de soin »
     (hp >= max des membres RESTANTS — tout soin supplémentaire ne ferait QUE réveiller des membres).
-    Héros → False. Consommé par les gates d'éligibilité `AttackQuery.EntityCanBeHealed @181054fa0` /
-    `EntityCanBeRepaired @181055080/@181055170` : sous leur flag d'appel (param 4/3), une cible « at
+    Héros → False. Consommé par les gates d'éligibilité `IdunBattle.Core.Services.AttackQuery$$EntityCanBeHealed` /
+    `IdunBattle.Core.Services.AttackQuery$$EntityCanBeRepaired/IdunBattle.Core.Services.AttackQuery$$EntityCanBeRepaired` : sous leur flag d'appel (param 4/3), une cible « at
     limit » n'est PAS éligible au soin/repair (#60)."""
     if member_count < 2:
         return False
@@ -121,18 +121,16 @@ def group_unit_stat_part(part: int, member_total_hp: int, member_count: int,
                          current_hp: int) -> int:
     """Résolution OFFLINE de `GetStat(unit, NUMBER_OF_MEMBERS=20, part)` (#60).
 
-    Natif : `UnitExtensions.GetStat @180ed30d0` case 0x14 (jumptable, handler @180ed3929) =
-    `GetComponent<GroupUnitComponent>` puis **`FillUpStatComponent.GetStatPart @180f9b3a0`** direct sur
+    Natif : `IdunBattle.Entities.UnitExtensions$$GetStat` case 0x14 (jumptable, handler IdunBattle.Entities.UnitExtensions$$GetStat+0x859) =
+    `GetComponent<GroupUnitComponent>` puis **`IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart`** direct sur
     ce composant — layout fill-up : `+0x10` = nrOfMembers (base), `+0x18` = membres RESTANTS (champ
     MAINTENU par le jeu au fil des événements PV). Offline le champ « courant » est DÉRIVÉ de l'état
     PV — même invariant, les mainteneurs natifs étant exactement les événements de mutation PV :
-    `current = GetGroupUnitRemainingMemberCount(hpMax, n, hp)` (@181005120).
+    `current = GetGroupUnitRemainingMemberCount(hpMax, n, hp)` (IdunBattle.Core.Services.DamageCalculations$$GetGroupUnitRemainingMemberCount).
 
-    Parts (mirror @180f9b3a0) : 0=Current → membres restants ; 2=Maximum (`get_CurrentMaximumValue
-    @180f9c010` = base + mod clampé ; aucun mod de membres offline → n) ; 3=Initial → champ base
+    Parts (mirror IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart) : 0=Current → membres restants ; 2=Maximum (`IdunBattle.Entities.Components.FillUpStatComponent$$get_CurrentMaximumValue` = base + mod clampé ; aucun mod de membres offline → n) ; 3=Initial → champ base
     `+0x10` = n ; 4=Missing → max − current = membres MORTS ; 1=CurrentPct → round(max(0, cur/max)·100).
-    C'est la source des deux `StatAmount(Self, 20, part 3/4)` de `SwarmAbility.CreateBehaviour
-    @181225e20`."""
+    C'est la source des deux `StatAmount(Self, 20, part 3/4)` de `IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateBehaviour`."""
     n = max(1, int(member_count))
     p = int(part)
     if p in (2, 3):
@@ -150,7 +148,7 @@ def group_unit_stat_part(part: int, member_total_hp: int, member_count: int,
 def apply_group_unit_damage_limit(dmg: int, profile_has_hits_multiple_members: bool,
                                   member_count: int, member_total_hp: int,
                                   cumulative_damage: int, flag: bool = False) -> int:
-    """DamagePrediction.ApplyGroupUnitDamageLimit @18102bfe0 : cape le degat a la frontiere de membre
+    """IdunBattle.Core.Services.DamagePrediction$$ApplyGroupUnitDamageLimit : cape le degat a la frontiere de membre
     pour une cible MULTI-MEMBRE. Skip si le profil a HitsMultipleMembers (trait 2 = Blast). No-op si
     `member_count <= 1` (heros). `cumulative_damage` = param_5.
 
@@ -176,7 +174,7 @@ def apply_group_unit_damage_limit(dmg: int, profile_has_hits_multiple_members: b
 def apply_resilient_trait_damage_limit(dmg: int, target_has_resilient: bool,
                                        current_health: int, max_health: int,
                                        overkill: bool = False) -> int:
-    """DamagePrediction.ApplyResilientTraitDamageLimit @18102c3a0 : trait Resilient (0x3f1=1009). Si la
+    """IdunBattle.Core.Services.DamagePrediction$$ApplyResilientTraitDamageLimit : trait Resilient (0x3f1=1009). Si la
     cible a Resilient ET max_health(param_5) > 1 ET current_health(param_4) > 0 ET PAS overkill : cape le
     degat a `current_health - 1` (ne peut pas one-shot ; laisse 1 PV). (param_4=param_9=currentHealth,
     param_5=param_11=maxHealth, param_6=flag overkill.)"""
@@ -191,7 +189,7 @@ def apply_resilient_trait_damage_limit(dmg: int, target_has_resilient: bool,
 def apply_impervious_trait_damage_limit(dmg: int, target_has_impervious: bool,
                                         impervious_stat_current: int | None,
                                         param_6: int, param_7: int) -> int:
-    """DamagePrediction.ApplyImperviousTraitDamageLimit @18102c190 : trait Impervious (0x1c=28). Lit un
+    """IdunBattle.Core.Services.DamagePrediction$$ApplyImperviousTraitDamageLimit : trait Impervious (0x1c=28). Lit un
     StatComponent (charge Impervious) : si absent -> pas de cible valide ; CurrentValue < 1 OU < 100 ->
     degat = 0 (bloque) ; sinon degat = param_6 + param_7. (`impervious_stat_current` = None -> pas
     d'Impervious sur cette cible -> no-op.)"""
@@ -204,7 +202,7 @@ def apply_impervious_trait_damage_limit(dmg: int, target_has_impervious: bool,
 
 def is_overkill(current_health: int, damage: int, default_flag: int,
                 allow_flag: int, suppress: int, cond: int, threshold_pct: int) -> int:
-    """DamagePrediction.IsOverkill @181032db0 : le degat depasse-t-il la sante d'un ratio > seuil ?
+    """IdunBattle.Core.Services.DamagePrediction$$IsOverkill : le degat depasse-t-il la sante d'un ratio > seuil ?
     (param_1=currentHealth, param_2=damage, param_7=threshold%). Simplifie : renvoie 1 si overkill
     au-dela du seuil, sinon default/0. (Gate `cond`=param_6 ; `suppress`=param_5.)"""
     if not cond:
@@ -223,7 +221,7 @@ def _overkill_threshold_pct() -> int:
     """Seuil % de la porte overkill du chemin PREDICTION. Le natif le lit dans le composant DI
     `DamagePrediction+0x10 @0x34` (config asset-driven, PAS un litteral binaire ; VERDICT RE : borne live
     (33,101]). On le source de gameconfig `overkillDmgPctOfHealth` (=100) : MEME global que le `is_overkill`
-    death-riposte (FinalJustice/TheBetrayer, meme fn native @181032db0), et == la borne live => HYPOTHESE
+    death-riposte (FinalJustice/TheBetrayer, meme fn native IdunBattle.Core.Services.DamagePrediction$$IsOverkill), et == la borne live => HYPOTHESE
     forte config-DI == overkillDmgPctOfHealth (les deux valent 100). Derivable offline, pas de hardcode."""
     import gameconfig as GC
     return int(GC.global_value("overkillDmgPctOfHealth") or 100)
@@ -231,11 +229,11 @@ def _overkill_threshold_pct() -> int:
 
 def compute_prediction_overkill(cur_hp: int, max_hp: int, dmg_min: int, *,
                                 suppress: bool = False, p12: int = 0) -> bool:
-    """Flag overkill du chemin PREDICTION — `ApplyTraitDamageLimitsToDamage @18102c650` calcule
-    `IsOverkill(maxHP, accum, ...) @181032db0` UNE fois depuis la borne **MIN** et le passe aux 2 bornes du
+    """Flag overkill du chemin PREDICTION — `IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage` calcule
+    `IdunBattle.Core.Services.DamagePrediction$$IsOverkill(maxHP, accum, ...)` UNE fois depuis la borne **MIN** et le passe aux 2 bornes du
     cap Resilient/member. accum = `(maxHP - curHP) + dmgMin (+p12)` ; base pct = maxHP (troncature Fix64).
     Defauts bataille reelle (VERDICT RE) : cond=1, default=0, allow=0, global-override absent. `suppress` =
-    flag runtime BlockOverkill `HasFlag(target,0x13)` pose par `FuelledByFury_BlockOverkillEffect @180f4a7c0`
+    flag runtime BlockOverkill `HasFlag(target,0x13)` pose par `FuelledByFury_BlockOverkillEffect IdunBattle.Entities.Effects.Loki.FuelledByFury_BlockOverkillEffect$$ApplyInternal`
     (effet Loki, normalement False -> derivable via la couche effets si un roster Loki entre en jeu).
     Renvoie True => cap Resilient BYPASSE (l'unite meurt : dmg non cape a HP-1). Confirme live (u78 Resilient :
     over-kill massif PV=10 -> skip=meurt=HP ; modere PV=4700/6000/6900 -> cape=HP-1)."""
@@ -256,15 +254,15 @@ def apply_trait_damage_limits_to_damage(
         current_health: int = 0, max_health: int = 0,
         target_has_boss_cap: bool = False, boss_cap_const: int = 0,
         cumulative_damage: int | None = None, overkill: bool = False) -> int:
-    """DamagePrediction.ApplyTraitDamageLimitsToDamage @18102c650 — orchestre les 5 limites sur UNE borne
+    """IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage — orchestre les 5 limites sur UNE borne
     de degat (int). Ordre natif :
-      1. ApplyGroupUnitDamageLimit (member-cap)         @18102bfe0
-      2. ApplyResilientTraitDamageLimit (Resilient)     @18102c3a0
-      3. si is_special==1 : ApplyImperviousTraitDamageLimit @18102c190
+      1. ApplyGroupUnitDamageLimit (member-cap)         IdunBattle.Core.Services.DamagePrediction$$ApplyGroupUnitDamageLimit
+      2. ApplyResilientTraitDamageLimit (Resilient)     IdunBattle.Core.Services.DamagePrediction$$ApplyResilientTraitDamageLimit
+      3. si is_special==1 : IdunBattle.Core.Services.DamagePrediction$$ApplyImperviousTraitDamageLimit
       4. si HasTriggeredAbility(0x5d4=1492) : cap boss  = Min(dmg, param_9 - maxHealth*const/100)
     `cumulative_damage` (param_5 member-cap / param_9 boss) defaut = current_health si None."""
     cum = current_health if cumulative_damage is None else cumulative_damage
-    # 1. member-cap — flag natif = octet 0 CONSTANT aux deux appels du core (@18102c650 :
+    # 1. member-cap — flag natif = octet 0 CONSTANT aux deux appels du core (IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage :
     # `in_stack_...b0 & 0xffffff00` -> byte 0) : l'overkill ne bypasse JAMAIS le member-cap
     # (seul le cap Resilient est gate par IsOverkill, calcule APRES les group caps). #67 :
     # l'ex-passage d'`overkill` ici etait une deviation inexercee (overkill exige dmg >=

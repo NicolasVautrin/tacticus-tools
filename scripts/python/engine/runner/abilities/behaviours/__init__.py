@@ -2,13 +2,13 @@
 builder de contexte `entities_from_state` (#149).
 
 Contenu = les `*Behaviour` CONCRETS qui MUTENT l'etat en emettant une runner Operation deja portee :
-`Spawn` (`SpawnUnitBehaviour` @180fd5ab0 -> `_spawn_config_grot`), `AttackWithAttackDamage`
-(`DSLFactory.AttackWithAttackDamage` @180de9fb0 -> `AttackDamageOperation.execute_ability_attack`/
+`Spawn` (`SpawnUnitBehaviour` IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$.ctor -> `_spawn_config_grot`), `AttackWithAttackDamage`
+(`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage -> `AttackDamageOperation.execute_ability_attack`/
 `execute_normal_like` : attaque d'ability crit/block), `AttackWithAbilityDamage`
-(`DSLFactory.AttackWithAbilityDamage` @180de9c90 -> `AttackDamageOperation.execute_direct` : degat DIRECT
-sans crit/block — DoT feu `EnvFireTile`), `AddEffect` (`AddEffectBehaviour` @180f947e0 ->
+(`IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage -> `AttackDamageOperation.execute_direct` : degat DIRECT
+sans crit/block — DoT feu `EnvFireTile`), `AddEffect` (`AddEffectBehaviour` IdunBattle.Entities.Behaviours.AddEffectBehaviour$$.ctor ->
 `AddEffectOperation`), `AddBondEffect`
-(`AddBondEffectBehaviour` -> idem), `PerformAIAttack` (`PerformAIAbilityUnitBehaviour` @180fcb940). Couche
+(`AddBondEffectBehaviour` -> idem), `PerformAIAttack` (`PerformAIAbilityUnitBehaviour` IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$.ctor). Couche
 MINCE d'orchestration au-dessus des mutateurs ECS.
 
 Ils vivent ICI (et non dans `entities/behaviours.py` avec les COMBINATEURS purs `Seq`/`Maybe`/`Foreach`/
@@ -36,7 +36,7 @@ call-sites `from ..behaviours import X` restent inchanges) :
 - `stats`     : `Heal`, `ChangeStat`, `SetHealth` (+ futur `AddStaticStatModifierEffect`).
 - `movement`  : `PushUnit`, `MoveUnit` (+ futur `ResetMovement`).
 - `lifecycle` : `KillDeadUnits`, `RemoveUnit` (+ futur REVIVE / `TriggerAbility`).
-- `ai_control`: `PerformAIAction` (`PerformAIActionBehaviour` @180fcba10 -> `ComputerActionOperation`).
+- `ai_control`: `PerformAIAction` (`PerformAIActionBehaviour` IdunBattle.Entities.Behaviours.PerformAIActionBehaviour$$Execute -> `ComputerActionOperation`).
 """
 from __future__ import annotations
 

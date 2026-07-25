@@ -2,11 +2,11 @@
 """Probe #45 (fable) - discriminant cause racine du residu x1.5 GreatFrostAxe / Stormcaller.
 
 Deux hypotheses en conflit a trancher par la DONNEE (une variable = l'elevation) :
-  H_ice  : le +50% = bonus crit-sur-Ice (IceEffect.CreateEffectDamageBonusForAttack @180f44940).
+  H_ice  : le +50% = bonus crit-sur-Ice (IdunBattle.Entities.Effects.IceEffect$$CreateEffectDamageBonusForAttack).
            REFUTE au decompile : formule = PercentageOf(GetStat(CRIT_DAMAGE), EffectConfig(5)),
            gate AttackDamageIsCritical -> 0 sur des coups non-crit (DidCrit=0) et cd=0.
   H_elev : le +50% = bonus d'ELEVATION (Damage.ElevationBonus=50, feuille du builder attaquant
-           PARTAGE @181000590) que le vecteur ability-family offline n'applique pas.
+           PARTAGE IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction) que le vecteur ability-family offline n'applique pas.
 
 Cas (positions FORCEES par applyAction, board MC1_67) :
   gfa_flat  : GreatFrostAxe (attack-family), att elev == cible -> attendu ratio 1.0 (aucune diver.)

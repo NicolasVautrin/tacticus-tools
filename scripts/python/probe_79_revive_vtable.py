@@ -1,7 +1,7 @@
 """Probe #79 -- resolution LIVE des slots virtuels de `ReviveEffect` (base) et de ses 4
 sous-classes, pour trancher le gate overkill par LECTURE (jamais par deduction).
 
-`ReviveEffect.CreateTargetTrigger @180f46d80` appelle 3 virtuels :
+`IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTrigger` appelle 3 virtuels :
     byte  <- (**(klass + 0x738))(this, klass+0x740)   -> `ignoreOverkill` passe a OnPreDeath
     int   <- (**(klass + 0x748))(this, klass+0x750)   -> healType passe a CanBeRevived
     trig  <- (**(klass + 0x758))(this, klass+0x760)   -> CreateTargetFilter (override connu)

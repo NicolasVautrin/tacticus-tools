@@ -44,7 +44,7 @@ _GLYPH = {
 
 def _effective_elevation(tile_id: str | None, bc_elevation) -> int:
     """Élévation EFFECTIVE d'une tuile = celle que le jeu expose (ElevationComponent,
-    `TileExtensions.GetElevation @180ec4fd0`, capté par boardGraph/tileMeta), à partir du
+    `IdunBattle.Entities.TileExtensions$$GetElevation`, capté par boardGraph/tileMeta), à partir du
     champ BC brut (`Board.Tiles[..].Elevation`).
 
     Règle mesurée (#195, LIVE vs BC sur 6 boards C2_16/17/18/19/20/32) : **Trench = terrain

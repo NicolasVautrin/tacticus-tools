@@ -6,7 +6,7 @@ natif ; on confronte le choix d'action du MOTEUR a celui de l'IA NATIVE (`aiDryR
 read-only) sur le MEME etat. Les utilites de PAIRE sont verifiees au scoreur natif
 (`pairUtility`) pour ecarter tout confond de prediction avant de conclure sur le terme d'ACTION.
 
-(A) HeraldOfTheApocalypse (1020) @1811441b0 -- blackHaarken.
+(A) HeraldOfTheApocalypse (1020) IdunBattle.AI.Playbook.Loki.HeraldOfTheApocalypsePlaybook$$CalculateCustomUtility -- blackHaarken.
     Geometrie caster/ennemi FIGEE ; seul un APPAT allie bouge :
       - appat HORS de la portee d'arme de l'ennemi -> aucun ennemi atteignable n'est menacant
         -> custom = W(HeraldOfTheApocalypse_CannotKillEnemy)=50 -> natif = HERALD ;
@@ -14,7 +14,7 @@ read-only) sur le MEME etat. Les utilites de PAIRE sont verifiees au scoreur nat
     L'ennemi est `astraOrdnance` (arme portee 3) : la bascule tombe EXACTEMENT a d=3/d=4,
     ce qui exclut une feuille d'adjacence.
 
-(B) Drachnyen (1029) @18112dc60 -- blackAbaddon.
+(B) Drachnyen (1029) IdunBattle.AI.Playbook.Loki.DrachnyenPlaybook$$CalculateCustomUtility -- blackAbaddon.
     Confond de PAIRE neutralise : Drachnyen FIXE les PV du caster a 4729 -> `--hp-player 4729`
     rend le set-health neutre (paire native = 0). Caster LOIN (0 ennemi adjacent a sa tuile
     courante) ; on ajoute/retire un 2e ennemi adjacent a la TUILE D'ATTAQUE :
@@ -110,7 +110,7 @@ def _confront(sid, rid, wt, predictor, cid, label, expect_ab, fails):
 
 
 def herald(sid, wt, fails):
-    print("(A) HeraldOfTheApocalypse (1020) @1811441b0 -- blackHaarken")
+    print("(A) HeraldOfTheApocalypse (1020) IdunBattle.AI.Playbook.Loki.HeraldOfTheApocalypsePlaybook$$CalculateCustomUtility -- blackHaarken")
     rid = _build("blackHaarken,astraDreir", "astraOrdnance", [])
     if rid is None:
         fails.append("A: build KO")
@@ -142,7 +142,7 @@ def herald(sid, wt, fails):
 
 
 def drachnyen(sid, wt, fails):
-    print("(B) Drachnyen (1029) @18112dc60 -- blackAbaddon")
+    print("(B) Drachnyen (1029) IdunBattle.AI.Playbook.Loki.DrachnyenPlaybook$$CalculateCustomUtility -- blackAbaddon")
     rid = _build("blackAbaddon,astraDreir", "worldTerminator,blackTerminator",
                  ["--hp-target", "90000", "--hp-player", "4729"])
     if rid is None:

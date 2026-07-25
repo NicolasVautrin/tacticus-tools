@@ -34,7 +34,7 @@ from .behaviours import (AddEffect, AttackWithAttackDamage, KillDeadUnits, MoveU
 if TYPE_CHECKING:
     from ..state import State
 
-# Index des constantes lues par `WaaaghAbility.ExecuteBehaviour @18122b010` et ses helpers
+# Index des constantes lues par `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour` et ses helpers
 # (`AbilityConfiguration.Get*Constant(config, <index>)`) -> cle gameconfig correspondante.
 CONST_UNIT_ID = 0x00            # GetStringConstant(0)     -> "unitId"        = orksOrkBoys
 CONST_EXTRA_MOVEMENT = 0x0e     # GetNumberConstant(0xe)   -> "extraMovement" = 1
@@ -44,14 +44,14 @@ WAAAGH_FACTION = "Orks"         # `UnitsFromFaction(..., 5, 3)` — UnitFaction.
 
 
 # ------------------------------------------------------------------------------------------------ #
-# Les 5 arbres top-level de `WaaaghAbility.ExecuteBehaviour @18122b010`, dans l'ORDRE D'EXECUTION
+# Les 5 arbres top-level de `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour`, dans l'ORDRE D'EXECUTION
 # natif (5 appels `AActiveAbility.Execute` successifs, chacun enveloppe dans un `Group(<b>, caster@0x160,
 # <groupId>)` = ordonnancement de VUE, no-op observable ici) :
 #     Group(spawnB,  0x22) · Group(buffB, 0x25) · Group(moveB, 0x23) · Group(atkB, 0x20) · Group(aiB, 0x28)
 # ------------------------------------------------------------------------------------------------ #
 
 def waaagh_spawn_tree(count: int) -> Spawn:
-    """1er noeud natif @18122b010 (corps INLINE, identique a `WaaaghAbility.GetSummonBehaviour @18122c120`) :
+    """1er noeud natif IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour (corps INLINE, identique a `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetSummonBehaviour`) :
         `Spawn( caster@0x160,
                 PickRandomly(CanAddUnit(AdjacentTiles(casterTile@0x168)), GetNumberConstant(0x10)),
                 GetStringConstant(0)=orksOrkBoys,
@@ -67,13 +67,12 @@ def waaagh_spawn_tree(count: int) -> Spawn:
 
 
 def waaagh_buffed_units_selector():
-    """`WaaaghAbility.GetBuffedUnitsSelector @18122bb30` (== le selecteur INLINE de `GetBuffBehaviour
-    @18122b900`) :
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffedUnitsSelector` (== le selecteur INLINE de `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffBehaviour`) :
         `Unique( caster@0x160
                  + AdjacentFriends(caster@0x160, 1, 3)
                  + UnitsFromFaction(Friends(caster@0x160, @0x80, 3), 5=Orks, 3) )`
     (`TargetsSelector.op_Addition` = union, puis `Unique` = dedup par entite). `@0x80` = le slot PARTAGE
-    « toutes les unites (vivantes) » pose par `InitializeShared @180df2670` -> porte `AllUnits()`.
+    « toutes les unites (vivantes) » pose par `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` -> porte `AllUnits()`.
     Portee : le caster, ses allies ADJACENTS (quelle que soit leur faction) et TOUS ses allies de faction
     **Orks** (board-wide, aucun rayon).
 
@@ -85,7 +84,7 @@ def waaagh_buffed_units_selector():
 
 
 def waaagh_buff_tree():
-    """2e noeud natif @18122b010 = `WaaaghAbility.GetBuffBehaviour @18122b900` :
+    """2e noeud natif IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour = `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffBehaviour` :
         `op_BitwiseAnd( op_BitwiseAnd(
               AddStaticStatModifierEffect(sel, 1099=Waaagh_ExtraMovement, stat=MOVEMENT(1),
                                           Direct(GetNumberConstant(0xe)=extraMovement), duree@dsl+0xc0=1),
@@ -93,16 +92,16 @@ def waaagh_buff_tree():
               AddEffect(0x44d=1101 Waaagh_ExtraHits,   AbilityStateReference, caster@0x160, sel, duree@0xc0) )`
 
     Les TROIS effets partagent le MEME selecteur (`waaagh_buffed_units_selector`) et la MEME duree
-    (`dsl+0xc0` = `Direct(1)` pose par `DSLFactory..ctor @180e020b0` -> 1 round).
+    (`dsl+0xc0` = `Direct(1)` pose par `DSLFactory..IdunBattleLogic.Entities.DSLFactory$$.ctor` -> 1 round).
 
-    `AddStaticStatModifierEffect` (@180de7b20) n'a PAS de feuille dediee dans le port : le mapping etabli
+    `AddStaticStatModifierEffect` (IdunBattleLogic.Entities.DSLFactory$$AddStaticStatModifierEffect) n'a PAS de feuille dediee dans le port : le mapping etabli
     du projet (valide live sur `BlackRage_ExtraMove` 1342) est `AddEffect(<type>)` + une classe d'effet
     portant `applied_stat_mods` (canal EAGER `AddEffectOperation._apply_stat_mods`) -> ici
     `WaaaghExtraMovementEffect` (+MOVEMENT = extraMovement). Les contributions de 1100 (+extraDmg[level])
     et 1101 (+extraHit) restent des RESIDUS documentes (marqueurs poses, canaux modifier non branches)."""
     # #98 : la duree des TROIS effets est `dsl+0xc0` = un noeud `Direct(1)` (alloue par
-    # `DSLFactory..ctor @180e020b0`), PAS un `TurnsFromRounds(1)` -> elle arrive telle quelle dans le
-    # `param_6` d'`AddEffectOperation.Execute @180e48940`, qui ne la convertit PAS : 1 TOUR, pas 1 round.
+    # `DSLFactory..IdunBattleLogic.Entities.DSLFactory$$.ctor`), PAS un `TurnsFromRounds(1)` -> elle arrive telle quelle dans le
+    # `param_6` d'`IdunBattle.Operations.AddEffectOperation$$Execute`, qui ne la convertit PAS : 1 TOUR, pas 1 round.
     # -> `duration_turns=1` (comportement INCHANGE ; c'est exactement le call-site qu'une conversion
     # aveugle aurait double).
     sel = waaagh_buffed_units_selector()
@@ -115,8 +114,8 @@ def waaagh_buff_tree():
 
 
 def waaagh_move_range(state: "State", caster_id: int, extra_movement: int) -> int:
-    """`DSLFactory.UnitMovementRangeWithBonus(caster@0x160, 1099, Direct(extraMovement)) @180dff050`
-    (lu par `WaaaghAbility.GetPossibleMovementTiles @18122c060`) = MIRROR 1:1 :
+    """`IdunBattleLogic.Entities.DSLFactory$$UnitMovementRangeWithBonus(caster@0x160, 1099, Direct(extraMovement))`
+    (lu par `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetPossibleMovementTiles`) = MIRROR 1:1 :
         `If( HasEffect(caster, 1099), StatAmount(caster, MOVEMENT(1), Current), Sum(<idem>, bonus) )`
     -> ANTI-DOUBLE-COMPTE : si l'effet 1099 est DEJA pose (c'est le cas ici, le Group buff @0x25 s'execute
     AVANT le Group move @0x23), la portee = la stat MOVEMENT *deja bonifiee* par l'effet ; sinon
@@ -150,13 +149,13 @@ def _living_occupants_map(state: "State") -> dict:
 
 
 def waaagh_charge_tile(state: "State", caster_id: int, target_id: int, move_range: int):
-    """COLLAPSE du selecteur de destination LOURD (kind S) de l'etage MOVE @18122b010 :
+    """COLLAPSE du selecteur de destination LOURD (kind S) de l'etage MOVE IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour :
         `First( SortTilesByUtility( WaaaghAbility.GetPossibleMovementTiles(target@0x178),
                                     caster@0x160, 0x20 ), 1 )`
-    ou `GetPossibleMovementTiles @18122c060` =
-        `TilesUnitCanMoveToChargeTarget(caster@0x160, casterTile@0x168, target,
+    ou `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetPossibleMovementTiles` =
+        `IdunBattleLogic.Entities.DSLFactory$$TilesUnitCanMoveToChargeTarget(caster@0x160, casterTile@0x168, target,
                                         UnitMovementRangeWithBonus(caster, 1099, Direct(extraMovement)),
-                                        canReachOnly=0) @180dfda00`
+                                        canReachOnly=0)`
         = `CanAddUnit(AdjacentTiles(target)) op_And MovableTilesInRange(caster, tile, range, reachOnly=0)`.
 
     `canReachOnly=0` (CONTRASTE avec VigilanceEternal/HeroicFusillade qui passent 1) -> l'ensemble
@@ -191,7 +190,7 @@ def waaagh_charge_tile(state: "State", caster_id: int, target_id: int, move_rang
 
 
 def waaagh_move_tree(dest):
-    """3e noeud natif @18122b010 : `MoveUnit(caster@0x160, <destination>, <options NULLES>)` — le
+    """3e noeud natif IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour : `MoveUnit(caster@0x160, <destination>, <options NULLES>)` — le
     decompile met a zero les 5 selecteurs d'options (`local_1a8..uStack_178 = 0`, seul `local_198` =
     `factory+0xf8` est lu) -> aucun flag after-move (meme configuration que HeroicFusillade, cf.
     `behaviours/movement.py`). Destination = `waaagh_charge_tile` (collapse S)."""
@@ -199,7 +198,7 @@ def waaagh_move_tree(dest):
 
 
 def waaagh_attack_tree():
-    """4e noeud natif @18122b010 = `WaaaghAbility.GetAttackBehaviour @18122b700` :
+    """4e noeud natif IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour = `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetAttackBehaviour` :
         `op_BitwiseAnd(
             If( IsAdjacent(caster@0x160, target@0x178, 3),
                 UseActiveAbility(caster@0x160, target@0x178,
@@ -207,7 +206,7 @@ def waaagh_attack_tree():
             KillDeadUnits( Killer(activeTarget@0x180), AllUnits() ) )`
 
     - GATE `IsAdjacent(caster, target, 3)` : le `3` (champ +0x18) ne va PAS au predicat par-paire (slot
-      iface 0x5f = `AreNeighbours`) -- MEME lecture que VigilanceEternal @18122a580 (cf. genestealer.py)
+      iface 0x5f = `AreNeighbours`) -- MEME lecture que VigilanceEternal IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$ExecuteBehaviour (cf. genestealer.py)
       -> seuil dist == 1 STRICT. L'attaque n'a donc lieu que si la CHARGE a bien amene le Warboss au
       contact (ou s'il y etait deja).
     - `UnitNormalAttackType(caster)` -> attaque NORMALE (la feuille portee `UseActiveAbility` specialise
@@ -221,15 +220,14 @@ def waaagh_attack_tree():
 
 
 def waaagh_ai_tree(unit_id: str) -> PerformAIAction:
-    """5e noeud natif @18122b010 (corps INLINE, IDENTIQUE a `WaaaghAbility.GetTriggerSummonsBehaviour
-    @18122c260`, site @18122c310) :
+    """5e noeud natif IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour (corps INLINE, IDENTIQUE a `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetTriggerSummonsBehaviour`, site IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetTriggerSummonsBehaviour+0xb0) :
         `PerformAIAction( Friends(caster@0x160,
                                   UnitsWithVisualId(VisualUnitIdFromUnitId(Get(GetStringConstant(0))), 1),
                                   3),
                           asGroup=1, resetTurnFlags=1 )`
-    MEMES booleans que `SupremeCommanderAbility @18120df30` -> le socle `PerformAIAction` /
+    MEMES booleans que `SupremeCommanderAbility IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour` -> le socle `PerformAIAction` /
     `ComputerActionOperation.execute_group` s'applique tel quel (reset des flags de tour de TOUTES les
-    cibles d'abord, `AiControl.ExecuteFor(group)` @180ffbeb0 ensuite, restauration enfin).
+    cibles d'abord, `IdunBattle.Core.Services.AiControl$$ExecuteFor(group) ensuite, restauration enfin).
 
     ⚠ SELECTEUR **BOARD-WIDE** (`UnitsWithVisualId` est ancre sur le slot partage `@0x80` = toutes les
     unites, AUCUN rayon) -- a ne pas confondre avec le `UnitsWithIds(SurroundingFriends(caster, range))`
@@ -240,26 +238,26 @@ def waaagh_ai_tree(unit_id: str) -> PerformAIAction:
 
 
 class WaaaghAbility(ActiveAbility):
-    """`WaaaghAbility.ExecuteBehaviour @18122b010` (id 1058, `orksWarboss` « Snotflogga », Orks) —
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour` (id 1058, `orksWarboss` « Snotflogga », Orks) —
     MIRROR du DECOMPILE.
 
     Corps natif (ordre de lecture ; 5 executions top-level SUCCESSIVES, chacune un
     `AActiveAbility.Execute(Group(<b>, caster@0x160, <groupId>), entities)`) :
         opts   = SpawnUnitOptions.WithStatsFromConfig(config, level)
         spawnB = Spawn(caster, PickRandomly(CanAddUnit(AdjacentTiles(casterTile)), GetNumberConstant(0x10)),
-                       GetStringConstant(0), opts)                                   # @18122b0dd..
-        buffB  = GetBuffBehaviour(level)                                             # @18122b900
+                       GetStringConstant(0), opts)                                   # IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour+0xcd..
+        buffB  = GetBuffBehaviour(level)                                             # IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffBehaviour
         moveB  = MoveUnit(caster, First(SortTilesByUtility(GetPossibleMovementTiles(target),
                                                            caster, 0x20), 1), <options nulles>)
-        atkB   = GetAttackBehaviour(level)                                           # @18122b700
+        atkB   = GetAttackBehaviour(level)                                           # IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetAttackBehaviour
         aiB    = PerformAIAction(Friends(caster, UnitsWithVisualId(VisualUnitIdFromUnitId(
-                                 Get(GetStringConstant(0))), 1), 3), 1, 1)           # @18122b306+
+                                 Get(GetStringConstant(0))), 1), 3), 1, 1)           # IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour+0x2f6+
         Execute(Group(spawnB, caster, 0x22)) ; Execute(Group(buffB, caster, 0x25)) ;
         Execute(Group(moveB,  caster, 0x23)) ; Execute(Group(atkB,  caster, 0x20)) ;
         Execute(Group(aiB,    caster, 0x28))
 
     Waaagh **n'utilise PAS** `GetAbilityStatModification` (xrefs exhaustives : ses 2 seuls sites sont dans
-    SupremeCommander @18120df30) : `nrOfSummons` et `extraMovement` sont lus BRUTS de la config.
+    SupremeCommander IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour) : `nrOfSummons` et `extraMovement` sont lus BRUTS de la config.
 
     CINQ executions top-level -> le contexte `entities` est RE-MATERIALISE entre chacune : l'`AbilityEntities`
     natif porte une REF d'etat (les selecteurs de l'etage N voient les mutations des etages < N), alors que
@@ -325,7 +323,7 @@ SQUIG_FACTION = "Orks"            # `UnitsFromFaction(..., 5, 3)` — UnitFactio
 
 
 def squig_launchas_has_minimum_adjacent_friendly_units(amount: int):
-    """`SquigLaunchasAbility.HasMinimumAdjacentFriendlyUnits @18120af30` — MIRROR du DECOMPILE :
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$HasMinimumAdjacentFriendlyUnits` — MIRROR du DECOMPILE :
 
         AmountIsEqualOrGreater(
             Friends( Owner@0x148,
@@ -336,14 +334,14 @@ def squig_launchas_has_minimum_adjacent_friendly_units(amount: int):
     a la CIBLE ». Le referent de `Friends` est l'OWNER (le caster MoW) : « friendly » = de MON camp,
     pas du camp de la cible (confirme live case-mow §5 : deplacer 2 de MES unites au contact de
     l'ennemi ouvre le ciblage). `AmountIsEqualOrGreater(selecteur, n)` = `Count(sel) >= n`
-    (`ShouldTrigger @180ee0e00` : slot +0x10 = selecteur COMPTE, +0x20 = seuil, `return seuil <= gauche`)."""
+    (`IdunBattle.Entities.Conditions.AmountIsEqualOrGreaterAbilityTrigger$$ShouldTrigger` : slot +0x10 = selecteur COMPTE, +0x20 = seuil, `return seuil <= gauche`)."""
     return AmountIsEqualOrGreater(
         Count(Friends(non_steppable_or_object_units(AdjacentUnits(TargetTile(), Const(1))))),
         Const(int(amount)))
 
 
 def squig_launchas_has_minimum_adjacent_orks(amount: int):
-    """`SquigLaunchasAbility.HasMinimumAdjacentOrks @18120aff0` — MIRROR du DECOMPILE : IDENTIQUE a
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$HasMinimumAdjacentOrks` — MIRROR du DECOMPILE : IDENTIQUE a
     `HasMinimumAdjacentFriendlyUnits` avec UN etage de plus, `UnitsFromFaction(..., 5=Orks, 3)` :
 
         AmountIsEqualOrGreater(
@@ -352,7 +350,7 @@ def squig_launchas_has_minimum_adjacent_orks(amount: int):
                               5 = Orks ),
             amount )
 
-    `UnitsFromFaction @180dff960` compare `System.Enum.ToString(UnitFaction)` = le NOM de faction
+    `IdunBattleLogic.Entities.DSLFactory$$UnitsFromFaction` compare `System.Enum.ToString(UnitFaction)` = le NOM de faction
     (« Orks ») au `FactionId` gameconfig de l'unite -> `ctx.faction_of` cote port."""
     return AmountIsEqualOrGreater(
         Count(UnitsFromFaction(
@@ -362,20 +360,20 @@ def squig_launchas_has_minimum_adjacent_orks(amount: int):
 
 
 def squig_launchas_fulfills_summon_criteria(orks_min: int, friends_min: int):
-    """`SquigLaunchasAbility.FulfillsSummonCriteria @18120aac0` — MIRROR du DECOMPILE :
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$FulfillsSummonCriteria` — MIRROR du DECOMPILE :
 
         op_BitwiseOr( HasMinimumAdjacentOrks(         Direct(GetNumberConstant(0x81)=nrOfUnits_3=2) ),
                       HasMinimumAdjacentFriendlyUnits(Direct(GetNumberConstant(0x82)=nrOfUnits_4=4) ) )
 
     i2 : « if the target has 2 friendly Orks OR 4 friendly units adjacent to it, summons a Large Squig ».
-    ⚠ CONSTANTES DIFFERENTES du predicat de CIBLAGE (`GetDynamicInvalidTargetReason @18120ab80` : 0x78=1
+    ⚠ CONSTANTES DIFFERENTES du predicat de CIBLAGE (`IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$GetDynamicInvalidTargetReason` : 0x78=1
     Ork / 0x79=2 amis) — meme paire de predicats, seuils PLUS HAUTS pour le summon."""
     return TriggerOr(squig_launchas_has_minimum_adjacent_orks(orks_min),
                      squig_launchas_has_minimum_adjacent_friendly_units(friends_min))
 
 
 def squig_launchas_tree(orks_min: int, friends_min: int):
-    """Arbre de `SquigLaunchasAbility$$ExecuteBehaviour @18120a720` — MIRROR du DECOMPILE :
+    """Arbre de `SquigLaunchasAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$ExecuteBehaviour` — MIRROR du DECOMPILE :
 
         attack = AttackWithAbilityDamage( Owner@0x148, target@0x178,
                                           MinMaxDamage, GetDamageProfile(config)=Physical,
@@ -386,17 +384,15 @@ def squig_launchas_tree(orks_min: int, friends_min: int):
                         PickRandomly( CanAddUnit(AdjacentTiles(Cache(TargetTiles@0x190, 1))), 1,
                                       ..., 0x7fffffff ),
                         GetStringConstant(config, 0) = "orksSmnSquig", opts )
-        cond   = Cache( FulfillsSummonCriteria )                              # @18120aac0
+        cond   = Cache( FulfillsSummonCriteria )                              # IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$FulfillsSummonCriteria
         Execute( op_Addition( op_Addition( SetCache(cond), attack ), If(cond, spawn) ) )
 
     - **ORDRE / TIMING (le point non trivial)** : `SetCache(cond)` s'execute AVANT l'attaque
-      (`SetCacheBehaviour.Execute @180fd2470` = evalue le noeud cache, aucune mutation) -> le critere de
+      (`IdunBattle.Entities.Behaviours.SetCacheBehaviour$$Execute` = evalue le noeud cache, aucune mutation) -> le critere de
       summon est FIGE sur l'etat **PRE-attaque**, puis `If(cond, spawn)` relit le CACHE. Consequence
       mecanique : meme si les 3 coups TUENT la cible, le Squig est invoque des lors que le critere etait
       rempli avant l'attaque.
-    - **native_factory = "ability"** : le decompile appelle `DSLFactory.AttackWithAbilityDamage
-      @180de9c90` (PAS `AttackWithAttackDamage @180de9fb0`) -> `AbilityDamageOperation.ExecuteHits
-      @180e2a860` : 1 tirage/coup, AUCUN crit, AUCUNE feuille positionnelle. Profil `Physical`
+    - **native_factory = "ability"** : le decompile appelle `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` (PAS `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`) -> `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` : 1 tirage/coup, AUCUN crit, AUCUNE feuille positionnelle. Profil `Physical`
       (PiercingRatio 1), `nrOfHits`=3, `attackRangeType=Ranged` -> `is_melee=False`.
     - **SPAWN** : `AdjacentTiles(Cache(TargetTiles@0x190))` = tuiles hex-adjacentes a la tuile de la
       CIBLE ; `CanAddUnit` = libres+marchables ; `PickRandomly(..., 1)` FOLDE dans la feuille `Spawn`
@@ -408,20 +404,20 @@ def squig_launchas_tree(orks_min: int, friends_min: int):
       decompile) : le Squig (trait `Summon`) joue au debut de SON tour, pas a l'apparition."""
     cond = CacheTrigger(squig_launchas_fulfills_summon_criteria(orks_min, friends_min))
     attack = AttackWithAttackDamage(Target(), SQUIG_LAUNCHAS_ID, "Physical", is_melee=False,
-                                    native_factory="ability",     # @180de9c90 (XREF), 1 tirage/coup
+                                    native_factory="ability",     # IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage (XREF), 1 tirage/coup
                                     ability_type=int(ActiveAbilityType.SquigLaunchas))
     spawn = Spawn(CanAddUnit(AdjacentTiles(Target())), SQUIG_LAUNCHAS_ID, pick_n=1)
     return op_add(op_add(SetCache(cond), attack), If(cond, spawn))
 
 
 class SquigLaunchasAbility(ActiveAbility):
-    """`SquigLaunchasAbility$$ExecuteBehaviour @18120a720` (id 1200, `orksRukkatrukk` « Rukkatrukk »,
+    """`SquigLaunchasAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$ExecuteBehaviour` (id 1200, `orksRukkatrukk` « Rukkatrukk »,
     MACHINE OF WAR Orks). Arbre DSL `squig_launchas_tree()` (mirror 1:1) : 3 coups Physical sur la cible
     (famille ABILITY), PUIS — si le critere de summon evalue AVANT l'attaque est rempli — invocation d'un
     `orksSmnSquig` sur un hex libre aleatoire adjacent a la cible.
 
     PREDICAT DE CIBLAGE (face DECISION/eligibilite, HORS `ExecuteBehaviour`) —
-    `GetDynamicInvalidTargetReason @18120ab80`, MIRROR du decompile :
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$GetDynamicInvalidTargetReason`, MIRROR du decompile :
         if !EntityExtensions.IsUnit(target) -> 0
         a = HasMinimumAdjacentOrks(         Direct(GetNumberConstant(0x78)=nrOfUnits=1) )
         b = HasMinimumAdjacentFriendlyUnits(Direct(GetNumberConstant(0x79)=nrOfUnits_2=2) )
@@ -466,7 +462,7 @@ class SquigLaunchasAbility(ActiveAbility):
 
 SQUIG_MINE_ID = "SquigMine"
 SQUIG_MINE_TILE = int(EffectType.SquigMine_Tile)     # 0x5a1 = 1441
-# Index des variables/constantes lues par `SquigMineAbility.ExecuteBehaviour @18120b350`
+# Index des variables/constantes lues par `IdunBattleLogic.Entities.Abilities.Active.Loki.SquigMineAbility$$ExecuteBehaviour`
 # (`AbilityConfiguration.Get*`) -> cle gameconfig (croisee avec la config 1201 : nrOfRounds=1, range=2,
 # nrOfTiles[level]).
 SQUIG_CONST_NR_OF_ROUNDS = 0x45     # GetNumberConstant(0x45)     -> "nrOfRounds" = 1
@@ -475,7 +471,7 @@ SQUIG_VAR_NR_OF_TILES = 0x66        # GetVariableForLevel(0x66)   -> "nrOfTiles"
 
 
 def squig_mine_pool_tree(target_tile_id: int, rng_range: int):
-    """POOL de tuiles minables de `SquigMineAbility.ExecuteBehaviour @18120b350` -- MIRROR 1:1 :
+    """POOL de tuiles minables de `IdunBattleLogic.Entities.Abilities.Active.Loki.SquigMineAbility$$ExecuteBehaviour` -- MIRROR 1:1 :
 
         EntitiesWithoutEffects(
             CanAddUnit( SurroundingTiles(target@0x178, includeCenter=0, GetNumberConstant(0x16)=range),
@@ -491,7 +487,7 @@ def squig_mine_pool_tree(target_tile_id: int, rng_range: int):
 
 
 def squig_mine_tree(target_tile_id: int, picked_tile_ids, duration_turns: int):
-    """Arbre de `SquigMineAbility.ExecuteBehaviour @18120b350` -- MIRROR 1:1 du DECOMPILE :
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.SquigMineAbility$$ExecuteBehaviour` -- MIRROR 1:1 du DECOMPILE :
 
         turns  = TurnsFromRounds( GetNumberConstant(0x45)=nrOfRounds )
         pool   = EntitiesWithoutEffects(CanAddUnit(SurroundingTiles(target, 0, range)), [1441])
@@ -515,16 +511,15 @@ def squig_mine_tree(target_tile_id: int, picked_tile_ids, duration_turns: int):
 
 
 class SquigMineAbility(ActiveAbility):
-    """`SquigMineAbility.ExecuteBehaviour @18120b350` (id 1201, `orksRukkatrukk` -- Rukkatrukk Squigbuggy,
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SquigMineAbility$$ExecuteBehaviour` (id 1201, `orksRukkatrukk` -- Rukkatrukk Squigbuggy,
     Orks, MachineOfWar). Cast TILE-TARGET (`abilityTargets` kind="tile", 29 tuiles sur C1_02).
 
     RE (ghidra gqfc5mff6c) :
-    - `ExecuteBehaviour @18120b350` : cf. `squig_mine_tree` (UN `AddEffect`, zero attaque).
-    - `.ctor @18120b6b0` ; `AdditionalMarkedTiles @18120b1d0` = le MEME pool (preview/playbook) ;
-      `GetDynamicInvalidTargetReason @18120b640` = gate de legalite du ciblage (live/RPC, hors behaviour).
-    - PHASE 2 (NON PORTEE) : `IdunBattle.Entities.Effects.Loki.SquigMine_TileEffect` (`.ctor @180f6d790`,
-      `CreateTargetTrigger @180f6d590`, `CreateTargetTriggerBehaviour @180f6d390`, `GetAttackBehaviour
-      @180f6d660`) -- la mine detone quand une unite entre sur la tuile (minDmg/maxDmg, `damageProfile=
+    - `IdunBattleLogic.Entities.Abilities.Active.Loki.SquigMineAbility$$ExecuteBehaviour` : cf. `squig_mine_tree` (UN `AddEffect`, zero attaque).
+    - `.IdunBattleLogic.Entities.Abilities.Active.Loki.SquigMineAbility$$.ctor` ; `IdunBattleLogic.Entities.Abilities.Active.Loki.SquigMineAbility$$AdditionalMarkedTiles` = le MEME pool (preview/playbook) ;
+      `IdunBattleLogic.Entities.Abilities.Active.Loki.SquigMineAbility$$GetDynamicInvalidTargetReason` = gate de legalite du ciblage (live/RPC, hors behaviour).
+    - PHASE 2 (NON PORTEE) : `IdunBattle.Entities.Effects.Loki.SquigMine_TileEffect` (`.IdunBattle.Entities.Effects.Loki.SquigMine_TileEffect$$.ctor`,
+      `IdunBattle.Entities.Effects.Loki.SquigMine_TileEffect$$CreateTargetTrigger`, `IdunBattle.Entities.Effects.Loki.SquigMine_TileEffect$$CreateTargetTriggerBehaviour`, `IdunBattle.Entities.Effects.Loki.SquigMine_TileEffect$$GetAttackBehaviour`) -- la mine detone quand une unite entre sur la tuile (minDmg/maxDmg, `damageProfile=
       Blast`, `nrOfHits=3`).
 
     OBSERVABLE DU CAST (mesure live, runner MoW C1_02, caster 53, cible = tuile (0,1), niveau 50 ->

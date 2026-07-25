@@ -4,8 +4,8 @@ Hiérarchie native : `BasePlaybook -> {ComparablePlaybook<T>, NonComparablePlayb
 d'action fait `LoadPlaybook(abilityType) -> playbook.Evaluate(unit, tile)` ; c'est le playbook qui
 énumère ses cibles et les score. Deux régimes :
 
-- **Comparable** (`ComparablePlaybook<T>`, attaques/soins) : `EvaluateInternal @181408980` boucle les
-  cibles éligibles à position caster FIXÉE, `CalculateActionUtility @181406ee0` par cible
+- **Comparable** (`ComparablePlaybook<T>`, attaques/soins) : `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$EvaluateInternal` boucle les
+  cibles éligibles à position caster FIXÉE, `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility` par cible
   (`= predictionUtility + Σ CalculateUtilityFromPredictions + [gate ShouldExecute] + Tile(7)`), argmax
   dans un Bucket. `MakeDamagePredictions` (vtable) = le fournisseur de prédiction, OVERRIDÉ par playbook.
 - **NonComparable** (`NonComparablePlaybook<T>`) : heuristique entière dans la feuille -> package `noncomparable/`.
@@ -33,7 +33,7 @@ class BasePlaybook:
     priority: int = 0                     # tier de préférence (0 = défaut/final)
 
 
-# ── Terme de tuile Tile(7) partagé (`CalculateUtilityFromTilePrediction @181408740`) ────────────────
+# ── Terme de tuile Tile(7) partagé (`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromTilePrediction`) ────────────────
 def tile_utility(ctx, pos) -> float:
     """Composite Tile(7) évalué sur la tuile caster `pos` — MÊME Composed que le sweep MOVE (case-49 :
     le natif émet `ComposedUtility` identique sous le playbook d'ATTAQUE, L3 s14 31337 — feuille
@@ -70,22 +70,22 @@ class ComparablePlaybook(BasePlaybook):
 
     def make_effect_predictions(self, ctx, caster_tile, target, ability_id):
         """`ComparablePlaybook.MakeEffectPredictions` (vtable +0x388) : liste de `ProbableEffectEvent`
-        (pose d'effet probable). BASE = VIDE (`@18140a930` = `new List()`) — l'immense majorité des
-        abilities n'ajoute PAS d'effet-prédiction. SEUL `SpiritLeechPlaybook @18115d690` l'override dans
+        (pose d'effet probable). BASE = VIDE (`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$MakeEffectPredictions` = `new List()`) — l'immense majorité des
+        abilities n'ajoute PAS d'effet-prédiction. SEUL `SpiritLeechPlaybook IdunBattle.AI.Playbook.Loki.SpiritLeechPlaybook$$MakeEffectPredictions` l'override dans
         ce build (effet Pinned=0x429, poids 0 -> inerte). Override par sous-classe au besoin."""
         return []
 
     def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
-        """`ComparablePlaybook.CalculateCustomUtility @181407840` = `Fix64.FromInt(0)`. Terme d'ACTION
+        """`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateCustomUtility` = `Fix64.FromInt(0)`. Terme d'ACTION
         ajouté PAR-DESSUS `u_full` (pair + Tile) dans l'assemblage du BucketAction — il n'apparaît PAS
         dans le pairUtility (le scorer natif confronté à l'étage UTILITÉ ne le contient pas ; preuve
         L3 #64 : playbook_action u = pair + tile + custom exacts). Overrides natifs : NormalAttack +1
-        (common.py) ; quirks per-ability NON portés à ce jour (MortisRound @18114d190 displacement,
-        Drachnyen @18112dc60 count>=2, HeraldOfTheApocalypse @1811441b0, ProperKilly @1811532a0...)."""
+        (common.py) ; quirks per-ability NON portés à ce jour (MortisRound IdunBattle.AI.Playbook.Loki.MortisRoundPlaybook$$CalculateCustomUtility displacement,
+        Drachnyen IdunBattle.AI.Playbook.Loki.DrachnyenPlaybook$$CalculateCustomUtility count>=2, HeraldOfTheApocalypse IdunBattle.AI.Playbook.Loki.HeraldOfTheApocalypsePlaybook$$CalculateCustomUtility, ProperKilly IdunBattle.AI.Playbook.Loki.ProperKilly_NormalAttackPlaybook$$CalculateCustomUtility...)."""
         return 0.0
 
     def calculate_action_utility(self, ctx, caster_tile, target, ability_id) -> dict | None:
-        """`CalculateActionUtility @181406ee0` pour (caster@caster_tile, target) : Σ des events (dégât)
+        """`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility` pour (caster@caster_tile, target) : Σ des events (dégât)
         + Σ effet + Tile(7)@tuile. Gate `ShouldExecute` = pas de prédiction d'attaque -> None (pas d'action).
         Renvoie `{u, u_full, pred, aoe, bk}` (u = dégât+effet ; u_full = u + tile ; pred = event principal)."""
         events = self.make_damage_predictions(ctx, caster_tile, target, ability_id)  # list[ProbableDamageEvent]
@@ -93,7 +93,7 @@ class ComparablePlaybook(BasePlaybook):
             return None
         from .probable_damage_event import (calculate_utility_from_damage_event,
                                             calculate_utility_from_effect_event)
-        # `CalculateUtilityFromPredictions @181407890` = Σ `CalculateUtilityFromDamageEvent @1814a9f90`
+        # `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions` = Σ `IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromDamageEvent`
         # (= prob1 × prob2 × composite Damage ; event FRIENDLY -> utilité NÉGÉE) + Σ des events d'EFFET.
         from ..utilities.tile import triggered_abilities_attack_utility
         u = 0.0

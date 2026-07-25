@@ -2,10 +2,10 @@
 
 Remplace l'ancien switch `if kind in ("summon","adjacent_count","target_hp")` d'engine_decide
 par un mecanisme generique (registre de classes + driver commun). Structure FIDELE au decompile
-(confirme sur AberrantHypermorphPlaybook.EvaluateNonComparable @1811197d0) :
+(confirme sur IdunBattle.AI.Playbook.Loki.AberrantHypermorphPlaybook$$EvaluateNonComparable) :
 
-  - `ABaseAiActorTactic.InitAbilityTypeLists @1810ed540` range chaque ability NonComparable par
-    son playbook dans `dict[get_Priority]` ; `GetDefaultActiveAbilityActionGenerators @1810ed0c0`
+  - `IdunBattle.AI.Tactics.ABaseAiActorTactic$$InitAbilityTypeLists` range chaque ability NonComparable par
+    son playbook dans `dict[get_Priority]` ; `IdunBattle.AI.Tactics.ABaseAiActorTactic$$GetDefaultActiveAbilityActionGenerators`
     cree UN generator par tier [1000,100,0,-100,-1000] ; le tactic prend le PREMIER generator
     non-vide -> une NC qui passe son MIN_UTILITY prime sur toute Comparable, ET une NC de tier
     superieur prime sur une NC de tier inferieur PAR L'ORDRE (pas l'utilite). get_Priority = slot-0
@@ -14,15 +14,14 @@ par un mecanisme generique (registre de classes + driver commun). Structure FIDE
     / Playbook$$get_ / IsComparable = 0 hit Playbook ; ni BasePlaybook, ni NonComparablePlaybook<T>,
     ni ComparablePlaybook<T> ne le nomment -> il vit UNE fois sur le parent partage, jamais surcharge
     par-leaf). => TOUTES les NonComparable partagent le MEME get_Priority de base = 0 (les 15 portees
-    inclus NovaBoost/NovaShield). L'ancien NovaBoost=1000/NovaShield=-1000 venait d'un @1807D66A0
+    inclus NovaBoost/NovaShield). L'ancien NovaBoost=1000/NovaShield=-1000 venait d'un idun.tests.TestLegendaryEventProgression$$GetLiveEventState+0x40
     (`mov eax,0x3E8`) stale/mal-attribue qui NE RESOUT PLUS dans ce build -> supprime. Consequence :
     l'ordre inter-tier NC n'est PAS exerce (un seul tier 0 peuple) ; a l'interieur du tier 0, deux NC
     d'une meme unite se departagent par UTILITE (choose_action argmax), pas par un tier fabrique.
-  - Le generator `ActiveAbilityActionGenerator.<GenerateActions>d__7.MoveNext @18119a3f0` BALAIE
+  - Le generator `ActiveAbilityActionGenerator.<GenerateActions>IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` BALAIE
     les positions candidates du caster (tuiles de move) et appelle par position
     `<Playbook>.EvaluateNonComparable(this, ctx, position)` : celui-ci cree un Bucket (MIN_UTILITY
-    du cctor), enumere les cibles eligibles via `BasePlaybook.GetEligibleTargetsSelectable
-    @18111f0d0`, score chacune (`<Playbook>.GetUtility`), et gate `Bucket.AddAction @1813fbcc0`
+    du cctor), enumere les cibles eligibles via `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable`, score chacune (`<Playbook>.GetUtility`), et gate `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction`
     (util >= min, remplacement STRICT `>`).
   - `Bucket.ChooseAction` = argmax STRICT (tie -> premier enumere).
 
@@ -114,40 +113,40 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         BlackRagePlaybook(),            # 1163 — degat de l'attaque NORMALE depuis la tuile de charge
         VigilanceEternalPlaybook(),     # 1202 — degat de l'ability depuis l'hex libre adjacent
         TheQuickeningPlaybook(),        # 1151 — teleport-echange ; porte #46 RESOLUE : slot 4
-        #                                 `ShouldEvaluate(unit)` = corps folde @18111af90
+        #                                 `ShouldEvaluate(unit)` = corps folde IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$ShouldEvaluate
         #                                 (`turnsStarted > 1`, jamais au 1er tour de l'unite)
         #                                 -> `should_evaluate` (gate AMONT dans choose_action)
         # #56 (tranche 1) — 2 NC natifs (EvaluateNonComparable) jamais confrontes, reveles par le
         # batch de generalisation MC1_67 (misses "non-attack-oracle") :
         ScarabHivePlaybook(),           # 1007 — summon 2 scarabs adj. cible ; util plate 1, gate
-        #                                 adjacent_addable_count(cible) >= 2 (@181158ab0)
+        #                                 adjacent_addable_count(cible) >= 2 (IdunBattle.AI.Playbook.Loki.ScarabHivePlaybook$$EvaluateNonComparable)
         CordClawPlaybook(),             # 1122 — attaque melee ; util = #ennemis adj. tuile d'attaque
-        #                                 (GetAdjacentEnemies casterPos), MIN_UTILITY=1 (@181126670)
+        #                                 (GetAdjacentEnemies casterPos), MIN_UTILITY=1 (IdunBattle.AI.Playbook.Loki.CordClawPlaybook$$EvaluateNonComparable)
         # #56 (tranche 2) — 3 NC natifs self/enemy-cast reveles par le batch MC1_67 (non-attack-oracle) :
-        SpawnPoxwalkersPlaybook(),      # 1040 — summon self-cast ; util plate 1.5, cible=SOI (@18115c6f0)
+        SpawnPoxwalkersPlaybook(),      # 1040 — summon self-cast ; util plate 1.5, cible=SOI (IdunBattle.AI.Playbook.Loki.SpawnPoxwalkersPlaybook$$EvaluateNonComparable)
         FoulInfusionPlaybook(),         # 1038 — buff self-cast ; util=#amis-eligibles adj +bonus ennemi,
-        #                                 MIN_UTILITY=2, cible=SOI (@18113c670)
+        #                                 MIN_UTILITY=2, cible=SOI (IdunBattle.AI.Playbook.Loki.FoulInfusionPlaybook$$EvaluateNonComparable)
         HolyDuelPlaybook(),             # 1050 — defi ; util=Attack(cible), cible=max-Attack ennemi,
-        #                                 gate !MightBeKill (@181144b00)
+        #                                 gate !MightBeKill (IdunBattle.AI.Playbook.Loki.HolyDuelPlaybook$$EvaluateNonComparable)
         # #56 (tranche 3a) -- 3 NC natifs Loki reveles par le batch MC1_67 seed 54321 (misses
         # non-attack-oracle). Les 3 sont des NC natifs (EvaluateNonComparable).
         GrapnelLauncherPlaybook(),      # 1090 -- reposition ; util plate 1, cible=1er ennemi
-        #                                 eligible a l'origine, cast en place (@18113f300)
+        #                                 eligible a l'origine, cast en place (IdunBattle.AI.Playbook.Loki.GrapnelLauncherPlaybook$$EvaluateNonComparable)
         EarlyWarningOverridePlaybook(),  # 1077 -- summon overwatch self-cast ; util POSITIONNELLE
         #                                 50*(#ennemis hors-portee) - 10*Sum(dist), cible=SOI,
-        #                                 position=argmax, gate nearest<9 (@18112e880)
+        #                                 position=argmax, gate nearest<9 (IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$EvaluateNonComparable)
         DarkTalonStrikePlaybook(),      # 1092 -- beam en ligne ; cible=TILE (aim), util=#ennemis
-        #                                 continus sur le rayon caster->aim, MIN_UTILITY=2 (@1811299a0)
+        #                                 continus sur le rayon caster->aim, MIN_UTILITY=2 (IdunBattle.AI.Playbook.Loki.DarkTalonStrikePlaybook$$EvaluateNonComparable)
         # #56 (tranche 3b) -- 2 NC natifs summon reveles par le batch MC1_67 seed 1357 (misses
         # non-attack-oracle). MIN_UTILITY DYNAMIQUE = max stat sur TOUS les ennemis (ne fire que si le
         # meilleur ennemi est ciblable) ; util(cible) = stat de la cible.
         SendInTheNextWavePlaybook(),    # 1016 -- summon Cadians ; util=Attack(cible), cible=ennemi de
-        #                                 plus haute Attack, MIN=max Attack ennemis (@18115a1f0)
+        #                                 plus haute Attack, MIN=max Attack ennemis (IdunBattle.AI.Playbook.Loki.SendInTheNextWavePlaybook$$EvaluateNonComparable)
         IncursionPlaybook(),            # 1021 -- summon Bloodletters ; util=PV(cible), cible=ennemi de
-        #                                 plus haut PV avec >=2 tuiles libres adj., MIN=max PV (@181144fc0)
+        #                                 plus haut PV avec >=2 tuiles libres adj., MIN=max PV (IdunBattle.AI.Playbook.Loki.IncursionPlaybook$$EvaluateNonComparable)
         # #202-C (Abraxas) — summon Pink Horror tile-target ; gates nFree(ST)>2 & nE2(ring exact
         # dist==2 du REEL)>0 ; util = 1 + (nE2-1)*10 + (nFree-3)*10 + 100 si dist(nearest, ST)==2.
-        MasterOfTheTutelariesPlaybook(),  # 1096 (@18114b300, slots 0x49/0x52/0x6b/0x72 resolus)
+        MasterOfTheTutelariesPlaybook(),  # 1096 (IdunBattle.AI.Playbook.Loki.MasterOfTheTutelariesPlaybook$$EvaluateNonComparable, slots 0x49/0x52/0x6b/0x72 resolus)
     )
 }
 
@@ -169,11 +168,11 @@ def is_summon(ability_id: int) -> bool:
 
 def choose_action(abilities: list, ctx: NCContext, priority: int | None = None) -> dict | None:
     """Driver d'UN generateur NonComparable (mirror `ActiveAbilityActionGenerator.GenerateActions`
-    @18119a3f0 + `Bucket.ChooseAction`) : pour chaque ability NC usable de l'unite DU TIER `priority`
+    IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext + `Bucket.ChooseAction`) : pour chaque ability NC usable de l'unite DU TIER `priority`
     (get_Priority ; None = tous tiers confondus), collecte les candidats de son playbook (generator +
     gate MIN_UTILITY), rend l'argmax STRICT (tie -> 1er) ou None si le generateur est vide.
 
-    Le natif range les NonComparable dans `dict[get_Priority]` (@1810ed540) : un generateur PAR tier,
+    Le natif range les NonComparable dans `dict[get_Priority]` (IdunBattle.AI.Tactics.ABaseAiActorTactic$$InitAbilityTypeLists) : un generateur PAR tier,
     evalues dans l'ordre 1000..-1000 AVANT le fallback Comparable. `priority` selectionne ce tier."""
     nc_cands: list[dict] = []
     for ab in (abilities or []):
@@ -183,7 +182,7 @@ def choose_action(abilities: list, ctx: NCContext, priority: int | None = None) 
         if priority is not None and pb.PRIORITY != priority:
             continue   # ability d'un autre tier NonComparable -> pas dans CE generateur
         # Gate AMONT slot-4 `ShouldEvaluate(unit)` (#46) : le générateur natif le teste AVANT tout
-        # sweep (`FUN_180003bd0(4, …)` dans <GenerateActions>d__7 @18119a3f0) — False = ability
+        # sweep (`FUN_180003bd0(4, …)` dans <GenerateActions>d__7 IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext) — False = ability
         # sautée entièrement (jamais évaluée), le fallback Comparable prend la main.
         if not pb.should_evaluate(ctx):
             continue

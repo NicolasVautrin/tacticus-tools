@@ -1,6 +1,6 @@
 """TriggeredAbilityComponent (#140 Slice 1) — semantique du compteur phase, test PURE offline.
 
-Mirror natif TriggeredAbilityComponent (@180faba40) : try_add / get_times_triggered_this_phase /
+Mirror natif TriggeredAbilityComponent (IdunBattle.Entities.Components.TriggeredAbilityComponent$$.ctor) : try_add / get_times_triggered_this_phase /
 mark_as_triggered / reset_phase / has_been_triggered. Pas de live (structure de donnees pure) ; la
 validation COMPORTEMENTALE du cap (borne la recursion Psyker + non-regression) vient en Slice 4.
 """

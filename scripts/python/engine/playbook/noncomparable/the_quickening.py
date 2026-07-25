@@ -14,14 +14,14 @@ _RANGE = 2                     # gameconfig `range:2` (« a hex within movement 
 
 
 class TheQuickeningPlaybook(NonComparablePlaybook):
-    """`TheQuickeningPlaybook.EvaluateNonComparable @18116afb0` (id 0x47f=1151, bloodMephiston).
+    """`IdunBattle.AI.Playbook.Loki.TheQuickeningPlaybook$$EvaluateNonComparable` (id 0x47f=1151, bloodMephiston).
 
     NonComparable a utilite ENTIERE (aucun `Make*Predictions` — reframe #34) : Mephiston se teleporte sur
     un hex a portee 2 ; l'ami eventuellement present y est ECHANGE vers la position du caster. La cible
     natives est une TUILE (entite tuile), pas une unite.
 
     Utilite (paliers `Fix64.FromInt(1)` cumulatifs, evalues DANS CET ORDRE) :
-      - base = champ statique [0] du cctor @18116b550 = `Fix64.FromInt(1)` ;
+      - base = champ statique [0] du IdunBattle.AI.Playbook.Loki.TheQuickeningPlaybook$$.cctor = `Fix64.FromInt(1)` ;
       - GATE : `GetNumAttackTargetsInPosition(caster, targetTile) == 0 -> continue` (le natif ne se
         teleporte QUE sur une tuile d'ou il peut attaquer) ;
       - `other` = unite sur la tuile (nulle si c'est le caster lui-meme) ; si `IsFriend(other, caster)` :
@@ -35,14 +35,14 @@ class TheQuickeningPlaybook(NonComparablePlaybook):
     DE LA TUILE (`ctx.tile_id_by_pos`), pas un id d'unite.
 
     PORTE DE DECISION RESOLUE (#46, 2026-07-20) : le gate manquant = slot 4 `ShouldEvaluate(unit)`
-    de la vtable (klass+0x298, resolu LIVE via `resolveVtableSlot`) -> corps FOLDE @18111af90
+    de la vtable (klass+0x298, resolu LIVE via `resolveVtableSlot`) -> corps FOLDE IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$ShouldEvaluate
     (`AlphaWarriorPlaybook$$ShouldEvaluate`) = `GetStat(unit, 0xc=TurnsStarted) > 1` : 1151 n'est
     JAMAIS evaluee au PREMIER tour de l'unite (`should_evaluate` = `_turns_started_gate`).
     Mesures concordantes (seed 31337, board MC1_67) : pas 5 (1er tour u81, turnsStarted=1) ->
     slot4=0 (8/8) -> le natif attaque normal ; pas 15 (2e tour) -> slot4=1 -> le natif emet 1151 ;
-    step 0 build frais (turnsStarted=0) -> slot4=0. NB : `BasePlaybook.ShouldEvaluate @18111fb70`
+    step 0 build frais (turnsStarted=0) -> slot4=0. NB : `IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate`
     (voie `prob := vtable[0x1f8] GetUseProbability`) n'est PAS l'impl de ce playbook (les 2
-    surcharges de base @18111f9b0/@18111fa00 = `Fix64(1)` constant, verifie live = 1.0) — la piste
+    surcharges de base IdunBattle.AI.Playbook.BasePlaybook$$GetUseProbability/IdunBattle.AI.Playbook.BasePlaybook$$GetUseProbability = `Fix64(1)` constant, verifie live = 1.0) — la piste
     « prob<=0 » du 1er RE etait la MAUVAISE implementation. La correlation RapidAssault (n=2)
     etait un PROXY du 1er tour, pas le mecanisme (anti-fit respecte).
     Point residuel : `ncEvaluate` au pas 15 rend util=3 sur exactement l'action native (4,5)->
@@ -60,11 +60,11 @@ class TheQuickeningPlaybook(NonComparablePlaybook):
     MELEE hors univers movable (#46, cf. `_base`) — la partie RANGED du fallback (portee+LoS) n'est
     pas portee -> borne inf residuelle pour un allie echange purement ranged."""
     ABILITY_ID = int(ActiveAbilityType.TheQuickening)  # 1151
-    MIN_UTILITY = 1.0     # cctor @18116b550 = Fix64(1)
+    MIN_UTILITY = 1.0     # IdunBattle.AI.Playbook.Loki.TheQuickeningPlaybook$$.cctor = Fix64(1)
     PRIORITY = 0
 
     def should_evaluate(self, ctx: NCContext) -> bool:
-        """Slot 4 de la vtable (0x298) -> corps foldé @18111af90 : `turnsStarted > 1` (#46)."""
+        """Slot 4 de la vtable (0x298) -> corps foldé IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$ShouldEvaluate : `turnsStarted > 1` (#46)."""
         return _turns_started_gate(ctx)
 
     def _eligible_target_tiles(self, ctx: NCContext) -> list[tuple]:

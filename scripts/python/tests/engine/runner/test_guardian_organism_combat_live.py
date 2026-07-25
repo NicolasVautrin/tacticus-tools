@@ -3,7 +3,7 @@
 Le Tyrant Guard (trait GuardianOrganism, tank Tyranide) porte sur LUI-MEME (self + amis ring-1)
 l'effet `GuardianOrganism_DamageReduction` = reduction du degat RECU = min(dmgReductionPct%(25-33) x
 CurrentDamage, dmgReduction_cap x mult). Le natif PRE-EVALUE le defender-mod en scalaire UNIQUE
-(`CalculateBaseDamageWithAllModifiers @18102d3f0`) : CurrentDamage = D = le CENTRE du degat post-mods,
+(`IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`) : CurrentDamage = D = le CENTRE du degat post-mods,
 donc le montant = min(trunc(pct% x D), cap) est un FLAT soustrait IDENTIQUE a chaque coup (PAS 33% de
 chaque valeur tiree). #91 : le runner appliquait ce flat AUX BORNES (per-borne, avant tirage) -> desync
 RNG + amplitude fausse ; corrige = flat depuis le centre des bornes, soustrait APRES le tirage par coup.

@@ -9,10 +9,10 @@ black-box. La struct résultat mirror `DamagePredictionResult`.
 pour l'attaque normale (dmg indépendant de l'armure cible ; `armorBefore=0`).
 
 STRUCTURE (calquée 1:1 sur le natif — le `×hits` N'est PAS dans PredictAttackRaw) :
-  - `predict_attack_raw`            = `DamagePrediction.PredictAttackRaw @181032fb0`  (UN COUP, prev-aware)
-  - `get_multi_hit_attack_prediction` = `BattleQuery.GetMultiHitAttackPrediction @181066080`  (LA boucle)
-  - `DamagePredictionResult.add`     = `DamagePredictionResult.Add @18102a710`  (Σ des coups)
-  - `.default_block_scenario`        = `get_DefaultBlockScenario @18102bcd0`  (prev cumulé threadé)
+  - `predict_attack_raw`            = `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw`  (UN COUP, prev-aware)
+  - `get_multi_hit_attack_prediction` = `IdunBattle.Core.Services.BattleQuery$$GetMultiHitAttackPrediction`  (LA boucle)
+  - `DamagePredictionResult.add`     = `IdunBattle.Core.Services.DamagePredictionResult$$Add`  (Σ des coups)
+  - `.default_block_scenario`        = `IdunBattle.Core.Services.DamagePredictionResult$$get_DefaultBlockScenario`  (prev cumulé threadé)
   - `get_attack_prediction`          = entrée attaque NORMALE (whole-attack) → route par la boucle.
 """
 from __future__ import annotations
@@ -39,14 +39,13 @@ from .trait_damage_limits import apply_trait_damage_limits_to_damage, compute_pr
 class DamagePredictionResult:
     """struct DamagePredictionResult (dump.cs TypeDefIndex 11757, offsets STRUCT) :
       CurrentHealth@0 · CurrentArmor@4 · CurrentShield@8 · healthDmg RAW (MinMax)@0x18
-      {cap@0x18, Min@0x20, Max@0x24} — NON capé par HP ; `get_WillBeKill @18102bef0` =
-      `CurrentHealth@0 <= raw MAX@0x24` (offsets RE-CONFIRMÉS #40 : `get_DefaultBlockScenario
-      @18102bcd0` copie result@+0x20 → BS.healthDmg@+0x08 = raw MIN cumulé, layout vérifié
+      {cap@0x18, Min@0x20, Max@0x24} — NON capé par HP ; `IdunBattle.Core.Services.DamagePredictionResult$$get_WillBeKill` =
+      `CurrentHealth@0 <= raw MAX@0x24` (offsets RE-CONFIRMÉS #40 : `IdunBattle.Core.Services.DamagePredictionResult$$get_DefaultBlockScenario` copie result@+0x20 → BS.healthDmg@+0x08 = raw MIN cumulé, layout vérifié
       par le `[0]<=[9]` de WillBeKill + le kill natif=true à rawMax>=HP) ·
       AccurateHealthDamage(MinMax)@0x58 (Min@+8=0x60, Max@+0xc=0x64, CAPÉ par HP santé restante)
       · AccurateArmorDamage@0x68 · AccurateShieldDamage@0x78 · TotalDamage@0x88 · LimitedByMinHp@0xB0
       · MightCrit@0xB1 · ForceOverkill@0xB2 · AppliedHits@0xBC.
-    SPLIT santé/bouclier (PredictAttackRaw, call-sites VA 0x181034caa/0x181034ce7) :
+    SPLIT santé/bouclier (PredictAttackRaw, call-sites VA IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x1cfa/IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x1d37) :
       shieldDmg = CalculateDamageBlockedByShield = Min(dmg_borne, rem) avec **rem UNIQUE** =
       shield − cumul MAX absorbé (#42, cf. BlockScenario) ; healthDmg = dmg − shieldDmg.
       Le bouclier absorbe la base RAW pré-perçage (le reste traverse perçage/armure/mods).
@@ -65,14 +64,14 @@ class DamagePredictionResult:
     might_crit: bool = False
     force_overkill: bool = False   # ForceOverkill @0xB2 (trait force-overkill ; défaut False, non porté baseline)
     applied_hits: int = 0
-    # #54A : mirror de `list[0]@0x50` (scénarios de BLOCK, mergés par index dans `Add @18102a710`) =
+    # #54A : mirror de `list[0]@0x50` (scénarios de BLOCK, mergés par index dans `IdunBattle.Core.Services.DamagePredictionResult$$Add`) =
     # le scénario « TOUS les coups bloqués » : Σ_coup max(0, rawMin_coup − blockAmount). None = pas de
-    # source de block chez le défenseur (liste vide) → `get_WillBeKill @18102bef0` retombe sur le
+    # source de block chez le défenseur (liste vide) → `IdunBattle.Core.Services.DamagePredictionResult$$get_WillBeKill` retombe sur le
     # scalaire rawMin@0x24. Consommé par will-be-kill/will-be-overkill (killSure/DefinitelyOverkill).
     block_raw_min: int | None = None
 
     def default_block_scenario(self) -> "BlockScenario":
-        """`DamagePredictionResult.get_DefaultBlockScenario` @18102bcd0 — le scénario cumulé (dégât santé/
+        """`IdunBattle.Core.Services.DamagePredictionResult$$get_DefaultBlockScenario — le scénario cumulé (dégât santé/
         bouclier déjà infligé) threadé comme `prev` au coup suivant → ressources RESTANTES de la cible.
         ⚠ #40 (RE 2026-07-20, copie champ-à-champ LUE) : la santé threadée est UN SEUL int —
         `BS.healthDmg@+0x08 = result@+0x20` = **raw health MIN cumulé** (PAS un par-borne min/max).
@@ -85,7 +84,7 @@ class DamagePredictionResult:
             shield_min=self.accurate_shield_damage.min, shield_max=self.accurate_shield_damage.max)
 
     def add(self, other: "DamagePredictionResult") -> None:
-        """`DamagePredictionResult.Add` @18102a710 — somme ENTIÈRE champ-par-champ (Accurate* santé/bouclier
+        """`IdunBattle.Core.Services.DamagePredictionResult$$Add — somme ENTIÈRE champ-par-champ (Accurate* santé/bouclier
         + Total + AppliedHits) avec ApplyCap. MUTE self (agrège le coup `other` de la boucle multi-coups)."""
         _self_raw_min_before = self.raw_health_damage.min   # #54A : fallback block AVANT la somme raw
         h = MinMaxDamage(min=self.accurate_health_damage.min + other.accurate_health_damage.min,
@@ -110,7 +109,7 @@ class DamagePredictionResult:
         self.total_damage = t
         self.applied_hits += other.applied_hits
         self.might_crit = self.might_crit or other.might_crit
-        # #54A : merge du scénario block (mirror per-index de `Add @18102a710` : quand UN côté n'a pas
+        # #54A : merge du scénario block (mirror per-index de `IdunBattle.Core.Services.DamagePredictionResult$$Add` : quand UN côté n'a pas
         # de liste, son scalaire rawMin sert d'entrée — c'est exactement le fallback natif).
         if self.block_raw_min is not None or other.block_raw_min is not None:
             a = self.block_raw_min if self.block_raw_min is not None else _self_raw_min_before
@@ -120,12 +119,12 @@ class DamagePredictionResult:
 
 @dataclass
 class BlockScenario:
-    """Scénario cumulé threadé comme `prev` entre coups — `get_DefaultBlockScenario` @18102bcd0. Porte le
+    """Scénario cumulé threadé comme `prev` entre coups — `IdunBattle.Core.Services.DamagePredictionResult$$get_DefaultBlockScenario. Porte le
     dégât CUMULÉ (santé/bouclier) des coups précédents → RESSOURCES RESTANTES de la cible au coup suivant
     (`rem = pleine − cumul`). Champs natifs consommés par `PredictAttackRaw` (prev = Nullable@param_3+0x84) :
-    healthDmg@+0x08 = **UN SEUL int** (rem_HP @181034087 : `local_914 = Max(0, HP − BS@+0x08)` — la MÊME
-    valeur sert les 2 bornes), shieldAbs min@+0x28 / max@+0x2c (rem_shield @1810341d5/427a).
-    (armorDmg@+0x18 = déplétion armure @181034130 — armure=0 en prédiction IA, non threadé.)
+    healthDmg@+0x08 = **UN SEUL int** (rem_HP IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x10d7 : `local_914 = Max(0, HP − BS@+0x08)` — la MÊME
+    valeur sert les 2 bornes), shieldAbs min@+0x28 / max@+0x2c (rem_shield IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x1225/427a).
+    (armorDmg@+0x18 = déplétion armure IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x1180 — armure=0 en prédiction IA, non threadé.)
     Vide (tout 0) = 1er coup = pleines. ⚠ #40 : l'ancien port threadait health_min/health_max PER-BORNE
     (rem_hi déplété par le cumul MAX) → rawMax saturait à HP−1 (1498) là où le natif rend 1949.
     ⚠ #42 (mesure discriminante 777 s11, ab1150 3 coups vs bouclier 3989) : côté BOUCLIER le rem
@@ -133,7 +132,7 @@ class BlockScenario:
     bornes — `shield_min` (cumul MIN, mirror MM3.min du scénario natif) est conservé dans le struct
     mais ne pilote PAS le rem (l'ancienne lecture per-piste min@+0x28/max@+0x2c donnait un
     shieldDmgMin sur-évalué 3351 vs natif 2873). Layout RE réel (skew +4 lu au repack de
-    `GetMultiHitAttackPrediction @181066080`) : le buffer de `get_DefaultBlockScenario` copie
+    `IdunBattle.Core.Services.BattleQuery$$GetMultiHitAttackPrediction`) : le buffer de `get_DefaultBlockScenario` copie
     DPR@0x18..0x4b et le BlockScenario VRAI = buffer@0x04.. → BS@+0x08 = MM1.min (santé raw MIN
     cumulé, #40 ✓) ; MM3 {min@+0x28, max@+0x2c} = paire bouclier bloquée cumulée."""
     health: int = 0
@@ -143,7 +142,7 @@ class BlockScenario:
 
 def get_default_attack_hits(base_hits: int, extra_hits: int,
                            extra_hits_melee: int, is_melee: bool) -> int:
-    """DamagePrediction.GetDefaultAttackHits (@181032520) :
+    """DamagePrediction.GetDefaultAttackHits (IdunBattle.Core.Services.DamagePrediction$$GetDefaultAttackHits) :
         hits = base + ExtraHits(17) + (melee ? ExtraHitsMelee(23) : 0) ; max(hits, 0)."""
     h = base_hits + extra_hits
     if is_melee:
@@ -156,7 +155,7 @@ def get_attack_piercing_damage_ratio(profile_piercing_ratio: int, profile_has_la
                                      attacker_has_heavy_weapon_or_emplacement: bool,
                                      extra_pierce_min: int = 0, extra_pierce_max: int = 0,
                                      lascannon_bonus: int = W_LASCANNON_PIERCE_BONUS) -> int:
-    """DamagePrediction.GetAttackPiercingDamageRatio (@181030a20) :
+    """DamagePrediction.GetAttackPiercingDamageRatio (IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio) :
         base = GetPiercingRatio(profile, attackerTraits)
         total = clamp(0,100, base + ExtraPierce(26) + ExtraPierce{Melee21|Ranged22}
                               + extra_pierce_min + extra_pierce_max)
@@ -173,7 +172,7 @@ def get_attack_piercing_damage_ratio(profile_piercing_ratio: int, profile_has_la
 def get_base_damage_with_fixed_pierced_armor(
         damage: int, pierce_pct: int, target_fixed_armor: int,
         armor_penetration: int = 0, hit_multiplier: int = 1) -> int:
-    """DamagePrediction.GetBaseDamageWithFixedPiercedArmor (@181030d10).
+    """DamagePrediction.GetBaseDamageWithFixedPiercedArmor (IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageWithFixedPiercedArmor).
 
         armor_eff = max(target.FixedArmor(16) − armor_penetration, 0)
         d = damage
@@ -196,7 +195,7 @@ def calculate_damage_prediction_scenario(
         remaining_health: int | None = None,
         trait_min_cap: int | None = None, result_cap: int | None = None,
         *, armor: int = 0) -> MinMaxDamage:
-    """DamagePrediction.CalculateDamagePredictionScenario (@18102ed00) — UN outcome (1 coup × 1 état).
+    """DamagePrediction.CalculateDamagePredictionScenario (IdunBattle.Core.Services.DamagePrediction$$CalculateDamagePredictionScenario) — UN outcome (1 coup × 1 état).
     Corps RE LECTURE INTÉGRALE (playbook-engine.md §16.2) :
 
         eff = max(0, raw − prev_hits)              # param_7 = BONUS CRIT du scénario courant (intra-coup)
@@ -205,7 +204,7 @@ def calculate_damage_prediction_scenario(
         if cible.FillUpStatComponent : health = MaxReduceByMinimum(health, remaining_health)  # overkill
         MinMaxDamage.ApplyCap
 
-    ⚠ CORRECTION RE (verdict prev-threading @181035dce) : `param_7` natif = le **bonus du scénario de crit
+    ⚠ CORRECTION RE (verdict prev-threading IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x2e1e) : `param_7` natif = le **bonus du scénario de crit
     COURANT** (répartition crit/non-crit d'UN hit), PAS un cumul inter-coups. La déplétion inter-coups
     (bouclier/HP restant) se fait EN AMONT dans `predict_attack_raw` sur les ressources restantes, PAS via
     `prev_hits` ici. `armor` = knob kw-only (0 = prédiction IA pré-armure). `reduction_*` = réduction
@@ -229,7 +228,7 @@ def calculate_damage_prediction_scenario(
 
 def get_base_damage_fix64(base: int, extra_max: int = 0, spread_pct: int = 20,
                           is_max_out: bool = False) -> MinMaxDamage:
-    """DamagePrediction.GetBaseDamageFix64 (@181030ba0) — la MinMax de base AVANT armure (local_938).
+    """DamagePrediction.GetBaseDamageFix64 (IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageFix64) — la MinMax de base AVANT armure (local_938).
     RE (playbook-engine.md §16) :
         min = CalculateMinDamage(base) = base − CalculateDamageSpread(base)   # slot 8
         max = CalculateMaxDamage(base) + ExtraMaxDamage(stat 0x19=25)         # slot 9 + extraMax
@@ -238,7 +237,7 @@ def get_base_damage_fix64(base: int, extra_max: int = 0, spread_pct: int = 20,
     mm = spread_to_min_max(base, spread_pct)            # {base−spread, base+spread}
     hi = mm.max + extra_max
     lo = hi if is_max_out else mm.min
-    # #65 : les bornes sont consommees par `CalculateBaseDamageWithAllModifiers @18102d3f0` dont le
+    # #65 : les bornes sont consommees par `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` dont le
     # param est un **int baseDamage** (op_Explicit Fix64->int = TRONCATURE) -> trunc mirror. No-op pour
     # toute base entiere (bornes entieres) ; ne mord que sur les bases fractionnaires (midpoint x.5 du
     # noeud Average, ex. FleshmetalGuns Melta avg 1246.5 -> bornes 997.5/1495.5 -> 997/1495, ground
@@ -247,14 +246,13 @@ def get_base_damage_fix64(base: int, extra_max: int = 0, spread_pct: int = 20,
 
 
 def _materialize(v) -> int:
-    """Matérialisation int des BORNES de prédiction = `Fix64.Round(·, mode 1 AwayFromZero)
-    @1815636e0` sur la valeur Fix64 EXACTE, puis conversion (intégrale → passthrough).
+    """Matérialisation int des BORNES de prédiction = `FixMath.NET.Fix64$$Round(·, mode 1 AwayFromZero)` sur la valeur Fix64 EXACTE, puis conversion (intégrale → passthrough).
     ⚠ Verdict EMPIRIQUE #30a (2 mesures A/B live, seeds 777+31337 ×20 steps) : floor(exact)
     = 13 mismatches vs round(float) = 5 vs round(exact) — le natif ARRONDIT les bornes
-    prédites (le Round vit en aval de `CalculateBaseDamageWithAllModifiers @18102d3f0`,
+    prédites (le Round vit en aval de `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`,
     qui lui renvoie du fractionnaire sans Round interne — lu intégralement ; les op_Explicit
     de PredictAttackRaw portent sur des Fix64 déjà intégraux). ≠ COMBAT : le dégât TIRÉ se
-    matérialise par op_Explicit=floor (`CalculateAbilityDamage @18102cb50`, apply_all_modifiers).
+    matérialise par op_Explicit=floor (`IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`, apply_all_modifiers).
     L'exactitude Fix64 reste LA correction : round(float) divergeait aux frontières .5
     fabriquées par le bruit float (777s6 : float 277.5→278 vs exact 277.49999982…→277)."""
     return _fx.to_int(_fx.round_raw(_fx.from_number(v), 1))
@@ -264,7 +262,7 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
                                mods: DamageModifiers | None = None, hit_mult: int = 1,
                                attacker_additive_pre: bool = False):
     """BASE COMMUNE prédiction↔combat — réduction d'UNE valeur de dégât (= étape 3+3b de
-    `predict_attack_raw`, cf. `CalculateBaseDamageWithAllModifiers` @18102d3f0) :
+    `predict_attack_raw`, cf. `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers) :
         pierce_eff = clamp(0,100, pierce + mods.extra_pierce)
         armor_eff  = 0 si mods.ignore_armor sinon max(0, armor − mods.armor_penetration)
         d = GetDamageWithPiercing(value, pierce_eff, armor_eff) répété hit_mult×
@@ -275,15 +273,15 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
 
     `attacker_additive_pre` (#75/#68, case-68 MAJ 13) : en COMBAT l'additif ForAddition ATTAQUANT
     (mods.additive) s'ajoute au dégât AVANT perçage/armure — le caller combat de
-    `CalculateAbilityDamage @18102cb50` passe un dégât DÉJÀ additivé, et
-    `CalculateBaseDamageWithAllModifiers @18102d3f0` NE consomme PAS `DamageModifiers.Addition@+0x10`
+    `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` passe un dégât DÉJÀ additivé, et
+    `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` NE consomme PAS `DamageModifiers.Addition@+0x10`
     (LU : seuls Piercing@+0x20 et IgnoreArmor@+0x28 y entrent, puis %-list slot 0x11 / Multiplier
     slot 0x10 / Override@+0x0). Reconstruit BIT-EXACT 3/3 (orksNob SmashaEad additif 599, pierce 50,
     armure cible 2208 : bornes (base±spread)+599 → GDWP → live [1540,1738,1526] à l'unité).
       True  = placement natif COMBAT (#75) ET PRÉDICTION (#70/Q3) : pré-perçage ; l'additif traverse
               perçage PUIS %-list -> scalé ×%-mod (cohérent #88) ; PAS de re-add post ;
       False = chemin legacy post-perçage (additif après %-list, NON scalé) — plus utilisé par le port
-              (prédiction basculée True au #70/Q3 : verdict RE PredictAttackRaw @181032fb0, prediction.md §10)."""
+              (prédiction basculée True au #70/Q3 : verdict RE IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw, prediction.md §10)."""
     pierce_eff, armor_eff = pierce_pct, armor
     if mods is not None:
         pierce_eff = max(0, min(100, pierce_pct + mods.extra_pierce))
@@ -295,7 +293,7 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
         d = get_damage_with_piercing(d, pierce_eff, armor_eff)
     if mods is not None:
         if attacker_additive_pre:
-            # additif déjà dans la base → %-list SEUL (ApplyCappedModifiers @181000020) + plancher 0
+            # additif déjà dans la base → %-list SEUL (IdunBattle.Core.Services.DamageCalculations$$ApplyCappedModifiers) + plancher 0
             d = max(0, apply_capped_modifiers(d, mods))
         else:
             d = apply_all_modifiers(d, mods)   # %-list PUIS additif (@+0x10) — APRES percage (§17.7)
@@ -303,11 +301,11 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
 
 
 def is_attack_max_out_damage(attacker_effects) -> bool:
-    """#202 WeaverOfFate — mirror `UnitExtensions.IsAttackMaxOutDamage @180ed7a50` (branche effet) :
+    """#202 WeaverOfFate — mirror `IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage` (branche effet) :
     l'attaquant est owner OU target de l'effet 1185 `WeaverOfFate_MaxOutDamage` (self-cast : roles
     confondus offline) -> degats MAX sans tirage. FOYER UNIQUE cote prediction, evalue DANS
     `predict_attack_raw` comme le natif l'evalue DANS `PredictAttackRaw` (wrapper `DamagePrediction.
-    IsAttackMaxOutDamage @1810329f0`, call site @181034aba) — les appelants passent les EFFETS de
+    IdunBattle.Core.Services.DamagePrediction$$IsAttackMaxOutDamage`, call site IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x1b0a) — les appelants passent les EFFETS de
     l'attaquant (scene.effects / active ECS), pas un flag pre-calcule. La branche
     `HasTriggeredAbility(1494 ParagonSpear)` n'est PAS mirroree (porteur hors kit — residu case-202 §6).
     (Le COMBAT runner a son mirror jumeau sur l'EffectsState ECS : `weaver_of_fate.
@@ -325,22 +323,22 @@ def predict_attack_raw(
         target_limits: dict | None = None,
         predefined: MinMaxDamage | None = None, might_crit: bool = False,
         attacker_effects=None) -> DamagePredictionResult:
-    """`DamagePrediction.PredictAttackRaw` @181032fb0 — prédiction d'UN COUP contre les RESSOURCES RESTANTES
+    """`IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw — prédiction d'UN COUP contre les RESSOURCES RESTANTES
     de la cible (déplétées par `prev`, scénario cumulé des coups précédents ; `prev` vide = ressources
     pleines = 1er coup). NE fait PAS le ×hits (→ `get_multi_hit_attack_prediction`) ; l'additif plat EST
     appliqué ICI PAR COUP (via `mods` non strippé, #70).
 
     Recurrence RE (verdict prev-threading, VA/offsets) :
-      rem_shld = max(0, target_shield − prev.shieldAbs)         # bouclier restant (prev@+0x28/+0x2c) @1810341d5/427a
-      rem_HP   = max(0, target_current_health − prev.healthDmg) # HP restant (prev@+0x08)             @181034087
+      rem_shld = max(0, target_shield − prev.shieldAbs)         # bouclier restant (prev@+0x28/+0x2c) IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x1225/427a
+      rem_HP   = max(0, target_current_health − prev.healthDmg) # HP restant (prev@+0x08)             IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x10d7
       base = predefined | GetBaseDamageFix64(initial_damage)    # {base−spread, base+spread+extraMax}
-      blocked = Min(base, rem_shld)                             # split bouclier PER-COUP (slot 0xc @181034caa/ce7)
-      health  = ApplyPierce/Armure/%-mods(base − blocked)       # CalculateBaseDamageWithAllModifiers @18102d3f0
+      blocked = Min(base, rem_shld)                             # split bouclier PER-COUP (slot 0xc IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x1cfa/ce7)
+      health  = ApplyPierce/Armure/%-mods(base − blocked)       # IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers
       health  = min(health, rem_HP)                             # overkill PER-COUP (FillUpStat.MaxReduceByMinimum)
     ⚠ `prev` déplète les RESSOURCES EN AMONT (bouclier/HP restant) — ce N'EST PAS `param_7`
-    (previousHitsPrediction) de CDS, qui est le bonus crit INTRA-coup (verdict RE @181035dce)."""
+    (previousHitsPrediction) de CDS, qui est le bonus crit INTRA-coup (verdict RE IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x2e1e)."""
     # #202 WeaverOfFate : le flag max-out est evalue ICI, foyer unique (mirror natif : PredictAttackRaw
-    # appelle IsAttackMaxOutDamage @181034aba lui-meme) puis passe a `GetBaseDamageFix64 @181030ba0`
+    # appelle IsAttackMaxOutDamage IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x1b0a lui-meme) puis passe a `IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageFix64`
     # -> min = max (bornes degenerees). Un `predefined` (bornes d'ability RandomAmount) est degenere pareil.
     is_max_out = is_attack_max_out_damage(attacker_effects)
     mm = predefined if predefined is not None \
@@ -348,14 +346,14 @@ def predict_attack_raw(
     if is_max_out and predefined is not None:
         mm = MinMaxDamage(min=predefined.max, max=predefined.max)
     # #70/Q3 : additif plat NON strippé -> appliqué PAR COUP en PRÉ-perçage (attacker_additive_pre=True aux
-    # call-sites lo/hi ci-dessous). Verdict RE (PredictAttackRaw @181032fb0, prediction.md §10) : le natif
-    # ajoute l'additif @+0x10 à la base int AVANT `CalculateBaseDamageWithAllModifiers @18102d3f0` (L1940/L2062) ;
+    # call-sites lo/hi ci-dessous). Verdict RE (IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw, prediction.md §10) : le natif
+    # ajoute l'additif @+0x10 à la base int AVANT `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` (L1940/L2062) ;
     # CBDWAM NE consomme PAS Addition (acquis #75) -> l'additif traverse perçage PUIS %-list (scalé ×%-mod #88).
-    # `GetMultiHitAttackPrediction @181066080` appelle `PredictAttackRaw` PAR COUP + `Add`, SANS additif
+    # `IdunBattle.Core.Services.BattleQuery$$GetMultiHitAttackPrediction` appelle `PredictAttackRaw` PAR COUP + `Add`, SANS additif
     # post-boucle. L'ancien strip + application UNE FOIS sur l'agrégat = artefact pré-refactor #51.
     # GuardianOrganism (PercentSubtractionCapped, défenseur) : la réduction = un `ForSubtraction` dont le
     # montant `Min(PercentageOf(CurrentDamage, pct), cap)` est PRÉ-ÉVALUÉ EN SCALAIRE (natif : `Calculate
-    # BaseDamageWithAllModifiers @18102d3f0` reçoit le défender-mod DÉJÀ évalué -> MÊME valeur pour min ET max
+    # BaseDamageWithAllModifiers IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` reçoit le défender-mod DÉJÀ évalué -> MÊME valeur pour min ET max
     # = FLAT, PAS re-évalué per-borne). `CurrentDamage` = la BASE (centre) du dégât post-perçage/mods, donc
     # D=(lo+hi)/2 ; CONFIRMÉ LIVE 2 cas (Kharn->TyrantGuard D6280 -> flat min(33%*D,cap2619)=2072 => 2952/5464 ;
     # #86a D2670 -> flat min(33%*D,cap)=881 => .../2324). On STRIPPE donc capped_reductions du chemin PER-BORNE
@@ -380,8 +378,8 @@ def predict_attack_raw(
     else:
         blk_lo = blk_hi = 0
         rem_lo, rem_hi = mm.min, mm.max
-    # PRÉDICTION : conversion int finale = **op_Explicit = FLOOR** (@181034e87/e98/eaa/ebb — le natif
-    # matérialise les bornes prédites par `Fix64.op_Explicit @181564100` = raw>>32, PAS un Round ; le
+    # PRÉDICTION : conversion int finale = **op_Explicit = FLOOR** (IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x1ed7/e98/eaa/ebb — le natif
+    # matérialise les bornes prédites par `FixMath.NET.Fix64$$op_Explicit` = raw>>32, PAS un Round ; le
     # commentaire historique « Round » était FAUX, #30a). MÊME conversion que le COMBAT. La chaîne
     # apply_pierce_and_modifiers/apply_capped_modifiers renvoie le Fix64 fractionnaire EXACT (`.raw`,
     # perçage non tronqué #111 + arithmétique Fix64 #30a) -> floor ICI, une seule fois par borne.
@@ -393,7 +391,7 @@ def predict_attack_raw(
     hi = _materialize(apply_pierce_and_modifiers(rem_hi, pierce_pct, armor, mods_pct, hit_mult,
                                                  attacker_additive_pre=True)) if rem_hi else 0
     # Réduction DÉFENSEUR capée FLAT (GuardianOrganism) : scalaire = min(trunc(pct% × D), cap) avec D=(lo+hi)/2 =
-    # CurrentDamage (base/centre du dégât, pré-GO), soustrait des DEUX bornes (mirror pré-évalué natif @18102d3f0 ;
+    # CurrentDamage (base/centre du dégât, pré-GO), soustrait des DEUX bornes (mirror pré-évalué natif IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers ;
     # HELPER PARTAGÉ avec le COMBAT `capped_reduction_flat` = MÊME formule + troncature Fix64, confirmée bit-exact
     # #91). AVANT target_limits (ordre natif : CalculateBaseDamageWithAllModifiers -> ApplyTraitDamageLimitsToDamage).
     if _capped and (lo or hi):
@@ -401,10 +399,10 @@ def predict_attack_raw(
         lo = max(0, lo - _flat)
         hi = max(0, hi - _flat)
     # #170 PLANCHER PRÉDICTION 1-dégât-de-santé PAR COUP — `PredictAttackRaw` fait `MinMaxDamageFix64.MathMax(
-    # &dmg, Fix64.One) @0x181035682` (`MathMax @181052130` remonte min ET max à 1) APRÈS CalculateBaseDamage
+    # &dmg, Fix64.One) @IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x26d2` (`IdunBattle.Core.Services.MinMaxDamageFix64$$MathMax` remonte min ET max à 1) APRÈS CalculateBaseDamage
     # WithAllModifiers/ApplyCap (perçage+armure+%-mods+défenseur), AVANT ApplyTraitDamageLimitsToDamage. Valeur =
     # littéral 1 (Fix64 static+0x20 ; ≠ le +0x28=Zero que planche get_damage_with_piercing). ⚠ PRÉDICTION SEULE :
-    # le COMBAT `CalculateAbilityDamage @18102cb50` planche à 0 (`Fix64.Max(base, 0)`) — NE PAS toucher
+    # le COMBAT `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` planche à 0 (`Fix64.Max(base, 0)`) — NE PAS toucher
     # `get_damage_with_piercing` (partagé combat). GATE natif = le coup CONNECTE et le Nullable bouclier du
     # HitDamage est SANS VALEUR (= cible SANS bouclier : le split ne tourne pas, aucun block boxé). #42 RAFFINE
     # l'ancien mapping `rem>0` : mesure 777 s11 u81 (bouclier 3989) coup 3 partiellement absorbé (rem 478 > 0)
@@ -417,15 +415,15 @@ def predict_attack_raw(
         if rem_hi:
             hi = max(hi, 1)
     if target_limits:
-        # ApplyTraitDamageLimitsToDamage @18102c650 — cape le dégât per-bout APRÈS modifiers, AVANT le
+        # IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage — cape le dégât per-bout APRÈS modifiers, AVANT le
         # scénario (ordre natif). Appliqué aux 2 bornes (le natif appelle chaque Apply 2× : min puis max).
         # `current_health` = HP RESTANT de la cible avant CE coup (déplété par `prev`). `target_limits` =
         # champs STATIQUES cible (traits/member/max_health) montés par l'appelant ; les caps non dérivables
         # offline (Impervious charge, member-count stat 20, boss 0x5d4) y sont des no-op documentés.
-        # #40 : rem UNIQUE (natif @181034087 lit BS.healthDmg@+0x08 = raw MIN cumulé) — les DEUX
+        # #40 : rem UNIQUE (natif IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x10d7 lit BS.healthDmg@+0x08 = raw MIN cumulé) — les DEUX
         # bornes du coup courant sont capées contre le MÊME HP restant (scénario minimum garanti).
         _rem = max(0, target_current_health - prev.health)
-        # Porte IsOverkill (@181032db0) : le natif calcule le flag UNE fois depuis la borne MIN (accum =
+        # Porte IsOverkill (IdunBattle.Core.Services.DamagePrediction$$IsOverkill) : le natif calcule le flag UNE fois depuis la borne MIN (accum =
         # (maxHP - curHP) + dmgMin) et l'applique aux 2 bornes (ApplyResilient(min,ovk)+ApplyResilient(max,
         # ovk)). overkill=True => cap Resilient BYPASSE (l'unite meurt) => pas de HP-1. Fidele au live :
         # over-kill massif -> skip (HP), modere -> cape (HP-1). max_health peuple par le vrai moteur
@@ -445,11 +443,11 @@ def predict_attack_raw(
     raw_health = MinMaxDamage(min=health.min, max=health.max, cap=health.cap)
     if target_current_health > 0:
         # overkill PER-COUP : la santé de CE coup <= HP RESTANT (FillUpStat.MaxReduceByMinimum consomme
-        # local_914 = LE rem UNIQUE @181034087, #40) — les 2 bornes contre le même rem ; la borne max
+        # local_914 = LE rem UNIQUE IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x10d7, #40) — les 2 bornes contre le même rem ; la borne max
         # cumulée peut donc dépasser HP (normalisée ensuite par le cap HP de l'accurate dans Add).
         # #43 : le natif BOXE ce rem comme Cap Nullable de l'AccurateHealthDamage — result@0x00 =
-        # local_914 (rem), repris `Nullable<int>.ctor(&cap, result@0x00) @181036304` + `ApplyCap
-        # @18103632c` avant l'écriture @0x58. `Add @18102a710` garde le cap de SELF (= coup 1, rem =
+        # local_914 (rem), repris `Nullable<int>.ctor(&cap, result@0x00) IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x3354` + `ApplyCap
+        # IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x337c` avant l'écriture @0x58. `IdunBattle.Core.Services.DamagePredictionResult$$Add` garde le cap de SELF (= coup 1, rem =
         # HP PLEIN) et re-ApplyCap → l'AGRÉGAT accurate est clampé au HP cible (mesuré : s8 accurate
         # max 1499 = HP ; 31337-drive6 u91→u83 8034 = HP, pas Σ 9532 ni le rem du coup 3). Le port ne
         # posait jamais ce cap (cap=None → apply_cap no-op dans Add) : seul le min() per-coup contre
@@ -477,24 +475,23 @@ def get_multi_hit_attack_prediction(
         extra_groups: "list[dict] | None" = None,
         defender_block_amount: int | None = None,
         attacker_effects=None) -> DamagePredictionResult:
-    """`BattleQuery.GetMultiHitAttackPrediction` @181066080 — LA boucle multi-coups (le `×hits` est ICI, PAS
+    """`IdunBattle.Core.Services.BattleQuery$$GetMultiHitAttackPrediction — LA boucle multi-coups (le `×hits` est ICI, PAS
     dans PredictAttackRaw) :
         result = predict_attack_raw(coup 1, prev=vide)
         for i in 2..hits: prev = result.default_block_scenario(); result.add(predict_attack_raw(coup i, prev))
-    `prev` (`get_DefaultBlockScenario @18102bcd0`) porte le cumul santé/bouclier → chaque coup opère sur les
-    ressources RESTANTES (déplétion PER-COUP fidèle : bouclier/HP décroissent d'un coup à l'autre). `Add`
-    @18102a710 somme les Accurate*. L'ADDITIF plat (ForAddition, ex. −582) s'applique PAR COUP dans
+    `prev` (`IdunBattle.Core.Services.DamagePredictionResult$$get_DefaultBlockScenario`) porte le cumul santé/bouclier → chaque coup opère sur les
+    ressources RESTANTES (déplétion PER-COUP fidèle : bouclier/HP décroissent d'un coup à l'autre). `IdunBattle.Core.Services.DamagePredictionResult$$Add somme les Accurate*. L'ADDITIF plat (ForAddition, ex. −582) s'applique PAR COUP dans
     `predict_attack_raw` (mirror natif ; PAS une fois sur l'agrégat — #70).
 
     Base par coup = `GetBaseDamageFix64(initial_damage)` = `{0.8·base, 1.2·base+extraMax}` (±20%, RE
-    @181030ba0 slots 8/9 = 0.8/1.2). `initial_damage` = stat Attack (NORMALE) OU `GetDamage` avg(minDmg,maxDmg)
+    IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageFix64 slots 8/9 = 0.8/1.2). `initial_damage` = stat Attack (NORMALE) OU `GetDamage` avg(minDmg,maxDmg)
     scalé rareté (SPÉCIALE générique). ⚠ L'ancien chemin `damage=`/plage empirique `(0.8·d/hits, 2.2·d/hits)`
-    est SUPPRIMÉ : RE PredictAttackRaw @181032fb0 = base 1 SEUL int -> GetBaseDamageFix64 ±20% (OU flat via
+    est SUPPRIMÉ : RE IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw = base 1 SEUL int -> GetBaseDamageFix64 ±20% (OU flat via
     byte @param_3+0x6a), aucun facteur 2.2, aucune paire {minDmg,maxDmg}. Les specials Attack-based
     (PlasmaCannon/SpiritLeech) ne passent PAS ici (routés via _PREDICT_VIA_NORMAL_ATTACK)."""
     hits = max(1, hits)
 
-    # #54A : scénario BLOCK per-coup (mirror `CalculateDamagePredictionScenario @18102ed00` →
+    # #54A : scénario BLOCK per-coup (mirror `IdunBattle.Core.Services.DamagePrediction$$CalculateDamagePredictionScenario` →
     # entrée `list[0]@0x50` « tous les coups bloqués ») : rawMin_coup' = max(0, rawMin_coup − amount).
     # Appliqué au raw min FINAL du coup (armure=0 en prédiction IA, pré-armure ≡ post) — réconcilié
     # 1357 s15 (5388 − 3×1097 = 2097). None/0 = pas de source de block → liste vide (fallback scalaire).
@@ -518,7 +515,7 @@ def get_multi_hit_attack_prediction(
     # [min,max] PROPRE (predefined -> pas de spread ±20%, RandomAmount natif) + pierce/profil PROPRES, mais
     # MEME cible (armure/hp/bouclier/hit_mult). Continuent la MEME chaine `prev` (result.default_block_
     # scenario()) APRES les coups d'arme -> deplete bouclier/HP restant = overkill CONTINU fidele (le natif
-    # les ajoute au meme DamagePredictionResult). Mirror EffectAdditionalHits.Create @180f405b0.
+    # les ajoute au meme DamagePredictionResult). Mirror IdunBattle.Entities.Effects.EffectAdditionalHits$$Create.
     for _grp in (extra_groups or []):
         # deux formes de degat de groupe : `predefined` [min,max] (RandomAmount natif, pas de spread)
         # OU `amount` seul -> spread ±20% standard du per-coup. L'amount peut etre un ConfigVar entier
@@ -528,7 +525,7 @@ def get_multi_hit_attack_prediction(
         _amt = _grp.get("amount") or 0
 
         # #57d : member-cap Swarm per-COUP — le groupe porte le flag HitsMultipleMembers de SON profil
-        # (natif : ApplyGroupUnitDamageLimit @18102bfe0 recoit le DamageProfile du coup courant).
+        # (natif : IdunBattle.Core.Services.DamagePrediction$$ApplyGroupUnitDamageLimit recoit le DamageProfile du coup courant).
         _ghmm = _grp.get("profile_has_hits_multiple_members")
         _gtl = (target_limits if _ghmm is None or not target_limits
                 else {**target_limits, "profile_has_hits_multiple_members": bool(_ghmm)})

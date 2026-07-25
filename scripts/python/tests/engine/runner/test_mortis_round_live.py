@@ -1,15 +1,15 @@
 """case-220 UM : MortisRound (actif 1004, ultraEliminatorSgt « Eliminator Sergeant ») PORT -> arbre DSL,
 WIRING valide LIVE.
 
-`MortisRoundAbility$$ExecuteBehaviour @1811f54a0` (callback `<ExecuteBehaviour>b__0 @1811fd290`, MIRROR
+`MortisRoundAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility$$ExecuteBehaviour` (callback `<ExecuteBehaviour>b__0 IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility.u003Cu003Ec__DisplayClass1_0$$u003CExecuteBehaviouru003Eb__0`, MIRROR
 1:1) = `AtomicGroup(0x3f, callback)` ou le callback `AActiveAbility.Execute(attack)` PUIS `Execute(push)` :
     attack = AttackWithAttackDamage(caster@0x160, target@0x178, MinMaxDamage(minDmg 0xc/maxDmg 0xd),
              GetDamageProfile=HeavyRound, hitsNode, AbilityOrEffect(*this+0x10=1004))   # 1x HeavyRound ranged
     push   = PushUnit(caster@0x160, target@0x178)                                       # recul 1 hex
 
 Port = `mortis_round_tree` (ultramarines.py) : `AtomicGroup(op_and(AttackWithAttackDamage(Target(),
-"MortisRound","HeavyRound",ranged), PushUnit(Caster(),Target())))`. Overload attaque = @180dea520 (famille
-ATTACK, resolu par XREF du call-site @1811f5683). i2 : « Deals 1x 3274-3638 Heavy Round Damage to a single
+"MortisRound","HeavyRound",ranged), PushUnit(Caster(),Target())))`. Overload attaque = IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage (famille
+ATTACK, resolu par XREF du call-site IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility$$ExecuteBehaviour+0x1e3). i2 : « Deals 1x 3274-3638 Heavy Round Damage to a single
 target within range 3, which is then pushed back 1 hex. »
 
 VALIDATION (deterministe-sur-etat-live, board+stats REELS, drive-positions) :
@@ -20,7 +20,7 @@ VALIDATION (deterministe-sur-etat-live, board+stats REELS, drive-positions) :
       suit la direction caster->cible, PAS une constante).
 
 RESIDU documente (PAS teste ici) : le trait HeavyWeapon du carrier DOUBLE le bonus +heavyWeaponExtraDmg%
-(`TriggeringAbilityIs(0x3ec=1004)` @180f4f030) ; le port ne l'applique PAS aux attaques d'ability (is_ranged
+(`TriggeringAbilityIs(0x3ec=1004)` IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier) ; le port ne l'applique PAS aux attaques d'ability (is_ranged
 non threade dans execute_ability_attack : blast radius ArmoriumCherub/SpiritLeech/PlasmaCannon). => la
 MAGNITUDE du degat est residuelle (cross-cutting, candidat) ; seul le WIRING attaque+push est asserte.
 ASCII-only. Skip si pas de session / Eliminator non buildable / geometrie infaisable.

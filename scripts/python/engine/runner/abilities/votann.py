@@ -7,7 +7,7 @@ docs/rl/case-220/votann.md.
 Contenu :
 - `IronkinSteeljack` (1219, `votanMemnyr` -- Memnyr) : summon `votanSmnSteeljack` sur un hex LIBRE adjacent au
   caster (cast tile-target), `WithStatsFromConfig` level-scale, attaque a l'apparition
-  (`PerformAIAttackFromCurrentPosition`). CLONE du corps `AberrantHypermorphAbility.ExecuteBehaviour @1811b0550`
+  (`PerformAIAttackFromCurrentPosition`). CLONE du corps `IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour`
   (dedup IL2CPP -- cf. classe).
 """
 from __future__ import annotations
@@ -29,18 +29,18 @@ if TYPE_CHECKING:
 
 class SpawnSteeljack(AbilityBehaviour):
     """Feuille `Spawn` de `IronkinSteeljackAbility.ExecuteBehaviour` (id 1219, `votanMemnyr`). Le corps natif
-    est DEDUPLIQUE avec `AberrantHypermorphAbility.ExecuteBehaviour @1811b0550` (RE ci-dessous : les DEUX
-    classes pointent leur slot ExecuteBehaviour vers le MEME code @1811b0550 -- byte-identique, seule la
+    est DEDUPLIQUE avec `IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour` (RE ci-dessous : les DEUX
+    classes pointent leur slot ExecuteBehaviour vers le MEME code IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour -- byte-identique, seule la
     config per-instance @0x30/@0x60 differe) ; il decompile en :
         Execute( Spawn(caster@0x160, TARGET@0x178 = la TUILE ciblee par le cast (hex libre adjacent au caster),
                        unitId = GetStringConstant(config, 0) = "votanSmnSteeljack",
                        SpawnUnitOptions.WithStatsFromConfig(config 1219,
                                                             AbilityLevelAmount(Self@0x148, AbilityType(1219)))
                          .onAppearance(+0x18) = PerformAIAttackFromCurrentPosition(Target@0x178)) )
-    Mirror 1:1 de `SpawnAberrant` (@1811b0550 = le MEME corps) avec la config 1219. Le placement N'EST PAS un
+    Mirror 1:1 de `SpawnAberrant` (IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour = le MEME corps) avec la config 1219. Le placement N'EST PAS un
     selecteur : la tuile EST la cible du cast (choisie par le joueur/l'IA, legalite = abilityTargets kind="tile",
-    hex libre adjacent au caster via `TargetingOptions(0, statsFromClass, 1, 0x1040)` -- ctor @1811ebc30
-    IDENTIQUE a AberrantHypermorph @1811b0730 / MasterOfTheTutelaries @1811f3310) -> la feuille porte `tile_id`
+    hex libre adjacent au caster via `TargetingOptions(0, statsFromClass, 1, 0x1040)` -- IdunBattleLogic.Entities.Abilities.Active.Loki.IronkinSteeljackAbility$$.ctor
+    IDENTIQUE a AberrantHypermorph IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$.ctor / MasterOfTheTutelaries IdunBattleLogic.Entities.Abilities.Active.Loki.MasterOfTheTutelariesAbility$$.ctor) -> la feuille porte `tile_id`
     resolu par la classe. Spawn delegue a `_spawn_config_grot` (WithStatsFromConfig = summonHp/summonDmg/
     summonArmor[level actif du caster] x mult, CopyOwner team+player du caster).
 
@@ -84,33 +84,33 @@ class SpawnSteeljack(AbilityBehaviour):
 
 
 def ironkin_steeljack_tree(tile_id) -> SpawnSteeljack:
-    """Arbre de `IronkinSteeljackAbility.ExecuteBehaviour @1811b0550` (id 1219, `votanMemnyr` -- MIRROR 1:1 du
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour` (id 1219, `votanMemnyr` -- MIRROR 1:1 du
     DECOMPILE, corps DEDUPLIQUE avec AberrantHypermorph) :
         Execute( Spawn(caster@0x160, Target@0x178=TUILE, "votanSmnSteeljack",
                        WithStatsFromConfig(config, AbilityLevelAmount(Self@0x148, 1219))
                          .onAppearance = PerformAIAttackFromCurrentPosition(Target@0x178)) )
     UN SEUL noeud `Spawn` (plain `AActiveAbility.Execute`, PAS `ExecuteAtomic`, PAS d'AddEffect, PAS de
     op_BitwiseAnd -- le noeud top-level passe a Execute EST le Spawn seul). Count=1 (une seule tuile-cible ; le
-    `2` litteral de `TestSummonAbility @1811c7cd0` -- une AUTRE forme de summon a `count=Nullable(2)`@options+0x40
-    -- N'EST PAS present dans @1811b0550). DISTINCT de MasterOfTheTutelaries @1811f30c0 (op_BitwiseAnd(AddEffect
+    `2` litteral de `TestSummonAbility IdunBattleLogic.Entities.Abilities.Active.TestSummonAbility$$ExecuteBehaviour` -- une AUTRE forme de summon a `count=Nullable(2)`@options+0x40
+    -- N'EST PAS present dans IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour). DISTINCT de MasterOfTheTutelaries IdunBattleLogic.Entities.Abilities.Active.Loki.MasterOfTheTutelariesAbility$$ExecuteBehaviour (op_BitwiseAnd(AddEffect
     (1197), Spawn)). Port : feuille `SpawnSteeljack` (== `SpawnAberrant` avec la config 1219)."""
     return SpawnSteeljack(tile_id)
 
 
 class IronkinSteeljackAbility(ActiveAbility):
-    """`IronkinSteeljackAbility.ExecuteBehaviour @1811b0550` (id 1219, `votanMemnyr` -- Memnyr, namespace natif
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour` (id 1219, `votanMemnyr` -- Memnyr, namespace natif
     `Abilities.Active.Loki`). Cast TILE-TARGET (« Summon an Ironkin Steeljack on a free hex adjacent to Memnyr »)
     : spawn UN `votanSmnSteeljack` sur la tuile ciblee (hex libre adjacent au caster), qui attaque
     immediatement sans bouger (`PerformAIAttackFromCurrentPosition`). Pas de triggered, pas d'effet pose sur le
     caster.
 
     RE (ghidra gqfc5mff6c) -- l'ExecuteBehaviour est un corps GSHARED HERITE NON ATTACHE (aucun symbole
-    `IronkinSteeljackAbility$$ExecuteBehaviour` ; seul le ctor @1811ebc30 est symbolise). Pin via la table
-    methodPointers : le slot ExecuteBehaviour d'IronkinSteeljack (0x1830f8110, juste apres son ctor @1811ebc30
-    a 0x1830f8108) = **0x1811b0550** = EXACTEMENT le slot ExecuteBehaviour d'AberrantHypermorph (0x1830f6fb0,
-    apres son ctor @1811b0730 a 0x1830f6fa8). Les DEUX classes partagent donc le MEME corps @1811b0550 (dedup
+    `IronkinSteeljackAbility$$ExecuteBehaviour` ; seul le IdunBattleLogic.Entities.Abilities.Active.Loki.IronkinSteeljackAbility$$.ctor est symbolise). Pin via la table
+    methodPointers : le slot ExecuteBehaviour d'IronkinSteeljack (0x1830f8110, juste apres son IdunBattleLogic.Entities.Abilities.Active.Loki.IronkinSteeljackAbility$$.ctor
+    a 0x1830f8108) = **IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour** = EXACTEMENT le slot ExecuteBehaviour d'AberrantHypermorph (0x1830f6fb0,
+    apres son IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$.ctor a 0x1830f6fa8). Les DEUX classes partagent donc le MEME corps IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour (dedup
     IL2CPP de code byte-identique) -> IronkinSteeljack = clone exact d'AberrantHypermorph, seule la config
-    per-instance differe : ctor @1811ebc30 = `TargetingOptions(0, statsFromClass, 1, 0x1040)` + `AActiveAbility
+    per-instance differe : IdunBattleLogic.Entities.Abilities.Active.Loki.IronkinSteeljackAbility$$.ctor = `TargetingOptions(0, statsFromClass, 1, 0x1040)` + `AActiveAbility
     (…, 2, 0)` IDENTIQUE, gameconfig = `{unitId: votanSmnSteeljack}` + summonHp/summonDmg/summonArmor (memes
     variables que 1166).
 
@@ -125,7 +125,7 @@ class IronkinSteeljackAbility(ActiveAbility):
     Flags de tour : defauts base (1219 absent de `NO_END_TURN_ABILITY_TYPES`/`NO_ABILITY_USED_FLAG_ABILITY_TYPES`
     -> `SetsEndTurnFlags`/`SetsActiveAbilityUsedFlag` = True) -> l'ability TERMINE le tour du caster
     (`FinishUnitTurn` : le caster ne peut plus bouger ce tour = no-move-this-turn) + pose ActiveAbilityUsed. Le
-    « cannot-move-this-turn » que le natif pose SUR LE SUMMON (`TriggerSpawnedUnitBehaviours` @180fd57b0 : flag
+    « cannot-move-this-turn » que le natif pose SUR LE SUMMON (`IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$TriggerSpawnedUnitBehaviours : flag
     0x23) est un NO-OP runner : le summon a agi a l'apparition et n'est pas rejoue ce tour dans notre modele
     (aucun consommateur offline) -- meme raisonnement qu'AberrantHypermorph."""
     __slots__ = ()

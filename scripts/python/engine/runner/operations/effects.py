@@ -7,21 +7,20 @@ porter la feuille propre avant le caller), puis on branchera les vecteurs dessus
 
 Chaîne native RE'd (VA citées) :
 
-    AddEffectOperation.Execute        @180e48940   (op, source, target, builder, effectType, valuePtr)
+    IdunBattle.Operations.AddEffectOperation$$Execute   (op, source, target, builder, effectType, valuePtr)
       → get_EffectsDatabase → query def par effectType            (record msg 0x3e = pre-add)
       → GATES :
           • target == 0                         → log + abandon
           • déjà-présent (query 0x28 def↔cible) → return (pas de re-pose)
           • IsUnit(target) && HasFlag(target,6) → immunité → log + abandon
-      → durée = override (valuePtr/param_6) sinon `StaticBattleRules.Effect.DefaultAmountOfRounds`
-        @181559ff0 (sinon fallback 1)
-      → UpdateExistingEffect @180e49d60 : refresh d'un même-type existant → si oui, FIN
+      → durée = override (valuePtr/param_6) sinon `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$DefaultAmountOfRounds (sinon fallback 1)
+      → IdunBattle.Operations.AddEffectOperation$$UpdateExistingEffect : refresh d'un même-type existant → si oui, FIN
         sinon NOUVEAU :
           PlayerIdGenerator.Next → builder(param_4) crée l'entité-effet
           → EffectComponent.Type     @+0x58 = effectType
           → EffectComponent.Duration @+0x68 = durée
           → (parent @+0x70 + liste enfants @+0x78 si effet chaîné)
-          → RemoveExistingEffect → AddNewEffect @180e484d0 :
+          → RemoveExistingEffect → IdunBattle.Operations.AddEffectOperation$$AddNewEffect :
               EffectComponent.SourceUnit @+0x10 = source
               EffectComponent.Target     @+0x14 = target
               EffectComponent.Active     @+0x6c = 1
@@ -46,26 +45,26 @@ from ..components import EffectsOwnedComponent, StatsComponent
 from ...entities.effects import BaseEffect, EffectFactory, SAME_TURNS
 
 
-# Table `StaticBattleRules.Effect.DefaultAmountOfRounds` @181559ff0 (port 1:1 du switch décompilé).
+# Table `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$DefaultAmountOfRounds (port 1:1 du switch décompilé).
 # EffectType (int) → nb de rounds par défaut ; absent = None (Nullable null natif : la durée doit
 # alors venir d'un override, sinon fallback 1 dans Execute).
 _DEFAULT_ROUNDS: dict[int, int] = {
     0x4f: 3,                                  # 79
     0x429: 1, 0x48a: 1,                       # 1065 / 1162
-    # 0x4dc=1244 Contaminated : le switch natif @181559ff0 renvoie 2 pour 0x4dc (verifie : 0x4dc>=0x42a &
+    # 0x4dc=1244 Contaminated : le switch natif idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$DefaultAmountOfRounds renvoie 2 pour 0x4dc (verifie : 0x4dc>=0x42a &
     # !=0x48a & ==0x4dc -> LAB local_res8=2), PAS 1 (bug de transcription corrige 2026-07-12, cf. #132).
     0x05: 2, 0x11: 2, 0x12: 2, 0x3a: 2, 0x4dc: 2, 0x5c4: 2,  # 5 / 17 / 18 / 58 / 1244 / 1476
 }
 
 
 def default_amount_of_rounds(effect_type: int) -> Optional[int]:
-    """`StaticBattleRules.Effect.DefaultAmountOfRounds` @181559ff0 — durée par défaut (rounds) d'un
+    """`idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$DefaultAmountOfRounds — durée par défaut (rounds) d'un
     EffectType, ou None si le natif renvoie un Nullable null (la durée vient alors d'un override)."""
     return _DEFAULT_ROUNDS.get(int(effect_type))
 
 
 class AddEffectOperation:
-    """`IdunBattle.Operations.AddEffectOperation` @180e48940 — matérialise un effet sur une cible.
+    """`IdunBattle.Operations.AddEffectOperation` IdunBattle.Operations.AddEffectOperation$$Execute — matérialise un effet sur une cible.
 
     Feuille partagée par tous les vecteurs de pose. Ici on porte le chemin NOUVEAU (effet absent)
     fidèlement ; gates/refresh/immunité = structure portée + TODO (cf. en-tête de module)."""
@@ -83,13 +82,13 @@ class AddEffectOperation:
         `name` = nom d'EffectType (`decisionView.effects[].name`) pour l'enregistrement diffable ;
         `duration_override`/`value` = paramètres du builder du vecteur appelant (param_6 natif).
         `level` = niveau de STACK initial (`EffectComponent.Level @+0x68`) — posé par le seul vecteur
-        `AddEffectOrIncreaseLevel @180de6860` (branche AddEffect de son lambda `b__0 @180e25540`, qui passe
+        `IdunBattleLogic.Entities.DSLFactory$$AddEffectOrIncreaseLevel` (branche AddEffect de son lambda `b__0 IdunBattleLogic.Entities.DSLFactory.u003Cu003Ec__DisplayClass569_0$$u003CAddEffectOrIncreaseLevelu003Eb__0`, qui passe
         l'INCRÉMENT comme niveau de la 1re pose) ; None = niveau non porté (tous les autres vecteurs).
         `ability_level`/`active_ability_level`/`multiplier_pct` = paramètres de SCALING de l'effet
         matérialisé (§17.21 — l'équivalent de ce que `EffectsState.seed` fournit aux effets CAPTÉS) : sans
         eux un effet dont la magnitude vient d'un `ConfigVar` reste inerte. Renseignés par les vecteurs qui
         connaissent l'unité de référence ; None = comportement historique (mult 100, niveaux None)."""
-        # `On(PreEffectAdded=0x3e=62)` — le natif émet ce message TOUT EN HAUT d'`Execute @180e48940`
+        # `On(PreEffectAdded=0x3e=62)` — le natif émet ce message TOUT EN HAUT d'`IdunBattle.Operations.AddEffectOperation$$Execute`
         # (`FUN_180026490(0x50, …, 0x3e)` juste après la construction de l'`AbilityEntities`), donc AVANT
         # le gate cible-nulle, AVANT le gate « déjà présent » et AVANT le gate d'immunité : l'événement
         # fire même si la pose est finalement abandonnée (sémantique « would have », cf.
@@ -105,7 +104,7 @@ class AddEffectOperation:
             return None
         # GATE immunité : IsUnit(target) && HasFlag(target,6). Non sourçable offline (flags d'unité non
         # exposés par l'ECS) → TODO ; structure conservée pour quand les flags seront portés.
-        # DURÉE — mirror EXACT de la cascade @180e48940 (lVar14) :
+        # DURÉE — mirror EXACT de la cascade IdunBattle.Operations.AddEffectOperation$$Execute (lVar14) :
         #   1. `param_6.NullableA.HasValue`  -> la valeur TELLE QUELLE (l'appelant l'a deja convertie ;
         #      c'est `duration_override` ici, exprime en TOURS) ;
         #   2. sinon `DefaultAmountOfRounds(type).HasValue` -> `BattleQuery.ConvertRoundsToTurns(rounds)`
@@ -121,7 +120,7 @@ class AddEffectOperation:
         # (idem RelentlessMarch_DangerZone / FleshmetalGuns* / AnvilShield_AdditionalBlock / HeavyWeapon_
         # ExtraDmg : TOUS `rem=0, level=1`). Le `1` du décompilé (`local_588[0] = 1`) n'est PAS la durée
         # mais le **NIVEAU** (`EffectComponent.Level @+0x68`, cf. `IncreaseEffectLevelOperation.Execute
-        # @180e73cb0` qui lit/écrit CE champ comme niveau) — porté ci-dessous par `level`.
+        # IdunBattle.Operations.IncreaseEffectLevelOperation$$Execute` qui lit/écrit CE champ comme niveau) — porté ci-dessous par `level`.
         # `remaining = 0` → `EffectFactory.create` mappe rem<=0 → None = permanent (retrait par TRIGGER).
         duration = duration_override
         if duration is None:
@@ -131,7 +130,7 @@ class AddEffectOperation:
                 duration = convert_rounds_to_turns(state, rounds)
         if duration is None:
             duration = 0                       # pas de timer -> permanent (mirror `lVar14 = 0`)
-        # NIVEAU : `param_6` NullableB sinon **1** (`local_588[0] = 1` @180e48940) -> `EffectComponent.Level`.
+        # NIVEAU : `param_6` NullableB sinon **1** (`local_588[0] = 1` IdunBattle.Operations.AddEffectOperation$$Execute) -> `EffectComponent.Level`.
         if level is None:
             level = 1
         # NOUVEL effet : entité-effet via le builder natif (PlayerIdGenerator.Next). Côté Python on
@@ -163,7 +162,7 @@ class AddEffectOperation:
         # les ChangeStat déclarés par l'effet (part DATA `applied_stat_mods`). Séparé d'`AddNewEffect` (pure
         # matérialisation ECS) côté natif → séparé ici aussi (frontière déclaratif feuille / impératif op).
         AddEffectOperation._apply_stat_mods(state, target, eff)
-        # `<Effect>.ApplyInternal` part OVERRIDE (MV71 InitialDmg @180f57320) : overrides part 7 aux
+        # `<Effect>.ApplyInternal` part OVERRIDE (MV71 InitialDmg IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$ApplyInternal) : overrides part 7 aux
         # valeurs CURRENT du PARENT (= la source de la pose), snapshotées ICI (nœud Direct évalué à l'apply).
         AddEffectOperation._apply_stat_overrides(state, target, eff)
         # Effet COMPOSITE : `<Effect>.ApplyInternal` spawne ses SOUS-effets (enfants) juste après le
@@ -199,14 +198,14 @@ class AddEffectOperation:
 
     @staticmethod
     def _apply_stat_overrides(state: State, target: int, eff: BaseEffect) -> None:
-        """Mirror `MV71SniperDroneSquad_InitialDmgEffect.ApplyInternal @180f57320` : pour chaque StatType
+        """Mirror `IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$ApplyInternal` : pour chaque StatType
         déclaré par l'effet (`overridden_stats()`, DATA côté `entities/`), lit `GetStat(parent, stat,
         CURRENT)` — **parent = `eff.source`** (la pose native passe `AbilityStateReference` = le caster,
         qui EST le `GetParentUnit(drone)` : Unit_Parent_Id = casterId, GT case-61bis §2) — et pose
         l'OVERRIDE (part 7, `apply_stat_override`, modifiable). Valeurs SNAPSHOTÉES à l'apply (nœud
         `Direct(...)` natif évalué à l'exécution du ChangeStat). Stocke `stat_override_stats` sur
         l'instance (la liste que le retrait reverte via `remove_stat_override`, part 8 — mirror
-        `RevertInternal @180f577d0`). No-op si l'effet ne déclare aucun override / parent sans stats."""
+        `IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$RevertInternal`). No-op si l'effet ne déclare aucun override / parent sans stats."""
         stats = eff.overridden_stats() or []
         if not stats:
             return
@@ -226,7 +225,7 @@ class AddEffectOperation:
 
     @staticmethod
     def revert_stat_overrides(state: State, target: int, eff: BaseEffect) -> None:
-        """Mirror `RevertInternal @180f577d0` = `ResetStat @180f57620` ×N (part 8 = REMOVE_OVERRIDE) :
+        """Mirror `IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$RevertInternal` = `IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$ResetStat` ×N (part 8 = REMOVE_OVERRIDE) :
         retire les overrides posés par `_apply_stat_overrides` (liste `stat_override_stats` de
         l'instance). Appelé à la CONSOMMATION de l'effet (ex. TargetTrigger `On(AttackDamageAttack)&
         OwnerIsCaster` de MV71 InitialDmg, exécuté par l'ability après l'attaque commandée)."""

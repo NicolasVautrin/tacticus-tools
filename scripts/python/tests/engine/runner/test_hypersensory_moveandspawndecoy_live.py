@@ -3,12 +3,12 @@
 i2 : « ... After the attack [1re du tour ennemi], she moves to a free adjacent hex and places a decoy on the
 hex she moved from. Then, if she is within 2 hexes of the unit that attacked her, she deals 3x <MinMax>
 Projectile Damage to that unit. » Artefacts natifs (RE re-expert #16) :
-  - CreateTrigger @180f88070 : `On(9=Attack) BRUT & OwnerOrOwnerTileIsTarget & IsEnemyTurn
+  - IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$CreateTrigger : `On(9=Attack) BRUT & OwnerOrOwnerTileIsTarget & IsEnemyTurn
       & Not(HasEffect 0x57f=1407) & Not(HasBeenAttackedAmountThisTurn >= 2)`.
-  - CreateBehaviour @180f878f0 : move (GetTilePriority) -> decoy sur PreviousTile -> contre-attaque
+  - IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$CreateBehaviour : move (GetTilePriority) -> decoy sur PreviousTile -> contre-attaque
       (gate IsInRange(range=2) & IsAlive x2 & Not(IsObscured)) -> AddEffect(1407) EN DERNIER.
-  - GetTilePriority @180f88190 : prio 0 si dist(tile,attaquant)==range & Not(IsObscured) ; 1 si adjacent ; 2.
-  - `On(9)` emis par FinishAttackOperation @180e71310 pour TOUTE attaque (normale ET ability) -> Judh
+  - IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$GetTilePriority : prio 0 si dist(tile,attaquant)==range & Not(IsObscured) ; 1 si adjacent ; 2.
+  - `On(9)` emis par FinishAttackOperation IdunBattle.Operations.FinishAttackOperation$$Execute pour TOUTE attaque (normale ET ability) -> Judh
       reagit a n'importe quelle attaque la ciblant (after_hit_normal_attack l'emet desormais).
 config : Projectile pierce 15, range=2, nrOfHits=3, unitToSpawn=genesSmnDecoy, dmg 1455-2183@L65.
 

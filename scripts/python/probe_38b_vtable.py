@@ -1,12 +1,12 @@
 """Probe #38b — resolution OFFICIELLE des slots IBattleQuery via la vtable runtime de BattleQuery.
 
-Le gate 1118 (`EvaluateNonComparable @18112c8d0`) dispatch sur l'interface IBattleQuery
+Le gate 1118 (`IdunBattle.AI.Playbook.Loki.DoctrinaImperativesPlaybook$$EvaluateNonComparable`) dispatch sur l'interface IBattleQuery
 (DAT_18327ff80) aux slots 0x41 (via GetEligibleTargetsForNormalAttack) et 0x51 (adj) et 0xc9
 (ReachedSummonCap). Le helper de dispatch du call-site 0x51 (`FUN_180003bd0`) ne passe QU'UN
 argument -> la methode au slot 0x51 a exactement 1 parametre ; or toutes les surcharges
 `GetAdjacentUnits` en prennent 3 (from, friendsOf, enemiesOf). Ce probe dump la vtable LIVE
 de BattleQuery (RPC resolveVtableSlot, lecture pointeurs only), ancre le bloc interface via
-ReachedSummonCap @181070f60 (slot 0xc9 verifie) puis imprime les methodes aux slots vises.
+IdunBattle.Core.Services.BattleQuery$$ReachedSummonCap (slot 0xc9 verifie) puis imprime les methodes aux slots vises.
 """
 from __future__ import annotations
 

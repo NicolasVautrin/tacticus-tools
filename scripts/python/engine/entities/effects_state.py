@@ -80,7 +80,7 @@ class EffectsState:
         un effet PARENT disparu (expiré/consommé) retire ses ENFANTS (lien `parent_type`).
 
         Mirror du cycle de vie natif d'un effet composite (ex. Stunned 1162) : à l'expiration du parent,
-        `<Effect>.RevertInternal` (@180f6f3e0) fait `RemoveEffect` de ses enfants permanents (1166/1167)
+        `<Effect>.RevertInternal` (IdunBattle.Entities.Effects.Loki.StunnedEffect$$RevertInternal) fait `RemoveEffect` de ses enfants permanents (1166/1167)
         et l'enfant same-turns (1165) expire sur son propre timer synchronisé — NET : toute la famille
         part ensemble. La cascade `parent_type` reproduit ce NET (et couvre le retrait anticipé du parent)."""
         lst = self.by_unit.get(int(unit_id), [])

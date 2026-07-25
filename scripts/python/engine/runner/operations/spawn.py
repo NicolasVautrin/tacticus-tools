@@ -1,12 +1,12 @@
-"""Spawn d'unité SUMMON — port de `ScarabHiveAbility.ExecuteBehaviour @181204cb0` (ability du SUMMONER)
+"""Spawn d'unité SUMMON — port de `IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabHiveAbility$$ExecuteBehaviour` (ability du SUMMONER)
 → `DSLFactory.Spawn` → `AddUnitOperation.Execute`.
 
-GROUND TRUTH (RE ghidra + live, cf. project_summon_team_model) — `ScarabHiveAbility @181204cb0` (necroSpyder) :
+GROUND TRUTH (RE ghidra + live, cf. project_summon_team_model) — `ScarabHiveAbility IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabHiveAbility$$ExecuteBehaviour` (necroSpyder) :
   - **visualId** = `GetStringConstant(config, 0)` = `gameconfig.ability(ScarabHive).constants["unitId"]`
     = `necroSmnSwarm` ;
   - **count**    = nb d'invocations de l'ability (ScarabHive = `2`, arg du `.ctor AActiveAbility`) ;
   - **placement**= `AdjacentTiles(target@0x178)` → `CanAddUnit` → `SortByDistance(self@0x160)` → `First` =
-    tuiles LIBRES adjacentes à la **CIBLE**, la plus proche du caster (cf. `GetPossibleSpawnTiles @181205100`) ;
+    tuiles LIBRES adjacentes à la **CIBLE**, la plus proche du caster (cf. `IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabHiveAbility$$GetPossibleSpawnTiles`) ;
   - **owner**    = team ET player du caster (validé live team=1 player=3 ; ≠ PlayerIdGenerator) ;
   - **stats**    = `ability_var(ScarabHive, summonHp/summonDmg/summonArmor/summonCritChance/summonCritDmg,
     casterActiveAbilityLevel, casterMultiplier)` (clés `variablesAffectedByRarityBonus` → ×multiplier) ;
@@ -17,7 +17,7 @@ Le scarab spawné (`necroSmnSwarm`) porte SON PROPRE kit — DÉCISIF pour `ai_c
   - **trait `Summon`** = « Moves and attacks automatically at the beginning of its turn » → il est joué
     par l'IA au TURN-START de sa team (passe AI-control `run_ai_control_pass`), un chemin SÉPARÉ de
     `PickNextUnit`/`aiStepDryRun`. Le scarab N'EST PAS apparition-only → `ai_controlled=True`.
-  - **active `ScarabSummon` @181205290** = auto-DÉDOUBLEMENT : `AdjacentTiles(self@0x160)` → `PickRandomly`
+  - **active `ScarabSummon` IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabSummonAbility$$ExecuteBehaviour** = auto-DÉDOUBLEMENT : `AdjacentTiles(self@0x160)` → `PickRandomly`
     → `CopyOwner` → `Spawn` un AUTRE `necroSmnSwarm` adjacent à SOI, dont l'on-appearance = `PerformAIAttack`
     (« which then immediately takes a turn ») → c'est le DOUBLE qui attaque. Playbook `ScarabSummonPlaybook`
     (`GetUseProbability` = 1.0 ou 1/2 selon un compteur runtime ; `chance` gameconfig = 50).
@@ -90,7 +90,7 @@ def build_summon_context(entity_id: int, visual_id: str, summon_ability: str,
 
 
 def build_decoy_context(entity_id: int, visual_id: str = "genesSmnDecoy"):
-    """`UnitContext` d'un token decoy — `SpawnUnitOptions$$ForSteppable @180fd60a0` = `Level(1)` +
+    """`UnitContext` d'un token decoy — `SpawnUnitOptions$$IdunBattle.Entities.Behaviours.SpawnUnitOptions$$ForSteppable` = `Level(1)` +
     `CreateSpawnOptions(state,0,0,0,0)` (aucun override) : PAS de summon-scaling (contrairement à
     `build_summon_context`). Le decoy prend le kit BRUT de sa config `genesDecoy`/`genesSmnDecoy` :
     traits `Steppable`(27)+`Decoy`(1053), AUCUNE arme, AUCUNE stat de combat (config `stats` = juste
@@ -116,9 +116,9 @@ def build_decoy_context(entity_id: int, visual_id: str = "genesSmnDecoy"):
 
 
 def spawn_decoy(state: State, tile, caster_id: int, visual_id: str = "genesSmnDecoy") -> Optional[int]:
-    """`DSLFactory$$Spawn(genesSmnDecoy, ForSteppable) @180dfbc60` → `SpawnUnitBehaviour.Execute` →
+    """`DSLFactory$$IdunBattleLogic.Entities.DSLFactory$$Spawn(genesSmnDecoy, ForSteppable)` → `SpawnUnitBehaviour.Execute` →
     `AddUnitOperation.Execute` (MÊME socle que ScarabHive/`SpawnUnitOperation`, options DIFFÉRENTES) : pose UN
-    token decoy sur `tile` (id de tuile). Options `SpawnUnitOptions$$ForSteppable @180fd60a0` :
+    token decoy sur `tile` (id de tuile). Options `SpawnUnitOptions$$IdunBattle.Entities.Behaviours.SpawnUnitOptions$$ForSteppable` :
       - owner = team+player du **caster** (hérité, comme `CopyOwner`) ;
       - stats = kit BRUT `genesDecoy` (level 1, PAS de `ability_var` summon-scaling) ;
       - **`ai_controlled=False`, AUCUNE on-appearance** — le token est INERTE (≠ `SpawnUnitOperation` qui force
@@ -253,7 +253,7 @@ def _team_has_squighound(state: State, team) -> bool:
 
 
 def _maybe_seed_ignore_battle_fatigue(state: State, unit_id: int, team, mult: int) -> bool:
-    """`SquigHound_IgnoreBattleFatigueEffect @180f6d210` (aura de Snotflogga sur les grots amis) : si la team
+    """`SquigHound_IgnoreBattleFatigueEffect IdunBattle.Entities.Effects.Loki.SquigHound_IgnoreBattleFatigueEffect$$CreateTargetSelector` (aura de Snotflogga sur les grots amis) : si la team
     a un porteur `SquigHound` VIVANT, pose l'effet `IgnoreBattleFatigue`(1079=0x437) sur l'unité → immunisée
     du flee `BattleFatigue` (gate déjà porté `behaviour.py:121` : `NOT HasEffect(self, 1079)`). Idempotent.
     ⚠ Snapshot au spawn : le retrait de l'aura si Snotflogga meurt N'EST PAS modélisé (grot garde l'immunité)."""
@@ -302,9 +302,8 @@ def _materialize_owner_effect(state: State, unit_id: int, name: str, mult: int,
 
 
 def _seed_trait_owner_effects(state: State, unit_id: int, traits, mult: int) -> list:
-    """`InitializeActorAbilitiesOperation.Execute` @180e74660 (boucle TRAITS) : à la création d'unité, CHAQUE
-    trait ajoute à son PORTEUR les owner-effects de `StaticBattleRules.Trait.GetEffectToBeAddedToOwnerForTrait`
-    @18157e800 (dict `Trait..cctor` @18157f650 +0x30). Sans ce seed, un summon SPAWNÉ n'a AUCUN effet -> ses
+    """`IdunBattle.Operations.InitializeActorAbilitiesOperation$$Execute (boucle TRAITS) : à la création d'unité, CHAQUE
+    trait ajoute à son PORTEUR les owner-effects de `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Trait$$GetEffectToBeAddedToOwnerForTrait (dict `Trait..idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Trait$$.cctor +0x30). Sans ce seed, un summon SPAWNÉ n'a AUCUN effet -> ses
     traits de dégât (HeavyWeapon +25% ranged, RangedSpecialist +33% ranged, ...) ne s'appliquent PAS à ses
     attaques (gap corrigé)."""
     from ...entities.effects.factory import get_effect_to_be_added_to_owner_for_trait
@@ -315,11 +314,10 @@ def _seed_trait_owner_effects(state: State, unit_id: int, traits, mult: int) -> 
 
 def _seed_derived_ability_owner_effects(state: State, unit_id: int, traits, mult: int) -> list:
     """Chemin trait -> ability DÉRIVÉE -> owner-effect posé à l'INIT de l'ability (mécanisme DISTINCT des 2
-    dicts owner-effect directs). Mirror `AddTraitOperation.AddDerivedAbilities @180e513c0` (trait -> ability,
+    dicts owner-effect directs). Mirror `IdunBattle.Operations.AddTraitOperation$$AddDerivedAbilities` (trait -> ability,
     dict Trait +0x0/+0x8) puis `<Ability>.CreateBehaviour` (DSL `AddEffect(owner)` à l'init de l'ability).
 
-    Cas porté : trait **BigTarget** -> ability `BigTarget` (0x406) -> `BigTargetAbility.CreateBehaviour
-    @18121a910` = `AddEffect(BigTarget_AdjacentEffect)` (aura -1 hit ranged aux alliés ring-1, source-side).
+    Cas porté : trait **BigTarget** -> ability `BigTarget` (0x406) -> `IdunBattleLogic.Entities.Abilities.Active.Loki.BigTargetAbility$$CreateBehaviour` = `AddEffect(BigTarget_AdjacentEffect)` (aura -1 hit ranged aux alliés ring-1, source-side).
     Les autres traits summon dérivent aussi une ability mais leur owner-effect à l'init n'est pas encore LU
     (cf. `factory.ABILITY_INIT_OWNER_EFFECTS`) -> non seedés (fidélité-safe)."""
     from ...entities.effects.factory import (get_derived_abilities_for_trait,
@@ -338,7 +336,7 @@ TELEPORT_STRIKE_TELEPORTING_IN = int(EffectType.TeleportStrike_TeleportingIn)  #
 
 def _seed_ability_owner_effects(state: State, unit_id: int, vid: str, mult: int,
                                 ability_level: Optional[int] = None) -> list:
-    """`InitializeActorAbilitiesOperation.Execute @180e74660` (boucle ABILITIES) : pour chaque ability de
+    """`IdunBattle.Operations.InitializeActorAbilitiesOperation$$Execute` (boucle ABILITIES) : pour chaque ability de
     l'unite, l'owner-effect pose par son `CreateBehaviour` a l'init (DSL `AddEffect(owner)`). Ex. passive
     `PathOfCommand` -> `PathOfCommand_ExtraDmg` (aura +Attack) ; passive `HypersensoryAbilities` ->
     `HypersensoryAbilities_MinimalHealth` (HP-floor). Abilities lues de gameconfig (active+passive).
@@ -405,8 +403,8 @@ class SpawnUnitOperation:
             e = state.add_entity()                           # id auto (≠ live ; confront par vis/team/pos)
             # ai_controlled : le summon (trait `Summon` = « moves and attacks automatically at the beginning
             # of its turn ») est joué par l'IA au TURN-START de sa team via `run_ai_control_pass` (#65) —
-            # mirroir du flag runtime `IsPlayerAiControlled` @1804d7b10. TOUS les summons d'ability sont
-            # ai_controlled : le scarab s'auto-dédouble (`ScarabSummon` @181205290) + attaque, jamais inerte
+            # mirroir du flag runtime `IdunBattle.View.Game.IdunGameViews$$IsPlayerAiControlled. TOUS les summons d'ability sont
+            # ai_controlled : le scarab s'auto-dédouble (`ScarabSummon` IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabSummonAbility$$ExecuteBehaviour) + attaque, jamais inerte
             # (cf. docstring module). PAS de gate apparition-only (le « 0 action » via aiStepDryRun etait un
             # artefact de sonde : ce chemin ne DRIVE PAS la passe AI-control turn-start).
             e.add_component(UnitComponent(visual_id=visual_id, alive=True, ai_controlled=True))
@@ -431,11 +429,11 @@ class SpawnUnitOperation:
 
     @staticmethod
     def execute_self_replica(state: State, caster_id: int, visual_id: str, count: int = 1) -> list:
-        """`ScarabSummonAbility.ExecuteBehaviour @181205290` (auto-DÉDOUBLEMENT) : le summon s'invoque
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabSummonAbility$$ExecuteBehaviour` (auto-DÉDOUBLEMENT) : le summon s'invoque
         LUI-MÊME. Spawn `count` clones sur des tuiles LIBRES adjacentes au **CASTER** (self@0x160), owner+
-        stats = `SpawnUnitOptions.CopyOwner(caster) @180fd5ba0` (owner du caster + STATS clonées du parent).
+        stats = `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$CopyOwner(caster)` (owner du caster + STATS clonées du parent).
 
-        CopyOwner (RE @180fd5ba0) copie les StatType `{0=Attack, 1=Movement, 5=Health, 16=Armor, 20}` du
+        CopyOwner (RE IdunBattle.Entities.Behaviours.SpawnUnitOptions$$CopyOwner) copie les StatType `{0=Attack, 1=Movement, 5=Health, 16=Armor, 20}` du
         caster (`StatAmount(..., StatPart=3)`) puis `CreateSpawnOptions(owner)` — PAS de WithStatsFromConfig.
         Les stats NON copiées (crit/block/hits) viennent de la config de base ; comme le parent EST un
         `necroSmnSwarm` (même type que le clone), elles sont identiques → on clone le ctx entier du parent.
@@ -481,7 +479,7 @@ class SpawnUnitOperation:
 
     @staticmethod
     def execute_pilein_replica(state: State, parent_id: int) -> list:
-        """`PileInAbility.CreateBehaviour @181223990` — auto-DÉDOUBLEMENT du grot (PASSIF fin-de-tour).
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateBehaviour` — auto-DÉDOUBLEMENT du grot (PASSIF fin-de-tour).
         Spawn UN grot sur une tuile LIBRE ring-1 adjacente au parent, **stats = `WithStatsFromConfig(PileIn)`**
         = `ability_var(PileIn, summon*, level, mult)` — PAS un clone (le grot PileIn = ~0.606× le grot
         GetEmRuntz : 2910 vs 4802 PV @lvl65/mult100). Renvoie [id] ou [].
@@ -526,7 +524,7 @@ class SpawnUnitOperation:
 
     @staticmethod
     def execute_squighound_summon(state: State, caster_id: int, target_id: int) -> list:
-        """`SquigHoundSummonUnitAbility.CreateBehaviour @1811a1a30` (passif triggé, orksRuntherd). APRÈS une
+        """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.SquigHoundSummonUnitAbility$$CreateBehaviour` (passif triggé, orksRuntherd). APRÈS une
         attaque du caster (trigger `On(0x26)` — cf. wiring after-hit), si **< maxSummons(5)** grots amis, spawn
         1 grot sur la MEILLEURE tuile LIBRE adjacente à la CIBLE (`AdjacentTiles(target) SortTilesByUtilityForSummon
         First`), stats `WithStatsFromConfig(SquigHound)` (4802 PV @lvl65), `active_ability_level = casterLevel`
@@ -569,7 +567,7 @@ class SpawnUnitOperation:
 
     @staticmethod
     def execute_control_edict_summon(state: State, caster_id: int) -> list:
-        """`ControlEdictAbility.SummonMinion @180e1d5e0` (branche PROTECTOR, passif de Tan Gi'da). Apres une
+        """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility$$SummonMinion` (branche PROTECTOR, passif de Tan Gi'da). Apres une
         attaque NORMALE du caster (trigger `On(0x26)`), si **< maxSummons[level]** Skitarii Vanguards amis
         vivants, spawn 1 `admecSmnVanguard` sur une tuile LIBRE ADJACENTE AU **CASTER** (Tan), stats
         `WithStatsFromConfig(ControlEdict)` (`summonHp/summonDmg/summonArmor[level]`), `active_ability_level =
@@ -614,7 +612,7 @@ class SpawnUnitOperation:
 
     @staticmethod
     def execute_master_of_tutelaries_screamer(state: State, owner_id: int) -> list:
-        """`MasterOfTheTutelaries_SummonAbility.CreateSummonBehaviour @18110bba0` (triggered 1173,
+        """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterOfTheTutelaries_SummonAbility$$CreateSummonBehaviour` (triggered 1173,
         armee par l'effet 1197 sur Abraxas — #202-C). Spawn UN `thousSmnScreamer` :
 
           RemoveEffect(EntitiesWithAnyEffect(@0x80, 0x425=1061 GeminaeSuperia_JustSummonedEffect))
@@ -624,9 +622,9 @@ class SpawnUnitOperation:
                                  .Otherwise(possible), 1 ),
                    unitId_2, WithStatsFromConfig2(config 1096) + onAppearance=PerformAIAttackFromCurrentPosition )
 
-        - possible = tuiles LIBRES adjacentes au PORTEUR (== `GetPossibleSummonTiles @18110bf30`) ;
+        - possible = tuiles LIBRES adjacentes au PORTEUR (== `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterOfTheTutelaries_SummonAbility$$GetPossibleSummonTiles`) ;
         - preferred = celles d'ou le Screamer (MELEE, Power 3 hits) peut attaquer = >=1 ennemi VIVANT
-          adjacent (porte d'elevation `is_adjacent`) (== `GetPreferredSummonTiles @18110bf70` :
+          adjacent (porte d'elevation `is_adjacent`) (== `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterOfTheTutelaries_SummonAbility$$GetPreferredSummonTiles` :
           `TilesUnitCanAttackFrom(...).Otherwise(possible)`) ;
         - stats `WithStatsFromConfig2(config 1096)` = summonHp/summonDmg de MasterOfTheTutelaries au
           niveau ACTIF du porteur (la variante `2` derive le niveau de l'ability-state propage par

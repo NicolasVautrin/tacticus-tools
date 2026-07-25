@@ -1,14 +1,14 @@
 """#139 — flag « does not end turn » : mirror OFFLINE pur de la queue d'execution d'ability.
 
 Chaine native validee par RE (VAs) :
-    ActiveAbilityOperation.ExecuteInternal @180e44ec0
-      -> GetSkipEndTurnFlag @180e47120     = options.skip || !ability.SetsEndTurnFlags().Evaluate(...)
-      -> GetSkipAbilityUsedFlag @180e46f60 = options.skip || !ability.SetsActiveAbilityUsedFlag(caster)...
-      -> AddFlagsAfterAbilityExecution @180e447f0 :
+    IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal
+      -> IdunBattle.Operations.ActiveAbilityOperation$$GetSkipEndTurnFlag     = options.skip || !ability.SetsEndTurnFlags().Evaluate(...)
+      -> IdunBattle.Operations.ActiveAbilityOperation$$GetSkipAbilityUsedFlag = options.skip || !ability.SetsActiveAbilityUsedFlag(caster)...
+      -> IdunBattle.Operations.ActiveAbilityOperation$$AddFlagsAfterAbilityExecution :
            !skipAbilityUsed -> UnitFlags.Add(ActiveAbilityUsed=2)
-           !skipEndTurn     -> OperationProcessor.FinishUnitTurn @180e081c0
-                               -> FinishUnitTurnOperation.Execute @180e72140 (flags 1+3)
-    StartTurnOperation.Execute @180ea3fb0 -> RemoveTurnFlags @180fad310 (0,1) par unite du joueur entrant.
+           !skipEndTurn     -> Core.Services.OperationProcessor$$FinishUnitTurn
+                               -> IdunBattle.Operations.FinishUnitTurnOperation$$Execute (flags 1+3)
+    IdunBattle.Operations.StartTurnOperation$$Execute -> IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags (0,1) par unite du joueur entrant.
 
 Tests OFFLINE purs (aucune session live) : on construit un State minimal et on verifie le cycle
 pose/lecture/reset des UnitFlags, y compris l'override famille « does not end turn » (ArmoriumCherub 1014
@@ -46,7 +46,7 @@ def _mk_state(two_teams: bool = True, adjacent: bool = False) -> State:
     return st
 
 
-# ---------------------------------------------------------------- FinishUnitTurnOperation @180e72140
+# ---------------------------------------------------------------- FinishUnitTurnOperation IdunBattle.Operations.FinishUnitTurnOperation$$Execute
 
 def test_finish_unit_turn_sets_flags_1_and_3():
     st = _mk_state()
@@ -55,7 +55,7 @@ def test_finish_unit_turn_sets_flags_1_and_3():
     assert fl is not None
     assert fl.has(UnitFlagsComponent.ARRIVED_AT_FINAL_TILE)      # flag 1
     assert fl.has(UnitFlagsComponent.TURN_FINISHED)              # flag 3
-    assert fl.turn_ended()                                       # TurnEnded @180fad510 = Contains(3)
+    assert fl.turn_ended()                                       # IdunBattle.Entities.Components.UnitFlagsComponent$$TurnEnded = Contains(3)
     assert not fl.has(UnitFlagsComponent.TURN_FINISHED_FORCED)
     assert r["newly_finished"] is True
     # idempotence : re-executer ne re-marque pas "newly"
@@ -71,7 +71,7 @@ def test_finish_unit_turn_forced_adds_flag_27():
     assert fl.turn_ended()
 
 
-# ------------------------------------------------- AddFlagsAfterAbilityExecution @180e447f0
+# ------------------------------------------------- IdunBattle.Operations.ActiveAbilityOperation$$AddFlagsAfterAbilityExecution
 
 def test_add_flags_normal_ability_ends_turn():
     st = _mk_state()
@@ -110,14 +110,14 @@ def test_family_overrides_vindicta_ragnar():
 
 
 def test_fighting_retreat_conditional_on_adjacency():
-    # @1811de7e0 : Direct(!any ennemi adjacent) — adjacent -> ne pose PAS les flags (tour non fini).
+    # IdunBattleLogic.Entities.Abilities.Active.Loki.FightingRetreatAbility$$SetsActiveAbilityUsedFlag : Direct(!any ennemi adjacent) — adjacent -> ne pose PAS les flags (tour non fini).
     st_adj = _mk_state(adjacent=True)
     assert sets_end_turn_flags_for(1081, st_adj, 1) is False
     st_far = _mk_state(adjacent=False)
     assert sets_end_turn_flags_for(1081, st_far, 1) is True
 
 
-# ------------------------------------------------- handler : queue d'ExecuteInternal @180e44ec0
+# ------------------------------------------------- handler : queue d'IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal
 
 def test_handler_armorium_cherub_does_not_end_turn():
     # 1014 est PORTEE (classe ArmoriumCherubAbility) mais le state minimal n'a pas le kit complet ->
@@ -153,7 +153,7 @@ def test_finish_unit_turn_message_and_startturn_reset():
     runner.apply(FinishUnitTurnMessage(unit_id=1))
     fl = st.get_entity(1).get_component(UnitFlagsComponent)
     assert fl.turn_ended()
-    # StartTurn du joueur 3 -> RemoveTurnFlags(0,1) @180fad310 : flags 0/1/2/3/12/27 retires.
+    # StartTurn du joueur 3 -> IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags(0,1) : flags 0/1/2/3/12/27 retires.
     fl.add(UnitFlagsComponent.ACTIVE_ABILITY_USED)
     fl.add(UnitFlagsComponent.NO_ACTION_AVAILABLE)
     StartTurnOperation.execute(st, 3)

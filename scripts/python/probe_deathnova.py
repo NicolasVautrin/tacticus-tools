@@ -215,7 +215,7 @@ def main():
 
     sid = _resolve_session()
     # `--block-target 0,0` : ANNULE le block des a-units. Le block est un TIRAGE (`CalculateBlockChances
-    # @181002350` -> sub-op 0x42) qui A LIEU dans la famille ABILITY (PROUVE live : Titus a encaisse 0
+    # IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances` -> sub-op 0x42) qui A LIEU dans la famille ABILITY (PROUVE live : Titus a encaisse 0
     # d'une nova de 75). Or le port rejoue la nova depuis la capture S avec un RNG cale AVANT le coup
     # letal : le natif, lui, a deja consomme des tirages pour l'attaque letale -> desync de POSITION RNG
     # -> l'issue du tirage de block peut differer des deux cotes SANS que le modele soit faux. On
@@ -299,7 +299,7 @@ def main():
           % {("u%d" % k): v[0] for k, v in sorted(hp_before.items())})
 
     # --- CLASSIFICATION OVERKILL (observable, PAS devinee) ----------------------------------------
-    # `is_overkill @181032db0` : overkill ssi `dmg - PV >= overkillDmgPctOfHealth%(=100) * PV`, i.e.
+    # `is_overkill IdunBattle.Core.Services.DamagePrediction$$IsOverkill` : overkill ssi `dmg - PV >= overkillDmgPctOfHealth%(=100) * PV`, i.e.
     # `dmg >= 2*PV_courant`. Le degat REEL du coup letal n'est pas lisible (HP clampe a 0) -> on borne
     # via la PREDICTION native (`aiPredict` = `GetAllPredictions`, preview de l'attaque normale) :
     #   dmg_min >= 2*hp   -> OVERKILL CERTAIN
@@ -328,7 +328,7 @@ def main():
         ovk_class = "INDETERMINE (plage [%s,%s] chevauche 2*PV=%d)" % (dmin, dmax, 2 * hpc)
     print("[nova] prediction du coup letal = [%s,%s] vs PV=%d -> %s" % (dmin, dmax, hpc, ovk_class))
     # PREUVE STRUCTURELLE COMPLEMENTAIRE : un porteur `Resilient` ne peut PAS mourir d'un coup
-    # NON-overkill (`ApplyResilientTraitDamageLimit @18102c3a0` : `if not overkill: cap = curHP-1`).
+    # NON-overkill (`IdunBattle.Core.Services.DamagePrediction$$ApplyResilientTraitDamageLimit` : `if not overkill: cap = curHP-1`).
     # S'il meurt, le coup ETAIT un overkill — independamment de toute prediction.
     import gameconfig as _GC
     _tr = (_GC.unit(CASES[args.case]["carrier"]) or {}).get("traits") or []

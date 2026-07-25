@@ -3,12 +3,12 @@
 
 RE (decompile gqfc5mff6c, cf. docs/rl/case-205-unstoppable.md) : Unstoppable est un trait de
 MOUVEMENT pur. Il figure dans la liste d'EXEMPTION `StaticBattleRules.Effect.NotBlockingMovement
-OfTraits @18155b370` = {0 Mounted, 0x405=1029 Vehicle, 0x412=1042 Unstoppable} rendue pour les
+OfTraits idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$NotBlockingMovementOfTraits` = {0 Mounted, 0x405=1029 Vehicle, 0x412=1042 Unstoppable} rendue pour les
 effets de tuile bloquant/finissant le mouvement (effectType 0=BlockEnteringUnits, 5=Fire, 17=Ice ;
 chaque .ctor stocke la liste @+0x488). La liste est consommee par `WalkPathfinder.GetTileBlocking
-Reasons @180f2e9d0` (predicat `Any(exemptTraits, t => movingUnit.HasTrait(t))`) qui alimente
-`GetEffectiveDepth @180f2e920` (bit 0x2 -> Min(1,depth) = "l'hex finit le mouvement") et
-`IsValidContinuePathTile @180f2ee30` (bit 0x1 = block-entering). i2 : "ne s'arrete pas sur les hex
+Reasons IdunBattle.Entities.Pathfinding.WalkPathfinder$$GetTileBlockingReasons` (predicat `Any(exemptTraits, t => movingUnit.HasTrait(t))`) qui alimente
+`IdunBattle.Entities.Pathfinding.WalkPathfinder$$GetEffectiveDepth` (bit 0x2 -> Min(1,depth) = "l'hex finit le mouvement") et
+`IdunBattle.Entities.Pathfinding.WalkPathfinder$$IsValidContinuePathTile` (bit 0x1 = block-entering). i2 : "ne s'arrete pas sur les hex
 speciaux / effets d'hex qui finiraient normalement son mouvement".
 
 VERDICT = INVALIDABLE dans le harness runner (doctrine no-unvalidatable-ability-ports) : le

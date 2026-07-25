@@ -9,13 +9,12 @@ from ._base import NCContext, NonComparablePlaybook
 
 
 class SendInTheNextWavePlaybook(NonComparablePlaybook):
-    """`SendInTheNextWavePlaybook.EvaluateNonComparable @18115a1f0` (id 0x3f8=1016, astra/Loki). Summon :
+    """`IdunBattle.AI.Playbook.Loki.SendInTheNextWavePlaybook$$EvaluateNonComparable` (id 0x3f8=1016, astra/Loki). Summon :
     `SendInTheNextWaveAbility` fait apparaitre 2+ Cadian Guardsmen (astraSmnGuardsman) dans un rayon 2
     d'une cible ennemie, qui FONT FEU sur elle immediatement. La cible de DECISION = l'ENNEMI eligible de
     plus HAUTE Attack, mais SEULEMENT si c'est l'ennemi de plus haute Attack de TOUT le plateau.
 
-    Structure native (mirror EvaluateNonComparable) : Bucket ctor min = `GetHighestEnemyAttackStat
-    @18115a4f0` = `Max(1, max_E GetStat(E, Attack=0, Current))` sur `GetAllEnemies @18111e500` (slot 0x88
+    Structure native (mirror EvaluateNonComparable) : Bucket ctor min = `IdunBattle.AI.Playbook.Loki.SendInTheNextWavePlaybook$$GetHighestEnemyAttackStat` = `Max(1, max_E GetStat(E, Attack=0, Current))` sur `IdunBattle.AI.Playbook.BasePlaybook$$GetAllEnemies` (slot 0x88
     GetAllAliveUnits + filtre IsEnemy = TOUS les ennemis vivants du caster) -> MIN_UTILITY DYNAMIQUE. Par
     position balayee, enumere `GetEligibleTargetsSelectable(MainTile=position)` (= ennemis ciblables,
     rayon 2) ; pour CHAQUE cible -> `util = Fix64.FromInt(GetStat(cible, 0=Attack, Current))` ;
@@ -39,8 +38,8 @@ class SendInTheNextWavePlaybook(NonComparablePlaybook):
     - cible = argmax Attack parmi les ennemis eligibles (`abilityTargets`), keep-first au tie ; emise SSI
       son Attack >= MIN (== max global). Sinon aucun candidat.
     - position = `_first_cast_pos` (origine-preference #76 : cast en place si castable, sinon 1re tuile de
-      move d'ou la cible est castable). PRIORITY=0 (#115). ctor @18115a730 = `NonComparablePlaybook(0x3f8)`.
-    - ShouldEvaluate = base @18111fb70 (GetUseProbability=Fix64(1) -> True constant ; pas d'override)."""
+      move d'ou la cible est castable). PRIORITY=0 (#115). IdunBattle.AI.Playbook.Loki.SendInTheNextWavePlaybook$$.ctor = `NonComparablePlaybook(0x3f8)`.
+    - ShouldEvaluate = base IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate (GetUseProbability=Fix64(1) -> True constant ; pas d'override)."""
     ABILITY_ID = int(ActiveAbilityType.SendInTheNextWave)  # 1016
     MIN_UTILITY = 0.0     # DYNAMIQUE (GetHighestEnemyAttackStat) -> calcule dans generate_candidates
     PRIORITY = 0

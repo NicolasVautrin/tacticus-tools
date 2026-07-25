@@ -1,8 +1,7 @@
 """ArcaneShield (thousSorcerer/Thaumachus) — behaviour MIGRE en arbre DSL (#149 slice-23), confronte LIVE.
 
-Valide la feuille NEUVE `CreateShield` (`DSLFactory.CreateShield @180ded000` -> `CreateShieldBehaviour.Execute
-@180fc2650`) + la migration de `_arcaneshield_grant` en `CreateShield(Target(), ConfigVar(0x27=shieldHp),
-self.Id, TurnsFromRounds(1))`. L'arbre natif (`ArcaneShieldAbility.CreateBehaviour @180e16b40`) accorde un
+Valide la feuille NEUVE `CreateShield` (`IdunBattleLogic.Entities.DSLFactory$$CreateShield` -> `IdunBattle.Entities.Behaviours.CreateShieldBehaviour$$Execute`) + la migration de `_arcaneshield_grant` en `CreateShield(Target(), ConfigVar(0x27=shieldHp),
+self.Id, TurnsFromRounds(1))`. L'arbre natif (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArcaneShieldAbility$$CreateBehaviour`) accorde un
 bouclier 1 round a l'ami prefere (SurroundingFriends sans trait 0x1b, priorite faction > distance > pas-soi)
 sinon soi. Le selecteur AI-target LOURD (S) reste imperatif (`_arcaneshield_target`) COLLAPSE en `Target()`,
 le montant `ConfigVar(0x27)` (formule V) est calcule imperativement (`ability_var`) -- meme collapse que
@@ -118,8 +117,8 @@ def test_arcaneshield_grant_live(live_session, rpc, build_runner):
     res = T._arcaneshield_grant(state, owner_id)
     assert res is not None and res.get("target") == ally_id, f"bouclier pas pose sur l'allie (res={res})"
     assert res.get("amount") == amount, f"montant {res.get('amount')} != shieldHp attendu {amount}"
-    # #98 : le 4e arg natif de `CreateShield` est `TurnsFromRounds(1)` (@180e16b40, verifie au
-    # decompile) -> la duree passe par `BattleQuery.ConvertRoundsToTurns @181058af0` = `count(joueurs
+    # #98 : le 4e arg natif de `CreateShield` est `TurnsFromRounds(1)` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArcaneShieldAbility$$CreateBehaviour, verifie au
+    # decompile) -> la duree passe par `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` = `count(joueurs
     # non-Environment) x 1`. L'ancienne attente `== 1` gravait l'IDENTITE (fausse des 2 joueurs).
     exp_dur = convert_rounds_to_turns(state, 1)
     assert res.get("remaining") == exp_dur, (

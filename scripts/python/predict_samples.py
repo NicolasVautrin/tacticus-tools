@@ -5,7 +5,7 @@ Capture des échantillons d'attaque NORMALE à portée et compare la prédiction
 l'ancien `predict_validate` (retiré) : même validation, prédicteur = le modèle objet.
 
 ⚠ ORACLE = `decisionView.attackPlans` (dmgMin/dmgMax) = un PREVIEW natif (`DamagePredictionQuery.
-GetAllPredictions @181090f50`) qui peut DIVERGER de la verite per-ability `aiPlaybookPredict`
+IdunBattle.Core.Services.DamagePredictionQuery$$GetAllPredictions`) qui peut DIVERGER de la verite per-ability `aiPlaybookPredict`
 (= `<Ability>Playbook.MakeDamagePredictions`). Ce harnais ne sample QUE les attaques NORMALES (filtre
 `norm_ids`) -- mais meme une attaque NORMALE peut voir son preview attackPlans COLLAPSE min->max alors
 que `aiPlaybookPredict`/le moteur gardent la variance (#179, VERIFIE LIVE : astraPrimarisPsy attaque

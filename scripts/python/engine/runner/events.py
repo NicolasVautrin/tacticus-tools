@@ -1,10 +1,10 @@
 """Bus de cascade — discipline LIFO (immédiat, inline) + FIFO (différé).
 
 Modèle natif (RE, cf. docs/rl/runner-engine.md §1.5) :
-  • IMMÉDIAT : `EvaluateTriggerOperation.ExecuteImmediately` @180e6ec90 → traité
+  • IMMÉDIAT : `IdunBattle.Operations.EvaluateTriggerOperation$$ExecuteImmediately → traité
     INLINE, profondeur d'abord = pile d'appels = **LIFO**.
-  • DIFFÉRÉ : `EvaluateTriggerOperation.Execute` @180e6fac0 → enfile un `BattleEvent`
-    sur le bus `Events` (`get_Events` @180ffa4a0), drainé plus tard = **FIFO**.
+  • DIFFÉRÉ : `IdunBattle.Operations.EvaluateTriggerOperation$$Execute → enfile un `BattleEvent`
+    sur le bus `Events` (`IdunBattle.Core.AOperation$$get_Events), drainé plus tard = **FIFO**.
   • L'arbre résultant (groupes) est capté côté live par `apply-stack.ts`
     (stream_group/stream_event) → vérité de validation de la cascade.
 
@@ -33,7 +33,7 @@ class EventBus:
     def __init__(self):
         self._deferred: Deque[BattleEvent] = deque()
         # event_type -> listeners TRIÉS (mirror AbilityAndEffectCache, AddSorted
-        # @18128ab10). Rempli à la tranche TRIGGERS.
+        # IdunBattleLogic.Core.Services.Caches.AbilityAndEffectCache$$AddSortedu003Cobjectu003E). Rempli à la tranche TRIGGERS.
         self._listeners: dict[type, List[Callable[[BattleEvent], None]]] = {}
 
     # --- différé (FIFO) ---

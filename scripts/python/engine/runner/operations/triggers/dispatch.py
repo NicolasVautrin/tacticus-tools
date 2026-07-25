@@ -1,10 +1,10 @@
 """Dispatch GÉNÉRIQUE de triggers — `IdunBattle.Operations.EvaluateTriggerOperation` : registre
 `AbilityAndEffectCache` + vecteurs d'événement.
 
-Chaîne native : `ADamageOperation.EvaluateAfterHitTriggers @180e25fc0` → (record message 8) →
-`EvaluateTriggerOperation.Execute`@180e6fac0 → `ExecuteInternal`@180e6ef40 → itère le registre
-`AbilityAndEffectCache` → `EvaluateAbilityOrEffectTrigger`@180e6d250 par entrée → (ability-trigger)
-`CanGetAbilityTrigger`@180e6cf60 + `EvaluateAbilityTrigger`@180e6d650.
+Chaîne native : `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` → (record message 8) →
+`IdunBattle.Operations.EvaluateTriggerOperation$$Execute → `IdunBattle.Operations.EvaluateTriggerOperation$$ExecuteInternal → itère le registre
+`AbilityAndEffectCache` → `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateAbilityOrEffectTrigger par entrée → (ability-trigger)
+`IdunBattle.Operations.EvaluateTriggerOperation$$CanGetAbilityTrigger + `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateAbilityTrigger.
 
 **Structure native** (portée 1:1 ici) :
 - Le dispatch N'EST PAS scopé à l'attaquant : il itère un **registre GLOBAL** de tous les triggers de la
@@ -14,9 +14,9 @@ Chaîne native : `ADamageOperation.EvaluateAfterHitTriggers @180e25fc0` → (rec
   `GetTimesTriggeredThisPhase < 0x33` (51/phase).
 
 EVENT-MAPPING RE (#147, verdict agent #150) : `On(NormalAttack=38)` et le vecteur after-hit
-`ADamageOperation.EvaluateAfterHitTriggers @180e25fc0` (dispatche `AttackHit=8` TOUJOURS + `UnitBlocked=61`
+`IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` (dispatche `AttackHit=8` TOUJOURS + `UnitBlocked=61`
 (0x3d) sur la branche `param_6`) sont des events NATIFS DISTINCTS. L'ancien port les conflatait sous une
-constante 0x26 → le splash (`AbilityDamageOperation.ExecuteHit @180e29d50`, events {6,8,0x3d}, JAMAIS
+constante 0x26 → le splash (`IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`, events {6,8,0x3d}, JAMAIS
 NormalAttack) re-satisfaisait Psyker `On(NormalAttack)` → chain 51×. Corrigé (#147) : Psyker écoute
 `NormalAttack` ; le reset ActOfFaith écoute `Attack=9` (attaque d'ability, #151). Les membres consommés
 + leurs VAs/sémantique sont annotés dans `dsl/event_trigger_type.py`.
@@ -88,30 +88,30 @@ TRAIT_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     "Ambush": [AmbushSummonAbility, EnvAmbushResurrectAbility],
     # WeaverOfFate (trait Abraxas thousInfernalMaster, #202-A) = `On(9=Attack)` : >=3 ennemis ayant recu
     # du degat PSYCHIC ce tour -> pose l'effet-marqueur 1185 WeaverOfFate_MaxOutDamage sur soi (1 tour,
-    # degats max sans tirage). Cf. loki/weaver_of_fate.py (@1811acc50/@1811acb90).
+    # degats max sans tirage). Cf. loki/weaver_of_fate.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.WeaverOfFateAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.WeaverOfFateAbility$$CreateBehaviour).
     "WeaverOfFate": [WeaverOfFateAbility],
     # LivingMetal (trait 1000, TOUT le roster Necron : 41 npc + 6 lineup + 4 summons, #203) = regen % PV
     # au debut du tour du proprietaire : `On(TurnStart_Other=19) & OwnerIsActor & IsDamaged(self)` ->
-    # Repair(self, round(10% maxHP)). Cf. loki/living_metal.py (@181222630/@1812224e0).
+    # Repair(self, round(10% maxHP)). Cf. loki/living_metal.py (IdunBattleLogic.Entities.Abilities.Active.Loki.LivingMetalRepairAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Active.Loki.LivingMetalRepairAbility$$CreateBehaviour).
     "LivingMetal": [LivingMetalRepairAbility],
     # SuppressiveFire (trait 1010, x49 unites dont 8 lineup, #74) = pose Pinned/« Suppressed » (1065) sur
     # la cible d'une attaque RANGED du porteur : `On(PreAttack=5) & IsRangedAttack & OwnerIsActor &
     # AreEnemies & AmountIsGreaterThanZero(Units(target))` -> `AddEffect(Pinned, Target())`. Route sur
-    # `On(NormalAttack=38)` (cf. loki/suppressive_fire.py @181225d00/@181225c50).
+    # `On(NormalAttack=38)` (cf. loki/suppressive_fire.py IdunBattleLogic.Entities.Abilities.Active.Loki.SuppressiveFireAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Active.Loki.SuppressiveFireAbility$$CreateBehaviour).
     "SuppressiveFire": [SuppressiveFireAddEffectAbility],
     # DEATH-NOVA (`loki/death_nova.py`) : les deux traits qui font exploser le porteur a sa MORT, sur
-    # l'event `PreUnitDeath_2 = 2` (PAS 1 : `OnPreDeath2 @180df7ee0` -> `OnDeathEvent(2,...)`).
-    # Explodes (1008 -> triggered 1021, @18121e6f0/@18121e450) : maxPV x 25% en DirectDamage a TOUS les
+    # l'event `PreUnitDeath_2 = 2` (PAS 1 : `IdunBattleLogic.Entities.DSLFactory$$OnPreDeath2` -> `OnDeathEvent(2,...)`).
+    # Explodes (1008 -> triggered 1021, IdunBattleLogic.Entities.Abilities.Active.Loki.ExplodesAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Active.Loki.ExplodesAbility$$CreateBehaviour) : maxPV x 25% en DirectDamage a TOUS les
     # adjacents (friendly-fire), fire MEME EN OVERKILL (`OnPreDeath2(1,1)` = aucun gate).
     "Explodes": [ExplodesAbility],
-    # PutridExplosion (2028 -> triggered 1074, @1812248f0/@181224710) : maxPV x 25% en Toxic aux adjacents
+    # PutridExplosion (2028 -> triggered 1074, IdunBattleLogic.Entities.Abilities.Active.Loki.PutridExplosion_Ability$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Active.Loki.PutridExplosion_Ability$$CreateBehaviour) : maxPV x 25% en Toxic aux adjacents
     # SAUF faction DeathGuard ; `OnPreDeath2(1,0)` = pas de gate overkill, mais NOT HasTrait(Steppable).
     "PutridExplosion": [PutridExplosionAbility],
     # LetTheGalaxyBurn (trait 1058, x5 heros Black Legion, #84 volet 1) = arme/desarme le FLAG persistant
     # 1482 qui alimente le +1 coup de `LetTheGalaxyBurnEffect` (effet 1477) :
-    #   - `LetTheGalaxyBurnAbility` @1811076f0/@1811075c0 : `On(PreAttack=5) & OwnerIsCaster &
+    #   - `LetTheGalaxyBurnAbility` IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateBehaviour : `On(PreAttack=5) & OwnerIsCaster &
     #     Maybe(33%) & !HasTileStatusEffect(Targets)` -> `SetPersistentData` ;
-    #   - `LetTheGalaxyBurn_ResetAbility` @1811078a0 : `ClearPersistentData` en fin d'attaque (`On(9)`).
+    #   - `LetTheGalaxyBurn_ResetAbility` IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour : `ClearPersistentData` en fin d'attaque (`On(9)`).
     # Cf. loki/let_the_galaxy_burn.py (2 branches du gate, ground truth live 34.2% / 100%).
     "LetTheGalaxyBurn": [LetTheGalaxyBurnArmAbility, LetTheGalaxyBurnResetAbility],
 }
@@ -141,78 +141,78 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     "RadSaturation": [RadSaturationAbility],
     # LordOfTempests (passif Njal spaceStormcaller, #35) = AddIce : glace la tuile de CHAQUE ennemi touche
     # par une attaque normale de Njal (`On(38)` cible principale + `On(9)&kind==0x3f5` victime du smite
-    # Psyker), `OwnerIsCaster`. Cf. loki/lord_of_tempests.py (@181108670/@1811085d0).
+    # Psyker), `OwnerIsCaster`. Cf. loki/lord_of_tempests.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.LordOfTempests_AddIceAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.LordOfTempests_AddIceAbility$$CreateBehaviour).
     "LordOfTempests": [LordOfTempestsAddIceAbility],
     # DestroyerHive (passif deathTyphus, case-220 DG) = au debut du tour de Typhus, sa nuee attaque 1x un
     # ennemi adjacent aleatoire (`On(0x16) & OwnerIsActor & AmountIsGreaterThanZero(GetValidTargets)` ->
     # AttackWithAttackDamage(caster, PickRandomly(ennemis adjacents,1), MinMax[passive lvl], DirectDamage,
-    # nrOfHits=1)). Cf. loki/destroyer_hive.py (@18121d4b0/@18121d540/@18121d320).
+    # nrOfHits=1)). Cf. loki/destroyer_hive.py (IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$GetValidTargets/IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateBehaviour).
     "DestroyerHive": [DestroyerHiveAbility],
     # MartialApotheosis (passif necroOverlord, case-220 Necrons) = `On(TurnStart_Actions=0x16) & OwnerIsActor
     # & AmountIsGreaterThanZero(GetValidTargets)` : au debut de son tour, attaque 1 ennemi adjacent damageable
     # ALEATOIRE (PickRandomly count=1) avec 2 coups Energy (pierce 30). Classe native ETEND DestroyerHive
-    # (CreateTrigger/GetValidTargets herites). Cf. loki/martial_apotheosis.py (@181222d00/@18121d4b0/@18121d540).
+    # (CreateTrigger/GetValidTargets herites). Cf. loki/martial_apotheosis.py (IdunBattleLogic.Entities.Abilities.Active.Loki.MartialApotheosisAbility$$CreateBehaviour/IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$GetValidTargets).
     "MartialApotheosis": [MartialApotheosisAttackAbility],
     # TaintedNarthecium (passif deathRotbone, Death Guard/Chaos, case-66) = base ReviveEffect : `OnPreDeath &
     # CanBeRevived & AreFriends & HasTrait(Chaos) & IsAdjacent(2)` -> Maybe(75%){ Revive-EN-PLACE a
     # min(reviveHP,maxPV), even-if-Overkilled ; DeactivateEffect once-per-turn }. Debloqueur du sous-systeme
-    # REVIVE (base ReviveEffect + ReviveUnitOperation). Cf. loki/tainted_narthecium.py (@180f70a90/@180f709b0/
-    # @180f46d80/@180f46a70) + operations/revive.py (@180e91bd0).
+    # REVIVE (base ReviveEffect + ReviveUnitOperation). Cf. loki/tainted_narthecium.py (IdunBattle.Entities.Effects.Loki.TaintedNarthecium_ReviveEffect$$.ctor/IdunBattle.Entities.Effects.Loki.TaintedNarthecium_ReviveEffect$$CreateTargetFilter/
+    # IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTrigger/IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour) + operations/revive.py (IdunBattle.Operations.ReviveUnitOperation$$Execute).
     "TaintedNarthecium": [TaintedNartheciumReviveAbility],
     # Narthecium (passif ultraApothecary, Ultramarines/Imperial, #79 retrofit case-66) = MEME base
     # ReviveEffect : `OnPreDeath(unless-Overkilled) & CanBeRevived & AreFriends & IsAdjacent(2)` ->
     # Maybe(100%){ Revive-EN-PLACE a min(reviveHP,maxPV) ; DeactivateEffect once-per-turn }. Le filtre
-    # @180f5acf0 n'a PAS de HasTrait (contraste Chaos de TaintedNarthecium) et get_ReviveOnOverkill
-    # @1802b15a0 = 0 -> gate `NOT overkill`. Cf. loki/narthecium.py + triggers/revive_effect.py.
+    # IdunBattle.Entities.Effects.Loki.Narthecium_ReviveEffect$$CreateTargetFilter n'a PAS de HasTrait (contraste Chaos de TaintedNarthecium) et get_ReviveOnOverkill
+    # GameCamera$$ShouldBlurBackground = 0 -> gate `NOT overkill`. Cf. loki/narthecium.py + triggers/revive_effect.py.
     "Narthecium": [NartheciumReviveAbility],
     # MasterAnnihilator (passif admecDominus << Vitruvius >>) = POSE du marqueur 1249 avec REMOVE-BY-SOURCE :
     # `On(0x26=NormalAttack) & OwnerIsCaster & AreEnemies` -> `RemoveEffect(OwnerOfEffect(EffectsFromUnitSource(
     # Self, 1249)), 1249) + AddEffect(1249, Target())`. L'effet (+1 coup recu non-Psychic) etait deja porte
-    # (hits.py) mais JAMAIS pose. Cf. loki/master_annihilator.py (@18110ba90/@18110b940).
+    # (hits.py) mais JAMAIS pose. Cf. loki/master_annihilator.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterAnnihilatorAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterAnnihilatorAbility$$CreateBehaviour).
     "MasterAnnihilator": [MasterAnnihilatorMarkAbility],
     # FleshmetalGuns (passif blackObliterator << Volk >>) = ROTATION turn-start des 3 effets d'arme :
     # `On(0x16=TurnStart_Actions) & IsTurnOf(Self)` -> `RemoveEffect x3 + If(Modulo(UnitTurnsStarted(Self),
     # 3, k), AddEffect(1067|1212|1221))`. Les 3 effets (+2 coups Melta/Flame/HeavyRound) etaient deja portes
-    # (hits.py) mais SEUL celui du seed vivait. Cf. loki/fleshmetal_guns.py (@180e17450/@18121f6e0).
+    # (hits.py) mais SEUL celui du seed vivait. Cf. loki/fleshmetal_guns.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArchContaminatorAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGunsAbility$$CreateBehaviour).
     "FleshmetalGuns": [FleshmetalGunsRotationAbility],
     # TerrifyingCrescendo (passif emperNoiseMarine << Shiron >>) = ACCUMULATION du stack de l'effet 1424
     # (deja porte #204, magnitude x level) : disjonction `On(0=UnitDeath) & OwnerIsActor & TargetIsOverkilled`
     # | `On(0x3e=PreEffectAdded) & OwnerIsActor & TriggeringEffectIs(1065=Pinned)` -> `AddEffectOrIncreaseLevel(
-    # 1424, +1, max=buffMaxLevel=6)`. Cf. loki/terrifying_crescendo.py (@1811a3910/@1811a3840).
+    # 1424, +1, max=buffMaxLevel=6)`. Cf. loki/terrifying_crescendo.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateBehaviour).
     "TerrifyingCrescendo": [TerrifyingCrescendoOverkillAbility, TerrifyingCrescendoSuppressAbility],
     # AnvilShield (passif spaceRockfist << Arjac >>) = volet ON-BLOCK `ApplyIce` : `On(UnitBlocked=0x3d) &
     # OwnerIsTarget & IsUnit(caster)` -> `AddEffect(Ice=0x11, source=Self, cible=CasterTile)` (la tuile de
     # l'attaquant BLOQUE gele). L'effet de tuile Ice etait deja porte ; c'est le DISPATCH `On(0x3d)` qui
     # manquait. Volets Stun / FrozenAttackerAdvantage / init-effects = residus documentes.
-    # Cf. loki/anvil_shield.py (@180e16500/@180e16480 ; emetteur @180e25fc0).
+    # Cf. loki/anvil_shield.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateBehaviour ; emetteur IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers).
     "AnvilShield": [AnvilShieldApplyIceAbility],
 }
 
 # --- Registre : effectType → effet-trigger(s) ------------------------------------------------------
 # ⚠ La valeur est une LISTE : cote natif, `BaseEffect.CreateHandleTriggerAbilitiesInternal` renvoie un
 # **`ArraySet`** (N `Triggered(trigger, behaviour)` par effet) — ex. `PhoenixGem_CanReviveEffect
-# @180f5e4a0` en enregistre DEUX. Un dict 1->1 ne pouvait pas les porter.
+# IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal` en enregistre DEUX. Un dict 1->1 ne pouvait pas les porter.
 EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     OVERWATCH_AUTO_ATTACK: [OverwatchAutoAttack],
     CONTAMINATED_TILE: [ContaminatedTileEffect],  # tile-effect : enter(4)+tick(0x12) -> pose Contaminated_Unit
     FIRE_TILE: [FireTileDoT],                     # tile-effect : tick(0x14) -> DoT 20% PV initiale a l'occupant
     # MasterOfTheTutelaries (#202-C, effet 1197 pose par l'active 1096 d'Abraxas) : la collecte
-    # par-effet-actif EST le Add/RemoveTriggeredAbility natif (ApplyInternal @180f59090 /
-    # RevertInternal @180f591f0) -> Screamer sur attaque Psychic vs ennemi (On(9), triggered 1173).
+    # par-effet-actif EST le Add/RemoveTriggeredAbility natif (IdunBattle.Entities.Effects.Loki.MasterOfTheTutelariesEffect$$ApplyInternal /
+    # IdunBattle.Entities.Effects.Loki.MasterOfTheTutelariesEffect$$RevertInternal) -> Screamer sur attaque Psychic vs ennemi (On(9), triggered 1173).
     MASTEROFTUTELARIES_EFFECT: [MasterOfTheTutelariesSummonAbility],   # 1197 -> 1173
     # RitesOfMorkai (#79, effet « Inspired » 1502 pose par l'active 1211 de spaceWolfPriest) = MEME base
     # `ReviveEffect` que Narthecium, mais rail EFFET (pose par une ACTIVE, pas par un passif) : filtre
-    # @180f69c10 = `OwnerIsTarget` (self-revive) et ctor @180f69c30 `removeEffect=TRUE` -> le 2e volet du
+    # IdunBattle.Entities.Effects.Loki.RitesOfMorkaiEffect$$CreateTargetFilter = `OwnerIsTarget` (self-revive) et IdunBattle.Entities.Effects.Loki.RitesOfMorkaiEffect$$.ctor `removeEffect=TRUE` -> le 2e volet du
     # behaviour est `RemoveEffect` (one-shot DEFINITIF) et non `DeactivateEffect` (once-per-turn).
     RITES_OF_MORKAI_EFFECT: [RitesOfMorkaiReviveTrigger],            # 1502 (self-revive one-shot)
     # ReanimationBeam (#79, effet 1547 pose par l'active 1223 de la MoW necroReanimator) = base
-    # ReviveEffect, filtre @180f67ac0 = AreFriends & HasTrait(Mechanical=5) & HasEffect(1545
-    # NanoscarabRepairProtocols) ; ctor @180f67b90 removeEffect=TRUE -> one-shot.
+    # ReviveEffect, filtre IdunBattle.Entities.Effects.Loki.ReanimationBeam_ReviveEffect$$CreateTargetFilter = AreFriends & HasTrait(Mechanical=5) & HasEffect(1545
+    # NanoscarabRepairProtocols) ; IdunBattle.Entities.Effects.Loki.ReanimationBeam_ReviveEffect$$.ctor removeEffect=TRUE -> one-shot.
     REANIMATION_BEAM_EFFECT: [ReanimationBeamReviveTrigger],         # 1547 (allie Mechanical nanoscarabe)
     # PhoenixGem (#79, relic d'eldarAutarch) : PAS un ReviveEffect -- `PhoenixGem_ReviveAbility`
-    # (@1811117b0/@181111610) enregistree par l'effet-marqueur `PhoenixGem_CanReviveEffect` 1451
-    # (@180f5e4a0). Self-revive INCONDITIONNEL (pas de Maybe), **even if Overkilled**, one-shot par
-    # bataille. Le `CreateHandleTriggerAbilitiesInternal @180f5e4a0` de l'effet enregistre en plus les
+    # (IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateBehaviour) enregistree par l'effet-marqueur `PhoenixGem_CanReviveEffect` 1451
+    # (IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal). Self-revive INCONDITIONNEL (pas de Maybe), **even if Overkilled**, one-shot par
+    # bataille. Le `IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal` de l'effet enregistre en plus les
     # DEUX triggers de RETRAIT du marqueur (case-89 volet B3) : `On(0x2e=UnitRevived) & OwnerIsTarget &
     # CurrentAbilityIs(PhoenixGem=0x5b2)` et `On(0x2f=UnitResurrected) & OwnerIsTarget`.
     PHOENIX_GEM_CAN_REVIVE: [PhoenixGemReviveAbility,                # 1451 (self-revive, even-if-overkill)
@@ -264,9 +264,9 @@ def collect_effect_triggers(state: State) -> list[EffectTrigger]:
 
 
 def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
-    """Mirror COLLAPSÉ du PUMP FIFO natif (#201) — `EvaluateTriggerOperation.ExecuteInternal @180e6ef40`
-    (dispatch) + `ProcessPendingTriggeredAbilities @180eba680` (drain) + `RunPhase(0xf) @180ebaa80`
-    (item) + `VerifyDeaths @180ebb0a0` (retrait-des-morts entre items), fondus en UNE boucle.
+    """Mirror COLLAPSÉ du PUMP FIFO natif (#201) — `IdunBattle.Operations.EvaluateTriggerOperation$$ExecuteInternal`
+    (dispatch) + `IdunBattle.Messages.InputMessageProcessor$$ProcessPendingTriggeredAbilities` (drain) + `IdunBattle.Messages.InputMessageProcessor$$RunPhase(0xf)`
+    (item) + `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` (retrait-des-morts entre items), fondus en UNE boucle.
 
     Structure native (RE) :
       1. `ExecuteInternal` : itère le registre GLOBAL `AbilityAndEffectCache` (composant #3 = triggers de
@@ -309,7 +309,7 @@ def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
                 continue                                   # sauf ability fire-on-death (ex. FinalJustice)
         if not entry.matches(state, ev):
             continue
-        # #140 : CAP phase-triggers (mirror EvaluateAbilityTrigger@180e6d650 : GetTimesTriggeredThisPhase
+        # #140 : CAP phase-triggers (mirror IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateAbilityTrigger : GetTimesTriggeredThisPhase
         # < 0x33). S'applique aux ability-triggers (TriggeredAbility) — les effet-triggers passent par
         # EvaluateEffectTrigger (sans ce cap). Borne l'auto-récursion (splash Psyker qui re-déclenche le
         # splash Psyker via le vecteur after-hit). Clé = type d'ability-trigger (1 par trait-trigger).
@@ -342,9 +342,9 @@ def _trigger_phase_component(state: State, owner_id: int) -> Optional[TriggeredA
 
 
 def _squighound_after_attack(state: State, attacker_id: int, target_id: int) -> list[dict]:
-    """`SquigHoundSummonUnitAbility` trigger `On(0x26) & OwnerIsCaster` @1811a1c60 : APRÈS une attaque du
+    """`SquigHoundSummonUnitAbility` trigger `On(0x26) & OwnerIsCaster` IdunBattleLogic.Entities.Abilities.Triggered.Loki.SquigHoundSummonUnitAbility$$CreateTrigger : APRÈS une attaque du
     caster porteur du passif `SquigHound`, si **< maxSummons(5)** grots amis, spawn 1 grot adjacent à la CIBLE
-    (behaviour @1811a1a30 -> `SpawnUnitOperation.execute_squighound_summon`, `WithStatsFromConfig(SquigHound)`
+    (behaviour IdunBattleLogic.Entities.Abilities.Triggered.Loki.SquigHoundSummonUnitAbility$$CreateBehaviour -> `SpawnUnitOperation.execute_squighound_summon`, `WithStatsFromConfig(SquigHound)`
     au niveau du caster -> le grot porte `active_ability_level` = **lève le GAP PileIn**). No-op si l'attaquant
     n'a pas SquigHound. Le `PerformAIAttack` on-appearance = FLAGGÉ non porté (secondaire)."""
     import gameconfig as GC
@@ -359,15 +359,15 @@ def _squighound_after_attack(state: State, attacker_id: int, target_id: int) -> 
 
 def unit_blocked_triggers(state: State, attacker_id: int, target_id: int,
                           ranged: bool, profile: Optional[str]) -> list[dict]:
-    """Vecteur `On(UnitBlocked=0x3d=61)` — emis par `ADamageOperation.EvaluateAfterHitTriggers @180e25fc0`
+    """Vecteur `On(UnitBlocked=0x3d=61)` — emis par `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`
     sur la branche `if (param_6 != 0)` (le flag BLOCK), **AVANT** le `On(8)` inconditionnel. L'
     `AbilityEntities` de ce vecteur est `ctor(caster = param_3 = l'ATTAQUANT, owner = actor = target =
     param_4 = le DEFENSEUR, casterTiles = GetTiles(attaquant), targetTiles = GetTiles(defenseur))` :
     d'ou `actor_id` = attaquant et `target_id` = defenseur (le BLOQUEUR) cote port -> le predicat
     `get_OwnerIsTarget` d'AnvilShield se lit `ev.target_id == owner_id`.
 
-    Consommateur : `AnvilShieldApplyIceAbility` (glace la tuile de l'attaquant bloque, @180e16500/
-    @180e16480). AVANT ce vecteur, `did_block` etait resolu par le pipeline (damage_hits.py) mais
+    Consommateur : `AnvilShieldApplyIceAbility` (glace la tuile de l'attaquant bloque, IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateTrigger/
+    IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateBehaviour). AVANT ce vecteur, `did_block` etait resolu par le pipeline (damage_hits.py) mais
     l'evenement n'etait JAMAIS emis -> tout le cluster on-block etait inatteignable.
 
     ⚠ GRANULARITE : le natif emet `On(0x3d)` PAR COUP bloque ; le port l'emet UNE fois par ATTAQUE
@@ -389,8 +389,7 @@ def pre_attack_triggers(state: State, attacker_id: int, target_id: int,
     avaient ete ROUTES sur d'autres vecteurs (`SuppressiveFireAddEffectAbility` -> `On(38)`, cf. son
     en-tete) parce que leur observable ne depend pas du timing. `LetTheGalaxyBurnArmAbility` (#84), lui,
     **exige** ce timing : son behaviour arme un flag (`SetPersistentData`) que le canal de coups de la
-    MEME attaque relit (`IsPersistentData` dans `LetTheGalaxyBurnEffect.CreateAdditionalHits`
-    @180f54e30) — le router apres coup serait un no-op silencieux.
+    MEME attaque relit (`IsPersistentData` dans `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits) — le router apres coup serait un no-op silencieux.
 
     AUCUN autre trigger porte n'ecoute `event_id == 5` (verifie : le seul `PreAttack` du port etait une
     mention en commentaire) -> emettre ce vecteur ne reveille rien d'autre, et le seul cout RNG possible
@@ -418,15 +417,15 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
     ev_ah = TriggerEvent(EventTriggerType.AttackHit, attacker_id, target_id,
                          ranged=ranged, profile=profile, is_crit=is_crit)
     out = out + evaluate_trigger_operation(state, ev_ah)        # On(8) after-hit (vecteur natif ; sans conso #151)
-    out = out + _on_fire_damage_ability(state, attacker_id, target_id, profile)  # OnFireDamageAbility @1811c3a60
-    out = out + _fire_of_absolution_after_attack(state, attacker_id, target_id, ranged)  # passif @18121f380 (Vindicta)
+    out = out + _on_fire_damage_ability(state, attacker_id, target_id, profile)  # OnFireDamageAbility IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateBehaviour
+    out = out + _fire_of_absolution_after_attack(state, attacker_id, target_id, ranged)  # passif IdunBattleLogic.Entities.Abilities.Active.Loki.FireOfAbsolutionAbility$$CreateBehaviour (Vindicta)
     out = out + _squighound_after_attack(state, attacker_id, target_id)
-    # On(9=Attack) : event GENERIQUE emis par `FinishAttackOperation @180e71310` a la FIN de CHAQUE attaque
+    # On(9=Attack) : event GENERIQUE emis par `FinishAttackOperation IdunBattle.Operations.FinishAttackOperation$$Execute` a la FIN de CHAQUE attaque
     # (normale ET ability -- verdict RE re-expert : `On(9)` est BRUT, PAS ability-only ; le helper
-    # `OnNormalAttackOrSmite @180df7c70` = `On(38)|(On(9)&Smite)` n'est PAS ce trigger). CORRIGE #151 : le
-    # reset ActOfFaith (`On(9)&OwnerIsCaster&WasCrit` @181219f90, AUCUN gate normal/ability) fire DONC AUSSI sur
+    # `IdunBattleLogic.Entities.DSLFactory$$OnNormalAttackOrSmite` = `On(38)|(On(9)&Smite)` n'est PAS ce trigger). CORRIGE #151 : le
+    # reset ActOfFaith (`On(9)&OwnerIsCaster&WasCrit` IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateTrigger, AUCUN gate normal/ability) fire DONC AUSSI sur
     # un crit d'attaque NORMALE (avant, non emis en voie normale -> reset manquant = bug). Meme event consomme
-    # par Judh `MoveAndSpawnDecoy` (G6b, `On(9)&OwnerIsTarget` @180f88070 -> reaction a toute attaque la ciblant).
+    # par Judh `MoveAndSpawnDecoy` (G6b, `On(9)&OwnerIsTarget` IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$CreateTrigger -> reaction a toute attaque la ciblant).
     # actor=attaquant, target=defenseur ; emis EN DERNIER (apres tous les after-hit(8) per-coup).
     # `profiles` (#202-C) = set COMPLET des profils de l'attaque (arme + bonus-hits #179) — lu par
     # `CurrentAttackDamageProfilesContain` (trigger 1173 : une attaque non-Psychic au corps a corps
@@ -440,18 +439,18 @@ def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
                              is_crit: bool, profile: Optional[str] = None,
                              ability_type: Optional[int] = None,
                              did_block: bool = False) -> list[dict]:
-    """Vecteur after-hit d'une attaque d'ABILITY ou de SPLASH. Mirror `EvaluateAfterHitTriggers @180e25fc0`,
+    """Vecteur after-hit d'une attaque d'ABILITY ou de SPLASH. Mirror `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`,
     porté par `ADamageOperation` donc PARTAGÉ par l'attaque normale ET les attaques d'ability : dispatche le
     message **after-hit `On(8)`** (branche crit `param_6!=0` = `On(0x3d)`, non écouté ici). ⚠ Ce vecteur
-    NE dispatche PAS `NormalAttack(0x26)` : le splash emprunte `AbilityDamageOperation.ExecuteHit @180e29d50`
+    NE dispatche PAS `NormalAttack(0x26)` : le splash emprunte `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`
     (events {6,8,0x3d}, JAMAIS 0x26) → **Psyker `On(0x26)` ne re-fire PAS ici = pas de chain** (verdict RE
     #147/#150 ; corrige la sur-propagation de #140). Consommateur actif : reset ActOfFaith (#138, `On(8)` +
     gate `is_crit`) au crit d'ability/splash (ArmoriumCherub, splash FireOfAbsolution). `ranged` (position-based,
     `_is_ranged_position` = mirror `DSLFactory.IsRangedAttack`) reste porté par l'événement pour fidélité (aucun
     consommateur `On(8)` ne le lit aujourd'hui). Le cap `<51/phase` (`TriggeredAbilityComponent`) reste un
-    garde-fou générique fidèle au natif (`EvaluateAbilityTrigger @180e6d650`). No-op si aucun trigger ne matche."""
+    garde-fou générique fidèle au natif (`IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateAbilityTrigger`). No-op si aucun trigger ne matche."""
     ranged = _is_ranged_position(state, attacker_id, target_id)
-    # On(9) ability-attack (per-attaque) : reset ActOfFaith au crit (@181219f90 = On(9) & OwnerIsCaster &
+    # On(9) ability-attack (per-attaque) : reset ActOfFaith au crit (IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateTrigger = On(9) & OwnerIsCaster &
     # WasCrit & HasEffect(0x3f9)). #151 : ROUTE le reset ICI (voie ability/splash/normal-like = is_normal_attack
     # =False) au lieu de after-hit(8) partagé avec la NORMALE -> plus de reset sur un crit d'attaque normale.
     # `ability_type` = AbilityOrEffect du coup (payload d'event natif, lu par les gates kind type
@@ -471,9 +470,9 @@ def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
 
 def evaluate_abilities_for_event(state: State, caster_id: int, target_id: int,
                                  event: int, ranged: bool) -> list[dict]:
-    """Mirror `EvaluateAbilitiesBehaviour.Execute @180fc48a0` (ctor @180fc4e10, champ +0x50 = `EventTriggerType`)
+    """Mirror `IdunBattle.Entities.Behaviours.EvaluateAbilitiesBehaviour$$Execute` (IdunBattle.Entities.Behaviours.EvaluateAbilitiesBehaviour$$.ctor, champ +0x50 = `EventTriggerType`)
     : EVALUE les abilities DÉCLENCHÉES du CASTER pour l'`EventTriggerType` `event`, INLINE dans un behaviour-tree
-    (nœud DSL générique `DSLFactory.EvaluateAbilities @180def5b0`). Callers natifs : NormalAttack
+    (nœud DSL générique `IdunBattleLogic.Entities.DSLFactory$$EvaluateAbilities`). Callers natifs : NormalAttack
     `EvaluateAbilities(0x26)`, ArmoriumCherub `EvaluateAbilities(0x4b=AttackInAtomicGroup)`, ArmouredMight/
     TheQuickening (after-move).
 
@@ -489,7 +488,7 @@ def evaluate_abilities_for_event(state: State, caster_id: int, target_id: int,
 
 
 def after_move_triggers(state: State, mover_id: int) -> list[dict]:
-    """Vecteur after-move (mirror `MoveUnitOperation.EvaluateAfterMoveTriggers`@180e79770 → dispatch).
+    """Vecteur after-move (mirror `IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers → dispatch).
     Le natif émet, dans l'ordre, `On(0x24=UnitPositionChanged_1)` (aucun consommateur porté), `On(4=
     UnitAfterMove)` (overwatch) PUIS `On(0x1d=UnitPositionChanged_2)`. On dispatche `On(4)` puis `On(0x1d)` :
     ce dernier déclenche DecoysAndMisdirection (G2 — ennemi/allié qui marche sur un decoy allié crushé par
@@ -502,8 +501,7 @@ def after_move_triggers(state: State, mover_id: int) -> list[dict]:
 
 
 def displace_triggers(state: State, pusher_id: int, pushed_id: int) -> list[dict]:
-    """Vecteur DÉPLACEMENT FORCÉ (push/pull) — mirror `DisplaceUnitOperation.EventAndAbilitiesAndEffects
-    @180e681c0`. APRÈS le `MoveUnit@0x7e` de la poussée, le natif émet (via `EvaluateTriggerOperation`, msg 0x52)
+    """Vecteur DÉPLACEMENT FORCÉ (push/pull) — mirror `IdunBattle.Operations.DisplaceUnitOperation$$EventAndAbilitiesAndEffects`. APRÈS le `MoveUnit@0x7e` de la poussée, le natif émet (via `EvaluateTriggerOperation`, msg 0x52)
     la SÉQUENCE d'events `On(0x24=UnitPositionChanged_1)` -> `On(0x23=UnitDisplaced)` -> `On(0x1d=
     UnitPositionChanged_2)`, tous {actor=pusher, target=pushed}. On dispatche `On(UnitDisplaced)` (actor=pusher,
     target=pushed) : consommateur `RadSaturationAbility` (branche 2 `OwnerIsTarget` -> le Skitarii Vanguard POUSSÉ
@@ -516,9 +514,9 @@ def displace_triggers(state: State, pusher_id: int, pushed_id: int) -> list[dict
 
 
 def tile_tick_triggers(state: State) -> list[dict]:
-    """Vecteur ROUND-TICK des tile-effects (#128) : `StartTurnOperation.Execute`@180ea3fb0 émet la séquence
-    0x12/0x13/0x14/... → ici on tire `On(0x12)` (Contaminated re-apply @180f3a1d0) puis `On(0x14)` (Fire DoT
-    @18121e390 + DryBush spread @1811bf730). Chaque tile-effect trigger (owner=tuile) matche sur l'occupant
+    """Vecteur ROUND-TICK des tile-effects (#128) : `IdunBattle.Operations.StartTurnOperation$$Execute émet la séquence
+    0x12/0x13/0x14/... → ici on tire `On(0x12)` (Contaminated re-apply IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$CreateHandleTriggerAbilitiesInternal) puis `On(0x14)` (Fire DoT
+    IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateTrigger + DryBush spread IdunBattleLogic.Entities.Abilities.Tiles.DryBushFireSpreadAbility$$CreateTrigger). Chaque tile-effect trigger (owner=tuile) matche sur l'occupant
     de SA tuile. Ordre 0x12 puis 0x14, AVANT le turn-start `On(0x16)` (ordre exact = HYPOTHÈSE à valider,
     cf. verdict RE #128). La PROPAGATION DryBush (`dry_bush_fire_spread`) tourne APRÈS le DoT `On(0x14)` : le
     DoT frappe les occupants des tuiles en feu AU DÉBUT du tick, puis la propagation allume les voisines pour
@@ -533,7 +531,7 @@ def tile_tick_triggers(state: State) -> list[dict]:
 
 def after_death_triggers(state: State, dying_id: int, killer_id: Optional[int],
                          overkill: bool = False) -> list[dict]:
-    """Vecteur MORT (mirror `OnDeathEvent`@180df7ad0 → dispatch). Construit l'événement `On(1)`
+    """Vecteur MORT (mirror `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent → dispatch). Construit l'événement `On(1)`
     {killer=0x158, dying=0x178, overkill} et lance `evaluate_trigger_operation`. Déclenche les accumulations
     ActOfFaith (allié Imperial qui meurt ou tue) + FinalJustice (l'unité mourante riposte, sauf overkill).
     `actor_id`/`target_id` reflètent killer/dying pour le dispatch générique. No-op si aucun trigger ne
@@ -548,14 +546,14 @@ def after_death_triggers(state: State, dying_id: int, killer_id: Optional[int],
 def pre_unit_death_2_triggers(state: State, dying_id: int, killer_id: Optional[int],
                               overkill: bool = False) -> list[dict]:
     """Vecteur `On(PreUnitDeath_2 = 2)` — event NATIF DISTINCT de `PreUnitDeath(1)` et de
-    `UnitDefeated(55)`. Emis par `KillUnitOperation$$Execute @180e76470` ENTRE les deux : ordre
-    d'instruction LU au decompile `On(1)` (ret 0x180e76c4c) -> `On(2)` (ret 0x180e76dea) ->
-    `On(0)` (0x180e77269) -> `On(0x37=55)` (0x180e7731c) -> `On(0x36=54)` (0x180e7749c).
-    (`ApplyDamageOperation$$Execute @180e5a540` n'emet AUCUN des trois ; `InputMessageProcessor$$
-    VerifyDeaths @180ebb0a0` non plus — il ne fait qu'appeler `OperationProcessor$$KillUnit` @180e0a9f0.)
+    `UnitDefeated(55)`. Emis par `KillUnitOperation$$IdunBattle.Operations.KillUnitOperation$$Execute` ENTRE les deux : ordre
+    d'instruction LU au decompile `On(1)` (ret IdunBattle.Operations.KillUnitOperation$$Execute+0x7dc) -> `On(2)` (ret IdunBattle.Operations.KillUnitOperation$$Execute+0x97a) ->
+    `On(0)` (IdunBattle.Operations.KillUnitOperation$$Execute+0xdf9) -> `On(0x37=55)` (IdunBattle.Operations.KillUnitOperation$$Execute+0xeac) -> `On(0x36=54)` (IdunBattle.Operations.KillUnitOperation$$Execute+0x102c).
+    (`ApplyDamageOperation$$IdunBattle.Operations.ApplyDamageOperation$$Execute` n'emet AUCUN des trois ; `InputMessageProcessor$$
+    IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` non plus — il ne fait qu'appeler `OperationProcessor$$Core.Services.OperationProcessor$$KillUnit.)
 
-    Consommateurs portes : la famille DEATH-NOVA (`DSLFactory.OnPreDeath2 @180df7ee0` ->
-    `OnDeathEvent(2, a, b)` @180df7ad0) — `ExplodesAbility` (trait Explodes) et `PutridExplosion_Ability`
+    Consommateurs portes : la famille DEATH-NOVA (`IdunBattleLogic.Entities.DSLFactory$$OnPreDeath2` ->
+    `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent(2, a, b)) — `ExplodesAbility` (trait Explodes) et `PutridExplosion_Ability`
     (trait PutridExplosion). Les DEUX passent `a=1` -> AUCUN gate `NOT HasFlag(dying, Overkilled=8)` :
     la nova part MEME EN OVERKILL (le flag `overkill` est thread pour fidelite du payload, aucun
     consommateur de CE vecteur ne le lit aujourd'hui). L'unite est deja `alive=False` au dispatch
@@ -569,16 +567,16 @@ def pre_unit_death_2_triggers(state: State, dying_id: int, killer_id: Optional[i
 
 def unit_death_triggers(state: State, dying_id: int, killer_id: Optional[int] = None,
                         overkill: bool = False) -> list[dict]:
-    """Vecteur `On(UnitDeath=0)` — 3e des events de mort emis par `KillUnitOperation.Execute @180e76470`
+    """Vecteur `On(UnitDeath=0)` — 3e des events de mort emis par `IdunBattle.Operations.KillUnitOperation$$Execute`
     (sequence verifiee au decompile : `FUN_180026490(...,1)` PreUnitDeath -> `...,2` PreUnitDeath_2 ->
     `...,0` **UnitDeath** -> `...,0x37` UnitDefeated -> `...,0x36` PostUnitKill). Le port emettait deja
     `On(1)` (`after_death_triggers`) et `On(0x37)` (`unit_defeated_triggers`) mais PAS `On(0)` — d'ou ce
     vecteur, insere a sa place EXACTE (entre les deux).
 
-    Consommateur : branche 1 de `TerrifyingCrescendoAbility.CreateTrigger @1811a3910`
+    Consommateur : branche 1 de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger`
     (`On(0) & OwnerIsActor & TargetIsOverkilled` -> +1 stack). `actor` = le TUEUR (OwnerIsActor),
     `target`/`dying` = la victime, `overkill` = `TargetIsOverkilled`. No-op si rien ne matche.
-    (Le `MasterAnnihilator_AdditionalHitEffect.CreateRemoveEffectTrigger @180f58f40` ecoute aussi `On(0)`
+    (Le `IdunBattle.Entities.Effects.Loki.MasterAnnihilator_AdditionalHitEffect$$CreateRemoveEffectTrigger` ecoute aussi `On(0)`
     — retrait du marqueur a la mort de SA source — mais c'est un EFFET-trigger non enregistre, cf.
     loki/master_annihilator.py.)"""
     ev = TriggerEvent(EventTriggerType.UnitDeath,
@@ -590,14 +588,14 @@ def unit_death_triggers(state: State, dying_id: int, killer_id: Optional[int] = 
 
 def pre_effect_added_triggers(state: State, source_id: Optional[int], target_id: Optional[int],
                               effect_type: int) -> list[dict]:
-    """Vecteur `On(PreEffectAdded=0x3e=62)` — emis par `AddEffectOperation.Execute @180e48940` **TOUT EN
+    """Vecteur `On(PreEffectAdded=0x3e=62)` — emis par `IdunBattle.Operations.AddEffectOperation$$Execute` **TOUT EN
     HAUT** (`FUN_180026490(0x50, ..., 0x3e)` juste apres la construction de l'`AbilityEntities`, AVANT le
     gate cible-nulle, AVANT le gate << deja present >> et AVANT le gate d'immunite `HasFlag(target,6)`).
     => l'evenement fire meme quand l'effet n'est finalement PAS applique (semantique << would have >>).
 
     `AbilityEntities.ctor(source, source, target)` -> **actor = la SOURCE** de l'effet ; `target` = la
     cible ; `triggering_effect` = le type pose (lu par `TriggeringEffectIs`). Consommateur : branche 2 de
-    `TerrifyingCrescendoAbility.CreateTrigger @1811a3910`. No-op si rien ne matche."""
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger`. No-op si rien ne matche."""
     ev = TriggerEvent(EventTriggerType.PreEffectAdded,
                       source_id if source_id is not None else -1,
                       target_id if target_id is not None else -1,
@@ -607,7 +605,7 @@ def pre_effect_added_triggers(state: State, source_id: Optional[int], target_id:
 
 def unit_defeated_triggers(state: State, dying_id: int, killer_id: Optional[int] = None) -> list[dict]:
     """Vecteur `On(UnitDefeated=55=0x37)` (G3) — event NATIF DISTINCT de `PreUnitDeath(1)` : le natif
-    `Ambush_SummonAbility` @180e15970 ecoute `On(0x37) & OwnerIsTarget & Not(HasFlag 0xe)`, PAS On(1). Emis
+    `Ambush_SummonAbility` IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$CreateTrigger ecoute `On(0x37) & OwnerIsTarget & Not(HasFlag 0xe)`, PAS On(1). Emis
     par le pipeline de mort APRES `after_death_triggers(On 1)` (l'unite est deja alive=False -> l'ability
     fire-on-death voit sa mort). Declenche la pose du decoy Ambush (mort -> decoy) + l'enregistrement de
     `turn_defeated`. No-op si aucun porteur Ambush ne meurt."""
@@ -619,15 +617,15 @@ def unit_defeated_triggers(state: State, dying_id: int, killer_id: Optional[int]
 
 def unit_revived_triggers(state: State, revived_id: int, current_ability=None) -> list[dict]:
     """Vecteur `On(UnitRevived = 46 = 0x2e)` (case-89 volet B3) — emis par `ReviveUnitOperation.Execute`
-    @0x180e92691 (`FUN_180026490(0x4d, DAT_1831d3468, events, 0x2e)`), APRES la mutation PV/flags/position
-    et **AVANT** la purge de la `ReviveData` (@0x180e92977+). DISTINCT d'`On(UnitResurrected=47=0x2f)`
+    @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 (`FUN_180026490(0x4d, DAT_1831d3468, events, 0x2e)`), APRES la mutation PV/flags/position
+    et **AVANT** la purge de la `ReviveData` (@IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+). DISTINCT d'`On(UnitResurrected=47=0x2f)`
     (`ResurrectUnitOperation`, ambush).
 
     `current_ability` = le `sourceId` (`AbilityOrEffect`) porte par la `ReviveData` — c'est ce que lit le
     noeud `CurrentAbilityIs` des consommateurs. Consommateurs portes :
-      * `PhoenixGem_CanReviveEffect` @180f5e4a0 : `On(0x2e) & OwnerIsTarget & CurrentAbilityIs(0x5b2=1458
+      * `PhoenixGem_CanReviveEffect` IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal : `On(0x2e) & OwnerIsTarget & CurrentAbilityIs(0x5b2=1458
         TriggeredAbilityType.PhoenixGem)` -> `RemoveEffect(marqueur 1451)` = « the FIRST TIME each battle » ;
-      * (non porte, cf. residu A2) `FuelledByFury_CanReviveEffect` @180f4ab10 : meme forme avec
+      * (non porte, cf. residu A2) `FuelledByFury_CanReviveEffect` IdunBattle.Entities.Effects.Loki.FuelledByFury_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal : meme forme avec
         `CurrentAbilityIs(0x4e3=1251)` -> `DeactivateEffect` (« first time each TURN »).
     Le bras `On(UnitRevived)` du trait Swarm est, lui, re-evalue IMPERATIVEMENT par l'Operation (helper
     `on_group_unit_hp_changed`) — residu structurel deja documente (#60). No-op si rien ne matche."""
@@ -637,7 +635,7 @@ def unit_revived_triggers(state: State, revived_id: int, current_ability=None) -
 
 
 def unit_resurrected_triggers(state: State, resurrected_id: int) -> list[dict]:
-    """Vecteur `On(UnitResurrected=47=0x2f)` (G3) — emis par `ResurrectUnitOperation` @180e8e4c0 apres une
+    """Vecteur `On(UnitResurrected=47=0x2f)` (G3) — emis par `ResurrectUnitOperation` IdunBattle.Operations.ResurrectUnitOperation$$Execute apres une
     resurrection Ambush (`actor` = l'unite ressuscitee, co-localisee avec le decoy qu'elle vient de crusher).
     Alimente `DecoysAndMisdirection_BuffFriends` (G2, `(On(0x2f)|On(0x1d)) & AreFriends` -> +582 + nouveau
     decoy si GS Cult) et la re-arme HeroicFusillade (G5, `On(0x2f) & OwnerIsTarget`). No-op si aucun
@@ -649,7 +647,7 @@ def unit_resurrected_triggers(state: State, resurrected_id: int) -> list[dict]:
 
 
 def is_overkill(hp_before, damage) -> bool:
-    """`DamagePrediction.IsOverkill`@181032db0 : coup létal OVERKILL ssi l'excès `(dmg - PV)` >=
+    """`IdunBattle.Core.Services.DamagePrediction$$IsOverkill : coup létal OVERKILL ssi l'excès `(dmg - PV)` >=
     `overkillDmgPctOfHealth`% du PV (=100% → `dmg >= 2*PV`). `CanBeOverkilled` (= NOT trait 0x1b) non
     porté offline (aucun nom de trait dispo ; worldKharn ne l'a pas) → supposé True. No-op (False) si
     dégât inconnu ou PV<=0."""
@@ -661,7 +659,7 @@ def is_overkill(hp_before, damage) -> bool:
 
 
 def start_turn_triggers(state: State, player_id: int) -> list[dict]:
-    """Vecteur DÉBUT DE TOUR (mirror `StartTurnOperation.Execute`@180ea3fb0 émettant l'event `On(0x16)`).
+    """Vecteur DÉBUT DE TOUR (mirror `IdunBattle.Operations.StartTurnOperation$$Execute émettant l'event `On(0x16)`).
     Construit l'événement turn-start {player=player_id} et lance `evaluate_trigger_operation`. Déclenche
     les auto-tours forcés du player courant (ex. TheBetrayer de worldKharn : move+attaque). `actor`/`target`
     = -1 (pas d'acteur unique ; chaque trigger filtre sur `ev.player_id` == son owner). No-op si aucun
@@ -681,8 +679,7 @@ def start_turn_triggers(state: State, player_id: int) -> list[dict]:
 
 
 def turn_start_other_triggers(state: State, player_id: int) -> list[dict]:
-    """Vecteur `On(TurnStart_Other=0x13=19)` — 2e des 5 events emis par `StartTurnOperation.Execute
-    @180ea3fb0` (sequence 0x12->0x13->0x14->0x15->0x16 ; cf. turnflow.py). Dispatch GENERIQUE du
+    """Vecteur `On(TurnStart_Other=0x13=19)` — 2e des 5 events emis par `IdunBattle.Operations.StartTurnOperation$$Execute` (sequence 0x12->0x13->0x14->0x15->0x16 ; cf. turnflow.py). Dispatch GENERIQUE du
     registre `TRAIT_TRIGGERS` sur cet event. Consommateur : `LivingMetalRepairAbility` (#203, regen %
     PV des Necron endommages, `OwnerIsActor` via `player_id`). Le meme event 0x13 porte aussi FirstAid
     (tile-effect, reste bespoke dans tiles.py). `actor`/`target` = -1 (chaque trigger filtre sur
@@ -691,7 +688,7 @@ def turn_start_other_triggers(state: State, player_id: int) -> list[dict]:
     return evaluate_trigger_operation(state, ev)
 
 
-PILEIN_MIN_OWNER_TURNS = 2      # `OwnerHasFinishedMinTurns(2)` — gate du trigger PileIn @181223c50
+PILEIN_MIN_OWNER_TURNS = 2      # `OwnerHasFinishedMinTurns(2)` — gate du trigger PileIn IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateTrigger
 
 
 def end_turn_summon_triggers(state: State, player_id: int) -> list[dict]:
@@ -700,8 +697,8 @@ def end_turn_summon_triggers(state: State, player_id: int) -> list[dict]:
     1. DISPATCH GENERIQUE `On(TurnEnd)` (registre `ABILITY_TRIGGERS`) — ability-triggers TurnEnd. Consommateur :
        `RadSaturationAbility` (branche 3 : le Skitarii Vanguard qui n'a PAS bouge ce tour contamine sa tuile en
        fin de tour ; gate `owner not in state.moved_this_turn`). `player_id` scope l'`OwnerIsActor`.
-    2. Passif d'auto-dédoublement `PileInAbility` (BESPOKE : trigger @181223c50 `On(0x17)` &
-       `OwnerHasFinishedMinTurns(2)` & `IsUnitWithStatAmount(Health Cur==Max)` ; behaviour @181223990) — chaque
+    2. Passif d'auto-dédoublement `PileInAbility` (BESPOKE : trigger IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateTrigger `On(0x17)` &
+       `OwnerHasFinishedMinTurns(2)` & `IsUnitWithStatAmount(Health Cur==Max)` ; behaviour IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateBehaviour) — chaque
        grot (passif `PileIn`) du `player_id`, a PV PLEINS et owner >=2 tours finis, s'auto-dédouble avec proba
        `chance − chance_2 × (#grots amis)` = 75 − 5×n. `Maybe(chance)` non modélisé -> DÉTERMINISTE (fire si
        chance>0, cap naturel n=15). Double = `execute_pilein_replica`. Snapshot AVANT la boucle (« acts on its

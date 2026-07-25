@@ -1,12 +1,12 @@
 """VALIDATION LIVE du port COMBAT de AberrantHypermorph (1166, genesBiophagus/Hollan) -- case-220 P0-SUMMON.
 
-Artefact natif : `AberrantHypermorphAbility.ExecuteBehaviour @1811b0550` (mirror 1:1) :
+Artefact natif : `IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour` (mirror 1:1) :
     Execute( Spawn(caster@0x160, Target@0x178=TUILE, "genesSmnAberrant",
                    WithStatsFromConfig(config, AbilityLevelAmount(Self@0x148, 1166))
                      .onAppearance = PerformAIAttackFromCurrentPosition(Target@0x178)) )
 UN seul noeud Spawn (PAS d'AddEffect, PAS d'ExecuteAtomic) -- le summon le plus simple. Cast TILE-target
-(hex libre adjacent au caster ; ctor @1811b0730 = TargetingOptions(0, statsFromClass, 1, 0x1040) IDENTIQUE
-a MasterOfTheTutelaries @1811f30c0).
+(hex libre adjacent au caster ; IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$.ctor = TargetingOptions(0, statsFromClass, 1, 0x1040) IDENTIQUE
+a MasterOfTheTutelaries IdunBattleLogic.Entities.Abilities.Active.Loki.MasterOfTheTutelariesAbility$$ExecuteBehaviour).
 
 DEUX faces confrontees au live (board/stats REELS via load_state) :
   - EXECUTE (port offline via le handler) : spawn UN genesSmnAberrant sur l'EQUIPE DU CASTER, sur la tuile

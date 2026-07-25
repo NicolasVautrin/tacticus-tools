@@ -6,7 +6,7 @@ trajectoire NATIVE jusqu'au pas cible (aiStepDryRun -> applyAction, mirror
 engine_validate), puis AVANT d'appliquer le pas cible mesure la paire (uid, ab, tgt) :
   - obs de la cible (hp/hpMax/shield/effects) ;
   - aiPlaybookPredict a la tuile d'attaque (events natifs -> champs composite) ;
-  - pairUtility natif (CalculateUtilityFromPredictions @181407890) a la meme tuile ;
+  - pairUtility natif (IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions) a la meme tuile ;
   - NOTRE breakdown : DamageDealt(35) (internals dmg/CM/remaining/u_dmg/u_rem),
     KillUnit(36), Overkill(37) -> somme vs natif ;
   - test d'HYPOTHESES sur le residu : diviseur combinedMax alternatif (hpBefore au

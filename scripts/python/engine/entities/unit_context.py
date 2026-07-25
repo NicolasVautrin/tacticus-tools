@@ -63,7 +63,7 @@ class UnitContext:
         return self.range <= 0
 
     def attacker_modifiers(self):
-        """`DamageModifiers` attaquant (`CalculateAttackerModifiersForPrediction` @181000590) bâti depuis
+        """`DamageModifiers` attaquant (`IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction) bâti depuis
         les EFFETS actifs de l'unité (§17.8 ; vide si aucun = no-op). `active_effects` = instances
         `BaseEffect` (matérialisées/filtrées par EffectsState) OU dicts captés. Lazy import (entities.effects)
         ; re-évalué par-décision — ne pas figer."""
@@ -84,7 +84,7 @@ class UnitContext:
         return (self.normal_min + self.normal_max) // 2
 
     def get_stat(self, stat_type: int, stat_part: int = 0, source: object = None) -> int:
-        """`UnitExtensions.GetStat @180ed30d0` sur les stats portées de l'unité. Défaut = Current
+        """`IdunBattle.Entities.UnitExtensions$$GetStat` sur les stats portées de l'unité. Défaut = Current
         (partie 0). Renvoie 0 si le StatType n'est pas seedé (unité sans UnitStats, ex. summon
         frais construit hors combatSnapshot)."""
         return self.stats.get_stat(int(stat_type), int(stat_part), source)

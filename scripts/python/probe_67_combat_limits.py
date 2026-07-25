@@ -2,15 +2,14 @@
 """Probe #67 — etage LIMITES du COMBAT (member-cap Swarm / bypass Blast / Resilient) en EXECUTION.
 
 RE (structure, decompile = verite) :
-- L'EXECUTION native applique `ApplyTraitDamageLimitsToDamage @18102c650` par COUP :
-  attaque normale via la routine per-coup d'`ExecuteHit @180e5eff0` (wrappers mode-1
-  `ApplyTraitDamageLimitsToAttackDamage @18102c510/@18102c5b0`, virtual-only : cellules min/max
-  capees AVANT la resolution du tirage), ability/splash via `CalculateAbilityDamage @18102cb50`
+- L'EXECUTION native applique `IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage` par COUP :
+  attaque normale via la routine per-coup d'`IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (wrappers mode-1
+  `IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToAttackDamage/IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToAttackDamage`, virtual-only : cellules min/max
+  capees AVANT la resolution du tirage), ability/splash via `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`
   (mode 2 : `ApplyTraitDamageLimitsToDamage(2, &dmg, &dmg, profil, cible, ..., hp=hc+0x18)`).
-- Sous-limites : `ApplyGroupUnitDamageLimit @18102bfe0` (member-cap, skip si profil
+- Sous-limites : `IdunBattle.Core.Services.DamagePrediction$$ApplyGroupUnitDamageLimit` (member-cap, skip si profil
   HitsMultipleMembers=Blast ; flag natif = octet 0 CONSTANT, l'overkill ne bypasse PAS),
-  `ApplyResilientTraitDamageLimit @18102c3a0` (trait 1009 : cap a hp-1, gate `IsOverkill
-  @181032db0`), `ApplyImperviousTraitDamageLimit @18102c190` (trait 28, mode attack only).
+  `IdunBattle.Core.Services.DamagePrediction$$ApplyResilientTraitDamageLimit` (trait 1009 : cap a hp-1, gate `IdunBattle.Core.Services.DamagePrediction$$IsOverkill`), `IdunBattle.Core.Services.DamagePrediction$$ApplyImperviousTraitDamageLimit` (trait 28, mode attack only).
 Le port #67 cable cet etage (partage avec la prediction, `services/trait_damage_limits.py`)
 dans `_run_hits` (runner/operations/damage.py) entre le tirage et le split.
 

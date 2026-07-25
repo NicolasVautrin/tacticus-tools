@@ -3,15 +3,15 @@ accordee par le TRAIT `UnitTrait.SuppressiveFire`=1010, x49 unites dont 8 lineup
 « pose de Suppressed » : pose l'effet Pinned/« Suppressed » (0x429=1065) sur la cible d'une attaque
 RANGED du porteur. RE (decompile ghidra, build gqfc5mff6c) :
 
-  - `CreateTrigger @181225d00` (arbre DSL, conjonction `op_BitwiseAnd`) =
+  - `IdunBattleLogic.Entities.Abilities.Active.Loki.SuppressiveFireAbility$$CreateTrigger` (arbre DSL, conjonction `op_BitwiseAnd`) =
         On(PreAttack=5) & IsRangedAttack & get_OwnerIsActor
           & AreEnemies(owner@0x148, target@0x178)
           & AmountIsGreaterThanZero(Units(target@0x178, kind=2))
     = « quand le porteur (actor) fait une attaque a DISTANCE contre un ennemi avec >=1 cible valide ».
-  - `CreateBehaviour @181225c50` (feuille E UNIQUE) =
+  - `IdunBattleLogic.Entities.Abilities.Active.Loki.SuppressiveFireAbility$$CreateBehaviour` (feuille E UNIQUE) =
         AddEffect(0x429=Pinned, source=AbilityStateReference(=owner), cible=Units(target@0x178, kind=0),
                   dureeNode=struct ZERO -> DefaultAmountOfRounds)
-    `Units` = `UnitsOnTilesSelector` (@180e01340) : les unites sur les tuiles de `target@0x178`
+    `Units` = `UnitsOnTilesSelector` (IdunBattleLogic.Entities.DSLFactory$$Units) : les unites sur les tuiles de `target@0x178`
     (positions exclusives -> la cible elle-meme) -> pose Pinned sur l'UNITE cible.
   i2 : « An enemy hit by this unit's ranged attack becomes Suppressed. »
 
@@ -28,7 +28,7 @@ sous-operation sans NormalAttack). OBSERVABLE IDENTIQUE : Suppressed pose sur la
 d'une attaque ranged, independamment du timing avant/apres degat (l'effet Pinned n'affecte PAS le
 degat ENTRANT ; il ne borne que le mouvement + le degat FUTUR du porteur suppresse). Cf. residus.
 
-Gate ranged = POSITION-based (`_is_ranged_position` = mirror `DSLFactory.IsRangedAttack @180df4d90`,
+Gate ranged = POSITION-based (`_is_ranged_position` = mirror `IdunBattleLogic.Entities.DSLFactory$$IsRangedAttack`,
 = non-adjacent), PAS `ev.ranged` : en voie NORMALE `ev.ranged` est weapon-selection-based
 (`select_weapon_pierce` : une unite ranged-ONLY frappant un ennemi ADJACENT a `ev.ranged=True`
 alors que IsRangedAttack=False = melee de position). Le natif gate sur la POSITION -> une unite a
@@ -67,7 +67,7 @@ _ON_NORMAL = int(EventTriggerType.NormalAttack)   # 38 (0x26) — vecteur de dis
 
 
 def suppressive_fire_tree():
-    """Feuille de `SuppressiveFireAbility.CreateBehaviour @181225c50` (MIRROR 1:1 du DECOMPILE) :
+    """Feuille de `IdunBattleLogic.Entities.Abilities.Active.Loki.SuppressiveFireAbility$$CreateBehaviour` (MIRROR 1:1 du DECOMPILE) :
         AddEffect( effectType = 0x429=Pinned,
                    source     = AbilityStateReference (== owner ; triggered Owner==Caster),
                    cible      = Units(Target@0x178) = l'UNITE cible touchee )
@@ -79,7 +79,7 @@ def suppressive_fire_tree():
 
 
 class SuppressiveFireAddEffectAbility(TriggeredAbility):
-    """`SuppressiveFireAbility` (CreateTrigger @181225d00 / CreateBehaviour @181225c50) — triggered
+    """`SuppressiveFireAbility` (IdunBattleLogic.Entities.Abilities.Active.Loki.SuppressiveFireAbility$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Active.Loki.SuppressiveFireAbility$$CreateBehaviour) — triggered
     1044 accorde par le TRAIT `SuppressiveFire` (1010). Pose Pinned/« Suppressed » (1065) sur la
     cible d'une attaque a DISTANCE du porteur (`On(38)`, OwnerIsActor, IsRangedAttack POSITION-based,
     AreEnemies). L'effet Pinned lui-meme = `PinnedEffect` (status.py, deja porte+valide)."""
@@ -98,11 +98,11 @@ class SuppressiveFireAddEffectAbility(TriggeredAbility):
         tc = tgt.get_component(OwnerComponent)
         if oc is None or tc is None or oc.team == tc.team:   # AreEnemies(owner, target)
             return False
-        # IsRangedAttack (POSITION-based, mirror @180df4d90) : non-adjacent = ranged (PAS ev.ranged).
+        # IsRangedAttack (POSITION-based, mirror IdunBattleLogic.Entities.DSLFactory$$IsRangedAttack) : non-adjacent = ranged (PAS ev.ranged).
         return _is_ranged_position(state, ev.actor_id, ev.target_id)
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        """Behaviour = arbre DSL `suppressive_fire_tree()` (mirror 1:1 @181225c50) :
+        """Behaviour = arbre DSL `suppressive_fire_tree()` (mirror 1:1 IdunBattleLogic.Entities.Abilities.Active.Loki.SuppressiveFireAbility$$CreateBehaviour) :
         `AddEffect(Pinned=1065, Target())`. Target() = la cible de l'evenement (l'ennemi touche) ;
         source = le porteur (caster, triggered Owner==Caster)."""
         if state.effects is None:

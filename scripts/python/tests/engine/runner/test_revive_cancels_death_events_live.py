@@ -1,15 +1,15 @@
-"""case-89 volet C -- **la GARDE de `KillUnitOperation.Execute @180e76470`** : un REVIVE pose pendant
+"""case-89 volet C -- **la GARDE de `IdunBattle.Operations.KillUnitOperation$$Execute`** : un REVIVE pose pendant
 `On(PreUnitDeath = 1)` COURT-CIRCUITE tout le reste de la mort (`On(2)`, `On(0)`, `On(55)`, `On(54)`).
 
 RE (decompile = verite) :
-  * `KillUnitOperation.Execute @180e76470` emet `On(1)` @0x180e76c4c PUIS teste
+  * `IdunBattle.Operations.KillUnitOperation$$Execute` emet `On(1)` @IdunBattle.Operations.KillUnitOperation$$Execute+0x7dc PUIS teste
     `pcVar21 = thunk_FUN_1801f3000(unitComponent + 0xa8, <hasValue de Nullable<...>>) ;
-     if (*pcVar21 == '\\0') { ... }` @0x180e76c9e. Les quatre autres dispatchs -- `On(2)` @0x180e76dea,
-    `On(0)` @0x180e77269, `On(0x37=55)` @0x180e7731c, `On(0x36=54)` @0x180e7749c -- sont TOUS a
+     if (*pcVar21 == '\\0') { ... }` @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e. Les quatre autres dispatchs -- `On(2)` @IdunBattle.Operations.KillUnitOperation$$Execute+0x97a,
+    `On(0)` @IdunBattle.Operations.KillUnitOperation$$Execute+0xdf9, `On(0x37=55)` @IdunBattle.Operations.KillUnitOperation$$Execute+0xeac, `On(0x36=54)` @IdunBattle.Operations.KillUnitOperation$$Execute+0x102c -- sont TOUS a
     l'interieur de ce bloc (profondeur d'accolades 9 vs 7 pour `On(1)`), sans `else`.
-  * Le champ teste est le MEME que celui qu'ECRIT `ReviveBehaviour.Execute @180fd1230`
-    (`*(lVar20 + 0xa8..0xe8) = ReviveData`) et que LIT+PURGE `ReviveUnitOperation.Execute @180e91bd0`
-    (garde @0x180e91e8a, purge @0x180e92977+) -> c'est le `Nullable<ReviveData>` « revive en attente ».
+  * Le champ teste est le MEME que celui qu'ECRIT `IdunBattle.Entities.Behaviours.ReviveBehaviour$$Execute`
+    (`*(lVar20 + 0xa8..0xe8) = ReviveData`) et que LIT+PURGE `IdunBattle.Operations.ReviveUnitOperation$$Execute`
+    (garde @IdunBattle.Operations.ReviveUnitOperation$$Execute+0x2ba, purge @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+) -> c'est le `Nullable<ReviveData>` « revive en attente ».
 
 CONSEQUENCE OBSERVABLE choisie ici (scenario CRAFTE, distinct de ceux qui ont servi a batir le port) :
 un porteur de **death-nova** (`deathPutrifier`, trait `PutridExplosion` -> `On(2)`) qui meurt A COTE d'un
@@ -131,7 +131,7 @@ def _lethal_kill(st, uid, killer):
 
 
 def test_revive_cancels_the_death_nova(env):
-    """Narthecium adjacent -> le Putrifier est REVIVE pendant `On(1)` -> la garde @0x180e76c9e ECHOUE
+    """Narthecium adjacent -> le Putrifier est REVIVE pendant `On(1)` -> la garde @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e ECHOUE
     -> `On(2)` n'est PAS emis -> l'Apothecary adjacent ne prend AUCUN degat de nova."""
     st = _fresh(env)
     ap, nova = env["ids"]["ap"], env["ids"]["nova"]

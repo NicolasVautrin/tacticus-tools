@@ -1,21 +1,21 @@
 """DUREE D'EFFET : conversion ROUNDS -> TOURS (#98) — CONFRONT LIVE.
 
-`BattleQuery.ConvertRoundsToTurns @181058af0` = `count(joueurs du `BC.Player.TurnOrder` dont
+`IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` = `count(joueurs du `BC.Player.TurnOrder` dont
 `PlayerComponent+0x20 != 2` = Environment exclu) * rounds`. DEUX voies natives y passent :
 
-  * le noeud DSL `TurnsFromRounds(n)` (`TurnsFromRoundsFormula.Calculate @180f26a50` -> slot 0x1b
-    de `BattleQuery`) — ex. `ThunderousAssaultAbility.ExecuteBehaviour @1812158b0` :
+  * le noeud DSL `TurnsFromRounds(n)` (`IdunBattle.Entities.Formulas.TurnsFromRoundsFormula$$Calculate` -> slot 0x1b
+    de `BattleQuery`) — ex. `IdunBattleLogic.Entities.Abilities.Active.Loki.ThunderousAssaultAbility$$ExecuteBehaviour` :
     `AddEffect(0x48a Stunned, stateRef, target@0x178, TurnsFromRounds(1))` ;
-  * la duree PAR DEFAUT dans `AddEffectOperation.Execute @180e48940`, branche « pas d'override » :
+  * la duree PAR DEFAUT dans `IdunBattle.Operations.AddEffectOperation$$Execute`, branche « pas d'override » :
     `ConvertRoundsToTurns(DefaultAmountOfRounds(type).Value)` — ex. `Pinned 1065` (1 round).
 
 Une duree passee en `Nullable<int>(n)` / `Direct(n)@0xc0` par l'appelant est DEJA en TOURS et n'est
 **PAS** convertie (le natif la met telle quelle dans `param_6`) — c'est le canal `duration_turns` du
-port (Waaagh @18122b900, WeaverOfFate @1811acb90, Decoys @180e1fe30, Hypersensory @180f878f0).
+port (Waaagh IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffBehaviour, WeaverOfFate IdunBattleLogic.Entities.Abilities.Triggered.Loki.WeaverOfFateAbility$$CreateBehaviour, Decoys IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_BuffFriendsAbility$$CreateBehaviour, Hypersensory IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$CreateBehaviour).
 
 PIEGE DE MESURE (la raison pour laquelle ce bug a survecu) : en 1v1 STRICT, le cast est l'action de
 la SEULE unite du camp -> `AddFlagsAfterAbilityExecution` -> `FinishUnitTurn` -> le moteur CLOT le
-tour -> `EndTurnOperation` -> `RefreshEffects @180e6bf70` decremente TOUS les timers AVANT qu'on
+tour -> `EndTurnOperation` -> `IdunBattle.Operations.EndTurnOperation$$RefreshEffects` decremente TOUS les timers AVANT qu'on
 relise `decisionView`. La valeur lue est alors `duree_posee - 1`, ce qui MIME l'identite rounds=turns.
 Ces tests montent donc TOUJOURS >= 2 unites cote joueur et castent avec une unite qui en laisse une
 autre activable : la lecture est PRE-tick (verifie explicitement par `currentPlayer` inchange).
@@ -156,7 +156,7 @@ def test_rounds_to_turns_factor_seeded_from_live(live_session, rpc, build_runner
 
 def test_turns_from_rounds_duration_matches_live(live_session, rpc, build_runner):
     """VOIE 1 (`TurnsFromRounds(1)` explicite) : le `remaining` natif du Stun pose par
-    ThunderousAssault @1812158b0 doit valoir `convert_rounds_to_turns(state, 1)` — PAS 1.
+    ThunderousAssault IdunBattleLogic.Entities.Abilities.Active.Loki.ThunderousAssaultAbility$$ExecuteBehaviour doit valoir `convert_rounds_to_turns(state, 1)` — PAS 1.
 
     Le cast est fait par `templSwordBrother` alors qu'`emperNoiseMarine` n'a PAS agi -> le tour ne
     bascule pas -> lecture PRE-tick (assertion explicite sur `currentPlayer`).
@@ -257,9 +257,9 @@ def test_default_amount_of_rounds_duration_matches_live(live_session, rpc, build
 def test_duration_turns_channel_is_not_converted():
     """GARDE DE NON-REGRESSION du canal `duration_turns` (OFFLINE, pas de live requis).
 
-    Les call-sites dont le natif passe un `Direct(n)@0xc0` / `Nullable<int>(n)` (Waaagh @18122b900,
-    MasterOfTheTutelaries @1811f30c0, WeaverOfFate @1811acb90, Decoys @180e1fe30, Hypersensory
-    @180f878f0) sont DEJA en TOURS : les convertir les DOUBLERAIT. Ce test fige la separation des
+    Les call-sites dont le natif passe un `Direct(n)@0xc0` / `Nullable<int>(n)` (Waaagh IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffBehaviour,
+    MasterOfTheTutelaries IdunBattleLogic.Entities.Abilities.Active.Loki.MasterOfTheTutelariesAbility$$ExecuteBehaviour, WeaverOfFate IdunBattleLogic.Entities.Abilities.Triggered.Loki.WeaverOfFateAbility$$CreateBehaviour, Decoys IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_BuffFriendsAbility$$CreateBehaviour, Hypersensory
+    IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$CreateBehaviour) sont DEJA en TOURS : les convertir les DOUBLERAIT. Ce test fige la separation des
     deux canaux — c'est le risque #1 d'une reconciliation faite en aveugle.
     """
     from engine.runner.abilities.behaviours.effects import _resolve_duration
@@ -276,7 +276,7 @@ def test_duration_turns_channel_is_not_converted():
 
 
 def test_default_rounds_conversion_offline():
-    """`AddEffectOperation` convertit la duree PAR DEFAUT (branche 2 du decompile @180e48940) et
+    """`AddEffectOperation` convertit la duree PAR DEFAUT (branche 2 du decompile IdunBattle.Operations.AddEffectOperation$$Execute) et
     laisse l'override intact (branche 1, deja en TOURS). Garde OFFLINE de la cascade."""
     from engine.entities.effects_state import EffectsState
     for et in (PINNED, 17):                     # 1065 (1 round) et Ice 0x11 (2 rounds)

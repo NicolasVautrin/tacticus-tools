@@ -10,14 +10,14 @@ le degat mesure `d >= PV_avant` (donc LETAL), l'allie est
     `--hp-player` differents (c'est la signature du revive : l'etat de sortie ne depend plus des PV
     d'entree) -- et SUR SA PROPRE TUILE (revive EN PLACE) ;
   * ou MORT si le coup est un OVERKILL (`dmg >= 2 x PV_avant`, `overkillDmgPctOfHealth`=100), car
-    `Narthecium.get_ReviveOnOverkill @vtable+0x738` = @1802b15a0 `return 0` -> le trigger AJOUTE
+    `Narthecium.get_ReviveOnOverkill @vtable+0x738` = GameCamera$$ShouldBlurBackground `return 0` -> le trigger AJOUTE
     `NOT(HasFlag(dying, 8=overkill))`  =>  « unless Overkilled ».
 
 Le probe execute les TROIS scenarios et compare (A et B = revive, C = overkill bloquant).
 
-Chaine native prouvee : `Narthecium_ReviveEffect` (ctor @180f5ae20 / filter @180f5acf0) sur la base
-`ReviveEffect.CreateTargetTrigger @180f46d80` + `CreateTargetTriggerBehaviour @180f46a70`
--> `DSLFactory.Revive @180dfa4f0` -> `ReviveUnitOperation.Execute @180e91bd0`.
+Chaine native prouvee : `Narthecium_ReviveEffect` (IdunBattle.Entities.Effects.Loki.Narthecium_ReviveEffect$$.ctor / filter IdunBattle.Entities.Effects.Loki.Narthecium_ReviveEffect$$CreateTargetFilter) sur la base
+`IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTrigger` + `IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour`
+-> `IdunBattleLogic.Entities.DSLFactory$$Revive` -> `IdunBattle.Operations.ReviveUnitOperation$$Execute`.
 
 Usage : python probe_79_narthecium_live.py   (ASCII only)
 """

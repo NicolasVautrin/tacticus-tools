@@ -8,7 +8,7 @@ dans l'etat offline. Consequence : AUCUN port d'ability MoW n'etait confrontable
 FABRIQUER un faux caster a la main, cf. l'ancien `_fabricate_caster` de test_spore_mine_launcher_live).
 
 CE QUI EST PORTE : `_load_machines` / `_load_machine_stats` (snapshot.py) materialisent la MoW comme
-entite ECS, mirror de `AddMachineOperation.Execute @180e4b5e0` (entite EntityType.Machine=6, liee a
+entite ECS, mirror de `IdunBattle.Operations.AddMachineOperation$$Execute` (entite EntityType.Machine=6, liee a
 ses `MachinePlatform` Type=7 par `MachinePlatformComponent.MachineId` Nullable@+0x14/+0x18, abilities
 initialisees par `AddMachineOperation.InitializeAbilitiesStatus`). Jeu de composants MESURE live via
 `dumpEntityComponents` sur l'entite Machine : Parent / EffectsOwned / TriggeredAbility / Owner /
@@ -193,7 +193,7 @@ def test_mow_ability_executes_from_loaded_caster(mow_runner):
     exp_hp = int(ability_var("SporeMineLauncher", "summonHp", ab["level"],
                              multiplier_pct=ab["multiplier"]) or 0)
 
-    # tuile-cible legale et LIBRE (cf. gate `GetDynamicInvalidTargetReason @18120a590`)
+    # tuile-cible legale et LIBRE (cf. gate `IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility$$GetDynamicInvalidTargetReason`)
     at = rpc("abilityTargets", {"runnerId": rid, "unitId": cid, "abilityType": SPORE}, 90) or {}
     row = next((u for u in (at.get("units") or []) if u.get("unitId") == cid), None)
     tiles = [(t["tile"]["col"], t["tile"]["row"])

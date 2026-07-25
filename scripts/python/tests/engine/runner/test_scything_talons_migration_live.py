@@ -1,6 +1,6 @@
 """#149 slice-8 : ScythingTalons (1065) MIGRATION replay-diff -- l'arbre DSL == l'ancien imperatif, BIT-EXACT.
 
-`ScythingTalonsAbility.ExecuteBehaviour @1812059f0` (DECOMPILE) =
+`IdunBattleLogic.Entities.Abilities.Active.Loki.ScythingTalonsAbility$$ExecuteBehaviour` (DECOMPILE) =
     ExecuteAtomic( op_BitwiseAnd(
         AttackWithAttackDamage(caster, target, MinMaxDamage, Bio, condHits1=0x2f=3),
         AttackWithAttackDamage(caster, Unique(Enemies(caster, AdjacentUnits(casterTile,1) &

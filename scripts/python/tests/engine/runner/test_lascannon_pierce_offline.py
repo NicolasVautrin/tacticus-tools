@@ -1,18 +1,18 @@
 """#71 LasCannon pierce bonus (+50) -- gate OFFLINE (patron CondemnorStake : carrier NON spawnable).
 
-`StaticBattleRules.Damage.GetPiercingRatio @181559a40` (RE decompile, mirror 1:1) :
+`idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Damage$$GetPiercingRatio` (RE decompile, mirror 1:1) :
     p = profile.PiercingDamageRatio                         # DamageProfile @+0x14
     if profile.HasTrait(DamageTrait.LasCannon=3)
        and attacker.HasTrait(UnitTrait.HeavyWeapon=1001 | Emplacement=1016):
         p += 50                                             # static_field[0] de StaticBattleRules.DamageTrait,
-                                                            # ecrit 0x32 par sa .cctor @1815597c0 (`**(int**)
+                                                            # ecrit 0x32 par sa .idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.DamageTrait$$.cctor (`**(int**)
                                                             # (cls+0xb8)=0x32`) ; lu `iVar3 += **(int**)(cls+0xb8)`
     return clamp(0, 100, p)
 
 Le bonus est applique par `GetPiercingRatio`, appele par les DEUX faces natives :
-  - PREDICTION/UI : `GetAttackPiercingDamageRatio @181030a20` (xrefs DATA-only = service delegate partage).
-  - COMBAT        : `GetBaseDamageWithFixedPiercedArmor @181030d10` (appele par `CalculateBaseDamageWithAll
-                    Modifiers @18102d726`, la fn per-coup partagee combat+prediction) -> `GetDamageWithPiercing`.
+  - PREDICTION/UI : `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio` (xrefs DATA-only = service delegate partage).
+  - COMBAT        : `IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageWithFixedPiercedArmor` (appele par `CalculateBaseDamageWithAll
+                    Modifiers IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers+0x336`, la fn per-coup partagee combat+prediction) -> `GetDamageWithPiercing`.
 Le port Python a UN seul foyer partage `battle_query.select_weapon_pierce` (prediction ET combat) ; le fix #71
 y ajoute le bonus via `get_piercing_ratio` -> les deux faces sont couvertes.
 
@@ -61,7 +61,7 @@ class _Ctx:
 # ------------------------------------------------------------------ 1. constante + enums
 
 def test_constant_is_50():
-    """La constante = 50 (0x32), lue du cctor natif `StaticBattleRules.DamageTrait$$.cctor @1815597c0`."""
+    """La constante = 50 (0x32), lue du cctor natif `StaticBattleRules.DamageTrait$$.idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.DamageTrait$$.cctor`."""
     assert W_LASCANNON_PIERCE_BONUS == 50
 
 
@@ -88,7 +88,7 @@ def test_get_piercing_ratio_clamped_100():
 
 
 def test_get_attack_piercing_damage_ratio_applies_bonus_by_default():
-    """GetAttackPiercingDamageRatio (@181030a20) applique le bonus par defaut (lascannon_bonus=50 intrinseque
+    """GetAttackPiercingDamageRatio (IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio) applique le bonus par defaut (lascannon_bonus=50 intrinseque
     au natif, pas un param appelant). base=GetPiercingRatio + ExtraPierce(0 ici)."""
     got = get_attack_piercing_damage_ratio(
         10, profile_has_lascannon=True, attacker_extra_pierce=0, attacker_extra_pierce_dir=0,
@@ -155,7 +155,7 @@ def test_toggle_profile_lascannon_gates_bonus():
 
 def test_pierce_bonus_changes_combat_damage_vs_armor():
     """Discriminant COMBAT : contre une cible ARMUREE, pierce 60 (fix) donne un degat > pierce 10 (sans fix).
-    `GetDamageWithPiercing @1815598b0` : le percage est un PLANCHER = roll*pierce/100 vs roll-armure."""
+    `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Damage$$GetDamageWithPiercing` : le percage est un PLANCHER = roll*pierce/100 vs roll-armure."""
     roll, armor = 3000, 1909            # magnitude realiste (cible tanky type necroOverlord armure ~1909)
     d60 = int(get_damage_with_piercing(roll, 60, armor))
     d10 = int(get_damage_with_piercing(roll, 10, armor))

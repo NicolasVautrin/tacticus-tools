@@ -1,8 +1,8 @@
 """#149 slice-19 : EnvFireTile DoT (feu de tuile, `Active.Loki`) MIGRATION vers l'arbre DSL
-`env_fire_tile_tree()` (mirror 1:1 de la FEUILLE de `EnvFireTileAbility.CreateBehaviour @18121e040`).
+`env_fire_tile_tree()` (mirror 1:1 de la FEUILLE de `IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour`).
 
-Feuille native = factory `AttackWithAbilityDamage @180de9c90` = DEGAT DIRECT (DISTINCTE de
-`AttackWithAttackDamage @180de9fb0` = Psyker/ThunderousAssault) :
+Feuille native = factory `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` = DEGAT DIRECT (DISTINCTE de
+`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` = Psyker/ThunderousAssault) :
     AttackWithAbilityDamage( Tiles(@0x180),
                              PercentageOf( StatAmount(@0x180, Health=5, Max=2), ConfigConst(fireDmgPct) ),
                              Direct(Nullable(3)), source = AbilityOrEffect(Fire=5) )

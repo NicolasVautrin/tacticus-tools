@@ -8,7 +8,7 @@ from ._base import NCContext, _PlanTargetPlaybook, _will_normal_attack_kill
 
 
 class StormcallerPlaybook(_PlanTargetPlaybook):
-    """`StormcallerPlaybook.EvaluateNonComparable @181160ff0` (id 0x459=1113, spaceStormcaller).
+    """`IdunBattle.AI.Playbook.Loki.StormcallerPlaybook$$EvaluateNonComparable` (id 0x459=1113, spaceStormcaller).
 
     NonComparable : le DEGAT n'entre PAS dans l'utilite (le playbook n'a AUCUN `Make*Predictions` —
     c'est le reframe #34). Le natif compte les UNITES prises dans la zone de glace :
@@ -16,11 +16,11 @@ class StormcallerPlaybook(_PlanTargetPlaybook):
     - cibles = `BasePlaybook.GetEligibleTargetsSelectable(ctx, position.MainTile)` (ennemis a portee 3).
     - GATE par cible : `WillNormalAttackKill(target, position.MainTile) -> continue` — le natif SAUTE
       une cible que l'attaque normale tue deja a coup sur (il ne gaspille pas Stormcaller dessus).
-    - utilite = `GetTargetUtility @1811613a0` : part de `Fix64.Zero` (champ statique Fix64 +0x28) puis
-      `+1` (champ statique [1] du cctor @1811616f0 = `Fix64.FromInt(1)`) PAR TUILE de la zone qui PORTE
+    - utilite = `IdunBattle.AI.Playbook.Loki.StormcallerPlaybook$$GetTargetUtility` : part de `Fix64.Zero` (champ statique Fix64 +0x28) puis
+      `+1` (champ statique [1] du IdunBattle.AI.Playbook.Loki.StormcallerPlaybook$$.cctor = `Fix64.FromInt(1)`) PAR TUILE de la zone qui PORTE
       UNE UNITE (`UnitExtensions.GetUnit(tile, state) != null` — AUCUN filtre d'equipe : les allies ET
       le caster comptent s'ils sont dans la zone).
-    - zone = `StormcallerAbility.GetAddIceTiles @18120cf70` = `AdjacentTiles(Target) + Target` = la tuile
+    - zone = `IdunBattleLogic.Entities.Abilities.Active.Loki.StormcallerAbility$$GetAddIceTiles` = `AdjacentTiles(Target) + Target` = la tuile
       de la cible + son ring-1. `AdjacentTiles` passe par `IterateAdjacentTiles` -> porte d'elevation
       `|delta elev| < 2` (cf. `bq.is_adjacent`).
     - `MIN_UTILITY` = champ statique [0] du cctor = `Fix64.FromInt(1)` ; `PRIORITY`=0 (#115). Le gate
@@ -31,7 +31,7 @@ class StormcallerPlaybook(_PlanTargetPlaybook):
     Vexilla / HammerOfWrath) : Stormcaller a une config de degat, donc ses paires (cible, tuiles) sont
     presentes dans `attackPlans` meme si son utilite de DECISION les ignore."""
     ABILITY_ID = int(ActiveAbilityType.Stormcaller)  # 1113
-    MIN_UTILITY = 1.0     # cctor @1811616f0 champ [0] = Fix64(1)
+    MIN_UTILITY = 1.0     # IdunBattle.AI.Playbook.Loki.StormcallerPlaybook$$.cctor champ [0] = Fix64(1)
     PRIORITY = 0
 
     def evaluate_non_comparable(self, tile, target, ctx: NCContext):

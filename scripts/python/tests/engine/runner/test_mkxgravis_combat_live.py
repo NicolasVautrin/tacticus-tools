@@ -2,9 +2,9 @@
 
 Verrou du port #180 : `AttackDamageOperation` doit appliquer `hit_mult=2` (double-perçage/armure) quand
 la CIBLE porte MkXGravis, SAUF au crit (i2 « Any incoming Damage has to go through Armour a second time.
-Does not apply to Crits »). Mirror natif `GetBaseDamageWithFixedPiercedArmor @181030d10` (HasTrait(0x3f5)
-&& !isCrit) dans le chemin combat `CalculateAbilityDamage @18102cb50` -> `CalculateBaseDamageWith
-AllModifiers @18102d3f0` (decompile-confirme).
+Does not apply to Crits »). Mirror natif `IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageWithFixedPiercedArmor` (HasTrait(0x3f5)
+&& !isCrit) dans le chemin combat `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` -> `CalculateBaseDamageWith
+AllModifiers IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` (decompile-confirme).
 
 Cible = ultraInceptorSgt (traits Hero/Flying/MkXGravis, armure > 0 -> double-armure DISCRIMINANTE).
 Attaquant = necroDestroyer (melee multi-coups vanille). Sur un coup PROPRE (non-crit), off per-coup ==

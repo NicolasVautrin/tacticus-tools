@@ -1,13 +1,13 @@
 """case-220 §6.11 BlackLegion : BringerOfDespair (1022, Angrax `blackTerminator`) FACE COMBAT confront LIVE.
 
-`BringerOfDespairAbility$$ExecuteBehaviour @1811be740` (DECOMPILE, mirror 1:1 + callees verifiees) :
+`BringerOfDespairAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.BringerOfDespairAbility$$ExecuteBehaviour` (DECOMPILE, mirror 1:1 + callees verifiees) :
     bonusSel = PickRandomly( Damageable(Enemies(AdjacentUnits(casterTile@0x168, r=1))) − Target()@0x178, 1 )
     ExecuteAtomic( op_BitwiseAnd(
         AttackWithAttackDamage(caster@0x160, target@0x178, MinMaxDamage, GetDamageProfile=Power, 0x2f=4),  # MAIN
         AttackWithAttackDamage(caster@0x160, bonusSel,     MinMaxDamage, Power,                  0x32=4) ), 0x45 )  # BONUS
 i2 : « 4x Power to a melee target and 4x Power to another random enemy adjacent to Angrax [le caster]. »
-`native_factory="attack"` (les DEUX volets = `DSLFactory.AttackWithAttackDamage @180de9fb0`, VERIFIE par les
-callees de @1811be740) = 2 tirages/coup a cc=0 -- pipeline partage rngcrit-1202 (tip #2).
+`native_factory="attack"` (les DEUX volets = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`, VERIFIE par les
+callees de IdunBattleLogic.Entities.Abilities.Active.Loki.BringerOfDespairAbility$$ExecuteBehaviour) = 2 tirages/coup a cc=0 -- pipeline partage rngcrit-1202 (tip #2).
 
 Ce que ces tests PROUVENT (drive les 2 camps -- applyAction ignore propriete+portee -- `--hp-target` = armure
 nulle pour un per-coup bit-exact SANS le gap d'arrondi pierce/armure) :
@@ -174,9 +174,8 @@ def test_bringer_live_cast_targeting_and_ab_fidelity(live_session, rpc, build_ru
 
     CONFOUND DOCUMENTE (VERIFIE decompile) : Angrax porte le trait faction `LetTheGalaxyBurn` (1482, Black
     Legion), une ability DECLENCHEE (`Abilities.Triggered.Loki.LetTheGalaxyBurnAbility`) qui pose
-    `EffectAdditionalHits.Create` (`LetTheGalaxyBurnEffect.CreateAdditionalHits @180f54e30`) -> +1 coup/attaque
-    COMPOSE par-dessus l'attaque (comme FleshmetalGuns extra-hits). Ce trait est HORS de l'ExecuteBehaviour
-    @1811be740 (aucun noeud extra-hit) ET NON WIRE offline (transverse case-doc §6.11, TRAIT_TRIGGERS). Live =
+    `EffectAdditionalHits.Create` (`IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits`) -> +1 coup/attaque
+    COMPOSE par-dessus l'attaque (comme FleshmetalGuns extra-hits). Ce trait est HORS de l'IdunBattleLogic.Entities.Abilities.Active.Loki.BringerOfDespairAbility$$ExecuteBehaviour (aucun noeud extra-hit) ET NON WIRE offline (transverse case-doc §6.11, TRAIT_TRIGGERS). Live =
     5 coups/attaque = 4 (BringerOfDespair) + 1 (trait) ; le coup extra decale TOUT le flux RNG -> le per-coup
     -vs-live n'est PAS bit-exact (confondu). On valide donc le CIBLAGE (non confondu : le trait ne change pas
     QUI est frappe) + la fidelite du degat par A/B OFFLINE (bit-exact, tree==baseline) + la magnitude config,

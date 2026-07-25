@@ -2,11 +2,11 @@
 """Probe #45f — cause racine du residu x1.5 GreatFrostAxe (case-220 SW / fable effect-damage-bonus).
 
 HYPOTHESE (decompile) : le +50% mesure (live = 1.5x offline par coup, DidCrit=0) N'EST PAS le bonus
-crit-sur-Ice (`IceEffect.CreateEffectDamageBonusForAttack @180f44940` = EffectBonus.addition
+crit-sur-Ice (`IdunBattle.Entities.Effects.IceEffect$$CreateEffectDamageBonusForAttack` = EffectBonus.addition
 `PercentageOf(StatAmount(attacker, CRIT_DAMAGE=10), EffectConfig(5)=IceCritDmgBonusPct=25)` gate
 `AttackDamageIsCritical & AreEqual(occupant,target) & !HasTrait(target,0x19=Immune)` -> 0 pour un
 attaquant cd=0, et crit-gated) mais le bonus d'ELEVATION (`Damage.ElevationBonus=50`, feuille du
-builder PARTAGE `CalculateAttackerModifiersForPrediction @181000590`, gate `elev(att) > elev(cible)`
+builder PARTAGE `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction`, gate `elev(att) > elev(cible)`
 SANS distinction normale/ability) que le chemin offline `execute_ability_attack`/`execute_normal_like`
 n'applique PAS (fork de port : seul `execute` normal appelle `apply_elevation_bonus`, damage.py:406).
 
@@ -23,7 +23,7 @@ DISCRIMINANT (une variable = la relation d'elevation, positions FORCEES par appl
          build que crit, DOUBLE replay offline (a) tel-quel -> bit-exact vs live ; (b) trait Immune
          INJECTE sur la cible offline -> chaque coup crit doit tomber a live-175 (le gate porte
          est CABLE dans le pipeline reel, pas seulement dans la fonction). La face NATIVE du gate
-         reste decompile-only (@180f44940 : op_LogicalNot(HasTrait(target,0x19))).
+         reste decompile-only (IdunBattle.Entities.Effects.IceEffect$$CreateEffectDamageBonusForAttack : op_LogicalNot(HasTrait(target,0x19))).
 
 Usage : python probe_45f_gfa_elevation.py [--case high|flat|low|crit|immune|all]
 ASCII only (cp1252). State-file UNIQUE par cas ; dispose au teardown.
@@ -225,7 +225,7 @@ def run_case(sid, case: str, seed: int):
 
 
 def _offline_storm_per_hit(dec1, ob1, snap1, bg, s_cast, cid, eid):
-    """Rejoue l'arbre Stormcaller (famille ABILITY @180de9dd0) -> {target_id: per_hit}."""
+    """Rejoue l'arbre Stormcaller (famille ABILITY IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage) -> {target_id: per_hit}."""
     from engine.runner.abilities.loki.stormcaller import stormcaller_tree
     st = load_state(dec1, ob1, snap1)
     st.board = Board(bg["tiles"], adjacency="native_sym")

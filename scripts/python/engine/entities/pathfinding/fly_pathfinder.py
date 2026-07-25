@@ -2,24 +2,23 @@
 (`IdunBattle.Entities.Pathfinding.FlyPathfinder`). RE ghidra gqfc5mff6c.
 
 Une unité « comme volante » (`IsLikeFlying`) utilise ce pathfinder au lieu du
-WalkPathfinder. Sélection natif = dispatch virtuel de `MovementQuery.GetReachableTiles`
-@18109b380 sur le pathfinder de l'unité.
+WalkPathfinder. Sélection natif = dispatch virtuel de `IdunBattle.Core.Services.MovementQuery$$GetReachableTiles sur le pathfinder de l'unité.
 
-PRÉDICAT « comme volante » (`UnitExtensions.IsLikeFlying @180ed88b0`) :
+PRÉDICAT « comme volante » (`IdunBattle.Entities.UnitExtensions$$IsLikeFlying`) :
     IsLikeFlying(u) = HasTrait(Flying=4) OR HasTrait(Burrow=19)
 (les DEUX traits volent : Flying = vol classique, Burrow = terre/ressort ignorant
 le terrain de surface). Les noms viennent de l'enum `UnitTrait` (4=Flying, 19=Burrow).
 
-PRÉDICAT D'ARÊTE (`FlyPathfinder.IsValidPathNode @180f1b2e0`) — peut-on TRAVERSER
+PRÉDICAT D'ARÊTE (`IdunBattle.Entities.Pathfinding.FlyPathfinder$$IsValidPathNode`) — peut-on TRAVERSER
 sur `to` : le natif ne teste QUE deux flags intrinsèques de la tuile
 (`tile[+0x40]==0 AND tile[+0x41]==0` = non-unplayable ET non-mur ; `+0x41` confirmé
-« mur » via `FlyPathfinder.IsAnyAdjacentTileWall @180f1b010`). **AUCUN test d'élévation,
+« mur » via `IdunBattle.Entities.Pathfinding.FlyPathfinder$$IsAnyAdjacentTileWall`). **AUCUN test d'élévation,
 AUCUN blocage par unité** (contrairement à Walk `IsWalkable + |Δelev|<=1 + !BlockedByEnemy`).
 → le vol ignore l'élévation ET traverse par-dessus alliés ET ennemis ; il ne peut pas
 entrer sur un mur / une tuile injouable. Ces deux flags = `walkable=False` côté board
 capté (cf. board.py « les MURS sont walkable=False »), donc l'arête fly = `board.walkable(to)`.
 
-TUILE D'ARRÊT (`FlyPathfinder.IsValidFinalTile @180f1b2a0`) = `!IsTemporary(tile) AND
+TUILE D'ARRÊT (`IdunBattle.Entities.Pathfinding.FlyPathfinder$$IsValidFinalTile`) = `!IsTemporary(tile) AND
 IsWalkable(tile)` = tuile passable, non-temporaire, NON occupée. Même règle d'arrêt que
 Walk (les tuiles visitées sont passables par construction → « non occupée » suffit).
 `IsTemporary` (tuile-hazard éphémère) non modélisé sur board basique (partagé avec
@@ -36,7 +35,7 @@ LIKE_FLYING_TRAITS = ("Flying", "Burrow")
 
 
 def is_like_flying(traits) -> bool:
-    """`UnitExtensions.IsLikeFlying @180ed88b0` = HasTrait(Flying=4) OR HasTrait(Burrow=19).
+    """`IdunBattle.Entities.UnitExtensions$$IsLikeFlying` = HasTrait(Flying=4) OR HasTrait(Burrow=19).
     `traits` = liste des noms de trait (gameconfig)."""
     if not traits:
         return False
@@ -48,7 +47,7 @@ def is_valid_path_node(
     board: Board, from_id: int, to_id: int,
     occupants: dict, moving_team: int,
 ) -> bool:
-    """`FlyPathfinder.IsValidPathNode @180f1b2e0` — peut-on TRAVERSER vers `to_id` :
+    """`IdunBattle.Entities.Pathfinding.FlyPathfinder$$IsValidPathNode` — peut-on TRAVERSER vers `to_id` :
     uniquement `walkable(to)` (non-mur/non-unplayable). Ignore l'élévation ET l'occupant
     (le vol passe par-dessus). `from_id`/`occupants`/`moving_team` inutilisés (signature
     homogène avec le prédicat walk pour le BFS partagé)."""

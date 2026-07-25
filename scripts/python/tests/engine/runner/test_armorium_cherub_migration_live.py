@@ -1,10 +1,10 @@
 """#149 slice-7 : ArmoriumCherub (1014) MIGRATION replay-diff -- l'arbre DSL == l'ancien imperatif, BIT-EXACT.
 
-`ArmoriumCherubAbility.ExecuteBehaviour @1811b4000` (DECOMPILE) =
+`IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$ExecuteBehaviour` (DECOMPILE) =
     ExecuteAtomic( op_and(
         AttackWithAttackDamage(caster, target, MinMaxDamage(minDmg 0xc/maxDmg 0xd), Flame, nrOfHits=0x2f=4),
         EvaluateAbilities(0x4b=AttackInAtomicGroup) ) )
-Le 2e nœud `EvaluateAbilities(AttackInAtomicGroup)` = `EvaluateAbilitiesBehaviour @180fc48a0` : EVALUE les
+Le 2e nœud `EvaluateAbilities(AttackInAtomicGroup)` = `EvaluateAbilitiesBehaviour IdunBattle.Entities.Behaviours.EvaluateAbilitiesBehaviour$$Execute` : EVALUE les
 passifs declenches du caster pour cet event -> `FireOfAbsolution` (splash 3x Flame + Maybe ignite). Porte via
 la feuille `EvaluateAbilities` + le dispatch `evaluate_abilities_for_event` (AttackInAtomicGroup ->
 `_fire_of_absolution_after_attack`).

@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from engine import battle_query  # gate CanUseAbility @181054ec0 (stun/taunt)
+from engine import battle_query  # gate IdunBattle.Core.Services.AttackQuery$$CanUseAbility (stun/taunt)
 from engine.playbook.scene import Scene, step_context as _step_context  # état objet + seam live-feed
 
 
@@ -47,7 +47,7 @@ class AiDecisionContext:
     enemies: list                     # unités adverses vivantes positionnées
     epos: list                        # positions ennemies (GetAdjacentEnemies) — COMPLET (occupance)
     tgt_epos: list                    # positions ennemies CIBLABLES (post-filtres `FindClosestEnemy`
-    #                                   @181197f10 #26 : Environment/IsTargetable/IsIrrelevantObject/
+    #                                   IdunBattle.AI.ActionGenerators.MovementActionGenerator.u003CFindClosestEnemyu003Ed__8$$MoveNext #26 : Environment/IsTargetable/IsIrrelevantObject/
     #                                   IsDead/GetOnlyTargets) — seed du fallback HEX de MinDist(16)
     fpos: list                        # positions alliées, self exclu (GetAdjacentFriends)
     origin: tuple | None              # (col,row) de l'unité active
@@ -214,7 +214,7 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     ab_name_by_id = {x.get("id"): x.get("name") for x in ((me or {}).get("abilities") or [])}
     normal_ids = {a.get("id") for a in ((me or {}).get("abilities") or [])
                   if a.get("kind") == "normal"}
-    # Gate d'usabilite `AttackQuery.CanUseAbility @181054ec0` (stun/taunt -> effets
+    # Gate d'usabilite `IdunBattle.Core.Services.AttackQuery$$CanUseAbility` (stun/taunt -> effets
     # `*_CantUseAbility`) : les actives/granted bloquees ne doivent JAMAIS atteindre les
     # generateurs (le natif ne genere pas d'action pour elles ; l'attaque normale passe).
     # Filtre au POINT DE COUTURE unique (tous les generateurs lisent ctx.me["abilities"]).
@@ -230,7 +230,7 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     obs_units = obs.get("units") or []
     hpmax_by_id = {u.get("squadId"): (u.get("hpMax") or 0) for u in obs_units}
     # #45b' : overlay MaxHealth EFFECTIF (combatSnapshot.healthMax = GetStat(e,5,part=2), la
-    # lecture EXACTE de DamageUtility @1810e2280) — obs.hpMax est la BASE (struct @0x14) et
+    # lecture EXACTE de DamageUtility IdunBattle.AI.Utilities.DamageUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext) — obs.hpMax est la BASE (struct @0x14) et
     # rate les bumps mid-bataille (TwistedScience +2992 sur u87, 777 s15 : natif 2.8836
     # reconstruit exact avec 14036, faux 2.3755 avec 11044). Vieux hooks -> overlay vide.
     if predictor is not None:
@@ -251,7 +251,7 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     pdr = rpc("pathDistToEnemies", {"runnerId": rid, "unitId": uid}, 90)
     pathdist_by_pos = {(t.get("col"), t.get("row")): t.get("pathDist") for t in (pdr.get("tiles") or [])}
     # #26 — ennemis CIBLABLES retenus par le RPC (miroir natif COMPLET des filtres `FindClosestEnemy`
-    # @181197f10 : Environment / IsTargetable / IsIrrelevantObject / IsDead / GetOnlyTargets) : seed
+    # IdunBattle.AI.ActionGenerators.MovementActionGenerator.u003CFindClosestEnemyu003Ed__8$$MoveNext : Environment / IsTargetable / IsIrrelevantObject / IsDead / GetOnlyTargets) : seed
     # du fallback HEX de MinDist(16) quand pathDist=-1. Fallback epos (complet) si RPC KO.
     _pdr_enemies = pdr.get("enemies")
     tgt_epos = ([(e.get("col"), e.get("row")) for e in _pdr_enemies]
@@ -268,7 +268,7 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     fpos = [(u["pos"]["col"], u["pos"]["row"]) for u in units
             if u.get("ctrl") and u.get("alive") and u.get("pos") and u.get("id") != uid]
     # reach_nc = tuiles de MOVE puis ORIGINE (`NullPosition`) EN DERNIER : ORDRE BRUT du generateur
-    # `<GenerateActions>d__7 @18119a3f0` (`Bucket.AddAction` keep-first `>`). NUANCE #76/#80 : le tie-break
+    # `<GenerateActions>d__7 IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` (`Bucket.AddAction` keep-first `>`). NUANCE #76/#80 : le tie-break
     # depend de `HasValidTargets(0x3f)` PAR tuile de move. SELF-cast (heals, NovaBoost) : self-cible
     # position-independante -> le generateur gate les tuiles de move -> le natif RESTE EN PLACE au tie
     # (CONFIRME LIVE #76) -> ces playbooks balaient `_sweep_origin_first` (origine d'abord), PAS cet ordre brut.

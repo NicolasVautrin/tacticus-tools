@@ -94,7 +94,7 @@ lire (il est aussi projete live via `projectTile.tileDefId`, cf. `match-state.ts
 **Mapping terrain → mécanique** (confirmé) : **`DryBush` = LightCover** (couverture legere : l'unite SUR
 la tuile recoit **-2 coups des attaques ranged multi-hit, min 1** ; effet 1013 pose par `LightCoverAbility`
 de tuile, gate compute-time = cible ACTUELLEMENT sur tuile cover) ; **`Trench` = modificateur de DEGAT
-positionnel** (`CalculateAttackerModifiersForPrediction @181000590`, famille RangedInMelee, cf. #61 —
+positionnel** (`IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction`, famille RangedInMelee, cf. #61 —
 PAS un reducteur de coups). Les autres (`Water`/`Bridge` = LOS/mvt, `BrokenIce`, `FirstAid`, `HulkWall`/
 `HulkDoor`) : mecanique par gameconfig/RE au besoin.
 

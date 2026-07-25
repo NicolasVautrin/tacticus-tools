@@ -7,13 +7,13 @@ from ._base import NCContext, NonComparablePlaybook
 
 
 class ScarabSummonPlaybook(NonComparablePlaybook):
-    """`ScarabSummonPlaybook.EvaluateNonComparable @181158f10` (auto-DÉDOUBLEMENT du scarab, id 0x417=1047).
+    """`IdunBattle.AI.Playbook.Loki.ScarabSummonPlaybook$$EvaluateNonComparable` (auto-DÉDOUBLEMENT du scarab, id 0x417=1047).
     Pour CHAQUE cible éligible (`GetEligibleTargetsSelectable(MainTile(caster))` = tuiles de spawn ring-1
     libres adjacentes à SOI), `GenerateAction` à utilité CONSTANTE `Fix64.FromIntFraction(3,2)=1.5`.
-    cctor @181159310 : MIN_UTILITY=1 (`Fix64.FromInt(1)`). ctor @181159380 : `NonComparablePlaybook(0x417)`
+    IdunBattle.AI.Playbook.Loki.ScarabSummonPlaybook$$.cctor : MIN_UTILITY=1 (`Fix64.FromInt(1)`). IdunBattle.AI.Playbook.Loki.ScarabSummonPlaybook$$.ctor : `NonComparablePlaybook(0x417)`
     SANS priorité -> get_Priority=**0** (défaut). Le caster NE bouge PAS (spawn adjacent à soi, pas de move).
 
-    GAP : `GetUseProbability @181159220` (1.0 ou 1/2 selon un compteur runtime = `chance:50` gameconfig) =
+    GAP : `IdunBattle.AI.Playbook.Loki.ScarabSummonPlaybook$$GetUseProbability` (1.0 ou 1/2 selon un compteur runtime = `chance:50` gameconfig) =
     gate RNG NON modélisé offline -> le port décide TOUJOURS de se dédoubler dès qu'une tuile ring-1 est
     libre (le natif ~50%). Idem cap de duplication (`UnitDuplicationLimitSelector`) non porté."""
     ABILITY_ID = int(ActiveAbilityType.ScarabSummon)  # 1047

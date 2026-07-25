@@ -1,6 +1,6 @@
 """Overrides `CalculateCustomUtility` par-ability (namespace `IdunBattle.AI.Playbook[.Loki]`) — #27.
 
-Terme d'ACTION `ComparablePlaybook<T>.CalculateCustomUtility @181407840` (base = `Fix64(0)`, base.py),
+Terme d'ACTION `ComparablePlaybook<T>.IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateCustomUtility` (base = `Fix64(0)`, base.py),
 ajoute PAR-DESSUS `u_full` dans `_best_attack` (`u_action = u_full + calculate_custom_utility`,
 action_generators.py). Chaque sous-classe ci-dessous OVERRIDE ce terme, mirror 1:1 du corps natif (VA
 citee). La prediction de degat reste celle du `DefaultActiveAbilityPlaybook` (heritee) : #27 ne porte
@@ -14,8 +14,8 @@ non porte (evaluateur DSL de formes TilesInTriangleShape/UnitsWithTrait/chain ;
 `GenerateMultiHitAttackPredictions` ; utilite de deplacement
 `UtilityMovementCase`/`GetTargetUtilityDiffOnDisplace`) restent en residu (doc #27).
 
-POSITION-DEPENDANCE : le natif somme le custom DANS `CalculateActionUtility @181406ee0`, donc AVANT
-l'argmax par tuile de `EvaluateInternal @181408980`. `ai/action_generators._best_attack` compare donc
+POSITION-DEPENDANCE : le natif somme le custom DANS `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility`, donc AVANT
+l'argmax par tuile de `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$EvaluateInternal`. `ai/action_generators._best_attack` compare donc
 `u_full + custom(tuile)` pendant le sweep de tuiles — sans quoi un terme par-tuile (Drachnyen) serait
 inerte. Constant pour les autres overrides -> neutre.
 
@@ -40,7 +40,7 @@ class _CustomOnlyPlaybook(DefaultActiveAbilityPlaybook):
 
 
 class ArmoriumCherubPlaybook(_CustomOnlyPlaybook):
-    """`IdunBattle.AI.Playbook.Loki.ArmoriumCherubPlaybook.CalculateCustomUtility @18111c530`
+    """`IdunBattle.AI.Playbook.Loki.ArmoriumCherubPlaybook$$CalculateCustomUtility`
     = `Fix64.FromInt(1)` CONSTANT (aucune garde, aucun poids). Porteur adeptRetributor 'Vindicta'
     [lineup]. Bonus d'action +1 identique au patron NormalAttack (common.py) : ArmoriumCherub bat
     tout actif Comparable a Delta(pair+tile) < 1, et EGALISE l'attaque normale (elle aussi +1)."""
@@ -51,7 +51,7 @@ class ArmoriumCherubPlaybook(_CustomOnlyPlaybook):
 
 
 class LightOfSanguiniusPlaybook(_CustomOnlyPlaybook):
-    """`IdunBattle.AI.Playbook.LightOfSanguiniusPlaybook.CalculateCustomUtility @181133d70`
+    """`IdunBattle.AI.Playbook.LightOfSanguiniusPlaybook$$CalculateCustomUtility`
     = `count(units du JOUEUR-du-caster a 100% PV) * W`.
     Natif : `GetOriginalPlayer(caster)` -> ses units (`FUN_180004fd0(0x88,...)`), pour chacune
     `GetStat(Health=5, part=1)==100` (PV% == plein) -> +W. Mirror direct sur `ctx` : unites de la
@@ -82,7 +82,7 @@ class LightOfSanguiniusPlaybook(_CustomOnlyPlaybook):
 
 
 def _all_normal_attack_targets(ctx, unit: dict) -> list:
-    """`BasePlaybook.GetAllNormalAttackTargets @18111e820` = `battleQuery.<0x44>(unit,
+    """`IdunBattle.AI.Playbook.BasePlaybook$$GetAllNormalAttackTargets` = `battleQuery.<0x44>(unit,
     GetNormalAttackType(unit))` -> `(List<TUnit> Targets, Dictionary<Tile, List<TUnit>> ByTile)` ;
     `Targets` (champ +0x10) = les ennemis attaquables a l'attaque NORMALE depuis les tuiles ou
     l'unite peut se tenir. Le jeu ne calcule les tuiles de deplacement QUE pour le joueur ACTIF,
@@ -125,13 +125,13 @@ def _all_normal_attack_targets(ctx, unit: dict) -> list:
 
 
 class HeraldOfTheApocalypsePlaybook(_CustomOnlyPlaybook):
-    """`IdunBattle.AI.Playbook.Loki.HeraldOfTheApocalypsePlaybook.CalculateCustomUtility @1811441b0` :
+    """`IdunBattle.AI.Playbook.Loki.HeraldOfTheApocalypsePlaybook$$CalculateCustomUtility` :
 
         foreach (e in GetAllNormalAttackTargets(caster).Targets)
             if (EnemyCouldBeDamagedWithNormalAttack(e)) return Fix64(0);
         return GetUtilityValue("HeraldOfTheApocalypse_CannotKillEnemy");
 
-    `EnemyCouldBeDamagedWithNormalAttack @18111da80` = `GetAllNormalAttackTargets(e).Targets.Count > 0`
+    `IdunBattle.AI.Playbook.BasePlaybook$$EnemyCouldBeDamagedWithNormalAttack` = `GetAllNormalAttackTargets(e).Targets.Count > 0`
     (l'ennemi peut-il lui-meme frapper quelqu'un). La boucle rend W DES QUE la liste du caster est
     vide OU qu'aucun ennemi atteignable n'est lui-meme menacant. Terme CONSTANT sur (tuile, cible) :
     il ne biaise pas l'argmax intra-ability, il arbitre Herald CONTRE les autres actions.
@@ -155,7 +155,7 @@ class HeraldOfTheApocalypsePlaybook(_CustomOnlyPlaybook):
 
 
 class DrachnyenPlaybook(_CustomOnlyPlaybook):
-    """`IdunBattle.AI.Playbook.Loki.DrachnyenPlaybook.CalculateCustomUtility @18112dc60` :
+    """`IdunBattle.AI.Playbook.Loki.DrachnyenPlaybook$$CalculateCustomUtility` :
 
         n = Enumerable.Count(battleQuery.<0x7d>(casterPosition, GetCurrentOwnerEntityId(caster)), pred);
         return n < 2 ? Fix64(0) : GetUtilityValue("Drachnyen_MultipleAdjacentUnits");

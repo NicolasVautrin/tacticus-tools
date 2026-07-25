@@ -5,27 +5,27 @@ Namespace natif `IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisd
 materialise par DEUX abilities-triggers DISTINCTES (2 entrees dans `AbilityAndEffectCache`), split par la
 CONDITION DE FACTION (`AreEnemies` vs `AreFriends`), PAS par l'event :
 
-- `DecoysAndMisdirection_DamageEnemiesAbility` (CreateTrigger @180e20310, CreateBehaviour @180e20190) :
+- `DecoysAndMisdirection_DamageEnemiesAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_DamageEnemiesAbility$$CreateTrigger, IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_DamageEnemiesAbility$$CreateBehaviour) :
     `On(0x1d=UnitPositionChanged_2) & AreEnemies(owner, actor) & AmountIsGreaterThanZero(GetValidDeadDecoys)`
     -> `Repeat( AttackWithAbilityDamage(owner, actor=stepper, MinMaxDamage, Blast, GetHits=1),
                Count(GetValidDeadDecoys) )`
-- `DecoysAndMisdirection_BuffFriendsAbility` (CreateTrigger @180e20050, CreateBehaviour @180e1fe30) :
+- `DecoysAndMisdirection_BuffFriendsAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_BuffFriendsAbility$$CreateTrigger, IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_BuffFriendsAbility$$CreateBehaviour) :
     `(On(0x2f=UnitResurrected) | On(0x1d)) & AreFriends(owner, actor) & AmountIsGreaterThanZero(GetValidDeadDecoys)`
     -> `AddEffect(1379 DecoysAndMisdirection_ExtraDamage +582, on=actor)` + `If(HasFaction(actor,
        GenestealerCults), spawn_decoy(First(SortTilesByUtilityForSummon(CanAddUnit(AdjacentTiles(actor)))),
        ForSteppable))`
 
-Base `ADecoysAndMisdirectionAbility.GetValidDeadDecoys @180e13550` = `Filter(AllDeadUnits, AreFriends(owner,
+Base `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ADecoysAndMisdirectionAbility$$GetValidDeadDecoys` = `Filter(AllDeadUnits, AreFriends(owner,
 decoy) & HasTrait(decoy, 0x41d=1053 Decoy) & IsKilledThisTurn(decoy) & AreEqual(Killer(decoy), actor) &
 Contains(Tiles(actor), MainTileOfUnits(decoy)))` -> collapse `_valid_dead_decoys`.
 
-VECTEUR : le natif `MoveUnitOperation.EvaluateAfterMoveTriggers @180e79770` emet On(0x24) puis On(4=
+VECTEUR : le natif `IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers` emet On(0x24) puis On(4=
 UnitAfterMove, overwatch) puis On(0x1d=UnitPositionChanged_2) ; le decoy est crushe INLINE (`_kill_steppable_
 units`, G1) AVANT -> `GetValidDeadDecoys` le lit deja mort. `dispatch.after_move_triggers` emet On(4) PUIS
 On(0x1d) (le path resurrect On(0x2f) viendra avec G3-Ambush).
 
-FEUILLE Blast (decompile @180e20190 VERIFIE) : `DSLFactory$$AttackWithAbilityDamage @180de9c90` -> base
-@180de9e50 = `AttackBehaviour(AbilityDamageBehaviour(MinMaxDamage, Blast, source))` = pipeline crit/block
+FEUILLE Blast (decompile IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_DamageEnemiesAbility$$CreateBehaviour VERIFIE) : `DSLFactory$$IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` -> base
+IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage = `AttackBehaviour(AbilityDamageBehaviour(MinMaxDamage, Blast, source))` = pipeline crit/block
 COMPLET (PAS le direct pierce-only). Portee par le leaf `AttackWithAttackDamage` (`execute_ability_attack`,
 config MinMaxDamage) -> meme pipeline que les autres Blast d'ability (Stikkbomb/Fragstorm/Plasma). Le profil
 Blast porte `HitsMultipleMembers` (splash) -> le leaf attaque le stepper SEUL ; le splash multi-membres n'est
@@ -83,7 +83,7 @@ def _pos_of(state: State, uid: int):
 
 
 def _valid_dead_decoys(state: State, owner_id: int, stepper_id: int) -> list:
-    """`GetValidDeadDecoys @180e13550` (collapse S) : decoys (trait Decoy 1053) MORTS, amis de owner, tues CE
+    """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.ADecoysAndMisdirectionAbility$$GetValidDeadDecoys` (collapse S) : decoys (trait Decoy 1053) MORTS, amis de owner, tues CE
     TOUR PAR le stepper, sur une tuile occupee par le stepper.
 
     Collapse : le stepper vient de MOVE sur la tuile d'un decoy, crushe INLINE (`_kill_steppable_units` G1) ->
@@ -161,7 +161,7 @@ def _owner_level_mult(state: State, owner_id: int):
 # ----- les 2 abilities-triggers -----
 
 class DecoysAndMisdirectionDamageEnemiesAbility(TriggeredAbility):
-    """`DecoysAndMisdirection_DamageEnemiesAbility` (CreateTrigger @180e20310, CreateBehaviour @180e20190).
+    """`DecoysAndMisdirection_DamageEnemiesAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_DamageEnemiesAbility$$CreateTrigger, IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_DamageEnemiesAbility$$CreateBehaviour).
     Un ENNEMI (de l'owner Isaak) qui MOVE sur un decoy allie crushe -> `Repeat(Blast sur le stepper,
     count=nb decoys morts valides)`. On(0x1d). Blast = leaf `AttackWithAttackDamage` (pipeline crit/block, config
     MinMaxDamage 1455-1746@L65, nrOfHits=1, profil Blast) sur le stepper (`ev.actor_id`)."""
@@ -181,7 +181,7 @@ class DecoysAndMisdirectionDamageEnemiesAbility(TriggeredAbility):
         for _ in range(n):                            # Repeat( ... , Count(GetValidDeadDecoys) )
             ectx = ExecutionContext(state=state, rng=state.rng)
             AttackWithAttackDamage(Target(), ABILITY_ID, BLAST_PROFILE, is_melee=False,
-                                   native_factory="ability").execute(   # @180e202af -> @180de9c90 = AbilityDamageOperation
+                                   native_factory="ability").execute(   # IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_DamageEnemiesAbility$$CreateBehaviour+0x11f -> IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage = AbilityDamageOperation
                 entities_from_state(state, self.owner_id, stepper), ectx)
             atk = next((p for nm, p in ectx.emitted if nm == "AttackWithAttackDamage"), None)
             blasts.append(atk)
@@ -190,7 +190,7 @@ class DecoysAndMisdirectionDamageEnemiesAbility(TriggeredAbility):
 
 
 class DecoysAndMisdirectionBuffFriendsAbility(TriggeredAbility):
-    """`DecoysAndMisdirection_BuffFriendsAbility` (CreateTrigger @180e20050, CreateBehaviour @180e1fe30).
+    """`DecoysAndMisdirection_BuffFriendsAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_BuffFriendsAbility$$CreateTrigger, IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_BuffFriendsAbility$$CreateBehaviour).
     Un ALLIE (de l'owner Isaak) qui MOVE/RESURRECT sur un decoy allie crushe -> `AddEffect(1379
     DecoysAndMisdirection_ExtraDamage +582, on=stepper)` (jusqu'a fin de son tour, `remaining_turns=1`) +
     `If(HasFaction(stepper, GenestealerCults), spawn_decoy(hex adjacent libre du stepper, ForSteppable))`.
@@ -216,7 +216,7 @@ class DecoysAndMisdirectionBuffFriendsAbility(TriggeredAbility):
         # tour). AddEffectOperation no-op si un même-type est déjà présent sur le stepper (refresh-équivalent).
         eff = AddEffectOperation.execute(state, self.owner_id, stepper, DECOYS_EXTRA_DMG,
                                          name="DecoysAndMisdirection_ExtraDamage",
-                                         duration_override=1)   # duree = df@0xc0 = Direct(1) (@180e1fe30) : deja en TOURS, pas de conversion (#98)
+                                         duration_override=1)   # duree = df@0xc0 = Direct(1) (IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_BuffFriendsAbility$$CreateBehaviour) : deja en TOURS, pas de conversion (#98)
         if eff is not None:
             lvl, mult = _owner_level_mult(state, self.owner_id)
             eff.ability_level = lvl                       # niveau du passif de l'owner (proxy, FLAG path allié)
@@ -234,10 +234,10 @@ class DecoysAndMisdirectionBuffFriendsAbility(TriggeredAbility):
 # G3 — trait Ambush (1052) : mort -> decoy + resurrection sur decoy allie + tour immediat
 #
 # Namespace natif `IdunBattleLogic.Entities.Abilities.Triggered.Loki`. Le trait 1052 = 2 abilities-triggers :
-#   - `Ambush_SummonAbility`      (CreateTrigger @180e15970, GetSummonBehaviour @180e15a10) : mort -> decoy.
-#   - `EnvAmbushResurrectAbility`  (CreateTrigger @180f79a10, CreateBehaviour @180f79760)   : resurrection.
-# La feuille DSL `Resurrect` @180dfa420 appelle l'Operation imperative `ResurrectUnitOperation.Execute
-# @180e8e4c0` (../resurrect.py) qui pose le flag one-shot 0xe + crushe le decoy + emet On(UnitResurrected=47).
+#   - `Ambush_SummonAbility`      (IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$CreateTrigger, IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$GetSummonBehaviour) : mort -> decoy.
+#   - `EnvAmbushResurrectAbility`  (IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnvAmbushResurrectAbility$$CreateTrigger, IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnvAmbushResurrectAbility$$CreateBehaviour)   : resurrection.
+# La feuille DSL `IdunBattleLogic.Entities.DSLFactory$$Resurrect appelle l'Operation imperative `ResurrectUnitOperation.Execute
+# IdunBattle.Operations.ResurrectUnitOperation$$Execute` (../resurrect.py) qui pose le flag one-shot 0xe + crushe le decoy + emet On(UnitResurrected=47).
 # RE ghidra gqfc5mff6c ; doc docs/rl/genestealer-cults.md (verdict G3).
 # =====================================================================================================
 
@@ -272,7 +272,7 @@ def _free_tile_or_adjacent(state: State, coord):
 
 
 def _valid_decoys(state: State, player) -> list:
-    """`GetValidDecoys @180f79d80` (collapse S) : decoys VIVANTS (trait Decoy 1053) du joueur `player`, sur
+    """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnvAmbushResurrectAbility$$GetValidDecoys` (collapse S) : decoys VIVANTS (trait Decoy 1053) du joueur `player`, sur
     une tuile marchable (`IsCanAddUnit(Tiles(decoy))`). Le decoy est crushe a la resurrection (l'unite
     reapparait sur SA tuile). Le `Not(HasEffect(decoy, 1390))` natif (decoy deja reclame) est assure par la
     RE-EVALUATION entre iterations du behaviour (un decoy crushe passe alive=False -> exclu de l'appel suivant).
@@ -302,7 +302,7 @@ def _valid_decoys(state: State, player) -> list:
 
 
 def _eligible_for_resurrect(state: State, player) -> list:
-    """`GetUnitsEligibleForResurrect @180f79b90` (collapse S) : unites MORTES du joueur `player` portant le
+    """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnvAmbushResurrectAbility$$GetUnitsEligibleForResurrect` (collapse S) : unites MORTES du joueur `player` portant le
     trait Ambush, PAS deja ressuscitees (`Not(HasFlag 0xe)`), mortes au tour PRECEDENT du joueur
     (`AmountIsEqual(Difference(CurrentPlayerTurnsStarted, TurnDefeated(u)), @0xc0=1)`). `turn_defeated` est
     pose a la mort par `AmbushSummonAbility`."""
@@ -337,7 +337,7 @@ def _max_health(state: State, uid: int):
 
 
 class AmbushSummonAbility(TriggeredAbility):
-    """`Ambush_SummonAbility` (CreateTrigger @180e15970, GetSummonBehaviour @180e15a10). A la MORT d'un porteur
+    """`Ambush_SummonAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$CreateTrigger, IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$GetSummonBehaviour). A la MORT d'un porteur
     Ambush : `On(UnitDefeated=55) & OwnerIsTarget & Not(HasFlag(owner, 0xe))` -> pose 1 decoy genesSmnDecoy sur
     la tuile du mort (sinon adjacente libre), ForSteppable (feuille Spawn = G1). ENREGISTRE aussi `turn_defeated`
     (base du delai de resurrection). `fire_on_death` : l'owner EST l'unite morte (alive=False)."""
@@ -372,7 +372,7 @@ class AmbushSummonAbility(TriggeredAbility):
 
 
 class EnvAmbushResurrectAbility(TriggeredAbility):
-    """`EnvAmbushResurrectAbility` (CreateTrigger @180f79a10, CreateBehaviour @180f79760). Au DEBUT du tour du
+    """`EnvAmbushResurrectAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnvAmbushResurrectAbility$$CreateTrigger, IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnvAmbushResurrectAbility$$CreateBehaviour). Au DEBUT du tour du
     joueur courant : `On(TurnStart_Actions=22) & AmountIsGreaterThanZero(GetValidDecoys) &
     AmountIsGreaterThanZero(GetUnitsEligibleForResurrect)` -> ressuscite chaque porteur Ambush eligible (mort
     au tour precedent, non deja ressuscite) sur un decoy allie ALEATOIRE, PV pleins, TOUR IMMEDIAT. Ordre
@@ -422,27 +422,27 @@ class EnvAmbushResurrectAbility(TriggeredAbility):
 # G6b — HypersensoryAbilities MoveAndSpawnDecoy (passif de Judh genesKelermorph, seconde moitie du passif)
 #
 # Namespace natif `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility_MoveAndSpawnDecoy`.
-# CreateTrigger @180f88070, CreateBehaviour @180f878f0, GetTilePriority @180f88190. RE ghidra gqfc5mff6c
+# IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$CreateTrigger, IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$CreateBehaviour, IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$GetTilePriority. RE ghidra gqfc5mff6c
 # (verdict re-expert #16). i2 : « After the attack [1re du tour ennemi], she moves to a free adjacent hex and
 # places a decoy on the hex she moved from. Then, if she is within 2 hexes of the unit that attacked her, she
 # deals 3x <MinMax> Projectile Damage to that unit. » Reutilise le compteur d'attaques recues de G6a.
 #
-# TRIGGER @180f88070 (arbre PROUVE, tous op_BitwiseAnd) :
+# TRIGGER IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$CreateTrigger (arbre PROUVE, tous op_BitwiseAnd) :
 #     On(9=Attack) BRUT & OwnerOrOwnerTileIsTarget(owner) & IsEnemyTurn(owner)
 #       & Not(HasEffect(owner, 0x57f=1407))                                      # flag once/turn
 #       & Not(HasBeenAttackedAmountThisTurnIsEqualOrGreater(owner, seuil=Direct(2)))   # SEUIL = 2 (pas 1)
-#   `On(9)` est emis par `FinishAttackOperation @180e71310` pour TOUTE attaque (normale ET ability) -> le
+#   `On(9)` est emis par `FinishAttackOperation IdunBattle.Operations.FinishAttackOperation$$Execute` pour TOUTE attaque (normale ET ability) -> le
 #   dispatch `after_hit_normal_attack` l'emet desormais aussi (dispatch.py) => Judh reagit a n'importe quelle
 #   attaque la ciblant. Le seuil 2 (et non 1 comme le HP-floor G6a) : au moment ou On(9) fire, le compteur
 #   vaut deja 1 (record_attacked l'a incremente AVANT le vecteur after-hit) -> Not(1>=2)=True a la 1re attaque ;
 #   la 2e (compteur=2, + flag pose) est bloquee.
 #
-# BEHAVIOUR @180f878f0 (ordre PROUVE) : (1) MOVE vers la meilleure tuile adjacente libre (GetTilePriority) ->
+# BEHAVIOUR IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$CreateBehaviour (ordre PROUVE) : (1) MOVE vers la meilleure tuile adjacente libre (GetTilePriority) ->
 #   (2) DECOY sur PreviousTile (la tuile QUITTEE) -> (3) CONTRE-ATTAQUE gatee IsInRange(range) & IsAlive x2 &
 #   Not(IsObscured) -> (4) AddEffect(0x57f=1407) EN DERNIER (flag once/turn). Le compteur n'est ni lu ni
 #   incremente ici (maintenu par le pipeline d'attaque).
 #
-# GetTilePriority @180f88190 (PROUVE, tri ASCENDANT + First -> plus bas = meilleur) :
+# IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$GetTilePriority (PROUVE, tri ASCENDANT + First -> plus bas = meilleur) :
 #     prio = If( AmountIsEqual(MinDistance(tile, attaquant), Direct(range)) & Not(IsObscured(tile, attaquant)),
 #                Direct(0),
 #                If( IsSurrounding(tile, attaquant, radius 1), Direct(1), Direct(2) ) )
@@ -480,7 +480,7 @@ def _living_occupants_map(state: State) -> dict:
 
 
 def _hypersensory_move_dest(state: State, judh_id: int, attacker_id: int, cfg_range: int):
-    """`First(SortByFormula(Randomize(MovableTilesInRange(self, Direct(1))), GetTilePriority @180f88190))` :
+    """`First(SortByFormula(Randomize(MovableTilesInRange(self, Direct(1))), IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$GetTilePriority))` :
     la MEILLEURE tuile LIBRE adjacente (portee de move 1) atteignable par Judh, triee par GetTilePriority.
     Priorite (ASC, plus bas = mieux) : 0 si dist(tile, attaquant)==cfg_range & Not(IsObscured) ; 1 si la tuile
     entoure l'attaquant (radius 1) ; 2 sinon. Le `Randomize` (tie-break PRNG amont) COLLAPSE en tri
@@ -513,8 +513,8 @@ def _hypersensory_move_dest(state: State, judh_id: int, attacker_id: int, cfg_ra
 
 
 class HypersensoryMoveAndSpawnDecoyAbility(TriggeredAbility):
-    """`HypersensoryAbilitiesAbility_MoveAndSpawnDecoy` (CreateTrigger @180f88070, CreateBehaviour @180f878f0,
-    GetTilePriority @180f88190). A la 1re attaque de chaque tour ennemi qui cible Judh : elle se deplace vers un
+    """`HypersensoryAbilitiesAbility_MoveAndSpawnDecoy` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$CreateTrigger, IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$CreateBehaviour,
+    IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$GetTilePriority). A la 1re attaque de chaque tour ennemi qui cible Judh : elle se deplace vers un
     hex adjacent libre (le plus loin de l'attaquant), pose un decoy sur la tuile QUITTEE, et si l'attaquant est
     a <= `range` hex contre-attaque 3x Projectile. `On(9=Attack)` BRUT (emis par FinishAttackOperation pour
     TOUTE attaque) & OwnerOrOwnerTileIsTarget & IsEnemyTurn & Not(HasEffect 1407) & Not(HasBeenAttacked>=2)."""
@@ -562,7 +562,7 @@ class HypersensoryMoveAndSpawnDecoyAbility(TriggeredAbility):
         # prochain start_turn (reset_times_attacked) -> la reaction se re-arme chaque tour ennemi.
         AddEffectOperation.execute(state, judh, judh, HYPERSENSORY_HASBEENATTACKED,
                                    name="HypersensoryAbilities_HasBeenAttacked",
-                                   duration_override=1)   # duree = df@0xc0 = Direct(1) (@180f878f0) : deja en TOURS (#98)
+                                   duration_override=1)   # duree = df@0xc0 = Direct(1) (IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$CreateBehaviour) : deja en TOURS (#98)
         return {"ability": "HypersensoryAbilities_MoveAndSpawnDecoy", "owner": judh, "attacker": attacker,
                 "moved_to": dest, "decoy": decoy, "counter": counter}
 

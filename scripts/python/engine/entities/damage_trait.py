@@ -12,8 +12,8 @@ chaine -> les checks se font name-based (`DamageTrait.X.name in Traits`), pas vi
 Usages dans le port (post-#156) :
   - NoBlocking (0)          : le profil BYPASSE le block. COMBAT (#65) : `AttackDamageOperation._block_sources`
                               gate sur ce trait (profil Psychic -> aucune source, 0 tirage), mirror du flag
-                              `ExecuteHit @180e5eff0` (`DamageProfile.HasTrait(0)` -> skip block/evade de
-                              `CalculateDamageOperation @18102dc30`). PREDICTION (`PredictAttackRaw`) : reste
+                              `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (`DamageProfile.HasTrait(0)` -> skip block/evade de
+                              `IdunBattle.Core.Services.DamagePrediction$$CalculateDamageOperation`). PREDICTION (`PredictAttackRaw`) : reste
                               non-gate (residu documente case-65-noblocking-block-bypass, scenario WillBeKill).
   - OnFire (1)              : `OnFireDamageAbility` pose du feu on-hit (`DamageTrait.OnFire.name in Traits`, triggers.py).
   - HitsMultipleMembers (2) : "Blast" -> `ApplyGroupUnitDamageLimit` SKIP le member-cap (bool
@@ -25,11 +25,10 @@ Usages dans le port (post-#156) :
   - OnMelta (5)             : attaque Melta. i2 `Keywords/DMG_Melta` = "75% pierce ratio. Deals +50%
                               damage against Vehicle units". Le +50% vs Vehicle est DEAD CODE dans le
                               build gqfc5mff6c -> NON porte (le porter DIVERGERAIT du live). Racine :
-                              `OnMeltaDamageAbility` (TriggeredAbilityType 1211) a un `CreateBehaviour`
-                              @1811c3b70 (`AddEffect(Melta_ExtraDmg=1297, First(+0x78))`) mais AUCUN
-                              `CreateTrigger` -- contrairement a OnFire (1016, trigger @1811c3ae0) et
-                              OnToxic (1203, trigger @1811c3d20). Sans trigger l'ability ne fire jamais
-                              -> l'effet `Melta_ExtraDmgEffect` (@180f59c80 `ForPercentIncrease(
+                              `OnMeltaDamageAbility` (TriggeredAbilityType 1211) a un `IdunBattleLogic.Entities.Abilities.Damage.Loki.OnMeltaDamageAbility$$CreateBehaviour (`AddEffect(Melta_ExtraDmg=1297, First(+0x78))`) mais AUCUN
+                              `CreateTrigger` -- contrairement a OnFire (1016, trigger IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateTrigger) et
+                              OnToxic (1203, trigger IdunBattleLogic.Entities.Abilities.Damage.Loki.OnToxicDamageAbility$$CreateTrigger). Sans trigger l'ability ne fire jamais
+                              -> l'effet `Melta_ExtraDmgEffect` (IdunBattle.Entities.Effects.Loki.Melta_ExtraDmgEffect$$CreateEffectDamageBonusForAttack `ForPercentIncrease(
                               DamageProfileHasTrait(OnMelta) & HasTrait(target, Vehicle=1029),
                               ConfigConst 0xf=meltaDamageExtraDmgPct=50)`) n'est JAMAIS pose -> le +50%
                               n'est applique NI en prediction NI en combat. CONFIRME LIVE (case-72) :

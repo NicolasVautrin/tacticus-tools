@@ -26,7 +26,7 @@ PINNED = int(EffectType.Pinned)   # 1065 (0x429) — UI « Suppressed » — sta
 
 
 def sentinel_directives_tree() -> "op_add":
-    """Arbre de `SentinelDirectivesAbility$$ExecuteBehaviour @1811c4a30` (id 1139, admecDestroyer
+    """Arbre de `SentinelDirectivesAbility$$IdunBattleLogic.Entities.Abilities.Active.SentinelDirectivesAbility$$ExecuteBehaviour` (id 1139, admecDestroyer
     « Sy-Gex » — MIRROR du DECOMPILE) :
         Execute( op_Addition( op_Addition(
             InformWeapon(GetDamageProfile=Physical),                                          # metadata arme
@@ -48,7 +48,7 @@ def sentinel_directives_tree() -> "op_add":
     - `nrOfHits` = `ConfigConst(config, 0x2f)` = `GetNumberConstant(0x2f)` = 1 (`constants.nrOfHits`="1",
       verifie gameconfig). La feuille lit `nrOfHits` (hits_key defaut) via `ability_attack_params`.
     - **native_factory = "attack"** (defaut) : le decompile appelle `DSLFactory.AttackWithAttackDamage`
-      (famille attack, VERIFIE par la CALLEE de @1811c4a30 = symbole `DSLFactory$$AttackWithAttackDamage`,
+      (famille attack, VERIFIE par la CALLEE de IdunBattleLogic.Entities.Abilities.Active.SentinelDirectivesAbility$$ExecuteBehaviour = symbole `DSLFactory$$AttackWithAttackDamage`,
       JAMAIS `AttackWithAbilityDamage`, contraste SpiritLeech "ability" ; tip #2). Attaque MONO-COUP (1x) ->
       non concernee par le desync per-hit de toute facon (le flag est correct par XREF ET no-op ici).
     - `InformWeapon` = `op_Addition` volet GAUCHE (execute EN PREMIER) : canal weapon-inform
@@ -75,7 +75,7 @@ def sentinel_directives_tree() -> "op_add":
 
 
 class SentinelDirectivesAbility(ActiveAbility):
-    """`SentinelDirectivesAbility$$ExecuteBehaviour @1811c4a30` (id 1139, admecDestroyer « Sy-Gex »,
+    """`SentinelDirectivesAbility$$IdunBattleLogic.Entities.Abilities.Active.SentinelDirectivesAbility$$ExecuteBehaviour` (id 1139, admecDestroyer « Sy-Gex »,
     AdeptusMechanicus) — MIRROR du DECOMPILE, arbre DSL (`sentinel_directives_tree`) :
         Execute( op_Addition( op_Addition(
             InformWeapon(Physical),                                                            # metadata arme
@@ -85,7 +85,7 @@ class SentinelDirectivesAbility(ActiveAbility):
     Attaque RANGED MONO-CIBLE : 1 coup Physical (range 3, PiercingRatio 1) sur la cible du message, PUIS
     pose Pinned/« Suppressed » sur cette cible. Quasi-clone de SpiritLeech (1104) MOINS le degat conditionnel
     (`GetAttackDamage`) et le lifesteal (`Heal`) : ici degat generique `MinMaxDamage` sans surcharge, PAS de
-    heal. La feuille `AttackWithAttackDamage` (native_factory="attack", VERIFIE par XREF de @1811c4a30) emet
+    heal. La feuille `AttackWithAttackDamage` (native_factory="attack", VERIFIE par XREF de IdunBattleLogic.Entities.Abilities.Active.SentinelDirectivesAbility$$ExecuteBehaviour) emet
     la MEME Operation que l'attaque generique -> bit-exact BY CONSTRUCTION (memes bornes/hits/profil/state.rng).
 
     « Using Sentinel Directives does not end Sy-Gex's turn » (i2) = turn-flow : `SetsEndTurnFlags`=False +

@@ -3,39 +3,39 @@ adjacent ALEATOIRE au debut de son tour (case-220 Necrons, roadmap [opus] direct
 
 RE ghidra gqfc5mff6c (decompile = verite). La classe native `MartialApotheosisAbility` ETEND
 `DestroyerHiveAbility` (namespace `IdunBattleLogic.Entities.Abilities.Active.Loki`) : son
-`CreateBehaviour @181222d00` appelle `DestroyerHiveAbility.GetValidTargets(this) @18121d540` sur `this`
+`IdunBattleLogic.Entities.Abilities.Active.Loki.MartialApotheosisAbility$$CreateBehaviour` appelle `IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$GetValidTargets(this)` sur `this`
 (methode d'INSTANCE definie par DestroyerHive -> heritage prouve), et n'a PAS de symbole propre pour
 `CreateTrigger`/`GetValidTargets`/`.ctor` -> tous HERITES de DestroyerHive. Trois fonctions natives :
 
-- `CreateTrigger` (herite @18121d4b0) =
-      On(TurnStart_Actions=0x16=22)          # `DSLFactory.On(0x16)` (StartTurnOperation @180ea3fb0)
+- `CreateTrigger` (herite IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateTrigger) =
+      On(TurnStart_Actions=0x16=22)          # `DSLFactory.On(0x16)` (StartTurnOperation IdunBattle.Operations.StartTurnOperation$$Execute)
     & @0xa0                                    # `DSLFactory.InitializeShared` -> OwnerIsActor (le proprio
                                                #   est le joueur ENTRANT ; == LivingMetal @0xa0, prouve live)
     & AmountIsGreaterThanZero(GetValidTargets) # au moins 1 ennemi adjacent damageable
   * Vecteur porte = `start_turn_triggers` (dispatch.py, `On(TurnStart_Actions)`). `On(0x16)` verifie :
     LivingMetal (autre passif du meme necroOverlord) ecoute `On(TurnStart_Other=0x13)` -> event DISTINCT,
     aucune interference.
-- `GetValidTargets` (partage @18121d540, refcount 6, callee de DestroyerHive+MartialApotheosis) =
+- `GetValidTargets` (partage IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$GetValidTargets, refcount 6, callee de DestroyerHive+MartialApotheosis) =
       Damageable( Enemies( AdjacentUnits(casterTile@0x148, radius=1, mask=3) ) )
   = ennemis (team != caster) VIVANTS/damageable adjacents (anneau-1 hex) a la tuile du caster (@0x148 =
     `Self` du triggered Owner==Caster, cf. context.py). Port = `Damageable(Enemies(AdjacentUnits(OwnerTile(),
     Const(1))))` (OwnerTile = position LIVE de l'owner, == @0x148 pour un trigger sans sweep caster_pos).
-- `CreateBehaviour @181222d00` =
+- `IdunBattleLogic.Entities.Abilities.Active.Loki.MartialApotheosisAbility$$CreateBehaviour` =
       AttackWithAttackDamage( caster@0x160,
                               targets = PickRandomly(GetValidTargets, count=1),
-                              damage  = MinMaxDamage(config, level),       # BaseTriggeredAbility @180fbca20
+                              damage  = MinMaxDamage(config, level),       # BaseTriggeredAbility IdunBattle.Entities.Abilities.BaseTriggeredAbility$$MinMaxDamage
                               profile = GetDamageProfile(config, 0),       # = "Energy" (PiercingRatio 30)
                               nrOfHits= GetNumberConstant(config, 0x2f),   # = nrOfHits = 2
                               source  = AbilityOrEffect(1045) )
-  * `MinMaxDamage(config, level) @180fbca20` = `RandomAmount(GetVariableForLevel(0xc=minDmg, level),
+  * `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$MinMaxDamage(config, level)` = `RandomAmount(GetVariableForLevel(0xc=minDmg, level),
     GetVariableForLevel(0xd=maxDmg, level))` = un tirage borne dans [minDmg[level], maxDmg[level]]
     (config MartialApotheosis, per-niveau, scale rarite via `variablesAffectedByRarityBonus=[minDmg,maxDmg]`).
     `level` = niveau de la PASSIVE (l'`AbilityConfiguration` d'un passif est resolue au passive level) ->
     `level_slot="passive"` (dans un runner rank-based active==passive, verifie live necroOverlord 50/50 ;
     on lit la BONNE source pour rester fidele hors de cette coincidence).
   * `attackRangeType = Melee` -> `is_melee=True`. Profil "Energy" -> pierce 30.
-  * FAMILLE "attack" : `CreateBehaviour` appelle `DSLFactory.AttackWithAttackDamage @180de9fb0` (+overloads
-    @180dea180/350/520/6b0), PAS `AttackWithAbilityDamage @180de9c90` -> `native_factory="attack"` (defaut,
+  * FAMILLE "attack" : `CreateBehaviour` appelle `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (+overloads
+    IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage/350/520/6b0), PAS `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` -> `native_factory="attack"` (defaut,
     2 tirages/coup a cc=0 ; cf. rngcrit-1202/tip #2, classe par les XREFS de l'ExecuteBehaviour, pas au juge).
 
 COLLAPSE du `PickRandomly(count=1)` (doctrine slice-18/19, == HarbingerOfDestruction/BringerOfDespair) : le
@@ -45,7 +45,7 @@ DETERMINISTE (aucun tirage : le natif ne roll pas quand le set tient). L'unite p
 `martial_apotheosis_tree` via `UnitSet` (vehicule de collapse), attaquee `nrOfHits=2` coups Energy.
 
 Face COMBAT (declenchee dans les ops turn-start du runner). Face DECISION deja portee
-(`MartialApotheosisPlaybook`, TriggeredAbilityType 1045, playbook @181168a30/@1811689d0 -- preference de
+(`MartialApotheosisPlaybook`, TriggeredAbilityType 1045, playbook IdunBattle.AI.Playbook.Loki.MartialApotheosisPlaybook$$.ctor/IdunBattle.AI.Playbook.Loki.MartialApotheosisPlaybook$$GetAdjacentEnemyUtility -- preference de
 mouvement vers un ennemi adjacent). Enregistree en ABILITY_TRIGGERS["MartialApotheosis"] (dispatch.py) via
 `necroOverlord.passiveAbilities`.
 """
@@ -62,7 +62,7 @@ from ..base import TriggeredAbility, TriggerEvent
 
 
 def martial_apotheosis_valid_targets():
-    """Mirror `DestroyerHiveAbility.GetValidTargets @18121d540` (partage, herite par MartialApotheosis) :
+    """Mirror `IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$GetValidTargets` (partage, herite par MartialApotheosis) :
     `Damageable(Enemies(AdjacentUnits(casterTile@0x148, radius=1)))`. `AdjacentUnits(tile, 1, 3)` = anneau-1
     (hex, centre exclu, VIVANTS via `_within`) ; `Enemies` filtre team != caster ; `Damageable` filtre
     alive & hp>0. Selecteur DSL PUR (sans state.rng) -> le PickRandomly est folde a part."""
@@ -71,7 +71,7 @@ def martial_apotheosis_valid_targets():
 
 def martial_apotheosis_tree(picked: list):
     """UNE feuille `AttackWithAttackDamage` sur l'unite deja pickee (collapse du `PickRandomly(count=1)`
-    natif) -- mirror `MartialApotheosisAbility.CreateBehaviour @181222d00`. `multi=True` resout le selecteur
+    natif) -- mirror `IdunBattleLogic.Entities.Abilities.Active.Loki.MartialApotheosisAbility$$CreateBehaviour`. `multi=True` resout le selecteur
     `UnitSet(picked)` (1 cible), attaque `nrOfHits=2` coups profil "Energy" (pierce 30), bornes
     `MinMaxDamage(minDmg/maxDmg[level])` au `level_slot="passive"`. `native_factory="attack"` (defaut).
     Lazy import (evite le cycle triggers <-> abilities.behaviours au chargement, == living_metal.py)."""

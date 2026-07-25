@@ -3,7 +3,7 @@
 Rites (resurrection), CombatRestoratives (heal AoE), DefendTheDivineWork (repair AoE), Revitalizing-
 Malignancy (heal Chaos filtre), InspiredToGreatness (refresh d'ability d'un allie). DefendTheDivineWork
 et RevitalizingMalignancy REUTILISENT `CombatRestorativesPlaybook._wound_fraction` (couplage natif =
-meme HealTargets @1811cca50) -> co-localises.
+meme IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility$$HealTargets) -> co-localises.
 """
 from __future__ import annotations
 
@@ -16,17 +16,17 @@ from ._base import (NCContext, NonComparablePlaybook, _has_valid_targets,
 
 
 class RitesOfRestorationPlaybook(NonComparablePlaybook):
-    """`RitesOfRestorationPlaybook.EvaluateNonComparable @181157a60` (NonComparable, id 1039). Soin AoE +
+    """`IdunBattle.AI.Playbook.Loki.RitesOfRestorationPlaybook$$EvaluateNonComparable` (NonComparable, id 1039). Soin AoE +
     RESURRECTION (adeptHospitaller). Emet l'action en 1039, ciblee sur SOI (confirme live : ATK(1039,78)).
 
-    - `ShouldEvaluate @1811580a0` : `Count(GetPossibleResurrectTargets) > 0` -> l'IA n'evalue Rites QUE
+    - `IdunBattle.AI.Playbook.Loki.RitesOfRestorationPlaybook$$ShouldEvaluate` : `Count(GetPossibleResurrectTargets) > 0` -> l'IA n'evalue Rites QUE
       s'il y a un allie DEFAIT. Morts lus via `obs_units.isDead` (decisionView garde les depouilles ->
       observeBattle est la source ; cf. project_decisionview_keeps_dead).
     - Gate (par position T du caster) : `(heroDead>=1 & |resurrectTiles|>=1) | (summonDead>=2 & |tiles|>=2)`.
       hero = allie mort avec trait `Hero` (UnitsWithTrait 0x10 @GetPossibleResurrectHeroTargets 181203d00) ;
-      summon = allie mort SANS `Hero` (UnitsWithTrait 2 @181203d40). resurrectTiles = `CanAddUnit(
-      AdjacentTiles(T))` @181203f70 = hex adjacents sur board, libres (unite vivante absente).
-    - util = `1 + Count(GetHealTargets)` (cctor Fix64(1) @1811581d0 ; GetHealTargets @181203c80 =
+      summon = allie mort SANS `Hero` (UnitsWithTrait 2 IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$GetPossibleResurrectSummonTargets). resurrectTiles = `CanAddUnit(
+      AdjacentTiles(T))` IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$GetResurrectTiles = hex adjacents sur board, libres (unite vivante absente).
+    - util = `1 + Count(GetHealTargets)` (cctor Fix64(1) IdunBattle.AI.Playbook.Loki.RitesOfRestorationPlaybook$$.cctor ; IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$GetHealTargets =
       `Healable(owner + AdjacentFriends(owner,1))` = self (non-Mecanique) + amis adjacents non-Mecaniques).
       MIN_UTILITY=1 (Bucket du cctor). Sweep reach_nc (adjacence -> depend de la position -> le caster va
       la ou il soigne le plus).
@@ -41,9 +41,9 @@ class RitesOfRestorationPlaybook(NonComparablePlaybook):
         if me_obs is None:
             return []
         team = me_obs.get("teamId")
-        # ShouldEvaluate : Count(GetPossibleResurrectTargets) > 0. GetPossibleResurrectTargets @181203d80
+        # ShouldEvaluate : Count(GetPossibleResurrectTargets) > 0. IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$GetPossibleResurrectTargets
         # = AllDeadUnits -> Friends -> UnitsWithTrait(0x1a=Imperial=26) -> UnitsAffectedByHealType(0).
-        # IsAffectedByHealType(u,0) @180ed77d0 = HasTrait(0x421) OU non-Mecanique. (R1 corrige : mon port
+        # IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType(u,0) = HasTrait(0x421) OU non-Mecanique. (R1 corrige : mon port
         # ignorait les filtres Imperial + heal-type -> FAUX POSITIF sur allie mort non-Imperial/Mecanique,
         # masque par le test all-Imperial. Imperial = gameconfig GrandAllianceId ; heal-affectable ~
         # non-Mecanique, trait 0x421 override NON modelise -> TODO.) Morts lus via obs_units.isDead.
@@ -55,8 +55,8 @@ class RitesOfRestorationPlaybook(NonComparablePlaybook):
                 and u.get("squadId") != ctx.uid and _resurrectable(u)]
         if not dead:
             return []   # Count(GetPossibleResurrectTargets) == 0 -> ability non evaluee
-        # hero = ResurrectTargets ∩ UnitsWithTrait(0x10=Hero=16) @181203d00 ; summon = ∩ UnitsWithTrait(
-        # Summon=2) @181203d40. Le trait "Summon" EST exposé par gameconfig (59 unités ; les summons
+        # hero = ResurrectTargets ∩ UnitsWithTrait(0x10=Hero=16) IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$GetPossibleResurrectHeroTargets ; summon = ∩ UnitsWithTrait(
+        # Summon=2) IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$GetPossibleResurrectSummonTargets. Le trait "Summon" EST exposé par gameconfig (59 unités ; les summons
         # Imperial sont en section kind="summons", PAS "npc") -> l'ancien proxy kind=="npc" ratait 100%
         # des vrais summons ET comptait des npc non-summon (faux nég + faux pos, validateur) -> trait exact.
         hero_dead = sum(1 for u in dead if "Hero" in _traits(u.get("visualId")))
@@ -95,21 +95,21 @@ class RitesOfRestorationPlaybook(NonComparablePlaybook):
 
 
 class CombatRestorativesPlaybook(NonComparablePlaybook):
-    """`CombatRestorativesPlaybook.EvaluateNonComparable @181125fd0` (NonComparable, id 1002 ;
+    """`IdunBattle.AI.Playbook.Loki.CombatRestorativesPlaybook$$EvaluateNonComparable` (NonComparable, id 1002 ;
     ultraApothecary/Incisus). Soin AoE self + allies adjacents. Emet l'action ciblee sur SOI.
 
-    - Ciblage `CombatRestorativesAbility.HealTargets @1811cca50` = `Friends(AdjacentUnits(caster,r=1))
+    - Ciblage `IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility$$HealTargets` = `Friends(AdjacentUnits(caster,r=1))
       + self` -> SOI + unites ALLIEES adjacentes. Pas de wrapper `Healable` (contrairement a Rites
-      @181203c80) : inclut les allies MECANIQUES (le natif compte leur fraction de PV manquante).
-    - util(T) = `Σ (1 - FillUpStatComponent.RemainingPercentage) @180f9be60` sur {self + allies
+      IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$GetHealTargets) : inclut les allies MECANIQUES (le natif compte leur fraction de PV manquante).
+    - util(T) = `Σ (1 - FillUpStatComponent.RemainingPercentage) IdunBattle.Entities.Components.FillUpStatComponent$$RemainingPercentage` sur {self + allies
       adjacents a T}. `RemainingPercentage = max(0, cur/max)` (Health fillup : cur@+0x18 / CurrentMax)
       -> `1 - RemainingPercentage = missing/maxHP` = FRACTION de PV MANQUANTE. N'utilise PAS le
       montant `hpToHeal` (magnitude != utilite dans ce regime NonComparable). Un allie plein -> 0.
-    - MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (cctor @1811265c0). Sweep reach_nc (le caster
+    - MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (IdunBattle.AI.Playbook.Loki.CombatRestorativesPlaybook$$.cctor). Sweep reach_nc (le caster
       va la ou la somme des fractions manquantes adjacentes est max), argmax STRICT.
     PRIORITY=0 CONFIRME (#115 : aucun playbook n'override get_Priority -> defaut base NonComparable=0)."""
     ABILITY_ID = int(ActiveAbilityType.CombatRestoratives)  # 1002
-    MIN_UTILITY = 0.9      # cctor @1811265c0 : Fix64.FromIntFraction(9,10)
+    MIN_UTILITY = 0.9      # IdunBattle.AI.Playbook.Loki.CombatRestorativesPlaybook$$.cctor : Fix64.FromIntFraction(9,10)
     PRIORITY = 0
 
     @staticmethod
@@ -135,7 +135,7 @@ class CombatRestorativesPlaybook(NonComparablePlaybook):
                   and u.get("squadId") != ctx.uid and u.get("col") is not None]
         best = None  # (T, util)
         for T in _sweep_origin_first(ctx):   # ORIGINE d'abord : keep-first au tie -> reste en place (#76)
-            # AdjacentUnits(caster@T, r=1) @180de8320 = AdjacentTiles + porte d'elevation |dElev|<2
+            # IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits(caster@T, r=1) = AdjacentTiles + porte d'elevation |dElev|<2
             # d'IterateAdjacentTiles (#45/#76). bq.is_adjacent = MEME adjacence que les comptages
             # GetAdjacent* -> plus de fork raw-hexgeo qui sur-comptait des voisins hors-elevation.
             util = self_wound + sum(w for c, r, w in allies if bq.is_adjacent(T, (c, r), ctx.elev_by_pos))
@@ -156,24 +156,24 @@ class CombatRestorativesPlaybook(NonComparablePlaybook):
 
 
 class DefendTheDivineWorkPlaybook(NonComparablePlaybook):
-    """`DefendTheDivineWorkPlaybook.EvaluateNonComparable @18112b9b0` (NonComparable REPAIR, id 1117 ;
+    """`IdunBattle.AI.Playbook.Loki.DefendTheDivineWorkPlaybook$$EvaluateNonComparable` (NonComparable REPAIR, id 1117 ;
     admecManipulus/Actus). Repair AoE self + allies adjacents ; emet l'action ciblee sur SOI (MainTile).
 
-    - Ciblage = `CombatRestorativesAbility.HealTargets @1811cca50` REUTILISE (self + amis adjacents),
+    - Ciblage = `IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility$$HealTargets` REUTILISE (self + amis adjacents),
       GATE par `GetEligibleTargetsEntities` : l'ability n'est evaluee QUE s'il existe >=1 cible eligible
       (repair -> unite MECANIQUE). Sinon aucune action a cette position.
-    - util(T) = `Σ_{cible ∈ HealTargets} [ (1 - FillUpStatComponent.RemainingPercentage_health @180f9be60)
+    - util(T) = `Σ_{cible ∈ HealTargets} [ (1 - FillUpStatComponent.RemainingPercentage_health IdunBattle.Entities.Components.FillUpStatComponent$$RemainingPercentage)
       + 0.5 × HasValidTargets(cible) ]` sur {self + amis adjacents}. Le +0.5 (`Fix64.FromIntFraction(1,2)`)
       par cible SSI `IBattleQuery.HasValidTargets(cible, GetUnitPosition(cible), GetNormalAttackType(cible))`
-      (slot 0x3f @18106e8d0 -> `AttackQuery.HasValidTargets @181057540`) = "la cible peut-elle attaquer un
+      (slot 0x3f IdunBattle.Core.Services.BattleQuery$$HasValidTargets -> `IdunBattle.Core.Services.AttackQuery$$HasValidTargets`) = "la cible peut-elle attaquer un
       ennemi avec son attaque NORMALE DEPUIS SA POSITION (sans bouger)" = combat-readiness (+0.5 par allié
       réparé prêt à combattre). PORTÉ (#77) via `_has_valid_targets(ctx, cible)` = `abilityTargets(cible,
       normalAttack).usable ET fromHereCount>0` (`fromHere` = GetValidTargets à position FIXE) — calculé 1x
       par cible (position-indép du sweep). `ability_targets` absent -> +0.5 omis (borne inf, pré-#77).
-    - MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (cctor @18112c070). Sweep reach_nc, argmax STRICT.
+    - MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (IdunBattle.AI.Playbook.Loki.DefendTheDivineWorkPlaybook$$.cctor). Sweep reach_nc, argmax STRICT.
     PRIORITY=0 CONFIRME (#115 : aucun override get_Priority)."""
     ABILITY_ID = int(ActiveAbilityType.DefendTheDivineWork)  # 1117
-    MIN_UTILITY = 0.9      # cctor @18112c070 : Fix64.FromIntFraction(9,10)
+    MIN_UTILITY = 0.9      # IdunBattle.AI.Playbook.Loki.DefendTheDivineWorkPlaybook$$.cctor : Fix64.FromIntFraction(9,10)
     PRIORITY = 0
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
@@ -216,17 +216,17 @@ class DefendTheDivineWorkPlaybook(NonComparablePlaybook):
 
 
 class RevitalizingMalignancyPlaybook(NonComparablePlaybook):
-    """`RevitalizingMalignancyPlaybook.EvaluateNonComparable @181156790` (NonComparable heal, id 1037 ;
+    """`IdunBattle.AI.Playbook.Loki.RevitalizingMalignancyPlaybook$$EvaluateNonComparable` (NonComparable heal, id 1037 ;
     deathRotbone/Nauseous). Soin AoE self + adjacents, FILTRE non-Imperial ET non-Mecanique.
 
-    - Ciblage `GetAllHealTargets @181201150` = `Healable(UnitsWithoutTrait(0x1a=Imperial=26,
+    - Ciblage `IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility$$GetAllHealTargets` = `Healable(UnitsWithoutTrait(0x1a=Imperial=26,
       Friends(AdjacentUnits(caster,r=1)) + self))` = self + amis adjacents qui sont NON-Imperial ET
       non-Mecanique (`Healable`). (Chaos ne soigne pas les Imperials ni les machines.)
-    - util(T) = `Σ (1 - RemainingPercentage_health @180f9be60)` sur ces cibles (= Σ missing/max). Meme
-      formule que CombatRestoratives. MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (cctor @181156d30).
+    - util(T) = `Σ (1 - RemainingPercentage_health IdunBattle.Entities.Components.FillUpStatComponent$$RemainingPercentage)` sur ces cibles (= Σ missing/max). Meme
+      formule que CombatRestoratives. MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (IdunBattle.AI.Playbook.Loki.RevitalizingMalignancyPlaybook$$.cctor).
       Sweep reach_nc, argmax STRICT ; self-cast (MainTile-id). PRIORITY=0 CONFIRME (#115)."""
     ABILITY_ID = int(ActiveAbilityType.RevitalizingMalignancy)  # 1037
-    MIN_UTILITY = 0.9      # cctor @181156d30 : Fix64.FromIntFraction(9,10)
+    MIN_UTILITY = 0.9      # IdunBattle.AI.Playbook.Loki.RevitalizingMalignancyPlaybook$$.cctor : Fix64.FromIntFraction(9,10)
     PRIORITY = 0
 
     @staticmethod
@@ -271,12 +271,12 @@ def _active_ability_levels(ctx: NCContext) -> dict:
 
 
 class InspiredToGreatnessPlaybook(NonComparablePlaybook):
-    """`InspiredToGreatnessPlaybook.EvaluateNonComparable @181145b80` (NonComparable, id 0x43a=1082 ;
-    tauAunShi/Kroot). Refresh l'ability d'un ALLIE (`RepairOrHeal @1811eb050` = If(IsRepairable, Repair,
+    """`IdunBattle.AI.Playbook.Loki.InspiredToGreatnessPlaybook$$EvaluateNonComparable` (NonComparable, id 0x43a=1082 ;
+    tauAunShi/Kroot). Refresh l'ability d'un ALLIE (`IdunBattleLogic.Entities.Abilities.Active.Loki.InspiredToGreatnessAbility$$RepairOrHeal` = If(IsRepairable, Repair,
     Heal) + `InspiredToGreatness_OverrideLevelEffect`). Cible = l'ALLIE (unit-id), PAS une tuile.
 
     - Ciblage : `GetEligibleTargetsSelectable` (targeting `AActiveAbility`) filtre par
-      `GetDynamicInvalidTargetReason @1811eaec0` = cible != caster, PAS trait 0x7e7, ET
+      `IdunBattleLogic.Entities.Abilities.Active.Loki.InspiredToGreatnessAbility$$GetDynamicInvalidTargetReason` = cible != caster, PAS trait 0x7e7, ET
       (repairable | healable-blesse | ability-en-cooldown) [slots 0x11/0x12/0x31]. -> on delegue au jeu
       via `ctx.ability_targets(uid, 1082)` (VIDE si aucun allie blesse/reparable/en-cooldown -> pas d'action).
     - util(cible) : le natif prend l'ACTIVE ability de la cible (`ActiveAbilityComponent.GetActive`) ;
@@ -284,7 +284,7 @@ class InspiredToGreatnessPlaybook(NonComparablePlaybook):
       `Fix64.FromInt(Level.ToZeroBasedIndex(AbilityState.Level))` = NIVEAU zero-based de cette ability.
       Les allies dont l'active est PRETE (usable) NE contribuent PAS. `Bucket.AddAction` argmax STRICT ->
       l'IA refresh l'ability EN COOLDOWN de plus HAUT NIVEAU.
-    - MIN_UTILITY=0 (ctor `NonComparablePlaybook(0x43a)` @181146090, SANS min explicite). PRIORITY=0 CONFIRME (#115).
+    - MIN_UTILITY=0 (ctor `NonComparablePlaybook(0x43a)` IdunBattle.AI.Playbook.Loki.InspiredToGreatnessPlaybook$$.ctor, SANS min explicite). PRIORITY=0 CONFIRME (#115).
     - Data offline : eligibilite = `abilityTargets` (jeu) ; cooldown = entree active de `dv.units[ally]
       .abilities` (`usable`) ; niveau = `combatSnapshot.unitConfig.activeAbilityLevel` (cfg+0xb8 ;
       `GetStat(18)`=null en snapshot -> via unitConfig). Le level ne departage QUE plusieurs allies en

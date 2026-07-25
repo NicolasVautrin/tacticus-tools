@@ -3,7 +3,7 @@
 Module DEDIE (org native = 1 classe par ability, `Abilities.Active.Loki.*` ; `loki/` et `behaviours.py`
 deja > seuil de split). RE ghidra gqfc5mff6c (VA citees). Case-220 §6.12 (docs/rl/case-220/blood-angels.md).
 
-`SavageEchoesAbility.ExecuteBehaviour @181204660` (MIRROR du DECOMPILE) :
+`IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$ExecuteBehaviour` (MIRROR du DECOMPILE) :
     Execute( op_BitwiseAnd( op_BitwiseAnd(
         SetCache(cache),                                                                  # prime la memoisation
         AttackWithAttackDamage(Self@0x148, Target@0x178,
@@ -51,10 +51,10 @@ def _caster_level_mult(state: "State", caster_id: int):
 
 class _RegenerateCondition(AbilityTrigger):
     """Predicat FIGE (booleen pre-attaque) = fold de `SetCache(Cache(HealthPctIsBelowOrEqual(Caster@0x160,
-    ConfigConst(0x4f = healthPct)))) @181204bd0`. Le natif MEMOISE (`SetCache`) la condition au DEBUT du tree
+    ConfigConst(0x4f = healthPct)))) IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$GetRegenerateCondition`. Le natif MEMOISE (`SetCache`) la condition au DEBUT du tree
     (avant l'attaque) et le `If(cache, Heal)` relit la valeur cachee -> on capture le booleen PRE-attaque
     dans `execute_behaviour` (plumbing pur, precedent SpiritLeech `SetCache`/`Cache` foldes). `Stat
-    PercentageIsBelowOrEqualAbilityTrigger.ShouldTrigger @180ef5d60` = `(current/max) <= (healthPct/100)` en
+    IdunBattle.Entities.Conditions.StatPercentageIsBelowOrEqualAbilityTrigger$$ShouldTrigger` = `(current/max) <= (healthPct/100)` en
     Fix64 (stat Health=5, variant 0=Current, variant 2=Maximum), equivalent entier EXACT
     `100*current <= healthPct*max` (cf. `_regenerate_precondition`)."""
     __slots__ = ("value",)
@@ -67,7 +67,7 @@ class _RegenerateCondition(AbilityTrigger):
 
 
 def _regenerate_precondition(state: "State", caster_id: int) -> bool:
-    """`HealthPctIsBelowOrEqual(Caster, ConfigConst(healthPct)) @180ef5d60` evalue PRE-attaque : True ssi
+    """`HealthPctIsBelowOrEqual(Caster, ConfigConst(healthPct)) IdunBattle.Entities.Conditions.StatPercentageIsBelowOrEqualAbilityTrigger$$ShouldTrigger` evalue PRE-attaque : True ssi
     `current_hp / max_hp <= healthPct / 100`. Le HP courant vit dans `HealthComponent` (muté par les degats)
     -- `get_stat(Health, Current)` rendrait le HP INIT du snapshot (unit_context.py:108), donc on lit
     `HealthComponent` directement (== `SetHealth` @stats.py). Comparaison entiere exacte : pour des PV entiers,
@@ -96,18 +96,18 @@ def savage_echoes_heal_amount(entities, ectx) -> int:
 
 
 def savage_echoes_tree(regenerate: bool, damage_override):
-    """Arbre de `SavageEchoesAbility.ExecuteBehaviour @181204660` (id 1230, `bloodTerminator` Cezare -- MIRROR
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$ExecuteBehaviour` (id 1230, `bloodTerminator` Cezare -- MIRROR
     du DECOMPILE ; cf. en-tete module). Port (plain `Execute`, PAS `ExecuteAtomic`) :
         op_and( AttackWithAttackDamage(Target(), "SavageEchoes", "Eviscerate", melee, damage_override),
                 If( _RegenerateCondition(regenerate), Heal(Caster(), savage_echoes_heal_amount) ) )
     - `SetCache`/`Cache(HealthPctIsBelowOrEqual)` FOLDES : la memoisation fige la condition HP<=50% PRE-attaque
       -> capturee en amont (`regenerate`), relue par le `If` (plumbing pur, precedent SpiritLeech).
     - le degat `Sum(MinMax, Multiply(extraDmg, count))` = un bonus FLAT `extraDmg x free-adjacent-tiles` ajoute
-      a chaque coup, porte via `damage_override` (mirror `SpiritLeech.GetAttackDamage @181209dd0`, meme point
+      a chaque coup, porte via `damage_override` (mirror `IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetAttackDamage`, meme point
       d'injection : le natif passe la node de degat calculee a `AttackWithAttackDamage`).
-    - `native_factory="attack"` (defaut) : l'`ExecuteBehaviour` @18120487b appelle `DSLFactory.AttackWith
-      AttackDamage @180de9fb0` (famille ATTACK, 2 tirages/coup a cc=0 -- verifie par XREFS, cas rngcrit-1202) ;
-      IDENTIQUE au template ArmoriumCherub (@1811b417d -> @180de9fb0). Bit-exact multi-coups by construction.
+    - `native_factory="attack"` (defaut) : l'`IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$ExecuteBehaviour+0x21b appelle `DSLFactory.AttackWith
+      AttackDamage IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (famille ATTACK, 2 tirages/coup a cc=0 -- verifie par XREFS, cas rngcrit-1202) ;
+      IDENTIQUE au template ArmoriumCherub (IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$ExecuteBehaviour+0x17d -> IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage). Bit-exact multi-coups by construction.
     L'ordre `op_and` (Attack PUIS Heal) n'insere aucun tirage RNG hors l'attaque (Heal deterministe) ->
     l'ordre RNG de l'attaque est inchange."""
     attack = AttackWithAttackDamage(Target(), "SavageEchoes", "Eviscerate", is_melee=True,
@@ -117,7 +117,7 @@ def savage_echoes_tree(regenerate: bool, damage_override):
 
 
 class SavageEchoesAbility(ActiveAbility):
-    """`SavageEchoesAbility.ExecuteBehaviour @181204660` (id 1230, `bloodTerminator` « Cezare »).
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$ExecuteBehaviour` (id 1230, `bloodTerminator` « Cezare »).
 
     Le behaviour est l'arbre DSL `savage_echoes_tree` : la feuille `AttackWithAttackDamage` emet la MEME
     Operation d'attaque d'ability (4 coups Eviscerate melee, degat + `extraDmg x free-tiles`) que le pipeline
@@ -137,7 +137,7 @@ class SavageEchoesAbility(ActiveAbility):
         extra = int(ability_var("SavageEchoes", "extraDmg", level, multiplier_pct=mult) or 0)
         # `Count(CanAddUnit(AdjacentTiles(Self@0x148)))` = nb de tuiles adjacentes LIBRES (walkable + inoccupees)
         # du caster. Evalue au timing GetDamage (== l'appel unique de `damage_override` par le leaf, AVANT la
-        # boucle de coups) : `AttackDamageBehaviour.GetDamage @180fbb250` calcule les bornes UNE fois par cible
+        # boucle de coups) : `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$GetDamage` calcule les bornes UNE fois par cible
         # (Calculate index 2=Min / 3=Max) -> `flat = extraDmg x count` CONSTANT sur les 4 coups (== modele
         # bornes-figees deja valide bit-exact multi-coups). `entities` (LiveUnit) porte l'occupation PRE-attaque.
         free_sel = CanAddUnit(AdjacentTiles(Caster()))

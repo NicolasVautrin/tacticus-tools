@@ -18,7 +18,7 @@ class MinMaxDamage:
     cap: int | None = None
 
     def apply_cap(self) -> None:
-        """MinMaxDamage.ApplyCap (@181052380) : si Cap.HasValue, Min=Min(Min,Cap), Max=Min(Max,Cap)."""
+        """MinMaxDamage.ApplyCap (IdunBattle.Core.Services.MinMaxDamage$$ApplyCap) : si Cap.HasValue, Min=Min(Min,Cap), Max=Min(Max,Cap)."""
         if self.cap is None:
             return
         if self.min > self.cap:
@@ -27,9 +27,9 @@ class MinMaxDamage:
             self.max = self.cap
 
     def avg(self) -> int:
-        """MinMaxDamage.Avg (@181052470) : (Min+Max)/2 (division entière Fix64→int)."""
+        """MinMaxDamage.Avg (IdunBattle.Core.Services.MinMaxDamage$$Avg) : (Min+Max)/2 (division entière Fix64→int)."""
         return (self.min + self.max) // 2
 
     def add(self, other: "MinMaxDamage") -> "MinMaxDamage":
-        """MinMaxDamage.Add (@1810522c0) : somme composante par composante."""
+        """MinMaxDamage.Add (IdunBattle.Core.Services.MinMaxDamage$$Add) : somme composante par composante."""
         return MinMaxDamage(min=self.min + other.min, max=self.max + other.max, cap=self.cap)

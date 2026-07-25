@@ -7,14 +7,13 @@ CONTEXTE (verdicts contradictoires a reconcilier) :
     attribue a "1 crit-roll NextBool PAR COUP" -> contredit la note.
 
 RE DECOMPILE (verite, gqfc5mff6c) :
-  - Le crit-roll UNIQUE du per-coup partage = IDamagePrediction slot 0xa -> DamagePrediction.RollCritical
-    @1810387a0 : gate `cc<1 -> return false SANS tirage`. (DamageCalculations.RollCritical @1810057b0 =
+  - Le crit-roll UNIQUE du per-coup partage = IDamagePrediction slot 0xa -> IdunBattle.Core.Services.DamagePrediction$$RollCritical : gate `cc<1 -> return false SANS tirage`. (IdunBattle.Core.Services.DamageCalculations$$RollCritical =
     NextBool brut, atteint SEULEMENT via ce gate.) => l'hypothese "crit-roll a cc=0" est REFUTEE au decompile.
-  - AttackDamageOperation.ExecuteHit @180e5eff0 (per-coup PARTAGE normal + AttackWithAttackDamage) consomme :
-      1. HitDamage.GetDamage @181007bf0 sur le struct d'entree — GATE `min==max -> 0 tirage` ;
+  - IdunBattle.Operations.AttackDamageOperation$$ExecuteHit (per-coup PARTAGE normal + AttackWithAttackDamage) consomme :
+      1. IdunBattle.Core.HitDamage$$GetDamage sur le struct d'entree — GATE `min==max -> 0 tirage` ;
       2. RollCritical (0 tirage si cc<1) ;
-      3. block/evade dans CalculateDamageOperation @18102dc30 (0 si aucune source) ;
-      4. RandomlyResolveMinMaxDamage @181038600 (slot 8) — TOUJOURS 1 tirage (AUCUN gate min==max).
+      3. block/evade dans IdunBattle.Core.Services.DamagePrediction$$CalculateDamageOperation (0 si aucune source) ;
+      4. IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage (slot 8) — TOUJOURS 1 tirage (AUCUN gate min==max).
     => attaque NORMALE (struct degenere (Attack,Attack)) : 1 tirage/coup (le resolve) ;
        ability AttackWithAttackDamage (struct = bornes brutes minDmg/maxDmg) : 2 tirages/coup
        (GetDamage brut GASPILLE + resolve). Le "crit-roll fantome" #220 = le GetDamage brut.

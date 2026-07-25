@@ -1,13 +1,12 @@
 #!/usr/bin/env python
 """Probe #49x : DISCRIMINATEUR FINAL Gauntlets(1000) — regle 'ancre reelle' vs rivales.
 
-Regle candidate (decompile, EvaluateNonComparable @18113e5a0) :
+Regle candidate (decompile, IdunBattle.AI.Playbook.Loki.GauntletsOfUltramarPlaybook$$EvaluateNonComparable) :
   util(T) = | ring1(T)  UNION  disk2(TUILE REELLE du caster) |
    - ring1(T)     = ennemis adjacents a la position BALAYEE T (CasterTile@+0x168 = tuile du
                     CONTEXTE AbilityEntities, porte elevation |dElev|<2 d'IterateAdjacentTiles)
    - disk2(real)  = ennemis a dist hex <= 2 de la tuile REELLE de l'ENTITE caster
-                    (Caster@+0x160 -> GetMainTile(entite) dans SurroundingTilesSelector.Select
-                    @180ef6100 ; slot 0x65 flags: emptyOrSteppable=OFF, Unobscured depuis la
+                    (Caster@+0x160 -> GetMainTile(entite) dans IdunBattle.Entities.Selectors.SurroundingTilesSelector$$Select ; slot 0x65 flags: emptyOrSteppable=OFF, Unobscured depuis la
                     tuile reelle, filtre IsTileValidForList = murs/walkable seulement)
 Rivales a departager :
   R1 (port actuel)  : util(T) = ring1(T) seul

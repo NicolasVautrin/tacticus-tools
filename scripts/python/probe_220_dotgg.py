@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """Probe #220 -- agreement PREDICTION per-tuile : aura alliee DefenderOfTheGreaterGood_ExtraDmg (1182,
 tauShadowsun). L'effet vit sur le PORTEUR (Shadowsun) et bonifie +extraDmg les attaques RANGED non-Psychic
-des amis SOIT adjacents (range 1, TOUTE faction) SOIT T'au dans range 2 (@180f3e4f0 gate OwnerIsCaster &
-IsRangedAttack & !DamageProfileIs(Psychic) ; selector @180e20590 = (AdjacentFriends(1)-owner) +
+des amis SOIT adjacents (range 1, TOUTE faction) SOIT T'au dans range 2 (IdunBattle.Entities.Effects.Loki.DefenderOfTheGreaterGood_ExtraDmgEffect$$CreateDamageModifier gate OwnerIsCaster &
+IsRangedAttack & !DamageProfileIs(Psychic) ; selector IdunBattleLogic.Entities.Abilities.Triggered.Loki.DefenderOfTheGreaterGoodAbility$$GetBaseBuffTargetSelector = (AdjacentFriends(1)-owner) +
 UnitsFromFaction(SurroundingFriends(2), Tau=9)).
 
 Design DRIVE-POSITIONS (carriers cote joueur) : p-units = tauShadowsun (porteur) + tauCrisis (Tau, ranged

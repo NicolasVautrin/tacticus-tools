@@ -1,14 +1,14 @@
 """SUMMON hors PickNextUnit — confronte au LIVE que les unités invoquées par ability (trait `Summon`)
 ne sont JAMAIS activées par la boucle de **playbook** de l'IA (`PickNextUnit`) : elles sont exclues de
-`AnAiGroupOperator.GetValidUnits` @1811833e0 (gate `BaseUnitComponent+0x60 >= 1001` = groupe
+`IdunBattle.AI.OperationalDeciders.AnAiGroupOperator$$GetValidUnits (gate `BaseUnitComponent+0x60 >= 1001` = groupe
 summons/objects).
 
 ⚠ Cela NE veut ABSOLUMENT PAS dire qu'elles n'agissent pas. Le trait `Summon` = « Moves and attacks
 automatically at the beginning of its turn » : le summon est joué au TURN-START de sa team via une passe
-AI-control SÉPARÉE (`IdunGameViews.QueueComputerActions @1804d90d0` / `IsPlayerAiControlled @1804d7b10`,
+AI-control SÉPARÉE (`IdunBattle.View.Game.IdunGameViews$$QueueComputerActions` / `IdunBattle.View.Game.IdunGameViews$$IsPlayerAiControlled`,
 portée `run_ai_control_pass` #65), un chemin que `aiStepDryRun` NE DRIVE PAS. Donc un « 0 action » observé
 via `aiStepDryRun` est un artefact de SONDE (mauvais chemin), pas la preuve d'un summon inerte. Le scarab
-necron (`necroSmnSwarm`) agit chaque tour et s'auto-DÉDOUBLE même : active `ScarabSummon` @181205290 (chance
+necron (`necroSmnSwarm`) agit chaque tour et s'auto-DÉDOUBLE même : active `ScarabSummon` IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabSummonAbility$$ExecuteBehaviour (chance
 50) « summons another Scarab Swarm ... which then immediately takes a turn » -> c'est le double qui attaque.
 
 Ce test prouve DONC UNIQUEMENT l'exclusion de la boucle PickNextUnit (`aiStepDryRun` = enumerator

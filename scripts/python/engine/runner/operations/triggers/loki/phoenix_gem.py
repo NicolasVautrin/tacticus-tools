@@ -9,11 +9,11 @@ maximum of {hp} Health remaining, **even if Overkilled**. »
 
 Artefact natif (RE ghidra gqfc5mff6c, VA citees) :
 
-  PhoenixGem_CanReviveEffect..ctor   @180f5e680  `BaseEffect..ctor(turnsEnabled=1,
+  PhoenixGem_CanReviveEffect..IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$.ctor  `BaseEffect..ctor(turnsEnabled=1,
                                                   source=AbilityOrEffect(0x5b2=1458
                                                   TriggeredAbilityType.PhoenixGem))`
                                                   -> effet-MARQUEUR `EffectType.PhoenixGem_CanRevive`=1451
-  PhoenixGem_CanReviveEffect.CreateHandleTriggerAbilitiesInternal @180f5e4a0
+  IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal
       ArraySet{
         Triggered( On(0x2e=UnitRevived) & OwnerIsTarget
                    & CurrentAbilityIs(AbilityOrEffect(0x5b2=1458 TriggeredAbilityType.PhoenixGem)),
@@ -22,23 +22,23 @@ Artefact natif (RE ghidra gqfc5mff6c, VA citees) :
       }
       -> case-89 volet B3 : ces DEUX triggers sont desormais PORTES pour de vrai
       (`PhoenixGemRemoveMarkerOnRevive` / `PhoenixGemRemoveMarkerOnResurrect` ci-dessous), branches sur
-      les vecteurs `unit_revived_triggers` (`On(0x2e)`, emis par `ReviveUnitOperation` @0x180e92691) et
+      les vecteurs `unit_revived_triggers` (`On(0x2e)`, emis par `ReviveUnitOperation` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1) et
       `unit_resurrected_triggers` (`On(0x2f)`). Avant, le retrait etait CHAINE en dur au behaviour du
       revive faute de vecteur `On(0x2e)` dispatche — la structure DSL est retablie.
-  PhoenixGem_ReviveAbility.CreateTrigger   @1811117b0
+  IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateTrigger
       `OnPreDeath(ignoreOverkill=TRUE) & OwnerIsTarget & HasEffect(self@0x148, 0x5ab=1451, 0, 6)`
-      -> `ignoreOverkill=1` : `OnDeathEvent @180df7ad0` n'ajoute AUCUN gate overkill
+      -> `ignoreOverkill=1` : `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent` n'ajoute AUCUN gate overkill
          => « **even if Overkilled** » (contraste Narthecium/RitesOfMorkai) ; lu DIRECTEMENT dans le
          decompile (constante litterale du call, pas un virtuel) -- rien a deviner ici.
-  PhoenixGem_ReviveAbility.CreateBehaviour @181111610
+  IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateBehaviour
       `hp = GetVariableForLevel(config@0x20, 0x1d='hp', abilityState)`
       `Revive(self@0x148, self@0x148, Direct(hp), healType=2, AbilityOrEffect(this.Id), 0, -1000, 0)`
       (pas de `Maybe` -> inconditionnel ; pas de `Min(hp, maxPV)` explicite dans l'arbre, mais
-       `ReviveBehaviour.Execute @180fd1230` re-clampe a `GetMaxReviveAmount` -> `ReviveUnitOperation`
-       clampe de toute facon via `SetHealth @180e93450`.)
+       `IdunBattle.Entities.Behaviours.ReviveBehaviour$$Execute` re-clampe a `GetMaxReviveAmount` -> `ReviveUnitOperation`
+       clampe de toute facon via `IdunBattle.Operations.ReviveUnitOperation$$SetHealth`.)
 
 PORTEUR / VOIE : PhoenixGem est un **UniqueRelic** (cf. `PowerCalculationPlatformIntegrationTest$$
-UniqueRelicPhoenixGem @180b9e9a0`), PAS une ability du kit d'`eldarAutarch` (dont les abilities sont
+Loki.Tests.PlatformIntegrationTests.Tests.PowerCalculationPlatformIntegrationTest$$UniqueRelicPhoenixGem`), PAS une ability du kit d'`eldarAutarch` (dont les abilities sont
 `Loki_SwoopingHawk` / `PathOfCommand`). L'unite EST dans le pool runner, mais le relic ne se pose pas
 depuis `rl_duel build` -> l'effet 1451 n'est pas posable. Port MIRROR valide OFFLINE (effet injecte).
 """
@@ -59,18 +59,18 @@ from .....entities.effects.magnitude import ability_var
 ABILITY_ID = "PhoenixGem"
 PHOENIX_GEM_CAN_REVIVE = 1451          # EffectType.PhoenixGem_CanRevive (le marqueur « peut encore revive »)
 PHOENIX_GEM_ABILITY = 1458             # TriggeredAbilityType.PhoenixGem (0x5b2) -- l'id `AbilityOrEffect`
-                                       # passe en `sourceId` du `Revive` @181111610 ET teste par le
-                                       # `CurrentAbilityIs` du trigger de retrait @180f5e4a0.
-PHOENIX_GEM_HEAL_TYPE = 2              # 5e argument du `Revive` @181111610 (`CONCAT44(0,2)`) : healType=2
-                                       # -> `IsAffectedByHealType @180ed77d0` ne filtre NI Heal NI Repair.
+                                       # passe en `sourceId` du `Revive` IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateBehaviour ET teste par le
+                                       # `CurrentAbilityIs` du trigger de retrait IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal.
+PHOENIX_GEM_HEAL_TYPE = 2              # 5e argument du `Revive` IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateBehaviour (`CONCAT44(0,2)`) : healType=2
+                                       # -> `IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType` ne filtre NI Heal NI Repair.
 PHOENIX_GEM_PRIORITY = -1000           # 8e argument (`0xfffffc18`) : priorite la plus BASSE ->
-                                       # `IsPreferredRevive @180fd1b50` prefere TOUT autre revive.
+                                       # `IdunBattle.Entities.Behaviours.ReviveBehaviour$$IsPreferredRevive` prefere TOUT autre revive.
 
 
 class PhoenixGemReviveAbility(EffectTrigger):
-    """`PhoenixGem_ReviveAbility` (CreateTrigger @1811117b0 / CreateBehaviour @181111610), collectee via
-    l'effet-marqueur `PhoenixGem_CanReviveEffect` (1451, @180f5e680) porte par l'unite -- d'ou le rail
-    `EFFECT_TRIGGERS[1451]` (mirror de `CreateHandleTriggerAbilitiesInternal @180f5e4a0`, qui EST le
+    """`PhoenixGem_ReviveAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateBehaviour), collectee via
+    l'effet-marqueur `PhoenixGem_CanReviveEffect` (1451, IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$.ctor) porte par l'unite -- d'ou le rail
+    `EFFECT_TRIGGERS[1451]` (mirror de `IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal`, qui EST le
     vecteur natif d'enregistrement des trigger-abilities d'un effet)."""
     effect_type = PHOENIX_GEM_CAN_REVIVE
     event_id = EventTriggerType.PreUnitDeath    # OnPreDeath -> OnDeathEvent(1)
@@ -105,10 +105,10 @@ class PhoenixGemReviveAbility(EffectTrigger):
         entities = entities_from_state(state, self.owner_id, ev.dying_id)
         ectx = ExecutionContext(state=state, rng=state.rng)
         level, mult = self._level(state)
-        # `CreateBehaviour @181111610` = `Revive(self@0x148, self@0x148, Direct(GetVariableForLevel('hp')),
+        # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateBehaviour` = `Revive(self@0x148, self@0x148, Direct(GetVariableForLevel('hp')),
         # healType=2, Nullable(AbilityOrEffect(this.Id=1458)), 0, priority=-1000, 0)` -- AUCUN `Maybe`
         # (inconditionnel). Le behaviour se REDUIT a ce seul noeud : le retrait du marqueur est, cote
-        # natif, un trigger SEPARE de `PhoenixGem_CanReviveEffect` (@180f5e4a0), desormais porte a part
+        # natif, un trigger SEPARE de `PhoenixGem_CanReviveEffect` (IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal), desormais porte a part
         # (`PhoenixGemRemoveMarkerOnRevive`) — plus de chainage en dur ici (case-89 volet B3).
         Revive(Caster(), ABILITY_ID, "hp", level, mult,
                heal_type=PHOENIX_GEM_HEAL_TYPE, source_id=PHOENIX_GEM_ABILITY,
@@ -131,7 +131,7 @@ class PhoenixGemReviveAbility(EffectTrigger):
 
 class _PhoenixGemRemoveMarker(EffectTrigger):
     """Base des DEUX triggers de RETRAIT du marqueur 1451 (`PhoenixGem_CanReviveEffect.
-    CreateHandleTriggerAbilitiesInternal @180f5e4a0`, entrees de l'`ArraySet`). Behaviour commun :
+    IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal`, entrees de l'`ArraySet`). Behaviour commun :
     `RemoveEffect(self@0x150)` -> la feuille `RemoveReviveEffect` (revive_effect.py). C'est CE retrait
     qui realise le « the FIRST TIME each battle » (et non un gate dans le trigger de revive)."""
     effect_type = PHOENIX_GEM_CAN_REVIVE
@@ -154,7 +154,7 @@ class _PhoenixGemRemoveMarker(EffectTrigger):
 
 
 class PhoenixGemRemoveMarkerOnRevive(_PhoenixGemRemoveMarker):
-    """1re entree de l'`ArraySet @180f5e4a0` : `On(0x2e=UnitRevived) & OwnerIsTarget &
+    """1re entree de l'`ArraySet IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal` : `On(0x2e=UnitRevived) & OwnerIsTarget &
     CurrentAbilityIs(AbilityOrEffect(0x5b2=1458))` -> `RemoveEffect(1451)`. Le gate `CurrentAbilityIs`
     est essentiel : un revive de PhoenixGem consomme le marqueur, un revive venu d'AILLEURS (Narthecium
     d'un allie, ...) le LAISSE en place."""
@@ -167,9 +167,9 @@ class PhoenixGemRemoveMarkerOnRevive(_PhoenixGemRemoveMarker):
 
 
 class PhoenixGemRemoveMarkerOnResurrect(_PhoenixGemRemoveMarker):
-    """2e entree de l'`ArraySet @180f5e4a0` : `On(0x2f=UnitResurrected) & OwnerIsTarget` ->
+    """2e entree de l'`ArraySet IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal` : `On(0x2f=UnitResurrected) & OwnerIsTarget` ->
     `RemoveEffect(1451)`. AUCUN `CurrentAbilityIs` ici (lu au decompile) : toute RESURRECTION
-    (`ResurrectUnitOperation` @180e8e4c0, ambush) consomme aussi le marqueur."""
+    (`ResurrectUnitOperation` IdunBattle.Operations.ResurrectUnitOperation$$Execute, ambush) consomme aussi le marqueur."""
     event_id = EventTriggerType.UnitResurrected                # 0x2f = 47
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:

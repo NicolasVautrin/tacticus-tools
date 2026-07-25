@@ -38,7 +38,7 @@ def _traits(visual_id) -> list:
 
 def _has_valid_targets(ctx: "NCContext", unit_id: int) -> bool:
     """`IBattleQuery.HasValidTargets(unit, GetUnitPosition(unit), GetNormalAttackType(unit))` (slot 0x3f
-    -> `BattleQuery.HasValidTargets @18106e8d0` -> `AttackQuery.HasValidTargets @181057540`) résolu OFFLINE :
+    -> `IdunBattle.Core.Services.BattleQuery$$HasValidTargets` -> `IdunBattle.Core.Services.AttackQuery$$HasValidTargets`) résolu OFFLINE :
     l'unité peut-elle attaquer >= 1 ennemi avec son attaque NORMALE DEPUIS SA POSITION ACTUELLE (SANS bouger) ?
     = `abilityTargets(unit, GetNormalAttackType(unit))` -> `usable` (CanCurrentlyBeUsed = cooldown/munitions)
     ET `fromHereCount > 0` (`fromHere` = `AttackQuery.GetValidTargets(unit, pos, ability)` = légalité du cast
@@ -74,7 +74,7 @@ def _normal_attack_ids(ctx: "NCContext", unit_id: int) -> set:
 
 
 def _will_normal_attack_kill(ctx: "NCContext", target_id, position: tuple | None) -> bool:
-    """`BasePlaybook.WillNormalAttackKill @18111fff0` : `PredictAttack` (slot 0x20 = attaque NORMALE du
+    """`IdunBattle.AI.Playbook.BasePlaybook$$WillNormalAttackKill` : `PredictAttack` (slot 0x20 = attaque NORMALE du
     caster DEPUIS `position`) -> `ProbableDamageEvent` -> `DamagePredictionResult.get_WillBeKill` =
     SURE-kill (borne MIN >= PV courants, = `killSure` du composite). `target == null` -> false (branche
     `param_3 == 0` du natif). Predicteur (`ctx.scene`) absent -> false (borne inf, pas de gate a l'aveugle).
@@ -91,7 +91,7 @@ def _will_normal_attack_kill(ctx: "NCContext", target_id, position: tuple | None
 
 
 def _get_num_attack_targets_in_position(ctx: "NCContext", unit_id: int, tile: tuple | None) -> int:
-    """`TheQuickeningPlaybook.GetNumAttackTargetsInPosition @18116b4b0` = `IBattleQuery` slot 0x7f
+    """`IdunBattle.AI.Playbook.Loki.TheQuickeningPlaybook$$GetNumAttackTargetsInPosition` = `IBattleQuery` slot 0x7f
     (cibles d'attaque NORMALE de `unit_id` DEPUIS `tile`, POSITION HYPOTHETIQUE — la requete prend
     la tuile en argument, elle n'est PAS contrainte par le mouvement/l'occupation) suivi de `.Count`.
 
@@ -139,11 +139,11 @@ def _get_num_attack_targets_in_position(ctx: "NCContext", unit_id: int, tile: tu
 
 def _turns_started_gate(ctx: "NCContext") -> bool:
     """Corps FOLDÉ (COMDAT) du slot-4 `ShouldEvaluate(unit)` « pas au 1er tour » — code UNIQUE
-    @18111af90 (symbole `AlphaWarriorPlaybook$$ShouldEvaluate`, refcount 7) pointé par la vtable de
+    IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$ShouldEvaluate (symbole `AlphaWarriorPlaybook$$ShouldEvaluate`, refcount 7) pointé par la vtable de
     PLUSIEURS playbooks : `return GetStat(unit, 0xc=TurnsStarted) > 1`.
 
     Vtables résolues LIVE (`resolveVtableSlot` @0x298, gqfc5mff6c) : TheQuickening(1151),
-    HeroicFusillade(1180), VigilanceEternal(1202), AlphaWarrior (non porté) -> @18111af90.
+    HeroicFusillade(1180), VigilanceEternal(1202), AlphaWarrior (non porté) -> IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$ShouldEvaluate.
     `turnsStarted` (stat 12) = compteur PER-UNIT incrémenté au StartTurn -> vaut 1 pendant le
     PREMIER tour de l'unité : l'ability n'est JAMAIS évaluée au 1er tour (mesure #46 seed 31337 :
     slot4=0 au pas 5 (1er tour u81, 8/8 déterministe), =1 au pas 15 (2e tour) — la corrélation
@@ -162,8 +162,8 @@ def _sweep_origin_first(ctx: "NCContext") -> list:
     """Ordre de balayage des positions candidates pour un SELF-CAST (heal/repair/rites) : ORIGINE
     D'ABORD, puis les tuiles de move.
 
-    Le generateur natif `ActiveAbilityActionGenerator.<GenerateActions>d__7 @18119a3f0` evalue chaque
-    position dans un Bucket ; `Bucket.AddAction @1813fbcc0` SEED le 1er ajoute puis ne remplace QUE si
+    Le generateur natif `ActiveAbilityActionGenerator.<GenerateActions>d__7 IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` evalue chaque
+    position dans un Bucket ; `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction` SEED le 1er ajoute puis ne remplace QUE si
     STRICTEMENT superieur (`System.TimeSpan.op_GreaterThan`) -> keep-first au tie. La `NullPosition`
     (cast EN PLACE) est TOUJOURS evaluee. CONFIRME LIVE (#76, deathRotbone RevitalizingMalignancy) :
     a utilite CONSTANTE (seul le caster blesse -> terme adjacents = 0) le natif RESTE EN PLACE (target
@@ -227,23 +227,23 @@ class NonComparablePlaybook:
     (selector + leaf `EvaluateNonComparable` + MIN_UTILITY du cctor)."""
     ABILITY_ID: int = -1
     MIN_UTILITY: float = 0.0       # cctor du playbook -> gate Bucket.AddAction (util >= min)
-    PRIORITY: int = 0              # get_Priority (slot0) -> tier NonComparable (dict[prio], @1810ed540)
+    PRIORITY: int = 0              # get_Priority (slot0) -> tier NonComparable (dict[prio], IdunBattle.AI.Tactics.ABaseAiActorTactic$$InitAbilityTypeLists)
     #                                les 4 portés = 0 (confirmé live via abilityPreferences/get_Priority)
 
     def should_evaluate(self, ctx: NCContext) -> bool:
         """`IPlaybook` slot 4 `ShouldEvaluate(unit)` — gate AMONT du générateur
-        `ActiveAbilityActionGenerator.<GenerateActions>d__7 @18119a3f0` (`FUN_180003bd0(4, …)`),
+        `ActiveAbilityActionGenerator.<GenerateActions>d__7 IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` (`FUN_180003bd0(4, …)`),
         évalué AVANT tout sweep de position : False -> l'ability est SAUTÉE entièrement (le
         fallback Comparable prend la main).
 
-        Impl de base = `BasePlaybook.ShouldEvaluate @18111fb70` : `prob := vtable[0x1f8]
+        Impl de base = `IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate` : `prob := vtable[0x1f8]
         GetUseProbability(unit)` puis `prob >= 1 -> True` ; `prob <= 0 -> False` ; sinon tirage
-        RNG autobot. Les DEUX surcharges de base `GetUseProbability` (@18111f9b0 / @18111fa00,
+        RNG autobot. Les DEUX surcharges de base `GetUseProbability` (IdunBattle.AI.Playbook.BasePlaybook$$GetUseProbability / IdunBattle.AI.Playbook.BasePlaybook$$GetUseProbability,
         slots 0x208/0x1f8) rendent `Fix64(1)` -> True constant ici. Les playbooks à
-        `GetUseProbability` conditionnelle (BlackRage @181121740 = 0.4, ItItches @1811477b0)
+        `GetUseProbability` conditionnelle (BlackRage IdunBattle.AI.Playbook.Loki.BlackRagePlaybook$$GetUseProbability = 0.4, ItItches IdunBattle.AI.Playbook.Loki.ItItchesPlaybook$$GetUseProbability)
         restent True = écart assumé « porte ALÉATOIRE non modélisée » (moteur déterministe,
-        cf. §5 case-44). Un playbook qui OVERRIDE le slot 4 lui-même (vtable ≠ @18111fb70)
-        surcharge cette méthode (ex. corps foldé @18111af90 `GetStat(unit,12) > 1`)."""
+        cf. §5 case-44). Un playbook qui OVERRIDE le slot 4 lui-même (vtable ≠ IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate)
+        surcharge cette méthode (ex. corps foldé IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$ShouldEvaluate `GetStat(unit,12) > 1`)."""
         return True
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
@@ -255,10 +255,10 @@ class NonComparablePlaybook:
 
 class _PlanTargetPlaybook(NonComparablePlaybook):
     """Base des abilities d'ATTAQUE NonComparable (BloodyFury, VexillaMagnifica, HammerOfWrath,
-    BlackRage, VigilanceEternal). Le generator natif `<GenerateActions>d__7 @18119a3f0` balaie les
+    BlackRage, VigilanceEternal). Le generator natif `<GenerateActions>d__7 IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` balaie les
     POSITIONS candidates (ordre BRUT `reach_nc` : tuiles de move dans l'ordre du movable set natif,
     puis `NullPosition`/origine EN DERNIER — cf. #76/#80) et, PAR position, les cibles eligibles ;
-    `Bucket.AddAction @1813fbcc0` SEED le 1er ajoute puis ne remplace QUE si STRICTEMENT superieur
+    `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction` SEED le 1er ajoute puis ne remplace QUE si STRICTEMENT superieur
     -> au tie d'utilite, la PREMIERE position de l'ordre movable gagne (une utilite
     position-INDEPENDANTE type BloodyFury retombe donc sur la 1re position legale de cet ordre).
     L'eligibilite par position pour la paire (ability, cible) = les tuiles rankees du plan natif

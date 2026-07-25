@@ -5,17 +5,16 @@ Frontière déclaratif/impératif (doctrine #149) : la FORMULE du plancher + le 
 `IsEnemyTurn & Not(HasBeenAttackedAmountThisTurn>=1)` vivent sur la CLASSE d'effet
 (`HypersensoryMinimalHealthEffect`, entities/effects/loki.py) ; ici = l'OPÉRATION ECS (mute
 `HealthComponent.minimal_health`) + le DRIVER qui ré-évalue la condition aux transitions et appelle
-Apply/Revert. Le clamp effectif du dégât est dans `HealthComponent.reduce` (mirror `FillUpStatComponent.Reduce
-@180f9bba0`).
+Apply/Revert. Le clamp effectif du dégât est dans `HealthComponent.reduce` (mirror `IdunBattle.Entities.Components.FillUpStatComponent$$Reduce`).
 
 Chaîne native RE'd (VA citées) :
 
-    HypersensoryAbilitiesAbility.CreateBehaviour  @180f87870   AddEffect(0x564=1380, owner) [self, init passif]
-    MinimalHealthEffect.CreateActiveCondition     @180f447a0   And(IsEnemyTurn(owner),
+    IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility$$CreateBehaviour   AddEffect(0x564=1380, owner) [self, init passif]
+    IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$CreateActiveCondition   And(IsEnemyTurn(owner),
                                                                    Not(HasBeenAttackedAmountThisTurn(owner)>=1))
-    MinimalHealthEffect.ApplyInternal             @180f445a0   MinimalHealth@+0x1c = Min(Round(hp x hpPct/100), hp-1)
-    MinimalHealthEffect.RevertInternal            @180f44820   MinimalHealth@+0x1c = null
-    (compteur) DSLFactory.HasBeenAttackedAmountThisTurnIsEqualOrGreater @180df0c10  (source @+0x34)
+    IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$ApplyInternal   MinimalHealth@+0x1c = Min(Round(hp x hpPct/100), hp-1)
+    IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$RevertInternal   MinimalHealth@+0x1c = null
+    (compteur) IdunBattleLogic.Entities.DSLFactory$$HasBeenAttackedAmountThisTurnIsEqualOrGreater  (source @+0x34)
 
 Le natif ré-évalue la condition via le framework d'effet (Apply au FALSE->TRUE, Revert au TRUE->FALSE) ; les
 DEUX transitions fonctionnellement nécessaires = (1) début de tour (IsEnemyTurn bascule + reset du compteur)
@@ -49,13 +48,13 @@ def _minimal_health_effect(state: State, unit_id: int) -> Optional[HypersensoryM
 
 
 class MinimalHealthEffectOperation:
-    """`HypersensoryAbilities_MinimalHealthEffect` Apply/Revert (@180f445a0 / @180f44820) — mute
+    """`HypersensoryAbilities_MinimalHealthEffect` Apply/Revert (IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$ApplyInternal / IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$RevertInternal) — mute
     `HealthComponent.minimal_health`. Feuille IMPÉRATIVE appelée par le driver `evaluate_minimal_health`."""
     __slots__ = ()
 
     @staticmethod
     def apply(state: State, unit_id: int, eff: HypersensoryMinimalHealthEffect) -> Optional[int]:
-        """`ApplyInternal` @180f445a0 : `MinimalHealth = Min(Round(hp x hpPct/100), hp-1)` (snapshot du HP
+        """`IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$ApplyInternal : `MinimalHealth = Min(Round(hp x hpPct/100), hp-1)` (snapshot du HP
         courant). No-op (None) si pas de HealthComponent / hp non capté / pct absent. Renvoie le plancher posé."""
         ent = state.get_entity(unit_id)
         hc = ent.get_component(HealthComponent) if ent is not None else None
@@ -69,7 +68,7 @@ class MinimalHealthEffectOperation:
 
     @staticmethod
     def revert(state: State, unit_id: int) -> None:
-        """`RevertInternal` @180f44820 : `MinimalHealth = null` (efface le plancher). No-op si pas de
+        """`IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$RevertInternal : `MinimalHealth = null` (efface le plancher). No-op si pas de
         HealthComponent."""
         ent = state.get_entity(unit_id)
         hc = ent.get_component(HealthComponent) if ent is not None else None
@@ -98,7 +97,7 @@ def reset_times_attacked(state: State) -> None:
 
 def evaluate_minimal_health(state: State, player_id: Optional[int]) -> list:
     """Driver de ré-évaluation de l'ActiveCondition du HP-floor au DÉBUT DE TOUR (mirror du framework d'effet
-    évaluant `CreateActiveCondition` @180f447a0). Pour chaque porteur du HP-floor : si `IsEnemyTurn(owner)`
+    évaluant `IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$CreateActiveCondition). Pour chaque porteur du HP-floor : si `IsEnemyTurn(owner)`
     (le player entrant N'EST PAS celui du porteur) ET pas encore attaqué ce tour (compteur remis à 0 juste
     avant) -> `Apply` (snapshot du plancher = pct% du HP courant) ; sinon -> `Revert` (efface). Renvoie la
     liste des {unit, floor} posés (diagnostic)."""

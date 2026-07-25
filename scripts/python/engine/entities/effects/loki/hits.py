@@ -22,10 +22,9 @@ class SquigHoundAdditionalHitsEffect(BaseEffect):
     a l'attaque du porteur : `nrOfHits` coups a degat PROPRE [minDmg,maxDmg] (vars 0xc/0xd de l'ability
     SquigHound, ctor AbilityOrEffect 0x43a=1082) et profil PROPRE (`damageProfile`). Gate = OwnerIsCaster.
 
-    Natif : `SquigHound_AdditionalHitsEffect.CreateAdditionalHits @180f6d000` -> `EffectAdditionalHits.Create
-    @180f405b0` {condition=OwnerIsCaster, minDmg=GetMinMaxDamage(effect,idx0)=RandomAmount(ConfigVar(0xc),
+    Natif : `IdunBattle.Entities.Effects.Loki.SquigHound_AdditionalHitsEffect$$CreateAdditionalHits` -> `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create` {condition=OwnerIsCaster, minDmg=GetMinMaxDamage(effect,idx0)=RandomAmount(ConfigVar(0xc),
     ConfigVar(0xd)), count=GetNumberConstant(0x2f=nrOfHits), damageProfile=GetDamageProfile(config).Value,
-    maxDmg=GetMinMaxDamage(effect,idx1)}. `GetMinMaxDamage @180f11cc0` (overload 2-arg @180f11da0) indexe
+    maxDmg=GetMinMaxDamage(effect,idx1)}. `IdunBattle.Entities.Effects.BaseEffect$$GetMinMaxDamage` (overload 2-arg IdunBattle.Entities.Effects.BaseEffect$$GetMinMaxDamage) indexe
     les vars sur l'`AbilityStateFromEffect` (= le niveau de l'ability source sur l'unite, `ability_level`).
     minDmg/maxDmg in `variablesAffectedByRarityBonus` -> x multiplier. Les coups squig ont leur perce/profil
     propres et sont prev-threades APRES les coups d'arme (overkill continu) -> chemin `extra_groups` de
@@ -54,7 +53,7 @@ class CordClawAdditionalHitsEffect(BaseEffect):
     jusqu'à la fin de son prochain tour gagnent des coups additionnels à dégât PROPRE (i2 : « All of
     Exitor-Rho's further attacks ... deal an additional 2x 582-873 Direct Damage »).
 
-    Natif : `CordClaw_AdditionalHitsEffect.CreateAdditionalHits @180f3a900` -> EffectAdditionalHits
+    Natif : `IdunBattle.Entities.Effects.Loki.CordClaw_AdditionalHitsEffect$$CreateAdditionalHits` -> EffectAdditionalHits
     {condition=OwnerIsActor, minmax=GetMinMaxDamage2(effect, idx0/idx1) = vars `minDmg_2`/`maxDmg_2`
     de l'ability CordClaw (indexées AbilityStateFromEffect = ablvl du cast, rarity-scalées ×mult),
     count=GetNumberConstant(0x32)=`nrOfHits_2` (=2), profile=GetDamageProfile(config)=DirectDamage
@@ -86,7 +85,7 @@ class FoulInfusionExtraHitsEffect(BaseEffect):
     FoulInfusion (1038), Pestillian ET les unites Chaos dans son aura de Contagion recoivent CET
     effet : leurs attaques normales MELEE infligent +1 coup Toxic « this round and the next » (i2).
 
-    Natif : `FoulInfusion_ExtraHitsEffect.CreateAdditionalHits @180f4a340` -> `EffectAdditionalHits
+    Natif : `IdunBattle.Entities.Effects.Loki.FoulInfusion_ExtraHitsEffect$$CreateAdditionalHits` -> `EffectAdditionalHits
     .Create` {trigger = IsMeleeAttack & OwnerIsCaster, amount = ConfigVar(dmg, GetAbilityState(effet)),
     count = GetNumberConstant(0x2f)=nrOfHits (=1), profile = GetDamageProfile(config) = Toxic (p70)}.
     Le trigger est EVALUE en prediction (mesure 2468 s14 : les 3 effets u91/u162/u166 ne contribuent
@@ -117,7 +116,7 @@ class CyclicIonBlasterAdditionalHitsEffect(BaseEffect):
     3x minDmg-maxDmg Particle Damage. If the target has a Markerlight or the Mechanical trait these
     hits deal +extraDmg Damage ».
 
-    Natif : `CreateAdditionalHits @180e1dd70` -> `EffectAdditionalHits.Create` {trigger = OwnerIsCaster
+    Natif : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.CyclicIonBlaster_AdditionalHitsEffect$$CreateAdditionalHits` -> `EffectAdditionalHits.Create` {trigger = OwnerIsCaster
     (TOUTES les attaques, pas de gate melee/normal), amount = ConditionalAmount(HasEffect(target,
     0x462=1122 Markerlight) | HasTrait(target, 5=Mechanical), RandomAmount(Sum(minDmg 0xc, extraDmg 8),
     Sum(maxDmg 0xd, extraDmg 8)), RandomAmount(minDmg, maxDmg)), count = GetNumberConstant(0x2f=
@@ -156,20 +155,20 @@ class CyclicIonBlasterAdditionalHitsEffect(BaseEffect):
 
 
 class _BaseFleshmetalGunsEffect(BaseEffect):
-    """`BaseFleshmetalGunsEffect` (ctor @180f48570, EffectSource = AbilityOrEffect 0x429=1065
+    """`BaseFleshmetalGunsEffect` (IdunBattle.Entities.Effects.Loki.BaseFleshmetalGunsEffect$$.ctor, EffectSource = AbilityOrEffect 0x429=1065
     FleshmetalGuns, blackObliterator Volk) — mold commun des 3 effets CYCLIQUES du passif : au debut
-    du tour de Volk, `FleshMetalGunsAbility.CreateBehaviour @18121f6e0` retire les 3 effets puis pose
+    du tour de Volk, `IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGunsAbility$$CreateBehaviour` retire les 3 effets puis pose
     `If(UnitTurnsStarted % 3 == 1 -> AddEffect(0x42b FocusedMalice), == 2 -> AddEffect(0x4bc
     RuinousSalvo), == 0 -> AddEffect(0x4c5 WarpHail))` — le CYCLE est natif (l'etat runner porte
     l'effet courant), seul le canal #179 est porte ici.
 
-    Natif : `BaseFleshmetalGunsEffect.CreateAdditionalHits @180f48260` -> `EffectAdditionalHits.Create`
+    Natif : `IdunBattle.Entities.Effects.Loki.BaseFleshmetalGunsEffect$$CreateAdditionalHits` -> `EffectAdditionalHits.Create`
     {condition = OwnerIsCaster & IsRangedAttack, noeud roll = GetMinMaxDamage(effect, 0, keyMin, keyMax)
     = RandomAmount(ConfigVar(keyMin, AbilityStateFromEffect), ConfigVar(keyMax, ...)), noeud display =
     GetMinMaxDamage(effect, 1, ...) = **Average** des memes ConfigVars, count = GetNumberConstant(
     keyCount), profile = virtuel 0x728}. Les cles min/max/count/profil sont des VIRTUELS par variante
     (suffixe _2/_3) : base = minDmg/maxDmg/nrOfHits/GetDamageProfile (Melta) ; RuinousSalvo override
-    GetDamageProfileType @180f49fa0 -> GetDamageProfile2 (Flame, jeu _2) ; WarpHail @180f49ff0 ->
+    IdunBattle.Entities.Effects.Loki.FleshmetalGunsRuinousSalvoEffect$$GetDamageProfileType -> GetDamageProfile2 (Flame, jeu _2) ; WarpHail IdunBattle.Entities.Effects.Loki.FleshmetalGunsWarpHailEffect$$GetDamageProfileType ->
     GetDamageProfile3 (HeavyRound, jeu _3). min/max in `variablesAffectedByRarityBonus` -> x multiplier ;
     niveau = AbilityStateFromEffect (ability_level).
 
@@ -178,7 +177,7 @@ class _BaseFleshmetalGunsEffect(BaseEffect):
     x 0.8/1.2) ou 698/1096 = minDmg_3/maxDmg_3 int-resolus (varTrace 56/57), outs x0.55 (pierce
     HeavyRound) = [395,592]/coup -> oracle ranked (3184,4772) reconstruit EXACT. La prediction native
     evalue le noeud Average (midpoint des vars INT-resolues) puis applique le spread pipeline ±20%
-    (CalculateDamageSpread @1810028e0). Les paires Melta [554,831] et Flame [443,665] (comme SquigHound
+    (IdunBattle.Core.Services.DamageCalculations$$CalculateDamageSpread). Les paires Melta [554,831] et Flame [443,665] (comme SquigHound
     [1330,1994] / CordClaw [886,1330]) sont des paires ±20% EXACTES autour de leur moyenne -> predefined
     et amount-midpoint coincident au round pres ; seule la paire WarpHail [388,609] est ASYMETRIQUE
     (±22.2%) et discrimine les formes (miss +-22 du 1er run probe_65). Face COMBAT (roll reel) =
@@ -187,7 +186,7 @@ class _BaseFleshmetalGunsEffect(BaseEffect):
 
     DECOUVERT par probe #62 (seed 62001 MC1_67) : u79 blackObliterator (4,4) vs u81 natif (2321,3479)
     vs offline (725,1087). i2 : << Ranged attacks deal an additional {nrOfHits}x {minDmg}-{maxDmg} ...
-    >>. Le volet << Despoiled Ground >> de WarpHail = `FleshMetalGuns_TileEffectAbility @18121fb40`
+    >>. Le volet << Despoiled Ground >> de WarpHail = `FleshMetalGuns_TileEffectAbility IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGuns_TileEffectAbility$$CreateBehaviour`
     (effet de TUILE, hors canal #179, non porte). #65."""
 
     _SUFFIX = ""                       # cles gameconfig de la variante : ""|"_2"|"_3"
@@ -226,7 +225,7 @@ class FleshmetalGunsFocusedMaliceEffect(_BaseFleshmetalGunsEffect):
 
 class FleshmetalGunsRuinousSalvoEffect(_BaseFleshmetalGunsEffect):
     """`FleshmetalGunsRuinousSalvoEffect` (effet 0x4bc=1212, tour 2 du cycle) — jeu _2 :
-    minDmg_2/maxDmg_2, nrOfHits_2 (=2), `GetDamageProfileType @180f49fa0` -> GetDamageProfile2 = Flame."""
+    minDmg_2/maxDmg_2, nrOfHits_2 (=2), `IdunBattle.Entities.Effects.Loki.FleshmetalGunsRuinousSalvoEffect$$GetDamageProfileType` -> GetDamageProfile2 = Flame."""
 
     _SUFFIX = "_2"
     _FALLBACK_PROFILE = "Flame"
@@ -234,8 +233,8 @@ class FleshmetalGunsRuinousSalvoEffect(_BaseFleshmetalGunsEffect):
 
 class FleshmetalGunsWarpHailEffect(_BaseFleshmetalGunsEffect):
     """`FleshmetalGunsWarpHailEffect` (effet 0x4c5=1221, tour 3 du cycle) — jeu _3 :
-    minDmg_3/maxDmg_3, nrOfHits_3 (=2), `GetDamageProfileType @180f49ff0` -> GetDamageProfile3 =
-    HeavyRound. Le volet Despoiled Ground (tuile) est un artefact separe non porte (@18121fb40)."""
+    minDmg_3/maxDmg_3, nrOfHits_3 (=2), `IdunBattle.Entities.Effects.Loki.FleshmetalGunsWarpHailEffect$$GetDamageProfileType` -> GetDamageProfile3 =
+    HeavyRound. Le volet Despoiled Ground (tuile) est un artefact separe non porte (IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGuns_TileEffectAbility$$CreateBehaviour)."""
 
     _SUFFIX = "_3"
     _FALLBACK_PROFILE = "HeavyRound"
@@ -245,7 +244,7 @@ class _ExplosiveMaladiesAuraHitsBase(BaseEffect):
     """Mold commun des deux effets-AURA d'ExplosiveMaladies (passif deathPutrifier Pestillian, effets
     HOSTES SUR LE PORTEUR — rien n'est poste sur le beneficiaire, modele #49) : +nrOfHits=1 coup de
     ConfigVar(8=extraDmg, GetAbilityState(effet)) au profil `GetAffectedDamageProfile` (= Blast p15)
-    aux attaques NORMALES des amis ADJACENTS au porteur (`AdjacentFriends(owner, 1)` @180f43ef0),
+    aux attaques NORMALES des amis ADJACENTS au porteur (`AdjacentFriends(owner, 1)` IdunBattle.Entities.Effects.Loki.ExplosiveMaladies_ExtraRangedAttackEffect$$CreateTargetSelector),
     adjacence re-evaluee a la TUILE CANDIDATE.
 
     VALIDE bit-exact live (probe #57c-C, 2468 s14) : u89 (Ork, ranged, NON porteur) a (2,3) adjacent
@@ -286,15 +285,15 @@ class _ExplosiveMaladiesAuraHitsBase(BaseEffect):
 
 
 class ExplosiveMaladiesExtraRangedAttackEffect(_ExplosiveMaladiesAuraHitsBase):
-    """`ExplosiveMaladies_ExtraRangedAttackEffect.CreateAdditionalHits @180f43cc0` — trigger
+    """`IdunBattle.Entities.Effects.Loki.ExplosiveMaladies_ExtraRangedAttackEffect$$CreateAdditionalHits` — trigger
     `OwnerIsCaster & IsRangedAttack`, selecteur `UnitsWithRangedWeapons(AdjacentFriends(owner,1))`
-    @180f43ef0 : TOUT ami adjacent (arme ranged requise — implicite : l'attaque predite EST ranged)."""
+    IdunBattle.Entities.Effects.Loki.ExplosiveMaladies_ExtraRangedAttackEffect$$CreateTargetSelector : TOUT ami adjacent (arme ranged requise — implicite : l'attaque predite EST ranged)."""
 
     _VARIANT_IS_MELEE = False
 
 
 class ExplosiveMaladiesExtraMeleeAttackEffect(_ExplosiveMaladiesAuraHitsBase):
-    """`ExplosiveMaladies_ExtraMeleeAttackEffect.CreateAdditionalHits @180f43a40` — trigger
+    """`IdunBattle.Entities.Effects.Loki.ExplosiveMaladies_ExtraMeleeAttackEffect$$CreateAdditionalHits` — trigger
     `OwnerIsCaster & IsMeleeAttack` ; i2 : seuls les amis CHAOS adjacents beneficient du coup en
     MELEE (selecteur melee non decompile — gate GrandAlliance Chaos mirror i2, flag validator)."""
 
@@ -311,16 +310,13 @@ class InfernalPactsAdditionalHitsEffect(BaseEffect):
     ±20%) au profil `affectedDamageProfile` (=Psychic) aux attaques des amis CHAOS adjacents ring-1 :
     ranged pour tous, melee AUSSI pour les Daemons.
 
-    Natif (case-202 §7) : ctor @180f527a0 = `BaseEffect(AbilityOrEffect(0x492), 1, 0)` (effet
-    auto-porteur EffectsDatabase b__14_225, AUCUNE classe Ability dediee) ; `CreateAdditionalHits
-    @180f52430` -> `EffectAdditionalHits.Create @180f405b0` {trigger = `OwnerIsCaster &
-    (IsRangedAttack | HasTrait(Caster, 0x3fb=1019 Daemon))`, dmg = `GetMinMaxDamage(this,0)`
-    @180f11cc0 = `RandomAmount(ConfigVar(0xc=minDmg), ConfigVar(0xd=maxDmg))`, count =
+    Natif (case-202 §7) : IdunBattle.Entities.Effects.Loki.InfernalPacts_AdditionalHitsEffect$$.ctor = `BaseEffect(AbilityOrEffect(0x492), 1, 0)` (effet
+    auto-porteur EffectsDatabase b__14_225, AUCUNE classe Ability dediee) ; `IdunBattle.Entities.Effects.Loki.InfernalPacts_AdditionalHitsEffect$$CreateAdditionalHits` -> `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create` {trigger = `OwnerIsCaster &
+    (IsRangedAttack | HasTrait(Caster, 0x3fb=1019 Daemon))`, dmg = `IdunBattle.Entities.Effects.BaseEffect$$GetMinMaxDamage(this,0) = `RandomAmount(ConfigVar(0xc=minDmg), ConfigVar(0xd=maxDmg))`, count =
     `GetNumberConstant(0x2f=nrOfHits)`, profil = `GetAffectedDamageProfile`, avg =
-    `GetMinMaxDamage(this,1)` = `Average(min,max)` (canal display)} ; `CreateTargetSelector
-    @180f52650` = `Unique( UnitsWithRangedWeapons(UnitsWithTrait(AdjacentFriends(Caster,1),
+    `GetMinMaxDamage(this,1)` = `Average(min,max)` (canal display)} ; `IdunBattle.Entities.Effects.Loki.InfernalPacts_AdditionalHitsEffect$$CreateTargetSelector` = `Unique( UnitsWithRangedWeapons(UnitsWithTrait(AdjacentFriends(Caster,1),
     0x7ea=2026 Chaos)) + UnitsWithTrait(AdjacentFriends(Caster,1) avec Chaos, 0x3fb Daemon) )` ;
-    `GetRefreshTriggers @180f52730` = [PreAttack(5), PreAttackDamageHit(7)] -> l'aura est reevaluee
+    `IdunBattle.Entities.Effects.Loki.InfernalPacts_AdditionalHitsEffect$$GetRefreshTriggers` = [PreAttack(5), PreAttackDamageHit(7)] -> l'aura est reevaluee
     AU MOMENT de l'attaque = modele tuile-candidate (#49/#153), rien n'est pose sur le beneficiaire.
 
     Gates offline : allie meme team + ring-1 + CHAOS (grande alliance — les traits gameconfig ne
@@ -372,7 +368,7 @@ class InfernalPactsAdditionalHitsEffect(BaseEffect):
 class AnvilShieldAdditionalBlockEffect(BaseEffect):
     """`AnvilShield_AdditionalBlock` (effet 0x4b2=1202, StaticStatModifierEffect) — buff BLOCK_DAMAGE
     self de Arjac (spaceRockfist), OWNER-EFFECT pose A L'INIT DE L'ABILITY. Pose par
-    `AnvilShieldAbility_ApplyAdditionalBlockAndBlockChance.CreateBehaviour @180e16340` :
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyAdditionalBlockAndBlockChance$$CreateBehaviour` :
     `AddStaticStatModifierEffect(0x4b2, statType 8=BLOCK_DAMAGE, GetVariableForLevel(0x14))` (2e effet de
     la meme behaviour = 0x4b0=1200 BlockChanceBelowHealthCap, stat 7=BLOCK_CHANCE / var blockChance, gate
     sante -> NON porte ici, ambiguite abs-vs-% du cap).
@@ -383,8 +379,8 @@ class AnvilShieldAdditionalBlockEffect(BaseEffect):
     (fallback passif/stack). EffectSource = AbilityOrEffect 0x493 (=AnvilShield, ability enum).
 
     ⚠ MIS-ATTRIBUTION CORRIGEE (#222) : l'ancienne note « pose par le vecteur ON-BLOCK » etait FAUSSE.
-    Le `CreateTrigger` de cette ability est le corps DEDUPLIQUE `@180e15880` (`return df@0xa8`), et
-    `df@0xa8` est construit par `DSLFactory.InitializeShared @180df2670` = `On(0x21 = AbilityInit) &
+    Le `CreateTrigger` de cette ability est le corps DEDUPLIQUE `IdunBattleLogic.Entities.Abilities.Triggered.LifewardsAddEffectAbility$$CreateTrigger` (`return df@0xa8`), et
+    `df@0xa8` est construit par `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` = `On(0x21 = AbilityInit) &
     OwnerIsActor` -> 1202 (et 1200) sont poses A LA CREATION de l'unite, PAS au block. GROUND TRUTH live :
     Arjac porte `AnvilShield_AdditionalBlock` (level 1, remaining 0) des le PREMIER `decisionView` d'un
     runner frais -> l'effet est deja materialise par le seed, RIEN a caber. Le vrai volet ON-BLOCK
@@ -401,10 +397,10 @@ class AnvilShieldAdditionalBlockEffect(BaseEffect):
 
 
 class BeastSlayerExtraBlockEffect(BaseEffect):
-    """`BeastSlayerAbility.CreateAddBlockEffectBehaviour @180e18b70` (trait BeastSlayer, effet
+    """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.BeastSlayerAbility$$CreateAddBlockEffectBehaviour` (trait BeastSlayer, effet
     `BeastSlayer_ExtraBlock`, cote DEFENSE) : `AddExtraBlockEffectToOwner(chance, amount)` avec
-    chance=`GetBlockChance @180e19120`=`GetNumberConstant(0x2d=beastSlayerBlockChance)` (=10) et
-    amount=`GetBlockDamage @180e19160`=`PercentageOf(StatAmount(0x10=FixedArmor),
+    chance=`IdunBattleLogic.Entities.Abilities.Triggered.Loki.BeastSlayerAbility$$GetBlockChance`=`GetNumberConstant(0x2d=beastSlayerBlockChance)` (=10) et
+    amount=`IdunBattleLogic.Entities.Abilities.Triggered.Loki.BeastSlayerAbility$$GetBlockDamage`=`PercentageOf(StatAmount(0x10=FixedArmor),
     GetNumberConstant(0x36=beastSlayerBlockAsMaxArmorPct))` (=100% du FixedArmor COURANT).
     => source de BLOCK SUPPLEMENTAIRE (roll separe : +10% chance de bloquer 100% de l'armure courante
     en degat), ABSENTE du scalaire GetStat(7/8) (verifie LIVE 2026-07-09 : orksNob blockChance=0). Le
@@ -420,7 +416,7 @@ class BeastSlayerExtraBlockEffect(BaseEffect):
         amount = int(int(defender_fixed_armor) * int(pct) / 100)   # PercentageOf(FixedArmor, blockDmgPct)
         if amount <= 0:
             return None
-        # block_id = la chance (id natif dans failedList @181002350) : une source EXCLUE apres son 1er
+        # block_id = la chance (id natif dans failedList IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances) : une source EXCLUE apres son 1er
         # echec sur un coup (exclusion inter-coups, cf. AttackDamageOperation._run_hits #72).
         return BlockSource(chance=int(chance), amount=amount, block_id=int(chance))
 
@@ -429,11 +425,10 @@ class DaemonExtraBlockEffect(BaseEffect):
     """Trait Daemon, effet `Daemon_ExtraBlock` (1034) — source de BLOCK du defenseur daemon (#54A) :
     chance = `daemonBlockChance` (25), amount = `daemonBlockDamagePercentage`% (50) de la stat
     **Attack COURANTE du defenseur** (variables de TRAIT globales, non scalees par le mult). Entree
-    `GetMultiValueStat(7)` (`CalculateBlockChances @181002350`), ABSENTE du scalaire GetStat(7/8),
+    `GetMultiValueStat(7)` (`IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances`), ABSENTE du scalaire GetStat(7/8),
     comme BeastSlayer. Cote PREDICTION elle pilote le scenario block `list[0]@0x50` du
-    `DamagePredictionResult` (« tous les coups bloques », `CalculateDamagePredictionScenario
-    @18102ed00` : dmg' = max(0, dmg − blockAmount)) consomme par `get_WillBeKill @18102bef0` /
-    `WillBeOverkill @18102ba40`. Reconcilie 1357 s15 (u135 3 hits vs blackSmnBloodletter atk 2194,
+    `DamagePredictionResult` (« tous les coups bloques », `IdunBattle.Core.Services.DamagePrediction$$CalculateDamagePredictionScenario` : dmg' = max(0, dmg − blockAmount)) consomme par `IdunBattle.Core.Services.DamagePredictionResult$$get_WillBeKill` /
+    `IdunBattle.Core.Services.DamagePredictionResult$$WillBeOverkill`. Reconcilie 1357 s15 (u135 3 hits vs blackSmnBloodletter atk 2194,
     hp 3888) : blockAmount = 50%×2194 = 1097 ; list[0].rawMin = 5388 − 3×1097 = 2097 < 3888
     -> WillBeKill FALSE -> PossibleKill(50) ; pairUtility natif 164.94858612772077 = EXACT."""
 
@@ -450,15 +445,14 @@ class DaemonExtraBlockEffect(BaseEffect):
 
 
 class PsychicFortressExtraBlockEffect(BaseEffect):
-    """`PsychicFortress_ExtraBlockChanceEffect` (effet 0x3ef=1007, base `MultiValueStatEntryEffect` ctor
-    @180f66cc0, passif PsychicFortress de Tigurius ultraTigurius) — source de BLOCK SUPPLEMENTAIRE posee
-    par `PsychicFortressAbility.CreateBehaviour @181224070` :
-      `AddExtraBlockEffectToOwner(0x3ef, Direct(GetNumberConstant(0x2d=blockChance)),
-                                  Direct(GetVariableForLevel(0x14=blockDmg)))` @180de6f80
+    """`PsychicFortress_ExtraBlockChanceEffect` (effet 0x3ef=1007, base `MultiValueStatEntryEffect` IdunBattle.Entities.Effects.Loki.PsychicFortress_ExtraBlockChanceEffect$$.ctor, passif PsychicFortress de Tigurius ultraTigurius) — source de BLOCK SUPPLEMENTAIRE posee
+    par `IdunBattleLogic.Entities.Abilities.Active.Loki.PsychicFortressAbility$$CreateBehaviour` :
+      `IdunBattleLogic.Entities.DSLFactory$$AddExtraBlockEffectToOwner(0x3ef, Direct(GetNumberConstant(0x2d=blockChance)),
+                                  Direct(GetVariableForLevel(0x14=blockDmg)))
     = `AddMultiValueStatEntryEffectBehaviour(context@0x148, 0x3ef, [{statType 7=BLOCK_CHANCE: chance},
       {statType 8=BLOCK_DAMAGE: amount}])`. Entree separee de `GetMultiValueStat(7)`
-    (`CalculateBlockChances @181002350`), ABSENTE du scalaire GetStat(7/8) -- meme canal ExtraBlock que
-    BeastSlayer @180e18b70 / AnvilShield (hors GetStat).
+    (`IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances`), ABSENTE du scalaire GetStat(7/8) -- meme canal ExtraBlock que
+    BeastSlayer IdunBattleLogic.Entities.Abilities.Triggered.Loki.BeastSlayerAbility$$CreateAddBlockEffectBehaviour / AnvilShield (hors GetStat).
       - chance = `GetNumberConstant(0x2d)` = `blockChance` (CONSTANTE gameconfig = 50, NON scalee).
       - amount = `GetVariableForLevel(0x14)` = `blockDmg[ablvl]` (6->437, RARITY-SCALE :
         blockDmg in variablesAffectedByRarityBonus) x mult du porteur.
@@ -467,7 +461,7 @@ class PsychicFortressExtraBlockEffect(BaseEffect):
     l'ExtraBlockChanceEffect -> selecteur par defaut) -- INERTE tant que non materialise (fidelite-safe
     « present != applique », comme BeastSlayer) ; une fois present sur le defenseur, la source est
     consommee par `apply_random_block_damage`/le scenario block de la prediction. block_id = la chance
-    (id natif dans failedList @181002350, exclusion inter-coups apres 1er echec)."""
+    (id natif dans failedList IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances, exclusion inter-coups apres 1er echec)."""
 
     def create_effect_block_source_for_defense(self, defender_fixed_armor: int = 0,
                                                defender_attack: int = 0):
@@ -485,29 +479,29 @@ class PsychicFortressExtraBlockEffect(BaseEffect):
 class FightingRetreatHitReductionEffect(BaseEffect):
     """`FightingRetreat_HitReductionEffect` (effet 1158 `FightingRetreatHitReduction`) — même debuff,
     axe COUPS (« They also have 1 fewer hits, to a minimum of one »).
-    - hits @180f495d0 : `EffectBonus.ForAdditionWithMinimum(OwnerIsCaster, Multiply(MinusOne,
+    - hits IdunBattle.Entities.Effects.Loki.FightingRetreat_HitReductionEffect$$CreateEffectHitsBonusForAttack : `EffectBonus.ForAdditionWithMinimum(OwnerIsCaster, Multiply(MinusOne,
       ConfigConst(0x2c=hitsReduction=1)), min=Direct(1))` = **-1 coup, PLANCHER 1**. Le plancher est
       appliqué chez les consommateurs de hits (`max(1, …)`, cf. predict_validate)."""
 
     def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True,
                                             att_ctx: "Mapping | None" = None) -> EffectBonus | None:
-        # trigger natif = OwnerIsCaster SEUL (@180f495d0, pas de IsNormalAttack) -> TOUTES les attaques.
+        # trigger natif = OwnerIsCaster SEUL (IdunBattle.Entities.Effects.Loki.FightingRetreat_HitReductionEffect$$CreateEffectHitsBonusForAttack, pas de IsNormalAttack) -> TOUTES les attaques.
         n = ability_var("FightingRetreat", "hitsReduction", is_constant=True)   # ConfigConst 0x2c (=1)
         return for_addition(True, -int(n)) if n else None
 
 
-# TileId (terrain BC) qui HÉBERGE la LightCoverAbility (Abilities.Tiles.Loki @1811c14e0) : les tuiles de
+# TileId (terrain BC) qui HÉBERGE la LightCoverAbility (Abilities.Tiles.Loki IdunBattleLogic.Entities.Abilities.Tiles.Loki.LightCoverAbility$$CreateBehaviour) : les tuiles de
 # couverture = DryBush. Source : empirique live (gqfc5mff6c) — une unité posée sur une tuile DryBush porte
-# l'effet 'LightCover', absente ailleurs ; + `UnitsThatNeedEffect @1811c1830` = Units(coverPatch@0x148) =
+# l'effet 'LightCover', absente ailleurs ; + `IdunBattleLogic.Entities.Abilities.Tiles.Loki.LightCoverAbility$$UnitsThatNeedEffect` = Units(coverPatch@0x148) =
 # unités SUR la tuile porteuse de l'ability. Utilisé par le COMBAT pour le gate `AreEqual(coverPatch, target)`
-# (@180f556b0) = "la cible est sur SA tuile de cover". Pas un hardcode de debug : mapping terrain->ability.
+# (IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffectHitsBonusForAttack) = "la cible est sur SA tuile de cover". Pas un hardcode de debug : mapping terrain->ability.
 LIGHT_COVER_TILE_ID = "DryBush"
 
 
 class LightCoverEffect(BaseEffect):
     """`LightCoverEffect` — couverture légère (effet de TUILE posé par `LightCoverAbility`
-    Abilities.Tiles.Loki, `UnitsThatNeedEffect` @1811c1830 = unités SUR les tuiles de couverture).
-    - hits @180f556b0 : `EffectBonus.ForAdditionWithMinimum(OwnerIsTarget(tuiles égales) &
+    Abilities.Tiles.Loki, `IdunBattleLogic.Entities.Abilities.Tiles.Loki.LightCoverAbility$$UnitsThatNeedEffect = unités SUR les tuiles de couverture).
+    - hits IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffectHitsBonusForAttack : `EffectBonus.ForAdditionWithMinimum(OwnerIsTarget(tuiles égales) &
       !IsMeleeAttack, -ConfigConst(0x2c=hitsReduction), min=Direct(1))` = **-hitsReduction coups
       sur les attaques NON-mêlée reçues par le porteur, plancher 1**. Le trigger `OwnerIsTarget(tuiles
       égales)` = `AreEqual(Tiles(coverPatch@0x148), Tiles(target@0x178))` = **la cible se tient sur LA
@@ -529,7 +523,7 @@ class LightCoverEffect(BaseEffect):
                                              damage_profile: str | None = None,
                                              defender_on_cover: bool | None = None,
                                              dist: int | None = None) -> EffectBonus | None:
-        if is_melee:                        # trigger natif = !IsMeleeAttack (@180f556b0)
+        if is_melee:                        # trigger natif = !IsMeleeAttack (IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffectHitsBonusForAttack)
             return None
         if defender_on_cover is False:      # AreEqual(coverPatch, target) FAUX : cible hors tuile de cover
             return None                     # (None = inconnu -> on applique sur présence, cas prédiction)
@@ -540,7 +534,7 @@ class LightCoverEffect(BaseEffect):
 class ParryEffect(BaseEffect):
     """`ParryEffect` (effet `Parry_ReduceHits`, trait Parry — i2 : « reduces incoming melee multi-hit
     attacks by 1 hit, to a minimum of 1 »).
-    - hits @180f5d860 : `EffectBonus.ForAdditionWithMinimum(OwnerIsTarget & IsMeleeAttack,
+    - hits IdunBattle.Entities.Effects.Loki.ParryEffect$$CreateEffectHitsBonusForAttack : `EffectBonus.ForAdditionWithMinimum(OwnerIsTarget & IsMeleeAttack,
       -ConfigConst(0x2c=hitsReduction), min=Direct(1))` = **-1 coup MÊLÉE reçu, plancher 1**
       (jumeau mêlée de LightCover). MAGNITUDE : `traitVariables.parryHitReduction` = 1.
     GROUND TRUTH step-6 seed777 (trace AllMods, u86→u94 porteur Parry) : mêlée dist 1 = 4 coups
@@ -550,34 +544,33 @@ class ParryEffect(BaseEffect):
                                              damage_profile: str | None = None,
                                              defender_on_cover: bool | None = None,
                                              dist: int | None = None) -> EffectBonus | None:
-        if not is_melee:                    # trigger natif = IsMeleeAttack (@180f5d860)
+        if not is_melee:                    # trigger natif = IsMeleeAttack (IdunBattle.Entities.Effects.Loki.ParryEffect$$CreateEffectHitsBonusForAttack)
             return None
         n = trait_var("Parry", "parryHitReduction")  # miroir du ConfigConst 0x2c (=1)
         return for_addition(True, -int(n)) if n else None
 
 
 class DiminutiveHitReductionEffect(BaseEffect):
-    """`Diminutive_HitReductionEffect.CreateEffectHitsBonusForAttack` @180f3f3c0 (trait `Diminutive`
+    """`IdunBattle.Entities.Effects.Loki.Diminutive_HitReductionEffect$$CreateEffectHitsBonusForAttack (trait `Diminutive`
     0x408=1032, x3 npc + summon `orksGrot`) — jumeau INCONDITIONNEL de Parry/Camouflage cote DEFENSE.
     i2 : << Due to its tiny stature, this unit reduces incoming multi-hit attacks by {hitsReduction}
     hit, to a minimum of 1. >>
 
-    Natif @180f3f3c0 = `ForAdditionWithMinimum(OwnerIsTarget, Direct(-ConfigConst(0x2c=hitsReduction)),
-    min=Direct(1))` — structure IDENTIQUE a `BigTargetAdjacentEffect.CreateEffectHitsBonusForAttack`
-    @180f33ac0 (memes slots inlines : valeur, minimum, trigger) **MOINS le noeud `IsRangedAttack`** :
+    Natif IdunBattle.Entities.Effects.Loki.Diminutive_HitReductionEffect$$CreateEffectHitsBonusForAttack = `ForAdditionWithMinimum(OwnerIsTarget, Direct(-ConfigConst(0x2c=hitsReduction)),
+    min=Direct(1))` — structure IDENTIQUE a `IdunBattle.Entities.Effects.Loki.BigTargetAdjacentEffect$$CreateEffectHitsBonusForAttack (memes slots inlines : valeur, minimum, trigger) **MOINS le noeud `IsRangedAttack`** :
     le trigger est `OwnerIsTarget` SEUL -> la reduction s'applique a TOUTE attaque recue (melee ET
-    ranged), contrairement a Parry (melee-only @180f5d860) et Camouflage (ranged-only @181107180).
+    ranged), contrairement a Parry (melee-only IdunBattle.Entities.Effects.Loki.ParryEffect$$CreateEffectHitsBonusForAttack) et Camouflage (ranged-only IdunBattleLogic.Entities.Abilities.Triggered.Loki.Camouflage_HitReductionEffect$$CreateEffectHitsBonusForAttack).
     Le plancher `min=Direct(1)` est applique chez les consommateurs de coups (`max(1, ...)`), comme
     pour Parry/LightCover/Camouflage — d'ou l'absence de clamp ici.
 
-    CHAINE trait -> effet (mirror #73 Terrifying) : `Trait.GetTriggeredAbility @18157ed10` mappe le
+    CHAINE trait -> effet (mirror #73 Terrifying) : `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Trait$$GetTriggeredAbility` mappe le
     trait `Diminutive` -> `TriggeredAbilityType.Diminutive` 0x43f=1087 ; `AddTraitOperation.
-    AddDerivedAbilities @180e513c0` ajoute `DiminutiveAbility` @180e20c80 (=
-    `AOwnerEffectSpecificTriggeredAbility(0x43f)` @180fb3790, enregistree par `AbilitiesDatabase.
-    <InitializeTriggeredAbilities>b__28_89` @181025ae2) ; son `CreateTrigger @180fb3760` =
+    IdunBattle.Operations.AddTraitOperation$$AddDerivedAbilities` ajoute `DiminutiveAbility` IdunBattleLogic.Entities.Abilities.Triggered.Loki.DiminutiveAbility$$.ctor (=
+    `AOwnerEffectSpecificTriggeredAbility(0x43f)` IdunBattle.Entities.Abilities.AOwnerEffectSpecificTriggeredAbility$$.ctor, enregistree par `AbilitiesDatabase.
+    <InitializeTriggeredAbilities>b__28_89` IdunBattle.Core.Services.AbilitiesDatabase.u003Cu003Ec$$u003CInitializeTriggeredAbilitiesu003Eb__28_89+0x42) ; son `IdunBattle.Entities.Abilities.AOwnerEffectSpecificTriggeredAbility$$CreateTrigger` =
     `OnOwnerSpecificAbilityInit(0x43f)` -> a l'init du porteur, la behaviour pose l'owner-effect
-    `Diminutive_HitReduction` (`Diminutive_HitReductionEffect..ctor` @180f3f550, enregistre par
-    `EffectsDatabase.<InitializeEffects>b__14_108` @181081136).
+    `Diminutive_HitReduction` (`Diminutive_HitReductionEffect..IdunBattle.Entities.Effects.Loki.Diminutive_HitReductionEffect$$.ctor, enregistre par
+    `EffectsDatabase.<InitializeEffects>b__14_108` IdunBattle.Core.Services.EffectsDatabase.u003Cu003Ec$$u003CInitializeEffectsu003Eb__14_108+0x36).
 
     MAGNITUDE : `ConfigConst 0x2c` = MEME slot que `parryHitReduction` / `camouflageHitReduction_1`
     (l'ability Diminutive n'existe pas dans `units.abilities` -> le slot numberConstant du config
@@ -587,18 +580,18 @@ class DiminutiveHitReductionEffect(BaseEffect):
                                              damage_profile: str | None = None,
                                              defender_on_cover: bool | None = None,
                                              dist: int | None = None) -> EffectBonus | None:
-        # trigger natif = OwnerIsTarget SEUL (@180f3f3c0) : AUCUN gate melee/ranged, aucun gate profil.
+        # trigger natif = OwnerIsTarget SEUL (IdunBattle.Entities.Effects.Loki.Diminutive_HitReductionEffect$$CreateEffectHitsBonusForAttack) : AUCUN gate melee/ranged, aucun gate profil.
         n = trait_var("Diminutive", "diminutiveHitReduction")   # ConfigConst 0x2c (=1)
         return for_addition(True, -int(n)) if n else None
 
 
 class CamouflageHitReductionEffect(BaseEffect):
-    """`Camouflage_HitReductionEffect.CreateEffectHitsBonusForAttack` @181107180 (effet 0x46e=1134
+    """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.Camouflage_HitReductionEffect$$CreateEffectHitsBonusForAttack (effet 0x46e=1134
     'Camouflage_HitReduction', trait Camouflage 1037, ex. admecRuststalker Exitor-Rho) - jumeau RANGED
     de LightCover/Parry cote DEFENSE : canal `CreateEffectHitsBonusForAttack` (slot 0x23, trigger
     `OwnerIsTarget & IsRangedAttack`), plancher min 1. Consomme par la MEME boucle native
-    `AdditionalHitsFromEffects.GetAdditionalHitsFromEffectsInternal @180e59150` (slot 0x23 sur chaque
-    effet), partagee prediction/combat via `AttackHitsWithModifiersFormula.Calculate @180f0bf50` (PAS
+    `IdunBattle.Operations.AdditionalHitsFromEffects$$GetAdditionalHitsFromEffectsInternal` (slot 0x23 sur chaque
+    effet), partagee prediction/combat via `IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula$$Calculate` (PAS
     predOptimistic : la reduction de COUPS est foldee dans le nb de coups, cote prediction ET combat).
     i2 : << Ranged attacks against this character score -1 hit. This increases to -2 hits if this
     character is more than 2 hexes away from the attacker or to -3 hits when in Tall Grass. Attackers
@@ -644,7 +637,7 @@ class MasterAnnihilatorAdditionalHitEffect(BaseEffect):
     """`MasterAnnihilator_AdditionalHitEffect` (effet `MasterAnnihilator_extraHit` — DEBUFF posé par
     Vitruvius sur SA cible d'attaque normale ; i2 : « Attacks by any friendly unit against the
     affected enemy score an additional hit, except attacks that deal Psychic Damage »).
-    - hits @180f58d50 : `EffectAdditionalHits.Create(OwnerIsTarget & !AreEqual(
+    - hits IdunBattle.Entities.Effects.Loki.MasterAnnihilator_AdditionalHitEffect$$CreateAdditionalHits : `EffectAdditionalHits.Create(OwnerIsTarget & !AreEqual(
       CurrentAttackDamageProfile, 0xd=Psychic), count=ConfigConst(0x2f nrOfHits=1),
       dmg=FirstHitInCurrentAttackDamageRange capé ConfigVar(0xd maxDmg))` = **+1 coup reçu par le
       porteur (attaques non-Psychic)**. Les attaquants = ennemis du porteur = alliés du poseur (le
@@ -657,16 +650,16 @@ class MasterAnnihilatorAdditionalHitEffect(BaseEffect):
                                              damage_profile: str | None = None,
                                              defender_on_cover: bool | None = None,
                                              dist: int | None = None) -> EffectBonus | None:
-        if damage_profile == "Psychic":     # !AreEqual(profil, 0xd=Psychic) (@180f58d50)
+        if damage_profile == "Psychic":     # !AreEqual(profil, 0xd=Psychic) (IdunBattle.Entities.Effects.Loki.MasterAnnihilator_AdditionalHitEffect$$CreateAdditionalHits)
             return None
         n = ability_var("MasterAnnihilator", "nrOfHits", is_constant=True)   # ConfigConst 0x2f (=1)
         return for_addition(True, int(n)) if n else None
 
 
-# Cle du sac `PersistentDataComponent` armee par `LetTheGalaxyBurnAbility.CreateBehaviour @1811075c0`
-# (`SetPersistentData(AbilityOrEffect(0x5ca=1482), Self@0x148, Get(<champ statique cctor @181107840>),
-# Direct(1)@0xc0)`) et lue par `IsPersistentData @180df4bb0` dans le gate de
-# `LetTheGalaxyBurnEffect.CreateAdditionalHits @180f54e30`. Le tuple = la cle composite native
+# Cle du sac `PersistentDataComponent` armee par `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateBehaviour`
+# (`SetPersistentData(AbilityOrEffect(0x5ca=1482), Self@0x148, Get(<champ statique IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$.cctor>),
+# Direct(1)@0xc0)`) et lue par `IdunBattleLogic.Entities.DSLFactory$$IsPersistentData` dans le gate de
+# `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits`. Le tuple = la cle composite native
 # (AbilityOrEffect, nom de la donnee) ; PARTAGEE entre le poseur (runner/.../let_the_galaxy_burn.py),
 # le nettoyeur (Reset) et ce lecteur -> une seule source de verite.
 LET_THE_GALAXY_BURN_PERSISTENT_KEY = (1482, "LetTheGalaxyBurn")
@@ -676,28 +669,28 @@ class LetTheGalaxyBurnEffect(BaseEffect):
     """`IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect` (effet 0x5c5=1477, nom capte
     « LetTheGalaxyBurn ») — owner-effect AUTO-PORTE par les 5 heros Black Legion qui ont le TRAIT
     `LetTheGalaxyBurn` (0x422=1058 : blackAbaddon, blackHaarken, blackObliterator, blackPossession,
-    blackTerminator). Ctor `@180f55080` = `BaseEffect(AbilityOrEffect(0x5ca=1482), 1, 0)` : l'EffectSource
+    blackTerminator). IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$.ctor` = `BaseEffect(AbilityOrEffect(0x5ca=1482), 1, 0)` : l'EffectSource
     est l'ability DECLENCHEE 1482 (meme patron auto-porteur qu'`InfernalPacts_AdditionalHitsEffect`
-    @180f527a0 — aucune classe `Ability` ne le POSE, il est materialise a l'init de l'unite).
+    IdunBattle.Entities.Effects.Loki.InfernalPacts_AdditionalHitsEffect$$.ctor — aucune classe `Ability` ne le POSE, il est materialise a l'init de l'unite).
 
     ⚠ HOMONYMIE : `ActiveAbilityType.Waaagh` vaut AUSSI 1058 — les espaces d'enum (`UnitTrait`,
     `TriggeredAbilityType`, `ActiveAbilityType`, `EffectType`) sont INDEPENDANTS. Ici 1058 = **UnitTrait**.
 
     ## Canal (RE, decompile ghidra build gqfc5mff6c)
-    `CreateAdditionalHits @180f54e30` -> `EffectAdditionalHits.Create @180f405b0` avec :
+    `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits` -> `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create` avec :
       - condition = `get_OwnerIsCaster & ( TargetHasTileEffect | IsPersistentData(0x5ca, Self@0x148,
-        Get(<statique>)) )`, ou `TargetHasTileEffect @181107810` = `HasTileStatusEffect(Targets@0x190)`
-        (@180df13f0) — **GENERIQUE** : n'importe quel status-effect de tuile, pas un type precis ;
+        Get(<statique>)) )`, ou `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$TargetHasTileEffect` = `HasTileStatusEffect(Targets@0x190)`
+        (IdunBattleLogic.Entities.DSLFactory$$HasTileStatusEffect) — **GENERIQUE** : n'importe quel status-effect de tuile, pas un type precis ;
       - degat  = `FirstHitInCurrentAttackDamageRange` (param_3 ET param_8 : roll ET display) ;
       - profil = **-1** (`CONCAT44(0,0xffffffff)` -> `Nullable<DamageProfileType>` NULL) ;
       - count  = **noeud NULL** (param_6=0, la ou `MasterAnnihilator_AdditionalHitEffect
-        .CreateAdditionalHits @180f58d50` passe `ConfigConst(0x2f=nrOfHits)`) -> defaut **1** ;
+        .IdunBattle.Entities.Effects.Loki.MasterAnnihilator_AdditionalHitEffect$$CreateAdditionalHits` passe `ConfigConst(0x2f=nrOfHits)`) -> defaut **1** ;
       - cap    = NULL (param_9=0 ; MasterAnnihilator, lui, cape a `ConfigVar(0xd=maxDmg)`).
     => coup additionnel a degat/profil de l'ARME = **+1 coup ordinaire** : MEME canal que
     MasterAnnihilator, cote ATTAQUANT (`OwnerIsCaster`) au lieu de defenseur (`OwnerIsTarget`).
 
     ## Les DEUX branches du gate (exclusives par construction)
-    Le trigger de POSE `LetTheGalaxyBurnAbility.CreateTrigger @1811076f0` =
+    Le trigger de POSE `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateTrigger` =
     `On(5=PreAttack) & OwnerIsCaster & Maybe(ConfigConst 0x2a) & !HasTileStatusEffect(Targets@0x190)` :
     il n'arme le flag QUE si la cible n'est PAS deja sur une tuile a effet. Donc :
       A. cible sur tuile SANS status-effect -> seul le roll `Maybe(LetTheGalaxyBurnChancePct=33)` arme ;
@@ -708,7 +701,7 @@ class LetTheGalaxyBurnEffect(BaseEffect):
     8 runners) : branche A n=73 -> base 4 coups, 25 attaques a 5 coups = **34.2 %** (== 33 % config) ;
     branche B n=23 -> **23/23 a 5 coups** (100 %). Le +1 est parfaitement correle a l'apparition de
     `DespoiledGround` sur la tuile de la cible (= le volet 2 du meme kit, pose par
-    `LetTheGalaxyBurn_ResetAbility.CreateBehaviour @1811078a0`, `AddEffect(0x5c4=1476)`).
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour`, `AddEffect(0x5c4=1476)`).
     Corrobore le confound deja documente sur `test_bringer_of_despair_live.py` (Angrax 5 = 4 + 1).
 
     ## Contexte requis (`att_ctx`)
@@ -722,17 +715,17 @@ class LetTheGalaxyBurnEffect(BaseEffect):
     def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True,
                                             att_ctx: "Mapping | None" = None) -> EffectBonus | None:
         c = att_ctx or {}
-        # `TargetHasTileEffect @181107810` = `HasTileStatusEffect(Targets@0x190)` — GENERIQUE (>=1 effet
+        # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$TargetHasTileEffect` = `HasTileStatusEffect(Targets@0x190)` — GENERIQUE (>=1 effet
         # de tuile, quel qu'il soit). `tile_effects_by_pos` = tileMeta (effets DYNAMIQUES de la tuile) ;
         # le terrain statique (DryBush -> LightCover, pose sur les UNITES) n'en fait PAS partie.
         tfx, tp = c.get("tile_effects_by_pos"), c.get("t_pos")
         on_tile_fx = bool((tfx or {}).get(tuple(tp))) if (tfx is not None and tp is not None) else False
-        # `IsPersistentData(0x5ca, Self@0x148, Get(<statique>))` @180df4bb0 — flag intra-attaque arme par
-        # le trigger de pose (33%) et efface en fin d'attaque par le Reset @1811078a0.
+        # `IdunBattleLogic.Entities.DSLFactory$$IsPersistentData(0x5ca, Self@0x148, Get(<statique>)) — flag intra-attaque arme par
+        # le trigger de pose (33%) et efface en fin d'attaque par le Reset IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour.
         armed = LET_THE_GALAXY_BURN_PERSISTENT_KEY in (c.get("persistent_data") or ())
         if not (on_tile_fx or armed):
             return None
-        # count = noeud NULL @180f54e30 -> 1 coup (defaut natif ; GROUND TRUTH live 4 -> 5).
+        # count = noeud NULL IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits -> 1 coup (defaut natif ; GROUND TRUTH live 4 -> 5).
         return for_addition(True, 1)
 
 
@@ -740,9 +733,9 @@ class BigTargetAdjacentEffect(BaseEffect):
     """`BigTargetAdjacentEffect` — AURA du trait BigTarget (i2 : « Adjacent friendly units receive
     -1 hit from ranged attacks, to a minimum of 1 »). L'effet est POSSÉDÉ par le porteur BigTarget
     (capté dans SA liste d'effets) ; ses bénéficiaires = les ALLIÉS ring-1 HEX désignés dynamiquement
-    (TargetSelector @180f33c70, refresh @180f33ce0) — PAS le porteur lui-même (GROUND TRUTH step-13
+    (TargetSelector IdunBattle.Entities.Effects.Loki.BigTargetAdjacentEffect$$CreateTargetSelector, refresh IdunBattle.Entities.Effects.Loki.BigTargetAdjacentEffect$$GetRefreshTriggers) — PAS le porteur lui-même (GROUND TRUTH step-13
     seed777 : u86 porteur = 4 coups pleins ; u80 allié adjacent = 3 coups).
-    - hits @180f33ac0 : `ForAdditionWithMinimum(OwnerIsTarget & IsRangedAttack, Direct(-1),
+    - hits IdunBattle.Entities.Effects.Loki.BigTargetAdjacentEffect$$CreateEffectHitsBonusForAttack : `ForAdditionWithMinimum(OwnerIsTarget & IsRangedAttack, Direct(-1),
       min=Direct(1))` — valeur -1 codée dans le natif (pas de config).
     Canal AURA (le porteur n'est pas la cible de l'attaque) : ctx fourni par l'agrégateur
     `aura_hits_malus_for_defense` = {owner_id/pos/team, tgt_id, t_pos, tgt_team, is_melee}."""
@@ -759,7 +752,7 @@ class BigTargetAdjacentEffect(BaseEffect):
         import hexgeo                       # ring-1 HEX (parité validée vs boardGraph)
         if hexgeo.distance(op, tp) != 1:
             return None
-        return for_addition(True, -1)       # Direct(-1) @180f33ac0
+        return for_addition(True, -1)       # Direct(-1) IdunBattle.Entities.Effects.Loki.BigTargetAdjacentEffect$$CreateEffectHitsBonusForAttack
 
 
 class AstartesBannerExtraHitEffect(BaseEffect):
@@ -768,11 +761,11 @@ class AstartesBannerExtraHitEffect(BaseEffect):
     leurs attaques MÊLÉE (i2 : « Other friendly units within 2 hexes score an additional hit with their melee
     attacks. This additional hit can deal a maximum of 5456 Damage »). L'effet est POSSÉDÉ par le PORTEUR
     (capté dans SA liste d'effets, comme BigTarget) ; bénéficiaires = SurroundingFriends (exclut self).
-    - hits `CreateAdditionalHits @180f323b0` : `ForAddition(OwnerIsCaster & IsMeleeAttack, ConfigVar(0xd=
+    - hits `IdunBattle.Entities.Effects.Loki.AstartesBanner_AdditionalHitsEffect$$CreateAdditionalHits` : `ForAddition(OwnerIsCaster & IsMeleeAttack, ConfigVar(0xd=
       extraHits, sourceAbilityState))` + cap dégât 5456 sur le coup ajouté (FirstHitInCurrentAttackDamageRange
       + max). ⚠ CAP 5456 du coup ajouté NON porté (refine : ne mord que si dégât/coup > 5456 ; le +1 coup
       COUNT est l'effet principal, GROUND TRUTH ultraApothecary 1->2 @seed999 via AstartesBanner de templAncient).
-    - cible `CreateTargetSelector @180f325f0` : `SurroundingFriends(range=ConfigConst 0x16=2, exclut self)`.
+    - cible `IdunBattle.Entities.Effects.Loki.AstartesBanner_AdditionalHitsEffect$$CreateTargetSelector` : `SurroundingFriends(range=ConfigConst 0x16=2, exclut self)`.
     Canal AURA côté SOURCE (`create_aura_hits_bonus_for_attack`, agrégé par `aura_hits_bonus_for_attack`),
     SYMÉTRIQUE de BigTarget (défenseur). Magnitude `extraHits` indexée sur le niveau d'ability du PORTEUR
     (`GetAbilityState` -> `self.ability_level`). Ctx aura = {owner_id/pos/team, att_id/att_pos/att_team, is_melee}."""
@@ -798,13 +791,13 @@ class AstartesBannerExtraHitEffect(BaseEffect):
 
 class PowerTripFullHealthEffect(BaseEffect):
     """`PowerTrip_FullHealthEffect` — axe COUPS (hits), actif SSI PV pleins.
-    - hits @180f64cf0 : `ForAddition(ConfigConst key 0x2b)` = constante `extraHit` de l'ability PowerTrip (=1).
-    - condition @180f64cb0 : `!IsDamaged` (hp == max).
+    - hits IdunBattle.Entities.Effects.Loki.PowerTrip_FullHealthEffect$$CreateEffectHitsBonusForAttack : `ForAddition(ConfigConst key 0x2b)` = constante `extraHit` de l'ability PowerTrip (=1).
+    - condition IdunBattle.Entities.Effects.Loki.PowerTrip_FullHealthEffect$$CreateActiveCondition : `!IsDamaged` (hp == max).
     MAGNITUDE résolue : `gameconfig.ability('PowerTrip').constants['extraHit']` = 1 → +1 coup quand PV pleins."""
 
     def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True,
                                             att_ctx: "Mapping | None" = None) -> EffectBonus | None:
-        # trigger natif @180f64cf0 = `IsNormalAttack & OwnerIsCaster` -> ATTAQUE NORMALE SEULEMENT
+        # trigger natif IdunBattle.Entities.Effects.Loki.PowerTrip_FullHealthEffect$$CreateEffectHitsBonusForAttack = `IsNormalAttack & OwnerIsCaster` -> ATTAQUE NORMALE SEULEMENT
         # (l'appliquer aux spéciales sur-prédisait DakkaDakkaDakka -> régression steps 6/13).
         if not is_normal_attack:
             return None
@@ -821,9 +814,9 @@ class PowerTripFullHealthEffect(BaseEffect):
 
 class PowerTripIgnoreArmorEffect(BaseEffect):
     """`PowerTrip_IgnoreArmorEffect` — « Normal attacks ignore X Armour » = axe PÉNÉTRATION.
-    ⚠ Le natif `PowerTrip_IgnoreArmorEffect.CreateEffectDamageBonusForAttack` @180f64fa0 = NO-OP
+    ⚠ Le natif `IdunBattle.Entities.Effects.Loki.PowerTrip_IgnoreArmorEffect$$CreateEffectDamageBonusForAttack = NO-OP
     (EffectBonus condition-seule, valeur 0) ; la pénétration est en fait bâtie DIRECTEMENT dans
-    `CalculateAttackerModifiersForPrediction` @181000590 (lit la config PowerTrip de l'attaquant), pas
+    `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction (lit la config PowerTrip de l'attaquant), pas
     portée par l'effet — pattern d'exploitation directe (cf. §17.17). On l'attribue ICI (l'effet
     représente la présence de PowerTrip ⇒ sa présence GATE correctement la pénétration : normal attack,
     owner=caster). Magnitude = `armorIgnored[level] × AbilityVariablesMultiplierPercentage/100` arrondi
@@ -846,7 +839,7 @@ class PowerTripIgnoreArmorEffect(BaseEffect):
 
 
 class KanOpenerEffect(BaseEffect):
-    """`KanOpenerEffect` (triggered) — `IgnoreArmor` @180f65100 = `ConfigVar(key 0x40)` = pénétration
+    """`KanOpenerEffect` (triggered) — `IdunBattleLogic.Entities.Abilities.Triggered.Loki.KanOpenerEffect$$IgnoreArmor = `ConfigVar(key 0x40)` = pénétration
     d'armure per-niveau (axe armure, contrairement à PowerTrip dont la réduction est stateful on-attack).
     ⚠ KillaKan n'a PAS KanOpener (kit = PowerTrip) ; clé 0x40 → nom var gameconfig non résolu pour les
     unités qui l'ont → pénétration None tant qu'inconnue (à mapper quand on porte une unité KanOpener)."""
@@ -858,7 +851,7 @@ class KanOpenerEffect(BaseEffect):
 
 # Clé de source UNIQUE du stat-mod Swarm_HitReduction — partagée entre l'attribution d'hydratation
 # (`UnitContext.from_snapshot`) et le refresh runner (`runner/abilities/loki/swarm.py`) : même clé =
-# `ValueModification.Modify @180fadfc0` REMPLACE la contribution (sémantique AddOrUpdate native),
+# `IdunBattle.Entities.Components.ValueModification$$Modify` REMPLACE la contribution (sémantique AddOrUpdate native),
 # jamais de double-compte. Forme = le tuple stable par défaut de `stat_modifications_by_source`.
 SWARM_HIT_REDUCTION_SOURCE = ("statmod", 1021, None, "Swarm_HitReduction")
 
@@ -867,14 +860,14 @@ class Swarm_HitReductionEffect(BaseEffect):
     """`Swarm_HitReduction` (effet 0x3fd=1021, StaticStatModifierEffect) — malus EXTRA_HITS(17) self du
     trait **Swarm** : « For each member defeated, the swarm attacks with 1 fewer hit » (i2, #60).
 
-    Natif : `SwarmAbility.CreateBehaviour @181225e20` (ability 0x3ff=1023 accordée par le trait) =
+    Natif : `IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateBehaviour` (ability 0x3ff=1023 accordée par le trait) =
     `AddOrUpdateStaticStatModifierEffect(Self@+0x148, 0x3fd, statType 0x11=EXTRA_HITS,
         Negative(Min(Difference(StatAmount(Self, 20, part 3=INITIAL), Const1@+0xc0),
                      StatAmount(Self, 20, part 4=MISSING))))`
     = **−min(nrOfMembers − 1, membres MORTS)** (plancher structurel 1 hit). Stat 20 = NUMBER_OF_MEMBERS,
-    résolue par le handler jumptable 0x14 de `GetStat @180ed30d0` (@180ed3929) → GroupUnitComponent
-    fill-up {+0x10=nrOfMembers, +0x18=membres restants} via `FillUpStatComponent.GetStatPart @180f9b3a0`.
-    Triggers `CreateTrigger @181225f50` : (On(UnitRepaired=49)|On(UnitHealed=44)|On(UnitMemberDeath=48)|
+    résolue par le handler jumptable 0x14 de `IdunBattle.Entities.UnitExtensions$$GetStat` (IdunBattle.Entities.UnitExtensions$$GetStat+0x859) → GroupUnitComponent
+    fill-up {+0x10=nrOfMembers, +0x18=membres restants} via `IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart`.
+    Triggers `IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger` : (On(UnitRepaired=49)|On(UnitHealed=44)|On(UnitMemberDeath=48)|
     On(UnitRevived=46)) & OwnerIsTarget | OnOwnerSpecificAbilityInit(1023) — tous les événements qui
     changent le compte de membres.
 
@@ -883,7 +876,7 @@ class Swarm_HitReductionEffect(BaseEffect):
     matérialisation (`bind_group_state`) ; non lié → None = no-op (« présent ≠ appliqué », fidélité-safe).
     La clé de source partagée `SWARM_HIT_REDUCTION_SOURCE` (runner/abilities/loki/swarm.py) fait que le
     refresh runner REMPLACE la contribution hydratée (sémantique AddOrUpdate de
-    `ValueModification.Modify @180fadfc0`)."""
+    `IdunBattle.Entities.Components.ValueModification$$Modify`)."""
 
     _bound_amount: "int | None" = None
 

@@ -7,7 +7,7 @@ from ._base import NCContext, _PlanTargetPlaybook
 
 
 class BlackRagePlaybook(_PlanTargetPlaybook):
-    """`BlackRagePlaybook.EvaluateNonComparable @1811211f0` (id 0x48b=1163, bloodDeathCompany/Lucien).
+    """`IdunBattle.AI.Playbook.Loki.BlackRagePlaybook$$EvaluateNonComparable` (id 0x48b=1163, bloodDeathCompany/Lucien).
 
     NonComparable (aucun `Make*Predictions` — reframe #34) MAIS l'utilite EST une utilite de DEGAT :
     le natif predit l'attaque NORMALE du caster sur la cible DEPUIS la tuile de charge, en fait un
@@ -17,17 +17,16 @@ class BlackRagePlaybook(_PlanTargetPlaybook):
     - cibles = `BasePlaybook.GetEligibleTargetsSelectable(ctx, position)` (ennemis a portee de charge).
     - par cible : `IBattleQuery` slot 0x21 `PredictAttack(caster, target, position)` -> `DamagePredictionResult`
       -> `ProbableDamageEvent(target, prediction, prob1=null, prob2=null)` ->
-      `Playbook.CalculateUtilityFromDamageEvent @1814a9f90` (= `prob x ForDamagePrediction`, composite
+      `IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromDamageEvent` (= `prob x ForDamagePrediction`, composite
       Damage case 0x22). Porte via `make_normal_attack_predictions` (meme chemin PredictAttack normal
       que `WillNormalAttackKill`) + `calculate_utility_from_damage_event`.
-    - `MIN_UTILITY` = cctor @181121960 = `Fix64.FromInt(1)` ; `PRIORITY`=0 (#115).
+    - `MIN_UTILITY` = IdunBattle.AI.Playbook.Loki.BlackRagePlaybook$$.cctor = `Fix64.FromInt(1)` ; `PRIORITY`=0 (#115).
     - Le COUT de l'ability (Lucien tombe a 50% PV, `GetSetHealthBehaviour`) N'ENTRE PAS dans l'utilite :
       le natif n'emet AUCUN event self-negatif ici (contrairement au chemin Comparable `GetHealthToLose`).
 
     POSITION DE PREDICTION = la TUILE DE CHARGE (adjacente a la cible), PAS la tuile de cast (#47).
-    La charge ferme au contact avant l'attaque : `ExecuteBehaviour @1811b9c20` fait
-    `MoveUnit(First(SortTilesByUtility(GetPossibleMovementTiles)))` ou `GetPossibleMovementTiles
-    @1811ba5f0` = `TilesUnitCanMoveToChargeTarget(range=UnitMovementRangeWithBonus(0x53e,
+    La charge ferme au contact avant l'attaque : `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$ExecuteBehaviour` fait
+    `MoveUnit(First(SortTilesByUtility(GetPossibleMovementTiles)))` ou `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetPossibleMovementTiles` = `TilesUnitCanMoveToChargeTarget(range=UnitMovementRangeWithBonus(0x53e,
     ConfigConst 0xe))` — des tuiles ADJACENTES a la cible — PUIS `UseActiveAbility(attaque NORMALE)`.
     La prediction de la decision reflete donc l'attaque AU CONTACT (arme de MELEE), quelle que soit la
     position d'evaluation du generateur. MESURE (31337 s12, u91) : le natif emet (1163, cible 85) SANS
@@ -37,28 +36,28 @@ class BlackRagePlaybook(_PlanTargetPlaybook):
     generateur RESTREINT aux tuiles de charge) et garde le max ; la tuile de cast rankee ne sert que
     d'ancre `to` (ranked[0]=origine -> to=None, cast en place comme le natif).
 
-    GAP assume — `GetUseProbability @181121740` : le natif tire `0.4` si les PV apres usage
-    (`BlackRageAbility.GetHealthPercentageAfterUse @1811ba570`, ConfigVar 0x26 = 50%) sont INFERIEURS aux
+    GAP assume — `IdunBattle.AI.Playbook.Loki.BlackRagePlaybook$$GetUseProbability` : le natif tire `0.4` si les PV apres usage
+    (`IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetHealthPercentageAfterUse`, ConfigVar 0x26 = 50%) sont INFERIEURS aux
     PV COURANTS (`GetStat(Health, part=1)`), sinon `1.0` (Fix64.One). C'est une porte ALEATOIRE consommee
     hors du Bucket ; le moteur offline est deterministe -> non modelise (meme statut que ScarabSummon /
-    `GetUseProbability @181159220`). Consequence : offline emet 1163 la ou le natif peut le sauter 60% du
+    `IdunBattle.AI.Playbook.Loki.ScarabSummonPlaybook$$GetUseProbability`). Consequence : offline emet 1163 la ou le natif peut le sauter 60% du
     temps quand Lucien est au-dessus de 50% PV."""
     ABILITY_ID = int(ActiveAbilityType.BlackRage)  # 1163
-    MIN_UTILITY = 1.0     # cctor @181121960 = Fix64(1)
+    MIN_UTILITY = 1.0     # IdunBattle.AI.Playbook.Loki.BlackRagePlaybook$$.cctor = Fix64(1)
     PRIORITY = 0
     # Prediction independante de la position balayee (charge au contact) : le sweep position-outer
     # de _PlanTargetPlaybook duplique la meme evaluation -> le tie retombe sur la 1re position
-    # legale de l'ordre movable natif (mirror Bucket keep-first @1813fbcc0).
+    # legale de l'ordre movable natif (mirror Bucket keep-first IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction).
 
     def should_evaluate(self, ctx: NCContext) -> bool:
-        """`BasePlaybook.ShouldEvaluate @18111fb70` (slot 4 IPlaybook, gate AMONT du generateur
-        `ActiveAbilityActionGenerator.<GenerateActions>d__7 @18119a3f0`) nourri de
-        `BlackRagePlaybook.GetUseProbability @181121740` : prob = `0.4`
+        """`IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate` (slot 4 IPlaybook, gate AMONT du generateur
+        `ActiveAbilityActionGenerator.<GenerateActions>d__7 IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext`) nourri de
+        `IdunBattle.AI.Playbook.Loki.BlackRagePlaybook$$GetUseProbability` : prob = `0.4`
         (`Fix64.FromIntFraction(4,10)`) si HP_apres_usage < PV COURANTS, sinon `1.0`
-        (`Fix64.One`, statics+0x20 -- lu au cctor @181563a60). ShouldEvaluate : prob>=1 -> True ;
+        (`Fix64.One`, statics+0x20 -- lu au FixMath.NET.Fix64$$.cctor). ShouldEvaluate : prob>=1 -> True ;
         prob<=0 -> False ; sinon RNG (jamais 0 ici). HP_apres = MaxHealth * ConfigVar(0x26) =
-        50% MaxHealth (`GetHealthPercentageAfterUse @1811ba570` = ConfigVar(0x26) ;
-        `GetSetHealthBehaviour @1811ba690` = ChangeStat(Health, PercentageOf(MaxHealth, 0x26)) ;
+        50% MaxHealth (`IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetHealthPercentageAfterUse` = ConfigVar(0x26) ;
+        `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetSetHealthBehaviour` = ChangeStat(Health, PercentageOf(MaxHealth, 0x26)) ;
         i2 "set to 50% Health").
 
         -> prob 1.0 = OFFERT DETERMINISTE ssi PV_courant <= 50% MaxHealth (Lucien deja blesse :
@@ -74,14 +73,14 @@ class BlackRagePlaybook(_PlanTargetPlaybook):
         hpmax = ctx.scene.hpmax(ctx.uid)
         if hp is None or hpmax is None:
             return True
-        # ConfigVar 0x26 = 50% (i2 "set to 50% Health" ; GetHealthPercentageAfterUse @1811ba570) -- Lucien-only
+        # ConfigVar 0x26 = 50% (i2 "set to 50% Health" ; IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetHealthPercentageAfterUse) -- Lucien-only
         return hp <= hpmax * 0.5
 
     def _charge_tiles(self, target, ctx: NCContext) -> list[tuple]:
         """Tuiles de charge candidates pour la PREDICTION : hex ADJACENTS a la cible, walkable et
         LIBRES (mirror `TilesUnitCanMoveToChargeTarget` — l'occupation/walkability y gate les
         destinations reelles). Fallback : tous les voisins si le filtre vide tout (la legalite de la
-        cible est deja garantie par le plan natif / `GetDynamicInvalidTargetReason @1811ba280`)."""
+        cible est deja garantie par le plan natif / `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetDynamicInvalidTargetReason`)."""
         tpos = None
         occupied = set()
         for u in (ctx.units or []):

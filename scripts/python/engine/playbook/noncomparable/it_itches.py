@@ -8,14 +8,14 @@ from engine.runner.operations.displace import _dir_index, _step   # geometrie Fi
 
 from ._base import NCContext, NonComparablePlaybook, _traits, _sweep_origin_first
 
-# `IsDisplaceable @180ed8140` : traits BLOQUANTS lisibles en gameconfig.
+# `IdunBattle.Entities.UnitExtensions$$IsDisplaceable` : traits BLOQUANTS lisibles en gameconfig.
 _NOT_DISPLACEABLE = (UnitTrait.Immovable,   # 0x11 = 17
                      UnitTrait.Hulking,     # 3
                      UnitTrait.BigTarget)   # 0x3f9 = 1017
 
 
 class ItItchesPlaybook(NonComparablePlaybook):
-    """`ItItchesPlaybook.EvaluateNonComparable @181146c50` (id 0x461=1121, tyranParasiteOfMortrex).
+    """`IdunBattle.AI.Playbook.Loki.ItItchesPlaybook$$EvaluateNonComparable` (id 0x461=1121, tyranParasiteOfMortrex).
 
     NonComparable a utilite ENTIERE (aucun `Make*Predictions` — reframe #34) : la Parasite pousse un
     ennemi adjacent ET les ennemis adjacents A LA FOIS a la cible et a elle-meme, puis fait apparaitre un
@@ -25,29 +25,29 @@ class ItItchesPlaybook(NonComparablePlaybook):
       909 s14 : `abilityTargets` 1121 rend kind=tile = les tuiles des ennemis ; decompile : l'element
       est passe TEL QUEL a `GenerateAction` comme cible -> le natif emet un ID DE TUILE, ex. 63=(5,6)) ;
       l'unite est resolue depuis l'element via `UnitExtensions.GetUnit` (= l'occupant) pour les gates.
-    - GATE 1 : `UnitExtensions.IsDisplaceable(occupant) == false -> continue` (@180ed8140 : unite vivante,
+    - GATE 1 : `UnitExtensions.IsDisplaceable(occupant) == false -> continue` (IdunBattle.Entities.UnitExtensions$$IsDisplaceable : unite vivante,
       SANS `Immovable(17)` ni `Hulking(3)` ni `BigTarget(0x3f9=1017)`, et sans le FLAG runtime 0x19).
-    - GATE 2 (`CanBePushed` inline, cf. @181146aa0) : `IBattleQuery` slot 0x4d `(casterTile, target)` ->
+    - GATE 2 (`CanBePushed` inline, cf. IdunBattle.AI.Playbook.Loki.ItItchesPlaybook$$CanBePushed) : `IBattleQuery` slot 0x4d `(casterTile, target)` ->
       liste de tuiles, `FilterInPlace(<predicat du playbook>)`, `Count > 0` = il existe une destination de
       poussee. Porte par la GEOMETRIE REELLEMENT EXECUTEE (`DisplaceUnitOperation` /
-      `FindTileToPush @180e695e0` : 1 pas dans la direction caster->cible, tuile walkable et libre) —
+      `IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPush` : 1 pas dans la direction caster->cible, tuile walkable et libre) —
       c'est le mirror defendable ; l'identite exacte du slot 0x4d n'est PAS tranchee (ce n'est ni
       `GetAdjacentTiles`=0x4e ni `GetTilesBehind`=0x53, qui prennent d'autres arites) -> FLAG.
     - utilite = `Fix64.FromInt(Count(GetTargetUnits(cible)))` ou
-      `ItItchesAbility.GetTargetUnits @1811ec5e0` = `Enemies(Target + AdjacentTilesIntersection(caster,
+      `IdunBattleLogic.Entities.Abilities.Active.Loki.ItItchesAbility$$GetTargetUnits` = `Enemies(Target + AdjacentTilesIntersection(caster,
       target))` = la cible ELLE-MEME + les ennemis adjacents A LA FOIS a la cible et au caster.
-    - `MIN_UTILITY` = cctor @181147830 = `Fix64.FromInt(1)` (toujours passe des que la cible est
+    - `MIN_UTILITY` = IdunBattle.AI.Playbook.Loki.ItItchesPlaybook$$.cctor = `Fix64.FromInt(1)` (toujours passe des que la cible est
       poussable : elle compte pour 1) ; `PRIORITY`=0 (#115). `GenerateAction(position, element, util)`
       ou `element` = l'entite TUILE issue de la liste eligible (mirror : `ctx.tile_id_by_pos[T]`).
 
     Ecarts assumes : (1) le FLAG runtime `HasFlag(unit, 0x19)` d'`IsDisplaceable` n'est pas lisible
     offline (enum de flags d'entite, distinct des traits gameconfig) -> non teste ; (2) l'eligibilite
     par-position est reconstituee en filtrant l'union `abilityTargets` (tuiles) par adjacence a la
-    position balayee ; (3) `GetUseProbability @1811477b0` = `Fix64.FromIntFraction(GetMaxNumUnitsAffected,
+    position balayee ; (3) `IdunBattle.AI.Playbook.Loki.ItItchesPlaybook$$GetUseProbability` = `Fix64.FromIntFraction(GetMaxNumUnitsAffected,
     3)` (porte ALEATOIRE : ~n/3 de chances d'utiliser l'ability) — non modelisee (moteur deterministe),
     meme statut que ScarabSummon/BlackRage."""
     ABILITY_ID = int(ActiveAbilityType.ItItches)  # 1121
-    MIN_UTILITY = 1.0     # cctor @181147830 = Fix64(1)
+    MIN_UTILITY = 1.0     # IdunBattle.AI.Playbook.Loki.ItItchesPlaybook$$.cctor = Fix64(1)
     PRIORITY = 0
 
     def _eligible_target_tiles(self, ctx: NCContext) -> list[tuple]:
@@ -69,14 +69,14 @@ class ItItchesPlaybook(NonComparablePlaybook):
 
     @staticmethod
     def _is_displaceable(ctx: NCContext, unit: dict) -> bool:
-        """`UnitExtensions.IsDisplaceable @180ed8140` (part lisible offline : vivante + traits)."""
+        """`IdunBattle.Entities.UnitExtensions$$IsDisplaceable` (part lisible offline : vivante + traits)."""
         if unit is None or unit.get("alive") is False:
             return False
         return not has_any_trait(_traits(unit.get("visualId")), _NOT_DISPLACEABLE)
 
     @staticmethod
     def _can_be_pushed(ctx: NCContext, pusher_pos: tuple, tpos: tuple) -> bool:
-        """`CanBePushed @181146aa0` : existe-t-il une destination de poussee ? Mirror de la geometrie
+        """`IdunBattle.AI.Playbook.Loki.ItItchesPlaybook$$CanBePushed` : existe-t-il une destination de poussee ? Mirror de la geometrie
         EXECUTEE (`FindTileToPush`) : 1 pas dans la direction `pusher_pos -> tpos`, tuile connue du
         board, walkable et LIBRE. `walkable_by_pos` absent -> on se rabat sur les tuiles connues
         (`elev_by_pos`) pour ne pas gater a l'aveugle."""

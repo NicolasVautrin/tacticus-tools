@@ -3,7 +3,7 @@
 Contexte (case-31 demi-partie A) : le verdict historique « le natif n'emet JAMAIS 1180 cote
 a-units » repose sur 4 experiences ou « camp de Judh » etait CONFONDU avec « numero de tour de
 Judh » (a-units => toujours mesure au 1er tour ; p-units => tour >= 2). Le slot-4
-`ShouldEvaluate(unit)` de HeroicFusilladePlaybook (corps folde @18111af90, decouvert en #46)
+`ShouldEvaluate(unit)` de HeroicFusilladePlaybook (corps folde IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$ShouldEvaluate, decouvert en #46)
 gate `GetStat(unit, 0xc=TurnsStarted) > 1` — il bloque 1180 au 1er tour de l'unite QUEL QUE
 SOIT le camp.
 

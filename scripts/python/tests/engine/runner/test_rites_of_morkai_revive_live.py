@@ -1,13 +1,13 @@
 """#79 (retrofit case-66) -- RitesOfMorkai : self-revive ONE-SHOT de l'unite « Inspired ».
 
-`RitesOfMorkaiEffect` (ctor @180f69c30 / filter @180f69c10) = sous-classe de `ReviveEffect`
-(CreateTargetTrigger @180f46d80 / CreateTargetTriggerBehaviour @180f46a70) :
+`RitesOfMorkaiEffect` (IdunBattle.Entities.Effects.Loki.RitesOfMorkaiEffect$$.ctor / filter IdunBattle.Entities.Effects.Loki.RitesOfMorkaiEffect$$CreateTargetFilter) = sous-classe de `ReviveEffect`
+(IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTrigger / IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour) :
   * filtre = `get_OwnerIsTarget` -> le porteur de l'effet se revive LUI-MEME (aucun AreFriends/IsAdjacent :
     la portee a deja ete appliquee a la POSE de l'effet par l'active 1211 de Baldr) ;
   * ctor `removeEffect=TRUE` (champ 0x488) -> le 2e volet du behaviour est `GetRemoveEffectBehaviour` et
     NON `DeactivateEffect` => revive **one-shot DEFINITIF** (i2 : « The **first time** each inspired unit
     would be defeated ») -- contraste Narthecium/TaintedNarthecium (0x488=0 -> once-per-TURN) ;
-  * `get_ReviveOnOverkill` non surcharge -> BASE @1802b15a0 `return 0` => « unless Overkilled » (i2 idem).
+  * `get_ReviveOnOverkill` non surcharge -> BASE GameCamera$$ShouldBlurBackground `return 0` => « unless Overkilled » (i2 idem).
 
 VOIE : `spaceWolfPriest` (Baldr) est un HERO **absent du pool runner** (`rl_duel.py build --list-pool`,
 rank 17) -> l'effet 1502 n'est PAS posable en runner. Port MIRROR valide OFFLINE : l'etat est capture
@@ -90,8 +90,8 @@ def _inspire(st, uid, level=POSER_LEVEL, mult=POSER_MULT):
 
 
 def _kill(st, uid, killer, overkill=False):
-    """`On(1)` PUIS la GARDE @0x180e76c9e (`kill_unit_revive_gate`) qui draine la `ReviveData` posee par
-    la feuille `Revive` -- mirror de `KillUnitOperation.Execute @180e76470` (case-89 volet C)."""
+    """`On(1)` PUIS la GARDE @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e (`kill_unit_revive_gate`) qui draine la `ReviveData` posee par
+    la feuille `Revive` -- mirror de `IdunBattle.Operations.KillUnitOperation$$Execute` (case-89 volet C)."""
     st.get_entity(uid).get_component(HealthComponent).hp = 0
     st.get_entity(uid).get_component(UnitComponent).alive = False
     out = after_death_triggers(st, dying_id=uid, killer_id=killer, overkill=overkill)

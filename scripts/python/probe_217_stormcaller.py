@@ -1,9 +1,8 @@
 #!/usr/bin/env python
 """Probe #217 — validation live de la face COMBAT de Stormcaller (active 1113, Njal spaceStormcaller).
 
-Port : engine/runner/abilities/loki/stormcaller.py (mirror `StormcallerAbility.ExecuteBehaviour
-@18120cc20` : AddEffect(Ice 0x11, cible+ring1) -> AttackWithAbilityDamage(3x Psychic, ennemis sur
-tuiles GLACEES, overload @180de9dd0 == SpiritLeech) -> AddEffect(Stunned 0x48a, Flying du cache,
+Port : engine/runner/abilities/loki/stormcaller.py (mirror `IdunBattleLogic.Entities.Abilities.Active.Loki.StormcallerAbility$$ExecuteBehaviour` : AddEffect(Ice 0x11, cible+ring1) -> AttackWithAbilityDamage(3x Psychic, ennemis sur
+tuiles GLACEES, overload IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage == SpiritLeech) -> AddEffect(Stunned 0x48a, Flying du cache,
 TurnsFromRounds(1))). Methode = REPLAY-DIFF bit-exact (pattern test_lord_of_tempests_ice_live) :
 meme etat pre-cast (dec/ob/snap/dumpRng), cast 1113 live ET offline, puis diff.
 
@@ -14,7 +13,7 @@ DEUX scenarios (2 runners, geometrie forcee par DRIVE, doctrine drive-positions)
      A2. deltas HP par unite live == offline BIT-EXACT (3x Psychic pierce100 NoBlocking) ;
      A3. stun : WingedPrime (Flying=4) stun live<->offline ssi attaque ; necroWarden JAMAIS.
   B. seed 21702, DISCRIMINANT snowball (tranche le residu case-35 « is_normal_attack » vs le
-     decompile @180f569a0 gate=OwnerIsCaster SEUL) :
+     decompile IdunBattle.Entities.Effects.Loki.LordOfTempests_ExtraDamageEffect$$CreateEffectDamageBonusForAttack gate=OwnerIsCaster SEUL) :
      - round 1 : attaque NORMALE de Njal a d=2 -> le passif LordOfTempests_AddIce (case-35,
        valide) GLACE la tuile de la victime ;
      - round 2 : drive Njal ADJACENT a une tuile glacee (count-ring1 pre-cast >= 1 -> l'effet

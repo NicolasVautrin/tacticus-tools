@@ -1,11 +1,11 @@
 """Garde legere OFFLINE des overrides CalculateCustomUtility portes (#27, case-27).
 
 Verifie la FORME des termes custom portes (dispatch + formule), pas le live :
-- ArmoriumCherub (1014) @18111c530 = Fix64(1) constant.
-- LightOfSanguinius (1177) @181133d70 = count(units caster-team a PV%==100) * W(-10).
-- HeraldOfTheApocalypse (1020) @1811441b0 = 0 si un ennemi normal-attaquable par le caster
+- ArmoriumCherub (1014) IdunBattle.AI.Playbook.Loki.ArmoriumCherubPlaybook$$CalculateCustomUtility = Fix64(1) constant.
+- LightOfSanguinius (1177) IdunBattle.AI.Playbook.LightOfSanguiniusPlaybook$$CalculateCustomUtility = count(units caster-team a PV%==100) * W(-10).
+- HeraldOfTheApocalypse (1020) IdunBattle.AI.Playbook.Loki.HeraldOfTheApocalypsePlaybook$$CalculateCustomUtility = 0 si un ennemi normal-attaquable par le caster
   peut lui-meme frapper quelqu'un, sinon W(HeraldOfTheApocalypse_CannotKillEnemy)=50.
-- Drachnyen (1029) @18112dc60 = W(Drachnyen_MultipleAdjacentUnits)=10 si >= 2 ENNEMIS
+- Drachnyen (1029) IdunBattle.AI.Playbook.Loki.DrachnyenPlaybook$$CalculateCustomUtility = W(Drachnyen_MultipleAdjacentUnits)=10 si >= 2 ENNEMIS
   adjacents a la TUILE D'ATTAQUE, sinon 0.
 
 Usage : python probe_custom_utility_27.py   (depuis scripts/python ; ASCII only ; exit 0 = OK)

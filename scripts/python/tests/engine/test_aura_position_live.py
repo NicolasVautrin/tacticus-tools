@@ -1,4 +1,4 @@
-"""Agrement #153 : l'aura d'ATTAQUE-STAT (RitesOfBattle @181225340 / PathOfCommand @181110f10) en
+"""Agrement #153 : l'aura d'ATTAQUE-STAT (RitesOfBattle IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfBattleAbility$$CreateBehaviour / PathOfCommand IdunBattleLogic.Entities.Abilities.Triggered.Loki.PathOfCommandAbility$$CreateBehaviour) en
 PREDICTION DISPLAY est re-evaluee a la TUILE CANDIDATE — PAS bakee a la position reelle de
 l'attaquant. REMPLACE l'ancien test #67 qui etait CIRCULAIRE (il mesurait la constance de la base
 du PORT contre le port lui-meme, jamais l'oracle natif : `_base()` appelait
@@ -6,8 +6,8 @@ du PORT contre le port lui-meme, jamais l'oracle natif : `_base()` appelait
 
 Verite native (verdict #153, mesure discriminante + decompile) :
 - la chaine display threade la UnitPosition candidate de bout en bout :
-  `DamagePredictionQuery.GetAllPredictions @181090f50` construit `UnitPosition(tuile de selection)`
-  -> `DamagePrediction.PredictNormalAttack @181037cd0` la pose comme CasterTile dans
+  `IdunBattle.Core.Services.DamagePredictionQuery$$GetAllPredictions` construit `UnitPosition(tuile de selection)`
+  -> `IdunBattle.Core.Services.DamagePrediction$$PredictNormalAttack` la pose comme CasterTile dans
   `AbilityEntities.ctor` ;
 - mesure discriminante seed-31337 (UN decisionView, attaquant reel FIXE hex-adjacent au porteur,
   seule la tuile candidate varie) : tuiles out-ring -> base Initial (aura PERDUE malgre le stat-mod

@@ -1,7 +1,7 @@
 """ExcruciatingFrequenciesPlaybook — attaque COMPARABLE ligne-AoE ciblant une TUILE (id 1197).
 
-`ExcruciatingFrequenciesPlaybook.MakeDamagePredictions @18112fe70` (ComparablePlaybook<0x4ad=1197>,
-ctor @1811300f0). Ability RANGED profil Blast (HitsMultipleMembers) : un rayon de 3 tuiles en ligne
+`IdunBattle.AI.Playbook.Loki.ExcruciatingFrequenciesPlaybook$$MakeDamagePredictions` (ComparablePlaybook<0x4ad=1197>,
+IdunBattle.AI.Playbook.Loki.ExcruciatingFrequenciesPlaybook$$.ctor). Ability RANGED profil Blast (HitsMultipleMembers) : un rayon de 3 tuiles en ligne
 droite depuis le caster dans l'une des 6 directions, qui inflige `1x Blast` a CHAQUE ennemi sur les
 tuiles affectees (tooltip + Suppressed). La cible de DECISION est une TUILE (l'aim/direction), PAS une
 unite -- comme DarkTalonStrike (mais Comparable : le score = Sigma degat par ennemi, pas un comptage NC).
@@ -10,18 +10,18 @@ Ce playbook N'EST PAS pilote par `attackPlans` (les evals natives 1197 ont rankC
 d'affichage par-unite ne range pas une ability ligne-ciblant-tuile). Il est donc traite par un
 GENERATEUR BESPOKE dans `ComparableAbilityGenerator` (comme heal/repair), qui balaie positions x aims.
 
-Structure native (mirror MakeDamagePredictions @18112fe70) :
-  - `GetAttackTargets @1811d9840` = `Enemies(Units(GetAffectedTiles))` : ennemis sur les tuiles de ligne.
-  - `GetAffectedTiles @1811d9730` = `TilesBehindInLine(from=caster, to=aimTile, Direct(nrOfTiles=const
+Structure native (mirror IdunBattle.AI.Playbook.Loki.ExcruciatingFrequenciesPlaybook$$MakeDamagePredictions) :
+  - `IdunBattleLogic.Entities.Abilities.Active.Loki.ExcruciatingFrequenciesAbility$$GetAttackTargets` = `Enemies(Units(GetAffectedTiles))` : ennemis sur les tuiles de ligne.
+  - `IdunBattleLogic.Entities.Abilities.Active.Loki.ExcruciatingFrequenciesAbility$$GetAffectedTiles` = `TilesBehindInLine(from=caster, to=aimTile, Direct(nrOfTiles=const
     0x17=3))` : les `nrOfTiles` tuiles en ligne droite depuis le caster a travers l'aim. Geometrie CUBE
     droite (parite-independante), identique a DarkTalonStrike `_beam_count` : `tile_k = caster + k*dir`,
     dir = cube(aim) - cube(caster), k=1..nrOfTiles (l'aim = la 1re tuile, voisine du caster).
-  - Par ennemi touche -> `GenerateMultiHitAttackPredictions(base=GetDamageFormula @1811bb1d0 =
-    MinMaxDamage(avg minDmg/maxDmg), hits=GetHits @180fb16c0 = GetNumberConstant(0x2f=nrOfHits=1),
+  - Par ennemi touche -> `GenerateMultiHitAttackPredictions(base=IdunBattleLogic.Entities.Abilities.Active.BlightGrenadesAbility$$GetDamageFormula =
+    MinMaxDamage(avg minDmg/maxDmg), hits=IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$GetHits = GetNumberConstant(0x2f=nrOfHits=1),
     profile=GetDamageProfile=Blast)`. = exactement le chemin per-cible generique de `prediction.
     make_damage_predictions` (profil Blast + PiercingRatio 15 lus de la config).
-  - `CalculateUtilityFromPredictions @181407890` = Sigma `CalculateUtilityFromDamageEvent` sur tous les
-    ennemis touches (+ Tile(7) hors scorer). ShouldExecute @181130060 : util > 0.
+  - `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions` = Sigma `CalculateUtilityFromDamageEvent` sur tous les
+    ennemis touches (+ Tile(7) hors scorer). IdunBattle.AI.Playbook.Loki.ExcruciatingFrequenciesPlaybook$$ShouldExecute : util > 0.
 
 RECONCILIATION LIVE (seed 1357 s7 u79 emperNoiseMarine, board MC1_67) : caster (6,7), movable set restreint
 -> la position (4,5) est la seule d'ou une ligne touche 2 ennemis. aim (3,5)=tile 44 -> ligne
@@ -74,7 +74,7 @@ def _line_tiles(caster: tuple, aim: tuple, n: int) -> list:
 
 
 def _score(ctx, P: tuple, line_enemies: list):
-    """Mirror `ComparablePlaybook.CalculateActionUtility @181406ee0` pour 1197 (Comparable) : Sigma
+    """Mirror `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility` pour 1197 (Comparable) : Sigma
     `CalculateUtilityFromDamageEvent` sur les ennemis touches (degat Blast per-ennemi) + Tile(7)@P.
     Renvoie (u, u_full) ou None si aucun event de degat (ShouldExecute : util > 0 -> u <= 0 filtre)."""
     from engine.playbook import prediction

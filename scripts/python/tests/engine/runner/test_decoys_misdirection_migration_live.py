@@ -1,15 +1,15 @@
 """Gen-stealer G2 : DecoysAndMisdirection (passif Isaak genesPrimus) MIGRATION -> triggers step-on-decoy.
 
 Passif natif = DEUX abilities-triggers (split par faction, PAS par event) :
-  - `DamageEnemies` (CreateTrigger @180e20310, behaviour @180e20190) : `On(0x1d=UnitPositionChanged_2) &
+  - `DamageEnemies` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_DamageEnemiesAbility$$CreateTrigger, behaviour IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_DamageEnemiesAbility$$CreateBehaviour) : `On(0x1d=UnitPositionChanged_2) &
     AreEnemies(owner, actor) & AmountIsGreaterThanZero(GetValidDeadDecoys)` -> `Repeat(AttackWithAbilityDamage(
     owner, stepper, MinMaxDamage, Blast, hits=1), Count(dead decoys))`. Feuille = `AttackBehaviour(
-    AbilityDamageBehaviour)` (decompile @180e20190 + factory @180de9c90->@180de9e50 VERIFIES : pipeline
+    AbilityDamageBehaviour)` (decompile IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_DamageEnemiesAbility$$CreateBehaviour + factory IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage->IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage VERIFIES : pipeline
     crit/block COMPLET) -> leaf port `AttackWithAttackDamage` (execute_ability_attack).
-  - `BuffFriends` (CreateTrigger @180e20050, behaviour @180e1fe30) : `(On(0x2f)|On(0x1d)) & AreFriends(owner,
+  - `BuffFriends` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_BuffFriendsAbility$$CreateTrigger, behaviour IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_BuffFriendsAbility$$CreateBehaviour) : `(On(0x2f)|On(0x1d)) & AreFriends(owner,
     actor) & ...` -> `AddEffect(1379 +582, on=stepper)` + `If(HasFaction(stepper, GenestealerCults),
     spawn_decoy(hex adjacent libre))`.
-Vecteur = `dispatch.after_move_triggers` emet On(4) PUIS On(0x1d) (mirror EvaluateAfterMoveTriggers @180e79770).
+Vecteur = `dispatch.after_move_triggers` emet On(4) PUIS On(0x1d) (mirror IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers).
 Le decoy est crushe INLINE (`_kill_steppable_units`, G1) AVANT -> GetValidDeadDecoys le lit deja mort.
 
 ⚠ ORACLE : une confrontation live du MONTANT natif du Blast est ENTANGLED (verifie live 2026-07-18) -- la seule

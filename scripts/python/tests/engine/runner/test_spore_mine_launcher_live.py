@@ -1,15 +1,15 @@
 """VALIDATION du port COMBAT de SporeMineLauncher (1145, `tyranBiovore` Biovore MoW, Tyranids) -- case-220 §6.16.
 
-Artefact natif : `SporeMineLauncherAbility$$ExecuteBehaviour @18120a3f0` (DECOMPILE, mirror 1:1). Il decompile
+Artefact natif : `SporeMineLauncherAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility$$ExecuteBehaviour` (DECOMPILE, mirror 1:1). Il decompile
 en UN seul noeud Spawn passe a `AActiveAbility.Execute` :
     Execute( Spawn(caster@0x160, Target@0x178 = TUILE ciblee, GetStringConstant(config,0)="tyranSmnSporeMine",
                    WithStatsFromConfig(config 1145, Get(param_2[0]), Get(param_2[1]))) )
-STRUCTURELLEMENT == le corps partage `AberrantHypermorph/IronkinSteeljack @1811b0550` (spawn tile-target +
+STRUCTURELLEMENT == le corps partage `AberrantHypermorph/IronkinSteeljack IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour` (spawn tile-target +
 WithStatsFromConfig), MOINS le volet on-appearance : `PerformAIAttackFromCurrentPosition` + `*(options+0x18)
 =onAppearance` sont ABSENTS ici (verifie par comparaison des deux decompiles) -> le spore mine ne fait RIEN a
 l'apparition (coherent gameconfig : `tyranSmnSporeMine` = weapons=[], activeAbilities=[], summonDmg=0). Le
-`ctor @18120a610` fait `AActiveAbility.ctor(..., 2, 0)` (IDENTIQUE Ironkin/Aberrant -> flags de tour defauts).
-Cast tile-target ; `GetDynamicInvalidTargetReason @18120a590` = tuile valide ssi PAS occupee par un ennemi.
+`IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility$$.ctor` fait `AActiveAbility.ctor(..., 2, 0)` (IDENTIQUE Ironkin/Aberrant -> flags de tour defauts).
+Cast tile-target ; `IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility$$GetDynamicInvalidTargetReason` = tuile valide ssi PAS occupee par un ennemi.
 
 PORTEUR = MoW (Biovore). Deux specificites :
   - Il est SPAWNABLE dans le pool MoW (`rl_duel build --p-mow tyranBiovore`) -> le cast LIVE natif spawn
@@ -194,7 +194,7 @@ def test_spore_mine_port_offline(mine_runner):
     hc = su.get_component(HealthComponent)
     assert hc.hp == hc.hp_max == exp_hp, \
         f"hp {hc.hp}/{hc.hp_max} != summonHp[{level}]x{mult}={exp_hp} (WithStatsFromConfig)"
-    # NO on-appearance : la structure natif (@18120a3f0) N'A PAS de PerformAIAttackFromCurrentPosition
+    # NO on-appearance : la structure natif (IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility$$ExecuteBehaviour) N'A PAS de PerformAIAttackFromCurrentPosition
     assert not diag.get("attacks"), f"attaque a l'apparition INATTENDUE (natif sans on-appearance): {diag.get('attacks')}"
     # termine le tour (1145 hors des frozensets base.py -> defauts)
     assert flags.get("turn_finished") is True, f"le caster devrait finir son tour: {flags}"
@@ -218,7 +218,7 @@ def test_spore_mine_noop_on_non_tile(mine_runner):
 
 def test_spore_mine_live_spawn_confront(mine_runner):
     """LIVE : cast tile-target natif -> spawn tyranSmnSporeMine (equipe/tuile/hp == port) ; AUCUN degat
-    on-appearance (mine inerte) ; tuiles ennemies EXCLUES des cibles legales (gate RE @18120a590)."""
+    on-appearance (mine inerte) ; tuiles ennemies EXCLUES des cibles legales (gate RE IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility$$GetDynamicInvalidTargetReason)."""
     rid, rpc = mine_runner
     state, board, dec, ob = _board_and_state(rpc, rid)
     caster_id, team, player, level, mult = _mow(dec)

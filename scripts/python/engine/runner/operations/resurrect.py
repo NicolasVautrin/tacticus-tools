@@ -1,17 +1,16 @@
-"""Résurrection d'unité — `ResurrectUnitOperation.Execute @180e8e4c0` (mutateur ECS IMPÉRATIF).
+"""Résurrection d'unité — `IdunBattle.Operations.ResurrectUnitOperation$$Execute` (mutateur ECS IMPÉRATIF).
 
-Frontière DSL : la feuille `DSLFactory.Resurrect @180dfa420` (au-dessus, structurelle) APPELLE cette
-Operation (en-dessous, impératif). Chaîne native : `ResurrectBehaviour.Execute @180fd0a80` (zip units×tiles)
-→ `ResurrectUnitMessage` → `OperationProcessor.ResurrectUnit @180e0b410` → `ResurrectUnitOperation.Execute
-@180e8e4c0`. Ici on porte la MUTATION observable (le pipeline de file/stream = couche view non suivie) :
+Frontière DSL : la feuille `IdunBattleLogic.Entities.DSLFactory$$Resurrect` (au-dessus, structurelle) APPELLE cette
+Operation (en-dessous, impératif). Chaîne native : `IdunBattle.Entities.Behaviours.ResurrectBehaviour$$Execute` (zip units×tiles)
+→ `ResurrectUnitMessage` → `Core.Services.OperationProcessor$$ResurrectUnit` → `IdunBattle.Operations.ResurrectUnitOperation$$Execute`. Ici on porte la MUTATION observable (le pipeline de file/stream = couche view non suivie) :
 
   * gardes `IsDefeated(unit)` (une unité vivante n'est pas ressuscitée) ;
   * repositionne l'unité sur la tuile du decoy ;
-  * `KillSteppableUnits @180e8f940` : le decoy sur lequel on réapparaît est CRUSHÉ (`_kill_steppable_units`,
+  * `IdunBattle.Operations.ResurrectUnitOperation$$KillSteppableUnits` : le decoy sur lequel on réapparaît est CRUSHÉ (`_kill_steppable_units`,
     G1) — c'est ce decoy MORT co-localisé qui alimente `DecoysAndMisdirection_BuffFriends` (G2, +582 + decoy) ;
   * flags natifs `Remove(6,0xf,8,0x1a,9)` puis `Add(2=alive, 0xe=UnitPostAbility)` → on pose `alive=True`
     + le flag one-shot `AMBUSH_CONSUMED (0xe)` (re-mourir ne re-ressuscite PAS) ;
-  * `SetHealth @180e91000` = PV pleins (le `StatAmount(unit, Health=5, mode=2)` passé par le behaviour) ;
+  * `IdunBattle.Operations.ResurrectUnitOperation$$SetHealth` = PV pleins (le `StatAmount(unit, Health=5, mode=2)` passé par le behaviour) ;
   * si `takesImmediateTurn (param_7)` → `RemoveTurnFlags(unit,1,1)` → l'unité peut REJOUER immédiatement
     (l'exécution du tour = couche IA/contrôleur, pas cette Operation) ;
   * émet `On(UnitResurrected=0x2f=47)` → `unit_resurrected_triggers` → alimente G2 `BuffFriends` + G5 ré-arme.
@@ -29,7 +28,7 @@ from ..components import (UnitComponent, PositionComponent, HealthComponent, Uni
 
 
 class ResurrectUnitOperation:
-    """Mirror `ResurrectUnitOperation.Execute @180e8e4c0` (mutateur ECS). `dest_coord` = (col,row) de la
+    """Mirror `IdunBattle.Operations.ResurrectUnitOperation$$Execute` (mutateur ECS). `dest_coord` = (col,row) de la
     tuile du decoy ; `hp` = PV à restaurer (PV pleins) ; `immediate_turn` = tour immédiat après résurrection."""
     __slots__ = ()
 
@@ -47,7 +46,7 @@ class ResurrectUnitOperation:
             pc = e.get_component(PositionComponent)
             if pc is not None:
                 pc.col, pc.row = int(dest_coord[0]), int(dest_coord[1])
-        # KillSteppableUnits @180e8f940 : crushe le decoy de la tuile d'arrivée (mover = l'unité ressuscitée,
+        # IdunBattle.Operations.ResurrectUnitOperation$$KillSteppableUnits : crushe le decoy de la tuile d'arrivée (mover = l'unité ressuscitée,
         # non tuée elle-même). Le decoy MORT co-localisé -> source de G2 BuffFriends.
         crushed = []
         if dest_coord is not None:
@@ -57,9 +56,9 @@ class ResurrectUnitOperation:
         uc.alive = True
         hc = e.get_component(HealthComponent)
         if hc is not None and hp is not None:
-            hc.hp = int(hp)                   # SetHealth @180e91000
+            hc.hp = int(hp)                   # IdunBattle.Operations.ResurrectUnitOperation$$SetHealth
             # #60 : bras `On(UnitRevived=46) & OwnerIsTarget` du `SwarmAbility.CreateTrigger
-            # @181225f50` — re-evalue le stat-mod EXTRA_HITS du trait Swarm au retour a la vie.
+            # IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger` — re-evalue le stat-mod EXTRA_HITS du trait Swarm au retour a la vie.
             from ..abilities.loki.swarm import on_group_unit_hp_changed
             on_group_unit_hp_changed(state, unit_id)
         fl = e.get_component(UnitFlagsComponent)

@@ -2,28 +2,26 @@
 
 Mirror du kit natif `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WeaverOfFateAbility` :
 
-- `CreateTrigger @1811acc50` (= `GetTrigger @1811acd60` parametre par l'effet) :
+- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WeaverOfFateAbility$$CreateTrigger` (= `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WeaverOfFateAbility$$GetTrigger` parametre par l'effet) :
     On(9=Attack)
     & AmountIsEqualOrGreater(
         UnitsThatTakenDamageThisTurn(Enemies(caster, AllUnits), profil 0xd=13 Psychic),
         Get(3))                                  # seuil 3 EN DUR (pas une variable de niveau)
     & Not(HasEffect(caster, 0x4a1=1185 WeaverOfFate_MaxOutDamage))
-  `On(9)` = event GENERIQUE de FIN d'attaque (`FinishAttackOperation @180e71310`), sans gate
+  `On(9)` = event GENERIQUE de FIN d'attaque (`FinishAttackOperation IdunBattle.Operations.FinishAttackOperation$$Execute`), sans gate
   OwnerIsCaster/Target : le compte + le Not(HasEffect) sont les seuls gates.
-- `CreateBehaviour @1811acb90` : `AddEffect(1185, abilityStateRef, caster, Nullable(1))` —
+- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WeaverOfFateAbility$$CreateBehaviour` : `AddEffect(1185, abilityStateRef, caster, Nullable(1))` —
   effet-marqueur pose sur SOI, duree 1 tour (« on that turn »).
-- Selecteur `UnitsThatTakenDamageThisTurnSelector` (`Select @180f2e230`, ctor @180f2e580) :
+- Selecteur `UnitsThatTakenDamageThisTurnSelector` (`IdunBattle.Entities.Formulas.UnitsThatTakenDamageThisTurnSelector$$Select`, IdunBattle.Entities.Formulas.UnitsThatTakenDamageThisTurnSelector$$.ctor) :
   garde les unites dont le Dictionary `receivedDamageThisTurn` (ActorStatisticsComponent @+0x80)
   CONTIENT la cle profil — seule la PRESENCE de la cle compte (le compte d'instances est ignore).
-  Store ecrit par `RegisterDamageOperation.Execute @180e86de0` -> `RegisterReceivedDamage
-  @180f922c0` (TryAdd(profil,1) sinon +1), reset par-unite du joueur ENTRANT dans
-  `StartTurnOperation.ResetUnit @180ea5a10` -> `ResetReceivedDamageThisTurn @180f923c0`.
+  Store ecrit par `IdunBattle.Operations.RegisterDamageOperation$$Execute` -> `IdunBattle.Entities.Components.ActorStatisticsComponent$$RegisterReceivedDamage` (TryAdd(profil,1) sinon +1), reset par-unite du joueur ENTRANT dans
+  `IdunBattle.Operations.StartTurnOperation$$ResetUnit` -> `IdunBattle.Entities.Components.ActorStatisticsComponent$$ResetReceivedDamageThisTurn`.
 
-Consommation de l'effet 1185 (face COMBAT) : `UnitExtensions.IsAttackMaxOutDamage @180ed7a50`
-(cf. `is_attack_max_out_damage` ci-dessous), appelee par `AttackDamageBehaviour.GetDamage
-@180fbb250` / `AbilityDamageBehaviour.GetDamage @180f8c560` (HitDamage construit (max, null)
--> AUCUN tirage) + la branche crit d'`ExecuteHit @180e5eff0` (base du crit = max), et cote
-PREDICTION par `DamagePrediction.IsAttackMaxOutDamage @1810329f0` <- `PredictAttackRaw @181034aba`.
+Consommation de l'effet 1185 (face COMBAT) : `IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage`
+(cf. `is_attack_max_out_damage` ci-dessous), appelee par `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$GetDamage` / `IdunBattle.Entities.Behaviours.AbilityDamageBehaviour$$GetDamage` (HitDamage construit (max, null)
+-> AUCUN tirage) + la branche crit d'`IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (base du crit = max), et cote
+PREDICTION par `IdunBattle.Core.Services.DamagePrediction$$IsAttackMaxOutDamage` <- `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x1b0a`.
 """
 from __future__ import annotations
 
@@ -39,13 +37,13 @@ from ..base import TriggeredAbility, TriggerEvent
 WEAVER_MAXOUT = int(EffectType.WeaverOfFate_MaxOutDamage)      # 1185 (0x4a1)
 _PSYCHIC = int(DamageProfileType.Psychic)                      # 13 (0xd) — arg du selecteur natif
 _THRESHOLD = 3                                                 # DSLFactory.Get(3) — constante EN DUR
-# 2e branche de `IsAttackMaxOutDamage @180ed7a50` : `HasTriggeredAbility(unit, 0x5d6=1494
+# 2e branche de `IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage` : `HasTriggeredAbility(unit, 0x5d6=1494
 # ParagonSpear)` -> appel conditionnel INLINE (mange par ghidra). Porteur DISTINCT (hors kit
 # Abraxas) — NON mirrore ici (residu case-202 §6 : a porter avec le kit ParagonSpear).
 
 
 def units_that_taken_damage_this_turn(state: State, unit_ids, profile_id: int) -> list[int]:
-    """Mirror `UnitsThatTakenDamageThisTurnSelector.Select @180f2e230` : filtre `unit_ids` sur
+    """Mirror `IdunBattle.Entities.Formulas.UnitsThatTakenDamageThisTurnSelector$$Select` : filtre `unit_ids` sur
     `ContainsKey(receivedDamageThisTurn, profile_id)` (presence de la CLE, compte ignore)."""
     out: list[int] = []
     for uid in unit_ids:
@@ -59,7 +57,7 @@ def units_that_taken_damage_this_turn(state: State, unit_ids, profile_id: int) -
 def _alive_enemies_of(state: State, owner_id: int) -> list[int]:
     """`Enemies(caster, AllUnits)` : unites VIVANTES d'une AUTRE equipe que le porteur (les morts
     sont retires du board natif — `AllUnits` n'itere que les listes `units` des PlayerComponent,
-    purgees par RemoveUnitOperation @180e8add0)."""
+    purgees par RemoveUnitOperation IdunBattle.Operations.RemoveUnitOperation$$Execute)."""
     ent = state.get_entity(owner_id)
     oc = ent.get_component(OwnerComponent) if ent is not None else None
     if oc is None:
@@ -96,14 +94,14 @@ class WeaverOfFateAbility(TriggeredAbility):
         eff = AddEffectOperation.execute(
             state, self.owner_id, self.owner_id, WEAVER_MAXOUT,
             name="WeaverOfFate_MaxOutDamage",
-            duration_override=1)   # Nullable(1) natif (@1811acb90) = 1 TOUR, PAS TurnsFromRounds -> pas de conversion (#98)
+            duration_override=1)   # Nullable(1) natif (IdunBattleLogic.Entities.Abilities.Triggered.Loki.WeaverOfFateAbility$$CreateBehaviour) = 1 TOUR, PAS TurnsFromRounds -> pas de conversion (#98)
         if eff is None:
             return None
         return {"type": "weaver_of_fate_maxout", "unit": int(self.owner_id)}
 
 
 def is_attack_max_out_damage(state: State, attacker_id: int) -> bool:
-    """Mirror `UnitExtensions.IsAttackMaxOutDamage @180ed7a50` (branche effet) :
+    """Mirror `IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage` (branche effet) :
     `IsOwnerOfEffect(unit, 1185) || IsTargetOfEffect(unit, 1185)` — offline les deux roles
     coincident (effet self-cast stocke par-porteur dans EffectsState.by_unit) -> presence de
     l'effet 1185 ACTIF sur l'attaquant. La branche `HasTriggeredAbility(1494 ParagonSpear)`

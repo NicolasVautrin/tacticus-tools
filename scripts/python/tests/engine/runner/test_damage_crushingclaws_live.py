@@ -1,7 +1,7 @@
 """VECTEUR ATTAQUE — CrushingClaws (1105) migre en ARBRE DSL (#149 slice-4) : replay-diff LIVE.
 
 Valide la migration DSL de `CrushingClawsAbility.execute_behaviour` (delegue a `crushing_claws_tree`,
-mirror 1:1 de `ExecuteBehaviour @1811cd5e0` + lambda `<ExecuteBehaviour>b__0 @1811e3c60`) contre le
+mirror 1:1 de `IdunBattleLogic.Entities.Abilities.Active.Loki.CrushingClawsAbility$$ExecuteBehaviour` + lambda `<ExecuteBehaviour>b__0 IdunBattleLogic.Entities.Abilities.Active.Loki.CrushingClawsAbility.u003Cu003Ec__DisplayClass1_0$$u003CExecuteBehaviouru003Eb__0`) contre le
 natif : cast LIVE de CrushingClaws (tyranTyrantGuard) sur une cible tanky vanille -> l'engine, en
 rejouant le MEME message d'ability, doit reproduire
   (a) le degat PRINCIPAL de l'ARBRE == un appel main-only DIRECT (2x Piercing, `AttackWithAbilityDamage(

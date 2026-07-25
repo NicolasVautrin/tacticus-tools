@@ -1,9 +1,9 @@
 """#149 slice-17 : TheBetrayer_AddEffect (rage 0x4f3 de worldKharn) MIGRATION vers l'arbre DSL
-`betrayer_add_effect_tree()` (mirror 1:1 de `TheBetrayer_AddEffectAbility.CreateBehaviour @1811a4a00`).
+`betrayer_add_effect_tree()` (mirror 1:1 de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_AddEffectAbility$$CreateBehaviour`).
 
-Valide la CORRECTION DE DUREE (RE @180e48940). Arbre natif = `AddEffect(0x4f3, source=AbilityStateReference,
+Valide la CORRECTION DE DUREE (RE IdunBattle.Operations.AddEffectOperation$$Execute). Arbre natif = `AddEffect(0x4f3, source=AbilityStateReference,
 target=Self@0x148)`. La feuille `AddEffect` route vers `AddEffectOperation.execute` -> durée =
-`DefaultAmountOfRounds(0x4f3)`=null (switch @181559ff0 sans 0x4f3) -> FALLBACK 1 (RE @180e48940 :
+`DefaultAmountOfRounds(0x4f3)`=null (switch idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$DefaultAmountOfRounds sans 0x4f3) -> FALLBACK 1 (RE IdunBattle.Operations.AddEffectOperation$$Execute :
 `EffectComponent.Duration@+0x68 = local_588[0]`, et `local_588[0] = 1` quand l'override Nullable est null).
 => la rage native dure **1 TOUR**, re-accordée à chaque kill -- PAS permanente. L'ancien port posait un
 `BaseEffect` PERMANENT (remaining_turns=None) : DIVERGENCE LATENTE que ce mirror corrige.
@@ -36,7 +36,7 @@ def _visual(state, eid):
 
 def test_thebetrayer_rage_duration_is_one_turn(live_session, rpc, build_runner):
     """Le nouveau `_add_betrayer_effect` (arbre DSL AddEffect(0x4f3, Caster())) crée la rage avec
-    `remaining_turns == 1` (RE @180e48940 : fallback 1), source/target = le porteur -- PAS le marqueur
+    `remaining_turns == 1` (RE IdunBattle.Operations.AddEffectOperation$$Execute : fallback 1), source/target = le porteur -- PAS le marqueur
     PERMANENT (remaining_turns=None) de l'ancien port."""
     rid = build_runner("777", extra=BUILD)["rid"]
     dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
@@ -62,9 +62,9 @@ def test_thebetrayer_rage_duration_is_one_turn(live_session, rpc, build_runner):
 
     # 1. la rage a bien ete posee.
     assert rage, f"rage 0x4f3 non posee (res={res})"
-    # 2. DUREE = 1 tour (RE @180e48940 : DefaultAmountOfRounds(0x4f3)=null -> fallback 1), PAS permanent (None).
+    # 2. DUREE = 1 tour (RE IdunBattle.Operations.AddEffectOperation$$Execute : DefaultAmountOfRounds(0x4f3)=null -> fallback 1), PAS permanent (None).
     assert rage[0].remaining_turns == 1, \
-        f"duree rage {rage[0].remaining_turns} != 1 (RE @180e48940 fallback 1 ; ancien port = permanent None)"
+        f"duree rage {rage[0].remaining_turns} != 1 (RE IdunBattle.Operations.AddEffectOperation$$Execute fallback 1 ; ancien port = permanent None)"
     # 3. source ET target = le porteur (AbilityStateReference source + Self@0x148 target).
     assert rage[0].source == kid, f"source rage {rage[0].source} != porteur {kid}"
     assert rage[0].target == kid, f"target rage {rage[0].target} != porteur {kid}"

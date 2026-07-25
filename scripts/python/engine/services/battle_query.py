@@ -1,13 +1,13 @@
 """BattleQuery — sélection d'arme de l'attaque normale (`IdunBattle.Core.Services.BattleQuery`).
 
 `GetAttackWeaponForDefaultNormalAttack` choisit l'arme DISTANCE-AWARE :
-  - variante simple `@18105e9b0` : `if !AreTilesAdjacent(att, tgt) -> FindRangedWeapon else FindMeleeWeapon`.
-  - variante complète `@18105ea60` : `rangeType = GetAbilityAttackRangeType @181059fe0` (1=Melee, 2=Ranged,
-    3=Both, 0=défaut) ; si 1 -> melée ; si 3 ET !HasFlag(att, 0x15) ET AreUnitsInMelee @1810584d0 -> melée ;
-    sinon ranged. `FindMeleeWeapon @181059380` / `FindRangedWeapon @181059730` avec fallback vers l'autre type.
-Le `DamageProfile` de l'arme choisie est lu à `weapon+0x10` (perçage : `GetAttackPiercingDamageRatio @181030a20`).
+  - variante simple `IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack` : `if !AreTilesAdjacent(att, tgt) -> FindRangedWeapon else FindMeleeWeapon`.
+  - variante complète `IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack` : `rangeType = IdunBattle.Core.Services.BattleQuery$$GetAbilityAttackRangeType` (1=Melee, 2=Ranged,
+    3=Both, 0=défaut) ; si 1 -> melée ; si 3 ET !HasFlag(att, 0x15) ET IdunBattle.Core.Services.BattleQuery$$AreUnitsInMelee -> melée ;
+    sinon ranged. `IdunBattle.Core.Services.BattleQuery$$FindMeleeWeapon` / `IdunBattle.Core.Services.BattleQuery$$FindRangedWeapon` avec fallback vers l'autre type.
+Le `DamageProfile` de l'arme choisie est lu à `weapon+0x10` (perçage : `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio`).
 
-⚠ NE PAS confondre avec `ObjectivesBattleQuery.GetAmountOfHitsRangedFirstOrMelee @180467bb0` : ranged-first
+⚠ NE PAS confondre avec `IdunBattle.ViewLogic.BattleSource.ObjectivesBattleQuery$$GetAmountOfHitsRangedFirstOrMelee` : ranged-first
 INCONDITIONNEL, chemin OBJECTIFS de bataille, HORS prédiction de dégât. C'était le bug de l'ancien
 `NormalAttackAbility` (sélection ranged-first au lieu de distance-aware).
 
@@ -23,7 +23,7 @@ from .static_battle_rules import get_piercing_ratio
 
 
 def are_tiles_adjacent(a_pos, t_pos, board=None):
-    """`MovementUtil.AreTilesAdjacent @18109d740` / `AreUnitsInMelee` — ADJACENCE HEX (PAS Chebyshev),
+    """`IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent` / `AreUnitsInMelee` — ADJACENCE HEX (PAS Chebyshev),
     service PARTAGÉ prédiction↔runner. Le natif folde DEUX conditions dans la primitive :
     `return (|Δelev| < 2) & (A==B || ConnectivityComponent.IsNeighbour(A, B))` — l'adjacence hex ET une
     PORTE d'élévation (deux tuiles voisines séparées de ≥2 crans d'élévation ne sont PAS adjacentes ;
@@ -45,7 +45,7 @@ def are_tiles_adjacent(a_pos, t_pos, board=None):
             neighbour = (a_tile == t_tile) or (t_tile in board.neighbours(a_tile))  # A==B || IsNeighbour
             if not neighbour:
                 return False
-            # AreTilesAdjacent @18109d740 : porte d'élévation |Δelev| < 2, foldée dans la primitive.
+            # IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent : porte d'élévation |Δelev| < 2, foldée dans la primitive.
             ae = board.by_id.get(a_tile, {}).get("elevation")
             te = board.by_id.get(t_tile, {}).get("elevation")
             if ae is not None and te is not None:
@@ -62,12 +62,12 @@ def _find_by_hits(cands: list, prefer_hits) -> dict:
 
 
 def get_attack_weapon_for_default_normal_attack(visual_id, is_adjacent: bool, prefer_hits=None, dist=None):
-    """`GetAttackWeaponForDefaultNormalAttack @18105ea60` (distance-aware). Renvoie
+    """`IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack` (distance-aware). Renvoie
     `(weapon_dict|None, is_ranged)`. `is_adjacent` = cible en mêlée (`AreUnitsInMelee`/`AreTilesAdjacent`
     = **adjacence HEX** élévation-gatée, PAS Chebyshev) -> branche mêlée. Sinon branche ranged
-    (`FindRangedWeapon @181059ae0`).
+    (`IdunBattle.Core.Services.BattleQuery$$FindRangedWeapon`).
 
-    PORTE DE PORTÉE ranged (#188) : `FindRangedWeapon @181059ae0` n'inclut une arme ranged QUE si
+    PORTE DE PORTÉE ranged (#188) : `IdunBattle.Core.Services.BattleQuery$$FindRangedWeapon` n'inclut une arme ranged QUE si
     `dist <= weapon.Range + rangeStatBonus` (`param_5 <= local_88[0] + iVar6`, iVar6 =
     `StatComponent.get_CurrentValue` du stat de portée `DAT_1831b8008` = **0 sur tous les units connus**,
     cf. sweep case-184 §gaps#2 : boundary exactement à Range). Si AUCUNE ranged en portée, le natif
@@ -84,7 +84,7 @@ def get_attack_weapon_for_default_normal_attack(visual_id, is_adjacent: bool, pr
     ranged = [w for w in weapons if w.get("Range")]
     if is_adjacent and melee:          # AreUnitsInMelee -> FindMeleeWeapon
         cand = melee
-    elif ranged:                       # FindRangedWeapon @181059ae0
+    elif ranged:                       # IdunBattle.Core.Services.BattleQuery$$FindRangedWeapon
         if dist is not None:           # porte de portée : ranged en portée, sinon fallback mêlée
             in_range = [w for w in ranged if dist <= int(w.get("Range") or 0)]
             cand = in_range or melee or ranged   # hors portée + mêlée dispo -> mêlée (null natif)
@@ -99,14 +99,14 @@ def get_attack_weapon_for_default_normal_attack(visual_id, is_adjacent: bool, pr
 def select_weapon_pierce(ctx, is_adjacent, dist=None):
     """SÉLECTION D'ARME + PERÇAGE — service PARTAGÉ prédiction↔runner (foyer natif `BattleQuery`).
     `GetAttackWeaponForDefaultNormalAttack` (arme mêlée/ranged par adjacence HEX + porte de portée
-    ranged `dist`, cf. #188) + `GetAttackPiercingDamageRatio @181030a20` (profil.PiercingRatio +
+    ranged `dist`, cf. #188) + `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio` (profil.PiercingRatio +
     ExtraPierce(26) + ExtraPierce{Melee21|Ranged22}). UN seul port : prédiction (`prediction._weapon_pierce`)
     ET combat (`damage_model.select_weapon_pierce`) l'appellent (un service natif appelé par N chemins =
     UNE fonction). `ctx` = UnitContext (les 2 en ont un). `dist` = distance HEX attaquant->cible (porte
     ranged ; `None` = legacy). Renvoie `(pierce, is_ranged, weapon_hits, profile_name)`.
 
     #71 : le BONUS LasCannon (+50) est appliqué ICI via `get_piercing_ratio` — mirror du natif
-    `GetAttackPiercingDamageRatio @181030a20` qui fait `base = GetPiercingRatio(profile, attackerTraits)`
+    `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio` qui fait `base = GetPiercingRatio(profile, attackerTraits)`
     (bonus lascannon INCLUS) PUIS `+ ExtraPierce`. `GetAttackPiercingDamageRatio` n'a que des xrefs DATA
     (invoqué par delegate/slot) = service PARTAGÉ prédiction+combat -> le fix ici couvre LES DEUX faces."""
     w, is_ranged = get_attack_weapon_for_default_normal_attack(

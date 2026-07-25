@@ -1,5 +1,5 @@
 """#149 slice-14 : FireOfAbsolution (passif adeptRetributor «Vindicta») MIGRATION vers l'arbre DSL
-`fire_of_absolution_tree()` (mirror 1:1 de `FireOfAbsolutionAbility.CreateBehaviour @18121f380`, RE decompile).
+`fire_of_absolution_tree()` (mirror 1:1 de `IdunBattleLogic.Entities.Abilities.Active.Loki.FireOfAbsolutionAbility$$CreateBehaviour`, RE decompile).
 
 Arbre natif (`&` = op_BitwiseAnd, gauche->droite) :
     Inform(0xb3, EntityId(target))

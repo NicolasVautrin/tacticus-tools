@@ -7,14 +7,14 @@ from ._base import NCContext, NonComparablePlaybook
 
 
 class GrapnelLauncherPlaybook(NonComparablePlaybook):
-    """`GrapnelLauncherPlaybook.EvaluateNonComparable @18113f300` (id 0x442=1090, Loki/tauCrisis
-    family). Ability de reposition/grapin (`GrapnelLauncherAbility.ExecuteBehaviour @1811e29c0`).
+    """`IdunBattle.AI.Playbook.Loki.GrapnelLauncherPlaybook$$EvaluateNonComparable` (id 0x442=1090, Loki/tauCrisis
+    family). Ability de reposition/grapin (`IdunBattleLogic.Entities.Abilities.Active.Loki.GrapnelLauncherAbility$$ExecuteBehaviour`).
     Le playbook de DECISION est le PLUS SIMPLE : utilite CONSTANTE 1 par cible eligible, AUCUN gate
     de formule (aucun ShouldEvaluate override -> base True).
 
     Structure native (mirror EvaluateNonComparable) : Bucket ctor 3-arg avec min = Nullable(Fix64(1))
-    (cctor @18113f600 pose `**(DAT_183257d10+0xb8)=Fix64(1)`, relu dans la leaf -> MIN_UTILITY=1). Par
-    position balayee, enumere `GetEligibleTargetsSelectable(MainTile=position)` @18111f0d0 ; pour CHAQUE
+    (IdunBattle.AI.Playbook.Loki.GrapnelLauncherPlaybook$$.cctor pose `**(DAT_183257d10+0xb8)=Fix64(1)`, relu dans la leaf -> MIN_UTILITY=1). Par
+    position balayee, enumere `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable(MainTile=position) ; pour CHAQUE
     cible eligible -> `util = Fix64.FromInt(1)` CONSTANTE, `GenerateAction(position, cible, util)` +
     `Bucket.AddAction` (argmax STRICT `>`, keep-first au tie). Aucune arithmetique : util=1 partout.
 
@@ -26,17 +26,17 @@ class GrapnelLauncherPlaybook(NonComparablePlaybook):
     ORIGINE-FIRST + remplacement strict `>` -> l'origine ne perd que sur util STRICTEMENT superieure.
     Le moteur ratait car 1090 absent du registre -> retombait sur l'attaque normale 69 (meme cible u81).
 
-    - utilite = 1.0 CONSTANTE par cible eligible (Fix64.FromInt(1) @18113f300). MIN_UTILITY=1 (cctor) ->
+    - utilite = 1.0 CONSTANTE par cible eligible (Fix64.FromInt(1) IdunBattle.AI.Playbook.Loki.GrapnelLauncherPlaybook$$EvaluateNonComparable). MIN_UTILITY=1 (cctor) ->
       toute cible admise. Aucun terme position-dependant.
     - cible = 1er ENNEMI eligible castable DEPUIS L'ORIGINE (`fromHere` d'abro`abilityTargets`) ; util
       const + origine-first -> keep-first garde la 1re cible de l'origine (u81 live). Origine-preference
       (cast en place, to=None) via `_first_cast_pos` : si aucune cible fromHere, 1re tuile de move.
-    - ctor @18113f670 = `NonComparablePlaybook(0x442)` -> 1er arg=ability_id ; PRIORITY=0 (defaut #115).
-    - ShouldEvaluate = base @18111fb70 (GetUseProbability=Fix64(1) -> True constant ; pas d'override)."""
+    - IdunBattle.AI.Playbook.Loki.GrapnelLauncherPlaybook$$.ctor = `NonComparablePlaybook(0x442)` -> 1er arg=ability_id ; PRIORITY=0 (defaut #115).
+    - ShouldEvaluate = base IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate (GetUseProbability=Fix64(1) -> True constant ; pas d'override)."""
     ABILITY_ID = int(ActiveAbilityType.GrapnelLauncher)  # 1090
-    MIN_UTILITY = 1.0     # cctor @18113f600 = Fix64(1) ; util 1 constante toujours admise
+    MIN_UTILITY = 1.0     # IdunBattle.AI.Playbook.Loki.GrapnelLauncherPlaybook$$.cctor = Fix64(1) ; util 1 constante toujours admise
     PRIORITY = 0
-    _UTIL = 1.0           # Fix64.FromInt(1) @18113f300 = utilite constante par cible eligible
+    _UTIL = 1.0           # Fix64.FromInt(1) IdunBattle.AI.Playbook.Loki.GrapnelLauncherPlaybook$$EvaluateNonComparable = utilite constante par cible eligible
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         if ctx.ability_targets is None:

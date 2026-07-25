@@ -3,7 +3,7 @@
 
 Mesure, sur un runner LIVE pilote des DEUX camps :
   E1  valeur de config : `StaticBattleRules.Effect.DefaultAmountOfRounds` (table portee, ROUNDS)
-  E2  unite / FACTEUR  : `BattleQuery.ConvertRoundsToTurns @181058af0` = count(joueurs du turnOrder,
+  E2  unite / FACTEUR  : `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` = count(joueurs du turnOrder,
       PlayerType != 2) * rounds -> observable via `observeBattle.counts.player`
   E3  tick de decrement : combien de `endturn` faut-il pour faire baisser `remaining` de 1 ?
   E4  instant de lecture : `remaining` juste apres la pose (avant tout tick).

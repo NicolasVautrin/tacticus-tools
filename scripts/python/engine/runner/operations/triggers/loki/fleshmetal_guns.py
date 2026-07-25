@@ -12,28 +12,27 @@ autres n'etaient JAMAIS materialises.
 
 | Symbole | VA |
 |---|---|
-| `FleshMetalGunsAbility$$CreateBehaviour`            | `0x18121f6e0` |
-| `FleshMetalGunsAbility$$CreateTrigger` (corps DEDUPLIQUE, symbole ghidra `ArchContaminatorAbility$$CreateTrigger`) | `0x180e17450` |
-| `BaseFleshmetalGunsEffect$$CreateAdditionalHits`    | `0x180f48260` |
-| `FleshMetalGuns_TileEffectAbility$$CreateTrigger`   | `0x18121fbc0` |
-| `FleshMetalGuns_TileEffectAbility$$CreateBehaviour` | `0x18121fb40` |
+| `FleshMetalGunsAbility$$CreateBehaviour`            | `IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGunsAbility$$CreateBehaviour` |
+| `FleshMetalGunsAbility$$CreateTrigger` (corps DEDUPLIQUE, symbole ghidra `ArchContaminatorAbility$$CreateTrigger`) | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArchContaminatorAbility$$CreateTrigger` |
+| `BaseFleshmetalGunsEffect$$CreateAdditionalHits`    | `IdunBattle.Entities.Effects.Loki.BaseFleshmetalGunsEffect$$CreateAdditionalHits` |
+| `FleshMetalGuns_TileEffectAbility$$CreateTrigger`   | `IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGuns_TileEffectAbility$$CreateTrigger` |
+| `FleshMetalGuns_TileEffectAbility$$CreateBehaviour` | `IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGuns_TileEffectAbility$$CreateBehaviour` |
 
-### `CreateTrigger` = `@180e17450` (identification)
+### `CreateTrigger` = `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArchContaminatorAbility$$CreateTrigger` (identification)
 `FleshMetalGunsAbility` n'a PAS de symbole `CreateTrigger` propre : son corps est DEDUPLIQUE avec celui
 d'autres abilities. Identifie par la TABLE DE POINTEURS DE METHODES (adjacence par classe) : les xrefs
-DATA de `CreateBehaviour @18121f6e0` tombent sur `0x1830f97c8` ; le slot precedent `0x1830f97c0` porte
-`0x180e17450`, et le motif par classe [.ctor, stub, CreateTrigger, CreateBehaviour] est confirme par le
-couple voisin `FleshMetalGuns_TileEffectAbility` (`0x1830f97d8` = son CreateTrigger `@18121fbc0`,
-`0x1830f97e0` = son CreateBehaviour `@18121fb40`). Corps :
+DATA de `IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGunsAbility$$CreateBehaviour` tombent sur `0x1830f97c8` ; le slot precedent `0x1830f97c0` porte
+`IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArchContaminatorAbility$$CreateTrigger`, et le motif par classe [.ctor, stub, CreateTrigger, CreateBehaviour] est confirme par le
+couple voisin `FleshMetalGuns_TileEffectAbility` (`0x1830f97d8` = son IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGuns_TileEffectAbility$$CreateTrigger`,
+`0x1830f97e0` = son IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGuns_TileEffectAbility$$CreateBehaviour`). Corps :
 ```
 On(0x16 = TurnStart_Actions = 22) & df@0xa0
 ```
-`df@0xa0` est construit par `DSLFactory.InitializeShared @180df2670` :
-`new <DAT_18320cc68>(df@0x148, df@0x10)` -- MEME classe et MEMES arguments que `DSLFactory.IsTurnOf
-@180df5780` applique a `Self@0x148` => **`IsTurnOf(Self)`**. Donc : la rotation fire au debut du tour du
+`df@0xa0` est construit par `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` :
+`new <DAT_18320cc68>(df@0x148, df@0x10)` -- MEME classe et MEMES arguments que `IdunBattleLogic.Entities.DSLFactory$$IsTurnOf` applique a `Self@0x148` => **`IsTurnOf(Self)`**. Donc : la rotation fire au debut du tour du
 PROPRIETAIRE (et non a chaque debut de tour).
 
-### `CreateBehaviour @18121f6e0` (chaine d'`AbilityBehaviour.op_Addition`)
+### `IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGunsAbility$$CreateBehaviour` (chaine d'`AbilityBehaviour.op_Addition`)
 ```
 Nothing()
 + RemoveEffect(Self@0x148, Nullable(0x42b))      # FocusedMalice
@@ -43,9 +42,9 @@ Nothing()
 + If( Modulo(UnitTurnsStarted(Self@0x148), Get(3), Get(2)), AddEffect(0x4bc, stateRef, Self@0x148, 0) )
 + If( Modulo(UnitTurnsStarted(Self@0x148), Get(3), Get(0)), AddEffect(0x4c5, stateRef, Self@0x148, 0) )
 ```
-- `Modulo(a,b,c)` (`DSLFactory.Modulo @180df69a0` -> `ModuloAbilityTrigger.ShouldTrigger @180eeda30`)
+- `Modulo(a,b,c)` (`IdunBattleLogic.Entities.DSLFactory$$Modulo` -> `IdunBattle.Entities.Conditions.ModuloAbilityTrigger$$ShouldTrigger`)
   est un **PREDICAT** : `(a mod b) == c`. `Get(n)` = noeud VALEUR constant.
-- `UnitTurnsStarted(Self)` (`@180dff280` -> `UnitTurnsStartedFormula.Calculate @180f2d6c0`) =
+- `UnitTurnsStarted(Self)` (`IdunBattleLogic.Entities.DSLFactory$$UnitTurnsStarted` -> `IdunBattle.Entities.Formulas.UnitTurnsStartedFormula$$Calculate`) =
   `GetStat(unit, 0xc)`. Le compteur est incremente par `StartTurnOperation` **AVANT** l'emission de
   `On(0x16)` (mirror porte : `_bump_turns_started` puis `start_turn_triggers`) -> au 1er tour de Volk le
   compteur vaut deja **1**.
@@ -56,8 +55,8 @@ Nothing()
   part meme si aucune branche ne matche.
 
 ### Volet `FleshMetalGuns_TileEffectAbility` (DespoiledGround) -- NON porte ici
-`CreateTrigger @18121fbc0` = `On(0x10=DamageDealt) & OwnerIsCaster & HasEffect(Self@0x148, 0x4c5=WarpHail,
-srcflag 6)` ; `CreateBehaviour @18121fb40` = `AddEffect(0x5c4=1476, stateRef, Tiles(Target@0x178))` = pose
+`IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGuns_TileEffectAbility$$CreateTrigger` = `On(0x10=DamageDealt) & OwnerIsCaster & HasEffect(Self@0x148, 0x4c5=WarpHail,
+srcflag 6)` ; `IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGuns_TileEffectAbility$$CreateBehaviour` = `AddEffect(0x5c4=1476, stateRef, Tiles(Target@0x178))` = pose
 l'effet de TUILE DespoiledGround sous la cible pendant le round WarpHail. Prerequis ABSENT : le vecteur
 `On(DamageDealt=16)` n'existe pas dans le dispatch porte -> residu documente (hors perimetre << la pose
 manque >> : l'effet de tuile 1476 n'est pas porte non plus).
@@ -79,7 +78,7 @@ from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, TriggerEvent
 
-# (EffectType, nom capte, reste attendu du modulo) — l'ORDRE est celui du decompile @18121f6e0.
+# (EffectType, nom capte, reste attendu du modulo) — l'ORDRE est celui du decompile IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGunsAbility$$CreateBehaviour.
 FLESHMETAL_CYCLE = (
     (int(EffectType.FleshmetalGunsFocusedMalice), "FleshmetalGunsFocusedMalice", 1),   # 0x42b=1067 Melta
     (int(EffectType.FleshmetalGunsRuinousSalvo), "FleshmetalGunsRuinousSalvo", 2),     # 0x4bc=1212 Flame
@@ -90,7 +89,7 @@ _ON_TURN_START = int(EventTriggerType.TurnStart_Actions)     # 0x16 = 22
 
 
 def fleshmetal_guns_tree():
-    """Mirror 1:1 de `FleshMetalGunsAbility.CreateBehaviour @18121f6e0` (cf. en-tete). `Caster()` =
+    """Mirror 1:1 de `IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGunsAbility$$CreateBehaviour` (cf. en-tete). `Caster()` =
     `Self@0x148` (triggered Owner==Caster). `duration_rounds=None` = struct d'options ZERO du natif ->
     `DefaultAmountOfRounds` (aucun des 3 types n'y figure -> defaut 1 tour, re-pose chaque tour par la
     rotation). `scale_from_source=True` : les 3 effets tirent leur magnitude d'un `ConfigVar`
@@ -108,7 +107,7 @@ def fleshmetal_guns_tree():
 
 
 class FleshmetalGunsRotationAbility(TriggeredAbility):
-    """`FleshMetalGunsAbility` (CreateTrigger @180e17450 / CreateBehaviour @18121f6e0) — au DEBUT DU TOUR
+    """`FleshMetalGunsAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArchContaminatorAbility$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGunsAbility$$CreateBehaviour) — au DEBUT DU TOUR
     de Volk (`On(TurnStart_Actions=22) & IsTurnOf(Self)`), retire les 3 effets d'arme puis pose celui du
     tour courant selon `UnitTurnsStarted(Self) mod 3`. Les 3 effets (+2 coups bonus d'un profil donne)
     sont deja portes (`entities/effects/loki/hits.py`)."""

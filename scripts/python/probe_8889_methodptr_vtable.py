@@ -17,8 +17,8 @@ Desambiguation de deux corps triviaux voisins : par la TAILLE DE RETOUR du corps
 
 Ce probe est OFFLINE PUR (aucune session Frida, aucun hook) : il lit le PE sur disque.
 
-    python probe_8889_methodptr_vtable.py 0x180f67b90 0x180f67ac0     # ReanimationBeam .ctor + filter
-    python probe_8889_methodptr_vtable.py --window 10 0x180f69c30
+    python probe_8889_methodptr_vtable.py IdunBattle.Entities.Effects.Loki.ReanimationBeam_ReviveEffect$$.ctor IdunBattle.Entities.Effects.Loki.ReanimationBeam_ReviveEffect$$CreateTargetFilter     # ReanimationBeam .ctor + filter
+    python probe_8889_methodptr_vtable.py --window 10 IdunBattle.Entities.Effects.Loki.RitesOfMorkaiEffect$$.ctor
 
 Sortie : les qwords autour du bloc, en VA ghidra. ASCII only.
 """

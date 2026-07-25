@@ -10,9 +10,9 @@ from ....dsl.effects import AbilityBehaviour, OperationResult
 
 
 class PushUnit(AbilityBehaviour):
-    """`DSLFactory.PushUnit @180df9540` -> `DisplaceUnitBehaviour(type=1).Execute @180fc3ff0` : pousse CHAQUE
+    """`IdunBattleLogic.Entities.DSLFactory$$PushUnit` -> `DisplaceUnitBehaviour(type=1).IdunBattle.Entities.Behaviours.DisplaceUnitBehaviour$$Execute` : pousse CHAQUE
     unite du selecteur `pushed_sel` A L'OPPOSE du `pusher_sel`, via N× `DisplaceUnitOperation(type=1=
-    FindTileToPush @180e695e0)`. Args natifs : `pusher_sel` = +0x58 (le CASTER pour ThunderousAssault/
+    IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPush)`. Args natifs : `pusher_sel` = +0x58 (le CASTER pour ThunderousAssault/
     CrushingClaws, PAS la cible), `pushed_sel` = +0x60 (Target() pour ThunderousAssault ; Subject() pour le
     splash CrushingClaws pose par le Foreach). Wrapper MINCE au-dessus du mutateur `DisplaceUnitOperation`.
 
@@ -40,14 +40,14 @@ class PushUnit(AbilityBehaviour):
             res = DisplaceUnitOperation(pusher_id, u["id"]).execute(state, ectx.bus)
             ectx.emit("PushUnit", pusher=pusher_id, pushed=u["id"],
                       moved=bool((res or {}).get("moved")), to=(res or {}).get("to"),
-                      # #47 : degats de collision du push bloque (ApplyKnockbackTo @180e67fc0),
+                      # #47 : degats de collision du push bloque (IdunBattle.Operations.DisplaceUnitOperation$$ApplyKnockbackTo),
                       # surfaces pour le replay-diff (None = push reussi / pas de knockback).
                       knockback=(res or {}).get("knockback"))
         return OperationResult.ok()
 
 
 class MoveUnit(AbilityBehaviour):
-    """`DSLFactory.MoveUnit @180df6ae0` -> `MoveUnitBehaviour.Execute @180fca4f0` : deplace le SUJET
+    """`IdunBattleLogic.Entities.DSLFactory$$MoveUnit` -> `IdunBattle.Entities.Behaviours.MoveUnitBehaviour$$Execute` : deplace le SUJET
     (`subject_sel`, +0x50) vers la 1re tuile-destination LIBRE (`dest_tile_sel`, +0x58 = `CanAddUnit(...)`),
     via l'Operation deja portee `MoveUnitOperation`. 2e volet du DEPLACEMENT de ThunderousAssault : apres le
     PUSH de la cible, le CASTER CHARGE dans la tuile liberee.
@@ -64,8 +64,7 @@ class MoveUnit(AbilityBehaviour):
     execute_behaviour` (single-tile target -> collapse `TargetTile()`, meme collapse que l'attaque
     `Units(Cache(First(Nearest(...))))` -> `Target()`). Sans ce `Cache`, le bug #27 : le caster ne charge jamais.
 
-    Garde `CanAddUnit` = tuile LIBRE, lue sur l'ETAT LIVE (post-push) -- mirror `CanAddUnitTileSelector.Select
-    @180ee4230` qui teste `TileExtensions.CanAddUnitFromAbility` sur le CONTENU DE TUILE live -- et NON via le
+    Garde `CanAddUnit` = tuile LIBRE, lue sur l'ETAT LIVE (post-push) -- mirror `IdunBattle.Entities.Selectors.CanAddUnitTileSelector$$Select` qui teste `TileExtensions.CanAddUnitFromAbility` sur le CONTENU DE TUILE live -- et NON via le
     noeud `CanAddUnit` du port (snapshot-based : il verrait la cible occuper encore sa tuile pre-push -> faux
     post-push). Live = walkable ET aucun occupant VIVANT (`_occupied` ; les MORTS ne comptent pas -> quand
     l'attaque a TUE la cible, sa tuile est deja libre et le caster y entre). La garde `local_308==0` (defaut)

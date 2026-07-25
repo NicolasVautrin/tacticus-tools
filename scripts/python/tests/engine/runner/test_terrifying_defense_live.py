@@ -1,10 +1,9 @@
 """#73 Terrifying_ExtraDefense (DEFENSE) -- REPLAY-DIFF bit-exact offline<->live, discriminant melee/ranged.
 
 Le trait `Terrifying` (id 0x22=34) N'EST PAS lu en direct dans le calcul de degat (contrairement a
-MkXGravis `HasTrait` @181030d10). Il DERIVE une triggered ability (`TerrifyingAbilityAbility` @1811c5e00 =
-AOwnerEffectSpecificTriggeredAbility(0x62), dict GetTriggeredAbility @18157f650 +0x0) dont le CreateTrigger
-@180fb3760 (OnOwnerSpecificAbilityInit) pose l'effet `Terrifying_ExtraDefense` (0x62) sur le porteur. Cet
-effet (CreateDamageModifier @180f47ba0) reduit le degat MELEE recu : DamageModifier PercentDecrease gate
+MkXGravis `HasTrait` IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageWithFixedPiercedArmor). Il DERIVE une triggered ability (`TerrifyingAbilityAbility` IdunBattleLogic.Entities.Abilities.Active.TerrifyingAbilityAbility$$.ctor =
+AOwnerEffectSpecificTriggeredAbility(0x62), dict GetTriggeredAbility idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Trait$$.cctor +0x0) dont le IdunBattle.Entities.Abilities.AOwnerEffectSpecificTriggeredAbility$$CreateTrigger (OnOwnerSpecificAbilityInit) pose l'effet `Terrifying_ExtraDefense` (0x62) sur le porteur. Cet
+effet (IdunBattle.Entities.Effects.Terrifying_ExtraDefense_Effect$$CreateDamageModifier) reduit le degat MELEE recu : DamageModifier PercentDecrease gate
 `get_OwnerIsTarget & IsMeleeAttack`, magnitude = ConfigConst(0x28) = globalValues.terrifyingBonus (=-30)
 -> x0.70. Aucun effet en RANGED (gate melee-only).
 
@@ -211,7 +210,7 @@ def terr_ranged(live_session, rpc, build_runner):
 def test_terrifying_trait_seeds_derived_effect_offline():
     """OFFLINE (function-level, sans live) : le trait Terrifying seede l'owner-effect Terrifying_ExtraDefense
     via le chemin trait -> ability derivee -> AddEffect(owner) (factory dicts, mirror
-    `AddTraitOperation.AddDerivedAbilities @180e513c0` + `AOwnerEffectSpecificTriggeredAbility` @1811c5e00).
+    `IdunBattle.Operations.AddTraitOperation$$AddDerivedAbilities` + `AOwnerEffectSpecificTriggeredAbility` IdunBattleLogic.Entities.Abilities.Active.TerrifyingAbilityAbility$$.ctor).
     Filet pour un porteur SUMMON dont l'effet n'est PAS capte live (aucun carrier Terrifying summon a ce jour
     -> spawn path non confrontable live ; on valide donc le wiring + la materialisation). L'effet materialise
     est bien un TerrifyingExtraDefenseEffect (pas un BaseEffect no-op) et applique -30% en melee, rien en ranged."""

@@ -5,7 +5,7 @@ il vient UNIQUEMENT des items équipés (I_Block_* → BlockChance/BlockDamage r
 `MultiValueStat(7)`). On le force donc via le levier BC `rl_duel --block-target "chance,amount"`
 (= restaure le stat résolu, équivalent à un item I_Block équipé — même analogue que `--crit`).
 
-Par coup, APRÈS le spread : `ApplyRandomBlockDamage`@181000390 = chaîne `NextBool(chance)` par
+Par coup, APRÈS le spread : `IdunBattle.Core.Services.DamageCalculations$$ApplyRandomBlockDamage = chaîne `NextBool(chance)` par
 source de block triée jusqu'à la 1ʳᵉ réussite → `ApplyBlockDamage`=`max(0, dmg − BlockDamage)`,
 DidBlock=1 (échecs = +1 tirage + failed-id). Ordre RNG/coup confirmé live : [crit-roll] → spread →
 block-roll. Modèle validé bit-exact (necroDestroyer 6h → eldarFarseer block 100/300 : 12 tirages

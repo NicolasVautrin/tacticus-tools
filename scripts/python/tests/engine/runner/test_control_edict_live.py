@@ -13,8 +13,8 @@ KIT (gameconfig) : ability ControlEdict constants{unitId: admecSmnVanguard} ; va
 (3/4/5) + summonHp(->2546)/summonDmg(->509)/summonArmor(->1091) rarity-scaled. admecSmnVanguard = Summon +
 Mechanical, melee Physical + ranged Toxic r2 (3 hits), passif RadSaturation (hors scope S4b, task #25).
 
-Verdict RE : CreateTrigger @180e1d500 On(0x26) ; CreateBehaviour @180e1d2c0 = op_add(If(HasEffect Protector,
-SummonMinion @180e1d5e0), If(HasEffect Conqueror, AttackWithMinions @180e1d150)). Port =
+Verdict RE : IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility$$CreateTrigger On(0x26) ; IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility$$CreateBehaviour = op_add(If(HasEffect Protector,
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility$$SummonMinion), If(HasEffect Conqueror, IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility$$AttackWithMinions)). Port =
 loki/control_edict.py (ControlEdictAbility) + SpawnUnitOperation.execute_control_edict_summon.
 
 CE FICHIER :

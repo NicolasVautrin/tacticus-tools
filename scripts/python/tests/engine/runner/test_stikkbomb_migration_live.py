@@ -1,6 +1,6 @@
 """#149 slice-12 : Stikkbomb (1051, Ork Boy) MIGRATION vers l'arbre DSL + FIX friendly-fire (#213).
 
-`StikkbombAbility.ExecuteBehaviour @18120c180` (DECOMPILE) = `Execute(AtomicGroup(op_Addition(main, splash)))` :
+`IdunBattleLogic.Entities.Abilities.Active.Loki.StikkbombAbility$$ExecuteBehaviour` (DECOMPILE) = `Execute(AtomicGroup(op_Addition(main, splash)))` :
     main   = AttackWithAttackDamage(caster, target, RandomAmount, Blast, nrOfHits=2)
     splash = AttackWithAttackDamage(caster, AdjacentUnits(target,1,3), RandomAmount, Blast, nrOfHits_2=1)
 Le splash passe `AdjacentUnits(target,1,3)` BRUT -- SANS wrapper `Enemies(...)` (contraste PlasmaGrenade

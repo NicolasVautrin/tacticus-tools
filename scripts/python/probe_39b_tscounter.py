@@ -1,9 +1,9 @@
 """Probe #39b — trace TurnsStarted (stat 12) de TOUTES les unites a CHAQUE pas du walk natif.
 
 Question : le compteur `UnitComponent.turnsStarted@+0x58` (incremente par StartTurnOperation
-@180ea3fb0 sur les CurrentlyOwnedUnitIds du joueur COURANT) avance-t-il pour les DEUX camps,
+IdunBattle.Operations.StartTurnOperation$$Execute sur les CurrentlyOwnedUnitIds du joueur COURANT) avance-t-il pour les DEUX camps,
 ou reste-t-il fige a 1 pour le camp a-units (ce qui serait LE mecanisme interne du pseudo
-« gate per-joueur » de 1180 : slot-4 @18111af90 = GetStat(unit,12)>1 jamais ouvert) ?
+« gate per-joueur » de 1180 : slot-4 IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$ShouldEvaluate = GetStat(unit,12)>1 jamais ouvert) ?
 
 Usage : python probe_39b_tscounter.py --runner <rid> --max-steps 16
 """

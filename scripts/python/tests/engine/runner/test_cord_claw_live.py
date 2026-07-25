@@ -1,6 +1,6 @@
 """CordClaw (1122, admecRuststalker « Exitor-Rho », AdMech) -- face COMBAT (execute) portee, confrontee au LIVE.
 
-`CordClawAbility.ExecuteBehaviour @1811ccbf0` (DECOMPILE) =
+`IdunBattleLogic.Entities.Abilities.Active.Loki.CordClawAbility$$ExecuteBehaviour` (DECOMPILE) =
     Execute( op_Addition(
         AttackWithAttackDamage(caster@0x160, target@0x178, MinMaxDamage(minDmg 0xc/maxDmg 0xd),
                                GetDamageProfile=DirectDamage, nrOfHits=GetHits=GetNumberConstant(0x2f)=4),

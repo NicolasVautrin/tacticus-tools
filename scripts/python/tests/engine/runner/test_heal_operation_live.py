@@ -1,6 +1,6 @@
-"""#94 HealUnitOperation (mirror `HealUnitOperation$$Execute @180e733d0`) — validation du mutateur.
+"""#94 HealUnitOperation (mirror `HealUnitOperation$$IdunBattle.Operations.HealUnitOperation$$Execute`) — validation du mutateur.
 
-Le coeur = `FillUpStatComponent.FillUp @180f9b2e0` : `healed = min(amount, hp_max - hp)` ; `hp += healed` ;
+Le coeur = `IdunBattle.Entities.Components.FillUpStatComponent$$FillUp` : `healed = min(amount, hp_max - hp)` ; `hp += healed` ;
 rend `healed`. Gate heal-block `EffectType.Cursed(79)`. On charge un etat LIVE (unites reelles, stats
 resolues), puis on teste le MUTATEUR sur l'etat offline (deterministe, la formule FillUp EST la verite RE).
 ASCII-only.

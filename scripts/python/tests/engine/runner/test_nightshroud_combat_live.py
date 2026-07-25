@@ -3,7 +3,7 @@
 Sibyll Devine (astraPrimarisPsy) porte l'ability Nightshroud : tout allie qui COMMENCE son tour
 adjacent a elle prend -{dmgReduction} Damage from EACH hit (leur tour + le prochain tour ennemi).
 C'est un additif DEFENSEUR plat @+0x10, soustrait de la BASE PRE-percage (comme l'additif attaquant
-#75 ; `CalculateBaseDamageWithAllModifiers @18102d3f0` ne re-consomme pas @+0x10) -> DILUE par
+#75 ; `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` ne re-consomme pas @+0x10) -> DILUE par
 percage/armure PUIS scale x%-list. #120 : le runner COMBAT ne le fusionnait pas dans l'additif
 pre-percage (seule la PREDICTION le faisait, #111) -> combat SUR-comptait le degat contre les allies
 proteges. Fix = `_apply_defender_flat_reductions` (mirror du merge prediction) dans les 3 vecteurs.

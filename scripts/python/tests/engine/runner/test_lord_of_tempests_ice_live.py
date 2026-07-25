@@ -2,7 +2,7 @@
 
 Port : `engine/runner/operations/triggers/loki/lord_of_tempests.py` (arbre DSL
 `AddEffect(Ice=17, Tiles(Target()))`, trigger `OnNormalAttackOrSmite & OwnerIsCaster`,
-RE @181108670/@1811085d0) + couplage COMBAT `_positional_att_ctx` (damage_model.py : la face
+RE IdunBattleLogic.Entities.Abilities.Triggered.Loki.LordOfTempests_AddIceAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.LordOfTempests_AddIceAbility$$CreateBehaviour) + couplage COMBAT `_positional_att_ctx` (damage_model.py : la face
 snowball `LordOfTempestsExtraDamageEffect` lit la glace posee via att_ctx, #35).
 
 CE FICHIER :
@@ -237,8 +237,7 @@ def _setup_smite_geometry(rpc, rid, board):
 
 
 def test_lord_of_tempests_addice_smite_branch(live_session, rpc, build_runner):
-    """BRANCHE 2 du trigger (`On(9=Attack) & <kind attaque-normale 0x3f5>` d'`OnNormalAttackOrSmite
-    @180df7c70`) : la victime du splash « Smite » Psyker est glacee AUSSI — i2 « The hex of EACH
+    """BRANCHE 2 du trigger (`On(9=Attack) & <kind attaque-normale 0x3f5>` d'`IdunBattleLogic.Entities.DSLFactory$$OnNormalAttackOrSmite`) : la victime du splash « Smite » Psyker est glacee AUSSI — i2 « The hex of EACH
     enemy that is hit by Njal's normal attacks is covered in Ice ».
 
     Discriminant : la tuile de E2 (touche par le SEUL splash, jamais par l'attaque primaire) est

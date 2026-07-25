@@ -1,14 +1,14 @@
 """VALIDATION du port COMBAT de IronkinSteeljack (1219, votanMemnyr/Ammuk, Leagues of Votann) -- case-220 §6.10.
 
-Artefact natif : `IronkinSteeljackAbility.ExecuteBehaviour @1811b0550` -- corps GSHARED DEDUPLIQUE avec
-`AberrantHypermorphAbility.ExecuteBehaviour @1811b0550` (RE : les DEUX classes pointent leur slot
-ExecuteBehaviour vers le MEME code @1811b0550 -- table methodPointers, cf. votann.py). Il decompile en :
+Artefact natif : `IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour` -- corps GSHARED DEDUPLIQUE avec
+`IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour` (RE : les DEUX classes pointent leur slot
+ExecuteBehaviour vers le MEME code IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour -- table methodPointers, cf. votann.py). Il decompile en :
     Execute( Spawn(caster@0x160, Target@0x178=TUILE, "votanSmnSteeljack",
                    WithStatsFromConfig(config, AbilityLevelAmount(Self@0x148, 1219))
                      .onAppearance = PerformAIAttackFromCurrentPosition(Target@0x178)) )
 UN seul noeud Spawn (PAS d'AddEffect, PAS d'ExecuteAtomic, count=1). Cast TILE-target (hex libre adjacent au
-caster ; ctor @1811ebc30 = TargetingOptions(0, statsFromClass, 1, 0x1040) IDENTIQUE a AberrantHypermorph
-@1811b0730). Le summon `votanSmnSteeljack` a DEUX armes (melee Physical 2-hit, ranged Energy 2-hit range-2).
+caster ; IdunBattleLogic.Entities.Abilities.Active.Loki.IronkinSteeljackAbility$$.ctor = TargetingOptions(0, statsFromClass, 1, 0x1040) IDENTIQUE a AberrantHypermorph
+IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$.ctor). Le summon `votanSmnSteeljack` a DEUX armes (melee Physical 2-hit, ranged Energy 2-hit range-2).
 
 SPAWNABILITE DU PORTEUR (particularite Votann) : `votanMemnyr` (Ammuk) n'est PAS dans le seed BC standard
 (`data/seed-bc.json`) -> `rl_duel build --p-units votanMemnyr` echoue (hors pool). On l'INJECTE dans le
@@ -183,7 +183,7 @@ def _expected_summon_stats(state, caster):
 def test_steeljack_spawn_onappearance_port(rpc, votan_runner):
     """PORT (execute, etat REEL charge) : spawn votanSmnSteeljack EQUIPE-DU-CASTER sur la tuile ciblee,
     hp=summonHp[level], atk=summonDmg[level], puis attaque a l'apparition l'ennemi adjacent (drive-positions)
-    + no-move caster. Valide MON code (le corps natif est byte-identique a AberrantHypermorph @1811b0550)."""
+    + no-move caster. Valide MON code (le corps natif est byte-identique a AberrantHypermorph IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour)."""
     from engine.runner.operations.summon_ai import _apply_active_ability
     from engine.entities.stats import StatType
     rid = votan_runner
@@ -278,7 +278,7 @@ def test_steeljack_live_spawn_confront(rpc, votan_runner):
     act = (res.get("actions") or [{}])[0]
     if act.get("error"):
         pytest.skip(f"cast natif bloque (headless, votanSmnSteeljack): error={act.get('error')} "
-                    f"spawned={act.get('spawned')} -- limitation d'environnement, port RE-airtight (@1811b0550)")
+                    f"spawned={act.get('spawned')} -- limitation d'environnement, port RE-airtight (IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour)")
     summons = [u for u in (rpc("observeBattle", {"runnerId": rid}, 40) or {}).get("units", [])
                if u.get("visualId") == SUMMON_VID and u["squadId"] not in before and not u.get("isDead")]
     print(f"\n[STEELJACK/live-spawn] exp_hp={exp_hp} cteam={cteam} tile=({col},{row}) "

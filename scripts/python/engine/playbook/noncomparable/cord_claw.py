@@ -10,8 +10,8 @@ from ._base import NCContext, NonComparablePlaybook
 
 
 class CordClawPlaybook(NonComparablePlaybook):
-    """`CordClawPlaybook.EvaluateNonComparable @181126670` (id 0x462=1122, admecRuststalker/Exitor-Rho).
-    Attaque melee NonComparable (`CordClawAbility.ExecuteBehaviour @1811ccbf0` = AttackWithAttackDamage 4x
+    """`IdunBattle.AI.Playbook.Loki.CordClawPlaybook$$EvaluateNonComparable` (id 0x462=1122, admecRuststalker/Exitor-Rho).
+    Attaque melee NonComparable (`IdunBattleLogic.Entities.Abilities.Active.Loki.CordClawAbility$$ExecuteBehaviour` = AttackWithAttackDamage 4x
     + effet 0x4e2 AdditionalHits 2x jusqu'a la fin du prochain tour). L'utilite de DECISION = le nombre
     d'ennemis ADJACENTS a la TUILE D'ATTAQUE du caster (PAS a la cible) -> le caster attaque depuis la
     position la plus entouree d'ennemis (valeur max pour ses attaques bonus futures).
@@ -19,10 +19,10 @@ class CordClawPlaybook(NonComparablePlaybook):
     Structure native (mirror EvaluateNonComparable) : pour chaque cible eligible
     (`GetEligibleTargetsSelectable(MainTile=position)`), `count = query.slot0x7e(casterMainTile).Count`
     puis `GenerateAction(position, cible, Fix64.FromInt(count))` + `Bucket.AddAction`. slot 0x7e (IBattleQuery
-    DAT_18327ff80) = `GetAdjacentEnemies @18105af60` (`IterateAdjacentTiles`+`GetUnitsOnTiles`, porte
+    DAT_18327ff80) = `IdunBattle.Core.Services.BattleQuery$$GetAdjacentEnemies` (`IterateAdjacentTiles`+`GetUnitsOnTiles`, porte
     d'elevation |dElev|<2) sur la MainTile de la POSITION balayee -> compte POSITION-dependant (identique
     pour toutes les cibles d'une meme position). Utilite = FromInt(count) BRUT (aucun +1/echelle, cf.
-    BloodyFury @181122be0 qui fait `1+adj*10`).
+    BloodyFury IdunBattle.AI.Playbook.Loki.BloodyFuryPlaybook$$EvaluateNonComparable qui fait `1+adj*10`).
 
     RECONCILIATION LIVE (board MC1_67, ncEvaluate) :
     - seed 2468 s7 u83 : util(6,5)=2 (u93+u95 adj), util(5,6)=util(4,5)=util(4,4)=1 -> pos(6,5) cible u95.
@@ -34,16 +34,16 @@ class CordClawPlaybook(NonComparablePlaybook):
       EXACTE sur les 2 misses).
     - CIBLE au sein de la position gagnante (tie sur le count position-based) = 1er ennemi ELIGIBLE adjacent
       a la tuile en ordre voisins NATIF FORWARD (`neigh_by_pos`, = ordre `GetValidTargets` slot 0x41 ->
-      `AttackQuery.GetValidTargets @1810570c0` qui scanne les tuiles d'attaque). Le `count` (util) compte TOUS
+      `IdunBattle.Core.Services.AttackQuery$$GetValidTargets` qui scanne les tuiles d'attaque). Le `count` (util) compte TOUS
       les ennemis adjacents (summons inclus, ex. u140 decoy -> util 3), mais la cible filtre l'ensemble
       ELIGIBLE (`GetEligibleTargetsSelectable` = abilityTargets ; u140 non-eligible ecarte). VALIDE LIVE
       BIT-EXACT sur les 2 misses (u95 = (6,4) 2e voisin de (6,5) ; u83 = (2,6) 1er voisin de (2,5)).
       NB : ordre FORWARD (PAS inverse comme Gauntlets/SortReverseSelector -- chemin selecteur different).
-    - MIN_UTILITY=1 : cctor @181126af0 pose `Fix64.FromInt(1)` -> min-utilite du Bucket ctor (@181126670)
+    - MIN_UTILITY=1 : IdunBattle.AI.Playbook.Loki.CordClawPlaybook$$.cctor pose `Fix64.FromInt(1)` -> min-utilite du Bucket ctor (IdunBattle.AI.Playbook.Loki.CordClawPlaybook$$EvaluateNonComparable)
       -> admission `count >= 1` (positions sans ennemi adjacent ecartees).
-    - ctor @181126b60 = `NonComparablePlaybook(0x462)` -> 1er arg=ability_id ; PRIORITY=0 (defaut, #115)."""
+    - IdunBattle.AI.Playbook.Loki.CordClawPlaybook$$.ctor = `NonComparablePlaybook(0x462)` -> 1er arg=ability_id ; PRIORITY=0 (defaut, #115)."""
     ABILITY_ID = int(ActiveAbilityType.CordClaw)  # 1122
-    MIN_UTILITY = 1.0     # cctor @181126af0 = Fix64(1) -> admission Bucket count>=1
+    MIN_UTILITY = 1.0     # IdunBattle.AI.Playbook.Loki.CordClawPlaybook$$.cctor = Fix64(1) -> admission Bucket count>=1
     PRIORITY = 0
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:

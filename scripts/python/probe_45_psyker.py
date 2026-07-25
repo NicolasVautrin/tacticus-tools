@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """Probe #45-s18 : VALIDATION NUMERIQUE du port de la feuille splash Psyker AVANT ecriture.
 
-Mirror de `PsykerPlaybook.<CalculateAttackUtilityInStepsInternal>d__2 @18118a0d0` (feuille
-TriggeredAbilities(2) face ATTACK @1810f64b0), calcule OFFLINE au pas cible et confronte :
+Mirror de `PsykerPlaybook.<CalculateAttackUtilityInStepsInternal>d__2 IdunBattle.AI.Playbook.Loki.PsykerPlaybook.u003CCalculateAttackUtilityInStepsInternalu003Ed__2$$MoveNext` (feuille
+TriggeredAbilities(2) face ATTACK IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.u003CEvaluateAttackInStepsInternalu003Ed__3$$MoveNext), calcule OFFLINE au pas cible et confronte :
   - au score natif par-feuille capture L3 (31337 s18 : TriggeredAbilitiesUtility#0
     = 17.85381752299145) ;
   - au residu pairUtility de l'etage UTILITE (off 164.2269 + feuille == nat 182.0807).

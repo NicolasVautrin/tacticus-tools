@@ -3,7 +3,7 @@
 
 Le dump stages (data/stages_57e_gen.json) donne cf.nat == cf.eng == 167.86 (les DEUX = NOTRE
 scoreur, arrondi). Question discriminante AVANT de mirrorer un ordre d'enumeration :
-  A. le scorer NATIF (pairUtility = CalculateUtilityFromPredictions @181407890) donne-t-il
+  A. le scorer NATIF (pairUtility = IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions) donne-t-il
      VRAIMENT la meme utilite aux deux paires (tie reel -> probleme d'ORDRE au argmax) ?
   B. ou score-t-il t83 > t81 (terme d'utilite manquant offline, le "tie" est un artefact) ?
 

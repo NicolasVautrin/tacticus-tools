@@ -1,22 +1,22 @@
 """VALIDATION LIVE du port COMBAT d'AlphaWarrior (1112, `tyranWingedPrime` Winged Prime, Tyranids) -- case-220 §6.16.
 
-Artefact natif : `AlphaWarriorAbility.ExecuteBehaviour @1811b1400` (DECOMPILE, mirror 1:1). Il decompile en
+Artefact natif : `IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$ExecuteBehaviour` (DECOMPILE, mirror 1:1). Il decompile en
 UN seul noeud Spawn passe a `AActiveAbility.Execute` :
     Execute( Spawn(caster@0x160, Target@0x178 = TUILE ciblee, GetStringConstant(config,0)="tyranSmnWarrior",
                    WithStatsFromConfig(config 1112, amount=null))
              .onAppearance(+0x18) = PerformAIAttackFromCurrentPosition(Spawned@0x180) )
-STRUCTURELLEMENT == le TEMPLATE `AberrantHypermorph @1811b0550` (Spawn tile-target + WithStatsFromConfig +
+STRUCTURELLEMENT == le TEMPLATE `AberrantHypermorph IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour` (Spawn tile-target + WithStatsFromConfig +
 on-appearance PerformAIAttackFromCurrentPosition), a TROIS details pres (verifies par comparaison des deux
 decompiles) : config AlphaWarrior ; nœud amount de WithStatsFromConfig = null (vs AbilityLevelAmount) ; sujet
 de l'on-appearance = Spawned@0x180 (vs Target@0x178, resolvent au MEME summon, cf. MasterOfTheTutelaries).
-Le `ctor @1811b1930` fait `AActiveAbility.ctor(..., 2, 0)` (IDENTIQUE Aberrant/Spore -> flags de tour defauts,
-1112 hors des frozensets base.py). Cast tile-target ; `GetDynamicInvalidTargetReason @1811b1590` ->
+Le `IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$.ctor` fait `AActiveAbility.ctor(..., 2, 0)` (IDENTIQUE Aberrant/Spore -> flags de tour defauts,
+1112 hors des frozensets base.py). Cast tile-target ; `IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$GetDynamicInvalidTargetReason` ->
 `IsInTeamSynapseRange` = legalite live/RPC (HORS ExecuteBehaviour, ABSENT du port -> IA sur-permissive).
 
 PORTEUR = unite NORMALE (non-MoW) -> SPAWNABLE en p-unit (`rl_duel build --p-units tyranWingedPrime`) et
 chargee comme entite offline (`load_state`) : PAS de fabrication de caster (contrairement au MoW Biovore).
 
-NOTE visualId : le natif Spawn recoit le constant config "tyranSmnWarrior" (== `GetSummonId @1811b15c0`), mais
+NOTE visualId : le natif Spawn recoit le constant config "tyranSmnWarrior" (== `IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$GetSummonId`), mais
 la resolution DOWNSTREAM (SpawnUnitBehaviour, HORS ExecuteBehaviour) spawn la variante NPC concrete
 `tyranNpc4Warrior` (MEME kit -- memes armes melee 3-hit Physical + ranged r2 3-hit Bio, memes abilities/passifs
 -- SEULE difference : `tyranNpc4Warrior` n'a pas le trait `Summon`). Le port mirror l'ExecuteBehaviour ->
@@ -61,7 +61,7 @@ STATE = ROOT / "data" / f"_pytest_alphawarrior_{AGENT_ID}.json"    # state-file 
 
 ALPHA = 1112
 CARRIER = "tyranWingedPrime"
-SUMMON_VID = "tyranSmnWarrior"          # constant config (GetStringConstant(config,0) = GetSummonId @1811b15c0)
+SUMMON_VID = "tyranSmnWarrior"          # constant config (GetStringConstant(config,0) = IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$GetSummonId)
 ENEMY = "ultraTitus"                    # tanky : encaisse l'on-appearance sans mourir
 SEED = "4242"
 BOARD = "MC1_67"

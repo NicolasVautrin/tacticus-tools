@@ -600,7 +600,7 @@ def triggered_ability_ids(visual_id: str | None) -> list[int]:
     """Ids `TriggeredAbilityType` du KIT PASSIF d'une unité (gameconfig `passiveAbilities` -> enum).
 
     Source OFFLINE du dispatcher `TriggeredAbilitiesUtility(2)` (le natif lit l'AbilitiesComponent
-    ECS de l'unité qui bouge, `@1810fda80` — cf. case-36). Les abilities DÉCLENCHÉES du jeu sont les
+    ECS de l'unité qui bouge, `IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext` — cf. case-36). Les abilities DÉCLENCHÉES du jeu sont les
     `passiveAbilities` du gameconfig (namespace natif `Abilities.Triggered.Loki.*Ability`).
     [] si unité inconnue ou passif hors enum."""
     if not visual_id:
@@ -622,9 +622,9 @@ def triggered_ability_ids(visual_id: str | None) -> list[int]:
 TRAIT_TRIGGERED_ABILITY_IDS: dict[str, tuple[int, ...]] = {
     "Psyker": (int(TriggeredAbilityType.PsykerExtraAttack),),        # 1013 (splash Smite)
     "TerminatorArmour": (int(TriggeredAbilityType.TerminatorArmour),),   # 1142 (réduction dégât)
-    # DEATH-NOVA — mappings du registre natif `StaticBattleRules.Trait$$.cctor` @18157f650, lu par
-    # `Trait$$GetTriggeredAbility` @18157ed10 et matérialisé par `AddTraitOperation$$AddDerivedAbilities`
-    # @180e513c0 : trait `Explodes` (UnitTrait 1008) -> 1021, trait `PutridExplosion` (UnitTrait 2028) -> 1074.
+    # DEATH-NOVA — mappings du registre natif `StaticBattleRules.Trait$$.idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Trait$$.cctor, lu par
+    # `Trait$$idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Trait$$GetTriggeredAbility et matérialisé par `AddTraitOperation$$AddDerivedAbilities`
+    # IdunBattle.Operations.AddTraitOperation$$AddDerivedAbilities : trait `Explodes` (UnitTrait 1008) -> 1021, trait `PutridExplosion` (UnitTrait 2028) -> 1074.
     # ⚠ MESURE d'inertie (vérifiée) : `PlaybookDatabase.LoadPlaybook` n'a AUCUN playbook pour 1021/1074 (aucun
     # symbole `Explodes*Playbook`/`PutridExplosion*Playbook` dans le binaire) -> le dispatcher natif
     # `TriggeredAbilitiesUtility` SKIPPE ces ids (`if (playbook == null) continue`). L'ajout ici est donc le
@@ -638,8 +638,8 @@ TRAIT_TRIGGERED_ABILITY_IDS: dict[str, tuple[int, ...]] = {
 def kit_triggered_ability_ids(visual_id: str | None) -> list[int]:
     """Kit déclenché COMPLET d'une unité = passifs gameconfig (`triggered_ability_ids`) + abilities
     accordées par TRAIT (`TRAIT_TRIGGERED_ABILITY_IDS`) — le miroir fidèle de l'AbilitiesComponent
-    ECS qu'itèrent les dispatchers `TriggeredAbilitiesUtility(2)` (faces move @1810fda80 ET attack
-    @1810f64b0). La face move historique (case-36) lit encore `triggered_ability_ids` seul —
+    ECS qu'itèrent les dispatchers `TriggeredAbilitiesUtility(2)` (faces move IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext ET attack
+    IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.u003CEvaluateAttackInStepsInternalu003Ed__3$$MoveNext). La face move historique (case-36) lit encore `triggered_ability_ids` seul —
     sans impact (aucun trait-granted n'a de playbook move enregistré)."""
     out = list(triggered_ability_ids(visual_id))
     if visual_id:

@@ -11,7 +11,7 @@ Contrat (points NOMMÉS du raw prediction où un trait agit — défaut = no-op)
   • as_attacker_pierce_bonus    — +pierce attaquant (`GetPiercingRatio(profil, traits)` : lasCannon 0x3e9/0x3f8).
   • as_attacker_ignores_armor   — flag ignore-armure (PredictAttackRaw @2227 `HasTrait 0x420 & HasEffect 0x59a`).
   • as_target_hit_multiplier    — cible « frappée 2× » (`GetBaseDamageWithFixedPiercedArmor` HasTrait 0x3f5=1013).
-  • as_target_damage_cap        — plafond dégât/coup côté cible (`ApplyTraitDamageLimitsToDamage` @18102c650 :
+  • as_target_damage_cap        — plafond dégât/coup côté cible (`IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage :
                                   Resilient/Impervious/GroupUnit + cap triggered 0x5d4).
 `ctx` = contexte de prédiction (dict : rôle, positions/adjacence, max_hp, profil, effets actifs…) — chaque
 trait lit ce dont il a besoin.

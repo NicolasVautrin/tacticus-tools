@@ -12,32 +12,32 @@ from ....dsl.effects import AbilityBehaviour, OperationResult
 
 
 class PerformAIAction(AbilityBehaviour):
-    """`DSLFactory.PerformAIAction(selector, asGroup, resetTurnFlags) @180df8990` ->
-    `PerformAIActionBehaviour` (ctor @180fcbda0 : selector@+0x50, asGroup@+0x58, resetTurnFlags@+0x59)
-    -> `PerformAIActionBehaviour.Execute @180fcba10` (MIRROR 1:1) :
+    """`IdunBattleLogic.Entities.DSLFactory$$PerformAIAction(selector, asGroup, resetTurnFlags)` ->
+    `PerformAIActionBehaviour` (IdunBattle.Entities.Behaviours.PerformAIActionBehaviour$$.ctor : selector@+0x50, asGroup@+0x58, resetTurnFlags@+0x59)
+    -> `IdunBattle.Entities.Behaviours.PerformAIActionBehaviour$$Execute` (MIRROR 1:1) :
 
         units = selector.Select(entities)                       # iface TargetsSelector slot 4
         if (!asGroup)  foreach (u in units) proc.ComputerAction(u, resetTurnFlags)    # iface slot 0x34
         else                                proc.ComputerAction(units, resetTurnFlags) # iface slot 0x35
 
-    `OperationProcessor.ComputerAction` @180e07330 (mono) / @180e07360 (groupe) ->
-    `ComputerActionOperation.Execute` @180e641e0 / @180e63d80.
+    `Core.Services.OperationProcessor$$ComputerAction (mono) / Core.Services.OperationProcessor$$ComputerAction (groupe) ->
+    `IdunBattle.Operations.ComputerActionOperation$$Execute / IdunBattle.Operations.ComputerActionOperation$$Execute.
 
     Les deux booleens (LUS du decompile, pas devines) :
       • `asGroup` (+0x58) : FAUX -> une action AI **par unite, sequentielle et independante**
-        (`AiControl.ExecuteFor(unit)` @180ffbda0, une seule passe de decision par unite) ;
-        VRAI -> le set est confie au GROUP OPERATOR (`AiControl.ExecuteFor(group)` @180ffbeb0 qui
+        (`IdunBattle.Core.Services.AiControl$$ExecuteFor(unit), une seule passe de decision par unite) ;
+        VRAI -> le set est confie au GROUP OPERATOR (`IdunBattle.Core.Services.AiControl$$ExecuteFor(group) qui
         BOUCLE `PickNextUnit` jusqu'a epuisement des unites valides).
       • `resetTurnFlags` (+0x59) : VRAI -> les flags de tour de chaque cible sont **sauvegardes,
         effaces, puis restaures** autour de l'action -> l'unite agit meme si elle avait deja fini son
         tour, ET **l'action supplementaire ne consomme pas son tour**. C'est la semantique
         d'ordonnancement du mecanisme (cf. `ComputerActionOperation`).
 
-    Appels natifs recenses (xrefs @180df8990) : `SupremeCommanderAbility.ExecuteBehaviour @18120df30`
-    (`asGroup=1, reset=1`), `CultDemagogueAbility.ExecuteBehaviour @1811cdc30` (`0, 1`),
-    `WaaaghAbility.ExecuteBehaviour @18122b010` + `GetTriggerSummonsBehaviour`,
-    `ReanimationBeamAbility.GetSummonsTakeActionBehaviour @1811ff510`,
-    `BlackRage_ActivationAbility.CreateBehaviour @180e19ef0`, `AdaptiveStrategyAbility.ExecuteBehaviour`.
+    Appels natifs recenses (xrefs IdunBattleLogic.Entities.DSLFactory$$PerformAIAction) : `IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour`
+    (`asGroup=1, reset=1`), `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour` (`0, 1`),
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour` + `GetTriggerSummonsBehaviour`,
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.ReanimationBeamAbility$$GetSummonsTakeActionBehaviour`,
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.BlackRage_ActivationAbility$$CreateBehaviour`, `AdaptiveStrategyAbility.ExecuteBehaviour`.
 
     Effet PUR (`stop=False`). Journalise `PerformAIAction` (diag replay-diff)."""
     __slots__ = ("selector", "as_group", "reset_turn_flags")

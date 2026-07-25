@@ -2,13 +2,12 @@
 consommateur SupremeCommander (1028, `astraCreed`).
 
 Mecanisme porte (VAs) :
-  `DSLFactory.PerformAIAction @180df8990` -> `PerformAIActionBehaviour.Execute @180fcba10`
-  -> `OperationProcessor.ComputerAction @180e07330`/`@180e07360`
-  -> `ComputerActionOperation.Execute @180e641e0` (mono) / `@180e63d80` (groupe)
-     [ `UnitFlagsComponent.RemoveTurnFlags @180fad310` -> `AiControl.ExecuteFor @180ffbda0`/`@180ffbeb0`
-       -> `SetUnitTurnsFlags @180e645b0` ]
-  `UnitExtensions.GetAbilityStatModification @180ece900` -> `ActiveAbilityModificationsComponent.Get
-  @180f8f570`.
+  `IdunBattleLogic.Entities.DSLFactory$$PerformAIAction` -> `IdunBattle.Entities.Behaviours.PerformAIActionBehaviour$$Execute`
+  -> `Core.Services.OperationProcessor$$ComputerAction`/`Core.Services.OperationProcessor$$ComputerAction`
+  -> `IdunBattle.Operations.ComputerActionOperation$$Execute` (mono) / `IdunBattle.Operations.ComputerActionOperation$$Execute` (groupe)
+     [ `IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags` -> `IdunBattle.Core.Services.AiControl$$ExecuteFor`/`IdunBattle.Core.Services.AiControl$$ExecuteFor`
+       -> `IdunBattle.Operations.ComputerActionOperation$$SetUnitTurnsFlags` ]
+  `IdunBattle.Entities.UnitExtensions$$GetAbilityStatModification` -> `IdunBattle.Entities.Components.ActiveAbilityModificationsComponent$$Get`.
 
 DISCRIMINANT (ce que le test PROUVE, pas « le code est atteint ») : les gardes tout juste SPAWNES
 QUITTENT l'anneau de spawn (distance >= 2 du caster) A L'INSTANT DU CAST — ils AGISSENT alors qu'ils
@@ -182,7 +181,7 @@ def test_summon_stats_bit_exact_vs_live(supreme_commander):
 
 def test_no_ability_stat_modification_live(supreme_commander):
     """`GetAbilityStatModification` — face ZERO confrontee : la seule source native
-    (`ListenUpMaggotsEffect` @180f56590, passif de Kell) n'est PAS portee ; le natif observe rend AUSSI
+    (`ListenUpMaggotsEffect` IdunBattle.Entities.Effects.Loki.ListenUpMaggotsEffect$$ApplyInternal, passif de Kell) n'est PAS portee ; le natif observe rend AUSSI
     une modification nulle (2 gardes) MEME quand Kell est en jeu -> agreement, pas degradation."""
     d = supreme_commander
     if not d["live_guards"]:
@@ -266,7 +265,7 @@ def test_counter_case_without_perform_ai_action(supreme_commander):
 def test_turn_flags_saved_and_restored(supreme_commander):
     """`ComputerActionOperation` : les flags de tour d'une cible sont EFFACES puis RESTAURES ->
     (a) l'unite agit MEME deja `TurnFinished`, (b) son etat de tour est INCHANGE apres coup
-    (l'action supplementaire NE CONSOMME PAS son tour). Mirror @180e641e0 + @180e645b0."""
+    (l'action supplementaire NE CONSOMME PAS son tour). Mirror IdunBattle.Operations.ComputerActionOperation$$Execute + IdunBattle.Operations.ComputerActionOperation$$SetUnitTurnsFlags."""
     from engine.runner.operations.summon_ai import ComputerActionOperation
     d = supreme_commander
     if not d["res"]["spawned"]:
@@ -389,7 +388,7 @@ def supreme_commander_ally(rpc, build_runner):
 
 def test_ally_outside_affected_ids_not_forced_to_act_live(supreme_commander_ally):
     """LIVE : l'allie a portee mais hors `affectedUnitIds` NE bouge PAS pendant le cast (le filtre
-    `UnitsWithIds` @180e00230 le retire du set passe a `PerformAIAction`)."""
+    `IdunBattleLogic.Entities.DSLFactory$$UnitsWithIds le retire du set passe a `PerformAIAction`)."""
     d = supreme_commander_ally
     assert d["ally_pos_after"] == d["ally_pos_before"], (
         f"live : l'allie {ALLY_VIS} a bouge {d['ally_pos_before']} -> {d['ally_pos_after']} pendant le "
@@ -408,7 +407,7 @@ def test_ally_outside_affected_ids_not_forced_to_act_port(supreme_commander_ally
 
 def test_ability_stat_modification_semantics_offline(supreme_commander):
     """`GetAbilityStatModification` — les DEUX semantiques de consommation lues au decompile
-    @18120e09b / @18120e17a : nrOfSummons ADDITIF (+1 -> 3 gardes), range OVERRIDE (mod 3 -> radius 3,
+    IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour+0x16b / IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour+0x24a : nrOfSummons ADDITIF (+1 -> 3 gardes), range OVERRIDE (mod 3 -> radius 3,
     PAS 2+3=5). Exerce en injectant la modification dans le composant (la source native
     `ListenUpMaggotsEffect` n'est pas portee)."""
     from engine.runner.abilities.astramilitarum import (SupremeCommanderAbility, CONST_NR_OF_SUMMONS,

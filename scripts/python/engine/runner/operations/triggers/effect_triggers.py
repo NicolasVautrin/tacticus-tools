@@ -1,5 +1,5 @@
 """Effet-triggers du namespace natif `IdunBattleLogic.Entities.Effects.*` — effets porteurs de leur
-propre trigger (`EvaluateEffectTrigger`@180e6eaa0). 1 classe par effet (VA citée) :
+propre trigger (`IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTrigger). 1 classe par effet (VA citée) :
 - `Overwatch_AutoAttackEffect` — auto-attaque after-move.
 - `ContaminatedEffect` — tile-effet posant le sous-effet -X% armure sur l'occupant.
 (Le DISPATCH itère ces classes via `EFFECT_TRIGGERS` dans `dispatch.py`.)"""
@@ -22,8 +22,8 @@ CONTAMINATED_UNIT = int(EffectType.Contaminated_Unit)   # 1245 — sous-effet -X
 # #158 : ex-`CONTAMINATED_IMMUNE_TRAIT = 2027` (mort depuis #154 : l'immunité gate via
 # `has_any_trait(names, (UnitTrait.ContagionsOfNurgle, UnitTrait.Mechanical))`) retiré. 2027 = UnitTrait.ContagionsOfNurgle.
 # Magnitude Contaminated_Unit (#132, RE re-expert 2026-07-14) : `ContaminatedStatModifierEffect.GetDynamicStat
-# ModificationAmount @180f3a460` = `-BattleQuery.GetEffectConfig(EffectType=6)` ; `BattleQuery.GetEffectConfig
-# @1810610b0` lit `BattleConfiguration.Effect[+0x28]` = **`ContaminatedArmorReductionPct`** (=30). => le sous-effet
+# ModificationAmount IdunBattle.Entities.Effects.Loki.ContaminatedStatModifierEffect$$GetDynamicStatModificationAmount` = `-BattleQuery.GetEffectConfig(EffectType=6)` ; `BattleQuery.GetEffectConfig
+# IdunBattle.Core.Services.BattleQuery$$GetEffectConfig` lit `BattleConfiguration.Effect[+0x28]` = **`ContaminatedArmorReductionPct`** (=30). => le sous-effet
 # reduit le FixedArmor cible de -30 %. Source = section `Effect` de la BC (seed-bc.json), lue ICI (PAS un hardcode ;
 # defaut 30 = miroir de la valeur BC connue, comme `_DMG_CFG.get('TrenchReductionPercentage', -50)` en prediction).
 import json as _json_cfg
@@ -40,7 +40,7 @@ OVERWATCH_SOURCE_DISABLE = int(EffectType.Pinned)     # 1065 — overwatch désa
 
 
 def _is_immune_to_contaminated(state: State, unit_id: int) -> bool:
-    """`ContaminatedEffect.EntityIsImmuneToEffect @180f3a400` (décompilé) = `HasTrait(0x7eb=2027=
+    """`IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$EntityIsImmuneToEffect` (décompilé) = `HasTrait(0x7eb=2027=
     ContagionsOfNurgle) OR IsMechanical(unit) OR BaseEffect.EntityIsImmuneToEffect(...)`. #154 : porte les
     DEUX premières branches — `ContagionsOfNurgle` (trait, `UnitTrait` #146) ajouté au gate, + `Mechanical`
     (APPROXIMATION trait de la propriété native `UnitExtensions.IsMechanical` — best-effort pré-existant, la
@@ -52,9 +52,9 @@ def _is_immune_to_contaminated(state: State, unit_id: int) -> bool:
 
 class OverwatchAutoAttack(EffectTrigger):
     """`Overwatch_AutoAttackEffect` (base `RangedAutoAttackEffect`) — auto-attaque after-move.
-    Trigger `CreateTargetTrigger`@180f46820 = `On(4) & NOT AreFriends(overwatcher,mover) &
+    Trigger `IdunBattle.Entities.Effects.RangedAutoAttackEffect$$CreateTargetTrigger = `On(4) & NOT AreFriends(overwatcher,mover) &
     IsInAttackRange(overwatcher,mover,3) & AdditionalTriggers` (Overwatch : `NOT mover a 0x418` ;
-    AdditionalActivateTrigger : `NOT overwatcher a 0x429`). Behaviour `GetAttackBehaviour`@180f5d3e0 =
+    AdditionalActivateTrigger : `NOT overwatcher a 0x429`). Behaviour `IdunBattle.Entities.Effects.Loki.Overwatch_AutoAttackEffect$$GetAttackBehaviour =
     `UseActiveAbility(NormalAttack)` sur le mover ⇒ **attaque NORMALE** de l'overwatcher (chemin
     `AttackDamageOperation.execute`, déjà bit-exact)."""
     event_id = EventTriggerType.UnitAfterMove
@@ -68,10 +68,10 @@ class OverwatchAutoAttack(EffectTrigger):
             return False
         # TARGET-VALIDITY = leg de re-validation du PUMP FIFO (#201). Le mover (cible de l'overwatch)
         # doit etre VIVANT. Natif : les pending triggered-abilities after-move (les 2 overwatch) sont
-        # draines UN PAR UN par `ProcessPendingTriggeredAbilities @180eba680` (snapshot+Clear de la file
-        # #5) ; chaque item = un `RunPhase(0xf) @180ebaa80` qui appelle `VerifyDeaths @180ebb0a0` juste
+        # draines UN PAR UN par `IdunBattle.Messages.InputMessageProcessor$$ProcessPendingTriggeredAbilities` (snapshot+Clear de la file
+        # #5) ; chaque item = un `IdunBattle.Messages.InputMessageProcessor$$RunPhase(0xf)` qui appelle `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` juste
         # apres son callback, AVANT l'item suivant. Donc si le 1er overwatch TUE le mover, VerifyDeaths le
-        # retire et le 2e overwatch ne trouve plus de cible : `GetAttackBehaviour @180f5d3e0` =
+        # retire et le 2e overwatch ne trouve plus de cible : `IdunBattle.Entities.Effects.Loki.Overwatch_AutoAttackEffect$$GetAttackBehaviour` =
         # `UseActiveAbility(NormalAttack)` sur une unite morte = fizzle (les selecteurs DSL de cible operent
         # sur AllAliveMachines, #202). Le port COLLAPSE ce pump dans `evaluate_trigger_operation` (registre
         # snapshot + drain par-item re-evaluant `matches` contre l'etat courant + morts appliquees INLINE via
@@ -101,10 +101,10 @@ class OverwatchAutoAttack(EffectTrigger):
 
 
 class ContaminatedTileEffect(TileEffectTrigger):
-    """`ContaminatedEffect.CreateHandleTriggerAbilitiesInternal`@180f3a1d0 (effet de tuile 0x4dc) — pose le
+    """`IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$CreateHandleTriggerAbilitiesInternal (effet de tuile 0x4dc) — pose le
     sous-effet `Contaminated_Unit` (0x4dd, -X% FixedArmor, 1 round) sur l'unité qui ENTRE (`On(4)` &
     `AreEqual(triggeringTile, effectTile)`) ou qui OCCUPE au tick de tour (`On(0x12)`) la tuile contaminée,
-    sauf si déjà présent (`!HasEffect(0x4dd)`) ou immune (trait 2027 / Mechanical @180f3a400). Enter+tick
+    sauf si déjà présent (`!HasEffect(0x4dd)`) ou immune (trait 2027 / Mechanical IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$EntityIsImmuneToEffect). Enter+tick
     partagent le behaviour (appliquer à la cible) → `event_ids=(4, 0x12)`.
     ⚠ MAGNITUDE (X%) NON RÉSOLUE (#132) → l'effet est posé avec `value=None` (PRÉSENT mais inerte-stat)."""
     effect_type = CONTAMINATED_TILE
@@ -131,7 +131,7 @@ class ContaminatedTileEffect(TileEffectTrigger):
             return None                                   # !HasEffect(0x4dd) : pas de re-pose
         if _is_immune_to_contaminated(state, uid):        # trait 2027 / Mechanical
             return None
-        # MAGNITUDE #132 (RE @180f3a460 = -GetEffectConfig(6) = -ContaminatedArmorReductionPct%, cf. constante) :
+        # MAGNITUDE #132 (RE IdunBattle.Entities.Effects.Loki.ContaminatedStatModifierEffect$$GetDynamicStatModificationAmount = -GetEffectConfig(6) = -ContaminatedArmorReductionPct%, cf. constante) :
         # le sous-effet reduit le FixedArmor de -30 %. Le stat-layer applique `get_stat_modification_amount` en
         # ADDITIF -> on materialise le -X% en DELTA PLAT pre-calcule = -round(FixedArmor * pct/100). Lu AVANT la
         # pose (gate has_effect -> pas de recursion). `value=None` si stats absentes = present mais stat-inerte.
@@ -144,9 +144,9 @@ class ContaminatedTileEffect(TileEffectTrigger):
                 val = -round(armor * CONTAMINATED_ARMOR_REDUCTION_PCT / 100)
         from ..effects import AddEffectOperation            # lazy : évite le cycle triggers<->effects
         from ...abilities.base import convert_rounds_to_turns
-        # #98 : `ContaminatedEffect.AddEffectBehavior @180f39e30` = `AddDynamicStatModifierEffect(sel,
+        # #98 : `IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$AddEffectBehavior` = `AddDynamicStatModifierEffect(sel,
         # 0x4dd, 0x10, **TurnsFromRounds(1)**)` -> la duree passe par `BattleQuery.ConvertRoundsToTurns`
-        # @181058af0 (le port envoyait 1 TOUR en dur, soit la moitie dans un duel a 2 joueurs).
+        # IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns (le port envoyait 1 TOUR en dur, soit la moitie dans un duel a 2 joueurs).
         eff = AddEffectOperation.execute(
             state, source=self.owner_id, target=uid, effect_type=CONTAMINATED_UNIT,
             name="Contaminated_Unit", duration_override=convert_rounds_to_turns(state, 1),

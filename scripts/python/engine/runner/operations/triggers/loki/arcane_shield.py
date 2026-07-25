@@ -1,4 +1,4 @@
-"""`Abilities.Triggered.Loki.ArcaneShieldAbility` (@180e16f60) — bouclier de Thaumachus (`thousSorcerer`,
+"""`Abilities.Triggered.Loki.ArcaneShieldAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArcaneShieldAbility$$CreateTrigger) — bouclier de Thaumachus (`thousSorcerer`,
 ThousandSons, passive `ArcaneShield`). Cf. `loki/__init__.py` pour le regroupement « Loki »."""
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ def _arcaneshield_target(state: State, owner_id: int) -> int:
 
 
 def _arcaneshield_grant(state: State, owner_id: int) -> Optional[dict]:
-    """Behaviour ArcaneShield (CreateBehaviour@180e16b40), MIGRÉ en ARBRE DSL (#149 slice-23) :
+    """Behaviour ArcaneShield (IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArcaneShieldAbility$$CreateBehaviour), MIGRÉ en ARBRE DSL (#149 slice-23) :
     `CreateShield(<best>, ConfigVar(0x27=shieldHp), self.Id, TurnsFromRounds(1))`. Le montant
     `shieldHp[passive_level] × mult%` (formule V `ConfigVar`) est calculé IMPÉRATIVEMENT (`ability_var`)
     et passé comme scalaire ; le sélecteur AI-target LOURD (S) reste `_arcaneshield_target`, COLLAPSÉ en
@@ -88,9 +88,9 @@ def _arcaneshield_grant(state: State, owner_id: int) -> Optional[dict]:
     if state.get_entity(target) is None:
         return None
     ectx = ExecutionContext(state=state, rng=state.rng)
-    # #98 : le 4e arg natif est `TurnsFromRounds(1)` (CreateBehaviour @180e16b40) -> la duree du
-    # BOUCLIER passe elle aussi par `BattleQuery.ConvertRoundsToTurns @181058af0`. Le decay est
-    # `RemoveOneTurnOnShields @180e6c4e0` (1 par EndTurn) = MEME cadence que le tick d'effets.
+    # #98 : le 4e arg natif est `TurnsFromRounds(1)` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArcaneShieldAbility$$CreateBehaviour) -> la duree du
+    # BOUCLIER passe elle aussi par `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns`. Le decay est
+    # `IdunBattle.Operations.EndTurnOperation$$RemoveOneTurnOnShields` (1 par EndTurn) = MEME cadence que le tick d'effets.
     from ....abilities.base import convert_rounds_to_turns
     dur = convert_rounds_to_turns(state, 1)
     CreateShield(Target(), amount, duration=dur, source="ArcaneShield").execute(  # TurnsFromRounds(1)
@@ -103,7 +103,7 @@ def _arcaneshield_grant(state: State, owner_id: int) -> Optional[dict]:
 
 
 class ArcaneShieldAbility(TriggeredAbility):
-    """`ArcaneShieldAbility` (@180e16f60 CreateTrigger / @180e16b40 CreateBehaviour) — bouclier de
+    """`ArcaneShieldAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArcaneShieldAbility$$CreateTrigger CreateTrigger / IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArcaneShieldAbility$$CreateBehaviour CreateBehaviour) — bouclier de
     Thaumachus (`thousSorcerer`, ThousandSons, passive `ArcaneShield`).
 
     Natif : `CreateTrigger = On(0x1c) & OwnerIsActor & OwnerIsCaster` — `0x1c` = activation TERMINÉE de

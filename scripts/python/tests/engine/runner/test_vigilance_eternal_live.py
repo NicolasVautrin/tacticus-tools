@@ -1,20 +1,20 @@
 """#220 : VigilanceEternal (actif 1202, Tyrith custoKyrus) PORT -> arbre DSL, valide LIVE.
 
-`VigilanceEternalAbility$$ExecuteBehaviour @18122a580` (DECOMPILE, mirror 1:1) = HeroicFusillade
-@1811e8de0 EXACT, MOINS splash/crit :
+`VigilanceEternalAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$ExecuteBehaviour` (DECOMPILE, mirror 1:1) = HeroicFusillade
+IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility$$ExecuteBehaviour EXACT, MOINS splash/crit :
     op_BitwiseAnd(
       If( Not(IsAdjacent(caster@0x160, target@0x178, 3)), MoveUnit(caster, destTile) ),   # MOVE (charge)
       If( IsAlive(caster) op_BitwiseAnd IsAlive(target),
           AttackWithAttackDamage(caster, target, MinMaxDamage, GetDamageProfile=Power,
                                  GetNumberConstant(0x2f)=nrOfHits=3) ) )                   # attaque mono-cible
 FINDINGS DECOMPILE :
-  - MOVE gate `Not(IsAdjacent(caster,target,3))` : `IsAdjacent.ShouldTrigger @180f9f7b0` par-paire = slot
-    iface 0x5f (bool AreNeighbours, PAS 0x6e=GetDistance d'IsInRange @180fa1720) -> dist==1 STRICT ; le `3`
+  - MOVE gate `Not(IsAdjacent(caster,target,3))` : `IdunBattle.Entities.Triggers.IsAdjacentAbilityTrigger$$ShouldTrigger` par-paire = slot
+    iface 0x5f (bool AreNeighbours, PAS 0x6e=GetDistance d'IsInRange IdunBattle.Entities.Triggers.IsInRangeAbilityTrigger$$ShouldTrigger) -> dist==1 STRICT ; le `3`
     (champ +0x18) ne va qu'a l'eval du selecteur (INERTE pour Caster/Target). Gate = "bouge SAUF si deja
     adjacent" == move-gate HeroicFusillade `Not(IsSurrounding(...,1))`. Corrobore wiki Tyrith + node porte
-    dist==1 + precedent TheBetrayer @1811a4f70.
-  - `GetPossibleMovementTiles @18122ae10` = `TilesUnitCanMoveToChargeTarget(caster, tile, target,
-    Direct(GetNumberConstant(0x16)=range=2), reachOnly=1) @180dfda00` = `CanAddUnit(AdjacentTiles(target))
+    dist==1 + precedent TheBetrayer IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_TakeTurnAbility$$CreateBehaviour.
+  - `IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$GetPossibleMovementTiles` = `IdunBattleLogic.Entities.DSLFactory$$TilesUnitCanMoveToChargeTarget(caster, tile, target,
+    Direct(GetNumberConstant(0x16)=range=2), reachOnly=1)` = `CanAddUnit(AdjacentTiles(target))
     op_And MovableTilesInRange(caster, tile, Direct(range), reachOnly=1)` == collapse `_move_dest_tile`
     HeroicFusillade (surround_radius=1, move_range=2). `SortTilesByUtility(0x20)` -> tuile la plus proche.
   - ATTAQUE mono-cible melee (profil Power, pierce 40%, 3 hits) ; gate = les DEUX vivants ; PAS de splash/crit.

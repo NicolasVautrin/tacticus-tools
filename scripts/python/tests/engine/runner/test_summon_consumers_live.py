@@ -2,18 +2,18 @@
 Incursion (1021), Poxwalkers (1040). Confrontation LIVE de la face COMBAT portee.
 
 VAs portees :
-  `WaaaghAbility.ExecuteBehaviour @18122b010` (+ `GetBuffBehaviour @18122b900`,
-     `GetPossibleMovementTiles @18122c060`, `GetAttackBehaviour @18122b700`,
-     `GetSummonBehaviour @18122c120`, `GetTriggerSummonsBehaviour @18122c260`)
-  `SendInTheNextWaveAbility.ExecuteBehaviour @181206490` (+ `GetNumSummons @181206a70`,
-     `GetSpawnTilesSelector @181206cc0`, `GetSpawnedUnitRange @181206ed0`)
-  `IncursionAbility.ExecuteBehaviour @1811e9fe0` (+ `GetNextSpawnTile @1811ea520`,
-     `GetContinueTrigger @1811ea420`)
-  `SpawnPoxwalkersAbility.ExecuteBehaviour @181208b80`
-     (+ `ContagionsOfNurgle_ArmorReduction_Effect.CalculateRange @180f39940`)
-Primitives : `DSLFactory.UnitsWithVisualId @180e00e90`, `VisualUnitIdFromUnitId @180e01d70`,
-  `ChainBehaviour @180deb910`, `UseNormalAttackIfAble @180e01870`,
-  `PerformAIAttackFromCurrentPosition @180df8a10`, `UnitMovementRangeWithBonus @180dff050`.
+  `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour` (+ `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffBehaviour`,
+     `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetPossibleMovementTiles`, `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetAttackBehaviour`,
+     `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetSummonBehaviour`, `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetTriggerSummonsBehaviour`)
+  `IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$ExecuteBehaviour` (+ `IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetNumSummons`,
+     `IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetSpawnTilesSelector`, `IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetSpawnedUnitRange`)
+  `IdunBattleLogic.Entities.Abilities.Active.Loki.IncursionAbility$$ExecuteBehaviour` (+ `IdunBattleLogic.Entities.Abilities.Active.Loki.IncursionAbility$$GetNextSpawnTile`,
+     `IdunBattleLogic.Entities.Abilities.Active.Loki.IncursionAbility$$GetContinueTrigger`)
+  `IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$ExecuteBehaviour`
+     (+ `IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect$$CalculateRange`)
+Primitives : `IdunBattleLogic.Entities.DSLFactory$$UnitsWithVisualId`, `IdunBattleLogic.Entities.DSLFactory$$VisualUnitIdFromUnitId`,
+  `IdunBattleLogic.Entities.DSLFactory$$ChainBehaviour`, `IdunBattleLogic.Entities.DSLFactory$$UseNormalAttackIfAble`,
+  `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttackFromCurrentPosition`, `IdunBattleLogic.Entities.DSLFactory$$UnitMovementRangeWithBonus`.
 
 ASCII-only. Skip si pas de session / geometrie non cooperative.
 """
@@ -45,7 +45,7 @@ def _board(rpc, rid):
 def _legal_targets(rpc, rid, uid, ability):
     """Cibles LEGALES de `ability` pour l'unite `uid`, telles que le NATIF les publie (`abilityTargets`
     -> `GetDynamicInvalidTargetReason` de la classe d'ability). C'est la SEULE porte fiable : p.ex.
-    `WaaaghAbility.GetDynamicInvalidTargetReason @18122bc20` n'accepte une cible que s'il existe au moins
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetDynamicInvalidTargetReason` n'accepte une cible que s'il existe au moins
     une tuile de CHARGE (`GetPossibleMovementTiles` non vide) -> un simple critere de distance ne suffit
     pas (verifie live : cible a dist 2 REFUSEE, cible a dist 5 ACCEPTEE)."""
     at = rpc("abilityTargets", {"runnerId": rid}, 90)
@@ -68,7 +68,7 @@ def _drive_until_castable(rpc, rid, caster_vis, enemy_vis, ability, tries=16, ma
     Renvoie (caster_live, target_id). Skip si jamais castable.
 
     `max_dist` sert aux abilities dont la porte de TARGETING est PLUS LARGE que la garde d'EXECUTION :
-    `IncursionAbility.GetNextSpawnTile @1811ea520` exige `IsInRange(caster, target, range=2)` alors que
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.IncursionAbility$$GetNextSpawnTile` exige `IsInRange(caster, target, range=2)` alors que
     `abilityTargets` accepte la cible bien au-dela (verifie live : cible legale a dist 5, 0 summon)."""
     for _ in range(tries):
         dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
@@ -215,7 +215,7 @@ def test_waaagh_summon_stats_bit_exact_vs_live(waaagh):
 
 
 def test_waaagh_buff_effects_posed_live_and_port(waaagh):
-    """`GetBuffBehaviour @18122b900` : les 3 effets (1099 ExtraMovement / 1100 ExtraDamage /
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffBehaviour` : les 3 effets (1099 ExtraMovement / 1100 ExtraDamage /
     1101 ExtraHits) sont poses sur le caster LIVE **et** par le port (le selecteur inclut le caster)."""
     d = waaagh
     from engine.entities.effect_type import EffectType
@@ -232,7 +232,7 @@ def test_waaagh_buff_effects_posed_live_and_port(waaagh):
 
 
 def test_waaagh_move_range_uses_effect_not_double_count(waaagh):
-    """`UnitMovementRangeWithBonus @180dff050` = `If(HasEffect(caster,1099), StatAmount(MOVEMENT),
+    """`IdunBattleLogic.Entities.DSLFactory$$UnitMovementRangeWithBonus` = `If(HasEffect(caster,1099), StatAmount(MOVEMENT),
     Sum(StatAmount(MOVEMENT), bonus))` -> ANTI-DOUBLE-COMPTE : comme le buff 1099 est pose AVANT
     l'etage move, la portee resolue == MOVEMENT courant (deja +extraMovement), PAS MOVEMENT+2x."""
     d = waaagh
@@ -327,7 +327,7 @@ def sitnw(rpc, build_runner):
 
 
 def test_sitnw_count_matches_live(sitnw):
-    """`GetNumSummons @181206a70` = `Min(nrOfSummons + Count(allies morts), maxSummons[level])`.
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetNumSummons` = `Min(nrOfSummons + Count(allies morts), maxSummons[level])`.
     Sans perte alliee -> nrOfSummons = 2 ; le port et le natif spawnent le MEME nombre."""
     d = sitnw
     if not d["live_summons"]:
@@ -338,7 +338,7 @@ def test_sitnw_count_matches_live(sitnw):
 
 
 def test_sitnw_spawn_within_range_of_target(sitnw):
-    """`GetSpawnTilesSelector @181206cc0` : les Cadians apparaissent dans le disque de rayon
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetSpawnTilesSelector` : les Cadians apparaissent dans le disque de rayon
     `GetSpawnedUnitRange`=2 autour de la CIBLE (live et port)."""
     d = sitnw
     if not d["live_summons"]:
@@ -395,7 +395,7 @@ def incursion(rpc, build_runner):
 
 def test_incursion_chain_bounded_and_adjacent(incursion):
     """`ChainBehaviour(Direct(maxSummons=6), Spawn(ActiveTarget@0x180))` avec
-    `GetNextSpawnTile @1811ea520` = 1 tuile LIBRE ADJACENTE a la cible par iteration : le port invoque
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.IncursionAbility$$GetNextSpawnTile` = 1 tuile LIBRE ADJACENTE a la cible par iteration : le port invoque
     entre 1 et 6 Bloodletters, TOUS adjacents a la cible, et pas plus que le nombre d'hex libres."""
     d = incursion
     n_port = len(d["res"]["spawned"])
@@ -428,7 +428,7 @@ def test_incursion_on_appearance_attack(incursion):
 
 
 def test_incursion_chain_stops_when_target_dead(incursion):
-    """CONTRE-CAS de la CONDITION DE CONTINUATION (`GetContinueTrigger @1811ea420` :
+    """CONTRE-CAS de la CONDITION DE CONTINUATION (`IdunBattleLogic.Entities.Abilities.Active.Loki.IncursionAbility$$GetContinueTrigger` :
     `IsAlive(caster) & IsAlive(target) & IsInRange(caster, target, range)`) : si la cible est DEJA morte
     a l'entree, la chaine ne fait AUCUNE iteration -> 0 spawn. Sans ce contraste, la boucle bornee ne
     prouve pas la re-evaluation par-iteration."""
@@ -492,7 +492,7 @@ def poxwalkers(rpc, build_runner):
 
 
 def test_poxwalkers_radius_from_turns_started(poxwalkers):
-    """`ContagionsOfNurgle_ArmorReduction_Effect.CalculateRange @180f39940` : rayon = 1 si
+    """`IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect$$CalculateRange` : rayon = 1 si
     TurnsStarted <= 2, 2 si 3..4, 3 si >= 5. Le port lit la MEME stat (0xc) du caster."""
     from engine.runner.components import StatsComponent
     from engine.entities.stats import StatType
@@ -606,7 +606,7 @@ def test_waaagh_ork_ally_is_buffed_not_forced_to_act(waaagh_ally):
 
 
 def test_waaagh_target_damage_live_and_port(waaagh):
-    """L'etage ATTAQUE (`GetAttackBehaviour @18122b700` : `If(IsAdjacent(caster,target),
+    """L'etage ATTAQUE (`IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetAttackBehaviour` : `If(IsAdjacent(caster,target),
     UseActiveAbility(normal))`) + les actions AI des Ork Boyz font ENCAISSER la cible pendant le cast,
     live ET port. (Existence confrontee, pas le scalaire.)"""
     d = waaagh
@@ -618,7 +618,7 @@ def test_waaagh_target_damage_live_and_port(waaagh):
 
 
 def test_sitnw_num_summons_grows_with_dead_allies(sitnw):
-    """GENERALISATION de `GetNumSummons @181206a70` (terme DYNAMIQUE non exerce par le scenario de
+    """GENERALISATION de `IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetNumSummons` (terme DYNAMIQUE non exerce par le scenario de
     construction) : `Min(nrOfSummons + Count(Attackable(Friends(AllDeadOrResurrectedUnits))),
     maxSummons[level])`. On INJECTE des allies MORTS dans l'etat-avant et on verifie que le count monte
     d'autant, PUIS qu'il PLAFONNE a `maxSummons`. (Offline : provoquer N morts amies live coute une
@@ -650,7 +650,7 @@ def test_sitnw_num_summons_grows_with_dead_allies(sitnw):
 
 
 def test_poxwalkers_radius_bands_offline(poxwalkers):
-    """GENERALISATION de `ContagionsOfNurgle_ArmorReduction_Effect.CalculateRange @180f39940` : les TROIS
+    """GENERALISATION de `IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect$$CalculateRange` : les TROIS
     bandes (TurnsStarted <=2 -> 1 ; 3..4 -> 2 ; >=5 -> 3) exercees sur le vrai etat runner en pilotant la
     stat 0xc. Le scenario de construction n'en couvre qu'UNE."""
     from engine.runner.abilities.deathguard import contagions_of_nurgle_range

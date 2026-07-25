@@ -30,7 +30,7 @@ def ability_attack_params(state: "State", caster_id: int, ability_id: str,
 
     `hits_add_key` = 2ᵉ constante de coups AJOUTÉE à `hits` (mirror d'une bande dont le nb de coups est la
     SOMME de deux `GetNumberConstant` — GauntletsOfUltramar bande adjacente = `GetNumberConstant(0x2f)` +
-    `GetNumberConstant(0x32)`, `ExecuteBehaviour @1811e1c80`). Défaut None = un seul `hits_key`. Constante
+    `GetNumberConstant(0x32)`, `IdunBattleLogic.Entities.Abilities.Active.Loki.GauntletsOfUltramarAbility$$ExecuteBehaviour`). Défaut None = un seul `hits_key`. Constante
     absente → +0 (le natif `GetNumberConstant` d'un index manquant rend 0, pas 1).
 
     `level_slot` = SOURCE du niveau qui indexe `minDmg`/`maxDmg` : `"active"` (défaut, ability ACTIVE =
@@ -92,19 +92,19 @@ def turns_from_rounds(rounds: int) -> int:
 
 
 def convert_rounds_to_turns(state: "State", rounds: int) -> int:
-    """`BattleQuery.ConvertRoundsToTurns @181058af0` (mirror EXACT) = `count(joueurs du turnOrder dont
+    """`IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` (mirror EXACT) = `count(joueurs du turnOrder dont
     PlayerType != 2) * rounds`.
 
-    DECOMPILE : `this+0xa0` = la `BattleConfiguration` (`IdunRunner..ctor @180e38500` :
+    DECOMPILE : `this+0xa0` = la `BattleConfiguration` (`IdunRunner..IdunBattle.Runner.IdunRunner$$.ctor` :
     `BattleQuery..ctor(state = match.state, bc)`) ; `bc+0x30 -> +0x18` = la liste iteree
     (`BC.Player.TurnOrder`, ids de joueurs) ; pour chaque id : `StateExtensions.GetPlayer(state, id)`
     puis `PlayerComponent+0x20` -- l'entree est comptee SAUF si cette valeur vaut 2 (Environment).
     Retour = `compteur * rounds`.
 
     DEUX voies natives passent par ici, TOUTES DEUX converties :
-      * le noeud DSL `TurnsFromRounds(n)` (`TurnsFromRoundsFormula.Calculate @180f26a50` = slot 0x1b
+      * le noeud DSL `TurnsFromRounds(n)` (`IdunBattle.Entities.Formulas.TurnsFromRoundsFormula$$Calculate` = slot 0x1b
         de `BattleQuery` sur la valeur du noeud) ;
-      * la duree PAR DEFAUT dans `AddEffectOperation.Execute @180e48940` (branche « pas d'override » :
+      * la duree PAR DEFAUT dans `IdunBattle.Operations.AddEffectOperation$$Execute` (branche « pas d'override » :
         `ConvertRoundsToTurns(DefaultAmountOfRounds(type).Value)`).
     Une duree passee en `Nullable<int>`/`Direct(n)` par l'appelant est en TOURS et n'est **PAS**
     convertie (le natif la prend telle quelle dans `param_6`).
@@ -120,21 +120,21 @@ def convert_rounds_to_turns(state: "State", rounds: int) -> int:
 # « Does not end turn » (#139) — mirror des virtuals `SetsEndTurnFlags` / `SetsActiveAbilityUsedFlag`.
 #
 # NATIF : chaque ability active expose deux virtuals retournant un `IdunBattle.DSL.IAbilityTrigger` :
-#   • `AActiveAbility.SetsEndTurnFlags` @180fb3150          = `_dslFactory(+0x30).True(+0xf8)` (défaut)
+#   • `IdunBattle.Entities.Abilities.AActiveAbility$$SetsEndTurnFlags          = `_dslFactory(+0x30).True(+0xf8)` (défaut)
 #   • `AActiveAbility.SetsActiveAbilityUsedFlag`            = `_dslFactory.True` (même body, foldé IL2CPP)
-# Après exécution, `ActiveAbilityOperation.ExecuteInternal` @180e44ec0 calcule :
+# Après exécution, `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal calcule :
 #   skipEndTurn     = options.skipEndTurnFlag  || !ability.SetsEndTurnFlags().Evaluate(entities)
-#                     (`GetSkipEndTurnFlag` @180e47120, slot iface 0x17)
+#                     (`IdunBattle.Operations.ActiveAbilityOperation$$GetSkipEndTurnFlag, slot iface 0x17)
 #   skipAbilityUsed = options.skipAbilityUsedFlag || !ability.SetsActiveAbilityUsedFlag(caster).Evaluate(...)
-#                     (`GetSkipAbilityUsedFlag` @180e46f60, slot iface 0x18)
-# puis `AddFlagsAfterAbilityExecution(caster, skipAbilityUsed, skipEndTurn)` @180e447f0 :
+#                     (`IdunBattle.Operations.ActiveAbilityOperation$$GetSkipAbilityUsedFlag, slot iface 0x18)
+# puis `IdunBattle.Operations.ActiveAbilityOperation$$AddFlagsAfterAbilityExecution(caster, skipAbilityUsed, skipEndTurn) :
 #   !skipAbilityUsed -> UnitFlags.Add(ActiveAbilityUsed=2)
-#   !skipEndTurn     -> OperationProcessor.FinishUnitTurn @180e081c0 -> FinishUnitTurnOperation @180e72140
+#   !skipEndTurn     -> Core.Services.OperationProcessor$$FinishUnitTurn -> FinishUnitTurnOperation IdunBattle.Operations.FinishUnitTurnOperation$$Execute
 #                       (UnitFlags.Add(ArrivedAtFinalTile=1) + Add(TurnFinished=3)).
 #
 # INVENTAIRE des overrides (dump symbols.json build gqfc5mff6c ; ids = ActiveAbilityType) — les corps
 # constants sont FOLDÉS par IL2CPP (dédup) : fold-winners lus = `ArcScourgeAbility.SetsEndTurnFlags`
-# @1811b3d40 (`return _dsl.No(+0x118)`) et `.SetsActiveAbilityUsedFlag` @1811b3d20 (`return _dsl.False
+# IdunBattleLogic.Entities.Abilities.Active.ArcScourgeAbility$$SetsEndTurnFlags (`return _dsl.No(+0x118)`) et `.IdunBattleLogic.Entities.Abilities.Active.ArcScourgeAbility$$SetsActiveAbilityUsedFlag (`return _dsl.False
 # (+0x100)`, 27 refs vtable). Sémantique croisée avec les tooltips i2 (« does not end X's turn »).
 #
 # Ability -> unité (i2) : 1014 ArmoriumCherub=Vindicta · 1063 FireAndReposition=Calandis · 1077
@@ -156,7 +156,7 @@ NO_ABILITY_USED_FLAG_ABILITY_TYPES = frozenset({
 })
 
 # Ability 1081 FightingRetreat (Darkstrider) = SEUL override CONDITIONNEL lu dans le build courant :
-# `FightingRetreatAbility.SetsActiveAbilityUsedFlag` @1811de7e0 = `_dsl.Direct(!Any(battleQuery slot 0x7c
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.FightingRetreatAbility$$SetsActiveAbilityUsedFlag = `_dsl.Direct(!Any(battleQuery slot 0x7c
 # (caster, currentPlayerEntityId)))` — pose les flags UNIQUEMENT si AUCUN ennemi adjacent (i2 : « does not
 # end Darkstrider's turn IF he is adjacent to an enemy »). Son SetsEndTurnFlags (corps foldé, non isolable
 # offline) est aligné sur la même condition par le texte i2 — ASSOMPTION DOCUMENTÉE, même prédicat.
@@ -164,7 +164,7 @@ FIGHTING_RETREAT = 1081
 
 
 def _fighting_retreat_sets_flags(state: "State", caster_id: int) -> bool:
-    """Mirror @1811de7e0 : True (pose les flags = tour fini) ssi PAS d'ennemi VIVANT adjacent (dist hex 1)
+    """Mirror IdunBattleLogic.Entities.Abilities.Active.Loki.FightingRetreatAbility$$SetsActiveAbilityUsedFlag : True (pose les flags = tour fini) ssi PAS d'ennemi VIVANT adjacent (dist hex 1)
     au caster. Ennemi = `team` differente (meme convention que les autres ports, ex. `_nearest_enemy`)."""
     import hexgeo
     from ..components import OwnerComponent, PositionComponent, UnitComponent
@@ -193,7 +193,7 @@ def _fighting_retreat_sets_flags(state: "State", caster_id: int) -> bool:
 
 def sets_end_turn_flags_for(ability_type: int, state: "State", caster_id: int) -> bool:
     """Verdict `ability.SetsEndTurnFlags().Evaluate(entities)` pour UN ActiveAbilityType (défaut base
-    @180fb3150 = True ; overrides = inventaire RE ci-dessus). Utilisé par le handler pour TOUTE ability
+    IdunBattle.Entities.Abilities.AActiveAbility$$SetsEndTurnFlags = True ; overrides = inventaire RE ci-dessus). Utilisé par le handler pour TOUTE ability
     exécutée, portée ou non (le natif pose les flags indépendamment du contenu de la behaviour)."""
     at = int(ability_type)
     if at == FIGHTING_RETREAT:
@@ -222,10 +222,10 @@ class ActiveAbility:
             f"{type(self).__name__}.execute_behaviour non porté (cf. plan tranche EFFETS/ABILITIES)")
 
     def sets_end_turn_flags(self, state: "State", caster_id: int) -> bool:
-        """Mirror du virtual `SetsEndTurnFlags` @180fb3150 (défaut `_dsl.True`) — résolu par la table
+        """Mirror du virtual `IdunBattle.Entities.Abilities.AActiveAbility$$SetsEndTurnFlags (défaut `_dsl.True`) — résolu par la table
         d'overrides RE (une sous-classe portée PEUT surcharger pour une logique bespoke)."""
         return sets_end_turn_flags_for(self.ABILITY_TYPE, state, caster_id)
 
     def sets_active_ability_used_flag(self, state: "State", caster_id: int) -> bool:
-        """Mirror du virtual `SetsActiveAbilityUsedFlag` (défaut `_dsl.True`, body foldé @180fb3150)."""
+        """Mirror du virtual `SetsActiveAbilityUsedFlag` (défaut `_dsl.True`, body foldé IdunBattle.Entities.Abilities.AActiveAbility$$SetsEndTurnFlags)."""
         return sets_active_ability_used_flag_for(self.ABILITY_TYPE, state, caster_id)

@@ -17,21 +17,21 @@ def _cheby(a, b):
 
 
 class GetStuckInTrait(BaseTrait):
-    """`GetStuckIn` (ork) — coups bonus. `GetStuckInAbility.CreateBehaviour` @180f83280 =
-    `AddBonusHitsToCurrentHitGroup` sous `Maybe(GetBonusHitChance)` ; trigger @180f83350 = `On(8) &
+    """`GetStuckIn` (ork) — coups bonus. `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$CreateBehaviour =
+    `AddBonusHitsToCurrentHitGroup` sous `Maybe(GetBonusHitChance)` ; trigger IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$CreateTrigger = `On(8) &
     CurrentHitIndex IsOdd & OwnerIsCaster & !(MinDistance>2)` → **portée 2 (PAS mêlée-only)** : s'applique
-    aussi au tir si la cible est à ≤2 hex ; `GetBonusHitChance` @180f83460 = `If(orks_adj≥2 OU
+    aussi au tir si la cible est à ≤2 hex ; `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance = `If(orks_adj≥2 OU
     units_adj≥4, chance_2[key0x33]=100, chance[key0x2a]=30)` ; les comptes = unités adjacentes à la CIBLE
     (AdjacentUnits(target) → UnitsFromFaction Orks=5 / Friends-of-caster).
     Ajoute **+1 coup par coup d'index IMPAIR** = `+floor(hits/2)` (hits = série APRÈS PowerTrip, AVANT
     GetStuckIn). ⚠ N'est PAS ×2 (l'ancien doubling était faux : pour base impair il sur-comptait).
 
     **`Maybe(chance)` en PRÉDICTION : compté SSI chance == 100** (RESTAURÉ #98). GROUND TRUTH step-13
-    seed777 (trace AllMods @18102d3f0, 28 paires (tuile,cible), u90 full-HP) : chance 30% (1 ami adjacent
+    seed777 (trace AllMods IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers, 28 paires (tuile,cible), u90 full-HP) : chance 30% (1 ami adjacent
     à la cible) → le groupe de coups bonus n'est JAMAIS compté (4 hits partout — la prédiction native
     donne exactement arme 3 + PowerTrip 1). L'entrée bonus-hits est évaluée en Nullable inclus/exclu
-    (AdditionalHitsFromEffects.GetAdditionalHitsFromEffectsInternal @180e59150, flag prediction) — PAS
-    de pondération fractionnaire. Chance = `GetBonusHitChance` @180f83460 = `If(orks_adj>=2 OU
+    (IdunBattle.Operations.AdditionalHitsFromEffects$$GetAdditionalHitsFromEffectsInternal, flag prediction) — PAS
+    de pondération fractionnaire. Chance = `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance = `If(orks_adj>=2 OU
     amis_adj>=4, chance_2=100, chance=30)` (gameconfig GetStuckIn). ⚠ L'épisode « fold inconditionnel »
     (l'observation u90→u86 « ×1.50 uniforme 4→6 » qui avait supersédé ce gate) était une MISATTRIBUTION :
     ce ×1.5 = le bonus d'ÉLÉVATION de la tuile de plan (5,4) elev3 > cible elev2 (#98) — 6 = 4×1.5,
@@ -39,7 +39,7 @@ class GetStuckInTrait(BaseTrait):
 
     **Ce fold est PRÉDICTION-ONLY** (verdict validateur cluster, BITE 2) : `attack_hits_with_modifiers` ne
     l'invoque que si `include_bonus_hit_behaviours=True` (prédiction). En COMBAT le natif applique GetStuckIn
-    via le behaviour d'exécution chance-gaté `AddBonusHitsToCurrentHitGroupBehaviour @180f93410`
+    via le behaviour d'exécution chance-gaté `AddBonusHitsToCurrentHitGroupBehaviour IdunBattle.Entities.Behaviours.AddBonusHitsToCurrentHitGroupBehaviour$$Execute`
     (roll `Maybe(GetBonusHitChance)` 30%/100%), PORTÉ (#62c, commit 3997793) HORS de cette formule : à
     l'EXÉCUTION dans `runner.operations.damage_hits._run_hits` (param `bonus_hit_chance`, alimenté par
     `runner.damage_model.getstuckin_combat_chance`), qui roll le `Maybe` après le block de chaque coup
@@ -62,18 +62,18 @@ class GetStuckInTrait(BaseTrait):
         if _cheby(apos, tpos) > 2:                # !(MinDistance>2) = cible à <=2 hex (trigger structurel)
             return 0
         # Maybe(chance) EN PRÉDICTION : compté SSI `GetBonusHitChance == 100` (branche chance_2 :
-        # orks_adj >= 2 OU amis_adj >= 4 autour de la CIBLE, @180f83460). C'est le verdict ORIGINEL du
+        # orks_adj >= 2 OU amis_adj >= 4 autour de la CIBLE, IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance). C'est le verdict ORIGINEL du
         # step-13 (« chance 30% -> jamais compté, 4 hits partout »), RESTAURÉ #98 : l'observation qui
         # l'avait « supersédé » (u90 Snappawrecka -> u86 ranged, oracle x1.50 uniforme 4->6 interprété
         # comme fold-a-30%) était une MISATTRIBUTION — le x1.50 était le BONUS D'ÉLÉVATION de la tuile
-        # de plan (5,4) elev3 > cible elev2 (builder @181000590, inliné, cf. prediction.md MAJ #98) :
+        # de plan (5,4) elev3 > cible elev2 (builder IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction, inliné, cf. prediction.md MAJ #98) :
         # oracle plat (3,5) = [1364,5060] = 4 coups EXACTS (341/1265 per-coup), (5,4) = x1.5 EXACT.
         # Le fold inconditionnel + pas-d'élévation se compensaient EXACTEMENT (6 = 4 x 1.5) — bug
         # compensatoire classique, démasqué en portant l'élévation.
         base_hits = int(c.get("base_hits") or 0)  # hits APRÈS PowerTrip, AVANT GetStuckIn
         if base_hits <= 0:
             return 0
-        # GetBonusHitChance @180f83460 : AdjacentUnits(target, ring 1) -> UnitsFromFaction(Orks=5) >= 2
+        # IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance : AdjacentUnits(target, ring 1) -> UnitsFromFaction(Orks=5) >= 2
         # OU Friends(caster) >= 4 -> chance_2 (=100) ; sinon chance (=30). Adjacence HEX (hexgeo, parité
         # validée vs boardGraph) ; l'attaquant est compté à sa tuile d'ATTAQUE (attack_pos).
         import hexgeo
@@ -100,7 +100,7 @@ class GetStuckInTrait(BaseTrait):
 
 class ResilientTrait(BaseTrait):
     """`Resilient` (trait 0x3f1) — plafond de SURVIE côté cible. **Port fidèle = le SERVICE**
-    `services.trait_damage_limits.apply_resilient_trait_damage_limit` (`ApplyResilientTraitDamageLimit @18102c3a0`,
+    `services.trait_damage_limits.apply_resilient_trait_damage_limit` (`IdunBattle.Core.Services.DamagePrediction$$ApplyResilientTraitDamageLimit`,
     homonyme natif : cap `hp-1` hors overkill si `max_hp>1`). Structure native = service `DamagePrediction` +
     `HasTrait`, PAS un cap OO par-trait -> NE PAS re-porter la formule ici (une seule source). Le cap sera
     consommé par `apply_trait_damage_limits_to_damage` quand la chaîne sera wirée (#56)."""
@@ -111,7 +111,7 @@ class ResilientTrait(BaseTrait):
 
 class ImperviousTrait(BaseTrait):
     """`Impervious` (trait 0x1c) — côté cible. **Port fidèle = le SERVICE**
-    `services.trait_damage_limits.apply_impervious_trait_damage_limit` (`ApplyImperviousTraitDamageLimit @18102c190` :
+    `services.trait_damage_limits.apply_impervious_trait_damage_limit` (`IdunBattle.Core.Services.DamagePrediction$$ApplyImperviousTraitDamageLimit` :
     dégât=0 tant que la jauge `StatComponent.CurrentValue` < 100 ; StatType du composant `DAT_1831b6d48` encore à
     identifier). Comme Resilient : structure native = service, on ne duplique PAS la formule dans la classe OO."""
 
@@ -121,11 +121,9 @@ class ImperviousTrait(BaseTrait):
 class MkXGravisTrait(BaseTrait):
     """`MkXGravis` (trait 0x3f5 = 1013, `UnitTrait`, cf. #146) — côté CIBLE : les dégâts entrants
     TRAVERSENT L'ARMURE UNE 2ᵉ FOIS (i2 : « Any incoming Damage has to go through Armour a second time.
-    Does not apply to Crits »). Lu DIRECTEMENT dans `DamagePrediction.GetBaseDamageWithFixedPiercedArmor
-    @181030d10` : `HasTrait(cible, 0x3f5) && param_8(isCrit)==0` → `hit_multiplier=2` → la boucle
+    Does not apply to Crits »). Lu DIRECTEMENT dans `IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageWithFixedPiercedArmor` : `HasTrait(cible, 0x3f5) && param_8(isCrit)==0` → `hit_multiplier=2` → la boucle
     `GetDamageWithPiercing(d, pierce, armor)` s'exécute 2× (armure appliquée deux fois). Ce helper est dans
-    le chemin de PRÉDICTION IA (`CalculateBaseDamageWithAllModifiers @18102d3f0` ← `PredictAttackRaw
-    @181032fb0`) ET de combat (`CalculateAbilityDamage @18102cb50`).
+    le chemin de PRÉDICTION IA (`IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` ← `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw`) ET de combat (`IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`).
 
     ⚠ NON appliqué sur CRIT (param_8==1). La prédiction du port ne modélise PAS de branche crit séparée
     (le crit est exclu du dégât rapporté, #62b) → défaut non-crit = multiplicateur 2, exactement ce que

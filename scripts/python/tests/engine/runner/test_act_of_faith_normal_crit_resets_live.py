@@ -1,8 +1,8 @@
 """CONFIRMATION LIVE (oracle natif) : un crit d'attaque NORMALE reset ActOfFaith.
 
 Confronte le NATIF (pas le port) sur le point tranche par le re-expert (G6b) : `On(9)=Attack` est un event
-GENERIQUE emis par `FinishAttackOperation @180e71310` pour TOUTE attaque, et `ActOfFaith_RemoveEffectAbility`
-@181219f90 = `On(9) & OwnerIsCaster & WasCrit & HasEffect(0x3f9)` SANS gate normal/ability -> **le natif reset
+GENERIQUE emis par `FinishAttackOperation IdunBattle.Operations.FinishAttackOperation$$Execute` pour TOUTE attaque, et `ActOfFaith_RemoveEffectAbility`
+IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateTrigger = `On(9) & OwnerIsCaster & WasCrit & HasEffect(0x3f9)` SANS gate normal/ability -> **le natif reset
 sur un crit d'attaque NORMALE**. Corrige #151 (qui croyait On(9) ability-only via `OnNormalAttackOrSmite`).
 
 Scenario (Sister `adeptCanoness` cc force -> crite toujours quand elle attaque) :

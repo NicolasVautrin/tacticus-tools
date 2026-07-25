@@ -4,31 +4,30 @@
 Kit natif -- l'ability triggered `LivingMetalRepair` (TriggeredAbilityType 0x3f2=1010) accordee
 par le trait LivingMetal ; DEUX arbres DSLFactory (mirror STRUCTURE, pas les noms gshared) :
 
-- `LivingMetalRepairAbility.CreateTrigger @181222630` =
+- `IdunBattleLogic.Entities.Abilities.Active.Loki.LivingMetalRepairAbility$$CreateTrigger` =
       OwnerIsActor(@0xa0) & On(TurnStart_Other=0x13=19) & IsDamaged(self)
-  * `On(TurnStart_Other=19)` = 2e des 5 events emis par `StartTurnOperation.Execute @180ea3fb0`
+  * `On(TurnStart_Other=19)` = 2e des 5 events emis par `IdunBattle.Operations.StartTurnOperation$$Execute`
     (sequence FUN_180026490(..,0x12->0x13->0x14->0x15->0x16) ; 0x16=TurnStart_Actions). Le meme
     event 0x13 porte FirstAid (tiles.py). Vecteur porte = `turn_start_other_triggers` (dispatch.py).
-  * `@0xa0` (`DSLFactory.InitializeShared @180df2670`, ctor gshared) = scoping "le proprietaire est
+  * `@0xa0` (`IdunBattleLogic.Entities.DSLFactory$$InitializeShared`, ctor gshared) = scoping "le proprietaire est
     le joueur ENTRANT" -- PROUVE live (probe_203) : la regen ne fire QU'AU tour du proprietaire
     (delta 0 au tour adverse). Porte ici = `ev.player_id == OwnerComponent.player`.
-  * `IsDamaged(self)` (`DSLFactory.IsDamaged @180df32e0`) = `Not(UnitsWithStatEqualToTrigger(self,
+  * `IsDamaged(self)` (`IdunBattleLogic.Entities.DSLFactory$$IsDamaged`) = `Not(UnitsWithStatEqualToTrigger(self,
     HEALTH=5, part MISSING=4, Direct(0)@factory+0xb8))` = missing HP > 0 = HP courant < HP max.
     (Le dispatch gate deja owner VIVANT -> une unite MORTE ne regen pas : pas d'auto-resurrection,
     conforme au decompile -- LivingMetalRepairAbility n'est PAS fire_on_death.)
-- `LivingMetalRepairAbility.CreateBehaviour @1812224e0` =
+- `IdunBattleLogic.Entities.Abilities.Active.Loki.LivingMetalRepairAbility$$CreateBehaviour` =
       Repair(source=self, target=self,
              amount = PercentageOf(StatAmount(self, HEALTH=5, MAXIMUM=2)=maxHP,
                                    Direct(GetNumberConstant(0x12))),
              cause = AbilityOrEffect(LivingMetalRepair 0x3f2), options = ForRegenerate)
-  * `PercentageOf.CalculateInternal @180f20fc0` + `RoundFix64Result @180ffa110` (mode 0 =
+  * `IdunBattle.Entities.Formulas.PercentageOf$$CalculateInternal` + `IdunBattle.DSL.AAmountFormula$$RoundFix64Result` (mode 0 =
     `Fix64.Round`, round-half-to-even) => **amount = round_half_even(maxHP * pct / 100)**. `pct` =
     `GetNumberConstant(0x12)` = trait var gameconfig `livingMetalHp` = 10 -> **regen = 10% du maxHP**.
-  * `RepairBehaviour.Execute @180fce990` -> `RepairUnitOperation.Execute @180e8b820` ->
-    `FillUpStatComponent.FillUp` (cape a maxHealth). Gate `EntityCanBeRepaired @181055080` =
-    `!IsMachine & IsDamaged & !HasHealBlockers & IsAffectedByHealType(1)` ; `IsAffectedByHealType(1)
-    @180ed77d0` = IsMechanical (TOUS les porteurs LivingMetal sont Mechanical -> gate toujours vraie)
-    & `!HasHealBlockers @180ed6810` (dict heal-blockers, ou vit Cursed). Pas de group-heal-cap sur le
+  * `IdunBattle.Entities.Behaviours.RepairBehaviour$$Execute` -> `IdunBattle.Operations.RepairUnitOperation$$Execute` ->
+    `FillUpStatComponent.FillUp` (cape a maxHealth). Gate `IdunBattle.Core.Services.AttackQuery$$EntityCanBeRepaired` =
+    `!IsMachine & IsDamaged & !HasHealBlockers & IsAffectedByHealType(1)` ; `IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType(1)` = IsMechanical (TOUS les porteurs LivingMetal sont Mechanical -> gate toujours vraie)
+    & `!IdunBattle.Entities.UnitExtensions$$HasHealBlockers` (dict heal-blockers, ou vit Cursed). Pas de group-heal-cap sur le
     repair (case-60 : le repair REVIVE les membres de swarm).
 
 Face COMBAT uniquement (la regen dans les ops turn-start du runner). Aucune face DECISION/PREDICTION
@@ -64,7 +63,7 @@ def living_metal_pct() -> int:
 
 
 def _round_half_even(x: float) -> int:
-    """`RoundFix64Result @180ffa110` mode 0 = `Fix64.Round @1815636e0` = round-half-to-even (banker's).
+    """`IdunBattle.DSL.AAmountFormula$$RoundFix64Result` mode 0 = `FixMath.NET.Fix64$$Round` = round-half-to-even (banker's).
     Python `round()` est banker's -> identique (Fix64 fixed-point, ecarts a l'exact-.5 non observes sur
     les maxHP bornes du jeu)."""
     return int(round(x))
@@ -98,9 +97,9 @@ class LivingMetalRepairAbility(TriggeredAbility):
         pct = living_metal_pct()
         # amount = PercentageOf(StatAmount(self, HEALTH, MAXIMUM)=maxHP, Direct(pct)) round-half-even.
         amount = _round_half_even(int(hc.hp_max) * pct / 100)
-        # GROUP-UNIT (swarm) : `ForRegenerate` (+0x10=1,+0x14=0 @180fce8c0) = repair "NO-WAKE" -> le montant
-        # est cape au `get_group_unit_heal_limit @1810325e0` (= maxHealthWith(membres RESTANTS) - hp = ce
-        # qu'on peut soigner SANS reveiller de membre mort), DISTINCT de `ForRepair` (+0x14=1 @180fce920,
+        # GROUP-UNIT (swarm) : `ForRegenerate` (+0x10=1,+0x14=0 IdunBattle.Entities.Behaviours.RepairBehaviourOptions$$ForRegenerate) = repair "NO-WAKE" -> le montant
+        # est cape au `get_group_unit_heal_limit IdunBattle.Core.Services.DamagePrediction$$GetGroupUnitHealLimit` (= maxHealthWith(membres RESTANTS) - hp = ce
+        # qu'on peut soigner SANS reveiller de membre mort), DISTINCT de `ForRepair` (+0x14=1 IdunBattle.Entities.Behaviours.RepairBehaviourOptions$$ForRepair,
         # ex. admecManipulus Repair_GalvanicField) qui REVEILLE des membres. Les membres d'un swarm
         # member-cape sont TOUJOURS pleins a une frontiere -> heal-limit 0 -> et 10% du maxHP (222 pour un
         # scarab 2218/5) < 1 membre (444) => LivingMetal est INERTE sur le swarm (PROUVE live probe_203_swarm :

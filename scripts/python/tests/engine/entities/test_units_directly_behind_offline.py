@@ -1,11 +1,11 @@
 """Case #48 -- `UnitsDirectlyBehind` : comparateur `>` STRICT (AmountIsGreater), PAS `>=`.
 
-Test OFFLINE deterministe (pur, sans live) du selecteur `UnitsDirectlyBehind @180dff5e0`.
+Test OFFLINE deterministe (pur, sans live) du selecteur `IdunBattleLogic.Entities.DSLFactory$$UnitsDirectlyBehind`.
 RE (cf. docs/rl/case-48-units-directly-behind-comparator.md) : piege gshared -- le nom du ctor
 FOLDE (`AmountIsEqualOrGreaterAbilityTrigger___ctor`) est MISLABELE par ghidra ; l'ancre fiable est
-le SINGLETON de classe `DAT_1832482b0`, construit par `DSLFactory.AmountIsGreater @180de89d0`
-(`ShouldTrigger @180ee11f0 : iVar16 < iVar15` == `amount > threshold`, STRICT). La formule =
-`DAT_18324e3c0` construit par `DSLFactory.MinDistance @180df6820` (distance hex). Donc le predicat
+le SINGLETON de classe `DAT_1832482b0`, construit par `IdunBattleLogic.Entities.DSLFactory$$AmountIsGreater`
+(`IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger$$ShouldTrigger : iVar16 < iVar15` == `amount > threshold`, STRICT). La formule =
+`DAT_18324e3c0` construit par `IdunBattleLogic.Entities.DSLFactory$$MinDistance` (distance hex). Donc le predicat
 natif est `MinDistance(caster, candidate) > MinDistance(caster, target)` (`>` STRICT).
 
 Consequence geometrique : sur l'anneau R1 de la cible, un candidat a dist(caster) == dist(caster,

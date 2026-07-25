@@ -1,11 +1,11 @@
 """#149 slice-10 : ScarabHive (1007) MIGRATION vers l'arbre DSL -- la behaviour EST `scarab_hive_tree()`.
 
-`ScarabHiveAbility.ExecuteBehaviour @181204cb0` (DECOMPILE) = un noeud `Spawn` UNIQUE (plain `Execute`) :
+`IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabHiveAbility$$ExecuteBehaviour` (DECOMPILE) = un noeud `Spawn` UNIQUE (plain `Execute`) :
     Execute( Spawn(caster@0x160, tileSel, unitId=necroSmnSwarm,
                    SpawnUnitOptions.WithStatsFromConfig(config)
                      .effect       = AddEffect(0x4a3 ScarabHive_OverrideDamageProfile, target@0x178)
                      .onAppearance = UseNormalAttackIfAble(target@0x178)) )
-`SpawnUnitBehaviour.Execute @180fd3d80` spawn COUNT(2) summons -- count/placement/WithStatsFromConfig vivent
+`IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute` spawn COUNT(2) summons -- count/placement/WithStatsFromConfig vivent
 DANS SpawnUnitBehaviour (GetUnitToSpawn/GetTileIds), HORS DSL-selecteurs (`First`=PickAtIndex=1 elt) -- puis
 `TriggerSpawnedUnitBehaviours` fire les 2 sous-behaviours par summon.
 

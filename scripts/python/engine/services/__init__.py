@@ -8,7 +8,7 @@ Modules :
   • damage_prediction — DamagePrediction (scenario, base-damage perçage/armure, hits, pierce-ratio)
                         + DamagePredictionResult.
 
-À FINIR : PredictAttackRaw (@181032fb0) = l'assembleur qui lit la config d'arme, applique le
+À FINIR : PredictAttackRaw (IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw) = l'assembleur qui lit la config d'arme, applique le
 spread, multiplie par les coups, et appelle scenario — câble les pièces ci-dessus.
 """
 from __future__ import annotations

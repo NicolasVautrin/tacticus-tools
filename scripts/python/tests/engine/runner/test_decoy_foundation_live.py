@@ -1,10 +1,10 @@
 """Gen-stealer G1 (FONDATION decoy) -- MECANISME sur substrat runner LIVE.
 
 Deux primitives partagees du chantier gen-stealer (cf. docs/rl/genestealer-cults.md) :
-  1. `spawn_decoy` = `DSLFactory$$Spawn(genesSmnDecoy, ForSteppable) @180dfbc60` -> `AddUnitOperation.Execute`
-     (socle spawn.py). Options `SpawnUnitOptions$$ForSteppable @180fd60a0` : level 1, owner=caster,
+  1. `spawn_decoy` = `DSLFactory$$IdunBattleLogic.Entities.DSLFactory$$Spawn(genesSmnDecoy, ForSteppable)` -> `AddUnitOperation.Execute`
+     (socle spawn.py). Options `SpawnUnitOptions$$IdunBattle.Entities.Behaviours.SpawnUnitOptions$$ForSteppable` : level 1, owner=caster,
      `ai_controlled=False`, AUCUNE on-appearance -> token INERTE (traits Steppable+Decoy, aucune arme).
-  2. crush-on-step = `MoveUnitOperation$$KillSteppableUnits @180e7c410` : un occupant Steppable de la tuile
+  2. crush-on-step = `MoveUnitOperation$$IdunBattle.Operations.MoveUnitOperation$$KillSteppableUnits` : un occupant Steppable de la tuile
      d'arrivee est detruit (kill PROPRE, sans death-trigger de combat) INLINE dans le move pipeline, AVANT
      `EvaluateAfterMoveTriggers`.
 

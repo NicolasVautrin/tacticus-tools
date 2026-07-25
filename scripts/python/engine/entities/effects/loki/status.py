@@ -14,16 +14,16 @@ from ..magnitude import ability_var, bc_effect_config, global_value, trait_var
 
 
 class HypersensoryMinimalHealthEffect(BaseEffect):
-    """`HypersensoryAbilities_MinimalHealthEffect` (Effects.Idun, effet 0x564=1380 ; ctor @180f448f0).
+    """`HypersensoryAbilities_MinimalHealthEffect` (Effects.Idun, effet 0x564=1380 ; IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$.ctor).
 
     HP-FLOOR passif de Judh (genesJudh). i2 : « The first time each enemy turn that Judh is attacked, she
     cannot fall below 50% of her current Health. » Posé sur le porteur à l'init de l'ability passive
-    `HypersensoryAbilities` (owner-effect `CreateBehaviour` @180f87870 = `AddEffect(0x564, owner)`).
+    `HypersensoryAbilities` (owner-effect `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility$$CreateBehaviour = `AddEffect(0x564, owner)`).
 
-    - `ApplyInternal` @180f445a0 : `floor = Min(Round(GetStat(Health,Current) x hpPct/100), current-1)` ->
+    - `IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$ApplyInternal : `floor = Min(Round(GetStat(Health,Current) x hpPct/100), current-1)` ->
       `HealthComponent.MinimalHealth @+0x1c` (Nullable). SNAPSHOT du HP COURANT au moment de l'Apply.
-    - `RevertInternal` @180f44820 : `MinimalHealth = null` (efface le plancher).
-    - `CreateActiveCondition` @180f447a0 : `IsEnemyTurn(owner) & Not(HasBeenAttackedAmountThisTurn(owner)>=1)`
+    - `IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$RevertInternal : `MinimalHealth = null` (efface le plancher).
+    - `IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$CreateActiveCondition : `IsEnemyTurn(owner) & Not(HasBeenAttackedAmountThisTurn(owner)>=1)`
       = actif au tour ENNEMI, la 1re attaque SEULEMENT (retiré après -> le 2e coup peut tuer).
 
     hpPct[L1..65] = 30..50 (var 0x26, level-indexée, NON rarity-scalée : `variablesAffectedByRarityBonus` =
@@ -39,7 +39,7 @@ class HypersensoryMinimalHealthEffect(BaseEffect):
         return ability_var("HypersensoryAbilities", "hpPct", lvl)
 
     def compute_floor(self, current_hp: "int | None") -> "int | None":
-        """`ApplyInternal` @180f445a0 : `Min(Round(current_hp x hpPct/100), current_hp - 1)`. None si pct absent
+        """`IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$ApplyInternal : `Min(Round(current_hp x hpPct/100), current_hp - 1)`. None si pct absent
         ou hp<=0. `Fix64.Round` = RoundToNearest half-to-even == `round()` Python (le facteur pct/100 est exact
         en Fix64 ; l'arrondi ne joue que pour un hp impair a 50 %)."""
         pct = self.minimal_health_pct()
@@ -50,19 +50,18 @@ class HypersensoryMinimalHealthEffect(BaseEffect):
 
 
 class ContaminatedUnitEffect(BaseEffect):
-    """`Contaminated_Unit` (effet 0x4dd=1245, `ContaminatedStatModifierEffect`, ctor @180f3a560 =
+    """`Contaminated_Unit` (effet 0x4dd=1245, `ContaminatedStatModifierEffect`, IdunBattle.Entities.Effects.Loki.ContaminatedStatModifierEffect$$.ctor =
     ADynamicStatModifierEffect FixedArmor) — SOUS-effet pose sur une UNITE occupant/entrant une tuile
     `Contaminated` (0x4dc), 1 round. Debuff dynamique de la stat FixedArmor (=16).
 
-    Le NATIF calcule le montant a l'apply (`ADynamicStatModifierEffect.GetStatModificationAmount @180f090f0`
-    -> `GetDynamicStatModificationAmount @180f3a460` = -X% du FixedArmor courant) et l'applique via ChangeStat.
+    Le NATIF calcule le montant a l'apply (`IdunBattle.Entities.Effects.ADynamicStatModifierEffect$$GetStatModificationAmount`
+    -> `IdunBattle.Entities.Effects.Loki.ContaminatedStatModifierEffect$$GetDynamicStatModificationAmount` = -X% du FixedArmor courant) et l'applique via ChangeStat.
     Cote port : le vecteur tile-effect (#128, `ContaminatedTileEffect`) calcule le delta a l'apply et le stocke
     dans `self.value` -> `get_stat_modification_amount` renvoie `self.value`.
 
-    >>> MAGNITUDE (#132 RESOLUE 2026-07-14, RE re-expert decompile) : `GetDynamicStatModificationAmount
-    @180f3a460` = `-BattleQuery.GetEffectConfig(EffectType=6)` (interface IBattleQuery slot 0xbe, arg 6 =
-    EffectType litteral). `BattleQuery.GetEffectConfig @1810610b0` = lookup `Dict<EffectType,int>@+0xd0`
-    peuple par `InitEffectConfig @18106e9c0` depuis `BattleConfiguration.Effect` ; l'entree EffectType=6
+    >>> MAGNITUDE (#132 RESOLUE 2026-07-14, RE re-expert decompile) : `IdunBattle.Entities.Effects.Loki.ContaminatedStatModifierEffect$$GetDynamicStatModificationAmount` = `-BattleQuery.GetEffectConfig(EffectType=6)` (interface IBattleQuery slot 0xbe, arg 6 =
+    EffectType litteral). `IdunBattle.Core.Services.BattleQuery$$GetEffectConfig` = lookup `Dict<EffectType,int>@+0xd0`
+    peuple par `IdunBattle.Core.Services.BattleQuery$$InitEffectConfig` depuis `BattleConfiguration.Effect` ; l'entree EffectType=6
     (offset +0x28) = **`ContaminatedArmorReductionPct` = 30**. => -30 % du FixedArmor cible. Source = section
     `Effect` de la BC (lue, PAS hardcodee) ; le vecteur `ContaminatedTileEffect` pre-calcule le DELTA PLAT
     `value = -round(FixedArmor * 30/100)` a la pose (le stat-layer l'applique en additif). ⚠ MODE % infere
@@ -81,8 +80,7 @@ class ContaminatedUnitEffect(BaseEffect):
 
 class StandVigilExtraArmorEffect(BaseEffect):
     """`StandVigil_ExtraArmorEffect` (Effects.Loki) — buff **StatModification** +armure, **SELF-buff**
-    (l'unité se buffe elle-même en « stand vigil » = sans se déplacer). `GetDynamicStatModificationAmount
-    @180f6d910` = `ConfigVar(key 0x51c=1308, EffectSource, 0x1b)` = ability var
+    (l'unité se buffe elle-même en « stand vigil » = sans se déplacer). `IdunBattle.Entities.Effects.Loki.StandVigil_ExtraArmorEffect$$GetDynamicStatModificationAmount` = `ConfigVar(key 0x51c=1308, EffectSource, 0x1b)` = ability var
     `StandVigil.extraArmor[level]` (FLAT), ajouté à la **modification** du stat **FixedArmor** (=16) via
     `ChangeStat` (part 5/9 ; revert part 6).
 
@@ -101,25 +99,25 @@ class StandVigilExtraArmorEffect(BaseEffect):
 
 
 class MasterOfTheTutelariesEffect(BaseEffect):
-    """`MasterOfTheTutelariesEffect` (Effects.Loki, effet 0x4ad=1197 ; ctor @180f59300 =
+    """`MasterOfTheTutelariesEffect` (Effects.Loki, effet 0x4ad=1197 ; IdunBattle.Entities.Effects.Loki.MasterOfTheTutelariesEffect$$.ctor =
     `BaseEffect(AbilityOrEffect(0x448=1096), 1)`) — marqueur until-EoT posé sur ABRAXAS
     (thousInfernalMaster) par l'execute de l'active 1096 (`MasterOfTheTutelariesAbility.
-    ExecuteBehaviour @1811f30c0` : `AddEffect(0x4ad, stateRef, caster@0x160, caster@0x160,
+    IdunBattleLogic.Entities.Abilities.Active.Loki.MasterOfTheTutelariesAbility$$ExecuteBehaviour` : `AddEffect(0x4ad, stateRef, caster@0x160, caster@0x160,
     durée@dsl+0xc0)`, séquencé AVANT le Spawn du Pink Horror — l'attaque immédiate du Horror
     peut donc DÉJÀ déclencher un Screamer).
 
-    - `ApplyInternal @180f59090` : `AddTriggeredAbility(Entity(target), 0x495=1173,
+    - `IdunBattle.Entities.Effects.Loki.MasterOfTheTutelariesEffect$$ApplyInternal` : `AddTriggeredAbility(Entity(target), 0x495=1173,
       GetAbilityState(...))` — ARME la triggered `MasterOfTheTutelaries_SummonAbility`
       (Screamer sur attaque Psychic contre un ennemi) sur le porteur ; l'ability-state de
       1096 est propagé (le niveau des summons en dérive).
-    - `RevertInternal @180f591f0` : `RemoveTriggeredAbility(Entity(target), 0x495)` —
+    - `IdunBattle.Entities.Effects.Loki.MasterOfTheTutelariesEffect$$RevertInternal` : `RemoveTriggeredAbility(Entity(target), 0x495)` —
       désarme à l'expiration (i2 « until the end of this turn » ; durée = 1 round posée
       par l'AddEffect de l'arbre actif, aucun défaut `_DEFAULT_ROUNDS` pour 1197).
 
     Port runner : le trigger 1173 vit dans `EFFECT_TRIGGERS[1197]` (triggers/dispatch.py) —
     `collect_effect_triggers` n'instancie le trigger QUE tant que l'effet est ACTIF sur le
     porteur, ce qui EST le Add/RemoveTriggeredAbility natif (le natif gate d'ailleurs
-    DOUBLEMENT : le `CreateTrigger @18110be00` re-teste `HasEffect(owner, 0x4ad)`).
+    DOUBLEMENT : le `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterOfTheTutelaries_SummonAbility$$CreateTrigger` re-teste `HasEffect(owner, 0x4ad)`).
     Marqueur pur : aucune stat-mod."""
 
 
@@ -129,17 +127,17 @@ class BlessingsOfKhorneModifiersEffect(BaseEffect):
     World Eaters (11 carriers : Azkor worldEightbound, Kharn, Wrask, Macer, + bosses LHE). DEUX
     value-modifications sur le PORTEUR, toutes deux scalées par le MÊME multiplicateur N (#185) :
 
-    - DÉFENSE `CreateEffectDamageMalusForDefense @180f34c50` : `(OwnerIsTarget & DamageProfileIs(0xd=
+    - DÉFENSE `IdunBattle.Entities.Effects.Loki.BlessingsOfKhorne_ModifiersEffect$$CreateEffectDamageMalusForDefense` : `(OwnerIsTarget & DamageProfileIs(0xd=
       Psychic)) -> -ConfigConst(0x4c=DmgPctReduction) x N` ⇒ le dégât PSYCHIQUE reçu par le porteur
       est réduit de `8% x N` (max -64%).
-    - ATTAQUE `CreateEffectDamageBonusForAttack @180f34ae0` : `get_OwnerIsCaster` SEUL (AUCUN filtre
+    - ATTAQUE `IdunBattle.Entities.Effects.Loki.BlessingsOfKhorne_ModifiersEffect$$CreateEffectDamageBonusForAttack` : `get_OwnerIsCaster` SEUL (AUCUN filtre
       profil/normal/spéciale) `-> +ConfigConst(0xf=ExtraDmgPct) x N` ⇒ TOUT le dégât sortant du
       porteur est augmenté de `3% x N` (max +24%).
 
-    N = `GetMultiplierBasedOnDefeatedInMelee @180f34ea0` = `Min(Count(NormalUnits(UnitsDefeatedBy-
+    N = `IdunBattle.Entities.Effects.Loki.BlessingsOfKhorne_ModifiersEffect$$GetMultiplierBasedOnDefeatedInMelee` = `Min(Count(NormalUnits(UnitsDefeatedBy-
     MeleeAttack(AllUnits))) [+ TalismanOfRage self-kills], ConfigConst(0x43=MaxDefeatedUnits=8))`.
     Le compte de base est GLOBAL (unités normales des DEUX camps tuées par une attaque de MÊLÉE,
-    flag `UnitComponent.DefeatedByMeleeAttack @0x178` écrit par `KillUnitOperation @180e76470`,
+    flag `UnitComponent.DefeatedByMeleeAttack @0x178` écrit par `KillUnitOperation IdunBattle.Operations.KillUnitOperation$$Execute`,
     capté #185 dans decisionView.units). La branche self-kills (`ActorHasTriggeredAbility(owner,
     1460=TalismanOfRage)` → double-compte des kills mêlée du porteur, killer = `DeathReason.KillerId`
     capté) est INERTE-PAR-ROSTER : AUCUN unit du gameconfig courant ne porte TalismanOfRage
@@ -155,7 +153,7 @@ class BlessingsOfKhorneModifiersEffect(BaseEffect):
     melee_defeats: "int | None" = None
 
     def _n(self) -> int:
-        """`GetMultiplierBasedOnDefeatedInMelee @180f34ea0` : Min(count, MaxDefeatedUnits=8)."""
+        """`IdunBattle.Entities.Effects.Loki.BlessingsOfKhorne_ModifiersEffect$$GetMultiplierBasedOnDefeatedInMelee` : Min(count, MaxDefeatedUnits=8)."""
         if self.melee_defeats is None:
             return 0
         cap = trait_var("BlessingsOfKhorne", "blessingsOfKhorneMaxDefeatedUnits")   # ConfigConst 0x43 (=8)
@@ -164,7 +162,7 @@ class BlessingsOfKhorneModifiersEffect(BaseEffect):
     def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
                                                damage_profile: str | None = None,
                                                attacker_ctx: Mapping | None = None) -> EffectBonus | None:
-        if (damage_profile or "") != "Psychic":               # DamageProfileIs(0xd) @180f34c50
+        if (damage_profile or "") != "Psychic":               # DamageProfileIs(0xd) IdunBattle.Entities.Effects.Loki.BlessingsOfKhorne_ModifiersEffect$$CreateEffectDamageMalusForDefense
             return None
         n = self._n()
         if n <= 0:
@@ -181,7 +179,7 @@ class BlessingsOfKhorneModifiersEffect(BaseEffect):
                                               is_normal_attack: bool | None = True,
                                               target_armor_reduced: bool | None = None,
                                               att_ctx=None) -> EffectBonus | None:
-        # trigger natif @180f34ae0 = get_OwnerIsCaster SEUL — tous profils, normale ET spéciale.
+        # trigger natif IdunBattle.Entities.Effects.Loki.BlessingsOfKhorne_ModifiersEffect$$CreateEffectDamageBonusForAttack = get_OwnerIsCaster SEUL — tous profils, normale ET spéciale.
         n = self._n()
         if n <= 0:
             return None
@@ -192,15 +190,15 @@ class BlessingsOfKhorneModifiersEffect(BaseEffect):
 
 
 class StunnedEffect(BaseEffect):
-    """`StunnedEffect` (effet COMPOSITE 0x48a=1162) — `ApplyInternal` @180f6eb30 spawne 3 SOUS-effets
+    """`StunnedEffect` (effet COMPOSITE 0x48a=1162) — `IdunBattle.Entities.Effects.Loki.StunnedEffect$$ApplyInternal spawne 3 SOUS-effets
     quand Stunned est appliqué (confirmé live : parent rem=1 + enfants 1165 rem=1, 1166/1167 rem=0) :
-      - `AddBlockAbilitiesSubEffect` @180f6e870 → 0x48d=1165 Stunned_CantUseAbility, via
+      - `IdunBattle.Entities.Effects.Loki.StunnedEffect$$AddBlockAbilitiesSubEffect → 0x48d=1165 Stunned_CantUseAbility, via
         `AddSubEffectWithSameTurns` ⇒ MÊME durée que le parent.
-      - `ApplyMovementModifier` @180f6ef30 → 0x48e=1166 Stunned_MovementOverride, via
+      - `IdunBattle.Entities.Effects.Loki.StunnedEffect$$ApplyMovementModifier → 0x48e=1166 Stunned_MovementOverride, via
         `AddStatOverrideEffect` (durée 0 = permanent/lié au parent) ; gardé par `StatAmount(movement)>0`
         côté natif (simplification ici : toujours spawné — la quasi-totalité des units ont movement>0 ;
         reverté par `ResetMovementModifier`).
-      - `ApplyDamageModifier` @180f6e9b0 → 0x48f=1167 Stunned_DamageModifier, via `AddEffect(turns=0)`
+      - `IdunBattle.Entities.Effects.Loki.StunnedEffect$$ApplyDamageModifier → 0x48f=1167 Stunned_DamageModifier, via `AddEffect(turns=0)`
         (permanent/lié au parent ; reverté par `ResetDamageModifier`).
     Les enfants portent `parent_type=1162` (lien `ParentEffect@+0x70`) ; ils n'ont pas eux-mêmes de
     sous-effets. VALIDÉ live (templSwordBrother/ThunderousAssault → tyranTyrantGuard)."""
@@ -215,10 +213,10 @@ class StunnedEffect(BaseEffect):
 
 class StunnedDamageModifierEffect(BaseEffect):
     """`Stunned_DamageModifierEffect` (enfant 0x48f=1167 du composite Stunned, posé par
-    `StunnedEffect.ApplyDamageModifier @180f6e9b0` = DSL `AddEffect(0x48f)`) — le malus de DÉGÂT
+    `IdunBattle.Entities.Effects.Loki.StunnedEffect$$ApplyDamageModifier` = DSL `AddEffect(0x48f)`) — le malus de DÉGÂT
     SORTANT du porteur stunné (#29 lead 2, la pièce ×0.5 du miss 777 s15).
 
-    `CreateEffectDamageMalusForDefense @180f6f770` : `EffectBonus.ForPercentDecrease(
+    `IdunBattle.Entities.Effects.Loki.Stunned_DamageModifierEffect$$CreateEffectDamageMalusForDefense` : `EffectBonus.ForPercentDecrease(
     get_OwnerIsActor, EffectConfig(2))`. ⚠ Le hook natif est le SLOT DÉFENSE mais son trigger est
     **OwnerIsActor** (pas OwnerIsTarget) : le malus s'applique quand le PORTEUR est l'ACTEUR du coup
     (la boucle défense native est state-wide, le trigger route). Mapping port fidèle = la boucle
@@ -251,14 +249,14 @@ class ActOfFaithBuffEffect(BaseEffect):
     trait ActOfFaith (Adepta Sororitas).
 
     C'est un effet **StatModification** (mute GetStat), PAS un modifier calc-time :
-      - `ApplyModification` @180f302f0 : deux `ChangeStat` sur le porteur —
+      - `IdunBattle.Entities.Effects.Loki.ActOfFaithBuffEffect$$ApplyModification : deux `ChangeStat` sur le porteur —
           crit-chance (`Position(9,5)`)  += `actOfFaithExtraCritChance` (=10) **FLAT** (la valeur
             observable get_CurrentValue plafonne à 100 via GetClampedValue) ;
           crit-damage (`Position(10,5)`) += `Ceiling(GetStat(10=critDmg, part=3) × actOfFaithExtraCritDmgPct%
-            =25%)` où `part=3` = la stat de **BASE** (StatComponent.GetStatPart@180fa8bb0 → offset 0x48, SANS
+            =25%)` où `part=3` = la stat de **BASE** (IdunBattle.Entities.Components.StatComponent$$GetStatPart → offset 0x48, SANS
             modifications) ⇒ boost **FLAT** sur la crit-dmg hors-ActOfFaith (PAS compound). Confirmé live :
             3 stacks base 250 → +63 plat à chaque fois (250->313->376->439).
-      - `RevertInternal` @180f306e0 : annule les deux ChangeStat (delta natif stocké @+0xb8).
+      - `IdunBattle.Entities.Effects.Loki.ActOfFaithBuffEffect$$RevertInternal : annule les deux ChangeStat (delta natif stocké @+0xb8).
 
     Posé par `ActOfFaithAbility` (trigger mort/kill d'allié Imperial), retiré — TOUS les stacks — par
     `ActOfFaith_RemoveEffectAbility` au crit du porteur. La mutation de stat est faite par le TRIGGER
@@ -283,7 +281,7 @@ class ActOfFaithBuffEffect(BaseEffect):
     stacks_stat_mod_on_add = True
 
     def applied_stat_mods(self, stats_ctx) -> "list":
-        """`ActOfFaithBuffEffect.ApplyModification @180f302f0` (part DATA côté `entities/`, mirror des DEUX
+        """`IdunBattle.Entities.Effects.Loki.ActOfFaithBuffEffect$$ApplyModification` (part DATA côté `entities/`, mirror des DEUX
         `ChangeStat` — symétrique de `reverted_stats()`). La couche runner (`AddEffectOperation._apply_stat_mods`)
         EXÉCUTE chaque `(StatType, montant)` via `apply_change_stat`, keyé par une source unique par instance
         (revert par-source exact via la feuille `RemoveEffect`). Deux stat-mods FLAT de CE stack :
@@ -304,7 +302,7 @@ class ActOfFaithBuffEffect(BaseEffect):
         return [(int(StatType.CRIT_CHANCE), cc), (int(StatType.CRIT_DAMAGE), cd_amount)]
 
     def reverted_stats(self) -> "list":
-        """`ActOfFaithBuffEffect.RevertInternal @180f306e0` annule les DEUX `ChangeStat` de CE stack :
+        """`IdunBattle.Entities.Effects.Loki.ActOfFaithBuffEffect$$RevertInternal` annule les DEUX `ChangeStat` de CE stack :
         crit-chance (Position(9,5)) + crit-damage (Position(10,5)). Ces StatTypes sont lus par la feuille
         `RemoveEffect` (runner) pour `revert_change_stat(…, stat_mod_source)` par-source."""
         from ...stats import StatType
@@ -312,7 +310,7 @@ class ActOfFaithBuffEffect(BaseEffect):
 
 
 class TauntedEffect(BaseEffect):
-    """`TauntedEffect.ApplyInternal` @180f47510 (effet COMPOSITE 27 = `Taunted_OnlySpecificTargets`,
+    """`IdunBattle.Entities.Effects.TauntedEffect$$ApplyInternal (effet COMPOSITE 27 = `Taunted_OnlySpecificTargets`,
     base `ABondEffect` — lien cible↔tauntant). À l'application, spawne 3 SOUS-effets via
     `AddSubEffectWithSameTurns` (⇒ MÊME durée que le parent) :
       - 0x19=25  `Taunted_BlockMovement`        (la cible ne peut plus se déplacer)
@@ -332,15 +330,14 @@ class TauntedEffect(BaseEffect):
 
 
 class PinnedEffect(BaseEffect):
-    """`PinnedEffect.ApplyInternal` @180f5e6d0 (effet 1065 `Pinned` ; UI = « Suppressed »). Effet
+    """`IdunBattle.Entities.Effects.Loki.PinnedEffect$$ApplyInternal (effet 1065 `Pinned` ; UI = « Suppressed »). Effet
     stat-mod SIMPLE (pas de sous-effet nommé) : un `ChangeStat(Position(1,5), statType=4 = Movement,
     valeur = Negative(EffectConfig(1)))` sur la cible ⇒ réduit le MOUVEMENT (la cible « pinned » ne peut
     pas avancer le tour suivant). `EffectConfig(1)` = BC `Effect.PinnedMovementReduction` (mapping
-    ordinal→champ DTO prouvé par `InitEffectConfig @18106e9c0` : +0x10→0, +0x14→1, +0x1c→2, ... —
+    ordinal→champ DTO prouvé par `IdunBattle.Core.Services.BattleQuery$$InitEffectConfig` : +0x10→0, +0x14→1, +0x1c→2, ... —
     recoupé par Stunned EffectConfig(2)=StunnedDmgReductionPct bit-exact).
 
-    MALUS DE DÉGÂT ATTAQUANT (#57b, famille ×0.70 du batch #52) : `CreateEffectDamageBonusForAttack
-    @180f5e8e0` = `EffectBonus.ForPercentIncrease(get_OwnerIsCaster, Negative(EffectConfig(0)))` —
+    MALUS DE DÉGÂT ATTAQUANT (#57b, famille ×0.70 du batch #52) : `IdunBattle.Entities.Effects.Loki.PinnedEffect$$CreateEffectDamageBonusForAttack` = `EffectBonus.ForPercentIncrease(get_OwnerIsCaster, Negative(EffectConfig(0)))` —
     quand le PORTEUR attaque, son dégât est réduit de `EffectConfig(0)` = BC
     `Effect.PinnedDmgReductionPct` (=30) ⇒ ×0.70. Trigger OwnerIsCaster == boucle ATTAQUANT du port
     (même mapping que Stunned_DamageModifier ci-dessus). Aucun autre gate (mêlée ET ranged, tous
@@ -366,19 +363,18 @@ class PinnedEffect(BaseEffect):
 
 class MV71InitialDmgEffect(BaseEffect):
     """`MV71SniperDroneSquad_InitialDmgEffect` (effet **1132=0x46c**, posé sur le DRONE par
-    `MV71SniperDroneSquadAttackAbility.ExecuteBehaviour @181108900` — `AddEffect(0x46c, stateRef,
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$ExecuteBehaviour` — `AddEffect(0x46c, stateRef,
     Get(drone))`, source = le CASTER Sho'syl = le PARENT du drone).
 
-    `ApplyInternal @180f57320` : `parent = GetParentUnit(drone)` puis `ApplyStat @180f573f0` sur
+    `IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$ApplyInternal` : `parent = GetParentUnit(drone)` puis `IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$ApplyStat` sur
     **4 stats — 0 ATTACK, 9 CRIT_CHANCE, 10 CRIT_DAMAGE, 0x11 EXTRA_HITS** : chaque `ApplyStat` lit
     `GetStat(parent, stat, CURRENT)` (SNAPSHOT au moment de l'apply, nœud `Direct(valeur)`) et émet
-    `ChangeStat(drone, Position(stat, part 7 = OVERRIDE), mode 4, Direct(valeur))` → `ApplyModifier
-    @180fa8800` case 7 → `SetOverride @180faea70` (**modifiable** : les buffs PROPRES du drone
+    `ChangeStat(drone, Position(stat, part 7 = OVERRIDE), mode 4, Direct(valeur))` → `IdunBattle.Entities.Components.StatComponent$$ApplyModifier` case 7 → `IdunBattle.Entities.Components.ValueOverride$$SetOverride` (**modifiable** : les buffs PROPRES du drone
     continuent de s'appliquer par-dessus — i2 « uses Sho'syl's Damage stat, while other effects,
-    like buffs, are taken from the Drone »). `RevertInternal @180f577d0` = `ResetStat @180f57620`
+    like buffs, are taken from the Drone »). `IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$RevertInternal` = `IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$ResetStat`
     ×4 (part 8 = REMOVE_OVERRIDE).
 
-    Cycle de vie : `CreateTargetTrigger @180f575c0` = `On(AttackDamageAttack=10, 1) & OwnerIsCaster`
+    Cycle de vie : `IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$CreateTargetTrigger` = `On(AttackDamageAttack=10, 1) & OwnerIsCaster`
     → l'effet est retiré (RevertInternal) dès que le DRONE porte une attaque — l'attaque COMMANDÉE du
     cast (GT §2 case-61bis : après le cast, le drone ne porte plus que RangedSpecialist). Côté port,
     la consommation+revert est exécutée par l'ability juste après l'attaque commandée (seul On(10)
@@ -391,9 +387,9 @@ class MV71InitialDmgEffect(BaseEffect):
 
 class MV71ResetInitialDmgEffect(BaseEffect):
     """`MV71SniperDroneSquad_ResetInitialDmg` (effet **1133=0x46d**, posé sur le DRONE juste APRÈS
-    1132 par le même `ExecuteBehaviour @181108900` — `AddEffect(0x46d, stateRef, Get(drone))`).
+    1132 par le même `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$ExecuteBehaviour` — `AddEffect(0x46d, stateRef, Get(drone))`).
 
-    ⚠ Skew de nommage ARBITRÉ (#61bis §6) : le `.ctor` ghidra passant `0x46d` (@180e1e0f0,
+    ⚠ Skew de nommage ARBITRÉ (#61bis §6) : le `.ctor` ghidra passant `0x46d` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.CyclicIonBlaster_AdditionalHitsEffect$$.ctor,
     « CyclicIonBlaster_AdditionalHitsEffect ») passe en réalité `AbilityOrEffect(TriggeredAbilityType.
     CyclicIonBlaster = 1133)` — l'ATTRIBUTION SOURCE de l'effet CyclicIonBlaster (EffectType 1148),
     PAS un EffectType. L'enum EffectType du dump (1133 = MV71SniperDroneSquad_ResetInitialDmg) est
@@ -406,9 +402,9 @@ class MV71ResetInitialDmgEffect(BaseEffect):
 
 class BlackRageExtraMoveEffect(BaseEffect):
     """`BlackRage_ExtraMove` (EffectType 0x53e=1342) — buff **StatModification** +MOUVEMENT, SELF-buff
-    posé par `BlackRageAbility.ExecuteBehaviour @1811b9c20` via `AddStaticStatModifierEffect(caster@0x160,
+    posé par `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$ExecuteBehaviour` via `AddStaticStatModifierEffect(caster@0x160,
     1342, stat=MOVEMENT(1), amount=ConfigConst(0xe=extraMovement))`. AUCUNE classe d'effet native bespoke
-    (StaticStatModifierEffect générique — cf. `AddStaticStatModifierEffect @180de7b20`) : ici on porte le
+    (StaticStatModifierEffect générique — cf. `IdunBattleLogic.Entities.DSLFactory$$AddStaticStatModifierEffect`) : ici on porte le
     stat-mod EAGER (chemin runner `AddEffectOperation._apply_stat_mods` -> `apply_change_stat`, keyé par
     source) = +`extraMovement` (constante gameconfig = 1) à la stat MOVEMENT.
 
@@ -426,7 +422,7 @@ class BlackRageExtraMoveEffect(BaseEffect):
 
 
 class BlackRageExtraDamageEffect(BaseEffect):
-    """`BlackRage_ExtraDamageEffect` (EffectType 0x53f=1343 ; `CreateEffectDamageBonusForAttack @180f340e0`)
+    """`BlackRage_ExtraDamageEffect` (EffectType 0x53f=1343 ; `IdunBattle.Entities.Effects.Loki.BlackRage_ExtraDamageEffect$$CreateEffectDamageBonusForAttack`)
     — posé sur le caster (self) par `ExecuteBehaviour` via `AddEffect(1343, caster@0x160)`. Le natif =
     `ForAddition((get_OwnerIsCaster & IsCharging(caster,target) & IsNormalAttack), ConfigVar(8=extraDmg))`
     = +`extraDmg[level]` au dégât de l'attaque NORMALE de CHARGE du porteur (le coup qui suit le MoveUnit du
@@ -441,10 +437,10 @@ class BlackRageExtraDamageEffect(BaseEffect):
 
 
 class BlackRageAutomaticUnitEffect(BaseEffect):
-    """`BlackRage_AutomaticUnitEffect` (EffectType 0x540=1344 ; ctor @180f34090 = `BaseEffect(AbilityOrEffect(
+    """`BlackRage_AutomaticUnitEffect` (EffectType 0x540=1344 ; IdunBattle.Entities.Effects.Loki.BlackRage_AutomaticUnitEffect$$.ctor = `BaseEffect(AbilityOrEffect(
     0x48b=1163), 1)`) — posé sur le caster (self) par `ExecuteBehaviour` via `AddEffect(1344, caster@0x160)`.
-    MARQUEUR pur (aucune stat-mod) : arme la triggered `BlackRage_ActivationAbility` (`CreateTrigger @180e19f30`
-    = `On(0x16) & HasEffect(self, 0x540)` -> `CreateBehaviour @180e19ef0` = `PerformAIAction(self)`) = Lucien
+    MARQUEUR pur (aucune stat-mod) : arme la triggered `BlackRage_ActivationAbility` (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.BlackRage_ActivationAbility$$CreateTrigger`
+    = `On(0x16) & HasEffect(self, 0x540)` -> `IdunBattleLogic.Entities.Abilities.Triggered.Loki.BlackRage_ActivationAbility$$CreateBehaviour` = `PerformAIAction(self)`) = Lucien
     REJOUE une action (berserk Death Company « acts again »).
 
     Le mécanisme ACT-AGAIN (triggered `PerformAIAction` sur event 0x16) n'est PAS modélisé (RÉSIDU documenté,
@@ -454,19 +450,17 @@ class BlackRageAutomaticUnitEffect(BaseEffect):
 
 class WaaaghExtraMovementEffect(BaseEffect):
     """`Waaagh_ExtraMovement` (EffectType 0x44b=1099) -- buff **StatModification** +MOUVEMENT pose par
-    `WaaaghAbility.GetBuffBehaviour @18122b900` via
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffBehaviour` via
     `AddStaticStatModifierEffect(<selecteur Waaagh>, 1099, stat=MOVEMENT(1),
                                  Direct(GetNumberConstant(0xe)=extraMovement), duree=Direct(1)@dsl+0xc0)`.
-    AUCUNE classe d'effet native bespoke (StaticStatModifierEffect generique, `AddStaticStatModifierEffect
-    @180de7b20`) : on porte le stat-mod EAGER (canal `applied_stat_mods` -> `AddEffectOperation.
+    AUCUNE classe d'effet native bespoke (StaticStatModifierEffect generique, `IdunBattleLogic.Entities.DSLFactory$$AddStaticStatModifierEffect`) : on porte le stat-mod EAGER (canal `applied_stat_mods` -> `AddEffectOperation.
     _apply_stat_mods` -> `apply_change_stat`, keye par source) = +`extraMovement` (constante gameconfig = 1)
     a la stat MOVEMENT. MEME template que `BlackRageExtraMoveEffect` (1342, valide live statModSources).
 
-    CE PORT EST REQUIS PAR L'ETAGE MOVE de Waaagh : `WaaaghAbility.GetPossibleMovementTiles @18122c060`
-    calcule sa portee via `UnitMovementRangeWithBonus(caster@0x160, 1099, Direct(extraMovement))
-    @180dff050` = `If( HasEffect(caster, 1099), StatAmount(caster, MOVEMENT), Sum(StatAmount(caster,
+    CE PORT EST REQUIS PAR L'ETAGE MOVE de Waaagh : `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetPossibleMovementTiles`
+    calcule sa portee via `IdunBattleLogic.Entities.DSLFactory$$UnitMovementRangeWithBonus(caster@0x160, 1099, Direct(extraMovement))` = `If( HasEffect(caster, 1099), StatAmount(caster, MOVEMENT), Sum(StatAmount(caster,
     MOVEMENT), bonus) )` -- le natif ANTI-DOUBLE-COMPTE : quand l'effet est DEJA pose (c'est le cas, le
-    Group buff @0x25 s'execute AVANT le Group move @0x23 dans l'ordre d'`Execute` de @18122b010), la portee
+    Group buff @0x25 s'execute AVANT le Group move @0x23 dans l'ordre d'`Execute` de IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour), la portee
     lit la stat MOVEMENT *deja bonifiee*. Sans `applied_stat_mods`, la charge perdrait son +1 hex."""
 
     def applied_stat_mods(self, stats_ctx) -> "list":
@@ -481,7 +475,7 @@ class WaaaghExtraMovementEffect(BaseEffect):
 
 class WaaaghExtraDamageEffect(BaseEffect):
     """`Waaagh_ExtraDamage` (EffectType 0x44c=1100) -- pose sur le SELECTEUR Waaagh (caster + allies adjacents
-    + TOUS les allies de faction Orks) par `WaaaghAbility.GetBuffBehaviour @18122b900` via
+    + TOUS les allies de faction Orks) par `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffBehaviour` via
     `AddEffect(0x44c, AbilityStateReference, caster@0x160, <selecteur>, duree=Direct(1)@dsl+0xc0)`.
 
     MARQUEUR porte (present/diffable, duree 1 round) -- la CONTRIBUTION `+extraDmg[level]` (var rarity-scalee,
@@ -492,7 +486,7 @@ class WaaaghExtraDamageEffect(BaseEffect):
 
 class WaaaghExtraHitsEffect(BaseEffect):
     """`Waaagh_ExtraHits` (EffectType 0x44d=1101) -- pose sur le MEME selecteur que 1100 par
-    `WaaaghAbility.GetBuffBehaviour @18122b900` (`AddEffect(0x44d, ..., duree=Direct(1)@dsl+0xc0)`).
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffBehaviour` (`AddEffect(0x44d, ..., duree=Direct(1)@dsl+0xc0)`).
 
     MARQUEUR porte (present/diffable, duree 1 round) -- la CONTRIBUTION `+extraHit` (constante gameconfig = 1
     coup additionnel) n'est PAS modelisee : elle passe par le canal coups-additionnels (#179,

@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 """Probe du lot << l'effet est porte, la pose manque >> -- 4 maillons de POSE cables :
 
-  1. MasterAnnihilator (admecDominus)  : pose du marqueur 1249 + REMOVE-BY-SOURCE  (@18110ba90/@18110b940)
-  2. FleshmetalGuns    (blackObliterator) : ROTATION turn-start des effets 1067/1212/1221 (@180e17450/@18121f6e0)
-  3. TerrifyingCrescendo (emperNoiseMarine) : ACCUMULATION du stack de 1424 (@1811a3910/@1811a3840)
+  1. MasterAnnihilator (admecDominus)  : pose du marqueur 1249 + REMOVE-BY-SOURCE  (IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterAnnihilatorAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterAnnihilatorAbility$$CreateBehaviour)
+  2. FleshmetalGuns    (blackObliterator) : ROTATION turn-start des effets 1067/1212/1221 (IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArchContaminatorAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGunsAbility$$CreateBehaviour)
+  3. TerrifyingCrescendo (emperNoiseMarine) : ACCUMULATION du stack de 1424 (IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateBehaviour)
   4. AnvilShield       (spaceRockfist)  : dispatch On(UnitBlocked) -> Ice sur la tuile de l'attaquant
-                                          (@180e25fc0 emetteur ; @180e16500/@180e16480)
+                                          (IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers emetteur ; IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateBehaviour)
 
 Le probe monte UN runner live (roster = les 4 porteurs), reconstruit le `State` OFFLINE depuis le
 snapshot, et exerce chaque maillon en imprimant l'ETAT OBSERVE (effet present / niveau / duree / source)

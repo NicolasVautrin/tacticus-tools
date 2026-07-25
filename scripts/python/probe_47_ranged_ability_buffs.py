@@ -4,8 +4,8 @@
 FIX #47 (execute_ability_attack, damage.py) : threading `is_ranged` (derive d'is_melee) +
 `trigger_ability_type` (AbilityOrEffect du coup) dans la collecte attacker-modifiers, GATE FAMILLE
 (threades pour la famille ATTACK seulement -- l'ABILITY-family a des mods attaquant VIDES, #45f).
-Effets concernes : `HeavyWeapon_ExtraDmgEffect.CreateDamageModifier @180f4f030` (+25% ranged,
-x2 = +50% si `TriggeringAbilityIs(0x3ec=1004 MortisRound)`), `RangedSpecialistEffect @180f67520`
+Effets concernes : `IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier` (+25% ranged,
+x2 = +50% si `TriggeringAbilityIs(0x3ec=1004 MortisRound)`), `RangedSpecialistEffect IdunBattle.Entities.Effects.Loki.RangedSpecialistEffect$$CreateEffectDamageBonusForAttack`
 (+33% ranged), + feuilles positionnelles deja gate-famille (#45f : elevation/trench).
 
 CAS (1 build par cas, cible tanky 300000 pour survivre, caster JAMAIS deplace = gate no-move
@@ -17,7 +17,7 @@ HeavyWeapon intact, cible DEPLACEE a portee par applyAction) :
   cherub      : ArmoriumCherub (1014, adeptRetributor HeavyWeapon, 4x Flame ranged range 2,
                 famille ATTACK) -> attendu x1.25 par coup ; ASSERT bit-exact.
   leech       : SpiritLeech (1104, tyranNeurothrope RangedSpecialist, 1x Psychic ranged, famille
-                **ABILITY** @180de9dd0 -> AbilityDamageOperation) -> les mods ATTAQUANT sont VIDES
+                **ABILITY** IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage -> AbilityDamageOperation) -> les mods ATTAQUANT sont VIDES
                 (#45f) : le +33% ne doit s'appliquer NI live NI offline (datapoint adversarial du
                 gate famille -- un threading non-gate rendrait l'offline x1.33 TROP HAUT).
 

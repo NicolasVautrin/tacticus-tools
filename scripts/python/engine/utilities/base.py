@@ -7,7 +7,7 @@ GetMovementUtility) reference ces classes sans les heberger.
 
 Hierarchie native : `BaseUtility -> {feuille situationnelle, ComposedUtility}`. Chaque feuille porte son
 `*Utility.<Evaluate*InSteps>d__N.MoveNext` (VA citee dans la sous-classe) ; un `ComposedUtility` (Tile=7,
-Damage=34, …) = SOMME de ses enfants (`ComposedUtility.EvaluateMovement`/`EvaluateAttack` @1810ce540).
+Damage=34, …) = SOMME de ses enfants (`ComposedUtility.EvaluateMovement`/`EvaluateAttack` IdunBattle.AI.Utilities.ComposedUtility$$.ctor).
 
 SIGNATURE : `evaluate(self, *args)` est GENERIQUE — chaque SOUS-SYSTEME fixe sa propre signature d'appel
 (tile : `(tile, meta, ctx, wt)` ; damage : `(pred, target_max_hp, wt)` ; mouvement `(ctx, pos)`) et son
@@ -25,18 +25,18 @@ class BaseUtility:
         raise NotImplementedError
 
     def has_utility_value(self, weights: dict, name: str) -> bool:
-        """`BaseUtility.HasUtilityValue @1810cd700` : la cle `name` est presente dans le dict de poids
+        """`IdunBattle.AI.Utilities.BaseUtility$$HasUtilityValue` : la cle `name` est presente dans le dict de poids
         de categorie (natif : `Dict<string,int>` @this+0x58, ici passe en argument `weights`)."""
         return name in weights
 
     def get_utility_value(self, weights: dict, name: str) -> int:
-        """`BaseUtility.GetUtilityValue @1810cd3c0` : `Fix64.FromInt(weights[name])` via TryGetValue ;
+        """`IdunBattle.AI.Utilities.BaseUtility$$GetUtilityValue` : `Fix64.FromInt(weights[name])` via TryGetValue ;
         cle absente -> 0 (le natif logge un warning dev, ici muet)."""
         return int(weights.get(name, 0))
 
 
 class ComposedUtility(BaseUtility):
-    """`IdunBattle.AI.Utilities.ComposedUtility` @1810ce540 — utilite agregeant une liste d'enfants ;
+    """`IdunBattle.AI.Utilities.ComposedUtility` IdunBattle.AI.Utilities.ComposedUtility$$.ctor — utilite agregeant une liste d'enfants ;
     `evaluate = Σ enfant.evaluate(*args)` (la membership exacte est LUE runtime, cf. utilities/tile.py
     et docs/rl/playbook-engine.md §13.8). Les enfants partagent la signature d'appel du sous-systeme.
 

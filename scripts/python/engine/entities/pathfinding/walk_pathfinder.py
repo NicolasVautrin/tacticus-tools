@@ -3,24 +3,24 @@
 .GetMovablePositions`). RE ghidra gqfc5mff6c (cf. docs/rl/playbook-engine.md §18).
 
 ÉNUMÉRATION des tuiles atteignables = flood-fill PAR NIVEAUX (1 pas = 1 niveau,
-`range` niveaux), SANS coût accumulé (le WeightCost @180f2f120 ne sert qu'à
-GetPath A*, pas à l'énumération). `BasePathfinder.GetMovablePositions` @180ee25d0
-(itérateur @180f27840) fait un BFS niveau-par-niveau via `NodesInNextLevel`,
+`range` niveaux), SANS coût accumulé (le IdunBattle.Entities.Pathfinding.WalkPathfinder$$WeightCost ne sert qu'à
+GetPath A*, pas à l'énumération). `IdunBattle.Entities.Pathfinding.BasePathfinder$$GetMovablePositions
+(itérateur IdunBattle.Entities.Pathfinding.BasePathfinder.u003CGetMovablePositionsu003Ed__23$$MoveNext) fait un BFS niveau-par-niveau via `NodesInNextLevel`,
 profondeur décrémentée de 1 par niveau.
 
-PRÉDICAT D'ARÊTE (`WalkPathfinder.IsValidPathNode` @180f2ee50) — peut-on entrer
+PRÉDICAT D'ARÊTE (`IdunBattle.Entities.Pathfinding.WalkPathfinder$$IsValidPathNode) — peut-on entrer
 sur `to` depuis `from` :
-  1. IsWalkable(to)                                 (TileExtensions.IsWalkable @180ec6fc0)
-  2. |elev(to) - elev(from)| <= 1                   (IsReachableElevationDifference @180f2ed80)
+  1. IsWalkable(to)                                 (IdunBattle.Entities.TileExtensions$$IsWalkable)
+  2. |elev(to) - elev(from)| <= 1                   (IdunBattle.Entities.Pathfinding.WalkPathfinder$$IsReachableElevationDifference)
      (exception téléporteurs : non modélisée ici — board basique sans téléporteur)
-  3. !UnitIsBlockedByEnemyUnit(to, unit)            (@180f2ef50 : un ENNEMI sur la
+  3. !UnitIsBlockedByEnemyUnit(to, unit)            (IdunBattle.Entities.Pathfinding.WalkPathfinder$$UnitIsBlockedByEnemyUnit : un ENNEMI sur la
      tuile bloque le passage ; un ALLIÉ laisse passer — sauf trait 0x1b non modélisé)
 
-TUILE D'ARRÊT valide (`WalkPathfinder.IsValidContinuePathTile` @180f2ee30 :
+TUILE D'ARRÊT valide (`IdunBattle.Entities.Pathfinding.WalkPathfinder$$IsValidContinuePathTile :
 `GetTileBlockingReasons == 0`) = tuile NON occupée (ni allié ni ennemi). On peut
 TRAVERSER un allié mais pas s'y arrêter. Le start (tuile courante) est exclu du set.
 
-⚠ `GetEffectiveDepth` (hazard tile → `Min(1, depth)`, @180f2e920) non encore
+⚠ `GetEffectiveDepth` (hazard tile → `Min(1, depth)`, IdunBattle.Entities.Pathfinding.WalkPathfinder$$GetEffectiveDepth) non encore
 plombé (pas de tuile-hazard sur board basique) — TODO si une feuille hazard apparaît.
 
 API : `occupants` = dict {tile_id -> team_of_occupant}. `moving_team` = team de

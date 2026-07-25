@@ -1,5 +1,5 @@
 """Prediction de l'ATTAQUE NORMALE : `make_normal_attack_predictions` (`ALoki_NormalAttackPlaybook.
-MakeDamagePredictions @181372730`), la base display re-positionnee `_display_attack_base` (#49/#153/#57a),
+IdunBattle.AI.Playbook.Loki.ALoki_NormalAttackPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$MakeDamagePredictions`), la base display re-positionnee `_display_attack_base` (#49/#153/#57a),
 l'override drone `_make_mv71_drone_predictions` (#61bis tranche 3) et les follow-ups de boss
 (get_additional / get_klaw). Consomme le socle `_shared` (helpers mods/defenseur + vocabulaire commun)."""
 from __future__ import annotations
@@ -11,22 +11,22 @@ from ._shared import (_PROFILE_INDEX, _weapon_pierce, _add_positional_and_defend
 
 # ── #57c-C : overrides `<Boss>_NormalAttackAbility.PredictAttack` (attaque normale + follow-up) ──
 # Dispatch natif ActiveAbilityType→classe : l'attaque NORMALE de certains boss est instanciee sur une
-# SOUS-CLASSE qui surcharge PredictAttack = base ALoki (@1811afa50) + prediction ADDITIONNELLE calculee
-# sur scenario VIERGE puis sommee via `DamagePredictionResult.Add @18102a710` (appliedHits natif 1+1=2).
+# SOUS-CLASSE qui surcharge PredictAttack = base ALoki (IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$PredictAttack) + prediction ADDITIONNELLE calculee
+# sur scenario VIERGE puis sommee via `IdunBattle.Core.Services.DamagePredictionResult$$Add` (appliedHits natif 1+1=2).
 # Deux molds (corps COMDAT partages par famille — l'instance porte la CONFIG du passif du kit) :
-#  - RANGED (`Boltstorm_NormalAttackAbility.PredictAttack @1811bd950`, gate arme choisie `!IsMelee`) :
-#    `GetAdditionalDamagePrediction @1811bd170` = eval MODE 4 (= MIN) de `GetAdditionalDamageAmount
-#    @1811bceb0` = `RandomAmount(var 0xc minDmg, var 0xd maxDmg)` → hits = ConfigConst(0x2f nrOfHits),
+#  - RANGED (`IdunBattleLogic.Entities.Abilities.Active.Loki.Boltstorm_NormalAttackAbility$$PredictAttack`, gate arme choisie `!IsMelee`) :
+#    `IdunBattleLogic.Entities.Abilities.Active.Loki.Boltstorm_NormalAttackAbility$$GetAdditionalDamagePrediction` = eval MODE 4 (= MIN) de `GetAdditionalDamageAmount
+#    IdunBattleLogic.Entities.Abilities.Active.Loki.Boltstorm_NormalAttackAbility$$GetAdditionalDamageAmount` = `RandomAmount(var 0xc minDmg, var 0xd maxDmg)` → hits = ConfigConst(0x2f nrOfHits),
 #    profil = `AbilityConfiguration.GetDamageProfile` du passif, slot 0x27 SANS widgets modifiers.
 #    ⚠ AUCUN porteur confirme : l'hypothese « Gulgortz/LightImUp = ce mold » est REFUTEE (varTrace
 #    2468 s14 : le +3×1496 de u89 = les 3 effets FoulInfusion_ExtraHits du canal #179 GLOBAL, cf.
 #    FoulInfusionExtraHitsEffect ; la coincidence LightImUp.minDmg[50] == FoulInfusion.dmg[50] == 831
 #    a masque la vraie source). Registre VIDE tant qu'un porteur reel du mold n'est pas mesure.
-#  - MELEE (`ProperKilly_NormalAttackAbility.PredictAttack @1811fc690`, gate `!IsRanged`) :
-#    `GetKlawAttack1Prediction @1811fbe10` = n = ConfigConst(0x2f nrOfHits=1) coups de
-#    `GetFirstAttackDamage @1811fb760` = `PercentageOf(StatAmount(target, Health=5, part=2 Max),
+#  - MELEE (`IdunBattleLogic.Entities.Abilities.Active.Loki.ProperKilly_NormalAttackAbility$$PredictAttack`, gate `!IsRanged`) :
+#    `IdunBattleLogic.Entities.Abilities.Active.Loki.ProperKilly_NormalAttackAbility$$GetKlawAttack1Prediction` = n = ConfigConst(0x2f nrOfHits=1) coups de
+#    `IdunBattleLogic.Entities.Abilities.Active.Loki.ProperKilly_NormalAttackAbility$$GetFirstAttackDamage` = `PercentageOf(StatAmount(target, Health=5, part=2 Max),
 #    ConfigConst(0x3b dmgPct=60), mode 0)`, profil Power(40), chaque coup via `GetKlawAttack1Hit-
-#    Prediction @1811fb800` (meme slot standard). Ghazghkull — NON exerce au batch gen (port 1:1
+#    Prediction IdunBattleLogic.Entities.Abilities.Active.Loki.ProperKilly_NormalAttackAbility$$GetKlawAttack1HitPrediction` (meme slot standard). Ghazghkull — NON exerce au batch gen (port 1:1
 #    du decompile, non valide live).
 # Cle de dispatch = le PASSIF du kit gameconfig (l'instance native lit SA config = celle du passif).
 _RANGED_FOLLOWUP_PASSIVES = ()          # vide — cf. refutation LightImUp ci-dessus (#57c-C)
@@ -34,7 +34,7 @@ _MELEE_KLAW_PASSIVES = ("ProperKilly",)
 
 
 def get_additional_damage_prediction(scene, att_id, tgt_id, ability_name):
-    """`Boltstorm_NormalAttackAbility.GetAdditionalDamagePrediction @1811bd170` — follow-up RANGED :
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.Boltstorm_NormalAttackAbility$$GetAdditionalDamagePrediction` — follow-up RANGED :
     amount = MIN du `RandomAmount(minDmg, maxDmg)` (eval mode 4), hits = nrOfHits, profil propre du
     passif, mods attaquant ABSENTS (le call slot 0x27 natif ne passe pas les widgets modifiers),
     scenario VIERGE (armure/bouclier de la cible re-disponibles — quirk natif mirrore)."""
@@ -48,7 +48,7 @@ def get_additional_damage_prediction(scene, att_id, tgt_id, ability_name):
         return None
     prof = ((GC.ability(ability_name) or {}).get("constants") or {}).get("damageProfile") or ""
     prof_ratio = int((GC.damage_profile(prof) or {}).get("PiercingRatio") or 0)
-    # pierce = profil + ExtraPierce stat (GetAttackPiercingDamageRatio @181030a20, meme pipeline 0x27)
+    # pierce = profil + ExtraPierce stat (IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio, meme pipeline 0x27)
     pierce = max(0, min(100, prof_ratio + ctx.extra_pierce + ctx.extra_pierce_ranged))
     tgt_hit_mult = target_hit_multiplier(
         TraitFactory.create_many((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits")))
@@ -62,8 +62,8 @@ def get_additional_damage_prediction(scene, att_id, tgt_id, ability_name):
 
 
 def get_klaw_attack1_prediction(scene, att_id, tgt_id, ability_name):
-    """`ProperKilly_NormalAttackAbility.GetKlawAttack1Prediction @1811fbe10` — klaw MELEE : n coups de
-    `PercentageOf(MaxHealth EFFECTIF de la cible, dmgPct, mode 0)` (`GetFirstAttackDamage @1811fb760`),
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ProperKilly_NormalAttackAbility$$GetKlawAttack1Prediction` — klaw MELEE : n coups de
+    `PercentageOf(MaxHealth EFFECTIF de la cible, dmgPct, mode 0)` (`IdunBattleLogic.Entities.Abilities.Active.Loki.ProperKilly_NormalAttackAbility$$GetFirstAttackDamage`),
     profil propre (Power 40), scenario VIERGE, coups chaines (armure depletee entre coups — c'est le
     per-coup standard de get_attack_prediction)."""
     ctx = scene.ctx(att_id)
@@ -93,7 +93,7 @@ def _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee, weapon_f
     """Selecteur du mold follow-up de l'attaquant (cf. bloc ci-dessus). None = pas de fold
     (pas d'arme trouvee / kit sans passif concerne / gate melee-ranged non satisfaite)."""
     if not weapon_found:
-        return None                       # mirror `FindAttackWeapon != null` (@1811bd950 / @1811fc690)
+        return None                       # mirror `FindAttackWeapon != null` (IdunBattleLogic.Entities.Abilities.Active.Loki.Boltstorm_NormalAttackAbility$$PredictAttack / IdunBattleLogic.Entities.Abilities.Active.Loki.ProperKilly_NormalAttackAbility$$PredictAttack)
     try:
         kit = GC.unit_abilities(scene.vis_by_id.get(att_id)) or {}
     except Exception:
@@ -114,24 +114,24 @@ def _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee, weapon_f
 def _display_attack_base(scene, att_id, attack_pos, is_melee):
     """Base ATTACK de la chaine DISPLAY, re-positionnee a la tuile candidate (#49/#153/#57a) :
     base = CURRENT(du pas) − aura_modele(position reelle) + aura_modele(tuile candidate). Les AURAS
-    stat-mod d'allies (RitesOfBattle @181225340, PathOfCommand @181110f10) sont re-evaluees a
+    stat-mod d'allies (RitesOfBattle IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfBattleAbility$$CreateBehaviour, PathOfCommand IdunBattleLogic.Entities.Abilities.Triggered.Loki.PathOfCommandAbility$$CreateBehaviour) sont re-evaluees a
     `attack_pos` ; les mods NON-positionnels (ex. SummaryExecution_BaseEffect 1043 +400, #57a)
     restent inclus via CURRENT. FOYER PARTAGE (#61bis tranche 3) : l'attaque normale ALoki
-    (`GetAttackHitPrediction @1811af4e0` = GetStat(Attack, Current) + arme) ET le chemin drone MV71
-    (delegue b__1 @181119590 = `StatAmount(Caster, ATTACK, CURRENT)`) font la MEME lecture native.
+    (`IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$GetAttackHitPrediction` = GetStat(Attack, Current) + arme) ET le chemin drone MV71
+    (delegue b__1 IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility.u003Cu003Ec__DisplayClass7_0$$u003CPredictAttacku003Eb__1 = `StatAmount(Caster, ATTACK, CURRENT)`) font la MEME lecture native.
     Renvoie `(attack_base, carriers, att_grand, att_faction, _ap)` (carriers/gates reutilises par
     l'appelant normal pour les hits/auras)."""
     _ap = attack_pos or scene.pos(att_id)
     # #153 (tranche le flip-flop #45/#58/#67) : la chaine display threade la position candidate de bout
-    # en bout — `DamagePredictionQuery.GetAllPredictions @181090f50` construit `UnitPosition(tuile de
-    # selection)` et la passe au service ; `DamagePrediction.PredictNormalAttack @181037cd0` en tire
+    # en bout — `IdunBattle.Core.Services.DamagePredictionQuery$$GetAllPredictions` construit `UnitPosition(tuile de
+    # selection)` et la passe au service ; `IdunBattle.Core.Services.DamagePrediction$$PredictNormalAttack` en tire
     # `get_MainTile` et la pose comme CasterTile dans `AbilityEntities.ctor`. Les auras d'attaque-stat
     # sont donc re-evaluees PAR TUILE CANDIDATE (PAS la valeur bakee a la position reelle). MESURE
     # discriminante seed-31337 (1 decisionView, attaquant reel FIXE adjacent au porteur, seule la tuile
     # varie) : u92 out-ring 12/12 = base Initial (aura PERDUE malgre le stat-mod +1298 present live) ;
     # u96 (reel LOIN du porteur, aucun stat-mod) sur tuile in-ring = base Initial+aura (aura GAGNEE).
     # L'ancien verdict #67 (« aura bakee a la position reelle, GetStat sans position ») etait un artefact :
-    # son test etait circulaire (port-vs-port) et son unique GetStat de GetAttackHitPrediction @1811af4e0
+    # son test etait circulaire (port-vs-port) et son unique GetStat de IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$GetAttackHitPrediction
     # lit en realite `GetStat(AbilityEntities.Target@+0x10, Health=5, Current)` (HP cible), pas un Attack.
     _att_gu = GC.unit(scene.vis_by_id.get(att_id)) or {}
     att_grand = _att_gu.get("GrandAllianceId")           # gate RitesOfBattle (Imperial)
@@ -159,7 +159,7 @@ def _display_attack_base(scene, att_id, attack_pos, is_melee):
     _cand_blocked = "BlockEnteringUnits" in ((scene.tile_effects_by_pos or {}).get(tuple(_ap)) or ())
     # #57a : la base CONSERVE les stat-mods NON-positionnels courants (SummaryExecution_BaseEffect
     # 1043 : +400 flat aux Friends(UnitsWithTrait), selecteur SANS noeud d'adjacence — decompile
-    # `SummaryExecutionEffect.CreateTargetSelector @180f6f8a0` ; vecu 1357 s15 u135 : natif per-hit
+    # `IdunBattle.Entities.Effects.Loki.SummaryExecutionEffect$$CreateTargetSelector` ; vecu 1357 s15 u135 : natif per-hit
     # = 1.2/1.8 × 1496 (CURRENT) et non ×1096 (INITIAL)). Modele : base = CURRENT(du pas)
     # − aura_modele(position reelle) + aura_modele(tuile candidate) — algebriquement
     # = INITIAL + mods-non-aura + auras re-evaluees (#153) ; identique a l'ancien INITIAL+aura
@@ -177,11 +177,11 @@ _MV71_CONFIG = "MV71SniperDroneSquad"    # l'entree gameconfig (passif 1119) qui
 
 
 def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=False):
-    """`MV71SniperDroneSquadAttackAbility.PredictAttack @18110a5f0`, branche DISTANCE (#61bis
+    """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$PredictAttack`, branche DISTANCE (#61bis
     tranche 3 — la branche melee delegue a ALoki et reste dans `make_normal_attack_predictions`).
 
     Mirror du decompile (re-lu 2026-07-22) :
-      - tile = PickTile — delegue b__0 @1811194e0 = `() => PickTile(entities, firstOnly=0)`, LE MEME
+      - tile = PickTile — delegue b__0 IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility.u003Cu003Ec__DisplayClass7_0$$u003CPredictAttacku003Eb__0 = `() => PickTile(entities, firstOnly=0)`, LE MEME
         PickTile que l'execution (memoise par un service de cache) -> `pick_tile_scene` (hydrateur
         scene du port runner, scoring partage). Parent = la POSITION CANDIDATE (#153).
         **Aucune tuile -> prediction VIDE** (memset 0xc0 + liste block vide = resultat ZERO, pas
@@ -191,7 +191,7 @@ def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fals
         compte-de-coups tranche PAR ELIMINATION (b__0 = tile, b__1 = degat : aucun autre lecteur
         possible du champ @0x148) + position = celle du delegue hits par defaut du fallback ALoki
         (slot 0x25, DAT_183283000). Confronte live via `appliedHits` d'aiPlaybookPredict.
-      - degat = delegue b__1 @181119590 = `StatAmount(Caster, ATTACK, CURRENT)` ->
+      - degat = delegue b__1 IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility.u003Cu003Ec__DisplayClass7_0$$u003CPredictAttacku003Eb__1 = `StatAmount(Caster, ATTACK, CURRENT)` ->
         `_display_attack_base` (MEME lecture display que la normale, re-positionnee #153).
       - arme = la config d'attaque du DRONE (service slot 0xc0 = unit-config par id, champ @0x18),
         resolue par la distance TUILE DU DRONE -> cible (le drone tire de SA tuile) ; pierce =
@@ -203,7 +203,7 @@ def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fals
         `AddAdditionalHitsToPrediction` — MEME canal #179 que la normale (effets du CASTER + auras).
       - modifiers (ARBITRE LIVE, probe_61bis_pred seed 61011) : le widget attaquant est **ZEROE**
         (memset `&local_3f8` — le `param_4` du playbook N'EST PAS forwarde, contrairement a la
-        branche melee qui le passe a ALoki) -> AUCUN mod ATTAQUANT-effets (builder @181000590 cote
+        branche melee qui le passe a ALoki) -> AUCUN mod ATTAQUANT-effets (builder IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction cote
         appelant ; residu flagge : aucun datapoint caster-avec-effet-d'attaque encore). MAIS les
         mods POSITIONNELS + DEFENSEUR sont calcules EN AVAL DANS le service et S'APPLIQUENT :
           . ELEVATION evaluee a la TUILE DU DRONE vs cible (rows x1.5 EXACT quand la tuile choisie
@@ -263,7 +263,7 @@ def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fals
         carriers, {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
                    "att_faction": att_faction, "att_grand_alliance": att_grand,
                    # #202-B : traits gameconfig de l'ATTAQUANT (gate Daemon d'InfernalPacts —
-                   # disjunct HasTrait(0x3fb) du trigger @180f52430).
+                   # disjunct HasTrait(0x3fb) du trigger IdunBattle.Entities.Effects.Loki.InfernalPacts_AdditionalHitsEffect$$CreateAdditionalHits).
                    "att_traits": frozenset((GC.unit(scene.vis_by_id.get(att_id)) or {}).get("traits") or ()),
                    "is_melee": False})
     _extra_groups = []
@@ -297,7 +297,7 @@ def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fals
 
 
 def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=False):
-    """`ALoki_NormalAttackPlaybook.MakeDamagePredictions @181372730` -> `ability.PredictAttack @1811afa50` :
+    """`IdunBattle.AI.Playbook.Loki.ALoki_NormalAttackPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$MakeDamagePredictions` -> `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$PredictAttack` :
     base=Attack × hits + percage + armure + MODIFIER (effets attaquant + ElevationBonus + defenseur).
     Renvoie 1 `ProbableDamageEvent` (l'attaque normale n'est pas AoE) ou None. `meta=True` -> `(event,
     meta_dict)` (base/pierce/armure/hits/mods/effets — diagnostic pour le harnais de validation)."""
@@ -312,9 +312,9 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # (ex. (5,5)->(6,6)) restent ranged. `scene.board` (si fourni) = voisins natifs, sinon evenq.
     is_adjacent = are_tiles_adjacent(attack_pos, t_pos, scene.board)
     # --- #61bis tranche 3 : dispatch NormalAttackType CONCRET -> override `MV71SniperDroneSquad-
-    # AttackAbility.PredictAttack @18110a5f0` (1076). Le natif dispatche par vtable (l'attaque normale
+    # IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$PredictAttack` (1076). Le natif dispatche par vtable (l'attaque normale
     # per-unit EST l'instance MV71 pour un porteur du passif) ; le port dispatche par kit. MELEE
-    # (`IsMeleeAttack @181109960`, evaluee sur la POSITION CANDIDATE threadee par la chaine display) ->
+    # (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$IsMeleeAttack`, evaluee sur la POSITION CANDIDATE threadee par la chaine display) ->
     # delegation TOTALE a ALoki.PredictAttack AVEC les modifiers d'origine = on RESTE ici (chemin
     # arme) ; DISTANCE -> chemin drone (config du drone, degat StatAmount(caster), widget mods zeroe).
     if is_adjacent is not True:
@@ -326,7 +326,7 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     is_melee = not _ranged
     _hm = (attack_pos != scene.pos(att_id)) if attack_pos else None
     # PREDICTION (slot 0xd) — branche distincte du combat (runner). Le debuff stat-modifications
-    # (CalculateModifiersFromStatModifications @181004380, prediction-only) reste GATE off : ce
+    # (IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications, prediction-only) reste GATE off : ce
     # N'EST PAS un modifier post-percage mais un effet AU NIVEAU DE LA BASE (cf. base=Initial ci-dessous).
     # BeastSlayer (target-conditionnel) : traits de la CIBLE (mirror HasTrait) -> gate BigTarget/Vehicle.
     _tgt_traits = frozenset((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits") or [])
@@ -336,7 +336,7 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     _tgt_armor_reduced = (_tctx.stats.has_negative_modifier(ARMOR_STAT_TYPES)
                           if _tctx is not None and _tctx.stats is not None else None)
     # att_ctx POSITIONNEL (#29) : magnitude re-countee a la TUILE CANDIDATE pour les bonus dont le DSL lit
-    # la UnitPosition hypothetique (LordOfTempests : Count(Ice ring-1) @180f56b40 — meme threading candidat
+    # la UnitPosition hypothetique (LordOfTempests : Count(Ice ring-1) IdunBattle.Entities.Effects.Loki.LordOfTempests_ExtraDamageEffect$$GetHexesIncreasingDamage — meme threading candidat
     # que les auras #153). tile_effects_by_pos = tileMeta FRAIS du pas (la glace s'accumule).
     _att_ctx = {"att_pos": attack_pos or scene.pos(att_id),
                 "tile_effects_by_pos": scene.tile_effects_by_pos}
@@ -366,20 +366,20 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # distincts -> jamais cumules.
     _apply_ally_attack_dmg_bonus(mods, scene, att_id, _ap, is_melee, _tgt_armor_reduced, carriers,
                                  tgt_id=tgt_id, is_normal_attack=True, damage_profile=prof_name)
-    # Nb de coups : cette prediction EST la facade `DamagePrediction.GetAttackHits @18102f240` — elle
+    # Nb de coups : cette prediction EST la facade `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits` — elle
     # rassemble les entrees depuis la Scene puis appelle la FORMULE PARTAGEE `attack_hits_with_modifiers`
-    # (`AttackHitsWithModifiersFormula.Calculate @180f0bf50`, MEME formule que la facade combat runner) :
+    # (`IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula$$Calculate`, MEME formule que la facade combat runner) :
     # base weapon+ExtraHits+effets, +GetStuckIn/traits, +malus defenseur (LightCover/Parry) + auras (BigTarget).
-    # VIVANTS SEULEMENT (#57m) : le board natif = OCCUPATION DE TUILE (`AdjacentUnits @180de8320` =
+    # VIVANTS SEULEMENT (#57m) : le board natif = OCCUPATION DE TUILE (`IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits` =
     # `Units(AdjacentTiles(.)) - .`) — les cadavres de scene.pos_by_id (decisionView les garde) n'y
-    # sont plus : ni compte GetStuckIn (@180f83460), ni porteur d'aura (idiome hp>0, cf. l.227/276).
+    # sont plus : ni compte GetStuckIn (IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance), ni porteur d'aura (idiome hp>0, cf. l.227/276).
     _alive_ids = [uid for uid in scene.pos_by_id
                   if uid in (att_id, tgt_id) or (scene.hp(uid) or 0) > 0]
     board = {"att_id": att_id, "tgt_id": tgt_id, "attack_pos": attack_pos, "t_pos": t_pos,
              "tgt_team": scene.team(tgt_id), "is_melee": is_melee,
              "pos_by_id": {uid: scene.pos_by_id[uid] for uid in _alive_ids},
              "team_by_id": scene.team_by_id,
-             # faction par unite — gate GetBonusHitChance de GetStuckIn (orks_adj>=2, @180f83460, #98)
+             # faction par unite — gate GetBonusHitChance de GetStuckIn (orks_adj>=2, IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance, #98)
              "faction_by_id": {uid: scene.faction(uid) for uid in _alive_ids}}
     tgt_effects = scene.effects(tgt_id)
     aura_sources = [(uid, scene.pos(uid), scene.team(uid), scene.effects(uid))
@@ -388,8 +388,8 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # dynamiques (Swarm_HitReduction : -1 hit/membre perdu) sont poses APRES l'hydratation.
     _xh = scene.extra_hits_current(att_id)
     # #62 : gates/branches TUILE compute-time des malus defenseur — le natif les evalue AUSSI en
-    # prediction (formule PARTAGEE @180f0bf50) : LightCover `AreEqual(coverPatch, target)` @180f556b0,
-    # Camouflage branche -3 `HasTile(TilesWithTriggeredAbility(Tiles(Target), 57))` @181107180. Terrain
+    # prediction (formule PARTAGEE IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula$$Calculate) : LightCover `AreEqual(coverPatch, target)` IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffectHitsBonusForAttack,
+    # Camouflage branche -3 `HasTile(TilesWithTriggeredAbility(Tiles(Target), 57))` IdunBattleLogic.Entities.Abilities.Triggered.Loki.Camouflage_HitReductionEffect$$CreateEffectHitsBonusForAttack. Terrain
     # de la CIBLE (immobile : seule la tuile candidate de l'attaquant varie) via scene.board (#124),
     # mirror du call-site combat (operations/damage.py). Board KO -> None = applique-sur-presence.
     _t_terrain = scene.board.terrain_at(t_pos[0], t_pos[1]) if scene.board is not None else None
@@ -403,7 +403,7 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                                       include_bonus_hit_behaviours=True,  # prediction folde GetStuckIn (deterministe)
                                       defender_on_cover=_on_cover,
                                       # #84 : contexte CIBLE du canal (1) -- `HasTileStatusEffect(Targets)`
-                                      # @180df13f0 (status-effects DYNAMIQUES de la tuile de la cible,
+                                      # IdunBattleLogic.Entities.DSLFactory$$HasTileStatusEffect (status-effects DYNAMIQUES de la tuile de la cible,
                                       # tileMeta FRAIS du pas). Le second volet du gate LetTheGalaxyBurn
                                       # (`IsPersistentData`) est un flag INTRA-ATTAQUE arme au
                                       # `On(PreAttack=5)` : la PREDICTION n'execute aucun behaviour, donc
@@ -412,21 +412,21 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                                       # cible n'est pas sur un hex-effect).
                                       tile_effects_by_pos=scene.tile_effects_by_pos)
     # MkXGravis (trait CIBLE 0x3f5) : l'armure est traversee 2× → hit_mult=2 dans predict_attack_raw
-    # (GetBaseDamageWithFixedPiercedArmor @181030d10). No-op (=1) pour toute cible sans trait hit-twice.
+    # (IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageWithFixedPiercedArmor). No-op (=1) pour toute cible sans trait hit-twice.
     tgt_hit_mult = target_hit_multiplier(TraitFactory.create_many(_tgt_traits))
     # #179 : coups additionnels HETEROGENES (SquigHound_AdditionalHits) — degat/profil PROPRE, prev-threades
     # APRES les coups d'arme (overkill continu). Chaine native (RE) : `AActiveAbility.AddAdditionalHitsTo-
-    # Prediction @180faff30` -> par coup `get_DefaultBlockScenario(result)` (prev threade) puis `GetEffect-
-    # AdditionalHitPrediction @180fb1260` -> le MEME delegate PredictAttack (slot 0x26) / `PredictAttackRaw
-    # @181032fb0` que les coups d'arme, avec le CONTEXTE MODIFIERS COURANT. Donc chaque groupe : `count` coups
+    # Prediction IdunBattle.Entities.Abilities.AActiveAbility$$AddAdditionalHitsToPrediction` -> par coup `get_DefaultBlockScenario(result)` (prev threade) puis `GetEffect-
+    # AdditionalHitPrediction IdunBattle.Entities.Abilities.AActiveAbility$$GetEffectAdditionalHitPrediction` -> le MEME delegate PredictAttack (slot 0x26) / `PredictAttackRaw
+    # IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` que les coups d'arme, avec le CONTEXTE MODIFIERS COURANT. Donc chaque groupe : `count` coups
     # [min,max] (predefined, sans spread ±20% = RandomAmount natif) au profil propre (pierce = PiercingRatio du
     # profil + extra_pierce), MEME armure/hp/bouclier/hit_mult(MkXGravis) que la cible, ET `mods` COMPLET — le
     # coup subit le meme pipeline : reductions defenseur plates (Nightshroud_DmgReduction, fusionnees dans
-    # mods.additive) + %-mods/additif attaquant. Mirror `EffectAdditionalHits.Create @180f405b0`. [] hors carrier.
+    # mods.additive) + %-mods/additif attaquant. Mirror `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create`. [] hors carrier.
     # #57c-C : deux sources de groupes — (a) effets du PORTEUR (SquigHound/CordClaw/FoulInfusion,
     # triggers OwnerIsActor/OwnerIsCaster+IsMeleeAttack EVALUES : ctx is_melee threade) ; (b) effets-
     # AURA d'ALLIES adjacents (ExplosiveMaladies : adjacence re-evaluee a la TUILE CANDIDATE, mirror
-    # de l'enumeration globale @180e59150 + selecteur @180f43ef0). Les groupes "amount" (ConfigVar
+    # de l'enumeration globale IdunBattle.Operations.AdditionalHitsFromEffects$$GetAdditionalHitsFromEffectsInternal + selecteur IdunBattle.Entities.Effects.Loki.ExplosiveMaladies_ExtraRangedAttackEffect$$CreateTargetSelector). Les groupes "amount" (ConfigVar
     # seul) prennent le spread ±20% du pipeline ; TOUS les groupes recoivent les %-mods attaquant
     # (mesure 2468 s14 : le coup ExplosiveMaladies de u89 subit bien le x1.5 CrushingStrike).
     _extra_groups = []
@@ -441,7 +441,7 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
         carriers, {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
                    "att_faction": att_faction, "att_grand_alliance": att_grand,
                    # #202-B : traits gameconfig de l'ATTAQUANT (gate Daemon d'InfernalPacts —
-                   # disjunct HasTrait(0x3fb) du trigger @180f52430).
+                   # disjunct HasTrait(0x3fb) du trigger IdunBattle.Entities.Effects.Loki.InfernalPacts_AdditionalHitsEffect$$CreateAdditionalHits).
                    "att_traits": frozenset((GC.unit(scene.vis_by_id.get(att_id)) or {}).get("traits") or ()),
                    "is_melee": is_melee})
     for _g in list(additional_hit_groups(att_effects, _ah_ctx)) + _aura_hits:
@@ -449,7 +449,7 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
         _gp = max(0, min(100, int(_dp.get("PiercingRatio") or 0) + ctx.extra_pierce))
         _entry = {"count": _g["count"], "pierce_pct": _gp,
                   "profile_type": _PROFILE_INDEX.get(_g["profile"], 0), "mods": mods,
-                  # #57d : le member-cap Swarm lit le profil DU COUP (param_5 d'@18102bfe0) — un coup
+                  # #57d : le member-cap Swarm lit le profil DU COUP (param_5 d'IdunBattle.Core.Services.DamagePrediction$$ApplyGroupUnitDamageLimit) — un coup
                   # additionnel Blast (HitsMultipleMembers) skippe le cap meme si l'arme ne le fait pas.
                   "profile_has_hits_multiple_members":
                       DamageTrait.HitsMultipleMembers.name in (_dp.get("Traits") or [])}
@@ -469,7 +469,7 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
         attacker_effects=att_effects)   # #202 : max-out evalue DANS predict_attack_raw (foyer natif)
     # #57c-C : override PredictAttack des attaques normales de boss (Gulgortz/LightImUp, Ghazghkull/
     # ProperKilly) — prediction ADDITIONNELLE sur scenario VIERGE sommee via DamagePredictionResult.add
-    # (@18102a710), cf. bloc _RANGED_FOLLOWUP_PASSIVES ci-dessus.
+    # (IdunBattle.Core.Services.DamagePredictionResult$$Add), cf. bloc _RANGED_FOLLOWUP_PASSIVES ci-dessus.
     _fw = _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee, prof_name is not None)
     if _fw is not None:
         res.add(_fw)

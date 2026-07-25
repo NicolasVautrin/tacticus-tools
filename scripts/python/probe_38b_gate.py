@@ -5,7 +5,7 @@ Rejoue le walk RUN B (seed 38001) et, a chaque step de Tan (u81), confronte :
   - le modele v1 du port (count=_has_valid_targets ; adj=unites adjacentes ; cap) ;
   - le modele v2 re-RE (count=GetValidTargets slot 0x41 ; adj=|GetFreeAdjacentTiles| slot 0x51
     = mirror `adjacent_addable_count` ; cap) — slot 0x51 resolu LIVE (probe_38b_vtable.py) :
-    `GetFreeAdjacentTiles @181061650` = GetAdjacentTiles(unit,1,1,1) filtre CanAddUnit(tile,1,0,0).
+    `IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles` = GetAdjacentTiles(unit,1,1,1) filtre CanAddUnit(tile,1,0,0).
 Dump aussi les abilities dv de Tan (ids/kind/usable/fromHereCount) — piste « attaque normale
 dependante de la stance ». Sortie JSON data/_probe38b_gate.json, console ASCII only.
 """

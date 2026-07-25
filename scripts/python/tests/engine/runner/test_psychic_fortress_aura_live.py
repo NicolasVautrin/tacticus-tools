@@ -1,12 +1,11 @@
 """#220 PsychicFortress_DmgReduction (AURA 1010) — REPLAY-DIFF quand un ami de Tigurius DEFEND en Psychic.
 
-Tigurius (ultraTigurius) porte le passif PsychicFortress : `PsychicFortressAbility.CreateBehaviour
-@181224070` pose l'effet aura `PsychicFortress_DmgReduction` (0x3f2=1010) sur LUI-MEME (capte live
+Tigurius (ultraTigurius) porte le passif PsychicFortress : `IdunBattleLogic.Entities.Abilities.Active.Loki.PsychicFortressAbility$$CreateBehaviour` pose l'effet aura `PsychicFortress_DmgReduction` (0x3f2=1010) sur LUI-MEME (capte live
 source=Tigurius) qui PROJETTE une reduction PLATE -dmgReduction du degat PSYCHIQUE recu par ses AMIS
-ring-1 (`CreateDamageModifier @180f66a30` = ForAddition(OwnerIsTarget & DamageProfileIs(0xd=Psychic),
-Multiply(ConfigVar(0x12), Direct(-1))) ; selector `CreateTargetSelector @180f66c30` =
+ring-1 (`IdunBattle.Entities.Effects.Loki.PsychicFortress_DmgReductionEffect$$CreateDamageModifier` = ForAddition(OwnerIsTarget & DamageProfileIs(0xd=Psychic),
+Multiply(ConfigVar(0x12), Direct(-1))) ; selector `IdunBattle.Entities.Effects.Loki.PsychicFortress_DmgReductionEffect$$CreateTargetSelector` =
 Friends(SurroundingUnits(range=1, includeCenter=false))). Jumeau structurel de DaughterOfTheAbyss_Owner
-@180f3d070 / Nightshroud @180f5bff0 -> flat_reductions PRE-percage (canal aura defense).
+IdunBattle.Entities.Effects.Loki.DaughterOfTheAbyss_OwnerDmgReductionEffect$$CreateEffectDamageMalusForDefense / Nightshroud IdunBattle.Entities.Effects.Loki.Nightshroud_DmgReduction_Effect$$CreateDamageDefenseModifier -> flat_reductions PRE-percage (canal aura defense).
 
 On drive les positions (applyAction ignore la portee) : ami ADJACENT a Tigurius (ring-1, aura ACTIVE)
 vs a distance 2 (ring-2, aura INACTIVE), attaque PSYCHIQUE de bloodMephiston (pierce 100 -> pas de

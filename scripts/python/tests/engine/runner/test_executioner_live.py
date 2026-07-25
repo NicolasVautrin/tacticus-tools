@@ -1,6 +1,6 @@
 """Executioner (1066, eldarFarseer « Eldryon », Aeldari) -- face COMBAT (execute) portee, confrontee au LIVE.
 
-`ExecutionerAbility.ExecuteBehaviour @1811d9f10` (DECOMPILE, mirror 1:1 -- namespace natif
+`IdunBattleLogic.Entities.Abilities.Active.Loki.ExecutionerAbility$$ExecuteBehaviour` (DECOMPILE, mirror 1:1 -- namespace natif
 `Abilities.Active.Loki.ExecutionerAbility`) =
     op_and( op_and(
         SetCache(cacheA = Cache(Damageable(Enemies(@0x160, AdjacentUnits(@0x190, 1, 3))))),          # prime pool
@@ -13,8 +13,8 @@
 
 i2 : « takes 582-2183 Psychic Damage FOR EACH ROUND THAT HAS STARTED. If the target is eliminated, an
 adjacent enemy also takes 582-2183 for each round started. » Attaque RANGED Psychic (pierce 100, NoBlocking),
-`hits = RoundsStarted` (`GetHits @1811da4a0` = stat 12 `turnsStarted` du CASTER, plancher max(1,.)).
-`native_factory="attack"` (@180de9fb0, XREF ExecuteBehaviour ; 2 tirages/coup a cc=0, rngcrit-1202).
+`hits = RoundsStarted` (`IdunBattleLogic.Entities.Abilities.Active.Loki.ExecutionerAbility$$GetHits` = stat 12 `turnsStarted` du CASTER, plancher max(1,.)).
+`native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, XREF ExecuteBehaviour ; 2 tirages/coup a cc=0, rngcrit-1202).
 
 Ce que ces tests PROUVENT :
   (a) CAST LIVE bit-exact : la MAIN frappe la cible `hits = RoundsStarted` fois, per-coup == le port offline

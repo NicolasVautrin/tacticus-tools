@@ -1,7 +1,7 @@
 """Opération `ChangeStat` du runner — applique/reverte une stat-modification sur `UnitStats` en cours
 de bataille, mirror de `IdunBattle.Messages.ModifyStatMessage` (émis par `AStatModifierEffect.
-ApplyModification @180f0a2f0` part 5/9 = apply, `RevertModification @180f0aa40` part 6 = revert) et de
-`DSLFactory.ChangeStat @180debdc0`.
+IdunBattle.Entities.Effects.AStatModifierEffect$$ApplyModification` part 5/9 = apply, `IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification` part 6 = revert) et de
+`IdunBattleLogic.Entities.DSLFactory$$ChangeStat`.
 
 GÉNÉRALISE la mutation de stat ad-hoc (ActOfFaith `cc_delta/cd_delta`, `operations.triggers`) : la
 **modification par-source** de `UnitStats` rend le revert EXACT **sans stocker de delta** (le natif
@@ -66,8 +66,7 @@ def revert_change_stat(state, unit_id: int, stat_type: int, source) -> Optional[
 def apply_stat_override(state, unit_id: int, stat_type: int, value: int,
                         is_modifiable: bool = True) -> Optional[int]:
     """`ChangeStat` mode 4 + `Position(statType, part 7 = OVERRIDE)` (émis par ex. par
-    `MV71SniperDroneSquad_InitialDmgEffect.ApplyStat @180f573f0`) → `StatComponent.ApplyModifier
-    @180fa8800` case 7 → `ValueOverride.SetOverride @180faea70`. La valeur (ex. stat CURRENT du
+    `IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$ApplyStat`) → `IdunBattle.Entities.Components.StatComponent$$ApplyModifier` case 7 → `IdunBattle.Entities.Components.ValueOverride$$SetOverride`. La valeur (ex. stat CURRENT du
     parent) est SNAPSHOTÉE par l'appelant (nœud `Direct(...)` évalué à l'exécution). Renvoie la
     nouvelle valeur Current (None si pas de stats)."""
     ctx = _ctx(state, unit_id)
@@ -79,8 +78,7 @@ def apply_stat_override(state, unit_id: int, stat_type: int, value: int,
 
 def remove_stat_override(state, unit_id: int, stat_type: int) -> Optional[int]:
     """`ChangeStat` mode 4 + `Position(statType, part 8 = REMOVE_OVERRIDE)` (ex.
-    `MV71SniperDroneSquad_InitialDmgEffect.ResetStat @180f57620`, appelé ×4 par `RevertInternal
-    @180f577d0`) → `ApplyModifier @180fa8800` case 8 → `ValueOverride.RemoveOverride @180fae930`.
+    `IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$ResetStat`, appelé ×4 par `IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$RevertInternal`) → `IdunBattle.Entities.Components.StatComponent$$ApplyModifier` case 8 → `IdunBattle.Entities.Components.ValueOverride$$RemoveOverride`.
     Renvoie la nouvelle valeur Current (None si pas de stats)."""
     ctx = _ctx(state, unit_id)
     if ctx is None:

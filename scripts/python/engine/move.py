@@ -10,7 +10,7 @@ On compare l'ARGMAX (la tuile choisie), pas la valeur d'utilité exacte → l'ar
 n'a pas à être répliquée (cf. doc §6). NB : `MaxDistanceToEnemies` n'est dans AUCUN composite et
 `MaxDistanceToUnitTile` n'appartient qu'à `UnitMovementFromTemporary(5)` (move « depuis une tuile
 temporaire ») — non porté ; sa formule RE'd `A-(A-B)/d` (A=FarthestTile 700, B=ClosestTile 400,
-`MaxDistanceToUnitTileUtility.<d__2>.MoveNext @1810fdeb0`) est parkée dans docs/rl/playbook-engine.md §13.3.
+`MaxDistanceToUnitTileUtility.<d__2>.IdunBattle.AI.Utilities.MaxDistanceToUnitTileUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext`) est parkée dans docs/rl/playbook-engine.md §13.3.
 
 cf. docs/rl/playbook-engine.md §1.5 + §7 + §13.
 """
@@ -39,7 +39,7 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
     ⚠ `d` = distance de CHEMIN (pathfinding), PAS hex (RE `GetMinDistanceToEnemy`, doc §13.12) :
     si `pathdist_by_pos` (RPC `pathDistToEnemies`) est fourni, on l'utilise ; sinon fallback hex
     (approximation). `elev_by_pos` = `{(col,row): elevation}` (RPC tileMeta = BOARD ENTIER) ; max/min
-    d'élévation calculés sur TOUT le board (= `LoadRelevantTileElevations @1810ef690`, verdict case-37 :
+    d'élévation calculés sur TOUT le board (= `IdunBattle.AI.Utilities.ElevationUtility$$LoadRelevantTileElevations`, verdict case-37 :
     board-singleton, PAS le candidate-set). `is_temporary_by_pos` = `{(col,row): bool}`
     (tileMeta.isTemporary) → leaf TemporaryTile(13) (-10000 sur tuile temporaire). `terrain_by_pos` =
     `{(col,row): tileDefId}` (boardGraph) → covers HÉBERGÉS par le terrain sommés par TileEffects(9)

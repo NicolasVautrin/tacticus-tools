@@ -17,7 +17,7 @@ Ce que le test confronte au LIVE (aucune fixture gelee, aucun scalaire fitte) :
      Profil `Toxic` (PiercingRatio 70) -> le net n'est PAS 25% du maxPV : decomposition d'etage
      verifiee (base -> percage -> armure).
   C. `test_explodes_fires_on_overkill_live` — LE PIEGE. Les deux `CreateTrigger` passent `a=1` a
-     `OnPreDeath2` => `OnDeathEvent @180df7ad0` n'ajoute PAS le `NOT HasFlag(dying, Overkilled=8)`.
+     `OnPreDeath2` => `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent` n'ajoute PAS le `NOT HasFlag(dying, Overkilled=8)`.
      Un port copie sur `FinalJustice` (dont le gate overkill vit dans son BEHAVIOUR) serait FAUX.
      On monte une mort **OVERKILL CERTAINE** (degat BRUT de la prediction >= 2 x PV) et on exige que
      la nova parte quand meme.
@@ -25,9 +25,8 @@ Ce que le test confronte au LIVE (aucune fixture gelee, aucun scalaire fitte) :
      `OnDeathEvent(2, a, b)` mirrores, verifies OFFLINE (aucun porteur `Steppable` de `PutridExplosion`
      n'existe en gameconfig -> gate non confrontable live : mirror + toggle offline).
 
-Artefacts natifs (build gqfc5mff6c) : `ExplodesAbility` CreateTrigger @18121e6f0 / CreateBehaviour
-@18121e450 ; `PutridExplosion_Ability` @1812248f0 / @181224710 ; `DSLFactory.OnPreDeath2 @180df7ee0`
--> `OnDeathEvent @180df7ad0` ; emetteur de la sequence de mort `KillUnitOperation$$Execute @180e76470`
+Artefacts natifs (build gqfc5mff6c) : `ExplodesAbility` IdunBattleLogic.Entities.Abilities.Active.Loki.ExplodesAbility$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Active.Loki.ExplodesAbility$$CreateBehaviour ; `PutridExplosion_Ability` IdunBattleLogic.Entities.Abilities.Active.Loki.PutridExplosion_Ability$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Active.Loki.PutridExplosion_Ability$$CreateBehaviour ; `IdunBattleLogic.Entities.DSLFactory$$OnPreDeath2`
+-> `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent` ; emetteur de la sequence de mort `KillUnitOperation$$IdunBattle.Operations.KillUnitOperation$$Execute`
 (ordre d'instruction LU : On(1) -> On(2) -> On(0) -> On(55) -> On(54)).
 
 ⚠ `--block-target 0,0` : le block EST tire dans la famille ABILITY (prouve live), mais le rejeu
@@ -169,7 +168,7 @@ def _kill_and_compare(rpc, rid, ids, require_overkill=None):
 
     # OVERKILL observable : `healthDmg*` est CAPE a `hpBefore` ; `totalDmg*` est le degat BRUT et
     # EGALE le degat sante brut quand la cible n'a ni armure-pool ni bouclier (`is_overkill
-    # @181032db0` : overkill ssi dmg >= 2 x PV, `overkillDmgPctOfHealth`=100).
+    # IdunBattle.Core.Services.DamagePrediction$$IsOverkill` : overkill ssi dmg >= 2 x PV, `overkillDmgPctOfHealth`=100).
     pred = ((rpc("aiPredict", {"runnerId": rid, "unitId": ids["killer"],
                                "targetId": ids["carrier"], "abilityType": na}, 90) or {})
             .get("pred") or {})
@@ -246,7 +245,7 @@ def test_putrid_explosion_faction_exclusion_live(live_session, rpc, build_runner
     """`PutridExplosion` : exclusion `UnitsFromFaction(<adjacents>, putridExplosionFactionId)` par
     **FACTION** et non par equipe -> l'ENNEMI DeathGuard est EPARGNE, l'ALLIE Aeldari encaisse.
     Le porteur est `Resilient` : mourir d'UN coup implique structurellement un OVERKILL
-    (`ApplyResilientTraitDamageLimit @18102c3a0` : hors overkill le degat est cape a curHP-1)."""
+    (`IdunBattle.Core.Services.DamagePrediction$$ApplyResilientTraitDamageLimit` : hors overkill le degat est cape a curHP-1)."""
     rid, ids, _ = _setup(rpc, build_runner, "90312", PUTRID_BUILD, "deathPutrifier", 300,
                          ring_roles=("ally", "killer", "adj"))   # `adj` = deathBlightbringer (DeathGuard)
     live, port, hp_before, raw, maxhp = _kill_and_compare(rpc, rid, ids, require_overkill=True)
@@ -270,7 +269,7 @@ def test_putrid_explosion_faction_exclusion_live(live_session, rpc, build_runner
 
 
 def test_no_overkill_gate_offline():
-    """Les DEUX `CreateTrigger` passent `a=1` a `OnPreDeath2` -> `OnDeathEvent @180df7ad0` n'ajoute
+    """Les DEUX `CreateTrigger` passent `a=1` a `OnPreDeath2` -> `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent` n'ajoute
     PAS `NOT HasFlag(dying, UnitFlag.Overkilled=8)`. Le port ne doit donc lire `ev.overkill` NULLE PART."""
     for cls in (ExplodesAbility, PutridExplosionAbility):
         ab = cls(7)

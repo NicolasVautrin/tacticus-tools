@@ -7,7 +7,7 @@ score du choix ENGINE n'a jamais ete confronte au scoreur natif. Discriminant (m
 
   pour chaque paire (native et engine), aux tuiles ranked de la paire :
     - OFF u_full pleine precision (sweep _best_attack mirror) ;
-    - NATIF pairUtility (CalculateUtilityFromPredictions @181407890) a la meme tuile.
+    - NATIF pairUtility (IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions) a la meme tuile.
 
   Cas A : natif(eng_pair) == off(eng_pair)  -> l'utilite est bonne DES DEUX COTES mais le natif ne
           JOUE pas cette paire => gate d'ELIGIBILITE (predicat vtable+0x248 de BasePlaybook /

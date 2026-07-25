@@ -11,21 +11,21 @@ marqueur n'apparaissait JAMAIS dans un runner offline (no-op silencieux).
 
 | Symbole | VA |
 |---|---|
-| `MasterAnnihilatorAbility$$CreateTrigger`   | `0x18110ba90` |
-| `MasterAnnihilatorAbility$$CreateBehaviour` | `0x18110b940` |
-| `MasterAnnihilator_AdditionalHitEffect$$CreateAdditionalHits` | `0x180f58d50` |
-| `MasterAnnihilator_AdditionalHitEffect$$CreateRemoveEffectTrigger` | `0x180f58f40` |
-| `DSLFactory$$EffectsFromUnitSource` | `0x180deec70` (-> `EffectWithTypeSelector`) |
-| `DSLFactory$$OwnerOfEffect`         | `0x180df8350` |
+| `MasterAnnihilatorAbility$$CreateTrigger`   | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterAnnihilatorAbility$$CreateTrigger` |
+| `MasterAnnihilatorAbility$$CreateBehaviour` | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterAnnihilatorAbility$$CreateBehaviour` |
+| `MasterAnnihilator_AdditionalHitEffect$$CreateAdditionalHits` | `IdunBattle.Entities.Effects.Loki.MasterAnnihilator_AdditionalHitEffect$$CreateAdditionalHits` |
+| `MasterAnnihilator_AdditionalHitEffect$$CreateRemoveEffectTrigger` | `IdunBattle.Entities.Effects.Loki.MasterAnnihilator_AdditionalHitEffect$$CreateRemoveEffectTrigger` |
+| `DSLFactory$$EffectsFromUnitSource` | `IdunBattleLogic.Entities.DSLFactory$$EffectsFromUnitSource` (-> `EffectWithTypeSelector`) |
+| `DSLFactory$$OwnerOfEffect`         | `IdunBattleLogic.Entities.DSLFactory$$OwnerOfEffect` |
 
-### `CreateTrigger @18110ba90` (conjonction `AbilityTrigger.op_BitwiseAnd`)
+### `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterAnnihilatorAbility$$CreateTrigger` (conjonction `AbilityTrigger.op_BitwiseAnd`)
 ```
 On(0x26=NormalAttack) & get_OwnerIsCaster & AreEnemies(target@0x178, caster@0x160)
 ```
 = << quand Vitruvius fait une ATTAQUE NORMALE contre un ennemi >>. (`On(id, 1, 0)` = `EventNode(id) &
-df@0x98`, cf. `DSLFactory.On @180df8010`.)
+df@0x98`, cf. `IdunBattleLogic.Entities.DSLFactory$$On`.)
 
-### `CreateBehaviour @18110b940` (`AbilityBehaviour.op_Addition` = sequence)
+### `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterAnnihilatorAbility$$CreateBehaviour` (`AbilityBehaviour.op_Addition` = sequence)
 ```
 RemoveEffect( OwnerOfEffect( EffectsFromUnitSource(self@0x148, 0x4e1) ), Nullable(0x4e1) )
 + AddEffect( 0x4e1, AbilityStateReference, source=caster@0x160, cible=target@0x178,
@@ -36,12 +36,11 @@ RemoveEffect( OwnerOfEffect( EffectsFromUnitSource(self@0x148, 0x4e1) ), Nullabl
    `RemoveEffect` les retire. => un SEUL marqueur vivant par Vitruvius, **et le marqueur d'un AUTRE
    poseur n'est PAS touche** (c'est le sens du selecteur keye SOURCE -- le discriminant de validation).
 2. **AddEffect** sur la nouvelle cible, duree = struct ZERO -> `DefaultAmountOfRounds(0x4e1)` = **null**
-   (`StaticBattleRules.Effect.DefaultAmountOfRounds @181559ff0` : seuls 0x4f/0x429/0x48a/0x4dc/0x5c4/
-   5/0x11/0x12/0x3a y sont) -> le natif retombe sur **1** (`local_588[0]=1` d'`AddEffectOperation.Execute
-   @180e48940`). Le port passe `duration_rounds=None` = MEME chemin (`AddEffectOperation` porte deja ce
+   (`idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$DefaultAmountOfRounds` : seuls 0x4f/0x429/0x48a/0x4dc/0x5c4/
+   5/0x11/0x12/0x3a y sont) -> le natif retombe sur **1** (`local_588[0]=1` d'`IdunBattle.Operations.AddEffectOperation$$Execute`). Le port passe `duration_rounds=None` = MEME chemin (`AddEffectOperation` porte deja ce
    defaut).
 
-### `CreateRemoveEffectTrigger @180f58f40` (cote EFFET, hors de cette ability)
+### `IdunBattle.Entities.Effects.Loki.MasterAnnihilator_AdditionalHitEffect$$CreateRemoveEffectTrigger` (cote EFFET, hors de cette ability)
 ```
 On(0=UnitDeath) & AreEqual(target@0x178, EffectSource(thisEffect@0x150))
 ```
@@ -75,7 +74,7 @@ _ON_NORMAL = int(EventTriggerType.NormalAttack)                        # 0x26 = 
 
 
 def master_annihilator_tree():
-    """Mirror 1:1 de `MasterAnnihilatorAbility.CreateBehaviour @18110b940` :
+    """Mirror 1:1 de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterAnnihilatorAbility$$CreateBehaviour` :
 
         RemoveEffect( OwnerOfEffect(EffectsFromUnitSource(Self@0x148, 0x4e1)), 0x4e1 )
         + AddEffect( 0x4e1, source = AbilityStateReference (= le caster), cible = Target@0x178 )
@@ -90,7 +89,7 @@ def master_annihilator_tree():
 
 
 class MasterAnnihilatorMarkAbility(TriggeredAbility):
-    """`MasterAnnihilatorAbility` (CreateTrigger @18110ba90 / CreateBehaviour @18110b940) — triggered 1198
+    """`MasterAnnihilatorAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterAnnihilatorAbility$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterAnnihilatorAbility$$CreateBehaviour) — triggered 1198
     de la passiveAbility `MasterAnnihilator` d'`admecDominus`. Sur CHAQUE attaque NORMALE de Vitruvius
     contre un ennemi : retire le marqueur 1249 qu'IL avait pose (remove-by-source) puis le pose sur la
     nouvelle cible. L'effet 1249 lui-meme (+1 coup recu de toute attaque non-Psychic) est

@@ -1,6 +1,6 @@
 """GreatFrostAxe (actif 1089, spaceWulfen «Ulf», Space Wolves) PORT -> arbre DSL, confronte au LIVE.
 
-`GreatFrostAxeAbility$$ExecuteBehaviour @1811e3500` (DECOMPILE, mirror 1:1, cf. `spacewolves.py`) =
+`GreatFrostAxeAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.GreatFrostAxeAbility$$ExecuteBehaviour` (DECOMPILE, mirror 1:1, cf. `spacewolves.py`) =
     op_BitwiseAnd(
         AddEffect(0x11=Ice, source=stateRef, owner@0x148,
                   op_Addition(AdjacentTiles(TargetTiles@0x190), TargetTiles@0x190), <Nullable ZEROE>),  # glace
@@ -9,7 +9,7 @@
                                   GetDamageProfile=Piercing, GetNumberConstant(0x2f)=nrOfHits=4)) )       # attaque
 
 Patron « Stormcaller inverse » : glace la tuile de la cible + ring-1 PUIS attaque la CIBLE DIRECTE 4x
-Piercing (mono-cible, ATTACK-family @180de9fb0 -- XREF from_address 1811e367f).
+Piercing (mono-cible, ATTACK-family IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage -- XREF from_address 1811e367f).
 
 CE QUE CE TEST VALIDE (parties FIDELES du port) :
   (A) STRUCTURE : cast LIVE glace 7 tuiles (cible + ring-1) + degate la cible ; le port pose iced_tiles
@@ -23,12 +23,11 @@ CE QUE CE TEST VALIDE (parties FIDELES du port) :
 
 RESIDU x1.5 RESOLU (#45f, fable) : l'ex-« bonus crit-sur-glace +50% » etait un ARTEFACT DE CONFUSION —
 la vraie cause etait le bonus d'ELEVATION (`Damage.ElevationBonus`=50, feuille du builder PARTAGE
-`CalculateAttackerModifiersForPrediction @181000590`, gate elev(att) > elev(cible), AUCUN gate
+`IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction`, gate elev(att) > elev(cible), AUCUN gate
 normale/ability) que le vecteur offline `execute_ability_attack` n'appliquait pas ; ce test move sur
 `aiAttackRank ranked[0]` qui PREFERE le surplomb sur MC1_67 -> ratio 1.5 systematique. PROUVE par
 sonde discriminante (probe_45f_gfa_elevation : high=1.5x, flat/low=bit-exact pre-fix ; 16/16 coups
-bit-exact post-fix). Le VRAI bonus crit-sur-Ice (`IceEffect.CreateEffectDamageBonusForAttack
-@180f44940` = +PercentageOf(GetStat(10), IceCritDmgBonusPct=25) par coup CRIT vs cible gelee
+bit-exact post-fix). Le VRAI bonus crit-sur-Ice (`IdunBattle.Entities.Effects.IceEffect$$CreateEffectDamageBonusForAttack` = +PercentageOf(GetStat(10), IceCritDmgBonusPct=25) par coup CRIT vs cible gelee
 non-Immune) vaut 0 ici (cd=0) et est porte + valide a part (probe --case crit : +175 = floor(700x25%),
 4/4 bit-exact).
 
@@ -230,7 +229,7 @@ def test_great_frost_axe_live(live_session, rpc):
         assert all(int(live_ph[i]["crit"] or 0) == 0 for i in clean), \
             f"un coup propre a crit (attendu cc=0) : {live_ph}"
         # C1 (#45f) : degat BIT-EXACT par coup propre — l'elevation (feuille positionnelle du builder
-        # partage @181000590) est desormais appliquee au vecteur ability (`execute_ability_attack`),
+        # partage IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction) est desormais appliquee au vecteur ability (`execute_ability_attack`),
         # que ranked[0] soit en surplomb ou non. Ex-PIN ~1.5 (artefact elevation) SUPPRIME.
         for i in clean:
             assert int(live_ph[i]["amt"]) == off_ph_attack[i], \

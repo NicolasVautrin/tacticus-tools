@@ -1,6 +1,6 @@
 """#149 slice-11 : ScarabSummon (1047) MIGRATION vers l'arbre DSL -- la behaviour EST `scarab_summon_tree()`.
 
-`ScarabSummonAbility.ExecuteBehaviour @181205290` (DECOMPILE) = un noeud `Spawn` UNIQUE (plain `Execute`) :
+`IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabSummonAbility$$ExecuteBehaviour` (DECOMPILE) = un noeud `Spawn` UNIQUE (plain `Execute`) :
     Execute( Spawn(self@0x160,
                    PickRandomly(CanAddUnit(AdjacentTiles(self@0x160)), 1),   # 1 tuile libre adjacente a SOI
                    unitId=GetStringConstant(config,0)=necroSmnSwarm,

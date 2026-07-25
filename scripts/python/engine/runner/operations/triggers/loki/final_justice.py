@@ -1,4 +1,4 @@
-"""`Abilities.Active.Loki.FinalJusticeAbility` (@18121f180) — attaque de MORT de worldKharn (trait
+"""`Abilities.Active.Loki.FinalJusticeAbility` (IdunBattleLogic.Entities.Abilities.Active.Loki.FinalJusticeAbility$$CreateTrigger) — attaque de MORT de worldKharn (trait
 `FinalJustice`). Cf. `loki/__init__.py` pour le regroupement « Loki »."""
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def _damage_utility_weights():
 
 def _normal_attack_health_range(state: State, owner_id: int):
     """Plage de dégât SANTÉ (min,max) du TOTAL de l'attaque normale mêlée de l'owner, PRÉ-ARMURE — mirror
-    de la `DamagePrediction` que `SortUnitsByDamageUtilitySelector.Select`@180ef4960 bâtit par cible
+    de la `DamagePrediction` que `IdunBattle.Entities.Selectors.SortUnitsByDamageUtilitySelector$$Select bâtit par cible
     (`FUN_18002c910` scénario 0x25, profil `NormalAttackDamage`). La prédiction IA d'attaque normale est
     PRÉ-ARMURE (`armor=0` ; cf. en-tête `services/damage_prediction`) ⇒ le dégât est INDÉPENDANT de la
     cible → calculé UNE fois. Inclut les ×modifiers d'effet de l'attaquant (RapidAssault…) et les hits
@@ -55,13 +55,13 @@ def _normal_attack_health_range(state: State, owner_id: int):
 
 
 def _finaljustice_target(state: State, owner_id: int) -> Optional[int]:
-    """`ValidNormalAttackTargets`@180e01b40 → `SortUnitsByDamageUtility`@180dfb8f0 → MEILLEURE cible.
+    """`IdunBattleLogic.Entities.DSLFactory$$ValidNormalAttackTargets → `IdunBattleLogic.Entities.DSLFactory$$SortUnitsByDamageUtility → MEILLEURE cible.
 
-    Tri natif RE LECTURE INTÉGRALE (`SortUnitsByDamageUtilitySelector.Select`@180ef4960 +
-    `FinalJusticeAbility.CreateBehaviour`@18121ed00) : pour chaque cible normal-attaquable, bâtit une
+    Tri natif RE LECTURE INTÉGRALE (`IdunBattle.Entities.Selectors.SortUnitsByDamageUtilitySelector$$Select +
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.FinalJusticeAbility$$CreateBehaviour) : pour chaque cible normal-attaquable, bâtit une
     `DamagePrediction` de l'attaque normale → score `UtilityDecider.CalculateUtility(UtilityDefinition
     0x22 = 34 = composite Damage, cible, prediction)` → Dict cible→util → `OrderBy(util via lambda
-    <Select>b__0)` → 1ʳᵉ. Le lambda `<Select>b__0`@180efec40 renvoie **`Fix64.op_UnaryNegation(util)`**
+    <Select>b__0)` → 1ʳᵉ. Le lambda `<Select>b__0`IdunBattle.Entities.Selectors.SortUnitsByDamageUtilitySelector.u003Cu003Ec__DisplayClass9_0$$u003CSelectu003Eb__0 renvoie **`Fix64.op_UnaryNegation(util)`**
     (= −util) ⇒ `OrderBy(−util)` = tri DÉCROISSANT par utilité ⇒ la 1ʳᵉ cible = utilité **MAX**.
     ⇒ FinalJustice frappe l'**argmax du composite Damage(34)** = DamageDealt(35)+KillUnit(36)+
     OverkillUnit(37) (`engine.utilities.damage_composite`). Kharn = mêlée ⇒ cibles = ennemis adjacents.
@@ -111,7 +111,7 @@ def _finaljustice_target(state: State, owner_id: int) -> Optional[int]:
 
 
 def _finaljustice_attack(state: State, owner_id: int) -> Optional[dict]:
-    """Behaviour FinalJustice (CreateBehaviour@18121ed00), MIGRÉ en ARBRE DSL (#149 slice-22) :
+    """Behaviour FinalJustice (IdunBattleLogic.Entities.Abilities.Active.Loki.FinalJusticeAbility$$CreateBehaviour), MIGRÉ en ARBRE DSL (#149 slice-22) :
     `UseActiveAbility(Self@0x148, <best>, UnitNormalAttackType)` = UNE attaque NORMALE (chemin
     `AttackDamageOperation.execute`, déjà bit-exact) sur la meilleure cible normal-attaquable. Le sélecteur
     AI-target `SortUnitsByDamageUtility(ValidNormalAttackTargets)` (kind S lourd, chevauche le playbook)
@@ -131,7 +131,7 @@ def _finaljustice_attack(state: State, owner_id: int) -> Optional[dict]:
 
 
 class FinalJusticeAbility(TriggeredAbility):
-    """`FinalJusticeAbility` (@18121f180 CreateTrigger / @18121ed00 CreateBehaviour) — attaque de MORT de
+    """`FinalJusticeAbility` (IdunBattleLogic.Entities.Abilities.Active.Loki.FinalJusticeAbility$$CreateTrigger CreateTrigger / IdunBattleLogic.Entities.Abilities.Active.Loki.FinalJusticeAbility$$CreateBehaviour CreateBehaviour) — attaque de MORT de
     worldKharn (trait `FinalJustice`).
 
     CreateTrigger = `OnPreDeath & OwnerIsTarget` — l'owner EST l'unité qui meurt (slot 0x178=dying).

@@ -9,18 +9,18 @@ from ._base import NCContext, NonComparablePlaybook
 
 
 class MasterOfTheTutelariesPlaybook(NonComparablePlaybook):
-    """`MasterOfTheTutelariesPlaybook.EvaluateNonComparable @18114b300` (ctor @18114ba20,
-    cctor @18114b9b0 : `MIN_UTILITY = Fix64(1)`). DECOMPILE (slots IBattleQuery resolus via le dump
-    vtable #38b `data/_probe38b_vtable.json` : 0x49=`GetNearestEnemy @181066440`,
-    0x52=`GetFreeAdjacentTiles(target) @181061570`, 0x6b=`GetDistance @181061040`,
-    0x72=`GetUnitsAtDistance @18106c9a0`) :
+    """`IdunBattle.AI.Playbook.Loki.MasterOfTheTutelariesPlaybook$$EvaluateNonComparable` (IdunBattle.AI.Playbook.Loki.MasterOfTheTutelariesPlaybook$$.ctor,
+    IdunBattle.AI.Playbook.Loki.MasterOfTheTutelariesPlaybook$$.cctor : `MIN_UTILITY = Fix64(1)`). DECOMPILE (slots IBattleQuery resolus via le dump
+    vtable #38b `data/_probe38b_vtable.json` : 0x49=`IdunBattle.Core.Services.BattleQuery$$GetNearestEnemy`,
+    0x52=`IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles(target)`, 0x6b=`IdunBattle.Core.Services.BattleQuery$$GetDistance`,
+    0x72=`IdunBattle.Core.Services.BattleQuery$$GetUnitsAtDistance`) :
 
         bucket = Bucket(min = Fix64(1))
         targets = GetEligibleTargetsSelectable(unit, MainTile(position))   # tuiles de SPAWN (ring-1 libre)
         for (tgtEntity, tgtPos) in targets:
             nFree = GetFreeAdjacentTiles(tgtEntity).Count                  # slot 0x52 (ring-1 ∩ CanAddUnit de ST)
             nE2   = Count(GetUnitsAtDistance(GetMainTile(unit), 2),        # slot 0x72 : ring EXACT dist==2
-                          x => IsEnemy(unit, x))                           # lambda DisplayClass6_0 @181163730
+                          x => IsEnemy(unit, x))                           # lambda DisplayClass6_0 IdunBattle.AI.Playbook.Loki.MasterOfTheTutelariesPlaybook.u003Cu003Ec__DisplayClass6_0$$u003CEvaluateNonComparableu003Eb__0
             if (nFree > 2 && nE2 > 0):
                 u = 1 + max(nE2-1, 0)*10 + max(nFree-3, 0)*10
                 near = GetNearestEnemy(unit)                               # slot 0x49
@@ -30,11 +30,11 @@ class MasterOfTheTutelariesPlaybook(NonComparablePlaybook):
     Lectures ANCREES (fideles au decompile, a verrouiller a l'oracle `ncEvaluate`) :
     - `nE2` est calcule sur `EntityExtensions.GetMainTile(unit)` = la tuile REELLE du caster —
       PAS la position balayee => CONSTANT sur tout le sweep. `GetUnitsAtDistance` = ring EXACT
-      (`GetTilesAtDistance @181069760` filtre dist==R, cf. battle_query.py:170) : un ennemi ADJACENT
+      (`IdunBattle.Core.Services.BattleQuery$$GetTilesAtDistance` filtre dist==R, cf. battle_query.py:170) : un ennemi ADJACENT
       ne compte PAS (nE2=0 avec un seul ennemi au contact -> PAS de cast).
     - `nFree(ST)` = tuiles libres adjacentes a la TUILE DE SPAWN candidate, occupation = board COURANT
       (le caster reste a l'origine pendant le sweep) — gate STRICT nFree >= 3.
-    - `GetNearestEnemy @181066440` : parcourt GetAllAliveUnits, garde si `d < best` OU
+    - `IdunBattle.Core.Services.BattleQuery$$GetNearestEnemy` : parcourt GetAllAliveUnits, garde si `d < best` OU
       (`AreUnitsInMelee(pos, x)` ET best pas-en-melee) — la priorite MELEE supplante la distance
       (un ennemi hex-dist 1 avec |dElev|>=2 n'est PAS en melee). Tie = 1er enumere (ordre natif
       GetAllAliveUnits ≈ ordre d'ids offline, residu documente).
@@ -81,7 +81,7 @@ class MasterOfTheTutelariesPlaybook(NonComparablePlaybook):
                  "to": (t if t != ctx.origin else None), "pred": u}]
 
     def _eligible_spawn_tiles(self, ctx: NCContext) -> list[tuple]:
-        """Mirror `GetEligibleTargetsSelectable @18111f0d0` pour un cast TILE-target : union des
+        """Mirror `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable` pour un cast TILE-target : union des
         tuiles de spawn legales via l'RPC abilityTargets (kind="tile") — meme voie que
         AberrantHypermorphPlaybook."""
         if ctx.ability_targets is None:
@@ -98,7 +98,7 @@ class MasterOfTheTutelariesPlaybook(NonComparablePlaybook):
         return tiles
 
     def _nearest_enemy_tile(self, ctx: NCContext) -> "tuple | None":
-        """Mirror `BattleQuery.GetNearestEnemy @181066440` : parcourt les unites vivantes ; garde si
+        """Mirror `IdunBattle.Core.Services.BattleQuery$$GetNearestEnemy` : parcourt les unites vivantes ; garde si
         `dist < best` OU (en-MELEE et best pas-en-melee). Melee = hex-adjacent AVEC porte d'elevation
         (`AreUnitsInMelee` ~ `is_adjacent`). Ordre d'enumeration natif (GetAllAliveUnits) approxime
         par l'ordre de `ctx.enemies`/`ctx.epos` (tie residu, a verrouiller a l'oracle)."""

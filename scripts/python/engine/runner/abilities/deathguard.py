@@ -4,9 +4,9 @@ Module DEDIE (org faction, comme `genestealer.py`) : l'org native est 1 classe p
 (`Abilities.Active.Loki.<X>Ability`) ; les arbres SPECIFIQUES vivent avec leur classe. RE ghidra
 gqfc5mff6c (VA citees). Case-220 §1 P0-HEAL, jumeau heal 1002 CombatRestoratives cote Chaos.
 
-Arbre `RevitalizingMalignancyAbility.ExecuteBehaviour @181200eb0` (id 1037, deathRotbone) — MIRROR
-du DECOMPILE (+ `GetAllHealTargets @181201150`, `GetChaosHealTargets @181201230`,
-`GetRegularHealTargets @181201280`, callback `<ExecuteBehaviour>b__0 @181218d00`) :
+Arbre `IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility$$ExecuteBehaviour` (id 1037, deathRotbone) — MIRROR
+du DECOMPILE (+ `IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility$$GetAllHealTargets`, `IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility$$GetChaosHealTargets`,
+`IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility$$GetRegularHealTargets`, callback `<ExecuteBehaviour>b__0 IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility.u003Cu003Ec__DisplayClass2_0$$u003CExecuteBehaviouru003Eb__0`) :
 
     AllHealTargets = Healable( UnitsWithoutTrait( 0x1a Imperial,
                                 op_Addition( Friends(AdjacentUnits(caster, 1)), caster ) ) )
@@ -16,7 +16,7 @@ du DECOMPILE (+ `GetAllHealTargets @181201150`, `GetChaosHealTargets @181201230`
 
 var0x20 = `GetVariableForLevel(config, 0x20)` = `hpToHeal` (regular) ; var0x22 =
 `GetVariableForLevel(config, 0x22)` = `hpToHeal_2`. Le montant Chaos est la SOMME de DEUX vars lues
-et arrondies SEPAREMENT (`iVar14 + iVar13` @181200eb0), PAS un scalaire cale ni `round((a+b)*mult)`.
+et arrondies SEPAREMENT (`iVar14 + iVar13` IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility$$ExecuteBehaviour), PAS un scalaire cale ni `round((a+b)*mult)`.
 La garde `Healable` (`HealableUnitsSelector`, prerequis case-220 manquant) est portee COTE MUTATION
 (feuille `Heal(guard=...)`, cf. `_healable_heal_type_0`)."""
 from __future__ import annotations
@@ -45,7 +45,7 @@ ABILITY_ID = "RevitalizingMalignancy"
 
 
 def _heal_amounts(state: "State", caster_id: int) -> tuple[int, int]:
-    """(regular, chaos) — mirror des lectures de `ExecuteBehaviour @181200eb0` :
+    """(regular, chaos) — mirror des lectures de `IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility$$ExecuteBehaviour` :
         iVar13 = GetVariableForLevel(config, 0x20) = `hpToHeal`   -> regular
         iVar14 = GetVariableForLevel(config, 0x22) = `hpToHeal_2`
         chaos  = iVar14 + iVar13                                  (CUMUL des DEUX vars)
@@ -64,8 +64,8 @@ def _heal_amounts(state: "State", caster_id: int) -> tuple[int, int]:
 
 
 def revitalizing_malignancy_tree(regular_amount: int, chaos_amount: int) -> AtomicGroup:
-    """Arbre de `RevitalizingMalignancyAbility.ExecuteBehaviour @181200eb0` (MIRROR 1:1 du decompile +
-    callback `b__0 @181218d00`). `AllHealTargets` = self + allies adjacents (hex 1) NON-Imperial, filtre
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility$$ExecuteBehaviour` (MIRROR 1:1 du decompile +
+    callback `b__0 IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility.u003Cu003Ec__DisplayClass2_0$$u003CExecuteBehaviouru003Eb__0`). `AllHealTargets` = self + allies adjacents (hex 1) NON-Imperial, filtre
     `Healable` porte cote mutation (`Heal(guard=healable_heal_type_0)`). Split par trait Chaos(0x7ea) :
     non-Chaos = `regular_amount` (var0x20), Chaos = `chaos_amount` (var0x20+var0x22). `AtomicGroup`
     (`ExecuteAtomic`, id 0x1f) inline (RE #201). Ordre callback natif : Heal(regular) PUIS Heal(chaos) ;
@@ -81,14 +81,14 @@ def revitalizing_malignancy_tree(regular_amount: int, chaos_amount: int) -> Atom
 
 
 class RevitalizingMalignancyAbility(ActiveAbility):
-    """`RevitalizingMalignancyAbility.ExecuteBehaviour @181200eb0` (id 1037, deathRotbone — Death Guard).
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility$$ExecuteBehaviour` (id 1037, deathRotbone — Death Guard).
 
     Heal-splitte-par-trait (jumeau Chaos de 1002 CombatRestoratives) : soigne le caster + ses allies
     adjacents (hex 1) NON-Imperial. Le montant depend du trait Chaos de la cible :
       - allie NON-Chaos : `hpToHeal[level]`                      (var0x20)
       - allie Chaos     : `hpToHeal[level] + hpToHeal_2[level]`  (var0x22 + var0x20, CUMUL)
     Garde `Healable` (HP<max ET non-mechanical) portee cote mutation (feuille `Heal(guard=...)`). Behaviour
-    = arbre DSL `revitalizing_malignancy_tree` (mirror 1:1 du decompile + callback `b__0 @181218d00`).
+    = arbre DSL `revitalizing_malignancy_tree` (mirror 1:1 du decompile + callback `b__0 IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility.u003Cu003Ec__DisplayClass2_0$$u003CExecuteBehaviouru003Eb__0`).
     Deterministe (aucun rng)."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.RevitalizingMalignancy)  # 1037
@@ -111,7 +111,7 @@ class RevitalizingMalignancyAbility(ActiveAbility):
 # ===================== FlailSwing (deathBlightlord, actif 1042) =====================
 
 def flail_swing_tree() -> "op_and":
-    """Arbre de `FlailSwingAbility$$ExecuteBehaviour @1811ded80` (id 1042, deathBlightlord — MIRROR du
+    """Arbre de `FlailSwingAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility$$ExecuteBehaviour` (id 1042, deathBlightlord — MIRROR du
     DECOMPILE) :
         Execute( op_BitwiseAnd(
             InformWeapon(GetDamageProfile=Power, 1),                                        # metadata arme
@@ -122,7 +122,7 @@ def flail_swing_tree() -> "op_and":
 
     Port : `op_and( InformWeapon("Power"), AttackWithAttackDamage(Target(), "FlailSwing", "Power", melee) )`
     -- plain `Execute` (PAS `ExecuteAtomic` : le decompile passe l'`op_BitwiseAnd` DIRECTEMENT a
-    `AActiveAbility.Execute`, aucun AtomicGroup autour -- contraste BringerOfDespair @1811be740). Details RE :
+    `AActiveAbility.Execute`, aucun AtomicGroup autour -- contraste BringerOfDespair IdunBattleLogic.Entities.Abilities.Active.Loki.BringerOfDespairAbility$$ExecuteBehaviour). Details RE :
 
     - `nrOfHits` = `GetNumberConstant(config, 0x2f)` = 3 (config FlailSwing `constants.nrOfHits`="3", verifie
       gameconfig). `MinMaxDamage(param_1, ...)` @... = bornes `minDmg`(0xc)/`maxDmg`(0xd)[level] brutes de la
@@ -130,18 +130,18 @@ def flail_swing_tree() -> "op_and":
       = `Power` (`constants.damageProfile`="Power" ; melee, PiercingRatio 40). `attackRangeType=Melee` ->
       `is_melee=True`.
     - **native_factory = "attack"** (defaut, 2 tirages/coup a cc=0) : le decompile appelle litteralement
-      `DSLFactory.AttackWithAttackDamage @180de9fb0` (famille attack, VERIFIE par la CALLEE de @1811ded80 =
-      symbole `DSLFactory$$AttackWithAttackDamage`, JAMAIS `AttackWithAbilityDamage @180de9c90` ; tip #2 /
+      `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (famille attack, VERIFIE par la CALLEE de IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility$$ExecuteBehaviour =
+      symbole `DSLFactory$$AttackWithAttackDamage`, JAMAIS `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` ; tip #2 /
       rngcrit-1202). Attaque MULTI-COUPS (3x) -> classification par XREF OBLIGATOIRE, faite ici.
     - `InformWeapon` = `op_BitwiseAnd` volet GAUCHE (execute EN PREMIER) : canal weapon-inform (metadata,
       `ActivateEffectBehaviour`) COMBAT-INERTE (0 RNG, 0 mutation PV/stat) -> n'altere PAS l'ordre `state.rng`
       de l'attaque : bit-exact BY CONSTRUCTION. Le trigger consommateur (`HazeOfCorruption`) est un passif
       SEPARE (hors face COMBAT) -- le declenchement Haze n'est PAS dans cet ExecuteBehaviour.
     - **`alwaysOverkilled` (Nullable=true) PORTE via `force_overkill=True`** : le 8e arg de
-      `AttackWithAttackDamage @180de9fb0` (`&local_198` = `Nullable<bool>` HasValue=1, cf. `local_1e8=0x100000000`
+      `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (`&local_198` = `Nullable<bool>` HasValue=1, cf. `local_1e8=0x100000000`
       + `System.Nullable<...>.ctor`) = flag « always overkilled » passe a `AttackDamageBehaviour` puis a l'etage
-      `ApplyTraitDamageLimitsToDamage @18102c650` (`overkill=true` bypasse le cap Resilient
-      `ApplyResilientTraitDamageLimit @18102c3a0`). La feuille passe `force_overkill=True` -> `_run_hits` force
+      `IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage` (`overkill=true` bypasse le cap Resilient
+      `IdunBattle.Core.Services.DamagePrediction$$ApplyResilientTraitDamageLimit`). La feuille passe `force_overkill=True` -> `_run_hits` force
       `overkill=True` a chaque coup. VALIDE LIVE (deathBlightlord vs custoKyrus Resilient HP 10000 : live tue
       [5070,4555,375] sum=10000 == PV full ; le port SANS le flag laissait 1 PV [5070,4555,374] sum=9999 -> le
       flag est le seul ecart). No-op sur cible non-Resilient -> coeur 3x Power bit-exact partout."""
@@ -150,7 +150,7 @@ def flail_swing_tree() -> "op_and":
 
 
 class FlailSwingAbility(ActiveAbility):
-    """`FlailSwingAbility$$ExecuteBehaviour @1811ded80` (id 1042, deathBlightlord — Death Guard/Chaos, namespace
+    """`FlailSwingAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility$$ExecuteBehaviour` (id 1042, deathBlightlord — Death Guard/Chaos, namespace
     natif `Abilities.Active.Loki`). Arbre DSL `flail_swing_tree()` (MIRROR 1:1 du decompile) :
         Execute( op_BitwiseAnd(
             InformWeapon(Power),                                                    # metadata arme (no-op combat)
@@ -158,7 +158,7 @@ class FlailSwingAbility(ActiveAbility):
 
     Attaque MELEE MONO-CIBLE : 3 coups Power (PiercingRatio 40) sur la cible du message. PAS de splash, PAS de
     move/gate, PAS de trigger interne. La feuille `AttackWithAttackDamage` (native_factory="attack", VERIFIE
-    par XREF de @1811ded80) emet la MEME Operation que l'attaque generique (`AttackDamageOperation.
+    par XREF de IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility$$ExecuteBehaviour) emet la MEME Operation que l'attaque generique (`AttackDamageOperation.
     execute_ability_attack`, 2 tirages/coup a cc=0) -> bit-exact BY CONSTRUCTION (memes bornes/hits/profil/
     state.rng). `InformWeapon` (volet gauche du op_and) = canal weapon-inform combat-inerte (consommateur =
     passif `HazeOfCorruption`, hors scope). Termine le tour (1042 hors des frozensets base.py -> flags defaut).
@@ -186,11 +186,11 @@ class FlailSwingAbility(ActiveAbility):
 # ============ SpawnPoxwalkers (deathBlightbringer `Typhus`... `Blightbringer`, actif 1040) ============
 #                                              case-220 P0-SUMMON
 #
-# `SpawnPoxwalkersAbility.ExecuteBehaviour @181208b80` (MIRROR du DECOMPILE) :
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$ExecuteBehaviour` (MIRROR du DECOMPILE) :
 #     minPct = GetVariableForLevel(config, 0x3a, level)                        # "chance"
 #     maxPct = GetVariableForLevel(config, 0x3b, level)                        # "chance_2"
 #     unitId = GetStringConstant(config, 0)                                    # deathPoxwalker
-#     range  = ContagionsOfNurgle_ArmorReduction_Effect.CalculateRange(<owner>) # @180f39940
+#     range  = ContagionsOfNurgle_ArmorReduction_Effect.CalculateRange(<owner>) # IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect$$CalculateRange
 #     tiles  = CanAddUnit(SurroundingTiles(owner@0x148, 0, range))
 #     cnt    = <tiles>.Count(entities)                                          # EAGER (vslot +0x2b8)
 #     amount = Divide(RandomAmount(cnt*minPct, cnt*maxPct), Get(100), mode=1=Ceiling)
@@ -200,19 +200,18 @@ class FlailSwingAbility(ActiveAbility):
 #     AActiveAbility.Execute(this, Spawn(owner@0x148, picked, unitId, opts), entities)
 # UN SEUL `Execute` top-level. AUCUN `PerformAIAction` : l'on-appearance est un `PerformAIAttack`
 # (routine IA mono-unite depuis la position courante), PAS un tour d'IA complet.
-# SELF-CAST (`SpawnPoxwalkersPlaybook @18115c6f0` : cible eligible = SOI) -> owner@0x148 == caster.
+# SELF-CAST (`SpawnPoxwalkersPlaybook IdunBattle.AI.Playbook.Loki.SpawnPoxwalkersPlaybook$$EvaluateNonComparable` : cible eligible = SOI) -> owner@0x148 == caster.
 VAR_POX_CHANCE = 0x3a       # GetVariableForLevel(0x3a) -> "chance"   (% mini de Poxwalker par tuile libre)
 VAR_POX_CHANCE_2 = 0x3b     # GetVariableForLevel(0x3b) -> "chance_2" (% maxi)
 CONST_POX_UNIT_ID = 0x00    # GetStringConstant(0)      -> "unitId"   = deathPoxwalker
 
 
 def contagions_of_nurgle_range(state: "State", unit_id: int) -> int:
-    """`IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect.CalculateRange
-    @180f39940` -- MIRROR 1:1 :
+    """`IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect$$CalculateRange` -- MIRROR 1:1 :
         `s = UnitExtensions.GetStat(unit, 0xc=TurnsStarted, Current)`
         `if (s > 2) return (s > 4) ? 3 : 2 ; else return 1`
     -> rayon 1 aux tours 1-2, 2 aux tours 3-4, 3 a partir du tour 5. Le natif appelle cette methode
-    STATIQUEMENT depuis `SpawnPoxwalkersAbility.ExecuteBehaviour @181208b80` (l'ability n'a pas d'effet
+    STATIQUEMENT depuis `IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$ExecuteBehaviour` (l'ability n'a pas d'effet
     Nurgle a ce point : c'est un helper de portee PARTAGE avec l'aura ContagionsOfNurgle)."""
     from ...entities.stats import StatType
     e = state.get_entity(unit_id)
@@ -254,14 +253,14 @@ def poxwalkers_spawn_tiles(state: "State", caster_id: int, radius: int) -> list:
 
 def poxwalkers_count(state: "State", caster_id: int, nb_tiles: int) -> int:
     """`Divide( RandomAmount(cnt*GetVariableForLevel(0x3a), cnt*GetVariableForLevel(0x3b)),
-                Get(100), mode=1=Ceiling )` @181208b80 -- MIRROR.
+                Get(100), mode=1=Ceiling )` IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$ExecuteBehaviour -- MIRROR.
 
     `cnt` = nombre de tuiles libres, evalue EAGER par le natif (appel virtuel `+0x2b8` du selecteur
     `CanAddUnit` AVANT la construction du noeud). `chance`/`chance_2` sont des POURCENTAGES par tuile
     (15..20 / 25..45 selon le niveau) -> le tirage porte sur `cnt*minPct .. cnt*maxPct` puis est divise
     par 100 avec arrondi **Ceiling** (`DivideAmount` mode 1, cf. `formulas.Divide`).
 
-    `RandomAmount.Calculate @180f22160` = `rng.<slot 2>(min, max + 1)` -> borne haute INCLUSE ; le port
+    `IdunBattle.Entities.Formulas.RandomAmount$$Calculate` = `rng.<slot 2>(min, max + 1)` -> borne haute INCLUSE ; le port
     consomme `state.rng.next_internal(min, max+1)` (meme primitive que `_pick_randomly`). `state.rng`
     non cale -> on retombe sur la borne BASSE (deterministe, documente ; le cout/ordre RNG exact reste
     le GAP deja flague sur `_pick_randomly_n`)."""
@@ -274,7 +273,7 @@ def poxwalkers_count(state: "State", caster_id: int, nb_tiles: int) -> int:
     hi = int(ability_var("Poxwalkers", "chance_2", level, multiplier_pct=mult) or 0) * int(nb_tiles)
     if hi < lo:
         hi = lo
-    raw = lo if state.rng is None else state.rng.next_internal(lo, hi + 1)   # max INCLUS (@180f22160)
+    raw = lo if state.rng is None else state.rng.next_internal(lo, hi + 1)   # max INCLUS (IdunBattle.Entities.Formulas.RandomAmount$$Calculate)
     return int(ceil(raw / 100))                                              # Divide(..., 100, Ceiling)
 
 
@@ -284,13 +283,13 @@ def poxwalkers_count(state: "State", caster_id: int, nb_tiles: int) -> int:
 # entite ECS hors-plateau (ni Position ni Health), chargee par `_load_machines` (case-mow-offboard-cast).
 #
 # CIBLAGE (face DECISION/eligibilite, HORS `ExecuteBehaviour`) — `EntropyCannonsAbility.
-# GetDynamicInvalidTargetReason @1811bfc20`, MIRROR du decompile :
+# IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility$$GetDynamicInvalidTargetReason`, MIRROR du decompile :
 #     if !EntityExtensions.IsUnit(target) -> reason 0 (pas d'objection)
-#     aura = IsInTeamContagionsOfNurgleAura(target@0x178, caster@0x160) @180df3ea0
+#     aura = IdunBattleLogic.Entities.DSLFactory$$IsInTeamContagionsOfNurgleAura(target@0x178, caster@0x160)
 #            -> `IsInAuraRangeTrigger(effectType=0x42f=1071 ContagionsOfNurgle_ArmorReduction1,
 #                                     unit=target, teamReference=caster)`
-#     armor = HasNegativeModifier(target@0x178, 0x10=FixedArmor) @180df11e0
-#            -> `Triggers.HasNegativeModifier.ShouldTrigger @180f9db90` = il existe une modification
+#     armor = IdunBattleLogic.Entities.DSLFactory$$HasNegativeModifier(target@0x178, 0x10=FixedArmor)
+#            -> `IdunBattle.Entities.Triggers.HasNegativeModifier$$ShouldTrigger` = il existe une modification
 #               PER-SOURCE < 0 sur le StatType du filtre (array a 1 element = {16 FixedArmor})
 #     comp = <StatComponent de la cible>            # lu par dispatch d'interface, gate `comp+0x48 > 0`
 #     return (aura ? 0 : ((comp+0x48 > 0 && armor) ? 0 : 2))
@@ -301,13 +300,13 @@ def poxwalkers_count(state: "State", caster_id: int, nb_tiles: int) -> int:
 # Le port n'a PAS de face DECISION pour les MoW (le natif ne met que `EntityType.Unit` dans
 # `decisionView.units` -> les MoW en sont EXCLUES, case-mow §4) : le predicat est donc RE + documente
 # ici et exerce LIVE (`abilityTargets`), pas re-porte offline en code mort. Son homologue OFFLINE
-# existe deja pour la branche (b) : `UnitStats.has_negative_modifier({16})` (mirror @180f9db90).
+# existe deja pour la branche (b) : `UnitStats.has_negative_modifier({16})` (mirror IdunBattle.Entities.Triggers.HasNegativeModifier$$ShouldTrigger).
 
 ENTROPY_CANNONS_ID = "EntropyCannons"
 
 
 def entropy_cannons_tree() -> AttackWithAttackDamage:
-    """Arbre de `EntropyCannonsAbility$$ExecuteBehaviour @1811bfa40` (id 1168, deathCrawler MoW) —
+    """Arbre de `EntropyCannonsAbility$$IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility$$ExecuteBehaviour` (id 1168, deathCrawler MoW) —
     MIRROR du DECOMPILE (UN seul noeud, passe directement a `AActiveAbility.Execute`) :
 
         Execute( AttackWithAbilityDamage( caster@0x160, target@0x178,
@@ -317,8 +316,7 @@ def entropy_cannons_tree() -> AttackWithAttackDamage:
                                           AbilityOrEffect(this+0x10 = 0x490 = 1168) ) )
 
     - **native_factory = "ability"** : le decompile appelle litteralement `DSLFactory.
-      AttackWithAbilityDamage @180de9c90` (overload core @180de9e50), PAS `AttackWithAttackDamage
-      @180de9fb0` -> `AbilityDamageBehaviour` -> `AbilityDamageOperation.ExecuteHits @180e2a860` :
+      IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` (overload core IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage), PAS `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -> `AbilityDamageBehaviour` -> `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` :
       1 tirage/coup, AUCUN crit, AUCUNE feuille positionnelle (elevation/trench) — MEME route que
       Stormcaller/SpiritLeech (classification par XREF, jamais au juge).
     - `MinMaxDamage` = bornes `minDmg`(0xc)/`maxDmg`(0xd)[activeAbilityLevel] scalees par
@@ -331,12 +329,12 @@ def entropy_cannons_tree() -> AttackWithAttackDamage:
     - AUCUN effet pose, AUCUN spawn, AUCUNE 2e phase : l'ability EST cette seule attaque (le volet
       « armure reduite / Contagion » de l'i2 est le PREDICAT DE CIBLAGE ci-dessus, pas un volet degat)."""
     return AttackWithAttackDamage(Target(), ENTROPY_CANNONS_ID, "Energy", is_melee=None,
-                                  native_factory="ability",          # @180de9c90 (XREF), 1 tirage/coup
+                                  native_factory="ability",          # IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage (XREF), 1 tirage/coup
                                   ability_type=int(ActiveAbilityType.EntropyCannons))
 
 
 class EntropyCannonsAbility(ActiveAbility):
-    """`EntropyCannonsAbility$$ExecuteBehaviour @1811bfa40` (id 1168, `deathCrawler` « Plagueburst
+    """`EntropyCannonsAbility$$IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility$$ExecuteBehaviour` (id 1168, `deathCrawler` « Plagueburst
     Crawler », MACHINE OF WAR Death Guard). Arbre DSL `entropy_cannons_tree()` (mirror 1:1) : 2 coups
     Energy (pierce 30) sur la cible du message, via la famille ABILITY (pas de crit, pas d'elevation).
 
@@ -363,17 +361,16 @@ class EntropyCannonsAbility(ActiveAbility):
 
 
 def spawn_poxwalkers_tree(tiles: list) -> Spawn:
-    """Arbre de `SpawnPoxwalkersAbility.ExecuteBehaviour @181208b80` : UN noeud `Spawn` dont les options
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$ExecuteBehaviour` : UN noeud `Spawn` dont les options
     portent le sous-behaviour ON-APPEARANCE `PerformAIAttackFromCurrentPosition(activeTarget@0x180)`
-    (`DSLFactory.PerformAIAttackFromCurrentPosition @180df8a10` -> `PerformAIAbilityUnitBehaviour.Execute
-    @180fcb070`) = chaque Poxwalker fraichement pose attaque DEPUIS SA POSITION (sans bouger). La feuille
+    (`IdunBattleLogic.Entities.DSLFactory$$PerformAIAttackFromCurrentPosition` -> `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$Execute`) = chaque Poxwalker fraichement pose attaque DEPUIS SA POSITION (sans bouger). La feuille
     portee `PerformAIAttack` accepte le domaine UNITE (l'`ActiveTarget` lie par le `Spawn`) aussi bien que
     le domaine TUILE (le `Cache` de GetEmRuntz)."""
     return Spawn(FixedTileIds(tiles), "Poxwalkers", on_appearance=PerformAIAttack(ActiveTarget()))
 
 
 class SpawnPoxwalkersAbility(ActiveAbility):
-    """`SpawnPoxwalkersAbility.ExecuteBehaviour @181208b80` (id 1040, `deathBlightbringer`, DeathGuard).
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$ExecuteBehaviour` (id 1040, `deathBlightbringer`, DeathGuard).
     SELF-CAST : fait apparaitre `ceil(rand(n*chance, n*chance_2)/100)` Poxwalkers (`deathPoxwalker`) sur
     des tuiles libres du disque de rayon `ContagionsOfNurgle_ArmorReduction_Effect.CalculateRange(caster)`
     (1/2/3 selon `TurnsStarted`) autour du caster, puis chacun attaque depuis sa position.

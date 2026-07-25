@@ -10,17 +10,17 @@ OFFLINE depuis la MEME capture d'etat. Aucune constante de duree/niveau en dur :
 attendues viennent soit du natif, soit de la config (`crescendo_max_level`, `default_amount_of_rounds`).
 
 Maillons + artefacts natifs (build gqfc5mff6c) :
-  1. MasterAnnihilator  (`admecDominus`)     CreateTrigger @18110ba90 / CreateBehaviour @18110b940
+  1. MasterAnnihilator  (`admecDominus`)     IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterAnnihilatorAbility$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterAnnihilatorAbility$$CreateBehaviour
      `On(0x26 NormalAttack) & OwnerIsCaster & AreEnemies` -> `RemoveEffect(OwnerOfEffect(
      EffectsFromUnitSource(Self, 1249)), 1249) + AddEffect(1249, Target())` = la marque MIGRE.
-  2. FleshmetalGuns     (`blackObliterator`) CreateTrigger @180e17450 / CreateBehaviour @18121f6e0
+  2. FleshmetalGuns     (`blackObliterator`) IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArchContaminatorAbility$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGunsAbility$$CreateBehaviour
      `On(0x16 TurnStart_Actions) & IsTurnOf(Self)` -> Remove x3 + `If(Modulo(UnitTurnsStarted,3)==
      1/2/0, AddEffect(1067/1212/1221))` = ROTATION.
-  3. TerrifyingCrescendo(`emperNoiseMarine`) CreateTrigger @1811a3910 / CreateBehaviour @1811a3840
+  3. TerrifyingCrescendo(`emperNoiseMarine`) IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateBehaviour
      `(On(0 UnitDeath) & TargetIsOverkilled) | (On(0x3e PreEffectAdded) & TriggeringEffectIs(1065))`
      -> `AddEffectOrIncreaseLevel(1424, +1, max=buffMaxLevel)` = ACCUMULATION capee.
-  4. AnvilShield        (`spaceRockfist`)    emetteur `EvaluateAfterHitTriggers @180e25fc0` (branche
-     `On(UnitBlocked=0x3d)`) ; `ApplyIce @180e16500/@180e16480` -> glace la tuile de l'ATTAQUANT bloque.
+  4. AnvilShield        (`spaceRockfist`)    emetteur `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` (branche
+     `On(UnitBlocked=0x3d)`) ; `ApplyIce IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateBehaviour` -> glace la tuile de l'ATTAQUANT bloque.
 
 ASCII only (cp1252).
 """
@@ -179,7 +179,7 @@ def _off_carriers(state, effect_type, source=None):
 # --------------------------------------------------------------------------- 1. MasterAnnihilator
 def test_master_annihilator_mark_migrates_live(live_session, rpc, build_runner):
     """La marque 1249 SE DEPLACE d'une cible a l'autre au fil des attaques de Vitruvius et n'existe
-    JAMAIS en double (`RemoveEffect(OwnerOfEffect(EffectsFromUnitSource(Self, 1249)))` @18110b940).
+    JAMAIS en double (`RemoveEffect(OwnerOfEffect(EffectsFromUnitSource(Self, 1249)))` IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterAnnihilatorAbility$$CreateBehaviour).
 
     Ce que ca garderait : un debranchement du vecteur `On(0x26)` (plus AUCUNE marque = no-op muet),
     ou une `RemoveEffect` rendue mono-cible / non filtree par source (marque qui s'accumule, ou qui
@@ -270,7 +270,7 @@ def test_master_annihilator_mark_migrates_live(live_session, rpc, build_runner):
 # --------------------------------------------------------------------------- 2. FleshmetalGuns
 def test_fleshmetal_guns_rotation_live(live_session, rpc, build_runner):
     """La ROTATION `Modulo(UnitTurnsStarted(Self), 3)` change l'effet de Volk a CHAQUE tour
-    (@18121f6e0). Trois tours consecutifs = trois effets DISTINCTS, et l'offline (rejeu de
+    (IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGunsAbility$$CreateBehaviour). Trois tours consecutifs = trois effets DISTINCTS, et l'offline (rejeu de
     `StartTurnOperation`) doit rendre la MEME sequence que le natif.
 
     Ce que ca garderait : la rotation figee (toujours le meme effet = `UnitTurnsStarted` non lu),
@@ -317,9 +317,9 @@ def test_fleshmetal_guns_rotation_live(live_session, rpc, build_runner):
 # --------------------------------------------------------------------------- 3. TerrifyingCrescendo
 def test_terrifying_crescendo_stacks_and_caps_live(live_session, rpc, build_runner):
     """Le stack 1424 MONTE d'un cran a chaque tir suppress de Shiron et PLAFONNE a `buffMaxLevel`
-    (@1811a3840 : `AddEffectOrIncreaseLevel(1424, +1, max)`), y compris quand la cible est DEJA
+    (IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateBehaviour : `AddEffectOrIncreaseLevel(1424, +1, max)`), y compris quand la cible est DEJA
     Pinned -- preuve que le vecteur est `On(0x3e PreEffectAdded)`, EMIS AVANT le gate « deja
-    present » d'`AddEffectOperation.Execute @180e48940` (semantique « would have Suppressed »).
+    present » d'`IdunBattle.Operations.AddEffectOperation$$Execute` (semantique « would have Suppressed »).
 
     Ce que ca garderait : un vecteur recable sur `On(EffectAdded)` (le stack cesserait de monter
     des le 2e tir sur une cible deja Pinned = LE bug d'origine), un clamp perdu, ou la pose muette.
@@ -385,7 +385,7 @@ def test_terrifying_crescendo_stacks_and_caps_live(live_session, rpc, build_runn
 # --------------------------------------------------------------------------- 4. AnvilShield
 def test_anvil_shield_ices_blocked_attacker_tile_live(live_session, rpc, build_runner):
     """Un BLOCAGE d'Arjac glace la TUILE DE L'ATTAQUANT : vecteur `On(UnitBlocked=0x3d)` emis par
-    `EvaluateAfterHitTriggers @180e25fc0` -> `ApplyIce @180e16500`.
+    `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` -> `ApplyIce IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateTrigger`.
 
     `--block-target 100,500` met Arjac (cote adverse) a 100 % de blocage : le blocage est CRAFTE,
     pas espere. Deux gardes en une : (a) la cascade de POSE ; (b) la DUREE de l'Ice, qui n'a aucun

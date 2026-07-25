@@ -1,6 +1,6 @@
 """#93 SpiritLeech (id 1104, tyranNeurothrope) — dégât de COMBAT (config-based) : replay-diff LIVE vs porté.
 
-SpiritLeech.ExecuteBehaviour @181209900 = AttackWithAbilityDamage(target, GetAttackDamage(combat), Psychic,
+IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$ExecuteBehaviour = AttackWithAbilityDamage(target, GetAttackDamage(combat), Psychic,
 nrOfHits=1) & AddEffect(0x429 Pinned) & Heal(lifesteal 60% — DIFFERE #94). GetAttackDamage COMBAT (param_3=0)
 = RandomAmount(minDmg/maxDmg config) [+ extraDmg si cible deja Pinned]. ⚠ Le COMBAT est CONFIG-based
 (config-avg×mult180 ~2593), != la PREDICTION Attack-based (~2670, slot 0x27) : divergence NATIVE (verdict #92).
@@ -164,9 +164,9 @@ def test_spirit_leech_combat_damage_bit_exact(live_session, rpc, build_runner):
     assert off_ph == live_ph, f"per-coup SpiritLeech offline {off_ph} != live {live_ph} (combat config-based)"
     assert off_pinned, "la cible ne porte pas Pinned(0x429) apres SpiritLeech (AddEffect non materialise)"
 
-    # #94 LIFESTEAL : GetHealAmountForExecution @181209f00 = PercentageOf(LastAttackDamageMade, hpToHealPct,
+    # #94 LIFESTEAL : IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetHealAmountForExecution = PercentageOf(LastAttackDamageMade, hpToHealPct,
     # mode=1=CEILING) (hpToHealPct HORS variablesAffectedByRarityBonus -> mult 100). Le degat est valide
-    # (off_ph==live_ph) -> le montant heal est ancre au degat LIVE. GetHealTargets @18120a1e0 inclut TOUJOURS
+    # (off_ph==live_ph) -> le montant heal est ancre au degat LIVE. IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetHealTargets inclut TOUJOURS
     # le caster (Self). Round-mode natif = 1 = Ceiling (node canonique entities/formulas.py PercentageOf).
     from engine.entities.effects.magnitude import ability_var
     from engine.dsl.base import _round_fix64

@@ -3,19 +3,19 @@
 i2 : « For each member defeated, the swarm attacks with 1 fewer hit. »
 
 Natif (DSL, mirror noeud a noeud) :
-  * `SwarmAbility.CreateBehaviour @181225e20` =
+  * `IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateBehaviour` =
         AddOrUpdateStaticStatModifierEffect(Self@+0x148, effectType 0x3fd=1021 Swarm_HitReduction,
             statType 0x11=EXTRA_HITS,
             Negative(Min(Difference(StatAmount(Self, 20, part 3=INITIAL), Const1@factory+0xc0),
                          StatAmount(Self, 20, part 4=MISSING))))
     = **-min(nrOfMembers - 1, membres MORTS)** (plancher structurel : jamais moins de 1 hit).
-  * `SwarmAbility.CreateTrigger @181225f50` =
+  * `IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger` =
         (On(UnitRepaired=49,1) | On(UnitHealed=44,1) | On(UnitMemberDeath=48,0) | On(UnitRevived=46,1))
         & OwnerIsTarget  |  OnOwnerSpecificAbilityInit(0x3ff=1023)
     — exactement les evenements qui changent le compte de membres du porteur.
-  * Stat 20 (NUMBER_OF_MEMBERS) : handler jumptable 0x14 de `GetStat @180ed30d0` (bloc @180ed3929) →
+  * Stat 20 (NUMBER_OF_MEMBERS) : handler jumptable 0x14 de `IdunBattle.Entities.UnitExtensions$$GetStat` (bloc IdunBattle.Entities.UnitExtensions$$GetStat+0x859) →
     `GetComponent<GroupUnitComponent>` (fill-up {+0x10=nrOfMembers, +0x18=membres restants}) puis
-    `FillUpStatComponent.GetStatPart @180f9b3a0`. Offline le champ « courant » est DERIVE de l'etat PV
+    `IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart`. Offline le champ « courant » est DERIVE de l'etat PV
     (`group_unit_stat_part`, services/trait_damage_limits.py) — meme invariant, les mainteneurs natifs
     etant exactement les evenements PV ci-dessus.
 
@@ -42,7 +42,7 @@ from ...components import HealthComponent, StatsComponent, UnitComponent
 
 
 def swarm_hit_reduction_formula() -> Negative:
-    """Arbre VALEUR de `SwarmAbility.CreateBehaviour @181225e20` (mirror noeud a noeud).
+    """Arbre VALEUR de `IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateBehaviour` (mirror noeud a noeud).
     `Caster()` = le selecteur Self (`factory+0x148` — sur un behaviour de trait Owner==Caster)."""
     self_sel = Caster()
     return Negative(Min(
@@ -79,6 +79,6 @@ def refresh_swarm_hit_reduction(state, unit_id: int) -> None:
 
 def on_group_unit_hp_changed(state, unit_id: int) -> None:
     """Point d'entree des call-sites de mutation PV (damage/heal/resurrect) — chaque call-site annote
-    le bras natif du `CreateTrigger @181225f50` qu'il rend. Alias mince de `refresh` (le montant ne
+    le bras natif du `IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger` qu'il rend. Alias mince de `refresh` (le montant ne
     depend que de l'etat PV courant)."""
     refresh_swarm_hit_reduction(state, unit_id)

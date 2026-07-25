@@ -1,18 +1,18 @@
-"""Operations de mouvement — `IdunBattle.Operations.MoveUnitOperation` @180e79ff0.
+"""Operations de mouvement — `IdunBattle.Operations.MoveUnitOperation` IdunBattle.Operations.MoveUnitOperation$$Execute.
 
 Tranche 1, INCRÉMENT 1a (POSITION) : écrit la position finale du mover dans son
 `PositionComponent`. C'est le cœur observable du move (le natif fait aussi la
 validation, CalculatePaths, AddMoveEvent/pas, charging…, mais l'EFFET d'ÉTAT sur
 le mover = sa position finale).
 
-G1 (gen-stealer) : `KillSteppableUnits @180e7c410` PORTÉ ici (`_kill_steppable_units`),
+G1 (gen-stealer) : `IdunBattle.Operations.MoveUnitOperation$$KillSteppableUnits` PORTÉ ici (`_kill_steppable_units`),
 INLINE dans l'ordre natif (avant `EvaluateAfterMoveTriggers`) — un occupant Steppable
 (decoy/spore-mine) de la tuile d'arrivée est crushé (kill propre, sans death-trigger).
 
 INCRÉMENT 1b (à venir, validé vs la vérité-terrain probe = Maugan Ra 1174 sur le
-mover) : `EvaluateAfterMoveTriggers` @180e79770 → cascade OVERWATCH
+mover) : `IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers → cascade OVERWATCH
 (`Overwatch_AutoAttackEffect` → auto-attaque → dégât + consommation de l'effet).
-`AddMoveEvent` @180e78d20 émet l'event UnitMoved(step 3) + tuiles du chemin sur le bus.
+`IdunBattle.Operations.MoveUnitOperation$$AddMoveEvent émet l'event UnitMoved(step 3) + tuiles du chemin sur le bus.
 """
 from __future__ import annotations
 
@@ -23,10 +23,10 @@ from .base import Operation
 
 
 def _kill_steppable_units(state: State, dest_tile: tuple[int, int], mover_id: int) -> list:
-    """`MoveUnitOperation$$KillSteppableUnits @180e7c410` — étape INLINE du move pipeline (avant
+    """`MoveUnitOperation$$IdunBattle.Operations.MoveUnitOperation$$KillSteppableUnits` — étape INLINE du move pipeline (avant
     `EvaluateAfterMoveTriggers`). Quand une unité MOVE sur `dest_tile`, tout occupant `Steppable`
-    (`IsSteppable @180ed8fc0` = `HasTrait(0x1b=27)`) VIVANT y est détruit par un kill **propre**
-    (`KillUnitOperationOptions$$ForSteppable @180e762c0`, type=2 flags 0x0101) : `alive=False` (hp 0) SANS
+    (`IdunBattle.Entities.UnitExtensions$$IsSteppable` = `HasTrait(0x1b=27)`) VIVANT y est détruit par un kill **propre**
+    (`KillUnitOperationOptions$$IdunBattle.Operations.KillUnitOperationOptions$$ForSteppable`, type=2 flags 0x0101) : `alive=False` (hp 0) SANS
     passer par `after_death_triggers`/`On(1)` — un decoy/spore-mine crushé ne déclenche donc PAS les
     death-triggers de combat (ex. l'Ambush du decoy — cf. G3). `mover_id` est exclu (une unité ne se crushe
     pas elle-même). Renvoie les ids crushés. Ordre natif : `AddMoveEvent` → **KillSteppableUnits** →
@@ -56,7 +56,7 @@ def _kill_steppable_units(state: State, dest_tile: tuple[int, int], mover_id: in
 
 
 class MoveUnitOperation(Operation):
-    """@180e79ff0 (1a) — pose la position finale du mover. `to` = (col,row)."""
+    """IdunBattle.Operations.MoveUnitOperation$$Execute (1a) — pose la position finale du mover. `to` = (col,row)."""
     __slots__ = ("unit_id", "to")
 
     def __init__(self, unit_id: int, to: tuple[int, int]):
@@ -82,7 +82,7 @@ class MoveUnitOperation(Operation):
         if old_pos is not None:
             from .triggers.tiles import apply_tile_defense_on_move
             apply_tile_defense_on_move(state, self.unit_id, old_pos, self.to)
-        # G1 (gen-stealer) `KillSteppableUnits @180e7c410` : INLINE ici, dans l'ordre natif (AddMoveEvent ->
+        # G1 (gen-stealer) `IdunBattle.Operations.MoveUnitOperation$$KillSteppableUnits` : INLINE ici, dans l'ordre natif (AddMoveEvent ->
         # **KillSteppableUnits** -> EvaluateAfterMoveTriggers). Un occupant Steppable (decoy, spore-mine) de la
         # tuile d'arrivée est crushé (kill propre, pas de death-trigger) AVANT que le vecteur after-move
         # (visit_MoveUnitMessage -> after_move_triggers) ne s'exécute -> le decoy est déjà mort pour G2.

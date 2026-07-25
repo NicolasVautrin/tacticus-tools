@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """#61 : ISOLER le degat de KNOCKBACK (push bloque) et trancher pct 10 vs 20.
 
-Contexte : `DamageCalculations.CalculateKnockbackDamage @1810040f0` = int(Fix64.Ceiling(maxHealth x
+Contexte : `IdunBattle.Core.Services.DamageCalculations$$CalculateKnockbackDamage` = int(Fix64.Ceiling(maxHealth x
 pct/100)), pct = config @+0x24 = `BattleConfiguration.Damage.KnockbackPercentage`. Le seed BC courant
 (build gqfc5mff6c) porte KnockbackPercentage=20, mais #47 a mesure 10% via hpDelta COMBINE (attaque +
 knockback). Ce probe LIT l'event knockback ISOLE (StreamDispatcher, tags) pour lever le confond.

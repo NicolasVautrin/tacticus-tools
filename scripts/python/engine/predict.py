@@ -137,7 +137,7 @@ def piercing_ratio(profile_pierce_base: int, extra_pierce: int, extra_pierce_dir
 
 
 def damage_with_piercing(base: float, pierce_pct: int, armor: int) -> float:
-    """Cœur RE'd (@1815598b0) : `max( max(0, base − armor), base × pierce%/100 )`.
+    """Cœur RE'd (idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Damage$$GetDamageWithPiercing) : `max( max(0, base − armor), base × pierce%/100 )`.
     RÉSOLUTION réelle du combat (≠ prédiction IA). Le perçage est un PLANCHER."""
     pierced = base * pierce_pct / 100.0
     after_armor = base - armor
@@ -153,18 +153,18 @@ def damage_with_piercing(base: float, pierce_pct: int, armor: int) -> float:
 # est portée 1:1 (fonctions nommées, VA citées) ; tout est OFFLINE-calculable depuis l'état de
 # l'unité + la magnitude gameconfig (comme le dégât) — pas besoin d'`aiPredict` (dégât-only).
 #
-#   HealAbility.HealAmount            @180e345b0 = StatAmount(weapon) × max(WeaponHighestHits, 1)
-#   DamagePrediction.PredictHeal      @181037180 → FillUpStatComponent.MaxFillUp @180f9b790
+#   IdunBattleLogic.Entities.Abilities.Active.Common.HealAbility$$HealAmount = StatAmount(weapon) × max(WeaponHighestHits, 1)
+#   IdunBattle.Core.Services.DamagePrediction$$PredictHeal → IdunBattle.Entities.Components.FillUpStatComponent$$MaxFillUp
 #       effective = min(healAmount, maxHP − curHP)   (+ caps group/boss ; soin<0 ⇒ dégât, non porté)
-#   HealUtility.Evaluate (Weight[Heal=44] ; iter @1810e16f0 ; W=100 via .cctor @1810cfd10)
+#   HealUtility.Evaluate (Weight[Heal=44] ; iter IdunBattle.AI.Utilities.HealUtility.u003CEvaluateAttackInStepsu003Ed__1$$MoveNext ; W=100 via .IdunBattle.AI.Utilities.HealUtility$$.cctor)
 #       U = (effective / (maxHP + 1)) × 100 × friendSign × bossMod
 #   ProbableHealEvent { target@0, (curHP, effective)@8, Probability@0x10 = 1.0 (FromInt 1) }
-#   Playbook.CalculateUtilityFromHealEvent @1814aac80 = Probability × U   (sommé par cible)
-# Le poids W_HEAL=100 (HealUtility.cctor @1810cfd10) vit desormais dans engine.utilities.heal (HealUtility).
+#   IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromHealEvent = Probability × U   (sommé par cible)
+# Le poids W_HEAL=100 (IdunBattle.AI.Utilities.HealUtility$$.cctor) vit desormais dans engine.utilities.heal (HealUtility).
 
 
 def heal_amount(stat_amount: int, weapon_highest_hits: int) -> int:
-    """`HealAbility.HealAmount` @180e345b0 = `StatAmount(weapon) × max(WeaponHighestHits, 1)`.
+    """`IdunBattleLogic.Entities.Abilities.Active.Common.HealAbility$$HealAmount = `StatAmount(weapon) × max(WeaponHighestHits, 1)`.
 
     `stat_amount` (soin par coup) et `weapon_highest_hits` = stats de l'ARME de l'ability soin,
     sourcées du gameconfig comme le dégât (StatAmountFormula évalue la stat d'arme ; le DSL ne
@@ -189,10 +189,9 @@ def _heal_config_key(ability_name: str | None) -> str | None:
 
 def heal_amount_config(ability_name: str | None, active_level: int, passive_level: int,
                        multiplier_pct: int = 100) -> int | None:
-    """`HealAbility.HealAmount @180e345b0` resolu OFFLINE = la variable de config `hpToHeal` de l'ability
+    """`IdunBattleLogic.Entities.Abilities.Active.Common.HealAbility$$HealAmount` resolu OFFLINE = la variable de config `hpToHeal` de l'ability
     (StatAmount(weapon synthetique) = hpToHeal indexe par niveau ; soins = 1 coup -> PAS de `x hits` ;
-    verifie desc<->variable sur 5 abilities, MAJ #37). Via `ability_var` (mirror `ConfigAmount.Calculate
-    @180f171c0`, gere l'index + le scaling rarete `AbilityVariablesMultiplierPercentage` pour les
+    verifie desc<->variable sur 5 abilities, MAJ #37). Via `ability_var` (mirror `IdunBattle.Entities.Formulas.ConfigAmount$$Calculate`, gere l'index + le scaling rarete `AbilityVariablesMultiplierPercentage` pour les
     variables `variablesAffectedByRarityBonus` dont `hpToHeal` fait partie).
 
     Soin ACCORDE par un passive (`Heal_<P>`/`<P>_Heal`) -> niveau du PASSIF (unitConfig+0xBC) ; soin
@@ -210,7 +209,7 @@ def heal_amount_config(ability_name: str | None, active_level: int, passive_leve
 
 
 def heal_amount_weapon(attack_stat: int, weapon_highest_hits: int = 1) -> int:
-    """`HealAbility.HealAmount @180e345b0` branche ARME REELLE (ability SANS `hpToHeal` config) :
+    """`IdunBattleLogic.Entities.Abilities.Active.Common.HealAbility$$HealAmount` branche ARME REELLE (ability SANS `hpToHeal` config) :
     `StatAmount(weapon@0x160) x Max(WeaponHighestHits(weapon), 1)` — decompile relu #45c :
     l'arbre DSL est `Multiply(StatAmount(this.weapon), Max(WeaponHighestHits(this.weapon), 1))`.
 
@@ -228,7 +227,7 @@ def heal_amount_weapon(attack_stat: int, weapon_highest_hits: int = 1) -> int:
 
 def predict_heal_effective(heal_amount_value: int, target_current_hp: int, target_max_hp: int,
                            boss_max_hp: int | None = None, group_limit: int | None = None) -> int:
-    """`DamagePrediction.PredictHeal` @181037180 → `FillUpStatComponent.MaxFillUp` @180f9b790.
+    """`IdunBattle.Core.Services.DamagePrediction$$PredictHeal → `IdunBattle.Entities.Components.FillUpStatComponent$$MaxFillUp.
 
     Soin EFFECTIF = `min(healAmount, maxHP − curHP)`, plafonné aux PV manquants. Caps optionnels :
     `group_limit` (GetGroupUnitHealLimit, soin de groupe) et `boss_max_hp` (cible boss → cap à
@@ -252,10 +251,10 @@ def heal_utility(effective_heal: int, target_max_hp: int,
 
 
 def heal_action_utility(events) -> float:
-    """`Playbook.CalculateUtilityFromHealEvent` @1814aac80 sommé sur les cibles : `Σ Probability × U`.
+    """`IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromHealEvent sommé sur les cibles : `Σ Probability × U`.
 
     `events` = itérable de tuples `(effective_heal, target_max_hp, is_friend, is_boss[, probability])`.
-    `probability` par défaut 1.0 (ProbableHealEvent..ctor @1811359a0 = FromInt(1) sans nullable de proba)."""
+    `probability` par défaut 1.0 (ProbableHealEvent..IdunBattle.AI.Playbook.ProbableHealEvent$$.ctor = FromInt(1) sans nullable de proba)."""
     total = 0.0
     for ev in events:
         prob = ev[4] if len(ev) > 4 else 1.0
@@ -270,24 +269,24 @@ def heal_action_utility(events) -> float:
 # (PARTIE 3) MAIS sur DEUX stats « fill-up » — Health (id 5) ET Armor (id 4, StatType.Armor) —
 # d'où une utilité à DEUX termes. La chaîne native est portée 1:1 (VA citées), 100% OFFLINE.
 #
-#   DamagePrediction.PredictRepair          @181038280 → FillUpStatComponent.MaxFillUp @180f9b790 (×2)
+#   IdunBattle.Core.Services.DamagePrediction$$PredictRepair → IdunBattle.Entities.Components.FillUpStatComponent$$MaxFillUp (×2)
 #       repairAmount = floor((floor(modAdd) + base) × modMul)   [RepairModifier côté caster,
 #           transform Fix64 (add, mul) ; no-op si pas de modificateur ⇒ repairAmount = base]
 #       (+ caps group GetGroupUnitHealLimit / boss comme le soin) ; puis sur CHAQUE stat :
 #       fill_i = MaxFillUp = min(repairAmount, GetStat(i,Maximum) − GetStat(i,Current))
-#   RepairedAmountUtility.EvaluateRepairInSteps @1810e06f0 (iter @1810e45b0 ; cctor @1810e08b0)
+#   IdunBattle.AI.Utilities.RepairedAmountUtility$$EvaluateRepairInSteps (iter IdunBattle.AI.Utilities.RepairedAmountUtility.u003CEvaluateRepairInStepsu003Ed__2$$MoveNext ; IdunBattle.AI.Utilities.RepairedAmountUtility$$.cctor)
 #       U = (fill_hp/(maxHP+1) × 100 + fill_armor/(maxArmor+1) × 50) × bossMod
-#       GetMaxHealth @1810e0760 : denom PV = GetStat(Health,Maximum)+1 (boss → config const 0xa9)
-#       GetUnitUtilityModifier @1810e0820 : bossMod = 2 si boss sinon 1.
+#       IdunBattle.AI.Utilities.RepairedAmountUtility$$GetMaxHealth : denom PV = GetStat(Health,Maximum)+1 (boss → config const 0xa9)
+#       IdunBattle.AI.Utilities.RepairedAmountUtility$$GetUnitUtilityModifier : bossMod = 2 si boss sinon 1.
 #       ⚠ PAS de friendSign (contrairement au soin) : on ne répare QUE ses propres machines.
 #
 # StatType (dump.cs @863349) : Armor=4, Health=5. StatPart : Current=0, Maximum=2, Initial=3.
-# Les poids W_HP=100 / W_ARMOR=50 (RepairedAmountUtility.cctor @1810e08b0) vivent desormais dans
+# Les poids W_HP=100 / W_ARMOR=50 (IdunBattle.AI.Utilities.RepairedAmountUtility$$.cctor) vivent desormais dans
 # engine.utilities.repair (RepairedAmountUtility).
 
 
 def repair_amount(base: int, mod_add: int = 0, mod_mul: float = 1.0) -> int:
-    """Montant de réparation après RepairModifier (path de PredictRepair @181038280) :
+    """Montant de réparation après RepairModifier (path de IdunBattle.Core.Services.DamagePrediction$$PredictRepair) :
     `trunc((trunc(mod_add) + base) × mod_mul)` — add appliqué à la base AVANT la multiplication,
     troncature vers zéro UNIQUE en sortie (`Fix64.op_Explicit` ; positif ⇒ = floor). Aucun arrondi
     intermédiaire dans le fold (RE #45d).
@@ -300,24 +299,24 @@ def repair_amount(base: int, mod_add: int = 0, mod_mul: float = 1.0) -> int:
 
 
 def calculate_repair_modifier_for_prediction(target_effects, heal_config=None) -> tuple:
-    """`RepairCalculations.CalculateRepairModifierForPrediction @181052890` — construit le
-    `RepairModifier` {mult, add} (défaut `Empty @1810537d0` = {1.0, 0}) en foldant
-    (`RepairModifier.Add @1810535a0` : add SOMMÉS via op_Addition, mult MULTIPLIÉS via op_Multiply,
+    """`IdunBattle.Core.Services.RepairCalculations$$CalculateRepairModifierForPrediction` — construit le
+    `RepairModifier` {mult, add} (défaut `IdunBattle.Core.Services.RepairModifier$$Empty` = {1.0, 0}) en foldant
+    (`IdunBattle.Core.Services.RepairModifier$$Add` : add SOMMÉS via op_Addition, mult MULTIPLIÉS via op_Multiply,
     commutatif, sans arrondi intermédiaire) les bonus de réparation — slot virtuel 0x1d
-    `BaseEffect.RepairBonus @180f15370` (descripteur EffectBonus caché : condition + pctNode/addNode,
-    `mult = 1 + pct/100` via `GetFloatMultiplierFromPercentage @180ffd270`).
+    `IdunBattle.Entities.Effects.BaseEffect$$RepairBonus` (descripteur EffectBonus caché : condition + pctNode/addNode,
+    `mult = 1 + pct/100` via `IdunBattle.Core.Services.BaseCalculations$$GetFloatMultiplierFromPercentage`).
 
     L'énumération native balaye TOUS les EffectComponents du combat mais la condition `OwnerIsTarget`
     filtre : seuls les effets PORTÉS PAR LA CIBLE de la réparation contribuent (bonus sur réparations
     REÇUES, pas faites). Implémenteurs du build gqfc5mff6c (les 3 SEULS, RE #45d) :
-      - `NanoscarabRepairProtocolsEffect @180f5ab60` (EffectType 1545) : `ForAddition @180f406e0`,
+      - `NanoscarabRepairProtocolsEffect IdunBattle.Entities.Effects.Loki.NanoscarabRepairProtocolsEffect$$CreateEffectRepairBonus` (EffectType 1545) : `IdunBattle.Entities.Effects.EffectBonus$$ForAddition`,
         add = `hpToRepair[Level de l'effet]` (ConfigVar 0x24), rarity-scaled par le multiplier du
         POSEUR (AbilityState baké : Level surfacé par dv `effects[].level`, multiplier résolu via
         `heal_config(effects[].source)`).
-      - `VoltagheistField_RepairReductionEffect @180f76b10` (EffectType 1382) :
-        `ForPercentDecrease @180f40760` (pctNode enveloppé ×−1), pct = −`healthPct` (constante
+      - `VoltagheistField_RepairReductionEffect IdunBattle.Entities.Effects.Loki.VoltagheistField_RepairReductionEffect$$CreateEffectRepairBonus` (EffectType 1382) :
+        `IdunBattle.Entities.Effects.EffectBonus$$ForPercentDecrease` (pctNode enveloppé ×−1), pct = −`healthPct` (constante
         config 50, NON scalée) → mult ×= 1 − healthPct/100.
-      - `NetherRealmCasket_LivingMetalBonusEffect @180f5b650` (EffectType 1456) : ForAddition
+      - `NetherRealmCasket_LivingMetalBonusEffect IdunBattle.Entities.Effects.Loki.NetherRealmCasket_LivingMetalBonusEffect$$CreateEffectRepairBonus` (EffectType 1456) : ForAddition
         `hpToHeal[lvl]` MAIS gate `TriggeringAbilityIs(LivingMetalRepair=0x3f2)` — la prédiction
         Comparable (Repair 28 / GalvanicField 1119) n'est JAMAIS déclenchée par LivingMetalRepair
         → contribue 0 sur ce chemin (no-op FIDÈLE, pas un manque : le +hpToHeal ne vit que dans le
@@ -377,7 +376,7 @@ def _repair_config_key(active_ability_keys) -> str | None:
 
 def repair_amount_config(caster_visual_id: str | None, active_level: int,
                          multiplier_pct: int = 100) -> int | None:
-    """`RepairAbility.RepairAmount @1811c4860` = `StatAmount(weapon) × Max(WeaponHighestHits, 1)` résolu
+    """`IdunBattleLogic.Entities.Abilities.Active.RepairAbility$$RepairAmount` = `StatAmount(weapon) × Max(WeaponHighestHits, 1)` résolu
     OFFLINE = la variable `hpToRepair[level]` de la clé CONCRÈTE de réparation Comparable de l'unité
     (`_repair_config_key` depuis `gameconfig.unit(visualId).activeAbilities`), via `ability_var` (index
     niveau + scaling rareté `variablesAffectedByRarityBonus` dont `hpToRepair` fait partie). Réparation =
@@ -411,7 +410,7 @@ def predict_repair_effective(repair_amount_value: int,
                              target_current_armor: int = 0, target_max_armor: int = 0,
                              boss_max_hp: int | None = None,
                              group_limit: int | None = None) -> RepairPrediction:
-    """`DamagePrediction.PredictRepair` @181038280 → `FillUpStatComponent.MaxFillUp` @180f9b790 (×2).
+    """`IdunBattle.Core.Services.DamagePrediction$$PredictRepair → `IdunBattle.Entities.Components.FillUpStatComponent$$MaxFillUp (×2).
 
     Remplissage EFFECTIF (plafonné aux PV/Armor manquants) sur les DEUX stats réparables. Le
     `repair_amount_value` doit déjà inclure le modificateur caster (cf. repair_amount()). Caps
@@ -443,13 +442,13 @@ def repair_utility(fill_hp: int, target_max_hp: int,
 # l'utilité est un POIDS PLAT par TYPE d'effet, 100% piloté par les données du BattleConfiguration.
 # (La magnitude d'un DoT/réduction passe, elle, par le chemin DÉGÂT — ProbableDamageEvent.)
 #
-#   AddedEffectUtility.EvaluateAttackInSteps  iter @1810f6e70
+#   AddedEffectUtility.EvaluateAttackInSteps  iter IdunBattle.AI.Utilities.AddedEffectUtility.u003CEvaluateAttackInStepsu003Ed__0$$MoveNext
 #       si la cible a DÉJÀ l'effet (EntityExtensions.HasEffect)         → U = 0
 #       sinon  U = Weight[name] + signe × Weight["Unit_on_" + name]
 #              name  = Enum.ToString(EffectType)   (ex. "Fire", "SpiderWeb", "Ice")
 #              signe = −1 si la cible est un ALLIÉ du caster (UnitExtensions.IsFriend), sinon +1
-#   BaseUtility.HasUtilityValue @1810cd700 : `name in weights` (Dict<string,int> @this+0x58)
-#   BaseUtility.GetUtilityValue @1810cd3c0 : `Fix64.FromInt(weights.get(name, 0))` (absent → 0)
+#   IdunBattle.AI.Utilities.BaseUtility$$HasUtilityValue : `name in weights` (Dict<string,int> @this+0x58)
+#   IdunBattle.AI.Utilities.BaseUtility$$GetUtilityValue : `Fix64.FromInt(weights.get(name, 0))` (absent → 0)
 #
 # `weights` = le dict de catégorie du BC `Utilities.Default[<cat>]` (ex. AddedTileEffects :
 #   Fire=10, Unit_on_Fire=15, Ice=5, Unit_on_Ice=0). ⇒ Fire sous un ennemi = 10+15 = 25 ;
@@ -460,8 +459,7 @@ def repair_utility(fill_hp: int, target_max_hp: int,
 
 
 def utility_value(weights: dict, name: str) -> int:
-    """Wrapper mince -> `ADDED_EFFECT_UTILITY.get_utility_value` (`BaseUtility.GetUtilityValue`
-    @1810cd3c0 : `weights.get(name, 0)`). `weights` = dict de categorie BC (`Utilities.Default[<cat>]`)."""
+    """Wrapper mince -> `ADDED_EFFECT_UTILITY.get_utility_value` (`IdunBattle.AI.Utilities.BaseUtility$$GetUtilityValue : `weights.get(name, 0)`). `weights` = dict de categorie BC (`Utilities.Default[<cat>]`)."""
     return ADDED_EFFECT_UTILITY.get_utility_value(weights, name)
 
 

@@ -1,12 +1,12 @@
 """Gen-stealer G3 : trait Ambush (1052, Isaak/Judh) PORT -> triggers + Operation resurrect, valide LIVE.
 
 Trait Ambush = 2 abilities-triggers (namespace `Triggered.Loki`) + 1 Operation impLerative :
-  - `Ambush_SummonAbility` (@180e15970/@180e15a10) : `On(UnitDefeated=55) & OwnerIsTarget & Not(HasFlag 0xe)`
+  - `Ambush_SummonAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$GetSummonBehaviour) : `On(UnitDefeated=55) & OwnerIsTarget & Not(HasFlag 0xe)`
     -> pose 1 genesSmnDecoy sur la tuile du mort (ForSteppable) + enregistre `turn_defeated`.
-  - `EnvAmbushResurrectAbility` (@180f79a10/@180f79760) : `On(TurnStart=22) & ValidDecoys>0 & Eligible>0`
+  - `EnvAmbushResurrectAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnvAmbushResurrectAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnvAmbushResurrectAbility$$CreateBehaviour) : `On(TurnStart=22) & ValidDecoys>0 & Eligible>0`
     -> ressuscite chaque porteur eligible (mort au tour PRECEDENT, delta==1, non-flag-0xe) sur un decoy allie
     aleatoire, PV pleins, tour immediat, ordre Character-first.
-  - feuille `Resurrect` -> `ResurrectUnitOperation.Execute @180e8e4c0` : alive=True + flag 0xe (one-shot) +
+  - feuille `Resurrect` -> `IdunBattle.Operations.ResurrectUnitOperation$$Execute` : alive=True + flag 0xe (one-shot) +
     crushe le decoy + SetHealth(full) + RemoveTurnFlags + emet `On(UnitResurrected=47)` (-> G2 BuffFriends).
 
 VALIDATION : deterministe-sur-etat-live (comme G2/G4/G5). BUILD un runner (Isaak genesPrimus + Judh

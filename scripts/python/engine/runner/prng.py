@@ -1,17 +1,17 @@
 """RNG de bataille — port FIDÈLE de `IdunBattle.Utils.PRNG.*` (RE gqfc5mff6c).
 
 MT19937 STANDARD confirmé bit-pour-bit depuis le décompilé :
-  • `MersenneTwister.init_genrand` @180e3a750 : mt[0]=seed ;
+  • `IdunBattle.Utils.PRNG.MersenneTwister$$init_genrand : mt[0]=seed ;
     mt[i] = 1812433253*(mt[i-1]^(mt[i-1]>>30)) + i   (mult 0x6c078965).
-  • `MersenneTwister.genrand_int32` @180e3a3e0 : twist (UPPER=0x80000000|LOWER=
+  • `IdunBattle.Utils.PRNG.MersenneTwister$$genrand_int32 : twist (UPPER=0x80000000|LOWER=
     0x7fffffff, M=397, MATRIX_A=0x9908b0df via mag01[y&1]) + tempering standard
     (>>11 ; <<7 & 0x9d2c5680 ; <<15 & 0xefc60000 ; >>18). Seed défaut 5489 si non
     seedé (mti==625). Compteur d'appels @this+0x14, mti @+0x28, mt[] @+0x20.
-  • `MersenneTwister.genrand_real2` @180e3a6b0 : (g>>2)/2^30 ∈ [0,1) (Fix64).
-  • `IntBasedMersenneTwister.NextInternal(lo,hi)` @180e39be0 : entier ∈ [lo,hi).
+  • `IdunBattle.Utils.PRNG.MersenneTwister$$genrand_real2 : (g>>2)/2^30 ∈ [0,1) (Fix64).
+  • `IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextInternal(lo,hi) : entier ∈ [lo,hi).
     range puissance-de-2 → ((range*(g>>1))>>31)+lo ; sinon rejet façon Java
     nextInt (r=g>>1 ; v=r%range ; rejet si (range-1)+(r-v) déborde int32<0).
-  • `IntBasedMersenneTwister.Next(bound)` @180e394e0 : [0,bound), même math (min=0).
+  • `IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$IdunBattle.Utils.PRNG.IPseudoRNG.Next(bound) : [0,bound), même math (min=0).
 
 NB : le compteur @+0x14 est incrémenté par genrand_int32 ET par Next/NextInternal
 (diagnostic seulement ; sans effet sur les sorties). Le bit-exact rend le runner
@@ -90,7 +90,7 @@ class IntBasedMersenneTwister(MersenneTwister):
             self.init_genrand(seed)
 
     def next_internal(self, lo: int, hi: int) -> int:
-        """Entier ∈ [lo, hi) (hi exclu) — NextInternal @180e39be0."""
+        """Entier ∈ [lo, hi) (hi exclu) — IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextInternal."""
         self.call_count += 1
         rng = hi - lo
         if (-rng & rng) == rng:                      # puissance de 2 (ou 0)
@@ -103,7 +103,7 @@ class IntBasedMersenneTwister(MersenneTwister):
                 return v + lo
 
     def next_bool(self, chance: int) -> bool:
-        """`IntBasedMersenneTwister.NextBool(chance)` @180e39720 — bit-exact (RE LECTURE) :
+        """`IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextBool(chance) — bit-exact (RE LECTURE) :
             v = ((genrand>>1) % 99) + 1   ∈ [1,99]   (rejet façon Java, range 99)
             return v <= chance
         ≡ `next_internal(1, 100) <= chance` (MÊME consommation genrand + compteur). Primitive
@@ -112,7 +112,7 @@ class IntBasedMersenneTwister(MersenneTwister):
         return self.next_internal(1, 100) <= chance
 
     def next(self, bound: int) -> int:
-        """Entier ∈ [0, bound) — IPseudoRNG.Next @180e394e0 (même math, min=0)."""
+        """Entier ∈ [0, bound) — IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$IdunBattle.Utils.PRNG.IPseudoRNG.Next (même math, min=0)."""
         self.call_count += 1
         rng = bound
         if (-rng & rng) == rng:

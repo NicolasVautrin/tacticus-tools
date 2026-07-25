@@ -3,11 +3,11 @@
 <<Shiron>>, EmperorsChildren).
 
 Mecanique RE (decompile = verite, gqfc5mff6c) :
-  - effet `TerrifyingCrescendo_ExtraDmgEffect.CreateEffectDamageBonusForAttack @180f715e0` =
+  - effet `IdunBattle.Entities.Effects.Loki.TerrifyingCrescendo_ExtraDmgEffect$$CreateEffectDamageBonusForAttack` =
     ForAddition(IsRangedAttack & OwnerIsCaster, GetCurrentExtraDamage()).
-  - `GetCurrentExtraDamage @180f4ae70` (herite de FuelledByFury) = Multiply(ConfigVar(8=extraDmg),
+  - `IdunBattle.Entities.Effects.Loki.FuelledByFury_ExtraDamageEffect$$GetCurrentExtraDamage` (herite de FuelledByFury) = Multiply(ConfigVar(8=extraDmg),
     EffectLevel) = extraDmg[ablvl passif] x mult x stack_level. extraDmg[L65]=218 (i2), rarity-scale.
-  - accumulation `CreateTrigger @1811a3910` = (On overkill & OwnerIsActor & TargetIsOverkilled) |
+  - accumulation `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger` = (On overkill & OwnerIsActor & TargetIsOverkilled) |
     (On(0x3e) & OwnerIsActor & TriggeringEffectIs(0x429=1065=Pinned/Suppressed)). +1 stack par
     declenchement, cap buffMaxLevel=6. crescendo dispo dans decisionView.effects[].level.
 

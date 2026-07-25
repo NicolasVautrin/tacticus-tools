@@ -10,20 +10,20 @@ Artefact natif (frontiere #149) -- la BASE (`triggers/revive_effect.py`, mirror 
 `IdunBattle.Entities.Effects.ReviveEffect`) porte le trigger + le behaviour ; CETTE classe ne surcharge
 QUE le filtre et le gate d'overkill :
 
-  base ReviveEffect.CreateTargetTrigger        @180f46d80  OnPreDeath(target, get_ReviveOnOverkill) &
+  base IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTrigger  OnPreDeath(target, get_ReviveOnOverkill) &
                                                            CanBeRevived(target) & CreateTargetFilter
-  TaintedNarthecium.CreateTargetFilter (0x758) @180f709b0  baseFilter(0x98) & AreFriends(self,target) &
+  TaintedNarthecium.CreateTargetFilter (0x758) IdunBattle.Entities.Effects.Loki.TaintedNarthecium_ReviveEffect$$CreateTargetFilter  baseFilter(0x98) & AreFriends(self,target) &
                                                            HasTrait(target, Chaos=0x7ea=2026) &
                                                            IsAdjacent(self, target, 2)
-  TaintedNarthecium.get_ReviveOnOverkill (0x738) @1802b1590 = `return 1`  -> AUCUN gate overkill
+  TaintedNarthecium.get_ReviveOnOverkill (0x738) GameCamera$$get_ShouldDisableRenderingWhenBehindSomething = `return 1`  -> AUCUN gate overkill
                                                            (« even if Overkilled ») -- lu LIVE par
                                                            `probe_79_revive_vtable.py`, PAS deduit.
-  base ReviveEffect.CreateTargetTriggerBehaviour @180f46a70 Maybe(chance){ Revive(...) ; DeactivateEffect }
-  TaintedNarthecium..ctor @180f70a90 : `ReviveEffect..ctor(2, 1, AbilityOrEffect(0x42b=1067
+  base IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour Maybe(chance){ Revive(...) ; DeactivateEffect }
+  TaintedNarthecium..IdunBattle.Entities.Effects.Loki.TaintedNarthecium_ReviveEffect$$.ctor : `ReviveEffect..ctor(2, 1, AbilityOrEffect(0x42b=1067
                                        TriggeredAbilityType.TaintedNarthecium), removeEffect=0)` ;
                                        GetReviveHP (var 0x1d='hp') / GetReviveChance (const 0x2a='chance')
-                                       ont un corps IDENTIQUE a celui de Narthecium (ICF fold @180f5add0 /
-                                       @180f5ada0) -> memes formules, config par instance.
+                                       ont un corps IDENTIQUE a celui de Narthecium (ICF fold IdunBattle.Entities.Effects.Loki.Narthecium_ReviveEffect$$GetReviveHP /
+                                       IdunBattle.Entities.Effects.Loki.Narthecium_ReviveEffect$$GetReviveChance) -> memes formules, config par instance.
 """
 from __future__ import annotations
 
@@ -41,14 +41,14 @@ ADJACENCY_RANGE = 2                              # IsAdjacent(self, target, 2)
 
 
 class TaintedNartheciumReviveAbility(ReviveEffectAbility):
-    """`TaintedNarthecium_ReviveEffect` (ctor @180f70a90 / filter @180f709b0) -- passif revive-en-place de
+    """`TaintedNarthecium_ReviveEffect` (IdunBattle.Entities.Effects.Loki.TaintedNarthecium_ReviveEffect$$.ctor / filter IdunBattle.Entities.Effects.Loki.TaintedNarthecium_ReviveEffect$$CreateTargetFilter) -- passif revive-en-place de
     deathRotbone. Tout le reste (trigger OnPreDeath/CanBeRevived, behaviour Maybe/Revive/DeactivateEffect,
     gate once-per-turn) vient de la base `ReviveEffectAbility`."""
     ability_id = ABILITY_ID
-    revive_on_overkill = True                    # get_ReviveOnOverkill @1802b1590 = 1 (even if Overkilled)
+    revive_on_overkill = True                    # get_ReviveOnOverkill GameCamera$$get_ShouldDisableRenderingWhenBehindSomething = 1 (even if Overkilled)
 
     def create_target_filter(self, state: State, ev: TriggerEvent, entities) -> bool:
-        """`CreateTargetFilter @180f709b0` = `baseFilter & AreFriends(self,target) &
+        """`IdunBattle.Entities.Effects.Loki.TaintedNarthecium_ReviveEffect$$CreateTargetFilter` = `baseFilter & AreFriends(self,target) &
         HasTrait(target, Chaos=0x7ea=2026) & IsAdjacent(self, target, 2)`."""
         dying = ev.dying_id
         # AreFriends(self@0x148, target@0x178)

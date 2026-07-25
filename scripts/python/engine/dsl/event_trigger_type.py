@@ -7,17 +7,17 @@ trigger — remplace les constantes `TRIGGER_*` eparses (meme demarche que `Unit
 Annotations sur les membres CONSOMMES par le port (runner/operations/triggers.py) :
   - NormalAttack (38) : attaque NORMALE (per-attaque, voie normale) -> ecoute Psyker (splash Smite).
   - Attack (9)        : attaque d'ABILITY (per-attaque, voie ability/splash) -> ecoute reset ActOfFaith
-                        (`@181219f90 = On(9) & OwnerIsCaster & WasCrit & HasEffect`).
-  - AttackHit (8)     : after-HIT per-coup (`EvaluateAfterHitTriggers @180e25fc0` dispatche 8 TOUJOURS).
+                        (`IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateTrigger = On(9) & OwnerIsCaster & WasCrit & HasEffect`).
+  - AttackHit (8)     : after-HIT per-coup (`IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` dispatche 8 TOUJOURS).
   - UnitBlocked (61)  : dispatche par `EvaluateAfterHitTriggers` sur la branche `param_6` (0x3d).
                         ⚠ l'ancien port l'appelait a tort `TRIGGER_AFTER_CRIT`/"after-crit" (mislabel :
                         la valeur 0x3d=61 est UnitBlocked ; param_6 = vraisemblablement le flag BLOCK,
                         a confirmer via le caller). Non consomme par le port.
   - UnitAfterMove (4) : after-move (`EvaluateAfterMoveTriggers`) -> Overwatch, RangedAutoAttack.
-  - PreUnitDeath (1)  : mort (OnPreDeath/OnDeath @180df7ad0) -> FinalJustice, TheBetrayer, ActOfFaith accum.
-  - TurnStart_Actions (22)            : `On(0x16)`, debut de tour (StartTurnOperation @180ea3fb0).
-  - TurnStart_EffectActivation (18)   : `On(0x12)` tick de tour -> Contaminated re-apply (@180f3a1d0).
-  - TurnStart_EnvironmentEffects (20) : `On(0x14)` tick de tour -> Fire DoT + DryBush spread (@18121e390).
+  - PreUnitDeath (1)  : mort (OnPreDeath/OnDeath IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent) -> FinalJustice, TheBetrayer, ActOfFaith accum.
+  - TurnStart_Actions (22)            : `On(0x16)`, debut de tour (StartTurnOperation IdunBattle.Operations.StartTurnOperation$$Execute).
+  - TurnStart_EffectActivation (18)   : `On(0x12)` tick de tour -> Contaminated re-apply (IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$CreateHandleTriggerAbilitiesInternal).
+  - TurnStart_EnvironmentEffects (20) : `On(0x14)` tick de tour -> Fire DoT + DryBush spread (IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateTrigger).
 """
 from __future__ import annotations
 

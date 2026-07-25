@@ -1,6 +1,6 @@
 """case-220 P0-DAMAGE : GauntletsOfUltramar (1000, ultraCalgar) FACE COMBAT (execute) confront LIVE.
 
-`GauntletsOfUltramarAbility.ExecuteBehaviour @1811e1c80` (DECOMPILE) = AoE SELF-CAST a DEUX BANDES :
+`IdunBattleLogic.Entities.Abilities.Active.Loki.GauntletsOfUltramarAbility$$ExecuteBehaviour` (DECOMPILE) = AoE SELF-CAST a DEUX BANDES :
     ExecuteAtomic( op_BitwiseAnd(
         AttackWithAttackDamage(caster, Unique(Enemies(AdjacentTiles(caster))), MinMaxDamage, Bolter,
                                 hits = GetNumberConstant(0x2f) + GetNumberConstant(0x32)),   # ADJACENTE = 2 coups

@@ -12,9 +12,9 @@ from ...components import UnitComponent
 
 
 class KillDeadUnits(AbilityBehaviour):
-    """`DSLFactory.KillDeadUnits @180df5c60` = `Kill(subject, DownedUnits(units_sel), options) @180df5cb0`
-    -> `KillUnitBehaviour.Execute @180fc8b10` : pour chaque unite DOWNED (flag 0xf, via
-    `DownedUnits`=`UnitsWithFlagSelector(units_sel, 0xf, want=1) @180dee790`) NON exemptee (le natif skippe
+    """`IdunBattleLogic.Entities.DSLFactory$$KillDeadUnits` = `IdunBattleLogic.Entities.DSLFactory$$Kill(subject, DownedUnits(units_sel), options)`
+    -> `IdunBattle.Entities.Behaviours.KillUnitBehaviour$$Execute` : pour chaque unite DOWNED (flag 0xf, via
+    `DownedUnits`=`UnitsWithFlagSelector(units_sel, 0xf, want=1) IdunBattleLogic.Entities.DSLFactory$$DownedUnits`) NON exemptee (le natif skippe
     `HasFlag(9|6|0x1a)`), emet une Operation de KILL (finalise la mort : retrait + on-death). Args natifs
     (ThunderousAssault) : `subject_sel` = Caster() (+0x160), `units_sel` = Target() (+0x178), options =
     `ForClearDeadUnitsBlockReviveOverkill`.
@@ -54,10 +54,10 @@ class KillDeadUnits(AbilityBehaviour):
 
 
 class RemoveUnit(AbilityBehaviour):
-    """`DSLFactory.RemoveUnit @180df9fd0` -> `RemoveUnitBehaviour.Execute @180fce1d0` : RETIRE de la
+    """`IdunBattleLogic.Entities.DSLFactory$$RemoveUnit` -> `IdunBattle.Entities.Behaviours.RemoveUnitBehaviour$$Execute` : RETIRE de la
     bataille chaque unite du selecteur — un DESPAWN, PAS une mort (i2 MV71 : « the one with the lowest
     Health is REMOVED ») : AUCUN vecteur on-death (pas de PreUnitDeath/UnitDefeated, pas d'attribution
-    de tueur). Call-sites portes (MV71SniperDroneSquadAttack @181108900) : eviction (a)
+    de tueur). Call-sites portes (MV71SniperDroneSquadAttack IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$ExecuteBehaviour) : eviction (a)
     `RemoveUnit(Units(Get(tile),1,3))` = le drone occupant la tuile choisie (fallback PickTile) ;
     eviction (b) `RemoveUnit(First(AlreadySpawnedSummonsSortedSelector,1,0))` = le drone le plus faible
     au cap maxSummons.

@@ -22,8 +22,7 @@ qui, à chaque pas comparé, classe le hit/miss par étage :
   (entièrement expliqué par l'étage prédiction) ; sinon -> «utility-logic» (résiduel).
 
   ÉTAGE UTILITÉ (#45b') — confrontation par paire, MÊME TUILE, hits inclus :
-    natif   = RPC `pairUtility` (= `ComparablePlaybook.CalculateUtilityFromPredictions
-              @181407890` invoqué en direct — la valeur EXACTE que le bucket natif
+    natif   = RPC `pairUtility` (= `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions` invoqué en direct — la valeur EXACTE que le bucket natif
               attribue à la paire, SANS le terme Tile(7) qui vit hors du scorer) ;
     offline = `_formula_pair_utility` : mirror 4-familles nourri des prédictions
               NATIVES (formule isolée — un mismatch est TOUJOURS «logic», la
@@ -85,7 +84,7 @@ from engine.predict import (heal_amount_config, heal_utility,  # noqa: E402  (#4
                             heal_amount_weapon,                # #45c : branche ARME REELLE
                             predict_heal_effective,            # heal/repair : familles 2 et 4 de
                             predict_repair_effective,          # CalculateUtilityFromPredictions
-                            repair_amount_config, repair_utility)  # @181407890)
+                            repair_amount_config, repair_utility)  # IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions)
 from engine.utilities import damage_composite, tile_composite  # noqa: E402
 from engine.utilities.tile import (terrain_tile_effects,  # noqa: E402  (covers terrain TileEffects, case-37)
                                    triggered_abilities_attack_utility)  # noqa: E402  (feuille 2 attack, #45-s18)
@@ -148,7 +147,7 @@ def _fields_from_native_event(ev: dict, block_amount: int = 0) -> dict:
     # #54A : le décodeur n'expose PAS `list[0]@0x50` (scénario « tous coups bloqués ») — on le
     # RECALCULE depuis le kit du défenseur (`block_amount`, cf. defender_prediction_block_amount) :
     # per-hit uniforme = raw_min // hits ; bmin = raw_min − hits × min(per, amount). killSure
-    # (WillBeKill @18102bef0) et DefinitelyOverkill le consomment ; kill (rawMax) inchangé.
+    # (WillBeKill IdunBattle.Core.Services.DamagePredictionResult$$get_WillBeKill) et DefinitelyOverkill le consomment ; kill (rawMax) inchangé.
     bmin = None
     _hits = int(ev.get("appliedHits") or 0) or 1
     if block_amount and int(block_amount) > 0:
@@ -199,8 +198,7 @@ class StageProbe:
     # ---- côté natif : events décision (MakeDamagePredictions) ----
     def _native_resp(self, step: int, uid: int, ab: int, tgt: int, tile=None) -> dict | None:
         """Réponse BRUTE d'`aiPlaybookPredict` pour la paire, prédite DEPUIS `tile`
-        (cachée) — porte les 4 familles du scorer (`CalculateUtilityFromPredictions
-        @181407890`) : events (damage) + healEvents + effectEvents + repairs (#45)."""
+        (cachée) — porte les 4 familles du scorer (`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions`) : events (damage) + healEvents + effectEvents + repairs (#45)."""
         key = (step, uid, ab, tgt, tile)
         if key in self._nat_events_cache:
             return self._nat_events_cache[key]
@@ -294,10 +292,10 @@ class StageProbe:
     # ---- #45 : confrontation des familles NON-damage (heal famille 2, repair famille 4) ----
     def _confront_nonattack(self, ctx, step: int, uid: int, ab: int, tgt: int,
                             tile) -> dict | None:
-        """Confronte la MAGNITUDE offline (mirrors `PredictHeal @181037180` /
-        `PredictRepair @181038280`) au fill NATIF décodé (`healEvents` #34A /
+        """Confronte la MAGNITUDE offline (mirrors `IdunBattle.Core.Services.DamagePrediction$$PredictHeal` /
+        `IdunBattle.Core.Services.DamagePrediction$$PredictRepair`) au fill NATIF décodé (`healEvents` #34A /
         `repairs` #45 v2) quand la paire n'a aucun DamageEvent — les familles 2 et 4
-        du scorer `CalculateUtilityFromPredictions @181407890`. None = famille absente
+        du scorer `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions`. None = famille absente
         (vieux hooks sans décodeur, ou paire réellement vide) -> l'appelant garde le
         skip v1 `no-native-events`. Mismatch = logic (feed=False) : la magnitude ne lit
         que l'état DU PAS (obs fraîche) + la config — pas de canal cold."""
@@ -351,12 +349,12 @@ class StageProbe:
     # ---- #45b' : mirror OFFLINE du scorer de paire (4 familles, prédictions NATIVES) ----
     def _formula_pair_utility(self, ctx, step: int, uid: int, ab: int, tgt: int,
                               tile) -> float | None:
-        """Mirror de `ComparablePlaybook.CalculateUtilityFromPredictions @181407890`
+        """Mirror de `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions`
         nourri des prédictions NATIVES (`aiPlaybookPredict`, MÊME tuile) — la formule
         ISOLÉE (tout écart au scorer natif = logic, jamais feed) :
           Σ damage (+0x358 : prob1×prob2 × ±damage_composite, friendly NÉGÉ,
-                    `CalculateUtilityFromDamageEvent @1814a9f90`)
-        + Σ heal   (+0x368 : prob × HealUtility, `CalculateUtilityFromHealEvent @1814aac80`)
+                    `IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromDamageEvent`)
+        + Σ heal   (+0x368 : prob × HealUtility, `IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromHealEvent`)
         + Σ repair (+0x388 : RepairedAmountUtility(fills), SANS facteur prob — mirror natif)
         SANS le terme Tile(7) (hors scorer : il vit dans le sweep de position) et SANS la
         famille effet (+0x378) : seul override du build = SpiritLeech, poids
@@ -415,8 +413,7 @@ class StageProbe:
     def _confront_utility(self, ctx, step: int, uid: int, ab: int, tgt: int,
                           tile) -> dict:
         """Confronte `_formula_pair_utility` (formule offline, prédictions natives) au
-        scorer NATIF invoqué (RPC `pairUtility` = `CalculateUtilityFromPredictions
-        @181407890` en direct, MÊME tuile). Prédictions natives des deux côtés ⇒ un
+        scorer NATIF invoqué (RPC `pairUtility` = `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions` en direct, MÊME tuile). Prédictions natives des deux côtés ⇒ un
         mismatch chiffre un gap de FORMULE par famille (jamais un gap de feed).
         Tolérance : |delta| <= max(0.01, 0.1% de |natif|) (Fix64 Q32.32 + arrondis)."""
         if playbooks.is_noncomp(ab):

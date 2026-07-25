@@ -1,7 +1,7 @@
 """SentinelDirectives (actif 1139, admecDestroyer « Sy-Gex » AdeptusMechanicus) PORT -> arbre DSL, confronte
 au LIVE (case-220 §6.17).
 
-`SentinelDirectivesAbility$$ExecuteBehaviour @1811c4a30` (DECOMPILE, mirror 1:1 -- cf. `abilities/admec.py`) =
+`SentinelDirectivesAbility$$IdunBattleLogic.Entities.Abilities.Active.SentinelDirectivesAbility$$ExecuteBehaviour` (DECOMPILE, mirror 1:1 -- cf. `abilities/admec.py`) =
     Execute( op_Addition( op_Addition(
         InformWeapon(GetDamageProfile=Physical),                                          # metadata arme
         AttackWithAttackDamage(caster@0x160, target@0x178, MinMaxDamage(minDmg 0xc/maxDmg 0xd),
@@ -9,7 +9,7 @@ au LIVE (case-220 §6.17).
         AddEffect(0x429=1065 Pinned, source=AbilityStateReference, target@0x178, dureeNode=0) ) )  # Pin cible
 plain `Execute` (l'op_Addition passe DIRECTEMENT a `AActiveAbility.Execute`, aucun AtomicGroup). Quasi-clone de
 SpiritLeech MOINS le degat conditionnel (GetAttackDamage) et le lifesteal (Heal). `native_factory="attack"`
-(la CALLEE de @1811c4a30 = `DSLFactory$$AttackWithAttackDamage`, JAMAIS `AttackWithAbilityDamage`). Mono-coup ->
+(la CALLEE de IdunBattleLogic.Entities.Abilities.Active.SentinelDirectivesAbility$$ExecuteBehaviour = `DSLFactory$$AttackWithAttackDamage`, JAMAIS `AttackWithAbilityDamage`). Mono-coup ->
 non concerne par le desync per-hit (tip #2). « Does not end Sy-Gex's turn » = SetsEndTurnFlags/
 SetsActiveAbilityUsedFlag=False (1139 dans les frozensets base.py).
 

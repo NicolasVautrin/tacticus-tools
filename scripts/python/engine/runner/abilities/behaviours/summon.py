@@ -13,20 +13,20 @@ from .context import _unit_dict, LiveUnit
 
 
 class Spawn(AbilityBehaviour):
-    """`DSLFactory.Spawn @180dfbd50` -> `SpawnUnitBehaviour.Execute @180fd3d80` : itere son TILE-SELECTEUR
+    """`IdunBattleLogic.Entities.DSLFactory$$Spawn` -> `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute` : itere son TILE-SELECTEUR
     EN INTERNE (mirror natif -- le `Spawn` n'est PAS un `Foreach(tiles, SpawnUnit)` externe, il enumere ses
     tuiles lui-meme) et spawn UNE unite par tuile, stats `WithStatsFromConfig(summon_ability)`, owner =
     team+player du caster. Wrapper au-dessus de l'Operation portee `_spawn_config_grot` (mirror de l'inline natif
-    `GetEmRuntzAbility.ExecuteBehaviour @1811e2210`) : level/mult lus du `StatsComponent` du caster dans `ectx.state`. Chaque enfant
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.GetEmRuntzAbility$$ExecuteBehaviour`) : level/mult lus du `StatsComponent` du caster dans `ectx.state`. Chaque enfant
     est AJOUTE a `entities.children` (accumulateur factory+0x148, relu par `Children` pour le Taunt), annote
     pour le Taunt (`_new_child`/`_turns_started`/`_attacks_made`/`_last_attacked`). L'ordre d'enumeration =
     l'ordre du tile-selecteur (le `Cache` partage) -> `children` en ordre de TUILE (== l'ordre que
     `PerformAIAttack` reparcourt). Effet PUR (`stop=False`) ; journalise chaque spawn.
 
-    `pick_n` = FOLD du `PickRandomly(tileSelector, n) @180df8e70` (`PickRandomAmountSelector`) quand le
+    `pick_n` = FOLD du `IdunBattleLogic.Entities.DSLFactory$$PickRandomly(tileSelector, n)` (`PickRandomAmountSelector`) quand le
     natif ENVELOPPE le tile-selecteur du Spawn -- meme convention que le `pick_n` des feuilles d'attaque
     (`AttackWithAttackDamage`) : le tirage vit dans la feuille, qui seule voit `ectx.state.rng`.
-    Consommateur : `SupremeCommanderAbility.ExecuteBehaviour @18120df30` =
+    Consommateur : `IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour` =
     `Spawn(PickRandomly(CanAddUnit(AdjacentTiles(caster)), nrOfSummons), unitId, WithStatsFromConfig)`.
     None (defaut) = pas de PickRandomly natif (GetEmRuntz : toutes les tuiles du `Cache`).
 
@@ -35,9 +35,9 @@ class Spawn(AbilityBehaviour):
     `Spawn` puis l'accroche (`*(opts+0x18) = <behaviour>`), et son selecteur d'acteur est
     **`ActiveTarget@0x180`** = le summon fraichement pose. Le port l'execute donc UNE FOIS PAR SUMMON avec
     `active_target` LIE a l'enfant (mirror exact). Consommateurs lus :
-      * `SpawnPoxwalkersAbility.ExecuteBehaviour @181208b80` -> `PerformAIAttackFromCurrentPosition(@0x180)` ;
-      * `SendInTheNextWaveAbility.ExecuteBehaviour @181206490` -> `UseNormalAttackIfAble(@0x180, Target@0x178)` ;
-      * `IncursionAbility.ExecuteBehaviour @1811e9fe0`        -> `UseNormalAttackIfAble(@0x180, Entity(cible))`.
+      * `IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$ExecuteBehaviour` -> `PerformAIAttackFromCurrentPosition(@0x180)` ;
+      * `IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$ExecuteBehaviour` -> `UseNormalAttackIfAble(@0x180, Target@0x178)` ;
+      * `IdunBattleLogic.Entities.Abilities.Active.Loki.IncursionAbility$$ExecuteBehaviour`        -> `UseNormalAttackIfAble(@0x180, Entity(cible))`.
     None (defaut) = options sans sous-behaviour (SupremeCommander/Waaagh/GetEmRuntz).
 
     FRAICHEUR DU CONTEXTE (piege du no-op silencieux) : l'`AbilityEntities` natif porte une REF d'etat --
@@ -45,7 +45,7 @@ class Spawn(AbilityBehaviour):
     fige sa liste `units` a la construction (`entities_from_state`) ; la feuille pousse donc chaque enfant
     DANS `entities.units` (liste PARTAGEE par reference a travers les `replace()` du walker) en plus de
     `entities.children`. Sans ca, un etage AVAL du meme arbre (ex. le `PerformAIAction(UnitsWithId(...))`
-    de CultDemagogue @1811cdc30, 3e terme d'un UNIQUE `op_Addition`) ne verrait AUCUN summon = NO-OP
+    de CultDemagogue IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour, 3e terme d'un UNIQUE `op_Addition`) ne verrait AUCUN summon = NO-OP
     SILENCIEUX. L'enfant est une `LiveUnit` (pos/hp/alive re-lus du state) -> les gardes `AllUnits`/`Alive`
     en aval lisent l'etat courant, comme le natif."""
     __slots__ = ("tile_selector", "summon_ability", "pick_n", "on_appearance")
@@ -71,7 +71,7 @@ class Spawn(AbilityBehaviour):
         mult = int(getattr(cctx, "ability_variables_multiplier", 100) or 100)
         vid = ((GC.ability(self.summon_ability) or {}).get("constants") or {}).get("unitId")
         tiles = self.tile_selector.evaluate(entities) or []
-        if self.pick_n is not None:                       # fold `PickRandomly(tiles, n)` @180df8e70
+        if self.pick_n is not None:                       # fold `IdunBattleLogic.Entities.DSLFactory$$PickRandomly(tiles, n)
             from ..loki.splash import _pick_randomly_n
             tiles = _pick_randomly_n(state, tiles, int(self.pick_n))
         for tile in tiles:                                # itere les tuiles EN INTERNE (natif)
@@ -91,8 +91,8 @@ class Spawn(AbilityBehaviour):
 
 
 class PerformAIAttack(AbilityBehaviour):
-    """`DSLFactory.PerformAIAttackFromCurrentPosition(Cache(GetSpawnTileSelector)) @180df8a10` ->
-    `PerformAIAbilityUnitBehaviour.Execute @180fcb070` : chaque unite SUR les tuiles du SELECTEUR (le natif
+    """`IdunBattleLogic.Entities.DSLFactory$$PerformAIAttackFromCurrentPosition(Cache(GetSpawnTileSelector))` ->
+    `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$Execute` : chaque unite SUR les tuiles du SELECTEUR (le natif
     reutilise le MEME `Cache(GetSpawnTileSelector)` que le `Spawn` -> les grots tout juste spawnes) execute
     une attaque AI depuis SA position COURANTE (sans bouger). Port : `tile_selector` = le `Cache` PARTAGE
     (memoise -> memes tuiles PRE-spawn que le Spawn, sinon `CanAddUnit` recalcule les exclurait car
@@ -106,7 +106,7 @@ class PerformAIAttack(AbilityBehaviour):
     differemment -> la feuille NORMALISE (un seul port, pas de fork) :
       * DOMAINE TUILE (`GetEmRuntzAbility` : `Cache(GetSpawnTileSelector)`) -> ids de tuile, mappes au grot
         pose dessus via `entities.children` ;
-      * DOMAINE UNITE (`SpawnPoxwalkersAbility.ExecuteBehaviour @181208b80` :
+      * DOMAINE UNITE (`IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$ExecuteBehaviour` :
         `PerformAIAttackFromCurrentPosition(ActiveTarget@0x180)` = le summon fraichement pose, lie par le
         sous-behaviour on-appearance du `Spawn`) -> le dict d'unite est utilise TEL QUEL."""
     __slots__ = ("tile_selector",)
@@ -152,15 +152,15 @@ class PerformAIAttack(AbilityBehaviour):
 
 
 class SpawnSummon(AbilityBehaviour):
-    """`ScarabHiveAbility.ExecuteBehaviour @181204cb0` = un noeud natif UNIQUE `Execute(Spawn(...))` (plain
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabHiveAbility$$ExecuteBehaviour` = un noeud natif UNIQUE `Execute(Spawn(...))` (plain
     `AActiveAbility.Execute`, PAS `ExecuteAtomic`) ou `Spawn(caster@0x160, tileSel, unitId, SpawnUnitOptions)`
     avec `SpawnUnitOptions.WithStatsFromConfig(config)` portant DEUX sous-behaviours EMBARQUES :
       +0x10 = `AddEffect(0x4a3 = ScarabHive_OverrideDamageProfile = 1187)` sur chaque summon ;
       +0x18 = `UseNormalAttackIfAble(target@0x178)` = attaque normale immediate (profil override Piercing).
-    `SpawnUnitBehaviour.Execute @180fd3d80` spawn `count` summons -- count-2, placement et
+    `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute` spawn `count` summons -- count-2, placement et
     `WithStatsFromConfig` vivent DANS SpawnUnitBehaviour (via `GetUnitToSpawn`/`GetTileIds`/`GetStatsToOverride`),
     HORS des DSL-selecteurs : le tile-selecteur natif `First(SortByDistance(CanAddUnit(AdjacentTiles(target)),
-    caster), i)` = `PickAtIndexSelector` (UN element, @180ef02e0), le `count` vient des options -- puis
+    caster), i)` = `PickAtIndexSelector` (UN element, IdunBattle.Entities.Selectors.PickAtIndexSelector$$Select), le `count` vient des options -- puis
     `TriggerSpawnedUnitBehaviours` fire les 2 sous-behaviours embarques PAR summon.
 
     Port : delegue le SPAWN a l'Operation VALIDEE LIVE-BIT-EXACT `SpawnUnitOperation.execute` (count/stats
@@ -205,19 +205,18 @@ class SpawnSummon(AbilityBehaviour):
 
 
 class SpawnReplica(AbilityBehaviour):
-    """`ScarabSummonAbility.ExecuteBehaviour @181205290` (id 1047, necroSmnSwarm -- auto-DEDOUBLEMENT) = un
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabSummonAbility$$ExecuteBehaviour` (id 1047, necroSmnSwarm -- auto-DEDOUBLEMENT) = un
     noeud natif UNIQUE `Execute(Spawn(...))` (plain `AActiveAbility.Execute`, PAS `ExecuteAtomic`), DISTINCT
     du noeud ScarabHive (`SpawnSummon`) : `Spawn(self@0x160, tileSel, unitId=GetStringConstant(config,0)=
     necroSmnSwarm, SpawnUnitOptions.CopyOwner(caster))` ou les options portent UN sous-behaviour EMBARQUE :
       +0x18 = `PerformAIAttack(1)` = le double attaque immediatement -- PAS de +0x10 AddEffect (ScarabSummon
       n'a PAS l'effet persistant 0x4a3 de ScarabHive) ;
     tile-selecteur natif = `PickRandomly(CanAddUnit(AdjacentTiles(self@0x160)), 1, ..., 0x7fffffff)` (UNE tuile
-    LIBRE adjacente a SOI). `SpawnUnitBehaviour.Execute @180fd3d80` spawn `count` clones -- count/placement/
+    LIBRE adjacente a SOI). `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute` spawn `count` clones -- count/placement/
     CopyOwner vivent DANS SpawnUnitBehaviour, HORS des DSL-selecteurs -- puis `TriggerSpawnedUnitBehaviours`
     fire le sous-behaviour on-appearance PAR summon.
 
-    Port : delegue le SPAWN a l'Operation VALIDEE `SpawnUnitOperation.execute_self_replica` (`CopyOwner
-    @180fd5ba0` = clone owner+stats du parent, count-1, tuiles libres adjacentes au caster ; cf.
+    Port : delegue le SPAWN a l'Operation VALIDEE `SpawnUnitOperation.execute_self_replica` (`IdunBattle.Entities.Behaviours.SpawnUnitOptions$$CopyOwner` = clone owner+stats du parent, count-1, tuiles libres adjacentes au caster ; cf.
     test_summon_spawn_live) -- MEME carve-out que `SpawnSummon` (on ne re-derive PAS le count/placement via
     des DSL-selecteurs : ils vivent dans SpawnUnitBehaviour et l'outcome est deja valide). ON-APPEARANCE =
     `PerformAIAttack(1)` : chaque double attaque l'ennemi le plus proche (`_nearest_enemy` +

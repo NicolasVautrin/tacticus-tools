@@ -1,7 +1,7 @@
 """SkyStrike (actif 1025, adeptCelestine = Celestine, Sisterhood) PORT -> arbre DSL charge+attaque, confronte
 au LIVE.
 
-`SkyStrikeAbility$$ExecuteBehaviour @181207d30` (DECOMPILE, mirror 1:1 -- cf. `abilities/sisterhood.py`) =
+`SkyStrikeAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$ExecuteBehaviour` (DECOMPILE, mirror 1:1 -- cf. `abilities/sisterhood.py`) =
 template VigilanceEternal EXACT, MOINS la contrainte de reach du move, PLUS attaque = attaque melee NORMALE :
     op_BitwiseAnd(
       If( Not(IsAdjacent(caster@0x160, target@0x178, 3)),                                         # MOVE (charge)
@@ -16,15 +16,15 @@ FINDINGS DECOMPILE (VA citees dans sisterhood.py) :
   - dest = `CanAddUnit(AdjacentTiles(target))` SANS `MovableTilesInRange` (contraste VigilanceEternal
     `GetPossibleMovementTiles`) -> AUCUNE limite de portee (Celestine vole). Collapse = tuile libre ring-1 de
     la cible la PLUS PROCHE du caster.
-  - ATTACK = overload `AttackWithAttackDamage @180dea6b0` (VERIFIE list_xrefs : call-site @1812080b2 ; ABSENT
-    de @180de9fb0) = MEME AttackDamageBehaviour, famille "attack". Node de degat = `Sum(StatAmount(Attack),
-    Direct(extraDmg))` : `StatAmountFormula.Calculate @180f22d40` = UNE valeur -> HitDamage(V,V) DEGENERE ->
+  - ATTACK = overload `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (VERIFIE list_xrefs : call-site IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$ExecuteBehaviour+0x382 ; ABSENT
+    de IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage) = MEME AttackDamageBehaviour, famille "attack". Node de degat = `Sum(StatAmount(Attack),
+    Direct(extraDmg))` : `IdunBattle.Entities.Formulas.StatAmountFormula$$Calculate` = UNE valeur -> HitDamage(V,V) DEGENERE ->
     AUCUN spread +/-20% (le +/-20% de l'attaque normale vient du weapon-path GetBaseDamageFix64, ABSENT du path
     ability). Chaque coup = reduce(V) FIXE, V = Attack + extraDmg. Profil/coups = arme MELEE (Celestine = Power
-    / 3 coups, MeleeWeaponHits = WeaponHitsFormula @180f2f510, SANS ExtraHits). native_factory="attack" ->
+    / 3 coups, MeleeWeaponHits = WeaponHitsFormula IdunBattle.Entities.Formulas.WeaponHitsFormula$$Calculate, SANS ExtraHits). native_factory="attack" ->
     execute_ability_attack(is_attack_damage_op=True), 1 tirage/coup (node degenere : GetDamage court-circuite + resolve
     slot-8 gaspille, cf. #202).
-  - `GetDynamicInvalidTargetReason @1812082a0` (eligibilite, HORS ExecuteBehaviour) : gate DidMove(caster) -> une
+  - `IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$GetDynamicInvalidTargetReason` (eligibilite, HORS ExecuteBehaviour) : gate DidMove(caster) -> une
     Celestine DEJA bougee ET non-adjacente ne peut PAS caster (reason 0x10). CONFIRME LIVE (b1/b2 ci-dessous).
 
 PORTEUR HORS POOL + RESIDU DE CAST LIVE (documente, idem SavageEchoes) : adeptCelestine est absente du seed BC
@@ -409,7 +409,7 @@ def test_skystrike_attack_ab_and_no_spread(sky_state):
 
 
 def test_skystrike_has_not_moved_gate_live(sky_state, rpc):
-    """(D) GATE has-not-moved (LIVE) : `GetDynamicInvalidTargetReason @1812082a0` -> une Celestine NON bougee
+    """(D) GATE has-not-moved (LIVE) : `IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$GetDynamicInvalidTargetReason` -> une Celestine NON bougee
     (au spawn) + cible avec tuile libre adjacente est CASTABLE (`fromHere` non-vide) ; une Celestine BOUGEE et
     non-adjacente est NON castable (reason 0x10). Le cast LIVE est TENTE mais non asserte (RESIDU out-of-pool
     extraDmg, idem SavageEchoes)."""

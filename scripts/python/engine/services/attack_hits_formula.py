@@ -1,9 +1,9 @@
-"""Port de `IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula` (`Calculate @180f0bf50`) — la
+"""Port de `IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula` (`IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula$$Calculate`) — la
 FORMULE (noeud DSL) qui calcule le NB DE COUPS d'une attaque AVEC ses modificateurs, PARTAGEE par tous les
 contextes. Nativement, les facades `GetAttackHits` (slot d'interface 0xb5) delegent a cette formule :
-  - `IdunBattle.Operations.AttackDamageOperation.GetAttackHits @180e613d0`  = COMBAT (runner) ;
-  - `IdunBattle.Core.Services.DamagePrediction.GetAttackHits   @18102f240`  = PREDICTION (playbook) ;
-  - `IdunBattle.Core.Services.BattleQuery.GetAttackHits        @18105d8d0`  (+ variantes Cached/Recorded/Query).
+  - `IdunBattle.Operations.AttackDamageOperation$$GetAttackHits`  = COMBAT (runner) ;
+  - `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits`  = PREDICTION (playbook) ;
+  - `IdunBattle.Core.Services.BattleQuery$$GetAttackHits`  (+ variantes Cached/Recorded/Query).
 
 Les DEUX call-sites du port SONT ces facades : le combat (`AttackDamageOperation.execute`) et la prediction
 (`make_normal_attack_predictions`) rassemblent leurs entrees (ECS vs Scene) puis appellent cette formule =>
@@ -11,14 +11,13 @@ MEME nb de coups des deux cotes. C'est FIDELE : le natif PARTAGE la formule (il 
 combat et prediction), donc le port la partage aussi (un seul point de calcul, deux facades).
 
 Composition (chaque piece deleguee a SON port de classe natif) :
-  1. base = `GetDefaultAttackHits @181032520` (`weapon + ExtraHits(0x11) + (melee ? ExtraHitsMelee(0x17))`)
+  1. base = `IdunBattle.Core.Services.DamagePrediction$$GetDefaultAttackHits` (`weapon + ExtraHits(0x11) + (melee ? ExtraHitsMelee(0x17))`)
      + `Sigma effets` (EffectAdditionalHits, clamps Min/Max type LightCover), plancher Max(.,0)
      -> `services.damage_prediction.get_default_attack_hits` + `entities.effects.hits_bonus_from_effects`.
-  2. + GetStuckIn : behaviour `IdunBattle.Entities.Behaviours.AddBonusHitsToCurrentHitGroupBehaviour.Execute
-     @180f93410` (ajoute au hit-group PENDANT l'exec, gate `Maybe(GetBonusHitChance @180f83460)` = 30%/100%)
+  2. + GetStuckIn : behaviour `IdunBattle.Entities.Behaviours.AddBonusHitsToCurrentHitGroupBehaviour$$Execute` (ajoute au hit-group PENDANT l'exec, gate `Maybe(IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance)` = 30%/100%)
      -> `entities.traits.attacker_bonus_hits`. **Gate par `include_bonus_hit_behaviours`** (cf. ci-dessous).
   3. + malus de coups de la CIBLE : `IdunBattle.Operations.AdditionalHitsFromEffects.GetAdditionalHits
-     FromEffects @180e59e50` (LightCover -2 ranged / Parry -1 melee) + aura BigTarget  -> `entities.effects`
+     FromEffects IdunBattle.Operations.AdditionalHitsFromEffects$$GetAdditionalHitsFromEffects` (LightCover -2 ranged / Parry -1 melee) + aura BigTarget  -> `entities.effects`
      (`hits_malus_from_defender_effects` / `aura_hits_malus_for_defense`).
 
 Fidelite GetStuckIn (2) -- divergence PREDICTION vs COMBAT (verdict validateur cluster, BITE 2) : le natif
@@ -30,12 +29,11 @@ DEUX faces sont portees, avec deux emplacements DISTINCTS (fidele : la formule n
   - COMBAT (`AttackDamageOperation.GetAttackHits`) NE le fold PAS dans la formule -> `include_bonus_hit_
     behaviours=False` (la formule native ne l'inclut pas : folder en dur sur-comptait, orksNob 1v1 chance=30
     -> natif 3 coups, folder 4). Le coup bonus est ajoute a l'EXECUTION par le behaviour chance-gate PORTE
-    (#62c, commit 3997793) : `runner.damage_model.getstuckin_combat_chance` (mirror `GetBonusHitChance
-    @180f83460` + gate trigger `On(8) & IsOdd(CurrentHitIndex) & OwnerIsCaster & !(MinDistance>2)`
-    @180f83350) alimente `bonus_hit_chance` de `runner.operations.damage_hits._run_hits`, qui roll
-    `Maybe(GetBonusHitChance)` (1 tirage `NextBool`, `MaybeBehaviour.Execute @180fc9dc0`) APRES le block de
+    (#62c, commit 3997793) : `runner.damage_model.getstuckin_combat_chance` (mirror `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance` + gate trigger `On(8) & IsOdd(CurrentHitIndex) & OwnerIsCaster & !(MinDistance>2)`
+    IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$CreateTrigger) alimente `bonus_hit_chance` de `runner.operations.damage_hits._run_hits`, qui roll
+    `Maybe(GetBonusHitChance)` (1 tirage `NextBool`, `IdunBattle.Entities.Behaviours.MaybeBehaviour$$Execute`) APRES le block de
     chaque coup d'INDEX IMPAIR (0-based ; `CurrentHitIndex` = compteur persistant `attack+0x30`, lu dans
-    `EvaluateAfterHitTriggers @180e25fc0`), puis execute les coups bonus DEFERES (FIFO, mirror
+    `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`), puis execute les coups bonus DEFERES (FIFO, mirror
     `Execute@180e60c70` : boucle base peuple `hitGroup+0x58`, re-`ExecuteHits` par entree). VALIDE bit-exact
     LIVE (case-67) : orksNob base-3 (0/1 coup bonus) + orksBigMek base-4 (0/1/2 coups bonus), off_ph==live_ph.
 Le combat manquait aussi (3) LightCover/Parry/BigTarget (verdict #62a, toujours valide -- non chance-gate,
@@ -58,7 +56,7 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
                                defender_on_cover: bool | None = None,
                                tile_effects_by_pos: dict | None = None,
                                attacker_persistent_data=None) -> int:
-    """`AttackHitsWithModifiersFormula.Calculate @180f0bf50` : nb de coups d'une attaque normale. `board` =
+    """`IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula$$Calculate` : nb de coups d'une attaque normale. `board` =
     {att_id, tgt_id, attack_pos, t_pos, tgt_team, is_melee, pos_by_id, team_by_id} (base_hits pose ici) ;
     `aura_sources` = [(owner_id, pos, team, effets)] des unites != cible. Ordre = base (APRES PowerTrip) ->
     +GetStuckIn/traits (SSI `include_bonus_hit_behaviours` : prediction=True [fold formule] ; combat=False
@@ -67,9 +65,9 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
 
     `tile_effects_by_pos` ({(col,row): [noms]}, tileMeta) et `attacker_persistent_data` (les cles
     `PersistentDataComponent` de l'ATTAQUANT) completent le contexte CIBLE que le canal (1) exige depuis
-    #84 : `LetTheGalaxyBurnEffect.CreateAdditionalHits @180f54e30` gate son +1 coup sur
-    `TargetHasTileEffect @181107810` (la cible se tient sur une tuile a status-effect) OU
-    `IsPersistentData @180df4bb0` (flag intra-attaque arme au `On(PreAttack=5)`). Les deux sont des
+    #84 : `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits` gate son +1 coup sur
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$TargetHasTileEffect` (la cible se tient sur une tuile a status-effect) OU
+    `IdunBattleLogic.Entities.DSLFactory$$IsPersistentData` (flag intra-attaque arme au `On(PreAttack=5)`). Les deux sont des
     entrees d'ETAT que la formule native lit via son `AbilityEntities` ; ici elles sont threadees
     explicitement par les DEUX facades. Non fournies -> le bonus no-op (degradation fidele)."""
     # Contexte de l'attaque passe aux effets du canal (1) : le `board` de la formule + les 2 entrees
@@ -77,19 +75,19 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
     att_hits_ctx = {**(board or {}), "tile_effects_by_pos": tile_effects_by_pos,
                     "persistent_data": attacker_persistent_data}
     eff_hits = hits_bonus_from_effects(attacker_effects, att_ctx=att_hits_ctx)
-    # base = `GetDefaultAttackHits @181032520` : weapon + ExtraHits(0x11) + (melee ? ExtraHitsMelee(0x17)).
+    # base = `IdunBattle.Core.Services.DamagePrediction$$GetDefaultAttackHits` : weapon + ExtraHits(0x11) + (melee ? ExtraHitsMelee(0x17)).
     # is_melee=None (contexte inconnu) -> False -> pas d'ExtraHitsMelee (conservateur, mêlée seule).
     base_default = get_default_attack_hits(int(weapon_hits), int(extra_hits), int(extra_hits_melee),
                                            bool(is_melee))
     hits_pre = max(1, base_default + eff_hits)   # base APRES PowerTrip, AVANT GetStuckIn
     board = {**(board or {}), "base_hits": hits_pre}
-    # (2) GetStuckIn = behaviour d'exec chance-gate (`AddBonusHitsToCurrentHitGroupBehaviour @180f93410`) :
+    # (2) GetStuckIn = behaviour d'exec chance-gate (`AddBonusHitsToCurrentHitGroupBehaviour IdunBattle.Entities.Behaviours.AddBonusHitsToCurrentHitGroupBehaviour$$Execute`) :
     # DETERMINISTE en prediction (fold ICI), chance-roll a l'EXECUTION en combat (porte #62c dans
     # `_run_hits`, PAS dans cette formule -> gate False). Seul GetStuckInTrait override `as_attacker_bonus_
     # hits` -> gater `attacker_bonus_hits` ne perd que GetStuckIn cote formule (cf. entete BITE 2).
     bonus_hits = attacker_bonus_hits(trait_objects, board) if include_bonus_hit_behaviours else 0
     hits = hits_pre + bonus_hits
-    # AURA COUPS côté ATTAQUANT (AstartesBanner @180f323b0 : +extraHits mêlée si un allié porteur est dans
+    # AURA COUPS côté ATTAQUANT (AstartesBanner IdunBattle.Entities.Effects.Loki.AstartesBanner_AdditionalHitsEffect$$CreateAdditionalHits : +extraHits mêlée si un allié porteur est dans
     # le rayon 2) — SYMÉTRIQUE de l'aura défenseur. ctx att-centrique dérivé de `board`.
     att_ctx = {"att_id": board.get("att_id"), "att_pos": board.get("attack_pos"),
                "att_team": (board.get("team_by_id") or {}).get(board.get("att_id")),

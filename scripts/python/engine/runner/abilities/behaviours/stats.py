@@ -14,7 +14,7 @@ from ...components import HealthComponent, StatsComponent
 
 class RefreshDynamicStatModifierValue(AbilityBehaviour):
     """`Idun.Source.IdunBattle.Logic.Entities.Behaviours.RefreshDynamicStatModifierValueBehaviour` — 2e volet
-    (`op_BitwiseAnd`) de la factory `DSLFactory.AbilityAreaDamage @180de5920` :
+    (`op_BitwiseAnd`) de la factory `IdunBattleLogic.Entities.DSLFactory$$AbilityAreaDamage` :
         `AttackWithAbilityDamage(caster, Units(area), amount, profile, src)
          & RefreshDynamicStatModifierValueBehaviour(AllAliveMachinesSelector(area))`
     Le natif RE-EVALUE la valeur des stat-modifiers DYNAMIQUES (aura/adjacence) des unites VIVANTES de la
@@ -39,7 +39,7 @@ class RefreshDynamicStatModifierValue(AbilityBehaviour):
 
 
 def is_mechanical(ht, u) -> bool:
-    """`UnitExtensions.IsMechanical @180ed8a30` = `HasTrait(Mechanical=5) OU HasTrait(LivingMetal=1000)
+    """`IdunBattle.Entities.UnitExtensions$$IsMechanical` = `HasTrait(Mechanical=5) OU HasTrait(LivingMetal=1000)
     OU HasTrait(Vehicle=0x405=1029)`. Les TROIS sont des traits gameconfig reels (126/51/8 units), donc
     lisibles cote runner via `ctx.has_trait`. Confirme LIVE (case-220 : necroWarden=LivingMetal exclu du
     heal). Helper PARTAGE des feuilles Heal a garde `Healable` (1037 RevitalizingMalignancy, 1002
@@ -49,12 +49,12 @@ def is_mechanical(ht, u) -> bool:
 
 
 def healable_heal_type_0(entities, ectx, u) -> bool:
-    """Garde `Healable` de la feuille `Heal` (prerequis case-220, `HealableUnitsSelector.Select @180eec480`
+    """Garde `Healable` de la feuille `Heal` (prerequis case-220, `IdunBattle.Entities.Selectors.HealableUnitsSelector$$Select`
     + heal type 0) : une unite est soignable par un HEAL de type 0 ssi elle est
       (a) ENDOMMAGEE  : HP < max                                  (IsDamaged du HealableUnitsSelector) ET
-      (b) affectee    : `UnitExtensions.IsAffectedByHealType(unit, 0) @180ed77d0`
+      (b) affectee    : `IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType(unit, 0)`
                         = `HasTrait(AffectedByHealAndRepair=0x421)` OU `NOT IsMechanical`.
-    IsMechanical = Mechanical(5) | LivingMetal(1000) | Vehicle(1029) (mirror @180ed8a30). HP<max est aussi
+    IsMechanical = Mechanical(5) | LivingMetal(1000) | Vehicle(1029) (mirror IdunBattle.Entities.UnitExtensions$$IsMechanical). HP<max est aussi
     garanti aval par `HealUnitOperation` (FillUp rend 0 si plein) ; la garde ICI EXCLUE en plus la cible du
     set (une unite full-HP / mechanical n'apparait pas dans `heals`), fidele au fait que le natif pre-filtre
     via `HealableUnitsSelector` AVANT le split. Confirme LIVE (case-220 1037 : necroWarden mech blesse -> +0 ;
@@ -116,9 +116,9 @@ class Heal(AbilityBehaviour):
 
 
 class ChangeStat(AbilityBehaviour):
-    """`DSLFactory.ChangeStat @180debdc0` -> `ChangeStatBehaviour.Execute @180fbfb10` : applique une
+    """`IdunBattleLogic.Entities.DSLFactory$$ChangeStat` -> `IdunBattle.Entities.Behaviours.ChangeStatBehaviour$$Execute` : applique une
     MODIFICATION DE STAT (`ModifyStatMessage` -> `UnitStats.Transform`) sur le(s) sujet(s) de `target_sel`,
-    stat `stat_type` (natif `Position(statType,0,0)`), selon `mode` (lu au decompile @180fbfb10, champ
+    stat `stat_type` (natif `Position(statType,0,0)`), selon `mode` (lu au decompile IdunBattle.Entities.Behaviours.ChangeStatBehaviour$$Execute, champ
     +0x68) :
         0 = SetAbsolute (new = delta - GetStat)           2 = Add       (new = GetStat + delta)
         1 = Clamp/Min-Max (Min(Max(GetStat+delta,0),max)) 3 = Subtract  (new = Max(GetStat - delta, 0))
@@ -160,15 +160,15 @@ class ChangeStat(AbilityBehaviour):
 
 
 class SubtractHealthPercent(AbilityBehaviour):
-    """`JakhalStimmsAbility.ExecuteBehaviour @1811ec770` volet SELF-LOSS -> `ChangeStat(Self@0x160,
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.JakhalStimmsAbility$$ExecuteBehaviour` volet SELF-LOSS -> `ChangeStat(Self@0x160,
     Position(Health=5, current), mode 3 = Subtract, PercentageOf(StatAmount(Self, Health, current),
-    ConfigConst(hpPct)))` (`DSLFactory.ChangeStat @180debdc0` -> `ChangeStatBehaviour.Execute @180fbfb10`
+    ConfigConst(hpPct)))` (`IdunBattleLogic.Entities.DSLFactory$$ChangeStat` -> `IdunBattle.Entities.Behaviours.ChangeStatBehaviour$$Execute`
     case 3 : `new = Max(GetStat(Health) - delta, 0)`). Health = stat FILL-UP (`HealthComponent`, PAS un
     `StatComponent`, cf. `SetHealth` + `ChangeStatBehaviour.Execute` GetStat/StatModifier) -> le modifier
     Subtract sur le fill-up = SET du current HP a `Max(hp - delta, 0)` (`HealthComponent.hp`).
 
     `delta = PercentageOf(current_hp, pct)` = `round_half_even(hp * pct / 100)` (`PercentageOf` mode 0 : le
-    4e arg du `DSLFactory.PercentageOf @180df8720` est 0 au decompile de `ExecuteBehaviour` -> `_round_fix64`
+    4e arg du `IdunBattleLogic.Entities.DSLFactory$$PercentageOf` est 0 au decompile de `ExecuteBehaviour` -> `_round_fix64`
     mode 0 = arrondi banquier ; MEME primitive/mode que `SetHealth` valide bit-exact BlackRage). `pct` lu via
     `ability_var(is_constant=True)` = `GetNumberConstant`/`ConfigConst` (config 1131 : hpPct=25 constante).
 
@@ -214,9 +214,9 @@ class SubtractHealthPercent(AbilityBehaviour):
 
 
 class SetHealth(AbilityBehaviour):
-    """`BlackRageAbility.GetSetHealthBehaviour @1811ba690` -> `ChangeStat(Health(5), mode 0=SetAbsolute,
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetSetHealthBehaviour` -> `ChangeStat(Health(5), mode 0=SetAbsolute,
     PercentageOf(StatAmount(Health, MAXIMUM=2), ConfigVar(hpPct)))` : SET le HP courant du sujet a
-    `hpPct%` de son MaxHealth. Mode 0 SetAbsolute (`ChangeStatBehaviour.Execute @180fbfb10` case 0 : la
+    `hpPct%` de son MaxHealth. Mode 0 SetAbsolute (`IdunBattle.Entities.Behaviours.ChangeStatBehaviour$$Execute` case 0 : la
     modification impose `GetStat(stat) == amount`) ; Health = stat FILL-UP (`HealthComponent`, PAS un
     `StatComponent`) -> le SetAbsolute sur le fill-up = SET du current HP (`HealthComponent.hp = amount`).
     Amount = `hp_max * hpPct // 100` (`PercentageOf(MaxHealth, hpPct%)`). `hpPct` = ability var per-level

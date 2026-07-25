@@ -1,6 +1,6 @@
 """#149 slice-13 : Fragstorm (1078, templSmnAggressor) MIGRATION vers l'arbre DSL.
 
-`FragstormAbility.ExecuteBehaviour @1811e0a00` (DECOMPILE) = `ExecuteAtomic(op_BitwiseAnd(main, splash))` :
+`IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormAbility$$ExecuteBehaviour` (DECOMPILE) = `ExecuteAtomic(op_BitwiseAnd(main, splash))` :
     main   = AttackWithAttackDamage(caster, target, RandomAmount, Blast, nrOfHits=4)
     splash = AttackWithAttackDamage(caster,
                  PickRandomly(AdjacentTiles(target) - Tiles(Friends(caster)), nrOfTargets=4),

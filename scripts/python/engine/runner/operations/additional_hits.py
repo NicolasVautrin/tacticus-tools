@@ -4,9 +4,8 @@ custom normal-attack / effet declarant des coups additionnels atterrit ICI).
 
 Deux fonctions LIBRES appelees par `AttackDamageOperation.execute` :
   - `collect_additional_hit_groups` : mirror `AdditionalHitsFromEffects.GetAdditionalHitsFromEffects
-    Internal @180e59150` (enumeration GLOBALE des descripteurs : effets du porteur + auras d'allies) ;
-  - `execute_additional_hits` : mirror `ExecuteAdditionalHitsWithDamageProfileTypeOperation.Execute
-    @180e70600` (chaque groupe = sous-operation de degat au profil PROPRE, apres les coups d'arme).
+    Internal IdunBattle.Operations.AdditionalHitsFromEffects$$GetAdditionalHitsFromEffectsInternal` (enumeration GLOBALE des descripteurs : effets du porteur + auras d'allies) ;
+  - `execute_additional_hits` : mirror `IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute` (chaque groupe = sous-operation de degat au profil PROPRE, apres les coups d'arme).
 
 `execute_additional_hits` rappelle les primitives de tirage de `AttackDamageOperation`
 (`_apply_max_out`/`_run_hits`/`_target_limits`/`_deplete_shield`/`_apply_damage_pipeline`) : import
@@ -25,12 +24,12 @@ from ...entities.effects import additional_hit_groups, aura_additional_hits_from
 
 def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int,
                                   att_active, is_melee: bool, tgt_active) -> list:
-    """#202-B : mirror `AdditionalHitsFromEffects.GetAdditionalHitsFromEffectsInternal @180e59150`
+    """#202-B : mirror `IdunBattle.Operations.AdditionalHitsFromEffects$$GetAdditionalHitsFromEffectsInternal`
     cote ECS — enumeration GLOBALE des effets declarant des coups additionnels HETEROGENES (canal
     #179) : (a) effets du PORTEUR (`additional_hit_groups`, ex. SquigHound/CordClaw/FoulInfusion) ;
     (b) effets-AURA hostes sur d'AUTRES unites VIVANTES (`create_aura_additional_hits_for_ally`,
     ex. ExplosiveMaladies/InfernalPacts) — adjacence evaluee aux positions REELLES de l'ECS, mirror
-    du refresh natif `PreAttack(5)` (l'aura est reevaluee au moment de l'attaque, @180f52730).
+    du refresh natif `PreAttack(5)` (l'aura est reevaluee au moment de l'attaque, IdunBattle.Entities.Effects.Loki.InfernalPacts_AdditionalHitsEffect$$GetRefreshTriggers).
     Retour [] strict (aucun carrier -> no-op, AUCUNE conso RNG)."""
     import gameconfig as GC
     att = state.get_entity(attacker_id)
@@ -83,8 +82,8 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
                             block_sources, shc, spread_pct: int = 20,
                             extra_pierce: int = 0) -> "Optional[dict]":
     """#202-B : face COMBAT du canal #179 — mirror `ExecuteAdditionalHitsWithDamageProfileType
-    Operation.Execute @180e70600` (schedule : `OperationProcessor.ExecuteAdditionalHitsWith
-    DamageProfileType @180e07fb0`) : chaque groupe qualifie execute ses coups comme SOUS-OPERATION
+    IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute` (schedule : `OperationProcessor.ExecuteAdditionalHitsWith
+    DamageProfileType Core.Services.OperationProcessor$$ExecuteAdditionalHitsWithDamageProfileType`) : chaque groupe qualifie execute ses coups comme SOUS-OPERATION
     de degat APRES les coups d'arme. Bornes = plage PREDEFINED [min,max] (RandomAmount natif —
     PAS de spread ±20% ; forme `amount` = spread standard) REDUITE par perce(profil du GROUPE)
     + armure + mods — MEMES mods attaquant/defenseur que l'arme (mirror de la prediction #179,
@@ -135,7 +134,7 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
         hd = HitDamage(lo, hi)
         hd, _ = AttackDamageOperation._apply_max_out(state, attacker_id, hd, hd)
         shield_total = shc.get_total_shield() if shc is not None else 0
-        # #65 : le flag NoBlocking est PER SOUS-OPERATION (ExecuteHit @180e5eff0 relit
+        # #65 : le flag NoBlocking est PER SOUS-OPERATION (IdunBattle.Operations.AttackDamageOperation$$ExecuteHit relit
         # DamageProfile.HasTrait(0=NoBlocking) du profil DU COUP courant) -> un groupe au profil
         # NoBlocking (ex. coup Psychic InfernalPacts) bypasse le block, meme si l'arme principale ne
         # l'etait pas. On re-gate block_sources sur le profil DU GROUPE (l'arg est deja gate sur l'arme).

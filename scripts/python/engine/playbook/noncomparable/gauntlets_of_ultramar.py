@@ -8,7 +8,7 @@ from ._base import NCContext, NonComparablePlaybook, _sweep_origin_first
 
 
 class GauntletsOfUltramarPlaybook(NonComparablePlaybook):
-    """`GauntletsOfUltramarPlaybook.EvaluateNonComparable @18113e5a0` (id 0x3e8=1000, ultraCalgar). AoE
+    """`IdunBattle.AI.Playbook.Loki.GauntletsOfUltramarPlaybook$$EvaluateNonComparable` (id 0x3e8=1000, ultraCalgar). AoE
     dégât sur l'arc — mais NonComparable : l'utilité est une heuristique de COMPTE d'ennemis (aucun
     `ProbableDamageEvent` -> exclu de la prédiction de dégât, cf. #109). Le caster BOUGE vers la tuile
     qui maximise le compte.
@@ -16,42 +16,41 @@ class GauntletsOfUltramarPlaybook(NonComparablePlaybook):
     - utilité(T) = `SelectUniqueUnits(GetAllTargetsSelector, ctx(T), 3).Count` NON cappée, avec
       **DEUX ANCRAGES DIFFÉRENTS** (case-49x, décompilé + prouvé live — c'est la clé qui a réconcilié
       les mesures contradictoires E1/E2/E3 de case-49) :
-        · `GetAdjacentTargetsSelector @1811e2010` = `Unique(Enemies(Caster@+0x160,
+        · `IdunBattleLogic.Entities.Abilities.Active.Loki.GauntletsOfUltramarAbility$$GetAdjacentTargetsSelector` = `Unique(Enemies(Caster@+0x160,
           AdjacentTiles(CasterTile@+0x168), 3))` — **CasterTile = tuile du CONTEXTE** (`AbilityEntities`
-          reçoit `MainTile(position balayée)` dans EvaluateNonComparable ; `CasterTileSelector.Select
-          @180ee49b0` lit ctx.tiles ?? ctx.tile avant le fallback entité) -> **ring-1 autour de T**
+          reçoit `MainTile(position balayée)` dans EvaluateNonComparable ; `IdunBattle.Entities.Selectors.CasterTileSelector$$Select` lit ctx.tiles ?? ctx.tile avant le fallback entité) -> **ring-1 autour de T**
           (porte élévation |Δelev|<2 d'IterateAdjacentTiles) = `bq.is_adjacent`.
-        · `GetSurroundingTargetsSelector @1811e20d0` = `Unobscured(SurroundingEnemies(Caster@+0x160,
-          r=2) − Adjacent)` — **Caster = ENTITÉ** (`CasterSelector.Select @180ee47d0` -> ctx.casterEntity ;
-          `SurroundingTilesSelector.Select @180ef6100` prend `GetMainTile(entité)` = tuile RÉELLE dans
+        · `IdunBattleLogic.Entities.Abilities.Active.Loki.GauntletsOfUltramarAbility$$GetSurroundingTargetsSelector` = `Unobscured(SurroundingEnemies(Caster@+0x160,
+          r=2) − Adjacent)` — **Caster = ENTITÉ** (`IdunBattle.Entities.Selectors.CasterSelector$$Select` -> ctx.casterEntity ;
+          `IdunBattle.Entities.Selectors.SurroundingTilesSelector$$Select` prend `GetMainTile(entité)` = tuile RÉELLE dans
           l'état ECS, PAS la tuile balayée) -> **disque dist<=2 autour de la position RÉELLE**,
           T-indépendant = `bq.surrounding_enemies` (tuiles occupées INCLUSES : flag
-          requireEmptyOrSteppable=0 mesuré au ctor @180ef65c0 ; Unobscured depuis la tuile réelle).
-      => util(T) = |ring1(T) ∪ surrounding(RÉEL)| (dédup `SelectUniqueUnits @1810108b0` ; le « 3 » =
-      UnitSelectionType via `SelectUnit @181010de0` -> MatchesUnitSelectionType, PAS un cap).
+          requireEmptyOrSteppable=0 mesuré au IdunBattle.Entities.Selectors.SurroundingTilesSelector$$.ctor ; Unobscured depuis la tuile réelle).
+      => util(T) = |ring1(T) ∪ surrounding(RÉEL)| (dédup `IdunBattle.DSL.TargetsSelector$$SelectUniqueUnits` ; le « 3 » =
+      UnitSelectionType via `IdunBattle.DSL.TargetsSelector$$SelectUnit` -> MatchesUnitSelectionType, PAS un cap).
       Le port de case-49 (« ring-1 seul, ring-2 structurellement mort ») était un OVERFIT : vrai
       quand disque(réel)=∅ (31337 s14 : ennemis à dist 3-5 du réel), falsifié par E1/C1_25
       (caster immobile : disque(réel)=2 -> util=2 ADMIS) — cf. docs/rl/case-49-gauntlets-unobscured.md.
     - GATE d'ÉLIGIBILITÉ par-position (prouvé live probe_49x phase B, 23/23) : le natif boucle sur
-      `GetEligibleTargetsSelectable(caster, MainTile(T)) @18111ed80` et ne génère une action QUE s'il
+      `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable(caster, MainTile(T))` et ne génère une action QUE s'il
       existe une cible dans l'ARC de T (dist<=2 de T) -> position sans cible = bucket vide MÊME si
       util >= floor (E1-repro : 6 positions vides = exactement celles à d>2 des 2 ennemis).
     - ADMISSION bucket (case-49, décompilé + confirmé live 49c) : `util >= Min(Fix64(3),
       Fix64(#ennemis TOTAUX))` — LOOSE (`op_GreaterThanOrEqual`, porte @18004cc80 appelée par
-      AddAction @1813fbcc0 ; util 3 == seed 3 ADMIS, mesuré). Le `op_GreaterThan` STRICT de AddAction
+      IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction ; util 3 == seed 3 ADMIS, mesuré). Le `op_GreaterThan` STRICT de AddAction
       ne sert qu'au remplacement ENTRE actions déjà admises (keep-first #117). La const 3 vient du
-      cctor @18113ed50 ; le compte total = `Enemies(Entity(unit), AllAliveMachines@+0x80, 2)`
+      IdunBattle.AI.Playbook.Loki.GauntletsOfUltramarPlaybook$$.cctor ; le compte total = `Enemies(Entity(unit), AllAliveMachines@+0x80, 2)`
       board-WIDE. => Gauntlets ne caste QUE si son compte atteint `min(3, #ennemis restants)`.
-    - ctor @18113edc0 = `NonComparablePlaybook(1000)` : 1er arg = ABILITY_ID (PAS priorité) ; aucun
+    - IdunBattle.AI.Playbook.Loki.GauntletsOfUltramarPlaybook$$.ctor = `NonComparablePlaybook(1000)` : 1er arg = ABILITY_ID (PAS priorité) ; aucun
       `get_Priority` override -> PRIORITY=0 (défaut). [#115 : 1er arg ctor = ability_id, confirmé ici.]
     - POSITION (#117) : sweep ORIGINE D'ABORD (`_sweep_origin_first`) + remplacement STRICT `>`
-      (Bucket.AddAction keep-first @1813fbcc0, NullPosition toujours évaluée) => à ÉGALITÉ d'arc le caster
+      (Bucket.AddAction keep-first IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction, NullPosition toujours évaluée) => à ÉGALITÉ d'arc le caster
       CASTE EN PLACE (origine), ne BOUGE que sur gain STRICT. Mirror #76/#80. VALIDÉ LIVE (natif (3,5)=(4,5)
       arc 5 -> caste @origine (3,5), pas le move tile).
     - CIBLE EXACTE (#117) : le natif boucle sur `GetEligibleTargetsSelectable(caster, MainTile)` et
       `GenerateAction(position, eligible_target, Fix64(count))` (local_1a8 = eligible target, un ENNEMI ;
       1 action/eligible target, MÊME utilité -> bucket keep-first). L'énumération est INVERSÉE
-      (`DSLFactory.Tiles`=`SortReverseSelector @180dfdc60`) => cible = 1er ennemi ring-1 dans l'ordre
+      (`DSLFactory.Tiles`=`SortReverseSelector IdunBattleLogic.Entities.DSLFactory$$Tiles`) => cible = 1er ennemi ring-1 dans l'ordre
       `boardGraph.neighbours` (GetAdjacentTiles natif) **INVERSÉ**, sinon ring-2 (`bq.gauntlets_target`).
       VALIDÉ LIVE BIT-EXACT (#117 : natif tgt=118 = ultraCalgar @(3,5) ring-1 [80,114,78,118]_fwd inversé).
       PAS la MainTile ni None.
@@ -65,7 +64,7 @@ class GauntletsOfUltramarPlaybook(NonComparablePlaybook):
     ABILITY_ID = int(ActiveAbilityType.GauntletsOfUltramar)  # 1000
     MIN_UTILITY = 1.0     # plancher structurel (>=1 ennemi éligible) ; vrai gate = min(3, #ennemis totaux)
     PRIORITY = 0
-    _FLOOR_CONST = 3      # const Fix64(3) du cctor @18113ed50 (seed bucket) — PAS un cap d'utilité (case-49)
+    _FLOOR_CONST = 3      # const Fix64(3) du IdunBattle.AI.Playbook.Loki.GauntletsOfUltramarPlaybook$$.cctor (seed bucket) — PAS un cap d'utilité (case-49)
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         floor = min(self._FLOOR_CONST, len(ctx.epos or []))   # Min(3, #ennemis TOTAUX) = seed du bucket natif
@@ -73,7 +72,7 @@ class GauntletsOfUltramarPlaybook(NonComparablePlaybook):
         # Unobscured(SurroundingEnemies(Caster ENTITÉ, r=2)) — cf. bq.surrounding_enemies (case-49x).
         surround_real = bq.surrounding_enemies(ctx.origin, ctx.epos, ctx.elev_by_pos)
         best_t, best_u = None, None
-        # ORIGINE D'ABORD + remplacement STRICT `>` (Bucket.AddAction keep-first @1813fbcc0, NullPosition
+        # ORIGINE D'ABORD + remplacement STRICT `>` (Bucket.AddAction keep-first IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction, NullPosition
         # toujours evaluee) -> le caster CASTE EN PLACE a egalite, ne BOUGE que sur gain STRICT
         # (#117 : natif (3,5)=(4,5) arc 5 -> caste @origine (3,5)). Mirror #76/#80.
         for T in _sweep_origin_first(ctx):
@@ -94,7 +93,7 @@ class GauntletsOfUltramarPlaybook(NonComparablePlaybook):
                   file=sys.stderr)
         if best_u is None or best_u < max(self.MIN_UTILITY, float(floor)):   # bucket gate: util >= Min(3,total)
             return []
-        # CIBLE = eligible target EXACT du natif (GenerateAction(pos, eligible_target, util) @18113e5a0) =
+        # CIBLE = eligible target EXACT du natif (GenerateAction(pos, eligible_target, util) IdunBattle.AI.Playbook.Loki.GauntletsOfUltramarPlaybook$$EvaluateNonComparable) =
         # 1er ennemi ring-1 dans l'ordre voisins natif INVERSÉ (SortReverse + bucket keep-first), sinon
         # ring-2. VALIDÉ LIVE #117 (natif tgt=118). Fallback ordre-arc si neigh_by_pos absent (offline pur).
         target = bq.gauntlets_target(best_t, ctx.enemies, ctx.neigh_by_pos, ctx.elev_by_pos)

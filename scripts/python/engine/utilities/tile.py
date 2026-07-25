@@ -74,11 +74,11 @@ TILE_LEAF_IDS = [
 TEMPORARY_TILE_PENALTY = -10000.0
 
 # Terrain STATIQUE (`tileDefId` de la BC) -> effets de cover HÉBERGÉS que la feuille TileEffects(9) somme.
-# `TileEffectsUtility.<d__1>.MoveNext @1810fbe50` a DEUX boucles sur la tuile candidate : Loop1 = effets
+# `TileEffectsUtility.<d__1>.IdunBattle.AI.Utilities.TileEffectsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext` a DEUX boucles sur la tuile candidate : Loop1 = effets
 # DYNAMIQUES (EffectsOwnedComponent, ex. Fire/Ice ; = `meta.effects` via tileMeta) ; **Loop2 = abilities
 # HÉBERGÉES sur la tuile** (collection `DAT_1831b9908`, `Unit.get_Id` = `AbilityType`, poids
 # `Default.TileEffects.<AbilityName>`). Le +9 LightCover d'une DryBush vient de LOOP2 (verdict re-expert :
-# `LightCoverAbility` @1811c14e0 est une `Abilities.Tiles.Loki.*` hébergée par le terrain DryBush, PAS un
+# `LightCoverAbility` IdunBattleLogic.Entities.Abilities.Tiles.Loki.LightCoverAbility$$CreateBehaviour est une `Abilities.Tiles.Loki.*` hébergée par le terrain DryBush, PAS un
 # effet dynamique — une DryBush VIDE rend +9). Offline la seule source de cover statique = le terrain
 # (`tileDefId`, boardGraph). DryBush->LightCover VALIDÉ L3 (909 s4 (3,2)=+9 EXACT, pas +DryBush_DefenseBonus
 # => DryBush n'héberge que LightCover pour cette feuille). cf. docs/rl/terrain-effects.md §2 + case-37.
@@ -112,11 +112,11 @@ def _ability_count(meta: dict, ability_id: int) -> int:
 
 # ── Classes `IdunBattle.AI.Utilities.*Utility` (une par feuille ; corps DANS la méthode) ─────────────
 class ElevationUtility(BaseUtility):
-    """`ElevationUtility` (@1810efa20 ; UtilityType.Elevation=8) ; `<d__8>.MoveNext @1811019a0` :
+    """`ElevationUtility` (IdunBattle.AI.Utilities.ElevationUtility$$.ctor ; UtilityType.Elevation=8) ; `<d__8>.IdunBattle.AI.Utilities.ElevationUtility.u003CEvaluateMovementInStepsu003Ed__8$$MoveNext` :
         u = Multiplier × elev  (+ HighestElevation si elev == max) (+ LowestElevation si elev == min)
     BC : Multiplier=10, HighestElevation=10, LowestElevation=-5. `meta` requis (élévation tuile + max/min).
     ⚠ `elevation_max`/`elevation_min` = min/max sur le BOARD ENTIER, PAS le candidate-set : le natif
-    `LoadRelevantTileElevations @1810ef690` (one-shot, garde this+0x68) énumère la collection de TOUS les
+    `IdunBattle.AI.Utilities.ElevationUtility$$LoadRelevantTileElevations` (one-shot, garde this+0x68) énumère la collection de TOUS les
     tiles du board (composant board-singleton sur le World `this+0x10`, éléments = TileComponent, elev@+0x18)
     et calcule min@this+0x64 (seed 10) / max@this+0x60 (seed 0). Verdict re-expert (case-37) : ni unité, ni
     reachable, ni candidate-set. => la harness alimente min/max sur `elev_by_pos` COMPLET (tileMeta = board)."""
@@ -135,7 +135,7 @@ class ElevationUtility(BaseUtility):
 
 
 class SteppableUnitUtility(BaseUtility):
-    """`SteppableUnitUtility` (@1810f1d50 ; UtilityType.SteppableUnit=19) ; `<d__10>.MoveNext @1810f9850` :
+    """`SteppableUnitUtility` (IdunBattle.AI.Utilities.SteppableUnitUtility$$.ctor ; UtilityType.SteppableUnit=19) ; `<d__10>.IdunBattle.AI.Utilities.SteppableUnitUtility.u003CEvaluateMovementInStepsu003Ed__10$$MoveNext` :
     si une unité STEPPABLE (summon/decoy) est sur la tuile → poids ami/ennemi × summon/decoy.
     BC : EnemySteppableUnit=50, FriendlySteppableUnit=-50, FriendlyDecoy=-50, EnemyDecoy=1. `meta.steppable`."""
     UTILITY_TYPE = int(UtilityType.SteppableUnit)  # 19
@@ -151,7 +151,7 @@ class SteppableUnitUtility(BaseUtility):
 
 
 class TileEffectsUtility(BaseUtility):
-    """`TileEffectsUtility` (@1810f2980 ; UtilityType.TileEffects=9) ; `<d__1>.MoveNext @1810fbe50` :
+    """`TileEffectsUtility` (IdunBattle.AI.Utilities.TileEffectsUtility$$.ctor ; UtilityType.TileEffects=9) ; `<d__1>.IdunBattle.AI.Utilities.TileEffectsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext` :
     Σ des poids BC `Default.TileEffects.<EffectName>` pour chaque effet présent SUR la tuile (le natif
     multiplie les status-effects par un facteur de durée ; non porté → poids brut). `meta.effects` requis."""
     UTILITY_TYPE = int(UtilityType.TileEffects)  # 9
@@ -165,7 +165,7 @@ class TileEffectsUtility(BaseUtility):
 
 
 class TemporaryTileUtility(BaseUtility):
-    """`TemporaryTileUtility` (@1810f2180 ; UtilityType.TemporaryTile=13) ; `<d__1>.MoveNext @1810faed0` :
+    """`TemporaryTileUtility` (IdunBattle.AI.Utilities.TemporaryTileUtility$$.ctor ; UtilityType.TemporaryTile=13) ; `<d__1>.IdunBattle.AI.Utilities.TemporaryTileUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext` :
     u = 0 ; si la tuile candidate est TEMPORAIRE → u -= Fix64(10000) (CONSTANTE, pas un poids BC ; le natif
     lit `tileData+0x2c` IsTemporary). L'IA évite fortement les tuiles temporaires. `meta.is_temporary`."""
     UTILITY_TYPE = int(UtilityType.TemporaryTile)  # 13
@@ -177,7 +177,7 @@ class TemporaryTileUtility(BaseUtility):
 
 
 class AUnitEffectsUtility(BaseUtility):
-    """`AUnitEffectsUtility` (@1810ee350, TypeDefIndex 12150) — base ABSTRAITE ; `MoveNext @1810fb260` = le
+    """`AUnitEffectsUtility` (IdunBattle.AI.Utilities.AUnitEffectsUtility$$.ctor, TypeDefIndex 12150) — base ABSTRAITE ; `IdunBattle.AI.Utilities.AUnitEffectsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext` = le
     corps PARTAGE : Σ sur les amis du voisinage `_ZONE`, Σ sur leurs effets, poids[EffectType.ToString()]
     dans la catégorie BC `_CAT`. Voisinages : Adjacent/Surrounding=R1, Ranged=R2 (minus self, amis). Les 3
     sous-classes CONCRETES (12151/12152/12153) ne different QUE par `_CAT`/`_ZONE`. `meta.neighbor_effect_names`."""
@@ -214,7 +214,7 @@ class UnitEffectsRangedUtility(AUnitEffectsUtility):
 
 
 class CapturePointTileUtility(BaseUtility):
-    """`CapturePointTileUtility` (@1810ee7f0 ; UtilityType.CapturePoint=24) ; @1811000a0 : sur tuile
+    """`CapturePointTileUtility` (IdunBattle.AI.Utilities.CapturePointTileUtility$$.ctor ; UtilityType.CapturePoint=24) ; IdunBattle.AI.Utilities.CapturePointTileUtility.u003CEvaluateMovementInStepsu003Ed__3$$MoveNext : sur tuile
     TERRITOIRE (flag tile+0x2e = HasTrait(2 summon)||HasTrait(13)) → flag(summon) →
     summons_dislike_capture_points(-300) ; sinon heroes_on_capture_points(+300). `meta.is_territory` + `ctx.unit_traits`."""
     UTILITY_TYPE = int(UtilityType.CapturePoint)  # 24
@@ -228,7 +228,7 @@ class CapturePointTileUtility(BaseUtility):
 
 
 class PowerUpTileUtility(BaseUtility):
-    """`PowerUpTileUtility` (@1810f15b0 ; UtilityType.PowerUp=26) ; @1810fd130 : -300 si l'occupant de la
+    """`PowerUpTileUtility` (IdunBattle.AI.Utilities.PowerUpTileUtility$$.ctor ; UtilityType.PowerUp=26) ; IdunBattle.AI.Utilities.PowerUpTileUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext : -300 si l'occupant de la
     tuile EstPowerUp ET flag(trait 2||13). `meta.occupant_is_powerup` + `ctx.unit_traits`."""
     UTILITY_TYPE = int(UtilityType.PowerUp)  # 26
 
@@ -241,7 +241,7 @@ class PowerUpTileUtility(BaseUtility):
 
 
 class ContaminatedUtility(BaseUtility):
-    """`ContaminatedUtility` (@1810ee930 ; UtilityType.Contaminated=25) ; @181100670 : -25 si la tuile porte
+    """`ContaminatedUtility` (IdunBattle.AI.Utilities.ContaminatedUtility$$.ctor ; UtilityType.Contaminated=25) ; IdunBattle.AI.Utilities.ContaminatedUtility.u003CEvaluateMovementInStepsu003Ed__4$$MoveNext : -25 si la tuile porte
     un effet type 1244 (0x4dc) ET l'unité n'est pas exclue. `meta.tile_effect_type_ids` + `ctx.contaminated_excluded`."""
     UTILITY_TYPE = int(UtilityType.Contaminated)  # 25
 
@@ -254,7 +254,7 @@ class ContaminatedUtility(BaseUtility):
 
 
 class MoltenForm_TilesUtility(BaseUtility):
-    """`MoltenForm_TilesUtility` (@1810f08d0 ; UtilityType.MoltenForm=23) ; @1810fd300 : si l'unité a la
+    """`MoltenForm_TilesUtility` (IdunBattle.AI.Utilities.MoltenForm_TilesUtility$$.ctor ; UtilityType.MoltenForm=23) ; IdunBattle.AI.Utilities.MoltenForm_TilesUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext : si l'unité a la
     triggered ability 1221 (0x4c5) → +25 si tuile effet type 5 (ResistFireTiles) ; -25 si type 10
     (AvoidHealingTiles). `ctx.unit_triggered_abilities` + `meta.tile_effect_type_ids`."""
     UTILITY_TYPE = int(UtilityType.MoltenForm)  # 23
@@ -272,7 +272,7 @@ class MoltenForm_TilesUtility(BaseUtility):
 
 
 class TilePendingBlockableSummonUtility(BaseUtility):
-    """`TilePendingBlockableSummonUtility` (@1810f2d70 ; UtilityType.TilePendingBlockableSummon=14) ; @181100250 :
+    """`TilePendingBlockableSummonUtility` (IdunBattle.AI.Utilities.TilePendingBlockableSummonUtility$$.ctor ; UtilityType.TilePendingBlockableSummon=14) ; IdunBattle.AI.Utilities.TilePendingBlockableSummonUtility.u003CEvaluateMovementInStepsu003Ed__3$$MoveNext :
     Σ sur les summons en attente de type 1094 (0x446) sur la tuile : +25 si owner ENNEMI, -25 si AMI.
     `meta.pending_summons=[{type_id,owner_is_enemy}]`."""
     UTILITY_TYPE = int(UtilityType.TilePendingBlockableSummon)  # 14
@@ -286,7 +286,7 @@ class TilePendingBlockableSummonUtility(BaseUtility):
 
 
 class EnvEndBombardmentUtility(BaseUtility):
-    """`EnvEndBombardmentUtility` (@1810efb60 ; UtilityType.EnvEndBombardment=31) ; @1810fe4c0 : tuile ciblée
+    """`EnvEndBombardmentUtility` (IdunBattle.AI.Utilities.EnvEndBombardmentUtility$$.ctor ; UtilityType.EnvEndBombardment=31) ; IdunBattle.AI.Utilities.EnvEndBombardmentUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext : tuile ciblée
     par l'effet 1359 (0x54f) → -30 ; sinon par 1360 (0x550) → -60 (×2). `meta.effect_target_ids`."""
     UTILITY_TYPE = int(UtilityType.EnvEndBombardment)  # 31
 
@@ -301,7 +301,7 @@ class EnvEndBombardmentUtility(BaseUtility):
 
 
 class DespoiledGroundUtility(BaseUtility):
-    """`DespoiledGroundUtility` (@1810ef280 ; UtilityType.DespoiledGround=28) ; @181100ac0 : si tuile
+    """`DespoiledGroundUtility` (IdunBattle.AI.Utilities.DespoiledGroundUtility$$.ctor ; UtilityType.DespoiledGround=28) ; IdunBattle.AI.Utilities.DespoiledGroundUtility.u003CEvaluateMovementInStepsu003Ed__5$$MoveNext : si tuile
     tile-effect type 1476 (0x5c4) → trait 2026 (Chaos) → ChaosAffectedUnit(-5) ; trait 26 ou 1006
     (Imperial/Xenos) → ImperialAndXenosAffectedUnit(-25). `meta.tile_effect_type_ids` + `ctx.unit_traits`."""
     UTILITY_TYPE = int(UtilityType.DespoiledGround)  # 28
@@ -317,7 +317,7 @@ class DespoiledGroundUtility(BaseUtility):
 
 
 class SummonDislikeDoorOpeningUtility(BaseUtility):
-    """`SummonDislikeDoorOpeningUtility` (@1810f2050 ; UtilityType.SummonDislikeDoorOpening=29) ; @1810fce30 :
+    """`SummonDislikeDoorOpeningUtility` (IdunBattle.AI.Utilities.SummonDislikeDoorOpeningUtility$$.ctor ; UtilityType.SummonDislikeDoorOpening=29) ; IdunBattle.AI.Utilities.SummonDislikeDoorOpeningUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext :
     -50 si l'unité est "affected" (AI-controlled OU human+trait 2) ET la tuile est une PORTE FERMÉE.
     `meta.door={linked,closed}` + `ctx.unit_is_ai/unit_traits`."""
     UTILITY_TYPE = int(UtilityType.SummonDislikeDoorOpening)  # 29
@@ -333,7 +333,7 @@ class SummonDislikeDoorOpeningUtility(BaseUtility):
 
 
 class HeroDoorOpeningUtility(BaseUtility):
-    """`HeroDoorOpeningUtility` (@1810efdc0 ; UtilityType.HeroLikeDoorOpening=30) ; @1810fe100 : UNIQUEMENT
+    """`HeroDoorOpeningUtility` (IdunBattle.AI.Utilities.HeroDoorOpeningUtility$$.ctor ; UtilityType.HeroLikeDoorOpening=30) ; IdunBattle.AI.Utilities.HeroDoorOpeningUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext : UNIQUEMENT
     unité hero (trait 16). PAS de poids BC (constantes). branche A (player flag==0) : -50 si la tuile est
     une porte fermée. branche B (flag!=0) : (10 - cost)*10, cost = min coût CHEMIN vers la porte fermée la
     plus proche. `ctx.player_door_mode` + `meta.door` + `meta.hero_door_nearest_cost`."""
@@ -352,8 +352,8 @@ class HeroDoorOpeningUtility(BaseUtility):
 
 
 class Phantasm_AvoidFriendlyPhantasmUtility(BaseUtility):
-    """`Phantasm_AvoidFriendlyPhantasmUtility` (@1810f1470 ; UtilityType.Phantasm_AvoidFriendlyPhantasm=60) ;
-    @1810fb020 : -40 si la tuile porte l'effet Phantasm 1279 (0x4ff) ET un phantasme AMI est adjacent.
+    """`Phantasm_AvoidFriendlyPhantasmUtility` (IdunBattle.AI.Utilities.Phantasm_AvoidFriendlyPhantasmUtility$$.ctor ; UtilityType.Phantasm_AvoidFriendlyPhantasm=60) ;
+    IdunBattle.AI.Utilities.Phantasm_AvoidFriendlyPhantasmUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext : -40 si la tuile porte l'effet Phantasm 1279 (0x4ff) ET un phantasme AMI est adjacent.
     `meta.phantasm_friendly_adjacent`."""
     UTILITY_TYPE = int(UtilityType.Phantasm_AvoidFriendlyPhantasm)  # 60
 
@@ -364,7 +364,7 @@ class Phantasm_AvoidFriendlyPhantasmUtility(BaseUtility):
 
 
 class EchoesFromTheWarp_FriendliesAvoidGhostUtility(BaseUtility):
-    """`EchoesFromTheWarp_FriendliesAvoidGhostUtility` (@1810cfa30 ; UtilityType.=58) ; @1810e3750 : +10 si
+    """`EchoesFromTheWarp_FriendliesAvoidGhostUtility` (IdunBattle.AI.Utilities.EchoesFromTheWarp_FriendliesAvoidGhostUtility$$.ctor ; UtilityType.=58) ; IdunBattle.AI.Utilities.EchoesFromTheWarp_FriendliesAvoidGhostUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext : +10 si
     la tuile POSSÈDE (owner) l'effet ghost 1284 (0x504) ET le ghost ami est adjacent. `meta.ghost_friendly_adjacent`."""
     UTILITY_TYPE = int(UtilityType.EchoesFromTheWarp_FriendliesAvoidGhost)  # 58
 
@@ -375,8 +375,8 @@ class EchoesFromTheWarp_FriendliesAvoidGhostUtility(BaseUtility):
 
 
 class AttractMechanicalsUtility(BaseUtility):
-    """`AttractMechanicalsUtility` (@1810ccea0 ; UtilityType.DoctrinaImperatives_AttractMechanicals=57) ;
-    @1810e3af0 : +10 si l'unité a le trait 5 ET un voisin (autour de la tuile) a l'active ability 1118
+    """`AttractMechanicalsUtility` (IdunBattle.AI.Utilities.AttractMechanicalsUtility$$.ctor ; UtilityType.DoctrinaImperatives_AttractMechanicals=57) ;
+    IdunBattle.AI.Utilities.AttractMechanicalsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext : +10 si l'unité a le trait 5 ET un voisin (autour de la tuile) a l'active ability 1118
     (0x45e). `ctx.unit_traits` + `meta.attract_mechanicals_neighbor`."""
     UTILITY_TYPE = int(UtilityType.DoctrinaImperatives_AttractMechanicals)  # 57
 
@@ -389,8 +389,8 @@ class AttractMechanicalsUtility(BaseUtility):
 
 
 class AttractToDecoysUtility(BaseUtility):
-    """`AttractToDecoysUtility` (@1810ccf60 ; UtilityType.DecoysAndMisdirection_AttractToDecoys=64) ;
-    @1810e2ef0 : +75 PAR ami avec triggered ability 1304 (0x518), gate : unité faction 15 ET tuile avec une
+    """`AttractToDecoysUtility` (IdunBattle.AI.Utilities.AttractToDecoysUtility$$.ctor ; UtilityType.DecoysAndMisdirection_AttractToDecoys=64) ;
+    IdunBattle.AI.Utilities.AttractToDecoysUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext : +75 PAR ami avec triggered ability 1304 (0x518), gate : unité faction 15 ET tuile avec une
     unité steppable (trait 27) NON ennemie. `ctx.unit_faction` + `meta.decoy_gate` + `meta.decoy_friend_count`."""
     UTILITY_TYPE = int(UtilityType.DecoysAndMisdirection_AttractToDecoys)  # 64
 
@@ -405,8 +405,8 @@ class AttractToDecoysUtility(BaseUtility):
 
 
 class KustomForceFieldUtility(BaseUtility):
-    """`KustomForceFieldUtility` (@1810cffe0 ; UtilityType.KustomForceField=20) ; base ATriggeredAbilityUtility.d__3
-    @1810e4160 : +20 × count(amis ADJACENTS R1 avec triggered ability 1102). `meta.ability_friend_counts[1102]`."""
+    """`KustomForceFieldUtility` (IdunBattle.AI.Utilities.KustomForceFieldUtility$$.ctor ; UtilityType.KustomForceField=20) ; base ATriggeredAbilityUtility.d__3
+    IdunBattle.AI.Utilities.ATriggeredAbilityUtility.u003CEvaluateMovementInStepsu003Ed__3$$MoveNext : +20 × count(amis ADJACENTS R1 avec triggered ability 1102). `meta.ability_friend_counts[1102]`."""
     UTILITY_TYPE = int(UtilityType.KustomForceField)  # 20
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
@@ -414,7 +414,7 @@ class KustomForceFieldUtility(BaseUtility):
 
 
 class DefenderOfTheGreaterGoodUtility(BaseUtility):
-    """`DefenderOfTheGreaterGoodUtility` (@1810cf570 ; UtilityType.DefenderOfTheGreaterGood=21) ; @1810e4160 :
+    """`DefenderOfTheGreaterGoodUtility` (IdunBattle.AI.Utilities.DefenderOfTheGreaterGoodUtility$$.ctor ; UtilityType.DefenderOfTheGreaterGood=21) ; IdunBattle.AI.Utilities.ATriggeredAbilityUtility.u003CEvaluateMovementInStepsu003Ed__3$$MoveNext :
     +25 × count(amis R1, ou R2 si faction 9, avec ability 1155). Gate : arme à distance.
     `ctx.unit_has_ranged_weapon` + `meta.ability_friend_counts[1155]`."""
     UTILITY_TYPE = int(UtilityType.DefenderOfTheGreaterGood)  # 21
@@ -426,7 +426,7 @@ class DefenderOfTheGreaterGoodUtility(BaseUtility):
 
 
 class SaviorProtocolsUtility(BaseUtility):
-    """`SaviorProtocolsUtility` (@1810e0b90 ; UtilityType.SaviorProtocols=22) ; @1810e4160 : +20 × count(amis
+    """`SaviorProtocolsUtility` (IdunBattle.AI.Utilities.SaviorProtocolsUtility$$.ctor ; UtilityType.SaviorProtocols=22) ; IdunBattle.AI.Utilities.ATriggeredAbilityUtility.u003CEvaluateMovementInStepsu003Ed__3$$MoveNext : +20 × count(amis
     ADJACENTS R1 avec ability 1120). Gate : faction 9 ET n'a pas l'ability 1120. `ctx.unit_faction/
     unit_triggered_abilities` + `meta.ability_friend_counts[1120]`."""
     UTILITY_TYPE = int(UtilityType.SaviorProtocols)  # 22
@@ -438,7 +438,7 @@ class SaviorProtocolsUtility(BaseUtility):
 
 
 class MoveTowardsUnitUtility(BaseUtility):
-    """`MoveTowardsUnitUtility` (@1810f0ff0 ; base) ; `MoveNext @1810f9b40` : score = poids("PerTileDistance")
+    """`MoveTowardsUnitUtility` (IdunBattle.AI.Utilities.MoveTowardsUnitUtility$$.ctor ; base) ; `IdunBattle.AI.Utilities.MoveTowardsUnitUtility.u003CEvaluateMovementInStepsu003Ed__15$$MoveNext` : score = poids("PerTileDistance")
     × hexdist(candidate, cible) ; cible = unité ayant l'ability/effet `_ABILITY_ID`. distance = HEX (cube ;
     fournie par `meta.movetowards_hexdist[_ABILITY_ID]`). `_TRAIT_GATE` (None = pas de gate). Corps PARTAGE
     par les 2 sous-classes (BioMinefield, MasterOfTheTutelaries) qui parametrent `_CAT`/`_ABILITY_ID`/`_TRAIT_GATE`."""
@@ -460,7 +460,7 @@ class MoveTowardsUnitUtility(BaseUtility):
 
 
 class BioMinefield_MoveTowardsTargetUtility(MoveTowardsUnitUtility):
-    """`BioMinefield_MoveTowardsTargetUtility` (@1810ee5e0 ; UtilityType.=61) : -100 × hexdist(candidate,
+    """`BioMinefield_MoveTowardsTargetUtility` (IdunBattle.AI.Utilities.BioMinefield_MoveTowardsTargetUtility$$.ctor ; UtilityType.=61) : -100 × hexdist(candidate,
     cible ability/effet 1315). Pas de gate trait."""
     UTILITY_TYPE = int(UtilityType.BioMinefield_MoveTowardsTarget)  # 61
     _CAT = "BioMinefield_MoveTowardsTarget"
@@ -469,7 +469,7 @@ class BioMinefield_MoveTowardsTargetUtility(MoveTowardsUnitUtility):
 
 
 class MasterOfTheTutelaries_MoveTowardsTargetUtility(MoveTowardsUnitUtility):
-    """`MasterOfTheTutelaries_MoveTowardsTargetUtility` (@1810f0130 ; UtilityType.=62) : -20 × hexdist(candidate,
+    """`MasterOfTheTutelaries_MoveTowardsTargetUtility` (IdunBattle.AI.Utilities.MasterOfTheTutelaries_MoveTowardsTargetUtility$$.ctor ; UtilityType.=62) : -20 × hexdist(candidate,
     cible 1096). Gate trait : l'unité a 2026 ou 1019."""
     UTILITY_TYPE = int(UtilityType.MasterOfTheTutelaries_MoveTowardsTarget)  # 62
     _CAT = "MasterOfTheTutelaries_MoveTowardsTarget"
@@ -478,10 +478,9 @@ class MasterOfTheTutelaries_MoveTowardsTargetUtility(MoveTowardsUnitUtility):
 
 
 class TriggeredAbilitiesUtility(BaseUtility):
-    """`TriggeredAbilitiesUtility` (`.ctor @1810f32c0` ; UtilityType.TriggeredAbilities=2) ;
-    `<EvaluateMovementInSteps>d__2.MoveNext @1810fda80` : DISPATCHER — itère les abilities DE L'UNITÉ
-    QUI BOUGE (`case.unit@0x10` → AbilitiesComponent), `PlaybookDatabase.LoadPlaybook(abilityType)
-    @1810dfd10` (singleton par type, null → skip), Σ des `CalculateMovementUtilityInSteps` (famille
+    """`TriggeredAbilitiesUtility` (`.IdunBattle.AI.Utilities.TriggeredAbilitiesUtility$$.ctor` ; UtilityType.TriggeredAbilities=2) ;
+    `<EvaluateMovementInSteps>IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext` : DISPATCHER — itère les abilities DE L'UNITÉ
+    QUI BOUGE (`case.unit@0x10` → AbilitiesComponent), `IdunBattle.AI.PlaybookDatabase$$LoadPlaybook(abilityType)` (singleton par type, null → skip), Σ des `CalculateMovementUtilityInSteps` (famille
     `AdjacentUnitPreferenceTriggeredAbilityPlaybook` : `engine/playbook/adjacent_unit_preference.py`).
     `ctx.unit_triggered_abilities` (kit passif du mover — `triggered_ability_ids(visualId)`) +
     `ctx.friend_positions` (allies vivants self-exclu = `ctx.fpos`). Cf. case-36 (909 s4/s19 : 30/90)."""
@@ -506,7 +505,7 @@ class TriggeredAbilitiesUtility(BaseUtility):
 
     def evaluate_attack_in_steps(self, ctx, attacker_uid: int, ability_id: int,
                                  target_uid: int, attack_tile) -> float:
-        """Face ATTACK du dispatcher — `<EvaluateAttackInSteps>d__2.MoveNext @1810f64b0` (feuille 2
+        """Face ATTACK du dispatcher — `<EvaluateAttackInSteps>IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.u003CEvaluateAttackInStepsInternalu003Ed__3$$MoveNext` (feuille 2
         du composite Damage(34), #45-s18) : itère les abilities déclenchées de l'ATTAQUANT (kit
         COMPLET passifs+traits = AbilitiesComponent), `PlaybookDatabase.LoadPlaybook`, Σ des
         `ITriggeredAbilityPlaybook.CalculateAttackUtilityInSteps` (vslot 3 — registre attack
@@ -560,12 +559,12 @@ TILE_LEAVES: dict[int, tuple] = {
     # --- NON portées comme simples leaves ---
     15: ("RangedAdjacentEnemy", None),       # =0 dans le profil Default (BC HasAdjacentEnemy absent)
     # 3/4 = dispatchers vers le moteur Playbook (LoadPlaybookNonOwner / behaviours par-unité).
-    # NonOwner(4) RE COMPLETE (#57i) : feuille `TriggeredAbilitiesNonOwnerUtility` (ctor @1810f30b0 ;
-    # `<EvaluateMovementInSteps>d__0.MoveNext @1810f91c0` ; enum `<IterateAbilities>d__3.MoveNext
-    # @181103860` = pour CHAQUE unite non-self, `LoadPlaybookNonOwner @1810df9a0` puis yield
+    # NonOwner(4) RE COMPLETE (#57i) : feuille `TriggeredAbilitiesNonOwnerUtility` (IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility$$.ctor ;
+    # `<EvaluateMovementInSteps>IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility.u003CEvaluateMovementInStepsu003Ed__0$$MoveNext` ; enum `<IterateAbilities>d__3.MoveNext
+    # IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility.u003CIterateAbilitiesu003Ed__3$$MoveNext` = pour CHAQUE unite non-self, `IdunBattle.AI.PlaybookDatabase$$LoadPlaybookNonOwner` puis yield
     # (playbook, entity) si `AppliesToFriendly(slot4) || IsFriend` ; famille `AdjacentToOwnerNonOwner
-    # Playbook<T>.<...>d__2.MoveNext @18134f250` : tuile adjacente au PORTEUR -> `GetUtilityValue`
-    # @18150ec60 = config `Default.TriggeredAbilitiesNonOwner[<cle>]`). Les 25 cles NonOwner sont des
+    # Playbook<T>.<...>IdunBattle.AI.Playbook.AdjacentToOwnerNonOwnerPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__2u003C__Il2CppFullySharedGenericTypeu003E$$MoveNext` : tuile adjacente au PORTEUR -> `GetUtilityValue`
+    # IdunBattle.AI.Playbook.TriggeredAbilityNonOwnerPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GetUtilityValue = config `Default.TriggeredAbilitiesNonOwner[<cle>]`). Les 25 cles NonOwner sont des
     # abilities LEGENDAIRES precises (FirstAmongTraitors/ShieldOfFaith/HaywireMine/NornCrown/...) ->
     # la feuille yield 0 tant qu'AUCUNE unite ne PORTE une de ces abilities. Ce N'ETAIT PAS la source
     # des miss #57i (S14 12345 u87 / S16 2468 u79 : aucun ennemi ne porte de NonOwner) -> le vrai trou
@@ -577,7 +576,7 @@ TILE_LEAVES: dict[int, tuple] = {
 
 
 # Composite Tile(7) = INSTANCE `ComposedUtility` (PAS de classe `TileUtility` : Tile est un UtilityType,
-# le composite est un ComposedUtility enregistre a 7). `CalculateUtilityFromTilePrediction @181408740`
+# le composite est un ComposedUtility enregistre a 7). `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromTilePrediction`
 # = Σ feuilles (ordre runtime TILE_LEAF_IDS, feuilles non portees ecartees). Carte plate ≈ 0.
 TILE_UTILITY = ComposedUtility(
     [TILE_LEAVES[i][1] for i in TILE_LEAF_IDS if TILE_LEAVES.get(i, (None, None))[1] is not None],
@@ -613,7 +612,7 @@ def _adjacent_units(ctx, uid):
 
 def tile_leaf_ctx(ctx) -> dict:
     """Dict `ctx` PAR-DÉCISION des feuilles Tile(7) depuis l'`AiDecisionContext` — feuille
-    TriggeredAbilities(2) (case-36) : kit passif du mover (dispatcher `@1810fda80` sur l'Abilities-
+    TriggeredAbilities(2) (case-36) : kit passif du mover (dispatcher `IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext` sur l'Abilities-
     Component) + allies vivants self-exclu (adjacence R1/R2 de la tuile candidate). Vit ICI (module
     des feuilles) car consommé par les DEUX chemins natifs de la Composed Tile(7) : le sweep MOVE
     (`engine.move` via action_generators) ET le terme Tile(7) de l'ATTAQUE (`playbook.base.

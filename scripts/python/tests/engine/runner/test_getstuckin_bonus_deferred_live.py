@@ -4,7 +4,7 @@ Le test SOEUR `test_getstuckin_combat_live.py` valide la POSITION du roll (attaq
 0 coup bonus). Celui-ci garde l'EXECUTION DEFEREE du coup bonus : quand le `Maybe(GetBonusHitChance)` REUSSIT
 (chance=30 en 1v1), le natif insere +1 coup bonus DEFERE (FIFO) apres la boucle de base, a l'index de coup
 PERSISTANT (`attack+0x30`) -> mirror `_run_hits(bonus_hit_chance=...)` + boucle bonus (`AddBonusHitsToCurrent
-HitGroupBehaviour @180f93410`, roll `MaybeBehaviour.Execute @180fc9dc0`, orchestration `Execute @180e60c70`).
+HitGroupBehaviour IdunBattle.Entities.Behaviours.AddBonusHitsToCurrentHitGroupBehaviour$$Execute`, roll `IdunBattle.Entities.Behaviours.MaybeBehaviour$$Execute`, orchestration `IdunBattle.Operations.AttackDamageOperation$$Execute`).
 
 Porteur = orksBigMek (arme 4 coups -> DEUX coups d'index impair 1 et 3 -> DEUX rolls Maybe/attaque -> jusqu'a
 2 coups bonus, teste la FIFO deferee a plusieurs entrees). Cible bloodIntercessor (non-Big/non-Vehicle ->

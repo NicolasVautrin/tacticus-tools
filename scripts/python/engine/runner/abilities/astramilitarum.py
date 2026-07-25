@@ -30,7 +30,7 @@ from .behaviours import (AddBondEffect, AddEffect, Spawn, PerformAIAction, UseAc
 if TYPE_CHECKING:
     from ..state import State
 
-# Index des constantes lues par `SupremeCommanderAbility.ExecuteBehaviour @18120df30`
+# Index des constantes lues par `IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour`
 # (`AbilityConfiguration.Get*Constant(config, <index>)`) -> cle gameconfig correspondante.
 CONST_UNIT_ID = 0x00           # GetStringConstant(0)       -> "unitId"          = astraSmnGuardsman
 CONST_NR_OF_SUMMONS = 0x10     # GetNumberConstant(0x10)    -> "nrOfSummons"     = 2
@@ -39,7 +39,7 @@ CONST_AFFECTED_UNIT_IDS = 0x3e  # GetStringArrayConstant(0x3e) -> "affectedUnitI
 
 
 def supreme_commander_spawn_tree(count: int) -> AtomicGroup:
-    """1er noeud natif de `SupremeCommanderAbility.ExecuteBehaviour @18120df30` :
+    """1er noeud natif de `IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour` :
         `ExecuteAtomic( Spawn(caster@0x160,
                               PickRandomly(CanAddUnit(AdjacentTiles(caster@0x160)), count, 0x7fffffff),
                               unitId = GetStringConstant(0),
@@ -53,13 +53,13 @@ def supreme_commander_spawn_tree(count: int) -> AtomicGroup:
 
 
 def supreme_commander_ai_tree(radius: int, affected_ids) -> PerformAIAction:
-    """2e noeud natif de `SupremeCommanderAbility.ExecuteBehaviour @18120df30` :
+    """2e noeud natif de `IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour` :
         `Execute( PerformAIAction( UnitsWithIds( SurroundingFriends(caster@0x160, casterTile@0x168,
                                                                     radius, 1, 3),
                                                  GetStringArrayConstant(0x3e) ),
                                    asGroup=1, resetTurnFlags=1 ),
                   entities )`
-    `SurroundingFriends` @180dfc710 se deplie en `Friends(caster, Units(SurroundingTiles(casterTile, 1,
+    `IdunBattleLogic.Entities.DSLFactory$$SurroundingFriends se deplie en `Friends(caster, Units(SurroundingTiles(casterTile, 1,
     radius) - Tiles(casterTile)))` = allies VIVANTS a distance hex <= radius du caster, caster EXCLU —
     exactement le noeud `SurroundingFriends(center, radius)` deja porte.
     `radius` = `GetNumberConstant(0x16)`, **OVERRIDE** par `GetAbilityStatModification(caster, 0x16)`
@@ -74,16 +74,16 @@ def supreme_commander_ai_tree(radius: int, affected_ids) -> PerformAIAction:
 
 
 class SupremeCommanderAbility(ActiveAbility):
-    """`SupremeCommanderAbility.ExecuteBehaviour @18120df30` (id 1028, `astraCreed` « Creed »,
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour` (id 1028, `astraCreed` « Creed »,
     AstraMilitarum) — MIRROR du DECOMPILE.
 
     Corps natif (ordre de lecture) :
         unitId   = GetStringConstant(config, 0)                                 # astraSmnGuardsman
         nSummons = GetNumberConstant(config, 0x10)                              # nrOfSummons = 2
         ids      = GetStringArrayConstant(config, 0x3e)                         # affectedUnitIds
-        modN     = GetAbilityStatModification(caster@0x168, VarOrConst(0x10))   # @18120e09b
+        modN     = GetAbilityStatModification(caster@0x168, VarOrConst(0x10))   # IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour+0x16b
         range    = GetNumberConstant(config, 0x16)                              # range = 2
-        modR     = GetAbilityStatModification(caster@0x168, VarOrConst(0x16))   # @18120e17a
+        modR     = GetAbilityStatModification(caster@0x168, VarOrConst(0x16))   # IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour+0x24a
         if (modR != 0) range = modR                                             # OVERRIDE (pas additif)
         opts     = SpawnUnitOptions.WithStatsFromConfig(config, level)
         spawnB   = Spawn(caster, PickRandomly(CanAddUnit(AdjacentTiles(caster)), nSummons + modN), unitId, opts)
@@ -93,7 +93,7 @@ class SupremeCommanderAbility(ActiveAbility):
 
     Les DEUX consommations de `GetAbilityStatModification` ont des semantiques DIFFERENTES (lu, pas
     devine) : **ADDITIVE** pour `nrOfSummons`, **OVERRIDE si non nulle** pour `range`. La seule source
-    native de ces modifications est `ListenUpMaggotsEffect` @180f56590 (passif de `astraSmnKell`,
+    native de ces modifications est `ListenUpMaggotsEffect` IdunBattle.Entities.Effects.Loki.ListenUpMaggotsEffect$$ApplyInternal (passif de `astraSmnKell`,
     +1 summon / range=3) — NON portee (cf. `components.ActiveAbilityModificationsComponent`), donc
     offline les deux modifications valent 0. CONFRONTE LIVE : meme avec Kell VIVANT en jeu au moment du
     cast, le natif summon 2 gardes -> modification NULLE cote natif aussi (2 probes, cf.
@@ -117,7 +117,7 @@ class SupremeCommanderAbility(ActiveAbility):
         caster = state.get_entity(caster_id)
         if caster is None:
             return None
-        # --- constantes + modifications d'ability (mirror des 2 call-sites @18120e09b/@18120e17a) ---
+        # --- constantes + modifications d'ability (mirror des 2 call-sites IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour+0x16b/IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour+0x24a) ---
         n_summons = int(consts.get("nrOfSummons") or 0)
         n_summons += get_ability_stat_modification(caster, CONST_NR_OF_SUMMONS)     # ADDITIF
         radius = int(consts.get("range") or 0)
@@ -143,18 +143,18 @@ class SupremeCommanderAbility(ActiveAbility):
 
 # =============== SendInTheNextWave (Yarrick `astraYarrick`, actif 1016) -- case-220 P0-SUMMON ===============
 #
-# `SendInTheNextWaveAbility.ExecuteBehaviour @181206490` (MIRROR du DECOMPILE) :
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$ExecuteBehaviour` (MIRROR du DECOMPILE) :
 #     unitId = GetStringConstant(config, 0)                                        # astraSmnGuardsman
 #     opts   = SpawnUnitOptions.WithStatsFromConfig(config, level)
 #     opts.+0x18 = UseNormalAttackIfAble(activeTarget@0x180, target@0x178, <AbilityOrEffect>, ...)
-#     tiles  = GetSpawnTilesSelector(this, level)                                  # @181206cc0
+#     tiles  = GetSpawnTilesSelector(this, level)                                  # IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetSpawnTilesSelector
 #     AActiveAbility.Execute(this, Spawn(caster@0x160, tiles, unitId, opts), entities)
 # UN SEUL `Execute` top-level (PAS d'ExecuteAtomic, PAS de Group) et AUCUN `PerformAIAction` : les Cadians
 # tirent via le sous-behaviour ON-APPEARANCE embarque dans les options de spawn.
 CONST_SITNW_UNIT_ID = 0x00      # GetStringConstant(0)      -> "unitId"      = astraSmnGuardsman
 CONST_SITNW_NR_SUMMONS = 0x10   # GetNumberConstant(0x10)   -> "nrOfSummons" = 2  (MEME index que 1028)
 VAR_SITNW_MAX_SUMMONS = 0x31    # GetVariableForLevel(0x31) -> "maxSummons"  (case-38 : 0x31 = 49)
-SITNW_SPAWNED_UNIT_RANGE = 2    # `GetSpawnedUnitRange @181206ed0` = portee d'arme du summon spawne
+SITNW_SPAWNED_UNIT_RANGE = 2    # `IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetSpawnedUnitRange` = portee d'arme du summon spawne
                                 # (service `ability+0x20`, vslot 0xaa, sur GetStringConstant(0)) ;
                                 # gameconfig `astraSmnGuardsman.weapons[1].Range == 2`. CONSTANTE ici :
                                 # le service de config d'unites n'est pas expose offline (residu documente
@@ -163,7 +163,7 @@ SITNW_SPAWNED_UNIT_RANGE = 2    # `GetSpawnedUnitRange @181206ed0` = portee d'ar
 
 
 def send_in_the_next_wave_num_summons(state: "State", caster_id: int) -> int:
-    """`SendInTheNextWaveAbility.GetNumSummons @181206a70` -- MIRROR :
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetNumSummons` -- MIRROR :
         `Min( Sum( Direct(GetNumberConstant(0x10)=nrOfSummons),
                    Count(Attackable(Friends(owner@0x148, AllDeadOrResurrectedUnits()))) ),
               Direct(GetVariableForLevel(0x31)=maxSummons[level]) )`
@@ -197,10 +197,10 @@ def send_in_the_next_wave_num_summons(state: "State", caster_id: int) -> int:
 
 
 def send_in_the_next_wave_spawn_tiles(state: "State", caster_id: int, target_id: int, n: int) -> list:
-    """`SendInTheNextWaveAbility.GetSpawnTilesSelector @181206cc0` -- MIRROR :
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetSpawnTilesSelector` -- MIRROR :
         r         = GetSpawnedUnitRange()                                       # = 2
-        possible  = CanAddUnit(SurroundingTiles(target@0x178, 0, r))            # @181206bc0
-        preferred = AttackTilesForTarget(CanAddUnit(SurroundingTiles(target, 0, r)), target)  # @181206c30
+        possible  = CanAddUnit(SurroundingTiles(target@0x178, 0, r))            # IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetPossibleSpawnTiles
+        preferred = AttackTilesForTarget(CanAddUnit(SurroundingTiles(target, 0, r)), target)  # IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetPreferredSpawnTiles
         k         = Min(n, Count(preferred))
         pickA     = PickRandomly(preferred, k)
         rest      = Sum(n, Multiply(k, Direct(-1)))                             # = n - k
@@ -211,7 +211,7 @@ def send_in_the_next_wave_spawn_tiles(state: "State", caster_id: int, target_id:
 
     COLLAPSE (le selecteur est un arbre S avec DEUX `PickRandomly` imbriques -> le tirage vit dans le
     collapse, qui seul voit `state.rng` ; meme doctrine que le `pick_n` de `Spawn`). `AttackTilesForTarget`
-    (`AttackTilesForTargetSelector @180de9a50`, qui consulte la config d'arme + la geometrie de tir) est
+    (`AttackTilesForTargetSelector IdunBattleLogic.Entities.DSLFactory$$AttackTilesForTarget`, qui consulte la config d'arme + la geometrie de tir) est
     l'IDENTITE offline : `possible` est deja le disque de rayon = portee d'arme du summon autour de la
     cible, et aucun modele de cover/ligne de vue n'existe cote port (residu documente) -> `preferred ==
     possible` -> k = min(n, |possible|), rest = n - k.
@@ -250,9 +250,9 @@ def send_in_the_next_wave_spawn_tiles(state: "State", caster_id: int, target_id:
 
 
 def send_in_the_next_wave_tree(tiles: list) -> Spawn:
-    """Arbre de `SendInTheNextWaveAbility.ExecuteBehaviour @181206490` : UN noeud `Spawn` dont les options
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$ExecuteBehaviour` : UN noeud `Spawn` dont les options
     portent le sous-behaviour ON-APPEARANCE `UseNormalAttackIfAble(activeTarget@0x180, target@0x178)`
-    (`DSLFactory.UseNormalAttackIfAble @180e01870` -> `UseActiveAbilityBehaviour(actor=@0x180,
+    (`IdunBattleLogic.Entities.DSLFactory$$UseNormalAttackIfAble` -> `UseActiveAbilityBehaviour(actor=@0x180,
     targets=@0x178, TestUnitProvider(@0x180), ...)`) = chaque Cadian fraichement pose TIRE immediatement
     sur la cible du cast. Les tuiles sont le collapse de `GetSpawnTilesSelector` (cf. ci-dessus)."""
     return Spawn(FixedTileIds(tiles), "SendInTheNextWave",
@@ -260,7 +260,7 @@ def send_in_the_next_wave_tree(tiles: list) -> Spawn:
 
 
 class SendInTheNextWaveAbility(ActiveAbility):
-    """`SendInTheNextWaveAbility.ExecuteBehaviour @181206490` (id 1016, `astraYarrick` "Commissar Yarrick",
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$ExecuteBehaviour` (id 1016, `astraYarrick` "Commissar Yarrick",
     AstraMilitarum). Fait apparaitre `nrOfSummons + nb d'allies morts` (plafonne a `maxSummons[level]`)
     Cadian Guardsmen (`astraSmnGuardsman`, stats `WithStatsFromConfig`) sur des tuiles libres a <= 2 hex de
     la cible -- en PRIORISANT celles d'ou ils peuvent tirer -- puis CHACUN tire immediatement sur la cible
@@ -297,12 +297,12 @@ MALLEUS_ID = "MalleusRocketLauncher"
 MALLEUS_BOND = int(EffectType.MalleusRocketLauncher)                  # 0x51c = 1308
 MALLEUS_PENDING_TARGET = int(EffectType.MalleusRocketLauncher_PendingTarget)   # 0x51d = 1309
 MALLEUS_SPOTTED_TARGET = int(EffectType.MalleusRocketLauncher_SpottedTarget)   # 0x51e = 1310
-# `DSLFactory.Inform(dict{0x9a: UnitsTeamId(owner@0x148)})` @1811f1d90 : cle de message 0x9a = 154.
+# `DSLFactory.Inform(dict{0x9a: UnitsTeamId(owner@0x148)})` IdunBattleLogic.Entities.Abilities.Active.Loki.MalleusRocketLauncherAbility$$ExecuteBehaviour : cle de message 0x9a = 154.
 MALLEUS_INFORM_MESSAGE = 0x9a
 
 
 def malleus_rocket_launcher_tree(target_tile_id: int):
-    """Arbre de `MalleusRocketLauncherAbility.ExecuteBehaviour @1811f1d90` -- MIRROR 1:1 du DECOMPILE :
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.MalleusRocketLauncherAbility$$ExecuteBehaviour` -- MIRROR 1:1 du DECOMPILE :
 
         bond   = AddBondEffect(0x51c=1308 MalleusRocketLauncher, absRef, source=owner@0x148,
                                targets=target@0x178, bond=owner@0x148, opts=0)
@@ -315,7 +315,7 @@ def malleus_rocket_launcher_tree(target_tile_id: int):
 
     (`op_Addition` x3, `AActiveAbility.Execute`.) Les TROIS effets se posent sur la MEME entite = la
     TUILE ciblee (cast tile-target) ; les options-structs sont ZERO -> duree `DefaultAmountOfRounds`
-    (1308/1309/1310 hors table @181559ff0 -> `remaining = 0` = permanent, CONFIRME live).
+    (1308/1309/1310 hors table idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$DefaultAmountOfRounds -> `remaining = 0` = permanent, CONFIRME live).
 
     `Inform` = notification du bus de messages natif (charge utile = l'id d'equipe de l'owner) :
     AUCUNE mutation d'etat -> no-op cote runner (cf. `entities/behaviours.py::Inform`), present pour le
@@ -332,17 +332,17 @@ def malleus_rocket_launcher_tree(target_tile_id: int):
 
 
 class MalleusRocketLauncherAbility(ActiveAbility):
-    """`MalleusRocketLauncherAbility.ExecuteBehaviour @1811f1d90` (id 1142, `astraOrdnanceBattery` --
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.MalleusRocketLauncherAbility$$ExecuteBehaviour` (id 1142, `astraOrdnanceBattery` --
     Ordnance Battery, Astra Militarum, MachineOfWar). Cast TILE-TARGET (`abilityTargets` kind="tile").
 
     RE (ghidra gqfc5mff6c) :
-    - `ExecuteBehaviour @1811f1d90` : cf. `malleus_rocket_launcher_tree` (1 `AddBondEffect` + 1 `Inform`
+    - `IdunBattleLogic.Entities.Abilities.Active.Loki.MalleusRocketLauncherAbility$$ExecuteBehaviour` : cf. `malleus_rocket_launcher_tree` (1 `AddBondEffect` + 1 `Inform`
       + 2 `AddEffect`, zero attaque).
-    - `.ctor @1811f20f0` ; `GetAdditionalTargets @1811f20b0` (preview/playbook).
-    - PHASE 2 (NON PORTEE) : `MalleusRocketLauncher_AttackAbility.GetTargetTiles @181222aa0` +
-      `CreateBehaviour @1812226b0` (le barrage differe, `nrOfProjectiles`/`nrOfProjectiles_2`/`_3`,
-      `damageProfile=Blast`), et les effets `MalleusRocketLauncherEffect .ctor @180f57ed0` /
-      `MalleusRocketLauncher_SpottedTargetEffect .ctor @180f58120` (+ `CreateTargetSelector @180f57f80`).
+    - `.IdunBattleLogic.Entities.Abilities.Active.Loki.MalleusRocketLauncherAbility$$.ctor` ; `IdunBattleLogic.Entities.Abilities.Active.Loki.MalleusRocketLauncherAbility$$GetAdditionalTargets` (preview/playbook).
+    - PHASE 2 (NON PORTEE) : `IdunBattleLogic.Entities.Abilities.Active.Loki.MalleusRocketLauncher_AttackAbility$$GetTargetTiles` +
+      `IdunBattleLogic.Entities.Abilities.Active.Loki.MalleusRocketLauncher_AttackAbility$$CreateBehaviour` (le barrage differe, `nrOfProjectiles`/`nrOfProjectiles_2`/`_3`,
+      `damageProfile=Blast`), et les effets `MalleusRocketLauncherEffect .IdunBattle.Entities.Effects.Loki.MalleusRocketLauncherEffect$$.ctor` /
+      `MalleusRocketLauncher_SpottedTargetEffect .IdunBattle.Entities.Effects.Loki.MalleusRocketLauncher_SpottedTargetEffect$$.ctor` (+ `IdunBattle.Entities.Effects.Loki.MalleusRocketLauncher_SpottedTargetEffect$$CreateTargetSelector`).
 
     OBSERVABLE DU CAST (mesure live, runner MoW C1_02, caster 53, cible = tuile (0,0)) : la tuile (0,0)
     porte les TROIS effets `MalleusRocketLauncher` (1308), `_PendingTarget` (1309), `_SpottedTarget`

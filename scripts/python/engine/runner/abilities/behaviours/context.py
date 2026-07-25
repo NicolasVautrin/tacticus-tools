@@ -18,8 +18,7 @@ _GRAND_ALLIANCE_TRAITS = frozenset({"Imperial", "Chaos", "Xenos"})
 
 @functools.lru_cache(maxsize=None)
 def _grand_alliance_trait(visual_id: str | None) -> str | None:
-    """Trait d'ALLIANCE d'une unite, DERIVE de sa GrandAlliance (mirror `GrandAlliance.GetTrait
-    @1815647a0` : "Imperial"->0x1a=26, "Xenos"->0x3ee=1006, "Chaos"->0x7ea=2026). Le NOM du trait ==
+    """Trait d'ALLIANCE d'une unite, DERIVE de sa GrandAlliance (mirror `idun.Idun.Source.Shared.GrandAlliance$$GetTrait` : "Imperial"->0x1a=26, "Xenos"->0x3ee=1006, "Chaos"->0x7ea=2026). Le NOM du trait ==
     le `GrandAllianceId` gameconfig (== `UnitTrait.Imperial/Xenos/Chaos.name`) -> ajoutable tel quel au
     set de traits (resolu par `_has_trait` -> `UnitTrait(id).name in traits`). ABSENT de
     `gameconfig.unit().traits` (0 unite le porte) : c'est un trait de bataille inne non expose offline
@@ -74,7 +73,7 @@ _LIVE_KEYS = frozenset({"pos", "hp", "alive"})
 class LiveUnit(dict):
     """Vue LIVE d'une unite pour le contexte RUNNER (mirror natif : `AbilityEntities` tient une REF
     d'entite @+0x40, position/PV re-derives A LA LECTURE -- jamais un snapshot ; cf.
-    docs/rl/dsl-live-context-substrate.md, `get_CasterPosition @180fb4f20` / `UnitPosition..ctor @18102a070`).
+    docs/rl/dsl-live-context-substrate.md, `IdunBattle.Entities.Abilities.AbilityEntities$$get_CasterPosition` / `UnitPosition..IdunBattle.Core.UnitPosition$$.ctor`).
 
     Sous-classe `dict` pour rester reconnue par les `isinstance(v, dict)` du DSL (`resolve_unit`/`_units_of`/
     helpers de `dsl/base.py`) et exposer les champs STATIQUES (id/team/player/visualId/_traits) via le
@@ -154,7 +153,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
     def _faction_of(unit):
         return _faction((unit or {}).get("visualId"))
 
-    # `ctx.get_stat` (mirror `UnitExtensions.GetStat @180ed30d0`) : le noeud `StatAmount(sel, statType,
+    # `ctx.get_stat` (mirror `IdunBattle.Entities.UnitExtensions$$GetStat`) : le noeud `StatAmount(sel, statType,
     # variant)` lit la VRAIE stat de l'unite (Attack/Health/…) via son `StatsComponent.ctx.stats` — sans
     # ce wiring il degraderait vers Health (hp) via `_default_get_stat`. `variant` = `StatPart` natif
     # (0=Current, 2=Maximum, 3=Initial) ; `level` ignore offline (stats non scalees par niveau tierce).
@@ -165,8 +164,8 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         sc = e.get_component(StatsComponent) if e is not None else None
         us = getattr(sc.ctx, "stats", None) if sc is not None else None
         # #60 : stat 20 (NUMBER_OF_MEMBERS) = branche DEDIEE du GetStat natif (handler jumptable 0x14
-        # @180ed3929 : GroupUnitComponent fill-up {+0x10=nrOfMembers, +0x18=restants}, PAS un
-        # StatComponent — `GetStatComponent @180ed20c0` n'a pas de case 0x14). Offline : parts derivees
+        # IdunBattle.Entities.UnitExtensions$$GetStat+0x859 : GroupUnitComponent fill-up {+0x10=nrOfMembers, +0x18=restants}, PAS un
+        # StatComponent — `IdunBattle.Entities.UnitExtensions$$GetStatComponent` n'a pas de case 0x14). Offline : parts derivees
         # de l'etat PV via `group_unit_stat_part` (lu par `SwarmAbility` StatAmount(Self,20,3/4)).
         from ....entities.stats import StatType as _ST
         if int(stat_type) == int(_ST.NUMBER_OF_MEMBERS):
@@ -189,14 +188,14 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
             return None
         return getattr(sc.ctx, "active_ability_level" if slot == "active" else "passive_ability_level", None)
 
-    # `ctx.tile_has_effect` (predicat tuile de `UnitsOnTilesWithEffect @180dffc50`, #217) : la TUILE
+    # `ctx.tile_has_effect` (predicat tuile de `IdunBattleLogic.Entities.DSLFactory$$UnitsOnTilesWithEffect`, #217) : la TUILE
     # (entite ECS tile-id) porte-t-elle un effet ACTIF (non consomme) du type ? Meme cle tile-id de
     # `state.effects` que la pose `AddEffectOperation` (case-35 : la glace vit dans by_unit[tile_id]).
     def _tile_has_effect(tile_id, effect_type):
         return (state.effects is not None
                 and state.effects.has_effect(int(tile_id), effect_type=int(effect_type)))
 
-    # `ctx.has_effect` (`HasEffect(unit, effectType, minLevel) @180df0fb0` -> `HasEffectTrigger @180f9d830`)
+    # `ctx.has_effect` (`IdunBattleLogic.Entities.DSLFactory$$HasEffect(unit, effectType, minLevel)` -> `HasEffectTrigger IdunBattle.Entities.Triggers.HasEffectTrigger$$ShouldTrigger`)
     # : l'unite porte-t-elle un effet ACTIF du type, de niveau >= minLevel ? (source-flag 6 = owned|incoming
     # -> offline on ne distingue pas la source, toutes les instances portees comptent). Meme cle `by_unit`
     # que la pose `AddEffectOperation`. Sans `state.effects` -> False (degradation fidele).
@@ -214,7 +213,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
             return True
         return False
 
-    # `ctx.effects_from_source` (`EffectsFromUnitSource @180deec70`, #MasterAnnihilator) : les INSTANCES
+    # `ctx.effects_from_source` (`IdunBattleLogic.Entities.DSLFactory$$EffectsFromUnitSource`, #MasterAnnihilator) : les INSTANCES
     # d'effet du type dont le `EffectComponent.SourceUnit` == `source_unit`. Balaye `state.effects.by_unit`
     # (cle = le PORTEUR) et ne garde que les instances ACTIVES (non consommees) de la bonne source.
     def _effects_from_source(source_unit, effect_type):
@@ -233,7 +232,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         return out
 
     # `ctx.current_player_machine_position` (predicat `IsPositionMachineForCurrentPlayer`, mirror
-    # `IsPositionMachineForPlayerTrigger @180fa3520` qui lit le slot MoW de `GetPlayer(turn.
+    # `IsPositionMachineForPlayerTrigger IdunBattle.Entities.Triggers.IsPositionMachineForPlayerTrigger$$ShouldTrigger` qui lit le slot MoW de `GetPlayer(turn.
     # CurrentPlayerId)`) : le slot (`MachineComponent.Position` @0x78) de la MoW dont l'owner-PLAYER
     # est le joueur courant. None si le joueur courant n'a pas de MoW deployee.
     mow_pos = None

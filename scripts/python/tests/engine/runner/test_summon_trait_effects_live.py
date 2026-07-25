@@ -1,7 +1,7 @@
 """VALIDATION du seed des OWNER-EFFECTS de trait au spawn d'un summon (gap traits-des-summons).
 
-RE : `InitializeActorAbilitiesOperation.Execute` @180e74660 (boucle TRAITS) ajoute au porteur les effets de
-`StaticBattleRules.Trait.GetEffectToBeAddedToOwnerForTrait` @18157e800 (dict `Trait..cctor` @18157f650 +0x30,
+RE : `IdunBattle.Operations.InitializeActorAbilitiesOperation$$Execute (boucle TRAITS) ajoute au porteur les effets de
+`idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Trait$$GetEffectToBeAddedToOwnerForTrait (dict `Trait..idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Trait$$.cctor +0x30,
 4 entrées LUES). `SpawnUnitOperation` mirror ce seed dans `EffectsState`. Ici on spawn des summons PORTEURS
 d'un trait de la dict et on vérifie (1) l'effet seedé, (2) qu'il s'applique aux MODIFIERS d'attaque du summon
 (ce que le gap ratait), + un CONTRÔLE sans trait.
@@ -91,7 +91,7 @@ def test_control_summon_without_trait_effect(rpc, build_runner):
 
 def test_bigtarget_summon_seeds_via_derived_ability(rpc, build_runner):
     """tyranSmnWarrior (trait BigTarget) : BigTarget_AdjacentEffect seedé via le chemin trait->ability dérivée
-    (BigTarget 0x406)->`BigTargetAbility.CreateBehaviour @18121a910` AddEffect(0x402). Matérialisé en CLASSE
+    (BigTarget 0x406)->`IdunBattleLogic.Entities.Abilities.Active.Loki.BigTargetAbility$$CreateBehaviour` AddEffect(0x402). Matérialisé en CLASSE
     aura (pas un BaseEffect no-op)."""
     state, dec = _load(rpc, build_runner)
     sid = _spawn(state, dec, "tyranSmnWarrior")
@@ -107,9 +107,9 @@ def test_bigtarget_summon_seeds_via_derived_ability(rpc, build_runner):
 
 def test_diminutive_summon_seeds_via_derived_ability(rpc, build_runner):
     """#75 — orksGrot (trait Diminutive 0x408=1032) : `Diminutive_HitReduction` seede via le chemin
-    trait->ability derivee (`Trait.GetTriggeredAbility @18157ed10` -> TriggeredAbilityType.Diminutive
-    0x43f=1087 -> `DiminutiveAbility` @180e20c80 = `AOwnerEffectSpecificTriggeredAbility(0x43f)`
-    @180fb3790, `CreateTrigger @180fb3760` = OnOwnerSpecificAbilityInit -> AddEffect(owner)).
+    trait->ability derivee (`idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Trait$$GetTriggeredAbility` -> TriggeredAbilityType.Diminutive
+    0x43f=1087 -> `DiminutiveAbility` IdunBattleLogic.Entities.Abilities.Triggered.Loki.DiminutiveAbility$$.ctor = `AOwnerEffectSpecificTriggeredAbility(0x43f)`
+    IdunBattle.Entities.Abilities.AOwnerEffectSpecificTriggeredAbility$$.ctor, `IdunBattle.Entities.Abilities.AOwnerEffectSpecificTriggeredAbility$$CreateTrigger` = OnOwnerSpecificAbilityInit -> AddEffect(owner)).
 
     GROUND TRUTH LIVE (runner 1155, orksRuntherd GetEmRuntz) : les grots spawnes portent
     `UnitStats_TriggeredAbility_Id=1087` ET l'effet `Diminutive_HitReduction` (decisionView).
@@ -126,9 +126,9 @@ def test_diminutive_summon_seeds_via_derived_ability(rpc, build_runner):
 
 
 def test_diminutive_reduces_hits_melee_and_ranged(rpc, build_runner):
-    """#75 — le trigger natif @180f3f3c0 est `OwnerIsTarget` SEUL (aucun noeud IsMelee/IsRanged, aucun
+    """#75 — le trigger natif IdunBattle.Entities.Effects.Loki.Diminutive_HitReductionEffect$$CreateEffectHitsBonusForAttack est `OwnerIsTarget` SEUL (aucun noeud IsMelee/IsRanged, aucun
     gate de profil) : la reduction s'applique aux DEUX axes. C'est ce qui DISCRIMINE Diminutive de
-    Parry (melee-only @180f5d860) et Camouflage (ranged-only @181107180) — un port qui recopierait
+    Parry (melee-only IdunBattle.Entities.Effects.Loki.ParryEffect$$CreateEffectHitsBonusForAttack) et Camouflage (ranged-only IdunBattleLogic.Entities.Abilities.Triggered.Loki.Camouflage_HitReductionEffect$$CreateEffectHitsBonusForAttack) — un port qui recopierait
     l'un de ces deux jumeaux echouerait ici.
 
     GROUND TRUTH LIVE (runner 1155, A/B meme attaquant u83 orksBigMek arme 4 coups, ability 69,

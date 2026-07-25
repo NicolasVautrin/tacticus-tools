@@ -1,4 +1,4 @@
-"""A3 (#113) — gate compute-time LightCover (`AreEqual(coverPatch, target)` @180f556b0) : le runner-sim
+"""A3 (#113) — gate compute-time LightCover (`AreEqual(coverPatch, target)` IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffectHitsBonusForAttack) : le runner-sim
 ne doit PAS sur-appliquer le -2 coups d'un LightCover PERIME (cible ayant quitte sa tuile de cover).
 
 Board `SyncPvp_Arctic_06` (contient DryBush). On trouve (ou drive) un defenseur portant l'effet live

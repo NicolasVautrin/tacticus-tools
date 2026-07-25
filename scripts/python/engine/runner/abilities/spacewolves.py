@@ -24,15 +24,14 @@ from .behaviours import AttackWithAttackDamage, AddEffect, entities_from_state
 if TYPE_CHECKING:
     from ..state import State
 
-ICE_TILE = int(EffectType.Ice)          # 17 (0x11) — effet de TUILE Ice, duree defaut 2 rounds (@181559ff0)
+ICE_TILE = int(EffectType.Ice)          # 17 (0x11) — effet de TUILE Ice, duree defaut 2 rounds (idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$DefaultAmountOfRounds)
 
 
 def great_frost_axe_ice_tiles() -> Union:
-    """Zone de glace de GreatFrostAxe — construction INLINE dans `ExecuteBehaviour @1811e3500` (MIRROR
+    """Zone de glace de GreatFrostAxe — construction INLINE dans `IdunBattleLogic.Entities.Abilities.Active.Loki.GreatFrostAxeAbility$$ExecuteBehaviour` (MIRROR
     du DECOMPILE, pas d'accesseur `GetAddIceTiles` separe cote natif contrairement a Stormcaller) :
         AdjacentTiles(TargetTiles@0x190)  op_Addition  TargetTiles@0x190
-    = le ring-1 de la tuile de la cible + la tuile elle-meme (== `StormcallerAbility.GetAddIceTiles
-    @18120cf70`, MEME construction byte-pour-byte). Port : `Union(AdjacentTiles(Target()), Tiles(Target()))`
+    = le ring-1 de la tuile de la cible + la tuile elle-meme (== `IdunBattleLogic.Entities.Abilities.Active.Loki.StormcallerAbility$$GetAddIceTiles`, MEME construction byte-pour-byte). Port : `Union(AdjacentTiles(Target()), Tiles(Target()))`
     (IDENTIQUE a `stormcaller_get_add_ice_tiles`). `@0x190` = le selecteur TargetTiles de la cible ->
     `Tiles(Target())` (POSITION MainTile) ; `AdjacentTiles(@0x190)` -> `AdjacentTiles(Target())` (ids de
     tuile du ring, l'elevation gate le voisinage via `board.neighbours`). Domaines mixtes normalises par
@@ -42,7 +41,7 @@ def great_frost_axe_ice_tiles() -> Union:
 
 
 def great_frost_axe_tree():
-    """Arbre de `GreatFrostAxeAbility.ExecuteBehaviour @1811e3500` (id 1089, spaceWulfen — MIRROR 1:1 du
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.GreatFrostAxeAbility$$ExecuteBehaviour` (id 1089, spaceWulfen — MIRROR 1:1 du
     DECOMPILE) :
         op_BitwiseAnd(
             AddEffect( 0x11=Ice, AbilityStateReference, source=Owner@0x148,
@@ -58,14 +57,14 @@ def great_frost_axe_tree():
 
     ORDRE = `op_BitwiseAnd(AddEffect(Ice), If(...))` = GLACE D'ABORD, PUIS attaque (left->right, `Seq`
     court-circuit ; les deux volets sont PURS -> les deux s'executent). C'est le natif `op_BitwiseAnd(uVar13=
-    AddEffect(Ice), uVar12=If(IsAlive,attack))` @1811e3500. La glace est DETERMINISTE (aucun tirage RNG) ->
+    AddEffect(Ice), uVar12=If(IsAlive,attack))` IdunBattleLogic.Entities.Abilities.Active.Loki.GreatFrostAxeAbility$$ExecuteBehaviour. La glace est DETERMINISTE (aucun tirage RNG) ->
     l'ordre glace-avant-attaque n'altere PAS l'ordre RNG de l'attaque : les ROLLS per-coup sont bit-exacts
     (le port et le live tirent la MEME sequence -- valide live : native_factory correct, cf. plus bas).
 
     ###### RESIDU x1.5 RESOLU (#45f fable, 2026-07-24) — c'etait l'ELEVATION, pas la glace ######
     L'ex-« bonus crit-sur-glace +50% » etait un ARTEFACT DE CONFUSION : la mesure historique (live =
     1.5x offline par coup, DidCrit=0) venait du bonus d'ELEVATION (`Damage.ElevationBonus`=50, feuille
-    positionnelle du builder PARTAGE `CalculateAttackerModifiersForPrediction @181000590`, gate
+    positionnelle du builder PARTAGE `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction`, gate
     `elev(att) > elev(cible)` + effet 0x423, AUCUN gate normale/ability) que le vecteur offline
     `execute_ability_attack` n'appliquait pas (fork de port : seul le chemin attaque NORMALE appelait
     `apply_elevation_bonus`). Le scenario de test move sur `aiAttackRank ranked[0]` qui PREFERE le
@@ -77,7 +76,7 @@ def great_frost_axe_tree():
     desormais `apply_elevation_bonus` + `apply_trench_reduction` comme le chemin normal (#45f).
 
     La CONTRADICTION historique (« CRIT_DAMAGE=0 mais +50% ») est levee : la formule
-    `IceEffect.CreateEffectDamageBonusForAttack @180f44940` n'a JAMAIS ete la source du 1.5x. C'est un
+    `IdunBattle.Entities.Effects.IceEffect$$CreateEffectDamageBonusForAttack` n'a JAMAIS ete la source du 1.5x. C'est un
     `EffectBonus` (struct il2cpp : trigger/multiplicator/ADDITION/subtraction/minimum/override) du canal
     ADDITION : `PercentageOf(StatAmount(attacker, CRIT_DAMAGE=10), EffectConfig(5)=IceCritDmgBonusPct=25)`
     gate `AttackDamageIsCritical & AreEqual(occupant-tuile-Ice, target) & !HasTrait(target, 0x19=Immune)`
@@ -90,17 +89,17 @@ def great_frost_axe_tree():
     - [1] `AddEffect(Ice)` : glace la tuile de la cible + son ring-1 (`great_frost_axe_ice_tiles()`). Duree =
       arg Nullable ZEROE -> `duration_rounds=None` -> `DefaultAmountOfRounds(0x11)=2` (== case-35/Stormcaller).
       Feuille `AddEffect` tile-domain (le selecteur rend des tuiles ; `AddEffectOperation` pose l'effet Ice).
-    - [2] `If(IsAlive(target), attack)` : garde LAZY `DSLFactory.IsAlive(target@0x178) @180df2fa0` (vivant &
+    - [2] `If(IsAlive(target), attack)` : garde LAZY `IdunBattleLogic.Entities.DSLFactory$$IsAlive(target@0x178)` (vivant &
       hp>0) devant l'attaque -- la glace ne tue pas, donc la garde est vraie pour un cast normal (mirror
       fidele, meme idiome que VigilanceEternal/HeroicFusillade/genestealer `If(IsAlive(Target()), ...)`).
       Attaque MONO-cible melee 4 coups Piercing (pierce 80), bornes `MinMaxDamage(minDmg/maxDmg[level])`
       rarity-affected via `ability_attack_params`.
 
-    `native_factory="attack"` (defaut) = famille `DSLFactory.AttackWithAttackDamage @180de9fb0`
+    `native_factory="attack"` (defaut) = famille `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`
     (AttackDamageBehaviour -> `AttackDamageOperation.ExecuteHit`) = 2 tirages/coup a cc=0 (valeur brute +
     resolve slot-8 GASPILLE, cf. cas fable rngcrit-1202 / tip #2). CLASSE PAR LES XREFS : `GreatFrostAxe
-    Ability$$ExecuteBehaviour` appelle @180de9fb0 (from_address 1811e367f, UNCONDITIONAL_CALL) -- l'ATTACK
-    family, PAS l'ability family (@180de9dd0->@180de9e50) qu'utilise Stormcaller. Multi-coups (4 hits) ->
+    Ability$$ExecuteBehaviour` appelle IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage (from_address 1811e367f, UNCONDITIONAL_CALL) -- l'ATTACK
+    family, PAS l'ability family (IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage->IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage) qu'utilise Stormcaller. Multi-coups (4 hits) ->
     per-hit desync des le coup 2 si mal classe : ici c'est bien "attack" (verifie XREF).
 
     `ability_type=1089` = l'arg natif `AbilityOrEffect(this+0x10)` (= ActiveAbilityType.GreatFrostAxe),
@@ -109,13 +108,13 @@ def great_frost_axe_tree():
     ne depend pas de `ability_type`)."""
     ice = AddEffect(ICE_TILE, "Ice", great_frost_axe_ice_tiles(), duration_rounds=None)  # duree DEFAUT (Nullable zeroe)
     attack = AttackWithAttackDamage(Target(), "GreatFrostAxe", "Piercing", is_melee=True,   # 4x Piercing melee mono-cible
-                                    native_factory="attack",   # XREF @1811e367f -> @180de9fb0 (attack family, 2 tirages/coup)
+                                    native_factory="attack",   # XREF IdunBattleLogic.Entities.Abilities.Active.Loki.GreatFrostAxeAbility$$ExecuteBehaviour+0x17f -> IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage (attack family, 2 tirages/coup)
                                     ability_type=int(ActiveAbilityType.GreatFrostAxe))
     return op_and(ice, If(IsAlive(Target()), attack))
 
 
 class GreatFrostAxeAbility(ActiveAbility):
-    """`GreatFrostAxeAbility.ExecuteBehaviour @1811e3500` (id 1089, spaceWulfen «Wulfen», namespace natif
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.GreatFrostAxeAbility$$ExecuteBehaviour` (id 1089, spaceWulfen «Wulfen», namespace natif
     `Abilities.Active.Loki`) — cf. docstring `great_frost_axe_tree()`. Behaviour = `great_frost_axe_tree()`
     (mirror 1:1). Patron « Stormcaller inverse » : glace la zone (tuile cible + ring-1) PUIS attaque la CIBLE
     DIRECTE 4x Piercing (mono-cible, ATTACK-family, gate `If(IsAlive(target))`). Diag : tuiles glacees +

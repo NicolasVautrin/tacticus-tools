@@ -1,5 +1,5 @@
-"""`Abilities.Triggered.Loki.TheBetrayer_AddEffectAbility` (@1811a4a80) + `TheBetrayer_TakeTurnAbility`
-(@1811a5300) — rage de TheBetrayer (worldKharn) : GAIN au kill (0x4f3) et AUTO-TOUR force au debut de tour
+"""`Abilities.Triggered.Loki.TheBetrayer_AddEffectAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_AddEffectAbility$$CreateTrigger) + `TheBetrayer_TakeTurnAbility`
+(IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_TakeTurnAbility$$CreateTrigger) — rage de TheBetrayer (worldKharn) : GAIN au kill (0x4f3) et AUTO-TOUR force au debut de tour
 tant que la rage est active. Cf. `loki/__init__.py` pour le regroupement « Loki »."""
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ THEBETRAYER_PROFILE = "Eviscerate"  # `TheBetrayer.constants.damageProfile` (att
 
 
 def betrayer_add_effect_tree(effect_type: int):
-    """Arbre de `TheBetrayer_AddEffectAbility.CreateBehaviour @1811a4a00` (MIRROR 1:1 du DECOMPILE) :
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_AddEffectAbility$$CreateBehaviour` (MIRROR 1:1 du DECOMPILE) :
         AddEffect( effectType = 0x4f3, source = AbilityStateReference, target = Self@0x148 )
     Port : `AddEffect(THEBETRAYER_EFFECT, "TheBetrayer_Effect", Caster())` (Owner==Caster pour un triggered).
     La feuille route vers `AddEffectOperation.execute(target=caster, 0x4f3, "TheBetrayer_Effect")`.
@@ -31,15 +31,15 @@ def betrayer_add_effect_tree(effect_type: int):
     ⚠ DUREE : le port pose 1 TOUR, **valeur historique GELEE, pas un mirror** (cf. le commentaire du
     `return` ci-dessous). L'ancienne justification (« `local_588[0] = 1` est la duree quand l'override
     Nullable est null ») est REFUTEE : `local_588[0]` est le **NIVEAU** (`EffectComponent.Level @+0x68`,
-    prouve par `IncreaseEffectLevelOperation.Execute @180e73cb0`) ; la duree, elle, vaut 0 = PERMANENT
+    prouve par `IdunBattle.Operations.IncreaseEffectLevelOperation$$Execute`) ; la duree, elle, vaut 0 = PERMANENT
     quand ni override ni `DefaultAmountOfRounds` n'existent. `effect_type` passe par l'appelant
     (constante `THEBETRAYER_EFFECT`)."""
-    # #98 -- RESIDU EXPLICITE (comportement HISTORIQUE GELE, pas un mirror). Le decompile @1811a4a00
+    # #98 -- RESIDU EXPLICITE (comportement HISTORIQUE GELE, pas un mirror). Le decompile IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_AddEffectAbility$$CreateBehaviour
     # passe `AddEffect(factory, 0x4f3, stateRef, self@0x148, self@0x148, &optionsZEROEES, 0)` : le slot
     # duree est une struct ZERO -> duree PAR DEFAUT, et `DefaultAmountOfRounds(0x4f3=1267)` est ABSENT
-    # du switch @181559ff0 -> le natif pose donc un effet **PERMANENT**. Le port garde 1 TOUR
+    # du switch idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$DefaultAmountOfRounds -> le natif pose donc un effet **PERMANENT**. Le port garde 1 TOUR
     # (`duration_turns=1`, valeur historique) parce qu'AUCUN vecteur de RETRAIT de 0x4f3 n'est identifie
-    # (ni `TheBetrayer_TakeTurnAbility.CreateBehaviour @1811a4f70`, ni les autres membres du kit) : passer
+    # (ni `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_TakeTurnAbility$$CreateBehaviour`, ni les autres membres du kit) : passer
     # en permanent ferait rejouer Kharn a CHAQUE tour indefiniment -- regression fonctionnelle non mesuree.
     # A instruire separement (trouver le RemoveEffect(0x4f3) natif ou mesurer live le cycle de la rage).
     return AddEffect(effect_type, "TheBetrayer_Effect", Caster(), duration_turns=1)
@@ -47,8 +47,8 @@ def betrayer_add_effect_tree(effect_type: int):
 
 def _add_betrayer_effect(state: State, owner_id: int) -> Optional[dict]:
     """`TheBetrayer_AddEffectAbility` behaviour = arbre DSL `betrayer_add_effect_tree()` (mirror
-    `AddEffect(0x4f3, Self)` @1811a4a00) : le porteur (Kharn) gagne le marqueur de rage 0x4f3 (aucune
-    StatModification, juste la presence qui gate TakeTurn), DUREE 1 tour (RE @180e48940, cf. tree ; re-accorde
+    `AddEffect(0x4f3, Self)` IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_AddEffectAbility$$CreateBehaviour) : le porteur (Kharn) gagne le marqueur de rage 0x4f3 (aucune
+    StatModification, juste la presence qui gate TakeTurn), DUREE 1 tour (RE IdunBattle.Operations.AddEffectOperation$$Execute, cf. tree ; re-accorde
     a chaque kill). No-op si `state.effects` absent. Le gate `matches` (OnDeath & killer==owner & NOT
     HasEffect(0x4f3)) reste upstream (hors CreateBehaviour)."""
     if state.effects is None:
@@ -62,7 +62,7 @@ def _add_betrayer_effect(state: State, owner_id: int) -> Optional[dict]:
 
 
 def _betrayer_target(state: State, owner_id: int) -> Optional[int]:
-    """`GetAttackTarget`@1811a53a0 : priorité `ForcedAttackTargets > ennemi-le-plus-proche-en-portée >
+    """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_TakeTurnAbility$$GetAttackTarget : priorité `ForcedAttackTargets > ennemi-le-plus-proche-en-portée >
     allié-en-portée > ennemi-le-plus-proche > allié`. (ForcedAttackTargets + filtre `NOT HasTrait(0xd)`
     non portés : aucun candidat concret dans le roster validé — approximation documentée.) « En portée »
     = atteignable+frappable ce tour (hex <= `range`=2 + portée mêlée 1). « Le plus proche » = min distance
@@ -105,7 +105,7 @@ def _betrayer_target(state: State, owner_id: int) -> Optional[int]:
 
 
 def _betrayer_stop_tile(state: State, owner_id: int, target_id: int) -> Optional[tuple]:
-    """COLLAPSE (kind S) du sélecteur de destination du move natif @1811a4f70 `First(SortByFormula(
+    """COLLAPSE (kind S) du sélecteur de destination du move natif IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_TakeTurnAbility$$CreateBehaviour `First(SortByFormula(
     SortTilesByUtility((AdjacentTiles(target) & movable).Otherwise(movable)), MinPathLength))` : la tuile
     d'arrêt (atteignable ≤ `range`=2) ADJACENTE à la cible et la plus proche d'elle, sinon (`Otherwise`) la
     movable la plus proche. Renvoie (col,row) ou None si rien d'atteignable. Pathfinding LOURD calculé
@@ -139,7 +139,7 @@ def _betrayer_stop_tile(state: State, owner_id: int, target_id: int) -> Optional
 
 
 def _betrayer_take_turn(state: State, owner_id: int) -> Optional[dict]:
-    """Behaviour TheBetrayer (`CreateBehaviour @1811a4f70`) — replié en UN ARBRE DSL UNIFIÉ (S-chantier
+    """Behaviour TheBetrayer (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_TakeTurnAbility$$CreateBehaviour`) — replié en UN ARBRE DSL UNIFIÉ (S-chantier
     Voie A). La composition STRUCTURELLE est désormais des NŒUDS DSL, plus du contrôle impératif :
 
         If( AmountIsGreaterThanZero(target),                        # <- gate S collapse (voir plus bas)
@@ -166,16 +166,16 @@ def _betrayer_take_turn(state: State, owner_id: int) -> Optional[dict]:
       `_betrayer_stop_tile` (S pathfinding), injecté via `FixedTiles([bestTile])` (calculé une fois au cast,
       == le bestTile natif). Non utilisé si déjà adjacent (move gated off).
     - `NOT IsAdjacent` / `IsAdjacent` (seuil dist-1) = nœuds `Not(is_adj)` / `is_adj` (LIVE via LiveUnit).
-    - `MoveUnit` options NULLES (`local_a8..local_78` zéro @1811a4f70, == ThunderousAssault) -> feuille
+    - `MoveUnit` options NULLES (`local_a8..local_78` zéro IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_TakeTurnAbility$$CreateBehaviour, == ThunderousAssault) -> feuille
       `MoveUnit` plaine (fidèle) ; `ExecutionContext` sans bus = `EventBus()` jetable (== l'impératif).
-    - `GetDamageBehaviour @18119c1e0` = `AttackWithAttackDamage(Self, target, MinMaxDamage,
+    - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ATheBetrayerAbility$$GetDamageBehaviour` = `AttackWithAttackDamage(Self, target, MinMaxDamage,
       GetDamageProfileOrDefault(0x19)=Eviscerate, GetHits)` -> feuille `AttackWithAttackDamage(Target(),
       "TheBetrayer", "Eviscerate", melee)` (BIT-EXACT : mêmes `ability_attack_params` + `execute_ability_attack`).
     - `Inform(0xbf)` = notif AI/UI = NO-OP observable (feuille `Inform`).
 
-    FIDÉLITÉ after-move overwatch (#149, task #4 RÉSOLU par RE @180e79770) : l'`Emit("BetrayerAfterMove")`
+    FIDÉLITÉ after-move overwatch (#149, task #4 RÉSOLU par RE IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers) : l'`Emit("BetrayerAfterMove")`
     appelle `after_move_triggers` (overwatch sur le move forcé, ssi le move est effectif) — c'est FIDÈLE au
-    natif, PAS un over-trigger. `MoveUnitOperation.EvaluateAfterMoveTriggers @180e79770` émet `On(4)`
+    natif, PAS un over-trigger. `IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers` émet `On(4)`
     (after-move / overwatch) gaté par `if (param_6 != 0) return`, où `param_6` = options[4] du nœud `MoveUnit`
     (behaviour +0x80) = flag SUPPRESS (défaut 0 = overwatch ACTIF). Options NULLES (Kharn == ThunderousAssault)
     => param_6=0 => `On(4)` ÉMIS. Émission UNIQUE : la feuille `MoveUnit` appelle `MoveUnitOperation.execute`
@@ -198,14 +198,14 @@ def _betrayer_take_turn(state: State, owner_id: int) -> Optional[dict]:
             return {"result": after_move_triggers(ectx.state, owner_id)}
         return {}
 
-    # FIDÈLE au natif (task #4 RÉSOLU, RE @180e79770) : `Emit` AfterMove = l'after-move overwatch du move
+    # FIDÈLE au natif (task #4 RÉSOLU, RE IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers) : `Emit` AfterMove = l'after-move overwatch du move
     # forcé, émis par `EvaluateAfterMoveTriggers` pour TOUT move (options nulles = flag SUPPRESS param_6=0 =
     # overwatch actif ; Kharn == ThunderousAssault). Émission UNIQUE (feuille `MoveUnit` -> Operation
     # position-seule) ; encapsulé DANS la branche move, ordonné move -> after_move -> attaque.
     move_branch = Seq(MoveUnit(Caster(), FixedTiles([stop] if stop is not None else [])),
                       Emit("BetrayerAfterMove", _after_move_fn))
 
-    # ARBRE UNIFIÉ (mirror @1811a4f70) : Inform & If(NOT is_adj, Move) & If(is_adj, Attack). Contexte LIVE
+    # ARBRE UNIFIÉ (mirror IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_TakeTurnAbility$$CreateBehaviour) : Inform & If(NOT is_adj, Move) & If(is_adj, Attack). Contexte LIVE
     # partagé -> re-éval de `is_adj` post-move (Voie A). `Seq` = `CombinedBehaviour` court-circuit gauche->droite.
     tree = Seq(Inform(0xbf),
                Seq(If(Not(is_adj), move_branch),
@@ -227,7 +227,7 @@ def _betrayer_take_turn(state: State, owner_id: int) -> Optional[dict]:
 
 
 class TheBetrayerAddEffectAbility(TriggeredAbility):
-    """`TheBetrayer_AddEffectAbility` (@1811a4a80 CreateTrigger / @1811a4a00 CreateBehaviour) — GAIN de la
+    """`TheBetrayer_AddEffectAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_AddEffectAbility$$CreateTrigger CreateTrigger / IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_AddEffectAbility$$CreateBehaviour CreateBehaviour) — GAIN de la
     rage TheBetrayer (0x4f3) quand le porteur TUE.
 
     CreateTrigger = `OnDeath(1) & OwnerIsActor & NOT HasEffect(owner,0x4f3)` — l'owner (Kharn) est l'ACTEUR
@@ -249,11 +249,11 @@ class TheBetrayerAddEffectAbility(TriggeredAbility):
 
 
 class TheBetrayerTakeTurnAbility(TriggeredAbility):
-    """`TheBetrayer_TakeTurnAbility` (@1811a5300 CreateTrigger / @1811a4f70 CreateBehaviour) — AUTO-TOUR
+    """`TheBetrayer_TakeTurnAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_TakeTurnAbility$$CreateTrigger CreateTrigger / IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_TakeTurnAbility$$CreateBehaviour CreateBehaviour) — AUTO-TOUR
     forcé de TheBetrayer (worldKharn) au DÉBUT DE TOUR.
 
     CreateTrigger = `On(0x16 turn-start) & <OwnerActive @+0xa0> & HasEffect(owner,0x4f3)` — au début du
-    tour du player de l'owner, si l'owner a la rage. Behaviour @1811a4f70 = choisit la meilleure cible
+    tour du player de l'owner, si l'owner a la rage. Behaviour IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_TakeTurnAbility$$CreateBehaviour = choisit la meilleure cible
     (`GetAttackTarget` : ennemi le plus proche atteignable préféré, sinon allié), se DÉPLACE vers elle
     (≤ `range`=2, meilleure tuile adjacente par MinPathLength), puis l'ATTAQUE si adjacent (4 coups
     Eviscerate, `GetDamageBehaviour`). ⇒ Kharn « charge et frappe » l'unité la plus proche, amie ou

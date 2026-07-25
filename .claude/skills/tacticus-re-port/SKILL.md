@@ -118,9 +118,8 @@ de caractères, register-aliasing, indirections gshared (`DAT_18xxxxxxx`, dispat
 rgctx) — on n'ABANDONNE PAS et on ne DEVINE PAS : on suit l'escalade ci-dessous. « Trop gros »
 n'est JAMAIS une raison d'arrêter une RE ; le coût-token d'une lecture ciblée est négligeable
 devant un port faux + sa re-dérivation. **Fil rouge : gap prédiction #152** — mécanisme générique
-`CalculateDefenderModifiersForPrediction @181002c30` → 1ʳᵉ op `CalculateModifiersFromStatModifications
-@181004380` (si `Current != Initial`, itère `get_Modifications` et NÈGUE chaque montant per-source),
-symétrique de l'attaquant `CalculateAttackerModifiersForPrediction @181000590` (~55K chars). Deux
+`IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` → 1ʳᵉ op `IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications` (si `Current != Initial`, itère `get_Modifications` et NÈGUE chaque montant per-source),
+symétrique de l'attaquant `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction` (~55K chars). Deux
 échecs de méthode y ont été commis (abandon sur la taille ; gate deviné) — cette procédure les
 interdit. L'inconnue finale (« quelle entité / quel stat derrière l'interface ? ») a été résolue en
 STATIQUE PUR par l'étape C.3, sans hook.
@@ -146,7 +145,7 @@ STATIQUE PUR par l'étape C.3, sans hook.
    ```
    puis extraire des FENÊTRES de contexte (`for i in range(a,b): print(lines[i])`) autour des hits.
    Sorties console : ASCII only (cf. CLAUDE.md).
-3. **Vécu #152** : @181000590 = 55K chars, 1395 lignes → l'enquête complète a tenu en ~15 lignes
+3. **Vécu #152** : IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction = 55K chars, 1395 lignes → l'enquête complète a tenu en ~15 lignes
    greppées + 2 fenêtres (~120 lignes lues au total). L'abandon initial (« 55K c'est trop ») avait
    bloqué la RE pour rien.
 
@@ -164,7 +163,7 @@ STATIQUE PUR par l'étape C.3, sans hook.
    primitive** — ça isole le mécanisme sans lire les deux fonctions en entier.
 3. **Vécu #152** (diff obtenu en ~15 lignes greppées de chaque côté) :
 
-   | | Attaquant `@181000590` (l.611) | Défenseur `@181002c30` |
+   | | Attaquant `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction` (l.611) | Défenseur `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` |
    |---|---|---|
    | Entité fetchée | `plStack_290` = struct+0x8 = **`entities.Caster`** | `local_288` = struct+0x10 = **`entities.Target`** |
    | StatComponent | couple `DAT_18325bda0/DAT_18328b048` = case **0** de `GetStatComponent` = **Attack** | couple `DAT_1831fb970/DAT_1831b6fc8` = case **3** = **Defense** |
@@ -178,10 +177,10 @@ Cibles typiques : slot d'interface virtuel, token `DAT_` (classe il2cpp ou Metho
 champ d'une struct par valeur. Dans l'ordre, chaque étape est bon marché :
 
 1. **Le jumeau / les variantes** (cf. §B.2) — surcharges, Slot voisins, la version courte d'une
-   paire (le défenseur @181002c30 se lit inline là où l'attaquant @181000590 déborde).
+   paire (le défenseur IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction se lit inline là où l'attaquant IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction déborde).
 2. **Résoudre un token `DAT_`** : `mcp__ghidra__list_xrefs` sur le token → chercher une **PETITE
    fonction NOMMÉE** qui utilise le MÊME token dans un contexte discriminant, et la lire.
-   Vécu #152 : xrefs de `DAT_1831b6fc8` → `UnitExtensions$$GetStatComponent @180ed20c0` (petite,
+   Vécu #152 : xrefs de `DAT_1831b6fc8` → `UnitExtensions$$IdunBattle.Entities.UnitExtensions$$GetStatComponent` (petite,
    un `switch(statType)`) → le token n'apparaît QUE dans `case 3` ⇒ c'est le composant du
    StatType 3 ; l'enum `StatType` (dump.cs) donne `Defense = 3`. Patterns à connaître :
    - `FUN_1801f2030(&DAT_...)` en tête de fonction = **lazy-init metadata** — l'ORDRE du bloc ne
@@ -246,7 +245,7 @@ champ d'une struct par valeur. Dans l'ordre, chaque étape est bon marché :
 Le port Python d'un mécanisme natif doit **coller le plus possible à la structure du code du jeu** :
 
 - **1:1 classe native → module, méthode native → fonction homonyme**, avec la **VA citée** en
-  commentaire (ex. `# DamagePrediction.GetBaseDamageFix64 @181030ba0`).
+  commentaire (ex. `# IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageFix64`).
 - **Validable méthode par méthode** contre le natif — pas de black-box ni de cache d'outputs.
 - **Pourquoi** : c'est ce qui rend le moteur fidèle ET modifiable. Une structure qui diverge du natif
   devient impossible à valider finement et à faire évoluer.
@@ -277,8 +276,7 @@ ou une structure quand une contrepartie native existe.**
   Le jeu factorise presque toujours via UN primitive nommé (souvent un sélecteur `DSLFactory`) — que le
   port a **souvent DÉJÀ** (`engine/dsl/selectors.py`, `nodes.py`) mais que les abilities court-circuitent
   avec un check inline. Au 2ᵉ site, S'ARRÊTER et router les deux par le primitive partagé + UNE table
-  d'enum. Vécu (feedback user) : `UnitsWithoutTrait(0x1b=Steppable)` (natif `DSLFactory.UnitsWithoutTrait
-  @180e01040`) porté 2× à la main (`ArcaneShield` triggers.py + `GetEmRuntz` spawn.py) via `"Steppable" in
+  d'enum. Vécu (feedback user) : `UnitsWithoutTrait(0x1b=Steppable)` (natif `IdunBattleLogic.Entities.DSLFactory$$UnitsWithoutTrait`) porté 2× à la main (`ArcaneShield` triggers.py + `GetEmRuntz` spawn.py) via `"Steppable" in
   ctx.traits`, avec le mapping `UnitTrait` id→nom épars (`TRAIT_STEPPABLE`, `# 0x_ non mappé`, `0xd inconnu`,
   `0x1a=Imperial`) — au lieu d'UNE table `UnitTrait` (enum dump.cs) + un helper `has_trait`/`units_without_trait`.
   ⚠ piège : `UnitTrait` et `EffectType` sont deux enums DISTINCTS de même valeur (27 = Steppable vs Taunted)
@@ -290,7 +288,7 @@ ou une structure quand une contrepartie native existe.**
   Nuance port **eager** : on résout les feuilles puis on combine → l'arithmétique triviale (`Sum`=`+`)
   NE doit PAS être un wrapper inutile ; le socle générique ne garde que le NON-trivial
   (géométrie/ciblage/état runtime). ⚠ **Ghidra MISLABEL les ctors de nœuds gshared** (le ctor de
-  `DSLFactory.Sum @180dfc200` s'affiche `HasUsedActiveAbilityThisTurnTrigger$$.ctor`) → sémantique
+  `IdunBattleLogic.Entities.DSLFactory$$Sum` s'affiche `HasUsedActiveAbilityThisTurnTrigger$$.ctor`) → sémantique
   lue via la STRUCTURE (pointeur de classe, args, arithmétique), JAMAIS via les noms.
 - **Pas de `getattr(state, "x", default)` défensif** pour des attributs garantis (`__slots__` +
   `__init__`) — l'accès direct est correct et échoue plus fort en cas de bug.
@@ -309,8 +307,7 @@ JAMAIS un raccourci qui court-circuite un mécanisme GÉNÉRIQUE natif qu'on aur
 - **Miroir du dispatch natif** : per-ability → 1 classe native ⇒ registre par **id** ; per-effet → 1
   classe native ⇒ **factory par nom** ; condition de trait/profil/faction ⇒ gate
   `HasTrait`/`DamageProfileIs`/`IsSameFaction` (par enum/trait, PAS par nom d'unité). Si le natif a
-  UNE fonction générique (ex. `RepairPlaybook @181187c00`, `CalculateBaseDamageWithAllModifiers
-  @18102d3f0`), le port passe par CE générique — il ne hardcode pas les cas un par un.
+  UNE fonction générique (ex. `RepairPlaybook IdunBattle.AI.Playbook.Common.RepairPlaybook$$.ctor`, `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`), le port passe par CE générique — il ne hardcode pas les cas un par un.
 - **INTERDIT le substring de nom** (`"Repair" in name`, `"Heal" in name`) comme DISCRIMINANT : il
   false-matche (ex. `NanoscarabRepairProtocols` capté par `"Repair"`, mauvais routage) — utiliser
   l'**id / enum exact**. (Le substring reste OK pour une NORMALISATION de clé documentée, ex.
@@ -329,20 +326,20 @@ JAMAIS un raccourci qui court-circuite un mécanisme GÉNÉRIQUE natif qu'on aur
 
 L'IA native = un **bucket utility-maximizer** : `PickNextUnit` → par-ability `<Ability>Playbook` →
 `argmax` d'utilité parmi les actions LÉGALES. Le dégât PRÉDIT par-ability alimente le scoring
-(`CalculateActionUtility @181406ee0` → `CalculateUtilityFromPredictions @181407890` = `Σ
+(`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility` → `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions` = `Σ
 CalculateUtilityFromDamageEvent`). Registres du port : `engine/playbook` + `engine/services`.
 
 **L'oracle du dégât per-ability = le playbook natif, PAS le preview.** Hiérarchie des mesures :
 
 1. **`aiPlaybookPredict {runnerId, unitId, targetId, abilityType[, level, multiplier]}`** (RPC #102) =
    l'oracle DIRECT : invoque `<Ability>Playbook.MakeDamagePredictions` natif (ex. PlasmaCannonPlaybook
-   `@181150b10`, ALoki_NormalAttackPlaybook `@181372730`) et rend la liste `ProbableDamageEvent`
+   `IdunBattle.AI.Playbook.Loki.PlasmaCannonPlaybook$$MakeDamagePredictions`, ALoki_NormalAttackPlaybook `IdunBattle.AI.Playbook.Loki.ALoki_NormalAttackPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$MakeDamagePredictions`) et rend la liste `ProbableDamageEvent`
    (target, healthDmg min/max, appliedHits, probability). C'est CE que l'IA score. Varier
    `{level, multiplier}` SÉPARE les hypothèses de niveau. Tuile COURANTE seulement (bouger l'unité
    pour une autre position).
 2. **Tour de décision IA OBSERVÉ** (`modifierObserveInstall` → `Reset` → `aiPlayByUnit` →
    `modifierObserveStatus`) = la décomposition PAR ÉTAGE de ce dégât (cf. §3).
-3. **⚠ `aiPredict` (= `DamagePredictionQuery.GetAllPredictions @181090f50`) N'EST PAS l'oracle
+3. **⚠ `aiPredict` (= `IdunBattle.Core.Services.DamagePredictionQuery$$GetAllPredictions`) N'EST PAS l'oracle
    playbook** : c'est le **PREVIEW decisionView**, Attack-based QUEL QUE SOIT l'abilityType (vérifié
    cache ET `fresh:true`). Une égalité `aiPredict(special)==aiPredict(normale)` ne prouve RIEN (faux
    verdict #96 : PlasmaCannon routé Attack-based à tort). Tuile invalide → fallback
@@ -353,9 +350,8 @@ CalculateUtilityFromDamageEvent`). Registres du port : `engine/playbook` + `engi
 
 **Base per-ability = l'AbilityState PROPRE de l'ability, pas le canal global** (#100). Chaque entrée
 `ActiveAbilityComponent` porte son couple `{Level, VariableMultiplierPercentage}` (`_abilityState
-@0x4c`, `get_AbilityState @180f8fc40` : Override `@0x58` prime), capté par `combatSnapshot.abilityStates`.
-C'est CE couple que `MakeDamagePredictions` reçoit (5ᵉ arg) et que `TryGetVariableArrayForLevel
-@181577510` consomme (idx = `Level.ToZeroBasedIndex` clampé ; `Fix64.Round(v × mult/100)` par entrée
+@0x4c`, `IdunBattle.Entities.Components.ActiveAbility$$get_AbilityState` : Override `@0x58` prime), capté par `combatSnapshot.abilityStates`.
+C'est CE couple que `MakeDamagePredictions` reçoit (5ᵉ arg) et que `IdunBattle.Configuration.AbilityConfiguration$$TryGetVariableArrayForLevel` consomme (idx = `Level.ToZeroBasedIndex` clampé ; `Fix64.Round(v × mult/100)` par entrée
 si var ∈ `variablesAffectedByRarityBonus`). Le canal global `unitConfig.activeAbilityLevel ×
 abilityVariablesMultiplier` est un AUTRE couple (mesuré u80 PlasmaCannon : per-ability → 1396 vs
 global → 1594, faux). Cas d'école : `docs/rl/playbook/prediction.md` « MAJ #100 + #102 ».
@@ -371,7 +367,7 @@ Deux chemins distincts, registres distincts (cf. l'intro). Confirmer l'un NE cou
   divergence d'état qui s'ensuit est INVISIBLE → attribuée à tort au bruit RNG ou à un autre
   mécanisme. **Faute déjà commise** : SpiritLeech (1104) lourdement travaillé côté DÉCISION
   (#84/#86/#90) mais JAMAIS exécuté en combat — no-op muet non détecté jusqu'à #93.
-- **Archi runner** : pipeline `Apply @180e34bf0` (gate → pre → record → post) ; messages = visitor ;
+- **Archi runner** : pipeline `IdunBattle.Runner.IdunRunner$$Apply` (gate → pre → record → post) ; messages = visitor ;
   ~80 `Operations` = mutateurs ECS atomiques ; cascade LIFO inline + FIFO deferred. Map :
   `docs/rl/runner-engine.md`. Validation = **replay-diff vs live**.
 - **Doctrine** :

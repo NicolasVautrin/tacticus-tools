@@ -1,5 +1,5 @@
 """#149 slice-15 : OnFireDamage (pose du FEU on-hit, `Damage.Loki`) MIGRATION vers l'arbre DSL
-`on_fire_damage_tree()` (mirror 1:1 de `OnFireDamageAbility.CreateBehaviour @1811c3a60`, RE decompile).
+`on_fire_damage_tree()` (mirror 1:1 de `IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateBehaviour`, RE decompile).
 
 Arbre natif (noeud DSL UNIQUE) :
     AddEffect( 5 (FireEffect), source = AbilityStateReference, target = Tiles(target@0x178) )

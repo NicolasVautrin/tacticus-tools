@@ -1,24 +1,24 @@
 """DamageUtility — barème de dégât FIDÈLE (RE ghidra gqfc5mff6c, doc §13.7). UNE CLASSE par feuille (nom NATIF).
 
-DamageDealt(35) = `IdunBattle.AI.Utilities.DamageUtility` (@1810cf370, TypeDefIndex 12112).
-- `.cctor` (@1810cf2e0) : **W_damage = Fix64(0x50) = 80**, **W_remaining = Fix64(0x14) = 20**.
-- `<EvaluateAttackInSteps>d__2.MoveNext` (@1810e2280) — RE LECTURE INTÉGRALE (2026-07-02) :
+DamageDealt(35) = `IdunBattle.AI.Utilities.DamageUtility` (IdunBattle.AI.Utilities.DamageUtility$$.ctor, TypeDefIndex 12112).
+- `.cctor` (IdunBattle.AI.Utilities.DamageUtility$$.cctor) : **W_damage = Fix64(0x50) = 80**, **W_remaining = Fix64(0x14) = 20**.
+- `<EvaluateAttackInSteps>d__2.MoveNext` (IdunBattle.AI.Utilities.DamageUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext) — RE LECTURE INTÉGRALE (2026-07-02) :
     hAvg        = Avg(AccurateHealthDamage@0x58) ; si LimitedByMinHp@0xB0 -> CurrentHealth@0x0
     sAvg        = Avg(AccurateShieldDamage@0x78)                        # bouclier COMPTE dans l'utilité
     D           = hAvg + sAvg
-    combinedMax = (target.MaxHealth + 1) + (GetShield(target) + 1)     # boss : config 0xa9 (@1810ce8a0)
-    ⚠ #45b' : MaxHealth = `GetStat(target, Health=5, StatPart=2, null)` (relu @1810e2280) = l'agrégat
+    combinedMax = (target.MaxHealth + 1) + (GetShield(target) + 1)     # boss : config 0xa9 (IdunBattle.AI.Utilities.DamageUtility$$CombinedMax)
+    ⚠ #45b' : MaxHealth = `GetStat(target, Health=5, StatPart=2, null)` (relu IdunBattle.AI.Utilities.DamageUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext) = l'agrégat
     base+modifications (clamp cape) — PAS le champ struct MaximumValue@0x14 (observeBattle.hpMax).
     Le `target_max_hp` passé à `evaluate` doit être ce max EFFECTIF (capteur combatSnapshot.healthMax,
     overlay dans context.build) ; vécu 777 s15 : bump TwistedScience +2992 -> 2.8836 exact vs 2.3755.
-    remaining   = (target.CurrentHealth + 1) + (GetShield(target) + 1) # GetRemainingHealth @1810cee40
+    remaining   = (target.CurrentHealth + 1) + (GetShield(target) + 1) # IdunBattle.AI.Utilities.DamageUtility$$GetRemainingHealth
     u_damage    = Clamp(D / combinedMax, 0, 1) * 80
     u_remaining = (1 - Clamp((remaining - D) / combinedMax, 0, 1)) * 20
     u           = u_damage + u_remaining ;  *-1 si friendly-fire (cible = ami)
 
-KillUnit(36) (`KillUnitUtility` @1810cff10 ; @1810e1a90) : +DefinitelyKill(BC 100) si WillBeKill,
+KillUnit(36) (`KillUnitUtility` IdunBattle.AI.Utilities.KillUnitUtility$$.ctor ; IdunBattle.AI.Utilities.KillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext) : +DefinitelyKill(BC 100) si WillBeKill,
   +PossibleKill(BC 50) si MightBeKill ; 0 si Steppable ; *-1 si friendly-fire.
-OverkillUnit(37) (`OverkillUnitUtility` @1810d0200 ; @1810e1ed0) : +DefinitelyOverkill(BC 40) si
+OverkillUnit(37) (`OverkillUnitUtility` IdunBattle.AI.Utilities.OverkillUnitUtility$$.ctor ; IdunBattle.AI.Utilities.OverkillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext) : +DefinitelyOverkill(BC 40) si
   WillBeOverkill, +PossibleOverkill(BC 15) si MightBeOverkill ; ADDITIONNÉ (un kill garanti+overkill est
   PRÉFÉRÉ = certitude) — l'OPPOSÉ de l'ancien `attack_utility`.
 
@@ -44,13 +44,13 @@ def _clamp01(x: float) -> float:
 
 
 class DamageUtility(BaseUtility):
-    """`DamageUtility` (@1810cf370, TypeDefIndex 12112 ; UtilityType.DamageDealt=35) — le LEAF DamageDealt
+    """`DamageUtility` (IdunBattle.AI.Utilities.DamageUtility$$.ctor, TypeDefIndex 12112 ; UtilityType.DamageDealt=35) — le LEAF DamageDealt
     (le NOM natif de la classe est `DamageUtility`, PAS `DamageDealtUtility`). Corps = `<EvaluateAttackInSteps>
-    d__2.MoveNext @1810e2280`. `GetHealthDamage`/`GetShieldDamage` = méthodes natives (VA citées)."""
+    IdunBattle.AI.Utilities.DamageUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext`. `GetHealthDamage`/`GetShieldDamage` = méthodes natives (VA citées)."""
     UTILITY_TYPE = int(UtilityType.DamageDealt)  # 35
 
     def get_health_damage(self, pred) -> float:
-        """`DamageUtility.GetHealthDamage @1810cec60` : Avg(AccurateHealthDamage@0x58) ; si
+        """`IdunBattle.AI.Utilities.DamageUtility$$GetHealthDamage` : Avg(AccurateHealthDamage@0x58) ; si
         `LimitedByMinHp@0xB0` (dégât plafonné par une règle min-HP) -> CurrentHealth@0x0 entier."""
         if pred.get("limitedByMinHp"):
             return float(pred.get("hpBefore") or 0)
@@ -59,7 +59,7 @@ class DamageUtility(BaseUtility):
         return (dmin + dmax) / 2.0
 
     def get_shield_damage(self, pred) -> float:
-        """`DamageUtility.GetShieldDamage @1810cf080` : Avg(AccurateShieldDamage@0x78). 0 si le
+        """`IdunBattle.AI.Utilities.DamageUtility$$GetShieldDamage` : Avg(AccurateShieldDamage@0x78). 0 si le
         prédicteur n'a pas splitté (cible sans bouclier)."""
         smin = pred.get("shieldDmgMin") or 0
         smax = pred.get("shieldDmgMax") or 0
@@ -76,14 +76,14 @@ class DamageUtility(BaseUtility):
         if combined_max <= 0:
             return 0.0
         dmg = self.get_health_damage(pred) + self.get_shield_damage(pred)
-        remaining = (hp + 1) + (shield + 1)          # GetRemainingHealth @1810cee40
+        remaining = (hp + 1) + (shield + 1)          # IdunBattle.AI.Utilities.DamageUtility$$GetRemainingHealth
         u_damage = _clamp01(dmg / combined_max) * W_DAMAGE
         u_remaining = (1.0 - _clamp01((remaining - dmg) / combined_max)) * W_REMAINING
         return u_damage + u_remaining
 
 
 class KillUnitUtility(BaseUtility):
-    """`KillUnitUtility` (@1810cff10, TypeDefIndex 12124 ; UtilityType.KillUnit=36) ; @1810e1a90 :
+    """`KillUnitUtility` (IdunBattle.AI.Utilities.KillUnitUtility$$.ctor, TypeDefIndex 12124 ; UtilityType.KillUnit=36) ; IdunBattle.AI.Utilities.KillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext :
     DefinitelyKill si WillBeKill (killSure), sinon PossibleKill si MightBeKill (kill). 0 sinon.
     (Steppable/friendly-fire non gérés : le moteur ne cible que des ennemis vivants.)"""
     UTILITY_TYPE = int(UtilityType.KillUnit)  # 36
@@ -99,9 +99,9 @@ class KillUnitUtility(BaseUtility):
 
 
 class OverkillUnitUtility(BaseUtility):
-    """`OverkillUnitUtility` (@1810d0200, TypeDefIndex 12129 ; UtilityType.OverkillUnit=37) ; @1810e1ed0 :
-    `WillBeOverkill` @18102ba40 (borne MIN) -> DefinitelyOverkill(40) ; sinon `MightBeOverkill` @18102b940
-    (borne MAX) -> PossibleOverkill(15). Les deux = `DamagePrediction.IsOverkill @181032db0` : le dégât est
+    """`OverkillUnitUtility` (IdunBattle.AI.Utilities.OverkillUnitUtility$$.ctor, TypeDefIndex 12129 ; UtilityType.OverkillUnit=37) ; IdunBattle.AI.Utilities.OverkillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext :
+    `IdunBattle.Core.Services.DamagePredictionResult$$WillBeOverkill (borne MIN) -> DefinitelyOverkill(40) ; sinon `IdunBattle.Core.Services.DamagePredictionResult$$MightBeOverkill
+    (borne MAX) -> PossibleOverkill(15). Les deux = `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` : le dégât est
     un KILL **et** l'over-shoot `(dmg − hp)/hp × 100 >= overkillDmgPctOfHealth` (=100 => dmg >= 2×hp), OU
     `ForceOverkill@0xB2` + dmg>=hp. ⚠ #84 : le natif lit le dégât santé **BRUT** (@0x24/@0x28, NON capé par
     HP) — le port historique lisait `AccurateHealthDamage` CAPÉ à HP (`min(dmg,hp) > hp` = TOUJOURS FAUX)
@@ -124,7 +124,7 @@ class OverkillUnitUtility(BaseUtility):
             raw_min, raw_max = pred.get("healthDmgMin") or 0, pred.get("healthDmgMax") or 0
         thr = _overkill_threshold_pct()
         allow = 1 if pred.get("forceOverkill") else 0
-        # #54A : `WillBeOverkill @18102ba40` lit le scénario BLOCK `list[0]@0x50` quand présent
+        # #54A : `IdunBattle.Core.Services.DamagePredictionResult$$WillBeOverkill` lit le scénario BLOCK `list[0]@0x50` quand présent
         # (comme WillBeKill) — la borne « garantie » compte le block du défenseur. MightBeOverkill
         # reste sur le rawMax scalaire.
         _bmin = pred.get("blockRawMin")

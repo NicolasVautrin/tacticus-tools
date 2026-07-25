@@ -1,18 +1,18 @@
 #!/usr/bin/env python
 """Probe #84 -- LetTheGalaxyBurn (trait 1058 -> triggered 1482 -> effet 1477) volet 1 : le COUP ADDITIONNEL.
 
-Mesure GROUND-TRUTH des DEUX branches du gate de `LetTheGalaxyBurnEffect.CreateAdditionalHits @180f54e30`
+Mesure GROUND-TRUTH des DEUX branches du gate de `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits`
 (`OwnerIsCaster & (TargetHasTileEffect | IsPersistentData(0x5ca))`) :
 
   A. cible sur une tuile SANS status-effect -> `TargetHasTileEffect` FAUX, seule la pose 33%
-     (`LetTheGalaxyBurnAbility.CreateTrigger @1811076f0` = `On(5=PreAttack) & OwnerIsCaster &
+     (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateTrigger` = `On(5=PreAttack) & OwnerIsCaster &
      Maybe(ConfigConst 0x2a = LetTheGalaxyBurnChancePct=33) & !HasTileStatusEffect(targets)`) peut
      armer le coup -> nb de coups = base OU base+1, frequence ~33%.
   B. cible sur une tuile AVEC status-effect -> `TargetHasTileEffect` VRAI -> base+1 SYSTEMATIQUE, et
      AUCUNE pose (le trigger de pose exige `!HasTileStatusEffect`).
 
 Le tile-effect de la branche B est pose NATIVEMENT par le volet 2 du meme kit
-(`LetTheGalaxyBurn_ResetAbility.CreateBehaviour @1811078a0` -> `AddEffect(0x5c4=1476 DespoiledGround)`
+(`IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour` -> `AddEffect(0x5c4=1476 DespoiledGround)`
 sur la tuile de chaque cible quand le flag etait pose) : il suffit d'attaquer jusqu'a ce qu'il apparaisse.
 
 Instrument : nb d'events de degat (`Amount`) de l'attaque NORMALE, croise avec `tileMeta` de la tuile

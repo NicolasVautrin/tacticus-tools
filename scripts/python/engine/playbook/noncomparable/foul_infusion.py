@@ -8,16 +8,16 @@ from ._base import NCContext, NonComparablePlaybook, _sweep_origin_first
 
 
 class FoulInfusionPlaybook(NonComparablePlaybook):
-    """`FoulInfusionPlaybook.EvaluateNonComparable @18113c670` (id 0x40e=1038, deathPutrifier).
-    Buff SELF-CAST : `FoulInfusionAbility.ExecuteBehaviour @1811dffb0` applique l'effet 0x432
+    """`IdunBattle.AI.Playbook.Loki.FoulInfusionPlaybook$$EvaluateNonComparable` (id 0x40e=1038, deathPutrifier).
+    Buff SELF-CAST : `IdunBattleLogic.Entities.Abilities.Active.Loki.FoulInfusionAbility$$ExecuteBehaviour` applique l'effet 0x432
     (FoulInfusion_ExtraHits) a SOI + amis Nurgle voisins (`SurroundingFriends -> UnitsWithTrait(0x7ea)
     + self`) puis attaque un ennemi adjacent aleatoire. La cible de DECISION = le CASTER (param_2).
 
-    Structure native (mirror EvaluateNonComparable) : Bucket min = `Fix64.FromInt(2)` (cctor @18113c8f0).
+    Structure native (mirror EvaluateNonComparable) : Bucket min = `Fix64.FromInt(2)` (IdunBattle.AI.Playbook.Loki.FoulInfusionPlaybook$$.cctor).
     Par position balayee :
-      iVar2 = Count(`GetEligibleTargetsEntities(MainTile=position)` @18111ead0)   # amis eligibles, SELF EXCLU
+      iVar2 = Count(`IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsEntities(MainTile=position))   # amis eligibles, SELF EXCLU
       if iVar2 >= 2:
-          iVar3 = Count(`GetAdjacentEnemies(position)` slot 0x7e @18105af60)
+          iVar3 = Count(`GetAdjacentEnemies(position)` slot 0x7e IdunBattle.Core.Services.BattleQuery$$GetAdjacentEnemies)
           iVar2 += (iVar3 > 0)                                                    # +1 si un ennemi adjacent
       util = iVar2 ; GenerateAction(position, param_2=CASTER, Fix64(iVar2)) + AddAction
     `GetEligibleTargetsEntities` = `GetValidTargets` slot 0x41 (ability targeting = amis Nurgle, range 1)
@@ -37,9 +37,9 @@ class FoulInfusionPlaybook(NonComparablePlaybook):
       d'amis (filtre trait Nurgle 0x7ea) vient de `abilityTargets` (natif) -> pas de trait code en dur.
     - cible = SOI (`ctx.uid`) = param_2 du GenerateAction (le caster). VALIDE LIVE (miss tgt=91=self).
     - MIN_UTILITY=2 ; sweep `_sweep_origin_first` (origine d'abord, argmax STRICT `>`) -> reste en place au
-      tie (comme les heals #76). ctor @18113c960 = `NonComparablePlaybook(0x40e)` ; PRIORITY=0 (#115)."""
+      tie (comme les heals #76). IdunBattle.AI.Playbook.Loki.FoulInfusionPlaybook$$.ctor = `NonComparablePlaybook(0x40e)` ; PRIORITY=0 (#115)."""
     ABILITY_ID = int(ActiveAbilityType.FoulInfusion)  # 1038
-    MIN_UTILITY = 2.0     # cctor @18113c8f0 = Fix64.FromInt(2) -> gate effectif #amis-adj(self exclu) >= 2
+    MIN_UTILITY = 2.0     # IdunBattle.AI.Playbook.Loki.FoulInfusionPlaybook$$.cctor = Fix64.FromInt(2) -> gate effectif #amis-adj(self exclu) >= 2
     PRIORITY = 0
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:

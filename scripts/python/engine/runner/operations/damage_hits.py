@@ -3,8 +3,7 @@ lignes, tache #60 -- deplacement VERBATIM, zero changement de comportement).
 
 Contenu :
   - `HitDamage` : struct {Min, Max} du degat d'UN coup (`IdunBattle.Core.HitDamage`).
-  - `_DamageHitsMixin` : la boucle PAR COUP partagee `_run_hits` (`AttackDamageOperation.ExecuteHit
-    @180e5eff0`, attaque normale ET ability), heritee telle quelle par `AttackDamageOperation`
+  - `_DamageHitsMixin` : la boucle PAR COUP partagee `_run_hits` (`IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`, attaque normale ET ability), heritee telle quelle par `AttackDamageOperation`
     (`AttackDamageOperation._run_hits` resout via MRO ; appele aussi par `additional_hits`).
 
 Module FEUILLE : ne reference que des fonctions de `services` + ses arguments -> AUCUNE dependance
@@ -40,7 +39,7 @@ class HitDamage:
         return cls(mm.min, mm.max)
 
     def get_damage(self, rng: IntBasedMersenneTwister, use_midpoint: bool = False) -> int:
-        """`HitDamage.GetDamage` @181007bf0.
+        """`IdunBattle.Core.HitDamage$$GetDamage.
 
           • Min == Max            → Min            (AUCUN tirage RNG)
           • use_midpoint (prédiction) → (Min+Max)/2 (troncature entière, aucun tirage)
@@ -80,17 +79,17 @@ class _DamageHitsMixin:
         #62c GetStuckIn (COMBAT) : si `bonus_hit_chance` non None (attaquant porteur GetStuckIn + cible à
         <=2 hex, cf. `getstuckin_combat_chance`), APRÈS crit+spread+block de chaque coup d'INDEX IMPAIR
         (0-based) on tire 1 `next_bool(chance)` — mirror du behaviour `Maybe(AddBonusHits, GetBonusHitChance)`
-        (`CreateBehaviour @180f83280`, roll `MaybeBehaviour.Execute @180fc9dc0`) évalué dans
-        `EvaluateAfterHitTriggers @180e25fc0` (dernière instr. de `ExecuteHit`). Chaque SUCCÈS d'un coup de
-        BASE ajoute 1 coup bonus DÉFÉRÉ (FIFO, `ExecuteAdditionalHitsWithoutDamageProfileType @180e5e7c0`,
+        (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$CreateBehaviour`, roll `IdunBattle.Entities.Behaviours.MaybeBehaviour$$Execute`) évalué dans
+        `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` (dernière instr. de `ExecuteHit`). Chaque SUCCÈS d'un coup de
+        BASE ajoute 1 coup bonus DÉFÉRÉ (FIFO, `IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType`,
         gate natif `attack.count==1 && !additionalHitsFlag`) exécuté APRÈS la boucle de base, MÊME profil
         réduit. Un coup bonus d'index impair RE-tire un Maybe (tirage consommé) mais son succès est IGNORÉ
         (anti-récursion). `bonus_hit_chance is None` (défaut) => strict no-op (rétro-compat totale).
 
         `force_overkill` (défaut False) = flag « always overkilled » d'un `AttackWithAttackDamage` natif
-        (Nullable<bool>=true, 8e arg de `DSLFactory.AttackWithAttackDamage @180de9fb0` -> `AttackDamageBehaviour`
-        -> `ApplyTraitDamageLimitsToDamage @18102c650`) : force `overkill=True` a CHAQUE coup dans les 3 sites de
-        calcul `_ovk`, ce qui BYPASSE le cap Resilient (`ApplyResilientTraitDamageLimit @18102c3a0` :
+        (Nullable<bool>=true, 8e arg de `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -> `AttackDamageBehaviour`
+        -> `IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage`) : force `overkill=True` a CHAQUE coup dans les 3 sites de
+        calcul `_ovk`, ce qui BYPASSE le cap Resilient (`IdunBattle.Core.Services.DamagePrediction$$ApplyResilientTraitDamageLimit` :
         `if not overkill: cap = curHP-1`). N'affecte QUE le cap Resilient (member-cap/boss/impervious ne lisent
         PAS `overkill`) -> NO-OP sur cible non-Resilient (zero regression) ET aucune conso RNG supplementaire
         (change seulement la VALEUR capee, pas le nombre de tirages). Porteur unique : FlailSwing (1042).
@@ -101,7 +100,7 @@ class _DamageHitsMixin:
         rolls: list[int] = []
         per_hit: list[int] = []
         failed_block: set = set()          # ids de sources de block AYANT ECHOUE (accumule ENTRE coups, #72)
-        # #91 : réduction CAPÉE défenseur (GuardianOrganism) = scalaire FLAT pré-évalué (natif @18102d3f0) où
+        # #91 : réduction CAPÉE défenseur (GuardianOrganism) = scalaire FLAT pré-évalué (natif IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers) où
         # D = CurrentDamage = CENTRE des bornes réduites (post pierce/armure/%-mods) -> soustrait IDENTIQUE à
         # chaque coup, PAS 33%×valeur-tirée (confirmé LIVE #91). Un flat par type de coup (non-crit/crit).
         _capped_flat_nc = capped_reduction_flat((hit_nc.min + hit_nc.max) / 2.0, capped_reductions) \
@@ -112,7 +111,7 @@ class _DamageHitsMixin:
 
         def _one_hit_tail(idx: int, crit: bool, roll: int) -> bool:
             """Queue PARTAGÉE d'un coup : split combat (sub-op 0x42) + comptabilité + Maybe GetStuckIn.
-            #72 : mirror `CalculateBlockChances(param_4=failedList)` @181002350 -> une source de block
+            #72 : mirror `IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances(param_4=failedList) -> une source de block
             AYANT ECHOUE a un coup precedent est EXCLUE des coups suivants (Contains(failedList, id)) ;
             une source qui REUSSIT reste jouable (ApplyRandomBlockDamage return sans AddFailedBlockId).
             Donc une source est jouee chaque coup JUSQU'A son 1er echec, puis plus (aucun tirage). Preuve
@@ -143,19 +142,19 @@ class _DamageHitsMixin:
             si le Maybe a RÉUSSI (coup bonus à spawner) — le caller décide de l'exécuter (base) ou l'ignore
             (bonus, anti-récursion).
 
-            CONSOMMATION RNG PER-COUP — mirror `AttackDamageOperation.ExecuteHit @180e5eff0` (per-coup
+            CONSOMMATION RNG PER-COUP — mirror `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (per-coup
             PARTAGÉ attaque normale ET ability AttackWithAttackDamage ; cas fable rngcrit-1202, 2026-07-23) :
-              1. `HitDamage.GetDamage @181007bf0` sur le STRUCT d'entrée — tirage SSI struct.min != max :
+              1. `IdunBattle.Core.HitDamage$$GetDamage` sur le STRUCT d'entrée — tirage SSI struct.min != max :
                  - NORMALE : struct DÉGÉNÉRÉ (Attack,Attack) -> 0 tirage (la vraie valeur = étape 4) ;
                  - ABILITY bounds-mode : struct = [minDmg,maxDmg] config -> 1 tirage = LA VALEUR (brut).
-              2. `RollCritical` slot 0xa -> `DamagePrediction.RollCritical @1810387a0` : gate `cc<1 ->
-                 false SANS tirage` (le NextBool brut `DamageCalculations.RollCritical @1810057b0` n'est
+              2. `RollCritical` slot 0xa -> `IdunBattle.Core.Services.DamagePrediction$$RollCritical` : gate `cc<1 ->
+                 false SANS tirage` (le NextBool brut `IdunBattle.Core.Services.DamageCalculations$$RollCritical` n'est
                  atteint QU'À travers ce gate) + bypass crit-garanti (byte +0x2c / buff slot 4) qui SKIPPE
                  le roll. Il n'existe AUCUN chemin consommant un tirage crit à cc=0 — ni par vecteur, ni
                  par « éligibilité » : l'éligibilité crit d'une ability se matérialise par cc=0.
-              3. slot 4 `CalculateDamageOperation @18102dc30` : shield-part/armure/caps -> cellules
+              3. slot 4 `IdunBattle.Core.Services.DamagePrediction$$CalculateDamageOperation` : shield-part/armure/caps -> cellules
                  min/max (0 RNG ; les block CHANCES y sont calculées, pas roulées).
-              4. slot 8 `RandomlyResolveMinMaxDamage @181038600` : `Next(min, max+1)` — TOUJOURS 1 tirage
+              4. slot 8 `IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage` : `Next(min, max+1)` — TOUJOURS 1 tirage
                  (AUCUN gate min==max) :
                  - NORMALE : cellules = bornes RÉDUITES (largeur > 1) -> ce tirage EST la valeur ;
                  - ABILITY : cellules DÉGÉNÉRÉES (reduce(rolled), idem) -> tirage GASPILLÉ (largeur 1).
@@ -175,7 +174,7 @@ class _DamageHitsMixin:
                 crit = roll_critical(rng, crit_chance) if crit_enabled else False
                 crits.append(crit)
                 if crit:
-                    # `CalculateCriticalDamage @18102da90` -> `ApplyCritDamage @181000210` : critBonus
+                    # `IdunBattle.Core.Services.DamagePrediction$$CalculateCriticalDamage` -> `IdunBattle.Core.Services.DamageCalculations$$ApplyCritDamage` : critBonus
                     # FLAT sur la valeur ROULÉE, PRE-reduce. Le montant = le SHIFT des bornes crit
                     # (hit_cr = bornes + critDamage, largeurs égales -> même modulo => numériquement ==
                     # l'ancien modèle bornes-décalées).
@@ -194,15 +193,15 @@ class _DamageHitsMixin:
                                                                overkill=_ovk, **limits)
                     _rogne[0] += max(0, _pre - roll)
                 # (4) resolve slot 8 sur la cellule DÉGÉNÉRÉE -> 1 tirage GASPILLÉ, valeur inchangée
-                # (`RandomlyResolveMinMaxDamage @181038600` : Next(v, v+1) SANS gate largeur-1). C'EST le
+                # (`IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage` : Next(v, v+1) SANS gate largeur-1). C'EST le
                 # tirage « fantôme » mesuré par #220/#205 — le fix du désync multi-coups cc=0.
                 # `is_attack_damage_op` = LA FAMILLE DE FACTORY NATIVE (deux operations distinctes) :
-                #   True  = `DSLFactory.AttackWithAttackDamage @180de9fb0` (+overloads @180dea180/350/
+                #   True  = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (+overloads IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage/350/
                 #           520/6b0) -> AttackDamageBehaviour -> AttackDamageOperation.ExecuteHit
-                #           @180e5eff0 -> le resolve slot-8 consomme (2 tirages/coup a cc=0) ;
-                #   False = `DSLFactory.AttackWithAbilityDamage @180de9c90/@180de9dd0 -> core @180de9e50`
-                #           -> AbilityDamageBehaviour -> AbilityDamageOperation.ExecuteHits @180e2a860
-                #           (GetDamage par coup) + CalculateAbilityDamage @18102cb50 (0 RNG) : AUCUN
+                #           IdunBattle.Operations.AttackDamageOperation$$ExecuteHit -> le resolve slot-8 consomme (2 tirages/coup a cc=0) ;
+                #   False = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage/IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage -> core IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`
+                #           -> AbilityDamageBehaviour -> IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits
+                #           (GetDamage par coup) + IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage (0 RNG) : AUCUN
                 #           resolve -> 1 tirage/coup. Mesure live : Stormcaller 3-hit bit-exact SANS
                 #           tirage gaspille (probe_217 PASS pre-fix, FAIL avec un resolve inconditionnel).
                 if is_attack_damage_op:
@@ -211,7 +210,7 @@ class _DamageHitsMixin:
             crit = roll_critical(rng, crit_chance) if crit_enabled else False
             crits.append(crit)
             hd = hit_cr if crit else hit_nc
-            # #67 : etage LIMITES du natif (`ApplyTraitDamageLimitsToDamage @18102c650`) — MEME etage
+            # #67 : etage LIMITES du natif (`IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage`) — MEME etage
             # partage que la prediction (`services/trait_damage_limits.py`, bit-exact 1357 s16) :
             # member-cap Swarm (443/443/444/444, live run 60102 + probe 67061 vs scarab plein) +
             # Resilient HP-1 (porte overkill) + bypass Blast (HitsMultipleMembers, probe 67071).
@@ -219,14 +218,14 @@ class _DamageHitsMixin:
             # `limits_hp - total`). Deux ORDRES natifs distincts, discrimines live (probe 67101) :
             #  - ATTAQUE (mode 1) : les caps s'appliquent aux BORNES min/max PUIS le tirage se fait
             #    DANS la plage capee (routine per-coup slot-4 -> resolution slot-8 d'`ExecuteHit
-            #    @180e5eff0` ; le core cape *param_3/*param_4 = cellules min et max). Preuve : tour
+            #    IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` ; le core cape *param_3/*param_4 = cellules min et max). Preuve : tour
             #    letal live [505,541,602,206] — coup 3 tire 602 dans [lo, cap=808] (largeur CAPEE :
             #    le meme tirage donnait >=809 en pleine largeur), coup 4 degenere [206,206] = rem-1.
-            #    Le tirage est TOUJOURS consomme (RandomlyResolveMinMaxDamage @181038600 appelle
+            #    Le tirage est TOUJOURS consomme (IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage appelle
             #    Next(min,max+1) SANS gate min==max — largeur 1 = 1 tirage quand meme) -> les caps
             #    TOTAUX (swarm : cap < lo, plage degeneree) restent bit-exacts en consommation.
             #  - ABILITY/splash (mode 2) : cap SCALAIRE post-tirage — `CalculateAbilityDamage
-            #    @18102cb50` recoit le degat DEJA resolu et passe la MEME cellule deux fois
+            #    IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` recoit le degat DEJA resolu et passe la MEME cellule deux fois
             #    (`&dmg, &dmg` : degenere par construction).
             # PORTE OVERKILL (probes 67072/67081/67111/67201) : accum du core = `(param_11 -
             # param_9) + param_12 + *param_3` (cellule MIN pre-cap) avec param_11 = HP AU DEBUT DE

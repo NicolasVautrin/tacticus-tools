@@ -1,18 +1,18 @@
 """SanctorumMissile (actif 1062, adeptMorvenn = Morvenn Vahl, Sisterhood) PORT -> arbre DSL 2-bandes,
 confronte au LIVE.
 
-`SanctorumMissileAbility$$ExecuteBehaviour @1812041d0` (DECOMPILE, mirror 1:1 -- cf. `abilities/sisterhood.py`) =
+`SanctorumMissileAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour` (DECOMPILE, mirror 1:1 -- cf. `abilities/sisterhood.py`) =
     ExecuteAtomic( op_BitwiseAnd(
         AttackWithAttackDamage(caster, target, MinMaxDamage, Blast, nrOfHits=GetNumberConstant(0x2f)=2),    # MAIN
         AttackWithAttackDamage(caster, GetAdjacentDamageTargetsAll(), MEME MinMaxDamage, Blast,
                                nrOfHits_2=GetNumberConstant(0x32)=1) ), 0x56 )                                # SPLASH
-avec `GetAdjacentDamageTargetsAll @1812044a0` =
+avec `IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$GetAdjacentDamageTargetsAll` =
     Unobscured( self, ( Units(AdjacentTiles(target)) - caster ) + EmptyOrHasSteppableUnit(AdjacentTiles(target)) )
 
 FINDINGS DECOMPILE (VA citees dans sisterhood.py) :
-  - factory native = `AttackWithAttackDamage @180de9fb0` -> native_factory="attack" (2 tirages/coup a cc=0),
-    CLASSIFIE PAR XREFS (call-sites @18120432f/@1812043cf -> @180de9fb0 ; SanctorumMissile ABSENT des xrefs de
-    @180de9c90/@180de9dd0 ability). Piege rngcrit-1202 / tip #2.
+  - factory native = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -> native_factory="attack" (2 tirages/coup a cc=0),
+    CLASSIFIE PAR XREFS (call-sites IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour+0x15f/IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour+0x1ff -> IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage ; SanctorumMissile ABSENT des xrefs de
+    IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage/IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage ability). Piege rngcrit-1202 / tip #2.
   - splash = unites ADJACENTES a la cible (AUCUN filtre d'equipe = FRIENDLY-FIRE, band UNIT `Units(AdjacentTiles(
     target))`) MOINS le CASTER (hex de Morvenn EXCLU), Unobscured depuis le caster. Band TILE EmptyOrHasSteppable
     (tuiles vides/steppables) NON porte -- inerte pour le degat-unite (le frere natif GetAdjacentDamageTargetsUnits

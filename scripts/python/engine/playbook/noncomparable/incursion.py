@@ -9,22 +9,21 @@ from ._base import NCContext, NonComparablePlaybook
 
 
 class IncursionPlaybook(NonComparablePlaybook):
-    """`IncursionPlaybook.EvaluateNonComparable @181144fc0` (id 0x3fd=1021, black/Loki). Summon :
+    """`IdunBattle.AI.Playbook.Loki.IncursionPlaybook$$EvaluateNonComparable` (id 0x3fd=1021, black/Loki). Summon :
     `IncursionAbility` fait apparaitre un Bloodletter (blackSmnBloodletter) sur une tuile ADJACENTE a une
     cible ennemie (rayon 2), qui l'attaque immediatement, et continue a en invoquer (max 6) tant que la
     cible est vivante/a portee/a une tuile libre adjacente. La cible de DECISION = l'ENNEMI eligible de
     plus haut PV COURANT ayant >= 2 tuiles adjacentes libres, mais SEULEMENT si c'est l'ennemi de plus
     haut PV de tout le plateau.
 
-    Structure native (mirror EvaluateNonComparable) : Bucket ctor min = `GetHighestUtility @181145350` =
-    `Max(1, max_E GetStat(E, Health=5, Current))` sur `GetAllEnemies @18111e500` (= PV COURANT de TOUS les
+    Structure native (mirror EvaluateNonComparable) : Bucket ctor min = `IdunBattle.AI.Playbook.Loki.IncursionPlaybook$$GetHighestUtility` =
+    `Max(1, max_E GetStat(E, Health=5, Current))` sur `IdunBattle.AI.Playbook.BasePlaybook$$GetAllEnemies` (= PV COURANT de TOUS les
     ennemis vivants du caster) -> MIN_UTILITY DYNAMIQUE. Par position balayee, enumere
     `GetEligibleTargetsSelectable(MainTile=position)` (ennemis rayon 2) ; pour CHAQUE cible :
       GATE = `GetAdjacentTiles(cible, 1, 1, 1).Count > 1` (slot 0x4e, DAT_18327ff80 = MEME primitive que
-             ScarabHive #56-t1 : tuiles adjacentes LIBRES placables ; `IsValidTarget @1811455c0` = `1 <
+             ScarabHive #56-t1 : tuiles adjacentes LIBRES placables ; `IdunBattle.AI.Playbook.Loki.IncursionPlaybook$$IsValidTarget` = `1 <
              count`) -> il faut >= 2 tuiles libres adjacentes a la cible.
-      si passe -> `util = Fix64.FromInt(GetStat(cible, 5=Health, Current))` (= PV courant, `GetUtility
-                  @181145590` = GetStat(cible, 5)) ; `GenerateAction(position, cible, util)` +
+      si passe -> `util = Fix64.FromInt(GetStat(cible, 5=Health, Current))` (= PV courant, `IdunBattle.AI.Playbook.Loki.IncursionPlaybook$$GetUtility` = GetStat(cible, 5)) ; `GenerateAction(position, cible, util)` +
                   `Bucket.AddAction` (admission util >= min, remplacement STRICT `>`).
 
     CONSEQUENCE du MIN = max-PV-de-TOUS-les-ennemis : util(cible) = PV(cible) <= min TOUJOURS (cible
@@ -44,12 +43,12 @@ class IncursionPlaybook(NonComparablePlaybook):
     - gate par cible = `adjacent_addable_count(pos-cible) >= 2` (primitive ScarabHive : GetAdjacentTiles ∩
       CanAddUnit, occupation = epos U fpos U origine). cibles sans >= 2 tuiles libres SAUTEES.
     - cible = argmax PV parmi les eligibles passant le gate, keep-first ; emise SSI PV >= MIN (== max global).
-    - position = `_first_cast_pos` (origine-preference #76). PRIORITY=0 (#115). ctor @1811456e0 =
-      `NonComparablePlaybook(0x3fd)`. ShouldEvaluate = base @18111fb70 (GetUseProbability=1 -> True)."""
+    - position = `_first_cast_pos` (origine-preference #76). PRIORITY=0 (#115). IdunBattle.AI.Playbook.Loki.IncursionPlaybook$$.ctor =
+      `NonComparablePlaybook(0x3fd)`. ShouldEvaluate = base IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate (GetUseProbability=1 -> True)."""
     ABILITY_ID = int(ActiveAbilityType.Incursion)  # 1021
     MIN_UTILITY = 0.0     # DYNAMIQUE (GetHighestUtility) -> calcule dans generate_candidates
     PRIORITY = 0
-    _MIN_FREE_ADJ = 2     # gate `GetAdjacentTiles(cible,1,1,1).Count > 1` (IsValidTarget @1811455c0)
+    _MIN_FREE_ADJ = 2     # gate `GetAdjacentTiles(cible,1,1,1).Count > 1` (IdunBattle.AI.Playbook.Loki.IncursionPlaybook$$IsValidTarget)
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         if ctx.ability_targets is None or ctx.scene is None:

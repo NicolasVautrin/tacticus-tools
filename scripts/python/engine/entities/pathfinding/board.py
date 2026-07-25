@@ -5,8 +5,8 @@ Source = RPC `boardGraph` (capture LIVE, approche A). Par tuile :
 où `neighbours` = voisins NATIFS via `BattleQuery.GetAdjacentTiles(tile,
 false,false,true)` = graphe géométrique COMPLET (#148 : param3=requireEmptyOrSteppable=0
 inclut les occupées, param4=requireWalkable=0 inclut les murs, param5=allowTemporary=1 ;
-mapping via les CTORs des itérateurs @181070df0/@1810acae0). L'ANCIEN `(true,true,true)` —
-flags de `GetFreeAdjacentTiles @181061650` (tuiles LIBRES) — EXCLUAIT les occupées + murs
+mapping via les CTORs des itérateurs IdunBattle.Core.Services.BattleQuery$$IterateAdjacentTiles/IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles). L'ANCIEN `(true,true,true)` —
+flags de `IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles` (tuiles LIBRES) — EXCLUAIT les occupées + murs
 (bug #148 : graphe amputé). Le board est capté une seule fois par bataille (statique).
 
 Trois modes d'adjacence (la vérité-terrain `aiMovableTiles` tranche lequel est
@@ -21,7 +21,7 @@ fidèle) :
                      col impair→ (-1,-1)(-1,0)(0,-1)(0,1)(1,-1)(1,0)
 
 ⚠ Les MURS sont une PROPRIÉTÉ de tuile (walkable=False), PAS une arête manquante
-(cf. WalkPathfinder.IsValidPathNode @180f2ee50 qui filtre via IsWalkable). Le
+(cf. IdunBattle.Entities.Pathfinding.WalkPathfinder$$IsValidPathNode qui filtre via IsWalkable). Le
 filtrage d'élévation (|Δ|≤1) et d'occupant se fait dans walk_pathfinder, PAS dans
 le graphe (le graphe reste la topologie brute).
 """

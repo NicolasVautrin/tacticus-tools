@@ -1,4 +1,4 @@
-"""`Abilities.Active.Loki.PsykerExtraAttackAbility` (@1812241b0..) — splash « Smite » du trait Psyker.
+"""`Abilities.Active.Loki.PsykerExtraAttackAbility` (IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$CreateBehaviour..) — splash « Smite » du trait Psyker.
 
 1 classe = 1 ability native (VA citée). Cf. `loki/__init__.py` pour le regroupement « Loki »."""
 from __future__ import annotations
@@ -24,7 +24,7 @@ PSYCHIC_PROFILE = "Psychic"
 
 
 def psyker_smite_tree(pct: int, profile: str):
-    """Arbre de `PsykerExtraAttackAbility.CreateBehaviour @1812241b0` (MIRROR 1:1 du DECOMPILE) :
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$CreateBehaviour` (MIRROR 1:1 du DECOMPILE) :
         AttackWithAttackDamage(
             caster     = @0x160,
             targets    = PickRandomly(Damageable(Enemies(caster, AdjacentUnits(target@0x178, 1, 3))), 1),
@@ -46,20 +46,20 @@ def psyker_smite_tree(pct: int, profile: str):
     amount = PercentageOf(Const(pct), StatAmount(Caster(), int(StatType.ATTACK)))   # Direct(pct) x StatAmount(Attack)
     # `ability_type=0x3f5` (1013) : le smite porte l'AbilityOrEffect « kind attaque-normale » (case-34
     # ProbableDamageEvent AbilityOrEffect(1013)) -> threade au payload d'event On(9) after-hit — c'est le
-    # gate de la branche 2 d'`OnNormalAttackOrSmite @180df7c70` (LordOfTempests AddIce #35).
+    # gate de la branche 2 d'`IdunBattleLogic.Entities.DSLFactory$$OnNormalAttackOrSmite` (LordOfTempests AddIce #35).
     return AttackWithAttackDamage(Target(), "Psyker", profile, is_melee=False, amount=amount, hits=1,
                                   ability_type=0x3f5)
 
 
 class PsykerExtraAttackAbility(TriggeredAbility):
-    """Splash « Smite » du trait Psyker (`PsykerExtraAttackAbility`, @1812241b0..).
-    Trigger `On(0x26)=NormalAttack` (@181224420) → fire UNIQUEMENT sur le vecteur attaque-NORMALE
+    """Splash « Smite » du trait Psyker (`PsykerExtraAttackAbility`, IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$CreateBehaviour..).
+    Trigger `On(0x26)=NormalAttack` (IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$CreateTrigger) → fire UNIQUEMENT sur le vecteur attaque-NORMALE
     (`after_hit_normal_attack`), JAMAIS sur le splash/ability (chemin `AbilityDamageOperation`, events {6,8,0x3d}
     sans 0x26) → pas de chain (verdict RE #147/#150)."""
     event_id = EventTriggerType.NormalAttack
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
-        # CreateTrigger@181224420 : OwnerIsActor & IsRangedAttack & DamageProfileIs(Psychic) & NON suppressé.
+        # IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$CreateTrigger : OwnerIsActor & IsRangedAttack & DamageProfileIs(Psychic) & NON suppressé.
         if self.owner_id != ev.actor_id:                       # OwnerIsActor
             return False
         if not ev.ranged or ev.profile != PSYCHIC_PROFILE:     # IsRangedAttack & DamageProfileIs(0xd)
@@ -80,7 +80,7 @@ class PsykerExtraAttackAbility(TriggeredAbility):
         picked = _pick_randomly(state, cands)
         if picked is None:
             return None
-        # behaviour = arbre DSL `psyker_smite_tree()` (mirror 1:1 de CreateBehaviour @1812241b0) :
+        # behaviour = arbre DSL `psyker_smite_tree()` (mirror 1:1 de IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$CreateBehaviour) :
         # AttackWithAttackDamage(target, PercentageOf(StatAmount(Attack), psykerExtraDmg%), Psychic). La feuille
         # (mode `amount`) calcule base Fix64 + route `execute_normal_like` -> MEME Operation/args que l'ancien
         # corps (bit-exact BY CONSTRUCTION). pct source = trait config (== `GetNumberConstant(0xf)` natif, validee).

@@ -29,7 +29,7 @@ class Message:
 
 
 class MoveUnitMessage(Message):
-    """`IdunBattle.Messages.MoveUnitMessage` (get_To @180ebef20). Tranche #24.
+    """`IdunBattle.Messages.MoveUnitMessage` (IdunBattle.Messages.MoveUnitMessage$$get_To). Tranche #24.
     `to` = position cible (col,row) ; `unit_id` = entité qui bouge."""
     __slots__ = ("unit_id", "to")
 
@@ -50,7 +50,7 @@ class AttackUnitMessage(Message):
 
 
 class ActiveAbilityMessage(Message):
-    """`IdunBattle.Messages.ActiveAbilityMessage` (.ctor @180eb1560) — cast d'une ability ACTIVE.
+    """`IdunBattle.Messages.ActiveAbilityMessage` (.IdunBattle.Messages.ActiveAbilityMessage$$.ctor) — cast d'une ability ACTIVE.
     `caster_id` lance `ability_type` sur `target_id`. Déclenche l'exécution de la behaviour-seq de
     l'ability (mirror `AActiveAbility.Execute`→`<Ability>.ExecuteBehaviour`) : attaque + AddEffect +
     déplacements, etc. — l'engine DÉRIVE les effets posés (cf. `engine/runner/abilities/`)."""
@@ -71,7 +71,7 @@ class FinishUnitTurnMessage(Message):
 
 
 class EndTurnMessage(Message):
-    """`IdunBattle.Messages.EndTurnMessage` (.ctor @180eb4c60, Accept @180eb4b30) — clôt le tour du
+    """`IdunBattle.Messages.EndTurnMessage` (.IdunBattle.Messages.EndTurnMessage$$.ctor, IdunBattle.Messages.EndTurnMessage$$Accept) — clôt le tour du
     JOUEUR courant (toute l'équipe). Déclenche `EndTurnOperation` (tick effets + cooldowns) puis, si
     `advance`, `ChangeTurnOperation` (flip vers le joueur suivant) + `StartTurnOperation` (vecteur début
     de tour). `advance=False` = fin de tour SANS changer de joueur (cas natif `param_2==0`)."""

@@ -27,7 +27,7 @@ HEAVY_RAIL_RIFLE_PENDING_TARGET = int(EffectType.HeavyRailRifle_PendingTarget)  
 
 
 def heavy_rail_rifle_tree():
-    """Arbre de `HeavyRailRifleAbility.ExecuteBehaviour @1811e7d70` -- MIRROR 1:1 du DECOMPILE :
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.HeavyRailRifleAbility$$ExecuteBehaviour` -- MIRROR 1:1 du DECOMPILE :
 
         Execute(   AddEffect(0x536=1334 HeavyRailRifle_PendingTarget, AbilityStateReference,
                              source=caster@0x160, targets=target@0x178, options=ZERO)
@@ -40,7 +40,7 @@ def heavy_rail_rifle_tree():
 
     Les DEUX options-structs sont ZERO-initialisees (`local_178..uStack_160 = 0`) : pas de
     `TurnsFromRounds` -> duree = `DefaultAmountOfRounds` de l'effet. 1333/1334 sont ABSENTS de la table
-    `@181559ff0` -> Nullable null -> `remaining = 0` = PERMANENT (l'effet est consomme par la phase 2,
+    `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$DefaultAmountOfRounds` -> Nullable null -> `remaining = 0` = PERMANENT (l'effet est consomme par la phase 2,
     pas expire par un timer). CONFIRME LIVE : les deux effets sortent a `remaining 0, level 1`."""
     return op_and(
         AddEffect(HEAVY_RAIL_RIFLE_PENDING_TARGET, EffectType.HeavyRailRifle_PendingTarget.name,
@@ -50,16 +50,16 @@ def heavy_rail_rifle_tree():
 
 
 class HeavyRailRifleAbility(ActiveAbility):
-    """`HeavyRailRifleAbility.ExecuteBehaviour @1811e7d70` (id 1160, `tauBroadside` Broadside -- Tau,
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.HeavyRailRifleAbility$$ExecuteBehaviour` (id 1160, `tauBroadside` Broadside -- Tau,
     MachineOfWar). Cast UNIT-TARGET (`abilityTargets` kind="unit").
 
     RE (ghidra gqfc5mff6c) :
-    - `ExecuteBehaviour @1811e7d70` : `Execute( AddEffect(0x536, absRef, caster@0x160, target@0x178,
+    - `IdunBattleLogic.Entities.Abilities.Active.Loki.HeavyRailRifleAbility$$ExecuteBehaviour` : `Execute( AddEffect(0x536, absRef, caster@0x160, target@0x178,
       opts=0) & AddEffect(0x535, absRef, caster@0x160, caster@0x160, opts=0) )` -- cf.
       `heavy_rail_rifle_tree`.
-    - `.ctor @1811e7f20` : `AActiveAbility.ctor(..., TargetingOptions unit-target)`.
+    - `.IdunBattleLogic.Entities.Abilities.Active.Loki.HeavyRailRifleAbility$$.ctor` : `AActiveAbility.ctor(..., TargetingOptions unit-target)`.
     - PHASE 2 (NON PORTEE) : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HeavyRailRifle_AttackAbility`
-      (`GetFinalUnitDamageAmount @180f86360`) -- l'attaque differee portee par `HeavyRailRifle_PendingAttack`
+      (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.HeavyRailRifle_AttackAbility$$GetFinalUnitDamageAmount`) -- l'attaque differee portee par `HeavyRailRifle_PendingAttack`
       sur la MoW, qui frappe l'unite marquee `HeavyRailRifle_PendingTarget`. Le degat (minDmg/maxDmg,
       profil Piercing, nrOfHits=2, `dmgPctReduction`/`extraDmgPct`) appartient a CETTE phase, pas au cast.
 

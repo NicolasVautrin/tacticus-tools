@@ -3,12 +3,11 @@
 Monte la scene qui REMPLIT le predicat natif de chaque ability, puis confronte le port a la cascade
 native (`applyAction`) :
 
-  * `SquigLaunchas` (1200, orksRukkatrukk) — `GetDynamicInvalidTargetReason @18120ab80` :
+  * `SquigLaunchas` (1200, orksRukkatrukk) — `IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$GetDynamicInvalidTargetReason` :
     >= 1 Ork allie-du-caster OU >= 2 allies adjacents a la cible. Le SUMMON a des seuils PLUS HAUTS
-    (`FulfillsSummonCriteria @18120aac0` : 2 Orks / 4 allies) -> scenario DISCRIMINANT en 2 temps.
-  * `HadesAutocannons` (1147, blackForgefiend) — cible = **SUMMON ennemi** (TargetingOptions du ctor
-    @1811e56b0 + `GetAllTargets @1811e5480` `UnitsWithTrait(2=Summon)`) -> on fait invoquer l'adversaire.
-  * `EntropyCannons` (1168, deathCrawler) — `GetDynamicInvalidTargetReason @1811bfc20` : cible dans une
+    (`IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$FulfillsSummonCriteria` : 2 Orks / 4 allies) -> scenario DISCRIMINANT en 2 temps.
+  * `HadesAutocannons` (1147, blackForgefiend) — cible = **SUMMON ennemi** (TargetingOptions du IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$.ctor + `IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets` `UnitsWithTrait(2=Summon)`) -> on fait invoquer l'adversaire.
+  * `EntropyCannons` (1168, deathCrawler) — `IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility$$GetDynamicInvalidTargetReason` : cible dans une
     aura Contagion ALLIEE (effet 1071) OU FixedArmor negativement modifiee.
 
 Usage (depuis scripts/python) :

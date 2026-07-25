@@ -5,12 +5,12 @@ Scenario (MC1_67) : p-units = admecRuststalker (porteur Camouflage 1037, drive s
 DryBush (3,2)) + bloodSanguinary (cible CONTROLE hors-cover) ; a-units = necroDestroyer (Gauss
 R2, 6 coups) + blackObliterator (HeavyRound R3, 6 coups -> exerce la branche dist>2). Au TOUR IA,
 l'oracle NATIF = decisionView.attackPlans[].evals[].ranked[] (dmgMin/dmgMax par tuile candidate,
-facade DamagePrediction.GetAttackHits @18102f240 -> formule partagee @180f0bf50) ; l'offline =
+facade IdunBattle.Core.Services.DamagePrediction$$GetAttackHits -> formule partagee IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula$$Calculate) ; l'offline =
 make_normal_attack_predictions (meme formule portee).
 
 Discriminant #62 : sur la cible DryBush le natif prend la branche Camouflage -3
-(HasTile(TilesWithTriggeredAbility(Target,57)) @181107180) + LightCover -2 gate
-AreEqual(coverPatch,target) @180f556b0 -> plancher 1 coup. PRE-FIX l'offline passait
+(HasTile(TilesWithTriggeredAbility(Target,57)) IdunBattleLogic.Entities.Abilities.Triggered.Loki.Camouflage_HitReductionEffect$$CreateEffectHitsBonusForAttack) + LightCover -2 gate
+AreEqual(coverPatch,target) IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffectHitsBonusForAttack -> plancher 1 coup. PRE-FIX l'offline passait
 defender_on_cover=None -> -1/-2 (distance) + LightCover-sur-presence = 3 coups. Le probe
 imprime aussi le COUNTERFACTUEL pre-fix (Board.terrain_at patche -> None) : les lignes vs
 la cible DryBush doivent DIVERGER de l'oracle (preuve que le cas est discriminant), les
@@ -97,7 +97,7 @@ def _collect_rows(dec: dict, predictor: dict, scene, tgt_ids: set) -> list[dict]
                 # predOptimistic ACCEPTE ici (contrairement au test aura) : le tag est un
                 # regex NOM sur-large (/HitReduction/ matche Camouflage_HitReduction) or le
                 # canal hits-malus EST folde dans la prediction native (verdict #59 : formule
-                # partagee @180f0bf50, PAS predOptimistic) -> les dmgMin/dmgMax rankes de la
+                # partagee IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula$$Calculate, PAS predOptimistic) -> les dmgMin/dmgMax rankes de la
                 # cible Camouflage sont comparables. (Aucun effet resolve-only type
                 # TerminatorArmour_ReduceDmg sur nos cibles.)
                 if rk.get("dmgMax") is None:

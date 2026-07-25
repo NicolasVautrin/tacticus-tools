@@ -1,6 +1,5 @@
 #!/usr/bin/env python
-"""Probe #84b -- frequence du `Maybe(ConfigConst 0x2a)` de `LetTheGalaxyBurnAbility.CreateTrigger
-@1811076f0` : combien d'attaques d'un porteur (cible sur tuile SANS status-effect) gagnent le coup
+"""Probe #84b -- frequence du `Maybe(ConfigConst 0x2a)` de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateTrigger` : combien d'attaques d'un porteur (cible sur tuile SANS status-effect) gagnent le coup
 additionnel ? Accumule les tirages sur PLUSIEURS runners (le round-cap borne un runner a ~12 attaques).
 
 ASCII only. Usage: python probe_84_ltgb_chance.py --builds 5 --rounds 12

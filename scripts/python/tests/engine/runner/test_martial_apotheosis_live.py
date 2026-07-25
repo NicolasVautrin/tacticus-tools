@@ -2,10 +2,10 @@
 
 RE (decompile gqfc5mff6c, cf. en-tete de `triggers/loki/martial_apotheosis.py`) : la classe native
 `MartialApotheosisAbility` ETEND `DestroyerHiveAbility` -> CreateTrigger/GetValidTargets HERITES :
-  CreateTrigger @18121d4b0 = On(TurnStart_Actions=0x16) & OwnerIsActor(@0xa0) & AmountIsGreaterThanZero(
+  IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateTrigger = On(TurnStart_Actions=0x16) & OwnerIsActor(@0xa0) & AmountIsGreaterThanZero(
                              GetValidTargets)
-  GetValidTargets @18121d540 = Damageable(Enemies(AdjacentUnits(casterTile@0x148, radius=1)))   # anneau-1
-  CreateBehaviour @181222d00 = AttackWithAttackDamage(caster, PickRandomly(GetValidTargets, count=1),
+  IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$GetValidTargets = Damageable(Enemies(AdjacentUnits(casterTile@0x148, radius=1)))   # anneau-1
+  IdunBattleLogic.Entities.Abilities.Active.Loki.MartialApotheosisAbility$$CreateBehaviour = AttackWithAttackDamage(caster, PickRandomly(GetValidTargets, count=1),
                                MinMaxDamage(minDmg/maxDmg[level]), GetDamageProfile(0)="Energy"(pierce 30),
                                GetNumberConstant(0x2f)=nrOfHits=2)   # famille "attack", melee, level passif
 = au debut de son tour, si >=1 ennemi adjacent damageable, en attaque UN au hasard, 2 coups Energy.

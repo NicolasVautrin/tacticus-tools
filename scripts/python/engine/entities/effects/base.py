@@ -101,17 +101,17 @@ class BaseEffect:
         les bonus target-conditionnels (ex. BeastSlayer vs BigTarget/Vehicle) ; None = cible inconnue.
         `is_ranged` = nature du coup courant : effets gated `IsRangedAttack` (HeavyWeapon_ExtraDmg,
         RangedSpecialist). `has_moved` = la position d'attaque diffère de la position COURANTE (candidat
-        avec déplacement) : effets gated no-move (`!HasFlag(HasMoved=0)`, ex. HeavyWeapon @180f4f030 —
+        avec déplacement) : effets gated no-move (`!HasFlag(HasMoved=0)`, ex. HeavyWeapon IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier —
         GROUND TRUTH step-23 : les tuiles ranged AVEC déplacement de u78 collent SANS ×1.25 ; step-11 :
         « ×1.25 selon tuile »). `is_normal_attack` = mirror du nœud DSL `IsNormalAttack` (attaque normale
-        vs spéciale — gate de CrushingStrike @180f3ad90 ; True par défaut : les call-sites normale ne le
+        vs spéciale — gate de CrushingStrike IdunBattle.Entities.Effects.Loki.CrushingStrikeEffect$$CreateDamageModifier ; True par défaut : les call-sites normale ne le
         passent pas). `target_armor_reduced` = évaluation du gate `HasNegativeModifier(cible, {ARMOR,
-        FIXED_ARMOR})` (@180f9db90 ; la CIBLE porte ≥1 modification per-source <0 sur une stat d'armure =
+        FIXED_ARMOR})` (IdunBattle.Entities.Triggers.HasNegativeModifier$$ShouldTrigger ; la CIBLE porte ≥1 modification per-source <0 sur une stat d'armure =
         « armure réduite ») threadée depuis le site de résolution — pour les bonus gated sur l'état d'armure
-        de la cible (ConquerorImperative @180f39650). None = état inconnu. `att_ctx` (Mapping|None) =
+        de la cible (ConquerorImperative IdunBattle.Entities.Effects.Loki.ConquerorImperativeEffect$$CreateDamageModifier). None = état inconnu. `att_ctx` (Mapping|None) =
         contexte POSITIONNEL de l'attaque pour les bonus dont la MAGNITUDE dépend de la position du caster
         (mirror du DSL qui lit la UnitPosition hypothétique, ex. LordOfTempests `SurroundingTiles(owner,0,1)`
-        @180f56b40) : {"att_pos": (col,row) tuile candidate, "tile_effects_by_pos": {(col,row):[noms]}}.
+        IdunBattle.Entities.Effects.Loki.LordOfTempests_ExtraDamageEffect$$GetHexesIncreasingDamage) : {"att_pos": (col,row) tuile candidate, "tile_effects_by_pos": {(col,row):[noms]}}.
         None = contexte inconnu -> ces bonus rendent None (« présent ≠ appliqué », dégradation fidèle)."""
         return None
 
@@ -122,7 +122,7 @@ class BaseEffect:
         attack_pos, t_pos, …}) ENRICHI de `tile_effects_by_pos` (tileMeta → nœud `HasTileStatusEffect`)
         et `persistent_data` (les clés `PersistentDataComponent` posées sur l'ATTAQUANT → nœud
         `IsPersistentData`), pour les bonus dont le gate porte sur la CIBLE ou sur un flag intra-attaque
-        (ex. `LetTheGalaxyBurnEffect.CreateAdditionalHits` @180f54e30 = `OwnerIsCaster &
+        (ex. `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits = `OwnerIsCaster &
         (TargetHasTileEffect | IsPersistentData)`). None = contexte inconnu → ces bonus rendent None."""
         return None
 
@@ -132,10 +132,10 @@ class BaseEffect:
                                              dist: int | None = None) -> EffectBonus | None:
         """Contribution DÉFENSEUR à l'axe COUPS (l'effet est sur la CIBLE, modifie les coups reçus).
         Natif : même canal `CreateEffectHitsBonusForAttack` mais trigger `OwnerIsTarget` (ex.
-        `LightCoverEffect.CreateEffectHitsBonusForAttack` @180f556b0 = `ForAdditionWithMinimum(
+        `IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffectHitsBonusForAttack = `ForAdditionWithMinimum(
         OwnerIsTarget(tuiles égales) & !IsMeleeAttack, -ConfigConst(0x2c hitsReduction), min=Direct(1))` ;
-        `ParryEffect` @180f5d860 idem gated `IsMeleeAttack` ; `MasterAnnihilator_AdditionalHitEffect`
-        @180f58d50 = +nrOfHits gated `!DamageProfileIs(Psychic)`) — le port eager sépare
+        `ParryEffect` IdunBattle.Entities.Effects.Loki.ParryEffect$$CreateEffectHitsBonusForAttack idem gated `IsMeleeAttack` ; `MasterAnnihilator_AdditionalHitEffect`
+        IdunBattle.Entities.Effects.Loki.MasterAnnihilator_AdditionalHitEffect$$CreateAdditionalHits = +nrOfHits gated `!DamageProfileIs(Psychic)`) — le port eager sépare
         attaquant/défenseur, symétrique de `create_effect_damage_malus_for_defense`. `damage_profile` =
         NOM du profil de l'attaque (gate Psychic). `defender_on_cover` = gate compute-time des effets de
         TUILE (LightCover) : True=cible sur sa tuile de cover, False=hors-cover (effet périmé, ne s'applique
@@ -146,7 +146,7 @@ class BaseEffect:
     def create_aura_hits_malus_for_defense(self, ctx: Mapping | None = None) -> EffectBonus | None:
         """Contribution AURA à l'axe COUPS : l'effet est possédé par une AUTRE unité que la cible et
         projette un malus sur elle selon la géométrie (natif : effet à `CreateTargetSelector` +
-        `GetRefreshTriggers`, ex. `BigTargetAdjacentEffect` @180f33ac0/@180f33c70 = alliés ring-1 du
+        `GetRefreshTriggers`, ex. `BigTargetAdjacentEffect` IdunBattle.Entities.Effects.Loki.BigTargetAdjacentEffect$$CreateEffectHitsBonusForAttack/IdunBattle.Entities.Effects.Loki.BigTargetAdjacentEffect$$CreateTargetSelector = alliés ring-1 du
         porteur, -1 coup ranged min 1). `ctx` = {owner_id/pos/team, tgt_id, t_pos, tgt_team, is_melee}
         fourni par l'agrégateur `aura_hits_malus_for_defense`. Défaut None = pas d'aura."""
         return None
@@ -154,7 +154,7 @@ class BaseEffect:
     def create_aura_hits_bonus_for_attack(self, ctx: Mapping | None = None) -> EffectBonus | None:
         """Contribution AURA à l'axe COUPS côté ATTAQUANT : l'effet est possédé par un ALLIÉ de l'attaquant
         et lui projette un BONUS de coups selon la géométrie (natif : `CreateTargetSelector` = SurroundingFriends,
-        ex. `AstartesBanner_AdditionalHitsEffect` @180f323b0 = +extraHits mêlée aux alliés dans le rayon 2 du
+        ex. `AstartesBanner_AdditionalHitsEffect` IdunBattle.Entities.Effects.Loki.AstartesBanner_AdditionalHitsEffect$$CreateAdditionalHits = +extraHits mêlée aux alliés dans le rayon 2 du
         porteur, exclut self). `ctx` = {owner_id/pos/team, att_id/att_pos/att_team, is_melee} fourni par
         l'agrégateur `aura_hits_bonus_for_attack`. Défaut None = pas d'aura. SYMÉTRIQUE du malus défenseur."""
         return None
@@ -163,7 +163,7 @@ class BaseEffect:
         """Contribution AURA à la BASE (stat Attack) : effet stat-mod possédé par un ALLIÉ du porteur qui
         buffe le dégât de base de l'attaquant quand il est à portée (natif : `DynamicStatModifierEffect` à
         `CreateTargetSelector` = `AdjacentUnits(1)→Friends→With/WithoutTrait`, ex. `RitesOfBattleAbility`
-        @181225340). Ajouté PLAT à `GetStat(Attack, INITIAL)`, RÉ-ÉVALUÉ PAR CANDIDAT (adjacence à la tuile
+        IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfBattleAbility$$CreateBehaviour). Ajouté PLAT à `GetStat(Attack, INITIAL)`, RÉ-ÉVALUÉ PAR CANDIDAT (adjacence à la tuile
         d'attaque). `ctx` = {owner_id/pos/team/mult/level, att_id/att_pos/att_team/att_grand_alliance, board}
         fourni par l'agrégateur `aura_attack_bonus_from_allies`. Défaut None = pas d'aura."""
         return None
@@ -172,7 +172,7 @@ class BaseEffect:
         """Contribution AURA à la stat **FixedArmor(16)** du DÉFENSEUR : effet stat-mod possédé par un ALLIÉ
         du défenseur qui buffe l'armure de ce dernier quand il est à portée (natif : `DynamicStatModifierEffect`
         à `CreateTargetSelector` = self + `AdjacentFriends(1)` ∩ `UnitsWithTrait(5=Mechanical)`, ex.
-        `ProtectorImperative` @180f39890). Ajouté PLAT à `GetStat(FixedArmor)` du défenseur, RÉ-ÉVALUÉ PAR
+        `ProtectorImperative` IdunBattle.Entities.Effects.Loki.ConquerorImperativeEffect$$CreateTargetSelector). Ajouté PLAT à `GetStat(FixedArmor)` du défenseur, RÉ-ÉVALUÉ PAR
         ADJACENCE au site de résolution armure (le natif écrit la ValueModification à TOUTES ses cibles-sélecteur
         → l'armure de l'allié à portée l'inclut). Le porteur (self) est déjà couvert par son stat-mod EAGER
         (`applied_stat_mods`, dans `GetStat`) → l'aura n'ajoute QUE pour un défenseur allié DISTINCT (pas de
@@ -185,7 +185,7 @@ class BaseEffect:
         """Contribution AURA %-DÉGÂT projetée sur un ENNEMI ATTAQUANT à portée (l'effet est possédé par une
         unité, se projette sur les ENNEMIS environnants qui subissent un malus sur LEUR propre attaque —
         natif : effet à `CreateEffectDamageBonusForAttack(OwnerIsActor & ...)` + `CreateTargetSelector` =
-        `SurroundingEnemies(range)`, ex. `ShadowInTheWarp_LessDmg_Effect` @180f6b420/@180f6b5f0 = -25%
+        `SurroundingEnemies(range)`, ex. `ShadowInTheWarp_LessDmg_Effect` IdunBattle.Entities.Effects.Loki.ShadowInTheWarp_LessDmg_Effect$$CreateEffectDamageBonusForAttack/IdunBattle.Entities.Effects.Loki.ShadowInTheWarp_LessDmg_Effect$$CreateTargetSelector = -25%
         Psychic). `ctx` = {owner_id/pos/team, att_id/att_pos/att_team, damage_profile} fourni par
         l'agrégateur `aura_attack_damage_malus_from_enemies`. Défaut None = pas d'aura."""
         return None
@@ -194,8 +194,8 @@ class BaseEffect:
         """Contribution AURA DÉGÂT projetée sur un ALLIÉ ATTAQUANT à portée (l'effet est possédé par une
         unité et BONIFIE le dégât que ses ALLIÉS environnants INFLIGENT — natif : effet à
         `CreateEffectDamageBonusForAttack(OwnerIsCaster & ...)` + `CreateTargetSelector` = `AdjacentFriends
-        + UnitsWithTrait(...)`, ex. `BeaconOfRage_FriendlyExtraDamageEffect` @180f33370 : +50% du bonus rage
-        FLAT aux attaques MÊLÉE des amis Chaos adjacents d'Azkor, #191 ; `ConquerorImperativeEffect` @180f39650 :
+        + UnitsWithTrait(...)`, ex. `BeaconOfRage_FriendlyExtraDamageEffect` IdunBattle.Entities.Effects.Loki.BeaconOfRage_FriendlyExtraDamageEffect$$CreateEffectDamageBonusForAttack : +50% du bonus rage
+        FLAT aux attaques MÊLÉE des amis Chaos adjacents d'Azkor, #191 ; `ConquerorImperativeEffect` IdunBattle.Entities.Effects.Loki.ConquerorImperativeEffect$$CreateDamageModifier :
         +extraDmg FLAT aux amis Mechanical adjacents vs cible à armure réduite, #23). `ctx` = {owner_id/pos/team,
         att_id/att_pos/att_team, att_grand_alliance, att_traits, is_melee, target_armor_reduced} fourni par
         l'agrégateur `aura_attack_damage_bonus_from_allies` (les gates lisent le sous-ensemble pertinent :
@@ -207,26 +207,25 @@ class BaseEffect:
         """Contribution AURA %-DÉGÂT projetée sur une CIBLE alliée du porteur à portée (l'effet est possédé
         par une unité et RÉDUIT le dégât que ses ALLIÉS environnants REÇOIVENT — natif : effet EffectWithTarget
         à `CreateEffectDamageMalusForDefense(OwnerIsTarget & DamageProfileIs(...))` + `CreateTargetSelector` =
-        `SurroundingFriends(range, exclut self)`, évalué state-wide par `CalculateDefenderModifiersForPrediction`
-        @181002c30 (boucle « TOUS les EffectWithTarget actifs × leurs cibles », cf. case-68) — ex.
-        `DaughterOfTheAbyss_FriendlyDmgReductionPctEffect` @180f3cde0 : -dmgReductionPct% Psychic aux amis
+        `SurroundingFriends(range, exclut self)`, évalué state-wide par `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction (boucle « TOUS les EffectWithTarget actifs × leurs cibles », cf. case-68) — ex.
+        `DaughterOfTheAbyss_FriendlyDmgReductionPctEffect` IdunBattle.Entities.Effects.Loki.DaughterOfTheAbyss_FriendlyDmgReductionPctEffect$$CreateEffectDamageMalusForDefense : -dmgReductionPct% Psychic aux amis
         dans le rayon 2 d'Atlacoya (#184). La même boucle sert aussi les effets qui AUGMENTENT le dégât reçu
-        par les ENNEMIS du porteur à portée (ex. `DaughterOfTheAbyss_ExtraDamagePctEffect` @180f3cb60 :
-        +extraDmgPct% aux Psykers ennemis, selector @180f3cd00 `SurroundingEnemies+UnitsWithTrait(0x3ea)`).
+        par les ENNEMIS du porteur à portée (ex. `DaughterOfTheAbyss_ExtraDamagePctEffect` IdunBattle.Entities.Effects.Loki.DaughterOfTheAbyss_ExtraDamagePctEffect$$CreateEffectDamageBonusForAttack :
+        +extraDmgPct% aux Psykers ennemis, selector IdunBattle.Entities.Effects.Loki.DaughterOfTheAbyss_ExtraDamagePctEffect$$CreateTargetSelector `SurroundingEnemies+UnitsWithTrait(0x3ea)`).
         `ctx` = {owner_id/pos/team, tgt_id, t_pos, tgt_team, tgt_traits, damage_profile} fourni par
         l'agrégateur `aura_defense_damage_malus_from_units`. Défaut None = pas d'aura."""
         return None
 
     def create_effect_crit_chance_bonus_for_attack(self) -> int | None:
         """Bonus de CHANCE de crit (%) — couche calc-time SÉPARÉE de `GetStat(9)`, sommée dans
-        `DamagePrediction.GetCritChanceBonusFromEffects`@181031180 puis ajoutée à GetStat(9) dans
+        `IdunBattle.Core.Services.DamagePrediction$$GetCritChanceBonusFromEffects puis ajoutée à GetStat(9) dans
         `RollCritical` (cc = clamp(GetStat(9)+Σbonus, 0, 100)). Distinct des effets StatModification
         sur la crit-chance (eux DANS GetStat) → pas de double-compte. Défaut None = pas de bonus."""
         return None
 
     def create_effect_crit_damage_bonus_for_attack(self) -> int | None:
         """Bonus de DÉGÂT de crit — couche calc-time SÉPARÉE de `GetStat(10)`, sommée dans
-        `DamagePrediction.GetCritDamageBonusFromEffects`@181031bb0 puis ajoutée à GetStat(10) dans
+        `IdunBattle.Core.Services.DamagePrediction$$GetCritDamageBonusFromEffects puis ajoutée à GetStat(10) dans
         `CalculateCriticalDamage` (critDmgPct = max(0, GetStat(10)+Σbonus)). Défaut None = pas de bonus."""
         return None
 
@@ -244,24 +243,24 @@ class BaseEffect:
         Renvoie un `EffectBonus` (`PercentDecrease` de réduction OU `ForAddition` positif type Neuroparasite,
         gated par une condition d'effet) ou None.
 
-        RE : `CalculateDefenderModifiersForPrediction` @181002c30 itère les effets de la cible et appelle
+        RE : `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction itère les effets de la cible et appelle
         cette méthode (interface effet, slot 0x1a) sur chacun → accumule un `DamageModifiers` (%-list).
         La famille `ADamageDefenseModifierAbilityEffect` (CloudOfFlies/ContemptuousDisregard/ForwardObservers/
-        HuntersInstincts/… @180f08e60→BaseEffect.DamageMalusForDefense @180f10120) = `EffectBonus(PercentDecrease,
-        ConfigVar(key))` gated (ex. ContemptuousDisregard @180f3a5b0 : OwnerIsTarget & HasUsedActiveAbilityThisTurn
+        HuntersInstincts/… IdunBattle.Entities.Effects.ADamageDefenseModifierAbilityEffect$$CreateEffectDamageMalusForDefense→IdunBattle.Entities.Effects.BaseEffect$$DamageMalusForDefense) = `EffectBonus(PercentDecrease,
+        ConfigVar(key))` gated (ex. ContemptuousDisregard IdunBattle.Entities.Effects.Loki.ContemptuousDisregard_DamageReductionEffect$$CreateEffectDamageMalusForDefense : OwnerIsTarget & HasUsedActiveAbilityThisTurn
         → ConfigVar 0x46). Défaut None = effet sans réduction défensive (dégradation fidèle)."""
         return None
 
     def create_effect_block_source_for_defense(self, defender_fixed_armor: int = 0,
                                                defender_attack: int = 0):
-        """`<Effect>.CreateAddBlockEffectBehaviour`/`AddExtraBlockEffectToOwner` @180e18b70 — source de
+        """`<Effect>.CreateAddBlockEffectBehaviour`/`AddExtraBlockEffectToOwner` IdunBattleLogic.Entities.Abilities.Triggered.Loki.BeastSlayerAbility$$CreateAddBlockEffectBehaviour — source de
         BLOCK SUPPLEMENTAIRE possedee par la CIBLE (defenseur), AJOUTEE a la chaine
         `apply_random_block_damage` EN PLUS du block de base (scalaire `GetStat(7/8)`). Renvoie un
-        `BlockSource(chance, amount)` ou None (defaut). Ex. BeastSlayer @180e18b70 :
-        chance=`GetBlockChance @180e19120`=beastSlayerBlockChance ; amount=`GetBlockDamage @180e19160`=
+        `BlockSource(chance, amount)` ou None (defaut). Ex. BeastSlayer IdunBattleLogic.Entities.Abilities.Triggered.Loki.BeastSlayerAbility$$CreateAddBlockEffectBehaviour :
+        chance=`IdunBattleLogic.Entities.Abilities.Triggered.Loki.BeastSlayerAbility$$GetBlockChance`=beastSlayerBlockChance ; amount=`IdunBattleLogic.Entities.Abilities.Triggered.Loki.BeastSlayerAbility$$GetBlockDamage`=
         blockDmgPct% du FixedArmor COURANT du defenseur. Ces entrees sont ABSENTES du scalaire GetStat(7/8)
         (verifie live 2026-07-09 : orksNob blockChance=0 alors que BeastSlayer donne +10%) -> le natif les
-        tient dans `GetMultiValueStat(7)` (`CalculateBlockChances @181002350`). `defender_fixed_armor` =
+        tient dans `GetMultiValueStat(7)` (`IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances`). `defender_fixed_armor` =
         FixedArmor courant de la CIBLE (pour les sources dont l'amount depend de l'armure). #72.
         `defender_attack` = stat Attack COURANTE de la CIBLE (sources type Daemon_ExtraBlock, #54A)."""
         return None
@@ -274,7 +273,7 @@ class BaseEffect:
         return None
 
     def additional_hit_groups(self, ctx: Mapping | None = None) -> "list[dict] | None":
-        """`<Effect>.CreateAdditionalHits` (`EffectAdditionalHits.Create @180f405b0`) — coups ADDITIONNELS
+        """`<Effect>.CreateAdditionalHits` (`IdunBattle.Entities.Effects.EffectAdditionalHits$$Create`) — coups ADDITIONNELS
         HETEROGENES a degat/profil PROPRE ajoutes a l'attaque du PORTEUR (trigger natif OwnerIsActor/
         OwnerIsCaster, evalue ; +gate nature d'attaque eventuel via `ctx["is_melee"]`, ex. FoulInfusion
         IsMeleeAttack). Renvoie une liste de groupes `{count, min, max, profile}` — `count` coups de
@@ -287,7 +286,7 @@ class BaseEffect:
 
     def create_aura_additional_hits_for_ally(self, ctx: Mapping) -> "dict | None":
         """`<Effect>.CreateAdditionalHits` + `CreateTargetSelector` (mold AURA, ex. ExplosiveMaladies
-        @180f43cc0/@180f43a40 + selecteur @180f43ef0 `AdjacentFriends(owner, 1)`) — coups additionnels
+        IdunBattle.Entities.Effects.Loki.ExplosiveMaladies_ExtraRangedAttackEffect$$CreateAdditionalHits/IdunBattle.Entities.Effects.Loki.ExplosiveMaladies_ExtraMeleeAttackEffect$$CreateAdditionalHits + selecteur IdunBattle.Entities.Effects.Loki.ExplosiveMaladies_ExtraRangedAttackEffect$$CreateTargetSelector `AdjacentFriends(owner, 1)`) — coups additionnels
         projetes par un effet HOSTE SUR LE PORTEUR sur les attaques d'un ALLIE selectionne (adjacence
         re-evaluee a la TUILE CANDIDATE, modele #49/#153 : rien n'est poste sur le beneficiaire).
         `ctx` = {att_id, att_pos, att_team, att_faction, att_grand_alliance, att_traits, is_melee,
@@ -298,15 +297,15 @@ class BaseEffect:
 
     # ── stat-modification (famille AStatModifierEffect) ─────────────────────────────────────────────
     def get_stat_modification_stat(self) -> "int | None":
-        """`AStatModifierEffect.GetStatModificationStat @180f0a890` — le **StatType** que CET effet
+        """`IdunBattle.Entities.Effects.AStatModifierEffect$$GetStatModificationStat` — le **StatType** que CET effet
         modifie (natif : `EffectComponent+0x10`). `None` = l'effet n'est pas un StatModifier (défaut).
         Un effet StatModification écrit sa magnitude dans la **modification** du stat (part 5/9),
         attribuée à sa source, appliquée via `ChangeStat` (cf. `UnitStats.change_stat`)."""
         return None
 
     def get_stat_modification_amount(self) -> "int | None":
-        """`StaticStatModifierEffect.GetStatModificationAmount @180f47430` (natif : `EffectComponent+0x14`,
-        fixe) / `ADynamicStatModifierEffect.GetStatModificationAmount @180f090f0` (calculé).
+        """`IdunBattle.Entities.Effects.StaticStatModifierEffect$$GetStatModificationAmount` (natif : `EffectComponent+0x14`,
+        fixe) / `IdunBattle.Entities.Effects.ADynamicStatModifierEffect$$GetStatModificationAmount` (calculé).
         Magnitude (delta additif) ajoutée à la modification du StatType de
         `get_stat_modification_stat`. `None`/0 = aucune (défaut). Un effet StatModification concret
         override les deux (StatType + magnitude, typiquement depuis sa config d'ability)."""
@@ -323,10 +322,9 @@ class BaseEffect:
     def overridden_stats(self) -> "list":
         """Part DATA d'un `ApplyInternal` qui OVERRIDE des stats du porteur (part 7, `ChangeStat` mode 4)
         aux valeurs **CURRENT du PARENT** du porteur — cas `MV71SniperDroneSquad_InitialDmgEffect
-        @180f57320` (4 stats). La couche runner (`AddEffectOperation._apply_stat_overrides`) SNAPSHOTE la
+        IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$ApplyInternal` (4 stats). La couche runner (`AddEffectOperation._apply_stat_overrides`) SNAPSHOTE la
         valeur du parent (= `eff.source`, mirror `GetParentUnit`) et exécute `apply_stat_override`
-        (part 7 → SetOverride) ; le retrait exécute `remove_stat_override` (part 8, mirror `RevertInternal
-        @180f577d0` → ResetStat ×N). Défaut `[]` = pas d'override."""
+        (part 7 → SetOverride) ; le retrait exécute `remove_stat_override` (part 8, mirror `IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$RevertInternal` → ResetStat ×N). Défaut `[]` = pas d'override."""
         return []
 
     # ── matérialisation composite ─────────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Probe #61bis tranche 3 — arbitrage LIVE de la prediction MV71 (1076, drone a distance).
 
-Le natif (`MV71SniperDroneSquadAttackAbility.PredictAttack @18110a5f0`, branche distance) passe au
+Le natif (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$PredictAttack`, branche distance) passe au
 service slot 0x24 un widget modifiers ZEROE (memset &local_3f8) au lieu du param_4 du playbook.
 Question ouverte : les mods DEFENSEUR (Markerlight +15%, stat-mods DEFENSE) et/ou POSITIONNELS
 (elevation) sont-ils calcules EN AVAL dans le service (=> ils s'appliquent malgre le widget zeroe),

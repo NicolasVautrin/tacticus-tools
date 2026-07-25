@@ -14,21 +14,20 @@ from ..magnitude import ability_var, bc_effect_config, global_value, trait_var
 
 class MarkerlightEffect(BaseEffect):
     """`MarkerlightEffect` (effet **1122=0x462**, `Entities.Effects.Loki`) — la cible est « marquée ».
-    `.ctor @180f583b0` = `DamageModifierAbilityEffect..ctor(this, 0x462, Nullable(1))`.
-    `CreateDamageModifier @180f58170` : trigger = `OwnerIsTarget & HasFaction(actor@0x158, 9=T'au, 3)
+    `.IdunBattle.Entities.Effects.Loki.MarkerlightEffect$$.ctor` = `DamageModifierAbilityEffect..ctor(this, 0x462, Nullable(1))`.
+    `IdunBattle.Entities.Effects.Loki.MarkerlightEffect$$CreateDamageModifier` : trigger = `OwnerIsTarget & HasFaction(actor@0x158, 9=T'au, 3)
     & IsRangedAttack` ; bonus = `EffectBonus.ForPercentIncrease(Direct(GetEffectConfig(4)))` —
     slot service 0xbe(4) = la règle GLOBALE `MarkerlightDmgBonusPct` de la section BC `Effect`
-    (`unitEffectVariables.markerlightDmgBonusPct` = **15** ; même mécanisme `InitEffectConfig
-    @18106e9c0` que Pinned EffectConfig(0/1)).
+    (`unitEffectVariables.markerlightDmgBonusPct` = **15** ; même mécanisme `IdunBattle.Core.Services.BattleQuery$$InitEffectConfig` que Pinned EffectConfig(0/1)).
 
     ⇒ malus DÉFENSEUR : les attaques **RANGED** d'un attaquant **T'au** contre le porteur font
     **+15 %**. Gates lus du contexte : `is_melee is False` (RANGED prouvé ; None = nature inconnue →
     None, présent ≠ appliqué) + `attacker_ctx["faction"] == "Tau"` (threadé par
     `damage_model.defender_modifiers` ; absent → None).
 
-    Pose (MV71SniperDroneSquadAttack @181108900 étape (e)) : sur la CIBLE, durée
+    Pose (MV71SniperDroneSquadAttack IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$ExecuteBehaviour étape (e)) : sur la CIBLE, durée
     `Sum(TurnsFromRounds(1), Direct(1))` = fin du prochain tour du caster — identique à
-    `StructuralAnalyser_AddMarkerlightAbility.CreateBehaviour @1811a2a00`.
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.StructuralAnalyser_AddMarkerlightAbility$$CreateBehaviour`.
     ⚠ NON porté (flaggé) : le retrait au HEAL/REPAIR de la cible (i2 « Healing or repairing removes
     the effect ») — cycle de vie durée-seule offline."""
 
@@ -46,16 +45,16 @@ class MarkerlightEffect(BaseEffect):
 
 
 class TerrifyingExtraDefenseEffect(BaseEffect):
-    """`Terrifying_ExtraDefense_Effect.CreateDamageModifier` @180f47ba0 : réduit le dégât MÊLÉE reçu par
+    """`IdunBattle.Entities.Effects.Terrifying_ExtraDefense_Effect$$CreateDamageModifier : réduit le dégât MÊLÉE reçu par
     son PORTEUR (l'effet est sur la CIBLE). Trigger natif = `get_OwnerIsTarget & IsMeleeAttack`
     (AbilityOrEffect 0x62) ; valeur = `ConfigConst(0x28)`.
 
     ⚠ Le trait `Terrifying` (id 0x22=34) N'EST PAS lu en direct dans le calcul de dégât (≠ MkXGravis
-    `HasTrait(cible, 0x3f5)` @181030d10). Il DÉRIVE une triggered ability qui pose CET effet sur le porteur
-    — chaîne RE'd intégralement (#73) : `Trait..cctor @18157f650` dict `GetTriggeredAbility` (+0x0, lu par
-    `Trait.GetTriggeredAbility @18157ed10`) mappe trait 0x22 -> TriggeredAbilityType 0x62 ;
-    `AddTraitOperation.AddDerivedAbilities @180e513c0` ajoute cette ability (`TerrifyingAbilityAbility`
-    @1811c5e00 = `AOwnerEffectSpecificTriggeredAbility(0x62)`) ; son `CreateTrigger @180fb3760` =
+    `HasTrait(cible, 0x3f5)` IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageWithFixedPiercedArmor). Il DÉRIVE une triggered ability qui pose CET effet sur le porteur
+    — chaîne RE'd intégralement (#73) : `Trait..idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Trait$$.cctor` dict `GetTriggeredAbility` (+0x0, lu par
+    `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Trait$$GetTriggeredAbility`) mappe trait 0x22 -> TriggeredAbilityType 0x62 ;
+    `IdunBattle.Operations.AddTraitOperation$$AddDerivedAbilities` ajoute cette ability (`TerrifyingAbilityAbility`
+    IdunBattleLogic.Entities.Abilities.Active.TerrifyingAbilityAbility$$.ctor = `AOwnerEffectSpecificTriggeredAbility(0x62)`) ; son `IdunBattle.Entities.Abilities.AOwnerEffectSpecificTriggeredAbility$$CreateTrigger` =
     `OnOwnerSpecificAbilityInit(0x62)` -> à l'init du porteur, sa behaviour `AddEffect(owner,
     Terrifying_ExtraDefense 0x62)`. Effet enregistré `EffectsDatabase.<InitializeEffects>b__14_11`. Côté
     port : matérialisé pour un porteur CAPTÉ live (`decisionView.effects`, ex. eldarMauganRa) et, faute de
@@ -80,7 +79,7 @@ class TerrifyingExtraDefenseEffect(BaseEffect):
 
 
 class MartialKatahDmgReductionEffect(BaseEffect):
-    """`MartialKatah_DmgReductionEffect.CreateDamageModifier @180f58b30` (trait MartialKatah, Custodes
+    """`IdunBattle.Entities.Effects.Loki.MartialKatah_DmgReductionEffect$$CreateDamageModifier` (trait MartialKatah, Custodes
     ex. custoTrajann / custoVexilusPraetor) : réduit le dégât des ATTAQUES NORMALES reçues par son PORTEUR.
     Trigger natif = `OwnerIsTarget & IsNormalAttack` (DSLFactory.get_OwnerIsTarget & IsNormalAttack, op&) ;
     valeur = `ConfigConst(0x72)` = `martialKatahDmgReductionPct` (=20) ; kind `EffectBonus.ForPercentDecrease`.
@@ -105,12 +104,12 @@ class MartialKatahDmgReductionEffect(BaseEffect):
 
 
 class VexillaMagnificaDmgReductionEffect(BaseEffect):
-    """`VexillaMagnifica_DmgReductionEffect.CreateDamageDefenseModifier @180f76510` (active
+    """`IdunBattle.Entities.Effects.Loki.VexillaMagnifica_DmgReductionEffect$$CreateDamageDefenseModifier` (active
     VexillaMagnifica 1183, custoVexilusPraetor — effet 0x567=1383, nom capté
     "VexillaMagnifica_DmgReduction") : réduit le dégât reçu par son PORTEUR. #29 lead 2 (la pièce
     ×0.34 du miss 777 s15).
 
-    Trigger natif = `get_OwnerIsTarget` SEUL (décompilé @180f76510 : AUCUN gate profil/mêlée/normal)
+    Trigger natif = `get_OwnerIsTarget` SEUL (décompilé IdunBattle.Entities.Effects.Loki.VexillaMagnifica_DmgReductionEffect$$CreateDamageDefenseModifier : AUCUN gate profil/mêlée/normal)
     → s'applique à TOUT dégât reçu, prédiction ET combat. Valeur = `ConfigVar(0x46=dmgReductionPct,
     GetAbilityState(effet))` = `dmgReductionPct[ablvl]` des variables VexillaMagnifica (=66 à tous
     les niveaux utiles, HORS variablesAffectedByRarityBonus → multiplier no-op ; même clé 0x46 que
@@ -153,7 +152,7 @@ def _terminator_excluded_profiles() -> "frozenset[str]":
 
 
 class TerminatorArmourReduceDmgEffect(BaseEffect):
-    """`TerminatorArmour_ReduceDmg_Effect.CreateEffectDamageMalusForDefense` @180f70f80 : réduit de
+    """`IdunBattle.Entities.Effects.Loki.TerminatorArmour_ReduceDmg_Effect$$CreateEffectDamageMalusForDefense : réduit de
     `terminatorArmourDmgReduction`% (=-75) le dégât reçu par son PORTEUR, SAUF si le profil de dégât de
     l'attaque figure dans `terminatorArmourExcludedDmgProfiles` (=Psychic,DirectDamage). Trigger natif =
     `OwnerIsTarget & NOT DamageProfileIs(excludedArray)` (ConfigConst 0x4c=reduction, 0x52=array via
@@ -173,7 +172,7 @@ class TerminatorArmourReduceDmgEffect(BaseEffect):
 
 
 class GuardianOrganismDamageReductionEffect(BaseEffect):
-    """`GuardianOrganism_DamageReductionEffect.CreateEffectDamageMalusForDefense @180f4c630` (trait
+    """`IdunBattle.Entities.Effects.Loki.GuardianOrganism_DamageReductionEffect$$CreateEffectDamageMalusForDefense` (trait
     GuardianOrganism, tanks Tyranides ex. tyranTyrantGuard) : réduit le dégât REÇU par son porteur de
     `min(dmgReductionPct% × CurrentDamage, dmgReduction[cap] × mult)` — `EffectBonus.ForSubtraction(
     OwnerIsTarget, Min(PercentageOf(CurrentDamage, ConfigVar(0x46)), ConfigVar(0x12)))`. Réduction
@@ -181,7 +180,7 @@ class GuardianOrganismDamageReductionEffect(BaseEffect):
     PercentDecrease : le cap plafonne le MONTANT soustrait, pas le %).
       - pct = ConfigVar(0x46) = `dmgReductionPct` [25..33 par niveau, NON rarity-scaled].
       - cap = ConfigVar(0x12) = `dmgReduction` [20..1455, rarity-scaled × mult].
-    AURA (`CreateTargetSelector @180f4c890` = Self + `AdjacentFriends(range 1)`) : l'effet se MATÉRIALISE
+    AURA (`IdunBattle.Entities.Effects.Loki.GuardianOrganism_DamageReductionEffect$$CreateTargetSelector` = Self + `AdjacentFriends(range 1)`) : l'effet se MATÉRIALISE
     sur chaque bénéficiaire (self + amis ring-1) -> capté dans SA liste (source = le porteur GuardianOrganism).
     Côté port l'effet est DÉJÀ sur le défenseur (comme Terrifying/Terminator) : `self.ability_level`/
     `self.ability_variables_multiplier` = ceux du porteur = le DÉFENSEUR (EffectsState.seed les propage) ->
@@ -201,8 +200,8 @@ class GuardianOrganismDamageReductionEffect(BaseEffect):
 
 
 class NightshroudDmgReductionEffect(BaseEffect):
-    """`Nightshroud_DmgReduction_Effect.CreateDamageDefenseModifier @180f5bff0` (ability Nightshroud de
-    Sibyll Devine `astraPrimarisPsy`, base `ADamageDefenseModifierAbilityEffect(0x416)` = ctor @180f5c190) :
+    """`IdunBattle.Entities.Effects.Loki.Nightshroud_DmgReduction_Effect$$CreateDamageDefenseModifier` (ability Nightshroud de
+    Sibyll Devine `astraPrimarisPsy`, base `ADamageDefenseModifierAbilityEffect(0x416)` = IdunBattle.Entities.Effects.Loki.Nightshroud_DmgReduction_Effect$$.ctor) :
     réduit d'un montant PLAT le dégât REÇU par son porteur — `EffectBonus.ForSubtraction(OwnerIsTarget,
     ConfigVar(0x12)=dmgReduction × mult)`. i2 : « All friendly units starting their turn adjacent to Sibyll
     Devine gain Infiltrate for that turn and take -{dmgReduction} Damage from each hit in their and the next
@@ -232,7 +231,7 @@ class NightshroudDmgReductionEffect(BaseEffect):
 
 
 class NeuroparasiteEffect(BaseEffect):
-    """`NeuroparasiteEffect.CreateEffectDamageMalusForDefense @180f5b840` (passif du Neurothrope
+    """`IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect$$CreateEffectDamageMalusForDefense` (passif du Neurothrope
     `Neuroparasite`, EffectType 0x49f=1183, base `ABondEffect` = lien cible<->Neurothrope infecteur).
     Malgré le nom « MalusForDefense », c'est un ADDITIF **POSITIF** au dégât PSYCHIQUE reçu (le porteur =
     une faiblesse infligée) :
@@ -240,9 +239,9 @@ class NeuroparasiteEffect(BaseEffect):
                                Multiply(ConfigVar(8=extraDmg, sourceAbilityState), EffectLevel))`
     = **+extraDmg[niveauSource] × niveau_de_parasite** au dégât psychique de LE Neurothrope qui a infecté la
     cible. i2 : « Psychic Damage dealt by the Neurothrope is increased by +1237 Damage for each level of a
-    Neuroparasite on the target » (`extraDmg[L65]=1237` ; max 15 niveaux via `GetMaximumLevel @180f5bdc0`).
+    Neuroparasite on the target » (`extraDmg[L65]=1237` ; max 15 niveaux via `IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect$$GetMaximumLevel`).
 
-    Gates natifs (@180f5b840) :
+    Gates natifs (IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect$$CreateEffectDamageMalusForDefense) :
       - `DamageProfileIs(0xd=Psychic)` -> uniquement le dégât PSYCHIQUE (`damage_profile == "Psychic"`).
       - `AreEqual(BondedEntity, damageSource)` -> uniquement les attaques de CE Neurothrope (l'effet `source`
         = le Neurothrope infecteur). `attacker_ctx["id"]` threadé par le builder : si connu et != source ->
@@ -296,7 +295,7 @@ class NeuroparasiteEffect(BaseEffect):
 class FightingRetreatDmgReductionEffect(BaseEffect):
     """`FightingRetreat_DamageReductionEffect` (effet 1157 `FightingRetreatDmgReduction`) — debuff posé
     par FightingRetreat (Darkstrider) sur les ennemis adjacents (« deal -582 Damage for one round »).
-    - dégât @180f493a0 : `EffectBonus.ForAddition(OwnerIsCaster, Multiply(ConfigVar(0x12=dmgReduction),
+    - dégât IdunBattle.Entities.Effects.Loki.FightingRetreat_DamageReductionEffect$$CreateEffectDamageBonusForAttack : `EffectBonus.ForAddition(OwnerIsCaster, Multiply(ConfigVar(0x12=dmgReduction),
       MinusOne))` = **-dmgReduction PLAT** sur les attaques du PORTEUR (additif, PAS un pct).
       `dmgReduction` = variable par niveau (lvl65=582), flaggée `variablesAffectedByRarityBonus`.
     ⚠ Niveau/multiplier fidèles = ceux du CASTER SOURCE (Darkstrider, abilityState de l'effet), non
@@ -320,9 +319,9 @@ class ShadowInTheWarpLessDmgEffect(BaseEffect):
     """`ShadowInTheWarp_LessDmg_Effect` (effet 1053=0x41d) — AURA de RÉDUCTION du dégât PSYCHIQUE. L'effet
     vit sur le PORTEUR (trait ShadowInTheWarp, ex. tyranSmnWarrior) et se PROJETTE sur les ENNEMIS
     environnants (psykers) : quand un tel ennemi attaque en PSYCHIQUE, son dégât est réduit.
-    - dégât `CreateEffectDamageBonusForAttack` @180f6b420 : `ForPercentIncrease(OwnerIsActor &
+    - dégât `IdunBattle.Entities.Effects.Loki.ShadowInTheWarp_LessDmg_Effect$$CreateEffectDamageBonusForAttack : `ForPercentIncrease(OwnerIsActor &
       DamageProfileIs(0xd=Psychic), ConfigConst(0x3b))` = `shadowInTheWarpDmgModifier`% (=-25, négatif).
-    - cible `CreateTargetSelector` @180f6b5f0 : `SurroundingEnemies(range=ConfigConst 0x16) &
+    - cible `IdunBattle.Entities.Effects.Loki.ShadowInTheWarp_LessDmg_Effect$$CreateTargetSelector : `SurroundingEnemies(range=ConfigConst 0x16) &
       UnitsWithTrait(0x3ea) & UnitsNotFromFaction(0xc)`.
     MAGNITUDE + PORTÉE LUES du trait (`traitVariables.shadowInTheWarpDmgModifier=-25`, `shadowInTheWarpRange=2`).
     ⚠ Filtre `UnitsWithTrait(0x3ea)` (psyker) NON décodable offline (pas de map TRAIT) → SUR-APPROXIMÉ au
@@ -332,7 +331,7 @@ class ShadowInTheWarpLessDmgEffect(BaseEffect):
 
     def create_aura_attack_damage_malus_for_enemy(self, ctx: Mapping | None = None) -> EffectBonus | None:
         c = ctx or {}
-        if (c.get("damage_profile") or "") != "Psychic":    # DamageProfileIs(0xd) @180f6b420
+        if (c.get("damage_profile") or "") != "Psychic":    # DamageProfileIs(0xd) IdunBattle.Entities.Effects.Loki.ShadowInTheWarp_LessDmg_Effect$$CreateEffectDamageBonusForAttack
             return None
         if c.get("owner_team") is None or c.get("owner_team") == c.get("att_team"):
             return None                                       # SurroundingEnemies : l'attaquant est ENNEMI du porteur
@@ -353,14 +352,14 @@ class DaughterOfTheAbyssFriendlyDmgReductionPctEffect(BaseEffect):
     """`DaughterOfTheAbyss_FriendlyDmgReductionPctEffect` (effet 0x58b=1419, passif DaughterOfTheAbyss
     d'Atlacoya custoAtlacoya) — AURA de RÉDUCTION du dégât PSYCHIQUE REÇU par les AMIS du porteur
     (i2 : « Psychic Damage dealt to other friendly units within 2 hexes of Atlacoya is reduced by 33% »).
-    L'effet vit sur le PORTEUR (posé par `DaughterOfTheAbyssAbility.CreateBehaviour` @180e1f540 :
+    L'effet vit sur le PORTEUR (posé par `IdunBattleLogic.Entities.Abilities.Triggered.Loki.DaughterOfTheAbyssAbility$$CreateBehaviour :
     AddEffect(0x58b) — capté live source=Atlacoya, JAMAIS matérialisé sur les amis) et se PROJETTE sur
     les cibles à la CALC (boucle state-wide EffectWithTarget × cibles de `CalculateDefenderModifiers-
-    ForPrediction` @181002c30).
-    - dégât `CreateEffectDamageMalusForDefense` @180f3cde0 : `(OwnerIsTarget & DamageProfileIs(0xd=
+    ForPrediction` IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction).
+    - dégât `IdunBattle.Entities.Effects.Loki.DaughterOfTheAbyss_FriendlyDmgReductionPctEffect$$CreateEffectDamageMalusForDefense : `(OwnerIsTarget & DamageProfileIs(0xd=
       Psychic)) -> -ConfigVar(0x46=dmgReductionPct, abilityState)` (négation via nœud Direct(-1), mirror
-      du jumeau Owner @180f3d070 `Multiply(ConfigVar, factory+0xd8)`).
-    - cibles (selector famille, jumeau symétrique @180f3cd00) : amis du porteur dans le rayon
+      du jumeau Owner IdunBattle.Entities.Effects.Loki.DaughterOfTheAbyss_OwnerDmgReductionEffect$$CreateEffectDamageMalusForDefense `Multiply(ConfigVar, factory+0xd8)`).
+    - cibles (selector famille, jumeau symétrique IdunBattle.Entities.Effects.Loki.DaughterOfTheAbyss_ExtraDamagePctEffect$$CreateTargetSelector) : amis du porteur dans le rayon
       `constants.range` (=2), « OTHER » ⇒ exclut le porteur (qui a SON OwnerDmgReduction).
     MAGNITUDE : `dmgReductionPct[ablvl]` (25→33, hors variablesAffectedByRarityBonus ⇒ PAS de scaling
     rareté). GROUND TRUTH #184 (seed 2024 MC1_67) : bloodMephiston (Psychic) → tgts 81/83/85/79 tous à
@@ -370,7 +369,7 @@ class DaughterOfTheAbyssFriendlyDmgReductionPctEffect(BaseEffect):
 
     def create_aura_defense_damage_malus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
         c = ctx or {}
-        if (c.get("damage_profile") or "") != "Psychic":      # DamageProfileIs(0xd) @180f3cde0
+        if (c.get("damage_profile") or "") != "Psychic":      # DamageProfileIs(0xd) IdunBattle.Entities.Effects.Loki.DaughterOfTheAbyss_FriendlyDmgReductionPctEffect$$CreateEffectDamageMalusForDefense
             return None
         if c.get("tgt_id") == c.get("owner_id"):              # « OTHER friendly units » : exclut le porteur
             return None
@@ -394,11 +393,11 @@ class DaughterOfTheAbyssOwnerDmgReductionEffect(BaseEffect):
     """`DaughterOfTheAbyss_OwnerDmgReductionEffect` (effet 0x58a=1418) — réduction PLATE du dégât
     PSYCHIQUE reçu par le PORTEUR lui-même (i2 : « Atlacoya takes -1892 Psychic Damage »). L'effet est
     dans la liste d'effets de la CIBLE quand Atlacoya est visée ⇒ canal défenseur STANDARD.
-    - dégât `CreateEffectDamageMalusForDefense` @180f3d070 : `(OwnerIsTarget & DamageProfileIs(0xd=
+    - dégât `IdunBattle.Entities.Effects.Loki.DaughterOfTheAbyss_OwnerDmgReductionEffect$$CreateEffectDamageMalusForDefense : `(OwnerIsTarget & DamageProfileIs(0xd=
       Psychic)) -> Multiply(ConfigVar(0x12=dmgReduction, abilityState), Direct(-1) factory+0xd8)`
       = soustraction plate (slot additif défenseur @+0x10, mirror Nightshroud #111/#120).
     MAGNITUDE : `dmgReduction[ablvl]` ∈ variablesAffectedByRarityBonus ⇒ × multiplier de l'unité.
-    ⚠ NON VALIDÉ LIVE (#184) : structure lue du décompilé (jumeau exact de Nightshroud @180f5bff0,
+    ⚠ NON VALIDÉ LIVE (#184) : structure lue du décompilé (jumeau exact de Nightshroud IdunBattle.Entities.Effects.Loki.Nightshroud_DmgReduction_Effect$$CreateDamageDefenseModifier,
     lui validé) mais aucune mesure native vs Atlacoya-cible obtenue (hors plans dans les seeds
     d'audit + rows toujours predOptimistic via son Parry_ReduceHits) — placement per-hit additif
     présumé par la famille."""
@@ -406,7 +405,7 @@ class DaughterOfTheAbyssOwnerDmgReductionEffect(BaseEffect):
     def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
                                                damage_profile: str | None = None,
                                                attacker_ctx: Mapping | None = None) -> EffectBonus | None:
-        if (damage_profile or "") != "Psychic":               # DamageProfileIs(0xd) @180f3d070
+        if (damage_profile or "") != "Psychic":               # DamageProfileIs(0xd) IdunBattle.Entities.Effects.Loki.DaughterOfTheAbyss_OwnerDmgReductionEffect$$CreateEffectDamageMalusForDefense
             return None
         lvl = self.ability_level if self.ability_level is not None else self.level
         amt = ability_var("DaughterOfTheAbyss", "dmgReduction", level=lvl,
@@ -419,13 +418,12 @@ class DaughterOfTheAbyssOwnerDmgReductionEffect(BaseEffect):
 
 class OverwhelmingWrathRangeDmgReductionEffect(BaseEffect):
     """`OverwhelmingWrath_RangeDmgReductionEffect` (EffectType 0x515=1301, nom capté
-    "OverwhelmingWrath_RangeDmgReduction" ; famille `ADamageDefenseModifierAbilityEffect`, ctor
-    @180f5d850 = base(0x475=1141 = OverwhelmingWrath, l'ACTIVE d'Azkor worldEightbound)) — i2 :
+    "OverwhelmingWrath_RangeDmgReduction" ; famille `ADamageDefenseModifierAbilityEffect`, IdunBattle.Entities.Effects.Loki.OverwhelmingWrath_RangeDmgReductionEffect$$.ctor = base(0x475=1141 = OverwhelmingWrath, l'ACTIVE d'Azkor worldEightbound)) — i2 :
     « Until the beginning of his next turn Azkor Taunts all adjacent enemies and takes -64% Damage
     from ranged attacks. » Effet TRANSIENT (rem=1 capté), posé par l'ExecuteBehaviour de l'ability
-    (@1811f8bc0), expire au début du tour suivant du porteur. #190.
+    (IdunBattleLogic.Entities.Abilities.Active.Loki.OverwhelmingWrathAbility$$ExecuteBehaviour), expire au début du tour suivant du porteur. #190.
 
-    - dégât `CreateDamageDefenseModifier @180f5d6e0` : `EffectBonus.ForPercentDecrease(
+    - dégât `IdunBattle.Entities.Effects.Loki.OverwhelmingWrath_RangeDmgReductionEffect$$CreateDamageDefenseModifier` : `EffectBonus.ForPercentDecrease(
       get_OwnerIsTarget & IsRangedAttack, ConfigVar(0x46=dmgReductionPct, GetAbilityState(effet)))`
       → le dégât des attaques RANGED reçues par le porteur est réduit de `dmgReductionPct`%.
       Gate RANGED strict (aucun filtre profil/normal) ; contexte inconnu (is_melee=None) → no-op.
@@ -443,7 +441,7 @@ class OverwhelmingWrathRangeDmgReductionEffect(BaseEffect):
     def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
                                                damage_profile: str | None = None,
                                                attacker_ctx: Mapping | None = None) -> EffectBonus | None:
-        if is_melee is not False:                # gated IsRangedAttack @180f5d6e0
+        if is_melee is not False:                # gated IsRangedAttack IdunBattle.Entities.Effects.Loki.OverwhelmingWrath_RangeDmgReductionEffect$$CreateDamageDefenseModifier
             return None
         lvl = (self.active_ability_level if self.active_ability_level is not None
                else (self.ability_level if self.ability_level is not None else self.level))
@@ -457,17 +455,17 @@ class OverwhelmingWrathRangeDmgReductionEffect(BaseEffect):
 class PsychicFortressDmgReductionEffect(BaseEffect):
     """`PsychicFortress_DmgReductionEffect` (effet 0x3f2=1010, passif PsychicFortress de Tigurius
     ultraTigurius ; base `ADamageDefenseModifierAbilityEffect(1000=0x3e8=PsychicFortress AbilityOrEffect)`,
-    ctor @180f66cb0) — AURA de RÉDUCTION PLATE du dégât PSYCHIQUE REÇU par les AMIS ring-1 du porteur.
-    L'effet vit sur le PORTEUR (posé par `PsychicFortressAbility.CreateBehaviour @181224070` :
+    IdunBattle.Entities.Effects.Loki.PsychicFortress_DmgReductionEffect$$.ctor) — AURA de RÉDUCTION PLATE du dégât PSYCHIQUE REÇU par les AMIS ring-1 du porteur.
+    L'effet vit sur le PORTEUR (posé par `IdunBattleLogic.Entities.Abilities.Active.Loki.PsychicFortressAbility$$CreateBehaviour` :
     `AddEffect(0x3f2, AbilityStateRef, context@0x148)` — capté live source=Tigurius, JAMAIS matérialisé
     sur les amis) et se PROJETTE sur les cibles à la CALC (boucle state-wide EffectWithTarget × cibles de
-    `CalculateDefenderModifiersForPrediction @181002c30`, canal `aura_defense_damage_malus_from_units`).
+    `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction`, canal `aura_defense_damage_malus_from_units`).
 
-    - dégât `CreateDamageModifier @180f66a30` : `EffectBonus.ForAddition(OwnerIsTarget &
+    - dégât `IdunBattle.Entities.Effects.Loki.PsychicFortress_DmgReductionEffect$$CreateDamageModifier` : `EffectBonus.ForAddition(OwnerIsTarget &
       DamageProfileIs(0xd=Psychic), Multiply(ConfigVar(0x12=dmgReduction, GetAbilityState(effet),
       mult@+0x60), Direct(-1)@factory+0xd8))` = SOUSTRACTION plate négative (slot additif défenseur @+0x10,
-      jumeau STRUCTUREL EXACT de `DaughterOfTheAbyss_OwnerDmgReduction @180f3d070` et `Nightshroud @180f5bff0`).
-    - cibles `CreateTargetSelector @180f66c30` : `Friends(SurroundingUnits(context@0x148, range=1,
+      jumeau STRUCTUREL EXACT de `DaughterOfTheAbyss_OwnerDmgReduction IdunBattle.Entities.Effects.Loki.DaughterOfTheAbyss_OwnerDmgReductionEffect$$CreateEffectDamageMalusForDefense` et `Nightshroud IdunBattle.Entities.Effects.Loki.Nightshroud_DmgReduction_Effect$$CreateDamageDefenseModifier`).
+    - cibles `IdunBattle.Entities.Effects.Loki.PsychicFortress_DmgReductionEffect$$CreateTargetSelector` : `Friends(SurroundingUnits(context@0x148, range=1,
       includeCenter=false))` = amis à distance EXACTEMENT 1 (ring-1), EXCLUT le porteur (includeCenter=false).
 
     MAGNITUDE : `dmgReduction[ablvl]` (12->873, RARITY-SCALÉ : dmgReduction ∈ variablesAffectedByRarityBonus)
@@ -479,7 +477,7 @@ class PsychicFortressDmgReductionEffect(BaseEffect):
 
     def create_aura_defense_damage_malus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
         c = ctx or {}
-        if (c.get("damage_profile") or "") != "Psychic":     # DamageProfileIs(0xd) @180f66a30
+        if (c.get("damage_profile") or "") != "Psychic":     # DamageProfileIs(0xd) IdunBattle.Entities.Effects.Loki.PsychicFortress_DmgReductionEffect$$CreateDamageModifier
             return None
         if c.get("tgt_id") == c.get("owner_id"):              # SurroundingUnits(includeCenter=false) exclut le porteur
             return None
@@ -489,7 +487,7 @@ class PsychicFortressDmgReductionEffect(BaseEffect):
         if not op or not tp:
             return None
         import hexgeo
-        if hexgeo.distance(op, tp) != 1:                      # SurroundingUnits(range=1, includeCenter=false) = ring-1 exact @180f66c30
+        if hexgeo.distance(op, tp) != 1:                      # SurroundingUnits(range=1, includeCenter=false) = ring-1 exact IdunBattle.Entities.Effects.Loki.PsychicFortress_DmgReductionEffect$$CreateTargetSelector
             return None
         lvl = self.ability_level if self.ability_level is not None else self.level
         amt = ability_var("PsychicFortress", "dmgReduction", lvl,   # ConfigVar 0x12 (rarity-scalé × mult)

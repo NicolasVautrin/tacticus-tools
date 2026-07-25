@@ -2,7 +2,7 @@
 1 classe par ability). RE ghidra gqfc5mff6c (VAs citees). Case-220 §6.3 (docs/rl/case-220/world-eaters.md).
 
 JakhalStimms (1131, `worldJakhal` « Macer »). Namespace natif `Abilities.Active.Loki.JakhalStimmsAbility`.
-`JakhalStimmsAbility.ExecuteBehaviour @1811ec770` (MIRROR du DECOMPILE) :
+`IdunBattleLogic.Entities.Abilities.Active.Loki.JakhalStimmsAbility$$ExecuteBehaviour` (MIRROR du DECOMPILE) :
     aoeSel = op_BitwiseAnd( AdjacentUnits(@0x168=caster, 1, 3),      # A : TOUTES unites adjacentes au caster
                             AdjacentFriends(@0x178=target, 1, 3) )   # B : friends-DE-LA-CIBLE (= ennemis caster) adj cible
     main   = GetAttackBehaviour(@0x178=target)                       # [MAIN] attaque sur la cible
@@ -12,9 +12,9 @@ JakhalStimms (1131, `worldJakhal` « Macer »). Namespace natif `Abilities.Activ
     ExecuteAtomic( op_BitwiseAnd(main, aoe), 0x2a )                 # attaques ATOMIQUES (tag 0x2a)
     Execute( selfLoss )                                             # PUIS self-loss (Execute SEPARE)
 
-`GetAttackBehaviour @1811ecb40` = `AttackWithAttackDamage( actor@0x160, <sel>, MinMaxDamage(minDmg 0xc/
+`IdunBattleLogic.Entities.Abilities.Active.Loki.JakhalStimmsAbility$$GetAttackBehaviour` = `AttackWithAttackDamage( actor@0x160, <sel>, MinMaxDamage(minDmg 0xc/
 maxDmg 0xd), damageProfile = Nullable(GetDamageProfile), hits = GetHits )`. `GetHits` = `ArmoriumCherub
-Ability.GetHits @180fb16c0` (gshared dedup) = `GetNumberConstant(nrOfHits=0x2f)`. i2 : « Deals 4x [dmg]
+IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$GetHits` (gshared dedup) = `GetNumberConstant(nrOfHits=0x2f)`. i2 : « Deals 4x [dmg]
 Physical Damage to an adjacent enemy and all other enemies adjacent to both Macer and the target. Then Macer
 loses 25% of his current Health. Using Jakhal Stimms does not end Macer's turn. » Attaque MELEE, profil
 Physical (pierce 1). Config 1131 : nrOfHits=4, hpPct=25 (constantes) ; minDmg/maxDmg per-level (rarity).
@@ -32,7 +32,7 @@ Physical (pierce 1). Config 1131 : nrOfHits=4, hpPct=25 (constantes) ; minDmg/ma
 - MAIN = `AttackWithAttackDamage(Target(), ...)` (@0x178). AOE = MEME attaque (memes bornes minDmg/maxDmg,
   memes hits, meme profil : une seule config de degat) sur `aoeSel` (`multi=True`, tri par id = ordre de
   lecture natif). `native_factory="attack"` : l'`ExecuteBehaviour`/`GetAttackBehaviour` appelle
-  `DSLFactory.AttackWithAttackDamage @180de9fb0` (XREF callees), PAS `AttackWithAbilityDamage` -> famille
+  `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (XREF callees), PAS `AttackWithAbilityDamage` -> famille
   ATTACK (2 tirages/coup a cc=0). Multi-coups (hits=4) -> classification factory OBLIGATOIRE (tip#2) :
   "attack". Profil Physical (pierce 1). `hits=4` lu de la config (nrOfHits, chemin par defaut).
 - `ExecuteAtomic(op_and(main, aoe), 0x2a)` -> `AtomicGroup(op_and(main, aoe))` (inline #201 ; tag 0x2a = id
@@ -68,7 +68,7 @@ if TYPE_CHECKING:
 
 
 def jakhal_stimms_tree() -> AtomicGroup:
-    """Arbre des ATTAQUES de `JakhalStimmsAbility.ExecuteBehaviour @1811ec770` (MIRROR du DECOMPILE ; cf.
+    """Arbre des ATTAQUES de `IdunBattleLogic.Entities.Abilities.Active.Loki.JakhalStimmsAbility$$ExecuteBehaviour` (MIRROR du DECOMPILE ; cf.
     en-tete module). Le self-loss `ChangeStat` est un `Execute` SEPARE (hors atomic) -> execute par
     l'appelant apres cet AtomicGroup :
         AtomicGroup( op_and(
@@ -78,7 +78,7 @@ def jakhal_stimms_tree() -> AtomicGroup:
 
     MAIN = attaque MELEE 4x Physical (pierce 1) sur la cible du message (`hits=4` de la config nrOfHits, chemin
     par defaut). AOE = MEME attaque (memes bornes/hits/profil) sur les ennemis du caster adjacents a la fois au
-    caster ET a la cible (`And` = intersection ; caster/cible exclus). `native_factory="attack"` (@180de9fb0,
+    caster ET a la cible (`And` = intersection ; caster/cible exclus). `native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage,
     XREF ; 2 tirages/coup a cc=0). `multi=True` folde le selecteur multi-cible (tri par id = ordre natif).
     `ExecuteAtomic(., 0x2a)` -> `AtomicGroup`. Ordre main PUIS aoe -> meme `state.rng` -> bit-exact."""
     ability_type = int(ActiveAbilityType.JakhalStimms)              # AbilityOrEffect(this+0x10) threade after-hit
@@ -92,14 +92,14 @@ def jakhal_stimms_tree() -> AtomicGroup:
 
 
 class JakhalStimmsAbility(ActiveAbility):
-    """`JakhalStimmsAbility.ExecuteBehaviour @1811ec770` (id 1131, `worldJakhal` « Macer », WorldEaters) —
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.JakhalStimmsAbility$$ExecuteBehaviour` (id 1131, `worldJakhal` « Macer », WorldEaters) —
     MIRROR du DECOMPILE. Attaque MELEE 4x Physical (pierce 1) sur la cible + MEME attaque sur les ennemis
     adjacents a la fois au caster ET a la cible (AoE INTERSECTION `AdjacentUnits(caster) & AdjacentFriends(
     target)`) ; PUIS le caster perd 25% de son PV COURANT (`ChangeStat` Subtract, Execute separe). Free action
     (does not end turn, cable via base.py). Le behaviour = l'arbre DSL (`jakhal_stimms_tree`) : les feuilles
     `AttackWithAttackDamage` (mode bornes, hits=config nrOfHits) emettent la MEME Operation d'attaque d'ability
     que le pipeline combat porte -> bit-exact BY CONSTRUCTION vs une sequence directe sous meme rng.
-    `native_factory="attack"` (@180de9fb0, XREF). Passif Skullsmasher + trait BlessingsOfKhorne (extra dmg)
+    `native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, XREF). Passif Skullsmasher + trait BlessingsOfKhorne (extra dmg)
     NON portes = items separes -> valider sur un Macer PLEINE VIE (gate OFF, canal bit-exact propre)."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.JakhalStimms)   # 1131

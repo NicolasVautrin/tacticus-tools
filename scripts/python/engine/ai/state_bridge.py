@@ -15,8 +15,8 @@ Faits cles (map de la passe RE / agent) :
    `_best_attack` fait un argmax STRICT sur le SET de tuiles atteignables -> on n'a pas a porter le heuristique
    `GetBest`, seulement le SET (tuiles de move d'ou l'attaque est legale, portee = `_ability_reach`).
  - `ability_targets` (SLICE 2) = `ability_targets_offline` (heal/repair/summon/Nova) : enumere l'UNION des cibles
-   legales sur toutes les tuiles-caster, mirror `GetAllValidTargetsFromAllPossibleMovementTiles @18111e890` /
-   `GetEligibleTargetsSelectable @18111f0d0` (kind/portee derives de gameconfig, cf. `_ability_kind`).
+   legales sur toutes les tuiles-caster, mirror `IdunBattle.AI.Playbook.BasePlaybook$$GetAllValidTargetsFromAllPossibleMovementTiles` /
+   `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable` (kind/portee derives de gameconfig, cf. `_ability_kind`).
 
 Attaque normale : son ActiveAbilityType CONCRET per-unite (Loki_NormalAttack=69, ...) est un etat RUNTIME
 (`ActiveAbilityComponent.NormalAttackType`) NON derivable de gameconfig -> on utilise l'id SYNTHETIQUE 17
@@ -51,7 +51,7 @@ TELEPORT_STRIKE_TELEPORTING_IN = int(EffectType.TeleportStrike_TeleportingIn)  #
 
 
 def _is_untargetable(state, uid: int) -> bool:
-    """`UnitExtensions.IsTargetable @180ed8ff0` = `!HasFlag(Untargetable=0x11)`. Signal OFFLINE du deep-strike :
+    """`IdunBattle.Entities.UnitExtensions$$IsTargetable` = `!HasFlag(Untargetable=0x11)`. Signal OFFLINE du deep-strike :
     une unite en cours de teleportation (effet `TeleportStrike_TeleportingIn` 1035) est non-ciblable jusqu'a son
     atterrissage (ground truth live ds_landing). -> exclue de l'enumeration de cibles (attaque/ability)."""
     return state.effects is not None and state.effects.has_effect(
@@ -69,7 +69,7 @@ def _granted_abilities(vid: str) -> list:
     """Abilities ACTIVES accordees au runtime par un `passiveAbilities` de l'unite (absentes de
     `activeAbilities` — le natif les peuple dans l'ActiveAbilityComponent VIA le passive). DERIVEES DU PASSIVE
     (aucune table hardcodee) : le natif nomme la classe accordee `<Passive>_HealAbility` = membre d'enum
-    `Heal_<Passive>` (ex. passive `TwistedScience` -> `TwistedScience_HealAbility$$ExecuteBehaviour @181217ad0`
+    `Heal_<Passive>` (ex. passive `TwistedScience` -> `TwistedScience_HealAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.TwistedScience_HealAbility$$ExecuteBehaviour`
     = enum `Heal_TwistedScience` 1167). Donc pour chaque passive P on resout l'enum `Heal_<P>` s'il existe.
     C'est le PASSIVE (donnee jeu) + la convention de nommage NATIVE (enum) qui donnent l'ability — pas un
     mapping invente. (Couvre les grants HEAL ; d'autres familles de grant = extension a confirmer.)"""
@@ -186,7 +186,7 @@ def _move_tiles(state, uid: int, vid: str, my_team: int, origin: tuple | None) -
     if otile is None or depth <= 0:
         return []
     # Sélection du pathfinder par trait (mirror dispatch virtuel `MovementQuery.GetReachableTiles`
-    # @18109b380) : unité « comme volante » (Flying/Burrow) -> FlyPathfinder (ignore élévation +
+    # IdunBattle.Core.Services.MovementQuery$$GetReachableTiles) : unité « comme volante » (Flying/Burrow) -> FlyPathfinder (ignore élévation +
     # unités) ; sinon WalkPathfinder. Portée = même stat Movement dans les deux cas.
     traits = (sc.ctx.traits if sc is not None else None) or []
     _mv = fly_get_movable_positions if is_like_flying(traits) else get_movable_positions
@@ -227,7 +227,7 @@ def _pathdist_to_enemies(state, uid: int, my_team: int, enemy_positions: list) -
     return {board.coord(t): d for t, d in level.items()}
 
 
-# --- Classification d'ability (SLICE 2) — mirror TargetingQuery.GetRange @1810bd670 + le TargetsSelector DSL
+# --- Classification d'ability (SLICE 2) — mirror IdunBattle.Core.Services.TargetingQuery$$GetRange + le TargetsSelector DSL
 #     par-ability (kind non-gameconfig -> derive de la SIGNATURE des constants, exact pour attack/heal/repair/
 #     summon, heuristique self pour le residuel). Portee = constants.range sinon attackRangeType sinon arme. ----
 # Enums d'ability heal/repair dont `GC.ability` = template de base a CONFIG VIDE : le signal generique
@@ -266,7 +266,7 @@ def _is_attack_ability(ability_id: int, cfg: dict) -> bool:
 
 
 def _ability_reach(vid: str, ability_id: int, cfg: dict) -> int:
-    """Portee de l'ability (mirror `TargetingQuery.GetRange` @1810bd670) : `constants.range` si present, sinon
+    """Portee de l'ability (mirror `IdunBattle.Core.Services.TargetingQuery$$GetRange) : `constants.range` si present, sinon
     `attackRangeType` (Melee->1 ; Normal/Ranged->portee arme), sinon portee arme. (Le +GetStat(0x18) ranged-bonus
     et le clamp effet 0x529 = raffinements runtime non portes.)"""
     c = cfg.get("constants") or {}
@@ -340,8 +340,8 @@ def _is_machine(entity) -> bool:
 
 
 def ability_targets_offline(state, uid: int, ability_id: int) -> dict:
-    """`BasePlaybook.GetAllValidTargetsFromAllPossibleMovementTiles @18111e890` / `BattleQuery @18105d700` /
-    `GetEligibleTargetsSelectable @18111f0d0` — enumerateur de ciblage OFFLINE (SLICE 2). Renvoie l'UNION des
+    """`IdunBattle.AI.Playbook.BasePlaybook$$GetAllValidTargetsFromAllPossibleMovementTiles` / `BattleQuery IdunBattle.Core.Services.BattleQuery$$GetAllValidTargetsFromAllPossibleMovementTiles` /
+    `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable` — enumerateur de ciblage OFFLINE (SLICE 2). Renvoie l'UNION des
     cibles legales sur toutes les tuiles-caster (origine + move) au format du RPC `abilityTargets` que le seam
     `AiDecisionContext.ability_targets` consomme :
       {units:[{unitId, abilities:[{abilityId, targets:[{kind:'unit'|'tile', targetId, tile:{col,row}}]}]}]}
@@ -501,7 +501,7 @@ def build_from_state(state, uid: int, debug: bool = False):
     hpmax_by_id = dict(scene.hpmax_by_id)
     elev_by_pos = scene.elev_by_pos or {}
     # #57l — MinDist(16) ne mesure QU'AUX ennemis CIBLABLES (miroir `FindClosestEnemy` -> `!IsTargetable`,
-    # @181197f10) : un ennemi en Deep-Strike (TeleportStrike, non-atterri) est NON-ciblable et exclu du
+    # IdunBattle.AI.ActionGenerators.MovementActionGenerator.u003CFindClosestEnemyu003Ed__8$$MoveNext) : un ennemi en Deep-Strike (TeleportStrike, non-atterri) est NON-ciblable et exclu du
     # ClosestEnemy. Sans ce filtre, un deep-strike plus proche par chemin ecrase le vrai ClosestEnemy et
     # fausse la distance-chemin par tuile (12345 s5 : (1,4)=6 vers Dante vs 7 vers l'ennemi ciblable).
     # `enemies`/`epos` restent complets (occupance/positionnement) ; seul le seed MinDist est filtre.

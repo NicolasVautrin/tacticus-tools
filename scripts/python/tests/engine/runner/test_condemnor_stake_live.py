@@ -2,9 +2,9 @@
 vs cibles PSYKER.
 
 adeptCanoness porte le passif CondemnorStake : effet EffectType 1076 "CondemnorStake_ExtraDmg" dont
-`CreateEffectDamageBonusForAttack @180f39450` = `EffectBonus.ForAddition(OwnerIsActor & HasTrait(target,
+`IdunBattle.Entities.Effects.Loki.CondemnorStake_ExtraDmgEffect$$CreateEffectDamageBonusForAttack` = `EffectBonus.ForAddition(OwnerIsActor & HasTrait(target,
 0x3ea=1002=Psyker), ConfigVar(8=extraDmg, GetAbilityState, EffectSource))` -- JUMEAU de AvalancheOfMuscle
-@180f32b20 avec le gate IsCharging remplace par HasTrait(target, Psyker) (RE decompile : callees @180f39450 =
+IdunBattle.Entities.Effects.Loki.AvalancheOfMuscleTargetEffect$$CreateEffectDamageBonusForAttack avec le gate IsCharging remplace par HasTrait(target, Psyker) (RE decompile : callees IdunBattle.Entities.Effects.Loki.CondemnorStake_ExtraDmgEffect$$CreateEffectDamageBonusForAttack =
 {GetAbilityState, ConfigVar, get_OwnerIsActor, HasTrait(target, 0x3ea), op_BitwiseAnd} ; AUCUN gate
 melee/ranged/normal/charging). Additif PRE-percage par coup (attacker_additive_pre, canal DamageModifiers.Add),
 gate CIBLE = la cible a-t-elle le trait Psyker. i2 "+2183 Damage" = extraDmg[L65] (lu gameconfig, jamais hardcode).

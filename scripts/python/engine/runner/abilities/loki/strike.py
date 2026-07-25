@@ -35,7 +35,7 @@ CORD_CLAW_ADDITIONAL_HITS = int(EffectType.CordClaw_AdditionHits)   # 1250 (0x4e
 
 
 def thunderous_assault_tree(charge_dest: "TargetsSelector | None" = None) -> AtomicGroup:
-    """Arbre de `ThunderousAssaultAbility.ExecuteBehaviour @1812158b0` (id 1043, templSwordBrother — MIRROR
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.ThunderousAssaultAbility$$ExecuteBehaviour` (id 1043, templSwordBrother — MIRROR
     du DECOMPILE) :
         ExecuteAtomic(
             AttackWithAttackDamage(caster, Units(Cache(First(Nearest(Tiles(target),casterPos)))),
@@ -79,14 +79,14 @@ def thunderous_assault_tree(charge_dest: "TargetsSelector | None" = None) -> Ato
     dest = charge_dest if charge_dest is not None else Cache(TargetTile())
     return AtomicGroup(op_and(op_and(op_and(op_and(
         AttackWithAttackDamage(Target(), "ThunderousAssault", "Power", is_melee=True),
-        AddEffect(STUNNED, "Stunned", Target(), duration_rounds=1)),   # TurnsFromRounds(1) @1812158b0 -> converti (#98)
+        AddEffect(STUNNED, "Stunned", Target(), duration_rounds=1)),   # TurnsFromRounds(1) IdunBattleLogic.Entities.Abilities.Active.Loki.ThunderousAssaultAbility$$ExecuteBehaviour -> converti (#98)
         PushUnit(Caster(), Target())),
         KillDeadUnits(Caster(), Target())),
         MoveUnit(Caster(), dest)))
 
 
 def armorium_cherub_tree() -> AtomicGroup:
-    """Arbre de `ArmoriumCherubAbility.ExecuteBehaviour @1811b4000` (id 1014, adeptRetributor «Vindicta» —
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$ExecuteBehaviour` (id 1014, adeptRetributor «Vindicta» —
     MIRROR du DECOMPILE) :
         ExecuteAtomic(
             AttackWithAttackDamage(caster, target, MinMaxDamage(minDmg 0xc/maxDmg 0xd), profile=Flame,
@@ -94,10 +94,10 @@ def armorium_cherub_tree() -> AtomicGroup:
           & EvaluateAbilities(0x4b=AttackInAtomicGroup) )                       # -> passif FireOfAbsolution
     Port : `AtomicGroup( op_and( AttackWithAttackDamage(Target(),"ArmoriumCherub","Flame",ranged),
                                  EvaluateAbilities(AttackInAtomicGroup, ranged=True) ) )`.
-    `MinMaxDamage(target,0)` @180fb2dc0 = `RandomAmount(minDmg[0xc],maxDmg[0xd])` = le degat generique de la
+    `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamage(target,0) = `RandomAmount(minDmg[0xc],maxDmg[0xd])` = le degat generique de la
     feuille `AttackWithAttackDamage` (bit-exact via `ability_attack_params` ; la branche `param_3!=0` =
     `Half(Sum(Direct,Direct))` = l'avg de PREDICTION #171, hors combat). `EvaluateAbilities(AttackInAtomicGroup)`
-    = nœud DSL natif `EvaluateAbilitiesBehaviour @180fc48a0` qui EVALUE les passifs declenches du caster pour cet
+    = nœud DSL natif `EvaluateAbilitiesBehaviour IdunBattle.Entities.Behaviours.EvaluateAbilitiesBehaviour$$Execute` qui EVALUE les passifs declenches du caster pour cet
     event (l'attaque d'ability atomique) -> `FireOfAbsolution` (splash 3x Flame + Maybe ignite ; passif porte
     `_fire_of_absolution_after_attack`, via `evaluate_abilities_for_event`). NB : NormalAttack passe `0x26`
     (event distinct, deja route par `after_hit_normal_attack`) ; les autres after-hit de l'attaque PRIMAIRE
@@ -111,7 +111,7 @@ def armorium_cherub_tree() -> AtomicGroup:
 
 
 def spirit_leech_get_attack_damage(state, caster_id, target_id, bmin, bmax):
-    """`SpiritLeechAbility.GetAttackDamage @181209dd0` (COMBAT, param_3=0), MIRROR du DECOMPILE :
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetAttackDamage` (COMBAT, param_3=0), MIRROR du DECOMPILE :
         ConditionalAmount( NOT HasEffect(target, Pinned 0x429), MinMaxDamage, MinMaxDamage + extraDmg )
     = si la cible est DEJA Pinned/« Suppressed » -> base + `extraDmg` (ConfigVar 8) ; sinon base seule.
     Le bonus est FLAT sur les 2 bornes AVANT le tirage per-coup. `extraDmg` est DANS
@@ -132,7 +132,7 @@ def spirit_leech_get_attack_damage(state, caster_id, target_id, bmin, bmax):
 
 
 def spirit_leech_heal_amount(entities, ectx):
-    """`SpiritLeechAbility.GetHealAmountForExecution @181209f00`, MIRROR du DECOMPILE :
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetHealAmountForExecution`, MIRROR du DECOMPILE :
         PercentageOf( LastAttackDamageMade(self), ConfigVar 0x4b = hpToHealPct )
     `LastAttackDamageMade` = total (degat SANTE) de la DERNIERE `AttackWithAttackDamage` emise (lu dans
     `ectx.emitted` = le seul volet d'attaque de SpiritLeech). `hpToHealPct` est HORS
@@ -154,7 +154,7 @@ def spirit_leech_heal_amount(entities, ectx):
 
 
 def spirit_leech_heal_targets() -> Union:
-    """`SpiritLeechAbility.GetHealTargets @18120a1e0`, MIRROR du DECOMPILE :
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetHealTargets`, MIRROR du DECOMPILE :
         op_Addition( Self, UnitsFromFaction(Friends(self, AdjacentUnits(self,1)), 0xc=Tyranids) )
     = le CASTER (`Self`, SANS gate faction) UNION les allies VIVANTS de faction Tyranids adjacents (hex 1).
     Port : `Union(Caster(), UnitsFromFaction(Alive(AdjacentFriends(CasterTile())), "Tyranids"))`.
@@ -167,7 +167,7 @@ def spirit_leech_heal_targets() -> Union:
 
 
 def spirit_leech_tree():
-    """Arbre de `SpiritLeechAbility.ExecuteBehaviour @181209900` (id 1104, tyranNeurothrope — MIRROR du
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$ExecuteBehaviour` (id 1104, tyranNeurothrope — MIRROR du
     DECOMPILE) :
         Execute( op_Addition( op_Addition( op_Addition(
             AttackWithAttackDamage(self, target, GetAttackDamage, Psychic, nrOfHits=0x2f=1),   # [A] attaque
@@ -185,14 +185,14 @@ def spirit_leech_tree():
     tgt = Target()
     attack = AttackWithAttackDamage(tgt, "SpiritLeech", "Psychic", is_melee=False,   # ranged (range 3), nrOfHits=0x2f=1
                                      damage_override=spirit_leech_get_attack_damage,  # GetAttackDamage (+extraDmg si Pinned)
-                                     native_factory="ability")  # @181209a9f appelle @180de9dd0 -> AbilityDamageOperation
+                                     native_factory="ability")  # IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$ExecuteBehaviour+0x19f appelle IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage -> AbilityDamageOperation
     pin = AddEffect(PINNED, "Pinned", tgt, None)                                      # AddEffect(0x429), duree DEFAUT
     heal = Heal(spirit_leech_heal_targets(), spirit_leech_heal_amount)                # lifesteal (Self + Tyranids adj)
     return op_add(op_add(attack, pin), heal)                                          # ((A + Pin) + Heal)
 
 
 def valkyrie_strike_tree() -> AddBondEffect:
-    """Arbre de `ValkyrieStrikeAbility.ExecuteBehaviour @181229e40` (id 1018, astraSmnVoxcaster — MIRROR du
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.ValkyrieStrikeAbility$$ExecuteBehaviour` (id 1018, astraSmnVoxcaster — MIRROR du
     DECOMPILE) :
         Execute( AddBondEffect(0x3fe ValkyrieStrike_Effect, AbilityStateReference, caster@0x160,
                                target@0x178, caster@0x160, dureeNode=ZERO, 0) )
@@ -239,7 +239,7 @@ def _seed_cord_claw_hits_level(state: "State", caster_id: int) -> None:
 
 
 def cord_claw_tree() -> "op_add":
-    """Arbre de `CordClawAbility.ExecuteBehaviour @1811ccbf0` (id 1122, admecRuststalker « Exitor-Rho » —
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.CordClawAbility$$ExecuteBehaviour` (id 1122, admecRuststalker « Exitor-Rho » —
     MIRROR du DECOMPILE) :
         Execute( op_Addition(
             AttackWithAttackDamage(caster@0x160, target@0x178, MinMaxDamage(minDmg 0xc/maxDmg 0xd),
@@ -252,14 +252,14 @@ def cord_claw_tree() -> "op_add":
 
     JUMEAU STRUCTUREL d'ArmoriumCherub (attaque MinMax + noeud unique) mais le 2e volet est un `AddEffect`
     self-buff (au lieu d'`EvaluateAbilities`). Details RE :
-    - `GetHits` : le decompile appelle litteralement `ArmoriumCherubAbility$$GetHits @180fb16c0` = MISLABEL
+    - `GetHits` : le decompile appelle litteralement `ArmoriumCherubAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$GetHits` = MISLABEL
       GSHARED (corps de methode DEDUPLIQUE : `GetNumberConstant(config@0x60, 0x2f)`). Appele avec `param_1`=
       l'instance CordClaw -> lit la config CORDCLAW (`nrOfHits`=4), PAS celle d'ArmoriumCherub. La feuille
       `AttackWithAttackDamage` lit `nrOfHits` (0x2f, hits_key defaut) via `ability_attack_params("CordClaw")`.
     - profil `GetDamageProfile` = `DirectDamage` (constants.damageProfile ; PiercingRatio 100 = ignore armure,
       i2 « Direct Damage »). Attaque MELEE (attackRangeType=Melee).
     - cible de l'`AddEffect` = `Self@0x148` (noeud sélecteur d'une CLASSE DISTINCTE de `Caster@0x160`, cf.
-      `DSLFactory.InitializeShared @180df2670` -- 0x148 sert de référentiel « owner » dans
+      `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` -- 0x148 sert de référentiel « owner » dans
       `HasUsedActiveAbilityThisTurnTrigger`). Pour un cast SELF, `Self` == le caster (Exitor-Rho) -> porté via
       `Caster()` (observable identique : l'effet se pose sur le caster, i2 « All of Exitor-Rho's further
       attacks »). BlackRage pose ses self-buffs via `Caster@0x160` ; le nuance Self/Caster n'a AUCUN effet
@@ -274,13 +274,13 @@ def cord_claw_tree() -> "op_add":
     HitsEffect`) s'appliquent aux attaques SUIVANTES (tour N+1). Aucun tirage RNG dans l'`AddEffect` -> l'ordre
     n'altere PAS l'ordre RNG de l'attaque : bit-exact BY CONSTRUCTION vs un imperatif attaque->pose."""
     attack = AttackWithAttackDamage(Target(), "CordClaw", "DirectDamage", is_melee=True)   # 4x DirectDamage melee
-    # `TurnsFromRounds(2)` natif (@1811ccbf0) -> `ConvertRoundsToTurns(2)` @181058af0 (#98)
+    # `TurnsFromRounds(2)` natif (IdunBattleLogic.Entities.Abilities.Active.Loki.CordClawAbility$$ExecuteBehaviour) -> `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns(2) (#98)
     self_buff = AddEffect(CORD_CLAW_ADDITIONAL_HITS, "CordClaw_AdditionHits", Caster(), duration_rounds=2)
     return op_add(attack, self_buff)
 
 
 class ThunderousAssaultAbility(ActiveAbility):
-    """`ThunderousAssaultAbility.ExecuteBehaviour` @1812158b0 (id 1043, templSwordBrother).
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ThunderousAssaultAbility$$ExecuteBehaviour (id 1043, templSwordBrother).
 
     Séquence native (`&` = op_BitwiseAnd), MIGRÉE en ARBRE DSL (#203, `thunderous_assault_tree()`) :
         AttackWithAttackDamage(caster, Units(Cache(First(Nearest(Tiles(target),casterPos)))),
@@ -318,7 +318,7 @@ class ThunderousAssaultAbility(ActiveAbility):
 
 
 class ArmoriumCherubAbility(ActiveAbility):
-    """`ArmoriumCherubAbility.ExecuteBehaviour @1811b4000` (id 1014, adeptRetributor «Vindicta»), MIGRÉ en
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$ExecuteBehaviour` (id 1014, adeptRetributor «Vindicta»), MIGRÉ en
     ARBRE DSL (#209, `armorium_cherub_tree()`) :
         ExecuteAtomic(
             AttackWithAttackDamage(caster, target, MinMaxDamage(minDmg/maxDmg[level]), Flame,
@@ -350,21 +350,21 @@ class ArmoriumCherubAbility(ActiveAbility):
 
 
 class SpiritLeechAbility(ActiveAbility):
-    """`SpiritLeechAbility.ExecuteBehaviour @181209900` (id 1104, tyranNeurothrope — MIRROR du DECOMPILE) :
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$ExecuteBehaviour` (id 1104, tyranNeurothrope — MIRROR du DECOMPILE) :
         Execute( op_Addition( op_Addition( op_Addition(
             AttackWithAttackDamage(self, target, GetAttackDamage, Psychic, nrOfHits=0x2f=1),   # attaque
             SetCache(PercentageOf(LastAttackDamageMade, ConfigVar 0x4b hpToHealPct)) ),          # montant heal
             AddEffect(0x429 Pinned, target, DEFAUT) ),                                           # « Suppressed » cible
             Heal(self, GetHealTargets, cachedHealAmount) ) )                                     # lifesteal
 
-    `GetAttackDamage @181209dd0` COMBAT (param_3=0) = `ConditionalAmount(NOT HasEffect(target, Pinned),
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetAttackDamage` COMBAT (param_3=0) = `ConditionalAmount(NOT HasEffect(target, Pinned),
     MinMaxDamage, MinMaxDamage + extraDmg)` : bonus a plat SI la cible est DEJA Pinned/Suppressed. Profil
     Psychic, ranged (range 3, nrOfHits=1). ⚠ COMBAT = CONFIG-based (config-avg×mult180 = 2593), != la
     PREDICTION Attack-based (~2670, slot 0x27) — DIVERGENCE NATIVE preview/combat (verdict #92).
 
     #149 slice-5 : `execute_behaviour` DELEGUE a `spirit_leech_tree()` (mirror 1:1 du decompile). Le degat
-    conditionnel (`GetAttackDamage`) passe via `damage_override` ; le lifesteal (`GetHealTargets @18120a1e0`
-    = Self + Tyranids adjacents ; `GetHealAmountForExecution @181209f00` = PercentageOf(LastAttackDamageMade,
+    conditionnel (`GetAttackDamage`) passe via `damage_override` ; le lifesteal (`IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetHealTargets`
+    = Self + Tyranids adjacents ; `IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetHealAmountForExecution` = PercentageOf(LastAttackDamageMade,
     hpToHealPct, mode=1=Ceiling)) est porte par la feuille `Heal`. `SetCache`/`Cache` = fold (plumbing pur).
     Attaque + Pin bit-exact BY CONSTRUCTION vs l'ancien imperatif ; le montant heal est CORRIGE au decompile
     (Ceiling, l'imperatif tronquait — gap +0/+1 HP)."""
@@ -396,7 +396,7 @@ class SpiritLeechAbility(ActiveAbility):
 
 
 class ValkyrieStrikeAbility(ActiveAbility):
-    """`ValkyrieStrikeAbility.ExecuteBehaviour` @181229e40 (id 1018, astraSmnVoxcaster), MIGRÉ en ARBRE DSL
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ValkyrieStrikeAbility$$ExecuteBehaviour (id 1018, astraSmnVoxcaster), MIGRÉ en ARBRE DSL
     (#149 slice-9, `valkyrie_strike_tree()`) :
         Execute( AddBondEffect(0x3fe=1022 ValkyrieStrike_Effect, AbilityStateReference, caster↔target,
                                dureeNode=ZERO) )                                      # ← DSL (nœud unique)
@@ -431,7 +431,7 @@ class ValkyrieStrikeAbility(ActiveAbility):
 
 
 class CordClawAbility(ActiveAbility):
-    """`CordClawAbility.ExecuteBehaviour @1811ccbf0` (id 1122, admecRuststalker « Exitor-Rho », AdMech) —
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.CordClawAbility$$ExecuteBehaviour` (id 1122, admecRuststalker « Exitor-Rho », AdMech) —
     MIRROR du DECOMPILE, arbre DSL (`cord_claw_tree`) :
         Execute( op_Addition(
             AttackWithAttackDamage(caster, target, MinMaxDamage, DirectDamage, nrOfHits=GetHits(0x2f)=4),  # attaque
@@ -471,14 +471,14 @@ class CordClawAbility(ActiveAbility):
 
 
 def _black_rage_charge_positions(state, caster_id, target_id) -> list:
-    """Collapse de `GetPossibleMovementTiles @1811ba5f0` = `TilesUnitCanMoveToChargeTarget(caster@0x160,
+    """Collapse de `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetPossibleMovementTiles` = `TilesUnitCanMoveToChargeTarget(caster@0x160,
     target@0x178, UnitMovementRangeWithBonus(0x53e, ConfigConst 0xe))` PUIS `SortTilesByUtility(...,0x20)`
-    -> `First(...,1)` (`ExecuteBehaviour @1811b9c20`). Sélecteur AI/pathfinding LOURD (kind S) -> COLLAPSE
+    -> `First(...,1)` (`IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$ExecuteBehaviour`). Sélecteur AI/pathfinding LOURD (kind S) -> COLLAPSE
     impératif (doctrine slice-18/19, véhicule `FixedTiles`) : tuiles ADJACENTES à la cible, ORDONNÉES par
     proximité au caster (charge la plus courte = mirror fidèle du choix de charge — au contact toute tuile
     adjacente donne la MÊME attaque mêlée). La feuille `MoveUnit` filtre libre+walkable (`CanAddUnit` live) et
     prend la 1re -> le caster charge au contact. La reachability (range de charge) est déjà garantie par la
-    DÉCISION (`GetDynamicInvalidTargetReason @1811ba280`) au moment du cast. RÉSIDU documenté : l'ordre EXACT
+    DÉCISION (`IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetDynamicInvalidTargetReason`) au moment du cast. RÉSIDU documenté : l'ordre EXACT
     de `SortTilesByUtility` (métrique d'utilité par tuile) n'est pas reproduit -> la tuile de charge peut
     différer d'un hex adjacent équivalent (l'attaque connecte identiquement)."""
     import hexgeo
@@ -505,9 +505,9 @@ def _black_rage_charge_positions(state, caster_id, target_id) -> list:
 
 
 def black_rage_tree(charge_positions) -> "op_add":
-    """Arbre de `BlackRageAbility.ExecuteBehaviour @1811b9c20` (id 1163, bloodDeathCompany « Lucien » —
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$ExecuteBehaviour` (id 1163, bloodDeathCompany « Lucien » —
     MIRROR du DÉCOMPILE) — TROIS phases (Execute / ExecuteAtomic / Execute) enchaînées :
-        A. Execute( SetHealth(caster, hpPct% MaxHealth) )                       # GetSetHealthBehaviour @1811ba690
+        A. Execute( SetHealth(caster, hpPct% MaxHealth) )                       # IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetSetHealthBehaviour
         B. ExecuteAtomic( AddEffect(1342 ExtraMove) & AddEffect(1343 ExtraDamage)
                           & AddEffect(1344 AutomaticUnit) )                     # 3 self-buffs, durée ZÉRO (remaining=0)
         C. Execute( MoveUnit(caster -> chargeTile) & UseActiveAbility(caster, target, NormalAttack) )
@@ -534,9 +534,9 @@ def black_rage_tree(charge_positions) -> "op_add":
 
 
 class BlackRageAbility(ActiveAbility):
-    """`BlackRageAbility.ExecuteBehaviour @1811b9c20` (id 1163, bloodDeathCompany « Lucien », #217) — MIRROR
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$ExecuteBehaviour` (id 1163, bloodDeathCompany « Lucien », #217) — MIRROR
     du DÉCOMPILE, arbre DSL 3 phases (`black_rage_tree`) :
-        SetHealth(caster -> 30% MaxHealth)               # coût self (GetSetHealthBehaviour @1811ba690 ; hpPct=30)
+        SetHealth(caster -> 30% MaxHealth)               # coût self (IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetSetHealthBehaviour ; hpPct=30)
       + [ AddEffect(1342 ExtraMove) & AddEffect(1343 ExtraDamage) & AddEffect(1344 AutomaticUnit) ]  # 3 self-buffs
       + [ MoveUnit(caster -> charge) & UseActiveAbility(caster, target, NormalAttack) ]              # charge + attaque
 

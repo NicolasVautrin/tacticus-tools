@@ -2,7 +2,7 @@
 >1000 lignes, tache #60 -- deplacement VERBATIM, zero changement de comportement).
 
 `_DamageOpsMixin` (mixin de `AttackDamageOperation`) porte :
-  - `execute` : attaque normale (`AttackDamageOperation.Execute @180e60c70`) ;
+  - `execute` : attaque normale (`IdunBattle.Operations.AttackDamageOperation$$Execute`) ;
   - `execute_ability_attack` : ability `AttackWithAttackDamage`/`AttackWithAbilityDamage` ;
   - `execute_normal_like` : node `StatAmount`/`PercentageOf` (splash Psyker...) ;
   - `execute_direct` : degat `Direct(...)` (DoT de tuile).
@@ -86,12 +86,12 @@ class _DamageOpsMixin:
         # #181 : reduction TRENCH (feuille positionnelle soeur de l'elevation dans le meme builder natif) —
         # -50% si la cible porte l'effet Trench + conditions attaquant-tuile (calculate_trench_reduction).
         apply_trench_reduction(state, mods, attacker_id, target_id, _profile)
-        # Nb de coups : cette execution EST la facade `AttackDamageOperation.GetAttackHits @180e613d0` — elle
+        # Nb de coups : cette execution EST la facade `IdunBattle.Operations.AttackDamageOperation$$GetAttackHits` — elle
         # rassemble les entrees depuis l'ECS puis appelle la FORMULE PARTAGEE `attack_hits_with_modifiers`
-        # (`AttackHitsWithModifiersFormula.Calculate @180f0bf50`, MEME formule que la facade prediction) :
+        # (`IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula$$Calculate`, MEME formule que la facade prediction) :
         # base weapon+ExtraHits+effets, +malus defenseur (LightCover/Parry) + auras (BigTarget). #62a : le
         # combat ne sommait que weapon+ExtraHits+effets -> divergeait sur (3). BITE 2 (verdict validateur) :
-        # GetStuckIn est un behaviour d'exec chance-gate (`AddBonusHitsToCurrentHitGroupBehaviour @180f93410`,
+        # GetStuckIn est un behaviour d'exec chance-gate (`AddBonusHitsToCurrentHitGroupBehaviour IdunBattle.Entities.Behaviours.AddBonusHitsToCurrentHitGroupBehaviour$$Execute`,
         # roll `Maybe(GetBonusHitChance)` 30%/100%) -> `include_bonus_hit_behaviours=False` DANS la formule (le
         # coup bonus n'est PAS un coup de la formule : folder en dur sur-comptait, orksNob 1v1 chance=30 ->
         # natif 3 coups, folder 4). Le coup bonus est ajoute PLUS BAS a l'EXECUTION (#62c, commit 3997793) :
@@ -107,7 +107,7 @@ class _DamageOpsMixin:
         if ap is not None and tp is not None:
             _board, _auras, _tgt_eff = build_hits_board(
                 state, attacker_id, target_id, (ap.col, ap.row), (tp.col, tp.row), is_melee=not _ranged)
-            # A3 (#113) : gate compute-time LightCover -- `AreEqual(coverPatch, target)` @180f556b0 = la CIBLE
+            # A3 (#113) : gate compute-time LightCover -- `AreEqual(coverPatch, target)` IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffectHitsBonusForAttack = la CIBLE
             # est-elle sur SA tuile de cover (DryBush) ? state.board porte le terrain (tileDefId, capteur
             # boardGraph #124). Terrain INCONNU (board None / build sans tileDefId) -> None = applique-sur-
             # presence (retro-compat). Empeche un LightCover PERIME (cible ayant quitte la tuile, effet non
@@ -147,7 +147,7 @@ class _DamageOpsMixin:
                                                    attacker_id=attacker_id, is_normal_attack=True)  # #112
         # BLOCK (cible) = base (scalaire GetStat 7/8) + sources d'effet (ex. BeastSlayer) — helper PARTAGE
         # par les 3 vecteurs (normale/ability/splash), mirror du `GetMultiValueStat(7)`/CalculateBlockChances
-        # @181002350 unique du natif. Besoin des effets actifs de la cible -> apres defender_modifiers.
+        # IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances unique du natif. Besoin des effets actifs de la cible -> apres defender_modifiers.
         # #65 : `_profile` gate le trait NoBlocking (profil Psychic bypasse le block, mirror ExecuteHit).
         block_sources = AttackDamageOperation._block_sources(tsc, _def_active, armor, _profile)
         # ORDRE RÉEL (confirmé live 18/18 coups, 3 seeds, necroDestroyer 6h) : le HitDamage natif
@@ -158,20 +158,20 @@ class _DamageOpsMixin:
         # CRIT — modèle CONFIRMÉ bit-exact (genrand brut live, necroDestroyer CC=100/CD=500 → 12 tirages
         # /6 coups : 1 crit-roll + 1 spread PAR COUP). Le crit du COMBAT n'est PAS l'`ApplyCritDamage`
         # post-réduction de la PRÉDICTION : il s'ajoute à la BASE D'ATTAQUE AVANT spread/perçage
-        # (chemin `GetBaseDamageFix64`@181030ba0 param_4=isCrit/param_5=critBonus = +FromInt(critDamage)).
+        # (chemin `IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageFix64 param_4=isCrit/param_5=critBonus = +FromInt(critDamage)).
         # ⇒ `eff_attack = attack + critDamage` PAR COUP qui crite, puis MÊME pipeline (spread→perçage→mods).
         # Preuve : non-crit spread(906)=181→{725,1087}×0.6=[435,652] ; crit eff=1406, spread=281→
         # {1125,1687}×0.6=[675,1012] (=W338 du solveur, ×1.552=(906+500)/906) ; next_internal(675,1013)
         # aux tirages IMPAIRS = live [932,882,967,867,961,955] À L'UNITÉ.
         # ORDRE PAR COUP (confirmé par positions genrand) : RollCritical D'ABORD (tirage pair), spread APRÈS
         # (tirage impair). `roll_critical` ne tire QUE si cc≥1 — gate `cc<1 → false SANS tirage` de
-        # `DamagePrediction.RollCritical @1810387a0` (l'UNIQUE chemin crit d'`ExecuteHit`, slot 0xa ;
-        # `DamageCalculations.RollCritical @1810057b0` = le NextBool brut DERRIÈRE ce gate) — cc=0 ⇒ 0 tirage
+        # `IdunBattle.Core.Services.DamagePrediction$$RollCritical` (l'UNIQUE chemin crit d'`ExecuteHit`, slot 0xa ;
+        # `IdunBattle.Core.Services.DamageCalculations$$RollCritical` = le NextBool brut DERRIÈRE ce gate) — cc=0 ⇒ 0 tirage
         # ⇒ rétro-compat exacte du multi-coups non-crit validé (18/18 + probe_rngcrit_1202 branche A).
         # NB cas fable rngcrit-1202 : le « crit-roll fantôme » mesuré par #220/#205 sur les attaques
         # d'ABILITY multi-coups à cc=0 n'était PAS un crit-roll (réfuté décompile + live M1/M2) mais le
         # resolve slot-8 GASPILLÉ du vecteur ability — cf. `_one_hit`. Gate `could_crit` = cc>0 ET cd>0
-        # (CouldCrit@181004fb0).
+        # (IdunBattle.Core.Services.DamageCalculations$$CouldCrit).
         # crit = GetStat(9/10) [DÉJÀ effet-inclusif : les effets StatModification sur la crit sont
         # cuits dans GetStat → dans le combatSnapshot → dans ctx] + couche calc-time SÉPARÉE
         # GetCritChanceBonusFromEffects/GetCritDamageBonusFromEffects (PAS dans GetStat → sommée ici
@@ -183,7 +183,7 @@ class _DamageOpsMixin:
         def _reduced_bounds(eff_attack: int, hit_mult: int = 1, flat_add: int = 0) -> "HitDamage":
             # #75 (case-68 MAJ 13) : additif ForAddition ATTAQUANT = PRÉ-perçage en COMBAT
             # (attacker_additive_pre=True : bornes (base±spread)+additif → GDWP → %-list ; le natif
-            # passe à CalculateAbilityDamage @18102cb50 un dégât DÉJÀ additivé, CBDWAM @18102d3f0 ne
+            # passe à IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage un dégât DÉJÀ additivé, CBDWAM IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers ne
             # consomme pas Addition@+0x10). Bit-exact 3/3 orksNob SmashaEad (599, pierce 50, armure 2208).
             # `flat_add` (#45f) = EffectBonus.addition PER-BRANCHE (Ice crit-only) : POST-spread
             # PRE-perçage (même position que mods.additive #75), sans poluer `mods` (qui s'applique
@@ -197,11 +197,11 @@ class _DamageOpsMixin:
 
         # MkXGravis (trait CIBLE 0x3f5=1013) : les dégâts entrants traversent l'armure 2× SAUF au crit
         # (i2 « Does not apply to Crits ») → hit_mult=2 sur la plage NON-crit, =1 (défaut) sur la plage
-        # crit. Mirror `GetBaseDamageWithFixedPiercedArmor @181030d10` (HasTrait(0x3f5) && !isCrit) dans
-        # le chemin COMBAT `CalculateAbilityDamage @18102cb50` → `CalculateBaseDamageWithAllModifiers
-        # @18102d3f0` (décompile-confirmé, #180). No-op (=1) hors cible hit-twice.
+        # crit. Mirror `IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageWithFixedPiercedArmor` (HasTrait(0x3f5) && !isCrit) dans
+        # le chemin COMBAT `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` → `CalculateBaseDamageWithAllModifiers
+        # IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` (décompile-confirmé, #180). No-op (=1) hors cible hit-twice.
         _tgt_hit_mult = target_hit_multiplier(tsc.ctx.trait_objects()) if tsc is not None else 1
-        # #45f : bonus crit-sur-Ice (`IceEffect.CreateEffectDamageBonusForAttack @180f44940`) — flat
+        # #45f : bonus crit-sur-Ice (`IdunBattle.Entities.Effects.IceEffect$$CreateEffectDamageBonusForAttack`) — flat
         # PER-COUP-CRIT = PercentageOf(GetStat(10), IceCritDmgBonusPct) si cible sur tuile Ice active
         # et non-Immune. 0 hors gate / cd=0 (no-op rétro-compat, mesuré +175 probe_45f --case crit).
         _ice_add = ice_crit_damage_addition(state, attacker_id, target_id, ctx) if crit_enabled else 0
@@ -209,14 +209,14 @@ class _DamageOpsMixin:
         hit_cr = _reduced_bounds(ctx.stat(StatType.ATTACK) + crit_damage,
                                  flat_add=_ice_add) if crit_enabled else hit_nc  # crit: hit_mult=1 (exempt)
         # #202 WeaverOfFate : attaquant max-out (effet 1185) -> bornes degenerees a (max, max), mirror
-        # HitDamage(max, null) de `AttackDamageBehaviour.GetDamage @180fbb250` (cf. _apply_max_out).
+        # HitDamage(max, null) de `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$GetDamage` (cf. _apply_max_out).
         hit_nc, hit_cr = AttackDamageOperation._apply_max_out(state, attacker_id, hit_nc, hit_cr)
         clean_min = hit_nc.min * hits          # référence affichée = plage non-crit (× hits)
         clean_max = hit_nc.max * hits
         # BOUCLIER cible : absorbe le coup réduit AVANT les PV (CalculateDamageOperation shield-first) ;
         # _run_hits déplète le bouclier entre coups (shield -= dmg.shield), total = part SANTÉ seule.
         shc, shield_total = AttackDamageOperation._target_shield(tgt)
-        # #62c GetStuckIn (combat) : chance des coups bonus (behaviour Maybe chance-gate @180f83280) — None si
+        # #62c GetStuckIn (combat) : chance des coups bonus (behaviour Maybe chance-gate IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$CreateBehaviour) — None si
         # l'attaquant ne porte pas GetStuckIn ou si la cible est a >2 hex. cf. getstuckin_combat_chance + _run_hits.
         _gsi = getstuckin_combat_chance(state, attacker_id, target_id,
                                         (ap.col, ap.row) if ap is not None else None,
@@ -226,7 +226,7 @@ class _DamageOpsMixin:
                                             bonus_hit_chance=_gsi,
                                             capped_reductions=def_mods.capped_reductions,
                                             # #67 : etage limites (member-cap/Resilient/bypass Blast) —
-                                            # mode 1 = attaque (wrapper @18102c510/@18102c5b0)
+                                            # mode 1 = attaque (wrapper IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToAttackDamage/IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToAttackDamage)
                                             limits=AttackDamageOperation._target_limits(
                                                 tgt, thc, _profile, is_special=1),
                                             limits_hp=int(thc.hp or 0))
@@ -235,7 +235,7 @@ class _DamageOpsMixin:
             state, target_id, attacker_id, tgt, thc, r["total"], _profile,
             r["shield_dmg"], r["armor_dmg"])
         # #202-B : coups additionnels HETEROGENES (canal #179, face COMBAT) — sous-operations APRES
-        # les coups d'arme (mirror @180e70600), chacune son RegisterDamage au profil PROPRE.
+        # les coups d'arme (mirror IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute), chacune son RegisterDamage au profil PROPRE.
         _ah = execute_additional_hits(
             state, attacker_id, target_id, tgt, thc,
             collect_additional_hit_groups(
@@ -266,7 +266,7 @@ class _DamageOpsMixin:
         `GetDamageProfile`). DIFFÈRE de l'attaque normale par la BASE : les bornes du coup = `[base_min,
         base_max]` données par la config d'ability (`GetVariableForLevel` clés 0xc/0xd = minDmg/maxDmg),
         PAS `Attack ± spread%`. Le perçage = celui du PROFIL de l'ability (`GetDamageProfile`). Même
-        per-coup natif partagé (`ExecuteHit @180e5eff0`) via `_run_hits`, mais en mode ROLL-THEN-REDUCE :
+        per-coup natif partagé (`IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`) via `_run_hits`, mais en mode ROLL-THEN-REDUCE :
         valeur = tirage BRUT dans [base_min, base_max] puis réduction, + 1 resolve GASPILLÉ par coup
         (cf. `_one_hit`, cas fable rngcrit-1202). Mute les PV de la cible.
 
@@ -293,11 +293,11 @@ class _DamageOpsMixin:
         # ACTIF + 3 hexes glacés ring-1 à l'attaque) : natif +0, offline-sans-gate +extraDmg x3 x3 hits
         # -> le natif n'applique PAS les bonus attaquant normal-only aux attaques d'ability.
         # #47 : NATURE DU COUP threadée dans la collecte attacker-modifiers — le natif évalue chaque
-        # effet contre le MÊME contexte d'attaque per-coup (`BaseEffect.DamageBonusForAttack @180f0f5e0`
+        # effet contre le MÊME contexte d'attaque per-coup (`IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack`
         # reçoit l'AbilityEntities du coup : caster/cible/ability déclenchante/arme), quel que soit le
         # VECTEUR (normale OU ability — même collecteur, aucun collecteur ability séparé). Le port ne
         # passait NI `is_ranged` NI l'ability déclenchante -> les bonus attaquant gated `IsRangedAttack`
-        # (HeavyWeapon_ExtraDmg @180f4f030 +25%, RangedSpecialist @180f67520 +33%, ...) rendaient None
+        # (HeavyWeapon_ExtraDmg IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier +25%, RangedSpecialist IdunBattle.Entities.Effects.Loki.RangedSpecialistEffect$$CreateEffectDamageBonusForAttack +33%, ...) rendaient None
         # pour TOUTE attaque d'ability (MESURÉ live : PlasmaCannon x1.25, MortisRound x1.5 vs offline x1).
         #   - `is_ranged` dérivé d'`is_melee` (nature déclarée du coup, mirror attackRangeType lu au
         #     décompilé de chaque ExecuteBehaviour) ; None (caller historique non classé) = gates inertes
@@ -317,19 +317,19 @@ class _DamageOpsMixin:
         # (elevation +ElevationBonus=50% si elev(att) > elev(cible), gate effet 0x423 ; trench -50%) du
         # builder de mods ATTAQUANT s'appliquent a la famille ATTACK **SEULEMENT** — gate par FAMILLE de
         # factory native (== `is_attack_damage_op`, cf. _one_hit) :
-        #   - ATTACK (`AttackWithAttackDamage @180de9fb0` -> `AttackDamageOperation.ExecuteHit
-        #     @180e5eff0`) : le per-coup construit les mods attaquant COMPLETS (slot +4, positional
+        #   - ATTACK (`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -> `AttackDamageOperation.ExecuteHit
+        #     IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`) : le per-coup construit les mods attaquant COMPLETS (slot +4, positional
         #     leaves incluses). MESURE (probe_45f_gfa_elevation, GreatFrostAxe, une variable = la
         #     relation d'elevation) : pre-fix high = live 1.5000x offline sur CHAQUE coup (DidCrit=0),
         #     flat/low = bit-exact ; post-fix 16/16 bit-exact. #47 (2e datapoint INDEPENDANT, vecteur
         #     ability-ATTACK ranged) : PlasmaCannon caster surplomb -> live = x1.25 (HeavyWeapon)
         #     x 1.5 (elevation) = x1.875 offline-avec-feuilles, a plat x1.25 seul.
-        #   - ABILITY (`AttackWithAbilityDamage @180de9dd0` -> `AbilityDamageOperation.ExecuteHit
-        #     @180e29d50`) : `CalculateAbilityDamage @18102cb50` recoit des mods ATTAQUANT **VIDES**
+        #   - ABILITY (`IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` -> `AbilityDamageOperation.ExecuteHit
+        #     IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`) : `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` recoit des mods ATTAQUANT **VIDES**
         #     (struct zeroee) — seuls les mods DEFENSEUR (slot 0xf) s'appliquent. AUCUNE elevation.
         #     MESURE (probe_217_stormcaller A : Njal elev 2 > cibles elev 1) : live SANS elevation ;
         #     un fix non-gate rendait l'offline 1.5006x TROP HAUT — le gate famille retablit bit-exact.
-        # Le chemin attaque NORMALE (`execute`, #58/#181) reste inchange (ExecuteHit @180e5eff0 aussi).
+        # Le chemin attaque NORMALE (`execute`, #58/#181) reste inchange (IdunBattle.Operations.AttackDamageOperation$$ExecuteHit aussi).
         if is_attack_damage_op:                                   # famille ATTACK only
             apply_elevation_bonus(state, mods, attacker_id, target_id)
             apply_trench_reduction(state, mods, attacker_id, target_id, damage_profile)
@@ -342,14 +342,14 @@ class _DamageOpsMixin:
                                            is_melee=is_melee, damage_profile=damage_profile,
                                            attacker_id=attacker_id, is_normal_attack=False)  # #112 spéciale
         # BLOCK (cible) = base (GetStat 7/8) + sources d'effet (BeastSlayer...) via le helper PARTAGE
-        # `_block_sources` (mirror du GetMultiValueStat(7)/CalculateBlockChances@181002350 unique du natif).
+        # `_block_sources` (mirror du GetMultiValueStat(7)/IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances unique du natif).
         # #65 : `damage_profile` gate le trait NoBlocking (profil Psychic bypasse le block, mirror ExecuteHit).
         block_sources = AttackDamageOperation._block_sources(tsc, _da, armor, damage_profile)
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(ctx, active)
-        # #45f : la famille ABILITY (`AbilityDamageOperation.ExecuteHit @180e29d50`) n'a AUCUN chemin
+        # #45f : la famille ABILITY (`IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`) n'a AUCUN chemin
         # crit — pas d'appel RollCritical (le slot crit n'existe que dans `AttackDamageOperation.
-        # ExecuteHit @180e5eff0`), l'AttackHit est construit isCrit=0, et `CalculateAbilityDamage
-        # @18102cb50` est 0-RNG. MESURE (probe_45f --case scrit : Njal --crit 100,700, Stormcaller) :
+        # IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`), l'AttackHit est construit isCrit=0, et `CalculateAbilityDamage
+        # IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` est 0-RNG. MESURE (probe_45f --case scrit : Njal --crit 100,700, Stormcaller) :
         # live crits=[0,0,0] et 1 tirage/coup (valeurs = draws consecutifs) la ou l'offline non-gate
         # brulait 1 crit-roll/coup + ajoutait crit flat. cc=0 (tous les porteurs actuels) : strict
         # no-op (roll_critical deja gate cc<1). Le bonus crit-Ice suit (crit_enabled=False -> 0).
@@ -357,15 +357,15 @@ class _DamageOpsMixin:
             crit_chance, crit_damage, crit_enabled = 0, 0, False
         # #120 : réduction PLATE défenseur (Nightshroud, ungated -> spéciales aussi) fusionnée pré-perçage.
         AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
-        # MkXGravis (trait CIBLE 0x3f5) : armure traversée 2× aussi pour les spéciales (CBDWAM @18102d3f0
+        # MkXGravis (trait CIBLE 0x3f5) : armure traversée 2× aussi pour les spéciales (CBDWAM IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers
         # partagé quel que soit l'ability, #180). ⚠ `_reduce` (post_roll) ne connaît pas le flag crit du
         # coup, donc le hit_mult s'applique à TOUS les rolls sans exemption crit ici ; un porteur ability
         # cc>=1 + cible MkXGravis exigerait l'exemption (non exercé live). No-op (=1) hors cible hit-twice.
         _tgt_hit_mult = target_hit_multiplier(tsc.ctx.trait_objects()) if tsc is not None else 1
 
-        # #90 : étage MULTIPLICATEUR de CBDWAM @18102d3f0 (slot 0x10 = `Round(dmg x multiplier,
-        # AwayFromZero)` @1810021c0) — INCONDITIONNEL dès qu'un `Nullable<DamageModifiers>` HasValue.
-        # Dans `CalculateAbilityDamage @18102cb50` (famille ABILITY) le `param_7` défenseur est TOUJOURS
+        # #90 : étage MULTIPLICATEUR de CBDWAM IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers (slot 0x10 = `Round(dmg x multiplier,
+        # AwayFromZero)` IdunBattle.Core.Services.DamageCalculations$$CalculateBaseDamageWithModifiers) — INCONDITIONNEL dès qu'un `Nullable<DamageModifiers>` HasValue.
+        # Dans `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` (famille ABILITY) le `param_7` défenseur est TOUJOURS
         # construit (slot 0xf) => l'arrondi passe TOUJOURS pour ce vecteur, **mode bornes INCLUS** (et
         # pas seulement le mode `amount` de la feuille `AttackWithAbilityDamage`, seul câblé jusqu'ici).
         # MESURE (probe_mow_targeting_predicate `decomp`, SquigLaunchas 1200 = famille ABILITY mode
@@ -373,7 +373,7 @@ class _DamageOpsMixin:
         #   seed 12345 off 86 [28,29,29] live 86 (+0) · 4242 off 87 live 89 (+2) · 777 off 91 live 93
         #   (+2) · 31337 off 87 live 90 (+3) -> l'écart VARIE dans [0, hits] = signature d'un ARRONDI
         #   par coup (un additif systématique donnerait +hits constant). floor -> live == round.
-        # La famille ATTACK (`AttackDamageOperation.ExecuteHit @180e5eff0`, `is_attack_damage_op=True`)
+        # La famille ATTACK (`IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`, `is_attack_damage_op=True`)
         # reste TRONQUANTE : ces chemins sont live-validés bit-exact ainsi (chantier séparé).
         _round_mat = bool(round_materialize) or not is_attack_damage_op
 
@@ -389,15 +389,15 @@ class _DamageOpsMixin:
         # on réduit (perçage/armure/mods) via `post_roll`. (≠ attaque normale reduce-then-roll.) Confirmé
         # bit-exact live (ThunderousAssault necroOverlord : roll-then-reduce = live 6948, à l'unité ;
         # re-confirmé probe_rngcrit_1202 : VigilanceEternal 3-hit, per-hit bit-exact 5 seeds x 2 cibles).
-        # CONSOMMATION (cas fable rngcrit-1202) : ce vecteur = AttackDamageOperation.ExecuteHit @180e5eff0
+        # CONSOMMATION (cas fable rngcrit-1202) : ce vecteur = IdunBattle.Operations.AttackDamageOperation$$ExecuteHit
         # avec un STRUCT NON dégénéré → 2 tirages/coup à cc=0 (valeur BRUTE + resolve slot-8 GASPILLÉ),
         # cf. `_one_hit`. ≠ attaque normale (struct dégénéré → 1 tirage/coup).
         hit_nc = HitDamage(base_min, base_max)                            # bornes BRUTES
-        # CRIT ability : `CalculateCriticalDamage @18102da90` → `ApplyCritDamage @181000210` = critBonus
+        # CRIT ability : `IdunBattle.Core.Services.DamagePrediction$$CalculateCriticalDamage` → `IdunBattle.Core.Services.DamageCalculations$$ApplyCritDamage` = critBonus
         # FLAT sur la valeur ROULÉE, PRE-reduce (appliqué dans `_one_hit` branche post_roll via le SHIFT
         # `hit_cr - hit_nc`). `hit_cr` sert aussi au flat #91 (`_capped_flat_cr`, centre bornes+cd) —
         # numériquement == l'ancien modèle bornes-décalées (largeurs égales → même modulo).
-        # #45f : + bonus crit-sur-Ice (`IceEffect.CreateEffectDamageBonusForAttack @180f44940`) =
+        # #45f : + bonus crit-sur-Ice (`IdunBattle.Entities.Effects.IceEffect$$CreateEffectDamageBonusForAttack`) =
         # EffectBonus.addition per-coup-CRIT (PercentageOf(GetStat(10), IceCritDmgBonusPct=25) si cible
         # sur tuile Ice active et non-Immune) — MEME position pipeline (flat PRE-reduce). VALIDE live
         # bit-exact (probe_45f --case crit : GreatFrostAxe cc=100/cd=700 -> +175/coup crit, 4/4).
@@ -405,7 +405,7 @@ class _DamageOpsMixin:
         hit_cr = HitDamage(base_min + crit_damage + _ice_add,
                            base_max + crit_damage + _ice_add) if crit_enabled else hit_nc
         # #202 WeaverOfFate : attaquant max-out (effet 1185) -> bornes BRUTES degenerees a (max, max),
-        # mirror HitDamage(GetMax, null) d'`AbilityDamageBehaviour.GetDamage @180f8c560` (le tirage de
+        # mirror HitDamage(GetMax, null) d'`IdunBattle.Entities.Behaviours.AbilityDamageBehaviour$$GetDamage` (le tirage de
         # VALEUR est court-circuité par min==max — get_damage — mais le resolve slot-8 consomme TOUJOURS
         # 1 tirage/coup, désormais mirroré par `_one_hit` ; puis post_roll reduit le max, roll-then-reduce).
         hit_nc, hit_cr = AttackDamageOperation._apply_max_out(state, attacker_id, hit_nc, hit_cr)
@@ -416,7 +416,7 @@ class _DamageOpsMixin:
                                             post_roll=_reduce,
                                             capped_reductions=def_mods.capped_reductions,
                                             # #67 : etage limites — mode 2 = ability
-                                            # (`CalculateAbilityDamage @18102cb50`)
+                                            # (`IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`)
                                             limits=AttackDamageOperation._target_limits(
                                                 tgt, thc, damage_profile, is_special=2),
                                             limits_hp=int(thc.hp or 0),
@@ -431,7 +431,7 @@ class _DamageOpsMixin:
         AttackDamageOperation._apply_damage_pipeline(                   # chokepoint partage (#202)
             state, target_id, attacker_id, tgt, thc, r["total"], damage_profile,
             r["shield_dmg"], r["armor_dmg"])
-        # POSE DE FEU (OnFireDamageAbility) — `EvaluateAfterHitTriggers @180e25fc0` tourne après CHAQUE coup
+        # POSE DE FEU (OnFireDamageAbility) — `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` tourne après CHAQUE coup
         # d'attaque, NORMALE **et** ability. Le port ne câblait ce vecteur que pour l'attaque normale
         # (DamageHandler) ; ici on porte la pose on-hit des tile-effects de profil pour les attaques
         # d'ABILITY à profil OnFire (ArmoriumCherub, splash FireOfAbsolution, BrazierOfHolyFire…). #136.
@@ -475,7 +475,7 @@ class _DamageOpsMixin:
         ctx = sc.ctx
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, target_id=target_id)
-        # #45f : feuilles POSITIONNELLES du builder PARTAGE @181000590 (elevation/trench) — appliquees
+        # #45f : feuilles POSITIONNELLES du builder PARTAGE IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction (elevation/trench) — appliquees
         # a TOUT vecteur d'attaque par le natif (aucun gate normale/ability ; cf. execute_ability_attack,
         # meme fix, probe_45f_gfa_elevation). Le vecteur normal-like (splash Psyker / amount-mode) les
         # sautait aussi -> splash caste en surplomb ~33% bas.
@@ -489,7 +489,7 @@ class _DamageOpsMixin:
                                            is_melee=is_melee, damage_profile=damage_profile,
                                            attacker_id=attacker_id, is_normal_attack=False)  # #112 spéciale
         # BLOCK (cible) = base (GetStat 7/8) + sources d'effet (BeastSlayer...) via le helper PARTAGE
-        # `_block_sources` (mirror du GetMultiValueStat(7)/CalculateBlockChances@181002350 unique du natif).
+        # `_block_sources` (mirror du GetMultiValueStat(7)/IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances unique du natif).
         # #65 : `damage_profile` gate le trait NoBlocking (profil Psychic bypasse le block, mirror ExecuteHit).
         block_sources = AttackDamageOperation._block_sources(tsc, _da, armor, damage_profile)
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(ctx, active)
@@ -507,12 +507,12 @@ class _DamageOpsMixin:
                 mm.max + flat_add, profile_pierce, armor, mods, attacker_additive_pre=True), def_mods)
             return HitDamage(lo, hi)
 
-        # #45f : bonus crit-sur-Ice per-coup-CRIT (cf. execute_ability_attack, meme mirror @180f44940).
+        # #45f : bonus crit-sur-Ice per-coup-CRIT (cf. execute_ability_attack, meme mirror IdunBattle.Entities.Effects.IceEffect$$CreateEffectDamageBonusForAttack).
         _ice_add = ice_crit_damage_addition(state, attacker_id, target_id, ctx) if crit_enabled else 0
         hit_nc = _reduced(base)
         hit_cr = _reduced(base + crit_damage, flat_add=_ice_add) if crit_enabled else hit_nc
         # #202 WeaverOfFate : attaquant max-out (effet 1185) -> bornes degenerees a (max, max) — le
-        # splash Psyker / smite passe par `AbilityDamageBehaviour.GetDamage @180f8c560` (meme gate).
+        # splash Psyker / smite passe par `IdunBattle.Entities.Behaviours.AbilityDamageBehaviour$$GetDamage` (meme gate).
         hit_nc, hit_cr = AttackDamageOperation._apply_max_out(state, attacker_id, hit_nc, hit_cr)
         hits = max(1, int(hits))
         shc, shield_total = AttackDamageOperation._target_shield(tgt)      # bouclier shield-first
@@ -521,7 +521,7 @@ class _DamageOpsMixin:
                                             shield=shield_total,   # post_roll=None (reduce-then-roll)
                                             capped_reductions=def_mods.capped_reductions,
                                             # #67 : etage limites — mode 2 = ability/splash
-                                            # (`CalculateAbilityDamage @18102cb50`)
+                                            # (`IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`)
                                             limits=AttackDamageOperation._target_limits(
                                                 tgt, thc, damage_profile, is_special=2),
                                             limits_hp=int(thc.hp or 0))
@@ -546,13 +546,12 @@ class _DamageOpsMixin:
     def execute_direct(state: State, source_id: int, target_id: int, base: int,
                        profile_pierce: int,
                        damage_profile: Optional[str] = None) -> Optional[dict]:
-        """Dégât DIRECT d'un nœud `Direct(...)` (mirror `DSLFactory.AttackWithAbilityDamage @180de9c90`
-        + `AttackDamageBehaviour` sur nœud `Direct` — factory DISTINCTE de `AttackWithAttackDamage`
-        @180de9fb0). La `base` (déjà calculée par le dégât-node, ex. `PercentageOf(StatAmount(Health,
+        """Dégât DIRECT d'un nœud `Direct(...)` (mirror `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`
+        + `AttackDamageBehaviour` sur nœud `Direct` — factory DISTINCTE de `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage). La `base` (déjà calculée par le dégât-node, ex. `PercentageOf(StatAmount(Health,
         Max), fireDmgPct)` du DoT feu) est routée par le SEUL perçage/armure (`apply_pierce_and_modifiers`,
         mods=None) — AUCUN crit / block / bouclier / spread / tirage RNG / after-hit (≠ l'attaque
         d'ability `execute_ability_attack`/`execute_normal_like`). Utilisé par le DoT de tuile `EnvFireTile`
-        (`EnvFireTileAbility.CreateBehaviour @18121e040`) : occupant non-immune → `PercentageOf(20%, PV max)`
+        (`IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour`) : occupant non-immune → `PercentageOf(20%, PV max)`
         percée par le PiercingRatio du profil (Flame=25), l'armure absorbant le non-percé. Mute les PV de la
         cible + route la mort (`_fire_death_if_killed`, source = la tuile). `<= 0 dmg` → no-op (return None).
         `source_id` = l'entité-source (tuile) pour l'attribution de mort ; `profile_pierce` = perçage effectif
@@ -569,11 +568,11 @@ class _DamageOpsMixin:
         if dmg <= 0:
             return None
         # #30 (#60bis) MEMBER-CAP du degat DIRECT — mirror `ApplyTraitDamageLimitsToDirectDamage
-        # @18102c9b0` (= `ApplyGroupUnitDamageLimit @18102bfe0` avec profile=NULL : PAS de bypass
-        # Blast possible), meme wrapper que le chemin `CalculateDirectDamage @18102f130` de
-        # `DirectDamageOperation.Execute @180e677f0`. Un degat direct ne tue AU PLUS qu'UN membre :
+        # IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDirectDamage` (= `IdunBattle.Core.Services.DamagePrediction$$ApplyGroupUnitDamageLimit` avec profile=NULL : PAS de bypass
+        # Blast possible), meme wrapper que le chemin `IdunBattle.Core.Services.DamagePrediction$$CalculateDirectDamage` de
+        # `IdunBattle.Operations.DirectDamageOperation$$Execute`. Un degat direct ne tue AU PLUS qu'UN membre :
         # cap = hp - maxHealthWith(remaining-1), applique au montant NET (post percage/armure —
-        # l'etage limites de `CalculateDamageOperation @18102dc30` opere apres la FixedArmor plate).
+        # l'etage limites de `IdunBattle.Core.Services.DamagePrediction$$CalculateDamageOperation` opere apres la FixedArmor plate).
         # PROUVE LIVE (probe_60bis seeds 60112/60113) : scarab PLEIN (2218, 5 membres) sur tuile en
         # feu -> tick natif 443 = cap exact (vs 444 non-cape, modele verifie par ailleurs a 444 nu
         # rem=1 et 111 sous aura +886). Doc : case-60 par. 5 (resolu).

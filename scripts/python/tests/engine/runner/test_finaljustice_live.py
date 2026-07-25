@@ -1,11 +1,11 @@
 """FinalJustice (worldKharn) — VRAI tri de cible offline (composite Damage 34), confronte aux UNITES LIVE.
 
-Valide le port de `SortUnitsByDamageUtility` (`SortUnitsByDamageUtilitySelector.Select`@180ef4960 +
-`FinalJusticeAbility.CreateBehaviour`@18121ed00) tel que RE LECTURE INTEGRALE :
+Valide le port de `SortUnitsByDamageUtility` (`IdunBattle.Entities.Selectors.SortUnitsByDamageUtilitySelector$$Select +
+`IdunBattleLogic.Entities.Abilities.Active.Loki.FinalJusticeAbility$$CreateBehaviour) tel que RE LECTURE INTEGRALE :
   - pour chaque cible normal-attaquable, prediction de l'attaque normale -> `UtilityDecider.CalculateUtility
     (UtilityDefinition 0x22 = 34 = composite Damage)` -> Dict cible->util -> `OrderBy(util via lambda
     <Select>b__0)` -> 1ere ;
-  - le lambda `<Select>b__0`@180efec40 renvoie **`Fix64.op_UnaryNegation(util)`** -> `OrderBy(-util)` =
+  - le lambda `<Select>b__0`IdunBattle.Entities.Selectors.SortUnitsByDamageUtilitySelector.u003Cu003Ec__DisplayClass9_0$$u003CSelectu003Eb__0 renvoie **`Fix64.op_UnaryNegation(util)`** -> `OrderBy(-util)` =
     tri DECROISSANT -> 1ere cible = utilite **MAX** ; FinalJustice frappe donc l'**argmax** du composite
     Damage(34) = DamageDealt(35)+KillUnit(36)+OverkillUnit(37) ;
   - gate `Count(validTargets) > 0 AND NOT TargetIsOverkilled`.

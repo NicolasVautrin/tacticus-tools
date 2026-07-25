@@ -2,9 +2,9 @@
 
 RadSaturation = **passiveAbility** du Skitarii Vanguard -> ability-trigger (registre `ABILITY_TRIGGERS`).
 RE (decompile ghidra gqfc5mff6c) :
-  - `CreateTrigger @181115970` = `On(4=UnitAfterMove)&OwnerIsActor | On(0x23=UnitDisplaced)&OwnerIsTarget |
+  - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RadSaturationAbility$$CreateTrigger` = `On(4=UnitAfterMove)&OwnerIsActor | On(0x23=UnitDisplaced)&OwnerIsTarget |
     On(0x17=TurnEnd)&OwnerIsActor&NOT(moved)` ;
-  - `CreateBehaviour @181115910` = `AddEffect(Contaminated=1244, Tiles(Caster()))` -> pose l'effet de TUILE
+  - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RadSaturationAbility$$CreateBehaviour` = `AddEffect(Contaminated=1244, Tiles(Caster()))` -> pose l'effet de TUILE
     Contaminated sur SA PROPRE tuile (« its hex »).
 == i2 : « After the Skitarii Vanguard moves, it adds Contamination to its hex. If it does not move, then this
 ability triggers at the end of its turn. »

@@ -1,6 +1,6 @@
 """JakhalStimms (1131, worldJakhal « Macer », WorldEaters) -- face COMBAT (execute) portee, confrontee au LIVE.
 
-`JakhalStimmsAbility.ExecuteBehaviour @1811ec770` (DECOMPILE, mirror 1:1 -- namespace natif
+`IdunBattleLogic.Entities.Abilities.Active.Loki.JakhalStimmsAbility$$ExecuteBehaviour` (DECOMPILE, mirror 1:1 -- namespace natif
 `Abilities.Active.Loki.JakhalStimmsAbility`) =
     aoeSel = op_BitwiseAnd( AdjacentUnits(@0x168=caster, 1, 3),      # A : TOUTES unites adjacentes au caster
                             AdjacentFriends(@0x178=target, 1, 3) )   # B : amis-DE-LA-CIBLE (= ennemis caster) adj cible
@@ -10,12 +10,12 @@
     Execute( ChangeStat(@0x160=caster, Position(Health=5, current), mode 3=Subtract,                    # SELF-LOSS
              PercentageOf(StatAmount(@0x160, Health, current), ConfigConst(hpPct=25))) )                #   (Execute SEPARE)
 
-`GetAttackBehaviour @1811ecb40` = `AttackWithAttackDamage(actor@0x160, sel, MinMaxDamage(minDmg 0xc/maxDmg 0xd),
-Nullable(GetDamageProfile), hits = GetHits)`. `GetHits` = `ArmoriumCherubAbility.GetHits @180fb16c0` (gshared
+`IdunBattleLogic.Entities.Abilities.Active.Loki.JakhalStimmsAbility$$GetAttackBehaviour` = `AttackWithAttackDamage(actor@0x160, sel, MinMaxDamage(minDmg 0xc/maxDmg 0xd),
+Nullable(GetDamageProfile), hits = GetHits)`. `GetHits` = `IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$GetHits` (gshared
 dedup) = `GetNumberConstant(nrOfHits=0x2f)`. i2 : « Deals 4x [dmg] Physical Damage to an adjacent enemy and all
 other enemies adjacent to both Macer and the target. Then Macer loses 25% of his current Health. Using Jakhal
 Stimms does not end Macer's turn. » Attaque MELEE, profil Physical (pierce 1) ; config 1131 : nrOfHits=4,
-hpPct=25 (constantes). `native_factory="attack"` (@180de9fb0, XREF ExecuteBehaviour/GetAttackBehaviour ;
+hpPct=25 (constantes). `native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, XREF ExecuteBehaviour/GetAttackBehaviour ;
 2 tirages/coup a cc=0, cas rngcrit-1202).
 
 AoE = intersection `AdjacentUnits(caster) & AdjacentFriends(target)`. Le runner `AdjacentFriends` filtre

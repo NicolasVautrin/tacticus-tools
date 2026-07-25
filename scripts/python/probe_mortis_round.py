@@ -5,9 +5,9 @@ Port = `MortisRoundAbility.execute_behaviour` (arbre `mortis_round_tree`, ultram
   AtomicGroup( op_and( AttackWithAttackDamage(target, HeavyRound, nrOfHits=1, ranged),   # attaque mono-cible
                        PushUnit(caster, target) ) )                                        # recul 1 hex
 
-RE : `MortisRoundAbility$$ExecuteBehaviour @1811f54a0` (callback `b__0 @1811fd290`) = AtomicGroup(0x3f,
-callback) ou le callback Execute(attack) PUIS Execute(push). Overload attaque = @180dea520 (famille ATTACK,
-resolu par XREF du call-site @1811f5683). Profil HeavyRound (constants.damageProfile), ranged (range 3),
+RE : `MortisRoundAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility$$ExecuteBehaviour` (callback `b__0 IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility.u003Cu003Ec__DisplayClass1_0$$u003CExecuteBehaviouru003Eb__0`) = AtomicGroup(0x3f,
+callback) ou le callback Execute(attack) PUIS Execute(push). Overload attaque = IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage (famille ATTACK,
+resolu par XREF du call-site IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility$$ExecuteBehaviour+0x1e3). Profil HeavyRound (constants.damageProfile), ranged (range 3),
 nrOfHits ABSENT config -> hits=1 (i2 « 1x 3274-3638 ... pushed back 1 hex »).
 
 (A) WIRING PUSH+ATTAQUE (OFFLINE deterministe, board+stats REELS) : place caster+cible ADJACENTS en champ
@@ -15,9 +15,9 @@ nrOfHits ABSENT config -> hits=1 (i2 « 1x 3274-3638 ... pushed back 1 hex »).
     confronte : cible poussee d'1 hex a l'oppose du caster (DisplaceUnitOperation) + attaque MONO-cible 1 coup.
 (C) BIT-EXACT LIVE (#47/#61) : cast live (caster au spawn = no-move, cible adjacente cote BORD -> push
     BLOQUE hors-board) vs replay offline meme rng. Le degat inflige = ATTAQUE x1.5 (HeavyWeapon DOUBLE via
-    `TriggeringAbilityIs(0x3ec=1004)` de `HeavyWeapon_ExtraDmgEffect.CreateDamageModifier @180f4f030`,
+    `TriggeringAbilityIs(0x3ec=1004)` de `IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier`,
     threade #47 : is_ranged + trigger_ability_type dans `execute_ability_attack`) + KNOCKBACK de collision
-    (`ApplyKnockbackTo @180e67fc0` = ceil(maxHealth x 20%) = BC.Damage.KnockbackPercentage, push bloque,
+    (`IdunBattle.Operations.DisplaceUnitOperation$$ApplyKnockbackTo` = ceil(maxHealth x 20%) = BC.Damage.KnockbackPercentage, push bloque,
     porte dans displace.py). #61 : on ISOLE attaque et knockback des EVENTS UnitDamaged (step 4) et on
     somme -> le net hpDelta est CONFONDU par LivingMetalRepair (necroWarden = LivingMetal heal 10% du
     maxHealth au tour suivant), erreur qui avait fait conclure a tort pct=10 en #47.

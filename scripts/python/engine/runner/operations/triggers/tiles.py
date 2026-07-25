@@ -11,7 +11,7 @@ from ...components import (PositionComponent, UnitComponent, OwnerComponent, Sta
 from ....entities.traits import UnitTrait, has_trait
 from .loki import FIRE_TILE
 
-# Propagation DryBush->DryBush (RE #127, `DryBushFireSpreadAbility`@1811bf5c0/@1811bf730). La proba est le
+# Propagation DryBush->DryBush (RE #127, `DryBushFireSpreadAbility`IdunBattleLogic.Entities.Abilities.Tiles.DryBushFireSpreadAbility$$CreateBehaviour/IdunBattleLogic.Entities.Abilities.Tiles.DryBushFireSpreadAbility$$CreateTrigger). La proba est le
 # `GetNumberConstant(config,0x25)` du tile-ability = globalValue `dryBushFireSpreadProbability` (=10, PAS hardcodé).
 DRYBUSH_FIRE_SPREAD_PCT_KEY = "dryBushFireSpreadProbability"  # globalValues=10 : proba/tick d'allumer une voisine DryBush.
 DRYBUSH_TERRAIN = "DryBush"       # TileId du terrain DryBush ; seules ces tuiles portent `DryBushFireSpreadAbility`
@@ -19,8 +19,8 @@ DRYBUSH_TERRAIN = "DryBush"       # TileId du terrain DryBush ; seules ces tuile
 
 
 def dry_bush_fire_spread(state: State) -> list[dict]:
-    """`DryBushFireSpreadAbility` (CreateTrigger @1811bf730 = `On(0x14) & HasEffect(self@0x148, Fire=5)` ;
-    CreateBehaviour @1811bf5c0) — PROPAGATION du feu entre tuiles DryBush au tick d'environnement (`On(0x14)`).
+    """`DryBushFireSpreadAbility` (IdunBattleLogic.Entities.Abilities.Tiles.DryBushFireSpreadAbility$$CreateTrigger = `On(0x14) & HasEffect(self@0x148, Fire=5)` ;
+    IdunBattleLogic.Entities.Abilities.Tiles.DryBushFireSpreadAbility$$CreateBehaviour) — PROPAGATION du feu entre tuiles DryBush au tick d'environnement (`On(0x14)`).
     Chaque tuile DryBush EN FEU tente d'allumer ses voisines DryBush intactes :
 
         Maybe(SetOnFire,
@@ -33,7 +33,7 @@ def dry_bush_fire_spread(state: State) -> list[dict]:
       propage PAS. Le filtre cible natif `TilesWithTriggeredAbility(0x39)` <=> `tile_def_id == 'DryBush'`.
     - TARGET = voisine hex DryBush SANS `FireEffect` (idempotence via `AddEffectOperation`, no-op si déjà en feu).
     - 1 `next_bool(10)` par voisine (`Maybe` per-cible, MÊME motif que `FireOfAbsolution`). Durée du feu posé =
-      `DefaultAmountOfRounds(5)`=2 (aucun override natif à la pose, cf. `OnFireDamageAbility`@1811c3a60).
+      `DefaultAmountOfRounds(5)`=2 (aucun override natif à la pose, cf. `OnFireDamageAbility`IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateBehaviour).
 
     SNAPSHOT : l'ensemble des tuiles en feu est figé en début de tick → une tuile allumée CE tick ne propage
     pas à son tour le MÊME tick (le trigger natif gate `HasEffect(self,5)` à l'instant du dispatch). ⚠ GAP RNG
@@ -77,13 +77,13 @@ FIRSTAID_HEAL_EXCLUDE_TRAIT = UnitTrait.Immune   # `UnitsWithoutTrait(0x19=25=Im
 
 
 def first_aid_heal(state: State, player_id: int) -> list[dict]:
-    """`FirstAidHealAbility` (Abilities.Tiles, CreateBehaviour @1811c0490 = `AddEffect(tile, 10=FirstAidHealEffect)`)
-    + `FirstAidHealEffect` : trigger `CreateTargetTrigger @180f44250` = `On(0x13) & IsTurnOf(Units(units-on-tile))` ;
-    behaviour `CreateTargetTriggerBehaviour @180f44090` (LU) = `Heal(tiles, targets, amount)` avec
+    """`FirstAidHealAbility` (Abilities.Tiles, IdunBattleLogic.Entities.Abilities.Tiles.FirstAidHealAbility$$CreateBehaviour = `AddEffect(tile, 10=FirstAidHealEffect)`)
+    + `FirstAidHealEffect` : trigger `IdunBattle.Entities.Effects.FirstAidHealEffect$$CreateTargetTrigger` = `On(0x13) & IsTurnOf(Units(units-on-tile))` ;
+    behaviour `IdunBattle.Entities.Effects.FirstAidHealEffect$$CreateTargetTriggerBehaviour` (LU) = `Heal(tiles, targets, amount)` avec
     `amount = PercentageOf(StatAmount(target, Health=5, Initial=2)=maxHP, Direct(GetNumberConstant(config,0x13)=
     firstAidRecovery%))` et `targets = Tiles(UnitsWithoutTrait(Units(tile), 0x19=25=Immune)) & targetSelector@0x88`.
 
-    Au DÉBUT DU TOUR du `player_id` (event 0x13 émis par `StartTurnOperation.Execute @180ea3fb0`), chaque unité
+    Au DÉBUT DU TOUR du `player_id` (event 0x13 émis par `IdunBattle.Operations.StartTurnOperation$$Execute`), chaque unité
     VIVANTE du player posée sur une tuile FirstAid (hors trait Immune=25) est soignée de `firstAidRecovery`% (=35,
     globalValue) de sa maxHP. Le soin passe par `HealUnitOperation` (clamp maxHP + gate Cursed). `IsTurnOf` =
     l'occupant appartient au player courant (l'ennemi debout sur une tuile FirstAid n'est PAS soigné à MON tour).
@@ -135,18 +135,18 @@ def first_aid_heal(state: State, player_id: int) -> list[dict]:
 
 
 # --- Swamp (et famille) : stat-mod DEFENSE de tuile statique (#198) --------------------------------
-# `ThornsBlockMovementAbility.CreateBehaviour @1811c8d70` (nom INTERNE de l'ability ; assignée par la tile-
+# `IdunBattleLogic.Entities.Abilities.Tiles.ThornsBlockMovementAbility$$CreateBehaviour` (nom INTERNE de l'ability ; assignée par la tile-
 # config Unity au tile-def **Swamp**, PAS à un terrain "Thorns" — aucun board n'a de tileDefId "Thorns", et
-# la description localisée est `SwampBlockMovement @1809cdf10`) = `AddBlockEnteringUnitsEffect(#131)` &
+# la description localisée est `SwampBlockMovement idun.shared.utils.IdunLocalization.Abilities$$SwampBlockMovementDescription`) = `AddBlockEnteringUnitsEffect(#131)` &
 # `AddStaticStatModifierEffectToOwner(0xb, stat 3=DEFENSE, Direct(GetNumberConstant(config, 0x14)))`.
-# L'effet concret `ThornsDefenseReductionEffect` (`CreateTargetSelector @180f47ea0` =
+# L'effet concret `ThornsDefenseReductionEffect` (`IdunBattle.Entities.Effects.ThornsDefenseReductionEffect$$CreateTargetSelector` =
 # `UnitsWithoutTrait(Units(tile,1,3), Immune=25)`) pose la réduction DEFENSE sur l'occupant NON-Immune de
 # la tuile ; #197 en consomme la face combat (fold DEFENSE -> ×1.5). #198 = la matérialisation DYNAMIQUE :
 # gagner/perdre la modification en ENTRANT/SORTANT de la tuile pendant le runner-sim. ⚠ #194/#197 nommaient
 # ce terrain "Thorns" (hypothèse nom-d'ability -> terrain) ; la marche live (probe_198_map) l'a RÉFUTÉ.
 #
 # HARDCODE (source Unity asset, NON dérivable offline) : la constante `GetNumberConstant(config, 0x14)` vit
-# dans une Unity asset config (`IdunUniverse.GetTileConfigurations @1807a7d60`), ABSENTE du gameconfig JSON
+# dans une Unity asset config (`idun.IdunUniverse$$GetTileConfigurations`), ABSENTE du gameconfig JSON
 # (vérifié : `GC.ability(...)` = None, aucun globalValue). Valeur + terrain CAPTÉS LIVE par marche multi-
 # terrain (probe_198_map, C2_19) : `{Grass:0, Trench:0, DryBush:0, Swamp:-50}` → seule **Swamp** porte le
 # stat-mod DEFENSE (**−50**), générique au tile-def (jakhal DEFENSE 50 vs base 100). À RE-CAPTURER si les

@@ -8,18 +8,18 @@ case-220. RE ghidra gqfc5mff6c (VA citees). Doc : docs/rl/case-220/tyranids.md �
 Contenu :
 - `SporeMineLauncher` (1145, `tyranBiovore` -- Biovore, MachineOfWar) : spawn UN `tyranSmnSporeMine` sur la
   TUILE ciblee par le cast (tile-target), `WithStatsFromConfig` level-scale, SANS on-appearance et SANS cap.
-  Corps `SporeMineLauncherAbility.ExecuteBehaviour @18120a3f0` = MEME structure Spawn que le corps partage
-  `AberrantHypermorph/IronkinSteeljack @1811b0550`, MOINS l'on-appearance (`PerformAIAttackFromCurrentPosition`
+  Corps `IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility$$ExecuteBehaviour` = MEME structure Spawn que le corps partage
+  `AberrantHypermorph/IronkinSteeljack IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour`, MOINS l'on-appearance (`PerformAIAttackFromCurrentPosition`
   ABSENT). Le spore mine spawne est INERTE offline : son passif de detonation `FloatingDeath` (kit summon
   SEPARE, non porte) n'est pas cable -> l'AoE aval = 0 (residu documente, cf. case doc §6.16).
 - `AlphaWarrior` (1112, `tyranWingedPrime` -- Winged Prime, unite NORMALE non-MoW) : spawn UN `tyranSmnWarrior`
   sur la TUILE ciblee (tile-target), `WithStatsFromConfig` level-scale, AVEC on-appearance
   `PerformAIAttackFromCurrentPosition` (le summon attaque a l'apparition). Corps
-  `AlphaWarriorAbility.ExecuteBehaviour @1811b1400` = MEME structure Spawn+on-appearance que
-  `AberrantHypermorph @1811b0550` (template EXACT), a TROIS details pres (config AlphaWarrior ; nœud amount
+  `IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$ExecuteBehaviour` = MEME structure Spawn+on-appearance que
+  `AberrantHypermorph IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour` (template EXACT), a TROIS details pres (config AlphaWarrior ; nœud amount
   de `WithStatsFromConfig` = null au lieu de `AbilityLevelAmount(Self)` ; sujet de l'on-appearance =
   `Spawned@0x180` au lieu de `Target@0x178` -- les deux resolvent au MEME summon, cf. MasterOfTheTutelaries).
-  Gate de legalite `IsInTeamSynapseRange` (`GetDynamicInvalidTargetReason @1811b1590`) = ciblage live/RPC,
+  Gate de legalite `IsInTeamSynapseRange` (`IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$GetDynamicInvalidTargetReason`) = ciblage live/RPC,
   HORS ExecuteBehaviour -- ABSENT du port COMBAT (IA sur-permissive, residu documente).
 """
 from __future__ import annotations
@@ -39,25 +39,25 @@ if TYPE_CHECKING:
 
 
 class SpawnSporeMine(AbilityBehaviour):
-    """Feuille `Spawn` de `SporeMineLauncherAbility.ExecuteBehaviour @18120a3f0` (id 1145, `tyranBiovore`).
+    """Feuille `Spawn` de `IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility$$ExecuteBehaviour` (id 1145, `tyranBiovore`).
 
-    Le corps natif partage la MEME structure Spawn que `AberrantHypermorph/IronkinSteeljack @1811b0550`
+    Le corps natif partage la MEME structure Spawn que `AberrantHypermorph/IronkinSteeljack IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour`
     (RE croise ci-dessous), il decompile en :
         Execute( Spawn(caster@0x160, TARGET@0x178 = la TUILE ciblee par le cast (tile-target),
                        unitId = GetStringConstant(config, 0) = "tyranSmnSporeMine",
                        SpawnUnitOptions.WithStatsFromConfig(config 1145, Get(param_2[0]), Get(param_2[1]))) )
 
-    DIFFERENCE avec @1811b0550 (VERIFIE par decompile @18120a3f0 vs @1811b0550) : AUCUN
+    DIFFERENCE avec IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour (VERIFIE par decompile IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility$$ExecuteBehaviour vs IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour) : AUCUN
     `PerformAIAttackFromCurrentPosition` et AUCUN `*(options+0x18) = onAppearance` -> le spore mine ne fait
     RIEN a l'apparition (coherent gameconfig : `tyranSmnSporeMine` a `weapons=[]`, `activeAbilities=[]`,
     `summonDmg=0` a tous les niveaux -- son seul passif est `FloatingDeath`, la detonation, NON portee).
     L'amount node de WithStatsFromConfig est retrouve via `DSLFactory.Get(param_2[i])` (pre-enregistre) au
-    lieu d'etre construit inline `AbilityLevelAmount(Self)` comme @1811b0550 -- MEME semantique (le summon
+    lieu d'etre construit inline `AbilityLevelAmount(Self)` comme IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour -- MEME semantique (le summon
     scale au niveau actif de l'ability du CASTER, via la machinerie identique `SetStatFromConfig`
-    summonHp/summonDmg/summonArmor de `WithStatsFromConfig @180fd65b0`).
+    summonHp/summonDmg/summonArmor de `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$WithStatsFromConfig`).
 
     Le placement N'EST PAS un selecteur : la tuile EST la cible du cast (choisie par le joueur/l'IA, legalite
-    = `GetDynamicInvalidTargetReason @18120a590` : tuile valide ssi PAS occupee par un ennemi -- tuile vide ou
+    = `IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility$$GetDynamicInvalidTargetReason` : tuile valide ssi PAS occupee par un ennemi -- tuile vide ou
     alliee OK ; abilityTargets kind="tile"). -> la feuille porte `tile_id` resolu par la classe. Spawn delegue
     a l'Operation VALIDEE `_spawn_config_grot` (`WithStatsFromConfig` = summonHp/summonDmg/summonArmor[level
     actif du caster] x mult, CopyOwner team+player du caster) -- EXACTEMENT le meme spawn que Ironkin/Aberrant/
@@ -94,7 +94,7 @@ class SpawnSporeMine(AbilityBehaviour):
 
 
 def spore_mine_launcher_tree(tile_id) -> SpawnSporeMine:
-    """Arbre de `SporeMineLauncherAbility.ExecuteBehaviour @18120a3f0` (id 1145, `tyranBiovore` -- MIRROR 1:1
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility$$ExecuteBehaviour` (id 1145, `tyranBiovore` -- MIRROR 1:1
     du DECOMPILE) :
         Execute( Spawn(caster@0x160, Target@0x178=TUILE, "tyranSmnSporeMine",
                        WithStatsFromConfig(config 1145, Get(param_2[0]), Get(param_2[1]))) )
@@ -105,20 +105,20 @@ def spore_mine_launcher_tree(tile_id) -> SpawnSporeMine:
 
 
 class SporeMineLauncherAbility(ActiveAbility):
-    """`SporeMineLauncherAbility.ExecuteBehaviour @18120a3f0` (id 1145, `tyranBiovore` -- Biovore MachineOfWar,
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility$$ExecuteBehaviour` (id 1145, `tyranBiovore` -- Biovore MachineOfWar,
     namespace natif `Abilities.Active.Loki`). Cast TILE-TARGET (« Launch a spore mine on a target tile ») :
     spawn UN `tyranSmnSporeMine` sur la tuile ciblee, `WithStatsFromConfig` level-scale, SANS on-appearance et
     SANS cap. Pas de triggered, pas d'effet pose sur le caster.
 
     RE (ghidra gqfc5mff6c) :
-    - `ExecuteBehaviour @18120a3f0` : UN `Spawn(caster@0x160, target-tile@0x178, GetStringConstant(config,0),
+    - `IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility$$ExecuteBehaviour` : UN `Spawn(caster@0x160, target-tile@0x178, GetStringConstant(config,0),
       WithStatsFromConfig(config, Get(param_2[0]), Get(param_2[1])))` passe a `AActiveAbility.Execute`.
-      STRUCTURELLEMENT = le corps partage `AberrantHypermorph/IronkinSteeljack @1811b0550`, MOINS le volet
+      STRUCTURELLEMENT = le corps partage `AberrantHypermorph/IronkinSteeljack IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour`, MOINS le volet
       on-appearance (`PerformAIAttackFromCurrentPosition` + `*(options+0x18)=onAppearance` ABSENTS ici,
       PRESENTS la-bas). C'est la SEULE difference structurelle (verifie par comparaison des deux decompiles).
-    - `ctor @18120a610` : `AActiveAbility.ctor(..., 2, 0)` (IDENTIQUE Ironkin/Aberrant -> flags de tour par
+    - `IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility$$.ctor` : `AActiveAbility.ctor(..., 2, 0)` (IDENTIQUE Ironkin/Aberrant -> flags de tour par
       defaut) + `TargetingOptions(0, statsFromClass, 1, 0x40046001042, ...)` (tile-target ; legalite live).
-    - `GetDynamicInvalidTargetReason @18120a590` : tuile valide ssi PAS occupee par un ennemi (`HasSteppableUnit`
+    - `IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility$$GetDynamicInvalidTargetReason` : tuile valide ssi PAS occupee par un ennemi (`HasSteppableUnit`
       + `IsEnemy` -> raison 2 si ennemi ; tuile vide ou unite alliee = 0/valide). Gate live/RPC.
 
     La behaviour EST l'arbre DSL `spore_mine_launcher_tree(tile_id)` (feuille `SpawnSporeMine`). La feuille
@@ -152,30 +152,30 @@ class SporeMineLauncherAbility(ActiveAbility):
 
 
 class SpawnAlphaWarrior(AbilityBehaviour):
-    """Feuille `Spawn` de `AlphaWarriorAbility.ExecuteBehaviour @1811b1400` (id 1112, `tyranWingedPrime`).
+    """Feuille `Spawn` de `IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$ExecuteBehaviour` (id 1112, `tyranWingedPrime`).
 
     Le corps natif DECOMPILE en (mirror 1:1) :
         Execute( Spawn(caster@0x160, TARGET@0x178 = la TUILE ciblee par le cast (tile-target),
                        unitId = GetStringConstant(config, 0) = "tyranSmnWarrior",
                        SpawnUnitOptions.WithStatsFromConfig(config 1112, amount=null)
                          .onAppearance(+0x18) = PerformAIAttackFromCurrentPosition(Spawned@0x180)) )
-    C'est le TEMPLATE EXACT de `SpawnAberrant` (@1811b0550, live-valide) -- meme sequence
+    C'est le TEMPLATE EXACT de `SpawnAberrant` (IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour, live-valide) -- meme sequence
     `WithStatsFromConfig ; options.onAppearance = PerformAIAttackFromCurrentPosition ; GetStringConstant ;
     Spawn ; AActiveAbility.Execute` -- a TROIS details pres (verifies par comparaison des deux decompiles) :
       1. config = "AlphaWarrior" (unitId `tyranSmnWarrior`).
-      2. Le nœud `amount` de `WithStatsFromConfig` est passe NULL (@1811b1400 : `WithStatsFromConfig(config,
-         &target, 0, 0, 0)`), la ou @1811b0550 passe `AbilityLevelAmount(Self@0x148, AbilityType(1166))`. Ce
+      2. Le nœud `amount` de `WithStatsFromConfig` est passe NULL (IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$ExecuteBehaviour : `WithStatsFromConfig(config,
+         &target, 0, 0, 0)`), la ou IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour passe `AbilityLevelAmount(Self@0x148, AbilityType(1166))`. Ce
          nœud alimente la resolution du dynamic-variable-type (`GetDynamicVariableType`) de chaque stat ; le
          LEVEL qui indexe summonHp/summonDmg/summonArmor vient du contexte d'ability du caster (structure
-         param_2), PAS de ce nœud -- comme le confirme SporeMineLauncher (@18120a3f0 : amount = `Get(param_2[i])`)
+         param_2), PAS de ce nœud -- comme le confirme SporeMineLauncher (IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility$$ExecuteBehaviour : amount = `Get(param_2[i])`)
          valide BIT-EXACT vs `_spawn_config_grot(level=active_ability_level)`. -> MEME semantique de scale que
          Aberrant/Spore ; confront LIVE bit-exact (test_alpha_warrior_live).
-      3. L'onAppearance vise `Spawned@0x180` (comme MasterOfTheTutelaries @1811f30c0) la ou Aberrant vise
+      3. L'onAppearance vise `Spawned@0x180` (comme MasterOfTheTutelaries IdunBattleLogic.Entities.Abilities.Active.Loki.MasterOfTheTutelariesAbility$$ExecuteBehaviour) la ou Aberrant vise
          `Target@0x178` : les DEUX resolvent au MEME summon (l'unite POSEE sur la tuile-cible = le summon
          fraichement cree, la tuile etant libre AVANT le spawn par la legalite du cast). Outcome identique.
 
     Le placement N'EST PAS un selecteur : la tuile EST la cible du cast (choisie par le joueur/l'IA, legalite
-    = `IsInTeamSynapseRange`, cf. `GetDynamicInvalidTargetReason @1811b1590` -- ciblage live/RPC HORS de ce
+    = `IsInTeamSynapseRange`, cf. `IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$GetDynamicInvalidTargetReason` -- ciblage live/RPC HORS de ce
     behaviour, ABSENT du port). -> la feuille porte `tile_id` resolu par la classe. Spawn delegue a l'Operation
     VALIDEE `_spawn_config_grot` (`WithStatsFromConfig` = summonHp/summonDmg/summonArmor[level actif du caster]
     x mult, CopyOwner team+player) puis l'on-appearance `perform_ai_attack_from_current_position(state, gid)`
@@ -216,7 +216,7 @@ class SpawnAlphaWarrior(AbilityBehaviour):
 
 
 def alpha_warrior_tree(tile_id) -> SpawnAlphaWarrior:
-    """Arbre de `AlphaWarriorAbility.ExecuteBehaviour @1811b1400` (id 1112, `tyranWingedPrime` -- MIRROR 1:1
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$ExecuteBehaviour` (id 1112, `tyranWingedPrime` -- MIRROR 1:1
     du DECOMPILE) :
         Execute( Spawn(caster@0x160, Target@0x178=TUILE, "tyranSmnWarrior",
                        WithStatsFromConfig(config 1112, amount=null)
@@ -228,20 +228,20 @@ def alpha_warrior_tree(tile_id) -> SpawnAlphaWarrior:
 
 
 class AlphaWarriorAbility(ActiveAbility):
-    """`AlphaWarriorAbility.ExecuteBehaviour @1811b1400` (id 1112, `tyranWingedPrime` -- Winged Prime, unite
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$ExecuteBehaviour` (id 1112, `tyranWingedPrime` -- Winged Prime, unite
     NORMALE non-MoW, namespace natif `Abilities.Active.Loki`). Cast TILE-TARGET : spawn UN `tyranSmnWarrior`
     sur la tuile ciblee, `WithStatsFromConfig` level-scale, qui attaque immediatement sans bouger
     (`PerformAIAttackFromCurrentPosition`). Pas de triggered, pas d'effet pose sur le caster.
 
     RE (ghidra gqfc5mff6c) :
-    - `ExecuteBehaviour @1811b1400` : UN `Spawn(caster@0x160, target-tile@0x178, GetStringConstant(config,0)=
+    - `IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$ExecuteBehaviour` : UN `Spawn(caster@0x160, target-tile@0x178, GetStringConstant(config,0)=
       "tyranSmnWarrior", WithStatsFromConfig(config, amount=null))` avec `options.onAppearance(+0x18) =
       PerformAIAttackFromCurrentPosition(Spawned@0x180)`, passe a `AActiveAbility.Execute`. STRUCTURELLEMENT =
-      `AberrantHypermorph @1811b0550` (template EXACT Spawn+on-appearance), a trois details pres (config
+      `AberrantHypermorph IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour` (template EXACT Spawn+on-appearance), a trois details pres (config
       AlphaWarrior ; nœud amount null ; sujet on-appearance `Spawned@0x180` -- cf. `SpawnAlphaWarrior`).
-    - `ctor @1811b1930` : `AActiveAbility.ctor(..., 2, 0)` (IDENTIQUE Ironkin/Aberrant/Spore -> flags de tour
+    - `IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$.ctor` : `AActiveAbility.ctor(..., 2, 0)` (IDENTIQUE Ironkin/Aberrant/Spore -> flags de tour
       par defaut) + `TargetingOptions(0, statsFromClass, 1, 0x6001052, ...)` (tile-target ; legalite live).
-    - `GetDynamicInvalidTargetReason @1811b1590` -> `IsInSynapseRange @1811b15f0` ->
+    - `IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$GetDynamicInvalidTargetReason` -> `IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$IsInSynapseRange` ->
       `DSLFactory.IsInTeamSynapseRange` : tuile valide ssi DANS la portee synapse de l'equipe (raison 2 sinon).
       Gate live/RPC (ciblage), HORS ExecuteBehaviour -> ABSENT du port COMBAT : l'IA offline est SUR-PERMISSIVE
       (peut cibler hors synapse), residu documente (comme SporeMineLauncher/obscuring).

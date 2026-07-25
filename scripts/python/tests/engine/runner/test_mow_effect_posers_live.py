@@ -1,11 +1,11 @@
 """CONFRONT LIVE du lot #90-B : les 5 abilities de MACHINE OF WAR dont le behaviour natif de CAST est
 une PURE POSE D'EFFET(S) (`AddEffect`/`AddBondEffect` seuls -- aucune attaque, aucun spawn, aucune stat).
 
-    1160 HeavyRailRifle         (tauBroadside)         @1811e7d70   unit-target
-    1159 MacroPlasmaIncinerator (ultraDreadnought)     @1811f1910   tile-target
-    1188 DevastatingRefrain     (adeptExorcist)        @1811d3730   tile-target
-    1201 SquigMine              (orksRukkatrukk)       @18120b350   tile-target
-    1142 MalleusRocketLauncher  (astraOrdnanceBattery) @1811f1d90   tile-target
+    1160 HeavyRailRifle         (tauBroadside)         IdunBattleLogic.Entities.Abilities.Active.Loki.HeavyRailRifleAbility$$ExecuteBehaviour   unit-target
+    1159 MacroPlasmaIncinerator (ultraDreadnought)     IdunBattleLogic.Entities.Abilities.Active.Loki.MacroPlasmaIncineratorAbility$$ExecuteBehaviour   tile-target
+    1188 DevastatingRefrain     (adeptExorcist)        IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility$$ExecuteBehaviour   tile-target
+    1201 SquigMine              (orksRukkatrukk)       IdunBattleLogic.Entities.Abilities.Active.Loki.SquigMineAbility$$ExecuteBehaviour   tile-target
+    1142 MalleusRocketLauncher  (astraOrdnanceBattery) IdunBattleLogic.Entities.Abilities.Active.Loki.MalleusRocketLauncherAbility$$ExecuteBehaviour   tile-target
 
 PROTOCOLE (aucune constante attendue en dur -- l'oracle est le natif) : pour chaque ability, on monte un
 runner isole avec sa MoW, on choisit une cible LEGALE (`abilityTargets`), on execute le port OFFLINE sur
@@ -247,7 +247,7 @@ def _tgt(ctx):
 # ------------------------------------------------------------------ CONFRONT par ability
 
 def test_heavy_rail_rifle_confront_live(rpc_):
-    """1160 @1811e7d70 : `AddEffect(1334 -> cible) & AddEffect(1333 -> la MoW)`. L'empreinte OFFLINE
+    """1160 IdunBattleLogic.Entities.Abilities.Active.Loki.HeavyRailRifleAbility$$ExecuteBehaviour : `AddEffect(1334 -> cible) & AddEffect(1333 -> la MoW)`. L'empreinte OFFLINE
     doit etre EXACTEMENT celle du natif (memes entites, memes effectTypes, meme `remaining`)."""
     diag, off, live, ctx = _confront(rpc_, 1160, "tauBroadside", "unit")
     print(f"\n[1160] caster={ctx['caster']} target={ctx['target']} off={off} live={live}")
@@ -258,7 +258,7 @@ def test_heavy_rail_rifle_confront_live(rpc_):
 
 
 def test_macro_plasma_incinerator_confront_live(rpc_):
-    """1159 @1811f1910 : triangle de tuiles (`TilesInTriangleShape` filtre elevation + walkable) +
+    """1159 IdunBattleLogic.Entities.Abilities.Active.Loki.MacroPlasmaIncineratorAbility$$ExecuteBehaviour : triangle de tuiles (`TilesInTriangleShape` filtre elevation + walkable) +
     effet d'armement sur la MoW. Confront de l'empreinte COMPLETE (tuiles marquees incluses)."""
     diag, off, live, ctx = _confront(rpc_, 1159, "ultraDreadnought", "tile", prefer_center=True)
     board = ctx["board"]
@@ -271,7 +271,7 @@ def test_macro_plasma_incinerator_confront_live(rpc_):
 
 
 def test_devastating_refrain_confront_live(rpc_):
-    """1188 @1811d3730 : forme = tuile ciblee + ses voisines dans les 3 directions du ctor
+    """1188 IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility$$ExecuteBehaviour : forme = tuile ciblee + ses voisines dans les 3 directions du ctor
     (`{3,1,5}` = {N,SE,SW} cote machine). Cible CENTRALE -> aucune branche coupee par un bord."""
     diag, off, live, ctx = _confront(rpc_, 1188, "adeptExorcist", "tile", prefer_center=True)
     board = ctx["board"]
@@ -287,7 +287,7 @@ def test_devastating_refrain_confront_live(rpc_):
 
 
 def test_squig_mine_confront_live(rpc_):
-    """1201 @18120b350 : la tuile ciblee + `nrOfTiles[level]` tuiles TIREES dans le disque `range`
+    """1201 IdunBattleLogic.Entities.Abilities.Active.Loki.SquigMineAbility$$ExecuteBehaviour : la tuile ciblee + `nrOfTiles[level]` tuiles TIREES dans le disque `range`
     (libres, sans mine). Le TIRAGE n'est pas RNG-exact (GAP #215) -> on confronte ce qui EST
     deterministe : le CARDINAL, la tuile ciblee, l'appartenance des tuiles live au POOL modelise,
     l'effectType et le `remaining`."""
@@ -322,7 +322,7 @@ def test_squig_mine_confront_live(rpc_):
 
 
 def test_malleus_rocket_launcher_confront_live(rpc_):
-    """1142 @1811f1d90 : les TROIS effets (1308 bond / 1309 pending / 1310 spotted) sur la MEME tuile
+    """1142 IdunBattleLogic.Entities.Abilities.Active.Loki.MalleusRocketLauncherAbility$$ExecuteBehaviour : les TROIS effets (1308 bond / 1309 pending / 1310 spotted) sur la MEME tuile
     ciblee, plus un `Inform` sans effet d'etat."""
     diag, off, live, ctx = _confront(rpc_, 1142, "astraOrdnanceBattery", "tile", prefer_center=True)
     board = ctx["board"]
@@ -391,7 +391,7 @@ def test_macro_plasma_tile_filters_live(rpc_, mode):
 
 def test_machine_side_branch_flips_live(rpc_, host, live_session):
     """GENERALISATION la plus DISCRIMINANTE : la branche OPPOSEE de
-    `IsPositionMachineForCurrentPlayer(2)` (@180fa3520 : le slot MoW du joueur COURANT).
+    `IsPositionMachineForCurrentPlayer(2)` (IdunBattle.Entities.Triggers.IsPositionMachineForPlayerTrigger$$ShouldTrigger : le slot MoW du joueur COURANT).
 
     Montage : AUTRE board, DEUX MoW (une par camp), et on passe la main a l'ADVERSAIRE avant de caster
     SA MoW -> le joueur courant est celui dont le slot n'est PAS 2, donc `DevastatingRefrain` doit

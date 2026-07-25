@@ -1,6 +1,6 @@
 """Résolution OFFLINE de la magnitude d'un effet depuis gameconfig (Option A, doc §17.11).
 
-= miroir de `ConfigAmount.Calculate` @180f171c0 SANS l'instance native : l'`AbilityConfiguration` d'un
+= miroir de `IdunBattle.Entities.Formulas.ConfigAmount$$Calculate SANS l'instance native : l'`AbilityConfiguration` d'un
 effet n'étant qu'un **miroir live de gameconfig** indexé `key`+`level`, on lit gameconfig directement,
 **indexé par le level capté de l'effet** (la dimension d'état qui distingue les instances) :
   • trait   → `gameconfig.trait(name).variables[var_key]`              (scalaire global)
@@ -40,10 +40,9 @@ _BC_EFFECT_CFG: dict | None = None
 
 def bc_effect_config(key: str, default: int | None = None) -> int | None:
     """Entrée NOMMÉE de la section `Effect` de la BattleConfiguration — la table que
-    `DSLFactory.EffectConfig @180dee9e0` (-> `EffectConfigAmount`) et `BattleQuery.GetEffectConfig
-    @1810610b0` (Dict peuplé par `InitEffectConfig @18106e9c0`) indexent par enum. Source unique =
+    `IdunBattleLogic.Entities.DSLFactory$$EffectConfig` (-> `EffectConfigAmount`) et `IdunBattle.Core.Services.BattleQuery$$GetEffectConfig` (Dict peuplé par `IdunBattle.Core.Services.BattleQuery$$InitEffectConfig`) indexent par enum. Source unique =
     `weights.DEFAULT_BC` (même pattern que `CONTAMINATED_ARMOR_REDUCTION_PCT`, effect_triggers.py).
-    Ex. `StunnedDmgReductionPct`=50 (EffectConfig(2), Stunned_DamageModifierEffect @180f6f770),
+    Ex. `StunnedDmgReductionPct`=50 (EffectConfig(2), Stunned_DamageModifierEffect IdunBattle.Entities.Effects.Loki.Stunned_DamageModifierEffect$$CreateEffectDamageMalusForDefense),
     `PinnedDmgReductionPct`=30, `IceCritDmgBonusPct`=25. Cache module (BC statique par bataille)."""
     global _BC_EFFECT_CFG
     if _BC_EFFECT_CFG is None:
@@ -64,8 +63,7 @@ def ability_var(ability_id: str, var_key: str, level: int | None = None,
     (1-based → idx level-1, clampé).
 
     `multiplier_pct` = `AbilityVariablesMultiplierPercentage` de l'unité (BC `Units[*]`, dérivé de la
-    progression via `UnitConfigUtil.GetAbilityVariablesMultiplierPercentageForProgressionIndex`
-    @181696230, défaut 100). Appliqué (RÈGLE GÉNÉRALE §17.21, config-driven) SEULEMENT aux variables
+    progression via `IdunMetaLogic.UserProgress.UnitConfigUtil$$GetAbilityVariablesMultiplierPercentageForProgressionIndex, défaut 100). Appliqué (RÈGLE GÉNÉRALE §17.21, config-driven) SEULEMENT aux variables
     listées dans `variablesAffectedByRarityBonus` (= BC `VariablesAffectedByUnitRarityMultiplier`) :
     `effective = round(base[level] × multiplier_pct/100)`. Le natif bake ce scaling dans la config
     par-unité au chargement de la BC ; on lit gameconfig (base) + applique le scaling offline.

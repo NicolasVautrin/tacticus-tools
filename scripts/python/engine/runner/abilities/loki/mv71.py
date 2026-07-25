@@ -2,17 +2,17 @@
 MV71 Sniper Drone qui attaque la cible à sa place (#61bis).
 
 Namespace natif `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility`
-(`.ctor @18110b330` = `ALoki_NormalAttackAbility..ctor(this, CustomLokiNormalAttackOptions(2), 1, 0)` —
+(`.IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$.ctor` = `ALoki_NormalAttackAbility..ctor(this, CustomLokiNormalAttackOptions(2), 1, 0)` —
 c'est l'attaque normale PER-UNIT de Sho'syl, confirmé live : `decisionView` la liste kind="normal").
 Config = l'entrée gameconfig **`MV71SniperDroneSquad`** (le passif 1119) : constants
 `{unitId: tauSmnDroneSniper, maxSummons: 3}`, variables `summonHp/summonDmg/summonArmor`
 (GT lvl50 mult180 → 1996/2093/499, EXACT — case-61bis §2).
 
-`ExecuteBehaviour @181108900` (mirror 1:1, décompilé re-lu 2026-07-22) :
-    if IsMeleeAttack(@181109960) -> ALoki_NormalAttackAbility.ExecuteBehaviour ; RETURN
-    tile = PickTile(@181109ac0, firstOnly=0) ; null -> RETURN (no-op)
+`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$ExecuteBehaviour` (mirror 1:1, décompilé re-lu 2026-07-22) :
+    if IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$IsMeleeAttack -> ALoki_NormalAttackAbility.ExecuteBehaviour ; RETURN
+    tile = PickTile(IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$PickTile, firstOnly=0) ; null -> RETURN (no-op)
     (a) if HasUnitId(tile, unitId) : Execute( RemoveUnit(Units(Get(tile),1,3)) )
-    (b) if HasToManySummons(@181109870) : Execute( RemoveUnit(First(AlreadySpawnedSummonsSorted,1,0)) )
+    (b) if IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$HasToManySummons : Execute( RemoveUnit(First(AlreadySpawnedSummonsSorted,1,0)) )
     (c) spawned = Execute( Spawn(caster@0x160, Get(tile), Get(unitId),
                                  SpawnUnitOptions.WithStatsFromConfig(cfg@0x60, msg, 0,0,0)) )
     (d) foreach drone in spawned :
@@ -23,17 +23,17 @@ Config = l'entrée gameconfig **`MV71SniperDroneSquad`** (le passif 1119) : cons
     (e) AddEffect(0x462=1122 Markerlight, stateRef, caster@0x160, target@0x178,
                   Sum(TurnsFromRounds(1), Direct(1)))   # fin du prochain tour du caster
 
-`PickTile @181109ac0` : candidates = tuiles autour des TUILES DE LA CIBLE selon la config du drone
+`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$PickTile` : candidates = tuiles autour des TUILES DE LA CIBLE selon la config du drone
 (service slot 0x66 x slot 0xaa(unitId) — portée d'attaque du drone), filtrées `CanAddUnit` &
 `!IsTilePendingDrafting` & « peut attaquer les tuiles de la cible depuis » (slot 0xc3) ; puis
 `SortTilesByUtility(list, [UtilityBucket[WeightedUtility(7=Tile), WeightedUtility(0x37=
 MV71SniperDroneSquad_ClosestToParent)]], Self@0x148)` -> First. `firstOnly` -> 1er candidat brut
-(le gate de `GetDynamicInvalidTargetReason @181109630` : la SEULE condition dynamique — H53 infirmée,
+(le gate de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$GetDynamicInvalidTargetReason` : la SEULE condition dynamique — H53 infirmée,
 aucune portée minimale). FALLBACK (seulement au cap) : la tuile du drone le plus faible si à portée
 de la cible, non obscurcie, tir possible — d'où l'éviction (a).
 
 COLLAPSES documentés (doctrine FinalJustice, tri d'utilité impératif) :
-  - tri = `ClosestToParent` (distance hex au caster ; natif = MovementInSteps @1810eff90, == dist hex
+  - tri = `ClosestToParent` (distance hex au caster ; natif = MovementInSteps IdunBattle.AI.Utilities.MV71SniperDroneSquad_SpawnTileUtility$$EvaluateMovementInSteps, == dist hex
     sur board ouvert) ; `WeightedUtility(7=Tile)` traité CONSTANT sur terrain uniforme (flag) ;
     tie-break = (dist hex à la cible, id de tuile) — À CONFRONTER live (GT (3,4)/(4,3)/(5,4)).
   - « peut attaquer depuis » = distance <= portée max d'arme du drone ; LoS (`UnobscuredTiles`) NON
@@ -99,7 +99,7 @@ _MV71_KIT_CACHE: dict = {}
 
 
 def _friendly_drones(state: "State", team, unit_id: str) -> list:
-    """`AlreadySpawnedSummonsSortedSelector @1811087e0` = `SortByFormula(UnitsWithId(Friends(Self),
+    """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$AlreadySpawnedSummonsSortedSelector` = `SortByFormula(UnitsWithId(Friends(Self),
     unitId), StatAmount(Subject, 5=HEALTH), dir=1)` : drones amis VIVANTS tries par PV CROISSANTS
     (le plus faible en tete -> `First(sel,1,0)` = l'evince du cap). Tie-break id (ordre de lecture)."""
     out = []
@@ -148,14 +148,14 @@ def _adjacent_occupants(state: "State", board, tid: int):
 
 
 def _spawn_tile_utility_0x37(pos, parent_pos, adj, caster_team) -> float:
-    """`MV71SniperDroneSquad_SpawnTileUtility.EvaluateMovementInSteps` (`<d__5>.MoveNext @181100f60`,
+    """`MV71SniperDroneSquad_SpawnTileUtility.EvaluateMovementInSteps` (`<d__5>.IdunBattle.AI.Utilities.MV71SniperDroneSquad_SpawnTileUtility.u003CEvaluateMovementInStepsu003Ed__5$$MoveNext`,
     poids BC catégorie `MV71SniperDroneSquad_ClosestToParent`) :
         u  = Fix64(-steps(candidate, tuile du PARENT)) x W[AdjacentToParent]            (=50/pas)
         si AUCUN ennemi adjacent au candidat : u += W[NoAdjacentEnemy]                  (=40)
         pour chaque AMI adjacent :
             (gate « aucun ennemi adjacent ») ami a StructuralAnalyser(0x477)  -> +W[InRangeOfStructuralAnalyser] (=3)
             (gate idem)                     ami a DefenderOfTheGreaterGood(0x483) -> +W[InRangeOf...GreaterGood] (=25)
-            `CanBeProtector @1810e0a50` (= HasFaction(9=T'au) ET PAS SaviorProtocols 0x460) -> +W[AdjacentToTau] (=20)
+            `IdunBattle.AI.Utilities.SaviorProtocolsUtility$$CanBeProtector` (= HasFaction(9=T'au) ET PAS SaviorProtocols 0x460) -> +W[AdjacentToTau] (=20)
     `steps` = slot service 0x6b(parentTile, candidate) — port : distance hex (== pas sur board ouvert
     sans mur ; flag si un board a des obstacles). FONCTION PURE (tranche 3) : `adj` = occupants VIVANTS
     adjacents [(team, visual_id)] — hydraté runner-state (`_adjacent_occupants`) OU scene (prédiction)."""
@@ -174,7 +174,7 @@ def _spawn_tile_utility_0x37(pos, parent_pos, adj, caster_team) -> float:
                 u += wt.sub(_W_CAT, "MV71SniperDDroneSquad_InRangeOfStructuralAnalyser")
             if DEFENDER_OF_THE_GREATER_GOOD in trig:
                 u += wt.sub(_W_CAT, "MV71SniperDDroneSquad_InRangeOfDefenderOfTheGreaterGood")
-        if _faction(vis) == "Tau" and SAVIOR_PROTOCOLS not in trig:   # CanBeProtector @1810e0a50
+        if _faction(vis) == "Tau" and SAVIOR_PROTOCOLS not in trig:   # IdunBattle.AI.Utilities.SaviorProtocolsUtility$$CanBeProtector
             u += wt.sub(_W_CAT, "MV71SniperDroneSquad_AdjacentToTau")
     return float(u)
 
@@ -212,8 +212,8 @@ def _tile7_utility(pos, elev, elev_minmax, eff_names, adj, caster_team, unit_id:
 
 def _pick_tile(state: "State", caster_id: int, target_id: int, unit_id: str,
                max_summons: int, first_only: bool = False):
-    """`PickTile @181109ac0` : renvoie l'id de TUILE choisie, ou None (aucune tuile -> cast no-op,
-    le gate de `GetDynamicInvalidTargetReason @181109630`).
+    """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$PickTile` : renvoie l'id de TUILE choisie, ou None (aucune tuile -> cast no-op,
+    le gate de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$GetDynamicInvalidTargetReason`).
 
     Candidates = tuiles MARCHABLES et LIBRES à distance <= portée du drone de LA CIBLE (slot 0x66 x
     config drone), d'où le drone peut attaquer (collapse distance ; LoS `UnobscuredTiles` non portée,
@@ -282,8 +282,8 @@ def _pick_tile(state: "State", caster_id: int, target_id: int, unit_id: str,
 
 def pick_tile_scene(scene, att_id: int, tgt_id: int, unit_id: str, max_summons: int,
                     parent_pos=None, first_only: bool = False):
-    """`PickTile @181109ac0` côté PRÉDICTION (#61bis tranche 3) — MÊME port que `_pick_tile` (runner),
-    hydraté depuis la `Scene` du playbook : la prédiction native passe le délégué b__0 @1811194e0 =
+    """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$PickTile` côté PRÉDICTION (#61bis tranche 3) — MÊME port que `_pick_tile` (runner),
+    hydraté depuis la `Scene` du playbook : la prédiction native passe le délégué b__0 IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility.u003Cu003Ec__DisplayClass7_0$$u003CPredictAttacku003Eb__0 =
     `() => PickTile(entities, firstOnly=0)`, soit LE MÊME PickTile que l'exécution. Le SCORING
     (Tile(7) + utilité 0x37) est la MÊME fonction pure que le runner (pas de fork) ; seule
     l'hydratation diffère (pos_by_id/vis_by_id/hp vs entities/components).
@@ -371,7 +371,7 @@ def pick_tile_scene(scene, att_id: int, tgt_id: int, unit_id: str, max_summons: 
 
 
 class MV71SniperDroneSquadAttackAbility(ActiveAbility):
-    """`MV71SniperDroneSquadAttackAbility.ExecuteBehaviour @181108900` (id **1076**) — cf. docstring
+    """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$ExecuteBehaviour` (id **1076**) — cf. docstring
     module pour la chaîne native complète et les collapses. GROUND TRUTH live : case-61bis §2 (runner
     88, seed 61001 : dégât −9391, drone (3,4) adjacent caster, stats 1996/499/2093, Markerlight posé,
     1132/1133 absents post-cast)."""
@@ -388,7 +388,7 @@ class MV71SniperDroneSquadAttackAbility(ActiveAbility):
         tp = te.get_component(PositionComponent) if te is not None else None
         if ce is None or te is None or cp is None or tp is None:
             return None
-        # --- dispatch mêlée : `IsMeleeAttack @181109960` (cible adjacente) -> délégation TOTALE à
+        # --- dispatch mêlée : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$IsMeleeAttack` (cible adjacente) -> délégation TOTALE à
         # l'attaque normale (`ALoki_NormalAttackAbility.ExecuteBehaviour`) — exécution == le pipeline
         # d'attaque normale du port (AttackDamageOperation + after-hit, mirror DamageHandler). H53
         # infirmée : c'est un dispatch, pas un refus de cible.
@@ -424,7 +424,7 @@ class MV71SniperDroneSquadAttackAbility(ActiveAbility):
         evicted: list = []
 
         def _remove(uid: int) -> None:
-            # RemoveUnitBehaviour.Execute @180fce1d0 : despawn SANS vecteur on-death (cf. feuille
+            # IdunBattle.Entities.Behaviours.RemoveUnitBehaviour$$Execute : despawn SANS vecteur on-death (cf. feuille
             # `RemoveUnit` behaviours.py — même mutation, inline ici car sélecteur déjà résolu).
             e = state.get_entity(uid)
             uc = e.get_component(UnitComponent) if e is not None else None
@@ -469,8 +469,8 @@ class MV71SniperDroneSquadAttackAbility(ActiveAbility):
         # l'attaque COMMANDÉE : l'attaque normale DU DRONE (arme choisie par distance — r4 Piercing à
         # distance, Physical au contact), stats lues via GetStat -> les OVERRIDES s'appliquent.
         atk = AttackDamageOperation.execute(state, drone_id, target_id)
-        # TargetTrigger `On(AttackDamageAttack=10,1) & OwnerIsCaster` (@180f575c0) : le drone vient
-        # d'attaquer -> 1132 (RevertInternal @180f577d0 = REMOVE_OVERRIDE x4) et 1133 sont retirés
+        # TargetTrigger `On(AttackDamageAttack=10,1) & OwnerIsCaster` (IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$CreateTargetTrigger) : le drone vient
+        # d'attaquer -> 1132 (IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$RevertInternal = REMOVE_OVERRIDE x4) et 1133 sont retirés
         # (GT : seuls les owner-effects de traits restent post-cast). Collapse : ce cast contient le
         # SEUL On(10) du porteur atteignable ; un drone qui n'attaque pas garderait l'effet jusqu'à sa
         # prochaine attaque (résidu flaggé : la consommation n'est pas câblée aux attaques AI-turn).
@@ -488,9 +488,9 @@ class MV71SniperDroneSquadAttackAbility(ActiveAbility):
                                                         skip_ability_used=False, skip_end_turn=False)
 
         # (e) Markerlight sur la CIBLE, durée Sum(TurnsFromRounds(1), Direct(1)) = fin du prochain
-        # tour du caster (identique StructuralAnalyser @1811a2a00).
+        # tour du caster (identique StructuralAnalyser IdunBattleLogic.Entities.Abilities.Triggered.Loki.StructuralAnalyser_AddMarkerlightAbility$$CreateBehaviour).
         # #98 : `Sum(TurnsFromRounds(1), Direct(1))` -> SEUL le terme `TurnsFromRounds` passe par
-        # `BattleQuery.ConvertRoundsToTurns @181058af0` ; le `Direct(1)` est deja en TOURS.
+        # `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` ; le `Direct(1)` est deja en TOURS.
         ml = AddEffectOperation.execute(state, source=caster_id, target=target_id,
                                         effect_type=MARKERLIGHT, name="Markerlight",
                                         duration_override=convert_rounds_to_turns(state, 1) + 1)

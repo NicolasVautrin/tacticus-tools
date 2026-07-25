@@ -5,11 +5,11 @@ Org native = les abilities Sisterhood vivent dans le namespace partage `Abilitie
 (codename interne, cf. DarkAngels/darkangels.py) ; l'arbre SPECIFIQUE vit avec son ability. Module DEDIE
 et ISOLE (rien de porte pour Sisterhood cote abilities avant ceci).
 
-SanctorumMissile (`SanctorumMissileAbility$$ExecuteBehaviour @1812041d0`, id 1062, unite adeptMorvenn =
+SanctorumMissile (`SanctorumMissileAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour`, id 1062, unite adeptMorvenn =
 Morvenn Vahl) : missile RANGED (range 3, profil Blast) 2x sur la CIBLE + 1x sur les ADJACENTS de la cible
 (hex de Morvenn EXCLU) + tuiles vides/steppables. Template splash 2-bandes (== Gauntlets/PlasmaCannon/
 Fragstorm), meme plage `MinMaxDamage` partagee, seul le nb de coups differe par bande. FACTORY NATIVE =
-`AttackWithAttackDamage @180de9fb0` (native_factory="attack", classe PAR XREFS, cf. ci-dessous).
+`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (native_factory="attack", classe PAR XREFS, cf. ci-dessous).
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 
 
 def sanctorum_missile_tree():
-    """Arbre de `SanctorumMissileAbility.ExecuteBehaviour @1812041d0` (id 1062, adeptMorvenn — MIRROR du
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour` (id 1062, adeptMorvenn — MIRROR du
     DECOMPILE) :
         ExecuteAtomic( op_BitwiseAnd(
             AttackWithAttackDamage(caster@0x160, target@0x178, MinMaxDamage(var0xc,var0xd), GetDamageProfile(0),
@@ -54,7 +54,7 @@ def sanctorum_missile_tree():
     - Config 1062 (gameconfig, LU) : nrOfHits=2, nrOfHits_2=1, damageProfile=Blast, range=3, attackRangeType=
       Ranged, plage minDmg/maxDmg unique.
 
-    **SELECTEUR SPLASH `GetAdjacentDamageTargetsAll @1812044a0` (MIRROR du decompile)** :
+    **SELECTEUR SPLASH `IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$GetAdjacentDamageTargetsAll` (MIRROR du decompile)** :
         Unobscured( self@0x168,
             ( Units(AdjacentTiles(target@0x178), 1, 3) - caster@0x160 )    # [band UNIT]
             + EmptyOrHasSteppableUnit(AdjacentTiles(target@0x178)) )        # [band TILE]
@@ -65,25 +65,25 @@ def sanctorum_missile_tree():
       Les flags `(1,3)` de `Units` = mode d'occupation main/steppable (raffinement inerte offline, cf. `Units`
       selectors.py). Le natif soustrait CASTER (0x160), PAS target (0x178) -> la cible n'est de toute facon pas
       adjacente a elle-meme.
-    - band TILE = `EmptyOrHasSteppableUnitTilesSelector.Select @180ee83e0` (`TileExtensions.IsEmptyOrSteppable`)
+    - band TILE = `IdunBattle.Entities.Selectors.EmptyOrHasSteppableUnitTilesSelector$$Select` (`TileExtensions.IsEmptyOrSteppable`)
       = tuiles adjacentes a la cible qui sont VIDES ou portent une unite STEPPABLE (scenery `Object`). NON
       PORTE (GAP flagge) : le leaf `AttackWithAttackDamage(multi=True)` resout un selecteur UNIT-domain
       (il filtre `u.get("id")`) ; ce band est TILE-domain et INERTE pour le degat-UNITE en duel (une tuile
       VIDE frappee = 0 degat unite ; aucune scenery Steppable dans un runner 1v1). CONFIRME par le FRERE
-      `GetAdjacentDamageTargetsUnits @181204580 = Units(GetAdjacentDamageTargetsAll())` (variante units-only
-      cote prediction @1811582c0) : `Units(All)` re-resout aux occupants DEBOUT -> les tuiles vides du band
+      `IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$GetAdjacentDamageTargetsUnits = Units(GetAdjacentDamageTargetsAll())` (variante units-only
+      cote prediction IdunBattle.AI.Playbook.Loki.SanctorumMissilePlaybook$$MakeDamagePredictions) : `Units(All)` re-resout aux occupants DEBOUT -> les tuiles vides du band
       TILE disparaissent, il ne reste que les UNITES = exactement ce que mon port emet.
     - **Unobscured, observer `self@0x168`** : 0x168 est un slot d'entite DISTINCT de caster (0x160, utilise
       pour la soustraction) ET de target (0x178, utilise comme centre d'AdjacentTiles DANS LA MEME fonction)
       -> c'est le 3e role (self/owner), qui en cast ACTIF top-level == Morvenn == `Caster()`. Porte
-      `Unobscured(sel, Caster())` (== precedent Gauntlets `GetSurroundingTargetsSelector @1811e20d0` qui
+      `Unobscured(sel, Caster())` (== precedent Gauntlets `IdunBattleLogic.Entities.Abilities.Active.Loki.GauntletsOfUltramarAbility$$GetSurroundingTargetsSelector` qui
       observe depuis le caster). Geometrie Unobscured DEJA validee live cote PREDICTION (case-49/#50) : dist 1
       jamais obscurcie, dist 2 = elevation ; board plat -> passe-tout.
 
-    **FACTORY NATIVE = `AttackWithAttackDamage @180de9fb0` -> `native_factory="attack"`** : CLASSIFIE PAR LES
+    **FACTORY NATIVE = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -> `native_factory="attack"`** : CLASSIFIE PAR LES
     XREFS de l'ExecuteBehaviour natif (tip #2 / piege rngcrit-1202 -- attaque MULTI-COUPS), PAS au nom du
-    template. Les DEUX call-sites `@18120432f` (main) et `@1812043cf` (splash) referencent `@180de9fb0`
-    (verifie via `list_xrefs` ; SanctorumMissile ABSENT des xrefs de `@180de9c90`/`@180de9dd0` = la famille
+    template. Les DEUX call-sites `IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour+0x15f` (main) et `IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour+0x1ff` (splash) referencent `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`
+    (verifie via `list_xrefs` ; SanctorumMissile ABSENT des xrefs de `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`/`IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` = la famille
     "ability"). `native_factory="attack"` => `AttackDamageOperation.ExecuteHit` = valeur brute + resolve
     slot-8 GASPILLE = **2 tirages/coup a cc=0** (defaut `is_attack_damage_op=True`). Un port copie a l'aveugle
     ("ability", 1 tirage/coup) desyncherait le RNG des le coup 2 -- confronte LIVE par le test.
@@ -95,7 +95,7 @@ def sanctorum_missile_tree():
     tgt = Target()
     # [MAIN] cible du message, 2 coups (nrOfHits 0x2f), plage MinMaxDamage, profil Blast, ranged.
     main = AttackWithAttackDamage(tgt, "SanctorumMissile", "Blast", is_melee=False,
-                                  native_factory="attack")                       # @180de9fb0 (XREFS)
+                                  native_factory="attack")                       # IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage (XREFS)
     # [SPLASH] unites adjacentes a la cible MOINS le caster (Morvenn), Unobscured depuis le caster ; MEME
     # plage, 1 coup (nrOfHits_2 0x32). Band TILE EmptyOrHasSteppable non porte (inerte, cf. docstring).
     splash_sel = Unobscured(Sub(AdjacentUnits(TargetTile()), Caster()), Caster())
@@ -105,7 +105,7 @@ def sanctorum_missile_tree():
 
 
 class SanctorumMissileAbility(ActiveAbility):
-    """`SanctorumMissileAbility$$ExecuteBehaviour @1812041d0` (id 1062, adeptMorvenn = Morvenn Vahl ; faction
+    """`SanctorumMissileAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour` (id 1062, adeptMorvenn = Morvenn Vahl ; faction
     Sisterhood / Adepta Sororitas).
 
     Sequence native (`ExecuteAtomic`, `op_BitwiseAnd`, tag 0x56) :
@@ -116,13 +116,13 @@ class SanctorumMissileAbility(ActiveAbility):
     le caster ; MEME plage de degat que la principale, seul le nb de coups change (2 vs 1). RANGED (range 3,
     profil Blast, missile).
 
-    `execute_behaviour` DELEGUE a `sanctorum_missile_tree()` (mirror 1:1 du decompile @1812041d0 +
-    `GetAdjacentDamageTargetsAll @1812044a0`). Le SPLASH est un SEUL `AttackWithAttackDamage(selecteur-multi)`
+    `execute_behaviour` DELEGUE a `sanctorum_missile_tree()` (mirror 1:1 du decompile IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour +
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$GetAdjacentDamageTargetsAll`). Le SPLASH est un SEUL `AttackWithAttackDamage(selecteur-multi)`
     (== le natif, PAS un `Foreach`) : `AttackBehaviour.Execute` resout la liste + `OrderBy` par id. FACTORY
-    `native_factory="attack"` (@180de9fb0, PROUVE par XREFS des call-sites @18120432f/@1812043cf -- CONTRASTE
-    la famille "ability" @180de9c90/@180de9dd0, piege rngcrit-1202/tip #2) => 2 tirages/coup a cc=0.
+    `native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, PROUVE par XREFS des call-sites IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour+0x15f/IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour+0x1ff -- CONTRASTE
+    la famille "ability" IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage/IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage, piege rngcrit-1202/tip #2) => 2 tirages/coup a cc=0.
 
-    GAP flagge : band TILE `EmptyOrHasSteppableUnit @180ee83e0` du selecteur natif (tuiles vides/steppables)
+    GAP flagge : band TILE `EmptyOrHasSteppableUnit IdunBattle.Entities.Selectors.EmptyOrHasSteppableUnitTilesSelector$$Select` du selecteur natif (tuiles vides/steppables)
     NON porte -- INERTE pour le degat-unite en duel (0 degat sur tuile vide ; aucune scenery Steppable), et le
     frere natif `GetAdjacentDamageTargetsUnits = Units(All)` (cote prediction) l'elimine deja en re-resolvant
     aux occupants. Passif porteur `RighteousRepugnance` (double-count ActOfFaith porte a part, act_of_faith.py)
@@ -147,7 +147,7 @@ class SanctorumMissileAbility(ActiveAbility):
 
 # ============================ SkyStrike (adeptCelestine Celestine, actif 1025) ============================
 #
-# `SkyStrikeAbility$$ExecuteBehaviour @181207d30` (namespace natif `Abilities.Active.Loki`) = template
+# `SkyStrikeAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$ExecuteBehaviour` (namespace natif `Abilities.Active.Loki`) = template
 # VigilanceEternal/HeroicFusillade EXACT (charge move-si-pas-adjacent + attaque), MAIS l'attaque n'est PAS
 # `MinMaxDamage` config : c'est l'ATTAQUE MELEE NORMALE du caster + un flat `extraDmg`. Correction registre :
 # le tag `SkyStrike [--] NO-OP EFFECT/BUFF` etait FAUX -- c'est un CHARGE + ATTAQUE MELEE. Arbre au decompile :
@@ -155,12 +155,12 @@ class SanctorumMissileAbility(ActiveAbility):
 #       If( Not(IsAdjacent(caster@0x160, target@0x178, 3)),                                       # MOVE gate
 #           MoveUnit(caster, First(SortTilesByUtility(CanAddUnit(AdjacentTiles(target)),          #   charge-tile
 #                                  caster@0x160, UtilityDefinition(7)), 1)) ),
-#       If( <factory+0x98 = gate alive, InitializeShared @180df2670>,                             # ATTACK gate
+#       If( <factory+0x98 = gate alive, IdunBattleLogic.Entities.DSLFactory$$InitializeShared>,                             # ATTACK gate
 #           AttackWithAttackDamage(caster@0x160, target@0x178,
 #               Sum(NormalAttackDamage(caster), Direct(GetVariableForLevel(8=extraDmg))),         #   base+extraDmg
 #               NormalMeleeAttackDamageProfile(caster), MeleeWeaponHits(caster)) ) )              #   profil/coups MELEE
 #
-# Differences avec VigilanceEternal (@18122a580), lues au decompile :
+# Differences avec VigilanceEternal (IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$ExecuteBehaviour), lues au decompile :
 #  - dest = `First(SortTilesByUtility(CanAddUnit(AdjacentTiles(target)), caster, UtilityDefinition(7)), 1)`
 #    SANS l'intersection `MovableTilesInRange` (VigilanceEternal passe `GetPossibleMovementTiles` = CanAddUnit(
 #    AdjacentTiles) op_And MovableTilesInRange(range=2, reachOnly)). SkyStrike alimente SortTilesByUtility avec
@@ -169,25 +169,25 @@ class SanctorumMissileAbility(ActiveAbility):
 #    tie-break tile id) -- meme proxy que HeroicFusillade (utilDef 7).
 #  - MOVE gate = `Not(IsAdjacent(caster, target, 3))` (== VigilanceEternal : bouge sauf si deja adjacent dist==1 ;
 #    le `3` inerte pour le predicat par-paire, cf. VigilanceEternal RE).
-#  - ATTACK = `AttackWithAttackDamage` overload @180dea6b0 (VERIFIE list_xrefs : SkyStrike call-site @1812080b2
-#    -> @180dea6b0, ABSENT de @180de9fb0 ; @180dea6b0 == @180de9fb0 SAUF que `nrOfHits` est un NODE
+#  - ATTACK = `AttackWithAttackDamage` overload IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage (VERIFIE list_xrefs : SkyStrike call-site IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$ExecuteBehaviour+0x382
+#    -> IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, ABSENT de IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage ; IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage == IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage SAUF que `nrOfHits` est un NODE
 #    `MeleeWeaponHits(caster)` passe direct a `AttackDamageBehaviour.ctor` au lieu d'une const int wrappee ->
 #    MEME `AttackDamageBehaviour`, famille "attack"). Node de degat = `Sum(NormalAttackDamage(caster)=StatAmount(
-#    Attack), Direct(GetVariableForLevel(8=extraDmg)))`. `StatAmountFormula.Calculate @180f22d40` = SOMME de
-#    GetStat(Attack) sur le selecteur = UNE valeur (PAS de min/max) -> `AttackDamageBehaviour.GetDamage @180fbb250`
+#    Attack), Direct(GetVariableForLevel(8=extraDmg)))`. `IdunBattle.Entities.Formulas.StatAmountFormula$$Calculate` = SOMME de
+#    GetStat(Attack) sur le selecteur = UNE valeur (PAS de min/max) -> `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$GetDamage`
 #    construit `HitDamage(V, V)` DEGENERE (V = Attack + extraDmg) : AUCUN spread +/-20% (le +/-20% de l'attaque
 #    normale vient du weapon-path `GetBaseDamageFix64`, ABSENT du path ability). Chaque coup = reduce(V) FIXE.
 #    Profil = `NormalMeleeAttackDamageProfile(caster)` = profil arme melee (Celestine = Power) ; coups =
-#    `MeleeWeaponHits(caster)` = nrOfHits arme melee (WeaponHitsFormula.Calculate @180f2f510 = somme des parts,
+#    `MeleeWeaponHits(caster)` = nrOfHits arme melee (IdunBattle.Entities.Formulas.WeaponHitsFormula$$Calculate = somme des parts,
 #    SANS ExtraHits ; Celestine = 3). Modelise via le mode BORNES du leaf + `damage_override` -> (V,V) degenere +
 #    `hits_override=MeleeWeaponHits` -> `execute_ability_attack(is_attack_damage_op=True)` (roll-then-reduce, resolve
 #    slot-8 GASPILLE, 1 tirage/coup pour un node degenere : GetDamage court-circuite min==max + 1 resolve, cf.
 #    #202 WeaverOfFate). RNG-exact vs le natif. `Sum(base, extraDmg)` == pattern MurderousSwing/SavageEchoes.
-#  - ATTACK gate = `factory+0x98` = trigger cache du DslContext (`InitializeShared @180df2670`, construit depuis
+#  - ATTACK gate = `factory+0x98` = trigger cache du DslContext (`IdunBattleLogic.Entities.DSLFactory$$InitializeShared`, construit depuis
 #    +0x28) = gate "alive". Porte comme `IsAlive(caster) & IsAlive(target)` (== gate VigilanceEternal, template
 #    EXACT ; post-charge non-reactive les deux sont vivants -> l'attaque tire). +0x98 exact non byte-resolu
 #    (variante IsAlive) -- INERTE en runner (aucune mort reactive intra-arbre sur board plat 1v1).
-# native_factory = "attack" (@180dea6b0 -> AttackDamageBehaviour -> ExecuteHit resolve slot-8). Config 1025
+# native_factory = "attack" (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage -> AttackDamageBehaviour -> ExecuteHit resolve slot-8). Config 1025
 # (gameconfig LU) : attackRangeType=Melee, extraDmg[level] rarity-scaled (variablesAffectedByRarityBonus),
 # initialCooldownTurns=1. Porteuse = Celestine (SkyStrike = sa SEULE active).
 
@@ -210,7 +210,7 @@ def _sk_occupied_positions(state: "State") -> set:
 
 
 def _sky_strike_dest_tile(state: "State", caster_id: int, target_id: int):
-    """Collapse du selecteur de destination @181207d30 : `First(SortTilesByUtility(CanAddUnit(AdjacentTiles(
+    """Collapse du selecteur de destination IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$ExecuteBehaviour : `First(SortTilesByUtility(CanAddUnit(AdjacentTiles(
     target)), caster@0x160, UtilityDefinition(7)), 1)` -> la tuile LIBRE+marchable ring-1 (adjacente) de la
     cible la PLUS PROCHE du caster (dist hex, tie-break tile id). AUCUN filtre de reach/portee (contraste
     VigilanceEternal `GetPossibleMovementTiles`). Pre-move (aucune mutation avant le MoveUnit). Renvoie
@@ -238,7 +238,7 @@ def _sky_strike_dest_tile(state: "State", caster_id: int, target_id: int):
 def _sky_strike_damage_override(extra_dmg: int):
     """`Sum(NormalAttackDamage(caster)=StatAmount(caster, Attack), Direct(GetVariableForLevel(8=extraDmg)))`
     porte en `GetAttackDamage` (mirror SavageEchoes/SpiritLeech damage_override) : base DEGENEREE V = stat
-    Attack (LIVE, re-lue post-move) + extraDmg. `StatAmountFormula.Calculate @180f22d40` = 1 valeur (pas de
+    Attack (LIVE, re-lue post-move) + extraDmg. `IdunBattle.Entities.Formulas.StatAmountFormula$$Calculate` = 1 valeur (pas de
     min/max) -> HitDamage(V,V), AUCUN spread. bmin/bmax config (0/0, pas de minDmg/maxDmg 1025) IGNORES."""
     def _override(state, caster_id, target_id, bmin, bmax):
         e = state.get_entity(caster_id)
@@ -251,7 +251,7 @@ def _sky_strike_damage_override(extra_dmg: int):
 
 
 def sky_strike_tree(dest, extra_dmg: int, profile: str, hits: int):
-    """Mirror 1:1 de `SkyStrikeAbility$$ExecuteBehaviour @181207d30` (template VigilanceEternal EXACT, attaque
+    """Mirror 1:1 de `SkyStrikeAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$ExecuteBehaviour` (template VigilanceEternal EXACT, attaque
     = attaque melee NORMALE du caster + extraDmg au lieu de MinMaxDamage config). `dest`/`extra_dmg`/`profile`/
     `hits` resolus imperativement (collapse du selecteur S + config, comme VigilanceEternal `dest`) :
         op_BitwiseAnd(
@@ -274,7 +274,7 @@ def sky_strike_tree(dest, extra_dmg: int, profile: str, hits: int):
 
 
 class SkyStrikeAbility(ActiveAbility):
-    """`SkyStrikeAbility$$ExecuteBehaviour @181207d30` (id 1025, adeptCelestine = Celestine ; faction
+    """`SkyStrikeAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$ExecuteBehaviour` (id 1025, adeptCelestine = Celestine ; faction
     Sisterhood / Adepta Sororitas). CHARGE + ATTAQUE MELEE (correction registre : le tag `NO-OP EFFECT/BUFF`
     etait FAUX). Arbre DSL `sky_strike_tree()` = VigilanceEternal EXACT MOINS la contrainte de reach du move,
     PLUS une attaque = attaque melee NORMALE du caster + extraDmg (au lieu de MinMaxDamage config, qui donnerait
@@ -285,14 +285,14 @@ class SkyStrikeAbility(ActiveAbility):
         MELEE (Celestine = Power / 3 coups), gatee par les deux vivants. Selecteur S (dest) collapse ; structure
         DSL. Renvoie {move, attack, dsl}.
 
-    `GetDynamicInvalidTargetReason @1812082a0` (face DECISION/eligibilite, HORS ExecuteBehaviour) : gate
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$GetDynamicInvalidTargetReason` (face DECISION/eligibilite, HORS ExecuteBehaviour) : gate
     `DidMove(caster)` -> si Celestine a DEJA bouge ce tour ET n'est pas adjacente a la cible, l'ability est
     INVALIDE (reason 0x10) ; sinon valide ssi une tuile libre adjacente existe (reason 0x20 sinon). Enforce cote
     ciblage (l'ability n'est offerte que si castable) ; le runner l'invoque une fois castable.
 
-    native_factory `attack` (@180dea6b0, PROUVE par XREFS du call-site @1812080b2 -- overload de @180de9fb0
+    native_factory `attack` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, PROUVE par XREFS du call-site IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$ExecuteBehaviour+0x382 -- overload de IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage
     dont seul l'arg hits differe [NODE vs const], MEME AttackDamageBehaviour). Node de degat DEGENERE (Sum(
-    StatAmount(Attack), Direct(extraDmg)) = 1 valeur, StatAmountFormula.Calculate @180f22d40) -> HitDamage(V,V) :
+    StatAmount(Attack), Direct(extraDmg)) = 1 valeur, IdunBattle.Entities.Formulas.StatAmountFormula$$Calculate) -> HitDamage(V,V) :
     chaque coup = reduce(V) FIXE, 1 tirage/coup (GetDamage court-circuite min==max + resolve slot-8 gaspille,
     cf. #202). Modelise en mode BORNES + damage_override(V,V) + hits_override -> execute_ability_attack(wasted).
 
@@ -341,7 +341,7 @@ class SkyStrikeAbility(ActiveAbility):
 DEVASTATING_REFRAIN_ID = "DevastatingRefrain"
 DEVASTATING_REFRAIN_TARGET = int(EffectType.DevastatingRefrain_Target)   # 0x57a = 1402
 DEVASTATING_REFRAIN_ATTACK = int(EffectType.DevastatingRefrain_Attack)   # 0x57b = 1403
-# `.ctor @1811d3bb0` : DEUX `List<int>` de directions hex pre-construites, stockees `this+0xf0` /
+# `.IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility$$.ctor` : DEUX `List<int>` de directions hex pre-construites, stockees `this+0xf0` /
 # `this+0xf8` — lues telles quelles (aucune deduction) :
 SHAPE_DIRECTIONS_MACHINE = (3, 1, 5)       # this+0xf0 : Add(3) Add(1) Add(5)   -> {N, SE, SW}
 SHAPE_DIRECTIONS_OTHER = (0, 2, 4)         # this+0xf8 : Add(0) Add(2) Add(4)   -> {S, NE, NW}
@@ -349,7 +349,7 @@ MACHINE_POSITION_BOTTOM = 2                # litteral de `IsPositionMachineForCu
 
 
 def devastating_refrain_shape(target_tile_id: int, directions) -> TileUnique:
-    """`DevastatingRefrainAbility.GetShape(List<int>) @1811d39f0` -- MIRROR 1:1 :
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility$$GetShape(List<int>)` -- MIRROR 1:1 :
 
         sel = target@0x178
         foreach idx in list:  sel = sel + TileFromVector(target@0x178, Get(idx))
@@ -369,7 +369,7 @@ def devastating_refrain_shape(target_tile_id: int, directions) -> TileUnique:
 
 
 def devastating_refrain_tree(target_tile_id: int, on_machine_side: bool):
-    """Arbre de `DevastatingRefrainAbility.ExecuteBehaviour @1811d3730` -- MIRROR 1:1 du DECOMPILE :
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility$$ExecuteBehaviour` -- MIRROR 1:1 du DECOMPILE :
 
         Execute(   AddEffect(0x57b=1403 DevastatingRefrain_Attack, absRef, targets=owner@0x148, opts=0)
                  + AddBondEffect(0x57a=1402 DevastatingRefrain_Target, absRef, source=owner@0x148,
@@ -379,7 +379,7 @@ def devastating_refrain_tree(target_tile_id: int, on_machine_side: bool):
 
     (`op_Addition`, `AActiveAbility.Execute`.) La 1re `AddEffect` utilise la surcharge SANS `source`
     (6 args) -> se pose sur l'OWNER = la MoW. Les deux options-structs sont ZERO -> duree =
-    `DefaultAmountOfRounds` (1402/1403 absents de la table @181559ff0 -> `remaining = 0` = permanent,
+    `DefaultAmountOfRounds` (1402/1403 absents de la table idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$DefaultAmountOfRounds -> `remaining = 0` = permanent,
     CONFIRME live).
 
     `If` (natif `DSLFactory.If` sur des SELECTEURS) est resolu ICI cote classe d'ability : le predicat
@@ -397,17 +397,17 @@ def devastating_refrain_tree(target_tile_id: int, on_machine_side: bool):
 
 
 class DevastatingRefrainAbility(ActiveAbility):
-    """`DevastatingRefrainAbility.ExecuteBehaviour @1811d3730` (id 1188, `adeptExorcist` -- Exorcist,
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility$$ExecuteBehaviour` (id 1188, `adeptExorcist` -- Exorcist,
     Adepta Sororitas, MachineOfWar). Cast TILE-TARGET (`abilityTargets` kind="tile", 33 tuiles sur C1_02).
 
     RE (ghidra gqfc5mff6c) :
-    - `ExecuteBehaviour @1811d3730` : cf. `devastating_refrain_tree` (1 `AddEffect` + 1 `AddBondEffect`,
+    - `IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility$$ExecuteBehaviour` : cf. `devastating_refrain_tree` (1 `AddEffect` + 1 `AddBondEffect`,
       zero attaque).
-    - `.ctor @1811d3bb0` : construit les DEUX listes de directions {3,1,5} / {0,2,4} (`this+0xf0`/`+0xf8`)
+    - `.IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility$$.ctor` : construit les DEUX listes de directions {3,1,5} / {0,2,4} (`this+0xf0`/`+0xf8`)
       puis `AActiveAbility.ctor(..., 2, 0)`.
-    - `GetShape() @1811d3960` (surcharge sans argument) = le MEME `If(IsPositionMachineForCurrentPlayer(2),
+    - `IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility$$GetShape()` (surcharge sans argument) = le MEME `If(IsPositionMachineForCurrentPlayer(2),
       GetShape(+0xf0), GetShape(+0xf8))`, expose pour la PREVIEW/playbook.
-    - `GetShape(List<int>) @1811d39f0` : cf. `devastating_refrain_shape`.
+    - `IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility$$GetShape(List<int>)` : cf. `devastating_refrain_shape`.
     - PHASE 2 (NON PORTEE) : l'effet `DevastatingRefrain_Attack` (1403) pose sur la MoW declenche le
       barrage sur les tuiles `DevastatingRefrain_Target` (1402) -- c'est la qu'interviennent minDmg/maxDmg,
       `damageProfile=Blast`, `nrOfHits=1` (+ `DevastatingRefrain_AttackVisuals`/`_EffectVisuals`).
@@ -416,7 +416,7 @@ class DevastatingRefrainAbility(ActiveAbility):
       - cible (0,0) (COIN du plateau 5x7) -> tuiles marquees (0,0) et (1,1) [les 2 autres voisines sont
         hors-plateau] ;
       - cible (2,3) (CENTRE) -> tuiles marquees (2,3) + (2,2)=N + (3,4)=SE + (1,4)=SW = EXACTEMENT les
-        directions {3,1,5} de la table `CubeDirections..cctor @180e30ec0` (0=S 1=SE 2=NE 3=N 4=NW 5=SW) ;
+        directions {3,1,5} de la table `CubeDirections..IdunBattle.Utils.Hex.CubeDirections$$.cctor` (0=S 1=SE 2=NE 3=N 4=NW 5=SW) ;
       - mow53 + `DevastatingRefrain_Attack` (1403, remaining 0).
 
     `target_id` = id de TUILE. Flags de tour : defauts base -> termine le tour + ActiveAbilityUsed."""

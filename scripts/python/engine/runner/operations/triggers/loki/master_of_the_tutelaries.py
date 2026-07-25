@@ -3,15 +3,15 @@
 Mirror du kit natif `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterOfTheTutelaries_SummonAbility`,
 ARMEE par l'effet-marqueur 1197 (`MasterOfTheTutelariesEffect`, pose par l'active 1096 — cf.
 `effects/loki/status.py` + `EFFECT_TRIGGERS[1197]` dans `../dispatch.py` : la collecte par-effet-actif
-EST le Add/RemoveTriggeredAbility natif d'`ApplyInternal @180f59090` / `RevertInternal @180f591f0`).
+EST le Add/RemoveTriggeredAbility natif d'`IdunBattle.Entities.Effects.Loki.MasterOfTheTutelariesEffect$$ApplyInternal` / `IdunBattle.Entities.Effects.Loki.MasterOfTheTutelariesEffect$$RevertInternal`).
 
-- `CreateTrigger @18110be00` :
+- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterOfTheTutelaries_SummonAbility$$CreateTrigger` :
     On(9=Attack, 1)
     & HasEffect(owner@0x148, 0x4ad=1197)               # re-gate natif (double du Add/Remove dynamique)
     & AreEnemies(owner@0x148, target@0x178)            # la cible de l'attaque est un ENNEMI du porteur
     & Not(IsObjectOrSteppable(target@0x178))           # vraie unite (pas decor/decoy steppable)
     & CurrentAttackDamageProfilesContain(0xd=13)       # les profils de l'ATTAQUE contiennent Psychic
-  `On(9)` = event generique de FIN d'attaque (`FinishAttackOperation @180e71310`, normale ET ability) —
+  `On(9)` = event generique de FIN d'attaque (`FinishAttackOperation IdunBattle.Operations.FinishAttackOperation$$Execute`, normale ET ability) —
   UN fire max par attaque qualifiante (MESURE live diag 202c runner 183 : 1 Screamer par ATTAQUE, pas
   par coup — l'attaque melee du Horror avec 2 degats n'a donne qu'UN Screamer). AUCUN gate
   « degat > 0 » : une attaque Psychic entierement bloquee declenche quand meme (decompile = verite ;
@@ -20,11 +20,11 @@ EST le Add/RemoveTriggeredAbility natif d'`ApplyInternal @180f59090` / `RevertIn
   -> la chaine Horror -> Screamer -> Screamer... n'est PAS bornee par le profil d'arme, seulement par
   les positions (un summon sans cible a portee n'attaque pas) et les tuiles libres.
 
-- `CreateBehaviour @18110bb30` (BODY GSHARED, param_3 = token de type — precedent ActOfFaith #151) :
+- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterOfTheTutelaries_SummonAbility$$CreateBehaviour` (BODY GSHARED, param_3 = token de type — precedent ActOfFaith #151) :
     branche `!=0x20` = `TriggerAbilityDelayed(owner@0x148, 0x495=1173, kind=3)` — le fire INITIAL
       planifie un re-declenchement DIFFERE de LA MEME ability (via `TriggerAbilityDelayedBehaviour.
-      Execute @180fd8d00`, service de triggers differes) ;
-    branche `==0x20` = `CreateSummonBehaviour @18110bba0` — le REVEIL differe (ctx 0x20 octets)
+      IdunBattle.Entities.Behaviours.TriggerAbilityDelayedBehaviour$$Execute`, service de triggers differes) ;
+    branche `==0x20` = `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterOfTheTutelaries_SummonAbility$$CreateSummonBehaviour` — le REVEIL differe (ctx 0x20 octets)
       execute le spawn reel du Screamer.
   Les DEUX branches sont vivantes ici (self-delayed : initial -> differe -> spawn), contrairement a
   ActOfFaith ou la branche delayed etait ecartee. Port : le differe kind-3 est COLLAPSE — le spawn
@@ -32,9 +32,9 @@ EST le Add/RemoveTriggeredAbility natif d'`ApplyInternal @180f59090` / `RevertIn
   l'ordre exact vs d'AUTRES triggers On(9) de la meme attaque = RESIDU (a confronter au stream live).
 
 - Spawn (mirror détaillé : `SpawnUnitOperation.execute_master_of_tutelaries_screamer`, spawn.py) :
-  possible = CanAddUnit(AdjacentTiles(owner)) (`GetPossibleSummonTiles @18110bf30`) ; preferred =
+  possible = CanAddUnit(AdjacentTiles(owner)) (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterOfTheTutelaries_SummonAbility$$GetPossibleSummonTiles`) ; preferred =
   `TilesUnitCanAttackFrom(possible, owner, "thousSmnScreamer").Otherwise(possible)`
-  (`GetPreferredSummonTiles @18110bf70` — Screamer melee => tuiles a ennemi adjacent) ; PickRandomly(1) ;
+  (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterOfTheTutelaries_SummonAbility$$GetPreferredSummonTiles` — Screamer melee => tuiles a ennemi adjacent) ; PickRandomly(1) ;
   RemoveEffect(0x425=1061 GeminaeSuperia_JustSummonedEffect) prealable (no-op offline) ; stats
   `WithStatsFromConfig2(config 1096)` = summonHp_2/summonDmg_2 (mesure live : 4487 = 2493 x 180%) ;
   on-appearance `PerformAIAttackFromCurrentPosition` (melee Power 3 hits — QUI RE-DECLENCHE 1173 si le

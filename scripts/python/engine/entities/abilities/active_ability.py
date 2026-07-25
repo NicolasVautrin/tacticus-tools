@@ -2,7 +2,7 @@
 
 Mirror live : l'ability expose `GetDamage / GetHits / GetDamageProfile` que le scorer
 (`Playbook.MakeDamagePredictions`) consomme avant d'appeler la prédiction. Les valeurs viennent
-de la config (gameconfig = registre `BattleQuery@0x48`, RE @18105a530) au niveau de l'unité,
+de la config (gameconfig = registre `BattleQuery@0x48`, RE IdunBattle.Core.Services.BattleQuery$$GetAbilityConfig) au niveau de l'unité,
 SAUF l'attaque normale dont le dégât d'arme n'est PAS dans gameconfig (id générique 69) → fourni
 par la capture `combatSnapshot.normalAttack` (= dégât de base d'arme résolu).
 
@@ -38,7 +38,7 @@ class AActiveAbility:
         # AbilityState PER-ABILITY (#100) — mirror du natif : chaque AActiveAbility est construite
         # avec SON couple {Level, VariableMultiplierPercentage} (entrée ActiveAbilityComponent,
         # _abilityState @0x4c ; capteur combatSnapshot.abilityStates). C'est CE niveau qui indexe
-        # TOUTES les variables config (TryGetVariableArrayForLevel @181577510), PAS le canal global
+        # TOUTES les variables config (IdunBattle.Configuration.AbilityConfiguration$$TryGetVariableArrayForLevel), PAS le canal global
         # unitConfig.activeAbilityLevel (mesuré u80 PlasmaCannon : natif maxDmg[65]x120 = 1396 vs
         # global 50x180 = 1594). None/{} => fallback global (runners sans capteur, offline).
         self.ability_state = ability_state or {}
@@ -66,13 +66,13 @@ class AActiveAbility:
             m = self.caster.ability_variables_multiplier or 100
         return int(m)
 
-    # AActiveAbility.GetDamageProfile (@180fb11e0) : profil de dégât de l'ability.
+    # AActiveAbility.GetDamageProfile (IdunBattle.Entities.Abilities.AActiveAbility$$GetDamageProfile) : profil de dégât de l'ability.
     def get_damage_profile(self) -> str:
         if self.config is not None:
             prof = (self.config.constants or {}).get("damageProfile")
             if prof:
                 return prof
-        # Config sans damageProfile → le natif rend un Nullable VIDE (-1, @180fb11e0), résolu en
+        # Config sans damageProfile → le natif rend un Nullable VIDE (-1, IdunBattle.Entities.Abilities.AActiveAbility$$GetDamageProfile), résolu en
         # aval sur le profil de l'ARME du porteur, RANGED-first (cf. GetAmountOfHitsRangedFirstOrMelee).
         # GROUND TRUTH step-17 seed777 : HarvesterOfSouls (pas de damageProfile) → per-coup natif
         # 987/1481 = entrée × 0.55 = pierce 55 = HeavyRound (l'arme RANGED de Maugan), MÊME en
@@ -94,10 +94,10 @@ class AActiveAbility:
                                        self.caster.extra_hits_melee, self.caster.is_melee)
 
     # GetDamage : base de dégât (single, pré-spread) — défaut générique (special : min/max config).
-    # Mirror `AActiveAbility.MinMaxDamage @180fb2dc0` (avgFlag=true, chemin PRÉDICTION) :
+    # Mirror `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamage` (avgFlag=true, chemin PRÉDICTION) :
     # Half(Sum(GetVariableForLevel(minDmg 0xc), GetVariableForLevel(maxDmg 0xd))), chaque var
     # scalée ×mult/100 + Fix64.Round DANS GetVariableForLevel (TryGetVariableArrayForLevel
-    # @181577510, gate variablesAffectedByRarityBonus). DÉCOMPOSÉ PAR ÉTAGE #100 (varLevelDumps,
+    # IdunBattle.Configuration.AbilityConfiguration$$TryGetVariableArrayForLevel, gate variablesAffectedByRarityBonus). DÉCOMPOSÉ PAR ÉTAGE #100 (varLevelDumps,
     # u80 PlasmaCannon (50,180)) : minDmg 665→1197 + maxDmg 886→1595 → avg 1396 ; bouts prédiction
     # [1117,1675] = ±20% EXACT. ⚠ Le « base = maxDmg seul » (#96) est RÉFUTÉ par cette lecture —
     # le 1396 se décomposait AUSSI en maxDmg[65]×1.2 (sous-détermination), d'où le faux verdict.
@@ -146,24 +146,24 @@ class AActiveAbility:
         """Nombre de fois que `MakeDamagePredictions` RÉ-ÉMET la liste d'events de dégât (= la BOUCLE
         EXTERNE du playbook natif sur le set de cibles). DÉFAUT = 1 (émission LINÉAIRE : 1 event/cible).
         Override par-ability pour les playbooks à DOUBLE boucle sur le MÊME set : ex. MurderousSwing
-        (`MurderousSwingPlaybook.MakeDamagePredictions @181134600` boucle sur `AdjacentEnemies(caster)`
-        ET `GenerateMultiHitAttackPredictions @181409da0` re-boucle sur ce MÊME set) -> **count² events**,
+        (`IdunBattle.AI.Playbook.MurderousSwingPlaybook$$MakeDamagePredictions` boucle sur `AdjacentEnemies(caster)`
+        ET `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions` re-boucle sur ce MÊME set) -> **count² events**,
         chaque cible apparaît `count` fois. Confirmé LIVE (#108 : K=1->1, K=2->4, K=3->9, perTarget=K).
         `n_targets` = taille du set AoE (= `1 + len(aoe)`, mirror du `Enumerable.Count(set)` natif)."""
         return 1
 
     def get_max_secondary_targets(self) -> int | None:
         """Plafond de cibles SECONDAIRES (`ability.GetMaxSecondaryTargets`, ex. PlasmaCannon
-        `@18039E710 return 2`). Le playbook pondère alors le 2ᵉ batch par `min(1, max/n)`
-        (`FromIntFraction(max, n)` dans `MakeDamagePredictions @181150B10`). None = pas de plafond
+        `meta_pvp_screen_test.u003Cu003Ec$$u003CStartu003Eb__6_1 return 2`). Le playbook pondère alors le 2ᵉ batch par `min(1, max/n)`
+        (`FromIntFraction(max, n)` dans `IdunBattle.AI.Playbook.Loki.PlasmaCannonPlaybook$$MakeDamagePredictions`). None = pas de plafond
         (batch AoE non pondéré : Harvester/BloodyFury)."""
         return None
 
     def get_health_to_lose(self, max_hp: int) -> int | None:
-        """`<Ability>.GetHealthToLose` — COÛT en PV de l'ability (ex. DakkaDakkaDakka @1811d09a0 =
+        """`<Ability>.GetHealthToLose` — COÛT en PV de l'ability (ex. DakkaDakkaDakka IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$GetHealthToLose =
         `PercentageOf(StatAmount(owner, 5=Health), ConfigConst(0x4f healthPct))`). Le playbook émet
         alors un `ProbableDamageEvent` SELF dont l'utilité est NÉGÉE (friendly-fire, DamageUtility
-        @1810e2280) — mesuré step-13 seed777 : −15.0 exact par candidat DakkaDakkaDakka
+        IdunBattle.AI.Utilities.DamageUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext) — mesuré step-13 seed777 : −15.0 exact par candidat DakkaDakkaDakka
         (= (80+20)×healthPct/100 à PV pleins). DÉFAUT None = pas de coût en PV."""
         return None
 
@@ -196,7 +196,7 @@ class NormalAttackAbility(AActiveAbility):
                                        self.caster.extra_hits_melee, not self.caster.normal_ranged)
 
     def get_pierce(self) -> int:
-        """pierceRatio de l'attaque normale — GetAttackPiercingDamageRatio (@181030a20) : profil
+        """pierceRatio de l'attaque normale — GetAttackPiercingDamageRatio (IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio) : profil
         d'arme `PiercingRatio` (gameconfig) + bonus LasCannon (#71 : +50 si le profil porte
         DamageTrait.LasCannon(3) ET l'attaquant UnitTrait.HeavyWeapon(1001)|Emplacement(1016)) +
         ExtraPierce(26) + ExtraPierce{Melee21|Ranged22}, clamp 0..100.
@@ -243,7 +243,7 @@ def _hits_ctx(ability) -> dsl.DslContext:
 
 
 class HarvesterOfSoulsAbility(AActiveAbility):
-    """`HarvesterOfSoulsAbility.GetHits @1811e75b0` — transcription EXACTE de l'arbre DSL natif :
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$GetHits` — transcription EXACTE de l'arbre DSL natif :
     `If(HasFlag(@+0x160), ConfigConst(nrOfHits), Sum(ConfigConst(nrOfHits), ConfigConst(extraHit)))`.
     Le flag (@+0x160, gate non encore RE) est ABSENT dans le cas commun (branche `false` → nrOfHits+extraHit
     ; confirmé côté agrément : natif = kill sûr, l'attaque normale seule ne l'était pas). ⚠ Volet AoE
@@ -253,19 +253,19 @@ class HarvesterOfSoulsAbility(AActiveAbility):
                    dsl.ConfigConst("nrOfHits", 1),
                    dsl.Sum(dsl.ConfigConst("nrOfHits", 1), dsl.ConfigConst("extraHit", 0)))
 
-    # GetSurroundingUnits @1811e76a0 (RE COMPLETE 2026-07-02) — tree natif EXACT (chaine LUE) :
-    #   A   = SurroundingUnits(sel@0x160, ConfigConst(0x16))        @180dfcb70 -> SurroundingTiles @180dfca70 -> Units
-    #   B   = Enemies(sel@0x160, AdjacentFriends(sel@0x178, 1))     Enemies @180deedd0 ; AdjacentFriends @180de81d0
-    #   AoE = op_BitwiseAnd(A, B)                                   TargetsSelector.op_BitwiseAnd @181010f10
-    # Selecteurs resolus (InitializeShared @180df2670 alloue +0x148..+0x198 via ctors gshared MISLABELES
+    # IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$GetSurroundingUnits (RE COMPLETE 2026-07-02) — tree natif EXACT (chaine LUE) :
+    #   A   = IdunBattleLogic.Entities.DSLFactory$$SurroundingUnits(sel@0x160, ConfigConst(0x16)) -> IdunBattleLogic.Entities.DSLFactory$$SurroundingTiles -> Units
+    #   B   = Enemies(sel@0x160, AdjacentFriends(sel@0x178, 1))     IdunBattleLogic.Entities.DSLFactory$$Enemies ; IdunBattleLogic.Entities.DSLFactory$$AdjacentFriends
+    #   AoE = op_BitwiseAnd(A, B)                                   IdunBattle.DSL.TargetsSelector$$op_BitwiseAnd
+    # Selecteurs resolus (IdunBattleLogic.Entities.DSLFactory$$InitializeShared alloue +0x148..+0x198 via ctors gshared MISLABELES
     # `BoardGeometry..ctor` -> identite = pointeur de classe + usage, PAS le nom du ctor) :
     #   sel@0x160 = OWNER/caster : StatAmount(@0x160,Health=5)=maxHP caster (DakkaDakkaDakka.GetHealthToLose
-    #               @1811d09a0) ; HasFlag(@0x160)=flag caster (Harvester.GetHits @1811e75b0). Comme POSITION
+    #               IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$GetHealthToLose) ; HasFlag(@0x160)=flag caster (IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$GetHits). Comme POSITION
     #               -> tuile COURANTE de l'owner : GetSurroundingUnits(param_1) ne recoit AUCUN casterPosition
     #               -> sel@0x160 resout la position LIVE (owner non deplace en prediction), != tuile d'attaque.
-    #   sel@0x178 = TARGET (cible principale param_4 du playbook MakeDamagePredictions @1811428b0).
+    #   sel@0x178 = TARGET (cible principale param_4 du playbook IdunBattle.AI.Playbook.Loki.HarvesterOfSoulsPlaybook$$MakeDamagePredictions).
     # ConfigConst 0x16 = AbilityConstantType.range=22 (dump.cs) = constante "range" gameconfig = 3 (Harvester) ;
-    #   GetNumberConstant @181576af0 LEVE une exception si la cle est ABSENTE (GetStringConstant @181576bb0
+    #   IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant LEVE une exception si la cle est ABSENTE (IdunBattle.Configuration.AbilityConfiguration$$GetStringConstant
     #   TryGetValue->throw) -> "range" est TOUJOURS present (l'ancienne hypothese "0x16 absent -> defaut" etait
     #   FAUSSE). AdjacentFriends(target,1) = Friends(target, Units(AdjacentTiles(target)) - {target}) = allies
     #   de la CIBLE adjacents a elle = ennemis du caster ; Enemies(caster, .) les garde tous -> B = ring-1 HEX
@@ -290,7 +290,7 @@ class HarvesterOfSoulsAbility(AActiveAbility):
 
 
 class BloodyFuryAbility(AActiveAbility):
-    """`BloodyFuryAbility.GetNumTotalHits @1811bc270` — transcription EXACTE de l'arbre DSL natif :
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.BloodyFuryAbility$$GetNumTotalHits` — transcription EXACTE de l'arbre DSL natif :
     `Sum(ConfigConst(nrOfHits), Min(Multiply(ConfigConst(extraHit), TotalTimesAttacked),
     Difference(ConfigConst(maxNrOfHits), ConfigConst(nrOfHits))))` = SNOWBALL sur le nb d'attaques du
     caster, plafonné à `maxNrOfHits`. `TotalTimesAttacked` (compteur runtime @+0x34) NON capté offline →
@@ -318,10 +318,9 @@ class BloodyFuryAbility(AActiveAbility):
 
 class PlasmaCannonAbility(AActiveAbility):
     """`PlasmaCannonAbility` (TypeDefIndex 9922) — « 3x dégâts Plasma à un ennemi à portée 3 et
-    jusqu'à DEUX ennemis DERRIÈRE la cible ». Playbook `PlasmaCannonPlaybook.MakeDamagePredictions
-    @181150B10` : batch principal + batch SECONDAIRE (`GetValidSecondaryTargetsSelector @1811BB340`
-    = `DSLFactory.UnitsDirectlyBehind(@180dff5e0)`), pondéré `min(1, GetMaxSecondaryTargets/n)`
-    (`GetMaxSecondaryTargets @18039E710 = 2`)."""
+    jusqu'à DEUX ennemis DERRIÈRE la cible ». Playbook `IdunBattle.AI.Playbook.Loki.PlasmaCannonPlaybook$$MakeDamagePredictions` : batch principal + batch SECONDAIRE (`IdunBattleLogic.Entities.Abilities.Active.BlightGrenadesAbility$$GetValidSecondaryTargetsSelector`
+    = `IdunBattleLogic.Entities.DSLFactory$$UnitsDirectlyBehind`), pondéré `min(1, GetMaxSecondaryTargets/n)`
+    (`GetMaxSecondaryTargets meta_pvp_screen_test.u003Cu003Ec$$u003CStartu003Eb__6_1 = 2`)."""
 
     _SECONDARY = dsl.Damageable(dsl.UnitsDirectlyBehind())
 
@@ -329,7 +328,7 @@ class PlasmaCannonAbility(AActiveAbility):
         return self._SECONDARY.evaluate(ctx)
 
     def get_max_secondary_targets(self) -> int | None:
-        return 2   # GetMaxSecondaryTargets @18039E710
+        return 2   # GetMaxSecondaryTargets meta_pvp_screen_test.u003Cu003Ec$$u003CStartu003Eb__6_1
 
     # Dégât : CONFIG-based via le générique `get_damage()` = MinMaxDamage avg (#96 REVERTÉ puis
     # affiné #100) — la « preuve Attack-based » aiPredict==normale était un artefact (GetAllPredictions
@@ -342,14 +341,14 @@ class PlasmaCannonAbility(AActiveAbility):
 class DakkaDakkaDakkaAbility(AActiveAbility):
     """`DakkaDakkaDakkaAbility` (KillaKan Snappawrecka) — « 6x dmg Projectile à un ennemi à portée 3 ;
     +2 coups par réparation (cap 16) ; perd 15% de sa Health max ».
-    - `GetNumHits @1811d0eb0` = arbre DSL EXACT : `Min(Sum(Direct(nrOfHits 0x2f),
+    - `IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$GetNumHits` = arbre DSL EXACT : `Min(Sum(Direct(nrOfHits 0x2f),
       Multiply(TimesRepaired, Direct(extraHits key 100))), ConfigConst(maxNrOfHits 0x48))`.
       `TimesRepaired` (compteur runtime) non capté offline → 0 ⇒ nrOfHits (=6).
-    - damage : `GetDamageFormula` (playbook @1811293d0, helper partagé étiqueté BlightGrenades) =
-      `AActiveAbility.MinMaxDamage @180fb2dc0` = avg(minDmg', maxDmg') niveau+mult → la base
+    - damage : `GetDamageFormula` (playbook IdunBattle.AI.Playbook.Loki.DakkaDakkaDakkaPlaybook$$MakeDamagePredictions, helper partagé étiqueté BlightGrenades) =
+      `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamage` = avg(minDmg', maxDmg') niveau+mult → la base
       générique `get_damage()` suffit (bornes VALIDÉES exactes step-13 seed777 : per-coup natif
       404/728/1028/1331 reproduit sur les 4 cibles, D=2244 vs natif 2244.5 → mêmes entiers).
-    - `GetHealthToLose @1811d09a0` = `PercentageOf(StatAmount(owner, 5=Health), ConfigConst(0x4f
+    - `IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$GetHealthToLose` = `PercentageOf(StatAmount(owner, 5=Health), ConfigConst(0x4f
       healthPct=15))` → event SELF négatif (−15.0 exact mesuré par candidat, cf. base)."""
 
     _HITS = dsl.Min(
@@ -370,18 +369,18 @@ class DakkaDakkaDakkaAbility(AActiveAbility):
 
 
 class MurderousSwingAbility(AActiveAbility):
-    """`MurderousSwingAbility` (Tarvakh worldExecutions, id 1137). `GetCorrectDamage @1811c2c10` =
+    """`MurderousSwingAbility` (Tarvakh worldExecutions, id 1137). `IdunBattleLogic.Entities.Abilities.Active.MurderousSwingAbility$$GetCorrectDamage` =
     `If(AmountIsGreater(nrEnemies, Direct(1)), GetMultipleUnitsDamage=base, GetSingleUnitDamage=
-    Sum(base, Direct(GetVariableForLevel(8=extraDmg))))` (`@1811c2de0`/`@1811c2da0`). Le `+extraDmg`
+    Sum(base, Direct(GetVariableForLevel(8=extraDmg))))` (`IdunBattleLogic.Entities.Abilities.Active.MurderousSwingAbility$$GetSingleUnitDamage`/`IdunBattleLogic.Entities.Abilities.Active.MurderousSwingAbility$$GetMultipleUnitsDamage`). Le `+extraDmg`
     (i2 « +1746 Damage si un seul ennemi ») est AJOUTÉ À LA BASE, AVANT le spread ±20% + les mods
     (`predict_attack_raw`/`GetBaseDamageFix64`) → il scale min ET max PROPORTIONNELLEMENT
     (`extraDmg / avg(minDmg,maxDmg) ≈ 0.60` à tous les niveaux → ratio ×1.60), ce N'EST donc NI un
     additif à delta constant NI un %-mod (diagnostic #108 : oracle/moteur = ×1.601 UNIFORME min&max,
     RapidAssault +25% déjà appliqué des deux côtés). `extraDmg` scalé `(level, mult)` comme minDmg/maxDmg.
 
-    AoE mêlée SELF-centrée : `MakeDamagePredictions @181134600` construit le set `AdjacentEnemies(caster)`
+    AoE mêlée SELF-centrée : `IdunBattle.AI.Playbook.MurderousSwingPlaybook$$MakeDamagePredictions` construit le set `AdjacentEnemies(caster)`
     (`nrEnemies = Count(set)` -> GetCorrectDamage) PUIS boucle DEUX fois dessus (externe = MakeDamage
-    Predictions ; interne = `GenerateMultiHitAttackPredictions @181409da0`) -> **count² events**, chaque
+    Predictions ; interne = `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions`) -> **count² events**, chaque
     ennemi adjacent apparaît `count` fois (CONFIRMÉ LIVE #108 : K=1->1, K=2->4, K=3->9). `get_aoe_targets`
     = le set (moins la cible principale, filtrée par make_damage_predictions) ; `get_prediction_set_repeat`
     = `count` -> réplique la liste d'events count fois (mirror de la boucle externe)."""
@@ -404,16 +403,16 @@ class MurderousSwingAbility(AActiveAbility):
 
 
 class ExecutionerAbility(AActiveAbility):
-    """`ExecutionerAbility` (eldarFarseer « Eldryon », id 1066). `GetHits @1811da4a0` =
-    `DSLFactory.RoundsStarted` (@180dfa6c0 -> `RoundsStartedFormula.Calculate @180f223e0`) =
+    """`ExecutionerAbility` (eldarFarseer « Eldryon », id 1066). `IdunBattleLogic.Entities.Abilities.Active.Loki.ExecutionerAbility$$GetHits` =
+    `DSLFactory.RoundsStarted` (IdunBattleLogic.Entities.DSLFactory$$RoundsStarted -> `IdunBattle.Entities.Formulas.RoundsStartedFormula$$Calculate`) =
     Σ `UnitComponent.turnsStarted@+0x58` sur les units-in-scope (= le CASTER) = nb de rounds STARTED
     (i2 : « takes 582-2183 Psychic Damage FOR EACH ROUND THAT HAS STARTED »). `ExecutionerPlaybook.
-    GeneratePredictions @181130150` passe N=GetHits comme compte multi-coups à `GenerateMultiHit
+    IdunBattle.AI.Playbook.Loki.ExecutionerPlaybook$$GeneratePredictions` passe N=GetHits comme compte multi-coups à `GenerateMultiHit
     AttackPredictions` -> UN event agrégé par cible, appliedHits=N, dégât = N x base. CONFIRME LIVE
     (#122, probe_122_rounds.py) : aiPlaybookPredict appliedHits 3->8 (+1/round-cycle) ; le port rendait
     appliedHits=1 (config nrOfHits) -> sous-compte xN. Off-by-one : StartTurn incrémente AVANT que
     l'ability agisse -> round 1 = 1 coup (jamais 0). `turnsStarted` = stat 12 (`GetStat(unit,0xc)`,
-    `UnitTurnsStartedFormula.Calculate @180f2d6c0`, capté par combatSnapshot). Eldryon = unité lineup
+    `IdunBattle.Entities.Formulas.UnitTurnsStartedFormula$$Calculate`, capté par combatSnapshot). Eldryon = unité lineup
     (jamais late-spawn) -> caster.turnsStarted == numéro de round (le verdict re-expert note un scope
     caster-only : lire le compteur du CASTER, PAS un round global — fidèle même pour un caster spawné
     tardivement). Single-target : AUCUN override d'events (le multi-hit loop rend 1 event/cible)."""
@@ -425,17 +424,17 @@ class ExecutionerAbility(AActiveAbility):
 
 class MultiThreatEliminatorAbility(AActiveAbility):
     """`MultiThreatEliminatorAbility` (necroDestroyer « Destroyer », id 1006). La PRÉDICTION
-    (`MultiThreatEliminatorPlaybook.MakeDamagePredictions @18114d530`) passe un nombre de coups
-    CONSTANT = **6**, lu du champ STATIQUE de la classe (`cctor @1811f5cb0` : `**(class+0xb8) = 6`) —
+    (`IdunBattle.AI.Playbook.Loki.MultiThreatEliminatorPlaybook$$MakeDamagePredictions`) passe un nombre de coups
+    CONSTANT = **6**, lu du champ STATIQUE de la classe (`IdunBattleLogic.Entities.Abilities.Active.Loki.MultiThreatEliminatorAbility$$.cctor` : `**(class+0xb8) = 6`) —
     PAS de la config : l'ability n'a AUCUN `nrOfHits` (seulement `extraHit=1`, consommé par le COMBAT
-    `GetExtraHits @1811f5b60` / `GetNextHitTargetSelector`, hors prédiction). base = `ArcScourgeAbility.
-    GetDamage @1811b3800` = `AActiveAbility.MinMaxDamageAverage` = avg(minDmg,maxDmg) (le générique
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.MultiThreatEliminatorAbility$$GetExtraHits` / `GetNextHitTargetSelector`, hors prédiction). base = `ArcScourgeAbility.
+    IdunBattleLogic.Entities.Abilities.Active.ArcScourgeAbility$$GetDamage` = `AActiveAbility.MinMaxDamageAverage` = avg(minDmg,maxDmg) (le générique
     `get_damage`). Le playbook passe `param_8 = null` (Nullable vide) → profil `None` (pierce 0, armure
     PLEINE) via `_PLAYBOOK_PROFILE_OVERRIDE[1006]`. VALIDÉ LIVE (u81→ultraTitus armure 2312) : 6 coups
     plancher 1 (base 1309 < armure) = oracle [6,6]. Le générique rendait 1 coup (config nrOfHits absent)."""
 
     def get_special_hits(self, is_melee: bool) -> int:
-        return 6     # MultiThreatEliminatorAbility.cctor @1811f5cb0 : champ statique hits = 6 (constante native)
+        return 6     # IdunBattleLogic.Entities.Abilities.Active.Loki.MultiThreatEliminatorAbility$$.cctor : champ statique hits = 6 (constante native)
 
 
 _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
@@ -461,24 +460,24 @@ _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
 # l'utilité de DÉCISION de l'IA. Chaque entrée = base de playbook RE'd + VA.
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 _NONCOMPARABLE_ABILITIES: "frozenset[str]" = frozenset({
-    "RadBombardment",    # RadBombardmentPlaybook : NonComparablePlaybook @181154660 ; EvaluateNonComparable
-                         # @181154130 = (#ennemis dans GetAffectedTiles) x 2 (AoE différée, Toxic DoT)
-    "BloodyFury",        # BloodyFuryPlaybook : NonComparablePlaybook @1811233d0 ; EvaluateNonComparable
-                         # @181122be0 = 1 + (#ennemis adjacents) x W (heuristique de compte AoE)
-    "VexillaMagnifica",  # VexillaMagnificaPlaybook : EvaluateNonComparable @18117f6f0 = allié GetStat(5),
+    "RadBombardment",    # RadBombardmentPlaybook : NonComparablePlaybook IdunBattle.AI.Playbook.Loki.RadBombardmentPlaybook$$.ctor ; EvaluateNonComparable
+                         # IdunBattle.AI.Playbook.Loki.RadBombardmentPlaybook$$EvaluateNonComparable = (#ennemis dans GetAffectedTiles) x 2 (AoE différée, Toxic DoT)
+    "BloodyFury",        # BloodyFuryPlaybook : NonComparablePlaybook IdunBattle.AI.Playbook.Loki.BloodyFuryPlaybook$$.ctor ; EvaluateNonComparable
+                         # IdunBattle.AI.Playbook.Loki.BloodyFuryPlaybook$$EvaluateNonComparable = 1 + (#ennemis adjacents) x W (heuristique de compte AoE)
+    "VexillaMagnifica",  # VexillaMagnificaPlaybook : IdunBattle.AI.Playbook.Loki.VexillaMagnificaPlaybook$$EvaluateNonComparable = allié GetStat(5),
                          # skip si HasEffect(0x48a) (buff d'allié, pas du dégât)
     "FightingRetreat",   # FightingRetreatPlaybook : NonComparablePlaybook ; EvaluateNonComparable
-                         # @181131ff0 = |ennemis adj| + |alliés adj - self| (self-debuff d'ennemis,
+                         # IdunBattle.AI.Playbook.Loki.FightingRetreatPlaybook$$EvaluateNonComparable = |ennemis adj| + |alliés adj - self| (self-debuff d'ennemis,
                          # pas de dégât — inerte ici de toute façon : pas de minDmg/maxDmg)
-    "RitesOfRestoration",  # RitesOfRestorationPlaybook : NonComparablePlaybook @181157a60 (soin AoE +
+    "RitesOfRestoration",  # RitesOfRestorationPlaybook : NonComparablePlaybook IdunBattle.AI.Playbook.Loki.RitesOfRestorationPlaybook$$EvaluateNonComparable (soin AoE +
                          # résurrection, id 1039) ; utilité = 1 + Count(healTargets), résurrection-gated.
                          # PAS de prédiction de dégât (porté dans engine.playbook.noncomparable).
     "GauntletsOfUltramar",  # GauntletsOfUltramarPlaybook : NonComparablePlaybook ; EvaluateNonComparable
-                         # @18113e5a0 = Min(base, #ennemis dans l'arc GetAllTargetsSelector→SelectUniqueUnits(3)),
+                         # IdunBattle.AI.Playbook.Loki.GauntletsOfUltramarPlaybook$$EvaluateNonComparable = Min(base, #ennemis dans l'arc GetAllTargetsSelector→SelectUniqueUnits(3)),
                          # heuristique de COMPTE — AUCUN CalculateUtilityFromDamageEvent, AUCUN ProbableDamageEvent.
                          # (#109 : le port fabriquait un dégât depuis minDmg/maxDmg → faux positif vs oracle null.)
-    "HammerOfWrath",     # HammerOfWrathPlaybook : NonComparablePlaybook ; EvaluateNonComparable @181141680 ;
-                         # ShouldEvaluate @181142320 = !EnemyWillBeKilledWithNormalAttack. L'utilité de DÉCISION
+    "HammerOfWrath",     # HammerOfWrathPlaybook : NonComparablePlaybook ; IdunBattle.AI.Playbook.Loki.HammerOfWrathPlaybook$$EvaluateNonComparable ;
+                         # IdunBattle.AI.Playbook.Loki.HammerOfWrathPlaybook$$ShouldEvaluate = !EnemyWillBeKilledWithNormalAttack. L'utilité de DÉCISION
                          # utilise le dégât EN INTERNE (Σ CalculateUtilityFromDamageEvent(GetMinDamage/Profile/Hits)
                          # cible+adjacents + HasTrait(0x3eb)→+100 + CanAddUnit→+5), MAIS le playbook reste
                          # NonComparable → N'ÉMET AUCUN ProbableDamageEvent (MakeDamagePredictions=null, oracle
@@ -489,14 +488,14 @@ _NONCOMPARABLE_ABILITIES: "frozenset[str]" = frozenset({
     # abilities -> AUCUN ProbableDamageEvent affiché, exactement comme Gauntlets/Hammer (#109). Leur
     # utilité de DÉCISION vit dans engine.playbook.noncomparable (comptages, ou dégât INTERNE via
     # `generate_multi_hit_attack_prediction` appelé directement pour 1202 / l'attaque normale pour 1163).
-    "Stormcaller",       # StormcallerPlaybook @181160ff0 ; utilité = #unités dans la zone de glace
-    "ItItches",          # ItItchesPlaybook @181146c50 ; utilité = #ennemis poussés
-    "TheQuickening",     # TheQuickeningPlaybook @18116afb0 ; utilité = paliers +1 (cible = TUILE)
-    "BlackRage",         # BlackRagePlaybook @1811211f0 ; utilité = dégât de l'attaque NORMALE (interne)
-    "VigilanceEternal",  # VigilanceEternalPlaybook @18117fae0 ; utilité = dégât de l'ability (interne)
+    "Stormcaller",       # StormcallerPlaybook IdunBattle.AI.Playbook.Loki.StormcallerPlaybook$$EvaluateNonComparable ; utilité = #unités dans la zone de glace
+    "ItItches",          # ItItchesPlaybook IdunBattle.AI.Playbook.Loki.ItItchesPlaybook$$EvaluateNonComparable ; utilité = #ennemis poussés
+    "TheQuickening",     # TheQuickeningPlaybook IdunBattle.AI.Playbook.Loki.TheQuickeningPlaybook$$EvaluateNonComparable ; utilité = paliers +1 (cible = TUILE)
+    "BlackRage",         # BlackRagePlaybook IdunBattle.AI.Playbook.Loki.BlackRagePlaybook$$EvaluateNonComparable ; utilité = dégât de l'attaque NORMALE (interne)
+    "VigilanceEternal",  # VigilanceEternalPlaybook IdunBattle.AI.Playbook.Loki.VigilanceEternalPlaybook$$EvaluateNonComparable ; utilité = dégât de l'ability (interne)
     # --- #56 (tranche 3b) : 2 summons NonComparable (EvaluateNonComparable, PAS de Make*Predictions).
-    "SendInTheNextWave",  # SendInTheNextWavePlaybook @18115a1f0 ; util=Attack(cible), MIN=max Attack ennemis
-    "Incursion",          # IncursionPlaybook @181144fc0 ; util=PV(cible), MIN=max PV, gate adj>=2 tuiles
+    "SendInTheNextWave",  # SendInTheNextWavePlaybook IdunBattle.AI.Playbook.Loki.SendInTheNextWavePlaybook$$EvaluateNonComparable ; util=Attack(cible), MIN=max Attack ennemis
+    "Incursion",          # IncursionPlaybook IdunBattle.AI.Playbook.Loki.IncursionPlaybook$$EvaluateNonComparable ; util=PV(cible), MIN=max PV, gate adj>=2 tuiles
 })
 
 

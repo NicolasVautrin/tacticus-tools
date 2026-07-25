@@ -3,12 +3,12 @@
 Le Vanguard summoned par ControlEdict (#19) porte le trait `Summon` -> il est `ai_controlled` et joue son
 tour au TURN-START de sa team via le CHEMIN GENERIQUE deja porte (#65) : `run_ai_control_pass`
 (summon_ai.py) -> `DefaultAiUnitTactic.calculate_next_action` (playbook complet via le bridge offline) ->
-apply move (move=3) + attaque NORMALE. Mirror natif `IdunGameViews.QueueComputerActions @1804d90d0`.
-CE N'EST PAS un playbook bespoke (`ControlEditPlaybook @1811648a0` = utility 0, no-op ; le Vanguard n'a
+apply move (move=3) + attaque NORMALE. Mirror natif `IdunBattle.View.Game.IdunGameViews$$QueueComputerActions`.
+CE N'EST PAS un playbook bespoke (`ControlEditPlaybook IdunBattle.AI.Playbook.Loki.ControlEdictPlaybook$$.ctor` = utility 0, no-op ; le Vanguard n'a
 aucune active ability). Travail = VERIFIER, pas re-implementer.
 
 CRUX = l'attaque normale MULTI-ARME du Vanguard, selectionnee PAR PORTEE via le service natif UNIQUE
-(`GetAttackWeaponForDefaultNormalAttack @18105ea60`, meme port prediction<->combat) :
+(`IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack`, meme port prediction<->combat) :
   - kit gameconfig (admecSmnVanguard) : melee `Physical` (1 hit) + ranged `Toxic` r2 (3 hits) ;
   - ADJACENT (dist hex 1) -> arme MELEE Physical, `ranged=False`, 1 coup ;
   - dist hex 2 (portee Toxic) -> arme RANGED Toxic, `ranged=True`, 3 coups.

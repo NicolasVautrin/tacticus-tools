@@ -13,35 +13,35 @@ additionnel**.
 
 | Symbole | VA |
 |---|---|
-| `LetTheGalaxyBurnAbility$$CreateTrigger`            | `0x1811076f0` |
-| `LetTheGalaxyBurnAbility$$CreateBehaviour`          | `0x1811075c0` |
-| `LetTheGalaxyBurnAbility$$TargetHasTileEffect`      | `0x181107810` |
-| `LetTheGalaxyBurnAbility$$.cctor`                   | `0x181107840` |
-| `LetTheGalaxyBurn_ResetAbility$$CreateBehaviour`    | `0x1811078a0` |
-| `LetTheGalaxyBurnEffect$$.ctor`                     | `0x180f55080` |
-| `LetTheGalaxyBurnEffect$$CreateAdditionalHits`      | `0x180f54e30` |
-| `DSLFactory$$IsPersistentData`                      | `0x180df4bb0` |
-| `DSLFactory$$HasTileStatusEffect`                   | `0x180df13f0` |
+| `LetTheGalaxyBurnAbility$$CreateTrigger`            | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateTrigger` |
+| `LetTheGalaxyBurnAbility$$CreateBehaviour`          | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateBehaviour` |
+| `LetTheGalaxyBurnAbility$$TargetHasTileEffect`      | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$TargetHasTileEffect` |
+| `LetTheGalaxyBurnAbility$$.cctor`                   | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$.cctor` |
+| `LetTheGalaxyBurn_ResetAbility$$CreateBehaviour`    | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour` |
+| `LetTheGalaxyBurnEffect$$.ctor`                     | `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$.ctor` |
+| `LetTheGalaxyBurnEffect$$CreateAdditionalHits`      | `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits` |
+| `DSLFactory$$IsPersistentData`                      | `IdunBattleLogic.Entities.DSLFactory$$IsPersistentData` |
+| `DSLFactory$$HasTileStatusEffect`                   | `IdunBattleLogic.Entities.DSLFactory$$HasTileStatusEffect` |
 
-### `CreateTrigger @1811076f0` (conjonction `AbilityTrigger.op_BitwiseAnd`)
+### `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateTrigger` (conjonction `AbilityTrigger.op_BitwiseAnd`)
 ```
 On(5=PreAttack, 1, 0) & get_OwnerIsCaster
                       & Maybe( ConfigConst(0x2a, config) )
                       & !HasTileStatusEffect( Targets@0x190 )
 ```
 `ConfigConst 0x2a` = le slot CHANCE generique (meme slot que le 30 % de `GetStuckInAbility
-.GetBonusHitChance @180f83460`) ; l'ability `LetTheGalaxyBurn` n'existant PAS dans `units.abilities`,
+.IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance`) ; l'ability `LetTheGalaxyBurn` n'existant PAS dans `units.abilities`,
 il est seede depuis les vars de trait -> `traitVariables.LetTheGalaxyBurnChancePct` = **33**
 (meme mecanique que Camouflage/Diminutive/Parry).
 
-### `CreateBehaviour @1811075c0` (feuille E unique)
+### `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateBehaviour` (feuille E unique)
 ```
 SetPersistentData( AbilityOrEffect(0x5ca=1482), Self@0x148,
-                   Get(<champ statique pose par le .cctor @181107840>), Direct(1)@0xc0 )
+                   Get(<champ statique pose par le .IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$.cctor>), Direct(1)@0xc0 )
 ```
 = arme un FLAG intra-attaque sur le porteur, lu par `IsPersistentData` dans le gate du coup.
 
-### `LetTheGalaxyBurn_ResetAbility.CreateBehaviour @1811078a0` (`AbilityBehaviour.op_Addition`)
+### `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour` (`AbilityBehaviour.op_Addition`)
 ```
   If( IsPersistentData(0x5ca, Self@0x148, Get(<statique>)) & AttackUsedAttackDamage,
       Foreach( Targets@0x190,
@@ -54,9 +54,9 @@ Le `ClearPersistentData` est **hors du If** -> INCONDITIONNEL. Le volet `AddEffe
 **volet 2** (pose de Despoiled Ground) -- **NON porte ici** (residu explicite, cf. bas de docstring).
 
 ## Gate `HasTileStatusEffect` : GENERIQUE et EXCLUSIF
-`TargetHasTileEffect @181107810` = `HasTileStatusEffect(Targets@0x190)` : n'importe quel status-effect
+`IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$TargetHasTileEffect` = `HasTileStatusEffect(Targets@0x190)` : n'importe quel status-effect
 de tuile (pas un type precis). Le trigger de POSE exige `!HasTileStatusEffect(...)`, tandis que le gate
-du COUP (`CreateAdditionalHits @180f54e30`) accepte `TargetHasTileEffect | IsPersistentData`. Les deux
+du COUP (`IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits`) accepte `TargetHasTileEffect | IsPersistentData`. Les deux
 branches sont donc EXCLUSIVES :
   - cible **hors** tuile a effet -> le coup ne part que si le roll 33 % a arme le flag ;
   - cible **sur** tuile a effet  -> le coup part TOUJOURS, et rien n'est pose.
@@ -71,7 +71,7 @@ branche B n=23 -> **23/23** a 5 coups. Le +1 est exactement correle a l'appariti
   coups dans les vecteurs d'attaque -- exactement la position native (le natif emet PreAttack avant
   `GetAttackHits`, sinon le flag ne pourrait pas etre lu par le canal de la MEME attaque).
 - CLEAR : `On(Attack=9)`, le vecteur fin-d'attaque deja emis par le port pour la normale ET les
-  abilities (`FinishAttackOperation @180e71310`). **HYPOTHESE** : le `CreateTrigger` du
+  abilities (`FinishAttackOperation IdunBattle.Operations.FinishAttackOperation$$Execute`). **HYPOTHESE** : le `CreateTrigger` du
   `LetTheGalaxyBurn_ResetAbility` est un corps DEDUPLIQUE (absent de la table des symboles) -> le
   vecteur exact n'est pas lu au decompile ; `On(9)` est le seul evenement fin-d'attaque generique
   (normale + ability) du port, et le behaviour teste `AttackUsedAttackDamage` (= post-degat), ce qui
@@ -103,7 +103,7 @@ _ON_ATTACK = int(EventTriggerType.Attack)          # 9  — vecteur fin-d'attaqu
 
 
 def _target_tile_effects(state: State, target_id: Optional[int]) -> list:
-    """`HasTileStatusEffect(Targets@0x190)` @180df13f0 cote runner : les status-effects DYNAMIQUES
+    """`IdunBattleLogic.Entities.DSLFactory$$HasTileStatusEffect(Targets@0x190) cote runner : les status-effects DYNAMIQUES
     portes par la TUILE de la cible (`state.effects.by_unit[tile_entity_id]`). MEME lecture que le
     contexte threade dans la formule de coups (`damage_model.tile_status_effects_by_pos`) -> le trigger
     de POSE et le gate du COUP voient exactement le meme etat. Board/effets/position absents -> []."""
@@ -131,7 +131,7 @@ def _persistent(state: State, owner_id: int) -> Optional[PersistentDataComponent
 
 
 class LetTheGalaxyBurnArmAbility(TriggeredAbility):
-    """`LetTheGalaxyBurnAbility` (CreateTrigger @1811076f0 / CreateBehaviour @1811075c0) — arme le flag
+    """`LetTheGalaxyBurnAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateBehaviour) — arme le flag
     persistant 1482 sur le porteur, au `On(PreAttack=5)` de SON attaque, avec 33 % de chance, et
     SEULEMENT si la cible n'est PAS deja sur une tuile a status-effect."""
     event_id = _ON_PRE_ATTACK
@@ -153,7 +153,7 @@ class LetTheGalaxyBurnArmAbility(TriggeredAbility):
         return state.rng.next_internal(0, 100) < int(pct)
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        """`CreateBehaviour @1811075c0` = `SetPersistentData(0x5ca, Self@0x148, Get(<statique>),
+        """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateBehaviour` = `SetPersistentData(0x5ca, Self@0x148, Get(<statique>),
         Direct(1)@0xc0)` -> pose la cle composite `(1482, "LetTheGalaxyBurn")` a la valeur 1."""
         c = _persistent(state, self.owner_id)
         if c is None:
@@ -164,7 +164,7 @@ class LetTheGalaxyBurnArmAbility(TriggeredAbility):
 
 
 class LetTheGalaxyBurnResetAbility(TriggeredAbility):
-    """`LetTheGalaxyBurn_ResetAbility` (CreateBehaviour @1811078a0) — la moitie PORTEE du reset :
+    """`LetTheGalaxyBurn_ResetAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour) — la moitie PORTEE du reset :
     `ClearPersistentData(0x5ca, Self@0x148, Get(<statique>))`, INCONDITIONNEL (hors du `If`), a la fin
     de l'attaque du porteur. Le volet `AddEffect(0x5c4=1476 DespoiledGround)` du meme behaviour est le
     VOLET 2 -- non porte (residu explicite, cf. entete du module)."""

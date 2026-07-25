@@ -81,7 +81,7 @@ def target_trait_names(state: State, target_id: int) -> "frozenset[str]":
 
 def defender_armor_reduced(state: State, target_id: int) -> bool:
     """Gate `HasNegativeModifier(cible, {ARMOR=4, FIXED_ARMOR=16})` de `ConquerorImperative.CreateDamageModifier`
-    (@180f39650 ; trigger `ShouldTrigger @180f9db90`) : la CIBLE a-t-elle >=1 modification per-source NEGATIVE
+    (IdunBattle.Entities.Effects.Loki.ConquerorImperativeEffect$$CreateDamageModifier ; trigger `IdunBattle.Entities.Triggers.HasNegativeModifier$$ShouldTrigger`) : la CIBLE a-t-elle >=1 modification per-source NEGATIVE
     sur l'une des 2 stats d'armure = « armure REDUITE » ? DELEGUE a `UnitStats.has_negative_modifier` (foyer du
     check, mirror natif). False si la cible n'a pas de StatsComponent. Consomme par le canal +extraDmg de Conqueror
     (self face, incr. C) au site de resolution `attacker_modifiers` (combat) — symetrique de la prediction."""
@@ -96,7 +96,7 @@ def defender_fixed_armor(state: State, target_id: int) -> int:
     """FixedArmor(16) EFFECTIVE du DÉFENSEUR = `GetStat(16)` [effet-inclusif : inclut le stat-mod EAGER self
     de ProtectorImperative sur SON porteur, incr. A] + AURA +FixedArmor projetée par un ALLIÉ ADJACENT porteur
     (`create_aura_fixed_armor_bonus_for_defense` : `ProtectorImperative` reach = self + `AdjacentFriends(1)` ∩
-    `UnitsWithTrait(5=Mechanical)`, @180f39890). Le porteur (self) est déjà couvert par `GetStat` → l'aura
+    `UnitsWithTrait(5=Mechanical)`, IdunBattle.Entities.Effects.Loki.ConquerorImperativeEffect$$CreateTargetSelector). Le porteur (self) est déjà couvert par `GetStat` → l'aura
     n'ajoute QUE pour un défenseur allié-adjacent DISTINCT du porteur (auto-exclusion def==owner ⇒ pas de
     double-compte). RÉ-ÉVALUÉ PAR ADJACENCE ici (site de résolution armure), mirror du natif
     DynamicStatModifierEffect dont la ValueModification atteint TOUTES ses cibles-sélecteur.
@@ -203,11 +203,11 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
            "att_traits": target_trait_names(state, att_id),
            "att_grand_alliance": att_gu.get("GrandAllianceId"),
            # DefenderOfTheGreaterGood_ExtraDmg (#220, aura Tau) : tier T'au range-2 = UnitsFromFaction(9)
-           # @180e20590 -> att_faction (FactionId) ; gate !DamageProfileIs(Psychic) @180f3e4f0 -> damage_profile.
+           # IdunBattleLogic.Entities.Abilities.Triggered.Loki.DefenderOfTheGreaterGoodAbility$$GetBaseBuffTargetSelector -> att_faction (FactionId) ; gate !DamageProfileIs(Psychic) IdunBattle.Entities.Effects.Loki.DefenderOfTheGreaterGood_ExtraDmgEffect$$CreateDamageModifier -> damage_profile.
            "att_faction": att_gu.get("FactionId"),
            "damage_profile": damage_profile,
-           # UnitsWithRangedAttacks (selector SpotterReworked @180f6c860) = UNION {arme ranged au kit}
-           # + {diff elevation <= 2 vs tuile porteur} (@180e00610) -> board pour le terme elevation
+           # UnitsWithRangedAttacks (selector SpotterReworked IdunBattle.Entities.Effects.Loki.SpotterReworked_ExtraDamageEffect$$CreateTargetSelector) = UNION {arme ranged au kit}
+           # + {diff elevation <= 2 vs tuile porteur} (IdunBattleLogic.Entities.DSLFactory$$UnitsWithRangedAttacks) -> board pour le terme elevation
            "att_has_ranged_weapon": any(w.get("Range") for w in (att_gu.get("weapons") or ())),
            "board": state.board,
            "is_melee": is_melee, "target_armor_reduced": target_armor_reduced}
@@ -217,7 +217,7 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
 
 def _positional_att_ctx(state: State, unit_id: int) -> Optional[dict]:
     """Contexte POSITIONNEL `{att_pos, tile_effects_by_pos}` pour les bonus attaquant à magnitude
-    position-dépendante (#35 — LordOfTempests `GetHexesIncreasingDamage @180f56b40` : Count(Ice
+    position-dépendante (#35 — LordOfTempests `IdunBattle.Entities.Effects.Loki.LordOfTempests_ExtraDamageEffect$$GetHexesIncreasingDamage` : Count(Ice
     ring-1 de la position d'attaque)). Côté COMBAT runner la position d'attaque = la position
     COURANTE de l'attaquant (il a déjà bougé avant de taper). `tile_effects_by_pos` = centre +
     ring-1 : noms d'effets DYNAMIQUES posés sur la tuile (`state.effects.by_unit[tile_id]`, même
@@ -251,14 +251,14 @@ def _positional_att_ctx(state: State, unit_id: int) -> Optional[dict]:
 
 def tile_status_effects_by_pos(state: State, positions) -> Optional[dict]:
     """`{(col,row): [noms]}` des **status-effects DYNAMIQUES portes par la TUILE** aux positions
-    demandees — mirror runner de la lecture native `HasTileStatusEffect @180df13f0` (la tuile est une
+    demandees — mirror runner de la lecture native `IdunBattleLogic.Entities.DSLFactory$$HasTileStatusEffect` (la tuile est une
     ENTITE qui porte ses effets : `state.effects.by_unit[tile_entity_id]`, ids de tuile disjoints des
     ids d'unite, cf. `TileEffectTrigger`). Alimente le contexte CIBLE de la formule de coups
-    (`LetTheGalaxyBurnEffect.CreateAdditionalHits @180f54e30`, gate `TargetHasTileEffect`).
+    (`IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits`, gate `TargetHasTileEffect`).
 
     ⚠ N'inclut PAS `terrain_tile_effects` (les covers HEBERGES par le terrain, DryBush -> LightCover) :
     ceux-la sont poses sur les UNITES qui se tiennent sur la tuile (`LightCoverAbility
-    .UnitsThatNeedEffect @1811c1830`), pas sur la tuile — et le canal PREDICTION equivalent
+    .IdunBattleLogic.Entities.Abilities.Tiles.Loki.LightCoverAbility$$UnitsThatNeedEffect`), pas sur la tuile — et le canal PREDICTION equivalent
     (`scene.tile_effects_by_pos` = `tileMeta.effects`) ne les liste pas non plus. Les DEUX facades
     lisent donc la MEME chose. Board/effets absents -> None (contexte inconnu, le gate no-op)."""
     board = getattr(state, "board", None)
@@ -292,8 +292,8 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     natif +0, offline-sans-gate +extraDmg x 3 x 3 hits ; le natif NE l'applique PAS aux attaques d'ability).
     Défaut True = attaque normale / normal-like (le smite Psyker porte le KIND 1013 = attaque-normale).
     `trigger_ability_type` (#47) = l'ABILITY DÉCLENCHANTE du coup (AbilityOrEffect numérique, mirror du
-    champ du contexte d'attaque natif lu par `TriggeringAbilityIs @180dfe9c0`) — threadé dans `att_ctx`
-    pour les amounts conditionnels par-ability (HeavyWeapon_ExtraDmg @180f4f030 : `ConditionalAmount(
+    champ du contexte d'attaque natif lu par `IdunBattleLogic.Entities.DSLFactory$$TriggeringAbilityIs`) — threadé dans `att_ctx`
+    pour les amounts conditionnels par-ability (HeavyWeapon_ExtraDmg IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier : `ConditionalAmount(
     TriggeringAbilityIs(0x3ec=1004) ? base x2 : base)`). None (attaque normale/caller historique) =
     clé absente -> branche base.
     Les AURAS ALLIÉES +dégât (incr. C2 : `create_aura_attack_damage_bonus_for_ally` des alliés à portée,
@@ -309,7 +309,7 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     att_ctx = _positional_att_ctx(state, unit_id)
     if trigger_ability_type is not None:
         # #47 : l'ability déclenchante vit dans le MÊME contexte que la position (mirror AbilityEntities
-        # — un seul struct de contexte per-coup côté natif, cf. BaseEffect.DamageBonusForAttack @180f0f5e0).
+        # — un seul struct de contexte per-coup côté natif, cf. IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack).
         # ⚠ ATTAQUANT SANS POSITION (MACHINE OF WAR hors-plateau, case-mow-offboard-cast : ni Position ni
         # Health) -> `_positional_att_ctx` rend None faute de tuile. Le contexte natif porte NÉANMOINS
         # l'ability déclenchante (elle ne dépend PAS de la position) : on matérialise un ctx minimal
@@ -349,7 +349,7 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
     if attacker_id is not None or is_normal_attack is not None:
         att_ctx = {"id": attacker_id, "is_normal_attack": is_normal_attack}
         # FACTION de l'attaquant (gate `HasFaction(actor, ...)` des malus défenseur, ex. Markerlight
-        # @180f58170 : +15% aux attaques RANGED d'un attaquant T'AU sur la cible marquée). FactionId
+        # IdunBattle.Entities.Effects.Loki.MarkerlightEffect$$CreateDamageModifier : +15% aux attaques RANGED d'un attaquant T'AU sur la cible marquée). FactionId
         # gameconfig par visualId (même résolveur `_faction` que `entities_from_state`) ; lazy import
         # (garde anti-circulaire). Attaquant introuvable → clé absente → gates faction no-op (fidèle).
         if attacker_id is not None:
@@ -359,7 +359,7 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
                 from ..ai.action_generators import _faction
                 att_ctx["faction"] = _faction(_auc.visual_id)
     # STAT-MODS DEFENSE de la CIBLE (#197) : moitie DEFENSE de `CalculateDefenderModifiersForPrediction
-    # @181002c30`, portee DANS la fonction PARTAGEE (fin du fork prediction/combat -- cf. son docstring).
+    # IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction`, portee DANS la fonction PARTAGEE (fin du fork prediction/combat -- cf. son docstring).
     # Source runner = le `StatComponent` DEFENSE (stat 3) de l'ECS live (`ctx.stats`, delta cuit au load
     # depuis combatSnapshot + mutable par les operations) -- l'analogue de la DefenseComponent que le natif
     # relit. Ex. tuile Thorns -50 -> +50 -> x1.5 sur le degat RECU (GROUND TRUTH live #197 : degat reel x1.5).
@@ -371,8 +371,8 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
                                                  attacker_ctx=att_ctx, defense_stat=_def_stat)
     # AURAS-DÉFENSE state-wide (#184) : effets EffectWithTarget possédés par d'AUTRES unités dont le
     # TargetSelector projette sur la CIBLE — même boucle « TOUS les EffectWithTarget × leurs cibles »
-    # que la prédiction (`CalculateDefenderModifiersForPrediction @181002c30`, appelée AUSSI par le
-    # COMBAT via `CalculateAbilityDamage @18102cb50` slot 0xf, cf. case-68). Ex. DaughterOfTheAbyss
+    # que la prédiction (`IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction`, appelée AUSSI par le
+    # COMBAT via `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` slot 0xf, cf. case-68). Ex. DaughterOfTheAbyss
     # (Atlacoya) : -dmgReductionPct% Psychic aux amis rayon 2 / +extraDmgPct% aux Psykers ennemis.
     # Positions/équipes RÉELLES depuis l'ECS ; porteurs vivants uniquement. No-op sans carrier concerné.
     tp = None
@@ -409,7 +409,7 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
 
 def apply_elevation_bonus(state: State, mods, attacker_id: int, target_id: int) -> None:
     """#58 : ajoute au `mods` de l'ATTAQUANT le bonus d'ELEVATION (+surplomb) — feuille positionnelle du
-    builder PARTAGE `CalculateAttackerModifiersForPrediction @181000590` que le COMBAT applique AUSSI
+    builder PARTAGE `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction` que le COMBAT applique AUSSI
     (verdict RE cluster : misnomer "ForPrediction"). Elevations = `state.board` aux tuiles REELLES
     (attaquant/cible) ; gate no-elevation (effet 0x423 sur attaquant OU cible). No-op sans board/positions
     (mods inchange). MEME service `calculate_elevation_bonus_modifier` (DamageCalculations) que la
@@ -449,10 +449,10 @@ def apply_elevation_bonus(state: State, mods, attacker_id: int, target_id: int) 
 def apply_trench_reduction(state: State, mods, attacker_id: int, target_id: int,
                            damage_profile: Optional[str] = None) -> None:
     """#181 : ajoute au `mods` de l'ATTAQUANT la reduction TRENCH (-TrenchReductionPercentage%, =-50%) — feuille
-    positionnelle du builder PARTAGE `CalculateAttackerModifiersForPrediction @181000590` que le COMBAT applique
+    positionnelle du builder PARTAGE `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction` que le COMBAT applique
     AUSSI (comme l'elevation : misnomer "ForPrediction", xrefs DATA-only = invoque par delegate pour prediction
     ET combat ; aucun builder combat separe). MEME fonction nommee `calculate_trench_reduction`
-    (`CalculateTrenchReduction @181004830`) que la prediction — gate cible-porte-Trench + sous-branche
+    (`IdunBattle.Core.Services.DamageCalculations$$CalculateTrenchReduction`) que la prediction — gate cible-porte-Trench + sous-branche
     IsTrench(attackerTile)+IsNeighbourOf + IndirectFire(0x3ed) — sur les positions REELLES de l'ECS/board.
     No-op sans board/positions (mods inchange). MEME `TRENCH_PCT`/`_TRENCH_IGNORED_PROFILES` (pas de fork)."""
     board = state.board          # toujours present (__slots__) ; None tant que le boardGraph n'est pas cale
@@ -483,21 +483,21 @@ def apply_trench_reduction(state: State, mods, attacker_id: int, target_id: int,
 
 
 def ice_crit_damage_addition(state: State, attacker_id: int, target_id: int, ctx) -> int:
-    """#45f — `IceEffect.CreateEffectDamageBonusForAttack @180f44940` : bonus crit-sur-Ice.
+    """#45f — `IdunBattle.Entities.Effects.IceEffect$$CreateEffectDamageBonusForAttack` : bonus crit-sur-Ice.
 
     L'Ice (effet de TUILE 0x11) contribue au degat d'attaque via la famille PARTAGEE
     `CreateEffectDamageBonusForAttack` -> struct `EffectBonus` (il2cpp : trigger@+0x10,
     multiplicator@+0x18, ADDITION@+0x20, subtraction/minimum/override/reset/sources/abilityOrEffect)
-    collectee par `BaseEffect.DamageBonusForAttack @180f0f5e0` et consommee par le per-coup partage
-    (`CalculateAbilityDamage @18102cb50` / CBDWAM @18102d3f0). L'Ice ne remplit QUE le canal ADDITION :
-        trigger  = AttackDamageIsCritical @180de9590
+    collectee par `IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack` et consommee par le per-coup partage
+    (`IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` / CBDWAM IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers). L'Ice ne remplit QUE le canal ADDITION :
+        trigger  = IdunBattleLogic.Entities.DSLFactory$$AttackDamageIsCritical
                  & AreEqual(Units(occupant des tuiles de l'effet), target@0x178)
                  & op_LogicalNot(HasTrait(target, 0x19=Immune))
         addition = PercentageOf(StatAmount(attacker@0x160, 10=CRIT_DAMAGE), EffectConfig(5))
     avec `EffectConfig(5)` = `IceCritDmgBonusPct` (section Effect de la BC, =25).
 
     Evaluation offline PER-ATTAQUE : les gates occupant-Ice / Immune sont stables pendant l'attaque ;
-    le gate `AttackDamageIsCritical` est per-COUP (le ctx AbilityEntities d'`ExecuteHit @180e5eff0`
+    le gate `AttackDamageIsCritical` est per-COUP (le ctx AbilityEntities d'`IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`
     porte isCritical) -> l'appelant n'ajoute ce flat qu'aux coups CRITIQUES, meme position pipeline
     que le crit flat (PRE-reduce / post-spread pre-percage, #75). MESURE live (probe_45f_gfa_elevation
     --case crit : cc=100/cd=700 forces, cible gelee par GreatFrostAxe, board plat) : delta natif =
@@ -548,7 +548,7 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
     aura_sources = []
     target_effects: list = []
     for uid, e in state.entities.items():
-        # VIVANTS SEULEMENT (#57m) : le board natif = OCCUPATION DE TUILE (`AdjacentUnits @180de8320`
+        # VIVANTS SEULEMENT (#57m) : le board natif = OCCUPATION DE TUILE (`IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits`
         # = `Units(AdjacentTiles(.)) - .`) — un mort (alive=False, reste dans state.entities) n'est
         # plus sur le board : ni compte GetStuckIn, ni porteur d'aura. Cible conservee (vivante par
         # construction d'une attaque).
@@ -577,7 +577,7 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
 def getstuckin_combat_chance(state: State, att_id: int, tgt_id: int,
                              attack_pos, t_pos, board) -> Optional[int]:
     """Chance du coup bonus GetStuckIn en COMBAT (#62c), ou None si GetStuckIn INACTIF pour cet
-    attaquant/cible. Mirror `GetStuckInAbility.GetBonusHitChance @180f83460` + gate trigger `@180f83350`
+    attaquant/cible. Mirror `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance` + gate trigger `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$CreateTrigger`
     (`On(8) & IsOdd & OwnerIsCaster & !(MinDistance > 2)`).
 
     Actif ssi l'attaquant PORTE GetStuckIn ET `hex_dist(caster,target) <= 2` (proxy cheby, MEME que la

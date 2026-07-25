@@ -1,5 +1,5 @@
 """Playbooks Comparable BESPOKE self-cast (RE ghidra gqfc5mff6c) — chacun OVERRIDE le scoring générique
-(`ComparablePlaybook<T>.EvaluateInternal @181408980`) par une utilité PROPRE (PAS `HEAL_PLAYBOOK.score`).
+(`ComparablePlaybook<T>.IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$EvaluateInternal`) par une utilité PROPRE (PAS `HEAL_PLAYBOOK.score`).
 Identifiés par ID (pas `"Heal" in name` : leur nom n'a pas "Heal"). Self-cast / position-swept comme les
 NonComparable heals (mais régime Comparable) -> candidate generators appelés par `ComparableAbilityGenerator`.
 
@@ -39,7 +39,7 @@ def _traits(visual_id) -> list:
 
 
 class BloodChalicePlaybook:
-    """`BloodChalicePlaybook.EvaluateInternal @1811224c0` (id 0x497=1175, bloodSanguinary/Nicodemus).
+    """`IdunBattle.AI.Playbook.BloodChalicePlaybook$$EvaluateInternal` (id 0x497=1175, bloodSanguinary/Nicodemus).
 
     Utilité BESPOKE (override total, PAS la HealUtility générique) = `count(alliés non-mécaniques
     ADJACENTS au caster, PV% < seuil) × W`. Self-cast AoE (cible = MainTile du caster ; `GenerateAction
@@ -48,8 +48,8 @@ class BloodChalicePlaybook:
       (FillUpStatComponent.GetStatPart(1) = round(cur/max×100)).
     - seuil = `AbilityConfiguration.GetNumberConstant(0x4f)` = config `healthPct` = 50.
     - W = `Utilities.Default.ActiveAbilities.BloodChalice_AdjacentDamagedNonMechanicalFriend` = 50.
-    - MIN_UTILITY = `Fix64.FromInt(1)` = 1 (cctor @181122b10) -> gate `count>=1` (1×50=50>1).
-    - `ShouldExecute @1811228b0` : `Σ(seuil − PV%)` sur amis non-méca > 0 (>=1 ami sous le seuil)."""
+    - MIN_UTILITY = `Fix64.FromInt(1)` = 1 (IdunBattle.AI.Playbook.BloodChalicePlaybook$$.cctor) -> gate `count>=1` (1×50=50>1).
+    - `IdunBattle.AI.Playbook.BloodChalicePlaybook$$ShouldExecute` : `Σ(seuil − PV%)` sur amis non-méca > 0 (>=1 ami sous le seuil)."""
 
     ABILITY_ID = int(ActiveAbilityType.BloodChalice)  # 1175
     W_KEY = "BloodChalice_AdjacentDamagedNonMechanicalFriend"   # cat ActiveAbilities
@@ -99,16 +99,16 @@ class BloodChalicePlaybook:
 
 
 class MomentShacklePlaybook:
-    """`MomentShacklePlaybook @18114c9d0` (id 0x4a0=1184, custoTrajann/Trajann). Comparable.
+    """`MomentShacklePlaybook IdunBattle.AI.Playbook.Loki.MomentShacklePlaybook$$.ctor` (id 0x4a0=1184, custoTrajann/Trajann). Comparable.
 
     Utilité = HealUtility(SELF-heal) + CalculateCasterPositionUtility, sommées par
-    `CalculateActionUtility @181406ee0`. Cible = SOI (self-heal). Position-swept.
-    - Self-heal : `MakeHealPredictions @18114c7f0` -> `GetHealAmount = ConfigVar(0x20)` = `hpToHeal[level]`
-      (MomentShackle config a `hpToHeal`) -> `GenerateHealPredictions` -> `PredictHeal @181037180`
+    `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility`. Cible = SOI (self-heal). Position-swept.
+    - Self-heal : `IdunBattle.AI.Playbook.Loki.MomentShacklePlaybook$$MakeHealPredictions` -> `GetHealAmount = ConfigVar(0x20)` = `hpToHeal[level]`
+      (MomentShackle config a `hpToHeal`) -> `GenerateHealPredictions` -> `IdunBattle.Core.Services.DamagePrediction$$PredictHeal`
       (`min(healAmount, missing_self)`, #79) -> `HealUtility` = `effective/(maxHP+1)×100`. POSITION-INDÉP.
-    - Position : `CalculateCasterPositionUtility @18114c6e0` = `count(ennemis ADJACENTS au caster@T) × W`.
+    - Position : `IdunBattle.AI.Playbook.Loki.MomentShacklePlaybook$$CalculateCasterPositionUtility` = `count(ennemis ADJACENTS au caster@T) × W`.
       W = `Utilities.Default.ActiveAbilities.MomentShackle_AdjacentEnemy` = 25.
-    - MIN_UTILITY = `Fix64.FromInt(1)` = 1 (cctor @18114c960). Position-swept, origine-préférée (#76)."""
+    - MIN_UTILITY = `Fix64.FromInt(1)` = 1 (IdunBattle.AI.Playbook.Loki.MomentShacklePlaybook$$.cctor). Position-swept, origine-préférée (#76)."""
 
     ABILITY_ID = int(ActiveAbilityType.MomentShackle)  # 1184
     W_KEY = "MomentShackle_AdjacentEnemy"   # cat ActiveAbilities
@@ -147,8 +147,8 @@ class MomentShacklePlaybook:
 
 
 class CultDemagoguePlaybook:
-    """`CultDemagoguePlaybook.EvaluateInternal @1811278c0` (id 0x49b=1179, Isaak genesPrimus). COMPARABLE
-    BESPOKE (ctor @1811280f0 = `ComparablePlaybook(0x49b)` -> classe COMPARABLE, PAS NonComparable ;
+    """`IdunBattle.AI.Playbook.Loki.CultDemagoguePlaybook$$EvaluateInternal` (id 0x49b=1179, Isaak genesPrimus). COMPARABLE
+    BESPOKE (IdunBattle.AI.Playbook.Loki.CultDemagoguePlaybook$$.ctor = `ComparablePlaybook(0x49b)` -> classe COMPARABLE, PAS NonComparable ;
     override TOTAL d'`EvaluateInternal`, AUCUNE `MakeDamagePredictions` -> ne va PAS dans noncomparable/).
     Cible = un ENNEMI (<=2 hex) ; cast EN PLACE (pas de sweep : régime Comparable, position caster fixée).
 
@@ -156,18 +156,18 @@ class CultDemagoguePlaybook:
       u = 1 + min(#tuiles_libres autour CASTER r2, nrOfSummons[lvl]) * W
             + (#decoys + #neophytes AMIS autour CIBLE r2) * W
     W = `Utilities.Default.ActiveAbilities.CultDemagogue_FriendlyDecoysAndNeophytes` = 20 (MÊME poids pour
-    les DEUX termes, DAT_18327dcc8 unique). MIN_UTILITY = `Fix64.FromInt(1)` = 1 (cctor @181128080).
+    les DEUX termes, DAT_18327dcc8 unique). MIN_UTILITY = `Fix64.FromInt(1)` = 1 (IdunBattle.AI.Playbook.Loki.CultDemagoguePlaybook$$.cctor).
     Helpers natifs (VA) :
-    - `PossibleTilesForDecoys @1811ce650` = `CanAddUnit(SurroundingTiles(caster, range=GetNumberConstant
+    - `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$PossibleTilesForDecoys` = `CanAddUnit(SurroundingTiles(caster, range=GetNumberConstant
       (0x44)=2))` -> tuiles LIBRES placeables <=2 hex du CASTER. `.Count`.
-    - `GetDecoyAmount @1811ce240` = `GetVariableForLevel(0x4f)` = `nrOfSummons` (4->8 selon niveau, NON
+    - `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$GetDecoyAmount` = `GetVariableForLevel(0x4f)` = `nrOfSummons` (4->8 selon niveau, NON
       rarity-scaled). i2 : « up to 8 decoys ».
-    - `FriendlyDecoysAroundTarget @1811ce0f0` / `FriendlyNeophytesAroundTarget @1811ce190` =
+    - `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$FriendlyDecoysAroundTarget` / `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$FriendlyNeophytesAroundTarget` =
       `SurroundingEnemies(range=2 autour de la CIBLE)` filtré `UnitsWithId(genesSmnDecoy / genesSmnNeophyte)`
       -> les alliés du CASTER de ce visualId à <=2 hex de la cible. Count via `SelectUniqueUnits` (le param
       3 = mode SelectUnit, PAS un cap sur le count).
     L'ÉLIGIBILITÉ (ennemi <=2 hex) est déléguée à `ability_targets` (le RPC applique
-    `CultDemagogueAbility.GetDynamicInvalidTargetReason @1811ce290`). Terme 1 = CONSTANT sur les cibles
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$GetDynamicInvalidTargetReason`). Terme 1 = CONSTANT sur les cibles
     (dépend du caster) -> n'affecte PAS l'argmax de cible, seulement la magnitude vs autres abilities."""
 
     ABILITY_ID = int(ActiveAbilityType.CultDemagogue)  # 1179
@@ -181,7 +181,7 @@ class CultDemagoguePlaybook:
         me = ctx.me
         if me is None or ctx.ability_targets is None:
             return []
-        # cibles ennemies éligibles (RPC applique GetDynamicInvalidTargetReason @1811ce290 : ennemi <=2 hex).
+        # cibles ennemies éligibles (RPC applique IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$GetDynamicInvalidTargetReason : ennemi <=2 hex).
         at = ctx.ability_targets(ctx.uid, self.ABILITY_ID) or {}
         tgt_ids = set()
         for u in (at.get("units") or []):
@@ -225,7 +225,7 @@ class CultDemagoguePlaybook:
                  "pred": best[1], "full": best[1]}]
 
     def _free_tiles_around(self, ctx, center) -> int:
-        """`PossibleTilesForDecoys @1811ce650` : `CanAddUnit(SurroundingTiles(center, range=2))` = tuiles
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$PossibleTilesForDecoys` : `CanAddUnit(SurroundingTiles(center, range=2))` = tuiles
         LIBRES placeables à <=2 hex du CASTER (center=origine). Occupation LIVE = epos u fpos u origine
         (frais), PAS l'occupantUnitId caché du boardGraph (cf. can_add_unit #116)."""
         if center is None:

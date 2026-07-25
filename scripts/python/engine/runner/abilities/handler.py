@@ -76,25 +76,25 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     SavageEchoesAbility.ABILITY_TYPE: SavageEchoesAbility,             # 1230 (Cezare bloodTerminator : 4x Eviscerate melee + extraDmg x free-tiles + self-heal si HP<=50%, case-220 template ArmoriumCherub)
     HarbingerOfDestructionAbility.ABILITY_TYPE: HarbingerOfDestructionAbility,  # 1008 (necroPlasmancer : cible + N-1 ennemis random disque rayon-2 CASTER unobscured, 1x DirectDamage pierce-100, case-220 Necrons)
     SanctorumMissileAbility.ABILITY_TYPE: SanctorumMissileAbility,     # 1062 (adeptMorvenn Morvenn Vahl Sisterhood : missile 2x Blast cible + 1x Blast adjacents-cible (hex Morvenn exclu) Unobscured, native_factory attack, case-220)
-    IronkinSteeljackAbility.ABILITY_TYPE: IronkinSteeljackAbility,     # 1219 (votanMemnyr : summon votanSmnSteeljack hex libre adjacent-self + attaque a l'apparition, corps dedup @1811b0550==AberrantHypermorph, case-220 Votann)
+    IronkinSteeljackAbility.ABILITY_TYPE: IronkinSteeljackAbility,     # 1219 (votanMemnyr : summon votanSmnSteeljack hex libre adjacent-self + attaque a l'apparition, corps dedup IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour==AberrantHypermorph, case-220 Votann)
     ExecutionerAbility.ABILITY_TYPE: ExecutionerAbility,               # 1066 (Eldryon eldarFarseer Aeldari : Psychic ranged hits=RoundsStarted cible + si cible morte 1 ennemi random adjacent-cible, native_factory attack, case-220 §6.19)
     HarvesterOfSoulsAbility.ABILITY_TYPE: HarvesterOfSoulsAbility,     # 1067 (Maugan Ra eldarMauganRa Aeldari : ranged HeavyRound cible hits=If(HasMoved,2,3) + splash MinMaxDamage2 ennemis ring1-cible ∩ rayon-3 caster, native_factory attack, ExecuteAtomic, case-220 §6.19)
     SkyStrikeAbility.ABILITY_TYPE: SkyStrikeAbility,                   # 1025 (adeptCelestine Celestine Sisterhood : charge tuile libre adjacente (vole, sans reach) + attaque melee normale base Attack+extraDmg profil/coups arme melee, template VigilanceEternal, case-220)
     GreatFrostAxeAbility.ABILITY_TYPE: GreatFrostAxeAbility,           # 1089 (spaceWulfen : glace zone cible+ring1 + attaque melee 4x Piercing mono-cible ATTACK-family, case-220 SW)
-    SporeMineLauncherAbility.ABILITY_TYPE: SporeMineLauncherAbility,   # 1145 (tyranBiovore Biovore MoW Tyranids : spawn tyranSmnSporeMine sur tuile-cible directe WithStatsFromConfig, corps @18120a3f0 = @1811b0550 MOINS on-appearance ; mine inerte offline FloatingDeath non porte, case-220 §6.16)
-    AlphaWarriorAbility.ABILITY_TYPE: AlphaWarriorAbility,             # 1112 (tyranWingedPrime Winged Prime Tyranids : spawn tyranSmnWarrior sur tuile-cible WithStatsFromConfig + attaque a l'apparition, corps @1811b1400 = template @1811b0550 AberrantHypermorph ; gate IsInTeamSynapseRange live ABSENT, case-220 §6.16)
+    SporeMineLauncherAbility.ABILITY_TYPE: SporeMineLauncherAbility,   # 1145 (tyranBiovore Biovore MoW Tyranids : spawn tyranSmnSporeMine sur tuile-cible directe WithStatsFromConfig, corps IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility$$ExecuteBehaviour = IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour MOINS on-appearance ; mine inerte offline FloatingDeath non porte, case-220 §6.16)
+    AlphaWarriorAbility.ABILITY_TYPE: AlphaWarriorAbility,             # 1112 (tyranWingedPrime Winged Prime Tyranids : spawn tyranSmnWarrior sur tuile-cible WithStatsFromConfig + attaque a l'apparition, corps IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$ExecuteBehaviour = template IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour AberrantHypermorph ; gate IsInTeamSynapseRange live ABSENT, case-220 §6.16)
     JakhalStimmsAbility.ABILITY_TYPE: JakhalStimmsAbility,             # 1131 (worldJakhal Macer WorldEaters : 4x Physical melee cible + AoE intersection AdjacentUnits(caster) & AdjacentFriends(target) + self-loss 25% PV courant (ChangeStat Subtract, Execute separe) ; free action ; native_factory attack, ExecuteAtomic 0x2a, case-220 §6.3)
     SentinelDirectivesAbility.ABILITY_TYPE: SentinelDirectivesAbility,  # 1139 (admecDestroyer Sy-Gex AdeptusMechanicus : 1x Physical ranged cible + AddEffect Pinned/Suppressed, quasi-clone SpiritLeech sans heal/conditional, native_factory attack, ne finit pas le tour, case-220 §6.17)
     SupremeCommanderAbility.ABILITY_TYPE: SupremeCommanderAbility,     # 1028 (astraCreed Creed AstraMilitarum : ExecuteAtomic(Spawn nrOfSummons gardes hex libres adjacents WithStatsFromConfig) puis Execute(PerformAIAction(UnitsWithIds(SurroundingFriends(range), affectedUnitIds), asGroup=1, resetTurnFlags=1)) — 1er consommateur du debloqueur PerformAIAction, case-perform-ai-action)
-    WaaaghAbility.ABILITY_TYPE: WaaaghAbility,                         # 1058 (orksWarboss Orks : 5 Execute successifs @18122b010 — Spawn(2 Ork Boyz adjacents) / buff 1099+1100+1101 (caster + allies adjacents + TOUS les allies Orks, 1 round) / charge MoveUnit(movement+extraMovement) / attaque normale si adjacent / PerformAIAction(Friends(UnitsWithVisualId(orksOrkBoys)) BOARD-WIDE, asGroup=1, resetTurnFlags=1) — 2e consommateur PerformAIAction, tache #94)
+    WaaaghAbility.ABILITY_TYPE: WaaaghAbility,                         # 1058 (orksWarboss Orks : 5 Execute successifs IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour — Spawn(2 Ork Boyz adjacents) / buff 1099+1100+1101 (caster + allies adjacents + TOUS les allies Orks, 1 round) / charge MoveUnit(movement+extraMovement) / attaque normale si adjacent / PerformAIAction(Friends(UnitsWithVisualId(orksOrkBoys)) BOARD-WIDE, asGroup=1, resetTurnFlags=1) — 2e consommateur PerformAIAction, tache #94)
     SendInTheNextWaveAbility.ABILITY_TYPE: SendInTheNextWaveAbility,   # 1016 (astraYarrick AstraMilitarum : Spawn(min(nrOfSummons + allies morts, maxSummons[level]) Cadians sur tuiles libres <=2 hex de la cible, priorite AttackTilesForTarget) + on-appearance UseNormalAttackIfAble(cible) — case-220 P0-SUMMON, tache #94)
     IncursionAbility.ABILITY_TYPE: IncursionAbility,                   # 1021 (blackPossession BlackLegion : ChainBehaviour <=maxSummons=6 iterations, 1 Bloodletter/iteration sur hex libre adjacent a la cible, arret si cible morte/hors portee + on-appearance UseNormalAttackIfAble(cible) — case-220 P0-SUMMON, tache #94)
     SpawnPoxwalkersAbility.ABILITY_TYPE: SpawnPoxwalkersAbility,       # 1040 (deathBlightbringer DeathGuard : self-cast, ceil(rand(n*chance, n*chance_2)/100) Poxwalkers sur hex libres rayon CalculateRange(TurnsStarted)=1/2/3 + on-appearance PerformAIAttackFromCurrentPosition — case-220 P0-SUMMON, tache #94)
     # --- MACHINES OF WAR (debloqueur case-mow-offboard-cast : la MoW est une entite ECS hors-plateau,
     # `_load_machines`). Les 3 abilities MoW a PREDICAT DE CIBLAGE conditionnel (tache #90 lot A) :
-    EntropyCannonsAbility.ABILITY_TYPE: EntropyCannonsAbility,         # 1168 (deathCrawler MoW DeathGuard : 2x Energy mono-cible, famille ABILITY ; ciblage = cible sous aura Contagion alliee OU FixedArmor negativement modifiee, GetDynamicInvalidTargetReason @1811bfc20)
-    HadesAutocannonsAbility.ABILITY_TYPE: HadesAutocannonsAbility,     # 1147 (blackForgefiend MoW BlackLegion : buff CRIT_DAMAGE +extraCritDmg -> 6x Flame sur la cible ET les summons de SON camp <=range hex (GetAllTargets @1811e5480, includeCenter) -> retrait du buff ; ciblage = SUMMON ennemi)
-    SquigLaunchasAbility.ABILITY_TYPE: SquigLaunchasAbility,           # 1200 (orksRukkatrukk MoW Orks : 3x Physical famille ABILITY + summon orksSmnSquig conditionne par FulfillsSummonCriteria @18120aac0 EVALUE AVANT l'attaque (SetCache) ; ciblage = >=1 Ork allie ou >=2 allies adjacents a la cible)
+    EntropyCannonsAbility.ABILITY_TYPE: EntropyCannonsAbility,         # 1168 (deathCrawler MoW DeathGuard : 2x Energy mono-cible, famille ABILITY ; ciblage = cible sous aura Contagion alliee OU FixedArmor negativement modifiee, IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility$$GetDynamicInvalidTargetReason)
+    HadesAutocannonsAbility.ABILITY_TYPE: HadesAutocannonsAbility,     # 1147 (blackForgefiend MoW BlackLegion : buff CRIT_DAMAGE +extraCritDmg -> 6x Flame sur la cible ET les summons de SON camp <=range hex (IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets, includeCenter) -> retrait du buff ; ciblage = SUMMON ennemi)
+    SquigLaunchasAbility.ABILITY_TYPE: SquigLaunchasAbility,           # 1200 (orksRukkatrukk MoW Orks : 3x Physical famille ABILITY + summon orksSmnSquig conditionne par IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$FulfillsSummonCriteria EVALUE AVANT l'attaque (SetCache) ; ciblage = >=1 Ork allie ou >=2 allies adjacents a la cible)
     # --- Lot #90-B : abilities de MACHINE OF WAR au patron « POSE D'EFFET(S) SEULE » (le behaviour de
     # cast n'est qu'un arbre d'`AddEffect`/`AddBondEffect` : aucune attaque, aucun spawn, aucune stat).
     # Le degat vit dans la PHASE 2 (l'ability TRIGGERED portee par l'effet), hors de ces ports.
@@ -121,9 +121,9 @@ class AbilityHandler:
         self.unported: set[int] = set()
 
     def visit_ActiveAbilityMessage(self, msg) -> None:
-        # #70 GATE ACTEUR-MORT (mirror `ActiveAbilityOperation.ExecuteInternal @180e44ec0` :
+        # #70 GATE ACTEUR-MORT (mirror `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` :
         # `if (EntityExtensions.IsUnit(caster) && UnitExtensions.IsDead(caster)) return 0;`). Un caster MORT
-        # (hp<1, non-Fled ; `UnitExtensions.IsDead @180ed8050`) => l'ability est un NO-OP complet AVANT toute
+        # (hp<1, non-Fled ; `IdunBattle.Entities.UnitExtensions$$IsDead`) => l'ability est un NO-OP complet AVANT toute
         # execution : aucune behaviour, aucun degat, AUCUN flag de tour (le natif retourne 0 en amont du
         # `AddFlagsAfterAbilityExecution`). MEME gate que l'attaque normale (#139, cf. damage.py). Inerte pour
         # tout caster vivant (les casts legitimes partent d'unites vivantes) -> zero regression. cf. case-70.
@@ -148,10 +148,10 @@ class AbilityHandler:
         self.last["flags"] = self._add_flags_after_execution(msg, ability)
 
     def _add_flags_after_execution(self, msg, ability=None) -> dict:
-        """#139 — queue d'`ActiveAbilityOperation.ExecuteInternal` @180e44ec0 :
-            skipEndTurn     = `GetSkipEndTurnFlag` @180e47120   = !ability.SetsEndTurnFlags().Evaluate(...)
-            skipAbilityUsed = `GetSkipAbilityUsedFlag` @180e46f60 = !ability.SetsActiveAbilityUsedFlag(...)
-            -> `AddFlagsAfterAbilityExecution` @180e447f0 (flag 2 + FinishUnitTurn -> flags 1+3).
+        """#139 — queue d'`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal :
+            skipEndTurn     = `IdunBattle.Operations.ActiveAbilityOperation$$GetSkipEndTurnFlag   = !ability.SetsEndTurnFlags().Evaluate(...)
+            skipAbilityUsed = `IdunBattle.Operations.ActiveAbilityOperation$$GetSkipAbilityUsedFlag = !ability.SetsActiveAbilityUsedFlag(...)
+            -> `IdunBattle.Operations.ActiveAbilityOperation$$AddFlagsAfterAbilityExecution (flag 2 + FinishUnitTurn -> flags 1+3).
         Les overrides `options.skip*Flag` du message natif (ActiveAbilityOptions+0x49/+0x4b, sous-abilities/
         derived) ne sont pas transportes par notre ActiveAbilityMessage offline -> defaut false (aucun skip
         force par le caller), fidele au cast top-level."""

@@ -1,4 +1,4 @@
-"""Operation de SOIN — `IdunBattle.Operations.HealUnitOperation$$Execute @180e733d0`.
+"""Operation de SOIN — `IdunBattle.Operations.HealUnitOperation$$IdunBattle.Operations.HealUnitOperation$$Execute`.
 
 Mutateur ECS inverse du degat : remonte les PV d'une cible, plafonne a `hp_max` (FillUp).
 KEYSTONE de la categorie HEAL/REPAIR/lifesteal du runner combat (cf.
@@ -16,19 +16,19 @@ from ...entities.effect_type import EffectType
 if TYPE_CHECKING:
     from ..state import State
 
-# EffectType.Cursed (79) — GATE heal-block. `HealUnitOperation$$Execute @180e733d0` fait
+# EffectType.Cursed (79) — GATE heal-block. `HealUnitOperation$$IdunBattle.Operations.HealUnitOperation$$Execute` fait
 # `EntityExtensions.HasEffect(target, Cursed)` : si l'effet est present, le montant de soin est force
 # a 0 (branche `if ((char)param_6 == '\0') healAmount = computed;` sinon healAmount reste 0). #158.
 CURSED = int(EffectType.Cursed)
 
 
 class HealUnitOperation:
-    """`IdunBattle.Operations.HealUnitOperation$$Execute @180e733d0` (caller mince
-    `Core.Services.OperationProcessor$$HealUnit @180e082d0`).
+    """`IdunBattle.Operations.HealUnitOperation$$IdunBattle.Operations.HealUnitOperation$$Execute` (caller mince
+    `Core.Services.OperationProcessor$$Core.Services.OperationProcessor$$HealUnit`).
 
-    Coeur = la mutation PV via `FillUpStatComponent.FillUp @180f9b2e0` :
+    Coeur = la mutation PV via `IdunBattle.Entities.Components.FillUpStatComponent$$FillUp` :
         `healed = Min(amount, CurrentMaximumValue - current)` ; `current += healed` ; rend `healed`.
-    (`get_CurrentMaximumValue @180f9c010` = plafond courant ; ici on lit `HealthComponent.hp_max`
+    (`IdunBattle.Entities.Components.FillUpStatComponent$$get_CurrentMaximumValue` = plafond courant ; ici on lit `HealthComponent.hp_max`
     deja resolu, MEME source que le cap overkill `MaxReduceByMinimum` cote degat.) Gate heal-block
     `EffectType.Cursed`(79).
 
@@ -54,13 +54,13 @@ class HealUnitOperation:
         thc = tgt.get_component(HealthComponent) if tgt is not None else None
         if thc is None or thc.hp is None or thc.hp_max is None:
             return 0
-        # FillUp @180f9b2e0 : healed = Min(amount, max - cur) ; cur += healed.
+        # IdunBattle.Entities.Components.FillUpStatComponent$$FillUp : healed = Min(amount, max - cur) ; cur += healed.
         healed = min(amount, int(thc.hp_max) - int(thc.hp))
         if healed <= 0:
             return 0
         thc.hp = int(thc.hp) + healed
         # #60 : bras `On(UnitHealed=44) & OwnerIsTarget` (+ `On(UnitRepaired=49)`, le repair HP passant
-        # par ce meme mutateur) du `SwarmAbility.CreateTrigger @181225f50` — re-evalue le stat-mod
+        # par ce meme mutateur) du `IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger` — re-evalue le stat-mod
         # EXTRA_HITS du trait Swarm apres la remontee de PV (des membres reviennent -> malus reduit).
         from ..abilities.loki.swarm import on_group_unit_hp_changed
         on_group_unit_hp_changed(state, target_id)

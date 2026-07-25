@@ -4,7 +4,7 @@ la POSE (`On(PreAttack=5)` -> `SetPersistentData`) est-elle atteinte, et le cana
 
 Charge l'etat d'un runner LIVE, rejoue N attaques normales OFFLINE, et compte les coups par attaque.
 Attendu : base OU base+1, avec une frequence de base+1 ~= 33 % (`LetTheGalaxyBurnChancePct`), et
-`persistent_data` VIDE apres chaque attaque (le Reset `On(9)` @1811078a0 efface).
+`persistent_data` VIDE apres chaque attaque (le Reset `On(9)` IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour efface).
 
 ASCII only. Usage: python probe_84_offline.py --runner <rid> [--n 200]
 """

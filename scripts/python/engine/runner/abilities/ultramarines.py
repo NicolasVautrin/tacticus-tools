@@ -4,8 +4,8 @@ Module DEDIE (org faction, comme `deathguard.py`/`genestealer.py`) : l'org nativ
 ability (`Abilities.Active.Loki.<X>Ability`) ; les arbres SPECIFIQUES vivent avec leur classe. RE ghidra
 gqfc5mff6c (VA citees). Case-220 §1 P0-HEAL.
 
-Arbre `CombatRestorativesAbility.ExecuteBehaviour @1811cc590` (id 1002, ultraApothecary) — MIRROR du
-DECOMPILE (+ `HealTargets @1811cca50`, callback `<ExecuteBehaviour>b__0 @1811e3e90`). JUMEAU IMPERIAL du
+Arbre `IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility$$ExecuteBehaviour` (id 1002, ultraApothecary) — MIRROR du
+DECOMPILE (+ `IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility$$HealTargets`, callback `<ExecuteBehaviour>b__0 IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility.u003Cu003Ec__DisplayClass1_0$$u003CExecuteBehaviouru003Eb__0`). JUMEAU IMPERIAL du
 Chaos 1037 RevitalizingMalignancy (`deathguard.py`), mais AVEC DEUX DIFFERENCES STRUCTURELLES lues au
 decompile (pas devinees par symetrie) :
 
@@ -14,7 +14,7 @@ decompile (pas devinees par symetrie) :
     sans         = SelectUniqueUnits( op_Subtraction( base, withImperial ) )     heal Get(var0x20)   # tout le reste
     ExecuteAtomic( op_Addition( Heal(withImperial, ...) , Heal(sans, ...) ) )                 # withImperial PUIS sans
 
-DIFFERENCE 1 -- PAS DE CUMUL. Le natif lit var0x22 (`GetVariableForLevel(0x22)` @1811cc590 -> +0x20) ET
+DIFFERENCE 1 -- PAS DE CUMUL. Le natif lit var0x22 (`GetVariableForLevel(0x22)` IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility$$ExecuteBehaviour -> +0x20) ET
 var0x20 (`GetVariableForLevel(0x20)` -> +0x160) SEPAREMENT, SANS les sommer (contraste le jumeau 1037 ou
 +0x160 = `iVar14 + iVar13`, CUMUL Chaos). Chaque groupe recoit UN montant simple :
   - allie IMPERIAL(0x1a) : var0x22 = `hpToHeal_2[level]`  (le PLUS gros, 5456 max)   [callback: 1er Heal]
@@ -35,7 +35,7 @@ distribue sur l'intersection/soustraction -> sets finaux identiques ; demonstrat
 Healable = Imperial cap base cap Healable = Imperial cap Healable(base) ; sans cap Healable = idem).
 
 Le trait Imperial(0x1a) est ABSENT de `gameconfig.unit().traits` (0 unite le porte) -> DERIVE de la
-GrandAlliance (`GrandAlliance.GetTrait @1815647a0`) via `_grand_alliance_trait` (context.py), DEJA cable
+GrandAlliance (`idun.Idun.Source.Shared.GrandAlliance$$GetTrait`) via `_grand_alliance_trait` (context.py), DEJA cable
 dans `_unit_dict` (ajoute le trait d'alliance au set runner). REUTILISE tel quel (jumeau 1037)."""
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ ABILITY_ID = "CombatRestoratives"
 
 
 def _heal_amounts(state: "State", caster_id: int) -> tuple[int, int]:
-    """(imperial, sans) — mirror des lectures de `ExecuteBehaviour @1811cc590` :
+    """(imperial, sans) — mirror des lectures de `IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility$$ExecuteBehaviour` :
         var0x22 = GetVariableForLevel(config, 0x22) = `hpToHeal_2`  -> withImperial (allies Imperial)   [+0x20]
         var0x20 = GetVariableForLevel(config, 0x20) = `hpToHeal`    -> sans (non-Imperial)               [+0x160]
     AUCUNE somme (contraste 1037 ou +0x160 = iVar14 + iVar13). Chaque var est lue+arrondie SEPAREMENT via
@@ -84,8 +84,8 @@ def _heal_amounts(state: "State", caster_id: int) -> tuple[int, int]:
 
 
 def combat_restoratives_tree(imperial_amount: int, sans_amount: int) -> AtomicGroup:
-    """Arbre de `CombatRestorativesAbility.ExecuteBehaviour @1811cc590` (MIRROR 1:1 du decompile + callback
-    `b__0 @1811e3e90`). `base` = self + allies adjacents (hex 1), filtre `Healable` porte cote mutation
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility$$ExecuteBehaviour` (MIRROR 1:1 du decompile + callback
+    `b__0 IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility.u003Cu003Ec__DisplayClass1_0$$u003CExecuteBehaviouru003Eb__0`). `base` = self + allies adjacents (hex 1), filtre `Healable` porte cote mutation
     (`Heal(guard=healable_heal_type_0)`). Split par trait Imperial(0x1a) : allies Imperial = `imperial_amount`
     (var0x22 = hpToHeal_2), tout le reste = `sans_amount` (var0x20 = hpToHeal). `withImperial` /`sans` sont
     chacun wrappes `SelectUniqueUnits` (dedup natif, no-op sur des sets deja uniques -> mirror fidele).
@@ -103,7 +103,7 @@ def combat_restoratives_tree(imperial_amount: int, sans_amount: int) -> AtomicGr
 
 
 class CombatRestorativesAbility(ActiveAbility):
-    """`CombatRestorativesAbility.ExecuteBehaviour @1811cc590` (id 1002, ultraApothecary — Ultramarines).
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility$$ExecuteBehaviour` (id 1002, ultraApothecary — Ultramarines).
 
     Heal-splitte-par-trait (jumeau IMPERIAL de 1037 RevitalizingMalignancy) : soigne le caster + ses allies
     adjacents (hex 1). Le montant depend du trait Imperial de la cible :
@@ -112,7 +112,7 @@ class CombatRestorativesAbility(ActiveAbility):
     PAS de cumul (contraste 1037) ; PAS d'exclusion de trait (tous les allies adjacents + self, blesses +
     non-mechanical, sont soignes). Garde `Healable` (HP<max ET non-mechanical) portee cote mutation (feuille
     `Heal(guard=...)`). Behaviour = arbre DSL `combat_restoratives_tree` (mirror 1:1 du decompile + callback
-    `b__0 @1811e3e90`). Deterministe (aucun rng)."""
+    `b__0 IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility.u003Cu003Ec__DisplayClass1_0$$u003CExecuteBehaviouru003Eb__0`). Deterministe (aucun rng)."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.CombatRestoratives)  # 1002
     ABILITY_ID = ABILITY_ID
@@ -135,8 +135,8 @@ MORTIS_ROUND_ID = "MortisRound"
 
 
 def mortis_round_tree() -> AtomicGroup:
-    """Arbre de `MortisRoundAbility.ExecuteBehaviour @1811f54a0` (id 1004, ultraEliminatorSgt — MIRROR du
-    DECOMPILE + callback `<ExecuteBehaviour>b__0 @1811fd290`) :
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility$$ExecuteBehaviour` (id 1004, ultraEliminatorSgt — MIRROR du
+    DECOMPILE + callback `<ExecuteBehaviour>b__0 IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility.u003Cu003Ec__DisplayClass1_0$$u003CExecuteBehaviouru003Eb__0`) :
         AtomicGroup( 0x3f, [callback b__0 = ] Execute(attack) PUIS Execute(push) )
       attack = AttackWithAttackDamage(caster@factory+0x160, target@factory+0x178, MinMaxDamage(minDmg 0xc/
                maxDmg 0xd), GetDamageProfile=HeavyRound, hitsNode@factory+0xc0, AbilityOrEffect(*this+0x10
@@ -151,8 +151,8 @@ def mortis_round_tree() -> AtomicGroup:
     pass-through (RE #201). `PushUnit` est DETERMINISTE (aucun tirage rng) -> ne decale PAS l'ordre RNG de
     l'attaque : bit-exact BY CONSTRUCTION vs un imperatif attaque->push.
 
-    Overload d'attaque : le call-site @1811f5683 appelle `DSLFactory.AttackWithAttackDamage @180dea520`
-    (famille ATTACK, resolu par XREF — PAS le nom ; @180dea520 != le @180de9fb0 de ThunderousAssault, mais
+    Overload d'attaque : le call-site IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility$$ExecuteBehaviour+0x1e3 appelle `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`
+    (famille ATTACK, resolu par XREF — PAS le nom ; IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage != le IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage de ThunderousAssault, mais
     MEME famille attack, precedents portes ScythingTalons/Executioner) -> `native_factory="attack"` (defaut,
     resolve slot-8 gaspille = 2 tirages/coup a cc=0). Profil `HeavyRound` (constants.damageProfile), attaque
     RANGED (attackRangeType=Ranged, range 3) -> `is_melee=False`. `nrOfHits` ABSENT de la config (constants
@@ -167,7 +167,7 @@ def mortis_round_tree() -> AtomicGroup:
 
 
 class MortisRoundAbility(ActiveAbility):
-    """`MortisRoundAbility.ExecuteBehaviour @1811f54a0` (id 1004, ultraEliminatorSgt « Eliminator Sergeant »,
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility$$ExecuteBehaviour` (id 1004, ultraEliminatorSgt « Eliminator Sergeant »,
     Ultramarines — namespace natif `Abilities.Active.Loki.MortisRoundAbility`). MIRROR du DECOMPILE, arbre DSL
     (`mortis_round_tree`) :
         AtomicGroup( Attack(HeavyRound, 1x, caster->target) PUIS PushUnit(caster, target) )
@@ -178,8 +178,7 @@ class MortisRoundAbility(ActiveAbility):
     structurel de ThunderousAssault (attaque + push, sans stun/charge).
 
     QUIRK « Heavy Weapon applies double » (i2) — RESOLU #47 (2026-07-24) : n'est PAS dans
-    l'ExecuteBehaviour. C'est un raffinement de l'effet `HeavyWeapon_ExtraDmgEffect.CreateDamageModifier
-    @180f4f030` (accorde par le trait HeavyWeapon du carrier ; effet 1008 SEEDE dans le runner) :
+    l'ExecuteBehaviour. C'est un raffinement de l'effet `IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier` (accorde par le trait HeavyWeapon du carrier ; effet 1008 SEEDE dans le runner) :
     `amount = ConditionalAmount(TriggeringAbilityIs(0x3ec=1004) ? Multiply(base, Direct(2)) : base)`
     ou `base = ConfigConst 0xf = heavyWeaponExtraDmg` (=25). => le bonus +extraDmg% des attaques RANGED du
     porteur (gate `OwnerIsCaster & IsRangedAttack & no-move`) est DOUBLE (+50% au lieu de +25%) quand l'attaque
@@ -187,7 +186,7 @@ class MortisRoundAbility(ActiveAbility):
     dans la collecte attacker-modifiers (gate famille ATTACK, cf. damage.py) -> le x2 s'applique via
     `att_ctx["trigger_ability_type"]` lu par `HeavyWeaponExtraDmgEffect`. L'ancien ratio live ~3.15x etait
     DEUX etages : x1.5 (HeavyWeapon double) + KNOCKBACK de collision du push BLOQUE au bord
-    (`ApplyKnockbackTo @180e67fc0` = ceil(maxHealth x 20%) = BC.Damage.KnockbackPercentage, porte dans
+    (`IdunBattle.Operations.DisplaceUnitOperation$$ApplyKnockbackTo` = ceil(maxHealth x 20%) = BC.Damage.KnockbackPercentage, porte dans
     displace.py) — PAS un crit-rng desync (refute par comptage mti : 2 tirages/cast = valeur + resolve,
     AUCUN crit-roll). Le pct=20 (et non 10) est prouve par mesure ISOLEE #61 : sur necroWarden le net
     hpDelta etait confondu par LivingMetalRepair (heal 10% du maxHealth) ; l'event knockback separe =
@@ -216,14 +215,14 @@ DEATH_FROM_ABOVE_ID = "DeathFromAbove"
 
 
 def _dfa_spawn_tiles(state: "State", caster_id: int, target_id: int) -> list:
-    """`AdjacentTiles(Target@0x178)` -> `CanAddUnit` -> `SortByDistance(caster@0x160)` (@1811d1b20 /
-    `GetPossibleSpawnTiles @1811d2160`) : tuiles LIBRES (marchables, non occupees) adjacentes a la CIBLE,
-    triees ASCENDANT par distance-hex au CASTER. `SortByDistanceSelector.Select @180ef2ce0` = `Enumerable.
-    OrderBy` (.NET, STABLE) sur la cle `PositionComponent.Distance(caster, tile)` (lambda @180efd0e0) -> la
+    """`AdjacentTiles(Target@0x178)` -> `CanAddUnit` -> `SortByDistance(caster@0x160)` (IdunBattleLogic.Entities.Abilities.Active.Loki.DeathFromAboveAbility$$ExecuteBehaviour /
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.DeathFromAboveAbility$$GetPossibleSpawnTiles`) : tuiles LIBRES (marchables, non occupees) adjacentes a la CIBLE,
+    triees ASCENDANT par distance-hex au CASTER. `IdunBattle.Entities.Selectors.SortByDistanceSelector$$Select` = `Enumerable.
+    OrderBy` (.NET, STABLE) sur la cle `PositionComponent.Distance(caster, tile)` (lambda IdunBattle.Entities.Selectors.SortByDistanceSelector.u003Cu003Ec__DisplayClass3_0$$u003CSelectu003Eb__0) -> la
     plus proche du caster d'abord. DETERMINISTE (0 tirage rng, contraste `_pick_randomly`).
 
     ADJACENCE = `_free_tiles_adjacent` -> `board.neighbours(target)`. Le natif `AdjacentTiles`/`CanAddUnit`
-    (`TileExtensions.CanAddUnit @180ec4c60` + le graphe d'adjacence du board) porte une PORTE D'ELEVATION :
+    (`IdunBattle.Entities.TileExtensions$$CanAddUnit` + le graphe d'adjacence du board) porte une PORTE D'ELEVATION :
     une tuile hex-voisine de la cible n'est ADJACENTE que si |elev(tuile) - elev(cible)| < 2 (verifie live :
     le champ `neighbours` du boardGraph exclut une voisine geometrique a dElev>=2 -- ex. MC1_67 tuile Swamp
     elev4 voisine d'une cible elev2). Cette porte est DEJA BAKEE dans `Board(adjacency="native_sym")`
@@ -252,7 +251,7 @@ def _dfa_spawn_tiles(state: "State", caster_id: int, target_id: int) -> list:
 
 
 class SpawnInceptors(AbilityBehaviour):
-    """Feuille `Spawn` de `DeathFromAboveAbility.ExecuteBehaviour @1811d1b20` (MIRROR 1:1 du DECOMPILE) :
+    """Feuille `Spawn` de `IdunBattleLogic.Entities.Abilities.Active.Loki.DeathFromAboveAbility$$ExecuteBehaviour` (MIRROR 1:1 du DECOMPILE) :
         Spawn( caster@0x160,
                tileSel = Cache( First( SortByDistance( CanAddUnit(AdjacentTiles(Target@0x178)),
                                                        caster@0x160 ),
@@ -261,8 +260,7 @@ class SpawnInceptors(AbilityBehaviour):
                SpawnUnitOptions.WithStatsFromConfig(config 1003)
                  .onAppearance(+0x18) = UseNormalAttackIfAble(Spawned@0x180, Target@0x178) )
     UN SEUL noeud `Spawn` (plain `AActiveAbility.Execute`, PAS `ExecuteAtomic`, PAS d'AddEffect au +0x10 --
-    contraste ScarabHive qui pose l'effet persistant 0x4a3). Le count est DYNAMIQUE (`GetNumSummons
-    @1811d2110` = `StatAmount(caster, 0xc)` = stat 12 TURNS_STARTED du caster ; i2 « Summons 1 Inceptor for
+    contraste ScarabHive qui pose l'effet persistant 0x4a3). Le count est DYNAMIQUE (`IdunBattleLogic.Entities.Abilities.Active.Loki.DeathFromAboveAbility$$GetNumSummons` = `StatAmount(caster, 0xc)` = stat 12 TURNS_STARTED du caster ; i2 « Summons 1 Inceptor for
     each round that has started ») et `First(count)` CAPPE le nombre de tuiles a min(count, tuiles libres)
     -- i2 « if not enough hexes around the target are free, fewer Inceptors will be summoned ».
 
@@ -302,7 +300,7 @@ class SpawnInceptors(AbilityBehaviour):
             return OperationResult.ok()
         level = getattr(c_ctx, "active_ability_level", None)
         mult = int(getattr(c_ctx, "ability_variables_multiplier", 100) or 100)
-        # count = StatAmount(caster, 0xc = TURNS_STARTED) [GetNumSummons @1811d2110] ; AUCUN plancher
+        # count = StatAmount(caster, 0xc = TURNS_STARTED) [IdunBattleLogic.Entities.Abilities.Active.Loki.DeathFromAboveAbility$$GetNumSummons] ; AUCUN plancher
         # (StartTurn incremente AVANT le cast -> >=1 pendant le tour du caster ; raw fidele au natif).
         count = int(c_ctx.stat(StatType.TURNS_STARTED) or 0)
         # First(count) CAPPE naturellement au nombre de tuiles libres (i2 « fewer Inceptors »).
@@ -323,20 +321,20 @@ class SpawnInceptors(AbilityBehaviour):
 
 
 def death_from_above_tree() -> "SpawnInceptors":
-    """Arbre de `DeathFromAboveAbility.ExecuteBehaviour @1811d1b20` = UN noeud `Spawn` unique (feuille
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.DeathFromAboveAbility$$ExecuteBehaviour` = UN noeud `Spawn` unique (feuille
     `SpawnInceptors`). Cf. sa docstring pour le mirror complet du decompile."""
     return SpawnInceptors(Target())
 
 
 class DeathFromAboveAbility(ActiveAbility):
-    """`DeathFromAboveAbility.ExecuteBehaviour @1811d1b20` (id 1003, ultraInceptorSgt « Inceptor Sergeant »,
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.DeathFromAboveAbility$$ExecuteBehaviour` (id 1003, ultraInceptorSgt « Inceptor Sergeant »,
     Ultramarines -- namespace natif `Abilities.Active.Loki.DeathFromAboveAbility`). MIRROR du DECOMPILE,
     arbre DSL (`death_from_above_tree`) : spawn N Inceptors (`ultraSmnInceptor`) sur des tuiles libres
     adjacentes a la cible (triees par distance-caster), chacun attaquant la cible immediatement.
 
     i2 : « Summons 1 Inceptor for each round that has started. The Inceptors land adjacent to the target,
     whom they attack immediately. Note: if not enough hexes around the target are free, fewer Inceptors
-    will be summoned. » -> count = `GetNumSummons @1811d2110` = `StatAmount(caster, 0xc = TURNS_STARTED)`
+    will be summoned. » -> count = `IdunBattleLogic.Entities.Abilities.Active.Loki.DeathFromAboveAbility$$GetNumSummons` = `StatAmount(caster, 0xc = TURNS_STARTED)`
     (stat 12, per-unit `UnitComponent.turnsStarted@+0x58` bumpe par StartTurn), CAPPE par `First(count)` au
     nombre de tuiles libres. Placement = `SortByDistance(caster)` DETERMINISTE (0 rng). Stats des Inceptors
     = `WithStatsFromConfig(DeathFromAbove)` = `ability_var(summonHp/summonDmg/summonArmor, casterLevel,
@@ -386,12 +384,12 @@ MACRO_PLASMA_ID = "MacroPlasmaIncinerator"
 MACRO_PLASMA_TILE = int(EffectType.MacroPlasmaIncinerator_Tile)               # 0x537 = 1335
 MACRO_PLASMA_AUTO_ATTACK = int(EffectType.MacroPlasmaIncinerator_AutoAttack)  # 0x538 = 1336
 # `MachineOfWarPosition.Bottom` = 2, la valeur litterale passee a
-# `DSLFactory.IsPositionMachineForCurrentPlayer(2)` @1811f1910.
+# `DSLFactory.IsPositionMachineForCurrentPlayer(2)` IdunBattleLogic.Entities.Abilities.Active.Loki.MacroPlasmaIncineratorAbility$$ExecuteBehaviour.
 MACHINE_POSITION_BOTTOM = 2
 
 
 def macro_plasma_incinerator_tree(target_tile_id: int, duration_turns: int):
-    """Arbre de `MacroPlasmaIncineratorAbility.ExecuteBehaviour @1811f1910` -- MIRROR 1:1 du DECOMPILE :
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.MacroPlasmaIncineratorAbility$$ExecuteBehaviour` -- MIRROR 1:1 du DECOMPILE :
 
         dir   = If( IsPositionMachineForCurrentPlayer(2), Direct(1), Direct(4) )
         tiles = Walkable( TilesOnSameElevation( target@0x178,
@@ -405,12 +403,12 @@ def macro_plasma_incinerator_tree(target_tile_id: int, duration_turns: int):
     argument `source` (6 args au lieu de 7) -> l'effet se pose sur l'OWNER = la MoW elle-meme.
 
     GEOMETRIE. `TilesInTriangleShape` = la tuile ciblee + les DEUX voisines du coin `dir`
-    (`BattleQuery.GetTilesInTriangleShape @18106ba60`) : `dir=1` -> {S, SE}, `dir=4` -> {NW, N}. Le coin
+    (`IdunBattle.Core.Services.BattleQuery$$GetTilesInTriangleShape`) : `dir=1` -> {S, SE}, `dir=4` -> {NW, N}. Le coin
     depend du COTE du plateau ou se deploie la MoW du joueur COURANT (slot Top/Bottom) -- le
     Dreadnought bombarde « vers l'avant ». Puis filtre elevation (ecart <= 1 vs la tuile ciblee) et
     walkable. Bords de plateau : les voisines hors-plateau sont simplement absentes.
 
-    DUREE. `TurnsFromRounds(1)` -> `BattleQuery.ConvertRoundsToTurns @181058af0` = `count(joueurs
+    DUREE. `TurnsFromRounds(1)` -> `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` = `count(joueurs
     non-Environment) x 1` = **2** dans nos runners (MESURE : `remaining = 2` live sur les deux effets)
     -> passee en `duration_turns` (deja convertie par la classe d'ability via `convert_rounds_to_turns`)."""
     tgt = FixedTileIds([target_tile_id])
@@ -425,12 +423,12 @@ def macro_plasma_incinerator_tree(target_tile_id: int, duration_turns: int):
 
 
 class MacroPlasmaIncineratorAbility(ActiveAbility):
-    """`MacroPlasmaIncineratorAbility.ExecuteBehaviour @1811f1910` (id 1159, `ultraDreadnought` --
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.MacroPlasmaIncineratorAbility$$ExecuteBehaviour` (id 1159, `ultraDreadnought` --
     Redemptor Dreadnought, Ultramarines, MachineOfWar). Cast TILE-TARGET (`abilityTargets` kind="tile").
 
     RE (ghidra gqfc5mff6c) :
-    - `ExecuteBehaviour @1811f1910` : cf. `macro_plasma_incinerator_tree` (2 `AddEffect`, zero attaque).
-    - `.ctor @1811f1c80` ; `GetTargetAreaTiles @1811f1b90` = la MEME chaine de tuiles, exposee pour la
+    - `IdunBattleLogic.Entities.Abilities.Active.Loki.MacroPlasmaIncineratorAbility$$ExecuteBehaviour` : cf. `macro_plasma_incinerator_tree` (2 `AddEffect`, zero attaque).
+    - `.IdunBattleLogic.Entities.Abilities.Active.Loki.MacroPlasmaIncineratorAbility$$.ctor` ; `IdunBattleLogic.Entities.Abilities.Active.Loki.MacroPlasmaIncineratorAbility$$GetTargetAreaTiles` = la MEME chaine de tuiles, exposee pour la
       PREVIEW / le playbook (`Loki.MacroPlasmaIncineratorPlaybook`), pas pour l'execution.
     - PHASE 2 (NON PORTEE) : l'effet `MacroPlasmaIncinerator_AutoAttack` (1336) pose SUR la MoW declenche
       le tir sur les tuiles marquees `MacroPlasmaIncinerator_Tile` (1335) -- c'est la qu'interviennent

@@ -11,7 +11,7 @@ from ..base import ability_attack_params
 
 
 class AttackWithAttackDamage(AbilityBehaviour):
-    """`DSLFactory.AttackWithAttackDamage @180de9fb0` -> `AttackDamageBehaviour`+`AttackBehaviour.Execute` :
+    """`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -> `AttackDamageBehaviour`+`AttackBehaviour.Execute` :
     l'attaque d'une ability (bornes `MinMaxDamage(minDmg/maxDmg[level])`, profil `GetDamageProfile`, nb de
     coups `GetNumberConstant(0x2f)=nrOfHits`) portee sur la cible. Wrapper MINCE au-dessus de l'Operation
     DEJA bit-exact `AttackDamageOperation.execute_ability_attack` (meme pipeline reduce/crit/block/after-hit
@@ -31,11 +31,11 @@ class AttackWithAttackDamage(AbilityBehaviour):
 
     `damage_override` = callable `(state, caster, target, bmin, bmax) -> (bmin, bmax)` mirror d'un
     `AActiveAbility.GetAttackDamage` SURCHARGE par-ability (le natif passe la node de degat calculee a
-    `AttackWithAttackDamage` — cf. `SpiritLeech.GetAttackDamage @181209dd0` = ConditionalAmount(cible Pinned
+    `AttackWithAttackDamage` — cf. `IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetAttackDamage` = ConditionalAmount(cible Pinned
     -> +extraDmg)). Defaut None = degat generique `MinMaxDamage` (bornes config brutes) ; sinon le callable
     ajuste (bmin,bmax) APRES `ability_attack_params`, AVANT le tirage per-coup.
 
-    `multi` = mode MULTI-CIBLE (`AttackBehaviour.Execute @180fb91a0` : quand le `targets` natif est un
+    `multi` = mode MULTI-CIBLE (`IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` : quand le `targets` natif est un
     SELECTEUR resolvant N unites — le volet SPLASH de PlasmaGrenade/Stikkbomb/... `Enemies(caster,
     AdjacentUnits(target,1))` — le behaviour resout la LISTE, l'`OrderBy` (b__5_0, cle scalaire par-unite =
     ordre de lecture) puis attaque CHAQUE cible dans l'ordre). Port : `evaluate` -> liste, tri par `id`
@@ -44,8 +44,8 @@ class AttackWithAttackDamage(AbilityBehaviour):
     `Units(Cache(First(Nearest(...))))` -> la cible du message) : chemin INCHANGE pour ThunderousAssault/
     CrushingClaws/SpiritLeech.
 
-    `pick_n` = FOLD du `PickRandomly(selecteur, n) @180df8db0` natif quand il ENVELOPPE le selecteur de cibles
-    d'une attaque (SPLASH de Fragstorm @1811e0a00 : `PickRandomly(AdjacentTiles(target) − Tiles(Friends), 4)`).
+    `pick_n` = FOLD du `IdunBattleLogic.Entities.DSLFactory$$PickRandomly(selecteur, n)` natif quand il ENVELOPPE le selecteur de cibles
+    d'une attaque (SPLASH de Fragstorm IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormAbility$$ExecuteBehaviour : `PickRandomly(AdjacentTiles(target) − Tiles(Friends), 4)`).
     Comme `multi=True` folde l'`OrderBy`, `pick_n` folde le PickRandomly DANS la resolution du selecteur
     d'attaque : apres `evaluate`+tri par id, on tire `n` cibles via `_pick_randomly_n(state.rng)` (== l'imperatif
     `_pick_randomly_n(_adjacent_enemies_of, n)` -> bit-exact, meme pool id-trie/meme pick/meme rng). Defaut None
@@ -55,7 +55,7 @@ class AttackWithAttackDamage(AbilityBehaviour):
 
     `amount` = FOLD du degat-node `Direct(amountFormula)` quand le natif passe une **valeur calculee** a
     `AttackWithAttackDamage` en lieu de bornes d'arme (`MinMaxDamage`) — ex. Psyker
-    `PercentageOf(StatAmount(Self, Attack), psykerExtraDmg%)` @1812241b0. Defaut None = mode bornes
+    `PercentageOf(StatAmount(Self, Attack), psykerExtraDmg%)` IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$CreateBehaviour. Defaut None = mode bornes
     (`ability_attack_params`). Quand fourni (un `AAmountFormula`), la feuille calcule `base =
     amount.evaluate(entities)` (Fix64, mirror natif — `entities` porte `get_stat` pour `StatAmount`) et route
     via `AttackDamageOperation.execute_normal_like(base, pierce=profile_pierce, hits, spread_pct=0)` (montant
@@ -63,7 +63,7 @@ class AttackWithAttackDamage(AbilityBehaviour):
     `hits` = nb de coups EXPLICITE du degat-node (defaut 1 en mode `amount` ; en mode bornes, None → `hits`
     de la config via `ability_attack_params`, sinon OVERRIDE la config `nrOfHits` — cas d'une ability dont le
     natif passe un nb de coups CALCULE a `AttackWithAttackDamage` en lieu de `GetNumberConstant(0x2f)` : ex.
-    Executioner `hits = RoundsStarted @180dfa6c0` = valeur DYNAMIQUE lue au cast, PAS une constante config)."""
+    Executioner `hits = IdunBattleLogic.Entities.DSLFactory$$RoundsStarted` = valeur DYNAMIQUE lue au cast, PAS une constante config)."""
     __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key",
                  "damage_override", "multi", "pick_n", "amount", "hits", "ability_type", "hits_add_key",
                  "native_factory", "force_overkill", "hits_override", "level_slot")
@@ -90,25 +90,25 @@ class AttackWithAttackDamage(AbilityBehaviour):
         self.ability_type = ability_type
         # `native_factory` = LA FACTORY NATIVE de la feuille (cas fable rngcrit-1202) — deux operations
         # natives DISTINCTES avec des consommations RNG per-coup differentes :
-        #   "attack"  (defaut) = `DSLFactory.AttackWithAttackDamage @180de9fb0` (+overloads @180dea180/
+        #   "attack"  (defaut) = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (+overloads IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage/
         #             350/520/6b0) -> AttackDamageBehaviour -> `AttackDamageOperation.ExecuteHit
-        #             @180e5eff0` : valeur BRUTE (GetDamage-top) + resolve slot-8 GASPILLE = 2 tirages/
+        #             IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` : valeur BRUTE (GetDamage-top) + resolve slot-8 GASPILLE = 2 tirages/
         #             coup a cc=0 (mesure bit-exact VigilanceEternal, 5 seeds x 2 cibles).
-        #   "ability" = `DSLFactory.AttackWithAbilityDamage @180de9c90/@180de9dd0 -> core @180de9e50`
-        #             -> AbilityDamageBehaviour -> `AbilityDamageOperation.ExecuteHits @180e2a860` :
-        #             GetDamage par coup SEUL (CalculateAbilityDamage @18102cb50 = 0 RNG) = 1 tirage/
+        #   "ability" = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage/IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage -> core IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`
+        #             -> AbilityDamageBehaviour -> `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` :
+        #             GetDamage par coup SEUL (IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage = 0 RNG) = 1 tirage/
         #             coup (mesure bit-exact Stormcaller 3-hit, probe_217). Classifier par les XREFS de
         #             l'`ExecuteBehaviour` natif de l'ability (quelle factory est appelee), JAMAIS au juge.
         self.native_factory = native_factory
         # `force_overkill` = flag « always overkilled » (Nullable<bool>=true, 8e arg de
-        # `DSLFactory.AttackWithAttackDamage @180de9fb0`) : force `overkill=True` par coup ->
-        # BYPASSE le cap Resilient (`ApplyResilientTraitDamageLimit @18102c3a0`). No-op cible
+        # `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`) : force `overkill=True` par coup ->
+        # BYPASSE le cap Resilient (`IdunBattle.Core.Services.DamagePrediction$$ApplyResilientTraitDamageLimit`). No-op cible
         # non-Resilient. Porteur : FlailSwing (1042, deathBlightlord). Defaut False. Mode bornes
         # uniquement (route par `execute_ability_attack`).
         self.force_overkill = force_overkill
         # `hits_override` = nb de coups EXPLICITE du mode BORNES, quand le nb de coups natif N'EST PAS une
         # constante config `GetNumberConstant` mais un NODE dynamique (ex. SkyStrike `MeleeWeaponHits(caster)`
-        # = nrOfHits de l'arme melee du caster, WeaponHitsFormula @180f2f510 ; la config d'ability 1025 n'a pas
+        # = nrOfHits de l'arme melee du caster, WeaponHitsFormula IdunBattle.Entities.Formulas.WeaponHitsFormula$$Calculate ; la config d'ability 1025 n'a pas
         # de `nrOfHits`). Defaut None = coups lus de la config (`hits_key`, comportement historique). Mode bornes
         # uniquement (le mode `amount` a deja un `hits` explicite). Exclusif avec `hits` (Executioner).
         self.hits_override = hits_override
@@ -165,14 +165,14 @@ class AttackWithAttackDamage(AbilityBehaviour):
 
 
 class AttackWithAbilityDamage(AbilityBehaviour):
-    """`DSLFactory.AttackWithAbilityDamage @180de9c90` -> `AttackDamageBehaviour` sur un noeud de degat
+    """`IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` -> `AttackDamageBehaviour` sur un noeud de degat
     `Direct(...)` : degat DIRECT (base = un `AAmountFormula`) porte sur la cible, route par le SEUL
     percage/armure — AUCUN crit / block / bouclier / spread / tirage RNG / after-hit. Factory NATIVE
-    DISTINCTE de `AttackWithAttackDamage @180de9fb0` (l'attaque d'ability crit/block ci-dessus). #149
+    DISTINCTE de `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (l'attaque d'ability crit/block ci-dessus). #149
     slice-19 : la classe Python homonyme precedente mirrorait en realite `AttackWithAttackDamage` et a
     ete RENOMMEE (directive « coller au natif ») — cette classe-ci est la VRAIE `AttackWithAbilityDamage`.
 
-    Seul usage porte = le DoT de tuile `EnvFireTile` (`EnvFireTileAbility.CreateBehaviour @18121e040` :
+    Seul usage porte = le DoT de tuile `EnvFireTile` (`IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour` :
     `Foreach(<occupants non-immunes sur tuile en feu>, AttackWithAbilityDamage(Tiles(@0x180), PercentageOf(
     StatAmount(@0x180, Health=5, Max=2), ConfigConst(fireDmgPct)), Direct(Nullable(3)), source=AbilityOrEffect(
     Fire=5)))`). Wrapper MINCE au-dessus de `AttackDamageOperation.execute_direct` (= l'ancien corps imperatif
@@ -190,8 +190,8 @@ class AttackWithAbilityDamage(AbilityBehaviour):
     (DamageTrait / tag de source) n'est pas RE'd et reste INERTE pour un degat DIRECT (rien a taguer : pas de
     crit/block/after-hit). Non porte (ne change aucun nombre).
 
-    `multi` (case death-nova) = mode MULTI-CIBLE, mirror du `AttackBehaviour.Execute @180fb91a0` que la
-    factory native enveloppe TOUJOURS (`AttackWithAbilityDamage @180de9e50` = `AbilityDamageBehaviour` +
+    `multi` (case death-nova) = mode MULTI-CIBLE, mirror du `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` que la
+    factory native enveloppe TOUJOURS (`IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` = `AbilityDamageBehaviour` +
     `AttackBehaviour(caster, targetsSelector, dmgBehaviour, profile)`) : quand le selecteur resout N unites
     (Explodes/PutridExplosion : tous les adjacents), le behaviour resout la LISTE, l'`OrderBy` (b__5_0,
     cle scalaire par-unite = ordre de lecture) puis attaque CHAQUE cible. Port : `evaluate` -> liste triee
@@ -200,8 +200,8 @@ class AttackWithAbilityDamage(AbilityBehaviour):
 
     `native_operation` = l'OPERATION native que la feuille route (le `AttackBehaviour` est le meme, c'est
     l'`ADamageBehaviour` enveloppe qui differe cote port) :
-      - `"ability"` = `AbilityDamageBehaviour` -> `AbilityDamageOperation.ExecuteHits @180e2a860` +
-        `CalculateAbilityDamage @18102cb50` : percage/armure + mods DEFENSEUR + block + bouclier + caps
+      - `"ability"` = `AbilityDamageBehaviour` -> `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` +
+        `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` : percage/armure + mods DEFENSEUR + block + bouclier + caps
         (member/Resilient, mode 2), AUCUN crit (la famille ABILITY n'a pas de slot RollCritical, #45f),
         AUCUNE feuille positionnelle (elevation/trench), 0 tirage de valeur (amount FIXE => min==max).
         Port = `execute_ability_attack(base, base, ..., is_attack_damage_op=False)` — MEME route deja
@@ -250,9 +250,9 @@ class AttackWithAbilityDamage(AbilityBehaviour):
                     state, src, tgt, base, base, pierce, max(1, self.hits),
                     damage_profile=self.profile, is_melee=self.is_melee,
                     is_attack_damage_op=False,             # famille ABILITY : pas de crit, pas de resolve
-                    # etage MULTIPLICATEUR de CBDWAM @18102d3f0 (slot 0x10 = Round(dmg x mult,
-                    # AwayFromZero) @1810021c0) : inconditionnel des que param_7 HasValue, ce qui est
-                    # TOUJOURS le cas dans `CalculateAbilityDamage @18102cb50`. MESURE live (nova
+                    # etage MULTIPLICATEUR de CBDWAM IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers (slot 0x10 = Round(dmg x mult,
+                    # AwayFromZero) IdunBattle.Core.Services.DamageCalculations$$CalculateBaseDamageWithModifiers) : inconditionnel des que param_7 HasValue, ce qui est
+                    # TOUJOURS le cas dans `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`. MESURE live (nova
                     # base 200 -> 140, base 201 -> 141 ; floor donnerait 139/140).
                     round_materialize=True)
             else:                                          # route DIRECT historique (DoT feu)
@@ -267,17 +267,17 @@ class AttackWithAbilityDamage(AbilityBehaviour):
 
 
 class InformWeapon(AbilityBehaviour):
-    """`DSLFactory.InformWeapon @180df2010` -> `ActivateEffectBehaviour` (Execute @180f8d710) :
+    """`IdunBattleLogic.Entities.DSLFactory$$InformWeapon` -> `ActivateEffectBehaviour` (IdunBattle.Entities.Behaviours.ActivateEffectBehaviour$$Execute) :
     POSE une metadata d'arme (dict {key 0x93 = weaponId derive du profil->nom d'arme, 0x92 = damageProfile,
     0x94 = flag optionnel}) via l'operation 0x2c (`ActivateEffectBehaviour.Execute` itere le dict et applique
     l'op 0x2c a chaque entree). C'est le CANAL weapon-inform : PAS un degat, PAS un stat-mod, PAS un effet
     de combat, AUCUN tirage RNG, AUCUNE mutation de PV/stat -> COMBAT-INERTE (verifie decompile
-    `ActivateEffectBehaviour.Execute @180f8d710` = pose de metadata, pas de HealthComponent/StatComponent).
+    `IdunBattle.Entities.Behaviours.ActivateEffectBehaviour$$Execute` = pose de metadata, pas de HealthComponent/StatComponent).
 
     Consommateurs de ce canal = les triggers on-attack SPECIFIQUES a l'arme (ex. `HazeOfCorruption` du
     deathBlightlord, passif SEPARE hors face COMBAT) + la couche VISUELLE (`FlailSwingVisuals`). Porte pour
     MIRRORER la structure de l'arbre (`op_BitwiseAnd(InformWeapon, AttackWithAttackDamage)`, FlailSwing
-    @1811ded80) — precedent structurel-no-op : `KillDeadUnits` (ThunderousAssault, mort deja finalisee inline).
+    IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility$$ExecuteBehaviour) — precedent structurel-no-op : `KillDeadUnits` (ThunderousAssault, mort deja finalisee inline).
     Deterministe et sans effet observable -> n'altere PAS l'ordre `state.rng` de l'attaque qui le suit dans le
     `op_and` : bit-exactness de l'attaque preservee BY CONSTRUCTION. Emet 'InformWeapon' (diagnostic). PUR."""
     __slots__ = ("profile",)
@@ -293,8 +293,7 @@ class InformWeapon(AbilityBehaviour):
 
 
 class EvaluateAbilities(AbilityBehaviour):
-    """`DSLFactory.EvaluateAbilities @180def5b0` -> `EvaluateAbilitiesBehaviour.Execute @180fc48a0` (ctor
-    @180fc4e10, champ +0x50 = `EventTriggerType`) : EVALUE les abilities DECLENCHEES du CASTER pour un
+    """`IdunBattleLogic.Entities.DSLFactory$$EvaluateAbilities` -> `IdunBattle.Entities.Behaviours.EvaluateAbilitiesBehaviour$$Execute` (IdunBattle.Entities.Behaviours.EvaluateAbilitiesBehaviour$$.ctor, champ +0x50 = `EventTriggerType`) : EVALUE les abilities DECLENCHEES du CASTER pour un
     `EventTriggerType`, INLINE dans un behaviour-tree. Noeud DSL GENERIQUE du natif (callers : NormalAttack
     `EvaluateAbilities(0x26)`, ArmoriumCherub `EvaluateAbilities(0x4b=AttackInAtomicGroup)`, ArmouredMight/
     TheQuickening). Wrapper MINCE au-dessus de la couche dispatch runner (`evaluate_abilities_for_event`) qui
@@ -321,7 +320,7 @@ class EvaluateAbilities(AbilityBehaviour):
 
 
 class UseActiveAbility(AbilityBehaviour):
-    """`DSLFactory.UseActiveAbility @180e015e0` -> `UseActiveAbilityBehaviour.Execute @180fd9930` : pour
+    """`IdunBattleLogic.Entities.DSLFactory$$UseActiveAbility` -> `IdunBattle.Entities.Behaviours.UseActiveAbilityBehaviour$$Execute` : pour
     CHAQUE cible du selecteur `targets_sel` (+0x58), le SUJET (`subject_sel`, +0x50) UTILISE son ability
     active `ability_type` (+0x60) -- dispatch RECURSIF de l'ability sur la cible (le natif emet 1 Operation
     <<use-ability>> par cible via le collecteur `proc`, en fixant `subject`=cible courante dans le ctx).
@@ -362,7 +361,7 @@ class UseActiveAbility(AbilityBehaviour):
                    if isinstance(u, dict) and u.get("id") is not None]
         for tu in sorted(targets, key=lambda x: x["id"]):    # ordre de lecture = id (mirror OrderBy natif)
             tid = tu["id"]
-            # DEFENSIF (mirror `execute_ability_attack` @180fbfe70 : rng non cale -> None au lieu de lever) :
+            # DEFENSIF (mirror `execute_ability_attack` IdunBattle.Entities.Behaviours.ChangeStatBehaviour$$Execute+0x360 : rng non cale -> None au lieu de lever) :
             # le wiring d'ability reste utilisable pour un replay EFFET-SEUL (load_state sans dumpRng), la
             # SEQUENCE (setHealth/buffs/move) restant fidele ; le dispatch normal `AttackDamageOperation.
             # execute` leverait sinon (ValueError rng non cale). Un replay de DEGAT cale rng (dumpRng) avant.

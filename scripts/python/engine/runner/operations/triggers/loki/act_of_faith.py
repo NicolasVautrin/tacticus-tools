@@ -1,4 +1,4 @@
-"""`Abilities.Active.Loki.ActOfFaithAbility` (@181219cd0) + `ActOfFaith_RemoveEffectAbility` (@181219f90)
+"""`Abilities.Active.Loki.ActOfFaithAbility` (IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateTrigger) + `ActOfFaith_RemoveEffectAbility` (IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateTrigger)
 — ACCUMULATION (au kill d'un allie Imperial) et RESET (au crit du porteur) du buff crit ActOfFaith
 (Adepta Sororitas). Cf. `loki/__init__.py` pour le regroupement « Loki »."""
 from __future__ import annotations
@@ -22,7 +22,7 @@ from ..base import TriggeredAbility, TriggerEvent, _faction_id
 
 ACTOFFAITH_EFFECT = int(EffectType.ActOfFaith_Effect)  # 1017 — ActOfFaithBuffEffect, buff crit empilable
 #   (ATTENTION #158 : 1017 = EffectType.ActOfFaith_Effect ICI, PAS UnitTrait.BigTarget=1017 — contexte = effet)
-# Grand-alliance « Imperial » = trait 0x1a=26 (`GrandAlliance.GetTrait`@1815647a0 → 0x1a si "Imperial").
+# Grand-alliance « Imperial » = trait 0x1a=26 (`idun.Idun.Source.Shared.GrandAlliance$$GetTrait → 0x1a si "Imperial").
 # Le natif teste `HasTrait(unit, 26)` ; offline = appartenance de `FactionId` au groupe Imperial. Les 10
 # factions impériales des 22 du jeu (Chaos: BlackLegion/DeathGuard/ThousandSons/WorldEaters/EmperorsChildren ;
 # Xenos: Necrons/Orks/Aeldari/Tau/Tyranids/Genestealers/LeaguesOfVotann). Stable (lore WH40K + GrandAlliance).
@@ -34,9 +34,9 @@ CRIT_CHANCE_MAX = 100   # crit-chance plafonnée (StatComponent.GetClampedValue 
 
 
 def act_of_faith_accumulate_tree(effect_type: int):
-    """Arbre de `ActOfFaithAbility.CreateBehaviour @181219a70` (MIRROR 1:1 du DECOMPILE ; branche gshared
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateBehaviour` (MIRROR 1:1 du DECOMPILE ; branche gshared
     `param_3 != 0x20` — la branche `==0x20` = `Nothing`, cross-instantiation ecartee comme pour le reset
-    @181219eb0) :
+    IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateBehaviour) :
         op_Addition(
             AddEffect(0x3f9, source=AbilityStateReference, target=Self@0x148),                    # [1] GARANTI
             If( HasTrait(killer@0x158, Imperial=0x1a) & AreFriends(killer@0x158, owner@0x148)
@@ -68,10 +68,10 @@ def act_of_faith_accumulate_tree(effect_type: int):
         ActOfFaith gagne le 2e stack selon le roll).
 
     `effect_type` passe par l'appelant (constante `ACTOFFAITH_EFFECT`) pour eviter le couplage d'import."""
-    # #98 : le decompile @181219a70 passe `AddEffect(factory, 0x3f9, stateRef, self@0x148, 0, 0)` --
+    # #98 : le decompile IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateBehaviour passe `AddEffect(factory, 0x3f9, stateRef, self@0x148, 0, 0)` --
     # le slot duree vaut NULL -> duree PAR DEFAUT ; `DefaultAmountOfRounds(0x3f9=1017)` est ABSENT du
-    # switch @181559ff0 -> **PERMANENT** (le stack est retire par `ActOfFaith_RemoveEffectAbility`
-    # @181219eb0, deja porte -- cf. `act_of_faith_reset_tree`). Le port passait le defaut positionnel
+    # switch idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$DefaultAmountOfRounds -> **PERMANENT** (le stack est retire par `ActOfFaith_RemoveEffectAbility`
+    # IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateBehaviour, deja porte -- cf. `act_of_faith_reset_tree`). Le port passait le defaut positionnel
     # `duration_rounds=1` (les stacks se seraient evapores au 1er tick) -> `duration_rounds=None`.
     base = AddEffect(effect_type, "ActOfFaith_Effect", Caster(), duration_rounds=None)   # [1] AddEffect(0x3f9, Self@0x148)
     # [2] cond = HasTrait(killer,Imperial=0x1a) & AreFriends(killer,owner) & AreEqual(UnitNormalAttackType(
@@ -89,7 +89,7 @@ def act_of_faith_accumulate_tree(effect_type: int):
 
 
 def act_of_faith_reset_tree(effect_type: int):
-    """Arbre de `ActOfFaith_RemoveEffectAbility.CreateBehaviour @181219eb0` (MIRROR 1:1 du DECOMPILE) :
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateBehaviour` (MIRROR 1:1 du DECOMPILE) :
         RemoveEffect( target = Self@0x148, effectType = Nullable(0x3f9=1017) )
     Port : `RemoveEffect(ACTOFFAITH_EFFECT, Caster())` (Owner==Caster pour un triggered). Retire TOUS les
     stacks ActOfFaith du porteur et revert leur ChangeStat (crit-chance + crit-damage, `reverted_stats()`) --
@@ -97,10 +97,10 @@ def act_of_faith_reset_tree(effect_type: int):
     BY CONSTRUCTION. `effect_type` passe par l'appelant (constante `ACTOFFAITH_EFFECT`) pour eviter le
     couplage d'import.
 
-    ⚠ BODY GSHARED : @181219eb0 est un corps `Il2CppFullySharedGenericStruct` (param_3 = token de type). La
+    ⚠ BODY GSHARED : IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateBehaviour est un corps `Il2CppFullySharedGenericStruct` (param_3 = token de type). La
     branche `param_3==0x20` = `RemoveEffect(Self, 0x3f9)` = LE behaviour retenu (nom `RemoveEffectAbility` +
     port validé #151) ; la branche `!=0x20` = `TriggerAbilityDelayed(Self, 0x3fa=1018, 3, 0)` est ECARTEE
-    (cross-instantiation gshared : cf. l'accumulate @181219a70 qui a `Nothing` en `==0x20` et le RÉEL en
+    (cross-instantiation gshared : cf. l'accumulate IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateBehaviour qui a `Nothing` en `==0x20` et le RÉEL en
     `!=0x20` -- assignations OPPOSEES entre les deux methodes -> on retient RemoveEffect(0x3f9), le natif que
     le port fait deja et que #151 a validé)."""
     return RemoveEffect(effect_type, Caster())
@@ -108,7 +108,7 @@ def act_of_faith_reset_tree(effect_type: int):
 
 def _reset_act_of_faith(state: State, owner_id: int) -> Optional[dict]:
     """`ActOfFaith_RemoveEffectAbility` behaviour = arbre DSL `act_of_faith_reset_tree()` (mirror
-    `RemoveEffect(0x3f9, Self)` @181219eb0) : retire chaque ActOfFaithBuffEffect du porteur et revert son
+    `RemoveEffect(0x3f9, Self)` IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateBehaviour) : retire chaque ActOfFaithBuffEffect du porteur et revert son
     ChangeStat (soustrait par-source ; la somme annule exactement l'accumulation compound, quel que soit
     l'ordre). No-op si pas d'effets. Le gate `matches` (On(9) ability-only & WasCrit & HasEffect) reste
     upstream (hors CreateBehaviour). Le report (cc_back/cd_back/removed) est reconstruit autour de l'arbre."""
@@ -132,13 +132,13 @@ def _reset_act_of_faith(state: State, owner_id: int) -> Optional[dict]:
 
 
 class ActOfFaithAccumulateAbility(TriggeredAbility):
-    """`ActOfFaithAbility` (@181219cd0 CreateTrigger / @181219a70 CreateBehaviour) — ACCUMULATION du buff
+    """`ActOfFaithAbility` (IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateTrigger CreateTrigger / IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateBehaviour CreateBehaviour) — ACCUMULATION du buff
     crit du trait ActOfFaith (Adepta Sororitas).
 
-    CreateTrigger@181219cd0 = `OnPreDeath` où **(killer = allié Imperial) OR (mourant = allié Imperial)**
+    IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateTrigger = `OnPreDeath` où **(killer = allié Imperial) OR (mourant = allié Imperial)**
     (`HasTrait(slot,26=Imperial) & AreFriends(slot,owner)` sur 0x158=killer et 0x178=dying, op_BitwiseOr),
     `& IsUnit & OnPreDeath & NOT(owner crit_damage == 0)` (gate `IsUnitWithStatAmount(owner,10,0)`→NOT :
-    inutile d'accumuler si le crit-dmg de base est nul). Behaviour@181219a70 = `AddEffect(0x3f9)` sur le
+    inutile d'accumuler si le crit-dmg de base est nul). BehaviourIdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateBehaviour = `AddEffect(0x3f9)` sur le
     porteur (la branche conditionnelle interne mêlée/normalAttack module un cas particulier de l'auteur ;
     le NET pour la prédiction de crit = +1 stack par déclenchement). i2 : « +X% Crit Chance et +Y% Crit
     Damage chaque fois qu'un allié Imperial meurt ou tue un ennemi »."""
@@ -169,7 +169,7 @@ class ActOfFaithAccumulateAbility(TriggeredAbility):
         return _friendly_imperial(ev.killer_id) or _friendly_imperial(ev.dying_id)
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        # behaviour = arbre DSL `act_of_faith_accumulate_tree()` (mirror 1:1 de CreateBehaviour @181219a70) :
+        # behaviour = arbre DSL `act_of_faith_accumulate_tree()` (mirror 1:1 de IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateBehaviour) :
         # AddEffect(0x3f9, Caster()) [+ 2e stack conditionnel RighteousRepugnance, tranche suivante]. La
         # feuille `AddEffect` declenche `ActOfFaithBuffEffect.ApplyModification` (2 ChangeStat crit) via
         # `AddEffectOperation` -> MEME mutation que l'ancien `_apply_act_of_faith_stack` (bit-exact BY
@@ -196,19 +196,19 @@ class ActOfFaithAccumulateAbility(TriggeredAbility):
 
 
 class ActOfFaithResetAbility(TriggeredAbility):
-    """`ActOfFaith_RemoveEffectAbility` (@181219f90 CreateTrigger / @181219eb0 CreateBehaviour) — RESET du
+    """`ActOfFaith_RemoveEffectAbility` (IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateTrigger CreateTrigger / IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateBehaviour CreateBehaviour) — RESET du
     buff au crit du porteur.
 
-    CreateTrigger@181219f90 = `On(9,1) & OwnerIsCaster & WasCrit & HasEffect(owner,0x3f9)` (confirmé décompilé).
-    `On(9)=Attack` est un event GÉNÉRIQUE — émis par `FinishAttackOperation @180e71310` à la FIN de TOUTE attaque,
+    IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateTrigger = `On(9,1) & OwnerIsCaster & WasCrit & HasEffect(owner,0x3f9)` (confirmé décompilé).
+    `On(9)=Attack` est un event GÉNÉRIQUE — émis par `FinishAttackOperation IdunBattle.Operations.FinishAttackOperation$$Execute` à la FIN de TOUTE attaque,
     NORMALE ET ability (`DSLFactory.On` BRUT ; verdict RE re-expert G6b). Le reset n'a AUCUN gate normal/ability :
     `WasCrit` est le SEUL filtre de type → **le porteur reset ses stacks sur un crit d'attaque NORMALE COMME
     d'ability**. ⚠ CORRECTION de #151 (via G6b) : #151 confondait `On(9)` BRUT avec le helper
-    `OnNormalAttackOrSmite @180df7c70` (= `On(38)|(On(9)&Smite)`, NON utilisé par ce trigger) et croyait `On(9)`
+    `IdunBattleLogic.Entities.DSLFactory$$OnNormalAttackOrSmite` (= `On(38)|(On(9)&Smite)`, NON utilisé par ce trigger) et croyait `On(9)`
     ability-only → il n'émettait `On(9)` qu'en voie ability, d'où un reset MANQUANT sur crit normal (bug). Depuis
     G6b, `On(9)` est émis EN PLUS par `after_hit_normal_attack` (FinishAttack générique), gaté `is_crit` — le
     reset fire donc désormais sur les DEUX voies. Il N'écoute PAS le vecteur after-hit `On(8)` (per-coup).
-    `OwnerIsCaster` = owner est l'attaquant (`actor_id`). Behaviour@181219eb0 = `RemoveEffect(0x3f9)` →
+    `OwnerIsCaster` = owner est l'attaquant (`actor_id`). BehaviourIdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateBehaviour = `RemoveEffect(0x3f9)` →
     retire TOUS les stacks et revert leur ChangeStat (soustrait les deltas stockés). Câblé sur `after_hit_ability_
     attack` (crit d'ABILITY/splash — ArmoriumCherub, AoE FireOfAbsolution) ET `after_hit_normal_attack` (crit
     d'attaque NORMALE, G6b) ; idempotent (`HasEffect` garde le no-op après le 1er reset).

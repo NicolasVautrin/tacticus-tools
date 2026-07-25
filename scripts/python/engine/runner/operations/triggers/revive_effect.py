@@ -7,24 +7,24 @@ mirroir la BASE (ns natif `IdunBattle.Entities.Effects`, hors `Loki`) ; les sous
 
 Artefacts natifs (build gqfc5mff6c, VA citees ; RVA = VA - 0x180000000 calculee en code) :
 
-    ReviveEffect..ctor                       @180f46e60  0x484=turnsEnabled, 0x480=activationFrequency,
+    ReviveEffect..IdunBattle.Entities.Effects.ReviveEffect$$.ctor  0x484=turnsEnabled, 0x480=activationFrequency,
                                                          0x488=removeEffect, source=AbilityOrEffect
-    ReviveEffect.CreateTargetTrigger         @180f46d80  OnPreDeath(target, get_ReviveOnOverkill)
+    IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTrigger  OnPreDeath(target, get_ReviveOnOverkill)
                                                          & CanBeRevived(target, get_HealType)
                                                          & CreateTargetFilter          (3 virtuels)
-    ReviveEffect.CreateTargetTriggerBehaviour @180f46a70 Maybe(GetReviveChance@0x768){
+    IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour Maybe(GetReviveChance@0x768){
                                                              Revive(self@0x148, target@0x178,
                                                                     Min(GetReviveHP@0x778,
                                                                         StatAmount(target,Health,max)),
                                                                     GetHealType@0x748,
                                                                     AbilityOrEffect(effect.Id)) ;
                                                              DeactivateEffect }
-    DSLFactory.Revive          @180dfa4f0 -> ReviveBehaviour.Execute @180fd1230 (POSE la `ReviveData`
+    IdunBattleLogic.Entities.DSLFactory$$Revive -> IdunBattle.Entities.Behaviours.ReviveBehaviour$$Execute (POSE la `ReviveData`
                                sur `UnitComponent+0xa8` -- AUCUNE mutation) ; le mutateur
-                               `ReviveUnitOperation.Execute @180e91bd0` la DRAINE plus tard
-                               (`OperationProcessor.ReviveUnit @180e0b510`). Cf. `operations/revive.py`.
-    DSLFactory.DeactivateEffect @180dede20 -> ActivateEffectBehaviour(effect, active=false)
-    BattleQuery.CanBeRevived    @181058a50
+                               `IdunBattle.Operations.ReviveUnitOperation$$Execute` la DRAINE plus tard
+                               (`Core.Services.OperationProcessor$$ReviveUnit`). Cf. `operations/revive.py`.
+    IdunBattleLogic.Entities.DSLFactory$$DeactivateEffect -> ActivateEffectBehaviour(effect, active=false)
+    IdunBattle.Core.Services.BattleQuery$$CanBeRevived
 
 ## Les virtuels de `ReviveEffect` -- LUS, pas deduits (case-89 volet B1)
 
@@ -38,28 +38,28 @@ DEUX chemins de lecture, croises :
   (b) OFFLINE la table `methodPointers` d'IL2CPP, presente TELLE QUELLE dans `GameAssembly.dll` (les
       pointeurs sont stockes en VA image-base 0x180000000). Le bloc d'un `*_ReviveEffect` a la forme
       LUE : `[get_ReviveOnOverkill] [get_HealType?] .ctor CreateTargetFilter GetReviveChance GetReviveHP`
-      (ordre valide sur la BASE @file 0x30fdb28 : `0 | 0x1802b15a0 | 0x1802b15b0 | .ctor 0x180f46e60 |
-      CreateTargetTrigger 0x180f46d80 | 0 | CreateTargetTriggerBehaviour 0x180f46a70 | 0 | 0` -- les
+      (ordre valide sur la BASE @file 0x30fdb28 : `0 | GameCamera$$ShouldBlurBackground | GameCamera$$GetGuiId | .IdunBattle.Entities.Effects.ReviveEffect$$.ctor |
+      IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTrigger | 0 | IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour | 0 | 0` -- les
       TROIS zeros = les 3 ABSTRAITS, ce que la lecture live confirme : slots 0x758/0x768/0x778 de la base
       pointent sur le stub abstrait @1801e6080, `MethodInfo` nul).
       Le TYPE DE RETOUR desambigue les deux entrees triviales : `get_ReviveOnOverkill` renvoie un **bool**
-      (corps 1 octet : @1802b15a0 = `return 0`, @1802b1590 = `return 1`) ; `get_HealType` renvoie un
-      **int** (corps 8 octets : @1802b15b0 = `return 0`, @1802cca80 = `return 1`).
+      (corps 1 octet : GameCamera$$ShouldBlurBackground = `return 0`, GameCamera$$get_ShouldDisableRenderingWhenBehindSomething = `return 1`) ; `get_HealType` renvoie un
+      **int** (corps 8 octets : GameCamera$$GetGuiId = `return 0`, GameCamera$$get_ScreenStatus = `return 1`).
 
     classe (bloc methodPointers)        | ReviveOnOverkill | HealType | GetReviveChance | GetReviveHP
-    Narthecium_ReviveEffect  @0x30fffc0 | 0 (@1802b15a0)   | (herite) | @180f5ada0      | @180f5add0
-    TaintedNarthecium_...    @0x3100e28 | 1 (@1802b1590)   | (herite) | @180f5ada0      | @180f5add0
-    RitesOfMorkaiEffect      @0x3100878 | 0 (@1802b15a0)   | (herite) | @1806e1ac0      | @180f5add0
-    ReanimationBeam_...      @0x3100698 | 0 (@1802b15a0)   | 1 (@1802cca80) | @1806e1ac0 | @180f5add0
-    base ReviveEffect        @0x30fdb30 | 0 (@1802b15a0)   | 0 (@1802b15b0) | ABSTRAIT   | ABSTRAIT
+    Narthecium_ReviveEffect  @0x30fffc0 | 0 (GameCamera$$ShouldBlurBackground)   | (herite) | IdunBattle.Entities.Effects.Loki.Narthecium_ReviveEffect$$GetReviveChance      | IdunBattle.Entities.Effects.Loki.Narthecium_ReviveEffect$$GetReviveHP
+    TaintedNarthecium_...    @0x3100e28 | 1 (GameCamera$$get_ShouldDisableRenderingWhenBehindSomething)   | (herite) | IdunBattle.Entities.Effects.Loki.Narthecium_ReviveEffect$$GetReviveChance      | IdunBattle.Entities.Effects.Loki.Narthecium_ReviveEffect$$GetReviveHP
+    RitesOfMorkaiEffect      @0x3100878 | 0 (GameCamera$$ShouldBlurBackground)   | (herite) | meta_interstitial_popup_test.u003Cu003Ec$$u003CStartu003Eb__2_1+0x70      | IdunBattle.Entities.Effects.Loki.Narthecium_ReviveEffect$$GetReviveHP
+    ReanimationBeam_...      @0x3100698 | 0 (GameCamera$$ShouldBlurBackground)   | 1 (GameCamera$$get_ScreenStatus) | meta_interstitial_popup_test.u003Cu003Ec$$u003CStartu003Eb__2_1+0x70 | IdunBattle.Entities.Effects.Loki.Narthecium_ReviveEffect$$GetReviveHP
+    base ReviveEffect        @0x30fdb30 | 0 (GameCamera$$ShouldBlurBackground)   | 0 (GameCamera$$GetGuiId) | ABSTRAIT   | ABSTRAIT
 
-  * `@180f5ada0` = `GetNumberConstant(config@0x60, 0x2a='chance')` (corps partage par ICF).
-  * `@1806e1ac0` = `b8 64 00 00 00 c3` = **`mov eax,100 ; ret`** -> `GetReviveChance` LITTERAL **= 100**
+  * `IdunBattle.Entities.Effects.Loki.Narthecium_ReviveEffect$$GetReviveChance` = `GetNumberConstant(config@0x60, 0x2a='chance')` (corps partage par ICF).
+  * `meta_interstitial_popup_test.u003Cu003Ec$$u003CStartu003Eb__2_1+0x70` = `b8 64 00 00 00 c3` = **`mov eax,100 ; ret`** -> `GetReviveChance` LITTERAL **= 100**
     pour RitesOfMorkai ET ReanimationBeam (leurs configs n'ont PAS de constante 'chance' et
-    `GetStringConstant @181576bb0` LEVE une `System.Exception` sur cle absente : ils DEVAIENT overrider).
+    `IdunBattle.Configuration.AbilityConfiguration$$GetStringConstant` LEVE une `System.Exception` sur cle absente : ils DEVAIENT overrider).
     => `default_chance = 100` n'est plus une hypothese, c'est une LECTURE.
 
-`get_ReviveOnOverkill` EST le byte `param_3` de `DSLFactory.OnDeathEvent @180df7ad0` :
+`get_ReviveOnOverkill` EST le byte `param_3` de `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent` :
   * `param_3 == 0` -> le trigger AJOUTE `NOT(HasFlag(dying, 8=overkill))`  => « unless Overkilled »
   * `param_3 != 0` -> AUCUN gate overkill                                  => « even if Overkilled »
 (`param_4 == 0` -> AJOUTE `NOT(CurrentShieldAmountFormula(dying, 0x1b))` = shield==0, present pour TOUS,
@@ -87,12 +87,12 @@ AFFECTED_BY_HEAL = int(UnitTrait.AffectedByHealAndRepair)  # 0x421=1057 (IsAffec
 
 
 class Revive(AbilityBehaviour):
-    """Feuille DSL `Revive` (`DSLFactory.Revive @180dfa4f0` -> `ReviveBehaviour.Execute @180fd1230`).
+    """Feuille DSL `Revive` (`IdunBattleLogic.Entities.DSLFactory$$Revive` -> `IdunBattle.Entities.Behaviours.ReviveBehaviour$$Execute`).
 
     ⚠ CETTE FEUILLE NE MUTE RIEN (RE case-89 volet C) : le natif se contente de POSER une `ReviveData`
     (`amount`, `healType`, `sourceId`, `priority`) sur le `Nullable<ReviveData>` @`UnitComponent+0xa8`
-    de CHAQUE cible du selecteur, sous le gate `IsPreferredRevive @180fd1b50`. Les PV/flags/position ne
-    bougent que plus tard, quand `ReviveUnitOperation.Execute @180e91bd0` draine ce champ.
+    de CHAQUE cible du selecteur, sous le gate `IdunBattle.Entities.Behaviours.ReviveBehaviour$$IsPreferredRevive`. Les PV/flags/position ne
+    bougent que plus tard, quand `IdunBattle.Operations.ReviveUnitOperation$$Execute` draine ce champ.
     Frontiere #149 : la FEUILLE (declaratif, ICI) POSE ; l'Operation IMPERATIVE (operations/revive.py,
     EN-DESSOUS) APPLIQUE -- on NE fusionne PAS.
 
@@ -113,7 +113,7 @@ class Revive(AbilityBehaviour):
         # ReviveEffect pose par une ability active. La feuille ne devine RIEN.
         self.level, self.mult = level, mult
         # 5e argument de `DSLFactory.Revive` : `GetHealType@0x748` pour un ReviveEffect, litteral pour les
-        # TriggeredAbility autonomes (PhoenixGem = 2 @181111610, FuelledByFury = 0 @180f810c0).
+        # TriggeredAbility autonomes (PhoenixGem = 2 IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateBehaviour, FuelledByFury = 0 IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ReviveAbility$$CreateBehaviour).
         self.heal_type = int(heal_type)
         # 6e argument : `Nullable<AbilityOrEffect>` du poseur -- relu par `CurrentAbilityIs` sur On(0x2e).
         self.source_id = source_id
@@ -146,7 +146,7 @@ class Revive(AbilityBehaviour):
 
 
 class ConsumeReviveGate(AbilityBehaviour):
-    """Feuille `DeactivateEffect` (2e volet de l'`op_add` du `CreateTargetTriggerBehaviour @180f46a70`, execute
+    """Feuille `DeactivateEffect` (2e volet de l'`op_add` du `IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour`, execute
     APRES le `Revive` sur SUCCES du `Maybe`) : DESACTIVE l'effet revive du porteur -> gate once-per-turn.
     Port : pose `revive_used_this_turn=True` sur le CASTER (`Caster()@0x148`, owner du passif/de l'effet) ;
     reactive au turn-start (`reset_revive_gates`). PUR (stop=False)."""
@@ -170,8 +170,7 @@ class ConsumeReviveGate(AbilityBehaviour):
 
 
 class RemoveReviveEffect(AbilityBehaviour):
-    """Feuille `BaseEffect.GetRemoveEffectBehaviour` -- 2e volet du `CreateTargetTriggerBehaviour
-    @180f46a70` quand le champ `removeEffect` (0x488, pose au ctor) vaut TRUE. Contrairement a
+    """Feuille `BaseEffect.GetRemoveEffectBehaviour` -- 2e volet du `IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour` quand le champ `removeEffect` (0x488, pose au ctor) vaut TRUE. Contrairement a
     `DeactivateEffect` (desactivation reactivee au turn-start = once-per-TURN), `RemoveEffect` RETIRE
     l'effet -> le revive est one-shot DEFINITIF (« the FIRST TIME ... would be defeated »).
     Port : marque l'effet `consumed=True` dans `state.effects` (le collecteur `collect_effect_triggers`
@@ -201,7 +200,7 @@ def create_target_trigger_behaviour(chance: int, ability_id: str, hp_var: str = 
                                     remove_effect: bool = False, effect_type: int = -1,
                                     owner_sel=None, level=None, mult: int = 100,
                                     heal_type: int = 0):
-    """Arbre de `ReviveEffect.CreateTargetTriggerBehaviour @180f46a70` (MIRROR, base -> partage par TOUTES
+    """Arbre de `IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour` (MIRROR, base -> partage par TOUTES
     les sous-classes) :
 
         chance   = GetReviveChance                       (virtuel @vtable+0x768)
@@ -212,21 +211,21 @@ def create_target_trigger_behaviour(chance: int, ability_id: str, hp_var: str = 
                                              : BaseEffect.GetRemoveEffectBehaviour(effect)
         Maybe(func{ revive ; second }, target@0x178, chance)
 
-    `Maybe @180df6610 -> MaybeBehaviour.Execute @180fc9dc0` fait UN tirage `next_bool(chance)` ; le func
+    `IdunBattleLogic.Entities.DSLFactory$$Maybe -> IdunBattle.Entities.Behaviours.MaybeBehaviour$$Execute` fait UN tirage `next_bool(chance)` ; le func
     ne s'execute QUE sur SUCCES -> un roll RATE ne consomme PAS le gate."""
     owner_sel = Caster() if owner_sel is None else owner_sel
     second = (RemoveReviveEffect(owner_sel, effect_type) if remove_effect
               else ConsumeReviveGate(owner_sel))
     return Maybe(chance, op_add(
         # DSLFactory.Revive : POSE la ReviveData (healType = GetHealType@0x748 ; sourceId =
-        # AbilityOrEffect(effect.Id) = `param_1[2]` @180f46a70 ; priorite 0).
+        # AbilityOrEffect(effect.Id) = `param_1[2]` IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour ; priorite 0).
         Revive(Target(), ability_id, hp_var, level, mult,
                heal_type=heal_type, source_id=effect_type),
         second))                                # DeactivateEffect (once-per-turn) | RemoveEffect (one-shot)
 
 
 def is_affected_by_heal_type(has_trait, liveunit, heal_type: int) -> bool:
-    """`UnitExtensions.IsAffectedByHealType @180ed77d0` -- MIRROR 1:1 du decompile (case-89 volet B1) :
+    """`IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType` -- MIRROR 1:1 du decompile (case-89 volet B1) :
 
         if (HasTrait(unit, 0x421 = AffectedByHealAndRepair)) return true;
         if (healType == 0 && IsMechanical(unit))  return false;     // 0 = Heal   : pas les mecaniques
@@ -234,8 +233,8 @@ def is_affected_by_heal_type(has_trait, liveunit, heal_type: int) -> bool:
         return true;                                                // 2 (PhoenixGem) = aucun filtre
 
     ⚠ Le port precedent HARDCODAIT `healType = 0` pour tous les consommateurs : ReanimationBeam
-    (`get_HealType @vtable+0x748` override = **1**, lu dans `methodPointers` @0x31006a0 = @1802cca80
-    `return 1`) exige au contraire une cible MECHANICAL -- or son propre `CreateTargetFilter @180f67ac0`
+    (`get_HealType @vtable+0x748` override = **1**, lu dans `methodPointers` @0x31006a0 = GameCamera$$get_ScreenStatus
+    `return 1`) exige au contraire une cible MECHANICAL -- or son propre `IdunBattle.Entities.Effects.Loki.ReanimationBeam_ReviveEffect$$CreateTargetFilter`
     impose `HasTrait(target, Mechanical)` : avec healType=0 le revive etait un **NO-OP GARANTI** (sauf
     trait AffectedByHealAndRepair). C'est corrige ici."""
     if has_trait is None:
@@ -252,14 +251,13 @@ def is_affected_by_heal_type(has_trait, liveunit, heal_type: int) -> bool:
 
 def can_be_revived(entities, target_liveunit, target_id: int, state: State,
                    heal_type: int = 0) -> bool:
-    """`BattleQuery.CanBeRevived @181058a50` (mirror, appele par le noeud `CanBeRevived` du
-    `CreateTargetTrigger @180f46d80` via `DSLFactory.CanBeRevived @180deb4a0 -> CanBeRevivedTrigger
-    @180f96b00`) : `GetStat(unit,Health,0) < 1` (mort) & `IsAffectedByHealType(healType)` &
+    """`IdunBattle.Core.Services.BattleQuery$$CanBeRevived` (mirror, appele par le noeud `CanBeRevived` du
+    `IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTrigger` via `IdunBattleLogic.Entities.DSLFactory$$CanBeRevived -> CanBeRevivedTrigger
+    IdunBattle.Entities.Triggers.CanBeRevivedTrigger$$ShouldTrigger`) : `GetStat(unit,Health,0) < 1` (mort) & `IsAffectedByHealType(healType)` &
     `NOT HasFlag(unit,0xd)` & `NOT HasTrait(PermaDeath=0x41a=1050)` & `NOT HasHealBlockers`.
 
     `healType` = le virtuel `get_HealType @vtable+0x748` de la sous-classe (0 base/Narthecium/Tainted/
-    RitesOfMorkai, **1** ReanimationBeam, **2** PhoenixGem via le litteral de son CreateBehaviour
-    @181111610) -- cf. `is_affected_by_heal_type`. Flag 0xd (pas encore pose a l'instant de l'OnPreDeath)
+    RitesOfMorkai, **1** ReanimationBeam, **2** PhoenixGem via le litteral de son IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateBehaviour) -- cf. `is_affected_by_heal_type`. Flag 0xd (pas encore pose a l'instant de l'OnPreDeath)
     & HealBlockers non modelises -> non-bloquants."""
     e = state.get_entity(target_id)
     hc = e.get_component(HealthComponent) if e is not None else None
@@ -274,7 +272,7 @@ def can_be_revived(entities, target_liveunit, target_id: int, state: State,
 
 
 class _ReviveEffectCore:
-    """Coeur PARTAGE de la base `ReviveEffect` (trigger @180f46d80 + behaviour @180f46a70). Mixe dans
+    """Coeur PARTAGE de la base `ReviveEffect` (trigger IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTrigger + behaviour IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour). Mixe dans
     les DEUX rails du port (`ReviveEffectAbility` pour un effet pose par un PASSIF -> registre
     `ABILITY_TRIGGERS` ; `ReviveEffectTrigger` pour un effet pose par une ACTIVE -> registre
     `EFFECT_TRIGGERS`) : cote natif c'est le MEME `ReviveEffect`, seule change la facon dont l'effet
@@ -294,13 +292,13 @@ class _ReviveEffectCore:
     hp_var: str = "hp"
     chance_is_constant: bool = True                 # GetReviveChance = GetNumberConstant(config, 0x2a)
     # Valeur du `GetReviveChance` (@vtable+0x768) quand l'ability n'a PAS de constante 'chance' dans le
-    # gameconfig. Ce N'EST PAS un defaut de confort : `AbilityConfiguration.GetNumberConstant @181576af0`
-    # delegue a `GetStringConstant @181576bb0` qui **LANCE UNE `System.Exception`** si la cle est absente
+    # gameconfig. Ce N'EST PAS un defaut de confort : `IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant`
+    # delegue a `IdunBattle.Configuration.AbilityConfiguration$$GetStringConstant` qui **LANCE UNE `System.Exception`** si la cle est absente
     # du dictionnaire, et `GetReviveChance` est **ABSTRAIT dans la base** (slot 0x768 de `ReviveEffect` =
     # stub abstrait @1801e6080, lu LIVE) -> toute sous-classe DOIT l'implementer. Celles dont la config
     # n'a pas 'chance' (RitesOfMorkai, ReanimationBeam) l'overrident par un corps LITTERAL, folde par ICF
     # et donc sans symbole propre -- mais la table `methodPointers` du PE le donne quand meme :
-    # @0x3100890 (RitesOfMorkai) et @0x31006b8 (ReanimationBeam) valent tous deux **@1806e1ac0**, dont les
+    # @0x3100890 (RitesOfMorkai) et @0x31006b8 (ReanimationBeam) valent tous deux **meta_interstitial_popup_test.u003Cu003Ec$$u003CStartu003Eb__2_1+0x70**, dont les
     # octets sont `b8 64 00 00 00 c3` = `mov eax,100 ; ret`. => **100, LU** (plus une hypothese, #89/B2).
     default_chance: Optional[int] = None
 
@@ -325,7 +323,7 @@ class _ReviveEffectCore:
             return False
         if state.get_entity(dying) is None:
             return False
-        # OnPreDeath(target, ignoreOverkill=get_ReviveOnOverkill) @180df7f10 -> OnDeathEvent @180df7ad0 :
+        # IdunBattleLogic.Entities.DSLFactory$$OnPreDeath(target, ignoreOverkill=get_ReviveOnOverkill) -> IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent :
         # byte==0 -> AJOUTE `NOT(HasFlag(dying, 8=overkill))` ; byte!=0 -> AUCUN gate overkill.
         if (not self.revive_on_overkill) and ev.overkill:
             return False
@@ -334,7 +332,7 @@ class _ReviveEffectCore:
         tgt = entities.target
         if tgt is None:
             return False
-        # CanBeRevived(target, get_HealType@0x748)  (@181058a50)
+        # CanBeRevived(target, get_HealType@0x748)  (IdunBattle.Core.Services.BattleQuery$$CanBeRevived)
         if not can_be_revived(entities, tgt, dying, state, heal_type=self.heal_type):
             return False
         # CreateTargetFilter (virtuel @+0x758)

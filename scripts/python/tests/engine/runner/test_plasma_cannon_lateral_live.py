@@ -1,9 +1,9 @@
 """Case #48 -- DISCRIMINANT LIVE du comparateur `UnitsDirectlyBehind` : `>` STRICT (AmountIsGreater).
 
-RE (docs/rl/case-48-units-directly-behind-comparator.md) : `DSLFactory.UnitsDirectlyBehind @180dff5e0`
-finit par le SINGLETON `DAT_1832482b0` = classe construite par `DSLFactory.AmountIsGreater @180de89d0`
-(`ShouldTrigger @180ee11f0 : iVar16 < iVar15` == `>` STRICT) -- PAS `AmountIsEqualOrGreater` (le nom du
-ctor FOLDE, mislabele par ghidra, le faisait croire). Formule = `MinDistance @180df6820` (distance hex).
+RE (docs/rl/case-48-units-directly-behind-comparator.md) : `IdunBattleLogic.Entities.DSLFactory$$UnitsDirectlyBehind`
+finit par le SINGLETON `DAT_1832482b0` = classe construite par `IdunBattleLogic.Entities.DSLFactory$$AmountIsGreater`
+(`IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger$$ShouldTrigger : iVar16 < iVar15` == `>` STRICT) -- PAS `AmountIsEqualOrGreater` (le nom du
+ctor FOLDE, mislabele par ghidra, le faisait croire). Formule = `IdunBattleLogic.Entities.DSLFactory$$MinDistance` (distance hex).
 Donc `MinDistance(caster, candidate) > MinDistance(caster, target)` (`>` STRICT). Le seul cas frontiere qui
 separe `>` de `>=` est le candidat LATERAL a distance EGALE (dist(caster, candidate) == dist(caster, target),
 delta 0 sur l'anneau R1 de la cible) : `>` l'EXCLUT (l'ancien offline `>=` le sur-incluait a tort).
@@ -197,7 +197,7 @@ def test_plasma_cannon_lateral_directly_behind_live(live_session, rpc):
         # DISCRIMINANT explicite : la laterale est ABSENTE (aurait ete presente sous l'ancien `>=`).
         assert u_lat["id"] not in live_targets, (
             f"unite LATERALE {u_lat['id']} presente dans le splash live -> le natif utiliserait `>=`, "
-            f"contredisant le RE (DAT_1832482b0 = AmountIsGreater = `>` STRICT @180ee11f0)")
+            f"contredisant le RE (DAT_1832482b0 = AmountIsGreater = `>` STRICT IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger$$ShouldTrigger)")
     finally:
         try:
             rpc("disposeRunner", {"runnerId": rid}, 20)

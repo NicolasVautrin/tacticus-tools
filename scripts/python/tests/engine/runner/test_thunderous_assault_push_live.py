@@ -1,9 +1,9 @@
 """TRANCHE DEPLACEMENT (#149 slice-21a PUSH + slice-21b CHARGE) — ThunderousAssault (1043) : e2e.
 
-`ThunderousAssaultAbility.ExecuteBehaviour @1812158b0` (id 1043) contient, apres l'attaque + le Stun, une
+`IdunBattleLogic.Entities.Abilities.Active.Loki.ThunderousAssaultAbility$$ExecuteBehaviour` (id 1043) contient, apres l'attaque + le Stun, une
 sous-sequence DEPLACEMENT COMPLETE : `... & PushUnit(caster, target) & KillDeadUnits(caster, target)
 & MoveUnit(caster, CanAddUnit(<tuile PRE-push de la cible>))`. Ce test valide les DEUX volets :
-  - slice-21a PUSH : `PushUnit` -> `DisplaceUnitOperation(type=1=FindTileToPush @180e695e0)` pousse la cible
+  - slice-21a PUSH : `PushUnit` -> `DisplaceUnitOperation(type=1=IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPush)` pousse la cible
     d'un hex A L'OPPOSE du caster (delegue a `MoveUnitOperation`, mirror natif DisplaceUnit emet MoveUnit@0x7e).
   - slice-21b CHARGE : `MoveUnit(caster, TargetTile())` -> le CASTER CHARGE dans la tuile LIBEREE par le push.
     `TargetTile()` = tuile PRE-push de la cible (le `DslContext` est un SNAPSHOT pre-cast -> `_pos(ctx.target)`
@@ -21,7 +21,7 @@ feuille->Operation->geometrie->MoveUnit pour push ET charge.
 
 DISTANCE : push d'1 HEX (`_PUSH_MAX_DIST=1`, cf. displace.py) — TRANCHE (cas #68, RE + live). La
 destination sort de `GetMinimumTiles180Behind` (arc arriere DISTANCE-1, slot d'interface 0x4c de
-`FindTileToPush @180e695e0`), PAS de `GetTilesBehind @18106a150` (ligne multi-hex, reservee aux AoE
+`IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPush`), PAS de `IdunBattle.Core.Services.BattleQuery$$GetTilesBehind` (ligne multi-hex, reservee aux AoE
 ligne/cone) ; le `param_9=2` (+0x84 de DisplaceUnitBehaviour) n'est PAS la distance. Le discriminant
 LIVE `test_thunderous_assault_push_distance_live` (dans ce fichier) place C,T,B1,B2 collineaires libres
 et prouve l'arret a 1 hex (B2 libre ignore). Le no-op sur trait `BigTarget`/`Immovable` (IsDisplaceable)
@@ -152,15 +152,13 @@ def _cast_push(rpc, rid, caster, target, t_coord):
 def test_thunderous_assault_push_distance_live(live_session, rpc, build_runner):
     """DISCRIMINANT LIVE 1-vs-2 hex du PUSH (slice-21a, cas #68 : hardcode-mesure tranche).
 
-    RE (decompile = verite) : `FindTileToPush @180e695e0` (case 1 de `DisplaceUnitOperation.Execute
-    @180e685a0`) choisit la destination dans la liste rendue par le slot d'interface 0x4c =
-    `GetMinimumTiles180Behind @181064f98`->`GetMinimumTiles180BehindFromTile @1810642a0` (arc ARRIERE,
+    RE (decompile = verite) : `IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPush` (case 1 de `IdunBattle.Operations.DisplaceUnitOperation$$Execute`) choisit la destination dans la liste rendue par le slot d'interface 0x4c =
+    `IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180Behind+0x38`->`IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180BehindFromTile` (arc ARRIERE,
     tuiles TOUTES a distance 1 ; cas aligne melee = 1 seule tuile straight-back). Le pull symetrique
-    (`FindTileToPull @180e69080`) utilise le slot 0xa6 = arc AVANT (`GetMinimumTiles180Front @181064fa0`).
-    Le champ +0x84=2 de `DisplaceUnitBehaviour` (`.ctor @180fc4740`, 9e arg pose par
-    `DSLFactory.PushUnit @180df9540`) N'ATTEINT PAS FindTileToPush (appele avec `0` litteral) : ce
-    n'est PAS la distance de push. => push NATIF = 1 hex (la seule source list >1 hex, `GetTilesBehind
-    @18106a150`, sert aux AoE ligne/cone, pas au push).
+    (`IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPull`) utilise le slot 0xa6 = arc AVANT (`IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180Front`).
+    Le champ +0x84=2 de `DisplaceUnitBehaviour` (`.IdunBattle.Entities.Behaviours.DisplaceUnitBehaviour$$.ctor`, 9e arg pose par
+    `IdunBattleLogic.Entities.DSLFactory$$PushUnit`) N'ATTEINT PAS FindTileToPush (appele avec `0` litteral) : ce
+    n'est PAS la distance de push. => push NATIF = 1 hex (la seule source list >1 hex, `IdunBattle.Core.Services.BattleQuery$$GetTilesBehind`, sert aux AoE ligne/cone, pas au push).
 
     Le test place caster+cible sur une LIGNE de 4 tuiles collineaires LIBRES (C, T, B1, B2), caste LIVE
     (moteur natif), et exige que la cible bouge d'EXACTEMENT 1 hex (-> B1), PAS 2 (-> B2, pourtant LIBRE

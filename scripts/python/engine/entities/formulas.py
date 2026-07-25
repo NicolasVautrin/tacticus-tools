@@ -37,7 +37,7 @@ class Multiply(AAmountFormula):
 
 
 class Difference(AAmountFormula):
-    """`DSLFactory.Difference(a,b) @180dedfe0` = `Sum(a, Multiply(b, -1))` = a - b."""
+    """`IdunBattleLogic.Entities.DSLFactory$$Difference(a,b)` = `Sum(a, Multiply(b, -1))` = a - b."""
     def __init__(self, a: AAmountFormula, b: AAmountFormula):
         self.a, self.b = a, b
 
@@ -55,11 +55,11 @@ class If(AAmountFormula):
 
 
 class ConditionalAmount(AAmountFormula):
-    """`DSLFactory.ConditionalAmount(cond, ifTrue, ifFalse) @180dec5c0` (ctor gshared MISLABELE
+    """`IdunBattleLogic.Entities.DSLFactory$$ConditionalAmount(cond, ifTrue, ifFalse)` (ctor gshared MISLABELE
     « ModuloAbilityTrigger » dans ghidra -- structure lue, jamais le nom) : noeud VALEUR ternaire.
-    Factory native DISTINCTE de `DSLFactory.If @180df1960` (meme semantique cond?a:b, autre singleton) ;
+    Factory native DISTINCTE de `IdunBattleLogic.Entities.DSLFactory$$If` (meme semantique cond?a:b, autre singleton) ;
     on la porte sous SON nom pour que les arbres qui la citent restent des homonymes 1:1.
-    Consommateur porte : `ExplodesAbility.CreateBehaviour @18121e450` (`ConditionalAmount(HasEffect(Self,
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.ExplodesAbility$$CreateBehaviour` (`ConditionalAmount(HasEffect(Self,
     1098 RammingSpeed_ExtraExplode), ConfigConst(1059 RammingSpeed, extraDmgPct), Get(0))`).
     Evaluation PARESSEUSE de la branche prise (comme `If`)."""
     def __init__(self, cond, a: AAmountFormula, b: AAmountFormula):
@@ -70,7 +70,7 @@ class ConditionalAmount(AAmountFormula):
 
 
 class Max(AAmountFormula):
-    """`DSLFactory.Max(a,b) @180df62e0` : `max(a,b)` (singleton DAT_1832457c8, usage prouvé via
+    """`IdunBattleLogic.Entities.DSLFactory$$Max(a,b)` : `max(a,b)` (singleton DAT_1832457c8, usage prouvé via
     `NonLethalDamage = Min(Max(HP-1, 0), dmg)`)."""
     def __init__(self, a: AAmountFormula, b: AAmountFormula):
         self.a, self.b = a, b
@@ -80,7 +80,7 @@ class Max(AAmountFormula):
 
 
 class Divide(AAmountFormula):
-    """`DSLFactory.Divide(a,b,mode) @180dee5a0` → `DivideAmount.Calculate @180f19800` :
+    """`IdunBattleLogic.Entities.DSLFactory$$Divide(a,b,mode)` → `IdunBattle.Entities.Formulas.DivideAmount$$Calculate` :
     `Fix64(a) / Fix64(b)` PUIS `RoundFix64Result(_, mode)` — PAS une division entière. `mode` =
     Ceiling(1)/Floor(2)/Round-half-to-even(0). `b==0` → un arbre valide ne divise jamais par 0
     (laisse remonter l'erreur)."""
@@ -92,7 +92,7 @@ class Divide(AAmountFormula):
 
 
 class Half(AAmountFormula):
-    """`DSLFactory.Half(a,mode) @180df0840` = `Divide(a, 2, mode)` — MÊME arrondi Fix64 (pas `a//2`)."""
+    """`IdunBattleLogic.Entities.DSLFactory$$Half(a,mode)` = `Divide(a, 2, mode)` — MÊME arrondi Fix64 (pas `a//2`)."""
     def __init__(self, a: AAmountFormula, mode: int = 0):
         self.a, self.mode = a, mode
 
@@ -101,7 +101,7 @@ class Half(AAmountFormula):
 
 
 class Double(AAmountFormula):
-    """`DSLFactory.Double(a) @180dee6f0` = `Multiply(a, 2)` = `a * 2` (entier exact, sans arrondi)."""
+    """`IdunBattleLogic.Entities.DSLFactory$$Double(a)` = `Multiply(a, 2)` = `a * 2` (entier exact, sans arrondi)."""
     def __init__(self, a: AAmountFormula):
         self.a = a
 
@@ -110,7 +110,7 @@ class Double(AAmountFormula):
 
 
 class Negative(AAmountFormula):
-    """`DSLFactory.Negative(a) @180df7090` = `Multiply(a, -1)` = `-a`."""
+    """`IdunBattleLogic.Entities.DSLFactory$$Negative(a)` = `Multiply(a, -1)` = `-a`."""
     def __init__(self, a: AAmountFormula):
         self.a = a
 
@@ -119,7 +119,7 @@ class Negative(AAmountFormula):
 
 
 class PercentageOf(AAmountFormula):
-    """`DSLFactory.PercentageOf(pct, base, mode) @180df8720` → `PercentageOf.Calculate @180f20fc0`
+    """`IdunBattleLogic.Entities.DSLFactory$$PercentageOf(pct, base, mode)` → `PercentageOf.Calculate IdunBattle.Entities.Formulas.PercentageOf$$CalculateInternal`
     (Fix64) : `round_mode(pct% * base)` avec arrondis intermédiaires half-to-even à 2 décimales — PAS
     `pct*base//100`. `pct` = pourcentage entier (50 = 50 %). Les arrondis à 2 décimales sont INERTES
     pour des opérandes entières (nos cas) → `round_mode(Fraction(pct*base, 100))` fidèle."""
@@ -131,7 +131,7 @@ class PercentageOf(AAmountFormula):
 
 
 class Count(AAmountFormula):
-    """`DSLFactory.Count(selector) @180decfa0` → `CountFormula.Calculate @180f18040` : cardinal du
+    """`IdunBattleLogic.Entities.DSLFactory$$Count(selector)` → `IdunBattle.Entities.Formulas.CountFormula$$Calculate` : cardinal du
     sélecteur (nb d'éléments). Retour int >= 0."""
     def __init__(self, selector: TargetsSelector):
         self.selector = selector
@@ -145,8 +145,7 @@ class Count(AAmountFormula):
 class ConfigConst(AAmountFormula):
     """`DSLFactory.ConfigConst(key)` / `AbilityConfiguration.GetNumberConstant` : constante de config
     d'ability au niveau courant. Ids natifs = enum `AbilityConstantType` (dump.cs TypeDefIndex 24411) :
-    0x2f=nrOfHits(47), 0x2b=extraHit(43), 0x48=maxNrOfHits(72), 0x16=range(22). ⚠ `GetNumberConstant
-    @181576af0`->`GetStringConstant @181576bb0` LÈVE une exception si la clé est ABSENTE (TryGetValue
+    0x2f=nrOfHits(47), 0x2b=extraHit(43), 0x48=maxNrOfHits(72), 0x16=range(22). ⚠ `IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant`->`IdunBattle.Configuration.AbilityConfiguration$$GetStringConstant` LÈVE une exception si la clé est ABSENTE (TryGetValue
     échoue -> throw) : une clé référencée par un arbre EST toujours présente dans la config (jamais de
     défaut natif). ⚠ DIVERGENCE assumée : le `default` Python retourne une valeur là où le natif
     THROW — garde-fou offline inerte tant que la clé existe, mais il MASQUERAIT silencieusement une
@@ -161,7 +160,7 @@ class ConfigConst(AAmountFormula):
 
 
 class TotalTimesAttacked(AAmountFormula):
-    """`TotalTimesAttackedFormula.Calculate @180f26620` : compteur runtime d'attaques du caster
+    """`IdunBattle.Entities.Formulas.TotalTimesAttackedFormula$$Calculate` : compteur runtime d'attaques du caster
     (composant @+0x34). NON capté offline → `ctx.times_attacked` (défaut 0 = pré-snowball)."""
     def calculate(self, ctx):
         return ctx.times_attacked or 0
@@ -169,14 +168,14 @@ class TotalTimesAttacked(AAmountFormula):
 
 class TimesRepaired(AAmountFormula):
     """`DSLFactory.TimesRepaired` : compteur runtime de réparations du caster (Mechanical — ex.
-    DakkaDakkaDakka `GetNumHits @1811d0eb0` : +extraHits coups par réparation). NON capté offline →
+    DakkaDakkaDakka `IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$GetNumHits` : +extraHits coups par réparation). NON capté offline →
     `ctx.times_repaired` (défaut 0 = pré-snowball)."""
     def calculate(self, ctx):
         return getattr(ctx, "times_repaired", 0) or 0
 
 
 class TotalAttacksMade(AAmountFormula):
-    """`DSLFactory.TotalAttacksMade @180dfe090` = `Entities.Formulas.TotalAttacksMadeFormula` (@180f25b90) :
+    """`IdunBattleLogic.Entities.DSLFactory$$TotalAttacksMade` = `Entities.Formulas.TotalAttacksMadeFormula` (IdunBattle.Entities.Formulas.TotalAttacksMadeFormula$$Calculate) :
     nb d'attaques faites par `unit` (compteur runtime). Port on-appearance : la feuille `PerformAIAttack`
     (`runner/abilities/behaviours.py`) pose `_attacks_made` sur le dict de l'enfant (0 si pas d'attaque).
     Unité hors-cast → 0 (compteur général non capté offline, même régime que `TotalTimesAttacked`)."""
@@ -189,17 +188,17 @@ class TotalAttacksMade(AAmountFormula):
 
 
 class UnitTurnsStarted(AAmountFormula):
-    """`DSLFactory.UnitTurnsStarted @180dff280` = `Entities.Formulas.UnitTurnsStartedFormula` (@180f2d6c0) :
+    """`IdunBattleLogic.Entities.DSLFactory$$UnitTurnsStarted` = `Entities.Formulas.UnitTurnsStartedFormula` (IdunBattle.Entities.Formulas.UnitTurnsStartedFormula$$Calculate) :
     nb de tours entamés par `unit` (compteur runtime). Le natif compare (via `AmountIsEqual`) le `turnsStarted`
     de l'owner CAPTURÉ au cast (`factory+0xb8`) au `UnitTurnsStarted(child)` → ne retient que les enfants NEUFS
     de CE cast. Le compteur REEL = `GetStat(unit, 0xc=TURNS_STARTED)` (`UnitComponent.turnsStarted@+0x58`,
     incrémenté par `StartTurnOperation`, capté par combatSnapshot #122 et maintenu offline par
-    `_bump_turns_started`) → lu via `ctx.get_stat` (le vrai mirror @180f2d6c0).
+    `_bump_turns_started`) → lu via `ctx.get_stat` (le vrai mirror IdunBattle.Entities.Formulas.UnitTurnsStartedFormula$$Calculate).
 
     Ordre de résolution : `_turns_started` du dict s'il est PRÉSENT (posé explicitement par `SpawnUnit` sur
     l'enfant frais — le couple `AmountIsEqual(Const(0), UnitTurnsStarted(child))` de GetEmRuntz s'appuie
     dessus), sinon `ctx.get_stat(unit, 0xc)`, sinon 0. Consommateur du compteur RÉEL : la rotation
-    `FleshMetalGunsAbility.CreateBehaviour @18121f6e0` (`Modulo(UnitTurnsStarted(Self), 3, k)`)."""
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGunsAbility$$CreateBehaviour` (`Modulo(UnitTurnsStarted(Self), 3, k)`)."""
     def __init__(self, unit: TargetsSelector):
         self.unit = unit
 
@@ -217,8 +216,8 @@ class UnitTurnsStarted(AAmountFormula):
 
 
 class TurnsFromRounds(AAmountFormula):
-    """`DSLFactory.TurnsFromRounds(rounds) @180dfec50` → `TurnsFromRoundsFormula.Calculate @180f26a50`
-    = `BattleQuery.ConvertRoundsToTurns @181058af0` (interface slot 0x1b) = `count(joueurs du turnOrder,
+    """`IdunBattleLogic.Entities.DSLFactory$$TurnsFromRounds(rounds)` → `IdunBattle.Entities.Formulas.TurnsFromRoundsFormula$$Calculate`
+    = `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` (interface slot 0x1b) = `count(joueurs du turnOrder,
     PlayerType != 2) * rounds` (RE #174 : PlayerType@+0x20 = config statique, Environment=2 exclu ;
     count = CONSTANTE de bataille). `rounds * ctx.turns_per_round` avec `turns_per_round = count(non-Env)`.
     Defaut 1 = CORRECT pour nos runners 1v1 (count=1 PROUVE par test_effect_stun_live : convert(1)=1) ;
@@ -231,18 +230,18 @@ class TurnsFromRounds(AAmountFormula):
 
 
 class Get(Const):
-    """`DSLFactory.Get(value) @180df05d0` = `Const`/`Direct` : enveloppe une valeur littérale int/enum en
+    """`IdunBattleLogic.Entities.DSLFactory$$Get(value)` = `Const`/`Direct` : enveloppe une valeur littérale int/enum en
     nœud (MÊME singleton DAT_183202d40 + ctor `(value,0)` que `Direct`). Le nom de ctor mislabelé
     `IceTileEffect...d__5` est un trampoline gshared — la classe réelle est le nœud constante, PAS un
-    accesseur. (Les overloads Get @180df0690/@180df0630 sur arg objet = sélecteurs distincts, hors batch.)"""
+    accesseur. (Les overloads IdunBattleLogic.Entities.DSLFactory$$Get/IdunBattleLogic.Entities.DSLFactory$$Get sur arg objet = sélecteurs distincts, hors batch.)"""
 
 
 class VisualUnitIdFromUnitId(AAmountFormula):
-    """`DSLFactory.VisualUnitIdFromUnitId(unitIdValue) @180e01d70` : noeud VALEUR convertissant un id de
+    """`IdunBattleLogic.Entities.DSLFactory$$VisualUnitIdFromUnitId(unitIdValue)` : noeud VALEUR convertissant un id de
     CONFIG d'unite (ex. `orksOrkBoys`, `GetStringConstant(config, 0)`) en son id VISUEL (ex.
     `orksNpc2OrkBoy`). Le ctor gshared est mislabele `Loki.AutoBot.AutoBotLoopFactory..ctor` par ghidra
     (structure lue : `(factory+0x28 = le service de config d'unites, unitIdValue)`) -- jamais le nom.
-    Consommateur lu : `WaaaghAbility.ExecuteBehaviour @18122b010` / `GetTriggerSummonsBehaviour @18122c260`
+    Consommateur lu : `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour` / `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetTriggerSummonsBehaviour`
     (`UnitsWithVisualId(VisualUnitIdFromUnitId(Get(unitId)), 1)`).
 
     REDUCTION OFFLINE (documentee, meme classe que celle du noeud `UnitsWithIds`) : le champ `visualId` du
@@ -265,7 +264,7 @@ class VisualUnitIdFromUnitId(AAmountFormula):
 
 
 class ConfigVar(AAmountFormula):
-    """`DSLFactory.ConfigVar(key) @180decac0` → `Formulas.ConfigAmount.Calculate @180f171c0` :
+    """`IdunBattleLogic.Entities.DSLFactory$$ConfigVar(key)` → `IdunBattle.Entities.Formulas.ConfigAmount$$Calculate` :
     `AbilityConfiguration.GetVariableForLevel(key, level)` = valeur du tableau de config SCALÉE par le
     niveau de l'ability. ≠ `ConfigConst` natif (`GetNumberConstant`, valeur fixe hors niveau). Cas
     standard = caster au niveau courant → `ctx.ability_level` ; niveau d'une unité tierce = NON offline.
@@ -282,8 +281,8 @@ class ConfigVar(AAmountFormula):
 
 
 class StatAmount(AAmountFormula):
-    """`DSLFactory.StatAmount(selector, statType, variant, level) @180dfbf60` →
-    `StatAmountFormula.Calculate @180f22d40` : SOMME de `UnitExtensions.GetStat(unit, statType, variant,
+    """`IdunBattleLogic.Entities.DSLFactory$$StatAmount(selector, statType, variant, level)` →
+    `IdunBattle.Entities.Formulas.StatAmountFormula$$Calculate` : SOMME de `UnitExtensions.GetStat(unit, statType, variant,
     level)` sur toutes les unités du sélecteur (singleton → 1 unité ; multi → somme). `ctx.get_stat`
     fournit les stats réelles ; défaut dégradé = Health via hp (cf. `_default_get_stat`)."""
     def __init__(self, selector: TargetsSelector, stat_type: int, variant: int = 0,
@@ -300,10 +299,10 @@ class StatAmount(AAmountFormula):
 
 
 class UnitNormalAttackType(AAmountFormula):
-    """`DSLFactory.UnitNormalAttackType(entitySelector) @180dff150` → value-provider lisant le
+    """`IdunBattleLogic.Entities.DSLFactory$$UnitNormalAttackType(entitySelector)` → value-provider lisant le
     `ActiveAbilityComponent.NormalAttackType@0x28` de l'unité = son ActiveAbilityType d'attaque normale
     CONCRET, per-unit (ex. `RighteousRepugnance_NormalAttack`=1182 pour un porteur de RighteousRepugnance).
-    Comparé par `AreEqual(..., AbilityOrEffect)` (ActOfFaith accumulate @181219a70 : killer == 1182 ?).
+    Comparé par `AreEqual(..., AbilityOrEffect)` (ActOfFaith accumulate IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateBehaviour : killer == 1182 ?).
 
     ⚠ Le type CONCRET n'est PAS un champ de l'état runner (state_bridge : id synthétique 17, « non dérivable
     de gameconfig » par le chemin PRÉDICTION). On le RÉSOUT ici depuis le KIT gameconfig de l'unité : une
@@ -338,10 +337,9 @@ class UnitNormalAttackType(AAmountFormula):
 
 
 class ConfigVarForEntity(AAmountFormula):
-    """`DSLFactory.ConfigVar(abilityOrEffect, entity, varKey) @180decac0` → `ConfigAmount.Calculate
-    @180f171c0` = `AbilityConfiguration.GetVariableForLevel(varKey, level)` sur la config de l'ability
+    """`IdunBattleLogic.Entities.DSLFactory$$ConfigVar(abilityOrEffect, entity, varKey)` → `IdunBattle.Entities.Formulas.ConfigAmount$$Calculate` = `AbilityConfiguration.GetVariableForLevel(varKey, level)` sur la config de l'ability
     `abilityOrEffect`, au NIVEAU de l'`entity` (unité TIERCE, ≠ caster — cf. `ConfigVar` standard qui lit
-    `ctx.config`/`ctx.ability_level` du caster). ActOfFaith accumulate @181219a70 :
+    `ctx.config`/`ctx.ability_level` du caster). ActOfFaith accumulate IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateBehaviour :
     `ConfigVar(RighteousRepugnance=1107, killer, chance=0x3a=58)` = la chance% du 2e stack, au niveau
     RighteousRepugnance (PASSIVE) du killer. Port : `ability_var(ability_name, var_key, niveau)` avec
     `niveau = ctx.get_ability_level(unit, slot)` (capté offline : `passive_ability_level`/`active_ability_
@@ -361,7 +359,7 @@ class ConfigVarForEntity(AAmountFormula):
 
 
 class EntityId(AAmountFormula):
-    """`DSLFactory.EntityId(ref) @180def470` : id de l'entité résolue (ou None)."""
+    """`IdunBattleLogic.Entities.DSLFactory$$EntityId(ref)` : id de l'entité résolue (ou None)."""
     def __init__(self, ref):
         self.ref = ref
 
@@ -371,6 +369,6 @@ class EntityId(AAmountFormula):
 
 
 class EffectLevel(AAmountFormula):
-    """`DSLFactory.EffectLevel @180deead0` : niveau de l'effet COURANT (`ctx.effect`). 0 si absent."""
+    """`IdunBattleLogic.Entities.DSLFactory$$EffectLevel` : niveau de l'effet COURANT (`ctx.effect`). 0 si absent."""
     def calculate(self, ctx):
         return _effect_field(ctx.effect, "level", 0)

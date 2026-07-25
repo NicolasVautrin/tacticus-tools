@@ -8,9 +8,9 @@ from ._base import NCContext, NonComparablePlaybook
 
 
 class FightingRetreatPlaybook(NonComparablePlaybook):
-    """FightingRetreatPlaybook.EvaluateNonComparable @181131ff0 : u = |ennemis adj a la tuile| +
+    """IdunBattle.AI.Playbook.Loki.FightingRetreatPlaybook$$EvaluateNonComparable : u = |ennemis adj a la tuile| +
     (si >0) |allies adj a la tuile - self|, balaye sur les tuiles atteignables (origine EN TETE) ;
-    cible = SELF. cctor @1811323b0 : MIN_UTILITY=2."""
+    cible = SELF. IdunBattle.AI.Playbook.Loki.FightingRetreatPlaybook$$.cctor : MIN_UTILITY=2."""
     ABILITY_ID = int(ActiveAbilityType.FightingRetreat)  # 1081
     MIN_UTILITY = 2.0
 

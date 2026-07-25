@@ -15,11 +15,11 @@ seed = simple générateur) :
   5. CONFRONTE : le natif pose Stunned (1162) sur la cible avec `remaining` = R ; mon op doit poser
      un effet effect_type=1162 de `remaining_turns` == R, et R doit valoir
      `ConvertRoundsToTurns(DefaultAmountOfRounds(1162))` (#98 — l'ability passe `TurnsFromRounds(1)`
-     @1812158b0, meme valeur que la duree par defaut de 1162).
+     IdunBattleLogic.Entities.Abilities.Active.Loki.ThunderousAssaultAbility$$ExecuteBehaviour, meme valeur que la duree par defaut de 1162).
 
 ⚠ MESURE PRE-TICK (#98) : le roster joueur porte DEUX unites et le cast est fait par la premiere,
 l'autre restant activable. En 1v1 STRICT le cast est l'action de la SEULE unite du camp -> le moteur
-CLOT le tour (`FinishUnitTurn` -> `EndTurnOperation` -> `RefreshEffects @180e6bf70`) et `decisionView`
+CLOT le tour (`FinishUnitTurn` -> `EndTurnOperation` -> `IdunBattle.Operations.EndTurnOperation$$RefreshEffects`) et `decisionView`
 rend `duree - 1` : c'est cet ARTEFACT qui faisait croire que `rounds == turns`. Le test verifie
 explicitement que `currentPlayer` n'a pas bascule pendant le cast.
 

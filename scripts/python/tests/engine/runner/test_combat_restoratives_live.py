@@ -1,7 +1,7 @@
 """TRANCHE ABILITY COMBAT (case-220 P0-HEAL) — CombatRestoratives (1002, ultraApothecary, Ultramarines).
 
-`CombatRestorativesAbility.ExecuteBehaviour @1811cc590` (+ `HealTargets @1811cca50`, callback
-`b__0 @1811e3e90`) : heal self + allies adjacents (hex 1), SPLIT par trait Imperial(0x1a) :
+`IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility$$ExecuteBehaviour` (+ `IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility$$HealTargets`, callback
+`b__0 IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility.u003Cu003Ec__DisplayClass1_0$$u003CExecuteBehaviouru003Eb__0`) : heal self + allies adjacents (hex 1), SPLIT par trait Imperial(0x1a) :
   - allie IMPERIAL     : `hpToHeal_2[level]` (var0x22)   -- le PLUS gros
   - allie NON-Imperial : `hpToHeal[level]`   (var0x20)
 JUMEAU IMPERIAL du Chaos 1037 RevitalizingMalignancy, mais DEUX DIFFERENCES STRUCTURELLES lues au
@@ -11,7 +11,7 @@ decompile (pas devinees par symetrie) :
   (2) PAS D'EXCLUSION DE TRAIT : le set entier = Healable(self + allies adj) puis split Imperial/non-Imperial
       via op_Subtraction ; les allies Chaos ET Xenos sont soignes (var0x20), contraste 1037 qui EXCLUT
       Imperial du set (0 heal). Le trait d'ALLIANCE (Imperial/Chaos/Xenos) est ABSENT de gameconfig.unit()
-      .traits : DERIVE de la GrandAlliance (`GrandAlliance.GetTrait @1815647a0`), porte par
+      .traits : DERIVE de la GrandAlliance (`idun.Idun.Source.Shared.GrandAlliance$$GetTrait`), porte par
       `_grand_alliance_trait` (context.py). Garde `Healable` (HP<max ET non-mechanical) cote mutation.
 
 MESURE LIVE (rank 17, ultraApothecary level 50 mult 180 -> imperial 7477, sans 5983) confirmee sur runner :

@@ -1,7 +1,7 @@
 """GARDE ANTI-REGRESSION de la CLASSE DE BUG #63/#64 (OFFLINE, pas de session live).
 
 Cause racine #63 : les feuilles POSITIONNELLES du combat (bonus d'ELEVATION
-`CalculateElevationBonusModifier @181003ea0`, trench, LightCover, GetStuckIn) sont des
+`IdunBattle.Core.Services.DamageCalculations$$CalculateElevationBonusModifier`, trench, LightCover, GetStuckIn) sont des
 no-op SILENCIEUX offline quand `state.board` n'est pas peuple. Un `state.board = board`
 oublie dans un helper de replay a produit le faux diagnostic "divergence armure 0.58".
 

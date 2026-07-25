@@ -1,14 +1,14 @@
 """FlailSwing (actif 1042, deathBlightlord DeathGuard/Chaos) PORT -> arbre DSL, confronte au LIVE (#220).
 
-`FlailSwingAbility$$ExecuteBehaviour @1811ded80` (DECOMPILE, mirror 1:1 -- cf. `abilities/deathguard.py`) =
+`FlailSwingAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility$$ExecuteBehaviour` (DECOMPILE, mirror 1:1 -- cf. `abilities/deathguard.py`) =
     Execute( op_BitwiseAnd(
         InformWeapon(GetDamageProfile=Power, 1),                                  # metadata arme (no-op combat)
         AttackWithAttackDamage(caster@0x160, target@0x178, MinMaxDamage(minDmg 0xc/maxDmg 0xd),
                                GetDamageProfile=Power, nrOfHits=GetNumberConstant(0x2f)=3,
                                alwaysOverkilled=Nullable(true)) ) )
 plain `Execute` (PAS `ExecuteAtomic` -- l'op_BitwiseAnd est passe DIRECTEMENT a `AActiveAbility.Execute`).
-`native_factory="attack"` (la CALLEE de @1811ded80 = symbole `DSLFactory$$AttackWithAttackDamage @180de9fb0`,
-JAMAIS `AttackWithAbilityDamage @180de9c90`) = 2 tirages/coup a cc=0 (tip #2 / rngcrit-1202). PAS de splash,
+`native_factory="attack"` (la CALLEE de IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility$$ExecuteBehaviour = symbole `DSLFactory$$IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`,
+JAMAIS `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`) = 2 tirages/coup a cc=0 (tip #2 / rngcrit-1202). PAS de splash,
 PAS de move/gate, PAS de trigger interne (le declenchement `HazeOfCorruption` = passif SEPARE, hors scope).
 
 Ce que ces tests PROUVENT (drive les positions -- `applyAction move` ignore portee/propriete ; `--hp-target`
@@ -23,7 +23,7 @@ Ce que ces tests PROUVENT (drive les positions -- `applyAction move` ignore port
       (total FlailSwing ~14400 < 2x seuil overkill=100%) -> LIVE TUE a travers Resilient (sum des coups ==
       PV full, PAS PV-1) ; le port (force_overkill=True) laisse la cible a 0 PV (morte) == live ; le CONTROL
       SANS le flag laisse 1 PV (cap Resilient tient) -> le flag est le SEUL ecart (bypass du cap
-      `ApplyResilientTraitDamageLimit @18102c3a0`).
+      `IdunBattle.Core.Services.DamagePrediction$$ApplyResilientTraitDamageLimit`).
 
 Lit l'etat LIVE, aucune tuile/RVA hardcodee. ASCII only. State-file UNIQUE -> dispose au teardown. Skip si
 build/geometrie/deathBlightlord|custoKyrus indispo.

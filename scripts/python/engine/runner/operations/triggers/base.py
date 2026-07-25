@@ -14,7 +14,7 @@ from ...state import State
 from ...components import StatsComponent, OwnerComponent, PositionComponent, UnitComponent
 
 # --- Cap phase-triggers (#140) --------------------------------------------------------------------
-PHASE_TRIGGER_CAP = 0x33         # 51 — `EvaluateAbilityTrigger`@180e6d650 : GetTimesTriggeredThisPhase < 0x33.
+PHASE_TRIGGER_CAP = 0x33         # 51 — `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateAbilityTrigger : GetTimesTriggeredThisPhase < 0x33.
                                  # Borne native (par PHASE = une activation ; ResetPhase à EndPhaseOperation) de
                                  # la ré-entrance d'un ability-trigger générateur d'attaque. GARDE-FOU générique :
                                  # depuis le fix #147, Psyker ne s'auto-déclenche plus (splash = after-hit `On(8)`,
@@ -58,7 +58,7 @@ class TriggerEvent:
         self.profiles = set(profiles) if profiles else None
         # `TriggeringEffectIs(effectType)` (`On(PreEffectAdded=62)`/`On(EffectRemoved=65)`) : le TYPE
         # d'effet porte par l'evenement (celui qu'on est en train de poser/retirer). None hors de ces
-        # vecteurs. Consommateur : branche 2 de `TerrifyingCrescendoAbility.CreateTrigger @1811a3910`
+        # vecteurs. Consommateur : branche 2 de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger`
         # (`On(0x3e) & OwnerIsActor & TriggeringEffectIs(0x429=Pinned)`).
         self.triggering_effect = triggering_effect
 
@@ -82,8 +82,8 @@ class TriggeredAbility:
 
 
 class EffectTrigger:
-    """Mirror d'une entrée EFFET-trigger du registre `AbilityAndEffectCache` (`EvaluateEffectTrigger`@180e6eaa0
-    → `EvaluateEffectTriggerTargets`@180e6e450). `effect_type` = l'effet porteur ; `owner_id` = l'unité qui
+    """Mirror d'une entrée EFFET-trigger du registre `AbilityAndEffectCache` (`IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTrigger
+    → `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets). `effect_type` = l'effet porteur ; `owner_id` = l'unité qui
     porte l'effet. `matches` = condition du trigger de l'effet (def `EffectsDatabase` slot 0x26) ;
     `execute_behaviour` = le behaviour (`HandleTriggerAbilities`). Sous-classe = un effet-trigger concret."""
     event_id: int = -1
@@ -103,7 +103,7 @@ class TileEffectTrigger(EffectTrigger):
     """Effet-trigger porté par une TUILE (`owner_id` = id d'entité-tile ; boardGraph `t.id` = entity id,
     disjoint des ids d'unité → clé `EffectsState.by_unit` valide). Mirror natif : une tuile = entité à
     `EffectsOwnedComponent` portant l'effet + ses triggers (ex.
-    `ContaminatedEffect.CreateHandleTriggerAbilitiesInternal`@180f3a1d0). `owner_is_tile` fait bypasser les
+    `IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$CreateHandleTriggerAbilitiesInternal). `owner_is_tile` fait bypasser les
     gates unit-entity/alive de `evaluate_trigger_operation` (une tuile n'est PAS dans `state.entities`).
     `event_ids` (au lieu d'un `event_id` unique) : un tile-effect écoute souvent PLUSIEURS events (enter
     `On(4)` + tick `On(0x12)`/`On(0x14)`)."""
@@ -229,8 +229,8 @@ def _in_attack_range(state: State, attacker_id: int, target_id: int) -> bool:
 
 
 def _is_ranged_position(state: State, attacker_id: int, target_id: int) -> bool:
-    """Mirror `DSLFactory.IsRangedAttack @180df4d90` (= `IsRangedAttackAbilityTrigger` @180fa36c0, qui
-    calcule les POSITIONS caster/cible via `IsRangedPosition @180df4f60`) : une attaque est RANGED ssi le
+    """Mirror `IdunBattleLogic.Entities.DSLFactory$$IsRangedAttack` (= `IsRangedAttackAbilityTrigger` IdunBattle.Entities.Triggers.IsRangedAttackAbilityTrigger$$ShouldTrigger, qui
+    calcule les POSITIONS caster/cible via `IdunBattleLogic.Entities.DSLFactory$$IsRangedPosition`) : une attaque est RANGED ssi le
     caster N'EST PAS adjacent (mêlée) à la cible — **POSITION-based, PAS le type d'arme/profil**. Donc un
     splash psychique porté sur un ennemi ADJACENT au caster est MÊLÉE → ne re-déclenche PAS Smite (pas de
     chain). Non-adjacent (dist > 1) = ranged. Fallback False (mêlée = conservateur, pas de re-trigger) si

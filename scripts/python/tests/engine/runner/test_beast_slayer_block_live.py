@@ -1,7 +1,7 @@
 """#72 BeastSlayer_ExtraBlock (DEFENSE) — REPLAY-DIFF BIT-EXACT quand orksNob DEFEND.
 
 orksNob (Tanksmasha) porte le trait BeastSlayer -> effet capte `BeastSlayer_ExtraBlock` = source de
-BLOCK SUPPLEMENTAIRE (`AddExtraBlockEffectToOwner @180e18b70` : chance beastSlayerBlockChance=10% /
+BLOCK SUPPLEMENTAIRE (`AddExtraBlockEffectToOwner IdunBattleLogic.Entities.Abilities.Triggered.Loki.BeastSlayerAbility$$CreateAddBlockEffectBehaviour` : chance beastSlayerBlockChance=10% /
 amount = 100% du FixedArmor courant), ABSENTE du scalaire GetStat(7/8) (live orksNob blockChance=0).
 
 Validation DETERMINISTE de la consommation RNG : par coup, l'ordre est [crit] -> spread -> block-roll.

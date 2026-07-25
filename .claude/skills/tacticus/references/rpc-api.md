@@ -97,7 +97,7 @@ Read-only sauf `applyAction` (`mutated=false` attendu). Cœur oracle + harnais m
   `walkable` + élévation ; graphe STATIQUE, capter 1×/battle.
 - **`pathDistToEnemies({ runnerId, unitId })`** — par tuile atteignable,
   distance-CHEMIN (`Pathfinders.GetPath`) à l'ennemi le plus proche (≠ dist hex).
-  Miroir COMPLET des filtres `FindClosestEnemy @181197f10` (#26, prédicats NATIFS
+  Miroir COMPLET des filtres `FindClosestEnemy IdunBattle.AI.ActionGenerators.MovementActionGenerator.u003CFindClosestEnemyu003Ed__8$$MoveNext` (#26, prédicats NATIFS
   invoqués) : `!CurrentOwnerIsEnvironment` / `IsTargetable` / `!IsIrrelevantObject`
   / vivant, puis restriction `GetOnlyTargets` (taunt — validé live CrushingClaws).
   Renvoie aussi `enemies:[{id,col,row}]` (cibles retenues → `ctx.tgt_epos`, seed du
@@ -122,7 +122,7 @@ Read-only sauf `applyAction` (`mutated=false` attendu). Cœur oracle + harnais m
   Depuis la tuile COURANTE (bouger l'unité pour une autre position). Read-only.
 - **`pairUtility({ runnerId, unitId, targetId, abilityType, level?, multiplier?, col?, row? })`**
   (#45) — UTILITÉ DE PAIRE au scoreur NATIF : invoque `ComparablePlaybook.
-  CalculateUtilityFromPredictions @181407890` → Fix64 (Σ familles damage/heal/effect/repair,
+  IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions` → Fix64 (Σ familles damage/heal/effect/repair,
   prob + modifs inclus) pour (ability, cible) depuis une position. ⚠ `ncEvaluate` AV @0x46
   sur les playbooks COMPARABLES hors tour natif — utiliser CE RPC pour l'utilité comparable.
 - **`navToCampaign()`** (`warmup-singletons.ts`) — levier de SECOURS : force la nav interne

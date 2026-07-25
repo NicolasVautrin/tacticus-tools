@@ -1,6 +1,6 @@
 """#149 slice-9 : ValkyrieStrike (1018) MIGRATION replay-diff -- l'arbre DSL == l'ancien imperatif.
 
-`ValkyrieStrikeAbility.ExecuteBehaviour @181229e40` (DECOMPILE) = plain `Execute` d'un SEUL noeud
+`IdunBattleLogic.Entities.Abilities.Active.Loki.ValkyrieStrikeAbility$$ExecuteBehaviour` (DECOMPILE) = plain `Execute` d'un SEUL noeud
 `AddBondEffect(0x3fe=1022 ValkyrieStrike_Effect, AbilityStateReference, caster@0x160, target@0x178,
 caster@0x160, dureeNode=ZERO, 0)` -- AUCUNE attaque immediate (le Blast nrOfHits=1 = PAYLOAD de l'airstrike
 DIFFERE porte par l'effet 1022, hors ExecuteBehaviour). Le carrier natif (astraSmnVoxcaster) est SUMMON-only ;

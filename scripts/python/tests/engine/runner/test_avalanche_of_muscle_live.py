@@ -1,9 +1,9 @@
 """#220 AvalancheOfMuscle (astraBullgryn passif, AstraMilitarum) -- bonus extra-damage de CHARGE.
 
 astraBullgryn porte le passif AvalancheOfMuscle : effet EffectType 1025 "AvalancheOfMuscle_ExtraDamage"
-dont `CreateEffectDamageBonusForAttack @180f32b20` = `EffectBonus.ForAddition(OwnerIsCaster & IsCharging,
-ConfigVar(8=extraDmg, GetAbilityState, EffectSource))` -- JUMEAU de FeederTendrils @180f48ea0 SANS le
-noeud IsNormalAttack (RE decompile : callees @180f32b20 = {get_OwnerIsCaster, IsCharging, op_BitwiseAnd,
+dont `IdunBattle.Entities.Effects.Loki.AvalancheOfMuscleTargetEffect$$CreateEffectDamageBonusForAttack` = `EffectBonus.ForAddition(OwnerIsCaster & IsCharging,
+ConfigVar(8=extraDmg, GetAbilityState, EffectSource))` -- JUMEAU de FeederTendrils IdunBattle.Entities.Effects.Loki.FeederTendrils_ExtraDamageEffect$$CreateEffectDamageBonusForAttack SANS le
+noeud IsNormalAttack (RE decompile : callees IdunBattle.Entities.Effects.Loki.AvalancheOfMuscleTargetEffect$$CreateEffectDamageBonusForAttack = {get_OwnerIsCaster, IsCharging, op_BitwiseAnd,
 GetAbilityState, ConfigVar} ; PAS d'IsNormalAttack). Additif PRE-percage par coup (attacker_additive_pre),
 gate IsCharging = l'unite s'est-elle rapprochee de la cible (has_moved), astraBullgryn etant MELEE-only.
 

@@ -19,14 +19,14 @@ def _enemy_max_range(visual_id) -> int:
 
 
 class EarlyWarningOverridePlaybook(NonComparablePlaybook):
-    """`EarlyWarningOverridePlaybook.EvaluateNonComparable @18112e880` (id 0x435=1077, Loki/tauCrisis).
-    Summon SELF-CAST : `EarlyWarningOverrideAbility.ExecuteBehaviour @1811d7310` fait apparaitre un drone
+    """`IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$EvaluateNonComparable` (id 0x435=1077, Loki/tauCrisis).
+    Summon SELF-CAST : `IdunBattleLogic.Entities.Abilities.Active.Loki.EarlyWarningOverrideAbility$$ExecuteBehaviour` fait apparaitre un drone
     (EarlyWarningOverride_SpawnSummonUtility) + pose `EarlyWarningOverride_ReactivateOverwatchEffect`. La
     cible de DECISION = le CASTER lui-meme (spawn/effet centre sur soi ; VALIDE LIVE : abilityTargets =
     unit 77 SEUL). L'utilite est POSITIONNELLE (choisit une tuile qui menace des ennemis en restant hors
     de leur portee) -> le natif BOUGE avant de caster.
 
-    Structure native (mirror EvaluateNonComparable) : Bucket ctor 2-arg, min = Fix64(1) (cctor @18112f0a0
+    Structure native (mirror EvaluateNonComparable) : Bucket ctor 2-arg, min = Fix64(1) (IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$.cctor
     pose `**(DAT_1832106c0+0xb8)=Fix64(1)` -> MIN_UTILITY=1). Par position P balayee, enumere
     `GetEligibleTargetsSelectable(MainTile=P)` (= SOI) ; pour la cible eligible :
       GATE : nearest = slot0x49 `GetNearestEnemy(self)` ; si `dist(nearest, self) < 9` (slot0x6b, dist des
@@ -53,7 +53,7 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
       que sur util STRICTEMENT superieure -- ordre confirme par les castes en place Grapnel/DarkTalon).
     - MIN_UTILITY=1 (cctor) : positions a util < 1 rejetees ; l'ability ne fire QUE si un P atteint >= 1.
     - GATE nearest-enemy-within-9 (slot0x49=GetNearestEnemy) : modele par `min_E dist(origine,E) < 9`.
-    - ctor @18112f110 = `NonComparablePlaybook(0x435)` -> 1er arg=ability_id ; PRIORITY=0 (defaut #115).
+    - IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$.ctor = `NonComparablePlaybook(0x435)` -> 1er arg=ability_id ; PRIORITY=0 (defaut #115).
 
     FLAGS VALIDATEUR (approximations non exercees a s9) :
       * `IsTileInRangeOfAnyAbility` (slot0xc4) approxime par `dist(P,E) <= portee_arme_max(E)` : la vraie
@@ -63,11 +63,11 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
       * BRANCHE B (caster adjacent a un ennemi a l'origine) : threshold=slot0xb2 NON identifie ->
         defaut Nullable??1 (`+50 si d>1`). NON exercee a s9 (tauCrisis loin des ennemis)."""
     ABILITY_ID = int(ActiveAbilityType.EarlyWarningOverride)  # 1077
-    MIN_UTILITY = 1.0     # cctor @18112f0a0 = Fix64(1) -> admission Bucket util>=1
+    MIN_UTILITY = 1.0     # IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$.cctor = Fix64(1) -> admission Bucket util>=1
     PRIORITY = 0
-    _COVER_BONUS = 50.0   # Fix64.FromInt(0x32) @18112e880 : +50 par ennemi non-couvert / hors-portee
-    _DIST_PENALTY = 10.0  # Fix64.FromInt(iVar7*10) @18112e880 : -10 x distance par ennemi
-    _NEAREST_GATE = 9     # slot0x6b(nearest,self) < 9 (gate GetNearestEnemy @18112e880)
+    _COVER_BONUS = 50.0   # Fix64.FromInt(0x32) IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$EvaluateNonComparable : +50 par ennemi non-couvert / hors-portee
+    _DIST_PENALTY = 10.0  # Fix64.FromInt(iVar7*10) IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$EvaluateNonComparable : -10 x distance par ennemi
+    _NEAREST_GATE = 9     # slot0x6b(nearest,self) < 9 (gate GetNearestEnemy IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$EvaluateNonComparable)
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         if ctx.ability_targets is None:

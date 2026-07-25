@@ -4,15 +4,14 @@
 (`Seq`/`Maybe`/`Foreach`/`If`/`Emit`) vivent dans `entities/behaviours.py` (= `IdunBattle.Entities.
 Behaviours`), et les feuilles runner dans `runner/abilities/behaviours.py`.
 
-Contrat du walker natif (lu sur `CombinedBehaviour.Execute @180ffe730`, `ForeachBehaviour.Execute
-@180fc6210`, `MaybeBehaviour.Execute @180fc9dc0`) :
+Contrat du walker natif (lu sur `IdunBattle.DSL.CombinedBehaviour$$Execute`, `IdunBattle.Entities.Behaviours.ForeachBehaviour$$Execute`, `IdunBattle.Entities.Behaviours.MaybeBehaviour$$Execute`) :
     OperationResult Execute(this, AbilityEntities entities /*0x50, by-value*/, IProcessor* proc)
   - `entities` = le contexte lu par tous les noeuds (caster/owner/actor, target, casterPosition,
     abilityType, level, subject courant) = homologue de `DslContext` ; reconstruit par `Foreach`.
   - `proc` (IProcessor*, classe DAT_1831d3468) = LE COLLECTEUR d'Operations, threade identiquement a
     travers TOUTE la recursion -> cote port = `ExecutionContext` (state + rng + bus).
   - retour `OperationResult` (byte@+0x20 = flag succes/court-circuit), combine en remontant
-    (`OperationResult.Combine`). Operations appliquees via `IdunRunner.Apply @180e34bf0` (cascade deja portee).
+    (`OperationResult.Combine`). Operations appliquees via `IdunBattle.Runner.IdunRunner$$Apply` (cascade deja portee).
 """
 from __future__ import annotations
 
@@ -43,7 +42,7 @@ class OperationResult:
 class ExecutionContext:
     """`IProcessor* proc` natif (classe DAT_1831d3468) threade a travers TOUTE la recursion des
     `*Behaviour.Execute` = LE COLLECTEUR d'Operations. Cote port : porte `state` (ECS mute par les
-    Operations portees), `rng` (tirages `Maybe`, cf. `prng.next_bool @180e39720`), `bus` (cascade
+    Operations portees), `rng` (tirages `Maybe`, cf. `prng.next_bool IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextBool`), `bus` (cascade
     LIFO/FIFO deja portee, runner/events.py). `emitted` = journal des Operations emises (etiquette +
     payload) pour le replay-diff DSL<->imperatif<->live ; sans equivalent natif (le `proc` natif
     applique directement)."""

@@ -1,7 +1,7 @@
 """DoctrinaImperatives (id 1118, Tan Gi'da / admecMarshall) — active TOGGLE, namespace natif
 `Abilities.Active.Loki`. Cf. `loki/__init__.py`.
 
-RE (build gqfc5mff6c) `DoctrinaImperativesAbility.ExecuteBehaviour @1811d4d20` (DECOMPILE MIRROR) :
+RE (build gqfc5mff6c) `IdunBattleLogic.Entities.Abilities.Active.Loki.DoctrinaImperativesAbility$$ExecuteBehaviour` (DECOMPILE MIRROR) :
 
     If( HasEffect(caster@+0x148, 0x4df=1247 Protector, domain 6),
         THEN = op_Addition( AddEffect(0x4e0=1248 Conqueror, src=AbilityStateReference, caster),
@@ -21,12 +21,12 @@ les DEUX branches routent par les feuilles DSL portees `AddEffect`/`RemoveEffect
 aura Protector +FixedArmor aux amis Mechanical adjacents (canal `create_aura_fixed_armor_bonus_for_defense`,
 foyer runner `defender_fixed_armor`, self auto-exclu). Increment C (FAIT, self face) : Conqueror = +extraDmg
 FLAT au degat du porteur vs cible a ARMURE REDUITE (`create_effect_damage_bonus_for_attack`, gate
-`HasNegativeModifier(cible, {ARMOR,FIXED_ARMOR})` @180f39650 -> `defender_armor_reduced`) ; le niveau/mult
+`HasNegativeModifier(cible, {ARMOR,FIXED_ARMOR})` IdunBattle.Entities.Effects.Loki.ConquerorImperativeEffect$$CreateDamageModifier -> `defender_armor_reduced`) ; le niveau/mult
 actifs du caster sont seedes sur l'effet a la pose (`_seed_active_ability_level` ci-dessous). La PORTEE aura
 Conqueror aux amis Mechanical adjacents (canal aura-attaquant-allie) = increment C2, non porte (degradation fidele).
 
 DUREE : le decompile passe `0` (aucun `TurnsFromRounds`) aux deux `AddEffect` -> `DefaultAmountOfRounds`
-(@181559ff0 : null pour 1247/1248) -> fallback 1 round (`AddEffectOperation`). La PERSISTANCE de la stance
+(idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$DefaultAmountOfRounds : null pour 1247/1248) -> fallback 1 round (`AddEffectOperation`). La PERSISTANCE de la stance
 (l'Imperative doit durer jusqu'au prochain toggle) au-dela d'1 round = detail non tranche (n'affecte pas la
 validation single-turn ; flagge, cf. le `3` de FUN_180002560 dans le helper `AddDynamicStatModifierEffectToOwner`).
 """
@@ -52,7 +52,7 @@ CONQUEROR = int(EffectType.ConquerorImperative)    # 1248 (0x4e0)
 def _seed_active_ability_level(state: "State", caster_id: int, effect_type: int) -> None:
     """Seede `active_ability_level`/`ability_variables_multiplier` sur l'effet FRAICHEMENT pose (type
     `effect_type` sur le caster) depuis le ctx du CASTER (source). Le natif capture une `AbilityState
-    Reference` dans l'effet, qui indexe ses variables per-niveau (`GetAbilityState @180f11780`) ;
+    Reference` dans l'effet, qui indexe ses variables per-niveau (`IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState`) ;
     `AddEffectOperation` ne propage PAS ces champs offline (level=None) -> sans ce seeding la contribution
     CALC-TIME de Conqueror (`create_effect_damage_bonus_for_attack`, ConfigVar(8=extraDmg)) serait inerte
     (comme BeaconOfRage sans ability_level). Local (pas dans AddEffectOperation) pour ne pas perturber les
@@ -74,7 +74,7 @@ def _seed_active_ability_level(state: "State", caster_id: int, effect_type: int)
 
 class DoctrinaImperativesAbility(ActiveAbility):
     """`DoctrinaImperativesAbility` (1118) — toggle Protector <-> Conqueror sur le caster (self-cast).
-    Mirror du `If(HasEffect(1247), add 1248 + remove 1247, else add 1247 + remove 1248)` @1811d4d20."""
+    Mirror du `If(HasEffect(1247), add 1248 + remove 1247, else add 1247 + remove 1248)` IdunBattleLogic.Entities.Abilities.Active.Loki.DoctrinaImperativesAbility$$ExecuteBehaviour."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.DoctrinaImperatives)   # 1118
 

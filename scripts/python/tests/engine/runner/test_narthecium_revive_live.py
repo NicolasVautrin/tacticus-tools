@@ -1,14 +1,13 @@
 """#79 (retrofit case-66) -- Narthecium revive-EN-PLACE (ultraApothecary, base ReviveEffect).
 
-`Narthecium_ReviveEffect` (ctor @180f5ae20 / filter @180f5acf0, base ReviveEffect CreateTargetTrigger
-@180f46d80 / CreateTargetTriggerBehaviour @180f46a70) : un allie adjacent(2) non-Mechanical vaincu est
+`Narthecium_ReviveEffect` (IdunBattle.Entities.Effects.Loki.Narthecium_ReviveEffect$$.ctor / filter IdunBattle.Entities.Effects.Loki.Narthecium_ReviveEffect$$CreateTargetFilter, base ReviveEffect IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTrigger / IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour) : un allie adjacent(2) non-Mechanical vaincu est
 revive-EN-PLACE a min(reviveHP[level], maxPV), **unless Overkilled**, once-per-turn, chance=100.
 i2 : « When an adjacent friendly non-Mechanical unit is defeated, it is immediately revived with a maximum
 of {hp} Health, unless Overkilled. Can only be triggered once per turn. »
 
 DISCRIMINANT vs TaintedNarthecium (le point le plus facile a rater) : `get_ReviveOnOverkill @vtable+0x738`
-= @1802b15a0 `return 0` pour Narthecium (et la base) vs @1802b1590 `return 1` pour TaintedNarthecium (lu
-LIVE, `probe_79_revive_vtable.py`). Byte==0 -> `OnDeathEvent @180df7ad0` AJOUTE `NOT(HasFlag(dying,
+= GameCamera$$ShouldBlurBackground `return 0` pour Narthecium (et la base) vs GameCamera$$get_ShouldDisableRenderingWhenBehindSomething `return 1` pour TaintedNarthecium (lu
+LIVE, `probe_79_revive_vtable.py`). Byte==0 -> `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent` AJOUTE `NOT(HasFlag(dying,
 8=overkill))`. Les tests `test_overkill_blocks_revive` / `test_no_overkill_revives` opposent les deux faces.
 
 METHODE (mirror test_tainted_narthecium_revive_live, DETERMINISTE) : etat REEL (board+stats via load_state),
@@ -128,7 +127,7 @@ def _place(env, st, ally_uid, dist):
 
 
 def _kill(env, st, ally_uid, overkill=False):
-    """`On(1)` @0x180e76c4c PUIS la GARDE @0x180e76c9e (`kill_unit_revive_gate`) qui draine la
+    """`On(1)` @IdunBattle.Operations.KillUnitOperation$$Execute+0x7dc PUIS la GARDE @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e (`kill_unit_revive_gate`) qui draine la
     `ReviveData` posee par la feuille `Revive` -- mirror de `KillUnitOperation.Execute` (case-89 volet C)."""
     _hc(st, ally_uid).hp = 0
     _uc(st, ally_uid).alive = False
@@ -155,7 +154,7 @@ def test_revive_base_hp_and_position(nar_env):
 
 
 def test_overkill_blocks_revive(nar_env):
-    """**unless Overkilled** (get_ReviveOnOverkill @1802b15a0 = 0) : mort en OVERKILL -> PAS de revive."""
+    """**unless Overkilled** (get_ReviveOnOverkill GameCamera$$ShouldBlurBackground = 0) : mort en OVERKILL -> PAS de revive."""
     env = nar_env
     st = _fresh(env)
     assert _place(env, st, env["ids"]["ally"], 1)
@@ -193,8 +192,8 @@ def test_once_per_turn(nar_env):
 
 
 def test_no_alliance_filter(nar_env):
-    """Narthecium n'a PAS de HasTrait dans son filtre (@180f5acf0) : un allie d'une AUTRE grande alliance
-    (Xenos) adjacent est revive -- contraste TaintedNarthecium (@180f709b0, Chaos-only)."""
+    """Narthecium n'a PAS de HasTrait dans son filtre (IdunBattle.Entities.Effects.Loki.Narthecium_ReviveEffect$$CreateTargetFilter) : un allie d'une AUTRE grande alliance
+    (Xenos) adjacent est revive -- contraste TaintedNarthecium (IdunBattle.Entities.Effects.Loki.TaintedNarthecium_ReviveEffect$$CreateTargetFilter, Chaos-only)."""
     env = nar_env
     st = _fresh(env)
     assert _place(env, st, env["ids"]["ally2"], 1)
@@ -219,7 +218,7 @@ def test_adjacency_range_2(nar_env):
 
 def test_can_be_revived_mechanical(nar_env):
     """CanBeRevived : un allie Mechanical (toggle sur ctx.traits) -> PAS de revive -- c'est de LA que vient
-    le « non-Mechanical » de l'i2 (le filtre @180f5acf0 ne le contient pas)."""
+    le « non-Mechanical » de l'i2 (le filtre IdunBattle.Entities.Effects.Loki.Narthecium_ReviveEffect$$CreateTargetFilter ne le contient pas)."""
     from engine.runner.abilities.behaviours import entities_from_state
     from engine.runner.abilities.behaviours.stats import is_mechanical
     env = nar_env

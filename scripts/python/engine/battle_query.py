@@ -1,9 +1,9 @@
 """Primitives IBattleQuery — requêtes spatiales sur l'état de bataille (une fonction par slot natif).
 
 Mirror des slots `IBattleQuery` que le playbook natif appelle pour ses heuristiques NonComparable :
-  - `GetAdjacentEnemies @18105af60`  (slot 126, `FUN_180007c20(0x7e,...)`)
+  - `IdunBattle.Core.Services.BattleQuery$$GetAdjacentEnemies`  (slot 126, `FUN_180007c20(0x7e,...)`)
   - `GetAdjacentFriends`             (slot 128)
-Ces méthodes construisent leurs voisins via `IterateAdjacentTiles.<>d__8.MoveNext @1810acef0`
+Ces méthodes construisent leurs voisins via `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`
 puis `GetUnitsOnTiles`. On porte le comptage (ce que les feuilles consomment : `.Count`).
 """
 from __future__ import annotations
@@ -15,11 +15,11 @@ def is_adjacent(tile: tuple, pos: tuple, elev_by_pos: dict | None = None) -> boo
     """`pos` est-il sur une tuile ADJACENTE à `tile` selon l'adjacence NATIVE ?
 
     Primitive d'adjacence COMMUNE à tous les usages du playbook : les comptages `GetAdjacent*`
-    (slots 124/126/128) ET `DSLFactory.AdjacentUnits @180de8320` (= `AdjacentTiles` puis `Units`,
-    ciblage des heals `HealTargets @1811cca50`). Les deux passent par `IterateAdjacentTiles`, donc
+    (slots 124/126/128) ET `IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits` (= `AdjacentTiles` puis `Units`,
+    ciblage des heals `IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility$$HealTargets`). Les deux passent par `IterateAdjacentTiles`, donc
     la MÊME porte d'élévation doit s'appliquer.
 
-    `IterateAdjacentTiles.<>d__8.MoveNext @1810acef0` applique, APRÈS les filtres terrain optionnels
+    `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` applique, APRÈS les filtres terrain optionnels
     (temporary/walkable/emptyOrSteppable), un gate INCONDITIONNEL :
     `iVar4 = abs(elev(tile) - elev(voisin)) ; if (iVar4 < 2) yield`. Pour un usage sur unités
     (comptage OU somme de poids), les filtres terrain ne retirent jamais une tuile occupée (une unité
@@ -53,7 +53,7 @@ def in_arc(tile: tuple, pos: tuple, elev_by_pos: dict | None = None) -> bool:
 
 
 def count_enemies_in_arc(tile: tuple, positions: list, elev_by_pos: dict | None = None) -> int:
-    """`BasePlaybook.GetEligibleTargetsSelectable(unit, MainTile(T)) @18111ed80` (compte) — nombre
+    """`IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable(unit, MainTile(T))` (compte) — nombre
     d'unités de `positions` (ennemis) dans l'ARC de `tile` = ring-1 UNION ring-2 (`in_arc`), l'ensemble
     des CIBLES ÉLIGIBLES depuis la position T. C'est le set ancré à T que le natif énumère pour
     `GenerateAction(pos, eligible_target, util)` : si ce set est VIDE à T, AUCUNE action n'est générée
@@ -67,8 +67,7 @@ def count_enemies_in_arc(tile: tuple, positions: list, elev_by_pos: dict | None 
 
 def eligible_targets_count(tile: tuple, positions: list,
                            elev_by_pos: dict | None = None) -> int:
-    """`BasePlaybook.GetEligibleTargetsEntities(unit, MainTile(T))` (via `GetEligibleTargetsSelectable
-    @18111ed80`) — nombre de CIBLES ÉLIGIBLES depuis la position T = ennemis à dist hex <= 2 de T,
+    """`BasePlaybook.GetEligibleTargetsEntities(unit, MainTile(T))` (via `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable`) — nombre de CIBLES ÉLIGIBLES depuis la position T = ennemis à dist hex <= 2 de T,
     **SANS porte d'élévation au ring-1** : PROUVÉ live (probe_49x phase B, C1_25 : T=(0,2) elev 4,
     ennemi (1,3) elev 2 adjacent -> |Δelev|=2 exclurait via IterateAdjacentTiles, or le natif GÉNÈRE
     une action -> l'éligibilité n'utilise pas cette porte, contrairement au terme utilité
@@ -81,12 +80,11 @@ def eligible_targets_count(tile: tuple, positions: list,
 
 
 def is_target_tile_obscured(frm: tuple, to: tuple, elev_by_pos: dict | None = None) -> bool:
-    """`TargetingQuery.IsTargetTileObscured @1810bf5a0` -> `MovementQuery.GetTilesObscuringTerrain
-    @18109bad0` (mask 6 : élévation bit 2 + murs bit 4 — pas d'IndirectFire ici), TERRAIN uniquement,
+    """`IdunBattle.Core.Services.TargetingQuery$$IsTargetTileObscured` -> `IdunBattle.Core.Services.MovementQuery$$GetTilesObscuringTerrain` (mask 6 : élévation bit 2 + murs bit 4 — pas d'IndirectFire ici), TERRAIN uniquement,
     restreint à dist hex == 2 (le seul cas où le playbook NC l'exerce ; à dist 1 le natif ne teste
     rien : `2 < count` faux -> jamais obscurci ; dist > 2 hors périmètre Gauntlets).
 
-    Élévation (`DetermineBlockingTiles @18109d090`, seuil closure[3]=2) : la ligne from->to (dist 2,
+    Élévation (`DetermineBlockingTiles IdunBattle.Core.Services.MovementQuery$$u003CGetTilesObscuringTerrainu003Eg__DetermineBlockingTiles|40_0`, seuil closure[3]=2) : la ligne from->to (dist 2,
     count=3) teste l'UNIQUE tuile intermédiaire idx=1 (== count-2) contre elev(from) PUIS elev(to) ;
     bloque si `elev(mid) - elevRef >= 2` pour l'UNE des deux réfs. Fat-line (lignes A/B ±eps ->
     candidates différentes = les 2 voisins communs) : bloque SSI les DEUX candidates passent le
@@ -116,25 +114,24 @@ def is_target_tile_obscured(frm: tuple, to: tuple, elev_by_pos: dict | None = No
 def surrounding_enemies(origin: tuple, positions: list,
                         elev_by_pos: dict | None = None) -> set:
     """`Unobscured(DSLFactory.SurroundingEnemies(Caster, r=2))` — le terme « surrounding » de
-    `GauntletsOfUltramarAbility.GetSurroundingTargetsSelector @1811e20d0`, ancré à la TUILE RÉELLE
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.GauntletsOfUltramarAbility$$GetSurroundingTargetsSelector`, ancré à la TUILE RÉELLE
     du caster (`Caster@+0x160` = CasterSelector -> ENTITÉ -> `GetMainTile` dans
-    `SurroundingTilesSelector.Select @180ef6100` — PAS la tuile balayée du contexte).
+    `IdunBattle.Entities.Selectors.SurroundingTilesSelector$$Select` — PAS la tuile balayée du contexte).
 
-    Chaîne native (décompilée, case-49x) : `SurroundingEnemies @180dfc570` =
+    Chaîne native (décompilée, case-49x) : `IdunBattleLogic.Entities.DSLFactory$$SurroundingEnemies` =
     `Enemies(Units(SurroundingTiles(caster, r=2) - Tiles(caster)))` ; `SurroundingTiles` -> slot
-    0x65 = `BattleQuery.GetSurroundingTiles @181068600` -> `TileQuery.IterateSurroundingTiles
-    @1810acb90` (cube-loop DISQUE dist <= 2 — pas le ring exact) avec flags MESURÉS au call-site
-    (ctor @180ef65c0 <- SurroundingTiles(query, caster, 1, r=2, 0, 0)) :
+    0x65 = `IdunBattle.Core.Services.BattleQuery$$GetSurroundingTiles` -> `IdunBattle.Core.Services.TileQuery$$IterateSurroundingTiles` (cube-loop DISQUE dist <= 2 — pas le ring exact) avec flags MESURÉS au call-site
+    (IdunBattle.Entities.Selectors.SurroundingTilesSelector$$.ctor <- SurroundingTiles(query, caster, 1, r=2, 0, 0)) :
       - requireEmptyOrSteppable = OFF (p4=0) -> les tuiles OCCUPÉES par des ennemis PASSENT
         (la conclusion case-49 §2bis « empty-only / ring-2 mort » était FAUSSE) ;
-      - filtre restant = `TileUtil.IsTileValidForList(tile, src, 1, 0) @1810c0660` = non-mur +
+      - filtre restant = `IdunBattle.Core.Services.TileUtil$$IsTileValidForList(tile, src, 1, 0)` = non-mur +
         walkable, SANS test d'élévation ni d'occupation (une unité stationne sur du walkable -> no-op
         offline) ; PAS de porte |Δelev| ici (contrairement au ring-1 `IterateAdjacentTiles`) ;
       - includeSelf = ON (p7=1) puis `- Tiles(caster)` au niveau DSL -> exclure `origin`.
-    `Unobscured @180e01540` -> `TargetingQuery.IsTargetUnitObscured @1810bf680` depuis la tuile
+    `IdunBattleLogic.Entities.DSLFactory$$Unobscured` -> `IdunBattle.Core.Services.TargetingQuery$$IsTargetUnitObscured` depuis la tuile
     RÉELLE : dist 1 jamais obscurci, dist 2 via `is_target_tile_obscured`.
     Retour : set de positions (== unités : 1 unité/tuile) — l'union avec ring1(T) est dédupliquée
-    par le `SelectUniqueUnits(@1810108b0)` du playbook.
+    par le `IdunBattle.DSL.TargetsSelector$$SelectUniqueUnits` du playbook.
     VALIDÉ LIVE (probe_49x_realanchor, 2026-07-21) : craft-P MC1_67 plat (disque réel compte : util
     3 = 1 ring1(T) + 2 dist-2-du-réel) ; craft-N (dist-2-de-T ne compte PAS) ; E1-repro C1_25
     (17/23 positions util=2 = les 2 ennemis à dist 2 du réel, indépendant de T)."""
@@ -154,7 +151,7 @@ def surrounding_enemies(origin: tuple, positions: list,
 
 
 def iterate_surrounding_tiles_order_key(pos: tuple) -> tuple:
-    """Clé d'ORDRE d'énumération de `TileQuery.IterateSurroundingTiles` (`d__6.MoveNext @1810ae1b0`) —
+    """Clé d'ORDRE d'énumération de `TileQuery.IterateSurroundingTiles` (`IdunBattle.Core.Services.TileQuery.u003CIterateSurroundingTilesu003Ed__6$$MoveNext`) —
     le tie-break NATIF de cible à utilité égale au sein d'une position (#57g, 12345 s15).
 
     Le natif énumère le disque par triple boucle cube ASCENDANTE : `for x in cx-R..cx+R:
@@ -162,16 +159,12 @@ def iterate_surrounding_tiles_order_key(pos: tuple) -> tuple:
     matche, donc l'ordre = LEXICOGRAPHIQUE (cube.x, cube.y) CROISSANT des tuiles émises ; le centre ne
     fait que borner le disque, il ne change PAS l'ordre relatif de deux tuiles. Cet ordre survit à toute
     la chaîne de ciblage (chaque étage filtre en préservant l'ordre via OrderedSet/List.Remove) :
-    `ComparablePlaybook.EvaluateInternal @181408980` (argmax cibles STRICT `op_GreaterThan` -> PREMIÈRE
-    énumérée gagne au tie) <- `BasePlaybook.GetEligibleTargetsEntities @18111ead0` (List + Remove
-    prédicat) <- `AttackQuery.GetValidTargetsWithCache @181056cd0` <- `TargetingQuery.GetValidTargets
-    @1810be550` (itère les possibles, OrderedSet.Add si valide) <- `GetPossibleTargetsForOptions
-    @1810bcea0` <- `GetUnitsInRange @1810be120` (slot 0x76) <- `BattleQuery.GetUnitsAtDistance
-    @18106c9a0` (tuiles du ring -> GetUnit, ordre préservé) <- `GetTilesAtDistance @181069760`
+    `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$EvaluateInternal` (argmax cibles STRICT `op_GreaterThan` -> PREMIÈRE
+    énumérée gagne au tie) <- `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsEntities` (List + Remove
+    prédicat) <- `IdunBattle.Core.Services.AttackQuery$$GetValidTargetsWithCache` <- `IdunBattle.Core.Services.TargetingQuery$$GetValidTargets` (itère les possibles, OrderedSet.Add si valide) <- `IdunBattle.Core.Services.TargetingQuery$$GetPossibleTargetsForOptions` <- `IdunBattle.Core.Services.TargetingQuery$$GetUnitsInRange` (slot 0x76) <- `IdunBattle.Core.Services.BattleQuery$$GetUnitsAtDistance` (tuiles du ring -> GetUnit, ordre préservé) <- `IdunBattle.Core.Services.BattleQuery$$GetTilesAtDistance`
     (filtre dist==R, ordre préservé) <- `GetSurroundingTiles` -> l'itérateur ci-dessus.
 
-    Champs cube natifs (0,1,2) == (x,y,z) `hexgeo.to_cube` : `CubeCoordinate.ToAxialCoordinate
-    @180e30ab0` (field3==0) = inverse exact de `to_cube` (col=x ; row=z+(x+(x&1))//2). Limites :
+    Champs cube natifs (0,1,2) == (x,y,z) `hexgeo.to_cube` : `IdunBattle.Utils.Hex.CubeCoordinate$$ToAxialCoordinate` (field3==0) = inverse exact de `to_cube` (col=x ; row=z+(x+(x&1))//2). Limites :
     cible multi-tuiles = rang de sa première tuile émise (non exercé) ; l'empilement de rings pour
     range>1 (ordre inter-distances) est non lu — le tie s15 est mêlée R=1 (un seul ring)."""
     x, y, _z = hexgeo.to_cube(pos[0], pos[1])
@@ -191,10 +184,10 @@ def enemies_in_arc(tile: tuple, enemies: list, elev_by_pos: dict | None = None) 
 
 def can_add_unit(pos: tuple, walkable_by_pos: dict | None = None,
                  occupied: set | None = None) -> bool:
-    """`TileExtensions.CanAddUnit @180ec4c60` (prédicat OFFLINE, args du call Hammer arg3=1/arg4=0/arg5=false).
+    """`IdunBattle.Entities.TileExtensions$$CanAddUnit` (prédicat OFFLINE, args du call Hammer arg3=1/arg4=0/arg5=false).
 
     Le natif (décodé re-expert #116) réduit, pour ces args, à : la tuile est une tuile de board RÉELLE
-    placeable (walkable, non-wall) ET VIDE (`TileContentComponent.IsEmpty @180fa9ed0` = pas de contenu
+    placeable (walkable, non-wall) ET VIDE (`IdunBattle.Entities.Components.TileContentComponent$$IsEmpty` = pas de contenu
     unité). Offline : `walkable_by_pos[pos]` (= `BattleQuery.IsWalkableTile` = `TileExtensions.IsWalkable`,
     qui folds déjà isWall, cf. rpc-board.ts) ET `pos ∉ occupied` (occupation LIVE = TOUTES les unités
     vivantes, lue FRAÎCHE via epos/fpos/origine — PAS le `occupantUnitId` du boardGraph caché = périmé).
@@ -204,10 +197,10 @@ def can_add_unit(pos: tuple, walkable_by_pos: dict | None = None,
     les folds (HYPOTHÈSE : `walkable==false` couvre `+0x40` ; une tuile walkable-mais-réservée serait
     sur-comptée) ; (c) le filtre IsTemporary de l'itérateur natif `GetAdjacentTiles` n'est PAS appliqué
     dans le call Hammer — RE #118 RÉSOLU (non-issue) : le call slot-78 passe
-    `GetAdjacentTiles(unit, 1, 1, 1)` (@181141680) [RE ctors #148 : param3=requireEmptyOrSteppable,
+    `GetAdjacentTiles(unit, 1, 1, 1)` (IdunBattle.AI.Playbook.Loki.HammerOfWrathPlaybook$$EvaluateNonComparable) [RE ctors #148 : param3=requireEmptyOrSteppable,
     param4=requireWalkable, param5=allowTemporary (polarite inversee : 1=inclure)] ;
-    les 3 bools transitent `<IterateAdjacentTiles>d__94 @1810ad490` (+0x40/+0x42/+0x44) ->
-    `TileQuery.<>d__8 @1810acef0`. Le gate temporary y est `(field != 0) || !IsTemporary(tile)`, alimenté
+    les 3 bools transitent `<IterateAdjacentTiles>d__94 IdunBattle.Core.Services.BattleQuery.u003CIterateAdjacentTilesu003Ed__94$$MoveNext` (+0x40/+0x42/+0x44) ->
+    `TileQuery.<>d__8 IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`. Le gate temporary y est `(field != 0) || !IsTemporary(tile)`, alimenté
     par param5=allowTemporary : param5=1 -> court-circuite VRAI -> tuiles temporaires ACTIVES INCLUSES par le
     natif (comme par le port -> aucune exclusion à ajouter). (Le call jumeau `MovementQuery.IsAdjacent` passe
     (0,1,1) = param3=0 inclut les occupées + param5=1 inclut les temporaires : occupance-independant, adapté à
@@ -220,7 +213,7 @@ def can_add_unit(pos: tuple, walkable_by_pos: dict | None = None,
 
 
 def can_use_ability(unit: dict, ability: dict) -> bool:
-    """`AttackQuery.CanUseAbility @181054ec0` — gate d'USABILITE d'une ability (stun/taunt).
+    """`IdunBattle.Core.Services.AttackQuery$$CanUseAbility` — gate d'USABILITE d'une ability (stun/taunt).
 
     Le natif enchaine : (1) l'unite possede l'ability (slot itf 0x14) ; (2) un bool
     d'interface (slot 0x13) doit etre FAUX — le blocage par effet de la famille
@@ -247,8 +240,8 @@ def adjacent_addable_count(tile: tuple, neigh_by_pos: dict | None,
                            walkable_by_pos: dict | None, occupied: set | None,
                            elev_by_pos: dict | None = None) -> int:
     """`|{ n ∈ GetAdjacentTiles(unit@tile) : CanAddUnit(n) }|` — nombre de voisins ring-1 de `tile` où
-    une unité peut être placée. `GetAdjacentTiles` = IBattleQuery slot 0x4e (@18105b660 ; prouvé
-    re-expert #116 via `MovementQuery.IsAdjacent @18109c470` + le slot-map du décorateur
+    une unité peut être placée. `GetAdjacentTiles` = IBattleQuery slot 0x4e (IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles ; prouvé
+    re-expert #116 via `IdunBattle.Core.Services.MovementQuery$$IsAdjacent` + le slot-map du décorateur
     RecordedSimulationRequestsBattleQuery) -> `IterateAdjacentTiles` -> voisins `boardGraph.neighbours`
     avec la MÊME porte d'élévation `|Δelev| < 2` que `is_adjacent` (#45). Filtre chaque voisin par
     `can_add_unit`. Utilisé par `HammerOfWrathPlaybook` (+5/voisin, #116). Le call Hammer passe `(1,1,1)` =
@@ -269,12 +262,12 @@ def adjacent_addable_count(tile: tuple, neigh_by_pos: dict | None,
 
 def gauntlets_target(tile: tuple, enemies: list, neigh_by_pos: dict | None = None,
                      elev_by_pos: dict | None = None):
-    """Id de la CIBLE émise par `GauntletsOfUltramarPlaybook.EvaluateNonComparable @18113e5a0`.
+    """Id de la CIBLE émise par `IdunBattle.AI.Playbook.Loki.GauntletsOfUltramarPlaybook$$EvaluateNonComparable`.
 
     Le natif boucle sur `GetEligibleTargetsSelectable(caster, MainTile)` et `GenerateAction(pos,
     eligible_target, Fix64(count))` : 1 action / eligible target, MÊME utilité (arc-count, tuile-only)
-    -> `Bucket.AddAction @1813fbcc0` garde le PREMIER à égalité (remplace SSI `op_GreaterThan` strict).
-    L'énumération des eligible targets est INVERSÉE (`DSLFactory.Tiles`=`SortReverseSelector @180dfdc60`)
+    -> `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction` garde le PREMIER à égalité (remplace SSI `op_GreaterThan` strict).
+    L'énumération des eligible targets est INVERSÉE (`DSLFactory.Tiles`=`SortReverseSelector IdunBattleLogic.Entities.DSLFactory$$Tiles`)
     -> la cible = 1er ennemi ring-1 dans l'ordre `boardGraph.neighbours` (= `GetAdjacentTiles` natif)
     **INVERSÉ**, sinon ring-2. VALIDÉ LIVE (#117 : caster@(3,5), ring-1 fwd [80,114,78,118] -> inversé ->
     118 = cible native EXACTE).

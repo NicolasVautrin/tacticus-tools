@@ -7,9 +7,9 @@ defenseur/elevation/bouclier). Ce module porte la couche playbook + assemble la 
 (`Scene` + `UnitContext` + `AActiveAbility` + `ProbableDamageEvent`). Remplace le monolithe `predict_validate`
 (PV) : MEME calcul (valide), forme objet.
 
-  - `make_normal_attack_predictions` = `ALoki_NormalAttackPlaybook.MakeDamagePredictions @181372730`
-    (mono-cible : `ability.PredictAttack @1811afa50` -> 1 `ProbableDamageEvent`).
-  - `generate_multi_hit_attack_prediction` = per-cible de `GenerateMultiHitAttackPredictions @181409da0`.
+  - `make_normal_attack_predictions` = `IdunBattle.AI.Playbook.Loki.ALoki_NormalAttackPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$MakeDamagePredictions`
+    (mono-cible : `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$PredictAttack` -> 1 `ProbableDamageEvent`).
+  - `generate_multi_hit_attack_prediction` = per-cible de `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions`.
   - `make_damage_predictions` = `<Ability>Playbook.MakeDamagePredictions` (liste : cible + AoE + self).
 
 DECOUPAGE EN PACKAGE (module >1000 lignes scinde par couche ; ré-export ci-dessous pour que les call-sites

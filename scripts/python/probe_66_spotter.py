@@ -13,12 +13,11 @@ Sy-gex ~3, Baraqiel au contact) + aiturn.
 Couverture visee (variante HW extraDmg_2 + gates — la variante extraDmg non-HW est deja validee
 par probe_62_campred 24/24, ligne u77 (4,3) +748) :
   - sygex_in  : tuile candidate a <=2 hexes de Thaddeus -> natif +extraDmg_2 (trigger SANS
-                IsRangedAttack @180f6c980 : tuiles melee INCLUSES) ;
+                IsRangedAttack IdunBattle.Entities.Effects.Loki.SpotterReworked_HeavyWeaponEffect$$CreateEffectDamageBonusForAttack : tuiles melee INCLUSES) ;
   - sygex_out : tuile a >2 hexes -> pas de bonus (rayon ConfigConst 0x16=2) ;
   - barq_in   : Baraqiel (HW melee-only, AUCUNE arme ranged) a <=2 hexes -> +extraDmg_2 AUSSI :
-                MESURE (run 1, 2 lignes +1194/1197 = 3x ~399) puis RE — `UnitsWithRangedAttacks
-                @180e00610` = UNION UnitsWithWeaponsSelector(2) + TilesOnSameElevationSelector
-                (ref porteur, |delta elev|<=2 via GetElevationDifference @180ec4ee0) -> sur
+                MESURE (run 1, 2 lignes +1194/1197 = 3x ~399) puis RE — `IdunBattleLogic.Entities.DSLFactory$$UnitsWithRangedAttacks` = UNION UnitsWithWeaponsSelector(2) + TilesOnSameElevationSelector
+                (ref porteur, |delta elev|<=2 via IdunBattle.Entities.TileExtensions$$GetElevationDifference) -> sur
                 MC1_67 (elev 3-4) le noeud est un pass-through. Le port mirrore l'union ;
   - thad self : Thaddeus lui-meme -> pas d'aura (SurroundingFriends exclut le porteur).
 Counterfactuel : create_aura des DEUX classes patche -> None ; les lignes qui divergent doivent

@@ -2,7 +2,7 @@
 par ability). RE ghidra gqfc5mff6c (VAs citees). Case-220 §6.19 (docs/rl/case-220/aeldari.md).
 
 Executioner (1066, `eldarFarseer` « Eldryon »). Namespace natif `Abilities.Active.Loki.ExecutionerAbility`.
-`ExecutionerAbility.ExecuteBehaviour @1811d9f10` (MIRROR du DECOMPILE) :
+`IdunBattleLogic.Entities.Abilities.Active.Loki.ExecutionerAbility$$ExecuteBehaviour` (MIRROR du DECOMPILE) :
     Execute( op_BitwiseAnd( op_BitwiseAnd( op_BitwiseAnd(
         SetCache( cacheA = Cache(Damageable(Enemies(@0x160, AdjacentUnits(@0x190, 1, 3)))) ),        # prime pool
         AttackWithAttackDamage( actor@0x160, target@0x178, MinMaxDamage(minDmg 0xc/maxDmg 0xd),
@@ -17,15 +17,14 @@ adjacent enemy also takes 582-2183 for each round started. ». Attaque RANGED (r
 profil Psychic (pierce 100). Decision DEJA portee+validee (#122/#166, prediction `ExecutionerAbility` +
 `_PLAYBOOK_PROFILE_OVERRIDE[1066]="Psychic"`).
 
-- `hits = RoundsStarted` (`GetHits @1811da4a0` = `DSLFactory.RoundsStarted @180dfa6c0` -> `RoundsStartedFormula.
-  Calculate @180f223e0` = SUM `UnitComponent.turnsStarted@+0x58` sur units-in-scope = le CASTER @0x160) =
+- `hits = RoundsStarted` (`IdunBattleLogic.Entities.Abilities.Active.Loki.ExecutionerAbility$$GetHits` = `IdunBattleLogic.Entities.DSLFactory$$RoundsStarted` -> `RoundsStartedFormula.
+  IdunBattle.Entities.Formulas.RoundsStartedFormula$$Calculate` = SUM `UnitComponent.turnsStarted@+0x58` sur units-in-scope = le CASTER @0x160) =
   stat 12 (`GetStat(caster, 0xc)`), plancher `max(1,.)` (StartTurn incremente AVANT l'action -> round 1 = 1
   coup). Valeur DYNAMIQUE calculee au cast (le runner offline la maintient per-unit, #123 turnflow) — passee
   aux DEUX attaques (main + secondary), == le natif (uVar9 unique reutilise). `_rounds_started` mirror 1:1 de
   la face prediction (`ExecutionerAbility.get_special_hits`).
-- `native_factory="attack"` : l'`ExecuteBehaviour @1811d9f10` appelle `DSLFactory.AttackWithAttackDamage
-  @180de9fb0` (famille ATTACK, 2 tirages/coup a cc=0 — verifie par XREF du decompile : symbole appele =
-  `DSLFactory__AttackWithAttackDamage`, PAS `AttackWithAbilityDamage @180de9c90/dd0`), pour le MAIN comme le
+- `native_factory="attack"` : l'`IdunBattleLogic.Entities.Abilities.Active.Loki.ExecutionerAbility$$ExecuteBehaviour` appelle `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (famille ATTACK, 2 tirages/coup a cc=0 — verifie par XREF du decompile : symbole appele =
+  `DSLFactory__AttackWithAttackDamage`, PAS `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage/dd0`), pour le MAIN comme le
   SECONDARY. Multi-coups (hits=RoundsStarted) -> classification factory OBLIGATOIRE (tip #2) : "attack".
 - SECONDARY : ne fire QUE si la cible est MORTE apres le MAIN (`If(IsDead(Target()))`, evalue APRES le main
   dans la sequence `op_and`). Cible = 1 ennemi VIVANT tire au hasard adjacent (hex 1) a la cible
@@ -43,8 +42,8 @@ profil Psychic (pierce 100). Decision DEJA portee+validee (#122/#166, prediction
   FireOfAbsolution). Aucune mutation de combat -> non porte (residu documente).
 
 HarvesterOfSouls (1067, `eldarMauganRa` « Maugan Ra »). Namespace natif `Abilities.Active.Loki.
-HarvesterOfSoulsAbility`. `HarvesterOfSoulsAbility.ExecuteBehaviour @1811e70f0` (MIRROR du DECOMPILE) :
-    hits = If( HasFlag(caster@0x160, Moved=0),                                   # GetHits @1811e75b0
+HarvesterOfSoulsAbility`. `IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$ExecuteBehaviour` (MIRROR du DECOMPILE) :
+    hits = If( HasFlag(caster@0x160, Moved=0),                                   # IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$GetHits
                ConfigConst(nrOfHits=0x2f),                                       #   a bouge -> nrOfHits
                Sum(ConfigConst(nrOfHits=0x2f), ConfigConst(extraHit=0x2b)) )     #   pas bouge -> nrOfHits+extraHit
     surrSel = SurroundingUnits(caster@0x160, GetNumberConstant(range=0x16))      # A : unites <= range hex du caster
@@ -62,21 +61,18 @@ nrOfHits=2, extraHit=1, range=3 ; minDmg_2/maxDmg_2 == minDmg/maxDmg (bornes PAR
 portee+validee (#122, `active_ability.HarvesterOfSoulsAbility.GetHits`/`_AOE` ; ground-truth seed777 step-17
 per-coup 987/1481 = entree x 0.55 = pierce 55 = HeavyRound).
 
-- `hits = If(HasFlag(caster, Moved=0), nrOfHits, Sum(nrOfHits, extraHit))` (`GetHits @1811e75b0` = `GetHitFormula
-  @1811e7530`). `HasFlag(caster@0x160, 0)` (`DSLFactory.HasFlag @180df10d0` -> `HasFlagAbilityTrigger.ShouldTrigger
-  @180eec2b0` = `UnitFlagsComponent.Has(caster, flag)`, expected=1) = le caster a le flag `UnitFlag.Moved=0`
+- `hits = If(HasFlag(caster, Moved=0), nrOfHits, Sum(nrOfHits, extraHit))` (`IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$GetHits` = `IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$GetHitFormula`). `HasFlag(caster@0x160, 0)` (`IdunBattleLogic.Entities.DSLFactory$$HasFlag` -> `IdunBattle.Entities.Conditions.HasFlagAbilityTrigger$$ShouldTrigger` = `UnitFlagsComponent.Has(caster, flag)`, expected=1) = le caster a le flag `UnitFlag.Moved=0`
   (`UnitFlagsComponent.MOVED`, pose par `SetMovedFlag`). Le natif = `If(a_bouge, nrOfHits, nrOfHits+extraHit)` :
   A BOUGE -> nrOfHits=2 coups ; PAS BOUGE -> nrOfHits+extraHit=3 coups (i2 « +1 extra hit if hasn't moved »).
   Valeur DYNAMIQUE calculee au cast, passee aux DEUX attaques (main + splash) == le natif (uVar10 unique reutilise).
   Miroir 1:1 de la face prediction (`HarvesterOfSoulsAbility.GetHits` = MEME arbre `If(HasFlag, ...)`).
 - `damageProfile = Nullable(0x13 = 19 = HeavyRound)` : le combat passe un OVERRIDE de profil EXPLICITE (stocke
-  `AttackDamageBehaviour+0x88`, `ctor @180fbb6e0`) = HeavyRound (`DamageProfileType.HeavyRound=19`, pierce 55),
+  `AttackDamageBehaviour+0x88`, `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$.ctor`) = HeavyRound (`DamageProfileType.HeavyRound=19`, pierce 55),
   pour le MAIN comme le SPLASH. Coincide numeriquement avec la face prediction (config SANS damageProfile ->
   fallback arme RANGED = HeavyRound de Maugan, pierce 55, ground-truth seed777) -> profil combat "HeavyRound".
   (Contraste Executioner : `Nullable(0xd=13=Psychic)`.)
-- `native_factory="attack"` : l'`ExecuteBehaviour @1811e70f0` appelle `DSLFactory.AttackWithAttackDamage
-  @180de9fb0` (famille ATTACK, 2 tirages/coup a cc=0 — XREF du decompile = `DSLFactory__AttackWithAttackDamage`,
-  PAS `AttackWithAbilityDamage @180de9c90/dd0`), pour le MAIN comme le SPLASH. Multi-coups (hits=2/3) ->
+- `native_factory="attack"` : l'`IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$ExecuteBehaviour` appelle `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (famille ATTACK, 2 tirages/coup a cc=0 — XREF du decompile = `DSLFactory__AttackWithAttackDamage`,
+  PAS `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage/dd0`), pour le MAIN comme le SPLASH. Multi-coups (hits=2/3) ->
   classification factory OBLIGATOIRE (tip #2) : "attack" (== Executioner).
 - SPLASH (selecteur MULTI-cible passe DIRECTEMENT a UN `AttackWithAttackDamage`, PAS un `Foreach` -> patron
   PlasmaGrenade/ScythingTalons ; `multi=True`) = `And(SurroundingUnits(caster, range=3), AdjacentEnemies(target,
@@ -120,9 +116,9 @@ if TYPE_CHECKING:
 
 
 def _rounds_started(state: "State", caster_id: int) -> int:
-    """`ExecutionerAbility.GetHits @1811da4a0` = `DSLFactory.RoundsStarted @180dfa6c0` -> `RoundsStartedFormula.
-    Calculate @180f223e0` = SUM `UnitComponent.turnsStarted@+0x58` sur units-in-scope (scope = le CASTER
-    @0x160) = stat 12 (`GetStat(caster, 0xc)`, `UnitTurnsStartedFormula.Calculate @180f2d6c0`). Plancher
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ExecutionerAbility$$GetHits` = `IdunBattleLogic.Entities.DSLFactory$$RoundsStarted` -> `RoundsStartedFormula.
+    IdunBattle.Entities.Formulas.RoundsStartedFormula$$Calculate` = SUM `UnitComponent.turnsStarted@+0x58` sur units-in-scope (scope = le CASTER
+    @0x160) = stat 12 (`GetStat(caster, 0xc)`, `IdunBattle.Entities.Formulas.UnitTurnsStartedFormula$$Calculate`). Plancher
     `max(1,.)` (StartTurn incremente AVANT l'action -> round 1 = 1 coup, jamais 0). MIROIR 1:1 de la face
     prediction (`ExecutionerAbility.get_special_hits`, active_ability.py). Le runner offline maintient
     `turnsStarted` per-unit (#123, `StartTurnOperation.execute` bumpe `UnitComponent+0x58`)."""
@@ -134,7 +130,7 @@ def _rounds_started(state: "State", caster_id: int) -> int:
 
 
 def executioner_tree(n_hits: int):
-    """Arbre de `ExecutionerAbility.ExecuteBehaviour @1811d9f10` (MIRROR du DECOMPILE ; cf. en-tete module) :
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.ExecutionerAbility$$ExecuteBehaviour` (MIRROR du DECOMPILE ; cf. en-tete module) :
         op_and( AttackWithAttackDamage(Target(), "Executioner", "Psychic", ranged, hits=n),               # MAIN
                 If( IsDead(Target()),
                     AttackWithAttackDamage(pool, "Executioner", "Psychic", ranged, multi, pick_n=1,
@@ -146,7 +142,7 @@ def executioner_tree(n_hits: int):
     (@0x190 = role tuile-cible, distinct de @0x178=Target-unit mais MEME position ; le cadavre garde sa
     tuile). `multi=True, pick_n=1` folde le `PickRandomly(., 1)` (tri par id -> `_pick_randomly_n`, no-draw si
     <=1 candidat, == natif). `hits=n` (RoundsStarted) OVERRIDE la config `nrOfHits` sur les 2 feuilles.
-    `native_factory="attack"` par defaut (XREF @180de9fb0). `If(IsDead(Target()))` s'evalue APRES le MAIN
+    `native_factory="attack"` par defaut (XREF IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage). `If(IsDead(Target()))` s'evalue APRES le MAIN
     (sequence gauche->droite `op_and`) : le secondary ne fire que si le main a tue la cible. `Inform(0xc1)` et
     `SetCache` FOLDES (cf. en-tete)."""
     ability_type = int(ActiveAbilityType.Executioner)               # AbilityOrEffect(this+0x10) threade after-hit
@@ -160,12 +156,12 @@ def executioner_tree(n_hits: int):
 
 
 class ExecutionerAbility(ActiveAbility):
-    """`ExecutionerAbility.ExecuteBehaviour @1811d9f10` (id 1066, `eldarFarseer` « Eldryon », Aeldari) —
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ExecutionerAbility$$ExecuteBehaviour` (id 1066, `eldarFarseer` « Eldryon », Aeldari) —
     MIRROR du DECOMPILE, arbre DSL (`executioner_tree`). Attaque RANGED Psychic (pierce 100) `hits=RoundsStarted`
     sur la cible ; SI la cible MEURT, meme attaque sur 1 ennemi VIVANT random adjacent a la cible (`If(IsDead)`
     evalue APRES le main). Le behaviour est l'arbre DSL : la feuille `AttackWithAttackDamage` (mode bornes,
     `hits` override = RoundsStarted) emet la MEME Operation d'attaque d'ability que le pipeline combat porte
-    -> bit-exact BY CONSTRUCTION vs une sequence directe sous meme rng. `native_factory="attack"` (@180de9fb0,
+    -> bit-exact BY CONSTRUCTION vs une sequence directe sous meme rng. `native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage,
     XREF) -> conso rng per-coup correcte (2 tirages/coup a cc=0). Decision DEJA portee+validee (#122/#166)."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.Executioner)   # 1066
@@ -186,9 +182,9 @@ class ExecutionerAbility(ActiveAbility):
 
 
 def _harvester_hits(state: "State", caster_id: int) -> int:
-    """`HarvesterOfSoulsAbility.GetHits @1811e75b0` = `GetHitFormula @1811e7530` = arbre DSL
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$GetHits` = `IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$GetHitFormula` = arbre DSL
     `If(HasFlag(caster@0x160, Moved=0), ConfigConst(nrOfHits), Sum(ConfigConst(nrOfHits), ConfigConst(extraHit)))`.
-    `HasFlag(caster, 0)` (`DSLFactory.HasFlag @180df10d0` -> `HasFlagAbilityTrigger.ShouldTrigger @180eec2b0` =
+    `HasFlag(caster, 0)` (`IdunBattleLogic.Entities.DSLFactory$$HasFlag` -> `IdunBattle.Entities.Conditions.HasFlagAbilityTrigger$$ShouldTrigger` =
     `UnitFlagsComponent.Has(caster, flag=0)`, expected=1) = le caster porte `UnitFlag.Moved=0` (a bouge ce tour).
     Donc : A BOUGE -> nrOfHits ; PAS BOUGE -> nrOfHits + extraHit (i2 « +1 extra hit if hasn't moved »). MIROIR
     1:1 de la face prediction (`active_ability.HarvesterOfSoulsAbility.GetHits`). `nrOfHits`/`extraHit` lus via
@@ -203,7 +199,7 @@ def _harvester_hits(state: "State", caster_id: int) -> int:
 
 
 def harvester_of_souls_tree(n_hits: int, range_r: int) -> AtomicGroup:
-    """Arbre de `HarvesterOfSoulsAbility.ExecuteBehaviour @1811e70f0` (MIRROR du DECOMPILE ; cf. en-tete module) :
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$ExecuteBehaviour` (MIRROR du DECOMPILE ; cf. en-tete module) :
         AtomicGroup( op_and(
             AttackWithAttackDamage(Target(), "HarvesterOfSouls", "HeavyRound", ranged, hits=n),          # MAIN
             AttackWithAttackDamage( And(SurroundingUnits(CasterTile(), Const(range)),                     # SPLASH
@@ -217,7 +213,7 @@ def harvester_of_souls_tree(n_hits: int, range_r: int) -> AtomicGroup:
     (`And(SurroundingUnits(CasterTile(), range), AdjacentEnemies(TargetTile(), 1))`, wrap `Alive` = compense les
     cadavres offline), bornes `MinMaxDamage2` (minDmg_2/maxDmg_2). `damageProfile = Nullable(0x13=HeavyRound)` sur
     les DEUX feuilles (override explicite du combat, pierce 55). `native_factory="attack"` par defaut (XREF
-    @180de9fb0, 2 tirages/coup a cc=0 == Executioner). `multi=True` folde le selecteur multi-cible (tri par id =
+    IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, 2 tirages/coup a cc=0 == Executioner). `multi=True` folde le selecteur multi-cible (tri par id =
     ordre de lecture natif). `ExecuteAtomic(., 0x2a)` -> `AtomicGroup` (inline #201, aucun EvaluateAbilities #209).
     Ordre = main PUIS splash -> meme `state.rng` -> bit-exact BY CONSTRUCTION."""
     ability_type = int(ActiveAbilityType.HarvesterOfSouls)          # AbilityOrEffect(this+0x10) threade after-hit
@@ -232,13 +228,13 @@ def harvester_of_souls_tree(n_hits: int, range_r: int) -> AtomicGroup:
 
 
 class HarvesterOfSoulsAbility(ActiveAbility):
-    """`HarvesterOfSoulsAbility.ExecuteBehaviour @1811e70f0` (id 1067, `eldarMauganRa` « Maugan Ra », Aeldari) —
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$ExecuteBehaviour` (id 1067, `eldarMauganRa` « Maugan Ra », Aeldari) —
     MIRROR du DECOMPILE, arbre DSL (`harvester_of_souls_tree`). Attaque RANGED HeavyRound (pierce 55)
     `hits = If(HasFlag(caster, Moved), nrOfHits=2, nrOfHits+extraHit=3)` sur la cible + MEME attaque sur les
     ennemis adjacents-cible ∩ rayon-`range`(3) du caster (splash `MinMaxDamage2`). Le behaviour est l'arbre DSL :
     les feuilles `AttackWithAttackDamage` (mode bornes, `hits` override = la formule not-moved) emettent la MEME
     Operation d'attaque d'ability que le pipeline combat porte -> bit-exact BY CONSTRUCTION vs une sequence
-    directe sous meme rng. `native_factory="attack"` (@180de9fb0, XREF) -> conso rng per-coup correcte (2
+    directe sous meme rng. `native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, XREF) -> conso rng per-coup correcte (2
     tirages/coup a cc=0). `damageProfile` override explicite = HeavyRound (`Nullable(0x13=19)`). `ExecuteAtomic`
     (tag 0x2a) -> `AtomicGroup`. Decision DEJA portee+validee (#122). Passif `InescapableAccuracy` (crit gated
     not-moved) NON porte = item separe -> le cas A BOUGE (hits=2) est le canal de validation bit-exact propre."""

@@ -8,8 +8,8 @@ prédiction->utilité (Σ damage_composite + Tile(7)) est mutualisé dans la bas
   `prediction.make_normal_attack_predictions` (sélection d'arme + hits + perçage + armure + modifiers effets).
 - `DefaultActiveAbilityPlaybook` : fallback pour toute ability spéciale sans playbook bespoke ->
   `prediction.make_damage_predictions` (cible principale + AoE ; None/[] pour summon/buff/heal = NON-attaque).
-- `HealPlaybook` (tag 18) : soin = `HealUtility @1810e16f0` (heal_utility) + CustomUtility (TwistedScience).
-  Gate `ShouldExecute @181184b30` : pred > 0.
+- `HealPlaybook` (tag 18) : soin = `HealUtility IdunBattle.AI.Utilities.HealUtility.u003CEvaluateAttackInStepsu003Ed__1$$MoveNext` (heal_utility) + CustomUtility (TwistedScience).
+  Gate `IdunBattle.AI.Playbook.Common.HealPlaybook$$ShouldExecute` : pred > 0.
 - `RepairPlaybook` (tag 28) : DORMANT (prédiction repair non-dégât, pas de repair dans les batailles testées).
 
 PRÉDICTEUR = `engine.playbook.prediction` (modèle objet : Scene + ability + services + ProbableDamageEvent).
@@ -35,12 +35,12 @@ class NormalAttackPlaybook(ComparablePlaybook):
         return None if ev is None else [ev]
 
     def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
-        """`ALoki_NormalAttackPlaybook<T>.CalculateCustomUtility @1813726e0` (générique partagé de
-        tous les `*_NormalAttackPlaybook` par-unité) ; idem `Idun.NormalAttackPlaybook<T> @18149ee60`
-        et `Loki_NormalBossAttackPlaybook @1811497c0` : `Fix64.FromInt(1)` constant. Preuve L3 #64
+        """`ALoki_NormalAttackPlaybook<T>.IdunBattle.AI.Playbook.Loki.ALoki_NormalAttackPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateCustomUtility` (générique partagé de
+        tous les `*_NormalAttackPlaybook` par-unité) ; idem `Idun.NormalAttackPlaybook<T> IdunBattle.AI.Playbook.Idun.NormalAttackPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateCustomUtility`
+        et `Loki_NormalBossAttackPlaybook IdunBattle.AI.Playbook.Loki.Loki_NormalBossAttackPlaybook$$CalculateCustomUtility` : `Fix64.FromInt(1)` constant. Preuve L3 #64
         (2468 s18 u77) : action 69 = 20.981 pair + 40 tile + 1 = 61.981 > 61.728 = 21.728 + 40 + 0
         (MartialInspiration 1191) -> natif joue 69 ; 31337 s16 Δpair=4.97 > 1 -> 1191 émis.
-        (Exception native NON portée : ProperKilly_NormalAttackPlaybook @1811532a0, logique melee.)"""
+        (Exception native NON portée : ProperKilly_NormalAttackPlaybook IdunBattle.AI.Playbook.Loki.ProperKilly_NormalAttackPlaybook$$CalculateCustomUtility, logique melee.)"""
         return 1.0
 
 
@@ -60,8 +60,7 @@ class DefaultActiveAbilityPlaybook(ComparablePlaybook):
 
 class HealPlaybook(ComparablePlaybook):
     """Soin (tag 18). Utilité = CustomUtility (TwistedScience : +100, +100 si cible Genestealers) +
-    `HealUtility` (heal_utility = (missing/(maxHP+1))×100×friendSign×bossMod). Gate `ShouldExecute
-    @181184b30` : pred > 0 (self-heal permis). L'énumération cibles/tuiles reste au générateur ;
+    `HealUtility` (heal_utility = (missing/(maxHP+1))×100×friendSign×bossMod). Gate `IdunBattle.AI.Playbook.Common.HealPlaybook$$ShouldExecute` : pred > 0 (self-heal permis). L'énumération cibles/tuiles reste au générateur ;
     `score` = le terme d'utilité par cible."""
     ability_id = int(ActiveAbilityType.Heal)  # 18 (#158)
 

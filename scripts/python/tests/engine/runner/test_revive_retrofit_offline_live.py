@@ -9,9 +9,9 @@ Les deux carriers ne sont PAS montables en runner :
 -> l'etat est capture LIVE (board/stats/traits REELS via load_state) et l'effet est INJECTE dans
 `state.effects` (ce que ferait la pose native). Chaque discriminant du port est oppose a sa face negative.
 
-Artefacts : `ReanimationBeam_ReviveEffect` ctor @180f67b90 / filter @180f67ac0 (base `ReviveEffect`
-@180f46d80/@180f46a70) ; `PhoenixGem_ReviveAbility` CreateTrigger @1811117b0 / CreateBehaviour @181111610
-enregistree par `PhoenixGem_CanReviveEffect.CreateHandleTriggerAbilitiesInternal @180f5e4a0`. ASCII only.
+Artefacts : `ReanimationBeam_ReviveEffect` IdunBattle.Entities.Effects.Loki.ReanimationBeam_ReviveEffect$$.ctor / filter IdunBattle.Entities.Effects.Loki.ReanimationBeam_ReviveEffect$$CreateTargetFilter (base `ReviveEffect`
+IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTrigger/IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour) ; `PhoenixGem_ReviveAbility` IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateBehaviour
+enregistree par `IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal`. ASCII only.
 """
 from __future__ import annotations
 
@@ -87,8 +87,8 @@ def _traits(st, uid, *add):
 
 
 def _kill(st, uid, killer, overkill=False):
-    """`On(1)` PUIS la GARDE @0x180e76c9e (`kill_unit_revive_gate`) qui draine la `ReviveData` posee par
-    la feuille `Revive` -- mirror de `KillUnitOperation.Execute @180e76470` (case-89 volet C)."""
+    """`On(1)` PUIS la GARDE @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e (`kill_unit_revive_gate`) qui draine la `ReviveData` posee par
+    la feuille `Revive` -- mirror de `IdunBattle.Operations.KillUnitOperation$$Execute` (case-89 volet C)."""
     st.get_entity(uid).get_component(HealthComponent).hp = 0
     st.get_entity(uid).get_component(UnitComponent).alive = False
     out = after_death_triggers(st, dying_id=uid, killer_id=killer, overkill=overkill)
@@ -107,7 +107,7 @@ def _setup_beam(env, mechanical=True, nanoscarab=True):
     _add_effect(st, beam, REANIMATION_BEAM_EFFECT, "ReanimationBeam_Revive")
     if mechanical:
         # HasTrait(target, Mechanical=5) SEUL. Le port pose desormais `heal_type = 1` (Repair), lu dans
-        # methodPointers @0x31006a0 = @1802cca80 (`return 1`) -> `IsAffectedByHealType(1) @180ed77d0`
+        # methodPointers @0x31006a0 = GameCamera$$get_ScreenStatus (`return 1`) -> `IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType(1)`
         # EXIGE une cible mecanique : plus besoin de la bequille `AffectedByHealAndRepair` (avec
         # l'ancien healType=0 code en dur, une cible Mechanical SANS ce trait etait REJETEE -> le revive
         # ReanimationBeam etait un NO-OP GARANTI, case-89 volet B1).
@@ -118,7 +118,7 @@ def _setup_beam(env, mechanical=True, nanoscarab=True):
 
 
 def test_beam_revives_mechanical_ally_with_nanoscarab(env):
-    """Filtre @180f67ac0 rempli (ami + Mechanical + effet 1545) -> revive EN PLACE a min(reviveHP,maxPV)."""
+    """Filtre IdunBattle.Entities.Effects.Loki.ReanimationBeam_ReviveEffect$$CreateTargetFilter rempli (ami + Mechanical + effet 1545) -> revive EN PLACE a min(reviveHP,maxPV)."""
     st, beam, tgt = _setup_beam(env)
     pc = st.get_entity(tgt).get_component(PositionComponent)
     pos0 = (pc.col, pc.row)
@@ -140,7 +140,7 @@ def test_beam_requires_nanoscarab_effect(env):
 def test_beam_requires_mechanical(env):
     """`HasTrait(target, Mechanical=5)` : une cible NON-Mechanical (meme avec 1545) -> PAS de revive.
     C'est l'INVERSE de Narthecium, qui exclut les Mechanical. DOUBLE barriere ici : le filtre
-    @180f67ac0 ET `IsAffectedByHealType(healType=1)` @180ed77d0 (Repair -> mecaniques seulement)."""
+    IdunBattle.Entities.Effects.Loki.ReanimationBeam_ReviveEffect$$CreateTargetFilter ET `IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType(healType=1) (Repair -> mecaniques seulement)."""
     st, beam, tgt = _setup_beam(env, mechanical=False)
     _kill(st, tgt, beam)
     assert not _alive(st, tgt), "revive d'une cible non-Mechanical (filtre HasTrait non respecte)"
@@ -148,7 +148,7 @@ def test_beam_requires_mechanical(env):
 
 def test_beam_heal_type_is_repair(env):
     """Discriminant case-89/B1 : `get_HealType @vtable+0x748` de ReanimationBeam = **1** (Repair, lu dans
-    methodPointers @0x31006a0 -> @1802cca80 `return 1`). Consequence OBSERVABLE : une cible MECHANICAL
+    methodPointers @0x31006a0 -> GameCamera$$get_ScreenStatus `return 1`). Consequence OBSERVABLE : une cible MECHANICAL
     SANS le trait `AffectedByHealAndRepair` est revivable. Avec l'ancien healType=0 code en dur,
     `IsAffectedByHealType(0)` la rejetait -> le revive etait un NO-OP GARANTI.
     Face NEGATIVE opposee : avec healType=0 (celui de Narthecium/RitesOfMorkai), la MEME cible est
@@ -181,7 +181,7 @@ def test_beam_unless_overkilled_and_one_shot(env):
 
 # ----------------------------------------------------------------- PhoenixGem (marqueur 1451)
 def test_phoenix_self_revive_even_if_overkilled(env):
-    """`OnPreDeath(ignoreOverkill=TRUE)` (constante LITTERALE du call @1811117b0) : le porteur du marqueur
+    """`OnPreDeath(ignoreOverkill=TRUE)` (constante LITTERALE du call IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateTrigger) : le porteur du marqueur
     1451 est revive MEME en overkill, EN PLACE, sans `Maybe` (inconditionnel)."""
     st = _fresh(env)
     uid, other = _two_allies(st)
@@ -197,7 +197,7 @@ def test_phoenix_self_revive_even_if_overkilled(env):
 
 
 def test_phoenix_once_per_battle(env):
-    """Le marqueur 1451 est RETIRE apres le revive (mirror des 2 triggers RemoveEffect @180f5e4a0)
+    """Le marqueur 1451 est RETIRE apres le revive (mirror des 2 triggers RemoveEffect IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal)
     -> « the FIRST TIME each BATTLE » : la 2e mort n'est pas revive, meme apres un turn-start."""
     st = _fresh(env)
     uid, other = _two_allies(st)
@@ -230,7 +230,7 @@ def test_phoenix_no_marker_no_revive(env):
 
 def test_phoenix_marker_survives_a_foreign_revive(env):
     """Discriminant case-89/B3 : le retrait du marqueur 1451 est un trigger SEPARE
-    (`PhoenixGem_CanReviveEffect.CreateHandleTriggerAbilitiesInternal @180f5e4a0`) gate par
+    (`IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal`) gate par
     `CurrentAbilityIs(AbilityOrEffect(0x5b2=1458))`. Un revive venu d'AILLEURS (ici une `ReviveData`
     posee directement, sourceId != PhoenixGem) emet bien `On(0x2e)` mais NE consomme PAS le marqueur.
     L'ancien port chainait le `RemoveEffect` en dur au behaviour -> ce discriminant etait inexprimable."""

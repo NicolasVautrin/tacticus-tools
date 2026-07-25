@@ -21,9 +21,9 @@ from ..magnitude import ability_var, trait_var
 
 class RapidAssaultExtraDamageEffect(BaseEffect):
     """`RapidAssault_ExtraDamageEffect` (effet 0x4cd=1229).
-    - dégât @180f67940 : `ForPercentIncrease(ConfigConst key 0xf)` = trait var `rapidAssaultExtraDmgPct` (=25, scalaire).
-    - cycle de vie : posé à l'init d'ability (`RapidAssaultAbility.CreateBehaviour` @181224950 `AddEffect(0x4cd)`),
-      RETIRÉ en fin de tour si l'unité a attaqué (`RemoveExtraDamageEffectAbility.CreateTrigger` @181224af0 =
+    - dégât IdunBattle.Entities.Effects.Loki.RapidAssault_ExtraDamageEffect$$CreateEffectDamageBonusForAttack : `ForPercentIncrease(ConfigConst key 0xf)` = trait var `rapidAssaultExtraDmgPct` (=25, scalaire).
+    - cycle de vie : posé à l'init d'ability (`IdunBattleLogic.Entities.Abilities.Active.Loki.RapidAssaultAbility$$CreateBehaviour `AddEffect(0x4cd)`),
+      RETIRÉ en fin de tour si l'unité a attaqué (`IdunBattleLogic.Entities.Abilities.Active.Loki.RapidAssault_RemoveExtraDamageEffectAbility$$CreateTrigger =
       `On(0x17) & UnitsAttackedThisTurn>0 & HasEffect(0x4cd)`).
     VALIDÉ live : +25% → u94→u84 3012-4524 EXACT."""
 
@@ -43,23 +43,23 @@ class RapidAssaultExtraDamageEffect(BaseEffect):
 
 
 class SmashaEadExtraDamageEffect(BaseEffect):
-    """`SmashaEadEffect.CreateEffectDamageBonusForAttack @180f6bee0` (orksNob "Tanksmasha", ability
+    """`IdunBattle.Entities.Effects.Loki.SmashaEadEffect$$CreateEffectDamageBonusForAttack` (orksNob "Tanksmasha", ability
     SmashaEad, EffectType "SmashaEad") : `EffectBonus.ForAddition(OwnerIsCaster & IsNormalAttack,
     ConfigVar(8=extraDmg, EffectSource))` = +`extraDmg[level]` x multiplier au degat des attaques
     NORMALES du porteur — FLAT additif (PAS %, contrairement a RapidAssault).
 
     Placement (#69, natif LU) : `ForAddition` ecrit le champ DamageBonus (+5) de l'EffectBonus ->
-    `DamageModifiers.Add @181005f10` fait `additif @+0x10 += FromInt(v)`, applique APRES percage/armure
-    par `CalculateBaseDamageWithAllModifiers @18102d3f0` (meme canal `additive` que tout ForAddition).
+    `IdunBattle.Core.Services.DamageModifiers$$Add` fait `additif @+0x10 += FromInt(v)`, applique APRES percage/armure
+    par `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` (meme canal `additive` que tout ForAddition).
     Il n'existe PAS de canal additif "de base" pre-percage dans le natif -> le kind "BaseAddition"
     invente a ete retire ; le `+66` observe post-percage etait confondu par l'aura #49 + BeastSlayer.
 
-    Effet pose par `SmashaEadAbility.CreateTrigger @1811a0610` quand le porteur a traverse >=2 hexes
+    Effet pose par `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SmashaEadAbility$$CreateTrigger` quand le porteur a traverse >=2 hexes
     ce tour (condition d'EFFECT-CREATION, deja bakee dans l'effet materialise ; le bonus s'applique
     tant que l'effet est actif -> pas de re-gate ici). `extraDmg` in variablesAffectedByRarityBonus ->
     scale par le multiplier de l'unite. i2 : "+437 Damage" (au niveau/mult affiche). ability ACTIVE ->
     indexe activeAbilityLevel. (L'effet porte AUSSI -dmgReductionPct au degat RECU via
-    `CreateEffectDamageMalusForDefense @180f6c060` = cote DEFENSE, PORTE #119 ci-dessous.)"""
+    `IdunBattle.Entities.Effects.Loki.SmashaEadEffect$$CreateEffectDamageMalusForDefense` = cote DEFENSE, PORTE #119 ci-dessous.)"""
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
                                               has_moved: bool | None = None,
@@ -68,8 +68,8 @@ class SmashaEadExtraDamageEffect(BaseEffect):
                                               is_normal_attack: bool | None = True,
                                               target_armor_reduced: bool | None = None,
                                               att_ctx=None) -> EffectBonus | None:
-        # #71 : trigger natif = OwnerIsCaster & IsNormalAttack (@180f6bee0). Le noeud DSL IsNormalAttack
-        # (= `IsRegularAttack(ability DECLENCHANTE)` @180f8d260/@181555b40, FALSE si pas d'ability dans le
+        # #71 : trigger natif = OwnerIsCaster & IsNormalAttack (IdunBattle.Entities.Effects.Loki.SmashaEadEffect$$CreateEffectDamageBonusForAttack). Le noeud DSL IsNormalAttack
+        # (= `IsRegularAttack(ability DECLENCHANTE)` IdunBattle.Entities.Triggers.AbilityIsNormalAttackTrigger$$ShouldTrigger/idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.ActiveAbility$$IsRegularAttack, FALSE si pas d'ability dans le
         # contexte) evalue FALSE dans le contexte PREDICTION DISPLAY (verdict re-expert : additif absent de
         # decisionView ; off_sans ~= oracle) -> l'additif ne doit PAS entrer dans la DamageModifiers de
         # PREDICTION. En COMBAT (is_prediction=False) l'additif est applique.
@@ -78,7 +78,7 @@ class SmashaEadExtraDamageEffect(BaseEffect):
         # applique ~2x. Le niveau (50), la variable (extraDmg) et l'index (level-1) sont CORRECTS ; SEUL le
         # multiplier est faux : `self.ability_variables_multiplier=180` est le multiplier GLOBAL/primaire de
         # l'unite (UnitConfig+0x74), or la TRIGGERED SmashaEad a son PROPRE multiplier par-ability = 90
-        # (`GetAbilityVariablesMultiplierPercentage(abilityId)@181696230` est PAR-ABILITY). Ce multiplier
+        # (`GetAbilityVariablesMultiplierPercentage(abilityId)IdunMetaLogic.UserProgress.UnitConfigUtil$$GetAbilityVariablesMultiplierPercentageForProgressionIndex` est PAR-ABILITY). Ce multiplier
         # par-ability des triggered n'est capte par AUCUN champ actuel -> fix FIDELE = nouveau capteur (tache
         # #75) ; presence CORRECTE. Test xfail test_getstuckin_combat_absolute_bit_exact -> xpass apres fix.
         if is_prediction:
@@ -87,17 +87,17 @@ class SmashaEadExtraDamageEffect(BaseEffect):
                else (self.ability_level if self.ability_level is not None else self.level))
         amt = ability_var("SmashaEad", "extraDmg", lvl,
                           multiplier_pct=self.ability_variables_multiplier)
-        # ForAddition -> canal `additive @+0x10` applique POST-percage (DamageModifiers.Add @181005f10).
+        # ForAddition -> canal `additive @+0x10` applique POST-percage (IdunBattle.Core.Services.DamageModifiers$$Add).
         return for_addition(True, amt) if amt is not None else None
 
     def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
                                                damage_profile: str | None = None,
                                                attacker_ctx: Mapping | None = None) -> EffectBonus | None:
-        """`SmashaEadEffect.CreateEffectDamageMalusForDefense @180f6c060` (cote DEFENSE, #119) :
+        """`IdunBattle.Entities.Effects.Loki.SmashaEadEffect$$CreateEffectDamageMalusForDefense` (cote DEFENSE, #119) :
         `EffectBonus.ForPercentDecrease(OwnerIsTarget, ConfigVar 0x46=dmgReductionPct)` — l'effet REDUIT le
         degat RECU par son porteur de `dmgReductionPct`% (i2 « takes -33% Damage » tant que l'effet actif =
         le porteur a traverse >=2 hexes ; la CONDITION est deja bakee dans la materialisation de l'effet ->
-        pas de re-gate ici). Gate natif = `OwnerIsTarget` SEUL (decompile @180f6c060) -> AUCUN gate
+        pas de re-gate ici). Gate natif = `OwnerIsTarget` SEUL (decompile IdunBattle.Entities.Effects.Loki.SmashaEadEffect$$CreateEffectDamageMalusForDefense) -> AUCUN gate
         melee/normal : s'applique a TOUTE attaque recue. `dmgReductionPct` NON rarity-affected (BC
         `VariablesAffectedByUnitRarityMultiplier=[extraDmg]`) -> multiplier no-op (pas de bug #68 cote defense).
         #119 : reconstruit BIT-EXACT offline (Kariyan->orksNob : RapidAssault x1.25 + DEF -33% = oracle
@@ -113,9 +113,9 @@ class SmashaEadExtraDamageEffect(BaseEffect):
 
 
 class FeederTendrilsExtraDamageEffect(BaseEffect):
-    """`FeederTendrils_ExtraDamageEffect.CreateEffectDamageBonusForAttack @180f48ea0` (Deathleaper,
-    effet 0x4ad=1197 ; ctor @180f49050 = `ABondEffect(AbilityOrEffect 0x4ad)`). JUMEAU BIT-A-BIT de
-    `SmashaEadExtraDamageEffect @180f6bee0` avec UN gate `IsCharging` en plus :
+    """`IdunBattle.Entities.Effects.Loki.FeederTendrils_ExtraDamageEffect$$CreateEffectDamageBonusForAttack` (Deathleaper,
+    effet 0x4ad=1197 ; IdunBattle.Entities.Effects.Loki.FeederTendrils_ExtraDamageEffect$$.ctor = `ABondEffect(AbilityOrEffect 0x4ad)`). JUMEAU BIT-A-BIT de
+    `SmashaEadExtraDamageEffect IdunBattle.Entities.Effects.Loki.SmashaEadEffect$$CreateEffectDamageBonusForAttack` avec UN gate `IsCharging` en plus :
     `EffectBonus.ForAddition(OwnerIsCaster & IsNormalAttack & IsCharging, ConfigVar(8=extraDmg, EffectSource))`.
 
     - MAGNITUDE = `ability_var("FeederTendrils", "extraDmg", level) x multiplier` (`ConfigVar` var index 8 =
@@ -123,15 +123,15 @@ class FeederTendrilsExtraDamageEffect(BaseEffect):
       [L50]=554, [L65]=728 = le « +728 Damage » i2). Multiplier = le GLOBAL de l'unite (`self.ability_variables_
       multiplier`, UnitConfig+0x74), PAS le per-ability #68 : `FeederTendrils_NormalAttack` (1120) EST l'attaque
       NORMALE de l'unite (pas une triggered) -> le multiplier standard s'applique. Aucun scaling par AbilityState
-      (`GetAbilityState @180f11780` ne sert qu'a indexer `level` dans `GetVariableForLevel`).
+      (`IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState` ne sert qu'a indexer `level` dans `GetVariableForLevel`).
     - PLACEMENT = additif attaquant PRE-percage per-coup (canal `attacker_additive_pre`, MEME que SmashaEad #75 :
-      `ForAddition` -> `DamageModifiers.Add @181005f10`, applique par bout dans `GetDamageWithPiercing`). RE-valide
+      `ForAddition` -> `IdunBattle.Core.Services.DamageModifiers$$Add`, applique par bout dans `GetDamageWithPiercing`). RE-valide
       (reconciliation MIN exacte, u87 seed 42, A=554x1.8=997/coup) : u83/u81 delta=3x997=2991 EXACT ; u85 min=
       3x339=1017 ; u79 min=718~=717 (%-list 0.8). Les MAX u79/u85 qui s'ecartent = caps HP (deja geres par
       target_limits/overkill du port). Le delta VARIE par cible via le regime percage/armure par bout, PAS via
       des stacks.
-    - GATE `IsCharging` (`AverageDistanceFormula @180f0c7e0` : l'unite s'est-elle rapprochee de la cible = a-t-elle
-      charge) ET `get_IsMelee` (@1811dd850) -> l'additif n'est ACTIF qu'en attaque MELEE de CHARGE (deplacement au
+    - GATE `IsCharging` (`AverageDistanceFormula IdunBattle.Entities.Formulas.AverageDistanceFormula$$Calculate` : l'unite s'est-elle rapprochee de la cible = a-t-elle
+      charge) ET `get_IsMelee` (IdunBattleLogic.Entities.Abilities.Active.Loki.FeederTendrils_NormalAttackAbility$$ExecuteBehaviour) -> l'additif n'est ACTIF qu'en attaque MELEE de CHARGE (deplacement au
       contact). En prediction-display les tuiles d'attaque rankees SONT des tuiles de charge -> gate TRUE (les 4
       samples portent l'additif). Contrairement a SmashaEad, PAS de `if is_prediction: return None` : ici
       IsNormalAttack=TRUE (c'est l'attaque normale de l'unite, incluse dans decisionView).
@@ -145,11 +145,11 @@ class FeederTendrilsExtraDamageEffect(BaseEffect):
                                               is_normal_attack: bool | None = True,
                                               target_armor_reduced: bool | None = None,
                                               att_ctx=None) -> EffectBonus | None:
-        if is_ranged:                       # IsCharging & get_IsMelee (@1811dd850) -> melee uniquement
+        if is_ranged:                       # IsCharging & get_IsMelee (IdunBattleLogic.Entities.Abilities.Active.Loki.FeederTendrils_NormalAttackAbility$$ExecuteBehaviour) -> melee uniquement
             return None
-        if is_normal_attack is False:       # IsNormalAttack (@180df4690)
+        if is_normal_attack is False:       # IsNormalAttack (IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack)
             return None
-        if has_moved is False:              # IsCharging (@180df3210) : charge = deplacement vers la cible
+        if has_moved is False:              # IsCharging (IdunBattleLogic.Entities.DSLFactory$$IsCharging) : charge = deplacement vers la cible
             return None                     # (has_moved None = inconnu -> applique, cas prediction-display)
         lvl = (self.active_ability_level if self.active_ability_level is not None
                else (self.ability_level if self.ability_level is not None else self.level))
@@ -159,28 +159,27 @@ class FeederTendrilsExtraDamageEffect(BaseEffect):
 
 
 class AvalancheOfMuscleExtraDamageEffect(BaseEffect):
-    """`AvalancheOfMuscleTargetEffect.CreateEffectDamageBonusForAttack @180f32b20` (astraBullgryn passif
-    AvalancheOfMuscle, AstraMilitarum ; effet EffectType 1025 "AvalancheOfMuscle_ExtraDamage" ; ctor
-    @180f32cd0 = `ABondEffect(AbilityOrEffect 0x404=1028)`). JUMEAU de `FeederTendrilsExtraDamageEffect
-    @180f48ea0` avec UNE difference : PAS de noeud `IsNormalAttack`.
+    """`IdunBattle.Entities.Effects.Loki.AvalancheOfMuscleTargetEffect$$CreateEffectDamageBonusForAttack` (astraBullgryn passif
+    AvalancheOfMuscle, AstraMilitarum ; effet EffectType 1025 "AvalancheOfMuscle_ExtraDamage" ; IdunBattle.Entities.Effects.Loki.AvalancheOfMuscleTargetEffect$$.ctor = `ABondEffect(AbilityOrEffect 0x404=1028)`). JUMEAU de `FeederTendrilsExtraDamageEffect
+    IdunBattle.Entities.Effects.Loki.FeederTendrils_ExtraDamageEffect$$CreateEffectDamageBonusForAttack` avec UNE difference : PAS de noeud `IsNormalAttack`.
     `EffectBonus.ForAddition(OwnerIsCaster & IsCharging, ConfigVar(8=extraDmg, GetAbilityState, EffectSource))`.
 
-    RE (decompile = verite) : les callees de @180f32b20 = {get_OwnerIsCaster, IsCharging, op_BitwiseAnd,
+    RE (decompile = verite) : les callees de IdunBattle.Entities.Effects.Loki.AvalancheOfMuscleTargetEffect$$CreateEffectDamageBonusForAttack = {get_OwnerIsCaster, IsCharging, op_BitwiseAnd,
     GetAbilityState, ConfigVar, Nullable.ctor} -> DEUX noeuds trigger SEULEMENT (OwnerIsCaster & IsCharging).
     `IsNormalAttack` (present chez FeederTendrils) est ABSENT ici -> le bonus s'applique a TOUTE attaque du
     porteur en CHARGE, pas seulement l'attaque normale. Le `ForAddition` est inline (le compilo l'a fondu :
-    ConfigVar ecrite au champ additif +0x10 = param_1[2], meme layout que EffectBonus.ForAddition @180f406e0),
-    donc canal ADDITIF identique a FeederTendrils/SmashaEad (`DamageModifiers.Add @181005f10`, applique
+    ConfigVar ecrite au champ additif +0x10 = param_1[2], meme layout que IdunBattle.Entities.Effects.EffectBonus$$ForAddition),
+    donc canal ADDITIF identique a FeederTendrils/SmashaEad (`IdunBattle.Core.Services.DamageModifiers$$Add`, applique
     par coup PRE-percage cote combat, canal `attacker_additive_pre`).
 
     - MAGNITUDE = `ability_var("AvalancheOfMuscle", "extraDmg", level) x multiplier` (`ConfigVar` var index 8 =
       `extraDmg`, SEULE var de l'ability, dans `variablesAffectedByRarityBonus` ; extraDmg[L1]=6, [L65]=437).
-      `GetExtraDamage @18121a080` = `AbilityConfiguration.GetVariableForLevel(config, 8, ...)` sur le config de
+      `IdunBattleLogic.Entities.Abilities.Active.Loki.AvalancheOfMuscleAbility$$GetExtraDamage` = `AbilityConfiguration.GetVariableForLevel(config, 8, ...)` sur le config de
       `AvalancheOfMuscleAbility` (le PASSIF du porteur) -> level = niveau passif d'astraBullgryn (cascade
       active_ability_level -> ability_level -> level, comme FeederTendrils). Multiplier = le GLOBAL de l'unite
       (`self.ability_variables_multiplier`) : AvalancheOfMuscle est un PASSIF (pas une triggered) -> a VALIDER
       live que le multiplier global est le bon (piege #68/#75 per-ability vs global).
-    - GATE `IsCharging` (`AverageDistanceFormula @180f0c7e0` via `DSLFactory.IsCharging @180df3210` : l'unite
+    - GATE `IsCharging` (`AverageDistanceFormula IdunBattle.Entities.Formulas.AverageDistanceFormula$$Calculate` via `IdunBattleLogic.Entities.DSLFactory$$IsCharging` : l'unite
       s'est-elle rapprochee de la cible = a-t-elle charge). astraBullgryn est MELEE-only (aucune attaque
       ranged) -> le gate `is_ranged` est un no-op ; conserve pour rester le calque strict de FeederTendrils
       (meme noeud IsCharging). Cote combat `has_moved = unit_id in state.moved_this_turn` (proxy de charge) ;
@@ -196,9 +195,9 @@ class AvalancheOfMuscleExtraDamageEffect(BaseEffect):
                                               att_ctx=None) -> EffectBonus | None:
         if is_ranged:                       # IsCharging melee (astraBullgryn melee-only ; calque FeederTendrils)
             return None
-        if has_moved is False:              # IsCharging (@180df3210) : charge = deplacement vers la cible
+        if has_moved is False:              # IsCharging (IdunBattleLogic.Entities.DSLFactory$$IsCharging) : charge = deplacement vers la cible
             return None                     # (has_moved None = inconnu -> applique, cas prediction-display)
-        # PAS de gate is_normal_attack : @180f32b20 n'a AUCUN noeud IsNormalAttack (RE decompile).
+        # PAS de gate is_normal_attack : IdunBattle.Entities.Effects.Loki.AvalancheOfMuscleTargetEffect$$CreateEffectDamageBonusForAttack n'a AUCUN noeud IsNormalAttack (RE decompile).
         lvl = (self.active_ability_level if self.active_ability_level is not None
                else (self.ability_level if self.ability_level is not None else self.level))
         amt = ability_var("AvalancheOfMuscle", "extraDmg", lvl,
@@ -207,18 +206,18 @@ class AvalancheOfMuscleExtraDamageEffect(BaseEffect):
 
 
 class DecoysAndMisdirectionExtraDamageEffect(BaseEffect):
-    """`DecoysAndMisdirection_ExtraDamageEffect.CreateEffectDamageBonusForAttack @180f3e340` (Genestealer
+    """`IdunBattle.Entities.Effects.Loki.DecoysAndMisdirection_ExtraDamageEffect$$CreateEffectDamageBonusForAttack` (Genestealer
     Cults ability DecoysAndMisdirection 0x518=1304, effet 0x563=1379 "DecoysAndMisdirection_ExtraDamage") :
     `EffectBonus.ForAddition(OwnerIsCaster, ConfigVar(8=extraDmg, EffectSource))` = +`extraDmg[level]` x
     multiplier au degat de TOUTES les attaques du porteur (l'ami buffe) -- FLAT additif, meme canal
-    `additive @+0x10` que SmashaEad (DamageModifiers.Add @181005f10, applique POST-percage par
-    CalculateBaseDamageWithAllModifiers @18102d3f0).
+    `additive @+0x10` que SmashaEad (IdunBattle.Core.Services.DamageModifiers$$Add, applique POST-percage par
+    IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers).
 
     Pose sur un ami quand un decoy est spawn a cote de lui / quand un ami se deplace sur un decoy (i2 :
-    « it deals +582 Damage until the end of its turn »). ctor @180f3e4a0 : EffectSource = AbilityOrEffect
+    « it deals +582 Damage until the end of its turn »). IdunBattle.Entities.Effects.Loki.DecoysAndMisdirection_ExtraDamageEffect$$.ctor : EffectSource = AbilityOrEffect
     0x518 (DecoysAndMisdirection) -> extraDmg indexe sur le niveau de CETTE ability du SOURCE (genesPrimus).
 
-    DIFFERENCE cle vs SmashaEad (#71) : le gate natif est `get_OwnerIsCaster` SEUL (@180f3e340 decompile :
+    DIFFERENCE cle vs SmashaEad (#71) : le gate natif est `get_OwnerIsCaster` SEUL (IdunBattle.Entities.Effects.Loki.DecoysAndMisdirection_ExtraDamageEffect$$CreateEffectDamageBonusForAttack decompile :
     AUCUN noeud IsNormalAttack ni IsMeleeAttack). OwnerIsCaster est TRUE des que le porteur attaque (ce
     chemin n'est appele QUE pour les attaques du porteur) -> l'additif s'applique en PREDICTION comme en
     COMBAT (contrairement a SmashaEad dont IsNormalAttack evalue FALSE en display-prediction, #71).
@@ -238,13 +237,13 @@ class DecoysAndMisdirectionExtraDamageEffect(BaseEffect):
                                               is_normal_attack: bool | None = True,
                                               target_armor_reduced: bool | None = None,
                                               att_ctx=None) -> EffectBonus | None:
-        # Gate natif = OwnerIsCaster SEUL (@180f3e340) : aucun re-gate is_ranged/is_normal/is_prediction.
+        # Gate natif = OwnerIsCaster SEUL (IdunBattle.Entities.Effects.Loki.DecoysAndMisdirection_ExtraDamageEffect$$CreateEffectDamageBonusForAttack) : aucun re-gate is_ranged/is_normal/is_prediction.
         # Ce chemin n'est appele que pour les attaques du porteur -> OwnerIsCaster implicitement TRUE.
         lvl = (self.active_ability_level if self.active_ability_level is not None
                else (self.ability_level if self.ability_level is not None else self.level))
         amt = ability_var("DecoysAndMisdirection", "extraDmg", lvl,
                           multiplier_pct=self.ability_variables_multiplier)
-        # ForAddition -> canal `additive @+0x10` applique POST-percage (DamageModifiers.Add @181005f10).
+        # ForAddition -> canal `additive @+0x10` applique POST-percage (IdunBattle.Core.Services.DamageModifiers$$Add).
         return for_addition(True, amt) if amt is not None else None
 
 
@@ -253,13 +252,13 @@ class LordOfTempestsExtraDamageEffect(BaseEffect):
     "LordOfTempests_ExtraDamage" — passif de Njal spaceStormcaller). i2 : « Njal's normal attacks deal
     +237 Damage for each hex surrounding him that is covered in Ice. » (#29, lead 1 agreement-stages).
 
-    - hexes `GetHexesIncreasingDamage @180f56b40` : `EntitiesWithAnyEffect(SurroundingTiles(owner, 0, 1),
+    - hexes `IdunBattle.Entities.Effects.Loki.LordOfTempests_ExtraDamageEffect$$GetHexesIncreasingDamage` : `EntitiesWithAnyEffect(SurroundingTiles(owner, 0, 1),
       0x11, domain Tiles)` = les tuiles du RING-1 du caster porteuses de l'effet **Ice** — le CENTRE ne
       compte PAS (vérifié bit-exact seed 31337 s18 : (2,4) elle-même glacée -> count=3 = ring-1 seul).
-    - dégât `CreateEffectDamageBonusForAttack @180f569a0` : `EffectBonus.ForAddition(get_OwnerIsCaster,
+    - dégât `IdunBattle.Entities.Effects.Loki.LordOfTempests_ExtraDamageEffect$$CreateEffectDamageBonusForAttack` : `EffectBonus.ForAddition(get_OwnerIsCaster,
       Multiply(ConfigVar(8=extraDmg, GetAbilityState(effet)), Count(hexes)))` — FLAT additif, canal
-      standard `DamageModifiers.Add @181005f10` appliqué PAR COUP (comme SmashaEad/BeaconOfRage).
-    - condition d'activité `CreateActiveCondition @180f56950` : `AmountIsGreaterThanZero(Count(hexes))`
+      standard `IdunBattle.Core.Services.DamageModifiers$$Add` appliqué PAR COUP (comme SmashaEad/BeaconOfRage).
+    - condition d'activité `IdunBattle.Entities.Effects.Loki.LordOfTempests_ExtraDamageEffect$$CreateActiveCondition` : `AmountIsGreaterThanZero(Count(hexes))`
       (l'effet n'est « actif » que s'il y a >=1 hex glacé adjacent — évalué à la POSITION COURANTE par
       le natif ; côté port la magnitude re-count par POSITION CANDIDATE rend ce gate redondant : count=0
       -> bonus None).
@@ -278,7 +277,7 @@ class LordOfTempestsExtraDamageEffect(BaseEffect):
       bit près, mais son EFFET est mesuré = gate normal-only). Côté combat le vecteur ability threade
       `is_normal_attack=False` (`execute_ability_attack` -> `attacker_modifiers`, #217).
     - La 2e moitié du passif (« each enemy hit covers its hex in Ice ») =
-      `LordOfTempests_AddIceAbility.CreateBehaviour/CreateTrigger @1811085d0/@181108670` (face RUNTIME,
+      `LordOfTempests_AddIceAbility.CreateBehaviour/CreateTrigger IdunBattleLogic.Entities.Abilities.Triggered.Loki.LordOfTempests_AddIceAbility$$CreateBehaviour/IdunBattleLogic.Entities.Abilities.Triggered.Loki.LordOfTempests_AddIceAbility$$CreateTrigger` (face RUNTIME,
       arbre DSL AddEffect tile-domain) — PORTÉE #35 (`runner/operations/triggers/loki/lord_of_tempests.py`,
       case-35) : le runner pose la glace en simulant ; la prédiction lit la glace DÉJÀ posée (tileMeta
       frais), elle n'en pose pas. Côté COMBAT runner l'att_ctx positionnel vient de
@@ -287,7 +286,7 @@ class LordOfTempestsExtraDamageEffect(BaseEffect):
     ICE_TILE_EFFECT = "Ice"   # nom d'effet de tuile capté (tileMeta.effects[].name, vérifié live 31337)
 
     def get_hexes_increasing_damage(self, att_ctx) -> int:
-        """`GetHexesIncreasingDamage @180f56b40` -> COUNT des tuiles ring-1 (centre EXCLU) autour de la
+        """`IdunBattle.Entities.Effects.Loki.LordOfTempests_ExtraDamageEffect$$GetHexesIncreasingDamage` -> COUNT des tuiles ring-1 (centre EXCLU) autour de la
         position d'attaque candidate porteuses de l'effet Ice. att_ctx None / sans données -> 0."""
         c = att_ctx or {}
         pos = c.get("att_pos")
@@ -320,13 +319,13 @@ class LordOfTempestsExtraDamageEffect(BaseEffect):
 
 
 class CrushingStrikeEffect(BaseEffect):
-    """`CrushingStrikeEffect` (Effects.Loki, effet 0x4a2=1186 ; ctor @180f3af20, base
+    """`CrushingStrikeEffect` (Effects.Loki, effet 0x4a2=1186 ; IdunBattle.Entities.Effects.Loki.CrushingStrikeEffect$$.ctor, base
     `ADamageDefenseModifierAbilityEffect`).
-    - dégât `CreateDamageModifier` @180f3ad90 : `ForPercentIncrease(OwnerIsCaster & IsNormalAttack &
+    - dégât `IdunBattle.Entities.Effects.Loki.CrushingStrikeEffect$$CreateDamageModifier : `ForPercentIncrease(OwnerIsCaster & IsNormalAttack &
       IsMeleeAttack, ConfigConst key 0xf)` = trait var `crushingStrikeExtraDmgPct` (=50, constante
-      plate via `AbilityConfiguration.GetNumberConstant` — cf. `ConfigAmount.Calculate @180f171c0` —
+      plate via `AbilityConfiguration.GetNumberConstant` — cf. `IdunBattle.Entities.Formulas.ConfigAmount$$Calculate` —
       NON rarity-scalée).
-    - condition d'activité `CreateActiveCondition` @180f3ad50 : NOT HasFlag(HasMoved) (« if it has
+    - condition d'activité `IdunBattle.Entities.Effects.Loki.CrushingStrikeEffect$$CreateActiveCondition : NOT HasFlag(HasMoved) (« if it has
       not moved this turn ») — en PRÉDICTION la tuile candidate fixe le flag (`has_moved`), en COMBAT
       `state.moved_this_turn` (#60).
     VALIDÉ live #98 (darkaTerminator u80→u78 seed777 roster1) : préd depuis (6,6) not-moved elev2>1
@@ -340,11 +339,11 @@ class CrushingStrikeEffect(BaseEffect):
                                               is_normal_attack: bool | None = True,
                                               target_armor_reduced: bool | None = None,
                                               att_ctx=None) -> EffectBonus | None:
-        if is_ranged:                            # gated IsMeleeAttack (@180f3ad90)
+        if is_ranged:                            # gated IsMeleeAttack (IdunBattle.Entities.Effects.Loki.CrushingStrikeEffect$$CreateDamageModifier)
             return None
         if is_normal_attack is False:            # gated IsNormalAttack (spéciale mêlée → pas de bonus)
             return None
-        if has_moved:                            # ActiveCondition NOT HasFlag(HasMoved) (@180f3ad50)
+        if has_moved:                            # ActiveCondition NOT HasFlag(HasMoved) (IdunBattle.Entities.Effects.Loki.CrushingStrikeEffect$$CreateActiveCondition)
             return None
         pct = trait_var("CrushingStrike", "crushingStrikeExtraDmgPct")
         return for_percent_increase(True, pct) if pct is not None else None
@@ -352,7 +351,7 @@ class CrushingStrikeEffect(BaseEffect):
 
 class HeavyWeaponExtraDmgEffect(BaseEffect):
     """`HeavyWeapon_ExtraDmgEffect` (effet 1008 ; ctor `DamageModifierAbilityEffect(0x3e9)`).
-    - dégât `CreateDamageModifier` @180f4f030 : `EffectBonus.ForPercentIncrease(cond, amount)` où
+    - dégât `IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier : `EffectBonus.ForPercentIncrease(cond, amount)` où
       `amount = ConditionalAmount(TriggeringAbilityIs(AbilityOrEffect(0x3ec=1004 MortisRound)) ?
       Multiply(base, Direct(2)) : base)`, `base = ConfigConst key 0xf` = trait var `heavyWeaponExtraDmg`
       (=25, scalaire) ; condition = `OwnerIsCaster & IsRangedAttack & ((F@0xa0 & !HasFlag(TurnFinished=3))
@@ -374,7 +373,7 @@ class HeavyWeaponExtraDmgEffect(BaseEffect):
                                               att_ctx=None) -> EffectBonus | None:
         if not is_ranged:                        # gated IsRangedAttack (no-op sur mêlée / contexte inconnu)
             return None
-        # Gate NO-MOVE (`!HasFlag(HasMoved=0)` @180f4f030 ; i2 : « When this unit has not moved this
+        # Gate NO-MOVE (`!HasFlag(HasMoved=0)` IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier ; i2 : « When this unit has not moved this
         # turn »). En PRÉDICTION la tuile candidate fixe le flag : has_moved=True (candidat avec
         # déplacement) → pas de bonus (GROUND TRUTH step-23 : rangées ranged u78 SANS ×1.25 depuis les
         # tuiles déplacées ; step-11 : « ×1.25 selon tuile »). En COMBAT (#60) l'état est DÉSORMAIS tracé
@@ -386,7 +385,7 @@ class HeavyWeaponExtraDmgEffect(BaseEffect):
         if pct is None:
             return None
         # #47 : branche `ConditionalAmount(TriggeringAbilityIs(0x3ec=1004), Multiply(base, Direct(2)),
-        # base)` du décompilé @180f4f030 — amount DOUBLÉ (+50%) quand le coup est déclenché par
+        # base)` du décompilé IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier — amount DOUBLÉ (+50%) quand le coup est déclenché par
         # MortisRound. `trigger_ability_type` = l'AbilityOrEffect du coup, présent seulement sur le
         # vecteur ABILITY (execute_ability_attack) ; absent (attaque normale/overwatch) = branche base.
         if att_ctx and att_ctx.get("trigger_ability_type") == int(ActiveAbilityType.MortisRound):
@@ -397,7 +396,7 @@ class HeavyWeaponExtraDmgEffect(BaseEffect):
 class RangedSpecialistEffect(BaseEffect):
     """`RangedSpecialistEffect` (trait RangedSpecialist — i2 : « If this unit did not start its turn
     adjacent to an enemy unit, it deals +33% Damage with ranged attacks »).
-    - dégât @180f67520 : `EffectBonus.ForPercentIncrease((OwnerIsCaster & IsRangedAttack &
+    - dégât IdunBattle.Entities.Effects.Loki.RangedSpecialistEffect$$CreateEffectDamageBonusForAttack : `EffectBonus.ForPercentIncrease((OwnerIsCaster & IsRangedAttack &
       !TriggeringAbilityIs(0x434)) | (branche 0x434 overwatch), Get(ConfigConst 0xf))` =
       **+rangedSpecialistDmgPct% sur les attaques RANGED** (toutes tuiles — la condition « pas parti
       adjacent » est l'état ACTIF de l'effet, reflété par la capture isActive, PAS un gate de tuile).
@@ -411,7 +410,7 @@ class RangedSpecialistEffect(BaseEffect):
                                               is_normal_attack: bool | None = True,
                                               target_armor_reduced: bool | None = None,
                                               att_ctx=None) -> EffectBonus | None:
-        if not is_ranged:                        # gated IsRangedAttack (@180f67520)
+        if not is_ranged:                        # gated IsRangedAttack (IdunBattle.Entities.Effects.Loki.RangedSpecialistEffect$$CreateEffectDamageBonusForAttack)
             return None
         pct = trait_var("RangedSpecialist", "rangedSpecialistDmgPct")
         return for_percent_increase(True, pct) if pct is not None else None
@@ -424,7 +423,7 @@ _BEAST_SLAYER_TARGET_TRAITS = frozenset({"BigTarget", "Vehicle"})
 
 
 class BeastSlayerExtraDmgEffect(BaseEffect):
-    """`BeastSlayer_ExtraDmgEffect.CreateDamageModifier @180f336c0` (trait BeastSlayer, effet
+    """`IdunBattle.Entities.Effects.Loki.BeastSlayer_ExtraDmgEffect$$CreateDamageModifier` (trait BeastSlayer, effet
     `BeastSlayer_ExtraDmg`) : `ForPercentIncrease(ConfigConst 0xf = beastSlayerExtraDmgPct=20)` gate
     `OwnerIsCaster & IsMeleeAttack & (HasTrait(target, BigTarget=1017) | HasTrait(target, Vehicle=1029))`.
     => +20% de degat MELEE vs Big Targets / Vehicles (i2). Variable de TRAIT -> globale, NON scalee.
@@ -448,7 +447,7 @@ class BeastSlayerExtraDmgEffect(BaseEffect):
 
 
 class MartialKatahDmgBonusEffect(BaseEffect):
-    """`MartialKatah_DmgBonusEffect.CreateEffectDamageBonusForAttack @180f58930` (trait MartialKatah,
+    """`IdunBattle.Entities.Effects.Loki.MartialKatah_DmgBonusEffect$$CreateEffectDamageBonusForAttack` (trait MartialKatah,
     Custodes ex. custoBladeChampion/custoTrajann) : `EffectBonus.ForPercentIncrease(OwnerIsCaster &
     HasTrait(target, Summon=2), Direct(GetNumberConstant cfg 0xf = martialKatahExtraDmgPct=100))`.
     => +100% de dégât vs SUMMONS — AUCUN gate mêlée/ranged/normal (i2 « all attacks against Summons »),
@@ -470,23 +469,23 @@ class MartialKatahDmgBonusEffect(BaseEffect):
 
 
 class CondemnorStakeExtraDmgEffect(BaseEffect):
-    """`CondemnorStake_ExtraDmgEffect.CreateEffectDamageBonusForAttack @180f39450` (adeptCanoness
+    """`IdunBattle.Entities.Effects.Loki.CondemnorStake_ExtraDmgEffect$$CreateEffectDamageBonusForAttack` (adeptCanoness
     <<Roswitha>> passif CondemnorStake, Sisterhood/Imperial ; effet EffectType 1076 "CondemnorStake_ExtraDmg" ;
-    ctor @180f39600 = `BaseEffect(AbilityOrEffect 0x42e=1070=CondemnorStake)`). JUMEAU de
-    `AvalancheOfMuscleExtraDamageEffect @180f32b20` avec UNE difference : le noeud `IsCharging` est remplace
+    IdunBattle.Entities.Effects.Loki.CondemnorStake_ExtraDmgEffect$$.ctor = `BaseEffect(AbilityOrEffect 0x42e=1070=CondemnorStake)`). JUMEAU de
+    `AvalancheOfMuscleExtraDamageEffect IdunBattle.Entities.Effects.Loki.AvalancheOfMuscleTargetEffect$$CreateEffectDamageBonusForAttack` avec UNE difference : le noeud `IsCharging` est remplace
     par `HasTrait(target, Psyker)`.
     `EffectBonus.ForAddition(OwnerIsActor & HasTrait(target, 0x3ea=1002=Psyker),
     ConfigVar(8=extraDmg, GetAbilityState, EffectSource))`.
 
-    RE (decompile = verite, @180f39450) : les callees = {GetAbilityState, ConfigVar, get_OwnerIsActor,
+    RE (decompile = verite, IdunBattle.Entities.Effects.Loki.CondemnorStake_ExtraDmgEffect$$CreateEffectDamageBonusForAttack) : les callees = {GetAbilityState, ConfigVar, get_OwnerIsActor,
     HasTrait(*(factory+0x178)=target, 0x3ea, ...), op_BitwiseAnd, Nullable.ctor} -> DEUX noeuds trigger
     (OwnerIsActor & HasTrait(target, Psyker)). AUCUN noeud IsCharging / IsNormalAttack / IsMeleeAttack /
     IsRangedAttack -> le bonus s'applique a TOUTE attaque du porteur (normale ET ability, melee ET ranged)
     CONTRE une cible Psyker. Le `ForAddition` est inline (ConfigVar ecrite au champ additif, meme layout que
-    AvalancheOfMuscle/SmashaEad @180f406e0) -> canal ADDITIF identique (DamageModifiers.Add @181005f10,
+    AvalancheOfMuscle/SmashaEad IdunBattle.Entities.Effects.EffectBonus$$ForAddition) -> canal ADDITIF identique (IdunBattle.Core.Services.DamageModifiers$$Add,
     applique par coup, canal `attacker_additive_pre`).
 
-    - `get_OwnerIsActor @180e02530` (owner@0x148 vs actor@0x158) vs `get_OwnerIsCaster @180e02610`
+    - `IdunBattleLogic.Entities.DSLFactory$$get_OwnerIsActor` (owner@0x148 vs actor@0x158) vs `IdunBattleLogic.Entities.DSLFactory$$get_OwnerIsCaster`
       (owner@0x148 vs caster@0x160) : trigger d'identite "l'owner est l'acteur/le caster". Ce chemin
       `CreateEffectDamageBonusForAttack` n'est appele QUE pour l'attaque du PORTEUR -> OwnerIsActor est
       implicitement TRUE (== traitement OwnerIsCaster/OwnerIsActor de DecoysAndMisdirection/SpotterReworked).
@@ -504,7 +503,7 @@ class CondemnorStakeExtraDmgEffect(BaseEffect):
       level, comme AvalancheOfMuscle). Multiplier = le GLOBAL de l'unite (`self.ability_variables_multiplier`) :
       passif (pas triggered) -> a VALIDER live que le multiplier global est le bon (piege #68/#75). i2 "+2183
       Damage" = extraDmg[L65] base (NE PAS hardcoder 2183, lu de gameconfig).
-    - PAS de gate is_ranged / is_normal / is_charging : @180f39450 n'a AUCUN autre noeud (RE decompile)."""
+    - PAS de gate is_ranged / is_normal / is_charging : IdunBattle.Entities.Effects.Loki.CondemnorStake_ExtraDmgEffect$$CreateEffectDamageBonusForAttack n'a AUCUN autre noeud (RE decompile)."""
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
                                               has_moved: bool | None = None,
@@ -513,12 +512,12 @@ class CondemnorStakeExtraDmgEffect(BaseEffect):
                                               is_normal_attack: bool | None = True,
                                               target_armor_reduced: bool | None = None,
                                               att_ctx=None) -> EffectBonus | None:
-        # GATE CIBLE HasTrait(target, 0x3ea=1002=Psyker) (@180f39450). Cible non-Psyker / cible inconnue
+        # GATE CIBLE HasTrait(target, 0x3ea=1002=Psyker) (IdunBattle.Entities.Effects.Loki.CondemnorStake_ExtraDmgEffect$$CreateEffectDamageBonusForAttack). Cible non-Psyker / cible inconnue
         # (target_traits None : chemins ability/prediction generique) -> pas de bonus.
         if not target_traits or "Psyker" not in target_traits:
             return None
         # OwnerIsActor implicitement TRUE (chemin appele uniquement pour l'attaque du porteur). PAS de gate
-        # is_ranged / is_normal / is_charging : @180f39450 n'a AUCUN autre noeud trigger (RE decompile).
+        # is_ranged / is_normal / is_charging : IdunBattle.Entities.Effects.Loki.CondemnorStake_ExtraDmgEffect$$CreateEffectDamageBonusForAttack n'a AUCUN autre noeud trigger (RE decompile).
         lvl = (self.active_ability_level if self.active_ability_level is not None
                else (self.ability_level if self.ability_level is not None else self.level))
         amt = ability_var("CondemnorStake", "extraDmg", lvl,
@@ -532,14 +531,14 @@ class BeaconOfRageExtraDamageEffect(BaseEffect):
     he was attacked in battle, up to a maximum of 8 times, Azkor deals +315 Damage » (+315 = extraDmg
     au niveau max 65). #189.
 
-    - dégât `CreateEffectDamageBonusForAttack @180f33130` : `ForAddition(get_OwnerIsCaster,
+    - dégât `IdunBattle.Entities.Effects.Loki.BeaconOfRage_ExtraDamageEffect$$CreateEffectDamageBonusForAttack` : `ForAddition(get_OwnerIsCaster,
       Multiply(ConfigVar(8=extraDmg, GetAbilityState(effet)), EffectLevel(effet)))` — bonus FLAT
       additif (AUCUN ForPercent*), trigger OwnerIsCaster SEUL (tous profils, normale ET spéciale) ;
       même canal additif que SmashaEad (#69 : `DamageModifiers` additif, appliqué par
-      `CalculateBaseDamageWithAllModifiers @18102d3f0`).
+      `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`).
     - niveau de RAGE = `EffectLevel` de l'instance = `min(TotalTimesAttacked, nrOfAttacks=8)` :
-      `ABeaconOfRageAbility.GetCurrentSelfEffectLevel @180e12fa0` = `Min(TotalTimesAttacked(unit),
-      ConfigConst(0x59=nrOfAttacks))`, écrit par `GetUpdateSelfEffectBehaviour @180e13230`
+      `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ABeaconOfRageAbility$$GetCurrentSelfEffectLevel` = `Min(TotalTimesAttacked(unit),
+      ConfigConst(0x59=nrOfAttacks))`, écrit par `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ABeaconOfRageAbility$$GetUpdateSelfEffectBehaviour`
       (`AddEffect(0x512)` si absent & level>0, puis `SetEffectLevel(0x512, level)`) → arrive tel quel
       dans decisionView.effects[].level (Level @0x68). PAS de re-calcul offline : le level capté EST
       la vérité (le cap est appliqué à l'ÉCRITURE par le natif ; TotalTimesAttacked non capté).
@@ -548,8 +547,8 @@ class BeaconOfRageExtraDamageEffect(BaseEffect):
       PASSIF du porteur (Scene ablvl_by_id) ; niveau inconnu → inerte (dégradation fidèle).
 
     La variante `BeaconOfRage_FriendlyExtraDamage` (0x513=1299 : 50% du bonus, attaques MÊLÉE des
-    amis Chaos adjacents, gate `OwnerIsCaster & IsMeleeAttack`, `PercentageOf(..., 50) @180f33370`,
-    active SSI le porteur a ≥1 kill — `GetCurrentFriendEffectLevel @180e12f10 = If(UnitsDefeated-
+    amis Chaos adjacents, gate `OwnerIsCaster & IsMeleeAttack`, `PercentageOf(..., 50) IdunBattle.Entities.Effects.Loki.BeaconOfRage_FriendlyExtraDamageEffect$$CreateEffectDamageBonusForAttack`,
+    active SSI le porteur a ≥1 kill — `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ABeaconOfRageAbility$$GetCurrentFriendEffectLevel = If(UnitsDefeated-
     Amount>0, selfLevel, 0)`) = effet-aura SÉPARÉ (`BeaconOfRageFriendlyExtraDamageEffect`)."""
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
@@ -559,7 +558,7 @@ class BeaconOfRageExtraDamageEffect(BaseEffect):
                                               is_normal_attack: bool | None = True,
                                               target_armor_reduced: bool | None = None,
                                               att_ctx=None) -> EffectBonus | None:
-        # trigger natif @180f33130 = get_OwnerIsCaster SEUL — tous profils, normale ET spéciale.
+        # trigger natif IdunBattle.Entities.Effects.Loki.BeaconOfRage_ExtraDamageEffect$$CreateEffectDamageBonusForAttack = get_OwnerIsCaster SEUL — tous profils, normale ET spéciale.
         rage = self.level                              # EffectLevel (stack), déjà cappé à l'écriture
         if not rage or int(rage) <= 0:
             return None
@@ -579,25 +578,25 @@ class TerrifyingCrescendoExtraDmgEffect(BaseEffect):
     enemy unit, up to a maximum of 6 times. >> #204. JUMEAU STRUCTUREL de BeaconOfRage (meme
     Multiply(ConfigVar(8=extraDmg), EffectLevel)) avec UNE difference : le gate IsRangedAttack.
 
-    - degat `CreateEffectDamageBonusForAttack @180f715e0` : `EffectBonus.ForAddition(IsRangedAttack &
+    - degat `IdunBattle.Entities.Effects.Loki.TerrifyingCrescendo_ExtraDmgEffect$$CreateEffectDamageBonusForAttack` : `EffectBonus.ForAddition(IsRangedAttack &
       OwnerIsCaster, GetCurrentExtraDamage())` = bonus FLAT additif (AUCUN ForPercent*), meme canal additif
-      que BeaconOfRage/SmashaEad (`DamageModifiers.Add @181005f10`, applique par coup). SEULE difference vs
-      BeaconOfRage @180f33130 (OwnerIsCaster seul) : le noeud DSL `IsRangedAttack` @180f715e0 (donc le bonus
+      que BeaconOfRage/SmashaEad (`IdunBattle.Core.Services.DamageModifiers$$Add`, applique par coup). SEULE difference vs
+      BeaconOfRage IdunBattle.Entities.Effects.Loki.BeaconOfRage_ExtraDamageEffect$$CreateEffectDamageBonusForAttack (OwnerIsCaster seul) : le noeud DSL `IsRangedAttack` IdunBattle.Entities.Effects.Loki.TerrifyingCrescendo_ExtraDmgEffect$$CreateEffectDamageBonusForAttack (donc le bonus
       est ABSENT des attaques MELEE / des attaques d'ability non-ranged du porteur).
-    - `GetCurrentExtraDamage @180f4ae70` (HERITE de FuelledByFury_ExtraDamageEffect ; refcount 10) =
+    - `IdunBattle.Entities.Effects.Loki.FuelledByFury_ExtraDamageEffect$$GetCurrentExtraDamage` (HERITE de FuelledByFury_ExtraDamageEffect ; refcount 10) =
       `Multiply(ConfigVar(8=extraDmg, GetAbilityState(effet)), EffectLevel(effet))`. extraDmg = variables
       TerrifyingCrescendo, 3 (L1) -> 218 (L65), DANS variablesAffectedByRarityBonus -> scale x multiplier
       de l'unite (contrairement a BeaconOfRage dont extraDmg est HORS rarityBonus = mult no-op). i2 << +218 >>
       = extraDmg[L65].
     - niveau de CRESCENDO = `EffectLevel` de l'instance, cappe a `buffMaxLevel=6` (constants). Accumulation
-      `TerrifyingCrescendoAbility.CreateTrigger @1811a3910` = disjonction :
+      `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger` = disjonction :
         (branche 1) `On(0) & OwnerIsActor & TargetIsOverkilled`  = le porteur OVERKILL une cible ;
         (branche 2) `On(0x3e=62) & OwnerIsActor & TriggeringEffectIs(0x429=1065)` = le porteur POSE
                     l'effet Pinned/Suppressed (0x429=1065, applique par le trait SuppressiveFire a chaque
                     ennemi touche en ranged) = << would have Suppressed >>.
-      `CreateBehaviour @1811a3840` = `AddEffectOrIncreaseLevel(0x590, stateRef, ..., Direct(GetNumberConstant
+      `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateBehaviour` = `AddEffectOrIncreaseLevel(0x590, stateRef, ..., Direct(GetNumberConstant
       (cfg, 0x62)))` = +1 stack par declenchement (Direct d'une constante), plafonne a buffMaxLevel=6. Le
-      level cappe arrive TEL QUEL dans decisionView.effects[].level (comme BeaconOfRage @180e13230) -> on lit
+      level cappe arrive TEL QUEL dans decisionView.effects[].level (comme BeaconOfRage IdunBattleLogic.Entities.Abilities.Triggered.Loki.ABeaconOfRageAbility$$GetUpdateSelfEffectBehaviour) -> on lit
       `self.level` sans re-calcul offline (le natif enforce le cap A L'ECRITURE ; le compteur de triggers
       n'est pas capte). Un tir ranged qui touche & overkill peut incrementer 2x (suppress + overkill) dans
       le meme evenement -- le compteur, pas le port : on lit le level abouti.
@@ -613,7 +612,7 @@ class TerrifyingCrescendoExtraDmgEffect(BaseEffect):
                                               is_normal_attack: bool | None = True,
                                               target_armor_reduced: bool | None = None,
                                               att_ctx=None) -> EffectBonus | None:
-        if not is_ranged:                              # gate IsRangedAttack @180f715e0 (melee/inconnu -> 0)
+        if not is_ranged:                              # gate IsRangedAttack IdunBattle.Entities.Effects.Loki.TerrifyingCrescendo_ExtraDmgEffect$$CreateEffectDamageBonusForAttack (melee/inconnu -> 0)
             return None
         crescendo = self.level                         # EffectLevel (stack), deja cappe (buffMaxLevel=6) a l'ecriture
         if not crescendo or int(crescendo) <= 0:

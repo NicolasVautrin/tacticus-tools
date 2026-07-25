@@ -1,10 +1,10 @@
 """`IdunBattle.AI.Playbook.Loki.FuryOfTheAncientsPlaybook` — face MOVE du passif Fury (bloodMephiston).
 
 Consommé par la feuille `TriggeredAbilitiesUtility(2)` du composite Tile(7) (dispatcher move
-`<EvaluateMovementInSteps>d__2 @1810fda80` → `PlaybookDatabase.LoadPlaybook(1247)`). Case #32
+`<EvaluateMovementInSteps>d__2 IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext` → `PlaybookDatabase.LoadPlaybook(1247)`). Case #32
 (31337 s5) : ce terme manquant (20.5266 à (3,5)) flippait le cast-tile de l'attaque de Mephiston.
 
-Corps `<CalculateMovementUtilityInStepsInternal>d__1.MoveNext @181176570` (ctor @181166940,
+Corps `<CalculateMovementUtilityInStepsInternal>IdunBattle.AI.Playbook.Loki.FuryOfTheAncientsPlaybook.u003CCalculateMovementUtilityInStepsInternalu003Ed__1$$MoveNext` (IdunBattle.AI.Playbook.Loki.FuryOfTheAncientsPlaybook$$.ctor,
 TriggeredAbilityType 0x4df=1247) — RE re-expert #32, réconcilié EXACT :
 
     enemies = ennemis ADJACENTS à la tuile candidate (query playerId du case.unit ; gate
@@ -13,19 +13,19 @@ TriggeredAbilityType 0x4df=1247) — RE re-expert #32, réconcilié EXACT :
     N = count ; prob = Fix64(1/N)
     total = Σ_E [ GDU(E, 1/N) + (second(E) ? GDU(second(E), 1/N) : 0) ]     # MÊME prob 1/N
 
-- `GetDamagedEnemyUtility @181166680` (GDU) : `ProbableDamageEvent(target, GetDamagePrediction,
-  probability1=prob)` → `TriggeredAbilityPlaybook<T>.CalculateUtilityFromDamageEvent @18150f8b0`
+- `IdunBattle.AI.Playbook.Loki.FuryOfTheAncientsPlaybook$$GetDamagedEnemyUtility` (GDU) : `ProbableDamageEvent(target, GetDamagePrediction,
+  probability1=prob)` → `TriggeredAbilityPlaybook<T>.IdunBattle.AI.Playbook.TriggeredAbilityPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromDamageEvent`
   = prob1 × prob2(=1) × composite Damage — primitive portée `calculate_utility_from_damage_event`.
-- second(E) : `GetSecondTargetSelector @180f82270` = `Friends(AdjacentUnits(E, r=1))` (alliés de E
-  = les AUTRES ennemis du caster, self-exclu) → `SelectUnit(…, 3) @181010de0` = PREMIER vivant
-  ciblable (`MatchesUnitSelectionType(u,3) @180ed9380`) en ordre d'énumération des tuiles
+- second(E) : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuryOfTheAncientsAbility$$GetSecondTargetSelector` = `Friends(AdjacentUnits(E, r=1))` (alliés de E
+  = les AUTRES ennemis du caster, self-exclu) → `IdunBattle.DSL.TargetsSelector$$SelectUnit(…, 3)` = PREMIER vivant
+  ciblable (`IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType(u,3)`) en ordre d'énumération des tuiles
   adjacentes de E → itération `neigh_by_pos[E]` (ordre voisins natif), fallback ordre `enemies`.
-- `GetDamagePrediction @1811662a0` : niveau PASSIF du caster (`GetAbilityState`) → `GetDamage`
+- `IdunBattle.AI.Playbook.Loki.FuryOfTheAncientsPlaybook$$GetDamagePrediction` : niveau PASSIF du caster (`GetAbilityState`) → `GetDamage`
   (`MinMaxDamage` = minDmg/maxDmg[lvl] × mult rareté) évalué en MOYENNE, routé par le slot 0x23
-  (`BattleQuery.GetAttackPrediction @18105e090`, cf. `psyker.py`) = **montant PRÉDÉFINI
+  (`IdunBattle.Core.Services.BattleQuery$$GetAttackPrediction`, cf. `psyker.py`) = **montant PRÉDÉFINI
   avg(min,max), hits FORCÉS 1, spread 0** — PROUVÉ probe_32d (matrice hits×canal) : delta ~1e-8
   vs les composites natifs pour les DEUX cibles ; hits=2/canal plage → ×2/off. Le const
-  `nrOfHits`=2 (`GetAttackHits @180f820f0`) concerne l'EXÉCUTION du trigger, pas cette prédiction.
+  `nrOfHits`=2 (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuryOfTheAncientsAbility$$GetAttackHits`) concerne l'EXÉCUTION du trigger, pas cette prédiction.
   Profil `GetDamageProfileOrDefault(0xd)` = Psychic (pierce 100) ; pipeline modifiers/armure/
   bouclier/caps COMPLET vs cible, tuile caster du case (mods positionnels).
 
@@ -57,7 +57,7 @@ class FuryOfTheAncientsPlaybook:
 
     ability_id: int = int(TriggeredAbilityType.FuryOfTheAncients)   # 0x4df = 1247
 
-    # ---- mirror `GetDamagePrediction @1811662a0` ----------------------------------------------
+    # ---- mirror `IdunBattle.AI.Playbook.Loki.FuryOfTheAncientsPlaybook$$GetDamagePrediction` ----------------------------------------------
     def _get_damage_prediction(self, scene, uid: int, tgt_id: int, attack_pos):
         """Prédiction du dégât Fury vs `tgt_id` depuis `attack_pos` (tuile du case) : montant
         PRÉDÉFINI = avg(minDmg,maxDmg)[niveau PASSIF × mult rareté], hits FORCÉS 1, spread 0
@@ -106,7 +106,7 @@ class FuryOfTheAncientsPlaybook:
             target_shield=scene.shield(tgt_id), target_limits=_target_damage_limits(scene, tgt_id),
             attacker_effects=scene.effects(uid))   # #202 : max-out evalue DANS predict_attack_raw
 
-    # ---- mirror `GetDamagedEnemyUtility @181166680` -------------------------------------------
+    # ---- mirror `IdunBattle.AI.Playbook.Loki.FuryOfTheAncientsPlaybook$$GetDamagedEnemyUtility` -------------------------------------------
     def _damaged_enemy_utility(self, scene, uid: int, tgt_id: int, tile, prob: float,
                                hpmax_by_id: dict, wt) -> float:
         pred = self._get_damage_prediction(scene, uid, tgt_id, tile)
@@ -141,7 +141,7 @@ class FuryOfTheAncientsPlaybook:
                 return uid_
         return None
 
-    # ---- mirror `<CalculateMovementUtilityInStepsInternal>d__1.MoveNext @181176570` -----------
+    # ---- mirror `<CalculateMovementUtilityInStepsInternal>IdunBattle.AI.Playbook.Loki.FuryOfTheAncientsPlaybook.u003CCalculateMovementUtilityInStepsInternalu003Ed__1$$MoveNext` -----------
     def calculate_movement_utility_in_steps(self, tile, ctx: dict, wt) -> float:
         scene = (ctx or {}).get("scene")
         uid = (ctx or {}).get("uid")

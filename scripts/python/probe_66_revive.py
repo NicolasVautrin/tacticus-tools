@@ -196,8 +196,8 @@ def main():
             return True
 
         def kill_and_fire(st, ally_uid, overkill=False):
-            """Simule `KillUnitOperation.Execute @180e76470` : hp=0/alive=False, `On(1)`
-            (`after_death_triggers`) PUIS la GARDE @0x180e76c9e (`kill_unit_revive_gate` : draine la
+            """Simule `IdunBattle.Operations.KillUnitOperation$$Execute` : hp=0/alive=False, `On(1)`
+            (`after_death_triggers`) PUIS la GARDE @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e (`kill_unit_revive_gate` : draine la
             `ReviveData` posee par la feuille `Revive` -> phase 0xd de `VerifyDeaths`)."""
             hc = _hc(st, ally_uid); hc.hp = 0
             _uc(st, ally_uid).alive = False

@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 
 def harbinger_pool_selector(range_val: int):
-    """Pool des cibles ADDITIONNELLES (mirror `HarbingerOfDestructionAbility$$GetEnemiesInRange @1811e6e50`) :
+    """Pool des cibles ADDITIONNELLES (mirror `HarbingerOfDestructionAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.HarbingerOfDestructionAbility$$GetEnemiesInRange`) :
 
         SurroundingTiles(casterTile@0x168, includeCenter=0, range)   # DISQUE dist<=range du caster, centre exclu
         |> Units(., 1, 3)                                            # unites DEBOUT dessus
@@ -38,8 +38,8 @@ def harbinger_pool_selector(range_val: int):
         |> Unobscured(caster@0x160, .)                             # ligne de vue depuis le caster (terrain)
         |> Damageable(.)                                           # vivants ciblables (PV>0)
 
-    Le triplet `Enemies(Units(SurroundingTiles(tile, incl=0, range)))` == `DSLFactory.SurroundingEnemies(tile,
-    range) @180dfc570` (DECOMPILE : `SurroundingEnemies` = `Enemies(Units(SurroundingTiles(tile, incl=1,
+    Le triplet `Enemies(Units(SurroundingTiles(tile, incl=0, range)))` == `IdunBattleLogic.Entities.DSLFactory$$SurroundingEnemies(tile,
+    range)` (DECOMPILE : `SurroundingEnemies` = `Enemies(Units(SurroundingTiles(tile, incl=1,
     range) - Tiles(tile)))`, et `SurroundingTiles(incl=0)` == `SurroundingTiles(incl=1) - Tiles(tile)` par
     definition -> IDENTITE prouvee). D'ou le port `SurroundingEnemies(CasterTile(), Const(range))` (disque
     dist<=range, centre=caster exclu, team!=caster ; memes flags Units 1,3 inertes offline). Puis `Sub(.,
@@ -53,7 +53,7 @@ def harbinger_pool_selector(range_val: int):
 def harbinger_of_destruction_tree(additional_units: list,
                                   include_main: bool = True) -> AttackWithAttackDamage:
     """UNE feuille `AttackWithAttackDamage` sur le selecteur COMBINE `op_Addition(Target(), <additional>)`
-    (mirror `HarbingerOfDestructionAbility$$ExecuteBehaviour @1811e6750` : UN SEUL `AttackWithAttackDamage`,
+    (mirror `HarbingerOfDestructionAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.HarbingerOfDestructionAbility$$ExecuteBehaviour` : UN SEUL `AttackWithAttackDamage`,
     PAS deux volets separes -- CONTRASTE BringerOfDespair). Le natif construit :
 
         targets = If( AreEqual(caster@0x160, target@0x178),
@@ -66,7 +66,7 @@ def harbinger_of_destruction_tree(additional_units: list,
     `execute_behaviour`). `include_main` = la branche `If(AreEqual)` : True (else, target != caster =
     reachable) -> `Union(Target(), UnitSet(additional))` ; False (then, target == caster degenere) ->
     `UnitSet(additional)` seul (le natif n'ajoute pas la cible). La feuille `multi=True` resout le selecteur,
-    `OrderBy` par id (== l'`OrderBy` de `AttackBehaviour.Execute @180fb91a0`) puis attaque CHAQUE cible 1 coup
+    `OrderBy` par id (== l'`OrderBy` de `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute`) puis attaque CHAQUE cible 1 coup
     dans l'ordre id -> main et additionnels sont attaques dans UNE passe id-triee UNIQUE (mirror du leaf natif
     unique).
 
@@ -74,8 +74,8 @@ def harbinger_of_destruction_tree(additional_units: list,
       `GetDamageProfile(config, 0)` = "DirectDamage" (PiercingRatio 100 -> pierce 100), `GetNumberConstant(
       0x2f)` = nrOfHits = 1. `attackRangeType=Ranged` -> `is_melee=False`.
     - **native_factory = "attack"** (defaut, 2 tirages/coup a cc=0) : l'ExecuteBehaviour appelle
-      `DSLFactory.AttackWithAttackDamage @180de9fb0` (VERIFIE par les CALLEES de @1811e6750, PAS
-      `AttackWithAbilityDamage @180de9c90` -- cf. rngcrit-1202/tip #2). "DirectDamage" est le NOM DU PROFIL,
+      `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (VERIFIE par les CALLEES de IdunBattleLogic.Entities.Abilities.Active.Loki.HarbingerOfDestructionAbility$$ExecuteBehaviour, PAS
+      `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` -- cf. rngcrit-1202/tip #2). "DirectDamage" est le NOM DU PROFIL,
       PAS l'effet direct-damage (montant fixe) -> la feuille route par `execute_ability_attack` (crit/block)."""
     add_sel = UnitSet(additional_units)
     target_sel = Union(Target(), add_sel) if include_main else add_sel
@@ -84,21 +84,21 @@ def harbinger_of_destruction_tree(additional_units: list,
 
 
 class HarbingerOfDestructionAbility(ActiveAbility):
-    """`HarbingerOfDestructionAbility$$ExecuteBehaviour @1811e6750` (id 1008, `necroPlasmancer`, namespace
+    """`HarbingerOfDestructionAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.HarbingerOfDestructionAbility$$ExecuteBehaviour` (id 1008, `necroPlasmancer`, namespace
     natif `Abilities.Active.Loki`).
 
     Attaque la CIBLE + N-1 ennemis ALEATOIRES dans un DISQUE rayon-2 du CASTER (non obscurcis, damageable,
     hors cible), 1 coup MinMaxDamage profil DirectDamage (pierce 100) chacun, dans UNE passe id-triee unique.
     Mirror 1:1 des 4 fonctions natives (VA gqfc5mff6c) :
 
-      - `ExecuteBehaviour @1811e6750` : UN `AttackWithAttackDamage(caster, If(AreEqual(caster,target),
+      - `IdunBattleLogic.Entities.Abilities.Active.Loki.HarbingerOfDestructionAbility$$ExecuteBehaviour` : UN `AttackWithAttackDamage(caster, If(AreEqual(caster,target),
         additional, Target()+additional), MinMaxDamage, Direct(profile 0), Direct(nrOfHits 0x2f))`.
-      - `GetAdditionalTargets @1811e6a40` : count = `If(AreEqual(caster,target), Get(N), Get(N-1))` avec
+      - `IdunBattleLogic.Entities.Abilities.Active.Loki.HarbingerOfDestructionAbility$$GetAdditionalTargets` : count = `If(AreEqual(caster,target), Get(N), Get(N-1))` avec
         N = `GetVariableForLevel(config, 0x9a)` = `nrOfUnits`[level] ; range = `GetNumberConstant(0x16)` =
         `range` = 2 ; -> `GetEnemiesInRange(count, range, target, pickRandom=1)`.
-      - `GetEnemiesInRange @1811e6e50` : `PickRandomly(Damageable(Unobscured(caster, SurroundingEnemies(
+      - `IdunBattleLogic.Entities.Abilities.Active.Loki.HarbingerOfDestructionAbility$$GetEnemiesInRange` : `PickRandomly(Damageable(Unobscured(caster, SurroundingEnemies(
         casterTile, range) - target)), count)` (pickRandom=1 -> PickRandomly ; =0 -> First, chemin preview).
-      - `GetTargetAmount @1811e6fa0` : accessoire preview (meme `If(AreEqual, Get(N), Get(N-1))`).
+      - `IdunBattleLogic.Entities.Abilities.Active.Loki.HarbingerOfDestructionAbility$$GetTargetAmount` : accessoire preview (meme `If(AreEqual, Get(N), Get(N-1))`).
 
     STRUCTURE = template splash `loki/splash.py`, adaptee de BringerOfDespair (`blacklegion.py`, caster-ancre
     + Sub(Target) + PickRandomly) SAUF que : (1) rayon-2 DISQUE (`SurroundingEnemies`, PAS `AdjacentUnits`

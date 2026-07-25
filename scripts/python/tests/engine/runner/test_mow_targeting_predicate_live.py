@@ -4,17 +4,17 @@ Ces 3 abilities rendent **0 cible au spawn** : leur legalite de cible depend de 
 PLATEAU (predicat natif), pas d'un defaut de harnais. Chaque test MONTE le predicat (drive-positions /
 fait invoquer l'adversaire), puis confronte le PORT au natif sur la MEME scene, RNG cale (`dumpRng`).
 
-  * `SquigLaunchas` (1200, orksRukkatrukk) — `GetDynamicInvalidTargetReason @18120ab80` :
+  * `SquigLaunchas` (1200, orksRukkatrukk) — `IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$GetDynamicInvalidTargetReason` :
         >= GetNumberConstant(0x78)=nrOfUnits=1  Ork allie-du-caster adjacent a la cible
      OU >= GetNumberConstant(0x79)=nrOfUnits_2=2 allies (non Steppable/Object) adjacents.
-    Le SUMMON a des seuils PLUS HAUTS (`FulfillsSummonCriteria @18120aac0` : 0x81=nrOfUnits_3=2 Orks /
+    Le SUMMON a des seuils PLUS HAUTS (`IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$FulfillsSummonCriteria` : 0x81=nrOfUnits_3=2 Orks /
     0x82=nrOfUnits_4=4 allies) -> scenario DISCRIMINANT en deux temps (1 Ork = cible legale SANS summon,
     2 Orks = cible legale AVEC summon). C'est le seul moyen de prouver que les DEUX seuils sont portes.
   * `HadesAutocannons` (1147, blackForgefiend) — la cible doit etre un **SUMMON ennemi** (TargetingOptions
-    du ctor @1811e56b0 ; redit par `GetAllTargets @1811e5480` `UnitsWithTrait(2=Summon)`), et l'attaque
+    du IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$.ctor ; redit par `IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets` `UnitsWithTrait(2=Summon)`), et l'attaque
     porte sur la cible **ET** tous les summons de SON camp a <= `range`=2 hex (`SurroundingUnits(...,
     includeCenter=1)`). On fait invoquer 2 summoners adverses pour obtenir un SET multi-cibles.
-  * `EntropyCannons` (1168, deathCrawler) — `GetDynamicInvalidTargetReason @1811bfc20` : cible dans une
+  * `EntropyCannons` (1168, deathCrawler) — `IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility$$GetDynamicInvalidTargetReason` : cible dans une
     aura `ContagionsOfNurgle` (effet 0x42f=1071) d'un allie DU CASTER, OU FixedArmor negativement
     modifiee. On amene un porteur d'aura (deathTyphus) au contact de l'ennemi.
 
@@ -196,7 +196,7 @@ def _squig_case(host, live_session, n_orks: int):
         tg = _targets(rpc, rid, cid, SQUIG)
         assert any(t.get("targetId") == enemy_id for t in tg), (
             f"predicat de ciblage NON monte a {n_orks} Ork(s) adjacents : targets={tg} "
-            f"(GetDynamicInvalidTargetReason @18120ab80 exige >=1 Ork ou >=2 allies adjacents)")
+            f"(IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$GetDynamicInvalidTargetReason exige >=1 Ork ou >=2 allies adjacents)")
 
         state, _board, _dec, ob0, _bg = _load(rpc, rid)
         off_before = _off_hp(state)
@@ -241,7 +241,7 @@ def test_squig_launchas_one_ork_damage_no_summon(host, live_session):
 
 
 def test_squig_launchas_two_orks_summons_squig(host, live_session):
-    """DEUX Orks allies adjacents : `FulfillsSummonCriteria @18120aac0` (>= nrOfUnits_3=2 Orks) est
+    """DEUX Orks allies adjacents : `IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$FulfillsSummonCriteria` (>= nrOfUnits_3=2 Orks) est
     rempli -> degat ET invocation d'un Squig sur un hex LIBRE adjacent a la cible. Confront : meme
     delta PV, et le summon offline == le summon live (equipe / tuile adjacente / PV)."""
     (diag, off0, off1, live0, live1, spawned_live,
@@ -268,7 +268,7 @@ def test_squig_launchas_two_orks_summons_squig(host, live_session):
         "owner live != owner offline"
     assert lv["hp"] == off_hc.hp, f"hp live {lv['hp']} != offline {off_hc.hp}"
     # Le port pose l'id de CONFIG (`unitId`), le live rend l'id VISUEL (reduction documentee du
-    # noeud `VisualUnitIdFromUnitId @180e01d70`) -> on accepte les DEUX formes.
+    # noeud `IdunBattleLogic.Entities.DSLFactory$$VisualUnitIdFromUnitId`) -> on accepte les DEUX formes.
     import gameconfig as GC
     uid = ((GC.ability("SquigLaunchas") or {}).get("constants") or {}).get("unitId")
     forms = {uid, (GC.unit(uid) or {}).get("visualId")}
@@ -357,7 +357,7 @@ def test_squig_launchas_non_ork_allies_branch(host, live_session):
 def test_hades_autocannons_hits_target_and_nearby_enemy_summons(host, live_session):
     """Le predicat de ciblage exige un **SUMMON ennemi** : on fait invoquer 2 summoners adverses
     (Poxwalkers + Scarab Hive), on verifie 0 cible AVANT / N cibles APRES, puis on confronte le SET
-    frappe : `GetAllTargets @1811e5480` = summons du camp de la CIBLE a <= range hex d'elle,
+    frappe : `IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets` = summons du camp de la CIBLE a <= range hex d'elle,
     **cible INCLUSE** (`SurroundingUnits(..., includeCenter=1)`)."""
     from engine.runner.operations.summon_ai import _apply_active_ability
     rpc = _rpc_factory(host, live_session)
@@ -409,7 +409,7 @@ def test_hades_autocannons_hits_target_and_nearby_enemy_summons(host, live_sessi
         assert tid in off_hit, "le port n'a pas frappe la CIBLE (includeCenter=1 non porte ?)"
         assert off_hit == live_hit, \
             (f"SET de cibles divergent : offline {sorted(off_hit)} vs live {sorted(live_hit)} "
-             f"(GetAllTargets @1811e5480 : summons du camp de la cible <= range hex, cible incluse)")
+             f"(IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets : summons du camp de la cible <= range hex, cible incluse)")
         for u in sorted(live_hit):                      # meme issue par cible (mort / PV restants)
             assert off_after[u][1] == live_after[u][1], \
                 f"unite {u}: mort offline={off_after[u][1]} != live={live_after[u][1]}"
@@ -489,7 +489,7 @@ def test_hades_autocannons_range_excludes_far_summon(host, live_session):
 
 
 def test_hades_autocannons_spares_friendly_summons(host, live_session):
-    """GENERALISATION la plus DISCRIMINANTE du port : `GetAllTargets @1811e5480` filtre par
+    """GENERALISATION la plus DISCRIMINANTE du port : `IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets` filtre par
     `Friends(target@0x178, ...)` = les allies **DE LA CIBLE**, PAS du caster. On place des summons
     A MOI (Scarab Hive) a portee de la cible ennemie : ils doivent etre EPARGNES des deux cotes.
     Un port qui aurait pris le caster pour referent (le defaut historique du noeud `Friends`) les
@@ -558,7 +558,7 @@ def test_hades_autocannons_spares_friendly_summons(host, live_session):
 # ============================================================== EntropyCannons (1168)
 
 def test_entropy_cannons_requires_contagion_aura_then_damages(host, live_session):
-    """`GetDynamicInvalidTargetReason @1811bfc20` : 0 cible tant qu'aucun ennemi n'est dans une aura
+    """`IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility$$GetDynamicInvalidTargetReason` : 0 cible tant qu'aucun ennemi n'est dans une aura
     `ContagionsOfNurgle` ALLIEE (ni n'a de FixedArmor negativement modifiee) ; amener deathTyphus
     (porteur du trait `ContagionsOfNurgle`) au contact ouvre le ciblage. Puis confront du degat
     (2x Energy, famille ABILITY) : delta PV offline == delta PV live, RNG cale."""
@@ -584,7 +584,7 @@ def test_entropy_cannons_requires_contagion_aura_then_damages(host, live_session
         print(f"\n[ENTROPY] apres Typhus adjacent -> cibles {[t.get('targetId') for t in tg]}")
         assert any(t.get("targetId") == enemy["squadId"] for t in tg), \
             ("predicat de ciblage NON monte : l'ennemi adjacent a un porteur d'aura Contagion "
-             "alliee devrait etre legal (IsInTeamContagionsOfNurgleAura @180df3ea0)")
+             "alliee devrait etre legal (IdunBattleLogic.Entities.DSLFactory$$IsInTeamContagionsOfNurgleAura)")
 
         state, _board, _dec, ob0, _bg = _load(rpc, rid)
         off_before, live_before = _off_hp(state), _live_hp(ob0)
@@ -606,7 +606,7 @@ def test_entropy_cannons_requires_contagion_aura_then_damages(host, live_session
         print(f"[ENTROPY] off_delta={off_delta} live_delta={live_delta} attacks={diag.get('attacks')}")
         assert off_delta > 0, "aucun degat offline (2x Energy attendus)"
         assert off_delta == live_delta, f"degat offline {off_delta} != live {live_delta}"
-        # AUCUNE autre unite touchee (mono-cible : pas de splash dans @1811bfa40)
+        # AUCUNE autre unite touchee (mono-cible : pas de splash dans IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility$$ExecuteBehaviour)
         others_off = {u for u in off_before if u != eid and off_before[u][0] != off_after[u][0]}
         others_live = {u for u in live_before
                        if u != eid and u in live_after and live_before[u][0] != live_after[u][0]}

@@ -55,7 +55,7 @@ def _machine_rows(decision: dict) -> List[dict]:
 def _machine_ability_state(m: dict) -> tuple:
     """(level, multiplier) de la MoW = `AbilityState` PER-ABILITY (`ActiveAbility._abilityState` :
     `Level`@+0 / `VariableMultiplierPercentage`@+4, lu par `readAbilityState` — mirror de
-    `get_AbilityState @180f8fc40`, l'override primant). C'est CE canal qui indexe les variables
+    `IdunBattle.Entities.Components.ActiveAbility$$get_AbilityState`, l'override primant). C'est CE canal qui indexe les variables
     config (minDmg/maxDmg/nrOfHits/summonHp…) des abilities de la MoW ; elle n'a pas d'équivalent
     `BattleQuery.GetUnitConfig` (la clé du registre est une VisualId d'unité).
     On prend la 1re active portant un état ; défaut (0, 100) = neutre."""
@@ -78,7 +78,7 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     `board` (`engine.entities.pathfinding.board.Board`) optionnel : s'il est fourni, il
     est ASSIGNÉ à `state.board` (adjacence hex + élévation + terrain). Point d'injection
     UNIQUE du board — sans lui, les feuilles POSITIONNELLES du combat (bonus d'ELEVATION
-    `CalculateElevationBonusModifier @181003ea0`, trench, LightCover, GetStuckIn) sont des
+    `IdunBattle.Core.Services.DamageCalculations$$CalculateElevationBonusModifier`, trench, LightCover, GetStuckIn) sont des
     no-op SILENCIEUX offline (cause racine #63 : un `state.board=` oublié dans un helper de
     replay). Passer le board ICI (au lieu d'un `state.board = board` dispersé après l'appel)
     rend l'omission structurellement impossible à un site donné. On accepte l'OBJET `Board`
@@ -89,7 +89,7 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     `state.board = board` post-retour (l'init/seed ne lit jamais `state.board`)."""
     state = State()
     state.current_player_id = decision.get("currentPlayer")
-    # #90/#98 -- FACTEUR rounds->turns (`BattleQuery.ConvertRoundsToTurns @181058af0` = `count(joueurs du
+    # #90/#98 -- FACTEUR rounds->turns (`IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` = `count(joueurs du
     # `BC.Player.TurnOrder` dont `PlayerComponent+0x20 != 2`) * rounds`). `observeBattle.counts.player`
     # = le nb d'entites Player PROJETEES (EntityType 4) ; le joueur **Environment** est unique et
     # permanent dans toute BC (seed BC : Players 11/12/13 = PlayerType 0/1/2, `TurnOrder=[11,12,13]` ;
@@ -130,10 +130,10 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
 
 
 def _load_machines(state: State, decision: dict) -> None:
-    """MACHINES OF WAR -> entités ECS — mirror de `AddMachineOperation.Execute @180e4b5e0`.
+    """MACHINES OF WAR -> entités ECS — mirror de `IdunBattle.Operations.AddMachineOperation$$Execute`.
 
     Le natif crée la MoW comme une entité de PREMIER PLAN (`EntityType.Machine` = 6, littéral `6`
-    passé au factory d'entités @180e4b5e0), puis lie sa/ses `MachinePlatform` (Type=7) via
+    passé au factory d'entités IdunBattle.Operations.AddMachineOperation$$Execute), puis lie sa/ses `MachinePlatform` (Type=7) via
     `MachinePlatformComponent.MachineId` (Nullable @+0x14/+0x18) et initialise ses abilities
     (`AddMachineOperation.InitializeAbilitiesStatus`). Jeu de composants MESURÉ sur l'entité vivante
     (`dumpEntityComponents`, runner MoW `tauBroadside`) :
@@ -147,12 +147,12 @@ def _load_machines(state: State, decision: dict) -> None:
     tuile ; sa place visuelle vient du slot `MachineComponent.Position` = `MachineOfWarPosition`
     1=Top/2=Bottom, exposé `initialSlot`). Corroboré par gameconfig : les MoW ont
     `stats={Health:0, Damage:0, FixedArmor:0}` et `weapons=[]` (aucune attaque normale) — leur dégât
-    vient des VARIABLES d'ability (`AActiveAbility.MinMaxDamage @180fb2dc0`), pas d'une stat d'unité.
+    vient des VARIABLES d'ability (`IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamage`), pas d'une stat d'unité.
 
     On pose donc, à l'identique de la boucle unités MAIS **sans PositionComponent ni
     HealthComponent** :
       • `UnitComponent` — porteur d'identité ; le natif a `MachineComponent`, mais les DEUX dérivent
-        de `BaseUnitComponent @180f96380` (VisualId@0x20 valide sur les deux, cf. `projectSquadStats`)
+        de `BaseUnitComponent IdunBattle.Entities.Components.BaseUnitComponent$$.ctor` (VisualId@0x20 valide sur les deux, cf. `projectSquadStats`)
         et c'est ce rôle-là que porte `UnitComponent` côté port ;
       • `OwnerComponent` (team/player) ; `TriggeredAbilityComponent` (présent nativement) ;
       • `EffectsOwnedComponent` si la MoW porte des effets (elle en porte : `HeavyRailRifle_
@@ -283,7 +283,7 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
     _load_machine_stats(state, decision, snapshot, mult_by_id)
     # effets ACTIFS structurés (decisionView.effects), matérialisés + propagés mult/level.
     state.effects = EffectsState.seed(effects_by_id, mult_by_id, ablvl_by_id)
-    # `InitializeActorAbilitiesOperation.Execute @180e74660` (boucle ABILITIES) : à la création de CHAQUE
+    # `IdunBattle.Operations.InitializeActorAbilitiesOperation$$Execute` (boucle ABILITIES) : à la création de CHAQUE
     # unité, l'owner-effect posé par le `CreateBehaviour` de ses abilities (DSL `AddEffect(owner)`). Le
     # SEED live (decisionView.effects) ne capte QUE les effets ACTIFS à l'instant T -> il RATE les
     # owner-effects passifs INACTIFS au capture (ex. HP-floor `HypersensoryAbilities_MinimalHealth` de Judh,

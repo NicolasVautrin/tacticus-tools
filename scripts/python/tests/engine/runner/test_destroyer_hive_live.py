@@ -2,15 +2,15 @@
 un ennemi adjacent aleatoire. Agreement LIVE-vs-OFFLINE (template probe_203_livingmetal / test hypersensory).
 
 Artefacts natifs (RE ghidra gqfc5mff6c, VAs) :
-  - CreateTrigger @18121d4b0 : `On(0x16 TurnStart_Actions) & @0xa0(OwnerIsActor)
+  - IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateTrigger : `On(0x16 TurnStart_Actions) & @0xa0(OwnerIsActor)
       & AmountIsGreaterThanZero(GetValidTargets)`.
-  - GetValidTargets @18121d540 : `Damageable(Enemies(AdjacentUnits(caster, 1)))`.
-  - CreateBehaviour @18121d320 : `AttackWithAttackDamage(caster, PickRandomly(GetValidTargets, 1),
+  - IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$GetValidTargets : `Damageable(Enemies(AdjacentUnits(caster, 1)))`.
+  - IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateBehaviour : `AttackWithAttackDamage(caster, PickRandomly(GetValidTargets, 1),
       MinMaxDamage(minDmg 0xc/maxDmg 0xd)[passive lvl], GetDamageProfile(0)=DirectDamage(pierce-100),
       nrOfHits=GetNumberConstant(0x2f)=1, alwaysOverkilled=Nullable(HasValue=0))`. Factory "attack"
-      @180de9fb0 (XREF du call-site @18121d47e ; is_attack_damage_op=True), pas de force_overkill.
-  - `PickRandomly(.,1)` @180ef0be0 tire `NextInternal(0,count)` UNE fois -- consomme 1 genrand MEME a
-      count==1 (branche puissance-de-2 @180e39be0) -> la pick precede l'attaque, load-bearing pour la
+      IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage (XREF du call-site IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateBehaviour+0x15e ; is_attack_damage_op=True), pas de force_overkill.
+  - `PickRandomly(.,1)` IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select tire `NextInternal(0,count)` UNE fois -- consomme 1 genrand MEME a
+      count==1 (branche puissance-de-2 IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextInternal) -> la pick precede l'attaque, load-bearing pour la
       bit-exactness (prouve : le port bit-exact 3 seeds ; no-draw diverge).
 
 VALIDATION : P=deathTyphus, A=ennemi high-HP (--hp-target -> survit + armure 0). On DRIVE l'ennemi adjacent

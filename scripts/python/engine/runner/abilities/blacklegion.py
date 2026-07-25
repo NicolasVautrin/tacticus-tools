@@ -31,11 +31,11 @@ if TYPE_CHECKING:
 
 
 def bringer_of_despair_tree() -> AtomicGroup:
-    """Arbre de `BringerOfDespairAbility$$ExecuteBehaviour @1811be740` (id 1022, Angrax `blackTerminator` —
-    MIRROR du DECOMPILE + `GetValidBonusTargets @1811bebc0` / `GetHitsToBonusTarget @180fb1690` /
-    `GetDamageProfile @1811beb50`) :
+    """Arbre de `BringerOfDespairAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.BringerOfDespairAbility$$ExecuteBehaviour` (id 1022, Angrax `blackTerminator` —
+    MIRROR du DECOMPILE + `IdunBattleLogic.Entities.Abilities.Active.Loki.BringerOfDespairAbility$$GetValidBonusTargets` / `IdunBattleLogic.Entities.Abilities.Active.Loki.BringerOfDespairAbility$$GetHitsToBonusTarget` /
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.BringerOfDespairAbility$$GetDamageProfile`) :
 
-        bonusSel = PickRandomly(                                                          # @1811be740
+        bonusSel = PickRandomly(                                                          # IdunBattleLogic.Entities.Abilities.Active.Loki.BringerOfDespairAbility$$ExecuteBehaviour
                      Damageable( Enemies( caster@0x148, AdjacentUnits(casterTile@0x168, radius=1) ) )
                      op_Subtraction Target()@0x178,
                      nrOfTargets = 1 )
@@ -52,7 +52,7 @@ def bringer_of_despair_tree() -> AtomicGroup:
       `nrOfHits_2`(0x32) — config 1022 : les DEUX valent 4 (i2 « 4x ... and 4x ... »). Profil `Power` (melee,
       PiercingRatio 40) pour les deux. `attackRangeType=Melee` -> `is_melee=True`.
     - **BONUS = ennemi adjacent au CASTER, PAS a la cible** : `AdjacentUnits(casterTile@0x168, radius=1)` —
-      @0x168 = CasterTile (ANCRE : `GauntletsOfUltramar.GetAdjacentTargetsSelector @1811e2010` decompile
+      @0x168 = CasterTile (ANCRE : `IdunBattleLogic.Entities.Abilities.Active.Loki.GauntletsOfUltramarAbility$$GetAdjacentTargetsSelector` decompile
       `AdjacentTiles(@0x168)` = casterTile). `Enemies(caster@0x148, ...)` filtre a l'equipe adverse (@0x148 =
       Caster, meme role enemies-ref que @0x160 dans Gauntlets/CrushingClaws ; HeroicFusillade `caster@0x148`
       valide live). `Damageable` = vivants ciblables (PV>0). `op_Subtraction Target()@0x178` retire la cible
@@ -62,8 +62,8 @@ def bringer_of_despair_tree() -> AtomicGroup:
       `state.rng`). Evalue A L'EXECUTION du volet bonus = APRES les coups MAIN (op_BitwiseAnd = main puis bonus)
       -> l'ordre de conso `state.rng` (8 tirages main a cc=0, puis le pick, puis 8 tirages bonus) mirror le natif.
     - **native_factory = "attack"** (defaut, 2 tirages/coup a cc=0) : les DEUX volets appellent
-      `DSLFactory.AttackWithAttackDamage @180de9fb0` (VERIFIE par les CALLEES de @1811be740, PAS au nom du
-      commentaire — cf. rngcrit-1202/tip #2), famille attack, JAMAIS `AttackWithAbilityDamage @180de9c90`.
+      `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (VERIFIE par les CALLEES de IdunBattleLogic.Entities.Abilities.Active.Loki.BringerOfDespairAbility$$ExecuteBehaviour, PAS au nom du
+      commentaire — cf. rngcrit-1202/tip #2), famille attack, JAMAIS `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`.
 
     `op_BitwiseAnd` = `CombinedBehaviour` (effets PURS -> les deux volets s'executent) ; `ExecuteAtomic` ->
     `AtomicGroup` (inline #201 ; tag 0x45 = id du groupe atomique, aucun `EvaluateAbilities` implicite, cf.
@@ -86,7 +86,7 @@ def bringer_of_despair_tree() -> AtomicGroup:
 
 
 class BringerOfDespairAbility(ActiveAbility):
-    """`BringerOfDespairAbility$$ExecuteBehaviour @1811be740` (id 1022, Angrax `blackTerminator`, namespace
+    """`BringerOfDespairAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.BringerOfDespairAbility$$ExecuteBehaviour` (id 1022, Angrax `blackTerminator`, namespace
     natif `Abilities.Active.Loki`).
 
     Arbre DSL `bringer_of_despair_tree()` = template splash `loki/splash.py` (MEME plage main/bonus, seuls les
@@ -120,7 +120,7 @@ class BringerOfDespairAbility(ActiveAbility):
 
 # ================== Incursion (blackPossession `Vitruvius`, actif 1021) -- case-220 P0-SUMMON ==================
 #
-# `IncursionAbility.ExecuteBehaviour @1811e9fe0` (MIRROR du DECOMPILE) :
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.IncursionAbility$$ExecuteBehaviour` (MIRROR du DECOMPILE) :
 #     unitId   = GetStringConstant(config, 0)                                    # blackSmnBloodletter
 #     tgtUnit  = TargetsSelector.SelectUnit(target@0x178, entities, 3)           # cible resolue EAGER
 #     opts     = SpawnUnitOptions.WithStatsFromConfig(config, level)
@@ -136,7 +136,7 @@ CONST_INCURSION_MAX_SUMMONS = 0x3c  # GetNumberConstant(0x3c) -> "maxSummons"  =
 
 
 def incursion_next_spawn_tile(state: "State", entities):
-    """`IncursionAbility.GetNextSpawnTile @1811ea520` -- MIRROR ; RE-CONSTRUIT a CHAQUE ITERATION de la
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.IncursionAbility$$GetNextSpawnTile` -- MIRROR ; RE-CONSTRUIT a CHAQUE ITERATION de la
     chaine (le natif passe un `System.Func<>` sur cette methode, donc une NOUVELLE instance de selecteur
     par tour -> aucune memoisation, l'etat LIVE est relu) :
 
@@ -146,7 +146,7 @@ def incursion_next_spawn_tile(state: "State", entities):
         amount = ConditionalAmount(cond, 1@dsl+0xc0, 0@dsl+0xb8)
         return PickRandomly(tiles, amount, 0, 0x7fffffff, false)
 
-    `cond` est EXACTEMENT `IncursionAbility.GetContinueTrigger @1811ea420` -> c'est la condition d'arret de
+    `cond` est EXACTEMENT `IdunBattleLogic.Entities.Abilities.Active.Loki.IncursionAbility$$GetContinueTrigger` -> c'est la condition d'arret de
     la chaine : caster vivant ET cible vivante ET caster a <= `range` hex de la cible. Comme les
     Bloodletters ATTAQUENT la cible a l'apparition, une cible qui MEURT en cours de chaine rend `cond`
     faux -> selecteur vide -> `ChainBehaviour` s'arrete AVANT d'avoir consomme ses `maxSummons`.
@@ -165,7 +165,7 @@ def incursion_next_spawn_tile(state: "State", entities):
 
 
 def incursion_tree(state: "State", max_summons: int) -> ChainBehaviour:
-    """Arbre de `IncursionAbility.ExecuteBehaviour @1811e9fe0` : `ChainBehaviour` bornee a `maxSummons`
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.IncursionAbility$$ExecuteBehaviour` : `ChainBehaviour` bornee a `maxSummons`
     iterations, chacune (a) re-evaluant `GetNextSpawnTile` (0 ou 1 tuile libre adjacente a la cible,
     gatee par la condition de continuation) puis (b) executant `Spawn(caster, ActiveTarget@0x180,
     blackSmnBloodletter, opts)` -- la tuile rendue par l'iteration est liee a `ActiveTarget`, que le
@@ -187,8 +187,8 @@ def incursion_tree(state: "State", max_summons: int) -> ChainBehaviour:
 #
 # CIBLAGE (face DECISION/eligibilite) : 1147 n'a **AUCUN** `GetDynamicInvalidTargetReason` (contraste
 # 1168/1200) -- son predicat vit dans les `TargetingOptions` du ctor `HadesAutocannonsAbility..ctor
-# @1811e56b0` (`TargetingOptions(0, <filtre>, 1, 0x46006000, 0,0,0)`), ET il est REDIT par le selecteur
-# d'execution `GetAllTargets @1811e5480` (`UnitsWithTrait(..., 2=Summon)`) : la cible doit etre un
+# IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$.ctor` (`TargetingOptions(0, <filtre>, 1, 0x46006000, 0,0,0)`), ET il est REDIT par le selecteur
+# d'execution `IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets` (`UnitsWithTrait(..., 2=Summon)`) : la cible doit etre un
 # **SUMMON ennemi**. C'est CE predicat qui rend « 0 cible au spawn » (sweep case-mow §5) : il faut le
 # MONTER (amener un summoner adverse a invoquer, puis viser un summon) pour obtenir une cible.
 CONST_HADES_RANGE = 0x16          # GetNumberConstant(0x16) -> "range" = 2
@@ -197,7 +197,7 @@ HADES_AUTOCANNONS_ID = "HadesAutocannons"
 
 
 def hades_autocannons_get_all_targets(range_: int):
-    """`HadesAutocannonsAbility.GetAllTargets @1811e5480` — MIRROR du DECOMPILE :
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets` — MIRROR du DECOMPILE :
 
         sel   = UnitsWithTrait( Friends( target@0x178,                                   # allies DE LA CIBLE
                                          SurroundingUnits(target@0x178, GetNumberConstant(0x16)=range,
@@ -205,18 +205,18 @@ def hades_autocannons_get_all_targets(range_: int):
                                 2 = Summon, 3 )
         asc   = SortByRow( Tiles(sel), 0, 0, false )
         desc  = SortReverse( SortByRow( Tiles(sel), 0, 0, false ) )
-        return If( AreEqual(CurrentPlayer, Player(1)), asc, desc )                        # == IsTopPlayer @1811e5640
+        return If( AreEqual(CurrentPlayer, Player(1)), asc, desc )                        # == IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$IsTopPlayer
 
     = les SUMMONS (trait 2) allies de la CIBLE, dans un disque de rayon `range` autour d'elle,
-    **CIBLE INCLUSE** (`SurroundingTiles(..., includeCenter=1)` @180dfca70 : param!=0 -> selecteur direct,
+    **CIBLE INCLUSE** (`IdunBattleLogic.Entities.DSLFactory$$SurroundingTiles(..., includeCenter=1) : param!=0 -> selecteur direct,
     param==0 -> `- Tiles(center)`). i2 : « a targeted enemy summon AND all other enemy summons within 2
     hexes of the target ». Le referent de `Friends` est la **CIBLE** (1er arg natif), pas le caster : ce
     sont donc les summons du camp de la cible = les summons ENNEMIS du caster (d'ou le `Friends(reference=
     Target())` porte).
 
     **ORDRE** : le `SortByRow`/`SortReverse` (+ `If(IsTopPlayer)`) est un ordre de LECTURE du selecteur ;
-    il est ECRASE en aval par l'`OrderBy` que `AttackBehaviour.Execute @180fb91a0` applique
-    INCONDITIONNELLEMENT des que le set a >= 2 cibles (`if (1 < count) OrderBy(<>c.b__5_0 @180fd9150)`
+    il est ECRASE en aval par l'`OrderBy` que `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` applique
+    INCONDITIONNELLEMENT des que le set a >= 2 cibles (`if (1 < count) OrderBy(<>c.b__5_0 IdunBattle.Entities.Behaviours.AttackBehaviour.u003Cu003Ec$$u003CExecuteu003Eb__5_0)`
     = cle par-entite du slot vtable +0x158). Le port garde donc son tri par `id` (`multi=True`, == tous
     les autres multi-cibles valides bit-exact) et NE porte PAS les noeuds de tri — HYPOTHESE explicite
     (la cle +0x158 n'est pas relue ici) : discriminable live avec >= 2 summons dont l'ordre de `row`
@@ -229,7 +229,7 @@ def hades_autocannons_get_all_targets(range_: int):
 
 
 def hades_autocannons_tree(range_: int, crit_amount: int, caster_id: int):
-    """Arbre de `HadesAutocannonsAbility$$ExecuteBehaviour @1811e50e0` — MIRROR du DECOMPILE :
+    """Arbre de `HadesAutocannonsAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$ExecuteBehaviour` — MIRROR du DECOMPILE :
 
         crit  = GetVariableForLevel(config, 0x42 = extraCritDmg, abilityState)
         Execute( op_Addition( op_Addition(
@@ -240,15 +240,15 @@ def hades_autocannons_tree(range_: int, crit_amount: int, caster_id: int):
                                     AbilityOrEffect(0x47b = 1147), <options> ) ),
             ChangeStat( Owner@0x148, Position(10, 0), mode=3=Subtract, Direct(crit) ) ) )          # [3]
 
-    JUMEAU STRUCTUREL de `HeroicFusilladeAbility @1811e8de0` (buff crit temporaire NET-NUL encadrant
+    JUMEAU STRUCTUREL de `HeroicFusilladeAbility IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility$$ExecuteBehaviour` (buff crit temporaire NET-NUL encadrant
     l'attaque, meme couple ChangeStat Add/Sub sur `CRIT_DAMAGE` avec source PARTAGEE) — d'ou la meme
     feuille portee `ChangeStat(..., "add"/"revert", src)`.
 
     - **native_factory = "attack"** (defaut) : le decompile appelle `DSLFactory.AttackWithAttackDamage`
-      (VERIFIE par la CALLEE de @1811e50e0 ; contraste EntropyCannons/SquigLaunchas =
-      `AttackWithAbilityDamage`) -> `AttackDamageOperation.ExecuteHit @180e5eff0`, 2 tirages/coup a cc=0,
+      (VERIFIE par la CALLEE de IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$ExecuteBehaviour ; contraste EntropyCannons/SquigLaunchas =
+      `AttackWithAbilityDamage`) -> `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`, 2 tirages/coup a cc=0,
       crit ACTIF (c'est justement ce que le buff [1] alimente).
-    - `multi=True` : le selecteur resout N cibles -> `AttackBehaviour.Execute @180fb91a0` attaque CHACUNE
+    - `multi=True` : le selecteur resout N cibles -> `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` attaque CHACUNE
       (ordre = OrderBy par-entite, port = tri par id).
     - Profil `Flame` (PiercingRatio 25, trait OnFire), `nrOfHits`=6, `attackRangeType=Ranged` ->
       `is_melee=False`.
@@ -269,10 +269,10 @@ def hades_autocannons_tree(range_: int, crit_amount: int, caster_id: int):
 
 
 class HadesAutocannonsAbility(ActiveAbility):
-    """`HadesAutocannonsAbility$$ExecuteBehaviour @1811e50e0` (id 1147, `blackForgefiend` « Forgefiend »,
+    """`HadesAutocannonsAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$ExecuteBehaviour` (id 1147, `blackForgefiend` « Forgefiend »,
     MACHINE OF WAR Black Legion). Arbre DSL `hades_autocannons_tree()` (mirror 1:1) : buff CRIT_DAMAGE
     (+extraCritDmg[level]) -> 6 coups Flame sur la cible ET tous les summons de SON camp a <= range hex
-    d'elle (`GetAllTargets @1811e5480`) -> retrait du buff.
+    d'elle (`IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets`) -> retrait du buff.
 
     Caster = une **MoW hors-plateau** (ni Position ni Health) : `apply_elevation_bonus`/
     `apply_trench_reduction` (famille ATTACK) no-op sans position d'attaquant -> aucun chemin ne suppose
@@ -305,11 +305,11 @@ class HadesAutocannonsAbility(ActiveAbility):
 
 
 class IncursionAbility(ActiveAbility):
-    """`IncursionAbility.ExecuteBehaviour @1811e9fe0` (id 1021, `blackPossession` "Vitruvius",
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.IncursionAbility$$ExecuteBehaviour` (id 1021, `blackPossession` "Vitruvius",
     BlackLegion). Invoque JUSQU'A `maxSummons`=6 Bloodletters (`blackSmnBloodletter`), UN PAR ITERATION,
     sur des tuiles LIBRES adjacentes a la cible ; chaque Bloodletter attaque la cible a son apparition.
     La chaine s'arrete des qu'une tuile manque OU que la condition de continuation
-    (`GetContinueTrigger @1811ea420` : caster vivant & cible vivante & caster a <= `range`=2 hex) tombe --
+    (`IdunBattleLogic.Entities.Abilities.Active.Loki.IncursionAbility$$GetContinueTrigger` : caster vivant & cible vivante & caster a <= `range`=2 hex) tombe --
     typiquement quand les Bloodletters ONT TUE la cible.
 
     N'utilise PAS `PerformAIAction` (contrairement a ce que suggerait le regroupement de tache : la face

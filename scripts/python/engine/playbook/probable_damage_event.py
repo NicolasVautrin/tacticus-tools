@@ -1,9 +1,9 @@
-"""Port FIDÈLE de `IdunBattle.AI.Playbook.ProbableDamageEvent` (.ctor `@181135500`, RE'd dans
-`GenerateMultiHitAttackPredictions @181409da0`). Le playbook génère une LISTE de ces events (un par
+"""Port FIDÈLE de `IdunBattle.AI.Playbook.ProbableDamageEvent` (.IdunBattle.AI.Playbook.ProbableDamageEvent$$.ctor`, RE'd dans
+`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions`). Le playbook génère une LISTE de ces events (un par
 cible/membre probable), chacun pondéré par DEUX probabilités, puis somme
-`CalculateUtilityFromDamageEvent(event) @1814a9f90 = prob1 × prob2 × weight(ForDamagePrediction(prediction))`.
+`IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromDamageEvent(event) = prob1 × prob2 × weight(ForDamagePrediction(prediction))`.
 
-Structure native (offsets lus @181135500, struct 0xD8) :
+Structure native (offsets lus IdunBattle.AI.Playbook.ProbableDamageEvent$$.ctor, struct 0xD8) :
   Target@0x00 · Prediction:DamagePredictionResult@0x08 (0xC0) · probability1:Fix64@0xC8 · probability2:Fix64@0xD0.
 Les 2 probabilités sont des `Nullable<Fix64>` valant 1.0 par défaut :
   - probability1 = poids du BATCH (AoE secondaire = `Fix64.FromIntFraction(maxSecondary, actualCount)`
@@ -22,7 +22,7 @@ class ProbableDamageEvent:
     """Événement de dégât probable : cible + `DamagePredictionResult` + 2 poids de proba (défaut 1.0).
 
     `target` = id de la cible (int). `friendly` = event de dégât sur un ALLIÉ/self (coût en PV d'une
-    ability, ex. DakkaDakkaDakka) → utilité NÉGÉE (`DamageUtility @1810e2280` : friendly-fire negated)."""
+    ability, ex. DakkaDakkaDakka) → utilité NÉGÉE (`DamageUtility IdunBattle.AI.Utilities.DamageUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext` : friendly-fire negated)."""
     target: int
     prediction: DamagePredictionResult
     probability1: float = 1.0
@@ -35,7 +35,7 @@ class ProbableDamageEvent:
         return self.probability1 * self.probability2
 
     def composite_fields(self) -> dict:
-        """Champs consommés par le composite Damage (`UtilityAttackCase.ForDamagePrediction @181104fb0`
+        """Champs consommés par le composite Damage (`IdunBattle.AI.Utilities.UtilityAttackCase$$ForDamagePrediction`
         → poids `Utilities` case 0x22) : santé min/max (cap PV), split bouclier (AccurateShieldDamage@0x78),
         kill/killSure. Mirror de la lecture native des bornes depuis le `DamagePredictionResult`
         (= l'ancien `predict_validate._event_from_dp`).
@@ -46,9 +46,9 @@ class ProbableDamageEvent:
         rr = dp.raw_health_damage
         s = dp.accurate_shield_damage
         hp = dp.current_health
-        # #54A : `get_WillBeKill @18102bef0` lit `list[0]@0x50` (scénario « tous coups bloqués »)
+        # #54A : `IdunBattle.Core.Services.DamagePredictionResult$$get_WillBeKill` lit `list[0]@0x50` (scénario « tous coups bloqués »)
         # quand la liste est non-vide, sinon le scalaire rawMin@0x24 — killSure compte donc le BLOCK
-        # du défenseur (Daemon 25%/50%×Attack, BeastSlayer…). `kill` (MightBeKill @18102be30) reste
+        # du défenseur (Daemon 25%/50%×Attack, BeastSlayer…). `kill` (MightBeKill IdunBattle.Core.Services.DamagePredictionResult$$get_MightBeKill) reste
         # sur le rawMax scalaire SANS block.
         bmin = dp.block_raw_min
         will_min = bmin if bmin is not None else rr.min
@@ -62,7 +62,7 @@ class ProbableDamageEvent:
 
 
 def calculate_utility_from_damage_event(event: ProbableDamageEvent, wt, target_max_hp: int | None = None) -> float:
-    """`Playbook.CalculateUtilityFromDamageEvent @1814a9f90` = `prob1 × prob2 × weight` où
+    """`IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromDamageEvent` = `prob1 × prob2 × weight` où
     `weight = ForDamagePrediction(prediction)` = le composite Damage (`engine.utilities.damage_composite`,
     case 0x22). Event FRIENDLY → utilité NÉGÉE (`DamageUtility` : friendly-fire negated)."""
     from ..utilities import damage_composite
@@ -72,25 +72,25 @@ def calculate_utility_from_damage_event(event: ProbableDamageEvent, wt, target_m
 
 def calculate_utility_from_predictions(events: list[ProbableDamageEvent], wt,
                                        target_max_hp_by_id: dict | None = None) -> float:
-    """`ComparablePlaybook.CalculateUtilityFromPredictions @181407890` (terme dégât) = `Σ` des events.
+    """`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions` (terme dégât) = `Σ` des events.
     `target_max_hp_by_id` = {target_id: maxHP} (combinedMax du composite). Défaut None → cible pleine."""
     m = target_max_hp_by_id or {}
     return sum(calculate_utility_from_damage_event(e, wt, m.get(e.target)) for e in events)
 
 
-# ── POSE D'EFFET (branche effet de `CalculateUtilityFromPredictions @181407890`) ─────────────────────
+# ── POSE D'EFFET (branche effet de `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions`) ─────────────────────
 # La fonction native somme QUATRE familles de prédictions via 4 slots vtable : dégât (+0x358), soin
 # (+0x368/378), EFFET (+0x388=MakeEffectPredictions), repair (dict). La branche effet (LAB_181407fe0) :
 #   pour chaque event {target@0, effectType@1, probability@2} : ForEffect(case, caster, target, effectType)
 #   -> AddedEffectUtility (UtilityType 0x2d=45=AddedTileEffects) -> Fix64.op_Multiply(event.probability, U).
 # FIDÉLITÉ DE BUILD (gqfc5mff6c) : le SEUL override de MakeEffectPredictions est `SpiritLeechPlaybook`
-# @18115d690 (les autres héritent de la base VIDE @18140a930). SpiritLeech pose l'effet 0x429=1065="Pinned",
+# IdunBattle.AI.Playbook.Loki.SpiritLeechPlaybook$$MakeEffectPredictions (les autres héritent de la base VIDE IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$MakeEffectPredictions). SpiritLeech pose l'effet 0x429=1065="Pinned",
 # ABSENT de la catégorie BC AddedTileEffects (qui ne pondère que Fire/Ice/SpiderWeb) -> son terme effet = 0.
 # => ce chemin est structurellement présent mais NUMÉRIQUEMENT INERTE dans ce build. On le porte pour la
 # complétude/fidélité (mirror du fold natif) ; il redevient actif dès qu'une BC pondère l'effet posé.
 @dataclass
 class ProbableEffectEvent:
-    """`IdunBattle.AI.Playbook.ProbableEffectEvent` (`.ctor @181135820`). Event porteur d'une POSE D'EFFET
+    """`IdunBattle.AI.Playbook.ProbableEffectEvent` (`.IdunBattle.AI.Playbook.ProbableEffectEvent$$.ctor`). Event porteur d'une POSE D'EFFET
     probable sur une cible. Ctor natif `(target, effectType, probability:Nullable<Fix64>=1.0, _)` ; struct
     lue dans `CalculateUtilityFromPredictions` : target@0 · effectType@1 · probability@2.
 
@@ -107,7 +107,7 @@ class ProbableEffectEvent:
 
 
 def calculate_utility_from_effect_event(event: ProbableEffectEvent, wt) -> float:
-    """Branche effet de `CalculateUtilityFromPredictions @181407890` (LAB_181407fe0) :
+    """Branche effet de `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions` (LAB_181407fe0) :
     `probability × ForEffect→AddedEffectUtility(name, has_effect, is_friend, weights[AddedTileEffects=45])`.
     Poids = catégorie BC `Utilities.Default.AddedTileEffects` (Fire/Ice/SpiderWeb + `Unit_on_*`)."""
     from ..utilities.effect import ADDED_EFFECT_UTILITY

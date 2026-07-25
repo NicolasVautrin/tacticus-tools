@@ -1,13 +1,13 @@
 """Mecaniques de COMPORTEMENT — **Battle Fatigue** (trait `BattleFatigue`).
 
 RE ghidra (gqfc5mff6c) :
-  `BattleFatigueAbility.CreateTrigger` @18121a5c0 = `OnDeath(1) & IsAdjacent(self,dying,2) &
+  `IdunBattleLogic.Entities.Abilities.Active.Loki.BattleFatigueAbility$$CreateTrigger = `OnDeath(1) & IsAdjacent(self,dying,2) &
    AreFriends(dying,self) & NOT HasEffect(self, 0x437=1079 IgnoreBattleFatigue) & NOT IsObjectOrSteppable(dying)
    & OwnerActive` -> quand un ALLIE adjacent (<=2 hex) meurt et que self n'est pas immunise.
-  `BattleFatigueAbility.CreateBehaviour` @18121a0d0 = `Repeat(numTriggers, If(NOT HasFlag(self,9),
-   Maybe(GetFleeChance, self) -> Flee(self,...)))`. `GetFleeChance` @18121a730 = `ConditionalAmount(
+  `IdunBattleLogic.Entities.Abilities.Active.Loki.BattleFatigueAbility$$CreateBehaviour = `Repeat(numTriggers, If(NOT HasFlag(self,9),
+   Maybe(GetFleeChance, self) -> Flee(self,...)))`. `IdunBattleLogic.Entities.Abilities.Active.Loki.BattleFatigueAbility$$GetFleeChance = `ConditionalAmount(
    TargetIsOverkilled ? const 0x33 : const 0x2a)` — chances NON sourcables offline (config interne BC).
-  `FleeOperation.Execute` @180e72680 = deplace vers une tuile de fuite -> RecordFlee (stats/timelines) ->
+  `IdunBattle.Operations.FleeOperation$$Execute = deplace vers une tuile de fuite -> RecordFlee (stats/timelines) ->
    RemoveEffects (3 phases) -> **pose UnitFlag 9** (« a fui » : bloque la ré-action ; re-teste par le trigger)
    -> events.
 
@@ -36,7 +36,7 @@ BATTLE_FATIGUE_ADJ = 2           # IsAdjacent(self, dying, 2) — rayon de l'all
 
 
 class FleeOperation:
-    """`IdunBattle.Operations.FleeOperation.Execute` @180e72680 (port STRUCTUREL de l'observable).
+    """`IdunBattle.Operations.FleeOperation$$Execute (port STRUCTUREL de l'observable).
 
     L'unite FUIT : pose le **UnitFlag 9** (`UnitFlagsComponent`, « a fui » -> bloque la ré-action ce tour)
     + se DEPLACE vers la tuile atteignable maximisant la distance min aux ennemis (best-effort ; la

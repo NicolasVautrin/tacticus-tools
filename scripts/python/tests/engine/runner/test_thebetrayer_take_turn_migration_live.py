@@ -1,6 +1,6 @@
 """TheBetrayer_TakeTurn (worldKharn) -- behaviour MIGRE (#149 slice-24), confronte LIVE.
 
-Valide que `_betrayer_take_turn` (`CreateBehaviour @1811a4f70`) route desormais ses DEUX feuilles E par le
+Valide que `_betrayer_take_turn` (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_TakeTurnAbility$$CreateBehaviour`) route desormais ses DEUX feuilles E par le
 DSL (== ThunderousAssault) : le MOVE force par la feuille `MoveUnit(Caster(), FixedTiles([bestTile]))` et
 l'ATTAQUE 4 coups Eviscerate par la feuille `AttackWithAttackDamage(Target(), "TheBetrayer", "Eviscerate",
 melee)`. Les selecteurs S (cible `GetAttackTarget`, tuile-d'arret pathfinding) restent IMPERATIFS, COLLAPSES

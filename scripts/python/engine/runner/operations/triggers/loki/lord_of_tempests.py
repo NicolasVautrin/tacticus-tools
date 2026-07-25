@@ -2,10 +2,10 @@
 `spaceStormcaller.passiveAbilities=['LordOfTempests']`) — face RUNNER « pose de glace » du passif (#35).
 RE (decompile ghidra, build gqfc5mff6c) :
 
-  - `CreateTrigger @181108670` = `OnNormalAttackOrSmite() & get_OwnerIsCaster` :
-      * `OnNormalAttackOrSmite @180df7c70` = `On(0x26=38 NormalAttack) | (On(9=Attack) &
+  - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LordOfTempests_AddIceAbility$$CreateTrigger` = `OnNormalAttackOrSmite() & get_OwnerIsCaster` :
+      * `IdunBattleLogic.Entities.DSLFactory$$OnNormalAttackOrSmite` = `On(0x26=38 NormalAttack) | (On(9=Attack) &
         <trigger DAT_18322f680>(DirectAbilitySelector(AbilityOrEffect 0x3f5=1013)))`. Le 2e terme
-        est LE MÊME nœud que la 2e branche d'`IsNormalAttack @180df4690` (même classe DAT_18322f680,
+        est LE MÊME nœud que la 2e branche d'`IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack` (même classe DAT_18322f680,
         même ctor gshared MISLABELÉ `HasUsedActiveAbilityThisTurnTrigger`, même sélecteur 1013 —
         verdict `dsl-wave3-specs.md` « IsNormalAttack [PROUVE] ») : « l'ability COURANTE de l'event
         est du KIND attaque-normale (marqueur 0x3f5=1013) ». Le splash « Smite » du trait Psyker
@@ -13,11 +13,11 @@ RE (decompile ghidra, build gqfc5mff6c) :
       * i2 : « The hex of each enemy that is hit by Njal's normal attacks is covered in Ice at the
         end of the attack. » = cible principale (branche `On(38)`) + victime du splash Psyker
         (branche `On(9) & kind==1013`).
-  - `CreateBehaviour @1811085d0` = feuille UNIQUE
+  - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LordOfTempests_AddIceAbility$$CreateBehaviour` = feuille UNIQUE
         `AddEffect(0x11=Ice, AbilityStateReference, source=Self@0x148, cible=Tiles(Target@0x178),
                    <Nullable ZÉROÉ 16 octets>, 0)`
     → pose l'effet **Ice (17)** sur la TUILE de la cible touchée. 5e arg zéroé = PAS de
-    `TurnsFromRounds` → `DefaultAmountOfRounds(0x11)=2` (switch natif @181559ff0, transcrit
+    `TurnsFromRounds` → `DefaultAmountOfRounds(0x11)=2` (switch natif idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$DefaultAmountOfRounds, transcrit
     `effects.py _DEFAULT_ROUNDS[0x11]=2`). `source=Self@0x148` == le caster (triggered
     Owner==Caster, cf. behaviours.py `entities_from_state`) → la feuille portée `AddEffect`
     (source = `entities.caster`) est le mirror exact — pas besoin de l'overload source explicite.
@@ -37,7 +37,7 @@ via l'`att_ctx` positionnel threadé par `attacker_modifiers` (damage_model.py, 
 `state.effects.by_unit[tile_id]` que le PickTile MV71). Le blocage de mouvement Ice
 (`NotBlockingMovementOfTraits(0x11)`, mécanique 1 de terrain-effects.md) reste NON porté (#131,
 déféré faute de board jouable) ; le crit-bonus Ice (mécanique 2, `IceEffect.
-CreateEffectDamageBonusForAttack @180f44940`) reste NON porté (gate ICE, terrain-effects.md §2).
+IdunBattle.Entities.Effects.IceEffect$$CreateEffectDamageBonusForAttack`) reste NON porté (gate ICE, terrain-effects.md §2).
 
 DOCTRINE #149 : prédicats du trigger COLLAPSÉS impérativement (`matches` : OwnerIsCaster +
 event/kind) ; la feuille E (`AddEffect` tile-domain) délègue à `AddEffectOperation`."""
@@ -62,7 +62,7 @@ _ON_ATTACK = int(EventTriggerType.Attack)         # 9 — branche 2 (gate kind==
 
 
 def lord_of_tempests_add_ice_tree():
-    """Feuille de `LordOfTempests_AddIceAbility.CreateBehaviour @1811085d0` (MIRROR 1:1 du DÉCOMPILÉ) :
+    """Feuille de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LordOfTempests_AddIceAbility$$CreateBehaviour` (MIRROR 1:1 du DÉCOMPILÉ) :
         AddEffect( effectType = 0x11=Ice (TILE),
                    source     = Self@0x148 (== caster, triggered Owner==Caster),
                    cible      = Tiles(Target@0x178) = la MainTile de la cible touchée )
@@ -74,7 +74,7 @@ def lord_of_tempests_add_ice_tree():
 
 
 class LordOfTempestsAddIceAbility(TriggeredAbility):
-    """`LordOfTempests_AddIceAbility` (CreateTrigger @181108670 / CreateBehaviour @1811085d0) —
+    """`LordOfTempests_AddIceAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.LordOfTempests_AddIceAbility$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Triggered.Loki.LordOfTempests_AddIceAbility$$CreateBehaviour) —
     passif de Njal (`spaceStormcaller.passiveAbilities=['LordOfTempests']`, triggered id 1194).
     Glace la tuile de CHAQUE ennemi touché par une attaque normale de Njal : cible principale
     (`On(38)`) + victime du splash Smite Psyker (`On(9) & kind==0x3f5`), toujours `OwnerIsCaster`.
@@ -92,7 +92,7 @@ class LordOfTempestsAddIceAbility(TriggeredAbility):
         return ev.event_id == _ON_ATTACK and ev.ability_type == SMITE_KIND
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        """Behaviour = arbre DSL `lord_of_tempests_add_ice_tree()` (mirror 1:1 @1811085d0) :
+        """Behaviour = arbre DSL `lord_of_tempests_add_ice_tree()` (mirror 1:1 IdunBattleLogic.Entities.Abilities.Triggered.Loki.LordOfTempests_AddIceAbility$$CreateBehaviour) :
         `AddEffect(Ice=17, Tiles(Target()))`. Target() = la cible de l'événement (l'ennemi touché) ;
         sa tuile reçoit Ice même si le coup l'a tuée (le natif pompe le trigger APRÈS le dégât —
         l'entité-cadavre garde sa position, `Tiles` résout sa MainTile)."""

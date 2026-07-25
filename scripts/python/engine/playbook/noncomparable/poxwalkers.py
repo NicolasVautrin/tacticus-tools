@@ -7,13 +7,13 @@ from ._base import NCContext, NonComparablePlaybook
 
 
 class SpawnPoxwalkersPlaybook(NonComparablePlaybook):
-    """`SpawnPoxwalkersPlaybook.EvaluateNonComparable @18115c6f0` (id 0x410=1040, deathBlightbringer).
-    Summon SELF-CAST : `SpawnPoxwalkersAbility.ExecuteBehaviour @181208b80` fait apparaitre des
+    """`IdunBattle.AI.Playbook.Loki.SpawnPoxwalkersPlaybook$$EvaluateNonComparable` (id 0x410=1040, deathBlightbringer).
+    Summon SELF-CAST : `IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$ExecuteBehaviour` fait apparaitre des
     Poxwalkers sur les `SurroundingTiles(caster)` placables (`CanAddUnit`) puis
     `PerformAIAttackFromCurrentPosition`. La cible de DECISION = le CASTER lui-meme (spawn centre sur soi).
 
-    Structure native (mirror EvaluateNonComparable) : Bucket min = `Fix64.FromInt(1)` (cctor @18115ca90).
-    Pour chaque position balayee, enumere `GetEligibleTargetsSelectable(MainTile=position)` @18111f0d0
+    Structure native (mirror EvaluateNonComparable) : Bucket min = `Fix64.FromInt(1)` (IdunBattle.AI.Playbook.Loki.SpawnPoxwalkersPlaybook$$.cctor).
+    Pour chaque position balayee, enumere `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable(MainTile=position)
     (= `GetValidTargets` slot 0x41 moins predicat) ; pour CHAQUE cible eligible ->
     `GenerateAction(position, cible, Fix64.FromIntFraction(3,2)=1.5)` + `Bucket.AddAction`. Utilite
     CONSTANTE 1.5 par cible. La cible eligible native = SOI uniquement (targeting self ; VALIDE LIVE
@@ -24,16 +24,16 @@ class SpawnPoxwalkersPlaybook(NonComparablePlaybook):
     - position : utilite POSITION-INDEPENDANTE (1.5 partout ou self est eligible = toute position) ->
       `Bucket.AddAction` keep-first au tie -> 1re position du sweep = ORIGINE -> cast EN PLACE (to=None).
       VALIDE LIVE (natif caste 1040 sur place a (1,2)=origine ; ncEvaluate n'a que la position courante).
-    - ctor @18115cb00 = `NonComparablePlaybook(0x410)` -> 1er arg = ability_id ; PRIORITY=0 (defaut #115).
-    - ShouldEvaluate (base @18111fb70) lit `GetUseProbability @18115ca00 = GetStat(unit,0xc=TurnsStarted)
+    - IdunBattle.AI.Playbook.Loki.SpawnPoxwalkersPlaybook$$.ctor = `NonComparablePlaybook(0x410)` -> 1er arg = ability_id ; PRIORITY=0 (defaut #115).
+    - ShouldEvaluate (base IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate) lit `IdunBattle.AI.Playbook.Loki.SpawnPoxwalkersPlaybook$$GetUseProbability = GetStat(unit,0xc=TurnsStarted)
       * Fix64.FromIntFraction(1,5)` = TurnsStarted*0.2 : porte ALEATOIRE (prob>=1 <=> turnsStarted>=5 ->
       True deterministe ; sinon tirage RNG). Comme BlackRage/ItItches (#44 §5), la porte RNG N'EST PAS
       modelisee dans un moteur deterministe -> should_evaluate = True (defaut). FLAG validateur : risque
       d'over-fire aux tours ou le natif RNG-skippe (turnsStarted<5). Au miss s5 le natif a caste."""
     ABILITY_ID = int(ActiveAbilityType.Poxwalkers)  # 1040
-    MIN_UTILITY = 1.0     # cctor @18115ca90 = Fix64.FromInt(1) ; util 1.5 constante toujours admise
+    MIN_UTILITY = 1.0     # IdunBattle.AI.Playbook.Loki.SpawnPoxwalkersPlaybook$$.cctor = Fix64.FromInt(1) ; util 1.5 constante toujours admise
     PRIORITY = 0
-    _UTIL = 1.5           # Fix64.FromIntFraction(3,2) @18115c6f0 = utilite constante par cible eligible
+    _UTIL = 1.5           # Fix64.FromIntFraction(3,2) IdunBattle.AI.Playbook.Loki.SpawnPoxwalkersPlaybook$$EvaluateNonComparable = utilite constante par cible eligible
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         if ctx.ability_targets is None:

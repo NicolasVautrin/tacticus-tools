@@ -3,7 +3,7 @@
 
 Cas A (+50, nous AU-DESSUS)  : 1357 s15, u135 (summon) ab=69 -> t162, tile (5,4)
                                off=214.9486 nat=164.9486. Suspect : gate STEPPABLE du
-                               KillUnitUtility natif (@1810e1a90 : IsUnit(target) &&
+                               KillUnitUtility natif (IdunBattle.AI.Utilities.KillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext : IsUnit(target) &&
                                IsSteppable(target)=HasTrait(0x1b) -> yield 0) non porte.
 Cas B (-40, nous EN-DESSOUS) : 54321 s16, u81 (Mephiston) ab=69 -> t89, tile (2,4)
                                off=161.1402 nat=201.1402. Suspect : DefinitelyOverkill(40)

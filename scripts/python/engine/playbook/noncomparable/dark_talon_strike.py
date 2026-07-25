@@ -10,7 +10,7 @@ from ._base import NCContext, NonComparablePlaybook
 
 def _beam_count(origin: tuple, aim: tuple, enemy_set: set) -> int:
     """#ennemis CONTINUS sur le rayon droit depuis `origin` a travers `aim`, en partant de `aim`
-    vers l'exterieur (`TilesBehindInLine` + `FilterContinuous(hasUnit & areEnemies)` @1811d18c0).
+    vers l'exterieur (`TilesBehindInLine` + `FilterContinuous(hasUnit & areEnemies)` IdunBattleLogic.Entities.Abilities.Active.Loki.DarkTalonStrikeAbility$$GetTilesInLine).
     Extension en coordonnees CUBE (rayon droit parite-independant) : dir = cube(aim)-cube(origin)
     (aim ADJACENT -> pas unitaire) ; on avance k=1,2,... tant que la tuile est un ennemi. Le compte
     S'ARRETE au 1er trou (tuile sans ennemi) = continuite du beam."""
@@ -31,17 +31,17 @@ def _beam_count(origin: tuple, aim: tuple, enemy_set: set) -> int:
 
 
 class DarkTalonStrikePlaybook(NonComparablePlaybook):
-    """`DarkTalonStrikePlaybook.EvaluateNonComparable @1811299a0` (id 0x444=1092, Loki/darkaAzrael).
-    Attaque en LIGNE (beam) : `DarkTalonStrikeAbility.ExecuteBehaviour @1811d1440` tire un rayon qui
+    """`IdunBattle.AI.Playbook.Loki.DarkTalonStrikePlaybook$$EvaluateNonComparable` (id 0x444=1092, Loki/darkaAzrael).
+    Attaque en LIGNE (beam) : `IdunBattleLogic.Entities.Abilities.Active.Loki.DarkTalonStrikeAbility$$ExecuteBehaviour` tire un rayon qui
     frappe tous les ennemis alignes. La cible de DECISION = une TILE (l'aim du beam ; targetId natif =
     l'ENTITE-TUILE, id BAS ~43, PAS une unite).
 
     Structure native (mirror EvaluateNonComparable) : Bucket ctor 3-arg, min = Nullable(Fix64(2))
-    (cctor @181129e10 pose `**(DAT_1831e5be8+0xb8)=Fix64(2)` -> MIN_UTILITY=2). Par position balayee,
+    (IdunBattle.AI.Playbook.Loki.DarkTalonStrikePlaybook$$.cctor pose `**(DAT_1831e5be8+0xb8)=Fix64(2)` -> MIN_UTILITY=2). Par position balayee,
     enumere `GetEligibleTargetsSelectable(MainTile=P)` (= tuiles-ennemi ou aimer, kind=tile) ; pour
     CHAQUE tuile eligible T :
-      bestLine = `GetTilesInBestLine(ability) @1811d16f0` (DSL AdjacentTiles + SortByFormula angle/count
-                  + First) ; `GetAttackTargets(bestLine) @1811d1680` = `Enemies(Units(bestLineTiles))` ;
+      bestLine = `IdunBattleLogic.Entities.Abilities.Active.Loki.DarkTalonStrikeAbility$$GetTilesInBestLine(ability)` (DSL AdjacentTiles + SortByFormula angle/count
+                  + First) ; `IdunBattleLogic.Entities.Abilities.Active.Loki.DarkTalonStrikeAbility$$GetAttackTargets(bestLine)` = `Enemies(Units(bestLineTiles))` ;
       `util = Fix64.FromInt( <slot2>(attackTargets, T) )` = #ennemis touches par le rayon vise sur T ;
       GenerateAction(P, T, util) + Bucket.AddAction (argmax STRICT `>`, keep-first au tie).
 
@@ -58,7 +58,7 @@ class DarkTalonStrikePlaybook(NonComparablePlaybook):
     - MIN_UTILITY=2 (cctor) : n'aime QUE si >= 2 ennemis alignes ; sinon fallback Comparable.
     - position : sweep ORIGINE-FIRST keep-first -> cast EN PLACE (to=None) quand l'origine porte l'aim
       max (cas s11 ; confirme par les castes en place de la tranche). PRIORITY=0 (#115).
-    - ctor @181129e80 = `NonComparablePlaybook(0x444)` -> 1er arg=ability_id.
+    - IdunBattle.AI.Playbook.Loki.DarkTalonStrikePlaybook$$.ctor = `NonComparablePlaybook(0x444)` -> 1er arg=ability_id.
 
     FLAGS VALIDATEUR (approximations) :
       * beam = RAYON DROIT continu (cube-line) ; la vraie geometrie `GetTilesInBestLine` inclut une
@@ -70,7 +70,7 @@ class DarkTalonStrikePlaybook(NonComparablePlaybook):
         que le generateur NC natif etait NON-VIDE (global max >= 2) -> le natif caste AUSSI DarkTalon
         (jamais un cast d'ability parasite ; au pire une tuile/position residuelle differente)."""
     ABILITY_ID = int(ActiveAbilityType.DarkTalonStrike)  # 1092
-    MIN_UTILITY = 2.0     # cctor @181129e10 = Fix64(2) -> aime ssi beam >= 2 ennemis alignes
+    MIN_UTILITY = 2.0     # IdunBattle.AI.Playbook.Loki.DarkTalonStrikePlaybook$$.cctor = Fix64(2) -> aime ssi beam >= 2 ennemis alignes
     PRIORITY = 0
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:

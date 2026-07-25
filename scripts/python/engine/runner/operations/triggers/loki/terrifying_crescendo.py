@@ -12,43 +12,42 @@ JAMAIS -> l'effet etait present-mais-inerte (case-204 §<< Accumulation : NON re
 
 | Symbole | VA |
 |---|---|
-| `TerrifyingCrescendoAbility$$CreateTrigger`   | `0x1811a3910` |
-| `TerrifyingCrescendoAbility$$CreateBehaviour` | `0x1811a3840` |
-| `DSLFactory$$AddEffectOrIncreaseLevel`        | `0x180de6860` (lambda `b__0 @180e25540`) |
-| `IncreaseEffectLevelOperation$$Execute`       | `0x180e73cb0` (le clamp) |
-| `TerrifyingCrescendo_ExtraDmgEffect$$CreateEffectDamageBonusForAttack` | `0x180f715e0` |
+| `TerrifyingCrescendoAbility$$CreateTrigger`   | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger` |
+| `TerrifyingCrescendoAbility$$CreateBehaviour` | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateBehaviour` |
+| `DSLFactory$$AddEffectOrIncreaseLevel`        | `IdunBattleLogic.Entities.DSLFactory$$AddEffectOrIncreaseLevel` (lambda `b__0 IdunBattleLogic.Entities.DSLFactory.u003Cu003Ec__DisplayClass569_0$$u003CAddEffectOrIncreaseLevelu003Eb__0`) |
+| `IncreaseEffectLevelOperation$$Execute`       | `IdunBattle.Operations.IncreaseEffectLevelOperation$$Execute` (le clamp) |
+| `TerrifyingCrescendo_ExtraDmgEffect$$CreateEffectDamageBonusForAttack` | `IdunBattle.Entities.Effects.Loki.TerrifyingCrescendo_ExtraDmgEffect$$CreateEffectDamageBonusForAttack` |
 
-### `CreateTrigger @1811a3910` (DISJONCTION `op_BitwiseOr` de deux conjonctions)
+### `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger` (DISJONCTION `op_BitwiseOr` de deux conjonctions)
 ```
 branche1 = On(0 = UnitDeath)      & get_OwnerIsActor & TargetIsOverkilled
 branche2 = On(0x3e = PreEffectAdded = 62) & get_OwnerIsActor & TriggeringEffectIs(0x429 = 1065 Pinned)
 trigger  = branche1 | branche2
 ```
 = i2 << +218 Damage **for each time he Overkilled or would have Suppressed** an enemy unit >>.
-- branche1 : le porteur TUE en OVERKILL. `On(0=UnitDeath)` est emis par `KillUnitOperation.Execute
-  @180e76470` (sequence verifiee : `FUN_180026490(...,1)` PreUnitDeath -> `...,2` -> `...,0` UnitDeath ->
+- branche1 : le porteur TUE en OVERKILL. `On(0=UnitDeath)` est emis par `IdunBattle.Operations.KillUnitOperation$$Execute` (sequence verifiee : `FUN_180026490(...,1)` PreUnitDeath -> `...,2` -> `...,0` UnitDeath ->
   `...,0x37` UnitDefeated -> `...,0x36` PostUnitKill). Le port emettait deja `On(1)` et `On(0x37)` mais
   PAS `On(0)` -> vecteur ajoute (`unit_death_triggers`, dispatch.py) ENTRE les deux, a la place exacte.
 - branche2 : << would have Suppressed >>. `On(0x3e=PreEffectAdded)` est emis par
-  `AddEffectOperation.Execute @180e48940` **TOUT EN HAUT** (`FUN_180026490(0x50,...,0x3e)` AVANT le gate
+  `IdunBattle.Operations.AddEffectOperation$$Execute` **TOUT EN HAUT** (`FUN_180026490(0x50,...,0x3e)` AVANT le gate
   cible-nulle, AVANT le gate << deja present >> et AVANT le gate d'immunite) -> le compteur monte meme
   quand le Pinned n'est PAS reellement applique (d'ou << WOULD have >>). L'`AbilityEntities` de cet
   evenement est construit `(source, source, target)` -> **actor = la SOURCE de l'effet** : `OwnerIsActor`
   = << c'est MOI qui pose le Suppressed >>. Shiron pose Pinned via son trait `SuppressiveFire` (#74).
 
-### `CreateBehaviour @1811a3840`
+### `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateBehaviour`
 ```
 constant = AbilityConfiguration.GetNumberConstant(cfg, 0x62)      # = buffMaxLevel (=6)
 AddEffectOrIncreaseLevel( 0x590, AbilityStateReference, self@0x148, selector=self@0x148,
                           amount = df@0xc0 = Const(1), max = Direct(constant) )
 ```
-- `df@0xc0` est construit par `DSLFactory..ctor @180e020b0` : `new <DAT_183202d40>(1)` = le noeud
-  constant **1** (la meme classe que `DSLFactory.Get(n) @180df05d0`) -> increment = **+1** par
-  declenchement. (Comparatif : `HeadClaimerAbility.CreateBehaviour @181220e30` passe le MEME `df@0xc0`
+- `df@0xc0` est construit par `DSLFactory..IdunBattleLogic.Entities.DSLFactory$$.ctor` : `new <DAT_183202d40>(1)` = le noeud
+  constant **1** (la meme classe que `IdunBattleLogic.Entities.DSLFactory$$Get(n)`) -> increment = **+1** par
+  declenchement. (Comparatif : `IdunBattleLogic.Entities.Abilities.Active.Loki.HeadClaimerAbility$$CreateBehaviour` passe le MEME `df@0xc0`
   avec un `max` NULL.)
 - `GetNumberConstant(0x62)` -> gameconfig `abilities.TerrifyingCrescendo.constants` = **`buffMaxLevel`
   = 6** (seule constante de l'ability ; i2 << up to a maximum of 6 times >>).
-- Le clamp exact vit dans `IncreaseEffectLevelOperation.Execute @180e73cb0` (mirroré dans la feuille
+- Le clamp exact vit dans `IdunBattle.Operations.IncreaseEffectLevelOperation$$Execute` (mirroré dans la feuille
   `IncreaseEffectLevel`) : `if (!max || max < cur || cur+amount <= max) level += amount; else level = max`.
 
 ## Frontiere DSL/imperatif (#149)
@@ -89,7 +88,7 @@ def crescendo_max_level() -> Optional[int]:
 
 
 def terrifying_crescendo_tree():
-    """Mirror 1:1 de `TerrifyingCrescendoAbility.CreateBehaviour @1811a3840` :
+    """Mirror 1:1 de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateBehaviour` :
     `AddEffectOrIncreaseLevel(0x590, stateRef, self@0x148, selector=self@0x148, amount=Const(1),
     max=Direct(buffMaxLevel))`. `Caster()` = `Self@0x148` (triggered Owner==Caster)."""
     return add_effect_or_increase_level(
@@ -98,7 +97,7 @@ def terrifying_crescendo_tree():
 
 
 class _CrescendoAccumulateBase(TriggeredAbility):
-    """Socle commun aux DEUX branches de `CreateTrigger @1811a3910` (disjonction `op_BitwiseOr` portee
+    """Socle commun aux DEUX branches de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger` (disjonction `op_BitwiseOr` portee
     comme deux entrees de registre, comme ActOfFaith accumulate/reset) : meme behaviour."""
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:

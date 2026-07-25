@@ -1,7 +1,7 @@
 """#62c GetStuckIn (coups bonus COMBAT) — REPLAY-DIFF BIT-EXACT quand orksNob ATTAQUE.
 
 orksNob (Tanksmasha) porte le trait GetStuckIn -> en COMBAT, sur chaque coup d'INDEX IMPAIR (0-based) le
-natif tire `Maybe(GetBonusHitChance)` (behaviour `@180f83280`, roll dans `EvaluateAfterHitTriggers`) ;
+natif tire `Maybe(GetBonusHitChance)` (behaviour `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$CreateBehaviour`, roll dans `EvaluateAfterHitTriggers`) ;
 succes => +1 coup bonus DEFERE (FIFO) apres la boucle de base. En 1v1 la chance = 30 (branche 100 =
 orks_adj>=2 / amis_adj>=4 non atteinte). AVANT le port (#62c), le runner OMETTAIT ce roll -> desync RNG
 des le 1er coup impair. APRES (roll `next_bool(30)` a l'index impair + coups bonus deferes), le runner

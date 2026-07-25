@@ -2,13 +2,13 @@
 
 Mirror 1:1 de la classe `Bucket` du décideur natif (VAs, build gqfc5mff6c) :
 
-  - `Bucket.AddAction        @1813fbcc0` : garde comme `default` l'action de plus haute utilité
+  - `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction` : garde comme `default` l'action de plus haute utilité
     (`op_GreaterThan` **STRICT** -> à égalité, le PREMIER inséré est conservé).
-  - `Bucket.AddActionToBucket@1813fbb60` : range aussi l'action dans un sous-bucket par catégorie
+  - `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddActionToBucket` : range aussi l'action dans un sous-bucket par catégorie
     (SortedList, SANS seuil) -> arbre de fallback.
-  - `Bucket.ChooseAction     @1813fc0d0` : `feasible(default) ? default : ChooseActionFromBuckets(children)`.
-  - `Bucket.ChooseActionFromBuckets @1813fbe00` : itère la SortedList par clé, 1re action FAISABLE (récursif).
-  - `Bucket.Merge            @1813fc790` : `AddAction(dest, src.default)` + fusion récursive de l'arbre.
+  - `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$ChooseAction` : `feasible(default) ? default : ChooseActionFromBuckets(children)`.
+  - `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$ChooseActionFromBuckets` : itère la SortedList par clé, 1re action FAISABLE (récursif).
+  - `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$Merge` : `AddAction(dest, src.default)` + fusion récursive de l'arbre.
   - gate `FUN_18004cc80` : `action != null && (minUtilityDifference absent OU U >= minUtilityDifference)`.
 
 Nos générateurs n'émettent que des candidats LÉGAUX (le gate de faisabilité/légalité est appliqué en
@@ -48,7 +48,7 @@ class Bucket:
     _default: Action | None = field(default=None)
 
     def add_action(self, action: Action | None) -> None:
-        """`Bucket.AddAction @1813fbcc0` — remplace `default` SSI strictement meilleur (`>`),
+        """`IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction` — remplace `default` SSI strictement meilleur (`>`),
         donc à clé égale le PREMIER inséré reste (tie-break natif = ordre d'insertion)."""
         if action is None:
             return
@@ -56,12 +56,12 @@ class Bucket:
             self._default = action
 
     def merge(self, other: "Bucket") -> None:
-        """`Bucket.Merge @1813fc790` — fusionne le `default` d'un autre bucket (argmax combiné)."""
+        """`IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$Merge` — fusionne le `default` d'un autre bucket (argmax combiné)."""
         if other is not None and other._default is not None:
             self.add_action(other._default)
 
     def choose_action(self) -> dict | None:
-        """`Bucket.ChooseAction @1813fc0d0` — renvoie le payload de `default` s'il est faisable,
+        """`IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$ChooseAction` — renvoie le payload de `default` s'il est faisable,
         sinon None (nos candidats étant pré-filtrés légaux, le sous-arbre par catégorie n'est
         pas exercé -> pas de recours à `ChooseActionFromBuckets`)."""
         if self._default is not None and self._default.feasible:

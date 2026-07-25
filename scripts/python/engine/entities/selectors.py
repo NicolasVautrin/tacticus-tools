@@ -16,14 +16,13 @@ from ..dsl.base import (TargetsSelector, Const, _pos, _within, _is_alive, _units
 
 
 class SurroundingUnits(TargetsSelector):
-    """`DSLFactory.SurroundingUnits(center, radius, ..., includeCenter, ...) @180dfcb70` =
+    """`IdunBattleLogic.Entities.DSLFactory$$SurroundingUnits(center, radius, ..., includeCenter, ...)` =
     `Units(SurroundingTiles(center, includeCenter, radius))` = unités à distance hex <= radius du centre.
 
-    `include_center` = MIRROR de l'argument natif `param_3` de `DSLFactory.SurroundingTiles @180dfca70`
+    `include_center` = MIRROR de l'argument natif `param_3` de `IdunBattleLogic.Entities.DSLFactory$$SurroundingTiles`
     (lu au décompilé) : `param_3 == 0` -> le factory construit `SurroundingTiles(includeCenter=1) op_Subtraction
     Tiles(center)` (centre EXCLU) ; `param_3 != 0` -> `SurroundingTilesSelector` DIRECT (centre **INCLUS**).
-    Défaut `False` = centre exclu (tous les call-sites portés jusqu'ici). `HadesAutocannonsAbility.GetAllTargets
-    @1811e5480` passe `SurroundingUnits(target@0x178, range, 1, 1, 3)` -> `SurroundingTiles(..., param_5=1, ...)`
+    Défaut `False` = centre exclu (tous les call-sites portés jusqu'ici). `IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets` passe `SurroundingUnits(target@0x178, range, 1, 1, 3)` -> `SurroundingTiles(..., param_5=1, ...)`
     = **centre inclus** (la cible elle-même est un des summons frappés, cf. i2 « a targeted enemy summon AND all
     other enemy summons within 2 hexes »)."""
     def __init__(self, center: TargetsSelector, radius: TargetsSelector, include_center: bool = False):
@@ -36,7 +35,7 @@ class SurroundingUnits(TargetsSelector):
 
 
 class AdjacentEnemies(TargetsSelector):
-    """`DSLFactory.AdjacentEnemies(caster) @180de80c0` = `Enemies(Units(AdjacentTiles(caster)) - {caster})`
+    """`IdunBattleLogic.Entities.DSLFactory$$AdjacentEnemies(caster)` = `Enemies(Units(AdjacentTiles(caster)) - {caster})`
     = ennemis (team != caster) à dist <= radius du caster, self exclu."""
     def __init__(self, center: TargetsSelector, radius: TargetsSelector | None = None):
         self.center, self.radius = center, radius or Const(1)
@@ -48,11 +47,11 @@ class AdjacentEnemies(TargetsSelector):
 
 
 class AdjacentUnits(TargetsSelector):
-    """`DSLFactory.AdjacentUnits(target, radius, mask) @180de8320` = `Units(AdjacentTiles(target)) - {target}`
+    """`IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits(target, radius, mask)` = `Units(AdjacentTiles(target)) - {target}`
     = TOUTES les unités (AUCUN filtre d'équipe) à distance hex <= radius de `target`, target exclu. ⚠ à la
     DIFFÉRENCE de `AdjacentEnemies` (filtre team != caster) et de `Enemies(...)` (wrapper `UnitsByTeamSelector`),
     ce sélecteur ne filtre PAS l'équipe → inclut les ALLIÉS du caster (et le caster) s'ils sont adjacents à la
-    cible = FRIENDLY-FIRE. Le volet SPLASH de Stikkbomb (@18120c180) passe ce sélecteur BRUT (sans wrapper
+    cible = FRIENDLY-FIRE. Le volet SPLASH de Stikkbomb (IdunBattleLogic.Entities.Abilities.Active.Loki.StikkbombAbility$$ExecuteBehaviour) passe ce sélecteur BRUT (sans wrapper
     `Enemies(...)`, contraste PlasmaGrenade/ScythingTalons) — corroboré par l'i2 (« units in hexes adjacent »
     vs « enemy units » des autres). `_within` exclut déjà le centre (target, dist 0). Mirror de `AdjacentEnemies`
     SANS le filtre team."""
@@ -96,7 +95,7 @@ class And(TargetsSelector):
 class Sub(TargetsSelector):
     """`TargetsSelector.op_Subtraction` : a \\ b par id. Le natif `op_Subtraction` accepte un SELECTEUR **ou
     une ENTITE** en 2e operande (ex. `AdjacentUnits(target) − caster − target` de FireOfAbsolution
-    @18121f380) : on normalise les DEUX operandes via `_units_of` (un noeud-role `Caster()`/`Target()` ->
+    IdunBattleLogic.Entities.Abilities.Active.Loki.FireOfAbsolutionAbility$$CreateBehaviour) : on normalise les DEUX operandes via `_units_of` (un noeud-role `Caster()`/`Target()` ->
     dict -> `[dict]`), pour soustraire aussi bien une liste qu'une unite seule."""
     def __init__(self, a: TargetsSelector, b: TargetsSelector):
         self.a, self.b = a, b
@@ -108,7 +107,7 @@ class Sub(TargetsSelector):
 
 class Union(TargetsSelector):
     """`TargetsSelector.op_Addition` : UNION (concaténation) de deux sélecteurs d'unités — mirror du
-    `op_Addition(Self, UnitsFromFaction(...))` de `SpiritLeechAbility.GetHealTargets @18120a1e0`. Concatène
+    `op_Addition(Self, UnitsFromFaction(...))` de `IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetHealTargets`. Concatène
     `a` puis `b`, chaque opérande normalisé en liste (`_units_of` : un dict comme `Caster()` → `[dict]`).
     Ici les deux volets sont DISJOINTS (le `Self` du 1er volet est exclu de l'anneau adjacent du 2e via
     `_within` d>0) → concat SANS doublon = fidèle à l'imperatif (`[caster] + adjacents`)."""
@@ -145,14 +144,13 @@ class UnitSet(TargetsSelector):
 
 
 class Filter(TargetsSelector):
-    """`DSLFactory.Filter(source, predicate) @180def870` → thunk `FromTrigger @180df00e0` →
-    `FromTriggerSelector.Select @180eebaa0` : énumère `source` et, POUR CHAQUE élément, LIE l'élément
+    """`IdunBattleLogic.Entities.DSLFactory$$Filter(source, predicate)` → thunk `IdunBattleLogic.Entities.DSLFactory$$FromTrigger` →
+    `IdunBattle.Entities.Selectors.FromTriggerSelector$$Select` : énumère `source` et, POUR CHAQUE élément, LIE l'élément
     au slot sujet du contexte (mirror du `0x20`→`ability+0x180` natif) puis évalue le prédicat bool
     contre ce contexte ; garde l'élément si le prédicat est vrai. Preuve binding : `TheBetrayer
-    GetPreferredAttackTargets @1811a58a0` = `Filter(src, NOT(HasTrait(subject, 0xd)))` — le prédicat
+    IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_TakeTurnAbility$$GetPreferredAttackTargets` = `Filter(src, NOT(HasTrait(subject, 0xd)))` — le prédicat
     lit son sujet via `Subject` (= `ctx.subject`). Retour list.
-    (`FilterContinuous @180def7b0` = même construction + flag short-circuit ; `FilterByDirection
-    @180def700` = classe distincte directionnelle — hors batch, à porter à la demande.)"""
+    (`IdunBattleLogic.Entities.DSLFactory$$FilterContinuous` = même construction + flag short-circuit ; `IdunBattleLogic.Entities.DSLFactory$$FilterByDirection` = classe distincte directionnelle — hors batch, à porter à la demande.)"""
     def __init__(self, source: TargetsSelector, predicate: TargetsSelector):
         self.source, self.predicate = source, predicate
 
@@ -165,7 +163,7 @@ class Filter(TargetsSelector):
 
 
 class UnitsDirectlyBehind(TargetsSelector):
-    """`DSLFactory.UnitsDirectlyBehind @180dff5e0` — cibles secondaires « derrière la cible »
+    """`IdunBattleLogic.Entities.DSLFactory$$UnitsDirectlyBehind` — cibles secondaires « derrière la cible »
     (PlasmaCannon…). Transcription EXACTE de la construction native :
         ring    = SurroundingTiles(target, 1, 1) − Tiles(target)          # anneau R1 de la CIBLE
         cands   = Enemies(caster, Units(ring))                            # ennemis du caster dessus
@@ -173,16 +171,16 @@ class UnitsDirectlyBehind(TargetsSelector):
         behind  = FromTrigger(cands, MinDistance(caster, cand) > MinDistance(caster, target))  # côté OPPOSÉ
     COMPARATEUR = `>` STRICT (case #48). Piège gshared résolu par le SINGLETON de classe (ancre fiable,
     PAS le nom de ctor foldé/mislabelé par ghidra) : le comparateur natif est `DAT_1832482b0` = classe
-    construite par `DSLFactory.AmountIsGreater @180de89d0` (`ShouldTrigger @180ee11f0 : iVar16 < iVar15`
-    = `amount > threshold`), et NON `AmountIsEqualOrGreater` (@180ee0e00 `<=` = `>=`) comme le laissait
+    construite par `IdunBattleLogic.Entities.DSLFactory$$AmountIsGreater` (`IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger$$ShouldTrigger : iVar16 < iVar15`
+    = `amount > threshold`), et NON `AmountIsEqualOrGreater` (IdunBattle.Entities.Conditions.AmountIsEqualOrGreaterAbilityTrigger$$ShouldTrigger `<=` = `>=`) comme le laissait
     croire le ctor foldé `AmountIsEqualOrGreaterAbilityTrigger___ctor` (ghidra fusionne les ctors qui
     stockent 2 champs → nom faux). La formule = `DAT_18324e3c0` = classe construite par
-    `DSLFactory.MinDistance @180df6820` (distance hex entre MainTiles). Donc : un candidat À DISTANCE
+    `IdunBattleLogic.Entities.DSLFactory$$MinDistance` (distance hex entre MainTiles). Donc : un candidat À DISTANCE
     ÉGALE du caster que la cible (unité LATÉRALE, delta 0 sur l'anneau) est EXCLU (`2 > 2` faux) ; seul
     l'« away » strictement plus loin (delta +1) passe. Confirmé LIVE (test_plasma_cannon_lateral_live,
     probe_udb_case48) : lateral d(caster)==d_ct EXCLU du splash, away d(caster)==d_ct+1 INCLUS.
     `dist` = distance hex ; caster = `ctx.caster_pos` (tuile d'attaque balayée). Élévation :
-    `TilesOnSameElevationSelector.Select @180efa8a0` garde si `GetElevationDifference(cand, target)
+    `IdunBattle.Entities.Selectors.TilesOnSameElevationSelector$$Select` garde si `GetElevationDifference(cand, target)
     <= maxDiff` (ctor +0x28 = 1 ici) → TOLÉRANCE ±1, pas une égalité stricte (prouvé step-11 :
     78 elev1 derrière 82 elev2 inclus par le natif). Dégradé no-op sans `ctx.elev_by_pos`."""
 
@@ -213,13 +211,13 @@ class UnitsDirectlyBehind(TargetsSelector):
 
 
 class Friends(TargetsSelector):
-    """`DSLFactory.Friends(reference, source) @180df0040` → `UnitsByTeamSelector(ctx, reference, source,
+    """`IdunBattleLogic.Entities.DSLFactory$$Friends(reference, source)` → `UnitsByTeamSelector(ctx, reference, source,
     flag=1)` (symétrique exact d'`Enemies` flag=0) : garde les unités de `source` ALLIÉES au **RÉFÉRENT**.
 
     Le référent est le 1ᵉʳ argument NATIF (`param_2`), pas une constante : `reference=None` (défaut) = le
     CASTER — le cas de tous les call-sites portés jusqu'ici (`Friends(caster@0x160 / Owner@0x148, ...)`,
-    ex. `SquigLaunchasAbility.HasMinimumAdjacentFriendlyUnits @18120af30` = `Friends(Owner@0x148, ...)`).
-    `HadesAutocannonsAbility.GetAllTargets @1811e5480` passe `Friends(target@0x178, ...)` = alliés **de la
+    ex. `IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$HasMinimumAdjacentFriendlyUnits` = `Friends(Owner@0x148, ...)`).
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets` passe `Friends(target@0x178, ...)` = alliés **de la
     CIBLE** (donc les summons ENNEMIS du caster) — d'où le paramètre."""
     def __init__(self, inner: TargetsSelector, reference: TargetsSelector | None = None):
         self.inner, self.reference = inner, reference
@@ -231,7 +229,7 @@ class Friends(TargetsSelector):
 
 
 class Units(TargetsSelector):
-    """`DSLFactory.Units(tiles) @180e01340` → `UnitsOnTilesSelector` : unités DEBOUT sur les tuiles du
+    """`IdunBattleLogic.Entities.DSLFactory$$Units(tiles)` → `UnitsOnTilesSelector` : unités DEBOUT sur les tuiles du
     sélecteur source (`tiles` évalue → liste de positions). Généralise l'inline de SurroundingUnits.
     (Mode d'occupation main/steppable = raffinement inerte offline : 1 unité par tuile.)"""
     def __init__(self, tiles: TargetsSelector):
@@ -244,12 +242,12 @@ class Units(TargetsSelector):
 
 
 class UnitsOnTilesWithEffect(TargetsSelector):
-    """`DSLFactory.UnitsOnTilesWithEffect(source, effectType) @180dffc50` → `FromTrigger(source,
+    """`IdunBattleLogic.Entities.DSLFactory$$UnitsOnTilesWithEffect(source, effectType)` → `FromTrigger(source,
     <prédicat tuile-porte-effet>)` : garde les unités de `source` dont la TUILE porte un effet ACTIF
     du type `effect_type`. Structure du décompilé : construit un objet-config (effectType stocké
     @+0x20) + un prédicat (ctor gshared MISLABELÉ « AttackHitsWithModifiersFormula » dans ghidra —
     structure lue, jamais le nom) puis `DSLFactory.FromTrigger(source, prédicat)` = FILTRE de la
-    source. Consommateur porté : `StormcallerAbility.ExecuteBehaviour @18120cc20` (#217 — cibles de
+    source. Consommateur porté : `IdunBattleLogic.Entities.Abilities.Active.Loki.StormcallerAbility$$ExecuteBehaviour` (#217 — cibles de
     l'attaque = `Enemies(Owner) ∩ on-tiles-with-Ice(0x11)`, TOUTES tuiles glacées, pas juste la zone
     du cast). Lit `ctx.tile_has_effect(tile_id, effect_type)` (wiré par `entities_from_state` sur
     `state.effects`, même clé tile-id que la pose `AddEffectOperation`, case-35) + `ctx.board.id_at`
@@ -274,7 +272,7 @@ class UnitsOnTilesWithEffect(TargetsSelector):
 
 
 class Tiles(TargetsSelector):
-    """`DSLFactory.Tiles(units) @180dfdc60` → `UnitsMainTilesSelector.Select @180f02150` (ctor mislabelé
+    """`IdunBattleLogic.Entities.DSLFactory$$Tiles(units)` → `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select` (ctor mislabelé
     "SortReverse", singleton distinct DAT_183278e98) : unités → leur MainTile. Retour list[position].
     `units` normalisé par `_units_of` (comme `AdjacentTiles`) : accepte une unité SEULE (dict, ex.
     `Tiles(Target())` d'OnFireDamage) ou une liste — sans quoi itérer un dict nu rendrait ses CLÉS."""
@@ -286,7 +284,7 @@ class Tiles(TargetsSelector):
 
 
 class First(TargetsSelector):
-    """`DSLFactory.First(source[, index]) @180defae0` → `PickAtIndexSelector.Select @180ef02e0` :
+    """`IdunBattleLogic.Entities.DSLFactory$$First(source[, index])` → `IdunBattle.Entities.Selectors.PickAtIndexSelector$$Select` :
     l'élément à `index` (défaut 0) de la liste source (ordre TEL QUEL), `[]` si hors borne. Retour list
     de 0/1 élément (PAS un élément nu). S'appuie sur un tri préalable si l'appelant en pose un."""
     def __init__(self, source: TargetsSelector, index: int = 0):
@@ -298,7 +296,7 @@ class First(TargetsSelector):
 
 
 class Unique(TargetsSelector):
-    """`DSLFactory.Unique(source) @180dfeec0` → LINQ Distinct : dedup de la source (ordre de 1re
+    """`IdunBattleLogic.Entities.DSLFactory$$Unique(source)` → LINQ Distinct : dedup de la source (ordre de 1re
     apparition préservé), clé = identité d'entité (== par id). [structure PROUVÉE, clé DÉDUITE du nom]."""
     def __init__(self, source: TargetsSelector):
         self.source = source
@@ -315,15 +313,15 @@ class Unique(TargetsSelector):
 
 
 class UnitsWithIds(TargetsSelector):
-    """`DSLFactory.UnitsWithIds(source, string[] ids) @180e00230` : UNION (`op_Addition`) sur `ids` de
+    """`IdunBattleLogic.Entities.DSLFactory$$UnitsWithIds(source, string[] ids)` : UNION (`op_Addition`) sur `ids` de
     `UnitsWithIdSelector(source, TestUnitProvider(id))` -- l'accumulateur part du selecteur VIDE
     (`ctor` gshared mislabele « AllAliveMachinesSelector » dans ghidra : structure lue, jamais le nom),
     donc `ids` vide -> ensemble VIDE.
 
-    `UnitsWithIdSelector.Select @180f04390` = filtre de `source` par
-    `UnitExtensions.HasUnitId(unit, id) @180ed70c0` =
+    `IdunBattle.Entities.Selectors.UnitsWithIdSelector$$Select` = filtre de `source` par
+    `IdunBattle.Entities.UnitExtensions$$HasUnitId(unit, id)` =
     `UnitNamingConventions.GetUnitIdWithoutLevel(GetUnitId(unit)) == id` -- comparaison sur l'id de
-    CONFIG de l'unite (`GetUnitId @180ed48d0` lit le champ +0x10 du composant d'identite), pas sur son
+    CONFIG de l'unite (`IdunBattle.Entities.UnitExtensions$$GetUnitId` lit le champ +0x10 du composant d'identite), pas sur son
     id VISUEL.
 
     ⚠ OFFLINE : le champ `visualId` du dict d'unite porte l'id de CONFIG pour les unites SPAWNEES
@@ -352,7 +350,7 @@ class UnitsWithIds(TargetsSelector):
 
 
 class UnitsWithTrait(TargetsSelector):
-    """`DSLFactory.UnitsWithTrait(source, traitId) @180e00b10` → `UnitsWithFlagSelector` flag=1 : garde
+    """`IdunBattleLogic.Entities.DSLFactory$$UnitsWithTrait(source, traitId)` → `UnitsWithFlagSelector` flag=1 : garde
     les unités où `HasFlag(unit, traitId)` (même primitive que HasFlag). `ctx.has_trait` teste le trait ;
     défaut None → trait ABSENT (convention HasFlag) → set vide."""
     def __init__(self, source: TargetsSelector, trait):
@@ -364,7 +362,7 @@ class UnitsWithTrait(TargetsSelector):
 
 
 class UnitsWithoutTrait(TargetsSelector):
-    """`DSLFactory.UnitsWithoutTrait(source, traitId) @180e01040` → `UnitsWithFlagSelector` flag=0 : garde
+    """`IdunBattleLogic.Entities.DSLFactory$$UnitsWithoutTrait(source, traitId)` → `UnitsWithFlagSelector` flag=0 : garde
     les unités où `HasFlag(unit, traitId)` est FAUX. Défaut `ctx.has_trait` None → trait absent → garde
     TOUT."""
     def __init__(self, source: TargetsSelector, trait):
@@ -376,7 +374,7 @@ class UnitsWithoutTrait(TargetsSelector):
 
 
 def non_steppable_or_object_units(source: TargetsSelector) -> TargetsSelector:
-    """`DSLFactory.NonSteppableOrObjectUnits(source) @180df7420` — MIRROR du décompilé (composition PURE
+    """`IdunBattleLogic.Entities.DSLFactory$$NonSteppableOrObjectUnits(source)` — MIRROR du décompilé (composition PURE
     de primitives déjà portées, comme `get_spawn_tile_selector`) :
         `(source op_BitwiseAnd UnitsWithoutTrait(source, 0x1b=Steppable))
                 op_BitwiseAnd UnitsWithoutTrait(source, 0xd=Object)`
@@ -384,7 +382,7 @@ def non_steppable_or_object_units(source: TargetsSelector) -> TargetsSelector:
     murs/objets de plateau). Le nom natif dit « non (steppable ou object) ».
 
     Consommateur porté : les deux prédicats de ciblage de `SquigLaunchasAbility`
-    (`HasMinimumAdjacentOrks @18120aff0` / `HasMinimumAdjacentFriendlyUnits @18120af30`) — un decoy ou un
+    (`IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$HasMinimumAdjacentOrks` / `IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$HasMinimumAdjacentFriendlyUnits`) — un decoy ou un
     objet adjacent à la cible NE COMPTE PAS comme « unité amie adjacente »."""
     from .traits.unit_trait import UnitTrait
     return And(And(source, UnitsWithoutTrait(source, int(UnitTrait.Steppable))),
@@ -392,7 +390,7 @@ def non_steppable_or_object_units(source: TargetsSelector) -> TargetsSelector:
 
 
 class AdjacentFriends(TargetsSelector):
-    """`DSLFactory.AdjacentFriends(caster) @180de81d0` = symétrique d'`AdjacentEnemies` (finit par
+    """`IdunBattleLogic.Entities.DSLFactory$$AdjacentFriends(caster)` = symétrique d'`AdjacentEnemies` (finit par
     `Friends`) : alliés (team == caster) à dist <= radius du caster, self exclu."""
     def __init__(self, center: TargetsSelector, radius: TargetsSelector | None = None):
         self.center, self.radius = center, radius or Const(1)
@@ -409,12 +407,12 @@ class SurroundingEnemies(TargetsSelector):
     d'une unite de REFERENCE.
 
     ⚠ DEUX FORMES NATIVES, distinguees par le nombre d'arguments (lues au decompile) :
-      * surcharge 6-args `@180dfc300`/`@180dfc3d0` : `SurroundingEnemies(ref, center, radius, ...)` ->
+      * surcharge 6-args `IdunBattleLogic.Entities.DSLFactory$$SurroundingEnemies`/`IdunBattleLogic.Entities.DSLFactory$$SurroundingEnemies` : `SurroundingEnemies(ref, center, radius, ...)` ->
         reference et centre SEPARES ; le call-site standard passe le CASTER en reference
-        (symetrique du `SurroundingFriends(caster, casterTile, ...)` de SupremeCommander @18120df30) ;
-      * surcharge 4-args `@180dfc570`/`@180dfc4a0` : `SurroundingEnemies(X, radius, ...)` -> le MEME
+        (symetrique du `SurroundingFriends(caster, casterTile, ...)` de SupremeCommander IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour) ;
+      * surcharge 4-args `IdunBattleLogic.Entities.DSLFactory$$SurroundingEnemies`/`IdunBattleLogic.Entities.DSLFactory$$SurroundingEnemies` : `SurroundingEnemies(X, radius, ...)` -> le MEME
         selecteur `X` sert de centre **ET** de reference (`Enemies(param_2 = X, units)`). Call-site lu :
-        `CultDemagogueAbility.ExecuteBehaviour @1811cdc30`
+        `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour`
         (`SurroundingEnemies(target@0x178, GetNumberConstant(0x44)=range, 1, 3)`) -> « unites entourant la
         CIBLE et ennemies DE LA CIBLE » = les ALLIES du caster (les Neophytes fraichement invoques),
         PAS ses ennemis.
@@ -434,7 +432,7 @@ class SurroundingEnemies(TargetsSelector):
 
 
 class SurroundingFriends(TargetsSelector):
-    """`DSLFactory.SurroundingFriends(center, radius) @180dfc640` = `Friends(SurroundingUnits(center,
+    """`IdunBattleLogic.Entities.DSLFactory$$SurroundingFriends(center, radius)` = `Friends(SurroundingUnits(center,
     radius))` : alliés (team == caster) à dist <= radius du centre, centre exclu."""
     def __init__(self, center: TargetsSelector, radius: TargetsSelector):
         self.center, self.radius = center, radius
@@ -446,8 +444,7 @@ class SurroundingFriends(TargetsSelector):
 
 
 class SortByFormula(TargetsSelector):
-    """`DSLFactory.SortByFormula(source, formula[, ascending]) @180dfb0a0` → `SortByFormulaSelector.Select
-    @180ef3010` : trie la source par `formula` évaluée PAR ÉLÉMENT (binding `subject`, comme Filter).
+    """`IdunBattleLogic.Entities.DSLFactory$$SortByFormula(source, formula[, ascending])` → `IdunBattle.Entities.Selectors.SortByFormulaSelector$$Select` : trie la source par `formula` évaluée PAR ÉLÉMENT (binding `subject`, comme Filter).
     ⚠ flag natif : 0 (défaut) → DESCENDANT, 1 → ASCENDANT. Tri STABLE (mergesort .NET ≡ `sorted`)."""
     def __init__(self, source: TargetsSelector, formula: TargetsSelector, ascending: bool = False):
         self.source, self.formula, self.ascending = source, formula, ascending
@@ -459,8 +456,7 @@ class SortByFormula(TargetsSelector):
 
 
 class SortByDistance(TargetsSelector):
-    """`DSLFactory.SortByDistance(source, refPoint) @180dfb020` → `SortByDistanceSelector.Select
-    @180ef2ce0` : trie la source par distance hex CROISSANTE au `refPoint` (arg2 = sélecteur de
+    """`IdunBattleLogic.Entities.DSLFactory$$SortByDistance(source, refPoint)` → `IdunBattle.Entities.Selectors.SortByDistanceSelector$$Select` : trie la source par distance hex CROISSANTE au `refPoint` (arg2 = sélecteur de
     position/unité, PAS forcément le caster). ASCENDANT, tri STABLE."""
     def __init__(self, source: TargetsSelector, ref_point: TargetsSelector):
         self.source, self.ref_point = source, ref_point
@@ -474,7 +470,7 @@ class SortByDistance(TargetsSelector):
 
 
 class Alive(TargetsSelector):
-    """`DSLFactory.Alive(source) @180de8390` = `Filter(source, IsAlive)` : garde les unités vivantes
+    """`IdunBattleLogic.Entities.DSLFactory$$Alive(source)` = `Filter(source, IsAlive)` : garde les unités vivantes
     (alive & hp>0). Équivaut à `Damageable`. Retour list."""
     def __init__(self, source: TargetsSelector):
         self.source = source
@@ -484,10 +480,9 @@ class Alive(TargetsSelector):
 
 
 class Unobscured(TargetsSelector):
-    """`DSLFactory.Unobscured(from, source) @180e01540` -> `UnobscuredEntitiesSelector.Select @180f06d30` :
+    """`IdunBattleLogic.Entities.DSLFactory$$Unobscured(from, source)` -> `IdunBattle.Entities.Selectors.UnobscuredEntitiesSelector$$Select` :
     garde les unites de `source` dont la tuile n'est PAS obscurcie (terrain) depuis la tuile du referent
-    `from` (`TargetingQuery.IsTargetUnitObscured @1810bf680` -> `MovementQuery.GetTilesObscuringTerrain
-    @18109bad0`, mask 6 = elevation bit2 + murs bit4 ; TERRAIN seul, aucun blocage par unite). Multi-tuiles :
+    `from` (`IdunBattle.Core.Services.TargetingQuery$$IsTargetUnitObscured` -> `IdunBattle.Core.Services.MovementQuery$$GetTilesObscuringTerrain`, mask 6 = elevation bit2 + murs bit4 ; TERRAIN seul, aucun blocage par unite). Multi-tuiles :
     unite obscurcie ssi TOUTES ses tuiles le sont (v1 : MainTile seule).
 
     - **dist 1 : jamais obscurcie** (la ligne n'a aucune tuile intermediaire testable, cf. case-49x §3) -> gardee.
@@ -540,7 +535,7 @@ class Caster(TargetsSelector):
 
 
 class AllUnits(TargetsSelector):
-    """`DSLFactory.AllUnits @180de85f0` -> `AllAliveMachinesSelector @180ee0080` : toutes les unites
+    """`IdunBattleLogic.Entities.DSLFactory$$AllUnits` -> `AllAliveMachinesSelector IdunBattle.Entities.Selectors.AllAliveMachinesSelector$$Select` : toutes les unites
     VIVANTES de la bataille. Le primitif DSL `AllUnits` est **la variante ALIVE** (un `AllUnitsSelector`
     natif distinct existe pour l'ensemble brut, mais `DSLFactory.AllUnits` ne l'utilise PAS). Source des
     filtres `Enemies`/`Friends` du port (le natif `Enemies(caster, ...)` folde la source ; cote port on
@@ -553,7 +548,7 @@ class AllUnits(TargetsSelector):
 
 
 class Children(TargetsSelector):
-    """`DSLFactory.Children @180debed0` = `Entities.Selectors.AllAliveMachinesSelector` (@180ee00d0) SCOPÉ
+    """`IdunBattleLogic.Entities.DSLFactory$$Children` = `Entities.Selectors.AllAliveMachinesSelector` (IdunBattle.Entities.Selectors.AllAliveMachinesSelector$$.ctor) SCOPÉ
     aux enfants (summons) produits par CE cast (natif `factory+0x148`). Port = l'accumulateur `ctx.children`
     (alimenté par la feuille `SpawnUnit`, `runner/abilities/behaviours.py`). ⚠ Le filtre `AllAlive` est un
     no-op offline pour l'on-appearance de CE cast (les summons survivent à leur apparition). cf.
@@ -563,8 +558,8 @@ class Children(TargetsSelector):
 
 
 class LastUnitAttackedBy(TargetsSelector):
-    """`DSLFactory.LastUnitAttackedBy @180df5ee0` = `Entities.Selectors.LastUnitAttackedBySelector`
-    (@180eed130) : dernière unité attaquée par `unit`. Port : le dict FRAIS (état POST-attaque, relu par la
+    """`IdunBattleLogic.Entities.DSLFactory$$LastUnitAttackedBy` = `Entities.Selectors.LastUnitAttackedBySelector`
+    (IdunBattle.Entities.Selectors.LastUnitAttackedBySelector$$Select) : dernière unité attaquée par `unit`. Port : le dict FRAIS (état POST-attaque, relu par la
     feuille `PerformAIAttack`) de la cible frappée → champ `_last_attacked` de l'unité (None si aucune). Ce
     dict porte `alive`/`hp` COURANTS → `IsAlive(LastUnitAttackedBy(child))` lit l'état vivant APRÈS l'attaque."""
     def __init__(self, unit: TargetsSelector):
@@ -691,8 +686,7 @@ class FixedTileIds(TargetsSelector):
     feuilles ne lisent PAS le meme contrat : `MoveUnit` consomme des positions `(col,row)` (-> `FixedTiles`)
     alors que `Spawn` consomme des **ids** (comme les rendent `AdjacentTiles`/`SurroundingTiles`/
     `CanAddUnit`) -> `FixedTileIds`. Consommateurs : les collapses de tuiles de spawn de
-    `SendInTheNextWaveAbility.GetSpawnTilesSelector @181206cc0`, `IncursionAbility.GetNextSpawnTile
-    @1811ea520` et `SpawnPoxwalkersAbility.ExecuteBehaviour @181208b80` (chaines a `PickRandomly`
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetSpawnTilesSelector`, `IdunBattleLogic.Entities.Abilities.Active.Loki.IncursionAbility$$GetNextSpawnTile` et `IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$ExecuteBehaviour` (chaines a `PickRandomly`
     imbriques : le tirage vit dans le collapse, seul endroit qui voit `state.rng`)."""
     def __init__(self, tile_ids):
         self.tile_ids = [int(t) for t in (tile_ids or []) if isinstance(t, int)]
@@ -703,9 +697,9 @@ class FixedTileIds(TargetsSelector):
 
 class OwnerTile(TargetsSelector):
     """Tuile COURANTE (réelle) de l'owner/caster — position du composant entité, PAS la tuile d'attaque
-    balayée. `HarvesterOfSoulsAbility.GetSurroundingUnits @1811e76a0` ancre son `SurroundingUnits(sel@0x160,
+    balayée. `IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$GetSurroundingUnits` ancre son `SurroundingUnits(sel@0x160,
     range)` sur ce sélecteur (sel@0x160 = OWNER : cf. `StatAmount(@0x160,Health)`=maxHP caster dans
-    `DakkaDakkaDakka.GetHealthToLose @1811d09a0`, `HasFlag(@0x160)` du caster dans `Harvester.GetHits`).
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$GetHealthToLose`, `HasFlag(@0x160)` du caster dans `Harvester.GetHits`).
     La fonction native ne reçoit AUCUN `casterPosition` (elle ne prend que l'ability) -> sel@0x160 résout
     la position LIVE de l'owner (non déplacé pendant la prédiction), != `CasterTile` (= `ctx.caster_pos`,
     la tuile d'attaque post-move). Preuve ground-truth seed777 step-17 : AoE ancré sur (5,6)=owner-réel
@@ -724,7 +718,7 @@ class Subject(TargetsSelector):
 
 class Actor(TargetsSelector):
     """L'entité ACTOR/KILLER du contexte de trigger (`AbilityEntities` slot `factory+0x158`) : l'ACTEUR
-    de l'événement déclencheur — ex. le TUEUR sur `OnPreDeath` (ActOfFaith accumulate @181219a70 lit
+    de l'événement déclencheur — ex. le TUEUR sur `OnPreDeath` (ActOfFaith accumulate IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateBehaviour lit
     `killer@0x158` pour `HasTrait`/`AreFriends`/`UnitNormalAttackType`). Accesseur unit-domain =
     `ctx.actor` (dict|None) ; None si non threadé (le prédicat au-dessus retombe alors sur False)."""
     def select(self, ctx):
@@ -742,17 +736,17 @@ class Target(TargetsSelector):
 
 class ActiveTarget(TargetsSelector):
     """Slot `factory+0x180` = **ActiveTarget** (carte des selecteurs caches du `DSLFactory`, posee par
-    `DSLFactory.InitializeShared @180df2670` : `0x148 Owner · 0x150 Effect · 0x158 Actor · 0x160 Caster ·
+    `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` : `0x148 Owner · 0x150 Effect · 0x158 Actor · 0x160 Caster ·
     0x168 CasterTile · 0x170 CasterTiles · 0x178 Target · 0x180 ActiveTarget · 0x188 PreviousActiveTarget ·
     0x190 TargetTiles · 0x198 UnitFeetTiles`). C'est l'ELEMENT COURANT lie par le behaviour englobant :
 
       * sous-behaviour **on-appearance** d'un `Spawn` (`SpawnUnitOptions+0x18`, fire par
         `TriggerSpawnedUnitBehaviours`) -> le SUMMON fraichement pose. Consommateurs lus :
-        `SpawnPoxwalkersAbility.ExecuteBehaviour @181208b80`
+        `IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$ExecuteBehaviour`
         (`PerformAIAttackFromCurrentPosition(ActiveTarget@0x180)`),
-        `SendInTheNextWaveAbility.ExecuteBehaviour @181206490`
+        `IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$ExecuteBehaviour`
         (`UseNormalAttackIfAble(ActiveTarget@0x180, Target@0x178)`),
-        `IncursionAbility.ExecuteBehaviour @1811e9fe0`
+        `IdunBattleLogic.Entities.Abilities.Active.Loki.IncursionAbility$$ExecuteBehaviour`
         (`UseNormalAttackIfAble(ActiveTarget@0x180, Entity(<unite cible>))`) ;
       * iteration d'un `ChainBehaviour` -> l'element rendu par le selecteur de l'iteration (Incursion :
         la TUILE de spawn, `Spawn(caster@0x160, ActiveTarget@0x180, unitId, opts)`).
@@ -763,10 +757,10 @@ class ActiveTarget(TargetsSelector):
 
 
 class SurroundingTiles(TargetsSelector):
-    """`DSLFactory.SurroundingTiles(center, includeCenter, radius, ...) @180dfca70` : les TUILES du disque
+    """`IdunBattleLogic.Entities.DSLFactory$$SurroundingTiles(center, includeCenter, radius, ...)` : les TUILES du disque
     hex de rayon `radius` autour du centre (`center` = selecteur unit-domain OU position). `include_center`
-    = l'argument natif `includeCenter` (0 aux call-sites portes : Poxwalkers @181208b80, SendInTheNextWave
-    @181206bc0/@181206cc0, CultDemagogue @1811cdc30 -> centre EXCLU). Retour list[int] (tile ids), ordre
+    = l'argument natif `includeCenter` (0 aux call-sites portes : Poxwalkers IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$ExecuteBehaviour, SendInTheNextWave
+    IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetPossibleSpawnTiles/IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetSpawnTilesSelector, CultDemagogue IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour -> centre EXCLU). Retour list[int] (tile ids), ordre
     hexgeo deterministe. Generalisation d'`AdjacentTiles` (= radius 1 via le voisinage board) au disque :
     ici la geometrie vient de `hexgeo.disk` (meme primitive que le collapse `_surrounding_free_tiles` du
     port CultDemagogue). board None -> []."""
@@ -787,7 +781,7 @@ class SurroundingTiles(TargetsSelector):
         else:
             # Le centre natif est une ENTITE-tuile : le domaine ID (list[int], ce que rendent
             # `AdjacentTiles`/`FixedTileIds`) est accepte au meme titre que (col,row) et le dict d'unite
-            # — necessaire pour un cast TILE-TARGET (`SquigMineAbility.ExecuteBehaviour @18120b350` :
+            # — necessaire pour un cast TILE-TARGET (`IdunBattleLogic.Entities.Abilities.Active.Loki.SquigMineAbility$$ExecuteBehaviour` :
             # `SurroundingTiles(Target@0x178 = la TUILE ciblee, range)`).
             centers = [_center_pos(c, board) for c in centers]
         seen, out = set(), []
@@ -818,11 +812,11 @@ def _center_pos(c, board):
 
 # --- Geometrie de TUILES par DIRECTION HEX (`IdunBattle.Utils.Hex`) -------------------------
 #
-# `CubeDirections..cctor @180e30ec0` alloue SIX `int[3]` (coordonnees CUBE x/y/z aux offsets
+# `CubeDirections..IdunBattle.Utils.Hex.CubeDirections$$.cctor` alloue SIX `int[3]` (coordonnees CUBE x/y/z aux offsets
 # +0x20/+0x24/+0x28) puis les range dans l'array statique indexe par direction :
 #     V0=(0,-1,1)  V1=(0,1,-1)  V2=(1,0,-1)  V3=(1,-1,0)  V4=(-1,1,0)  V5=(-1,0,1)
 #     array[0..5] = [V0, V3, V2, V1, V4, V5]
-# `AxialCoordinate.NeighbourAt @180e2c1f0` lit `array[dir][0]` (= dx, ajoute a la COLONNE) et
+# `IdunBattle.Utils.Hex.AxialCoordinate$$NeighbourAt` lit `array[dir][0]` (= dx, ajoute a la COLONNE) et
 # `array[dir][2]` (= dz, ajoute au z cube `row - (col + (col&1))/2`) -> la table (dx, dz) ci-dessous.
 # En offset (col,row) odd-q-UP (convention `hexgeo`, live-validee vs `boardGraph`) cela donne :
 #     0 = S     1 = SE    2 = NE    3 = N     4 = NW    5 = SW
@@ -832,7 +826,7 @@ _CUBE_DIRECTIONS = ((0, 1), (1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1))
 
 
 def neighbour_at(col: int, row: int, direction: int) -> tuple:
-    """`AxialCoordinate.NeighbourAt @180e2c1f0` : position de la tuile voisine dans la DIRECTION HEX
+    """`IdunBattle.Utils.Hex.AxialCoordinate$$NeighbourAt` : position de la tuile voisine dans la DIRECTION HEX
     `direction` (0..5, table `_CUBE_DIRECTIONS`). Le natif passe en cube (x=col, z=row-(col+(col&1))/2),
     ajoute (dx,dz) puis reconvertit — soit exactement `hexgeo.to_cube`/`from_cube` (meme parite
     odd-q-UP : le natif calcule `col + (col & 1)` quand le flag de parite @+0x18 vaut 0)."""
@@ -841,7 +835,7 @@ def neighbour_at(col: int, row: int, direction: int) -> tuple:
     return hexgeo.from_cube(x + dx, z + dz)
 
 
-# `BattleQuery.GetTilesInTriangleShape @18106ba60` : par index de COIN (0..5), le COUPLE de directions
+# `IdunBattle.Core.Services.BattleQuery$$GetTilesInTriangleShape` : par index de COIN (0..5), le COUPLE de directions
 # hex des deux voisines ajoutees a la tuile-centre, dans l'ordre d'insertion du natif (lVar5 puis lVar6).
 # Lu case par case sur les DEUX branches de parite du decompile (colonne paire / impaire), qui donnent
 # le MEME couple de directions — la parite ne change que l'ecriture en offset.
@@ -849,8 +843,8 @@ _TRIANGLE_SHAPE_DIRECTIONS = {0: (5, 0), 1: (0, 1), 2: (5, 4), 3: (1, 2), 4: (4,
 
 
 class TilesInTriangleShape(TargetsSelector):
-    """`DSLFactory.TilesInTriangleShape @180dfd750` -> `TilesInTriangleShapeSelector.Select @180efa510`
-    -> `BattleQuery.GetTilesInTriangleShape @18106ba60` : la tuile-CENTRE + les DEUX voisines du coin
+    """`IdunBattleLogic.Entities.DSLFactory$$TilesInTriangleShape` -> `IdunBattle.Entities.Selectors.TilesInTriangleShapeSelector$$Select`
+    -> `IdunBattle.Core.Services.BattleQuery$$GetTilesInTriangleShape` : la tuile-CENTRE + les DEUX voisines du coin
     `direction` (0..5) = un triangle de 3 hexes. `direction > 5` -> le centre SEUL (garde native
     `if (5 < param_3) goto LAB_18106bd25`). Les voisines hors-plateau sont ignorees (le natif
     n'ajoute au HashSet que les `GetTileAt` non nuls).
@@ -878,9 +872,8 @@ class TilesInTriangleShape(TargetsSelector):
 
 
 class TileFromVector(TargetsSelector):
-    """`DSLFactory.TileFromVector @180dfd0a0` -> `TileFromVectorSelector.Select @180ef7e70` : pour CHAQUE
-    tuile de `tiles`, la VOISINE dans la direction hex `direction` (`AxialCoordinate.NeighbourAt
-    @180e2c1f0`). Le natif abandonne si le noeud-vecteur (Nullable @+0x28) n'a pas de valeur, et n'ajoute
+    """`IdunBattleLogic.Entities.DSLFactory$$TileFromVector` -> `IdunBattle.Entities.Selectors.TileFromVectorSelector$$Select` : pour CHAQUE
+    tuile de `tiles`, la VOISINE dans la direction hex `direction` (`IdunBattle.Utils.Hex.AxialCoordinate$$NeighbourAt`). Le natif abandonne si le noeud-vecteur (Nullable @+0x28) n'a pas de valeur, et n'ajoute
     que les tuiles resolues (hors-plateau -> ignorees). Retour list[int] (tile ids)."""
     def __init__(self, tiles: TargetsSelector, direction):
         self.tiles, self.direction = tiles, direction
@@ -902,7 +895,7 @@ class TileFromVector(TargetsSelector):
 
 
 class Walkable(TargetsSelector):
-    """`DSLFactory.Walkable @180e01f30` : garde les tuiles WALKABLE (`BattleQuery.IsWalkableTile` =
+    """`IdunBattleLogic.Entities.DSLFactory$$Walkable` : garde les tuiles WALKABLE (`BattleQuery.IsWalkableTile` =
     `TileExtensions.IsWalkable`, expose par `Board.walkable`). N'exige PAS que la tuile soit LIBRE
     (c'est `CanAddUnit` qui ajoute la contrainte d'occupation). Ordre de `source` preserve."""
     def __init__(self, source: TargetsSelector):
@@ -916,7 +909,7 @@ class Walkable(TargetsSelector):
 
 
 class TilesOnSameElevation(TargetsSelector):
-    """`DSLFactory.TilesOnSameElevation @180dfd8b0` -> `TilesOnSameElevationSelector.Select @180efa8a0` :
+    """`IdunBattleLogic.Entities.DSLFactory$$TilesOnSameElevation` -> `IdunBattle.Entities.Selectors.TilesOnSameElevationSelector$$Select` :
     garde les tuiles de `tiles` dont l'ECART D'ELEVATION avec la tuile d'ANCRAGE (selecteur @+0x18, une
     seule tuile) est <= `max_diff` (@+0x28) — `TileExtensions.GetElevationDifference(tile, anchor) <=
     maxDiff`. Ancrage introuvable -> [] (le natif abandonne si le selecteur d'ancre ne rend rien)."""
@@ -939,8 +932,7 @@ class TilesOnSameElevation(TargetsSelector):
 
 
 class EntitiesWithoutEffects(TargetsSelector):
-    """`DSLFactory.EntitiesWithoutEffects @180def360` -> `EntitiesWithoutEffectsSelector.Select
-    @180eea3e0` : garde les entites de `source` qui NE portent AUCUN des `effect_types`
+    """`IdunBattleLogic.Entities.DSLFactory$$EntitiesWithoutEffects` -> `IdunBattle.Entities.Selectors.EntitiesWithoutEffectsSelector$$Select` : garde les entites de `source` qui NE portent AUCUN des `effect_types`
     (`EntityExtensions.HasOneOfEffects(entity, types, source-flag 6)` -> exclusion).
 
     Domaine MIXTE, comme le natif (il itere des `IEntity` indifferenciees) : une entite-UNITE (dict) est
@@ -996,15 +988,15 @@ def _tile_positions(sel: TargetsSelector, ctx, board) -> list:
 
 
 class UnitsWithVisualId(TargetsSelector):
-    """`DSLFactory.UnitsWithVisualId(visualIdValue, mode) @180e00e90` = `UnitsWithIdSelector(ctx,
+    """`IdunBattleLogic.Entities.DSLFactory$$UnitsWithVisualId(visualIdValue, mode)` = `UnitsWithIdSelector(ctx,
     factory+0x80, visualIdValue, mode)`. La source est le slot PARTAGE `factory+0x80` (pose par
-    `InitializeShared @180df2670`, == la source d'`AllUnits`/`Friends(caster, @0x80)` de
-    `WaaaghAbility.GetBuffBehaviour @18122b900`) -> le selecteur est **BOARD-WIDE : AUCUN RAYON**, a ne pas
+    `IdunBattleLogic.Entities.DSLFactory$$InitializeShared`, == la source d'`AllUnits`/`Friends(caster, @0x80)` de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffBehaviour`) -> le selecteur est **BOARD-WIDE : AUCUN RAYON**, a ne pas
     confondre avec `UnitsWithIds(source, ids)` (qui FILTRE un sous-ensemble deja restreint, ex.
-    `SurroundingFriends` de SupremeCommander @18120df30).
+    `SurroundingFriends` de SupremeCommander IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour).
 
-    Consommateurs lus : `WaaaghAbility.ExecuteBehaviour @18122b010` (site @18122b306+) et son homologue
-    `WaaaghAbility.GetTriggerSummonsBehaviour @18122c260`, tous deux
+    Consommateurs lus : `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour` (site IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour+0x2f6+) et son homologue
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetTriggerSummonsBehaviour`, tous deux
     `Friends(caster@0x160, UnitsWithVisualId(VisualUnitIdFromUnitId(Get(unitId)), 1), 3)`.
 
     `visual_id` = noeud VALEUR (`VisualUnitIdFromUnitId`, entities/formulas.py) ou str/iterable de str.
@@ -1027,10 +1019,10 @@ class UnitsWithVisualId(TargetsSelector):
 
 
 class UnitsWithId(TargetsSelector):
-    """`DSLFactory.UnitsWithId(source, idValue, mode) @180e00170` = `UnitsWithIdSelector(ctx, source,
+    """`IdunBattleLogic.Entities.DSLFactory$$UnitsWithId(source, idValue, mode)` = `UnitsWithIdSelector(ctx, source,
     TestUnitProvider(idValue), mode)` : le VOLET MONO-ID d'`UnitsWithIds` (qui, lui, UNIONNE les volets sur
-    un tableau d'ids). Filtre `source` par `UnitExtensions.HasUnitId(unit, id) @180ed70c0`.
-    Consommateur lu : `CultDemagogueAbility.ExecuteBehaviour @1811cdc30`
+    un tableau d'ids). Filtre `source` par `IdunBattle.Entities.UnitExtensions$$HasUnitId(unit, id)`.
+    Consommateur lu : `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour`
     (`UnitsWithId(SurroundingEnemies(target@0x178, range, 1, 3), GetStringConstant(0|4), 3)`).
     Meme reduction offline que `UnitsWithIds` : comparaison sur le champ `visualId` du dict d'unite
     (qui porte l'id de CONFIG pour les unites SPAWNEES, cf. `_spawn_config_grot`)."""
@@ -1045,7 +1037,7 @@ class UnitsWithId(TargetsSelector):
 
 
 class Cache(TargetsSelector):
-    """`DSLFactory.Cache(source) @180deb0d0` → `CacheSelector.Select @180ee35f0` : **MÉMOÏSE** le résultat
+    """`IdunBattleLogic.Entities.DSLFactory$$Cache(source)` → `IdunBattle.Entities.Selectors.CacheSelector$$Select` : **MÉMOÏSE** le résultat
     du sous-arbre. Décompilé : 1re éval calcule (`source.evaluate` + `ToList`) et STOCKE dans le slot
     `+0x28` (mode slot unique, flag `+0x20`==0) ou un dict keyé par le contexte (`+0x30`) ; évals suivantes
     renvoient le CACHE. **PAS un pass-through** : la mémoïsation est OBSERVABLE quand l'état mute entre deux
@@ -1068,7 +1060,7 @@ class Cache(TargetsSelector):
 
 
 class Entity(TargetsSelector):
-    """`DSLFactory.Entity(ref) @180def540` : résout la RÉFÉRENCE passée en argument (rôle
+    """`IdunBattleLogic.Entities.DSLFactory$$Entity(ref)` : résout la RÉFÉRENCE passée en argument (rôle
     caster/target/subject) en ENTITÉ. Wrapper fin — l'opérande (souvent un nœud rôle, ex. `Subject`)
     évalue déjà l'entité."""
     def __init__(self, ref):
@@ -1079,27 +1071,27 @@ class Entity(TargetsSelector):
 
 
 class Nothing(TargetsSelector):
-    """`DSLFactory.Nothing @180df7870` : sélecteur VIDE (retourne `[]`). Classe DISTINCTE de `Null`."""
+    """`IdunBattleLogic.Entities.DSLFactory$$Nothing` : sélecteur VIDE (retourne `[]`). Classe DISTINCTE de `Null`."""
     def select(self, ctx):
         return []
 
 
 class Null(TargetsSelector):
-    """`DSLFactory.Null @180df74f0` : entité/valeur NULLE (retourne `None`). Même classe qu'`Entity` avec
+    """`IdunBattleLogic.Entities.DSLFactory$$Null` : entité/valeur NULLE (retourne `None`). Même classe qu'`Entity` avec
     arg null ; distinct de `Nothing` (ensemble vide)."""
     def select(self, ctx):
         return None
 
 
 class EffectSource(TargetsSelector):
-    """`DSLFactory.EffectSource @180deeb90` : entité SOURCE de l'effet COURANT (`ctx.effect`). NON captable
+    """`IdunBattleLogic.Entities.DSLFactory$$EffectSource` : entité SOURCE de l'effet COURANT (`ctx.effect`). NON captable
     hors application d'effet → None si `ctx.effect` absent."""
     def select(self, ctx):
         return _effect_field(ctx.effect, "source", None)
 
 
 class EffectFromOwner(TargetsSelector):
-    """`DSLFactory.EffectFromOwner(effectType) @180deea50` → `EffectWithTypeSelector @180ee7f30` : effets
+    """`IdunBattleLogic.Entities.DSLFactory$$EffectFromOwner(effectType)` → `EffectWithTypeSelector IdunBattle.Entities.Selectors.EffectWithTypeSelector$$Select` : effets
     du type possédés par l'owner. NON captable offline (effets par unité absents du state) → `[]` défaut."""
     def __init__(self, effect_type):
         self.effect_type = effect_type
@@ -1109,12 +1101,12 @@ class EffectFromOwner(TargetsSelector):
 
 
 class EffectsFromUnitSource(TargetsSelector):
-    """`DSLFactory.EffectsFromUnitSource(source, effectType) @180deec70` -> `EffectWithTypeSelector
-    @180ee7f30` (frere d'`EffectFromOwner`, keye sur la SOURCE au lieu de l'owner) : les INSTANCES d'effet
+    """`IdunBattleLogic.Entities.DSLFactory$$EffectsFromUnitSource(source, effectType)` -> `EffectWithTypeSelector
+    IdunBattle.Entities.Selectors.EffectWithTypeSelector$$Select` (frere d'`EffectFromOwner`, keye sur la SOURCE au lieu de l'owner) : les INSTANCES d'effet
     du type `effect_type` dont le `EffectComponent.SourceUnit @+0x10` est l'unite `source`. Domaine =
     ENTITES-EFFET (pas des unites) -> consomme par `OwnerOfEffect` qui remonte a leurs porteurs.
 
-    Seul call-site porte : `MasterAnnihilatorAbility.CreateBehaviour @18110b940`
+    Seul call-site porte : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterAnnihilatorAbility$$CreateBehaviour`
     (`RemoveEffect(OwnerOfEffect(EffectsFromUnitSource(Self@0x148, 0x4e1)), 0x4e1)` = le marqueur pose par
     CE caster, ou qu'il soit). Offline l'entite-effet est modelisee par un dict
     `{"effect_type", "source", "owner_id"}` (`ctx.effects_from_source`) ; sans accesseur -> [] (degradation
@@ -1134,7 +1126,7 @@ class EffectsFromUnitSource(TargetsSelector):
 
 
 class OwnerOfEffect(TargetsSelector):
-    """`DSLFactory.OwnerOfEffect(effects) @180df8350` : remonte de chaque ENTITE-EFFET a l'UNITE qui la
+    """`IdunBattleLogic.Entities.DSLFactory$$OwnerOfEffect(effects)` : remonte de chaque ENTITE-EFFET a l'UNITE qui la
     PORTE (`EffectComponent.Target @+0x14` / cle `EffectsState.by_unit`). Rend des dicts d'unite
     (domaine unit) dedupliques, dans l'ordre du selecteur source."""
     def __init__(self, effects: TargetsSelector):
@@ -1155,7 +1147,7 @@ class OwnerOfEffect(TargetsSelector):
 
 
 def get_spawn_tile_selector() -> TargetsSelector:
-    """`GetEmRuntzAbility.GetSpawnTileSelector @1811e26b0` (mirror 1:1, confirme LIVE #200 tracer-v2) =
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.GetEmRuntzAbility$$GetSpawnTileSelector` (mirror 1:1, confirme LIVE #200 tracer-v2) =
         op_BitwiseAnd( CanAddUnit(AdjacentTiles(caster)),
                        Unique(AdjacentTiles( UnitsWithoutTrait(Enemies(AllUnits), 0x1b) )) )
     = ids de tuiles LIBRES (walkable + inoccupees) adjacentes au CASTER **ET** adjacentes a un

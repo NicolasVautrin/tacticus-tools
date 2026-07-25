@@ -2,7 +2,7 @@
 
 Le crit du COMBAT (≠ prédiction) : par coup, RollCritical D'ABORD (NextBool, 1 genrand si
 cc≥1) PUIS spread dans des bornes crit-inclusives — `eff_attack = attack + critDamage` ajouté
-AVANT spread/perçage (`GetBaseDamageFix64`@181030ba0 isCrit), PAS l'`ApplyCritDamage`
+AVANT spread/perçage (`IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageFix64 isCrit), PAS l'`ApplyCritDamage`
 post-réduction de la PRÉDICTION. Modèle confirmé bit-exact contre le genrand brut live
 (necroDestroyer CC=100/CD=500 : 12 tirages/6 coups, per-coup [675,1012]=[435,652]×1406/906).
 

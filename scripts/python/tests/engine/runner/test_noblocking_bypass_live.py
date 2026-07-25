@@ -1,7 +1,7 @@
 """#65 NoBlocking (profil de degat) — le BLOCK est BYPASSE pour un profil `NoBlocking` (ex. `Psychic`).
 
-Racine : `AttackDamageOperation.ExecuteHit @180e5eff0` teste `DamageProfile.HasTrait(0=NoBlocking)` et pose
-un flag (metadata +0x2a) qui SKIP toute la branche block/evade de `CalculateDamageOperation @18102dc30`
+Racine : `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` teste `DamageProfile.HasTrait(0=NoBlocking)` et pose
+un flag (metadata +0x2a) qui SKIP toute la branche block/evade de `IdunBattle.Core.Services.DamagePrediction$$CalculateDamageOperation`
 (`if ((metadata>>0x30)==0) { ...block/evade... }`). L'offline ignorait ce trait -> il roulait un block
 SPURIOUS sur les attaques Psychic (ex. seed 123 : astraPrimarisPsy Psychic -> genesKelermorph BeastSlayer,
 off 1569 vs live 2873). Le fix gate `AttackDamageOperation._block_sources(..., damage_profile)` : profil

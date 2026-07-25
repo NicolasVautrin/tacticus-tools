@@ -1,13 +1,13 @@
 """TheQuickening (active 1151, bloodMephiston) — teleport-ECHANGE + free melee attack faction-gatee.
 
-`TheQuickeningAbility.ExecuteBehaviour @181211d50` (ctor @181213150) : cast TILE-TARGET (le joueur/IA
+`IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$ExecuteBehaviour` (IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$.ctor) : cast TILE-TARGET (le joueur/IA
 choisit une TUILE a portee-mouvement 2). Le caster s'y TELEPORTE ; l'unite eventuellement presente sur la
 tuile (filtre `Attackable`) est ECHANGEE vers la tuile d'origine du caster. Puis le caster ET l'unite
 echangee, SI faction BloodAngels (natif `HasFaction(unit, 0xe=14)`), executent une attaque melee immediate
 depuis leur nouvelle position, avec le stat Attack OVERRIDE par la formule config
 (`PercentageOfAttackCappedAtMax`).
 
-Arbre natif (`ExecuteBehaviour @181211d50`, 7 `AActiveAbility.Execute` sequentiels) :
+Arbre natif (`IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$ExecuteBehaviour`, 7 `AActiveAbility.Execute` sequentiels) :
   1. `SetCache(CasterTile@0x168) & Reserve(Caster@0x160, Target@0x178) &
       GetMoveOutBehaviour(Caster) & GetMoveOutBehaviour(Attackable@Target)`
   2. `GetMoveInBehaviour(Caster -> Target) & GetMoveInBehaviour(Attackable -> CasterTile@0x168)`
@@ -17,10 +17,10 @@ Arbre natif (`ExecuteBehaviour @181211d50`, 7 `AActiveAbility.Execute` sequentie
   6. `GetTriggerAttackBehaviour(Attackable)`
   7. `InvalidateCaches`
 
-`GetMoveOutBehaviour @181212aa0` : `RemoveEffect(EffectFromOwner(unit, 0x19)) & AddEffect(0x414 Untargetable,
+`IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$GetMoveOutBehaviour` : `RemoveEffect(EffectFromOwner(unit, 0x19)) & AddEffect(0x414 Untargetable,
 caster-src, unit) & MoveUnit(unit -> Null)`  (lift off-board, marqueur transit).
-`GetMoveInBehaviour @181212940`  : `MoveUnit(unit -> tile) & RemoveEffect(unit, 0x414)`  (atterrissage).
-`GetTriggerAttackBehaviour @181212cd0` : `If(HasFaction(unit, 0xe=14),
+`IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$GetMoveInBehaviour`  : `MoveUnit(unit -> tile) & RemoveEffect(unit, 0x414)`  (atterrissage).
+`IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$GetTriggerAttackBehaviour` : `If(HasFaction(unit, 0xe=14),
     AddStatOverrideEffect(unit, 0x510 Attack_Override, PercentageOfAttackCappedAtMax(Attack, dmgPct, maxDmg))
     & AddEffect(0x529 ForcedInMelee, ...) & PerformAIAttackFromCurrentPosition(unit)
     & RemoveEffect(unit, 0x510) & RemoveEffect(unit, 0x529))`.
@@ -61,7 +61,7 @@ from ....dsl.effects import ExecutionContext
 if TYPE_CHECKING:
     from ...state import State
 
-# `HasFaction(unit, 0xe=14)` @181212cd0 : faction hardcodee du gate free-attack = BloodAngels (la
+# `HasFaction(unit, 0xe=14)` IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$GetTriggerAttackBehaviour : faction hardcodee du gate free-attack = BloodAngels (la
 # faction de Mephiston, le porteur ; l'echange ne beneficie du coup gratuit QU'aux BloodAngels).
 _BLOODANGELS = "BloodAngels"
 _ABILITY = "TheQuickening"
@@ -109,7 +109,7 @@ def _unit_faction(state: "State", unit_id: int) -> Optional[str]:
 
 
 def _quickening_override(state: "State", attacker_id: int, level, mult: int) -> Optional[int]:
-    """Valeur d'override Attack de la free-attack = `PercentageOfAttackCappedAtMax @180df8530` :
+    """Valeur d'override Attack de la free-attack = `IdunBattleLogic.Entities.DSLFactory$$PercentageOfAttackCappedAtMax` :
     `min(maxDmg[level]xmult, round(unit.Attack x dmgPct[level]/100))`. `level`/`mult` = ceux de
     l'ability de MEPH (config lue via `ability+0x60`) ; `Attack` = celui de l'unite qui attaque
     (`StatAmount(unit, Attack)`). maxDmg est rarity-scale (`variablesAffectedByRarityBonus`), dmgPct non."""
@@ -156,7 +156,7 @@ def _nearest_adjacent_enemy(state: "State", unit_id: int) -> Optional[int]:
 
 
 def _free_melee_attack(state: "State", unit_id: int, level, mult: int) -> Optional[dict]:
-    """`GetTriggerAttackBehaviour @181212cd0` pour UNE unite (gate `HasFaction 14`=BloodAngels deja
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$GetTriggerAttackBehaviour` pour UNE unite (gate `HasFaction 14`=BloodAngels deja
     verifie par l'appelant). Mirror : `AddStatOverrideEffect(0x510)` -> `PerformAIAttackFromCurrentPosition`
     -> `RemoveEffect(0x510)`. Le `set_stat_override(ATTACK, V)` = le canal 0x510 (Attack_Override) ; le
     pipeline d'attaque normale lit `ctx.stat(ATTACK)=V` (base=V) ; l'override est RETIRE apres (net-zero,
@@ -184,13 +184,13 @@ def _free_melee_attack(state: "State", unit_id: int, level, mult: int) -> Option
 
 
 class TheQuickeningAbility(ActiveAbility):
-    """`TheQuickeningAbility.ExecuteBehaviour @181211d50` (id 1151, bloodMephiston). Cast TILE-TARGET :
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$ExecuteBehaviour` (id 1151, bloodMephiston). Cast TILE-TARGET :
     le caster se TELEPORTE sur la tuile ciblee (portee-mouvement 2) ; l'unite eventuellement presente y
     est ECHANGEE vers la tuile d'origine du caster ; puis caster + unite-echangee (SI BloodAngels)
     attaquent en melee depuis leur nouvelle position (Attack override par la formule config).
 
     `target_id` = id de TUILE (cast tile-target, `NCContext.tile_id_by_pos` cote decision ; abilityTargets
-    kind='tile'). ctor @181213150 : `TargetingOptions(...,0x806000000)` + `AActiveAbility(...,2)`."""
+    kind='tile'). IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$.ctor : `TargetingOptions(...,0x806000000)` + `AActiveAbility(...,2)`."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.TheQuickening)  # 1151
 

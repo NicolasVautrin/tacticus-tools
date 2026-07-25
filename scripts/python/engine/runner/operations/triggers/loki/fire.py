@@ -1,7 +1,7 @@
 """Cluster FEU — abilities natives partageant l'effet `Fire` (type 5) et le gate d'immunite feu :
-- `Abilities.Active.Loki.EnvFireTileAbility` (@18121e040) : DoT de tuile en feu.
-- `Abilities.Damage.Loki.OnFireDamageAbility` (@1811c3a60) : pose du FEU on-hit.
-- `Abilities.Active.Loki.FireOfAbsolutionAbility` (@18121f380) : splash Flame + ignite adjacents (adeptRetributor).
+- `Abilities.Active.Loki.EnvFireTileAbility` (IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour) : DoT de tuile en feu.
+- `Abilities.Damage.Loki.OnFireDamageAbility` (IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateBehaviour) : pose du FEU on-hit.
+- `Abilities.Active.Loki.FireOfAbsolutionAbility` (IdunBattleLogic.Entities.Abilities.Active.Loki.FireOfAbsolutionAbility$$CreateBehaviour) : splash Flame + ignite adjacents (adeptRetributor).
 
 Regroupees ICI (et pas separees par sous-namespace Active/Damage) car elles partagent les constantes `FIRE_*`
 et le helper `_is_immune_to_fire` (evite un module « fire-commun » invente). Cf. `loki/__init__.py`."""
@@ -29,9 +29,9 @@ from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TileEffectTrigger, TriggerEvent, _unit_trait_names
 
 # --- Fire (tile-effect DoT, EnvFireTileAbility, Active.Loki) ---------------------------------------
-FIRE_TILE = int(EffectType.Fire)  # 5 — effet de TUILE (posé par attaque Flame, `OnFireDamageAbility`@1811c3a60).
+FIRE_TILE = int(EffectType.Fire)  # 5 — effet de TUILE (posé par attaque Flame, `OnFireDamageAbility`IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateBehaviour).
 FIRE_DMG_PCT_KEY = "fireDmgPct"  # globalValues=20 (`ConfigConst 0x12`) : % de la PV INITIALE (max) infligé/tour.
-# Immunité feu = `UnitsWithoutTraits([0x1b=27=Steppable, 0x19=25=Immune])` (@18121e040) : le DoT EXCLUT ces
+# Immunité feu = `UnitsWithoutTraits([0x1b=27=Steppable, 0x19=25=Immune])` (IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour) : le DoT EXCLUT ces
 #   deux traits (enum TRAIT, ≠ enum EFFECT où 25/27=Taunted_*). Mapping id<->nom centralisé dans
 #   `entities.traits.UnitTrait` (#146) ; `ctx.traits` = NOMS gameconfig (unit_context.py:191) → gate par nom.
 FIRE_IMMUNE_TRAITS = (UnitTrait.Steppable, UnitTrait.Immune)
@@ -42,7 +42,7 @@ FIRE_OF_ABSOLUTION_IGNITE_CHANCE = 30   # `GetNumberConstant(0x2a=42=chance)` �
 
 
 def _is_immune_to_fire(state: State, unit_id: int) -> bool:
-    """`EnvFireTileAbility.CreateBehaviour`@18121e040 : `Foreach(UnitsWithoutTraits([0x1b=27=Steppable,
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour : `Foreach(UnitsWithoutTraits([0x1b=27=Steppable,
     0x19=25=Immune]) & Units(EntitiesWithAnyEffect(5)), ...)`. Le DoT feu EXCLUT donc les unités portant
     `Steppable` (tokens marchables : decoys/mines) OU `Immune`. Résolution enum UnitTrait dump.cs (gqfc5mff6c)."""
     names = _unit_trait_names(state, unit_id)
@@ -50,14 +50,14 @@ def _is_immune_to_fire(state: State, unit_id: int) -> bool:
 
 
 def env_fire_tile_tree(pct: int, profile: str):
-    """Feuille de `EnvFireTileAbility.CreateBehaviour @18121e040` (MIRROR 1:1 du DECOMPILE) :
+    """Feuille de `IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour` (MIRROR 1:1 du DECOMPILE) :
         Foreach( UnitsWithoutTraits([Steppable=0x1b, Immune=0x19]) & Units(EntitiesWithAnyEffect(Fire=5)),
                  AttackWithAbilityDamage(
                      targets = Tiles(@0x180),
                      amount  = PercentageOf( StatAmount(@0x180, Health=5, Max=2), ConfigConst(0x12=fireDmgPct) ),
                      Direct(Nullable(3)),
                      source  = AbilityOrEffect(Fire=5) ) )
-    `AttackWithAbilityDamage @180de9c90` = factory NATIVE DIRECT (DISTINCTE de `AttackWithAttackDamage @180de9fb0`
+    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` = factory NATIVE DIRECT (DISTINCTE de `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`
     = Psyker/ThunderousAssault) : degat porte par le SEUL percage/armure, AUCUN crit/block/spread/after-hit.
     Port : la FEUILLE `AttackWithAbilityDamage(Target(), "Flame", PercentageOf(Const(pct), StatAmount(Target(),
     Health, Maximum)))`. Le `Foreach(<selecteur>)` natif (occupants NON-immunes sur tuile en feu) est resolu EN
@@ -76,13 +76,13 @@ def env_fire_tile_tree(pct: int, profile: str):
 
 
 class FireTileDoT(TileEffectTrigger):
-    """`EnvFireTileAbility` (CreateTrigger @18121e390 = `On(0x14) & Count(EntitiesWithAnyEffect(5))>0` ;
-    CreateBehaviour @18121e040) — DoT de la tuile en feu (`FireEffect` type 5, ctor @180f43f40). Au tick de
+    """`EnvFireTileAbility` (IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateTrigger = `On(0x14) & Count(EntitiesWithAnyEffect(5))>0` ;
+    IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour) — DoT de la tuile en feu (`FireEffect` type 5, IdunBattle.Entities.Effects.FireEffect$$.ctor). Au tick de
     tour (`On(0x14)`), l'unite qui DEMARRE son tour sur une tuile en feu subit `PercentageOf(StatAmount(
     Health, variant=2=Maximum), fireDmgPct=20)` = 20% de sa PV MAX, porte en degat DIRECT.
 
-    behaviour = arbre DSL `env_fire_tile_tree()` (mirror 1:1 de la feuille de CreateBehaviour @18121e040 ;
-    factory `AttackWithAbilityDamage @180de9c90` = DIRECT, DISTINCTE de `AttackWithAttackDamage @180de9fb0` =
+    behaviour = arbre DSL `env_fire_tile_tree()` (mirror 1:1 de la feuille de IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour ;
+    factory `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` = DIRECT, DISTINCTE de `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` =
     Psyker/ThunderousAssault). i2 `Keywords/EffectFire` : « Units starting their turn on a Fire hex take 20%
     of their initial Health » = la BASE (20% PV max), PAS le net. Le natif route la base par le PERCAGE/ARMURE
     (CONFIRME LIVE 2026-07-12 : blackHaarken net 477 = base 1908 x PiercingRatio(Flame) 25%, l'armure absorbant
@@ -90,13 +90,13 @@ class FireTileDoT(TileEffectTrigger):
     NON hardcode). Decay via on_turn_end. Mort routee par `_fire_death_if_killed` (source = la tuile).
 
     DUREE (#98, corrige) : `DefaultAmountOfRounds(5)` = 2 ROUNDS ; le natif stocke
-    `ConvertRoundsToTurns(2)` @181058af0 = `count(joueurs du turnOrder, PlayerType != 2) x 2` TURNS.
+    `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns(2) = `count(joueurs du turnOrder, PlayerType != 2) x 2` TURNS.
     Ce count vaut **2** dans un duel standard (BC : Players 11/12/13 = PlayerType 0/1/2,
     `Player.TurnOrder=[11,12,13]`) -> le feu dure **4 tours**, et l'ancre `Effect_RemainingTurns=4` est
     la valeur NORMALE, pas un cas d'arene. L'ancienne lecture « count = 1, prouve par test_effect_stun_
     live » etait un ARTEFACT DE MESURE (lecture POST-tick en 1v1 strict, cf. `convert_rounds_to_turns`).
 
-    GATE IMMUNITE feu (`UnitsWithoutTraits([0x1b=27=Steppable, 0x19=25=Immune])` @18121e040) PORTE : le DoT
+    GATE IMMUNITE feu (`UnitsWithoutTraits([0x1b=27=Steppable, 0x19=25=Immune])` IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour) PORTE : le DoT
     EXCLUT les occupants portant `Steppable` (tokens marchables) ou `Immune` (cf. `_is_immune_to_fire`) —
     resolu EN AMONT (le `Foreach(<selecteur>)` reste imperatif, DSL-ification deferree comme Psyker, #216)."""
     effect_type = FIRE_TILE
@@ -109,12 +109,12 @@ class FireTileDoT(TileEffectTrigger):
         uid = self._unit_on_tile(state)
         if uid is None:
             return None
-        if _is_immune_to_fire(state, uid):               # gate UnitsWithoutTraits([Steppable=27, Immune=25]) @18121e040
+        if _is_immune_to_fire(state, uid):               # gate UnitsWithoutTraits([Steppable=27, Immune=25]) IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour
             return None
         pct = GC.global_value(FIRE_DMG_PCT_KEY)           # fireDmgPct=20 (globalValues == ConfigConst 0x12, non hardcode)
         if not pct:
             return None
-        # behaviour = arbre DSL `env_fire_tile_tree()` (mirror 1:1 de la feuille CreateBehaviour @18121e040) :
+        # behaviour = arbre DSL `env_fire_tile_tree()` (mirror 1:1 de la feuille IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour) :
         # AttackWithAbilityDamage(Tiles, PercentageOf(StatAmount(Health,Max), fireDmgPct), Direct(3), source=Fire).
         # La feuille (mode DIRECT) calcule base Fix64 + route `execute_direct` (percage/armure seuls, pas de crit/
         # block/spread) -> MEME Operation/args que l'ancien corps imperatif (bit-exact BY CONSTRUCTION). La source
@@ -132,19 +132,18 @@ class FireTileDoT(TileEffectTrigger):
 
 # --- OnFireDamage (Damage.Loki) : pose du FEU on-hit ----------------------------------------------
 def on_fire_damage_tree(fire_effect_type: int):
-    """Arbre de `OnFireDamageAbility.CreateBehaviour @1811c3a60` (Damage.Loki — MIRROR 1:1 du DECOMPILE) :
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateBehaviour` (Damage.Loki — MIRROR 1:1 du DECOMPILE) :
         AddEffect( effectType = 5 (FireEffect),
                    source     = AbilityStateReference (caster),
                    target     = Tiles(target@0x178) )                                     # TILE-domain
-    = un noeud DSL UNIQUE `AddEffect` avec selecteur TILE-DOMAIN `Tiles(Target())` (mirror `DSLFactory.Tiles`
-    @180dfdc60 -> `UnitsMainTilesSelector` = la MainTile occupee de la cible). La feuille `AddEffect`
+    = un noeud DSL UNIQUE `AddEffect` avec selecteur TILE-DOMAIN `Tiles(Target())` (mirror `IdunBattleLogic.Entities.DSLFactory$$Tiles -> `UnitsMainTilesSelector` = la MainTile occupee de la cible). La feuille `AddEffect`
     (generalisee tile-domain) convertit la position en id de tuile et route vers `AddEffectOperation.execute(
     target=tile_id, FIRE_TILE, "Fire")` -- MEME Operation/args que l'ancien imperatif -> bit-exact BY
     CONSTRUCTION (meme mutation, meme gate `already-present` d'AddEffect). Le gate de DECLENCHEMENT
-    (`DamageProfileHasTrait(OnFire)` + `NOT TriggeringEffectIs(5)`, CreateTrigger @1811c3ae0) reste UPSTREAM
+    (`DamageProfileHasTrait(OnFire)` + `NOT TriggeringEffectIs(5)`, IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateTrigger) reste UPSTREAM
     (hors CreateBehaviour) dans `_on_fire_damage_ability`. RNG-free (AddEffect inconditionnel).
     `fire_effect_type` = passe par l'appelant (constante `FIRE_TILE`) pour eviter tout couplage d'import."""
-    # #98 : le decompile @1811c3a60 appelle la surcharge a 4 args `AddEffect(factory, 5, stateRef,
+    # #98 : le decompile IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateBehaviour appelle la surcharge a 4 args `AddEffect(factory, 5, stateRef,
     # Tiles(target))` -- AUCUN noeud duree -> duree PAR DEFAUT (`DefaultAmountOfRounds(5) = 2 rounds`,
     # converti par `AddEffectOperation`). Le port passait le defaut positionnel `duration_rounds=1`,
     # qui ECRASAIT la duree par defaut (feu a 1 tour) et divergeait de l'AUTRE chemin de pose du MEME
@@ -154,8 +153,8 @@ def on_fire_damage_tree(fire_effect_type: int):
 
 def _on_fire_damage_ability(state: State, attacker_id: int, target_id: int,
                             profile: Optional[str]) -> list[dict]:
-    """`OnFireDamageAbility` (Damage.Loki) — pose du FEU on-hit. Trigger @1811c3ae0 =
-    `On(0x10) & DamageProfileHasTrait(1=OnFire) & NOT(TriggeringEffectIs(5))` ; Behaviour @1811c3a60 =
+    """`OnFireDamageAbility` (Damage.Loki) — pose du FEU on-hit. Trigger IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateTrigger =
+    `On(0x10) & DamageProfileHasTrait(1=OnFire) & NOT(TriggeringEffectIs(5))` ; Behaviour IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateBehaviour =
     `AddEffect(5=FireEffect, source, Tiles(cible@0x178))` INCONDITIONNEL (arbre DSL `on_fire_damage_tree()`,
     mirror 1:1). => si l'arme du coup porte le trait de profil `OnFire` (gameconfig `damage_profile[...][
     'Traits']`), pose FireEffect(type 5) sur la tuile OCCUPEE COURANTE de la cible (`Tiles`=MainTile de la
@@ -164,7 +163,7 @@ def _on_fire_damage_ability(state: State, attacker_id: int, target_id: int,
     Anti-boucle : `AddEffectOperation` no-op si la tuile brule deja (== porte native `already-present`
     d'AddEffect) ; le `NOT(TriggeringEffectIs(5))` du trigger est structurellement satisfait ici (on est dans
     le vecteur ATTAQUE, pas un tick de feu -> `FireTileDoT` inflige son DoT en direct, sans repasser par ce
-    vecteur, donc jamais de re-pose en cascade). Emetteur natif = `EvaluateAfterHitTriggers @180e25fc0`,
+    vecteur, donc jamais de re-pose en cascade). Emetteur natif = `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`,
     per-coup (message after-hit `On(8)`, PAS NormalAttack 0x26). NB : attaque NORMALE uniquement — la pose par
     ABILITY (BrazierOfHolyFire) passe par AbilityDamageOperation, non cable dans ce vecteur -> gap (#136 suivi).
 
@@ -175,7 +174,7 @@ def _on_fire_damage_ability(state: State, attacker_id: int, target_id: int,
     traits = (GC.damage_profile(profile) or {}).get("Traits") or []
     if DamageTrait.OnFire.name not in traits:            # DamageProfileHasTrait(DamageTrait.OnFire=1) [gate trigger]
         return []
-    # behaviour = arbre DSL `on_fire_damage_tree()` (mirror 1:1 de CreateBehaviour @1811c3a60) :
+    # behaviour = arbre DSL `on_fire_damage_tree()` (mirror 1:1 de IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateBehaviour) :
     # AddEffect(5=Fire, Tiles(Target())). La feuille route vers AddEffectOperation.execute(target=tile_id,
     # FIRE_TILE, "Fire") -> MEME Operation/args que l'ancien imperatif (bit-exact BY CONSTRUCTION). `placed`
     # de l'emit distingue la pose reelle du no-op deja-en-feu (== l'ancien `if eff is not None`).
@@ -189,7 +188,7 @@ def _on_fire_damage_ability(state: State, attacker_id: int, target_id: int,
 
 
 def fire_of_absolution_tree(ignite_chance: int, fire_effect_type: int):
-    """Arbre de `FireOfAbsolutionAbility.CreateBehaviour @18121f380` (adeptRetributor «Vindicta», passif
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.FireOfAbsolutionAbility$$CreateBehaviour` (adeptRetributor «Vindicta», passif
     `Active.Loki` — MIRROR 1:1 du DECOMPILE) :
         op_BitwiseAnd( op_BitwiseAnd(
             Inform(0xb3, EntityId(target)),                                                    # [1] message
@@ -230,8 +229,7 @@ def fire_of_absolution_tree(ignite_chance: int, fire_effect_type: int):
 
 def _fire_of_absolution_after_attack(state: State, attacker_id: int, target_id: int,
                                      ranged: bool) -> list[dict]:
-    """Passif `FireOfAbsolution` (adeptRetributor «Vindicta») — `FireOfAbsolutionAbility.CreateBehaviour`
-    @18121f380. i2 : « When performing a ranged attack, also deals 3x Flame Damage to all units adjacent to
+    """Passif `FireOfAbsolution` (adeptRetributor «Vindicta») — `IdunBattleLogic.Entities.Abilities.Active.Loki.FireOfAbsolutionAbility$$CreateBehaviour. i2 : « When performing a ranged attack, also deals 3x Flame Damage to all units adjacent to
     the target. Has a 30% chance of setting each adjacent hex on Fire as well. »
 
     Behaviour natif (`&` = op_BitwiseAnd, gauche->droite) :
@@ -264,7 +262,7 @@ def _fire_of_absolution_after_attack(state: State, attacker_id: int, target_id: 
     uc = e.get_component(UnitComponent) if e is not None else None
     if uc is None or "FireOfAbsolution" not in ((GC.unit(uc.visual_id) or {}).get("passiveAbilities") or []):
         return []
-    # behaviour = arbre DSL `fire_of_absolution_tree()` (mirror 1:1 de CreateBehaviour @18121f380) :
+    # behaviour = arbre DSL `fire_of_absolution_tree()` (mirror 1:1 de IdunBattleLogic.Entities.Abilities.Active.Loki.FireOfAbsolutionAbility$$CreateBehaviour) :
     # Inform(0xb3) & splash(AttackWithAttackDamage multi, Direct(dmg)) & Foreach(AdjacentTiles, Maybe(30,
     # SetOnFire)). Les feuilles emettent les MEMES Operations que l'ancien corps imperatif hybride
     # (`execute_ability_attack` par cible splash + `AddEffectOperation` sur les tuiles ignitees) -> meme

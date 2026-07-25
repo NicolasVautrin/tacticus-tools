@@ -2,8 +2,7 @@
 (gqfc5mff6c) — crit / block / evasion / réduction bouclier+armure.
 
 Ces feuilles sont la **base commune** prédiction↔combat (interface `IDamageCalculations`,
-token `DAT_183287db8`). Le combat réel (`DamagePrediction.CalculateDamageOperation`
-@18102dc30, slot #0xc de `IDamagePrediction` — PAS `GetAttackPrediction` qui est #5) les
+token `DAT_183287db8`). Le combat réel (`IdunBattle.Core.Services.DamagePrediction$$CalculateDamageOperation, slot #0xc de `IDamagePrediction` — PAS `GetAttackPrediction` qui est #5) les
 appelle pour le split `Damage{health,armor,shield}` ; cf. docs/rl/runner-engine.md §1.8.
 
 Chaque fonction = sa jumelle native (nom, logique, VA citée). **Data-driven** : on passe les
@@ -34,7 +33,7 @@ STAT_ARMOR = 5             # GetStat(.,5) — armure (pool / exécution)
 
 @dataclass
 class BlockSource:
-    """Une source de block (issue de `CalculateBlockChances` @181002350) :
+    """Une source de block (issue de `IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances) :
     `chance` (%) + `amount` (= `GetBlockDamageForBlockChance`) + `block_id` (failed-id)."""
     chance: int
     amount: int
@@ -60,7 +59,7 @@ class EvasionInfo:
 # --------------------------------------------------------------------------- crit
 
 def could_crit(crit_chance: int, crit_damage: int) -> bool:
-    """`DamageCalculations.CouldCrit` @181004fb0 :
+    """`IdunBattle.Core.Services.DamageCalculations$$CouldCrit :
         GetStat(9) > 0  AND  GetStat(10) > 0
     (chance ET dégât de crit strictement positifs ; 0 RNG)."""
     if crit_chance < 1:
@@ -69,7 +68,7 @@ def could_crit(crit_chance: int, crit_damage: int) -> bool:
 
 
 def roll_critical(rng: IntBasedMersenneTwister, crit_chance: int) -> bool:
-    """`DamagePrediction.RollCritical` @1810387a0 → `DamageCalculations.RollCritical` @1810057b0.
+    """`IdunBattle.Core.Services.DamagePrediction$$RollCritical → `IdunBattle.Core.Services.DamageCalculations$$RollCritical.
         cc = clamp(crit_chance, 0, 100)    # crit_chance = GetStat(9) + GetCritChanceBonusFromEffects
         if cc < 1: return False            # AUCUN tirage RNG
         return NextBool(cc)                # 1 tirage
@@ -86,7 +85,7 @@ def roll_critical(rng: IntBasedMersenneTwister, crit_chance: int) -> bool:
 
 def apply_crit_damage(base: int, crit_bonus: int, *, has_execute_trait: bool = False,
                       execute_pool: int = 0) -> int:
-    """`DamageCalculations.ApplyCritDamage` @181000210 (0 RNG) :
+    """`IdunBattle.Core.Services.DamageCalculations$$ApplyCritDamage (0 RNG) :
         if not HasTrait(target, 0x1c):  return base + crit_bonus
         else: return shield_total + GetStat(4) + GetStat(5)   # exécution = pool plein
     `crit_bonus` = bonus de dégât crit déjà calculé (cf. CalculateCriticalDamage :
@@ -100,13 +99,13 @@ def apply_crit_damage(base: int, crit_bonus: int, *, has_execute_trait: bool = F
 # ----------------------------------------------------------------------- evasion
 
 def calculate_evasion_chance(evasion_stat: int) -> int:
-    """`DamageCalculations.CalculateEvasionChance` @1810040c0 = `GetStat(target, 0xf)`."""
+    """`IdunBattle.Core.Services.DamageCalculations$$CalculateEvasionChance = `GetStat(target, 0xf)`."""
     return evasion_stat
 
 
 def apply_random_evasion(rng: IntBasedMersenneTwister, evasion_chance: int,
                          damage: int) -> EvasionInfo:
-    """`DamageCalculations.ApplyRandomEvasion` @1810004f0 :
+    """`IdunBattle.Core.Services.DamageCalculations$$ApplyRandomEvasion :
         if evasion_chance > 0 and NextBool(evasion_chance):   # 1 tirage si chance>0
             return {damage: 0, did_evade: True}
         return {damage, did_evade: False}
@@ -120,14 +119,14 @@ def apply_random_evasion(rng: IntBasedMersenneTwister, evasion_chance: int,
 # ------------------------------------------------------------------------- block
 
 def apply_block_damage(block_amount: int, damage: int) -> int:
-    """`DamageCalculations.ApplyBlockDamage` @180ffffc0 = `max(0, damage − block_amount)`."""
+    """`IdunBattle.Core.Services.DamageCalculations$$ApplyBlockDamage = `max(0, damage − block_amount)`."""
     return max(0, damage - block_amount)
 
 
 def apply_random_block_damage(rng: IntBasedMersenneTwister,
                               block_sources: Optional[List[BlockSource]],
                               damage: int) -> BlockDamageInfo:
-    """`DamageCalculations.ApplyRandomBlockDamage` @181000390 — la CHAÎNE de block :
+    """`IdunBattle.Core.Services.DamageCalculations$$ApplyRandomBlockDamage — la CHAÎNE de block :
         result = {damage, did_block: False}
         for src in block_sources:            # liste triée (CalculateBlockChances)
             if src.chance > 0 and src.amount > 0:
@@ -153,13 +152,13 @@ def apply_random_block_damage(rng: IntBasedMersenneTwister,
 # ----------------------------------------------------------- réduction pool cible
 
 def calculate_damage_blocked_by_shield(damage: int, shield: int) -> int:
-    """`DamageCalculations.CalculateDamageBlockedByShield` @181002850 = `min(damage, shield)`
+    """`IdunBattle.Core.Services.DamageCalculations$$CalculateDamageBlockedByShield = `min(damage, shield)`
     (0 RNG ; `shield` = bouclier COURANT de la cible)."""
     return min(damage, shield)
 
 
 def calculate_damage_blocked_by_armor(damage: int, armor_pct: int) -> int:
-    """`DamageCalculations.CalculateDamageBlockedByArmor` @181002650 (0 RNG) :
+    """`IdunBattle.Core.Services.DamageCalculations$$CalculateDamageBlockedByArmor (0 RNG) :
         blocked = (int)Ceiling(damage_Fix64 × (armor_pct/100))
         return min(damage, blocked)
     `armor_pct` = valeur d'armure en % (cf. cache Nullable @+0x48 = armorVal/100 ; mitigation
@@ -197,7 +196,7 @@ def calculate_damage_operation(
         block_sources: Optional[List[BlockSource]] = None,
         evasion_chance: int = 0, evasion_branch: bool = False,
         rng: Optional[IntBasedMersenneTwister] = None) -> Damage:
-    """`DamagePrediction.CalculateDamageOperation` @18102dc30 (= méthode #0xc du service
+    """`IdunBattle.Core.Services.DamagePrediction$$CalculateDamageOperation (= méthode #0xc du service
     `IDamagePrediction`, le SPLIT du COMBAT RÉEL — PAS `GetAttackPrediction`).
 
     `raw_dmg` = dégât du coup APRÈS modifiers attaquant + `FixedArmor`/perçage plat (ce que

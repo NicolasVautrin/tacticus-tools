@@ -1,6 +1,6 @@
 """#61bis tranche 1 : MV71SniperDroneSquadAttack (1076, Sho'syl/tauMarksman) — EXECUTION confrontee au LIVE.
 
-Port : `engine/runner/abilities/loki/mv71.py` (chaine `ExecuteBehaviour @181108900`, RE case-61bis §5).
+Port : `engine/runner/abilities/loki/mv71.py` (chaine `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$ExecuteBehaviour`, RE case-61bis §5).
 GROUND TRUTH de reference : case-61bis §2 (runner 88, seed 61001, MC1_67).
 
 CE FICHIER :
@@ -214,7 +214,7 @@ def test_mv71_cast_live_offline_agreement(live_session, rpc, build_runner):
     assert (opc.col, opc.row) == (live_dpos.get("col"), live_dpos.get("row")), \
         (f"PickTile : tuile offline ({opc.col},{opc.row}) != live "
          f"({live_dpos.get('col')},{live_dpos.get('row')}) — tie-break a raffiner "
-         f"(SpawnTileUtility @1810eff90)")
+         f"(SpawnTileUtility IdunBattle.AI.Utilities.MV71SniperDroneSquad_SpawnTileUtility$$EvaluateMovementInSteps)")
 
     # 2) STATS du drone (WithStatsFromConfig, niveau passif du caster) == natives.
     live_stats = ((_snap_unit_stats(snap2, DRONE_VIS) or {}).get("stats") or {})
@@ -328,7 +328,7 @@ def test_mv71_cap_eviction_live(live_session, rpc, build_runner):
 
 
 def test_mv71_melee_dispatch_live_offline_agreement(live_session, rpc, build_runner):
-    """Tranche 2 — dispatch MELEE (`IsMeleeAttack @181109960`, H53 infirmee) : cible ADJACENTE ->
+    """Tranche 2 — dispatch MELEE (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$IsMeleeAttack`, H53 infirmee) : cible ADJACENTE ->
     1076 DELEGUE integralement a l'attaque normale (`ALoki_NormalAttackAbility.ExecuteBehaviour`) —
     AUCUN drone, AUCUN Markerlight, degat = attaque normale melee de Sho'syl (bit-exact, MT seede)."""
     from engine.entities.pathfinding.board import Board
@@ -414,7 +414,7 @@ def _scene_for(rpc, rid, dec):
 
 
 def test_mv71_prediction_live_offline_agreement(live_session, rpc, build_runner):
-    """Tranche 3 — PREDICTION distance (`PredictAttack @18110a5f0`, arbitrage probe_61bis_pred
+    """Tranche 3 — PREDICTION distance (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$PredictAttack`, arbitrage probe_61bis_pred
     seed 61011/61013 = 15/15 EXACT) : confrontation PER-TUILE (canal ranked) offline vs natif.
       - modele : PickTile scene-side (caster VIRTUELLEMENT sur la tuile candidate : exclusion
         !Contains + adjacence hypothetique), degat = StatAmount(caster, ATTACK, CURRENT), hits =

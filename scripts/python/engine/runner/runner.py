@@ -1,6 +1,6 @@
 """`Runner` — pipeline `Apply` (RE CONFIRMÉ, cf. docs/rl/runner-engine.md §1.1).
 
-`IdunBattle.Runner.IdunRunner$$Apply` @180e34bf0 :
+`IdunBattle.Runner.IdunRunner$$IdunBattle.Runner.IdunRunner$$Apply :
     Apply(msg):
       cur = GetCurrentPlayerId(state)
       if ShouldBlockMessage(msg,cur) or ShouldRejectMessage(msg): return  # no-op
@@ -56,7 +56,7 @@ class Runner:
     def should_reject(self, msg: Message) -> bool:
         return False   # TODO RE @ IdunRunner$$ShouldRejectMessage
 
-    # --- pipeline Apply @180e34bf0 ---
+    # --- pipeline IdunBattle.Runner.IdunRunner$$Apply ---
     def apply(self, msg: Message) -> None:
         cur = self.state.current_player_id           # GetCurrentPlayerId(state)
         if self.should_block(msg, cur) or self.should_reject(msg):

@@ -2,7 +2,7 @@
 
 Contrepartie OFFLINE de `test_act_of_faith_normal_crit_resets_live.py` (confirmation LIVE) : valide la MATH de
 revert exacte du port. `On(9)=Attack` etant un event GENERIQUE (`FinishAttackOperation`, emis pour TOUTE
-attaque) et le reset @181219f90 = `On(9) & OwnerIsCaster & WasCrit & HasEffect(0x3f9)` SANS gate normal/ability,
+attaque) et le reset IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateTrigger = `On(9) & OwnerIsCaster & WasCrit & HasEffect(0x3f9)` SANS gate normal/ability,
 un crit reset ActOfFaith **quelle que soit la voie** — normale ET ability. (Correction de l'ancien verdict
 #151 qui croyait `On(9)` ability-only via `OnNormalAttackOrSmite` ; confirme en LIVE, cf. le test dedie.)
 

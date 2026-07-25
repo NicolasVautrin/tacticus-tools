@@ -8,11 +8,11 @@ from ._base import NCContext, NonComparablePlaybook
 
 
 class GetEmRuntzPlaybook(NonComparablePlaybook):
-    """`GetEmRuntzPlaybook.EvaluateNonComparable @18113ee00` (id 1045, orksRuntherd). Utilité = NOMBRE de
+    """`IdunBattle.AI.Playbook.Loki.GetEmRuntzPlaybook$$EvaluateNonComparable` (id 1045, orksRuntherd). Utilité = NOMBRE de
     tuiles de spawn = |hex LIBRES adjacents au caster ∩ adjacents à un ennemi| (`GetSpawnTileSelector`).
-    `MIN_UTILITY` = `minSummons` DYNAMIQUE selon les PV% du caster (`GetMinSummonsToUse @18113f0b0` :
+    `MIN_UTILITY` = `minSummons` DYNAMIQUE selon les PV% du caster (`IdunBattle.AI.Playbook.Loki.GetEmRuntzPlaybook$$GetMinSummonsToUse` :
     `GetStat(Health, part1=%)` -> <=49 => 1 ; 49<..<75 => 2 ; >=75 => 3). L'IA caste si `numTiles >= minSummons` ;
-    utilité = `numTiles`. cctor @18113f250 : base 1. get_Priority = 0 (défaut). NonComparable = évaluée AVANT
+    utilité = `numTiles`. IdunBattle.AI.Playbook.Loki.GetEmRuntzPlaybook$$.cctor : base 1. get_Priority = 0 (défaut). NonComparable = évaluée AVANT
     l'attaque. Le caster NE bouge PAS (spawn autour de sa position actuelle)."""
     ABILITY_ID = int(ActiveAbilityType.GetEmRuntz)  # 1045
     MIN_UTILITY = 1.0      # plancher structurel ; le vrai gate = minSummons dynamique (generate_candidates)

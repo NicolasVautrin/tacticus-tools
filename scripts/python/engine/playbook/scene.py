@@ -41,27 +41,27 @@ class Scene:
     # AbilityState PER-ABILITY (#100) : {uid: {abilityId: {"level","multiplier"}}} — capteur
     # combatSnapshot.abilityStates (entrée ActiveAbility._abilityState @0x4c). C'est le couple que
     # le natif passe au playbook et qui indexe les variables config (TryGetVariableArrayForLevel
-    # @181577510) ; le canal global (mult_by_id/activeAbilityLevel) est un fallback.
+    # IdunBattle.Configuration.AbilityConfiguration$$TryGetVariableArrayForLevel) ; le canal global (mult_by_id/activeAbilityLevel) est un fallback.
     abstate_by_id: dict = field(default_factory=dict)
     # TotalAttacksMade PER-UNITE (#106) : {uid: totalAttacksMade} — capteur actorStats
     # (ActorStatisticsComponent +0x20). Indexe le buff MartialInspiration (+33%/tour). Defaut {}
     # -> count=0 (debut de bataille / from_state offline) si non capte.
     actorstats_by_id: dict = field(default_factory=dict)
     # Stat DEFENSE PER-UNITE (#194) : {uid: StatComponent(stat 3)} — mirror du DefenseComponent natif
-    # (cctor @180f991c0) lu par `CalculateDefenderModifiersForPrediction @181003066` : ses modifications
+    # (IdunBattle.Entities.Components.DefenseComponent$$.cctor) lu par `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction+0x436` : ses modifications
     # (ex. tuile Thorns −50) deviennent des entrees %-list (negate=1 → +50 → ×1.5). DYNAMIQUE (la
     # modification suit l'occupation de tuile) → capture combatSnapshot (defense + statDelta.defense),
     # refresh par-pas via `refresh_shields`. Defaut {} → axe inerte (defense non modifiee partout).
     defstat_by_id: dict = field(default_factory=dict)
     # TurnsStarted PER-UNITE (#46) : {uid: turnsStarted} — stat 12 (`UnitComponent.turnsStarted@+0x58`,
-    # incr. StartTurn ; `UnitTurnsStartedFormula.Calculate @180f2d6c0` = GetStat(unit,0xc)). Indexe le
-    # gate `ShouldEvaluate(unit)` slot-4 des playbooks « pas au 1er tour » (corps folde @18111af90 :
+    # incr. StartTurn ; `IdunBattle.Entities.Formulas.UnitTurnsStartedFormula$$Calculate` = GetStat(unit,0xc)). Indexe le
+    # gate `ShouldEvaluate(unit)` slot-4 des playbooks « pas au 1er tour » (corps folde IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$ShouldEvaluate :
     # TheQuickening/HeroicFusillade/VigilanceEternal = `GetStat(unit,12) > 1`). DYNAMIQUE (incremente
     # a CHAQUE tour demarre) → capture combatSnapshot, refresh par-pas via `refresh_shields`.
     # Defaut {} → uid absent = non capte (l'accesseur rend None, le gate ne mord pas a l'aveugle).
     turns_started_by_id: dict = field(default_factory=dict)
     # Stat ATTACK COURANT PER-UNITE (#45-s18) : {uid: GetStat(Attack, Current)} — la lecture EXACTE des
-    # noeuds DSL `StatAmount(Self, Attack, Current)` (ex. splash Psyker `GetAttackDamage @181224550`).
+    # noeuds DSL `StatAmount(Self, Attack, Current)` (ex. splash Psyker `IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$GetAttackDamage`).
     # DYNAMIQUE : les ValueModifications vont et viennent (aura RitesOfBattle +1298 par ADJACENCE a
     # Calgar — vecu 31337 : 2101 au deploiement, 803 au s18 une fois Njal eloigne) → le cold
     # `ctx_by_id[uid].attack` (fige au build) SURESTIME/SOUS-ESTIME des qu'une aura bouge. Capture
@@ -70,7 +70,7 @@ class Scene:
     attack_cur_by_id: dict = field(default_factory=dict)
     # Stat EXTRA_HITS COURANT PER-UNITE (#57a) : {uid: GetStat(ExtraHits=17, Current)} — les effets
     # stat-mod DYNAMIQUES sur les hits (Swarm_HitReduction 1021 : `SwarmAbility.CreateBehaviour
-    # @181225e20` poste EXTRA_HITS = -min(membresInitiaux-?, membresManquants) a chaque membre perdu ;
+    # IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateBehaviour` poste EXTRA_HITS = -min(membresInitiaux-?, membresManquants) a chaque membre perdu ;
     # vecu 1357 s15 u135 ripperSwarm : extraHits -2, hits natifs 3 vs 5 offline). Le cold
     # `ctx.stat(EXTRA_HITS)` (fige a l'hydratation — au SPAWN pour un summon #53) devient stale des
     # que des membres meurent. Capture combatSnapshot (stats.extraHits), refresh par-pas.
@@ -127,7 +127,7 @@ class Scene:
                 if _ds is not None:
                     defstat_by_id[eid] = _ds
                 # #46 : TurnsStarted (stat 12) du ctx ECS — le runner offline l'incremente au
-                # StartTurn (mirror `StartTurnOperation @180ea3fb0`, `increment_base`).
+                # StartTurn (mirror `StartTurnOperation IdunBattle.Operations.StartTurnOperation$$Execute`, `increment_base`).
                 if ctx.stats is not None and int(_ST.TURNS_STARTED) in ctx.stats.components:
                     turns_started_by_id[eid] = ctx.stats.get_stat(int(_ST.TURNS_STARTED))
             shield_by_id[eid] = shc.get_total_shield() if shc is not None else 0
@@ -190,12 +190,12 @@ class Scene:
 
     # ── Compteurs de bataille (#185) ───────────────────────────────────────────────────────────────
     def melee_defeats(self) -> int:
-        """Compte de base de `GetMultiplierBasedOnDefeatedInMelee @180f34ea0` = `Count(NormalUnits(
+        """Compte de base de `IdunBattle.Entities.Effects.Loki.BlessingsOfKhorne_ModifiersEffect$$GetMultiplierBasedOnDefeatedInMelee` = `Count(NormalUnits(
         UnitsDefeatedByMeleeAttack(AllUnits)))` : unités NORMALES (kind-1 — `dv.units` = squads hors
-        MoW par construction, `DSLFactory.NormalUnits @180df7770` = `Units(set, kind=1)`) MORTES
+        MoW par construction, `IdunBattleLogic.Entities.DSLFactory$$NormalUnits` = `Units(set, kind=1)`) MORTES
         tuées par une attaque de MÊLÉE. Flag = `UnitComponent.DefeatedByMeleeAttack @0x178` (écrit
-        par `KillUnitOperation @180e76470`, capté #185 dans decisionView.units) ; `isDead` requis en
-        mirror du sélecteur `IsValidUnit @180f00b40` (une unité RESSUSCITÉE ne compte plus). GLOBAL
+        par `KillUnitOperation IdunBattle.Operations.KillUnitOperation$$Execute`, capté #185 dans decisionView.units) ; `isDead` requis en
+        mirror du sélecteur `IdunBattle.Entities.Selectors.UnitsDefeatedByMeleeAttackSelector$$IsValidUnit` (une unité RESSUSCITÉE ne compte plus). GLOBAL
         (les 2 camps, quel que soit le tueur). Units offline (`from_state`) sans le champ -> 0."""
         return sum(1 for u in (self.units or [])
                    if u.get("defeatedByMelee") and not u.get("alive"))
@@ -253,7 +253,7 @@ class Scene:
 
     def defense_stat(self, uid):
         """`StatComponent` DEFENSE (stat 3) de l'unité — mirror du DefenseComponent natif consommé
-        par la face défenseur de `CalculateModifiersFromStatModifications @181004380` (#194).
+        par la face défenseur de `IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications` (#194).
         None si non capturé (from_state offline sans suivi defense, ou unité absente) → axe inerte."""
         return self.defstat_by_id.get(uid)
 
@@ -284,9 +284,9 @@ class Scene:
         return int(c.stat(_ST.EXTRA_HITS)) if c is not None else None
 
     def turns_started(self, uid) -> int | None:
-        """`GetStat(unit, 0xc=TurnsStarted)` (`UnitTurnsStartedFormula.Calculate @180f2d6c0`) — nb
+        """`GetStat(unit, 0xc=TurnsStarted)` (`IdunBattle.Entities.Formulas.UnitTurnsStartedFormula$$Calculate`) — nb
         de tours DEMARRES par l'unité cette bataille (incr. StartTurn). Indexe le gate slot-4
-        `ShouldEvaluate(unit) = GetStat(unit,12) > 1` (#46, corps foldé @18111af90). None si non
+        `ShouldEvaluate(unit) = GetStat(unit,12) > 1` (#46, corps foldé IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$ShouldEvaluate). None si non
         capturé (uid absent des tables) → l'appelant ne gate pas à l'aveugle."""
         v = (self.turns_started_by_id or {}).get(uid)
         return None if v is None else int(v)
@@ -357,9 +357,9 @@ def build_predictor(rpc, rid):
                         for u in ((_ast or {}).get("units") or []) if u.get("entityId") is not None}
     # BOARD STATIQUE (#183) : mirror offline des Tile objects natifs. Le natif ne passe PAS de "board" a la
     # prediction -- l'attackerTile (tuile candidate, `local_588` de CalculateAttackerModifiersForPrediction
-    # @181000590) PORTE lui-meme son terrain (tileDefId -> IsTrench @180ec6f80 = IsTileWithId) et son graphe
-    # de voisins STOCKE (ConnectivityComponent.IsNeighbour, consulte par IsNeighbourOf @180ec6030 ET par
-    # MovementUtil.AreTilesAdjacent @18109d740 = (|rowD|<2) & IsNeighbour). Le Board `native_sym` reproduit
+    # IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction) PORTE lui-meme son terrain (tileDefId -> IdunBattle.Entities.TileExtensions$$IsTrench = IsTileWithId) et son graphe
+    # de voisins STOCKE (ConnectivityComponent.IsNeighbour, consulte par IdunBattle.Entities.TileExtensions$$IsNeighbourOf ET par
+    # IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent = (|rowD|<2) & IsNeighbour). Le Board `native_sym` reproduit
     # ce graphe (capture GetAdjacentTiles(false,false,true) = topologie complete #148) + le terrain. Point de
     # couture = build_predictor (tables statiques cold 1x/runner = l'analogue du graphe de tuiles natif bati
     # une fois au battle-init). Threade dans le dict -> from_predictor_sctx le lit en fallback pour les 3
@@ -382,7 +382,7 @@ def build_predictor(rpc, rid):
             # (suit l'occupation de tuile) -> re-capturee par-pas via refresh_shields.
             "defstat_by_id": _defense_stats_from_snapshot(snap.get("units")),
             # #45b' : MaxHealth EFFECTIF (capteur combatSnapshot.healthMax = GetStat(e,5,part=2),
-            # la lecture EXACTE de DamageUtility @1810e2280 pour combinedMax — base+modifs,
+            # la lecture EXACTE de DamageUtility IdunBattle.AI.Utilities.DamageUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext pour combinedMax — base+modifs,
             # clamp cape). DYNAMIQUE (bump TwistedScience mid-bataille) -> refresh par-pas.
             # Vieux hooks sans le champ -> {} (fallback obs.hpMax base, etat anterieur).
             "hpmax_eff_by_id": _hpmax_eff_from_snapshot(snap.get("units")),
@@ -393,7 +393,7 @@ def build_predictor(rpc, rid):
                 for u in (snap.get("units") or [])
                 if (u.get("stats") or {}).get("attack") is not None},
             # #57a : ExtraHits COURANT (GetStat(17, Current)) — stat-mods hits dynamiques
-            # (Swarm_HitReduction @181225e20). DYNAMIQUE -> refresh par-pas.
+            # (Swarm_HitReduction IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateBehaviour). DYNAMIQUE -> refresh par-pas.
             "extra_hits_cur_by_id": {
                 u["entityId"]: int((u.get("stats") or {}).get("extraHits") or 0)
                 for u in (snap.get("units") or [])
@@ -405,7 +405,7 @@ def build_board(rpc, rid):
     Mirror offline des Tile objects natifs : `native_sym` = graphe complet symetrise (capture
     `GetAdjacentTiles(false,false,true)`, #148) = `ConnectivityComponent.IsNeighbour` ; `terrain_at`=tileDefId
     = `IsTrench`/`IsTileWithId`. Alimente les gates POSITIONNELS de la prediction : reduction Trench
-    (CalculateTrenchReduction @181004830, sous-branche IsTrench(attackerTile)+IsNeighbourOf) + adjacence
+    (IdunBattle.Core.Services.DamageCalculations$$CalculateTrenchReduction, sous-branche IsTrench(attackerTile)+IsNeighbourOf) + adjacence
     (select_weapon melee/ranged) + elevation. None si `boardGraph` KO -> gates positionnels no-op (etat
     anterieur, pas de crash)."""
     from engine.entities.pathfinding.board import Board
@@ -422,15 +422,14 @@ def build_board(rpc, rid):
 def _hpmax_eff_from_snapshot(units) -> dict:
     """{uid: MaxHealth EFFECTIF} depuis `combatSnapshot.healthMax` (#45b') = GetStat(e, Health=5,
     StatPart=2) — l'agrégat base+modifications (clamp cape inclus) que `DamageUtility
-    @1810e2280` lit pour combinedMax. {} si le capteur manque (vieux hooks)."""
+    IdunBattle.AI.Utilities.DamageUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext` lit pour combinedMax. {} si le capteur manque (vieux hooks)."""
     return {u["entityId"]: int(u["healthMax"]) for u in (units or [])
             if u.get("healthMax") is not None}
 
 
 def _defense_stats_from_snapshot(units) -> dict:
     """{uid: StatComponent(DEFENSE)} depuis un `combatSnapshot` (#194). Reconstruit la vue
-    `DefenseComponent` (stat 3) que la face défenseur de `CalculateModifiersFromStatModifications
-    @181004380` lit : `initial` = defense résolue − statDelta.defense (base, 100 chez les unités
+    `DefenseComponent` (stat 3) que la face défenseur de `IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications` lit : `initial` = defense résolue − statDelta.defense (base, 100 chez les unités
     mesurées), `modification` = UNE entrée pseudo-source « live » portant le TOTAL des modifications
     (statDelta). ⚠ Limitation documentée : le natif folde CHAQUE source séparément (produit de
     (1±vᵢ/100)) ; le capteur statDelta ne donne que le total → exact à 1 source (le cas tuile
@@ -478,7 +477,7 @@ def refresh_shields(predictor, rpc, rid):
         for u in (snap.get("units") or [])
         if (u.get("stats") or {}).get("attack") is not None}
     # #57a : re-capture ExtraHits COURANT — stat-mods hits dynamiques (Swarm_HitReduction :
-    # -1 hit par membre de swarm perdu, maintenu par le behaviour DSL @181225e20). Le cold
+    # -1 hit par membre de swarm perdu, maintenu par le behaviour DSL IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateBehaviour). Le cold
     # (hydratation au build/spawn) SURESTIME les hits des qu'un membre meurt (1357 s15 u135 :
     # extraHits -2, natif 3 hits vs 5 offline).
     predictor["extra_hits_cur_by_id"] = {

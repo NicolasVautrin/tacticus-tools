@@ -5,17 +5,17 @@ Scenario crafte (case-202 §5-A) : Abraxas (thousInfernalMaster, SEUL porteur du
 armes melee ET ranged profil Psychic) vs 4 necroWarden melee (ils se packent). HP gonfles
 (personne ne meurt). Le walk natif produit du degat Psychic multi-cibles (armes Njal + splash
 Psyker des 3 porteurs) -> on OBSERVE la pose native de WeaverOfFate_MaxOutDamage sur Abraxas
-et on la confronte a NOTRE reconstruction du trigger (@1811acc50) :
+et on la confronte a NOTRE reconstruction du trigger (IdunBattleLogic.Entities.Abilities.Triggered.Loki.WeaverOfFateAbility$$CreateTrigger) :
 
     >=3 ennemis VIVANTS ayant recu du degat Psychic ce tour  &  !HasEffect(Abraxas, 1185)
 
-Reconstruction offline des cles psychic (mirror RegisterReceivedDamage @180f922c0) :
+Reconstruction offline des cles psychic (mirror IdunBattle.Entities.Components.ActorStatisticsComponent$$RegisterReceivedDamage) :
   - attaque NORMALE d'un de nos psykers : cible = profil d'ARME (Abraxas melee=Flame PAS tagge,
     ranged=Psychic ; Njal = Psychic partout) ; les autres ennemis touches le meme step (HP drop,
     adjacents a la cible) = SPLASH Psyker -> Psychic.
   - ABILITY : toutes les victimes = profil de l'ability (gameconfig constants.damageProfile).
   - reset des cles ENNEMIES quand LE JOUEUR ENNEMI commence son tour (mirror per-entering-player
-    StartTurnOperation.ResetUnit @180ea5a10) — detecte par transition d'equipe de l'acteur.
+    IdunBattle.Operations.StartTurnOperation$$ResetUnit) — detecte par transition d'equipe de l'acteur.
 
 Sorties : timeline par step (cles/attendu/observe), verdict timing pose + duree observee de
 l'effet (expiry Nullable(1) a confronter au modele duration_override=1). ASCII only.

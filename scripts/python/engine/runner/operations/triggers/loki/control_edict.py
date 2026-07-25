@@ -1,16 +1,16 @@
 """`Abilities.Triggered.Loki.ControlEdictAbility` (passif triggered 1200 de Tan Gi'da / admecMarshall).
 Cf. `loki/__init__.py` pour le regroupement « Loki ». RE (verdict re-expert, build gqfc5mff6c) :
 
-  - `CreateTrigger @180e1d500` = `On(0x26=NormalAttack) & OwnerIsCaster & NOT(TriggeringAbilityIs(1024))` :
+  - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility$$CreateTrigger` = `On(0x26=NormalAttack) & OwnerIsCaster & NOT(TriggeringAbilityIs(1024))` :
     APRES une attaque NORMALE de Tan Gi'da (OwnerIsCaster). Le `NOT(TriggeringAbilityIs(1024))` est une garde
     ANTI-RE-TRIGGER (l'attaque induite par un summon ne re-fire pas) ; ici COUVERTE par `matches` (actor==owner)
     -> une attaque de summon (actor=summon != Tan) ne matche pas. Sens exact du 1024 = a confirmer live.
-  - `CreateBehaviour @180e1d2c0` = arbre DSL `op_add(If(HasEffect(Protector)), If(HasEffect(Conqueror)))` (2
+  - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility$$CreateBehaviour` = arbre DSL `op_add(If(HasEffect(Protector)), If(HasEffect(Conqueror)))` (2
     branches NON exclusives, gate `HasEffect` sur le caster) :
-      * PROTECTOR (`SummonMinion @180e1d5e0`) : summon 1 Skitarii Vanguard sur un hex libre ADJACENT AU CASTER,
+      * PROTECTOR (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility$$SummonMinion`) : summon 1 Skitarii Vanguard sur un hex libre ADJACENT AU CASTER,
         cap `maxSummons[level]` (3/4/5), `WithStatsFromConfig`, PAS d'on-appearance. -> Operation
         `SpawnUnitOperation.execute_control_edict_summon` (spawn.py, feuille Spawn du sous-arbre).
-      * CONQUEROR (`AttackWithMinions @180e1d150` + lambda `b__0 @180e253f0`) :
+      * CONQUEROR (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility$$AttackWithMinions` + lambda `b__0 IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility.u003Cu003Ec__DisplayClass4_0$$u003CAttackWithMinionsu003Eb__0`) :
         `Foreach(AdjacentFriends(caster) INTER Summon INTER Mechanical, If(IsInAttackRange(summon, target),
         UseActiveAbility(summon, NormalAttackType(summon))))` -> chaque Summon Mechanical adjacent a Tan attaque
         SA cible (celle que Tan vient d'attaquer, `target@0x178`) si a portee, avec son attaque NORMALE.
@@ -18,7 +18,7 @@ Cf. `loki/__init__.py` pour le regroupement « Loki ». RE (verdict re-expert, b
 DOCTRINE #149/slice-24 (== S4a/genestealer) : les predicats/selecteurs S/T (`HasEffect`, `AdjacentFriends`,
 `UnitsWithTrait`, `IsInAttackRange`, le cap `AmountIsEqualOrGreater`) sont COLLAPSES imperativement (lecture
 d'etat) ; seules les feuilles E (Spawn du summon / attaque normale du summon) delegent aux Operations.
-`ControlEditPlaybook @1811648a0` = utility 0 (no-op decisionnel) -> RIEN a enregistrer cote playbook.
+`ControlEditPlaybook IdunBattle.AI.Playbook.Loki.ControlEdictPlaybook$$.ctor` = utility 0 (no-op decisionnel) -> RIEN a enregistrer cote playbook.
 
 GAP flagge (task #25) : le passif `RadSaturation` du Skitarii (contamination sur son hex apres move) n'est
 pas porte ici (recon live requise). Le TOUR du Skitarii (move + attaque normale) est joue par le chemin
@@ -78,7 +78,7 @@ def _adjacent_mechanical_summons(state: State, caster_id: int) -> list:
 
 
 class ControlEdictAbility(TriggeredAbility):
-    """`ControlEdictAbility` (CreateTrigger @180e1d500 / CreateBehaviour @180e1d2c0) — passif de Tan Gi'da
+    """`ControlEdictAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility$$CreateBehaviour) — passif de Tan Gi'da
     (`admecMarshall.passiveAbilities=['ControlEdict']`, triggered id 1200). APRES l'attaque NORMALE de Tan
     (`On(0x26)` & OwnerIsCaster), gate sur l'Imperative ACTIF (etat S4a lu par `HasEffect(caster, 1247/1248)`) :
       - Protector -> summon 1 Skitarii Vanguard adjacent a Tan (cap maxSummons[level]) ;
@@ -108,12 +108,12 @@ class ControlEdictAbility(TriggeredAbility):
         return out
 
     def _summon_minion(self, state: State) -> list:
-        """`SummonMinion @180e1d5e0` -> feuille Spawn (Operation validee)."""
+        """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility$$SummonMinion` -> feuille Spawn (Operation validee)."""
         from ...spawn import SpawnUnitOperation
         return SpawnUnitOperation.execute_control_edict_summon(state, self.owner_id)
 
     def _attack_with_minions(self, state: State, target_id: Optional[int]) -> list:
-        """`AttackWithMinions @180e1d150` + `b__0 @180e253f0` : chaque Summon Mechanical adjacent a Tan attaque
+        """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility$$AttackWithMinions` + `b__0 IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility.u003Cu003Ec__DisplayClass4_0$$u003CAttackWithMinionsu003Eb__0` : chaque Summon Mechanical adjacent a Tan attaque
         la cible du trigger (`target@0x178`) si `IsInAttackRange`, avec son attaque NORMALE (pipeline normal du
         summon -> selection d'arme Physical melee / Toxic R2 par range). No-op si la cible est absente/morte."""
         from ...damage import AttackDamageOperation

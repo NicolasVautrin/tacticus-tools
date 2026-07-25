@@ -3,7 +3,7 @@
 
 Port : `engine/runner/operations/triggers/loki/suppressive_fire.py`
 (arbre DSL `AddEffect(Pinned=1065, Target())`, trigger `On(NormalAttack) & IsRangedAttack POSITION-based
-& OwnerIsActor & AreEnemies`, RE @181225d00/@181225c50). L'effet Pinned lui-meme = `PinnedEffect`
+& OwnerIsActor & AreEnemies`, RE IdunBattleLogic.Entities.Abilities.Active.Loki.SuppressiveFireAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Active.Loki.SuppressiveFireAbility$$CreateBehaviour). L'effet Pinned lui-meme = `PinnedEffect`
 (status.py, deja porte+valide live).
 
 DRIVE POSITIONS (doctrine) : `_approach` avance jusqu'a mon tour (endturn adverse -> cible stationnaire)

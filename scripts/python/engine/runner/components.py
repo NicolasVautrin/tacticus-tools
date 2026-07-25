@@ -17,58 +17,57 @@ if TYPE_CHECKING:
 
 
 class UnitComponent(Component):
-    """Identité d'unité — `UnitComponent` @180facf20 / `BaseUnitComponent` @180f96380.
+    """Identité d'unité — `UnitComponent` IdunBattle.Entities.Components.UnitComponent$$.ctor / `BaseUnitComponent` IdunBattle.Entities.Components.BaseUnitComponent$$.ctor.
     `visual_id` = id visuel (ex. 'necroNpc1Warrior'), `alive` = vivante.
 
     `ai_controlled` = l'unité est jouée par l'IA au turn-start de sa team, MÊME sur une team
     par ailleurs contrôlée par le joueur (cas des SUMMONS). Mirroir du flag per-unité runtime lu par
-    `IdunGameViews.IsPlayerAiControlled` @1804d7b10 (SortedDictionary +0x18==1 → AI-contrôlé ; posé
+    `IdunBattle.View.Game.IdunGameViews$$IsPlayerAiControlled (SortedDictionary +0x18==1 → AI-contrôlé ; posé
     quand l'unité est invoquée). N'est PAS un trait gameconfig — c'est un état runtime posé au spawn
     (cf. `SpawnUnitOperation`). Une unité d'une team entièrement-IA est de toute façon jouée par l'IA
     (type player 2) ; ce flag cible le cas summon-sur-team-joueur.
 
     `turn_defeated` = valeur de `state.turn_counts[owner_player]` AU MOMENT de la mort (G3 Ambush) —
-    mirror du `TurnDefeated` que `GetUnitsEligibleForResurrect @180f79b90` lit dans
+    mirror du `TurnDefeated` que `IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnvAmbushResurrectAbility$$GetUnitsEligibleForResurrect` lit dans
     `AmountIsEqual(Difference(CurrentPlayerTurnsStarted, TurnDefeated(u)), @0xc0=1)`. None tant que
     l'unité n'est pas morte. Posé par `Ambush_SummonAbility` (trigger On(UnitDefeated)).
 
     `times_attacked_this_turn` = nb d'attaques REÇUES par l'unité pendant le tour COURANT (G6
-    HypersensoryAbilities) — source du prédicat DSL `HasBeenAttackedAmountThisTurnIsEqualOrGreater`
-    @180df0c10 (compteur natif lu @+0x34 via `TotalTimesAttackedFormula`-family). Incrémenté quand l'unité
+    HypersensoryAbilities) — source du prédicat DSL `IdunBattleLogic.Entities.DSLFactory$$HasBeenAttackedAmountThisTurnIsEqualOrGreater (compteur natif lu @+0x34 via `TotalTimesAttackedFormula`-family). Incrémenté quand l'unité
     est la CIBLE d'une attaque (pas d'un DoT), remis à 0 au `start_turn` de chaque tour. Gate de l'ActiveCondition
     du HP-floor (`IsEnemyTurn & Not(attacked>=1)` = 1re attaque du tour ennemi) et du trigger MoveAndSpawnDecoy.
 
     `received_damage_this_turn` (#202) = Dictionary {profil de dégât (int DamageProfileType) → nb
     d'instances} des dégâts REÇUS pendant le tour COURANT — mirror du dict `receivedDamageThisTurn`
-    de l'`ActorStatisticsComponent` natif @+0x80 (écrit par `RegisterDamageOperation.Execute @180e86de0`
-    → `RegisterReceivedDamage @180f922c0` : TryAdd(profil,1) sinon +1 ; reset par-unité du joueur
-    ENTRANT par `StartTurnOperation.ResetUnit @180ea5a10` → `ResetReceivedDamageThisTurn @180f923c0`).
+    de l'`ActorStatisticsComponent` natif @+0x80 (écrit par `IdunBattle.Operations.RegisterDamageOperation$$Execute`
+    → `IdunBattle.Entities.Components.ActorStatisticsComponent$$RegisterReceivedDamage` : TryAdd(profil,1) sinon +1 ; reset par-unité du joueur
+    ENTRANT par `IdunBattle.Operations.StartTurnOperation$$ResetUnit` → `IdunBattle.Entities.Components.ActorStatisticsComponent$$ResetReceivedDamageThisTurn`).
     Consommé par le sélecteur `UnitsThatTakenDamageThisTurn` (WeaverOfFate : ContainsKey(Psychic=13)).
     NB : logé ici (comme `times_attacked_this_turn`) alors que le foyer natif est un composant
     ActorStatistics dédié — résidu structurel documenté (case-202 §6).
 
     `revive_used_this_turn` = gate ONCE-PER-TURN du passif revive-en-place (`ReviveEffect`, ex.
     TaintedNarthecium de deathRotbone / Narthecium de l'Apothicaire, case-66). Mirror de la
-    DÉSACTIVATION de l'effet (`DeactivateEffect`, 2e volet du `CreateTargetTriggerBehaviour @180f46a70`
+    DÉSACTIVATION de l'effet (`DeactivateEffect`, 2e volet du `IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour`
     exécuté APRÈS un revive réussi) : une fois l'effet désactivé, son trigger ne fire plus jusqu'à
     RÉACTIVATION au début de tour. Posé à True par la feuille `ConsumeReviveGate` (revive.py), remis à
     False pour TOUTES les unités au turn-start (`reset_revive_gates`, comme `times_attacked_this_turn`).
     i2 « Can only be triggered once per turn ».
 
     `pending_revive` = mirror du champ `UnitComponent + 0xa8` = **`Nullable<ReviveData>`** (le champ
-    IMMÉDIATEMENT après le `Nullable<AttackHit>` @+0x98, cf. `UnitComponent.Copy @180fac610` qui teste le
+    IMMÉDIATEMENT après le `Nullable<AttackHit>` @+0x98, cf. `IdunBattle.Entities.Components.UnitComponent$$Copy` qui teste le
     `hasValue` du Nullable @+0x98 par le MÊME helper `thunk_FUN_1801f3000(ptr, fieldInfo)`). Trois
     fonctions natives le manipulent, et c'est LA pièce centrale du sous-système REVIVE :
-      * ÉCRITURE  `ReviveBehaviour.Execute @180fd1230` — la feuille DSL `Revive` n'exécute AUCUNE mutation :
+      * ÉCRITURE  `IdunBattle.Entities.Behaviours.ReviveBehaviour$$Execute` — la feuille DSL `Revive` n'exécute AUCUNE mutation :
         elle POSE la `ReviveData` (amount/healType/sourceId/priority) sur `unitComponent + 0xa8..0xe8`,
-        après le gate `IsPreferredRevive @180fd1b50` ;
-      * GARDE    `KillUnitOperation.Execute @180e76470` @0x180e76c9e : `if (!pendingRevive.HasValue)` —
+        après le gate `IdunBattle.Entities.Behaviours.ReviveBehaviour$$IsPreferredRevive` ;
+      * GARDE    `IdunBattle.Operations.KillUnitOperation$$Execute` @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e : `if (!pendingRevive.HasValue)` —
         tout le RESTE de la mort (`On(2)`, `On(0)`, `On(55)`, `On(54)`, Remove(flag 0xf)/Add(flag 6),
         `RemoveEffects`, `RegisterDefeatedUnit`) est SOUS cette garde. Un revive posé pendant `On(1)`
         ANNULE donc la mort (cf. `damage.py::_fire_death_if_killed`) ;
-      * LECTURE+PURGE `ReviveUnitOperation.Execute @180e91bd0` : lit les 9 qwords @0xa8..0xe8, refuse
-        (log d'erreur + return) si `!HasValue` @0x180e91e8a, applique le revive, puis REMET LES 9 QWORDS
-        À 0 @0x180e92977+ (donc APRÈS l'émission de `On(UnitRevived=0x2e)`).
+      * LECTURE+PURGE `IdunBattle.Operations.ReviveUnitOperation$$Execute` : lit les 9 qwords @0xa8..0xe8, refuse
+        (log d'erreur + return) si `!HasValue` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0x2ba, applique le revive, puis REMET LES 9 QWORDS
+        À 0 @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+ (donc APRÈS l'émission de `On(UnitRevived=0x2e)`).
     Port : `None` = pas de revive en attente ; sinon un dict `{amount, heal_type, source, priority}`
     (cf. `operations/revive.py`)."""
     __slots__ = ("visual_id", "alive", "ai_controlled", "turn_defeated", "times_attacked_this_turn",
@@ -86,7 +85,7 @@ class UnitComponent(Component):
 
 
 class OwnerComponent(Component):
-    """Propriétaire — `OwnerComponent` @180fa64c0. `team` = équipe (1/2) ; `player` = id du player
+    """Propriétaire — `OwnerComponent` IdunBattle.Entities.Components.OwnerComponent$$.ctor. `team` = équipe (1/2) ; `player` = id du player
     (≠ team : team 1 = player 3, team 2 = player 4 ; un summon hérite team ET player du caster via
     `SpawnUnitOptions.CopyOwner`, cf. project_summon_team_model). `player` None si non capté."""
     __slots__ = ("team", "player")
@@ -98,10 +97,10 @@ class OwnerComponent(Component):
 
 class MachineComponent(Component):
     """MACHINE OF WAR — `IdunBattle.Entities.Components.MachineComponent` (entité `EntityType.Machine`
-    = 6, créée par `AddMachineOperation.Execute @180e4b5e0`). Comme `UnitComponent`, dérive de
-    `BaseUnitComponent @180f96380` (d'où `VisualId`@0x20 valide sur les deux) ; son champ propre est
+    = 6, créée par `IdunBattle.Operations.AddMachineOperation$$Execute`). Comme `UnitComponent`, dérive de
+    `BaseUnitComponent IdunBattle.Entities.Components.BaseUnitComponent$$.ctor` (d'où `VisualId`@0x20 valide sur les deux) ; son champ propre est
     `Position` @0x78 = `MachineOfWarPosition` (enum None=0 / Top=1 / Bottom=2), le SLOT de déploiement
-    hors-plateau (le board doit l'offrir : `BoardConfiguration.HasMachineOfWarPosition @1810b39f0`).
+    hors-plateau (le board doit l'offrir : `IdunBattle.Configuration.BoardConfiguration$$HasMachineOfWarPosition`).
 
     C'est le DISCRIMINANT « cette entité est une MoW » : une MoW n'a **ni `PositionComponent` ni
     `HealthComponent`** (mesuré via `dumpEntityComponents` sur l'entité Machine vivante) — elle n'est
@@ -127,8 +126,8 @@ def is_machine_of_war(entity) -> bool:
 
 
 class PositionComponent(Component):
-    """Position sur le board — `PositionComponent` @180fa6db0 (et `UnitFootComponent`
-    @180fad890 : UnitId@0x10, TileId@0x14). Coordonnées hex (col,row)."""
+    """Position sur le board — `PositionComponent` IdunBattle.Entities.Components.PositionComponent$$.ctor (et `UnitFootComponent`
+    IdunBattle.Entities.Components.UnitFootComponent$$.ctor : UnitId@0x10, TileId@0x14). Coordonnées hex (col,row)."""
     __slots__ = ("col", "row")
 
     def __init__(self, col: int, row: int):
@@ -137,12 +136,12 @@ class PositionComponent(Component):
 
 
 class HealthComponent(Component):
-    """PV — `HealthComponent` @180f9f1b0. `hp` courant, `hp_max` plafond.
+    """PV — `HealthComponent` IdunBattle.Entities.Components.HealthComponent$$.ctor. `hp` courant, `hp_max` plafond.
 
     `minimal_health` = **plancher de PV** courant (`Nullable<int>` natif @+0x1c ; None = pas de plancher).
-    Posé/effacé par le HP-floor `HypersensoryAbilities_MinimalHealthEffect` (Apply @180f445a0 / Revert
-    @180f44820) — quand présent, `reduce()` empêche les PV de descendre sous `min(hp, minimal_health)`
-    (mirror du clamp de `FillUpStatComponent.Reduce @180f9bba0`)."""
+    Posé/effacé par le HP-floor `HypersensoryAbilities_MinimalHealthEffect` (Apply IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$ApplyInternal / Revert
+    IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$RevertInternal) — quand présent, `reduce()` empêche les PV de descendre sous `min(hp, minimal_health)`
+    (mirror du clamp de `IdunBattle.Entities.Components.FillUpStatComponent$$Reduce`)."""
     __slots__ = ("hp", "hp_max", "minimal_health")
 
     def __init__(self, hp: Optional[int], hp_max: Optional[int], minimal_health: Optional[int] = None):
@@ -151,7 +150,7 @@ class HealthComponent(Component):
         self.minimal_health = minimal_health
 
     def reduce(self, amount: int, *, ignore_minimal: bool = False) -> int:
-        """`FillUpStatComponent.Reduce @180f9bba0` — retire `amount` PV, borné : jamais > PV courant (pas de
+        """`IdunBattle.Entities.Components.FillUpStatComponent$$Reduce` — retire `amount` PV, borné : jamais > PV courant (pas de
         PV négatifs) et, si `minimal_health` est posé et `ignore_minimal` est faux (param_3 natif = flag de
         bypass), jamais sous `min(hp, minimal_health)` (le HP-floor Hypersensory). Renvoie la réduction RÉELLE
         appliquée (`iVar3`). No-op (0) si `hp` non capté. Mute `self.hp`."""
@@ -167,8 +166,8 @@ class HealthComponent(Component):
 
 
 class EffectsOwnedComponent(Component):
-    """Effets actifs portés — `EffectsOwnedComponent` @180f99a50 (chaque effet =
-    `EffectComponent` @180f61990). Ici : liste des NOMS d'effets actifs (vue pour le
+    """Effets actifs portés — `EffectsOwnedComponent` IdunBattle.Entities.Components.EffectsOwnedComponent$$.ctor (chaque effet =
+    `EffectComponent` IdunBattle.Entities.Components.EffectComponent$$.ctor). Ici : liste des NOMS d'effets actifs (vue pour le
     diff structurel). Le détail STRUCTURÉ (type/durée/params, matérialisé + évoluable)
     vit dans `State.effects` (`EffectsState`), source des modifiers de dégât."""
     __slots__ = ("effects",)
@@ -193,7 +192,7 @@ class ShieldInstance:
 
 
 class ShieldComponent(Component):
-    """`IdunBattle.Entities.Components.ShieldComponent` @180fa8770 — pool de boucliers de l'unité
+    """`IdunBattle.Entities.Components.ShieldComponent` IdunBattle.Entities.Components.ShieldComponent$$.ctor — pool de boucliers de l'unité
     (liste d'instances @+0x10 + compteur d'id @+0x18). Un bouclier ABSORBE le dégât AVANT les PV
     (`CalculateDamageOperation` : shield-first, sur le coup déjà réduit par l'armure fixe), et perd 1
     tour à chaque `EndTurn` (`RemoveOneTurnOnShields` → `RemoveOneTurn`). `GetTotalShield` = somme des
@@ -205,11 +204,11 @@ class ShieldComponent(Component):
         self.next_id = next_id
 
     def get_total_shield(self) -> int:
-        """`ShieldComponent.GetTotalShield` @180fa7f30 = Σ des `amount` des instances."""
+        """`IdunBattle.Entities.Components.ShieldComponent$$GetTotalShield = Σ des `amount` des instances."""
         return sum(int(s.amount) for s in self.shields if s.amount > 0)
 
     def remove_one_turn(self) -> dict:
-        """`ShieldComponent.RemoveOneTurn` @180fa8080 : pour chaque instance À DURÉE (remaining non-None ;
+        """`IdunBattle.Entities.Components.ShieldComponent$$RemoveOneTurn : pour chaque instance À DURÉE (remaining non-None ;
         les permanentes sont sautées, gate `HasValue` @+0x3c), décrémente `remaining` ; si 0 → l'instance
         EXPIRE (retirée). Renvoie {removed:[ids], decremented:[ids]} (= `ShieldChanges`)."""
         removed: List[int] = []
@@ -227,7 +226,7 @@ class ShieldComponent(Component):
 
     def add_or_update_shield(self, amount: int, source=None,
                              remaining: Optional[int] = None) -> Optional["ShieldInstance"]:
-        """`ShieldComponent.AddOrUpdateShield` @180fa7290 : accorde un bouclier. Si une instance de MÊME
+        """`IdunBattle.Entities.Components.ShieldComponent$$AddOrUpdateShield : accorde un bouclier. Si une instance de MÊME
         source ET MÊME durée restante existe → **cumule** l'`amount` (stack, branche `+= param_2`) ; sinon
         crée une nouvelle instance (id auto-incrémenté @+0x18). No-op si `amount<=0`. Renvoie l'instance.
         (Le tri d'insertion par durée croissante + la branche replace sans-durée = raffinements ;
@@ -263,9 +262,9 @@ class ShieldComponent(Component):
 class ForcedAttackTargetsComponent(Component):
     """`IdunBattle.Entities.Components` — cibles d'attaque FORCÉES de l'unité (liste d'ids d'unité).
 
-    Posé/maj par `AddForcedAttackTargetBehaviour.Execute` @180fb5800 / retiré par
-    `RemoveForcedAttackTargetBehaviour.Execute` @180fcd890 (le natif stocke des entity-ids dans une liste
-    de composant bond @+0x50/+0x58). LU par `UnitForcedAttackTargetsSelector.Select` @180eff450
+    Posé/maj par `IdunBattle.Entities.Behaviours.AddForcedAttackTargetBehaviour$$Execute / retiré par
+    `IdunBattle.Entities.Behaviours.RemoveForcedAttackTargetBehaviour$$Execute (le natif stocke des entity-ids dans une liste
+    de composant bond @+0x50/+0x58). LU par `IdunBattle.Entities.Selectors.UnitForcedAttackTargetsSelector$$Select
     (`GetOnlyTargets` → liste des cibles forcées) = le point où l'IA **doit** cibler ces unités en priorité
     (cf. `GetAttackTarget` priorité `ForcedAttackTargets > nearest-enemy`, triggers.py). Deux sources :
     Taunt (la cible est forcée d'attaquer le tauntant) et Instinctive Behaviour (hors Synapse → forcée
@@ -303,26 +302,25 @@ class ForcedAttackTargetsComponent(Component):
 
 
 class UnitFlagsComponent(Component):
-    """`IdunBattle.Entities.Components.UnitFlagsComponent` @180fad640 — drapeaux booléens de l'unité
+    """`IdunBattle.Entities.Components.UnitFlagsComponent` IdunBattle.Entities.Components.UnitFlagsComponent$$.ctor — drapeaux booléens de l'unité
     (un `OrderedSet<int>` @+0x10 ; `Add`/`Remove`/`Has`/`TurnEnded`/`RemoveTurnFlags`). Valeurs = enum
     `IdunBattle.Entities.Enum.UnitFlag` (dump symbols.json) ; on porte le set d'ints (sémantique 1:1).
 
     Flags de TOUR (mission #139 — cycle posé/appliqué/reset, VAs) :
-      • `TURN_FINISHED (3)` : le tour de l'UNITE est fini — posé par `FinishUnitTurnOperation.Execute`
-        @180e72140 (déclenché après une ability qui « termine le tour », cf. abilities/handler.py) ; lu par
-        `UnitFlagsComponent.TurnEnded` @180fad510 (= Contains(3)) via `VerifyUnitsTurnFinishedOperation.
-        VerifyUnitTurnEnded` @180eded20 et `AttackQuery.CanAttackAnyUnitFromAnyTileWithAnyAbility` @181054ccc.
+      • `TURN_FINISHED (3)` : le tour de l'UNITE est fini — posé par `IdunBattle.Operations.FinishUnitTurnOperation$$Execute (déclenché après une ability qui « termine le tour », cf. abilities/handler.py) ; lu par
+        `IdunBattle.Entities.Components.UnitFlagsComponent$$TurnEnded (= Contains(3)) via `VerifyUnitsTurnFinishedOperation.
+        IdunBattle.Operations.VerifyUnitsTurnFinishedOperation$$VerifyUnitTurnEnded et `IdunBattle.Core.Services.AttackQuery$$CanAttackAnyUnitFromAnyTileWithAnyAbility+0xec.
       • `ACTIVE_ABILITY_USED (2)` : une ability active a été utilisée ce tour — posé par
-        `ActiveAbilityOperation.AddFlagsAfterAbilityExecution` @180e447f0 ; base du trigger DSL
+        `IdunBattle.Operations.ActiveAbilityOperation$$AddFlagsAfterAbilityExecution ; base du trigger DSL
         `HasOwnersActiveAbilityBeenUsed` (DSLFactory+0x110).
       • `ARRIVED_AT_FINAL_TILE (1)` : posé avec TURN_FINISHED par FinishUnitTurnOperation.
       • `NO_ACTION_AVAILABLE (4)` : auto-fin (rien à faire) — posé par `MarkUnitAsNoActionAvailableOperation`
-        @180e78c0c ; ré-ouvert par VerifyUnitTurnEnded (slot 0x77) si l'unité regagne des options.
+        IdunBattle.Operations.MarkUnitAsNoActionAvailableOperation$$Execute+0xdc ; ré-ouvert par VerifyUnitTurnEnded (slot 0x77) si l'unité regagne des options.
       • `FLED (9)` : « a fui » (FleeOperation ; re-testé NOT HasFlag(self,9) par BattleFatigue).
       • `TURN_FINISHED_FORCED (27 = 0x1b)` : posé par FinishUnitTurnOperation quand `forced` (hors enum du
-        dump — ajout post-dump ; nom descriptif, structure lue @180e72140/@180fad310)."""
+        dump — ajout post-dump ; nom descriptif, structure lue IdunBattle.Operations.FinishUnitTurnOperation$$Execute/IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags)."""
     __slots__ = ("flags",)
-    MOVED = 0                   # UnitFlag.Moved (posé par UnitExtensions.SetMovedFlag @180ed9890)
+    MOVED = 0                   # UnitFlag.Moved (posé par IdunBattle.Entities.UnitExtensions$$SetMovedFlag)
     ARRIVED_AT_FINAL_TILE = 1   # UnitFlag.ArrivedAtFinalTile
     ACTIVE_ABILITY_USED = 2     # UnitFlag.ActiveAbilityUsed
     TURN_FINISHED = 3           # UnitFlag.TurnFinished
@@ -348,21 +346,20 @@ class UnitFlagsComponent(Component):
         return int(flag) in self.flags
 
     def turn_ended(self) -> bool:
-        """`UnitFlagsComponent.TurnEnded` @180fad510 = Contains(TurnFinished=3). Lu par le turn-flow natif
-        (VerifyUnitTurnEnded @180eded20) et par l'AttackQuery pour exclure les unités finies."""
+        """`IdunBattle.Entities.Components.UnitFlagsComponent$$TurnEnded = Contains(TurnFinished=3). Lu par le turn-flow natif
+        (IdunBattle.Operations.VerifyUnitsTurnFinishedOperation$$VerifyUnitTurnEnded) et par l'AttackQuery pour exclure les unités finies."""
         return self.TURN_FINISHED in self.flags
 
     def remove_turn_flags(self, include_no_action: bool = False, new_activation: bool = True) -> set:
-        """`UnitFlagsComponent.RemoveTurnFlags` @180fad310 : retire TOUJOURS {ActiveAbilityUsed(2),
+        """`IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags : retire TOUJOURS {ActiveAbilityUsed(2),
         TurnFinished(3), 27} ; + {NoActionAvailable(4)} si `include_no_action` (param_3 natif) ;
         + {Moved(0), Teleported(12), ArrivedAtFinalTile(1)} si `new_activation` (param_4 natif).
-        `StartTurnOperation.Execute` @180ea3fb0 l'appelle (0, 1) pour chaque unité du joueur entrant.
+        `IdunBattle.Operations.StartTurnOperation$$Execute l'appelle (0, 1) pour chaque unité du joueur entrant.
 
         RETOUR = les flags EFFECTIVEMENT retirés (ceux qui étaient présents). Le natif rend une STRUCT
-        de 7 bools (`Remove` @180fad3e0 rend « était présent » ; offsets +5=Moved(0), +0=Teleported(0xc),
+        de 7 bools (`IdunBattle.Entities.Components.UnitFlagsComponent$$Remove rend « était présent » ; offsets +5=Moved(0), +0=Teleported(0xc),
         +6=ArrivedAtFinalTile(1), +1=NoActionAvailable(4), +2=ActiveAbilityUsed(2), +3=TurnFinished(3),
-        +4=TurnFinishedForced(0x1b)) — struct consommée par `ComputerActionOperation.SetUnitTurnsFlags`
-        @180e645b0 qui les RE-POSE une à une (restauration exacte du turn-state après une action AI
+        +4=TurnFinishedForced(0x1b)) — struct consommée par `IdunBattle.Operations.ComputerActionOperation$$SetUnitTurnsFlags qui les RE-POSE une à une (restauration exacte du turn-state après une action AI
         forcée, cf. `runner/operations/summon_ai.py`). Le port rend le SET des flags retirés (la struct
         n'est qu'un bitset « était présent » ; l'ordre des `Add` de la restauration est indifférent).
         Les appelants historiques ignorent le retour (aucun changement de comportement)."""
@@ -400,7 +397,7 @@ class StatsComponent(Component):
 
 class TriggeredAbilityState:
     """Une entrée du `TriggeredAbilityComponent` (une ability/trigger de l'unité). Offsets natifs
-    (RE `TriggeredAbilityComponent.MarkAsTriggered`@180fab0e0 / `GetTimesTriggeredThisPhase`@180faafc0) :
+    (RE `IdunBattle.Entities.Components.TriggeredAbilityComponent$$MarkAsTriggered / `IdunBattle.Entities.Components.TriggeredAbilityComponent$$GetTimesTriggeredThisPhase) :
     `has_triggered`@+0x2c (bool, `HasBeenTriggered`), `total`@+0x30 (compteur cumulé toutes phases),
     `times_this_phase`@+0x34 (compteur de la phase courante ; lu par le cap `<51`, remis à 0 par
     `ResetPhase`). (Le natif porte aussi la clé/config-id @+0x10.. et le niveau @+0x38 ; ici on ne modèle
@@ -414,20 +411,19 @@ class TriggeredAbilityState:
 
 
 class TriggeredAbilityComponent(Component):
-    """`IdunBattle.Entities.Components.TriggeredAbilityComponent` @180faba40 — registre par-unité des
+    """`IdunBattle.Entities.Components.TriggeredAbilityComponent` IdunBattle.Entities.Components.TriggeredAbilityComponent$$.ctor — registre par-unité des
     ability-triggers, avec leur compteur de déclenchements. Native = `KeyedCollection` @+0x18 indexée par
     l'ability-type (config-id) ; chaque entrée porte `has_triggered`/`total`/`times_this_phase`
     (cf. `TriggeredAbilityState`).
 
     RÔLE : le natif GATE chaque déclenchement de trigger à `GetTimesTriggeredThisPhase(key) < 0x33`
-    (=51) dans `EvaluateTriggerOperation.EvaluateAbilityTrigger` @180e6d650 (cap anti-emballement d'une
+    (=51) dans `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateAbilityTrigger (cap anti-emballement d'une
     PHASE = une activation d'unité) ; `MarkAsTriggered` incrémente au fire ; `ResetPhase` (via
-    `EndPhaseOperation.ResetEntityPhase` @180e6a210, à la fin de chaque activation) remet
+    `IdunBattle.Operations.EndPhaseOperation$$ResetEntityPhase, à la fin de chaque activation) remet
     `times_this_phase` à 0 (PAS `total`). Sans ce cap, une chaîne de triggers générateurs d'attaque
     (splash Psyker qui re-déclenche le splash Psyker via le vecteur after-hit) récurserait sans borne.
 
-    Peuplé au build de l'unité pour CHAQUE ability (natif `UnitFactory.Add*Abilities` → `TryAdd`
-    @180fab7a0). Offline : clé = un identifiant stable d'ability-type (cf. Slice 2). Population +
+    Peuplé au build de l'unité pour CHAQUE ability (natif `UnitFactory.Add*Abilities` → `IdunBattle.Entities.Components.TriggeredAbilityComponent$$TryAdd). Offline : clé = un identifiant stable d'ability-type (cf. Slice 2). Population +
     gate + reset = slices #142/#143/#144."""
     __slots__ = ("entries",)
 
@@ -435,7 +431,7 @@ class TriggeredAbilityComponent(Component):
         self.entries: Dict[Hashable, TriggeredAbilityState] = entries if entries is not None else {}
 
     def try_add(self, key: Hashable) -> bool:
-        """`TryAdd` @180fab7a0 : enregistre l'ability `key` si absente (compteurs à 0). No-op (renvoie
+        """`IdunBattle.Entities.Components.TriggeredAbilityComponent$$TryAdd : enregistre l'ability `key` si absente (compteurs à 0). No-op (renvoie
         False) si déjà présente ; True si ajoutée."""
         if key in self.entries:
             return False
@@ -443,13 +439,13 @@ class TriggeredAbilityComponent(Component):
         return True
 
     def get_times_triggered_this_phase(self, key: Hashable) -> int:
-        """`GetTimesTriggeredThisPhase` @180faafc0 : compteur de la phase courante pour `key` ; **0 si
+        """`IdunBattle.Entities.Components.TriggeredAbilityComponent$$GetTimesTriggeredThisPhase : compteur de la phase courante pour `key` ; **0 si
         la clé est absente** (TryGetValue échoue → 0)."""
         e = self.entries.get(key)
         return e.times_this_phase if e is not None else 0
 
     def mark_as_triggered(self, key: Hashable) -> None:
-        """`MarkAsTriggered` @180fab0e0 : `has_triggered=True`, `total += 1`, `times_this_phase += 1`.
+        """`IdunBattle.Entities.Components.TriggeredAbilityComponent$$MarkAsTriggered : `has_triggered=True`, `total += 1`, `times_this_phase += 1`.
         **No-op si la clé est absente** (le natif TryGetValue échoue et `return`)."""
         e = self.entries.get(key)
         if e is None:
@@ -459,47 +455,45 @@ class TriggeredAbilityComponent(Component):
         e.times_this_phase += 1
 
     def has_been_triggered(self, key: Hashable) -> bool:
-        """`HasBeenTriggered` @180fab050 : True si l'ability a déjà été déclenchée (any phase). False si
+        """`IdunBattle.Entities.Components.TriggeredAbilityComponent$$HasBeenTriggered : True si l'ability a déjà été déclenchée (any phase). False si
         clé absente."""
         e = self.entries.get(key)
         return bool(e.has_triggered) if e is not None else False
 
     def reset_phase(self) -> None:
-        """`ResetPhase` @180fab1e0 : remet `times_this_phase` à 0 pour TOUTES les entrées (le `total` et
+        """`IdunBattle.Entities.Components.TriggeredAbilityComponent$$ResetPhase : remet `times_this_phase` à 0 pour TOUTES les entrées (le `total` et
         `has_triggered` sont conservés). Appelé au boundary d'activation (`EndPhaseOperation`)."""
         for e in self.entries.values():
             e.times_this_phase = 0
 
 
 class ActiveAbilityModificationsComponent(Component):
-    """`IdunBattle.Entities.Components.ActiveAbilityModificationsComponent` @180f8f7d0 (.ctor) — registre
+    """`IdunBattle.Entities.Components.ActiveAbilityModificationsComponent` IdunBattle.Entities.Components.ActiveAbilityModificationsComponent$$.ctor (.ctor) — registre
     par-unite des MODIFICATIONS de constantes/variables d'ability apportees par des sources TIERCES
     (`Dictionary<AbilityVarOrConst, ModificationConfig>` @+0x10).
 
-      • `Add(key, delta)` @180f8f2a0 : TryGetValue(key) -> `ModificationConfig.Add(delta)` @180fa5170
+      • `IdunBattle.Entities.Components.ActiveAbilityModificationsComponent$$Add(key, delta) : TryGetValue(key) -> `IdunBattle.Entities.Components.ActiveAbilityModificationsComponent.ModificationConfig$$Add(delta)
         (`value += delta` puis CLAMP `if (cap.HasValue && cap < value) value = cap` -- `cap` = le
         `Nullable<int>` @+4 de la struct, JAMAIS pose par les sources lues dans ce build -> None) ;
         cle absente -> cree une entree ZERO (`set_Item(key, default)`) puis re-appelle `Add`.
-      • `Get(key)` @180f8f570 : `TryGetValue(key) ? config.value : 0` -- **0 quand la cle est absente**.
+      • `IdunBattle.Entities.Components.ActiveAbilityModificationsComponent$$Get(key) : `TryGetValue(key) ? config.value : 0` -- **0 quand la cle est absente**.
 
-    SOURCE NATIVE unique lue dans ce build : `AddUnitActiveAbilityModificationOperation.Execute
-    @180e522b0` (= `OperationProcessor.AddUnitActiveAbilityModification` @180e06ec0), appelee par
-    `ListenUpMaggotsEffect.ApplyInternal` @180f56590 (+ `RevertInternal` @180f56740, meme appel en
+    SOURCE NATIVE unique lue dans ce build : `IdunBattle.Operations.AddUnitActiveAbilityModificationOperation$$Execute` (= `Core.Services.OperationProcessor$$AddUnitActiveAbilityModification), appelee par
+    `IdunBattle.Entities.Effects.Loki.ListenUpMaggotsEffect$$ApplyInternal (+ `IdunBattle.Entities.Effects.Loki.ListenUpMaggotsEffect$$RevertInternal, meme appel en
     `-value`) -- le passif de `astraSmnKell` qui buffe le SupremeCommander de son parent Creed.
 
-    ⚠ RESIDU : cette source (effet 0x426 `ListenUpMaggots`, trigger @181221d20) n'est PAS portee -> le
+    ⚠ RESIDU : cette source (effet 0x426 `ListenUpMaggots`, trigger IdunBattleLogic.Entities.Abilities.Active.Loki.ListenUpMaggotsAbility$$CreateTrigger) n'est PAS portee -> le
     dict reste VIDE offline et `get_ability_stat_modification` rend 0. C'est l'etat CONFRONTE live
     (2 probes : meme avec Kell VIVANT en jeu au moment du cast, le natif summon 2 gardes = modification
     nulle) -- pas une degradation silencieuse. Le composant + les deux semantiques de CONSOMMATION
-    (additive pour nrOfSummons, OVERRIDE pour range, cf. `SupremeCommanderAbility.ExecuteBehaviour`
-    @18120df30) sont portes 1:1 et exerces offline en injectant une modification."""
+    (additive pour nrOfSummons, OVERRIDE pour range, cf. `IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour) sont portes 1:1 et exerces offline en injectant une modification."""
     __slots__ = ("modifications",)
 
     def __init__(self, modifications=None):
         self.modifications: dict = dict(modifications or {})
 
     def add(self, key, delta: int, cap=None) -> int:
-        """`ActiveAbilityModificationsComponent.Add` @180f8f2a0 + `ModificationConfig.Add` @180fa5170."""
+        """`IdunBattle.Entities.Components.ActiveAbilityModificationsComponent$$Add + `IdunBattle.Entities.Components.ActiveAbilityModificationsComponent.ModificationConfig$$Add."""
         value = int(self.modifications.get(key, 0)) + int(delta)
         if cap is not None and int(cap) < value:      # clamp `Nullable<int>` @+4 (jamais pose in-build)
             value = int(cap)
@@ -507,22 +501,21 @@ class ActiveAbilityModificationsComponent(Component):
         return value
 
     def get(self, key) -> int:
-        """`ActiveAbilityModificationsComponent.Get` @180f8f570 : valeur de la modification, 0 si absente."""
+        """`IdunBattle.Entities.Components.ActiveAbilityModificationsComponent$$Get : valeur de la modification, 0 si absente."""
         return int(self.modifications.get(key, 0))
 
 
 class PersistentDataComponent(Component):
-    """`IdunBattle.Entities.Components.PersistentDataComponent` (.ctor @180fa6a50) — sac de donnees
+    """`IdunBattle.Entities.Components.PersistentDataComponent` (.IdunBattle.Entities.Components.PersistentDataComponent$$.ctor) — sac de donnees
     persistantes PAR ENTITE, indexe par une cle composite. Natif = `Dictionary<key, value>` @+0x10 :
-      • `PersistData<T>(key, value)` @181308270 / `TryGetPersistData<T>(key, out)` @181308430 ;
-      • `ClearPersistentData(key)` @180fa6960 = `Dictionary.Remove(key)` ;
-      • `ClearAllPersistentData()` @180fa6910 (appele par `ResurrectUnitOperation.ResetPersistentData`
-        @180e90101 et `ClearPersistentDataBehaviour.ExecuteClearAll` @180fc052d).
+      • `PersistData<T>(key, value)` IdunBattle.Entities.Components.PersistentDataComponent$$PersistDatau003C__Il2CppFullySharedGenericStructTypeu003E / `TryGetPersistData<T>(key, out)` IdunBattle.Entities.Components.PersistentDataComponent$$TryGetPersistDatau003C__Il2CppFullySharedGenericStructTypeu003E ;
+      • `IdunBattle.Entities.Components.PersistentDataComponent$$ClearPersistentData(key) = `Dictionary.Remove(key)` ;
+      • `IdunBattle.Entities.Components.PersistentDataComponent$$ClearAllPersistentData() (appele par `IdunBattle.Operations.ResurrectUnitOperation$$ResetPersistentData+0x91 et `IdunBattle.Entities.Behaviours.ClearPersistentDataBehaviour$$ExecuteClearAll+0x1d).
 
-    Cote DSL, les noeuds qui l'adressent sont `DSLFactory.SetPersistentData` (@180dfac60 et overloads),
-    `DSLFactory.IsPersistentData @180df4bb0` (= `AmountIsEqualOrGreater(GetPersistentDataFormula(key,
-    entity, dataKey) @180f9cb10, Direct(0)@0xb8)` -> « la cle est posee ») et
-    `DSLFactory.ClearPersistentData` (@180debfc0/@180dec050).
+    Cote DSL, les noeuds qui l'adressent sont `DSLFactory.SetPersistentData` (IdunBattleLogic.Entities.DSLFactory$$SetPersistentData et overloads),
+    `IdunBattleLogic.Entities.DSLFactory$$IsPersistentData` (= `AmountIsEqualOrGreater(GetPersistentDataFormula(key,
+    entity, dataKey) IdunBattle.Entities.Triggers.GetPersistentDataFormula$$Calculate, Direct(0)@0xb8)` -> « la cle est posee ») et
+    `DSLFactory.ClearPersistentData` (IdunBattleLogic.Entities.DSLFactory$$ClearPersistentData/IdunBattleLogic.Entities.DSLFactory$$ClearPersistentData).
 
     Le port modelise le sac comme un dict `{cle: valeur}` sur l'unite. La CLE offline = le tuple
     `(abilityOrEffect, dataKey)` (mirror de la cle composite native : l'`AbilityOrEffect` passe a
@@ -530,32 +523,32 @@ class PersistentDataComponent(Component):
 
     Consommateur porte : `LetTheGalaxyBurnAbility` (`runner/operations/triggers/loki/
     let_the_galaxy_burn.py`) — flag INTRA-ATTAQUE arme au `On(PreAttack=5)` et efface par
-    `LetTheGalaxyBurn_ResetAbility.CreateBehaviour @1811078a0` en fin d'attaque."""
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour` en fin d'attaque."""
     __slots__ = ("data",)
 
     def __init__(self, data=None):
         self.data: dict = dict(data or {})
 
     def persist_data(self, key, value=1) -> None:
-        """`PersistentDataComponent.PersistData<T>` @181308270 : pose/ecrase `key -> value`."""
+        """`PersistentDataComponent.PersistData<T>` IdunBattle.Entities.Components.PersistentDataComponent$$PersistDatau003C__Il2CppFullySharedGenericStructTypeu003E : pose/ecrase `key -> value`."""
         self.data[key] = value
 
     def try_get_persist_data(self, key):
-        """`TryGetPersistData<T>` @181308430 : la valeur, ou None si la cle est absente."""
+        """`TryGetPersistData<T>` IdunBattle.Entities.Components.PersistentDataComponent$$TryGetPersistDatau003C__Il2CppFullySharedGenericStructTypeu003E : la valeur, ou None si la cle est absente."""
         return self.data.get(key)
 
     def clear_persistent_data(self, key) -> None:
-        """`ClearPersistentData(key)` @180fa6960 = `Dictionary.Remove(key)` (no-op si absente)."""
+        """`IdunBattle.Entities.Components.PersistentDataComponent$$ClearPersistentData(key) = `Dictionary.Remove(key)` (no-op si absente)."""
         self.data.pop(key, None)
 
     def clear_all_persistent_data(self) -> None:
-        """`ClearAllPersistentData()` @180fa6910 : vide le sac (resurrection)."""
+        """`IdunBattle.Entities.Components.PersistentDataComponent$$ClearAllPersistentData() : vide le sac (resurrection)."""
         self.data.clear()
 
 
 def persistent_data_keys(entity) -> frozenset:
     """Cles persistantes POSEES sur l'entite (mirror de l'ensemble des cles du dict natif) — lu par le
-    noeud `IsPersistentData` cote EFFET (`LetTheGalaxyBurnEffect.CreateAdditionalHits @180f54e30`), qui
+    noeud `IsPersistentData` cote EFFET (`IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits`), qui
     n'a acces qu'a l'etat, pas au composant. Entite/composant absent -> frozenset() (= sac vide)."""
     if entity is None:
         return frozenset()
@@ -564,7 +557,7 @@ def persistent_data_keys(entity) -> frozenset:
 
 
 def get_ability_stat_modification(entity, key) -> int:
-    """`IdunBattle.Entities.UnitExtensions.GetAbilityStatModification` @180ece900 =
+    """`IdunBattle.Entities.UnitExtensions$$GetAbilityStatModification =
     `unit.GetComponent<ActiveAbilityModificationsComponent>().Get(key)`.
 
     `key` = un `AbilityVarOrConst` (natif : `AbilityVarOrConst.op_Implicit(Nullable<AbilityConstant>)`
@@ -573,8 +566,8 @@ def get_ability_stat_modification(entity, key) -> int:
 
     Unite sans composant (cas NOMINAL offline : aucune source de modification portee) -> 0, identique au
     `Get` natif sur un dict vide. Consommateurs natifs (xrefs EXHAUSTIVES du build gqfc5mff6c) : les DEUX
-    call-sites de `SupremeCommanderAbility.ExecuteBehaviour` @18120df30 (@18120e09b cle 0x10 nrOfSummons,
-    @18120e17a cle 0x16 range) -- AUCUN autre appelant."""
+    call-sites de `IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour (IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour+0x16b cle 0x10 nrOfSummons,
+    IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour+0x24a cle 0x16 range) -- AUCUN autre appelant."""
     if entity is None:
         return 0
     comp = entity.get_component(ActiveAbilityModificationsComponent)
@@ -583,14 +576,14 @@ def get_ability_stat_modification(entity, key) -> int:
 
 # --- Predicat de LIVENESS d'unite (#70) -------------------------------------------------------- #
 # Mirror des primitives natives lues par le gate acteur-mort de `ActiveAbilityOperation.
-# ExecuteInternal @180e44ec0` : `if (EntityExtensions.IsUnit(caster) && UnitExtensions.IsDead(caster))
+# IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` : `if (EntityExtensions.IsUnit(caster) && UnitExtensions.IsDead(caster))
 # return 0;` — un caster MORT rend l'ability (attaque normale INCLUSE, #139) un NO-OP complet (0 tirage
 # RNG, aucun effet, aucun flag) AVANT toute execution. Ces helpers portent la semantique de mort utilisee
 # par CE gate (cf. engine/runner/operations/damage.py::visit_AttackUnitMessage et
 # abilities/handler.py::visit_ActiveAbilityMessage).
 
 def unit_is_alive(entity) -> bool:
-    """`HealthComponent.IsAlive @180f9ed10` — vivant SSI `hp >= 1` (le natif teste FillUpStat.CurrentValue
+    """`IdunBattle.Entities.Components.HealthComponent$$IsAlive` — vivant SSI `hp >= 1` (le natif teste FillUpStat.CurrentValue
     @+0x18 >= 1). hp INCONNU (None, ex. replay charge sans observeBattle) -> vivant (retro-compat : on ne
     gate jamais sur un etat de PV non capte). La branche exotique du natif (hp<1 && max<1 && nullable
     revive @+0x1c == -1 -> vivant) n'est pas portee : non exercee (une unite a plancher de PV a hp>=1)."""
@@ -603,7 +596,7 @@ def unit_is_alive(entity) -> bool:
 
 
 def unit_is_dead(entity) -> bool:
-    """`UnitExtensions.IsDead @180ed8050` — mort SSI `!IsAlive(u) && !HasFlag(u, Fled=9)` : une unite
+    """`IdunBattle.Entities.UnitExtensions$$IsDead` — mort SSI `!IsAlive(u) && !HasFlag(u, Fled=9)` : une unite
     RETIREE du board (flag 9, `UnitFlag.Fled`) n'est PAS « morte » au sens de ce predicat. Restreint aux
     UNITES (mirror du garde `EntityExtensions.IsUnit` d'ExecuteInternal) : une source non-unite (tuile/env,
     sans `HealthComponent`) est TOUJOURS vivante -> jamais gated. Inerte (False) sur tout attaquant/caster

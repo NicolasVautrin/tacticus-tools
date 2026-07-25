@@ -43,19 +43,19 @@ from engine.playbook.probable_damage_event import ProbableDamageEvent
 import json as _json
 _DMG_CFG: dict = _json.loads(_weights.DEFAULT_BC.read_text(encoding="utf-8")).get("Damage", {}) \
     if _weights.DEFAULT_BC.exists() else {}
-# Feuilles positionnelles de CalculateAttackerModifiersForPrediction @181000590 (PAS des effets) :
-# ELEVATION : le builder PREDICTION @181000590 l'INCLUT, INLINEE (read-L1161-1192 : gate !HasEffect(0x423)
+# Feuilles positionnelles de IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction (PAS des effets) :
+# ELEVATION : le builder PREDICTION IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction l'INCLUT, INLINEE (read-L1161-1192 : gate !HasEffect(0x423)
 # attaquant ET cible + GetMainTile(cible) + `target.elev < attackTile.elev` -> +config.ElevationBonus) —
-# AUCUN appel a la feuille @181003ea0 (inlining), d'ou le faux verdict xref #67 « pas d'elevation en
+# AUCUN appel a la feuille IdunBattle.Core.Services.DamageCalculations$$CalculateElevationBonusModifier (inlining), d'ou le faux verdict xref #67 « pas d'elevation en
 # prediction » (REFUTE #98 : aiPredict u80 (6,6) elev2>1 = x2.25 = CrushingStrike(1.5) x Elevation(1.5) ;
 # tuile candidate (5,7) elev egale = x1.0 EXACT -> evaluee a la TUILE CANDIDATE). Cf.
 # `_add_positional_and_defender_mods`. RangedInMelee/defenseur aussi dans le preview (10/11).
 # RANGED_IN_MELEE_PCT : config native = pourcentage NEGATIF (ReductionPercentage=-50) ; le port passe la
 # MAGNITUDE a calculate_ranged_in_melee_reduction (kind PercentDecrease -> add_modifier flippe le signe ->
-# x0.5 ; GetMultiplierFromDamageBonus @181005210 value<1 -> 1-|value|/100, decompile confirme). RangedInMelee
+# x0.5 ; IdunBattle.Core.Services.DamageCalculations$$GetMultiplierFromDamageBonus value<1 -> 1-|value|/100, decompile confirme). RangedInMelee
 # = PREDICTION-only (trait 0xb jamais assigne, #161). TRENCH_PCT / _TRENCH_IGNORED_PROFILES deplaces en
 # services.damage_modifiers (source unique partagee PREDICTION+COMBAT, #181).
-RANGED_IN_MELEE_PCT: int = abs(int(_DMG_CFG.get("RangedInMeleeReductionPercentage", -50)))  # @181004700
+RANGED_IN_MELEE_PCT: int = abs(int(_DMG_CFG.get("RangedInMeleeReductionPercentage", -50)))  # IdunBattle.Core.Services.DamageCalculations$$CalculateRangedInMeleeReduction
 _PROFILE_INDEX = {name: idx for idx, name in _PROFILE_BY_INDEX.items()}
 
 
@@ -68,11 +68,11 @@ def _weapon_pierce(scene, att_id, is_adjacent, dist=None):
 
 
 def _should_apply_ranged_in_melee(scene, att_id, attack_pos) -> bool:
-    """`ShouldApplyRangedInMelee @181005810` : le natif gate la reduction RangedInMelee sur
+    """`IdunBattle.Core.Services.DamageCalculations$$ShouldApplyRangedInMelee` : le natif gate la reduction RangedInMelee sur
     `HasTrait(ATTAQUANT, UnitTrait.Ranged=0xb=11)` (param_4=0 dans le chemin prediction
-    `CalculateRangedInMeleeReduction @181004700`) — PAS sur le `is_ranged` de l'ability. Or ce trait
+    `IdunBattle.Core.Services.DamageCalculations$$CalculateRangedInMeleeReduction`) — PAS sur le `is_ranged` de l'ability. Or ce trait
     n'est porte par AUCUNE unite : absent de gameconfig (0 unite) ET de la BC `Units[].Traits` — c'est un
-    trait RUNTIME jamais assigne en pratique (`IsRanged @180ed8f00` = HasTrait(0xb) OR HasRangedWeapon se
+    trait RUNTIME jamais assigne en pratique (`IdunBattle.Entities.UnitExtensions$$IsRanged` = HasTrait(0xb) OR HasRangedWeapon se
     reduit donc a HasRangedWeapon, la branche trait etant morte). CONSEQUENCE : le natif N'APPLIQUE JAMAIS
     RangedInMelee en prediction. On mirror le gate EXACT (HasTrait), donc sans le trait Ranged -> False.
     L'ancien gate `is_ranged` de l'appelant SUR-appliquait la ×0.5 aux casters HYBRIDES tirant une ability
@@ -107,18 +107,17 @@ def _should_apply_ranged_in_melee(scene, att_id, attack_pos) -> bool:
 
 def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, attack_pos, t_pos,
                                       damage_profile=None, is_normal_attack: bool = True):
-    """Ajoute au `mods` les feuilles NON-effet du builder natif `CalculateAttackerModifiersForPrediction`
-    @181000590 (positionnelles, geometrie) + les modifiers DEFENSEUR. Le pipeline natif
+    """Ajoute au `mods` les feuilles NON-effet du builder natif `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction (positionnelles, geometrie) + les modifiers DEFENSEUR. Le pipeline natif
     `CalculateDamagePredictionScenario` les applique a TOUT degat (normal ET special) APRES percage/armure.
-      • ElevationBonus (`CalculateElevationBonusModifier @181003ea0`, surplomb +50%).
-      • RangedInMelee (`CalculateRangedInMeleeReduction @181004700`, ranged adjacent a un ennemi → ×0.5).
-      • Trench (`CalculateTrenchReduction @181004830`, −50%) : reduction PAR DEFAUT si la cible porte l'effet
+      • ElevationBonus (`IdunBattle.Core.Services.DamageCalculations$$CalculateElevationBonusModifier`, surplomb +50%).
+      • RangedInMelee (`IdunBattle.Core.Services.DamageCalculations$$CalculateRangedInMeleeReduction`, ranged adjacent a un ennemi → ×0.5).
+      • Trench (`IdunBattle.Core.Services.DamageCalculations$$CalculateTrenchReduction`, −50%) : reduction PAR DEFAUT si la cible porte l'effet
         Trench, SUPPRIMEE quand l'attaquant est lui-meme sur une tuile Trench ET voisin hex de la cible
         (#177 : polarite tranchee + 3 mesures live ; `board.terrain_at`=#124, residus CASE3/IndirectFire #182).
       • DEFENSEUR (`CalculateDefenderModifiersForPrediction` : effets de la CIBLE reduisant le degat recu)."""
     # ELEVATION (#98 — RENVERSE le verdict #67 « pas d'elevation en prediction ») : le builder PREDICTION
-    # @181000590 (qui FIRE bien 33x par tour de decision, mesure modifier-observe) l'applique INLINEE
-    # (read-L1161-1192, aucun appel a @181003ea0 -> le xref-check #67 ne pouvait pas la voir) :
+    # IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction (qui FIRE bien 33x par tour de decision, mesure modifier-observe) l'applique INLINEE
+    # (read-L1161-1192, aucun appel a IdunBattle.Core.Services.DamageCalculations$$CalculateElevationBonusModifier -> le xref-check #67 ne pouvait pas la voir) :
     #   if attackTile && !HasEffect(att,0x423) && !HasEffect(tgt,0x423) && GetMainTile(tgt):
     #       if tgt.elev < attackTile.elev : bonus = Nullable(config.ElevationBonus)   # -> Add (%-list)
     # Evaluee a la TUILE CANDIDATE `attack_pos` (mirror local_588) vs la tuile REELLE de la cible.
@@ -145,7 +144,7 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
         if eb is not None:
             add_modifier(mods, eb)
     tgt_effects = scene.effects(tgt_id)
-    # Trench (CalculateTrenchReduction @181004830) : gate COMPLET dans la fonction nommee (main gate +
+    # Trench (IdunBattle.Core.Services.DamageCalculations$$CalculateTrenchReduction) : gate COMPLET dans la fonction nommee (main gate +
     # sous-branche IsTrench(attackerTile), #177 polarite tranchee + 3 mesures live board C2_19). attackerTile
     # = attack_pos, tuile cible = t_pos (GetMainTile(cible)=sa position), board threade (#183 : plus latent).
     # Gate IndirectFire(0x3ed) PORTE ; seul residu = CASE3 ligne-toute-Trench (delegate @LAB_181004bb9 non-RE'd, #182).
@@ -164,14 +163,14 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     # reduit UNIQUEMENT les attaques normales, no-op sur les speciales config-based).
     # #61bis tranche 3 : FACTION de l'attaquant threadee pour les malus defenseur gates par faction —
     # Markerlight (1122) : `OwnerIsTarget & HasFaction(actor, 9=T'au) & IsRangedAttack ->
-    # ForPercentIncrease(MarkerlightDmgBonusPct=15)` (`CreateDamageModifier @180f58170`). MEME source
+    # ForPercentIncrease(MarkerlightDmgBonusPct=15)` (`IdunBattle.Entities.Effects.Loki.MarkerlightEffect$$CreateDamageModifier`). MEME source
     # que le combat (`damage_model.defender_modifiers` : `_faction(visual_id)` gameconfig).
     from engine.ai.action_generators import _faction as _fac
     att_ctx = {"id": att_id, "ability_level": scene.ablvl_by_id.get(att_id), "multiplier": scene.mult(att_id),
                "is_normal_attack": is_normal_attack,
                "faction": _fac(scene.vis_by_id.get(att_id))}
     # STAT-MODS DEFENSE de la CIBLE (#194/#197) : moitie DEFENSE de `CalculateDefenderModifiersForPrediction
-    # @181002c30` (DefenseComponent stat 3 @181003066 → `CalculateModifiersFromStatModifications @181004380`
+    # IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` (DefenseComponent stat 3 IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction+0x436 → `IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications`
     # negate=1 → `1±v/100`). Ex. tuile Thorns −50 → +50 → ×1.5 (GROUND TRUTH C2_19). PORTEE DANS la fonction
     # partagee (plus de fold separe ici) → l'entree sort via `def_mods.pct_list` et est recopiee ci-dessous,
     # EXACTEMENT comme avant (composition %-list commutative sans arrondi intermediaire, #98) : #194 bit-exact
@@ -185,7 +184,7 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     # ADDITIF defenseur (ForAddition, ex. Neuroparasite +extraDmg x niveau) — le %-list SEUL etait fusionne,
     # l'additif defenseur etait DROPPE. PLACEMENT = MEME slot @+0x10 que l'additif ATTAQUANT #75 : ajoute a la
     # base PRE-percage, puis traverse percage et est scale ×%-list UNE fois (le natif ajoute l'additif @+0x10
-    # a la base int AVANT `CalculateBaseDamageWithAllModifiers @18102d3f0`, qui NE re-consomme PAS @+0x10 —
+    # a la base int AVANT `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`, qui NE re-consomme PAS @+0x10 —
     # cf. `attacker_additive_pre=True` dans `predict_attack_raw`/`calculate_damage_prediction_scenario`). Donc
     # on AJOUTE l'additif BRUT (SANS pre-scale) : le chemin attacker_additive_pre applique deja le %-list ×M.
     # #121 (CONFIRME LIVE 2026-07-12, Neurothrope u82 -> custoTrajann level 1, A=1696 M=1.064) : ORACLE
@@ -204,7 +203,7 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     # Reductions PLATES CONSTANTES defenseur (Nightshroud_DmgReduction ForSubtraction = ConfigVar(0x12)=
     # dmgReduction×mult, ex. 499 @{lvl50,mult180}) — additif DEFENSEUR sur le slot @+0x10 : soustrait de la
     # BASE **PRE-percage** (comme l'additif attaquant #75), donc DILUE par percage/armure PUIS scale ×%-list
-    # UNE fois (mirror CBDWAM @18102d3f0 : le natif ajoute l'additif @+0x10 a la base int AVANT Calculate
+    # UNE fois (mirror CBDWAM IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers : le natif ajoute l'additif @+0x10 a la base int AVANT Calculate
     # BaseDamageWithAllModifiers, CBDWAM ne le re-consomme pas). CONFIRME LIVE : le config 499 dilue par le
     # facteur percage/armure (~0.31 vs custoTrajann) -> ~155/coup de degat sante = oracle [1620,2744] (le
     # residu apparent "155" N'EST PAS la valeur config mais 499 traversant l'armure). PAS de pre-scale ×M
@@ -216,7 +215,7 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     # ci-dessus → transite via def_mods.pct_list, plus de fold separe ici — fin du fork prediction/combat.)
     # AURAS-DEFENSE state-wide (#184) : effets EffectWithTarget possedes par d'AUTRES unites dont le
     # TargetSelector projette sur la CIBLE du coup — boucle « TOUS les EffectWithTarget actifs × leurs
-    # cibles » de `CalculateDefenderModifiersForPrediction @181002c30` (cf. case-68), qui ne se reduit PAS
+    # cibles » de `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` (cf. case-68), qui ne se reduit PAS
     # aux effets portes par la cible. Ex. DaughterOfTheAbyss (Atlacoya) : -dmgReductionPct% (33 @L50)
     # Psychic aux AMIS rayon 2 (racine du ~1.49x bloodMephiston seed 2024 : 1003×1.25×3×0.67 = 2016,3024
     # natif vs 3006,4515 port) ; +extraDmgPct% aux Psykers ENNEMIS rayon 2. Cibles/positions REELLES
@@ -233,9 +232,9 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
 
 def _target_damage_limits(scene, tgt_id, damage_profile: str | None = None):
     """Champs STATIQUES cible pour `apply_trait_damage_limits_to_damage` (#56, `ApplyTraitDamageLimits
-    ToDamage @18102c650`). Derivables offline : **Resilient** (trait gameconfig + hp/hpmax → cape le
+    ToDamage IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage`). Derivables offline : **Resilient** (trait gameconfig + hp/hpmax → cape le
     degat a `HP-1`) et **member-cap Swarm** (#57d : `nrOfMembers` gameconfig de la cible + hpmax =
-    repartition native `GetGroupUnitMemberHealth @1810050f0` ; skip si le profil de L'ATTAQUE a
+    repartition native `IdunBattle.Core.Services.DamageCalculations$$GetGroupUnitMemberHealth` ; skip si le profil de L'ATTAQUE a
     `DamageTrait.HitsMultipleMembers` (2) = Blast — d'ou `damage_profile` threade par l'appelant).
     Valide bit-exact 1357 s16 (u139 5 hits 1197/1795 vs necroSmnSwarm 5×444 : caps 442,444,444,444
     puis dernier membre NON cappe → [2971,3569] == natif). Les autres sous-limites restent des **NO-OP
@@ -249,7 +248,7 @@ def _target_damage_limits(scene, tgt_id, damage_profile: str | None = None):
         "target_has_resilient": "Resilient" in utraits,
         "target_has_impervious": "Impervious" in utraits,
         "impervious_stat_current": None,             # charge Impervious non captee offline -> no-op (TODO)
-        "member_count": int(gu.get("nrOfMembers") or 1),   # GroupUnitComponent (@18102bfe0 lit le composant)
+        "member_count": int(gu.get("nrOfMembers") or 1),   # GroupUnitComponent (IdunBattle.Core.Services.DamagePrediction$$ApplyGroupUnitDamageLimit lit le composant)
         "member_total_hp": hpmax,
         "profile_has_hits_multiple_members": DamageTrait.HitsMultipleMembers.name in _dp_traits,
         "max_health": hpmax,
@@ -279,13 +278,13 @@ def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_arm
            "att_grand_alliance": att_gu.get("GrandAllianceId"),
            "att_faction": att_gu.get("FactionId"),
            "att_traits": frozenset(att_gu.get("traits") or ()),
-           # UnitsWithRangedAttacks (selector SpotterReworked @180f6c860) = UNION {arme ranged au kit}
-           # + {diff elevation <= 2 vs tuile porteur} (@180e00610) -> board pour le terme elevation
+           # UnitsWithRangedAttacks (selector SpotterReworked IdunBattle.Entities.Effects.Loki.SpotterReworked_ExtraDamageEffect$$CreateTargetSelector) = UNION {arme ranged au kit}
+           # + {diff elevation <= 2 vs tuile porteur} (IdunBattleLogic.Entities.DSLFactory$$UnitsWithRangedAttacks) -> board pour le terme elevation
            "att_has_ranged_weapon": any(w.get("Range") for w in (att_gu.get("weapons") or ())),
            "board": scene.board,
            "is_melee": is_melee, "target_armor_reduced": tgt_armor_reduced,
            "is_normal_attack": is_normal_attack,
-           # DefenderOfTheGreaterGood_ExtraDmg (#220, aura Tau) : gate !DamageProfileIs(Psychic) @180f3e4f0.
+           # DefenderOfTheGreaterGood_ExtraDmg (#220, aura Tau) : gate !DamageProfileIs(Psychic) IdunBattle.Entities.Effects.Loki.DefenderOfTheGreaterGood_ExtraDmgEffect$$CreateDamageModifier.
            "damage_profile": damage_profile,
            "tgt_id": tgt_id,
            "t_pos": scene.pos(tgt_id) if tgt_id is not None else None,
@@ -296,8 +295,8 @@ def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_arm
 
 def defender_prediction_block_amount(scene, tgt_id, damage_profile: str | None = None) -> int:
     """Amount de BLOCK du defenseur pour le scenario `list[0]@0x50` de la prediction (#54A) —
-    mirror des entrees `CalculateBlockChances @181002350` consommees par le scenario block
-    (`CalculateDamagePredictionScenario @18102ed00`) : scalaire GetStat(7/8)
+    mirror des entrees `IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances` consommees par le scenario block
+    (`IdunBattle.Core.Services.DamagePrediction$$CalculateDamagePredictionScenario`) : scalaire GetStat(7/8)
     (blockChance/blockDamage) + sources multi-value des EFFETS du defenseur (Daemon_ExtraBlock
     25 %/50 %×Attack courant, BeastSlayer_ExtraBlock…). Approximation documentee : sources
     multiples SOMMEES (un seul cas mesure, mono-source Daemon — 1357 s15). 0 = pas de block
@@ -305,8 +304,8 @@ def defender_prediction_block_amount(scene, tgt_id, damage_profile: str | None =
 
     #69 : GATE `NoBlocking` (DamageTrait 0) du PROFIL de degat — mirror du gate COMBAT
     `AttackDamageOperation._block_sources` (`runner/operations/damage.py`) ET du skip natif de la
-    PREDICTION : `DamagePrediction.PredictAttackRaw @181032fb0` fait `DamageProfile.HasTrait(profile,
-    0=NoBlocking)` (@181035b9c) et SKIP toute la boucle de construction du scenario block
+    PREDICTION : `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` fait `DamageProfile.HasTrait(profile,
+    0=NoBlocking)` (IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x2bec) et SKIP toute la boucle de construction du scenario block
     (`param_1[10]`, list[0]@0x50) quand le flag est pose (`if (blockList != 0 && (char)HasTrait == 0)
     {...}`). Un profil `Psychic` (Traits=['NoBlocking'], PiercingRatio 100 ; wiki « Cannot be
     blocked ») bypasse donc le block en PREDICTION comme en COMBAT -> amount 0 -> `_with_block` no-op
@@ -315,7 +314,7 @@ def defender_prediction_block_amount(scene, tgt_id, damage_profile: str | None =
     (kill-prediction IA faussee ; residu documente case-65-noblocking-block-bypass §« Non couvert »)."""
     if damage_profile is not None:
         if DamageTrait.NoBlocking.name in ((GC.damage_profile(damage_profile) or {}).get("Traits") or []):
-            return 0        # profil NoBlocking -> block bypasse (mirror PredictAttackRaw @181035b9c + _block_sources)
+            return 0        # profil NoBlocking -> block bypasse (mirror IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x2bec + _block_sources)
     amt = 0
     tctx = scene.ctx(tgt_id)
     if tctx is not None and int(tctx.block_chance or 0) > 0:

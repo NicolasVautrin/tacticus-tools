@@ -13,7 +13,7 @@ contre un `DslContext` (etat de bataille). Types de valeur (comme le DSL natif, 
 CONDITION -> bool ; POSITION -> (col,row) ; CIBLAGE -> list[unit]. Unite = dict `{id, team, hp, alive,
 pos:{col,row}, visualId}`.
 
-Ghidra MISLABEL les ctors de noeuds gshared (le ctor de `DSLFactory.Sum @180dfc200` s'affiche
+Ghidra MISLABEL les ctors de noeuds gshared (le ctor de `IdunBattleLogic.Entities.DSLFactory$$Sum` s'affiche
 `HasUsedActiveAbilityThisTurnTrigger$$.ctor`) -> semantique lue via la STRUCTURE (pointeur de classe, args
 enfants, arithmetique), JAMAIS via les noms. cf. [[feedback_re_ghidra_not_experiment]].
 
@@ -80,7 +80,7 @@ class DslContext:
     """Contexte d'évaluation d'un arbre DSL (l'« état de bataille » que le nœud interroge).
 
     `config`/`ability_level` → `ConfigConst` ; `caster`/`target`/`units` → ciblage + positions ;
-    `times_attacked` = compteur runtime du caster (`TotalTimesAttackedFormula @180f26620`, composant @+0x34)
+    `times_attacked` = compteur runtime du caster (`TotalTimesAttackedFormula IdunBattle.Entities.Formulas.TotalTimesAttackedFormula$$Calculate`, composant @+0x34)
     NON capté offline → défaut 0 ; `flags` = ensemble de flags actifs (`HasFlag`). `units`/`caster`/`target`
     ne sont requis que par les nœuds de CIBLAGE (AoE) — un arbre purement numérique (hits) les ignore."""
     units: list = field(default_factory=list)
@@ -90,7 +90,7 @@ class DslContext:
     ability_level: int = 0
     times_attacked: int = 0
     # Compteur runtime de RÉPARATIONS du caster (`DSLFactory.TimesRepaired`, ex. DakkaDakkaDakka
-    # GetNumHits @1811d0eb0) NON capté offline → défaut 0.
+    # IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$GetNumHits) NON capté offline → défaut 0.
     times_repaired: int = 0
     flags: frozenset = field(default_factory=frozenset)
     # Position VIRTUELLE du caster pour la décision balayée (= la tuile d'attaque post-move,
@@ -107,7 +107,7 @@ class DslContext:
     # OriginalTarget) — lu par le nœud `Subject` et les prédicats évalués sous un Filter. None hors Filter.
     subject: dict | None = None
     # ACCUMULATEUR des enfants SPAWNÉS par le behaviour courant (mirror du champ factory natif `+0x148`
-    # que `DSLFactory.Spawn` alimente et que `DSLFactory.Children @180debed0` (= `AllAliveMachinesSelector`)
+    # que `DSLFactory.Spawn` alimente et que `IdunBattleLogic.Entities.DSLFactory$$Children` (= `AllAliveMachinesSelector`)
     # relit — cf. GetEmRuntz `Foreach(Children, TauntWithNewChildrenWhoDidDamage)`). Liste PARTAGÉE (le
     # `replace(subject=…)` du `Foreach` la partage par référence) : les feuilles `SpawnUnit` y ajoutent le
     # dict de l'unité spawnée, `Children` la retourne. Défaut [] ; hors behaviour de spawn = vide.
@@ -120,7 +120,7 @@ class DslContext:
     owner: dict | None = None
     actor: dict | None = None
     # `ActiveTarget` = slot factory `+0x180` (carte des `TargetsSelector` caches du `DSLFactory`,
-    # `InitializeShared @180df2670` : `0x148 Owner · 0x150 Effect · 0x158 Actor · 0x160 Caster ·
+    # `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` : `0x148 Owner · 0x150 Effect · 0x158 Actor · 0x160 Caster ·
     # 0x168 CasterTile · 0x170 CasterTiles · 0x178 Target · 0x180 ActiveTarget · 0x188
     # PreviousActiveTarget · 0x190 TargetTiles · 0x198 UnitFeetTiles`). C'est l'ELEMENT COURANT du
     # behaviour qui l'a lie : (a) le SUMMON fraichement pose pour un sous-behaviour on-appearance
@@ -138,17 +138,17 @@ class DslContext:
     # gameconfig), câblé par la couche ability ; défaut None → prédicats d'attaque = False.
     attack_kind: str | None = None           # 'melee' | 'ranged'
     attack_ability_type: int | None = None   # ActiveAbilityType (IsNormalAttack compare vs 1013)
-    # Accès effets par unité (HasEffect/HasAnyEffect), mirror `HasOneOfEffects @180eb7640` — hors state
+    # Accès effets par unité (HasEffect/HasAnyEffect), mirror `IdunBattle.Entities.EntityExtensions$$HasOneOfEffects` — hors state
     # standard. `has_effect(unit, effectType, source_flag=6, min_level=0)->bool` défaut None → False.
     has_effect: object | None = None
-    # Accès effets par TUILE (prédicat de `UnitsOnTilesWithEffect @180dffc50` : la tuile porte-t-elle un
+    # Accès effets par TUILE (prédicat de `IdunBattleLogic.Entities.DSLFactory$$UnitsOnTilesWithEffect` : la tuile porte-t-elle un
     # effet ACTIF du type — ex. Ice 0x11 pour Stormcaller #217). `tile_has_effect(tile_id, effectType)
     # ->bool` ; défaut None → sélecteur dégradé [] (documenté par nœud). Fourni par `entities_from_state`
     # (lit `state.effects` keyé tile-id, même clé que la pose `AddEffectOperation`, cf. case-35).
     tile_has_effect: object | None = None
     # Effet COURANT (EffectSource/EffectLevel) — n'existe qu'en application d'effet ; défaut None.
     effect: object | None = None
-    # Accès aux INSTANCES d'effet par SOURCE (mirror `DSLFactory.EffectsFromUnitSource @180deec70` =
+    # Accès aux INSTANCES d'effet par SOURCE (mirror `IdunBattleLogic.Entities.DSLFactory$$EffectsFromUnitSource` =
     # `EffectWithTypeSelector(source, effectType)`) : `effects_from_source(source_unit, effectType)`
     # -> list[{"effect_type", "source", "owner_id"}] (une entrée par instance d'effet ACTIVE dont le
     # `EffectComponent.SourceUnit` == `source_unit`). Défaut None -> sélecteur dégradé [] (documenté par
@@ -161,7 +161,7 @@ class DslContext:
     faction_of: object | None = None
     # Slot de deploiement (`MachineOfWarPosition` : 1=Top, 2=Bottom) de la MACHINE OF WAR du joueur
     # COURANT — lu par le predicat `IsPositionMachineForCurrentPlayer` (mirror
-    # `IsPositionMachineForPlayerTrigger.ShouldTrigger @180fa3520`, qui interroge
+    # `IdunBattle.Entities.Triggers.IsPositionMachineForPlayerTrigger$$ShouldTrigger`, qui interroge
     # `GetPlayer(turn.CurrentPlayerId)`). None = le joueur courant n'a pas de MoW -> predicat False
     # (mirror du `if (player == null) return false`). Pose par `entities_from_state`.
     current_player_machine_position: int | None = None
@@ -189,7 +189,7 @@ def _pos(u):
 def _within(units, center, radius, include_center=False):
     """Anneau/disque d'unites autour de `center` — cœur des selecteurs d'OCCUPATION (`Units(
     SurroundingTiles/AdjacentTiles(...))`, tous les call-sites). VIVANTS SEULEMENT (#57m) : le natif
-    resout les unites PAR TUILE (`UnitsOnTilesSelector.Select @180f02450` : selecteur de tuiles @+0x18
+    resout les unites PAR TUILE (`IdunBattle.Entities.Selectors.UnitsOnTilesSelector$$Select` : selecteur de tuiles @+0x18
     + mode d'occupation main/steppable @+0x20 -> resolveur board) et un mort n'est plus sur sa tuile
     (KillUnit retire l'unite du board) — un cadavre de `ctx.units` (state garde alive=False) ne doit
     donc jamais sortir d'un selecteur d'occupation. Les selecteurs d'ENSEMBLE font leur propre choix
@@ -209,7 +209,7 @@ def _within(units, center, radius, include_center=False):
 
 
 def _round_fix64(value: Fraction, mode: int) -> int:
-    """`RoundFix64Result @180ffa110` : arrondit un quotient Fix64 en int selon `mode` (3ᵉ arg des
+    """`IdunBattle.DSL.AAmountFormula$$RoundFix64Result` : arrondit un quotient Fix64 en int selon `mode` (3ᵉ arg des
     factories Divide/Half/PercentageOf) : `1`=Ceiling, `2`=Floor, sinon (`0`)=Round half-to-even
     (`Fix64.Round`). On modélise le Fix64 par un `Fraction` EXACT (précision ≫ Fix64 pour des entrées
     entières) ; `round(Fraction)` = arrondi banquier (half-to-even), fidèle au mode 0."""

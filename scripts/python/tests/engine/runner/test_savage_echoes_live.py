@@ -1,6 +1,6 @@
 """SavageEchoes (1230, Cezare `bloodTerminator`, BloodAngels) -- face COMBAT (execute) portee, confrontee au LIVE.
 
-`SavageEchoesAbility.ExecuteBehaviour @181204660` (DECOMPILE, mirror 1:1) =
+`IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$ExecuteBehaviour` (DECOMPILE, mirror 1:1) =
     Execute( op_BitwiseAnd( op_BitwiseAnd(
         SetCache(cache),
         AttackWithAttackDamage(Self@0x148, Target@0x178,
@@ -13,15 +13,14 @@
 
 MECANIQUE (Melee, 4 coups Eviscerate PiercingRatio 50) : degat/coup = roll(minDmg,maxDmg) + extraDmg x
 count(tuiles adjacentes LIBRES du caster) ; self-heal de `hp` SI le HP du caster etait <= 50% de son MaxHealth
-AVANT l'attaque. `native_factory="attack"` (@180de9fb0, 2 tirages/coup a cc=0 -- XREFS ExecuteBehaviour
-@18120487b == template ArmoriumCherub @1811b417d ; cas rngcrit-1202).
+AVANT l'attaque. `native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, 2 tirages/coup a cc=0 -- XREFS IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$ExecuteBehaviour+0x21b == template ArmoriumCherub IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$ExecuteBehaviour+0x17d ; cas rngcrit-1202).
 
 PORTEUR HORS POOL + RESIDU DE CAST LIVE (documente) : `bloodTerminator` (Cezare) est absent du seed BC capture
 -> on l'INJECTE (bloc Unit clone d'une unite BloodAngels + `ActiveAbilities=[1230]`, `PassiveAbilities=[]` pour
 isoler SavageEchoes de RedRampage 1551 non porte) via `--seed-bc` (N'ECRIT JAMAIS le seed partage).
 buildNormalizedBC le normalise (ActiveAbilityLevel 50, mult 180) et il spawne AVEC SavageEchoes reconnue
 (decisionView/abilityTargets). MAIS le cast LIVE de 1230 leve une exception native `system error` :
-`AbilityConfiguration.GetVariableForLevel @181576fb0` (throwFlag=0) THROW quand la config du porteur INJECTE n'a
+`IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel` (throwFlag=0) THROW quand la config du porteur INJECTE n'a
 PAS la variable exotique demandee (extraDmg index 8, hp 0x1d, healthPct 0x4f) -- ces arrays ne sont pas
 materialisees pour une unite HORS de la progression roster. Preuve : le MEME porteur injecte caste 1014
 (ArmoriumCherub, qui ne lit QUE minDmg/maxDmg/nrOfHits) SANS erreur ; seule SavageEchoes (variables exotiques)
@@ -39,7 +38,7 @@ VALIDATION (etat LIVE reel : board dumpe, positions drivees, stats/level/mult du
      bonus `extraDmg x free-tiles` est reel et correctement porte.
   C. COUNT node : `CanAddUnit(AdjacentTiles(Self))` == free-tiles calcule a la main sur le board LIVE.
   D. self-heal : (d1) HP plein -> regenerate FALSE, heal 0 ; (d2) boundary 51%/50%/49% -> False/True/True
-     (`StatPercentageIsBelowOrEqual @180ef5d60` : current/max <= healthPct/100) + amount == gameconfig `hp` x mult.
+     (`StatPercentageIsBelowOrEqual IdunBattle.Entities.Conditions.StatPercentageIsBelowOrEqualAbilityTrigger$$ShouldTrigger` : current/max <= healthPct/100) + amount == gameconfig `hp` x mult.
 
 ASCII only. Skip propre si pas de session / seed BC sans unite clonable / geometrie infaisable.
 """
@@ -324,7 +323,7 @@ def test_savage_echoes_wiring_and_free_tile_bonus(live_session, rpc):
 
 def test_savage_echoes_regenerate_heal(live_session, rpc):
     """D. self-heal (regenerate) sur etat LIVE : boundary 51%/50%/49% du seuil healthPct=50 -> False/True/True
-    (`StatPercentageIsBelowOrEqual @180ef5d60`) + heal amount == gameconfig `hp` x mult au niveau du porteur."""
+    (`StatPercentageIsBelowOrEqual IdunBattle.Entities.Conditions.StatPercentageIsBelowOrEqualAbilityTrigger$$ShouldTrigger`) + heal amount == gameconfig `hp` x mult au niveau du porteur."""
     from engine.runner.snapshot import load_state
     from engine.entities.pathfinding.board import Board
     from engine.runner.components import StatsComponent, HealthComponent

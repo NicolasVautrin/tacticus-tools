@@ -1,18 +1,18 @@
 """AdMech S4a : DoctrinaImperatives (id 1118, Tan Gi'da / admecMarshall) confronte au LIVE.
 
 RE (re-expert, build gqfc5mff6c, namespace natif "Loki") :
-  - DECISION : `DoctrinaImperativesPlaybook` = NonComparablePlaybook (ctor @18112ccf0, id 0x45e=1118) ;
-    `GetUseProbability @18112cbf0` = 1 (si pas utilise ce tour) sinon 0 ; utilite fixe 100 (l'IA decide
+  - DECISION : `DoctrinaImperativesPlaybook` = NonComparablePlaybook (IdunBattle.AI.Playbook.Loki.DoctrinaImperativesPlaybook$$.ctor, id 0x45e=1118) ;
+    `IdunBattle.AI.Playbook.Loki.DoctrinaImperativesPlaybook$$GetUseProbability` = 1 (si pas utilise ce tour) sinon 0 ; utilite fixe 100 (l'IA decide
     seulement DE l'utiliser -- le toggle est deterministe, pas un choix d'IA).
-  - EXECUTION `ExecuteBehaviour @1811d4d20` : `If(HasEffect(1247 Protector),
+  - EXECUTION `IdunBattleLogic.Entities.Abilities.Active.Loki.DoctrinaImperativesAbility$$ExecuteBehaviour` : `If(HasEffect(1247 Protector),
        THEN = AddEffect(1248 Conqueror) + RemoveEffect(1247),
        ELSE = AddProtector(1247)     + RemoveEffect(1248))`.
     Etat "Imperative courant" = quel des 2 effets (1247/1248) est present sur le caster (pas de composant).
   - Protector (1247) = DynamicStatModifierEffect +extraArmor sur **FixedArmor(16)** (ground-truth live tranche
-    stat 16, PAS une stat 27 separee) ; `DoctrinaImperatives_SetStart` (1201, @1811d5100) pose Protector PAR
+    stat 16, PAS une stat 27 separee) ; `DoctrinaImperatives_SetStart` (1201, IdunBattleLogic.Entities.Abilities.Active.Loki.DoctrinaImperatives_SetStart$$CreateBehaviour) pose Protector PAR
     DEFAUT au debut de bataille -> Protector = etat initial. Portee = self + amis Mechanical adjacents (incr. B).
   - Conqueror (1248) = DamageModifierAbilityEffect +extraDmg gate `HasNegativeModifier(cible, FixedArmor<0)`
-    (@180f39650) ; selecteur self + Mechanical adjacents (@180f39890). extraDmg/extraArmor = config-var
+    (IdunBattle.Entities.Effects.Loki.ConquerorImperativeEffect$$CreateDamageModifier) ; selecteur self + Mechanical adjacents (IdunBattle.Entities.Effects.Loki.ConquerorImperativeEffect$$CreateTargetSelector). extraDmg/extraArmor = config-var
     (582@lvl65, rarity-scaled).
 
 CE TEST fait DEUX choses :
@@ -79,7 +79,7 @@ def _dump(payload):
 
 def test_doctrina_imperatives_toggle_live(live_session, rpc, build_runner):
     """ORACLE LIVE : (a) Protector (1247) present AVANT tout cast (SetStart 1201) ;
-    (b) caster 1118 bascule -> Conqueror (1248) present + Protector (1247) retire (toggle @1811d4d20).
+    (b) caster 1118 bascule -> Conqueror (1248) present + Protector (1247) retire (toggle IdunBattleLogic.Entities.Abilities.Active.Loki.DoctrinaImperativesAbility$$ExecuteBehaviour).
     DUMPE la ground-truth (stats/effets self+allie pre/post) pour trancher stat-27 + portee de l'aura."""
     rid = build_runner("777", extra=BUILD)["rid"]
     dec, tan = _advance_to_my_turn(rpc, rid, TAN_VIS)
@@ -356,8 +356,8 @@ def test_doctrina_protector_aura_offline_agreement(live_session, rpc, build_runn
 def test_doctrina_conqueror_extradmg_offline_agreement(live_session, rpc, build_runner):
     """OFFLINE-AGREEMENT (port S4a incr. C, self face) : apres le toggle vers Conqueror(1248), le porteur
     gagne +extraDmg FLAT (`create_effect_damage_bonus_for_attack` -> canal additif `DamageModifiers.additive`,
-    @180f39650) UNIQUEMENT contre une cible a ARMURE REDUITE (gate `HasNegativeModifier(cible, {ARMOR=4,
-    FIXED_ARMOR=16})` @180f9db90). On DRIVE un debuff FixedArmor sur la cible (mod per-source <0) pour armer
+    IdunBattle.Entities.Effects.Loki.ConquerorImperativeEffect$$CreateDamageModifier) UNIQUEMENT contre une cible a ARMURE REDUITE (gate `HasNegativeModifier(cible, {ARMOR=4,
+    FIXED_ARMOR=16})` IdunBattle.Entities.Triggers.HasNegativeModifier$$ShouldTrigger). On DRIVE un debuff FixedArmor sur la cible (mod per-source <0) pour armer
     le gate, et on mesure le DELTA d'additif attaquant (cible reduite MOINS cible saine) = `extraDmg[niveau
     actif] x mult` ; cible SAINE -> AUCUN bonus (gate False). Valide AUSSI le seeding niveau/mult sur l'effet
     pose par le toggle (`_seed_active_ability_level`), sans quoi la magnitude calc-time serait inerte. Combat
@@ -435,7 +435,7 @@ def test_doctrina_conqueror_aura_offline_agreement(live_session, rpc, build_runn
     """OFFLINE-AGREEMENT (port S4a incr. C2, portee aura) : apres le toggle vers Conqueror(1248), le +extraDmg
     FLAT se projette sur un ALLIE Mechanical ADJACENT a Tan Gi'da quand C'EST L'ALLIE qui attaque une cible a
     ARMURE REDUITE (`create_aura_attack_damage_bonus_for_ally` -> `damage_model.attacker_modifiers`, meme foyer
-    combat que la self-face). Selecteur @180f39890 = self + `AdjacentFriends(1)` ∩ `UnitsWithTrait(5=Mechanical)`
+    combat que la self-face). Selecteur IdunBattle.Entities.Effects.Loki.ConquerorImperativeEffect$$CreateTargetSelector = self + `AdjacentFriends(1)` ∩ `UnitsWithTrait(5=Mechanical)`
     (IDENTIQUE a Protector). Le porteur (self) passe par la self-face (incr. C) -> l'aura NE s'applique QU'a un
     allie DISTINCT (auto-exclusion att==owner : pas de double-compte). DRIVE la position de l'allie (adjacent
     vs eloigne) + un debuff FixedArmor sur la cible (arme le gate `HasNegativeModifier`) pour ISOLER la

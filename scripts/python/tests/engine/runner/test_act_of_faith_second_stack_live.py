@@ -1,6 +1,6 @@
 """2e stack CONDITIONNEL ActOfFaith (RighteousRepugnance / Morvenn Vahl) - replay MOTEUR offline (slice-20).
 
-`ActOfFaithAbility.CreateBehaviour @181219a70` (branche gshared param_3 != 0x20) =
+`IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateBehaviour` (branche gshared param_3 != 0x20) =
     op_Addition(
         AddEffect(0x3f9, source=AbilityStateReference, target=Self@0x148),                    # [1] GARANTI
         If( HasTrait(killer@0x158, Imperial=0x1a) & AreFriends(killer@0x158, owner@0x148)
@@ -19,7 +19,7 @@ chance` au niveau PASSIF de Morvenn, 40-60% selon niveau) est assertee separemen
 
 On confronte le LIVE via l'etat seede (`load_state` de la bataille reelle : team/faction/kit/niveaux) puis
 on rejoue le behaviour MOTEUR (comme `test_act_of_faith_ability_reset_live`). Le behaviour est PUR stat-mod
-(pas de board requis). VA: @181219a70 (behaviour), @180decac0 (ConfigVar), @180dff150 (UnitNormalAttackType).
+(pas de board requis). VA: IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateBehaviour (behaviour), IdunBattleLogic.Entities.DSLFactory$$ConfigVar (ConfigVar), IdunBattleLogic.Entities.DSLFactory$$UnitNormalAttackType (UnitNormalAttackType).
 """
 from __future__ import annotations
 

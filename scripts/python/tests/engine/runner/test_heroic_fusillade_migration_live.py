@@ -1,6 +1,6 @@
 """Gen-stealer G5 : HeroicFusillade (actif 1180, Judh genesKelermorph) PORT -> arbre DSL, valide LIVE.
 
-`HeroicFusilladeAbility$$ExecuteBehaviour @1811e8de0` (DECOMPILE, mirror 1:1) =
+`HeroicFusilladeAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility$$ExecuteBehaviour` (DECOMPILE, mirror 1:1) =
     op_Addition(
       If( Not(IsSurrounding(caster, target, radius=1)), MoveUnit(caster, destTile) ),          # MOVE
       If( IsAlive(target),
@@ -10,7 +10,7 @@
               ChangeStat(caster, CRIT_DAMAGE=10, mode=3=Sub, mag) ) ) )                         # buff crit (retire)
 FINDINGS DECOMPILE (au-dela du verdict RE) :
   - SPLASH `Unobscured(Enemies(SurroundingUnits(target, radius, includeCenter=1)))` : le `includeCenter=1`
-    (SurroundingUnits @180dfcb70 -> SurroundingTiles @180dfca70 disk INCLUANT la tuile cible) -> la CIBLE est
+    (IdunBattleLogic.Entities.DSLFactory$$SurroundingUnits -> IdunBattleLogic.Entities.DSLFactory$$SurroundingTiles disk INCLUANT la tuile cible) -> la CIBLE est
     dans l'ensemble (i2 « 6x ... to the target AND all other enemies surrounding it »). Le MOVE-ring passe
     `includeCenter=0` (exclut la cible). Porte = `Union(Target(), Alive(SurroundingEnemies(TargetTile(), 1)))`.
   - "surrounding radius" = DslContext @+0xc0 = 1 (adjacence, i2 « surrounding hex »), DISTINCT du `range`

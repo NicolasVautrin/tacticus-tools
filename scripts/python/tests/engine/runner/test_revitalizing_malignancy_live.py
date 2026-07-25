@@ -1,7 +1,7 @@
 """TRANCHE ABILITY COMBAT (case-220 P0-HEAL) — RevitalizingMalignancy (1037, deathRotbone, Death Guard).
 
-`RevitalizingMalignancyAbility.ExecuteBehaviour @181200eb0` (+ `GetAllHealTargets @181201150`,
-`GetChaosHealTargets @181201230`, `GetRegularHealTargets @181201280`, callback b__0 @181218d00) : heal
+`IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility$$ExecuteBehaviour` (+ `IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility$$GetAllHealTargets`,
+`IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility$$GetChaosHealTargets`, `IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility$$GetRegularHealTargets`, callback b__0 IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility.u003Cu003Ec__DisplayClass2_0$$u003CExecuteBehaviouru003Eb__0) : heal
 self + allies adjacents (hex 1) NON-Imperial, SPLIT par trait Chaos(0x7ea) :
   - non-Chaos : `hpToHeal[level]` (var0x20)
   - Chaos     : `hpToHeal[level] + hpToHeal_2[level]` (var0x22 + var0x20, CUMUL de DEUX vars lues
@@ -9,9 +9,9 @@ self + allies adjacents (hex 1) NON-Imperial, SPLIT par trait Chaos(0x7ea) :
 Garde `Healable` (HP<max ET non-mechanical) cote mutation. Jumeau heal de 1002 CombatRestoratives.
 
 Le trait d'ALLIANCE (Imperial/Chaos/Xenos) est ABSENT de gameconfig.unit().traits (0 unite le porte) :
-DERIVE de la GrandAlliance (`GrandAlliance.GetTrait @1815647a0` : Imperial->26, Xenos->1006, Chaos->2026),
+DERIVE de la GrandAlliance (`idun.Idun.Source.Shared.GrandAlliance$$GetTrait` : Imperial->26, Xenos->1006, Chaos->2026),
 porte cote runner par `_grand_alliance_trait` (context.py). IsMechanical = Mechanical|LivingMetal|Vehicle
-(`UnitExtensions.IsMechanical @180ed8a30`).
+(`IdunBattle.Entities.UnitExtensions$$IsMechanical`).
 
 MESURE LIVE (rank 17, deathRotbone level 50 mult 180 -> regular 3490, chaos 6980) confirmee sur runner :
 deathBlightbringer[Chaos] +6980, eldarRanger[Xenos] +3490, adeptHospitaller[Imperial] +0,

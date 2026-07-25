@@ -1,7 +1,7 @@
 """case-66 — TaintedNarthecium revive-EN-PLACE (deathRotbone, base ReviveEffect).
 
-`TaintedNarthecium_ReviveEffect` (ctor @180f70a90 / filter @180f709b0, base ReviveEffect
-CreateTargetTrigger @180f46d80 / CreateTargetTriggerBehaviour @180f46a70) : un allie Chaos adjacent(2)
+`TaintedNarthecium_ReviveEffect` (IdunBattle.Entities.Effects.Loki.TaintedNarthecium_ReviveEffect$$.ctor / filter IdunBattle.Entities.Effects.Loki.TaintedNarthecium_ReviveEffect$$CreateTargetFilter, base ReviveEffect
+IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTrigger / IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour) : un allie Chaos adjacent(2)
 vaincu a 75% de chance d'etre revive-EN-PLACE a min(reviveHP[level], maxPV), even-if-Overkilled,
 once-per-turn. i2 : « An adjacent friendly Chaos unit that is defeated has a {chance}% chance to be
 revived with a maximum of {hp} Health, even if Overkilled. Can only be triggered once per turn. »
@@ -134,9 +134,9 @@ def _place(env, st, ally_uid, dist):
 
 
 def _kill(env, st, ally_uid, overkill=False):
-    """Mirror de la sequence de `KillUnitOperation.Execute @180e76470` : `On(1)` @0x180e76c4c PUIS la
-    GARDE @0x180e76c9e (`kill_unit_revive_gate`) qui draine la `ReviveData` posee par la feuille
-    `Revive` (phase `RunPhase(0xd)` de `VerifyDeaths @180ebb0a0`). Sans la garde, la feuille ne fait que
+    """Mirror de la sequence de `IdunBattle.Operations.KillUnitOperation$$Execute` : `On(1)` @IdunBattle.Operations.KillUnitOperation$$Execute+0x7dc PUIS la
+    GARDE @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e (`kill_unit_revive_gate`) qui draine la `ReviveData` posee par la feuille
+    `Revive` (phase `RunPhase(0xd)` de `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths`). Sans la garde, la feuille ne fait que
     POSER : rien ne serait applique (RE case-89 volet C)."""
     _hc(st, ally_uid).hp = 0
     _uc(st, ally_uid).alive = False
@@ -252,7 +252,7 @@ def test_can_be_revived_mechanical(rev_env):
 
 
 def test_clamp_maxhp_below_revivehp_offline():
-    """SetHealth clamp : maxHP < reviveHP -> hp = maxHP (ReviveUnitOperation @180e93450), in-place.
+    """SetHealth clamp : maxHP < reviveHP -> hp = maxHP (ReviveUnitOperation IdunBattle.Operations.ReviveUnitOperation$$SetHealth), in-place.
     Offline pur. La signature NATIVE est `Execute(operation, entity)` : le HP vient de la `ReviveData`
     posee sur `UnitComponent+0xa8` (`post_pending_revive`), pas d'un parametre."""
     from engine.runner.state import State
@@ -266,11 +266,11 @@ def test_clamp_maxhp_below_revivehp_offline():
     assert int(e.get_component(HealthComponent).hp) == 1200, "hp non clampe a maxHP"
     assert e.get_component(UnitComponent).alive, "non revive"
     assert (e.get_component(PositionComponent).col, e.get_component(PositionComponent).row) == (3, 4), "position changee"
-    assert e.get_component(UnitComponent).pending_revive is None, "ReviveData non purgee (@0x180e92977+)"
+    assert e.get_component(UnitComponent).pending_revive is None, "ReviveData non purgee (@IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+)"
 
 
 def test_pending_revive_cancels_the_kill_offline():
-    """GARDE @0x180e76c9e (case-89 volet C) : une `ReviveData` posee pendant `On(1)` fait ECHOUER la
+    """GARDE @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e (case-89 volet C) : une `ReviveData` posee pendant `On(1)` fait ECHOUER la
     garde de `KillUnitOperation.Execute` -> `On(2)` / `On(0)` / `On(55)` / `On(54)` ne sont PAS emis.
     Ici on verifie le contrat de `kill_unit_revive_gate` : rend un dict (mort ANNULEE) vs None."""
     from engine.runner.state import State
@@ -287,7 +287,7 @@ def test_pending_revive_cancels_the_kill_offline():
 
 
 def test_is_preferred_revive_offline():
-    """`ReviveBehaviour.IsPreferredRevive @180fd1b50` : priorite d'abord, puis amount le plus GRAND.
+    """`IdunBattle.Entities.Behaviours.ReviveBehaviour$$IsPreferredRevive` : priorite d'abord, puis amount le plus GRAND.
     (PhoenixGem pose priority=-1000 -> tout autre revive lui est prefere.)"""
     from engine.runner.operations.revive import is_preferred_revive
     assert is_preferred_revive(None, {"priority": -1000, "amount": 1})

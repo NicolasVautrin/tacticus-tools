@@ -8,16 +8,15 @@ from ._base import NCContext, NonComparablePlaybook
 
 
 class ScarabHivePlaybook(NonComparablePlaybook):
-    """`ScarabHivePlaybook.EvaluateNonComparable @181158ab0` (id 0x3ef=1007, necroSpyder/Canoptek Spyder).
-    Summon d'attaque : `ScarabHiveAbility.ExecuteBehaviour @181204cb0` fait apparaitre N=2 Scarab Swarms
+    """`IdunBattle.AI.Playbook.Loki.ScarabHivePlaybook$$EvaluateNonComparable` (id 0x3ef=1007, necroSpyder/Canoptek Spyder).
+    Summon d'attaque : `IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabHiveAbility$$ExecuteBehaviour` fait apparaitre N=2 Scarab Swarms
     (necroSmnSwarm) sur des tuiles adjacentes a la CIBLE (`AdjacentTiles(target) -> CanAddUnit -> First(N)
     -> Spawn`), qui attaquent immediatement, + effet 0x4a3 OverrideDamageProfile (Piercing au 1er coup).
 
     Structure native (mirror EvaluateNonComparable) : pour chaque cible eligible
-    (`GetEligibleTargetsSelectable(MainTile=position)`), lit `iVar1 = ability+0xf0` (= N=2, ctor
-    @181205170 : `*(this+0xf0)=2`) puis `count = query.slot0x4e(target,1,1,1).Count` ; SI `count >= iVar1`
+    (`GetEligibleTargetsSelectable(MainTile=position)`), lit `iVar1 = ability+0xf0` (= N=2, IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabHiveAbility$$.ctor : `*(this+0xf0)=2`) puis `count = query.slot0x4e(target,1,1,1).Count` ; SI `count >= iVar1`
     -> `GenerateAction(position, cible, Fix64.FromInt(1))` + `Bucket.AddAction`. Utilite CONSTANTE 1.0.
-    slot 0x4e (IBattleQuery DAT_18327ff80) = `GetAdjacentTiles(target,1,1,1) @18105b660` (memes bools que
+    slot 0x4e (IBattleQuery DAT_18327ff80) = `IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles(target,1,1,1)` (memes bools que
     HammerOfWrath #116 : requireEmptyOrSteppable/requireWalkable/allowTemporary) -> tuiles adjacentes LIBRES
     placables = `GetPossibleSpawnTiles`/`GetFreeAdjacentTiles`. Le gate = "assez de place pour les 2 scarabs".
 
@@ -26,19 +25,19 @@ class ScarabHivePlaybook(NonComparablePlaybook):
     Le natif : move (4,5) + ScarabHive->u93. Le moteur ratait car ScarabHive absent (retombait sur l'attaque
     normale 69). NonComparable -> une fois enregistre, il prime sur l'attaque normale (Comparable).
 
-    - utilite = 1.0 CONSTANTE par cible eligible passant le gate (Fix64.FromInt(1) @181158ab0).
-    - gate = `adjacent_addable_count(tuile-cible) >= N` avec N=2 (= #scarabs, ctor @181205170). Primitive
+    - utilite = 1.0 CONSTANTE par cible eligible passant le gate (Fix64.FromInt(1) IdunBattle.AI.Playbook.Loki.ScarabHivePlaybook$$EvaluateNonComparable).
+    - gate = `adjacent_addable_count(tuile-cible) >= N` avec N=2 (= #scarabs, IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabHiveAbility$$.ctor). Primitive
       = celle de HammerOfWrath (_displacement_bonus, #116) : GetAdjacentTiles(cible) filtre par CanAddUnit
       (walkable + vide, porte |dElev|<2). Occupation = epos U fpos U origine (TOUTES unites vivantes).
-    - PAS de MIN_UTILITY explicite (Bucket ctor 2-arg @181158ab0 -> min defaut ; util 1 toujours admise).
-    - ctor @181158ed0 = `NonComparablePlaybook(0x3ef)` -> 1er arg=ability_id ; PRIORITY=0 (defaut, #115).
+    - PAS de MIN_UTILITY explicite (Bucket ctor 2-arg IdunBattle.AI.Playbook.Loki.ScarabHivePlaybook$$EvaluateNonComparable -> min defaut ; util 1 toujours admise).
+    - IdunBattle.AI.Playbook.Loki.ScarabHivePlaybook$$.ctor = `NonComparablePlaybook(0x3ef)` -> 1er arg=ability_id ; PRIORITY=0 (defaut, #115).
     - cible = ENNEMI eligible (kind unit) ; position = 1re tuile atteignable (movable order) d'ou la cible
       est castable (`cast_from_tiles`). Cibles multiples passant le gate -> util egale (1.0) -> le driver
       choose_action garde la 1re (mirror bucket keep-first sur l'ordre GetEligibleTargetsSelectable)."""
     ABILITY_ID = int(ActiveAbilityType.ScarabHive)  # 1007
     MIN_UTILITY = 1.0     # util constante 1 ; gate reel = adjacent_addable_count(cible) >= N
     PRIORITY = 0
-    _N_SUMMONS = 2        # ability+0xf0 = 2 (ScarabHiveAbility.ctor @181205170) = #scarabs -> seuil du gate
+    _N_SUMMONS = 2        # ability+0xf0 = 2 (IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabHiveAbility$$.ctor) = #scarabs -> seuil du gate
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         if ctx.ability_targets is None:

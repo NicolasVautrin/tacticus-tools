@@ -2,13 +2,13 @@
 """Probe #60bis (tache #30) — member-cap du chemin DIRECT DAMAGE (DoT feu vs swarm).
 
 RE (structure, decompile = verite) :
-- `DamagePrediction.CalculateDirectDamage @18102f130` (chemin EXECUTION : appele par
-  `DirectDamageOperation.Execute @180e677f0` via IDamagePrediction slot 7) route le montant par
-  `ApplyGroupUnitDamageLimit @18102bfe0` avec profile=NULL : cap = hp - maxHealthWith(remaining-1)
+- `IdunBattle.Core.Services.DamagePrediction$$CalculateDirectDamage` (chemin EXECUTION : appele par
+  `IdunBattle.Operations.DirectDamageOperation$$Execute` via IDamagePrediction slot 7) route le montant par
+  `IdunBattle.Core.Services.DamagePrediction$$ApplyGroupUnitDamageLimit` avec profile=NULL : cap = hp - maxHealthWith(remaining-1)
   (un degat direct ne tue AU PLUS qu'UN membre), skip si flag payload.
-- `ApplyTraitDamageLimitsToDirectDamage @18102c9b0` = MEME wrapper (profile=NULL), dispatch virtuel
-  = la variante per-hit du pipeline d'attaque (`CalculateDamageOperation @18102dc30`, bytes de mode
-  du hit-struct) — la route empruntee par la feuille `AttackWithAbilityDamage @180de9c90` (DoT feu).
+- `IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDirectDamage` = MEME wrapper (profile=NULL), dispatch virtuel
+  = la variante per-hit du pipeline d'attaque (`IdunBattle.Core.Services.DamagePrediction$$CalculateDamageOperation`, bytes de mode
+  du hit-struct) — la route empruntee par la feuille `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` (DoT feu).
 Le port `execute_direct` n'applique AUCUN member-cap (case-60 par. 5). Ce probe mesure LIVE si le
 tick natif du DoT feu est cape a la frontiere de membre (et donc si le port doit caper).
 
@@ -65,7 +65,7 @@ SPY_VIS, VIN_VIS, TANK_VIS, SWARM_VIS = ("necroSpyder", "adeptRetributor",
                                          "astraBullgryn", "necroSmnSwarm")
 SCARAB_HIVE = 1007
 DOT_EFFECT = 5          # Effect_Type Fire (project_effect_type_attribution)
-# #98 : la duree NATIVE du feu = `ConvertRoundsToTurns(DefaultAmountOfRounds(5)=2 rounds)` @181058af0
+# #98 : la duree NATIVE du feu = `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns(DefaultAmountOfRounds(5)=2 rounds)
 # = 2 x count(joueurs non-Environment) = **4 tours** dans un duel standard. `FIRE_TURNS` reste la
 # FENETRE d'observation de ce probe (nb de tours pendant lesquels il considere un feu « vivant ») ;
 # la valeur 2 y est un choix de probe, PAS la duree native (l'ancien commentaire l'affirmait a tort).

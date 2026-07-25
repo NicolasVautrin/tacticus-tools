@@ -1,7 +1,7 @@
 """case-220 §6.7 Necrons : HarbingerOfDestruction (1008, `necroPlasmancer`) FACE COMBAT.
 
-`HarbingerOfDestructionAbility$$ExecuteBehaviour @1811e6750` (DECOMPILE, mirror 1:1 + callees
-`GetAdditionalTargets @1811e6a40` / `GetEnemiesInRange @1811e6e50` / `GetTargetAmount @1811e6fa0`) =
+`HarbingerOfDestructionAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.HarbingerOfDestructionAbility$$ExecuteBehaviour` (DECOMPILE, mirror 1:1 + callees
+`IdunBattleLogic.Entities.Abilities.Active.Loki.HarbingerOfDestructionAbility$$GetAdditionalTargets` / `IdunBattleLogic.Entities.Abilities.Active.Loki.HarbingerOfDestructionAbility$$GetEnemiesInRange` / `IdunBattleLogic.Entities.Abilities.Active.Loki.HarbingerOfDestructionAbility$$GetTargetAmount`) =
     targets = If( AreEqual(caster@0x160, target@0x178),
                   GetAdditionalTargets,                            # then : caster==target (degenere)
                   op_Addition(target@0x178, GetAdditionalTargets) )  # else : cible + additionnels
@@ -11,8 +11,8 @@ avec
     GetEnemiesInRange = PickRandomly( Damageable(Unobscured(caster, SurroundingEnemies(casterTile,
                         range=GetNumberConstant(0x16)=2) - target)), count = nrOfUnits(0x9a) - 1 )
 i2/config : cible + N-1 ennemis RANDOM dans un DISQUE rayon-2 du CASTER (non obscurcis, damageable), 1 coup
-MinMaxDamage profil "DirectDamage" (PiercingRatio 100). `native_factory="attack"` (@1811e6750 appelle
-`DSLFactory.AttackWithAttackDamage @180de9fb0`, VERIFIE par les callees ; "DirectDamage" est le NOM DU
+MinMaxDamage profil "DirectDamage" (PiercingRatio 100). `native_factory="attack"` (IdunBattleLogic.Entities.Abilities.Active.Loki.HarbingerOfDestructionAbility$$ExecuteBehaviour appelle
+`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`, VERIFIE par les callees ; "DirectDamage" est le NOM DU
 PROFIL, PAS l'effet direct-damage).
 
 *** PORTEUR UNSPAWNABLE -> validation CASTER-AGNOSTIQUE (precedent PlasmaGrenade eldarSmnGuardian) ***

@@ -8,12 +8,12 @@ flottant traverse l'entier dans les DEUX sens : ni `round()` ni `floor()` float 
 EXACTE (raw int Python, précision arbitraire) est fidèle.
 
 Sémantique VÉRIFIÉE au décompilé (2026-07-19) :
-  • `op_Multiply @181564280`  : produit 128-bit exact, TRONCATURE des 32 bits bas (hihi<<32 + hilo
+  • `FixMath.NET.Fix64$$op_Multiply`  : produit 128-bit exact, TRONCATURE des 32 bits bas (hihi<<32 + hilo
     + lohi + lolo>>>32) = `(a·b) >> 32` (floor vers −∞). PAS d'arrondi.
-  • `op_Division @181563e50`  : long-division qui accumule le quotient à 2^-33 près puis
+  • `FixMath.NET.Fix64$$op_Division`  : long-division qui accumule le quotient à 2^-33 près puis
     `(q+1)>>1` = ROUND-HALF-UP sur la magnitude, signe appliqué après. ≠ troncature !
-  • `op_Explicit @181564100`  : `raw >> 32` = floor (matérialisation Fix64→long).
-  • `Round @1815636e0`        : frac<0.5→floor ; frac>0.5→floor+1 ; frac==0.5 → mode 0 = ToEven,
+  • `FixMath.NET.Fix64$$op_Explicit`  : `raw >> 32` = floor (matérialisation Fix64→long).
+  • `FixMath.NET.Fix64$$Round`        : frac<0.5→floor ; frac>0.5→floor+1 ; frac==0.5 → mode 0 = ToEven,
     mode 1 = AwayFromZero (négatif→floor, positif→floor+1).
   • `FromInt`                 : `n << 32`.
 
@@ -43,24 +43,24 @@ def from_number(x) -> int:
 
 
 def mul(a_raw: int, b_raw: int) -> int:
-    """Fix64.op_Multiply @181564280 — produit exact puis TRONCATURE (floor vers −∞).
+    """FixMath.NET.Fix64$$op_Multiply — produit exact puis TRONCATURE (floor vers −∞).
     Le `>>` Python sur int négatif est arithmétique (floor) = exactement le natif."""
     return (a_raw * b_raw) >> 32
 
 
 def div(a_raw: int, b_raw: int) -> int:
-    """Fix64.op_Division @181563e50 — ROUND-HALF-UP sur |a|/|b| (quotient accumulé à 2^-33 près
+    """FixMath.NET.Fix64$$op_Division — ROUND-HALF-UP sur |a|/|b| (quotient accumulé à 2^-33 près
     puis `(q+1)>>1`), signe appliqué après. b=0 → MaxValue natif (jamais atteint ici : diviseurs
     = constantes config non nulles, ex. 100)."""
     if b_raw == 0:
-        return (1 << 63) - 1        # Fix64.MaxValue (mirror @181563e50 branche divide-by-zero)
+        return (1 << 63) - 1        # Fix64.MaxValue (mirror FixMath.NET.Fix64$$op_Division branche divide-by-zero)
     q2 = (abs(a_raw) << 33) // abs(b_raw)
     m = (q2 + 1) >> 1
     return -m if (a_raw < 0) != (b_raw < 0) else m
 
 
 def round_raw(raw: int, mode: int = 1) -> int:
-    """Fix64.Round @1815636e0 — arrondit à l'ENTIER Fix64 (raw intégral). mode 0 = ToEven,
+    """FixMath.NET.Fix64$$Round — arrondit à l'ENTIER Fix64 (raw intégral). mode 0 = ToEven,
     mode 1 = AwayFromZero (le seul utilisé par le pipeline dégât : spread, min/max, %-list capée)."""
     frac = raw & _FRAC_MASK
     integral = raw - frac           # floor vers −∞ (masque bas = décompile `& 0xffffffff00000000`)
@@ -76,15 +76,15 @@ def round_raw(raw: int, mode: int = 1) -> int:
 
 
 def to_int(raw: int) -> int:
-    """Fix64.op_Explicit @181564100 — matérialisation Fix64→long = `raw >> 32` (floor).
-    C'est LA conversion int du pipeline (bornes prédiction @181034e87+, dégât tiré combat
-    `CalculateAbilityDamage @18102cb50`) — PAS un round."""
+    """FixMath.NET.Fix64$$op_Explicit — matérialisation Fix64→long = `raw >> 32` (floor).
+    C'est LA conversion int du pipeline (bornes prédiction IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x1ed7+, dégât tiré combat
+    `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`) — PAS un round."""
     return raw >> 32
 
 
 def mult_raw_from_float(mult: float) -> int:
     """Reconstruit le raw EXACT d'un multiplicateur %-list stocké en float (`1 ± pct/100`,
-    `GetMultiplierFromDamageBonus @181005210` = `One ± Div(FromInt(|pct|), FromInt(100))`).
+    `IdunBattle.Core.Services.DamageCalculations$$GetMultiplierFromDamageBonus` = `One ± Div(FromInt(|pct|), FromInt(100))`).
     Pour pct ENTIER, `round(mult × 2^32)` = le raw natif exactement : l'erreur float du mult
     (≤ ~2e-6 unité raw) est très en-deçà du demi-pas, et aucune frontière .5 n'existe
     (pct×2^33/100 impair impossible pour pct entier). Évite de changer le format `pct_list`."""

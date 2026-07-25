@@ -33,7 +33,7 @@ PINNED = int(EffectType.Pinned)                         # 1065 — UI « Suppres
 
 
 def crushing_claws_splash_tree() -> "op_add":
-    """Corps `Func<entities,behaviour>` du `Foreach` splash = lambda `<ExecuteBehaviour>b__0 @1811e3c60`
+    """Corps `Func<entities,behaviour>` du `Foreach` splash = lambda `<ExecuteBehaviour>b__0 IdunBattleLogic.Entities.Abilities.Active.Loki.CrushingClawsAbility.u003Cu003Ec__DisplayClass1_0$$u003CExecuteBehaviouru003Eb__0`
     (DECOMPILE) pour l'unite splash COURANTE (`Subject()`, posee par le `Foreach`) :
         PushUnit(caster, s)                                          # [DEPLACEMENT differe -> omis]
         + If(IsAlive(s)) AddEffect(0x429 Pinned, stateRef, s, 0)     # « Suppressed » splash (duree DEFAUT)
@@ -55,8 +55,8 @@ def crushing_claws_splash_tree() -> "op_add":
 
 
 def crushing_claws_tree() -> AtomicGroup:
-    """Arbre de `CrushingClawsAbility.ExecuteBehaviour @1811cd5e0` (id 1105, tyranTyrantGuard — MIRROR du
-    DECOMPILE + du lambda `<ExecuteBehaviour>b__0 @1811e3c60`) :
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.CrushingClawsAbility$$ExecuteBehaviour` (id 1105, tyranTyrantGuard — MIRROR du
+    DECOMPILE + du lambda `<ExecuteBehaviour>b__0 IdunBattleLogic.Entities.Abilities.Active.Loki.CrushingClawsAbility.u003Cu003Ec__DisplayClass1_0$$u003CExecuteBehaviouru003Eb__0`) :
         splash = UnitsWithoutTrait( AdjacentEnemies(caster) & (AdjacentFriends(target) - target), 0xd=Object )
         ExecuteAtomic(
             ((  AddBondEffect(0x1b Taunted, caster, target, TurnsFromRounds(1))            # taunt cible
@@ -77,7 +77,7 @@ def crushing_claws_tree() -> AtomicGroup:
     CONSTRUCTION (memes Operations/args/state.rng que l'imperatif). L'imperatif `CrushingClawsAbility.
     execute_behaviour` est REMPLACE par l'execution de l'arbre."""
     tgt = Target()
-    # duree = `TurnsFromRounds(1)` natif (@1811cd5e0) -> convertie par `ConvertRoundsToTurns` @181058af0 (#98)
+    # duree = `TurnsFromRounds(1)` natif (IdunBattleLogic.Entities.Abilities.Active.Loki.CrushingClawsAbility$$ExecuteBehaviour) -> convertie par `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns (#98)
     taunt = AddBondEffect(TAUNTED, "Taunted_OnlySpecificTargets", Caster(), tgt, duration_rounds=1)
     pin = AddEffect(PINNED, "Pinned", tgt, None)                                       # AddEffect(0x429), duree DEFAUT
     main = AttackWithAttackDamage(tgt, "CrushingClaws", "Piercing", is_melee=True)    # MinMaxDamage/Piercing/0x2f=2
@@ -90,7 +90,7 @@ def crushing_claws_tree() -> AtomicGroup:
 
 
 def plasma_grenade_tree():
-    """Arbre de `PlasmaGrenadeAbility.ExecuteBehaviour @1811f99e0` (id 1098, eldarSmnGuardian — MIRROR du
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaGrenadeAbility$$ExecuteBehaviour` (id 1098, eldarSmnGuardian — MIRROR du
     DECOMPILE) :
         Execute( op_Addition(
             AttackWithAttackDamage(caster, target, RandomAmount(minDmg=var0xc, maxDmg=var0xd), Plasma,
@@ -98,7 +98,7 @@ def plasma_grenade_tree():
             AttackWithAttackDamage(caster, Enemies(caster, AdjacentUnits(target,1)), RandomAmount(MEME),
                                     Plasma, nrOfHits_2=GetNumberConstant(0x32)) ) )           # [SPLASH]
     Port : `op_add(main, splash)`. Le SPLASH natif passe un SELECTEUR MULTI-cible directement a UN
-    `AttackWithAttackDamage` (PAS un `Foreach`) -> `AttackBehaviour.Execute @180fb91a0` resout la liste,
+    `AttackWithAttackDamage` (PAS un `Foreach`) -> `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` resout la liste,
     l'`OrderBy` puis attaque chaque cible : porte via `multi=True` (feuille `AttackWithAttackDamage`, tri
     par id = ordre de lecture natif). Selecteur splash = `Alive(AdjacentEnemies(TargetTile()))` = ennemis
     VIVANTS du caster adjacents (hex) a la CIBLE (`AdjacentEnemies(<tuile>)` = ennemis-du-caster autour de
@@ -110,8 +110,8 @@ def plasma_grenade_tree():
     BY CONSTRUCTION vs l'ancien imperatif (memes bornes/hits/profil, splash `sorted` par
     id, meme `state.rng`). L'imperatif `PlasmaGrenadeAbility.execute_behaviour` est REMPLACE par cet arbre."""
     tgt = Target()
-    # rngcrit-1202 : la factory native de PlasmaGrenade est `AttackWithABILITYDamage @180de9c90`
-    # (XREFS @1811f9b9a/@1811f9c0e -> @180de9c90 -> core @180de9e50 = AbilityDamageBehaviour), PAS
+    # rngcrit-1202 : la factory native de PlasmaGrenade est `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`
+    # (XREFS IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaGrenadeAbility$$ExecuteBehaviour+0x1ba/IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaGrenadeAbility$$ExecuteBehaviour+0x22e -> IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage -> core IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage = AbilityDamageBehaviour), PAS
     # AttackWithAttackDamage comme l'ancien commentaire le disait -> AbilityDamageOperation = 1 tirage/
     # coup (AUCUN resolve slot-8 gaspille) -> native_factory="ability".
     main = AttackWithAttackDamage(tgt, "PlasmaGrenade", "Plasma", is_melee=False,
@@ -123,7 +123,7 @@ def plasma_grenade_tree():
 
 
 def scything_talons_tree() -> AtomicGroup:
-    """Arbre de `ScythingTalonsAbility.ExecuteBehaviour @1812059f0` (id 1065, tyranSmnWarrior — MIRROR du
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.ScythingTalonsAbility$$ExecuteBehaviour` (id 1065, tyranSmnWarrior — MIRROR du
     DECOMPILE) :
         splash = Unique( Enemies(caster, AdjacentUnits(casterTile,1) & AdjacentUnits(targetTile,1), 3) )
         ExecuteAtomic( op_BitwiseAnd(
@@ -133,7 +133,7 @@ def scything_talons_tree() -> AtomicGroup:
                                  AttackWithAttackDamage(<splash>,"ScythingTalons","Bio",melee,
                                                          hits_key="nrOfHits_2", multi=True) ) )`.
     Le SPLASH natif passe un SELECTEUR MULTI-cible directement a UN `AttackWithAttackDamage` (PAS un `Foreach`
-    -> DIFFERE de CrushingClaws) : `AttackBehaviour.Execute @180fb91a0` resout la liste + `OrderBy` (cle
+    -> DIFFERE de CrushingClaws) : `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` resout la liste + `OrderBy` (cle
     par-unite = ordre de lecture) puis attaque chaque cible -> porte via `multi=True` (feuille
     `AttackWithAttackDamage`, tri par id = ordre de lecture natif). Selecteur splash =
     `Alive(And(AdjacentEnemies(CasterTile()), AdjacentEnemies(TargetTile())))` = ennemis du caster adjacents
@@ -145,7 +145,7 @@ def scything_talons_tree() -> AtomicGroup:
     Bio, MELEE (range 1).
     `op_BitwiseAnd` = `CombinedBehaviour` (effets PURS -> les deux volets s'executent) ; `ExecuteAtomic` ->
     `AtomicGroup` (inline #201 ; le tag `0x57` = id du groupe atomique, PAS un auto-fire de triggered-abilities
-    -- `ExecuteAtomic @180fb0930` = `DSLFactory.AtomicGroup`, aucun `EvaluateAbilities` implicite, cf. #209).
+    -- `IdunBattle.Entities.Abilities.AActiveAbility$$ExecuteAtomic` = `DSLFactory.AtomicGroup`, aucun `EvaluateAbilities` implicite, cf. #209).
     Ordre = main PUIS splash (== l'ancien imperatif, meme `state.rng`) -> bit-exact BY CONSTRUCTION vs
     l'ancien imperatif (`_adjacent_to_both`). L'imperatif `ScythingTalonsAbility.execute_behaviour` est
     REMPLACE par cet arbre.
@@ -161,13 +161,13 @@ def scything_talons_tree() -> AtomicGroup:
 
 
 def stikkbomb_tree() -> AtomicGroup:
-    """Arbre de `StikkbombAbility.ExecuteBehaviour @18120c180` (id 1051, Ork Boy — MIRROR du DECOMPILE) :
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.StikkbombAbility$$ExecuteBehaviour` (id 1051, Ork Boy — MIRROR du DECOMPILE) :
         Execute( AtomicGroup( op_Addition(
             AttackWithAttackDamage(caster, target, RandomAmount(var0xc,var0xd), Blast, nrOfHits=0x2f=2),  # [MAIN]
             AttackWithAttackDamage(caster, AdjacentUnits(target,1,3), RandomAmount(MEME), Blast,
                                    nrOfHits_2=0x32=1) ) ) )                                                # [SPLASH]
     Le SPLASH natif passe un SELECTEUR MULTI-cible directement a UN `AttackWithAttackDamage` (PAS un `Foreach`)
-    -> `AttackBehaviour.Execute @180fb91a0` resout la liste + `OrderBy` puis attaque chaque cible : porte via
+    -> `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` resout la liste + `OrderBy` puis attaque chaque cible : porte via
     `multi=True` (feuille `AttackWithAttackDamage`, tri par id = ordre de lecture natif).
 
     ⚠ FRIENDLY-FIRE (fidelite #213, RESOLUE) : le selecteur splash = `AdjacentUnits(target,1,3)` BRUT, SANS
@@ -195,7 +195,7 @@ def stikkbomb_tree() -> AtomicGroup:
 
 
 def fragstorm_tree() -> AtomicGroup:
-    """Arbre de `FragstormAbility.ExecuteBehaviour @1811e0a00` (id 1078, templSmnAggressor — MIRROR du DECOMPILE) :
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormAbility$$ExecuteBehaviour` (id 1078, templSmnAggressor — MIRROR du DECOMPILE) :
         ExecuteAtomic( op_BitwiseAnd(
             AttackWithAttackDamage(caster@0x160, target@0x178, RandomAmount(var0xc,var0xd), Blast, nrOfHits=0x2f=4),  # [MAIN]
             AttackWithAttackDamage(caster@0x160,
@@ -238,11 +238,11 @@ def fragstorm_tree() -> AtomicGroup:
 
 
 def gauntlets_of_ultramar_tree() -> AtomicGroup:
-    """Arbre de `GauntletsOfUltramarAbility.ExecuteBehaviour @1811e1c80` (id 1000, ultraCalgar — MIRROR du
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.GauntletsOfUltramarAbility$$ExecuteBehaviour` (id 1000, ultraCalgar — MIRROR du
     DECOMPILE) : AoE SELF-CAST a DEUX BANDES DE PORTEE (aucune cible unique -- ancre sur le CASTER, pas
     `Target()`) :
-        adjSel  = `GetAdjacentTargetsSelector @1811e2010`  = Unique(Enemies(caster, AdjacentTiles(casterTile), 3))
-        surrSel = `GetSurroundingTargetsSelector @1811e20d0` = Unobscured(caster,
+        adjSel  = `IdunBattleLogic.Entities.Abilities.Active.Loki.GauntletsOfUltramarAbility$$GetAdjacentTargetsSelector`  = Unique(Enemies(caster, AdjacentTiles(casterTile), 3))
+        surrSel = `IdunBattleLogic.Entities.Abilities.Active.Loki.GauntletsOfUltramarAbility$$GetSurroundingTargetsSelector` = Unobscured(caster,
                      SurroundingEnemies(caster, r=2) - adjSel)
         ExecuteAtomic( op_BitwiseAnd(
             AttackWithAttackDamage(caster, snapshot(adjSel), MinMaxDamage, Bolter,
@@ -262,7 +262,7 @@ def gauntlets_of_ultramar_tree() -> AtomicGroup:
     - **Plage `MinMaxDamage(minDmg=var0xc, maxDmg=var0xd)` PARTAGEE** (RandomAmount, flag 0) et **profil
       `GetDamageProfile(config,0)` = Bolter** (PiercingRatio 20), pour les DEUX bandes ; seul le nb de coups
       differe. `attackRangeType=Ranged` -> `is_melee=False`.
-    - **Snapshot eager de la bande adjacente** (`Get(SelectAllUnits(adjSel)) @18100ee50`) : le natif fige la
+    - **Snapshot eager de la bande adjacente** (`Get(SelectAllUnits(adjSel)) IdunBattle.DSL.TargetsSelector$$SelectAllUnits`) : le natif fige la
       liste adjacente AVANT la 1re attaque ; comme la 1re attaque est le premier acte et que les bandes sont
       disjointes (tuer un adjacent ne retire aucun ennemi dist-2), la resolution LAZY `multi=True` a
       l'execution == le snapshot -> bit-exact.
@@ -284,7 +284,7 @@ def gauntlets_of_ultramar_tree() -> AtomicGroup:
 
 def _adjacent_to_both(state: "State", caster_id: int, target_id: int) -> list[int]:
     """Splash CrushingClaws : ennemis VIVANTS du caster adjacents (hex) **À LA FOIS** au caster ET à la
-    cible, hors cible. Mirror `GetAdjacentDamageTargetsUnits` @1811cdad0 =
+    cible, hors cible. Mirror `IdunBattleLogic.Entities.Abilities.Active.Loki.CrushingClawsAbility$$GetAdjacentDamageTargetsUnits =
     `AdjacentEnemies(actor) & (AdjacentFriends(target) - target)` (les amis de la cible = ennemis du
     caster ⇒ ennemis adjacents aux deux). Requiert `state.board` (evenq). ⚠ exclusion
     `UnitsWithoutTrait(0xd=13)` NON portée (mapping de l'enum trait 13 inconnu offline) → TODO ; sans
@@ -406,7 +406,7 @@ def _splash_ability_behaviour(state: "State", caster_id: int, target_id: int, ab
 
 
 class CrushingClawsAbility(ActiveAbility):
-    """`CrushingClawsAbility.ExecuteBehaviour` @1811cd5e0 (id 1105, tyranTyrantGuard).
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.CrushingClawsAbility$$ExecuteBehaviour (id 1105, tyranTyrantGuard).
 
     Séquence native (`&`/`+` = compositions de behaviour) :
         AttackWithAttackDamage(actor, target, MinMaxDamage, profile=Piercing, nrOfHits=const 0x2f=2)  # principale
@@ -445,7 +445,7 @@ class CrushingClawsAbility(ActiveAbility):
 
 
 class PlasmaGrenadeAbility(ActiveAbility):
-    """`PlasmaGrenadeAbility.ExecuteBehaviour @1811f99e0` (id 1098, eldarSmnGuardian).
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaGrenadeAbility$$ExecuteBehaviour` (id 1098, eldarSmnGuardian).
 
     Séquence native (`+` = op_Addition, plain `Execute`) :
         AttackWithAttackDamage(actor, target, RandomAmount(minDmg/maxDmg), Plasma, nrOfHits=0x2f)   # principale
@@ -478,9 +478,9 @@ class PlasmaGrenadeAbility(ActiveAbility):
 
 
 class StikkbombAbility(ActiveAbility):
-    """`StikkbombAbility.ExecuteBehaviour` @18120c180 (id 1051, Ork Boy — orksNpc2OrkBoy/orksOrkBoys).
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.StikkbombAbility$$ExecuteBehaviour (id 1051, Ork Boy — orksNpc2OrkBoy/orksOrkBoys).
 
-    #149 slice-12 : la behaviour EST l'**arbre DSL** `stikkbomb_tree()` (mirror 1:1 du décompilé @18120c180 :
+    #149 slice-12 : la behaviour EST l'**arbre DSL** `stikkbomb_tree()` (mirror 1:1 du décompilé IdunBattleLogic.Entities.Abilities.Active.Loki.StikkbombAbility$$ExecuteBehaviour :
     `Execute(AtomicGroup(op_Addition(main, splash)))` — cf. `stikkbomb_tree`), en remplacement du portage
     impératif (`_splash_ability_behaviour`+`_adjacent_enemies_of`).
 
@@ -514,9 +514,9 @@ class StikkbombAbility(ActiveAbility):
 
 
 class FragstormAbility(ActiveAbility):
-    """`FragstormAbility.ExecuteBehaviour` @1811e0a00 (id 1078, templSmnAggressor).
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormAbility$$ExecuteBehaviour (id 1078, templSmnAggressor).
 
-    #149 slice-13 : la behaviour EST l'**arbre DSL** `fragstorm_tree()` (mirror 1:1 du décompilé @1811e0a00 :
+    #149 slice-13 : la behaviour EST l'**arbre DSL** `fragstorm_tree()` (mirror 1:1 du décompilé IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormAbility$$ExecuteBehaviour :
     `ExecuteAtomic(op_BitwiseAnd(main, splash))` — cf. `fragstorm_tree`), en remplacement du portage impératif
     (`_pick_randomly_n(_adjacent_enemies_of(...))` + `_splash_ability_behaviour`, désormais supprimé).
 
@@ -550,7 +550,7 @@ class FragstormAbility(ActiveAbility):
 
 
 class ScythingTalonsAbility(ActiveAbility):
-    """`ScythingTalonsAbility.ExecuteBehaviour @1812059f0` (id 1065, tyranSmnWarrior).
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ScythingTalonsAbility$$ExecuteBehaviour` (id 1065, tyranSmnWarrior).
 
     Séquence native (`ExecuteAtomic`, `op_BitwiseAnd`) :
         AttackWithAttackDamage(actor, target, MinMaxDamage, Bio, hits=condHits1=0x2f=3)          # principale
@@ -588,7 +588,7 @@ class ScythingTalonsAbility(ActiveAbility):
 
 
 class GauntletsOfUltramarAbility(ActiveAbility):
-    """`GauntletsOfUltramarAbility.ExecuteBehaviour @1811e1c80` (id 1000, ultraCalgar).
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.GauntletsOfUltramarAbility$$ExecuteBehaviour` (id 1000, ultraCalgar).
 
     AoE SELF-CAST a DEUX BANDES DE PORTEE (ancre sur le CASTER, PAS `Target()`) : la bande ADJACENTE frappe
     tous les ennemis a dist 1 (`Unique(Enemies(AdjacentTiles(caster)))`, 2 coups = nrOfHits 0x2f + nrOfHits_2
@@ -596,9 +596,9 @@ class GauntletsOfUltramarAbility(ActiveAbility):
     SurroundingEnemies(caster,r=2) - Adjacent)`, 1 coup = nrOfHits_2 0x32). Meme plage `MinMaxDamage` +
     profil Bolter pour les deux bandes.
 
-    La behaviour EST l'arbre DSL `gauntlets_of_ultramar_tree()` (mirror 1:1 du decompile @1811e1c80 :
+    La behaviour EST l'arbre DSL `gauntlets_of_ultramar_tree()` (mirror 1:1 du decompile IdunBattleLogic.Entities.Abilities.Active.Loki.GauntletsOfUltramarAbility$$ExecuteBehaviour :
     `ExecuteAtomic(op_BitwiseAnd(bandeAdj, bandeSurr), 0x1d)`). Les deux bandes = `AttackWithAttackDamage(
-    multi=True)` (`AttackBehaviour.Execute @180fb91a0` resout la liste + `OrderBy` par id) -> memes Operations
+    multi=True)` (`IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` resout la liste + `OrderBy` par id) -> memes Operations
     (`AttackDamageOperation.execute_ability_attack`) que l'imperatif -> bit-exact BY CONSTRUCTION (memes
     bornes/hits/profil, cibles triees par id, meme `state.rng`). La face PREDICTION (arc NC) est portee a part
     (`playbook/noncomparable/gauntlets_of_ultramar.py`, case-49/#50) ; ici = la face COMBAT (execute) seule,
