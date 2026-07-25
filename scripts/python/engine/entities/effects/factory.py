@@ -184,8 +184,12 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Waaagh (orksWarboss, active 1058 IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour) — 3 buffs poses par `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffBehaviour`
     # sur caster + allies adjacents + TOUS les allies de faction Orks, duree 1 round (@dsl+0xc0) :
     # ExtraMovement (1099) = stat-mod +MOVEMENT (constante extraMovement=1, canal eager applied_stat_mods,
-    # REQUIS par UnitMovementRangeWithBonus de l'etage MOVE) ; ExtraDamage (1100) = marqueur (+extraDmg[L]
-    # NON modelise, residu) ; ExtraHits (1101) = marqueur (+extraHit coup NON modelise, residu).
+    # REQUIS par UnitMovementRangeWithBonus de l'etage MOVE) ; ExtraDamage (1100) = +extraDmg[L] PLAT par coup
+    # (IdunBattle.Entities.Effects.Loki.Waaagh_ExtraDamageEffect$$CreateEffectDamageBonusForAttack, ForAddition
+    # IsNormalAttack & IsMeleeAttack & OwnerIsCaster, ConfigVar 8) ; ExtraHits (1101) = +extraHit coup
+    # (IdunBattle.Entities.Effects.Loki.Waaagh_ExtraHitsEffect$$CreateEffectHitsBonusForAttack, MEME condition,
+    # ConfigConst 0x2b). NIVEAU = celui du POSEUR (AbilityStateReference -> scale_from_source) ;
+    # multiplier de rarete RESOLU = 100 (mesure live +443 = extraDmg[L50] brut). #95.
     "Waaagh_ExtraMovement": WaaaghExtraMovementEffect,
     "Waaagh_ExtraDamage": WaaaghExtraDamageEffect,
     "Waaagh_ExtraHits": WaaaghExtraHitsEffect,
