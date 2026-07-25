@@ -59,8 +59,14 @@ def _hits(state, att, tid):
 
 @pytest.fixture(scope="session")
 def lc_gate(live_session, rpc, build_runner):
+    # Roster choisi pour que la MAGNITUDE soit observable, pas seulement le gate : le natif borne la
+    # reduction par `min=Direct(1)`, donc un attaquant a peu de coups SATURE le plancher et rend
+    # l'assertion de magnitude inoperante (mesure : templHelbrecht = 3 coups ranged -> on_hits=1 aussi
+    # bien avec -2 qu'avec -3). `necroDestroyer` porte 6 coups ranged (Gauss, Range 2) et aucun trait
+    # touchant le canal de coups -- le test garde ainsi du pouvoir discriminant tant que
+    # `lightCoverHitReduction` reste < 5. Le garde-fou `off_hits - red > 1` ci-dessous le CONSTATE.
     b = build_runner("4242", extra=["--board", "SyncPvp_Arctic_06",
-                                    "--p-units", "templHelbrecht", "--a-units", "templHelbrecht"])
+                                    "--p-units", "necroDestroyer", "--a-units", "necroDestroyer"])
     rid = b["rid"]
     bg = rpc("boardGraph", {"runnerId": rid}, 60)
     if not (isinstance(bg, dict) and bg.get("tiles")):
@@ -125,16 +131,42 @@ def lc_gate(live_session, rpc, build_runner):
 
 
 def test_lightcover_gate_drops_offcover(lc_gate):
-    """Le -2 LightCover CHUTE quand le defenseur quitte sa tuile de cover, MEME si l'effet persiste :
-    on_hits == max(1, off_hits - 2), off_hits > on_hits, et 'LightCover' present les DEUX fois (=> c'est
-    le gate `AreEqual(coverPatch,target)`, pas un retrait d'effet). Anti-regression du runner-sim stale."""
+    """La reduction LightCover CHUTE quand le defenseur quitte sa tuile de cover, MEME si l'effet
+    persiste : on_hits == max(1, off_hits - hitsReduction), off_hits > on_hits, et 'LightCover' present
+    les DEUX fois (=> c'est le gate `AreEqual(coverPatch,target)`, pas un retrait d'effet).
+    Anti-regression du runner-sim stale.
+
+    ORACLE DE MAGNITUDE (rien de fige ici) : le decompile de
+    `IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffectHitsBonusForAttack` donne
+    `ForAdditionWithMinimum(AreEqual(Tiles(coverPatch), Tiles(target)) & !IsMeleeAttack,
+    Direct(-AbilityConfiguration.GetNumberConstant(0x2c)), min=Direct(1))`. LightCoverAbility etant une
+    ability de TUILE (absente de `units.abilities`), sa config vit dans les valeurs globales :
+    ConfigConst 0x2c = `globalValues.lightCoverHitReduction`. Le test lit cet oracle et derive
+    l'attendu (plancher `Direct(1)` compris) au lieu de figer la mesure du jour."""
+    import gameconfig as GC
+    red = GC.global_value("lightCoverHitReduction")
+    assert red is not None, ("oracle introuvable : globalValues.lightCoverHitReduction absent de "
+                             "gameconfig (GetNumberConstant(0x2c) non resolvable offline)")
+    red = int(red)
+    assert red > 0, (f"oracle incoherent : lightCoverHitReduction={red}, or le natif construit "
+                     f"Direct(-GetNumberConstant(0x2c)) -- une constante positive est attendue")
     c = lc_gate
-    print("\n[LC-GATE] on_hits=%d off_hits=%d on_eff=%s off_terr=%s off_eff=%s" %
-          (c["on_hits"], c["off_hits"], c["on_eff"], c["off_terr"], c["off_eff"]))
+    print("\n[LC-GATE] oracle lightCoverHitReduction=%d on_hits=%d off_hits=%d on_eff=%s off_terr=%s "
+          "off_eff=%s" % (red, c["on_hits"], c["off_hits"], c["on_eff"], c["off_terr"], c["off_eff"]))
     assert "LightCover" in c["on_eff"], "LightCover absent on-cover (setup KO)"
     assert "LightCover" in c["off_eff"], (
         "LightCover retire off-cover -> le test ne prouve PAS le gate (il faudrait l'effet PRESENT)")
+    # Le plancher natif `min=Direct(1)` peut ABSORBER la magnitude : si off_hits - red <= 1, toute
+    # magnitude >= off_hits - 1 rend le meme on_hits=1 et l'egalite ci-dessous ne prouve plus rien.
+    # On le dit fort plutot que de laisser un vert non discriminant (mesure : 3 coups + red=2 -> le
+    # test passait avec un port fige a 3).
+    assert c["off_hits"] - red > 1, (
+        f"setup NON discriminant : off_hits={c['off_hits']} et lightCoverHitReduction={red} -> le "
+        f"plancher min=Direct(1) sature, l'assertion de magnitude ne peut plus rougir. Il faut un "
+        f"attaquant a plus de coups ranged (cf. choix du roster dans la fixture).")
     assert c["off_hits"] > c["on_hits"], (
-        f"off_hits {c['off_hits']} <= on_hits {c['on_hits']} : le -2 LightCover ne chute pas hors-cover")
-    assert c["on_hits"] == max(1, c["off_hits"] - 2), (
-        f"on_hits {c['on_hits']} != max(1, off {c['off_hits']} - 2) : gate LightCover mal applique")
+        f"off_hits {c['off_hits']} <= on_hits {c['on_hits']} : le -{red} LightCover ne chute pas "
+        f"hors-cover")
+    assert c["on_hits"] == max(1, c["off_hits"] - red), (
+        f"on_hits {c['on_hits']} != max(1, off {c['off_hits']} - {red}) (oracle "
+        f"globalValues.lightCoverHitReduction) : gate LightCover mal applique")
