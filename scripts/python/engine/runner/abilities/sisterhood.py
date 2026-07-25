@@ -16,16 +16,19 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 from ...dsl.effects import ExecutionContext
-from ...entities.behaviours import AtomicGroup, op_and, If
-from ...entities.selectors import Target, TargetTile, Caster, AdjacentUnits, Sub, Unobscured, FixedTiles
-from ...entities.triggers import Not, IsAlive, IsAdjacent, TriggerAnd
+from ...entities.behaviours import AtomicGroup, op_add, op_and, If
+from ...entities.selectors import (Target, TargetTile, Caster, AdjacentUnits, FixedTileIds, Sub,
+                                   TileFromVector, TileUnique, Unobscured, FixedTiles, Union)
+from ...entities.triggers import (Not, IsAlive, IsAdjacent, TriggerAnd,
+                                  IsPositionMachineForCurrentPlayer)
 from ...entities.active_ability_type import ActiveAbilityType
+from ...entities.effect_type import EffectType
 from ...entities.stats import StatType
 from ...entities.effects.magnitude import ability_var
 from ..components import PositionComponent, UnitComponent, StatsComponent
 from ..damage_model import select_weapon, select_weapon_pierce
 from .base import ActiveAbility
-from .behaviours import AttackWithAttackDamage, MoveUnit, entities_from_state
+from .behaviours import AddBondEffect, AddEffect, AttackWithAttackDamage, MoveUnit, entities_from_state
 
 import hexgeo
 
@@ -328,3 +331,109 @@ class SkyStrikeAbility(ActiveAbility):
         atk = next((p for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
         return {"ability": "SkyStrike", "caster": caster_id, "target": target_id,
                 "move": moved, "attack": atk, "dsl": True}
+
+
+# =================================================================================================== #
+# DevastatingRefrain (1188, `adeptExorcist` -- Exorcist, MachineOfWar) -- lot #90-B
+# Patron « pose d'effet(s) seule » : le CAST ne fait que MARQUER une forme de 4 hexes et ARMER la MoW.
+# =================================================================================================== #
+
+DEVASTATING_REFRAIN_ID = "DevastatingRefrain"
+DEVASTATING_REFRAIN_TARGET = int(EffectType.DevastatingRefrain_Target)   # 0x57a = 1402
+DEVASTATING_REFRAIN_ATTACK = int(EffectType.DevastatingRefrain_Attack)   # 0x57b = 1403
+# `.ctor @1811d3bb0` : DEUX `List<int>` de directions hex pre-construites, stockees `this+0xf0` /
+# `this+0xf8` — lues telles quelles (aucune deduction) :
+SHAPE_DIRECTIONS_MACHINE = (3, 1, 5)       # this+0xf0 : Add(3) Add(1) Add(5)   -> {N, SE, SW}
+SHAPE_DIRECTIONS_OTHER = (0, 2, 4)         # this+0xf8 : Add(0) Add(2) Add(4)   -> {S, NE, NW}
+MACHINE_POSITION_BOTTOM = 2                # litteral de `IsPositionMachineForCurrentPlayer(2)`
+
+
+def devastating_refrain_shape(target_tile_id: int, directions) -> TileUnique:
+    """`DevastatingRefrainAbility.GetShape(List<int>) @1811d39f0` -- MIRROR 1:1 :
+
+        sel = target@0x178
+        foreach idx in list:  sel = sel + TileFromVector(target@0x178, Get(idx))
+        return sel
+
+    -> la tuile CIBLEE + sa voisine dans CHACUNE des directions hex de la liste (`TileFromVector` =
+    `AxialCoordinate.NeighbourAt`). Les voisines hors-plateau sont absentes (le natif n'ajoute que les
+    `GetTileAt` non nuls). `TileUnique` = le dedup du domaine TILE (le natif accumule dans un
+    `TargetsSelector.op_Addition` puis `AddBondEffect` itere ; un doublon reposerait le meme effet, ce
+    que le gate « deja present » d'`AddEffectOperation` neutralise deja -- on dedup pour la clarte du
+    diagnostic)."""
+    tgt = FixedTileIds([target_tile_id])
+    sel = tgt
+    for d in directions:
+        sel = Union(sel, TileFromVector(tgt, int(d)))
+    return TileUnique(sel)
+
+
+def devastating_refrain_tree(target_tile_id: int, on_machine_side: bool):
+    """Arbre de `DevastatingRefrainAbility.ExecuteBehaviour @1811d3730` -- MIRROR 1:1 du DECOMPILE :
+
+        Execute(   AddEffect(0x57b=1403 DevastatingRefrain_Attack, absRef, targets=owner@0x148, opts=0)
+                 + AddBondEffect(0x57a=1402 DevastatingRefrain_Target, absRef, source=owner@0x148,
+                                 targets=If( IsPositionMachineForCurrentPlayer(2),
+                                             GetShape(this+0xf0={3,1,5}), GetShape(this+0xf8={0,2,4}) ),
+                                 bond=owner@0x148, opts=0) )
+
+    (`op_Addition`, `AActiveAbility.Execute`.) La 1re `AddEffect` utilise la surcharge SANS `source`
+    (6 args) -> se pose sur l'OWNER = la MoW. Les deux options-structs sont ZERO -> duree =
+    `DefaultAmountOfRounds` (1402/1403 absents de la table @181559ff0 -> `remaining = 0` = permanent,
+    CONFIRME live).
+
+    `If` (natif `DSLFactory.If` sur des SELECTEURS) est resolu ICI cote classe d'ability : le predicat
+    `IsPositionMachineForCurrentPlayer(2)` ne depend d'aucun element courant, et un `If` du domaine
+    SELECTEUR n'existe pas cote port -- le VERDICT est calcule par la classe (`on_machine_side`) puis la
+    branche prise est instanciee. Structure et resultat identiques (evaluation paresseuse d'une seule
+    branche, comme le natif)."""
+    shape = devastating_refrain_shape(
+        target_tile_id, SHAPE_DIRECTIONS_MACHINE if on_machine_side else SHAPE_DIRECTIONS_OTHER)
+    return op_add(
+        AddEffect(DEVASTATING_REFRAIN_ATTACK, EffectType.DevastatingRefrain_Attack.name,
+                  Caster(), duration_rounds=None),
+        AddBondEffect(DEVASTATING_REFRAIN_TARGET, EffectType.DevastatingRefrain_Target.name,
+                      Caster(), shape, duration_rounds=None))
+
+
+class DevastatingRefrainAbility(ActiveAbility):
+    """`DevastatingRefrainAbility.ExecuteBehaviour @1811d3730` (id 1188, `adeptExorcist` -- Exorcist,
+    Adepta Sororitas, MachineOfWar). Cast TILE-TARGET (`abilityTargets` kind="tile", 33 tuiles sur C1_02).
+
+    RE (ghidra gqfc5mff6c) :
+    - `ExecuteBehaviour @1811d3730` : cf. `devastating_refrain_tree` (1 `AddEffect` + 1 `AddBondEffect`,
+      zero attaque).
+    - `.ctor @1811d3bb0` : construit les DEUX listes de directions {3,1,5} / {0,2,4} (`this+0xf0`/`+0xf8`)
+      puis `AActiveAbility.ctor(..., 2, 0)`.
+    - `GetShape() @1811d3960` (surcharge sans argument) = le MEME `If(IsPositionMachineForCurrentPlayer(2),
+      GetShape(+0xf0), GetShape(+0xf8))`, expose pour la PREVIEW/playbook.
+    - `GetShape(List<int>) @1811d39f0` : cf. `devastating_refrain_shape`.
+    - PHASE 2 (NON PORTEE) : l'effet `DevastatingRefrain_Attack` (1403) pose sur la MoW declenche le
+      barrage sur les tuiles `DevastatingRefrain_Target` (1402) -- c'est la qu'interviennent minDmg/maxDmg,
+      `damageProfile=Blast`, `nrOfHits=1` (+ `DevastatingRefrain_AttackVisuals`/`_EffectVisuals`).
+
+    OBSERVABLE DU CAST (mesures live, runner MoW C1_02, MoW slot 2 = joueur courant, caster 53) :
+      - cible (0,0) (COIN du plateau 5x7) -> tuiles marquees (0,0) et (1,1) [les 2 autres voisines sont
+        hors-plateau] ;
+      - cible (2,3) (CENTRE) -> tuiles marquees (2,3) + (2,2)=N + (3,4)=SE + (1,4)=SW = EXACTEMENT les
+        directions {3,1,5} de la table `CubeDirections..cctor @180e30ec0` (0=S 1=SE 2=NE 3=N 4=NW 5=SW) ;
+      - mow53 + `DevastatingRefrain_Attack` (1403, remaining 0).
+
+    `target_id` = id de TUILE. Flags de tour : defauts base -> termine le tour + ActiveAbilityUsed."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.DevastatingRefrain)   # 1188
+    ABILITY_ID = DEVASTATING_REFRAIN_ID
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        board = state.board
+        tile_id = target_id if (board is not None and target_id in board.by_id) else None
+        if tile_id is None:
+            return {"tile": None, "posed": [], "dsl": True}
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id)
+        side = IsPositionMachineForCurrentPlayer(MACHINE_POSITION_BOTTOM).should_trigger(entities)
+        devastating_refrain_tree(tile_id, side).execute(entities, ectx)
+        posed = [{"target": p["target"], "effect": p["effect_type"]}
+                 for n, p in ectx.emitted if n in ("AddEffect", "AddBondEffect")]
+        return {"tile": tile_id, "machineSide": side, "posed": posed, "dsl": True}

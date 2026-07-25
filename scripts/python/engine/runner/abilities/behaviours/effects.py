@@ -39,29 +39,46 @@ class AddBondEffect(AbilityBehaviour):
     `duration_rounds` = nb de rounds (`TurnsFromRounds(rounds)`) ; `None` = duree DEFAUT de l'effet
     (`DefaultAmountOfRounds`, mirror de l'arg natif duree-node ZERO d'`AddBondEffect` SANS `TurnsFromRounds`
     -- ex. ValkyrieStrike 1022 : arg7 = struct zero-initialise, PAS un `TurnsFromRounds(n)` explicite) vs
-    explicite (CrushingClaws Taunt / GetEmRuntz = `TurnsFromRounds(1)`). MEME semantique None que `AddEffect`."""
-    __slots__ = ("effect_type", "name", "source_ref", "target_ref", "duration_rounds")
+    explicite (CrushingClaws Taunt / GetEmRuntz = `TurnsFromRounds(1)`). MEME semantique None que `AddEffect`.
+    `duration_turns` = duree DEJA convertie en TOURS par l'appelant (`convert_rounds_to_turns`, mirror
+    `BattleQuery.ConvertRoundsToTurns @181058af0`) ; prioritaire sur `duration_rounds`. Cf. `AddEffect`.
+
+    Le natif ITERE son selecteur-cible (meme mold qu'`AddEffectBehaviour`) et ses cibles sont des ENTITES
+    (unites OU tuiles) : `MalleusRocketLauncherAbility.ExecuteBehaviour @1811f1d90` et
+    `DevastatingRefrainAbility.ExecuteBehaviour @1811d3730` bondent sur des TUILES. Le port itere donc
+    `_add_effect_targets` / `_add_effect_target_id` (les call-sites MONO-unite historiques — `Target()`,
+    `LastUnitAttackedBy(child)` — rendent 1 element -> chemin identique)."""
+    __slots__ = ("effect_type", "name", "source_ref", "target_ref", "duration_rounds", "duration_turns")
 
     def __init__(self, effect_type: int, name: str, source_ref: TargetsSelector, target_ref: TargetsSelector,
-                 duration_rounds=1):
+                 duration_rounds=1, duration_turns=None):
         self.effect_type, self.name = effect_type, name
         self.source_ref, self.target_ref = source_ref, target_ref
         self.duration_rounds = duration_rounds
+        self.duration_turns = duration_turns
 
     def execute(self, entities, ectx):
         from ...operations.effects import AddEffectOperation
+        state = ectx.state
         su = resolve_unit(self.source_ref, entities)
-        tu = resolve_unit(self.target_ref, entities)
         src = su.get("id") if su else None
-        tgt = tu.get("id") if tu else None
-        if src is None or tgt is None or ectx.state is None:
+        if src is None or state is None:
             return OperationResult.ok()
-        # duration_rounds None -> pas d'override = duree DEFAUT (DefaultAmountOfRounds), mirror de l'arg natif
-        # duree-node ZERO d'AddBondEffect sans TurnsFromRounds (ValkyrieStrike 1022) ; sinon TurnsFromRounds(rounds).
-        dur = turns_from_rounds(self.duration_rounds) if self.duration_rounds is not None else None
-        AddEffectOperation.execute(ectx.state, source=src, target=tgt, effect_type=self.effect_type,
-                                   name=self.name, duration_override=dur)
-        ectx.emit("AddBondEffect", source=src, target=tgt, effect_type=self.effect_type)
+        # duration_turns (deja converti) > duration_rounds (TurnsFromRounds) > None (= DefaultAmountOfRounds,
+        # mirror de l'arg natif duree-node ZERO d'AddBondEffect, ValkyrieStrike 1022).
+        if self.duration_turns is not None:
+            dur = int(self.duration_turns)
+        elif self.duration_rounds is not None:
+            dur = turns_from_rounds(self.duration_rounds)
+        else:
+            dur = None
+        for elem in _add_effect_targets(self.target_ref.evaluate(entities)):
+            tgt = _add_effect_target_id(elem, state)     # unit dict->id | (col,row)/int -> tile id
+            if tgt is None:
+                continue
+            AddEffectOperation.execute(state, source=src, target=tgt, effect_type=self.effect_type,
+                                       name=self.name, duration_override=dur)
+            ectx.emit("AddBondEffect", source=src, target=tgt, effect_type=self.effect_type)
         return OperationResult.ok()
 
 
@@ -116,6 +133,12 @@ class AddEffect(AbilityBehaviour):
     `duration_rounds` = nb de rounds (`TurnsFromRounds(rounds)`) ; `None` = duree DEFAUT de l'effet
     (`DefaultAmountOfRounds`, mirror de l'arg natif `0` d'`AddEffect` SANS `TurnsFromRounds` — ex. Pinned de
     CrushingClaws) vs explicite (ThunderousAssault Stunned = `TurnsFromRounds(1)`).
+    `duration_turns` = duree DEJA convertie en TOURS par l'appelant via `convert_rounds_to_turns(state,
+    rounds)` (mirror `BattleQuery.ConvertRoundsToTurns @181058af0` = `count(joueurs non-Environment) x
+    rounds`) ; PRIORITAIRE sur `duration_rounds`. Voie utilisee par les abilities MoW (#90), ou la
+    conversion n'est PAS l'identite (2 joueurs non-Environment -> `TurnsFromRounds(1)` = 2 tours, MESURE
+    live) ; les call-sites historiques gardent `duration_rounds` + le modele identite de
+    `turns_from_rounds` (cf. sa docstring).
 
     `level` = niveau de STACK initial (slot niveau de la struct d'options natives) — utilise par la branche
     AddEffect du lambda `AddEffectOrIncreaseLevel b__0 @180e25540` (la 1re pose demarre au niveau
@@ -125,13 +148,15 @@ class AddEffect(AbilityBehaviour):
     (defaut False = comportement historique) pour les effets dont la MAGNITUDE vient d'un ConfigVar
     (FleshmetalGuns 1067/1212/1221, TerrifyingCrescendo 1424).
     """
-    __slots__ = ("effect_type", "name", "target_sel", "duration_rounds", "level", "scale_from_source")
+    __slots__ = ("effect_type", "name", "target_sel", "duration_rounds", "level", "scale_from_source",
+                 "duration_turns")
 
     def __init__(self, effect_type: int, name: str, target_sel: TargetsSelector, duration_rounds=1,
-                 level=None, scale_from_source: bool = False):
+                 level=None, scale_from_source: bool = False, duration_turns=None):
         self.effect_type, self.name = effect_type, name
         self.target_sel, self.duration_rounds = target_sel, duration_rounds
         self.level, self.scale_from_source = level, scale_from_source
+        self.duration_turns = duration_turns
 
     def execute(self, entities, ectx):
         from ...operations.effects import AddEffectOperation
@@ -139,9 +164,15 @@ class AddEffect(AbilityBehaviour):
         src = (entities.caster or {}).get("id")               # AbilityStateReference = caster (source)
         if state is None or src is None:
             return OperationResult.ok()
-        # duration_rounds None -> pas d'override = duree DEFAUT (DefaultAmountOfRounds), mirror de l'arg natif
-        # `0` d'AddEffect sans TurnsFromRounds (Pinned CrushingClaws) ; sinon TurnsFromRounds(rounds).
-        dur = turns_from_rounds(self.duration_rounds) if self.duration_rounds is not None else None
+        # duration_turns (deja converti par l'appelant) > duration_rounds (TurnsFromRounds) > None
+        # (pas d'override = duree DEFAUT `DefaultAmountOfRounds`, mirror de l'arg natif `0` d'AddEffect
+        # sans TurnsFromRounds -- Pinned CrushingClaws).
+        if self.duration_turns is not None:
+            dur = int(self.duration_turns)
+        elif self.duration_rounds is not None:
+            dur = turns_from_rounds(self.duration_rounds)
+        else:
+            dur = None
         lvl = (self.level.evaluate(entities) if hasattr(self.level, "evaluate")
                else self.level)
         mult, ab_lvl, act_lvl = (_source_scaling(state, src) if self.scale_from_source

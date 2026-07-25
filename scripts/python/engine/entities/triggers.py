@@ -211,6 +211,32 @@ class IsDead(AbilityTrigger):
         return not any(_is_alive(u) for u in _units_of(self.unit, ctx))
 
 
+class IsPositionMachineForCurrentPlayer(AbilityTrigger):
+    """`DSLFactory.IsPositionMachineForCurrentPlayer @180df4d10` -> `IsPositionMachineForPlayerTrigger
+    .ShouldTrigger @180fa3520` :
+
+        turn   = state.GetMatchTurn() ; player = state.GetPlayer(turn.CurrentPlayerId)
+        if (player == null) return false
+        return battleQuery.<MachineOfWarPosition>(player) == this.Position (@+0x20)
+
+    -> « le SLOT de deploiement (`MachineOfWarPosition` : 1=Top, 2=Bottom) de la MoW du joueur COURANT
+    vaut-il `position` ? ». Note : c'est le joueur COURANT du tour, PAS le caster (le natif lit
+    `TurnComponent.CurrentPlayerId`). Consomme par les abilities MoW dont la GEOMETRIE depend du cote du
+    plateau : `MacroPlasmaIncineratorAbility.ExecuteBehaviour @1811f1910`
+    (`If(this, Direct(1), Direct(4))` = coin du triangle) et `DevastatingRefrainAbility.ExecuteBehaviour
+    @1811d3730` / `GetShape @1811d3960` (choix du triplet de directions).
+
+    `ctx.current_player_machine_position` (pose par `entities_from_state` : le slot de la
+    `MachineComponent` dont l'`OwnerComponent.player` == `state.current_player_id`) ; None (le joueur
+    courant n'a pas de MoW) -> False, mirror du `if (player == null) return false`."""
+    def __init__(self, position: int):
+        self.position = int(position)
+
+    def should_trigger(self, ctx):
+        pos = ctx.current_player_machine_position
+        return pos is not None and int(pos) == self.position
+
+
 class IsMeleeAttack(AbilityTrigger):
     """`DSLFactory.IsMeleeAttack @180df43f0` → `@180fa1e00` : l'ABILITY COURANTE est-elle une attaque de
     mêlée ? (type de timeline de l'ability, donnée statique gameconfig). `ctx.attack_kind == 'melee'`

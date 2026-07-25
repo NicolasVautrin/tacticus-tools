@@ -19,11 +19,13 @@ from ..components import (PositionComponent, StatsComponent, UnitComponent,
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.active_ability_type import ActiveAbilityType
-from ...entities.behaviours import AtomicGroup
+from ...entities.behaviours import AtomicGroup, Inform, op_add
+from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
 from ...entities.selectors import (ActiveTarget, AdjacentTiles, CanAddUnit, Caster, CasterTile,
                                    FixedTileIds, SurroundingFriends, Target, UnitsWithIds)
-from .behaviours import Spawn, PerformAIAction, UseActiveAbility, entities_from_state
+from .behaviours import (AddBondEffect, AddEffect, Spawn, PerformAIAction, UseActiveAbility,
+                         entities_from_state)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -283,3 +285,83 @@ class SendInTheNextWaveAbility(ActiveAbility):
         spawned = [p["unit"] for nm, p in ectx.emitted if nm == "SpawnUnit"]
         attacks = [p for nm, p in ectx.emitted if nm == "UseActiveAbility"]
         return {"spawned": spawned, "attacks": attacks, "count": n, "tiles": tiles, "dsl": True}
+
+
+# =================================================================================================== #
+# MalleusRocketLauncher (1142, `astraOrdnanceBattery` -- Ordnance Battery, MachineOfWar) -- lot #90-B
+# Patron « pose d'effet(s) seule » : le CAST ne fait que MARQUER la tuile ciblee (3 effets), aucune
+# attaque immediate ; le barrage vient de la phase 2 (`MalleusRocketLauncher_AttackAbility`), NON portee.
+# =================================================================================================== #
+
+MALLEUS_ID = "MalleusRocketLauncher"
+MALLEUS_BOND = int(EffectType.MalleusRocketLauncher)                  # 0x51c = 1308
+MALLEUS_PENDING_TARGET = int(EffectType.MalleusRocketLauncher_PendingTarget)   # 0x51d = 1309
+MALLEUS_SPOTTED_TARGET = int(EffectType.MalleusRocketLauncher_SpottedTarget)   # 0x51e = 1310
+# `DSLFactory.Inform(dict{0x9a: UnitsTeamId(owner@0x148)})` @1811f1d90 : cle de message 0x9a = 154.
+MALLEUS_INFORM_MESSAGE = 0x9a
+
+
+def malleus_rocket_launcher_tree(target_tile_id: int):
+    """Arbre de `MalleusRocketLauncherAbility.ExecuteBehaviour @1811f1d90` -- MIRROR 1:1 du DECOMPILE :
+
+        bond   = AddBondEffect(0x51c=1308 MalleusRocketLauncher, absRef, source=owner@0x148,
+                               targets=target@0x178, bond=owner@0x148, opts=0)
+        inform = Inform( { 0x9a : UnitsTeamId(owner@0x148) } )
+        pend   = AddEffect(0x51d=1309 MalleusRocketLauncher_PendingTarget, absRef,
+                           source=owner@0x148, targets=target@0x178, opts=0)
+        spot   = AddEffect(0x51e=1310 MalleusRocketLauncher_SpottedTarget, absRef,
+                           source=owner@0x148, targets=target@0x178, opts=0)
+        Execute( ((inform + bond) + pend) + spot )
+
+    (`op_Addition` x3, `AActiveAbility.Execute`.) Les TROIS effets se posent sur la MEME entite = la
+    TUILE ciblee (cast tile-target) ; les options-structs sont ZERO -> duree `DefaultAmountOfRounds`
+    (1308/1309/1310 hors table @181559ff0 -> `remaining = 0` = permanent, CONFIRME live).
+
+    `Inform` = notification du bus de messages natif (charge utile = l'id d'equipe de l'owner) :
+    AUCUNE mutation d'etat -> no-op cote runner (cf. `entities/behaviours.py::Inform`), present pour le
+    mirror structurel de l'arbre."""
+    tgt = FixedTileIds([target_tile_id])
+    inform = Inform(MALLEUS_INFORM_MESSAGE)
+    bond = AddBondEffect(MALLEUS_BOND, EffectType.MalleusRocketLauncher.name,
+                         Caster(), tgt, duration_rounds=None)
+    pend = AddEffect(MALLEUS_PENDING_TARGET, EffectType.MalleusRocketLauncher_PendingTarget.name,
+                     tgt, duration_rounds=None)
+    spot = AddEffect(MALLEUS_SPOTTED_TARGET, EffectType.MalleusRocketLauncher_SpottedTarget.name,
+                     tgt, duration_rounds=None)
+    return op_add(op_add(op_add(inform, bond), pend), spot)
+
+
+class MalleusRocketLauncherAbility(ActiveAbility):
+    """`MalleusRocketLauncherAbility.ExecuteBehaviour @1811f1d90` (id 1142, `astraOrdnanceBattery` --
+    Ordnance Battery, Astra Militarum, MachineOfWar). Cast TILE-TARGET (`abilityTargets` kind="tile").
+
+    RE (ghidra gqfc5mff6c) :
+    - `ExecuteBehaviour @1811f1d90` : cf. `malleus_rocket_launcher_tree` (1 `AddBondEffect` + 1 `Inform`
+      + 2 `AddEffect`, zero attaque).
+    - `.ctor @1811f20f0` ; `GetAdditionalTargets @1811f20b0` (preview/playbook).
+    - PHASE 2 (NON PORTEE) : `MalleusRocketLauncher_AttackAbility.GetTargetTiles @181222aa0` +
+      `CreateBehaviour @1812226b0` (le barrage differe, `nrOfProjectiles`/`nrOfProjectiles_2`/`_3`,
+      `damageProfile=Blast`), et les effets `MalleusRocketLauncherEffect .ctor @180f57ed0` /
+      `MalleusRocketLauncher_SpottedTargetEffect .ctor @180f58120` (+ `CreateTargetSelector @180f57f80`).
+
+    OBSERVABLE DU CAST (mesure live, runner MoW C1_02, caster 53, cible = tuile (0,0)) : la tuile (0,0)
+    porte les TROIS effets `MalleusRocketLauncher` (1308), `_PendingTarget` (1309), `_SpottedTarget`
+    (1310), tous `source 53, remaining 0, level 1`. AUCUN effet sur la MoW, AUCUN degat.
+
+    `target_id` = id de TUILE. Flags de tour : defauts base -> termine le tour + ActiveAbilityUsed."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.MalleusRocketLauncher)   # 1142
+    ABILITY_ID = MALLEUS_ID
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        board = state.board
+        tile_id = target_id if (board is not None and target_id in board.by_id) else None
+        if tile_id is None:
+            return {"tile": None, "posed": [], "dsl": True}
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id)
+        malleus_rocket_launcher_tree(tile_id).execute(entities, ectx)
+        posed = [{"target": p["target"], "effect": p["effect_type"]}
+                 for nm, p in ectx.emitted if nm in ("AddEffect", "AddBondEffect")]
+        return {"tile": tile_id, "posed": posed, "dsl": True}

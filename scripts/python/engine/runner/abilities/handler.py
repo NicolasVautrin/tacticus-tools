@@ -22,19 +22,22 @@ from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
 from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility, VigilanceEternalAbility
 from .deathguard import RevitalizingMalignancyAbility, FlailSwingAbility, SpawnPoxwalkersAbility
 from .blacklegion import BringerOfDespairAbility, IncursionAbility
-from .orks import WaaaghAbility
+from .orks import WaaaghAbility, SquigMineAbility
 from .darkangels import PlasmaCannonAbility
-from .ultramarines import CombatRestorativesAbility, MortisRoundAbility, DeathFromAboveAbility
+from .ultramarines import (CombatRestorativesAbility, MortisRoundAbility, DeathFromAboveAbility,
+                           MacroPlasmaIncineratorAbility)
 from .bloodangels import SavageEchoesAbility
 from .necrons import HarbingerOfDestructionAbility
-from .sisterhood import SanctorumMissileAbility, SkyStrikeAbility
+from .sisterhood import SanctorumMissileAbility, SkyStrikeAbility, DevastatingRefrainAbility
+from .tau import HeavyRailRifleAbility
 from .votann import IronkinSteeljackAbility
 from .aeldari import ExecutionerAbility, HarvesterOfSoulsAbility
 from .spacewolves import GreatFrostAxeAbility
 from .tyranids import SporeMineLauncherAbility, AlphaWarriorAbility
 from .worldeaters import JakhalStimmsAbility
 from .admec import SentinelDirectivesAbility
-from .astramilitarum import SupremeCommanderAbility, SendInTheNextWaveAbility
+from .astramilitarum import (SupremeCommanderAbility, SendInTheNextWaveAbility,
+                             MalleusRocketLauncherAbility)
 
 # Registre ActiveAbilityType (int) -> classe d'ability portée. À ÉTENDRE au roster.
 ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
@@ -86,6 +89,15 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     SendInTheNextWaveAbility.ABILITY_TYPE: SendInTheNextWaveAbility,   # 1016 (astraYarrick AstraMilitarum : Spawn(min(nrOfSummons + allies morts, maxSummons[level]) Cadians sur tuiles libres <=2 hex de la cible, priorite AttackTilesForTarget) + on-appearance UseNormalAttackIfAble(cible) — case-220 P0-SUMMON, tache #94)
     IncursionAbility.ABILITY_TYPE: IncursionAbility,                   # 1021 (blackPossession BlackLegion : ChainBehaviour <=maxSummons=6 iterations, 1 Bloodletter/iteration sur hex libre adjacent a la cible, arret si cible morte/hors portee + on-appearance UseNormalAttackIfAble(cible) — case-220 P0-SUMMON, tache #94)
     SpawnPoxwalkersAbility.ABILITY_TYPE: SpawnPoxwalkersAbility,       # 1040 (deathBlightbringer DeathGuard : self-cast, ceil(rand(n*chance, n*chance_2)/100) Poxwalkers sur hex libres rayon CalculateRange(TurnsStarted)=1/2/3 + on-appearance PerformAIAttackFromCurrentPosition — case-220 P0-SUMMON, tache #94)
+    # --- Lot #90-B : abilities de MACHINE OF WAR au patron « POSE D'EFFET(S) SEULE » (le behaviour de
+    # cast n'est qu'un arbre d'`AddEffect`/`AddBondEffect` : aucune attaque, aucun spawn, aucune stat).
+    # Le degat vit dans la PHASE 2 (l'ability TRIGGERED portee par l'effet), hors de ces ports.
+    # cf. docs/rl/case-90-mow-effect-posers.md.
+    HeavyRailRifleAbility.ABILITY_TYPE: HeavyRailRifleAbility,         # 1160 (tauBroadside Tau MoW : AddEffect(1334 PendingTarget -> cible) & AddEffect(1333 PendingAttack -> la MoW) ; unit-target)
+    MacroPlasmaIncineratorAbility.ABILITY_TYPE: MacroPlasmaIncineratorAbility,  # 1159 (ultraDreadnought Ultramarines MoW : AddEffect(1335 Tile -> triangle Walkable/SameElevation autour de la tuile ciblee) & AddEffect(1336 AutoAttack -> la MoW), TurnsFromRounds(1) ; tile-target)
+    DevastatingRefrainAbility.ABILITY_TYPE: DevastatingRefrainAbility,  # 1188 (adeptExorcist Sisterhood MoW : AddEffect(1403 Attack -> la MoW) + AddBondEffect(1402 Target -> tuile ciblee + 3 voisines {3,1,5}/{0,2,4} selon le cote) ; tile-target)
+    SquigMineAbility.ABILITY_TYPE: SquigMineAbility,                   # 1201 (orksRukkatrukk Orks MoW : AddEffect(1441 SquigMine_Tile -> tuile ciblee + PickRandomly(nrOfTiles) dans le disque range=2 libre/sans-mine), TurnsFromRounds(nrOfRounds) ; tile-target)
+    MalleusRocketLauncherAbility.ABILITY_TYPE: MalleusRocketLauncherAbility,  # 1142 (astraOrdnanceBattery AstraMilitarum MoW : Inform + AddBondEffect(1308) + AddEffect(1309 PendingTarget) + AddEffect(1310 SpottedTarget), tous sur la TUILE ciblee ; tile-target)
 }
 
 
