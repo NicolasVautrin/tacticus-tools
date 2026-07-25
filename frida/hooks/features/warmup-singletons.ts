@@ -242,7 +242,7 @@ interface WarmupResult {
 // --- Orchestration ---
 
 async function warmupGameSingletons(
-    opts?: { force?: boolean },
+    opts?: { force?: boolean; stopAfterCapture?: boolean },
 ): Promise<WarmupResult> {
     // 0. Idempotence: if a previous session already captured it, no-op.
     //    Pass { force: true } to skip this short-circuit (useful for
@@ -391,6 +391,32 @@ async function warmupGameSingletons(
     });
     log(`[warmup-singletons] CGMS captured @ ${captured}`);
 
+    // 5bis. `stopAfterCapture` — SORTIE ICI, avant toute transition d'ecran.
+    //
+    // Le but du warmup est ATTEINT a cette ligne : la capture est faite, le builder est arme,
+    // les runners isoles sont utilisables. Tout ce qui suit (pause -> retreat -> confirm ->
+    // retour campagne) n'est que du MENAGE d'ecran — et c'est precisement la ou le cycle
+    // wedge : `wait-back-to-campaign` echoue (campagne qui ne remonte pas en 45 s), l'UI
+    // reste morte, et `navToCampaign` ne rattrape pas (« no live IdunNavigation instance »).
+    // Observe le 2026-07-22 (3 fois, la game mourait ensuite) et le 2026-07-25 (la game
+    // survit depuis `runtime/freeze-detector.ts`, mais l'UI reste figee).
+    //
+    // Avec cette option on ne NEGOCIE AUCUNE transition, donc il n'y a rien a wedger. Le prix :
+    // le jeu reste sur l'ecran de bataille de warmup, en phase de deploiement. Acceptable —
+    // les runners isoles ne consomment pas l'ecran campagne (cf. `runner.md`).
+    //
+    // NON active par defaut : le comportement historique (ecran rendu propre) reste celui des
+    // appelants existants. A basculer en defaut si le wedge se confirme comme la norme.
+    if (opts?.stopAfterCapture) {
+        steps.push({
+            step: "stop-after-capture", ok: true,
+            info: "menage d'ecran saute (pause/retreat/retour campagne) — aucune transition",
+        });
+        log("[warmup-singletons] stopAfterCapture — cycle arrete apres la capture, "
+            + "le jeu reste sur l'ecran de bataille");
+        return { ok: true, capturedAt: captured.toString(), steps };
+    }
+
     // 6. Wait for the deployment phase to be FULLY stable before pausing.
     //    PauseButton alone mounts way too early (with the HUD canvas, while
     //    the scene is still loading). Retreating then leaves Unity in a
@@ -470,7 +496,7 @@ async function warmupGameSingletons(
 
 export function register(ctx: Ctx): void {
     ctx.rpc.warmupGameSingletons = (
-        opts?: { force?: boolean },
+        opts?: { force?: boolean; stopAfterCapture?: boolean },
     ) => warmupGameSingletons(opts);
     // Recovery lever: force the game's OWN navigation back to the campaign
     // screen (same IL2CPP invoke the warmup nav uses, animated=false). Unsticks
