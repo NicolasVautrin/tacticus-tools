@@ -88,13 +88,18 @@ def _arcaneshield_grant(state: State, owner_id: int) -> Optional[dict]:
     if state.get_entity(target) is None:
         return None
     ectx = ExecutionContext(state=state, rng=state.rng)
-    CreateShield(Target(), amount, duration=1, source="ArcaneShield").execute(   # TurnsFromRounds(1)
+    # #98 : le 4e arg natif est `TurnsFromRounds(1)` (CreateBehaviour @180e16b40) -> la duree du
+    # BOUCLIER passe elle aussi par `BattleQuery.ConvertRoundsToTurns @181058af0`. Le decay est
+    # `RemoveOneTurnOnShields @180e6c4e0` (1 par EndTurn) = MEME cadence que le tick d'effets.
+    from ....abilities.base import convert_rounds_to_turns
+    dur = convert_rounds_to_turns(state, 1)
+    CreateShield(Target(), amount, duration=dur, source="ArcaneShield").execute(  # TurnsFromRounds(1)
         entities_from_state(state, owner_id, target), ectx)
     p = next((p for (n, p) in ectx.emitted if n == "CreateShield"), None)
     if p is None:
         return None
     return {"ability": "ArcaneShield", "owner": owner_id, "target": target, "amount": amount,
-            "remaining": 1, "shield_total": p.get("shield_total")}
+            "remaining": dur, "shield_total": p.get("shield_total")}
 
 
 class ArcaneShieldAbility(TriggeredAbility):

@@ -105,8 +105,16 @@ class AddEffectOperation:
             return None
         # GATE immunité : IsUnit(target) && HasFlag(target,6). Non sourçable offline (flags d'unité non
         # exposés par l'ECS) → TODO ; structure conservée pour quand les flags seront portés.
-        # DURÉE : override (builder, `param_6` NullableA) sinon `DefaultAmountOfRounds(type)` converti
-        # rounds→turns ; si les DEUX sont absents → **AUCUNE durée = PERMANENT** (`lVar14 = 0` du natif,
+        # DURÉE — mirror EXACT de la cascade @180e48940 (lVar14) :
+        #   1. `param_6.NullableA.HasValue`  -> la valeur TELLE QUELLE (l'appelant l'a deja convertie ;
+        #      c'est `duration_override` ici, exprime en TOURS) ;
+        #   2. sinon `DefaultAmountOfRounds(type).HasValue` -> `BattleQuery.ConvertRoundsToTurns(rounds)`
+        #      (slot d'interface 0x1b, `FUN_180003b40(0x1b, …, battleQuery, rounds)` du decompile) ;
+        #   3. sinon 0 = PERMANENT.
+        # La CONVERSION ne porte QUE sur la branche 2 (#98) : c'est litteralement ce que fait le natif.
+        # MESURE live PRE-tick (2 unites/camp) : `Pinned 1065` (DefaultAmountOfRounds=1) = remaining 2,
+        # `Contaminated 1244` (=2 rounds) = remaining 4 -> facteur = count(joueurs non-Environment) = 2.
+        # si les DEUX sont absents → **AUCUNE durée = PERMANENT** (`lVar14 = 0` du natif,
         # observable `remaining = 0`). ⚠ CORRIGÉ : l'ancien fallback `1` faisait EXPIRER au 1er tick tout
         # effet posé sans durée et hors table — GROUND TRUTH LIVE (runner 1181, decisionView.effects) :
         # `MasterAnnihilator_extraHit` posé par l'attaque native de Vitruvius = `remaining 0, level 1`
@@ -117,7 +125,10 @@ class AddEffectOperation:
         # `remaining = 0` → `EffectFactory.create` mappe rem<=0 → None = permanent (retrait par TRIGGER).
         duration = duration_override
         if duration is None:
-            duration = default_amount_of_rounds(effect_type)
+            rounds = default_amount_of_rounds(effect_type)
+            if rounds is not None:
+                from ..abilities.base import convert_rounds_to_turns   # lazy : evite le cycle d'import
+                duration = convert_rounds_to_turns(state, rounds)
         if duration is None:
             duration = 0                       # pas de timer -> permanent (mirror `lVar14 = 0`)
         # NIVEAU : `param_6` NullableB sinon **1** (`local_588[0] = 1` @180e48940) -> `EffectComponent.Level`.

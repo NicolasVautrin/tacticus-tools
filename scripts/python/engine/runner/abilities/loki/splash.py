@@ -77,7 +77,8 @@ def crushing_claws_tree() -> AtomicGroup:
     CONSTRUCTION (memes Operations/args/state.rng que l'imperatif). L'imperatif `CrushingClawsAbility.
     execute_behaviour` est REMPLACE par l'execution de l'arbre."""
     tgt = Target()
-    taunt = AddBondEffect(TAUNTED, "Taunted_OnlySpecificTargets", Caster(), tgt, 1)   # AddBondEffect(0x1b)
+    # duree = `TurnsFromRounds(1)` natif (@1811cd5e0) -> convertie par `ConvertRoundsToTurns` @181058af0 (#98)
+    taunt = AddBondEffect(TAUNTED, "Taunted_OnlySpecificTargets", Caster(), tgt, duration_rounds=1)
     pin = AddEffect(PINNED, "Pinned", tgt, None)                                       # AddEffect(0x429), duree DEFAUT
     main = AttackWithAttackDamage(tgt, "CrushingClaws", "Piercing", is_melee=True)    # MinMaxDamage/Piercing/0x2f=2
     splash = UnitsWithoutTrait(
@@ -619,3 +620,4 @@ class GauntletsOfUltramarAbility(ActiveAbility):
                 for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
         return {"ability": "GauntletsOfUltramar", "caster": caster_id, "target": target_id,
                 "attacks": atks, "dsl": True}
+

@@ -143,9 +143,14 @@ class ContaminatedTileEffect(TileEffectTrigger):
             if armor > 0:
                 val = -round(armor * CONTAMINATED_ARMOR_REDUCTION_PCT / 100)
         from ..effects import AddEffectOperation            # lazy : évite le cycle triggers<->effects
+        from ...abilities.base import convert_rounds_to_turns
+        # #98 : `ContaminatedEffect.AddEffectBehavior @180f39e30` = `AddDynamicStatModifierEffect(sel,
+        # 0x4dd, 0x10, **TurnsFromRounds(1)**)` -> la duree passe par `BattleQuery.ConvertRoundsToTurns`
+        # @181058af0 (le port envoyait 1 TOUR en dur, soit la moitie dans un duel a 2 joueurs).
         eff = AddEffectOperation.execute(
             state, source=self.owner_id, target=uid, effect_type=CONTAMINATED_UNIT,
-            name="Contaminated_Unit", duration_override=1, value=val)  # #132 : -pct% FixedArmor (BC Effect config)
+            name="Contaminated_Unit", duration_override=convert_rounds_to_turns(state, 1),
+            value=val)                                       # #132 : -pct% FixedArmor (BC Effect config)
         if eff is None:
             return None
         return {"tile_effect": "Contaminated", "tile": self.owner_id, "unit": uid,

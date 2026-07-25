@@ -7,7 +7,25 @@ from __future__ import annotations
 
 from ....dsl.base import TargetsSelector, resolve_unit, _units_of
 from ....dsl.effects import AbilityBehaviour, OperationResult
-from ..base import turns_from_rounds
+from ..base import convert_rounds_to_turns
+
+
+def _resolve_duration(state, duration_rounds, duration_turns):
+    """Unite de la duree passee a `AddEffectOperation` (`param_6.NullableA` natif, en TOURS) :
+
+      * `duration_turns` (prioritaire) = duree DEJA en tours -- mirror d'un noeud `Direct(n)@0xc0` ou
+        d'un `Nullable<int>(n)` litteral cote natif : le decompile la met telle quelle dans `param_6`,
+        `AddEffectOperation.Execute @180e48940` ne la convertit PAS.
+      * `duration_rounds` = un noeud `TurnsFromRounds(n)` natif -> `convert_rounds_to_turns(state, n)`
+        (`BattleQuery.ConvertRoundsToTurns @181058af0`).
+      * `None` des deux -> pas d'override : la duree vient de `DefaultAmountOfRounds`, convertie DANS
+        `AddEffectOperation` (mirror de la branche « pas d'override » du decompile).
+    """
+    if duration_turns is not None:
+        return int(duration_turns)
+    if duration_rounds is not None:
+        return convert_rounds_to_turns(state, duration_rounds)
+    return None
 
 
 def _source_scaling(state, source_id):
@@ -40,8 +58,8 @@ class AddBondEffect(AbilityBehaviour):
     (`DefaultAmountOfRounds`, mirror de l'arg natif duree-node ZERO d'`AddBondEffect` SANS `TurnsFromRounds`
     -- ex. ValkyrieStrike 1022 : arg7 = struct zero-initialise, PAS un `TurnsFromRounds(n)` explicite) vs
     explicite (CrushingClaws Taunt / GetEmRuntz = `TurnsFromRounds(1)`). MEME semantique None que `AddEffect`.
-    `duration_turns` = duree DEJA convertie en TOURS par l'appelant (`convert_rounds_to_turns`, mirror
-    `BattleQuery.ConvertRoundsToTurns @181058af0`) ; prioritaire sur `duration_rounds`. Cf. `AddEffect`.
+    `duration_turns` = duree deja en TOURS (noeud `Direct(n)`/`Nullable(n)` natif, NON converti) ;
+    prioritaire sur `duration_rounds`. Cf. `_resolve_duration` et `AddEffect`.
 
     Le natif ITERE son selecteur-cible (meme mold qu'`AddEffectBehaviour`) et ses cibles sont des ENTITES
     (unites OU tuiles) : `MalleusRocketLauncherAbility.ExecuteBehaviour @1811f1d90` et
@@ -64,14 +82,11 @@ class AddBondEffect(AbilityBehaviour):
         src = su.get("id") if su else None
         if src is None or state is None:
             return OperationResult.ok()
-        # duration_turns (deja converti) > duration_rounds (TurnsFromRounds) > None (= DefaultAmountOfRounds,
-        # mirror de l'arg natif duree-node ZERO d'AddBondEffect, ValkyrieStrike 1022).
-        if self.duration_turns is not None:
-            dur = int(self.duration_turns)
-        elif self.duration_rounds is not None:
-            dur = turns_from_rounds(self.duration_rounds)
-        else:
-            dur = None
+        # duration_rounds None -> pas d'override = duree DEFAUT (DefaultAmountOfRounds), mirror de l'arg natif
+        # duree-node ZERO d'AddBondEffect sans TurnsFromRounds (ValkyrieStrike 1022) ; sinon
+        # `ConvertRoundsToTurns(rounds)` @181058af0 (mirror du noeud `TurnsFromRounds`). `duration_turns`
+        # (noeud Direct(n)/Nullable(n), deja en TOURS) est prioritaire et N'EST PAS converti.
+        dur = _resolve_duration(state, self.duration_rounds, self.duration_turns)
         for elem in _add_effect_targets(self.target_ref.evaluate(entities)):
             tgt = _add_effect_target_id(elem, state)     # unit dict->id | (col,row)/int -> tile id
             if tgt is None:
@@ -133,12 +148,8 @@ class AddEffect(AbilityBehaviour):
     `duration_rounds` = nb de rounds (`TurnsFromRounds(rounds)`) ; `None` = duree DEFAUT de l'effet
     (`DefaultAmountOfRounds`, mirror de l'arg natif `0` d'`AddEffect` SANS `TurnsFromRounds` — ex. Pinned de
     CrushingClaws) vs explicite (ThunderousAssault Stunned = `TurnsFromRounds(1)`).
-    `duration_turns` = duree DEJA convertie en TOURS par l'appelant via `convert_rounds_to_turns(state,
-    rounds)` (mirror `BattleQuery.ConvertRoundsToTurns @181058af0` = `count(joueurs non-Environment) x
-    rounds`) ; PRIORITAIRE sur `duration_rounds`. Voie utilisee par les abilities MoW (#90), ou la
-    conversion n'est PAS l'identite (2 joueurs non-Environment -> `TurnsFromRounds(1)` = 2 tours, MESURE
-    live) ; les call-sites historiques gardent `duration_rounds` + le modele identite de
-    `turns_from_rounds` (cf. sa docstring).
+    `duration_turns` = duree deja en TOURS (le natif passe un noeud `Direct(n)@0xc0` ou un `Nullable<int>(n)`
+    litteral, PAS un `TurnsFromRounds`) — PRIORITAIRE sur `duration_rounds`, cf. `_resolve_duration`.
 
     `level` = niveau de STACK initial (slot niveau de la struct d'options natives) — utilise par la branche
     AddEffect du lambda `AddEffectOrIncreaseLevel b__0 @180e25540` (la 1re pose demarre au niveau
@@ -164,15 +175,10 @@ class AddEffect(AbilityBehaviour):
         src = (entities.caster or {}).get("id")               # AbilityStateReference = caster (source)
         if state is None or src is None:
             return OperationResult.ok()
-        # duration_turns (deja converti par l'appelant) > duration_rounds (TurnsFromRounds) > None
-        # (pas d'override = duree DEFAUT `DefaultAmountOfRounds`, mirror de l'arg natif `0` d'AddEffect
-        # sans TurnsFromRounds -- Pinned CrushingClaws).
-        if self.duration_turns is not None:
-            dur = int(self.duration_turns)
-        elif self.duration_rounds is not None:
-            dur = turns_from_rounds(self.duration_rounds)
-        else:
-            dur = None
+        # duration_rounds None -> pas d'override = duree DEFAUT (DefaultAmountOfRounds), mirror de l'arg natif
+        # `0` d'AddEffect sans TurnsFromRounds (Pinned CrushingClaws) ; sinon `ConvertRoundsToTurns(rounds)`
+        # @181058af0. `duration_turns` court-circuite (noeud Direct/Nullable natif, deja en TOURS).
+        dur = _resolve_duration(state, self.duration_rounds, self.duration_turns)
         lvl = (self.level.evaluate(entities) if hasattr(self.level, "evaluate")
                else self.level)
         mult, ab_lvl, act_lvl = (_source_scaling(state, src) if self.scale_from_source

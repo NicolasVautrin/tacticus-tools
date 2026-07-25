@@ -89,13 +89,12 @@ class FireTileDoT(TileEffectTrigger):
     le non-perce). `Direct(3)` = pas de crit/block/spread. fireDmgPct tire de globalValues (ConfigConst 0x12,
     NON hardcode). Decay via on_turn_end. Mort routee par `_fire_death_if_killed` (source = la tuile).
 
-    DUREE (RE #174 RESOLU 2026-07-14) : `DefaultAmountOfRounds(5)` = 2 ROUNDS ; le natif stocke
-    `ConvertRoundsToTurns(2)` @181058af0 = `count(joueurs du turnOrder, PlayerType != 2) x 2` TURNS (RE :
-    PlayerType@+0x20 = config statique, Env=2 exclu -> count = CONSTANTE de bataille). Dans NOS runners 1v1,
-    `count = 1` -- PROUVE par le test committe test_effect_stun_live (Stunned DefaultAmountOfRounds=1 ->
-    convert(1) = live_remaining = 1). count etant constant, le feu = 2 turns = `remaining=2` du port -> CORRECT.
-    L'ancre `Effect_RemainingTurns=4` venait d'une bataille count=2 (arene MoW), NON simulee par le port ; le
-    ~2x n'est LATENT que pour count>=2 (fix futur = `convert_rounds_to_turns(state, rounds)` runtime, cf. #174).
+    DUREE (#98, corrige) : `DefaultAmountOfRounds(5)` = 2 ROUNDS ; le natif stocke
+    `ConvertRoundsToTurns(2)` @181058af0 = `count(joueurs du turnOrder, PlayerType != 2) x 2` TURNS.
+    Ce count vaut **2** dans un duel standard (BC : Players 11/12/13 = PlayerType 0/1/2,
+    `Player.TurnOrder=[11,12,13]`) -> le feu dure **4 tours**, et l'ancre `Effect_RemainingTurns=4` est
+    la valeur NORMALE, pas un cas d'arene. L'ancienne lecture « count = 1, prouve par test_effect_stun_
+    live » etait un ARTEFACT DE MESURE (lecture POST-tick en 1v1 strict, cf. `convert_rounds_to_turns`).
 
     GATE IMMUNITE feu (`UnitsWithoutTraits([0x1b=27=Steppable, 0x19=25=Immune])` @18121e040) PORTE : le DoT
     EXCLUT les occupants portant `Steppable` (tokens marchables) ou `Immune` (cf. `_is_immune_to_fire`) —
@@ -145,7 +144,12 @@ def on_fire_damage_tree(fire_effect_type: int):
     (`DamageProfileHasTrait(OnFire)` + `NOT TriggeringEffectIs(5)`, CreateTrigger @1811c3ae0) reste UPSTREAM
     (hors CreateBehaviour) dans `_on_fire_damage_ability`. RNG-free (AddEffect inconditionnel).
     `fire_effect_type` = passe par l'appelant (constante `FIRE_TILE`) pour eviter tout couplage d'import."""
-    return AddEffect(fire_effect_type, "Fire", Tiles(Target()))
+    # #98 : le decompile @1811c3a60 appelle la surcharge a 4 args `AddEffect(factory, 5, stateRef,
+    # Tiles(target))` -- AUCUN noeud duree -> duree PAR DEFAUT (`DefaultAmountOfRounds(5) = 2 rounds`,
+    # converti par `AddEffectOperation`). Le port passait le defaut positionnel `duration_rounds=1`,
+    # qui ECRASAIT la duree par defaut (feu a 1 tour) et divergeait de l'AUTRE chemin de pose du MEME
+    # effet (`SetOnFire` de FireOfAbsolution, qui n'override rien). Corrige : `duration_rounds=None`.
+    return AddEffect(fire_effect_type, "Fire", Tiles(Target()), duration_rounds=None)
 
 
 def _on_fire_damage_ability(state: State, attacker_id: int, target_id: int,

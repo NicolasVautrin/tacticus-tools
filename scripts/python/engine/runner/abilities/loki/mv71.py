@@ -46,7 +46,7 @@ from typing import Optional, TYPE_CHECKING
 import gameconfig as GC
 import hexgeo
 
-from ..base import ActiveAbility, turns_from_rounds
+from ..base import ActiveAbility, convert_rounds_to_turns
 from ...components import (StatsComponent, OwnerComponent, PositionComponent, UnitComponent,
                            HealthComponent)
 from ...operations.damage import AttackDamageOperation
@@ -489,9 +489,11 @@ class MV71SniperDroneSquadAttackAbility(ActiveAbility):
 
         # (e) Markerlight sur la CIBLE, durée Sum(TurnsFromRounds(1), Direct(1)) = fin du prochain
         # tour du caster (identique StructuralAnalyser @1811a2a00).
+        # #98 : `Sum(TurnsFromRounds(1), Direct(1))` -> SEUL le terme `TurnsFromRounds` passe par
+        # `BattleQuery.ConvertRoundsToTurns @181058af0` ; le `Direct(1)` est deja en TOURS.
         ml = AddEffectOperation.execute(state, source=caster_id, target=target_id,
                                         effect_type=MARKERLIGHT, name="Markerlight",
-                                        duration_override=turns_from_rounds(1) + 1)
+                                        duration_override=convert_rounds_to_turns(state, 1) + 1)
         return {"melee": False, "tile": (tinfo.get("col"), tinfo.get("row")), "spawned": [drone_id],
                 "evicted": evicted, "attack": atk, "markerlight": ml is not None,
                 "overrides_applied": bool(eff_1132), "drone_flags": drone_flags}
