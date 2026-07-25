@@ -26,6 +26,15 @@ edition, hooks de mesure existants) est libre.
    - commit sur TA branche worktree : ton fix (code) + ta nouvelle entree
      `docs/rl/solving-playbook.md` (tu es le SEUL auteur de ce fichier : une entree par cas =
      symptome-type -> methode qui l'a craque -> outil/heuristique reutilisable ; cree-le au besoin) ;
+   - **REBASE AVANT D'OUVRIR LA PR** — `git fetch origin && git rebase origin/master`, tu RESOUS
+     toi-meme les conflits, puis tu **RE-JOUES tes tests cibles**. Ton worktree est fige a ton
+     commit de lancement, mais `master` avance pendant que tu travailles (mesure du 2026-07-25 :
+     4 PR mergees en ~2 h ; une PR est arrivee 6 commits en retard). Deux raisons : (a) un conflit
+     tranche par le MERGEUR est un arbitrage par celui qui en sait le MOINS — toi seul as la RE de
+     ton cas ; (b) un rebase change l'arbre, donc ce que tu avais valide AVANT n'est plus ce que tu
+     livres — un test qui tombe apres rebase est une VRAIE interaction avec du code merge
+     entre-temps, jamais un faux positif. Si un conflit te demande de DEVINER, ne force pas :
+     laisse-le et decris les deux cotes dans ton rapport.
    - `git push origin HEAD` (ta branche worktree) puis `gh pr create` (titre = le cas ; corps =
      cause racine + VAs + resume de validation avant/apres + la TECHNIQUE GENERALISABLE en clair) ;
    - reporte l'**URL de la PR** dans ton message final. **Filet** si `push`/`gh` echoue (creds/env) :

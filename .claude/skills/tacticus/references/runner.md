@@ -110,6 +110,16 @@ PAS un reducteur de coups). Les autres (`Water`/`Bridge` = LOS/mvt, `BrokenIce`,
 - **Coexistence par défaut** : un build ne touche jamais les runners frères ; il ne dispose que le
   runner enregistré dans SON `--state-file`. Cap dur `MAX_RUNNERS=10` → au cap le build **REFUSE**
   (dispose TES runners, jamais ceux des autres).
+- **⚠ UN `SKIPPED` N'EST PAS UN SUCCÈS.** Au cap saturé, le build échoue → `pytest.skip` → une passe
+  entière rend `sssssss`, des `s` qui *ressemblent* à du vert alors que **RIEN n'a été validé**
+  (mesuré le 2026-07-25 : 7/7 tests d'un agent skippés, cap 10/10 pris par un autre). **Après CHAQUE
+  passe pytest, lis le compte de skips ET leur raison** ; si elle contient `runner cap reached`, la
+  passe est NULLE — refais-la après avoir libéré des slots. Ne conclus JAMAIS « pas de régression »
+  sur une passe dont tu n'as pas lu les raisons de skip. (Depuis `f880be1`, `conftest.py` attend
+  qu'un slot se libère puis **échoue franchement** — mais un agent lancé sur une base antérieure,
+  ou un test qui fait son propre `rl_duel build`, garde l'ancien comportement.)
+- **Libère tes runners AU FIL DE L'EAU**, pas en fin de passe : les tenir tous jusqu'au teardown
+  affame les autres agents (c'était la cause du cap saturé ci-dessus).
 - **Dispose tes runners en fin de passe** (`disposeRunner({runnerId})` ; `listRunners` pour vérifier
   l'atelier vide). Exclusifs : traces globales (`scorer*`, `aiUtilityTrace*`…) + ops de session.
 

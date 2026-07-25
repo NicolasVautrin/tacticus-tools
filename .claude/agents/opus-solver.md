@@ -22,6 +22,15 @@ edition, hooks de mesure existants) est libre.
    essaye de le casser et il tient ».
 2. **LIVRER PAR PULL REQUEST** : tu ne touches JAMAIS `master` :
    - commit sur TA branche worktree : code + docs (case-doc a l'etat FINAL, backlog) ;
+   - **REBASE AVANT D'OUVRIR LA PR** — `git fetch origin && git rebase origin/master`, tu
+     RESOUS toi-meme les conflits, puis tu **RE-JOUES tes tests cibles**. Ton worktree est fige
+     a ton commit de lancement, mais `master` avance pendant que tu travailles (mesure du
+     2026-07-25 : 4 PR mergees en ~2 h ; une PR est arrivee 6 commits en retard). Deux raisons :
+     (a) un conflit tranche par le MERGEUR est un arbitrage par celui qui en sait le MOINS —
+     toi seul as la RE de ton cas ; (b) un rebase change l'arbre, donc ce que tu avais valide
+     AVANT n'est plus ce que tu livres — un test qui tombe apres rebase est une VRAIE
+     interaction avec du code merge entre-temps, jamais un faux positif. Si un conflit te
+     demande de DEVINER, ne force pas : laisse-le et decris les deux cotes dans ton rapport.
    - `git push origin HEAD` puis `gh pr create` (titre = le cas ; corps = verdicts par item
      + VAs + resume de validation) ; reporte l'**URL de la PR** dans ton message final.
      **Filet** si `push`/`gh` echoue (creds/env) : laisse TOUT committe sur ta branche +
