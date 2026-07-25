@@ -214,9 +214,28 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   harbinger, destroyer_hive) ; `PiercingRatio` de profil (40 Power, 55 HeavyRound, 30 Energy, 100
   DirectDamage, 1 Physical, 10 Las) ; constantes globales (`getStuckInChance == 30`,
   `firstAidRecovery == 35`, `parryHitReduction` via `base_cfg - 1` dans
-  `test_ability_hits_channel_live`) ; plage figée `30 <= hpPct <= 50` (hypersensory). **À NE PAS
-  confondre** avec les invariants STRUCTURELS (`len(spawned) == 1`, `distance == 1`, `hp == 0`) qui,
-  eux, sont légitimement littéraux : ils décrivent une forme, pas un réglage. Oracles disponibles :
-  `gameconfig.ability(id).constants/variables`, `gameconfig.trait(t).variables`,
-  `gameconfig.global_value(k)`, profils de dégât du gameconfig. `[opus]`, par lots de quelques
-  fichiers — l'exécution live domine le coût, pas l'édition.
+  `test_ability_hits_channel_live`) ; plage figée `30 <= hpPct <= 50` (hypersensory).
+
+  **LE CRITÈRE EST BINAIRE — quel oracle pour cette assertion ?**
+  - la valeur est **CALCULÉE** (le moteur la dérive par une formule : coups appliqués après
+    réductions, dégât résolu) → **l'oracle est le LIVE**. On interroge le moteur natif et on
+    confronte le port à SA réponse. Figer un nombre ici, c'est geler le résultat de la formule
+    qu'on prétend valider ;
+  - la valeur est **BRUTE** (constante de config lue telle quelle : `nrOfHits` d'une ability, ratio
+    de profil, variable de trait) → **l'oracle est la CONFIG** :
+    `gameconfig.ability(id).constants/variables`, `gameconfig.trait(t).variables`,
+    `gameconfig.global_value(k)`, profils de dégât.
+
+  Le **décompilé sert à TRANCHER** entre les deux (valeur prise telle quelle dans un `ConfigConst`
+  = brute ; formule = calculée) — pas à produire de la docstring. Deux pièges, un par branche :
+  côté **brut**, vérifier qu'on lit LA BONNE clé (des clés voisines partagent slot *et* valeur —
+  `parryHitReduction` / `camouflageHitReduction_1` / `diminutiveHitReduction` valent 1 et occupent
+  0x2c ; le moyen simple est de décaler la clé et d'exiger que le port suive) ; côté **calculé**,
+  vérifier que le setup DISCRIMINE (un plancher natif peut absorber la valeur — `min=Direct(1)`
+  saturait sur 3 coups et rendait un test incapable d'échouer).
+
+  **À NE PAS confondre** avec les invariants STRUCTURELS (`len(spawned) == 1`, `distance == 1`,
+  `hp == 0`) : ils décrivent une forme, pas un réglage, et restent légitimement littéraux. Test
+  d'appartenance : « un patch d'équilibrage peut-il changer ce nombre ? »
+
+  `[opus]`, par lots de quelques fichiers — l'exécution live domine le coût, pas l'édition.
