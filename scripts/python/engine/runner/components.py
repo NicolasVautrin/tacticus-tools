@@ -78,6 +78,36 @@ class OwnerComponent(Component):
         self.player = player
 
 
+class MachineComponent(Component):
+    """MACHINE OF WAR — `IdunBattle.Entities.Components.MachineComponent` (entité `EntityType.Machine`
+    = 6, créée par `AddMachineOperation.Execute @180e4b5e0`). Comme `UnitComponent`, dérive de
+    `BaseUnitComponent @180f96380` (d'où `VisualId`@0x20 valide sur les deux) ; son champ propre est
+    `Position` @0x78 = `MachineOfWarPosition` (enum None=0 / Top=1 / Bottom=2), le SLOT de déploiement
+    hors-plateau (le board doit l'offrir : `BoardConfiguration.HasMachineOfWarPosition @1810b39f0`).
+
+    C'est le DISCRIMINANT « cette entité est une MoW » : une MoW n'a **ni `PositionComponent` ni
+    `HealthComponent`** (mesuré via `dumpEntityComponents` sur l'entité Machine vivante) — elle n'est
+    pas sur la grille et n'a pas de PV. Ses plateformes (`EntityType.MachinePlatform` = 7) portent le
+    lien retour `MachinePlatformComponent.MachineId` (Nullable @+0x14 hasValue / @+0x18 value).
+
+    Le port n'a pas de type d'entité : `UnitComponent` porte l'identité (rôle `BaseUnitComponent`) et
+    CE composant marque la nature Machine + le slot."""
+    __slots__ = ("slot",)
+    SLOT_NONE = 0
+    SLOT_TOP = 1
+    SLOT_BOTTOM = 2
+
+    def __init__(self, slot: Optional[int] = None):
+        self.slot = slot
+
+
+def is_machine_of_war(entity) -> bool:
+    """True si l'entité est une MACHINE OF WAR (porte un `MachineComponent`). Mirror du test natif
+    de type d'entité (`EntityType.Machine` = 6) — le port n'ayant pas de champ `type` sur l'entité,
+    la PRÉSENCE du composant Machine joue ce rôle (le natif ne le pose que sur les Machines)."""
+    return entity is not None and entity.get_component(MachineComponent) is not None
+
+
 class PositionComponent(Component):
     """Position sur le board — `PositionComponent` @180fa6db0 (et `UnitFootComponent`
     @180fad890 : UnitId@0x10, TileId@0x14). Coordonnées hex (col,row)."""

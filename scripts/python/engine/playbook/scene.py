@@ -88,7 +88,7 @@ class Scene:
         les tables per-unité ne couvrent que les entités à `StatsComponent`."""
         from ..runner.components import (StatsComponent, OwnerComponent, PositionComponent,
                                          HealthComponent, UnitComponent, ShieldComponent,
-                                         EffectsOwnedComponent)
+                                         EffectsOwnedComponent, is_machine_of_war)
         ctx_by_id, armor_by_id, shield_by_id, mult_by_id, ablvl_by_id, vis_by_id = {}, {}, {}, {}, {}, {}
         hp_by_id, hpmax_by_id, pos_by_id, team_by_id = {}, {}, {}, {}
         defstat_by_id = {}
@@ -104,6 +104,13 @@ class Scene:
             ec = e.get_component(EffectsOwnedComponent)
             shc = e.get_component(ShieldComponent)
             if uc is None:
+                continue
+            # MACHINES OF WAR exclues : la Scene mirroir `decisionView.units`, qui est
+            # `EntityType.Unit`-only (le natif expose les MoW dans un canal SÉPARÉ `.mows`, et
+            # `aiPlaybookPredict` a son propre chemin de résolution de caster Machine, case-172).
+            # Depuis que `load_state` matérialise les MoW (débloqueur cast MoW), les faire entrer
+            # ici les traiterait comme des unités sans position -> face DÉCISION inchangée.
+            if is_machine_of_war(e):
                 continue
             vis = uc.visual_id if uc else None
             pos = (pc.col, pc.row) if pc is not None else None
