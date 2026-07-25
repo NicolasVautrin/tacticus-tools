@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from ....services.effect_bonus import (EffectBonus, for_addition, for_subtraction,
                                        for_percent_decrease, for_percent_increase,
                                        for_percent_subtraction_capped)
-from ..base import BaseEffect, SubEffectSpec, SAME_TURNS
+from ..base import BaseEffect, SubEffectSpec, SAME_TURNS, is_melee_attack
 from ..magnitude import ability_var, bc_effect_config, global_value, trait_var
 
 
@@ -512,7 +512,15 @@ class WaaaghExtraDamageEffect(BaseEffect):
 
     PAS de gate `is_prediction` (contrairement a SmashaEad #71) : le calque est `CrushingStrikeEffect`
     (meme couple `IsNormalAttack & IsMeleeAttack`), et la contribution est MESUREE PRESENTE dans la
-    preview native (face prediction) -- cf. GROUND TRUTH ci-dessus."""
+    preview native (face prediction) -- cf. GROUND TRUTH ci-dessus.
+
+    #106 (fork `IsMeleeAttack`) : le gate melee lit `is_melee_attack(is_ranged)` = `is_ranged is False`
+    (mirror `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack`) -- nature NON prouvee melee => AUCUNE
+    contribution, EXACTEMENT comme le canal COUPS jumeau 1101 (`att_ctx["is_melee"] is not True`). Les deux
+    canaux natifs portent la MEME condition (`IsNormalAttack & IsMeleeAttack & get_OwnerIsCaster`) : ils
+    doivent donc se taire ENSEMBLE. L'ancien `if is_ranged:` (None FALSY) appliquait le +extraDmg aux coups
+    de nature non threadee (vecteur `execute_normal_like` : splash Psyker RANGED, attaque on-appearance de
+    summon) -- corrige a la SOURCE (la facade threade desormais la nature) + ici (defaut fidele)."""
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: "bool | None" = None,
                                               has_moved: "bool | None" = None,
@@ -521,8 +529,8 @@ class WaaaghExtraDamageEffect(BaseEffect):
                                               is_normal_attack: "bool | None" = True,
                                               target_armor_reduced: "bool | None" = None,
                                               att_ctx=None) -> "EffectBonus | None":
-        if is_ranged:                        # IsMeleeAttack (IdunBattleLogic.Entities.DSLFactory$$IsMeleeAttack)
-            return None
+        if not is_melee_attack(is_ranged):   # IsMeleeAttack (IdunBattleLogic.Entities.DSLFactory$$IsMeleeAttack)
+            return None                      # #106 : nature NON prouvee melee -> gate FAUX (mirror BattleQuery)
         if is_normal_attack is False:        # IsNormalAttack (IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack)
             return None
         # ConfigVar(8=extraDmg, GetAbilityState(effet)) : NIVEAU du poseur, multiplier RESOLU = 100
