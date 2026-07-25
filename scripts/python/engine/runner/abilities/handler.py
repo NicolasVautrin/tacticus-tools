@@ -5,6 +5,11 @@
 `<Ability>.ExecuteBehaviour`). C'est le point d'entrée du wiring : `Runner.apply(ActiveAbilityMessage)`
 → l'engine DÉRIVE les effets/mutations de l'ability. Ability non portée → no-op (dégradation fidèle,
 comme un effet non porté = BaseEffect).
+
+Il mirror les GATES d'`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` qui precedent
+l'execution : le gate ACTEUR-MORT (#70) puis le GATE DE CIBLE (#115, `IsInvalidTarget` — filtre
+generique + regle dynamique par ability, cf. `targeting.py`). Un refus = no-op COMPLET : ni
+behaviour, ni `AddFlagsAfterAbilityExecution` (donc `actionConsumed = false` cote natif).
 """
 from __future__ import annotations
 
@@ -12,6 +17,7 @@ from typing import Optional
 
 from ..state import State
 from .base import ActiveAbility
+from .targeting import is_invalid_target
 from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
                    ScarabSummonAbility, GetEmRuntzAbility, CrushingClawsAbility, ValkyrieStrikeAbility,
                    PlasmaGrenadeAbility, StikkbombAbility, FragstormAbility, ScythingTalonsAbility,
@@ -151,6 +157,18 @@ class AbilityHandler:
             self.last["flags"] = self._add_flags_after_execution(msg)
             return                            # ability non portée → behaviour no-op (présent ≠ exécuté)
         ability = klass()
+        # #115 GATE DE CIBLE (mirror `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` :
+        # `if (IsInvalidTarget(caster, casterTiles, target)) return 0;`). Le natif sort ICI, en amont
+        # du 1er `AActiveAbility.Execute` de la behaviour ET d'`AddFlagsAfterAbilityExecution` -> le
+        # cast ne mute rien et ne consomme PAS l'activation (`actionConsumed=false`, cf. case-111).
+        # Le filtre + son point d'extension par ability vivent dans `targeting.py` ; une ability dont
+        # les `TARGETING_OPTIONS` n'ont pas ete RE-lues n'est PAS gatee (aucun refus invente).
+        reason = is_invalid_target(self.state, int(msg.caster_id), msg.target_id, ability)
+        if reason:
+            self.last = {"ability_type": msg.ability_type, "ported": True,
+                         "caster": msg.caster_id, "target": msg.target_id,
+                         "invalid_target": int(reason)}
+            return
         diag = ability.execute_behaviour(self.state, msg.caster_id, msg.target_id) or {}
         self.last = {"ability_type": msg.ability_type, "ported": True,
                      "caster": msg.caster_id, "target": msg.target_id, **diag}
